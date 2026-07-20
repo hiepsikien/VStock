@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -10,10 +10,14 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import type { RootStackParamList } from '../navigation/types';
+import * as WebBrowser from 'expo-web-browser';
 import type { ChartRange, Stock } from '../types';
-import { fetchHistory, fetchStockDetail } from '../api/client';
+import type { NewsItem } from '../types/news';
+import { fetchHistory, fetchStockDetail, fetchSymbolNews } from '../api/client';
+import { NewsRow } from '../components/NewsRow';
 import {
   formatChange,
   formatPercent,
@@ -23,6 +27,7 @@ import {
 } from '../data/stocks';
 import { PriceChart } from '../components/PriceChart';
 import { colors, spacing, typography } from '../theme';
+import { isMarketOpen, marketSessionLabel, REFRESH } from '../utils/marketSession';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Detail'>;
 
@@ -34,31 +39,111 @@ export function StockDetailScreen({ navigation, route }: Props) {
   const [rangePrices, setRangePrices] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [chartLoading, setChartLoading] = useState(false);
+  const [news, setNews] = useState<NewsItem[]>([]);
+  const [newsLoading, setNewsLoading] = useState(true);
+  const [live, setLive] = useState(isMarketOpen());
+
+  const rangeRef = useRef(range);
+  rangeRef.current = range;
+
+  const applyDetail = useCallback((detail: Stock) => {
+    setStock(detail);
+    if (rangeRef.current === '1D') {
+      const day = detail.history['1D']?.length ? detail.history['1D'] : detail.sparkline;
+      setRangePrices(day);
+    }
+  }, []);
+
+  const loadDetail = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true);
+      try {
+        const detail = await fetchStockDetail(symbol);
+        applyDetail(detail);
+      } catch {
+        if (!silent) {
+          const fallback = getFallbackStock(symbol);
+          if (fallback) {
+            setStock(fallback);
+            setRangePrices(fallback.history['1D']);
+          }
+        }
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [applyDetail, symbol],
+  );
+
+  useEffect(() => {
+    void loadDetail(false);
+  }, [loadDetail]);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      setLoading(true);
+    setNewsLoading(true);
+    void (async () => {
       try {
-        const detail = await fetchStockDetail(symbol);
-        if (!cancelled) {
-          setStock(detail);
-          setRangePrices(detail.history['1D']?.length ? detail.history['1D'] : detail.sparkline);
-        }
+        const items = await fetchSymbolNews(symbol, 8);
+        if (!cancelled) setNews(items);
       } catch {
-        const fallback = getFallbackStock(symbol);
-        if (!cancelled && fallback) {
-          setStock(fallback);
-          setRangePrices(fallback.history['1D']);
-        }
+        if (!cancelled) setNews([]);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setNewsLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [symbol]);
+
+  const openArticle = useCallback(async (item: NewsItem) => {
+    if (item.url) {
+      await WebBrowser.openBrowserAsync(item.url, {
+        presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
+        controlsColor: colors.accent,
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => setLive(isMarketOpen()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      const quoteTimer = setInterval(() => {
+        if (isMarketOpen()) void loadDetail(true);
+      }, REFRESH.quotePollMs);
+
+      const chartTimer = setInterval(() => {
+        if (!isMarketOpen() || rangeRef.current !== '1D') return;
+        void (async () => {
+          try {
+            const prices = await fetchHistory(symbol, '1D');
+            setRangePrices(prices);
+            setStock((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    sparkline: prices,
+                    history: { ...prev.history, '1D': prices },
+                  }
+                : prev,
+            );
+          } catch {
+            /* keep stale chart */
+          }
+        })();
+      }, REFRESH.chart1dPollMs);
+
+      return () => {
+        clearInterval(quoteTimer);
+        clearInterval(chartTimer);
+      };
+    }, [loadDetail, symbol]),
+  );
 
   const onRangeChange = useCallback(
     async (next: ChartRange) => {
@@ -132,7 +217,10 @@ export function StockDetailScreen({ navigation, route }: Props) {
           <Text style={styles.backChevron}>‹</Text>
           <Text style={styles.backLabel}>Watchlist</Text>
         </Pressable>
-        <Text style={styles.exchange}>{stock.exchange}</Text>
+        <Text style={styles.exchange}>
+          {stock.exchange}
+          {live ? ' · live' : ` · ${marketSessionLabel()}`}
+        </Text>
       </View>
 
       {loading ? (
@@ -188,6 +276,30 @@ export function StockDetailScreen({ navigation, route }: Props) {
                 <Text style={styles.statValue}>{item.value}</Text>
               </View>
             ))}
+          </View>
+
+          <View style={styles.newsSection}>
+            <Text style={styles.newsHeading}>Tin tức</Text>
+            {newsLoading ? (
+              <ActivityIndicator
+                style={styles.newsSpinner}
+                color={colors.textSecondary}
+              />
+            ) : news.length === 0 ? (
+              <Text style={styles.newsEmpty}>Chưa có tin cho mã này</Text>
+            ) : (
+              <View style={styles.newsCard}>
+                {news.map((item, index) => (
+                  <NewsRow
+                    key={item.id}
+                    item={item}
+                    compact
+                    isLast={index === news.length - 1}
+                    onPress={(n) => void openArticle(n)}
+                  />
+                ))}
+              </View>
+            )}
           </View>
         </ScrollView>
       )}
@@ -281,6 +393,29 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '500',
     fontVariant: ['tabular-nums'],
+  },
+  newsSection: {
+    marginTop: spacing.xxl,
+    marginHorizontal: spacing.lg,
+  },
+  newsHeading: {
+    ...typography.title,
+    fontSize: 20,
+    color: colors.text,
+    marginBottom: spacing.sm,
+  },
+  newsCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  newsSpinner: {
+    marginVertical: spacing.lg,
+  },
+  newsEmpty: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    paddingVertical: spacing.md,
   },
   missing: {
     color: colors.text,

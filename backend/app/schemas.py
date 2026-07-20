@@ -58,3 +58,37 @@ class HistoryResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     service: str = "vstock-api"
+
+
+class MarketStatusResponse(BaseModel):
+    open: bool
+    session: str
+    timezone: str = "Asia/Ho_Chi_Minh"
+    quoteCacheTtlSeconds: int = 15
+
+
+class SymbolInfo(BaseModel):
+    symbol: str
+    name: str
+    exchange: str
+
+
+class SymbolsResponse(BaseModel):
+    count: int
+    symbols: list[SymbolInfo]
+
+
+class NewsItem(BaseModel):
+    id: str
+    title: str
+    summary: str
+    source: str
+    publishedAt: str
+    url: str
+    imageUrl: str | None = None
+    symbols: list[str] = Field(default_factory=list)
+    category: str = "news"
+
+
+class NewsResponse(BaseModel):
+    items: list[NewsItem]

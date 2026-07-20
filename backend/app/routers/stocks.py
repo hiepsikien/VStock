@@ -8,12 +8,59 @@ from app.schemas import (
     DEFAULT_WATCHLIST,
     ChartRange,
     HistoryResponse,
+    MarketStatusResponse,
     StockDetail,
+    SymbolInfo,
+    SymbolsResponse,
     WatchlistItem,
 )
-from app.services import fundamentals, history, quotes
+from app.services import fundamentals, history, market_session, quotes, symbols as symbols_service
 
 router = APIRouter(prefix="/v1")
+
+
+@router.get("/market/status", response_model=MarketStatusResponse)
+async def market_status() -> MarketStatusResponse:
+    from app.services.cache import QUOTE_TTL
+
+    open_now = market_session.is_market_open()
+    return MarketStatusResponse(
+        open=open_now,
+        session=market_session.session_label(),
+        quoteCacheTtlSeconds=QUOTE_TTL,
+    )
+
+
+@router.get("/symbols", response_model=SymbolsResponse)
+async def list_symbols(
+    exchange: str | None = Query(
+        default=None,
+        description="Optional filter: HOSE or HNX",
+    ),
+) -> SymbolsResponse:
+    try:
+        rows = await symbols_service.fetch_all_symbols()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Symbol source unavailable: {exc}") from exc
+
+    if exchange:
+        ex = exchange.upper()
+        rows = [r for r in rows if r["exchange"] == ex]
+
+    items = [SymbolInfo(**r) for r in rows]
+    return SymbolsResponse(count=len(items), symbols=items)
+
+
+@router.get("/symbols/search", response_model=list[SymbolInfo])
+async def search_symbols(
+    q: str = Query(..., min_length=1, description="Symbol or company name"),
+    limit: int = Query(default=30, ge=1, le=100),
+) -> list[SymbolInfo]:
+    try:
+        rows = await symbols_service.search_symbols(q, limit=limit)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Symbol source unavailable: {exc}") from exc
+    return [SymbolInfo(**r) for r in rows]
 
 
 @router.get("/watchlist", response_model=list[WatchlistItem])

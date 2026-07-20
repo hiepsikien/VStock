@@ -1,4 +1,5 @@
 import type { ChartRange, Stock } from '../types';
+import type { NewsItem } from '../types/news';
 
 const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000').replace(
   /\/$/,
@@ -109,6 +110,38 @@ export async function fetchHistory(symbol: string, range: ChartRange): Promise<n
     `/v1/stocks/${encodeURIComponent(symbol)}/history?range=${range}`,
   );
   return data.prices;
+}
+
+export type MarketSymbol = {
+  symbol: string;
+  name: string;
+  exchange: string;
+};
+
+export async function fetchMarketSymbols(exchange?: 'HOSE' | 'HNX'): Promise<MarketSymbol[]> {
+  const qs = exchange ? `?exchange=${exchange}` : '';
+  const data = await apiGet<{ count: number; symbols: MarketSymbol[] }>(`/v1/symbols${qs}`);
+  return data.symbols;
+}
+
+export async function searchMarketSymbols(query: string, limit = 30): Promise<MarketSymbol[]> {
+  const q = query.trim();
+  if (!q) return [];
+  return apiGet<MarketSymbol[]>(
+    `/v1/symbols/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+  );
+}
+
+export async function fetchMarketNews(limit = 30): Promise<NewsItem[]> {
+  const data = await apiGet<{ items: NewsItem[] }>(`/v1/news/market?limit=${limit}`);
+  return data.items;
+}
+
+export async function fetchSymbolNews(symbol: string, limit = 15): Promise<NewsItem[]> {
+  const data = await apiGet<{ items: NewsItem[] }>(
+    `/v1/news/symbols/${encodeURIComponent(symbol)}?limit=${limit}`,
+  );
+  return data.items;
 }
 
 export function getApiUrl(): string {

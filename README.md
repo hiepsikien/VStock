@@ -29,11 +29,25 @@ npm start
 | Endpoint | Mô tả |
 |----------|--------|
 | `GET /health` | Healthcheck |
+| `GET /v1/symbols` | Toàn bộ mã HOSE + HNX (~700) |
+| `GET /v1/symbols/search?q=FPT` | Tìm mã / tên |
 | `GET /v1/watchlist?symbols=VNM,FPT` | Batch quotes + sparkline |
 | `GET /v1/stocks/{symbol}` | Quote + fundamentals |
 | `GET /v1/stocks/{symbol}/history?range=1D` | OHLCV closes |
 
-Nguồn: VPS (quotes), Entrade (history), VNDirect/SSI (+ KBS khi có) cho tên / vốn hóa / P/E.
+Nguồn: SSI/VNDirect (danh sách mã), VPS (quotes), Entrade (history), VNDirect/SSI (+ KBS khi có) cho tên / vốn hóa / P/E.
+
+## Làm mới dữ liệu
+
+| Thành phần | Chiến lược |
+|---|---|
+| Giá watchlist / detail | Poll **30s** khi màn hình đang mở + **trong phiên** (9:00–11:30, 13:00–14:45 T2–T6) |
+| Chart 1D (detail) | Refresh **5 phút** trong phiên |
+| Chart 1W+ | Cache **1 giờ** (fetch khi đổi range) |
+| Backend quote cache | **15 giây** |
+| Danh sách mã / fundamentals | **6–24 giờ** |
+
+Ngoài giờ giao dịch: không poll tự động; kéo xuống để refresh thủ công.
 
 ## Stack
 
