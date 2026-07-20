@@ -250,27 +250,46 @@ SQLite nằm trong Docker volume `vstock-data` — **không mất** khi rebuild 
 
 ## Backup SQLite
 
-Chạy trên VM, định kỳ (cron weekly):
+Script trong repo: [`scripts/backup-sqlite.sh`](../scripts/backup-sqlite.sh)  
+Cài cron: [`scripts/install-backup-cron.sh`](../scripts/install-backup-cron.sh)
+
+### Cài một lần trên VM
 
 ```bash
-mkdir -p ~/backups
 cd ~/VStock
-docker compose exec -T api python -c "
-from pathlib import Path
-import shutil, os
-src = Path(os.environ['VSTOCK_DB_PATH'])
-dest = Path('/tmp/vstock-backup.db')
-shutil.copy2(src, dest)
-print(dest)
-"
-docker cp $(docker compose ps -q api):/tmp/vstock-backup.db \
-  ~/backups/vstock-$(date +%Y%m%d).db
+git pull origin main
+chmod +x scripts/backup-sqlite.sh scripts/install-backup-cron.sh
+
+# Timezone VN (khuyến nghị — cron 03:00 = 3h sáng giờ VN)
+sudo timedatectl set-timezone Asia/Ho_Chi_Minh
+
+# Chạy backup thử ngay
+./scripts/backup-sqlite.sh
+ls -lh ~/backups/
+
+# Cài cron: mỗi Chủ nhật 03:00, giữ file ~14 ngày
+./scripts/install-backup-cron.sh
 ```
 
-Tùy chọn: upload lên **Google Cloud Storage**:
+Backup nằm tại `~/backups/vstock-YYYYMMDD-HHMMSS.db`, log: `~/backups/backup.log`.
+
+### Tùy chọn — upload lên Google Cloud Storage
 
 ```bash
-gsutil cp ~/backups/vstock-*.db gs://vstock-backups/
+# Tạo bucket một lần (đổi tên nếu trùng)
+gsutil mb -l asia-southeast1 gs://vstock-backups-$USER || true
+gsutil cp ~/backups/vstock-*.db gs://vstock-backups-$USER/
+```
+
+### Khôi phục từ backup
+
+```bash
+cd ~/VStock
+docker compose stop api
+# Thay FILE bằng path backup
+docker run --rm -v vstock_vstock-data:/data -v "$HOME/backups:/backups:ro" \
+  busybox cp /backups/FILE /data/vstock.db
+docker compose start api
 ```
 
 ---
