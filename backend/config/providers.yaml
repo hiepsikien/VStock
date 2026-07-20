@@ -1,0 +1,29 @@
+# Quote provider failover chain (Phase 1).
+# Lower priority number = tried first.
+
+quotes:
+  strategy: failover
+  interval_seconds: 15
+
+  providers:
+    - name: vps
+      priority: 1
+      type: realtime
+      batch: true
+
+    - name: ssi_iboard
+      priority: 2
+      type: realtime
+      batch: false
+
+    - name: entrade_stale
+      priority: 3
+      type: stale
+      batch: true
+      max_age_minutes: 1440
+
+    - name: kbs_stale
+      priority: 4
+      type: stale
+      batch: false
+      max_age_minutes: 1440
