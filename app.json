@@ -6,6 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
+    "scheme": "vstock",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.vstock.app"
@@ -24,6 +25,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "expo-dev-client",
       "expo-web-browser",
       "expo-background-task",
       [

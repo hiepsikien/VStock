@@ -9,6 +9,7 @@
     "babel-preset-expo": "~54.0.10",
     "expo": "^54.0.0",
     "expo-background-task": "~1.0.10",
+    "expo-dev-client": "~6.0.21",
     "expo-device": "~8.0.10",
     "expo-haptics": "~15.0.8",
     "expo-notifications": "~0.32.17",
@@ -29,9 +30,13 @@
   },
   "scripts": {
     "start": "expo start",
+    "start:dev": "expo start --dev-client",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "build:ios:dev": "eas build --platform ios --profile development",
+    "build:ios:sim": "eas build --platform ios --profile development-simulator",
+    "build:android:dev": "eas build --platform android --profile development"
   },
   "private": true
 }

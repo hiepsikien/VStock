@@ -62,6 +62,20 @@ docker compose up -d --build   # chạy trên VM / VPS
 
 Sau deploy, set `EXPO_PUBLIC_API_URL=https://your-api-url` trong `.env`.
 
+## Development build (alerts)
+
+Expo Go không đủ cho background alerts. Dùng EAS dev client:
+
+→ **[docs/EAS-DEV-BUILD.md](docs/EAS-DEV-BUILD.md)**
+
+```bash
+eas login && eas init
+npm run build:ios:dev          # iPhone thật (cần Apple Developer)
+# hoặc
+npm run build:ios:sim          # Simulator
+npm run start:dev
+```
+
 ## Stack
 
-Expo SDK 57 · React Native · React Navigation · FastAPI · httpx
+Expo SDK 54 · React Native · React Navigation · FastAPI · httpx · EAS Build

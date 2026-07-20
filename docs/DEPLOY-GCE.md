@@ -343,6 +343,7 @@ App .env:       EXPO_PUBLIC_API_URL=http://34.142.248.53:8000
 Deploy date:    2026-07-20
 Backup:         cron Chủ nhật 03:00 VN → ~/backups/ (scripts/backup-sqlite.sh)
 Firewall:       allow-vstock-api (TCP 8000) + HTTP/HTTPS tags
+EAS / alerts:   Config sẵn — chờ Apple Developer rồi làm theo docs/EAS-DEV-BUILD.md
 ```
 
 > IP ephemeral có thể đổi nếu stop/start VM — cập nhật lại dòng External IP / API URL / `.env` nếu đổi.
