@@ -3,6 +3,8 @@ export type NewsFilter =
   | 'stock_news'
   | 'macro_news'
   | 'company_news'
+  | 'commodity_news'
+  | 'real_estate_news'
   | 'disclosure';
 
 export function filterNewsItems(items: NewsItem[], filter: NewsFilter): NewsItem[] {
@@ -53,6 +55,8 @@ export function categoryLabel(category: string): string {
       return 'Doanh nghiệp';
     case 'commodity_news':
       return 'Hàng hóa';
+    case 'real_estate_news':
+      return 'Bất động sản';
     case 'disclosure':
       return 'Công bố';
     default:

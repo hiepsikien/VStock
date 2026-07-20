@@ -28,6 +28,33 @@ quotes:
       batch: false
       max_age_minutes: 1440
 
+news:
+  strategy: merge
+  ttl_seconds: 900
+
+  providers:
+    - name: vndirect
+      priority: 1
+      groups:
+        - stock_news
+        - macro_news
+        - company_news
+        - disclosure
+        - commodity_news
+        - real_estate_news
+
+    - name: vnexpress_rss
+      priority: 2
+      url: https://vnexpress.net/rss/kinh-doanh.rss
+      source: VnExpress
+      category: stock_news
+
+    - name: thanhnien_rss
+      priority: 3
+      url: https://thanhnien.vn/rss/kinh-te.rss
+      source: Thanh Niên
+      category: macro_news
+
 # Background ingestion (Phase 2).
 ingestion:
   quote_symbols:

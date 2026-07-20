@@ -9,6 +9,8 @@ const OPTIONS: { key: NewsFilter; label: string }[] = [
   { key: 'stock_news', label: 'Chứng khoán' },
   { key: 'macro_news', label: 'Kinh tế' },
   { key: 'company_news', label: 'Doanh nghiệp' },
+  { key: 'commodity_news', label: 'Hàng hóa' },
+  { key: 'real_estate_news', label: 'BĐS' },
   { key: 'disclosure', label: 'Công bố' },
 ];
 

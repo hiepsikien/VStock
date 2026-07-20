@@ -15,6 +15,35 @@ DEFAULT_QUOTE_SYMBOLS = [
     "VNM", "FPT", "VIC", "HPG", "MWG", "VCB", "TCB", "MBB", "GAS", "MSN",
 ]
 
+DEFAULT_NEWS_PROVIDERS: list[dict[str, Any]] = [
+    {
+        "name": "vndirect",
+        "priority": 1,
+        "groups": [
+            "stock_news",
+            "macro_news",
+            "company_news",
+            "disclosure",
+            "commodity_news",
+            "real_estate_news",
+        ],
+    },
+    {
+        "name": "vnexpress_rss",
+        "priority": 2,
+        "url": "https://vnexpress.net/rss/kinh-doanh.rss",
+        "source": "VnExpress",
+        "category": "stock_news",
+    },
+    {
+        "name": "thanhnien_rss",
+        "priority": 3,
+        "url": "https://thanhnien.vn/rss/kinh-te.rss",
+        "source": "Thanh Niên",
+        "category": "macro_news",
+    },
+]
+
 
 @dataclass(frozen=True)
 class IngestionSettings:
@@ -40,6 +69,21 @@ def _load_yaml() -> dict[str, Any]:
 
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return raw if isinstance(raw, dict) else {}
+
+
+def load_news_providers() -> list[dict[str, Any]]:
+    raw = _load_yaml()
+    providers = raw.get("news", {}).get("providers")
+    if not isinstance(providers, list) or not providers:
+        return DEFAULT_NEWS_PROVIDERS
+
+    cleaned: list[dict[str, Any]] = []
+    for item in providers:
+        if not isinstance(item, dict) or not item.get("name"):
+            continue
+        cleaned.append(item)
+
+    return cleaned or DEFAULT_NEWS_PROVIDERS
 
 
 def load_quote_providers() -> list[dict[str, Any]]:
