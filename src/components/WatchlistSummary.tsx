@@ -1,6 +1,16 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { formatChange, formatPercent } from '../data/stocks';
 import { colors, spacing, typography } from '../theme';
+
+export type IndexQuote = {
+  symbol: string;
+  name: string;
+  exchange: string;
+  price: number;
+  change: number;
+  changePercent: number;
+};
 
 type Props = {
   total: number;
@@ -11,6 +21,7 @@ type Props = {
   live: boolean;
   sessionLabel: string;
   offline?: boolean;
+  indices?: IndexQuote[];
 };
 
 export function WatchlistSummary({
@@ -22,6 +33,7 @@ export function WatchlistSummary({
   live,
   sessionLabel,
   offline,
+  indices = [],
 }: Props) {
   const upRatio = total > 0 ? gainers / total : 0;
   const downRatio = total > 0 ? losers / total : 0;
@@ -65,6 +77,24 @@ export function WatchlistSummary({
           />
         ) : null}
       </View>
+
+      {indices.length > 0 ? (
+        <View style={styles.indicesRow}>
+          {indices.map((idx) => {
+            const up = idx.changePercent >= 0;
+            const tint = up ? colors.positive : colors.negative;
+            return (
+              <View key={idx.symbol} style={styles.indexCard}>
+                <Text style={styles.indexName}>{idx.name}</Text>
+                <Text style={styles.indexPrice}>{idx.price.toFixed(2)}</Text>
+                <Text style={[styles.indexChange, { color: tint }]}>
+                  {formatChange(idx.change)} ({formatPercent(idx.changePercent)})
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -152,5 +182,35 @@ const styles = StyleSheet.create({
   },
   barSegment: {
     height: '100%',
+  },
+  indicesRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  indexCard: {
+    flex: 1,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 10,
+    padding: spacing.sm,
+  },
+  indexName: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+  },
+  indexPrice: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.text,
+    marginTop: 4,
+    fontVariant: ['tabular-nums'],
+  },
+  indexChange: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+    fontVariant: ['tabular-nums'],
   },
 });

@@ -52,15 +52,17 @@ async def fetch_market_news(limit: int = 30) -> list[dict]:
     if cached is not None:
         return cached
 
-    per_group = max(limit // 2, 15)
+    per_group = max(limit // 4, 8)
     async with httpx.AsyncClient(timeout=20.0, headers=BROWSER_HEADERS) as client:
-        stock_rows, macro_rows = await asyncio.gather(
+        stock_rows, macro_rows, company_rows, disclosure_rows = await asyncio.gather(
             _fetch_query(client, "newsGroup:stock_news", per_group),
             _fetch_query(client, "newsGroup:macro_news", per_group),
+            _fetch_query(client, "newsGroup:company_news", per_group),
+            _fetch_query(client, "newsGroup:disclosure", min(per_group, 10)),
         )
 
     merged: dict[str, dict] = {}
-    for item in stock_rows + macro_rows:
+    for item in stock_rows + macro_rows + company_rows + disclosure_rows:
         merged[item["id"]] = item
 
     ordered = sorted(merged.values(), key=lambda x: x["publishedAt"], reverse=True)[:limit]

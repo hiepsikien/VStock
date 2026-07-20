@@ -8,13 +8,15 @@ from app.schemas import (
     DEFAULT_WATCHLIST,
     ChartRange,
     HistoryResponse,
+    IndicesResponse,
+    IndexQuote,
     MarketStatusResponse,
     StockDetail,
     SymbolInfo,
     SymbolsResponse,
     WatchlistItem,
 )
-from app.services import fundamentals, history, market_session, quotes, symbols as symbols_service
+from app.services import fundamentals, history, indices, market_session, quotes, symbols as symbols_service
 
 router = APIRouter(prefix="/v1")
 
@@ -63,6 +65,15 @@ async def search_symbols(
     return [SymbolInfo(**r) for r in rows]
 
 
+@router.get("/indices", response_model=IndicesResponse)
+async def get_market_indices() -> IndicesResponse:
+    try:
+        rows = await indices.fetch_market_indices()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Index source unavailable: {exc}") from exc
+    return IndicesResponse(items=[IndexQuote(**r) for r in rows])
+
+
 @router.get("/watchlist", response_model=list[WatchlistItem])
 async def get_watchlist(
     symbols: str | None = Query(
@@ -72,11 +83,11 @@ async def get_watchlist(
 ) -> list[WatchlistItem]:
     symbol_list = (
         [s.strip().upper() for s in symbols.split(",") if s.strip()]
-        if symbols
+        if symbols is not None
         else list(DEFAULT_WATCHLIST)
     )
     if not symbol_list:
-        symbol_list = list(DEFAULT_WATCHLIST)
+        return []
 
     try:
         quote_map = await quotes.fetch_quotes(symbol_list)

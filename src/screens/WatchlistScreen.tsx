@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Pressable,
   RefreshControl,
   SectionList,
@@ -17,25 +16,39 @@ import * as Haptics from 'expo-haptics';
 import type { RootStackParamList } from '../navigation/types';
 import {
   DEFAULT_SYMBOLS,
+  fetchMarketIndices,
   fetchWatchlist,
   loadMarketNews,
   searchMarketSymbols,
   type MarketSymbol,
 } from '../api/client';
 import { useMarketPolling } from '../hooks/useMarketPolling';
+import { usePriceAlerts } from '../hooks/usePriceAlerts';
 import { FALLBACK_WATCHLIST } from '../data/stocks';
 import {
   addWatchlistSymbol,
-  loadWatchlistSymbols,
+  createWatchlist,
+  getActiveWatchlist,
+  loadWatchlistsState,
   removeWatchlistSymbol,
+  setActiveWatchlist,
+  togglePinSymbol,
+  type WatchlistsState,
 } from '../storage/watchlist';
+import { upsertPriceAlert } from '../storage/alerts';
+import { loadRecentSymbols } from '../storage/recent';
 import type { Stock } from '../types';
 import type { NewsItem } from '../types/news';
+import { AlertSheet } from '../components/AlertSheet';
 import { NewsRow } from '../components/NewsRow';
+import { NewsRowSkeleton, StockRowSkeleton, SummarySkeleton } from '../components/Skeleton';
+import { RecentSymbolsRow } from '../components/RecentSymbolsRow';
 import { SearchResultRow } from '../components/SearchResultRow';
 import { SortChips } from '../components/SortChips';
 import { StockRow } from '../components/StockRow';
-import { WatchlistSummary } from '../components/WatchlistSummary';
+import { SwipeableStockRow } from '../components/SwipeableStockRow';
+import { WatchlistPicker } from '../components/WatchlistPicker';
+import { WatchlistSummary, type IndexQuote } from '../components/WatchlistSummary';
 import { colors, spacing, typography } from '../theme';
 import { isMarketOpen, marketSessionLabel, REFRESH } from '../utils/marketSession';
 import {
@@ -51,8 +64,12 @@ const NEWS_PREVIEW_COUNT = 5;
 export function WatchlistScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
+  const [watchlistsState, setWatchlistsState] = useState<WatchlistsState | null>(null);
   const [symbolList, setSymbolList] = useState<string[]>(DEFAULT_SYMBOLS);
+  const [pinnedSymbols, setPinnedSymbols] = useState<string[]>([]);
   const [stocks, setStocks] = useState<Stock[]>(FALLBACK_WATCHLIST);
+  const [indices, setIndices] = useState<IndexQuote[]>([]);
+  const [recentSymbols, setRecentSymbols] = useState<string[]>([]);
   const [searchHits, setSearchHits] = useState<MarketSymbol[]>([]);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
@@ -64,10 +81,19 @@ export function WatchlistScreen({ navigation }: Props) {
   const [addMode, setAddMode] = useState(false);
   const [newsPreview, setNewsPreview] = useState<NewsItem[]>([]);
   const [newsLoading, setNewsLoading] = useState(false);
+  const [alertStock, setAlertStock] = useState<Stock | null>(null);
   const searchSeq = useRef(0);
   const searchRef = useRef<TextInput>(null);
   const symbolListRef = useRef(symbolList);
   symbolListRef.current = symbolList;
+
+  const applyWatchlistState = useCallback((state: WatchlistsState) => {
+    setWatchlistsState(state);
+    const active = getActiveWatchlist(state);
+    setSymbolList(active.symbols);
+    setPinnedSymbols(active.pinnedSymbols);
+    symbolListRef.current = active.symbols;
+  }, []);
 
   const loadNewsPreview = useCallback(async (refresh = false) => {
     if (!refresh) setNewsLoading(true);
@@ -79,6 +105,15 @@ export function WatchlistScreen({ navigation }: Props) {
       },
     });
     setNewsLoading(false);
+  }, []);
+
+  const loadIndices = useCallback(async () => {
+    try {
+      const rows = await fetchMarketIndices();
+      setIndices(rows);
+    } catch {
+      setIndices([]);
+    }
   }, []);
 
   const loadQuotes = useCallback(
@@ -93,15 +128,24 @@ export function WatchlistScreen({ navigation }: Props) {
       else if (!silent) setLoading(true);
 
       try {
+        if (symbols.length === 0) {
+          setStocks([]);
+          setUsingFallback(false);
+          return;
+        }
         const data = await fetchWatchlist(symbols);
         setStocks(data);
         setUsingFallback(false);
       } catch {
         if (!silent) {
-          const fallback = FALLBACK_WATCHLIST.filter((s) =>
-            symbols.includes(s.symbol),
-          );
-          setStocks(fallback.length ? fallback : FALLBACK_WATCHLIST);
+          if (symbols.length === 0) {
+            setStocks([]);
+          } else {
+            const fallback = FALLBACK_WATCHLIST.filter((s) =>
+              symbols.includes(s.symbol),
+            );
+            setStocks(fallback.length ? fallback : FALLBACK_WATCHLIST);
+          }
           setUsingFallback(true);
         }
       } finally {
@@ -114,7 +158,8 @@ export function WatchlistScreen({ navigation }: Props) {
 
   const silentRefresh = useCallback(() => {
     void loadQuotes(symbolListRef.current, { silent: true });
-  }, [loadQuotes]);
+    void loadIndices();
+  }, [loadQuotes, loadIndices]);
 
   useEffect(() => {
     const id = setInterval(() => setLive(isMarketOpen()), 60_000);
@@ -123,12 +168,16 @@ export function WatchlistScreen({ navigation }: Props) {
 
   useEffect(() => {
     (async () => {
-      const saved = await loadWatchlistSymbols();
-      setSymbolList(saved);
-      await loadQuotes(saved);
+      const state = await loadWatchlistsState();
+      applyWatchlistState(state);
+      const active = getActiveWatchlist(state);
+      await loadQuotes(active.symbols);
       void loadNewsPreview();
+      void loadIndices();
+      const recent = await loadRecentSymbols();
+      setRecentSymbols(recent);
     })();
-  }, [loadQuotes, loadNewsPreview]);
+  }, [applyWatchlistState, loadQuotes, loadNewsPreview, loadIndices]);
 
   useEffect(() => {
     if (!addMode) {
@@ -163,6 +212,7 @@ export function WatchlistScreen({ navigation }: Props) {
   }, [query, addMode]);
 
   const inSearchMode = addMode;
+  const pinnedSet = useMemo(() => new Set(pinnedSymbols), [pinnedSymbols]);
 
   useMarketPolling(
     silentRefresh,
@@ -171,21 +221,34 @@ export function WatchlistScreen({ navigation }: Props) {
     false,
   );
 
+  usePriceAlerts(stocks, !inSearchMode && !loading);
+
   const watchlistSet = useMemo(() => new Set(symbolList), [symbolList]);
   const stats = useMemo(() => watchlistStats(stocks), [stocks]);
 
   const sections = useMemo(() => {
     const q = query.trim().toLowerCase();
     let list = stocks;
-    if (q) {
+    if (q && !addMode) {
       list = stocks.filter(
         (s) =>
           s.symbol.toLowerCase().includes(q) ||
           s.name.toLowerCase().includes(q),
       );
     }
-    return buildWatchlistSections(list, sort);
-  }, [query, stocks, sort]);
+    return buildWatchlistSections(list, sort, pinnedSymbols);
+  }, [addMode, query, stocks, sort, pinnedSymbols]);
+
+  const recentItems = useMemo(
+    () =>
+      recentSymbols.map((sym) => {
+        const s = stocks.find((x) => x.symbol === sym);
+        return { symbol: sym, changePercent: s?.changePercent };
+      }),
+    [recentSymbols, stocks],
+  );
+
+  const activeList = watchlistsState ? getActiveWatchlist(watchlistsState) : null;
 
   const onPressStock = useCallback(
     (stock: Stock) => {
@@ -210,7 +273,8 @@ export function WatchlistScreen({ navigation }: Props) {
   const onRefresh = useCallback(() => {
     void loadQuotes(symbolList, { refresh: true });
     void loadNewsPreview(true);
-  }, [loadQuotes, loadNewsPreview, symbolList]);
+    void loadIndices();
+  }, [loadQuotes, loadNewsPreview, loadIndices, symbolList]);
 
   const onToggleSymbol = useCallback(
     async (hit: MarketSymbol) => {
@@ -219,27 +283,61 @@ export function WatchlistScreen({ navigation }: Props) {
       const next = watchlistSet.has(sym)
         ? await removeWatchlistSymbol(sym)
         : await addWatchlistSymbol(sym);
-      setSymbolList(next);
-      await loadQuotes(next);
+      applyWatchlistState(next);
+      await loadQuotes(getActiveWatchlist(next).symbols);
     },
-    [watchlistSet, loadQuotes],
+    [applyWatchlistState, loadQuotes, watchlistSet],
   );
 
   const onRemove = useCallback(
     async (stock: Stock) => {
       const next = await removeWatchlistSymbol(stock.symbol);
-      setSymbolList(next);
-      await loadQuotes(next);
-      if (next.length === 0) setEditing(false);
+      applyWatchlistState(next);
+      await loadQuotes(getActiveWatchlist(next).symbols);
+      if (getActiveWatchlist(next).symbols.length === 0) setEditing(false);
     },
-    [loadQuotes],
+    [applyWatchlistState, loadQuotes],
   );
+
+  const onPin = useCallback(
+    async (stock: Stock) => {
+      const next = await togglePinSymbol(stock.symbol);
+      applyWatchlistState(next);
+    },
+    [applyWatchlistState],
+  );
+
+  const onSaveAlert = useCallback(async (condition: 'above' | 'below', price: number) => {
+    if (!alertStock) return;
+    await upsertPriceAlert({
+      symbol: alertStock.symbol,
+      condition,
+      price,
+      enabled: true,
+    });
+  }, [alertStock]);
+
+  const onSelectWatchlist = useCallback(
+    async (id: string) => {
+      const next = await setActiveWatchlist(id);
+      applyWatchlistState(next);
+      await loadQuotes(getActiveWatchlist(next).symbols);
+    },
+    [applyWatchlistState, loadQuotes],
+  );
+
+  const onCreateWatchlist = useCallback(async () => {
+    const count = watchlistsState?.lists.length ?? 1;
+    const next = await createWatchlist(`Danh sách ${count + 1}`);
+    applyWatchlistState(next);
+    await loadQuotes(getActiveWatchlist(next).symbols);
+  }, [applyWatchlistState, loadQuotes, watchlistsState?.lists.length]);
 
   const listHeader = (
     <>
       <View style={styles.header}>
         <View style={styles.headerText}>
-          <Text style={styles.title}>Theo dõi</Text>
+          <Text style={styles.title}>{activeList?.name ?? 'Theo dõi'}</Text>
           <Text style={styles.subtitle}>HOSE · HNX</Text>
         </View>
         {!inSearchMode ? (
@@ -255,16 +353,37 @@ export function WatchlistScreen({ navigation }: Props) {
         ) : null}
       </View>
 
+      {!inSearchMode && watchlistsState ? (
+        <WatchlistPicker
+          lists={watchlistsState.lists}
+          activeId={watchlistsState.activeId}
+          onSelect={(id) => void onSelectWatchlist(id)}
+          onCreate={() => void onCreateWatchlist()}
+        />
+      ) : null}
+
       {!inSearchMode ? (
-        <WatchlistSummary
-          total={stats.total}
-          gainers={stats.gainers}
-          losers={stats.losers}
-          flat={stats.flat}
-          avgChange={stats.avgChange}
-          live={live}
-          sessionLabel={marketSessionLabel()}
-          offline={usingFallback}
+        loading && !refreshing ? (
+          <SummarySkeleton />
+        ) : (
+          <WatchlistSummary
+            total={stats.total}
+            gainers={stats.gainers}
+            losers={stats.losers}
+            flat={stats.flat}
+            avgChange={stats.avgChange}
+            live={live}
+            sessionLabel={marketSessionLabel()}
+            offline={usingFallback}
+            indices={indices}
+          />
+        )
+      ) : null}
+
+      {!inSearchMode ? (
+        <RecentSymbolsRow
+          items={recentItems}
+          onPress={(sym) => navigation.navigate('Detail', { symbol: sym })}
         />
       ) : null}
 
@@ -330,10 +449,11 @@ export function WatchlistScreen({ navigation }: Props) {
         </Pressable>
       </View>
       {newsLoading && newsPreview.length === 0 ? (
-        <ActivityIndicator
-          style={styles.newsSpinner}
-          color={colors.textSecondary}
-        />
+        <View style={styles.newsCard}>
+          {[1, 2, 3].map((i) => (
+            <NewsRowSkeleton key={i} />
+          ))}
+        </View>
       ) : newsPreview.length === 0 ? (
         <Text style={styles.newsEmpty}>Chưa tải được tin tức</Text>
       ) : (
@@ -352,15 +472,65 @@ export function WatchlistScreen({ navigation }: Props) {
     </View>
   ) : null;
 
+  const renderStockRow = (item: Stock, isFirst: boolean, isLast: boolean) => {
+    const wrapStyle = [
+      styles.groupedRow,
+      isFirst && styles.groupTop,
+      isLast && styles.groupBottom,
+    ];
+
+    if (editing) {
+      return (
+        <View style={wrapStyle}>
+          <StockRow
+            stock={item}
+            onPress={onPressStock}
+            editing
+            onRemove={() => void onRemove(item)}
+            pinned={pinnedSet.has(item.symbol)}
+            isLast={isLast}
+          />
+        </View>
+      );
+    }
+
+    return (
+      <View style={[wrapStyle, { padding: 0, overflow: 'hidden' }]}>
+        <SwipeableStockRow
+          stock={item}
+          pinned={pinnedSet.has(item.symbol)}
+          onPress={onPressStock}
+          onPin={() => void onPin(item)}
+          onAlert={() => setAlertStock(item)}
+          onRemove={() => void onRemove(item)}
+          isLast={isLast}
+        />
+      </View>
+    );
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style="light" />
 
       {loading && !refreshing && !inSearchMode ? (
-        <View style={styles.loadingWrap}>
-          {listHeader}
-          <ActivityIndicator style={styles.loading} color={colors.positive} />
-        </View>
+        <SectionList
+          sections={[{ key: 'sk', title: '', data: [] as Stock[] }]}
+          ListHeaderComponent={listHeader}
+          ListFooterComponent={
+            <>
+              <View style={styles.skeletonCard}>
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <StockRowSkeleton key={i} />
+                ))}
+              </View>
+              {newsFooter}
+            </>
+          }
+          renderItem={() => null}
+          renderSectionHeader={() => null}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+        />
       ) : inSearchMode ? (
         <SectionList
           sections={[{ key: 'search', title: '', data: searchHits }]}
@@ -413,28 +583,9 @@ export function WatchlistScreen({ navigation }: Props) {
               <Text style={styles.sectionTitleList}>{title}</Text>
             ) : null
           }
-          renderItem={({ item, index, section }) => {
-            const isFirst = index === 0;
-            const isLast = index === section.data.length - 1;
-            return (
-              <View
-                style={[
-                  styles.groupedRow,
-                  isFirst && styles.groupTop,
-                  isLast && styles.groupBottom,
-                ]}
-              >
-                <StockRow
-                  stock={item}
-                  onPress={onPressStock}
-                  onLongPress={editing ? undefined : () => void onRemove(item)}
-                  editing={editing}
-                  onRemove={() => void onRemove(item)}
-                  isLast={isLast}
-                />
-              </View>
-            );
-          }}
+          renderItem={({ item, index, section }) =>
+            renderStockRow(item, index === 0, index === section.data.length - 1)
+          }
           SectionSeparatorComponent={() => <View style={styles.sectionGap} />}
         />
       )}
@@ -452,6 +603,14 @@ export function WatchlistScreen({ navigation }: Props) {
           <Text style={styles.fabText}>+</Text>
         </Pressable>
       ) : null}
+
+      <AlertSheet
+        visible={alertStock != null}
+        symbol={alertStock?.symbol ?? ''}
+        currentPrice={alertStock?.price ?? 0}
+        onClose={() => setAlertStock(null)}
+        onSave={(condition, price) => void onSaveAlert(condition, price)}
+      />
     </View>
   );
 }
@@ -548,9 +707,6 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     overflow: 'hidden',
   },
-  newsSpinner: {
-    marginVertical: spacing.lg,
-  },
   newsEmpty: {
     color: colors.textSecondary,
     fontSize: 15,
@@ -571,6 +727,13 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.lg,
     backgroundColor: colors.surface,
     overflow: 'hidden',
+  },
+  skeletonCard: {
+    marginHorizontal: spacing.lg,
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    overflow: 'hidden',
+    marginTop: spacing.sm,
   },
   groupTop: {
     borderTopLeftRadius: 14,
@@ -602,12 +765,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 15,
     lineHeight: 22,
-  },
-  loadingWrap: {
-    flex: 1,
-  },
-  loading: {
-    marginTop: 48,
   },
   fab: {
     position: 'absolute',

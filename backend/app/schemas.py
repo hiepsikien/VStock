@@ -92,3 +92,16 @@ class NewsItem(BaseModel):
 
 class NewsResponse(BaseModel):
     items: list[NewsItem]
+
+
+class IndexQuote(BaseModel):
+    symbol: str
+    name: str
+    exchange: str
+    price: float
+    change: float
+    changePercent: float
+
+
+class IndicesResponse(BaseModel):
+    items: list[IndexQuote]

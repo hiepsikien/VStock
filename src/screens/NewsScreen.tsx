@@ -1,6 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -15,8 +14,11 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as Haptics from 'expo-haptics';
 import type { RootStackParamList } from '../navigation/types';
 import { loadMarketNews } from '../api/client';
+import { NewsFilterChips } from '../components/NewsFilterChips';
 import { NewsRow } from '../components/NewsRow';
-import type { NewsItem } from '../types/news';
+import { NewsRowSkeleton } from '../components/Skeleton';
+import type { NewsFilter, NewsItem } from '../types/news';
+import { filterNewsItems } from '../types/news';
 import { colors, spacing, typography } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'News'>;
@@ -24,14 +26,17 @@ type Props = NativeStackScreenProps<RootStackParamList, 'News'>;
 export function NewsScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const [items, setItems] = useState<NewsItem[]>([]);
+  const [filter, setFilter] = useState<NewsFilter>('all');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  const filtered = useMemo(() => filterNewsItems(items, filter), [items, filter]);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     else if (items.length === 0) setLoading(true);
 
-    await loadMarketNews(30, {
+    await loadMarketNews(40, {
       refresh: isRefresh,
       onData: (data, fromCache) => {
         setItems(data);
@@ -83,39 +88,45 @@ export function NewsScreen({ navigation }: Props) {
         <Text style={styles.subtitle}>Chứng khoán · kinh tế Việt Nam</Text>
       </View>
 
-      {loading && !refreshing ? (
-        <ActivityIndicator style={styles.loading} color={colors.positive} />
-      ) : (
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={[
-            styles.listContent,
-            { paddingBottom: insets.bottom + 24 },
-          ]}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => void load(true)}
-              tintColor={colors.positive}
-            />
-          }
-        >
-          {items.length === 0 ? (
-            <Text style={styles.empty}>Chưa tải được tin tức</Text>
-          ) : (
-            <View style={styles.card}>
-              {items.map((item, index) => (
-                <NewsRow
-                  key={item.id}
-                  item={item}
-                  onPress={(n) => void openArticle(n)}
-                  isLast={index === items.length - 1}
-                />
-              ))}
-            </View>
-          )}
-        </ScrollView>
-      )}
+      <NewsFilterChips value={filter} onChange={setFilter} />
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingBottom: insets.bottom + 24 },
+        ]}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void load(true)}
+            tintColor={colors.positive}
+          />
+        }
+      >
+        {loading && !refreshing ? (
+          <View style={styles.card}>
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <NewsRowSkeleton key={i} />
+            ))}
+          </View>
+        ) : filtered.length === 0 ? (
+          <Text style={styles.empty}>
+            {items.length === 0 ? 'Chưa tải được tin tức' : 'Không có tin trong nhóm này'}
+          </Text>
+        ) : (
+          <View style={styles.card}>
+            {filtered.map((item, index) => (
+              <NewsRow
+                key={item.id}
+                item={item}
+                onPress={(n) => void openArticle(n)}
+                isLast={index === filtered.length - 1}
+              />
+            ))}
+          </View>
+        )}
+      </ScrollView>
     </View>
   );
 }
@@ -148,7 +159,7 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
+    paddingBottom: spacing.sm,
   },
   title: {
     ...typography.largeTitle,
@@ -168,13 +179,11 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     overflow: 'hidden',
   },
-  loading: {
-    marginTop: 48,
-  },
   empty: {
     textAlign: 'center',
     color: colors.textSecondary,
     marginTop: 48,
     fontSize: 15,
+    paddingHorizontal: spacing.lg,
   },
 });

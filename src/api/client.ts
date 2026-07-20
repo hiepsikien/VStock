@@ -1,6 +1,7 @@
 import type { ChartRange, Stock } from '../types';
 import type { NewsItem } from '../types/news';
 import { readNewsCache, readNewsMemory, writeNewsCache } from '../storage/newsCache';
+import type { IndexQuote } from '../components/WatchlistSummary';
 
 const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000').replace(
   /\/$/,
@@ -83,6 +84,8 @@ function toStock(dto: StockDetailDto, history?: Partial<Record<ChartRange, numbe
 }
 
 export async function fetchWatchlist(symbols: string[] = DEFAULT_SYMBOLS): Promise<Stock[]> {
+  if (symbols.length === 0) return [];
+
   const qs = symbols.join(',');
   const rows = await apiGet<WatchlistDto[]>(`/v1/watchlist?symbols=${encodeURIComponent(qs)}`);
   return rows.map((row) =>
@@ -254,4 +257,9 @@ export async function loadSymbolNews(
 
 export function getApiUrl(): string {
   return API_URL;
+}
+
+export async function fetchMarketIndices(): Promise<IndexQuote[]> {
+  const data = await apiGet<{ items: IndexQuote[] }>('/v1/indices');
+  return data.items;
 }

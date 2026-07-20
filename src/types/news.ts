@@ -1,3 +1,15 @@
+export type NewsFilter =
+  | 'all'
+  | 'stock_news'
+  | 'macro_news'
+  | 'company_news'
+  | 'disclosure';
+
+export function filterNewsItems(items: NewsItem[], filter: NewsFilter): NewsItem[] {
+  if (filter === 'all') return items;
+  return items.filter((item) => item.category === filter);
+}
+
 export type NewsItem = {
   id: string;
   title: string;

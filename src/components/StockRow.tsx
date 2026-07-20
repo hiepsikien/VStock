@@ -12,6 +12,7 @@ type Props = {
   onLongPress?: (stock: Stock) => void;
   editing?: boolean;
   onRemove?: (stock: Stock) => void;
+  pinned?: boolean;
   isLast?: boolean;
 };
 
@@ -21,6 +22,7 @@ export function StockRow({
   onLongPress,
   editing = false,
   onRemove,
+  pinned = false,
   isLast = false,
 }: Props) {
   const isUp = stock.changePercent >= 0;
@@ -65,6 +67,7 @@ export function StockRow({
       <View style={[styles.main, editing && styles.mainEditing]}>
         <View style={styles.left}>
           <View style={styles.symbolRow}>
+            {pinned ? <View style={styles.pinDot} /> : null}
             <Text style={styles.symbol}>{stock.symbol}</Text>
             <View style={styles.exchangePill}>
               <Text style={styles.exchangeText}>{stock.exchange}</Text>
@@ -151,6 +154,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+  },
+  pinDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.positive,
   },
   symbol: {
     ...typography.symbol,

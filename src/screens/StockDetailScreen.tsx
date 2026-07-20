@@ -17,7 +17,9 @@ import * as WebBrowser from 'expo-web-browser';
 import type { ChartRange, Stock } from '../types';
 import type { NewsItem } from '../types/news';
 import { fetchHistory, fetchStockDetail, loadSymbolNews } from '../api/client';
+import { AlertSheet } from '../components/AlertSheet';
 import { NewsRow } from '../components/NewsRow';
+import { NewsRowSkeleton } from '../components/Skeleton';
 import {
   formatChange,
   formatPercent,
@@ -28,6 +30,8 @@ import {
 import { PriceChart } from '../components/PriceChart';
 import { colors, spacing, typography } from '../theme';
 import { isMarketOpen, marketSessionLabel, REFRESH } from '../utils/marketSession';
+import { upsertPriceAlert } from '../storage/alerts';
+import { addRecentSymbol } from '../storage/recent';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Detail'>;
 
@@ -42,6 +46,7 @@ export function StockDetailScreen({ navigation, route }: Props) {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [newsLoading, setNewsLoading] = useState(true);
   const [live, setLive] = useState(isMarketOpen());
+  const [alertOpen, setAlertOpen] = useState(false);
 
   const rangeRef = useRef(range);
   rangeRef.current = range;
@@ -109,6 +114,12 @@ export function StockDetailScreen({ navigation, route }: Props) {
     const id = setInterval(() => setLive(isMarketOpen()), 60_000);
     return () => clearInterval(id);
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void addRecentSymbol(symbol);
+    }, [symbol]),
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -216,10 +227,15 @@ export function StockDetailScreen({ navigation, route }: Props) {
           <Text style={styles.backChevron}>‹</Text>
           <Text style={styles.backLabel}>Watchlist</Text>
         </Pressable>
-        <Text style={styles.exchange}>
-          {stock.exchange}
-          {live ? ' · live' : ` · ${marketSessionLabel()}`}
-        </Text>
+        <Pressable
+          onPress={() => {
+            void Haptics.selectionAsync();
+            setAlertOpen(true);
+          }}
+          hitSlop={8}
+        >
+          <Text style={styles.alertBtn}>Cảnh báo</Text>
+        </Pressable>
       </View>
 
       {loading ? (
@@ -234,6 +250,10 @@ export function StockDetailScreen({ navigation, route }: Props) {
           <View style={styles.hero}>
             <Text style={styles.symbol}>{stock.symbol}</Text>
             <Text style={styles.name}>{stock.name}</Text>
+            <Text style={styles.sessionMeta}>
+              {stock.exchange}
+              {live ? ' · live' : ` · ${marketSessionLabel()}`}
+            </Text>
             <Text style={styles.price}>
               {formatPrice(stock.price, stock.currency)} ₫
             </Text>
@@ -280,10 +300,11 @@ export function StockDetailScreen({ navigation, route }: Props) {
           <View style={styles.newsSection}>
             <Text style={styles.newsHeading}>Tin tức</Text>
             {newsLoading ? (
-              <ActivityIndicator
-                style={styles.newsSpinner}
-                color={colors.textSecondary}
-              />
+              <View style={styles.newsCard}>
+                {[1, 2, 3].map((i) => (
+                  <NewsRowSkeleton key={i} />
+                ))}
+              </View>
             ) : news.length === 0 ? (
               <Text style={styles.newsEmpty}>Chưa có tin cho mã này</Text>
             ) : (
@@ -302,6 +323,21 @@ export function StockDetailScreen({ navigation, route }: Props) {
           </View>
         </ScrollView>
       )}
+
+      <AlertSheet
+        visible={alertOpen}
+        symbol={stock.symbol}
+        currentPrice={stock.price}
+        onClose={() => setAlertOpen(false)}
+        onSave={(condition, price) => {
+          void upsertPriceAlert({
+            symbol: stock.symbol,
+            condition,
+            price,
+            enabled: true,
+          });
+        }}
+      />
     </View>
   );
 }
@@ -333,10 +369,15 @@ const styles = StyleSheet.create({
     color: colors.accent,
     fontSize: 17,
   },
-  exchange: {
+  alertBtn: {
+    color: colors.accent,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  sessionMeta: {
     color: colors.textSecondary,
     fontSize: 13,
-    fontWeight: '500',
+    marginTop: 4,
   },
   hero: {
     paddingHorizontal: spacing.lg,

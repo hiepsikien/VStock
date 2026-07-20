@@ -8,6 +8,16 @@ export type WatchlistSection = {
   data: Stock[];
 };
 
+export function orderWithPins(stocks: Stock[], pinnedSymbols: string[]): Stock[] {
+  if (!pinnedSymbols.length) return stocks;
+  const pinSet = new Set(pinnedSymbols);
+  const pinned = pinnedSymbols
+    .map((sym) => stocks.find((s) => s.symbol === sym))
+    .filter(Boolean) as Stock[];
+  const rest = stocks.filter((s) => !pinSet.has(s.symbol));
+  return [...pinned, ...rest];
+}
+
 export function sortStocks(stocks: Stock[], sort: WatchlistSort): Stock[] {
   const copy = [...stocks];
   switch (sort) {
@@ -24,18 +34,31 @@ export function sortStocks(stocks: Stock[], sort: WatchlistSort): Stock[] {
 export function buildWatchlistSections(
   stocks: Stock[],
   sort: WatchlistSort,
+  pinnedSymbols: string[] = [],
 ): WatchlistSection[] {
-  const sorted = sortStocks(stocks, sort);
+  const ordered = orderWithPins(stocks, pinnedSymbols);
+  const sorted = sortStocks(ordered, sort);
 
   if (sort !== 'change') {
-    return [{ key: 'all', title: 'Danh sách theo dõi', data: sorted }];
+    const pinnedSet = new Set(pinnedSymbols);
+    const pinned = sorted.filter((s) => pinnedSet.has(s.symbol));
+    const rest = sorted.filter((s) => !pinnedSet.has(s.symbol));
+    const data = [...pinned, ...rest];
+    const title = pinned.length ? 'Danh sách theo dõi' : 'Danh sách theo dõi';
+    return [{ key: 'all', title, data }];
   }
 
-  const gainers = sorted.filter((s) => s.changePercent > 0);
-  const losers = sorted.filter((s) => s.changePercent < 0);
-  const flat = sorted.filter((s) => s.changePercent === 0);
+  const pinnedSet = new Set(pinnedSymbols);
+  const pinned = sorted.filter((s) => pinnedSet.has(s.symbol));
+  const unpinned = sorted.filter((s) => !pinnedSet.has(s.symbol));
 
   const sections: WatchlistSection[] = [];
+  if (pinned.length) sections.push({ key: 'pinned', title: 'Đã ghim', data: pinned });
+
+  const gainers = unpinned.filter((s) => s.changePercent > 0);
+  const losers = unpinned.filter((s) => s.changePercent < 0);
+  const flat = unpinned.filter((s) => s.changePercent === 0);
+
   if (gainers.length) sections.push({ key: 'up', title: 'Tăng giá', data: gainers });
   if (losers.length) sections.push({ key: 'down', title: 'Giảm giá', data: losers });
   if (flat.length) sections.push({ key: 'flat', title: 'Đi ngang', data: flat });
