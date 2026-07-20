@@ -11,23 +11,23 @@ def normalize_ssi_stock(data: dict, symbol: str) -> Quote | None:
     if matched <= 0:
         return None
 
-    ref_raw = safe_float(data.get("refPrice") or data.get("referencePrice"))
+    ref_raw = safe_float(data.get("refPrice") or data.get("referencePrice") or data.get("priorClosePrice"))
     price = vnd_to_display(matched)
     ref = vnd_to_display(ref_raw) if ref_raw > 0 else price
 
-    change_raw = safe_float(data.get("priceChange"))
-    change_pct = safe_float(data.get("priceChangePercent"))
-    if change_raw != 0:
-        change = vnd_to_display(abs(change_raw)) if change_raw > 1000 else round(change_raw, 2)
-        if change_raw < 0:
-            change = -change
-    elif ref > 0:
-        change = round(price - ref, 2)
-    else:
-        change = 0.0
+    # Always derive change in display units (nghìn đồng). SSI priceChange is VND and
+    # must not be shown raw — previous heuristic also flipped the sign for negatives.
+    change = round(price - ref, 2) if ref > 0 else 0.0
 
-    if change_pct == 0 and ref > 0:
-        change_pct = round((change / ref) * 100, 2)
+    change_pct = safe_float(data.get("priceChangePercent"))
+    if ref > 0:
+        computed_pct = round((change / ref) * 100, 2)
+        if change_pct == 0:
+            change_pct = computed_pct
+        elif (change < 0 and change_pct > 0) or (change > 0 and change_pct < 0):
+            change_pct = -abs(change_pct)
+        elif change == 0:
+            change_pct = 0.0
 
     return Quote(
         symbol=sym,
