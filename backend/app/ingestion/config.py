@@ -58,6 +58,8 @@ class IngestionSettings:
     history_intraday_interval_seconds: int
     history_daily_hour: int
     history_daily_minute: int
+    symbols_interval_seconds: int
+    fundamentals_interval_seconds: int
 
 
 def _config_path() -> Path:
@@ -130,6 +132,8 @@ def load_ingestion_settings() -> IngestionSettings:
     history_intraday = int(ingestion.get("history_intraday_interval_seconds") or 300)
     history_daily_hour = int(ingestion.get("history_daily_hour") or 18)
     history_daily_minute = int(ingestion.get("history_daily_minute") or 0)
+    symbols_interval = int(ingestion.get("symbols_interval_seconds") or 21600)
+    fundamentals_interval = int(ingestion.get("fundamentals_interval_seconds") or 21600)
 
     return IngestionSettings(
         quote_symbols=symbols,
@@ -143,4 +147,6 @@ def load_ingestion_settings() -> IngestionSettings:
         history_intraday_interval_seconds=max(60, history_intraday),
         history_daily_hour=max(0, min(23, history_daily_hour)),
         history_daily_minute=max(0, min(59, history_daily_minute)),
+        symbols_interval_seconds=max(3600, symbols_interval),
+        fundamentals_interval_seconds=max(3600, fundamentals_interval),
     )

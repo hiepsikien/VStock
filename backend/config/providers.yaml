@@ -78,3 +78,5 @@ ingestion:
   history_intraday_interval_seconds: 300
   history_daily_hour: 18
   history_daily_minute: 0
+  symbols_interval_seconds: 21600
+  fundamentals_interval_seconds: 21600

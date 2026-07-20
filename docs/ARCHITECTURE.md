@@ -5,7 +5,7 @@
 
 ---
 
-## 1. Kiến trúc hiện tại
+## 1. Kiến trúc hiện tại (đã triển khai)
 
 ```
 Mobile App (Expo)
@@ -13,22 +13,27 @@ Mobile App (Expo)
     ▼
 client.ts  ──fetch──▶  FastAPI Backend (/v1/*)
                             │
-                            ▼
-                       Services (quotes, history, news…)
-                            │
-                            ▼
-                       In-memory TTL Cache (15s – 24h)
-                            │
-                            ▼
-                       External APIs (7 nguồn)
+              ┌─────────────┴─────────────┐
+              ▼                           ▼
+         Repositories                 Services (fallback live)
+              │                           │
+              ▼                           ▼
+         SQLite store              External APIs (7 nguồn)
+         (backend/data/vstock.db)
+              ▲
+              │
+         Ingestion jobs (APScheduler)
 ```
 
 ### Luồng dữ liệu
 
-**Request → Router → Service → External API (cache miss) → Response**
+**Serving:** Request → Router → Repository → SQLite (hoặc service fallback nếu store trống)
 
-Backend hiện tại là **aggregator trực tiếp**: mỗi service module gắn cứng 1 URL + 1 schema JSON.
-Không có database, không có background job, không có abstraction layer.
+**Ingestion:** Scheduler → Provider(s) → Normalizer → SQLite. Chạy nền theo interval; không phụ thuộc request client.
+
+Backend đã tách **ingestion / store / serving**. API contract `/v1/*` giữ nguyên; client không cần biết nguồn gốc dữ liệu.
+
+> **Lưu ý:** SQLite nằm trên **máy chủ backend**, không phải trên thiết bị. App mobile chưa có offline cache đầy đủ — khi API down vẫn dùng `FALLBACK_WATCHLIST` hardcoded.
 
 ### External data sources
 
@@ -62,7 +67,9 @@ Không có database, không có background job, không có abstraction layer.
 - News cache: in-memory + AsyncStorage (15 min TTL, stale-while-revalidate)
 - User state: AsyncStorage (watchlist, alerts)
 - Polling: 30s quotes khi market open + screen focused
-- Fallback offline: `FALLBACK_WATCHLIST` hardcoded
+- Background price alerts: `expo-background-task` (cần dev build)
+- Fallback offline: `FALLBACK_WATCHLIST` hardcoded + banner lỗi API
+- Màn **Nguồn dữ liệu** (`HealthScreen`): gọi `GET /v1/health/sources`
 
 ---
 
@@ -273,31 +280,32 @@ async def watchlist(symbols: str, repo: QuoteRepo = Depends()):
 
 ## 8. Lộ trình triển khai
 
-### Phase 1 — Provider interface + config (1–2 ngày)
+### Phase 1 — Provider interface + config ✅
 
-- [ ] Tách parser hiện tại thành `providers/` + `normalizers/`
-- [ ] `providers.yaml` cho priority/fallback
-- [ ] Chưa có DB — vẫn fetch-on-request nhưng qua interface
-- **Lợi ích ngay:** đổi nguồn = thêm provider file
+- [x] Tách parser thành `providers/` + `normalizers/`
+- [x] `providers.yaml` cho priority/fallback
+- [x] Fetch-on-request qua interface (trước khi có DB)
 
-### Phase 2 — SQLite store + ingestion jobs (2–3 ngày)
+### Phase 2 — SQLite store + ingestion jobs ✅
 
-- [ ] SQLite (hoặc Postgres nếu deploy cloud)
-- [ ] APScheduler chạy jobs theo bảng schedule
-- [ ] API đọc từ DB thay vì gọi external
-- [ ] In-memory cache trở thành L2 cache (optional)
+- [x] SQLite tại `backend/data/vstock.db`
+- [x] APScheduler: quotes, news, indices, history, symbols, fundamentals
+- [x] API đọc từ DB; service fallback khi store trống
 
-### Phase 3 — Health monitoring + fallback (1 ngày)
+### Phase 3 — Health monitoring + fallback ✅
 
-- [ ] `/v1/health/sources` — trạng thái từng provider
-- [ ] Auto-failover primary → fallback
-- [ ] Log ingestion errors, stale data warnings
+- [x] `GET /v1/health/sources` — trạng thái provider + store counts
+- [x] Auto-failover primary → fallback (quotes, symbols, news merge)
+- [x] Màn Health trên app mobile
 
-### Phase 4 — Background alerts (khi cần)
+### Phase 4 — Background alerts ✅
 
-- [ ] Job ingestion quotes 15s → check alerts trong DB
-- [ ] Local push qua Expo (không cần server-side alerts)
-- [ ] Phù hợp hướng hạn chế server-side alerts
+- [x] Local push qua Expo background task (client-side, không server-side alerts)
+
+### Chưa làm / ngoài phạm vi
+
+- [ ] Offline cache đầy đủ trên thiết bị
+- [ ] Portfolio management
 
 ---
 
@@ -562,3 +570,5 @@ VPS batch ──fail──▶ SSI per-symbol ──fail──▶ Entrade last cl
 | `src/utils/marketSession.ts` | VN market hours, poll intervals |
 | `src/types.ts` | Stock, ChartRange domain types |
 | `src/types/news.ts` | NewsItem, NewsFilter types |
+| `src/screens/HealthScreen.tsx` | Dev health — trạng thái ingestion / providers |
+| `src/components/ApiStatusBanner.tsx` | Banner lỗi API + nút thử lại |

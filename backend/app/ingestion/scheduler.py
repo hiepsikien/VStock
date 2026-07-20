@@ -6,10 +6,12 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.health import state as health_state
 from app.ingestion.config import load_ingestion_settings, load_news_providers, load_quote_providers
+from app.ingestion.jobs.fundamentals import ingest_fundamentals
 from app.ingestion.jobs.history import ingest_history_daily, ingest_history_intraday
 from app.ingestion.jobs.indices import ingest_indices
 from app.ingestion.jobs.news import ingest_news
 from app.ingestion.jobs.quotes import ingest_quotes
+from app.ingestion.jobs.symbols import ingest_symbols
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +31,9 @@ def _seed_provider_records() -> None:
 
     health_state.ensure_provider("indices", "entrade")
     health_state.ensure_provider("history", "entrade")
+    health_state.ensure_provider("symbols", "ssi")
+    health_state.ensure_provider("symbols", "vndirect")
+    health_state.ensure_provider("fundamentals", "merge")
 
 
 def start_scheduler() -> AsyncIOScheduler:
@@ -78,6 +83,22 @@ def start_scheduler() -> AsyncIOScheduler:
         hour=settings.history_daily_hour,
         minute=settings.history_daily_minute,
         id="ingest_history_daily",
+        max_instances=1,
+        coalesce=True,
+    )
+    _scheduler.add_job(
+        ingest_symbols,
+        trigger="interval",
+        seconds=settings.symbols_interval_seconds,
+        id="ingest_symbols",
+        max_instances=1,
+        coalesce=True,
+    )
+    _scheduler.add_job(
+        ingest_fundamentals,
+        trigger="interval",
+        seconds=settings.fundamentals_interval_seconds,
+        id="ingest_fundamentals",
         max_instances=1,
         coalesce=True,
     )

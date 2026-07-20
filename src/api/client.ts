@@ -263,3 +263,51 @@ export async function fetchMarketIndices(): Promise<IndexQuote[]> {
   const data = await apiGet<{ items: IndexQuote[] }>('/v1/indices');
   return data.items;
 }
+
+export type ProviderHealth = {
+  kind: string;
+  name: string;
+  status: string;
+  lastSuccessAt?: string | null;
+  lastErrorAt?: string | null;
+  lastError?: string | null;
+  lastItemCount: number;
+  stale: boolean;
+};
+
+export type StoreHealth = {
+  quotesCount: number;
+  quotesLatestAt?: string | null;
+  newsCount: number;
+  newsLatestAt?: string | null;
+  indicesCount: number;
+  indicesLatestAt?: string | null;
+  historyCount: number;
+  historyLatestAt?: string | null;
+  symbolsCount: number;
+  symbolsLatestAt?: string | null;
+  fundamentalsCount: number;
+  fundamentalsLatestAt?: string | null;
+};
+
+export type JobHealth = {
+  name: string;
+  lastRunAt?: string | null;
+  lastSuccessAt?: string | null;
+  lastErrorAt?: string | null;
+  lastError?: string | null;
+  lastItemCount: number;
+};
+
+export type SourceHealthResponse = {
+  status: string;
+  checkedAt: string;
+  marketOpen: boolean;
+  store: StoreHealth;
+  providers: ProviderHealth[];
+  jobs: JobHealth[];
+};
+
+export async function fetchSourceHealth(): Promise<SourceHealthResponse> {
+  return apiGet<SourceHealthResponse>('/v1/health/sources');
+}

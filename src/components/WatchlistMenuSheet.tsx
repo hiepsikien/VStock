@@ -8,6 +8,7 @@ type Props = {
   onClose: () => void;
   onManageWatchlists: () => void;
   onManageAlerts: () => void;
+  onSystemHealth: () => void;
 };
 
 export function WatchlistMenuSheet({
@@ -15,6 +16,7 @@ export function WatchlistMenuSheet({
   onClose,
   onManageWatchlists,
   onManageAlerts,
+  onSystemHealth,
 }: Props) {
   const press = (action: () => void) => {
     void Haptics.selectionAsync();
@@ -32,6 +34,9 @@ export function WatchlistMenuSheet({
         </Pressable>
         <Pressable style={styles.item} onPress={() => press(onManageAlerts)}>
           <Text style={styles.itemText}>Quản lý cảnh báo</Text>
+        </Pressable>
+        <Pressable style={styles.item} onPress={() => press(onSystemHealth)}>
+          <Text style={styles.itemText}>Nguồn dữ liệu</Text>
         </Pressable>
         <Pressable style={[styles.item, styles.cancel]} onPress={() => press(onClose)}>
           <Text style={styles.cancelText}>Huỷ</Text>

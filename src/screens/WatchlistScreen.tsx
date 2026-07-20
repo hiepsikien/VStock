@@ -47,6 +47,7 @@ import { syncPriceAlertBackgroundTask } from '../tasks/priceAlertBackgroundTask'
 import type { Stock } from '../types';
 import type { NewsItem } from '../types/news';
 import { AlertSheet } from '../components/AlertSheet';
+import { ApiStatusBanner } from '../components/ApiStatusBanner';
 import { ManageAlertsSheet } from '../components/ManageAlertsSheet';
 import { NewsRow } from '../components/NewsRow';
 import { NewsRowSkeleton, StockRowSkeleton, SummarySkeleton } from '../components/Skeleton';
@@ -83,6 +84,7 @@ export function WatchlistScreen({ navigation }: Props) {
   const [searching, setSearching] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [usingFallback, setUsingFallback] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
   const [live, setLive] = useState(isMarketOpen());
   const [sort, setSort] = useState<WatchlistSort>('change');
   const [editing, setEditing] = useState(false);
@@ -154,7 +156,11 @@ export function WatchlistScreen({ navigation }: Props) {
         const data = await fetchWatchlist(symbols);
         setStocks(data);
         setUsingFallback(false);
-      } catch {
+        setApiError(null);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : 'Không kết nối được máy chủ';
+        if (!silent) setApiError(message);
         if (!silent) {
           if (symbols.length === 0) {
             setStocks([]);
@@ -398,6 +404,17 @@ export function WatchlistScreen({ navigation }: Props) {
           activeId={watchlistsState.activeId}
           onSelect={(id) => void onSelectWatchlist(id)}
           onCreate={() => void onCreateWatchlist()}
+        />
+      ) : null}
+
+      {!inSearchMode && (usingFallback || apiError) ? (
+        <ApiStatusBanner
+          message={
+            usingFallback
+              ? 'Không kết nối được máy chủ — đang hiển thị dữ liệu mẫu'
+              : (apiError ?? 'Không kết nối được máy chủ')
+          }
+          onRetry={() => void loadQuotes(symbolList, { refresh: true })}
         />
       ) : null}
 
@@ -654,6 +671,10 @@ export function WatchlistScreen({ navigation }: Props) {
         onManageAlerts={() => {
           setMenuVisible(false);
           setManageAlertsVisible(true);
+        }}
+        onSystemHealth={() => {
+          setMenuVisible(false);
+          navigation.navigate('Health');
         }}
       />
 

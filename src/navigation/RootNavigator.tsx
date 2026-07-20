@@ -5,6 +5,7 @@ import type { RootStackParamList } from './types';
 import { WatchlistScreen } from '../screens/WatchlistScreen';
 import { NewsScreen } from '../screens/NewsScreen';
 import { StockDetailScreen } from '../screens/StockDetailScreen';
+import { HealthScreen } from '../screens/HealthScreen';
 import { colors } from '../theme';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -39,6 +40,11 @@ export function RootNavigator() {
         <Stack.Screen
           name="Detail"
           component={StockDetailScreen}
+          options={{ animation: 'slide_from_right' }}
+        />
+        <Stack.Screen
+          name="Health"
+          component={HealthScreen}
           options={{ animation: 'slide_from_right' }}
         />
       </Stack.Navigator>

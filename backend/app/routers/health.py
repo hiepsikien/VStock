@@ -6,10 +6,12 @@ from fastapi import APIRouter
 
 from app.health import state as health_state
 from app.ingestion.config import load_news_providers, load_quote_providers
+from app.repositories.fundamentals_repo import FundamentalsRepository
 from app.repositories.history_repo import HistoryRepository
 from app.repositories.indices_repo import IndicesRepository
 from app.repositories.news_repo import NewsRepository
 from app.repositories.quotes_repo import QuotesRepository
+from app.repositories.symbols_repo import SymbolsRepository
 from app.schemas import JobHealth, ProviderHealth, SourceHealthResponse, StoreHealth
 from app.services.market_session import is_market_open
 
@@ -19,11 +21,15 @@ _quotes_repo = QuotesRepository()
 _news_repo = NewsRepository()
 _indices_repo = IndicesRepository()
 _history_repo = HistoryRepository()
+_symbols_repo = SymbolsRepository()
+_fundamentals_repo = FundamentalsRepository()
 
 _QUOTE_STALE_SECONDS = 300
 _NEWS_STALE_SECONDS = 1800
 _INDICES_STALE_SECONDS = 120
 _HISTORY_STALE_SECONDS = 600
+_SYMBOLS_STALE_SECONDS = 25200
+_FUNDAMENTALS_STALE_SECONDS = 25200
 
 
 def _parse_iso(value: str | None) -> datetime | None:
@@ -52,6 +58,10 @@ def _provider_stale(record: health_state.ProviderRecord) -> bool:
         max_age = _INDICES_STALE_SECONDS
     elif record.kind == "history":
         max_age = _HISTORY_STALE_SECONDS
+    elif record.kind == "symbols":
+        max_age = _SYMBOLS_STALE_SECONDS
+    elif record.kind == "fundamentals":
+        max_age = _FUNDAMENTALS_STALE_SECONDS
     else:
         max_age = _NEWS_STALE_SECONDS
     if record.status != "ok":
@@ -65,6 +75,8 @@ async def get_source_health() -> SourceHealthResponse:
     news_stats = await _news_repo.stats()
     indices_stats = await _indices_repo.stats()
     history_stats = await _history_repo.stats()
+    symbols_stats = await _symbols_repo.stats()
+    fundamentals_stats = await _fundamentals_repo.stats()
     market_open = is_market_open()
 
     store = StoreHealth(
@@ -76,6 +88,10 @@ async def get_source_health() -> SourceHealthResponse:
         indicesLatestAt=indices_stats.get("latestUpdatedAt"),
         historyCount=int(history_stats["count"]),
         historyLatestAt=history_stats.get("latestUpdatedAt"),
+        symbolsCount=int(symbols_stats["count"]),
+        symbolsLatestAt=symbols_stats.get("latestUpdatedAt"),
+        fundamentalsCount=int(fundamentals_stats["count"]),
+        fundamentalsLatestAt=fundamentals_stats.get("latestUpdatedAt"),
     )
 
     providers: list[ProviderHealth] = []
@@ -90,6 +106,9 @@ async def get_source_health() -> SourceHealthResponse:
             health_state.ensure_provider("news", name)
     health_state.ensure_provider("indices", "entrade")
     health_state.ensure_provider("history", "entrade")
+    health_state.ensure_provider("symbols", "ssi")
+    health_state.ensure_provider("symbols", "vndirect")
+    health_state.ensure_provider("fundamentals", "merge")
 
     for record in health_state.list_providers():
         stale = _provider_stale(record)
@@ -132,7 +151,16 @@ async def get_source_health() -> SourceHealthResponse:
         overall = "degraded"
     if _is_stale(store.newsLatestAt, _NEWS_STALE_SECONDS):
         overall = "degraded"
-    if store.quotesCount == 0 and store.newsCount == 0 and store.indicesCount == 0:
+    if _is_stale(store.symbolsLatestAt, _SYMBOLS_STALE_SECONDS):
+        overall = "degraded"
+    if _is_stale(store.fundamentalsLatestAt, _FUNDAMENTALS_STALE_SECONDS):
+        overall = "degraded"
+    if (
+        store.quotesCount == 0
+        and store.newsCount == 0
+        and store.indicesCount == 0
+        and store.symbolsCount == 0
+    ):
         overall = "down"
 
     return SourceHealthResponse(

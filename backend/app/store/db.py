@@ -64,6 +64,27 @@ CREATE TABLE IF NOT EXISTS history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_history_updated_at ON history(updated_at);
+
+CREATE TABLE IF NOT EXISTS symbols (
+    symbol TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    exchange TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_symbols_exchange ON symbols(exchange);
+
+CREATE TABLE IF NOT EXISTS fundamentals (
+    symbol TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    exchange TEXT NOT NULL,
+    market_cap TEXT NOT NULL DEFAULT '—',
+    pe REAL,
+    listed_shares INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_fundamentals_updated_at ON fundamentals(updated_at);
 """
 
 
