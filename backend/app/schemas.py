@@ -60,6 +60,42 @@ class HealthResponse(BaseModel):
     service: str = "vstock-api"
 
 
+class ProviderHealth(BaseModel):
+    kind: str
+    name: str
+    status: str
+    lastSuccessAt: str | None = None
+    lastErrorAt: str | None = None
+    lastError: str | None = None
+    lastItemCount: int = 0
+    stale: bool = False
+
+
+class StoreHealth(BaseModel):
+    quotesCount: int = 0
+    quotesLatestAt: str | None = None
+    newsCount: int = 0
+    newsLatestAt: str | None = None
+
+
+class JobHealth(BaseModel):
+    name: str
+    lastRunAt: str | None = None
+    lastSuccessAt: str | None = None
+    lastErrorAt: str | None = None
+    lastError: str | None = None
+    lastItemCount: int = 0
+
+
+class SourceHealthResponse(BaseModel):
+    status: str
+    checkedAt: str
+    marketOpen: bool
+    store: StoreHealth
+    providers: list[ProviderHealth]
+    jobs: list[JobHealth]
+
+
 class MarketStatusResponse(BaseModel):
     open: bool
     session: str

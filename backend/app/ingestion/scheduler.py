@@ -4,12 +4,26 @@ import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from app.ingestion.config import load_ingestion_settings
+from app.health import state as health_state
+from app.ingestion.config import load_ingestion_settings, load_news_providers, load_quote_providers
+from app.ingestion.jobs.news import ingest_news
 from app.ingestion.jobs.quotes import ingest_quotes
 
 logger = logging.getLogger(__name__)
 
 _scheduler: AsyncIOScheduler | None = None
+
+
+def _seed_provider_records() -> None:
+    for row in load_quote_providers():
+        name = str(row.get("name", "")).strip()
+        if name:
+            health_state.ensure_provider("quotes", name)
+
+    for row in load_news_providers():
+        name = str(row.get("name", "")).strip()
+        if name:
+            health_state.ensure_provider("news", name)
 
 
 def start_scheduler() -> AsyncIOScheduler:
@@ -18,6 +32,8 @@ def start_scheduler() -> AsyncIOScheduler:
         return _scheduler
 
     settings = load_ingestion_settings()
+    _seed_provider_records()
+
     _scheduler = AsyncIOScheduler(timezone="Asia/Ho_Chi_Minh")
     _scheduler.add_job(
         ingest_quotes,
@@ -27,10 +43,19 @@ def start_scheduler() -> AsyncIOScheduler:
         max_instances=1,
         coalesce=True,
     )
+    _scheduler.add_job(
+        ingest_news,
+        trigger="interval",
+        seconds=settings.news_interval_seconds,
+        id="ingest_news",
+        max_instances=1,
+        coalesce=True,
+    )
     _scheduler.start()
     logger.info(
-        "Quote ingestion scheduler started (interval=%ss, symbols=%d)",
+        "Ingestion scheduler started (quotes=%ss, news=%ss, quote_symbols=%d)",
         settings.quote_interval_open_seconds,
+        settings.news_interval_seconds,
         len(settings.quote_symbols),
     )
     return _scheduler
@@ -41,4 +66,4 @@ def stop_scheduler() -> None:
     if _scheduler is not None:
         _scheduler.shutdown(wait=False)
         _scheduler = None
-        logger.info("Quote ingestion scheduler stopped")
+        logger.info("Ingestion scheduler stopped")

@@ -51,6 +51,9 @@ class IngestionSettings:
     quote_interval_open_seconds: int
     quote_interval_closed_seconds: int
     skip_when_market_closed: bool
+    news_interval_seconds: int
+    news_market_limit: int
+    news_max_rows: int
 
 
 def _config_path() -> Path:
@@ -105,6 +108,7 @@ def load_ingestion_settings() -> IngestionSettings:
     raw = _load_yaml()
     ingestion = raw.get("ingestion") if isinstance(raw.get("ingestion"), dict) else {}
     quotes = raw.get("quotes") if isinstance(raw.get("quotes"), dict) else {}
+    news = raw.get("news") if isinstance(raw.get("news"), dict) else {}
 
     symbols_raw = ingestion.get("quote_symbols")
     if isinstance(symbols_raw, list) and symbols_raw:
@@ -115,10 +119,16 @@ def load_ingestion_settings() -> IngestionSettings:
     open_interval = int(ingestion.get("quote_interval_open_seconds") or quotes.get("interval_seconds") or 15)
     closed_interval = int(ingestion.get("quote_interval_closed_seconds") or 300)
     skip_closed = bool(ingestion.get("skip_when_market_closed", True))
+    news_interval = int(ingestion.get("news_interval_seconds") or news.get("ttl_seconds") or 900)
+    news_limit = int(ingestion.get("news_market_limit") or 50)
+    news_max_rows = int(ingestion.get("news_max_rows") or 1000)
 
     return IngestionSettings(
         quote_symbols=symbols,
         quote_interval_open_seconds=max(5, open_interval),
         quote_interval_closed_seconds=max(30, closed_interval),
         skip_when_market_closed=skip_closed,
+        news_interval_seconds=max(60, news_interval),
+        news_market_limit=max(20, news_limit),
+        news_max_rows=max(100, news_max_rows),
     )

@@ -24,6 +24,22 @@ CREATE TABLE IF NOT EXISTS quotes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_quotes_updated_at ON quotes(updated_at);
+
+CREATE TABLE IF NOT EXISTS news (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL,
+    published_at TEXT NOT NULL,
+    url TEXT NOT NULL DEFAULT '',
+    image_url TEXT,
+    symbols TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT 'news',
+    provider TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_news_published_at ON news(published_at DESC);
 """
 
 

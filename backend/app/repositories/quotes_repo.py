@@ -89,3 +89,12 @@ class QuotesRepository:
         cursor = await db.execute("SELECT symbol FROM quotes ORDER BY symbol")
         rows = await cursor.fetchall()
         return [row["symbol"] for row in rows]
+
+    async def stats(self) -> dict:
+        db = await get_db()
+        cursor = await db.execute("SELECT COUNT(*), MAX(updated_at) FROM quotes")
+        row = await cursor.fetchone()
+        return {
+            "count": int(row[0]) if row and row[0] is not None else 0,
+            "latestUpdatedAt": row[1] if row else None,
+        }

@@ -71,3 +71,6 @@ ingestion:
   quote_interval_open_seconds: 15
   quote_interval_closed_seconds: 300
   skip_when_market_closed: true
+  news_interval_seconds: 900
+  news_market_limit: 50
+  news_max_rows: 1000
