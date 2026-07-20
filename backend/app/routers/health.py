@@ -6,6 +6,7 @@ from fastapi import APIRouter
 
 from app.health import state as health_state
 from app.ingestion.config import load_news_providers, load_quote_providers
+from app.repositories.history_repo import HistoryRepository
 from app.repositories.indices_repo import IndicesRepository
 from app.repositories.news_repo import NewsRepository
 from app.repositories.quotes_repo import QuotesRepository
@@ -17,10 +18,12 @@ router = APIRouter(prefix="/v1/health")
 _quotes_repo = QuotesRepository()
 _news_repo = NewsRepository()
 _indices_repo = IndicesRepository()
+_history_repo = HistoryRepository()
 
 _QUOTE_STALE_SECONDS = 300
 _NEWS_STALE_SECONDS = 1800
 _INDICES_STALE_SECONDS = 120
+_HISTORY_STALE_SECONDS = 600
 
 
 def _parse_iso(value: str | None) -> datetime | None:
@@ -47,6 +50,8 @@ def _provider_stale(record: health_state.ProviderRecord) -> bool:
         max_age = _QUOTE_STALE_SECONDS
     elif record.kind == "indices":
         max_age = _INDICES_STALE_SECONDS
+    elif record.kind == "history":
+        max_age = _HISTORY_STALE_SECONDS
     else:
         max_age = _NEWS_STALE_SECONDS
     if record.status != "ok":
@@ -59,6 +64,7 @@ async def get_source_health() -> SourceHealthResponse:
     quote_stats = await _quotes_repo.stats()
     news_stats = await _news_repo.stats()
     indices_stats = await _indices_repo.stats()
+    history_stats = await _history_repo.stats()
     market_open = is_market_open()
 
     store = StoreHealth(
@@ -68,6 +74,8 @@ async def get_source_health() -> SourceHealthResponse:
         newsLatestAt=news_stats.get("latestUpdatedAt"),
         indicesCount=int(indices_stats["count"]),
         indicesLatestAt=indices_stats.get("latestUpdatedAt"),
+        historyCount=int(history_stats["count"]),
+        historyLatestAt=history_stats.get("latestUpdatedAt"),
     )
 
     providers: list[ProviderHealth] = []
@@ -81,6 +89,7 @@ async def get_source_health() -> SourceHealthResponse:
         if name:
             health_state.ensure_provider("news", name)
     health_state.ensure_provider("indices", "entrade")
+    health_state.ensure_provider("history", "entrade")
 
     for record in health_state.list_providers():
         stale = _provider_stale(record)
@@ -118,6 +127,8 @@ async def get_source_health() -> SourceHealthResponse:
     if market_open and _is_stale(store.quotesLatestAt, _QUOTE_STALE_SECONDS):
         overall = "degraded"
     if market_open and _is_stale(store.indicesLatestAt, _INDICES_STALE_SECONDS):
+        overall = "degraded"
+    if market_open and _is_stale(store.historyLatestAt, _HISTORY_STALE_SECONDS):
         overall = "degraded"
     if _is_stale(store.newsLatestAt, _NEWS_STALE_SECONDS):
         overall = "degraded"

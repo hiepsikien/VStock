@@ -6,6 +6,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.health import state as health_state
 from app.ingestion.config import load_ingestion_settings, load_news_providers, load_quote_providers
+from app.ingestion.jobs.history import ingest_history_daily, ingest_history_intraday
 from app.ingestion.jobs.indices import ingest_indices
 from app.ingestion.jobs.news import ingest_news
 from app.ingestion.jobs.quotes import ingest_quotes
@@ -27,6 +28,7 @@ def _seed_provider_records() -> None:
             health_state.ensure_provider("news", name)
 
     health_state.ensure_provider("indices", "entrade")
+    health_state.ensure_provider("history", "entrade")
 
 
 def start_scheduler() -> AsyncIOScheduler:
@@ -62,12 +64,30 @@ def start_scheduler() -> AsyncIOScheduler:
         max_instances=1,
         coalesce=True,
     )
+    _scheduler.add_job(
+        ingest_history_intraday,
+        trigger="interval",
+        seconds=settings.history_intraday_interval_seconds,
+        id="ingest_history_intraday",
+        max_instances=1,
+        coalesce=True,
+    )
+    _scheduler.add_job(
+        ingest_history_daily,
+        trigger="cron",
+        hour=settings.history_daily_hour,
+        minute=settings.history_daily_minute,
+        id="ingest_history_daily",
+        max_instances=1,
+        coalesce=True,
+    )
     _scheduler.start()
     logger.info(
-        "Ingestion scheduler started (quotes=%ss, news=%ss, indices=%ss, quote_symbols=%d)",
+        "Ingestion scheduler started (quotes=%ss, news=%ss, indices=%ss, history_intraday=%ss, quote_symbols=%d)",
         settings.quote_interval_open_seconds,
         settings.news_interval_seconds,
         settings.indices_interval_seconds,
+        settings.history_intraday_interval_seconds,
         len(settings.quote_symbols),
     )
     return _scheduler

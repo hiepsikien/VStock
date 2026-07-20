@@ -53,6 +53,17 @@ CREATE TABLE IF NOT EXISTS indices (
 );
 
 CREATE INDEX IF NOT EXISTS idx_indices_updated_at ON indices(updated_at);
+
+CREATE TABLE IF NOT EXISTS history (
+    symbol TEXT NOT NULL,
+    range_key TEXT NOT NULL,
+    prices TEXT NOT NULL DEFAULT '[]',
+    source TEXT NOT NULL DEFAULT 'entrade',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (symbol, range_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_history_updated_at ON history(updated_at);
 """
 
 

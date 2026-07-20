@@ -78,6 +78,8 @@ class StoreHealth(BaseModel):
     newsLatestAt: str | None = None
     indicesCount: int = 0
     indicesLatestAt: str | None = None
+    historyCount: int = 0
+    historyLatestAt: str | None = None
 
 
 class JobHealth(BaseModel):

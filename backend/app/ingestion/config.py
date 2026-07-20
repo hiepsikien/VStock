@@ -55,6 +55,9 @@ class IngestionSettings:
     news_market_limit: int
     news_max_rows: int
     indices_interval_seconds: int
+    history_intraday_interval_seconds: int
+    history_daily_hour: int
+    history_daily_minute: int
 
 
 def _config_path() -> Path:
@@ -124,6 +127,9 @@ def load_ingestion_settings() -> IngestionSettings:
     news_limit = int(ingestion.get("news_market_limit") or 50)
     news_max_rows = int(ingestion.get("news_max_rows") or 1000)
     indices_interval = int(ingestion.get("indices_interval_seconds") or 30)
+    history_intraday = int(ingestion.get("history_intraday_interval_seconds") or 300)
+    history_daily_hour = int(ingestion.get("history_daily_hour") or 18)
+    history_daily_minute = int(ingestion.get("history_daily_minute") or 0)
 
     return IngestionSettings(
         quote_symbols=symbols,
@@ -134,4 +140,7 @@ def load_ingestion_settings() -> IngestionSettings:
         news_market_limit=max(20, news_limit),
         news_max_rows=max(100, news_max_rows),
         indices_interval_seconds=max(15, indices_interval),
+        history_intraday_interval_seconds=max(60, history_intraday),
+        history_daily_hour=max(0, min(23, history_daily_hour)),
+        history_daily_minute=max(0, min(59, history_daily_minute)),
     )
