@@ -7,6 +7,15 @@ from app.services.cache import QUOTE_TTL, cache
 _repo = QuotesRepository()
 
 
+def _is_thin_payload(payload: dict) -> bool:
+    return (
+        float(payload.get("open") or 0) <= 0
+        and float(payload.get("high") or 0) <= 0
+        and float(payload.get("low") or 0) <= 0
+        and int(payload.get("volume") or 0) <= 0
+    )
+
+
 async def fetch_quotes(symbols: list[str]) -> dict[str, dict]:
     """Serve quotes from SQLite store; bootstrap missing symbols via providers."""
     cleaned = [s.strip().upper() for s in symbols if s.strip()]
@@ -18,17 +27,22 @@ async def fetch_quotes(symbols: list[str]) -> dict[str, dict]:
 
     for sym in cleaned:
         cached = cache.get(f"quote:{sym}")
-        if cached is not None:
+        if cached is not None and not _is_thin_payload(cached):
             result[sym] = cached
             continue
         missing.append(sym)
 
     if missing:
         from_db = await _repo.get_latest(missing)
-        for sym, payload in from_db.items():
-            cache.set(f"quote:{sym}", payload, QUOTE_TTL)
-            result[sym] = payload
-        missing = [sym for sym in missing if sym not in result]
+        still_missing: list[str] = []
+        for sym in missing:
+            payload = from_db.get(sym)
+            if payload and not _is_thin_payload(payload):
+                cache.set(f"quote:{sym}", payload, QUOTE_TTL)
+                result[sym] = payload
+            else:
+                still_missing.append(sym)
+        missing = still_missing
 
     if missing:
         registry = get_quote_registry()

@@ -13,6 +13,12 @@ from app.ingestion.providers.vps_quotes import VpsQuoteProvider
 
 logger = logging.getLogger(__name__)
 
+
+def _is_thin_quote(quote: Quote) -> bool:
+    """Missing session OHLC/volume — keep looking for a fuller provider."""
+    return quote.open <= 0 and quote.high <= 0 and quote.low <= 0 and quote.volume <= 0
+
+
 _PROVIDER_CLASSES: dict[str, type[QuoteProvider]] = {
     "vps": VpsQuoteProvider,
     "ssi_iboard": SsiIboardQuoteProvider,
@@ -65,10 +71,15 @@ class QuoteProviderRegistry:
                 continue
 
             for sym, quote in fetched.items():
-                if sym not in result:
+                existing = result.get(sym)
+                if existing is None or (_is_thin_quote(existing) and not _is_thin_quote(quote)):
                     result[sym] = quote
 
-            remaining = [sym for sym in remaining if sym not in result]
+            remaining = [
+                sym
+                for sym in remaining
+                if sym not in result or _is_thin_quote(result[sym])
+            ]
 
         return result
 
