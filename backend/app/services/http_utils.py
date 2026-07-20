@@ -36,11 +36,16 @@ def safe_int(value: object, default: int = 0) -> int:
 
 
 def format_market_cap(value_vnd: float) -> str:
-    """Format VND market cap for UI (T = nghìn tỷ, B = tỷ)."""
+    """Format VND market cap for UI (Vietnamese units)."""
     if value_vnd <= 0:
         return "—"
-    trillion = value_vnd / 1e12  # nghìn tỷ
-    if trillion >= 1:
-        return f"{trillion:.1f}T"
-    billion = value_vnd / 1e9  # tỷ
-    return f"{billion:.1f}B"
+    nghin_ty = value_vnd / 1e12
+    if nghin_ty >= 1:
+        return f"{nghin_ty:.1f} nghìn tỷ"
+    ty = value_vnd / 1e9
+    if ty >= 1:
+        return f"{ty:.1f} tỷ"
+    trieu = value_vnd / 1e6
+    if trieu >= 1:
+        return f"{trieu:.0f} triệu"
+    return f"{value_vnd:,.0f} ₫"
