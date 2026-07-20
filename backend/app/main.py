@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.ingestion.jobs.indices import ingest_indices
 from app.ingestion.jobs.news import ingest_news
 from app.ingestion.jobs.quotes import ingest_quotes
 from app.ingestion.scheduler import start_scheduler, stop_scheduler
@@ -20,6 +21,7 @@ async def lifespan(_app: FastAPI):
     await init_db()
     await ingest_quotes(force=True)
     await ingest_news(force=True)
+    await ingest_indices(force=True)
     start_scheduler()
     yield
     stop_scheduler()

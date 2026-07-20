@@ -76,6 +76,8 @@ class StoreHealth(BaseModel):
     quotesLatestAt: str | None = None
     newsCount: int = 0
     newsLatestAt: str | None = None
+    indicesCount: int = 0
+    indicesLatestAt: str | None = None
 
 
 class JobHealth(BaseModel):

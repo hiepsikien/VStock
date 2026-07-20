@@ -43,6 +43,7 @@ import {
   upsertPriceAlert,
   type PriceAlert,
 } from '../storage/alerts';
+import { syncPriceAlertBackgroundTask } from '../tasks/priceAlertBackgroundTask';
 import type { Stock } from '../types';
 import type { NewsItem } from '../types/news';
 import { AlertSheet } from '../components/AlertSheet';
@@ -121,6 +122,7 @@ export function WatchlistScreen({ navigation }: Props) {
   const reloadAlerts = useCallback(async () => {
     const all = await loadPriceAlerts();
     setAlerts(all);
+    void syncPriceAlertBackgroundTask();
   }, []);
 
   const loadIndices = useCallback(async () => {

@@ -40,6 +40,19 @@ CREATE TABLE IF NOT EXISTS news (
 );
 
 CREATE INDEX IF NOT EXISTS idx_news_published_at ON news(published_at DESC);
+
+CREATE TABLE IF NOT EXISTS indices (
+    symbol TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    exchange TEXT NOT NULL,
+    price REAL NOT NULL,
+    change REAL NOT NULL,
+    change_percent REAL NOT NULL,
+    source TEXT NOT NULL DEFAULT 'entrade',
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_indices_updated_at ON indices(updated_at);
 """
 
 

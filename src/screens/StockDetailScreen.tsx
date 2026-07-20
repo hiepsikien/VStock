@@ -31,6 +31,7 @@ import { PriceChart } from '../components/PriceChart';
 import { colors, spacing, typography } from '../theme';
 import { isMarketOpen, marketSessionLabel, REFRESH } from '../utils/marketSession';
 import { upsertPriceAlert } from '../storage/alerts';
+import { syncPriceAlertBackgroundTask } from '../tasks/priceAlertBackgroundTask';
 import { addRecentSymbol } from '../storage/recent';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Detail'>;
@@ -335,7 +336,7 @@ export function StockDetailScreen({ navigation, route }: Props) {
             condition,
             price,
             enabled: true,
-          });
+          }).then(() => syncPriceAlertBackgroundTask());
         }}
       />
     </View>

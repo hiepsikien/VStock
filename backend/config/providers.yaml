@@ -74,3 +74,4 @@ ingestion:
   news_interval_seconds: 900
   news_market_limit: 50
   news_max_rows: 1000
+  indices_interval_seconds: 30

@@ -54,6 +54,7 @@ class IngestionSettings:
     news_interval_seconds: int
     news_market_limit: int
     news_max_rows: int
+    indices_interval_seconds: int
 
 
 def _config_path() -> Path:
@@ -122,6 +123,7 @@ def load_ingestion_settings() -> IngestionSettings:
     news_interval = int(ingestion.get("news_interval_seconds") or news.get("ttl_seconds") or 900)
     news_limit = int(ingestion.get("news_market_limit") or 50)
     news_max_rows = int(ingestion.get("news_max_rows") or 1000)
+    indices_interval = int(ingestion.get("indices_interval_seconds") or 30)
 
     return IngestionSettings(
         quote_symbols=symbols,
@@ -131,4 +133,5 @@ def load_ingestion_settings() -> IngestionSettings:
         news_interval_seconds=max(60, news_interval),
         news_market_limit=max(20, news_limit),
         news_max_rows=max(100, news_max_rows),
+        indices_interval_seconds=max(15, indices_interval),
     )

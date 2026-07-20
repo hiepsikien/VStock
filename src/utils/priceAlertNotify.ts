@@ -10,7 +10,7 @@ export function notificationsSupported(): boolean {
 
 export function alertDeliveryHint(): string {
   if (notificationsSupported()) {
-    return 'Bạn sẽ nhận thông báo khi giá chạm mức đã đặt.';
+    return 'Bạn sẽ nhận thông báo khi giá chạm mức đã đặt, kể cả khi app ở nền (development build).';
   }
   return 'Expo Go: cảnh báo hiện trong app khi mở VStock (không có push). Build riêng để có thông báo nền.';
 }
