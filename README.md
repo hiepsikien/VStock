@@ -1,0 +1,40 @@
+# VStock
+
+App chứng khoán Việt Nam (HOSE/HNX), phong cách Apple Stocks — Expo (iOS/Android) + FastAPI backend lấy data từ nguồn mở.
+
+## Chạy nhanh
+
+### 1. Backend
+
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 2. App
+
+```bash
+cp .env.example .env   # chỉnh EXPO_PUBLIC_API_URL nếu cần
+npm start
+```
+
+- Simulator iOS: `localhost:8000` ổn.
+- Device thật / Android emulator: dùng LAN IP máy (vd. `http://192.168.x.x:8000`).
+
+## API
+
+| Endpoint | Mô tả |
+|----------|--------|
+| `GET /health` | Healthcheck |
+| `GET /v1/watchlist?symbols=VNM,FPT` | Batch quotes + sparkline |
+| `GET /v1/stocks/{symbol}` | Quote + fundamentals |
+| `GET /v1/stocks/{symbol}/history?range=1D` | OHLCV closes |
+
+Nguồn: VPS (quotes), Entrade (history), VNDirect/SSI (+ KBS khi có) cho tên / vốn hóa / P/E.
+
+## Stack
+
+Expo SDK 57 · React Native · React Navigation · FastAPI · httpx

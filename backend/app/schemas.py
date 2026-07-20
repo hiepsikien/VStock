@@ -1,0 +1,60 @@
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+ChartRange = Literal["1D", "1W", "1M", "3M", "1Y", "5Y"]
+
+DEFAULT_WATCHLIST = [
+    "VNM",
+    "FPT",
+    "VIC",
+    "HPG",
+    "MWG",
+    "VCB",
+    "TCB",
+    "MBB",
+    "GAS",
+    "MSN",
+]
+
+
+class WatchlistItem(BaseModel):
+    symbol: str
+    name: str
+    exchange: str
+    price: float
+    change: float
+    changePercent: float
+    volume: int
+    currency: str = "₫"
+    sparkline: list[float] = Field(default_factory=list)
+
+
+class StockDetail(BaseModel):
+    symbol: str
+    name: str
+    exchange: str
+    price: float
+    change: float
+    changePercent: float
+    open: float
+    high: float
+    low: float
+    volume: int
+    marketCap: str
+    pe: float | None
+    currency: str = "₫"
+    sparkline: list[float] = Field(default_factory=list)
+
+
+class HistoryResponse(BaseModel):
+    symbol: str
+    range: ChartRange
+    prices: list[float]
+
+
+class HealthResponse(BaseModel):
+    status: str
+    service: str = "vstock-api"
