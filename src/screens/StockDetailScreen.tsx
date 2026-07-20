@@ -229,7 +229,6 @@ export function StockDetailScreen({ navigation, route }: Props) {
         { label: 'Cao', value: formatStatValue(stock.high) },
         { label: 'Thấp', value: formatStatValue(stock.low) },
         { label: 'Đóng cửa', value: formatStatValue(priorClose) },
-        { label: 'Tổng vốn hóa', value: stock.marketCap },
       ];
     }
     return [

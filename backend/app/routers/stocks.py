@@ -17,7 +17,6 @@ from app.schemas import (
     WatchlistItem,
 )
 from app.services import fundamentals, history, indices, market_session, quotes, symbols as symbols_service
-from app.services.index_market_cap import fetch_index_market_cap
 
 router = APIRouter(prefix="/v1")
 
@@ -134,13 +133,9 @@ async def get_stock(symbol: str) -> StockDetail:
     index_row = await indices.fetch_index(sym)
     if index_row:
         try:
-            spark, market_cap = await asyncio.gather(
-                history.fetch_sparkline(sym),
-                fetch_index_market_cap(sym),
-            )
+            spark = await history.fetch_sparkline(sym)
         except Exception:
             spark = []
-            market_cap = "—"
         price = index_row["price"]
         change = index_row["change"]
         prior_close = index_row.get("priorClose")
@@ -158,7 +153,7 @@ async def get_stock(symbol: str) -> StockDetail:
             low=index_row.get("low", price),
             priorClose=prior_close,
             volume=0,
-            marketCap=market_cap,
+            marketCap="—",
             pe=None,
             currency="",
             sparkline=spark,

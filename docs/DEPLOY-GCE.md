@@ -1,6 +1,6 @@
 # Deploy VStock Backend lên Google Cloud (GCE)
 
-> **Trạng thái:** Kế hoạch đã chốt — triển khai khi sẵn sàng.  
+> **Trạng thái:** Đã deploy production (HTTP qua External IP). HTTPS + domain — làm khi sẵn sàng.  
 > **Phương án:** Compute Engine VM + Docker Compose (không dùng Cloud Run).
 
 ---
@@ -332,14 +332,17 @@ docker compose start api
 
 ## Ghi chú khi triển khai thật
 
-Điền vào đây sau khi deploy:
-
 ```
-Project ID:     ___________________
+Project ID:     (xem: gcloud config get-value project)
 VM name:        vstock-api
 Zone:           asia-southeast1-a
-External IP:    ___________________
-Domain:         ___________________
-API URL:        https://___________________
-Deploy date:    ___________________
+External IP:    34.142.248.53
+Domain:         (chưa gắn)
+API URL:        http://34.142.248.53:8000
+App .env:       EXPO_PUBLIC_API_URL=http://34.142.248.53:8000
+Deploy date:    2026-07-20
+Backup:         cron Chủ nhật 03:00 VN → ~/backups/ (scripts/backup-sqlite.sh)
+Firewall:       allow-vstock-api (TCP 8000) + HTTP/HTTPS tags
 ```
+
+> IP ephemeral có thể đổi nếu stop/start VM — cập nhật lại dòng External IP / API URL / `.env` nếu đổi.
