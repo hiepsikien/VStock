@@ -65,10 +65,11 @@ Backend đã tách **ingestion / store / serving**. API contract `/v1/*` giữ n
 
 - Tất cả data qua `src/api/client.ts` → backend (không gọi thẳng external)
 - News cache: in-memory + AsyncStorage (15 min TTL, stale-while-revalidate)
+- Market cache: quotes, detail, history, indices — in-memory + AsyncStorage (`src/storage/marketCache.ts`)
 - User state: AsyncStorage (watchlist, alerts)
 - Polling: 30s quotes khi market open + screen focused
 - Background price alerts: `expo-background-task` (cần dev build)
-- Fallback offline: `FALLBACK_WATCHLIST` hardcoded + banner lỗi API
+- Offline: dữ liệu đã lưu trên thiết bị; `FALLBACK_WATCHLIST` chỉ khi chưa từng fetch thành công
 - Màn **Nguồn dữ liệu** (`HealthScreen`): gọi `GET /v1/health/sources`
 
 ---
@@ -304,7 +305,6 @@ async def watchlist(symbols: str, repo: QuoteRepo = Depends()):
 
 ### Chưa làm / ngoài phạm vi
 
-- [ ] Offline cache đầy đủ trên thiết bị
 - [ ] Portfolio management
 
 ---
@@ -565,6 +565,8 @@ VPS batch ──fail──▶ SSI per-symbol ──fail──▶ Entrade last cl
 | `src/hooks/useMarketPolling.ts` | Poll quotes khi focused + market open |
 | `src/hooks/usePriceAlerts.ts` | Check alerts khi stocks update |
 | `src/storage/newsCache.ts` | News cache (memory + AsyncStorage) |
+| `src/storage/marketCache.ts` | Quotes, detail, history, indices cache |
+| `src/storage/cacheUtils.ts` | Shared cache helpers + age formatting |
 | `src/storage/watchlist.ts` | Watchlist persistence |
 | `src/storage/alerts.ts` | Price alerts persistence (local) |
 | `src/utils/marketSession.ts` | VN market hours, poll intervals |

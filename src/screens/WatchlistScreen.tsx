@@ -16,8 +16,8 @@ import * as Haptics from 'expo-haptics';
 import type { RootStackParamList } from '../navigation/types';
 import {
   DEFAULT_SYMBOLS,
-  fetchMarketIndices,
-  fetchWatchlist,
+  loadMarketIndices,
+  loadWatchlist,
   loadMarketNews,
   searchMarketSymbols,
   type MarketSymbol,
@@ -25,6 +25,7 @@ import {
 import { useMarketPolling } from '../hooks/useMarketPolling';
 import { usePriceAlerts } from '../hooks/usePriceAlerts';
 import { FALLBACK_WATCHLIST } from '../data/stocks';
+import { formatCacheAge } from '../storage/cacheUtils';
 import {
   addWatchlistSymbol,
   createWatchlist,
@@ -77,13 +78,15 @@ export function WatchlistScreen({ navigation }: Props) {
   const [watchlistsState, setWatchlistsState] = useState<WatchlistsState | null>(null);
   const [symbolList, setSymbolList] = useState<string[]>(DEFAULT_SYMBOLS);
   const [pinnedSymbols, setPinnedSymbols] = useState<string[]>([]);
-  const [stocks, setStocks] = useState<Stock[]>(FALLBACK_WATCHLIST);
+  const [stocks, setStocks] = useState<Stock[]>([]);
   const [indices, setIndices] = useState<IndexQuote[]>([]);
   const [searchHits, setSearchHits] = useState<MarketSymbol[]>([]);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [usingFallback, setUsingFallback] = useState(false);
+  const [usingOfflineCache, setUsingOfflineCache] = useState(false);
+  const [cacheFetchedAt, setCacheFetchedAt] = useState<number | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [live, setLive] = useState(isMarketOpen());
   const [sort, setSort] = useState<WatchlistSort>('change');
@@ -127,13 +130,13 @@ export function WatchlistScreen({ navigation }: Props) {
     void syncPriceAlertBackgroundTask();
   }, []);
 
-  const loadIndices = useCallback(async () => {
-    try {
-      const rows = await fetchMarketIndices();
-      setIndices(rows);
-    } catch {
-      setIndices([]);
-    }
+  const loadIndices = useCallback(async (refresh = false) => {
+    await loadMarketIndices({
+      refresh,
+      onData: (rows) => {
+        setIndices(rows);
+      },
+    });
   }, []);
 
   const loadQuotes = useCallback(
@@ -147,30 +150,48 @@ export function WatchlistScreen({ navigation }: Props) {
       if (isRefresh) setRefreshing(true);
       else if (!silent) setLoading(true);
 
-      try {
-        if (symbols.length === 0) {
-          setStocks([]);
-          setUsingFallback(false);
-          return;
-        }
-        const data = await fetchWatchlist(symbols);
-        setStocks(data);
+      if (symbols.length === 0) {
+        setStocks([]);
         setUsingFallback(false);
+        setUsingOfflineCache(false);
+        setCacheFetchedAt(null);
         setApiError(null);
+        if (!silent) setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
+      try {
+        await loadWatchlist(symbols, {
+          refresh: isRefresh,
+          onData: (data, fromCache, fetchedAt) => {
+            setStocks(data);
+            if (fromCache) {
+              setUsingOfflineCache(true);
+              setCacheFetchedAt(fetchedAt ?? null);
+              if (!silent) setApiError(null);
+            } else {
+              setUsingOfflineCache(false);
+              setCacheFetchedAt(null);
+              setUsingFallback(false);
+              setApiError(null);
+            }
+            if (!silent && data.length > 0) setLoading(false);
+          },
+        });
       } catch (err) {
         const message =
           err instanceof Error ? err.message : 'Không kết nối được máy chủ';
         if (!silent) setApiError(message);
         if (!silent) {
-          if (symbols.length === 0) {
-            setStocks([]);
-          } else {
-            const fallback = FALLBACK_WATCHLIST.filter((s) =>
-              symbols.includes(s.symbol),
-            );
-            setStocks(fallback.length ? fallback : FALLBACK_WATCHLIST);
+          const fallback = FALLBACK_WATCHLIST.filter((s) =>
+            symbols.includes(s.symbol),
+          );
+          if (fallback.length) {
+            setStocks(fallback);
+            setUsingFallback(true);
+            setUsingOfflineCache(false);
           }
-          setUsingFallback(true);
         }
       } finally {
         if (!silent) setLoading(false);
@@ -407,12 +428,14 @@ export function WatchlistScreen({ navigation }: Props) {
         />
       ) : null}
 
-      {!inSearchMode && (usingFallback || apiError) ? (
+      {!inSearchMode && (usingFallback || usingOfflineCache || apiError) ? (
         <ApiStatusBanner
           message={
             usingFallback
               ? 'Không kết nối được máy chủ — đang hiển thị dữ liệu mẫu'
-              : (apiError ?? 'Không kết nối được máy chủ')
+              : usingOfflineCache
+                ? `Dữ liệu đã lưu · cập nhật ${formatCacheAge(cacheFetchedAt ?? Date.now())}`
+                : (apiError ?? 'Không kết nối được máy chủ')
           }
           onRetry={() => void loadQuotes(symbolList, { refresh: true })}
         />
@@ -430,7 +453,7 @@ export function WatchlistScreen({ navigation }: Props) {
             avgChange={stats.avgChange}
             live={live}
             sessionLabel={marketSessionLabel()}
-            offline={usingFallback}
+            offline={usingFallback || usingOfflineCache}
             indices={indices}
           />
         )

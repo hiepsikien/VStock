@@ -16,8 +16,9 @@ import type { RootStackParamList } from '../navigation/types';
 import * as WebBrowser from 'expo-web-browser';
 import type { ChartRange, Stock } from '../types';
 import type { NewsItem } from '../types/news';
-import { fetchHistory, fetchStockDetail, loadSymbolNews } from '../api/client';
+import { fetchHistory, loadHistory, loadStockDetail, loadSymbolNews } from '../api/client';
 import { AlertSheet } from '../components/AlertSheet';
+import { ApiStatusBanner } from '../components/ApiStatusBanner';
 import { NewsRow } from '../components/NewsRow';
 import { NewsRowSkeleton } from '../components/Skeleton';
 import {
@@ -33,17 +34,20 @@ import { isMarketOpen, marketSessionLabel, REFRESH } from '../utils/marketSessio
 import { upsertPriceAlert } from '../storage/alerts';
 import { syncPriceAlertBackgroundTask } from '../tasks/priceAlertBackgroundTask';
 import { addRecentSymbol } from '../storage/recent';
+import { formatCacheAge } from '../storage/cacheUtils';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Detail'>;
 
 export function StockDetailScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const symbol = route.params.symbol.toUpperCase();
-  const [stock, setStock] = useState<Stock | null>(getFallbackStock(symbol) ?? null);
+  const [stock, setStock] = useState<Stock | null>(null);
   const [range, setRange] = useState<ChartRange>('1D');
   const [rangePrices, setRangePrices] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [chartLoading, setChartLoading] = useState(false);
+  const [usingOfflineCache, setUsingOfflineCache] = useState(false);
+  const [cacheFetchedAt, setCacheFetchedAt] = useState<number | null>(null);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [newsLoading, setNewsLoading] = useState(true);
   const [live, setLive] = useState(isMarketOpen());
@@ -64,14 +68,26 @@ export function StockDetailScreen({ navigation, route }: Props) {
     async (silent = false) => {
       if (!silent) setLoading(true);
       try {
-        const detail = await fetchStockDetail(symbol);
-        applyDetail(detail);
+        await loadStockDetail(symbol, {
+          onData: (detail, fromCache, fetchedAt) => {
+            applyDetail(detail);
+            if (fromCache) {
+              setUsingOfflineCache(true);
+              setCacheFetchedAt(fetchedAt ?? null);
+            } else {
+              setUsingOfflineCache(false);
+              setCacheFetchedAt(null);
+            }
+            if (!silent) setLoading(false);
+          },
+        });
       } catch {
         if (!silent) {
           const fallback = getFallbackStock(symbol);
           if (fallback) {
             setStock(fallback);
             setRangePrices(fallback.history['1D']);
+            setUsingOfflineCache(false);
           }
         }
       } finally {
@@ -169,13 +185,20 @@ export function StockDetailScreen({ navigation, route }: Props) {
 
       setChartLoading(true);
       try {
-        const prices = await fetchHistory(symbol, next);
-        setRangePrices(prices);
-        setStock((prev) =>
-          prev
-            ? { ...prev, history: { ...prev.history, [next]: prices } }
-            : prev,
-        );
+        await loadHistory(symbol, next, {
+          onData: (prices, fromCache, fetchedAt) => {
+            setRangePrices(prices);
+            setStock((prev) =>
+              prev
+                ? { ...prev, history: { ...prev.history, [next]: prices } }
+                : prev,
+            );
+            if (fromCache) {
+              setUsingOfflineCache(true);
+              setCacheFetchedAt(fetchedAt ?? null);
+            }
+          },
+        });
       } catch {
         if (stock.history[next]?.length) {
           setRangePrices(stock.history[next]);
@@ -200,6 +223,17 @@ export function StockDetailScreen({ navigation, route }: Props) {
       { label: 'P/E', value: stock.pe != null ? stock.pe.toFixed(1) : '—' },
     ];
   }, [stock]);
+
+  if (loading && !stock) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <StatusBar style="light" />
+        <View style={styles.loading}>
+          <ActivityIndicator color={colors.positive} />
+        </View>
+      </View>
+    );
+  }
 
   if (!stock) {
     return (
@@ -238,6 +272,13 @@ export function StockDetailScreen({ navigation, route }: Props) {
           <Text style={styles.alertBtn}>Cảnh báo</Text>
         </Pressable>
       </View>
+
+      {usingOfflineCache ? (
+        <ApiStatusBanner
+          message={`Dữ liệu đã lưu · cập nhật ${formatCacheAge(cacheFetchedAt ?? Date.now())}`}
+          onRetry={() => void loadDetail(true)}
+        />
+      ) : null}
 
       {loading ? (
         <View style={styles.loading}>

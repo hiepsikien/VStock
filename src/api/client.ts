@@ -1,6 +1,20 @@
 import type { ChartRange, Stock } from '../types';
 import type { NewsItem } from '../types/news';
 import { readNewsCache, readNewsMemory, writeNewsCache } from '../storage/newsCache';
+import {
+  readDetailCache,
+  readDetailCacheStale,
+  readHistoryCache,
+  readHistoryCacheStale,
+  readIndicesCache,
+  readIndicesCacheStale,
+  readQuotesCache,
+  readQuotesCacheStale,
+  writeDetailCache,
+  writeHistoryCache,
+  writeIndicesCache,
+  writeQuotesCache,
+} from '../storage/marketCache';
 import type { IndexQuote } from '../components/WatchlistSummary';
 
 const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000').replace(
@@ -87,6 +101,30 @@ export async function fetchWatchlist(symbols: string[] = DEFAULT_SYMBOLS): Promi
   if (symbols.length === 0) return [];
 
   const qs = symbols.join(',');
+  try {
+    const rows = await apiGet<WatchlistDto[]>(`/v1/watchlist?symbols=${encodeURIComponent(qs)}`);
+    const stocks = rows.map((row) =>
+      toStock({
+        ...row,
+        open: row.price,
+        high: row.price,
+        low: row.price,
+        marketCap: '—',
+        pe: null,
+      }),
+    );
+    await writeQuotesCache(stocks);
+    return stocks;
+  } catch (err) {
+    const stale = await readQuotesCacheStale(symbols);
+    if (stale?.items.length) return stale.items;
+    throw err;
+  }
+}
+
+async function fetchWatchlistNetwork(symbols: string[]): Promise<Stock[]> {
+  if (symbols.length === 0) return [];
+  const qs = symbols.join(',');
   const rows = await apiGet<WatchlistDto[]>(`/v1/watchlist?symbols=${encodeURIComponent(qs)}`);
   return rows.map((row) =>
     toStock({
@@ -100,20 +138,162 @@ export async function fetchWatchlist(symbols: string[] = DEFAULT_SYMBOLS): Promi
   );
 }
 
-export async function fetchStockDetail(symbol: string): Promise<Stock> {
-  const detail = await apiGet<StockDetailDto>(`/v1/stocks/${encodeURIComponent(symbol)}`);
+/** Stale-while-revalidate for watchlist quotes. */
+export async function loadWatchlist(
+  symbols: string[],
+  handlers: {
+    onData: (stocks: Stock[], fromCache: boolean, fetchedAt?: number) => void;
+    refresh?: boolean;
+  },
+): Promise<void> {
+  if (symbols.length === 0) {
+    handlers.onData([], false);
+    return;
+  }
+
+  let showedCache = false;
+
+  if (!handlers.refresh) {
+    const cached = await readQuotesCache(symbols);
+    if (cached?.items.length) {
+      showedCache = true;
+      handlers.onData(cached.items, true, cached.fetchedAt);
+    }
+  }
+
+  try {
+    const stocks = await fetchWatchlistNetwork(symbols);
+    await writeQuotesCache(stocks);
+    if (!showedCache || stocks.length > 0) {
+      handlers.onData(stocks, false);
+    }
+  } catch {
+    if (!showedCache) {
+      const stale = await readQuotesCacheStale(symbols);
+      if (stale?.items.length) {
+        handlers.onData(stale.items, true, stale.fetchedAt);
+        return;
+      }
+      throw new Error('Không kết nối được máy chủ');
+    }
+  }
+}
+
+async function fetchStockDetailNetwork(symbol: string): Promise<Stock> {
+  const sym = symbol.toUpperCase();
+  const detail = await apiGet<StockDetailDto>(`/v1/stocks/${encodeURIComponent(sym)}`);
   const day = await apiGet<HistoryDto>(
-    `/v1/stocks/${encodeURIComponent(symbol)}/history?range=1D`,
-  ).catch(() => ({ symbol, range: '1D' as const, prices: detail.sparkline }));
+    `/v1/stocks/${encodeURIComponent(sym)}/history?range=1D`,
+  ).catch(() => ({ symbol: sym, range: '1D' as const, prices: detail.sparkline }));
 
   return toStock(detail, { '1D': day.prices });
 }
 
-export async function fetchHistory(symbol: string, range: ChartRange): Promise<number[]> {
+export async function fetchStockDetail(symbol: string): Promise<Stock> {
+  try {
+    const stock = await fetchStockDetailNetwork(symbol);
+    await writeDetailCache(stock);
+    await writeHistoryCache(symbol, '1D', stock.history['1D']);
+    return stock;
+  } catch (err) {
+    const stale = await readDetailCacheStale(symbol);
+    if (stale) return stale.data;
+    throw err;
+  }
+}
+
+/** Stale-while-revalidate for stock detail + 1D chart. */
+export async function loadStockDetail(
+  symbol: string,
+  handlers: {
+    onData: (stock: Stock, fromCache: boolean, fetchedAt?: number) => void;
+    refresh?: boolean;
+  },
+): Promise<void> {
+  const sym = symbol.toUpperCase();
+  let showedCache = false;
+
+  if (!handlers.refresh) {
+    const cached = await readDetailCache(sym);
+    if (cached) {
+      showedCache = true;
+      const entry = await readDetailCacheStale(sym);
+      handlers.onData(cached, true, entry?.fetchedAt);
+    }
+  }
+
+  try {
+    const stock = await fetchStockDetailNetwork(sym);
+    await writeDetailCache(stock);
+    await writeHistoryCache(sym, '1D', stock.history['1D']);
+    handlers.onData(stock, false);
+  } catch {
+    if (!showedCache) {
+      const stale = await readDetailCacheStale(sym);
+      if (stale) {
+        handlers.onData(stale.data, true, stale.fetchedAt);
+        return;
+      }
+      throw new Error('Không kết nối được máy chủ');
+    }
+  }
+}
+
+async function fetchHistoryNetwork(symbol: string, range: ChartRange): Promise<number[]> {
+  const sym = symbol.toUpperCase();
   const data = await apiGet<HistoryDto>(
-    `/v1/stocks/${encodeURIComponent(symbol)}/history?range=${range}`,
+    `/v1/stocks/${encodeURIComponent(sym)}/history?range=${range}`,
   );
   return data.prices;
+}
+
+export async function fetchHistory(symbol: string, range: ChartRange): Promise<number[]> {
+  try {
+    const prices = await fetchHistoryNetwork(symbol, range);
+    await writeHistoryCache(symbol, range, prices);
+    return prices;
+  } catch (err) {
+    const stale = await readHistoryCacheStale(symbol, range);
+    if (stale) return stale.data;
+    throw err;
+  }
+}
+
+/** Stale-while-revalidate for chart history. */
+export async function loadHistory(
+  symbol: string,
+  range: ChartRange,
+  handlers: {
+    onData: (prices: number[], fromCache: boolean, fetchedAt?: number) => void;
+    refresh?: boolean;
+  },
+): Promise<void> {
+  const sym = symbol.toUpperCase();
+  let showedCache = false;
+
+  if (!handlers.refresh) {
+    const cached = await readHistoryCache(sym, range);
+    if (cached?.length) {
+      showedCache = true;
+      const entry = await readHistoryCacheStale(sym, range);
+      handlers.onData(cached, true, entry?.fetchedAt);
+    }
+  }
+
+  try {
+    const prices = await fetchHistoryNetwork(sym, range);
+    await writeHistoryCache(sym, range, prices);
+    handlers.onData(prices, false);
+  } catch {
+    if (!showedCache) {
+      const stale = await readHistoryCacheStale(sym, range);
+      if (stale) {
+        handlers.onData(stale.data, true, stale.fetchedAt);
+        return;
+      }
+      throw new Error('Không tải được biểu đồ');
+    }
+  }
 }
 
 export type MarketSymbol = {
@@ -259,9 +439,54 @@ export function getApiUrl(): string {
   return API_URL;
 }
 
-export async function fetchMarketIndices(): Promise<IndexQuote[]> {
+async function fetchMarketIndicesNetwork(): Promise<IndexQuote[]> {
   const data = await apiGet<{ items: IndexQuote[] }>('/v1/indices');
   return data.items;
+}
+
+export async function fetchMarketIndices(): Promise<IndexQuote[]> {
+  try {
+    const items = await fetchMarketIndicesNetwork();
+    await writeIndicesCache(items);
+    return items;
+  } catch (err) {
+    const stale = await readIndicesCacheStale();
+    if (stale?.items.length) return stale.items;
+    throw err;
+  }
+}
+
+/** Stale-while-revalidate for market indices. */
+export async function loadMarketIndices(handlers: {
+  onData: (items: IndexQuote[], fromCache: boolean, fetchedAt?: number) => void;
+  refresh?: boolean;
+}): Promise<void> {
+  let showedCache = false;
+
+  if (!handlers.refresh) {
+    const cached = await readIndicesCache();
+    if (cached?.items.length) {
+      showedCache = true;
+      handlers.onData(cached.items, true, cached.fetchedAt);
+    }
+  }
+
+  try {
+    const items = await fetchMarketIndicesNetwork();
+    await writeIndicesCache(items);
+    if (!showedCache || items.length > 0) {
+      handlers.onData(items, false);
+    }
+  } catch {
+    if (!showedCache) {
+      const stale = await readIndicesCacheStale();
+      if (stale?.items.length) {
+        handlers.onData(stale.items, true, stale.fetchedAt);
+        return;
+      }
+    }
+    handlers.onData([], false);
+  }
 }
 
 export type ProviderHealth = {
