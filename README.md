@@ -49,6 +49,19 @@ Nguồn: SSI/VNDirect (danh sách mã), VPS (quotes), Entrade (history), VNDirec
 
 Ngoài giờ giao dịch: không poll tự động; kéo xuống để refresh thủ công.
 
+## Deploy backend
+
+| Tài liệu | Mô tả |
+|----------|--------|
+| **[docs/DEPLOY-GCE.md](docs/DEPLOY-GCE.md)** | **Google Cloud GCE** (kế hoạch chính — VM + Docker) |
+| [docs/DEPLOY.md](docs/DEPLOY.md) | Tổng quan: Docker Compose, Fly.io, Railway |
+
+```bash
+docker compose up -d --build   # chạy trên VM / VPS
+```
+
+Sau deploy, set `EXPO_PUBLIC_API_URL=https://your-api-url` trong `.env`.
+
 ## Stack
 
 Expo SDK 57 · React Native · React Navigation · FastAPI · httpx

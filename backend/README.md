@@ -12,7 +12,7 @@ FastAPI backend that aggregates open Vietnam market data for the Expo app.
 
 Intended for personal / educational use. Respect upstream terms and rate limits.
 
-## Run
+## Run (local)
 
 ```bash
 cd backend
@@ -21,6 +21,18 @@ source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+## Deploy (production)
+
+**Google Cloud GCE (kế hoạch chính):** **[docs/DEPLOY-GCE.md](../docs/DEPLOY-GCE.md)**
+
+Tổng quan các phương án khác (Docker, Fly.io): **[docs/DEPLOY.md](../docs/DEPLOY.md)**
+
+```bash
+docker compose up -d --build
+```
+
+SQLite path: `VSTOCK_DB_PATH` (mặc định trong container: `/data/vstock.db`).
 
 ## Endpoints
 
