@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.domain.history import ChartRange, INTRADAY_RANGE
 from app.ingestion.providers.entrade_history import fetch_history_prices
+from app.ingestion.providers.entrade_indices import INDEX_SYMBOLS, fetch_index_history_prices
 from app.repositories.history_repo import HistoryRepository
 from app.services.cache import HISTORY_TTL, cache
 
@@ -17,7 +18,10 @@ async def fetch_history(symbol: str, chart_range: ChartRange) -> list[float]:
 
     prices = await _repo.get(sym, chart_range)
     if not prices:
-        prices = await fetch_history_prices(sym, chart_range)
+        if sym in INDEX_SYMBOLS:
+            prices = await fetch_index_history_prices(sym, chart_range)
+        else:
+            prices = await fetch_history_prices(sym, chart_range)
         if prices:
             await _repo.upsert(sym, chart_range, prices)
 

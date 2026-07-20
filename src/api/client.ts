@@ -51,6 +51,7 @@ type StockDetailDto = WatchlistDto & {
   open: number;
   high: number;
   low: number;
+  priorClose?: number | null;
   marketCap: string;
   pe: number | null;
 };
@@ -81,6 +82,7 @@ function toStock(dto: StockDetailDto, history?: Partial<Record<ChartRange, numbe
     open: dto.open,
     high: dto.high,
     low: dto.low,
+    priorClose: dto.priorClose ?? null,
     volume: dto.volume,
     marketCap: dto.marketCap,
     pe: dto.pe,

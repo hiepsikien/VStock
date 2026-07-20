@@ -455,6 +455,7 @@ export function WatchlistScreen({ navigation }: Props) {
             sessionLabel={marketSessionLabel()}
             offline={usingFallback || usingOfflineCache}
             indices={indices}
+            onIndexPress={(symbol) => navigation.navigate('Detail', { symbol })}
           />
         )
       ) : null}

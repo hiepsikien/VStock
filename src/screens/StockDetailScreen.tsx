@@ -35,6 +35,7 @@ import { upsertPriceAlert } from '../storage/alerts';
 import { syncPriceAlertBackgroundTask } from '../tasks/priceAlertBackgroundTask';
 import { addRecentSymbol } from '../storage/recent';
 import { formatCacheAge } from '../storage/cacheUtils';
+import { isMarketIndex } from '../utils/marketIndices';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Detail'>;
 
@@ -106,7 +107,7 @@ export function StockDetailScreen({ navigation, route }: Props) {
     setNewsLoading(true);
 
     void loadSymbolNews(symbol, 8, {
-      onData: (items, fromCache) => {
+      onData: (items) => {
         if (cancelled) return;
         setNews(items);
         setNewsLoading(false);
@@ -134,6 +135,7 @@ export function StockDetailScreen({ navigation, route }: Props) {
 
   useFocusEffect(
     useCallback(() => {
+      if (isMarketIndex(symbol)) return;
       void addRecentSymbol(symbol);
     }, [symbol]),
   );
@@ -211,18 +213,34 @@ export function StockDetailScreen({ navigation, route }: Props) {
   );
 
   const isUp = (stock?.changePercent ?? 0) >= 0;
+  const isIndex = isMarketIndex(symbol);
+
+  const formatStatValue = useCallback(
+    (value: number) => formatPrice(value, isIndex ? '' : stock?.currency ?? '₫'),
+    [isIndex, stock?.currency],
+  );
 
   const stats = useMemo(() => {
     if (!stock) return [];
+    if (isIndex) {
+      const priorClose = stock.priorClose ?? stock.price - stock.change;
+      return [
+        { label: 'Mở cửa', value: formatStatValue(stock.open) },
+        { label: 'Cao', value: formatStatValue(stock.high) },
+        { label: 'Thấp', value: formatStatValue(stock.low) },
+        { label: 'Đóng cửa', value: formatStatValue(priorClose) },
+        { label: 'Tổng vốn hóa', value: stock.marketCap },
+      ];
+    }
     return [
-      { label: 'Mở cửa', value: formatPrice(stock.open, stock.currency) },
-      { label: 'Cao', value: formatPrice(stock.high, stock.currency) },
-      { label: 'Thấp', value: formatPrice(stock.low, stock.currency) },
+      { label: 'Mở cửa', value: formatStatValue(stock.open) },
+      { label: 'Cao', value: formatStatValue(stock.high) },
+      { label: 'Thấp', value: formatStatValue(stock.low) },
       { label: 'KL', value: formatVolume(stock.volume) },
       { label: 'Vốn hóa', value: stock.marketCap },
       { label: 'P/E', value: stock.pe != null ? stock.pe.toFixed(1) : '—' },
     ];
-  }, [stock]);
+  }, [stock, isIndex, formatStatValue]);
 
   if (loading && !stock) {
     return (
@@ -262,15 +280,19 @@ export function StockDetailScreen({ navigation, route }: Props) {
           <Text style={styles.backChevron}>‹</Text>
           <Text style={styles.backLabel}>Watchlist</Text>
         </Pressable>
-        <Pressable
-          onPress={() => {
-            void Haptics.selectionAsync();
-            setAlertOpen(true);
-          }}
-          hitSlop={8}
-        >
-          <Text style={styles.alertBtn}>Cảnh báo</Text>
-        </Pressable>
+        {!isIndex ? (
+          <Pressable
+            onPress={() => {
+              void Haptics.selectionAsync();
+              setAlertOpen(true);
+            }}
+            hitSlop={8}
+          >
+            <Text style={styles.alertBtn}>Cảnh báo</Text>
+          </Pressable>
+        ) : (
+          <View style={styles.navSpacer} />
+        )}
       </View>
 
       {usingOfflineCache ? (
@@ -297,7 +319,8 @@ export function StockDetailScreen({ navigation, route }: Props) {
               {live ? ' · live' : ` · ${marketSessionLabel()}`}
             </Text>
             <Text style={styles.price}>
-              {formatPrice(stock.price, stock.currency)} ₫
+              {formatPrice(stock.price, stock.currency)}
+              {isIndex ? '' : ' ₫'}
             </Text>
             <Text
               style={[
@@ -324,23 +347,27 @@ export function StockDetailScreen({ navigation, route }: Props) {
             ) : null}
           </View>
 
-          <View style={styles.stats}>
-            {stats.map((item, index) => (
-              <View
-                key={item.label}
-                style={[
-                  styles.statRow,
-                  index === stats.length - 1 && styles.statRowLast,
-                ]}
-              >
-                <Text style={styles.statLabel}>{item.label}</Text>
-                <Text style={styles.statValue}>{item.value}</Text>
-              </View>
-            ))}
-          </View>
+          {stats.length > 0 ? (
+            <View style={styles.stats}>
+              {stats.map((item, index) => (
+                <View
+                  key={item.label}
+                  style={[
+                    styles.statRow,
+                    index === stats.length - 1 && styles.statRowLast,
+                  ]}
+                >
+                  <Text style={styles.statLabel}>{item.label}</Text>
+                  <Text style={styles.statValue}>{item.value}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
 
           <View style={styles.newsSection}>
-            <Text style={styles.newsHeading}>Tin tức</Text>
+            <Text style={styles.newsHeading}>
+              {isIndex ? 'Tin liên quan' : 'Tin tức'}
+            </Text>
             {newsLoading ? (
               <View style={styles.newsCard}>
                 {[1, 2, 3].map((i) => (
@@ -348,7 +375,9 @@ export function StockDetailScreen({ navigation, route }: Props) {
                 ))}
               </View>
             ) : news.length === 0 ? (
-              <Text style={styles.newsEmpty}>Chưa có tin cho mã này</Text>
+              <Text style={styles.newsEmpty}>
+                {isIndex ? 'Chưa có tin liên quan đến chỉ số này' : 'Chưa có tin cho mã này'}
+              </Text>
             ) : (
               <View style={styles.newsCard}>
                 {news.map((item, index) => (
@@ -366,20 +395,22 @@ export function StockDetailScreen({ navigation, route }: Props) {
         </ScrollView>
       )}
 
-      <AlertSheet
-        visible={alertOpen}
-        symbol={stock.symbol}
-        currentPrice={stock.price}
-        onClose={() => setAlertOpen(false)}
-        onSave={(condition, price) => {
-          void upsertPriceAlert({
-            symbol: stock.symbol,
-            condition,
-            price,
-            enabled: true,
-          }).then(() => syncPriceAlertBackgroundTask());
-        }}
-      />
+      {!isIndex ? (
+        <AlertSheet
+          visible={alertOpen}
+          symbol={stock.symbol}
+          currentPrice={stock.price}
+          onClose={() => setAlertOpen(false)}
+          onSave={(condition, price) => {
+            void upsertPriceAlert({
+              symbol: stock.symbol,
+              condition,
+              price,
+              enabled: true,
+            }).then(() => syncPriceAlertBackgroundTask());
+          }}
+        />
+      ) : null}
     </View>
   );
 }
@@ -410,6 +441,9 @@ const styles = StyleSheet.create({
   backLabel: {
     color: colors.accent,
     fontSize: 17,
+  },
+  navSpacer: {
+    width: 72,
   },
   alertBtn: {
     color: colors.accent,

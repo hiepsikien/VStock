@@ -42,6 +42,7 @@ class StockDetail(BaseModel):
     open: float
     high: float
     low: float
+    priorClose: float | None = None
     volume: int
     marketCap: str
     pe: float | None

@@ -1,5 +1,6 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { formatChange, formatPercent } from '../data/stocks';
 import { colors, spacing, typography } from '../theme';
 
@@ -22,6 +23,7 @@ type Props = {
   sessionLabel: string;
   offline?: boolean;
   indices?: IndexQuote[];
+  onIndexPress?: (symbol: string) => void;
 };
 
 export function WatchlistSummary({
@@ -34,6 +36,7 @@ export function WatchlistSummary({
   sessionLabel,
   offline,
   indices = [],
+  onIndexPress,
 }: Props) {
   const upRatio = total > 0 ? gainers / total : 0;
   const downRatio = total > 0 ? losers / total : 0;
@@ -84,13 +87,22 @@ export function WatchlistSummary({
             const up = idx.changePercent >= 0;
             const tint = up ? colors.positive : colors.negative;
             return (
-              <View key={idx.symbol} style={styles.indexCard}>
+              <Pressable
+                key={idx.symbol}
+                style={styles.indexCard}
+                onPress={() => {
+                  if (!onIndexPress) return;
+                  void Haptics.selectionAsync();
+                  onIndexPress(idx.symbol);
+                }}
+                disabled={!onIndexPress}
+              >
                 <Text style={styles.indexName}>{idx.name}</Text>
                 <Text style={styles.indexPrice}>{idx.price.toFixed(2)}</Text>
                 <Text style={[styles.indexChange, { color: tint }]}>
                   {formatChange(idx.change)} ({formatPercent(idx.changePercent)})
                 </Text>
-              </View>
+              </Pressable>
             );
           })}
         </View>

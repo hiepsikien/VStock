@@ -10,6 +10,7 @@ export type Stock = {
   open: number;
   high: number;
   low: number;
+  priorClose?: number | null;
   volume: number;
   marketCap: string;
   pe: number | null;
