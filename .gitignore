@@ -45,6 +45,7 @@ yarn-error.*
 backend/.venv/
 backend/**/__pycache__/
 backend/**/*.pyc
+backend/data/
 .pytest_cache/
 
 # Editor / agent

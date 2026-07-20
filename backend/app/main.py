@@ -1,16 +1,33 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.ingestion.jobs.quotes import ingest_quotes
+from app.ingestion.scheduler import start_scheduler, stop_scheduler
 from app.routers.news import router as news_router
 from app.routers.stocks import router as stocks_router
 from app.schemas import HealthResponse
+from app.store.db import close_db, init_db
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    await init_db()
+    await ingest_quotes(force=True)
+    start_scheduler()
+    yield
+    stop_scheduler()
+    await close_db()
+
 
 app = FastAPI(
     title="VStock API",
     description="Vietnam equity data for the VStock app (quotes, history, fundamentals).",
-    version="0.1.0",
+    version="0.2.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(

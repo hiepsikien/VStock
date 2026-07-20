@@ -27,3 +27,20 @@ quotes:
       type: stale
       batch: false
       max_age_minutes: 1440
+
+# Background ingestion (Phase 2).
+ingestion:
+  quote_symbols:
+    - VNM
+    - FPT
+    - VIC
+    - HPG
+    - MWG
+    - VCB
+    - TCB
+    - MBB
+    - GAS
+    - MSN
+  quote_interval_open_seconds: 15
+  quote_interval_closed_seconds: 300
+  skip_when_market_closed: true
