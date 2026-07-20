@@ -1,9 +1,5 @@
-export type MainTabParamList = {
+export type RootStackParamList = {
   Watchlist: undefined;
   News: undefined;
-};
-
-export type RootStackParamList = {
-  Tabs: undefined;
   Detail: { symbol: string };
 };

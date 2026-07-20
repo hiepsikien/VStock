@@ -16,7 +16,7 @@ import type { RootStackParamList } from '../navigation/types';
 import * as WebBrowser from 'expo-web-browser';
 import type { ChartRange, Stock } from '../types';
 import type { NewsItem } from '../types/news';
-import { fetchHistory, fetchStockDetail, fetchSymbolNews } from '../api/client';
+import { fetchHistory, fetchStockDetail, loadSymbolNews } from '../api/client';
 import { NewsRow } from '../components/NewsRow';
 import {
   formatChange,
@@ -82,16 +82,15 @@ export function StockDetailScreen({ navigation, route }: Props) {
   useEffect(() => {
     let cancelled = false;
     setNewsLoading(true);
-    void (async () => {
-      try {
-        const items = await fetchSymbolNews(symbol, 8);
-        if (!cancelled) setNews(items);
-      } catch {
-        if (!cancelled) setNews([]);
-      } finally {
-        if (!cancelled) setNewsLoading(false);
-      }
-    })();
+
+    void loadSymbolNews(symbol, 8, {
+      onData: (items, fromCache) => {
+        if (cancelled) return;
+        setNews(items);
+        setNewsLoading(false);
+      },
+    });
+
     return () => {
       cancelled = true;
     };

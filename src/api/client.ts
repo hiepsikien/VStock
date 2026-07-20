@@ -1,5 +1,6 @@
 import type { ChartRange, Stock } from '../types';
 import type { NewsItem } from '../types/news';
+import { readNewsCache, readNewsMemory, writeNewsCache } from '../storage/newsCache';
 
 const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000').replace(
   /\/$/,
@@ -132,16 +133,123 @@ export async function searchMarketSymbols(query: string, limit = 30): Promise<Ma
   );
 }
 
-export async function fetchMarketNews(limit = 30): Promise<NewsItem[]> {
+async function readMarketNewsCache(limit: number): Promise<NewsItem[] | null> {
+  const exact = readNewsMemory(`market:${limit}`) ?? (await readNewsCache(`market:${limit}`));
+  if (exact) return exact;
+
+  if (limit > 30) {
+    const full = readNewsMemory('market:30') ?? (await readNewsCache('market:30'));
+    if (full?.length) return full.slice(0, limit);
+  }
+  if (limit > 5) {
+    const preview = readNewsMemory('market:5') ?? (await readNewsCache('market:5'));
+    if (preview?.length) return preview;
+  }
+  return null;
+}
+
+async function fetchMarketNewsNetwork(limit: number): Promise<NewsItem[]> {
   const data = await apiGet<{ items: NewsItem[] }>(`/v1/news/market?limit=${limit}`);
   return data.items;
 }
 
-export async function fetchSymbolNews(symbol: string, limit = 15): Promise<NewsItem[]> {
+async function fetchSymbolNewsNetwork(symbol: string, limit: number): Promise<NewsItem[]> {
   const data = await apiGet<{ items: NewsItem[] }>(
     `/v1/news/symbols/${encodeURIComponent(symbol)}?limit=${limit}`,
   );
   return data.items;
+}
+
+export async function fetchMarketNews(
+  limit = 30,
+  options?: { refresh?: boolean },
+): Promise<NewsItem[]> {
+  const cacheKey = `market:${limit}`;
+  if (!options?.refresh) {
+    const cached = await readMarketNewsCache(limit);
+    if (cached) return cached;
+  }
+
+  const items = await fetchMarketNewsNetwork(limit);
+  await writeNewsCache(cacheKey, items);
+  return items;
+}
+
+export async function fetchSymbolNews(
+  symbol: string,
+  limit = 15,
+  options?: { refresh?: boolean },
+): Promise<NewsItem[]> {
+  const sym = symbol.toUpperCase();
+  const cacheKey = `symbol:${sym}:${limit}`;
+  if (!options?.refresh) {
+    const cached = readNewsMemory(cacheKey) ?? (await readNewsCache(cacheKey));
+    if (cached) return cached;
+  }
+
+  const items = await fetchSymbolNewsNetwork(sym, limit);
+  await writeNewsCache(cacheKey, items);
+  return items;
+}
+
+/** Stale-while-revalidate: show cache immediately, fetch fresh in background. */
+export async function loadMarketNews(
+  limit: number,
+  handlers: {
+    onData: (items: NewsItem[], fromCache: boolean) => void;
+    refresh?: boolean;
+  },
+): Promise<void> {
+  let showedCache = false;
+
+  if (!handlers.refresh) {
+    const cached = await readMarketNewsCache(limit);
+    if (cached?.length) {
+      showedCache = true;
+      handlers.onData(cached, true);
+    }
+  }
+
+  try {
+    const items = await fetchMarketNewsNetwork(limit);
+    await writeNewsCache(`market:${limit}`, items);
+    if (!showedCache || items.length > 0) {
+      handlers.onData(items, false);
+    }
+  } catch {
+    if (!showedCache) handlers.onData([], false);
+  }
+}
+
+export async function loadSymbolNews(
+  symbol: string,
+  limit: number,
+  handlers: {
+    onData: (items: NewsItem[], fromCache: boolean) => void;
+    refresh?: boolean;
+  },
+): Promise<void> {
+  const sym = symbol.toUpperCase();
+  const cacheKey = `symbol:${sym}:${limit}`;
+  let showedCache = false;
+
+  if (!handlers.refresh) {
+    const cached = readNewsMemory(cacheKey) ?? (await readNewsCache(cacheKey));
+    if (cached?.length) {
+      showedCache = true;
+      handlers.onData(cached, true);
+    }
+  }
+
+  try {
+    const items = await fetchSymbolNewsNetwork(sym, limit);
+    await writeNewsCache(cacheKey, items);
+    if (!showedCache || items.length > 0) {
+      handlers.onData(items, false);
+    }
+  } catch {
+    if (!showedCache) handlers.onData([], false);
+  }
 }
 
 export function getApiUrl(): string {

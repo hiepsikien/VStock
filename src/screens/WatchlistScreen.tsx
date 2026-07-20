@@ -10,15 +10,15 @@ import {
   View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import * as WebBrowser from 'expo-web-browser';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { CompositeScreenProps } from '@react-navigation/native';
-import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as Haptics from 'expo-haptics';
-import type { MainTabParamList, RootStackParamList } from '../navigation/types';
+import type { RootStackParamList } from '../navigation/types';
 import {
   DEFAULT_SYMBOLS,
   fetchWatchlist,
+  loadMarketNews,
   searchMarketSymbols,
   type MarketSymbol,
 } from '../api/client';
@@ -30,6 +30,8 @@ import {
   removeWatchlistSymbol,
 } from '../storage/watchlist';
 import type { Stock } from '../types';
+import type { NewsItem } from '../types/news';
+import { NewsRow } from '../components/NewsRow';
 import { SearchResultRow } from '../components/SearchResultRow';
 import { SortChips } from '../components/SortChips';
 import { StockRow } from '../components/StockRow';
@@ -42,10 +44,9 @@ import {
   type WatchlistSort,
 } from '../utils/watchlistSort';
 
-type Props = CompositeScreenProps<
-  BottomTabScreenProps<MainTabParamList, 'Watchlist'>,
-  NativeStackScreenProps<RootStackParamList>
->;
+type Props = NativeStackScreenProps<RootStackParamList, 'Watchlist'>;
+
+const NEWS_PREVIEW_COUNT = 5;
 
 export function WatchlistScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
@@ -61,10 +62,24 @@ export function WatchlistScreen({ navigation }: Props) {
   const [sort, setSort] = useState<WatchlistSort>('change');
   const [editing, setEditing] = useState(false);
   const [addMode, setAddMode] = useState(false);
+  const [newsPreview, setNewsPreview] = useState<NewsItem[]>([]);
+  const [newsLoading, setNewsLoading] = useState(false);
   const searchSeq = useRef(0);
   const searchRef = useRef<TextInput>(null);
   const symbolListRef = useRef(symbolList);
   symbolListRef.current = symbolList;
+
+  const loadNewsPreview = useCallback(async (refresh = false) => {
+    if (!refresh) setNewsLoading(true);
+    await loadMarketNews(NEWS_PREVIEW_COUNT, {
+      refresh,
+      onData: (items, fromCache) => {
+        setNewsPreview(items);
+        if (fromCache) setNewsLoading(false);
+      },
+    });
+    setNewsLoading(false);
+  }, []);
 
   const loadQuotes = useCallback(
     async (
@@ -111,8 +126,9 @@ export function WatchlistScreen({ navigation }: Props) {
       const saved = await loadWatchlistSymbols();
       setSymbolList(saved);
       await loadQuotes(saved);
+      void loadNewsPreview();
     })();
-  }, [loadQuotes]);
+  }, [loadQuotes, loadNewsPreview]);
 
   useEffect(() => {
     if (!addMode) {
@@ -178,6 +194,24 @@ export function WatchlistScreen({ navigation }: Props) {
     [navigation],
   );
 
+  const openNewsArticle = useCallback(async (item: NewsItem) => {
+    if (item.url) {
+      await WebBrowser.openBrowserAsync(item.url, {
+        presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
+        controlsColor: colors.accent,
+      });
+      return;
+    }
+    if (item.symbols[0]) {
+      navigation.navigate('Detail', { symbol: item.symbols[0] });
+    }
+  }, [navigation]);
+
+  const onRefresh = useCallback(() => {
+    void loadQuotes(symbolList, { refresh: true });
+    void loadNewsPreview(true);
+  }, [loadQuotes, loadNewsPreview, symbolList]);
+
   const onToggleSymbol = useCallback(
     async (hit: MarketSymbol) => {
       void Haptics.selectionAsync();
@@ -204,8 +238,21 @@ export function WatchlistScreen({ navigation }: Props) {
   const listHeader = (
     <>
       <View style={styles.header}>
-        <Text style={styles.title}>Theo dõi</Text>
-        <Text style={styles.subtitle}>HOSE · HNX</Text>
+        <View style={styles.headerText}>
+          <Text style={styles.title}>Theo dõi</Text>
+          <Text style={styles.subtitle}>HOSE · HNX</Text>
+        </View>
+        {!inSearchMode ? (
+          <Pressable
+            onPress={() => {
+              void Haptics.selectionAsync();
+              navigation.navigate('News');
+            }}
+            hitSlop={8}
+          >
+            <Text style={styles.newsLink}>Tin tức</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       {!inSearchMode ? (
@@ -268,6 +315,43 @@ export function WatchlistScreen({ navigation }: Props) {
     </>
   );
 
+  const newsFooter = !inSearchMode ? (
+    <View style={styles.newsSection}>
+      <View style={styles.newsSectionHeader}>
+        <Text style={styles.sectionTitle}>Tin tức</Text>
+        <Pressable
+          onPress={() => {
+            void Haptics.selectionAsync();
+            navigation.navigate('News');
+          }}
+          hitSlop={8}
+        >
+          <Text style={styles.seeAll}>Xem tất cả</Text>
+        </Pressable>
+      </View>
+      {newsLoading && newsPreview.length === 0 ? (
+        <ActivityIndicator
+          style={styles.newsSpinner}
+          color={colors.textSecondary}
+        />
+      ) : newsPreview.length === 0 ? (
+        <Text style={styles.newsEmpty}>Chưa tải được tin tức</Text>
+      ) : (
+        <View style={styles.newsCard}>
+          {newsPreview.map((item, index) => (
+            <NewsRow
+              key={item.id}
+              item={item}
+              compact
+              isLast={index === newsPreview.length - 1}
+              onPress={(n) => void openNewsArticle(n)}
+            />
+          ))}
+        </View>
+      )}
+    </View>
+  ) : null;
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style="light" />
@@ -311,10 +395,11 @@ export function WatchlistScreen({ navigation }: Props) {
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
-              onRefresh={() => void loadQuotes(symbolList, { refresh: true })}
+              onRefresh={() => void onRefresh()}
               tintColor={colors.positive}
             />
           }
+          ListFooterComponent={newsFooter}
           ListEmptyComponent={
             <View style={styles.emptyBox}>
               <Text style={styles.emptyTitle}>Chưa có mã nào</Text>
@@ -325,7 +410,7 @@ export function WatchlistScreen({ navigation }: Props) {
           }
           renderSectionHeader={({ section: { title, data } }) =>
             data.length > 0 ? (
-              <Text style={styles.sectionTitle}>{title}</Text>
+              <Text style={styles.sectionTitleList}>{title}</Text>
             ) : null
           }
           renderItem={({ item, index, section }) => {
@@ -377,9 +462,21 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
     paddingBottom: spacing.sm,
+  },
+  headerText: {
+    flex: 1,
+  },
+  newsLink: {
+    color: colors.accent,
+    fontSize: 17,
+    fontWeight: '500',
+    paddingTop: 10,
   },
   title: {
     ...typography.largeTitle,
@@ -423,6 +520,44 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   sectionTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  newsSection: {
+    marginTop: spacing.xxl,
+    paddingBottom: spacing.lg,
+  },
+  newsSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xs,
+  },
+  seeAll: {
+    color: colors.accent,
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  newsCard: {
+    marginHorizontal: spacing.lg,
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  newsSpinner: {
+    marginVertical: spacing.lg,
+  },
+  newsEmpty: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  sectionTitleList: {
     fontSize: 13,
     fontWeight: '600',
     color: colors.textSecondary,

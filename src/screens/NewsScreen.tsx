@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -10,19 +11,15 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import * as WebBrowser from 'expo-web-browser';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
-import type { CompositeScreenProps } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { MainTabParamList, RootStackParamList } from '../navigation/types';
-import { fetchMarketNews } from '../api/client';
+import * as Haptics from 'expo-haptics';
+import type { RootStackParamList } from '../navigation/types';
+import { loadMarketNews } from '../api/client';
 import { NewsRow } from '../components/NewsRow';
 import type { NewsItem } from '../types/news';
 import { colors, spacing, typography } from '../theme';
 
-type Props = CompositeScreenProps<
-  BottomTabScreenProps<MainTabParamList, 'News'>,
-  NativeStackScreenProps<RootStackParamList>
->;
+type Props = NativeStackScreenProps<RootStackParamList, 'News'>;
 
 export function NewsScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
@@ -32,17 +29,19 @@ export function NewsScreen({ navigation }: Props) {
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
-    else setLoading(true);
-    try {
-      const data = await fetchMarketNews(30);
-      setItems(data);
-    } catch {
-      if (!isRefresh) setItems([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+    else if (items.length === 0) setLoading(true);
+
+    await loadMarketNews(30, {
+      refresh: isRefresh,
+      onData: (data, fromCache) => {
+        setItems(data);
+        if (fromCache) setLoading(false);
+      },
+    });
+
+    setLoading(false);
+    setRefreshing(false);
+  }, [items.length]);
 
   useEffect(() => {
     void load();
@@ -64,6 +63,20 @@ export function NewsScreen({ navigation }: Props) {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style="light" />
+
+      <View style={styles.nav}>
+        <Pressable
+          onPress={() => {
+            void Haptics.selectionAsync();
+            navigation.goBack();
+          }}
+          hitSlop={12}
+          style={styles.backBtn}
+        >
+          <Text style={styles.backChevron}>‹</Text>
+          <Text style={styles.backLabel}>Theo dõi</Text>
+        </Pressable>
+      </View>
 
       <View style={styles.header}>
         <Text style={styles.title}>Tin tức</Text>
@@ -112,9 +125,29 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  nav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  backBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  backChevron: {
+    color: colors.accent,
+    fontSize: 32,
+    lineHeight: 34,
+    marginRight: 2,
+    fontWeight: '300',
+  },
+  backLabel: {
+    color: colors.accent,
+    fontSize: 17,
+  },
   header: {
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
     paddingBottom: spacing.md,
   },
   title: {
