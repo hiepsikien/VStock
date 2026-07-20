@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import type { NewsFilter } from '../types/news';
 import { colors, spacing } from '../theme';
@@ -19,43 +19,52 @@ type Props = {
 
 export function NewsFilterChips({ value, onChange }: Props) {
   return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.row}
-    >
-      {OPTIONS.map((opt) => {
-        const active = value === opt.key;
-        return (
-          <Pressable
-            key={opt.key}
-            onPress={() => {
-              void Haptics.selectionAsync();
-              onChange(opt.key);
-            }}
-            style={[styles.chip, active && styles.chipActive]}
-          >
-            <Text style={[styles.chipText, active && styles.chipTextActive]}>
-              {opt.label}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </ScrollView>
+    <View style={styles.wrap}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.row}
+      >
+        {OPTIONS.map((opt) => {
+          const active = value === opt.key;
+          return (
+            <Pressable
+              key={opt.key}
+              onPress={() => {
+                void Haptics.selectionAsync();
+                onChange(opt.key);
+              }}
+              style={[styles.chip, active && styles.chipActive]}
+            >
+              <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                {opt.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  wrap: {
+    minHeight: 42,
+  },
   row: {
     paddingHorizontal: spacing.lg,
     gap: 8,
+    paddingTop: 2,
     paddingBottom: spacing.sm,
+    alignItems: 'center',
   },
   chip: {
     paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingVertical: 8,
+    minHeight: 34,
     borderRadius: 16,
     backgroundColor: colors.surface,
+    justifyContent: 'center',
   },
   chipActive: {
     backgroundColor: colors.surfaceElevated,
@@ -64,8 +73,10 @@ const styles = StyleSheet.create({
   },
   chipText: {
     fontSize: 13,
+    lineHeight: 17,
     fontWeight: '500',
     color: colors.textSecondary,
+    textAlignVertical: 'center',
   },
   chipTextActive: {
     color: colors.positive,

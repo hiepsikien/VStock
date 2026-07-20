@@ -1,6 +1,7 @@
 import React from 'react';
 import { Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { useKeyboardBottomInset } from '../hooks/useKeyboardBottomInset';
 import type { AlertCondition } from '../storage/alerts';
 import { alertDeliveryHint } from '../utils/priceAlertNotify';
 import { colors, spacing, typography } from '../theme';
@@ -14,6 +15,7 @@ type Props = {
 };
 
 export function AlertSheet({ visible, symbol, currentPrice, onClose, onSave }: Props) {
+  const keyboardInset = useKeyboardBottomInset();
   const [condition, setCondition] = React.useState<AlertCondition>('above');
   const [priceText, setPriceText] = React.useState(String(currentPrice.toFixed(2)));
 
@@ -26,59 +28,68 @@ export function AlertSheet({ visible, symbol, currentPrice, onClose, onSave }: P
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} />
-      <View style={styles.sheet}>
-        <Text style={styles.title}>Cảnh báo giá · {symbol}</Text>
-        <Text style={styles.subtitle}>Giá hiện tại: {currentPrice.toFixed(2)}</Text>
-        <Text style={styles.hint}>{alertDeliveryHint()}</Text>
+      <View style={styles.container}>
+        <Pressable style={styles.backdrop} onPress={onClose} />
+        <View style={[styles.sheet, keyboardInset > 0 && { marginBottom: keyboardInset }]}>
+          <Text style={styles.title}>Cảnh báo giá · {symbol}</Text>
+          <Text style={styles.subtitle}>Giá hiện tại: {currentPrice.toFixed(2)}</Text>
+          <Text style={styles.hint}>{alertDeliveryHint()}</Text>
 
-        <View style={styles.row}>
-          {(['above', 'below'] as AlertCondition[]).map((c) => (
-            <Pressable
-              key={c}
-              onPress={() => {
-                void Haptics.selectionAsync();
-                setCondition(c);
-              }}
-              style={[styles.chip, condition === c && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, condition === c && styles.chipTextActive]}>
-                {c === 'above' ? 'Trên mức' : 'Dưới mức'}
-              </Text>
-            </Pressable>
-          ))}
+          <View style={styles.row}>
+            {(['above', 'below'] as AlertCondition[]).map((c) => (
+              <Pressable
+                key={c}
+                onPress={() => {
+                  void Haptics.selectionAsync();
+                  setCondition(c);
+                }}
+                style={[styles.chip, condition === c && styles.chipActive]}
+              >
+                <Text style={[styles.chipText, condition === c && styles.chipTextActive]}>
+                  {c === 'above' ? 'Trên mức' : 'Dưới mức'}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <TextInput
+            value={priceText}
+            onChangeText={setPriceText}
+            keyboardType="decimal-pad"
+            placeholder="Giá mục tiêu"
+            placeholderTextColor={colors.textTertiary}
+            style={styles.input}
+          />
+
+          <Pressable
+            disabled={!valid}
+            onPress={() => {
+              if (!valid) return;
+              void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              onSave(condition, price);
+              Alert.alert(
+                'Đã lưu cảnh báo',
+                `${symbol} · ${condition === 'above' ? '≥' : '≤'} ${price.toFixed(2)}`,
+              );
+              onClose();
+            }}
+            style={[styles.saveBtn, !valid && styles.saveBtnDisabled]}
+          >
+            <Text style={styles.saveText}>Lưu cảnh báo</Text>
+          </Pressable>
         </View>
-
-        <TextInput
-          value={priceText}
-          onChangeText={setPriceText}
-          keyboardType="decimal-pad"
-          placeholder="Giá mục tiêu"
-          placeholderTextColor={colors.textTertiary}
-          style={styles.input}
-        />
-
-        <Pressable
-          disabled={!valid}
-          onPress={() => {
-            if (!valid) return;
-            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            onSave(condition, price);
-            Alert.alert('Đã lưu cảnh báo', `${symbol} · ${condition === 'above' ? '≥' : '≤'} ${price.toFixed(2)}`);
-            onClose();
-          }}
-          style={[styles.saveBtn, !valid && styles.saveBtnDisabled]}
-        >
-          <Text style={styles.saveText}>Lưu cảnh báo</Text>
-        </Pressable>
       </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
+  container: {
     flex: 1,
+    justifyContent: 'flex-end',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   sheet: {

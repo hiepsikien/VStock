@@ -88,9 +88,12 @@ export function NewsScreen({ navigation }: Props) {
         <Text style={styles.subtitle}>Chứng khoán · kinh tế Việt Nam</Text>
       </View>
 
-      <NewsFilterChips value={filter} onChange={setFilter} />
+      <View style={styles.filtersWrap}>
+        <NewsFilterChips value={filter} onChange={setFilter} />
+      </View>
 
       <ScrollView
+        style={styles.list}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.listContent,
@@ -170,11 +173,21 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: 4,
   },
+  filtersWrap: {
+    backgroundColor: colors.background,
+    zIndex: 2,
+    marginBottom: spacing.sm,
+  },
+  list: {
+    flex: 1,
+  },
   listContent: {
     flexGrow: 1,
+    paddingTop: spacing.xs,
   },
   card: {
     marginHorizontal: spacing.lg,
+    marginTop: spacing.xs,
     backgroundColor: colors.surface,
     borderRadius: 14,
     overflow: 'hidden',

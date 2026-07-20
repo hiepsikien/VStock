@@ -28,25 +28,33 @@ import { FALLBACK_WATCHLIST } from '../data/stocks';
 import {
   addWatchlistSymbol,
   createWatchlist,
+  deleteWatchlist,
   getActiveWatchlist,
   loadWatchlistsState,
+  renameWatchlist,
   removeWatchlistSymbol,
   setActiveWatchlist,
   togglePinSymbol,
   type WatchlistsState,
 } from '../storage/watchlist';
-import { upsertPriceAlert } from '../storage/alerts';
-import { loadRecentSymbols } from '../storage/recent';
+import {
+  loadPriceAlerts,
+  removePriceAlert,
+  upsertPriceAlert,
+  type PriceAlert,
+} from '../storage/alerts';
 import type { Stock } from '../types';
 import type { NewsItem } from '../types/news';
 import { AlertSheet } from '../components/AlertSheet';
+import { ManageAlertsSheet } from '../components/ManageAlertsSheet';
 import { NewsRow } from '../components/NewsRow';
 import { NewsRowSkeleton, StockRowSkeleton, SummarySkeleton } from '../components/Skeleton';
-import { RecentSymbolsRow } from '../components/RecentSymbolsRow';
+import { ManageWatchlistsSheet } from '../components/ManageWatchlistsSheet';
 import { SearchResultRow } from '../components/SearchResultRow';
 import { SortChips } from '../components/SortChips';
 import { StockRow } from '../components/StockRow';
 import { SwipeableStockRow } from '../components/SwipeableStockRow';
+import { WatchlistMenuSheet } from '../components/WatchlistMenuSheet';
 import { WatchlistPicker } from '../components/WatchlistPicker';
 import { WatchlistSummary, type IndexQuote } from '../components/WatchlistSummary';
 import { colors, spacing, typography } from '../theme';
@@ -69,7 +77,6 @@ export function WatchlistScreen({ navigation }: Props) {
   const [pinnedSymbols, setPinnedSymbols] = useState<string[]>([]);
   const [stocks, setStocks] = useState<Stock[]>(FALLBACK_WATCHLIST);
   const [indices, setIndices] = useState<IndexQuote[]>([]);
-  const [recentSymbols, setRecentSymbols] = useState<string[]>([]);
   const [searchHits, setSearchHits] = useState<MarketSymbol[]>([]);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
@@ -82,6 +89,10 @@ export function WatchlistScreen({ navigation }: Props) {
   const [newsPreview, setNewsPreview] = useState<NewsItem[]>([]);
   const [newsLoading, setNewsLoading] = useState(false);
   const [alertStock, setAlertStock] = useState<Stock | null>(null);
+  const [alerts, setAlerts] = useState<PriceAlert[]>([]);
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [manageVisible, setManageVisible] = useState(false);
+  const [manageAlertsVisible, setManageAlertsVisible] = useState(false);
   const searchSeq = useRef(0);
   const searchRef = useRef<TextInput>(null);
   const symbolListRef = useRef(symbolList);
@@ -105,6 +116,11 @@ export function WatchlistScreen({ navigation }: Props) {
       },
     });
     setNewsLoading(false);
+  }, []);
+
+  const reloadAlerts = useCallback(async () => {
+    const all = await loadPriceAlerts();
+    setAlerts(all);
   }, []);
 
   const loadIndices = useCallback(async () => {
@@ -174,10 +190,9 @@ export function WatchlistScreen({ navigation }: Props) {
       await loadQuotes(active.symbols);
       void loadNewsPreview();
       void loadIndices();
-      const recent = await loadRecentSymbols();
-      setRecentSymbols(recent);
+      void reloadAlerts();
     })();
-  }, [applyWatchlistState, loadQuotes, loadNewsPreview, loadIndices]);
+  }, [applyWatchlistState, loadQuotes, loadNewsPreview, loadIndices, reloadAlerts]);
 
   useEffect(() => {
     if (!addMode) {
@@ -238,15 +253,6 @@ export function WatchlistScreen({ navigation }: Props) {
     }
     return buildWatchlistSections(list, sort, pinnedSymbols);
   }, [addMode, query, stocks, sort, pinnedSymbols]);
-
-  const recentItems = useMemo(
-    () =>
-      recentSymbols.map((sym) => {
-        const s = stocks.find((x) => x.symbol === sym);
-        return { symbol: sym, changePercent: s?.changePercent };
-      }),
-    [recentSymbols, stocks],
-  );
 
   const activeList = watchlistsState ? getActiveWatchlist(watchlistsState) : null;
 
@@ -315,7 +321,26 @@ export function WatchlistScreen({ navigation }: Props) {
       price,
       enabled: true,
     });
-  }, [alertStock]);
+    await reloadAlerts();
+  }, [alertStock, reloadAlerts]);
+
+  const onUpdateAlertValue = useCallback(async (id: string, price: number) => {
+    const current = alerts.find((a) => a.id === id);
+    if (!current) return;
+    await upsertPriceAlert({
+      id: current.id,
+      symbol: current.symbol,
+      condition: current.condition,
+      price,
+      enabled: current.enabled,
+    });
+    await reloadAlerts();
+  }, [alerts, reloadAlerts]);
+
+  const onDeleteAlert = useCallback(async (id: string) => {
+    await removePriceAlert(id);
+    await reloadAlerts();
+  }, [reloadAlerts]);
 
   const onSelectWatchlist = useCallback(
     async (id: string) => {
@@ -333,6 +358,17 @@ export function WatchlistScreen({ navigation }: Props) {
     await loadQuotes(getActiveWatchlist(next).symbols);
   }, [applyWatchlistState, loadQuotes, watchlistsState?.lists.length]);
 
+  const onRenameWatchlist = useCallback(async (id: string, name: string) => {
+    const next = await renameWatchlist(id, name);
+    applyWatchlistState(next);
+  }, [applyWatchlistState]);
+
+  const onDeleteWatchlist = useCallback(async (id: string) => {
+    const next = await deleteWatchlist(id);
+    applyWatchlistState(next);
+    await loadQuotes(getActiveWatchlist(next).symbols);
+  }, [applyWatchlistState, loadQuotes]);
+
   const listHeader = (
     <>
       <View style={styles.header}>
@@ -344,11 +380,12 @@ export function WatchlistScreen({ navigation }: Props) {
           <Pressable
             onPress={() => {
               void Haptics.selectionAsync();
-              navigation.navigate('News');
+              setMenuVisible(true);
             }}
             hitSlop={8}
+            style={styles.menuBtn}
           >
-            <Text style={styles.newsLink}>Tin tức</Text>
+            <Text style={styles.menuDots}>⋯</Text>
           </Pressable>
         ) : null}
       </View>
@@ -378,13 +415,6 @@ export function WatchlistScreen({ navigation }: Props) {
             indices={indices}
           />
         )
-      ) : null}
-
-      {!inSearchMode ? (
-        <RecentSymbolsRow
-          items={recentItems}
-          onPress={(sym) => navigation.navigate('Detail', { symbol: sym })}
-        />
       ) : null}
 
       <View style={styles.searchWrap}>
@@ -574,7 +604,7 @@ export function WatchlistScreen({ navigation }: Props) {
             <View style={styles.emptyBox}>
               <Text style={styles.emptyTitle}>Chưa có mã nào</Text>
               <Text style={styles.empty}>
-                Gõ tên hoặc mã ở ô tìm kiếm để thêm từ toàn thị trường
+                Chạm nút + để thêm mã từ toàn thị trường HOSE / HNX
               </Text>
             </View>
           }
@@ -590,7 +620,7 @@ export function WatchlistScreen({ navigation }: Props) {
         />
       )}
 
-      {!inSearchMode && !loading && stocks.length > 0 ? (
+      {!inSearchMode && !loading ? (
         <Pressable
           style={[styles.fab, { bottom: insets.bottom + 16 }]}
           onPress={() => {
@@ -610,6 +640,36 @@ export function WatchlistScreen({ navigation }: Props) {
         currentPrice={alertStock?.price ?? 0}
         onClose={() => setAlertStock(null)}
         onSave={(condition, price) => void onSaveAlert(condition, price)}
+      />
+
+      <WatchlistMenuSheet
+        visible={menuVisible}
+        onClose={() => setMenuVisible(false)}
+        onManageWatchlists={() => {
+          setMenuVisible(false);
+          setManageVisible(true);
+        }}
+        onManageAlerts={() => {
+          setMenuVisible(false);
+          setManageAlertsVisible(true);
+        }}
+      />
+
+      <ManageWatchlistsSheet
+        visible={manageVisible}
+        lists={watchlistsState?.lists ?? []}
+        activeId={watchlistsState?.activeId ?? ''}
+        onClose={() => setManageVisible(false)}
+        onRename={onRenameWatchlist}
+        onDelete={onDeleteWatchlist}
+      />
+
+      <ManageAlertsSheet
+        visible={manageAlertsVisible}
+        alerts={alerts}
+        onClose={() => setManageAlertsVisible(false)}
+        onSave={onUpdateAlertValue}
+        onDelete={onDeleteAlert}
       />
     </View>
   );
@@ -631,11 +691,15 @@ const styles = StyleSheet.create({
   headerText: {
     flex: 1,
   },
-  newsLink: {
+  menuBtn: {
+    paddingHorizontal: spacing.sm,
+    paddingTop: spacing.xs,
+  },
+  menuDots: {
     color: colors.accent,
-    fontSize: 17,
-    fontWeight: '500',
-    paddingTop: 10,
+    fontSize: 30,
+    lineHeight: 30,
+    fontWeight: '600',
   },
   title: {
     ...typography.largeTitle,
