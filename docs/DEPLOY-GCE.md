@@ -126,7 +126,7 @@ chmod +x scripts/setup-gce-ssh.sh
 
 ```bash
 # User có repo VStock + docker (khuyến nghị deploy)
-ssh -i ~/.ssh/gce_vstock_ed25519 anh_nguyendinh_cs@34.142.248.53
+ssh -i ~/.ssh/gce_vstock_ed25519 anh_nguyendinh_cs@34.126.117.158
 
 # Hoặc qua gcloud (user = username Mac)
 gcloud compute ssh vstock-api \
@@ -377,13 +377,13 @@ DEPLOY_BRANCH=feature/companion-ai ./scripts/deploy-companion-gce.sh
 **Smoke từ Mac:**
 
 ```bash
-curl -s http://34.142.248.53:8000/v1/companion/health
-curl -s -X POST http://34.142.248.53:8000/v1/companion/chat \
+curl -s http://34.126.117.158:8000/v1/companion/health
+curl -s -X POST http://34.126.117.158:8000/v1/companion/chat \
   -H 'Content-Type: application/json' \
   -d '{"messages":[{"role":"user","content":"FPT giá bao nhiêu?"}],"stream":false,"context":{"screen":"Watchlist","watchlistSymbols":["FPT"]}}'
 ```
 
-App Expo: `EXPO_PUBLIC_DEVICE_API_URL=http://34.142.248.53:8000` (đã có trong `.env.development`).
+App Expo: `EXPO_PUBLIC_DEVICE_API_URL=http://34.126.117.158:8000` (đã có trong `.env.development`).
 
 **Local**
 
@@ -436,10 +436,10 @@ curl -s -X POST http://127.0.0.1:8000/v1/companion/nudge \
 Project ID:     (xem: gcloud config get-value project)
 VM name:        vstock-api
 Zone:           asia-southeast1-a
-External IP:    34.142.248.53
+External IP:    34.126.117.158
 Domain:         (chưa gắn)
-API URL:        http://34.142.248.53:8000
-App .env:       EXPO_PUBLIC_API_URL=http://34.142.248.53:8000
+API URL:        http://34.126.117.158:8000
+App .env:       EXPO_PUBLIC_API_URL=http://34.126.117.158:8000
 Deploy date:    2026-07-20
 Backup:         cron Chủ nhật 03:00 VN → ~/backups/ (scripts/backup-sqlite.sh)
 Firewall:       allow-vstock-api (TCP 8000) + HTTP/HTTPS tags

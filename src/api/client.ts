@@ -79,7 +79,7 @@ function resolveApiUrl(): string {
   const deviceFallback = stripTrailingSlash(
     process.env.EXPO_PUBLIC_DEVICE_API_URL ??
       process.env.EXPO_PUBLIC_API_URL_DEVICE ??
-      'http://34.142.248.53:8000',
+      'http://34.126.117.158:8000',
   );
 
   if (!__DEV__) {

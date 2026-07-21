@@ -82,7 +82,7 @@ Mở app **VStock** (icon trên máy) — không dùng Expo Go — rồi kết n
 
 API production đang bake trong profile `development` / `preview`:
 
-`EXPO_PUBLIC_API_URL=http://34.142.248.53:8000`
+`EXPO_PUBLIC_API_URL=http://34.126.117.158:8000`
 
 Đổi IP trong `eas.json` nếu VM đổi IP, rồi **rebuild** (env native bake lúc build).
 

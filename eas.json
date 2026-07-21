@@ -8,7 +8,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://34.142.248.53:8000"
+        "EXPO_PUBLIC_API_URL": "http://34.126.117.158:8000"
       }
     },
     "development-simulator": {
@@ -20,7 +20,7 @@
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://34.142.248.53:8000"
+        "EXPO_PUBLIC_API_URL": "http://34.126.117.158:8000"
       }
     },
     "production": {
