@@ -16,6 +16,7 @@ import {
   writeQuotesCache,
 } from '../storage/marketCache';
 import type { IndexQuote } from '../components/WatchlistSummary';
+import { sanitizePriceChange } from '../utils/sanitizePriceChange';
 
 const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000').replace(
   /\/$/,
@@ -72,12 +73,13 @@ async function apiGet<T>(path: string): Promise<T> {
 }
 
 function toStock(dto: StockDetailDto, history?: Partial<Record<ChartRange, number[]>>): Stock {
+  const change = sanitizePriceChange(dto.price, dto.change, dto.changePercent);
   return {
     symbol: dto.symbol,
     name: dto.name,
     exchange: dto.exchange,
     price: dto.price,
-    change: dto.change,
+    change,
     changePercent: dto.changePercent,
     open: dto.open,
     high: dto.high,
@@ -159,7 +161,14 @@ export async function loadWatchlist(
     const cached = await readQuotesCache(symbols);
     if (cached?.items.length) {
       showedCache = true;
-      handlers.onData(cached.items, true, cached.fetchedAt);
+      handlers.onData(
+        cached.items.map((stock) => ({
+          ...stock,
+          change: sanitizePriceChange(stock.price, stock.change, stock.changePercent),
+        })),
+        true,
+        cached.fetchedAt,
+      );
     }
   }
 
@@ -333,8 +342,15 @@ async function readMarketNewsCache(limit: number): Promise<NewsItem[] | null> {
   return null;
 }
 
-async function fetchMarketNewsNetwork(limit: number): Promise<NewsItem[]> {
-  const data = await apiGet<{ items: NewsItem[] }>(`/v1/news/market?limit=${limit}`);
+async function fetchMarketNewsNetwork(
+  limit: number,
+  category?: string,
+): Promise<NewsItem[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (category && category !== 'all') {
+    params.set('category', category);
+  }
+  const data = await apiGet<{ items: NewsItem[] }>(`/v1/news/market?${params.toString()}`);
   return data.items;
 }
 
@@ -347,15 +363,16 @@ async function fetchSymbolNewsNetwork(symbol: string, limit: number): Promise<Ne
 
 export async function fetchMarketNews(
   limit = 30,
-  options?: { refresh?: boolean },
+  options?: { refresh?: boolean; category?: string },
 ): Promise<NewsItem[]> {
-  const cacheKey = `market:${limit}`;
+  const category = options?.category && options.category !== 'all' ? options.category : undefined;
+  const cacheKey = `market:${limit}:${category ?? 'all'}`;
   if (!options?.refresh) {
-    const cached = await readMarketNewsCache(limit);
+    const cached = await readNewsCache(cacheKey);
     if (cached) return cached;
   }
 
-  const items = await fetchMarketNewsNetwork(limit);
+  const items = await fetchMarketNewsNetwork(limit, category);
   await writeNewsCache(cacheKey, items);
   return items;
 }
@@ -383,21 +400,31 @@ export async function loadMarketNews(
   handlers: {
     onData: (items: NewsItem[], fromCache: boolean) => void;
     refresh?: boolean;
+    category?: string;
   },
 ): Promise<void> {
+  const category =
+    handlers.category && handlers.category !== 'all' ? handlers.category : undefined;
+  const cacheKey = `market:${limit}:${category ?? 'all'}`;
   let showedCache = false;
 
   if (!handlers.refresh) {
-    const cached = await readMarketNewsCache(limit);
+    const cached = readNewsMemory(cacheKey) ?? (await readNewsCache(cacheKey));
     if (cached?.length) {
       showedCache = true;
       handlers.onData(cached, true);
+    } else if (!category) {
+      const legacy = await readMarketNewsCache(limit);
+      if (legacy?.length) {
+        showedCache = true;
+        handlers.onData(legacy, true);
+      }
     }
   }
 
   try {
-    const items = await fetchMarketNewsNetwork(limit);
-    await writeNewsCache(`market:${limit}`, items);
+    const items = await fetchMarketNewsNetwork(limit, category);
+    await writeNewsCache(cacheKey, items);
     if (!showedCache || items.length > 0) {
       handlers.onData(items, false);
     }

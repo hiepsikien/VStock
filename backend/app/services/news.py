@@ -36,18 +36,33 @@ def _filter_index_news(items: list[dict], hints: tuple[str, ...], limit: int) ->
     return matched[:limit]
 
 
-async def fetch_market_news(limit: int = 30) -> list[dict]:
-    key = f"news:market:{limit}"
+async def fetch_market_news(limit: int = 30, category: str | None = None) -> list[dict]:
+    cat = (category or "").strip() or None
+    key = f"news:market:{limit}:{cat or 'all'}"
     cached = cache.get(key)
     if cached is not None:
         return cached
 
-    items = await _repo.get_market_news(limit)
-    if len(items) < min(limit, 5):
-        articles = await get_news_registry().fetch_market_news(limit=limit)
+    items = await _repo.get_market_news(limit, category=cat)
+    need = min(limit, 5) if not cat else min(limit, 3)
+    if len(items) < need:
+        articles = await get_news_registry().fetch_market_news(limit=max(limit, 40))
         if articles:
             await _repo.upsert_many(articles)
-            items = await _repo.get_market_news(limit)
+            items = await _repo.get_market_news(limit, category=cat)
+
+    # Category still empty — fetch that VNDirect group directly.
+    if cat and len(items) < need:
+        try:
+            from app.ingestion.providers.vndirect_news import VndirectNewsProvider
+
+            provider = VndirectNewsProvider(groups=(cat,))
+            articles = await provider.fetch_market_news(limit=limit)
+            if articles:
+                await _repo.upsert_many(articles, provider="vndirect")
+                items = await _repo.get_market_news(limit, category=cat)
+        except Exception:
+            pass
 
     cache.set(key, items, NEWS_TTL)
     return items

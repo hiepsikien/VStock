@@ -34,23 +34,29 @@ export function NewsScreen({ navigation }: Props) {
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
-    else if (items.length === 0) setLoading(true);
+    else setLoading(true);
 
     await loadMarketNews(40, {
       refresh: isRefresh,
-      onData: (data, fromCache) => {
+      category: filter === 'all' ? undefined : filter,
+      onData: (data) => {
         setItems(data);
-        if (fromCache) setLoading(false);
+        setLoading(false);
       },
     });
 
     setLoading(false);
     setRefreshing(false);
-  }, [items.length]);
+  }, [filter]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const onFilterChange = useCallback((value: NewsFilter) => {
+    void Haptics.selectionAsync();
+    setFilter(value);
+  }, []);
 
   const openArticle = useCallback(async (item: NewsItem) => {
     if (item.url) {
@@ -89,7 +95,7 @@ export function NewsScreen({ navigation }: Props) {
       </View>
 
       <View style={styles.filtersWrap}>
-        <NewsFilterChips value={filter} onChange={setFilter} />
+        <NewsFilterChips value={filter} onChange={onFilterChange} />
       </View>
 
       <ScrollView

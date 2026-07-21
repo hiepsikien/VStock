@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from app.domain.news import NewsArticle
+from app.ingestion.normalizers.commodity_news import COMMODITY_TITLE_HINTS
 from app.store.db import get_db
 
 
@@ -23,19 +24,96 @@ def _row_to_dict(row) -> dict:
 
 
 class NewsRepository:
-    async def get_market_news(self, limit: int) -> list[dict]:
+    MARKET_CATEGORIES = (
+        "stock_news",
+        "macro_news",
+        "company_news",
+        "commodity_news",
+        "real_estate_news",
+        "disclosure",
+    )
+
+    async def get_market_news(self, limit: int, category: str | None = None) -> list[dict]:
         db = await get_db()
-        cursor = await db.execute(
-            """
-            SELECT id, title, summary, source, published_at, url, image_url, symbols, category
-            FROM news
-            ORDER BY published_at DESC
-            LIMIT ?
-            """,
-            (limit,),
-        )
-        rows = await cursor.fetchall()
-        return [_row_to_dict(row) for row in rows]
+        if category == "commodity_news":
+            # Include gold/oil/agri headlines that may still sit in other groups in DB.
+            clauses = ["category = ?"]
+            params: list[object] = ["commodity_news"]
+            for hint in COMMODITY_TITLE_HINTS:
+                clauses.append("LOWER(title) LIKE ?")
+                params.append(f"%{hint}%")
+            params.append(limit)
+            cursor = await db.execute(
+                f"""
+                SELECT id, title, summary, source, published_at, url, image_url, symbols, category
+                FROM news
+                WHERE {" OR ".join(clauses)}
+                ORDER BY published_at DESC
+                LIMIT ?
+                """,
+                params,
+            )
+            rows = await cursor.fetchall()
+            items = [_row_to_dict(row) for row in rows]
+            for item in items:
+                item["category"] = "commodity_news"
+            # Dedupe by id while preserving order
+            seen: set[str] = set()
+            deduped: list[dict] = []
+            for item in items:
+                if item["id"] in seen:
+                    continue
+                seen.add(item["id"])
+                deduped.append(item)
+            return deduped
+
+        if category:
+            cursor = await db.execute(
+                """
+                SELECT id, title, summary, source, published_at, url, image_url, symbols, category
+                FROM news
+                WHERE category = ?
+                ORDER BY published_at DESC
+                LIMIT ?
+                """,
+                (category, limit),
+            )
+            rows = await cursor.fetchall()
+            return [_row_to_dict(row) for row in rows]
+
+        # Stratify so quieter categories (BĐS, hàng hóa) still appear in "all".
+        per_cat = max(limit // len(self.MARKET_CATEGORIES), 2)
+        selected: list[dict] = []
+        seen_ids: set[str] = set()
+        for cat in self.MARKET_CATEGORIES:
+            cat_items = await self.get_market_news(per_cat, category=cat)
+            for item in cat_items:
+                if item["id"] in seen_ids:
+                    continue
+                selected.append(item)
+                seen_ids.add(item["id"])
+
+        if len(selected) < limit:
+            cursor = await db.execute(
+                """
+                SELECT id, title, summary, source, published_at, url, image_url, symbols, category
+                FROM news
+                ORDER BY published_at DESC
+                LIMIT ?
+                """,
+                (limit * 2,),
+            )
+            for row in await cursor.fetchall():
+                item = _row_to_dict(row)
+                if item["id"] in seen_ids:
+                    continue
+                selected.append(item)
+                seen_ids.add(item["id"])
+                if len(selected) >= limit:
+                    break
+
+        selected.sort(key=lambda item: item["publishedAt"], reverse=True)
+        return selected[:limit]
 
     async def get_symbol_news(self, symbol: str, limit: int) -> list[dict]:
         sym = symbol.upper()

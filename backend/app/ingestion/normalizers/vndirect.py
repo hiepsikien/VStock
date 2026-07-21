@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from app.domain.news import NewsArticle
+from app.ingestion.normalizers.commodity_news import looks_like_commodity
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 
@@ -24,6 +25,10 @@ def parse_vndirect_news(raw: dict) -> NewsArticle | None:
     url = str(raw.get("newsUrl") or raw.get("dstockUrl") or "").strip()
     image = str(raw.get("thumbnailUrl") or "").strip() or None
 
+    category = str(raw.get("newsGroup") or "news")
+    if category != "commodity_news" and looks_like_commodity(title, abstract):
+        category = "commodity_news"
+
     return NewsArticle(
         id=f"vnd:{news_id}" if news_id else f"vnd:{hash(title)}",
         title=title,
@@ -33,5 +38,5 @@ def parse_vndirect_news(raw: dict) -> NewsArticle | None:
         url=url,
         image_url=image,
         symbols=symbol_list,
-        category=str(raw.get("newsGroup") or "news"),
+        category=category,
     )

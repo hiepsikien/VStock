@@ -11,9 +11,10 @@ router = APIRouter(prefix="/v1/news")
 @router.get("/market", response_model=NewsResponse)
 async def get_market_news(
     limit: int = Query(default=30, ge=1, le=50),
+    category: str | None = Query(default=None),
 ) -> NewsResponse:
     try:
-        items = await news_service.fetch_market_news(limit=limit)
+        items = await news_service.fetch_market_news(limit=limit, category=category)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"News source unavailable: {exc}") from exc
     return NewsResponse(items=[NewsItem(**i) for i in items])

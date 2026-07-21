@@ -7,8 +7,8 @@ import {
   type CacheEntry,
 } from './cacheUtils';
 
-const QUOTE_PREFIX = 'vstock.quote.';
-const DETAIL_PREFIX = 'vstock.detail.';
+export const QUOTE_PREFIX = 'vstock.quote.v2.';
+const DETAIL_PREFIX = 'vstock.detail.v2.';
 const INDICES_KEY = 'market';
 const INDICES_PREFIX = 'vstock.indices.';
 const HISTORY_PREFIX = 'vstock.hist.';

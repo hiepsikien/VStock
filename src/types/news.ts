@@ -54,7 +54,7 @@ export function categoryLabel(category: string): string {
     case 'company_news':
       return 'Doanh nghiệp';
     case 'commodity_news':
-      return 'Hàng hóa';
+      return 'Vàng & hàng hóa';
     case 'real_estate_news':
       return 'Bất động sản';
     case 'disclosure':
