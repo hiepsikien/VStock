@@ -1,5 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRecentCompanionEvents, type CompanionEvent } from './behavior';
+import {
+  bondToContextDto,
+  loadCompanionBond,
+  type CompanionBond,
+} from './chatStore';
+import { DEFAULT_COMPANION_ID } from './characters';
 
 const COOLDOWN_KEY = 'vstock.companion.nudgeCooldownUntil';
 const DISMISS_KEY = 'vstock.companion.nudgeDismissedAt';
@@ -11,6 +17,7 @@ export type CompanionContextPayload = {
   watchlistSymbols?: string[];
   avgChange?: number;
   recentEvents?: CompanionEvent[];
+  bond?: ReturnType<typeof bondToContextDto>;
 };
 
 export async function getNudgeCooldownUntil(): Promise<number> {
@@ -33,10 +40,19 @@ export async function markNudgeDismissed(): Promise<void> {
 }
 
 export async function buildCompanionContext(
-  partial: Omit<CompanionContextPayload, 'recentEvents'>,
+  partial: Omit<CompanionContextPayload, 'recentEvents' | 'bond'>,
+  bondOverride?: CompanionBond | null,
 ): Promise<CompanionContextPayload> {
   const recentEvents = await getRecentCompanionEvents(20);
-  return { ...partial, recentEvents };
+  const bond =
+    bondOverride !== undefined
+      ? bondOverride
+      : await loadCompanionBond(DEFAULT_COMPANION_ID);
+  return {
+    ...partial,
+    recentEvents,
+    bond: bondToContextDto(bond),
+  };
 }
 
 export function localNudgeEligible(events: CompanionEvent[]): boolean {

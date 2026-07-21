@@ -1,6 +1,8 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { getCompanionCharacter } from '../companion/characters';
+import { CompanionAvatar } from './CompanionAvatar';
 import { colors, spacing, typography } from '../theme';
 
 type Props = {
@@ -10,9 +12,13 @@ type Props = {
 };
 
 export function CompanionNudge({ message, onReply, onDismiss }: Props) {
+  const character = getCompanionCharacter();
   return (
-    <View style={styles.wrap} accessibilityRole="summary">
-      <Text style={styles.title}>Companion</Text>
+    <View style={[styles.wrap, { borderColor: `${character.accent}73` }]} accessibilityRole="summary">
+      <View style={styles.header}>
+        <CompanionAvatar character={character} size={28} />
+        <Text style={[styles.title, { color: character.accent }]}>{character.name}</Text>
+      </View>
       <Text style={styles.body}>{message}</Text>
       <View style={styles.actions}>
         <Pressable
@@ -30,7 +36,7 @@ export function CompanionNudge({ message, onReply, onDismiss }: Props) {
             void Haptics.selectionAsync();
             onReply();
           }}
-          style={styles.btnPrimary}
+          style={[styles.btnPrimary, { backgroundColor: character.accent }]}
         >
           <Text style={styles.btnPrimaryText}>Trả lời</Text>
         </Pressable>
@@ -47,14 +53,17 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     backgroundColor: 'rgba(28,28,30,0.92)',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(10,132,255,0.45)',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
   },
   title: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
-    color: colors.accent,
-    letterSpacing: 0.4,
-    marginBottom: 6,
+    letterSpacing: 0.2,
   },
   body: {
     ...typography.body,
@@ -80,11 +89,10 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 14,
     borderRadius: 10,
-    backgroundColor: colors.accent,
   },
   btnPrimaryText: {
-    color: colors.text,
+    color: '#0B1220',
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '700',
   },
 });

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -19,19 +21,38 @@ from app.routers.companion import router as companion_router
 from app.schemas import HealthResponse
 from app.store.db import close_db, init_db
 
+logger = logging.getLogger(__name__)
+
+
+async def _bootstrap_ingest() -> None:
+    """Warm caches without blocking HTTP startup (local Companion can answer sooner)."""
+    jobs = (
+        ("quotes", ingest_quotes),
+        ("news", ingest_news),
+        ("indices", ingest_indices),
+        ("history_intraday", ingest_history_intraday),
+        ("history_daily", ingest_history_daily),
+        ("symbols", ingest_symbols),
+        ("fundamentals", ingest_fundamentals),
+    )
+    for name, job in jobs:
+        try:
+            await job(force=True)
+        except Exception:
+            logger.exception("Bootstrap ingest failed: %s", name)
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     await init_db()
-    await ingest_quotes(force=True)
-    await ingest_news(force=True)
-    await ingest_indices(force=True)
-    await ingest_history_intraday(force=True)
-    await ingest_history_daily(force=True)
-    await ingest_symbols(force=True)
-    await ingest_fundamentals(force=True)
     start_scheduler()
+    bootstrap = asyncio.create_task(_bootstrap_ingest())
     yield
+    bootstrap.cancel()
+    try:
+        await bootstrap
+    except asyncio.CancelledError:
+        pass
     stop_scheduler()
     await close_db()
 

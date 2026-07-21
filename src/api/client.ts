@@ -1,3 +1,6 @@
+import Constants from 'expo-constants';
+import * as Device from 'expo-device';
+import { Platform } from 'react-native';
 import type { ChartRange, Stock } from '../types';
 import type { NewsItem } from '../types/news';
 import { readNewsCache, readNewsMemory, writeNewsCache } from '../storage/newsCache';
@@ -18,10 +21,46 @@ import {
 import type { IndexQuote } from '../components/WatchlistSummary';
 import { sanitizePriceChange } from '../utils/sanitizePriceChange';
 
-const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000').replace(
-  /\/$/,
-  '',
-);
+/**
+ * Resolve API base URL for the current runtime.
+ * On a physical device, `localhost` is the phone itself — rewrite to the Metro
+ * host (same LAN IP as the packager) so local backend works without editing .env.
+ */
+function resolveApiUrl(): string {
+  const configured = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000').replace(
+    /\/$/,
+    '',
+  );
+  if (!__DEV__) return configured;
+
+  try {
+    const url = new URL(configured);
+    if (url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') {
+      return configured;
+    }
+    // Android emulator → host machine loopback
+    if (Platform.OS === 'android' && !Device.isDevice) {
+      url.hostname = '10.0.2.2';
+      return url.origin;
+    }
+    const hostUri =
+      Constants.expoConfig?.hostUri ??
+      Constants.manifest2?.extra?.expoClient?.hostUri ??
+      (Constants as { manifest?: { debuggerHost?: string } }).manifest?.debuggerHost;
+    if (typeof hostUri === 'string' && hostUri.length > 0) {
+      const host = hostUri.split(':')[0];
+      if (host) {
+        url.hostname = host;
+        return url.origin;
+      }
+    }
+  } catch {
+    // keep configured
+  }
+  return configured;
+}
+
+const API_URL = resolveApiUrl();
 
 export const DEFAULT_SYMBOLS = [
   'VNM',
@@ -578,6 +617,13 @@ export type CompanionContextDto = {
   watchlistSymbols?: string[];
   avgChange?: number;
   recentEvents?: Array<{ type: string; symbol?: string; ts: number; meta?: string }>;
+  bond?: {
+    firstMetAt?: number;
+    lastChatAt?: number;
+    messageCount?: number;
+    symbolsOfInterest?: string[];
+    notes?: string[];
+  };
 };
 
 export async function fetchCompanionHealth(): Promise<{ configured: boolean }> {
@@ -619,7 +665,9 @@ export async function sendCompanionChat(
   return data.message;
 }
 
-/** SSE streaming companion chat. Calls onDelta for each chunk. */
+/** SSE streaming companion chat. Calls onDelta for each chunk.
+ * On React Native, ReadableStream often yields nothing — falls back to non-stream.
+ */
 export async function streamCompanionChat(
   messages: CompanionChatMessage[],
   context: CompanionContextDto | undefined,
@@ -635,9 +683,15 @@ export async function streamCompanionChat(
     const text = await res.text().catch(() => '');
     throw new Error(`API ${res.status}: ${text || res.statusText}`);
   }
-  if (!res.body) {
-    // RN fetch may not expose body stream — fall back.
-    return sendCompanionChat(messages, context);
+
+  const fallback = async (): Promise<string> => {
+    const text = await sendCompanionChat(messages, context);
+    onReplace?.(text);
+    return text;
+  };
+
+  if (!res.body?.getReader) {
+    return fallback();
   }
 
   const reader = res.body.getReader();
@@ -677,6 +731,10 @@ export async function streamCompanionChat(
         throw err;
       }
     }
+  }
+
+  if (!assembled.trim()) {
+    return fallback();
   }
   return assembled;
 }

@@ -1,7 +1,9 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { colors, spacing } from '../theme';
+import { getCompanionCharacter } from '../companion/characters';
+import { CompanionAvatar } from './CompanionAvatar';
+import { spacing } from '../theme';
 
 type Props = {
   onPress: () => void;
@@ -11,18 +13,19 @@ type Props = {
 
 /** Floating Companion entry — left side to avoid watchlist + FAB. */
 export function CompanionFab({ onPress, badge, bottom = 24 }: Props) {
+  const character = getCompanionCharacter();
   return (
     <Pressable
       onPress={() => {
         void Haptics.selectionAsync();
         onPress();
       }}
-      style={[styles.fab, { bottom }]}
+      style={[styles.fab, { bottom, borderColor: character.accent }]}
       accessibilityRole="button"
-      accessibilityLabel="Mở Companion"
+      accessibilityLabel={`Mở chat với ${character.name}`}
     >
-      <Text style={styles.glyph}>◎</Text>
-      {badge ? <View style={styles.badge} /> : null}
+      <CompanionAvatar character={character} size={44} />
+      {badge ? <View style={[styles.badge, { backgroundColor: character.accent }]} /> : null}
     </Pressable>
   );
 }
@@ -34,30 +37,24 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: colors.surfaceElevated,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.accent,
+    borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.35,
     shadowRadius: 8,
     elevation: 5,
     zIndex: 20,
   },
-  glyph: {
-    color: colors.accent,
-    fontSize: 22,
-    fontWeight: '600',
-  },
   badge: {
     position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 9,
-    height: 9,
+    top: 2,
+    right: 2,
+    width: 10,
+    height: 10,
     borderRadius: 5,
-    backgroundColor: colors.positive,
+    borderWidth: 1.5,
+    borderColor: '#000',
   },
 });

@@ -7,23 +7,41 @@ from collections.abc import AsyncIterator
 from google import genai
 from google.genai import types
 
-SYSTEM_INSTRUCTION = """Bạn là Companion của ứng dụng VStock — người đồng hành cho nhà đầu tư chứng khoán Việt Nam.
+SYSTEM_INSTRUCTION = """Bạn là Vy — nhân vật đồng hành trong app VStock.
+
+Tính cách (bám sát, đừng phá):
+- Bạn thân ngồi cạnh nhìn bảng: gần gũi, tinh tế, hơi dí dỏm nhẹ, không “corporate”.
+- Xưng “mình”, gọi người dùng “bạn”.
+- Empathy trước: nhận cảm xúc (lo, FOMO, hưng phấn) rồi mới nói số liệu / ngữ cảnh.
+- Không emoji trừ khi user dùng trước; tối đa 1 nếu thật sự hợp.
+- Không giả lập môi giới, không khoe “chắc chắn”, không nói như chatbot CSKH.
+
+Giọng nói — Hà Nội / miền Bắc (bắt buộc):
+- Dùng từ Bắc: “thế”, “nhỉ”, “đấy”, “cơ”, “ý là”, “nhá”, “à”, “thế à”.
+- Tránh từ/miền Nam: “thiệt”, “rứa”, “hen”, “nha”, “một phát”, “rồi đó”, “đâu á”.
+- Nói như người Hà Nội trẻ nói chuyện tự nhiên, không viết văn mẫu.
+
+Bonding & trí nhớ:
+- Nếu có lịch sử chat hoặc mục [Ký ức gắn kết]: nhớ và gọi lại nhẹ (mã hay quan tâm, cảm xúc thường gặp) — như người quen, không tụng checklist.
+- Đừng chào như lần đầu nếu đã từng nói chuyện.
+- Xây dần sự tin cậy: lắng nghe, nhất quán, không phán xét.
 
 Vai trò:
-- Giải thích thị trường, chỉ số, mã, tin tức và ngữ cảnh phiên một cách rõ ràng, ngắn gọn.
-- Thể hiện empathy: lắng nghe cảm xúc (lo lắng, FOMO, hưng phấn), không phán xét.
-- Bám context người dùng gửi (watchlist, hành vi gần đây, màn hình hiện tại).
+- Giải thích thị trường VN, chỉ số, mã, tin, ngữ cảnh phiên — rõ, ngắn, dễ nuốt trên mobile.
+- Bám context app gửi (watchlist, hành vi gần đây, màn đang mở, ký ức).
 
 Cấm tuyệt đối:
-- Không tư vấn đầu tư: không bảo nên mua / bán / nắm giữ / cắt lỗ / bắt đáy bất kỳ mã nào.
-- Không đưa target price, tỷ lệ chắc chắn, hay “đảm bảo lợi nhuận”.
+- Không tư vấn đầu tư: không bảo nên mua / bán / nắm giữ / cắt lỗ / bắt đáy.
+- Không target price, tỷ lệ chắc chắn, “đảm bảo lợi nhuận”.
 - Không đóng vai bác sĩ / trị liệu lâm sàng.
 
-Khi bị hỏi “có nên mua/bán không?” hoặc tương tự:
-- Từ chối nhẹ nhàng, nhắc rằng bạn không đưa khuyến nghị.
-- Có thể giúp làm rõ thông tin, rủi ro khái niệm, hoặc khung tự quyết định của họ.
+Khi bị hỏi “có nên mua/bán không?”:
+- Từ chối nhẹ, đúng giọng Vy (không formal), nhắc mình không đưa khuyến nghị.
+- Vẫn giúp làm rõ thông tin / rủi ro khái niệm / khung tự quyết định.
 
-Giọng: tiếng Việt, gần gũi như đồng nghiệp bình tĩnh trên sàn. Trả lời ngắn trên mobile (ưu tiên 2–5 câu trừ khi user hỏi sâu).
+Độ dài:
+- Ưu tiên 2–4 câu ngắn; hỏi sâu mới dài hơn.
+- Tránh liệt kê bullet dày; viết như nói chuyện.
 """
 
 ADVICE_PATTERNS = (
@@ -37,12 +55,12 @@ ADVICE_PATTERNS = (
 )
 
 REFUSAL = (
-    "Mình không đưa khuyến nghị mua hay bán. "
-    "Bạn có thể kể mục tiêu và mức rủi ro mình tự đặt — "
-    "mình giúp làm rõ thông tin và giữ kỷ luật, còn quyết định là của bạn."
+    "Khoan đã nhá — mình không đưa lời khuyên mua hay bán đâu. "
+    "Bạn kể mục tiêu với mức rủi ro đang đặt, "
+    "mình cùng làm rõ thông tin; quyết định vẫn là của bạn."
 )
 
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3.5-flash"
 
 
 def _api_key() -> str | None:
@@ -119,6 +137,26 @@ def _format_context(context: dict | None) -> str:
             else:
                 lines.append(f"  · {ev}")
         parts.append("- Hành vi gần đây:\n" + "\n".join(lines))
+
+    bond = context.get("bond")
+    if isinstance(bond, dict) and bond:
+        parts.append("[Ký ức gắn kết với người dùng]")
+        mc = bond.get("messageCount")
+        if mc is not None:
+            parts.append(f"- Số tin đã trò chuyện: {mc}")
+        first = bond.get("firstMetAt")
+        if first:
+            parts.append(f"- quen từ (epoch ms): {first}")
+        syms = bond.get("symbolsOfInterest") or []
+        if syms:
+            parts.append(f"- Mã hay nhắc/quan tâm: {', '.join(str(s) for s in syms[:12])}")
+        notes = bond.get("notes") or []
+        if notes:
+            parts.append("- Ghi chú gắn kết:\n" + "\n".join(f"  · {n}" for n in notes[:12]))
+        parts.append(
+            "- Hãy nói như người đã quen: gọi lại ký ức nhẹ nhàng khi hợp, "
+            "không chào kiểu lần đầu, không tụng danh sách."
+        )
     return "\n".join(parts)
 
 
@@ -144,7 +182,10 @@ def build_contents(messages: list[dict], context: dict | None) -> list[types.Con
                 role="user",
                 parts=[
                     types.Part(
-                        text=f"{ctx_block}\n\nHãy chào ngắn và hỏi mình có thể giúp gì."
+                        text=(
+                            f"{ctx_block}\n\n"
+                            "Chào ngắn đúng giọng Vy và hỏi bạn đang quan tâm gì."
+                        )
                     )
                 ],
             )
@@ -157,7 +198,7 @@ async def generate_reply(messages: list[dict], context: dict | None = None) -> s
     contents = build_contents(messages, context)
     config = types.GenerateContentConfig(
         system_instruction=SYSTEM_INSTRUCTION,
-        temperature=0.7,
+        temperature=0.9,
         max_output_tokens=1024,
     )
     response = await client.aio.models.generate_content(
@@ -177,7 +218,7 @@ async def stream_reply(
     contents = build_contents(messages, context)
     config = types.GenerateContentConfig(
         system_instruction=SYSTEM_INSTRUCTION,
-        temperature=0.7,
+        temperature=0.9,
         max_output_tokens=1024,
     )
     stream = await client.aio.models.generate_content_stream(
@@ -193,8 +234,9 @@ async def stream_reply(
 
 NUDGE_SYSTEM = (
     SYSTEM_INSTRUCTION
-    + "\n\nNhiệm vụ đặc biệt: viết ĐÚNG MỘT câu ngắn (≤160 ký tự) để mở lời "
-    "dựa trên hành vi gần đây. Không hỏi nhiều câu. Không tư vấn mua/bán. "
+    + "\n\nNhiệm vụ đặc biệt: viết ĐÚNG MỘT câu ngắn (≤160 ký tự) theo giọng Vy "
+    "để mở lời dựa trên hành vi gần đây — như bạn thân ghé ngang, không salesy. "
+    "Không hỏi nhiều câu. Không tư vấn mua/bán. "
     "Nếu không có lý do rõ để mở lời, trả về đúng chữ: SKIP"
 )
 

@@ -25,6 +25,7 @@ class CompanionContext(BaseModel):
     watchlistSymbols: list[str] = Field(default_factory=list)
     avgChange: float | None = None
     recentEvents: list[dict[str, Any]] = Field(default_factory=list)
+    bond: dict[str, Any] | None = None
 
 
 class ChatRequest(BaseModel):
