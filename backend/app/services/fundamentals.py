@@ -30,6 +30,15 @@ def _age_seconds(updated_at: str | None) -> float | None:
         return None
 
 
+def _ratios_missing(row: dict | None) -> bool:
+    """Old DB rows have PE/mcap but never fetched Simplize ratio fields."""
+    if not row:
+        return False
+    if row.get("pe") is None:
+        return False
+    return row.get("eps") is None and row.get("pb") is None and row.get("roe") is None
+
+
 def _needs_refresh(row: dict | None) -> bool:
     if not row:
         return True
@@ -40,6 +49,8 @@ def _needs_refresh(row: dict | None) -> bool:
         return True
     age = _age_seconds(row.get("updatedAt") or row.get("updated_at"))
     if age is not None and age > _FUND_TTL_SECONDS:
+        return True
+    if _ratios_missing(row):
         return True
     return False
 
@@ -113,8 +124,9 @@ async def fetch_profile(symbol: str) -> dict:
 async def fetch_fundamentals(symbol: str) -> dict:
     sym = symbol.upper()
     key = f"fund:{sym}"
+    # Trust in-memory cache for the TTL even when ratios are null (avoid re-hit).
     cached = cache.get(key)
-    if cached is not None and not _needs_refresh(cached):
+    if cached is not None:
         return cached
 
     row = await _repo.get(sym)
