@@ -12,6 +12,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as WebBrowser from 'expo-web-browser';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import type { RootStackParamList } from '../navigation/types';
 import {
@@ -127,6 +128,9 @@ export function WatchlistScreen({ navigation }: Props) {
   const stocksCacheRef = useRef<Map<string, Stock[]>>(new Map());
   const symbolListRef = useRef(symbolList);
   symbolListRef.current = symbolList;
+  const watchlistsStateRef = useRef<WatchlistsState | null>(null);
+  watchlistsStateRef.current = watchlistsState;
+  const initialWatchlistLoadDone = useRef(false);
 
   const applyWatchlistState = useCallback((state: WatchlistsState) => {
     setWatchlistsState(state);
@@ -259,8 +263,29 @@ export function WatchlistScreen({ navigation }: Props) {
       void loadNewsPreview();
       void loadIndices();
       void reloadAlerts();
+      initialWatchlistLoadDone.current = true;
     })();
   }, [applyWatchlistState, loadQuotes, loadNewsPreview, loadIndices, reloadAlerts]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!initialWatchlistLoadDone.current) return;
+
+      let cancelled = false;
+      void (async () => {
+        const state = await loadWatchlistsState();
+        if (cancelled) return;
+
+        const prev = watchlistsStateRef.current;
+        if (prev && JSON.stringify(prev) === JSON.stringify(state)) return;
+        switchToWatchlist(state);
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [switchToWatchlist]),
+  );
 
   useEffect(() => {
     if (!addMode) {
