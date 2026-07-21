@@ -9,11 +9,10 @@ import {
   View,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { formatChange, formatPercent } from '../data/stocks';
+import { formatPercent } from '../data/stocks';
 import { colors, spacing, typography } from '../theme';
 import {
   formatIndexPrice,
-  isCommodityStrip,
   isIndexLikeDetail,
 } from '../utils/marketIndices';
 
@@ -40,9 +39,24 @@ type Props = {
   onIndexPress?: (symbol: string) => void;
 };
 
-const AUTO_SCROLL_MS = 3200;
-const PILL_WIDTH = 168;
-const PILL_GAP = 8;
+const AUTO_SCROLL_MS = 2800;
+const CHIP_GAP = 8;
+const STRIP_PAD = spacing.lg;
+
+function tickerLabel(idx: IndexQuote): string {
+  switch (idx.symbol.toUpperCase()) {
+    case 'VNINDEX':
+      return 'VNINDEX';
+    case 'HNX':
+      return 'HNX';
+    case 'XAU':
+      return 'Vàng';
+    case 'WTI':
+      return 'Dầu';
+    default:
+      return idx.name;
+  }
+}
 
 export function WatchlistSummary({
   total,
@@ -64,27 +78,57 @@ export function WatchlistSummary({
   const scrollRef = useRef<ScrollView>(null);
   const indexRef = useRef(0);
   const pausedRef = useRef(false);
+  const chipWidths = useRef<number[]>([]);
+  const [snapOffsets, setSnapOffsets] = useState<number[]>([]);
   const [userPaused, setUserPaused] = useState(false);
 
+  const rebuildOffsets = (count: number) => {
+    const widths = chipWidths.current;
+    if (widths.length < count || widths.some((w) => !w)) return;
+    const offsets: number[] = [];
+    let x = 0;
+    for (let i = 0; i < count; i += 1) {
+      offsets.push(x);
+      x += widths[i] + CHIP_GAP;
+    }
+    setSnapOffsets(offsets);
+  };
+
   useEffect(() => {
-    if (indices.length <= 1) return;
+    chipWidths.current = new Array(indices.length).fill(0);
+    setSnapOffsets([]);
+    indexRef.current = 0;
+  }, [indices.length]);
+
+  useEffect(() => {
+    if (indices.length <= 1 || snapOffsets.length < indices.length) return;
 
     const id = setInterval(() => {
       if (pausedRef.current || userPaused) return;
       const next = (indexRef.current + 1) % indices.length;
       indexRef.current = next;
       scrollRef.current?.scrollTo({
-        x: next * (PILL_WIDTH + PILL_GAP),
+        x: snapOffsets[next] ?? 0,
         animated: true,
       });
     }, AUTO_SCROLL_MS);
 
     return () => clearInterval(id);
-  }, [indices.length, userPaused]);
+  }, [indices.length, snapOffsets, userPaused]);
 
   const onScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const x = event.nativeEvent.contentOffset.x;
-    indexRef.current = Math.round(x / (PILL_WIDTH + PILL_GAP));
+    if (!snapOffsets.length) return;
+    let nearest = 0;
+    let best = Number.POSITIVE_INFINITY;
+    snapOffsets.forEach((offset, i) => {
+      const d = Math.abs(offset - x);
+      if (d < best) {
+        best = d;
+        nearest = i;
+      }
+    });
+    indexRef.current = nearest;
   };
 
   return (
@@ -96,7 +140,7 @@ export function WatchlistSummary({
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.indexStrip}
           style={styles.indexScroll}
-          snapToInterval={PILL_WIDTH + PILL_GAP}
+          snapToOffsets={snapOffsets.length ? snapOffsets : undefined}
           decelerationRate="fast"
           onScrollBeginDrag={() => {
             pausedRef.current = true;
@@ -104,23 +148,28 @@ export function WatchlistSummary({
           }}
           onScrollEndDrag={() => {
             pausedRef.current = false;
-            // Resume auto-scroll shortly after user finishes dragging.
             setTimeout(() => setUserPaused(false), 5000);
           }}
           onMomentumScrollEnd={onScrollEnd}
         >
-          {indices.map((idx) => {
+          {indices.map((idx, i) => {
             const up = idx.changePercent >= 0;
             const tint = up ? colors.positive : colors.negative;
             const tappable = isIndexLikeDetail(idx.symbol) && !!onIndexPress;
+            const label = tickerLabel(idx);
             return (
               <Pressable
                 key={idx.symbol}
                 style={({ pressed }) => [
-                  styles.indexPill,
-                  { width: PILL_WIDTH },
-                  pressed && tappable && styles.indexPillPressed,
+                  styles.indexChip,
+                  pressed && tappable && styles.indexChipPressed,
                 ]}
+                onLayout={(e) => {
+                  const w = e.nativeEvent.layout.width;
+                  if (chipWidths.current[i] === w) return;
+                  chipWidths.current[i] = w;
+                  rebuildOffsets(indices.length);
+                }}
                 onPress={() => {
                   if (!tappable) return;
                   void Haptics.selectionAsync();
@@ -128,56 +177,42 @@ export function WatchlistSummary({
                 }}
                 disabled={!tappable}
                 accessibilityRole={tappable ? 'button' : 'text'}
-                accessibilityLabel={`${idx.name}, ${formatIndexPrice(idx.price, idx.currency)}, ${formatPercent(idx.changePercent)}`}
+                accessibilityLabel={`${label}, ${formatIndexPrice(idx.price, idx.currency)}, ${formatPercent(idx.changePercent)}`}
               >
-                <View style={styles.indexPillTop}>
-                  <Text style={styles.indexName} numberOfLines={1}>
-                    {idx.name}
-                  </Text>
-                  <View style={[styles.pctBadge, { backgroundColor: `${tint}22` }]}>
-                    <Text style={[styles.pctBadgeText, { color: tint }]}>
-                      {formatPercent(idx.changePercent)}
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.indexPillBottom}>
-                  <Text style={styles.indexPrice} numberOfLines={1}>
-                    {formatIndexPrice(idx.price, idx.currency)}
-                  </Text>
-                  <Text style={[styles.indexChange, { color: tint }]} numberOfLines={1}>
-                    {formatChange(idx.change)}
-                  </Text>
-                </View>
-                {isCommodityStrip(idx.symbol) ? (
-                  <Text style={styles.indexUnit}>
-                    {idx.symbol === 'XAU' ? 'USD/oz' : 'USD/bbl'}
-                  </Text>
-                ) : null}
+                <Text style={styles.indexName}>{label}</Text>
+                <Text style={styles.indexPrice}>
+                  {formatIndexPrice(idx.price, idx.currency)}
+                </Text>
+                <Text style={[styles.indexPct, { color: tint }]}>
+                  {formatPercent(idx.changePercent)}
+                </Text>
               </Pressable>
             );
           })}
         </ScrollView>
       ) : null}
 
-      <View style={styles.card}>
-        <View style={styles.topRow}>
+      <View style={styles.health}>
+        <View style={styles.healthTop}>
           <View style={styles.liveWrap}>
             <View style={[styles.dot, live && styles.dotLive]} />
-            <Text style={styles.liveText}>
+            <Text style={styles.liveText} numberOfLines={1}>
               {offline ? 'Offline' : live ? 'Live · 30s' : sessionLabel}
             </Text>
+            <Text style={styles.dotSep}>·</Text>
+            <Text style={[styles.avg, { color: avgColor }]} numberOfLines={1}>
+              TB {avgChange >= 0 ? '+' : ''}
+              {avgChange.toFixed(2)}%
+            </Text>
           </View>
-          <Text style={[styles.avg, { color: avgColor }]}>
-            TB {avgChange >= 0 ? '+' : ''}
-            {avgChange.toFixed(2)}%
-          </Text>
-        </View>
-
-        <View style={styles.statsRow}>
-          <Stat label="Tăng" value={gainers} color={colors.positive} />
-          <Stat label="Giảm" value={losers} color={colors.negative} />
-          <Stat label="Đi ngang" value={flat} color={colors.textSecondary} />
-          <Stat label="Tổng" value={total} color={colors.text} />
+          <View style={styles.microStats}>
+            <Text style={[styles.microStat, { color: colors.positive }]}>
+              {gainers}↑
+            </Text>
+            <Text style={[styles.microStat, { color: colors.negative }]}>
+              {losers}↓
+            </Text>
+          </View>
         </View>
 
         <View style={styles.bar}>
@@ -200,114 +235,73 @@ export function WatchlistSummary({
   );
 }
 
-function Stat({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: number;
-  color: string;
-}) {
-  return (
-    <View style={styles.stat}>
-      <Text style={[styles.statValue, { color }]}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   wrap: {
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   indexScroll: {
     marginBottom: spacing.sm,
   },
   indexStrip: {
-    paddingHorizontal: spacing.lg,
-    gap: PILL_GAP,
+    paddingHorizontal: STRIP_PAD,
+    gap: CHIP_GAP,
+    alignItems: 'center',
   },
-  indexPill: {
-    paddingVertical: 10,
+  indexChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    height: 36,
     paddingHorizontal: 12,
-    borderRadius: 14,
+    borderRadius: 10,
     backgroundColor: colors.surface,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.separator,
   },
-  indexPillPressed: {
+  indexChipPressed: {
     opacity: 0.85,
     backgroundColor: colors.surfaceElevated,
   },
-  indexPillTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
   indexName: {
-    flex: 1,
     fontSize: 12,
     fontWeight: '600',
     color: colors.textSecondary,
-    letterSpacing: 0.2,
-  },
-  pctBadge: {
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  pctBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-  },
-  indexPillBottom: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    marginTop: 6,
-    gap: 8,
   },
   indexPrice: {
-    flexShrink: 1,
-    fontSize: 18,
+    fontSize: 13,
     fontWeight: '600',
     color: colors.text,
     fontVariant: ['tabular-nums'],
   },
-  indexChange: {
-    fontSize: 13,
-    fontWeight: '600',
+  indexPct: {
+    fontSize: 12,
+    fontWeight: '700',
     fontVariant: ['tabular-nums'],
   },
-  indexUnit: {
-    marginTop: 4,
-    fontSize: 10,
-    fontWeight: '500',
-    color: colors.textTertiary,
-  },
-  card: {
+  health: {
     marginHorizontal: spacing.lg,
-    padding: spacing.lg,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     backgroundColor: colors.surface,
-    borderRadius: 14,
+    borderRadius: 12,
   },
-  topRow: {
+  healthTop: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.md,
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 8,
   },
   liveWrap: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    minWidth: 0,
   },
   dot: {
-    width: 8,
-    height: 8,
+    width: 7,
+    height: 7,
     borderRadius: 4,
     backgroundColor: colors.textTertiary,
   },
@@ -318,36 +312,33 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textSecondary,
     fontWeight: '500',
+    flexShrink: 1,
+  },
+  dotSep: {
+    color: colors.textTertiary,
+    fontSize: 12,
   },
   avg: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     fontVariant: ['tabular-nums'],
+    flexShrink: 0,
   },
-  statsRow: {
+  microStats: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  stat: {
     alignItems: 'center',
-    minWidth: 56,
+    gap: 8,
   },
-  statValue: {
-    fontSize: 20,
-    fontWeight: '600',
+  microStat: {
+    fontSize: 13,
+    fontWeight: '700',
     fontVariant: ['tabular-nums'],
-  },
-  statLabel: {
-    ...typography.caption,
-    color: colors.textTertiary,
-    marginTop: 2,
   },
   bar: {
     flexDirection: 'row',
     height: 4,
     borderRadius: 2,
     overflow: 'hidden',
-    marginTop: spacing.md,
     backgroundColor: colors.surfaceElevated,
   },
   barSegment: {

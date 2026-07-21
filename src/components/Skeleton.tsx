@@ -54,20 +54,15 @@ export function SummarySkeleton() {
   return (
     <View style={styles.summaryWrap}>
       <View style={styles.indexStrip}>
-        <Skeleton width={156} height={64} borderRadius={14} />
-        <Skeleton width={156} height={64} borderRadius={14} />
+        <Skeleton width={168} height={36} borderRadius={10} />
+        <Skeleton width={150} height={36} borderRadius={10} />
       </View>
-      <View style={styles.summaryCard}>
-        <View style={styles.summaryTop}>
-          <Skeleton width={100} height={14} />
-          <Skeleton width={72} height={14} />
+      <View style={styles.health}>
+        <View style={styles.healthTop}>
+          <Skeleton width={140} height={12} />
+          <Skeleton width={48} height={12} />
         </View>
-        <View style={styles.summaryStats}>
-          {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} width={40} height={28} borderRadius={4} />
-          ))}
-        </View>
-        <Skeleton height={4} borderRadius={2} style={{ marginTop: spacing.md, width: '100%' }} />
+        <Skeleton height={4} borderRadius={2} style={{ width: '100%' }} />
       </View>
     </View>
   );
@@ -104,7 +99,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   summaryWrap: {
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   indexStrip: {
     flexDirection: 'row',
@@ -112,20 +107,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     marginBottom: spacing.sm,
   },
-  summaryCard: {
+  health: {
     marginHorizontal: spacing.lg,
-    padding: spacing.lg,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     backgroundColor: colors.surface,
-    borderRadius: 14,
+    borderRadius: 12,
   },
-  summaryTop: {
+  healthTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: spacing.md,
-  },
-  summaryStats: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    marginBottom: 8,
   },
   newsRow: {
     flexDirection: 'row',

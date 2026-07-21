@@ -1,6 +1,6 @@
 import type { Stock } from '../types';
 
-export type WatchlistSort = 'change' | 'symbol' | 'name';
+export type WatchlistSort = 'change' | 'symbol';
 
 export type WatchlistSection = {
   key: string;
@@ -23,8 +23,6 @@ export function sortStocks(stocks: Stock[], sort: WatchlistSort): Stock[] {
   switch (sort) {
     case 'symbol':
       return copy.sort((a, b) => a.symbol.localeCompare(b.symbol));
-    case 'name':
-      return copy.sort((a, b) => a.name.localeCompare(b.name, 'vi'));
     case 'change':
     default:
       return copy.sort((a, b) => b.changePercent - a.changePercent);

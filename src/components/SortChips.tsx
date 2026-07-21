@@ -7,7 +7,6 @@ import { colors, spacing } from '../theme';
 const OPTIONS: { key: WatchlistSort; label: string }[] = [
   { key: 'change', label: '% Thay đổi' },
   { key: 'symbol', label: 'Mã' },
-  { key: 'name', label: 'Tên' },
 ];
 
 type Props = {

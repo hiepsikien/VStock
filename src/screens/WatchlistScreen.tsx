@@ -92,6 +92,7 @@ export function WatchlistScreen({ navigation }: Props) {
   const [sort, setSort] = useState<WatchlistSort>('change');
   const [editing, setEditing] = useState(false);
   const [addMode, setAddMode] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [newsPreview, setNewsPreview] = useState<NewsItem[]>([]);
   const [newsLoading, setNewsLoading] = useState(false);
   const [alertStock, setAlertStock] = useState<Stock | null>(null);
@@ -406,16 +407,31 @@ export function WatchlistScreen({ navigation }: Props) {
           <Text style={styles.subtitle}>HOSE · HNX</Text>
         </View>
         {!inSearchMode ? (
-          <Pressable
-            onPress={() => {
-              void Haptics.selectionAsync();
-              setMenuVisible(true);
-            }}
-            hitSlop={8}
-            style={styles.menuBtn}
-          >
-            <Text style={styles.menuDots}>⋯</Text>
-          </Pressable>
+          <View style={styles.headerActions}>
+            <Pressable
+              onPress={() => {
+                void Haptics.selectionAsync();
+                setFilterOpen(true);
+                setTimeout(() => searchRef.current?.focus(), 50);
+              }}
+              hitSlop={8}
+              style={styles.headerIconBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Tìm trong danh sách"
+            >
+              <Text style={styles.searchHeaderIcon}>⌕</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                void Haptics.selectionAsync();
+                setMenuVisible(true);
+              }}
+              hitSlop={8}
+              style={styles.menuBtn}
+            >
+              <Text style={styles.menuDots}>⋯</Text>
+            </Pressable>
+          </View>
         ) : null}
       </View>
 
@@ -460,28 +476,32 @@ export function WatchlistScreen({ navigation }: Props) {
         )
       ) : null}
 
-      <View style={styles.searchWrap}>
-        <Text style={styles.searchIcon}>⌕</Text>
-        <TextInput
-          ref={searchRef}
-          value={query}
-          onChangeText={setQuery}
-          placeholder={
-            addMode ? 'Thêm mã từ HOSE / HNX…' : 'Lọc danh sách theo dõi…'
-          }
-          placeholderTextColor={colors.textTertiary}
-          style={styles.search}
-          autoCorrect={false}
-          autoCapitalize="characters"
-          clearButtonMode="while-editing"
-          onFocus={() => {
-            if (editing) setEditing(false);
-          }}
-        />
-        {addMode ? (
+      {inSearchMode || filterOpen ? (
+        <View style={styles.searchWrap}>
+          <Text style={styles.searchIcon}>⌕</Text>
+          <TextInput
+            ref={searchRef}
+            value={query}
+            onChangeText={setQuery}
+            placeholder={
+              addMode ? 'Thêm mã từ HOSE / HNX…' : 'Lọc danh sách theo dõi…'
+            }
+            placeholderTextColor={colors.textTertiary}
+            style={styles.search}
+            autoCorrect={false}
+            autoCapitalize="characters"
+            clearButtonMode="while-editing"
+            onFocus={() => {
+              if (editing) setEditing(false);
+            }}
+          />
           <Pressable
             onPress={() => {
-              setAddMode(false);
+              if (addMode) {
+                setAddMode(false);
+              } else {
+                setFilterOpen(false);
+              }
               setQuery('');
               searchRef.current?.blur();
             }}
@@ -489,8 +509,8 @@ export function WatchlistScreen({ navigation }: Props) {
           >
             <Text style={styles.cancelBtn}>Huỷ</Text>
           </Pressable>
-        ) : null}
-      </View>
+        </View>
+      ) : null}
 
       {!inSearchMode ? (
         <SortChips
@@ -668,6 +688,7 @@ export function WatchlistScreen({ navigation }: Props) {
           style={[styles.fab, { bottom: insets.bottom + 16 }]}
           onPress={() => {
             void Haptics.selectionAsync();
+            setFilterOpen(false);
             setAddMode(true);
             setQuery('');
             setTimeout(() => searchRef.current?.focus(), 50);
@@ -737,6 +758,21 @@ const styles = StyleSheet.create({
   },
   headerText: {
     flex: 1,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  headerIconBtn: {
+    paddingHorizontal: spacing.sm,
+    paddingTop: spacing.xs,
+  },
+  searchHeaderIcon: {
+    color: colors.accent,
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '500',
   },
   menuBtn: {
     paddingHorizontal: spacing.sm,
