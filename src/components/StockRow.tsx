@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { memo, useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import type { Stock } from '../types';
@@ -19,7 +19,7 @@ type Props = {
 const FLASH_MS = 280;
 const RIGHT_COL_WIDTH = 112;
 
-export function StockRow({
+function StockRowInner({
   stock,
   onPress,
   onLongPress,
@@ -143,6 +143,16 @@ export function StockRow({
     </Pressable>
   );
 }
+
+export const StockRow = memo(StockRowInner, (prev, next) =>
+  prev.stock === next.stock &&
+  prev.editing === next.editing &&
+  prev.pinned === next.pinned &&
+  prev.isLast === next.isLast &&
+  prev.onPress === next.onPress &&
+  prev.onRemove === next.onRemove &&
+  prev.onLongPress === next.onLongPress,
+);
 
 const styles = StyleSheet.create({
   row: {

@@ -75,3 +75,43 @@ export function watchlistStats(stocks: Stock[]) {
       : 0;
   return { gainers, losers, flat, avgChange, total: stocks.length };
 }
+
+function sparklinesEqual(a: number[], b: number[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+/** Preserve object identity for unchanged rows so memoized list items skip re-render. */
+export function mergeStockUpdates(prev: Stock[], incoming: Stock[]): Stock[] {
+  if (prev.length !== incoming.length) return incoming;
+
+  const prevBySymbol = new Map(prev.map((s) => [s.symbol, s]));
+  let changed = false;
+  const next: Stock[] = [];
+
+  for (const stock of incoming) {
+    const old = prevBySymbol.get(stock.symbol);
+    if (!old) {
+      changed = true;
+      next.push(stock);
+      continue;
+    }
+    if (
+      old.price === stock.price &&
+      old.change === stock.change &&
+      old.changePercent === stock.changePercent &&
+      sparklinesEqual(old.sparkline, stock.sparkline)
+    ) {
+      next.push(old);
+    } else {
+      changed = true;
+      next.push(stock);
+    }
+  }
+
+  return changed ? next : prev;
+}

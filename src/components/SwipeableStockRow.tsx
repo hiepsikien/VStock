@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { memo, useRef } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
@@ -17,7 +17,7 @@ type Props = {
   disabled?: boolean;
 };
 
-export function SwipeableStockRow({
+function SwipeableStockRowInner({
   stock,
   pinned = false,
   onPress,
@@ -98,6 +98,17 @@ export function SwipeableStockRow({
     </Swipeable>
   );
 }
+
+export const SwipeableStockRow = memo(SwipeableStockRowInner, (prev, next) =>
+  prev.stock === next.stock &&
+  prev.pinned === next.pinned &&
+  prev.isLast === next.isLast &&
+  prev.disabled === next.disabled &&
+  prev.onPress === next.onPress &&
+  prev.onPin === next.onPin &&
+  prev.onAlert === next.onAlert &&
+  prev.onRemove === next.onRemove,
+);
 
 const styles = StyleSheet.create({
   rowWrap: {
