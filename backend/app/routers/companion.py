@@ -18,11 +18,23 @@ class ChatMessage(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
 
 
+class WatchlistSummaryItem(BaseModel):
+    id: str
+    name: str
+    symbols: list[str] = Field(default_factory=list)
+
+
+class WatchlistsContext(BaseModel):
+    activeId: str
+    lists: list[WatchlistSummaryItem] = Field(default_factory=list)
+
+
 class CompanionContext(BaseModel):
     screen: str | None = None
     symbol: str | None = None
     sessionLabel: str | None = None
     watchlistSymbols: list[str] = Field(default_factory=list)
+    watchlists: WatchlistsContext | None = None
     avgChange: float | None = None
     recentEvents: list[dict[str, Any]] = Field(default_factory=list)
     bond: dict[str, Any] | None = None
@@ -44,6 +56,7 @@ class ChatResponse(BaseModel):
     bubbles: list[str] = Field(default_factory=list)
     suggestions: list[str] = Field(default_factory=list)
     bondNotes: list[str] | None = None
+    actions: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class NudgeRequest(BaseModel):
@@ -90,6 +103,7 @@ async def companion_chat(body: ChatRequest, request: Request):
             bubbles=payload.get("bubbles") or [],
             suggestions=payload.get("suggestions") or [],
             bondNotes=payload.get("bondNotes"),
+            actions=payload.get("actions") or [],
         )
 
     async def event_gen():

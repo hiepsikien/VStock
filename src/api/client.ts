@@ -693,6 +693,10 @@ export type CompanionContextDto = {
   symbol?: string;
   sessionLabel?: string;
   watchlistSymbols?: string[];
+  watchlists?: {
+    activeId: string;
+    lists: Array<{ id: string; name: string; symbols: string[] }>;
+  };
   avgChange?: number;
   recentEvents?: Array<{ type: string; symbol?: string; ts: number; meta?: string }>;
   bond?: {
@@ -737,6 +741,14 @@ export type CompanionChatResult = {
   bubbles: string[];
   suggestions: string[];
   bondNotes?: string[] | null;
+  actions?: Array<{
+    type: string;
+    symbol?: string;
+    watchlistId?: string;
+    watchlistName?: string;
+    name?: string;
+    reason?: string;
+  }>;
 };
 
 export async function sendCompanionChat(
@@ -757,6 +769,7 @@ export async function sendCompanionChat(
     bubbles?: string[];
     suggestions?: string[];
     bondNotes?: string[] | null;
+    actions?: CompanionChatResult['actions'];
   };
   const message = (data.message || '').trim();
   const bubbles = (data.bubbles || []).map((b) => b.trim()).filter(Boolean);
@@ -765,6 +778,7 @@ export async function sendCompanionChat(
     bubbles: bubbles.length ? bubbles : message ? [message] : [],
     suggestions: (data.suggestions || []).filter(Boolean).slice(0, 4),
     bondNotes: data.bondNotes ?? null,
+    actions: data.actions ?? [],
   };
 }
 

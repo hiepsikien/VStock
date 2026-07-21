@@ -10,6 +10,8 @@ import {
   type CompanionPrefs,
 } from './chatStore';
 import { DEFAULT_COMPANION_ID } from './characters';
+import { watchlistsToContext, type WatchlistsContextDto } from './watchlistActions';
+import { loadWatchlistsState } from '../storage/watchlist';
 
 const COOLDOWN_KEY = 'vstock.companion.nudgeCooldownUntil';
 const DISMISS_KEY = 'vstock.companion.nudgeDismissedAt';
@@ -21,6 +23,7 @@ export type CompanionContextPayload = {
   symbol?: string;
   sessionLabel?: string;
   watchlistSymbols?: string[];
+  watchlists?: WatchlistsContextDto;
   avgChange?: number;
   recentEvents?: CompanionEvent[];
   bond?: ReturnType<typeof bondToContextDto>;
@@ -63,8 +66,13 @@ export async function buildCompanionContext(
       ? bondOverride
       : await loadCompanionBond(DEFAULT_COMPANION_ID);
   const prefs = await loadCompanionPrefs(DEFAULT_COMPANION_ID);
+  const watchlistsState = await loadWatchlistsState();
   return {
     ...partial,
+    watchlistSymbols:
+      partial.watchlistSymbols ??
+      watchlistsState.lists.find((l) => l.id === watchlistsState.activeId)?.symbols,
+    watchlists: watchlistsToContext(watchlistsState),
     recentEvents,
     bond: bondToContextDto(bond),
     characterId: partial.characterId ?? DEFAULT_COMPANION_ID,

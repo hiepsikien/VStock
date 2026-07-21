@@ -42,6 +42,17 @@ import { CompanionAvatar } from '../components/CompanionAvatar';
 import { CompanionChatBubble } from '../components/CompanionChatBubble';
 import { CompanionProfileModal } from '../components/CompanionProfileModal';
 import { CompanionQuickReplies } from '../components/CompanionQuickReplies';
+import { CompanionWatchlistPickerSheet } from '../components/CompanionWatchlistPickerSheet';
+import {
+  suggestionForAddSymbol,
+  type CompanionWatchlistAction,
+} from '../companion/watchlistActions';
+import {
+  addSymbolToWatchlist,
+  createWatchlist,
+  loadWatchlistsState,
+  type WatchlistsState,
+} from '../storage/watchlist';
 import { colors, spacing, typography } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CompanionChat'>;
@@ -76,6 +87,8 @@ export function CompanionChatScreen({ navigation, route }: Props) {
   const [bond, setBond] = useState<CompanionBond | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [watchlistsState, setWatchlistsState] = useState<WatchlistsState | null>(null);
+  const [pickerSymbol, setPickerSymbol] = useState<string | null>(null);
   const listRef = useRef<FlatList<Bubble>>(null);
   const seeded = useRef(false);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -134,9 +147,12 @@ export function CompanionChatScreen({ navigation, route }: Props) {
     const set = new Set<string>();
     if (symbol) set.add(symbol.toUpperCase());
     for (const s of watchlistSymbols ?? []) set.add(s.toUpperCase());
+    for (const list of watchlistsState?.lists ?? []) {
+      for (const s of list.symbols) set.add(s.toUpperCase());
+    }
     for (const s of bond?.symbolsOfInterest ?? []) set.add(s.toUpperCase());
     return set;
-  }, [bond?.symbolsOfInterest, symbol, watchlistSymbols]);
+  }, [bond?.symbolsOfInterest, symbol, watchlistSymbols, watchlistsState?.lists]);
 
   const linkableSymbols = useMemo(() => {
     const set = new Set<string>();
@@ -165,10 +181,83 @@ export function CompanionChatScreen({ navigation, route }: Props) {
       chips.push(`Tin mới về ${symbol}`);
     }
     chips.push('Thị trường hôm nay thế nào?');
-    if (watchlistSymbols?.length) chips.push('Watchlist của mình ra sao?');
+    if (watchlistSymbols?.length) chips.push('Các danh sách của mình có gì?');
     chips.push('Mình đang hơi lo…');
     return chips.slice(0, 4);
   }, [symbol, watchlistSymbols]);
+
+  useEffect(() => {
+    void loadWatchlistsState().then(setWatchlistsState);
+  }, []);
+
+  const appendAssistantNote = useCallback((content: string) => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `sys-${Date.now()}`,
+        role: 'assistant',
+        content,
+        ts: Date.now(),
+      },
+    ]);
+  }, []);
+
+  const executeAddSymbol = useCallback(
+    async (sym: string, watchlistId: string) => {
+      const next = await addSymbolToWatchlist(sym, watchlistId);
+      setWatchlistsState(next);
+      const list = next.lists.find((l) => l.id === watchlistId);
+      appendAssistantNote(
+        `Xong rồi — mình đã thêm ${sym.toUpperCase()} vào “${list?.name ?? 'danh sách'}”.`,
+      );
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    },
+    [appendAssistantNote],
+  );
+
+  const executeCreateWatchlist = useCallback(
+    async (name: string, sym?: string) => {
+      let next = await createWatchlist(name);
+      if (sym) {
+        next = await addSymbolToWatchlist(sym, next.activeId);
+      }
+      setWatchlistsState(next);
+      const list = next.lists.find((l) => l.id === next.activeId);
+      appendAssistantNote(
+        sym
+          ? `Đã tạo “${list?.name ?? name}” và thêm ${sym.toUpperCase()} vào đó.`
+          : `Đã tạo danh sách “${list?.name ?? name}”.`,
+      );
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    },
+    [appendAssistantNote],
+  );
+
+  const handleWatchlistActions = useCallback(
+    (actions: CompanionWatchlistAction[]) => {
+      for (const action of actions) {
+        if (action.type === 'suggest_add_symbol') {
+          setSuggestions((prev) => {
+            const chip = suggestionForAddSymbol(action.symbol);
+            return prev.includes(chip) ? prev : [chip, ...prev].slice(0, 4);
+          });
+          continue;
+        }
+        if (action.type === 'create_watchlist') {
+          void executeCreateWatchlist(action.name, action.symbol);
+          continue;
+        }
+        if (action.type === 'add_symbol') {
+          if (action.watchlistId) {
+            void executeAddSymbol(action.symbol, action.watchlistId);
+          } else {
+            setPickerSymbol(action.symbol.toUpperCase());
+          }
+        }
+      }
+    },
+    [executeAddSymbol, executeCreateWatchlist],
+  );
 
   useEffect(() => {
     if (!ready || suggestions.length) return;
@@ -360,6 +449,10 @@ export function CompanionChatScreen({ navigation, route }: Props) {
           result.suggestions.length ? result.suggestions : defaultSuggestions(),
         );
 
+        if (result.actions?.length) {
+          handleWatchlistActions(result.actions as CompanionWatchlistAction[]);
+        }
+
         const first = parts[0];
         await revealText(first, (partial) => {
           patchAssistant(assistantId, partial, partial.length === 0);
@@ -436,6 +529,7 @@ export function CompanionChatScreen({ navigation, route }: Props) {
       busy,
       character.id,
       defaultSuggestions,
+      handleWatchlistActions,
       messages,
       patchAssistant,
       ready,
@@ -446,6 +540,18 @@ export function CompanionChatScreen({ navigation, route }: Props) {
       validSymbols,
       watchlistSymbols,
     ],
+  );
+
+  const onQuickReply = useCallback(
+    (text: string) => {
+      const m = /^Thêm\s+([A-Z]{3})\s+vào danh sách$/i.exec(text.trim());
+      if (m) {
+        setPickerSymbol(m[1].toUpperCase());
+        return;
+      }
+      void send(text);
+    },
+    [send],
   );
 
   useEffect(() => {
@@ -559,7 +665,7 @@ export function CompanionChatScreen({ navigation, route }: Props) {
           suggestions={suggestions}
           accent={character.accent}
           disabled={busy || !ready}
-          onSelect={(text) => void send(text)}
+          onSelect={(text) => void onQuickReply(text)}
         />
 
         <View style={[styles.composer, { paddingBottom: composerPad }]}>
@@ -587,6 +693,23 @@ export function CompanionChatScreen({ navigation, route }: Props) {
           </Pressable>
         </View>
       </View>
+
+      <CompanionWatchlistPickerSheet
+        visible={pickerSymbol != null}
+        symbol={pickerSymbol ?? ''}
+        lists={watchlistsState?.lists ?? []}
+        activeId={watchlistsState?.activeId ?? ''}
+        onClose={() => setPickerSymbol(null)}
+        onSelectList={(id) => {
+          if (!pickerSymbol) return;
+          void executeAddSymbol(pickerSymbol, id);
+          setPickerSymbol(null);
+        }}
+        onCreateList={(name) => {
+          void executeCreateWatchlist(name, pickerSymbol ?? undefined);
+          setPickerSymbol(null);
+        }}
+      />
     </View>
   );
 }

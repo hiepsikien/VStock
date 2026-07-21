@@ -149,14 +149,25 @@ function patchActive(
 }
 
 export async function addWatchlistSymbol(symbol: string): Promise<WatchlistsState> {
+  const state = await loadWatchlistsState();
+  return addSymbolToWatchlist(symbol, getActiveWatchlist(state).id);
+}
+
+/** Add symbol to a specific watchlist by id. */
+export async function addSymbolToWatchlist(
+  symbol: string,
+  watchlistId: string,
+): Promise<WatchlistsState> {
   const sym = symbol.toUpperCase().trim();
   const state = await loadWatchlistsState();
-  const active = getActiveWatchlist(state);
-  if (active.symbols.includes(sym)) return state;
-  const next = patchActive(state, (l) => ({
-    ...l,
-    symbols: [...l.symbols, sym],
-  }));
+  const target = state.lists.find((l) => l.id === watchlistId);
+  if (!target || target.symbols.includes(sym)) return state;
+  const next: WatchlistsState = {
+    ...state,
+    lists: state.lists.map((l) =>
+      l.id === watchlistId ? { ...l, symbols: [...l.symbols, sym] } : l,
+    ),
+  };
   await saveWatchlistsState(next);
   return next;
 }

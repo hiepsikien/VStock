@@ -514,6 +514,15 @@ async def chat_once(messages: list[dict], context: dict | None) -> dict:
     bubbles = gemini_companion.split_reply_bubbles(text)
     suggestions = gemini_companion.build_quick_suggestions(enriched, messages)
 
+    from app.services.companion_watchlist import infer_watchlist_actions
+
+    known = await _known_symbol_set()
+    actions = await infer_watchlist_actions(
+        messages,
+        enriched,
+        known_symbols=known,
+    )
+
     bond_notes = None
     bond = enriched.get("bond") if isinstance(enriched.get("bond"), dict) else None
     msg_count = int((bond or {}).get("messageCount") or 0)
@@ -525,6 +534,7 @@ async def chat_once(messages: list[dict], context: dict | None) -> dict:
         "bubbles": bubbles or [text],
         "suggestions": suggestions,
         "bondNotes": bond_notes,
+        "actions": actions,
     }
 
 

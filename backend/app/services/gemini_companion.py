@@ -98,7 +98,27 @@ def _format_context(context: dict | None) -> str:
         parts.append(f"- Phiên: {session}")
     watchlist = context.get("watchlistSymbols") or context.get("watchlist")
     if watchlist:
-        parts.append(f"- Watchlist: {', '.join(str(s) for s in watchlist[:20])}")
+        parts.append(f"- Watchlist đang xem: {', '.join(str(s) for s in watchlist[:20])}")
+
+    watchlists = context.get("watchlists")
+    if isinstance(watchlists, dict):
+        lists = watchlists.get("lists") or []
+        active_id = watchlists.get("activeId")
+        if lists:
+            parts.append("[Danh sách theo dõi của user]")
+            for item in lists[:12]:
+                if not isinstance(item, dict):
+                    continue
+                wid = item.get("id")
+                name = item.get("name") or "Danh sách"
+                syms = item.get("symbols") or []
+                active = " (đang mở)" if wid == active_id else ""
+                sym_text = ", ".join(str(s) for s in syms[:24]) if syms else "(trống)"
+                parts.append(f"  · {name}{active}: {sym_text}")
+            parts.append(
+                "- User có thể nhờ thêm mã / tạo danh sách mới. "
+                "Khi user đồng ý, app sẽ hiện chọn danh sách — bạn chỉ cần gợi ý rõ mã và tên list."
+            )
     avg = context.get("avgChange")
     if avg is not None:
         parts.append(f"- TB thay đổi watchlist: {avg}%")
