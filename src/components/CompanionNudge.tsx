@@ -9,17 +9,51 @@ type Props = {
   message: string;
   onReply: () => void;
   onDismiss: () => void;
+  /** Mood check-in chips — tap sends seed message into chat */
+  quickReplies?: string[];
+  onQuickReply?: (text: string) => void;
 };
 
-export function CompanionNudge({ message, onReply, onDismiss }: Props) {
+export function CompanionNudge({
+  message,
+  onReply,
+  onDismiss,
+  quickReplies,
+  onQuickReply,
+}: Props) {
   const character = getCompanionCharacter();
+  const hasChips = Boolean(quickReplies?.length && onQuickReply);
+
   return (
-    <View style={[styles.wrap, { borderColor: `${character.accent}73` }]} accessibilityRole="summary">
+    <View
+      style={[styles.wrap, { borderColor: `${character.accent}73` }]}
+      accessibilityRole="summary"
+    >
       <View style={styles.header}>
         <CompanionAvatar character={character} size={28} />
-        <Text style={[styles.title, { color: character.accent }]}>{character.name}</Text>
+        <Text style={[styles.title, { color: character.accent }]}>
+          {character.name}
+        </Text>
       </View>
       <Text style={styles.body}>{message}</Text>
+      {hasChips ? (
+        <View style={styles.chips}>
+          {quickReplies!.map((chip) => (
+            <Pressable
+              key={chip}
+              onPress={() => {
+                void Haptics.selectionAsync();
+                onQuickReply!(chip);
+              }}
+              style={[styles.chip, { borderColor: `${character.accent}55` }]}
+            >
+              <Text style={[styles.chipText, { color: character.accent }]}>
+                {chip}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
       <View style={styles.actions}>
         <Pressable
           onPress={() => {
@@ -31,15 +65,17 @@ export function CompanionNudge({ message, onReply, onDismiss }: Props) {
         >
           <Text style={styles.btnGhostText}>Bỏ qua</Text>
         </Pressable>
-        <Pressable
-          onPress={() => {
-            void Haptics.selectionAsync();
-            onReply();
-          }}
-          style={[styles.btnPrimary, { backgroundColor: character.accent }]}
-        >
-          <Text style={styles.btnPrimaryText}>Trả lời</Text>
-        </Pressable>
+        {!hasChips ? (
+          <Pressable
+            onPress={() => {
+              void Haptics.selectionAsync();
+              onReply();
+            }}
+            style={[styles.btnPrimary, { backgroundColor: character.accent }]}
+          >
+            <Text style={styles.btnPrimaryText}>Trả lời</Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -69,6 +105,23 @@ const styles = StyleSheet.create({
     ...typography.body,
     color: colors.text,
     lineHeight: 20,
+  },
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: spacing.sm,
+  },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    backgroundColor: colors.surface,
+  },
+  chipText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
   actions: {
     flexDirection: 'row',

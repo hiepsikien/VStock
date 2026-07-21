@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -6,6 +6,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -21,6 +22,9 @@ type Props = {
   onClose: () => void;
   /** Clears chat history + bonding memory, then closes. */
   onResetSession?: () => Promise<void> | void;
+  /** How Vy addresses the user */
+  nickname?: string;
+  onSaveNickname?: (nickname: string) => void | Promise<void>;
 };
 
 export function CompanionProfileModal({
@@ -28,12 +32,31 @@ export function CompanionProfileModal({
   visible,
   onClose,
   onResetSession,
+  nickname = '',
+  onSaveNickname,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { profile } = character;
   const meta = `${profile.gender} · ${profile.age} · ${profile.birthplace}`;
   const [resetting, setResetting] = useState(false);
+  const [nickDraft, setNickDraft] = useState(nickname);
+  const [savingNick, setSavingNick] = useState(false);
   const expertise = getCharacterExpertise(character.id);
+
+  useEffect(() => {
+    if (visible) setNickDraft(nickname);
+  }, [nickname, visible]);
+
+  const saveNickname = async () => {
+    if (!onSaveNickname || savingNick) return;
+    setSavingNick(true);
+    try {
+      await onSaveNickname(nickDraft.trim());
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } finally {
+      setSavingNick(false);
+    }
+  };
 
   const confirmReset = () => {
     if (!onResetSession || resetting) return;
@@ -93,6 +116,41 @@ export function CompanionProfileModal({
           </View>
 
           <Text style={styles.bio}>{profile.bio}</Text>
+
+          {onSaveNickname ? (
+            <View style={styles.nicknameBox}>
+              <Text style={styles.nicknameLabel}>Vy gọi mình là</Text>
+              <View style={styles.nicknameRow}>
+                <TextInput
+                  value={nickDraft}
+                  onChangeText={setNickDraft}
+                  placeholder="vd. Anh, Lan, bạn…"
+                  placeholderTextColor={colors.textTertiary}
+                  maxLength={24}
+                  style={styles.nicknameInput}
+                  returnKeyType="done"
+                  onSubmitEditing={() => void saveNickname()}
+                />
+                <Pressable
+                  onPress={() => void saveNickname()}
+                  disabled={savingNick}
+                  style={[
+                    styles.nicknameSave,
+                    { backgroundColor: character.accent },
+                  ]}
+                >
+                  {savingNick ? (
+                    <ActivityIndicator color="#0B1220" size="small" />
+                  ) : (
+                    <Text style={styles.nicknameSaveText}>Lưu</Text>
+                  )}
+                </Pressable>
+              </View>
+              <Text style={styles.nicknameHint}>
+                Để trống thì Vy gọi &quot;bạn&quot;.
+              </Text>
+            </View>
+          ) : null}
 
           {expertise.length ? (
             <View style={styles.expertiseBox}>
@@ -195,6 +253,52 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: colors.textSecondary,
     marginBottom: spacing.md,
+  },
+  nicknameBox: {
+    marginBottom: spacing.md,
+    padding: spacing.md,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+  },
+  nicknameLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    marginBottom: 8,
+    letterSpacing: 0.3,
+  },
+  nicknameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  nicknameInput: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: colors.surfaceElevated,
+    color: colors.text,
+    fontSize: 15,
+  },
+  nicknameSave: {
+    minWidth: 52,
+    minHeight: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  nicknameSaveText: {
+    color: '#0B1220',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  nicknameHint: {
+    marginTop: 6,
+    fontSize: 12,
+    color: colors.textTertiary,
   },
   expertiseBox: {
     marginBottom: spacing.md,

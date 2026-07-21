@@ -48,9 +48,13 @@ def should_offer_nudge(
     context: dict | None = None,
     movers: list[dict] | None = None,
 ) -> bool:
-    """Eligible if repeated detail views OR meaningful price moves."""
+    """Eligible if repeated detail views OR meaningful price moves OR topic recall."""
     if cooldown_until and time.time() < cooldown_until:
         return False
+
+    ctx = context or {}
+    if ctx.get("nudgeKind") == "recall":
+        return True
 
     if movers:
         return True
@@ -142,6 +146,9 @@ async def build_nudge(
         return {"show": False, "message": None}
 
     if not gemini_companion.is_gemini_configured():
+        if enriched.get("nudgeKind") == "recall":
+            msg = _recall_fallback(enriched)
+            return {"show": True, "message": msg}
         if movers:
             top = movers[0]
             direction = "tăng" if float(top["changePercent"]) > 0 else "giảm"
@@ -163,9 +170,29 @@ async def build_nudge(
     except Exception:
         text = None
 
+    if not text and enriched.get("nudgeKind") == "recall":
+        text = _recall_fallback(enriched)
+
     if not text:
         return {"show": False, "message": None}
     return {"show": True, "message": text}
+
+
+def _recall_fallback(context: dict | None) -> str:
+    ctx = context or {}
+    bond = ctx.get("bond") if isinstance(ctx.get("bond"), dict) else {}
+    sym = (ctx.get("recallTopic") or "").strip().upper()
+    if not sym:
+        syms = bond.get("symbolsOfInterest") or []
+        sym = str(syms[0]).upper() if syms else ""
+    nickname = str(bond.get("userNickname") or "").strip()
+    who = nickname or "bạn"
+    if sym:
+        return f"Hôm trước {who} hay ngó {sym}… dạo này còn theo không?"
+    notes = bond.get("notes") or []
+    if notes:
+        return f"Lâu rồi không trò chuyện, {who}. Dạo này thế nào?"
+    return f"Chào lại {who}. Watchlist dạo này ra sao?"
 
 
 def _hot_symbol(events: list[dict]) -> str | None:

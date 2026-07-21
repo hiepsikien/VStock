@@ -129,9 +129,29 @@ def _format_context(context: dict | None) -> str:
         notes = bond.get("notes") or []
         if notes:
             parts.append("- Ghi chú gắn kết:\n" + "\n".join(f"  · {n}" for n in notes[:12]))
+        nickname = str(bond.get("userNickname") or "").strip()
+        if nickname:
+            parts.append(f"- Biệt danh user muốn được gọi: {nickname}")
         parts.append(
             "- Hãy nói như người đã quen: gọi lại ký ức nhẹ nhàng khi hợp, "
             "không chào kiểu lần đầu, không tụng danh sách."
+        )
+
+    today_mood = context.get("todayMood")
+    if today_mood:
+        parts.append(f"- Mood hôm nay (user vừa chia sẻ): {today_mood}")
+
+    nudge_kind = context.get("nudgeKind")
+    if nudge_kind == "recall":
+        parts.append("[Nhắc lại chủ đề cũ]")
+        topic = context.get("recallTopic")
+        days = context.get("daysSinceLastChat")
+        if topic:
+            parts.append(f"- Mã/topic hay quan tâm trước đây: {topic}")
+        if days is not None:
+            parts.append(f"- Đã {days} ngày không trò chuyện")
+        parts.append(
+            "- Viết một câu nhắc nhẹ kiểu 'Hôm trước hay ngó X…' — không salesy."
         )
 
     live_quotes = context.get("liveQuotes") or []
@@ -294,6 +314,8 @@ NUDGE_TAIL = (
     "để mở lời — như bạn thân ghé ngang, không salesy. "
     "Ưu tiên nhắc mã đang biến động mạnh trong [Mã biến động mạnh] nếu có "
     "(vd. FPT +2.4%), rồi mời nói chuyện. "
+    "Nếu có [Nhắc lại chủ đề cũ]: nhắc nhẹ mã/topic trước đây, kiểu 'Hôm trước hay ngó X…'. "
+    "Dùng biệt danh nếu có thay cho 'bạn'. "
     "Không hỏi nhiều câu. Không tư vấn mua/bán. "
     "Nếu không có lý do rõ để mở lời, trả về đúng chữ: SKIP"
 )

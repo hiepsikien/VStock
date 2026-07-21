@@ -3,12 +3,18 @@ import { getRecentCompanionEvents, type CompanionEvent } from './behavior';
 import {
   bondToContextDto,
   loadCompanionBond,
+  loadCompanionPrefs,
+  localDateString,
+  RECALL_GAP_MS,
   type CompanionBond,
+  type CompanionPrefs,
 } from './chatStore';
 import { DEFAULT_COMPANION_ID } from './characters';
 
 const COOLDOWN_KEY = 'vstock.companion.nudgeCooldownUntil';
 const DISMISS_KEY = 'vstock.companion.nudgeDismissedAt';
+
+export type NudgeKind = 'market' | 'recall' | 'mood';
 
 export type CompanionContextPayload = {
   screen: 'Watchlist' | 'Detail';
@@ -19,6 +25,10 @@ export type CompanionContextPayload = {
   recentEvents?: CompanionEvent[];
   bond?: ReturnType<typeof bondToContextDto>;
   characterId?: string;
+  nudgeKind?: NudgeKind;
+  recallTopic?: string;
+  daysSinceLastChat?: number;
+  todayMood?: string;
 };
 
 export async function getNudgeCooldownUntil(): Promise<number> {
@@ -41,7 +51,10 @@ export async function markNudgeDismissed(): Promise<void> {
 }
 
 export async function buildCompanionContext(
-  partial: Omit<CompanionContextPayload, 'recentEvents' | 'bond'>,
+  partial: Omit<
+    CompanionContextPayload,
+    'recentEvents' | 'bond'
+  >,
   bondOverride?: CompanionBond | null,
 ): Promise<CompanionContextPayload> {
   const recentEvents = await getRecentCompanionEvents(20);
@@ -49,11 +62,13 @@ export async function buildCompanionContext(
     bondOverride !== undefined
       ? bondOverride
       : await loadCompanionBond(DEFAULT_COMPANION_ID);
+  const prefs = await loadCompanionPrefs(DEFAULT_COMPANION_ID);
   return {
     ...partial,
     recentEvents,
     bond: bondToContextDto(bond),
     characterId: partial.characterId ?? DEFAULT_COMPANION_ID,
+    todayMood: prefs?.lastMoodResponse,
   };
 }
 
@@ -77,4 +92,42 @@ export function localNudgeEligible(
     if (n >= 3) return true;
   }
   return false;
+}
+
+export function recallNudgeEligible(
+  bond: CompanionBond | null,
+  prefs: CompanionPrefs | null,
+): boolean {
+  if (!bond || bond.messageCount < 3) return false;
+  if (Date.now() - bond.lastChatAt < RECALL_GAP_MS) return false;
+  if (!bond.symbolsOfInterest.length && !bond.notes.length) return false;
+  const lastRecall = prefs?.lastRecallNudgeAt ?? 0;
+  if (lastRecall && Date.now() - lastRecall < 24 * 60 * 60 * 1000) return false;
+  return true;
+}
+
+export function moodCheckInEligible(
+  prefs: CompanionPrefs | null,
+  bond: CompanionBond | null,
+): boolean {
+  if (!bond || bond.messageCount < 1) return false;
+  if (prefs?.lastMoodCheckInDate === localDateString()) return false;
+  const daysSinceChat =
+    (Date.now() - bond.lastChatAt) / (24 * 60 * 60 * 1000);
+  // Long absence → recall nudge; same-day return → skip duplicate vibe
+  if (daysSinceChat >= RECALL_GAP_MS / (24 * 60 * 60 * 1000)) return false;
+  return true;
+}
+
+/** Priority: market > recall > mood */
+export function pickNudgeKind(
+  events: CompanionEvent[],
+  bond: CompanionBond | null,
+  prefs: CompanionPrefs | null,
+  opts?: { avgChange?: number },
+): NudgeKind | null {
+  if (localNudgeEligible(events, opts)) return 'market';
+  if (recallNudgeEligible(bond, prefs)) return 'recall';
+  if (moodCheckInEligible(prefs, bond)) return 'mood';
+  return null;
 }

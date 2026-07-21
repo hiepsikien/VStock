@@ -746,6 +746,8 @@ export function WatchlistScreen({ navigation }: Props) {
             message={companion.nudgeMessage}
             onDismiss={companion.dismissNudge}
             onReply={companion.replyNudge}
+            quickReplies={companion.nudgeQuickReplies}
+            onQuickReply={companion.replyNudgeChip}
           />
         </View>
       ) : null}

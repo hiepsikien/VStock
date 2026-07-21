@@ -24,6 +24,7 @@ import { getCompanionCharacter } from '../companion/characters';
 import {
   evolveBond,
   applyBondNotes,
+  buildWelcomeBackMessage,
   clearCompanionSession,
   loadCompanionBond,
   loadCompanionChat,
@@ -100,6 +101,24 @@ export function CompanionChatScreen({ navigation, route }: Props) {
     setPresence('online');
   }, [character.greeting, character.id]);
 
+  const saveNickname = useCallback(
+    async (nickname: string) => {
+      const now = Date.now();
+      const next: CompanionBond = bond ?? {
+        firstMetAt: now,
+        lastChatAt: now,
+        messageCount: 0,
+        symbolsOfInterest: [],
+        notes: [],
+      };
+      const trimmed = nickname.trim().slice(0, 24);
+      next.userNickname = trimmed.length > 0 ? trimmed : undefined;
+      await saveCompanionBond(character.id, next);
+      setBond(next);
+    },
+    [bond, character.id],
+  );
+
   const openSymbol = useCallback(
     (sym: string) => {
       void Haptics.selectionAsync();
@@ -175,7 +194,7 @@ export function CompanionChatScreen({ navigation, route }: Props) {
           bubbles.push({
             id: `wb-${Date.now()}`,
             role: 'assistant',
-            content: character.welcomeBack,
+            content: buildWelcomeBackMessage(storedBond),
             ts: Date.now(),
           });
         }
@@ -486,6 +505,8 @@ export function CompanionChatScreen({ navigation, route }: Props) {
         visible={profileOpen}
         onClose={() => setProfileOpen(false)}
         onResetSession={resetSession}
+        nickname={bond?.userNickname ?? ''}
+        onSaveNickname={saveNickname}
       />
 
       <View style={[styles.flex, { paddingBottom: keyboardHeight }]}>

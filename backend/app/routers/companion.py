@@ -27,6 +27,10 @@ class CompanionContext(BaseModel):
     recentEvents: list[dict[str, Any]] = Field(default_factory=list)
     bond: dict[str, Any] | None = None
     characterId: str | None = "vy"
+    nudgeKind: str | None = None
+    recallTopic: str | None = None
+    daysSinceLastChat: int | None = None
+    todayMood: str | None = None
 
 
 class ChatRequest(BaseModel):

@@ -683,8 +683,13 @@ export type CompanionContextDto = {
     messageCount?: number;
     symbolsOfInterest?: string[];
     notes?: string[];
+    userNickname?: string;
   };
   characterId?: string;
+  nudgeKind?: 'market' | 'recall' | 'mood';
+  recallTopic?: string;
+  daysSinceLastChat?: number;
+  todayMood?: string;
 };
 
 export async function fetchCompanionHealth(): Promise<{ configured: boolean }> {

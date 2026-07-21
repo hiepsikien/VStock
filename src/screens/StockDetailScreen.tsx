@@ -474,6 +474,8 @@ export function StockDetailScreen({ navigation, route }: Props) {
             message={companion.nudgeMessage}
             onDismiss={companion.dismissNudge}
             onReply={companion.replyNudge}
+            quickReplies={companion.nudgeQuickReplies}
+            onQuickReply={companion.replyNudgeChip}
           />
         </View>
       ) : null}

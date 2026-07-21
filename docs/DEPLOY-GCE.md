@@ -324,6 +324,40 @@ docker compose start api
 
 Chat/nudge gọi Vertex/Gemini **chỉ từ backend** — không đưa key vào Expo app.
 
+> **Trạng thái:** GCE hiện chạy `main` cũ → `/v1/companion/*` trả **404** cho đến khi pull branch có Companion và rebuild Docker.
+
+### Deploy Companion lên VM (checklist)
+
+**Trên Mac (một lần):** merge `feature/companion-ai` → `main`, push GitHub.
+
+**Trên VM (SSH):**
+
+```bash
+cd ~/VStock
+git pull origin main          # sau khi main đã có Companion
+cp .env.gce.example .env      # nếu chưa có .env
+nano .env                     # điền GEMINI_API_KEY (hoặc GCP_PROJECT)
+chmod +x scripts/deploy-companion-gce.sh
+./scripts/deploy-companion-gce.sh
+```
+
+Hoặc tạm deploy từ feature branch (chưa merge main):
+
+```bash
+DEPLOY_BRANCH=feature/companion-ai ./scripts/deploy-companion-gce.sh
+```
+
+**Smoke từ Mac:**
+
+```bash
+curl -s http://34.142.248.53:8000/v1/companion/health
+curl -s -X POST http://34.142.248.53:8000/v1/companion/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"user","content":"FPT giá bao nhiêu?"}],"stream":false,"context":{"screen":"Watchlist","watchlistSymbols":["FPT"]}}'
+```
+
+App Expo: `EXPO_PUBLIC_DEVICE_API_URL=http://34.142.248.53:8000` (đã có trong `.env.development`).
+
 **Local**
 
 ```bash
