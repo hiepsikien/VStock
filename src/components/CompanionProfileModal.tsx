@@ -1,8 +1,17 @@
-import React from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import type { CompanionCharacter } from '../companion/characters';
+import { getCharacterExpertise } from '../companion/characters';
 import { colors, spacing } from '../theme';
 import { CompanionAvatar } from './CompanionAvatar';
 
@@ -10,12 +19,50 @@ type Props = {
   character: CompanionCharacter;
   visible: boolean;
   onClose: () => void;
+  /** Clears chat history + bonding memory, then closes. */
+  onResetSession?: () => Promise<void> | void;
 };
 
-export function CompanionProfileModal({ character, visible, onClose }: Props) {
+export function CompanionProfileModal({
+  character,
+  visible,
+  onClose,
+  onResetSession,
+}: Props) {
   const insets = useSafeAreaInsets();
   const { profile } = character;
   const meta = `${profile.gender} · ${profile.age} · ${profile.birthplace}`;
+  const [resetting, setResetting] = useState(false);
+  const expertise = getCharacterExpertise(character.id);
+
+  const confirmReset = () => {
+    if (!onResetSession || resetting) return;
+    Alert.alert(
+      'Bắt đầu lại với Vy?',
+      'Xóa toàn bộ hội thoại và ký ức gắn kết. Không hoàn tác được.',
+      [
+        { text: 'Hủy', style: 'cancel' },
+        {
+          text: 'Xóa hết',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setResetting(true);
+              try {
+                await onResetSession();
+                void Haptics.notificationAsync(
+                  Haptics.NotificationFeedbackType.Success,
+                );
+                onClose();
+              } finally {
+                setResetting(false);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  };
 
   return (
     <Modal
@@ -46,6 +93,31 @@ export function CompanionProfileModal({ character, visible, onClose }: Props) {
           </View>
 
           <Text style={styles.bio}>{profile.bio}</Text>
+
+          {expertise.length ? (
+            <View style={styles.expertiseBox}>
+              <Text style={styles.expertiseTitle}>Chuyên môn</Text>
+              {expertise.map((line) => (
+                <Text key={line} style={styles.expertiseItem}>
+                  · {line}
+                </Text>
+              ))}
+            </View>
+          ) : null}
+
+          {onResetSession ? (
+            <Pressable
+              onPress={confirmReset}
+              disabled={resetting}
+              style={styles.resetBtn}
+            >
+              {resetting ? (
+                <ActivityIndicator color={colors.negative} />
+              ) : (
+                <Text style={styles.resetBtnText}>Xóa chat & bắt đầu lại</Text>
+              )}
+            </Pressable>
+          ) : null}
 
           <Pressable
             onPress={() => {
@@ -123,6 +195,39 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: colors.textSecondary,
     marginBottom: spacing.md,
+  },
+  expertiseBox: {
+    marginBottom: spacing.md,
+    padding: spacing.md,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+  },
+  expertiseTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    marginBottom: 6,
+    letterSpacing: 0.3,
+  },
+  expertiseItem: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: colors.text,
+  },
+  resetBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 40,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,69,58,0.45)',
+    backgroundColor: 'rgba(255,69,58,0.08)',
+    marginBottom: spacing.sm,
+  },
+  resetBtnText: {
+    color: colors.negative,
+    fontSize: 15,
+    fontWeight: '600',
   },
   closeBtn: {
     alignSelf: 'center',

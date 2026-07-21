@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Keyboard,
@@ -23,6 +23,8 @@ import {
 import { getCompanionCharacter } from '../companion/characters';
 import {
   evolveBond,
+  applyBondNotes,
+  clearCompanionSession,
   loadCompanionBond,
   loadCompanionChat,
   messagesForApi,
@@ -33,10 +35,11 @@ import {
   type StoredChatMessage,
 } from '../companion/chatStore';
 import { buildCompanionContext } from '../companion/orchestrator';
-import { revealText, thinkingPauseMs } from '../companion/reveal';
+import { betweenBubblesPauseMs, revealText, thinkingPauseMs } from '../companion/reveal';
 import { CompanionAvatar } from '../components/CompanionAvatar';
 import { CompanionChatBubble } from '../components/CompanionChatBubble';
 import { CompanionProfileModal } from '../components/CompanionProfileModal';
+import { CompanionQuickReplies } from '../components/CompanionQuickReplies';
 import { colors, spacing, typography } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CompanionChat'>;
@@ -48,7 +51,7 @@ type Bubble = CompanionChatMessage & {
   typing?: boolean;
 };
 
-type Presence = 'online' | 'reading' | 'typing';
+type Presence = 'online' | 'reading' | 'fetching' | 'typing';
 
 export function CompanionChatScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
@@ -69,6 +72,7 @@ export function CompanionChatScreen({ navigation, route }: Props) {
   const [messages, setMessages] = useState<Bubble[]>([]);
   const [bond, setBond] = useState<CompanionBond | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const listRef = useRef<FlatList<Bubble>>(null);
   const seeded = useRef(false);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,15 +84,73 @@ export function CompanionChatScreen({ navigation, route }: Props) {
     setProfileOpen(true);
   }, []);
 
+  const resetSession = useCallback(async () => {
+    await clearCompanionSession(character.id);
+    setBond(null);
+    setMessages([
+      {
+        id: `hello-${Date.now()}`,
+        role: 'assistant',
+        content: character.greeting,
+        ts: Date.now(),
+      },
+    ]);
+    setSuggestions([]);
+    setError(null);
+    setPresence('online');
+  }, [character.greeting, character.id]);
+
+  const openSymbol = useCallback(
+    (sym: string) => {
+      void Haptics.selectionAsync();
+      Keyboard.dismiss();
+      navigation.navigate('Detail', { symbol: sym.toUpperCase() });
+    },
+    [navigation],
+  );
+
+  const linkableSymbols = useMemo(() => {
+    const set = new Set<string>();
+    if (symbol) set.add(symbol.toUpperCase());
+    for (const s of watchlistSymbols ?? []) set.add(s.toUpperCase());
+    for (const s of bond?.symbolsOfInterest ?? []) set.add(s.toUpperCase());
+    // Also allow tickers that already appear in the conversation.
+    for (const m of messages) {
+      const matches = m.content.toUpperCase().match(/\b[A-Z]{3}\b/g);
+      if (!matches) continue;
+      for (const t of matches) set.add(t);
+    }
+    return set;
+  }, [bond?.symbolsOfInterest, messages, symbol, watchlistSymbols]);
+
   const presenceLabel =
     presence === 'reading'
       ? 'đang đọc…'
-      : presence === 'typing'
-        ? 'đang gõ…'
-        : 'đang online';
+      : presence === 'fetching'
+        ? 'đang lấy giá…'
+        : presence === 'typing'
+          ? 'đang gõ…'
+          : 'đang online';
 
   const composerPad =
     keyboardHeight > 0 ? 10 : Math.max(insets.bottom, 12);
+
+  const defaultSuggestions = useCallback((): string[] => {
+    const chips: string[] = [];
+    if (symbol) {
+      chips.push(`${symbol} đang giá bao nhiêu?`);
+      chips.push(`Tin mới về ${symbol}`);
+    }
+    chips.push('Thị trường hôm nay thế nào?');
+    if (watchlistSymbols?.length) chips.push('Watchlist của mình ra sao?');
+    chips.push('Mình đang hơi lo…');
+    return chips.slice(0, 4);
+  }, [symbol, watchlistSymbols]);
+
+  useEffect(() => {
+    if (!ready || suggestions.length) return;
+    setSuggestions(defaultSuggestions());
+  }, [defaultSuggestions, ready, suggestions.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -193,6 +255,7 @@ export function CompanionChatScreen({ navigation, route }: Props) {
       setError(null);
       setBusy(true);
       setInput('');
+      setSuggestions([]);
 
       const now = Date.now();
       const userMsg: Bubble = {
@@ -217,13 +280,20 @@ export function CompanionChatScreen({ navigation, route }: Props) {
       setMessages((prev) => [...prev, userMsg]);
       setPresence('reading');
 
+      let fetchStatusTimer: ReturnType<typeof setTimeout> | null = null;
       try {
         await sleep(thinkingPauseMs());
-        setPresence('typing');
+        setPresence('fetching');
         setMessages((prev) => [
           ...prev,
           { id: assistantId, role: 'assistant', content: '', typing: true, ts: Date.now() },
         ]);
+
+        // If enrichment/API is slow, reinforce the "đang lấy giá" status with haptic.
+        fetchStatusTimer = setTimeout(() => {
+          setPresence('fetching');
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }, 650);
 
         const context = await buildCompanionContext(
           {
@@ -232,28 +302,79 @@ export function CompanionChatScreen({ navigation, route }: Props) {
             sessionLabel,
             watchlistSymbols,
             avgChange,
+            characterId: character.id,
           },
           nextBond,
         );
 
-        const reply = await sendCompanionChat(history, context);
-        const finalText =
-          reply.trim() ||
-          'Ối, tín hiệu hơi chậm. Bạn gửi lại giúp mình nhé.';
+        const result = await sendCompanionChat(history, context);
+        if (fetchStatusTimer) clearTimeout(fetchStatusTimer);
+        setPresence('typing');
+        void Haptics.selectionAsync();
 
-        await revealText(finalText, (partial) => {
+        const bubbles = (
+          result.bubbles.length ? result.bubbles : [result.message]
+        )
+          .map((b) => b.trim())
+          .filter(Boolean);
+        const parts =
+          bubbles.length > 0
+            ? bubbles
+            : ['Ối, tín hiệu hơi chậm. Bạn gửi lại giúp mình nhé.'];
+
+        if (result.bondNotes?.length) {
+          const enrichedBond = applyBondNotes(nextBond, result.bondNotes);
+          setBond(enrichedBond);
+          void saveCompanionBond(character.id, enrichedBond);
+        }
+
+        setSuggestions(
+          result.suggestions.length ? result.suggestions : defaultSuggestions(),
+        );
+
+        const first = parts[0];
+        await revealText(first, (partial) => {
           patchAssistant(assistantId, partial, partial.length === 0);
         });
+        patchAssistant(assistantId, first, false);
 
-        patchAssistant(assistantId, finalText, false);
-        void Haptics.selectionAsync();
+        for (let i = 1; i < parts.length; i += 1) {
+          await sleep(betweenBubblesPauseMs());
+          setPresence('typing');
+          const followId = `${assistantId}-${i}`;
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: followId,
+              role: 'assistant',
+              content: '',
+              typing: true,
+              ts: Date.now(),
+            },
+          ]);
+          await sleep(420 + Math.floor(Math.random() * 280));
+          const text = parts[i];
+          await revealText(text, (partial) => {
+            patchAssistant(followId, partial, partial.length === 0);
+          });
+          patchAssistant(followId, text, false);
+        }
+
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Lỗi kết nối Companion';
-        setError(`${msg} (${getApiUrl()})`);
+        if (fetchStatusTimer) clearTimeout(fetchStatusTimer);
+        const raw = err instanceof Error ? err.message : 'Lỗi kết nối Companion';
+        const api = getApiUrl();
+        const hint404 =
+          /\b404\b/i.test(raw)
+            ? ' — Cloud API chưa có Companion; dùng API local hoặc deploy lại GCE.'
+            : '';
+        setError(`${raw}${hint404} (${api})`);
         setMessages((prev) => {
           const hasRow = prev.some((m) => m.id === assistantId);
-          const failContent =
-            'Hmm, mình chưa kết nối được server. Kiểm tra API local giúp mình nhé.';
+          const failContent = /\b404\b/i.test(raw)
+            ? 'Server cloud chưa có Companion. Chạy API local trên Mac hoặc deploy bản mới lên GCE nhé.'
+            : 'Hmm, mình chưa kết nối được server. Kiểm tra API local giúp mình nhé.';
           if (!hasRow) {
             return [
               ...prev,
@@ -272,7 +393,10 @@ export function CompanionChatScreen({ navigation, route }: Props) {
               : m,
           );
         });
+        setSuggestions(defaultSuggestions());
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       } finally {
+        if (fetchStatusTimer) clearTimeout(fetchStatusTimer);
         setPresence('online');
         setBusy(false);
         scrollToEnd(true);
@@ -283,6 +407,7 @@ export function CompanionChatScreen({ navigation, route }: Props) {
       bond,
       busy,
       character.id,
+      defaultSuggestions,
       messages,
       patchAssistant,
       ready,
@@ -306,9 +431,11 @@ export function CompanionChatScreen({ navigation, route }: Props) {
         item={item}
         character={character}
         onPressAvatar={openProfile}
+        linkableSymbols={linkableSymbols}
+        onPressSymbol={openSymbol}
       />
     ),
-    [character, openProfile],
+    [character, linkableSymbols, openProfile, openSymbol],
   );
 
   const onContentSizeChange = useCallback(() => {
@@ -358,6 +485,7 @@ export function CompanionChatScreen({ navigation, route }: Props) {
         character={character}
         visible={profileOpen}
         onClose={() => setProfileOpen(false)}
+        onResetSession={resetSession}
       />
 
       <View style={[styles.flex, { paddingBottom: keyboardHeight }]}>
@@ -381,6 +509,13 @@ export function CompanionChatScreen({ navigation, route }: Props) {
         <Text style={styles.disclaimer}>
           {character.name} không đưa khuyến nghị mua/bán. Quyết định là của bạn.
         </Text>
+
+        <CompanionQuickReplies
+          suggestions={suggestions}
+          accent={character.accent}
+          disabled={busy || !ready}
+          onSelect={(text) => void send(text)}
+        />
 
         <View style={[styles.composer, { paddingBottom: composerPad }]}>
           <TextInput

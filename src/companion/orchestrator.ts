@@ -18,6 +18,7 @@ export type CompanionContextPayload = {
   avgChange?: number;
   recentEvents?: CompanionEvent[];
   bond?: ReturnType<typeof bondToContextDto>;
+  characterId?: string;
 };
 
 export async function getNudgeCooldownUntil(): Promise<number> {
@@ -52,10 +53,19 @@ export async function buildCompanionContext(
     ...partial,
     recentEvents,
     bond: bondToContextDto(bond),
+    characterId: partial.characterId ?? DEFAULT_COMPANION_ID,
   };
 }
 
-export function localNudgeEligible(events: CompanionEvent[]): boolean {
+export function localNudgeEligible(
+  events: CompanionEvent[],
+  opts?: { avgChange?: number },
+): boolean {
+  const avg = opts?.avgChange;
+  if (avg != null && Number.isFinite(avg) && Math.abs(avg) >= 1.5) {
+    return true;
+  }
+
   const windowMs = 15 * 60 * 1000;
   const now = Date.now();
   const counts = new Map<string, number>();

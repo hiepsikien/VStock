@@ -65,7 +65,7 @@ export function useCompanionHost({
     if (Date.now() < cooldownUntil) return;
 
     const events = await getRecentCompanionEvents(30);
-    if (!localNudgeEligible(events)) return;
+    if (!localNudgeEligible(events, { avgChange })) return;
 
     const context = await buildCompanionContext({
       screen,

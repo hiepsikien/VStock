@@ -81,7 +81,99 @@ export async function saveCompanionBond(
   await AsyncStorage.setItem(bondKey(id), JSON.stringify(bond));
 }
 
+/** Wipe chat history + bonding memory for a fresh start with this character. */
+export async function clearCompanionSession(
+  id: CompanionCharacterId,
+): Promise<void> {
+  await AsyncStorage.multiRemove([historyKey(id), bondKey(id)]);
+}
+
 const TICKER_RE = /\b[A-Z]{3}\b/g;
+/** Vietnamese / chat words that look like tickers when uppercased. */
+const FALSE_TICKERS = new Set([
+  'NAY',
+  'SAO',
+  'THE',
+  'ROI',
+  'CUA',
+  'CHO',
+  'VAO',
+  'VOI',
+  'MOT',
+  'HAI',
+  'BON',
+  'NAM',
+  'SAU',
+  'BAY',
+  'TAM',
+  'HON',
+  'RAT',
+  'LAI',
+  'VAN',
+  'DEN',
+  'NUA',
+  'THI',
+  'NEU',
+  'KHI',
+  'LAM',
+  'CAI',
+  'DAY',
+  'NOI',
+  'XEM',
+  'HOI',
+  'GIA',
+  'MUC',
+  'LOI',
+  'NEN',
+  'BAN',
+  'MUA',
+  'NHA',
+  'ONG',
+  'CHI',
+  'ANH',
+  'TOI',
+  'APP',
+  'API',
+  'CEO',
+  'ETF',
+  'USD',
+  'VND',
+  'AND',
+  'FOR',
+  'YOU',
+  'ALL',
+  'CAN',
+  'HOW',
+  'NEW',
+  'NOW',
+  'OLD',
+  'SEE',
+  'TWO',
+  'WAY',
+  'WHO',
+  'DID',
+  'ITS',
+  'LET',
+  'PUT',
+  'SAY',
+  'SHE',
+  'TOO',
+  'USE',
+  'BUT',
+  'NOT',
+  'ARE',
+  'WAS',
+  'ONE',
+  'OUR',
+  'OUT',
+  'DAY',
+  'GET',
+  'HAS',
+  'HIM',
+  'HIS',
+  'HER',
+]);
+
 const MOOD_PATTERNS: Array<{ re: RegExp; note: string }> = [
   { re: /\b(lo|sợ|stress|áp lực|hoảng)\b/i, note: 'Hay lo lắng khi thị trường xấu' },
   { re: /\b(fomo|sợ bỏ lỡ|đu đỉnh)\b/i, note: 'Đôi khi có FOMO' },
@@ -118,6 +210,7 @@ export function evolveBond(
   ]);
   for (const sym of found) {
     if (sym.length !== 3) continue;
+    if (FALSE_TICKERS.has(sym)) continue;
     bond.symbolsOfInterest = uniqPush(bond.symbolsOfInterest, sym, MAX_SYMBOLS);
   }
 
@@ -128,6 +221,25 @@ export function evolveBond(
   }
 
   return bond;
+}
+
+export function applyBondNotes(
+  prev: CompanionBond | null,
+  notes: string[],
+): CompanionBond {
+  const now = Date.now();
+  const base = prev ?? {
+    firstMetAt: now,
+    lastChatAt: now,
+    messageCount: 0,
+    symbolsOfInterest: [],
+    notes: [],
+  };
+  return {
+    ...base,
+    lastChatAt: now,
+    notes: notes.filter((n) => n.trim().length > 0).slice(0, MAX_NOTES),
+  };
 }
 
 export function bondToContextDto(bond: CompanionBond | null): {

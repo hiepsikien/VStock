@@ -732,7 +732,7 @@ export function WatchlistScreen({ navigation }: Props) {
         </Pressable>
       ) : null}
 
-      {!inSearchMode && !loading ? (
+      {!inSearchMode ? (
         <CompanionFab
           bottom={insets.bottom + 16}
           badge={companion.badge}
@@ -740,7 +740,7 @@ export function WatchlistScreen({ navigation }: Props) {
         />
       ) : null}
 
-      {companion.nudgeMessage && !inSearchMode && !loading ? (
+      {companion.nudgeMessage && !inSearchMode ? (
         <View style={[styles.nudgeAnchor, { bottom: insets.bottom + 76 }]}>
           <CompanionNudge
             message={companion.nudgeMessage}

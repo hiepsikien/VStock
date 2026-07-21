@@ -4,6 +4,7 @@ import type { CompanionCharacter } from '../companion/characters';
 import { colors } from '../theme';
 import { CompanionAvatar } from './CompanionAvatar';
 import { CompanionTypingDots } from './CompanionTypingDots';
+import { TickerText } from './TickerText';
 
 export type ChatBubbleItem = {
   id: string;
@@ -16,13 +17,28 @@ type Props = {
   item: ChatBubbleItem;
   character: CompanionCharacter;
   onPressAvatar: () => void;
+  /** Symbols that may deep-link to Detail */
+  linkableSymbols?: ReadonlySet<string> | null;
+  onPressSymbol?: (symbol: string) => void;
 };
 
-function ChatBubbleInner({ item, character, onPressAvatar }: Props) {
+function ChatBubbleInner({
+  item,
+  character,
+  onPressAvatar,
+  linkableSymbols,
+  onPressSymbol,
+}: Props) {
   if (item.role === 'user') {
     return (
       <View style={[styles.bubble, styles.bubbleUser]}>
-        <Text style={[styles.bubbleText, styles.bubbleTextUser]}>{item.content}</Text>
+        <TickerText
+          text={item.content}
+          style={[styles.bubbleText, styles.bubbleTextUser]}
+          linkColor="#FFFFFF"
+          allowlist={linkableSymbols}
+          onPressSymbol={onPressSymbol}
+        />
       </View>
     );
   }
@@ -42,7 +58,13 @@ function ChatBubbleInner({ item, character, onPressAvatar }: Props) {
         {item.typing && !item.content ? (
           <CompanionTypingDots accent={character.accent} />
         ) : (
-          <Text style={styles.bubbleText}>{item.content}</Text>
+          <TickerText
+            text={item.content}
+            style={styles.bubbleText}
+            linkColor={character.accent}
+            allowlist={linkableSymbols}
+            onPressSymbol={onPressSymbol}
+          />
         )}
       </View>
     </View>
@@ -57,7 +79,9 @@ export const CompanionChatBubble = memo(
     prev.item.content === next.item.content &&
     prev.item.typing === next.item.typing &&
     prev.character.id === next.character.id &&
-    prev.onPressAvatar === next.onPressAvatar,
+    prev.onPressAvatar === next.onPressAvatar &&
+    prev.onPressSymbol === next.onPressSymbol &&
+    prev.linkableSymbols === next.linkableSymbols,
 );
 
 const styles = StyleSheet.create({

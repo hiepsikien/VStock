@@ -21,46 +21,106 @@ import {
 import type { IndexQuote } from '../components/WatchlistSummary';
 import { sanitizePriceChange } from '../utils/sanitizePriceChange';
 
+/** True for private LAN hosts we can rewrite localhost → (not Expo tunnel domains). */
+function isLanHostname(host: string): boolean {
+  if (host === 'localhost' || host === '127.0.0.1' || host === '10.0.2.2') return true;
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  const m = /^172\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(host);
+  if (m) {
+    const n = Number(m[1]);
+    return n >= 16 && n <= 31;
+  }
+  return false;
+}
+
+function stripTrailingSlash(u: string): string {
+  return u.replace(/\/$/, '');
+}
+
+/** Reject empty / malformed bases like `http://:8000`. */
+function isUsableApiBase(u: string): boolean {
+  try {
+    const parsed = new URL(u);
+    return Boolean(parsed.protocol?.startsWith('http') && parsed.hostname?.trim());
+  } catch {
+    return false;
+  }
+}
+
+function metroLanHost(): string | null {
+  const hostUri =
+    Constants.expoConfig?.hostUri ??
+    Constants.manifest2?.extra?.expoClient?.hostUri ??
+    (Constants as { manifest?: { debuggerHost?: string } }).manifest?.debuggerHost;
+  if (typeof hostUri !== 'string' || !hostUri.trim()) return null;
+  // "192.168.1.3:8081" | "http://192.168.1.3:8081" | "192.168.1.3"
+  const cleaned = hostUri.trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
+  const host = cleaned.split('/')[0]?.split(':')[0]?.trim();
+  if (
+    !host ||
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    !isLanHostname(host)
+  ) {
+    return null;
+  }
+  return host;
+}
+
 /**
  * Resolve API base URL for the current runtime.
- * On a physical device, `localhost` is the phone itself — rewrite to the Metro
- * host (same LAN IP as the packager) so local backend works without editing .env.
+ * Physical device + localhost → Metro LAN IP, else EXPO_PUBLIC_DEVICE_API_URL.
  */
 function resolveApiUrl(): string {
-  const configured = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000').replace(
-    /\/$/,
-    '',
+  const configured = stripTrailingSlash(
+    process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000',
   );
-  if (!__DEV__) return configured;
+  const deviceFallback = stripTrailingSlash(
+    process.env.EXPO_PUBLIC_DEVICE_API_URL ??
+      process.env.EXPO_PUBLIC_API_URL_DEVICE ??
+      'http://34.142.248.53:8000',
+  );
+
+  if (!__DEV__) {
+    return isUsableApiBase(configured) ? configured : deviceFallback;
+  }
 
   try {
     const url = new URL(configured);
     if (url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') {
-      return configured;
+      return isUsableApiBase(configured) ? configured : deviceFallback;
     }
     // Android emulator → host machine loopback
     if (Platform.OS === 'android' && !Device.isDevice) {
-      url.hostname = '10.0.2.2';
-      return url.origin;
+      return 'http://10.0.2.2:8000';
     }
-    const hostUri =
-      Constants.expoConfig?.hostUri ??
-      Constants.manifest2?.extra?.expoClient?.hostUri ??
-      (Constants as { manifest?: { debuggerHost?: string } }).manifest?.debuggerHost;
-    if (typeof hostUri === 'string' && hostUri.length > 0) {
-      const host = hostUri.split(':')[0];
-      if (host) {
-        url.hostname = host;
-        return url.origin;
-      }
+    // iOS Simulator can reach Mac localhost
+    if (Platform.OS === 'ios' && !Device.isDevice) {
+      return configured;
+    }
+    const lan = metroLanHost();
+    if (lan) {
+      const port = url.port || '8000';
+      const local = `http://${lan}:${port}`;
+      if (isUsableApiBase(local)) return local;
     }
   } catch {
-    // keep configured
+    // fall through
   }
-  return configured;
+
+  if (Device.isDevice && isUsableApiBase(deviceFallback)) {
+    return deviceFallback;
+  }
+  return isUsableApiBase(configured) ? configured : deviceFallback;
 }
 
 const API_URL = resolveApiUrl();
+
+/** Resolved API base — useful for Health / debug banners. */
+export function getApiBaseUrl(): string {
+  return API_URL;
+}
 
 export const DEFAULT_SYMBOLS = [
   'VNM',
@@ -624,6 +684,7 @@ export type CompanionContextDto = {
     symbolsOfInterest?: string[];
     notes?: string[];
   };
+  characterId?: string;
 };
 
 export async function fetchCompanionHealth(): Promise<{ configured: boolean }> {
@@ -648,10 +709,17 @@ export async function requestCompanionNudge(body: {
 }
 
 /** Non-streaming companion chat (simpler for MVP UI). */
+export type CompanionChatResult = {
+  message: string;
+  bubbles: string[];
+  suggestions: string[];
+  bondNotes?: string[] | null;
+};
+
 export async function sendCompanionChat(
   messages: CompanionChatMessage[],
   context?: CompanionContextDto,
-): Promise<string> {
+): Promise<CompanionChatResult> {
   const res = await fetch(`${API_URL}/v1/companion/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -661,8 +729,20 @@ export async function sendCompanionChat(
     const text = await res.text().catch(() => '');
     throw new Error(`API ${res.status}: ${text || res.statusText}`);
   }
-  const data = (await res.json()) as { message: string };
-  return data.message;
+  const data = (await res.json()) as {
+    message?: string;
+    bubbles?: string[];
+    suggestions?: string[];
+    bondNotes?: string[] | null;
+  };
+  const message = (data.message || '').trim();
+  const bubbles = (data.bubbles || []).map((b) => b.trim()).filter(Boolean);
+  return {
+    message,
+    bubbles: bubbles.length ? bubbles : message ? [message] : [],
+    suggestions: (data.suggestions || []).filter(Boolean).slice(0, 4),
+    bondNotes: data.bondNotes ?? null,
+  };
 }
 
 /** SSE streaming companion chat. Calls onDelta for each chunk.
@@ -685,7 +765,8 @@ export async function streamCompanionChat(
   }
 
   const fallback = async (): Promise<string> => {
-    const text = await sendCompanionChat(messages, context);
+    const result = await sendCompanionChat(messages, context);
+    const text = result.message;
     onReplace?.(text);
     return text;
   };

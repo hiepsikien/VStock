@@ -16,51 +16,12 @@ _hits: dict[str, list[float]] = defaultdict(list)
 
 VIEW_DETAIL_WINDOW_MS = 15 * 60 * 1000
 VIEW_DETAIL_THRESHOLD = 3
+# Watchlist mover nudge thresholds (|changePercent|).
+PRICE_MOVE_PCT = 2.0
+WATCHLIST_AVG_MOVE_PCT = 1.5
 
 _TICKER_RE = re.compile(r"\b([A-Za-z]{3})\b")
-_TICKER_STOP = {
-    "THE",
-    "AND",
-    "FOR",
-    "ARE",
-    "BUT",
-    "NOT",
-    "YOU",
-    "ALL",
-    "CAN",
-    "HER",
-    "WAS",
-    "ONE",
-    "OUR",
-    "OUT",
-    "DAY",
-    "GET",
-    "HAS",
-    "HIM",
-    "HIS",
-    "HOW",
-    "NEW",
-    "NOW",
-    "OLD",
-    "SEE",
-    "TWO",
-    "WAY",
-    "WHO",
-    "DID",
-    "ITS",
-    "LET",
-    "PUT",
-    "SAY",
-    "SHE",
-    "TOO",
-    "USE",
-    "VND",
-    "USD",
-    "CEO",
-    "CFO",
-    "IPO",
-    "ETF",
-    "API",
+_TICKER_STOP = set(gemini_companion._VI_FALSE_TICKERS) | {
     "APP",
     "AI",
 }
@@ -80,10 +41,28 @@ def check_rate_limit(client_key: str) -> bool:
     return _rate_ok(client_key or "anon")
 
 
-def should_offer_nudge(events: list[dict], *, cooldown_until: float | None = None) -> bool:
-    """Deterministic eligibility before calling Gemini for phrasing."""
+def should_offer_nudge(
+    events: list[dict],
+    *,
+    cooldown_until: float | None = None,
+    context: dict | None = None,
+    movers: list[dict] | None = None,
+) -> bool:
+    """Eligible if repeated detail views OR meaningful price moves."""
     if cooldown_until and time.time() < cooldown_until:
         return False
+
+    if movers:
+        return True
+
+    ctx = context or {}
+    avg = ctx.get("avgChange")
+    try:
+        if avg is not None and abs(float(avg)) >= WATCHLIST_AVG_MOVE_PCT:
+            return True
+    except (TypeError, ValueError):
+        pass
+
     if not events:
         return False
 
@@ -103,6 +82,107 @@ def should_offer_nudge(events: list[dict], *, cooldown_until: float | None = Non
             return True
     return False
 
+
+def _watchlist_movers(context: dict | None, quote_map: dict[str, dict]) -> list[dict]:
+    """Symbols on the user's list that moved sharply today."""
+    ctx = context or {}
+    watch = [
+        str(s).strip().upper()
+        for s in (ctx.get("watchlistSymbols") or ctx.get("watchlist") or [])
+        if str(s).strip()
+    ]
+    if not watch:
+        watch = [str(ctx.get("symbol")).upper()] if ctx.get("symbol") else []
+
+    movers: list[dict] = []
+    for sym in watch:
+        q = quote_map.get(sym)
+        if not q:
+            continue
+        try:
+            pct = float(q.get("changePercent") or 0)
+        except (TypeError, ValueError):
+            continue
+        if abs(pct) < PRICE_MOVE_PCT:
+            continue
+        movers.append(
+            {
+                "symbol": sym,
+                "price": q.get("price"),
+                "changePercent": pct,
+                "change": q.get("change"),
+            }
+        )
+    movers.sort(key=lambda m: abs(float(m["changePercent"])), reverse=True)
+    return movers[:5]
+
+
+async def build_nudge(
+    context: dict | None,
+    events: list[dict],
+    *,
+    cooldown_until: float | None = None,
+) -> dict:
+    # Enrich first so we can gate on live movers.
+    enriched = await enrich_context_with_market([], context)
+    quote_map = {
+        str(q.get("symbol")).upper(): q
+        for q in (enriched.get("liveQuotes") or [])
+        if isinstance(q, dict) and q.get("symbol")
+    }
+    movers = _watchlist_movers(enriched, quote_map)
+    enriched["nudgeMovers"] = movers
+
+    if not should_offer_nudge(
+        events,
+        cooldown_until=cooldown_until,
+        context=enriched,
+        movers=movers,
+    ):
+        return {"show": False, "message": None}
+
+    if not gemini_companion.is_gemini_configured():
+        if movers:
+            top = movers[0]
+            direction = "tăng" if float(top["changePercent"]) > 0 else "giảm"
+            msg = (
+                f"{top['symbol']} đang {direction} {abs(float(top['changePercent'])):.1f}% "
+                f"trên watchlist. Muốn mình cùng nhìn qua không?"
+            )
+        else:
+            sym = _hot_symbol(events)
+            msg = (
+                f"Bạn vừa xem {sym} khá nhiều lần. Muốn nói vài phút không?"
+                if sym
+                else "Watchlist hôm nay biến động khá. Muốn trò chuyện không?"
+            )
+        return {"show": True, "message": msg}
+
+    try:
+        text = await gemini_companion.generate_nudge(enriched, events)
+    except Exception:
+        text = None
+
+    if not text:
+        return {"show": False, "message": None}
+    return {"show": True, "message": text}
+
+
+def _hot_symbol(events: list[dict]) -> str | None:
+    now_ms = int(time.time() * 1000)
+    counts: dict[str, int] = defaultdict(int)
+    for ev in events:
+        if (ev.get("type") or ev.get("event")) != "view_detail":
+            continue
+        ts = int(ev.get("ts") or ev.get("at") or 0)
+        if ts and now_ms - ts > VIEW_DETAIL_WINDOW_MS:
+            continue
+        sym = (ev.get("symbol") or "").upper()
+        if sym:
+            counts[sym] += 1
+    if not counts:
+        return None
+    return max(counts.items(), key=lambda x: x[1])[0]
 
 def _latest_user_text(messages: list[dict]) -> str:
     for msg in reversed(messages):
@@ -190,26 +270,105 @@ def _collect_candidate_symbols(messages: list[dict], context: dict | None) -> li
     return ordered
 
 
+async def _fetch_news_safe(symbols: list[str], timeout_s: float = 3.0) -> list[dict]:
+    from app.services import news as news_service
+
+    headlines: list[dict] = []
+    focus = symbols[:3]
+
+    async def one_symbol(sym: str) -> list[dict]:
+        try:
+            items = await asyncio.wait_for(
+                news_service.fetch_symbol_news(sym, limit=2),
+                timeout=timeout_s,
+            )
+            out = []
+            for it in items or []:
+                title = (it.get("title") or "").strip()
+                if title:
+                    out.append(
+                        {
+                            "symbol": sym,
+                            "title": title[:180],
+                            "id": it.get("id"),
+                        }
+                    )
+            return out
+        except Exception:
+            return []
+
+    if focus:
+        results = await asyncio.gather(*(one_symbol(s) for s in focus))
+        for batch in results:
+            headlines.extend(batch)
+
+    if len(headlines) < 2:
+        try:
+            market = await asyncio.wait_for(
+                news_service.fetch_market_news(limit=4),
+                timeout=timeout_s,
+            )
+            for it in market or []:
+                title = (it.get("title") or "").strip()
+                if not title:
+                    continue
+                headlines.append(
+                    {
+                        "symbol": "TT",
+                        "title": title[:180],
+                        "id": it.get("id"),
+                    }
+                )
+                if len(headlines) >= 6:
+                    break
+        except Exception:
+            pass
+
+    # Dedupe by title
+    seen: set[str] = set()
+    unique: list[dict] = []
+    for h in headlines:
+        key = str(h.get("title") or "").lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(h)
+    return unique[:8]
+
+
 async def enrich_context_with_market(
     messages: list[dict],
     context: dict | None,
 ) -> dict:
-    """Attach live VStock quotes/indices so Vy can answer with real numbers."""
+    """Attach live VStock data according to the active character knowledge pack."""
+    from app.services.companion_packs import get_knowledge_pack
+
     ctx = dict(context or {})
+    pack = get_knowledge_pack(
+        str(ctx.get("characterId") or ctx.get("character_id") or "vy")
+    )
+    sources = set(pack.data_sources)
+    ctx["characterId"] = pack.id
+    ctx["knowledgePack"] = {
+        "id": pack.id,
+        "name": pack.name,
+        "expertise": list(pack.expertise),
+        "dataSources": list(pack.data_sources),
+    }
+
     candidates = _collect_candidate_symbols(messages, ctx)
     msg_tickers = set(_symbols_from_text(_latest_user_text(messages)))
     known = await _known_symbol_set()
 
     filtered: list[str] = []
     for sym in candidates:
-        # Tickers typed in the message must exist in the universe when available.
         if sym in msg_tickers and known is not None and sym not in known:
             continue
         filtered.append(sym)
 
     to_fetch = filtered[:12]
     live_quotes: list[dict] = []
-    if to_fetch:
+    if "quotes" in sources and to_fetch:
         quote_map = await _fetch_quotes_safe(to_fetch)
         for sym in to_fetch:
             q = quote_map.get(sym)
@@ -232,26 +391,55 @@ async def enrich_context_with_market(
 
     ctx["liveQuotes"] = live_quotes
 
-    indices = await _fetch_indices_safe()
-    ctx["liveIndices"] = [
-        {
-            "symbol": ix.get("symbol"),
-            "name": ix.get("name"),
-            "price": ix.get("price"),
-            "changePercent": ix.get("changePercent"),
-        }
-        for ix in (indices or [])[:8]
-        if isinstance(ix, dict)
-    ]
+    if "indices" in sources:
+        indices = await _fetch_indices_safe()
+        ctx["liveIndices"] = [
+            {
+                "symbol": ix.get("symbol"),
+                "name": ix.get("name"),
+                "price": ix.get("price"),
+                "changePercent": ix.get("changePercent"),
+            }
+            for ix in (indices or [])[:8]
+            if isinstance(ix, dict)
+        ]
+    else:
+        ctx["liveIndices"] = []
+
+    if "news" in sources:
+        news_focus = list(msg_tickers)[:3] or (
+            [str(ctx.get("symbol")).upper()] if ctx.get("symbol") else to_fetch[:2]
+        )
+        ctx["liveNews"] = await _fetch_news_safe([s for s in news_focus if s])
+    else:
+        ctx["liveNews"] = []
 
     return ctx
 
 
-async def chat_once(messages: list[dict], context: dict | None) -> str:
+BOND_REFRESH_EVERY = 6
+
+
+async def chat_once(messages: list[dict], context: dict | None) -> dict:
     if not gemini_companion.is_gemini_configured():
         raise RuntimeError("Gemini API not configured")
     enriched = await enrich_context_with_market(messages, context)
-    return await gemini_companion.generate_reply(messages, enriched)
+    text = await gemini_companion.generate_reply(messages, enriched)
+    bubbles = gemini_companion.split_reply_bubbles(text)
+    suggestions = gemini_companion.build_quick_suggestions(enriched, messages)
+
+    bond_notes = None
+    bond = enriched.get("bond") if isinstance(enriched.get("bond"), dict) else None
+    msg_count = int((bond or {}).get("messageCount") or 0)
+    if msg_count > 0 and msg_count % BOND_REFRESH_EVERY == 0:
+        bond_notes = await gemini_companion.refresh_bond_notes(messages, bond)
+
+    return {
+        "message": text,
+        "bubbles": bubbles or [text],
+        "suggestions": suggestions,
+        "bondNotes": bond_notes,
+    }
 
 
 async def chat_stream(messages: list[dict], context: dict | None):
@@ -260,50 +448,3 @@ async def chat_stream(messages: list[dict], context: dict | None):
     enriched = await enrich_context_with_market(messages, context)
     async for piece in gemini_companion.stream_reply(messages, enriched):
         yield piece
-
-
-async def build_nudge(
-    context: dict | None,
-    events: list[dict],
-    *,
-    cooldown_until: float | None = None,
-) -> dict:
-    if not should_offer_nudge(events, cooldown_until=cooldown_until):
-        return {"show": False, "message": None}
-
-    if not gemini_companion.is_gemini_configured():
-        # Local fallback without API key — still useful for UI wiring.
-        sym = _hot_symbol(events)
-        msg = (
-            f"Bạn vừa xem {sym} khá nhiều lần. Muốn nói vài phút không?"
-            if sym
-            else "Có vẻ bạn đang theo dõi thị trường khá sát. Muốn trò chuyện không?"
-        )
-        return {"show": True, "message": msg}
-
-    try:
-        enriched = await enrich_context_with_market([], context)
-        text = await gemini_companion.generate_nudge(enriched, events)
-    except Exception:
-        text = None
-
-    if not text:
-        return {"show": False, "message": None}
-    return {"show": True, "message": text}
-
-
-def _hot_symbol(events: list[dict]) -> str | None:
-    now_ms = int(time.time() * 1000)
-    counts: dict[str, int] = defaultdict(int)
-    for ev in events:
-        if (ev.get("type") or ev.get("event")) != "view_detail":
-            continue
-        ts = int(ev.get("ts") or ev.get("at") or 0)
-        if ts and now_ms - ts > VIEW_DETAIL_WINDOW_MS:
-            continue
-        sym = (ev.get("symbol") or "").upper()
-        if sym:
-            counts[sym] += 1
-    if not counts:
-        return None
-    return max(counts.items(), key=lambda x: x[1])[0]

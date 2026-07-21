@@ -26,6 +26,7 @@ class CompanionContext(BaseModel):
     avgChange: float | None = None
     recentEvents: list[dict[str, Any]] = Field(default_factory=list)
     bond: dict[str, Any] | None = None
+    characterId: str | None = "vy"
 
 
 class ChatRequest(BaseModel):
@@ -36,6 +37,9 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     message: str
+    bubbles: list[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
+    bondNotes: list[str] | None = None
 
 
 class NudgeRequest(BaseModel):
@@ -70,12 +74,19 @@ async def companion_chat(body: ChatRequest, request: Request):
 
     if not body.stream:
         try:
-            text = await companion_service.chat_once(messages, context)
+            payload = await companion_service.chat_once(messages, context)
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"Companion unavailable: {exc}") from exc
-        return ChatResponse(message=text)
+        if isinstance(payload, str):
+            return ChatResponse(message=payload, bubbles=[payload])
+        return ChatResponse(
+            message=payload.get("message") or "",
+            bubbles=payload.get("bubbles") or [],
+            suggestions=payload.get("suggestions") or [],
+            bondNotes=payload.get("bondNotes"),
+        )
 
     async def event_gen():
         buffered = ""

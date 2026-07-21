@@ -1,4 +1,8 @@
 import type { ImageSourcePropType } from 'react-native';
+import {
+  getKnowledgePack,
+  type KnowledgePackId,
+} from './knowledgePacks';
 
 export type CompanionCharacterId = 'vy';
 
@@ -13,6 +17,8 @@ export type CompanionProfile = {
 
 export type CompanionCharacter = {
   id: CompanionCharacterId;
+  /** Knowledge pack id (maps to backend companion_packs) */
+  knowledgePackId: KnowledgePackId;
   /** Display name in chat header / bubbles */
   name: string;
   /** Short role line under the name */
@@ -36,6 +42,7 @@ const VY_AVATAR = require('../../assets/companions/vy.png');
 export const COMPANION_CHARACTERS: Record<CompanionCharacterId, CompanionCharacter> = {
   vy: {
     id: 'vy',
+    knowledgePackId: 'vy',
     name: 'Vy',
     tagline: 'Bạn đồng hành trên sàn',
     greeting:
@@ -61,4 +68,11 @@ export function getCompanionCharacter(
   id: CompanionCharacterId = DEFAULT_COMPANION_ID,
 ): CompanionCharacter {
   return COMPANION_CHARACTERS[id] ?? COMPANION_CHARACTERS.vy;
+}
+
+export function getCharacterExpertise(
+  id: CompanionCharacterId = DEFAULT_COMPANION_ID,
+): string[] {
+  const character = getCompanionCharacter(id);
+  return getKnowledgePack(character.knowledgePackId).expertise;
 }
