@@ -30,12 +30,14 @@ _SECTOR_KEYWORDS: dict[str, tuple[str, ...]] = {
     "bank": ("ngân hàng", "ngan hang", "bank"),
     "securities": ("chứng khoán", "chung khoan", "broker", "securities"),
     "real_estate": ("bất động sản", "bat dong san", "real estate", "property"),
+    "energy": ("năng lượng", "nang luong", "energy", "dầu khí", "dau khi", "điện", "dien", "power", "oil & gas"),
 }
 
 _SECTOR_NAME_HINTS: dict[str, tuple[str, ...]] = {
     "bank": ("ngân hàng", "bank"),
     "securities": ("chứng khoán", "securities"),
     "real_estate": ("bất động sản", "real estate", "property"),
+    "energy": ("năng lượng", "dầu khí", "điện", "power", "oil", "gas", "petrol", "nhiên liệu"),
 }
 
 

@@ -10,37 +10,38 @@ from app.services.gemini_companion import _VI_FALSE_TICKERS
 
 _TICKER_RE = re.compile(r"\b([A-Za-z]{3})\b")
 
+# Vietnamese words that look like 3-letter tickers in "thêm mã XXX"
+_ADD_STOPWORDS = frozenset(
+    {"MÃ", "MA", "VÀO", "VOA", "LIST", "THE", "CHO", "MỘT", "MOT", "VÀ", "VA"},
+)
+
 _ADD_PATTERNS = (
-    re.compile(r"\bth[eê]m\s+([A-Za-z]{3})\b", re.I),
+    re.compile(r"\bth[eê]m\s+(?:mã\s+)?([A-Za-z]{3})\b", re.I),
     re.compile(r"\badd\s+([A-Za-z]{3})\b", re.I),
     re.compile(r"\bcho\s+([A-Za-z]{3})\s+vào\b", re.I),
     re.compile(r"\bđưa\s+([A-Za-z]{3})\s+vào\b", re.I),
 )
 
-_CREATE_PATTERNS = (
-    re.compile(
-        r"\btạo\s+(?:một\s+)?(?:danh\s*sách|list)(?:\s+mới)?(?:\s+tên)?\s+(.+?)(?:\s+và|\s*$)",
-        re.I,
-    ),
-    re.compile(r"\btạo\s+(?:một\s+)?(?:danh\s*sách|list)\s+mới\b", re.I),
-    re.compile(r"\blàm\s+(?:một\s+)?(?:danh\s*sách|list)\b", re.I),
-    re.compile(r"\bnew\s+watchlist(?:\s+(.+?))?(?:\s*$)", re.I),
+_WANTS_CREATE = re.compile(
+    r"\b(tạo|làm)\b.*\b(list|danh\s*sách|mảng)\b",
+    re.I,
 )
 
-_WANTS_CREATE = re.compile(
-    r"\b(tạo|làm|tạo\s+một)\b.*\b(list|danh\s*sách)\b",
+_WANTS_ADD = re.compile(
+    r"\b(th[eê]m|add|cho|đưa)\b.*\b(vào|to)\b",
     re.I,
 )
 
 _TARGET_LIST_PATTERNS = (
-    re.compile(r"\bvào\s+danh\s*sách\s+(.+?)(?:\s*$|[,.])", re.I),
-    re.compile(r"\blist\s+(.+?)(?:\s*$|[,.])", re.I),
+    re.compile(r"\bvào\s+(?:danh\s*sách|list)\s+(.+?)(?:\s*$|[,.])", re.I),
+    re.compile(r"\b(?:danh\s*sách|list)\s+(.+?)(?:\s*$|[,.])", re.I),
 )
 
 _SECTOR_LIST_NAMES: dict[str, str] = {
     "bank": "Ngân hàng",
     "securities": "Chứng khoán",
     "real_estate": "Bất động sản",
+    "energy": "Năng lượng",
 }
 
 
@@ -59,7 +60,7 @@ def _valid_ticker(sym: str, known: set[str] | None) -> bool:
     s = sym.upper().strip()
     if len(s) != 3 or not s.isalpha():
         return False
-    if s in _VI_FALSE_TICKERS:
+    if s in _VI_FALSE_TICKERS or s in _ADD_STOPWORDS:
         return False
     if known is not None and s not in known:
         return False
@@ -70,8 +71,9 @@ def _extract_tickers(text: str) -> list[str]:
     found: list[str] = []
     for m in _TICKER_RE.finditer(text):
         sym = m.group(1).upper()
-        if sym not in found and sym not in _VI_FALSE_TICKERS:
-            found.append(sym)
+        if sym in found or sym in _VI_FALSE_TICKERS or sym in _ADD_STOPWORDS:
+            continue
+        found.append(sym)
     return found
 
 
@@ -97,7 +99,7 @@ def _find_list_by_name(lists: list[dict], name: str) -> dict | None:
         return None
     for item in lists:
         n = str(item.get("name") or "").lower()
-        if n == q or q in n:
+        if n == q or q in n or n in q:
             return item
     return None
 
@@ -145,6 +147,36 @@ def _symbol_limit_from_text(text: str, default: int = 4) -> int:
     return default
 
 
+def _extract_create_list_name(text: str, sector: str | None) -> str:
+    patterns = (
+        re.compile(
+            r"\b(?:list|danh\s*sách|mảng)\s+(?:mới\s+)?(.+?)(?:\s+với|\s*$)",
+            re.I,
+        ),
+        re.compile(
+            r"\b(?:tạo|làm)\b.*?\b(?:list|danh\s*sách|mảng)\s+(?:mới\s+)?(.+?)(?:\s+với|\s*$)",
+            re.I,
+        ),
+    )
+    for pat in patterns:
+        m = pat.search(text)
+        if not m:
+            continue
+        name = m.group(1).strip()
+        name = re.sub(r"\s+\d+\s*mã.*$", "", name, flags=re.I).strip()
+        name = re.sub(
+            r"\s+(giúp|cho)\s+(mình|tôi|em).*$",
+            "",
+            name,
+            flags=re.I,
+        ).strip()
+        if name and name.lower() not in ("mới", "new"):
+            return name[:48]
+    if sector:
+        return _SECTOR_LIST_NAMES.get(sector, "Danh sách mới")
+    return "Danh sách mới"
+
+
 def _sector_symbols_from_context(
     context: dict | None,
     known: set[str] | None,
@@ -153,6 +185,8 @@ def _sector_symbols_from_context(
     ctx = context or {}
     ordered: list[str] = []
     seen: set[str] = set()
+    candidates = [str(s).upper() for s in (ctx.get("sectorCandidates") or [])]
+    candidate_set = set(candidates)
 
     def add(sym: str) -> None:
         s = sym.upper()
@@ -168,16 +202,111 @@ def _sector_symbols_from_context(
         reverse=True,
     )
     for q in live_sorted:
-        add(str(q.get("symbol") or ""))
+        sym = str(q.get("symbol") or "")
+        if candidate_set and sym.upper() not in candidate_set:
+            continue
+        add(sym)
         if len(ordered) >= limit:
             return ordered[:limit]
 
-    for sym in ctx.get("sectorCandidates") or []:
-        add(str(sym))
+    for sym in candidates:
+        add(sym)
         if len(ordered) >= limit:
             return ordered[:limit]
 
     return ordered[:limit]
+
+
+def _symbol_from_thread(
+    messages: list[dict],
+    known: set[str] | None,
+) -> str | None:
+    """When user omits ticker, borrow from recent assistant/user messages."""
+    user = _latest_user_text(messages)
+    for sym in reversed(_extract_tickers(user)):
+        if _valid_ticker(sym, known):
+            return sym
+
+    for msg in reversed(messages):
+        role = (msg.get("role") or "user").lower()
+        text = (msg.get("content") or msg.get("text") or "").strip()
+        if not text:
+            continue
+        if role == "user" and text == user:
+            continue
+        for sym in reversed(_extract_tickers(text)):
+            if _valid_ticker(sym, known):
+                return sym
+        if role == "assistant":
+            break
+    return None
+
+
+async def _build_create_action_async(
+    user: str,
+    context: dict | None,
+    sector: str | None,
+    known: set[str] | None,
+) -> dict[str, Any]:
+    name = _extract_create_list_name(user, sector)
+    if sector:
+        name = _SECTOR_LIST_NAMES.get(sector, name)
+    limit = _symbol_limit_from_text(user, default=4)
+    syms: list[str] = []
+
+    if sector:
+        syms = _sector_symbols_from_context(context, known, limit)
+        if not syms:
+            syms = [
+                s
+                for s in (await _sector_symbols_from_text(user, limit=limit))[:limit]
+                if _valid_ticker(s, known)
+            ]
+
+    syms_from_text = [
+        t for t in _extract_tickers(user) if _valid_ticker(t, known)
+    ]
+    if syms_from_text:
+        syms = syms_from_text[:limit]
+
+    payload: dict[str, Any] = {
+        "type": "create_watchlist",
+        "name": name,
+    }
+    if syms:
+        payload["symbols"] = syms
+        payload["label"] = f"Tạo “{name}” ({', '.join(syms)})"
+    else:
+        payload["label"] = f"Tạo danh sách “{name}”"
+    return payload
+
+
+def _build_add_action(
+    sym: str,
+    lists: list[dict],
+    user: str,
+) -> dict[str, Any] | None:
+    sym = sym.upper()
+    target = _parse_target_list(user, lists)
+    already_everywhere = all(
+        sym in {str(s).upper() for s in (item.get("symbols") or [])}
+        for item in lists
+    )
+    if already_everywhere:
+        return None
+
+    payload: dict[str, Any] = {"type": "add_symbol", "symbol": sym}
+    if target:
+        payload["watchlistId"] = str(target.get("id") or "")
+        payload["watchlistName"] = str(target.get("name") or "")
+        payload["label"] = f"Thêm {sym} vào “{payload['watchlistName']}”"
+    elif len(lists) == 1:
+        payload["watchlistId"] = str(lists[0].get("id") or "")
+        payload["watchlistName"] = str(lists[0].get("name") or "")
+        payload["label"] = f"Thêm {sym} vào “{payload['watchlistName']}”"
+    else:
+        payload["label"] = f"Thêm {sym} vào danh sách…"
+    return payload
 
 
 async def infer_watchlist_actions(
@@ -204,86 +333,29 @@ async def infer_watchlist_actions(
         and re.search(r"\b(list|danh\s*sách|mảng|\d+\s*mã)\b", user_lower)
     )
 
-    # --- Create sector watchlist (e.g. banking list with 4 symbols) ---
-    if wants_create and sector:
-        limit = _symbol_limit_from_text(user, default=4)
-        syms = _sector_symbols_from_context(context, known_symbols, limit)
-        if not syms:
-            syms = (
-                await _sector_symbols_from_text(user, limit=limit)
-            )[:limit]
-            syms = [s for s in syms if _valid_ticker(s, known_symbols)]
-        if syms:
-            name = _SECTOR_LIST_NAMES.get(sector, "Danh sách mới")
-            label = f"Tạo “{name}” ({', '.join(syms)})"
-            return [
-                {
-                    "type": "create_watchlist",
-                    "name": name,
-                    "symbols": syms,
-                    "label": label,
-                }
-            ]
-
-    # --- Generic create watchlist ---
-    for pat in _CREATE_PATTERNS:
-        m = pat.search(user)
-        if not m:
-            continue
-        name = (m.group(1) if m.lastindex else "Danh sách mới").strip()
-        if not name or name.lower() in ("mới", "new"):
-            name = "Danh sách mới"
-        if sector and name.lower() in ("danh sách mới", "mới", "new"):
-            name = _SECTOR_LIST_NAMES.get(sector, name)
-
-        syms = [
-            t
-            for t in _extract_tickers(user)
-            if _valid_ticker(t, known_symbols)
-        ]
-        limit = _symbol_limit_from_text(user, default=4)
-        if not syms and sector:
-            syms = _sector_symbols_from_context(context, known_symbols, limit)
-        syms = syms[:limit]
-
-        payload: dict[str, Any] = {
-            "type": "create_watchlist",
-            "name": name[:48],
-        }
-        if syms:
-            payload["symbols"] = syms
-            payload["label"] = f"Tạo “{name}” ({', '.join(syms)})"
-        else:
-            payload["label"] = f"Tạo danh sách “{name}”"
-        return [payload]
+    # --- Create watchlist (sector or generic phrasing) ---
+    if wants_create:
+        action = await _build_create_action_async(user, context, sector, known_symbols)
+        return [action]
 
     # --- Add symbol to list ---
+    sym: str | None = None
     for pat in _ADD_PATTERNS:
         m = pat.search(user)
         if not m:
             continue
-        sym = m.group(1).upper()
-        if not _valid_ticker(sym, known_symbols):
-            continue
-        target = _parse_target_list(user, lists)
-        already_everywhere = all(
-            sym in {str(s).upper() for s in (item.get("symbols") or [])}
-            for item in lists
-        )
-        if already_everywhere:
-            return actions
-        payload: dict[str, Any] = {"type": "add_symbol", "symbol": sym}
-        if target:
-            payload["watchlistId"] = str(target.get("id") or "")
-            payload["watchlistName"] = str(target.get("name") or "")
-            payload["label"] = f"Thêm {sym} vào “{payload['watchlistName']}”"
-        elif len(lists) == 1:
-            payload["watchlistId"] = str(lists[0].get("id") or "")
-            payload["watchlistName"] = str(lists[0].get("name") or "")
-            payload["label"] = f"Thêm {sym} vào “{payload['watchlistName']}”"
-        else:
-            payload["label"] = f"Thêm {sym} vào danh sách…"
-        return [payload]
+        candidate = m.group(1).upper()
+        if _valid_ticker(candidate, known_symbols):
+            sym = candidate
+            break
+
+    if not sym and _WANTS_ADD.search(user):
+        sym = _symbol_from_thread(messages, known_symbols)
+
+    if sym:
+        add_action = _build_add_action(sym, lists, user)
+        if add_action:
+            return [add_action]
 
     # --- Proactive suggest ---
     ctx = context or {}

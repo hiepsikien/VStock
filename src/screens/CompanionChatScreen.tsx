@@ -440,7 +440,7 @@ export function CompanionChatScreen({ navigation, route }: Props) {
         });
         patchAssistant(assistantId, first, false);
 
-        let lastBubbleId = assistantId;
+        const turnBubbleIds = [assistantId];
 
         for (let i = 1; i < parts.length; i += 1) {
           await sleep(betweenBubblesPauseMs());
@@ -462,13 +462,14 @@ export function CompanionChatScreen({ navigation, route }: Props) {
             patchAssistant(followId, partial, partial.length === 0);
           });
           patchAssistant(followId, text, false);
-          lastBubbleId = followId;
+          turnBubbleIds.push(followId);
         }
 
         if (pendingActions?.length) {
+          const actionBubbleIds = new Set(turnBubbleIds);
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === lastBubbleId ? { ...m, actions: pendingActions } : m,
+              actionBubbleIds.has(m.id) ? { ...m, actions: pendingActions } : m,
             ),
           );
         }
