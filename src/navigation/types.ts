@@ -4,7 +4,8 @@ export type RootStackParamList = {
   Detail: { symbol: string };
   Health: undefined;
   CompanionChat: {
-    seedMessage?: string;
+    seedUserMessage?: string;
+    seedAssistantMessage?: string;
     screen?: 'Watchlist' | 'Detail';
     symbol?: string;
     watchlistSymbols?: string[];

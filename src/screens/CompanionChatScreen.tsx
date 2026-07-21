@@ -26,6 +26,7 @@ import {
   applyBondNotes,
   buildWelcomeBackMessage,
   clearCompanionSession,
+  FALSE_TICKERS,
   loadCompanionBond,
   loadCompanionChat,
   messagesForApi,
@@ -57,14 +58,15 @@ type Presence = 'online' | 'reading' | 'fetching' | 'typing';
 export function CompanionChatScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const character = getCompanionCharacter();
-  const seed = route.params?.seedMessage;
+  const seedUserMessage = route.params?.seedUserMessage;
+  const seedAssistantMessage = route.params?.seedAssistantMessage;
   const screen = route.params?.screen ?? 'Watchlist';
   const symbol = route.params?.symbol;
   const watchlistSymbols = route.params?.watchlistSymbols;
   const avgChange = route.params?.avgChange;
   const sessionLabel = route.params?.sessionLabel;
 
-  const [input, setInput] = useState(seed ?? '');
+  const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -128,19 +130,21 @@ export function CompanionChatScreen({ navigation, route }: Props) {
     [navigation],
   );
 
-  const linkableSymbols = useMemo(() => {
+  const validSymbols = useMemo(() => {
     const set = new Set<string>();
     if (symbol) set.add(symbol.toUpperCase());
     for (const s of watchlistSymbols ?? []) set.add(s.toUpperCase());
     for (const s of bond?.symbolsOfInterest ?? []) set.add(s.toUpperCase());
-    // Also allow tickers that already appear in the conversation.
-    for (const m of messages) {
-      const matches = m.content.toUpperCase().match(/\b[A-Z]{3}\b/g);
-      if (!matches) continue;
-      for (const t of matches) set.add(t);
+    return set;
+  }, [bond?.symbolsOfInterest, symbol, watchlistSymbols]);
+
+  const linkableSymbols = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of validSymbols) {
+      if (!FALSE_TICKERS.has(s)) set.add(s);
     }
     return set;
-  }, [bond?.symbolsOfInterest, messages, symbol, watchlistSymbols]);
+  }, [validSymbols]);
 
   const presenceLabel =
     presence === 'reading'
@@ -284,7 +288,12 @@ export function CompanionChatScreen({ navigation, route }: Props) {
         ts: now,
       };
 
-      const nextBond = evolveBond(bond, trimmed, symbol ? [symbol] : []);
+      const nextBond = evolveBond(
+        bond,
+        trimmed,
+        symbol ? [symbol] : [],
+        validSymbols,
+      );
       setBond(nextBond);
       void saveCompanionBond(character.id, nextBond);
 
@@ -434,15 +443,30 @@ export function CompanionChatScreen({ navigation, route }: Props) {
       scrollToEnd,
       sessionLabel,
       symbol,
+      validSymbols,
       watchlistSymbols,
     ],
   );
 
   useEffect(() => {
-    if (!ready || !seed || seeded.current) return;
+    if (!ready || seeded.current) return;
     seeded.current = true;
-    void send(seed);
-  }, [ready, seed, send]);
+    setMessages((prev) => {
+      const next = [...prev];
+      if (seedAssistantMessage?.trim()) {
+        next.push({
+          id: `seed-a-${Date.now()}`,
+          role: 'assistant',
+          content: seedAssistantMessage.trim(),
+          ts: Date.now(),
+        });
+      }
+      return next;
+    });
+    if (seedUserMessage?.trim()) {
+      void send(seedUserMessage.trim());
+    }
+  }, [ready, seedAssistantMessage, seedUserMessage, send]);
 
   const renderItem = useCallback(
     ({ item }: { item: Bubble }) => (

@@ -56,10 +56,11 @@ export function useCompanionHost({
   }, []);
 
   const openChat = useCallback(
-    (seedMessage?: string) => {
+    (seedUserMessage?: string, seedAssistantMessage?: string) => {
       clearNudge();
       navigation.navigate('CompanionChat', {
-        seedMessage,
+        seedUserMessage,
+        seedAssistantMessage,
         screen,
         symbol,
         watchlistSymbols,
@@ -87,7 +88,7 @@ export function useCompanionHost({
   }, [clearNudge, nudgeKind]);
 
   const replyNudge = useCallback(() => {
-    openChat(nudgeMessage ?? undefined);
+    openChat(undefined, nudgeMessage ?? undefined);
   }, [nudgeMessage, openChat]);
 
   const replyNudgeChip = useCallback(
@@ -96,9 +97,9 @@ export function useCompanionHost({
         void markMoodCheckInDone(DEFAULT_COMPANION_ID, chip);
       }
       clearNudge();
-      openChat(moodSeedFromReply(chip));
+      openChat(moodSeedFromReply(chip), nudgeMessage ?? undefined);
     },
-    [clearNudge, nudgeKind, openChat],
+    [clearNudge, nudgeKind, nudgeMessage, openChat],
   );
 
   const evaluateNudge = useCallback(async () => {

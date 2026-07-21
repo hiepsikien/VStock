@@ -116,7 +116,10 @@ function resolveApiUrl(): string {
     }
     const lan = metroLanHost();
     if (lan) {
-      const port = url.port || '8000';
+      const rawPort = url.port || '8000';
+      const port = ['8081', '19000', '19001', '19006'].includes(rawPort)
+        ? '8000'
+        : rawPort;
       const local = `http://${lan}:${port}`;
       if (isUsableApiBase(local)) return local;
     }

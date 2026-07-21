@@ -26,6 +26,18 @@ _TICKER_STOP = set(gemini_companion._VI_FALSE_TICKERS) | {
     "AI",
 }
 
+_SECTOR_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "bank": ("ngân hàng", "ngan hang", "bank"),
+    "securities": ("chứng khoán", "chung khoan", "broker", "securities"),
+    "real_estate": ("bất động sản", "bat dong san", "real estate", "property"),
+}
+
+_SECTOR_NAME_HINTS: dict[str, tuple[str, ...]] = {
+    "bank": ("ngân hàng", "bank"),
+    "securities": ("chứng khoán", "securities"),
+    "real_estate": ("bất động sản", "real estate", "property"),
+}
+
 
 def _rate_ok(key: str) -> bool:
     now = time.time()
@@ -233,6 +245,42 @@ def _symbols_from_text(text: str) -> list[str]:
     return found
 
 
+def _detect_sector_key(text: str) -> str | None:
+    lowered = (text or "").strip().lower()
+    if not lowered:
+        return None
+    for key, terms in _SECTOR_KEYWORDS.items():
+        if any(t in lowered for t in terms):
+            return key
+    return None
+
+
+async def _sector_symbols_from_text(text: str, limit: int = 12) -> list[str]:
+    key = _detect_sector_key(text)
+    if not key:
+        return []
+    try:
+        from app.services.symbols import fetch_all_symbols
+
+        rows = await fetch_all_symbols()
+    except Exception:
+        return []
+    hints = _SECTOR_NAME_HINTS.get(key, ())
+    out: list[str] = []
+    for row in rows:
+        name = str(row.get("name") or "").lower()
+        sym = str(row.get("symbol") or "").upper().strip()
+        if len(sym) != 3 or not sym.isalpha():
+            continue
+        if sym in _TICKER_STOP:
+            continue
+        if any(h in name for h in hints):
+            out.append(sym)
+        if len(out) >= limit:
+            break
+    return out
+
+
 async def _known_symbol_set() -> set[str] | None:
     """Read symbol universe from DB/cache only — never trigger a full ingest."""
     try:
@@ -384,7 +432,16 @@ async def enrich_context_with_market(
     }
 
     candidates = _collect_candidate_symbols(messages, ctx)
-    msg_tickers = set(_symbols_from_text(_latest_user_text(messages)))
+    latest_user_text = _latest_user_text(messages)
+    msg_tickers = set(_symbols_from_text(latest_user_text))
+    sector_symbols = (
+        await _sector_symbols_from_text(latest_user_text, limit=12)
+        if not msg_tickers
+        else []
+    )
+    for sym in sector_symbols:
+        if sym not in candidates:
+            candidates.append(sym)
     known = await _known_symbol_set()
 
     filtered: list[str] = []
@@ -393,7 +450,7 @@ async def enrich_context_with_market(
             continue
         filtered.append(sym)
 
-    to_fetch = filtered[:12]
+    to_fetch = filtered[:18]
     live_quotes: list[dict] = []
     if "quotes" in sources and to_fetch:
         quote_map = await _fetch_quotes_safe(to_fetch)
@@ -417,6 +474,8 @@ async def enrich_context_with_market(
             )
 
     ctx["liveQuotes"] = live_quotes
+    if sector_symbols:
+        ctx["sectorCandidates"] = sector_symbols[:12]
 
     if "indices" in sources:
         indices = await _fetch_indices_safe()

@@ -32,7 +32,8 @@ export type CompanionPrefs = {
 const HISTORY_PREFIX = 'vstock.companion.chat.';
 const BOND_PREFIX = 'vstock.companion.bond.';
 const PREFS_PREFIX = 'vstock.companion.prefs.';
-const MAX_STORED = 100;
+const MAX_STORED = 80;
+const MAX_API_MESSAGES = 24;
 const MAX_NOTES = 12;
 const MAX_SYMBOLS = 12;
 
@@ -164,8 +165,9 @@ export async function clearCompanionSession(
 
 const TICKER_RE = /\b[A-Z]{3}\b/g;
 /** Vietnamese / chat words that look like tickers when uppercased. */
-const FALSE_TICKERS = new Set([
+export const FALSE_TICKERS = new Set([
   'NAY',
+  'TIN',
   'SAO',
   'THE',
   'ROI',
@@ -248,6 +250,17 @@ const FALSE_TICKERS = new Set([
   'HER',
 ]);
 
+export function isLikelyValidTicker(
+  symbol: string,
+  allowlist?: ReadonlySet<string> | null,
+): boolean {
+  const sym = symbol.trim().toUpperCase();
+  if (sym.length !== 3 || !/^[A-Z]{3}$/.test(sym)) return false;
+  if (FALSE_TICKERS.has(sym)) return false;
+  if (allowlist && allowlist.size > 0 && !allowlist.has(sym)) return false;
+  return true;
+}
+
 const MOOD_PATTERNS: Array<{ re: RegExp; note: string }> = [
   { re: /\b(lo|sợ|stress|áp lực|hoảng)\b/i, note: 'Hay lo lắng khi thị trường xấu' },
   { re: /\b(fomo|sợ bỏ lỡ|đu đỉnh)\b/i, note: 'Đôi khi có FOMO' },
@@ -265,6 +278,7 @@ export function evolveBond(
   prev: CompanionBond | null,
   userText: string,
   extraSymbols: string[] = [],
+  allowlist?: ReadonlySet<string> | null,
 ): CompanionBond {
   const now = Date.now();
   const bond: CompanionBond = prev ?? {
@@ -283,8 +297,7 @@ export function evolveBond(
     ...((userText.toUpperCase().match(TICKER_RE) as string[] | null) ?? []),
   ]);
   for (const sym of found) {
-    if (sym.length !== 3) continue;
-    if (FALSE_TICKERS.has(sym)) continue;
+    if (!isLikelyValidTicker(sym, allowlist)) continue;
     bond.symbolsOfInterest = uniqPush(bond.symbolsOfInterest, sym, MAX_SYMBOLS);
   }
 
@@ -372,7 +385,7 @@ export function moodSeedFromReply(chip: string): string {
 /** Messages to send to the API (recent window). */
 export function messagesForApi(
   messages: Array<{ role: 'user' | 'assistant'; content: string }>,
-  limit = 30,
+  limit = MAX_API_MESSAGES,
 ): Array<{ role: 'user' | 'assistant'; content: string }> {
   return messages
     .filter((m) => m.content.trim().length > 0)

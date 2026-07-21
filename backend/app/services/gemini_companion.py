@@ -13,12 +13,12 @@ from app.services.companion_packs import get_knowledge_pack
 SYSTEM_INSTRUCTION = get_knowledge_pack("vy").system_instruction
 
 ADVICE_PATTERNS = (
-    re.compile(r"\bnên\s+mua\b", re.I),
-    re.compile(r"\bnên\s+bán\b", re.I),
-    re.compile(r"\bkhuyến\s*nghị\b", re.I),
+    re.compile(r"\bkhuyến\s*nghị\s*(mua|bán|nắm giữ)?\b", re.I),
     re.compile(r"\btarget\s*price\b", re.I),
     re.compile(r"\bmua\s+ngay\b", re.I),
     re.compile(r"\bbán\s+ngay\b", re.I),
+    re.compile(r"\ball[\s-]*in\b", re.I),
+    re.compile(r"\bcắt\s*lỗ\s*ngay\b", re.I),
     re.compile(r"\bđảm\s*bảo\s+lợi\s*nhuận\b", re.I),
 )
 
@@ -177,6 +177,12 @@ def _format_context(context: dict | None) -> str:
             parts.append(line)
         parts.append(
             "- Khi user hỏi giá/biến động: nêu đúng số trên, nói tự nhiên, không bịa."
+        )
+    sector_candidates = context.get("sectorCandidates") or []
+    if sector_candidates:
+        parts.append(
+            "- User đang hỏi theo nhóm ngành; ưu tiên chọn trong danh sách này khi gợi ý tham khảo: "
+            + ", ".join(str(s) for s in sector_candidates[:12])
         )
 
     live_indices = context.get("liveIndices") or []
@@ -407,6 +413,7 @@ def _safe_focus_symbols(context: dict | None) -> list[str]:
 # Vietnamese / chat words that look like 3-letter tickers when uppercased.
 _VI_FALSE_TICKERS = {
     "NAY",
+    "TIN",
     "SAO",
     "THE",
     "ROI",
@@ -467,6 +474,9 @@ _VI_FALSE_TICKERS = {
     "CEO",
     "CFO",
     "IPO",
+    "ATC",
+    "ATO",
+    "FOMO",
     "ETF",
     "USD",
     "VND",

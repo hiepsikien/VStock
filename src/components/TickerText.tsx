@@ -10,6 +10,7 @@ const TICKER_RE = /\b([A-Z]{3})\b/g;
 /** Words that look like tickers but aren't HOSE/HNX codes in casual VN chat. */
 const FALSE_TICKERS = new Set([
   'NAY',
+  'TIN',
   'SAO',
   'THE',
   'ROI',
