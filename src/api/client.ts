@@ -99,6 +99,21 @@ function resolveApiUrl(): string {
     if (Platform.OS === 'ios' && !Device.isDevice) {
       return configured;
     }
+    // Physical device: cloud URL wins over Metro LAN rewrite (no local uvicorn needed)
+    if (Device.isDevice && isUsableApiBase(deviceFallback)) {
+      try {
+        const fbHost = new URL(deviceFallback).hostname;
+        if (
+          fbHost !== 'localhost' &&
+          fbHost !== '127.0.0.1' &&
+          !isLanHostname(fbHost)
+        ) {
+          return deviceFallback;
+        }
+      } catch {
+        // fall through to LAN rewrite
+      }
+    }
     const lan = metroLanHost();
     if (lan) {
       const port = url.port || '8000';
