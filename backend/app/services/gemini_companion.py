@@ -128,6 +128,25 @@ def _format_context(context: dict | None) -> str:
                 "remove_symbol_from_watchlist sau khi user nêu mã hoặc đồng ý.\n"
                 "- Hỏi 'xóa xong chưa': trả lời theo list hiện tại, không gọi function."
             )
+
+    intent = context.get("watchlistIntent")
+    if isinstance(intent, dict) and intent.get("kind"):
+        parts.append("[Intent]")
+        parts.append(f"- kind: {intent.get('kind')}")
+        syms = intent.get("symbols") or []
+        if syms:
+            parts.append(f"- symbols: {', '.join(str(s) for s in syms)}")
+        hint = intent.get("watchlistHint") or intent.get("watchlist_hint")
+        if hint:
+            parts.append(f"- watchlist_hint: {hint}")
+        notes = intent.get("notes")
+        if notes:
+            parts.append(f"- notes: {notes}")
+        parts.append(
+            "- Chỉ gọi mutate function khi kind là execute_add / execute_remove / execute_create. "
+            "propose_change: gợi ý + hỏi, không gọi function. "
+            "status_watchlist / chat: không gọi function."
+        )
     avg = context.get("avgChange")
     if avg is not None:
         parts.append(f"- TB thay đổi watchlist: {avg}%")
@@ -327,24 +346,38 @@ def _text_from_response(response) -> str:
 async def generate_agent_reply(
     messages: list[dict],
     context: dict | None = None,
+    *,
+    allow_tools: bool = True,
 ) -> tuple[str, list[dict]]:
-    """Gemini reply with watchlist function calling (agentic tools)."""
+    """Gemini reply; optionally with watchlist function calling."""
     client = _client()
     contents = build_contents(messages, context)
-    config = types.GenerateContentConfig(
-        system_instruction=system_instruction_for(context) + WATCHLIST_TOOL_INSTRUCTION,
-        temperature=0.85,
-        max_output_tokens=2048,
-        tools=watchlist_tool_declarations(),
-        tool_config=watchlist_tool_config(),
-    )
+    system = system_instruction_for(context)
+    if allow_tools:
+        system = system + WATCHLIST_TOOL_INSTRUCTION
+    intent = (context or {}).get("watchlistIntent") if isinstance(context, dict) else None
+    if isinstance(intent, dict) and intent.get("kind") == "propose_change":
+        system += (
+            "\n\n[Chế độ đề xuất] User muốn thay đổi list nhưng chưa xác nhận mã. "
+            "Gợi ý cụ thể vài mã + lý do ngắn từ list/context, hỏi đồng ý. "
+            "KHÔNG gọi function mutate trong lượt này."
+        )
+    config_kwargs: dict = {
+        "system_instruction": system,
+        "temperature": 0.85,
+        "max_output_tokens": 2048,
+    }
+    if allow_tools:
+        config_kwargs["tools"] = watchlist_tool_declarations()
+        config_kwargs["tool_config"] = watchlist_tool_config()
+    config = types.GenerateContentConfig(**config_kwargs)
     response = await client.aio.models.generate_content(
         model=_model_name(),
         contents=contents,
         config=config,
     )
     text = _text_from_response(response)
-    calls = extract_function_calls(response)
+    calls = extract_function_calls(response) if allow_tools else []
     text = _repair_truncated_reply(text)
     if text:
         text = scrub_advice(text) or REFUSAL

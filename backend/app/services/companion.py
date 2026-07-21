@@ -512,61 +512,91 @@ async def chat_once(messages: list[dict], context: dict | None) -> dict:
     if not gemini_companion.is_gemini_configured():
         raise RuntimeError("Gemini API not configured")
     enriched = await enrich_context_with_market(messages, context)
-    text, tool_calls = await gemini_companion.generate_agent_reply(messages, enriched)
-    bubbles = gemini_companion.split_reply_bubbles(text)
-    suggestions = gemini_companion.build_quick_suggestions(enriched, messages)
 
+    from app.services.companion_intent import (
+        classify_watchlist_intent,
+        gate_actions_by_intent,
+        inject_intent_into_context,
+        intent_allows_tools,
+    )
     from app.services.companion_watchlist import (
         POPUP_READY_TEXT,
-        build_remove_status_reply,
+        build_watchlist_status_reply,
         infer_watchlist_actions,
-        is_remove_status_question,
         resolve_tool_calls,
     )
 
-    known = await _known_symbol_set()
-    actions = await resolve_tool_calls(
-        tool_calls,
+    intent = await classify_watchlist_intent(messages, enriched)
+    enriched = inject_intent_into_context(enriched, intent)
+
+    # Status: answer from live lists, never tools/pop-up.
+    if intent.kind == "status_watchlist":
+        text = build_watchlist_status_reply(enriched)
+        if intent.notes:
+            text = f"{text}"
+        bubbles = gemini_companion.split_reply_bubbles(text)
+        suggestions = gemini_companion.build_quick_suggestions(enriched, messages)
+        bond_notes = await _maybe_refresh_bond(messages, enriched)
+        return {
+            "message": text,
+            "bubbles": bubbles or [text],
+            "suggestions": suggestions,
+            "bondNotes": bond_notes,
+            "actions": [],
+        }
+
+    allow_tools = intent_allows_tools(intent) or intent.source == "fallback"
+    text, tool_calls = await gemini_companion.generate_agent_reply(
+        messages,
         enriched,
-        known_symbols=known,
-        messages=messages,
+        allow_tools=allow_tools,
     )
-    if not actions:
-        actions = await infer_watchlist_actions(
-            messages,
+    bubbles = gemini_companion.split_reply_bubbles(text)
+    suggestions = gemini_companion.build_quick_suggestions(enriched, messages)
+
+    known = await _known_symbol_set()
+    actions: list = []
+    if allow_tools:
+        actions = await resolve_tool_calls(
+            tool_calls,
             enriched,
             known_symbols=known,
+            messages=messages,
         )
-
-    # Status questions about delete must answer from live list — never pop-up copy.
-    if is_remove_status_question(messages):
-        actions = [a for a in actions if a.get("type") != "remove_symbol"]
-        if (
-            not text
-            or text.strip() == POPUP_READY_TEXT
-            or "pop-up" in text.lower()
-            or "popup" in text.lower()
+        # Regex fallback when execute intent produced no tools, or Intent API failed.
+        if not actions and (
+            intent.source == "fallback"
+            or intent.kind in ("execute_add", "execute_remove", "execute_create")
         ):
-            text = build_remove_status_reply(enriched)
-            bubbles = gemini_companion.split_reply_bubbles(text)
+            actions = await infer_watchlist_actions(
+                messages,
+                enriched,
+                known_symbols=known,
+            )
+        if intent.source != "fallback":
+            actions = gate_actions_by_intent(actions, intent)
+    else:
+        actions = []
 
-    # If model promised a pop-up but no actions survived validation, don't lie.
+    # If model promised a pop-up but no actions survived, don't lie.
     if (
-        actions == []
+        not actions
         and text
         and (text.strip() == POPUP_READY_TEXT or "xác nhận trên pop-up" in text.lower())
     ):
-        text = (
-            "Mình chưa mở thao tác nào. Bạn muốn mình gợi ý mã để cắt, "
-            "hay chỉ rõ mã cần xóa?"
-        )
+        if intent.kind == "propose_change":
+            text = (
+                intent.notes
+                or "Mình gợi ý vài mã bên dưới — bạn bảo đồng ý hoặc chỉ rõ mã rồi mình mở xác nhận nhé."
+            )
+        else:
+            text = (
+                "Mình chưa mở thao tác nào. Bạn muốn mình gợi ý mã để chỉnh list, "
+                "hay chỉ rõ mã cần thêm/xóa?"
+            )
         bubbles = gemini_companion.split_reply_bubbles(text)
 
-    bond_notes = None
-    bond = enriched.get("bond") if isinstance(enriched.get("bond"), dict) else None
-    msg_count = int((bond or {}).get("messageCount") or 0)
-    if msg_count > 0 and msg_count % BOND_REFRESH_EVERY == 0:
-        bond_notes = await gemini_companion.refresh_bond_notes(messages, bond)
+    bond_notes = await _maybe_refresh_bond(messages, enriched)
 
     return {
         "message": text,
@@ -575,6 +605,14 @@ async def chat_once(messages: list[dict], context: dict | None) -> dict:
         "bondNotes": bond_notes,
         "actions": actions,
     }
+
+
+async def _maybe_refresh_bond(messages: list[dict], enriched: dict) -> list[str] | None:
+    bond = enriched.get("bond") if isinstance(enriched.get("bond"), dict) else None
+    msg_count = int((bond or {}).get("messageCount") or 0)
+    if msg_count > 0 and msg_count % BOND_REFRESH_EVERY == 0:
+        return await gemini_companion.refresh_bond_notes(messages, bond)
+    return None
 
 
 async def chat_stream(messages: list[dict], context: dict | None):

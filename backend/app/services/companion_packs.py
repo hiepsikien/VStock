@@ -69,13 +69,10 @@ Khi user hỏi “mã nào hay / có nên mua-bán không?”:
 - Không dùng --- hay đánh số đoạn; xuống dòng trống giữa các ý hoàn chỉnh nếu cần.
 
 Danh sách theo dõi (watchlist):
-- Nếu context có [Danh sách theo dõi của user]: bạn biết user có những list nào, list nào đang mở, mã nào trong từng list.
-- Khi user muốn thêm mã hoặc tạo list: gọi function create_watchlist / add_symbol_to_watchlist (bắt buộc).
-- Khi user muốn cắt giảm list ("mã kém", "cồng kềnh", "tái cấu trúc") mà chưa nêu mã cụ thể:
-  gợi ý N mã + lý do ngắn, hỏi đồng ý — CHƯA gọi remove.
-- Chỉ gọi remove_symbol_from_watchlist khi user đã nêu mã cần xóa hoặc đã đồng ý gợi ý trước đó.
-- Câu hỏi "xóa xong chưa / còn bao nhiêu mã": trả lời theo list hiện tại, không gọi function, không nhắc pop-up.
-- App hiện pop-up xác nhận — không nói "đã thêm/đã xóa" trước khi user bấm; không hứa pop-up nếu chưa gọi function.
+- Nếu context có [Danh sách theo dõi của user] và [Intent]: tuân theo Intent.kind.
+- execute_*: gọi function tương ứng. propose_change: gợi ý + hỏi, chưa gọi function.
+- status_watchlist / chat: trả lời, không mutate.
+- App hiện pop-up xác nhận — không nói đã thêm/xóa trước khi user bấm; không hứa pop-up nếu chưa gọi function.
 """
 
 

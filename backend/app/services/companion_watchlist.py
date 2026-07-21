@@ -567,17 +567,14 @@ async def resolve_tool_calls(
     known_symbols: set[str] | None = None,
     messages: list[dict] | None = None,
 ) -> list[dict[str, Any]]:
-    """Turn Gemini function calls into validated client actions."""
+    """Turn Gemini function calls into validated client actions.
+
+    Intent gating happens in chat_once via companion_intent.gate_actions_by_intent.
+    """
+    del messages  # retained for call-site compatibility
     lists = _watchlist_lists(context)
     if not lists or not calls:
         return []
-
-    allow_remove = True
-    if messages is not None:
-        if is_remove_status_question(messages):
-            allow_remove = False
-        elif not should_emit_remove_actions(messages, lists):
-            allow_remove = False
 
     actions: list[dict[str, Any]] = []
     for call in calls[:8]:
@@ -593,26 +590,20 @@ async def resolve_tool_calls(
             if action:
                 actions.append(action)
         elif name == "remove_symbol_from_watchlist":
-            if allow_remove:
-                actions.extend(_resolve_remove_tool(args, lists))
+            actions.extend(_resolve_remove_tool(args, lists))
         elif name == "suggest_add_symbol":
             action = _resolve_suggest_tool(args, lists, known_symbols)
             if action:
                 actions.append(action)
 
-    # Drop suggest/add when this turn already has removes, or user is mid-delete.
-    if any(a.get("type") == "remove_symbol" for a in actions) or (
-        messages is not None
-        and user_wants_remove(messages)
-        and not is_remove_status_question(messages)
-    ):
+    # If any removes present, drop accidental adds from the same turn.
+    if any(a.get("type") == "remove_symbol" for a in actions):
         actions = [
             a
             for a in actions
             if a.get("type") not in ("suggest_add_symbol", "add_symbol")
         ]
 
-    # Dedupe remove/add by type+symbol+list
     deduped: list[dict[str, Any]] = []
     seen: set[str] = set()
     for action in actions:
@@ -628,7 +619,12 @@ async def resolve_tool_calls(
 
 
 def build_remove_status_reply(context: dict | None) -> str:
-    """Answer 'xóa xong chưa?' from current watchlist context — no pop-up."""
+    """Backward-compatible alias."""
+    return build_watchlist_status_reply(context)
+
+
+def build_watchlist_status_reply(context: dict | None) -> str:
+    """Answer status questions from current watchlist context — no pop-up."""
     lists = _watchlist_lists(context)
     if not lists:
         return "Mình chưa thấy danh sách theo dõi trong phiên này."
@@ -644,10 +640,10 @@ def build_remove_status_reply(context: dict | None) -> str:
     name = str(active.get("name") or "danh sách")
     syms = [str(s).upper() for s in (active.get("symbols") or [])]
     if not syms:
-        return f"Xóa xong rồi. “{name}” hiện đang trống."
+        return f"“{name}” hiện đang trống."
     preview = ", ".join(syms[:12])
     more = f" (+{len(syms) - 12})" if len(syms) > 12 else ""
-    return f"Xóa xong rồi. “{name}” còn {len(syms)} mã: {preview}{more}."
+    return f"“{name}” hiện còn {len(syms)} mã: {preview}{more}."
 
 
 async def _resolve_create_tool(
