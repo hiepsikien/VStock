@@ -52,20 +52,22 @@ export function StockRowSkeleton() {
 
 export function SummarySkeleton() {
   return (
-    <View style={styles.summaryCard}>
-      <View style={styles.summaryTop}>
-        <Skeleton width={100} height={14} />
-        <Skeleton width={72} height={14} />
+    <View style={styles.summaryWrap}>
+      <View style={styles.indexStrip}>
+        <Skeleton width={156} height={64} borderRadius={14} />
+        <Skeleton width={156} height={64} borderRadius={14} />
       </View>
-      <View style={styles.summaryStats}>
-        {[1, 2, 3, 4].map((i) => (
-          <Skeleton key={i} width={40} height={28} borderRadius={4} />
-        ))}
-      </View>
-      <Skeleton height={4} borderRadius={2} style={{ marginTop: spacing.md, width: '100%' }} />
-      <View style={styles.indexRow}>
-        <Skeleton width="46%" height={52} borderRadius={10} />
-        <Skeleton width="46%" height={52} borderRadius={10} />
+      <View style={styles.summaryCard}>
+        <View style={styles.summaryTop}>
+          <Skeleton width={100} height={14} />
+          <Skeleton width={72} height={14} />
+        </View>
+        <View style={styles.summaryStats}>
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} width={40} height={28} borderRadius={4} />
+          ))}
+        </View>
+        <Skeleton height={4} borderRadius={2} style={{ marginTop: spacing.md, width: '100%' }} />
       </View>
     </View>
   );
@@ -101,9 +103,17 @@ const styles = StyleSheet.create({
   stockRight: {
     alignItems: 'flex-end',
   },
+  summaryWrap: {
+    marginBottom: spacing.md,
+  },
+  indexStrip: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+  },
   summaryCard: {
     marginHorizontal: spacing.lg,
-    marginBottom: spacing.md,
     padding: spacing.lg,
     backgroundColor: colors.surface,
     borderRadius: 14,
@@ -116,11 +126,6 @@ const styles = StyleSheet.create({
   summaryStats: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-  },
-  indexRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: spacing.md,
   },
   newsRow: {
     flexDirection: 'row',

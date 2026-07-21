@@ -146,6 +146,7 @@ class IndexQuote(BaseModel):
     price: float
     change: float
     changePercent: float
+    currency: str = ""
 
 
 class IndicesResponse(BaseModel):

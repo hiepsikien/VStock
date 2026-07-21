@@ -191,6 +191,12 @@ export function getFallbackStock(symbol: string): Stock | undefined {
 }
 
 export function formatPrice(price: number, currency: string): string {
+  if (currency === 'USD' || currency === '$') {
+    return `$${price.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  }
   if (currency === '₫') {
     return price.toLocaleString('vi-VN', {
       minimumFractionDigits: 2,

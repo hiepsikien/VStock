@@ -141,6 +141,7 @@ async def get_stock(symbol: str) -> StockDetail:
         prior_close = index_row.get("priorClose")
         if prior_close is None:
             prior_close = round(price - change, 2)
+        currency = index_row.get("currency") or ""
         return StockDetail(
             symbol=sym,
             name=index_row["name"],
@@ -155,7 +156,7 @@ async def get_stock(symbol: str) -> StockDetail:
             volume=0,
             marketCap="—",
             pe=None,
-            currency="",
+            currency=currency,
             sparkline=spark,
         )
 

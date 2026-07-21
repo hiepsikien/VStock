@@ -35,7 +35,7 @@ import { upsertPriceAlert } from '../storage/alerts';
 import { syncPriceAlertBackgroundTask } from '../tasks/priceAlertBackgroundTask';
 import { addRecentSymbol } from '../storage/recent';
 import { formatCacheAge } from '../storage/cacheUtils';
-import { isMarketIndex } from '../utils/marketIndices';
+import { isCommodityStrip, isIndexLikeDetail } from '../utils/marketIndices';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Detail'>;
 
@@ -135,19 +135,20 @@ export function StockDetailScreen({ navigation, route }: Props) {
 
   useFocusEffect(
     useCallback(() => {
-      if (isMarketIndex(symbol)) return;
+      if (isIndexLikeDetail(symbol)) return;
       void addRecentSymbol(symbol);
     }, [symbol]),
   );
 
   useFocusEffect(
     useCallback(() => {
+      const alwaysPoll = isCommodityStrip(symbol);
       const quoteTimer = setInterval(() => {
-        if (isMarketOpen()) void loadDetail(true);
+        if (alwaysPoll || isMarketOpen()) void loadDetail(true);
       }, REFRESH.quotePollMs);
 
       const chartTimer = setInterval(() => {
-        if (!isMarketOpen() || rangeRef.current !== '1D') return;
+        if ((!alwaysPoll && !isMarketOpen()) || rangeRef.current !== '1D') return;
         void (async () => {
           try {
             const prices = await fetchHistory(symbol, '1D');
@@ -213,16 +214,23 @@ export function StockDetailScreen({ navigation, route }: Props) {
   );
 
   const isUp = (stock?.changePercent ?? 0) >= 0;
-  const isIndex = isMarketIndex(symbol);
+  const isIndexLike = isIndexLikeDetail(symbol);
+  const isCommodity = isCommodityStrip(symbol);
+  const isUsd = (stock?.currency ?? '') === 'USD';
+  const sessionLive = isCommodity || live;
 
   const formatStatValue = useCallback(
-    (value: number) => formatPrice(value, isIndex ? '' : stock?.currency ?? '₫'),
-    [isIndex, stock?.currency],
+    (value: number) => {
+      if (isUsd) return formatPrice(value, 'USD');
+      if (isIndexLike) return formatPrice(value, '');
+      return formatPrice(value, stock?.currency ?? '₫');
+    },
+    [isIndexLike, isUsd, stock?.currency],
   );
 
   const stats = useMemo(() => {
     if (!stock) return [];
-    if (isIndex) {
+    if (isIndexLike) {
       const priorClose = stock.priorClose ?? stock.price - stock.change;
       return [
         { label: 'Mở cửa', value: formatStatValue(stock.open) },
@@ -239,7 +247,7 @@ export function StockDetailScreen({ navigation, route }: Props) {
       { label: 'Vốn hóa', value: stock.marketCap },
       { label: 'P/E', value: stock.pe != null ? stock.pe.toFixed(1) : '—' },
     ];
-  }, [stock, isIndex, formatStatValue]);
+  }, [stock, isIndexLike, formatStatValue]);
 
   if (loading && !stock) {
     return (
@@ -279,7 +287,7 @@ export function StockDetailScreen({ navigation, route }: Props) {
           <Text style={styles.backChevron}>‹</Text>
           <Text style={styles.backLabel}>Watchlist</Text>
         </Pressable>
-        {!isIndex ? (
+        {!isIndexLike ? (
           <Pressable
             onPress={() => {
               void Haptics.selectionAsync();
@@ -315,11 +323,12 @@ export function StockDetailScreen({ navigation, route }: Props) {
             <Text style={styles.name}>{stock.name}</Text>
             <Text style={styles.sessionMeta}>
               {stock.exchange}
-              {live ? ' · live' : ` · ${marketSessionLabel()}`}
+              {sessionLive ? ' · live' : ` · ${marketSessionLabel()}`}
             </Text>
             <Text style={styles.price}>
-              {formatPrice(stock.price, stock.currency)}
-              {isIndex ? '' : ' ₫'}
+              {isUsd
+                ? formatPrice(stock.price, 'USD')
+                : `${formatPrice(stock.price, stock.currency)}${isIndexLike ? '' : ' ₫'}`}
             </Text>
             <Text
               style={[
@@ -365,7 +374,7 @@ export function StockDetailScreen({ navigation, route }: Props) {
 
           <View style={styles.newsSection}>
             <Text style={styles.newsHeading}>
-              {isIndex ? 'Tin liên quan' : 'Tin tức'}
+              {isIndexLike ? 'Tin liên quan' : 'Tin tức'}
             </Text>
             {newsLoading ? (
               <View style={styles.newsCard}>
@@ -375,7 +384,9 @@ export function StockDetailScreen({ navigation, route }: Props) {
               </View>
             ) : news.length === 0 ? (
               <Text style={styles.newsEmpty}>
-                {isIndex ? 'Chưa có tin liên quan đến chỉ số này' : 'Chưa có tin cho mã này'}
+                {isIndexLike
+                  ? 'Chưa có tin liên quan'
+                  : 'Chưa có tin cho mã này'}
               </Text>
             ) : (
               <View style={styles.newsCard}>
@@ -394,7 +405,7 @@ export function StockDetailScreen({ navigation, route }: Props) {
         </ScrollView>
       )}
 
-      {!isIndex ? (
+      {!isIndexLike ? (
         <AlertSheet
           visible={alertOpen}
           symbol={stock.symbol}
