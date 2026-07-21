@@ -389,3 +389,140 @@ async def infer_watchlist_actions(
             break
 
     return actions[:3]
+
+
+async def resolve_tool_calls(
+    calls: list[dict],
+    context: dict | None,
+    *,
+    known_symbols: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Turn Gemini function calls into validated client actions."""
+    lists = _watchlist_lists(context)
+    if not lists or not calls:
+        return []
+
+    actions: list[dict[str, Any]] = []
+    for call in calls[:3]:
+        name = str(call.get("name") or "")
+        args = call.get("args") if isinstance(call.get("args"), dict) else {}
+
+        if name == "create_watchlist":
+            action = await _resolve_create_tool(args, context, known_symbols)
+        elif name == "add_symbol_to_watchlist":
+            action = _resolve_add_tool(args, lists, known_symbols)
+        elif name == "suggest_add_symbol":
+            action = _resolve_suggest_tool(args, lists, known_symbols)
+        else:
+            continue
+
+        if action:
+            actions.append(action)
+
+    return actions
+
+
+async def _resolve_create_tool(
+    args: dict,
+    context: dict | None,
+    known: set[str] | None,
+) -> dict[str, Any] | None:
+    raw_name = str(args.get("name") or "").strip()
+    sector_key = str(args.get("sector") or "").strip().lower() or None
+    if sector_key and sector_key not in _SECTOR_LIST_NAMES:
+        sector_key = _detect_sector_key(sector_key) or sector_key
+    if sector_key not in _SECTOR_LIST_NAMES:
+        sector_key = _detect_sector_key(raw_name)
+
+    name = raw_name or _SECTOR_LIST_NAMES.get(sector_key or "", "Danh sách mới")
+    if sector_key:
+        name = _SECTOR_LIST_NAMES.get(sector_key, name)
+
+    syms: list[str] = []
+    raw_syms = args.get("symbols")
+    if isinstance(raw_syms, list):
+        for s in raw_syms:
+            sym = str(s).upper().strip()
+            if _valid_ticker(sym, known) and sym not in syms:
+                syms.append(sym)
+
+    limit = 4
+    if not syms and sector_key:
+        syms = _sector_symbols_from_context(context, known, limit)
+        if not syms:
+            fetched = await _sector_symbols_from_text(raw_name or sector_key, limit=limit)
+            syms = [s for s in fetched if _valid_ticker(s, known)][:limit]
+
+    syms = syms[:12]
+    payload: dict[str, Any] = {"type": "create_watchlist", "name": name[:48]}
+    if syms:
+        payload["symbols"] = syms
+        payload["label"] = f"Tạo “{name}” ({', '.join(syms)})"
+    else:
+        payload["label"] = f"Tạo danh sách “{name}”"
+    return payload
+
+
+def _resolve_list_target(
+    args: dict,
+    lists: list[dict],
+) -> dict | None:
+    wid = str(args.get("watchlist_id") or "").strip()
+    if wid:
+        for item in lists:
+            if str(item.get("id") or "") == wid:
+                return item
+    wname = str(args.get("watchlist_name") or "").strip()
+    if wname:
+        return _find_list_by_name(lists, wname)
+    return None
+
+
+def _resolve_add_tool(
+    args: dict,
+    lists: list[dict],
+    known: set[str] | None,
+) -> dict[str, Any] | None:
+    sym = str(args.get("symbol") or "").upper().strip()
+    if not _valid_ticker(sym, known):
+        return None
+
+    already_everywhere = all(
+        sym in {str(s).upper() for s in (item.get("symbols") or [])}
+        for item in lists
+    )
+    if already_everywhere:
+        return None
+
+    target = _resolve_list_target(args, lists)
+    payload: dict[str, Any] = {"type": "add_symbol", "symbol": sym}
+    if target:
+        payload["watchlistId"] = str(target.get("id") or "")
+        payload["watchlistName"] = str(target.get("name") or "")
+        payload["label"] = f"Thêm {sym} vào “{payload['watchlistName']}”"
+    elif len(lists) == 1:
+        payload["watchlistId"] = str(lists[0].get("id") or "")
+        payload["watchlistName"] = str(lists[0].get("name") or "")
+        payload["label"] = f"Thêm {sym} vào “{payload['watchlistName']}”"
+    else:
+        payload["label"] = f"Thêm {sym} vào danh sách…"
+    return payload
+
+
+def _resolve_suggest_tool(
+    args: dict,
+    lists: list[dict],
+    known: set[str] | None,
+) -> dict[str, Any] | None:
+    sym = str(args.get("symbol") or "").upper().strip()
+    if not _valid_ticker(sym, known):
+        return None
+    in_lists = _all_watchlist_symbols(lists)
+    if sym in in_lists:
+        return None
+    return {
+        "type": "suggest_add_symbol",
+        "symbol": sym,
+        "reason": str(args.get("reason") or "interest"),
+        "label": f"Thêm {sym} vào danh sách",
+    }

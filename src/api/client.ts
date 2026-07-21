@@ -744,10 +744,12 @@ export type CompanionChatResult = {
   actions?: Array<{
     type: string;
     symbol?: string;
+    symbols?: string[];
     watchlistId?: string;
     watchlistName?: string;
     name?: string;
     reason?: string;
+    label?: string;
   }>;
 };
 

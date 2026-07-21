@@ -8,6 +8,12 @@ from google import genai
 from google.genai import types
 
 from app.services.companion_packs import get_knowledge_pack
+from app.services.companion_tools import (
+    WATCHLIST_TOOL_INSTRUCTION,
+    extract_function_calls,
+    watchlist_tool_config,
+    watchlist_tool_declarations,
+)
 
 # Backward-compatible default (Vy pack). Prefer system_instruction_for().
 SYSTEM_INSTRUCTION = get_knowledge_pack("vy").system_instruction
@@ -116,8 +122,8 @@ def _format_context(context: dict | None) -> str:
                 sym_text = ", ".join(str(s) for s in syms[:24]) if syms else "(trống)"
                 parts.append(f"  · {name}{active}: {sym_text}")
             parts.append(
-                "- User có thể nhờ thêm mã / tạo danh sách mới. "
-                "Khi user đồng ý, app sẽ hiện chọn danh sách — bạn chỉ cần gợi ý rõ mã và tên list."
+                "- User có thể nhờ thêm mã / tạo danh sách mới — "
+                "khi đồng ý, gọi function add_symbol_to_watchlist hoặc create_watchlist."
             )
     avg = context.get("avgChange")
     if avg is not None:
@@ -296,21 +302,54 @@ def system_instruction_for(context: dict | None = None) -> str:
 
 
 async def generate_reply(messages: list[dict], context: dict | None = None) -> str:
+    text, _calls = await generate_agent_reply(messages, context)
+    return text
+
+
+def _text_from_response(response) -> str:
+    chunks: list[str] = []
+    candidates = getattr(response, "candidates", None) or []
+    if candidates:
+        content = getattr(candidates[0], "content", None)
+        for part in getattr(content, "parts", None) or []:
+            t = getattr(part, "text", None)
+            if t:
+                chunks.append(t)
+    text = "".join(chunks).strip()
+    if not text:
+        text = (getattr(response, "text", None) or "").strip()
+    return text
+
+
+async def generate_agent_reply(
+    messages: list[dict],
+    context: dict | None = None,
+) -> tuple[str, list[dict]]:
+    """Gemini reply with watchlist function calling (agentic tools)."""
     client = _client()
     contents = build_contents(messages, context)
     config = types.GenerateContentConfig(
-        system_instruction=system_instruction_for(context),
+        system_instruction=system_instruction_for(context) + WATCHLIST_TOOL_INSTRUCTION,
         temperature=0.85,
         max_output_tokens=2048,
+        tools=watchlist_tool_declarations(),
+        tool_config=watchlist_tool_config(),
     )
     response = await client.aio.models.generate_content(
         model=_model_name(),
         contents=contents,
         config=config,
     )
-    text = (response.text or "").strip()
+    text = _text_from_response(response)
+    calls = extract_function_calls(response)
     text = _repair_truncated_reply(text)
-    return scrub_advice(text) or REFUSAL
+    if text:
+        text = scrub_advice(text) or REFUSAL
+    elif calls:
+        text = "Mình chuẩn bị thao tác rồi — bạn xác nhận trên pop-up nhé."
+    else:
+        text = scrub_advice(text) or REFUSAL
+    return text, calls
 
 
 async def stream_reply(

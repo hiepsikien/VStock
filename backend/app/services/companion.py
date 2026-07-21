@@ -512,18 +512,20 @@ async def chat_once(messages: list[dict], context: dict | None) -> dict:
     if not gemini_companion.is_gemini_configured():
         raise RuntimeError("Gemini API not configured")
     enriched = await enrich_context_with_market(messages, context)
-    text = await gemini_companion.generate_reply(messages, enriched)
+    text, tool_calls = await gemini_companion.generate_agent_reply(messages, enriched)
     bubbles = gemini_companion.split_reply_bubbles(text)
     suggestions = gemini_companion.build_quick_suggestions(enriched, messages)
 
-    from app.services.companion_watchlist import infer_watchlist_actions
+    from app.services.companion_watchlist import infer_watchlist_actions, resolve_tool_calls
 
     known = await _known_symbol_set()
-    actions = await infer_watchlist_actions(
-        messages,
-        enriched,
-        known_symbols=known,
-    )
+    actions = await resolve_tool_calls(tool_calls, enriched, known_symbols=known)
+    if not actions:
+        actions = await infer_watchlist_actions(
+            messages,
+            enriched,
+            known_symbols=known,
+        )
 
     bond_notes = None
     bond = enriched.get("bond") if isinstance(enriched.get("bond"), dict) else None
