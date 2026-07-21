@@ -516,7 +516,13 @@ async def chat_once(messages: list[dict], context: dict | None) -> dict:
     bubbles = gemini_companion.split_reply_bubbles(text)
     suggestions = gemini_companion.build_quick_suggestions(enriched, messages)
 
-    from app.services.companion_watchlist import infer_watchlist_actions, resolve_tool_calls
+    from app.services.companion_watchlist import (
+        POPUP_READY_TEXT,
+        build_remove_status_reply,
+        infer_watchlist_actions,
+        is_remove_status_question,
+        resolve_tool_calls,
+    )
 
     known = await _known_symbol_set()
     actions = await resolve_tool_calls(
@@ -531,6 +537,30 @@ async def chat_once(messages: list[dict], context: dict | None) -> dict:
             enriched,
             known_symbols=known,
         )
+
+    # Status questions about delete must answer from live list — never pop-up copy.
+    if is_remove_status_question(messages):
+        actions = [a for a in actions if a.get("type") != "remove_symbol"]
+        if (
+            not text
+            or text.strip() == POPUP_READY_TEXT
+            or "pop-up" in text.lower()
+            or "popup" in text.lower()
+        ):
+            text = build_remove_status_reply(enriched)
+            bubbles = gemini_companion.split_reply_bubbles(text)
+
+    # If model promised a pop-up but no actions survived validation, don't lie.
+    if (
+        actions == []
+        and text
+        and (text.strip() == POPUP_READY_TEXT or "xác nhận trên pop-up" in text.lower())
+    ):
+        text = (
+            "Mình chưa mở thao tác nào. Bạn muốn mình gợi ý mã để cắt, "
+            "hay chỉ rõ mã cần xóa?"
+        )
+        bubbles = gemini_companion.split_reply_bubbles(text)
 
     bond_notes = None
     bond = enriched.get("bond") if isinstance(enriched.get("bond"), dict) else None

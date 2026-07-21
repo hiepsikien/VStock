@@ -29,11 +29,32 @@ _REMOVE_PATTERNS = (
     re.compile(r"\bremove\s+([A-Za-z]{3})\b", re.I),
 )
 
-# Soft intent — does not require "khỏi/from" (covers "xóa giúp mình VCB, FPT").
+# Soft mention of delete — NOT enough alone to open remove pop-up.
 _WANTS_REMOVE = re.compile(
     r"\b(x[oó]a|gỡ|remove|loại\s*bỏ)\b|\bbỏ\s+(?:mã\s+)?[A-Za-z]{3}\b",
     re.I,
 )
+
+# "Xóa xong chưa?", "đã xóa chưa", "hoàn thành xóa" — pure status, never mutate.
+_REMOVE_STATUS_QUESTION = re.compile(
+    r"(x[oó]a\s*xong|đã\s*x[oó]a|x[oó]a\s*chưa|hoàn\s*thành.{0,24}x[oó]a|"
+    r"xong\s*chưa|còn\s*(bao\s*nhiêu|bn|mấy)\s*mã)",
+    re.I,
+)
+
+_REMOVE_CONFIRM = re.compile(
+    r"\b(đồng\s*ý|ok|oke|okay|ừ+|được|xác\s*nhận|làm\s*đi|xóa\s*đi|gỡ\s*đi|"
+    r"bỏ\s*đi|cứ\s*xóa|xóa\s*hết|agree)\b",
+    re.I,
+)
+
+_QUALITATIVE_TRIM = re.compile(
+    r"\b(kém|yếu|rác|dư|thừa|cồng\s*kềnh|tái\s*cấu\s*trúc|gọn\s*lại|bớt|"
+    r"mã\s*kém|kém\s*nhất)\b",
+    re.I,
+)
+
+POPUP_READY_TEXT = "Mình chuẩn bị thao tác rồi — bạn xác nhận trên pop-up nhé."
 
 _WANTS_CREATE = re.compile(
     r"\b(tạo|làm)\b.*\b(list|danh\s*sách|mảng)\b",
@@ -92,11 +113,69 @@ def _extract_tickers(text: str) -> list[str]:
 
 
 def user_wants_remove(messages: list[dict] | str) -> bool:
-    """True when latest user message is asking to delete/remove symbols."""
+    """True when latest user message mentions deleting symbols (soft)."""
+    text = messages if isinstance(messages, str) else _latest_user_text(messages)
+    if not text or is_remove_status_question(text):
+        return False
+    return bool(_WANTS_REMOVE.search(text))
+
+
+def is_remove_status_question(messages: list[dict] | str) -> bool:
+    """Pure status check about a prior delete — must not open remove pop-up."""
     text = messages if isinstance(messages, str) else _latest_user_text(messages)
     if not text:
         return False
-    return bool(_WANTS_REMOVE.search(text))
+    return bool(_REMOVE_STATUS_QUESTION.search(text))
+
+
+def _tickers_suggested_by_assistant(messages: list[dict], lists: list[dict]) -> list[str]:
+    """Tickers named in the latest assistant turn that exist on a watchlist."""
+    in_lists = _all_watchlist_symbols(lists)
+    for msg in reversed(messages):
+        role = (msg.get("role") or "").lower()
+        if role not in ("assistant", "model"):
+            continue
+        text = (msg.get("content") or msg.get("text") or "").strip()
+        if not text:
+            continue
+        found: list[str] = []
+        for sym in _extract_tickers(text):
+            if sym in in_lists and sym not in found:
+                found.append(sym)
+        return found[:8]
+    return []
+
+
+def should_emit_remove_actions(messages: list[dict] | str, lists: list[dict]) -> bool:
+    """
+    Only open remove pop-up when user named tickers to delete, or clearly
+    confirmed a prior suggestion. Qualitative 'xóa mã kém' must NOT emit actions.
+    """
+    text = messages if isinstance(messages, str) else _latest_user_text(messages)
+    if not text or is_remove_status_question(text):
+        return False
+
+    # Explicit "xóa VCB" / "gỡ FPT"
+    if any(p.search(text) for p in _REMOVE_PATTERNS):
+        return True
+
+    named_in_lists = [
+        s for s in _extract_tickers(text) if s in _all_watchlist_symbols(lists)
+    ]
+    if named_in_lists and _WANTS_REMOVE.search(text):
+        return True
+
+    # Confirm prior suggestion: "đồng ý", "ok xóa đi", "xóa mấy mã đó"
+    if _REMOVE_CONFIRM.search(text):
+        if named_in_lists:
+            return True
+        if re.search(r"\b(mấy|các|những)\s*mã\b", text, re.I):
+            return True
+        if _WANTS_REMOVE.search(text):
+            return True
+
+    # "xóa mã kém / tái cấu trúc" without codes → discuss first, no pop-up.
+    return False
 
 
 def _ticker_candidates_from_arg(value: Any) -> list[str]:
@@ -405,11 +484,13 @@ async def infer_watchlist_actions(
         return [action]
 
     # --- Remove symbol(s) from list (before add / suggest) ---
-    wants_remove = user_wants_remove(user)
-    if wants_remove:
+    # Only when user named codes or confirmed a prior suggestion — never for
+    # qualitative "xóa mã kém" (Vy should propose first in chat).
+    if should_emit_remove_actions(messages, lists):
         remove_syms = _extract_remove_symbols(user, lists, known_symbols)
+        if not remove_syms and _REMOVE_CONFIRM.search(user):
+            remove_syms = _tickers_suggested_by_assistant(messages, lists)
         if not remove_syms:
-            # Intent clear but no ticker in text — try thread focus.
             focus = _symbol_from_thread(messages, known_symbols)
             if focus and focus in _all_watchlist_symbols(lists):
                 remove_syms = [focus]
@@ -418,8 +499,13 @@ async def infer_watchlist_actions(
             action = _build_remove_action(sym, lists, user)
             if action:
                 remove_actions.append(action)
-        # Never fall through to suggest_add when user asked to delete.
         return remove_actions[:8]
+
+    # Soft "xóa..." without executable remove — do not fall through to suggest_add
+    # if it's clearly a trim/delete discussion (still allow normal chat).
+    if user_wants_remove(user) or _QUALITATIVE_TRIM.search(user):
+        if _WANTS_REMOVE.search(user) or _QUALITATIVE_TRIM.search(user):
+            return []
 
     # --- Add symbol to list ---
     sym: str | None = None
@@ -486,6 +572,13 @@ async def resolve_tool_calls(
     if not lists or not calls:
         return []
 
+    allow_remove = True
+    if messages is not None:
+        if is_remove_status_question(messages):
+            allow_remove = False
+        elif not should_emit_remove_actions(messages, lists):
+            allow_remove = False
+
     actions: list[dict[str, Any]] = []
     for call in calls[:8]:
         name = str(call.get("name") or "")
@@ -500,15 +593,18 @@ async def resolve_tool_calls(
             if action:
                 actions.append(action)
         elif name == "remove_symbol_from_watchlist":
-            actions.extend(_resolve_remove_tool(args, lists))
+            if allow_remove:
+                actions.extend(_resolve_remove_tool(args, lists))
         elif name == "suggest_add_symbol":
             action = _resolve_suggest_tool(args, lists, known_symbols)
             if action:
                 actions.append(action)
 
-    # Drop suggest/add when this turn is a remove request or already has removes.
+    # Drop suggest/add when this turn already has removes, or user is mid-delete.
     if any(a.get("type") == "remove_symbol" for a in actions) or (
-        messages is not None and user_wants_remove(messages)
+        messages is not None
+        and user_wants_remove(messages)
+        and not is_remove_status_question(messages)
     ):
         actions = [
             a
@@ -529,6 +625,29 @@ async def resolve_tool_calls(
         seen.add(key)
         deduped.append(action)
     return deduped[:8]
+
+
+def build_remove_status_reply(context: dict | None) -> str:
+    """Answer 'xóa xong chưa?' from current watchlist context — no pop-up."""
+    lists = _watchlist_lists(context)
+    if not lists:
+        return "Mình chưa thấy danh sách theo dõi trong phiên này."
+    wl = (context or {}).get("watchlists") if isinstance(context, dict) else None
+    active_id = wl.get("activeId") if isinstance(wl, dict) else None
+    active = None
+    for item in lists:
+        if active_id and str(item.get("id") or "") == str(active_id):
+            active = item
+            break
+    if active is None:
+        active = lists[0]
+    name = str(active.get("name") or "danh sách")
+    syms = [str(s).upper() for s in (active.get("symbols") or [])]
+    if not syms:
+        return f"Xóa xong rồi. “{name}” hiện đang trống."
+    preview = ", ".join(syms[:12])
+    more = f" (+{len(syms) - 12})" if len(syms) > 12 else ""
+    return f"Xóa xong rồi. “{name}” còn {len(syms)} mã: {preview}{more}."
 
 
 async def _resolve_create_tool(

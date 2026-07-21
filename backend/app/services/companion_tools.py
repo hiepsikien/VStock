@@ -9,12 +9,16 @@ WATCHLIST_TOOL_INSTRUCTION = """
 Công cụ danh sách theo dõi (BẮT BUỘC khi user muốn thay đổi watchlist):
 - User muốn tạo list/danh sách mới → gọi create_watchlist (kèm symbols hoặc sector).
 - User muốn thêm mã vào list cụ thể → gọi add_symbol_to_watchlist.
-- User muốn xóa/gỡ/bỏ mã khỏi list → gọi remove_symbol_from_watchlist.
-  · Một mã: truyền symbol. Nhiều mã: truyền symbols (mảng) — KHÔNG gọi suggest_add_symbol.
-  · Có thể gọi remove nhiều lần (mỗi mã một lần) nếu cần.
+- XÓA mã — phân biệt rõ:
+  · User nói chung ("xóa mã kém", "list cồng kềnh", "tái cấu trúc"): KHÔNG gọi remove.
+    Hãy gợi ý cụ thể N mã + lý do ngắn (dựa list/context), hỏi user đồng ý trước.
+  · Chỉ gọi remove_symbol_from_watchlist KHI user đã chỉ rõ mã (vd. xóa VCB, FPT)
+    HOẶC đã đồng ý gợi ý trước đó ("ok", "đồng ý", "xóa mấy mã đó").
+  · Một mã: symbol. Nhiều mã: symbols[]. Không gọi suggest_add khi đang xóa.
+- Câu hỏi trạng thái ("xóa xong chưa?", "còn bao nhiêu mã?"): KHÔNG gọi function;
+  trả lời thẳng từ [Danh sách theo dõi của user].
 - User đồng ý thêm mã bạn vừa gợi ý → gọi add_symbol_to_watchlist hoặc suggest_add_symbol.
-- Khi user đang yêu cầu XÓA mã: tuyệt đối không gọi suggest_add_symbol / add_symbol_to_watchlist.
-- App CHỈ hiện pop-up xác nhận khi bạn gọi function — nếu không gọi function, user không thao tác được.
+- App CHỈ hiện pop-up khi bạn gọi function — đừng nói "xác nhận trên pop-up" nếu chưa gọi.
 - Vẫn trả lời ngắn bằng lời nói; gọi function song song khi cần hành động.
 - symbols phải là mã CK 3 chữ cái hợp lệ từ context; sector: bank | securities | real_estate | energy.
 """

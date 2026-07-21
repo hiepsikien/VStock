@@ -124,8 +124,9 @@ def _format_context(context: dict | None) -> str:
             parts.append(
                 "- User có thể nhờ thêm mã / tạo danh sách mới — "
                 "khi đồng ý, gọi function add_symbol_to_watchlist hoặc create_watchlist.\n"
-                "- User muốn xóa/gỡ mã (một hoặc nhiều) — gọi remove_symbol_from_watchlist "
-                "(symbols=[]; không gọi suggest_add_symbol khi đang xóa)."
+                "- Muốn cắt mã kém / gọn list: gợi ý mã + lý do trước; chỉ gọi "
+                "remove_symbol_from_watchlist sau khi user nêu mã hoặc đồng ý.\n"
+                "- Hỏi 'xóa xong chưa': trả lời theo list hiện tại, không gọi function."
             )
     avg = context.get("avgChange")
     if avg is not None:
@@ -348,7 +349,9 @@ async def generate_agent_reply(
     if text:
         text = scrub_advice(text) or REFUSAL
     elif calls:
-        text = "Mình chuẩn bị thao tác rồi — bạn xác nhận trên pop-up nhé."
+        from app.services.companion_watchlist import POPUP_READY_TEXT
+
+        text = POPUP_READY_TEXT
     else:
         text = scrub_advice(text) or REFUSAL
     return text, calls
