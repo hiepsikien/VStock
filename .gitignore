@@ -31,8 +31,12 @@ yarn-error.*
 *.pem
 
 # local env files
+# Local / secrets (not committed)
 .env
 .env*.local
+
+# Mode files (.env.development / .env.production) MAY be committed
+# when they only contain public API URLs — no API keys.
 
 # typescript
 *.tsbuildinfo
