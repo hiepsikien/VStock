@@ -30,6 +30,12 @@ Vai trò:
 - Giải thích thị trường VN, chỉ số, mã, tin, ngữ cảnh phiên — rõ, ngắn, dễ nuốt trên mobile.
 - Bám context app gửi (watchlist, hành vi gần đây, màn đang mở, ký ức).
 
+Dữ liệu giá VStock (bắt buộc khi có):
+- Nếu context có mục [Giá live VStock] hoặc [Chỉ số live]: PHẢI dùng đúng số đó khi trả lời về giá / biến động / khối lượng.
+- Đơn vị giá cổ phiếu trong app là nghìn đồng (vd. 95.2 = 95.200đ). Nói tự nhiên: “FPT đang 95.2, +1.2%”.
+- Không bịa giá. Không có mã trong liveQuotes thì nói thật là mình chưa kéo được giá mã đó lúc này.
+- Trả lời cụ thể, không chung chung kiểu “thị trường biến động” khi đã có số.
+
 Cấm tuyệt đối:
 - Không tư vấn đầu tư: không bảo nên mua / bán / nắm giữ / cắt lỗ / bắt đáy.
 - Không target price, tỷ lệ chắc chắn, “đảm bảo lợi nhuận”.
@@ -157,26 +163,65 @@ def _format_context(context: dict | None) -> str:
             "- Hãy nói như người đã quen: gọi lại ký ức nhẹ nhàng khi hợp, "
             "không chào kiểu lần đầu, không tụng danh sách."
         )
+
+    live_quotes = context.get("liveQuotes") or []
+    if live_quotes:
+        parts.append("[Giá live VStock — nguồn app, đơn vị nghìn đồng]")
+        for q in live_quotes[:15]:
+            if not isinstance(q, dict):
+                continue
+            sym = q.get("symbol") or "?"
+            price = q.get("price")
+            ch = q.get("change")
+            pct = q.get("changePercent")
+            vol = q.get("volume")
+            hi = q.get("high")
+            lo = q.get("low")
+            stale = " (stale)" if q.get("stale") else ""
+            line = f"  · {sym}: giá {price}, đổi {ch} ({pct}%)"
+            if hi is not None and lo is not None:
+                line += f", cao {hi} / thấp {lo}"
+            if vol is not None:
+                line += f", KL {vol}"
+            line += stale
+            parts.append(line)
+        parts.append(
+            "- Khi user hỏi giá/biến động: nêu đúng số trên, nói tự nhiên, không bịa."
+        )
+
+    live_indices = context.get("liveIndices") or []
+    if live_indices:
+        parts.append("[Chỉ số / hàng hóa live VStock]")
+        for ix in live_indices[:10]:
+            if not isinstance(ix, dict):
+                continue
+            sym = ix.get("symbol") or ix.get("name") or "?"
+            price = ix.get("price")
+            pct = ix.get("changePercent")
+            parts.append(f"  · {sym}: {price} ({pct}%)")
+
     return "\n".join(parts)
 
 
 def build_contents(messages: list[dict], context: dict | None) -> list[types.Content]:
     contents: list[types.Content] = []
     ctx_block = _format_context(context)
-    primed = False
+
+    # Attach live market context to the latest user turn (not the oldest).
+    last_user_idx = -1
+    prepared: list[tuple[str, str]] = []
     for msg in messages:
         role = (msg.get("role") or "user").lower()
         text = (msg.get("content") or msg.get("text") or "").strip()
         if not text:
             continue
         if role == "assistant":
-            contents.append(types.Content(role="model", parts=[types.Part(text=text)]))
-            continue
-        if not primed and ctx_block:
-            text = f"{ctx_block}\n\n[Tin nhắn người dùng]\n{text}"
-            primed = True
-        contents.append(types.Content(role="user", parts=[types.Part(text=text)]))
-    if not contents and ctx_block:
+            prepared.append(("model", text))
+        else:
+            prepared.append(("user", text))
+            last_user_idx = len(prepared) - 1
+
+    if not prepared and ctx_block:
         contents.append(
             types.Content(
                 role="user",
@@ -190,6 +235,12 @@ def build_contents(messages: list[dict], context: dict | None) -> list[types.Con
                 ],
             )
         )
+        return contents
+
+    for i, (role, text) in enumerate(prepared):
+        if role == "user" and i == last_user_idx and ctx_block:
+            text = f"{ctx_block}\n\n[Tin nhắn người dùng]\n{text}"
+        contents.append(types.Content(role=role, parts=[types.Part(text=text)]))
     return contents
 
 

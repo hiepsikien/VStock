@@ -1,6 +1,7 @@
 /**
  * Reveal a reply in chunks so it feels like someone typing,
  * without relying on flaky RN SSE streams.
+ * Chunks are coarse on purpose — fine-grained updates thrash FlatList.
  */
 export async function revealText(
   full: string,
@@ -13,9 +14,9 @@ export async function revealText(
     return;
   }
 
-  const minChunk = opts?.minChunk ?? 2;
-  const maxChunk = opts?.maxChunk ?? 5;
-  const delayMs = opts?.delayMs ?? 18;
+  const minChunk = opts?.minChunk ?? 10;
+  const maxChunk = opts?.maxChunk ?? 22;
+  const delayMs = opts?.delayMs ?? 42;
 
   let i = 0;
   while (i < text.length) {
@@ -23,18 +24,17 @@ export async function revealText(
       text.length - i,
       minChunk + Math.floor(Math.random() * (maxChunk - minChunk + 1)),
     );
-    // Prefer breaking near whitespace so mid-word jumps feel less robotic.
     let end = i + chunk;
     if (end < text.length) {
-      const slice = text.slice(i, Math.min(text.length, i + maxChunk + 8));
+      const slice = text.slice(i, Math.min(text.length, i + maxChunk + 12));
       const space = slice.search(/[\s,.!?;:]/);
-      if (space > 0 && space <= maxChunk + 4) {
+      if (space > 0 && space <= maxChunk + 8) {
         end = i + space + 1;
       }
     }
     i = end;
     onUpdate(text.slice(0, i));
-    await sleep(delayMs + Math.floor(Math.random() * 12));
+    await sleep(delayMs + Math.floor(Math.random() * 18));
   }
   onUpdate(text);
 }
@@ -45,5 +45,5 @@ function sleep(ms: number): Promise<void> {
 
 /** Short “saw your message” pause before typing indicator. */
 export function thinkingPauseMs(): number {
-  return 350 + Math.floor(Math.random() * 450);
+  return 280 + Math.floor(Math.random() * 320);
 }

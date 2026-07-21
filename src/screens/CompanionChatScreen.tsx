@@ -35,8 +35,8 @@ import {
 import { buildCompanionContext } from '../companion/orchestrator';
 import { revealText, thinkingPauseMs } from '../companion/reveal';
 import { CompanionAvatar } from '../components/CompanionAvatar';
+import { CompanionChatBubble } from '../components/CompanionChatBubble';
 import { CompanionProfileModal } from '../components/CompanionProfileModal';
-import { CompanionTypingDots } from '../components/CompanionTypingDots';
 import { colors, spacing, typography } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CompanionChat'>;
@@ -72,6 +72,7 @@ export function CompanionChatScreen({ navigation, route }: Props) {
   const listRef = useRef<FlatList<Bubble>>(null);
   const seeded = useRef(false);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollThrottle = useRef(0);
 
   const openProfile = useCallback(() => {
     Keyboard.dismiss();
@@ -135,7 +136,7 @@ export function CompanionChatScreen({ navigation, route }: Props) {
   }, [character.greeting, character.id, character.welcomeBack]);
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || busy) return;
     if (persistTimer.current) clearTimeout(persistTimer.current);
     persistTimer.current = setTimeout(() => {
       const toStore: StoredChatMessage[] = messages
@@ -147,21 +148,22 @@ export function CompanionChatScreen({ navigation, route }: Props) {
           ts: m.ts ?? Date.now(),
         }));
       void saveCompanionChat(character.id, toStore);
-    }, 250);
+    }, 400);
     return () => {
       if (persistTimer.current) clearTimeout(persistTimer.current);
     };
-  }, [character.id, messages, ready]);
+  }, [busy, character.id, messages, ready]);
+
+  const scrollToEnd = useCallback((animated = false) => {
+    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated }));
+  }, []);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
     const onShow = (e: KeyboardEvent) => {
-      // iOS overlays the keyboard; Android usually resizes the window already.
       setKeyboardHeight(Platform.OS === 'ios' ? e.endCoordinates.height : 0);
-      requestAnimationFrame(() =>
-        listRef.current?.scrollToEnd({ animated: true }),
-      );
+      scrollToEnd(true);
     };
     const onHide = () => setKeyboardHeight(0);
     const subShow = Keyboard.addListener(showEvent, onShow);
@@ -170,8 +172,19 @@ export function CompanionChatScreen({ navigation, route }: Props) {
       subShow.remove();
       subHide.remove();
     };
-  }, []);
+  }, [scrollToEnd]);
 
+  const patchAssistant = useCallback((assistantId: string, content: string, typing: boolean) => {
+    setMessages((prev) => {
+      const idx = prev.findIndex((m) => m.id === assistantId);
+      if (idx < 0) return prev;
+      const cur = prev[idx];
+      if (cur.content === content && cur.typing === typing) return prev;
+      const next = prev.slice();
+      next[idx] = { ...cur, content, typing, ts: Date.now() };
+      return next;
+    });
+  }, []);
   const send = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
@@ -229,22 +242,10 @@ export function CompanionChatScreen({ navigation, route }: Props) {
           'Ối, tín hiệu hơi chậm. Bạn gửi lại giúp mình nhé.';
 
         await revealText(finalText, (partial) => {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId
-                ? { ...m, content: partial, typing: partial.length === 0 }
-                : m,
-            ),
-          );
+          patchAssistant(assistantId, partial, partial.length === 0);
         });
 
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId
-              ? { ...m, content: finalText, typing: false, ts: Date.now() }
-              : m,
-          ),
-        );
+        patchAssistant(assistantId, finalText, false);
         void Haptics.selectionAsync();
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Lỗi kết nối Companion';
@@ -274,7 +275,7 @@ export function CompanionChatScreen({ navigation, route }: Props) {
       } finally {
         setPresence('online');
         setBusy(false);
-        requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+        scrollToEnd(true);
       }
     },
     [
@@ -283,8 +284,10 @@ export function CompanionChatScreen({ navigation, route }: Props) {
       busy,
       character.id,
       messages,
+      patchAssistant,
       ready,
       screen,
+      scrollToEnd,
       sessionLabel,
       symbol,
       watchlistSymbols,
@@ -296,6 +299,29 @@ export function CompanionChatScreen({ navigation, route }: Props) {
     seeded.current = true;
     void send(seed);
   }, [ready, seed, send]);
+
+  const renderItem = useCallback(
+    ({ item }: { item: Bubble }) => (
+      <CompanionChatBubble
+        item={item}
+        character={character}
+        onPressAvatar={openProfile}
+      />
+    ),
+    [character, openProfile],
+  );
+
+  const onContentSizeChange = useCallback(() => {
+    // During reveal, skip animated scroll storms — occasional snap is enough.
+    if (busy) {
+      const now = Date.now();
+      if (now - (scrollThrottle.current || 0) < 120) return;
+      scrollThrottle.current = now;
+      scrollToEnd(false);
+      return;
+    }
+    scrollToEnd(true);
+  }, [busy, scrollToEnd]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -339,43 +365,16 @@ export function CompanionChatScreen({ navigation, route }: Props) {
           ref={listRef}
           style={styles.flex}
           data={messages}
-          keyExtractor={(item) => item.id}
+          keyExtractor={keyExtractor}
           contentContainerStyle={styles.list}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
-          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
-          renderItem={({ item }) => {
-            if (item.role === 'user') {
-              return (
-                <View style={[styles.bubble, styles.bubbleUser]}>
-                  <Text style={[styles.bubbleText, styles.bubbleTextUser]}>
-                    {item.content}
-                  </Text>
-                </View>
-              );
-            }
-
-            return (
-              <View style={styles.assistantRow}>
-                <Pressable onPress={openProfile} hitSlop={6}>
-                  <CompanionAvatar character={character} size={28} />
-                </Pressable>
-                <View
-                  style={[
-                    styles.bubble,
-                    styles.bubbleAssistant,
-                    { borderColor: `${character.accent}33` },
-                  ]}
-                >
-                  {item.typing && !item.content ? (
-                    <CompanionTypingDots accent={character.accent} />
-                  ) : (
-                    <Text style={styles.bubbleText}>{item.content}</Text>
-                  )}
-                </View>
-              </View>
-            );
-          }}
+          removeClippedSubviews
+          initialNumToRender={12}
+          maxToRenderPerBatch={8}
+          windowSize={7}
+          onContentSizeChange={onContentSizeChange}
+          renderItem={renderItem}
         />
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -392,11 +391,7 @@ export function CompanionChatScreen({ navigation, route }: Props) {
             style={styles.input}
             editable={!busy && ready}
             multiline
-            onFocus={() =>
-              requestAnimationFrame(() =>
-                listRef.current?.scrollToEnd({ animated: true }),
-              )
-            }
+            onFocus={() => scrollToEnd(true)}
             onSubmitEditing={() => void send(input)}
           />
           <Pressable
@@ -418,6 +413,10 @@ export function CompanionChatScreen({ navigation, route }: Props) {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function keyExtractor(item: Bubble): string {
+  return item.id;
 }
 
 const styles = StyleSheet.create({
@@ -465,37 +464,6 @@ const styles = StyleSheet.create({
     gap: 12,
     flexGrow: 1,
     justifyContent: 'flex-end',
-  },
-  assistantRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 8,
-    alignSelf: 'flex-start',
-    maxWidth: '92%',
-  },
-  bubble: {
-    maxWidth: '88%',
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  bubbleUser: {
-    alignSelf: 'flex-end',
-    backgroundColor: colors.accent,
-    maxWidth: '82%',
-  },
-  bubbleAssistant: {
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderBottomLeftRadius: 6,
-  },
-  bubbleText: {
-    color: colors.text,
-    fontSize: 15,
-    lineHeight: 21,
-  },
-  bubbleTextUser: {
-    color: '#fff',
   },
   error: {
     color: colors.negative,
