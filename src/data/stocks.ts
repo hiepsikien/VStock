@@ -225,3 +225,12 @@ export function formatVolume(volume: number): string {
   if (volume >= 1_000) return `${(volume / 1_000).toFixed(1)}K`;
   return String(volume);
 }
+
+/** Compact market-cap labels (Apple Stocks style): nghìn tỷ → NT. */
+export function formatMarketCapLabel(cap: string): string {
+  return cap
+    .replace(/\s*nghìn\s*tỷ/gi, ' NT')
+    .replace(/\s*tỷ\b/gi, ' T')
+    .replace(/\s*triệu\b/gi, ' Tr')
+    .trim();
+}

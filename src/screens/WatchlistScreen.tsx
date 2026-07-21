@@ -49,6 +49,7 @@ import type { Stock } from '../types';
 import type { NewsItem } from '../types/news';
 import { AlertSheet } from '../components/AlertSheet';
 import { ApiStatusBanner } from '../components/ApiStatusBanner';
+import { FadeIn } from '../components/FadeIn';
 import { ManageAlertsSheet } from '../components/ManageAlertsSheet';
 import { NewsRow } from '../components/NewsRow';
 import { NewsRowSkeleton, StockRowSkeleton, SummarySkeleton } from '../components/Skeleton';
@@ -307,6 +308,7 @@ export function WatchlistScreen({ navigation }: Props) {
   }, [navigation]);
 
   const onRefresh = useCallback(() => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     void loadQuotes(symbolList, { refresh: true });
     void loadNewsPreview(true);
     void loadIndices();
@@ -607,23 +609,25 @@ export function WatchlistScreen({ navigation }: Props) {
       <StatusBar style="light" />
 
       {loading && !refreshing && !inSearchMode ? (
-        <SectionList
-          sections={[{ key: 'sk', title: '', data: [] as Stock[] }]}
-          ListHeaderComponent={listHeader}
-          ListFooterComponent={
-            <>
-              <View style={styles.skeletonCard}>
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <StockRowSkeleton key={i} />
-                ))}
-              </View>
-              {newsFooter}
-            </>
-          }
-          renderItem={() => null}
-          renderSectionHeader={() => null}
-          contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
-        />
+        <FadeIn key="skeleton" visible duration={200}>
+          <SectionList
+            sections={[{ key: 'sk', title: '', data: [] as Stock[] }]}
+            ListHeaderComponent={listHeader}
+            ListFooterComponent={
+              <>
+                <View style={styles.skeletonCard}>
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <StockRowSkeleton key={i} />
+                  ))}
+                </View>
+                {newsFooter}
+              </>
+            }
+            renderItem={() => null}
+            renderSectionHeader={() => null}
+            contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+          />
+        </FadeIn>
       ) : inSearchMode ? (
         <SectionList
           sections={[{ key: 'search', title: '', data: searchHits }]}
@@ -648,39 +652,41 @@ export function WatchlistScreen({ navigation }: Props) {
           renderSectionHeader={() => null}
         />
       ) : (
-        <SectionList
-          sections={sections}
-          keyExtractor={(item) => item.symbol}
-          stickySectionHeadersEnabled={false}
-          keyboardDismissMode="on-drag"
-          ListHeaderComponent={listHeader}
-          contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => void onRefresh()}
-              tintColor={colors.positive}
-            />
-          }
-          ListFooterComponent={newsFooter}
-          ListEmptyComponent={
-            <View style={styles.emptyBox}>
-              <Text style={styles.emptyTitle}>Chưa có mã nào</Text>
-              <Text style={styles.empty}>
-                Chạm nút + để thêm mã từ toàn thị trường HOSE / HNX
-              </Text>
-            </View>
-          }
-          renderSectionHeader={({ section: { title, data } }) =>
-            data.length > 0 ? (
-              <Text style={styles.sectionTitleList}>{title}</Text>
-            ) : null
-          }
-          renderItem={({ item, index, section }) =>
-            renderStockRow(item, index === 0, index === section.data.length - 1)
-          }
-          SectionSeparatorComponent={() => <View style={styles.sectionGap} />}
-        />
+        <FadeIn key="content" mountFade duration={280}>
+          <SectionList
+            sections={sections}
+            keyExtractor={(item) => item.symbol}
+            stickySectionHeadersEnabled={false}
+            keyboardDismissMode="on-drag"
+            ListHeaderComponent={listHeader}
+            contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={() => void onRefresh()}
+                tintColor={colors.positive}
+              />
+            }
+            ListFooterComponent={newsFooter}
+            ListEmptyComponent={
+              <View style={styles.emptyBox}>
+                <Text style={styles.emptyTitle}>Chưa có mã nào</Text>
+                <Text style={styles.empty}>
+                  Chạm nút + để thêm mã từ toàn thị trường HOSE / HNX
+                </Text>
+              </View>
+            }
+            renderSectionHeader={({ section: { title, data } }) =>
+              data.length > 0 ? (
+                <Text style={styles.sectionTitleList}>{title}</Text>
+              ) : null
+            }
+            renderItem={({ item, index, section }) =>
+              renderStockRow(item, index === 0, index === section.data.length - 1)
+            }
+            SectionSeparatorComponent={() => <View style={styles.sectionGap} />}
+          />
+        </FadeIn>
       )}
 
       {!inSearchMode && !loading ? (

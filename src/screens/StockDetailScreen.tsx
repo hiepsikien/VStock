@@ -26,6 +26,7 @@ import {
   formatPercent,
   formatPrice,
   formatVolume,
+  formatMarketCapLabel,
   getFallbackStock,
 } from '../data/stocks';
 import { PriceChart } from '../components/PriceChart';
@@ -229,25 +230,39 @@ export function StockDetailScreen({ navigation, route }: Props) {
   );
 
   const stats = useMemo(() => {
-    if (!stock) return [];
+    if (!stock) return [] as { label: string; value: string }[];
     if (isIndexLike) {
       const priorClose = stock.priorClose ?? stock.price - stock.change;
       return [
-        { label: 'Mở cửa', value: formatStatValue(stock.open) },
+        { label: 'Mở', value: formatStatValue(stock.open) },
         { label: 'Cao', value: formatStatValue(stock.high) },
         { label: 'Thấp', value: formatStatValue(stock.low) },
-        { label: 'Đóng cửa', value: formatStatValue(priorClose) },
+        { label: 'Đóng', value: formatStatValue(priorClose) },
       ];
     }
     return [
-      { label: 'Mở cửa', value: formatStatValue(stock.open) },
+      { label: 'Mở', value: formatStatValue(stock.open) },
       { label: 'Cao', value: formatStatValue(stock.high) },
       { label: 'Thấp', value: formatStatValue(stock.low) },
       { label: 'KL', value: formatVolume(stock.volume) },
-      { label: 'Vốn hóa', value: stock.marketCap },
       { label: 'P/E', value: stock.pe != null ? stock.pe.toFixed(1) : '—' },
+      { label: 'Vốn hóa', value: formatMarketCapLabel(stock.marketCap) },
     ];
   }, [stock, isIndexLike, formatStatValue]);
+
+  // Apple Stocks compact strip: 2 columns, fill top→bottom (3 rows for equities).
+  const statColumns = useMemo(() => {
+    if (!stats.length) return [] as { label: string; value: string }[][];
+    const columnCount = 2;
+    const rowsPerCol = Math.ceil(stats.length / columnCount);
+    const cols: { label: string; value: string }[][] = [];
+    for (let c = 0; c < columnCount; c += 1) {
+      const start = c * rowsPerCol;
+      const slice = stats.slice(start, start + rowsPerCol);
+      if (slice.length) cols.push(slice);
+    }
+    return cols;
+  }, [stats]);
 
   if (loading && !stock) {
     return (
@@ -355,18 +370,26 @@ export function StockDetailScreen({ navigation, route }: Props) {
             ) : null}
           </View>
 
-          {stats.length > 0 ? (
+          {statColumns.length > 0 ? (
             <View style={styles.stats}>
-              {stats.map((item, index) => (
+              {statColumns.map((col, colIndex) => (
                 <View
-                  key={item.label}
+                  key={`col-${colIndex}`}
                   style={[
-                    styles.statRow,
-                    index === stats.length - 1 && styles.statRowLast,
+                    styles.statColumn,
+                    colIndex < statColumns.length - 1 && styles.statColumnDivider,
                   ]}
                 >
-                  <Text style={styles.statLabel}>{item.label}</Text>
-                  <Text style={styles.statValue}>{item.value}</Text>
+                  {col.map((item) => (
+                    <View key={item.label} style={styles.statRow}>
+                      <Text style={styles.statLabel} numberOfLines={1}>
+                        {item.label}
+                      </Text>
+                      <Text style={styles.statValue} numberOfLines={1}>
+                        {item.value}
+                      </Text>
+                    </View>
+                  ))}
                 </View>
               ))}
             </View>
@@ -494,31 +517,44 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   stats: {
-    marginTop: spacing.xxl,
+    marginTop: spacing.lg,
     marginHorizontal: spacing.lg,
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.12)',
+  },
+  statColumn: {
+    flex: 1,
+    gap: 11,
+    paddingHorizontal: 12,
+  },
+  statColumnDivider: {
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderRightColor: 'rgba(255,255,255,0.12)',
   },
   statRow: {
     flexDirection: 'row',
+    alignItems: 'baseline',
     justifyContent: 'space-between',
-    paddingVertical: 13,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.separator,
-  },
-  statRowLast: {
-    borderBottomWidth: 0,
+    gap: 8,
+    minHeight: 18,
   },
   statLabel: {
+    flexShrink: 1,
     color: colors.textSecondary,
-    fontSize: 15,
+    fontSize: 13,
   },
   statValue: {
+    flexGrow: 0,
+    flexShrink: 1,
+    maxWidth: '62%',
     color: colors.text,
-    fontSize: 15,
-    fontWeight: '500',
+    fontSize: 13,
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
+    textAlign: 'right',
   },
   newsSection: {
     marginTop: spacing.xxl,

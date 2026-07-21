@@ -1,5 +1,5 @@
-import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import type { Stock } from '../types';
 import { formatChange, formatPercent, formatPrice } from '../data/stocks';
@@ -16,6 +16,9 @@ type Props = {
   isLast?: boolean;
 };
 
+const FLASH_MS = 280;
+const RIGHT_COL_WIDTH = 112;
+
 export function StockRow({
   stock,
   onPress,
@@ -27,6 +30,30 @@ export function StockRow({
 }: Props) {
   const isUp = stock.changePercent >= 0;
   const tint = isUp ? colors.positive : colors.negative;
+
+  const prevPrice = useRef(stock.price);
+  const flashOpacity = useRef(new Animated.Value(0)).current;
+  const [flashUp, setFlashUp] = useState(true);
+  const [flashKey, setFlashKey] = useState(0);
+
+  useEffect(() => {
+    if (prevPrice.current === stock.price) return;
+    const up = stock.price > prevPrice.current;
+    prevPrice.current = stock.price;
+    setFlashUp(up);
+    setFlashKey((k) => k + 1);
+  }, [stock.price]);
+
+  useEffect(() => {
+    if (flashKey === 0) return;
+    flashOpacity.stopAnimation();
+    flashOpacity.setValue(0.4);
+    Animated.timing(flashOpacity, {
+      toValue: 0,
+      duration: FLASH_MS,
+      useNativeDriver: true,
+    }).start();
+  }, [flashKey, flashOpacity]);
 
   return (
     <Pressable
@@ -90,7 +117,19 @@ export function StockRow({
         ) : null}
 
         <View style={styles.right}>
-          <Text style={styles.price}>{formatPrice(stock.price, stock.currency)}</Text>
+          <View style={styles.priceWrap}>
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.priceFlash,
+                {
+                  opacity: flashOpacity,
+                  backgroundColor: flashUp ? colors.positive : colors.negative,
+                },
+              ]}
+            />
+            <Text style={styles.price}>{formatPrice(stock.price, stock.currency)}</Text>
+          </View>
           <View style={[styles.changeRow, { backgroundColor: `${tint}22` }]}>
             <Text style={[styles.changeAbs, { color: tint }]}>
               {formatChange(stock.change)}
@@ -189,18 +228,32 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
   },
   right: {
-    width: 96,
+    width: RIGHT_COL_WIDTH,
     alignItems: 'flex-end',
+  },
+  priceWrap: {
+    alignSelf: 'stretch',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 5,
+    paddingHorizontal: 2,
+    paddingVertical: 1,
+  },
+  priceFlash: {
+    ...StyleSheet.absoluteFillObject,
   },
   price: {
     ...typography.price,
     color: colors.text,
-    marginBottom: 5,
+    textAlign: 'right',
+    width: '100%',
   },
   changeRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'flex-end',
     gap: 4,
+    minWidth: RIGHT_COL_WIDTH - 4,
     borderRadius: 6,
     paddingHorizontal: 6,
     paddingVertical: 3,
@@ -209,10 +262,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     fontVariant: ['tabular-nums'],
+    textAlign: 'right',
+    minWidth: 48,
   },
   changePct: {
     fontSize: 12,
     fontWeight: '600',
     fontVariant: ['tabular-nums'],
+    textAlign: 'right',
+    minWidth: 52,
   },
 });

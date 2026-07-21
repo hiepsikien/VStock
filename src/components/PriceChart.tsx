@@ -21,6 +21,7 @@ if (
 }
 
 const RANGES: ChartRange[] = ['1D', '1W', '1M', '3M', '1Y', '5Y'];
+const CHART_HEIGHT = 248;
 
 type Props = {
   prices: number[];
@@ -31,7 +32,8 @@ type Props = {
 
 export function PriceChart({ prices, positive, range, onRangeChange }: Props) {
   const { width: screenWidth } = useWindowDimensions();
-  const chartWidth = Math.max(280, screenWidth - 40);
+  // Edge-to-edge feel — only small side inset for sparkline padding.
+  const chartWidth = Math.max(300, screenWidth - 8);
 
   const stats = useMemo(() => {
     if (!prices.length) return { min: 0, max: 0 };
@@ -45,9 +47,9 @@ export function PriceChart({ prices, positive, range, onRangeChange }: Props) {
           <Sparkline
             data={prices}
             width={chartWidth}
-            height={180}
+            height={CHART_HEIGHT}
             positive={positive}
-            strokeWidth={2}
+            strokeWidth={2.25}
             showFill
           />
         ) : (
@@ -62,7 +64,7 @@ export function PriceChart({ prices, positive, range, onRangeChange }: Props) {
         </View>
       ) : null}
 
-      <View style={styles.ranges}>
+      <View style={styles.segmentTrack}>
         {RANGES.map((item) => {
           const active = item === range;
           return (
@@ -72,10 +74,12 @@ export function PriceChart({ prices, positive, range, onRangeChange }: Props) {
                 LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                 onRangeChange(item);
               }}
-              style={[styles.rangeBtn, active && styles.rangeBtnActive]}
-              hitSlop={6}
+              style={[styles.segment, active && styles.segmentActive]}
+              hitSlop={4}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
             >
-              <Text style={[styles.rangeText, active && styles.rangeTextActive]}>
+              <Text style={[styles.segmentText, active && styles.segmentTextActive]}>
                 {item}
               </Text>
             </Pressable>
@@ -88,13 +92,13 @@ export function PriceChart({ prices, positive, range, onRangeChange }: Props) {
 
 const styles = StyleSheet.create({
   wrap: {
-    marginTop: spacing.md,
+    marginTop: spacing.sm,
     position: 'relative',
   },
   chartArea: {
     alignItems: 'center',
     justifyContent: 'center',
-    height: 190,
+    height: CHART_HEIGHT + 12,
   },
   emptyChart: {
     color: colors.textTertiary,
@@ -103,8 +107,8 @@ const styles = StyleSheet.create({
   axis: {
     position: 'absolute',
     right: spacing.lg,
-    top: 8,
-    bottom: 52,
+    top: 10,
+    bottom: 58,
     justifyContent: 'space-between',
     alignItems: 'flex-end',
   },
@@ -113,26 +117,31 @@ const styles = StyleSheet.create({
     color: colors.textTertiary,
     fontVariant: ['tabular-nums'],
   },
-  ranges: {
+  segmentTrack: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
+    marginHorizontal: spacing.lg,
     marginTop: spacing.md,
+    padding: 2,
+    borderRadius: 9,
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
-  rangeBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+  segment: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 7,
+    borderRadius: 7,
   },
-  rangeBtnActive: {
-    backgroundColor: colors.surfaceElevated,
+  segmentActive: {
+    backgroundColor: 'rgba(255,255,255,0.14)',
   },
-  rangeText: {
+  segmentText: {
     fontSize: 13,
     fontWeight: '600',
     color: colors.textSecondary,
+    fontVariant: ['tabular-nums'],
   },
-  rangeTextActive: {
-    color: colors.positive,
+  segmentTextActive: {
+    color: colors.text,
   },
 });

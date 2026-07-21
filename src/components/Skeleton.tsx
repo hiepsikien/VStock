@@ -43,8 +43,8 @@ export function StockRowSkeleton() {
       </View>
       <Skeleton width={72} height={32} borderRadius={4} />
       <View style={styles.stockRight}>
-        <Skeleton width={64} height={16} />
-        <Skeleton width={72} height={22} borderRadius={6} style={{ marginTop: 6 }} />
+        <Skeleton width={100} height={16} />
+        <Skeleton width={108} height={22} borderRadius={6} style={{ marginTop: 6 }} />
       </View>
     </View>
   );
@@ -96,6 +96,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   stockRight: {
+    width: 112,
     alignItems: 'flex-end',
   },
   summaryWrap: {
