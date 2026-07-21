@@ -163,6 +163,7 @@ type WatchlistDto = {
   volume: number;
   currency: string;
   sparkline: number[];
+  unavailable?: boolean;
 };
 
 type StockDetailDto = WatchlistDto & {
@@ -215,6 +216,7 @@ function toStock(dto: StockDetailDto, history?: Partial<Record<ChartRange, numbe
       '1Y': history?.['1Y'] ?? [],
       '5Y': history?.['5Y'] ?? [],
     },
+    unavailable: Boolean(dto.unavailable),
   };
 }
 

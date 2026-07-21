@@ -1,4 +1,4 @@
-import type { Stock } from '../types';
+import type { ChartRange, Stock } from '../types';
 
 export type WatchlistSort = 'change' | 'symbol';
 
@@ -114,4 +114,48 @@ export function mergeStockUpdates(prev: Stock[], incoming: Stock[]): Stock[] {
   }
 
   return changed ? next : prev;
+}
+
+const EMPTY_HISTORY: Record<ChartRange, number[]> = {
+  '1D': [],
+  '1W': [],
+  '1M': [],
+  '3M': [],
+  '1Y': [],
+  '5Y': [],
+};
+
+/** Placeholder row when symbol is in watchlist but quotes are unavailable. */
+export function placeholderStock(
+  symbol: string,
+  meta?: { name?: string; exchange?: string },
+): Stock {
+  const sym = symbol.toUpperCase();
+  return {
+    symbol: sym,
+    name: meta?.name ?? sym,
+    exchange: meta?.exchange ?? '—',
+    price: 0,
+    change: 0,
+    changePercent: 0,
+    open: 0,
+    high: 0,
+    low: 0,
+    volume: 0,
+    marketCap: '—',
+    pe: null,
+    currency: '₫',
+    sparkline: [],
+    history: { ...EMPTY_HISTORY },
+    unavailable: true,
+  };
+}
+
+/** Keep one row per stored symbol — order matches watchlist storage. */
+export function alignStocksToSymbolList(symbols: string[], stocks: Stock[]): Stock[] {
+  const bySym = new Map(stocks.map((s) => [s.symbol.toUpperCase(), s]));
+  return symbols.map((sym) => {
+    const key = sym.toUpperCase();
+    return bySym.get(key) ?? placeholderStock(key);
+  });
 }

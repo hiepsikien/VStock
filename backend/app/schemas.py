@@ -30,6 +30,7 @@ class WatchlistItem(BaseModel):
     volume: int
     currency: str = "₫"
     sparkline: list[float] = Field(default_factory=list)
+    unavailable: bool = False
 
 
 class StockDetail(BaseModel):
@@ -48,6 +49,7 @@ class StockDetail(BaseModel):
     pe: float | None
     currency: str = "₫"
     sparkline: list[float] = Field(default_factory=list)
+    unavailable: bool = False
 
 
 class HistoryResponse(BaseModel):

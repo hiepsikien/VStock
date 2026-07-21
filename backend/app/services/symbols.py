@@ -50,3 +50,21 @@ async def search_symbols(query: str, limit: int = 30) -> list[dict]:
             contains.append(item)
 
     return (starts + contains)[:limit]
+
+
+async def lookup_symbol(symbol: str) -> dict | None:
+    """Metadata for a symbol (name, exchange) even when quotes are missing."""
+    sym = symbol.strip().upper()
+    if not sym:
+        return None
+    row = await _repo.get(sym)
+    if row:
+        return row
+    try:
+        all_symbols = await fetch_all_symbols()
+    except RuntimeError:
+        return None
+    for item in all_symbols:
+        if item.get("symbol") == sym:
+            return item
+    return None

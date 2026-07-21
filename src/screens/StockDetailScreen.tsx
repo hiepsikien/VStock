@@ -341,6 +341,13 @@ export function StockDetailScreen({ navigation, route }: Props) {
         />
       ) : null}
 
+      {stock.unavailable ? (
+        <ApiStatusBanner
+          message={`Mã ${stock.symbol} có trong danh sách nhưng nguồn giá chưa có dữ liệu live.`}
+          onRetry={() => void loadDetail(true)}
+        />
+      ) : null}
+
       {loading ? (
         <View style={styles.loading}>
           <ActivityIndicator color={colors.positive} />
@@ -358,18 +365,22 @@ export function StockDetailScreen({ navigation, route }: Props) {
               {sessionLive ? ' · live' : ` · ${marketSessionLabel()}`}
             </Text>
             <Text style={styles.price}>
-              {isUsd
-                ? formatPrice(stock.price, 'USD')
-                : `${formatPrice(stock.price, stock.currency)}${isIndexLike ? '' : ' ₫'}`}
+              {stock.unavailable
+                ? 'Chưa có giá'
+                : isUsd
+                  ? formatPrice(stock.price, 'USD')
+                  : `${formatPrice(stock.price, stock.currency)}${isIndexLike ? '' : ' ₫'}`}
             </Text>
-            <Text
-              style={[
-                styles.change,
-                { color: isUp ? colors.positive : colors.negative },
-              ]}
-            >
-              {formatChange(stock.change)} ({formatPercent(stock.changePercent)})
-            </Text>
+            {!stock.unavailable ? (
+              <Text
+                style={[
+                  styles.change,
+                  { color: isUp ? colors.positive : colors.negative },
+                ]}
+              >
+                {formatChange(stock.change)} ({formatPercent(stock.changePercent)})
+              </Text>
+            ) : null}
           </View>
 
           <View>

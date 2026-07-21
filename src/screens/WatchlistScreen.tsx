@@ -68,6 +68,7 @@ import { colors, spacing, typography } from '../theme';
 import { isMarketOpen, marketSessionLabel, REFRESH } from '../utils/marketSession';
 import {
   buildWatchlistSections,
+  alignStocksToSymbolList,
   mergeStockUpdates,
   watchlistStats,
   type WatchlistSection,
@@ -193,7 +194,8 @@ export function WatchlistScreen({ navigation }: Props) {
         await loadWatchlist(symbols, {
           refresh: isRefresh,
           onData: (data, fromCache, fetchedAt) => {
-            setStocks((prev) => (replace ? data : mergeStockUpdates(prev, data)));
+            const aligned = alignStocksToSymbolList(symbols, data);
+            setStocks((prev) => (replace ? aligned : mergeStockUpdates(prev, aligned)));
             if (fromCache) {
               setUsingOfflineCache(true);
               setCacheFetchedAt(fetchedAt ?? null);

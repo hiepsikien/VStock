@@ -96,30 +96,44 @@ async def get_watchlist(
 
     async def build_item(sym: str) -> WatchlistItem | None:
         q = quote_map.get(sym)
-        if not q:
-            return None
-        try:
-            fund, spark = await asyncio.gather(
-                fundamentals.fetch_fundamentals(sym),
-                history.fetch_sparkline(sym),
+        if q:
+            try:
+                fund, spark = await asyncio.gather(
+                    fundamentals.fetch_fundamentals(sym),
+                    history.fetch_sparkline(sym),
+                )
+            except Exception:
+                fund = {
+                    "name": sym,
+                    "exchange": "HOSE",
+                    "marketCap": "—",
+                    "pe": None,
+                }
+                spark = []
+            return WatchlistItem(
+                symbol=sym,
+                name=fund["name"],
+                exchange=fund["exchange"],
+                price=q["price"],
+                change=q["change"],
+                changePercent=q["changePercent"],
+                volume=q["volume"],
+                sparkline=spark,
             )
-        except Exception:
-            fund = {
-                "name": sym,
-                "exchange": "HOSE",
-                "marketCap": "—",
-                "pe": None,
-            }
-            spark = []
+
+        meta = await symbols_service.lookup_symbol(sym)
+        if not meta:
+            return None
         return WatchlistItem(
             symbol=sym,
-            name=fund["name"],
-            exchange=fund["exchange"],
-            price=q["price"],
-            change=q["change"],
-            changePercent=q["changePercent"],
-            volume=q["volume"],
-            sparkline=spark,
+            name=str(meta.get("name") or sym),
+            exchange=str(meta.get("exchange") or "HOSE"),
+            price=0,
+            change=0,
+            changePercent=0,
+            volume=0,
+            sparkline=[],
+            unavailable=True,
         )
 
     items = await asyncio.gather(*(build_item(s) for s in symbol_list))
@@ -166,7 +180,34 @@ async def get_stock(symbol: str) -> StockDetail:
         raise HTTPException(status_code=502, detail=f"Quote source unavailable: {exc}") from exc
 
     if not q:
-        raise HTTPException(status_code=404, detail=f"Symbol not found: {sym}")
+        meta = await symbols_service.lookup_symbol(sym)
+        if not meta:
+            raise HTTPException(status_code=404, detail=f"Symbol not found: {sym}")
+        try:
+            fund = await fundamentals.fetch_fundamentals(sym)
+        except Exception:
+            fund = {
+                "name": meta.get("name") or sym,
+                "exchange": meta.get("exchange") or "HOSE",
+                "marketCap": "—",
+                "pe": None,
+            }
+        return StockDetail(
+            symbol=sym,
+            name=str(fund.get("name") or meta.get("name") or sym),
+            exchange=str(fund.get("exchange") or meta.get("exchange") or "HOSE"),
+            price=0,
+            change=0,
+            changePercent=0,
+            open=0,
+            high=0,
+            low=0,
+            volume=0,
+            marketCap=str(fund.get("marketCap") or "—"),
+            pe=fund.get("pe"),
+            sparkline=[],
+            unavailable=True,
+        )
 
     try:
         fund, spark = await asyncio.gather(

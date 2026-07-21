@@ -17,4 +17,6 @@ export type Stock = {
   currency: string;
   sparkline: number[];
   history: Record<ChartRange, number[]>;
+  /** Listed symbol but quote feed has no live data yet */
+  unavailable?: boolean;
 };

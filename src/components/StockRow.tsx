@@ -30,6 +30,7 @@ function StockRowInner({
 }: Props) {
   const isUp = stock.changePercent >= 0;
   const tint = isUp ? colors.positive : colors.negative;
+  const noQuote = Boolean(stock.unavailable);
 
   const prevPrice = useRef(stock.price);
   const flashOpacity = useRef(new Animated.Value(0)).current;
@@ -76,7 +77,11 @@ function StockRowInner({
         pressed && !editing && styles.pressed,
       ]}
       accessibilityRole="button"
-      accessibilityLabel={`${stock.symbol}, ${formatPrice(stock.price, stock.currency)}, ${formatPercent(stock.changePercent)}`}
+      accessibilityLabel={
+        noQuote
+          ? `${stock.symbol}, chưa có dữ liệu giá`
+          : `${stock.symbol}, ${formatPrice(stock.price, stock.currency)}, ${formatPercent(stock.changePercent)}`
+      }
     >
       {editing ? (
         <Pressable
@@ -105,7 +110,7 @@ function StockRowInner({
           </Text>
         </View>
 
-        {!editing ? (
+        {!editing && !noQuote ? (
           <View style={styles.chart}>
             <Sparkline
               data={stock.sparkline}
@@ -118,26 +123,34 @@ function StockRowInner({
 
         <View style={styles.right}>
           <View style={styles.priceWrap}>
-            <Animated.View
-              pointerEvents="none"
-              style={[
-                styles.priceFlash,
-                {
-                  opacity: flashOpacity,
-                  backgroundColor: flashUp ? colors.positive : colors.negative,
-                },
-              ]}
-            />
-            <Text style={styles.price}>{formatPrice(stock.price, stock.currency)}</Text>
-          </View>
-          <View style={[styles.changeRow, { backgroundColor: `${tint}22` }]}>
-            <Text style={[styles.changeAbs, { color: tint }]}>
-              {formatChange(stock.change)}
-            </Text>
-            <Text style={[styles.changePct, { color: tint }]}>
-              {formatPercent(stock.changePercent)}
+            {!noQuote ? (
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.priceFlash,
+                  {
+                    opacity: flashOpacity,
+                    backgroundColor: flashUp ? colors.positive : colors.negative,
+                  },
+                ]}
+              />
+            ) : null}
+            <Text style={[styles.price, noQuote && styles.priceMuted]}>
+              {noQuote ? 'Chưa có giá' : formatPrice(stock.price, stock.currency)}
             </Text>
           </View>
+          {noQuote ? (
+            <Text style={styles.noQuoteHint}>Chưa có dữ liệu giá</Text>
+          ) : (
+            <View style={[styles.changeRow, { backgroundColor: `${tint}22` }]}>
+              <Text style={[styles.changeAbs, { color: tint }]}>
+                {formatChange(stock.change)}
+              </Text>
+              <Text style={[styles.changePct, { color: tint }]}>
+                {formatPercent(stock.changePercent)}
+              </Text>
+            </View>
+          )}
         </View>
       </View>
     </Pressable>
@@ -257,6 +270,17 @@ const styles = StyleSheet.create({
     color: colors.text,
     textAlign: 'right',
     width: '100%',
+  },
+  priceMuted: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.textSecondary,
+  },
+  noQuoteHint: {
+    fontSize: 11,
+    color: colors.textTertiary,
+    textAlign: 'right',
+    marginTop: 2,
   },
   changeRow: {
     flexDirection: 'row',
