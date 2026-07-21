@@ -347,7 +347,36 @@ def _collect_candidate_symbols(messages: list[dict], context: dict | None) -> li
     return ordered
 
 
-async def _fetch_news_safe(symbols: list[str], timeout_s: float = 3.0) -> list[dict]:
+_NEWS_GENERIC_RE = re.compile(
+    r"(tin\s*(gì|nào|mới|gần)|đáng\s*chú\s*ý|có\s*tin|headline|news\b|thị\s*trường.+tin)",
+    re.I,
+)
+
+
+def _news_item_payload(it: dict, symbol: str) -> dict | None:
+    title = (it.get("title") or "").strip()
+    if not title:
+        return None
+    summary = (it.get("summary") or "").strip()
+    published = it.get("publishedAt") or it.get("published_at")
+    payload: dict = {
+        "symbol": symbol,
+        "title": title[:180],
+        "id": it.get("id"),
+    }
+    if summary:
+        payload["summary"] = summary[:200]
+    if published:
+        payload["publishedAt"] = published
+    return payload
+
+
+async def _fetch_news_safe(
+    symbols: list[str],
+    *,
+    market_first: bool = False,
+    timeout_s: float = 3.0,
+) -> list[dict]:
     from app.services import news as news_service
 
     headlines: list[dict] = []
@@ -361,45 +390,41 @@ async def _fetch_news_safe(symbols: list[str], timeout_s: float = 3.0) -> list[d
             )
             out = []
             for it in items or []:
-                title = (it.get("title") or "").strip()
-                if title:
-                    out.append(
-                        {
-                            "symbol": sym,
-                            "title": title[:180],
-                            "id": it.get("id"),
-                        }
-                    )
+                row = _news_item_payload(it, sym)
+                if row:
+                    out.append(row)
             return out
         except Exception:
             return []
 
-    if focus:
-        results = await asyncio.gather(*(one_symbol(s) for s in focus))
-        for batch in results:
-            headlines.extend(batch)
-
-    if len(headlines) < 2:
+    async def market_batch(limit: int = 6) -> list[dict]:
         try:
             market = await asyncio.wait_for(
-                news_service.fetch_market_news(limit=4),
+                news_service.fetch_market_news(limit=limit),
                 timeout=timeout_s,
             )
+            out = []
             for it in market or []:
-                title = (it.get("title") or "").strip()
-                if not title:
-                    continue
-                headlines.append(
-                    {
-                        "symbol": "TT",
-                        "title": title[:180],
-                        "id": it.get("id"),
-                    }
-                )
-                if len(headlines) >= 6:
-                    break
+                row = _news_item_payload(it, "TT")
+                if row:
+                    out.append(row)
+            return out
         except Exception:
-            pass
+            return []
+
+    if market_first:
+        headlines.extend(await market_batch(6))
+        if focus:
+            results = await asyncio.gather(*(one_symbol(s) for s in focus))
+            for batch in results:
+                headlines.extend(batch)
+    else:
+        if focus:
+            results = await asyncio.gather(*(one_symbol(s) for s in focus))
+            for batch in results:
+                headlines.extend(batch)
+        if len(headlines) < 2:
+            headlines.extend(await market_batch(4))
 
     # Dedupe by title
     seen: set[str] = set()
@@ -411,6 +436,150 @@ async def _fetch_news_safe(symbols: list[str], timeout_s: float = 3.0) -> list[d
         seen.add(key)
         unique.append(h)
     return unique[:8]
+
+
+def _slim_income_period(period: dict | None) -> dict | None:
+    if not isinstance(period, dict):
+        return None
+    return {
+        "fiscalDate": period.get("fiscalDate") or period.get("period"),
+        "year": period.get("year"),
+        "quarter": period.get("quarter"),
+        "netRevenue": period.get("netRevenue"),
+        "netIncome": period.get("netIncome"),
+    }
+
+
+async def _fetch_fundamentals_bundle(
+    symbols: list[str],
+    timeout_s: float = 4.0,
+) -> tuple[list[dict], list[dict]]:
+    """Fetch PE ratios + income for up to a few focus tickers."""
+    from app.services import fundamentals as fundamentals_service
+
+    focus = [s for s in symbols if s][:3]
+    if not focus:
+        return [], []
+
+    async def one(sym: str) -> tuple[dict | None, dict | None]:
+        fund: dict | None = None
+        income: dict | None = None
+        try:
+            raw = await asyncio.wait_for(
+                fundamentals_service.fetch_fundamentals(sym),
+                timeout=timeout_s,
+            )
+            if isinstance(raw, dict):
+                fund = {
+                    "symbol": sym,
+                    "pe": raw.get("pe"),
+                    "eps": raw.get("eps"),
+                    "pb": raw.get("pb"),
+                    "roe": raw.get("roe"),
+                    "roa": raw.get("roa"),
+                    "marketCap": raw.get("marketCap"),
+                    "dividendYield": raw.get("dividendYield"),
+                }
+        except Exception:
+            fund = None
+        try:
+            raw_i = await asyncio.wait_for(
+                fundamentals_service.fetch_income(sym),
+                timeout=timeout_s,
+            )
+            if isinstance(raw_i, dict):
+                quarters = [
+                    q
+                    for q in (
+                        _slim_income_period(p)
+                        for p in (raw_i.get("lastQuarters") or [])[:2]
+                    )
+                    if q
+                ]
+                income = {
+                    "symbol": sym,
+                    "revenueLabel": raw_i.get("revenueLabel"),
+                    "latestAnnual": _slim_income_period(raw_i.get("latestAnnual")),
+                    "lastQuarters": quarters,
+                }
+        except Exception:
+            income = None
+        return fund, income
+
+    results = await asyncio.gather(*(one(s) for s in focus))
+    funds: list[dict] = []
+    incomes: list[dict] = []
+    for fund, income in results:
+        if fund:
+            funds.append(fund)
+        if income and (income.get("latestAnnual") or income.get("lastQuarters")):
+            incomes.append(income)
+    return funds, incomes
+
+
+def _fundamentals_focus_symbols(
+    msg_tickers: set[str],
+    context: dict,
+    movers: list[dict],
+) -> list[str]:
+    ordered: list[str] = []
+
+    def add(sym: str | None) -> None:
+        if not sym:
+            return
+        s = str(sym).strip().upper()
+        if len(s) < 3 or s in ordered:
+            return
+        ordered.append(s)
+
+    for sym in msg_tickers:
+        add(sym)
+    add(context.get("symbol"))
+    for m in movers:
+        if isinstance(m, dict):
+            add(m.get("symbol"))
+    if not ordered:
+        for sym in context.get("watchlistSymbols") or context.get("watchlist") or []:
+            add(str(sym))
+            if len(ordered) >= 3:
+                break
+    return ordered[:3]
+
+
+def _watchlist_movers_for_chat(
+    context: dict | None,
+    quote_map: dict[str, dict],
+) -> list[dict]:
+    """Sharp movers first; else top watchlist by |%| so Q1 always has a ranking."""
+    movers = _watchlist_movers(context, quote_map)
+    if len(movers) >= 2:
+        return movers
+
+    ctx = context or {}
+    watch = [
+        str(s).strip().upper()
+        for s in (ctx.get("watchlistSymbols") or ctx.get("watchlist") or [])
+        if str(s).strip()
+    ]
+    ranked: list[dict] = []
+    for sym in watch:
+        q = quote_map.get(sym)
+        if not q:
+            continue
+        try:
+            pct = float(q.get("changePercent") or 0)
+        except (TypeError, ValueError):
+            continue
+        ranked.append(
+            {
+                "symbol": sym,
+                "price": q.get("price"),
+                "changePercent": pct,
+                "change": q.get("change"),
+            }
+        )
+    ranked.sort(key=lambda m: abs(float(m["changePercent"])), reverse=True)
+    return ranked[:5] if ranked else movers
 
 
 async def enrich_context_with_market(
@@ -454,6 +623,7 @@ async def enrich_context_with_market(
 
     to_fetch = filtered[:18]
     live_quotes: list[dict] = []
+    quote_map: dict[str, dict] = {}
     if "quotes" in sources and to_fetch:
         quote_map = await _fetch_quotes_safe(to_fetch)
         for sym in to_fetch:
@@ -476,6 +646,9 @@ async def enrich_context_with_market(
             )
 
     ctx["liveQuotes"] = live_quotes
+    ctx["watchlistMovers"] = (
+        _watchlist_movers_for_chat(ctx, quote_map) if quote_map else []
+    )
     if sector_symbols:
         ctx["sectorCandidates"] = sector_symbols[:12]
 
@@ -495,12 +668,34 @@ async def enrich_context_with_market(
         ctx["liveIndices"] = []
 
     if "news" in sources:
-        news_focus = list(msg_tickers)[:3] or (
-            [str(ctx.get("symbol")).upper()] if ctx.get("symbol") else to_fetch[:2]
+        market_first = bool(
+            _NEWS_GENERIC_RE.search(latest_user_text or "") and not msg_tickers
         )
-        ctx["liveNews"] = await _fetch_news_safe([s for s in news_focus if s])
+        news_focus = list(msg_tickers)[:3] or (
+            [str(ctx.get("symbol")).upper()]
+            if ctx.get("symbol")
+            else [m["symbol"] for m in (ctx.get("watchlistMovers") or [])[:2]]
+            or to_fetch[:2]
+        )
+        ctx["liveNews"] = await _fetch_news_safe(
+            [s for s in news_focus if s],
+            market_first=market_first,
+        )
     else:
         ctx["liveNews"] = []
+
+    if "fundamentals" in sources:
+        focus = _fundamentals_focus_symbols(
+            msg_tickers,
+            ctx,
+            ctx.get("watchlistMovers") or [],
+        )
+        funds, incomes = await _fetch_fundamentals_bundle(focus)
+        ctx["liveFundamentals"] = funds
+        ctx["liveIncome"] = incomes
+    else:
+        ctx["liveFundamentals"] = []
+        ctx["liveIncome"] = []
 
     return ctx
 

@@ -254,14 +254,21 @@ def _format_context(context: dict | None) -> str:
             title = (item.get("title") or "").strip()
             if not title:
                 continue
-            parts.append(f"  · [{sym}] {title}")
+            line = f"  · [{sym}] {title}"
+            summary = (item.get("summary") or "").strip()
+            if summary:
+                line += f" — {summary[:160]}"
+            published = item.get("publishedAt")
+            if published:
+                line += f" ({published})"
+            parts.append(line)
         parts.append(
-            "- Khi user hỏi vì sao mã động / có tin gì: bám headline trên nếu hợp."
+            "- Khi user hỏi vì sao mã động / có tin gì: bám headline/summary trên nếu hợp."
         )
 
-    movers = context.get("nudgeMovers") or []
+    movers = context.get("watchlistMovers") or context.get("nudgeMovers") or []
     if movers:
-        parts.append("[Mã biến động mạnh trên watchlist]")
+        parts.append("[Watchlist movers — xếp theo |%| phiên]")
         for m in movers[:5]:
             if not isinstance(m, dict):
                 continue
@@ -269,6 +276,50 @@ def _format_context(context: dict | None) -> str:
             pct = m.get("changePercent")
             price = m.get("price")
             parts.append(f"  · {sym}: {price} ({pct}%)")
+        parts.append(
+            "- Khi hỏi watchlist hôm nay / giữ-gỡ mã: ưu tiên các mã trong block này."
+        )
+
+    live_fundamentals = context.get("liveFundamentals") or []
+    if live_fundamentals:
+        parts.append("[Định giá VStock — nguồn app, không bịa]")
+        for f in live_fundamentals[:5]:
+            if not isinstance(f, dict):
+                continue
+            sym = f.get("symbol") or "?"
+            parts.append(
+                f"  · {sym}: PE {f.get('pe')}, EPS {f.get('eps')}, "
+                f"P/B {f.get('pb')}, ROE {f.get('roe')}, ROA {f.get('roa')}, "
+                f"vốn hóa {f.get('marketCap')}"
+            )
+        parts.append(
+            "- Khi hỏi định giá: nêu đúng số trên; thiếu field thì nói chưa có."
+        )
+
+    live_income = context.get("liveIncome") or []
+    if live_income:
+        parts.append("[KQKD VStock — doanh thu / LNST, không bịa]")
+        for inc in live_income[:5]:
+            if not isinstance(inc, dict):
+                continue
+            sym = inc.get("symbol") or "?"
+            label = inc.get("revenueLabel") or "Doanh thu"
+            annual = inc.get("latestAnnual") if isinstance(inc.get("latestAnnual"), dict) else None
+            if annual:
+                parts.append(
+                    f"  · {sym} năm {annual.get('year')}: "
+                    f"{label} {annual.get('netRevenue')}, LNST {annual.get('netIncome')}"
+                )
+            for q in (inc.get("lastQuarters") or [])[:2]:
+                if not isinstance(q, dict):
+                    continue
+                qlabel = f"Q{q.get('quarter')}/{q.get('year')}" if q.get("quarter") else q.get("fiscalDate")
+                parts.append(
+                    f"  · {sym} {qlabel}: {label} {q.get('netRevenue')}, LNST {q.get('netIncome')}"
+                )
+        parts.append(
+            "- Khi hỏi KQKD / doanh thu / LNST: dùng đúng số trên."
+        )
 
     return "\n".join(parts)
 
@@ -619,7 +670,7 @@ def build_quick_suggestions(
     context: dict | None,
     messages: list[dict],
 ) -> list[str]:
-    """Contextual quick-reply chips (no extra LLM call)."""
+    """Contextual quick-reply chips aligned to the five core question types."""
     ctx = context or {}
     chips: list[str] = []
 
@@ -630,20 +681,34 @@ def build_quick_suggestions(
 
     focus_list = _safe_focus_symbols(ctx)
     focus = focus_list[0] if focus_list else None
+    has_watchlist = bool(
+        ctx.get("watchlistSymbols")
+        or ctx.get("watchlist")
+        or (
+            isinstance(ctx.get("watchlists"), dict)
+            and (ctx.get("watchlists") or {}).get("lists")
+        )
+    )
 
-    if focus:
-        add(f"{focus} biến động vì sao?")
-        add(f"Tin mới về {focus}")
-        add(f"{focus} so với đầu phiên")
+    # Q1 — watchlist / market pulse
+    if has_watchlist:
+        add("Watchlist hôm nay thế nào?")
     else:
         add("Thị trường hôm nay thế nào?")
-        add("Giải thích % trên watchlist")
 
-    if ctx.get("watchlistSymbols"):
-        add("Watchlist của mình ra sao?")
-    if ctx.get("liveNews"):
-        add("Tin nào đáng chú ý?")
-    add("Mình đang hơi lo…")
+    # Q2 / Q4 — symbol-specific
+    if focus:
+        add(f"Tại sao {focus} biến động?")
+        add(f"{focus} định giá / KQKD?")
+    else:
+        add("Tin đáng chú ý?")
+
+    # Q3 — news (if not already added)
+    add("Tin đáng chú ý?")
+
+    # Q5 — keep / trim
+    if has_watchlist:
+        add("Nên giữ hay gỡ mã nào?")
 
     return chips[:4]
 
