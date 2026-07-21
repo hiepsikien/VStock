@@ -165,7 +165,7 @@ def should_emit_remove_actions(messages: list[dict] | str, lists: list[dict]) ->
     if named_in_lists and _WANTS_REMOVE.search(text):
         return True
 
-    # Confirm prior suggestion: "đồng ý", "ok xóa đi", "xóa mấy mã đó"
+    # Confirm prior suggestion: "đồng ý", "ok", "xóa mấy mã đó"
     if _REMOVE_CONFIRM.search(text):
         if named_in_lists:
             return True
@@ -173,8 +173,10 @@ def should_emit_remove_actions(messages: list[dict] | str, lists: list[dict]) ->
             return True
         if _WANTS_REMOVE.search(text):
             return True
+        # Bare "đồng ý"/"ok" after assistant named tickers on a list.
+        if isinstance(messages, list) and _tickers_suggested_by_assistant(messages, lists):
+            return True
 
-    # "xóa mã kém / tái cấu trúc" without codes → discuss first, no pop-up.
     return False
 
 
@@ -644,6 +646,34 @@ def build_watchlist_status_reply(context: dict | None) -> str:
     preview = ", ".join(syms[:12])
     more = f" (+{len(syms) - 12})" if len(syms) > 12 else ""
     return f"“{name}” hiện còn {len(syms)} mã: {preview}{more}."
+
+
+def actions_from_intent_symbols(
+    kind: str,
+    symbols: list[str],
+    context: dict | None,
+    *,
+    user_text: str = "",
+    known_symbols: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Build confirm actions directly from Intent symbols (no tool call required)."""
+    lists = _watchlist_lists(context)
+    if not lists or not symbols:
+        return []
+    out: list[dict[str, Any]] = []
+    if kind == "execute_remove":
+        for sym in symbols[:8]:
+            action = _build_remove_action(sym.upper(), lists, user_text)
+            if action:
+                out.append(action)
+    elif kind == "execute_add":
+        for sym in symbols[:8]:
+            if known_symbols is not None and not _valid_ticker(sym, known_symbols):
+                continue
+            action = _build_add_action(sym.upper(), lists, user_text)
+            if action:
+                out.append(action)
+    return out
 
 
 async def _resolve_create_tool(

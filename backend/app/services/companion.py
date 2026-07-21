@@ -518,9 +518,11 @@ async def chat_once(messages: list[dict], context: dict | None) -> dict:
         gate_actions_by_intent,
         inject_intent_into_context,
         intent_allows_tools,
+        _latest_user_text as _intent_user_text,
     )
     from app.services.companion_watchlist import (
         POPUP_READY_TEXT,
+        actions_from_intent_symbols,
         build_watchlist_status_reply,
         infer_watchlist_actions,
         resolve_tool_calls,
@@ -532,8 +534,6 @@ async def chat_once(messages: list[dict], context: dict | None) -> dict:
     # Status: answer from live lists, never tools/pop-up.
     if intent.kind == "status_watchlist":
         text = build_watchlist_status_reply(enriched)
-        if intent.notes:
-            text = f"{text}"
         bubbles = gemini_companion.split_reply_bubbles(text)
         suggestions = gemini_companion.build_quick_suggestions(enriched, messages)
         bond_notes = await _maybe_refresh_bond(messages, enriched)
@@ -563,7 +563,19 @@ async def chat_once(messages: list[dict], context: dict | None) -> dict:
             known_symbols=known,
             messages=messages,
         )
-        # Regex fallback when execute intent produced no tools, or Intent API failed.
+        # Prefer synthesizing from Intent.symbols when tools are empty
+        # (common after short "đồng ý" / "ok").
+        if not actions and intent.symbols and intent.kind in (
+            "execute_add",
+            "execute_remove",
+        ):
+            actions = actions_from_intent_symbols(
+                intent.kind,
+                intent.symbols,
+                enriched,
+                user_text=_intent_user_text(messages),
+                known_symbols=known,
+            )
         if not actions and (
             intent.source == "fallback"
             or intent.kind in ("execute_add", "execute_remove", "execute_create")
@@ -575,6 +587,17 @@ async def chat_once(messages: list[dict], context: dict | None) -> dict:
             )
         if intent.source != "fallback":
             actions = gate_actions_by_intent(actions, intent)
+
+        # Ensure pop-up copy when we have actions (esp. after short "đồng ý").
+        if actions and (
+            not text
+            or text.strip() == POPUP_READY_TEXT
+            or "xác nhận trên pop-up" not in text.lower()
+        ):
+            # Keep agent's spoken reply if it already explains; otherwise nudge pop-up.
+            if not text or len(text.strip()) < 8:
+                text = POPUP_READY_TEXT
+                bubbles = gemini_companion.split_reply_bubbles(text)
     else:
         actions = []
 

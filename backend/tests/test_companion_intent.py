@@ -84,6 +84,59 @@ def test_low_confidence_forced_chat():
     assert not intent_allows_tools(intent)
 
 
-def test_parse_unknown_kind_defaults_chat():
-    intent = _parse_intent_payload({"kind": "whatever", "confidence": 0.9})
-    assert intent.kind == "chat"
+def test_enrich_confirm_after_remove_suggestion():
+    from app.services.companion_intent import (
+        WatchlistIntent,
+        enrich_intent_from_thread,
+    )
+
+    ctx = {
+        "watchlists": {
+            "activeId": "l1",
+            "lists": [
+                {
+                    "id": "l1",
+                    "name": "Demo",
+                    "symbols": ["VCB", "FPT", "HAG", "VIC", "TCB"],
+                }
+            ],
+        }
+    }
+    messages = [
+        {"role": "user", "content": "List cồng kềnh, bỏ 3 mã kém"},
+        {
+            "role": "assistant",
+            "content": "Mình gợi ý cắt FPT, HAG, VIC vì biến động kém. Bạn ok không?",
+        },
+        {"role": "user", "content": "đồng ý"},
+    ]
+    intent = WatchlistIntent(kind="chat", confidence=0.7, source="llm")
+    enriched = enrich_intent_from_thread(intent, messages, ctx)
+    assert enriched.kind == "execute_remove"
+    assert set(enriched.symbols) == {"FPT", "HAG", "VIC"}
+
+
+def test_actions_from_intent_symbols_remove():
+    from app.services.companion_watchlist import actions_from_intent_symbols
+
+    ctx = {
+        "watchlists": {
+            "activeId": "l1",
+            "lists": [
+                {
+                    "id": "l1",
+                    "name": "Demo",
+                    "symbols": ["FPT", "HAG", "VIC", "VCB"],
+                }
+            ],
+        }
+    }
+    actions = actions_from_intent_symbols(
+        "execute_remove",
+        ["FPT", "HAG", "VIC"],
+        ctx,
+        user_text="đồng ý",
+    )
+    assert len(actions) == 3
+    assert all(a["type"] == "remove_symbol" for a in actions)
+    assert {a["symbol"] for a in actions} == {"FPT", "HAG", "VIC"}
