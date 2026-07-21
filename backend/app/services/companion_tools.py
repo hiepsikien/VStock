@@ -9,6 +9,7 @@ WATCHLIST_TOOL_INSTRUCTION = """
 Công cụ danh sách theo dõi (BẮT BUỘC khi user muốn thay đổi watchlist):
 - User muốn tạo list/danh sách mới → gọi create_watchlist (kèm symbols hoặc sector).
 - User muốn thêm mã vào list cụ thể → gọi add_symbol_to_watchlist.
+- User muốn xóa/gỡ/bỏ một mã khỏi list → gọi remove_symbol_from_watchlist.
 - User đồng ý thêm mã bạn vừa gợi ý → gọi add_symbol_to_watchlist hoặc suggest_add_symbol.
 - App CHỈ hiện pop-up xác nhận khi bạn gọi function — nếu không gọi function, user không thao tác được.
 - Vẫn trả lời ngắn bằng lời nói; gọi function song song khi cần hành động.
@@ -63,6 +64,31 @@ def watchlist_tool_declarations() -> list[types.Tool]:
                             "watchlist_name": types.Schema(
                                 type=types.Type.STRING,
                                 description="Tên list đích, khớp với [Danh sách theo dõi của user]",
+                            ),
+                            "watchlist_id": types.Schema(
+                                type=types.Type.STRING,
+                                description="ID list nếu biết từ context",
+                            ),
+                        },
+                    ),
+                ),
+                types.FunctionDeclaration(
+                    name="remove_symbol_from_watchlist",
+                    description=(
+                        "Đề xuất xóa một mã khỏi danh sách đã có. "
+                        "Gọi khi user muốn xóa/gỡ/bỏ mã khỏi list cụ thể."
+                    ),
+                    parameters=types.Schema(
+                        type=types.Type.OBJECT,
+                        required=["symbol"],
+                        properties={
+                            "symbol": types.Schema(
+                                type=types.Type.STRING,
+                                description="Mã CK 3 chữ cái cần xóa",
+                            ),
+                            "watchlist_name": types.Schema(
+                                type=types.Type.STRING,
+                                description="Tên list nguồn, khớp [Danh sách theo dõi của user]",
                             ),
                             "watchlist_id": types.Schema(
                                 type=types.Type.STRING,

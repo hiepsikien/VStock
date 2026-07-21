@@ -22,6 +22,18 @@ _ADD_PATTERNS = (
     re.compile(r"\bđưa\s+([A-Za-z]{3})\s+vào\b", re.I),
 )
 
+_REMOVE_PATTERNS = (
+    re.compile(r"\bx[oó]a\s+(?:mã\s+)?([A-Za-z]{3})\b", re.I),
+    re.compile(r"\bgỡ\s+(?:mã\s+)?([A-Za-z]{3})\b", re.I),
+    re.compile(r"\bbỏ\s+(?:mã\s+)?([A-Za-z]{3})\b", re.I),
+    re.compile(r"\bremove\s+([A-Za-z]{3})\b", re.I),
+)
+
+_WANTS_REMOVE = re.compile(
+    r"\b(x[oó]a|gỡ|bỏ|remove)\b.*\b(khỏi|from|ra)\b",
+    re.I,
+)
+
 _WANTS_CREATE = re.compile(
     r"\b(tạo|làm)\b.*\b(list|danh\s*sách|mảng)\b",
     re.I,
@@ -34,6 +46,7 @@ _WANTS_ADD = re.compile(
 
 _TARGET_LIST_PATTERNS = (
     re.compile(r"\bvào\s+(?:danh\s*sách|list)\s+(.+?)(?:\s*$|[,.])", re.I),
+    re.compile(r"\bkhỏi\s+(?:danh\s*sách|list)\s+(.+?)(?:\s*$|[,.])", re.I),
     re.compile(r"\b(?:danh\s*sách|list)\s+(.+?)(?:\s*$|[,.])", re.I),
 )
 
@@ -357,6 +370,26 @@ async def infer_watchlist_actions(
         if add_action:
             return [add_action]
 
+    # --- Remove symbol from list ---
+    remove_sym: str | None = None
+    for pat in _REMOVE_PATTERNS:
+        m = pat.search(user)
+        if not m:
+            continue
+        candidate = m.group(1).upper()
+        if candidate in _VI_FALSE_TICKERS or candidate in _ADD_STOPWORDS:
+            continue
+        remove_sym = candidate
+        break
+
+    if not remove_sym and _WANTS_REMOVE.search(user):
+        remove_sym = _symbol_from_thread(messages, known_symbols)
+
+    if remove_sym:
+        remove_action = _build_remove_action(remove_sym, lists, user)
+        if remove_action:
+            return [remove_action]
+
     # --- Proactive suggest ---
     ctx = context or {}
     bond = ctx.get("bond") if isinstance(ctx.get("bond"), dict) else {}
@@ -411,6 +444,8 @@ async def resolve_tool_calls(
             action = await _resolve_create_tool(args, context, known_symbols)
         elif name == "add_symbol_to_watchlist":
             action = _resolve_add_tool(args, lists, known_symbols)
+        elif name == "remove_symbol_from_watchlist":
+            action = _resolve_remove_tool(args, lists)
         elif name == "suggest_add_symbol":
             action = _resolve_suggest_tool(args, lists, known_symbols)
         else:
@@ -506,6 +541,63 @@ def _resolve_add_tool(
         payload["label"] = f"Thêm {sym} vào “{payload['watchlistName']}”"
     else:
         payload["label"] = f"Thêm {sym} vào danh sách…"
+    return payload
+
+
+def _symbol_in_list(sym: str, item: dict) -> bool:
+    return sym in {str(s).upper() for s in (item.get("symbols") or [])}
+
+
+def _build_remove_action(
+    sym: str,
+    lists: list[dict],
+    user: str,
+) -> dict[str, Any] | None:
+    sym = sym.upper()
+    target = _parse_target_list(user, lists)
+    in_any = any(_symbol_in_list(sym, item) for item in lists)
+    if not in_any:
+        return None
+
+    payload: dict[str, Any] = {"type": "remove_symbol", "symbol": sym}
+    if target and _symbol_in_list(sym, target):
+        payload["watchlistId"] = str(target.get("id") or "")
+        payload["watchlistName"] = str(target.get("name") or "")
+        payload["label"] = f"Xóa {sym} khỏi “{payload['watchlistName']}”"
+    elif len(lists) == 1 and _symbol_in_list(sym, lists[0]):
+        payload["watchlistId"] = str(lists[0].get("id") or "")
+        payload["watchlistName"] = str(lists[0].get("name") or "")
+        payload["label"] = f"Xóa {sym} khỏi “{payload['watchlistName']}”"
+    else:
+        payload["label"] = f"Xóa {sym} khỏi danh sách…"
+    return payload
+
+
+def _resolve_remove_tool(
+    args: dict,
+    lists: list[dict],
+) -> dict[str, Any] | None:
+    sym = str(args.get("symbol") or "").upper().strip()
+    if len(sym) != 3 or sym in _VI_FALSE_TICKERS or sym in _ADD_STOPWORDS:
+        return None
+
+    target = _resolve_list_target(args, lists)
+    if target and not _symbol_in_list(sym, target):
+        return None
+    if not target and not any(_symbol_in_list(sym, item) for item in lists):
+        return None
+
+    payload: dict[str, Any] = {"type": "remove_symbol", "symbol": sym}
+    if target:
+        payload["watchlistId"] = str(target.get("id") or "")
+        payload["watchlistName"] = str(target.get("name") or "")
+        payload["label"] = f"Xóa {sym} khỏi “{payload['watchlistName']}”"
+    elif len(lists) == 1:
+        payload["watchlistId"] = str(lists[0].get("id") or "")
+        payload["watchlistName"] = str(lists[0].get("name") or "")
+        payload["label"] = f"Xóa {sym} khỏi “{payload['watchlistName']}”"
+    else:
+        payload["label"] = f"Xóa {sym} khỏi danh sách…"
     return payload
 
 

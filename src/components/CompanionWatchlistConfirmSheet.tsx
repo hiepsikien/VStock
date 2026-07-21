@@ -30,6 +30,11 @@ function actionDetail(action: CompanionWatchlistAction): string | null {
       ? `Vào “${action.watchlistName}”`
       : 'Chọn danh sách ở bước tiếp theo';
   }
+  if (action.type === 'remove_symbol') {
+    return action.watchlistName
+      ? `Khỏi “${action.watchlistName}”`
+      : 'Chọn danh sách ở bước tiếp theo';
+  }
   if (action.type === 'suggest_add_symbol') {
     return 'Chọn danh sách ở bước tiếp theo';
   }

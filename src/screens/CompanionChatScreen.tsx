@@ -51,6 +51,7 @@ import {
   addSymbolToWatchlist,
   createWatchlist,
   loadWatchlistsState,
+  removeSymbolFromWatchlist,
   type WatchlistsState,
 } from '../storage/watchlist';
 import { colors, spacing, typography } from '../theme';
@@ -224,6 +225,19 @@ export function CompanionChatScreen({ navigation, route }: Props) {
     [appendAssistantNote],
   );
 
+  const executeRemoveSymbol = useCallback(
+    async (sym: string, watchlistId: string) => {
+      const next = await removeSymbolFromWatchlist(sym, watchlistId);
+      setWatchlistsState(next);
+      const list = next.lists.find((l) => l.id === watchlistId);
+      appendAssistantNote(
+        `Đã xóa ${sym.toUpperCase()} khỏi “${list?.name ?? 'danh sách'}”.`,
+      );
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    },
+    [appendAssistantNote],
+  );
+
   const onWatchlistActionPress = useCallback(
     (action: CompanionWatchlistAction) => {
       setConfirmActions(null);
@@ -243,11 +257,16 @@ export function CompanionChatScreen({ navigation, route }: Props) {
         return;
       }
 
+      if (action.type === 'remove_symbol' && action.watchlistId) {
+        void executeRemoveSymbol(action.symbol, action.watchlistId);
+        return;
+      }
+
       if (action.type === 'add_symbol' || action.type === 'suggest_add_symbol') {
         setPickerSymbol(action.symbol.toUpperCase());
       }
     },
-    [executeAddSymbol, executeCreateWatchlist],
+    [executeAddSymbol, executeCreateWatchlist, executeRemoveSymbol],
   );
 
   useEffect(() => {

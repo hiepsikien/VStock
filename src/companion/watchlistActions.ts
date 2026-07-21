@@ -21,6 +21,13 @@ export type CompanionWatchlistAction =
       symbol: string;
       reason?: string;
       label?: string;
+    }
+  | {
+      type: 'remove_symbol';
+      symbol: string;
+      watchlistId?: string;
+      watchlistName?: string;
+      label?: string;
     };
 
 export type WatchlistsContextDto = {
@@ -59,6 +66,10 @@ export function actionLabel(action: CompanionWatchlistAction): string {
         : `Thêm ${action.symbol} vào danh sách`;
     case 'suggest_add_symbol':
       return `Thêm ${action.symbol} vào danh sách`;
+    case 'remove_symbol':
+      return action.watchlistName
+        ? `Xóa ${action.symbol} khỏi “${action.watchlistName}”`
+        : `Xóa ${action.symbol} khỏi danh sách`;
     default:
       return 'Xác nhận';
   }
@@ -86,6 +97,25 @@ export function expandWatchlistActions(
         });
       }
       continue;
+    }
+    if (
+      action.type === 'remove_symbol' &&
+      !action.watchlistId &&
+      lists.length > 1
+    ) {
+      const sym = action.symbol.toUpperCase();
+      let expanded = false;
+      for (const list of lists) {
+        if (!list.symbols.includes(sym)) continue;
+        expanded = true;
+        out.push({
+          type: 'remove_symbol',
+          symbol: action.symbol,
+          watchlistId: list.id,
+          watchlistName: list.name,
+        });
+      }
+      if (expanded) continue;
     }
     out.push(action);
   }

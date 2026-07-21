@@ -172,6 +172,31 @@ export async function addSymbolToWatchlist(
   return next;
 }
 
+/** Remove symbol from a specific watchlist by id. */
+export async function removeSymbolFromWatchlist(
+  symbol: string,
+  watchlistId: string,
+): Promise<WatchlistsState> {
+  const sym = symbol.toUpperCase().trim();
+  const state = await loadWatchlistsState();
+  const target = state.lists.find((l) => l.id === watchlistId);
+  if (!target || !target.symbols.includes(sym)) return state;
+  const next: WatchlistsState = {
+    ...state,
+    lists: state.lists.map((l) =>
+      l.id === watchlistId
+        ? {
+            ...l,
+            symbols: l.symbols.filter((s) => s !== sym),
+            pinnedSymbols: l.pinnedSymbols.filter((s) => s !== sym),
+          }
+        : l,
+    ),
+  };
+  await saveWatchlistsState(next);
+  return next;
+}
+
 export async function removeWatchlistSymbol(symbol: string): Promise<WatchlistsState> {
   const sym = symbol.toUpperCase().trim();
   const state = await loadWatchlistsState();
