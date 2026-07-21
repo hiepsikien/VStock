@@ -41,6 +41,9 @@ QUAN TRỌNG — hiệu suất ≠ status:
 - "watchlist hôm nay thế nào?", "list biến động ra sao?", "mã nào mạnh/yếu?", "list của mình thế nào hôm nay?" → kind=chat (cần đọc giá/%), KHÔNG phải status_watchlist.
 - status_watchlist chỉ khi user hỏi còn mã gì / đã xóa chưa / đếm số mã.
 
+QUAN TRỌNG — hỏi thông tin ≠ xóa:
+- "KQKD của VNM?", "VNM định giá thế nào?", "tại sao FPT giảm?", "tin về HPG" → kind=chat. Không phải execute_remove dù transcript vừa bàn cắt mã.
+
 QUAN TRỌNG — xác nhận sau gợi ý:
 - Nếu assistant vừa gợi ý vài mã để XÓA/CẮT/GỠ, và user trả lời ngắn kiểu "đồng ý", "ok", "oke", "được", "ừ", "xóa đi", "làm đi", "xóa mấy mã đó" → kind=execute_remove.
 - Điền symbols = các mã 3 chữ cái mà assistant vừa nêu (có trong watchlist). Không để symbols rỗng trong trường hợp này.
@@ -75,12 +78,27 @@ _PERFORMANCE_RE = re.compile(
 )
 
 _REMOVE_HINT_RE = re.compile(
-    r"(x[oó]a|gỡ|cắt|bỏ|loại|kém|yếu|gọn|trim|remove)",
+    r"(x[oó]a|gỡ|cắt|bỏ|loại|gọn|trim|remove|mã\s*kém|mã\s*yếu)",
     re.I,
 )
 
 _ADD_HINT_RE = re.compile(
     r"(th[eê]m|add|cho\s+vào|đưa\s+vào)",
+    re.I,
+)
+
+# Informational questions — never mutate watchlist.
+_INFO_QUESTION_RE = re.compile(
+    r"(kqkd|kết\s*quả\s*kinh\s*doanh|định\s*giá|doanh\s*thu|lnst|lợi\s*nhuận|"
+    r"\bpe\b|\beps\b|\bp/?b\b|\broe\b|\broa\b|"
+    r"tại\s*sao|vì\s*sao|thế\s*nào|như\s*thế\s*nào|ra\s*sao|"
+    r"biến\s*động|tin\s*(gì|nào|mới)|đáng\s*chú\s*ý|"
+    r"giá\s*(bao\s*nhiêu|thế\s*nào)|phân\s*tích)",
+    re.I,
+)
+
+_USER_REMOVE_RE = re.compile(
+    r"\b(x[oó]a|gỡ|remove|loại\s*bỏ|cắt\s*(bỏ|khỏi)?|bỏ\s+(?:mã\s+)?[A-Za-z]{3})\b",
     re.I,
 )
 
@@ -308,6 +326,26 @@ def guard_intent_performance_as_chat(intent: WatchlistIntent, user_text: str) ->
     return intent
 
 
+def guard_intent_info_as_chat(intent: WatchlistIntent, user_text: str) -> WatchlistIntent:
+    """Force chat for KQKD / định giá / tại sao… — never open remove/add pop-up."""
+    text = (user_text or "").strip()
+    if not text or not _INFO_QUESTION_RE.search(text):
+        return intent
+    # Explicit mutate verbs win over info phrasing ("xóa VNM đi nhé thế nào").
+    if _USER_REMOVE_RE.search(text) or _CONFIRM_RE.search(text):
+        return intent
+    if intent.kind in ("chat", "status_watchlist"):
+        return intent
+    return intent.model_copy(
+        update={
+            "kind": "chat",
+            "symbols": intent.symbols,
+            "notes": (intent.notes or "") + " | forced_chat_info",
+            "confidence": max(intent.confidence, 0.9),
+        }
+    )
+
+
 def enrich_intent_from_thread(
     intent: WatchlistIntent,
     messages: list[dict],
@@ -316,9 +354,23 @@ def enrich_intent_from_thread(
     """
     Upgrade short confirmations ("đồng ý", "ok") after an assistant suggestion
     into execute_remove / execute_add with symbols filled from that suggestion.
+
+    Merely naming a ticker in an info question (KQKD, định giá…) must NOT mutate.
     """
     user = _latest_user_text(messages)
     if not user or _STATUS_RE.search(user):
+        return intent
+
+    # Info questions stay chat even if thread mentioned trim/remove earlier.
+    if _INFO_QUESTION_RE.search(user) and not _USER_REMOVE_RE.search(user):
+        if intent.kind in EXECUTE_KINDS or intent.kind == "propose_change":
+            return intent.model_copy(
+                update={
+                    "kind": "chat",
+                    "notes": (intent.notes or "") + " | info_question",
+                    "confidence": max(intent.confidence, 0.9),
+                }
+            )
         return intent
 
     in_lists = _watchlist_symbol_set(context)
@@ -328,20 +380,28 @@ def enrich_intent_from_thread(
         return intent
 
     is_confirm = bool(_CONFIRM_RE.search(user))
-    # Also treat bare confirm-ish replies that mention those codes.
     user_syms = _tickers_in_text(user, set(suggested))
-    if not is_confirm and not user_syms:
-        # Still fill empty symbols on execute_* if assistant just named them.
+    user_wants_remove = bool(_USER_REMOVE_RE.search(user))
+    user_wants_add = bool(_ADD_HINT_RE.search(user))
+
+    if not is_confirm and not user_wants_remove and not user_wants_add:
+        # Naming a ticker alone is not confirmation — only fill symbols if
+        # Intent LLM already decided execute_*.
         if intent.kind in EXECUTE_KINDS and not intent.symbols:
-            return intent.model_copy(update={"symbols": suggested, "confidence": max(intent.confidence, 0.8)})
+            return intent.model_copy(
+                update={"symbols": suggested, "confidence": max(intent.confidence, 0.8)}
+            )
         return intent
 
     assistant_wants_remove = bool(_REMOVE_HINT_RE.search(assistant))
     assistant_wants_add = bool(_ADD_HINT_RE.search(assistant)) and not assistant_wants_remove
 
-    if is_confirm or user_syms:
-        if assistant_wants_remove or intent.kind == "execute_remove" or (
-            intent.kind in ("chat", "propose_change") and assistant_wants_remove
+    if is_confirm or user_wants_remove:
+        if (
+            user_wants_remove
+            or assistant_wants_remove
+            or intent.kind == "execute_remove"
+            or (intent.kind in ("chat", "propose_change") and assistant_wants_remove)
         ):
             return WatchlistIntent(
                 kind="execute_remove",
@@ -360,8 +420,7 @@ def enrich_intent_from_thread(
                 confidence=max(intent.confidence, 0.9),
                 source=intent.source,
             )
-        # Confirm after a suggestion that listed tickers but wording was soft —
-        # default to remove when prior user turn was about trimming (in transcript).
+        # Bare "đồng ý" after soft trim talk in recent transcript.
         transcript = _recent_transcript(messages, max_turns=4)
         if _REMOVE_HINT_RE.search(transcript):
             return WatchlistIntent(
@@ -372,6 +431,18 @@ def enrich_intent_from_thread(
                 confidence=max(intent.confidence, 0.85),
                 source=intent.source,
             )
+
+    if (is_confirm or user_wants_add) and (
+        assistant_wants_add or intent.kind == "execute_add" or user_wants_add
+    ):
+        return WatchlistIntent(
+            kind="execute_add",
+            symbols=user_syms or intent.symbols or suggested,
+            watchlist_hint=intent.watchlist_hint,
+            notes=intent.notes or "User xác nhận thêm các mã đã gợi ý",
+            confidence=max(intent.confidence, 0.9),
+            source=intent.source,
+        )
 
     if intent.kind in EXECUTE_KINDS and not intent.symbols and suggested:
         return intent.model_copy(update={"symbols": suggested})
@@ -422,7 +493,8 @@ async def classify_watchlist_intent(
                 source="llm",
             )
         intent = enrich_intent_from_thread(intent, messages, context)
-        return guard_intent_performance_as_chat(intent, user)
+        intent = guard_intent_performance_as_chat(intent, user)
+        return guard_intent_info_as_chat(intent, user)
     except Exception as exc:
         logger.warning("watchlist intent classify failed: %s", exc)
         fallback = WatchlistIntent(
@@ -432,4 +504,5 @@ async def classify_watchlist_intent(
             notes="intent_classify_failed",
         )
         intent = enrich_intent_from_thread(fallback, messages, context)
-        return guard_intent_performance_as_chat(intent, user)
+        intent = guard_intent_performance_as_chat(intent, user)
+        return guard_intent_info_as_chat(intent, user)

@@ -140,3 +140,55 @@ def test_actions_from_intent_symbols_remove():
     assert len(actions) == 3
     assert all(a["type"] == "remove_symbol" for a in actions)
     assert {a["symbol"] for a in actions} == {"FPT", "HAG", "VIC"}
+
+
+def test_kqkd_question_not_upgraded_to_remove():
+    """Asking about fundamentals after watchlist talk must stay chat."""
+    from app.services.companion_intent import (
+        WatchlistIntent,
+        enrich_intent_from_thread,
+        guard_intent_info_as_chat,
+    )
+
+    ctx = {
+        "watchlists": {
+            "activeId": "l1",
+            "lists": [
+                {
+                    "id": "l1",
+                    "name": "Demo",
+                    "symbols": ["VNM", "FPT", "VCB"],
+                }
+            ],
+        }
+    }
+    messages = [
+        {"role": "user", "content": "Watchlist hôm nay thế nào?"},
+        {
+            "role": "assistant",
+            "content": "List khá ổn, VNM hơi giảm nhé, FPT vẫn xanh.",
+        },
+        {"role": "user", "content": "KQKD của VNM như thế nào?"},
+    ]
+    # Even if LLM wrongly said execute_remove:
+    intent = WatchlistIntent(
+        kind="execute_remove",
+        symbols=["VNM"],
+        confidence=0.8,
+        source="llm",
+    )
+    enriched = enrich_intent_from_thread(intent, messages, ctx)
+    assert enriched.kind == "chat"
+    guarded = guard_intent_info_as_chat(enriched, "KQKD của VNM như thế nào?")
+    assert guarded.kind == "chat"
+
+
+def test_info_guard_blocks_execute_remove():
+    from app.services.companion_intent import (
+        WatchlistIntent,
+        guard_intent_info_as_chat,
+    )
+
+    intent = WatchlistIntent(kind="execute_remove", symbols=["VNM"], confidence=0.9)
+    out = guard_intent_info_as_chat(intent, "VNM định giá / KQKD?")
+    assert out.kind == "chat"
