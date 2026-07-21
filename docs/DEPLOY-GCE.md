@@ -320,6 +320,45 @@ docker compose start api
 
 ---
 
+## Companion AI (Gemini)
+
+Chat/nudge gọi Vertex/Gemini **chỉ từ backend** — không đưa key vào Expo app.
+
+**Local**
+
+```bash
+cd backend
+export GEMINI_API_KEY='...'   # Google AI Studio
+uvicorn app.main:app --reload --port 8000
+# smoke: curl -s localhost:8000/v1/companion/health
+```
+
+**GCE (Vertex ADC — khuyến nghị production)**
+
+1. Trên VM / service account gắn role `roles/aiplatform.user`.
+2. Export env trước `docker compose up` (hoặc file `.env` cạnh compose):
+
+```bash
+export GCP_PROJECT="$(gcloud config get-value project)"
+export GCP_LOCATION=asia-southeast1
+# Không cần GEMINI_API_KEY nếu dùng ADC + Vertex
+docker compose up -d --build
+curl -s "http://127.0.0.1:8000/v1/companion/health"
+```
+
+3. App trỏ `EXPO_PUBLIC_API_URL` về API VM như bình thường.
+
+**Smoke nhanh**
+
+```bash
+curl -s http://127.0.0.1:8000/v1/companion/health
+curl -s -X POST http://127.0.0.1:8000/v1/companion/nudge \
+  -H 'Content-Type: application/json' \
+  -d '{"events":[{"type":"view_detail","symbol":"HAG","ts":'"$(($(date +%s)*1000))"'},{"type":"view_detail","symbol":"HAG","ts":'"$(($(date +%s)*1000-1000))"'},{"type":"view_detail","symbol":"HAG","ts":'"$(($(date +%s)*1000-2000))"'}],"context":{"screen":"Detail","symbol":"HAG"}}'
+```
+
+---
+
 ## Tài liệu liên quan trong repo
 
 | File | Mô tả |

@@ -61,6 +61,10 @@ import { SwipeableStockRow } from '../components/SwipeableStockRow';
 import { WatchlistMenuSheet } from '../components/WatchlistMenuSheet';
 import { WatchlistPicker } from '../components/WatchlistPicker';
 import { WatchlistSummary, type IndexQuote } from '../components/WatchlistSummary';
+import { CompanionFab } from '../components/CompanionFab';
+import { CompanionNudge } from '../components/CompanionNudge';
+import { trackCompanionEvent } from '../companion/behavior';
+import { useCompanionHost } from '../companion/useCompanionHost';
 import { colors, spacing, typography } from '../theme';
 import { isMarketOpen, marketSessionLabel, REFRESH } from '../utils/marketSession';
 import {
@@ -271,6 +275,23 @@ export function WatchlistScreen({ navigation }: Props) {
 
   const watchlistSet = useMemo(() => new Set(symbolList), [symbolList]);
   const stats = useMemo(() => watchlistStats(stocks), [stocks]);
+  const companion = useCompanionHost({
+    navigation,
+    screen: 'Watchlist',
+    watchlistSymbols: symbolList,
+    avgChange: stats.avgChange,
+    sessionLabel: marketSessionLabel(),
+    enabled: !inSearchMode && !loading,
+  });
+
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) return;
+    const t = setTimeout(() => {
+      void trackCompanionEvent('search', { symbol: q, meta: addMode ? 'add' : 'filter' });
+    }, 600);
+    return () => clearTimeout(t);
+  }, [query, addMode]);
 
   const sections = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -295,6 +316,10 @@ export function WatchlistScreen({ navigation }: Props) {
   );
 
   const openNewsArticle = useCallback(async (item: NewsItem) => {
+    void trackCompanionEvent('open_news', {
+      symbol: item.symbols[0],
+      meta: item.id,
+    });
     if (item.url) {
       await WebBrowser.openBrowserAsync(item.url, {
         presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
@@ -473,7 +498,10 @@ export function WatchlistScreen({ navigation }: Props) {
             sessionLabel={marketSessionLabel()}
             offline={usingFallback || usingOfflineCache}
             indices={indices}
-            onIndexPress={(symbol) => navigation.navigate('Detail', { symbol })}
+            onIndexPress={(symbol) => {
+              void trackCompanionEvent('open_index', { symbol });
+              navigation.navigate('Detail', { symbol });
+            }}
           />
         )
       ) : null}
@@ -702,6 +730,24 @@ export function WatchlistScreen({ navigation }: Props) {
         >
           <Text style={styles.fabText}>+</Text>
         </Pressable>
+      ) : null}
+
+      {!inSearchMode && !loading ? (
+        <CompanionFab
+          bottom={insets.bottom + 16}
+          badge={companion.badge}
+          onPress={() => companion.openChat()}
+        />
+      ) : null}
+
+      {companion.nudgeMessage && !inSearchMode && !loading ? (
+        <View style={[styles.nudgeAnchor, { bottom: insets.bottom + 76 }]}>
+          <CompanionNudge
+            message={companion.nudgeMessage}
+            onDismiss={companion.dismissNudge}
+            onReply={companion.replyNudge}
+          />
+        </View>
       ) : null}
 
       <AlertSheet
@@ -933,6 +979,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.35,
     shadowRadius: 8,
     elevation: 6,
+  },
+  nudgeAnchor: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 30,
   },
   fabText: {
     color: colors.text,

@@ -37,6 +37,10 @@ import { syncPriceAlertBackgroundTask } from '../tasks/priceAlertBackgroundTask'
 import { addRecentSymbol } from '../storage/recent';
 import { formatCacheAge } from '../storage/cacheUtils';
 import { isCommodityStrip, isIndexLikeDetail } from '../utils/marketIndices';
+import { CompanionFab } from '../components/CompanionFab';
+import { CompanionNudge } from '../components/CompanionNudge';
+import { trackCompanionEvent } from '../companion/behavior';
+import { useCompanionHost } from '../companion/useCompanionHost';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Detail'>;
 
@@ -121,13 +125,17 @@ export function StockDetailScreen({ navigation, route }: Props) {
   }, [symbol]);
 
   const openArticle = useCallback(async (item: NewsItem) => {
+    void trackCompanionEvent('open_news', {
+      symbol: item.symbols[0] || symbol,
+      meta: item.id,
+    });
     if (item.url) {
       await WebBrowser.openBrowserAsync(item.url, {
         presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
         controlsColor: colors.accent,
       });
     }
-  }, []);
+  }, [symbol]);
 
   useEffect(() => {
     const id = setInterval(() => setLive(isMarketOpen()), 60_000);
@@ -136,6 +144,7 @@ export function StockDetailScreen({ navigation, route }: Props) {
 
   useFocusEffect(
     useCallback(() => {
+      void trackCompanionEvent('view_detail', { symbol });
       if (isIndexLikeDetail(symbol)) return;
       void addRecentSymbol(symbol);
     }, [symbol]),
@@ -219,6 +228,14 @@ export function StockDetailScreen({ navigation, route }: Props) {
   const isCommodity = isCommodityStrip(symbol);
   const isUsd = (stock?.currency ?? '') === 'USD';
   const sessionLive = isCommodity || live;
+
+  const companion = useCompanionHost({
+    navigation,
+    screen: 'Detail',
+    symbol,
+    sessionLabel: marketSessionLabel(),
+    enabled: !!stock && !loading,
+  });
 
   const formatStatValue = useCallback(
     (value: number) => {
@@ -444,6 +461,22 @@ export function StockDetailScreen({ navigation, route }: Props) {
           }}
         />
       ) : null}
+
+      <CompanionFab
+        bottom={insets.bottom + 16}
+        badge={companion.badge}
+        onPress={() => companion.openChat()}
+      />
+
+      {companion.nudgeMessage ? (
+        <View style={[styles.nudgeAnchor, { bottom: insets.bottom + 72 }]}>
+          <CompanionNudge
+            message={companion.nudgeMessage}
+            onDismiss={companion.dismissNudge}
+            onReply={companion.replyNudge}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -595,5 +628,11 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  nudgeAnchor: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 30,
   },
 });

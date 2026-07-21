@@ -7,6 +7,13 @@ services:
     environment:
       VSTOCK_DB_PATH: /data/vstock.db
       PORT: "8000"
+      # Companion AI (Gemini) — set one of:
+      # GEMINI_API_KEY: from Google AI Studio (local / simple)
+      # Or Vertex on GCE with ADC: GCP_PROJECT + GCP_LOCATION (no key in compose)
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GCP_PROJECT: ${GCP_PROJECT:-}
+      GCP_LOCATION: ${GCP_LOCATION:-asia-southeast1}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
     volumes:
       - vstock-data:/data
     restart: unless-stopped

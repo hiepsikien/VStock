@@ -15,6 +15,7 @@ from app.ingestion.scheduler import start_scheduler, stop_scheduler
 from app.routers.health import router as health_router
 from app.routers.news import router as news_router
 from app.routers.stocks import router as stocks_router
+from app.routers.companion import router as companion_router
 from app.schemas import HealthResponse
 from app.store.db import close_db, init_db
 
@@ -53,6 +54,7 @@ app.add_middleware(
 app.include_router(stocks_router)
 app.include_router(news_router)
 app.include_router(health_router)
+app.include_router(companion_router)
 
 
 @app.get("/health", response_model=HealthResponse)

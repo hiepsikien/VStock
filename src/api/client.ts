@@ -565,3 +565,118 @@ export type SourceHealthResponse = {
 export async function fetchSourceHealth(): Promise<SourceHealthResponse> {
   return apiGet<SourceHealthResponse>('/v1/health/sources');
 }
+
+export type CompanionChatMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+export type CompanionContextDto = {
+  screen?: string;
+  symbol?: string;
+  sessionLabel?: string;
+  watchlistSymbols?: string[];
+  avgChange?: number;
+  recentEvents?: Array<{ type: string; symbol?: string; ts: number; meta?: string }>;
+};
+
+export async function fetchCompanionHealth(): Promise<{ configured: boolean }> {
+  return apiGet<{ configured: boolean }>('/v1/companion/health');
+}
+
+export async function requestCompanionNudge(body: {
+  context?: CompanionContextDto;
+  events?: CompanionContextDto['recentEvents'];
+  cooldownUntil?: number;
+}): Promise<{ show: boolean; message: string | null }> {
+  const res = await fetch(`${API_URL}/v1/companion/nudge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`API ${res.status}: ${text || res.statusText}`);
+  }
+  return res.json() as Promise<{ show: boolean; message: string | null }>;
+}
+
+/** Non-streaming companion chat (simpler for MVP UI). */
+export async function sendCompanionChat(
+  messages: CompanionChatMessage[],
+  context?: CompanionContextDto,
+): Promise<string> {
+  const res = await fetch(`${API_URL}/v1/companion/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ messages, context, stream: false }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`API ${res.status}: ${text || res.statusText}`);
+  }
+  const data = (await res.json()) as { message: string };
+  return data.message;
+}
+
+/** SSE streaming companion chat. Calls onDelta for each chunk. */
+export async function streamCompanionChat(
+  messages: CompanionChatMessage[],
+  context: CompanionContextDto | undefined,
+  onDelta: (delta: string) => void,
+  onReplace?: (text: string) => void,
+): Promise<string> {
+  const res = await fetch(`${API_URL}/v1/companion/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify({ messages, context, stream: true }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`API ${res.status}: ${text || res.statusText}`);
+  }
+  if (!res.body) {
+    // RN fetch may not expose body stream — fall back.
+    return sendCompanionChat(messages, context);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let assembled = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split('\n\n');
+    buffer = parts.pop() ?? '';
+    for (const block of parts) {
+      const line = block
+        .split('\n')
+        .map((l) => l.trim())
+        .find((l) => l.startsWith('data:'));
+      if (!line) continue;
+      try {
+        const payload = JSON.parse(line.slice(5).trim()) as {
+          delta?: string;
+          replace?: string;
+          done?: boolean;
+          error?: string;
+        };
+        if (payload.error) throw new Error(payload.error);
+        if (payload.replace != null) {
+          assembled = payload.replace;
+          onReplace?.(assembled);
+        } else if (payload.delta) {
+          assembled += payload.delta;
+          onDelta(payload.delta);
+        }
+      } catch (err) {
+        if (err instanceof SyntaxError) continue;
+        throw err;
+      }
+    }
+  }
+  return assembled;
+}
