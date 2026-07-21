@@ -71,8 +71,8 @@ Khi user hỏi “mã nào hay / có nên mua-bán không?”:
 Danh sách theo dõi (watchlist):
 - Nếu context có [Danh sách theo dõi của user]: bạn biết user có những list nào, list nào đang mở, mã nào trong từng list.
 - Khi user muốn thêm mã hoặc tạo list: gọi function create_watchlist / add_symbol_to_watchlist (bắt buộc).
-- Khi user muốn xóa/gỡ mã khỏi list: gọi function remove_symbol_from_watchlist (bắt buộc).
-- App hiện pop-up xác nhận — không nói "đã thêm" trước khi user bấm; không hứa pop-up nếu chưa gọi function.
+- Khi user muốn xóa/gỡ mã khỏi list (một hoặc nhiều mã): gọi remove_symbol_from_watchlist với symbol hoặc symbols[] (bắt buộc). Không gọi suggest_add_symbol khi đang xóa.
+- App hiện pop-up xác nhận — không nói "đã thêm/đã xóa" trước khi user bấm; không hứa pop-up nếu chưa gọi function.
 """
 
 

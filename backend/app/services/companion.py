@@ -519,7 +519,12 @@ async def chat_once(messages: list[dict], context: dict | None) -> dict:
     from app.services.companion_watchlist import infer_watchlist_actions, resolve_tool_calls
 
     known = await _known_symbol_set()
-    actions = await resolve_tool_calls(tool_calls, enriched, known_symbols=known)
+    actions = await resolve_tool_calls(
+        tool_calls,
+        enriched,
+        known_symbols=known,
+        messages=messages,
+    )
     if not actions:
         actions = await infer_watchlist_actions(
             messages,

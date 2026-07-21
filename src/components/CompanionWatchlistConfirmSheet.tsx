@@ -64,17 +64,31 @@ export function CompanionWatchlistConfirmSheet({
     >
       <View style={styles.backdrop}>
         <View style={styles.card}>
-          <Text style={styles.title}>Xác nhận thao tác</Text>
+          <Text style={styles.title}>
+            {actions.every((a) => a.type === 'remove_symbol')
+              ? 'Xác nhận xóa mã'
+              : 'Xác nhận thao tác'}
+          </Text>
           <Text style={styles.subtitle}>
-            Vy đề xuất thay đổi danh sách theo dõi của bạn:
+            {actions.every((a) => a.type === 'remove_symbol')
+              ? actions.length > 1
+                ? `Vy đề xuất xóa ${actions.length} mã — bấm từng mã để xác nhận:`
+                : 'Vy đề xuất xóa mã khỏi danh sách theo dõi:'
+              : 'Vy đề xuất thay đổi danh sách theo dõi của bạn:'}
           </Text>
 
           <View style={styles.actionList}>
             {actions.map((action, index) => {
               const detail = actionDetail(action);
+              const key =
+                action.type === 'remove_symbol'
+                  ? `remove-${action.symbol}-${action.watchlistId ?? index}`
+                  : action.type === 'add_symbol' || action.type === 'suggest_add_symbol'
+                    ? `add-${action.symbol}-${action.watchlistId ?? index}`
+                    : `${action.type}-${index}`;
               return (
                 <Pressable
-                  key={`${action.type}-${index}`}
+                  key={key}
                   onPress={() => {
                     void Haptics.notificationAsync(
                       Haptics.NotificationFeedbackType.Success,

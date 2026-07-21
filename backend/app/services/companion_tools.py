@@ -9,8 +9,11 @@ WATCHLIST_TOOL_INSTRUCTION = """
 Công cụ danh sách theo dõi (BẮT BUỘC khi user muốn thay đổi watchlist):
 - User muốn tạo list/danh sách mới → gọi create_watchlist (kèm symbols hoặc sector).
 - User muốn thêm mã vào list cụ thể → gọi add_symbol_to_watchlist.
-- User muốn xóa/gỡ/bỏ một mã khỏi list → gọi remove_symbol_from_watchlist.
+- User muốn xóa/gỡ/bỏ mã khỏi list → gọi remove_symbol_from_watchlist.
+  · Một mã: truyền symbol. Nhiều mã: truyền symbols (mảng) — KHÔNG gọi suggest_add_symbol.
+  · Có thể gọi remove nhiều lần (mỗi mã một lần) nếu cần.
 - User đồng ý thêm mã bạn vừa gợi ý → gọi add_symbol_to_watchlist hoặc suggest_add_symbol.
+- Khi user đang yêu cầu XÓA mã: tuyệt đối không gọi suggest_add_symbol / add_symbol_to_watchlist.
 - App CHỈ hiện pop-up xác nhận khi bạn gọi function — nếu không gọi function, user không thao tác được.
 - Vẫn trả lời ngắn bằng lời nói; gọi function song song khi cần hành động.
 - symbols phải là mã CK 3 chữ cái hợp lệ từ context; sector: bank | securities | real_estate | energy.
@@ -75,16 +78,21 @@ def watchlist_tool_declarations() -> list[types.Tool]:
                 types.FunctionDeclaration(
                     name="remove_symbol_from_watchlist",
                     description=(
-                        "Đề xuất xóa một mã khỏi danh sách đã có. "
-                        "Gọi khi user muốn xóa/gỡ/bỏ mã khỏi list cụ thể."
+                        "Đề xuất xóa một hoặc nhiều mã khỏi danh sách đã có. "
+                        "Gọi khi user muốn xóa/gỡ/bỏ mã khỏi list. "
+                        "Dùng symbols khi xóa nhiều mã cùng lúc."
                     ),
                     parameters=types.Schema(
                         type=types.Type.OBJECT,
-                        required=["symbol"],
                         properties={
                             "symbol": types.Schema(
                                 type=types.Type.STRING,
-                                description="Mã CK 3 chữ cái cần xóa",
+                                description="Một mã CK 3 chữ cái cần xóa (khi chỉ xóa 1 mã)",
+                            ),
+                            "symbols": types.Schema(
+                                type=types.Type.ARRAY,
+                                description="Nhiều mã CK cần xóa cùng lúc (tối đa 8)",
+                                items=types.Schema(type=types.Type.STRING),
                             ),
                             "watchlist_name": types.Schema(
                                 type=types.Type.STRING,

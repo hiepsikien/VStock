@@ -240,9 +240,8 @@ export function CompanionChatScreen({ navigation, route }: Props) {
 
   const onWatchlistActionPress = useCallback(
     (action: CompanionWatchlistAction) => {
-      setConfirmActions(null);
-
       if (action.type === 'create_watchlist') {
+        setConfirmActions(null);
         const syms = action.symbols?.length
           ? action.symbols
           : action.symbol
@@ -253,15 +252,29 @@ export function CompanionChatScreen({ navigation, route }: Props) {
       }
 
       if (action.type === 'add_symbol' && action.watchlistId) {
+        setConfirmActions(null);
         void executeAddSymbol(action.symbol, action.watchlistId);
         return;
       }
 
       if (action.type === 'remove_symbol' && action.watchlistId) {
         void executeRemoveSymbol(action.symbol, action.watchlistId);
+        // Keep sheet open if more removes remain (multi-delete).
+        setConfirmActions((prev) => {
+          if (!prev?.length) return null;
+          const next = prev.filter((item) => {
+            if (item.type !== 'remove_symbol') return true;
+            return !(
+              item.symbol.toUpperCase() === action.symbol.toUpperCase() &&
+              item.watchlistId === action.watchlistId
+            );
+          });
+          return next.length ? next : null;
+        });
         return;
       }
 
+      setConfirmActions(null);
       if (action.type === 'add_symbol' || action.type === 'suggest_add_symbol') {
         setPickerSymbol(action.symbol.toUpperCase());
       }

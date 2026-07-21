@@ -123,7 +123,9 @@ def _format_context(context: dict | None) -> str:
                 parts.append(f"  · {name}{active}: {sym_text}")
             parts.append(
                 "- User có thể nhờ thêm mã / tạo danh sách mới — "
-                "khi đồng ý, gọi function add_symbol_to_watchlist hoặc create_watchlist."
+                "khi đồng ý, gọi function add_symbol_to_watchlist hoặc create_watchlist.\n"
+                "- User muốn xóa/gỡ mã (một hoặc nhiều) — gọi remove_symbol_from_watchlist "
+                "(symbols=[]; không gọi suggest_add_symbol khi đang xóa)."
             )
     avg = context.get("avgChange")
     if avg is not None:

@@ -29,8 +29,9 @@ _REMOVE_PATTERNS = (
     re.compile(r"\bremove\s+([A-Za-z]{3})\b", re.I),
 )
 
+# Soft intent — does not require "khỏi/from" (covers "xóa giúp mình VCB, FPT").
 _WANTS_REMOVE = re.compile(
-    r"\b(x[oó]a|gỡ|bỏ|remove)\b.*\b(khỏi|from|ra)\b",
+    r"\b(x[oó]a|gỡ|remove|loại\s*bỏ)\b|\bbỏ\s+(?:mã\s+)?[A-Za-z]{3}\b",
     re.I,
 )
 
@@ -88,6 +89,58 @@ def _extract_tickers(text: str) -> list[str]:
             continue
         found.append(sym)
     return found
+
+
+def user_wants_remove(messages: list[dict] | str) -> bool:
+    """True when latest user message is asking to delete/remove symbols."""
+    text = messages if isinstance(messages, str) else _latest_user_text(messages)
+    if not text:
+        return False
+    return bool(_WANTS_REMOVE.search(text))
+
+
+def _ticker_candidates_from_arg(value: Any) -> list[str]:
+    """Normalize symbol / symbols / 'VCB, FPT' into uppercase 3-letter codes."""
+    out: list[str] = []
+
+    def push(raw: str) -> None:
+        for part in re.split(r"[,/\s|;]+", raw):
+            sym = part.upper().strip()
+            if len(sym) == 3 and sym.isalpha() and sym not in out:
+                if sym in _VI_FALSE_TICKERS or sym in _ADD_STOPWORDS:
+                    continue
+                out.append(sym)
+
+    if isinstance(value, str):
+        push(value)
+    elif isinstance(value, list):
+        for item in value:
+            push(str(item or ""))
+    return out
+
+
+def _extract_remove_symbols(
+    user: str,
+    lists: list[dict],
+    known: set[str] | None,
+) -> list[str]:
+    """Tickers the user asked to remove that actually exist in some watchlist."""
+    in_lists = _all_watchlist_symbols(lists)
+    found: list[str] = []
+
+    for pat in _REMOVE_PATTERNS:
+        for m in pat.finditer(user):
+            candidate = m.group(1).upper()
+            if candidate in in_lists and candidate not in found:
+                if known is None or candidate in known or candidate in in_lists:
+                    found.append(candidate)
+
+    # Also pick every valid ticker mentioned that is currently on a list.
+    for sym in _extract_tickers(user):
+        if sym in in_lists and sym not in found:
+            found.append(sym)
+
+    return found[:8]
 
 
 def _watchlist_lists(context: dict | None) -> list[dict[str, Any]]:
@@ -351,6 +404,23 @@ async def infer_watchlist_actions(
         action = await _build_create_action_async(user, context, sector, known_symbols)
         return [action]
 
+    # --- Remove symbol(s) from list (before add / suggest) ---
+    wants_remove = user_wants_remove(user)
+    if wants_remove:
+        remove_syms = _extract_remove_symbols(user, lists, known_symbols)
+        if not remove_syms:
+            # Intent clear but no ticker in text — try thread focus.
+            focus = _symbol_from_thread(messages, known_symbols)
+            if focus and focus in _all_watchlist_symbols(lists):
+                remove_syms = [focus]
+        remove_actions: list[dict[str, Any]] = []
+        for sym in remove_syms:
+            action = _build_remove_action(sym, lists, user)
+            if action:
+                remove_actions.append(action)
+        # Never fall through to suggest_add when user asked to delete.
+        return remove_actions[:8]
+
     # --- Add symbol to list ---
     sym: str | None = None
     for pat in _ADD_PATTERNS:
@@ -369,26 +439,6 @@ async def infer_watchlist_actions(
         add_action = _build_add_action(sym, lists, user)
         if add_action:
             return [add_action]
-
-    # --- Remove symbol from list ---
-    remove_sym: str | None = None
-    for pat in _REMOVE_PATTERNS:
-        m = pat.search(user)
-        if not m:
-            continue
-        candidate = m.group(1).upper()
-        if candidate in _VI_FALSE_TICKERS or candidate in _ADD_STOPWORDS:
-            continue
-        remove_sym = candidate
-        break
-
-    if not remove_sym and _WANTS_REMOVE.search(user):
-        remove_sym = _symbol_from_thread(messages, known_symbols)
-
-    if remove_sym:
-        remove_action = _build_remove_action(remove_sym, lists, user)
-        if remove_action:
-            return [remove_action]
 
     # --- Proactive suggest ---
     ctx = context or {}
@@ -429,6 +479,7 @@ async def resolve_tool_calls(
     context: dict | None,
     *,
     known_symbols: set[str] | None = None,
+    messages: list[dict] | None = None,
 ) -> list[dict[str, Any]]:
     """Turn Gemini function calls into validated client actions."""
     lists = _watchlist_lists(context)
@@ -436,25 +487,48 @@ async def resolve_tool_calls(
         return []
 
     actions: list[dict[str, Any]] = []
-    for call in calls[:3]:
+    for call in calls[:8]:
         name = str(call.get("name") or "")
         args = call.get("args") if isinstance(call.get("args"), dict) else {}
 
         if name == "create_watchlist":
             action = await _resolve_create_tool(args, context, known_symbols)
+            if action:
+                actions.append(action)
         elif name == "add_symbol_to_watchlist":
             action = _resolve_add_tool(args, lists, known_symbols)
+            if action:
+                actions.append(action)
         elif name == "remove_symbol_from_watchlist":
-            action = _resolve_remove_tool(args, lists)
+            actions.extend(_resolve_remove_tool(args, lists))
         elif name == "suggest_add_symbol":
             action = _resolve_suggest_tool(args, lists, known_symbols)
-        else:
+            if action:
+                actions.append(action)
+
+    # Drop suggest/add when this turn is a remove request or already has removes.
+    if any(a.get("type") == "remove_symbol" for a in actions) or (
+        messages is not None and user_wants_remove(messages)
+    ):
+        actions = [
+            a
+            for a in actions
+            if a.get("type") not in ("suggest_add_symbol", "add_symbol")
+        ]
+
+    # Dedupe remove/add by type+symbol+list
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for action in actions:
+        key = (
+            f"{action.get('type')}|{action.get('symbol')}|{action.get('watchlistId')}"
+            f"|{action.get('name')}"
+        )
+        if key in seen:
             continue
-
-        if action:
-            actions.append(action)
-
-    return actions
+        seen.add(key)
+        deduped.append(action)
+    return deduped[:8]
 
 
 async def _resolve_create_tool(
@@ -569,36 +643,55 @@ def _build_remove_action(
         payload["watchlistName"] = str(lists[0].get("name") or "")
         payload["label"] = f"Xóa {sym} khỏi “{payload['watchlistName']}”"
     else:
-        payload["label"] = f"Xóa {sym} khỏi danh sách…"
+        holders = [item for item in lists if _symbol_in_list(sym, item)]
+        if len(holders) == 1:
+            payload["watchlistId"] = str(holders[0].get("id") or "")
+            payload["watchlistName"] = str(holders[0].get("name") or "")
+            payload["label"] = f"Xóa {sym} khỏi “{payload['watchlistName']}”"
+        else:
+            payload["label"] = f"Xóa {sym} khỏi danh sách…"
     return payload
 
 
 def _resolve_remove_tool(
     args: dict,
     lists: list[dict],
-) -> dict[str, Any] | None:
-    sym = str(args.get("symbol") or "").upper().strip()
-    if len(sym) != 3 or sym in _VI_FALSE_TICKERS or sym in _ADD_STOPWORDS:
-        return None
+) -> list[dict[str, Any]]:
+    symbols = _ticker_candidates_from_arg(args.get("symbols"))
+    symbols.extend(
+        s for s in _ticker_candidates_from_arg(args.get("symbol")) if s not in symbols
+    )
+    if not symbols:
+        return []
 
     target = _resolve_list_target(args, lists)
-    if target and not _symbol_in_list(sym, target):
-        return None
-    if not target and not any(_symbol_in_list(sym, item) for item in lists):
-        return None
+    out: list[dict[str, Any]] = []
+    for sym in symbols[:8]:
+        if target and not _symbol_in_list(sym, target):
+            continue
+        if not target and not any(_symbol_in_list(sym, item) for item in lists):
+            continue
 
-    payload: dict[str, Any] = {"type": "remove_symbol", "symbol": sym}
-    if target:
-        payload["watchlistId"] = str(target.get("id") or "")
-        payload["watchlistName"] = str(target.get("name") or "")
-        payload["label"] = f"Xóa {sym} khỏi “{payload['watchlistName']}”"
-    elif len(lists) == 1:
-        payload["watchlistId"] = str(lists[0].get("id") or "")
-        payload["watchlistName"] = str(lists[0].get("name") or "")
-        payload["label"] = f"Xóa {sym} khỏi “{payload['watchlistName']}”"
-    else:
-        payload["label"] = f"Xóa {sym} khỏi danh sách…"
-    return payload
+        payload: dict[str, Any] = {"type": "remove_symbol", "symbol": sym}
+        if target:
+            payload["watchlistId"] = str(target.get("id") or "")
+            payload["watchlistName"] = str(target.get("name") or "")
+            payload["label"] = f"Xóa {sym} khỏi “{payload['watchlistName']}”"
+        elif len(lists) == 1:
+            payload["watchlistId"] = str(lists[0].get("id") or "")
+            payload["watchlistName"] = str(lists[0].get("name") or "")
+            payload["label"] = f"Xóa {sym} khỏi “{payload['watchlistName']}”"
+        else:
+            # Prefer the list that actually holds the symbol when ambiguous.
+            holders = [item for item in lists if _symbol_in_list(sym, item)]
+            if len(holders) == 1:
+                payload["watchlistId"] = str(holders[0].get("id") or "")
+                payload["watchlistName"] = str(holders[0].get("name") or "")
+                payload["label"] = f"Xóa {sym} khỏi “{payload['watchlistName']}”"
+            else:
+                payload["label"] = f"Xóa {sym} khỏi danh sách…"
+        out.append(payload)
+    return out
 
 
 def _resolve_suggest_tool(
