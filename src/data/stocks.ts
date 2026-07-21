@@ -235,12 +235,15 @@ export function formatMarketCapLabel(cap: string): string {
     .trim();
 }
 
-/** Absolute VND amounts → "x.x Tỷ" (billions). */
+/** Absolute VND amounts for BCTC: T = tỷ, NT = nghìn tỷ. */
 export function formatVndBillions(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '—';
   const ty = value / 1_000_000_000;
-  if (Math.abs(ty) >= 1000) return `${(ty / 1000).toFixed(1)} NT`;
-  if (Math.abs(ty) >= 100) return `${ty.toFixed(0)} Tỷ`;
-  if (Math.abs(ty) >= 10) return `${ty.toFixed(1)} Tỷ`;
-  return `${ty.toFixed(2)} Tỷ`;
+  if (Math.abs(ty) >= 1000) {
+    const n = ty / 1000;
+    return `${n >= 100 ? n.toFixed(0) : n.toFixed(1)} NT`;
+  }
+  if (Math.abs(ty) >= 100) return `${ty.toFixed(0)} T`;
+  if (Math.abs(ty) >= 10) return `${ty.toFixed(1)} T`;
+  return `${ty.toFixed(2)} T`;
 }

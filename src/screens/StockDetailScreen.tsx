@@ -265,7 +265,7 @@ export function StockDetailScreen({ navigation, route }: Props) {
       { label: 'KL', value: formatVolume(stock.volume) },
       { label: 'P/E', value: stock.pe != null ? stock.pe.toFixed(1) : '—' },
       { label: 'P/B', value: stock.pb != null ? stock.pb.toFixed(2) : '—' },
-      { label: 'EPS', value: stock.eps != null ? stock.eps.toFixed(0) : '—' },
+      { label: 'EPS', value: stock.eps != null ? `${Math.round(stock.eps).toLocaleString('vi-VN')} ₫` : '—' },
       { label: 'ROE', value: stock.roe != null ? `${stock.roe.toFixed(1)}%` : '—' },
       { label: 'ROA', value: stock.roa != null ? `${stock.roa.toFixed(1)}%` : '—' },
       {
@@ -431,27 +431,34 @@ export function StockDetailScreen({ navigation, route }: Props) {
           </View>
 
           {statColumns.length > 0 ? (
-            <View style={styles.stats}>
-              {statColumns.map((col, colIndex) => (
-                <View
-                  key={`col-${colIndex}`}
-                  style={[
-                    styles.statColumn,
-                    colIndex < statColumns.length - 1 && styles.statColumnDivider,
-                  ]}
-                >
-                  {col.map((item) => (
-                    <View key={item.label} style={styles.statRow}>
-                      <Text style={styles.statLabel} numberOfLines={1}>
-                        {item.label}
-                      </Text>
-                      <Text style={styles.statValue} numberOfLines={1}>
-                        {item.value}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              ))}
+            <View style={styles.statsBlock}>
+              <View style={styles.stats}>
+                {statColumns.map((col, colIndex) => (
+                  <View
+                    key={`col-${colIndex}`}
+                    style={[
+                      styles.statColumn,
+                      colIndex < statColumns.length - 1 && styles.statColumnDivider,
+                    ]}
+                  >
+                    {col.map((item) => (
+                      <View key={item.label} style={styles.statRow}>
+                        <Text style={styles.statLabel} numberOfLines={1}>
+                          {item.label}
+                        </Text>
+                        <Text style={styles.statValue} numberOfLines={1}>
+                          {item.value}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ))}
+              </View>
+              {!isIndexLike ? (
+                <Text style={styles.statsHint}>
+                  Mở / Cao / Thấp: nghìn đồng · EPS: đồng
+                </Text>
+              ) : null}
             </View>
           ) : null}
 
@@ -459,7 +466,7 @@ export function StockDetailScreen({ navigation, route }: Props) {
             <View style={styles.incomeSection}>
               <Text style={styles.incomeHeading}>Kết quả kinh doanh</Text>
               <Text style={styles.incomeSub}>
-                {stock.revenueLabel || 'Doanh thu'} · LNST · tỷ đồng
+                {stock.revenueLabel || 'Doanh thu'} · LNST · T = tỷ · NT = nghìn tỷ
               </Text>
               <View style={styles.incomeCard}>
                 <View style={styles.incomeHeaderRow}>
@@ -643,6 +650,15 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(255,255,255,0.12)',
+  },
+  statsBlock: {
+    marginTop: 0,
+  },
+  statsHint: {
+    marginTop: spacing.sm,
+    marginHorizontal: spacing.lg,
+    color: colors.textTertiary,
+    fontSize: 12,
   },
   statColumn: {
     flex: 1,
