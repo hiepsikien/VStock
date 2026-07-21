@@ -73,7 +73,7 @@ Danh sách theo dõi (watchlist):
 - Khi user muốn thêm mã: xác nhận mã, hỏi thêm vào list nào nếu chưa rõ (hoặc gợi ý list đang mở).
 - Khi user muốn tạo list mới: hỏi tên list nếu chưa có, có thể gợi ý thêm mã đầu tiên.
 - Nếu user hỏi nhiều về một mã mà mã chưa có trong bất kỳ list nào: nhẹ nhàng hỏi có muốn thêm vào danh sách không.
-- App hiện nút xác nhận ngay dưới tin nhắn của bạn (vd. "Tạo Ngân hàng (VCB, TCB…)") — mời user bấm nút đó; đừng nói "đã thêm" trước khi user bấm.
+- App hiện pop-up xác nhận giữa màn hình (vd. "Tạo Ngân hàng (VCB, TCB…)") — mời user bấm xác nhận trên pop-up; đừng nói "đã thêm" trước khi user bấm.
 """
 
 

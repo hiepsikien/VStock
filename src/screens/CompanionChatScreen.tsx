@@ -41,8 +41,10 @@ import { betweenBubblesPauseMs, revealText, thinkingPauseMs } from '../companion
 import { CompanionAvatar } from '../components/CompanionAvatar';
 import { CompanionChatBubble } from '../components/CompanionChatBubble';
 import { CompanionProfileModal } from '../components/CompanionProfileModal';
+import { CompanionWatchlistConfirmSheet } from '../components/CompanionWatchlistConfirmSheet';
 import { CompanionWatchlistPickerSheet } from '../components/CompanionWatchlistPickerSheet';
 import {
+  expandWatchlistActions,
   type CompanionWatchlistAction,
 } from '../companion/watchlistActions';
 import {
@@ -60,7 +62,6 @@ type Bubble = CompanionChatMessage & {
   ts?: number;
   /** Empty content + typing = animated “đang gõ” row */
   typing?: boolean;
-  actions?: CompanionWatchlistAction[];
 };
 
 type Presence = 'online' | 'reading' | 'fetching' | 'typing';
@@ -87,6 +88,9 @@ export function CompanionChatScreen({ navigation, route }: Props) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [watchlistsState, setWatchlistsState] = useState<WatchlistsState | null>(null);
   const [pickerSymbol, setPickerSymbol] = useState<string | null>(null);
+  const [confirmActions, setConfirmActions] = useState<
+    CompanionWatchlistAction[] | null
+  >(null);
   const listRef = useRef<FlatList<Bubble>>(null);
   const seeded = useRef(false);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -221,12 +225,8 @@ export function CompanionChatScreen({ navigation, route }: Props) {
   );
 
   const onWatchlistActionPress = useCallback(
-    (bubbleId: string, action: CompanionWatchlistAction) => {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === bubbleId ? { ...m, actions: undefined } : m,
-        ),
-      );
+    (action: CompanionWatchlistAction) => {
+      setConfirmActions(null);
 
       if (action.type === 'create_watchlist') {
         const syms = action.symbols?.length
@@ -353,6 +353,7 @@ export function CompanionChatScreen({ navigation, route }: Props) {
       setError(null);
       setBusy(true);
       setInput('');
+      setConfirmActions(null);
 
       const now = Date.now();
       const userMsg: Bubble = {
@@ -440,8 +441,6 @@ export function CompanionChatScreen({ navigation, route }: Props) {
         });
         patchAssistant(assistantId, first, false);
 
-        const turnBubbleIds = [assistantId];
-
         for (let i = 1; i < parts.length; i += 1) {
           await sleep(betweenBubblesPauseMs());
           setPresence('typing');
@@ -462,16 +461,21 @@ export function CompanionChatScreen({ navigation, route }: Props) {
             patchAssistant(followId, partial, partial.length === 0);
           });
           patchAssistant(followId, text, false);
-          turnBubbleIds.push(followId);
         }
 
         if (pendingActions?.length) {
-          const actionBubbleIds = new Set(turnBubbleIds);
-          setMessages((prev) =>
-            prev.map((m) =>
-              actionBubbleIds.has(m.id) ? { ...m, actions: pendingActions } : m,
-            ),
+          const freshLists = await loadWatchlistsState();
+          setWatchlistsState(freshLists);
+          const expanded = expandWatchlistActions(
+            pendingActions,
+            freshLists.lists,
           );
+          if (expanded.length) {
+            setConfirmActions(expanded);
+            void Haptics.notificationAsync(
+              Haptics.NotificationFeedbackType.Warning,
+            );
+          }
         }
 
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -560,22 +564,9 @@ export function CompanionChatScreen({ navigation, route }: Props) {
         onPressAvatar={openProfile}
         linkableSymbols={linkableSymbols}
         onPressSymbol={openSymbol}
-        watchlists={watchlistsState?.lists}
-        onPressAction={
-          item.actions?.length
-            ? (action) => onWatchlistActionPress(item.id, action)
-            : undefined
-        }
       />
     ),
-    [
-      character,
-      linkableSymbols,
-      onWatchlistActionPress,
-      openProfile,
-      openSymbol,
-      watchlistsState?.lists,
-    ],
+    [character, linkableSymbols, openProfile, openSymbol],
   );
 
   const onContentSizeChange = useCallback(() => {
@@ -677,6 +668,14 @@ export function CompanionChatScreen({ navigation, route }: Props) {
           </Pressable>
         </View>
       </View>
+
+      <CompanionWatchlistConfirmSheet
+        visible={confirmActions != null && confirmActions.length > 0}
+        actions={confirmActions ?? []}
+        accent={character.accent}
+        onConfirm={onWatchlistActionPress}
+        onClose={() => setConfirmActions(null)}
+      />
 
       <CompanionWatchlistPickerSheet
         visible={pickerSymbol != null}
