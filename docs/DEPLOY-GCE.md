@@ -108,11 +108,38 @@ Ghi lại **External IP** của VM (vd. `34.xxx.xxx.xxx`).
 
 ## Bước 3 — SSH vào VM & cài Docker
 
+### SSH từ Mac (terminal)
+
+**Nguyên nhân lỗi thường gặp:** Ubuntu 22.04 trên GCE thường **từ chối khóa RSA** (`google_compute_engine`). Dùng **ed25519**.
+
+**Một lần — setup:**
+
 ```bash
-gcloud compute ssh vstock-api --zone=asia-southeast1-a
+gcloud auth login
+gcloud config set project vstock-prod
+cd ~/Projects/VStock
+chmod +x scripts/setup-gce-ssh.sh
+./scripts/setup-gce-ssh.sh
 ```
 
-Trên VM:
+**Vào VM hàng ngày:**
+
+```bash
+# User có repo VStock + docker (khuyến nghị deploy)
+ssh -i ~/.ssh/gce_vstock_ed25519 anh_nguyendinh_cs@34.142.248.53
+
+# Hoặc qua gcloud (user = username Mac)
+gcloud compute ssh vstock-api \
+  --zone=asia-southeast1-a \
+  --project=vstock-prod \
+  --ssh-key-file=~/.ssh/gce_vstock_ed25519
+```
+
+**Lưu ý:** Khóa RSA mặc định (`google_compute_engine`) thường **không work** trên Ubuntu 22 — dùng `gce_vstock_ed25519` ở trên.
+
+---
+
+Trên VM (sau khi SSH được):
 
 ```bash
 # Cập nhật hệ thống
