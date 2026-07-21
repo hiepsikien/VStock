@@ -8,6 +8,7 @@ from app.schemas import (
     DEFAULT_WATCHLIST,
     ChartRange,
     HistoryResponse,
+    IncomePeriod,
     IndicesResponse,
     IndexQuote,
     MarketStatusResponse,
@@ -19,6 +20,85 @@ from app.schemas import (
 from app.services import fundamentals, history, indices, market_session, quotes, symbols as symbols_service
 
 router = APIRouter(prefix="/v1")
+
+
+def _empty_fund() -> dict:
+    return {
+        "name": None,
+        "exchange": "HOSE",
+        "marketCap": "—",
+        "pe": None,
+        "eps": None,
+        "pb": None,
+        "roe": None,
+        "roa": None,
+        "dividendYield": None,
+    }
+
+
+def _empty_income() -> dict:
+    return {
+        "revenueLabel": None,
+        "latestAnnual": None,
+        "lastQuarters": [],
+    }
+
+
+def _fallback_fund(name: str = "—", exchange: str = "HOSE") -> dict:
+    return {
+        **_empty_fund(),
+        "name": name,
+        "exchange": exchange,
+    }
+
+
+async def _load_fund_income(sym: str) -> tuple[dict, dict]:
+    fund_task = asyncio.create_task(fundamentals.fetch_fundamentals(sym))
+    income_task = asyncio.create_task(fundamentals.fetch_income(sym))
+    try:
+        fund = await fund_task
+    except Exception:
+        fund = _fallback_fund(name=sym)
+    try:
+        income = await income_task
+    except Exception:
+        income = _empty_income()
+    return fund, income
+
+
+def _income_period(raw: dict | None) -> IncomePeriod | None:
+    if not raw or not isinstance(raw, dict):
+        return None
+    fiscal = str(raw.get("fiscalDate") or "")
+    year = int(raw.get("year") or 0)
+    if not fiscal or year <= 0:
+        return None
+    try:
+        return IncomePeriod(
+            periodType=raw.get("periodType") or "annual",
+            fiscalDate=fiscal,
+            year=year,
+            quarter=raw.get("quarter"),
+            netRevenue=raw.get("netRevenue"),
+            netIncome=raw.get("netIncome"),
+        )
+    except Exception:
+        return None
+
+
+def _stock_detail_extras(fund: dict, income: dict) -> dict:
+    quarters_raw = income.get("lastQuarters") or []
+    quarters = [p for p in (_income_period(q) for q in quarters_raw) if p is not None]
+    return {
+        "eps": fund.get("eps"),
+        "pb": fund.get("pb"),
+        "roe": fund.get("roe"),
+        "roa": fund.get("roa"),
+        "dividendYield": fund.get("dividendYield"),
+        "revenueLabel": income.get("revenueLabel"),
+        "incomeLatestAnnual": _income_period(income.get("latestAnnual")),
+        "incomeLastQuarters": quarters,
+    }
 
 
 @router.get("/market/status", response_model=MarketStatusResponse)
@@ -183,15 +263,7 @@ async def get_stock(symbol: str) -> StockDetail:
         meta = await symbols_service.lookup_symbol(sym)
         if not meta:
             raise HTTPException(status_code=404, detail=f"Symbol not found: {sym}")
-        try:
-            fund = await fundamentals.fetch_fundamentals(sym)
-        except Exception:
-            fund = {
-                "name": meta.get("name") or sym,
-                "exchange": meta.get("exchange") or "HOSE",
-                "marketCap": "—",
-                "pe": None,
-            }
+        fund, income = await _load_fund_income(sym)
         return StockDetail(
             symbol=sym,
             name=str(fund.get("name") or meta.get("name") or sym),
@@ -207,6 +279,7 @@ async def get_stock(symbol: str) -> StockDetail:
             pe=fund.get("pe"),
             sparkline=[],
             unavailable=True,
+            **_stock_detail_extras(fund, income),
         )
 
     try:
@@ -215,8 +288,12 @@ async def get_stock(symbol: str) -> StockDetail:
             history.fetch_sparkline(sym),
         )
     except Exception:
-        fund = {"name": sym, "exchange": "HOSE", "marketCap": "—", "pe": None}
+        fund = _fallback_fund(name=sym)
         spark = []
+    try:
+        income = await fundamentals.fetch_income(sym)
+    except Exception:
+        income = _empty_income()
 
     return StockDetail(
         symbol=sym,
@@ -232,6 +309,7 @@ async def get_stock(symbol: str) -> StockDetail:
         marketCap=fund["marketCap"],
         pe=fund["pe"],
         sparkline=spark,
+        **_stock_detail_extras(fund, income),
     )
 
 

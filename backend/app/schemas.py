@@ -33,6 +33,15 @@ class WatchlistItem(BaseModel):
     unavailable: bool = False
 
 
+class IncomePeriod(BaseModel):
+    periodType: Literal["annual", "quarter"]
+    fiscalDate: str
+    year: int
+    quarter: int | None = None
+    netRevenue: float | None = None
+    netIncome: float | None = None
+
+
 class StockDetail(BaseModel):
     symbol: str
     name: str
@@ -47,6 +56,14 @@ class StockDetail(BaseModel):
     volume: int
     marketCap: str
     pe: float | None
+    eps: float | None = None
+    pb: float | None = None
+    roe: float | None = None
+    roa: float | None = None
+    dividendYield: float | None = None
+    revenueLabel: str | None = None
+    incomeLatestAnnual: IncomePeriod | None = None
+    incomeLastQuarters: list[IncomePeriod] = Field(default_factory=list)
     currency: str = "₫"
     sparkline: list[float] = Field(default_factory=list)
     unavailable: bool = False

@@ -27,6 +27,7 @@ import {
   formatPrice,
   formatVolume,
   formatMarketCapLabel,
+  formatVndBillions,
   getFallbackStock,
 } from '../data/stocks';
 import { PriceChart } from '../components/PriceChart';
@@ -263,9 +264,40 @@ export function StockDetailScreen({ navigation, route }: Props) {
       { label: 'Thấp', value: formatStatValue(stock.low) },
       { label: 'KL', value: formatVolume(stock.volume) },
       { label: 'P/E', value: stock.pe != null ? stock.pe.toFixed(1) : '—' },
+      { label: 'P/B', value: stock.pb != null ? stock.pb.toFixed(2) : '—' },
+      { label: 'EPS', value: stock.eps != null ? stock.eps.toFixed(0) : '—' },
+      { label: 'ROE', value: stock.roe != null ? `${stock.roe.toFixed(1)}%` : '—' },
+      { label: 'ROA', value: stock.roa != null ? `${stock.roa.toFixed(1)}%` : '—' },
+      {
+        label: 'Cổ tức',
+        value: stock.dividendYield != null ? `${stock.dividendYield.toFixed(2)}%` : '—',
+      },
       { label: 'Vốn hóa', value: formatMarketCapLabel(stock.marketCap) },
     ];
   }, [stock, isIndexLike, formatStatValue]);
+
+  const incomeRows = useMemo(() => {
+    if (!stock || isIndexLike) return [] as { period: string; revenue: string; income: string }[];
+    const rows: { period: string; revenue: string; income: string }[] = [];
+    const annual = stock.incomeLatestAnnual;
+    if (annual) {
+      rows.push({
+        period: `Năm ${annual.year}`,
+        revenue: formatVndBillions(annual.netRevenue),
+        income: formatVndBillions(annual.netIncome),
+      });
+    }
+    for (const q of stock.incomeLastQuarters ?? []) {
+      const label =
+        q.quarter != null ? `Q${q.quarter}/${q.year}` : q.fiscalDate.slice(0, 7);
+      rows.push({
+        period: label,
+        revenue: formatVndBillions(q.netRevenue),
+        income: formatVndBillions(q.netIncome),
+      });
+    }
+    return rows;
+  }, [stock, isIndexLike]);
 
   // Apple Stocks compact strip: 2 columns, fill top→bottom (3 rows for equities).
   const statColumns = useMemo(() => {
@@ -420,6 +452,47 @@ export function StockDetailScreen({ navigation, route }: Props) {
                   ))}
                 </View>
               ))}
+            </View>
+          ) : null}
+
+          {incomeRows.length > 0 ? (
+            <View style={styles.incomeSection}>
+              <Text style={styles.incomeHeading}>Kết quả kinh doanh</Text>
+              <Text style={styles.incomeSub}>
+                {stock.revenueLabel || 'Doanh thu'} · LNST · tỷ đồng
+              </Text>
+              <View style={styles.incomeCard}>
+                <View style={styles.incomeHeaderRow}>
+                  <Text style={[styles.incomeColPeriod, styles.incomeHeaderText]}>Kỳ</Text>
+                  <Text style={[styles.incomeColNum, styles.incomeHeaderText]}>
+                    {stock.revenueLabel === 'Thu nhập lãi thuần'
+                      ? 'TNLT'
+                      : stock.revenueLabel === 'Tổng thu nhập hoạt động'
+                        ? 'TTHĐ'
+                        : 'DT'}
+                  </Text>
+                  <Text style={[styles.incomeColNum, styles.incomeHeaderText]}>LNST</Text>
+                </View>
+                {incomeRows.map((row, index) => (
+                  <View
+                    key={row.period}
+                    style={[
+                      styles.incomeRow,
+                      index < incomeRows.length - 1 && styles.incomeRowDivider,
+                    ]}
+                  >
+                    <Text style={styles.incomeColPeriod} numberOfLines={1}>
+                      {row.period}
+                    </Text>
+                    <Text style={styles.incomeColNum} numberOfLines={1}>
+                      {row.revenue}
+                    </Text>
+                    <Text style={styles.incomeColNum} numberOfLines={1}>
+                      {row.income}
+                    </Text>
+                  </View>
+                ))}
+              </View>
             </View>
           ) : null}
 
@@ -605,6 +678,61 @@ const styles = StyleSheet.create({
   newsSection: {
     marginTop: spacing.xxl,
     marginHorizontal: spacing.lg,
+  },
+  incomeSection: {
+    marginTop: spacing.xxl,
+    marginHorizontal: spacing.lg,
+  },
+  incomeHeading: {
+    ...typography.title,
+    fontSize: 20,
+    color: colors.text,
+  },
+  incomeSub: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    marginTop: 4,
+    marginBottom: spacing.sm,
+  },
+  incomeCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    overflow: 'hidden',
+    paddingVertical: 4,
+  },
+  incomeHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+  },
+  incomeHeaderText: {
+    color: colors.textSecondary,
+    fontWeight: '500',
+    fontSize: 12,
+  },
+  incomeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+  },
+  incomeRowDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  incomeColPeriod: {
+    flex: 1.1,
+    color: colors.text,
+    fontSize: 14,
+  },
+  incomeColNum: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+    textAlign: 'right',
   },
   newsHeading: {
     ...typography.title,

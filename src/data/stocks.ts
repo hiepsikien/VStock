@@ -234,3 +234,13 @@ export function formatMarketCapLabel(cap: string): string {
     .replace(/\s*triệu\b/gi, ' Tr')
     .trim();
 }
+
+/** Absolute VND amounts → "x.x Tỷ" (billions). */
+export function formatVndBillions(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  const ty = value / 1_000_000_000;
+  if (Math.abs(ty) >= 1000) return `${(ty / 1000).toFixed(1)} NT`;
+  if (Math.abs(ty) >= 100) return `${ty.toFixed(0)} Tỷ`;
+  if (Math.abs(ty) >= 10) return `${ty.toFixed(1)} Tỷ`;
+  return `${ty.toFixed(2)} Tỷ`;
+}

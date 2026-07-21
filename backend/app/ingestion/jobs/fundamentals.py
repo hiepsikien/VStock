@@ -6,12 +6,15 @@ import logging
 from app.health import state as health_state
 from app.ingestion.config import load_ingestion_settings
 from app.ingestion.providers.symbol_fundamentals import fetch_symbol_fundamentals
+from app.ingestion.providers.vndirect_income import fetch_symbol_income
 from app.repositories.fundamentals_repo import FundamentalsRepository
+from app.repositories.income_repo import IncomeRepository
 from app.repositories.quotes_repo import QuotesRepository
 from app.schemas import DEFAULT_WATCHLIST
 
 logger = logging.getLogger(__name__)
 _repo = FundamentalsRepository()
+_income_repo = IncomeRepository()
 _quotes_repo = QuotesRepository()
 _FETCH_DELAY_SECONDS = 0.2
 _PROVIDER = "merge"
@@ -34,6 +37,11 @@ async def ingest_fundamentals(*, force: bool = False) -> int:
             try:
                 profile = await fetch_symbol_fundamentals(sym)
                 await _repo.upsert(profile)
+                try:
+                    income = await fetch_symbol_income(sym)
+                    await _income_repo.upsert(income)
+                except Exception as income_exc:
+                    logger.warning("Income fetch failed for %s: %s", sym, income_exc)
                 total += 1
             except Exception as exc:
                 failures += 1

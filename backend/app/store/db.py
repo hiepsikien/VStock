@@ -80,12 +80,45 @@ CREATE TABLE IF NOT EXISTS fundamentals (
     exchange TEXT NOT NULL,
     market_cap TEXT NOT NULL DEFAULT '—',
     pe REAL,
+    eps REAL,
+    pb REAL,
+    roe REAL,
+    roa REAL,
+    dividend_yield REAL,
     listed_shares INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_fundamentals_updated_at ON fundamentals(updated_at);
+
+CREATE TABLE IF NOT EXISTS income_statements (
+    symbol TEXT PRIMARY KEY,
+    revenue_label TEXT NOT NULL DEFAULT 'Doanh thu thuần',
+    latest_annual TEXT,
+    last_quarters TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_income_statements_updated_at ON income_statements(updated_at);
 """
+
+
+_FUNDAMENTALS_EXTRA_COLUMNS = (
+    ("eps", "REAL"),
+    ("pb", "REAL"),
+    ("roe", "REAL"),
+    ("roa", "REAL"),
+    ("dividend_yield", "REAL"),
+)
+
+
+async def _ensure_schema_migrations(db: aiosqlite.Connection) -> None:
+    cursor = await db.execute("PRAGMA table_info(fundamentals)")
+    existing = {row[1] for row in await cursor.fetchall()}
+    for col, col_type in _FUNDAMENTALS_EXTRA_COLUMNS:
+        if col not in existing:
+            await db.execute(f"ALTER TABLE fundamentals ADD COLUMN {col} {col_type}")
+    await db.commit()
 
 
 def db_path() -> Path:
@@ -102,6 +135,7 @@ async def init_db() -> None:
     _db = await aiosqlite.connect(path)
     _db.row_factory = aiosqlite.Row
     await _db.executescript(SCHEMA)
+    await _ensure_schema_migrations(_db)
     await _db.commit()
 
 

@@ -173,6 +173,28 @@ type StockDetailDto = WatchlistDto & {
   priorClose?: number | null;
   marketCap: string;
   pe: number | null;
+  eps?: number | null;
+  pb?: number | null;
+  roe?: number | null;
+  roa?: number | null;
+  dividendYield?: number | null;
+  revenueLabel?: string | null;
+  incomeLatestAnnual?: {
+    periodType: 'annual' | 'quarter';
+    fiscalDate: string;
+    year: number;
+    quarter?: number | null;
+    netRevenue?: number | null;
+    netIncome?: number | null;
+  } | null;
+  incomeLastQuarters?: Array<{
+    periodType: 'annual' | 'quarter';
+    fiscalDate: string;
+    year: number;
+    quarter?: number | null;
+    netRevenue?: number | null;
+    netIncome?: number | null;
+  }>;
 };
 
 type HistoryDto = {
@@ -206,6 +228,14 @@ function toStock(dto: StockDetailDto, history?: Partial<Record<ChartRange, numbe
     volume: dto.volume,
     marketCap: dto.marketCap,
     pe: dto.pe,
+    eps: dto.eps ?? null,
+    pb: dto.pb ?? null,
+    roe: dto.roe ?? null,
+    roa: dto.roa ?? null,
+    dividendYield: dto.dividendYield ?? null,
+    revenueLabel: dto.revenueLabel ?? null,
+    incomeLatestAnnual: dto.incomeLatestAnnual ?? null,
+    incomeLastQuarters: dto.incomeLastQuarters ?? [],
     currency: dto.currency || '₫',
     sparkline: dto.sparkline ?? [],
     history: {

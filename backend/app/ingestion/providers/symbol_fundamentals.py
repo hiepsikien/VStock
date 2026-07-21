@@ -22,6 +22,11 @@ async def fetch_symbol_fundamentals(symbol: str) -> dict:
         "listed_shares": 0,
         "market_cap": "—",
         "pe": None,
+        "eps": None,
+        "pb": None,
+        "roe": None,
+        "roa": None,
+        "dividend_yield": None,
     }
 
     async with httpx.AsyncClient(timeout=15.0, headers=BROWSER_HEADERS) as client:
@@ -65,6 +70,24 @@ async def fetch_symbol_fundamentals(symbol: str) -> dict:
                     pe = safe_float(data.get("peRatio"), default=-1)
                     if pe >= 0:
                         profile["pe"] = pe
+                    eps = safe_float(data.get("epsRatio"), default=-1)
+                    if eps >= 0:
+                        profile["eps"] = eps
+                    pb = safe_float(data.get("pbRatio"), default=-1)
+                    if pb >= 0:
+                        profile["pb"] = pb
+                    roe = safe_float(data.get("roe"), default=-1)
+                    if roe >= 0:
+                        profile["roe"] = roe
+                    roa = safe_float(data.get("roa"), default=-1)
+                    if roa >= 0:
+                        profile["roa"] = roa
+                    div_y = safe_float(
+                        data.get("dividendYieldCurrent") or data.get("dividendYield"),
+                        default=-1,
+                    )
+                    if div_y >= 0:
+                        profile["dividend_yield"] = div_y
         except Exception:
             pass
 
