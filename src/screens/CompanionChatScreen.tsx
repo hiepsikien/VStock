@@ -41,10 +41,8 @@ import { betweenBubblesPauseMs, revealText, thinkingPauseMs } from '../companion
 import { CompanionAvatar } from '../components/CompanionAvatar';
 import { CompanionChatBubble } from '../components/CompanionChatBubble';
 import { CompanionProfileModal } from '../components/CompanionProfileModal';
-import { CompanionQuickReplies } from '../components/CompanionQuickReplies';
 import { CompanionWatchlistPickerSheet } from '../components/CompanionWatchlistPickerSheet';
 import {
-  suggestionForAddSymbol,
   type CompanionWatchlistAction,
 } from '../companion/watchlistActions';
 import {
@@ -62,6 +60,7 @@ type Bubble = CompanionChatMessage & {
   ts?: number;
   /** Empty content + typing = animated “đang gõ” row */
   typing?: boolean;
+  actions?: CompanionWatchlistAction[];
 };
 
 type Presence = 'online' | 'reading' | 'fetching' | 'typing';
@@ -86,7 +85,6 @@ export function CompanionChatScreen({ navigation, route }: Props) {
   const [messages, setMessages] = useState<Bubble[]>([]);
   const [bond, setBond] = useState<CompanionBond | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [watchlistsState, setWatchlistsState] = useState<WatchlistsState | null>(null);
   const [pickerSymbol, setPickerSymbol] = useState<string | null>(null);
   const listRef = useRef<FlatList<Bubble>>(null);
@@ -111,7 +109,6 @@ export function CompanionChatScreen({ navigation, route }: Props) {
         ts: Date.now(),
       },
     ]);
-    setSuggestions([]);
     setError(null);
     setPresence('online');
   }, [character.greeting, character.id]);
@@ -174,18 +171,6 @@ export function CompanionChatScreen({ navigation, route }: Props) {
   const composerPad =
     keyboardHeight > 0 ? 10 : Math.max(insets.bottom, 12);
 
-  const defaultSuggestions = useCallback((): string[] => {
-    const chips: string[] = [];
-    if (symbol) {
-      chips.push(`${symbol} đang giá bao nhiêu?`);
-      chips.push(`Tin mới về ${symbol}`);
-    }
-    chips.push('Thị trường hôm nay thế nào?');
-    if (watchlistSymbols?.length) chips.push('Các danh sách của mình có gì?');
-    chips.push('Mình đang hơi lo…');
-    return chips.slice(0, 4);
-  }, [symbol, watchlistSymbols]);
-
   useEffect(() => {
     void loadWatchlistsState().then(setWatchlistsState);
   }, []);
@@ -216,16 +201,18 @@ export function CompanionChatScreen({ navigation, route }: Props) {
   );
 
   const executeCreateWatchlist = useCallback(
-    async (name: string, sym?: string) => {
+    async (name: string, symbols?: string[]) => {
       let next = await createWatchlist(name);
-      if (sym) {
+      const added: string[] = [];
+      for (const sym of symbols ?? []) {
         next = await addSymbolToWatchlist(sym, next.activeId);
+        added.push(sym.toUpperCase());
       }
       setWatchlistsState(next);
       const list = next.lists.find((l) => l.id === next.activeId);
       appendAssistantNote(
-        sym
-          ? `Đã tạo “${list?.name ?? name}” và thêm ${sym.toUpperCase()} vào đó.`
+        added.length
+          ? `Đã tạo “${list?.name ?? name}” với ${added.join(', ')}.`
           : `Đã tạo danh sách “${list?.name ?? name}”.`,
       );
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -233,36 +220,35 @@ export function CompanionChatScreen({ navigation, route }: Props) {
     [appendAssistantNote],
   );
 
-  const handleWatchlistActions = useCallback(
-    (actions: CompanionWatchlistAction[]) => {
-      for (const action of actions) {
-        if (action.type === 'suggest_add_symbol') {
-          setSuggestions((prev) => {
-            const chip = suggestionForAddSymbol(action.symbol);
-            return prev.includes(chip) ? prev : [chip, ...prev].slice(0, 4);
-          });
-          continue;
-        }
-        if (action.type === 'create_watchlist') {
-          void executeCreateWatchlist(action.name, action.symbol);
-          continue;
-        }
-        if (action.type === 'add_symbol') {
-          if (action.watchlistId) {
-            void executeAddSymbol(action.symbol, action.watchlistId);
-          } else {
-            setPickerSymbol(action.symbol.toUpperCase());
-          }
-        }
+  const onWatchlistActionPress = useCallback(
+    (bubbleId: string, action: CompanionWatchlistAction) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === bubbleId ? { ...m, actions: undefined } : m,
+        ),
+      );
+
+      if (action.type === 'create_watchlist') {
+        const syms = action.symbols?.length
+          ? action.symbols
+          : action.symbol
+            ? [action.symbol]
+            : [];
+        void executeCreateWatchlist(action.name, syms);
+        return;
+      }
+
+      if (action.type === 'add_symbol' && action.watchlistId) {
+        void executeAddSymbol(action.symbol, action.watchlistId);
+        return;
+      }
+
+      if (action.type === 'add_symbol' || action.type === 'suggest_add_symbol') {
+        setPickerSymbol(action.symbol.toUpperCase());
       }
     },
     [executeAddSymbol, executeCreateWatchlist],
   );
-
-  useEffect(() => {
-    if (!ready || suggestions.length) return;
-    setSuggestions(defaultSuggestions());
-  }, [defaultSuggestions, ready, suggestions.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -367,7 +353,6 @@ export function CompanionChatScreen({ navigation, route }: Props) {
       setError(null);
       setBusy(true);
       setInput('');
-      setSuggestions([]);
 
       const now = Date.now();
       const userMsg: Bubble = {
@@ -445,19 +430,17 @@ export function CompanionChatScreen({ navigation, route }: Props) {
           void saveCompanionBond(character.id, enrichedBond);
         }
 
-        setSuggestions(
-          result.suggestions.length ? result.suggestions : defaultSuggestions(),
-        );
-
-        if (result.actions?.length) {
-          handleWatchlistActions(result.actions as CompanionWatchlistAction[]);
-        }
+        const pendingActions = result.actions?.length
+          ? (result.actions as CompanionWatchlistAction[])
+          : undefined;
 
         const first = parts[0];
         await revealText(first, (partial) => {
           patchAssistant(assistantId, partial, partial.length === 0);
         });
         patchAssistant(assistantId, first, false);
+
+        let lastBubbleId = assistantId;
 
         for (let i = 1; i < parts.length; i += 1) {
           await sleep(betweenBubblesPauseMs());
@@ -479,6 +462,15 @@ export function CompanionChatScreen({ navigation, route }: Props) {
             patchAssistant(followId, partial, partial.length === 0);
           });
           patchAssistant(followId, text, false);
+          lastBubbleId = followId;
+        }
+
+        if (pendingActions?.length) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === lastBubbleId ? { ...m, actions: pendingActions } : m,
+            ),
+          );
         }
 
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -514,7 +506,6 @@ export function CompanionChatScreen({ navigation, route }: Props) {
               : m,
           );
         });
-        setSuggestions(defaultSuggestions());
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       } finally {
         if (fetchStatusTimer) clearTimeout(fetchStatusTimer);
@@ -528,8 +519,6 @@ export function CompanionChatScreen({ navigation, route }: Props) {
       bond,
       busy,
       character.id,
-      defaultSuggestions,
-      handleWatchlistActions,
       messages,
       patchAssistant,
       ready,
@@ -540,18 +529,6 @@ export function CompanionChatScreen({ navigation, route }: Props) {
       validSymbols,
       watchlistSymbols,
     ],
-  );
-
-  const onQuickReply = useCallback(
-    (text: string) => {
-      const m = /^Thêm\s+([A-Z]{3})\s+vào danh sách$/i.exec(text.trim());
-      if (m) {
-        setPickerSymbol(m[1].toUpperCase());
-        return;
-      }
-      void send(text);
-    },
-    [send],
   );
 
   useEffect(() => {
@@ -582,9 +559,22 @@ export function CompanionChatScreen({ navigation, route }: Props) {
         onPressAvatar={openProfile}
         linkableSymbols={linkableSymbols}
         onPressSymbol={openSymbol}
+        watchlists={watchlistsState?.lists}
+        onPressAction={
+          item.actions?.length
+            ? (action) => onWatchlistActionPress(item.id, action)
+            : undefined
+        }
       />
     ),
-    [character, linkableSymbols, openProfile, openSymbol],
+    [
+      character,
+      linkableSymbols,
+      onWatchlistActionPress,
+      openProfile,
+      openSymbol,
+      watchlistsState?.lists,
+    ],
   );
 
   const onContentSizeChange = useCallback(() => {
@@ -661,13 +651,6 @@ export function CompanionChatScreen({ navigation, route }: Props) {
           {character.name} không đưa khuyến nghị mua/bán. Quyết định là của bạn.
         </Text>
 
-        <CompanionQuickReplies
-          suggestions={suggestions}
-          accent={character.accent}
-          disabled={busy || !ready}
-          onSelect={(text) => void onQuickReply(text)}
-        />
-
         <View style={[styles.composer, { paddingBottom: composerPad }]}>
           <TextInput
             value={input}
@@ -706,7 +689,10 @@ export function CompanionChatScreen({ navigation, route }: Props) {
           setPickerSymbol(null);
         }}
         onCreateList={(name) => {
-          void executeCreateWatchlist(name, pickerSymbol ?? undefined);
+          void executeCreateWatchlist(
+            name,
+            pickerSymbol ? [pickerSymbol] : undefined,
+          );
           setPickerSymbol(null);
         }}
       />
