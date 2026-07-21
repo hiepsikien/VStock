@@ -276,27 +276,31 @@ export function StockDetailScreen({ navigation, route }: Props) {
     ];
   }, [stock, isIndexLike, formatStatValue]);
 
-  const incomeRows = useMemo(() => {
-    if (!stock || isIndexLike) return [] as { period: string; revenue: string; income: string }[];
-    const rows: { period: string; revenue: string; income: string }[] = [];
+  const incomeAnnual = useMemo(() => {
+    if (!stock || isIndexLike) return null;
     const annual = stock.incomeLatestAnnual;
-    if (annual) {
-      rows.push({
-        period: `Năm ${annual.year}`,
-        revenue: formatVndBillions(annual.netRevenue),
-        income: formatVndBillions(annual.netIncome),
-      });
-    }
-    for (const q of stock.incomeLastQuarters ?? []) {
-      const label =
-        q.quarter != null ? `Q${q.quarter}/${q.year}` : q.fiscalDate.slice(0, 7);
-      rows.push({
-        period: label,
-        revenue: formatVndBillions(q.netRevenue),
-        income: formatVndBillions(q.netIncome),
-      });
-    }
-    return rows;
+    if (!annual) return null;
+    const revLabel =
+      stock.revenueLabel === 'Thu nhập lãi thuần'
+        ? 'TN lãi thuần'
+        : stock.revenueLabel === 'Tổng thu nhập hoạt động'
+          ? 'Thu nhập HĐ'
+          : 'Doanh thu';
+    return {
+      year: annual.year,
+      revenueLabel: revLabel,
+      revenue: formatVndBillions(annual.netRevenue),
+      income: formatVndBillions(annual.netIncome),
+    };
+  }, [stock, isIndexLike]);
+
+  const incomeQuarters = useMemo(() => {
+    if (!stock || isIndexLike) return [] as { period: string; revenue: string; income: string }[];
+    return (stock.incomeLastQuarters ?? []).map((q) => ({
+      period: q.quarter != null ? `Q${q.quarter}/${q.year}` : q.fiscalDate.slice(0, 7),
+      revenue: formatVndBillions(q.netRevenue),
+      income: formatVndBillions(q.netIncome),
+    }));
   }, [stock, isIndexLike]);
 
   // Apple Stocks compact strip: 2 columns, fill top→bottom (3 rows for equities).
@@ -456,50 +460,69 @@ export function StockDetailScreen({ navigation, route }: Props) {
               </View>
               {!isIndexLike ? (
                 <Text style={styles.statsHint}>
-                  Mở / Cao / Thấp: nghìn đồng · EPS: đồng
+                  Mở / Cao / Thấp: nghìn đồng
                 </Text>
               ) : null}
             </View>
           ) : null}
 
-          {incomeRows.length > 0 ? (
+          {incomeAnnual || incomeQuarters.length > 0 ? (
             <View style={styles.incomeSection}>
-              <Text style={styles.incomeHeading}>Kết quả kinh doanh</Text>
-              <Text style={styles.incomeSub}>
-                {stock.revenueLabel || 'Doanh thu'} · LNST · T = tỷ · NT = nghìn tỷ
-              </Text>
-              <View style={styles.incomeCard}>
-                <View style={styles.incomeHeaderRow}>
-                  <Text style={[styles.incomeColPeriod, styles.incomeHeaderText]}>Kỳ</Text>
-                  <Text style={[styles.incomeColNum, styles.incomeHeaderText]}>
-                    {stock.revenueLabel === 'Thu nhập lãi thuần'
-                      ? 'TNLT'
-                      : stock.revenueLabel === 'Tổng thu nhập hoạt động'
-                        ? 'TTHĐ'
-                        : 'DT'}
-                  </Text>
-                  <Text style={[styles.incomeColNum, styles.incomeHeaderText]}>LNST</Text>
-                </View>
-                {incomeRows.map((row, index) => (
-                  <View
-                    key={row.period}
-                    style={[
-                      styles.incomeRow,
-                      index < incomeRows.length - 1 && styles.incomeRowDivider,
-                    ]}
-                  >
-                    <Text style={styles.incomeColPeriod} numberOfLines={1}>
-                      {row.period}
-                    </Text>
-                    <Text style={styles.incomeColNum} numberOfLines={1}>
-                      {row.revenue}
-                    </Text>
-                    <Text style={styles.incomeColNum} numberOfLines={1}>
-                      {row.income}
-                    </Text>
-                  </View>
-                ))}
+              <View style={styles.incomeHeader}>
+                <Text style={styles.incomeHeading}>Kết quả kinh doanh</Text>
               </View>
+
+              {incomeAnnual ? (
+                <View style={styles.incomeAnnual}>
+                  <Text style={styles.incomeAnnualYear}>Năm {incomeAnnual.year}</Text>
+                  <View style={styles.incomeAnnualMetrics}>
+                    <View style={styles.incomeAnnualMetric}>
+                      <Text style={styles.incomeAnnualLabel}>{incomeAnnual.revenueLabel}</Text>
+                      <Text style={styles.incomeAnnualValue} numberOfLines={1}>
+                        {incomeAnnual.revenue}
+                      </Text>
+                    </View>
+                    <View style={styles.incomeAnnualMetric}>
+                      <Text style={styles.incomeAnnualLabel}>LNST</Text>
+                      <Text style={styles.incomeAnnualValue} numberOfLines={1}>
+                        {incomeAnnual.income}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              ) : null}
+
+              {incomeQuarters.length > 0 ? (
+                <View style={styles.incomeQuarters}>
+                  <Text style={styles.incomeQuartersLabel}>
+                    4 quý gần nhất
+                    <Text style={styles.incomeQuartersMeta}>
+                      {'  '}
+                      {stock.revenueLabel === 'Thu nhập lãi thuần'
+                        ? 'TNLT'
+                        : stock.revenueLabel === 'Tổng thu nhập hoạt động'
+                          ? 'TTHĐ'
+                          : 'DT'}{' '}
+                      · LNST
+                    </Text>
+                  </Text>
+                  {incomeQuarters.map((row) => (
+                    <View key={row.period} style={styles.incomeQuarterRow}>
+                      <Text style={styles.incomeQPeriod} numberOfLines={1}>
+                        {row.period}
+                      </Text>
+                      <View style={styles.incomeQValues}>
+                        <Text style={styles.incomeQNum} numberOfLines={1}>
+                          {row.revenue}
+                        </Text>
+                        <Text style={styles.incomeQIncome} numberOfLines={1}>
+                          {row.income}
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
             </View>
           ) : null}
 
@@ -699,54 +722,88 @@ const styles = StyleSheet.create({
     marginTop: spacing.xxl,
     marginHorizontal: spacing.lg,
   },
+  incomeHeader: {
+    marginBottom: spacing.md,
+  },
   incomeHeading: {
     ...typography.title,
     fontSize: 20,
     color: colors.text,
   },
-  incomeSub: {
+  incomeAnnual: {
+    marginBottom: spacing.xl,
+  },
+  incomeAnnualYear: {
+    ...typography.caption,
     color: colors.textSecondary,
-    fontSize: 13,
-    marginTop: 4,
     marginBottom: spacing.sm,
   },
-  incomeCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    overflow: 'hidden',
-    paddingVertical: 4,
-  },
-  incomeHeaderRow: {
+  incomeAnnualMetrics: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
+    alignItems: 'flex-start',
+    gap: spacing.xl,
   },
-  incomeHeaderText: {
-    color: colors.textSecondary,
-    fontWeight: '500',
-    fontSize: 12,
-  },
-  incomeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.md,
-    paddingVertical: 10,
-  },
-  incomeRowDivider: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
-  },
-  incomeColPeriod: {
-    flex: 1.1,
-    color: colors.text,
-    fontSize: 14,
-  },
-  incomeColNum: {
+  incomeAnnualMetric: {
     flex: 1,
+    minWidth: 0,
+  },
+  incomeAnnualLabel: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginBottom: 4,
+  },
+  incomeAnnualValue: {
     color: colors.text,
-    fontSize: 14,
+    fontSize: 34,
+    fontWeight: '300',
+    fontVariant: ['tabular-nums'],
+    letterSpacing: 0.3,
+  },
+  incomeQuarters: {
+    gap: 11,
+  },
+  incomeQuartersLabel: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginBottom: 2,
+  },
+  incomeQuartersMeta: {
+    ...typography.caption,
+    color: colors.textTertiary,
+    fontWeight: '400',
+  },
+  incomeQuarterRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  incomeQPeriod: {
+    width: 64,
+    ...typography.caption,
+    color: colors.textSecondary,
+    fontVariant: ['tabular-nums'],
+  },
+  incomeQValues: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.lg,
+    minWidth: 0,
+  },
+  incomeQNum: {
+    minWidth: 68,
+    fontSize: 13,
     fontWeight: '600',
+    color: colors.text,
+    fontVariant: ['tabular-nums'],
+    textAlign: 'right',
+  },
+  incomeQIncome: {
+    minWidth: 68,
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.text,
     fontVariant: ['tabular-nums'],
     textAlign: 'right',
   },
