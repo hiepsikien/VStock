@@ -169,3 +169,4 @@ flowchart LR
 - Companion API: GCE `scripts/deploy-companion-gce.sh` (sau khi push `main`).  
 - Client features (nickname, activity, FlatList): cần build/reload Expo — không phụ thuộc container API.  
 - Docs liên quan: `docs/DEPLOY-GCE.md` (mục Companion), `docs/ARCHITECTURE.md` (data sources).
+- **App Store:** thời điểm launch — xem [`docs/APP-STORE.md`](./APP-STORE.md) (TestFlight sớm; không chờ đủ 3 nhân vật Companion).
