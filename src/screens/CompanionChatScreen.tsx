@@ -26,6 +26,7 @@ import {
   applyBondNotes,
   buildWelcomeBackMessage,
   clearCompanionSession,
+  extractNicknameFromText,
   FALSE_TICKERS,
   loadCompanionBond,
   loadCompanionChat,
@@ -36,6 +37,11 @@ import {
   type CompanionBond,
   type StoredChatMessage,
 } from '../companion/chatStore';
+import {
+  appendCompanionActivity,
+  loadCompanionActivities,
+  type CompanionActivity,
+} from '../companion/activityStore';
 import { buildCompanionContext } from '../companion/orchestrator';
 import { betweenBubblesPauseMs, revealText, thinkingPauseMs } from '../companion/reveal';
 import { CompanionAvatar } from '../components/CompanionAvatar';
@@ -86,6 +92,7 @@ export function CompanionChatScreen({ navigation, route }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [messages, setMessages] = useState<Bubble[]>([]);
   const [bond, setBond] = useState<CompanionBond | null>(null);
+  const [activities, setActivities] = useState<CompanionActivity[]>([]);
   const [profileOpen, setProfileOpen] = useState(false);
   const [watchlistsState, setWatchlistsState] = useState<WatchlistsState | null>(null);
   const [pickerSymbol, setPickerSymbol] = useState<string | null>(null);
@@ -106,6 +113,7 @@ export function CompanionChatScreen({ navigation, route }: Props) {
   const resetSession = useCallback(async () => {
     await clearCompanionSession(character.id);
     setBond(null);
+    setActivities([]);
     setMessages([
       {
         id: `hello-${Date.now()}`,
@@ -118,6 +126,16 @@ export function CompanionChatScreen({ navigation, route }: Props) {
     setPresence('online');
   }, [character.greeting, character.id]);
 
+  const logActivity = useCallback(
+    async (
+      entry: Omit<CompanionActivity, 'id' | 'ts'> & { ts?: number },
+    ) => {
+      const next = await appendCompanionActivity(character.id, entry);
+      setActivities(next);
+    },
+    [character.id],
+  );
+
   const saveNickname = useCallback(
     async (nickname: string) => {
       const now = Date.now();
@@ -129,11 +147,18 @@ export function CompanionChatScreen({ navigation, route }: Props) {
         notes: [],
       };
       const trimmed = nickname.trim().slice(0, 24);
+      const prevNick = bond?.userNickname?.trim() || '';
       next.userNickname = trimmed.length > 0 ? trimmed : undefined;
       await saveCompanionBond(character.id, next);
       setBond(next);
+      if (trimmed && trimmed !== prevNick) {
+        void logActivity({
+          type: 'set_nickname',
+          label: `Vy sẽ gọi bạn là ${trimmed}`,
+        });
+      }
     },
-    [bond, character.id],
+    [bond, character.id, logActivity],
   );
 
   const openSymbol = useCallback(
@@ -156,13 +181,19 @@ export function CompanionChatScreen({ navigation, route }: Props) {
     return set;
   }, [bond?.symbolsOfInterest, symbol, watchlistSymbols, watchlistsState?.lists]);
 
-  const linkableSymbols = useMemo(() => {
-    const set = new Set<string>();
+  const linkableKey = useMemo(() => {
+    const out: string[] = [];
     for (const s of validSymbols) {
-      if (!FALSE_TICKERS.has(s)) set.add(s);
+      if (!FALSE_TICKERS.has(s)) out.push(s);
     }
-    return set;
+    out.sort();
+    return out.join(',');
   }, [validSymbols]);
+
+  const linkableSymbols = useMemo(() => {
+    if (!linkableKey) return null;
+    return new Set(linkableKey.split(','));
+  }, [linkableKey]);
 
   const presenceLabel =
     presence === 'reading'
@@ -197,12 +228,19 @@ export function CompanionChatScreen({ navigation, route }: Props) {
       const next = await addSymbolToWatchlist(sym, watchlistId);
       setWatchlistsState(next);
       const list = next.lists.find((l) => l.id === watchlistId);
+      const listName = list?.name ?? 'danh sách';
       appendAssistantNote(
-        `Xong rồi — mình đã thêm ${sym.toUpperCase()} vào “${list?.name ?? 'danh sách'}”.`,
+        `Xong rồi — mình đã thêm ${sym.toUpperCase()} vào “${listName}”.`,
       );
+      void logActivity({
+        type: 'add_symbol',
+        label: `Thêm ${sym.toUpperCase()} vào “${listName}”`,
+        symbol: sym,
+        watchlistName: listName,
+      });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     },
-    [appendAssistantNote],
+    [appendAssistantNote, logActivity],
   );
 
   const executeCreateWatchlist = useCallback(
@@ -215,14 +253,22 @@ export function CompanionChatScreen({ navigation, route }: Props) {
       }
       setWatchlistsState(next);
       const list = next.lists.find((l) => l.id === next.activeId);
+      const listName = list?.name ?? name;
       appendAssistantNote(
         added.length
-          ? `Đã tạo “${list?.name ?? name}” với ${added.join(', ')}.`
-          : `Đã tạo danh sách “${list?.name ?? name}”.`,
+          ? `Đã tạo “${listName}” với ${added.join(', ')}.`
+          : `Đã tạo danh sách “${listName}”.`,
       );
+      void logActivity({
+        type: 'create_watchlist',
+        label: added.length
+          ? `Tạo “${listName}” với ${added.join(', ')}`
+          : `Tạo danh sách “${listName}”`,
+        watchlistName: listName,
+      });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     },
-    [appendAssistantNote],
+    [appendAssistantNote, logActivity],
   );
 
   const executeRemoveSymbol = useCallback(
@@ -230,12 +276,19 @@ export function CompanionChatScreen({ navigation, route }: Props) {
       const next = await removeSymbolFromWatchlist(sym, watchlistId);
       setWatchlistsState(next);
       const list = next.lists.find((l) => l.id === watchlistId);
+      const listName = list?.name ?? 'danh sách';
       appendAssistantNote(
-        `Đã xóa ${sym.toUpperCase()} khỏi “${list?.name ?? 'danh sách'}”.`,
+        `Đã xóa ${sym.toUpperCase()} khỏi “${listName}”.`,
       );
+      void logActivity({
+        type: 'remove_symbol',
+        label: `Xóa ${sym.toUpperCase()} khỏi “${listName}”`,
+        symbol: sym,
+        watchlistName: listName,
+      });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     },
-    [appendAssistantNote],
+    [appendAssistantNote, logActivity],
   );
 
   const onWatchlistActionPress = useCallback(
@@ -285,13 +338,15 @@ export function CompanionChatScreen({ navigation, route }: Props) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [stored, storedBond] = await Promise.all([
+      const [stored, storedBond, storedActivities] = await Promise.all([
         loadCompanionChat(character.id),
         loadCompanionBond(character.id),
+        loadCompanionActivities(character.id),
       ]);
       if (cancelled) return;
 
       setBond(storedBond);
+      setActivities(storedActivities);
 
       if (stored.length > 0) {
         const lastTs = stored[stored.length - 1]?.ts ?? 0;
@@ -366,16 +421,75 @@ export function CompanionChatScreen({ navigation, route }: Props) {
     };
   }, [scrollToEnd]);
 
-  const patchAssistant = useCallback((assistantId: string, content: string, typing: boolean) => {
+  /** Coalesce streaming patches so FlatList isn't updated every ~70ms chunk. */
+  const pendingPatch = useRef<{
+    id: string;
+    content: string;
+    typing: boolean;
+  } | null>(null);
+  const patchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPatchFlushAt = useRef(0);
+
+  const flushAssistantPatch = useCallback(() => {
+    patchTimer.current = null;
+    const pending = pendingPatch.current;
+    if (!pending) return;
+    pendingPatch.current = null;
+    lastPatchFlushAt.current = Date.now();
     setMessages((prev) => {
-      const idx = prev.findIndex((m) => m.id === assistantId);
+      const idx = prev.findIndex((m) => m.id === pending.id);
       if (idx < 0) return prev;
       const cur = prev[idx];
-      if (cur.content === content && cur.typing === typing) return prev;
+      if (cur.content === pending.content && cur.typing === pending.typing) {
+        return prev;
+      }
       const next = prev.slice();
-      next[idx] = { ...cur, content, typing, ts: Date.now() };
+      next[idx] = {
+        ...cur,
+        content: pending.content,
+        typing: pending.typing,
+      };
       return next;
     });
+    const now = Date.now();
+    if (now - scrollThrottle.current >= 280) {
+      scrollThrottle.current = now;
+      scrollToEnd(false);
+    }
+  }, [scrollToEnd]);
+
+  const patchAssistant = useCallback(
+    (assistantId: string, content: string, typing: boolean) => {
+      pendingPatch.current = { id: assistantId, content, typing };
+      // Final frames (typing=false) flush immediately for snappy finish.
+      if (!typing) {
+        if (patchTimer.current) {
+          clearTimeout(patchTimer.current);
+          patchTimer.current = null;
+        }
+        flushAssistantPatch();
+        return;
+      }
+      const elapsed = Date.now() - lastPatchFlushAt.current;
+      if (elapsed >= 100) {
+        if (patchTimer.current) {
+          clearTimeout(patchTimer.current);
+          patchTimer.current = null;
+        }
+        flushAssistantPatch();
+        return;
+      }
+      if (!patchTimer.current) {
+        patchTimer.current = setTimeout(flushAssistantPatch, 100 - elapsed);
+      }
+    },
+    [flushAssistantPatch],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (patchTimer.current) clearTimeout(patchTimer.current);
+    };
   }, []);
   const send = useCallback(
     async (text: string) => {
@@ -403,6 +517,17 @@ export function CompanionChatScreen({ navigation, route }: Props) {
       );
       setBond(nextBond);
       void saveCompanionBond(character.id, nextBond);
+
+      const extractedNick = extractNicknameFromText(trimmed);
+      if (
+        extractedNick &&
+        extractedNick !== (bond?.userNickname?.trim() || '')
+      ) {
+        void logActivity({
+          type: 'set_nickname',
+          label: `Vy sẽ gọi bạn là ${extractedNick}`,
+        });
+      }
 
       const history = messagesForApi(
         [...messages.filter((m) => !m.typing), userMsg].map((m) => ({
@@ -469,7 +594,7 @@ export function CompanionChatScreen({ navigation, route }: Props) {
 
         const first = parts[0];
         await revealText(first, (partial) => {
-          patchAssistant(assistantId, partial, partial.length === 0);
+          patchAssistant(assistantId, partial, true);
         });
         patchAssistant(assistantId, first, false);
 
@@ -490,7 +615,7 @@ export function CompanionChatScreen({ navigation, route }: Props) {
           await sleep(420 + Math.floor(Math.random() * 280));
           const text = parts[i];
           await revealText(text, (partial) => {
-            patchAssistant(followId, partial, partial.length === 0);
+            patchAssistant(followId, partial, true);
           });
           patchAssistant(followId, text, false);
         }
@@ -556,6 +681,7 @@ export function CompanionChatScreen({ navigation, route }: Props) {
       bond,
       busy,
       character.id,
+      logActivity,
       messages,
       patchAssistant,
       ready,
@@ -602,14 +728,8 @@ export function CompanionChatScreen({ navigation, route }: Props) {
   );
 
   const onContentSizeChange = useCallback(() => {
-    // During reveal, skip animated scroll storms — occasional snap is enough.
-    if (busy) {
-      const now = Date.now();
-      if (now - (scrollThrottle.current || 0) < 120) return;
-      scrollThrottle.current = now;
-      scrollToEnd(false);
-      return;
-    }
+    // Streaming already scrolls from coalesced patches — avoid VirtualizedList storms.
+    if (busy) return;
     scrollToEnd(true);
   }, [busy, scrollToEnd]);
 
@@ -651,6 +771,7 @@ export function CompanionChatScreen({ navigation, route }: Props) {
         onResetSession={resetSession}
         nickname={bond?.userNickname ?? ''}
         onSaveNickname={saveNickname}
+        activities={activities}
       />
 
       <View style={[styles.flex, { paddingBottom: keyboardHeight }]}>
@@ -663,9 +784,10 @@ export function CompanionChatScreen({ navigation, route }: Props) {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
           removeClippedSubviews
-          initialNumToRender={12}
-          maxToRenderPerBatch={8}
-          windowSize={7}
+          initialNumToRender={10}
+          maxToRenderPerBatch={4}
+          updateCellsBatchingPeriod={80}
+          windowSize={5}
           onContentSizeChange={onContentSizeChange}
           renderItem={renderItem}
         />

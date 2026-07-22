@@ -4,6 +4,7 @@ import {
   Alert,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -13,6 +14,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import type { CompanionCharacter } from '../companion/characters';
 import { getCharacterExpertise } from '../companion/characters';
+import {
+  formatActivityTime,
+  type CompanionActivity,
+} from '../companion/activityStore';
 import { colors, spacing } from '../theme';
 import { CompanionAvatar } from './CompanionAvatar';
 
@@ -25,6 +30,8 @@ type Props = {
   /** How Vy addresses the user */
   nickname?: string;
   onSaveNickname?: (nickname: string) => void | Promise<void>;
+  /** Important actions Vy did for the user */
+  activities?: CompanionActivity[];
 };
 
 export function CompanionProfileModal({
@@ -34,6 +41,7 @@ export function CompanionProfileModal({
   onResetSession,
   nickname = '',
   onSaveNickname,
+  activities = [],
 }: Props) {
   const insets = useSafeAreaInsets();
   const { profile } = character;
@@ -62,7 +70,7 @@ export function CompanionProfileModal({
     if (!onResetSession || resetting) return;
     Alert.alert(
       'Bắt đầu lại với Vy?',
-      'Xóa toàn bộ hội thoại và ký ức gắn kết. Không hoàn tác được.',
+      'Xóa toàn bộ hội thoại, ký ức gắn kết và lịch sử hoạt động. Không hoàn tác được.',
       [
         { text: 'Hủy', style: 'cancel' },
         {
@@ -101,92 +109,126 @@ export function CompanionProfileModal({
         >
           <View style={styles.handle} />
 
-          <View style={styles.header}>
-            <CompanionAvatar character={character} size={56} />
-            <View style={styles.headerText}>
-              <View style={styles.nameRow}>
-                <Text style={styles.name}>{character.name}</Text>
-                <Text style={[styles.virtual, { color: character.accent }]}>
-                  Nhân vật ảo
-                </Text>
-              </View>
-              <Text style={styles.meta}>{meta}</Text>
-              <Text style={styles.job}>{profile.occupation}</Text>
-            </View>
-          </View>
-
-          <Text style={styles.bio}>{profile.bio}</Text>
-
-          {onSaveNickname ? (
-            <View style={styles.nicknameBox}>
-              <Text style={styles.nicknameLabel}>Vy gọi mình là</Text>
-              <View style={styles.nicknameRow}>
-                <TextInput
-                  value={nickDraft}
-                  onChangeText={setNickDraft}
-                  placeholder="vd. Anh, Lan, bạn…"
-                  placeholderTextColor={colors.textTertiary}
-                  maxLength={24}
-                  style={styles.nicknameInput}
-                  returnKeyType="done"
-                  onSubmitEditing={() => void saveNickname()}
-                />
-                <Pressable
-                  onPress={() => void saveNickname()}
-                  disabled={savingNick}
-                  style={[
-                    styles.nicknameSave,
-                    { backgroundColor: character.accent },
-                  ]}
-                >
-                  {savingNick ? (
-                    <ActivityIndicator color="#0B1220" size="small" />
-                  ) : (
-                    <Text style={styles.nicknameSaveText}>Lưu</Text>
-                  )}
-                </Pressable>
-              </View>
-              <Text style={styles.nicknameHint}>
-                Để trống thì Vy gọi &quot;bạn&quot;.
-              </Text>
-            </View>
-          ) : null}
-
-          {expertise.length ? (
-            <View style={styles.expertiseBox}>
-              <Text style={styles.expertiseTitle}>Chuyên môn</Text>
-              {expertise.map((line) => (
-                <Text key={line} style={styles.expertiseItem}>
-                  · {line}
-                </Text>
-              ))}
-            </View>
-          ) : null}
-
-          {onResetSession ? (
-            <Pressable
-              onPress={confirmReset}
-              disabled={resetting}
-              style={styles.resetBtn}
-            >
-              {resetting ? (
-                <ActivityIndicator color={colors.negative} />
-              ) : (
-                <Text style={styles.resetBtnText}>Xóa chat & bắt đầu lại</Text>
-              )}
-            </Pressable>
-          ) : null}
-
-          <Pressable
-            onPress={() => {
-              void Haptics.selectionAsync();
-              onClose();
-            }}
-            hitSlop={8}
-            style={styles.closeBtn}
+          <ScrollView
+            bounces={false}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            style={styles.scroll}
+            contentContainerStyle={styles.scrollContent}
           >
-            <Text style={styles.closeBtnText}>Đóng</Text>
-          </Pressable>
+            <View style={styles.header}>
+              <CompanionAvatar character={character} size={56} />
+              <View style={styles.headerText}>
+                <View style={styles.nameRow}>
+                  <Text style={styles.name}>{character.name}</Text>
+                  <Text style={[styles.virtual, { color: character.accent }]}>
+                    Nhân vật ảo
+                  </Text>
+                </View>
+                <Text style={styles.meta}>{meta}</Text>
+                <Text style={styles.job}>{profile.occupation}</Text>
+              </View>
+            </View>
+
+            <Text style={styles.bio}>{profile.bio}</Text>
+
+            {onSaveNickname ? (
+              <View style={styles.nicknameBox}>
+                <Text style={styles.nicknameLabel}>Vy gọi mình là</Text>
+                <View style={styles.nicknameRow}>
+                  <TextInput
+                    value={nickDraft}
+                    onChangeText={setNickDraft}
+                    placeholder="vd. Andy, Anh, Lan…"
+                    placeholderTextColor={colors.textTertiary}
+                    maxLength={24}
+                    style={styles.nicknameInput}
+                    returnKeyType="done"
+                    onSubmitEditing={() => void saveNickname()}
+                  />
+                  <Pressable
+                    onPress={() => void saveNickname()}
+                    disabled={savingNick}
+                    style={[
+                      styles.nicknameSave,
+                      { backgroundColor: character.accent },
+                    ]}
+                  >
+                    {savingNick ? (
+                      <ActivityIndicator color="#0B1220" size="small" />
+                    ) : (
+                      <Text style={styles.nicknameSaveText}>Lưu</Text>
+                    )}
+                  </Pressable>
+                </View>
+                <Text style={styles.nicknameHint}>
+                  Để trống thì gọi &quot;bạn&quot;. Hoặc nói trong chat: gọi tôi
+                  là Andy.
+                </Text>
+              </View>
+            ) : null}
+
+            <View style={styles.activityBox}>
+              <Text style={styles.activityTitle}>Hoạt động với Vy</Text>
+              {activities.length === 0 ? (
+                <Text style={styles.activityEmpty}>
+                  Chưa có hành động nào. Khi Vy thêm/xóa mã hoặc đổi cách gọi
+                  bạn, sẽ hiện ở đây.
+                </Text>
+              ) : (
+                activities.slice(0, 20).map((item, index) => (
+                  <View
+                    key={item.id}
+                    style={[
+                      styles.activityRow,
+                      index === 0 && styles.activityRowFirst,
+                    ]}
+                  >
+                    <Text style={styles.activityLabel}>{item.label}</Text>
+                    <Text style={styles.activityTime}>
+                      {formatActivityTime(item.ts)}
+                    </Text>
+                  </View>
+                ))
+              )}
+            </View>
+
+            {expertise.length ? (
+              <View style={styles.expertiseBox}>
+                <Text style={styles.expertiseTitle}>Chuyên môn</Text>
+                {expertise.map((line) => (
+                  <Text key={line} style={styles.expertiseItem}>
+                    · {line}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+
+            {onResetSession ? (
+              <Pressable
+                onPress={confirmReset}
+                disabled={resetting}
+                style={styles.resetBtn}
+              >
+                {resetting ? (
+                  <ActivityIndicator color={colors.negative} />
+                ) : (
+                  <Text style={styles.resetBtnText}>Xóa chat & bắt đầu lại</Text>
+                )}
+              </Pressable>
+            ) : null}
+
+            <Pressable
+              onPress={() => {
+                void Haptics.selectionAsync();
+                onClose();
+              }}
+              hitSlop={8}
+              style={styles.closeBtn}
+            >
+              <Text style={styles.closeBtnText}>Đóng</Text>
+            </Pressable>
+          </ScrollView>
         </Pressable>
       </Pressable>
     </Modal>
@@ -205,6 +247,13 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 16,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
+    maxHeight: '88%',
+  },
+  scroll: {
+    flexGrow: 0,
+  },
+  scrollContent: {
+    paddingBottom: 4,
   },
   handle: {
     alignSelf: 'center',
@@ -297,6 +346,43 @@ const styles = StyleSheet.create({
   },
   nicknameHint: {
     marginTop: 6,
+    fontSize: 12,
+    color: colors.textTertiary,
+  },
+  activityBox: {
+    marginBottom: spacing.md,
+    padding: spacing.md,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+  },
+  activityTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    marginBottom: 8,
+    letterSpacing: 0.3,
+  },
+  activityEmpty: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: colors.textTertiary,
+  },
+  activityRow: {
+    paddingVertical: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.separator,
+    gap: 2,
+  },
+  activityRowFirst: {
+    borderTopWidth: 0,
+    paddingTop: 0,
+  },
+  activityLabel: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.text,
+  },
+  activityTime: {
     fontSize: 12,
     color: colors.textTertiary,
   },

@@ -57,6 +57,9 @@ function ChatBubbleInner({
       >
         {item.typing && !item.content ? (
           <CompanionTypingDots accent={character.accent} />
+        ) : item.typing ? (
+          // Plain text while streaming — skip ticker parse on every chunk.
+          <Text style={styles.bubbleText}>{item.content}</Text>
         ) : (
           <TickerText
             text={item.content}

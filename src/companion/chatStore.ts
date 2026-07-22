@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { clearCompanionActivities } from './activityStore';
 import type { CompanionCharacterId } from './characters';
 
 export type StoredChatMessage = {
@@ -161,6 +162,7 @@ export async function clearCompanionSession(
   id: CompanionCharacterId,
 ): Promise<void> {
   await AsyncStorage.multiRemove([historyKey(id), bondKey(id), prefsKey(id)]);
+  await clearCompanionActivities(id);
 }
 
 const TICKER_RE = /\b[A-Z]{3}\b/g;
@@ -268,6 +270,37 @@ const MOOD_PATTERNS: Array<{ re: RegExp; note: string }> = [
   { re: /\b(kiên nhẫn|kỷ luật|lâu dài)\b/i, note: 'Quan tâm kỷ luật / dài hạn' },
 ];
 
+const NICKNAME_STOP = new Set([
+  'bạn',
+  'ban',
+  'you',
+  'mình',
+  'minh',
+  'tôi',
+  'toi',
+  'em',
+  'anh',
+  'chị',
+  'chi',
+]);
+
+/**
+ * Extract preferred address from chat, e.g. "gọi tôi là Andy", "call me Lan".
+ */
+export function extractNicknameFromText(text: string): string | null {
+  const raw = (text || '').trim();
+  if (!raw) return null;
+  const m = raw.match(
+    /(?:gọi\s+(?:tôi|mình|em|anh|chị)\s+là|call\s+me|(?:tên\s+(?:mình|tôi)\s+là|(?:mình|tôi)\s+tên\s+là))\s*["“”']?([A-Za-zÀ-ỹĐđ][\wÀ-ỹĐđ'’.\-]{0,22})/i,
+  );
+  if (!m?.[1]) return null;
+  let nick = m[1].trim().replace(/[.,!?…:;]+$/u, '').trim();
+  if (!nick || nick.length > 24) nick = nick.slice(0, 24);
+  if (nick.length < 1) return null;
+  if (NICKNAME_STOP.has(nick.toLowerCase())) return null;
+  return nick;
+}
+
 function uniqPush(list: string[], item: string, max: number): string[] {
   const next = [item, ...list.filter((x) => x !== item)];
   return next.slice(0, max);
@@ -305,6 +338,11 @@ export function evolveBond(
     if (re.test(userText)) {
       bond.notes = uniqPush(bond.notes, note, MAX_NOTES);
     }
+  }
+
+  const nick = extractNicknameFromText(userText);
+  if (nick) {
+    bond.userNickname = nick;
   }
 
   return bond;
