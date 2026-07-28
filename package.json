@@ -38,7 +38,8 @@
     "web": "expo start --web",
     "build:ios:dev": "eas build --platform ios --profile development",
     "build:ios:sim": "eas build --platform ios --profile development-simulator",
-    "build:android:dev": "eas build --platform android --profile development"
+    "build:android:dev": "eas build --platform android --profile development",
+    "generate:icon": "python3 scripts/generate_vstock_icon.py"
   },
   "private": true
 }
