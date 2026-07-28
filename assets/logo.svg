@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="VStock">
+  <defs>
+    <linearGradient id="vFill" x1="512" y1="220" x2="512" y2="804" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0A84FF"/>
+      <stop offset="55%" stop-color="#4DBBFF"/>
+      <stop offset="100%" stop-color="#5AC8FA"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="28" result="blur"/>
+      <feColorMatrix in="blur" type="matrix"
+        values="0 0 0 0 0.04
+                0 0 0 0 0.52
+                0 0 0 0 1
+                0 0 0 0.45 0" result="colored"/>
+      <feMerge>
+        <feMergeNode in="colored"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="#000000"/>
+  <!-- Upward V / rising market mark -->
+  <path
+    d="M 268 760 L 512 280 L 756 760"
+    fill="none"
+    stroke="url(#vFill)"
+    stroke-width="118"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    filter="url(#glow)"
+  />
+</svg>
