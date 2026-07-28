@@ -4,7 +4,7 @@
       <rect x="0" y="0" width="1024" height="1024" rx="228" ry="228"/>
     </clipPath>
     <filter id="nodeGlow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feGaussianBlur stdDeviation="6" result="blur"/>
       <feMerge>
         <feMergeNode in="blur"/>
         <feMergeNode in="SourceGraphic"/>
@@ -12,49 +12,32 @@
     </filter>
     <radialGradient id="nodeCore" cx="50%" cy="50%" r="50%">
       <stop offset="0%" stop-color="#ffffff"/>
-      <stop offset="45%" stop-color="#5AC8FA"/>
-      <stop offset="100%" stop-color="#5AC8FA"/>
+      <stop offset="40%" stop-color="#FFC440"/>
+      <stop offset="100%" stop-color="#F5A623"/>
     </radialGradient>
   </defs>
   <g clip-path="url(#squircle)">
-    <rect width="1024" height="1024" fill="#0A0A0C"/>
-    <!-- vertical grid -->
-    <g stroke="#373A3E" stroke-width="2" stroke-dasharray="6 8" opacity="0.9">
-      <line x1="85" y1="123" x2="85" y2="901"/>
-      <line x1="170" y1="123" x2="170" y2="901"/>
-      <line x1="256" y1="123" x2="256" y2="901"/>
-      <line x1="341" y1="123" x2="341" y2="901"/>
-      <line x1="427" y1="123" x2="427" y2="901"/>
-      <line x1="512" y1="123" x2="512" y2="901"/>
-      <line x1="597" y1="123" x2="597" y2="901"/>
-      <line x1="683" y1="123" x2="683" y2="901"/>
-      <line x1="768" y1="123" x2="768" y2="901"/>
-      <line x1="853" y1="123" x2="853" y2="901"/>
-      <line x1="939" y1="123" x2="939" y2="901"/>
+    <rect width="1024" height="1024" fill="#000000"/>
+    <!-- AI neural links from V vertex (app yellow #F5A623) — no vertical crosshair, no grid -->
+    <g stroke="#F5A623" stroke-width="3" opacity="0.78" fill="none">
+      <line x1="225" y1="799" x2="553" y2="369"/>
+      <line x1="225" y1="799" x2="737" y2="307"/>
+      <line x1="225" y1="799" x2="942" y2="246"/>
     </g>
-    <!-- AI neural links from V vertex -->
-    <g stroke="#5AC8FA" stroke-width="3" opacity="0.65" fill="none">
-      <line x1="512" y1="717" x2="696" y2="410"/>
-      <line x1="512" y1="717" x2="778" y2="348"/>
-      <line x1="512" y1="717" x2="922" y2="266"/>
-    </g>
-    <!-- cyan crosshair -->
-    <line x1="512" y1="143" x2="512" y2="900" stroke="#5AC8FA" stroke-width="3" opacity="0.85"/>
-    <!-- stock chart forming V then rising -->
+    <!-- Right-focused chart: V near left, rise to the right -->
     <polyline
       fill="none"
-      stroke="#F5F5F7"
-      stroke-width="14"
+      stroke="#FFFFFF"
+      stroke-width="16"
       stroke-linecap="round"
       stroke-linejoin="round"
-      points="102,369 205,450 307,532 410,635 512,717 614,492 696,410 778,348 840,430 922,266 983,307"
+      points="61,635 143,717 225,799 348,532 450,410 553,369 635,471 737,307 839,389 942,246"
     />
-    <!-- AI nodes -->
     <g filter="url(#nodeGlow)">
-      <circle cx="696" cy="410" r="16" fill="url(#nodeCore)"/>
-      <circle cx="778" cy="348" r="16" fill="url(#nodeCore)"/>
-      <circle cx="922" cy="266" r="16" fill="url(#nodeCore)"/>
-      <circle cx="512" cy="717" r="36" fill="url(#nodeCore)"/>
+      <circle cx="553" cy="369" r="17" fill="url(#nodeCore)"/>
+      <circle cx="737" cy="307" r="17" fill="url(#nodeCore)"/>
+      <circle cx="942" cy="246" r="17" fill="url(#nodeCore)"/>
+      <circle cx="225" cy="799" r="39" fill="url(#nodeCore)"/>
     </g>
   </g>
 </svg>
