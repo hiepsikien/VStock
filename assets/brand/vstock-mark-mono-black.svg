@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="VStock mark mono black">
+  <!--
+    VStock flat master mark (FINAL)
+    Tokens: lime #C8F000 · ink #0A0A0A · paper #F4F4F0
+    Original tip weight; longer final climb. No glow.
+  -->
+  <defs>
+    <clipPath id="squircle">
+      <rect width="1024" height="1024" rx="196" ry="196"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#squircle)">
+    <rect width="1024" height="1024" fill="#000000"/>
+    <circle cx="245.0" cy="525.0" r="40.0" fill="#FFFFFF"/>
+    <path fill="#FFFFFF" d="M 212.6,548.4 L 377.5,767.0 L 568.2,461.5 L 665.9,555.8 L 876.2,329.7 L 905.9,158.0 L 746.8,229.0 L 654.1,434.2 L 551.8,338.5 L 372.5,643.0 L 277.4,501.6 Z"/>
+  </g>
+</svg>
