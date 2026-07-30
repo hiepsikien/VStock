@@ -34,6 +34,12 @@ docker compose up -d --build
 
 SQLite path: `VSTOCK_DB_PATH` (mặc định trong container: `/data/vstock.db`).
 
+## Sentry
+
+Set `SENTRY_DSN` (project Python riêng với mobile). Optional: `SENTRY_ENVIRONMENT`, `SENTRY_TRACES_SAMPLE_RATE`.
+
+Tạm verify: `SENTRY_DEBUG_ENDPOINT=1` rồi `curl .../sentry-debug` — tắt biến ngay sau khi thấy event trên Sentry.
+
 ## Endpoints
 
 - `GET /health`

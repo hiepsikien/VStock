@@ -75,7 +75,7 @@ Song song / sau launch
 ## 6. Việc làm tiếp (khi quay lại track Store)
 
 - [ ] Đăng ký Apple Developer + lấy Team ID  
-- [ ] `eas init` / gắn `projectId`, commit `app.json`  
+- [ ] `eas init` / gắn `projectId`, commit `app.config.ts`  
 - [ ] Bật HTTPS + domain cho API GCE  
 - [ ] Profile EAS `production` trỏ URL HTTPS  
 - [ ] Privacy policy URL + disclaimer in-app  

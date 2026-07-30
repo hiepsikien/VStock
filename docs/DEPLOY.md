@@ -12,6 +12,9 @@ Backend FastAPI + APScheduler + SQLite. Cần **volume persistent** cho `vstock.
 |------|----------|--------|
 | `VSTOCK_DB_PATH` | `backend/data/vstock.db` (local) / `/data/vstock.db` (Docker) | Đường dẫn SQLite |
 | `PORT` | `8000` | Cổng HTTP |
+| `SENTRY_DSN` | (trống = tắt) | DSN project Python trên Sentry |
+| `SENTRY_ENVIRONMENT` | `production` | Tag môi trường trên Sentry |
+| `SENTRY_TRACES_SAMPLE_RATE` | `0.1` | Tỷ lệ sample performance |
 
 Healthcheck: `GET /health`  
 Ingestion status: `GET /v1/health/sources`
@@ -119,6 +122,29 @@ npx expo start -c
 
 - **Simulator:** dùng URL production hoặc `localhost` khi dev local
 - **Device thật:** bắt buộc HTTPS URL public (không dùng `localhost`)
+
+### Sentry (TestFlight / production)
+
+Tạo **2 project** trên [sentry.io](https://sentry.io): React Native (`vstock-mobile`) và Python (`vstock-api`).
+
+| Biến | Ở đâu | Ghi chú |
+|------|--------|---------|
+| `EXPO_PUBLIC_SENTRY_DSN` | EAS env / `.env` | DSN project mobile |
+| `SENTRY_AUTH_TOKEN` | EAS secret (sensitive) | Upload source maps khi `eas build` |
+| `organization` / `project` | `app.config.ts` plugin `@sentry/react-native/expo` | Org/project Sentry |
+| `SENTRY_DSN` | GCE / docker `.env` | DSN project Python (khác mobile) |
+
+```bash
+# EAS (DSN + auth token)
+eas env:create --name EXPO_PUBLIC_SENTRY_DSN --value 'https://...@o....ingest.sentry.io/...' --environment production
+eas env:create --name SENTRY_AUTH_TOKEN --value 'sntrys_...' --environment production --visibility sensitive
+
+# Backend GCE / compose
+# SENTRY_DSN=...  trong .env cạnh docker-compose.yml
+# Verify (tạm): SENTRY_DEBUG_ENDPOINT=1 rồi GET /sentry-debug — tắt ngay sau khi thấy event
+```
+
+Native plugin cần **rebuild** TestFlight (`eas build`) sau khi thêm `@sentry/react-native`.
 
 ---
 

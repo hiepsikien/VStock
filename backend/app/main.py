@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -19,9 +20,12 @@ from app.routers.news import router as news_router
 from app.routers.stocks import router as stocks_router
 from app.routers.companion import router as companion_router
 from app.schemas import HealthResponse
+from app.sentry_setup import init_sentry
 from app.store.db import close_db, init_db
 
 logger = logging.getLogger(__name__)
+
+init_sentry()
 
 
 async def _bootstrap_ingest() -> None:
@@ -81,3 +85,11 @@ app.include_router(companion_router)
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     return HealthResponse(status="ok")
+
+
+if os.getenv("SENTRY_DEBUG_ENDPOINT", "").strip() in {"1", "true", "yes"}:
+
+    @app.get("/sentry-debug")
+    async def sentry_debug() -> None:
+        """Intentional error for verifying Sentry (disabled unless SENTRY_DEBUG_ENDPOINT=1)."""
+        raise RuntimeError("Sentry debug ping")

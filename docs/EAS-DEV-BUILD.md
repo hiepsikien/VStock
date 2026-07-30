@@ -1,119 +1,94 @@
-# EAS Development Build (alerts / native)
+# Dev build (side-by-side với production)
 
-Bản **dev client** — không phải App Store. Cần để test `expo-background-task` + local notifications (Expo Go không đủ).
+Bản **Dev** dùng bundle ID riêng — cài song song với App Store / TestFlight, **không ghi đè** production.
 
-> **Trạng thái (2026-07-20):** Config trong repo đã sẵn (`eas.json`, `expo-dev-client`, scripts).  
-> **Tạm dừng:** Chưa có **Apple Developer Program** ($99/năm) → chưa build lên iPhone thật.  
-> **Làm lại khi:** Đã đăng ký [developer.apple.com](https://developer.apple.com/programs/) và có Team ID.
+| | Production | Development |
+|---|---|---|
+| Name | VStock | VStock (Dev) |
+| iOS bundle | `com.nguyendinhanh.vstock` | `com.nguyendinhanh.vstock.dev` |
+| Android package | `com.nguyendinhanh.vstock` | `com.nguyendinhanh.vstock.dev` |
+| Scheme | `vstock` | `vstock-dev` |
 
-## Checklist khi quay lại (sau khi có Apple Developer)
+Controlled by `APP_VARIANT=development` (`app.config.ts` + `eas.json`).
 
-- [ ] Tài khoản Expo: `npx eas-cli login`
-- [ ] Gắn project: `npx eas-cli init` (ghi `extra.eas.projectId` vào `app.json` → commit)
-- [ ] Build iPhone: `npm run build:ios:dev`
-- [ ] Cài app từ link trên [expo.dev](https://expo.dev) + bật **Developer Mode** trên iPhone
-- [ ] Chạy Metro: `npm run start:dev` (mở app VStock, **không** dùng Expo Go)
-- [ ] Tạo price alert → cho phép thông báo → đưa app ra nền → đợi 15–30+ phút để OS chạy background task
-- [ ] Nếu VM đổi IP: sửa `EXPO_PUBLIC_API_URL` trong `eas.json` rồi **rebuild**
-
-**Không bắt buộc App Store / TestFlight** cho bước này — chỉ internal development build.
+Backend **không** tách: cả hai app có thể dùng cùng API URL.
 
 ---
 
-## Yêu cầu
+## Local builds (ưu tiên khi EAS hết quota)
 
-| | |
-|--|--|
-| Tài khoản [Expo](https://expo.dev/signup) | Bắt buộc (miễn phí) |
-| Apple Developer ($99/năm) | **Bắt buộc** nếu build lên **iPhone thật** — *đang chờ đăng ký* |
-| Xcode / Simulator | Đủ nếu chỉ test trên **iOS Simulator** (profile `development-simulator`) |
-
-## Bước 1 — Đăng nhập & gắn project (một lần)
-
-Trên Mac, trong thư mục repo:
+Cần Xcode + Apple team đã đăng nhập. Sinh lại `ios/` (gitignored) với bundle Dev.
 
 ```bash
 cd ~/Projects/VStock
-npx eas-cli login
-npx eas-cli init
+
+# Build + cài Dev app lên iPhone (lần đầu / sau khi đổi native deps)
+npm run ios:dev
+
+# Simulator
+npm run ios:dev:sim
+
+# Các ngày sau: chỉ Metro, rồi mở app Dev (hoặc quét QR)
+npm run start:dev
 ```
 
-`eas init` sẽ tạo project trên Expo và ghi `extra.eas.projectId` vào `app.json`.  
-**Commit** `app.json` sau khi có `projectId` thật.
+Sau khi binary có `expo-dev-client`: mở app → launcher → nhập `http://YOUR_MAC_IP:8081`, hoặc long-press 3 ngón tay (shake thường kém ổn định).
 
-## Bước 2 — Build
+Dùng `.env` / `.env.development` cho `EXPO_PUBLIC_*` (API URL, Sentry DSN, …).
 
-### A) iPhone thật (khuyến nghị để test alerts nền) — *làm khi có Apple Developer*
+**Không** chạy bare `expo run:ios` / `npx expo run:ios` khi máy đã có bản store — thiếu `APP_VARIANT=development` sẽ dùng bundle production và **ghi đè** app store.
 
-```bash
-npm run build:ios:dev
-# tương đương: eas build --platform ios --profile development
-```
+### Signing
 
-- Lần đầu: đăng nhập Apple, chọn Team, để EAS quản lý certificates
-- Khi xong: mở link build trên expo.dev → cài qua QR / link cài
-- Bật **Developer Mode** trên iPhone (Settings → Privacy & Security)
+1. App ID `com.nguyendinhanh.vstock.dev` phải tồn tại (Apple Developer hoặc Xcode tự tạo khi sign).
+2. Nếu Xcode hỏi: mở `ios/*.xcworkspace` → Signing & Capabilities → chọn Team.
+3. Trên máy: trust developer certificate nếu iOS hỏi; bật **Developer Mode**.
 
-### B) iOS Simulator (không cần Apple Developer device / có thể làm trước)
+### Khi nào phải rebuild native?
 
-```bash
-npm run build:ios:sim
-# tương đương: eas build --platform ios --profile development-simulator
-```
+Chỉ khi đổi native: plugin mới, permissions, upgrade Expo SDK.  
+Đổi JS/TS thuần → `npm run start:dev`, **không** cần `ios:dev` lại.
 
-Tải `.tar.gz` → kéo app vào Simulator. Background task trên Simulator **hạn chế** hơn device thật.
+---
 
-### C) Android (APK) — không cần Apple
+## EAS builds (cloud — khi còn quota)
 
 ```bash
+npm run build:ios:dev      # Internal, bundle Dev (`APP_VARIANT=development`)
+npm run build:ios:sim      # Simulator
+npm run build:ios:testflight  # App Store / TestFlight (bundle production)
 npm run build:android:dev
 ```
 
-Cài APK từ trang build. Hữu ích nếu có máy Android để test alerts sớm hơn.
+Lần đầu EAS: `npx eas-cli login` (projectId đã có trong `app.config.ts`).
 
-## Bước 3 — Chạy Metro với dev client
-
-```bash
-npm run start:dev
-# tương đương: npx expo start --dev-client
-```
-
-Mở app **VStock** (icon trên máy) — không dùng Expo Go — rồi kết nối tới bundler (QR hoặc cùng Wi‑Fi).
-
-API production đang bake trong profile `development` / `preview`:
+API bake trong profile `development` / `preview` / `production`:
 
 `EXPO_PUBLIC_API_URL=http://34.126.117.158:8000`
 
-Đổi IP trong `eas.json` nếu VM đổi IP, rồi **rebuild** (env native bake lúc build).
+Đổi IP trong `eas.json` rồi **rebuild** nếu VM đổi IP.
 
-## Kiểm tra alerts
+---
 
-1. Trong app: tạo cảnh báo giá cho một mã
-2. Cho phép thông báo khi hệ thống hỏi
-3. Đưa app ra nền / khóa máy
-4. Đợi OS chạy background task (có thể **15–30+ phút**, không phải realtime)
-5. Khi giá khớp điều kiện → local notification
+## Kiểm tra alerts (dev client)
 
-Debug nhanh khi app đang mở: alerts vẫn được check qua polling / `usePriceAlerts`.
+1. Tạo cảnh báo giá trong app  
+2. Cho phép thông báo  
+3. Đưa app ra nền / khóa máy  
+4. Đợi OS chạy background task (có thể 15–30+ phút)
 
-## Khi nào phải rebuild?
+Expo Go **không** đủ cho `expo-background-task` + local notifications — cần Dev / production binary.
 
-Chỉ khi đổi native: plugin mới, `app.json` permissions, upgrade Expo SDK.  
-Đổi JS/TS thuần → chỉ cần `npm run start:dev`, **không** rebuild EAS.
+---
 
 ## Scripts npm
 
 ```bash
-npm run start:dev          # Metro + dev client
-npm run build:ios:dev      # EAS iOS device (cần Apple Developer)
-npm run build:ios:sim      # EAS iOS simulator
-npm run build:android:dev  # EAS Android
+npm run start:dev          # Metro + APP_VARIANT=development
+npm run ios:dev            # Local: build + cài Dev lên device
+npm run ios:dev:sim        # Local: Dev trên Simulator
+npm run android:dev        # Local: Dev Android
+npm run prebuild:dev       # Chỉ regenerate ios/android (Dev)
+npm run build:ios:dev      # EAS cloud (Dev bundle)
+npm run build:ios:testflight
 ```
-
-## Đã có sẵn trong repo
-
-| File | Vai trò |
-|------|---------|
-| `eas.json` | Profiles `development`, `development-simulator`, `preview`, `production` |
-| `app.json` | `expo-dev-client`, `expo-background-task`, `expo-notifications`, scheme `vstock` |
-| `package.json` | Scripts build / `start:dev` |

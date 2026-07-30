@@ -14,6 +14,9 @@ services:
       GCP_PROJECT: ${GCP_PROJECT:-}
       GCP_LOCATION: ${GCP_LOCATION:-asia-southeast1}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
     volumes:
       - vstock-data:/data
     restart: unless-stopped
