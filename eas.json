@@ -10,7 +10,7 @@
       "distribution": "internal",
       "env": {
         "APP_VARIANT": "development",
-        "EXPO_PUBLIC_API_URL": "http://34.126.117.158:8000"
+        "EXPO_PUBLIC_API_URL": "http://34.124.179.140:8000"
       }
     },
     "development-simulator": {
@@ -22,13 +22,13 @@
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://34.126.117.158:8000"
+        "EXPO_PUBLIC_API_URL": "http://34.124.179.140:8000"
       }
     },
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://34.126.117.158:8000"
+        "EXPO_PUBLIC_API_URL": "http://34.124.179.140:8000"
       }
     }
   },
