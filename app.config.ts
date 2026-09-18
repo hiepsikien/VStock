@@ -25,6 +25,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       NSAppTransportSecurity: {
         NSAllowsArbitraryLoads: true,
       },
+      UIBackgroundModes: ['processing'],
     },
   },
   android: {

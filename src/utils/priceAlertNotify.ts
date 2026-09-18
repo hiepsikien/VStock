@@ -1,5 +1,5 @@
 import Constants from 'expo-constants';
-import { Alert, Platform } from 'react-native';
+import { Alert, AppState, Platform } from 'react-native';
 import type { Stock } from '../types';
 import type { PriceAlert } from '../storage/alerts';
 
@@ -74,9 +74,15 @@ export async function requestNotificationPermission(): Promise<boolean> {
   }
 }
 
+function isAppActive(): boolean {
+  return AppState.currentState === 'active';
+}
+
 export async function deliverPriceAlert(alert: PriceAlert, stock: Stock): Promise<void> {
   if (!notificationsSupported()) {
-    showInAppPriceAlert(alert, stock);
+    if (isAppActive()) {
+      showInAppPriceAlert(alert, stock);
+    }
     return;
   }
 
