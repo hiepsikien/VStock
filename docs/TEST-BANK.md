@@ -199,8 +199,8 @@ npm start
 | | |
 |---|---|
 | **Priority** | P0 |
-| **Steps** | 1. Tap FAB **`+`** (góc phải)<br>2. Placeholder **Thêm mã từ HOSE / HNX…**<br>3. Gõ `FPT`<br>4. Tap kết quả để thêm |
-| **Expected** | Kết quả hiện tên + sàn; hint `N kết quả · chạm + để thêm`; tap thêm/bỏ; list cập nhật |
+| **Steps** | 1. Tap FAB **`+`** (góc phải, mở add mode)<br>2. Placeholder **Thêm mã từ HOSE / HNX…**<br>3. Gõ `FPT`<br>4. Trên `SearchResultRow`, tap nút **`+` bên phải** để thêm (không tap cả dòng) |
+| **Expected** | Kết quả hiện tên + sàn; hint `N kết quả · chạm + để thêm`. Nút **`+`** thêm vào list (đổi thành **✓**); tap **✓** gỡ khỏi list. **Tap dòng** (tên/mã) mở Detail — không thêm mã |
 
 ### VS-WL-014 — Tìm kiếm theo tên công ty
 | | |
@@ -333,7 +333,7 @@ npm start
 | | |
 |---|---|
 | **Priority** | P1 |
-| **Steps** | Tap nút text **Cảnh báo** (không phải icon bell) → chọn **Trên mức** / **Dưới mức** + giá → Lưu |
+| **Steps** | Tap nút text **Cảnh báo** (không phải icon bell) → chọn **Trên mức** / **Dưới mức** + giá → **Lưu cảnh báo** |
 | **Expected** | Alert lưu AsyncStorage; hiện trong **Quản lý cảnh báo**; `lastSeenPrice` gắn giá live lúc lưu |
 
 ### VS-DTL-007 — Detail chỉ số VNINDEX
@@ -659,8 +659,8 @@ Android channel: `channelId = price-alerts`, tên **Cảnh báo giá**.
 | | |
 |---|---|
 | **Priority** | P1 |
-| **Steps** | Xem danh sách providers |
-| **Expected** | Status **ok** (xanh) / **degraded** (cam) / **down** hoặc **unknown** (đỏ). Có thể kèm `· stale` và `lastError` |
+| **Steps** | Xem card **Tổng quan** rồi danh sách **Providers** |
+| **Expected** | Tổng quan **Trạng thái** in hoa: **OK** / **DEGRADED** / **DOWN** / **UNKNOWN** (`toUpperCase()`). Từng provider hiện **chữ thường**: `ok` / `degraded` / `down` / `unknown` (xanh / cam / đỏ). Có thể kèm `· stale` và `lastError` |
 
 ### VS-HLT-003 — Store counts
 | | |
@@ -694,7 +694,7 @@ Chạy khi backend local port 8000. Có thể dùng `curl` hoặc Postman.
 ```bash
 curl -s http://localhost:8000/health
 ```
-**Expected:** `200`, body có trạng thái OK.
+**Expected:** `200`, body `{"status":"ok","service":"vstock-api"}`.
 
 ### VS-API-002 — Symbols list
 ```bash
@@ -733,7 +733,7 @@ done
 ```bash
 curl -s "http://localhost:8000/v1/indices"
 ```
-**Expected:** VNINDEX, HNX quotes. (**Không** dùng `/v1/market/indices`.)
+**Expected:** Quotes **VNINDEX**, **HNX**, **XAU**, **WTI** trong `items`. (**Không** dùng `/v1/market/indices`.)
 
 ### VS-API-008 — Market news
 ```bash
@@ -760,12 +760,21 @@ curl -s "http://localhost:8000/v1/companion/health"
 **Expected:** `200`, gemini configured flag.
 
 ### VS-API-012 — Companion nudge
+Nudge chỉ `show: true` khi đủ điều kiện (`should_offer_nudge`): **3× `view_detail` cùng mã trong 15 phút**, hoặc mover `|changePercent| ≥ 2%`, hoặc `avgChange ≥ 1.5%`, hoặc `nudgeKind=recall`. Một event `ts` cũ (vd. 2023) → thường `show: false`.
+
+Copy payload `smoke_companion.py` (3 event `now`):
+
 ```bash
+now=$(($(date +%s) * 1000))
 curl -s -X POST "http://localhost:8000/v1/companion/nudge" \
   -H "Content-Type: application/json" \
-  -d '{"events":[{"type":"view_detail","symbol":"HAG","ts":1695000000000}],"context":{"screen":"Detail","symbol":"HAG"}}'
+  -d "{\"events\":[
+    {\"type\":\"view_detail\",\"symbol\":\"HAG\",\"ts\":$now},
+    {\"type\":\"view_detail\",\"symbol\":\"HAG\",\"ts\":$((now-1000))},
+    {\"type\":\"view_detail\",\"symbol\":\"HAG\",\"ts\":$((now-2000))}
+  ],\"context\":{\"screen\":\"Detail\",\"symbol\":\"HAG\"}}"
 ```
-**Expected:** `show: true`, có `message`.
+**Expected:** `200`, `show: true`, có `message`.
 
 ### VS-API-013 — Companion chat (non-stream)
 ```bash
