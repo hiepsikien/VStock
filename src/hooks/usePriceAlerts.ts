@@ -2,7 +2,7 @@ import { useCallback, useEffect } from 'react';
 import type { Stock } from '../types';
 import { fetchLiveQuotes } from '../api/client';
 import { loadPriceAlerts } from '../storage/alerts';
-import { ensureNotificationHandler, requestNotificationPermission } from '../utils/priceAlertNotify';
+import { ensureNotificationHandler } from '../utils/priceAlertNotify';
 import { processPriceAlerts } from '../utils/priceAlertEngine';
 import { isUsableQuotePrice } from '../utils/priceAlertLogic';
 import { syncPriceAlertBackgroundTask } from '../tasks/priceAlertBackgroundTask';
@@ -10,7 +10,6 @@ import { syncPriceAlertBackgroundTask } from '../tasks/priceAlertBackgroundTask'
 export function usePriceAlerts(stocks: Stock[], enabled: boolean) {
   useEffect(() => {
     void ensureNotificationHandler();
-    void requestNotificationPermission();
     void syncPriceAlertBackgroundTask();
   }, []);
 
@@ -37,7 +36,7 @@ export function usePriceAlerts(stocks: Stock[], enabled: boolean) {
       }
     }
 
-    await processPriceAlerts(alerts, quotes);
+    await processPriceAlerts(quotes);
     void syncPriceAlertBackgroundTask();
   }, [enabled, stocks]);
 

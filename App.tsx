@@ -4,13 +4,12 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { Sentry } from './src/sentry';
-import { ensureNotificationHandler, requestNotificationPermission } from './src/utils/priceAlertNotify';
+import { ensureNotificationHandler } from './src/utils/priceAlertNotify';
 import { syncPriceAlertBackgroundTask } from './src/tasks/priceAlertBackgroundTask';
 
 function App() {
   useEffect(() => {
     void ensureNotificationHandler();
-    void requestNotificationPermission();
     void syncPriceAlertBackgroundTask();
   }, []);
 

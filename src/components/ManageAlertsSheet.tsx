@@ -3,11 +3,13 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import * as Haptics from 'expo-haptics';
 import { useKeyboardBottomInset } from '../hooks/useKeyboardBottomInset';
 import type { PriceAlert } from '../storage/alerts';
+import { isPriceAlreadyThroughAlert, roundAlertPrice } from '../utils/priceAlertLogic';
 import { colors, spacing, typography } from '../theme';
 
 type Props = {
   visible: boolean;
   alerts: PriceAlert[];
+  livePrices?: Record<string, number>;
   onClose: () => void;
   onSave: (id: string, price: number) => Promise<void>;
   onToggle: (id: string) => Promise<void>;
@@ -20,7 +22,15 @@ function statusLabel(alert: PriceAlert): string {
   return 'Tắt · chạm để bật lại';
 }
 
-export function ManageAlertsSheet({ visible, alerts, onClose, onSave, onToggle, onDelete }: Props) {
+export function ManageAlertsSheet({
+  visible,
+  alerts,
+  livePrices = {},
+  onClose,
+  onSave,
+  onToggle,
+  onDelete,
+}: Props) {
   const keyboardInset = useKeyboardBottomInset();
   const scrollRef = useRef<ScrollView>(null);
   const rowOffsets = useRef<Record<string, number>>({});
@@ -79,11 +89,14 @@ export function ManageAlertsSheet({ visible, alerts, onClose, onSave, onToggle, 
                 const text = drafts[alert.id] ?? alert.price.toFixed(2);
                 const parsed = Number.parseFloat(text.replace(',', '.'));
                 const valid = Number.isFinite(parsed) && parsed > 0;
-                const unchanged = valid && parsed === alert.price;
+                const unchanged = valid && roundAlertPrice(parsed) === roundAlertPrice(alert.price);
                 const saving = busyId === `save:${alert.id}`;
                 const toggling = busyId === `toggle:${alert.id}`;
                 const deleting = busyId === `delete:${alert.id}`;
                 const busy = saving || toggling || deleting;
+                const livePrice = livePrices[alert.symbol];
+                const alreadyThrough =
+                  valid && livePrice != null && isPriceAlreadyThroughAlert(alert.condition, parsed, livePrice);
 
                 return (
                   <View
@@ -126,6 +139,18 @@ export function ManageAlertsSheet({ visible, alerts, onClose, onSave, onToggle, 
                       placeholderTextColor={colors.textTertiary}
                       style={styles.input}
                     />
+
+                    {alreadyThrough && livePrice != null ? (
+                      <Text style={styles.warn}>
+                        {roundAlertPrice(livePrice) === roundAlertPrice(parsed)
+                          ? 'Giá đang đúng mức này. Cảnh báo sẽ báo khi giá cắt qua, không báo ngay.'
+                          : 'Giá hiện tại đã qua mức này. Cảnh báo sẽ chờ giá cắt lại từ phía còn lại.'}
+                      </Text>
+                    ) : livePrice == null && alert.lastSeenPrice != null ? (
+                      <Text style={styles.warnMuted}>
+                        Không có giá live trên danh sách này — giữ mốc gần nhất {alert.lastSeenPrice.toFixed(2)}.
+                      </Text>
+                    ) : null}
 
                     <View style={styles.actions}>
                       <Pressable
@@ -243,6 +268,16 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 16,
     fontVariant: ['tabular-nums'],
+  },
+  warn: {
+    fontSize: 12,
+    color: colors.accent,
+    lineHeight: 17,
+  },
+  warnMuted: {
+    fontSize: 12,
+    color: colors.textTertiary,
+    lineHeight: 17,
   },
   actions: {
     flexDirection: 'row',

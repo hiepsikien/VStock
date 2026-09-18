@@ -23,7 +23,7 @@ TaskManager.defineTask(PRICE_ALERT_BACKGROUND_TASK, async () => {
 
     const symbols = [...new Set(active.map((alert) => alert.symbol))];
     const stocks = (await fetchLiveQuotes(symbols)).filter(isUsableQuotePrice);
-    await processPriceAlerts(alerts, stocks);
+    await processPriceAlerts(stocks);
 
     return BackgroundTask.BackgroundTaskResult.Success;
   } catch {

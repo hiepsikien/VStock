@@ -90,9 +90,8 @@ export async function deliverPriceAlert(alert: PriceAlert, stock: Stock): Promis
         body: `${stock.name} · ${stock.price.toFixed(2)} (${op} ${alert.price.toFixed(2)})`,
         data: { symbol: alert.symbol },
         sound: true,
-        ...(Platform.OS === 'android' ? { channelId: PRICE_ALERT_CHANNEL_ID } : {}),
       },
-      trigger: null,
+      trigger: Platform.OS === 'android' ? { channelId: PRICE_ALERT_CHANNEL_ID } : null,
     });
   } catch {
     showInAppPriceAlert(alert, stock);

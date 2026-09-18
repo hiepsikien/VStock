@@ -346,6 +346,13 @@ export function WatchlistScreen({ navigation }: Props) {
   );
 
   const watchlistSet = useMemo(() => new Set(symbolList), [symbolList]);
+  const livePrices = useMemo(() => {
+    const prices: Record<string, number> = {};
+    for (const stock of stocks) {
+      if (!stock.unavailable && stock.price > 0) prices[stock.symbol] = stock.price;
+    }
+    return prices;
+  }, [stocks]);
   const stats = useMemo(() => watchlistStats(stocks), [stocks]);
   const companion = useCompanionHost({
     navigation,
@@ -480,7 +487,7 @@ export function WatchlistScreen({ navigation }: Props) {
       condition: current.condition,
       price,
       enabled: true,
-      lastSeenPrice: livePriceForSymbol(current.symbol),
+      lastSeenPrice: livePriceForSymbol(current.symbol) ?? current.lastSeenPrice,
     });
     await reloadAlerts();
   }, [alerts, livePriceForSymbol, reloadAlerts]);
@@ -495,7 +502,9 @@ export function WatchlistScreen({ navigation }: Props) {
       condition: current.condition,
       price: current.price,
       enabled: enabling,
-      lastSeenPrice: enabling ? livePriceForSymbol(current.symbol) : current.lastSeenPrice,
+      lastSeenPrice: enabling
+        ? livePriceForSymbol(current.symbol) ?? current.lastSeenPrice
+        : current.lastSeenPrice,
       triggeredAt: enabling ? undefined : current.triggeredAt,
     });
     await reloadAlerts();
@@ -921,6 +930,7 @@ export function WatchlistScreen({ navigation }: Props) {
       <ManageAlertsSheet
         visible={manageAlertsVisible}
         alerts={alerts}
+        livePrices={livePrices}
         onClose={() => setManageAlertsVisible(false)}
         onSave={onUpdateAlertValue}
         onToggle={onToggleAlert}
