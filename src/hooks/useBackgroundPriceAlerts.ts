@@ -5,8 +5,8 @@ import { ensureNotificationHandler } from '../utils/priceAlertNotify';
 import { runPriceAlertCheck } from '../utils/runPriceAlertCheck';
 
 function isGoingToBackground(prev: AppStateStatus, next: AppStateStatus): boolean {
-  // Only true background — not inactive (Control Center, notifications, calls, app switcher).
-  return prev === 'active' && next === 'background';
+  // Entering background from any foreground state (iOS: active → inactive → background).
+  return next === 'background' && prev !== 'background';
 }
 
 /**
