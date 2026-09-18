@@ -64,9 +64,9 @@ Lần đầu EAS: `npx eas-cli login` (projectId đã có trong `app.config.ts`)
 
 API bake trong profile `development` / `preview` / `production`:
 
-`EXPO_PUBLIC_API_URL=http://34.124.179.140:8000`
+`EXPO_PUBLIC_API_URL=https://vstock-api.antunai.com`
 
-Đổi IP trong `eas.json` rồi **rebuild** nếu VM đổi IP.
+Đổi URL trong `eas.json` rồi **rebuild** nếu domain/API đổi.
 
 ---
 

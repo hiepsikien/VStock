@@ -34,7 +34,7 @@
   "scripts": {
     "start": "expo start",
     "start:local": "expo start -c",
-    "start:gce": "EXPO_PUBLIC_API_URL=http://34.124.179.140:8000 expo start -c",
+    "start:gce": "EXPO_PUBLIC_API_URL=https://vstock-api.antunai.com expo start -c",
     "start:dev": "APP_VARIANT=development expo start --dev-client",
     "android": "expo run:android",
     "ios": "expo run:ios",

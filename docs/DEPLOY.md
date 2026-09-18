@@ -111,7 +111,7 @@ URL sau deploy: `https://vstock-api.fly.dev` (hoặc tên app bạn chọn).
 Sau khi deploy, cập nhật `.env` ở thư mục gốc app:
 
 ```bash
-EXPO_PUBLIC_API_URL=https://api.yourdomain.com
+EXPO_PUBLIC_API_URL=https://vstock-api.antunai.com
 ```
 
 Rebuild / restart Expo:

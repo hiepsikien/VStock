@@ -60,7 +60,7 @@ Ngoài giờ giao dịch: không poll tự động; kéo xuống để refresh t
 docker compose up -d --build   # chạy trên VM / VPS
 ```
 
-Sau deploy, set `EXPO_PUBLIC_API_URL=https://your-api-url` trong `.env`.
+Sau deploy, set `EXPO_PUBLIC_API_URL=https://vstock-api.antunai.com` trong `.env`.
 
 ## Development build (alerts)
 

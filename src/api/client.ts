@@ -79,7 +79,7 @@ function resolveApiUrl(): string {
   const deviceFallback = stripTrailingSlash(
     process.env.EXPO_PUBLIC_DEVICE_API_URL ??
       process.env.EXPO_PUBLIC_API_URL_DEVICE ??
-      'http://34.124.179.140:8000',
+      'https://vstock-api.antunai.com',
   );
 
   if (!__DEV__) {

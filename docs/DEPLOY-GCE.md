@@ -1,6 +1,6 @@
 # Deploy VStock Backend lên Google Cloud (GCE)
 
-> **Trạng thái:** Đã deploy production (HTTP qua External IP). HTTPS + domain — làm khi sẵn sàng.  
+> **Trạng thái:** Production HTTPS qua Caddy (`https://vstock-api.antunai.com`). Không dùng nginx host — Docker Caddy đã bind 80/443.  
 > **Phương án:** Compute Engine VM + Docker Compose (không dùng Cloud Run).
 
 ---
@@ -27,9 +27,9 @@ Internet
     │
     ▼
 GCE VM (asia-southeast1 — Singapore)
-    ├── nginx + Let's Encrypt (HTTPS)
+    ├── Caddy (Docker, 80/443, Let's Encrypt)
     └── docker compose
-            └── vstock-api container
+            └── vstock-api container (angi_net)
                     └── volume → /data/vstock.db
 ```
 
@@ -190,55 +190,36 @@ curl http://EXTERNAL_IP:8000/health
 
 ---
 
-## Bước 5 — HTTPS với nginx + Let's Encrypt
+## Bước 5 — HTTPS qua Caddy (đã có trên VM)
 
-App mobile nên dùng **HTTPS**. Cần domain trỏ A record → External IP VM.
+VM đã chạy `deploy-caddy-1` (`caddy:2-alpine`) bind **80/443**. Source of truth: `check-food/deploy/Caddyfile` trên mạng `angi_net`. **Không** cài nginx host / certbot — sẽ conflict với Caddy.
 
 ### 5.1 DNS
 
-Tại nhà cung cấp domain:
-
 ```
-api.yourdomain.com  →  A  →  EXTERNAL_IP
+vstock-api.antunai.com  →  A  →  34.124.179.140
 ```
 
-### 5.2 Cài nginx + certbot trên VM
+### 5.2 Site Caddy
 
-```bash
-sudo apt-get install -y nginx certbot python3-certbot-nginx
+Trong `check-food/deploy/Caddyfile`:
 
-sudo tee /etc/nginx/sites-available/vstock <<'EOF'
-server {
-    listen 80;
-    server_name api.yourdomain.com;
-
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
+```
+vstock-api.antunai.com {
+	encode gzip
+	reverse_proxy vstock-api-1:8000
 }
-EOF
-
-sudo ln -sf /etc/nginx/sites-available/vstock /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-
-# SSL (thay domain thật)
-sudo certbot --nginx -d api.yourdomain.com
 ```
 
-Certbot tự renew. Kiểm tra:
+Container VStock phải nằm trên `angi_net` (mất sau `docker compose up` nếu quên):
 
 ```bash
-curl https://api.yourdomain.com/health
+sudo docker network connect angi_net vstock-api-1
+sudo docker exec deploy-caddy-1 caddy reload --config /etc/caddy/Caddyfile
+curl -sS https://vstock-api.antunai.com/health
 ```
 
-### Không có domain (chỉ test)
-
-Dùng tạm `http://EXTERNAL_IP:8000` — **chỉ dev**, device thật có thể gặp hạn chế (no HTTPS).
+Caddy tự cấp Let's Encrypt. Host nginx nên `disabled`.
 
 ---
 
@@ -247,7 +228,7 @@ Dùng tạm `http://EXTERNAL_IP:8000` — **chỉ dev**, device thật có thể
 Trên máy dev, file `.env` ở thư mục gốc repo:
 
 ```bash
-EXPO_PUBLIC_API_URL=https://api.yourdomain.com
+EXPO_PUBLIC_API_URL=https://vstock-api.antunai.com
 ```
 
 Restart Expo:
@@ -268,6 +249,7 @@ SSH vào VM:
 cd ~/VStock
 git pull origin main
 docker compose up -d --build
+sudo docker network connect angi_net vstock-api-1 2>/dev/null || true
 docker compose logs -f api
 ```
 
@@ -377,13 +359,13 @@ DEPLOY_BRANCH=feature/companion-ai ./scripts/deploy-companion-gce.sh
 **Smoke từ Mac:**
 
 ```bash
-curl -s http://34.124.179.140:8000/v1/companion/health
-curl -s -X POST http://34.124.179.140:8000/v1/companion/chat \
+curl -s https://vstock-api.antunai.com/v1/companion/health
+curl -s -X POST https://vstock-api.antunai.com/v1/companion/chat \
   -H 'Content-Type: application/json' \
   -d '{"messages":[{"role":"user","content":"FPT giá bao nhiêu?"}],"stream":false,"context":{"screen":"Watchlist","watchlistSymbols":["FPT"]}}'
 ```
 
-App Expo: `EXPO_PUBLIC_DEVICE_API_URL=http://34.124.179.140:8000` (đã có trong `.env.development`).
+App Expo: `EXPO_PUBLIC_DEVICE_API_URL=https://vstock-api.antunai.com` (đã có trong `.env.development`).
 
 **Local**
 
@@ -438,9 +420,9 @@ VM name:        vstock-api
 Zone:           asia-southeast1-a
 Machine type:   n2-standard-2 (2 vCPU, 8 GB) — nâng từ e2-small 2026-07-31
 External IP:    34.124.179.140
-Domain:         (chưa gắn)
-API URL:        http://34.124.179.140:8000
-App .env:       EXPO_PUBLIC_API_URL=http://34.124.179.140:8000
+Domain:         vstock-api.antunai.com
+API URL:        https://vstock-api.antunai.com
+App .env:       EXPO_PUBLIC_API_URL=https://vstock-api.antunai.com
 Deploy date:    2026-07-20
 Backup:         cron Chủ nhật 03:00 VN → ~/backups/ (scripts/backup-sqlite.sh)
 Firewall:       allow-vstock-api (TCP 8000) + HTTP/HTTPS tags
