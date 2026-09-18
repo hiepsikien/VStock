@@ -100,6 +100,8 @@ export async function deliverPriceAlert(alert: PriceAlert, stock: Stock): Promis
       trigger: Platform.OS === 'android' ? { channelId: PRICE_ALERT_CHANNEL_ID } : null,
     });
   } catch {
-    showInAppPriceAlert(alert, stock);
+    if (isAppActive()) {
+      showInAppPriceAlert(alert, stock);
+    }
   }
 }

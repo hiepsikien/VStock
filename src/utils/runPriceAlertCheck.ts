@@ -29,8 +29,8 @@ export async function runPriceAlertCheck(seedStocks: Stock[] = []): Promise<void
     }
   }
 
-  if (!quotes.length) return;
-
-  await processPriceAlerts(quotes);
+  if (quotes.length) {
+    await processPriceAlerts(quotes);
+  }
   void syncPriceAlertBackgroundTask();
 }
