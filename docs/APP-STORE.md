@@ -22,7 +22,7 @@ Lên App Store (public) khi gần đạt hết:
 |---|----------|---------|
 | 1 | **Apple Developer Program** | $99/năm — hiện docs EAS ghi *chưa có* (2026-07-20) |
 | 2 | **TestFlight** ≥ 1–2 tuần | Vài người thật dùng trong giờ phiên |
-| 3 | **API production HTTPS + domain** | GCE đang HTTP — ATS trên iOS sẽ chặn gọi HTTP thường |
+| 3 | **API production HTTPS + domain** | `https://vnstock-api.antunai.com` — chạy `scripts/setup-nginx-https.sh` trên VM sau khi DNS GoDaddy propagate |
 | 4 | **Lõi app ổn** | Watchlist, Detail, chart, tin, PE/KQKD; empty/error state chấp nhận được |
 | 5 | **Privacy & App Review** | Mô tả quyền (notifications nếu có); disclaimer không phải tư vấn đầu tư; privacy policy (đặc biệt nếu chat Gemini gửi nội dung lên server) |
 | 6 | **Companion (Vy)** | Đóng hộp bug nặng (mutate list / số liệu) **hoặc** tắt Companion ở bản store đầu |
@@ -76,8 +76,8 @@ Song song / sau launch
 
 - [ ] Đăng ký Apple Developer + lấy Team ID  
 - [ ] `eas init` / gắn `projectId`, commit `app.config.ts`  
-- [ ] Bật HTTPS + domain cho API GCE  
-- [ ] Profile EAS `production` trỏ URL HTTPS  
+- [x] Domain `vnstock-api.antunai.com` + EAS trỏ HTTPS  
+- [ ] Chạy nginx + certbot trên VM (`scripts/setup-nginx-https.sh`)  
 - [ ] Privacy policy URL + disclaimer in-app  
 - [ ] Quyết định: Companion **bật** hay **ẩn** ở v1.0  
 - [ ] Build → TestFlight → iterate → Submit  

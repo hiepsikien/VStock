@@ -1,6 +1,6 @@
 # Deploy VStock Backend lên Google Cloud (GCE)
 
-> **Trạng thái:** Đã deploy production (HTTP qua External IP). HTTPS + domain — làm khi sẵn sàng.  
+> **Trạng thái:** VM chạy Docker trên `34.124.179.140`. API production: **`https://vnstock-api.antunai.com`** (nginx + Let's Encrypt).  
 > **Phương án:** Compute Engine VM + Docker Compose (không dùng Cloud Run).
 
 ---
@@ -44,9 +44,9 @@ GCE VM (asia-southeast1 — Singapore)
 
 - [ ] Tài khoản [Google Cloud](https://console.cloud.google.com/) + billing enabled
 - [ ] Cài [gcloud CLI](https://cloud.google.com/sdk/docs/install) (tùy chọn, có thể làm qua Console)
-- [ ] Domain (tùy chọn, vd. `api.yourdomain.com`) — HTTPS cho app mobile
+- [x] Subdomain `vnstock-api.antunai.com` (GoDaddy A → VM IP)
 - [ ] GitHub repo `VStock` accessible từ VM (public hoặc deploy key)
-- [ ] Ghi chú `EXPO_PUBLIC_API_URL` sau khi có URL production
+- [x] `EXPO_PUBLIC_API_URL=https://vnstock-api.antunai.com` trong `eas.json` / `.env.production`
 
 ---
 
@@ -192,53 +192,46 @@ curl http://EXTERNAL_IP:8000/health
 
 ## Bước 5 — HTTPS với nginx + Let's Encrypt
 
-App mobile nên dùng **HTTPS**. Cần domain trỏ A record → External IP VM.
+App mobile dùng **HTTPS**. SSL **miễn phí** qua Let's Encrypt — chỉ cần subdomain trỏ về VM.
 
-### 5.1 DNS
+### 5.1 DNS (GoDaddy — `antunai.com`)
 
-Tại nhà cung cấp domain:
+| Type | Name | Value | TTL |
+|------|------|-------|-----|
+| **A** | `vnstock-api` | `34.124.179.140` | 600 (hoặc mặc định) |
 
-```
-api.yourdomain.com  →  A  →  EXTERNAL_IP
-```
+→ FQDN: **`vnstock-api.antunai.com`**
 
-### 5.2 Cài nginx + certbot trên VM
+Chờ DNS propagate (vài phút–1 giờ). Kiểm tra:
 
 ```bash
-sudo apt-get install -y nginx certbot python3-certbot-nginx
-
-sudo tee /etc/nginx/sites-available/vstock <<'EOF'
-server {
-    listen 80;
-    server_name api.yourdomain.com;
-
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-EOF
-
-sudo ln -sf /etc/nginx/sites-available/vstock /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-
-# SSL (thay domain thật)
-sudo certbot --nginx -d api.yourdomain.com
+dig +short vnstock-api.antunai.com
+# hoặc: nslookup vnstock-api.antunai.com
 ```
+
+### 5.2 Cài nginx + certbot trên VM (một lệnh)
+
+Trên VM, sau `git pull`:
+
+```bash
+chmod +x scripts/setup-nginx-https.sh
+sudo EMAIL=you@antunai.com ./scripts/setup-nginx-https.sh
+```
+
+Script dùng `deploy/nginx/vnstock-api.conf`, cài cert Let's Encrypt, redirect HTTP→HTTPS.
 
 Certbot tự renew. Kiểm tra:
 
 ```bash
-curl https://api.yourdomain.com/health
+curl -sS https://vnstock-api.antunai.com/health
+curl -sS https://vnstock-api.antunai.com/v1/health/sources | python3 -m json.tool
 ```
 
-### Không có domain (chỉ test)
+**Firewall GCP:** VM cần tag `http-server` + `https-server` (port 80 + 443). Port 8000 có thể đóng public sau khi nginx chạy.
 
-Dùng tạm `http://EXTERNAL_IP:8000` — **chỉ dev**, device thật có thể gặp hạn chế (no HTTPS).
+### Fallback (chỉ test nội bộ)
+
+`http://34.124.179.140:8000` — không dùng cho App Store / production app.
 
 ---
 
@@ -247,7 +240,7 @@ Dùng tạm `http://EXTERNAL_IP:8000` — **chỉ dev**, device thật có thể
 Trên máy dev, file `.env` ở thư mục gốc repo:
 
 ```bash
-EXPO_PUBLIC_API_URL=https://api.yourdomain.com
+EXPO_PUBLIC_API_URL=https://vnstock-api.antunai.com
 ```
 
 Restart Expo:
@@ -377,13 +370,13 @@ DEPLOY_BRANCH=feature/companion-ai ./scripts/deploy-companion-gce.sh
 **Smoke từ Mac:**
 
 ```bash
-curl -s http://34.124.179.140:8000/v1/companion/health
-curl -s -X POST http://34.124.179.140:8000/v1/companion/chat \
+curl -s https://vnstock-api.antunai.com/v1/companion/health
+curl -s -X POST https://vnstock-api.antunai.com/v1/companion/chat \
   -H 'Content-Type: application/json' \
   -d '{"messages":[{"role":"user","content":"FPT giá bao nhiêu?"}],"stream":false,"context":{"screen":"Watchlist","watchlistSymbols":["FPT"]}}'
 ```
 
-App Expo: `EXPO_PUBLIC_DEVICE_API_URL=http://34.124.179.140:8000` (đã có trong `.env.development`).
+App Expo: `EXPO_PUBLIC_DEVICE_API_URL=https://vnstock-api.antunai.com` (trong `.env.development`).
 
 **Local**
 
@@ -438,9 +431,9 @@ VM name:        vstock-api
 Zone:           asia-southeast1-a
 Machine type:   n2-standard-2 (2 vCPU, 8 GB) — nâng từ e2-small 2026-07-31
 External IP:    34.124.179.140
-Domain:         (chưa gắn)
-API URL:        http://34.124.179.140:8000
-App .env:       EXPO_PUBLIC_API_URL=http://34.124.179.140:8000
+Domain:         vnstock-api.antunai.com (A → 34.124.179.140)
+API URL:        https://vnstock-api.antunai.com
+App .env:       EXPO_PUBLIC_API_URL=https://vnstock-api.antunai.com
 Deploy date:    2026-07-20
 Backup:         cron Chủ nhật 03:00 VN → ~/backups/ (scripts/backup-sqlite.sh)
 Firewall:       allow-vstock-api (TCP 8000) + HTTP/HTTPS tags
