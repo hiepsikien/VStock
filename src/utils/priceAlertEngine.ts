@@ -1,12 +1,14 @@
 import type { Stock } from '../types';
-import type { PriceAlert } from '../storage/alerts';
-import { savePriceAlerts } from '../storage/alerts';
+import { loadPriceAlerts, savePriceAlerts, type PriceAlert } from '../storage/alerts';
 import { deliverPriceAlert } from './priceAlertNotify';
+import {
+  evaluatePriceAlerts,
+  shouldTriggerPriceAlert,
+  type PriceAlertEvaluation,
+} from './priceAlertLogic';
 
-export function shouldTriggerPriceAlert(alert: PriceAlert, price: number): boolean {
-  if (alert.condition === 'above') return price >= alert.price;
-  return price <= alert.price;
-}
+export { shouldTriggerPriceAlert } from './priceAlertLogic';
+export type { PriceAlertEvaluation };
 
 export type PriceAlertProcessResult = {
   alerts: PriceAlert[];
@@ -14,34 +16,37 @@ export type PriceAlertProcessResult = {
   changed: boolean;
 };
 
+let processQueue: Promise<unknown> = Promise.resolve();
+
+function enqueue<T>(work: () => Promise<T>): Promise<T> {
+  const run = processQueue.then(work, work);
+  processQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 export async function processPriceAlerts(
-  alerts: PriceAlert[],
+  _alerts: PriceAlert[],
   stocks: Pick<Stock, 'symbol' | 'name' | 'price'>[],
-  options?: { skipIds?: Set<string> },
 ): Promise<PriceAlertProcessResult> {
-  const skipIds = options?.skipIds ?? new Set<string>();
-  const priceMap = new Map(stocks.map((stock) => [stock.symbol, stock]));
-  let changed = false;
-  let triggered = 0;
+  return enqueue(async () => {
+    const latest = await loadPriceAlerts();
+    const result = evaluatePriceAlerts(latest, stocks, new Date().toISOString());
 
-  for (const alert of alerts) {
-    if (!alert.enabled) continue;
-    const stock = priceMap.get(alert.symbol);
-    if (!stock) continue;
-    if (!shouldTriggerPriceAlert(alert, stock.price)) continue;
-    if (skipIds.has(alert.id)) continue;
+    for (const delivery of result.deliveries) {
+      await deliverPriceAlert(delivery.alert, delivery.stock as Stock);
+    }
 
-    skipIds.add(alert.id);
-    await deliverPriceAlert(alert, stock as Stock);
-    alert.triggeredAt = new Date().toISOString();
-    alert.enabled = false;
-    changed = true;
-    triggered += 1;
-  }
+    if (result.changed) {
+      await savePriceAlerts(result.alerts);
+    }
 
-  if (changed) {
-    await savePriceAlerts(alerts);
-  }
-
-  return { alerts, triggered, changed };
+    return {
+      alerts: result.alerts,
+      triggered: result.deliveries.length,
+      changed: result.changed,
+    };
+  });
 }

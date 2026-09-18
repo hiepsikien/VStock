@@ -355,7 +355,7 @@ export function StockDetailScreen({ navigation, route }: Props) {
           <Text style={styles.backChevron}>‹</Text>
           <Text style={styles.backLabel}>Watchlist</Text>
         </Pressable>
-        {!isIndexLike ? (
+        {!isIndexLike && !stock.unavailable ? (
           <Pressable
             onPress={() => {
               void Haptics.selectionAsync();
@@ -559,7 +559,7 @@ export function StockDetailScreen({ navigation, route }: Props) {
         </ScrollView>
       )}
 
-      {!isIndexLike ? (
+      {!isIndexLike && !stock.unavailable ? (
         <AlertSheet
           visible={alertOpen}
           symbol={stock.symbol}
@@ -571,6 +571,7 @@ export function StockDetailScreen({ navigation, route }: Props) {
               condition,
               price,
               enabled: true,
+              lastSeenPrice: stock.price > 0 ? stock.price : undefined,
             }).then(() => syncPriceAlertBackgroundTask());
           }}
         />

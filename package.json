@@ -43,6 +43,7 @@
     "android:dev": "APP_VARIANT=development expo run:android",
     "prebuild:dev": "APP_VARIANT=development expo prebuild --clean",
     "web": "expo start --web",
+    "test:alerts": "npx --yes tsx src/utils/priceAlertLogic.test.ts",
     "build:ios:dev": "eas build --platform ios --profile development",
     "build:ios:sim": "eas build --platform ios --profile development-simulator",
     "build:ios:testflight": "eas build --platform ios --profile production --auto-submit",

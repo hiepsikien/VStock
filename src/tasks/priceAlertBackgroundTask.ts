@@ -1,10 +1,11 @@
 import * as BackgroundTask from 'expo-background-task';
 import * as TaskManager from 'expo-task-manager';
 
-import { fetchWatchlist } from '../api/client';
+import { fetchLiveQuotes } from '../api/client';
 import { loadPriceAlerts } from '../storage/alerts';
 import { notificationsSupported, requestNotificationPermission } from '../utils/priceAlertNotify';
 import { processPriceAlerts } from '../utils/priceAlertEngine';
+import { isUsableQuotePrice } from '../utils/priceAlertLogic';
 
 export const PRICE_ALERT_BACKGROUND_TASK = 'vstock-price-alert-check';
 
@@ -21,12 +22,10 @@ TaskManager.defineTask(PRICE_ALERT_BACKGROUND_TASK, async () => {
     }
 
     const symbols = [...new Set(active.map((alert) => alert.symbol))];
-    const stocks = await fetchWatchlist(symbols);
-    const result = await processPriceAlerts(alerts, stocks);
+    const stocks = (await fetchLiveQuotes(symbols)).filter(isUsableQuotePrice);
+    await processPriceAlerts(alerts, stocks);
 
-    return result.triggered > 0
-      ? BackgroundTask.BackgroundTaskResult.Success
-      : BackgroundTask.BackgroundTaskResult.Success;
+    return BackgroundTask.BackgroundTaskResult.Success;
   } catch {
     return BackgroundTask.BackgroundTaskResult.Failed;
   }
@@ -37,23 +36,30 @@ const BACKGROUND_INTERVAL_MINUTES = 15;
 export async function syncPriceAlertBackgroundTask(): Promise<void> {
   if (!notificationsSupported()) return;
 
-  const registered = await TaskManager.isTaskRegisteredAsync(PRICE_ALERT_BACKGROUND_TASK);
-  const alerts = await loadPriceAlerts();
-  const hasActive = alerts.some((alert) => alert.enabled);
+  try {
+    const status = await BackgroundTask.getStatusAsync();
+    if (status !== BackgroundTask.BackgroundTaskStatus.Available) return;
 
-  if (hasActive) {
-    const granted = await requestNotificationPermission();
-    if (!granted) return;
+    const registered = await TaskManager.isTaskRegisteredAsync(PRICE_ALERT_BACKGROUND_TASK);
+    const alerts = await loadPriceAlerts();
+    const hasActive = alerts.some((alert) => alert.enabled);
 
-    if (!registered) {
-      await BackgroundTask.registerTaskAsync(PRICE_ALERT_BACKGROUND_TASK, {
-        minimumInterval: BACKGROUND_INTERVAL_MINUTES,
-      });
+    if (hasActive) {
+      const granted = await requestNotificationPermission();
+      if (!granted) return;
+
+      if (!registered) {
+        await BackgroundTask.registerTaskAsync(PRICE_ALERT_BACKGROUND_TASK, {
+          minimumInterval: BACKGROUND_INTERVAL_MINUTES,
+        });
+      }
+      return;
     }
-    return;
-  }
 
-  if (registered) {
-    await BackgroundTask.unregisterTaskAsync(PRICE_ALERT_BACKGROUND_TASK);
+    if (registered) {
+      await BackgroundTask.unregisterTaskAsync(PRICE_ALERT_BACKGROUND_TASK);
+    }
+  } catch {
+    /* native module missing (Expo Go / web) */
   }
 }

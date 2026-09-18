@@ -10,10 +10,17 @@ type Props = {
   alerts: PriceAlert[];
   onClose: () => void;
   onSave: (id: string, price: number) => Promise<void>;
+  onToggle: (id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 };
 
-export function ManageAlertsSheet({ visible, alerts, onClose, onSave, onDelete }: Props) {
+function statusLabel(alert: PriceAlert): string {
+  if (alert.enabled) return 'Đang bật';
+  if (alert.triggeredAt) return 'Đã báo · chạm để bật lại';
+  return 'Tắt · chạm để bật lại';
+}
+
+export function ManageAlertsSheet({ visible, alerts, onClose, onSave, onToggle, onDelete }: Props) {
   const keyboardInset = useKeyboardBottomInset();
   const scrollRef = useRef<ScrollView>(null);
   const rowOffsets = useRef<Record<string, number>>({});
@@ -23,7 +30,7 @@ export function ManageAlertsSheet({ visible, alerts, onClose, onSave, onDelete }
   useEffect(() => {
     if (!visible) return;
     setDrafts(
-      Object.fromEntries(alerts.map((alert) => [alert.id, String(alert.price)])),
+      Object.fromEntries(alerts.map((alert) => [alert.id, alert.price.toFixed(2)])),
     );
     setBusyId(null);
   }, [alerts, visible]);
@@ -69,12 +76,14 @@ export function ManageAlertsSheet({ visible, alerts, onClose, onSave, onDelete }
               contentContainerStyle={styles.list}
             >
               {ordered.map((alert) => {
-                const text = drafts[alert.id] ?? String(alert.price);
+                const text = drafts[alert.id] ?? alert.price.toFixed(2);
                 const parsed = Number.parseFloat(text.replace(',', '.'));
                 const valid = Number.isFinite(parsed) && parsed > 0;
                 const unchanged = valid && parsed === alert.price;
                 const saving = busyId === `save:${alert.id}`;
+                const toggling = busyId === `toggle:${alert.id}`;
                 const deleting = busyId === `delete:${alert.id}`;
+                const busy = saving || toggling || deleting;
 
                 return (
                   <View
@@ -88,7 +97,19 @@ export function ManageAlertsSheet({ visible, alerts, onClose, onSave, onDelete }
                       <Text style={styles.symbol}>
                         {alert.symbol} {alert.condition === 'above' ? '≥' : '≤'}
                       </Text>
-                      <Text style={styles.status}>{alert.enabled ? 'Đang bật' : 'Tắt'}</Text>
+                      <Pressable
+                        disabled={busy}
+                        onPress={() => {
+                          void Haptics.selectionAsync();
+                          setBusyId(`toggle:${alert.id}`);
+                          void onToggle(alert.id).finally(() => setBusyId(null));
+                        }}
+                        hitSlop={8}
+                      >
+                        <Text style={[styles.status, alert.enabled && styles.statusOn]}>
+                          {toggling ? 'Đang đổi…' : statusLabel(alert)}
+                        </Text>
+                      </Pressable>
                     </View>
 
                     <TextInput
@@ -108,7 +129,7 @@ export function ManageAlertsSheet({ visible, alerts, onClose, onSave, onDelete }
 
                     <View style={styles.actions}>
                       <Pressable
-                        disabled={!valid || unchanged || saving || deleting}
+                        disabled={!valid || unchanged || busy}
                         onPress={() => {
                           if (!valid) return;
                           void Haptics.selectionAsync();
@@ -117,19 +138,19 @@ export function ManageAlertsSheet({ visible, alerts, onClose, onSave, onDelete }
                         }}
                         style={[
                           styles.actionBtn,
-                          (!valid || unchanged || saving || deleting) && styles.actionBtnDisabled,
+                          (!valid || unchanged || busy) && styles.actionBtnDisabled,
                         ]}
                       >
                         <Text style={styles.actionText}>{saving ? 'Đang lưu…' : 'Lưu'}</Text>
                       </Pressable>
                       <Pressable
-                        disabled={saving || deleting}
+                        disabled={busy}
                         onPress={() => {
                           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
                           setBusyId(`delete:${alert.id}`);
                           void onDelete(alert.id).finally(() => setBusyId(null));
                         }}
-                        style={[styles.deleteBtn, (saving || deleting) && styles.actionBtnDisabled]}
+                        style={[styles.deleteBtn, busy && styles.actionBtnDisabled]}
                       >
                         <Text style={styles.deleteText}>{deleting ? 'Đang xoá…' : 'Xoá'}</Text>
                       </Pressable>
@@ -197,6 +218,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: spacing.sm,
   },
   symbol: {
     color: colors.text,
@@ -207,6 +229,11 @@ const styles = StyleSheet.create({
     color: colors.textTertiary,
     fontSize: 12,
     fontWeight: '600',
+    textAlign: 'right',
+    flexShrink: 1,
+  },
+  statusOn: {
+    color: colors.positive,
   },
   input: {
     backgroundColor: colors.surface,

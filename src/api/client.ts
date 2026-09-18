@@ -250,31 +250,6 @@ function toStock(dto: StockDetailDto, history?: Partial<Record<ChartRange, numbe
   };
 }
 
-export async function fetchWatchlist(symbols: string[] = DEFAULT_SYMBOLS): Promise<Stock[]> {
-  if (symbols.length === 0) return [];
-
-  const qs = symbols.join(',');
-  try {
-    const rows = await apiGet<WatchlistDto[]>(`/v1/watchlist?symbols=${encodeURIComponent(qs)}`);
-    const stocks = rows.map((row) =>
-      toStock({
-        ...row,
-        open: row.price,
-        high: row.price,
-        low: row.price,
-        marketCap: '—',
-        pe: null,
-      }),
-    );
-    await writeQuotesCache(stocks);
-    return stocks;
-  } catch (err) {
-    const stale = await readQuotesCacheStale(symbols);
-    if (stale?.items.length) return stale.items;
-    throw err;
-  }
-}
-
 async function fetchWatchlistNetwork(symbols: string[]): Promise<Stock[]> {
   if (symbols.length === 0) return [];
   const qs = symbols.join(',');
@@ -289,6 +264,26 @@ async function fetchWatchlistNetwork(symbols: string[]): Promise<Stock[]> {
       pe: null,
     }),
   );
+}
+
+/** Live quotes only — never falls back to stale cache. Used by price alerts. */
+export async function fetchLiveQuotes(symbols: string[]): Promise<Stock[]> {
+  if (symbols.length === 0) return [];
+  const stocks = await fetchWatchlistNetwork(symbols);
+  if (stocks.length) await writeQuotesCache(stocks);
+  return stocks;
+}
+
+export async function fetchWatchlist(symbols: string[] = DEFAULT_SYMBOLS): Promise<Stock[]> {
+  if (symbols.length === 0) return [];
+
+  try {
+    return await fetchLiveQuotes(symbols);
+  } catch (err) {
+    const stale = await readQuotesCacheStale(symbols);
+    if (stale?.items.length) return stale.items;
+    throw err;
+  }
 }
 
 /** Stale-while-revalidate for watchlist quotes. */

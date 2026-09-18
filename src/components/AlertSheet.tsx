@@ -4,6 +4,7 @@ import * as Haptics from 'expo-haptics';
 import { useKeyboardBottomInset } from '../hooks/useKeyboardBottomInset';
 import type { AlertCondition } from '../storage/alerts';
 import { alertDeliveryHint } from '../utils/priceAlertNotify';
+import { isPriceAlreadyThroughAlert } from '../utils/priceAlertLogic';
 import { colors, spacing, typography } from '../theme';
 
 type Props = {
@@ -17,14 +18,20 @@ type Props = {
 export function AlertSheet({ visible, symbol, currentPrice, onClose, onSave }: Props) {
   const keyboardInset = useKeyboardBottomInset();
   const [condition, setCondition] = React.useState<AlertCondition>('above');
-  const [priceText, setPriceText] = React.useState(String(currentPrice.toFixed(2)));
+  const [priceText, setPriceText] = React.useState('');
 
   React.useEffect(() => {
-    if (visible) setPriceText(String(currentPrice.toFixed(2)));
-  }, [visible, currentPrice]);
+    if (!visible) return;
+    setCondition('above');
+    setPriceText(currentPrice > 0 ? currentPrice.toFixed(2) : '');
+    // Snapshot currentPrice when the sheet opens; don't overwrite in-progress edits on live ticks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, symbol]);
 
   const price = parseFloat(priceText.replace(',', '.'));
-  const valid = Number.isFinite(price) && price > 0;
+  const hasLivePrice = Number.isFinite(currentPrice) && currentPrice > 0;
+  const valid = Number.isFinite(price) && price > 0 && hasLivePrice;
+  const alreadyThrough = valid && isPriceAlreadyThroughAlert(condition, price, currentPrice);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -32,7 +39,9 @@ export function AlertSheet({ visible, symbol, currentPrice, onClose, onSave }: P
         <Pressable style={styles.backdrop} onPress={onClose} />
         <View style={[styles.sheet, keyboardInset > 0 && { marginBottom: keyboardInset }]}>
           <Text style={styles.title}>Cảnh báo giá · {symbol}</Text>
-          <Text style={styles.subtitle}>Giá hiện tại: {currentPrice.toFixed(2)}</Text>
+          <Text style={styles.subtitle}>
+            {hasLivePrice ? `Giá hiện tại: ${currentPrice.toFixed(2)}` : 'Chưa có giá live để đặt cảnh báo'}
+          </Text>
           <Text style={styles.hint}>{alertDeliveryHint()}</Text>
 
           <View style={styles.row}>
@@ -60,6 +69,14 @@ export function AlertSheet({ visible, symbol, currentPrice, onClose, onSave }: P
             placeholderTextColor={colors.textTertiary}
             style={styles.input}
           />
+
+          {alreadyThrough ? (
+            <Text style={styles.warn}>
+              {currentPrice === price
+                ? 'Giá đang đúng mức này. Cảnh báo sẽ báo khi giá cắt qua, không báo ngay.'
+                : 'Giá hiện tại đã qua mức này. Cảnh báo sẽ chờ giá cắt lại từ phía còn lại.'}
+            </Text>
+          ) : null}
 
           <Pressable
             disabled={!valid}
@@ -113,6 +130,13 @@ const styles = StyleSheet.create({
     color: colors.textTertiary,
     lineHeight: 17,
     marginTop: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  warn: {
+    fontSize: 12,
+    color: colors.accent,
+    lineHeight: 17,
+    marginTop: -spacing.md,
     marginBottom: spacing.lg,
   },
   row: {

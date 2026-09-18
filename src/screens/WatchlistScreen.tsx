@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   Pressable,
   RefreshControl,
   SectionList,
@@ -273,6 +274,8 @@ export function WatchlistScreen({ navigation }: Props) {
     useCallback(() => {
       if (!initialWatchlistLoadDone.current) return;
 
+      void reloadAlerts();
+
       let cancelled = false;
       void (async () => {
         const state = await loadWatchlistsState();
@@ -286,7 +289,7 @@ export function WatchlistScreen({ navigation }: Props) {
       return () => {
         cancelled = true;
       };
-    }, [switchToWatchlist]),
+    }, [reloadAlerts, switchToWatchlist]),
   );
 
   useEffect(() => {
@@ -337,7 +340,10 @@ export function WatchlistScreen({ navigation }: Props) {
     false,
   );
 
-  usePriceAlerts(stocks, !inSearchMode && !bootstrapping);
+  usePriceAlerts(
+    stocks,
+    !inSearchMode && !bootstrapping && !usingFallback && !usingOfflineCache,
+  );
 
   const watchlistSet = useMemo(() => new Set(symbolList), [symbolList]);
   const stats = useMemo(() => watchlistStats(stocks), [stocks]);
@@ -436,7 +442,20 @@ export function WatchlistScreen({ navigation }: Props) {
     [applyWatchlistState],
   );
 
+  const livePriceForSymbol = useCallback(
+    (symbol: string): number | undefined => {
+      const live = stocks.find((s) => s.symbol === symbol);
+      if (!live || live.unavailable || !(live.price > 0)) return undefined;
+      return live.price;
+    },
+    [stocks],
+  );
+
   const onAlert = useCallback((stock: Stock) => {
+    if (stock.unavailable || !(stock.price > 0)) {
+      Alert.alert('Chưa có giá', 'Không đặt cảnh báo khi mã chưa có dữ liệu live.');
+      return;
+    }
     setAlertStock(stock);
   }, []);
 
@@ -447,9 +466,10 @@ export function WatchlistScreen({ navigation }: Props) {
       condition,
       price,
       enabled: true,
+      lastSeenPrice: livePriceForSymbol(alertStock.symbol) ?? (alertStock.price > 0 ? alertStock.price : undefined),
     });
     await reloadAlerts();
-  }, [alertStock, reloadAlerts]);
+  }, [alertStock, livePriceForSymbol, reloadAlerts]);
 
   const onUpdateAlertValue = useCallback(async (id: string, price: number) => {
     const current = alerts.find((a) => a.id === id);
@@ -459,10 +479,27 @@ export function WatchlistScreen({ navigation }: Props) {
       symbol: current.symbol,
       condition: current.condition,
       price,
-      enabled: current.enabled,
+      enabled: true,
+      lastSeenPrice: livePriceForSymbol(current.symbol),
     });
     await reloadAlerts();
-  }, [alerts, reloadAlerts]);
+  }, [alerts, livePriceForSymbol, reloadAlerts]);
+
+  const onToggleAlert = useCallback(async (id: string) => {
+    const current = alerts.find((a) => a.id === id);
+    if (!current) return;
+    const enabling = !current.enabled;
+    await upsertPriceAlert({
+      id: current.id,
+      symbol: current.symbol,
+      condition: current.condition,
+      price: current.price,
+      enabled: enabling,
+      lastSeenPrice: enabling ? livePriceForSymbol(current.symbol) : current.lastSeenPrice,
+      triggeredAt: enabling ? undefined : current.triggeredAt,
+    });
+    await reloadAlerts();
+  }, [alerts, livePriceForSymbol, reloadAlerts]);
 
   const onDeleteAlert = useCallback(async (id: string) => {
     await removePriceAlert(id);
@@ -863,6 +900,7 @@ export function WatchlistScreen({ navigation }: Props) {
         }}
         onManageAlerts={() => {
           setMenuVisible(false);
+          void reloadAlerts();
           setManageAlertsVisible(true);
         }}
         onSystemHealth={() => {
@@ -885,6 +923,7 @@ export function WatchlistScreen({ navigation }: Props) {
         alerts={alerts}
         onClose={() => setManageAlertsVisible(false)}
         onSave={onUpdateAlertValue}
+        onToggle={onToggleAlert}
         onDelete={onDeleteAlert}
       />
     </View>
