@@ -22,9 +22,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       usesNonExemptEncryption: false,
     },
     infoPlist: {
-      NSAppTransportSecurity: {
-        NSAllowsArbitraryLoads: true,
-      },
       UIBackgroundModes: ['processing'],
     },
   },
