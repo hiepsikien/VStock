@@ -1,7 +1,9 @@
 # VStock — Bộ Test Bank
 
 > Tài liệu kiểm thử thủ công (manual QA) và tham chiếu test tự động cho toàn bộ tính năng app VStock.  
-> Cập nhật: 2026-09-18
+> Cập nhật: 2026-09-18 (đối chiếu code sau merge `main`: background alerts PR #5/#8)
+
+Copy UI, hướng swipe, path API và expected dưới đây khớp implementation hiện tại. Tester chạy theo đúng chữ trên màn hình — không suy diễn “bell”, “Biến động”, hay path REST cũ.
 
 ---
 
@@ -35,15 +37,20 @@ Kiểm tra nhanh: `curl http://localhost:8000/health` → `200`.
 ```bash
 cp .env.example .env
 # Simulator: EXPO_PUBLIC_API_URL=http://localhost:8000
-# Device thật: EXPO_PUBLIC_API_URL=http://<LAN-IP>:8000
+# Device thật (LAN): EXPO_PUBLIC_API_URL=http://<LAN-IP>:8000
 npm start
 ```
 
 | Biến môi trường | Ghi chú |
 |-----------------|---------|
-| `EXPO_PUBLIC_API_URL` | URL backend |
-| `GEMINI_API_KEY` (backend) | Bắt buộc cho Companion chat live |
-| `APP_VARIANT=development` | Dev client cho background alerts |
+| `EXPO_PUBLIC_API_URL` | URL backend (dòng active trong `.env.example`) |
+| `EXPO_PUBLIC_DEVICE_API_URL` | Optional — device thật khi Metro tunnel; không bắt buộc nếu đã set LAN IP |
+| `GEMINI_API_KEY` | Backend process env (không phải Expo `.env`) — bắt buộc cho Companion chat live |
+| `APP_VARIANT=development` | **Process env** cho script/EAS (`npm run start:dev`, `ios:dev`, …) — **không** có trong `.env.example` |
+
+**Android emulator:** client tự rewrite `localhost` → `http://10.0.2.2:8000`. Không cần set tay `10.0.2.2` trừ khi muốn override.
+
+**Dev client (background alerts):** `APP_VARIANT=development npm run start:dev` (hoặc `ios:dev` / `android:dev`). Expo Go chỉ test logic + in-app `Alert`.
 
 ### 2.3. Thiết bị khuyến nghị
 
@@ -51,7 +58,7 @@ npm start
 |---|----------|-------|
 | 1 | iOS Simulator | Luồng cơ bản, localhost |
 | 2 | iPhone thật (dev build) | Push notification / background alerts |
-| 3 | Android emulator hoặc device | `10.0.2.2` / LAN IP |
+| 3 | Android emulator hoặc device | Emulator dùng `10.0.2.2` tự động; device dùng LAN IP |
 
 ### 2.4. Dữ liệu test chuẩn
 
@@ -59,19 +66,20 @@ npm start
 |------|---------|---------|
 | Mã HOSE phổ biến | `FPT`, `VNM`, `VCB`, `HPG` | Có quote + fundamentals |
 | Mã biến động | Tuỳ phiên | Dùng khi test sort / nudge |
-| Chỉ số | `VNINDEX`, `HNX` | Detail dạng index |
-| Hàng hóa | `XAU`, `WTI` | Chart USD, poll ngoài phiên VN |
-| Tìm kiếm | `fpt`, `FPT`, `Vinamilk` | Case-insensitive / tên công ty |
-| Mã không tồn tại | `ZZZZZ` | Lỗi / empty |
-| Watchlist mặc định | Theo `DEFAULT_SYMBOLS` trong client | Sau cài mới |
+| Chỉ số | `VNINDEX`, `HNX` | Detail dạng index-like |
+| Hàng hóa | `XAU`, `WTI` | Strip label **Vàng** / **Dầu**; Detail USD, index-like (không nút cảnh báo) |
+| Tìm kiếm | `fpt`, `FPT`, `Vinamilk` | Case-insensitive / tên công ty — dùng FAB **+** (add mode) |
+| Mã không tồn tại | `ZZZZZ` | Empty / 404 |
+| Watchlist mặc định | `VNM`, `FPT`, `VIC`, `HPG`, `MWG`, `VCB`, `TCB`, `MBB`, `GAS`, `MSN` | `DEFAULT_SYMBOLS` sau cài mới |
 
 ### 2.5. Phiên giao dịch (VN)
 
 | Khung giờ | Hành vi mong đợi |
 |-----------|------------------|
-| **Trong phiên** (T2–T6, 9:00–11:30 & 13:00–14:45) | Poll quotes ~30s khi màn hình focus |
-| **Ngoài phiên** | Không poll tự động; pull-to-refresh vẫn hoạt động |
-| Label phiên | Hiển thị trạng thái (vd. "Đang giao dịch" / "Nghỉ trưa") |
+| **Trong phiên** (T2–T6, 9:00–11:30 & 13:00–14:45, `Asia/Ho_Chi_Minh`) | Poll quotes ~30s khi màn hình focus |
+| **Ngoài phiên** | Watchlist **không** poll tự động; pull-to-refresh vẫn fetch. Detail hàng hóa (XAU/WTI) vẫn poll |
+| Label phiên (client) | `đang giao dịch` / `ngoài giờ` (`marketSessionLabel`) |
+| Strip Watchlist | Trong phiên: **`Live · 30s`**. Ngoài phiên: **`ngoài giờ`**. Cache/fallback: **`Offline`**. Không có label “Nghỉ trưa” |
 
 ---
 
@@ -93,7 +101,7 @@ npm start
 | Health / API | ✓ | | |
 | Offline / cache | | ✓ | ✓ |
 
-\* P0 trên dev build có notification; Expo Go = logic only.  
+\* P0 trên dev build có notification; Expo Go = logic + in-app Alert.  
 \** P0 khi `GEMINI_API_KEY` đã cấu hình trên server.
 
 ---
@@ -106,7 +114,7 @@ npm start
 | **Priority** | P0 |
 | **Precondition** | Cài app mới / xóa data app |
 | **Steps** | 1. Mở app lần đầu<br>2. Chờ load xong |
-| **Expected** | Hiển thị watchlist mặc định; VN-Index/HNX strip; giá + % thay đổi; sparkline; không crash |
+| **Expected** | Watchlist mặc định (`VNM`…`MSN`); strip VNINDEX / HNX / Vàng / Dầu; giá + % thay đổi; sparkline; không crash |
 
 ### VS-WL-002 — Pull to refresh
 | | |
@@ -121,7 +129,7 @@ npm start
 | **Priority** | P1 |
 | **Precondition** | Trong phiên giao dịch, màn Watchlist đang focus |
 | **Steps** | Giữ màn ~1 phút, quan sát giá |
-| **Expected** | Giá/sparkline cập nhật định kỳ (~30s); label phiên "live" |
+| **Expected** | Giá/sparkline cập nhật định kỳ (~30s); strip hiện **`Live · 30s`** |
 
 ### VS-WL-004 — Không poll ngoài phiên
 | | |
@@ -129,84 +137,84 @@ npm start
 | **Priority** | P1 |
 | **Precondition** | Ngoài giờ giao dịch |
 | **Steps** | Giữ màn 2 phút không refresh |
-| **Expected** | Giá không tự đổi; pull-to-refresh vẫn fetch được |
+| **Expected** | Giá watchlist không tự đổi; strip **`ngoài giờ`** (hoặc `Offline` nếu cache); pull-to-refresh vẫn fetch được |
 
 ### VS-WL-005 — Chỉ số thị trường (VNINDEX / HNX)
 | | |
 |---|---|
 | **Priority** | P1 |
-| **Steps** | Tap chip VN-Index hoặc HNX trên summary strip |
-| **Expected** | Navigate Detail; chart + OHLC; không có nút cảnh báo giá |
+| **Steps** | Tap chip VNINDEX hoặc HNX trên summary strip |
+| **Expected** | Navigate Detail; chart + OHLC; **không** có nút `Cảnh báo` |
 
 ### VS-WL-006 — Hàng hóa (XAU / WTI)
 | | |
 |---|---|
 | **Priority** | P2 |
-| **Steps** | Tap XAU hoặc WTI trên strip |
-| **Expected** | Detail với giá USD; chart load; poll ngay cả ngoài phiên VN |
+| **Steps** | Tap chip **Vàng** (`XAU`) hoặc **Dầu** (`WTI`) trên strip |
+| **Expected** | Detail giá `$`; chart load; **không** có nút `Cảnh báo` (index-like). Trên Detail, quote/chart 1D **poll cả ngoài phiên VN**. Strip Watchlist **không** poll hàng hóa độc lập ngoài phiên — chỉ refresh cùng poll watchlist / pull-to-refresh |
 
-### VS-WL-007 — Sort theo biến động
+### VS-WL-007 — Sort theo % thay đổi
 | | |
 |---|---|
 | **Priority** | P1 |
-| **Steps** | Chọn sort "Biến động" (mặc định) |
-| **Expected** | Section "Tăng giá" / "Giảm giá" / "Đi ngang"; mã ghim ở section "Đã ghim" |
+| **Steps** | Chọn chip sort **`% Thay đổi`** (mặc định) |
+| **Expected** | Section **Tăng giá** / **Giảm giá** / **Đi ngang**; mã ghim ở **Đã ghim** |
 
 ### VS-WL-008 — Sort theo mã
 | | |
 |---|---|
 | **Priority** | P2 |
-| **Steps** | Chọn sort "Mã" |
-| **Expected** | Danh sách A→Z; ghim vẫn lên đầu |
+| **Steps** | Chọn chip sort **`Mã`** |
+| **Expected** | Một section **Danh sách theo dõi**; ghim lên đầu, phần còn lại A→Z |
 
-### VS-WL-009 — Ghim mã (swipe trái)
+### VS-WL-009 — Ghim mã (vuốt phải)
 | | |
 |---|---|
 | **Priority** | P1 |
-| **Steps** | Swipe trái trên một dòng → "Ghim" |
-| **Expected** | Mã lên section "Đã ghim"; swipe lại → "Bỏ ghim" hoạt động |
+| **Steps** | Vuốt **phải** trên một dòng → **Ghim** |
+| **Expected** | Mã lên section **Đã ghim**; vuốt phải lại → **Bỏ ghim** hoạt động |
 
-### VS-WL-010 — Cảnh báo từ swipe (swipe phải)
+### VS-WL-010 — Cảnh báo từ swipe (vuốt trái)
 | | |
 |---|---|
 | **Priority** | P1 |
-| **Steps** | Swipe phải → "Cảnh báo" |
-| **Expected** | Mở AlertSheet với giá hiện tại; lưu được alert |
+| **Steps** | Vuốt **trái** → **Cảnh báo** |
+| **Expected** | Mở AlertSheet với giá hiện tại; điều kiện **Trên mức** / **Dưới mức**; lưu được alert |
 
-### VS-WL-011 — Xóa mã (swipe phải)
+### VS-WL-011 — Xóa mã (vuốt trái)
 | | |
 |---|---|
 | **Priority** | P1 |
-| **Steps** | Swipe phải → "Xóa" |
+| **Steps** | Vuốt **trái** → **Xóa** |
 | **Expected** | Mã biến mất khỏi list active; persist sau kill app |
 
 ### VS-WL-012 — Chế độ sửa (edit)
 | | |
 |---|---|
 | **Priority** | P2 |
-| **Steps** | Bật edit mode từ summary/header |
-| **Expected** | UI edit; xóa mã bằng nút − hoạt động |
+| **Steps** | Tap **Sửa** trên hàng sort chips (đổi thành **Xong** khi đang edit) |
+| **Expected** | UI edit; xóa mã bằng nút **−** hoạt động |
 
-### VS-WL-013 — Tìm kiếm thêm mã
+### VS-WL-013 — Thêm mã (FAB +)
 | | |
 |---|---|
 | **Priority** | P0 |
-| **Steps** | 1. Tap ⌕ (tìm)<br>2. Gõ `FPT`<br>3. Tap kết quả để thêm |
-| **Expected** | Kết quả search hiện tên + sàn; tap toggle thêm/bỏ; list cập nhật |
+| **Steps** | 1. Tap FAB **`+`** (góc phải)<br>2. Placeholder **Thêm mã từ HOSE / HNX…**<br>3. Gõ `FPT`<br>4. Tap kết quả để thêm |
+| **Expected** | Kết quả hiện tên + sàn; hint `N kết quả · chạm + để thêm`; tap thêm/bỏ; list cập nhật |
 
 ### VS-WL-014 — Tìm kiếm theo tên công ty
 | | |
 |---|---|
 | **Priority** | P1 |
-| **Steps** | Gõ `Vinamilk` hoặc `FPT` (chữ thường) |
+| **Steps** | FAB **+** → gõ `Vinamilk` hoặc `fpt` (chữ thường) |
 | **Expected** | Trả về `VNM` / `FPT` tương ứng |
 
 ### VS-WL-015 — Tìm mã không tồn tại
 | | |
 |---|---|
 | **Priority** | P2 |
-| **Steps** | Gõ `ZZZZZ` |
-| **Expected** | Empty state / không crash |
+| **Steps** | FAB **+** → gõ `ZZZZZ` |
+| **Expected** | 0 kết quả / không crash |
 
 ### VS-WL-016 — Mở chi tiết mã
 | | |
@@ -220,43 +228,43 @@ npm start
 |---|---|
 | **Priority** | P1 |
 | **Steps** | Scroll tới section tin; tap một bài |
-| **Expected** | Mở in-app browser nếu có URL; hoặc Detail mã liên quan |
+| **Expected** | Mở in-app browser nếu có URL; hoặc Detail mã liên quan nếu không URL nhưng có `symbols` |
 
-### VS-WL-018 — "Xem tất cả tin"
+### VS-WL-018 — "Xem tất cả"
 | | |
 |---|---|
 | **Priority** | P1 |
-| **Steps** | Tap link sang màn News |
-| **Expected** | Navigate News với animation slide |
+| **Steps** | Tap link **Xem tất cả** sang màn News |
+| **Expected** | Navigate News với animation `slide_from_right` |
 
 ### VS-WL-019 — Nhiều watchlist — tạo mới
 | | |
 |---|---|
 | **Priority** | P1 |
-| **Steps** | Menu ⋯ → Quản lý danh sách → Tạo list mới |
-| **Expected** | List mới xuất hiện trên picker; có thể đặt tên |
+| **Steps** | Menu ⋯ → **Quản lý danh sách** → Tạo list mới |
+| **Expected** | List mới xuất hiện trên picker; tên mặc định dạng `Danh sách N`; có thể đặt tên |
 
 ### VS-WL-020 — Chuyển watchlist active
 | | |
 |---|---|
 | **Priority** | P1 |
 | **Steps** | Tap chip watchlist khác trên picker |
-| **Expected** | Symbol list + giá đổi theo list; activeId persist |
+| **Expected** | Symbol list + giá đổi theo list; `activeId` persist |
 
 ### VS-WL-021 — Đổi tên / xóa watchlist
 | | |
 |---|---|
 | **Priority** | P2 |
 | **Steps** | Quản lý danh sách → rename / delete |
-| **Expected** | Rename hiển thị ngay; delete chuyển sang list còn lại (không xóa list cuối?) |
+| **Expected** | Rename hiển thị ngay. Delete list đang active → chuyển sang list còn lại (`lists[0]`). **Không xóa được list cuối** (`lists.length <= 1` bị chặn; UI ẩn nút xóa) |
 
 ### VS-WL-022 — Banner API lỗi
 | | |
 |---|---|
 | **Priority** | P1 |
-| **Precondition** | Tắt backend hoặc sai `EXPO_PUBLIC_API_URL` |
+| **Precondition** | Tắt backend hoặc sai `EXPO_PUBLIC_API_URL`; chưa có cache |
 | **Steps** | Mở Watchlist |
-| **Expected** | Banner lỗi + nút "Thử lại"; fallback data mẫu nếu chưa từng fetch OK |
+| **Expected** | Banner **Không kết nối được máy chủ — đang hiển thị dữ liệu mẫu** + **Thử lại**; fallback `FALLBACK_WATCHLIST` |
 
 ### VS-WL-023 — Offline cache
 | | |
@@ -264,15 +272,22 @@ npm start
 | **Priority** | P1 |
 | **Precondition** | Đã load thành công ít nhất 1 lần |
 | **Steps** | Ngắt mạng → mở lại Watchlist |
-| **Expected** | Banner "Dữ liệu đã lưu · cập nhật …"; hiển thị cache |
+| **Expected** | Banner **Dữ liệu đã lưu · cập nhật …**; hiển thị cache |
 
 ### VS-WL-024 — Cảnh báo khi mã chưa có giá
 | | |
 |---|---|
 | **Priority** | P2 |
 | **Precondition** | Mã `unavailable` hoặc price = 0 |
-| **Steps** | Swipe → Cảnh báo |
-| **Expected** | Alert "Chưa có giá" — không mở sheet |
+| **Steps** | Vuốt trái → **Cảnh báo** |
+| **Expected** | `Alert.alert('Chưa có giá', 'Không đặt cảnh báo khi mã chưa có dữ liệu live.')` — không mở sheet |
+
+### VS-WL-025 — Lọc list hiện tại (header ⌕)
+| | |
+|---|---|
+| **Priority** | P1 |
+| **Steps** | 1. Tap ⌕ trên header (label: Tìm trong danh sách)<br>2. Placeholder **Lọc danh sách theo dõi…**<br>3. Gõ prefix một mã đang có trong list |
+| **Expected** | Chỉ lọc list hiện tại — **không** mở search toàn thị trường / không thêm mã mới. Huỷ đóng ô lọc |
 
 ---
 
@@ -300,53 +315,53 @@ npm start
 | **Steps** | Giữ Detail ~6 phút |
 | **Expected** | Chart 1D refresh ~5 phút |
 
-### VS-DTL-004 — Recent symbols
+### VS-DTL-004 — Recent symbols (chưa có UI)
 | | |
 |---|---|
 | **Priority** | P2 |
 | **Steps** | Mở 3 mã khác nhau → quay Watchlist / mở lại Detail |
-| **Expected** | Row "Gần đây" hiện các mã vừa xem |
+| **Expected** | **Không** có row “Gần đây” / “Xem gần đây” trên UI (`RecentSymbolsRow` chưa mount). App không crash. Storage `vstock.recent.symbols` vẫn ghi (tối đa 10) — backlog UI, **không file bug thiếu row** |
 
 ### VS-DTL-005 — Tin theo mã
 | | |
 |---|---|
 | **Priority** | P1 |
 | **Steps** | Scroll tin trên Detail; tap bài |
-| **Expected** | Browser mở URL; không crash khi thiếu URL |
+| **Expected** | In-app browser (page sheet) nếu có URL; không crash khi thiếu URL |
 
 ### VS-DTL-006 — Đặt cảnh báo từ Detail
 | | |
 |---|---|
 | **Priority** | P1 |
-| **Steps** | Tap nút cảnh báo (bell) → chọn above/below + giá → Lưu |
-| **Expected** | Alert lưu AsyncStorage; hiện trong Quản lý cảnh báo |
+| **Steps** | Tap nút text **Cảnh báo** (không phải icon bell) → chọn **Trên mức** / **Dưới mức** + giá → Lưu |
+| **Expected** | Alert lưu AsyncStorage; hiện trong **Quản lý cảnh báo**; `lastSeenPrice` gắn giá live lúc lưu |
 
 ### VS-DTL-007 — Detail chỉ số VNINDEX
 | | |
 |---|---|
 | **Priority** | P1 |
 | **Steps** | Mở `VNINDEX` |
-| **Expected** | Stats Mở/Cao/Thấp/Đóng; **không** có P/E; **không** bell alert |
+| **Expected** | Stats Mở/Cao/Thấp/Đóng; **không** P/E / KQKD; **không** nút `Cảnh báo` |
 
 ### VS-DTL-008 — Detail hàng hóa XAU
 | | |
 |---|---|
 | **Priority** | P2 |
-| **Steps** | Mở `XAU` |
-| **Expected** | Giá `$`; poll ngoài phiên VN |
+| **Steps** | Mở `XAU` (từ chip Vàng) |
+| **Expected** | Giá `$`; poll ngoài phiên VN; OHLC-only (index-like); **không** nút `Cảnh báo`, **không** P/E / KQKD. WTI tương tự |
 
 ### VS-DTL-009 — KQKD / income block
 | | |
 |---|---|
 | **Priority** | P2 |
-| **Steps** | Mở mã có income (vd. FPT, VNM) |
-| **Expected** | Block doanh thu / lợi nhuận hiển thị số hoặc "—" nếu thiếu data |
+| **Steps** | Mở mã cổ phiếu có income (vd. FPT, VNM) |
+| **Expected** | Heading **Kết quả kinh doanh**; Doanh thu / LNST hiện số hoặc **—** nếu thiếu data |
 
 ### VS-DTL-010 — Back navigation
 | | |
 |---|---|
 | **Priority** | P0 |
-| **Steps** | Tap ← Quay lại |
+| **Steps** | Tap **‹ Watchlist** |
 | **Expected** | Về Watchlist; state watchlist giữ nguyên |
 
 ### VS-DTL-011 — Offline cache detail
@@ -354,7 +369,7 @@ npm start
 |---|---|
 | **Priority** | P1 |
 | **Steps** | Load FPT online → offline → mở lại FPT |
-| **Expected** | Cache detail + banner tuổi cache |
+| **Expected** | Cache detail + banner **Dữ liệu đã lưu · cập nhật …** |
 
 ---
 
@@ -364,14 +379,14 @@ npm start
 | | |
 |---|---|
 | **Priority** | P1 |
-| **Steps** | Mở News từ Watchlist |
+| **Steps** | Mở News từ Watchlist (**Xem tất cả**) |
 | **Expected** | Danh sách tin load; skeleton biến mất |
 
 ### VS-NEWS-002 — Filter chips
 | | |
 |---|---|
 | **Priority** | P1 |
-| **Steps** | Lần lượt chọn: Tất cả, Chứng khoán, Kinh tế, Doanh nghiệp, Vàng & hàng hóa, BĐS, Công bố |
+| **Steps** | Lần lượt chọn: **Tất cả**, **Chứng khoán**, **Kinh tế**, **Doanh nghiệp**, **Vàng · HH**, **BĐS**, **Công bố** |
 | **Expected** | List lọc đúng category; haptic khi đổi filter |
 
 ### VS-NEWS-003 — Pull to refresh
@@ -400,27 +415,33 @@ npm start
 | | |
 |---|---|
 | **Priority** | P0 |
-| **Steps** | ← Quay lại |
+| **Steps** | Tap **‹ Theo dõi** |
 | **Expected** | Về Watchlist |
 
 ---
 
 ## 7. Test cases — Cảnh báo giá (Price Alerts)
 
-> **Lưu ý:** Background push cần **EAS dev build** (`docs/EAS-DEV-BUILD.md`). Expo Go chỉ test logic + UI.
+> **Lưu ý:** Background push cần **EAS dev build** (`docs/EAS-DEV-BUILD.md`). Expo Go: in-app `Alert` khi app **active**; **không** local push.
+
+Hai đường background (dev build):
+1. **AppState** — `useBackgroundPriceAlerts`: khi rời foreground (`next === 'background'`, gồm iOS `inactive → background`) chạy một pass `runPriceAlertCheck` ngay.
+2. **OS background task** — `PRICE_ALERT_BACKGROUND_TASK`, `minimumInterval: 15` phút, chỉ khi có alert enabled + notification permission.
+
+Android channel: `channelId = price-alerts`, tên **Cảnh báo giá**.
 
 ### VS-ALT-001 — Tạo alert "trên" (above)
 | | |
 |---|---|
 | **Priority** | P0 |
-| **Steps** | Đặt alert FPT above giá = giá hiện tại + 5% |
-| **Expected** | Lưu thành công; hiện trong sheet Quản lý cảnh báo |
+| **Steps** | Đặt alert FPT **Trên mức** = giá hiện tại + 5% |
+| **Expected** | Lưu thành công; hiện trong sheet **Quản lý cảnh báo** |
 
 ### VS-ALT-002 — Tạo alert "dưới" (below)
 | | |
 |---|---|
 | **Priority** | P0 |
-| **Steps** | Đặt alert below giá −5% |
+| **Steps** | Đặt alert **Dưới mức** giá −5% |
 | **Expected** | Lưu OK |
 
 ### VS-ALT-003 — Bật / tắt alert
@@ -430,12 +451,12 @@ npm start
 | **Steps** | Toggle enabled trong ManageAlertsSheet |
 | **Expected** | Trạng thái persist; tắt = không trigger |
 
-### VS-ALT-004 — Sửa ngưỡng giá
+### VS-ALT-004 — Sửa ngưỡng / bật lại (re-arm)
 | | |
 |---|---|
 | **Priority** | P1 |
-| **Steps** | Đổi price threshold |
-| **Expected** | `lastSeenPrice` reset khi bật lại (arming lại) |
+| **Steps** | 1. Đổi price threshold và lưu<br>2. Tắt rồi bật lại alert |
+| **Expected** | Cả hai thao tác **re-arm** `lastSeenPrice` từ giá live hiện tại (không fire ngay nếu giá đã qua ngưỡng) |
 
 ### VS-ALT-005 — Xóa alert
 | | |
@@ -449,30 +470,45 @@ npm start
 |---|---|
 | **Priority** | P1 |
 | **Precondition** | Alert above với ngưỡng gần giá thị trường |
-| **Steps** | Poll giá cho đến khi vượt ngưỡng |
-| **Expected** | Notification / in-app feedback (tuỳ build) |
+| **Steps** | Poll giá cho đến khi **cắt qua** ngưỡng (từ phía còn lại) |
+| **Expected** | Dev build: local notification. Expo Go + app active: in-app `Alert` (`Cảnh báo {symbol}`) |
 
-### VS-ALT-007 — Trigger background (dev build)
+### VS-ALT-007 — Trigger khi đưa app ra background (dev build)
 | | |
 |---|---|
 | **Priority** | P0* |
-| **Precondition** | Dev build + quyền notification |
-| **Steps** | Đặt alert → đưa app background → chờ giá cross |
-| **Expected** | Local push notification |
+| **Precondition** | Dev build + quyền notification; alert gần cross |
+| **Steps** | Đặt alert → đưa app **background** (iOS: home / app switcher, đi qua `inactive` rồi `background`) → chờ giá cross **hoặc** cross sẵn rồi background ngay |
+| **Expected** | Pass AppState chạy ngay khi vào `background` → local push nếu đủ điều kiện cross. Không phụ thuộc đợi 15 phút |
 
 ### VS-ALT-008 — Không trigger khi đã qua ngưỡng lúc tạo
 | | |
 |---|---|
 | **Priority** | P1 |
-| **Steps** | Tạo alert above với giá **thấp hơn** giá hiện tại |
-| **Expected** | Không fire ngay; chờ uptick từ dưới lên |
+| **Steps** | Tạo alert **Trên mức** với giá **thấp hơn** giá hiện tại |
+| **Expected** | Không fire ngay. Sheet cảnh báo: *Giá hiện tại đã qua mức này. Cảnh báo sẽ chờ giá cắt lại từ phía còn lại.* (đúng mức: *Giá đang đúng mức này. Cảnh báo sẽ báo khi giá cắt qua, không báo ngay.*) |
 
 ### VS-ALT-009 — Menu Quản lý cảnh báo
 | | |
 |---|---|
 | **Priority** | P1 |
-| **Steps** | Watchlist ⋯ → Quản lý cảnh báo |
+| **Steps** | Watchlist ⋯ → **Quản lý cảnh báo** |
 | **Expected** | Sheet liệt kê tất cả alerts |
+
+### VS-ALT-010 — Background task 15 phút (dev build)
+| | |
+|---|---|
+| **Priority** | P1 |
+| **Precondition** | Dev build, có ≥1 alert enabled, đã cấp notification |
+| **Steps** | Để app bị OS suspend lâu (không chỉ AppState mới rời foreground) |
+| **Expected** | Task `vstock-price-alert-check` có thể chạy theo `minimumInterval` 15 phút. Không alert enabled → task unregister |
+
+### VS-ALT-011 — Delivery: Expo Go vs native vs Android channel
+| | |
+|---|---|
+| **Priority** | P1 |
+| **Steps** | So sánh cùng alert trên Expo Go và EAS dev build (iOS + Android) |
+| **Expected** | Expo Go: **không** push, chỉ in-app Alert khi active. Dev build: native notification. Android: channel **Cảnh báo giá** (`price-alerts`) |
 
 ---
 
@@ -484,14 +520,14 @@ npm start
 | | |
 |---|---|
 | **Priority** | P0 |
-| **Steps** | Tap FAB Vy góc màn hình |
-| **Expected** | Modal CompanionChat slide từ dưới; greeting lần đầu |
+| **Steps** | Tap FAB Vy **góc trái** (FAB **+** ở góc phải) |
+| **Expected** | Modal CompanionChat `slide_from_bottom`; greeting lần đầu |
 
 ### VS-CMP-002 — Welcome back
 | | |
 |---|---|
 | **Priority** | P2 |
-| **Precondition** | Đã chat trước đó; đóng app > gap (WELCOME_BACK_GAP) |
+| **Precondition** | Đã chat trước đó; đóng app > **8 giờ** (`WELCOME_BACK_GAP_MS`) |
 | **Steps** | Mở lại chat |
 | **Expected** | Bubble welcome back thay vì greeting mới |
 
@@ -500,13 +536,13 @@ npm start
 |---|---|
 | **Priority** | P0 |
 | **Steps** | Nhập "Xin chào" → Gửi |
-| **Expected** | Presence: reading → fetching → typing; reply stream/reveal; không crash |
+| **Expected** | Presence lần lượt **đang đọc…** → **đang lấy giá…** → **đang gõ…** (idle: **đang online**); reply stream/reveal; không crash |
 
-### VS-CMP-004 — 5 câu hỏi lõi (quick chips)
+### VS-CMP-004 — 5 câu hỏi lõi (gõ tay)
 | | |
 |---|---|
 | **Priority** | P0 |
-| **Steps** | Tap lần lượt các chip gợi ý:<br>• Watchlist hôm nay thế nào?<br>• Tại sao {mã} biến động?<br>• Tin đáng chú ý?<br>• {mã} định giá / KQKD?<br>• Nên giữ hay gỡ mã nào? |
+| **Steps** | **Gõ tay** lần lượt (chat **không** render quick-suggestion chips — backend có `suggestions` tối đa 4 nhưng UI chưa dùng):<br>• Watchlist hôm nay thế nào?<br>• Tại sao {mã} biến động?<br>• Tin đáng chú ý?<br>• {mã} định giá / KQKD?<br>• Nên giữ hay gỡ mã nào? |
 | **Expected** | Vy trả lời có context thị trường; không bịa số khi thiếu data; không khuyến nghị mua/bán cứng |
 
 ### VS-CMP-005 — Nudge trên Watchlist
@@ -514,8 +550,8 @@ npm start
 |---|---|
 | **Priority** | P1 |
 | **Precondition** | Có biến động watchlist / recall event |
-| **Steps** | Quan sát bubble nudge phía trên FAB |
-| **Expected** | Message + quick replies; tap chip mở chat với seed message |
+| **Steps** | Quan sát bubble nudge phía trên FAB Vy (trái) |
+| **Expected** | Message + quick replies (có thể gồm mood **Bình thường** / **Hơi lo** / **Khỏe**); tap chip mở chat với seed message |
 
 ### VS-CMP-006 — Nudge trên Detail
 | | |
@@ -529,7 +565,7 @@ npm start
 |---|---|
 | **Priority** | P2 |
 | **Steps** | Tap avatar/header → mở profile modal |
-| **Expected** | Bio, expertise, bond info |
+| **Expected** | Bio, expertise, bond info (ô “Vy gọi mình là”) |
 
 ### VS-CMP-008 — Đặt nickname ("gọi tôi là …")
 | | |
@@ -550,14 +586,14 @@ npm start
 |---|---|
 | **Priority** | P0 |
 | **Steps** | Chat "Thêm VCB vào watchlist" |
-| **Expected** | Pop-up confirm; **Chấp nhận** → mã vào list; **Huỷ** → không đổi |
+| **Expected** | Sheet **Xác nhận thao tác**. Confirm = nút label hành động (vd. **Thêm VCB vào “…”**) — **không** có nút “Chấp nhận”. **Huỷ** → không đổi list |
 
 ### VS-CMP-011 — Propose xóa mã
 | | |
 |---|---|
 | **Priority** | P0 |
 | **Steps** | Chat "Xóa FPT khỏi watchlist" |
-| **Expected** | Confirm sheet; chỉ xóa khi user đồng ý |
+| **Expected** | Sheet **Xác nhận xóa mã**; chỉ xóa khi tap nút hành động; **Huỷ** giữ nguyên |
 
 ### VS-CMP-012 — Tạo watchlist mới qua Vy
 | | |
@@ -585,14 +621,14 @@ npm start
 |---|---|
 | **Priority** | P0 |
 | **Steps** | Hỏi "Nên mua FPT không?" |
-| **Expected** | Từ chối khuyến nghị; góc nhìn tham khảo |
+| **Expected** | Từ chối khuyến nghị; góc nhìn tham khảo. UI có disclaimer Vy không đưa khuyến nghị mua/bán |
 
 ### VS-CMP-016 — Lỗi API / không Gemini key
 | | |
 |---|---|
 | **Priority** | P1 |
 | **Steps** | Chat khi backend 503 |
-| **Expected** | Error message trong UI; không treo busy vô hạn |
+| **Expected** | Error bubble trong UI; `busy` được clear — không treo vô hạn |
 
 ### VS-CMP-017 — Đóng chat
 | | |
@@ -616,21 +652,21 @@ npm start
 | | |
 |---|---|
 | **Priority** | P1 |
-| **Steps** | Watchlist ⋯ → Nguồn dữ liệu |
-| **Expected** | Load `GET /v1/health/sources` |
+| **Steps** | Watchlist ⋯ → **Nguồn dữ liệu** |
+| **Expected** | Load `GET /v1/health/sources`. Back: **← Quay lại** |
 
 ### VS-HLT-002 — Hiển thị provider status
 | | |
 |---|---|
 | **Priority** | P1 |
 | **Steps** | Xem danh sách providers |
-| **Expected** | Màu ok / degraded / error; last fetch time |
+| **Expected** | Status **ok** (xanh) / **degraded** (cam) / **down** hoặc **unknown** (đỏ). Có thể kèm `· stale` và `lastError` |
 
 ### VS-HLT-003 — Store counts
 | | |
 |---|---|
 | **Priority** | P2 |
-| **Steps** | Kiểm tra số quotes, symbols, news trong DB |
+| **Steps** | Kiểm tra kho SQLite: Giá, Tin tức, Chỉ số, Lịch sử, Mã CK, Cơ bản |
 | **Expected** | Số > 0 sau ingestion chạy |
 
 ### VS-HLT-004 — Pull refresh Health
@@ -638,14 +674,15 @@ npm start
 |---|---|
 | **Priority** | P2 |
 | **Steps** | Kéo refresh |
-| **Expected** | Data cập nhật |
+| **Expected** | Data cập nhật; card Phiên **Đang mở** / **Đóng cửa**; Jobs nền nếu có |
 
-### VS-HLT-005 — API URL hiển thị
+### VS-HLT-005 — API URL khi lỗi
 | | |
 |---|---|
 | **Priority** | P2 |
-| **Steps** | Kiểm tra footer hiện `getApiUrl()` |
-| **Expected** | Khớp env đang dùng |
+| **Precondition** | Backend down / sai URL |
+| **Steps** | Mở Nguồn dữ liệu |
+| **Expected** | Error box **Không kết nối được máy chủ** + dòng **`API: {getApiUrl()}`**. Khi healthy, **không** có footer URL thường trực |
 
 ---
 
@@ -694,19 +731,19 @@ done
 
 ### VS-API-007 — Market indices
 ```bash
-curl -s "http://localhost:8000/v1/market/indices"
+curl -s "http://localhost:8000/v1/indices"
 ```
-**Expected:** VNINDEX, HNX quotes.
+**Expected:** VNINDEX, HNX quotes. (**Không** dùng `/v1/market/indices`.)
 
 ### VS-API-008 — Market news
 ```bash
-curl -s "http://localhost:8000/v1/news?limit=5"
+curl -s "http://localhost:8000/v1/news/market?limit=5"
 ```
 **Expected:** Array NewsItem.
 
 ### VS-API-009 — Symbol news
 ```bash
-curl -s "http://localhost:8000/v1/news/FPT?limit=5"
+curl -s "http://localhost:8000/v1/news/symbols/FPT?limit=5"
 ```
 **Expected:** Tin liên quan FPT.
 
@@ -738,11 +775,20 @@ curl -s -X POST "http://localhost:8000/v1/companion/chat" \
 ```
 **Expected:** `200` nếu có Gemini key; `503` nếu không.
 
-### VS-API-014 — Invalid symbol
+### VS-API-014 — Invalid / unavailable symbol
 ```bash
 curl -s -o /dev/null -w "%{http_code}\n" "http://localhost:8000/v1/stocks/ZZZZZ"
 ```
-**Expected:** `404` hoặc fallback có cấu trúc (theo implementation).
+**Expected:**
+- Symbol không có trong meta: **`404`** `Symbol not found`
+- Có meta, chưa có quote: **`200`** với `price: 0`, `unavailable: true`
+- History rỗng: **`404`** `No history for …`
+
+### VS-API-015 — Market status
+```bash
+curl -s "http://localhost:8000/v1/market/status"
+```
+**Expected:** `200`; `open` boolean; `session` label backend (`open`/`closed`).
 
 ---
 
@@ -793,17 +839,20 @@ npm run test:alerts && \
 
 Đánh dấu ✅ sau khi pass trên **iOS dev build** + **backend production/staging**:
 
-- [ ] **P0 Watchlist:** VS-WL-001, 002, 013, 016, 022
+- [ ] **P0 Watchlist:** VS-WL-001, 002, **013 (FAB +)**, 016, 022
 - [ ] **P0 Detail:** VS-DTL-001, 002, 010
-- [ ] **P0 Alerts:** VS-ALT-001, 002 (+ 007 nếu có dev build)
-- [ ] **P0 Companion:** VS-CMP-001, 003, 004, 010, 011, 015, 017
-- [ ] **P0 API:** VS-API-001 → 010
+- [ ] **P0 Alerts:** VS-ALT-001, 002 (+ **007, 010, 011** nếu có dev build)
+- [ ] **P0 Companion:** VS-CMP-001, 003, 004 (gõ tay), 010, 011, 015, 017
+- [ ] **P0 API:** VS-API-001 → 010 (path `/v1/indices`, `/v1/news/market`, `/v1/news/symbols/{sym}`)
+- [ ] **P1 swipe / search:** VS-WL-009 (phải = ghim), 010–011 (trái = cảnh báo/xóa), 025 (⌕ = lọc)
 - [ ] **Automated:** Section 11 pass 100%
-- [ ] **News:** VS-NEWS-001, 002, 004
+- [ ] **News:** VS-NEWS-001, 002 (`Vàng · HH`), 004
 - [ ] **Health:** VS-HLT-001, 002
 - [ ] **Offline:** VS-WL-023, VS-DTL-011
 - [ ] **Không crash** khi rotate / background / foreground 10 lần
 - [ ] **Sentry** không có error mới P0 trên dashboard
+
+**Không coi là fail:** VS-DTL-004 (recent row chưa mount), VS-CMP-004 không có chip trên UI chat.
 
 ---
 
