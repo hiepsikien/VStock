@@ -70,9 +70,13 @@ sau giờ đóng cửa.
 | Vĩ mô | Yahoo chart: DXY, USD/VND, S&P 500, dầu WTI | Khối `mở`/`cần theo dõi`; chỉ chặn khi DXY **và** tỷ giá cùng trên MA20 |
 | Cơ bản | VNDirect Finfo ratios + `fundamentals` của backend | Ngân hàng, chứng khoán, bảo hiểm và doanh nghiệp có bộ cổng riêng |
 | Định giá | `fundamentals.pe` từ kho thị trường | Trần P/E 30. Chỉ áp ở phiên trực tiếp, backtest bỏ qua vì là ảnh chụp hiện tại |
-| Dòng tiền lớn | VNDirect Finfo `foreigns` | Net volume/net value/room 60 phiên; nghi bán vào đà tăng thì hạ cấp |
-| Nền giá, mô hình | Entrade nến ngày | ZigZag theo ATR, nhận diện Đáy đôi, VCP, Cờ, ABCD |
+| Dòng tiền lớn | VNDirect Finfo `foreigns` | Tải 60 phiên net volume/net value/room; cổng chấm đọc **10 phiên** gần nhất, nghi bán vào đà tăng thì hạ cấp |
+| Nền giá, mô hình | Entrade nến ngày | Nền phẳng 20 phiên (sâu ≤15%, nhịp tăng trước nền ≥15%) phải phá đỉnh bằng nến khối lượng ≥1.5× nền; ZigZag theo ATR, nhận diện Đáy đôi, VCP, Cờ, ABCD |
 | Điểm tổng hợp | Tính nội bộ | 0–100 (cơ bản 30, dòng tiền 25, nền giá 25, sức mạnh 10, tin 10) |
+
+Điểm tổng hợp dùng để **xếp hạng và tô màu nhãn**: ngưỡng 75 chỉ đổi màu chứ không cấp quyền vào.
+Trạng thái **Được vào** do các cổng cứng (vĩ mô, cơ bản, tin, nền giá) quyết định, không cần
+`score_ok`; mã đạt cổng mà điểm thấp vẫn vào được và chỉ hiện nhãn nhạt hơn.
 
 Về F-Score: VNDirect không cung cấp mã số biên lợi nhuận gộp và phải thu, nên bảng điểm dùng
 8 tiêu chí suy ra từ chỉ tiêu có thật; hàng tồn kho và biên dòng tiền thay cho soát phải thu.
@@ -82,15 +86,18 @@ Cổng định giá đọc `fundamentals.pe` trong `backend/data/vstock.db`, nê
 `ingestion.quote_symbols` của `backend/config/providers.yaml` sẽ hiện "Chưa có số" và được bỏ qua
 chứ không bị chặn. Giữ danh sách đó khớp với `DEFAULT_UNIVERSE` trong `research/app/config.py`
 (hiện 30 mã), rồi khởi động lại backend — lúc khởi động nó chạy ingestion với `force=True` nên
-lấy P/E cho đủ ngay.
+lấy P/E cho đủ ngay. Kho research gộp mã mới vào danh sách đang có khi khởi động, nên cơ sở dữ liệu
+cũ tự nhận 30 mã này mà không xoá mã bạn đã thêm tay.
 
 ### Vị thế giấy (đo tiến)
 
 Bấm "Xác nhận sẽ vào" ở một mã **Được vào** sẽ mở một suất vốn giấy. Mỗi phiên chạy, hệ thống
 đánh dấu theo giá đóng cửa và thoát theo đúng luật của backtest: dừng lỗ đáy nền, chốt 1/3 tại
-+1R rồi kéo dừng lỗ theo MA20, đóng khi tiền chết 30 phiên, có công bố chặn, hoặc dòng tiền
-ngoại đảo chiều. Trang `/backtest` so lãi bình quân của các suất với VN-Index trong đúng cửa sổ
-nắm giữ.
++1R rồi kéo dừng lỗ theo MA20, đóng cửa dưới đỉnh nền lúc vào (phá nền thất bại), đóng khi tiền
+chết 30 phiên, có công bố chặn, hoặc dòng tiền ngoại đảo chiều. Sổ đi lần lượt từng nến sau phiên
+đã chấm, nên bấm chạy lại trong cùng ngày không cộng thêm phiên và một phiên bị lỡ vẫn được chấm
+đủ, kể cả phiên chạm dừng lỗ; phiên mà luật đóng tại giá đóng cửa kết thúc suất vẫn được tính vào
+cột "Phiên". Trang `/backtest` so lãi bình quân của các suất với VN-Index trong đúng cửa sổ nắm giữ.
 
 ### Cảnh báo phiên
 

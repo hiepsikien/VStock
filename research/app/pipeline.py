@@ -116,8 +116,10 @@ async def _run() -> str:
         )
         verdicts.append(verdict.row())
 
-    # Read the previous session before this one overwrites the latest as_of.
-    previous = await db.previous_verdicts()
+    # Read the session that is in the store right now, before this run overwrites it.
+    # Comparing against the one before that would stay silent when a status changed
+    # yesterday and simply held today.
+    previous = await db.latest_verdicts()
     await db.save_verdicts(verdicts)
     paper_messages = await paper.mark_positions(as_of.isoformat())
 

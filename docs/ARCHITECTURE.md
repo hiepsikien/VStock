@@ -548,11 +548,11 @@ VPS batch ──fail──▶ SSI per-symbol ──fail──▶ Entrade last cl
 |---|-----|--------|-----------|
 | 1 | Vĩ mô liên thị trường | `research/app/macro.py` + `ingest.fetch_macro` | Yahoo chart cho DXY, USD/VND, S&P 500, dầu WTI. Chỉ chặn vào khi DXY **và** tỷ giá cùng trên MA20 |
 | 2 | Cơ bản + định giá | `research/app/evaluate.py` | 4 template (doanh nghiệp, ngân hàng, chứng khoán, bảo hiểm), F-Score suy ra, cảnh báo số liệu, trần P/E 30 |
-| 3 | Dòng tiền lớn | `research/app/flow.py` + `ingest.fetch_foreign_flow` | VNDirect Finfo `foreigns`: net volume/value/room theo ngày, 60 phiên gần nhất |
+| 3 | Dòng tiền lớn | `research/app/flow.py` + `ingest.fetch_foreign_flow` | VNDirect Finfo `foreigns`: net volume/value/room theo ngày, tải 60 phiên; cổng chấm đọc 10 phiên cuối |
 | 4 | Nền giá và mô hình | `research/app/pattern.py` | ZigZag theo ATR, Đáy đôi, VCP, Cờ, ABCD, điểm cấu trúc 0–100 |
 | 5 | Thoát lệnh | `research/app/exits.py` | Dừng lỗ đáy nền/ATR, chốt 1/3 tại +1R, kéo dừng lỗ MA20, tiền chết 30 phiên, trần 60 phiên |
-| 6 | Đo tiến | `research/app/paper.py` + bảng `paper_positions` | Vị thế giấy mở khi xác nhận một mã Được vào, đánh dấu mỗi phiên, so với VN-Index |
-| 7 | Điểm tổng hợp | `evaluate.compose_score` | 0–100 để xếp hạng và chọn suất trong backtest |
+| 6 | Đo tiến | `research/app/paper.py` + bảng `paper_positions` | Vị thế giấy mở khi xác nhận một mã Được vào, chấm lần lượt từng phiên còn thiếu, so với VN-Index |
+| 7 | Điểm tổng hợp | `evaluate.compose_score` | 0–100 để xếp hạng, chọn suất trong backtest và tô màu nhãn; ngưỡng 75 không phải cổng vào |
 | 8 | Cảnh báo | `research/app/notify.py` | Telegram khi trạng thái đổi hoặc vị thế giấy đóng; không cấu hình thì im lặng |
 
 **Hai cổng chỉ áp ở phiên trực tiếp**: trần P/E (kho thị trường chỉ giữ ảnh chụp hiện tại) và lớp
@@ -563,6 +563,24 @@ dùng 8 tiêu chí suy ra và soát số liệu bằng tồn kho + biên dòng t
 
 **Backtest đổi từ một suất sang 5 suất vốn**, mỗi suất rủi ro 1% vốn chủ, xếp hạng theo điểm tổng
 hợp; nhờ vậy phép đo so được với danh mục thật thay vì một lệnh đơn lẻ.
+
+**Luật khớp của đường vốn** (backtest và sổ giấy dùng chung `exits.step_position`):
+
+- Dừng lỗ khớp tại `min(open, stop)` và giá đó được giữ nguyên khi quy tiền về; chỉ lệnh đóng
+  cưỡng bức cuối cửa sổ mới dùng giá đóng cửa.
+- Công bố chặn và dòng tiền ngoại chỉ xét bài đã công bố tính đến **phiên đang mô phỏng**
+  (`blocking_filing(..., until_date=...)`), không đọc bài tương lai.
+- Lãi tiền gửi tính cho phần tiền đã ra khỏi cổ phiếu qua đêm, nên tiền vừa bán trong phiên chưa
+  hưởng lãi của đêm đó.
+- Sức mạnh tương đối ghép hai cửa sổ 60 phiên **theo ngày**; mã nghỉ giao dịch không làm lệch mốc.
+- Mỗi phiên suất còn mở đều được đếm trước khi luật nào đọc nó (`exits.mark_bar`), kể cả phiên mà
+  một luật đóng tại giá đóng cửa kết thúc suất đó; cột "Phiên" khớp lịch chứ không theo luật thoát.
+
+**Thoát vì phá nền thất bại** (`exits.fell_under_base`): suất mở bằng một cây nến phá đỉnh nền giữ
+đỉnh nền lúc vào (`base_ceiling`). Phiên nào đóng cửa dưới mốc đó thì thoát tại giá đóng cửa; nền
+hình thành cao hơn sau đó không nâng mốc lên. Phiên vừa thủng dừng lỗ vừa đóng dưới mốc để dừng lỗ
+thắng, vì lệnh dừng nằm sẵn trong sổ và giá khớp của nó không bao giờ tốt hơn giá đóng cửa.
+
 
 ---
 

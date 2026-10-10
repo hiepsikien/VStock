@@ -8,6 +8,7 @@ from pathlib import Path
 import aiosqlite
 
 from app.config import ARTICLE_RETENTION_DAYS, DEFAULT_UNIVERSE
+from app.evaluate import group_metrics
 
 _db: aiosqlite.Connection | None = None
 
@@ -15,6 +16,12 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS universe (
     symbol TEXT PRIMARY KEY,
     added_at TEXT NOT NULL
+);
+
+-- Bookmarks for one-time work, e.g. which default symbols were already merged in.
+CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS daily_bars (
@@ -121,6 +128,7 @@ CREATE TABLE IF NOT EXISTS paper_positions (
     exit_date TEXT,
     exit_price REAL,
     exit_reason TEXT,
+    base_ceiling REAL,
     score INTEGER NOT NULL DEFAULT 0,
     note TEXT NOT NULL DEFAULT ''
 );
@@ -141,6 +149,12 @@ _VERDICT_EXTRA_COLUMNS = (
     ("score", "INTEGER NOT NULL DEFAULT 0"),
     ("flow_state", "TEXT NOT NULL DEFAULT ''"),
     ("extra_json", "TEXT NOT NULL DEFAULT '{}'"),
+)
+
+# The paper ledger keeps the frozen base high of the entry, so a base that forms higher
+# later cannot lift the level that closes the slot.
+_PAPER_EXTRA_COLUMNS = (
+    ("base_ceiling", "REAL"),
 )
 
 
@@ -174,22 +188,45 @@ async def init_db() -> None:
     await _db.execute("PRAGMA busy_timeout=5000")
     await _db.executescript(SCHEMA)
     await _ensure_schema_migrations(_db)
-    cursor = await _db.execute("SELECT COUNT(*) FROM universe")
-    row = await cursor.fetchone()
-    if row and int(row[0]) == 0:
-        await _db.executemany(
-            "INSERT INTO universe (symbol, added_at) VALUES (?, ?)",
-            [(symbol, _now()) for symbol in DEFAULT_UNIVERSE],
-        )
+    await _merge_default_universe(_db)
     await _db.commit()
 
 
+async def _merge_default_universe(db: aiosqlite.Connection) -> None:
+    """Add default symbols the store has not seen, without re-seeding a list already set.
+
+    A store that already holds a list keeps it, so a symbol removed by hand stays
+    removed; only members appended to DEFAULT_UNIVERSE since the last merge are added.
+    That keeps the research list in step with ingestion.quote_symbols, whose P/E numbers
+    feed the valuation gate.
+    """
+    cursor = await db.execute("SELECT value FROM meta WHERE key = 'universe_seed'")
+    row = await cursor.fetchone()
+    merged: list[str] = json.loads(row["value"]) if row else []
+    missing = [symbol for symbol in DEFAULT_UNIVERSE if symbol not in merged]
+    if missing:
+        await db.executemany(
+            "INSERT INTO universe (symbol, added_at) VALUES (?, ?) "
+            "ON CONFLICT(symbol) DO NOTHING",
+            [(symbol, _now()) for symbol in missing],
+        )
+        await db.execute(
+            "INSERT INTO meta (key, value) VALUES ('universe_seed', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (json.dumps(list(DEFAULT_UNIVERSE)),),
+        )
+
+
 async def _ensure_schema_migrations(db: aiosqlite.Connection) -> None:
-    cursor = await db.execute("PRAGMA table_info(verdicts)")
-    existing = {row[1] for row in await cursor.fetchall()}
-    for column, declaration in _VERDICT_EXTRA_COLUMNS:
-        if column not in existing:
-            await db.execute(f"ALTER TABLE verdicts ADD COLUMN {column} {declaration}")
+    for table, columns in (
+        ("verdicts", _VERDICT_EXTRA_COLUMNS),
+        ("paper_positions", _PAPER_EXTRA_COLUMNS),
+    ):
+        cursor = await db.execute(f"PRAGMA table_info({table})")
+        existing = {row[1] for row in await cursor.fetchall()}
+        for column, declaration in columns:
+            if column not in existing:
+                await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
     await db.commit()
 
 
@@ -457,6 +494,13 @@ def _verdict_row(record) -> dict:
     extra = json.loads(item.pop("extra_json") or "{}")
     item["regime_open"] = None if item["regime_open"] is None else bool(item["regime_open"])
     item["pattern_ready"] = bool(item["pattern_ready"])
+    stored_groups = [
+        (str(group[0]), [tuple(metric) for metric in group[1]])
+        for group in (extra.get("metric_groups") or [])
+    ]
+    # A row stored before the page had sections only carries the flat list, and the labels are
+    # enough to file those numbers under the layer that produced them.
+    groups = stored_groups or group_metrics(item["metrics"])
     item.update(
         {
             "score_parts": [tuple(part) for part in extra.get("score_parts", [])],
@@ -472,6 +516,13 @@ def _verdict_row(record) -> dict:
             "f_score": extra.get("f_score"),
             "f_score_max": int(extra.get("f_score_max") or 0),
             "warnings": list(extra.get("warnings") or []),
+            "base_ceiling": extra.get("base_ceiling"),
+            "base_advance": extra.get("base_advance"),
+            "base_depth": extra.get("base_depth"),
+            "base_sessions": int(extra.get("base_sessions") or 0),
+            "breakout_volume_ratio": extra.get("breakout_volume_ratio"),
+            "failed_breakout": extra.get("failed_breakout") or None,
+            "metric_groups": groups,
         }
     )
     return item
@@ -491,24 +542,6 @@ async def latest_verdicts() -> list[dict]:
         WHERE as_of = ?
         """,
         (as_of,),
-    )
-    return [_verdict_row(record) for record in await cursor.fetchall()]
-
-
-async def previous_verdicts() -> list[dict]:
-    """Verdicts of the session before the latest one, used to spot status changes."""
-    db = await get_db()
-    cursor = await db.execute("SELECT DISTINCT as_of FROM verdicts ORDER BY as_of DESC LIMIT 2")
-    days = [row["as_of"] for row in await cursor.fetchall()]
-    if len(days) < 2:
-        return []
-    cursor = await db.execute(
-        f"""
-        SELECT {_VERDICT_COLUMNS}
-        FROM verdicts
-        WHERE as_of = ?
-        """,
-        (days[1],),
     )
     return [_verdict_row(record) for record in await cursor.fetchall()]
 
@@ -638,8 +671,8 @@ async def open_paper_position(position: dict) -> int:
         """
         INSERT INTO paper_positions (
             symbol, opened_at, entry_date, entry_price, initial_stop, stop_price,
-            target1, atr14, sessions, score, note
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            target1, atr14, base_ceiling, sessions, score, note
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             position["symbol"],
@@ -650,6 +683,7 @@ async def open_paper_position(position: dict) -> int:
             position["stop_price"],
             position["target1"],
             position.get("atr14"),
+            position.get("base_ceiling"),
             0,
             int(position.get("score") or 0),
             position.get("note") or "",
@@ -689,8 +723,8 @@ async def save_paper_position(position: dict) -> None:
 
 _PAPER_COLUMNS = """
     id, symbol, opened_at, entry_date, entry_price, initial_stop, stop_price,
-    target1, atr14, sessions, tp1_done, booked_fraction, realised, last_price,
-    last_date, closed_at, exit_date, exit_price, exit_reason, score, note
+    target1, atr14, base_ceiling, sessions, tp1_done, booked_fraction, realised,
+    last_price, last_date, closed_at, exit_date, exit_price, exit_reason, score, note
 """
 
 

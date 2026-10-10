@@ -12,7 +12,16 @@ from app.config import (
     STATEMENT_LAG_DAYS,
 )
 from app.evaluate import compose
-from app.exits import OpenPosition, blocking_filing, close_at, plan_exit, position_size, step_position
+from app.exits import (
+    OpenPosition,
+    blocking_filing,
+    close_at,
+    fell_under_base,
+    manage_position,
+    mark_bar,
+    plan_exit,
+    position_size,
+)
 from app.flow import flow_flipped, flow_gate
 from app.pattern import Pattern, assess_pattern, atr, ma_now, market_regime
 
@@ -86,10 +95,15 @@ def _trade(slot: Slot, position: OpenPosition) -> dict:
     }
 
 
-def _close_slot(slot: Slot, bar: dict, reason: str, cash: float, side_cost: float) -> float:
-    """Close at the bar close and return the cash the slot hands back."""
-    close_at(slot.position, bar, reason)
+def _settle_slot(slot: Slot, cash: float, side_cost: float) -> float:
+    """Return the cash a closed slot hands back, at the price its exit already set."""
     return cash + slot.notional * (1 + slot.position.realised_return()) * (1 - side_cost)
+
+
+def _close_slot(slot: Slot, bar: dict, reason: str, cash: float, side_cost: float) -> float:
+    """Force an exit at the bar close and settle the slot, used when the window ends."""
+    close_at(slot.position, bar, reason)
+    return _settle_slot(slot, cash, side_cost)
 
 
 def _candidates(
@@ -164,39 +178,50 @@ def run_backtest(
         index_slice = _slice(index_bars, trade_date)
         regime = market_regime(index_slice)
 
-        # 1. Manage the slots that were opened on an earlier session.
+        # 1. Cash earns the deposit rate over the night before this session. The rate is
+        #    applied to the balance that was already out of the market, so the proceeds of
+        #    a slot that closes today — still in the stock overnight — do not earn it.
+        if previous_day is not None:
+            gap_days = (as_of - previous_day).days
+            if gap_days > 0:
+                cash *= (1 + CASH_YIELD) ** (gap_days / 365)
+        previous_day = as_of
+
+        # 2. Manage the slots that were opened on an earlier session.
         for slot in list(slots):
             position = slot.position
             stock_slice = _slice(bars_by_symbol.get(position.symbol, []), trade_date)
             if not stock_slice:
                 continue
             bar = stock_slice[-1]
+            mark_bar(position, bar)
+            # Only a filing already published on this session may end the thesis; without
+            # the upper bound a future suspension would close the slot on the next bar.
             filing = blocking_filing(
-                articles_by_symbol.get(position.symbol, []), position.entry_date
+                articles_by_symbol.get(position.symbol, []),
+                position.entry_date,
+                str(bar["trade_date"]),
             )
             flow_points = _slice_flow((flow_by_symbol or {}).get(position.symbol, {}), trade_date)
             if filing:
                 close_at(position, bar, f"Công bố chặn: {filing}")
             elif flow_flipped(flow_points, stock_slice):
                 close_at(position, bar, "Dòng tiền ngoại đảo chiều")
+            elif fell_under_base(position, bar):
+                pass  # Already closed at this bar's close, with the reason on the position.
             else:
-                step_position(
+                manage_position(
                     position,
                     bar,
                     ma20=ma_now(stock_slice, MA_FAST),
                     atr14=atr(stock_slice),
                 )
             if not position.open:
-                cash = _close_slot(slot, bar, position.exit_reason or "Đóng", cash, side_cost)
+                # The exit already set its own price — a stop fills at min(open, stop) —
+                # so settling must not overwrite it with the bar close.
+                cash = _settle_slot(slot, cash, side_cost)
                 trades.append(_trade(slot, position))
                 slots.remove(slot)
-
-        # 2. Cash earns the deposit rate between sessions.
-        if previous_day is not None:
-            gap_days = (as_of - previous_day).days
-            if gap_days > 0:
-                cash *= (1 + CASH_YIELD) ** (gap_days / 365)
-        previous_day = as_of
 
         # 3. Fill free slots with the best ranked names.
         if regime.open and len(slots) < MAX_SLOTS:
@@ -273,7 +298,8 @@ def run_backtest(
             f"Lãi tiền gửi {CASH_YIELD * 100:.1f}%/năm trên tiền đang đứng ngoài. "
             f"Số liệu quý được dùng {STATEMENT_LAG_DAYS} ngày sau ngày kết thúc kỳ. "
             "Dừng lỗ theo đáy nền, kéo theo MA20 sau khi chốt một phần tại +1R, đóng khi "
-            "tiền chết 30 phiên, có công bố chặn, hoặc dòng tiền ngoại đảo chiều. "
+            "tiền chết 30 phiên, có công bố chặn, dòng tiền ngoại đảo chiều, hoặc giá "
+            "đóng cửa trở lại dưới đỉnh nền đã phá. "
             "Cổng P/E và lớp vĩ mô không dùng ở đây vì dữ liệu chỉ có ảnh chụp hiện tại."
         ),
     }

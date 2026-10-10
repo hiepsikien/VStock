@@ -1,16 +1,23 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sqlite3
 import tempfile
 import unittest
 from datetime import date, timedelta
 from pathlib import Path
+from unittest import mock
 
-from app import db
+from app import backtest, db, notify, pipeline
+from app.config import DEFAULT_UNIVERSE
 from app.evaluate import (
+    METRIC_SECTIONS,
+    SCORE_CEILINGS,
+    UNPLACED_SECTION,
     compose,
+    group_metrics,
     score_checklist,
     score_fundamentals,
     score_valuation,
@@ -31,7 +38,7 @@ from app.flow import (
 )
 from app.macro import macro_state
 from app.notify import session_message, transition_lines
-from app.paper import report as paper_report
+from app.paper import mark_positions, report as paper_report
 from app.paper import row_return
 from app.pattern import Pattern, Regime
 
@@ -338,6 +345,15 @@ class ExitPlanTest(unittest.TestCase):
         self.assertEqual(blocking_filing(articles, "2026-06-01"), "Ngoại trừ")
         self.assertIsNone(blocking_filing(articles, "2026-06-06"))
 
+    def test_blocking_filing_stops_at_the_session_being_walked(self) -> None:
+        articles = [
+            {"published_at": "2026-06-05", "kind": "audit_exception", "title": "Ngoại trừ"},
+        ]
+        # A walk through history must not read a filing published after its session.
+        self.assertIsNone(blocking_filing(articles, "2026-06-01", "2026-06-04"))
+        self.assertEqual(blocking_filing(articles, "2026-06-01", "2026-06-05"), "Ngoại trừ")
+        self.assertEqual(blocking_filing(articles, "2026-06-01", "2026-06-30"), "Ngoại trừ")
+
 
 
 def _corporate_points() -> dict:
@@ -361,6 +377,25 @@ def _earnings() -> dict:
         "symbols": ["FPT"],
         "kind": "earnings_release",
         "title": "FPT công bố báo cáo tài chính quý 2",
+    }
+
+
+def _diluted_corporate_points() -> dict:
+    """Shares and equity up together over the year, so the quarter counts as dilution."""
+    points = _corporate_points()
+    points["OUTSTANDING_SHARES"] = [(day, 100.0 if day == _QUARTERS[0] else 110.0) for day in _QUARTERS]
+    points["OWNERS_EQUITY_AQ"] = [(day, 100.0 if day == _QUARTERS[0] else 110.0) for day in _QUARTERS]
+    return points
+
+
+def _bank_points() -> dict:
+    return {
+        "NET_PROFIT_QR": [(_REPORT, 10.0)],
+        "NET_PROFIT_QR_GRYOY": [(_REPORT, 0.12)],
+        "BAD_LOANS_RATIO_AQ": [(day, 0.02) for day in _QUARTERS],
+        "PROVISION_BAD_LOANS_AQ": [(day, 1.40) for day in _QUARTERS],
+        "OWNERS_EQUITY_AQ": [(day, 100.0) for day in _QUARTERS],
+        "CUSTOMER_LOANS_AQ_GRYOY": [(day, 0.15) for day in _QUARTERS],
     }
 
 
@@ -420,6 +455,14 @@ class ComposeTest(unittest.TestCase):
         self.assertEqual(verdict.score, 55)
         self.assertFalse(verdict.score_ok)
 
+    def test_every_score_bar_has_a_ceiling_of_its_own(self) -> None:
+        """The page draws each bar against SCORE_CEILINGS, so every part must appear there."""
+        verdict = self._compose()
+        labels = [label for label, _value in verdict.score_parts]
+        self.assertEqual(labels, list(SCORE_CEILINGS))
+        for label, value in verdict.score_parts:
+            self.assertLessEqual(value, SCORE_CEILINGS[label], label)
+
     def test_metrics_carry_every_layer(self) -> None:
         flow = FlowState("Mở", SUPPORT, "Ủng hộ", metrics=[("Dòng tiền ngoại", "mua ròng")])
         verdict = self._compose(
@@ -430,6 +473,46 @@ class ComposeTest(unittest.TestCase):
         self.assertIn("Dòng tiền ngoại", labels)
         self.assertIn("P/E", labels)
         self.assertIn("Điểm cơ bản (F-Score)", labels)
+
+    def test_sections_rebuild_the_flat_numbers_of_a_verdict(self) -> None:
+        """The store files a row written without groups back into sections by label."""
+        rising = [100.0 + index * 0.5 for index in range(25)]
+        macro = macro_state({"DXY": _series(rising), "USDVND": _series(rising), "SP500": _series(rising)})
+        verdict = self._compose(
+            valuation={"pe": 12.0, "pb": 1.5, "roe": 0.18, "updated_at": "2026-10-09T00:00:00"},
+            flow=flow_gate(_flow_map([200_000.0] * 10), _bars([100.0] * 10)),
+            macro=macro,
+        )
+        rebuilt = [(title, [tuple(metric) for metric in rows]) for title, rows in group_metrics(verdict.metrics)]
+        composed = [(title, [tuple(metric) for metric in rows]) for title, rows in verdict.metric_groups]
+        self.assertEqual(rebuilt, composed)
+        self.assertEqual([title for title, _rows in rebuilt], [title for title, _labels in METRIC_SECTIONS])
+
+    def test_every_number_a_producer_emits_has_a_section(self) -> None:
+        """A label no section claims would be filed under the leftover bucket instead of its layer."""
+        corporate = score_fundamentals("FPT", _corporate_points())
+        diluted = score_fundamentals("FPT", _diluted_corporate_points())
+        bank = score_fundamentals("VCB", _bank_points())
+        broker = score_fundamentals("SSI", _services_points(3.5))
+        insurer = score_fundamentals("BVH", _services_points(2.0))
+        valuation = score_valuation({"pe": 12.0, "pb": 1.5, "roe": 0.18, "updated_at": "2026-10-09"})
+        flow = FlowState("Mở", SUPPORT, "Ủng hộ", metrics=[("Dòng tiền ngoại", "mua ròng")])
+        macro = macro_state({"DXY": _series([100.0] * 25), "USDVND": _series([100.0] * 25)})
+        verdict = self._compose(flow=flow, macro=macro)
+
+        labels = {
+            label
+            for source in (corporate, diluted, bank, broker, insurer, valuation, flow, macro)
+            for label, _value in source.metrics
+        }
+        labels |= {label for label, _value in verdict.metrics}
+        # A conditional number, so pin that the fixture still reaches the branch that emits it.
+        self.assertIn("Tăng LNST trên mỗi cổ phiếu", {label for label, _value in diluted.metrics})
+        # A claim of a section is all this checks, so the value is a placeholder.
+        grouped = group_metrics([(label, "") for label in sorted(labels)])
+        titles = [title for title, _rows in grouped]
+        self.assertNotIn(UNPLACED_SECTION, titles)
+        self.assertEqual(titles, [title for title, _labels in METRIC_SECTIONS])
 
 
 class NotifyTest(unittest.TestCase):
@@ -486,6 +569,61 @@ class StoreTest(unittest.TestCase):
 
     def test_older_database_gets_the_new_verdict_columns(self) -> None:
         asyncio.run(self._migrate())
+
+    def test_a_row_stored_without_groups_is_filed_by_its_labels(self) -> None:
+        asyncio.run(self._legacy())
+
+    async def _legacy(self) -> None:
+        """The page reads sections, so a row written before they existed must still reach them."""
+        await db.close_db()
+        previous = os.environ.get("RESEARCH_DB_PATH")
+        handle = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        handle.close()
+        path = handle.name
+        os.environ["RESEARCH_DB_PATH"] = path
+        try:
+            await db.init_db()
+            stored = await db.get_db()
+            await stored.execute(
+                """
+                INSERT INTO verdicts (as_of, symbol, status, metrics_json, extra_json)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    "2026-10-09",
+                    "ACB",
+                    "Theo dõi",
+                    json.dumps(
+                        [
+                            ["Kỳ số liệu", "2026-06-30"],
+                            ["Doanh thu thuần quý", "2374 tỷ"],
+                            ["P/E", "7.3"],
+                            ["Dòng tiền ngoại", "khối ngoại bán ròng 464,025 cp"],
+                            ["S&P 500", "7,811.54 — +2.5% 20 phiên, trên MA20"],
+                        ]
+                    ),
+                    "{}",
+                ),
+            )
+            await stored.commit()
+
+            item = await db.verdict("ACB")
+            groups = dict(item["metric_groups"])
+            self.assertEqual(
+                list(groups), ["Cơ bản", "Định giá", "Dòng tiền ngoại", "Thị trường"]
+            )
+            self.assertEqual(groups["Cơ bản"][0], ("Kỳ số liệu", "2026-06-30"))
+            self.assertEqual(groups["Thị trường"][0][0], "S&P 500")
+            self.assertNotIn(UNPLACED_SECTION, groups)
+            self.assertEqual(item["metrics"][0], ["Kỳ số liệu", "2026-06-30"])
+        finally:
+            await db.close_db()
+            if previous is None:
+                os.environ.pop("RESEARCH_DB_PATH", None)
+            else:
+                os.environ["RESEARCH_DB_PATH"] = previous
+            for suffix in ("", "-wal", "-shm"):
+                Path(path + suffix).unlink(missing_ok=True)
 
     async def _migrate(self) -> None:
         await db.close_db()
@@ -565,6 +703,13 @@ class StoreTest(unittest.TestCase):
                 flow=FlowState("Mở", ACCUMULATION, "Gom hàng", priority=2),
             )
             await db.save_verdicts([watching.row()])
+
+            # The pipeline reads the session sitting in the store before it overwrites it,
+            # so the older row is still the latest session at this point.
+            before = await db.latest_verdicts()
+            self.assertEqual([row["as_of"] for row in before], ["2026-10-09"])
+            self.assertEqual(before[0]["status"], "Theo dõi")
+
             await db.save_verdicts([entering.row()])
 
             latest = await db.latest_verdicts()
@@ -578,10 +723,6 @@ class StoreTest(unittest.TestCase):
             self.assertEqual(item["patterns"], ())
             self.assertIsNone(item["f_score"])
             self.assertEqual(len(item["score_parts"]), 5)
-
-            before = await db.previous_verdicts()
-            self.assertEqual([row["as_of"] for row in before], ["2026-10-09"])
-            self.assertEqual(before[0]["status"], "Theo dõi")
 
             await db.replace_flow("FPT", {"FOREIGN_NET_VOL": [("2026-10-09", 1000.0)]})
             stored_flow = await db.flow("FPT")
@@ -681,6 +822,367 @@ class BacktestCacheTest(unittest.TestCase):
         finally:
             web.run_backtest = original
             web._backtest_cache.update({"key": None, "result": None, "at": ""})
+            await db.close_db()
+            if previous is None:
+                os.environ.pop("RESEARCH_DB_PATH", None)
+            else:
+                os.environ["RESEARCH_DB_PATH"] = previous
+            for suffix in ("", "-wal", "-shm"):
+                Path(path + suffix).unlink(missing_ok=True)
+
+
+def _walk_bars() -> tuple[list[dict], list[dict]]:
+    """A 215-session index plus one name that breaks out, then dips through its stop.
+
+    Sessions 140 to 179 slide 12.6% to 88 and climb 15% back to 100.88, so the fixed
+    20-session base that ends at session 199 (the flat-base gate) sits on top of a real
+    advance. The stop bar dips to 98 and closes back at 101.50, above the 99.70 stop, so an
+    exit booked at the close would look better than the fill the plan really got. The name
+    keeps sliding after the dip, so it can never be a candidate again.
+    """
+    start = date(2026, 2, 1)
+    index_bars: list[dict] = []
+    stock_bars: list[dict] = []
+    for i in range(215):
+        day = (start + timedelta(days=i)).isoformat()
+        level = 1000.0 + i * 0.5
+        index_bars.append(
+            {
+                "trade_date": day,
+                "open": level,
+                "high": level,
+                "low": level,
+                "close": level,
+                "volume": 1.0,
+            }
+        )
+        if i < 200:
+            if i < 140:
+                close = 100.0 + i * 0.005
+            elif i < 160:
+                close = 100.7 - (i - 140) * (100.7 - 88.0) / 19
+            elif i < 180:
+                close = 88.0 + (i - 159) * (100.88 - 88.0) / 20
+            else:
+                close = 100.0 + i * 0.005
+            spread = 0.4 if i >= 190 else 1.2
+            bar = {
+                "trade_date": day,
+                "open": close,
+                "high": close + spread,
+                "low": close - spread,
+                "close": close,
+                "volume": 800.0 if i >= 190 else 2000.0,
+            }
+        elif i == 200:
+            bar = {
+                "trade_date": day,
+                "open": 101.0,
+                "high": 105.5,
+                "low": 100.8,
+                "close": 105.0,
+                "volume": 3000.0,
+            }
+        elif i == 201:
+            bar = {
+                "trade_date": day,
+                "open": 104.0,
+                "high": 104.5,
+                "low": 98.0,
+                "close": 101.5,
+                "volume": 4000.0,
+            }
+        else:
+            close = 101.5 - (i - 201) * 1.5
+            bar = {
+                "trade_date": day,
+                "open": close + 0.5,
+                "high": close + 2.5,
+                "low": close - 2.5,
+                "close": close,
+                "volume": 5000.0,
+            }
+        stock_bars.append(bar)
+    return index_bars, stock_bars
+
+
+class BacktestWalkTest(unittest.TestCase):
+    """The walk moves the money, so it has to book exits the way the live ledger does."""
+
+    def test_stop_fill_future_filing_and_the_interest_order(self) -> None:
+        index_bars, stock_bars = _walk_bars()
+        filings = {
+            "FPT": [
+                {
+                    "published_at": "2027-01-01",
+                    "kind": "suspension",
+                    "title": "Đình chỉ niêm yết",
+                }
+            ]
+        }
+        # One percent a day, so interest landing on cash still in the stock overnight shows
+        # up well clear of the noise instead of hiding in the last decimal.
+        with mock.patch.object(backtest, "CASH_YIELD", 3.65):
+            result = backtest.run_backtest(
+                index_bars,
+                {"FPT": stock_bars},
+                {"FPT": _corporate_points()},
+                filings,
+            )
+
+        self.assertEqual(result["start"], "2026-08-20")
+        self.assertEqual(result["end"], "2026-09-03")
+        self.assertEqual(result["trade_count"], 1)
+        trade = result["trades"][0]
+        self.assertEqual(trade["entry"], "2026-08-20")
+
+        # 1. The stop fills at min(open, stop) — 99.70 — and settling the slot must not
+        #    overwrite that with the 101.50 close.
+        self.assertEqual(trade["reason"], "Chạm dừng lỗ")
+        self.assertAlmostEqual(trade["exit_price"], 99.7)
+        self.assertAlmostEqual(trade["return_pct"], 99.7 / 105.0 - 1)
+        self.assertNotAlmostEqual(trade["return_pct"], 101.5 / 105.0 - 1)
+
+        # 2. The suspension is published long after the walk ends, so only the stop may
+        #    close the slot; the exit gate needs its own date ceiling.
+        self.assertNotIn("Công bố chặn", trade["reason"] or "")
+
+        # 3. Cash earns the deposit rate over the nights it is out of the market: the idle
+        #    balance takes all 14 nights after entry (sessions 2..15), while the proceeds of
+        #    the stop — still inside the stock on that night — take 13.
+        side_cost = 0.003 / 2
+        daily = (1 + 3.65) ** (1 / 365)
+        spend = 0.01 / (105.0 - 99.7) * 105.0
+        proceeds = spend * (1 - side_cost) * (99.7 / 105.0) * (1 - side_cost)
+        expected = (1 - spend) * daily**14 + proceeds * daily**13
+        self.assertAlmostEqual(result["strategy_return"] + 1, expected, places=9)
+        self.assertNotAlmostEqual(
+            result["strategy_return"] + 1, (1 - spend + proceeds) * daily**14, places=6
+        )
+
+
+def _paper_bars() -> list[dict]:
+    """Five flat sessions; the fourth dips through the 90 stop and closes back at 95."""
+    start = date(2026, 10, 8)
+    bars: list[dict] = []
+    for i in range(5):
+        if i == 3:
+            bar = {
+                "trade_date": (start + timedelta(days=i)).isoformat(),
+                "open": 95.5,
+                "high": 95.5,
+                "low": 85.0,
+                "close": 95.0,
+                "volume": 1_000_000.0,
+            }
+        else:
+            close = 100.0 if i < 3 else 95.0
+            bar = {
+                "trade_date": (start + timedelta(days=i)).isoformat(),
+                "open": close,
+                "high": close + 0.5,
+                "low": close - 1.0,
+                "close": close,
+                "volume": 1_000_000.0,
+            }
+        bars.append(bar)
+    return bars
+
+
+class PaperLedgerTest(unittest.TestCase):
+    """The paper book has to step each session once, even after a re-run or a missed day."""
+
+    def test_missed_and_repeated_sessions(self) -> None:
+        asyncio.run(self._run())
+
+    async def _run(self) -> None:
+        await db.close_db()
+        previous = os.environ.get("RESEARCH_DB_PATH")
+        handle = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        handle.close()
+        path = handle.name
+        os.environ["RESEARCH_DB_PATH"] = path
+        try:
+            await db.init_db()
+            await db.replace_bars("FPT", _paper_bars())
+            position_id = await db.open_paper_position(
+                {
+                    "symbol": "FPT",
+                    "entry_date": "2026-10-08",
+                    "entry_price": 100.0,
+                    "initial_stop": 90.0,
+                    "stop_price": 90.0,
+                    "target1": 110.0,
+                    "atr14": 2.0,
+                    "score": 80,
+                    "note": "xác nhận",
+                }
+            )
+
+            # The entry session itself is not a step.
+            self.assertEqual(await mark_positions("2026-10-08"), [])
+            self.assertEqual((await db.open_paper_positions())[0]["sessions"], 0)
+
+            await mark_positions("2026-10-09")
+            row = (await db.open_paper_positions())[0]
+            self.assertEqual(row["sessions"], 1)
+            self.assertEqual(row["last_date"], "2026-10-09")
+
+            # Opening the page twice on the same day must not buy two sessions.
+            await mark_positions("2026-10-09")
+            self.assertEqual((await db.open_paper_positions())[0]["sessions"], 1)
+
+            # Two sessions skipped at once: both count, and the bar that was missed — the
+            # only one to touch the stop — is the bar that closes the slot.
+            messages = await mark_positions("2026-10-12")
+            self.assertEqual(len(messages), 1)
+            self.assertIn("Chạm dừng lỗ", messages[0])
+            self.assertEqual(await db.open_paper_positions(), [])
+
+            connection = await db.get_db()
+            cursor = await connection.execute(
+                "SELECT mark_date FROM paper_marks WHERE position_id = ? ORDER BY mark_date",
+                (position_id,),
+            )
+            marks = [item["mark_date"] for item in await cursor.fetchall()]
+            self.assertEqual(marks, ["2026-10-09", "2026-10-10", "2026-10-11"])
+
+            closed = (await db.paper_for("FPT"))[0]
+            self.assertEqual(closed["sessions"], 3)
+            self.assertEqual(closed["exit_date"], "2026-10-11")
+            self.assertAlmostEqual(closed["exit_price"] or 0, 90.0)
+            self.assertEqual(closed["exit_reason"], "Chạm dừng lỗ")
+        finally:
+            await db.close_db()
+            if previous is None:
+                os.environ.pop("RESEARCH_DB_PATH", None)
+            else:
+                os.environ["RESEARCH_DB_PATH"] = previous
+            for suffix in ("", "-wal", "-shm"):
+                Path(path + suffix).unlink(missing_ok=True)
+
+
+class UniverseTest(unittest.TestCase):
+    """An older store has to pick up the default list growing, without losing its edits."""
+
+    def test_default_symbols_merge_into_an_older_store(self) -> None:
+        asyncio.run(self._run())
+
+    async def _run(self) -> None:
+        await db.close_db()
+        previous = os.environ.get("RESEARCH_DB_PATH")
+        handle = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        handle.close()
+        path = handle.name
+        os.environ["RESEARCH_DB_PATH"] = path
+        try:
+            connection = sqlite3.connect(path)
+            connection.executescript(
+                """
+                CREATE TABLE universe (
+                    symbol TEXT PRIMARY KEY,
+                    added_at TEXT NOT NULL
+                );
+                INSERT INTO universe (symbol, added_at) VALUES ('AAA', 'cũ');
+                """
+            )
+            connection.commit()
+            connection.close()
+
+            await db.init_db()
+            symbols = await db.universe()
+            self.assertIn("AAA", symbols)
+            self.assertTrue(set(DEFAULT_UNIVERSE) <= set(symbols))
+
+            # A symbol the operator removed by hand must stay removed across restarts.
+            await db.remove_symbol("PLX")
+            await db.close_db()
+            await db.init_db()
+            self.assertNotIn("PLX", await db.universe())
+        finally:
+            await db.close_db()
+            if previous is None:
+                os.environ.pop("RESEARCH_DB_PATH", None)
+            else:
+                os.environ["RESEARCH_DB_PATH"] = previous
+            for suffix in ("", "-wal", "-shm"):
+                Path(path + suffix).unlink(missing_ok=True)
+
+
+class PipelineAlertTest(unittest.TestCase):
+    """A session has to be diffed against the session in the store, not an older one."""
+
+    def test_transition_comes_from_the_stored_session(self) -> None:
+        asyncio.run(self._run())
+
+    async def _run(self) -> None:
+        index_bars, stock_bars = _walk_bars()
+        points = _corporate_points()
+        sent: list[str] = []
+
+        async def fake_bars(_client, symbol, *, index=False):
+            return index_bars if symbol == "VNINDEX" else stock_bars
+
+        async def fake_ratios(_client, symbol):
+            return points
+
+        async def fake_news(_client, symbol):
+            return [
+                {
+                    "id": "fpt-q2",
+                    "title": "FPT công bố báo cáo tài chính quý 2",
+                    "published_at": "2026-08-01",
+                    "symbols": ["FPT"],
+                    "kind": "earnings_release",
+                }
+            ]
+
+        async def fake_flow(_client, symbol):
+            return {}
+
+        async def fake_macro(_client):
+            return {}
+
+        async def fake_send(text):
+            sent.append(text)
+            return True
+
+        await db.close_db()
+        previous = os.environ.get("RESEARCH_DB_PATH")
+        handle = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        handle.close()
+        path = handle.name
+        os.environ["RESEARCH_DB_PATH"] = path
+        try:
+            await db.init_db()
+            connection = await db.get_db()
+            await connection.execute("DELETE FROM universe WHERE symbol <> 'FPT'")
+            await connection.commit()
+
+            with mock.patch.multiple(
+                pipeline,
+                fetch_bars=fake_bars,
+                fetch_ratios=fake_ratios,
+                fetch_symbol_news=fake_news,
+                fetch_foreign_flow=fake_flow,
+                fetch_macro=fake_macro,
+                load_market_articles=lambda: [],
+                load_exchanges=lambda: {},
+                load_valuation=lambda: {},
+            ), mock.patch.object(notify, "send", fake_send):
+                first = await pipeline._run()
+                self.assertTrue(first.startswith("Phiên 2026-09-03"))
+                self.assertIn("Theo dõi", first)
+                self.assertEqual(sent, [])  # nothing stored yet, so nothing to compare
+
+                # The same session re-run with the debt gate failing must be announced
+                # against the session just stored, not against an older one or nothing.
+                points["DEBT_TO_EQUITY_AQ"] = [(_REPORT, 3.0)]
+                await pipeline._run()
+
+            self.assertEqual(len(sent), 1)
+            self.assertIn("<b>FPT</b> Loại", sent[0])
+        finally:
             await db.close_db()
             if previous is None:
                 os.environ.pop("RESEARCH_DB_PATH", None)

@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from app import db
 from app.config import MA_FAST, ROUND_TRIP_COST
-from app.exits import OpenPosition, blocking_filing, close_at, plan_exit, step_position
+from app.exits import (
+    OpenPosition,
+    blocking_filing,
+    close_at,
+    fell_under_base,
+    manage_position,
+    mark_bar,
+    plan_exit,
+)
 from app.flow import flow_flipped
 from app.pattern import Pattern, atr, ma_now
 
@@ -25,6 +33,7 @@ def _from_row(row: dict) -> OpenPosition:
         exit_date=row["exit_date"],
         exit_price=row["exit_price"],
         exit_reason=row["exit_reason"],
+        base_ceiling=row.get("base_ceiling"),
     )
 
 
@@ -70,6 +79,7 @@ async def open_position(
             "stop_price": pos.stop,
             "target1": pos.target1,
             "atr14": pos.atr14,
+            "base_ceiling": pos.base_ceiling,
             "score": score,
             "note": note,
         }
@@ -80,26 +90,55 @@ async def open_position(
     )
 
 
+def _upto(bars: list[dict], day: str) -> list[dict]:
+    return [bar for bar in bars if bar["trade_date"] <= day]
+
+
+def _flow_upto(points: dict[str, list[tuple[str, float]]], day: str) -> dict[str, list[tuple[str, float]]]:
+    return {
+        code: [(when, value) for when, value in series if when <= day]
+        for code, series in points.items()
+    }
+
+
 async def mark_positions(as_of: str) -> list[str]:
-    """Mark every open slot with the latest close and run the shared exit engine."""
+    """Mark every open slot session by session with the shared exit engine.
+
+    Bars are stepped one at a time from the last marked session, so a session the
+    operator missed still runs its stop and its trim, and a re-run on a day already
+    marked cannot count that session twice.
+    """
     messages: list[str] = []
     for row in await db.open_paper_positions():
         bars = [bar for bar in await db.bars(row["symbol"]) if bar["trade_date"] <= as_of]
         if not bars:
             continue
-        bar = bars[-1]
-        if str(bar["trade_date"]) <= row["entry_date"]:
+        marked_to = row["last_date"] or row["entry_date"]
+        pending = [bar for bar in bars if str(bar["trade_date"]) > marked_to]
+        if not pending:
             continue
         pos = _from_row(row)
-        ma20 = ma_now(bars, MA_FAST)
-        atr14 = atr(bars)
-        filing = blocking_filing(await db.articles_for(row["symbol"]), row["entry_date"])
-        if filing:
-            reason = close_at(pos, bar, f"Công bố chặn: {filing}")
-        elif flow_flipped(await db.flow(row["symbol"]), bars):
-            reason = close_at(pos, bar, "Dòng tiền ngoại đảo chiều")
-        else:
-            reason = step_position(pos, bar, ma20=ma20, atr14=atr14)
+        articles = await db.articles_for(row["symbol"])
+        flow = await db.flow(row["symbol"])
+        reason: str | None = None
+        for bar in pending:
+            day = str(bar["trade_date"])
+            window = _upto(bars, day)
+            mark_bar(pos, bar)
+            filing = blocking_filing(articles, row["entry_date"], day)
+            if filing:
+                reason = close_at(pos, bar, f"Công bố chặn: {filing}")
+            elif flow_flipped(_flow_upto(flow, day), window):
+                reason = close_at(pos, bar, "Dòng tiền ngoại đảo chiều")
+            elif fell_under_base(pos, bar):
+                reason = pos.exit_reason
+            else:
+                reason = manage_position(
+                    pos, bar, ma20=ma_now(window, MA_FAST), atr14=atr(window)
+                )
+            await db.mark_paper(row["id"], day, pos.last_price or 0.0, pos.unrealised())
+            if reason is not None:
+                break
         closed = reason is not None
         await db.save_paper_position(
             {
@@ -116,9 +155,6 @@ async def mark_positions(as_of: str) -> list[str]:
                 "exit_price": pos.exit_price,
                 "exit_reason": pos.exit_reason,
             }
-        )
-        await db.mark_paper(
-            row["id"], str(bar["trade_date"]), pos.last_price or 0.0, pos.unrealised()
         )
         if closed:
             messages.append(

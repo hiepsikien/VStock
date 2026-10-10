@@ -17,6 +17,7 @@ from app.config import (
     INSIDER_BUY_DAYS,
     INSIDER_SELL_DAYS,
     INSURERS,
+    MACRO_SYMBOLS,
     NPL_MAX,
     PE_CEILING,
     PROVISION_COVERAGE_MIN,
@@ -25,7 +26,7 @@ from app.config import (
     SCORE_WEIGHTS,
     SECURITIES,
 )
-from app.flow import FlowState, flow_score, missing_flow
+from app.flow import ACCUMULATION, FlowState, flow_score, missing_flow
 from app.macro import Macro
 from app.pattern import Pattern, Regime
 
@@ -87,6 +88,15 @@ class Verdict:
     f_score: int | None = None
     f_score_max: int = 0
     warnings: list[str] = field(default_factory=list)
+    # Nền giá: con số đứng sau cổng nền phẳng và khối lượng phá nền.
+    base_ceiling: float | None = None
+    base_advance: float | None = None
+    base_depth: float | None = None
+    base_sessions: int = 0
+    breakout_volume_ratio: float | None = None
+    failed_breakout: str | None = None
+    # Số đang dùng chia theo lớp quyết định, dựng ở compose.
+    metric_groups: list[tuple[str, list[tuple[str, str]]]] = field(default_factory=list)
 
     def row(self) -> dict:
         """Shape used by store.save_verdicts, so the mapping lives in one place."""
@@ -123,6 +133,16 @@ class Verdict:
                 "f_score": self.f_score,
                 "f_score_max": self.f_score_max,
                 "warnings": list(self.warnings),
+                "base_ceiling": self.base_ceiling,
+                "base_advance": self.base_advance,
+                "base_depth": self.base_depth,
+                "base_sessions": self.base_sessions,
+                "breakout_volume_ratio": self.breakout_volume_ratio,
+                "failed_breakout": self.failed_breakout,
+                "metric_groups": [
+                    [title, [list(metric) for metric in metrics]]
+                    for title, metrics in self.metric_groups
+                ],
             },
         }
 
@@ -167,6 +187,32 @@ def _pct(value: float | None) -> str:
     if value is None:
         return "—"
     return f"{value * 100:.1f}%"
+
+
+def _price(value: float | None) -> str:
+    if value is None:
+        return "—"
+    return f"{value:,.2f}"
+
+
+def _times(value: float | None) -> str:
+    if value is None:
+        return "—"
+    return f"{value:.2f}x"
+
+
+def _pattern_metrics(pattern: Pattern) -> list[tuple[str, str]]:
+    """The numbers behind the base gate, read next to the sentence they produced."""
+    return [
+        ("Số phiên nền", str(pattern.base_sessions)),
+        ("Đỉnh nền", _price(pattern.base_ceiling)),
+        ("Đáy nền (dừng lỗ)", _price(pattern.stop)),
+        ("Độ sâu nền", _pct(pattern.base_depth)),
+        ("Nhịp tăng trước nền", _pct(pattern.base_advance)),
+        ("Khối lượng 10 phiên so 10 phiên trước", _times(pattern.volume_ratio)),
+        ("Khối lượng nến phá so nền", _times(pattern.breakout_volume_ratio)),
+        ("Điểm cấu trúc", f"{pattern.score}/100"),
+    ]
 
 
 def _ty(value: float | None) -> str:
@@ -711,6 +757,92 @@ def compose_score(
     return sum(value for _label, value in parts), parts
 
 
+# The points each bar of the score table is worth, keyed the way compose_score labels them.
+# The page draws a bar against the ceiling of its own line, so a part that is full shows a
+# full bar even when another part of the same name scores higher.
+SCORE_CEILINGS = {
+    "Cơ bản": SCORE_WEIGHTS["fa"],
+    "Dòng tiền": flow_score(ACCUMULATION),
+    "Nền giá": SCORE_WEIGHTS["pattern"],
+    "Sức mạnh": SCORE_WEIGHTS["rs"],
+    "Tin": SCORE_WEIGHTS["news"],
+}
+
+# Where every number belongs on the symbol page. compose() stores the groups it built from the
+# producers; a verdict stored before that grouping existed only has the flat list, so here the label
+# is the clue. Titles match the groups compose() builds and the headings the page looks up, and
+# tests/test_layers.py keeps the labels level with what the producers emit.
+UNPLACED_SECTION = "Khác"
+
+METRIC_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "Cơ bản",
+        (
+            "Kỳ số liệu",
+            "Doanh thu thuần quý",
+            "Doanh thu quý",
+            "Tăng trưởng doanh thu",
+            "LNST công ty mẹ quý",
+            "LNST quý",
+            "Tăng trưởng LNST",
+            "Tăng trưởng LN từ hoạt động kinh doanh",
+            "Tiền từ hoạt động kinh doanh quý",
+            "Nợ vay / vốn chủ",
+            "Trần nợ vay / vốn chủ",
+            "Nợ xấu",
+            "Bao phủ nợ xấu",
+            "Vốn chủ sở hữu",
+            "Tăng trưởng cho vay",
+            "Tăng cổ phiếu sau 4 quý",
+            "Tăng LNST trên mỗi cổ phiếu",
+            "Cách tính số cổ phiếu",
+            "Ghi chú",
+            "Điểm cơ bản (F-Score)",
+            "Tiêu chí chưa đạt",
+            "Cảnh báo số liệu",
+        ),
+    ),
+    ("Định giá", ("P/E", "P/B", "ROE", "Cập nhật định giá")),
+    ("Dòng tiền ngoại", ("Dòng tiền ngoại", "Giá trị ròng", "Room ngoại còn")),
+    ("Thị trường", tuple(label for _code, _symbol, label in MACRO_SYMBOLS)),
+    (
+        "Nền giá",
+        (
+            "Số phiên nền",
+            "Đỉnh nền",
+            "Đáy nền (dừng lỗ)",
+            "Độ sâu nền",
+            "Nhịp tăng trước nền",
+            "Khối lượng 10 phiên so 10 phiên trước",
+            "Khối lượng nến phá so nền",
+            "Điểm cấu trúc",
+        ),
+    ),
+)
+
+
+def group_metrics(metrics) -> list[tuple[str, list[tuple[str, str]]]]:
+    """Sort a flat list of numbers into the sections of the page, keeping their order.
+
+    A row stored without metric_groups loses the boundaries between layers, so each label is placed
+    on its own. A label no section claims still reaches the page, under UNPLACED_SECTION, instead of
+    being dropped.
+    """
+    places = {label: title for title, labels in METRIC_SECTIONS for label in labels}
+    buckets: dict[str, list[tuple[str, str]]] = {title: [] for title, _labels in METRIC_SECTIONS}
+    unplaced: list[tuple[str, str]] = []
+    for label, value in metrics:
+        title = places.get(label)
+        if title is None:
+            unplaced.append((label, value))
+        else:
+            buckets[title].append((label, value))
+    groups = [(title, rows) for title, rows in buckets.items() if rows]
+    if unplaced:
+        groups.append((UNPLACED_SECTION, unplaced))
+    return groups
+
+
 def compose(
     symbol: str,
     as_of: date,
@@ -779,9 +911,17 @@ def compose(
     score, score_parts = compose_score(fundamentals, flow_state, pattern, pattern.rs, priority)
     effective_priority = max(priority, flow_state.priority) if status == "Được vào" else 0
 
-    metrics = [*fundamentals.metrics, *valuation_state.metrics, *flow_state.metrics]
-    if macro is not None and macro.metrics:
-        metrics.extend(macro.metrics)
+    # The numbers, grouped by the layer that decides: the page reads them in that order.
+    metric_groups = [
+        ("Cơ bản", list(fundamentals.metrics)),
+        ("Định giá", list(valuation_state.metrics)),
+        ("Dòng tiền ngoại", list(flow_state.metrics)),
+        ("Thị trường", list(macro.metrics) if macro else []),
+        ("Nền giá", _pattern_metrics(pattern)),
+    ]
+    # The same numbers in one list, for a reader that has no room for sections, and for the store,
+    # which files a row written without groups back into sections by label (see group_metrics).
+    metrics = [metric for _title, rows in metric_groups for metric in rows]
 
     return Verdict(
         symbol=symbol,
@@ -815,4 +955,11 @@ def compose(
         f_score=fundamentals.f_score,
         f_score_max=fundamentals.f_score_max,
         warnings=fundamentals.warnings,
+        base_ceiling=pattern.base_ceiling,
+        base_advance=pattern.base_advance,
+        base_depth=pattern.base_depth,
+        base_sessions=pattern.base_sessions,
+        breakout_volume_ratio=pattern.breakout_volume_ratio,
+        failed_breakout=pattern.failed_breakout,
+        metric_groups=metric_groups,
     )

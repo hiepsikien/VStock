@@ -40,6 +40,8 @@ class OpenPosition:
     exit_date: str | None = None
     exit_price: float | None = None
     exit_reason: str | None = None
+    # Trần nền lúc vào lệnh. Đóng cửa trở lại dưới mốc này là luận điểm phá nền hết hiệu lực.
+    base_ceiling: float | None = None
 
     @property
     def open(self) -> bool:
@@ -83,6 +85,7 @@ def plan_exit(
         target1=entry_price + TP1_R_MULTIPLE * risk,
         weight=weight,
         atr14=atr_value,
+        base_ceiling=float(pattern.base_ceiling) if pattern and pattern.base_ceiling else None,
     )
 
 
@@ -96,6 +99,17 @@ def _close(pos: OpenPosition, bar: dict, reason: str, price: float) -> str:
     return reason
 
 
+def mark_bar(pos: OpenPosition, bar: dict) -> None:
+    """Mark one session on the slot, before any rule reads it.
+
+    Every session the slot is exposed to counts, including the one a close-based exit books
+    it on, so the ledger's session count follows the calendar and not the exit rule.
+    """
+    pos.sessions += 1
+    pos.last_price = float(bar["close"])
+    pos.last_date = str(bar.get("trade_date") or "")
+
+
 def step_position(
     pos: OpenPosition,
     bar: dict,
@@ -107,10 +121,22 @@ def step_position(
 
     The stop is checked before the target, so a bar that touches both is booked as a loss.
     """
-    pos.sessions += 1
-    pos.last_price = float(bar["close"])
-    pos.last_date = str(bar.get("trade_date") or "")
+    mark_bar(pos, bar)
+    return manage_position(pos, bar, ma20=ma20, atr14=atr14)
 
+
+def manage_position(
+    pos: OpenPosition,
+    bar: dict,
+    *,
+    ma20: float | None = None,
+    atr14: float | None = None,
+) -> str | None:
+    """Judge a session that has already been marked: trailing stop, stop, target, clock.
+
+    The callers mark the bar first: the news, flow and base-ceiling exits read the same
+    session and have to leave the same session count behind them as the stop does.
+    """
     if pos.tp1_done and ma20 is not None and atr14:
         candidate = ma20 - TRAIL_ATR_MULTIPLIER * atr14
         if candidate > pos.stop:
@@ -137,11 +163,42 @@ def close_at(pos: OpenPosition, bar: dict, reason: str) -> str:
     return _close(pos, bar, reason, float(bar["close"]))
 
 
-def blocking_filing(articles: list[dict], after_date: str) -> str | None:
-    """A suspension or an audit exception published after entry ends the thesis."""
+def fell_under_base(pos: OpenPosition, bar: dict) -> bool:
+    """A close back under the frozen base ceiling ends the breakout thesis.
+
+    The level is the base high captured at entry, so a base that forms higher later cannot
+    lift it, and a session that only tests the level still holds. The exit is booked at the
+    bar close, the same way the news and flow overrides are.
+
+    A bar that also takes out the stop is left to the stop: that order rests in the market
+    and fills inside the bar, and its fill is never better than the close this rule would
+    book, so letting the stop win only ever reads as the more cautious of the two.
+    """
+    if pos.base_ceiling is None or pos.base_ceiling <= 0:
+        return False
+    if float(bar["close"]) >= pos.base_ceiling:
+        return False
+    if float(bar["low"]) <= pos.stop:
+        return False
+    close_at(pos, bar, f"Đóng dưới đỉnh nền {pos.base_ceiling:.2f}")
+    return True
+
+
+def blocking_filing(
+    articles: list[dict],
+    after_date: str,
+    until_date: str | None = None,
+) -> str | None:
+    """A suspension or an audit exception published after entry ends the thesis.
+
+    `until_date` is the session being processed. Without it a walk through history would
+    read a filing published years later and close the slot on the very next bar.
+    """
     for article in articles:
         published = str(article.get("published_at") or "")[:10]
         if published <= after_date:
+            continue
+        if until_date is not None and published > until_date:
             continue
         if article.get("kind") in BLOCK_KINDS:
             return str(article.get("title") or "Công bố rủi ro")

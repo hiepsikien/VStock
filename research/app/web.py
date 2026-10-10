@@ -11,7 +11,9 @@ from fastapi.templating import Jinja2Templates
 
 from app import db, paper
 from app.backtest import run_backtest
+from app.chart import build_chart
 from app.config import STATUS_RANK
+from app.evaluate import SCORE_CEILINGS
 from app.ingest import load_exchanges
 from app.pattern import assess_pattern
 from app.pipeline import busy, run_session
@@ -119,12 +121,23 @@ async def update_universe(symbol: str = Form(""), action: str = Form("add")):
 async def symbol_page(request: Request, symbol: str, error: str = "", notice: str = ""):
     sym = symbol.upper()
     item = await db.verdict(sym)
+    bars = await db.bars(sym)
+    index_bars = await db.bars("VNINDEX")
+    # The chart is drawn from the stored bars, and the pattern is recomputed from the same
+    # series, so the picture and the sentence under it describe one 20-session window.
+    pattern = (
+        assess_pattern(bars, index_bars, load_exchanges().get(sym))
+        if item and bars and index_bars
+        else None
+    )
     return templates.TemplateResponse(
         request,
         "symbol.html",
         {
             "symbol": sym,
             "item": item,
+            "chart": build_chart(bars, pattern),
+            "score_ceilings": SCORE_CEILINGS,
             "articles": await db.articles_for(sym),
             "decisions": await db.decisions_for(sym),
             "paper": await db.paper_for(sym),

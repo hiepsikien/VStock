@@ -197,6 +197,18 @@ FIB_RETRACE_HIGH = 0.886
 FIB_EXTENSION_LOW = 0.618
 FIB_EXTENSION_HIGH = 1.618
 
+# Cửa sổ nền vẫn là 20 phiên cuối của chuỗi nền, nên đỉnh dùng để xét phá và đáy dùng để
+# dừng lỗ không đổi. Hai điều kiện dưới đây chỉ siết thêm cổng vào: nền không sâu quá, và
+# phải có nhịp tăng trước nền — điều kiện thứ hai chặn đoạn đi ngang trong xu hướng giảm.
+FLAT_BASE_MAX_DEPTH = 0.15
+FLAT_BASE_MIN_ADVANCE = 0.15
+# Nhịp tăng đo từ đáy thấp nhất của bao nhiêu phiên ngay trước cửa sổ nền lên đỉnh nền.
+FLAT_BASE_ADVANCE_LOOKBACK = 40
+# Khối lượng nến phá so với trung bình khối lượng của 20 phiên nền (không gồm nến phá).
+BREAKOUT_VOLUME_RATIO = 1.5
+# Một lần đóng cửa trở lại dưới mốc đã phá trong bao nhiêu phiên thì coi là phá hỏng.
+FAILED_BREAKOUT_SESSIONS = 3
+
 # --- Lớp 1: vĩ mô liên thị trường ------------------------------------------------
 # Yahoo chart API. Research reads it directly, the same way it reads Entrade.
 YAHOO_CHART = "https://query2.finance.yahoo.com/v8/finance/chart/{symbol}"
