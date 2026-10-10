@@ -8,6 +8,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from app import db, ingest
+from app.config import MARKET_MIN_SESSIONS
 from app.evaluate import compose
 from app.money import LABELS, money_state, thresholds
 from app.pattern import Pattern, Regime
@@ -45,6 +46,9 @@ class MoneyGateTest(unittest.TestCase):
         self.assertIn("INTERBANK_ON", gate.missing)
         self.assertIn("USDVND", gate.missing)
         self.assertIn(LABELS["GOV10Y"], gate.reason)
+        # Chưa có số nào là nhóm "absent"; nhóm "short" dành cho chuỗi có số mà chưa đủ phiên.
+        self.assertEqual(set(gate.absent), {"INTERBANK_ON", "GOV10Y", "USDVND"})
+        self.assertEqual(gate.short, ())
 
     def test_quiet_market_opens_the_gate(self) -> None:
         gate = money_state(_market(), as_of=AS_OF)
@@ -97,10 +101,36 @@ class MoneyGateTest(unittest.TestCase):
         self.assertTrue(
             any("chưa có số của phiên 2026-09-08" in value for _label, value in near.metrics)
         )
+        # Số cũ không dùng được cho phiên này, nên chuỗi thuộc nhóm chưa có số, không phải nhóm
+        # có số mà thiếu phiên.
+        self.assertEqual(set(near.absent), {"INTERBANK_ON", "GOV10Y", "USDVND"})
+        self.assertEqual(near.short, ())
         # Và phiên cách cả tháng cũng vậy: không có chuyện số cũ dùng được trong bao nhiêu ngày.
         far = money_state(_market(), as_of="2026-10-10")
         self.assertIsNone(far.open)
         self.assertEqual(set(far.missing), {"INTERBANK_ON", "GOV10Y", "USDVND"})
+
+    def test_a_series_with_too_few_sessions_is_not_counted_as_no_number(self) -> None:
+        """Chuỗi mới có một phiên thì có số, chỉ chưa đủ: cổng Chưa chấm, và nói đúng vì sao."""
+        thin = money_state(
+            {"INTERBANK_ON": _series([5.0]), "GOV10Y": _series([4.0])},
+            as_of=START.isoformat(),
+        )
+        self.assertIsNone(thin.open)
+        self.assertEqual(
+            thin.short,
+            (
+                ("INTERBANK_ON", 1, MARKET_MIN_SESSIONS),
+                ("GOV10Y", 1, MARKET_MIN_SESSIONS),
+            ),
+        )
+        self.assertEqual(thin.absent, ("USDVND",))
+        self.assertIn("chưa đủ số phiên", thin.reason)
+        self.assertIn(f"{LABELS['INTERBANK_ON']} (1/{MARKET_MIN_SESSIONS} phiên)", thin.reason)
+        self.assertIn(f"chưa có số của phiên {START.isoformat()}", thin.reason)
+        self.assertTrue(
+            any(f"— 1/{MARKET_MIN_SESSIONS} phiên đã lưu" in value for _label, value in thin.metrics)
+        )
 
     def test_a_policy_step_inside_the_lookback_is_tight(self) -> None:
         """Mốc cũ đứng ngoài 90 ngày, mốc mới đứng trong: nâng lãi vẫn là chuyện mới."""

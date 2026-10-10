@@ -38,6 +38,9 @@ class Money:
     flags: tuple[str, ...] = ()
     missing: tuple[str, ...] = ()
     ready: tuple[str, ...] = ()
+    # Chuỗi đã có số nhưng chưa đủ số phiên, kèm (đang có, cần): khác với chuỗi chưa có số nào.
+    short: tuple[tuple[str, int, int], ...] = ()
+    absent: tuple[str, ...] = ()
 
 
 def policy_points(table=POLICY_RATE_HISTORY) -> list[tuple[str, float]]:
@@ -184,6 +187,26 @@ def thresholds() -> list[tuple[str, str]]:
     return rows
 
 
+def _not_ready_reason(
+    absent: list[str], short: list[tuple[str, int, int]], as_of: str | None
+) -> str:
+    """Chuỗi chưa có số và chuỗi chưa đủ phiên là hai chuyện khác nhau, nên nói rõ từng nhóm."""
+    parts: list[str] = []
+    if absent:
+        day = f" của phiên {as_of}" if as_of else ""
+        parts.append(
+            f"chưa có số{day} ở " + ", ".join(LABELS.get(code, code) for code in absent)
+        )
+    if short:
+        parts.append(
+            "chưa đủ số phiên ở "
+            + ", ".join(
+                f"{LABELS.get(code, code)} ({have}/{need} phiên)" for code, have, need in short
+            )
+        )
+    return "Cổng tiền tệ chưa chấm: " + "; ".join(parts)
+
+
 def money_state(
     points: MarketMap,
     *,
@@ -226,6 +249,8 @@ def money_state(
     metrics: list[tuple[str, str]] = []
     flags: list[str] = []
     missing: list[str] = []
+    short: list[tuple[str, int, int]] = []
+    absent: list[str] = []
     ready: list[str] = []
     for code, label, _unit, _symbol in MARKET_SERIES:
         # Chuỗi chưa được khai báo ngưỡng thì không thể khóa danh sách, nên nó đứng ngoài.
@@ -242,10 +267,15 @@ def money_state(
             elif code in DAILY and not stamped:
                 note = f"chưa có số của phiên {as_of} (mới nhất {rows[-1][0]})"
             else:
-                note = f"{_value(code, rows[-1][1])} ({len(rows)} phiên đã lưu)"
+                note = f"{_value(code, rows[-1][1])} — {len(rows)}/{needs[code]} phiên đã lưu"
             metrics.append((label, note))
             if code in required:
                 missing.append(code)
+                # Có số mà chưa đủ phiên thì khác với chưa có số nào, và bảng nói rõ từng nhóm.
+                if rows and (code not in DAILY or stamped):
+                    short.append((code, len(rows), needs[code]))
+                else:
+                    absent.append(code)
             continue
         if code == "INTERBANK_ON":
             metric, flag = _rate_row(code, rows, MARKET_RATE_RISE_MAX, "lãi qua đêm")
@@ -263,14 +293,15 @@ def money_state(
             flags.append(flag)
 
     if missing:
-        where = ", ".join(LABELS.get(code, code) for code in missing)
         return Money(
             None,
-            f"Cổng tiền tệ chưa chấm: thiếu chuỗi {where}",
+            _not_ready_reason(absent, short, as_of),
             metrics,
             tuple(flags),
             tuple(missing),
             tuple(ready),
+            tuple(short),
+            tuple(absent),
         )
     if flags:
         return Money(

@@ -10,9 +10,14 @@
   </p>
 
   <p class="regime">{{ money.reason }}</p>
-  {% if missing %}
+  {% if missing or short %}
     <p class="banner bad">
-      Thiếu chuỗi: {{ missing|join(", ") }}. Cổng đứng ở Chưa chấm, và không mã nào bị tự loại.
+      {% if missing %}Chưa có số: {{ missing|join(", ") }}.{% endif %}
+      {% if short %}
+        Có số nhưng chưa đủ {{ min_sessions }} phiên:
+        {% for label, have, need in short %}{{ label }} ({{ have }}/{{ need }}){% if not loop.last %}, {% endif %}{% endfor %}.
+      {% endif %}
+      Cổng đứng ở Chưa chấm, và không mã nào bị tự loại.
     </p>
   {% endif %}
   {% if money.flags %}

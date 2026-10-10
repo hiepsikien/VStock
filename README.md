@@ -78,7 +78,7 @@ sau giờ đóng cửa.
 | Định giá | `fundamentals.pe` từ kho thị trường | Trần P/E 30. Chỉ áp ở phiên trực tiếp, backtest bỏ qua vì là ảnh chụp hiện tại |
 | Dòng tiền lớn | VNDirect Finfo `foreigns` | Tải 60 phiên net volume/net value/room; cổng chấm đọc **10 phiên** gần nhất, nghi bán vào đà tăng thì hạ cấp |
 | Nền giá, mô hình | Entrade nến ngày | Nền phẳng 20 phiên (sâu ≤15%, nhịp tăng trước nền ≥15%) phải phá đỉnh bằng nến khối lượng ≥1.5× nền; ZigZag theo ATR, nhận diện Đáy đôi, VCP, Cờ, ABCD |
-| Tiền tệ | TradingView scanner (lãi liên ngân hàng qua đêm, lợi suất TPCP 10 năm), Yahoo chart (USD/VND), bảng NHNN ghi tay (lãi tái cấp vốn) | Cổng AND với cổng VN-Index trên MA200; mỗi phiên lưu một điểm cho mỗi chuỗi, trang `/market` |
+| Tiền tệ | TradingView scanner (lãi liên ngân hàng qua đêm, lợi suất TPCP 10 năm), Yahoo chart (USD/VND), bảng NHNN ghi tay (lãi tái cấp vốn) | Cổng AND với cổng VN-Index trên MA200; mỗi phiên lưu một điểm cho mỗi chuỗi, trang `/market`; mỗi chuỗi giá cần ít nhất 5 phiên đã lưu và một điểm đúng phiên đang chấm, chưa đủ thì cổng đứng ở Chưa chấm |
 | Điểm tổng hợp | Tính nội bộ | 0–100 (cơ bản 30, dòng tiền 25, nền giá 25, sức mạnh 10, tin 10) |
 
 Điểm tổng hợp dùng để **xếp hạng và tô màu nhãn**: ngưỡng 75 chỉ đổi màu chứ không cấp quyền vào.
@@ -95,9 +95,15 @@ chứ không bị chặn. Giữ danh sách đó khớp với `DEFAULT_UNIVERSE` 
 (hiện 51 mã), rồi khởi động lại backend — lúc khởi động nó chạy ingestion với `force=True` nên
 lấy P/E cho đủ ngay. Có một test đối chiếu hai danh sách này trong `tests/test_layers.py`.
 
-Kho research gộp `DEFAULT_UNIVERSE` vào danh sách đang có khi khởi động: kho trắng nhận đủ 51 mã,
-kho đã có danh sách thì giữ nguyên và chỉ nhận thêm mã vừa được thêm vào `DEFAULT_UNIVERSE`. Lần
-khởi động đầu sau khi nâng cấp cũng vậy, nên mã bạn đã bỏ bằng tay không quay lại.
+Kho research gộp `DEFAULT_UNIVERSE` vào danh sách đang có khi khởi động, và có ba đường. Kho trắng
+nhận đủ 51 mã. Kho đã có danh sách **và** đã có bookmark `universe_seed` (đã khởi động lại ít nhất
+một lần kể từ bản có tính năng gộp) giữ nguyên danh sách và chỉ nhận thêm mã vừa được thêm vào
+`DEFAULT_UNIVERSE`; mã bạn đã bỏ bằng tay vẫn nằm trong bookmark nên không quay lại. Kho đã có danh
+sách nhưng **chưa có bookmark** (chưa từng khởi động lại kể từ bản có tính năng gộp) thì lần khởi
+động đầu chỉ ghi bookmark bằng đủ 51 mã rồi dừng, **không chèn mã còn thiếu**, và các lần sau bookmark
+đã đủ nên cũng không chèn — danh sách cũ giữ nguyên và không tự nhận 21 mã tài chính. Muốn có thì thêm
+tay trên trang chủ, hoặc ghi bookmark bằng đúng danh sách đang có trong `research/data/research.db` rồi
+khởi động lại: job gộp sẽ chèn phần còn thiếu và cập nhật bookmark thành đủ 51 mã.
 
 Rổ 51 mã gồm 30 mã cũ cộng 21 mã tài chính mà template đã khai báo sẵn: ngân hàng (TPB, MSB, LPB,
 SHB, EIB, OCB, NAB, VIB, SSB), chứng khoán (HCM, VCI, MBS, SHS, BSI, AGR, FTS, VDS) và bảo hiểm
