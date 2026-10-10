@@ -39,7 +39,8 @@ Nguồn: SSI/VNDirect (danh sách mã), VPS (quotes), Entrade (history), VNDirec
 
 ## Research
 
-Bộ lọc cổ phiếu chạy thành một process riêng. Nó đọc nến, chỉ tiêu và công bố, ghi kết quả vào database của nó, và không đặt lệnh.
+Bộ lọc cổ phiếu chạy thành một process riêng. Nó đọc nến, chỉ tiêu, công bố, dòng tiền khối
+ngoại và dữ liệu vĩ mô, ghi kết quả vào database của nó, và không đặt lệnh.
 
 ```bash
 cd research
@@ -49,7 +50,60 @@ pip install -r requirements.txt
 uvicorn app.web:app --host 127.0.0.1 --port 8010
 ```
 
-Mở http://127.0.0.1:8010. Trong Docker Compose, cổng host là `RESEARCH_PORT` (mặc định 8010) và chỉ gắn vào localhost.
+Mở http://127.0.0.1:8010. Trong Docker Compose, cổng host là `RESEARCH_PORT` (mặc định 8010)
+và chỉ gắn vào localhost.
+
+### Chạy từ dashboard
+
+Dashboard có nút **Chạy phiên**: nó tải nến, chỉ tiêu, công bố, dòng tiền ngoại và dữ liệu vĩ mô
+cho cả danh sách, chấm lại toàn bộ, đánh dấu vị thế giấy và gửi cảnh báo. Danh sách 30 mã mất
+khoảng 15 giây. Thêm/bỏ mã và ghi xác nhận, bỏ qua cũng làm được ngay trên trang web. Trang
+`/backtest` tính lại bảng đo khi mở lần đầu sau mỗi phiên rồi giữ nguyên kết quả; bấm
+**Tính lại** (`/backtest?fresh=1`) nếu muốn chạy lại bằng tay. Hiện chưa có lịch chạy tự động —
+muốn tự chạy hằng ngày thì thêm một lệnh `curl -X POST http://127.0.0.1:8010/run` vào cron
+sau giờ đóng cửa.
+
+### Các lớp đang chấm
+
+| Lớp | Nguồn | Ghi chú |
+|---|---|---|
+| Vĩ mô | Yahoo chart: DXY, USD/VND, S&P 500, dầu WTI | Khối `mở`/`cần theo dõi`; chỉ chặn khi DXY **và** tỷ giá cùng trên MA20 |
+| Cơ bản | VNDirect Finfo ratios + `fundamentals` của backend | Ngân hàng, chứng khoán, bảo hiểm và doanh nghiệp có bộ cổng riêng |
+| Định giá | `fundamentals.pe` từ kho thị trường | Trần P/E 30. Chỉ áp ở phiên trực tiếp, backtest bỏ qua vì là ảnh chụp hiện tại |
+| Dòng tiền lớn | VNDirect Finfo `foreigns` | Net volume/net value/room 60 phiên; nghi bán vào đà tăng thì hạ cấp |
+| Nền giá, mô hình | Entrade nến ngày | ZigZag theo ATR, nhận diện Đáy đôi, VCP, Cờ, ABCD |
+| Điểm tổng hợp | Tính nội bộ | 0–100 (cơ bản 30, dòng tiền 25, nền giá 25, sức mạnh 10, tin 10) |
+
+Về F-Score: VNDirect không cung cấp mã số biên lợi nhuận gộp và phải thu, nên bảng điểm dùng
+8 tiêu chí suy ra từ chỉ tiêu có thật; hàng tồn kho và biên dòng tiền thay cho soát phải thu.
+Thiếu dưới 6 tiêu chí thì không chấm điểm thay vì chấm thiếu.
+
+Cổng định giá đọc `fundamentals.pe` trong `backend/data/vstock.db`, nên mã không nằm trong
+`ingestion.quote_symbols` của `backend/config/providers.yaml` sẽ hiện "Chưa có số" và được bỏ qua
+chứ không bị chặn. Giữ danh sách đó khớp với `DEFAULT_UNIVERSE` trong `research/app/config.py`
+(hiện 30 mã), rồi khởi động lại backend — lúc khởi động nó chạy ingestion với `force=True` nên
+lấy P/E cho đủ ngay.
+
+### Vị thế giấy (đo tiến)
+
+Bấm "Xác nhận sẽ vào" ở một mã **Được vào** sẽ mở một suất vốn giấy. Mỗi phiên chạy, hệ thống
+đánh dấu theo giá đóng cửa và thoát theo đúng luật của backtest: dừng lỗ đáy nền, chốt 1/3 tại
++1R rồi kéo dừng lỗ theo MA20, đóng khi tiền chết 30 phiên, có công bố chặn, hoặc dòng tiền
+ngoại đảo chiều. Trang `/backtest` so lãi bình quân của các suất với VN-Index trong đúng cửa sổ
+nắm giữ.
+
+### Cảnh báo phiên
+
+Đặt `TELEGRAM_BOT_TOKEN` và `TELEGRAM_CHAT_ID` để nhận tin khi có mã đổi trạng thái (Được vào,
+Loại, Khóa) hoặc khi một vị thế giấy đóng. Không đặt thì hệ thống chỉ ghi nhật ký.
+
+### Test
+
+```bash
+cd research
+.venv/bin/python -m unittest tests.test_rules tests.test_prune tests.test_patterns tests.test_layers
+```
+
 
 ## Làm mới dữ liệu
 

@@ -539,6 +539,33 @@ VPS batch ──fail──▶ SSI per-symbol ──fail──▶ Entrade last cl
 
 ---
 
+## 12. Các lớp của bộ lọc research (khung D1)
+
+> Cập nhật: 2026-10. Bộ lọc chạy khung **ngày**. Tài liệu chiến thuật còn nhắc H4, nhưng thị
+> trường Việt Nam giao dịch theo phiên nên phần H4 không được làm.
+
+| # | Lớp | Module | Trạng thái |
+|---|-----|--------|-----------|
+| 1 | Vĩ mô liên thị trường | `research/app/macro.py` + `ingest.fetch_macro` | Yahoo chart cho DXY, USD/VND, S&P 500, dầu WTI. Chỉ chặn vào khi DXY **và** tỷ giá cùng trên MA20 |
+| 2 | Cơ bản + định giá | `research/app/evaluate.py` | 4 template (doanh nghiệp, ngân hàng, chứng khoán, bảo hiểm), F-Score suy ra, cảnh báo số liệu, trần P/E 30 |
+| 3 | Dòng tiền lớn | `research/app/flow.py` + `ingest.fetch_foreign_flow` | VNDirect Finfo `foreigns`: net volume/value/room theo ngày, 60 phiên gần nhất |
+| 4 | Nền giá và mô hình | `research/app/pattern.py` | ZigZag theo ATR, Đáy đôi, VCP, Cờ, ABCD, điểm cấu trúc 0–100 |
+| 5 | Thoát lệnh | `research/app/exits.py` | Dừng lỗ đáy nền/ATR, chốt 1/3 tại +1R, kéo dừng lỗ MA20, tiền chết 30 phiên, trần 60 phiên |
+| 6 | Đo tiến | `research/app/paper.py` + bảng `paper_positions` | Vị thế giấy mở khi xác nhận một mã Được vào, đánh dấu mỗi phiên, so với VN-Index |
+| 7 | Điểm tổng hợp | `evaluate.compose_score` | 0–100 để xếp hạng và chọn suất trong backtest |
+| 8 | Cảnh báo | `research/app/notify.py` | Telegram khi trạng thái đổi hoặc vị thế giấy đóng; không cấu hình thì im lặng |
+
+**Hai cổng chỉ áp ở phiên trực tiếp**: trần P/E (kho thị trường chỉ giữ ảnh chụp hiện tại) và lớp
+vĩ mô (Yahoo chỉ trả vài tháng lịch sử). Đưa chúng vào backtest sẽ là nhìn trước tương lai.
+
+**Giới hạn dữ liệu**: VNDirect Finfo không có mã số biên lợi nhuận gộp và phải thu, nên F-Score
+dùng 8 tiêu chí suy ra và soát số liệu bằng tồn kho + biên dòng tiền thay cho phải thu.
+
+**Backtest đổi từ một suất sang 5 suất vốn**, mỗi suất rủi ro 1% vốn chủ, xếp hạng theo điểm tổng
+hợp; nhờ vậy phép đo so được với danh mục thật thay vì một lệnh đơn lẻ.
+
+---
+
 ## Phụ lục: Backend file map hiện tại
 
 | File | Mô tả |
