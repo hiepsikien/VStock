@@ -17,9 +17,6 @@
     <section class="group">
       <h2>Quyết định</h2>
       <p>{{ item.summary }}</p>
-      {% if item.failed_breakout %}
-        <p class="banner bad">Phá nền thất bại: {{ item.failed_breakout }}</p>
-      {% endif %}
       {# default({}) keeps a cached process that still passes the old context name from taking the
          page down; the bar then just falls back to the tallest part, as it did before. #}
       {% set ceilings = score_ceilings|default({}) %}
@@ -43,7 +40,12 @@
 
     <section class="group">
       <h2>Nền giá 20 phiên</h2>
-      <p>{{ item.pattern_reason }}</p>
+      {# One home for the base verdict: the decision block above already prints this sentence
+         when the base is what decided the state, so the group only restates it when another
+         gate ended the name — and flags it in red, because it is then extra context. #}
+      {% if item.pattern_reason and item.pattern_reason != item.summary %}
+        <p{% if item.failed_breakout %} class="banner bad"{% endif %}>{{ item.pattern_reason }}</p>
+      {% endif %}
       {% if chart %}
         <figure class="chart">
           <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img"

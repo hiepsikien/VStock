@@ -44,6 +44,24 @@ def _slice(bars: list[dict], as_of: str) -> list[dict]:
     return [bar for bar in bars if bar["trade_date"] <= as_of]
 
 
+def _session_bar(bars: list[dict], trade_date: str) -> dict | None:
+    """The bar of the session being walked, or None when the name has no bar of its own.
+
+    A name that is suspended, halted, or simply missing a bar keeps its last close in the store,
+    so the last bar of the slice is then yesterday's. Walking it again would count a session the
+    slot was never exposed to — bringing the 30-session time stop and the 60-session ceiling
+    forward — and would read a low the stop has already seen, letting a trailing stop fill on a
+    bottom that happened before it was raised. The paper ledger steps a bar only once, so both
+    books have to skip the same sessions to stay comparable.
+    """
+    if not bars:
+        return None
+    last = bars[-1]
+    if str(last.get("trade_date")) != trade_date:
+        return None
+    return last
+
+
 def _slice_flow(points: FlowMap, as_of: str) -> FlowMap:
     return {
         code: [(day, value) for day, value in series if day <= as_of]
@@ -125,6 +143,10 @@ def _candidates(
         stock_slice = _slice(stock_bars, trade_date)
         if len(stock_slice) < 61:
             continue
+        # A name with no bar of its own this session is not a candidate: it would be bought at
+        # yesterday's close with today's date on the position.
+        if _session_bar(stock_slice, trade_date) is None:
+            continue
         pattern = assess_pattern(stock_slice, index_slice, exchanges.get(symbol))
         flow_points = _slice_flow(flow_by_symbol.get(symbol, {}), trade_date)
         verdict = compose(
@@ -191,9 +213,10 @@ def run_backtest(
         for slot in list(slots):
             position = slot.position
             stock_slice = _slice(bars_by_symbol.get(position.symbol, []), trade_date)
-            if not stock_slice:
+            bar = _session_bar(stock_slice, trade_date)
+            if bar is None:
+                # The name has no bar of this session, so there is nothing to judge it on.
                 continue
-            bar = stock_slice[-1]
             mark_bar(position, bar)
             # Only a filing already published on this session may end the thesis; without
             # the upper bound a future suspension would close the slot on the next bar.

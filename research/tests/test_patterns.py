@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from app.pattern import (
     Pattern,
     atr,
+    failed_breakout,
     ma_now,
     pattern_score,
     recognise_patterns,
@@ -125,6 +126,46 @@ class StructureTest(unittest.TestCase):
         self.assertEqual(pattern.stop, 90)
         self.assertEqual(pattern.patterns, ())
         self.assertEqual(pattern.score, 0)
+
+
+class FailedBreakoutTest(unittest.TestCase):
+    """A base broken through and lost again, and what a later breakout does to that verdict."""
+
+    def test_a_breakout_today_puts_the_earlier_failure_behind_the_name(self) -> None:
+        self.assertIsNone(failed_breakout(_failed_breakout_bars()))
+
+    def test_a_failure_within_the_window_is_reported(self) -> None:
+        # The same series without today's session: the breakout of three sessions ago still
+        # counts as failed, so the check did not simply stop looking.
+        self.assertIn("phá nền thất bại", failed_breakout(_failed_breakout_bars()[:27]) or "")
+
+    def test_a_close_exactly_on_the_level_holds(self) -> None:
+        rows = _failed_breakout_bars()[:27]
+        rows[26]["close"] = 100.5
+        self.assertIsNone(failed_breakout(rows))
+
+
+def _failed_breakout_bars() -> list[dict]:
+    """25 flat sessions, a breakout, a close back under it, then a fresh breakout today.
+
+    The breakout at 25 clears the 100.5 ceiling of the flat base; 26 closes at 99, back under
+    it; 27 closes at 105, through the 103 ceiling of the two sessions before it. So the failure
+    of 26 is three sessions old on the day of the new breakout.
+    """
+    start = date(2026, 1, 1)
+    closes = [100.0] * 25 + [102.0, 99.0, 105.0]
+    highs = [100.5] * 25 + [103.0, 101.0, 106.0]
+    return [
+        {
+            "trade_date": (start + timedelta(days=index)).isoformat(),
+            "open": close,
+            "high": high,
+            "low": close - 0.5,
+            "close": close,
+            "volume": 100.0,
+        }
+        for index, (close, high) in enumerate(zip(closes, highs))
+    ]
 
 
 if __name__ == "__main__":

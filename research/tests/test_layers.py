@@ -10,6 +10,9 @@ from datetime import date, timedelta
 from pathlib import Path
 from unittest import mock
 
+import httpx
+import yaml
+
 from app import backtest, db, notify, pipeline
 from app.config import DEFAULT_UNIVERSE
 from app.evaluate import (
@@ -435,6 +438,13 @@ class ComposeTest(unittest.TestCase):
         self.assertEqual(verdict.status, "Được vào")
         self.assertEqual(verdict.priority, 2)
 
+    def test_macro_that_did_not_load_does_not_open_an_entry(self) -> None:
+        """A feed that is down is not a green light: the layer has no numbers, so no entry."""
+        verdict = self._compose(macro=macro_state({}))
+        self.assertEqual(verdict.status, "Theo dõi")
+        self.assertIn("Vĩ mô chưa có số", verdict.summary)
+        self.assertFalse(verdict.macro_block)
+
     def test_macro_block_downgrades_an_entry(self) -> None:
         macro = macro_state({})
         blocked = macro.__class__(True, True, "Vĩ mô căng: tỷ giá trên MA20", [])
@@ -546,6 +556,45 @@ class NotifyTest(unittest.TestCase):
         )
         self.assertIsNotNone(message)
         self.assertTrue((message or "").startswith("VStock research 2026-10-10"))
+
+    def test_a_stray_bracket_in_a_filing_title_is_escaped(self) -> None:
+        """parse_mode is HTML, so a `<` in a title would make the whole session 400 away."""
+        item = self._item("Loại")
+        item["summary"] = "Đình chỉ <b>niêm yết</b> & xét lại"
+        lines = transition_lines([self._item("Chờ")], [item])
+        self.assertTrue(lines[0].startswith("<b>FPT</b>"))
+        self.assertIn("&lt;b&gt;", lines[0])
+        self.assertNotIn("<b>niêm yết", lines[0])
+
+    def test_a_failed_send_does_not_log_the_bot_token(self) -> None:
+        """The httpx message carries the request URL, and the URL carries the token."""
+        request = httpx.Request("POST", "https://api.telegram.org/botSECRET/sendMessage")
+        response = httpx.Response(400, request=request)
+        error = httpx.HTTPStatusError(
+            "Client error '400 Bad Request' for url 'https://api.telegram.org/botSECRET/sendMessage'",
+            request=request,
+            response=response,
+        )
+
+        class _Client:
+            async def __aenter__(self) -> "_Client":
+                return self
+
+            async def __aexit__(self, *_args) -> bool:
+                return False
+
+            async def post(self, *_args, **_kwargs) -> httpx.Response:
+                raise error
+
+        with mock.patch.dict(
+            os.environ, {"TELEGRAM_BOT_TOKEN": "SECRET", "TELEGRAM_CHAT_ID": "1"}
+        ), mock.patch.object(notify.httpx, "AsyncClient", lambda **_kwargs: _Client()), self.assertLogs(
+            "app.notify", level="WARNING"
+        ) as logs:
+            sent = asyncio.run(notify.send("xin chào"))
+        self.assertFalse(sent)
+        self.assertIn("400", "\n".join(logs.output))
+        self.assertNotIn("SECRET", "\n".join(logs.output))
 
     def test_row_return_mixes_booked_and_open_parts(self) -> None:
         row = {
@@ -905,6 +954,56 @@ def _walk_bars() -> tuple[list[dict], list[dict]]:
         stock_bars.append(bar)
     return index_bars, stock_bars
 
+def _walk_bars_without(index: int) -> tuple[list[dict], list[dict]]:
+    """The same walk with one session missing from the name's own bars."""
+    index_bars, stock_bars = _walk_bars()
+    return index_bars, stock_bars[:index] + stock_bars[index + 1 :]
+
+
+def _walk_bars_halted_after_the_breakout() -> tuple[list[dict], list[dict]]:
+    """Bar 199 is a ready breakout and the name then stops trading at all.
+
+    The walk window opens on the session after that bar, so a walk that scores the last bar of
+    the slice instead of the bar of the session would buy this name on 2026-08-20 at 199's close
+    of 104.50 — a price the name had not traded at for a session — and date the entry to a session
+    the name was nowhere near.
+    """
+    index_bars, stock_bars = _walk_bars()
+    rows = list(stock_bars)
+    rows[199] = {
+        "trade_date": stock_bars[199]["trade_date"],
+        "open": 103.0,
+        "high": 105.0,
+        "low": 102.5,
+        "close": 104.5,
+        "volume": 3000.0,
+    }
+    return index_bars, rows[:200]
+
+
+def _walk_bars_with_a_hole() -> tuple[list[dict], list[dict]]:
+    """The walk with a trim booked and the session right after it missing for the name.
+
+    Bar 201 jumps to 111, which books 1/3 at TP1 and pulls the stop up to 105.32, while bar
+    201's own low of 101 stays well behind it. The session after that never traded for the name,
+    and the sessions after that fall away. So the question this fixture puts to the walk is
+    whether it reads bar 201 again on the missing session — filling the raised stop with a low
+    that happened before the stop was raised — or waits for a bar of its own.
+    """
+    index_bars, stock_bars = _walk_bars()
+    replayed = list(stock_bars)
+    replayed[201] = {
+        "trade_date": stock_bars[201]["trade_date"],
+        "open": 106.0,
+        "high": 111.0,
+        "low": 101.0,
+        "close": 110.0,
+        "volume": 4000.0,
+    }
+    return index_bars, replayed[:202] + replayed[203:]
+
+
+
 
 class BacktestWalkTest(unittest.TestCase):
     """The walk moves the money, so it has to book exits the way the live ledger does."""
@@ -959,6 +1058,52 @@ class BacktestWalkTest(unittest.TestCase):
         self.assertNotAlmostEqual(
             result["strategy_return"] + 1, (1 - spend + proceeds) * daily**14, places=6
         )
+
+    def test_a_session_the_name_did_not_trade_is_not_stepped(self) -> None:
+        """The name is halted on 2026-08-21, so that session may not count for the slot."""
+        index_bars, stock_bars = _walk_bars_without(201)
+        result = backtest.run_backtest(
+            index_bars, {"FPT": stock_bars}, {"FPT": _corporate_points()}, {}
+        )
+        self.assertEqual(result["trade_count"], 1)
+        trade = result["trades"][0]
+        self.assertEqual(trade["entry"], "2026-08-20")
+        # The stop lands on the bar that really traded, and the halted session leaves no mark
+        # behind it. Re-reading the entry bar on that session would hand the slot a session it
+        # was never exposed to and bring the 30-session shelf closer.
+        self.assertEqual(trade["exit"], "2026-08-22")
+        self.assertEqual(trade["sessions"], 1)
+        self.assertEqual(trade["reason"], "Chạm dừng lỗ")
+
+    def test_a_session_without_a_bar_is_not_an_entry(self) -> None:
+        """The name stopped trading, so the walk may not buy it at its last traded close."""
+        index_bars, stock_bars = _walk_bars_halted_after_the_breakout()
+        result = backtest.run_backtest(
+            index_bars, {"FPT": stock_bars}, {"FPT": _corporate_points()}, {}
+        )
+        entries = [trade["entry"] for trade in result["trades"]]
+        self.assertNotIn("2026-08-20", entries)
+        # An entry dated after its own exit is the shape of the same mistake.
+        for trade in result["trades"]:
+            self.assertLessEqual(trade["entry"], trade["exit"])
+
+    def test_a_missing_session_cannot_refill_a_raised_stop(self) -> None:
+        """The session after the trim is missing; bar 201's low already happened behind it."""
+        index_bars, stock_bars = _walk_bars_with_a_hole()
+        result = backtest.run_backtest(
+            index_bars, {"FPT": stock_bars}, {"FPT": _corporate_points()}, {}
+        )
+        self.assertEqual(result["trade_count"], 1)
+        trade = result["trades"][0]
+        self.assertEqual(trade["entry"], "2026-08-20")
+        # 1/3 was booked at TP1 on 2026-08-21 and the stop moved up to 105.32, behind the low
+        # of 101 that session had already printed. The next session did not trade for the name,
+        # so the raised stop may not be filled there: the slot lives on to 2026-08-23 and gets
+        # the fill that bar really offered.
+        self.assertEqual(trade["exit"], "2026-08-23")
+        self.assertEqual(trade["sessions"], 2)
+        self.assertAlmostEqual(trade["exit_price"], 99.0)
+        self.assertEqual(trade["reason"], "Chạm dừng lỗ")
 
 
 def _paper_bars() -> list[dict]:
@@ -1061,11 +1206,10 @@ class PaperLedgerTest(unittest.TestCase):
             for suffix in ("", "-wal", "-shm"):
                 Path(path + suffix).unlink(missing_ok=True)
 
+class PaperAlphaTest(unittest.TestCase):
+    """Alpha compares a slot only with the index window that slot has actually lived through."""
 
-class UniverseTest(unittest.TestCase):
-    """An older store has to pick up the default list growing, without losing its edits."""
-
-    def test_default_symbols_merge_into_an_older_store(self) -> None:
+    def test_a_slot_without_a_marked_session_is_left_out_of_both_averages(self) -> None:
         asyncio.run(self._run())
 
     async def _run(self) -> None:
@@ -1076,23 +1220,127 @@ class UniverseTest(unittest.TestCase):
         path = handle.name
         os.environ["RESEARCH_DB_PATH"] = path
         try:
-            connection = sqlite3.connect(path)
-            connection.executescript(
-                """
-                CREATE TABLE universe (
-                    symbol TEXT PRIMARY KEY,
-                    added_at TEXT NOT NULL
-                );
-                INSERT INTO universe (symbol, added_at) VALUES ('AAA', 'cũ');
-                """
-            )
-            connection.commit()
-            connection.close()
+            await db.init_db()
+            index_bars = _alpha_index_bars()
+            await db.replace_bars("VNINDEX", index_bars)
 
+            # A slot held for ten sessions, 10% up while the index is up less.
+            seasoned = await db.open_paper_position(
+                {
+                    "symbol": "FPT",
+                    "entry_date": "2026-10-01",
+                    "entry_price": 100.0,
+                    "initial_stop": 90.0,
+                    "stop_price": 90.0,
+                    "target1": 110.0,
+                    "atr14": 2.0,
+                    "score": 80,
+                    "note": "xác nhận",
+                }
+            )
+            await db.save_paper_position(
+                {
+                    "id": seasoned,
+                    "stop_price": 90.0,
+                    "sessions": 7,
+                    "tp1_done": False,
+                    "booked_fraction": 0.0,
+                    "realised": 0.0,
+                    "last_price": 110.0,
+                    "last_date": "2026-10-10",
+                    "closed_at": None,
+                    "exit_date": None,
+                    "exit_price": None,
+                    "exit_reason": None,
+                }
+            )
+            # A slot confirmed on the last session: no mark yet, so its 0% has no index window.
+            await db.open_paper_position(
+                {
+                    "symbol": "VNM",
+                    "entry_date": "2026-10-11",
+                    "entry_price": 50.0,
+                    "initial_stop": 45.0,
+                    "stop_price": 45.0,
+                    "target1": 55.0,
+                    "atr14": 1.0,
+                    "score": 80,
+                    "note": "xác nhận",
+                }
+            )
+
+            report = await paper_report()
+            window = [
+                bar for bar in index_bars if "2026-10-01" <= bar["trade_date"] <= "2026-10-10"
+            ]
+            index_pct = window[-1]["close"] / window[0]["close"] - 1
+            self.assertEqual(report["count"], 2)
+            # One slot has a marked session and an index window of its own; the fresh one has
+            # neither, so it must be missing from both sides of the subtraction.
+            self.assertEqual(sum(1 for row in report["rows"] if row["index_pct"] is None), 1)
+            self.assertAlmostEqual(report["average_return"] or 0, 0.10, places=9)
+            self.assertAlmostEqual(report["average_index"] or 0, index_pct, places=9)
+            self.assertAlmostEqual(report["alpha"] or 0, 0.10 - index_pct, places=9)
+        finally:
+            await db.close_db()
+            if previous is None:
+                os.environ.pop("RESEARCH_DB_PATH", None)
+            else:
+                os.environ["RESEARCH_DB_PATH"] = previous
+            for suffix in ("", "-wal", "-shm"):
+                Path(path + suffix).unlink(missing_ok=True)
+
+
+def _alpha_index_bars() -> list[dict]:
+    """Eleven index sessions from 2026-10-01, one point a session on 1200."""
+    start = date(2026, 10, 1)
+    bars: list[dict] = []
+    for i in range(11):
+        close = 1200.0 + i
+        bars.append(
+            {
+                "trade_date": (start + timedelta(days=i)).isoformat(),
+                "open": close,
+                "high": close + 1.0,
+                "low": close - 1.0,
+                "close": close,
+                "volume": 1_000_000.0,
+            }
+        )
+    return bars
+
+
+
+
+class UniverseTest(unittest.TestCase):
+    """An older store has to pick up the default list growing, without losing its edits."""
+
+    def test_a_curated_store_without_a_bookmark_keeps_its_list(self) -> None:
+        asyncio.run(self._run(("AAA",)))
+
+    def test_a_fresh_store_gets_the_default_list(self) -> None:
+        asyncio.run(self._run(()))
+
+    async def _run(self, seeded: tuple[str, ...]) -> None:
+        await db.close_db()
+        previous = os.environ.get("RESEARCH_DB_PATH")
+        path = _store_with(seeded)
+        os.environ["RESEARCH_DB_PATH"] = path
+        try:
             await db.init_db()
             symbols = await db.universe()
-            self.assertIn("AAA", symbols)
-            self.assertTrue(set(DEFAULT_UNIVERSE) <= set(symbols))
+            if seeded:
+                # The list predates the bookmark, so it is the operator's: the defaults are not
+                # poured back in and a name dropped by hand before the upgrade stays dropped.
+                self.assertEqual(symbols, list(seeded))
+            else:
+                self.assertTrue(set(DEFAULT_UNIVERSE) <= set(symbols))
+
+            # The bookmark is recorded on this very boot, so a default added later still lands.
+            with mock.patch.object(db, "DEFAULT_UNIVERSE", list(DEFAULT_UNIVERSE) + ["ZZZ"]):
+                await db.close_db()
+                await db.init_db()
+            self.assertIn("ZZZ", await db.universe())
 
             # A symbol the operator removed by hand must stay removed across restarts.
             await db.remove_symbol("PLX")
@@ -1107,6 +1355,71 @@ class UniverseTest(unittest.TestCase):
                 os.environ["RESEARCH_DB_PATH"] = previous
             for suffix in ("", "-wal", "-shm"):
                 Path(path + suffix).unlink(missing_ok=True)
+
+
+def _store_with(symbols: tuple[str, ...]) -> str:
+    """A sqlite file holding just a universe table, the way a store from before looks."""
+    handle = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    handle.close()
+    connection = sqlite3.connect(handle.name)
+    rows = "".join(
+        f"INSERT INTO universe (symbol, added_at) VALUES ('{symbol}', 'cũ');" for symbol in symbols
+    )
+    connection.executescript(
+        "CREATE TABLE universe (symbol TEXT PRIMARY KEY, added_at TEXT NOT NULL);" + rows
+    )
+    connection.commit()
+    connection.close()
+    return handle.name
+
+
+PROVIDERS = Path(__file__).resolve().parents[2] / "backend" / "config" / "providers.yaml"
+
+
+class UniverseWatchlistTest(unittest.TestCase):
+    """The two hand-kept lists feed each other, so a test has to hold them together."""
+
+    @unittest.skipUnless(PROVIDERS.exists(), "backend config is not in this checkout")
+    def test_research_universe_matches_the_ingestion_watchlist(self) -> None:
+        ingestion = yaml.safe_load(PROVIDERS.read_text(encoding="utf-8"))["ingestion"]
+        watchlist = list(ingestion["quote_symbols"])
+        self.assertEqual(
+            set(DEFAULT_UNIVERSE),
+            set(watchlist),
+            "DEFAULT_UNIVERSE và ingestion.quote_symbols đã lệch nhau",
+        )
+        self.assertEqual(len(DEFAULT_UNIVERSE), len(set(DEFAULT_UNIVERSE)))
+        self.assertEqual(len(watchlist), len(set(watchlist)))
+
+
+class VerdictOrderTest(unittest.TestCase):
+    """The table note says the composite score ranks, so the table has to rank by it."""
+
+    def test_the_score_leads_inside_a_state(self) -> None:
+        from app import web
+
+        rows = [
+            {"symbol": "AAA", "status": "Theo dõi", "score": 40, "priority": 0},
+            {"symbol": "BBB", "status": "Theo dõi", "score": 70, "priority": 0},
+            {"symbol": "CCC", "status": "Được vào", "score": 55, "priority": 0},
+            {"symbol": "DDD", "status": "Được vào", "score": 55, "priority": 1},
+        ]
+        self.assertEqual(
+            [item["symbol"] for item in web._ordered(rows)], ["DDD", "CCC", "BBB", "AAA"]
+        )
+
+    def test_a_state_with_no_priority_still_orders_by_score(self) -> None:
+        """Every name is Khóa under a closed market gate, and the score still has to rank."""
+        from app import web
+
+        rows = [
+            {"symbol": "AAA", "status": "Khóa", "score": 30, "priority": 0},
+            {"symbol": "BBB", "status": "Khóa", "score": 62, "priority": 0},
+            {"symbol": "CCC", "status": "Khóa", "score": 51, "priority": 0},
+        ]
+        self.assertEqual(
+            [item["symbol"] for item in web._ordered(rows)], ["BBB", "CCC", "AAA"]
+        )
 
 
 class PipelineAlertTest(unittest.TestCase):

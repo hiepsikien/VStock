@@ -456,9 +456,11 @@ def failed_breakout(stock_bars: list[dict]) -> str | None:
 
     The level is frozen on the breakout session: the sessions that follow do not raise it.
     Only the most recent breakout counts, because a close above a fresh ceiling means the
-    earlier failure is behind the name. A session that closes exactly on the level holds.
+    earlier failure is behind the name — so the session being scored is a candidate breakout
+    too, and a close through a new ceiling today clears a failure seen three sessions ago.
+    A session that closes exactly on the level holds.
     """
-    for offset in range(1, FAILED_BREAKOUT_SESSIONS + 1):
+    for offset in range(0, FAILED_BREAKOUT_SESSIONS + 1):
         index = len(stock_bars) - 1 - offset
         if index < MA_FAST:
             return None

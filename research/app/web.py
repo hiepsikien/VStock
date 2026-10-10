@@ -73,7 +73,21 @@ async def health() -> dict:
 
 
 def _ordered(verdicts: list[dict]) -> list[dict]:
-    return sorted(verdicts, key=lambda item: (STATUS_RANK.get(item["status"], 9), -item["priority"], item["symbol"]))
+    """Best score first inside a state, the way the walk ranks its candidates.
+
+    The state itself leads: a name that may be bought outranks one on watch. Inside a state the
+    composite score decides, with the insider-buy flag and then the ticker as tie-breakers — the
+    same order the backtest buys in, so the page and the measurement read the list alike.
+    """
+    return sorted(
+        verdicts,
+        key=lambda item: (
+            STATUS_RANK.get(item["status"], 9),
+            -item["score"],
+            -item["priority"],
+            item["symbol"],
+        ),
+    )
 
 
 @app.get("/")

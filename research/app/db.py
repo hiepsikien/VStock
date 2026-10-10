@@ -201,17 +201,36 @@ async def init_db() -> None:
     await _db.commit()
 
 
+async def _write_universe_seed(db: aiosqlite.Connection, symbols: list[str]) -> None:
+    await db.execute(
+        "INSERT INTO meta (key, value) VALUES ('universe_seed', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (json.dumps(symbols),),
+    )
+
+
 async def _merge_default_universe(db: aiosqlite.Connection) -> None:
     """Add default symbols the store has not seen, without re-seeding a list already set.
 
     A store that already holds a list keeps it, so a symbol removed by hand stays
     removed; only members appended to DEFAULT_UNIVERSE since the last merge are added.
+    A store with a list but no bookmark predates this merge and its list is the operator's,
+    so the defaults are not poured back in there either; recording the bookmark is what makes
+    the next boot add only what is new.
     That keeps the research list in step with ingestion.quote_symbols, whose P/E numbers
     feed the valuation gate.
     """
     cursor = await db.execute("SELECT value FROM meta WHERE key = 'universe_seed'")
     row = await cursor.fetchone()
-    merged: list[str] = json.loads(row["value"]) if row else []
+    if row is None:
+        cursor = await db.execute("SELECT COUNT(*) FROM universe")
+        count_row = await cursor.fetchone()
+        if count_row and count_row[0]:
+            await _write_universe_seed(db, list(DEFAULT_UNIVERSE))
+            return
+        merged: list[str] = []
+    else:
+        merged = json.loads(row["value"])
     missing = [symbol for symbol in DEFAULT_UNIVERSE if symbol not in merged]
     if missing:
         await db.executemany(
@@ -219,11 +238,7 @@ async def _merge_default_universe(db: aiosqlite.Connection) -> None:
             "ON CONFLICT(symbol) DO NOTHING",
             [(symbol, _now()) for symbol in missing],
         )
-        await db.execute(
-            "INSERT INTO meta (key, value) VALUES ('universe_seed', ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (json.dumps(list(DEFAULT_UNIVERSE)),),
-        )
+        await _write_universe_seed(db, list(DEFAULT_UNIVERSE))
 
 
 async def _ensure_schema_migrations(db: aiosqlite.Connection) -> None:

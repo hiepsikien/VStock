@@ -179,8 +179,13 @@ async def report(limit: int = 50) -> dict:
     closed = [item for item in prepared if item["exit_date"]]
     still_open = [item for item in prepared if not item["exit_date"]]
     wins = [item for item in closed if item["return_pct"] > 0]
-    returns = [item["return_pct"] for item in prepared]
-    index_returns = [item["index_pct"] for item in prepared if item["index_pct"] is not None]
+    # Alpha needs both legs of every slot it compares. A slot confirmed today has no session
+    # marked yet, so its 0% has no index window to sit against; averaging it in would drag the
+    # return down while the index mean skipped it, and the "Hơn chỉ số" pill would flip on the
+    # day of a confirmation.
+    paired = [item for item in prepared if item["index_pct"] is not None]
+    returns = [item["return_pct"] for item in paired]
+    index_returns = [item["index_pct"] for item in paired]
 
     average = sum(returns) / len(returns) if returns else None
     average_index = sum(index_returns) / len(index_returns) if index_returns else None
@@ -204,6 +209,7 @@ async def report(limit: int = 50) -> dict:
         "assumptions": (
             "Mỗi vị thế giấy là một suất vốn bằng nhau, tính theo phần trăm. "
             f"Phí cả vòng {ROUND_TRIP_COST * 100:.2f}% chưa trừ vào lãi của vị thế. "
-            "So sánh dùng VN-Index trong đúng cửa sổ nắm giữ của từng vị thế."
+            "So sánh dùng VN-Index trong đúng cửa sổ nắm giữ của từng vị thế; "
+            "suất chưa có phiên mark nào không vào lãi bình quân vì chưa có cửa sổ để so."
         ),
     }

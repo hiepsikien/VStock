@@ -925,6 +925,12 @@ def compose(
     if status == "Được vào" and macro is not None and macro.block:
         status = "Theo dõi"
         summary = f"Vĩ mô chặn vào: {macro.reason}"
+    # Vĩ mô tải lỗi thì macro_state không dựng được dòng nào và trả risk None. Dữ liệu thiếu
+    # không phải là dữ liệu tốt: hạ lệnh sắp vào xuống Theo dõi, cùng chỗ với lần chặn đã thấy,
+    # thay vì để cổng rủi ro mở vì lý do không liên quan tới thị trường.
+    elif status == "Được vào" and macro is not None and macro.risk is None:
+        status = "Theo dõi"
+        summary = f"Vĩ mô chưa có số: {macro.reason}"
 
     if status == "Được vào" and priority:
         summary = "Ưu tiên vì có đăng ký mua. " + summary
