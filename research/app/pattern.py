@@ -96,6 +96,26 @@ def market_regime(index_bars: list[dict]) -> Regime:
     return Regime(False, f"VN-Index {close:.2f} dưới MA200 {ma:.2f}", close, ma)
 
 
+def session_bar(bars: list[dict], trade_date: str) -> dict | None:
+    """The bar of the session being read, or None when the name has no bar of its own.
+
+    A name that is suspended, halted, or simply missing a bar keeps its last close in the store,
+    so the last bar of the slice is then yesterday's. Walking it again would count a session the
+    slot was never exposed to — bringing the 30-session time stop and the 60-session ceiling
+    forward — and would read a low the stop has already seen, letting a trailing stop fill on a
+    bottom that happened before it was raised. The paper ledger steps a bar only once, so both
+    books have to skip the same sessions to stay comparable. A live run skips them for the same
+    reason: scoring a name on an older bar would stamp this session's date on yesterday's close
+    and could show a base break that has already happened as if it were this session's.
+    """
+    if not bars:
+        return None
+    last = bars[-1]
+    if str(last.get("trade_date")) != trade_date:
+        return None
+    return last
+
+
 def _mean(values: list[float]) -> float:
     return sum(values) / len(values)
 

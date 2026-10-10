@@ -1587,6 +1587,107 @@ class PipelineAlertTest(unittest.TestCase):
                 Path(path + suffix).unlink(missing_ok=True)
 
 
+class PipelineSessionBarTest(unittest.TestCase):
+    """A session may only score a name that has a bar of the session being read.
+
+    The backtest has always dropped those names, and the paper ledger only ever steps a real
+    bar, but the live run composed every name in the list from whatever bars and flow the store
+    still held, under the VN-Index session date. A feed that failed, or a name that simply did
+    not trade, then carried an older bar as if it were this session's.
+    """
+
+    def test_failed_fetch_is_not_scored_on_the_bar_left_in_the_store(self) -> None:
+        asyncio.run(self._run(fail=True))
+
+    def test_loaded_name_with_no_bar_of_the_session_is_named_apart(self) -> None:
+        asyncio.run(self._run(fail=False))
+
+    async def _run(self, *, fail: bool) -> None:
+        index_bars, stock_bars = _walk_bars()
+        points = _corporate_points()
+        session = index_bars[-1]["trade_date"]
+        # TPB's bars stop on the session before, the way a feed that dies leaves them.
+        stale = stock_bars[:-1]
+        self.assertEqual(stale[-1]["trade_date"], index_bars[-2]["trade_date"])
+        sent: list[str] = []
+
+        async def fake_bars(_client, symbol, *, index=False):
+            if symbol == "VNINDEX":
+                return index_bars
+            if symbol == "TPB":
+                if fail:
+                    raise httpx.ConnectError("feed down")
+                return stale
+            return stock_bars
+
+        async def fake_ratios(_client, symbol):
+            return points
+
+        async def fake_news(_client, symbol):
+            return [_earnings()]
+
+        async def fake_flow(_client, symbol):
+            return {}
+
+        async def fake_macro(_client):
+            return {}
+
+        async def fake_market(_client, day):
+            return {}
+
+        async def fake_send(text):
+            sent.append(text)
+            return True
+
+        await db.close_db()
+        previous = os.environ.get("RESEARCH_DB_PATH")
+        handle = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        handle.close()
+        path = handle.name
+        os.environ["RESEARCH_DB_PATH"] = path
+        try:
+            await db.init_db()
+            connection = await db.get_db()
+            await connection.execute("DELETE FROM universe WHERE symbol NOT IN ('FPT', 'TPB')")
+            await connection.commit()
+            # An earlier session loaded TPB, so the store holds a close there to compose on.
+            await db.replace_bars("TPB", stale)
+
+            with mock.patch.multiple(
+                pipeline,
+                fetch_bars=fake_bars,
+                fetch_ratios=fake_ratios,
+                fetch_symbol_news=fake_news,
+                fetch_foreign_flow=fake_flow,
+                fetch_macro=fake_macro,
+                fetch_market=fake_market,
+                load_market_articles=lambda: [],
+                load_exchanges=lambda: {},
+                load_valuation=lambda: {},
+            ), mock.patch.object(notify, "send", fake_send):
+                message = await pipeline._run()
+
+            self.assertTrue(message.startswith(f"Phiên {session}: "), message)
+            rows = await db.latest_verdicts()
+            self.assertEqual([row["symbol"] for row in rows], ["FPT"])
+            self.assertIsNone(await db.verdict("TPB"))
+            cursor = await connection.execute("SELECT COUNT(*) FROM verdicts WHERE symbol = 'TPB'")
+            self.assertEqual((await cursor.fetchone())[0], 0)
+            self.assertEqual([text for text in sent if "TPB" in text], [])
+            if fail:
+                self.assertIn("Không tải được: TPB", message)
+            else:
+                self.assertIn("Chưa có nến phiên này: TPB", message)
+        finally:
+            await db.close_db()
+            if previous is None:
+                os.environ.pop("RESEARCH_DB_PATH", None)
+            else:
+                os.environ["RESEARCH_DB_PATH"] = previous
+            for suffix in ("", "-wal", "-shm"):
+                Path(path + suffix).unlink(missing_ok=True)
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -69,6 +69,13 @@ trên trang web. Trang
 muốn tự chạy hằng ngày thì thêm một lệnh `curl -X POST http://127.0.0.1:8010/run` vào cron
 sau giờ đóng cửa.
 
+Mỗi phiên **chỉ chấm những mã có nến đúng phiên đang chấm**. Mã tải lỗi, mã bị tạm ngừng giao dịch,
+hay mã mà nguồn chưa có nến của phiên đó đều bị bỏ khỏi bảng, chứ không chấm bằng nến và dòng tiền
+còn nằm trong kho — cùng một luật với `/backtest` (`session_bar`) và sổ giấy, nên nến cũ không thể
+hiện thành phá nền của phiên hôm nay. Thông báo phiên nói rõ mã nào bị bỏ: `Không tải được: …` khi
+lượt tải lỗi, `Chưa có nến phiên này: …` khi tải xong mà nguồn không có nến của phiên. Mã đã có nến
+của phiên từ một lượt chạy trước đó trong ngày vẫn được chấm bình thường.
+
 ### Các lớp đang chấm
 
 | Lớp | Nguồn | Ghi chú |

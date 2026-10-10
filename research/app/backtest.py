@@ -23,7 +23,7 @@ from app.exits import (
     position_size,
 )
 from app.flow import flow_flipped, flow_gate
-from app.pattern import Pattern, assess_pattern, atr, ma_now, market_regime
+from app.pattern import Pattern, assess_pattern, atr, ma_now, market_regime, session_bar
 
 FlowMap = dict[str, list[tuple[str, float]]]
 
@@ -42,24 +42,6 @@ class Slot:
 
 def _slice(bars: list[dict], as_of: str) -> list[dict]:
     return [bar for bar in bars if bar["trade_date"] <= as_of]
-
-
-def _session_bar(bars: list[dict], trade_date: str) -> dict | None:
-    """The bar of the session being walked, or None when the name has no bar of its own.
-
-    A name that is suspended, halted, or simply missing a bar keeps its last close in the store,
-    so the last bar of the slice is then yesterday's. Walking it again would count a session the
-    slot was never exposed to — bringing the 30-session time stop and the 60-session ceiling
-    forward — and would read a low the stop has already seen, letting a trailing stop fill on a
-    bottom that happened before it was raised. The paper ledger steps a bar only once, so both
-    books have to skip the same sessions to stay comparable.
-    """
-    if not bars:
-        return None
-    last = bars[-1]
-    if str(last.get("trade_date")) != trade_date:
-        return None
-    return last
 
 
 def _slice_flow(points: FlowMap, as_of: str) -> FlowMap:
@@ -145,7 +127,7 @@ def _candidates(
             continue
         # A name with no bar of its own this session is not a candidate: it would be bought at
         # yesterday's close with today's date on the position.
-        if _session_bar(stock_slice, trade_date) is None:
+        if session_bar(stock_slice, trade_date) is None:
             continue
         pattern = assess_pattern(stock_slice, index_slice, exchanges.get(symbol))
         flow_points = _slice_flow(flow_by_symbol.get(symbol, {}), trade_date)
@@ -213,7 +195,7 @@ def run_backtest(
         for slot in list(slots):
             position = slot.position
             stock_slice = _slice(bars_by_symbol.get(position.symbol, []), trade_date)
-            bar = _session_bar(stock_slice, trade_date)
+            bar = session_bar(stock_slice, trade_date)
             if bar is None:
                 # The name has no bar of this session, so there is nothing to judge it on.
                 continue

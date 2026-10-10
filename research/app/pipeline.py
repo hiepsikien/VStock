@@ -22,7 +22,7 @@ from app.ingest import (
 )
 from app.macro import macro_state
 from app.money import money_state
-from app.pattern import assess_pattern, market_regime
+from app.pattern import assess_pattern, market_regime, session_bar
 
 logger = logging.getLogger(__name__)
 _lock = asyncio.Lock()
@@ -114,8 +114,18 @@ async def _run() -> str:
     money = money_state(await db.market_points(), as_of=as_of.isoformat())
     valuation_by_symbol = load_valuation()
     verdicts: list[dict] = []
+    # Only a name that has the bar of this session is scored. The backtest drops the names it
+    # has no bar for (`session_bar`) and the paper ledger only ever steps a real bar, so a run
+    # that scored a name on the bars and flow already in the store would put this session's date
+    # on an older close — showing a base break of a session already gone as if it were today's.
+    # A name whose bar for this session was stored by an earlier run today is scored as usual.
+    day = as_of.isoformat()
+    skipped: list[str] = []
     for symbol in symbols:
-        stock_bars = await db.bars(symbol)
+        stock_slice = [bar for bar in await db.bars(symbol) if str(bar["trade_date"]) <= day]
+        if session_bar(stock_slice, day) is None:
+            skipped.append(symbol)
+            continue
         points = await db.ratios(symbol)
         articles = await db.articles_for(symbol)
         verdict = compose(
@@ -124,10 +134,10 @@ async def _run() -> str:
             points,
             articles,
             regime,
-            assess_pattern(stock_bars, index_bars, exchanges.get(symbol)),
+            assess_pattern(stock_slice, index_bars, exchanges.get(symbol)),
             require_clock=True,
             valuation=valuation_by_symbol.get(symbol),
-            flow=flow_gate(await db.flow(symbol), stock_bars),
+            flow=flow_gate(await db.flow(symbol), stock_slice),
             macro=macro,
             market=money,
         )
@@ -143,9 +153,16 @@ async def _run() -> str:
     counts: dict[str, int] = {}
     for item in verdicts:
         counts[item["status"]] = counts.get(item["status"], 0) + 1
-    summary = ", ".join(f"{status} {count}" for status, count in counts.items())
+    summary = ", ".join(f"{status} {count}" for status, count in counts.items()) or (
+        "không chấm được mã nào"
+    )
     if failed:
         summary += ". Không tải được: " + ", ".join(failed)
+    # A name that loaded fine but has no bar of this session is named apart from a dead feed, so
+    # the operator can tell a broken fetch from a name that simply did not trade this session.
+    no_bar = [symbol for symbol in skipped if symbol not in set(failed)]
+    if no_bar:
+        summary += ". Chưa có nến phiên này: " + ", ".join(no_bar)
     if paper_messages:
         summary += f". Vị thế giấy: {len(paper_messages)} lệnh đóng"
 
