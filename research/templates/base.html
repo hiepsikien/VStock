@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}VStock Research{% endblock %}</title>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="/">VStock Research</a>
+      <nav>
+        <a href="/">Kết quả</a>
+        <a href="/backtest">Đo sau phí</a>
+      </nav>
+    </header>
+    <main>
+      {% block body %}{% endblock %}
+    </main>
+  </body>
+</html>

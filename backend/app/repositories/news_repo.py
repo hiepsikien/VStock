@@ -177,8 +177,14 @@ class NewsRepository:
         return len(articles)
 
     async def prune(self, max_rows: int = 1000) -> int:
+        """Cap commentary rows. Disclosure and company filings are kept."""
         db = await get_db()
-        cursor = await db.execute("SELECT COUNT(*) FROM news")
+        cursor = await db.execute(
+            """
+            SELECT COUNT(*) FROM news
+            WHERE category NOT IN ('disclosure', 'company_news')
+            """
+        )
         row = await cursor.fetchone()
         total = int(row[0]) if row else 0
         if total <= max_rows:
@@ -189,7 +195,10 @@ class NewsRepository:
             """
             DELETE FROM news
             WHERE id IN (
-                SELECT id FROM news ORDER BY published_at ASC LIMIT ?
+                SELECT id FROM news
+                WHERE category NOT IN ('disclosure', 'company_news')
+                ORDER BY published_at ASC
+                LIMIT ?
             )
             """,
             (excess,),

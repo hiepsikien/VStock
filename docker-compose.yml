@@ -33,5 +33,20 @@ services:
       retries: 3
       start_period: 60s
 
+  research:
+    build:
+      context: ./research
+    ports:
+      - "${RESEARCH_PORT:-8010}:8010"
+    environment:
+      PORT: "8010"
+      RESEARCH_DB_PATH: /data/research.db
+      VSTOCK_MARKET_DB: /market/vstock.db
+    volumes:
+      - research-data:/data
+      - vstock-data:/market:ro
+    restart: unless-stopped
+
 volumes:
   vstock-data:
+  research-data:

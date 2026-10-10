@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Kết quả — VStock Research{% endblock %}
+{% block body %}
+  <h1>Phiên nghiên cứu</h1>
+  <p class="lede">
+    Mỗi mã nhận một trạng thái. Chỉ <strong>Được vào</strong> đã qua khóa thị trường,
+    cổng cơ bản, bài công bố, và nền giá ngày. Xác nhận hoặc bỏ qua được ghi lại,
+    không gửi lệnh sang công ty chứng khoán.
+  </p>
+
+  {% if notice %}<p class="banner ok">{{ notice }}</p>{% endif %}
+  {% if error %}<p class="banner bad">{{ error }}</p>{% endif %}
+
+  <section class="toolbar">
+    <form method="post" action="/run">
+      <button type="submit" {% if busy %}disabled{% endif %}>Chạy phiên</button>
+    </form>
+    <p class="hint">Tải nến, chỉ tiêu và công bố của danh sách, rồi chấm lại. Thường dưới một phút.</p>
+  </section>
+
+  {% if regime %}
+    <p class="regime">{{ regime }}</p>
+  {% elif not verdicts %}
+    <p class="regime">Chưa có phiên nào. Bấm Chạy phiên để chấm danh sách mặc định.</p>
+  {% endif %}
+
+  {% if run and run.message %}
+    <p class="hint">Lần chạy gần nhất: {{ run.message }}</p>
+  {% endif %}
+
+  {% if counts %}
+    <ul class="counts">
+      {% for status, count in counts.items() %}
+        <li><span class="pill {{ status_class(status) }}">{{ status }}</span> {{ count }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  {% if verdicts %}
+    <table>
+      <thead>
+        <tr>
+          <th>Mã</th>
+          <th>Trạng thái</th>
+          <th>Cơ bản</th>
+          <th>Tin</th>
+          <th>Sức mạnh</th>
+          <th>Lý do đang giữ</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in verdicts %}
+          <tr>
+            <td><a href="/symbol/{{ item.symbol }}">{{ item.symbol }}</a>{% if item.priority %} <span class="pill enter">Ưu tiên</span>{% endif %}</td>
+            <td><span class="pill {{ status_class(item.status) }}">{{ item.status }}</span></td>
+            <td>{{ item.fa_label }}</td>
+            <td>{{ item.news_state }}</td>
+            <td>{{ item.rs|pct }}</td>
+            <td>{{ item.summary }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="hint">Số của phiên {{ verdicts[0].as_of }}.</p>
+  {% endif %}
+
+  <section>
+    <h2>Danh sách chấm</h2>
+    <ul class="universe">
+      {% for symbol in universe %}
+        <li>
+          {{ symbol }}
+          <form method="post" action="/universe">
+            <input type="hidden" name="symbol" value="{{ symbol }}" />
+            <input type="hidden" name="action" value="remove" />
+            <button type="submit" class="text">Bỏ</button>
+          </form>
+        </li>
+      {% endfor %}
+    </ul>
+    <form method="post" action="/universe" class="inline">
+      <input name="symbol" placeholder="Mã" maxlength="8" />
+      <input type="hidden" name="action" value="add" />
+      <button type="submit">Thêm mã</button>
+    </form>
+  </section>
+
+  <section>
+    <h2>Nhật ký thao tác</h2>
+    {% if decisions %}
+      <table>
+        <thead>
+          <tr>
+            <th>Lúc</th>
+            <th>Mã</th>
+            <th>Tín hiệu</th>
+            <th>Việc ghi</th>
+            <th>Ghi chú</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in decisions %}
+            <tr>
+              <td>{{ row.created_at[0:16] }}</td>
+              <td><a href="/symbol/{{ row.symbol }}">{{ row.symbol }}</a></td>
+              <td>{{ row.signal_status }}</td>
+              <td>{{ "Xác nhận sẽ vào" if row.action == "confirm" else "Bỏ qua" }}</td>
+              <td>{{ row.note or "—" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="hint">Chưa có xác nhận hay bỏ qua.</p>
+    {% endif %}
+  </section>
+{% endblock %}
