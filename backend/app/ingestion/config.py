@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -54,6 +55,7 @@ class IngestionSettings:
     news_interval_seconds: int
     news_market_limit: int
     news_max_rows: int
+    news_filing_days: int
     indices_interval_seconds: int
     history_intraday_interval_seconds: int
     history_daily_hour: int
@@ -110,6 +112,17 @@ def load_quote_providers() -> list[dict[str, Any]]:
     return cleaned or DEFAULT_QUOTE_PROVIDERS
 
 
+def _news_filing_days(ingestion: dict) -> int:
+    """NEWS_FILING_DAYS wins. The yaml value is the default when that env is unset."""
+    raw = os.environ.get("NEWS_FILING_DAYS", "").strip()
+    if raw:
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+    return int(ingestion.get("news_filing_days") or 1460)
+
+
 def load_ingestion_settings() -> IngestionSettings:
     raw = _load_yaml()
     ingestion = raw.get("ingestion") if isinstance(raw.get("ingestion"), dict) else {}
@@ -128,6 +141,7 @@ def load_ingestion_settings() -> IngestionSettings:
     news_interval = int(ingestion.get("news_interval_seconds") or news.get("ttl_seconds") or 900)
     news_limit = int(ingestion.get("news_market_limit") or 50)
     news_max_rows = int(ingestion.get("news_max_rows") or 1000)
+    news_filing_days = _news_filing_days(ingestion)
     indices_interval = int(ingestion.get("indices_interval_seconds") or 30)
     history_intraday = int(ingestion.get("history_intraday_interval_seconds") or 300)
     history_daily_hour = int(ingestion.get("history_daily_hour") or 18)
@@ -143,6 +157,7 @@ def load_ingestion_settings() -> IngestionSettings:
         news_interval_seconds=max(60, news_interval),
         news_market_limit=max(20, news_limit),
         news_max_rows=max(100, news_max_rows),
+        news_filing_days=max(30, news_filing_days),
         indices_interval_seconds=max(15, indices_interval),
         history_intraday_interval_seconds=max(60, history_intraday),
         history_daily_hour=max(0, min(23, history_daily_hour)),

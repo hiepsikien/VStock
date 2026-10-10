@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}{{ symbol }} — VStock Research{% endblock %}
+{% block body %}
+  <p class="hint"><a href="/">Về kết quả</a></p>
+  <h1>{{ symbol }}</h1>
+  {% if notice %}<p class="banner ok">{{ notice }}</p>{% endif %}
+  {% if error %}<p class="banner bad">{{ error }}</p>{% endif %}
+
+  {% if not item %}
+    <p>Mã này chưa có trong phiên gần nhất. Thêm vào danh sách rồi chạy phiên.</p>
+  {% else %}
+    <p><span class="pill {{ status_class(item.status) }}">{{ item.status }}</span></p>
+    <p>{{ item.summary }}</p>
+    <dl class="facts">
+      <div><dt>Thị trường</dt><dd>{{ item.regime_reason }}</dd></div>
+      <div><dt>Cơ bản</dt><dd>{{ item.fa_label }}. {{ item.fa_reason }}</dd></div>
+      <div><dt>Tin</dt><dd>{{ item.news_state }}. {{ item.news_reason }}</dd></div>
+      <div><dt>Nền giá</dt><dd>{{ item.pattern_reason }}</dd></div>
+      <div><dt>Sức mạnh tương đối 60 phiên</dt><dd>{{ item.rs|pct }}</dd></div>
+      <div><dt>Đáy nền</dt><dd>{{ "%.2f"|format(item.stop_price) if item.stop_price else "—" }}</dd></div>
+    </dl>
+
+    {% if item.metrics %}
+      <h2>Số đang dùng</h2>
+      <table>
+        <tbody>
+          {% for label, value in item.metrics %}
+            <tr><th>{{ label }}</th><td>{{ value }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    <h2>Ghi thao tác</h2>
+    <p class="hint">
+      Xác nhận một mã không ở trạng thái Được vào, hoặc bỏ qua một mã Được vào, cần ghi chú.
+      Việc này chỉ vào nhật ký.
+    </p>
+    <form method="post" action="/decisions" class="decision">
+      <input type="hidden" name="symbol" value="{{ symbol }}" />
+      <input type="hidden" name="as_of" value="{{ item.as_of }}" />
+      <input type="hidden" name="signal_status" value="{{ item.status }}" />
+      <label>
+        Ghi chú
+        <textarea name="note" rows="3" maxlength="500"></textarea>
+      </label>
+      <div class="actions">
+        <button type="submit" name="action" value="confirm">Xác nhận sẽ vào</button>
+        <button type="submit" name="action" value="skip" class="secondary">Bỏ qua</button>
+      </div>
+    </form>
+  {% endif %}
+
+  <h2>Công bố đã phân loại</h2>
+  {% set labels = {
+    "earnings_release": "Công bố báo cáo",
+    "insider_buy": "Đăng ký mua",
+    "insider_sell": "Đăng ký bán",
+    "audit_exception": "Kiểm toán ngoại trừ",
+    "suspension": "Ngừng giao dịch",
+    "dilution": "Phát hành lấy tiền",
+    "bonus_shares": "Thưởng hoặc tách cổ phiếu",
+    "dividend": "Cổ tức",
+    "other": "Công bố khác"
+  } %}
+  {% set visible = articles|selectattr("kind", "ne", "ignore")|list %}
+  {% if visible %}
+    <table>
+      <thead>
+        <tr><th>Ngày</th><th>Loại</th><th>Tiêu đề</th></tr>
+      </thead>
+      <tbody>
+        {% for article in visible %}
+          <tr>
+            <td>{{ article.published_at[0:10] }}</td>
+            <td>{{ labels.get(article.kind, article.kind) }}</td>
+            <td>
+              {% if article.url %}
+                <a href="{{ article.url }}" rel="noreferrer">{{ article.title }}</a>
+              {% else %}
+                {{ article.title }}
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="hint">Chưa có công bố gắn mã này trong kho research.</p>
+  {% endif %}
+
+  {% if decisions %}
+    <h2>Nhật ký của mã</h2>
+    <table>
+      <thead>
+        <tr><th>Lúc</th><th>Tín hiệu</th><th>Việc ghi</th><th>Ghi chú</th></tr>
+      </thead>
+      <tbody>
+        {% for row in decisions %}
+          <tr>
+            <td>{{ row.created_at[0:16] }}</td>
+            <td>{{ row.signal_status }}</td>
+            <td>{{ "Xác nhận sẽ vào" if row.action == "confirm" else "Bỏ qua" }}</td>
+            <td>{{ row.note or "—" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+{% endblock %}

@@ -32,7 +32,7 @@ async def ingest_news(*, force: bool = False) -> int:
                 logger.warning("News provider %s failed during ingestion: %s", provider.name, exc)
                 health_state.record_provider_failure("news", provider.name, str(exc))
 
-        pruned = await _repo.prune(settings.news_max_rows)
+        pruned = await _repo.prune(settings.news_max_rows, settings.news_filing_days)
         if pruned:
             logger.info("Pruned %d old news rows", pruned)
 

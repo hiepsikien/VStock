@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.domain.news import NewsArticle
 from app.ingestion.normalizers.commodity_news import COMMODITY_TITLE_HINTS
@@ -176,26 +176,50 @@ class NewsRepository:
         await db.commit()
         return len(articles)
 
-    async def prune(self, max_rows: int = 1000) -> int:
+    async def prune(self, max_rows: int = 1000, filing_days: int = 1460) -> int:
+        """Cap commentary at max_rows. Filings stay, then age out after filing_days.
+
+        Research copies filings into its own database and also reads VNDirect and
+        Vietstock, so the market cache does not need to keep them forever.
+        """
         db = await get_db()
-        cursor = await db.execute("SELECT COUNT(*) FROM news")
+        cursor = await db.execute(
+            """
+            SELECT COUNT(*) FROM news
+            WHERE category NOT IN ('disclosure', 'company_news')
+            """
+        )
         row = await cursor.fetchone()
         total = int(row[0]) if row else 0
-        if total <= max_rows:
-            return 0
+        removed = 0
+        if total > max_rows:
+            excess = total - max_rows
+            await db.execute(
+                """
+                DELETE FROM news
+                WHERE id IN (
+                    SELECT id FROM news
+                    WHERE category NOT IN ('disclosure', 'company_news')
+                    ORDER BY published_at ASC
+                    LIMIT ?
+                )
+                """,
+                (excess,),
+            )
+            removed += excess
 
-        excess = total - max_rows
-        await db.execute(
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=filing_days)).date().isoformat()
+        cursor = await db.execute(
             """
             DELETE FROM news
-            WHERE id IN (
-                SELECT id FROM news ORDER BY published_at ASC LIMIT ?
-            )
+            WHERE category IN ('disclosure', 'company_news')
+              AND published_at < ?
             """,
-            (excess,),
+            (cutoff,),
         )
+        removed += cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
         await db.commit()
-        return excess
+        return removed
 
     async def stats(self) -> dict:
         db = await get_db()

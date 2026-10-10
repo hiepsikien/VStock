@@ -11,7 +11,9 @@ Backend FastAPI + APScheduler + SQLite. Cần **volume persistent** cho `vstock.
 | Biến | Mặc định | Mô tả |
 |------|----------|--------|
 | `VSTOCK_DB_PATH` | `backend/data/vstock.db` (local) / `/data/vstock.db` (Docker) | Đường dẫn SQLite |
-| `PORT` | `8000` | Cổng HTTP |
+| `PORT` | `8000` | Cổng HTTP của API |
+| `RESEARCH_PORT` | `8010` | Cổng web research trên localhost |
+| `NEWS_FILING_DAYS` | `1460` | Số ngày giữ công bố. Khi có biến này, backend dùng nó thay cho `news_filing_days` trong `providers.yaml`; Compose chuyển cùng giá trị sang research |
 | `SENTRY_DSN` | (trống = tắt) | DSN project Python trên Sentry |
 | `SENTRY_ENVIRONMENT` | `production` | Tag môi trường trên Sentry |
 | `SENTRY_TRACES_SAMPLE_RATE` | `0.1` | Tỷ lệ sample performance |
@@ -35,20 +37,19 @@ docker compose logs -f api
 # Kiểm tra
 curl http://localhost:8000/health
 curl http://localhost:8000/v1/health/sources
+curl http://127.0.0.1:8010/health
 ```
 
-Dữ liệu SQLite nằm trong volume Docker `vstock-data`. Backup:
+Web research nằm trong cùng Compose và chỉ publish trên `127.0.0.1`.
+
+Dữ liệu SQLite nằm trong volume Docker `vstock-data`. Backup dùng SQLite backup API để lấy cả phần đang nằm trong WAL:
 
 ```bash
-docker compose exec api python -c "
-from pathlib import Path
-import shutil, os
-src = Path(os.environ['VSTOCK_DB_PATH'])
-shutil.copy2(src, '/tmp/vstock-backup.db')
-print('copied', src)
-"
-docker cp $(docker compose ps -q api):/tmp/vstock-backup.db ./vstock-backup.db
+# Từ máy đang chạy Compose. Đổi VSTOCK_DIR nếu repo không ở ~/VStock.
+VSTOCK_DIR="$(pwd)" ./scripts/backup-sqlite.sh
 ```
+
+File lưu tại `~/backups/vstock-YYYYMMDD-HHMMSS.db`.
 
 **Reverse proxy (nginx)** — ví dụ `api.yourdomain.com`:
 

@@ -51,6 +51,10 @@ backend/.venv/
 backend/**/__pycache__/
 backend/**/*.pyc
 backend/data/
+research/.venv/
+research/**/__pycache__/
+research/**/*.pyc
+research/data/
 .pytest_cache/
 
 # Editor / agent
