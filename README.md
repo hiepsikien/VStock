@@ -69,12 +69,15 @@ trên trang web. Trang
 muốn tự chạy hằng ngày thì thêm một lệnh `curl -X POST http://127.0.0.1:8010/run` vào cron
 sau giờ đóng cửa.
 
-Mỗi phiên **chỉ chấm những mã có nến đúng phiên đang chấm**. Mã tải lỗi, mã bị tạm ngừng giao dịch,
-hay mã mà nguồn chưa có nến của phiên đó đều bị bỏ khỏi bảng, chứ không chấm bằng nến và dòng tiền
-còn nằm trong kho — cùng một luật với `/backtest` (`session_bar`) và sổ giấy, nên nến cũ không thể
-hiện thành phá nền của phiên hôm nay. Thông báo phiên nói rõ mã nào bị bỏ: `Không tải được: …` khi
-lượt tải lỗi, `Chưa có nến phiên này: …` khi tải xong mà nguồn không có nến của phiên. Mã đã có nến
-của phiên từ một lượt chạy trước đó trong ngày vẫn được chấm bình thường.
+Mỗi phiên **chỉ chấm những mã có nến đúng phiên đang chấm**: mã mà kho không có nến của phiên — tải
+lỗi, tạm ngừng giao dịch, hay nguồn chưa có nến — bị bỏ khỏi bảng, chứ không được chấm bằng nến và
+dòng tiền cũ. Cùng một luật với `/backtest` (`session_bar`) và sổ giấy, nên nến cũ không thể hiện
+thành phá nền của phiên hôm nay.
+
+Thông báo phiên kể hai chuyện khác nhau. `Không tải được: …` là **lượt tải lần này lỗi**, không phải
+mã bị bỏ: nến của phiên đã được lưu từ một lượt chạy trước trong ngày thì mã vẫn được chấm và vẫn nằm
+trên bảng. `Chưa có nến phiên này: …` mới là mã rời khỏi phiên, vì kho không có nến của phiên. Mã tải
+lỗi mà kho cũng không có nến phiên thì chỉ được nêu ở `Không tải được`, và đương nhiên cũng rời bảng.
 
 ### Các lớp đang chấm
 

@@ -1594,6 +1594,10 @@ class PipelineSessionBarTest(unittest.TestCase):
     bar, but the live run composed every name in the list from whatever bars and flow the store
     still held, under the VN-Index session date. A feed that failed, or a name that simply did
     not trade, then carried an older bar as if it were this session's.
+
+    A failed fetch only costs the name its session when the store has no bar for that session: a
+    bar stored by an earlier run the same day keeps the name scored, so "Không tải được" is not
+    the same list as the names that left the table.
     """
 
     def test_failed_fetch_is_not_scored_on_the_bar_left_in_the_store(self) -> None:

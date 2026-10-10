@@ -160,6 +160,8 @@ async def _run() -> str:
         summary += ". Không tải được: " + ", ".join(failed)
     # A name that loaded fine but has no bar of this session is named apart from a dead feed, so
     # the operator can tell a broken fetch from a name that simply did not trade this session.
+    # "Không tải được" above is about that fetch alone: a name whose bar for the session was
+    # already stored by an earlier run today is still scored and still on the table.
     no_bar = [symbol for symbol in skipped if symbol not in set(failed)]
     if no_bar:
         summary += ". Chưa có nến phiên này: " + ", ".join(no_bar)
