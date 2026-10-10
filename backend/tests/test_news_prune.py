@@ -7,6 +7,17 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
+def test_news_filing_days_prefers_env(monkeypatch) -> None:
+    from app.ingestion.config import load_ingestion_settings
+
+    monkeypatch.setenv("NEWS_FILING_DAYS", "2000")
+    assert load_ingestion_settings().news_filing_days == 2000
+    monkeypatch.setenv("NEWS_FILING_DAYS", "5")
+    assert load_ingestion_settings().news_filing_days == 30
+    monkeypatch.setenv("NEWS_FILING_DAYS", "abc")
+    assert load_ingestion_settings().news_filing_days == 1460
+
+
 def test_filing_prune_keeps_cutoff_day() -> None:
     asyncio.run(_run())
 

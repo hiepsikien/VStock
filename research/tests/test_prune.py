@@ -11,6 +11,21 @@ from app import db
 
 
 class PruneArticlesTest(unittest.TestCase):
+    def test_retention_env_clamps_and_falls_back(self) -> None:
+        previous = os.environ.get("ARTICLE_RETENTION_DAYS")
+        try:
+            os.environ["ARTICLE_RETENTION_DAYS"] = "5"
+            self.assertEqual(db.article_retention_days(), 30)
+            os.environ["ARTICLE_RETENTION_DAYS"] = "abc"
+            self.assertEqual(db.article_retention_days(), 1460)
+            os.environ["ARTICLE_RETENTION_DAYS"] = "2000"
+            self.assertEqual(db.article_retention_days(), 2000)
+        finally:
+            if previous is None:
+                os.environ.pop("ARTICLE_RETENTION_DAYS", None)
+            else:
+                os.environ["ARTICLE_RETENTION_DAYS"] = previous
+
     def test_keeps_cutoff_day_and_drops_the_day_before(self) -> None:
         asyncio.run(self._run())
 

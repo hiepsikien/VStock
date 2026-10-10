@@ -74,7 +74,7 @@ ingestion:
   news_interval_seconds: 900
   news_market_limit: 50
   news_max_rows: 1000
-  news_filing_days: 1460  # keep equal to NEWS_FILING_DAYS for the research copy
+  news_filing_days: 1460  # default when NEWS_FILING_DAYS is unset
   indices_interval_seconds: 30
   history_intraday_interval_seconds: 300
   history_daily_hour: 18
