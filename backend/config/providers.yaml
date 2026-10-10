@@ -57,6 +57,9 @@ news:
 
 # Background ingestion (Phase 2).
 ingestion:
+  # Kept in sync with research/app/config.py DEFAULT_UNIVERSE so the research
+  # dashboard's valuation gate (P/E from the fundamentals table) has a row for
+  # every symbol it scores.
   quote_symbols:
     - VNM
     - FPT
@@ -68,6 +71,26 @@ ingestion:
     - MBB
     - GAS
     - MSN
+    - ACB
+    - VPB
+    - BID
+    - CTG
+    - HDB
+    - STB
+    - SSI
+    - VND
+    - BVH
+    - PNJ
+    - REE
+    - DGC
+    - GMD
+    - VJC
+    - PVS
+    - VHM
+    - VRE
+    - PLX
+    - SAB
+    - SBT
   quote_interval_open_seconds: 15
   quote_interval_closed_seconds: 300
   skip_when_market_closed: true
