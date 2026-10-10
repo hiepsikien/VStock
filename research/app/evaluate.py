@@ -9,6 +9,8 @@ from app.config import (
     BLOCK_LOOKBACK_DAYS,
     DEBT_TO_EQUITY_MAX,
     DILUTION_SHARE_GROWTH,
+    EQUITY_MATCH_BONUS,
+    EQUITY_MATCH_CASH,
     INSIDER_BUY_DAYS,
     INSIDER_SELL_DAYS,
     NPL_MAX,
@@ -103,21 +105,74 @@ def _shares(value: float | None) -> str:
     return f"{value:,.0f}"
 
 
-def _share_growth(points: RatioMap, report: str) -> tuple[float | None, str | None]:
+def _share_growth(points: RatioMap, report: str) -> tuple[float | None, str | None, str | None]:
     rows = {day: value for day, value in points.get("OUTSTANDING_SHARES", []) if value > 0}
     if report not in rows:
-        return None, "chưa có số cổ phiếu của kỳ này"
+        return None, "chưa có số cổ phiếu của kỳ này", None
     ordered = sorted(rows)
     index = ordered.index(report)
     if index < 4:
-        return None, "chưa đủ 5 kỳ cổ phiếu"
-    previous = rows[ordered[index - 4]]
+        return None, "chưa đủ 5 kỳ cổ phiếu", None
+    previous_day = ordered[index - 4]
+    previous = rows[previous_day]
     if previous <= 0:
-        return None, "chưa đủ 5 kỳ cổ phiếu"
-    return rows[report] / previous - 1, None
+        return None, "chưa đủ 5 kỳ cổ phiếu", None
+    return rows[report] / previous - 1, None, previous_day
 
 
-def score_fundamentals(symbol: str, points: RatioMap) -> Fundamentals:
+def _share_event_kinds(
+    articles: list[dict],
+    start: date,
+    end: date,
+) -> set[str]:
+    kinds: set[str] = set()
+    for article in articles:
+        published = parse_day(article.get("published_at"))
+        if published is None or published < start or published > end:
+            continue
+        kind = article.get("kind")
+        if kind in {"bonus_shares", "dilution"}:
+            kinds.add(kind)
+    return kinds
+
+
+def _economic_share_growth(
+    points: RatioMap,
+    report: str,
+    articles: list[dict],
+) -> tuple[float | None, str | None, str | None, float | None]:
+    """Return dilution-only share growth, a gap reason, a note, and the raw share change."""
+    raw, gap, previous_day = _share_growth(points, report)
+    if raw is None or gap or raw <= DILUTION_SHARE_GROWTH or previous_day is None:
+        return raw, gap, None, raw
+
+    report_day = parse_day(report)
+    previous = parse_day(previous_day)
+    if report_day is None or previous is None:
+        return raw, None, None, raw
+    kinds = _share_event_kinds(articles, previous, report_day + timedelta(days=120))
+    if "dilution" in kinds:
+        return raw, None, "phát hành lấy tiền", raw
+    if "bonus_shares" in kinds:
+        return 0.0, None, "thưởng hoặc tách cổ phiếu, không tính pha loãng", raw
+
+    equity_now = _at(points, "OWNERS_EQUITY_AQ", report)
+    equity_then = _at(points, "OWNERS_EQUITY_AQ", previous_day)
+    if equity_now is None or equity_then is None or equity_then <= 0:
+        return None, "số cổ phiếu tăng, chưa rõ chia tách hay phát hành thêm", None, raw
+    matched = (equity_now / equity_then - 1) / raw
+    if matched < EQUITY_MATCH_BONUS:
+        return 0.0, None, "vốn chủ không tăng theo số cổ phiếu, không tính pha loãng", raw
+    if matched > EQUITY_MATCH_CASH:
+        return raw, None, "vốn chủ tăng cùng số cổ phiếu", raw
+    return None, "số cổ phiếu tăng, chưa rõ chia tách hay phát hành thêm", None, raw
+
+
+def score_fundamentals(
+    symbol: str,
+    points: RatioMap,
+    articles: list[dict] | None = None,
+) -> Fundamentals:
     if symbol in OTHER_FINANCIALS:
         return Fundamentals(
             "Chưa đủ số",
@@ -131,10 +186,10 @@ def score_fundamentals(symbol: str, points: RatioMap) -> Fundamentals:
         return _score_bank(points)
     if not points.get("NET_SALES_QR") and not points.get("NET_PROFIT_QR"):
         return Fundamentals("Chưa đủ số", "Chưa tải được kết quả kinh doanh", "missing")
-    return _score_corporate(points)
+    return _score_corporate(points, articles or [])
 
 
-def _score_corporate(points: RatioMap) -> Fundamentals:
+def _score_corporate(points: RatioMap, articles: list[dict]) -> Fundamentals:
     report = _latest_report(points, "NET_PROFIT_QR")
     if report is None:
         return Fundamentals("Chưa đủ số", "Chưa có lợi nhuận quý", "corporate")
@@ -146,7 +201,9 @@ def _score_corporate(points: RatioMap) -> Fundamentals:
     operating_yoy = _at(points, "OPERATING_PROFIT_QR_GRYOY", report)
     cfo_margin = _at(points, "CFO_TO_SALES_QR", report)
     debt_ratio = _at(points, "DEBT_TO_EQUITY_AQ", report)
-    share_growth, share_gap = _share_growth(points, report)
+    share_growth, share_gap, share_note, raw_share_growth = _economic_share_growth(
+        points, report, articles
+    )
 
     missing: list[str] = []
     if sales is None:
@@ -176,8 +233,10 @@ def _score_corporate(points: RatioMap) -> Fundamentals:
         ("Tăng trưởng LN từ hoạt động kinh doanh", _pct(operating_yoy)),
         ("Tiền từ hoạt động kinh doanh quý", _ty(cfo)),
         ("Nợ vay / vốn chủ", "—" if debt_ratio is None else f"{debt_ratio:.2f}"),
-        ("Tăng cổ phiếu sau 4 quý", _pct(share_growth)),
+        ("Tăng cổ phiếu sau 4 quý", _pct(raw_share_growth)),
     ]
+    if share_note:
+        metrics.append(("Cách tính số cổ phiếu", share_note))
     if missing:
         return Fundamentals(
             "Chưa đủ số",
@@ -343,12 +402,15 @@ def compose(
     *,
     require_clock: bool,
 ) -> Verdict:
-    fundamentals = score_fundamentals(symbol, points)
+    fundamentals = score_fundamentals(symbol, points, _articles_for_symbol(symbol, articles, as_of))
     news_state, news_reason, priority = news_gate(
         symbol, articles, as_of, require_clock=require_clock
     )
 
-    if regime.open is None:
+    if pattern.unadjusted:
+        status = "Chưa chấm"
+        summary = pattern.reason
+    elif regime.open is None:
         status = "Chưa chấm"
         summary = regime.reason
     elif regime.open is False:

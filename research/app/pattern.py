@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.config import MA_WINDOW
+from app.config import MA_WINDOW, PRICE_JUMP_LIMIT
 
 
 @dataclass(frozen=True)
@@ -19,6 +19,7 @@ class Pattern:
     reason: str
     rs: float | None = None
     stop: float | None = None
+    unadjusted: bool = False
 
 
 def market_regime(index_bars: list[dict]) -> Regime:
@@ -36,8 +37,25 @@ def _mean(values: list[float]) -> float:
     return sum(values) / len(values)
 
 
+def unadjusted_split_gap(bars: list[dict]) -> str | None:
+    """A gap past the daily band means the series still contains a raw split."""
+    for previous, current in zip(bars, bars[1:]):
+        if previous["close"] <= 0:
+            continue
+        change = current["close"] / previous["close"] - 1
+        if abs(change) > PRICE_JUMP_LIMIT:
+            return (
+                f"Giá chưa chỉnh chia tách: phiên {current['trade_date']} lệch "
+                f"{change * 100:.0f}% so với phiên trước, quá biên độ sàn"
+            )
+    return None
+
+
 def assess_pattern(stock_bars: list[dict], index_bars: list[dict]) -> Pattern:
     """Daily base: tighter range, drier volume, then a close through the base high, with RS > 0."""
+    gap = unadjusted_split_gap(stock_bars)
+    if gap:
+        return Pattern(False, gap, unadjusted=True)
     if len(stock_bars) < 61 or len(index_bars) < 61:
         return Pattern(False, "Chưa đủ nến ngày để xét nền giá")
 

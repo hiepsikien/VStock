@@ -5,6 +5,7 @@ from datetime import date, timedelta
 
 from app.classify import classify_article
 from app.evaluate import compose, latest_due_quarter_end, score_fundamentals
+from app.ingest import parse_vietstock_filings
 from app.pattern import Pattern, Regime, assess_pattern, market_regime
 
 
@@ -53,6 +54,24 @@ class RulesTest(unittest.TestCase):
         label = classify_article("Cổ phiếu tâm điểm hôm nay", "", "stock_news")
         self.assertEqual(label.kind, "ignore")
 
+    def test_vietstock_filing_is_the_earnings_clock(self) -> None:
+        html = """
+        _NewsData=[
+          {"ArticleID":1481060,"Title":"VCB: BCTC Hợp nhất 6 tháng đầu năm 2026 ",
+           "PublishTime":"/Date(1786640400000)/","ChannelID":737,
+           "URL":"/2026/08/vcb-bctc-hop-nhat-6-thang-dau-nam-2026-737-1481060.htm","Head":""},
+          {"ArticleID":9,"Title":"Cổ phiếu ngân hàng tháng 8/2026",
+           "PublishTime":"/Date(1786640400000)/","ChannelID":757,
+           "URL":"/2026/08/ngan-hang.htm","Head":"BCTC hợp nhất quý 2 vừa công bố"}
+        ]
+        """
+        articles = parse_vietstock_filings(html, "VCB")
+        self.assertEqual(len(articles), 1)
+        self.assertEqual(articles[0]["kind"], "earnings_release")
+        self.assertEqual(articles[0]["published_at"], "2026-08-14")
+        self.assertEqual(articles[0]["symbols"], ["VCB"])
+        self.assertIn("1481060", articles[0]["url"])
+
     def test_disclosure_kinds(self) -> None:
         self.assertEqual(
             classify_article("Đăng ký giao dịch bán cổ phiếu", "", "disclosure").kind,
@@ -69,6 +88,14 @@ class RulesTest(unittest.TestCase):
                 "disclosure",
             ).kind,
             "other",
+        )
+        self.assertEqual(
+            classify_article("Chia cổ tức bằng cổ phiếu tỷ lệ 100:100", "", "disclosure").kind,
+            "bonus_shares",
+        )
+        self.assertEqual(
+            classify_article("Chào bán riêng lẻ cho nhà đầu tư", "", "disclosure").kind,
+            "dilution",
         )
         self.assertEqual(
             classify_article("Ý kiến kiểm toán ngoại trừ", "", "company_news").effect,
@@ -150,8 +177,61 @@ class RulesTest(unittest.TestCase):
             ("2026-03-31", 100),
             ("2026-06-30", 120),
         ]
-        scored = score_fundamentals("FPT", points)
+        scored = score_fundamentals(
+            "FPT",
+            points
+            | {
+                "OWNERS_EQUITY_AQ": [("2025-06-30", 100.0), ("2026-06-30", 118.0)],
+            },
+        )
         self.assertEqual(scored.label, "Không đạt")
+
+    def test_bonus_share_issue_is_not_dilution(self) -> None:
+        points = _corporate_points(NET_PROFIT_QR_GRYOY=0.05)
+        points["OUTSTANDING_SHARES"] = [
+            ("2025-06-30", 100),
+            ("2025-09-30", 100),
+            ("2025-12-31", 100),
+            ("2026-03-31", 100),
+            ("2026-06-30", 200),
+        ]
+        points["OWNERS_EQUITY_AQ"] = [("2025-06-30", 500.0), ("2026-06-30", 520.0)]
+        scored = score_fundamentals("FPT", points)
+        self.assertEqual(scored.label, "Đạt")
+
+    def test_unclassified_share_jump_stays_unstamped(self) -> None:
+        points = _corporate_points()
+        points["OUTSTANDING_SHARES"] = [
+            ("2025-06-30", 100),
+            ("2025-09-30", 100),
+            ("2025-12-31", 100),
+            ("2026-03-31", 100),
+            ("2026-06-30", 150),
+        ]
+        scored = score_fundamentals("FPT", points)
+        self.assertEqual(scored.label, "Chưa đủ số")
+        self.assertIn("chưa rõ", scored.reason)
+
+    def test_raw_split_gap_stops_scoring(self) -> None:
+        bars = [
+            {"trade_date": "2026-01-01", "close": 100.0},
+            {"trade_date": "2026-01-02", "close": 50.0},
+        ]
+        from app.pattern import assess_pattern
+
+        pattern = assess_pattern(bars, bars)
+        self.assertTrue(pattern.unadjusted)
+        verdict = compose(
+            "FPT",
+            date(2026, 10, 10),
+            _corporate_points(),
+            [_earnings()],
+            _regime_open(),
+            pattern,
+            require_clock=True,
+        )
+        self.assertEqual(verdict.status, "Chưa chấm")
+        self.assertIn("chia tách", verdict.summary)
 
     def test_bank_npl_fails(self) -> None:
         report = "2026-06-30"

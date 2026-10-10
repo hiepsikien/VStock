@@ -31,9 +31,30 @@ _RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         ("đăng ký mua", "đăng ký giao dịch mua", "đăng ký thực hiện mua"),
     ),
     (
+        "bonus_shares",
+        "context",
+        (
+            "thưởng cổ phiếu",
+            "cổ tức bằng cổ phiếu",
+            "cổ tức cổ phiếu",
+            "trả cổ tức bằng cổ phiếu",
+            "chia cổ phiếu",
+            "tách cổ phiếu",
+            "chia tách",
+            "tăng vốn từ lợi nhuận",
+            "nguồn vốn chủ sở hữu",
+        ),
+    ),
+    (
         "dilution",
         "context",
-        ("phát hành thêm", "chào bán riêng lẻ", "phát hành cổ phiếu", "tăng vốn điều lệ"),
+        (
+            "chào bán riêng lẻ",
+            "phát hành cho cổ đông hiện hữu",
+            "chào bán ra công chúng",
+            "phát hành thêm",
+            "có thu tiền",
+        ),
     ),
     ("earnings_release", "clock", ("báo cáo tài chính", "bctc")),
     (
