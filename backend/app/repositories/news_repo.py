@@ -213,7 +213,7 @@ class NewsRepository:
             """
             DELETE FROM news
             WHERE category IN ('disclosure', 'company_news')
-              AND substr(published_at, 1, 10) < ?
+              AND published_at < ?
             """,
             (cutoff,),
         )

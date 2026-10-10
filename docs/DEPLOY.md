@@ -13,6 +13,7 @@ Backend FastAPI + APScheduler + SQLite. Cần **volume persistent** cho `vstock.
 | `VSTOCK_DB_PATH` | `backend/data/vstock.db` (local) / `/data/vstock.db` (Docker) | Đường dẫn SQLite |
 | `PORT` | `8000` | Cổng HTTP của API |
 | `RESEARCH_PORT` | `8010` | Cổng web research trên localhost |
+| `NEWS_FILING_DAYS` | `1460` | Số ngày giữ công bố. Đặt cùng giá trị với `news_filing_days` trong `backend/config/providers.yaml`; Compose chuyển sang research |
 | `SENTRY_DSN` | (trống = tắt) | DSN project Python trên Sentry |
 | `SENTRY_ENVIRONMENT` | `production` | Tag môi trường trên Sentry |
 | `SENTRY_TRACES_SAMPLE_RATE` | `0.1` | Tỷ lệ sample performance |

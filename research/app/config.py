@@ -24,7 +24,8 @@ PRICE_JUMP_LIMIT_UNKNOWN = 0.17
 EQUITY_MATCH_BONUS = 0.35
 EQUITY_MATCH_CASH = 0.60
 BAR_LOOKBACK_DAYS = 1200
-# Same window as the market news cache: filings older than this leave the research copy.
+# Default matches news_filing_days in backend/config/providers.yaml.
+# Docker passes ARTICLE_RETENTION_DAYS from NEWS_FILING_DAYS so the two stay together.
 ARTICLE_RETENTION_DAYS = 1460
 
 DEFAULT_UNIVERSE = (

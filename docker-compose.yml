@@ -42,6 +42,7 @@ services:
       PORT: "8010"
       RESEARCH_DB_PATH: /data/research.db
       VSTOCK_MARKET_DB: /market/vstock.db
+      ARTICLE_RETENTION_DAYS: ${NEWS_FILING_DAYS:-1460}
     volumes:
       - research-data:/data
       - vstock-data:/market:ro

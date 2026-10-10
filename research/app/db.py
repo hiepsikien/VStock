@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS articles (
     effect TEXT NOT NULL DEFAULT 'none'
 );
 
+CREATE INDEX IF NOT EXISTS idx_articles_published ON articles(published_at);
+
 CREATE TABLE IF NOT EXISTS verdicts (
     as_of TEXT NOT NULL,
     symbol TEXT NOT NULL,
@@ -278,12 +280,24 @@ async def upsert_articles(articles: list[dict]) -> None:
     await db.commit()
 
 
-async def prune_articles(days: int = ARTICLE_RETENTION_DAYS) -> int:
+def article_retention_days() -> int:
+    """Env ARTICLE_RETENTION_DAYS overrides the default that matches news_filing_days."""
+    raw = os.environ.get("ARTICLE_RETENTION_DAYS", "").strip()
+    if not raw:
+        return ARTICLE_RETENTION_DAYS
+    try:
+        return max(30, int(raw))
+    except ValueError:
+        return ARTICLE_RETENTION_DAYS
+
+
+async def prune_articles(days: int | None = None) -> int:
     """Drop filings older than the market cache window."""
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+    window = article_retention_days() if days is None else days
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=window)).date().isoformat()
     db = await get_db()
     cursor = await db.execute(
-        "DELETE FROM articles WHERE substr(published_at, 1, 10) < ?",
+        "DELETE FROM articles WHERE published_at < ?",
         (cutoff,),
     )
     await db.commit()
