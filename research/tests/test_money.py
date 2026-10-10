@@ -7,15 +7,19 @@ import unittest
 from datetime import date, timedelta
 from pathlib import Path
 
+from fastapi.templating import Jinja2Templates
+
 from app import db, ingest
 from app.config import MARKET_MIN_SESSIONS
 from app.evaluate import compose
-from app.money import LABELS, money_state, thresholds
+from app.money import LABELS, Money, money_state, thresholds
 from app.pattern import Pattern, Regime
 
 # Mọi chuỗi giá trong test đứng trong tháng 9 để as_of nằm gần số mới nhất.
 START = date(2026, 9, 1)
 AS_OF = "2026-09-06"
+# Trang /market dựng bằng chính template của app để câu chữ trên đó cũng có test.
+TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "templates"))
 
 
 def _series(values: list[float]) -> list[tuple[str, float]]:
@@ -158,6 +162,36 @@ class MoneyGateTest(unittest.TestCase):
         self.assertIn("90 ngày", written[LABELS["POLICY_RATE"]])
         self.assertIn("phiên đang chấm", written["Điểm của phiên đang chấm"])
         self.assertEqual(len(written), len(LABELS) + 2)
+
+
+class MarketPageCopyTest(unittest.TestCase):
+    """Trang /market nói đúng số phiên từng chuỗi cần, không dùng một số phiên chung cho mọi chuỗi."""
+
+    def _page(self, gate: Money) -> str:
+        return TEMPLATES.get_template("market.html").render(
+            money=gate,
+            rows=[],
+            thresholds=[],
+            missing=[LABELS.get(code, code) for code in gate.absent],
+            short=[(LABELS.get(code, code), have, need) for code, have, need in gate.short],
+            policy=[],
+            latest_day="",
+        )
+
+    def test_the_banner_carries_each_series_own_floor(self) -> None:
+        """Bảng lãi điều hành cần 2 mốc, không phải 5: một con số chung ở banner là nói sai."""
+        gate = money_state({"POLICY_RATE": [("2026-09-01", 4.5)]}, as_of="2026-09-01")
+        self.assertEqual(gate.short, (("POLICY_RATE", 1, 2),))
+        page = self._page(gate)
+        self.assertIn(f"{LABELS['POLICY_RATE']} (1/2)", page)
+        self.assertIn("chưa đủ số phiên", page)
+        self.assertNotIn("chưa đủ 5 phiên", page)
+
+    def test_the_banner_names_the_series_with_no_number_apart(self) -> None:
+        """Chuỗi chưa có số nào không được lẫn với chuỗi có số mà chưa đủ phiên."""
+        page = self._page(money_state({}, as_of=AS_OF))
+        self.assertIn(f"Chưa có số: {LABELS['INTERBANK_ON']}", page)
+        self.assertNotIn("Có số nhưng chưa đủ", page)
 
 
 class ComposeGateTest(unittest.TestCase):

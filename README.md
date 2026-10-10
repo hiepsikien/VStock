@@ -101,9 +101,30 @@ một lần kể từ bản có tính năng gộp) giữ nguyên danh sách và 
 `DEFAULT_UNIVERSE`; mã bạn đã bỏ bằng tay vẫn nằm trong bookmark nên không quay lại. Kho đã có danh
 sách nhưng **chưa có bookmark** (chưa từng khởi động lại kể từ bản có tính năng gộp) thì lần khởi
 động đầu chỉ ghi bookmark bằng đủ 51 mã rồi dừng, **không chèn mã còn thiếu**, và các lần sau bookmark
-đã đủ nên cũng không chèn — danh sách cũ giữ nguyên và không tự nhận 21 mã tài chính. Muốn có thì thêm
-tay trên trang chủ, hoặc ghi bookmark bằng đúng danh sách đang có trong `research/data/research.db` rồi
-khởi động lại: job gộp sẽ chèn phần còn thiếu và cập nhật bookmark thành đủ 51 mã.
+đã đủ nên cũng không chèn — danh sách cũ giữ nguyên và không tự nhận 21 mã tài chính.
+
+Bookmark là danh sách "đã gộp rồi", nên cách chữa bằng tay phải giữ đúng nghĩa đó. Hai cách, cả hai chỉ
+chèn 21 mã mới và không đụng tới mã bạn đã bỏ: thêm tay 21 mã tài chính trên trang chủ, hoặc ghi
+bookmark bằng **danh sách mặc định cũ** — 30 mã của `DEFAULT_UNIVERSE` trước commit `d23b4e2`, tức vẫn
+có cả những mã bạn đã bỏ bằng tay — rồi khởi động lại; job gộp sẽ chèn đúng 21 mã còn thiếu:
+
+```bash
+cd research && .venv/bin/python - <<'PY'
+import json, re, sqlite3, subprocess
+
+src = subprocess.run(["git", "show", "d23b4e2^:research/app/config.py"],
+                     cwd="..", check=True, capture_output=True, text=True).stdout
+old = re.findall(r'"([A-Z0-9]+)"', src.split("DEFAULT_UNIVERSE = (", 1)[1].split("\n)", 1)[0])
+con = sqlite3.connect("data/research.db")
+con.execute("INSERT INTO meta (key, value) VALUES ('universe_seed', ?)"
+            " ON CONFLICT(key) DO UPDATE SET value = excluded.value", (json.dumps(old),))
+con.commit()
+print(f"bookmark = {len(old)} mã cũ — khởi động lại research để chèn 21 mã còn thiếu")
+PY
+```
+
+Đừng ghi bookmark bằng danh sách đang nằm trong bảng `universe`: mã bạn đã bỏ không có trong bookmark nên
+sẽ bị chèn lại, cùng với 21 mã mới.
 
 Rổ 51 mã gồm 30 mã cũ cộng 21 mã tài chính mà template đã khai báo sẵn: ngân hàng (TPB, MSB, LPB,
 SHB, EIB, OCB, NAB, VIB, SSB), chứng khoán (HCM, VCI, MBS, SHS, BSI, AGR, FTS, VDS) và bảo hiểm

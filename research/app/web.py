@@ -14,7 +14,6 @@ from app.backtest import run_backtest
 from app.chart import build_chart
 from app.config import (
     MARKET_GATE_REQUIRED,
-    MARKET_MIN_SESSIONS,
     MARKET_SERIES,
     POLICY_RATE_HISTORY,
     STATUS_RANK,
@@ -161,7 +160,6 @@ async def market_page(request: Request):
             "short": [
                 (LABELS.get(code, code), have, need) for code, have, need in money.short
             ],
-            "min_sessions": MARKET_MIN_SESSIONS,
             "policy": POLICY_RATE_HISTORY,
             "latest_day": max(days) if days else "",
         },
