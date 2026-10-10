@@ -91,6 +91,29 @@ ingestion:
     - PLX
     - SAB
     - SBT
+    # Added with the research basket in 2026-10: the financial codes the research
+    # templates already score, so their P/E rows exist for the valuation gate.
+    - TPB
+    - MSB
+    - LPB
+    - SHB
+    - EIB
+    - OCB
+    - NAB
+    - VIB
+    - SSB
+    - HCM
+    - VCI
+    - MBS
+    - SHS
+    - BSI
+    - AGR
+    - FTS
+    - VDS
+    - BMI
+    - BIC
+    - MIG
+    - PVI
   quote_interval_open_seconds: 15
   quote_interval_closed_seconds: 300
   skip_when_market_closed: true

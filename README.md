@@ -60,8 +60,10 @@ và chỉ gắn vào localhost.
 ### Chạy từ dashboard
 
 Dashboard có nút **Chạy phiên**: nó tải nến, chỉ tiêu, công bố, dòng tiền ngoại và dữ liệu vĩ mô
-cho cả danh sách, chấm lại toàn bộ, đánh dấu vị thế giấy và gửi cảnh báo. Danh sách 30 mã mất
-khoảng 15 giây. Thêm/bỏ mã và ghi xác nhận, bỏ qua cũng làm được ngay trên trang web. Trang
+cho cả danh sách, chấm lại toàn bộ, đánh dấu vị thế giấy và gửi cảnh báo. Danh sách 51 mã mất
+khoảng 25 giây: mỗi mã thêm một lượt nến, chỉ tiêu, công bố và dòng tiền ngoại, còn giá realtime
+đi một batch nên không phải nới nhịp poll. Thêm/bỏ mã và ghi xác nhận, bỏ qua cũng làm được ngay
+trên trang web. Trang
 `/backtest` tính lại bảng đo khi mở lần đầu sau mỗi phiên rồi giữ nguyên kết quả; bấm
 **Tính lại** (`/backtest?fresh=1`) nếu muốn chạy lại bằng tay. Hiện chưa có lịch chạy tự động —
 muốn tự chạy hằng ngày thì thêm một lệnh `curl -X POST http://127.0.0.1:8010/run` vào cron
@@ -90,12 +92,18 @@ Thiếu dưới 6 tiêu chí thì không chấm điểm thay vì chấm thiếu.
 Cổng định giá đọc `fundamentals.pe` trong `backend/data/vstock.db`, nên mã không nằm trong
 `ingestion.quote_symbols` của `backend/config/providers.yaml` sẽ hiện "Chưa có số" và được bỏ qua
 chứ không bị chặn. Giữ danh sách đó khớp với `DEFAULT_UNIVERSE` trong `research/app/config.py`
-(hiện 30 mã), rồi khởi động lại backend — lúc khởi động nó chạy ingestion với `force=True` nên
+(hiện 51 mã), rồi khởi động lại backend — lúc khởi động nó chạy ingestion với `force=True` nên
 lấy P/E cho đủ ngay. Có một test đối chiếu hai danh sách này trong `tests/test_layers.py`.
 
-Kho research gộp `DEFAULT_UNIVERSE` vào danh sách đang có khi khởi động: kho trắng nhận đủ 30 mã,
+Kho research gộp `DEFAULT_UNIVERSE` vào danh sách đang có khi khởi động: kho trắng nhận đủ 51 mã,
 kho đã có danh sách thì giữ nguyên và chỉ nhận thêm mã vừa được thêm vào `DEFAULT_UNIVERSE`. Lần
 khởi động đầu sau khi nâng cấp cũng vậy, nên mã bạn đã bỏ bằng tay không quay lại.
+
+Rổ 51 mã gồm 30 mã cũ cộng 21 mã tài chính mà template đã khai báo sẵn: ngân hàng (TPB, MSB, LPB,
+SHB, EIB, OCB, NAB, VIB, SSB), chứng khoán (HCM, VCI, MBS, SHS, BSI, AGR, FTS, VDS) và bảo hiểm
+(BMI, BIC, MIG, PVI). Nhóm này đã có cổng nợ riêng nên không phải thêm ngưỡng nào. Doanh nghiệp
+ngoài danh sách thì không thêm hàng loạt: mã nào cũng rơi vào template doanh nghiệp, nhưng chưa có
+ngưỡng thanh khoản nào để nói mã đó đáng chấm.
 
 ### Vị thế giấy (đo tiến)
 

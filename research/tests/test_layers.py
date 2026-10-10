@@ -14,7 +14,7 @@ import httpx
 import yaml
 
 from app import backtest, db, notify, pipeline
-from app.config import DEFAULT_UNIVERSE
+from app.config import BANKS, DEFAULT_UNIVERSE, INSURERS, SECURITIES
 from app.evaluate import (
     METRIC_SECTIONS,
     SCORE_CEILINGS,
@@ -1431,6 +1431,36 @@ class UniverseWatchlistTest(unittest.TestCase):
         )
         self.assertEqual(len(DEFAULT_UNIVERSE), len(set(DEFAULT_UNIVERSE)))
         self.assertEqual(len(watchlist), len(set(watchlist)))
+
+
+class FinancialTemplateCoverageTest(unittest.TestCase):
+    """The basket grew with financials, so each declared code has to land in its own template."""
+
+    def test_every_declared_financial_code_is_watched(self) -> None:
+        declared = BANKS | SECURITIES | INSURERS
+        self.assertEqual(
+            declared - set(DEFAULT_UNIVERSE),
+            set(),
+            "mã tài chính có bộ cổng riêng nhưng chưa nằm trong rổ đang chấm",
+        )
+
+    def test_the_three_financial_templates_do_not_overlap(self) -> None:
+        # A symbol in two sets would silently take whichever branch is checked first.
+        self.assertEqual(BANKS & SECURITIES, set())
+        self.assertEqual(BANKS & INSURERS, set())
+        self.assertEqual(SECURITIES & INSURERS, set())
+
+    def test_no_financial_code_falls_through_to_the_corporate_template(self) -> None:
+        for symbol in sorted(BANKS | SECURITIES | INSURERS):
+            with self.subTest(symbol=symbol):
+                if symbol in BANKS:
+                    expected = "bank"
+                elif symbol in SECURITIES:
+                    expected = "securities"
+                else:
+                    expected = "insurer"
+                scored = score_fundamentals(symbol, _corporate_points())
+                self.assertEqual(scored.template, expected)
 
 
 class VerdictOrderTest(unittest.TestCase):

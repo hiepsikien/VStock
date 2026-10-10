@@ -69,6 +69,31 @@ DEFAULT_UNIVERSE = (
     "VHM",
     "VRE",
     "SBT",
+    # Added with the basket in 2026-10: financial codes both templates below already scored but
+    # the basket never watched. Every one of them lands in an existing gate set, so no threshold
+    # is invented here — banks on bad loans and coverage, brokers without the corporate debt
+    # gate, insurers with the wider debt ceiling.
+    "TPB",
+    "MSB",
+    "LPB",
+    "SHB",
+    "EIB",
+    "OCB",
+    "NAB",
+    "VIB",
+    "SSB",  # banks
+    "HCM",
+    "VCI",
+    "MBS",
+    "SHS",
+    "BSI",
+    "AGR",
+    "FTS",
+    "VDS",  # securities firms
+    "BMI",
+    "BIC",
+    "MIG",
+    "PVI",  # insurers
 )
 
 # Scored with the bank template. Missing bank fields stay "Chưa chấm".
