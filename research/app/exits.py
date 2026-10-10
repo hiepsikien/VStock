@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 from app.config import (
     ATR_STOP_MULTIPLIER,
+    FAILED_BREAKOUT_ATR_BUFFER,
+    FAILED_BREAKOUT_SESSIONS,
     MAX_HOLD_SESSIONS,
     MAX_POSITION_WEIGHT,
     RISK_PER_TRADE,
@@ -40,7 +42,7 @@ class OpenPosition:
     exit_date: str | None = None
     exit_price: float | None = None
     exit_reason: str | None = None
-    # Trần nền lúc vào lệnh. Đóng cửa trở lại dưới mốc này là luận điểm phá nền hết hiệu lực.
+    # Trần nền lúc vào lệnh. Trong vài phiên đầu, đóng cửa vào hẳn dưới mốc này thì cú phá hỏng.
     base_ceiling: float | None = None
 
     @property
@@ -168,22 +170,33 @@ def close_at(pos: OpenPosition, bar: dict, reason: str) -> str:
     return _close(pos, bar, reason, float(bar["close"]))
 
 
-def fell_under_base(pos: OpenPosition, bar: dict) -> bool:
-    """A close back under the frozen base ceiling ends the breakout thesis.
+def fell_under_base(pos: OpenPosition, bar: dict, *, atr14: float | None = None) -> bool:
+    """A close back inside the base during the first few sessions ends the breakout.
 
-    The level is the base high captured at entry, so a base that forms higher later cannot
-    lift it, and a session that only tests the level still holds. The exit is booked at the
-    bar close, the same way the news and flow overrides are.
+    The ceiling is the base high captured at entry, so a later base cannot lift it. The rule
+    only runs for FAILED_BREAKOUT_SESSIONS after entry, and only when the close is at least
+    half an ATR under that ceiling. A close that merely tags the level holds. After the
+    window, the base-low stop and the trail take over.
+
+    The bar must already be marked, so the session count matches the other exits. The ATR is
+    the one known at this close, falling back to the ATR stored at entry. Without one, the
+    distance cannot be measured and the rule stays quiet.
 
     A bar that also takes out the stop is left to the stop: that order rests in the market
     and fills inside the bar, and its fill is never better than the close this rule would
     book, so letting the stop win only ever reads as the more cautious of the two.
     """
+    if pos.sessions < 1 or pos.sessions > FAILED_BREAKOUT_SESSIONS:
+        return False
     if pos.base_ceiling is None or pos.base_ceiling <= 0:
         return False
-    if float(bar["close"]) >= pos.base_ceiling:
-        return False
     if float(bar["low"]) <= pos.stop:
+        return False
+    volatility = atr14 if atr14 and atr14 > 0 else pos.atr14
+    if volatility is None or volatility <= 0:
+        return False
+    inside = pos.base_ceiling - FAILED_BREAKOUT_ATR_BUFFER * volatility
+    if float(bar["close"]) > inside:
         return False
     close_at(pos, bar, f"Đóng dưới đỉnh nền {pos.base_ceiling:.2f}")
     return True

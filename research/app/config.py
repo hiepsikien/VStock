@@ -231,8 +231,12 @@ FLAT_BASE_MIN_ADVANCE = 0.15
 FLAT_BASE_ADVANCE_LOOKBACK = 40
 # Khối lượng nến phá so với trung bình khối lượng của 20 phiên nền (không gồm nến phá).
 BREAKOUT_VOLUME_RATIO = 1.5
-# Một lần đóng cửa trở lại dưới mốc đã phá trong bao nhiêu phiên thì coi là phá hỏng.
+# Cổng vào: một cú phá trong bấy nhiêu phiên mà đóng cửa trở lại dưới mốc thì không được vào.
+# Luật thoát chỉ dùng cùng cửa sổ đó, tính từ phiên sau ngày mua.
 FAILED_BREAKOUT_SESSIONS = 3
+# Trong cửa sổ thoát, đóng cửa phải nằm dưới đỉnh nền ít nhất bấy nhiêu ATR thì mới là
+# vào trong nền. Đóng sát mép thì giữ.
+FAILED_BREAKOUT_ATR_BUFFER = 0.5
 
 # --- Lớp 1: vĩ mô liên thị trường ------------------------------------------------
 # Yahoo chart API. Research reads it directly, the same way it reads Entrade.

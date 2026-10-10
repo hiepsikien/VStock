@@ -577,9 +577,11 @@ hợp; nhờ vậy phép đo so được với danh mục thật thay vì một 
   một luật đóng tại giá đóng cửa kết thúc suất đó; cột "Phiên" khớp lịch chứ không theo luật thoát.
 
 **Thoát vì phá nền thất bại** (`exits.fell_under_base`): suất mở bằng một cây nến phá đỉnh nền giữ
-đỉnh nền lúc vào (`base_ceiling`). Phiên nào đóng cửa dưới mốc đó thì thoát tại giá đóng cửa; nền
-hình thành cao hơn sau đó không nâng mốc lên. Phiên vừa thủng dừng lỗ vừa đóng dưới mốc để dừng lỗ
-thắng, vì lệnh dừng nằm sẵn trong sổ và giá khớp của nó không bao giờ tốt hơn giá đóng cửa.
+đỉnh nền lúc vào (`base_ceiling`). Chỉ trong `FAILED_BREAKOUT_SESSIONS` phiên sau ngày mua, đóng
+cửa thấp hơn đỉnh nền ít nhất nửa ATR thì thoát tại giá đóng cửa. Đóng sát mép thì giữ. Hết cửa
+sổ đó, đỉnh nền không còn là điểm thoát; dừng lỗ đáy nền và trailing lo tiếp. Nền hình thành cao
+hơn sau đó không nâng mốc lên. Phiên vừa thủng dừng lỗ vừa đóng vào trong nền để dừng lỗ thắng,
+vì lệnh dừng nằm sẵn trong sổ và giá khớp của nó không bao giờ tốt hơn giá đóng cửa.
 
 
 ---

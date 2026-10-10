@@ -200,6 +200,7 @@ def run_backtest(
                 # The name has no bar of this session, so there is nothing to judge it on.
                 continue
             mark_bar(position, bar)
+            session_atr = atr(stock_slice)
             # Only a filing already published on this session may end the thesis; without
             # the upper bound a future suspension would close the slot on the next bar.
             filing = blocking_filing(
@@ -212,14 +213,14 @@ def run_backtest(
                 close_at(position, bar, f"Công bố chặn: {filing}")
             elif flow_flipped(flow_points, stock_slice):
                 close_at(position, bar, "Dòng tiền ngoại đảo chiều")
-            elif fell_under_base(position, bar):
+            elif fell_under_base(position, bar, atr14=session_atr):
                 pass  # Already closed at this bar's close, with the reason on the position.
             else:
                 manage_position(
                     position,
                     bar,
                     ma20=ma_now(stock_slice, MA_FAST),
-                    atr14=atr(stock_slice),
+                    atr14=session_atr,
                 )
             if not position.open:
                 # The exit already set its own price — a stop fills at min(open, stop) —
@@ -303,8 +304,8 @@ def run_backtest(
             f"Lãi tiền gửi {CASH_YIELD * 100:.1f}%/năm trên tiền đang đứng ngoài. "
             f"Số liệu quý được dùng {STATEMENT_LAG_DAYS} ngày sau ngày kết thúc kỳ. "
             "Dừng lỗ theo đáy nền, kéo theo MA20 sau khi chốt một phần tại +1R, đóng khi "
-            "tiền chết 30 phiên, có công bố chặn, dòng tiền ngoại đảo chiều, hoặc giá "
-            "đóng cửa trở lại dưới đỉnh nền đã phá. "
+            "tiền chết 30 phiên, có công bố chặn, dòng tiền ngoại đảo chiều, hoặc trong "
+            "3 phiên đầu giá đóng cửa vào trong nền ít nhất nửa ATR dưới đỉnh đã phá. "
             "Cổng P/E và lớp vĩ mô không dùng ở đây vì dữ liệu chỉ có ảnh chụp hiện tại."
         ),
     }

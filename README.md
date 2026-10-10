@@ -147,7 +147,7 @@ ngưỡng thanh khoản nào để nói mã đó đáng chấm.
 Bấm "Xác nhận sẽ vào" ở một mã **Được vào** sẽ mở một suất vốn giấy. Mỗi phiên chạy, hệ thống
 đánh dấu theo giá đóng cửa và thoát theo đúng luật của backtest: dừng lỗ đáy nền, chốt 1/3 tại
 +1R rồi kéo dừng lỗ theo MA20 (mức kéo tính từ nến đã đóng, nên chỉ nằm trong sổ từ phiên sau),
-đóng cửa dưới đỉnh nền lúc vào (phá nền thất bại), đóng khi tiền chết 30 phiên, có công bố chặn,
+trong 3 phiên đầu đóng cửa vào trong nền ít nhất nửa ATR dưới đỉnh lúc vào (phá nền thất bại), đóng khi tiền chết 30 phiên, có công bố chặn,
 hoặc dòng tiền ngoại đảo chiều. Sổ đi lần lượt từng nến sau phiên đã chấm, nên bấm chạy lại trong
 cùng ngày không cộng thêm phiên và một phiên bị lỡ vẫn được chấm đủ, kể cả phiên chạm dừng lỗ;
 phiên mà luật đóng tại giá đóng cửa kết thúc suất vẫn được tính vào cột "Phiên". Trang `/backtest`

@@ -25,7 +25,15 @@ from app.evaluate import (
     score_fundamentals,
     score_valuation,
 )
-from app.exits import blocking_filing, close_at, plan_exit, position_size, step_position
+from app.exits import (
+    blocking_filing,
+    close_at,
+    fell_under_base,
+    mark_bar,
+    plan_exit,
+    position_size,
+    step_position,
+)
 from app.flow import (
     ACCUMULATION,
     BLOCK,
@@ -366,6 +374,55 @@ class ExitPlanTest(unittest.TestCase):
         close_at(pos, bar, "Dòng tiền ngoại đảo chiều")
         self.assertEqual(pos.exit_reason, "Dòng tiền ngoại đảo chiều")
         self.assertAlmostEqual(pos.exit_price or 0, 102.0)
+
+    def _breakout(self):
+        # Ceiling 100, ATR 2, so half an ATR sits the failure line at 99. Stop rests at 90.
+        return plan_exit(
+            "FPT",
+            "2026-06-01",
+            102.0,
+            Pattern(True, "Nền", 0.05, 90, base_ceiling=100),
+            2.0,
+        )
+
+    def test_failed_breakout_needs_half_an_atr_inside_the_base(self) -> None:
+        held = self._breakout()
+        mark_bar(held, {"trade_date": "2026-06-02", "open": 101, "high": 102, "low": 99.2, "close": 99.4})
+        self.assertFalse(fell_under_base(held, {"trade_date": "2026-06-02", "open": 101, "high": 102, "low": 99.2, "close": 99.4}, atr14=2.0))
+        self.assertTrue(held.open)
+
+        failed = self._breakout()
+        bar = {"trade_date": "2026-06-02", "open": 101.0, "high": 101.5, "low": 97.0, "close": 98.0}
+        mark_bar(failed, bar)
+        self.assertTrue(fell_under_base(failed, bar, atr14=2.0))
+        self.assertEqual(failed.exit_reason, "Đóng dưới đỉnh nền 100.00")
+        self.assertAlmostEqual(failed.exit_price or 0, 98.0)
+
+    def test_failed_breakout_only_runs_for_the_first_three_sessions(self) -> None:
+        pos = self._breakout()
+        quiet = {"trade_date": "2026-06-02", "open": 102.0, "high": 103.0, "low": 101.0, "close": 102.0}
+        for _session in range(3):
+            mark_bar(pos, quiet)
+        deep = {"trade_date": "2026-06-05", "open": 100.0, "high": 100.0, "low": 94.0, "close": 95.0}
+        mark_bar(pos, deep)
+        self.assertEqual(pos.sessions, 4)
+        self.assertFalse(fell_under_base(pos, deep, atr14=2.0))
+        self.assertTrue(pos.open)
+
+    def test_failed_breakout_leaves_a_stopped_bar_to_the_stop(self) -> None:
+        pos = self._breakout()
+        bar = {"trade_date": "2026-06-02", "open": 95.0, "high": 96.0, "low": 88.0, "close": 94.0}
+        mark_bar(pos, bar)
+        self.assertFalse(fell_under_base(pos, bar, atr14=2.0))
+        self.assertTrue(pos.open)
+
+    def test_failed_breakout_stays_quiet_without_an_atr(self) -> None:
+        pos = self._breakout()
+        pos.atr14 = None
+        bar = {"trade_date": "2026-06-02", "open": 101.0, "high": 101.0, "low": 94.0, "close": 95.0}
+        mark_bar(pos, bar)
+        self.assertFalse(fell_under_base(pos, bar))
+        self.assertTrue(pos.open)
 
     def test_size_risks_one_percent_and_caps_at_thirty_five(self) -> None:
         self.assertAlmostEqual(position_size(1.0, 100.0, 90.0), 0.1)

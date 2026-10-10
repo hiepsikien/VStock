@@ -125,16 +125,17 @@ async def mark_positions(as_of: str) -> list[str]:
             day = str(bar["trade_date"])
             window = _upto(bars, day)
             mark_bar(pos, bar)
+            session_atr = atr(window)
             filing = blocking_filing(articles, row["entry_date"], day)
             if filing:
                 reason = close_at(pos, bar, f"Công bố chặn: {filing}")
             elif flow_flipped(_flow_upto(flow, day), window):
                 reason = close_at(pos, bar, "Dòng tiền ngoại đảo chiều")
-            elif fell_under_base(pos, bar):
+            elif fell_under_base(pos, bar, atr14=session_atr):
                 reason = pos.exit_reason
             else:
                 reason = manage_position(
-                    pos, bar, ma20=ma_now(window, MA_FAST), atr14=atr(window)
+                    pos, bar, ma20=ma_now(window, MA_FAST), atr14=session_atr
                 )
             await db.mark_paper(row["id"], day, pos.last_price or 0.0, pos.unrealised())
             if reason is not None:
