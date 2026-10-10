@@ -14,7 +14,6 @@ from app.config import (
     MARKET_POLICY_LOOKBACK_DAYS,
     MARKET_RATE_RISE_MAX,
     MARKET_SERIES,
-    MARKET_SERIES_MAX_AGE_DAYS,
     MARKET_YIELD_RISE_MAX,
     POLICY_RATE_HISTORY,
 )
@@ -23,8 +22,9 @@ from app.config import (
 MarketMap = dict[str, list[tuple[str, float]]]
 
 LABELS = {code: label for code, label, _unit, _symbol in MARKET_SERIES}
-# Fetched every session, so an old point means the feed is down. The policy table is a
-# record of decisions instead: its last row can be years old and still be the rate today.
+# Fetched every session, so a series only counts for the session it carries a point for. The
+# policy table is a record of decisions instead: its last row can be years old and still be the
+# rate today.
 DAILY = tuple(code for code, _label, _unit, symbol in MARKET_SERIES if symbol)
 
 
@@ -61,14 +61,6 @@ def _minus_days(as_of: str, days: int) -> str:
         return (date.fromisoformat(as_of[:10]) - timedelta(days=days)).isoformat()
     except ValueError:
         return as_of
-
-
-def _stale(newest: str, as_of: str) -> bool:
-    try:
-        age = (date.fromisoformat(as_of[:10]) - date.fromisoformat(newest[:10])).days
-    except ValueError:
-        return True
-    return age > MARKET_SERIES_MAX_AGE_DAYS
 
 
 def _value(code: str, value: float) -> str:
@@ -183,7 +175,10 @@ def thresholds() -> list[tuple[str, str]]:
             if MARKET_DRAIN_MIN is not None
             else "chưa khai báo",
         ),
-        ("Số cũ nhất còn dùng", f"{MARKET_SERIES_MAX_AGE_DAYS} ngày, cũ hơn thì tính là thiếu"),
+        (
+            "Điểm của phiên đang chấm",
+            "mỗi chuỗi giá phải có điểm đúng phiên đang chấm, không mượn số phiên trước",
+        ),
         ("Số phiên tối thiểu", f"{MARKET_MIN_SESSIONS} phiên đã lưu cho mỗi chuỗi giá"),
     ]
     return rows
@@ -199,8 +194,10 @@ def money_state(
     """Chấm cổng tiền tệ cho một phiên.
 
     Chỉ số đã lưu tới hết ngày as_of được dùng, nên chấm lại một phiên cũ luôn ra cùng
-    kết quả và số của hôm nay không bao giờ rơi vào một phiên đã qua. Chuỗi thiếu, chuỗi
-    đã cũ, hoặc chuỗi chưa đủ số đã lưu đều đưa cổng về "Chưa chấm".
+    kết quả và số của hôm nay không bao giờ rơi vào một phiên đã qua. Chuỗi giá còn phải có
+    điểm đúng phiên đang chấm: feed chết trong phiên thì phiên đó không có điểm, và số của
+    phiên trước không được mượn để chấm phiên này. Chuỗi thiếu điểm của phiên đang chấm hoặc
+    chưa đủ số đã lưu đều đưa cổng về "Chưa chấm".
     """
     if as_of is None:
         stored = [str(day) for rows in points.values() for day, _point in rows]
@@ -235,14 +232,18 @@ def money_state(
         if declared.get(code) is None:
             continue
         rows = series.get(code) or []
-        old = bool(rows) and as_of is not None and code in DAILY and _stale(rows[-1][0], as_of)
-        if not rows or old or len(rows) < needs[code]:
-            note = (
-                "chưa có số"
-                if not rows
-                else f"{_value(code, rows[-1][1])} ({len(rows)} phiên đã lưu)"
-            )
-            metrics.append((label, note + (" — số đã cũ" if old else "")))
+        # Chuỗi giá phải có điểm đúng phiên đang chấm. TradingView chết đúng phiên lãi qua đêm
+        # nhảy thì phiên đó không có điểm, và cổng đứng "Chưa chấm" chứ không mở bằng số hôm qua.
+        # Lãi điều hành là chuỗi bậc thang ghi tay, nên nó không thuộc nhóm này.
+        stamped = bool(rows) and as_of is not None and str(rows[-1][0]) == as_of
+        if not rows or (code in DAILY and not stamped) or len(rows) < needs[code]:
+            if not rows:
+                note = "chưa có số"
+            elif code in DAILY and not stamped:
+                note = f"chưa có số của phiên {as_of} (mới nhất {rows[-1][0]})"
+            else:
+                note = f"{_value(code, rows[-1][1])} ({len(rows)} phiên đã lưu)"
+            metrics.append((label, note))
             if code in required:
                 missing.append(code)
             continue

@@ -27,6 +27,11 @@ class Macro:
     flags: tuple[str, ...] = ()
 
 
+MACRO_LABELS = {code: label for code, _symbol, label in MACRO_SYMBOLS}
+# Cặp chặn: hai chuỗi này cùng đứng trên vùng trung tính thì danh sách mới bị khóa.
+BLOCKING_PAIR = ("DXY", "USDVND")
+
+
 def macro_state(series: dict[str, list[dict]]) -> Macro:
     lines: dict[str, MacroLine] = {}
     for code, _symbol, label in MACRO_SYMBOLS:
@@ -77,15 +82,34 @@ def macro_state(series: dict[str, list[dict]]) -> Macro:
         flags.append(f"dầu tăng {oil.change:.0%} {MACRO_MA_WINDOW} phiên")
 
     block = dxy_stress and usdvnd_stress
-    metrics = [
-        (
-            line.label,
-            f"{line.close:,.2f} — {line.change:+.1%} {MACRO_MA_WINDOW} phiên, "
-            f"{'trên' if line.side == 1 else 'dưới' if line.side == -1 else 'quanh'} "
-            f"MA{MACRO_MA_WINDOW}",
+    metrics: list[tuple[str, str]] = []
+    for code, _symbol, label in MACRO_SYMBOLS:
+        line = lines.get(code)
+        if line is None:
+            metrics.append((label, "chưa tải được"))
+            continue
+        metrics.append(
+            (
+                label,
+                f"{line.close:,.2f} — {line.change:+.1%} {MACRO_MA_WINDOW} phiên, "
+                f"{'trên' if line.side == 1 else 'dưới' if line.side == -1 else 'quanh'} "
+                f"MA{MACRO_MA_WINDOW}",
+            )
         )
-        for line in lines.values()
-    ]
+    # Yahoo trả từng mã một, nên thiếu một chân của cặp chặn là chuyện thường gặp — và cũng là
+    # chuyện không thể kết luận: chưa biết tỷ giá thì cổng chưa chấm được, chứ không phải trung tính.
+    # Ba chuỗi còn lại chỉ cảnh báo, thiếu chúng vẫn chấm được.
+    absent = [code for code in BLOCKING_PAIR if code not in lines]
+    if absent:
+        where = ", ".join(MACRO_LABELS[code] for code in absent)
+        seen = f" (đã thấy: {'; '.join(flags)})" if flags else ""
+        return Macro(
+            None,
+            False,
+            f"Thiếu {where}, cặp đô la và tỷ giá chưa đánh giá được{seen}",
+            metrics,
+            tuple(flags),
+        )
     if not flags:
         return Macro(False, False, "Vĩ mô trung tính: không có cảnh báo liên thị trường", metrics)
     reason = "; ".join(flags)

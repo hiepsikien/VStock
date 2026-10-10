@@ -155,6 +155,23 @@ class MacroTest(unittest.TestCase):
         self.assertIsNone(macro.risk)
         self.assertFalse(macro.block)
 
+    def test_a_blocking_leg_that_did_not_load_leaves_the_gate_unscored(self) -> None:
+        """Cặp chặn là đô la và tỷ giá: thiếu tỷ giá thì cổng chưa chấm, không phải trung tính."""
+        rising = [100.0 + index * 0.5 for index in range(25)]
+        macro = macro_state({"DXY": _series(rising), "SP500": _series(rising)})
+        self.assertIsNone(macro.risk)
+        self.assertFalse(macro.block)
+        self.assertIn("Tỷ giá USD/VND", macro.reason)
+        self.assertIn("đô la tăng", macro.reason)
+        self.assertIn(("Tỷ giá USD/VND", "chưa tải được"), macro.metrics)
+
+    def test_a_warning_leg_that_did_not_load_still_scores(self) -> None:
+        """Đủ hai chân chặn thì cổng chấm được; thiếu S&P 500 hay dầu chỉ là thiếu cảnh báo."""
+        flat = _series([100.0] * 25)
+        macro = macro_state({"DXY": flat, "USDVND": flat})
+        self.assertIs(macro.risk, False)
+        self.assertFalse(macro.block)
+
     def test_weak_index_alone_warns_without_blocking(self) -> None:
         falling = [120.0 - index * 0.4 for index in range(25)]
         flat = _series([100.0] * 25)
@@ -310,6 +327,22 @@ class ExitPlanTest(unittest.TestCase):
         step_position(pos, bar, ma20=106.0, atr14=2.0)
         self.assertAlmostEqual(pos.stop, 105.0)
 
+    def test_a_trailing_level_cannot_fill_on_the_bar_it_was_read_from(self) -> None:
+        """MA20 và ATR chỉ biết sau giờ đóng cửa, nên mức kéo chỉ canh được từ phiên sau."""
+        pos = plan_exit("FPT", "2026-06-01", 100.0, Pattern(True, "Nền", 0.05, 90))
+        pos.tp1_done = True
+        pos.booked_fraction = 1 / 3
+        # The low of 101 never reached the 90 that rested in the book, even though this bar's own
+        # MA20 draws a stop at 113: the level is only known once the session has closed.
+        bar = {"trade_date": "2026-06-02", "open": 103.0, "high": 110.0, "low": 101.0, "close": 109.0}
+        self.assertIsNone(step_position(pos, bar, ma20=114.0, atr14=2.0))
+        self.assertTrue(pos.open)
+        self.assertAlmostEqual(pos.stop, 113.0)
+        # The next session opens with 113 in the book, so a low of 105 reaches it and fills at the open.
+        after = {"trade_date": "2026-06-03", "open": 108.0, "high": 109.0, "low": 105.0, "close": 107.0}
+        self.assertEqual(step_position(pos, after, ma20=114.0, atr14=2.0), "Chạm dừng lỗ")
+        self.assertAlmostEqual(pos.exit_price or 0, 108.0)
+
     def test_time_stop_closes_dead_money(self) -> None:
         pos = plan_exit("FPT", "2026-06-01", 100.0, Pattern(True, "Nền", 0.05, 90))
         bar = {"trade_date": "2026-07-01", "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0}
@@ -441,6 +474,14 @@ class ComposeTest(unittest.TestCase):
     def test_macro_that_did_not_load_does_not_open_an_entry(self) -> None:
         """A feed that is down is not a green light: the layer has no numbers, so no entry."""
         verdict = self._compose(macro=macro_state({}))
+        self.assertEqual(verdict.status, "Theo dõi")
+        self.assertIn("Vĩ mô chưa có số", verdict.summary)
+        self.assertFalse(verdict.macro_block)
+
+    def test_a_blocking_leg_that_did_not_load_downgrades_an_entry(self) -> None:
+        """Chặn bằng cả cặp đô la và tỷ giá, nên thiếu một chân cũng là chưa có số."""
+        rising = [100.0 + index * 0.5 for index in range(25)]
+        verdict = self._compose(macro=macro_state({"DXY": _series(rising)}))
         self.assertEqual(verdict.status, "Theo dõi")
         self.assertIn("Vĩ mô chưa có số", verdict.summary)
         self.assertFalse(verdict.macro_block)

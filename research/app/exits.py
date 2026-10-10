@@ -132,24 +132,29 @@ def manage_position(
     ma20: float | None = None,
     atr14: float | None = None,
 ) -> str | None:
-    """Judge a session that has already been marked: trailing stop, stop, target, clock.
+    """Judge a session that has already been marked: stop, target, trailing stop, clock.
 
     The callers mark the bar first: the news, flow and base-ceiling exits read the same
     session and have to leave the same session count behind them as the stop does.
     """
-    if pos.tp1_done and ma20 is not None and atr14:
-        candidate = ma20 - TRAIL_ATR_MULTIPLIER * atr14
-        if candidate > pos.stop:
-            pos.stop = candidate
-
-    if float(bar["low"]) <= pos.stop:
-        return _close(pos, bar, "Chạm dừng lỗ", min(float(bar["open"]), pos.stop))
+    # The level a low has to reach is the one that rested in the book for this whole session.
+    session_stop = pos.stop
+    if float(bar["low"]) <= session_stop:
+        return _close(pos, bar, "Chạm dừng lỗ", min(float(bar["open"]), session_stop))
 
     if not pos.tp1_done and float(bar["high"]) >= pos.target1:
         pos.tp1_done = True
         pos.booked_fraction = TP1_FRACTION
         pos.realised = TP1_FRACTION * (pos.target1 / pos.entry_price - 1)
         pos.stop = max(pos.stop, pos.entry_price * (1 + ROUND_TRIP_COST))
+
+    # MA20 and ATR of this session are only known once it has closed, so a level drawn from them
+    # can only watch the sessions after this one. Raising the stop before reading the low would
+    # book an exit at min(open, new stop) on a session whose low never reached the resting stop.
+    if pos.tp1_done and ma20 is not None and atr14:
+        candidate = ma20 - TRAIL_ATR_MULTIPLIER * atr14
+        if candidate > pos.stop:
+            pos.stop = candidate
 
     if pos.sessions >= MAX_HOLD_SESSIONS:
         return _close(pos, bar, f"Đủ {MAX_HOLD_SESSIONS} phiên", float(bar["close"]))

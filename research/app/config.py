@@ -252,8 +252,6 @@ POLICY_RATE_HISTORY = (
 # So với trung bình bao nhiêu phiên đã lưu, và cần tối thiểu bao nhiêu số mới chấm.
 MARKET_MA_WINDOW = 20
 MARKET_MIN_SESSIONS = 5
-# Số cũ hơn mức này, tính từ phiên đang chấm, không còn được dùng để chấm.
-MARKET_SERIES_MAX_AGE_DAYS = 10
 # Một ngưỡng đặt None nghĩa là chưa khai báo, và chuỗi đó không thể khóa danh sách.
 MARKET_RATE_RISE_MAX = 1.0  # lãi qua đêm vượt trung bình quá 1 điểm % là thắt
 MARKET_YIELD_RISE_MAX = 0.5  # lợi suất 10 năm vượt trung bình quá 0,5 điểm % là thắt

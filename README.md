@@ -71,7 +71,7 @@ sau giờ đóng cửa.
 
 | Lớp | Nguồn | Ghi chú |
 |---|---|---|
-| Vĩ mô | Yahoo chart: DXY, USD/VND, S&P 500, dầu WTI | Khối `mở`/`cần theo dõi`; chỉ **chặn** khi DXY trên MA20 (biên 0,5%) **và** đang tăng, cùng lúc tỷ giá trên MA20. S&P 500 dưới MA20 hoặc dầu tăng quá 15% trong 20 phiên chỉ đưa vào diện theo dõi. Tải lỗi thì coi như chưa có số và hạ lệnh sắp vào xuống Theo dõi |
+| Vĩ mô | Yahoo chart: DXY, USD/VND, S&P 500, dầu WTI | Khối `mở`/`cần theo dõi`; chỉ **chặn** khi DXY trên MA20 (biên 0,5%) **và** đang tăng, cùng lúc tỷ giá trên MA20. S&P 500 dưới MA20 hoặc dầu tăng quá 15% trong 20 phiên chỉ đưa vào diện theo dõi. Thiếu một trong hai chân chặn, hoặc tải lỗi, thì coi như chưa có số và hạ lệnh sắp vào xuống Theo dõi |
 | Cơ bản | VNDirect Finfo ratios + `fundamentals` của backend | Ngân hàng, chứng khoán, bảo hiểm và doanh nghiệp có bộ cổng riêng |
 | Định giá | `fundamentals.pe` từ kho thị trường | Trần P/E 30. Chỉ áp ở phiên trực tiếp, backtest bỏ qua vì là ảnh chụp hiện tại |
 | Dòng tiền lớn | VNDirect Finfo `foreigns` | Tải 60 phiên net volume/net value/room; cổng chấm đọc **10 phiên** gần nhất, nghi bán vào đà tăng thì hạ cấp |
@@ -101,13 +101,14 @@ khởi động đầu sau khi nâng cấp cũng vậy, nên mã bạn đã bỏ 
 
 Bấm "Xác nhận sẽ vào" ở một mã **Được vào** sẽ mở một suất vốn giấy. Mỗi phiên chạy, hệ thống
 đánh dấu theo giá đóng cửa và thoát theo đúng luật của backtest: dừng lỗ đáy nền, chốt 1/3 tại
-+1R rồi kéo dừng lỗ theo MA20, đóng cửa dưới đỉnh nền lúc vào (phá nền thất bại), đóng khi tiền
-chết 30 phiên, có công bố chặn, hoặc dòng tiền ngoại đảo chiều. Sổ đi lần lượt từng nến sau phiên
-đã chấm, nên bấm chạy lại trong cùng ngày không cộng thêm phiên và một phiên bị lỡ vẫn được chấm
-đủ, kể cả phiên chạm dừng lỗ; phiên mà luật đóng tại giá đóng cửa kết thúc suất vẫn được tính vào
-cột "Phiên". Trang `/backtest` so lãi bình quân của các suất với VN-Index trong đúng cửa sổ nắm giữ;
-suất vừa xác nhận chưa có phiên mark nào thì chưa có cửa sổ để so nên không vào bình quân, và alpha
-chỉ tính trên những suất có đủ cả hai vế.
++1R rồi kéo dừng lỗ theo MA20 (mức kéo tính từ nến đã đóng, nên chỉ nằm trong sổ từ phiên sau),
+đóng cửa dưới đỉnh nền lúc vào (phá nền thất bại), đóng khi tiền chết 30 phiên, có công bố chặn,
+hoặc dòng tiền ngoại đảo chiều. Sổ đi lần lượt từng nến sau phiên đã chấm, nên bấm chạy lại trong
+cùng ngày không cộng thêm phiên và một phiên bị lỡ vẫn được chấm đủ, kể cả phiên chạm dừng lỗ;
+phiên mà luật đóng tại giá đóng cửa kết thúc suất vẫn được tính vào cột "Phiên". Trang `/backtest`
+so lãi bình quân của các suất với VN-Index trong đúng cửa sổ nắm giữ; suất vừa xác nhận chưa có
+phiên mark nào thì chưa có cửa sổ để so nên không vào bình quân, và alpha chỉ tính trên những suất
+có đủ cả hai vế.
 
 ### Cổng tiền tệ
 
@@ -125,15 +126,18 @@ Năm chuỗi, ngưỡng khai báo trong `research/app/config.py` và in ra ở t
 | Lãi suất tái cấp vốn | Bảng ghi tay `POLICY_RATE_HISTORY` trong `config.py` | Có mốc mới trong 90 ngày gần nhất |
 | NHNN hút/bơm ròng | Chưa có nguồn công khai, điền tay vào `market_points` | Hút ròng 5 phiên liên tiếp, tổng từ 5.000 tỷ |
 
-Bốn chuỗi đầu là **bắt buộc**. Chuỗi thiếu số, số cũ hơn 10 ngày, hoặc chưa đủ 5 phiên đã lưu đều
-đưa cổng về **Chưa chấm**, và không mã nào bị tự loại vì chuyện tiền tệ. Chuỗi NHNN chưa có nguồn
+Bốn chuỗi đầu là **bắt buộc**. Mỗi chuỗi phải có điểm **đúng phiên đang chấm**: thiếu số, hoặc
+trong kho chỉ có điểm của phiên trước (feed chết trong phiên), hoặc chưa đủ 5 phiên đã lưu đều đưa
+cổng về **Chưa chấm**, và không mã nào bị tự loại vì chuyện tiền tệ. Chuỗi NHNN chưa có nguồn
 nên nằm ngoài danh sách bắt buộc, nhưng ngưỡng đã khai báo trước nên nó khóa được ngay khi có số.
 
 Mỗi phiên pipeline lấy một điểm cho mỗi chuỗi rồi lưu vào bảng `market_points`; hàm chấm chỉ đọc
 các điểm tới hết ngày đang chấm, nên chấm lại một phiên cũ luôn ra cùng kết quả và số của hôm nay
-không bao giờ rơi vào một phiên đã qua. Scanner chỉ trả giá hiện tại, nên chuỗi bắt đầu từ ngày bật
-tính năng: cổng đứng "Chưa chấm" cho tới khi đủ 5 phiên đã lưu (khoảng một tuần), rồi mới mở hoặc
-khóa được. Bảng quyết định lãi điều hành là chuỗi bậc thang có sẵn, nên chuỗi này có số ngay.
+không bao giờ rơi vào một phiên đã qua. Chuỗi giá còn phải có điểm của chính phiên đang chấm: nguồn
+chết đúng phiên đó thì cổng đứng "Chưa chấm" thay vì dùng lại số của phiên trước. Scanner chỉ trả
+giá hiện tại, nên chuỗi bắt đầu từ ngày bật tính năng: cổng đứng "Chưa chấm" cho tới khi đủ 5 phiên
+đã lưu (khoảng một tuần), rồi mới mở hoặc khóa được. Bảng quyết định lãi điều hành là chuỗi bậc
+thang có sẵn, nên chuỗi này có số ngay.
 
 ### Cảnh báo phiên
 

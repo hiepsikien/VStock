@@ -546,11 +546,11 @@ VPS batch ──fail──▶ SSI per-symbol ──fail──▶ Entrade last cl
 
 | # | Lớp | Module | Trạng thái |
 |---|-----|--------|-----------|
-| 1 | Vĩ mô liên thị trường | `research/app/macro.py` + `ingest.fetch_macro` | Yahoo chart cho DXY, USD/VND, S&P 500, dầu WTI. Chỉ chặn vào khi DXY **và** tỷ giá cùng trên MA20 |
+| 1 | Vĩ mô liên thị trường | `research/app/macro.py` + `ingest.fetch_macro` | Yahoo chart cho DXY, USD/VND, S&P 500, dầu WTI. Chỉ chặn vào khi DXY **và** tỷ giá cùng trên MA20; thiếu một trong hai chân thì coi như chưa có số |
 | 2 | Cơ bản + định giá | `research/app/evaluate.py` | 4 template (doanh nghiệp, ngân hàng, chứng khoán, bảo hiểm), F-Score suy ra, cảnh báo số liệu, trần P/E 30 |
 | 3 | Dòng tiền lớn | `research/app/flow.py` + `ingest.fetch_foreign_flow` | VNDirect Finfo `foreigns`: net volume/value/room theo ngày, tải 60 phiên; cổng chấm đọc 10 phiên cuối |
 | 4 | Nền giá và mô hình | `research/app/pattern.py` | ZigZag theo ATR, Đáy đôi, VCP, Cờ, ABCD, điểm cấu trúc 0–100 |
-| 5 | Thoát lệnh | `research/app/exits.py` | Dừng lỗ đáy nền/ATR, chốt 1/3 tại +1R, kéo dừng lỗ MA20, tiền chết 30 phiên, trần 60 phiên |
+| 5 | Thoát lệnh | `research/app/exits.py` | Dừng lỗ đáy nền/ATR, chốt 1/3 tại +1R, kéo dừng lỗ MA20 (mức kéo của một nến chỉ vào sổ từ phiên sau), tiền chết 30 phiên, trần 60 phiên |
 | 6 | Đo tiến | `research/app/paper.py` + bảng `paper_positions` | Vị thế giấy mở khi xác nhận một mã Được vào, chấm lần lượt từng phiên còn thiếu, so với VN-Index |
 | 7 | Điểm tổng hợp | `evaluate.compose_score` | 0–100 để xếp hạng, chọn suất trong backtest và tô màu nhãn; ngưỡng 75 không phải cổng vào |
 | 8 | Cảnh báo | `research/app/notify.py` | Telegram khi trạng thái đổi hoặc vị thế giấy đóng; không cấu hình thì im lặng |

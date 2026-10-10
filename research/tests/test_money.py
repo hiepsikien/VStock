@@ -69,8 +69,14 @@ class MoneyGateTest(unittest.TestCase):
     def test_fx_pressure_needs_the_declared_streak(self) -> None:
         one_day = money_state(_market(USDVND=_series([25_000.0] * 5 + [25_500.0])), as_of=AS_OF)
         self.assertTrue(one_day.open)
+        # Các chuỗi giá đều phải có điểm của phiên 2026-09-15, nên chuỗi dài đi kèm chuỗi dài.
         held = money_state(
-            _market(USDVND=_series([25_000.0] * 10 + [25_750.0] * 5)), as_of="2026-09-15"
+            _market(
+                INTERBANK_ON=_series([5.0] * 15),
+                GOV10Y=_series([4.0] * 15),
+                USDVND=_series([25_000.0] * 10 + [25_750.0] * 5),
+            ),
+            as_of="2026-09-15",
         )
         self.assertFalse(held.open)
         self.assertIn("tỷ giá trên trung bình", held.reason)
@@ -81,11 +87,20 @@ class MoneyGateTest(unittest.TestCase):
         self.assertTrue(money_state(points, as_of=AS_OF).open)
         self.assertFalse(money_state(points, as_of="2026-09-07").open)
 
-    def test_a_series_older_than_the_window_of_use_counts_as_missing(self) -> None:
-        gate = money_state(_market(), as_of="2026-10-10")
-        self.assertIsNone(gate.open)
-        self.assertEqual(set(gate.missing), {"INTERBANK_ON", "GOV10Y", "USDVND"})
-        self.assertTrue(any("số đã cũ" in value for _label, value in gate.metrics))
+    def test_a_series_without_a_point_for_the_session_counts_as_missing(self) -> None:
+        """Chuỗi giá phải có điểm đúng phiên đang chấm, không mượn số của phiên trước."""
+        # Số mới nhất là 2026-09-06, nên phiên 09-08 chỉ cách hai ngày vẫn không có số của mình:
+        # nguồn chết trong phiên thì cổng đứng Chưa chấm, chứ không mở bằng số hôm qua.
+        near = money_state(_market(), as_of="2026-09-08")
+        self.assertIsNone(near.open)
+        self.assertEqual(set(near.missing), {"INTERBANK_ON", "GOV10Y", "USDVND"})
+        self.assertTrue(
+            any("chưa có số của phiên 2026-09-08" in value for _label, value in near.metrics)
+        )
+        # Và phiên cách cả tháng cũng vậy: không có chuyện số cũ dùng được trong bao nhiêu ngày.
+        far = money_state(_market(), as_of="2026-10-10")
+        self.assertIsNone(far.open)
+        self.assertEqual(set(far.missing), {"INTERBANK_ON", "GOV10Y", "USDVND"})
 
     def test_a_policy_step_inside_the_lookback_is_tight(self) -> None:
         """Mốc cũ đứng ngoài 90 ngày, mốc mới đứng trong: nâng lãi vẫn là chuyện mới."""
@@ -111,6 +126,7 @@ class MoneyGateTest(unittest.TestCase):
         written = dict(thresholds())
         self.assertIn("20 phiên", written[LABELS["INTERBANK_ON"]])
         self.assertIn("90 ngày", written[LABELS["POLICY_RATE"]])
+        self.assertIn("phiên đang chấm", written["Điểm của phiên đang chấm"])
         self.assertEqual(len(written), len(LABELS) + 2)
 
 
