@@ -3,10 +3,20 @@
 {% block body %}
   <h1>Đo sau phí</h1>
   <p class="lede">
-    Một suất vốn. Vào khi mã đạt Được vào trên dữ liệu đã biết tại ngày đó,
-    ra khi chạm đáy nền hoặc đủ 60 phiên. Cổng bài công bố chỉ áp trên danh sách phiên;
-    lần đo này dùng số quý sau 45 ngày kể từ ngày kết thúc kỳ.
+    Năm suất vốn bằng nhau, mỗi suất rủi ro 1% vốn chủ, xếp hạng theo điểm tổng hợp.
+    Vào khi mã đạt Được vào trên dữ liệu đã biết tại ngày đó, ra theo kế hoạch thoát dùng
+    chung với vị thế giấy: dừng lỗ đáy nền hoặc ATR, chốt một phần tại +1R rồi kéo dừng lỗ
+    theo MA20, tiền chết 30 phiên, trần 60 phiên. Cổng bài công bố chỉ áp trên danh sách
+    phiên; lần đo này dùng số quý sau 45 ngày kể từ ngày kết thúc kỳ, và cố ý bỏ cổng P/E
+    cùng lớp vĩ mô vì kho dữ liệu chỉ có ảnh chụp hiện tại, dùng vào đây là nhìn trước tương lai.
   </p>
+
+  {% if computed_at %}
+    <p class="hint">
+      Bảng này tính lúc {{ computed_at }}, giữ lại cho tới khi có phiên mới.
+      <a href="/backtest?fresh=1">Tính lại</a> nếu vừa chạy phiên hoặc vừa sửa danh sách.
+    </p>
+  {% endif %}
 
   {% if result.error %}
     <p class="banner bad">{{ result.error }}</p>
@@ -15,8 +25,11 @@
     <ul class="counts">
       <li>Chiến lược {{ result.strategy_return|pct }}</li>
       <li>VN-Index {{ result.index_return|pct }}</li>
-      <li>{{ result.trade_count }} lệnh</li>
+      <li>{{ result.trade_count }} lệnh trên {{ result.slots }} suất vốn</li>
       <li>{{ result.sessions }} phiên, {{ result.start }} → {{ result.end }}</li>
+      <li>Tỉ lệ thắng {{ result.win_rate|pct }}</li>
+      <li>Số phiên nắm bình quân {{ "%.0f"|format(result.average_sessions) if result.average_sessions else "—" }}</li>
+      <li>Sụt sâu nhất {{ result.max_drawdown|pct }}</li>
       <li>
         {% if result.passed %}
           <span class="pill enter">Không thua chỉ số</span>
@@ -26,6 +39,13 @@
       </li>
     </ul>
     <p class="hint">{{ result.assumptions }}</p>
+
+    {% if result.exit_counts %}
+      <h2>Lý do ra</h2>
+      <ul class="counts">
+        {% for reason, count in result.exit_counts %}<li>{{ reason }}: {{ count }}</li>{% endfor %}
+      </ul>
+    {% endif %}
 
     {% if result.trades %}
       <table>
@@ -37,6 +57,7 @@
             <th>Giá vào</th>
             <th>Giá ra</th>
             <th>Phiên nắm</th>
+            <th>Lãi</th>
             <th>Lý do ra</th>
           </tr>
         </thead>
@@ -49,6 +70,7 @@
               <td>{{ "%.2f"|format(trade.entry_price) }}</td>
               <td>{{ "%.2f"|format(trade.exit_price) }}</td>
               <td>{{ trade.sessions }}</td>
+              <td>{{ trade.return_pct|pct }}</td>
               <td>{{ trade.reason }}</td>
             </tr>
           {% endfor %}
@@ -58,4 +80,59 @@
       <p>Không có lệnh nào trong cửa sổ này.</p>
     {% endif %}
   {% endif %}
+
+  <section>
+    <h2>Vị thế giấy (đo tiến)</h2>
+    {% if paper.count %}
+      <ul class="counts">
+        <li>{{ paper.open_count }} đang mở</li>
+        <li>{{ paper.closed_count }} đã đóng</li>
+        <li>Lãi bình quân {{ paper.average_return|pct }}</li>
+        <li>VN-Index trong đúng cửa sổ {{ paper.average_index|pct }}</li>
+        <li>Tỉ lệ thắng {{ paper.win_rate|pct }}</li>
+        {% if paper.alpha is not none %}
+          <li>
+            {% if paper.alpha >= 0 %}
+              <span class="pill enter">Hơn chỉ số {{ paper.alpha|pct }}</span>
+            {% else %}
+              <span class="pill out">Kém chỉ số {{ paper.alpha|pct }}</span>
+            {% endif %}
+          </li>
+        {% endif %}
+      </ul>
+      <table>
+        <thead>
+          <tr>
+            <th>Mã</th>
+            <th>Vào</th>
+            <th>Giá vào</th>
+            <th>Điểm</th>
+            <th>Phiên</th>
+            <th>Lãi vị thế</th>
+            <th>Chỉ số cùng cửa sổ</th>
+            <th>Trạng thái</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in paper.rows %}
+            <tr>
+              <td><a href="/symbol/{{ row.symbol }}">{{ row.symbol }}</a></td>
+              <td>{{ row.entry_date }}</td>
+              <td>{{ "%.2f"|format(row.entry_price) }}</td>
+              <td>{{ row.score }}</td>
+              <td>{{ row.sessions }}</td>
+              <td>{{ row.return_pct|pct }}</td>
+              <td>{{ row.index_pct|pct }}</td>
+              <td>{{ row.exit_reason or "Đang mở" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="hint">{{ paper.assumptions }}</p>
+    {% else %}
+      <p class="hint">
+        Chưa có vị thế giấy. Xác nhận một mã Được vào ở trang mã để bắt đầu đo tiến.
+      </p>
+    {% endif %}
+  </section>
 {% endblock %}

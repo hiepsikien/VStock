@@ -13,12 +13,67 @@
     <p>{{ item.summary }}</p>
     <dl class="facts">
       <div><dt>Thị trường</dt><dd>{{ item.regime_reason }}</dd></div>
+      <div><dt>Vĩ mô</dt><dd>{{ item.macro_reason or "—" }}</dd></div>
       <div><dt>Cơ bản</dt><dd>{{ item.fa_label }}. {{ item.fa_reason }}</dd></div>
+      <div>
+        <dt>Định giá</dt>
+        <dd>{{ item.valuation_label }}. {{ item.valuation_reason }}</dd>
+      </div>
       <div><dt>Tin</dt><dd>{{ item.news_state }}. {{ item.news_reason }}</dd></div>
+      <div>
+        <dt>Dòng tiền ngoại</dt>
+        <dd>{{ item.flow_state }}. {{ item.flow_reason }}</dd>
+      </div>
       <div><dt>Nền giá</dt><dd>{{ item.pattern_reason }}</dd></div>
+      <div>
+        <dt>Mô hình nhận diện</dt>
+        <dd>{{ item.patterns|join(", ") if item.patterns else "Chưa khớp mô hình nào" }}</dd>
+      </div>
       <div><dt>Sức mạnh tương đối 60 phiên</dt><dd>{{ item.rs|pct }}</dd></div>
       <div><dt>Đáy nền</dt><dd>{{ "%.2f"|format(item.stop_price) if item.stop_price else "—" }}</dd></div>
     </dl>
+
+    <h2>Điểm tổng hợp</h2>
+    <p>
+      <span class="pill {{ 'enter' if item.score_ok else 'unstamped' }}">{{ item.score }}/100</span>
+      {% if item.f_score is not none %}F-Score {{ item.f_score }}/{{ item.f_score_max }}{% endif %}
+    </p>
+    <table>
+      <thead><tr><th>Thành phần</th><th>Điểm</th></tr></thead>
+      <tbody>
+        {% for label, value in item.score_parts %}
+          <tr><th>{{ label }}</th><td>{{ value }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if item.warnings %}
+      <h2>Cảnh báo số liệu</h2>
+      <ul class="counts">
+        {% for warning in item.warnings %}<li>{{ warning }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+
+    {% if paper %}
+      <h2>Vị thế giấy</h2>
+      <table>
+        <thead>
+          <tr><th>Vào</th><th>Giá vào</th><th>Dừng lỗ</th><th>Phiên</th><th>Trạng thái</th><th>Lãi</th></tr>
+        </thead>
+        <tbody>
+          {% for row in paper %}
+            <tr>
+              <td>{{ row.entry_date }}</td>
+              <td>{{ "%.2f"|format(row.entry_price) }}</td>
+              <td>{{ "%.2f"|format(row.stop_price) }}</td>
+              <td>{{ row.sessions }}</td>
+              <td>{{ row.exit_reason or "Đang mở" }}</td>
+              <td>{{ row.realised|pct }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
 
     {% if item.metrics %}
       <h2>Số đang dùng</h2>

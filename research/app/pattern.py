@@ -2,7 +2,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.config import MA_WINDOW, PRICE_JUMP_LIMIT_UNKNOWN, PRICE_JUMP_LIMITS
+from app.config import (
+    ATR_STOP_MULTIPLIER,
+    ATR_WINDOW,
+    DOUBLE_BOTTOM_MIN_BARS,
+    DOUBLE_BOTTOM_MIN_RISE,
+    DOUBLE_BOTTOM_TOLERANCE,
+    FIB_EXTENSION_HIGH,
+    FIB_EXTENSION_LOW,
+    FIB_RETRACE_HIGH,
+    FIB_RETRACE_LOW,
+    FLAG_MAX_CONSOLIDATION_BARS,
+    FLAG_MAX_RETRACE,
+    FLAG_POLE_ATR_MULTIPLE,
+    MA_FAST,
+    MA_WINDOW,
+    PRICE_JUMP_LIMIT_UNKNOWN,
+    PRICE_JUMP_LIMITS,
+    STRUCTURE_LOOKBACK_SESSIONS,
+    VCP_CONTRACTION_RATIO,
+)
 
 
 @dataclass(frozen=True)
@@ -14,12 +33,29 @@ class Regime:
 
 
 @dataclass(frozen=True)
+class Pivot:
+    """One confirmed swing point from the ATR ZigZag."""
+
+    kind: str  # "H" for a swing high, "L" for a swing low
+    index: int
+    price: float
+    date: str
+
+
+@dataclass(frozen=True)
 class Pattern:
     ready: bool
     reason: str
     rs: float | None = None
     stop: float | None = None
     unadjusted: bool = False
+    patterns: tuple[str, ...] = ()
+    score: int = 0
+    atr14: float | None = None
+    ma20: float | None = None
+    volume_ratio: float | None = None
+    base_depth: float | None = None
+    base_sessions: int = 0
 
 
 def market_regime(index_bars: list[dict]) -> Regime:
@@ -35,6 +71,232 @@ def market_regime(index_bars: list[dict]) -> Regime:
 
 def _mean(values: list[float]) -> float:
     return sum(values) / len(values)
+
+
+def sma(values: list[float], window: int) -> float | None:
+    if window <= 0 or len(values) < window:
+        return None
+    return sum(values[-window:]) / window
+
+
+def true_ranges(bars: list[dict]) -> list[float | None]:
+    ranges: list[float | None] = [None]
+    for previous, current in zip(bars, bars[1:]):
+        previous_close = previous["close"]
+        ranges.append(
+            max(
+                current["high"] - current["low"],
+                abs(current["high"] - previous_close),
+                abs(current["low"] - previous_close),
+            )
+        )
+    return ranges
+
+
+def rolling_atr(bars: list[dict], window: int = ATR_WINDOW) -> list[float | None]:
+    ranges = true_ranges(bars)
+    values: list[float | None] = []
+    for index in range(len(bars)):
+        if index < window:
+            values.append(None)
+            continue
+        chunk = [item for item in ranges[index - window + 1 : index + 1] if item is not None]
+        values.append(sum(chunk) / len(chunk) if chunk else None)
+    return values
+
+
+def atr(bars: list[dict], window: int = ATR_WINDOW) -> float | None:
+    values = rolling_atr(bars, window)
+    return values[-1] if values else None
+
+
+def ma_now(bars: list[dict], window: int = MA_FAST) -> float | None:
+    return sma([bar["close"] for bar in bars], window)
+
+
+def average_volume(bars: list[dict]) -> float:
+    if not bars:
+        return 0.0
+    return sum(bar["volume"] for bar in bars) / len(bars)
+
+
+def zigzag_pivots(
+    bars: list[dict],
+    window: int = ATR_WINDOW,
+    multiplier: float = ATR_STOP_MULTIPLIER,
+) -> list[Pivot]:
+    """ATR-scaled ZigZag. A swing counts only after the move reverses by one threshold."""
+    if len(bars) < window + 3:
+        return []
+    atr_values = rolling_atr(bars, window)
+    start = window
+    rising = bars[start]["close"] >= bars[0]["close"]
+    extreme_index = start
+    extreme = bars[start]["high"] if rising else bars[start]["low"]
+    pivots: list[Pivot] = []
+    for index in range(start + 1, len(bars)):
+        threshold = (atr_values[index] or 0.0) * multiplier
+        if threshold <= 0:
+            continue
+        bar = bars[index]
+        if rising:
+            if bar["high"] >= extreme:
+                extreme_index, extreme = index, bar["high"]
+            elif extreme - bar["low"] >= threshold:
+                pivots.append(
+                    Pivot("H", extreme_index, extreme, bars[extreme_index]["trade_date"])
+                )
+                rising = False
+                extreme_index, extreme = index, bar["low"]
+        else:
+            if bar["low"] <= extreme:
+                extreme_index, extreme = index, bar["low"]
+            elif bar["high"] - extreme >= threshold:
+                pivots.append(
+                    Pivot("L", extreme_index, extreme, bars[extreme_index]["trade_date"])
+                )
+                rising = True
+                extreme_index, extreme = index, bar["high"]
+    return pivots
+
+
+def _recent_pivots(pivots: list[Pivot], bars: list[dict]) -> list[Pivot]:
+    cutoff = max(0, len(bars) - STRUCTURE_LOOKBACK_SESSIONS)
+    return [pivot for pivot in pivots if pivot.index >= cutoff]
+
+
+def _pullbacks(pivots: list[Pivot]) -> list[tuple[Pivot, Pivot, float]]:
+    return [
+        (first, second, (first.price - second.price) / first.price)
+        for first, second in zip(pivots, pivots[1:])
+        if first.kind == "H" and second.kind == "L" and first.price > 0
+    ]
+
+
+def _match_double_bottom(pivots: list[Pivot], bars: list[dict]) -> str | None:
+    if len(pivots) < 3:
+        return None
+    first, middle, second = pivots[-3:]
+    if (first.kind, middle.kind, second.kind) != ("L", "H", "L"):
+        return None
+    if first.price <= 0 or second.price <= 0:
+        return None
+    if abs(second.price - first.price) / first.price > DOUBLE_BOTTOM_TOLERANCE:
+        return None
+    if second.price < first.price * (1 - DOUBLE_BOTTOM_TOLERANCE):
+        return None
+    if middle.price < first.price * (1 + DOUBLE_BOTTOM_MIN_RISE):
+        return None
+    if second.index - first.index < DOUBLE_BOTTOM_MIN_BARS:
+        return None
+    neckline = middle.price
+    state = "đã vượt" if bars[-1]["close"] > neckline else "chờ vượt"
+    return f"Đáy đôi {state} đỉnh giữa {neckline:.2f}"
+
+
+def _match_vcp(pivots: list[Pivot]) -> str | None:
+    depths = [depth for _high, _low, depth in _pullbacks(pivots)][-3:]
+    if len(depths) < 3:
+        return None
+    first, middle, last = depths
+    if not first > middle > last:
+        return None
+    if middle > first * VCP_CONTRACTION_RATIO or last > middle * VCP_CONTRACTION_RATIO:
+        return None
+    return f"VCP ba nhịp co {first:.0%} → {middle:.0%} → {last:.0%}"
+
+
+def _match_flag(bars: list[dict], pivots: list[Pivot], atr_value: float | None) -> str | None:
+    highs = [pivot for pivot in pivots if pivot.kind == "H"]
+    if not highs:
+        return None
+    top = highs[-1]
+    lows = [pivot for pivot in pivots if pivot.kind == "L" and pivot.index < top.index]
+    if not lows:
+        return None
+    base = lows[-1]
+    pole = top.price - base.price
+    if pole <= 0 or base.price <= 0:
+        return None
+    minimum = max(
+        (atr_value or 0.0) * FLAG_POLE_ATR_MULTIPLE,
+        base.price * 0.10,
+    )
+    if pole < minimum:
+        return None
+    consolidation = bars[top.index + 1 :]
+    if not 2 <= len(consolidation) <= FLAG_MAX_CONSOLIDATION_BARS:
+        return None
+    high = max(bar["high"] for bar in consolidation)
+    low = min(bar["low"] for bar in consolidation)
+    if (high - low) / pole > FLAG_MAX_RETRACE:
+        return None
+    pole_volume = average_volume(bars[base.index : top.index + 1])
+    if pole_volume <= 0 or average_volume(consolidation) >= pole_volume:
+        return None
+    return f"Cờ: cột tăng {pole / base.price:.0%} rồi nén {len(consolidation)} phiên"
+
+
+def _match_abcd(pivots: list[Pivot]) -> str | None:
+    if len(pivots) < 4:
+        return None
+    first, second, third, fourth = pivots[-4:]
+    if (first.kind, second.kind, third.kind, fourth.kind) != ("L", "H", "L", "H"):
+        return None
+    up_leg = second.price - first.price
+    first_pullback = second.price - third.price
+    second_leg = fourth.price - third.price
+    if up_leg <= 0 or first_pullback <= 0 or second_leg <= 0:
+        return None
+    retrace = first_pullback / up_leg
+    extension = second_leg / first_pullback
+    if not FIB_RETRACE_LOW <= retrace <= FIB_RETRACE_HIGH:
+        return None
+    if not FIB_EXTENSION_LOW <= extension <= FIB_EXTENSION_HIGH:
+        return None
+    return f"ABCD hồi {retrace:.0%} AB và duỗi {extension:.2f}x BC"
+
+
+def recognise_patterns(
+    bars: list[dict],
+    pivots: list[Pivot],
+    atr_value: float | None = None,
+) -> tuple[tuple[str, ...], list[str]]:
+    """Named structures inside the lookback window, most specific first."""
+    recent = _recent_pivots(pivots, bars)
+    names: list[str] = []
+    notes: list[str] = []
+    for name, note in (
+        ("Đáy đôi", _match_double_bottom(recent, bars)),
+        ("VCP", _match_vcp(recent)),
+        ("Cờ", _match_flag(bars, recent, atr_value)),
+        ("ABCD", _match_abcd(recent)),
+    ):
+        if note:
+            names.append(name)
+            notes.append(note)
+    return tuple(names), notes
+
+
+def pattern_score(
+    *,
+    contraction: bool,
+    dry: bool,
+    breakout: bool,
+    higher_low: bool,
+    names: tuple[str, ...],
+) -> int:
+    score = 0
+    if contraction:
+        score += 20
+    if dry:
+        score += 15
+    if breakout:
+        score += 30
+    if higher_low:
+        score += 5
+    score += min(30, 15 * len(names))
+    return min(100, score)
 
 
 def jump_limit(exchange: str | None) -> tuple[float, str]:
@@ -88,13 +350,32 @@ def assess_pattern(
     previous_volume = _mean([bar["volume"] for bar in previous])
     contraction = recent_range < previous_range
     dry = previous_volume > 0 and recent_volume < previous_volume
-    ceiling = max(bar["high"] for bar in base[-20:])
-    breakout = stock_bars[-1]["close"] > ceiling
-    stop = min(bar["low"] for bar in base[-20:])
+    window = base[-20:]
+    ceiling = max(bar["high"] for bar in window)
+    floor = min(bar["low"] for bar in window)
+    close = stock_bars[-1]["close"]
+    breakout = close > ceiling
+    stop = floor
 
-    stock_return = stock_bars[-1]["close"] / stock_bars[-61]["close"] - 1
+    stock_return = close / stock_bars[-61]["close"] - 1
     index_return = index_bars[-1]["close"] / index_bars[-61]["close"] - 1
     rs = stock_return - index_return
+
+    atr_value = atr(stock_bars)
+    ma20 = ma_now(stock_bars)
+    volume_ratio = recent_volume / previous_volume if previous_volume > 0 else None
+    base_depth = (ceiling - floor) / ceiling if ceiling > 0 else None
+    pivots = zigzag_pivots(stock_bars)
+    names, notes = recognise_patterns(stock_bars, pivots, atr_value)
+    recent_lows = [pivot for pivot in _recent_pivots(pivots, stock_bars) if pivot.kind == "L"]
+    higher_low = len(recent_lows) >= 2 and recent_lows[-1].price > recent_lows[-2].price
+    score = pattern_score(
+        contraction=contraction,
+        dry=dry,
+        breakout=breakout,
+        higher_low=higher_low,
+        names=names,
+    )
 
     reasons: list[str] = []
     if not contraction:
@@ -106,11 +387,22 @@ def assess_pattern(
     if rs <= 0:
         reasons.append("sức mạnh tương đối không cao hơn VN-Index")
 
+    detail = ". ".join(notes)
+    extra = {
+        "patterns": names,
+        "score": score,
+        "atr14": atr_value,
+        "ma20": ma20,
+        "volume_ratio": volume_ratio,
+        "base_depth": base_depth,
+        "base_sessions": len(window),
+    }
     if reasons:
-        return Pattern(False, "Nền giá: " + ", ".join(reasons), rs, stop)
-    return Pattern(
-        True,
-        "Nền đã siết, khối lượng cạn, và giá đóng cửa phá đỉnh 20 phiên",
-        rs,
-        stop,
-    )
+        reason = "Nền giá: " + ", ".join(reasons)
+        if detail:
+            reason = f"{reason}. {detail}"
+        return Pattern(False, reason, rs, stop, **extra)
+    reason = "Nền đã siết, khối lượng cạn, và giá đóng cửa phá đỉnh 20 phiên"
+    if detail:
+        reason = f"{reason}. {detail}"
+    return Pattern(True, reason, rs, stop, **extra)

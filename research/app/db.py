@@ -68,6 +68,9 @@ CREATE TABLE IF NOT EXISTS verdicts (
     stop_price REAL,
     summary TEXT NOT NULL DEFAULT '',
     metrics_json TEXT NOT NULL DEFAULT '[]',
+    score INTEGER NOT NULL DEFAULT 0,
+    flow_state TEXT NOT NULL DEFAULT '',
+    extra_json TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (as_of, symbol)
 );
 
@@ -88,7 +91,57 @@ CREATE TABLE IF NOT EXISTS runs (
     status TEXT NOT NULL,
     message TEXT NOT NULL DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS flow_points (
+    symbol TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    code TEXT NOT NULL,
+    value REAL NOT NULL,
+    PRIMARY KEY (symbol, trade_date, code)
+);
+
+-- Forward test. One row per confirmed signal, marked to market each session.
+CREATE TABLE IF NOT EXISTS paper_positions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    opened_at TEXT NOT NULL,
+    entry_date TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    initial_stop REAL NOT NULL,
+    stop_price REAL NOT NULL,
+    target1 REAL NOT NULL,
+    atr14 REAL,
+    sessions INTEGER NOT NULL DEFAULT 0,
+    tp1_done INTEGER NOT NULL DEFAULT 0,
+    booked_fraction REAL NOT NULL DEFAULT 0,
+    realised REAL NOT NULL DEFAULT 0,
+    last_price REAL,
+    last_date TEXT,
+    closed_at TEXT,
+    exit_date TEXT,
+    exit_price REAL,
+    exit_reason TEXT,
+    score INTEGER NOT NULL DEFAULT 0,
+    note TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_paper_symbol ON paper_positions(symbol);
+
+CREATE TABLE IF NOT EXISTS paper_marks (
+    position_id INTEGER NOT NULL,
+    mark_date TEXT NOT NULL,
+    price REAL NOT NULL,
+    return_pct REAL NOT NULL,
+    PRIMARY KEY (position_id, mark_date)
+);
 """
+
+# Columns added after the first release. Existing databases get them by ALTER TABLE.
+_VERDICT_EXTRA_COLUMNS = (
+    ("score", "INTEGER NOT NULL DEFAULT 0"),
+    ("flow_state", "TEXT NOT NULL DEFAULT ''"),
+    ("extra_json", "TEXT NOT NULL DEFAULT '{}'"),
+)
 
 
 def db_path() -> Path:
@@ -120,6 +173,7 @@ async def init_db() -> None:
     await _db.execute("PRAGMA journal_mode=WAL")
     await _db.execute("PRAGMA busy_timeout=5000")
     await _db.executescript(SCHEMA)
+    await _ensure_schema_migrations(_db)
     cursor = await _db.execute("SELECT COUNT(*) FROM universe")
     row = await cursor.fetchone()
     if row and int(row[0]) == 0:
@@ -128,6 +182,15 @@ async def init_db() -> None:
             [(symbol, _now()) for symbol in DEFAULT_UNIVERSE],
         )
     await _db.commit()
+
+
+async def _ensure_schema_migrations(db: aiosqlite.Connection) -> None:
+    cursor = await db.execute("PRAGMA table_info(verdicts)")
+    existing = {row[1] for row in await cursor.fetchall()}
+    for column, declaration in _VERDICT_EXTRA_COLUMNS:
+        if column not in existing:
+            await db.execute(f"ALTER TABLE verdicts ADD COLUMN {column} {declaration}")
+    await db.commit()
 
 
 async def get_db() -> aiosqlite.Connection:
@@ -332,8 +395,8 @@ async def save_verdicts(verdicts: list[dict]) -> None:
         INSERT INTO verdicts (
             as_of, symbol, status, regime_open, regime_reason, fa_label, fa_reason,
             news_state, news_reason, pattern_ready, pattern_reason, rs, priority,
-            stop_price, summary, metrics_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            stop_price, summary, metrics_json, score, flow_state, extra_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(as_of, symbol) DO UPDATE SET
             status = excluded.status,
             regime_open = excluded.regime_open,
@@ -348,7 +411,10 @@ async def save_verdicts(verdicts: list[dict]) -> None:
             priority = excluded.priority,
             stop_price = excluded.stop_price,
             summary = excluded.summary,
-            metrics_json = excluded.metrics_json
+            metrics_json = excluded.metrics_json,
+            score = excluded.score,
+            flow_state = excluded.flow_state,
+            extra_json = excluded.extra_json
         """,
         [
             (
@@ -368,11 +434,47 @@ async def save_verdicts(verdicts: list[dict]) -> None:
                 item["stop_price"],
                 item["summary"],
                 json.dumps(item["metrics"], ensure_ascii=False),
+                int(item.get("score") or 0),
+                item.get("flow_state") or "",
+                json.dumps(item.get("extra") or {}, ensure_ascii=False),
             )
             for item in verdicts
         ],
     )
     await db.commit()
+
+
+_VERDICT_COLUMNS = """
+    as_of, symbol, status, regime_open, regime_reason, fa_label, fa_reason,
+    news_state, news_reason, pattern_ready, pattern_reason, rs, priority,
+    stop_price, summary, metrics_json, score, flow_state, extra_json
+"""
+
+
+def _verdict_row(record) -> dict:
+    item = dict(record)
+    item["metrics"] = json.loads(item.pop("metrics_json") or "[]")
+    extra = json.loads(item.pop("extra_json") or "{}")
+    item["regime_open"] = None if item["regime_open"] is None else bool(item["regime_open"])
+    item["pattern_ready"] = bool(item["pattern_ready"])
+    item.update(
+        {
+            "score_parts": [tuple(part) for part in extra.get("score_parts", [])],
+            "score_ok": bool(extra.get("score_ok")),
+            "flow_reason": extra.get("flow_reason") or "",
+            "flow_level": extra.get("flow_level") or "missing",
+            "macro_reason": extra.get("macro_reason") or "",
+            "macro_block": bool(extra.get("macro_block")),
+            "valuation_label": extra.get("valuation_label") or "",
+            "valuation_reason": extra.get("valuation_reason") or "",
+            "patterns": tuple(extra.get("patterns") or ()),
+            "pattern_score": int(extra.get("pattern_score") or 0),
+            "f_score": extra.get("f_score"),
+            "f_score_max": int(extra.get("f_score_max") or 0),
+            "warnings": list(extra.get("warnings") or []),
+        }
+    )
+    return item
 
 
 async def latest_verdicts() -> list[dict]:
@@ -383,23 +485,32 @@ async def latest_verdicts() -> list[dict]:
     if not as_of:
         return []
     cursor = await db.execute(
-        """
-        SELECT as_of, symbol, status, regime_open, regime_reason, fa_label, fa_reason,
-               news_state, news_reason, pattern_ready, pattern_reason, rs, priority,
-               stop_price, summary, metrics_json
+        f"""
+        SELECT {_VERDICT_COLUMNS}
         FROM verdicts
         WHERE as_of = ?
         """,
         (as_of,),
     )
-    items = []
-    for record in await cursor.fetchall():
-        item = dict(record)
-        item["metrics"] = json.loads(item.pop("metrics_json") or "[]")
-        item["regime_open"] = None if item["regime_open"] is None else bool(item["regime_open"])
-        item["pattern_ready"] = bool(item["pattern_ready"])
-        items.append(item)
-    return items
+    return [_verdict_row(record) for record in await cursor.fetchall()]
+
+
+async def previous_verdicts() -> list[dict]:
+    """Verdicts of the session before the latest one, used to spot status changes."""
+    db = await get_db()
+    cursor = await db.execute("SELECT DISTINCT as_of FROM verdicts ORDER BY as_of DESC LIMIT 2")
+    days = [row["as_of"] for row in await cursor.fetchall()]
+    if len(days) < 2:
+        return []
+    cursor = await db.execute(
+        f"""
+        SELECT {_VERDICT_COLUMNS}
+        FROM verdicts
+        WHERE as_of = ?
+        """,
+        (days[1],),
+    )
+    return [_verdict_row(record) for record in await cursor.fetchall()]
 
 
 async def verdict(symbol: str) -> dict | None:
@@ -482,3 +593,165 @@ async def latest_run() -> dict | None:
     )
     row = await cursor.fetchone()
     return dict(row) if row else None
+
+
+async def replace_flow(symbol: str, points: dict[str, list[tuple[str, float]]]) -> None:
+    db = await get_db()
+    await db.execute("DELETE FROM flow_points WHERE symbol = ?", (symbol,))
+    rows = [
+        (symbol, day, code, value)
+        for code, series in points.items()
+        for day, value in series
+    ]
+    if rows:
+        await db.executemany(
+            """
+            INSERT INTO flow_points (symbol, trade_date, code, value)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(symbol, trade_date, code) DO UPDATE SET value = excluded.value
+            """,
+            rows,
+        )
+    await db.commit()
+
+
+async def flow(symbol: str) -> dict[str, list[tuple[str, float]]]:
+    db = await get_db()
+    cursor = await db.execute(
+        """
+        SELECT trade_date, code, value
+        FROM flow_points
+        WHERE symbol = ?
+        ORDER BY trade_date
+        """,
+        (symbol,),
+    )
+    points: dict[str, list[tuple[str, float]]] = {}
+    for row in await cursor.fetchall():
+        points.setdefault(row["code"], []).append((row["trade_date"], row["value"]))
+    return points
+
+
+async def open_paper_position(position: dict) -> int:
+    db = await get_db()
+    cursor = await db.execute(
+        """
+        INSERT INTO paper_positions (
+            symbol, opened_at, entry_date, entry_price, initial_stop, stop_price,
+            target1, atr14, sessions, score, note
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            position["symbol"],
+            _now(),
+            position["entry_date"],
+            position["entry_price"],
+            position["initial_stop"],
+            position["stop_price"],
+            position["target1"],
+            position.get("atr14"),
+            0,
+            int(position.get("score") or 0),
+            position.get("note") or "",
+        ),
+    )
+    await db.commit()
+    return int(cursor.lastrowid)
+
+
+async def save_paper_position(position: dict) -> None:
+    db = await get_db()
+    await db.execute(
+        """
+        UPDATE paper_positions SET
+            stop_price = ?, sessions = ?, tp1_done = ?, booked_fraction = ?, realised = ?,
+            last_price = ?, last_date = ?, closed_at = ?, exit_date = ?, exit_price = ?,
+            exit_reason = ?
+        WHERE id = ?
+        """,
+        (
+            position["stop_price"],
+            int(position["sessions"]),
+            int(bool(position["tp1_done"])),
+            position["booked_fraction"],
+            position["realised"],
+            position["last_price"],
+            position["last_date"],
+            position["closed_at"],
+            position["exit_date"],
+            position["exit_price"],
+            position["exit_reason"],
+            position["id"],
+        ),
+    )
+    await db.commit()
+
+
+_PAPER_COLUMNS = """
+    id, symbol, opened_at, entry_date, entry_price, initial_stop, stop_price,
+    target1, atr14, sessions, tp1_done, booked_fraction, realised, last_price,
+    last_date, closed_at, exit_date, exit_price, exit_reason, score, note
+"""
+
+
+def _paper_row(record) -> dict:
+    item = dict(record)
+    item["tp1_done"] = bool(item["tp1_done"])
+    return item
+
+
+async def open_paper_positions() -> list[dict]:
+    db = await get_db()
+    cursor = await db.execute(
+        f"""
+        SELECT {_PAPER_COLUMNS}
+        FROM paper_positions
+        WHERE closed_at IS NULL
+        ORDER BY id
+        """
+    )
+    return [_paper_row(record) for record in await cursor.fetchall()]
+
+
+async def paper_for(symbol: str) -> list[dict]:
+    db = await get_db()
+    cursor = await db.execute(
+        f"""
+        SELECT {_PAPER_COLUMNS}
+        FROM paper_positions
+        WHERE symbol = ?
+        ORDER BY (closed_at IS NOT NULL), id DESC
+        LIMIT 20
+        """,
+        (symbol,),
+    )
+    return [_paper_row(record) for record in await cursor.fetchall()]
+
+
+async def recent_paper_positions(limit: int = 50) -> list[dict]:
+    db = await get_db()
+    cursor = await db.execute(
+        f"""
+        SELECT {_PAPER_COLUMNS}
+        FROM paper_positions
+        ORDER BY (closed_at IS NOT NULL), id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    return [_paper_row(record) for record in await cursor.fetchall()]
+
+
+async def mark_paper(position_id: int, mark_date: str, price: float, return_pct: float) -> None:
+    db = await get_db()
+    await db.execute(
+        """
+        INSERT INTO paper_marks (position_id, mark_date, price, return_pct)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(position_id, mark_date) DO UPDATE SET
+            price = excluded.price,
+            return_pct = excluded.return_pct
+        """,
+        (position_id, mark_date, price, return_pct),
+    )
+    await db.commit()

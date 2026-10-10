@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import os
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
@@ -9,10 +9,11 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app import db
+from app import db, paper
 from app.backtest import run_backtest
 from app.config import STATUS_RANK
 from app.ingest import load_exchanges
+from app.pattern import assess_pattern
 from app.pipeline import busy, run_session
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -82,10 +83,12 @@ async def dashboard(request: Request, notice: str = "", error: str = ""):
             "universe": await db.universe(),
             "run": await db.latest_run(),
             "decisions": await db.recent_decisions(),
+            "paper": await paper.report(),
             "notice": notice,
             "error": error,
             "busy": busy(),
             "regime": verdicts[0]["regime_reason"] if verdicts else "",
+            "macro": verdicts[0]["macro_reason"] if verdicts else "",
         },
     )
 
@@ -124,6 +127,7 @@ async def symbol_page(request: Request, symbol: str, error: str = "", notice: st
             "item": item,
             "articles": await db.articles_for(sym),
             "decisions": await db.decisions_for(sym),
+            "paper": await db.paper_for(sym),
             "error": error,
             "notice": notice,
         },
@@ -156,21 +160,73 @@ async def decide(
         )
     await db.add_decision(as_of, sym, signal_status, action, note)
     label = "Đã ghi xác nhận" if action == "confirm" else "Đã ghi bỏ qua"
+    if action == "confirm" and signal_status == "Được vào":
+        bars = await db.bars(sym)
+        index_bars = await db.bars("VNINDEX")
+        pattern = (
+            assess_pattern(bars, index_bars, load_exchanges().get(sym))
+            if bars and index_bars
+            else None
+        )
+        item = await db.verdict(sym)
+        label += ". " + await paper.open_position(
+            sym, bars, pattern, (item or {}).get("score") or 0, note
+        )
     return RedirectResponse(f"{target}?notice={_query(label)}", status_code=303)
 
 
-@app.get("/backtest")
-async def backtest_page(request: Request):
+# The portfolio walk is ~10s on a 30-symbol book, and the page reloads for every
+# glance, so the last walk is kept until a session changes what is stored.
+_backtest_cache: dict[str, object] = {"key": None, "result": None, "at": ""}
+
+
+async def _backtest_key() -> tuple:
+    run = await db.latest_run() or {}
+    return (
+        run.get("id"),
+        run.get("status"),
+        run.get("finished_at"),
+        tuple(await db.universe()),
+    )
+
+
+def backtest_computed_at() -> str:
+    return str(_backtest_cache["at"] or "")
+
+
+async def backtest_result(fresh: bool = False) -> dict:
+    """Reuse the last walk until data, universe or run state moves."""
+    key = await _backtest_key()
+    cached = _backtest_cache["result"]
+    if not fresh and cached is not None and _backtest_cache["key"] == key:
+        return cached
     symbols = await db.universe()
-    index_bars = await db.bars("VNINDEX")
     result = run_backtest(
-        index_bars,
+        await db.bars("VNINDEX"),
         {symbol: await db.bars(symbol) for symbol in symbols},
         {symbol: await db.ratios(symbol) for symbol in symbols},
         {symbol: await db.articles_for(symbol) for symbol in symbols},
         load_exchanges(),
+        {symbol: await db.flow(symbol) for symbol in symbols},
     )
-    return templates.TemplateResponse(request, "backtest.html", {"result": result})
+    _backtest_cache.update(
+        {"key": key, "result": result, "at": datetime.now().strftime("%H:%M:%S %d/%m")}
+    )
+    return result
+
+
+@app.get("/backtest")
+async def backtest_page(request: Request, fresh: int = 0):
+    result = await backtest_result(fresh=bool(fresh))
+    return templates.TemplateResponse(
+        request,
+        "backtest.html",
+        {
+            "result": result,
+            "paper": await paper.report(),
+            "computed_at": backtest_computed_at(),
+        },
+    )
 
 
 def _query(value: str) -> str:

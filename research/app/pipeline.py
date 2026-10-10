@@ -6,9 +6,20 @@ from datetime import date
 
 import httpx
 
-from app import db
+from app import db, notify, paper
 from app.evaluate import compose
-from app.ingest import fetch_bars, fetch_ratios, fetch_symbol_news, load_exchanges, load_market_articles
+from app.flow import flow_gate
+from app.ingest import (
+    fetch_bars,
+    fetch_foreign_flow,
+    fetch_macro,
+    fetch_ratios,
+    fetch_symbol_news,
+    load_exchanges,
+    load_market_articles,
+    load_valuation,
+)
+from app.macro import macro_state
 from app.pattern import assess_pattern, market_regime
 
 logger = logging.getLogger(__name__)
@@ -40,6 +51,11 @@ async def _run() -> str:
     async with httpx.AsyncClient(timeout=timeout) as client:
         index_bars = await fetch_bars(client, "VNINDEX", index=True)
         await db.replace_bars("VNINDEX", index_bars)
+        try:
+            macro_series = await fetch_macro(client)
+        except Exception as exc:
+            logger.warning("Macro fetch failed: %s", exc)
+            macro_series = {}
         semaphore = asyncio.Semaphore(4)
 
         async def _one(symbol: str) -> str | None:
@@ -51,9 +67,18 @@ async def _run() -> str:
                 except Exception as exc:
                     logger.warning("Ingest failed for %s: %s", symbol, exc)
                     return symbol
+                # The foreign tape is a separate resource, so a failure there must not
+                # cost the symbol its bars, ratios and filings.
+                try:
+                    flow = await fetch_foreign_flow(client, symbol)
+                except Exception as exc:
+                    logger.warning("Foreign flow failed for %s: %s", symbol, exc)
+                    flow = {}
             await db.replace_bars(symbol, bars)
             await db.replace_ratios(symbol, ratios)
             await db.upsert_articles(articles)
+            if flow:
+                await db.replace_flow(symbol, flow)
             return None
 
         failed = [symbol for symbol in await asyncio.gather(*[_one(symbol) for symbol in symbols]) if symbol]
@@ -70,7 +95,9 @@ async def _run() -> str:
         raise RuntimeError("Không tải được nến VN-Index")
     as_of = date.fromisoformat(index_bars[-1]["trade_date"])
     regime = market_regime(index_bars)
-    verdicts = []
+    macro = macro_state(macro_series)
+    valuation_by_symbol = load_valuation()
+    verdicts: list[dict] = []
     for symbol in symbols:
         stock_bars = await db.bars(symbol)
         points = await db.ratios(symbol)
@@ -83,34 +110,33 @@ async def _run() -> str:
             regime,
             assess_pattern(stock_bars, index_bars, exchanges.get(symbol)),
             require_clock=True,
+            valuation=valuation_by_symbol.get(symbol),
+            flow=flow_gate(await db.flow(symbol), stock_bars),
+            macro=macro,
         )
-        verdicts.append(
-            {
-                "as_of": verdict.as_of,
-                "symbol": verdict.symbol,
-                "status": verdict.status,
-                "regime_open": verdict.regime_open,
-                "regime_reason": verdict.regime_reason,
-                "fa_label": verdict.fa_label,
-                "fa_reason": verdict.fa_reason,
-                "news_state": verdict.news_state,
-                "news_reason": verdict.news_reason,
-                "pattern_ready": verdict.pattern_ready,
-                "pattern_reason": verdict.pattern_reason,
-                "rs": verdict.rs,
-                "priority": verdict.priority,
-                "stop_price": verdict.stop_price,
-                "summary": verdict.summary,
-                "metrics": verdict.metrics,
-            }
-        )
+        verdicts.append(verdict.row())
+
+    # Read the previous session before this one overwrites the latest as_of.
+    previous = await db.previous_verdicts()
     await db.save_verdicts(verdicts)
+    paper_messages = await paper.mark_positions(as_of.isoformat())
+
     counts: dict[str, int] = {}
     for item in verdicts:
         counts[item["status"]] = counts.get(item["status"], 0) + 1
     summary = ", ".join(f"{status} {count}" for status, count in counts.items())
     if failed:
         summary += ". Không tải được: " + ", ".join(failed)
+    if paper_messages:
+        summary += f". Vị thế giấy: {len(paper_messages)} lệnh đóng"
+
+    body = notify.session_message(verdicts, previous, as_of.isoformat())
+    if paper_messages:
+        body = (body + "\n" if body else f"VStock research {as_of.isoformat()}\n") + "\n".join(
+            paper_messages
+        )
+    if body:
+        await notify.send(body)
     return f"Phiên {as_of.isoformat()}: {summary}"
 
 

@@ -7,17 +7,26 @@ from app.classify import NewsLabel
 from app.config import (
     BANKS,
     BLOCK_LOOKBACK_DAYS,
+    DEBT_TO_EQUITY_INSURER_MAX,
     DEBT_TO_EQUITY_MAX,
     DILUTION_SHARE_GROWTH,
     EQUITY_MATCH_BONUS,
     EQUITY_MATCH_CASH,
+    F_SCORE_MIN_ITEMS,
+    F_SCORE_MIN_PASS,
     INSIDER_BUY_DAYS,
     INSIDER_SELL_DAYS,
+    INSURERS,
     NPL_MAX,
-    OTHER_FINANCIALS,
+    PE_CEILING,
     PROVISION_COVERAGE_MIN,
     QUARTER_DUE_DAYS,
+    SCORE_ENTRY_MIN,
+    SCORE_WEIGHTS,
+    SECURITIES,
 )
+from app.flow import FlowState, flow_score, missing_flow
+from app.macro import Macro
 from app.pattern import Pattern, Regime
 
 RatioMap = dict[str, list[tuple[str, float]]]
@@ -28,6 +37,19 @@ class Fundamentals:
     label: str
     reason: str
     template: str
+    metrics: list[tuple[str, str]] = field(default_factory=list)
+    # Piotroski-style checklist count. None means too few items were computable.
+    f_score: int | None = None
+    f_score_max: int = 0
+    f_score_notes: list[str] = field(default_factory=list)
+    # Forensic flags. They never fail a name on their own, they are shown instead.
+    warnings: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Valuation:
+    label: str
+    reason: str
     metrics: list[tuple[str, str]] = field(default_factory=list)
 
 
@@ -49,6 +71,60 @@ class Verdict:
     stop_price: float | None
     summary: str
     metrics: list[tuple[str, str]]
+    # Composite score. It ranks candidates; the hard gates above still decide the status.
+    score: int = 0
+    score_parts: list[tuple[str, int]] = field(default_factory=list)
+    score_ok: bool = False
+    flow_state: str = ""
+    flow_reason: str = ""
+    flow_level: str = "missing"
+    macro_reason: str = ""
+    macro_block: bool = False
+    valuation_label: str = ""
+    valuation_reason: str = ""
+    patterns: tuple[str, ...] = ()
+    pattern_score: int = 0
+    f_score: int | None = None
+    f_score_max: int = 0
+    warnings: list[str] = field(default_factory=list)
+
+    def row(self) -> dict:
+        """Shape used by store.save_verdicts, so the mapping lives in one place."""
+        return {
+            "as_of": self.as_of,
+            "symbol": self.symbol,
+            "status": self.status,
+            "regime_open": self.regime_open,
+            "regime_reason": self.regime_reason,
+            "fa_label": self.fa_label,
+            "fa_reason": self.fa_reason,
+            "news_state": self.news_state,
+            "news_reason": self.news_reason,
+            "pattern_ready": self.pattern_ready,
+            "pattern_reason": self.pattern_reason,
+            "rs": self.rs,
+            "priority": self.priority,
+            "stop_price": self.stop_price,
+            "summary": self.summary,
+            "metrics": [list(item) for item in self.metrics],
+            "score": self.score,
+            "flow_state": self.flow_state,
+            "extra": {
+                "score_parts": [list(item) for item in self.score_parts],
+                "score_ok": self.score_ok,
+                "flow_reason": self.flow_reason,
+                "flow_level": self.flow_level,
+                "macro_reason": self.macro_reason,
+                "macro_block": self.macro_block,
+                "valuation_label": self.valuation_label,
+                "valuation_reason": self.valuation_reason,
+                "patterns": list(self.patterns),
+                "pattern_score": self.pattern_score,
+                "f_score": self.f_score,
+                "f_score_max": self.f_score_max,
+                "warnings": list(self.warnings),
+            },
+        }
 
 
 def parse_day(value: str | None) -> date | None:
@@ -168,22 +244,124 @@ def _economic_share_growth(
     return None, "số cổ phiếu tăng, chưa rõ chia tách hay phát hành thêm", None, raw
 
 
+def _quarter_days(points: RatioMap, code: str) -> list[str]:
+    return sorted({day for day, value in points.get(code, []) if value is not None})
+
+
+def _lagged_value(points: RatioMap, code: str, report: str, steps: int = 4) -> float | None:
+    """Value the same number of quarters back so a YoY field lines up with it."""
+    days = _quarter_days(points, code)
+    if report not in days:
+        return None
+    index = days.index(report)
+    if index < steps:
+        return None
+    return _at(points, code, days[index - steps])
+
+
+def score_checklist(
+    points: RatioMap,
+    report: str,
+    *,
+    profit: float,
+    profit_yoy: float,
+    sales: float,
+    sales_yoy: float,
+    cfo_margin: float,
+    debt_ratio: float,
+    share_growth: float,
+) -> tuple[int | None, int, list[str], list[str]]:
+    """Ratio-derived Piotroski checklist.
+
+    Returns score, number of computable items, the items that failed, and forensic
+    warnings. The score is None when fewer than F_SCORE_MIN_ITEMS items could be
+    computed, because a partial count would overstate the name.
+
+    Limitation: VNDirect Finfo exposes no gross-margin and no receivables code, so
+    the gross-margin item is missing and the accrual check uses inventory plus the
+    cash-margin trend instead of trade receivables.
+    """
+    assets_now = _at(points, "TOTAL_ASSETS_AQ", report)
+    assets_then = _lagged_value(points, "TOTAL_ASSETS_AQ", report)
+    assets_growth = None
+    if assets_now is not None and assets_then and assets_then > 0:
+        assets_growth = assets_now / assets_then - 1
+
+    current_now = _at(points, "CURRENT_RATIO_AQ", report)
+    current_then = _lagged_value(points, "CURRENT_RATIO_AQ", report)
+    debt_then = _lagged_value(points, "DEBT_TO_EQUITY_AQ", report)
+
+    checks: list[tuple[str, bool | None]] = [
+        ("LNST dương", profit > 0),
+        ("Dòng tiền kinh doanh dương", cfo_margin > 0),
+        ("Tiền thu về lớn hơn LNST", cfo_margin * sales > profit),
+        ("ROA tăng", None if assets_growth is None else profit_yoy > assets_growth),
+        (
+            "Vòng quay tài sản không giảm",
+            None if assets_growth is None else sales_yoy >= assets_growth,
+        ),
+        (
+            "Thanh khoản ngắn hạn tăng",
+            None if current_now is None or current_then is None else current_now > current_then,
+        ),
+        ("Đòn bẩy giảm", None if debt_then is None else debt_ratio < debt_then),
+        ("Không phát hành thêm cổ phiếu", share_growth <= DILUTION_SHARE_GROWTH),
+    ]
+
+    available = [value for _name, value in checks if value is not None]
+    failures = [name for name, value in checks if value is False]
+    score = len(available) - len(failures)
+
+    warnings: list[str] = []
+    cfo_then = _lagged_value(points, "CFO_TO_SALES_QR", report)
+    if profit_yoy > 0 and cfo_then is not None and cfo_margin < cfo_then:
+        warnings.append("Lợi nhuận tăng nhưng biên dòng tiền thu hẹp")
+    inventory_now = _at(points, "INVENTORY_AQ", report)
+    inventory_then = _lagged_value(points, "INVENTORY_AQ", report)
+    if inventory_now and inventory_then and inventory_then > 0:
+        inventory_growth = inventory_now / inventory_then - 1
+        if inventory_growth > sales_yoy + 0.10:
+            warnings.append("Tồn kho phình nhanh hơn doanh thu")
+
+    if len(available) < F_SCORE_MIN_ITEMS:
+        return None, len(available), failures, warnings
+    return score, len(available), failures, warnings
+
+
+def score_valuation(valuation: dict | None) -> Valuation:
+    """P/E ceiling from the market database. It is a snapshot, so the backtest skips it."""
+    if not valuation:
+        return Valuation("Chưa có số", "Chưa đọc được định giá từ kho thị trường")
+    pe = valuation.get("pe")
+    pb = valuation.get("pb")
+    roe = valuation.get("roe")
+    updated = str(valuation.get("updated_at") or "")[:10]
+    metrics = [
+        ("P/E", "—" if pe is None else f"{pe:.1f}"),
+        ("P/B", "—" if pb is None else f"{pb:.2f}"),
+        ("ROE", _pct(roe)),
+    ]
+    if updated:
+        metrics.append(("Cập nhật định giá", updated))
+    if pe is None or pe <= 0:
+        return Valuation("Chưa có số", "Chưa có P/E dương trong kho thị trường", metrics)
+    if pe > PE_CEILING:
+        return Valuation("Không đạt", f"P/E {pe:.1f} vượt trần {PE_CEILING:.0f}", metrics)
+    return Valuation("Đạt", f"P/E {pe:.1f} trong trần {PE_CEILING:.0f}", metrics)
+
+
 def score_fundamentals(
     symbol: str,
     points: RatioMap,
     articles: list[dict] | None = None,
 ) -> Fundamentals:
-    if symbol in OTHER_FINANCIALS:
-        return Fundamentals(
-            "Chưa đủ số",
-            "Chưa có bộ chỉ tiêu cho chứng khoán hoặc bảo hiểm",
-            "unsupported",
-        )
-
     bank = symbol in BANKS or bool(points.get("BAD_LOANS_RATIO_AQ"))
-
     if bank:
         return _score_bank(points)
+    if symbol in SECURITIES:
+        return _score_services(points, articles or [], "securities")
+    if symbol in INSURERS:
+        return _score_services(points, articles or [], "insurer")
     if not points.get("NET_SALES_QR") and not points.get("NET_PROFIT_QR"):
         return Fundamentals("Chưa đủ số", "Chưa tải được kết quả kinh doanh", "missing")
     return _score_corporate(points, articles or [])
@@ -247,7 +425,28 @@ def _score_corporate(points: RatioMap, articles: list[dict]) -> Fundamentals:
 
     assert profit is not None and sales_yoy is not None and profit_yoy is not None
     assert operating_yoy is not None and cfo is not None and debt_ratio is not None
-    assert share_growth is not None
+    assert sales is not None and cfo_margin is not None and share_growth is not None
+
+    f_score, f_max, f_failed, warnings = score_checklist(
+        points,
+        report,
+        profit=profit,
+        profit_yoy=profit_yoy,
+        sales=sales,
+        sales_yoy=sales_yoy,
+        cfo_margin=cfo_margin,
+        debt_ratio=debt_ratio,
+        share_growth=share_growth,
+    )
+    if f_score is None:
+        metrics.append(("Điểm cơ bản (F-Score)", f"chưa đủ số ({f_max} tiêu chí)"))
+    else:
+        metrics.append(("Điểm cơ bản (F-Score)", f"{f_score}/{f_max}"))
+        if f_failed:
+            metrics.append(("Tiêu chí chưa đạt", ", ".join(f_failed)))
+    for warning in warnings:
+        metrics.append(("Cảnh báo số liệu", warning))
+
     failures: list[str] = []
     if profit <= 0:
         failures.append("LNST không dương")
@@ -266,10 +465,30 @@ def _score_corporate(points: RatioMap, articles: list[dict]) -> Fundamentals:
         metrics.append(("Tăng LNST trên mỗi cổ phiếu", _pct(per_share)))
         if per_share < 0:
             failures.append("pha loãng làm LNST trên mỗi cổ phiếu giảm")
+    if f_score is not None and f_score < F_SCORE_MIN_PASS:
+        failures.append(f"điểm cơ bản yếu {f_score}/{f_max}")
 
     if failures:
-        return Fundamentals("Không đạt", ". ".join(failures), "corporate", metrics)
-    return Fundamentals("Đạt", f"Đạt cổng cơ bản trên kỳ {report}", "corporate", metrics)
+        return Fundamentals(
+            "Không đạt",
+            ". ".join(failures),
+            "corporate",
+            metrics,
+            f_score,
+            f_max,
+            f_failed,
+            warnings,
+        )
+    return Fundamentals(
+        "Đạt",
+        f"Đạt cổng cơ bản trên kỳ {report}",
+        "corporate",
+        metrics,
+        f_score,
+        f_max,
+        f_failed,
+        warnings,
+    )
 
 
 def _score_bank(points: RatioMap) -> Fundamentals:
@@ -323,6 +542,79 @@ def _score_bank(points: RatioMap) -> Fundamentals:
     if failures:
         return Fundamentals("Không đạt", ". ".join(failures), "bank", metrics)
     return Fundamentals("Đạt", f"Đạt cổng ngân hàng trên kỳ {report}", "bank", metrics)
+
+
+def _score_services(points: RatioMap, articles: list[dict], template: str) -> Fundamentals:
+    """Brokers and insurers: profit, revenue and equity matter, the corporate debt gate does not."""
+    report = _latest_report(points, "NET_PROFIT_QR")
+    if report is None:
+        return Fundamentals("Chưa đủ số", "Chưa có lợi nhuận quý", template)
+
+    profit = _at(points, "NET_PROFIT_QR", report)
+    profit_yoy = _at(points, "NET_PROFIT_QR_GRYOY", report)
+    sales = _at(points, "NET_SALES_QR", report)
+    sales_yoy = _at(points, "NET_SALES_QR_GRYOY", report)
+    equity = _at(points, "OWNERS_EQUITY_AQ", report)
+    debt_ratio = _at(points, "DEBT_TO_EQUITY_AQ", report)
+    share_growth, share_gap, share_note, raw_share_growth = _economic_share_growth(
+        points, report, articles
+    )
+
+    missing: list[str] = []
+    if profit is None:
+        missing.append("LNST")
+    if profit_yoy is None:
+        missing.append("tăng trưởng LNST")
+    if sales_yoy is None:
+        missing.append("tăng trưởng doanh thu")
+    if equity is None:
+        missing.append("vốn chủ sở hữu")
+    if share_growth is None:
+        missing.append(share_gap or "số cổ phiếu")
+
+    debt_ceiling = DEBT_TO_EQUITY_INSURER_MAX if template == "insurer" else None
+    metrics = [
+        ("Kỳ số liệu", report),
+        ("Doanh thu quý", _ty(sales)),
+        ("Tăng trưởng doanh thu", _pct(sales_yoy)),
+        ("LNST quý", _ty(profit)),
+        ("Tăng trưởng LNST", _pct(profit_yoy)),
+        ("Vốn chủ sở hữu", _ty(equity)),
+        ("Nợ vay / vốn chủ", "—" if debt_ratio is None else f"{debt_ratio:.2f}"),
+        ("Tăng cổ phiếu sau 4 quý", _pct(raw_share_growth)),
+    ]
+    if debt_ceiling is not None:
+        metrics.append(("Trần nợ vay / vốn chủ", f"{debt_ceiling:.1f}"))
+    else:
+        metrics.append(("Ghi chú", "Đòn bẩy margin không chịu trần như doanh nghiệp"))
+    if share_note:
+        metrics.append(("Cách tính số cổ phiếu", share_note))
+    if missing:
+        return Fundamentals("Chưa đủ số", "Thiếu " + ", ".join(missing), template, metrics)
+
+    assert profit is not None and profit_yoy is not None and equity is not None
+    assert sales_yoy is not None and share_growth is not None
+    failures: list[str] = []
+    if profit <= 0:
+        failures.append("LNST không dương")
+    if profit_yoy < 0:
+        failures.append("LNST giảm so với cùng kỳ")
+    if sales_yoy < 0:
+        failures.append("doanh thu giảm so với cùng kỳ")
+    if equity <= 0:
+        failures.append("vốn chủ không dương")
+    if debt_ceiling is not None and debt_ratio is not None and debt_ratio > debt_ceiling:
+        failures.append(f"nợ vay/vốn chủ {debt_ratio:.2f} vượt {debt_ceiling:.1f}")
+    if share_growth > DILUTION_SHARE_GROWTH:
+        per_share = (1 + profit_yoy) / (1 + share_growth) - 1
+        metrics.append(("Tăng LNST trên mỗi cổ phiếu", _pct(per_share)))
+        if per_share < 0:
+            failures.append("pha loãng làm LNST trên mỗi cổ phiếu giảm")
+
+    label = "chứng khoán" if template == "securities" else "bảo hiểm"
+    if failures:
+        return Fundamentals("Không đạt", ". ".join(failures), template, metrics)
+    return Fundamentals("Đạt", f"Đạt cổng {label} trên kỳ {report}", template, metrics)
 
 
 def _articles_for_symbol(symbol: str, articles: list[dict], as_of: date) -> list[dict]:
@@ -392,6 +684,33 @@ def news_gate(
     return "Mở", f"Không có công bố chặn trong cửa sổ đang xét.{buy_note}", priority
 
 
+def _rs_points(rs: float | None) -> int:
+    """Relative strength pays in full once a name beats the index by ten points."""
+    if rs is None or rs <= 0:
+        return 0
+    weight = SCORE_WEIGHTS["rs"]
+    # round, not int: 8/10 of the weight must not collapse to seven on a float artifact.
+    return int(round(weight * min(1.0, rs / 0.10)))
+
+
+def compose_score(
+    fundamentals: Fundamentals,
+    flow: FlowState,
+    pattern: Pattern,
+    rs: float | None,
+    priority: int,
+) -> tuple[int, list[tuple[str, int]]]:
+    """Composite 0-100. It ranks candidates, the gates still decide the status."""
+    parts = [
+        ("Cơ bản", SCORE_WEIGHTS["fa"] if fundamentals.label == "Đạt" else 0),
+        ("Dòng tiền", flow_score(flow.level)),
+        ("Nền giá", int(SCORE_WEIGHTS["pattern"] * pattern.score / 100)),
+        ("Sức mạnh", _rs_points(rs)),
+        ("Tin", SCORE_WEIGHTS["news"] if priority else SCORE_WEIGHTS["news"] // 2),
+    ]
+    return sum(value for _label, value in parts), parts
+
+
 def compose(
     symbol: str,
     as_of: date,
@@ -401,8 +720,13 @@ def compose(
     pattern: Pattern,
     *,
     require_clock: bool,
+    valuation: dict | None = None,
+    flow: FlowState | None = None,
+    macro: Macro | None = None,
 ) -> Verdict:
     fundamentals = score_fundamentals(symbol, points, _articles_for_symbol(symbol, articles, as_of))
+    valuation_state = score_valuation(valuation)
+    flow_state = flow or missing_flow()
     news_state, news_reason, priority = news_gate(
         symbol, articles, as_of, require_clock=require_clock
     )
@@ -416,9 +740,18 @@ def compose(
     elif regime.open is False:
         status = "Khóa"
         summary = regime.reason
-    elif news_state == "Loại" or fundamentals.label == "Không đạt":
+    elif (
+        news_state == "Loại"
+        or fundamentals.label == "Không đạt"
+        or valuation_state.label == "Không đạt"
+    ):
         status = "Loại"
-        summary = news_reason if news_state == "Loại" else fundamentals.reason
+        if news_state == "Loại":
+            summary = news_reason
+        elif fundamentals.label == "Không đạt":
+            summary = fundamentals.reason
+        else:
+            summary = f"Định giá: {valuation_state.reason}"
     elif fundamentals.label == "Chưa đủ số" or news_state == "Chưa chấm":
         status = "Chưa chấm"
         summary = news_reason if news_state == "Chưa chấm" else fundamentals.reason
@@ -432,8 +765,23 @@ def compose(
         status = "Theo dõi"
         summary = pattern.reason
 
+    # Flow và vĩ mô chỉ hạ cấp một lệnh sắp vào, không đổi các trạng thái khác.
+    if status == "Được vào" and flow_state.state == "Chờ":
+        status = "Chờ"
+        summary = flow_state.reason
+    if status == "Được vào" and macro is not None and macro.block:
+        status = "Theo dõi"
+        summary = f"Vĩ mô chặn vào: {macro.reason}"
+
     if status == "Được vào" and priority:
         summary = "Ưu tiên vì có đăng ký mua. " + summary
+
+    score, score_parts = compose_score(fundamentals, flow_state, pattern, pattern.rs, priority)
+    effective_priority = max(priority, flow_state.priority) if status == "Được vào" else 0
+
+    metrics = [*fundamentals.metrics, *valuation_state.metrics, *flow_state.metrics]
+    if macro is not None and macro.metrics:
+        metrics.extend(macro.metrics)
 
     return Verdict(
         symbol=symbol,
@@ -448,8 +796,23 @@ def compose(
         pattern_ready=pattern.ready,
         pattern_reason=pattern.reason,
         rs=pattern.rs,
-        priority=priority if status == "Được vào" else 0,
+        priority=effective_priority,
         stop_price=pattern.stop,
         summary=summary,
-        metrics=fundamentals.metrics,
+        metrics=metrics,
+        score=score,
+        score_parts=score_parts,
+        score_ok=score >= SCORE_ENTRY_MIN,
+        flow_state=flow_state.state,
+        flow_reason=flow_state.reason,
+        flow_level=flow_state.level,
+        macro_reason=macro.reason if macro else "",
+        macro_block=bool(macro and macro.block),
+        valuation_label=valuation_state.label,
+        valuation_reason=valuation_state.reason,
+        patterns=pattern.patterns,
+        pattern_score=pattern.score,
+        f_score=fundamentals.f_score,
+        f_score_max=fundamentals.f_score_max,
+        warnings=fundamentals.warnings,
     )
