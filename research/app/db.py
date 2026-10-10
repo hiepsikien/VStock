@@ -115,6 +115,8 @@ async def init_db() -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     _db = await aiosqlite.connect(path)
     _db.row_factory = aiosqlite.Row
+    await _db.execute("PRAGMA journal_mode=WAL")
+    await _db.execute("PRAGMA busy_timeout=5000")
     await _db.executescript(SCHEMA)
     cursor = await _db.execute("SELECT COUNT(*) FROM universe")
     row = await cursor.fetchone()

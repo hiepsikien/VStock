@@ -15,8 +15,10 @@ DEBT_TO_EQUITY_MAX = 2.0
 NPL_MAX = 0.03
 PROVISION_COVERAGE_MIN = 0.80
 DILUTION_SHARE_GROWTH = 0.05
-# A close-to-close move past this is outside the HOSE band, so the series is not split-adjusted.
-PRICE_JUMP_LIMIT = 0.09
+# A close-to-close move past the board band means the series is not split-adjusted.
+# Limits sit above HOSE ±7%, HNX ±10%, and UPCOM ±15%. An unknown board uses the widest.
+PRICE_JUMP_LIMITS = {"HOSE": 0.09, "HNX": 0.12, "UPCOM": 0.17}
+PRICE_JUMP_LIMIT_UNKNOWN = 0.17
 # Equity growth / share growth. Below the low mark the jump is a bonus or split.
 # Above the high mark new equity arrived with the shares.
 EQUITY_MATCH_BONUS = 0.35
@@ -37,7 +39,7 @@ DEFAULT_UNIVERSE = (
     "MBB",
     "ACB",
     "VPB",
-    "SSI",
+    "SSI",  # securities firm: stays "Chưa đủ số" until that template exists
     "VIC",
 )
 

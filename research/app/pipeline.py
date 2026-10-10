@@ -8,7 +8,7 @@ import httpx
 
 from app import db
 from app.evaluate import compose
-from app.ingest import fetch_bars, fetch_ratios, fetch_symbol_news, load_market_articles
+from app.ingest import fetch_bars, fetch_ratios, fetch_symbol_news, load_exchanges, load_market_articles
 from app.pattern import assess_pattern, market_regime
 
 logger = logging.getLogger(__name__)
@@ -60,6 +60,7 @@ async def _run() -> str:
 
     market_articles = load_market_articles()
     await db.upsert_articles(market_articles)
+    exchanges = load_exchanges()
 
     index_bars = await db.bars("VNINDEX")
     if not index_bars:
@@ -77,7 +78,7 @@ async def _run() -> str:
             points,
             articles,
             regime,
-            assess_pattern(stock_bars, index_bars),
+            assess_pattern(stock_bars, index_bars, exchanges.get(symbol)),
             require_clock=True,
         )
         verdicts.append(

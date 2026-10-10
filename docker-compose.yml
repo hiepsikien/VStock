@@ -37,7 +37,7 @@ services:
     build:
       context: ./research
     ports:
-      - "${RESEARCH_PORT:-8010}:8010"
+      - "127.0.0.1:${RESEARCH_PORT:-8010}:8010"
     environment:
       PORT: "8010"
       RESEARCH_DB_PATH: /data/research.db

@@ -36,6 +36,7 @@ def run_backtest(
     bars_by_symbol: dict[str, list[dict]],
     ratios_by_symbol: dict[str, dict[str, list[tuple[str, float]]]],
     articles_by_symbol: dict[str, list[dict]],
+    exchanges: dict[str, str] | None = None,
 ) -> dict:
     """One slot of capital. Statements are used 45 days after period end. News clock is live-only."""
     if len(index_bars) < MA_WINDOW + 5:
@@ -108,7 +109,7 @@ def run_backtest(
                     _lag_ratios(ratios_by_symbol.get(symbol, {}), as_of, STATEMENT_LAG_DAYS),
                     articles_by_symbol.get(symbol, []),
                     regime,
-                    assess_pattern(stock_slice, index_slice),
+                    assess_pattern(stock_slice, index_slice, (exchanges or {}).get(symbol)),
                     require_clock=False,
                 )
                 if verdict.status == "Được vào" and verdict.stop_price and verdict.stop_price < stock_slice[-1]["close"]:

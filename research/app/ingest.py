@@ -284,12 +284,42 @@ async def fetch_symbol_news(client: httpx.AsyncClient, symbol: str) -> list[dict
     return articles
 
 
-def load_market_articles() -> list[dict]:
+def _open_market_db() -> sqlite3.Connection | None:
     path = market_db_path()
     if path is None:
-        return []
-    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        return None
+    try:
+        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error as exc:
+        logger.warning("Market database unreadable at %s: %s", path, exc)
+        return None
     connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA busy_timeout=5000")
+    return connection
+
+
+def load_exchanges() -> dict[str, str]:
+    connection = _open_market_db()
+    if connection is None:
+        return {}
+    try:
+        rows = connection.execute("SELECT symbol, exchange FROM symbols")
+        return {
+            str(row["symbol"]).upper(): str(row["exchange"]).upper()
+            for row in rows
+            if row["symbol"] and row["exchange"]
+        }
+    except sqlite3.Error as exc:
+        logger.warning("Market exchange list unreadable: %s", exc)
+        return {}
+    finally:
+        connection.close()
+
+
+def load_market_articles() -> list[dict]:
+    connection = _open_market_db()
+    if connection is None:
+        return []
     try:
         cursor = connection.execute(
             """
@@ -319,7 +349,8 @@ def load_market_articles() -> list[dict]:
                 }
             )
         return articles
-    except sqlite3.Error:
+    except sqlite3.Error as exc:
+        logger.warning("Market filings unreadable: %s", exc)
         return []
     finally:
         connection.close()

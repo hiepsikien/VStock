@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.config import MA_WINDOW, PRICE_JUMP_LIMIT
+from app.config import MA_WINDOW, PRICE_JUMP_LIMIT_UNKNOWN, PRICE_JUMP_LIMITS
 
 
 @dataclass(frozen=True)
@@ -37,23 +37,35 @@ def _mean(values: list[float]) -> float:
     return sum(values) / len(values)
 
 
-def unadjusted_split_gap(bars: list[dict]) -> str | None:
+def jump_limit(exchange: str | None) -> tuple[float, str]:
+    board = (exchange or "").strip().upper()
+    if board in PRICE_JUMP_LIMITS:
+        return PRICE_JUMP_LIMITS[board], board
+    return PRICE_JUMP_LIMIT_UNKNOWN, "HOSE, HNX hoặc UPCOM"
+
+
+def unadjusted_split_gap(bars: list[dict], exchange: str | None = None) -> str | None:
     """A gap past the daily band means the series still contains a raw split."""
+    limit, board = jump_limit(exchange)
     for previous, current in zip(bars, bars[1:]):
         if previous["close"] <= 0:
             continue
         change = current["close"] / previous["close"] - 1
-        if abs(change) > PRICE_JUMP_LIMIT:
+        if abs(change) > limit:
             return (
                 f"Giá chưa chỉnh chia tách: phiên {current['trade_date']} lệch "
-                f"{change * 100:.0f}% so với phiên trước, quá biên độ sàn"
+                f"{change * 100:.0f}% so với phiên trước, quá biên độ {board}"
             )
     return None
 
 
-def assess_pattern(stock_bars: list[dict], index_bars: list[dict]) -> Pattern:
+def assess_pattern(
+    stock_bars: list[dict],
+    index_bars: list[dict],
+    exchange: str | None = None,
+) -> Pattern:
     """Daily base: tighter range, drier volume, then a close through the base high, with RS > 0."""
-    gap = unadjusted_split_gap(stock_bars)
+    gap = unadjusted_split_gap(stock_bars, exchange)
     if gap:
         return Pattern(False, gap, unadjusted=True)
     if len(stock_bars) < 61 or len(index_bars) < 61:

@@ -217,8 +217,6 @@ class RulesTest(unittest.TestCase):
             {"trade_date": "2026-01-01", "close": 100.0},
             {"trade_date": "2026-01-02", "close": 50.0},
         ]
-        from app.pattern import assess_pattern
-
         pattern = assess_pattern(bars, bars)
         self.assertTrue(pattern.unadjusted)
         verdict = compose(
@@ -232,6 +230,16 @@ class RulesTest(unittest.TestCase):
         )
         self.assertEqual(verdict.status, "Chưa chấm")
         self.assertIn("chia tách", verdict.summary)
+
+    def test_hnx_limit_move_is_not_a_split(self) -> None:
+        bars = [
+            {"trade_date": "2026-01-01", "close": 100.0},
+            {"trade_date": "2026-01-02", "close": 110.0},
+        ]
+        hose = assess_pattern(bars, bars, "HOSE")
+        hnx = assess_pattern(bars, bars, "HNX")
+        self.assertTrue(hose.unadjusted)
+        self.assertFalse(hnx.unadjusted)
 
     def test_bank_npl_fails(self) -> None:
         report = "2026-06-30"

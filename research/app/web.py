@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 from app import db
 from app.backtest import run_backtest
 from app.config import STATUS_RANK
+from app.ingest import load_exchanges
 from app.pipeline import busy, run_session
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -167,6 +168,7 @@ async def backtest_page(request: Request):
         {symbol: await db.bars(symbol) for symbol in symbols},
         {symbol: await db.ratios(symbol) for symbol in symbols},
         {symbol: await db.articles_for(symbol) for symbol in symbols},
+        load_exchanges(),
     )
     return templates.TemplateResponse(request, "backtest.html", {"result": result})
 

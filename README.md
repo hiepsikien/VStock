@@ -37,6 +37,20 @@ npm start
 
 Nguồn: SSI/VNDirect (danh sách mã), VPS (quotes), Entrade (history), VNDirect/SSI (+ KBS khi có) cho tên / vốn hóa / P/E.
 
+## Research
+
+Bộ lọc cổ phiếu chạy thành một process riêng. Nó đọc nến, chỉ tiêu và công bố, ghi kết quả vào database của nó, và không đặt lệnh.
+
+```bash
+cd research
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.web:app --host 127.0.0.1 --port 8010
+```
+
+Mở http://127.0.0.1:8010. Trong Docker Compose, cổng host là `RESEARCH_PORT` (mặc định 8010) và chỉ gắn vào localhost.
+
 ## Làm mới dữ liệu
 
 | Thành phần | Chiến lược |

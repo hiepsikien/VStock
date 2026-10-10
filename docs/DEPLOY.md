@@ -11,7 +11,8 @@ Backend FastAPI + APScheduler + SQLite. Cần **volume persistent** cho `vstock.
 | Biến | Mặc định | Mô tả |
 |------|----------|--------|
 | `VSTOCK_DB_PATH` | `backend/data/vstock.db` (local) / `/data/vstock.db` (Docker) | Đường dẫn SQLite |
-| `PORT` | `8000` | Cổng HTTP |
+| `PORT` | `8000` | Cổng HTTP của API |
+| `RESEARCH_PORT` | `8010` | Cổng web research trên localhost |
 | `SENTRY_DSN` | (trống = tắt) | DSN project Python trên Sentry |
 | `SENTRY_ENVIRONMENT` | `production` | Tag môi trường trên Sentry |
 | `SENTRY_TRACES_SAMPLE_RATE` | `0.1` | Tỷ lệ sample performance |
@@ -35,7 +36,10 @@ docker compose logs -f api
 # Kiểm tra
 curl http://localhost:8000/health
 curl http://localhost:8000/v1/health/sources
+curl http://127.0.0.1:8010/health
 ```
+
+Web research nằm trong cùng Compose và chỉ publish trên `127.0.0.1`.
 
 Dữ liệu SQLite nằm trong volume Docker `vstock-data`. Backup:
 
