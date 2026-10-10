@@ -17,6 +17,9 @@ services:
       SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
       SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
+      # Shared filing window. Without this the API falls back to news_filing_days
+      # in providers.yaml while research reads the variable below.
+      NEWS_FILING_DAYS: ${NEWS_FILING_DAYS:-1460}
     volumes:
       - vstock-data:/data
     restart: unless-stopped
@@ -43,6 +46,9 @@ services:
       RESEARCH_DB_PATH: /data/research.db
       VSTOCK_MARKET_DB: /market/vstock.db
       ARTICLE_RETENTION_DAYS: ${NEWS_FILING_DAYS:-1460}
+      # Optional session alerts. Leave both unset to keep the operator page silent.
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
     volumes:
       - research-data:/data
       - vstock-data:/market:ro

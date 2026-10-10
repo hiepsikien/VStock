@@ -7,9 +7,20 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
+from urllib.parse import quote
+
 from app.classify import classify_article
-from app.config import BAR_LOOKBACK_DAYS, RATIO_CODES
+from app.config import (
+    BAR_LOOKBACK_DAYS,
+    FLOW_LOOKBACK_SESSIONS,
+    MACRO_RANGE,
+    MACRO_SYMBOLS,
+    MARKET_SERIES,
+    RATIO_CODES,
+    TRADINGVIEW_SCANNER,
+)
 from app.db import market_db_path
+from app.money import policy_points
 
 logger = logging.getLogger(__name__)
 _exchange_cache: tuple[str, dict[str, str]] | None = None
@@ -26,6 +37,10 @@ ENTRADE_STOCK = "https://services.entrade.com.vn/chart-api/v2/ohlcs/stock"
 ENTRADE_INDEX = "https://services.entrade.com.vn/chart-api/v2/ohlcs/index"
 VNDIRECT_RATIOS = "https://api-finfo.vndirect.com.vn/v4/ratios"
 VNDIRECT_NEWS = "https://api-finfo.vndirect.com.vn/v4/news"
+VNDIRECT_FOREIGN = "https://api-finfo.vndirect.com.vn/v4/foreigns"
+YAHOO_CHART = "https://query2.finance.yahoo.com/v8/finance/chart/{symbol}"
+# The ratios endpoint pages per symbol, so one call can carry every ratioCode.
+RATIOS_PAGE_SIZE = 900
 VIETSTOCK_NEWS = "https://finance.vietstock.vn/{symbol}/tin-tuc-su-kien.htm"
 VIETSTOCK_ARTICLE = "https://vietstock.vn{path}"
 _FILING_KINDS = frozenset(
@@ -91,7 +106,49 @@ async def fetch_bars(client: httpx.AsyncClient, symbol: str, *, index: bool = Fa
     return _bars_from_payload(response.json() or {})
 
 
+def _series_from_rows(rows: list[dict]) -> dict[str, list[tuple[str, float]]]:
+    """Group ratio rows by code, keeping the first row per report date."""
+    points: dict[str, list[tuple[str, float]]] = {}
+    for row in rows:
+        code = str(row.get("ratioCode") or "")
+        report = str(row.get("reportDate") or "")[:10]
+        raw = row.get("value")
+        if not code or not report or raw is None:
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        series = points.setdefault(code, [])
+        if any(day == report for day, _value in series):
+            continue
+        series.append((report, value))
+    for series in points.values():
+        series.sort()
+    return points
+
+
 async def fetch_ratios(client: httpx.AsyncClient, symbol: str) -> dict[str, list[tuple[str, float]]]:
+    """One request per symbol: the API pages per symbol, so every ratioCode fits in one call."""
+    query = f"code:{symbol}~ratioCode:in({','.join(RATIO_CODES)})"
+    response = await client.get(
+        VNDIRECT_RATIOS,
+        params={"q": query, "size": RATIOS_PAGE_SIZE, "sort": "reportDate:desc"},
+        headers=BROWSER_HEADERS,
+    )
+    if response.status_code == 200:
+        points = _series_from_rows((response.json() or {}).get("data") or [])
+        if points:
+            return points
+    logger.warning("Batched ratio fetch failed for %s, falling back to per code calls", symbol)
+    return await fetch_ratios_per_code(client, symbol)
+
+
+async def fetch_ratios_per_code(
+    client: httpx.AsyncClient,
+    symbol: str,
+) -> dict[str, list[tuple[str, float]]]:
+    """Fallback path: one request per ratioCode, the shape this module used before."""
     points: dict[str, list[tuple[str, float]]] = {}
     for code in RATIO_CODES:
         response = await client.get(
@@ -283,6 +340,175 @@ async def fetch_symbol_news(client: httpx.AsyncClient, symbol: str) -> list[dict
     except httpx.HTTPError as exc:
         logger.warning("Vietstock filings failed for %s: %s", symbol, exc)
     return articles
+
+
+async def fetch_foreign_flow(
+    client: httpx.AsyncClient,
+    symbol: str,
+) -> dict[str, list[tuple[str, float]]]:
+    """Daily foreign trading from VNDirect Finfo: net volume, net value and room left."""
+    response = await client.get(
+        VNDIRECT_FOREIGN,
+        params={
+            "q": f"code:{symbol}",
+            "size": FLOW_LOOKBACK_SESSIONS,
+            "sort": "tradingDate:desc",
+        },
+        headers=BROWSER_HEADERS,
+    )
+    response.raise_for_status()
+    points: dict[str, list[tuple[str, float]]] = {}
+
+    def _add(code: str, day: str, value: object) -> None:
+        if value is None:
+            return
+        try:
+            points.setdefault(code, []).append((day, float(value)))
+        except (TypeError, ValueError):
+            return
+
+    for row in (response.json() or {}).get("data") or []:
+        day = str(row.get("tradingDate") or "")[:10]
+        if not day:
+            continue
+        _add("FOREIGN_NET_VOL", day, row.get("netVol"))
+        _add("FOREIGN_NET_VAL", day, row.get("netVal"))
+        total = row.get("totalRoom")
+        current = row.get("currentRoom")
+        if total and current is not None:
+            try:
+                room = float(current) / float(total)
+            except (TypeError, ValueError, ZeroDivisionError):
+                room = None
+            if room is not None:
+                _add("FOREIGN_ROOM_RATIO", day, room)
+    for series in points.values():
+        series.sort()
+    return points
+
+
+async def fetch_macro(client: httpx.AsyncClient) -> dict[str, list[dict]]:
+    """Cross-market closes for the macro layer. Yahoo serves all four symbols."""
+    series: dict[str, list[dict]] = {}
+    for code, symbol, _label in MACRO_SYMBOLS:
+        response = await client.get(
+            YAHOO_CHART.format(symbol=quote(symbol, safe="")),
+            params={"range": MACRO_RANGE, "interval": "1d"},
+            headers=BROWSER_HEADERS,
+        )
+        if response.status_code != 200:
+            logger.warning("Macro fetch failed for %s: HTTP %s", code, response.status_code)
+            continue
+        results = ((response.json() or {}).get("chart") or {}).get("result") or []
+        if not results:
+            continue
+        payload = results[0]
+        stamps = payload.get("timestamp") or []
+        quotes = ((payload.get("indicators") or {}).get("quote") or [{}])[0]
+        closes = quotes.get("close") or []
+        bars: list[dict] = []
+        for stamp, close in zip(stamps, closes):
+            if close is None:
+                continue
+            day = datetime.fromtimestamp(int(stamp), timezone.utc).date().isoformat()
+            bars.append({"trade_date": day, "close": float(close)})
+        bars.sort(key=lambda bar: bar["trade_date"])
+        if bars:
+            series[code] = bars
+    return series
+
+
+async def _scanner_close(client: httpx.AsyncClient, symbol: str) -> float | None:
+    """Last value of one public quote. TradingView serves rates and yields without a key."""
+    response = await client.get(
+        TRADINGVIEW_SCANNER,
+        params={"symbol": symbol, "fields": "close"},
+        headers=BROWSER_HEADERS,
+    )
+    if response.status_code != 200:
+        logger.warning("Market fetch failed for %s: HTTP %s", symbol, response.status_code)
+        return None
+    payload = response.json() or {}
+    close = payload.get("close")
+    if close is None:
+        logger.warning("Market fetch failed for %s: %s", symbol, payload.get("code") or "no close")
+        return None
+    try:
+        return float(close)
+    except (TypeError, ValueError):
+        return None
+
+
+async def _yahoo_close(client: httpx.AsyncClient, symbol: str) -> float | None:
+    """A second quote for one series, used when the first one is unavailable."""
+    response = await client.get(
+        YAHOO_CHART.format(symbol=quote(symbol, safe="")),
+        params={"range": "5d", "interval": "1d"},
+        headers=BROWSER_HEADERS,
+    )
+    if response.status_code != 200:
+        return None
+    results = ((response.json() or {}).get("chart") or {}).get("result") or []
+    if not results:
+        return None
+    closes = ((results[0].get("indicators") or {}).get("quote") or [{}])[0].get("close") or []
+    for close in reversed(closes):
+        if close is None:
+            continue
+        try:
+            return float(close)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+async def fetch_market(
+    client: httpx.AsyncClient, day: str | None = None
+) -> dict[str, list[tuple[str, float]]]:
+    """One point per series for the session being scored.
+
+    A series that fails is left out instead of reusing an older number, so a broken feed shows
+    up as "Chưa chấm" rather than as a stale reading. The policy rate is a record of decisions,
+    so it arrives as its own step series.
+    """
+    stamp = day or datetime.now(VN_TZ).date().isoformat()
+    points: dict[str, list[tuple[str, float]]] = {"POLICY_RATE": policy_points()}
+    for code, _label, _unit, symbol in MARKET_SERIES:
+        if not symbol:
+            continue
+        value = await _scanner_close(client, symbol)
+        if value is None and code == "USDVND":
+            value = await _yahoo_close(client, "USDVND=X")
+        if value is not None:
+            points[code] = [(stamp, value)]
+    return points
+
+
+def load_valuation() -> dict[str, dict]:
+    """P/E, P/B and ROE per symbol from the market database. A snapshot, not a history."""
+    connection = _open_market_db()
+    if connection is None:
+        return {}
+    try:
+        cursor = connection.execute(
+            "SELECT symbol, pe, pb, roe, roa, updated_at FROM fundamentals"
+        )
+        return {
+            str(row["symbol"]).upper(): {
+                "pe": row["pe"],
+                "pb": row["pb"],
+                "roe": row["roe"],
+                "roa": row["roa"],
+                "updated_at": row["updated_at"],
+            }
+            for row in cursor
+            if row["symbol"]
+        }
+    except sqlite3.Error as exc:
+        logger.warning("Market fundamentals unreadable: %s", exc)
+        return {}
+    finally:
+        connection.close()
 
 
 def _open_market_db() -> sqlite3.Connection | None:

@@ -12,9 +12,19 @@ INSIDER_SELL_DAYS = 30
 INSIDER_BUY_DAYS = 60
 BLOCK_LOOKBACK_DAYS = 200
 DEBT_TO_EQUITY_MAX = 2.0
+# Brokers fund margin lending with debt, so the corporate debt gate cannot apply.
+# Insurers carry float, which gets a wider ceiling than a plain corporate.
+DEBT_TO_EQUITY_INSURER_MAX = 3.0
 NPL_MAX = 0.03
 PROVISION_COVERAGE_MIN = 0.80
 DILUTION_SHARE_GROWTH = 0.05
+# Valuation anchor. The live session reads P/E from the market database; the backtest
+# never does, because that column is a snapshot and would look into the future.
+PE_CEILING = 30.0
+# Piotroski-style checklist. Fewer than this many computable items means no F-Score.
+F_SCORE_MIN_ITEMS = 6
+# An F-Score below this mark is weak enough to reject a corporate.
+F_SCORE_MIN_PASS = 4
 # A close-to-close move past the board band means the series is not split-adjusted.
 # Limits sit above HOSE ±7%, HNX ±10%, and UPCOM ±15%. An unknown board uses the widest.
 PRICE_JUMP_LIMITS = {"HOSE": 0.09, "HNX": 0.12, "UPCOM": 0.17}
@@ -37,13 +47,53 @@ DEFAULT_UNIVERSE = (
     "MSN",
     "PLX",
     "SAB",
+    "PNJ",
+    "REE",
+    "DGC",
+    "GMD",
+    "VJC",
+    "PVS",
     "VCB",
     "TCB",
     "MBB",
     "ACB",
     "VPB",
-    "SSI",  # securities firm: stays "Chưa đủ số" until that template exists
+    "BID",
+    "CTG",
+    "HDB",
+    "STB",
+    "SSI",  # securities firm: scored with the securities template
+    "VND",
+    "BVH",  # insurer: scored with the insurer template
     "VIC",
+    "VHM",
+    "VRE",
+    "SBT",
+    # Added with the basket in 2026-10: financial codes the three template sets below already
+    # scored but the basket never watched — banks, securities firms and insurers. Every one of them
+    # lands in an existing gate set, so no threshold is invented here: banks on bad loans and
+    # coverage, brokers without the corporate debt gate, insurers with the wider debt ceiling.
+    "TPB",
+    "MSB",
+    "LPB",
+    "SHB",
+    "EIB",
+    "OCB",
+    "NAB",
+    "VIB",
+    "SSB",  # banks
+    "HCM",
+    "VCI",
+    "MBS",
+    "SHS",
+    "BSI",
+    "AGR",
+    "FTS",
+    "VDS",  # securities firms
+    "BMI",
+    "BIC",
+    "MIG",
+    "PVI",  # insurers
 )
 
 # Scored with the bank template. Missing bank fields stay "Chưa chấm".
@@ -70,8 +120,9 @@ BANKS = frozenset(
     }
 )
 
-# No template yet. They must not fall through to the corporate debt gate.
-OTHER_FINANCIALS = frozenset(
+# Brokerages carry margin-lending debt and insurers carry float. Neither fits the
+# corporate debt gate, so each gets its own template instead of falling through.
+SECURITIES = frozenset(
     {
         "SSI",
         "VND",
@@ -83,6 +134,11 @@ OTHER_FINANCIALS = frozenset(
         "AGR",
         "FTS",
         "VDS",
+    }
+)
+
+INSURERS = frozenset(
+    {
         "BVH",
         "BMI",
         "BIC",
@@ -100,6 +156,10 @@ CORPORATE_CODES = (
     "CFO_TO_SALES_QR",
     "DEBT_TO_EQUITY_AQ",
     "OUTSTANDING_SHARES",
+    # Added for the balance-sheet checklist items.
+    "TOTAL_ASSETS_AQ",
+    "CURRENT_RATIO_AQ",
+    "INVENTORY_AQ",
 )
 
 BANK_CODES = (
@@ -111,7 +171,18 @@ BANK_CODES = (
     "CUSTOMER_LOANS_AQ_GRYOY",
 )
 
-RATIO_CODES = tuple(dict.fromkeys([*CORPORATE_CODES, *BANK_CODES]))
+# Brokers and insurers report like corporates: sales, profit, equity.
+SERVICES_CODES = (
+    "NET_SALES_QR",
+    "NET_SALES_QR_GRYOY",
+    "NET_PROFIT_QR",
+    "NET_PROFIT_QR_GRYOY",
+    "OWNERS_EQUITY_AQ",
+    "DEBT_TO_EQUITY_AQ",
+    "OUTSTANDING_SHARES",
+)
+
+RATIO_CODES = tuple(dict.fromkeys([*CORPORATE_CODES, *BANK_CODES, *SERVICES_CODES]))
 
 STATUS_RANK = {
     "Được vào": 0,
@@ -120,4 +191,134 @@ STATUS_RANK = {
     "Chưa chấm": 3,
     "Loại": 4,
     "Khóa": 5,
+}
+
+# --- Lớp 3: dòng tiền khối ngoại -------------------------------------------------
+# VNDirect Finfo keeps a daily foreign-trading history per symbol, so the flow layer
+# reads the same host as the ratios and the news feed.
+FLOW_LOOKBACK_SESSIONS = 60
+FLOW_WINDOW = 10
+# Bỏ qua cửa sổ khi thiếu hơn mức này số phiên có dữ liệu khối ngoại.
+FLOW_MIN_SESSIONS = 5
+# Room ngoại còn dưới mức này là gần cạn, chỉ ghi chú chứ không chặn.
+FLOW_ROOM_LOW = 0.05
+# Net foreign volume over the window, divided by matched volume, is "strong" past this.
+FLOW_STRONG_RATIO = 0.10
+# Price direction is flat inside this band when the flow gate compares price to flow.
+FLOW_FLAT_BAND = 0.01
+
+# --- Nhận diện mô hình (Lớp 4) ---------------------------------------------------
+# ZigZag uses an ATR-scaled swing so the pivots adapt to each symbol's volatility.
+STRUCTURE_LOOKBACK_SESSIONS = 120
+DOUBLE_BOTTOM_TOLERANCE = 0.05
+DOUBLE_BOTTOM_MIN_RISE = 0.05
+DOUBLE_BOTTOM_MIN_BARS = 8
+VCP_CONTRACTION_RATIO = 0.8
+FLAG_POLE_ATR_MULTIPLE = 3.0
+FLAG_MAX_CONSOLIDATION_BARS = 25
+FLAG_MAX_RETRACE = 0.35
+FIB_RETRACE_LOW = 0.382
+FIB_RETRACE_HIGH = 0.886
+FIB_EXTENSION_LOW = 0.618
+FIB_EXTENSION_HIGH = 1.618
+
+# Cửa sổ nền vẫn là 20 phiên cuối của chuỗi nền, nên đỉnh dùng để xét phá và đáy dùng để
+# dừng lỗ không đổi. Hai điều kiện dưới đây chỉ siết thêm cổng vào: nền không sâu quá, và
+# phải có nhịp tăng trước nền — điều kiện thứ hai chặn đoạn đi ngang trong xu hướng giảm.
+FLAT_BASE_MAX_DEPTH = 0.15
+FLAT_BASE_MIN_ADVANCE = 0.15
+# Nhịp tăng đo từ đáy thấp nhất của bao nhiêu phiên ngay trước cửa sổ nền lên đỉnh nền.
+FLAT_BASE_ADVANCE_LOOKBACK = 40
+# Khối lượng nến phá so với trung bình khối lượng của 20 phiên nền (không gồm nến phá).
+BREAKOUT_VOLUME_RATIO = 1.5
+# Một lần đóng cửa trở lại dưới mốc đã phá trong bao nhiêu phiên thì coi là phá hỏng.
+FAILED_BREAKOUT_SESSIONS = 3
+
+# --- Lớp 1: vĩ mô liên thị trường ------------------------------------------------
+# Yahoo chart API. Research reads it directly, the same way it reads Entrade.
+YAHOO_CHART = "https://query2.finance.yahoo.com/v8/finance/chart/{symbol}"
+MACRO_SYMBOLS = (
+    ("DXY", "DX-Y.NYB", "Chỉ số đô la"),
+    ("USDVND", "USDVND=X", "Tỷ giá USD/VND"),
+    ("SP500", "^GSPC", "S&P 500"),
+    ("OIL", "CL=F", "Dầu WTI"),
+)
+MACRO_RANGE = "6mo"
+MACRO_MA_WINDOW = 20
+# A close inside this band of the average counts as neither above nor below.
+MACRO_NEUTRAL_BAND = 0.005
+
+# --- Cổng tiền tệ: tiền đang thừa hay thiếu, và giá của đồng tiền ------------------
+# Cổng này đứng cạnh cổng VN-Index trên MA200 và là cổng AND: cả hai cùng mở thì danh
+# sách mới được xét tiếp. Chuỗi bắt buộc còn thiếu thì trạng thái là "Chưa chấm", cùng
+# kiểu với một mã thiếu báo cáo. Ngưỡng viết thành số ở đây, trước khi chạy phiên.
+TRADINGVIEW_SCANNER = "https://scanner.tradingview.com/symbol"
+# Mã nguồn công khai, đọc được không cần đăng nhập. Giá trị lấy tại thời điểm chạy phiên
+# rồi lưu theo ngày, nên các phiên cũ không bao giờ nhìn thấy số của hôm nay.
+MARKET_SERIES = (
+    ("INTERBANK_ON", "Lãi suất liên ngân hàng qua đêm", "%/năm", "ECONOMICS:VNINBR"),
+    ("GOV10Y", "Lợi suất trái phiếu chính phủ 10 năm", "%/năm", "TVC:VN10Y"),
+    ("USDVND", "Tỷ giá USD/VND liên ngân hàng", "VND", "FX_IDC:USDVND"),
+    # Tín phiếu và thị trường mở chưa có nguồn công khai: chuỗi đứng trống và không nằm
+    # trong danh sách bắt buộc, nên nó không thể khóa danh sách.
+    ("NHNN_NET", "NHNN hút/bơm ròng qua tín phiếu và thị trường mở", "tỷ đồng", ""),
+    ("POLICY_RATE", "Lãi suất tái cấp vốn", "%/năm", ""),
+)
+# Chỉ những chuỗi ở đây mới làm cổng đứng ở "Chưa chấm" khi thiếu số.
+MARKET_GATE_REQUIRED = ("INTERBANK_ON", "GOV10Y", "USDVND", "POLICY_RATE")
+# Lãi suất điều hành không có nguồn tự động. Mỗi quyết định của NHNN là một dòng, ghi
+# ngày có hiệu lực; bài báo chỉ để biết ngày đó, không dùng để chấm điểm.
+POLICY_RATE_HISTORY = (
+    ("2022-10-25", 6.0),
+    ("2023-04-03", 5.5),
+    ("2023-05-25", 5.0),
+    ("2023-06-19", 4.5),
+)
+# So với trung bình bao nhiêu phiên đã lưu, và cần tối thiểu bao nhiêu số mới chấm.
+MARKET_MA_WINDOW = 20
+MARKET_MIN_SESSIONS = 5
+# Một ngưỡng đặt None nghĩa là chưa khai báo, và chuỗi đó không thể khóa danh sách.
+MARKET_RATE_RISE_MAX = 1.0  # lãi qua đêm vượt trung bình quá 1 điểm % là thắt
+MARKET_YIELD_RISE_MAX = 0.5  # lợi suất 10 năm vượt trung bình quá 0,5 điểm % là thắt
+MARKET_FX_ABOVE_MA_MAX = 0.01  # tỷ giá vượt trung bình quá 1% là áp lực ngoại tệ
+MARKET_FX_ABOVE_DAYS = 5  # ...và giữ đủ bao nhiêu phiên thì mới thành cờ
+MARKET_POLICY_LOOKBACK_DAYS = 90  # lãi điều hành tăng trong bao nhiêu ngày gần đây
+MARKET_DRAIN_DAYS = 5  # hút ròng liên tiếp bao nhiêu phiên
+MARKET_DRAIN_MIN = 5000  # ...và tổng hút ròng từ mức này (tỷ đồng)
+
+# --- Tầng trading: ATR, thoát lệnh, cỡ vị thế -----------------------------------
+ATR_WINDOW = 14
+ATR_STOP_MULTIPLIER = 2.0
+MA_FAST = 20
+TRAIL_ATR_MULTIPLIER = 0.5
+# Chốt một phần tại vùng +1R rồi kéo dừng lỗ về hòa vốn.
+TP1_R_MULTIPLE = 1.0
+TP1_FRACTION = 1 / 3
+# Không đi tới +1R trong bao nhiêu phiên thì đóng vì tiền chết.
+TIME_STOP_SESSIONS = 30
+# Trần an toàn cho một vị thế.
+MAX_HOLD_SESSIONS = 60
+MAX_SLOTS = 5
+RISK_PER_TRADE = 0.01
+MAX_POSITION_WEIGHT = 0.35
+
+# --- Điểm tổng hợp --------------------------------------------------------------
+# Tài liệu yêu cầu điểm ≥ 75. Điểm ở đây dùng để xếp hạng và lọc danh sách ưu tiên;
+# điều kiện vào vẫn là các cổng cứng.
+SCORE_ENTRY_MIN = 75
+SCORE_WEIGHTS = {
+    "fa": 30,
+    "flow": 25,
+    "pattern": 25,
+    "rs": 10,
+    "news": 10,
+}
+# Flow đóng góp theo mức. Thiếu số thì lấy mức trung tính để không tự trừ điểm.
+FLOW_SCORE = {
+    "accumulation": 25,
+    "support": 18,
+    "neutral": 12,
+    "missing": 12,
+    "weak": 6,
+    "block": 0,
 }

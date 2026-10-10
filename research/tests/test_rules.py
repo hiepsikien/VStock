@@ -294,6 +294,48 @@ class RulesTest(unittest.TestCase):
         self.assertTrue(pattern.ready)
         self.assertGreater(pattern.rs or 0, 0)
 
+    def test_relative_strength_reads_the_index_on_the_stock_dates(self) -> None:
+        # A name that halted for ten sessions carries fewer bars than the index, so
+        # counting back 61 positions lands on different dates for the two windows.
+        start = date(2026, 1, 1)
+        index = []
+        stock = []
+        for i in range(80):
+            day = (start + timedelta(days=i)).isoformat()
+            index.append(
+                {
+                    "trade_date": day,
+                    "open": 1000.0 + i,
+                    "high": 1000.0 + i,
+                    "low": 1000.0 + i,
+                    "close": 1000.0 + i,
+                    "volume": 1,
+                }
+            )
+            if 30 <= i <= 39:
+                continue
+            close = 102.0 if i == 79 else 100.0
+            stock.append(
+                {
+                    "trade_date": day,
+                    "open": close,
+                    "high": close + 0.5,
+                    "low": close - 0.5,
+                    "close": close,
+                    "volume": 1000,
+                }
+            )
+        pattern = assess_pattern(stock, index)
+        # The stock window starts at its 61st bar (d9), so the index leg is read there —
+        # not at the index's own 61st bar, which sits ten sessions later at d19.
+        self.assertEqual(stock[-61]["trade_date"], index[9]["trade_date"])
+        self.assertAlmostEqual(
+            pattern.rs or 0, (102.0 / 100.0 - 1) - (1079.0 / 1009.0 - 1), places=9
+        )
+        self.assertNotAlmostEqual(
+            pattern.rs or 0, (102.0 / 100.0 - 1) - (1079.0 / 1019.0 - 1), places=9
+        )
+
     def test_regime_needs_two_hundred_sessions(self) -> None:
         bars = [
             {"trade_date": f"2020-01-{(i % 28) + 1:02d}", "close": 100 + i}

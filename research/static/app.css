@@ -183,3 +183,111 @@ a { color: var(--watch); }
 
 .decision { display: grid; gap: 12px; max-width: 520px; }
 .decision textarea { width: 100%; }
+
+.page-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.page-head h1 { margin: 0; }
+
+.group {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px 18px;
+  margin: 0 0 20px;
+}
+
+.group h2 { margin: 0 0 12px; }
+.group h3 { font-size: 15px; margin: 20px 0 8px; color: var(--muted); }
+.group p { line-height: 1.5; }
+.group > :last-child { margin-bottom: 0; }
+
+.pills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.scorebars { display: grid; gap: 6px; margin: 12px 0; }
+
+.scorebar {
+  display: grid;
+  grid-template-columns: 160px 1fr 72px;
+  gap: 10px;
+  align-items: center;
+  font-size: 14px;
+}
+
+.scorebar .name { color: var(--muted); }
+
+.scorebar .bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--locked-bg);
+  overflow: hidden;
+}
+
+.scorebar .fill {
+  display: block;
+  height: 100%;
+  background: var(--watch);
+}
+
+.scorebar .value { text-align: right; font-variant-numeric: tabular-nums; }
+
+.numbers th { width: 40%; }
+.numbers td { font-variant-numeric: tabular-nums; }
+
+.chart { margin: 0 0 12px; }
+
+.chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+}
+
+.chart .plot { fill: transparent; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .tick { fill: var(--muted); font-size: 10px; }
+
+.chart .body { stroke-width: 0; }
+.chart .body.up { fill: var(--enter); }
+.chart .body.down { fill: var(--out); }
+.chart .wick { stroke-width: 1; }
+.chart .wick.up { stroke: var(--enter); }
+.chart .wick.down { stroke: var(--out); }
+
+/* Volume is a second reading of the same session, so its columns sit behind the candles in
+   weight: same colours, held back to half opacity. */
+.chart .volume-bar { stroke-width: 0; fill-opacity: 0.5; }
+.chart .volume-bar.up { fill: var(--enter); }
+.chart .volume-bar.down { fill: var(--out); }
+
+.chart .shape-box { fill: rgba(29, 78, 137, 0.08); stroke: var(--watch); stroke-width: 1; }
+.chart .shape-box.base { fill: rgba(94, 88, 79, 0.08); stroke: var(--muted); }
+.chart .shape-line { fill: none; stroke: var(--wait); stroke-width: 1.5; }
+.chart .shape-line.resistance { stroke: var(--out); stroke-dasharray: 4 3; }
+/* The label rides on the last candle, so it is anchored to end there and grow leftwards,
+   which keeps it inside the viewBox instead of running past the right pad. */
+.chart .breakout-label {
+  fill: var(--enter);
+  font-size: 10px;
+  font-weight: 600;
+  text-anchor: end;
+}
+
+.chart figcaption {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  margin-top: 8px;
+}
+
