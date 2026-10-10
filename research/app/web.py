@@ -12,9 +12,15 @@ from fastapi.templating import Jinja2Templates
 from app import db, paper
 from app.backtest import run_backtest
 from app.chart import build_chart
-from app.config import STATUS_RANK
+from app.config import (
+    MARKET_GATE_REQUIRED,
+    MARKET_SERIES,
+    POLICY_RATE_HISTORY,
+    STATUS_RANK,
+)
 from app.evaluate import SCORE_CEILINGS
 from app.ingest import load_exchanges
+from app.money import LABELS, money_state, thresholds
 from app.pattern import assess_pattern
 from app.pipeline import busy, run_session
 
@@ -91,6 +97,54 @@ async def dashboard(request: Request, notice: str = "", error: str = ""):
             "busy": busy(),
             "regime": verdicts[0]["regime_reason"] if verdicts else "",
             "macro": verdicts[0]["macro_reason"] if verdicts else "",
+            # Cổng tiền tệ đọc từ chuỗi đã lưu, nên nó đứng được trên bảng cả khi phiên
+            # chưa chấm lại mã nào.
+            "money": money_state(await db.market_points()).reason,
+        },
+    )
+
+
+def _money_value(code: str, value: float) -> str:
+    if code == "USDVND":
+        return f"{value:,.0f}"
+    if code == "NHNN_NET":
+        return f"{value:+,.0f}"
+    return f"{value:,.2f}"
+
+
+@app.get("/market")
+async def market_page(request: Request):
+    """Cổng tiền tệ. Một trang riêng, vì các chuỗi này thuộc về thị trường chứ không thuộc mã nào."""
+    points = await db.market_points()
+    money = money_state(points)
+    notes = dict(money.metrics)
+    rows = []
+    for code, label, unit, symbol in MARKET_SERIES:
+        series = points.get(code) or []
+        rows.append(
+            {
+                "code": code,
+                "label": label,
+                "unit": unit,
+                "source": symbol or "bảng quyết định",
+                "sessions": len(series),
+                "last_day": series[-1][0] if series else "",
+                "last_value": _money_value(code, series[-1][1]) if series else "—",
+                "note": notes.get(label, ""),
+                "required": code in MARKET_GATE_REQUIRED,
+            }
+        )
+    days = [row["last_day"] for row in rows if row["last_day"]]
+    return templates.TemplateResponse(
+        request,
+        "market.html",
+        {
+            "money": money,
+            "rows": rows,
+            "thresholds": thresholds(),
+            "missing": [LABELS.get(code, code) for code in money.missing],
+            "policy": POLICY_RATE_HISTORY,
+            "latest_day": max(days) if days else "",
         },
     )
 

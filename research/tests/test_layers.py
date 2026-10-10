@@ -1143,6 +1143,16 @@ class PipelineAlertTest(unittest.TestCase):
         async def fake_macro(_client):
             return {}
 
+        async def fake_market(_client, day):
+            """Năm phiên đã lưu tính tới hôm nay, để cổng tiền tệ có số mà chấm."""
+            end = date.fromisoformat(day)
+            days = [(end - timedelta(days=step)).isoformat() for step in reversed(range(5))]
+            return {
+                "INTERBANK_ON": [(when, 5.0) for when in days],
+                "GOV10Y": [(when, 4.0) for when in days],
+                "USDVND": [(when, 25_000.0) for when in days],
+            }
+
         async def fake_send(text):
             sent.append(text)
             return True
@@ -1166,6 +1176,7 @@ class PipelineAlertTest(unittest.TestCase):
                 fetch_symbol_news=fake_news,
                 fetch_foreign_flow=fake_flow,
                 fetch_macro=fake_macro,
+                fetch_market=fake_market,
                 load_market_articles=lambda: [],
                 load_exchanges=lambda: {},
                 load_valuation=lambda: {},

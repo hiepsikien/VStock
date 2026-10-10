@@ -15,9 +15,12 @@ from app.config import (
     FLOW_LOOKBACK_SESSIONS,
     MACRO_RANGE,
     MACRO_SYMBOLS,
+    MARKET_SERIES,
     RATIO_CODES,
+    TRADINGVIEW_SCANNER,
 )
 from app.db import market_db_path
+from app.money import policy_points
 
 logger = logging.getLogger(__name__)
 _exchange_cache: tuple[str, dict[str, str]] | None = None
@@ -413,6 +416,72 @@ async def fetch_macro(client: httpx.AsyncClient) -> dict[str, list[dict]]:
         if bars:
             series[code] = bars
     return series
+
+
+async def _scanner_close(client: httpx.AsyncClient, symbol: str) -> float | None:
+    """Last value of one public quote. TradingView serves rates and yields without a key."""
+    response = await client.get(
+        TRADINGVIEW_SCANNER,
+        params={"symbol": symbol, "fields": "close"},
+        headers=BROWSER_HEADERS,
+    )
+    if response.status_code != 200:
+        logger.warning("Market fetch failed for %s: HTTP %s", symbol, response.status_code)
+        return None
+    payload = response.json() or {}
+    close = payload.get("close")
+    if close is None:
+        logger.warning("Market fetch failed for %s: %s", symbol, payload.get("code") or "no close")
+        return None
+    try:
+        return float(close)
+    except (TypeError, ValueError):
+        return None
+
+
+async def _yahoo_close(client: httpx.AsyncClient, symbol: str) -> float | None:
+    """A second quote for one series, used when the first one is unavailable."""
+    response = await client.get(
+        YAHOO_CHART.format(symbol=quote(symbol, safe="")),
+        params={"range": "5d", "interval": "1d"},
+        headers=BROWSER_HEADERS,
+    )
+    if response.status_code != 200:
+        return None
+    results = ((response.json() or {}).get("chart") or {}).get("result") or []
+    if not results:
+        return None
+    closes = ((results[0].get("indicators") or {}).get("quote") or [{}])[0].get("close") or []
+    for close in reversed(closes):
+        if close is None:
+            continue
+        try:
+            return float(close)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+async def fetch_market(
+    client: httpx.AsyncClient, day: str | None = None
+) -> dict[str, list[tuple[str, float]]]:
+    """One point per series for the session being scored.
+
+    A series that fails is left out instead of reusing an older number, so a broken feed shows
+    up as "Chưa chấm" rather than as a stale reading. The policy rate is a record of decisions,
+    so it arrives as its own step series.
+    """
+    stamp = day or datetime.now(VN_TZ).date().isoformat()
+    points: dict[str, list[tuple[str, float]]] = {"POLICY_RATE": policy_points()}
+    for code, _label, _unit, symbol in MARKET_SERIES:
+        if not symbol:
+            continue
+        value = await _scanner_close(client, symbol)
+        if value is None and code == "USDVND":
+            value = await _yahoo_close(client, "USDVND=X")
+        if value is not None:
+            points[code] = [(stamp, value)]
+    return points
 
 
 def load_valuation() -> dict[str, dict]:

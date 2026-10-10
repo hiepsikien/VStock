@@ -72,6 +72,7 @@ sau giờ đóng cửa.
 | Định giá | `fundamentals.pe` từ kho thị trường | Trần P/E 30. Chỉ áp ở phiên trực tiếp, backtest bỏ qua vì là ảnh chụp hiện tại |
 | Dòng tiền lớn | VNDirect Finfo `foreigns` | Tải 60 phiên net volume/net value/room; cổng chấm đọc **10 phiên** gần nhất, nghi bán vào đà tăng thì hạ cấp |
 | Nền giá, mô hình | Entrade nến ngày | Nền phẳng 20 phiên (sâu ≤15%, nhịp tăng trước nền ≥15%) phải phá đỉnh bằng nến khối lượng ≥1.5× nền; ZigZag theo ATR, nhận diện Đáy đôi, VCP, Cờ, ABCD |
+| Tiền tệ | TradingView scanner (lãi liên ngân hàng qua đêm, lợi suất TPCP 10 năm), Yahoo chart (USD/VND), bảng NHNN ghi tay (lãi tái cấp vốn) | Cổng AND với cổng VN-Index trên MA200; mỗi phiên lưu một điểm cho mỗi chuỗi, trang `/market` |
 | Điểm tổng hợp | Tính nội bộ | 0–100 (cơ bản 30, dòng tiền 25, nền giá 25, sức mạnh 10, tin 10) |
 
 Điểm tổng hợp dùng để **xếp hạng và tô màu nhãn**: ngưỡng 75 chỉ đổi màu chứ không cấp quyền vào.
@@ -99,6 +100,32 @@ chết 30 phiên, có công bố chặn, hoặc dòng tiền ngoại đảo chi�
 đủ, kể cả phiên chạm dừng lỗ; phiên mà luật đóng tại giá đóng cửa kết thúc suất vẫn được tính vào
 cột "Phiên". Trang `/backtest` so lãi bình quân của các suất với VN-Index trong đúng cửa sổ nắm giữ.
 
+### Cổng tiền tệ
+
+Cổng tiền tệ đứng cạnh cổng VN-Index trên MA200 và là cổng **AND**: VN-Index trên MA200 *và*
+tiền chưa thắt thì danh sách mới được xét tiếp. Nó trả lời tiền đang thừa hay thiếu, chứ không
+chấm điểm bài báo nào.
+
+Năm chuỗi, ngưỡng khai báo trong `research/app/config.py` và in ra ở trang `/market`:
+
+| Chuỗi | Nguồn | Ngưỡng khóa |
+|---|---|---|
+| Lãi liên ngân hàng qua đêm | TradingView scanner, `ECONOMICS:VNINBR` | Cao hơn trung bình 20 phiên quá 1 điểm % |
+| Lợi suất TPCP 10 năm | TradingView scanner, `TVC:VN10Y` | Cao hơn trung bình 20 phiên quá 0.5 điểm % |
+| Tỷ giá USD/VND | TradingView scanner `FX_IDC:USDVND`, lỗi thì Yahoo chart `USDVND=X` | Trên trung bình 20 phiên cộng 1.0% đủ 5 phiên liên tiếp |
+| Lãi suất tái cấp vốn | Bảng ghi tay `POLICY_RATE_HISTORY` trong `config.py` | Có mốc mới trong 90 ngày gần nhất |
+| NHNN hút/bơm ròng | Chưa có nguồn công khai, điền tay vào `market_points` | Hút ròng 5 phiên liên tiếp, tổng từ 5.000 tỷ |
+
+Bốn chuỗi đầu là **bắt buộc**. Chuỗi thiếu số, số cũ hơn 10 ngày, hoặc chưa đủ 5 phiên đã lưu đều
+đưa cổng về **Chưa chấm**, và không mã nào bị tự loại vì chuyện tiền tệ. Chuỗi NHNN chưa có nguồn
+nên nằm ngoài danh sách bắt buộc, nhưng ngưỡng đã khai báo trước nên nó khóa được ngay khi có số.
+
+Mỗi phiên pipeline lấy một điểm cho mỗi chuỗi rồi lưu vào bảng `market_points`; hàm chấm chỉ đọc
+các điểm tới hết ngày đang chấm, nên chấm lại một phiên cũ luôn ra cùng kết quả và số của hôm nay
+không bao giờ rơi vào một phiên đã qua. Scanner chỉ trả giá hiện tại, nên chuỗi bắt đầu từ ngày bật
+tính năng: cổng đứng "Chưa chấm" cho tới khi đủ 5 phiên đã lưu (khoảng một tuần), rồi mới mở hoặc
+khóa được. Bảng quyết định lãi điều hành là chuỗi bậc thang có sẵn, nên chuỗi này có số ngay.
+
 ### Cảnh báo phiên
 
 Đặt `TELEGRAM_BOT_TOKEN` và `TELEGRAM_CHAT_ID` để nhận tin khi có mã đổi trạng thái (Được vào,
@@ -108,7 +135,7 @@ Loại, Khóa) hoặc khi một vị thế giấy đóng. Không đặt thì h�
 
 ```bash
 cd research
-.venv/bin/python -m unittest tests.test_rules tests.test_prune tests.test_patterns tests.test_layers
+.venv/bin/python -m unittest tests.test_rules tests.test_prune tests.test_patterns tests.test_layers tests.test_money
 ```
 
 

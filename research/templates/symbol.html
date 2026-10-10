@@ -105,6 +105,7 @@
       <h2>Thị trường</h2>
       <p>{{ item.regime_reason }}</p>
       <p>{{ item.macro_reason or "—" }}</p>
+      <p><strong>Cổng tiền tệ.</strong> {{ item.market_reason or "—" }}</p>
       {% if groups.get("Thị trường") %}
         <table class="numbers">
           <tbody>

@@ -107,6 +107,15 @@ CREATE TABLE IF NOT EXISTS flow_points (
     PRIMARY KEY (symbol, trade_date, code)
 );
 
+-- Money gate. One series per row-set, one point per session, and the symbol column is
+-- absent because these numbers belong to the market rather than to a ticker.
+CREATE TABLE IF NOT EXISTS market_points (
+    series TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    value REAL NOT NULL,
+    PRIMARY KEY (series, trade_date)
+);
+
 -- Forward test. One row per confirmed signal, marked to market each session.
 CREATE TABLE IF NOT EXISTS paper_positions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -509,6 +518,10 @@ def _verdict_row(record) -> dict:
             "flow_level": extra.get("flow_level") or "missing",
             "macro_reason": extra.get("macro_reason") or "",
             "macro_block": bool(extra.get("macro_block")),
+            "market_reason": extra.get("market_reason") or "",
+            "market_open": (
+                None if extra.get("market_open") is None else bool(extra.get("market_open"))
+            ),
             "valuation_label": extra.get("valuation_label") or "",
             "valuation_reason": extra.get("valuation_reason") or "",
             "patterns": tuple(extra.get("patterns") or ()),
@@ -662,6 +675,39 @@ async def flow(symbol: str) -> dict[str, list[tuple[str, float]]]:
     points: dict[str, list[tuple[str, float]]] = {}
     for row in await cursor.fetchall():
         points.setdefault(row["code"], []).append((row["trade_date"], row["value"]))
+    return points
+
+
+async def upsert_market_points(series: str, points: list[tuple[str, float]]) -> None:
+    """One point per session. Re-running a session rewrites its own point, never the history."""
+    rows = [(series, str(day), float(value)) for day, value in points]
+    if not rows:
+        return
+    db = await get_db()
+    await db.executemany(
+        """
+        INSERT INTO market_points (series, trade_date, value)
+        VALUES (?, ?, ?)
+        ON CONFLICT(series, trade_date) DO UPDATE SET value = excluded.value
+        """,
+        rows,
+    )
+    await db.commit()
+
+
+async def market_points() -> dict[str, list[tuple[str, float]]]:
+    """Every stored money series, oldest point first, in the shape money_state reads."""
+    db = await get_db()
+    cursor = await db.execute(
+        """
+        SELECT series, trade_date, value
+        FROM market_points
+        ORDER BY trade_date
+        """
+    )
+    points: dict[str, list[tuple[str, float]]] = {}
+    for row in await cursor.fetchall():
+        points.setdefault(row["series"], []).append((row["trade_date"], row["value"]))
     return points
 
 

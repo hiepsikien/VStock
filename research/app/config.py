@@ -223,6 +223,46 @@ MACRO_MA_WINDOW = 20
 # A close inside this band of the average counts as neither above nor below.
 MACRO_NEUTRAL_BAND = 0.005
 
+# --- Cổng tiền tệ: tiền đang thừa hay thiếu, và giá của đồng tiền ------------------
+# Cổng này đứng cạnh cổng VN-Index trên MA200 và là cổng AND: cả hai cùng mở thì danh
+# sách mới được xét tiếp. Chuỗi bắt buộc còn thiếu thì trạng thái là "Chưa chấm", cùng
+# kiểu với một mã thiếu báo cáo. Ngưỡng viết thành số ở đây, trước khi chạy phiên.
+TRADINGVIEW_SCANNER = "https://scanner.tradingview.com/symbol"
+# Mã nguồn công khai, đọc được không cần đăng nhập. Giá trị lấy tại thời điểm chạy phiên
+# rồi lưu theo ngày, nên các phiên cũ không bao giờ nhìn thấy số của hôm nay.
+MARKET_SERIES = (
+    ("INTERBANK_ON", "Lãi suất liên ngân hàng qua đêm", "%/năm", "ECONOMICS:VNINBR"),
+    ("GOV10Y", "Lợi suất trái phiếu chính phủ 10 năm", "%/năm", "TVC:VN10Y"),
+    ("USDVND", "Tỷ giá USD/VND liên ngân hàng", "VND", "FX_IDC:USDVND"),
+    # Tín phiếu và thị trường mở chưa có nguồn công khai: chuỗi đứng trống và không nằm
+    # trong danh sách bắt buộc, nên nó không thể khóa danh sách.
+    ("NHNN_NET", "NHNN hút/bơm ròng qua tín phiếu và thị trường mở", "tỷ đồng", ""),
+    ("POLICY_RATE", "Lãi suất tái cấp vốn", "%/năm", ""),
+)
+# Chỉ những chuỗi ở đây mới làm cổng đứng ở "Chưa chấm" khi thiếu số.
+MARKET_GATE_REQUIRED = ("INTERBANK_ON", "GOV10Y", "USDVND", "POLICY_RATE")
+# Lãi suất điều hành không có nguồn tự động. Mỗi quyết định của NHNN là một dòng, ghi
+# ngày có hiệu lực; bài báo chỉ để biết ngày đó, không dùng để chấm điểm.
+POLICY_RATE_HISTORY = (
+    ("2022-10-25", 6.0),
+    ("2023-04-03", 5.5),
+    ("2023-05-25", 5.0),
+    ("2023-06-19", 4.5),
+)
+# So với trung bình bao nhiêu phiên đã lưu, và cần tối thiểu bao nhiêu số mới chấm.
+MARKET_MA_WINDOW = 20
+MARKET_MIN_SESSIONS = 5
+# Số cũ hơn mức này, tính từ phiên đang chấm, không còn được dùng để chấm.
+MARKET_SERIES_MAX_AGE_DAYS = 10
+# Một ngưỡng đặt None nghĩa là chưa khai báo, và chuỗi đó không thể khóa danh sách.
+MARKET_RATE_RISE_MAX = 1.0  # lãi qua đêm vượt trung bình quá 1 điểm % là thắt
+MARKET_YIELD_RISE_MAX = 0.5  # lợi suất 10 năm vượt trung bình quá 0,5 điểm % là thắt
+MARKET_FX_ABOVE_MA_MAX = 0.01  # tỷ giá vượt trung bình quá 1% là áp lực ngoại tệ
+MARKET_FX_ABOVE_DAYS = 5  # ...và giữ đủ bao nhiêu phiên thì mới thành cờ
+MARKET_POLICY_LOOKBACK_DAYS = 90  # lãi điều hành tăng trong bao nhiêu ngày gần đây
+MARKET_DRAIN_DAYS = 5  # hút ròng liên tiếp bao nhiêu phiên
+MARKET_DRAIN_MIN = 5000  # ...và tổng hút ròng từ mức này (tỷ đồng)
+
 # --- Tầng trading: ATR, thoát lệnh, cỡ vị thế -----------------------------------
 ATR_WINDOW = 14
 ATR_STOP_MULTIPLIER = 2.0

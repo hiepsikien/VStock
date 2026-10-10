@@ -13,6 +13,7 @@ from app.ingest import (
     fetch_bars,
     fetch_foreign_flow,
     fetch_macro,
+    fetch_market,
     fetch_ratios,
     fetch_symbol_news,
     load_exchanges,
@@ -20,6 +21,7 @@ from app.ingest import (
     load_valuation,
 )
 from app.macro import macro_state
+from app.money import money_state
 from app.pattern import assess_pattern, market_regime
 
 logger = logging.getLogger(__name__)
@@ -56,6 +58,17 @@ async def _run() -> str:
         except Exception as exc:
             logger.warning("Macro fetch failed: %s", exc)
             macro_series = {}
+        # The money gate is stored one point per session, so it is fetched under the date of
+        # the session being scored. A feed that is down stores nothing; the gate then reads
+        # "Chưa chấm" instead of letting an old number stand in for today's.
+        session_day = index_bars[-1]["trade_date"] if index_bars else None
+        try:
+            market_series = await fetch_market(client, session_day)
+        except Exception as exc:
+            logger.warning("Market fetch failed: %s", exc)
+            market_series = {}
+        for code, market_rows in market_series.items():
+            await db.upsert_market_points(code, market_rows)
         semaphore = asyncio.Semaphore(4)
 
         async def _one(symbol: str) -> str | None:
@@ -96,6 +109,9 @@ async def _run() -> str:
     as_of = date.fromisoformat(index_bars[-1]["trade_date"])
     regime = market_regime(index_bars)
     macro = macro_state(macro_series)
+    # Read the series back from the store rather than from the fetch, so live and backtest
+    # scoring both see exactly the points that were kept for that day.
+    money = money_state(await db.market_points(), as_of=as_of.isoformat())
     valuation_by_symbol = load_valuation()
     verdicts: list[dict] = []
     for symbol in symbols:
@@ -113,6 +129,7 @@ async def _run() -> str:
             valuation=valuation_by_symbol.get(symbol),
             flow=flow_gate(await db.flow(symbol), stock_bars),
             macro=macro,
+            market=money,
         )
         verdicts.append(verdict.row())
 

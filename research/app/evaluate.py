@@ -18,6 +18,7 @@ from app.config import (
     INSIDER_SELL_DAYS,
     INSURERS,
     MACRO_SYMBOLS,
+    MARKET_SERIES,
     NPL_MAX,
     PE_CEILING,
     PROVISION_COVERAGE_MIN,
@@ -28,6 +29,7 @@ from app.config import (
 )
 from app.flow import ACCUMULATION, FlowState, flow_score, missing_flow
 from app.macro import Macro
+from app.money import Money
 from app.pattern import Pattern, Regime
 
 RatioMap = dict[str, list[tuple[str, float]]]
@@ -81,6 +83,9 @@ class Verdict:
     flow_level: str = "missing"
     macro_reason: str = ""
     macro_block: bool = False
+    # Cổng tiền tệ: mở, thắt, hay chưa chấm vì thiếu chuỗi.
+    market_reason: str = ""
+    market_open: bool | None = None
     valuation_label: str = ""
     valuation_reason: str = ""
     patterns: tuple[str, ...] = ()
@@ -126,6 +131,8 @@ class Verdict:
                 "flow_level": self.flow_level,
                 "macro_reason": self.macro_reason,
                 "macro_block": self.macro_block,
+                "market_reason": self.market_reason,
+                "market_open": self.market_open,
                 "valuation_label": self.valuation_label,
                 "valuation_reason": self.valuation_reason,
                 "patterns": list(self.patterns),
@@ -804,7 +811,11 @@ METRIC_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     ("Định giá", ("P/E", "P/B", "ROE", "Cập nhật định giá")),
     ("Dòng tiền ngoại", ("Dòng tiền ngoại", "Giá trị ròng", "Room ngoại còn")),
-    ("Thị trường", tuple(label for _code, _symbol, label in MACRO_SYMBOLS)),
+    (
+        "Thị trường",
+        tuple(label for _code, _symbol, label in MACRO_SYMBOLS)
+        + tuple(label for _code, label, _unit, _symbol in MARKET_SERIES),
+    ),
     (
         "Nền giá",
         (
@@ -855,6 +866,7 @@ def compose(
     valuation: dict | None = None,
     flow: FlowState | None = None,
     macro: Macro | None = None,
+    market: Money | None = None,
 ) -> Verdict:
     fundamentals = score_fundamentals(symbol, points, _articles_for_symbol(symbol, articles, as_of))
     valuation_state = score_valuation(valuation)
@@ -872,6 +884,15 @@ def compose(
     elif regime.open is False:
         status = "Khóa"
         summary = regime.reason
+    # Cổng tiền tệ đứng cạnh cổng VN-Index và là cổng AND: danh sách chỉ được xét tiếp khi
+    # tiền chưa thắt. Chuỗi còn thiếu thì "Chưa chấm", cùng kiểu với một mã thiếu báo cáo,
+    # và không mã nào bị tự loại vì chuyện tiền tệ.
+    elif market is not None and market.open is None:
+        status = "Chưa chấm"
+        summary = market.reason
+    elif market is not None and market.open is False:
+        status = "Khóa"
+        summary = market.reason
     elif (
         news_state == "Loại"
         or fundamentals.label == "Không đạt"
@@ -916,7 +937,11 @@ def compose(
         ("Cơ bản", list(fundamentals.metrics)),
         ("Định giá", list(valuation_state.metrics)),
         ("Dòng tiền ngoại", list(flow_state.metrics)),
-        ("Thị trường", list(macro.metrics) if macro else []),
+        # Cổng thị trường gồm hai phần: VN-Index trên MA200 và liên thị trường, rồi tiền tệ.
+        (
+            "Thị trường",
+            (list(macro.metrics) if macro else []) + (list(market.metrics) if market else []),
+        ),
         ("Nền giá", _pattern_metrics(pattern)),
     ]
     # The same numbers in one list, for a reader that has no room for sections, and for the store,
@@ -948,6 +973,8 @@ def compose(
         flow_level=flow_state.level,
         macro_reason=macro.reason if macro else "",
         macro_block=bool(macro and macro.block),
+        market_reason=market.reason if market else "",
+        market_open=market.open if market else None,
         valuation_label=valuation_state.label,
         valuation_reason=valuation_state.reason,
         patterns=pattern.patterns,

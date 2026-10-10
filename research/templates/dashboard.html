@@ -26,6 +26,9 @@
   {% if macro %}
     <p class="regime">{{ macro }}</p>
   {% endif %}
+  {% if money %}
+    <p class="regime">{{ money }} <a href="/market">Chi tiết</a></p>
+  {% endif %}
 
   {% if run and run.message %}
     <p class="hint">Lần chạy gần nhất: {{ run.message }}</p>
