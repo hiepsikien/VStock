@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import aiosqlite
 
-from app.config import DEFAULT_UNIVERSE
+from app.config import ARTICLE_RETENTION_DAYS, DEFAULT_UNIVERSE
 
 _db: aiosqlite.Connection | None = None
 
@@ -276,6 +276,18 @@ async def upsert_articles(articles: list[dict]) -> None:
         ],
     )
     await db.commit()
+
+
+async def prune_articles(days: int = ARTICLE_RETENTION_DAYS) -> int:
+    """Drop filings older than the market cache window."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+    db = await get_db()
+    cursor = await db.execute(
+        "DELETE FROM articles WHERE substr(published_at, 1, 10) < ?",
+        (cutoff,),
+    )
+    await db.commit()
+    return cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
 
 
 async def articles_for(symbol: str) -> list[dict]:

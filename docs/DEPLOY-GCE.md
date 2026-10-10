@@ -295,9 +295,10 @@ gsutil cp ~/backups/vstock-*.db gs://vstock-backups-$USER/
 ```bash
 cd ~/VStock
 docker compose stop api
-# Thay FILE bằng path backup
+# Thay FILE bằng path backup.
+# Xóa WAL cũ trước khi chép, để SQLite không replay file không thuộc bản vừa khôi phục.
 docker run --rm -v vstock_vstock-data:/data -v "$HOME/backups:/backups:ro" \
-  busybox cp /backups/FILE /data/vstock.db
+  busybox sh -c 'rm -f /data/vstock.db-wal /data/vstock.db-shm && cp /backups/FILE /data/vstock.db'
 docker compose start api
 ```
 

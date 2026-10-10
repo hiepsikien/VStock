@@ -24,6 +24,8 @@ PRICE_JUMP_LIMIT_UNKNOWN = 0.17
 EQUITY_MATCH_BONUS = 0.35
 EQUITY_MATCH_CASH = 0.60
 BAR_LOOKBACK_DAYS = 1200
+# Same window as the market news cache: filings older than this leave the research copy.
+ARTICLE_RETENTION_DAYS = 1460
 
 DEFAULT_UNIVERSE = (
     "FPT",

@@ -41,18 +41,14 @@ curl http://127.0.0.1:8010/health
 
 Web research nằm trong cùng Compose và chỉ publish trên `127.0.0.1`.
 
-Dữ liệu SQLite nằm trong volume Docker `vstock-data`. Backup:
+Dữ liệu SQLite nằm trong volume Docker `vstock-data`. Backup dùng SQLite backup API để lấy cả phần đang nằm trong WAL:
 
 ```bash
-docker compose exec api python -c "
-from pathlib import Path
-import shutil, os
-src = Path(os.environ['VSTOCK_DB_PATH'])
-shutil.copy2(src, '/tmp/vstock-backup.db')
-print('copied', src)
-"
-docker cp $(docker compose ps -q api):/tmp/vstock-backup.db ./vstock-backup.db
+# Từ máy đang chạy Compose. Đổi VSTOCK_DIR nếu repo không ở ~/VStock.
+VSTOCK_DIR="$(pwd)" ./scripts/backup-sqlite.sh
 ```
+
+File lưu tại `~/backups/vstock-YYYYMMDD-HHMMSS.db`.
 
 **Reverse proxy (nginx)** — ví dụ `api.yourdomain.com`:
 

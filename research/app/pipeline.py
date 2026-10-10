@@ -60,6 +60,9 @@ async def _run() -> str:
 
     market_articles = load_market_articles()
     await db.upsert_articles(market_articles)
+    removed = await db.prune_articles()
+    if removed:
+        logger.info("Dropped %d research filings older than the retention window", removed)
     exchanges = load_exchanges()
 
     index_bars = await db.bars("VNINDEX")

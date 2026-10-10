@@ -12,6 +12,7 @@ from app.config import BAR_LOOKBACK_DAYS, RATIO_CODES
 from app.db import market_db_path
 
 logger = logging.getLogger(__name__)
+_exchange_cache: tuple[str, dict[str, str]] | None = None
 
 VN_TZ = timezone(timedelta(hours=7))
 ENTRADE_HEADERS = {
@@ -299,12 +300,17 @@ def _open_market_db() -> sqlite3.Connection | None:
 
 
 def load_exchanges() -> dict[str, str]:
+    """Return symbol → board. A successful read is reused until the next calendar day."""
+    global _exchange_cache
+    today = datetime.now(VN_TZ).date().isoformat()
+    if _exchange_cache is not None and _exchange_cache[0] == today:
+        return _exchange_cache[1]
     connection = _open_market_db()
     if connection is None:
         return {}
     try:
         rows = connection.execute("SELECT symbol, exchange FROM symbols")
-        return {
+        found = {
             str(row["symbol"]).upper(): str(row["exchange"]).upper()
             for row in rows
             if row["symbol"] and row["exchange"]
@@ -314,6 +320,8 @@ def load_exchanges() -> dict[str, str]:
         return {}
     finally:
         connection.close()
+    _exchange_cache = (today, found)
+    return found
 
 
 def load_market_articles() -> list[dict]:

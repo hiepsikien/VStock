@@ -41,7 +41,8 @@ def jump_limit(exchange: str | None) -> tuple[float, str]:
     board = (exchange or "").strip().upper()
     if board in PRICE_JUMP_LIMITS:
         return PRICE_JUMP_LIMITS[board], board
-    return PRICE_JUMP_LIMIT_UNKNOWN, "HOSE, HNX hoặc UPCOM"
+    percent = int(PRICE_JUMP_LIMIT_UNKNOWN * 100)
+    return PRICE_JUMP_LIMIT_UNKNOWN, f"sàn chưa rõ (dùng {percent}%)"
 
 
 def unadjusted_split_gap(bars: list[dict], exchange: str | None = None) -> str | None:
