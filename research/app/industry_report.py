@@ -17,7 +17,7 @@ from app.industry_screen import (
     CONFIRM_END,
     CONFIRM_START,
     SCREEN_END,
-    SCREEN_START,
+    OPERABLE_START,
     average_by_day,
     build_open_map,
     dated_returns,
@@ -207,11 +207,11 @@ def write_report() -> str:
         return _active(symbol, day) and allowed.get((symbol, day), False)
 
     screen_book = {symbol: bars[symbol] for symbol in DEFAULT_UNIVERSE if symbol in bars}
-    screen = layer_counts(screen_book, _open, SCREEN_START, SCREEN_END, _active)
+    screen = layer_counts(screen_book, _open, OPERABLE_START, SCREEN_END, _active)
     confirm = layer_counts(screen_book, _open, CONFIRM_START, CONFIRM_END, _active)
 
     # Precision of the industry gate is counted in industry-sessions, not name-sessions.
-    industry_precision = _industry_precision(bars, allowed, year_members, SCREEN_START, SCREEN_END)
+    industry_precision = _industry_precision(bars, allowed, year_members, OPERABLE_START, SCREEN_END)
     industry_confirm = _industry_precision(bars, allowed, year_members, CONFIRM_START, CONFIRM_END)
     screen["precision"] = industry_precision["precision"]
     screen["baseline"] = industry_precision["baseline"]
@@ -225,10 +225,6 @@ def write_report() -> str:
         confirm["precision"],
         confirm["baseline"],
     )
-    # Số cổ phiếu trên nguồn chỉ có từ cuối 2022, nên 2021 và 2022 không dựng được rổ.
-    # Giai đoạn chọn đã ấn định gồm sóng giảm 2022. Thiếu năm đó thì chưa được chặn lệnh.
-    if year_members[2021][0] is None or year_members[2022][0] is None:
-        passed = False
     roster = ", ".join(
         f"{year}={len(names)} từ {anchor or 'không có'}"
         for year, (anchor, names) in year_members.items()
@@ -236,10 +232,11 @@ def write_report() -> str:
     lines.append("Rổ theo vốn hóa: " + roster + ".")
     lines.append(
         "Số cổ phiếu lưu hành trên nguồn bắt đầu 2022-12-31, công bố sau 45 ngày. "
-        "Năm 2021 và 2022 không có vốn hóa đã biết vào đầu năm, nên không có rổ."
+        f"Cửa sổ đo chạy từ {OPERABLE_START}, phiên đầu tiên vốn hóa đã biết. "
+        "Năm 2021 và 2022 không có rổ."
     )
     lines.append("")
-    lines.append(_window_line("Chọn 2021–2024", screen, industry_precision))
+    lines.append(_window_line(f"Chọn {OPERABLE_START}–2024", screen, industry_precision))
     lines.append(_window_line("Xác nhận 2025–2026", confirm, industry_confirm))
     lines.append("")
     if passed:
@@ -249,7 +246,11 @@ def write_report() -> str:
     lines.append("")
     lines.extend(_stock_lines(bars, ratios, allowed, year_members))
     lines.append("")
-    lines.append("Nhận định LLM không được gọi vì không có khóa API. Cổng số vẫn là cổng được ghi ở trên.")
+    lines.append(
+        "Nhận định tháng chạy bằng `python -m app.llm_notes` từ thư mục research, "
+        f"mỗi tháng một lần từ {OPERABLE_START}. "
+        "Câu hỏi thêm về công bố, chỗ lệch hạng, và rà bảng ngành nằm ở docs/industry-first-backlog.md."
+    )
     lines.append(
         "Cửa thoát theo ngành, trailing stop sau khi chốt một phần ba, và trần 132 phiên "
         "đã có trong sổ. Trần nắm và việc bỏ tiền chết 30 phiên vẫn tắt vì cổng ngành "
@@ -457,7 +458,7 @@ def _stock_lines(bars, ratios, allowed, year_members) -> list[str]:
         cache[key] = chosen
         return chosen
 
-    screen_recall, screen_edge, screen_runs, screen_shs, screen_shs_listed = _measure(SCREEN_START, SCREEN_END)
+    screen_recall, screen_edge, screen_runs, screen_shs, screen_shs_listed = _measure(OPERABLE_START, SCREEN_END)
     confirm_recall, confirm_edge, confirm_runs, confirm_shs, confirm_shs_listed = _measure(CONFIRM_START, CONFIRM_END)
     passed = passes_stock(screen_recall, confirm_recall, screen_edge, confirm_edge)
     return [

@@ -729,6 +729,14 @@ async def upsert_valuation(rows: list[tuple[str, str, float | None, float | None
     await db.commit()
 
 
+async def industry_notes() -> list[dict]:
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT as_of, prompt, response, industries FROM industry_notes ORDER BY as_of"
+    )
+    return [dict(row) for row in await cursor.fetchall()]
+
+
 async def save_industry_note(as_of: str, prompt: str, response: str, industries: str) -> None:
     db = await get_db()
     await db.execute(

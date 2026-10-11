@@ -14,7 +14,14 @@ from app.config import DEFAULT_UNIVERSE
 from app.evaluate import compose
 from app.exits import OpenPosition, fell_under_base, manage_position
 from app.industries import industry_of, members, yearly_universe
-from app.industry_note import monthly_prompt, note_beats_gate
+from app.industry_note import (
+    contain_rate,
+    month_note_days,
+    monthly_prompt,
+    note_beats_gate,
+    parse_picks,
+    shift_months,
+)
 from app.industry_screen import (
     average_by_day,
     build_open_map,
@@ -162,6 +169,15 @@ class IndustryMathTest(unittest.TestCase):
         self.assertNotIn("SHS", text)
         self.assertTrue(note_beats_gate(0.4, 0.3))
         self.assertFalse(note_beats_gate(0.3, 0.3))
+        days = month_note_days(
+            ["2023-02-01", "2023-02-14", "2023-02-15", "2023-03-01", "2023-04-03"],
+            "2023-02-14",
+            "2023-03-01",
+        )
+        self.assertEqual(days, ["2023-02-14", "2023-03-01"])
+        self.assertEqual(shift_months("2023-02-14", 3), "2023-05-14")
+        self.assertEqual(parse_picks("Danh sách: Ngân hàng\nLý do: dư nợ tăng, Điện chưa mở"), ["bank"])
+        self.assertAlmostEqual(contain_rate(["bank", "energy", "bank"], {"bank"}), 2 / 3)
 
     def test_every_mapped_name_is_in_the_universe(self) -> None:
         for symbol in DEFAULT_UNIVERSE:

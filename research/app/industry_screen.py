@@ -83,6 +83,9 @@ def name_allowed(symbol: str, universe: list[str], industry_open: bool | None, r
 
 SCREEN_START = "2021-01-01"
 SCREEN_END = "2024-12-31"
+# Số cổ phiếu trên nguồn bắt đầu 2022-12-31 và chỉ được dùng sau 45 ngày.
+# Cửa sổ đo được chạy từ phiên đầu tiên vốn hóa đã biết.
+OPERABLE_START = "2023-02-14"
 CONFIRM_START = "2025-01-01"
 CONFIRM_END = "2026-10-09"
 MIN_RECALL = 0.60
