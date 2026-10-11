@@ -5,12 +5,16 @@ from datetime import date, timedelta
 
 from app.config import (
     CASH_YIELD,
+    INDUSTRY_GATE_ENFORCED,
+    INDUSTRY_HOLD_ENABLED,
     MA_FAST,
     MA_WINDOW,
     MAX_SLOTS,
     ROUND_TRIP_COST,
     STATEMENT_LAG_DAYS,
+    STOCK_SHORTLIST_ENFORCED,
 )
+from app.industries import industry_of
 from app.evaluate import compose
 from app.exits import (
     OpenPosition,
@@ -117,6 +121,8 @@ def _candidates(
     flow_by_symbol: dict[str, FlowMap],
     exchanges: dict[str, str],
     held: set[str],
+    open_map: dict[tuple[str, str], bool] | None = None,
+    shortlist: set[tuple[str, str]] | None = None,
 ) -> list[tuple[int, int, str, float, Pattern]]:
     found: list[tuple[int, int, str, float, Pattern]] = []
     for symbol, stock_bars in bars_by_symbol.items():
@@ -131,6 +137,7 @@ def _candidates(
             continue
         pattern = assess_pattern(stock_slice, index_slice, exchanges.get(symbol))
         flow_points = _slice_flow(flow_by_symbol.get(symbol, {}), trade_date)
+        industry_open = None if open_map is None else open_map.get((symbol, trade_date))
         verdict = compose(
             symbol,
             as_of,
@@ -140,7 +147,11 @@ def _candidates(
             pattern,
             require_clock=False,
             flow=flow_gate(flow_points, stock_slice),
+            industry_name=industry_of(symbol),
+            industry_open=industry_open,
         )
+        if STOCK_SHORTLIST_ENFORCED and shortlist is not None and (symbol, trade_date) not in shortlist:
+            continue
         price = float(stock_slice[-1]["close"])
         if verdict.status != "Được vào" or not verdict.stop_price:
             continue
@@ -170,6 +181,15 @@ def run_backtest(
         return {"error": f"Chưa đủ nến VN-Index. Cần hơn {MA_WINDOW} phiên."}
 
     dates = [bar["trade_date"] for bar in index_bars][MA_WINDOW:]
+    open_map = None
+    if INDUSTRY_GATE_ENFORCED or INDUSTRY_HOLD_ENABLED:
+        from app.industry_screen import build_open_map
+
+        open_map = build_open_map(
+            index_bars,
+            bars_by_symbol,
+            list(bars_by_symbol),
+        )
     side_cost = ROUND_TRIP_COST / 2
     cash = 1.0
     slots: list[Slot] = []
@@ -212,6 +232,12 @@ def run_backtest(
                 close_at(position, bar, f"Công bố chặn: {filing}")
             elif flow_flipped(flow_points, stock_slice):
                 close_at(position, bar, "Dòng tiền ngoại đảo chiều")
+            elif (
+                INDUSTRY_HOLD_ENABLED
+                and open_map is not None
+                and open_map.get((position.symbol, trade_date)) is False
+            ):
+                close_at(position, bar, "Ngành đóng")
             elif fell_under_base(position, bar):
                 pass  # Already closed at this bar's close, with the reason on the position.
             else:
@@ -242,6 +268,7 @@ def run_backtest(
                 flow_by_symbol or {},
                 exchanges or {},
                 held,
+                open_map,
             )
             ranked = sorted(found, key=lambda item: (-item[0], -item[1], item[2]))
             for score, _priority, symbol, price, pattern in ranked[: MAX_SLOTS - len(slots)]:

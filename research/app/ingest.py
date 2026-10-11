@@ -11,9 +11,8 @@ from urllib.parse import quote
 
 from app.classify import classify_article
 from app.config import (
-    BAR_LOOKBACK_DAYS,
-    FLOW_LOOKBACK_SESSIONS,
-    MACRO_RANGE,
+    FLOW_PAGE_SIZE,
+    HISTORY_START,
     MACRO_SYMBOLS,
     MARKET_SERIES,
     RATIO_CODES,
@@ -95,7 +94,7 @@ def _bars_from_payload(payload: dict) -> list[dict]:
 
 async def fetch_bars(client: httpx.AsyncClient, symbol: str, *, index: bool = False) -> list[dict]:
     now = int(datetime.now(timezone.utc).timestamp())
-    start = now - BAR_LOOKBACK_DAYS * 86400
+    start = int(datetime.fromisoformat(HISTORY_START).replace(tzinfo=timezone.utc).timestamp())
     url = ENTRADE_INDEX if index else ENTRADE_STOCK
     response = await client.get(
         url,
@@ -346,42 +345,66 @@ async def fetch_foreign_flow(
     client: httpx.AsyncClient,
     symbol: str,
 ) -> dict[str, list[tuple[str, float]]]:
-    """Daily foreign trading from VNDirect Finfo: net volume, net value and room left."""
-    response = await client.get(
-        VNDIRECT_FOREIGN,
-        params={
-            "q": f"code:{symbol}",
-            "size": FLOW_LOOKBACK_SESSIONS,
-            "sort": "tradingDate:desc",
-        },
-        headers=BROWSER_HEADERS,
-    )
-    response.raise_for_status()
+    """Daily foreign trading from VNDirect Finfo, walking every page it still has."""
     points: dict[str, list[tuple[str, float]]] = {}
+    seen: set[tuple[str, str]] = set()
 
     def _add(code: str, day: str, value: object) -> None:
-        if value is None:
+        if value is None or (code, day) in seen:
             return
         try:
-            points.setdefault(code, []).append((day, float(value)))
+            number = float(value)
         except (TypeError, ValueError):
             return
+        seen.add((code, day))
+        points.setdefault(code, []).append((day, number))
 
-    for row in (response.json() or {}).get("data") or []:
-        day = str(row.get("tradingDate") or "")[:10]
-        if not day:
-            continue
-        _add("FOREIGN_NET_VOL", day, row.get("netVol"))
-        _add("FOREIGN_NET_VAL", day, row.get("netVal"))
-        total = row.get("totalRoom")
-        current = row.get("currentRoom")
-        if total and current is not None:
-            try:
-                room = float(current) / float(total)
-            except (TypeError, ValueError, ZeroDivisionError):
-                room = None
-            if room is not None:
-                _add("FOREIGN_ROOM_RATIO", day, room)
+    page = 1
+    total_pages = 1
+    while page <= total_pages and page <= 30:
+        response = await client.get(
+            VNDIRECT_FOREIGN,
+            params={
+                "q": f"code:{symbol}",
+                "size": FLOW_PAGE_SIZE,
+                "page": page,
+                "sort": "tradingDate:desc",
+            },
+            headers=BROWSER_HEADERS,
+        )
+        response.raise_for_status()
+        payload = response.json() or {}
+        rows = payload.get("data") or []
+        if not rows:
+            break
+        before = len(seen)
+        for row in rows:
+            day = str(row.get("tradingDate") or "")[:10]
+            if not day:
+                continue
+            _add("FOREIGN_NET_VOL", day, row.get("netVol"))
+            _add("FOREIGN_NET_VAL", day, row.get("netVal"))
+            total = row.get("totalRoom")
+            current = row.get("currentRoom")
+            if total and current is not None:
+                try:
+                    room = float(current) / float(total)
+                except (TypeError, ValueError, ZeroDivisionError):
+                    room = None
+                if room is not None:
+                    _add("FOREIGN_ROOM_RATIO", day, room)
+        if len(seen) == before:
+            break
+        # The first page reports totalPages. Later pages omit it, so a missing count
+        # must not shrink the walk back to the page just read.
+        reported = payload.get("totalPages")
+        if reported:
+            total_pages = int(reported)
+        elif page >= total_pages and len(rows) < FLOW_PAGE_SIZE:
+            break
+        elif page >= total_pages:
+            total_pages = page + 1
+        page += 1
     for series in points.values():
         series.sort()
     return points
@@ -393,7 +416,11 @@ async def fetch_macro(client: httpx.AsyncClient) -> dict[str, list[dict]]:
     for code, symbol, _label in MACRO_SYMBOLS:
         response = await client.get(
             YAHOO_CHART.format(symbol=quote(symbol, safe="")),
-            params={"range": MACRO_RANGE, "interval": "1d"},
+            params={
+                "period1": int(datetime.fromisoformat(HISTORY_START).replace(tzinfo=timezone.utc).timestamp()),
+                "period2": int(datetime.now(timezone.utc).timestamp()),
+                "interval": "1d",
+            },
             headers=BROWSER_HEADERS,
         )
         if response.status_code != 200:

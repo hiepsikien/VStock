@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app import db
-from app.config import MA_FAST, ROUND_TRIP_COST
+from app.config import DEFAULT_UNIVERSE, INDUSTRY_HOLD_ENABLED, MA_FAST, ROUND_TRIP_COST
 from app.exits import (
     OpenPosition,
     blocking_filing,
@@ -109,6 +109,22 @@ async def mark_positions(as_of: str) -> list[str]:
     marked cannot count that session twice.
     """
     messages: list[str] = []
+    open_map = None
+    if INDUSTRY_HOLD_ENABLED:
+        from app.industry_screen import build_open_map
+
+        index_bars = [bar for bar in await db.bars("VNINDEX") if bar["trade_date"] <= as_of]
+        bars_by_symbol = {}
+        for symbol in DEFAULT_UNIVERSE:
+            bars_by_symbol[symbol] = [
+                bar for bar in await db.bars(symbol) if bar["trade_date"] <= as_of
+            ]
+        stored = await db.market_points()
+        lead_bars = {
+            code: [{"trade_date": day, "close": value} for day, value in series if day <= as_of]
+            for code, series in stored.items()
+        }
+        open_map = build_open_map(index_bars, bars_by_symbol, list(DEFAULT_UNIVERSE), lead_bars=lead_bars)
     for row in await db.open_paper_positions():
         bars = [bar for bar in await db.bars(row["symbol"]) if bar["trade_date"] <= as_of]
         if not bars:
@@ -130,6 +146,8 @@ async def mark_positions(as_of: str) -> list[str]:
                 reason = close_at(pos, bar, f"Công bố chặn: {filing}")
             elif flow_flipped(_flow_upto(flow, day), window):
                 reason = close_at(pos, bar, "Dòng tiền ngoại đảo chiều")
+            elif open_map is not None and open_map.get((pos.symbol, day)) is False:
+                reason = close_at(pos, bar, "Ngành đóng")
             elif fell_under_base(pos, bar):
                 reason = pos.exit_reason
             else:

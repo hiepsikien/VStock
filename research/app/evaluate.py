@@ -14,6 +14,7 @@ from app.config import (
     EQUITY_MATCH_CASH,
     F_SCORE_MIN_ITEMS,
     F_SCORE_MIN_PASS,
+    INDUSTRY_GATE_ENFORCED,
     INSIDER_BUY_DAYS,
     INSIDER_SELL_DAYS,
     INSURERS,
@@ -102,6 +103,8 @@ class Verdict:
     failed_breakout: str | None = None
     # Số đang dùng chia theo lớp quyết định, dựng ở compose.
     metric_groups: list[tuple[str, list[tuple[str, str]]]] = field(default_factory=list)
+    industry_name: str | None = None
+    industry_open: bool | None = None
 
     def row(self) -> dict:
         """Shape used by store.save_verdicts, so the mapping lives in one place."""
@@ -146,6 +149,8 @@ class Verdict:
                 "base_sessions": self.base_sessions,
                 "breakout_volume_ratio": self.breakout_volume_ratio,
                 "failed_breakout": self.failed_breakout,
+                "industry_name": self.industry_name,
+                "industry_open": self.industry_open,
                 "metric_groups": [
                     [title, [list(metric) for metric in metrics]]
                     for title, metrics in self.metric_groups
@@ -867,6 +872,8 @@ def compose(
     flow: FlowState | None = None,
     macro: Macro | None = None,
     market: Money | None = None,
+    industry_name: str | None = None,
+    industry_open: bool | None = None,
 ) -> Verdict:
     fundamentals = score_fundamentals(symbol, points, _articles_for_symbol(symbol, articles, as_of))
     valuation_state = score_valuation(valuation)
@@ -932,6 +939,11 @@ def compose(
         status = "Theo dõi"
         summary = f"Vĩ mô chưa có số: {macro.reason}"
 
+    # Cổng ngành chỉ đổi Được vào khi phép đo đã cho phép. Trước đó nó chỉ được ghi vào verdict.
+    if status == "Được vào" and INDUSTRY_GATE_ENFORCED and industry_open is False:
+        status = "Theo dõi"
+        summary = "Ngành đang đóng"
+
     if status == "Được vào" and priority:
         summary = "Ưu tiên vì có đăng ký mua. " + summary
 
@@ -995,4 +1007,6 @@ def compose(
         breakout_volume_ratio=pattern.breakout_volume_ratio,
         failed_breakout=pattern.failed_breakout,
         metric_groups=metric_groups,
+        industry_name=industry_name,
+        industry_open=industry_open,
     )

@@ -144,6 +144,21 @@ CREATE TABLE IF NOT EXISTS paper_positions (
 
 CREATE INDEX IF NOT EXISTS idx_paper_symbol ON paper_positions(symbol);
 
+CREATE TABLE IF NOT EXISTS valuation_points (
+    symbol TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    market_cap REAL,
+    trailing_pe REAL,
+    PRIMARY KEY (symbol, trade_date)
+);
+
+CREATE TABLE IF NOT EXISTS industry_notes (
+    as_of TEXT PRIMARY KEY,
+    prompt TEXT NOT NULL,
+    response TEXT NOT NULL,
+    industries TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS paper_marks (
     position_id INTEGER NOT NULL,
     mark_date TEXT NOT NULL,
@@ -656,14 +671,18 @@ async def latest_run() -> dict | None:
     return dict(row) if row else None
 
 
-async def replace_flow(symbol: str, points: dict[str, list[tuple[str, float]]]) -> None:
-    db = await get_db()
-    await db.execute("DELETE FROM flow_points WHERE symbol = ?", (symbol,))
-    rows = [
+def _flow_rows(symbol: str, points: dict[str, list[tuple[str, float]]]) -> list[tuple]:
+    return [
         (symbol, day, code, value)
         for code, series in points.items()
         for day, value in series
     ]
+
+
+async def replace_flow(symbol: str, points: dict[str, list[tuple[str, float]]]) -> None:
+    db = await get_db()
+    await db.execute("DELETE FROM flow_points WHERE symbol = ?", (symbol,))
+    rows = _flow_rows(symbol, points)
     if rows:
         await db.executemany(
             """
@@ -673,6 +692,56 @@ async def replace_flow(symbol: str, points: dict[str, list[tuple[str, float]]]) 
             """,
             rows,
         )
+    await db.commit()
+
+
+async def upsert_flow(symbol: str, points: dict[str, list[tuple[str, float]]]) -> None:
+    """Keep older foreign-flow sessions. A new download only rewrites the days it contains."""
+    rows = _flow_rows(symbol, points)
+    if not rows:
+        return
+    db = await get_db()
+    await db.executemany(
+        """
+        INSERT INTO flow_points (symbol, trade_date, code, value)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(symbol, trade_date, code) DO UPDATE SET value = excluded.value
+        """,
+        rows,
+    )
+    await db.commit()
+
+
+async def upsert_valuation(rows: list[tuple[str, str, float | None, float | None]]) -> None:
+    if not rows:
+        return
+    db = await get_db()
+    await db.executemany(
+        """
+        INSERT INTO valuation_points (symbol, trade_date, market_cap, trailing_pe)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(symbol, trade_date) DO UPDATE SET
+            market_cap = excluded.market_cap,
+            trailing_pe = excluded.trailing_pe
+        """,
+        rows,
+    )
+    await db.commit()
+
+
+async def save_industry_note(as_of: str, prompt: str, response: str, industries: str) -> None:
+    db = await get_db()
+    await db.execute(
+        """
+        INSERT INTO industry_notes (as_of, prompt, response, industries)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(as_of) DO UPDATE SET
+            prompt = excluded.prompt,
+            response = excluded.response,
+            industries = excluded.industries
+        """,
+        (as_of, prompt, response, industries),
+    )
     await db.commit()
 
 

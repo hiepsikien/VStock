@@ -67,6 +67,10 @@ async def _run() -> str:
         except Exception as exc:
             logger.warning("Market fetch failed: %s", exc)
             market_series = {}
+        for code, bars in macro_series.items():
+            await db.upsert_market_points(
+                code, [(str(bar["trade_date"]), float(bar["close"])) for bar in bars]
+            )
         for code, market_rows in market_series.items():
             await db.upsert_market_points(code, market_rows)
         semaphore = asyncio.Semaphore(4)
@@ -91,7 +95,7 @@ async def _run() -> str:
             await db.replace_ratios(symbol, ratios)
             await db.upsert_articles(articles)
             if flow:
-                await db.replace_flow(symbol, flow)
+                await db.upsert_flow(symbol, flow)
             return None
 
         failed = [symbol for symbol in await asyncio.gather(*[_one(symbol) for symbol in symbols]) if symbol]
