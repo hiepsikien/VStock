@@ -170,6 +170,18 @@ class IndustryMathTest(unittest.TestCase):
             is_open("tech", ["FPT"], excess=0.02, lead_return=None, credit_growth=None, regime_open=True)
         )
         self.assertTrue(name_allowed("FPT", ["FPT"], None, True))
+        # Chốt lại bằng chính `yearly_open_map`: nếu chỉ số ngành chỉ có một mã của ngành thì mã
+        # mở theo chế độ thị trường — đó là hành vi trước khi sửa, nên assert ngược lại ở trên mới
+        # là chỗ chặn lỗi quay lại.
+        thin = {2024: Basket("2024-01-08", ["FPT"], ["FPT"])}
+        opened_thin = yearly_open_map(
+            book,
+            {},
+            {},
+            thin,
+            regime_by_day={bar["trade_date"]: True for bar in index},
+        )
+        self.assertTrue(opened_thin[("FPT", day)])
 
     def test_trailing_pe_waits_for_the_statement_lag(self) -> None:
         shares = [("2024-12-31", 10.0)]

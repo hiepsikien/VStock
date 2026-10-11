@@ -12,13 +12,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from app.config import STATEMENT_LAG_DAYS
-from app.industries import (
-    INDUSTRY_WINDOW,
-    MIN_INDUSTRY_NAMES,
-    gated_industries,
-    members,
-    set_industry_map,
-)
+from app.industries import INDUSTRY_WINDOW, gated_industries, members, set_industry_map
 from app.pit_universe import Basket, baskets_from_bars, trade_member_of
 from app.industry_screen import (
     BACK_END,
@@ -122,7 +116,9 @@ def yearly_open_map(
     Sức mạnh ngành đo trên rổ 200 mã của năm, đúng bằng chỉ số ngành mà phép đo precision đọc:
     một ngành đủ ba mã trong rổ 200 thì mã vào lệnh bị xét theo chỉ số ngành đó, kể cả khi ngành
     ấy chỉ có một mã trong rổ giao dịch. Rổ giao dịch chỉ quyết định mã nào có cờ, vì mã ngoài
-    rổ giao dịch không có lệnh nào để mở.
+    rổ giao dịch không có lệnh nào để mở. Năm nào rổ 200 cũng chưa đủ ba mã cho một ngành thì
+    mọi mã rơi về chế độ thị trường, đúng như `is_open` xử lý một ngành mỏng; không bỏ qua năm
+    đó, vì bỏ qua thì phép đo đếm các phiên ấy là đóng trong khi cổng vẫn mở.
     """
     index = bars.get("VNINDEX") or []
     index_days = [bar["trade_date"] for bar in index]
@@ -130,8 +126,7 @@ def yearly_open_map(
     lead = lead_bars_from(market)
     allowed: dict[tuple[str, str], bool] = {}
     for year, basket in baskets.items():
-        # Năm nào rổ 200 mã cũng chưa đủ ba mã cho một ngành thì không có cổng ngành nào để mở.
-        if basket.day is None or len(basket.universe) < MIN_INDUSTRY_NAMES:
+        if basket.day is None:
             continue
         opened = build_open_map(
             index,
