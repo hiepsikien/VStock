@@ -12,7 +12,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from app.config import DEFAULT_UNIVERSE, STATEMENT_LAG_DAYS
-from app.industries import gated_industries, members, yearly_universe
+from app.industries import INDUSTRY_WINDOW, gated_industries, members, yearly_universe
 from app.industry_screen import (
     CONFIRM_END,
     CONFIRM_START,
@@ -112,6 +112,59 @@ def _industry_forward(index: list[dict], day: str) -> float | None:
     return float(index[start + 66]["close"]) / base - 1.0
 
 
+def yearly_open_map(
+    bars: dict[str, list[dict]],
+    ratios: dict,
+    market: dict[str, list[tuple[str, float]]],
+    window: int = INDUSTRY_WINDOW,
+    regime_by_day: dict[str, bool | None] | None = None,
+) -> tuple[dict[tuple[str, str], bool], dict[int, tuple[str | None, list[str]]]]:
+    """Open state of every name in each year's basket, and the basket of each year."""
+    index = bars.get("VNINDEX") or []
+    index_days = [bar["trade_date"] for bar in index]
+    credit = credit_by_day(ratios, index_days)
+    lead = lead_bars_from(market)
+    allowed: dict[tuple[str, str], bool] = {}
+    year_members: dict[int, tuple[str | None, list[str]]] = {}
+    for year in range(2021, 2027):
+        anchor, universe = _universe_for_year(year, bars, ratios, index_days)
+        year_members[year] = (anchor, universe)
+        if anchor is None or len(universe) < 3:
+            continue
+        opened = build_open_map(
+            index,
+            bars,
+            universe,
+            lead_bars=lead,
+            credit_by_day=credit,
+            regime_by_day=regime_by_day,
+            window=window,
+        )
+        for (symbol, day), flag in opened.items():
+            if day.startswith(str(year)) and day >= anchor and symbol in universe:
+                allowed[(symbol, day)] = flag
+    return allowed, year_members
+
+
+def measure_gate(bars, allowed, year_members, start: str, end: str) -> tuple[dict, dict]:
+    """Recall over name runs, and precision over industry-sessions, for one window."""
+
+    def _active(symbol: str, day: str) -> bool:
+        anchor, universe = year_members.get(int(day[:4]), (None, []))
+        return anchor is not None and day >= anchor and symbol in universe
+
+    def _open(symbol: str, day: str) -> bool:
+        return _active(symbol, day) and allowed.get((symbol, day), False)
+
+    book = {symbol: bars[symbol] for symbol in DEFAULT_UNIVERSE if symbol in bars}
+    counts = layer_counts(book, _open, start, end, _active)
+    # Precision of the industry gate is counted in industry-sessions, not name-sessions.
+    industry = _industry_precision(bars, allowed, year_members, start, end)
+    counts["precision"] = industry["precision"]
+    counts["baseline"] = industry["baseline"]
+    return counts, industry
+
+
 def write_report() -> str:
     bars, ratios, market = _load()
     index = bars.get("VNINDEX") or []
@@ -149,44 +202,9 @@ def write_report() -> str:
             "Nguồn không có trước ngày sớm nhất này."
         )
     lines.append("")
-    credit = credit_by_day(ratios, index_days)
-    lead = lead_bars_from(market)
-    allowed: dict[tuple[str, str], bool] = {}
-    year_members: dict[int, tuple[str | None, list[str]]] = {}
-    for year in range(2021, 2027):
-        anchor, universe = _universe_for_year(year, bars, ratios, index_days)
-        year_members[year] = (anchor, universe)
-        if anchor is None or len(universe) < 3:
-            continue
-        opened = build_open_map(
-            index,
-            bars,
-            universe,
-            lead_bars=lead,
-            credit_by_day=credit,
-        )
-        for (symbol, day), flag in opened.items():
-            if day.startswith(str(year)) and day >= anchor and symbol in universe:
-                allowed[(symbol, day)] = flag
-
-    def _active(symbol: str, day: str) -> bool:
-        anchor, universe = year_members.get(int(day[:4]), (None, []))
-        return anchor is not None and day >= anchor and symbol in universe
-
-    def _open(symbol: str, day: str) -> bool:
-        return _active(symbol, day) and allowed.get((symbol, day), False)
-
-    screen_book = {symbol: bars[symbol] for symbol in DEFAULT_UNIVERSE if symbol in bars}
-    screen = layer_counts(screen_book, _open, OPERABLE_START, SCREEN_END, _active)
-    confirm = layer_counts(screen_book, _open, CONFIRM_START, CONFIRM_END, _active)
-
-    # Precision of the industry gate is counted in industry-sessions, not name-sessions.
-    industry_precision = _industry_precision(bars, allowed, year_members, OPERABLE_START, SCREEN_END)
-    industry_confirm = _industry_precision(bars, allowed, year_members, CONFIRM_START, CONFIRM_END)
-    screen["precision"] = industry_precision["precision"]
-    screen["baseline"] = industry_precision["baseline"]
-    confirm["precision"] = industry_confirm["precision"]
-    confirm["baseline"] = industry_confirm["baseline"]
+    allowed, year_members = yearly_open_map(bars, ratios, market)
+    screen, industry_precision = measure_gate(bars, allowed, year_members, OPERABLE_START, SCREEN_END)
+    confirm, industry_confirm = measure_gate(bars, allowed, year_members, CONFIRM_START, CONFIRM_END)
     passed = passes_layer(
         screen["recall"],
         screen["precision"],

@@ -124,10 +124,14 @@ def _candidates(
     held: set[str],
     open_map: dict[tuple[str, str], bool] | None = None,
     shortlist: set[tuple[str, str]] | None = None,
+    enforce_industry: bool = False,
 ) -> list[tuple[int, int, str, float, Pattern]]:
     found: list[tuple[int, int, str, float, Pattern]] = []
     for symbol, stock_bars in bars_by_symbol.items():
         if symbol in held:
+            continue
+        # A name with no state for the session is outside that year's basket, so it stays out too.
+        if enforce_industry and open_map is not None and open_map.get((symbol, trade_date)) is not True:
             continue
         stock_slice = _slice(stock_bars, trade_date)
         if len(stock_slice) < 61:
@@ -170,6 +174,8 @@ def run_backtest(
     exchanges: dict[str, str] | None = None,
     flow_by_symbol: dict[str, FlowMap] | None = None,
     market_points: dict[str, list[tuple[str, float]]] | None = None,
+    open_map: dict[tuple[str, str], bool] | None = None,
+    enforce_industry: bool = False,
 ) -> dict:
     """A book of MAX_SLOTS equal-risk slots, each with its own exit plan.
 
@@ -183,8 +189,7 @@ def run_backtest(
         return {"error": f"Chưa đủ nến VN-Index. Cần hơn {MA_WINDOW} phiên."}
 
     dates = [bar["trade_date"] for bar in index_bars][MA_WINDOW:]
-    open_map = None
-    if INDUSTRY_GATE_ENFORCED or INDUSTRY_HOLD_ENABLED:
+    if open_map is None and (INDUSTRY_GATE_ENFORCED or INDUSTRY_HOLD_ENABLED):
         from app.industry_screen import build_open_map, credit_by_day, lead_bars_from
 
         open_map = build_open_map(
@@ -275,6 +280,7 @@ def run_backtest(
                 exchanges or {},
                 held,
                 open_map,
+                enforce_industry=enforce_industry,
             )
             ranked = sorted(found, key=lambda item: (-item[0], -item[1], item[2]))
             for score, _priority, symbol, price, pattern in ranked[: MAX_SLOTS - len(slots)]:
@@ -329,6 +335,7 @@ def run_backtest(
         "average_sessions": average_sessions,
         "max_drawdown": _drawdown(curve),
         "exit_counts": sorted(exits.items(), key=lambda item: -item[1]),
+        "curve": curve,
         "slots": MAX_SLOTS,
         "assumptions": (
             f"{MAX_SLOTS} suất vốn, mỗi suất rủi ro 1% vốn chủ khi vào. "

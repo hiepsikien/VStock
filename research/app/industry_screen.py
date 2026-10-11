@@ -188,6 +188,7 @@ def build_open_map(
     lead_bars: dict[str, list[dict]] | None = None,
     credit_by_day: dict[str, float | None] | None = None,
     regime_by_day: dict[str, bool | None] | None = None,
+    window: int = INDUSTRY_WINDOW,
 ) -> dict[tuple[str, str], bool]:
     """Whether each name is allowed on a session, using the window that ended yesterday.
 
@@ -197,7 +198,7 @@ def build_open_map(
     from app.pattern import market_regime
 
     index_days = [str(bar["trade_date"]) for bar in index_bars]
-    index_roll = rolling_compound(dated_returns(index_bars))
+    index_roll = rolling_compound(dated_returns(index_bars), window)
     if regime_by_day is None:
         regime_by_day = {}
         for index, day in enumerate(index_days):
@@ -206,10 +207,10 @@ def build_open_map(
     for industry, series_name in LEAD_SERIES.items():
         bars = (lead_bars or {}).get(series_name) or []
         if bars and "close" in bars[0]:
-            lead_roll[industry] = rolling_compound(dated_returns(bars))
+            lead_roll[industry] = rolling_compound(dated_returns(bars), window)
         elif bars:
             lead_roll[industry] = rolling_compound(
-                [(str(day), float(value)) for day, value in bars]
+                [(str(day), float(value)) for day, value in bars], window
             )
     industry_roll = {}
     for industry in gated_industries(universe):
@@ -218,7 +219,7 @@ def build_open_map(
             for symbol in members(industry, universe)
             if symbol in bars_by_symbol
         ]
-        industry_roll[industry] = rolling_compound(average_by_day(series))
+        industry_roll[industry] = rolling_compound(average_by_day(series), window)
 
     allowed: dict[tuple[str, str], bool] = {}
     for day in index_days:

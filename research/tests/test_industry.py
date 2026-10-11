@@ -59,6 +59,40 @@ def _bars(start: str, closes: list[float]) -> list[dict]:
     return rows
 
 
+class SweepMathTest(unittest.TestCase):
+    def test_rotation_pays_cost_on_entry_and_cash_when_closed(self) -> None:
+        from app.config import CASH_YIELD, ROUND_TRIP_COST
+        from app.industry_sweep import _rotation
+
+        bars = {"AAA": _bars("2024-01-01", [10.0, 11.0, 11.0])}
+        days = ["2024-01-01", "2024-01-02", "2024-01-03"]
+        held = _rotation(bars, days, lambda day: ["AAA"] if day == "2024-01-02" else [])
+        side = ROUND_TRIP_COST / 2
+        # Vào ở phiên 2 trả phí một chiều rồi ăn +10%; phiên 3 bán ra trả phí chiều kia rồi đứng tiền.
+        self.assertAlmostEqual(held[0][1], (1 - side) * 1.10)
+        self.assertAlmostEqual(held[1][1], (1 - side) * 1.10 * (1 - side) * (1 + CASH_YIELD) ** (1 / 365))
+
+    def test_segment_measures_from_the_last_point_before_the_start(self) -> None:
+        from app.industry_sweep import _segment
+
+        curve = [("2024-12-30", 1.0), ("2024-12-31", 2.0), ("2025-01-02", 1.0), ("2025-01-03", 1.5)]
+        seg = _segment(curve, "2025-01-01", "2025-12-31")
+        self.assertAlmostEqual(seg["return"], -0.25)
+        self.assertAlmostEqual(seg["drawdown"], -0.5)
+        self.assertIsNone(seg["yearly"])
+
+    def test_shorter_window_opens_the_industry_sooner(self) -> None:
+        index = _bars("2024-01-01", [100.0] * 80)
+        rising = [100.0 * (1.01 ** step) for step in range(80)]
+        book = {symbol: _bars("2024-01-01", rising) for symbol in ("VIC", "VHM", "VRE")}
+        regime = {bar["trade_date"]: True for bar in index}
+        short = build_open_map(index, book, ["VIC", "VHM", "VRE"], regime_by_day=regime, window=14)
+        long = build_open_map(index, book, ["VIC", "VHM", "VRE"], regime_by_day=regime, window=60)
+        day = index[20]["trade_date"]
+        self.assertTrue(short[("VIC", day)])
+        self.assertFalse(long[("VIC", day)])
+
+
 class IndustryMathTest(unittest.TestCase):
     def test_equal_weight_skips_a_missing_name(self) -> None:
         averaged = average_by_day(
