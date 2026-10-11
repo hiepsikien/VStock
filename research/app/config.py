@@ -35,6 +35,9 @@ EQUITY_MATCH_BONUS = 0.35
 EQUITY_MATCH_CASH = 0.60
 # Nến và chuỗi vĩ mô xin từ ngày này, để đo được sóng 2021 và sóng giảm 2022.
 HISTORY_START = "2021-01-01"
+# history_pull nạp lùi tới đây cho giai đoạn đo 2015–2020. Phiên live vẫn xin từ HISTORY_START,
+# các phiên cũ đã lưu thì giữ nguyên. Năm 2014 chỉ để VN-Index đủ MA200 và cửa sổ ngành khởi động.
+RESEARCH_HISTORY_START = "2014-01-01"
 # Default matches news_filing_days in backend/config/providers.yaml.
 # Docker passes ARTICLE_RETENTION_DAYS from NEWS_FILING_DAYS so the two stay together.
 ARTICLE_RETENTION_DAYS = 1460
@@ -288,6 +291,13 @@ MARKET_GATE_CLOSED = ("INTERBANK_ON", "GOV10Y")
 # Lãi suất điều hành không có nguồn tự động. Mỗi quyết định của NHNN là một dòng, ghi
 # ngày có hiệu lực; bài báo chỉ để biết ngày đó, không dùng để chấm điểm.
 POLICY_RATE_HISTORY = (
+    ("2014-03-18", 6.5),
+    ("2017-07-10", 6.25),
+    ("2019-09-16", 6.0),
+    ("2020-03-17", 5.0),
+    ("2020-05-13", 4.5),
+    ("2020-10-01", 4.0),
+    ("2022-09-23", 5.0),
     ("2022-10-25", 6.0),
     ("2023-04-03", 5.5),
     ("2023-05-25", 5.0),

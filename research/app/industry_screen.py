@@ -91,6 +91,12 @@ SCREEN_END = "2024-12-31"
 OPERABLE_START = "2021-01-04"
 CONFIRM_START = "2025-01-01"
 CONFIRM_END = "2026-10-09"
+# Giai đoạn lùi chỉ để đối chiếu, không nằm trong luật qua cửa. Luật và tham số giữ nguyên
+# như lúc chạy lần đầu; đổi luật sau khi xem giai đoạn này thì nó cũng mất giá trị kiểm tra.
+BACK_START = "2015-01-01"
+BACK_END = "2020-12-31"
+# Chỉ số tài chính có từ quý 4/2017, cộng 45 ngày trễ, nên sổ lệnh lùi chỉ vào được từ đây.
+BACK_LEDGER_START = "2018-02-15"
 MIN_RECALL = 0.60
 MIN_PRECISION_MULTIPLE = 2.0
 MIN_CLOSED_TRADES = 30

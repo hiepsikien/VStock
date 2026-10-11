@@ -40,7 +40,9 @@ Luật cứng đã có vẫn đứng trước mọi tầng: giá chưa chỉnh c
 
 Có hai phép đo, vì hai câu hỏi có hai cỡ mẫu khác nhau. Trộn chúng sẽ bảo một tầng đúng trong khi sổ lệnh lỗ, hoặc bác một tầng đúng chỉ vì vài lệnh.
 
-Phép đo tầng ngành và tầng mã đếm từng phiên. Chọn quy tắc trên các đợt bắt đầu từ 2021-01-01 đến 2024-12-31. Chỉ kết luận khi cùng quy tắc đó còn đúng với các đợt bắt đầu từ 2025-01-01 đến 2026-10-09. Không được nới ngưỡng sau khi xem giai đoạn xác nhận. Giai đoạn 2021–2024 có cả sóng tăng 2021 và sóng giảm 2022. Nến và chuỗi vĩ mô được kéo từ `HISTORY_START = "2021-01-01"` trong [`research/app/ingest.py`](../research/app/ingest.py) để kho bắt đầu từ 2021. Báo cáo quý trong kho đã có từ 2017.
+Phép đo tầng ngành và tầng mã đếm từng phiên. Chọn quy tắc trên các đợt bắt đầu từ 2021-01-01 đến 2024-12-31. Chỉ kết luận khi cùng quy tắc đó còn đúng với các đợt bắt đầu từ 2025-01-01 đến 2026-10-09. Không được nới ngưỡng sau khi xem giai đoạn xác nhận. Giai đoạn 2021–2024 có cả sóng tăng 2021 và sóng giảm 2022. Phiên live kéo nến và chuỗi vĩ mô từ `HISTORY_START = "2021-01-01"`; `history_pull` kéo lùi tới `RESEARCH_HISTORY_START = "2014-01-01"` trong [`research/app/config.py`](../research/app/config.py). Báo cáo quý trong kho đã có từ 2017.
+
+Giai đoạn lùi 2015–2020 được đo sau khi đã xem cả hai giai đoạn trên, với đúng luật và tham số lúc đó. Nó chỉ để đối chiếu, không nằm trong luật qua cửa, và không được dùng để chỉnh luật. Sổ lệnh lùi chỉ chạy từ 2018-02-15, vì chỉ số tài chính quý có từ quý 4/2017. Năm 2014 chỉ để VN-Index đủ MA200 và cửa sổ ngành khởi động; nhờ đó năm 2021 không còn mấy tháng đầu thiếu trạng thái ngành.
 
 Phép đo sổ lệnh đếm lệnh đã đóng, theo giá thoát thật, không theo nhãn 66 phiên. Trên cửa sổ 2024-04 đến 2026-10, khoảng 620 phiên, nếu năm suất luôn đầy và mỗi lệnh giữ hết 132 phiên thì cả sổ chỉ có khoảng 23 lệnh. Năm 2026 dài khoảng 185 phiên, một lệnh 132 phiên chỉ kịp một vòng, cả sổ khoảng 5 đến 8 lệnh. Cỡ đó không đủ để kết luận có lợi thế. Một mã tăng 60% hoặc một mã gãy cũng quyết định cả năm. Vì vậy sổ lệnh không được chấm đậu hay trượt trên riêng năm 2026. Nó được chấm trên toàn bộ 2021–2026, và phải có ít nhất 30 lệnh đã đóng thì các tỷ lệ mới được đem ra kết luận. Chưa đủ 30 lệnh thì chỉ công bố số lệnh, lợi nhuận và sụt sâu nhất, chưa đổi `Được vào`.
 
@@ -157,11 +159,11 @@ Sóng giảm 2022 là bài kiểm tra riêng của sổ, không thay cho ngưỡ
 ## Dữ liệu cần có trước lần đo đầu
 
 - Rổ VN100, dựng lại đầu mỗi năm theo vốn hóa.
-- Nến từ 2021-01-01. Dùng [`HISTORY_START`](../research/app/config.py) để kéo đủ từ 2021-01-01, rồi ghi ngày nến sớm nhất thực tế của từng mã. Mã không có nến năm đó thì vắng trong năm đó.
+- Nến từ 2014-01-01. `history_pull` dùng [`RESEARCH_HISTORY_START`](../research/app/config.py) để kéo đủ từ 2014-01-01, rồi ghi ngày nến sớm nhất thực tế của từng mã. Mã không có nến năm đó thì vắng trong năm đó.
 - Dòng ngoại: [`fetch_foreign_flow`](../research/app/ingest.py) hết phân trang VNDirect, [`replace_flow`](../research/app/db.py) đổi thành upsert. Mỗi mã phải phủ từ 2021 nếu nguồn có. Dòng ngoại chưa tham gia cổng ngành. Nó là chuỗi ứng viên của bước chọn mã, đo cùng cách với tăng tốc lợi nhuận.
 - P/E và vốn hóa tính từ nến, số cổ phiếu và lợi nhuận quý đã lưu. Ghi chuỗi theo ngày. Báo cáo quý đã có từ 2017.
 - Lợi suất ngành tính lúc đo, không cần bảng giá mới.
-- Dầu, USD/VND và các chuỗi Yahoo khác được lưu vào `market_points`, range đủ từ 2021.
+- Dầu, USD/VND và các chuỗi Yahoo khác được lưu vào `market_points`, range đủ từ 2014.
 
 ## Cách giao
 

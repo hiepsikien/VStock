@@ -1,6 +1,6 @@
 """Đo cổng ngành với cửa sổ lợi suất 14, 30 và 60 phiên.
 
-Mỗi cửa sổ cho ba nhóm số trên giai đoạn chọn và giai đoạn xác nhận:
+Mỗi cửa sổ cho ba nhóm số trên giai đoạn lùi, giai đoạn chọn và giai đoạn xác nhận:
 
 * recall và precision ngành, cùng cách đếm với báo cáo cổng ngành;
 * lợi nhuận của một danh mục chia đều cho mọi mã đang ở ngành mở, so với danh mục chia đều cả rổ;
@@ -24,16 +24,26 @@ from app import db
 from app.backtest import run_backtest
 from app.config import CASH_YIELD, DEFAULT_UNIVERSE, ROUND_TRIP_COST
 from app.industry_report import _load, measure_gate, yearly_open_map
-from app.industry_screen import CONFIRM_END, CONFIRM_START, OPERABLE_START, SCREEN_END
+from app.industry_screen import (
+    BACK_END,
+    BACK_LEDGER_START,
+    BACK_START,
+    CONFIRM_END,
+    CONFIRM_START,
+    OPERABLE_START,
+    SCREEN_END,
+)
 from app.ingest import load_exchanges
 from app.pattern import market_regime
 
 WINDOWS = (14, 30, 60)
 REPORT_PATH = Path(__file__).resolve().parents[1] / "reports" / "industry_sweep.md"
 PERIODS = (
+    ("Lùi", BACK_START, BACK_END),
     ("Chọn", OPERABLE_START, SCREEN_END),
     ("Xác nhận", CONFIRM_START, CONFIRM_END),
 )
+LEDGER_PERIODS = (("Lùi", BACK_LEDGER_START, BACK_END),) + PERIODS[1:]
 
 Curve = list[tuple[str, float]]
 
@@ -281,13 +291,13 @@ def _render(measures, index_curve, always_curve, rotation_curves, books) -> str:
         "/backtest. Cột cửa sổ chỉ thêm một điều: mã phải thuộc rổ năm và ngành đang mở. "
         "Mỗi lệnh chỉ rủi ro 1% vốn nên sổ đứng tiền phần lớn thời gian; phần lãi từ giao dịch là "
         "chênh lệch so với dòng \"Chỉ gửi tiền\". "
-        "Sổ chỉ bắt đầu khi VN-Index đủ 200 phiên, nên giai đoạn chọn bắt đầu từ "
-        f"{(base.get('start') or '—')}."
+        f"Giai đoạn lùi của sổ bắt đầu {BACK_LEDGER_START}, khi chỉ số tài chính quý 4/2017 "
+        "đã công bố đủ 45 ngày; trước đó cổng cơ bản không chấm được mã nào."
     )
     lines.append("")
     lines.append("| Sổ | Giai đoạn | Lợi nhuận | Mỗi năm | Sụt sâu nhất | VN-Index cùng kỳ | Lệnh vào | Thắng | Lãi TB mỗi lệnh |")
     lines.append("|---|---|---|---|---|---|---|---|---|")
-    for name, start, end in PERIODS:
+    for name, start, end in LEDGER_PERIODS:
         days = [day for day, _value in base.get("curve") or [] if start <= day <= end]
         if days:
             years = (date.fromisoformat(days[-1]) - date.fromisoformat(days[0])).days / 365.25
@@ -316,9 +326,11 @@ def _render(measures, index_curve, always_curve, rotation_curves, books) -> str:
             )
     lines.append("")
     lines.append(
-        "Lưu ý: rổ ứng viên là 106 mã còn sống đến nay, nên mọi con số còn thiên lệch sống sót. "
-        "Cửa sổ 60 phiên chưa mở được ngành nào trước 2021-04-22, cửa sổ ngắn mở sớm hơn, "
-        "nên recall năm 2021 nghiêng về cửa sổ ngắn."
+        "Lưu ý: rổ ứng viên là 106 mã còn sống đến nay, nên mọi con số còn thiên lệch sống sót, "
+        "nặng nhất ở giai đoạn lùi vì các mã đã hủy niêm yết hay sáp nhập không có mặt. "
+        "Giai đoạn lùi chỉ để đối chiếu và không nằm trong luật qua cửa. Trong giai đoạn đó tín dụng "
+        "ngân hàng chỉ có từ 2018, nên trước đó ngân hàng và chứng khoán luôn đóng; dòng tiền khối "
+        "ngoại chỉ có từ 2018-08, phiên thiếu thì cổng dòng ngoại không chặn."
     )
     return "\n".join(lines) + "\n"
 

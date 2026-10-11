@@ -1,4 +1,4 @@
-"""Fill bars, statements, foreign flow and Yahoo macro back to 2021.
+"""Fill bars, statements, foreign flow and Yahoo macro back to RESEARCH_HISTORY_START.
 
 A symbol the source does not have is skipped. Older sessions already stored are kept.
 """
@@ -11,7 +11,7 @@ import logging
 import httpx
 
 from app import db
-from app.config import DEFAULT_UNIVERSE, MACRO_SYMBOLS
+from app.config import DEFAULT_UNIVERSE, MACRO_SYMBOLS, RESEARCH_HISTORY_START
 from app.ingest import (
     fetch_bars,
     fetch_foreign_flow,
@@ -28,11 +28,11 @@ async def pull() -> dict[str, str]:
     earliest: dict[str, str] = {}
     timeout = httpx.Timeout(60.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
-        index_bars = await fetch_bars(client, "VNINDEX", index=True)
+        index_bars = await fetch_bars(client, "VNINDEX", index=True, start=RESEARCH_HISTORY_START)
         await db.replace_bars("VNINDEX", index_bars)
         if index_bars:
             earliest["VNINDEX"] = index_bars[0]["trade_date"]
-        macro = await fetch_macro(client)
+        macro = await fetch_macro(client, start=RESEARCH_HISTORY_START)
         for code, _symbol, _label in MACRO_SYMBOLS:
             bars = macro.get(code) or []
             series_name = "USDVND_MACRO" if code == "USDVND" else code
@@ -47,7 +47,7 @@ async def pull() -> dict[str, str]:
         async def _one(symbol: str) -> None:
             async with semaphore:
                 try:
-                    bars = await fetch_bars(client, symbol)
+                    bars = await fetch_bars(client, symbol, start=RESEARCH_HISTORY_START)
                 except Exception as exc:
                     logger.warning("Bars failed for %s: %s", symbol, exc)
                     bars = []

@@ -1,4 +1,4 @@
-"""Measure the industry gate on 2021–2024 and confirm it on 2025–2026.
+"""Measure the industry gate on 2021–2024, confirm it on 2025–2026, and look back at 2015–2020.
 
 The flags that block an entry stay off unless this report's numbers clear both windows.
 """
@@ -14,6 +14,8 @@ from pathlib import Path
 from app.config import DEFAULT_UNIVERSE, STATEMENT_LAG_DAYS
 from app.industries import INDUSTRY_WINDOW, gated_industries, members, yearly_universe
 from app.industry_screen import (
+    BACK_END,
+    BACK_START,
     CONFIRM_END,
     CONFIRM_START,
     SCREEN_END,
@@ -126,7 +128,8 @@ def yearly_open_map(
     lead = lead_bars_from(market)
     allowed: dict[tuple[str, str], bool] = {}
     year_members: dict[int, tuple[str | None, list[str]]] = {}
-    for year in range(2021, 2027):
+    last_year = int(index_days[-1][:4]) if index_days else int(CONFIRM_END[:4])
+    for year in range(int(BACK_START[:4]), last_year + 1):
         anchor, universe = _universe_for_year(year, bars, ratios, index_days)
         year_members[year] = (anchor, universe)
         if anchor is None or len(universe) < 3:
@@ -205,6 +208,7 @@ def write_report() -> str:
     allowed, year_members = yearly_open_map(bars, ratios, market)
     screen, industry_precision = measure_gate(bars, allowed, year_members, OPERABLE_START, SCREEN_END)
     confirm, industry_confirm = measure_gate(bars, allowed, year_members, CONFIRM_START, CONFIRM_END)
+    back, industry_back = measure_gate(bars, allowed, year_members, BACK_START, BACK_END)
     passed = passes_layer(
         screen["recall"],
         screen["precision"],
@@ -225,6 +229,11 @@ def write_report() -> str:
     lines.append("")
     lines.append(_window_line(f"Chọn {OPERABLE_START}–2024", screen, industry_precision))
     lines.append(_window_line("Xác nhận 2025–2026", confirm, industry_confirm))
+    lines.append(_window_line("Lùi 2015–2020, chỉ để đối chiếu", back, industry_back))
+    lines.append(
+        "Giai đoạn lùi không nằm trong luật qua cửa. Tín dụng ngân hàng chỉ có từ 2018, "
+        "nên trước đó ngân hàng và chứng khoán luôn đóng."
+    )
     lines.append("")
     if passed:
         lines.append("Cổng ngành qua cả hai giai đoạn và được phép chặn Được vào.")

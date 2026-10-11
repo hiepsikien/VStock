@@ -99,13 +99,15 @@ def _bars_from_payload(payload: dict) -> list[dict]:
     return [by_day[day] for day in sorted(by_day)]
 
 
-async def fetch_bars(client: httpx.AsyncClient, symbol: str, *, index: bool = False) -> list[dict]:
+async def fetch_bars(
+    client: httpx.AsyncClient, symbol: str, *, index: bool = False, start: str = HISTORY_START
+) -> list[dict]:
     now = int(datetime.now(timezone.utc).timestamp())
-    start = int(datetime.fromisoformat(HISTORY_START).replace(tzinfo=timezone.utc).timestamp())
+    since = int(datetime.fromisoformat(start).replace(tzinfo=timezone.utc).timestamp())
     url = ENTRADE_INDEX if index else ENTRADE_STOCK
     response = await client.get(
         url,
-        params={"symbol": symbol, "resolution": "1D", "from": start, "to": now},
+        params={"symbol": symbol, "resolution": "1D", "from": since, "to": now},
         headers=ENTRADE_HEADERS,
     )
     response.raise_for_status()
@@ -500,14 +502,14 @@ async def fetch_foreign_flow(
     return points
 
 
-async def fetch_macro(client: httpx.AsyncClient) -> dict[str, list[dict]]:
+async def fetch_macro(client: httpx.AsyncClient, start: str = HISTORY_START) -> dict[str, list[dict]]:
     """Cross-market closes for the macro layer. Yahoo serves all four symbols."""
     series: dict[str, list[dict]] = {}
     for code, symbol, _label in MACRO_SYMBOLS:
         response = await client.get(
             YAHOO_CHART.format(symbol=quote(symbol, safe="")),
             params={
-                "period1": int(datetime.fromisoformat(HISTORY_START).replace(tzinfo=timezone.utc).timestamp()),
+                "period1": int(datetime.fromisoformat(start).replace(tzinfo=timezone.utc).timestamp()),
                 "period2": int(datetime.now(timezone.utc).timestamp()),
                 "interval": "1d",
             },
