@@ -60,8 +60,8 @@ và chỉ gắn vào localhost.
 ### Chạy từ dashboard
 
 Dashboard có nút **Chạy phiên**: nó tải nến, chỉ tiêu, công bố, dòng tiền ngoại và dữ liệu vĩ mô
-cho cả danh sách, chấm lại toàn bộ, đánh dấu vị thế giấy và gửi cảnh báo. Danh sách 51 mã mất
-khoảng 25 giây: mỗi mã thêm một lượt nến, chỉ tiêu, công bố và dòng tiền ngoại, còn giá realtime
+cho cả danh sách, chấm lại toàn bộ, đánh dấu vị thế giấy và gửi cảnh báo. Danh sách 106 mã mất
+khoảng 35–45 giây: mỗi mã thêm một lượt nến, chỉ tiêu, công bố và dòng tiền ngoại, còn giá realtime
 đi một batch nên không phải nới nhịp poll. Thêm/bỏ mã và ghi xác nhận, bỏ qua cũng làm được ngay
 trên trang web. Trang
 `/backtest` tính lại bảng đo khi mở lần đầu sau mỗi phiên rồi giữ nguyên kết quả; bấm
@@ -102,45 +102,17 @@ Thiếu dưới 6 tiêu chí thì không chấm điểm thay vì chấm thiếu.
 Cổng định giá đọc `fundamentals.pe` trong `backend/data/vstock.db`, nên mã không nằm trong
 `ingestion.quote_symbols` của `backend/config/providers.yaml` sẽ hiện "Chưa có số" và được bỏ qua
 chứ không bị chặn. Giữ danh sách đó khớp với `DEFAULT_UNIVERSE` trong `research/app/config.py`
-(hiện 51 mã), rồi khởi động lại backend — lúc khởi động nó chạy ingestion với `force=True` nên
+(hiện 106 mã, dùng làm ứng viên dựng rổ VN100 hàng năm), rồi khởi động lại backend — lúc khởi động nó chạy ingestion với `force=True` nên
 lấy P/E cho đủ ngay. Có một test đối chiếu hai danh sách này trong `tests/test_layers.py`.
 
-Kho research gộp `DEFAULT_UNIVERSE` vào danh sách đang có khi khởi động, và có ba đường. Kho trắng
-nhận đủ 51 mã. Kho đã có danh sách **và** đã có bookmark `universe_seed` (đã khởi động lại ít nhất
+Kho research gộp `DEFAULT_UNIVERSE` vào danh sách đang có khi khởi động. Kho trắng
+nhận đủ 106 mã. Kho đã có danh sách **và** đã có bookmark `universe_seed` (đã khởi động lại ít nhất
 một lần kể từ bản có tính năng gộp) giữ nguyên danh sách và chỉ nhận thêm mã vừa được thêm vào
-`DEFAULT_UNIVERSE`; mã bạn đã bỏ bằng tay vẫn nằm trong bookmark nên không quay lại. Kho đã có danh
-sách nhưng **chưa có bookmark** (chưa từng khởi động lại kể từ bản có tính năng gộp) thì lần khởi
-động đầu chỉ ghi bookmark bằng đủ 51 mã rồi dừng, **không chèn mã còn thiếu**, và các lần sau bookmark
-đã đủ nên cũng không chèn — danh sách cũ giữ nguyên và không tự nhận 21 mã tài chính.
+`DEFAULT_UNIVERSE`; mã bạn đã bỏ bằng tay vẫn nằm trong bookmark nên không quay lại.
 
-Bookmark là danh sách "đã gộp rồi", nên cách chữa bằng tay phải giữ đúng nghĩa đó. Hai cách, cả hai chỉ
-chèn 21 mã mới và không đụng tới mã bạn đã bỏ: thêm tay 21 mã tài chính trên trang chủ, hoặc ghi
-bookmark bằng **danh sách mặc định cũ** — 30 mã của `DEFAULT_UNIVERSE` trước commit `d23b4e2`, tức vẫn
-có cả những mã bạn đã bỏ bằng tay — rồi khởi động lại; job gộp sẽ chèn đúng 21 mã còn thiếu:
-
-```bash
-cd research && .venv/bin/python - <<'PY'
-import json, re, sqlite3, subprocess
-
-src = subprocess.run(["git", "show", "d23b4e2^:research/app/config.py"],
-                     cwd="..", check=True, capture_output=True, text=True).stdout
-old = re.findall(r'"([A-Z0-9]+)"', src.split("DEFAULT_UNIVERSE = (", 1)[1].split("\n)", 1)[0])
-con = sqlite3.connect("data/research.db")
-con.execute("INSERT INTO meta (key, value) VALUES ('universe_seed', ?)"
-            " ON CONFLICT(key) DO UPDATE SET value = excluded.value", (json.dumps(old),))
-con.commit()
-print(f"bookmark = {len(old)} mã cũ — khởi động lại research để chèn 21 mã còn thiếu")
-PY
-```
-
-Đừng ghi bookmark bằng danh sách đang nằm trong bảng `universe`: mã bạn đã bỏ không có trong bookmark nên
-sẽ bị chèn lại, cùng với 21 mã mới.
-
-Rổ 51 mã gồm 30 mã cũ cộng 21 mã tài chính mà template đã khai báo sẵn: ngân hàng (TPB, MSB, LPB,
-SHB, EIB, OCB, NAB, VIB, SSB), chứng khoán (HCM, VCI, MBS, SHS, BSI, AGR, FTS, VDS) và bảo hiểm
-(BMI, BIC, MIG, PVI). Nhóm này đã có cổng nợ riêng nên không phải thêm ngưỡng nào. Doanh nghiệp
-ngoài danh sách thì không thêm hàng loạt: mã nào cũng rơi vào template doanh nghiệp, nhưng chưa có
-ngưỡng thanh khoản nào để nói mã đó đáng chấm.
+Rổ 106 mã mở rộng từ rổ 51 mã ban đầu (30 mã VN30/đầu ngành + 21 mã tài chính), bổ sung thêm các mã
+lớn và thanh khoản cao trên thị trường để mỗi ngày 1 tháng 1 hàng năm có thể xếp hạng vốn hóa và dựng
+chuẩn rổ VN100 theo từng năm từ 2021.
 
 ### Vị thế giấy (đo tiến)
 
@@ -171,10 +143,19 @@ Năm chuỗi, ngưỡng khai báo trong `research/app/config.py` và in ra ở t
 | Lãi suất tái cấp vốn | Bảng ghi tay `POLICY_RATE_HISTORY` trong `config.py` | Có mốc mới trong 90 ngày gần nhất |
 | NHNN hút/bơm ròng | Chưa có nguồn công khai, điền tay vào `market_points` | Hút ròng 5 phiên liên tiếp, tổng từ 5.000 tỷ |
 
-Bốn chuỗi đầu là **bắt buộc**. Mỗi chuỗi phải có điểm **đúng phiên đang chấm**: thiếu số, hoặc
-trong kho chỉ có điểm của phiên trước (feed chết trong phiên), hoặc chưa đủ 5 phiên đã lưu đều đưa
-cổng về **Chưa chấm**, và không mã nào bị tự loại vì chuyện tiền tệ. Chuỗi NHNN chưa có nguồn
-nên nằm ngoài danh sách bắt buộc, nhưng ngưỡng đã khai báo trước nên nó khóa được ngay khi có số.
+Tỷ giá và lãi suất tái cấp vốn là **bắt buộc** (`MARKET_GATE_REQUIRED`). Lãi qua đêm và lợi suất
+TPCP 10 năm **tạm đóng** (`MARKET_GATE_CLOSED`): feed chỉ trả giá hiện tại nên chưa có lịch sử từ
+2021. Hai chuỗi này vẫn được lưu mỗi phiên và hiện trên `/market`, nhưng không khóa cổng kể cả khi
+đã đủ số phiên; đưa chúng vào `MARKET_GATE_REQUIRED` là mở lại. Mỗi chuỗi bắt buộc phải có điểm
+**đúng phiên đang chấm**: thiếu số, hoặc trong kho chỉ có điểm của phiên trước (feed chết trong
+phiên), hoặc chưa đủ 5 phiên đã lưu đều đưa cổng về **Chưa chấm**, và khi đó không mã nào được
+**Được vào**. Chuỗi NHNN chưa có nguồn nên nằm ngoài danh sách bắt buộc, nhưng ngưỡng đã khai báo
+trước nên nó khóa được ngay khi có số.
+
+Trước khi tạm đóng hai chuỗi kia, cổng đứng **Chưa chấm** mỗi phiên vì chúng chưa đủ 5 phiên, nên
+không mã nào lên được **Được vào**. Từ khi tạm đóng, cổng chấm thật trên tỷ giá và lãi điều hành:
+nó mở khi tiền chưa thắt, và khóa danh sách khi tỷ giá đứng trên mốc đủ 5 phiên hoặc có mốc lãi
+điều hành mới tăng.
 
 Mỗi phiên pipeline lấy một điểm cho mỗi chuỗi rồi lưu vào bảng `market_points`; hàm chấm chỉ đọc
 các điểm tới hết ngày đang chấm, nên chấm lại một phiên cũ luôn ra cùng kết quả và số của hôm nay
@@ -193,7 +174,7 @@ Loại, Khóa) hoặc khi một vị thế giấy đóng. Không đặt thì h�
 
 ```bash
 cd research
-.venv/bin/python -m unittest tests.test_rules tests.test_prune tests.test_patterns tests.test_layers tests.test_money tests.test_chart
+.venv/bin/python -m unittest tests.test_rules tests.test_prune tests.test_patterns tests.test_layers tests.test_money tests.test_chart tests.test_industry
 ```
 
 

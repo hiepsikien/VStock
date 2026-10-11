@@ -7,8 +7,11 @@ from datetime import date
 import httpx
 
 from app import db, notify, paper
+from app.config import BANKS, DEFAULT_UNIVERSE
 from app.evaluate import compose
 from app.flow import flow_gate
+from app.industries import industry_of
+from app.industry_screen import build_open_map, credit_by_day, lead_bars_from
 from app.ingest import (
     fetch_bars,
     fetch_foreign_flow,
@@ -19,6 +22,7 @@ from app.ingest import (
     load_exchanges,
     load_market_articles,
     load_valuation,
+    supplement_historical_shares,
 )
 from app.macro import macro_state
 from app.money import money_state
@@ -67,15 +71,26 @@ async def _run() -> str:
         except Exception as exc:
             logger.warning("Market fetch failed: %s", exc)
             market_series = {}
+        for code, bars in macro_series.items():
+            series_name = "USDVND_MACRO" if code == "USDVND" else code
+            await db.upsert_market_points(
+                series_name, [(str(bar["trade_date"]), float(bar["close"])) for bar in bars]
+            )
         for code, market_rows in market_series.items():
             await db.upsert_market_points(code, market_rows)
         semaphore = asyncio.Semaphore(4)
+        backfilled = await db.shares_backfilled()
+        newly_backfilled: list[str] = []
 
         async def _one(symbol: str) -> str | None:
             async with semaphore:
                 try:
                     bars = await fetch_bars(client, symbol)
                     ratios = await fetch_ratios(client, symbol)
+                    if symbol not in backfilled and await supplement_historical_shares(
+                        client, symbol, ratios
+                    ):
+                        newly_backfilled.append(symbol)
                     articles = await fetch_symbol_news(client, symbol)
                 except Exception as exc:
                     logger.warning("Ingest failed for %s: %s", symbol, exc)
@@ -91,10 +106,12 @@ async def _run() -> str:
             await db.replace_ratios(symbol, ratios)
             await db.upsert_articles(articles)
             if flow:
-                await db.replace_flow(symbol, flow)
+                await db.upsert_flow(symbol, flow)
             return None
 
         failed = [symbol for symbol in await asyncio.gather(*[_one(symbol) for symbol in symbols]) if symbol]
+        if newly_backfilled:
+            await db.mark_shares_backfilled([s for s in newly_backfilled if s not in failed])
 
     market_articles = load_market_articles()
     await db.upsert_articles(market_articles)
@@ -121,13 +138,27 @@ async def _run() -> str:
     # A name whose bar for this session was stored by an earlier run today is scored as usual.
     day = as_of.isoformat()
     skipped: list[str] = []
+    bars_by_symbol = {symbol: await db.bars(symbol) for symbol in DEFAULT_UNIVERSE}
+    # Chạy cả khi cờ ngành tắt: verdict vẫn ghi trạng thái ngành để quan sát trước khi cho chặn.
+    open_map = build_open_map(
+        index_bars,
+        bars_by_symbol,
+        list(DEFAULT_UNIVERSE),
+        lead_bars=lead_bars_from(await db.market_points()),
+        credit_by_day=credit_by_day(
+            {bank: await db.ratios(bank) for bank in BANKS},
+            [str(bar["trade_date"]) for bar in index_bars],
+        ),
+    )
     for symbol in symbols:
-        stock_slice = [bar for bar in await db.bars(symbol) if str(bar["trade_date"]) <= day]
+        stock_slice = [bar for bar in (bars_by_symbol.get(symbol) or await db.bars(symbol)) if str(bar["trade_date"]) <= day]
         if session_bar(stock_slice, day) is None:
             skipped.append(symbol)
             continue
         points = await db.ratios(symbol)
         articles = await db.articles_for(symbol)
+        industry = industry_of(symbol)
+        industry_open = None if open_map is None else open_map.get((symbol, day))
         verdict = compose(
             symbol,
             as_of,
@@ -140,6 +171,8 @@ async def _run() -> str:
             flow=flow_gate(await db.flow(symbol), stock_slice),
             macro=macro,
             market=money,
+            industry_name=industry,
+            industry_open=industry_open,
         )
         verdicts.append(verdict.row())
 

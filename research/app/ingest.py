@@ -11,12 +11,15 @@ from urllib.parse import quote
 
 from app.classify import classify_article
 from app.config import (
-    BAR_LOOKBACK_DAYS,
-    FLOW_LOOKBACK_SESSIONS,
-    MACRO_RANGE,
+    BANKS,
+    FLOW_PAGE_SIZE,
+    HISTORY_START,
+    INSURERS,
     MACRO_SYMBOLS,
     MARKET_SERIES,
+    PRICE_JUMP_LIMIT_UNKNOWN,
     RATIO_CODES,
+    SECURITIES,
     TRADINGVIEW_SCANNER,
 )
 from app.db import market_db_path
@@ -24,6 +27,7 @@ from app.money import policy_points
 
 logger = logging.getLogger(__name__)
 _exchange_cache: tuple[str, dict[str, str]] | None = None
+_exchange_warned: str | None = None
 
 VN_TZ = timezone(timedelta(hours=7))
 ENTRADE_HEADERS = {
@@ -36,6 +40,10 @@ BROWSER_HEADERS = {"Accept": "application/json", "User-Agent": "Mozilla/5.0"}
 ENTRADE_STOCK = "https://services.entrade.com.vn/chart-api/v2/ohlcs/stock"
 ENTRADE_INDEX = "https://services.entrade.com.vn/chart-api/v2/ohlcs/index"
 VNDIRECT_RATIOS = "https://api-finfo.vndirect.com.vn/v4/ratios"
+VNDIRECT_STATEMENTS = "https://api-finfo.vndirect.com.vn/v4/financial_statements"
+# Statement line items: charter capital, and operating profit of the corporate income statement.
+CHARTER_CAPITAL_ITEM = "14110"
+OPERATING_PROFIT_ITEM = "23110"
 VNDIRECT_NEWS = "https://api-finfo.vndirect.com.vn/v4/news"
 VNDIRECT_FOREIGN = "https://api-finfo.vndirect.com.vn/v4/foreigns"
 YAHOO_CHART = "https://query2.finance.yahoo.com/v8/finance/chart/{symbol}"
@@ -93,13 +101,15 @@ def _bars_from_payload(payload: dict) -> list[dict]:
     return [by_day[day] for day in sorted(by_day)]
 
 
-async def fetch_bars(client: httpx.AsyncClient, symbol: str, *, index: bool = False) -> list[dict]:
+async def fetch_bars(
+    client: httpx.AsyncClient, symbol: str, *, index: bool = False, start: str = HISTORY_START
+) -> list[dict]:
     now = int(datetime.now(timezone.utc).timestamp())
-    start = now - BAR_LOOKBACK_DAYS * 86400
+    since = int(datetime.fromisoformat(start).replace(tzinfo=timezone.utc).timestamp())
     url = ENTRADE_INDEX if index else ENTRADE_STOCK
     response = await client.get(
         url,
-        params={"symbol": symbol, "resolution": "1D", "from": start, "to": now},
+        params={"symbol": symbol, "resolution": "1D", "from": since, "to": now},
         headers=ENTRADE_HEADERS,
     )
     response.raise_for_status()
@@ -128,6 +138,83 @@ def _series_from_rows(rows: list[dict]) -> dict[str, list[tuple[str, float]]]:
     return points
 
 
+async def _statement_item(
+    client: httpx.AsyncClient, symbol: str, item_code: str, size: int, sort: str
+) -> list[tuple[str, float]] | None:
+    """One line of the quarterly statements. None means the source did not answer."""
+    try:
+        response = await client.get(
+            VNDIRECT_STATEMENTS,
+            params={
+                "q": f"code:{symbol}~itemCode:{item_code}~reportType:QUARTER",
+                "size": size,
+                "sort": sort,
+            },
+            headers=BROWSER_HEADERS,
+        )
+        if response.status_code != 200:
+            return None
+        out: dict[str, float] = {}
+        for row in (response.json() or {}).get("data") or []:
+            fiscal = str(row.get("fiscalDate") or "")[:10]
+            raw = row.get("numericValue")
+            if not fiscal or raw is None:
+                continue
+            try:
+                out.setdefault(fiscal, float(raw))
+            except (TypeError, ValueError):
+                continue
+        return sorted(out.items())
+    except Exception as exc:
+        logger.warning("Statement item %s failed for %s: %s", item_code, symbol, exc)
+        return None
+
+
+async def fetch_historical_shares(
+    client: httpx.AsyncClient, symbol: str
+) -> list[tuple[str, float]] | None:
+    """Charter capital itemCode 14110 divided by par value (10,000 VND) gives share counts before 2023.
+
+    None means the source did not answer; an empty list means it has no quarter for the name.
+    """
+    rows = await _statement_item(client, symbol, CHARTER_CAPITAL_ITEM, 100, "fiscalDate:asc")
+    if rows is None:
+        return None
+    return [(day, value / 10000.0) for day, value in rows if value > 0]
+
+
+async def fetch_operating_profit(
+    client: httpx.AsyncClient, symbol: str
+) -> list[tuple[str, float]] | None:
+    """Quarterly operating profit, the absolute number behind OPERATING_PROFIT_QR_GRYOY.
+
+    The ratio API only carries the growth, and leaves it blank when the base quarter was a loss.
+    """
+    return await _statement_item(client, symbol, OPERATING_PROFIT_ITEM, 40, "fiscalDate:desc")
+
+
+async def supplement_historical_shares(
+    client: httpx.AsyncClient,
+    symbol: str,
+    points: dict[str, list[tuple[str, float]]],
+) -> bool:
+    """Merge the older share counts under the ratio series. True once the source has answered.
+
+    The ratio API starts its share series at 2022-12-31 for every name, so the caller has to
+    remember who is done: the merged quarters stay in the store, and asking again only repeats
+    a request per name per session.
+    """
+    historical = await fetch_historical_shares(client, symbol)
+    if historical is None:
+        return False
+    existing = dict(points.get("OUTSTANDING_SHARES") or [])
+    for day, val in historical:
+        existing.setdefault(day, val)
+    if existing:
+        points["OUTSTANDING_SHARES"] = sorted(existing.items())
+    return True
+
+
 async def fetch_ratios(client: httpx.AsyncClient, symbol: str) -> dict[str, list[tuple[str, float]]]:
     """One request per symbol: the API pages per symbol, so every ratioCode fits in one call."""
     query = f"code:{symbol}~ratioCode:in({','.join(RATIO_CODES)})"
@@ -136,12 +223,18 @@ async def fetch_ratios(client: httpx.AsyncClient, symbol: str) -> dict[str, list
         params={"q": query, "size": RATIOS_PAGE_SIZE, "sort": "reportDate:desc"},
         headers=BROWSER_HEADERS,
     )
+    points: dict[str, list[tuple[str, float]]] = {}
     if response.status_code == 200:
         points = _series_from_rows((response.json() or {}).get("data") or [])
-        if points:
-            return points
-    logger.warning("Batched ratio fetch failed for %s, falling back to per code calls", symbol)
-    return await fetch_ratios_per_code(client, symbol)
+    if not points:
+        logger.warning("Batched ratio fetch failed for %s, falling back to per code calls", symbol)
+        points = await fetch_ratios_per_code(client, symbol)
+    # Banks, brokers and insurers file other statement models; only corporates read this line.
+    if symbol not in BANKS and symbol not in SECURITIES and symbol not in INSURERS:
+        operating = await fetch_operating_profit(client, symbol)
+        if operating:
+            points["OPERATING_PROFIT_QR"] = operating
+    return points
 
 
 async def fetch_ratios_per_code(
@@ -346,54 +439,82 @@ async def fetch_foreign_flow(
     client: httpx.AsyncClient,
     symbol: str,
 ) -> dict[str, list[tuple[str, float]]]:
-    """Daily foreign trading from VNDirect Finfo: net volume, net value and room left."""
-    response = await client.get(
-        VNDIRECT_FOREIGN,
-        params={
-            "q": f"code:{symbol}",
-            "size": FLOW_LOOKBACK_SESSIONS,
-            "sort": "tradingDate:desc",
-        },
-        headers=BROWSER_HEADERS,
-    )
-    response.raise_for_status()
+    """Daily foreign trading from VNDirect Finfo, walking every page it still has."""
     points: dict[str, list[tuple[str, float]]] = {}
+    seen: set[tuple[str, str]] = set()
 
     def _add(code: str, day: str, value: object) -> None:
-        if value is None:
+        if value is None or (code, day) in seen:
             return
         try:
-            points.setdefault(code, []).append((day, float(value)))
+            number = float(value)
         except (TypeError, ValueError):
             return
+        seen.add((code, day))
+        points.setdefault(code, []).append((day, number))
 
-    for row in (response.json() or {}).get("data") or []:
-        day = str(row.get("tradingDate") or "")[:10]
-        if not day:
-            continue
-        _add("FOREIGN_NET_VOL", day, row.get("netVol"))
-        _add("FOREIGN_NET_VAL", day, row.get("netVal"))
-        total = row.get("totalRoom")
-        current = row.get("currentRoom")
-        if total and current is not None:
-            try:
-                room = float(current) / float(total)
-            except (TypeError, ValueError, ZeroDivisionError):
-                room = None
-            if room is not None:
-                _add("FOREIGN_ROOM_RATIO", day, room)
+    page = 1
+    total_pages = 1
+    while page <= total_pages and page <= 30:
+        response = await client.get(
+            VNDIRECT_FOREIGN,
+            params={
+                "q": f"code:{symbol}",
+                "size": FLOW_PAGE_SIZE,
+                "page": page,
+                "sort": "tradingDate:desc",
+            },
+            headers=BROWSER_HEADERS,
+        )
+        response.raise_for_status()
+        payload = response.json() or {}
+        rows = payload.get("data") or []
+        if not rows:
+            break
+        before = len(seen)
+        for row in rows:
+            day = str(row.get("tradingDate") or "")[:10]
+            if not day:
+                continue
+            _add("FOREIGN_NET_VOL", day, row.get("netVol"))
+            _add("FOREIGN_NET_VAL", day, row.get("netVal"))
+            total = row.get("totalRoom")
+            current = row.get("currentRoom")
+            if total and current is not None:
+                try:
+                    room = float(current) / float(total)
+                except (TypeError, ValueError, ZeroDivisionError):
+                    room = None
+                if room is not None:
+                    _add("FOREIGN_ROOM_RATIO", day, room)
+        if len(seen) == before:
+            break
+        # The first page reports totalPages. Later pages omit it, so a missing count
+        # must not shrink the walk back to the page just read.
+        reported = payload.get("totalPages")
+        if reported:
+            total_pages = int(reported)
+        elif page >= total_pages and len(rows) < FLOW_PAGE_SIZE:
+            break
+        elif page >= total_pages:
+            total_pages = page + 1
+        page += 1
     for series in points.values():
         series.sort()
     return points
 
 
-async def fetch_macro(client: httpx.AsyncClient) -> dict[str, list[dict]]:
+async def fetch_macro(client: httpx.AsyncClient, start: str = HISTORY_START) -> dict[str, list[dict]]:
     """Cross-market closes for the macro layer. Yahoo serves all four symbols."""
     series: dict[str, list[dict]] = {}
     for code, symbol, _label in MACRO_SYMBOLS:
         response = await client.get(
             YAHOO_CHART.format(symbol=quote(symbol, safe="")),
-            params={"range": MACRO_RANGE, "interval": "1d"},
+            params={
+                "period1": int(datetime.fromisoformat(start).replace(tzinfo=timezone.utc).timestamp()),
+                "period2": int(datetime.now(timezone.utc).timestamp()),
+                "interval": "1d",
+            },
             headers=BROWSER_HEADERS,
         )
         if response.status_code != 200:
@@ -533,6 +654,7 @@ def load_exchanges() -> dict[str, str]:
         return _exchange_cache[1]
     connection = _open_market_db()
     if connection is None:
+        _warn_no_exchanges(today, "không tìm thấy kho thị trường (backend/data/vstock.db hoặc VSTOCK_MARKET_DB)")
         return {}
     try:
         rows = connection.execute("SELECT symbol, exchange FROM symbols")
@@ -542,12 +664,28 @@ def load_exchanges() -> dict[str, str]:
             if row["symbol"] and row["exchange"]
         }
     except sqlite3.Error as exc:
-        logger.warning("Market exchange list unreadable: %s", exc)
+        _warn_no_exchanges(today, f"đọc lỗi: {exc}")
         return {}
     finally:
         connection.close()
+    if not found:
+        _warn_no_exchanges(today, "bảng symbols rỗng")
+        return {}
     _exchange_cache = (today, found)
     return found
+
+
+def _warn_no_exchanges(today: str, why: str) -> None:
+    """Without boards every name falls back to the widest jump limit, so say it once a day."""
+    global _exchange_warned
+    if _exchange_warned == today:
+        return
+    _exchange_warned = today
+    logger.warning(
+        "Không có bảng sàn (%s). Luật giá chưa chỉnh chia tách đang dùng biên độ %.0f%% cho mọi mã.",
+        why,
+        PRICE_JUMP_LIMIT_UNKNOWN * 100,
+    )
 
 
 def load_market_articles() -> list[dict]:

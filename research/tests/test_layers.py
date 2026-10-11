@@ -63,6 +63,11 @@ def _bars(closes: list[float], volumes: list[float] | None = None) -> list[dict]
     return rows
 
 
+async def _no_backfill(_client, _symbol, _points) -> bool:
+    """Pipeline tests stay off the network: the statements source answers with nothing."""
+    return True
+
+
 def _flow_map(net_volumes: list[float], closes: list[float] | None = None) -> dict:
     closes = closes or [100.0] * len(net_volumes)
     dates = [bar["trade_date"] for bar in _bars(closes)]
@@ -1557,6 +1562,7 @@ class PipelineAlertTest(unittest.TestCase):
                 pipeline,
                 fetch_bars=fake_bars,
                 fetch_ratios=fake_ratios,
+                supplement_historical_shares=_no_backfill,
                 fetch_symbol_news=fake_news,
                 fetch_foreign_flow=fake_flow,
                 fetch_macro=fake_macro,
@@ -1661,6 +1667,7 @@ class PipelineSessionBarTest(unittest.TestCase):
                 pipeline,
                 fetch_bars=fake_bars,
                 fetch_ratios=fake_ratios,
+                supplement_historical_shares=_no_backfill,
                 fetch_symbol_news=fake_news,
                 fetch_foreign_flow=fake_flow,
                 fetch_macro=fake_macro,

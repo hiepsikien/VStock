@@ -18,6 +18,8 @@ from app.pattern import Pattern, Regime
 # Mọi chuỗi giá trong test đứng trong tháng 9 để as_of nằm gần số mới nhất.
 START = date(2026, 9, 1)
 AS_OF = "2026-09-06"
+# Mở lại hai chuỗi đang tạm đóng, để luật chấm của chúng vẫn có test.
+ALL_SERIES = ("INTERBANK_ON", "GOV10Y", "USDVND", "POLICY_RATE")
 # Trang /market dựng bằng chính template của app để câu chữ trên đó cũng có test.
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "templates"))
 
@@ -42,7 +44,7 @@ def _market(**overrides: list[float]) -> dict[str, list[tuple[str, float]]]:
 
 class MoneyGateTest(unittest.TestCase):
     def test_missing_series_sends_the_gate_to_chua_cham(self) -> None:
-        gate = money_state({}, as_of=AS_OF)
+        gate = money_state({}, as_of=AS_OF, required=ALL_SERIES)
         self.assertIsNone(gate.open)
         self.assertIn("Cổng tiền tệ chưa chấm", gate.reason)
         # Chuỗi bậc thang của lãi điều hành đứng sẵn, ba chuỗi còn lại chưa có số nào.
@@ -54,23 +56,58 @@ class MoneyGateTest(unittest.TestCase):
         self.assertEqual(set(gate.absent), {"INTERBANK_ON", "GOV10Y", "USDVND"})
         self.assertEqual(gate.short, ())
 
+    def test_gate_ignores_missing_overnight_and_bond_yield_by_default(self) -> None:
+        """Lãi qua đêm và TPCP 10Y chưa có lịch sử nên không bắt buộc trong cổng mặc định."""
+        points = {"USDVND": _series([25_000.0] * 6)}
+        gate = money_state(points, as_of=AS_OF)
+        self.assertTrue(gate.open)
+        self.assertNotIn("INTERBANK_ON", gate.missing)
+        self.assertNotIn("GOV10Y", gate.missing)
+
+    def test_default_gate_waits_only_for_fx(self) -> None:
+        """Cấu hình mặc định: chỉ tỷ giá và lãi điều hành bắt buộc; thêm chuỗi đóng vào thì test này đỏ."""
+        gate = money_state({}, as_of=AS_OF)
+        self.assertIsNone(gate.open)
+        self.assertEqual(gate.missing, ("USDVND",))
+        self.assertEqual(gate.absent, ("USDVND",))
+        self.assertIn(LABELS["USDVND"], gate.reason)
+        self.assertNotIn(LABELS["INTERBANK_ON"], gate.reason)
+        self.assertTrue(
+            any("tạm đóng" in value for label, value in gate.metrics if label == LABELS["GOV10Y"])
+        )
+
+    def test_closed_series_never_lock_the_gate_even_with_enough_sessions(self) -> None:
+        """Lãi qua đêm vẫn được lưu mỗi phiên; đủ số phiên rồi cũng không được khóa cổng."""
+        gate = money_state(_market(INTERBANK_ON=_series([5.0] * 5 + [9.0])), as_of=AS_OF)
+        self.assertTrue(gate.open)
+        self.assertEqual(gate.ready, ("USDVND", "POLICY_RATE"))
+        self.assertTrue(
+            any("tạm đóng" in value for label, value in gate.metrics if label == LABELS["INTERBANK_ON"])
+        )
+
     def test_quiet_market_opens_the_gate(self) -> None:
-        gate = money_state(_market(), as_of=AS_OF)
+        gate = money_state(_market(), as_of=AS_OF, required=ALL_SERIES)
         self.assertTrue(gate.open)
         self.assertEqual(gate.flags, ())
         self.assertEqual(gate.ready, ("INTERBANK_ON", "GOV10Y", "USDVND", "POLICY_RATE"))
         self.assertIn("Tiền chưa thắt", gate.reason)
 
     def test_overnight_rate_above_its_average_is_tight(self) -> None:
-        gate = money_state(_market(INTERBANK_ON=_series([5.0] * 5 + [6.3])), as_of=AS_OF)
+        gate = money_state(
+            _market(INTERBANK_ON=_series([5.0] * 5 + [6.3])), as_of=AS_OF, required=ALL_SERIES
+        )
         self.assertFalse(gate.open)
         self.assertIn("lãi qua đêm", gate.reason)
         # Một nhịp nhỏ hơn ngưỡng đã khai báo thì chưa gọi là thắt.
-        small = money_state(_market(INTERBANK_ON=_series([5.0] * 5 + [5.6])), as_of=AS_OF)
+        small = money_state(
+            _market(INTERBANK_ON=_series([5.0] * 5 + [5.6])), as_of=AS_OF, required=ALL_SERIES
+        )
         self.assertTrue(small.open)
 
     def test_government_yield_above_its_average_is_tight(self) -> None:
-        gate = money_state(_market(GOV10Y=_series([4.0] * 5 + [4.7])), as_of=AS_OF)
+        gate = money_state(
+            _market(GOV10Y=_series([4.0] * 5 + [4.7])), as_of=AS_OF, required=ALL_SERIES
+        )
         self.assertFalse(gate.open)
         self.assertIn("lợi suất 10 năm", gate.reason)
 
@@ -92,14 +129,14 @@ class MoneyGateTest(unittest.TestCase):
     def test_a_later_point_never_reaches_an_earlier_session(self) -> None:
         """Số của hôm nay không được lấy để chấm lại phiên đã qua."""
         points = _market(INTERBANK_ON=_series([5.0] * 6 + [6.5]))
-        self.assertTrue(money_state(points, as_of=AS_OF).open)
-        self.assertFalse(money_state(points, as_of="2026-09-07").open)
+        self.assertTrue(money_state(points, as_of=AS_OF, required=ALL_SERIES).open)
+        self.assertFalse(money_state(points, as_of="2026-09-07", required=ALL_SERIES).open)
 
     def test_a_series_without_a_point_for_the_session_counts_as_missing(self) -> None:
         """Chuỗi giá phải có điểm đúng phiên đang chấm, không mượn số của phiên trước."""
         # Số mới nhất là 2026-09-06, nên phiên 09-08 chỉ cách hai ngày vẫn không có số của mình:
         # nguồn chết trong phiên thì cổng đứng Chưa chấm, chứ không mở bằng số hôm qua.
-        near = money_state(_market(), as_of="2026-09-08")
+        near = money_state(_market(), as_of="2026-09-08", required=ALL_SERIES)
         self.assertIsNone(near.open)
         self.assertEqual(set(near.missing), {"INTERBANK_ON", "GOV10Y", "USDVND"})
         self.assertTrue(
@@ -110,7 +147,7 @@ class MoneyGateTest(unittest.TestCase):
         self.assertEqual(set(near.absent), {"INTERBANK_ON", "GOV10Y", "USDVND"})
         self.assertEqual(near.short, ())
         # Và phiên cách cả tháng cũng vậy: không có chuyện số cũ dùng được trong bao nhiêu ngày.
-        far = money_state(_market(), as_of="2026-10-10")
+        far = money_state(_market(), as_of="2026-10-10", required=ALL_SERIES)
         self.assertIsNone(far.open)
         self.assertEqual(set(far.missing), {"INTERBANK_ON", "GOV10Y", "USDVND"})
 
@@ -119,6 +156,7 @@ class MoneyGateTest(unittest.TestCase):
         thin = money_state(
             {"INTERBANK_ON": _series([5.0]), "GOV10Y": _series([4.0])},
             as_of=START.isoformat(),
+            required=ALL_SERIES,
         )
         self.assertIsNone(thin.open)
         self.assertEqual(
@@ -189,7 +227,7 @@ class MarketPageCopyTest(unittest.TestCase):
 
     def test_the_banner_names_the_series_with_no_number_apart(self) -> None:
         """Chuỗi chưa có số nào không được lẫn với chuỗi có số mà chưa đủ phiên."""
-        page = self._page(money_state({}, as_of=AS_OF))
+        page = self._page(money_state({}, as_of=AS_OF, required=ALL_SERIES))
         self.assertIn(f"Chưa có số: {LABELS['INTERBANK_ON']}", page)
         self.assertNotIn("Có số nhưng chưa đủ", page)
 
@@ -214,7 +252,9 @@ class ComposeGateTest(unittest.TestCase):
         self.assertIsNone(verdict.market_open)
 
     def test_tight_money_locks_the_row(self) -> None:
-        tight = money_state(_market(INTERBANK_ON=_series([5.0] * 5 + [6.4])), as_of=AS_OF)
+        tight = money_state(
+            _market(INTERBANK_ON=_series([5.0] * 5 + [6.4])), as_of=AS_OF, required=ALL_SERIES
+        )
         verdict = self._compose(market=tight)
         self.assertEqual(verdict.status, "Khóa")
         self.assertTrue(verdict.summary.startswith("Tiền thắt"))
@@ -262,6 +302,21 @@ class MarketStoreTest(unittest.TestCase):
             # A feed that is down stores nothing, so it cannot overwrite a good session.
             await db.upsert_market_points("GOV10Y", [])
             self.assertIsNone((await db.market_points()).get("GOV10Y"))
+
+            # Kho cũ: Yahoo đã ghi vào USDVND, cả ngày cuối tuần. Tách một lần sang USDVND_MACRO.
+            yahoo = [("2026-09-04", 25_000.0), ("2026-09-05", 25_001.0), ("2026-09-07", 25_002.0)]
+            await db.upsert_market_points("USDVND", yahoo)
+            connection = await db.get_db()
+            await connection.execute("DELETE FROM meta WHERE key = 'usdvnd_split'")
+            await db._split_usdvnd(connection)
+            await db._split_usdvnd(connection)
+            points = await db.market_points()
+            self.assertEqual(points["USDVND_MACRO"], yahoo)
+            self.assertEqual(points["USDVND"], [("2026-09-04", 25_000.0), ("2026-09-07", 25_002.0)])
+            # Đã có bookmark thì lần sau không đụng vào điểm TradingView của ngày cuối tuần nào.
+            await db.upsert_market_points("USDVND", [("2026-09-12", 25_010.0)])
+            await db._split_usdvnd(connection)
+            self.assertIn(("2026-09-12", 25_010.0), (await db.market_points())["USDVND"])
         finally:
             await db.close_db()
             if previous is None:

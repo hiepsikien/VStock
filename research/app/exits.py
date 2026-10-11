@@ -4,6 +4,9 @@ from dataclasses import dataclass
 
 from app.config import (
     ATR_STOP_MULTIPLIER,
+    FAILED_BREAKOUT_SESSIONS,
+    INDUSTRY_HOLD_ENABLED,
+    MAX_HOLD_EXTENDED,
     MAX_HOLD_SESSIONS,
     MAX_POSITION_WEIGHT,
     RISK_PER_TRADE,
@@ -156,9 +159,11 @@ def manage_position(
         if candidate > pos.stop:
             pos.stop = candidate
 
-    if pos.sessions >= MAX_HOLD_SESSIONS:
-        return _close(pos, bar, f"Đủ {MAX_HOLD_SESSIONS} phiên", float(bar["close"]))
-    if not pos.tp1_done and pos.sessions >= TIME_STOP_SESSIONS:
+    hold_limit = MAX_HOLD_EXTENDED if INDUSTRY_HOLD_ENABLED else MAX_HOLD_SESSIONS
+    if pos.sessions >= hold_limit:
+        return _close(pos, bar, f"Đủ {hold_limit} phiên", float(bar["close"]))
+    # Tiền chết 30 phiên chỉ bỏ khi cửa thoát theo ngành đã chạy cùng cờ này.
+    if not INDUSTRY_HOLD_ENABLED and not pos.tp1_done and pos.sessions >= TIME_STOP_SESSIONS:
         return _close(pos, bar, f"Tiền chết {TIME_STOP_SESSIONS} phiên", float(bar["close"]))
     return None
 
@@ -179,6 +184,9 @@ def fell_under_base(pos: OpenPosition, bar: dict) -> bool:
     and fills inside the bar, and its fill is never better than the close this rule would
     book, so letting the stop win only ever reads as the more cautious of the two.
     """
+    # Trần nắm 132 phiên thì đóng dưới đỉnh nền chỉ còn trong ba phiên đầu.
+    if INDUSTRY_HOLD_ENABLED and pos.sessions > FAILED_BREAKOUT_SESSIONS:
+        return False
     if pos.base_ceiling is None or pos.base_ceiling <= 0:
         return False
     if float(bar["close"]) >= pos.base_ceiling:

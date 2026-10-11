@@ -114,6 +114,61 @@ ingestion:
     - BIC
     - MIG
     - PVI
+    - KDH
+    - DXG
+    - NLG
+    - PDR
+    - DIG
+    - HDG
+    - KBC
+    - CEO
+    - IDC
+    - NVL
+    - TCH
+    - SCR
+    - VPI
+    - POW
+    - OIL
+    - PVT
+    - PVD
+    - GEG
+    - NT2
+    - HSG
+    - NKG
+    - DCM
+    - DPM
+    - GVR
+    - PHR
+    - VGC
+    - FRT
+    - DGW
+    - MCH
+    - QNS
+    - VHC
+    - ANV
+    - DBC
+    - KDC
+    - PET
+    - FMC
+    - CMG
+    - ELC
+    - ACV
+    - HVN
+    - SCS
+    - PC1
+    - CTD
+    - BMP
+    - VCG
+    - CII
+    - HHV
+    - BCM
+    - SZC
+    - HAG
+    - LSS
+    - PAN
+    - DHC
+    - CTS
+    - VIX
   quote_interval_open_seconds: 15
   quote_interval_closed_seconds: 300
   skip_when_market_closed: true

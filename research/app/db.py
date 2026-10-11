@@ -144,6 +144,21 @@ CREATE TABLE IF NOT EXISTS paper_positions (
 
 CREATE INDEX IF NOT EXISTS idx_paper_symbol ON paper_positions(symbol);
 
+CREATE TABLE IF NOT EXISTS valuation_points (
+    symbol TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    market_cap REAL,
+    trailing_pe REAL,
+    PRIMARY KEY (symbol, trade_date)
+);
+
+CREATE TABLE IF NOT EXISTS industry_notes (
+    as_of TEXT PRIMARY KEY,
+    prompt TEXT NOT NULL,
+    response TEXT NOT NULL,
+    industries TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS paper_marks (
     position_id INTEGER NOT NULL,
     mark_date TEXT NOT NULL,
@@ -197,8 +212,34 @@ async def init_db() -> None:
     await _db.execute("PRAGMA busy_timeout=5000")
     await _db.executescript(SCHEMA)
     await _ensure_schema_migrations(_db)
+    await _split_usdvnd(_db)
     await _merge_default_universe(_db)
     await _db.commit()
+
+
+async def _split_usdvnd(db: aiosqlite.Connection) -> None:
+    """Move the Yahoo FX history out of the money gate's series, once per store.
+
+    Before the split, history_pull and the macro fetch wrote Yahoo `USDVND=X` under `USDVND`,
+    the key the money gate reads for TradingView. The whole series is copied to USDVND_MACRO,
+    and the weekend rows, which only Yahoo writes, leave USDVND so its 20-row average spans
+    20 sessions. Weekday rows stay as the gate's seed until TradingView points replace them.
+    """
+    cursor = await db.execute("SELECT 1 FROM meta WHERE key = 'usdvnd_split'")
+    if await cursor.fetchone():
+        return
+    await db.execute(
+        """
+        INSERT INTO market_points (series, trade_date, value)
+        SELECT 'USDVND_MACRO', trade_date, value FROM market_points WHERE series = 'USDVND'
+        ON CONFLICT(series, trade_date) DO NOTHING
+        """
+    )
+    await db.execute(
+        "DELETE FROM market_points WHERE series = 'USDVND' "
+        "AND strftime('%w', trade_date) IN ('0', '6')"
+    )
+    await db.execute("INSERT INTO meta (key, value) VALUES ('usdvnd_split', ?)", (_now(),))
 
 
 async def _write_universe_seed(db: aiosqlite.Connection, symbols: list[str]) -> None:
@@ -266,6 +307,25 @@ async def close_db() -> None:
     if _db is not None:
         await _db.close()
         _db = None
+
+
+async def shares_backfilled() -> set[str]:
+    """Names whose pre-2023 share counts the statements API has already answered for."""
+    db = await get_db()
+    cursor = await db.execute("SELECT value FROM meta WHERE key = 'shares_backfilled'")
+    row = await cursor.fetchone()
+    return set(json.loads(row["value"])) if row else set()
+
+
+async def mark_shares_backfilled(symbols: list[str]) -> None:
+    done = sorted(await shares_backfilled() | set(symbols))
+    db = await get_db()
+    await db.execute(
+        "INSERT INTO meta (key, value) VALUES ('shares_backfilled', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (json.dumps(done),),
+    )
+    await db.commit()
 
 
 async def universe() -> list[str]:
@@ -656,14 +716,18 @@ async def latest_run() -> dict | None:
     return dict(row) if row else None
 
 
-async def replace_flow(symbol: str, points: dict[str, list[tuple[str, float]]]) -> None:
-    db = await get_db()
-    await db.execute("DELETE FROM flow_points WHERE symbol = ?", (symbol,))
-    rows = [
+def _flow_rows(symbol: str, points: dict[str, list[tuple[str, float]]]) -> list[tuple]:
+    return [
         (symbol, day, code, value)
         for code, series in points.items()
         for day, value in series
     ]
+
+
+async def replace_flow(symbol: str, points: dict[str, list[tuple[str, float]]]) -> None:
+    db = await get_db()
+    await db.execute("DELETE FROM flow_points WHERE symbol = ?", (symbol,))
+    rows = _flow_rows(symbol, points)
     if rows:
         await db.executemany(
             """
@@ -673,6 +737,64 @@ async def replace_flow(symbol: str, points: dict[str, list[tuple[str, float]]]) 
             """,
             rows,
         )
+    await db.commit()
+
+
+async def upsert_flow(symbol: str, points: dict[str, list[tuple[str, float]]]) -> None:
+    """Keep older foreign-flow sessions. A new download only rewrites the days it contains."""
+    rows = _flow_rows(symbol, points)
+    if not rows:
+        return
+    db = await get_db()
+    await db.executemany(
+        """
+        INSERT INTO flow_points (symbol, trade_date, code, value)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(symbol, trade_date, code) DO UPDATE SET value = excluded.value
+        """,
+        rows,
+    )
+    await db.commit()
+
+
+async def upsert_valuation(rows: list[tuple[str, str, float | None, float | None]]) -> None:
+    if not rows:
+        return
+    db = await get_db()
+    await db.executemany(
+        """
+        INSERT INTO valuation_points (symbol, trade_date, market_cap, trailing_pe)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(symbol, trade_date) DO UPDATE SET
+            market_cap = excluded.market_cap,
+            trailing_pe = excluded.trailing_pe
+        """,
+        rows,
+    )
+    await db.commit()
+
+
+async def industry_notes() -> list[dict]:
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT as_of, prompt, response, industries FROM industry_notes ORDER BY as_of"
+    )
+    return [dict(row) for row in await cursor.fetchall()]
+
+
+async def save_industry_note(as_of: str, prompt: str, response: str, industries: str) -> None:
+    db = await get_db()
+    await db.execute(
+        """
+        INSERT INTO industry_notes (as_of, prompt, response, industries)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(as_of) DO UPDATE SET
+            prompt = excluded.prompt,
+            response = excluded.response,
+            industries = excluded.industries
+        """,
+        (as_of, prompt, response, industries),
+    )
     await db.commit()
 
 

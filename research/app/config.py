@@ -33,7 +33,11 @@ PRICE_JUMP_LIMIT_UNKNOWN = 0.17
 # Above the high mark new equity arrived with the shares.
 EQUITY_MATCH_BONUS = 0.35
 EQUITY_MATCH_CASH = 0.60
-BAR_LOOKBACK_DAYS = 1200
+# Nến và chuỗi vĩ mô xin từ ngày này, để đo được sóng 2021 và sóng giảm 2022.
+HISTORY_START = "2021-01-01"
+# history_pull nạp lùi tới đây cho giai đoạn đo 2015–2020. Phiên live vẫn xin từ HISTORY_START,
+# các phiên cũ đã lưu thì giữ nguyên. Năm 2014 chỉ để VN-Index đủ MA200 và cửa sổ ngành khởi động.
+RESEARCH_HISTORY_START = "2014-01-01"
 # Default matches news_filing_days in backend/config/providers.yaml.
 # Docker passes ARTICLE_RETENTION_DAYS from NEWS_FILING_DAYS so the two stay together.
 ARTICLE_RETENTION_DAYS = 1460
@@ -94,6 +98,17 @@ DEFAULT_UNIVERSE = (
     "BIC",
     "MIG",
     "PVI",  # insurers
+    # VN100 candidates beyond the original 51, so each 1 January can rank a real top 100.
+    "KDH", "DXG", "NLG", "PDR", "DIG", "HDG", "KBC", "CEO", "IDC", "NVL", "TCH", "SCR", "VPI",
+    "POW", "OIL", "PVT", "PVD", "GEG", "NT2",
+    "HSG", "NKG", "DCM", "DPM", "GVR", "PHR", "VGC",
+    "FRT", "DGW", "MCH", "QNS", "VHC", "ANV", "DBC", "KDC", "PET", "FMC",
+    "CMG", "ELC",
+    "ACV", "HVN", "SCS",
+    "PC1",
+    "CTD", "BMP", "VCG", "CII", "HHV", "BCM", "SZC",
+    "HAG", "LSS", "PAN", "DHC",
+    "CTS", "VIX",
 )
 
 # Scored with the bank template. Missing bank fields stay "Chưa chấm".
@@ -134,6 +149,8 @@ SECURITIES = frozenset(
         "AGR",
         "FTS",
         "VDS",
+        "CTS",
+        "VIX",
     }
 )
 
@@ -169,6 +186,7 @@ BANK_CODES = (
     "PROVISION_BAD_LOANS_AQ",
     "OWNERS_EQUITY_AQ",
     "CUSTOMER_LOANS_AQ_GRYOY",
+    "CUSTOMER_LOANS_AQ",
 )
 
 # Brokers and insurers report like corporates: sales, profit, equity.
@@ -197,6 +215,8 @@ STATUS_RANK = {
 # VNDirect Finfo keeps a daily foreign-trading history per symbol, so the flow layer
 # reads the same host as the ratios and the news feed.
 FLOW_LOOKBACK_SESSIONS = 60
+# Mỗi trang của VNDirect. Lịch sử đầy đủ đi hết totalPages, không dừng ở 60 phiên.
+FLOW_PAGE_SIZE = 300
 FLOW_WINDOW = 10
 # Bỏ qua cửa sổ khi thiếu hơn mức này số phiên có dữ liệu khối ngoại.
 FLOW_MIN_SESSIONS = 5
@@ -243,7 +263,6 @@ MACRO_SYMBOLS = (
     ("SP500", "^GSPC", "S&P 500"),
     ("OIL", "CL=F", "Dầu WTI"),
 )
-MACRO_RANGE = "6mo"
 MACRO_MA_WINDOW = 20
 # A close inside this band of the average counts as neither above nor below.
 MACRO_NEUTRAL_BAND = 0.005
@@ -265,10 +284,20 @@ MARKET_SERIES = (
     ("POLICY_RATE", "Lãi suất tái cấp vốn", "%/năm", ""),
 )
 # Chỉ những chuỗi ở đây mới làm cổng đứng ở "Chưa chấm" khi thiếu số.
-MARKET_GATE_REQUIRED = ("INTERBANK_ON", "GOV10Y", "USDVND", "POLICY_RATE")
+MARKET_GATE_REQUIRED = ("USDVND", "POLICY_RATE")
+# Lãi qua đêm và TPCP 10Y chưa có chuỗi lịch sử từ 2021, nên tạm đóng: vẫn lưu mỗi phiên và
+# hiện trên trang /market, nhưng không khóa cổng kể cả khi đã đủ số phiên.
+MARKET_GATE_CLOSED = ("INTERBANK_ON", "GOV10Y")
 # Lãi suất điều hành không có nguồn tự động. Mỗi quyết định của NHNN là một dòng, ghi
 # ngày có hiệu lực; bài báo chỉ để biết ngày đó, không dùng để chấm điểm.
 POLICY_RATE_HISTORY = (
+    ("2014-03-18", 6.5),
+    ("2017-07-10", 6.25),
+    ("2019-09-16", 6.0),
+    ("2020-03-17", 5.0),
+    ("2020-05-13", 4.5),
+    ("2020-10-01", 4.0),
+    ("2022-09-23", 5.0),
     ("2022-10-25", 6.0),
     ("2023-04-03", 5.5),
     ("2023-05-25", 5.0),
@@ -296,8 +325,13 @@ TP1_R_MULTIPLE = 1.0
 TP1_FRACTION = 1 / 3
 # Không đi tới +1R trong bao nhiêu phiên thì đóng vì tiền chết.
 TIME_STOP_SESSIONS = 30
-# Trần an toàn cho một vị thế.
+# Trần an toàn cho một vị thế. Trần 132 phiên chỉ bật khi cổng ngành đã được phép chặn.
 MAX_HOLD_SESSIONS = 60
+MAX_HOLD_EXTENDED = 132
+# Cả hai cờ đứng tắt cho đến khi cổng ngành qua giai đoạn 2021–2024 và 2025–2026.
+INDUSTRY_GATE_ENFORCED = False
+INDUSTRY_HOLD_ENABLED = False
+STOCK_SHORTLIST_ENFORCED = False
 MAX_SLOTS = 5
 RISK_PER_TRADE = 0.01
 MAX_POSITION_WEIGHT = 0.35
