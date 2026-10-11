@@ -42,6 +42,25 @@ RESEARCH_HISTORY_START = "2014-01-01"
 # Docker passes ARTICLE_RETENTION_DAYS from NEWS_FILING_DAYS so the two stay together.
 ARTICLE_RETENTION_DAYS = 1460
 
+# --- Rổ theo từng giai đoạn -------------------------------------------------------
+# Danh sách cố định bên dưới còn thiên lệch sống sót: mã đã hủy niêm yết không có mặt, nên
+# rổ của năm 2015–2022 toàn mã biết là sẽ sống tới nay. Rổ theo thời điểm lấy lại từ danh
+# sách niêm yết của VNDirect: mỗi năm chỉ thấy mã còn giao dịch trong năm đó, kể cả mã sau
+# này hủy niêm yết. Hạng theo vốn hóa và thanh khoản đo bằng số đã công bố tính đến phiên
+# chốt rổ, rồi cắt ở 200 cho phần ngành và 100 cho phần vào lệnh.
+UNIVERSE_EXCHANGES = ("HOSE", "HNX")
+# Rổ 200 mã dùng cho "Cả rổ" và cho sức mạnh ngành của cổng (chỉ số ngành và cổng ba mã đều
+# dựng trên rổ này); rổ 100 chỉ dùng cho phần vào lệnh, nên cờ mở chỉ sinh cho mã thuộc rổ 100.
+UNIVERSE_LIMIT = 200
+TRADE_LIMIT = 100
+# Số phiên dùng để đo thanh khoản ngay trước phiên chốt rổ.
+LIQUIDITY_LOOKBACK_SESSIONS = 20
+# Giá trong kho là nghìn đồng, khối lượng là cổ phiếu: nhân thêm mức này để ra đồng.
+VND_PER_PRICE_UNIT = 1_000.0
+# Trung bình khối lượng nhân giá đóng cửa mỗi phiên, đơn vị đồng. Dưới mức này mã không vào rổ.
+MIN_MEDIAN_TURNOVER = 3_000_000_000.0
+
+
 DEFAULT_UNIVERSE = (
     "FPT",
     "VNM",

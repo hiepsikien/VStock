@@ -7,7 +7,7 @@ from pathlib import Path
 
 import aiosqlite
 
-from app.config import ARTICLE_RETENTION_DAYS, DEFAULT_UNIVERSE
+from app.config import ARTICLE_RETENTION_DAYS, DEFAULT_UNIVERSE, RESEARCH_HISTORY_START
 from app.evaluate import group_metrics
 
 _db: aiosqlite.Connection | None = None
@@ -16,6 +16,26 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS universe (
     symbol TEXT PRIMARY KEY,
     added_at TEXT NOT NULL
+);
+
+-- Danh sách niêm yết của nguồn, gồm cả mã đã hủy niêm yết. Rổ theo thời điểm đọc khoảng
+-- niêm yết ở đây để biết mã nào có mặt trong từng năm, thay vì chỉ có những mã còn sống.
+CREATE TABLE IF NOT EXISTS symbol_meta (
+    symbol TEXT PRIMARY KEY,
+    exchange TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT '',
+    listed_date TEXT,
+    delisted_date TEXT
+);
+
+-- Ngành theo bảng phân loại ICB. Bảng chứng khoán của nguồn không có mã đã hủy niêm yết,
+-- nên ngành của những mã đó chỉ đến từ danh sách mã của từng nhóm ICB.
+CREATE TABLE IF NOT EXISTS symbol_industry (
+    symbol TEXT PRIMARY KEY,
+    icb_level INTEGER NOT NULL DEFAULT 0,
+    icb_code TEXT NOT NULL DEFAULT '',
+    icb_name TEXT NOT NULL DEFAULT '',
+    industry TEXT NOT NULL DEFAULT ''
 );
 
 -- Bookmarks for one-time work, e.g. which default symbols were already merged in.
@@ -32,6 +52,12 @@ CREATE TABLE IF NOT EXISTS daily_bars (
     low REAL NOT NULL,
     close REAL NOT NULL,
     volume REAL NOT NULL DEFAULT 0,
+    -- Giá thật và giá trị khớp thật của nguồn: `close` là giá đã điều chỉnh chia tách nên
+    -- không nhân được với số cổ phiếu của chính năm đó, còn khối lượng thật nhân với giá đã
+    -- điều chỉnh thì ra giá trị giao dịch sai. Hai cột này chỉ phục vụ đo vốn hóa và thanh
+    -- khoản của rổ, tín hiệu vẫn đọc `close`.
+    raw_close REAL,
+    trade_value REAL,
     PRIMARY KEY (symbol, trade_date)
 );
 
@@ -181,6 +207,14 @@ _PAPER_EXTRA_COLUMNS = (
     ("base_ceiling", "REAL"),
 )
 
+# Giá thật và giá trị khớp thật của phiên, nạp cho nến đã có. Cột thêm sau bản đầu tiên nên
+# kho cũ nhận bằng ALTER TABLE, và `replace_bars` cố ý không chạm hai cột này để lần nạp nến
+# sau không xoá chúng.
+_BAR_EXTRA_COLUMNS = (
+    ("raw_close", "REAL"),
+    ("trade_value", "REAL"),
+)
+
 
 def db_path() -> Path:
     override = os.environ.get("RESEARCH_DB_PATH")
@@ -286,6 +320,7 @@ async def _ensure_schema_migrations(db: aiosqlite.Connection) -> None:
     for table, columns in (
         ("verdicts", _VERDICT_EXTRA_COLUMNS),
         ("paper_positions", _PAPER_EXTRA_COLUMNS),
+        ("daily_bars", _BAR_EXTRA_COLUMNS),
     ):
         cursor = await db.execute(f"PRAGMA table_info({table})")
         existing = {row[1] for row in await cursor.fetchall()}
@@ -349,8 +384,63 @@ async def remove_symbol(symbol: str) -> None:
     await db.commit()
 
 
+async def replace_symbol_meta(rows: list[tuple[str, str, str, str | None, str | None]]) -> None:
+    """Ghi danh sách niêm yết của nguồn: mã, sàn, trạng thái, ngày niêm yết, ngày hủy."""
+    db = await get_db()
+    await db.executemany(
+        """
+        INSERT INTO symbol_meta (symbol, exchange, status, listed_date, delisted_date)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(symbol) DO UPDATE SET
+            exchange = excluded.exchange,
+            status = excluded.status,
+            listed_date = excluded.listed_date,
+            delisted_date = excluded.delisted_date
+        """,
+        rows,
+    )
+    await db.commit()
+
+
+async def symbol_meta() -> dict[str, dict]:
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT symbol, exchange, status, listed_date, delisted_date FROM symbol_meta"
+    )
+    return {row["symbol"]: dict(row) for row in await cursor.fetchall()}
+
+
+async def replace_symbol_industry(rows: list[tuple[str, int, str, str, str]]) -> None:
+    """Ghi bảng ngành ICB: mã, cấp, mã nhóm, tên nhóm, nhãn ngành của dự án."""
+    db = await get_db()
+    await db.executemany(
+        """
+        INSERT INTO symbol_industry (symbol, icb_level, icb_code, icb_name, industry)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(symbol) DO UPDATE SET
+            icb_level = excluded.icb_level,
+            icb_code = excluded.icb_code,
+            icb_name = excluded.icb_name,
+            industry = excluded.industry
+        """,
+        rows,
+    )
+    await db.commit()
+
+
+async def symbol_industry() -> dict[str, dict]:
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT symbol, icb_level, icb_code, icb_name, industry FROM symbol_industry"
+    )
+    return {row["symbol"]: dict(row) for row in await cursor.fetchall()}
+
+
+
 async def replace_bars(symbol: str, bars: list[dict]) -> None:
     db = await get_db()
+    # `raw_close` và `trade_value` cố ý không có trong danh sách cập nhật: chúng chỉ đến từ
+    # `write_raw_tape`, nên nạp lại nến không xoá mất cạnh thật của nguồn.
     await db.executemany(
         """
         INSERT INTO daily_bars (symbol, trade_date, open, high, low, close, volume)
@@ -378,11 +468,28 @@ async def replace_bars(symbol: str, bars: list[dict]) -> None:
     await db.commit()
 
 
+async def write_raw_tape(symbol: str, rows: list[tuple[str, float, float]]) -> tuple[int, int]:
+    """Ghi giá thật và giá trị khớp thật của một mã; trả (số phiên khớp, số phiên không có nến).
+
+    Chỉ cập nhật hai cột phụ của nến đã có. Phiên nguồn có mà kho không có thì để nguyên chứ
+    không chèn nến mới: nến lấy từ nguồn khác có thể lệch chuỗi giá mà mọi tín hiệu đang đọc.
+    """
+    db = await get_db()
+    batch = [(raw_close, trade_value, symbol, day) for day, raw_close, trade_value in rows]
+    cursor = await db.executemany(
+        "UPDATE daily_bars SET raw_close = ?, trade_value = ? WHERE symbol = ? AND trade_date = ?",
+        batch,
+    )
+    await db.commit()
+    matched = int(cursor.rowcount or 0)
+    return matched, len(batch) - matched
+
+
 async def bars(symbol: str) -> list[dict]:
     db = await get_db()
     cursor = await db.execute(
         """
-        SELECT trade_date, open, high, low, close, volume
+        SELECT trade_date, open, high, low, close, volume, raw_close, trade_value
         FROM daily_bars
         WHERE symbol = ?
         ORDER BY trade_date
@@ -390,6 +497,36 @@ async def bars(symbol: str) -> list[dict]:
         (symbol,),
     )
     return [dict(row) for row in await cursor.fetchall()]
+
+
+async def raw_tape_missing(since: str = RESEARCH_HISTORY_START) -> list[tuple[str, int, int, str]]:
+    """Mã còn thiếu giá thật kể từ `since`: mã, số phiên, số phiên thiếu, phiên thiếu đầu tiên.
+
+    Chỉ xét mã có trong bảng niêm yết của nguồn: rổ chỉ dựng từ danh sách đó, nên giá thật của
+    một mã nguồn chưa xác nhận không dùng vào việc gì. Đây cũng là danh sách việc của
+    `history_pull --raw-tape`: đọc từ kho thay vì từ một dấu đã ghi, vì nến lấy về sau chỉ có
+    `close`, và phiên mới như thế tự lọt vào lần nạp sau mà không cần ai nhớ xoá dấu.
+    """
+    db = await get_db()
+    cursor = await db.execute(
+        """
+        SELECT b.symbol AS symbol,
+               COUNT(*) AS sessions,
+               SUM(b.raw_close IS NULL) AS missing,
+               MIN(CASE WHEN b.raw_close IS NULL THEN b.trade_date END) AS first_missing
+        FROM daily_bars b
+        JOIN symbol_meta m ON m.symbol = b.symbol
+        WHERE b.trade_date >= ?
+        GROUP BY b.symbol
+        HAVING missing > 0
+        ORDER BY missing DESC, b.symbol
+        """,
+        (since,),
+    )
+    return [
+        (row["symbol"], int(row["sessions"]), int(row["missing"]), str(row["first_missing"]))
+        for row in await cursor.fetchall()
+    ]
 
 
 async def replace_ratios(symbol: str, points: dict[str, list[tuple[str, float]]]) -> None:

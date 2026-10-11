@@ -22,11 +22,13 @@ from app.industry_note import (
     parse_picks,
     shift_months,
 )
-from app.industry_report import _credit, _load, _universe_for_year
+from app.industry_report import _load, baskets_for
+from app.pit_universe import Basket
 from app.industry_screen import (
     CONFIRM_END,
     OPERABLE_START,
     average_by_day,
+    credit_by_day,
     dated_returns,
     find_runs,
     is_open,
@@ -62,16 +64,17 @@ def month_snapshot(
     bars: dict,
     market: dict,
     index_days: list[str],
-    year_members: dict,
+    baskets: dict[int, Basket],
     credit_by_day: dict,
 ) -> tuple[str, dict[str, str], list[str]] | None:
     """Prompt inputs for one note day. Every figure ends on the previous session."""
     yesterday = previous_session(index_days, note_day)
     if yesterday is None:
         return None
-    anchor, universe = year_members.get(int(note_day[:4]), (None, []))
-    if anchor is None or note_day < anchor or len(universe) < 3:
+    basket = baskets.get(int(note_day[:4]))
+    if basket is None or basket.day is None or note_day < basket.day or len(basket.trade) < 3:
         return None
+    universe = basket.trade
     index = [bar for bar in bars["VNINDEX"] if bar["trade_date"] <= yesterday]
     index_return = rolling_compound(dated_returns(index)).get(yesterday)
     regime = market_regime(index)
@@ -139,7 +142,7 @@ def score_stored(
     bars: dict,
     market: dict,
     index_days: list[str],
-    year_members: dict,
+    baskets: dict[int, Basket],
     credit_by_day: dict,
 ) -> list[str]:
     """Compare each stored note with runs that start in the following three months."""
@@ -152,11 +155,11 @@ def score_stored(
         if horizon > last:
             lines.append(f"{note_day}: chưa đủ ba tháng sau để chấm.")
             continue
-        snapshot = month_snapshot(note_day, bars, market, index_days, year_members, credit_by_day)
+        snapshot = month_snapshot(note_day, bars, market, index_days, baskets, credit_by_day)
         if snapshot is None:
             continue
         _prompt, _known, numeric = snapshot
-        universe = year_members[int(note_day[:4])][1]
+        universe = baskets[int(note_day[:4])].trade
         runs = _runs_after(bars, universe, note_day, horizon)
         picks = set(parse_picks(row["response"]))
         note_rate = contain_rate(runs, picks)
@@ -184,16 +187,14 @@ def score_stored(
 
 async def replay(dry_run: bool) -> None:
     _load_env()
-    bars, ratios, market = _load()
+    bars, ratios, market, listings = _load()
     index_days = [bar["trade_date"] for bar in bars["VNINDEX"]]
-    credit_by_day = _credit(ratios, index_days)
-    year_members = {
-        year: _universe_for_year(year, bars, ratios, index_days) for year in range(2023, 2027)
-    }
+    credit = credit_by_day(ratios, index_days)
+    baskets = baskets_for(bars, ratios, listings, index_days)
     days = month_note_days(index_days, OPERABLE_START, index_days[-1] if index_days else None)
     ready = []
     for day in days:
-        snapshot = month_snapshot(day, bars, market, index_days, year_members, credit_by_day)
+        snapshot = month_snapshot(day, bars, market, index_days, baskets, credit)
         if snapshot is not None:
             ready.append((day, snapshot))
     print(f"Tháng từ {OPERABLE_START} đến {CONFIRM_END}: {len(ready)} nhận định dựng được.")
@@ -223,7 +224,7 @@ async def replay(dry_run: bool) -> None:
         await db.save_industry_note(day, prompt, text, picks)
         print(day, picks or "(không chọn)")
     notes = await db.industry_notes()
-    for line in score_stored(notes, bars, market, index_days, year_members, credit_by_day):
+    for line in score_stored(notes, bars, market, index_days, baskets, credit):
         print(line)
     await db.close_db()
 

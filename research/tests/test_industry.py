@@ -13,7 +13,7 @@ from app import db, exits
 from app.config import DEFAULT_UNIVERSE
 from app.evaluate import compose
 from app.exits import OpenPosition, fell_under_base, manage_position
-from app.industries import industry_of, members, yearly_universe
+from app.industries import gated_industries, industry_of, members
 from app.industry_note import (
     contain_rate,
     month_note_days,
@@ -22,6 +22,7 @@ from app.industry_note import (
     parse_picks,
     shift_months,
 )
+from app.industry_report import yearly_open_map
 from app.industry_screen import (
     average_by_day,
     build_open_map,
@@ -30,6 +31,7 @@ from app.industry_screen import (
     find_runs,
     is_open,
     layer_counts,
+    name_allowed,
     passes_layer,
     passes_stock,
     previous_session,
@@ -37,6 +39,7 @@ from app.industry_screen import (
 )
 from app.ingest import fetch_foreign_flow
 from app.pattern import Pattern, Regime
+from app.pit_universe import Basket
 from app.stock_select import balance_sheet_block, position_rank, shortlist
 from app.valuation import cheap_versus, market_cap, trailing_pe, trailing_profit
 
@@ -136,12 +139,49 @@ class IndustryMathTest(unittest.TestCase):
         self.assertFalse(opened[("VCB", jump)])
         self.assertEqual(previous_session([bar["trade_date"] for bar in bars], jump), bars[-2]["trade_date"])
 
-    def test_year_list_is_the_largest_hundred(self) -> None:
-        caps = {f"S{index:03d}": float(index) for index in range(1, 121)}
-        chosen = yearly_universe(caps)
-        self.assertEqual(len(chosen), 100)
-        self.assertEqual(chosen[0], "S120")
-        self.assertNotIn("S001", chosen)
+    def test_an_industry_needs_three_names_in_the_basket_to_be_gated(self) -> None:
+        basket = ["VCB", "CTG", "BID", "AAA"]
+        self.assertEqual(members("bank", basket), ["VCB", "CTG", "BID"])
+        self.assertIn("bank", gated_industries(basket))
+        # Rổ nhỏ hơn ba mã ngân hàng thì nhóm đó không mở cổng riêng cho chính nó.
+        self.assertNotIn("bank", gated_industries(["VCB", "CTG", "AAA"]))
+
+    def test_the_industry_index_is_built_on_the_year_basket_not_the_trade_basket(self) -> None:
+        # Cổng đo sức mạnh ngành trên rổ 200 mã của năm: ngành đủ ba mã trong rổ 200 thì mã vào
+        # lệnh bị xét theo chỉ số ngành, kể cả khi rổ giao dịch chỉ có một mã của ngành đó.
+        index = _bars("2024-01-01", [100.0 + step for step in range(80)])
+        flat = _bars("2024-01-01", [100.0] * 80)
+        day = index[-1]["trade_date"]
+        book = {"VNINDEX": index, "FPT": flat, "CMG": flat, "ELC": flat}
+        baskets = {2024: Basket("2024-01-08", ["FPT", "CMG", "ELC"], ["FPT"])}
+        opened = yearly_open_map(
+            book,
+            {},
+            {},
+            baskets,
+            regime_by_day={bar["trade_date"]: True for bar in index},
+        )
+        # Ba mã công nghệ đi ngang trong khi VN-Index tăng: ngành yếu nên cổng đóng, dù chế độ
+        # thị trường đang mở.
+        self.assertFalse(opened[("FPT", day)])
+        # Nếu chỉ số ngành dựng trên rổ giao dịch thì ngành chỉ còn một mã, không đủ thành một
+        # con sóng, và mã rơi về chế độ thị trường — đúng chỗ cách đo cũ vấp.
+        self.assertIsNone(
+            is_open("tech", ["FPT"], excess=0.02, lead_return=None, credit_growth=None, regime_open=True)
+        )
+        self.assertTrue(name_allowed("FPT", ["FPT"], None, True))
+        # Chốt lại bằng chính `yearly_open_map`: nếu chỉ số ngành chỉ có một mã của ngành thì mã
+        # mở theo chế độ thị trường — đó là hành vi trước khi sửa, nên assert ngược lại ở trên mới
+        # là chỗ chặn lỗi quay lại.
+        thin = {2024: Basket("2024-01-08", ["FPT"], ["FPT"])}
+        opened_thin = yearly_open_map(
+            book,
+            {},
+            {},
+            thin,
+            regime_by_day={bar["trade_date"]: True for bar in index},
+        )
+        self.assertTrue(opened_thin[("FPT", day)])
 
     def test_trailing_pe_waits_for_the_statement_lag(self) -> None:
         shares = [("2024-12-31", 10.0)]

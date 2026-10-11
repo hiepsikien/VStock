@@ -11,8 +11,9 @@ from collections import defaultdict
 from datetime import date, timedelta
 from pathlib import Path
 
-from app.config import DEFAULT_UNIVERSE, STATEMENT_LAG_DAYS
-from app.industries import INDUSTRY_WINDOW, gated_industries, members, yearly_universe
+from app.config import STATEMENT_LAG_DAYS
+from app.industries import INDUSTRY_WINDOW, gated_industries, members, set_industry_map
+from app.pit_universe import Basket, baskets_from_bars, trade_member_of
 from app.industry_screen import (
     BACK_END,
     BACK_START,
@@ -34,18 +35,24 @@ from app.industry_screen import (
     passes_stock,
 )
 from app.stock_select import balance_sheet_block, cheap_pair, position_rank, revenue_on, shortlist
-from app.valuation import daily_valuation, market_cap
+from app.valuation import daily_valuation
 
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "research.db"
 REPORT_PATH = Path(__file__).resolve().parents[1] / "reports" / "industry_gate.md"
 
 
-def _load() -> tuple[dict[str, list[dict]], dict, dict[str, list[tuple[str, float]]]]:
+def _load() -> tuple[dict[str, list[dict]], dict, dict[str, list[tuple[str, float]]], dict[str, dict]]:
+    """Nến, BCTC, chuỗi thị trường và bảng niêm yết đã lưu; đồng thời gắn bảng ngành ICB.
+
+    Bảng ngành được gắn ngay ở đây vì `industry_of` là chỗ duy nhất quyết định mã thuộc ngành
+    nào, và cả báo cáo lẫn bảng dò đều đọc qua nó.
+    """
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
     bars: dict[str, list[dict]] = defaultdict(list)
     for row in connection.execute(
-        "SELECT symbol, trade_date, open, high, low, close, volume FROM daily_bars ORDER BY trade_date"
+        "SELECT symbol, trade_date, open, high, low, close, volume, raw_close, trade_value "
+        "FROM daily_bars ORDER BY trade_date"
     ):
         bars[row["symbol"]].append(
             {
@@ -55,6 +62,10 @@ def _load() -> tuple[dict[str, list[dict]], dict, dict[str, list[tuple[str, floa
                 "low": row["low"],
                 "close": row["close"],
                 "volume": row["volume"],
+                # Giá thật và giá trị khớp thật của phiên: rổ đọc hai cột này để đo vốn hóa và
+                # thanh khoản, còn tín hiệu vẫn đọc `close` đã điều chỉnh.
+                "raw_close": row["raw_close"],
+                "trade_value": row["trade_value"],
             }
         )
     ratios: dict[str, dict[str, list[tuple[str, float]]]] = defaultdict(lambda: defaultdict(list))
@@ -67,40 +78,98 @@ def _load() -> tuple[dict[str, list[dict]], dict, dict[str, list[tuple[str, floa
         "SELECT series, trade_date, value FROM market_points ORDER BY trade_date"
     ):
         market[row["series"]].append((row["trade_date"], row["value"]))
+    listings: dict[str, dict] = defaultdict(dict)
+    for row in connection.execute(
+        "SELECT symbol, exchange, status, listed_date, delisted_date FROM symbol_meta"
+    ):
+        listings[row["symbol"]] = dict(row)
+    industries: dict[str, str] = {}
+    for row in connection.execute("SELECT symbol, industry FROM symbol_industry"):
+        if row["industry"]:
+            industries[row["symbol"]] = row["industry"]
     connection.close()
-    return bars, ratios, market
+    set_industry_map(industries)
+    return bars, ratios, market, dict(listings)
 
 
-def _caps_on(day: str, bars: dict, ratios: dict) -> dict[str, float]:
-    as_of = date.fromisoformat(day)
-    caps = {}
-    for symbol in DEFAULT_UNIVERSE:
-        symbol_bars = bars.get(symbol) or []
-        close = None
-        for bar in symbol_bars:
-            if bar["trade_date"] <= day:
-                close = float(bar["close"])
-            else:
-                break
-        if close is None:
+def baskets_for(
+    bars: dict[str, list[dict]],
+    ratios: dict,
+    listings: dict[str, dict],
+    index_days: list[str],
+) -> dict[int, Basket]:
+    """Rổ 200 mã và rổ giao dịch 100 mã của từng năm, dựng từ nến và số cổ phiếu đã lưu."""
+    return baskets_from_bars(index_days, bars, ratios, listings)
+
+
+
+def yearly_open_map(
+    bars: dict[str, list[dict]],
+    ratios: dict,
+    market: dict[str, list[tuple[str, float]]],
+    baskets: dict[int, Basket],
+    window: int = INDUSTRY_WINDOW,
+    regime_by_day: dict[str, bool | None] | None = None,
+) -> dict[tuple[str, str], bool]:
+    """Trạng thái mở của từng phiên, chỉ sinh cho mã nằm trong rổ giao dịch của năm đó.
+
+    Sức mạnh ngành đo trên rổ 200 mã của năm, đúng bằng chỉ số ngành mà phép đo precision đọc:
+    một ngành đủ ba mã trong rổ 200 thì mã vào lệnh bị xét theo chỉ số ngành đó, kể cả khi ngành
+    ấy chỉ có một mã trong rổ giao dịch. Rổ giao dịch chỉ quyết định mã nào có cờ, vì mã ngoài
+    rổ giao dịch không có lệnh nào để mở. Năm nào rổ 200 cũng chưa đủ ba mã cho một ngành thì
+    mọi mã rơi về chế độ thị trường, đúng như `is_open` xử lý một ngành mỏng; không bỏ qua năm
+    đó, vì bỏ qua thì phép đo đếm các phiên ấy là đóng trong khi cổng vẫn mở.
+    """
+    index = bars.get("VNINDEX") or []
+    index_days = [bar["trade_date"] for bar in index]
+    credit = credit_by_day(ratios, index_days)
+    lead = lead_bars_from(market)
+    allowed: dict[tuple[str, str], bool] = {}
+    for year, basket in baskets.items():
+        if basket.day is None:
             continue
-        cap = market_cap(close, ratios.get(symbol, {}).get("OUTSTANDING_SHARES") or [], as_of)
-        if cap:
-            caps[symbol] = cap
-    return caps
+        opened = build_open_map(
+            index,
+            bars,
+            list(basket.universe),
+            lead_bars=lead,
+            credit_by_day=credit,
+            regime_by_day=regime_by_day,
+            window=window,
+        )
+        in_book = set(basket.trade)
+        for (symbol, day), flag in opened.items():
+            if symbol in in_book and day.startswith(str(year)) and day >= basket.day:
+                allowed[(symbol, day)] = flag
+    return allowed
 
 
-def _universe_for_year(year: int, bars: dict, ratios: dict, index_days: list[str]) -> tuple[str | None, list[str]]:
-    """Top 100 on 1 January, or on the first session that year when a cap is actually knowable."""
-    start = f"{year}-01-01"
-    end = f"{year}-12-31"
-    for day in index_days:
-        if day < start or day > end:
-            continue
-        caps = _caps_on(day, bars, ratios)
-        if len(caps) >= 30:
-            return day, yearly_universe(caps)
-    return None, []
+def measure_gate(bars, allowed, baskets: dict[int, Basket], start: str, end: str) -> tuple[dict, dict]:
+    """Recall over name runs, and precision over industry-sessions, for one window."""
+
+    def _active(symbol: str, day: str) -> bool:
+        basket = baskets.get(int(day[:4]))
+        return bool(
+            basket
+            and basket.day is not None
+            and day >= basket.day
+            and trade_member_of(baskets, symbol, day)
+        )
+
+    def _open(symbol: str, day: str) -> bool:
+        return _active(symbol, day) and allowed.get((symbol, day), False)
+
+    book = {
+        symbol: series
+        for symbol, series in bars.items()
+        if symbol != "VNINDEX" and any(symbol in basket.trade for basket in baskets.values())
+    }
+    counts = layer_counts(book, _open, start, end, _active)
+    # Precision of the industry gate is counted in industry-sessions, not name-sessions.
+    industry = _industry_precision(bars, allowed, baskets, start, end)
+    counts["precision"] = industry["precision"]
+    counts["baseline"] = industry["baseline"]
+    return counts, industry
 
 
 def _industry_forward(index: list[dict], day: str) -> float | None:
@@ -116,62 +185,8 @@ def _industry_forward(index: list[dict], day: str) -> float | None:
     return float(index[start + 66]["close"]) / base - 1.0
 
 
-def yearly_open_map(
-    bars: dict[str, list[dict]],
-    ratios: dict,
-    market: dict[str, list[tuple[str, float]]],
-    window: int = INDUSTRY_WINDOW,
-    regime_by_day: dict[str, bool | None] | None = None,
-) -> tuple[dict[tuple[str, str], bool], dict[int, tuple[str | None, list[str]]]]:
-    """Open state of every name in each year's basket, and the basket of each year."""
-    index = bars.get("VNINDEX") or []
-    index_days = [bar["trade_date"] for bar in index]
-    credit = credit_by_day(ratios, index_days)
-    lead = lead_bars_from(market)
-    allowed: dict[tuple[str, str], bool] = {}
-    year_members: dict[int, tuple[str | None, list[str]]] = {}
-    last_year = int(index_days[-1][:4]) if index_days else int(CONFIRM_END[:4])
-    for year in range(int(BACK_START[:4]), last_year + 1):
-        anchor, universe = _universe_for_year(year, bars, ratios, index_days)
-        year_members[year] = (anchor, universe)
-        if anchor is None or len(universe) < 3:
-            continue
-        opened = build_open_map(
-            index,
-            bars,
-            universe,
-            lead_bars=lead,
-            credit_by_day=credit,
-            regime_by_day=regime_by_day,
-            window=window,
-        )
-        for (symbol, day), flag in opened.items():
-            if day.startswith(str(year)) and day >= anchor and symbol in universe:
-                allowed[(symbol, day)] = flag
-    return allowed, year_members
-
-
-def measure_gate(bars, allowed, year_members, start: str, end: str) -> tuple[dict, dict]:
-    """Recall over name runs, and precision over industry-sessions, for one window."""
-
-    def _active(symbol: str, day: str) -> bool:
-        anchor, universe = year_members.get(int(day[:4]), (None, []))
-        return anchor is not None and day >= anchor and symbol in universe
-
-    def _open(symbol: str, day: str) -> bool:
-        return _active(symbol, day) and allowed.get((symbol, day), False)
-
-    book = {symbol: bars[symbol] for symbol in DEFAULT_UNIVERSE if symbol in bars}
-    counts = layer_counts(book, _open, start, end, _active)
-    # Precision of the industry gate is counted in industry-sessions, not name-sessions.
-    industry = _industry_precision(bars, allowed, year_members, start, end)
-    counts["precision"] = industry["precision"]
-    counts["baseline"] = industry["baseline"]
-    return counts, industry
-
-
 def write_report() -> str:
-    bars, ratios, market = _load()
+    bars, ratios, market, listings = _load()
     index = bars.get("VNINDEX") or []
     index_days = [bar["trade_date"] for bar in index]
     lines = ["# Cổng ngành", ""]
@@ -185,14 +200,31 @@ def write_report() -> str:
         REPORT_PATH.write_text(text)
         return text
 
-    stock_starts = [bars[symbol][0]["trade_date"] for symbol in DEFAULT_UNIVERSE if bars.get(symbol)]
-    missing = [symbol for symbol in DEFAULT_UNIVERSE if not bars.get(symbol)]
+    with_bars = [symbol for symbol in listings if bars.get(symbol)]
+    delisted = [symbol for symbol, meta in listings.items() if meta.get("delisted_date")]
+    missing = [symbol for symbol in listings if not bars.get(symbol)]
+    early = {
+        symbol
+        for symbol in missing
+        if (listings[symbol].get("delisted_date") or "9999-99-99") < index_days[0]
+    }
+    stock_starts = [bars[symbol][0]["trade_date"] for symbol in with_bars]
     lines.append(
-        f"Nến từ {min(stock_starts)} đến {index_days[-1]}, {len(stock_starts)} mã có nến, "
-        f"sớm nhất thực tế {min(stock_starts)}."
+        f"Nến từ {min(stock_starts)} đến {index_days[-1]}, {len(with_bars)}/{len(listings)} mã "
+        f"trong danh sách niêm yết đã có nến, trong đó {len(delisted)} mã đã hủy niêm yết."
     )
     if missing:
-        lines.append("Không có nến: " + ", ".join(missing) + ".")
+        gap = sorted(set(missing) - early)
+        lines.append(
+            f"Chưa có nến: {len(missing)} mã, trong đó {len(early)} mã đã hủy niêm yết trước "
+            f"{index_days[0]} nên nguồn không còn giá"
+            + (f", còn lại {', '.join(gap[:12])}." if gap else ".")
+        )
+    lines.append(
+        "Rổ của mỗi năm đọc danh sách niêm yết của nguồn nên giữ cả mã đã hủy niêm yết: "
+        "mã rời sàn vì phá sản hay bị thâu tóm vẫn nằm trong rổ của năm nó còn giao dịch, "
+        "và chỉ bị loại khi số cổ phiếu đã công bố hoặc thanh khoản không đủ."
+    )
     oil = market.get("OIL") or []
     if oil:
         lines.append(f"Dầu từ {oil[0][0]} đến {oil[-1][0]}.")
@@ -207,10 +239,11 @@ def write_report() -> str:
             "Nguồn không có trước ngày sớm nhất này."
         )
     lines.append("")
-    allowed, year_members = yearly_open_map(bars, ratios, market)
-    screen, industry_precision = measure_gate(bars, allowed, year_members, OPERABLE_START, SCREEN_END)
-    confirm, industry_confirm = measure_gate(bars, allowed, year_members, CONFIRM_START, CONFIRM_END)
-    back, industry_back = measure_gate(bars, allowed, year_members, BACK_START, BACK_END)
+    baskets = baskets_for(bars, ratios, listings, index_days)
+    allowed = yearly_open_map(bars, ratios, market, baskets)
+    screen, industry_precision = measure_gate(bars, allowed, baskets, OPERABLE_START, SCREEN_END)
+    confirm, industry_confirm = measure_gate(bars, allowed, baskets, CONFIRM_START, CONFIRM_END)
+    back, industry_back = measure_gate(bars, allowed, baskets, BACK_START, BACK_END)
     passed = passes_layer(
         screen["recall"],
         screen["precision"],
@@ -220,10 +253,34 @@ def write_report() -> str:
         confirm["baseline"],
     )
     roster = ", ".join(
-        f"{year}={len(names)} từ {anchor or 'không có'}"
-        for year, (anchor, names) in year_members.items()
+        f"{year}={len(basket.universe)}/{len(basket.trade)} từ {basket.day}"
+        for year, basket in sorted(baskets.items())
     )
-    lines.append("Rổ theo vốn hóa: " + roster + ".")
+    lines.append("Rổ 200 mã và rổ giao dịch 100 mã theo vốn hóa: " + roster + ".")
+    lines.append(
+        "Chỉ số ngành và cổng ba mã dựng trên rổ 200 mã của năm, nên ngành nào đủ ba mã trong "
+        "rổ 200 thì mã vào lệnh bị xét theo chỉ số ngành đó kể cả khi rổ giao dịch chỉ có một "
+        "mã của ngành ấy; cờ mở chỉ sinh cho mã thuộc rổ giao dịch 100 mã."
+    )
+    lines.append(
+        "Mã bị loại khi số cổ phiếu đã công bố chưa đủ 45 ngày tính tới phiên chốt, hoặc khi "
+        "trung vị giá trị khớp thật 20 phiên trước đó dưới 3 tỷ đồng; mã đã hủy niêm yết "
+        "không được xếp hạng sau ngày hủy. Vốn hóa và thanh khoản đều đo bằng giá thật và giá "
+        "trị khớp thật của phiên, không bằng giá đã điều chỉnh chia tách, nên mã chia tách nhiều "
+        "không còn bị đo thấp mà rơi khỏi rổ."
+    )
+    lines.append(
+        "Ba giới hạn đã biết của cách đo này, chưa đưa vào luật. Một: một phiên mã không khớp "
+        "lệnh vẫn vào cửa sổ 20 phiên với giá trị 0 nên trung vị bị kéo xuống — trên cả kho, nến "
+        "volume bằng 0 chiếm 17–25% mỗi năm trong 2014–2020, 7% năm 2021, rồi khoảng 1% từ 2022; "
+        "nhưng đo đúng 20 phiên cuối của rổ thì không năm nào có phiên giá trị 0, vì mã không "
+        "khớp lệnh nằm ngoài rổ. Hai: cửa sổ là 20 phiên cuối của chính mã chứ không theo lịch "
+        "sàn, nên mã bị tạm ngừng giao dịch dài vẫn xếp hạng bằng thanh khoản cũ (HPX trong rổ "
+        "2024 xếp hạng 144/200 dù phiên cuối 2023-09-15 cách phiên chốt 109 ngày); bắt nến cuối "
+        "phải mới hơn một số ngày so với phiên chốt là một tham số mới, chưa đưa vào. Ba: số cổ "
+        "phiếu phải đủ 45 ngày mới tính trong khi giá thật đã giảm từ ngày giao dịch không hưởng "
+        "quyền, nên vốn hóa của mã vừa chia tách hay phát hành thêm bị đo lệch trong cửa sổ đó."
+    )
     lines.append(
         "Số cổ phiếu lưu hành trước 2023 được bổ sung từ vốn góp của chủ sở hữu trong BCTC quý. "
         f"Cửa sổ đo chạy từ {OPERABLE_START}, phiên đầu tiên vốn hóa đã biết."
@@ -247,7 +304,7 @@ def write_report() -> str:
             "số sát ngưỡng không phải lý do để nới ngưỡng."
         )
     lines.append("")
-    lines.extend(_stock_lines(bars, ratios, allowed, year_members))
+    lines.extend(_stock_lines(bars, ratios, allowed, baskets))
     lines.append("")
     lines.append(
         "Nhận định tháng chạy bằng `python -m app.llm_notes` từ thư mục research, "
@@ -288,12 +345,19 @@ def _window_line(title: str, counts: dict, industry: dict) -> str:
     )
 
 
-def _industry_precision(bars, allowed, year_members, start: str, end: str) -> dict:
+def _industry_precision(bars, allowed, baskets: dict[int, Basket], start: str, end: str) -> dict:
+    """Tỷ lệ phiên-ngành mở mà ngành đó tăng 20% trong 66 phiên, so với tỷ lệ nền của chính nó.
+
+    Chỉ số ngành lấy cả rổ 200 mã để không phụ thuộc vào việc mã nào lọt vào rổ giao dịch,
+    còn "ngành mở" chỉ tính trên rổ giao dịch — đúng những mã sổ lệnh được phép vào.
+    """
     open_hits = open_days = base_hits = base_days = 0
     open_count = defaultdict(int)
     sessions = 0
     seen_days = set()
-    for year, (anchor, universe) in year_members.items():
+    for year, basket in baskets.items():
+        anchor = basket.day
+        universe = basket.universe
         gated = gated_industries(universe)
         indexes = {}
         for industry in gated:
@@ -307,6 +371,7 @@ def _industry_precision(bars, allowed, year_members, start: str, end: str) -> di
             indexes[industry] = index
         for industry in gated:
             index = indexes[industry]
+            tradable = [symbol for symbol in members(industry, universe) if symbol in basket.trade]
             for bar in index:
                 day = bar["trade_date"]
                 if anchor is None or day < anchor or day < start or day > end or not day.startswith(str(year)):
@@ -317,8 +382,7 @@ def _industry_precision(bars, allowed, year_members, start: str, end: str) -> di
                 base_days += 1
                 if forward >= 0.20:
                     base_hits += 1
-                names = members(industry, universe)
-                is_open_day = any(allowed.get((symbol, day)) for symbol in names)
+                is_open_day = any(allowed.get((symbol, day)) for symbol in tradable)
                 if day not in seen_days:
                     seen_days.add(day)
                     sessions += 1
@@ -335,8 +399,12 @@ def _industry_precision(bars, allowed, year_members, start: str, end: str) -> di
     }
 
 
-def _stock_lines(bars, ratios, allowed, year_members) -> list[str]:
-    """Recall of runs whose name was on the shortlist, and the median gap versus the names left out."""
+def _stock_lines(bars, ratios, allowed, baskets: dict[int, Basket]) -> list[str]:
+    """Recall of runs whose name was on the shortlist, and the median gap versus the names left out.
+
+    Danh sách chọn chỉ đọc rổ giao dịch của năm: đó là những mã sổ lệnh thật sự được phép vào,
+    nên recall ở đây không bị thổi lên bởi mã chỉ nằm trong rổ 200 mã.
+    """
     valuations = {}
     for symbol, symbol_bars in bars.items():
         if symbol == "VNINDEX":
@@ -373,9 +441,10 @@ def _stock_lines(bars, ratios, allowed, year_members) -> list[str]:
         shs_runs = shs_listed = 0
         kept_returns: list[float] = []
         dropped_returns: list[float] = []
-        for year, (anchor, universe) in year_members.items():
-            for industry in gated_industries(universe):
-                names = [symbol for symbol in members(industry, universe) if symbol in bars]
+        for year, basket in sorted(baskets.items()):
+            anchor = basket.day
+            for industry in gated_industries(basket.trade):
+                names = [symbol for symbol in members(industry, basket.trade) if symbol in bars]
                 for symbol in names:
                     for day, index, _change in find_runs(bars[symbol], start, end):
                         if anchor is None or day < anchor or not day.startswith(str(year)):
@@ -483,8 +552,8 @@ def _stock_lines(bars, ratios, allowed, year_members) -> list[str]:
         "Danh sách khoanh được phép lọc ứng viên."
         if passed
         else "Danh sách khoanh chưa qua cửa, nên chưa lọc ứng viên. Hạng vị thế không được dùng để chặn.",
-        f"SHS nằm trong danh sách khoanh ở {screen_shs_listed}/{screen_shs} đợt của giai đoạn chọn "
-        f"và {confirm_shs_listed}/{confirm_shs} đợt của giai đoạn xác nhận.",
+        f"SHS trong rổ giao dịch {screen_shs} đợt ở giai đoạn chọn và {confirm_shs} đợt ở giai đoạn "
+        f"xác nhận, trong đó nằm ở danh sách khoanh {screen_shs_listed} và {confirm_shs_listed} đợt.",
     ]
 
 

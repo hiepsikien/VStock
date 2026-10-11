@@ -10,7 +10,7 @@ from app import db, notify, paper
 from app.config import BANKS, DEFAULT_UNIVERSE
 from app.evaluate import compose
 from app.flow import flow_gate
-from app.industries import industry_of
+from app.industries import industry_of, load_industry_map
 from app.industry_screen import build_open_map, credit_by_day, lead_bars_from
 from app.ingest import (
     fetch_bars,
@@ -53,6 +53,9 @@ async def run_session() -> str:
 
 async def _run() -> str:
     symbols = await universe_symbols()
+    # Bảng ngành là trạng thái toàn cục: phiên này có thể chạy ở tiến trình khác với web, nên
+    # nó phải tự gắn bảng đã lưu trước khi chấm, không thì cùng một mã được ghi nhãn ngành khác.
+    await load_industry_map()
     timeout = httpx.Timeout(30.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
         index_bars = await fetch_bars(client, "VNINDEX", index=True)
