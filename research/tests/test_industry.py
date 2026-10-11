@@ -406,6 +406,60 @@ class HoldDoorTest(unittest.TestCase):
         # Nguồn lỗi thì chưa tính là xong, để phiên sau hỏi lại.
         self.assertFalse(asyncio.run(supplement_historical_shares(FakeClient(FakeResponse(500, [])), "VNM", {})))
 
+    def test_fetch_ratios_adds_operating_profit_for_corporates_only(self) -> None:
+        from app import ingest
+
+        class FakeResponse:
+            def __init__(self, rows: list[dict]) -> None:
+                self.status_code = 200
+                self.rows = rows
+
+            def json(self):
+                return {"data": self.rows}
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.urls: list[str] = []
+
+            async def get(self, url, *args, **kwargs):
+                self.urls.append(url)
+                if url == ingest.VNDIRECT_STATEMENTS:
+                    return FakeResponse(
+                        [
+                            {"fiscalDate": "2024-12-31", "numericValue": 950.0},
+                            {"fiscalDate": "2023-12-31", "numericValue": -11388.0},
+                        ]
+                    )
+                return FakeResponse([{"ratioCode": "NET_PROFIT_QR", "reportDate": "2024-12-31", "value": 1.0}])
+
+        client = FakeClient()
+        points = asyncio.run(ingest.fetch_ratios(client, "VIC"))
+        self.assertEqual(points["OPERATING_PROFIT_QR"], [("2023-12-31", -11388.0), ("2024-12-31", 950.0)])
+        self.assertIn(ingest.VNDIRECT_STATEMENTS, client.urls)
+
+        bank_client = FakeClient()
+        bank = asyncio.run(ingest.fetch_ratios(bank_client, "VCB"))
+        self.assertNotIn("OPERATING_PROFIT_QR", bank)
+        self.assertNotIn(ingest.VNDIRECT_STATEMENTS, bank_client.urls)
+
+    def test_growth_yoy_fills_blank_growth_from_levels(self) -> None:
+        from app.evaluate import growth_yoy
+
+        points = {
+            "NET_PROFIT_QR": [("2023-12-31", -159.0), ("2024-12-31", 2192.0)],
+            "NET_PROFIT_QR_GRYOY": [("2023-12-31", 0.5)],
+            "NET_SALES_QR": [("2023-12-31", 0.0), ("2024-12-31", 10.0)],
+        }
+        # Nguồn có số thì giữ nguyên số nguồn.
+        self.assertEqual(growth_yoy(points, "NET_PROFIT_QR_GRYOY", "NET_PROFIT_QR", "2023-12-31"), (0.5, False))
+        # Cùng kỳ lỗ: chia cho giá trị tuyệt đối để lỗ thu hẹp hoặc chuyển lãi ra số dương.
+        growth, derived = growth_yoy(points, "NET_PROFIT_QR_GRYOY", "NET_PROFIT_QR", "2024-12-31")
+        self.assertTrue(derived)
+        self.assertAlmostEqual(growth, (2192.0 + 159.0) / 159.0)
+        # Cùng kỳ bằng 0 hoặc thiếu thì vẫn để trống.
+        self.assertEqual(growth_yoy(points, "NET_SALES_QR_GRYOY", "NET_SALES_QR", "2024-12-31"), (None, False))
+        self.assertEqual(growth_yoy(points, "NET_PROFIT_QR_GRYOY", "NET_PROFIT_QR", "2025-12-31"), (None, False))
+
     def test_lead_and_credit_inputs_open_bank_and_energy(self) -> None:
         from app.industry_screen import credit_by_day, lead_bars_from
 

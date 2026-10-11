@@ -11,11 +11,14 @@ from urllib.parse import quote
 
 from app.classify import classify_article
 from app.config import (
+    BANKS,
     FLOW_PAGE_SIZE,
     HISTORY_START,
+    INSURERS,
     MACRO_SYMBOLS,
     MARKET_SERIES,
     RATIO_CODES,
+    SECURITIES,
     TRADINGVIEW_SCANNER,
 )
 from app.db import market_db_path
@@ -36,6 +39,9 @@ ENTRADE_STOCK = "https://services.entrade.com.vn/chart-api/v2/ohlcs/stock"
 ENTRADE_INDEX = "https://services.entrade.com.vn/chart-api/v2/ohlcs/index"
 VNDIRECT_RATIOS = "https://api-finfo.vndirect.com.vn/v4/ratios"
 VNDIRECT_STATEMENTS = "https://api-finfo.vndirect.com.vn/v4/financial_statements"
+# Statement line items: charter capital, and operating profit of the corporate income statement.
+CHARTER_CAPITAL_ITEM = "14110"
+OPERATING_PROFIT_ITEM = "23110"
 VNDIRECT_NEWS = "https://api-finfo.vndirect.com.vn/v4/news"
 VNDIRECT_FOREIGN = "https://api-finfo.vndirect.com.vn/v4/foreigns"
 YAHOO_CHART = "https://query2.finance.yahoo.com/v8/finance/chart/{symbol}"
@@ -128,6 +134,38 @@ def _series_from_rows(rows: list[dict]) -> dict[str, list[tuple[str, float]]]:
     return points
 
 
+async def _statement_item(
+    client: httpx.AsyncClient, symbol: str, item_code: str, size: int, sort: str
+) -> list[tuple[str, float]] | None:
+    """One line of the quarterly statements. None means the source did not answer."""
+    try:
+        response = await client.get(
+            VNDIRECT_STATEMENTS,
+            params={
+                "q": f"code:{symbol}~itemCode:{item_code}~reportType:QUARTER",
+                "size": size,
+                "sort": sort,
+            },
+            headers=BROWSER_HEADERS,
+        )
+        if response.status_code != 200:
+            return None
+        out: dict[str, float] = {}
+        for row in (response.json() or {}).get("data") or []:
+            fiscal = str(row.get("fiscalDate") or "")[:10]
+            raw = row.get("numericValue")
+            if not fiscal or raw is None:
+                continue
+            try:
+                out.setdefault(fiscal, float(raw))
+            except (TypeError, ValueError):
+                continue
+        return sorted(out.items())
+    except Exception as exc:
+        logger.warning("Statement item %s failed for %s: %s", item_code, symbol, exc)
+        return None
+
+
 async def fetch_historical_shares(
     client: httpx.AsyncClient, symbol: str
 ) -> list[tuple[str, float]] | None:
@@ -135,35 +173,20 @@ async def fetch_historical_shares(
 
     None means the source did not answer; an empty list means it has no quarter for the name.
     """
-    try:
-        response = await client.get(
-            VNDIRECT_STATEMENTS,
-            params={
-                "q": f"code:{symbol}~itemCode:14110~reportType:QUARTER",
-                "size": 100,
-                "sort": "fiscalDate:asc",
-            },
-            headers=BROWSER_HEADERS,
-        )
-        if response.status_code != 200:
-            return None
-        rows = (response.json() or {}).get("data") or []
-        out: list[tuple[str, float]] = []
-        for row in rows:
-            fiscal = str(row.get("fiscalDate") or "")[:10]
-            raw = row.get("numericValue")
-            if not fiscal or raw is None:
-                continue
-            try:
-                shares = float(raw) / 10000.0
-            except (TypeError, ValueError):
-                continue
-            if shares > 0:
-                out.append((fiscal, shares))
-        return out
-    except Exception as exc:
-        logger.warning("Historical shares fetch failed for %s: %s", symbol, exc)
+    rows = await _statement_item(client, symbol, CHARTER_CAPITAL_ITEM, 100, "fiscalDate:asc")
+    if rows is None:
         return None
+    return [(day, value / 10000.0) for day, value in rows if value > 0]
+
+
+async def fetch_operating_profit(
+    client: httpx.AsyncClient, symbol: str
+) -> list[tuple[str, float]] | None:
+    """Quarterly operating profit, the absolute number behind OPERATING_PROFIT_QR_GRYOY.
+
+    The ratio API only carries the growth, and leaves it blank when the base quarter was a loss.
+    """
+    return await _statement_item(client, symbol, OPERATING_PROFIT_ITEM, 40, "fiscalDate:desc")
 
 
 async def supplement_historical_shares(
@@ -196,12 +219,18 @@ async def fetch_ratios(client: httpx.AsyncClient, symbol: str) -> dict[str, list
         params={"q": query, "size": RATIOS_PAGE_SIZE, "sort": "reportDate:desc"},
         headers=BROWSER_HEADERS,
     )
+    points: dict[str, list[tuple[str, float]]] = {}
     if response.status_code == 200:
         points = _series_from_rows((response.json() or {}).get("data") or [])
-        if points:
-            return points
-    logger.warning("Batched ratio fetch failed for %s, falling back to per code calls", symbol)
-    return await fetch_ratios_per_code(client, symbol)
+    if not points:
+        logger.warning("Batched ratio fetch failed for %s, falling back to per code calls", symbol)
+        points = await fetch_ratios_per_code(client, symbol)
+    # Banks, brokers and insurers file other statement models; only corporates read this line.
+    if symbol not in BANKS and symbol not in SECURITIES and symbol not in INSURERS:
+        operating = await fetch_operating_profit(client, symbol)
+        if operating:
+            points["OPERATING_PROFIT_QR"] = operating
+    return points
 
 
 async def fetch_ratios_per_code(

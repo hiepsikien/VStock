@@ -14,7 +14,7 @@ from app.config import (
     PROVISION_COVERAGE_MIN,
     SECURITIES,
 )
-from app.evaluate import _at, _economic_share_growth, _latest_report
+from app.evaluate import _at, _economic_share_growth, _latest_report, growth_yoy
 from app.valuation import cheap_versus
 
 
@@ -42,7 +42,7 @@ def balance_sheet_block(symbol: str, points: dict, articles: list[dict] | None =
     ceiling = DEBT_TO_EQUITY_INSURER_MAX if symbol in INSURERS else DEBT_TO_EQUITY_MAX
     if symbol not in SECURITIES and debt is not None and debt > ceiling:
         return "nợ vay vượt trần"
-    profit_yoy = _at(points, "NET_PROFIT_QR_GRYOY", report)
+    profit_yoy, _derived = growth_yoy(points, "NET_PROFIT_QR_GRYOY", "NET_PROFIT_QR", report)
     share_growth, _gap, _note, _raw = _economic_share_growth(points, report, articles)
     if (
         share_growth is not None

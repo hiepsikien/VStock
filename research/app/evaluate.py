@@ -302,6 +302,29 @@ def _economic_share_growth(
     return None, "số cổ phiếu tăng, chưa rõ chia tách hay phát hành thêm", None, raw
 
 
+def growth_yoy(
+    points: RatioMap, growth_code: str, level_code: str, report: str
+) -> tuple[float | None, bool]:
+    """Year-on-year growth, and whether it was derived here instead of read from the source.
+
+    VNDirect leaves the growth blank when the same quarter a year earlier was a loss. Dividing
+    by the absolute base keeps the direction: a smaller loss or a swing to profit is positive.
+    The formula matches the source wherever the source has a number.
+    """
+    stored = _at(points, growth_code, report)
+    if stored is not None:
+        return stored, False
+    now = _at(points, level_code, report)
+    then = _at(points, level_code, f"{int(report[:4]) - 1}{report[4:]}") if report[:4].isdigit() else None
+    if now is None or then is None or then == 0:
+        return None, False
+    return (now - then) / abs(then), True
+
+
+def _derived_note(names: list[str]) -> str:
+    return ", ".join(names) + ": nguồn để trống, tính từ số quý này và cùng kỳ, chia cho giá trị tuyệt đối cùng kỳ"
+
+
 def _quarter_days(points: RatioMap, code: str) -> list[str]:
     return sorted({day for day, value in points.get(code, []) if value is not None})
 
@@ -431,10 +454,21 @@ def _score_corporate(points: RatioMap, articles: list[dict]) -> Fundamentals:
         return Fundamentals("Chưa đủ số", "Chưa có lợi nhuận quý", "corporate")
 
     sales = _at(points, "NET_SALES_QR", report)
-    sales_yoy = _at(points, "NET_SALES_QR_GRYOY", report)
+    sales_yoy, sales_derived = growth_yoy(points, "NET_SALES_QR_GRYOY", "NET_SALES_QR", report)
     profit = _at(points, "NET_PROFIT_QR", report)
-    profit_yoy = _at(points, "NET_PROFIT_QR_GRYOY", report)
-    operating_yoy = _at(points, "OPERATING_PROFIT_QR_GRYOY", report)
+    profit_yoy, profit_derived = growth_yoy(points, "NET_PROFIT_QR_GRYOY", "NET_PROFIT_QR", report)
+    operating_yoy, operating_derived = growth_yoy(
+        points, "OPERATING_PROFIT_QR_GRYOY", "OPERATING_PROFIT_QR", report
+    )
+    derived = [
+        name
+        for name, flag in (
+            ("doanh thu", sales_derived),
+            ("LNST", profit_derived),
+            ("LN từ hoạt động kinh doanh", operating_derived),
+        )
+        if flag
+    ]
     cfo_margin = _at(points, "CFO_TO_SALES_QR", report)
     debt_ratio = _at(points, "DEBT_TO_EQUITY_AQ", report)
     share_growth, share_gap, share_note, raw_share_growth = _economic_share_growth(
@@ -473,6 +507,8 @@ def _score_corporate(points: RatioMap, articles: list[dict]) -> Fundamentals:
     ]
     if share_note:
         metrics.append(("Cách tính số cổ phiếu", share_note))
+    if derived:
+        metrics.append(("Tăng trưởng tự tính", _derived_note(derived)))
     if missing:
         return Fundamentals(
             "Chưa đủ số",
@@ -555,7 +591,7 @@ def _score_bank(points: RatioMap) -> Fundamentals:
         return Fundamentals("Chưa đủ số", "Chưa có lợi nhuận quý", "bank")
 
     profit = _at(points, "NET_PROFIT_QR", report)
-    profit_yoy = _at(points, "NET_PROFIT_QR_GRYOY", report)
+    profit_yoy, profit_derived = growth_yoy(points, "NET_PROFIT_QR_GRYOY", "NET_PROFIT_QR", report)
     npl = _at(points, "BAD_LOANS_RATIO_AQ", report)
     coverage = _at(points, "PROVISION_BAD_LOANS_AQ", report)
     equity = _at(points, "OWNERS_EQUITY_AQ", report)
@@ -581,6 +617,8 @@ def _score_bank(points: RatioMap) -> Fundamentals:
         ("Vốn chủ sở hữu", _ty(equity)),
         ("Tăng trưởng cho vay", _pct(loan_growth)),
     ]
+    if profit_derived:
+        metrics.append(("Tăng trưởng tự tính", _derived_note(["LNST"])))
     if missing:
         return Fundamentals("Chưa đủ số", "Thiếu " + ", ".join(missing), "bank", metrics)
 
@@ -609,9 +647,10 @@ def _score_services(points: RatioMap, articles: list[dict], template: str) -> Fu
         return Fundamentals("Chưa đủ số", "Chưa có lợi nhuận quý", template)
 
     profit = _at(points, "NET_PROFIT_QR", report)
-    profit_yoy = _at(points, "NET_PROFIT_QR_GRYOY", report)
+    profit_yoy, profit_derived = growth_yoy(points, "NET_PROFIT_QR_GRYOY", "NET_PROFIT_QR", report)
     sales = _at(points, "NET_SALES_QR", report)
-    sales_yoy = _at(points, "NET_SALES_QR_GRYOY", report)
+    sales_yoy, sales_derived = growth_yoy(points, "NET_SALES_QR_GRYOY", "NET_SALES_QR", report)
+    derived = [name for name, flag in (("doanh thu", sales_derived), ("LNST", profit_derived)) if flag]
     equity = _at(points, "OWNERS_EQUITY_AQ", report)
     debt_ratio = _at(points, "DEBT_TO_EQUITY_AQ", report)
     share_growth, share_gap, share_note, raw_share_growth = _economic_share_growth(
@@ -647,6 +686,8 @@ def _score_services(points: RatioMap, articles: list[dict], template: str) -> Fu
         metrics.append(("Ghi chú", "Đòn bẩy margin không chịu trần như doanh nghiệp"))
     if share_note:
         metrics.append(("Cách tính số cổ phiếu", share_note))
+    if derived:
+        metrics.append(("Tăng trưởng tự tính", _derived_note(derived)))
     if missing:
         return Fundamentals("Chưa đủ số", "Thiếu " + ", ".join(missing), template, metrics)
 
@@ -808,6 +849,7 @@ METRIC_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "Tăng cổ phiếu sau 4 quý",
             "Tăng LNST trên mỗi cổ phiếu",
             "Cách tính số cổ phiếu",
+            "Tăng trưởng tự tính",
             "Ghi chú",
             "Điểm cơ bản (F-Score)",
             "Tiêu chí chưa đạt",
