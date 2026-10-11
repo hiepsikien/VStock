@@ -42,7 +42,7 @@ def _market(**overrides: list[float]) -> dict[str, list[tuple[str, float]]]:
 
 class MoneyGateTest(unittest.TestCase):
     def test_missing_series_sends_the_gate_to_chua_cham(self) -> None:
-        gate = money_state({}, as_of=AS_OF)
+        gate = money_state({}, as_of=AS_OF, required=("INTERBANK_ON", "GOV10Y", "USDVND", "POLICY_RATE"))
         self.assertIsNone(gate.open)
         self.assertIn("Cổng tiền tệ chưa chấm", gate.reason)
         # Chuỗi bậc thang của lãi điều hành đứng sẵn, ba chuỗi còn lại chưa có số nào.
@@ -53,6 +53,14 @@ class MoneyGateTest(unittest.TestCase):
         # Chưa có số nào là nhóm "absent"; nhóm "short" dành cho chuỗi có số mà chưa đủ phiên.
         self.assertEqual(set(gate.absent), {"INTERBANK_ON", "GOV10Y", "USDVND"})
         self.assertEqual(gate.short, ())
+
+    def test_gate_ignores_missing_overnight_and_bond_yield_by_default(self) -> None:
+        """Lãi qua đêm và TPCP 10Y chưa có lịch sử nên không bắt buộc trong cổng mặc định."""
+        points = {"USDVND": _series([25_000.0] * 6)}
+        gate = money_state(points, as_of=AS_OF)
+        self.assertTrue(gate.open)
+        self.assertNotIn("INTERBANK_ON", gate.missing)
+        self.assertNotIn("GOV10Y", gate.missing)
 
     def test_quiet_market_opens_the_gate(self) -> None:
         gate = money_state(_market(), as_of=AS_OF)
@@ -99,7 +107,7 @@ class MoneyGateTest(unittest.TestCase):
         """Chuỗi giá phải có điểm đúng phiên đang chấm, không mượn số của phiên trước."""
         # Số mới nhất là 2026-09-06, nên phiên 09-08 chỉ cách hai ngày vẫn không có số của mình:
         # nguồn chết trong phiên thì cổng đứng Chưa chấm, chứ không mở bằng số hôm qua.
-        near = money_state(_market(), as_of="2026-09-08")
+        near = money_state(_market(), as_of="2026-09-08", required=("INTERBANK_ON", "GOV10Y", "USDVND", "POLICY_RATE"))
         self.assertIsNone(near.open)
         self.assertEqual(set(near.missing), {"INTERBANK_ON", "GOV10Y", "USDVND"})
         self.assertTrue(
@@ -110,7 +118,7 @@ class MoneyGateTest(unittest.TestCase):
         self.assertEqual(set(near.absent), {"INTERBANK_ON", "GOV10Y", "USDVND"})
         self.assertEqual(near.short, ())
         # Và phiên cách cả tháng cũng vậy: không có chuyện số cũ dùng được trong bao nhiêu ngày.
-        far = money_state(_market(), as_of="2026-10-10")
+        far = money_state(_market(), as_of="2026-10-10", required=("INTERBANK_ON", "GOV10Y", "USDVND", "POLICY_RATE"))
         self.assertIsNone(far.open)
         self.assertEqual(set(far.missing), {"INTERBANK_ON", "GOV10Y", "USDVND"})
 
@@ -119,6 +127,7 @@ class MoneyGateTest(unittest.TestCase):
         thin = money_state(
             {"INTERBANK_ON": _series([5.0]), "GOV10Y": _series([4.0])},
             as_of=START.isoformat(),
+            required=("INTERBANK_ON", "GOV10Y", "USDVND", "POLICY_RATE"),
         )
         self.assertIsNone(thin.open)
         self.assertEqual(
@@ -189,7 +198,7 @@ class MarketPageCopyTest(unittest.TestCase):
 
     def test_the_banner_names_the_series_with_no_number_apart(self) -> None:
         """Chuỗi chưa có số nào không được lẫn với chuỗi có số mà chưa đủ phiên."""
-        page = self._page(money_state({}, as_of=AS_OF))
+        page = self._page(money_state({}, as_of=AS_OF, required=("INTERBANK_ON", "GOV10Y", "USDVND", "POLICY_RATE")))
         self.assertIn(f"Chưa có số: {LABELS['INTERBANK_ON']}", page)
         self.assertNotIn("Có số nhưng chưa đủ", page)
 

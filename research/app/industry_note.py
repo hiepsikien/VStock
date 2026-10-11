@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import calendar
 import os
+import re
 from datetime import date
 
 
@@ -69,7 +70,12 @@ def shift_months(day: str, months: int) -> str:
 
 def parse_picks(text: str) -> list[str]:
     """Industry ids named before the reason paragraph."""
-    head = text.split("Lý do")[0]
+    parts = re.split(
+        r"(?i)\n\s*(?:lý\s+do|nguyên\s+nhân|giải\s+thích|nhận\s+định|đánh\s+giá)[\s\:\-]|\bLý do\b",
+        text,
+        maxsplit=1,
+    )
+    head = parts[0] if parts else text
     found = []
     for industry, label in LABELS.items():
         if label in head:

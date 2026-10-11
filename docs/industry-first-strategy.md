@@ -2,7 +2,7 @@
 
 Một đợt tăng hoặc một đợt giảm thường đi cả ngành. Từng mã trong ngành chỉ khác nhau ở mức tăng nhiều hay tăng ít. Vì vậy quyết định đi từ trên xuống: vĩ mô mở ngành nào, trong ngành đó mã nào đáng giữ, rồi mới chọn phiên vào, quy mô và cách thoát.
 
-Điểm nền giá và cơ bản hiện tại trong [`research/app/evaluate.py`](research/app/evaluate.py) là tầng cuối. Nó chưa được phép một mình quyết định `Được vào`.
+Điểm nền giá và cơ bản hiện tại trong [`research/app/evaluate.py`](../research/app/evaluate.py) là tầng cuối. Nó chưa được phép một mình quyết định `Được vào`.
 
 ```mermaid
 flowchart TD
@@ -40,7 +40,7 @@ Luật cứng đã có vẫn đứng trước mọi tầng: giá chưa chỉnh c
 
 Có hai phép đo, vì hai câu hỏi có hai cỡ mẫu khác nhau. Trộn chúng sẽ bảo một tầng đúng trong khi sổ lệnh lỗ, hoặc bác một tầng đúng chỉ vì vài lệnh.
 
-Phép đo tầng ngành và tầng mã đếm từng phiên. Chọn quy tắc trên các đợt bắt đầu từ 2021-01-01 đến 2024-12-31. Chỉ kết luận khi cùng quy tắc đó còn đúng với các đợt bắt đầu từ 2025-01-01 đến 2026-10-09. Không được nới ngưỡng sau khi xem giai đoạn xác nhận. Giai đoạn 2021–2024 có cả sóng tăng 2021 và sóng giảm 2022. Nến hiện chỉ được xin `BAR_LOOKBACK_DAYS = 1200` ngày lịch trong [`research/app/ingest.py`](research/app/ingest.py), nên kho đang bắt đầu khoảng giữa 2023. Phải kéo nến về 2021 trước lần đo này. Báo cáo quý trong kho đã có từ 2017.
+Phép đo tầng ngành và tầng mã đếm từng phiên. Chọn quy tắc trên các đợt bắt đầu từ 2021-01-01 đến 2024-12-31. Chỉ kết luận khi cùng quy tắc đó còn đúng với các đợt bắt đầu từ 2025-01-01 đến 2026-10-09. Không được nới ngưỡng sau khi xem giai đoạn xác nhận. Giai đoạn 2021–2024 có cả sóng tăng 2021 và sóng giảm 2022. Nến và chuỗi vĩ mô được kéo từ `HISTORY_START = "2021-01-01"` trong [`research/app/ingest.py`](../research/app/ingest.py) để kho bắt đầu từ 2021. Báo cáo quý trong kho đã có từ 2017.
 
 Phép đo sổ lệnh đếm lệnh đã đóng, theo giá thoát thật, không theo nhãn 66 phiên. Trên cửa sổ 2024-04 đến 2026-10, khoảng 620 phiên, nếu năm suất luôn đầy và mỗi lệnh giữ hết 132 phiên thì cả sổ chỉ có khoảng 23 lệnh. Năm 2026 dài khoảng 185 phiên, một lệnh 132 phiên chỉ kịp một vòng, cả sổ khoảng 5 đến 8 lệnh. Cỡ đó không đủ để kết luận có lợi thế. Một mã tăng 60% hoặc một mã gãy cũng quyết định cả năm. Vì vậy sổ lệnh không được chấm đậu hay trượt trên riêng năm 2026. Nó được chấm trên toàn bộ 2021–2026, và phải có ít nhất 30 lệnh đã đóng thì các tỷ lệ mới được đem ra kết luận. Chưa đủ 30 lệnh thì chỉ công bố số lệnh, lợi nhuận và sụt sâu nhất, chưa đổi `Được vào`.
 
@@ -66,7 +66,7 @@ Kết quả mỗi lần đo ghi thành một báo cáo trong `research/`, gồm 
 
 ## Cách xác định ngành
 
-Bảng ngành cho rổ VN100 của từng năm, file mới [`research/app/industries.py`](research/app/industries.py). Ngân hàng, chứng khoán, bảo hiểm xuất phát từ `BANKS`, `SECURITIES`, `INSURERS` trong [`research/app/config.py`](research/app/config.py), rồi bổ sung mã VN100 cùng nghề. Các nghề khác map tay một lần cho cả rổ, không suy từ tên công ty lúc đo.
+Bảng ngành cho rổ VN100 của từng năm, file mới [`research/app/industries.py`](../research/app/industries.py). Ngân hàng, chứng khoán, bảo hiểm xuất phát từ `BANKS`, `SECURITIES`, `INSURERS` trong [`research/app/config.py`](../research/app/config.py), rồi bổ sung mã VN100 cùng nghề. Các nghề khác map tay một lần cho cả rổ, không suy từ tên công ty lúc đo.
 
 Nhóm đủ từ ba mã, mới được có lợi suất ngành và cổng ngành:
 
@@ -85,13 +85,13 @@ Một ngành đủ mã được gọi là mở tại một phiên khi đủ các
 
 - Lợi suất ngành 60 phiên kết thúc hôm qua cao hơn lợi suất VN-Index 60 phiên.
 - Nếu ngành có chuỗi dẫn: lợi suất chuỗi dẫn 60 phiên kết thúc hôm qua dương. Năng lượng dùng giá dầu `CL=F`. Các ngành còn lại trong danh sách đủ mã không có chuỗi nước ngoài. Không thử chỉ số Hàn Quốc, Trung Quốc hay Mỹ cho ngân hàng, chứng khoán, bất động sản, tiêu dùng, bảo hiểm.
-- Ngành nội địa cần thêm một xác nhận trong nước. Ngân hàng và chứng khoán: trung vị tăng trưởng dư nợ năm của các ngân hàng trong rổ, quý gần nhất đã qua 45 ngày, lớn hơn 0. Bất động sản, tiêu dùng, bảo hiểm: VN-Index hôm qua còn trên MA200. MA200 là điều kiện nền đã có trong [`market_regime`](research/app/pattern.py). Nó không thay cho việc ngành phải thắng chỉ số.
+- Ngành nội địa cần thêm một xác nhận trong nước. Ngân hàng và chứng khoán: trung vị tăng trưởng dư nợ năm của các ngân hàng trong rổ, quý gần nhất đã qua 45 ngày, lớn hơn 0. Bất động sản, tiêu dùng, bảo hiểm: VN-Index hôm qua còn trên MA200. MA200 là điều kiện nền đã có trong [`market_regime`](../research/app/pattern.py). Nó không thay cho việc ngành phải thắng chỉ số.
 
 Chuỗi dẫn và điều kiện trong nước được ghi cứng trong `industries.py` trước lần đo đầu. Thêm một nước hoặc một độ trễ sau khi đã xem 123 đợt là đổi đề sau khi biết đáp án. Việc đó phải tính là một quy tắc mới và phải qua lại từ đầu trên giai đoạn 2021–2024 rồi mới được nhìn 2025–2026.
 
 Vĩ mô toàn cầu và trong nước được lưu để cổng này đọc lại được, không chỉ để trang live:
 
-- [`fetch_macro`](research/app/ingest.py) đổi từ 6 tháng, chỉ giữ trong bộ nhớ, sang range dài và ghi vào `market_points`. Dầu và USD/VND lấy từ Yahoo.
+- [`fetch_macro`](../research/app/ingest.py) đổi từ 6 tháng, chỉ giữ trong bộ nhớ, sang range dài và ghi vào `market_points`. Dầu và USD/VND lấy từ Yahoo.
 - Lãi tái cấp vốn giữ bảng ghi tay trong config.
 - Lãi qua đêm và lợi suất 10 năm không có lịch sử trên nguồn giá tức thời. Chưa điền số giả. Khi nào có nguồn lịch sử thì thêm như một xác nhận trong nước thứ hai, và đo lại từ đầu.
 - Tín dụng là trung vị `CUSTOMER_LOANS_AQ_GRYOY` của các ngân hàng, cùng độ trễ báo cáo với điểm cơ bản.
@@ -120,7 +120,7 @@ Danh sách khoanh của một ngành mở lấy theo thứ tự:
 - Bỏ mã vi phạm cờ bảng cân đối.
 - Giữ nửa trên theo vị thế. Vị thế là hạng tốt hơn giữa hạng vốn hóa và hạng doanh thu, để một mã lớn về doanh thu nhưng vốn hóa chưa theo kịp không bị loại chỉ vì giá đang thấp.
 - Trong nửa đó, xếp theo độ rẻ so với ngành, rồi độ rẻ so với chính mình. Thiếu P/E thì xếp sau các mã có P/E.
-- Mỗi ngành mở giữ tối đa ba mã. Cả sổ vẫn tối đa năm suất trong [`MAX_SLOTS`](research/app/config.py). Nếu nhiều ngành cùng mở, lấy mã có độ rẻ so với ngành tốt nhất cho đến khi đủ năm suất.
+- Mỗi ngành mở giữ tối đa ba mã. Cả sổ vẫn tối đa năm suất trong [`MAX_SLOTS`](../research/app/config.py). Nếu nhiều ngành cùng mở, lấy mã có độ rẻ so với ngành tốt nhất cho đến khi đủ năm suất.
 
 Phép đo của riêng bước này, chỉ trên các mã thuộc ngành mở:
 
@@ -136,29 +136,29 @@ Hai rủi ro này được tính trên chính sổ và code hiện tại, trư�
 
 Cỡ mẫu của sổ lệnh thì nhỏ. Khoảng 620 phiên từ 2024-04 đến 2026-10, năm suất, mỗi lệnh giữ hết 132 phiên, thì cả sổ chỉ khoảng 23 lệnh nếu các suất luôn đầy. Giai đoạn xác nhận 2025–2026 dài hơn một mình năm 2026, nhưng một lệnh 132 phiên trong 185 phiên của năm 2026 vẫn chỉ kịp một vòng. Vài lệnh không phân biệt được lợi thế với may rủi. Một mã tăng mạnh hoặc một mã gãy quyết định cả đoạn xác nhận. Cách xử lý nằm ở phép đo sổ lệnh: kéo lịch sử về 2021, đếm lệnh đã đóng trên cả giai đoạn, và chưa kết luận khi dưới 30 lệnh. Cổng ngành thoát sớm cũng làm lệnh ngắn lại, nên số lệnh sẽ nhiều hơn trần 23. Đó là hệ quả, không phải lý do để bỏ việc kéo dữ liệu về 2021.
 
-Sụt vốn khi thị trường chỉnh thì đến từ cách thoát, không chỉ từ độ dài nắm. Trên nhánh này, [`fell_under_base`](research/app/exits.py) cắt mọi phiên đóng cửa dưới đỉnh nền, suốt đời lệnh, không chỉ ba phiên đầu. [`TIME_STOP_SESSIONS`](research/app/config.py) là 30 và [`MAX_HOLD_SESSIONS`](research/app/config.py) là 60. Sau khi chốt một phần ba tại +1R, dừng lỗ kéo theo MA20 trừ 0,5 ATR. Nếu bỏ hai đồng hồ và chỉ để trần 132 phiên, một mã đã qua ba phiên đầu sẽ ngồi đến khi chạm đáy nền hoặc đủ 132 phiên. Đáy nền thường nằm sâu. Nhịp chỉnh 15–35 phiên của VN-Index, như các đợt 2022 và 2024, đủ để kéo một lệnh đang lãi về lỗ. Năm suất có thể chiếm hết tiền mặt dù không mã nào đạt trần 35%, vì năm lần 35% là 175% và không cùng tồn tại. Hết tiền mặt thì sóng ngành mới không có suất để vào.
+Sụt vốn khi thị trường chỉnh thì đến từ cách thoát, không chỉ từ độ dài nắm. Trên nhánh này, [`fell_under_base`](../research/app/exits.py) cắt mọi phiên đóng cửa dưới đỉnh nền, suốt đời lệnh, không chỉ ba phiên đầu. [`TIME_STOP_SESSIONS`](../research/app/config.py) là 30 và [`MAX_HOLD_SESSIONS`](../research/app/config.py) là 60. Sau khi chốt một phần ba tại +1R, dừng lỗ kéo theo MA20 trừ 0,5 ATR. Nếu bỏ hai đồng hồ và chỉ để trần 132 phiên, một mã đã qua ba phiên đầu sẽ ngồi đến khi chạm đáy nền hoặc đủ 132 phiên. Đáy nền thường nằm sâu. Nhịp chỉnh 15–35 phiên của VN-Index, như các đợt 2022 và 2024, đủ để kéo một lệnh đang lãi về lỗ. Năm suất có thể chiếm hết tiền mặt dù không mã nào đạt trần 35%, vì năm lần 35% là 175% và không cùng tồn tại. Hết tiền mặt thì sóng ngành mới không có suất để vào.
 
 ## Thời điểm, quy mô, thoát
 
-Chỉ triển khai sau khi cổng ngành đã qua cửa và đang được phép chặn. Nền giá hiện tại chỉ chạy trên danh sách đã khoanh. Một mã ngành đóng không thành ứng viên trong [`_candidates`](research/app/backtest.py).
+Chỉ triển khai sau khi cổng ngành đã qua cửa và đang được phép chặn. Nền giá hiện tại chỉ chạy trên danh sách đã khoanh. Một mã ngành đóng không thành ứng viên trong [`_candidates`](../research/app/backtest.py).
 
 Quy mô giữ nguyên: rủi ro 1% vốn mỗi lệnh, trần 35% một mã, tối đa năm suất.
 
-Trần nắm đưa lên 132 phiên chỉ khi ba cửa thoát sau đã có. Thiếu một cửa thì chưa nới [`MAX_HOLD_SESSIONS`](research/app/config.py).
+Trần nắm đưa lên 132 phiên chỉ khi ba cửa thoát sau đã có. Thiếu một cửa thì chưa nới [`MAX_HOLD_SESSIONS`](../research/app/config.py).
 
 - Ra vì ngành. Lợi suất ngành 60 phiên không còn cao hơn VN-Index, hoặc chuỗi dẫn 60 phiên trở thành âm, thì mọi lệnh của ngành đó thoát ở giá đóng cửa phiên hôm sau. Đây là cửa thoát chính của một lệnh đang đi theo sóng.
 - Giữ trailing stop đang có. Sau khi chốt một phần ba tại +1R, dừng lỗ lên hòa vốn rồi kéo theo MA20 trừ 0,5 ATR. Không đổi hệ số 0,5 và không đổi phần chốt một phần ba. Một lệnh đã lãi không được trả về đúng đáy nền ban đầu chỉ vì trần nắm dài hơn.
 - Phá nền thất bại chỉ trong ba phiên đầu. Luật đóng dưới đỉnh nền hiện cắt suốt đời lệnh. Khi trần nắm là 132 phiên, luật đó chỉ còn hiệu lực trong ba phiên đầu. Sau đó việc thoát thuộc về ngành và trailing stop. Dừng lỗ đáy nền vẫn còn cho đến khi trailing nâng nó lên.
 
-[`TIME_STOP_SESSIONS`](research/app/config.py) bằng 30 chỉ được bỏ sau khi cửa ra vì ngành đã chạy. Trước đó, tiền chết 30 phiên vẫn là cách không giữ một lệnh ngành đã tắt.
+[`TIME_STOP_SESSIONS`](../research/app/config.py) bằng 30 chỉ được bỏ sau khi cửa ra vì ngành đã chạy. Trước đó, tiền chết 30 phiên vẫn là cách không giữ một lệnh ngành đã tắt.
 
 Sóng giảm 2022 là bài kiểm tra riêng của sổ, không thay cho ngưỡng 30 lệnh. Báo cáo phải ghi sụt sâu nhất của sổ trong 2022 và số lệnh bị cửa ngành đóng trong nhịp đó.
 
 ## Dữ liệu cần có trước lần đo đầu
 
 - Rổ VN100, dựng lại đầu mỗi năm theo vốn hóa.
-- Nến từ 2021-01-01. [`BAR_LOOKBACK_DAYS`](research/app/config.py) đang là 1200 ngày lịch, chưa tới 2021. Xin theo ngày bắt đầu, rồi ghi ngày nến sớm nhất thực tế của từng mã. Mã không có nến năm đó thì vắng trong năm đó.
-- Dòng ngoại: [`fetch_foreign_flow`](research/app/ingest.py) hết phân trang VNDirect, [`replace_flow`](research/app/db.py) đổi thành upsert. Mỗi mã phải phủ từ 2021 nếu nguồn có. Dòng ngoại chưa tham gia cổng ngành. Nó là chuỗi ứng viên của bước chọn mã, đo cùng cách với tăng tốc lợi nhuận.
+- Nến từ 2021-01-01. Dùng [`HISTORY_START`](../research/app/config.py) để kéo đủ từ 2021-01-01, rồi ghi ngày nến sớm nhất thực tế của từng mã. Mã không có nến năm đó thì vắng trong năm đó.
+- Dòng ngoại: [`fetch_foreign_flow`](../research/app/ingest.py) hết phân trang VNDirect, [`replace_flow`](../research/app/db.py) đổi thành upsert. Mỗi mã phải phủ từ 2021 nếu nguồn có. Dòng ngoại chưa tham gia cổng ngành. Nó là chuỗi ứng viên của bước chọn mã, đo cùng cách với tăng tốc lợi nhuận.
 - P/E và vốn hóa tính từ nến, số cổ phiếu và lợi nhuận quý đã lưu. Ghi chuỗi theo ngày. Báo cáo quý đã có từ 2017.
 - Lợi suất ngành tính lúc đo, không cần bảng giá mới.
 - Dầu, USD/VND và các chuỗi Yahoo khác được lưu vào `market_points`, range đủ từ 2021.

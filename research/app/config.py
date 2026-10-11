@@ -33,7 +33,6 @@ PRICE_JUMP_LIMIT_UNKNOWN = 0.17
 # Above the high mark new equity arrived with the shares.
 EQUITY_MATCH_BONUS = 0.35
 EQUITY_MATCH_CASH = 0.60
-BAR_LOOKBACK_DAYS = 1200
 # Nến và chuỗi vĩ mô xin từ ngày này, để đo được sóng 2021 và sóng giảm 2022.
 HISTORY_START = "2021-01-01"
 # Default matches news_filing_days in backend/config/providers.yaml.
@@ -261,7 +260,6 @@ MACRO_SYMBOLS = (
     ("SP500", "^GSPC", "S&P 500"),
     ("OIL", "CL=F", "Dầu WTI"),
 )
-MACRO_RANGE = "6mo"
 MACRO_MA_WINDOW = 20
 # A close inside this band of the average counts as neither above nor below.
 MACRO_NEUTRAL_BAND = 0.005
@@ -283,7 +281,9 @@ MARKET_SERIES = (
     ("POLICY_RATE", "Lãi suất tái cấp vốn", "%/năm", ""),
 )
 # Chỉ những chuỗi ở đây mới làm cổng đứng ở "Chưa chấm" khi thiếu số.
-MARKET_GATE_REQUIRED = ("INTERBANK_ON", "GOV10Y", "USDVND", "POLICY_RATE")
+# Lãi qua đêm và TPCP 10Y chỉ có 1 data point trên feed, chưa có chuỗi lịch sử từ 2021,
+# nên tạm thời đóng lại, không bắt buộc trong cổng tiền tệ.
+MARKET_GATE_REQUIRED = ("USDVND", "POLICY_RATE")
 # Lãi suất điều hành không có nguồn tự động. Mỗi quyết định của NHNN là một dòng, ghi
 # ngày có hiệu lực; bài báo chỉ để biết ngày đó, không dùng để chấm điểm.
 POLICY_RATE_HISTORY = (

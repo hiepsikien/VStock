@@ -334,3 +334,28 @@ class HoldDoorTest(unittest.TestCase):
             )
         self.assertEqual(blocked.status, "Theo dõi")
         self.assertIn("Ngành", blocked.summary)
+
+    def test_supplement_historical_shares_merges_older_quarters(self) -> None:
+        from app.ingest import _supplement_historical_shares
+
+        class FakeResponse:
+            status_code = 200
+
+            def json(self):
+                return {
+                    "data": [
+                        {"fiscalDate": "2020-09-30", "numericValue": 20899554450000.0},
+                        {"fiscalDate": "2020-12-31", "numericValue": 20899554450000.0},
+                        {"fiscalDate": "2021-03-31", "numericValue": 20899554450000.0},
+                    ]
+                }
+
+        class FakeClient:
+            async def get(self, *args, **kwargs):
+                return FakeResponse()
+
+        points = {"OUTSTANDING_SHARES": [("2022-12-31", 2089955445.0)]}
+        asyncio.run(_supplement_historical_shares(FakeClient(), "VNM", points))
+        self.assertEqual(len(points["OUTSTANDING_SHARES"]), 4)
+        self.assertEqual(points["OUTSTANDING_SHARES"][0], ("2020-09-30", 2089955445.0))
+        self.assertEqual(points["OUTSTANDING_SHARES"][-1], ("2022-12-31", 2089955445.0))

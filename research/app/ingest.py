@@ -35,6 +35,7 @@ BROWSER_HEADERS = {"Accept": "application/json", "User-Agent": "Mozilla/5.0"}
 ENTRADE_STOCK = "https://services.entrade.com.vn/chart-api/v2/ohlcs/stock"
 ENTRADE_INDEX = "https://services.entrade.com.vn/chart-api/v2/ohlcs/index"
 VNDIRECT_RATIOS = "https://api-finfo.vndirect.com.vn/v4/ratios"
+VNDIRECT_STATEMENTS = "https://api-finfo.vndirect.com.vn/v4/financial_statements"
 VNDIRECT_NEWS = "https://api-finfo.vndirect.com.vn/v4/news"
 VNDIRECT_FOREIGN = "https://api-finfo.vndirect.com.vn/v4/foreigns"
 YAHOO_CHART = "https://query2.finance.yahoo.com/v8/finance/chart/{symbol}"
@@ -127,6 +128,57 @@ def _series_from_rows(rows: list[dict]) -> dict[str, list[tuple[str, float]]]:
     return points
 
 
+async def fetch_historical_shares(client: httpx.AsyncClient, symbol: str) -> list[tuple[str, float]]:
+    """Charter capital itemCode 14110 divided by par value (10,000 VND) gives share counts before 2023."""
+    try:
+        response = await client.get(
+            VNDIRECT_STATEMENTS,
+            params={
+                "q": f"code:{symbol}~itemCode:14110~reportType:QUARTER",
+                "size": 100,
+                "sort": "fiscalDate:asc",
+            },
+            headers=BROWSER_HEADERS,
+        )
+        if response.status_code != 200:
+            return []
+        rows = (response.json() or {}).get("data") or []
+        out: list[tuple[str, float]] = []
+        for row in rows:
+            fiscal = str(row.get("fiscalDate") or "")[:10]
+            raw = row.get("numericValue")
+            if not fiscal or raw is None:
+                continue
+            try:
+                shares = float(raw) / 10000.0
+            except (TypeError, ValueError):
+                continue
+            if shares > 0:
+                out.append((fiscal, shares))
+        return out
+    except Exception as exc:
+        logger.warning("Historical shares fetch failed for %s: %s", symbol, exc)
+        return []
+
+
+async def _supplement_historical_shares(
+    client: httpx.AsyncClient,
+    symbol: str,
+    points: dict[str, list[tuple[str, float]]],
+) -> None:
+    shares = points.get("OUTSTANDING_SHARES") or []
+    if shares and shares[0][0] <= "2021-01-01":
+        return
+    historical = await fetch_historical_shares(client, symbol)
+    if not historical:
+        return
+    existing = dict(shares)
+    for day, val in historical:
+        if day not in existing:
+            existing[day] = val
+    points["OUTSTANDING_SHARES"] = sorted(existing.items())
+
+
 async def fetch_ratios(client: httpx.AsyncClient, symbol: str) -> dict[str, list[tuple[str, float]]]:
     """One request per symbol: the API pages per symbol, so every ratioCode fits in one call."""
     query = f"code:{symbol}~ratioCode:in({','.join(RATIO_CODES)})"
@@ -138,9 +190,12 @@ async def fetch_ratios(client: httpx.AsyncClient, symbol: str) -> dict[str, list
     if response.status_code == 200:
         points = _series_from_rows((response.json() or {}).get("data") or [])
         if points:
+            await _supplement_historical_shares(client, symbol, points)
             return points
     logger.warning("Batched ratio fetch failed for %s, falling back to per code calls", symbol)
-    return await fetch_ratios_per_code(client, symbol)
+    points = await fetch_ratios_per_code(client, symbol)
+    await _supplement_historical_shares(client, symbol, points)
+    return points
 
 
 async def fetch_ratios_per_code(

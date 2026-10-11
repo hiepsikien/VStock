@@ -231,9 +231,8 @@ def write_report() -> str:
     )
     lines.append("Rổ theo vốn hóa: " + roster + ".")
     lines.append(
-        "Số cổ phiếu lưu hành trên nguồn bắt đầu 2022-12-31, công bố sau 45 ngày. "
-        f"Cửa sổ đo chạy từ {OPERABLE_START}, phiên đầu tiên vốn hóa đã biết. "
-        "Năm 2021 và 2022 không có rổ."
+        "Số cổ phiếu lưu hành trước 2023 được bổ sung từ vốn góp của chủ sở hữu trong BCTC quý. "
+        f"Cửa sổ đo chạy từ {OPERABLE_START}, phiên đầu tiên vốn hóa đã biết."
     )
     lines.append("")
     lines.append(_window_line(f"Chọn {OPERABLE_START}–2024", screen, industry_precision))
@@ -355,7 +354,6 @@ def _stock_lines(bars, ratios, allowed, year_members) -> list[str]:
         shs_runs = shs_listed = 0
         kept_returns: list[float] = []
         dropped_returns: list[float] = []
-        seen = set()
         for year, (anchor, universe) in year_members.items():
             for industry in gated_industries(universe):
                 names = [symbol for symbol in members(industry, universe) if symbol in bars]
@@ -388,9 +386,6 @@ def _stock_lines(bars, ratios, allowed, year_members) -> list[str]:
                             continue
                         if not allowed.get((symbol, day)) or index + 66 >= len(closes) or closes[index] <= 0:
                             continue
-                        key = (industry, day)
-                        if key not in seen:
-                            seen.add(key)
                         chosen = _short(industry, names, day, valuations, ratios)
                         forward = closes[index + 66] / closes[index] - 1.0
                         if symbol in chosen:

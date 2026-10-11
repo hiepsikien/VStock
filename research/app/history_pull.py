@@ -29,11 +29,12 @@ async def pull() -> dict[str, str]:
         macro = await fetch_macro(client)
         for code, _symbol, _label in MACRO_SYMBOLS:
             bars = macro.get(code) or []
+            series_name = "USDVND_MACRO" if code == "USDVND" else code
             await db.upsert_market_points(
-                code, [(str(bar["trade_date"]), float(bar["close"])) for bar in bars]
+                series_name, [(str(bar["trade_date"]), float(bar["close"])) for bar in bars]
             )
             if bars:
-                earliest[code] = bars[0]["trade_date"]
+                earliest[series_name] = bars[0]["trade_date"]
         semaphore = asyncio.Semaphore(4)
         write_lock = asyncio.Lock()
 
@@ -74,7 +75,7 @@ def main() -> None:
     earliest = asyncio.run(pull())
     covered = [day for symbol, day in earliest.items() if symbol in DEFAULT_UNIVERSE]
     print(f"symbols {len(covered)} earliest {min(covered) if covered else 'none'}")
-    for code in ("VNINDEX", "OIL", "USDVND", "DXY", "SP500"):
+    for code in ("VNINDEX", "OIL", "USDVND_MACRO", "DXY", "SP500"):
         print(code, earliest.get(code, "missing"))
 
 

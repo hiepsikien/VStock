@@ -5,6 +5,7 @@ from datetime import date, timedelta
 
 from app.config import (
     CASH_YIELD,
+    DEFAULT_UNIVERSE,
     INDUSTRY_GATE_ENFORCED,
     INDUSTRY_HOLD_ENABLED,
     MA_FAST,
@@ -188,7 +189,7 @@ def run_backtest(
         open_map = build_open_map(
             index_bars,
             bars_by_symbol,
-            list(bars_by_symbol),
+            list(DEFAULT_UNIVERSE),
         )
     side_cost = ROUND_TRIP_COST / 2
     cash = 1.0

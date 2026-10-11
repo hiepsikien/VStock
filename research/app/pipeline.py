@@ -7,8 +7,11 @@ from datetime import date
 import httpx
 
 from app import db, notify, paper
+from app.config import DEFAULT_UNIVERSE
 from app.evaluate import compose
 from app.flow import flow_gate
+from app.industries import industry_of
+from app.industry_screen import build_open_map
 from app.ingest import (
     fetch_bars,
     fetch_foreign_flow,
@@ -68,8 +71,9 @@ async def _run() -> str:
             logger.warning("Market fetch failed: %s", exc)
             market_series = {}
         for code, bars in macro_series.items():
+            series_name = "USDVND_MACRO" if code == "USDVND" else code
             await db.upsert_market_points(
-                code, [(str(bar["trade_date"]), float(bar["close"])) for bar in bars]
+                series_name, [(str(bar["trade_date"]), float(bar["close"])) for bar in bars]
             )
         for code, market_rows in market_series.items():
             await db.upsert_market_points(code, market_rows)
@@ -125,13 +129,21 @@ async def _run() -> str:
     # A name whose bar for this session was stored by an earlier run today is scored as usual.
     day = as_of.isoformat()
     skipped: list[str] = []
+    bars_by_symbol = {symbol: await db.bars(symbol) for symbol in DEFAULT_UNIVERSE}
+    open_map = build_open_map(
+        index_bars,
+        bars_by_symbol,
+        list(DEFAULT_UNIVERSE),
+    )
     for symbol in symbols:
-        stock_slice = [bar for bar in await db.bars(symbol) if str(bar["trade_date"]) <= day]
+        stock_slice = [bar for bar in (bars_by_symbol.get(symbol) or await db.bars(symbol)) if str(bar["trade_date"]) <= day]
         if session_bar(stock_slice, day) is None:
             skipped.append(symbol)
             continue
         points = await db.ratios(symbol)
         articles = await db.articles_for(symbol)
+        industry = industry_of(symbol)
+        industry_open = None if open_map is None else open_map.get((symbol, day))
         verdict = compose(
             symbol,
             as_of,
@@ -144,6 +156,8 @@ async def _run() -> str:
             flow=flow_gate(await db.flow(symbol), stock_slice),
             macro=macro,
             market=money,
+            industry_name=industry,
+            industry_open=industry_open,
         )
         verdicts.append(verdict.row())
 

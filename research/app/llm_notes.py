@@ -205,7 +205,7 @@ async def replay(dry_run: bool) -> None:
     from app.industry_note import api_key
 
     key = api_key()
-    model = os.environ.get("GEMINI_MODEL") or "gemini-3.5-flash"
+    model = os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash"
     if not key:
         print("Chưa có khóa Gemini. Các prompt đã dựng được, lượt gọi chưa chạy.")
         return
