@@ -8,6 +8,7 @@ from app.config import (
     MARKET_DRAIN_MIN,
     MARKET_FX_ABOVE_DAYS,
     MARKET_FX_ABOVE_MA_MAX,
+    MARKET_GATE_CLOSED,
     MARKET_GATE_REQUIRED,
     MARKET_MA_WINDOW,
     MARKET_MIN_SESSIONS,
@@ -146,16 +147,26 @@ def _open_reason(series: MarketMap, ready: list[str]) -> str:
 def thresholds() -> list[tuple[str, str]]:
     """Ngưỡng đã khai báo trước, in ra để người đọc biết vì sao cổng khóa."""
     window = MARKET_MA_WINDOW
+
+    def _closed(code: str, text: str) -> str:
+        return f"tạm đóng, khi mở: {text}" if code in MARKET_GATE_CLOSED else text
+
     rows: list[tuple[str, str]] = [
         (
             LABELS["INTERBANK_ON"],
-            f"vượt trung bình {window} phiên quá {MARKET_RATE_RISE_MAX:.2f} điểm %"
+            _closed(
+                "INTERBANK_ON",
+                f"vượt trung bình {window} phiên quá {MARKET_RATE_RISE_MAX:.2f} điểm %",
+            )
             if MARKET_RATE_RISE_MAX is not None
             else "chưa khai báo",
         ),
         (
             LABELS["GOV10Y"],
-            f"vượt trung bình {window} phiên quá {MARKET_YIELD_RISE_MAX:.2f} điểm %"
+            _closed(
+                "GOV10Y",
+                f"vượt trung bình {window} phiên quá {MARKET_YIELD_RISE_MAX:.2f} điểm %",
+            )
             if MARKET_YIELD_RISE_MAX is not None
             else "chưa khai báo",
         ),
@@ -212,6 +223,7 @@ def money_state(
     *,
     as_of: str | None = None,
     required: tuple[str, ...] = MARKET_GATE_REQUIRED,
+    closed: tuple[str, ...] = MARKET_GATE_CLOSED,
     table=POLICY_RATE_HISTORY,
 ) -> Money:
     """Chấm cổng tiền tệ cho một phiên.
@@ -257,6 +269,12 @@ def money_state(
         if declared.get(code) is None:
             continue
         rows = series.get(code) or []
+        # Chuỗi tạm đóng vẫn có ngưỡng và vẫn được lưu mỗi phiên, nên khi đủ số nó sẽ chấm được;
+        # phải chặn ở đây thì nó mới không khóa cổng. Đưa vào required là mở lại.
+        if code in closed and code not in required:
+            latest = f"{_value(code, rows[-1][1])} ngày {rows[-1][0]}" if rows else "chưa có số"
+            metrics.append((label, f"{latest} — tạm đóng, không dùng để chấm"))
+            continue
         # Chuỗi giá phải có điểm đúng phiên đang chấm. TradingView chết đúng phiên lãi qua đêm
         # nhảy thì phiên đó không có điểm, và cổng đứng "Chưa chấm" chứ không mở bằng số hôm qua.
         # Lãi điều hành là chuỗi bậc thang ghi tay, nên nó không thuộc nhóm này.

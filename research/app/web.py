@@ -292,6 +292,7 @@ async def backtest_result(fresh: bool = False) -> dict:
         {symbol: await db.articles_for(symbol) for symbol in symbols},
         load_exchanges(),
         {symbol: await db.flow(symbol) for symbol in symbols},
+        await db.market_points(),
     )
     _backtest_cache.update(
         {"key": key, "result": result, "at": datetime.now().strftime("%H:%M:%S %d/%m")}

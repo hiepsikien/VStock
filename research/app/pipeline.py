@@ -7,11 +7,11 @@ from datetime import date
 import httpx
 
 from app import db, notify, paper
-from app.config import DEFAULT_UNIVERSE
+from app.config import BANKS, DEFAULT_UNIVERSE
 from app.evaluate import compose
 from app.flow import flow_gate
 from app.industries import industry_of
-from app.industry_screen import build_open_map
+from app.industry_screen import build_open_map, credit_by_day, lead_bars_from
 from app.ingest import (
     fetch_bars,
     fetch_foreign_flow,
@@ -22,6 +22,7 @@ from app.ingest import (
     load_exchanges,
     load_market_articles,
     load_valuation,
+    supplement_historical_shares,
 )
 from app.macro import macro_state
 from app.money import money_state
@@ -78,12 +79,18 @@ async def _run() -> str:
         for code, market_rows in market_series.items():
             await db.upsert_market_points(code, market_rows)
         semaphore = asyncio.Semaphore(4)
+        backfilled = await db.shares_backfilled()
+        newly_backfilled: list[str] = []
 
         async def _one(symbol: str) -> str | None:
             async with semaphore:
                 try:
                     bars = await fetch_bars(client, symbol)
                     ratios = await fetch_ratios(client, symbol)
+                    if symbol not in backfilled and await supplement_historical_shares(
+                        client, symbol, ratios
+                    ):
+                        newly_backfilled.append(symbol)
                     articles = await fetch_symbol_news(client, symbol)
                 except Exception as exc:
                     logger.warning("Ingest failed for %s: %s", symbol, exc)
@@ -103,6 +110,8 @@ async def _run() -> str:
             return None
 
         failed = [symbol for symbol in await asyncio.gather(*[_one(symbol) for symbol in symbols]) if symbol]
+        if newly_backfilled:
+            await db.mark_shares_backfilled([s for s in newly_backfilled if s not in failed])
 
     market_articles = load_market_articles()
     await db.upsert_articles(market_articles)
@@ -130,10 +139,16 @@ async def _run() -> str:
     day = as_of.isoformat()
     skipped: list[str] = []
     bars_by_symbol = {symbol: await db.bars(symbol) for symbol in DEFAULT_UNIVERSE}
+    # Chạy cả khi cờ ngành tắt: verdict vẫn ghi trạng thái ngành để quan sát trước khi cho chặn.
     open_map = build_open_map(
         index_bars,
         bars_by_symbol,
         list(DEFAULT_UNIVERSE),
+        lead_bars=lead_bars_from(await db.market_points()),
+        credit_by_day=credit_by_day(
+            {bank: await db.ratios(bank) for bank in BANKS},
+            [str(bar["trade_date"]) for bar in index_bars],
+        ),
     )
     for symbol in symbols:
         stock_slice = [bar for bar in (bars_by_symbol.get(symbol) or await db.bars(symbol)) if str(bar["trade_date"]) <= day]

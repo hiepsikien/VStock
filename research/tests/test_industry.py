@@ -336,26 +336,52 @@ class HoldDoorTest(unittest.TestCase):
         self.assertIn("Ngành", blocked.summary)
 
     def test_supplement_historical_shares_merges_older_quarters(self) -> None:
-        from app.ingest import _supplement_historical_shares
+        from app.ingest import supplement_historical_shares
 
         class FakeResponse:
-            status_code = 200
+            def __init__(self, status_code: int, rows: list[dict]) -> None:
+                self.status_code = status_code
+                self.rows = rows
 
             def json(self):
-                return {
-                    "data": [
-                        {"fiscalDate": "2020-09-30", "numericValue": 20899554450000.0},
-                        {"fiscalDate": "2020-12-31", "numericValue": 20899554450000.0},
-                        {"fiscalDate": "2021-03-31", "numericValue": 20899554450000.0},
-                    ]
-                }
+                return {"data": self.rows}
 
         class FakeClient:
-            async def get(self, *args, **kwargs):
-                return FakeResponse()
+            def __init__(self, response: FakeResponse) -> None:
+                self.response = response
 
+            async def get(self, *args, **kwargs):
+                return self.response
+
+        rows = [
+            {"fiscalDate": "2020-09-30", "numericValue": 20899554450000.0},
+            {"fiscalDate": "2020-12-31", "numericValue": 20899554450000.0},
+            {"fiscalDate": "2021-03-31", "numericValue": 20899554450000.0},
+        ]
         points = {"OUTSTANDING_SHARES": [("2022-12-31", 2089955445.0)]}
-        asyncio.run(_supplement_historical_shares(FakeClient(), "VNM", points))
+        answered = asyncio.run(supplement_historical_shares(FakeClient(FakeResponse(200, rows)), "VNM", points))
+        self.assertTrue(answered)
         self.assertEqual(len(points["OUTSTANDING_SHARES"]), 4)
         self.assertEqual(points["OUTSTANDING_SHARES"][0], ("2020-09-30", 2089955445.0))
         self.assertEqual(points["OUTSTANDING_SHARES"][-1], ("2022-12-31", 2089955445.0))
+
+        # Nguồn trả lời mà không có quý nào (mã mới lên sàn) vẫn là đã hỏi xong.
+        empty = {"OUTSTANDING_SHARES": [("2022-12-31", 1.0)]}
+        self.assertTrue(asyncio.run(supplement_historical_shares(FakeClient(FakeResponse(200, [])), "NEW", empty)))
+        self.assertEqual(empty["OUTSTANDING_SHARES"], [("2022-12-31", 1.0)])
+        # Nguồn lỗi thì chưa tính là xong, để phiên sau hỏi lại.
+        self.assertFalse(asyncio.run(supplement_historical_shares(FakeClient(FakeResponse(500, [])), "VNM", {})))
+
+    def test_lead_and_credit_inputs_open_bank_and_energy(self) -> None:
+        from app.industry_screen import credit_by_day, lead_bars_from
+
+        lead = lead_bars_from({"OIL": [("2026-01-02", 70.0)], "DXY": [("2026-01-02", 100.0)]})
+        self.assertEqual(lead, {"OIL": [{"trade_date": "2026-01-02", "close": 70.0}]})
+        banks = {
+            "VCB": {"CUSTOMER_LOANS_AQ_GRYOY": [("2025-09-30", 0.12)]},
+            "BID": {"CUSTOMER_LOANS_AQ_GRYOY": [("2025-09-30", 0.10)]},
+        }
+        credit = credit_by_day(banks, ["2025-11-13", "2025-11-14"])
+        # Báo cáo quý chỉ được thấy sau 45 ngày kể từ ngày kết thúc kỳ.
+        self.assertIsNone(credit["2025-11-13"])
+        self.assertEqual(credit["2025-11-14"], 0.12)

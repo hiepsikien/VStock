@@ -1,6 +1,6 @@
 # Backlog — nhận định ngành
 
-Ba câu này dùng mô hình để đọc chữ. Chúng chưa được đo, và chưa được phép đổi `Được vào`.
+Ba câu về công bố, chỗ lệch hạng và bảng ngành dùng mô hình để đọc chữ. Chúng chưa được đo, và chưa được phép đổi `Được vào`.
 
 Cổng số vẫn là cổng được phép chặn lệnh. Một câu chỉ được tham gia sau khi thắng phép so trên giai đoạn chọn và còn đúng trên giai đoạn xác nhận, cùng cách với nhận định tháng.
 
@@ -11,6 +11,19 @@ Cổng số vẫn là cổng được phép chặn lệnh. Một câu chỉ đư
 ## Chỗ cổng số và danh sách khoanh lệch nhau
 
 Khi ngành mở mà hạng vị thế để một mã tăng mạnh ở ngoài danh sách, như `SHS`, hỏi một đoạn: với các công bố đã có của mã bị loại, có việc gì làm hạng vốn hóa và doanh thu chưa phản ánh đúng vị thế hay không. Câu trả lời lưu cùng tháng. Nó chỉ được đổi cách khoanh khi các tháng như vậy lặp lại trên cả hai giai đoạn.
+
+## Định nghĩa cổng ngành
+
+Báo cáo 2021-01-04–2026-10-09 cho precision ngành thấp hơn tỷ lệ nền ở cả hai giai đoạn (11,8% so 14,3%, và 11,0% so 12,5%): ngành đang mạnh hơn VN-Index 60 phiên tăng tiếp ít hơn một ngành bất kỳ. Hai câu hỏi cho lần đo sau, phải chốt trước khi chạy lại trên giai đoạn chọn:
+
+- Có nên đổi định nghĩa "ngành mở", ví dụ độ rộng (tỷ lệ mã trong ngành vượt MA50) hoặc đà lợi nhuận quý, thay cho lợi suất 60 phiên?
+- Ngưỡng precision gấp đôi tỷ lệ nền có phải mức đúng, khi tỷ lệ nền đã khoảng 12–14%?
+
+Đổi định nghĩa là một quy tắc mới: đo lại từ đầu trên 2021–2024, không xem 2025–2026 trước khi chốt.
+
+## Chuỗi `USDVND_MACRO`
+
+Lịch sử Yahoo `USDVND=X` từ 2021 nằm ở `USDVND_MACRO`, tách khỏi `USDVND` mà cổng tiền tệ đọc từ TradingView. Hiện chưa có chỗ nào đọc chuỗi này: nó để dành cho lúc đo lớp vĩ mô liên thị trường trong backtest. Đừng ghi ngược lại vào `USDVND`.
 
 ## Rà bảng ngành một lần
 

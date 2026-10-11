@@ -143,10 +143,19 @@ Năm chuỗi, ngưỡng khai báo trong `research/app/config.py` và in ra ở t
 | Lãi suất tái cấp vốn | Bảng ghi tay `POLICY_RATE_HISTORY` trong `config.py` | Có mốc mới trong 90 ngày gần nhất |
 | NHNN hút/bơm ròng | Chưa có nguồn công khai, điền tay vào `market_points` | Hút ròng 5 phiên liên tiếp, tổng từ 5.000 tỷ |
 
-Bốn chuỗi đầu là **bắt buộc**. Mỗi chuỗi phải có điểm **đúng phiên đang chấm**: thiếu số, hoặc
-trong kho chỉ có điểm của phiên trước (feed chết trong phiên), hoặc chưa đủ 5 phiên đã lưu đều đưa
-cổng về **Chưa chấm**, và không mã nào bị tự loại vì chuyện tiền tệ. Chuỗi NHNN chưa có nguồn
-nên nằm ngoài danh sách bắt buộc, nhưng ngưỡng đã khai báo trước nên nó khóa được ngay khi có số.
+Tỷ giá và lãi suất tái cấp vốn là **bắt buộc** (`MARKET_GATE_REQUIRED`). Lãi qua đêm và lợi suất
+TPCP 10 năm **tạm đóng** (`MARKET_GATE_CLOSED`): feed chỉ trả giá hiện tại nên chưa có lịch sử từ
+2021. Hai chuỗi này vẫn được lưu mỗi phiên và hiện trên `/market`, nhưng không khóa cổng kể cả khi
+đã đủ số phiên; đưa chúng vào `MARKET_GATE_REQUIRED` là mở lại. Mỗi chuỗi bắt buộc phải có điểm
+**đúng phiên đang chấm**: thiếu số, hoặc trong kho chỉ có điểm của phiên trước (feed chết trong
+phiên), hoặc chưa đủ 5 phiên đã lưu đều đưa cổng về **Chưa chấm**, và khi đó không mã nào được
+**Được vào**. Chuỗi NHNN chưa có nguồn nên nằm ngoài danh sách bắt buộc, nhưng ngưỡng đã khai báo
+trước nên nó khóa được ngay khi có số.
+
+Trước khi tạm đóng hai chuỗi kia, cổng đứng **Chưa chấm** mỗi phiên vì chúng chưa đủ 5 phiên, nên
+không mã nào lên được **Được vào**. Từ khi tạm đóng, cổng chấm thật trên tỷ giá và lãi điều hành:
+nó mở khi tiền chưa thắt, và khóa danh sách khi tỷ giá đứng trên mốc đủ 5 phiên hoặc có mốc lãi
+điều hành mới tăng.
 
 Mỗi phiên pipeline lấy một điểm cho mỗi chuỗi rồi lưu vào bảng `market_points`; hàm chấm chỉ đọc
 các điểm tới hết ngày đang chấm, nên chấm lại một phiên cũ luôn ra cùng kết quả và số của hôm nay

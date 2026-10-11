@@ -26,7 +26,7 @@ Mỗi tầng chỉ trả lời một câu. Tầng dưới không được sửa 
 - Mã trả lời: trong ngành đang mở, tên nào có vị thế bền và giá còn rẻ so với chính nó và so với ngành. Danh sách này đổi chậm, theo quý và theo vốn hóa, không theo từng phiên.
 - Thời điểm trả lời: trong danh sách đã khoanh, phiên nào nền giá cho phép mua. Nền giá không được kéo một mã ở ngành đang đóng vào sổ.
 - Sổ trả lời: mua bao nhiêu và giữ bao lâu. Mục tiêu là đi theo sóng ngành, thường trong khoảng 3–12 tháng, trần 132 phiên. Vào vì ngành thì ra vì ngành. Phí cả vòng 0,3% nhỏ so với một đợt tăng 20% nếu giữ được nửa năm.
-- Rổ là VN100, 100 mã lớn và thanh khoản nhất trên HOSE, thay cho 51 mã đang viết trong `DEFAULT_UNIVERSE`. Danh sách dựng lại vào ngày 1 tháng 1 mỗi năm theo vốn hóa lúc đó. Mã rời rổ năm sau vẫn ở trong năm đã chọn, để kết quả không chỉ toàn những mã còn sống đến hôm nay.
+- Rổ gọi là "VN100" nhưng chưa phải VN100 thật: đó là 100 mã vốn hóa lớn nhất trong 106 mã của `DEFAULT_UNIVERSE`, danh sách chọn tay ở thời điểm hiện tại, chưa có ngưỡng thanh khoản. Danh sách dựng lại vào phiên đầu năm theo vốn hóa lúc đó. Mã rời rổ năm sau vẫn ở trong năm đã chọn. Vì 106 mã ứng viên là những mã còn sống đến hôm nay, kết quả vẫn còn thiên lệch sống sót; muốn bỏ thiên lệch đó cần danh sách HOSE theo từng năm.
 
 Ba định nghĩa khóa trước khi đo, không chỉnh sau khi đã thấy kết quả:
 

@@ -128,8 +128,13 @@ def _series_from_rows(rows: list[dict]) -> dict[str, list[tuple[str, float]]]:
     return points
 
 
-async def fetch_historical_shares(client: httpx.AsyncClient, symbol: str) -> list[tuple[str, float]]:
-    """Charter capital itemCode 14110 divided by par value (10,000 VND) gives share counts before 2023."""
+async def fetch_historical_shares(
+    client: httpx.AsyncClient, symbol: str
+) -> list[tuple[str, float]] | None:
+    """Charter capital itemCode 14110 divided by par value (10,000 VND) gives share counts before 2023.
+
+    None means the source did not answer; an empty list means it has no quarter for the name.
+    """
     try:
         response = await client.get(
             VNDIRECT_STATEMENTS,
@@ -141,7 +146,7 @@ async def fetch_historical_shares(client: httpx.AsyncClient, symbol: str) -> lis
             headers=BROWSER_HEADERS,
         )
         if response.status_code != 200:
-            return []
+            return None
         rows = (response.json() or {}).get("data") or []
         out: list[tuple[str, float]] = []
         for row in rows:
@@ -158,25 +163,29 @@ async def fetch_historical_shares(client: httpx.AsyncClient, symbol: str) -> lis
         return out
     except Exception as exc:
         logger.warning("Historical shares fetch failed for %s: %s", symbol, exc)
-        return []
+        return None
 
 
-async def _supplement_historical_shares(
+async def supplement_historical_shares(
     client: httpx.AsyncClient,
     symbol: str,
     points: dict[str, list[tuple[str, float]]],
-) -> None:
-    shares = points.get("OUTSTANDING_SHARES") or []
-    if shares and shares[0][0] <= "2021-01-01":
-        return
+) -> bool:
+    """Merge the older share counts under the ratio series. True once the source has answered.
+
+    The ratio API starts its share series at 2022-12-31 for every name, so the caller has to
+    remember who is done: the merged quarters stay in the store, and asking again only repeats
+    a request per name per session.
+    """
     historical = await fetch_historical_shares(client, symbol)
-    if not historical:
-        return
-    existing = dict(shares)
+    if historical is None:
+        return False
+    existing = dict(points.get("OUTSTANDING_SHARES") or [])
     for day, val in historical:
-        if day not in existing:
-            existing[day] = val
-    points["OUTSTANDING_SHARES"] = sorted(existing.items())
+        existing.setdefault(day, val)
+    if existing:
+        points["OUTSTANDING_SHARES"] = sorted(existing.items())
+    return True
 
 
 async def fetch_ratios(client: httpx.AsyncClient, symbol: str) -> dict[str, list[tuple[str, float]]]:
@@ -190,12 +199,9 @@ async def fetch_ratios(client: httpx.AsyncClient, symbol: str) -> dict[str, list
     if response.status_code == 200:
         points = _series_from_rows((response.json() or {}).get("data") or [])
         if points:
-            await _supplement_historical_shares(client, symbol, points)
             return points
     logger.warning("Batched ratio fetch failed for %s, falling back to per code calls", symbol)
-    points = await fetch_ratios_per_code(client, symbol)
-    await _supplement_historical_shares(client, symbol, points)
-    return points
+    return await fetch_ratios_per_code(client, symbol)
 
 
 async def fetch_ratios_per_code(

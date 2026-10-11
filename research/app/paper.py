@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app import db
-from app.config import DEFAULT_UNIVERSE, INDUSTRY_HOLD_ENABLED, MA_FAST, ROUND_TRIP_COST
+from app.config import BANKS, DEFAULT_UNIVERSE, INDUSTRY_HOLD_ENABLED, MA_FAST, ROUND_TRIP_COST
 from app.exits import (
     OpenPosition,
     blocking_filing,
@@ -111,7 +111,7 @@ async def mark_positions(as_of: str) -> list[str]:
     messages: list[str] = []
     open_map = None
     if INDUSTRY_HOLD_ENABLED:
-        from app.industry_screen import build_open_map
+        from app.industry_screen import build_open_map, credit_by_day, lead_bars_from
 
         index_bars = [bar for bar in await db.bars("VNINDEX") if bar["trade_date"] <= as_of]
         bars_by_symbol = {}
@@ -120,11 +120,18 @@ async def mark_positions(as_of: str) -> list[str]:
                 bar for bar in await db.bars(symbol) if bar["trade_date"] <= as_of
             ]
         stored = await db.market_points()
-        lead_bars = {
-            code: [{"trade_date": day, "close": value} for day, value in series if day <= as_of]
-            for code, series in stored.items()
-        }
-        open_map = build_open_map(index_bars, bars_by_symbol, list(DEFAULT_UNIVERSE), lead_bars=lead_bars)
+        open_map = build_open_map(
+            index_bars,
+            bars_by_symbol,
+            list(DEFAULT_UNIVERSE),
+            lead_bars=lead_bars_from(
+                {code: [row for row in series if row[0] <= as_of] for code, series in stored.items()}
+            ),
+            credit_by_day=credit_by_day(
+                {bank: await db.ratios(bank) for bank in BANKS},
+                [str(bar["trade_date"]) for bar in index_bars],
+            ),
+        )
     for row in await db.open_paper_positions():
         bars = [bar for bar in await db.bars(row["symbol"]) if bar["trade_date"] <= as_of]
         if not bars:

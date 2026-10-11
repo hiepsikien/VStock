@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
+from app.config import BANKS, STATEMENT_LAG_DAYS
 from app.industries import (
     CREDIT_INDUSTRIES,
     INDUSTRY_WINDOW,
@@ -135,6 +138,48 @@ def previous_session(days: list[str], day: str) -> str | None:
     return earlier[-1] if earlier else None
 
 
+def lead_bars_from(market_points: dict[str, list[tuple[str, float]]]) -> dict[str, list[dict]]:
+    """The lead series build_open_map reads, in bar shape, from the stored market points."""
+    return {
+        name: [{"trade_date": day, "close": value} for day, value in market_points.get(name, [])]
+        for name in set(LEAD_SERIES.values())
+    }
+
+
+def credit_by_day(
+    ratios_by_symbol: dict[str, dict[str, list[tuple[str, float]]]],
+    days: list[str],
+) -> dict[str, float | None]:
+    """Median bank loan growth each session, from statements visible STATEMENT_LAG_DAYS after period end."""
+    series = []
+    for bank in BANKS:
+        points = (ratios_by_symbol.get(bank) or {}).get("CUSTOMER_LOANS_AQ_GRYOY") or []
+        visible = []
+        for report, value in points:
+            try:
+                day = (date.fromisoformat(report) + timedelta(days=STATEMENT_LAG_DAYS)).isoformat()
+            except ValueError:
+                continue
+            visible.append((day, value))
+        visible.sort()
+        series.append(visible)
+    out: dict[str, float | None] = {}
+    for day in days:
+        values = []
+        for visible in series:
+            latest = None
+            for report_day, value in visible:
+                if report_day <= day:
+                    latest = value
+                else:
+                    break
+            if latest is not None:
+                values.append(latest)
+        values.sort()
+        out[day] = values[len(values) // 2] if values else None
+    return out
+
+
 def build_open_map(
     index_bars: list[dict],
     bars_by_symbol: dict[str, list[dict]],
@@ -144,7 +189,11 @@ def build_open_map(
     credit_by_day: dict[str, float | None] | None = None,
     regime_by_day: dict[str, bool | None] | None = None,
 ) -> dict[tuple[str, str], bool]:
-    """Whether each name is allowed on a session, using the window that ended yesterday."""
+    """Whether each name is allowed on a session, using the window that ended yesterday.
+
+    Without lead_bars and credit_by_day the lead and credit industries can never open, so every
+    caller has to pass both, built by lead_bars_from and credit_by_day.
+    """
     from app.pattern import market_regime
 
     index_days = [str(bar["trade_date"]) for bar in index_bars]

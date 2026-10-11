@@ -212,8 +212,34 @@ async def init_db() -> None:
     await _db.execute("PRAGMA busy_timeout=5000")
     await _db.executescript(SCHEMA)
     await _ensure_schema_migrations(_db)
+    await _split_usdvnd(_db)
     await _merge_default_universe(_db)
     await _db.commit()
+
+
+async def _split_usdvnd(db: aiosqlite.Connection) -> None:
+    """Move the Yahoo FX history out of the money gate's series, once per store.
+
+    Before the split, history_pull and the macro fetch wrote Yahoo `USDVND=X` under `USDVND`,
+    the key the money gate reads for TradingView. The whole series is copied to USDVND_MACRO,
+    and the weekend rows, which only Yahoo writes, leave USDVND so its 20-row average spans
+    20 sessions. Weekday rows stay as the gate's seed until TradingView points replace them.
+    """
+    cursor = await db.execute("SELECT 1 FROM meta WHERE key = 'usdvnd_split'")
+    if await cursor.fetchone():
+        return
+    await db.execute(
+        """
+        INSERT INTO market_points (series, trade_date, value)
+        SELECT 'USDVND_MACRO', trade_date, value FROM market_points WHERE series = 'USDVND'
+        ON CONFLICT(series, trade_date) DO NOTHING
+        """
+    )
+    await db.execute(
+        "DELETE FROM market_points WHERE series = 'USDVND' "
+        "AND strftime('%w', trade_date) IN ('0', '6')"
+    )
+    await db.execute("INSERT INTO meta (key, value) VALUES ('usdvnd_split', ?)", (_now(),))
 
 
 async def _write_universe_seed(db: aiosqlite.Connection, symbols: list[str]) -> None:
@@ -281,6 +307,25 @@ async def close_db() -> None:
     if _db is not None:
         await _db.close()
         _db = None
+
+
+async def shares_backfilled() -> set[str]:
+    """Names whose pre-2023 share counts the statements API has already answered for."""
+    db = await get_db()
+    cursor = await db.execute("SELECT value FROM meta WHERE key = 'shares_backfilled'")
+    row = await cursor.fetchone()
+    return set(json.loads(row["value"])) if row else set()
+
+
+async def mark_shares_backfilled(symbols: list[str]) -> None:
+    done = sorted(await shares_backfilled() | set(symbols))
+    db = await get_db()
+    await db.execute(
+        "INSERT INTO meta (key, value) VALUES ('shares_backfilled', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (json.dumps(done),),
+    )
+    await db.commit()
 
 
 async def universe() -> list[str]:

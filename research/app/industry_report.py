@@ -11,7 +11,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 from pathlib import Path
 
-from app.config import BANKS, DEFAULT_UNIVERSE, STATEMENT_LAG_DAYS
+from app.config import DEFAULT_UNIVERSE, STATEMENT_LAG_DAYS
 from app.industries import gated_industries, members, yearly_universe
 from app.industry_screen import (
     CONFIRM_END,
@@ -20,10 +20,12 @@ from app.industry_screen import (
     OPERABLE_START,
     average_by_day,
     build_open_map,
+    credit_by_day,
     dated_returns,
     early_days,
     find_runs,
     layer_counts,
+    lead_bars_from,
     passes_layer,
     passes_stock,
 )
@@ -63,36 +65,6 @@ def _load() -> tuple[dict[str, list[dict]], dict, dict[str, list[tuple[str, floa
         market[row["series"]].append((row["trade_date"], row["value"]))
     connection.close()
     return bars, ratios, market
-
-
-def _credit(ratios: dict, days: list[str]) -> dict[str, float | None]:
-    series = []
-    for bank in BANKS:
-        points = ratios.get(bank, {}).get("CUSTOMER_LOANS_AQ_GRYOY") or []
-        visible = []
-        for report, value in points:
-            try:
-                day = (date.fromisoformat(report) + timedelta(days=STATEMENT_LAG_DAYS)).isoformat()
-            except ValueError:
-                continue
-            visible.append((day, value))
-        visible.sort()
-        series.append(visible)
-    out: dict[str, float | None] = {}
-    for day in days:
-        values = []
-        for visible in series:
-            latest = None
-            for report_day, value in visible:
-                if report_day <= day:
-                    latest = value
-                else:
-                    break
-            if latest is not None:
-                values.append(latest)
-        values.sort()
-        out[day] = values[len(values) // 2] if values else None
-    return out
 
 
 def _caps_on(day: str, bars: dict, ratios: dict) -> dict[str, float]:
@@ -177,10 +149,8 @@ def write_report() -> str:
             "Nguồn không có trước ngày sớm nhất này."
         )
     lines.append("")
-    credit = _credit(ratios, index_days)
-    lead = {
-        "OIL": [{"trade_date": day, "close": value} for day, value in market.get("OIL", [])]
-    }
+    credit = credit_by_day(ratios, index_days)
+    lead = lead_bars_from(market)
     allowed: dict[tuple[str, str], bool] = {}
     year_members: dict[int, tuple[str | None, list[str]]] = {}
     for year in range(2021, 2027):

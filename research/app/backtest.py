@@ -169,6 +169,7 @@ def run_backtest(
     articles_by_symbol: dict[str, list[dict]],
     exchanges: dict[str, str] | None = None,
     flow_by_symbol: dict[str, FlowMap] | None = None,
+    market_points: dict[str, list[tuple[str, float]]] | None = None,
 ) -> dict:
     """A book of MAX_SLOTS equal-risk slots, each with its own exit plan.
 
@@ -184,12 +185,16 @@ def run_backtest(
     dates = [bar["trade_date"] for bar in index_bars][MA_WINDOW:]
     open_map = None
     if INDUSTRY_GATE_ENFORCED or INDUSTRY_HOLD_ENABLED:
-        from app.industry_screen import build_open_map
+        from app.industry_screen import build_open_map, credit_by_day, lead_bars_from
 
         open_map = build_open_map(
             index_bars,
             bars_by_symbol,
             list(DEFAULT_UNIVERSE),
+            lead_bars=lead_bars_from(market_points or {}),
+            credit_by_day=credit_by_day(
+                ratios_by_symbol, [str(bar["trade_date"]) for bar in index_bars]
+            ),
         )
     side_cost = ROUND_TRIP_COST / 2
     cash = 1.0

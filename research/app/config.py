@@ -281,9 +281,10 @@ MARKET_SERIES = (
     ("POLICY_RATE", "Lãi suất tái cấp vốn", "%/năm", ""),
 )
 # Chỉ những chuỗi ở đây mới làm cổng đứng ở "Chưa chấm" khi thiếu số.
-# Lãi qua đêm và TPCP 10Y chỉ có 1 data point trên feed, chưa có chuỗi lịch sử từ 2021,
-# nên tạm thời đóng lại, không bắt buộc trong cổng tiền tệ.
 MARKET_GATE_REQUIRED = ("USDVND", "POLICY_RATE")
+# Lãi qua đêm và TPCP 10Y chưa có chuỗi lịch sử từ 2021, nên tạm đóng: vẫn lưu mỗi phiên và
+# hiện trên trang /market, nhưng không khóa cổng kể cả khi đã đủ số phiên.
+MARKET_GATE_CLOSED = ("INTERBANK_ON", "GOV10Y")
 # Lãi suất điều hành không có nguồn tự động. Mỗi quyết định của NHNN là một dòng, ghi
 # ngày có hiệu lực; bài báo chỉ để biết ngày đó, không dùng để chấm điểm.
 POLICY_RATE_HISTORY = (

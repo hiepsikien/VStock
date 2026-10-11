@@ -12,7 +12,13 @@ import httpx
 
 from app import db
 from app.config import DEFAULT_UNIVERSE, MACRO_SYMBOLS
-from app.ingest import fetch_bars, fetch_foreign_flow, fetch_macro, fetch_ratios
+from app.ingest import (
+    fetch_bars,
+    fetch_foreign_flow,
+    fetch_macro,
+    fetch_ratios,
+    supplement_historical_shares,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +51,10 @@ async def pull() -> dict[str, str]:
                 except Exception as exc:
                     logger.warning("Bars failed for %s: %s", symbol, exc)
                     bars = []
+                backfilled = False
                 try:
                     ratios = await fetch_ratios(client, symbol)
+                    backfilled = await supplement_historical_shares(client, symbol, ratios)
                 except Exception as exc:
                     logger.warning("Ratios failed for %s: %s", symbol, exc)
                     ratios = {}
@@ -61,6 +69,8 @@ async def pull() -> dict[str, str]:
                     earliest[symbol] = bars[0]["trade_date"]
                 if ratios:
                     await db.replace_ratios(symbol, ratios)
+                    if backfilled:
+                        await db.mark_shares_backfilled([symbol])
                 if flow:
                     await db.upsert_flow(symbol, flow)
                 print(symbol, earliest.get(symbol, "no bars"), flush=True)
