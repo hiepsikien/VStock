@@ -41,6 +41,13 @@ ENTRADE_STOCK = "https://services.entrade.com.vn/chart-api/v2/ohlcs/stock"
 ENTRADE_INDEX = "https://services.entrade.com.vn/chart-api/v2/ohlcs/index"
 VNDIRECT_RATIOS = "https://api-finfo.vndirect.com.vn/v4/ratios"
 VNDIRECT_STATEMENTS = "https://api-finfo.vndirect.com.vn/v4/financial_statements"
+VNDIRECT_STOCKS = "https://api-finfo.vndirect.com.vn/v4/stocks"
+VNDIRECT_PRICES = "https://api-finfo.vndirect.com.vn/v4/stock_prices"
+VNDIRECT_INDUSTRY = "https://api-finfo.vndirect.com.vn/v4/industry_classification"
+# Trang tối đa mà `stocks`, `stock_prices` và `industry_classification` chấp nhận.
+MARKET_PAGE_SIZE = 1000
+# Trần số trang cho một chuỗi: hơn bốn mươi năm nến cũng chưa tới ba mươi trang.
+MARKET_MAX_PAGES = 40
 # Statement line items: charter capital, and operating profit of the corporate income statement.
 CHARTER_CAPITAL_ITEM = "14110"
 OPERATING_PROFIT_ITEM = "23110"
@@ -114,6 +121,180 @@ async def fetch_bars(
     )
     response.raise_for_status()
     return _bars_from_payload(response.json() or {})
+
+
+def _bars_from_price_rows(rows: list[dict]) -> list[dict]:
+    """Nến từ bảng giá VNDirect. `ad*` là chuỗi đã điều chỉnh chia tách và cổ tức.
+
+    Bảng này là nguồn duy nhất còn giữ lịch sử của mã đã hủy niêm yết — Entrade trả 400 cho
+    những mã đó. Với mã còn niêm yết, `ad*` khớp nến Entrade tới ba chữ số thập phân.
+    """
+    by_day: dict[str, dict] = {}
+    for row in rows:
+        day = str(row.get("date") or "")[:10]
+        if not day:
+            continue
+        try:
+            open_price = float(row["adOpen"])
+            high = float(row["adHigh"])
+            low = float(row["adLow"])
+            close = float(row["adClose"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if close <= 0 or high < low:
+            continue
+        try:
+            volume = float(row.get("nmVolume") or 0)
+        except (TypeError, ValueError):
+            volume = 0.0
+        by_day[day] = {
+            "trade_date": day,
+            "open": open_price,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": volume,
+        }
+    return [by_day[day] for day in sorted(by_day)]
+
+
+def _raw_from_price_rows(rows: list[dict]) -> list[tuple[str, float, float]]:
+    """(ngày, giá thật, giá trị khớp thật) từ bảng giá VNDirect.
+
+    `close` là giá thật của phiên và `nmValue` là giá trị khớp thật bằng đồng, nằm cùng dòng
+    với `adClose`/`nmVolume` nên không tốn thêm request nào. Đây là cạnh dùng để đo vốn hóa và
+    thanh khoản của rổ: giá đã điều chỉnh chia tách nhân với số cổ phiếu của chính năm đó là
+    con số sai, còn khối lượng thật nhân với giá đã điều chỉnh cũng sai.
+
+    Phiên không khớp lệnh vẫn ghi giá thật và để giá trị khớp bằng 0, vì vốn hóa của phiên đó
+    cần giá thật: một mã tạm ngừng giao dịch đúng phiên chốt rổ mà quay về giá đã điều chỉnh
+    thì bị đo thấp.
+    """
+    out: list[tuple[str, float, float]] = []
+    for row in rows:
+        day = str(row.get("date") or "")[:10]
+        if not day:
+            continue
+        try:
+            close = float(row["close"])
+            traded = float(row.get("nmValue") or 0)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if close <= 0 or traded < 0:
+            continue
+        out.append((day, close, traded))
+    return out
+
+
+async def _vndirect_pages(
+    client: httpx.AsyncClient,
+    url: str,
+    query: str,
+    *,
+    size: int,
+    sort: str | None = None,
+) -> list[dict]:
+    """Đi hết các trang của một endpoint VNDirect.
+
+    Trang đầu trả `totalPages`, các trang sau thì không, nên vòng lặp dừng khi gặp trang rỗng.
+    """
+    rows: list[dict] = []
+    page = 1
+    while page <= MARKET_MAX_PAGES:
+        params: dict[str, object] = {"q": query, "size": size, "page": page}
+        if sort:
+            params["sort"] = sort
+        response = await client.get(url, params=params, headers=BROWSER_HEADERS)
+        response.raise_for_status()
+        data = (response.json() or {}).get("data") or []
+        if not data:
+            break
+        rows.extend(data)
+        page += 1
+    return rows
+
+
+async def fetch_listings(client: httpx.AsyncClient, exchanges: tuple[str, ...]) -> list[dict]:
+    """Mọi cổ phiếu từng niêm yết trên các sàn đã chọn, kể cả mã đã hủy niêm yết.
+
+    Chỉ lấy `type:STOCK`: cùng sàn đó còn trái phiếu, chứng quyền và quỹ, tổng cộng hơn hai
+    nghìn dòng mà rổ không dùng tới.
+    """
+    query = f"type:STOCK~floor:in({','.join(exchanges)})"
+    return await _vndirect_pages(client, VNDIRECT_STOCKS, query, size=MARKET_PAGE_SIZE, sort="code:asc")
+
+
+def _listing_day(raw: object) -> str | None:
+    text = str(raw or "")[:10]
+    return text or None
+
+
+def listing_rows(rows: list[dict]) -> list[tuple[str, str, str, str | None, str | None]]:
+    """Danh sách niêm yết thành dòng (mã, sàn, trạng thái, ngày niêm yết, ngày hủy niêm yết).
+
+    Một mã đổi sàn từng có `delistedDate` sớm hơn `listedDate`: đó là phiên hủy của lần niêm
+    yết trước, lần này vẫn sống, nên ngày hủy được coi như trống. Giữ nguyên như vậy thì mã
+    vừa chuyển sàn không bị loại khỏi rổ của chính năm nó còn giao dịch.
+    """
+    out: dict[str, tuple[str, str, str, str | None, str | None]] = {}
+    for row in rows:
+        symbol = str(row.get("code") or "").strip().upper()
+        if not symbol:
+            continue
+        listed = _listing_day(row.get("listedDate"))
+        delisted = _listing_day(row.get("delistedDate"))
+        if listed and delisted and delisted < listed:
+            delisted = None
+        out[symbol] = (
+            symbol,
+            str(row.get("floor") or "").strip().upper(),
+            str(row.get("status") or "").strip(),
+            listed,
+            delisted,
+        )
+    return [out[symbol] for symbol in sorted(out)]
+
+
+async def fetch_industry_groups(client: httpx.AsyncClient, levels: tuple[int, ...] = (2, 3)) -> list[dict]:
+    """Nhóm phân loại ICB cấp 2 và 3. Mỗi nhóm kèm `codeList` là các mã thuộc nhóm."""
+    rows: list[dict] = []
+    for level in levels:
+        rows.extend(
+            await _vndirect_pages(
+                client, VNDIRECT_INDUSTRY, f"industryLevel:{level}", size=MARKET_PAGE_SIZE
+            )
+        )
+    return rows
+
+
+async def fetch_market_bars(client: httpx.AsyncClient, symbol: str, start: str) -> list[dict]:
+    """Cả lịch sử nến của một mã từ bảng giá VNDirect, dùng cho mã Entrade không còn trả."""
+    rows = await _vndirect_pages(
+        client,
+        VNDIRECT_PRICES,
+        f"code:{symbol}~date:gte:{start}",
+        size=MARKET_PAGE_SIZE,
+        sort="date:asc",
+    )
+    return _bars_from_price_rows(rows)
+
+
+async def fetch_raw_tape(
+    client: httpx.AsyncClient, symbol: str, start: str
+) -> list[tuple[str, float, float]]:
+    """Cả lịch sử giá thật của một mã từ bảng giá VNDirect.
+
+    Trang của bảng này chứa 1.000 phiên, mà một mã chỉ có chừng hai nghìn rưỡi phiên, nên nạp
+    cả lịch sử rẻ hơn nạp riêng vài cửa sổ hai mươi phiên trước từng phiên chốt rổ.
+    """
+    rows = await _vndirect_pages(
+        client,
+        VNDIRECT_PRICES,
+        f"code:{symbol}~date:gte:{start}",
+        size=MARKET_PAGE_SIZE,
+        sort="date:asc",
+    )
+    return _raw_from_price_rows(rows)
 
 
 def _series_from_rows(rows: list[dict]) -> dict[str, list[tuple[str, float]]]:

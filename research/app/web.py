@@ -19,6 +19,7 @@ from app.config import (
     STATUS_RANK,
 )
 from app.evaluate import SCORE_CEILINGS
+from app.industries import set_industry_map
 from app.ingest import load_exchanges
 from app.money import LABELS, money_state, thresholds
 from app.pattern import assess_pattern
@@ -52,6 +53,8 @@ templates.env.globals["status_class"] = _status_class
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     await db.init_db()
+    stored = await db.symbol_industry()
+    set_industry_map({symbol: row["industry"] for symbol, row in stored.items()})
     yield
     await db.close_db()
 

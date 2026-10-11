@@ -28,10 +28,11 @@ from pathlib import Path
 
 from app import db
 from app.backtest import run_backtest
-from app.config import CASH_YIELD, DEFAULT_UNIVERSE, ROUND_TRIP_COST
+from app.config import CASH_YIELD, ROUND_TRIP_COST
 from app.db import market_db_path
-from app.industries import INDUSTRY_WINDOW
-from app.industry_report import _load, measure_gate, yearly_open_map
+from app.industries import INDUSTRY_WINDOW, industry_labels, set_industry_map
+from app.industry_report import _load, baskets_for, measure_gate, yearly_open_map
+from app.pit_universe import Basket
 from app.industry_screen import (
     BACK_END,
     BACK_LEDGER_START,
@@ -131,16 +132,21 @@ def _by_day(allowed: dict[tuple[str, str], bool]) -> dict[str, list[str]]:
     return out
 
 
-def _basket_by_day(year_members, index_days: list[str]) -> dict[str, list[str]]:
+def _basket_by_day(baskets: dict[int, Basket], index_days: list[str]) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     for day in index_days:
-        anchor, universe = year_members.get(int(day[:4]), (None, []))
-        out[day] = list(universe) if anchor is not None and day >= anchor else []
+        basket = baskets.get(int(day[:4]))
+        out[day] = (
+            list(basket.trade) if basket is not None and basket.day is not None and day >= basket.day else []
+        )
     return out
 
 
 def _init_worker(inputs: dict) -> None:
     _INPUTS.update(inputs)
+    # Sổ lệnh chấm `industry_of` cho từng mã, nên tiến trình con phải nhận đúng bảng ngành
+    # mà tiến trình cha đã gắn từ kho; thiếu thì chỉ danh sách thủ công còn tác dụng.
+    set_industry_map(inputs["industries"])
 
 
 def _backtest(window: int | None, open_map: dict | None) -> tuple[int | None, dict]:
@@ -186,38 +192,43 @@ async def _stored(symbols: list[str]) -> tuple[dict, dict]:
 
 
 def run_sweep() -> str:
-    bars, ratios, market = _load()
+    bars, ratios, market, listings = _load()
     index = bars["VNINDEX"]
     index_days = [bar["trade_date"] for bar in index]
     regime_by_day = {day: market_regime(index[: i + 1]).open for i, day in enumerate(index_days)}
+    print("Dựng rổ theo từng năm", file=sys.stderr, flush=True)
+    baskets = baskets_for(bars, ratios, listings, index_days)
 
     print("Dựng trạng thái ngành", file=sys.stderr, flush=True)
     maps = {}
     measures = {}
     for window in WINDOWS:
-        allowed, year_members = yearly_open_map(
-            bars, ratios, market, window=window, regime_by_day=regime_by_day
+        allowed = yearly_open_map(
+            bars, ratios, market, baskets, window=window, regime_by_day=regime_by_day
         )
-        maps[window] = (allowed, year_members)
+        maps[window] = allowed
         measures[window] = {
-            name: measure_gate(bars, allowed, year_members, start, end)
+            name: measure_gate(bars, allowed, baskets, start, end)
             for name, start, end in PERIODS
         }
 
-    year_members = maps[WINDOWS[0]][1]
-    basket = _basket_by_day(year_members, index_days)
+    basket = _basket_by_day(baskets, index_days)
     index_curve = [(bar["trade_date"], float(bar["close"])) for bar in index]
     always_curve = _rotation(bars, index_days, lambda day: basket.get(day, []))
     previous = dict(zip(index_days[1:], index_days))
     rotation_curves = {}
     for window in WINDOWS:
-        opened = _by_day(maps[window][0])
+        opened = _by_day(maps[window])
         rotation_curves[window] = (
             _rotation(bars, index_days, lambda day, o=opened: o.get(day, [])),
             _rotation(bars, index_days, lambda day, o=opened: o.get(previous.get(day, ""), [])),
         )
 
-    symbols = [symbol for symbol in DEFAULT_UNIVERSE if symbol in bars]
+    symbols = sorted(
+        symbol
+        for symbol in {name for basket in baskets.values() for name in basket.universe}
+        if bars.get(symbol)
+    )
     exchanges = load_exchanges()
     if not exchanges:
         raise SystemExit(
@@ -235,9 +246,10 @@ def run_sweep() -> str:
         "flow": flow,
         "exchanges": exchanges,
         "market": dict(market),
+        "industries": industry_labels(),
     }
     print("Chạy sổ lệnh: không cổng và từng cửa sổ", file=sys.stderr, flush=True)
-    jobs = [(None, None)] + [(window, maps[window][0]) for window in WINDOWS]
+    jobs = [(None, None)] + [(window, maps[window]) for window in WINDOWS]
     books: dict[int | None, dict] = {}
     with ProcessPoolExecutor(max_workers=len(jobs), initializer=_init_worker, initargs=(inputs,)) as pool:
         futures = [pool.submit(_backtest, window, open_map) for window, open_map in jobs]
@@ -396,11 +408,15 @@ def _render(sources, measures, index_curve, always_curve, rotation_curves, books
             )
     lines.append("")
     lines.append(
-        "Lưu ý: rổ ứng viên là 106 mã còn sống đến nay, nên mọi con số còn thiên lệch sống sót, "
-        "nặng nhất ở giai đoạn lùi vì các mã đã hủy niêm yết hay sáp nhập không có mặt. "
-        "Giai đoạn lùi chỉ để đối chiếu và không nằm trong luật qua cửa. Trong giai đoạn đó tín dụng "
-        "ngân hàng chỉ có từ 2018, nên trước đó ngân hàng và chứng khoán luôn đóng; dòng tiền khối "
-        "ngoại chỉ có từ 2018-08, phiên thiếu thì cổng dòng ngoại không chặn."
+        "Lưu ý: rổ mỗi năm là 200 mã còn niêm yết theo danh sách của nguồn và đủ thanh khoản, "
+        "rổ giao dịch là 100 mã đầu theo vốn hóa, nên mã đã hủy niêm yết vẫn có mặt trong năm "
+        "mà nó còn giao dịch. Giai đoạn lùi vẫn không nằm trong luật qua cửa. Trong giai đoạn đó "
+        "tín dụng ngân hàng chỉ có từ 2018, nên trước đó ngân hàng và chứng khoán luôn đóng; "
+        "dòng tiền khối ngoại chỉ có từ 2018-08, phiên thiếu thì cổng dòng ngoại không chặn. "
+        "Vốn hóa và thanh khoản của rổ đo bằng giá thật và giá trị khớp thật của phiên, không "
+        "bằng giá đã điều chỉnh chia tách. Số cổ phiếu của nhiều mã đã hủy niêm yết chỉ còn lại "
+        "ở khoản vốn góp chủ sở hữu trong BCTC quý, nên vốn hóa của chúng là ước lượng, và các ô "
+        "của giai đoạn lùi chỉ là đối chiếu."
     )
     return "\n".join(lines) + "\n"
 

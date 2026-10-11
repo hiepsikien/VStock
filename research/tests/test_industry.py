@@ -13,7 +13,7 @@ from app import db, exits
 from app.config import DEFAULT_UNIVERSE
 from app.evaluate import compose
 from app.exits import OpenPosition, fell_under_base, manage_position
-from app.industries import industry_of, members, yearly_universe
+from app.industries import gated_industries, industry_of, members
 from app.industry_note import (
     contain_rate,
     month_note_days,
@@ -136,12 +136,12 @@ class IndustryMathTest(unittest.TestCase):
         self.assertFalse(opened[("VCB", jump)])
         self.assertEqual(previous_session([bar["trade_date"] for bar in bars], jump), bars[-2]["trade_date"])
 
-    def test_year_list_is_the_largest_hundred(self) -> None:
-        caps = {f"S{index:03d}": float(index) for index in range(1, 121)}
-        chosen = yearly_universe(caps)
-        self.assertEqual(len(chosen), 100)
-        self.assertEqual(chosen[0], "S120")
-        self.assertNotIn("S001", chosen)
+    def test_an_industry_needs_three_names_in_the_basket_to_be_gated(self) -> None:
+        basket = ["VCB", "CTG", "BID", "AAA"]
+        self.assertEqual(members("bank", basket), ["VCB", "CTG", "BID"])
+        self.assertIn("bank", gated_industries(basket))
+        # Rổ nhỏ hơn ba mã ngân hàng thì nhóm đó không mở cổng riêng cho chính nó.
+        self.assertNotIn("bank", gated_industries(["VCB", "CTG", "AAA"]))
 
     def test_trailing_pe_waits_for_the_statement_lag(self) -> None:
         shares = [("2024-12-31", 10.0)]
