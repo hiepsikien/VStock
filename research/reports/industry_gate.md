@@ -13,6 +13,7 @@ Lùi 2015–2020, chỉ để đối chiếu: 648 đợt, recall 48.9%, precisio
 Giai đoạn lùi không nằm trong luật qua cửa. Tín dụng ngân hàng chỉ có từ 2018, nên trước đó ngân hàng và chứng khoán luôn đóng.
 
 Cổng ngành chưa qua cả hai giai đoạn. Được vào chưa đổi.
+Chỗ trượt: Chọn recall 59.1%, dưới ngưỡng 60% 0.9 điểm; Chọn precision gấp 1.27 lần nền, cần 2 lần; Xác nhận recall 46.2%, dưới ngưỡng 60% 13.8 điểm; Xác nhận precision gấp 0.88 lần nền, cần 2 lần. Ngưỡng được chốt trước lần đo đầu; số sát ngưỡng không phải lý do để nới ngưỡng.
 
 Danh sách khoanh, chọn: recall 17.4% trên 547 đợt, trung vị nhóm được khoanh trừ nhóm bị loại -1.2%.
 Danh sách khoanh, xác nhận: recall 11.9% trên 168 đợt, chênh trung vị 0.3%.

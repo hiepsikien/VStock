@@ -1,5 +1,9 @@
 # Cổng ngành theo cửa sổ 14, 30, 60 phiên
 
+Nến từ 2014-01-02 đến 2026-10-09, 106 mã.
+Bảng sàn: 709 mã từ `backend/data/vstock.db`, 103/106 mã của rổ có sàn; OIL, QNS, ACV không có nên dùng biên độ rộng nhất.
+Tin từ 2024-01-02, dòng ngoại từ 2018-08-30.
+
 Cửa sổ là số phiên dùng để so lợi suất ngành với VN-Index, và cũng là cửa sổ của chuỗi dầu. Định nghĩa đợt tăng (66 phiên, +20%, cửa sớm dưới +15%), rổ theo năm, ngưỡng tín dụng và VN-Index trên MA200 giữ nguyên. Không có bước nào gọi mô hình ngôn ngữ.
 
 ## Tín hiệu
@@ -15,6 +19,9 @@ Cửa sổ là số phiên dùng để so lợi suất ngành với VN-Index, v�
 | 60 | Lùi | 648 | 48.9% | 17.7% | 14.9% | 1.19 | 3.22 |
 | 60 | Chọn | 560 | 59.1% | 18.1% | 14.3% | 1.27 | 4.43 |
 | 60 | Xác nhận | 171 | 46.2% | 11.0% | 12.5% | 0.88 | 3.44 |
+
+Cửa sổ đang dùng ở live: 60 phiên. Qua ngưỡng recall 60% ở cả Chọn và Xác nhận: 14. Đạt precision gấp 2 lần nền ở cả hai: không cửa sổ nào.
+Ngưỡng được chốt trước lần đo đầu. Số sát ngưỡng không phải lý do để nới ngưỡng, và chọn lại cửa sổ sau khi đã xem các bảng này là một luật mới: phải đo lại từ đầu, và các giai đoạn đã xem không còn là phép thử sạch.
 
 ## Danh mục chia đều mã ở ngành mở
 

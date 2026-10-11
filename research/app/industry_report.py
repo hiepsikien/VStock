@@ -18,6 +18,8 @@ from app.industry_screen import (
     BACK_START,
     CONFIRM_END,
     CONFIRM_START,
+    MIN_PRECISION_MULTIPLE,
+    MIN_RECALL,
     SCREEN_END,
     OPERABLE_START,
     average_by_day,
@@ -239,6 +241,11 @@ def write_report() -> str:
         lines.append("Cổng ngành qua cả hai giai đoạn và được phép chặn Được vào.")
     else:
         lines.append("Cổng ngành chưa qua cả hai giai đoạn. Được vào chưa đổi.")
+        misses = _misses("Chọn", screen) + _misses("Xác nhận", confirm)
+        lines.append(
+            "Chỗ trượt: " + "; ".join(misses) + ". Ngưỡng được chốt trước lần đo đầu; "
+            "số sát ngưỡng không phải lý do để nới ngưỡng."
+        )
     lines.append("")
     lines.extend(_stock_lines(bars, ratios, allowed, year_members))
     lines.append("")
@@ -256,6 +263,21 @@ def write_report() -> str:
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(text)
     return text
+
+
+def _misses(name: str, counts: dict) -> list[str]:
+    out = []
+    if counts["recall"] < MIN_RECALL:
+        out.append(
+            f"{name} recall {counts['recall']:.1%}, dưới ngưỡng {MIN_RECALL:.0%} "
+            f"{(MIN_RECALL - counts['recall']) * 100:.1f} điểm"
+        )
+    if counts["baseline"] and counts["precision"] < MIN_PRECISION_MULTIPLE * counts["baseline"]:
+        out.append(
+            f"{name} precision gấp {counts['precision'] / counts['baseline']:.2f} lần nền, "
+            f"cần {MIN_PRECISION_MULTIPLE:g} lần"
+        )
+    return out
 
 
 def _window_line(title: str, counts: dict, industry: dict) -> str:

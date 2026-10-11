@@ -44,6 +44,11 @@ Phép đo tầng ngành và tầng mã đếm từng phiên. Chọn quy tắc tr
 
 Giai đoạn lùi 2015–2020 được đo sau khi đã xem cả hai giai đoạn trên, với đúng luật và tham số lúc đó. Nó chỉ để đối chiếu, không nằm trong luật qua cửa, và không được dùng để chỉnh luật. Sổ lệnh lùi chỉ chạy từ 2018-02-15, vì chỉ số tài chính quý có từ quý 4/2017. Năm 2014 chỉ để VN-Index đủ MA200 và cửa sổ ngành khởi động; nhờ đó năm 2021 không còn mấy tháng đầu thiếu trạng thái ngành.
 
+Số đo đã đổi hai lần mà luật không đổi, ghi lại để không ai đi truy lỗi số:
+
+- Từ commit `b65e26b`, tăng trưởng LNST và LN từ hoạt động kinh doanh được tự tính khi VNDirect để trống vì cùng kỳ lỗ. Báo cáo cổng ngành không đổi; sổ lệnh giai đoạn xác nhận thêm 3 lệnh.
+- Từ commit `f0a8070`, kho có nến từ 2014. Giai đoạn chọn với cửa sổ 60 phiên đổi từ recall 45,2% và precision 11,8% lên 59,1% và 18,1%; cắt dữ liệu về 2021 thì ra lại đúng số cũ, nên chênh lệch đến từ việc khởi động chứ không phải luật. Sổ lệnh cũng bắt đầu sớm hơn, nên đang giữ mã khác khi bước vào mỗi giai đoạn: sổ không cổng ở giai đoạn xác nhận đổi từ +13,5% xuống +8,7% chỉ vì ngày bắt đầu. Chênh lệch vài điểm % giữa các sổ là nhiễu.
+
 Phép đo sổ lệnh đếm lệnh đã đóng, theo giá thoát thật, không theo nhãn 66 phiên. Trên cửa sổ 2024-04 đến 2026-10, khoảng 620 phiên, nếu năm suất luôn đầy và mỗi lệnh giữ hết 132 phiên thì cả sổ chỉ có khoảng 23 lệnh. Năm 2026 dài khoảng 185 phiên, một lệnh 132 phiên chỉ kịp một vòng, cả sổ khoảng 5 đến 8 lệnh. Cỡ đó không đủ để kết luận có lợi thế. Một mã tăng 60% hoặc một mã gãy cũng quyết định cả năm. Vì vậy sổ lệnh không được chấm đậu hay trượt trên riêng năm 2026. Nó được chấm trên toàn bộ 2021–2026, và phải có ít nhất 30 lệnh đã đóng thì các tỷ lệ mới được đem ra kết luận. Chưa đủ 30 lệnh thì chỉ công bố số lệnh, lợi nhuận và sụt sâu nhất, chưa đổi `Được vào`.
 
 Với một quy tắc “mở” (ngành mở, hoặc mã được khoanh):
@@ -164,6 +169,7 @@ Sóng giảm 2022 là bài kiểm tra riêng của sổ, không thay cho ngưỡ
 - P/E và vốn hóa tính từ nến, số cổ phiếu và lợi nhuận quý đã lưu. Ghi chuỗi theo ngày. Báo cáo quý đã có từ 2017.
 - Lợi suất ngành tính lúc đo, không cần bảng giá mới.
 - Dầu, USD/VND và các chuỗi Yahoo khác được lưu vào `market_points`, range đủ từ 2014.
+- Bảng sàn của từng mã, đọc từ kho thị trường `backend/data/vstock.db` (hoặc `VSTOCK_MARKET_DB`). Luật giá chưa chỉnh chia tách dùng biên độ theo sàn; thiếu bảng thì mọi mã dùng biên độ UPCOM và sổ lệnh vào nhiều lệnh hơn hẳn. `industry_sweep` dừng nếu không đọc được bảng, live ghi cảnh báo mỗi ngày một lần.
 
 ## Cách giao
 

@@ -17,6 +17,7 @@ from app.config import (
     INSURERS,
     MACRO_SYMBOLS,
     MARKET_SERIES,
+    PRICE_JUMP_LIMIT_UNKNOWN,
     RATIO_CODES,
     SECURITIES,
     TRADINGVIEW_SCANNER,
@@ -26,6 +27,7 @@ from app.money import policy_points
 
 logger = logging.getLogger(__name__)
 _exchange_cache: tuple[str, dict[str, str]] | None = None
+_exchange_warned: str | None = None
 
 VN_TZ = timezone(timedelta(hours=7))
 ENTRADE_HEADERS = {
@@ -652,6 +654,7 @@ def load_exchanges() -> dict[str, str]:
         return _exchange_cache[1]
     connection = _open_market_db()
     if connection is None:
+        _warn_no_exchanges(today, "không tìm thấy kho thị trường (backend/data/vstock.db hoặc VSTOCK_MARKET_DB)")
         return {}
     try:
         rows = connection.execute("SELECT symbol, exchange FROM symbols")
@@ -661,12 +664,28 @@ def load_exchanges() -> dict[str, str]:
             if row["symbol"] and row["exchange"]
         }
     except sqlite3.Error as exc:
-        logger.warning("Market exchange list unreadable: %s", exc)
+        _warn_no_exchanges(today, f"đọc lỗi: {exc}")
         return {}
     finally:
         connection.close()
+    if not found:
+        _warn_no_exchanges(today, "bảng symbols rỗng")
+        return {}
     _exchange_cache = (today, found)
     return found
+
+
+def _warn_no_exchanges(today: str, why: str) -> None:
+    """Without boards every name falls back to the widest jump limit, so say it once a day."""
+    global _exchange_warned
+    if _exchange_warned == today:
+        return
+    _exchange_warned = today
+    logger.warning(
+        "Không có bảng sàn (%s). Luật giá chưa chỉnh chia tách đang dùng biên độ %.0f%% cho mọi mã.",
+        why,
+        PRICE_JUMP_LIMIT_UNKNOWN * 100,
+    )
 
 
 def load_market_articles() -> list[dict]:

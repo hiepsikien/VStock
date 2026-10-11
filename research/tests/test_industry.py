@@ -442,6 +442,20 @@ class HoldDoorTest(unittest.TestCase):
         self.assertNotIn("OPERATING_PROFIT_QR", bank)
         self.assertNotIn(ingest.VNDIRECT_STATEMENTS, bank_client.urls)
 
+    def test_missing_board_table_warns_once_a_day(self) -> None:
+        from app import ingest
+
+        with (
+            mock.patch.object(ingest, "_open_market_db", return_value=None),
+            mock.patch.object(ingest, "_exchange_cache", None),
+            mock.patch.object(ingest, "_exchange_warned", None),
+        ):
+            with self.assertLogs(ingest.logger, level="WARNING") as logs:
+                self.assertEqual(ingest.load_exchanges(), {})
+                self.assertEqual(ingest.load_exchanges(), {})
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn("17%", logs.output[0])
+
     def test_growth_yoy_fills_blank_growth_from_levels(self) -> None:
         from app.evaluate import growth_yoy
 

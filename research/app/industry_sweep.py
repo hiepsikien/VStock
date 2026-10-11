@@ -9,6 +9,12 @@ Mỗi cửa sổ cho ba nhóm số trên giai đoạn lùi, giai đoạn chọn 
 Chỉ dùng giá, BCTC, dầu và tín dụng đã lưu trong kho. Không gọi mô hình ngôn ngữ.
 
 Chạy: cd research && PYTHONPATH=. python3 -m app.industry_sweep
+Mất khoảng 10–12 phút và gần 2 GB RAM: bốn sổ lệnh chạy song song, mỗi tiến trình nhận
+một bản sao đầy đủ của nến, BCTC, tin và dòng ngoại.
+
+Cần bảng sàn từ kho thị trường (backend/data/vstock.db hoặc VSTOCK_MARKET_DB): luật giá chưa
+chỉnh chia tách đọc biên độ theo sàn, thiếu bảng thì mọi mã dùng biên độ rộng nhất và sổ lệnh
+ra số khác hẳn. Không có bảng thì lệnh dừng thay vì chạy.
 """
 
 from __future__ import annotations
@@ -23,6 +29,8 @@ from pathlib import Path
 from app import db
 from app.backtest import run_backtest
 from app.config import CASH_YIELD, DEFAULT_UNIVERSE, ROUND_TRIP_COST
+from app.db import market_db_path
+from app.industries import INDUSTRY_WINDOW
 from app.industry_report import _load, measure_gate, yearly_open_map
 from app.industry_screen import (
     BACK_END,
@@ -30,6 +38,8 @@ from app.industry_screen import (
     BACK_START,
     CONFIRM_END,
     CONFIRM_START,
+    MIN_PRECISION_MULTIPLE,
+    MIN_RECALL,
     OPERABLE_START,
     SCREEN_END,
 )
@@ -208,15 +218,22 @@ def run_sweep() -> str:
         )
 
     symbols = [symbol for symbol in DEFAULT_UNIVERSE if symbol in bars]
+    exchanges = load_exchanges()
+    if not exchanges:
+        raise SystemExit(
+            "Không đọc được bảng sàn từ backend/data/vstock.db hoặc VSTOCK_MARKET_DB. "
+            "Sổ lệnh cần nó cho luật giá chưa chỉnh chia tách, nên không chạy."
+        )
     print("Nạp tin và dòng ngoại", file=sys.stderr, flush=True)
     articles, flow = asyncio.run(_stored(symbols))
+    sources = _sources(bars, symbols, exchanges, articles, flow)
     inputs = {
         "index": index,
         "bars": {symbol: bars[symbol] for symbol in symbols},
         "ratios": {symbol: dict(ratios.get(symbol, {})) for symbol in symbols},
         "articles": articles,
         "flow": flow,
-        "exchanges": load_exchanges(),
+        "exchanges": exchanges,
         "market": dict(market),
     }
     print("Chạy sổ lệnh: không cổng và từng cửa sổ", file=sys.stderr, flush=True)
@@ -228,14 +245,65 @@ def run_sweep() -> str:
             window, result = future.result()
             books[window] = result
 
-    text = _render(measures, index_curve, always_curve, rotation_curves, books)
+    text = _render(sources, measures, index_curve, always_curve, rotation_curves, books)
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(text)
     return text
 
 
-def _render(measures, index_curve, always_curve, rotation_curves, books) -> str:
+def _sources(bars, symbols, exchanges, articles, flow) -> list[str]:
+    def _first(days):
+        days = [day for day in days if day]
+        return min(days) if days else "không có"
+
+    unknown = [symbol for symbol in symbols if symbol not in exchanges]
+    source = market_db_path()
+    try:
+        source = source.relative_to(Path(__file__).resolve().parents[2]) if source else source
+    except ValueError:
+        pass
+    return [
+        f"Nến từ {_first(bars[symbol][0]['trade_date'] for symbol in symbols if bars[symbol])} "
+        f"đến {bars['VNINDEX'][-1]['trade_date']}, {len(symbols)} mã.",
+        f"Bảng sàn: {len(exchanges)} mã từ `{source}`, "
+        f"{len(symbols) - len(unknown)}/{len(symbols)} mã của rổ có sàn"
+        + (f"; {', '.join(unknown)} không có nên dùng biên độ rộng nhất." if unknown else "."),
+        "Tin từ "
+        + _first(str(article.get("published_at") or "")[:10] for items in articles.values() for article in items)
+        + ", dòng ngoại từ "
+        + _first(day for points in flow.values() for series in points.values() for day, _value in series)
+        + ".",
+    ]
+
+
+def _window_lines(measures) -> list[str]:
+    recall_ok = []
+    lift_ok = []
+    for window in WINDOWS:
+        checked = [measures[window][name][0] for name in ("Chọn", "Xác nhận")]
+        if all(counts["recall"] >= MIN_RECALL for counts in checked):
+            recall_ok.append(str(window))
+        if all(
+            counts["baseline"] and counts["precision"] >= MIN_PRECISION_MULTIPLE * counts["baseline"]
+            for counts in checked
+        ):
+            lift_ok.append(str(window))
+    return [
+        f"Cửa sổ đang dùng ở live: {INDUSTRY_WINDOW} phiên. "
+        f"Qua ngưỡng recall {MIN_RECALL:.0%} ở cả Chọn và Xác nhận: "
+        f"{', '.join(recall_ok) or 'không cửa sổ nào'}. "
+        f"Đạt precision gấp {MIN_PRECISION_MULTIPLE:g} lần nền ở cả hai: "
+        f"{', '.join(lift_ok) or 'không cửa sổ nào'}.",
+        "Ngưỡng được chốt trước lần đo đầu. Số sát ngưỡng không phải lý do để nới ngưỡng, và chọn lại "
+        "cửa sổ sau khi đã xem các bảng này là một luật mới: phải đo lại từ đầu, và các giai đoạn đã "
+        "xem không còn là phép thử sạch.",
+    ]
+
+
+def _render(sources, measures, index_curve, always_curve, rotation_curves, books) -> str:
     lines = ["# Cổng ngành theo cửa sổ 14, 30, 60 phiên", ""]
+    lines.extend(sources)
+    lines.append("")
     lines.append(
         "Cửa sổ là số phiên dùng để so lợi suất ngành với VN-Index, và cũng là cửa sổ của chuỗi dầu. "
         "Định nghĩa đợt tăng (66 phiên, +20%, cửa sớm dưới +15%), rổ theo năm, ngưỡng tín dụng và "
@@ -255,6 +323,8 @@ def _render(measures, index_curve, always_curve, rotation_curves, books) -> str:
                 f"{_plain(counts['precision'])} | {_plain(counts['baseline'])} | "
                 f"{'—' if lift is None else f'{lift:.2f}'} | {industry['open_average']:.2f} |"
             )
+    lines.append("")
+    lines.extend(_window_lines(measures))
     lines.append("")
     lines.append("## Danh mục chia đều mã ở ngành mở")
     lines.append("")

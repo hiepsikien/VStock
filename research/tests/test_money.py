@@ -64,6 +64,18 @@ class MoneyGateTest(unittest.TestCase):
         self.assertNotIn("INTERBANK_ON", gate.missing)
         self.assertNotIn("GOV10Y", gate.missing)
 
+    def test_default_gate_waits_only_for_fx(self) -> None:
+        """Cấu hình mặc định: chỉ tỷ giá và lãi điều hành bắt buộc; thêm chuỗi đóng vào thì test này đỏ."""
+        gate = money_state({}, as_of=AS_OF)
+        self.assertIsNone(gate.open)
+        self.assertEqual(gate.missing, ("USDVND",))
+        self.assertEqual(gate.absent, ("USDVND",))
+        self.assertIn(LABELS["USDVND"], gate.reason)
+        self.assertNotIn(LABELS["INTERBANK_ON"], gate.reason)
+        self.assertTrue(
+            any("tạm đóng" in value for label, value in gate.metrics if label == LABELS["GOV10Y"])
+        )
+
     def test_closed_series_never_lock_the_gate_even_with_enough_sessions(self) -> None:
         """Lãi qua đêm vẫn được lưu mỗi phiên; đủ số phiên rồi cũng không được khóa cổng."""
         gate = money_state(_market(INTERBANK_ON=_series([5.0] * 5 + [9.0])), as_of=AS_OF)

@@ -23,7 +23,7 @@ Báo cáo 2021-01-04–2026-10-09 cho precision ngành thấp hơn tỷ lệ n�
 
 ## Chuỗi `USDVND_MACRO`
 
-Lịch sử Yahoo `USDVND=X` từ 2014 nằm ở `USDVND_MACRO`, tách khỏi `USDVND` mà cổng tiền tệ đọc từ TradingView. Hiện chưa có chỗ nào đọc chuỗi này: nó để dành cho lúc đo lớp vĩ mô liên thị trường trong backtest. Đừng ghi ngược lại vào `USDVND`.
+Lịch sử Yahoo `USDVND=X` từ 2014 nằm ở `USDVND_MACRO`, tách khỏi `USDVND` là chuỗi cổng tiền tệ đọc. Các dòng ngày thường Yahoo ghi vào `USDVND` trước lần tách vẫn ở lại làm số khởi đầu; từ đó TradingView ghi đè dần theo từng phiên. Hiện chưa có chỗ nào đọc chuỗi này: nó để dành cho lúc đo lớp vĩ mô liên thị trường trong backtest. Đừng ghi ngược lại vào `USDVND`.
 
 ## Rà bảng ngành một lần
 
