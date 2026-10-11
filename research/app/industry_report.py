@@ -12,8 +12,14 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from app.config import STATEMENT_LAG_DAYS
-from app.industries import INDUSTRY_WINDOW, gated_industries, members, set_industry_map
-from app.pit_universe import Basket, baskets_from_bars, trade_member_of, trade_members
+from app.industries import (
+    INDUSTRY_WINDOW,
+    MIN_INDUSTRY_NAMES,
+    gated_industries,
+    members,
+    set_industry_map,
+)
+from app.pit_universe import Basket, baskets_from_bars, trade_member_of
 from app.industry_screen import (
     BACK_END,
     BACK_START,
@@ -111,11 +117,12 @@ def yearly_open_map(
     window: int = INDUSTRY_WINDOW,
     regime_by_day: dict[str, bool | None] | None = None,
 ) -> dict[tuple[str, str], bool]:
-    """Trạng thái mở của từng phiên, chỉ tính cho mã nằm trong rổ giao dịch của năm đó.
+    """Trạng thái mở của từng phiên, chỉ sinh cho mã nằm trong rổ giao dịch của năm đó.
 
-    Cổng ngành so sánh sức mạnh tương đối giữa các mã trong rổ, nên mã ngoài rổ mà được tính
-    vào sẽ kéo chỉ số ngành lệch khỏi thứ mà sổ lệnh thực sự nhìn thấy. Mã chỉ vào rổ 200 mã
-    thì vẫn góp vào chỉ số ngành của báo cáo, nhưng không sinh trạng thái mở nào.
+    Sức mạnh ngành đo trên rổ 200 mã của năm, đúng bằng chỉ số ngành mà phép đo precision đọc:
+    một ngành đủ ba mã trong rổ 200 thì mã vào lệnh bị xét theo chỉ số ngành đó, kể cả khi ngành
+    ấy chỉ có một mã trong rổ giao dịch. Rổ giao dịch chỉ quyết định mã nào có cờ, vì mã ngoài
+    rổ giao dịch không có lệnh nào để mở.
     """
     index = bars.get("VNINDEX") or []
     index_days = [bar["trade_date"] for bar in index]
@@ -123,20 +130,21 @@ def yearly_open_map(
     lead = lead_bars_from(market)
     allowed: dict[tuple[str, str], bool] = {}
     for year, basket in baskets.items():
-        names = trade_members(baskets, year)
-        if basket.day is None or len(names) < 3:
+        # Năm nào rổ 200 mã cũng chưa đủ ba mã cho một ngành thì không có cổng ngành nào để mở.
+        if basket.day is None or len(basket.universe) < MIN_INDUSTRY_NAMES:
             continue
         opened = build_open_map(
             index,
             bars,
-            names,
+            list(basket.universe),
             lead_bars=lead,
             credit_by_day=credit,
             regime_by_day=regime_by_day,
             window=window,
         )
+        in_book = set(basket.trade)
         for (symbol, day), flag in opened.items():
-            if day.startswith(str(year)) and day >= basket.day:
+            if symbol in in_book and day.startswith(str(year)) and day >= basket.day:
                 allowed[(symbol, day)] = flag
     return allowed
 
@@ -255,11 +263,28 @@ def write_report() -> str:
     )
     lines.append("Rổ 200 mã và rổ giao dịch 100 mã theo vốn hóa: " + roster + ".")
     lines.append(
+        "Chỉ số ngành và cổng ba mã dựng trên rổ 200 mã của năm, nên ngành nào đủ ba mã trong "
+        "rổ 200 thì mã vào lệnh bị xét theo chỉ số ngành đó kể cả khi rổ giao dịch chỉ có một "
+        "mã của ngành ấy; cờ mở chỉ sinh cho mã thuộc rổ giao dịch 100 mã."
+    )
+    lines.append(
         "Mã bị loại khi số cổ phiếu đã công bố chưa đủ 45 ngày tính tới phiên chốt, hoặc khi "
         "trung vị giá trị khớp thật 20 phiên trước đó dưới 3 tỷ đồng; mã đã hủy niêm yết "
         "không được xếp hạng sau ngày hủy. Vốn hóa và thanh khoản đều đo bằng giá thật và giá "
         "trị khớp thật của phiên, không bằng giá đã điều chỉnh chia tách, nên mã chia tách nhiều "
         "không còn bị đo thấp mà rơi khỏi rổ."
+    )
+    lines.append(
+        "Ba giới hạn đã biết của cách đo này, chưa đưa vào luật. Một: một phiên mã không khớp "
+        "lệnh vẫn vào cửa sổ 20 phiên với giá trị 0 nên trung vị bị kéo xuống — trên cả kho, nến "
+        "volume bằng 0 chiếm 17–25% mỗi năm trong 2014–2020, 7% năm 2021, rồi khoảng 1% từ 2022; "
+        "nhưng đo đúng 20 phiên cuối của rổ thì không năm nào có phiên giá trị 0, vì mã không "
+        "khớp lệnh nằm ngoài rổ. Hai: cửa sổ là 20 phiên cuối của chính mã chứ không theo lịch "
+        "sàn, nên mã bị tạm ngừng giao dịch dài vẫn xếp hạng bằng thanh khoản cũ (HPX trong rổ "
+        "2024 xếp hạng 144/200 dù phiên cuối 2023-09-15 cách phiên chốt 109 ngày); bắt nến cuối "
+        "phải mới hơn một số ngày so với phiên chốt là một tham số mới, chưa đưa vào. Ba: số cổ "
+        "phiếu phải đủ 45 ngày mới tính trong khi giá thật đã giảm từ ngày giao dịch không hưởng "
+        "quyền, nên vốn hóa của mã vừa chia tách hay phát hành thêm bị đo lệch trong cửa sổ đó."
     )
     lines.append(
         "Số cổ phiếu lưu hành trước 2023 được bổ sung từ vốn góp của chủ sở hữu trong BCTC quý. "

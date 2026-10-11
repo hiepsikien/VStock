@@ -416,7 +416,9 @@ def _render(sources, measures, index_curve, always_curve, rotation_curves, books
         "Vốn hóa và thanh khoản của rổ đo bằng giá thật và giá trị khớp thật của phiên, không "
         "bằng giá đã điều chỉnh chia tách. Số cổ phiếu của nhiều mã đã hủy niêm yết chỉ còn lại "
         "ở khoản vốn góp chủ sở hữu trong BCTC quý, nên vốn hóa của chúng là ước lượng, và các ô "
-        "của giai đoạn lùi chỉ là đối chiếu."
+        "của giai đoạn lùi chỉ là đối chiếu. Cửa sổ thanh khoản là 20 phiên cuối của chính mã: "
+        "phiên mã không khớp lệnh vẫn vào cửa sổ với giá trị 0, và mã bị tạm ngừng giao dịch dài "
+        "vẫn xếp hạng bằng thanh khoản cũ, nên độ mới của nến cuối là tham số chưa đưa vào luật."
     )
     return "\n".join(lines) + "\n"
 

@@ -363,25 +363,6 @@ async def mark_shares_backfilled(symbols: list[str]) -> None:
     await db.commit()
 
 
-async def raw_tape_backfilled() -> set[str]:
-    """Mã đã có đủ giá thật trong kho, để lần chạy sau chỉ nạp phần còn thiếu."""
-    db = await get_db()
-    cursor = await db.execute("SELECT value FROM meta WHERE key = 'raw_tape_backfilled'")
-    row = await cursor.fetchone()
-    return set(json.loads(row["value"])) if row else set()
-
-
-async def mark_raw_tape_backfilled(symbols: list[str]) -> None:
-    done = sorted(await raw_tape_backfilled() | set(symbols))
-    db = await get_db()
-    await db.execute(
-        "INSERT INTO meta (key, value) VALUES ('raw_tape_backfilled', ?) "
-        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        (json.dumps(done),),
-    )
-    await db.commit()
-
-
 async def universe() -> list[str]:
     db = await get_db()
     cursor = await db.execute("SELECT symbol FROM universe ORDER BY symbol")
@@ -518,26 +499,32 @@ async def bars(symbol: str) -> list[dict]:
     return [dict(row) for row in await cursor.fetchall()]
 
 
-async def raw_tape_missing(since: str = RESEARCH_HISTORY_START) -> list[tuple[str, int, int]]:
-    """Mã, số phiên và số phiên còn thiếu giá thật kể từ `since`.
+async def raw_tape_missing(since: str = RESEARCH_HISTORY_START) -> list[tuple[str, int, int, str]]:
+    """Mã còn thiếu giá thật kể từ `since`: mã, số phiên, số phiên thiếu, phiên thiếu đầu tiên.
 
-    Dùng làm tiêu chí phủ sóng của lần nạp: phần thiếu vẫn đo bằng công thức cũ nên không làm
-    vỡ gì, nhưng rổ chỉ đúng ở chỗ nào cột thật đã có.
+    Chỉ xét mã có trong bảng niêm yết của nguồn: rổ chỉ dựng từ danh sách đó, nên giá thật của
+    một mã nguồn chưa xác nhận không dùng vào việc gì. Đây cũng là danh sách việc của
+    `history_pull --raw-tape`: đọc từ kho thay vì từ một dấu đã ghi, vì nến lấy về sau chỉ có
+    `close`, và phiên mới như thế tự lọt vào lần nạp sau mà không cần ai nhớ xoá dấu.
     """
     db = await get_db()
     cursor = await db.execute(
         """
-        SELECT symbol, COUNT(*) AS sessions, SUM(raw_close IS NULL) AS missing
-        FROM daily_bars
-        WHERE trade_date >= ? AND symbol <> 'VNINDEX'
-        GROUP BY symbol
+        SELECT b.symbol AS symbol,
+               COUNT(*) AS sessions,
+               SUM(b.raw_close IS NULL) AS missing,
+               MIN(CASE WHEN b.raw_close IS NULL THEN b.trade_date END) AS first_missing
+        FROM daily_bars b
+        JOIN symbol_meta m ON m.symbol = b.symbol
+        WHERE b.trade_date >= ?
+        GROUP BY b.symbol
         HAVING missing > 0
-        ORDER BY missing DESC, symbol
+        ORDER BY missing DESC, b.symbol
         """,
         (since,),
     )
     return [
-        (row["symbol"], int(row["sessions"]), int(row["missing"]))
+        (row["symbol"], int(row["sessions"]), int(row["missing"]), str(row["first_missing"]))
         for row in await cursor.fetchall()
     ]
 

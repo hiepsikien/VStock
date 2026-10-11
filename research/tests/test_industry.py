@@ -22,6 +22,7 @@ from app.industry_note import (
     parse_picks,
     shift_months,
 )
+from app.industry_report import yearly_open_map
 from app.industry_screen import (
     average_by_day,
     build_open_map,
@@ -30,6 +31,7 @@ from app.industry_screen import (
     find_runs,
     is_open,
     layer_counts,
+    name_allowed,
     passes_layer,
     passes_stock,
     previous_session,
@@ -37,6 +39,7 @@ from app.industry_screen import (
 )
 from app.ingest import fetch_foreign_flow
 from app.pattern import Pattern, Regime
+from app.pit_universe import Basket
 from app.stock_select import balance_sheet_block, position_rank, shortlist
 from app.valuation import cheap_versus, market_cap, trailing_pe, trailing_profit
 
@@ -142,6 +145,31 @@ class IndustryMathTest(unittest.TestCase):
         self.assertIn("bank", gated_industries(basket))
         # Rổ nhỏ hơn ba mã ngân hàng thì nhóm đó không mở cổng riêng cho chính nó.
         self.assertNotIn("bank", gated_industries(["VCB", "CTG", "AAA"]))
+
+    def test_the_industry_index_is_built_on_the_year_basket_not_the_trade_basket(self) -> None:
+        # Cổng đo sức mạnh ngành trên rổ 200 mã của năm: ngành đủ ba mã trong rổ 200 thì mã vào
+        # lệnh bị xét theo chỉ số ngành, kể cả khi rổ giao dịch chỉ có một mã của ngành đó.
+        index = _bars("2024-01-01", [100.0 + step for step in range(80)])
+        flat = _bars("2024-01-01", [100.0] * 80)
+        day = index[-1]["trade_date"]
+        book = {"VNINDEX": index, "FPT": flat, "CMG": flat, "ELC": flat}
+        baskets = {2024: Basket("2024-01-08", ["FPT", "CMG", "ELC"], ["FPT"])}
+        opened = yearly_open_map(
+            book,
+            {},
+            {},
+            baskets,
+            regime_by_day={bar["trade_date"]: True for bar in index},
+        )
+        # Ba mã công nghệ đi ngang trong khi VN-Index tăng: ngành yếu nên cổng đóng, dù chế độ
+        # thị trường đang mở.
+        self.assertFalse(opened[("FPT", day)])
+        # Nếu chỉ số ngành dựng trên rổ giao dịch thì ngành chỉ còn một mã, không đủ thành một
+        # con sóng, và mã rơi về chế độ thị trường — đúng chỗ cách đo cũ vấp.
+        self.assertIsNone(
+            is_open("tech", ["FPT"], excess=0.02, lead_return=None, credit_growth=None, regime_open=True)
+        )
+        self.assertTrue(name_allowed("FPT", ["FPT"], None, True))
 
     def test_trailing_pe_waits_for_the_statement_lag(self) -> None:
         shares = [("2024-12-31", 10.0)]

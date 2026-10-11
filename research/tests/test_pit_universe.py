@@ -19,6 +19,7 @@ from app.industries import (
     industry_labels,
     industry_of,
     industry_rows,
+    load_industry_map,
     set_industry_map,
 )
 from app.pit_universe import (
@@ -265,6 +266,23 @@ class IcbMapTest(unittest.TestCase):
         }
         self.assertEqual(rows["DHG"][4], "")
 
+    def test_a_group_without_a_label_never_erases_a_label_that_is_already_there(self) -> None:
+        # Cấp 3 không có nhãn đọc sau cấp 2 và sau cấp 3 có nhãn, nên nếu nó ghi đè vô điều
+        # kiện thì mã mất nhãn đúng vào lúc nguồn thêm một nhóm cấp 3 mới.
+        groups = [
+            {"industryLevel": 2, "industryCode": "8300", "englishName": "Banks", "codeList": "AAA,CCC"},
+            {
+                "industryLevel": 3,
+                "industryCode": "2770",
+                "englishName": "Industrial Transportation",
+                "codeList": "CCC",
+            },
+            {"industryLevel": 3, "industryCode": "4530", "englishName": "Health", "codeList": "AAA,CCC"},
+        ]
+        rows = {row[0]: row for row in industry_rows(groups)}
+        self.assertEqual((rows["AAA"][1], rows["AAA"][2], rows["AAA"][4]), (2, "8300", "bank"))
+        self.assertEqual((rows["CCC"][1], rows["CCC"][2], rows["CCC"][4]), (3, "2770", "transport"))
+
     def test_codes_are_padded_to_four_digits(self) -> None:
         self.assertEqual(icb_industry("580", 3), "power")
         self.assertEqual(icb_industry("500", 2), "energy")
@@ -506,11 +524,48 @@ class RawTapeStoreTest(unittest.TestCase):
             again = await db.write_raw_tape("AAA", [("2024-01-02", 50.0, 5_000_000_000.0)])
             self.assertEqual(again, (1, 0))
             self.assertEqual(len(await db.bars("AAA")), 3)
-            # Nến chưa có cạnh thật thì còn trong danh sách thiếu, và đánh dấu xong thì thôi.
-            self.assertIn(("AAA", 3, 1), await db.raw_tape_missing())
-            await db.mark_raw_tape_backfilled(["AAA"])
-            self.assertEqual(await db.raw_tape_backfilled(), {"AAA"})
+            # Danh sách việc đọc từ kho: mã có nến mà không nằm trong bảng niêm yết của nguồn
+            # không phải việc của lần nạp giá thật, vì rổ không dựng từ nó.
+            await db.replace_bars("BBB", _bars("2024-01-02", 1, close=10.0))
+            self.assertEqual(await db.raw_tape_missing(), [])
+            await db.replace_symbol_meta([("AAA", "HOSE", "listed", "2010-01-01", None)])
+            # Phiên thiếu đầu tiên đi kèm, để lần nạp sau chỉ hỏi từ đó chứ không hỏi lại cả
+            # lịch sử của mã.
+            self.assertEqual(await db.raw_tape_missing(), [("AAA", 3, 1, "2024-01-04")])
+            # Lấp nốt phiên còn thiếu thì mã rời khỏi danh sách việc, không cần dấu nào.
+            await db.write_raw_tape("AAA", [("2024-01-04", 52.0, 7_000_000_000.0)])
+            self.assertEqual(await db.raw_tape_missing(), [])
         finally:
+            await db.close_db()
+            if previous is None:
+                os.environ.pop("RESEARCH_DB_PATH", None)
+            else:
+                os.environ["RESEARCH_DB_PATH"] = previous
+
+
+class IndustryMapLoadTest(unittest.TestCase):
+    """Tiến trình chấm verdict tự gắn bảng ngành đã lưu, không chỉ tiến trình web."""
+
+    def test_the_stored_table_is_loaded_into_the_process(self) -> None:
+        asyncio.run(self._run())
+
+    async def _run(self) -> None:
+        await db.close_db()
+        previous = os.environ.get("RESEARCH_DB_PATH")
+        handle = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        handle.close()
+        os.environ["RESEARCH_DB_PATH"] = handle.name
+        try:
+            await db.init_db()
+            await db.replace_symbol_industry(
+                [("ZZZ", 3, "2770", "Industrial Transportation", "transport")]
+            )
+            set_industry_map({})
+            self.assertIsNone(industry_of("ZZZ"))
+            await load_industry_map()
+            self.assertEqual(industry_of("ZZZ"), "transport")
+        finally:
+            set_industry_map({})
             await db.close_db()
             if previous is None:
                 os.environ.pop("RESEARCH_DB_PATH", None)

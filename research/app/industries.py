@@ -201,9 +201,11 @@ def icb_industry(code: str, level: int) -> str | None:
 def industry_rows(groups: list[dict]) -> list[tuple[str, int, str, str, str]]:
     """Đổi danh sách nhóm ICB thành dòng (mã, cấp, mã nhóm, tên nhóm, nhãn ngành).
 
-    Cấp 2 đọc trước cấp 3, nên mã nằm trong một nhóm cấp 3 có nhãn thì nhãn cấp 3 thắng —
-    đó là chỗ vận tải công nghiệp tách khỏi phần công nghiệp còn lại. Nhóm không có nhãn
-    vẫn được ghi lại để bảng ngành thấy được mã nào cố tình đứng ngoài cổng.
+    Cấp 2 đọc trước cấp 3, nên mã nằm trong một nhóm cấp 3 có nhãn thì nhãn cấp 3 thắng — đó là
+    chỗ vận tải công nghiệp tách khỏi phần công nghiệp còn lại. Cấp 3 không có nhãn thì không
+    xoá nhãn cấp 2 đã có: nguồn chỉ cần thêm một nhóm cấp 3 mới là nhãn của mã mất mà không ai
+    hay, còn nhóm cấp 3 không nhãn vẫn được ghi lại khi mã chưa có dòng nào, để bảng ngành thấy
+    được mã nào cố tình đứng ngoài cổng.
     """
     rows: dict[str, tuple[str, int, str, str, str]] = {}
     for level in (2, 3):
@@ -215,8 +217,11 @@ def industry_rows(groups: list[dict]) -> list[tuple[str, int, str, str, str]]:
             label = icb_industry(code, level) or ""
             for symbol in str(group.get("codeList") or "").split(","):
                 ticker = symbol.strip().upper()
-                if ticker:
-                    rows[ticker] = (ticker, level, code, name, label)
+                if not ticker:
+                    continue
+                if level >= 3 and not label and ticker in rows:
+                    continue
+                rows[ticker] = (ticker, level, code, name, label)
     return [rows[ticker] for ticker in sorted(rows)]
 
 
@@ -227,6 +232,19 @@ def set_industry_map(mapping: dict[str, str]) -> None:
     """Gắn bảng ngành ICB đã lưu. Chưa gắn thì chỉ danh sách thủ công còn tác dụng."""
     global _INJECTED
     _INJECTED = {symbol: label for symbol, label in mapping.items() if label}
+
+
+async def load_industry_map() -> None:
+    """Gắn bảng ngành ICB đã lưu trong kho cho tiến trình này.
+
+    Bảng ngành là trạng thái toàn cục chứ không phải tham số, nên mọi tiến trình ghi verdict
+    đều phải tự gắn: một tiến trình quên gắn vẫn chấm được, nhưng mã ngoài danh sách thủ công
+    sẽ nhận nhãn ngành khác với tiến trình đã gắn, ở cùng một phiên.
+    """
+    from app.db import symbol_industry
+
+    stored = await symbol_industry()
+    set_industry_map({symbol: row["industry"] for symbol, row in stored.items()})
 
 
 def industry_labels() -> dict[str, str]:

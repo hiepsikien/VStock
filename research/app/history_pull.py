@@ -148,23 +148,25 @@ async def pull_raw_tape(symbols: list[str] | None = None) -> dict[str, int]:
     """Nạp giá thật và giá trị khớp thật cho nến đã có của cả sàn.
 
     Rổ theo thời điểm nhân giá với số cổ phiếu của chính năm đó, nên giá đã điều chỉnh chia tách
-    không dùng được; giá trị giao dịch cũng phải là giá trị khớp thật của nguồn. Mã nào kho đã có
-    đủ giá thật thì lần chạy sau bỏ qua, còn mã còn thiếu phiên nào thì hỏi lại cả lịch sử.
+    không dùng được; giá trị giao dịch cũng phải là giá trị khớp thật của nguồn. Danh sách việc
+    đọc từ kho: mã còn phiên nào thiếu giá thật thì hỏi lại từ chính phiên thiếu đầu tiên, nên
+    phiên mới lấy về sau (nến mới chỉ có `close`) tự được lấp ở lần chạy sau, không cần dấu nào.
     """
     await db.init_db()
     if symbols is None:
-        rows = await db.symbol_meta()
-        done = await db.raw_tape_backfilled()
-        symbols = [symbol for symbol in sorted(rows) if symbol not in done]
+        todo = [(symbol, first) for symbol, _sessions, _missing, first in await db.raw_tape_missing()]
+    else:
+        # Mã được chỉ định thì hỏi cả lịch sử: người chạy gọi tên mã, không phải kho.
+        todo = [(symbol, RESEARCH_HISTORY_START) for symbol in sorted(set(symbols))]
     semaphore = asyncio.Semaphore(4)
     write_lock = asyncio.Lock()
     totals = {"symbols": 0, "sessions": 0, "unmatched": 0}
     async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
 
-        async def _one(symbol: str) -> None:
+        async def _one(symbol: str, start: str) -> None:
             async with semaphore:
                 try:
-                    points = await fetch_raw_tape(client, symbol, RESEARCH_HISTORY_START)
+                    points = await fetch_raw_tape(client, symbol, start)
                 except Exception as exc:
                     logger.warning("Giá thật của %s lỗi: %s", symbol, exc)
                     points = []
@@ -178,17 +180,12 @@ async def pull_raw_tape(symbols: list[str] | None = None) -> dict[str, int]:
                 totals["unmatched"] += unmatched
                 print(symbol, f"{matched}/{len(points)}", flush=True)
 
-        await asyncio.gather(*(_one(symbol) for symbol in symbols))
-    # Đánh dấu theo kho chứ không theo nguồn: nguồn có phiên mà kho không có nến là chuyện
-    # thường, còn mã nào kho đã đủ giá thật thì lần sau không cần hỏi lại.
+        await asyncio.gather(*(_one(symbol, start) for symbol, start in todo))
+    # Kết quả đọc lại từ kho chứ không từ số vừa in: mã nguồn không còn phiên nào, mã bị tạm
+    # ngừng cả giai đoạn, và phiên nguồn có mà kho không có nến đều vẫn nằm trong danh sách.
     gaps = await db.raw_tape_missing(RESEARCH_HISTORY_START)
-    thin = {symbol for symbol, _sessions, _gap in gaps}
-    covered = [symbol for symbol in symbols if symbol not in thin]
-    if covered:
-        await db.mark_raw_tape_backfilled(covered)
-    totals["backfilled"] = len(covered)
     totals["missing_symbols"] = len(gaps)
-    totals["missing_sessions"] = sum(gap for _symbol, _sessions, gap in gaps)
+    totals["missing_sessions"] = sum(gap for _symbol, _sessions, gap, _first in gaps)
     await db.close_db()
     return totals
 
@@ -229,7 +226,7 @@ def main() -> None:
         totals = asyncio.run(pull_raw_tape(chosen or None))
         print(
             f"cạnh thật {totals['symbols']} mã, {totals['sessions']} phiên, "
-            f"{totals['unmatched']} phiên không có nến, đánh dấu xong {totals['backfilled']} mã; "
+            f"{totals['unmatched']} phiên không có nến; "
             f"còn thiếu {totals['missing_symbols']} mã ({totals['missing_sessions']} phiên)"
         )
         return

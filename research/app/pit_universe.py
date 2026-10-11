@@ -13,6 +13,12 @@ phiếu và khối lượng khớp là của chính phiên đó, nên nhân vớ
 nay thì mã chia tách nhiều bị đo thấp và rơi khỏi rổ. Nến chưa có cạnh thật thì quay về công
 thức cũ, tức đo thấp đúng như trước khi vá.
 
+Cửa sổ thanh khoản là 20 phiên cuối của chính mã, không theo lịch của sàn: mã bị tạm ngừng giao
+dịch lâu vẫn xếp hạng bằng thanh khoản cũ, và phiên mã không khớp lệnh vẫn là một số 0 trong
+trung vị. Bắt nến cuối phải mới hơn một số ngày so với phiên chốt là một tham số mới, chưa đưa
+vào. Số cổ phiếu phải đủ 45 ngày mới tính, nên mã vừa chia tách hay phát hành thêm bị đo lệch
+trong cửa sổ giữa ngày giá thật giảm và ngày số cổ phiếu mới hiện ra.
+
 Không đọc file, không gọi mạng: hàm nhận đúng những chuỗi mà các báo cáo đã có.
 """
 
@@ -190,22 +196,20 @@ def yearly_baskets(
     """
     tube = tapes(bars_by_symbol)
     out: dict[int, Basket] = {}
-    ranked_cache: dict[str, list[str]] = {}
     for day in index_days:
         year = int(day[:4])
         if year in out:
             continue
-        ranked = ranked_cache.get(day)
-        if ranked is None:
-            ranked = ranked_on(
-                day,
-                tube,
-                ratios_by_symbol,
-                [symbol for symbol in bars_by_symbol if listed_on(symbol, day)],
-                min_turnover=min_turnover,
-                sessions=sessions,
-            )
-            ranked_cache[day] = ranked
+        # Mỗi phiên chỉ được xếp hạng một lần: năm nào đã chốt thì vòng lặp đã bỏ qua, nên
+        # không cần nhớ lại kết quả xếp hạng của phiên nào.
+        ranked = ranked_on(
+            day,
+            tube,
+            ratios_by_symbol,
+            [symbol for symbol in bars_by_symbol if listed_on(symbol, day)],
+            min_turnover=min_turnover,
+            sessions=sessions,
+        )
         if len(ranked) < min_names:
             continue
         out[year] = Basket(day, ranked[:limit], ranked[:trade_limit])

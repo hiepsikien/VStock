@@ -49,7 +49,8 @@ ARTICLE_RETENTION_DAYS = 1460
 # này hủy niêm yết. Hạng theo vốn hóa và thanh khoản đo bằng số đã công bố tính đến phiên
 # chốt rổ, rồi cắt ở 200 cho phần ngành và 100 cho phần vào lệnh.
 UNIVERSE_EXCHANGES = ("HOSE", "HNX")
-# Rổ 200 mã dùng cho "Cả rổ" và cho sức mạnh ngành; rổ 100 chỉ dùng cho phần vào lệnh.
+# Rổ 200 mã dùng cho "Cả rổ" và cho sức mạnh ngành của cổng (chỉ số ngành và cổng ba mã đều
+# dựng trên rổ này); rổ 100 chỉ dùng cho phần vào lệnh, nên cờ mở chỉ sinh cho mã thuộc rổ 100.
 UNIVERSE_LIMIT = 200
 TRADE_LIMIT = 100
 # Số phiên dùng để đo thanh khoản ngay trước phiên chốt rổ.
