@@ -348,6 +348,39 @@ class BacktestWalkTest(unittest.TestCase):
         self.assertIn("khớp với lần chạy phiên", backtest)
         self.assertIn("khớp với lần chạy phiên", market)
 
+    def test_a_server_stop_mid_walk_reads_as_stopped_midway_not_as_an_error(self) -> None:
+        from concurrent.futures.process import BrokenProcessPool
+        from unittest import mock
+
+        from app import web
+
+        killed = asyncio.Event()
+
+        async def walk():
+            await killed.wait()
+            raise BrokenProcessPool("A process in the process pool was terminated abruptly")
+
+        close = db.close_db
+
+        async def late_close():
+            # Lets a walk that saw its worker die write before the store closes, so the outcome
+            # does not depend on which of the two runs first.
+            await asyncio.sleep(0.05)
+            await close()
+
+        async def body():
+            web.backtest_job = Job("backtest_walk")
+            with mock.patch.object(web, "_stop_pool", killed.set), mock.patch.object(db, "close_db", late_close):
+                async with web.lifespan(web.app):
+                    web.backtest_job.start(None, walk)
+                    await asyncio.sleep(0.05)
+            await db.init_db()
+            return await Job("backtest_walk").state(None)
+
+        state = _with_store(body)
+        self.assertTrue(state["interrupted"])
+        self.assertEqual((state["result"], state["error"]), (None, ""))
+
     def test_counts_stored_in_an_older_shape_do_not_break_the_page(self) -> None:
         import httpx
 

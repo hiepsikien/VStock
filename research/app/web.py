@@ -101,6 +101,12 @@ async def lifespan(_app: FastAPI):
     await db.init_db()
     await load_industry_map()
     yield
+    # Cancelled before the pool goes, a run in flight keeps its "started" mark and reads as
+    # stopped midway, rather than catching the killed worker and storing it as an error.
+    tasks = [job.task for job in (backtest_job, filter_job) if job.running]
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
     _stop_pool()
     await db.close_db()
 
