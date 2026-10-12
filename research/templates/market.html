@@ -27,6 +27,37 @@
   {% endif %}
   {% if latest_day %}<p class="hint">Số mới nhất đã lưu: {{ latest_day }}.</p>{% endif %}
 
+  {% if breadth %}
+  <section class="group">
+    <h2>Độ rộng</h2>
+    <p class="hint">
+      {{ breadth.rule }}
+      {% if breadth.enforced %}
+        Cổng đang khóa danh sách khi đóng.
+      {% else %}
+        Chỉ để quan sát: cổng chưa khóa danh sách cho tới khi báo cáo cổng độ rộng qua cả hai giai đoạn.
+      {% endif %}
+    </p>
+    {% if breadth.sessions %}
+      <p class="regime">{{ breadth.reason }} — phiên {{ breadth.last_day }}.</p>
+      <table class="numbers">
+        <thead><tr><th>Phiên</th><th>Tỷ lệ</th><th>Trạng thái</th></tr></thead>
+        <tbody>
+          {% for row in breadth.recent %}
+            <tr>
+              <th>{{ row.day }}</th>
+              <td>{{ row.share }}</td>
+              <td>{% if row.open is none %}—{% elif row.open > 0.5 %}mở{% else %}đóng{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="hint">Chưa có phiên nào lưu độ rộng.</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
   <section class="group">
     <h2>Chuỗi số</h2>
     <table>

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from typing import TYPE_CHECKING
 
 from app.classify import NewsLabel
 from app.config import (
     BANKS,
     BLOCK_LOOKBACK_DAYS,
+    BREADTH_GATE_ENFORCED,
     DEBT_TO_EQUITY_INSURER_MAX,
     DEBT_TO_EQUITY_MAX,
     DILUTION_SHARE_GROWTH,
@@ -32,6 +34,9 @@ from app.flow import ACCUMULATION, FlowState, flow_score, missing_flow
 from app.macro import Macro
 from app.money import Money
 from app.pattern import Pattern, Regime
+
+if TYPE_CHECKING:
+    from app.breadth import BreadthGate
 
 RatioMap = dict[str, list[tuple[str, float]]]
 
@@ -861,7 +866,8 @@ METRIC_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "Thị trường",
         tuple(label for _code, _symbol, label in MACRO_SYMBOLS)
-        + tuple(label for _code, label, _unit, _symbol in MARKET_SERIES),
+        + tuple(label for _code, label, _unit, _symbol in MARKET_SERIES)
+        + ("Độ rộng",),
     ),
     (
         "Nền giá",
@@ -916,6 +922,7 @@ def compose(
     market: Money | None = None,
     industry_name: str | None = None,
     industry_open: bool | None = None,
+    breadth: BreadthGate | None = None,
 ) -> Verdict:
     fundamentals = score_fundamentals(symbol, points, _articles_for_symbol(symbol, articles, as_of))
     valuation_state = score_valuation(valuation)
@@ -942,6 +949,13 @@ def compose(
     elif market is not None and market.open is False:
         status = "Khóa"
         summary = market.reason
+    # Cổng độ rộng chỉ khóa khi báo cáo cổng độ rộng đã qua; trước đó nó chỉ được ghi vào verdict.
+    elif BREADTH_GATE_ENFORCED and breadth is not None and breadth.open is None:
+        status = "Chưa chấm"
+        summary = breadth.reason
+    elif BREADTH_GATE_ENFORCED and breadth is not None and breadth.open is False:
+        status = "Khóa"
+        summary = breadth.reason
     elif (
         news_state == "Loại"
         or fundamentals.label == "Không đạt"
@@ -1000,7 +1014,9 @@ def compose(
         # Cổng thị trường gồm hai phần: VN-Index trên MA200 và liên thị trường, rồi tiền tệ.
         (
             "Thị trường",
-            (list(macro.metrics) if macro else []) + (list(market.metrics) if market else []),
+            (list(macro.metrics) if macro else [])
+            + (list(market.metrics) if market else [])
+            + ([("Độ rộng", breadth.reason)] if breadth else []),
         ),
         ("Nền giá", _pattern_metrics(pattern)),
     ]
