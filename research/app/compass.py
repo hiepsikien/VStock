@@ -40,6 +40,10 @@ QUARTER_GAP_MAX_DAYS = 100
 SELECT_START = "2021-01-04"
 SELECT_END = "2024-12-31"
 
+# Đường trễ của biên gộp. h = 0 là quý xảy ra cú sốc. h = 4 là bốn quý sau đó.
+# Cả năm mốc được in ra. Không có bước chọn mốc nào làm cửa giá.
+LAG_HORIZONS = (0, 1, 2, 3, 4)
+
 # Lưới khóa trước. Luật chọn là ngưỡng lớn nhất còn đủ số sự kiện dầu, không phải ngưỡng
 # làm spread đẹp. Không nới lưới sau khi đã thấy lợi suất cổ phiếu.
 THETA_GRID = (0.10, 0.12, 0.15, 0.18, 0.20, 0.25)
@@ -131,6 +135,53 @@ def ols(x_values: list[float], y_values: list[float]) -> float | None:
         return None
     covariance = sum((x - mean_x) * (y - mean_y) for x, y in zip(x_values, y_values))
     return covariance / variance
+
+
+def _adjacent_quarters(left: str, right: str) -> bool:
+    gap = (date.fromisoformat(right) - date.fromisoformat(left)).days
+    return QUARTER_GAP_MIN_DAYS <= gap <= QUARTER_GAP_MAX_DAYS
+
+
+def projection_pairs(
+    margins: list[tuple[str, float]],
+    shock: list[tuple[str, float]],
+    horizon: int,
+    outcome_end: str,
+) -> list[tuple[float, float]]:
+    """Biên gộp tích lũy từ quý trước cú sốc đến h quý sau, trên dầu của quý cú sốc.
+
+    Quý kết quả sau `outcome_end` không vào mẫu. Đứt một quý trên đường đi thì bỏ cặp đó.
+    """
+    if horizon < 0:
+        return []
+    pairs = []
+    last = len(margins) - 1
+    for index in range(1, last + 1):
+        end_index = index + horizon
+        if end_index > last:
+            break
+        if margins[end_index][0] > outcome_end:
+            continue
+        span = margins[index - 1 : end_index + 1]
+        if any(not _adjacent_quarters(left[0], right[0]) for left, right in zip(span, span[1:])):
+            continue
+        oil = shock_on_or_before(shock, margins[index][0])
+        if oil is None:
+            continue
+        pairs.append((oil, margins[end_index][1] - margins[index - 1][1]))
+    return pairs
+
+
+def projection_beta(
+    margins: list[tuple[str, float]],
+    shock: list[tuple[str, float]],
+    horizon: int,
+    outcome_end: str,
+) -> tuple[float | None, int]:
+    pairs = projection_pairs(margins, shock, horizon, outcome_end)
+    if len(pairs) < 2:
+        return None, len(pairs)
+    return ols([oil for oil, _delta in pairs], [delta for _oil, delta in pairs]), len(pairs)
 
 
 def beta_on(pairs: list[MarginPair], as_of: str, *, min_pairs: int = MIN_PAIRS) -> float | None:

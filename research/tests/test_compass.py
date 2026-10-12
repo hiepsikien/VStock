@@ -8,6 +8,7 @@ from datetime import date, timedelta
 from app.compass import (
     GROSS_PROFIT_ITEM,
     HEURISTIC_SIGN,
+    LAG_HORIZONS,
     MIN_EVENTS,
     MIN_PAIRS,
     NET_REVENUE_ITEM,
@@ -24,6 +25,8 @@ from app.compass import (
     margin_pairs,
     ols,
     price_beta,
+    projection_beta,
+    projection_pairs,
     shock_by_session,
     verdict,
 )
@@ -57,6 +60,47 @@ class GrossMarginTests(unittest.TestCase):
         self.assertEqual(pairs[0].visible_from, "2020-08-14")
         self.assertAlmostEqual(pairs[0].delta, 0.05)
         self.assertAlmostEqual(pairs[0].shock, 0.12)
+
+
+def _quarter_ends(count: int) -> list[str]:
+    months = (3, 6, 9, 12)
+    year = 2014
+    slot = 0
+    ends = []
+    while len(ends) < count:
+        month = months[slot]
+        day = 30 if month in (6, 9) else 31
+        ends.append(date(year, month, day).isoformat())
+        slot += 1
+        if slot == 4:
+            slot = 0
+            year += 1
+    return ends
+
+
+class LagPathTests(unittest.TestCase):
+    def test_horizons_are_locked_through_four_quarters(self):
+        self.assertEqual(LAG_HORIZONS, (0, 1, 2, 3, 4))
+
+    def test_response_arrives_two_quarters_later(self):
+        ends = _quarter_ends(10)
+        margins = [(day, 0.20) for day in ends]
+        shock = [(day, 0.0) for day in ends]
+        shock[3] = (ends[3], 0.50)
+        margins[5] = (ends[5], 0.30)
+        same_quarter, same_n = projection_beta(margins, shock, 0, ends[-1])
+        delayed, delayed_n = projection_beta(margins, shock, 2, ends[-1])
+        self.assertGreaterEqual(same_n, 2)
+        self.assertGreaterEqual(delayed_n, 2)
+        self.assertIsNotNone(same_quarter)
+        self.assertGreater(delayed, 0.0)
+        self.assertGreater(delayed, same_quarter)
+        self.assertLess(len(projection_pairs(margins, shock, 2, ends[5])), delayed_n)
+
+    def test_broken_quarter_is_dropped(self):
+        margins = [("2020-03-31", 0.20), ("2020-06-30", 0.20), ("2020-12-31", 0.30)]
+        shock = [("2020-06-30", 0.20), ("2020-12-31", 0.20)]
+        self.assertEqual(projection_pairs(margins, shock, 1, "2020-12-31"), [])
 
 
 class PitBetaTests(unittest.TestCase):
