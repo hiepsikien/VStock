@@ -26,6 +26,10 @@ HEURISTIC_SIGN = {"PVD": 1, "GAS": 1, "DCM": -1, "DPM": -1}
 
 GROSS_PROFIT_ITEM = "23100"
 NET_REVENUE_ITEM = "21001"
+# LNST cổ đông công ty mẹ. Giá cổ phiếu là phần của cổ đông mẹ, không phải LNST toàn công ty.
+NET_INCOME_ITEM = "23000"
+# Giá lấy ở phiên giao dịch đầu tiên không sớm hơn ngày được nhìn, và không muộn quá số ngày này.
+PRICE_SLIP_DAYS = 10
 
 WINDOW = 60
 MIN_PAIRS = 12
@@ -169,6 +173,91 @@ def projection_pairs(
         if oil is None:
             continue
         pairs.append((oil, margins[end_index][1] - margins[index - 1][1]))
+    return pairs
+
+
+def visible_day(fiscal_end: str, lag_days: int = STATEMENT_LAG_DAYS) -> str:
+    """Ngày báo cáo quý được phép nhìn: ngày kết thúc quý cộng số ngày trễ của sổ."""
+    return (date.fromisoformat(fiscal_end) + timedelta(days=lag_days)).isoformat()
+
+
+def session_on_or_after(sessions: list[str], day: str, max_slip_days: int = PRICE_SLIP_DAYS) -> str | None:
+    """Phiên đầu tiên không sớm hơn `day`. Muộn hơn `max_slip_days` thì coi như không có giá."""
+    limit = (date.fromisoformat(day) + timedelta(days=max_slip_days)).isoformat()
+    for session in sessions:
+        if session < day:
+            continue
+        if session > limit:
+            return None
+        return session
+    return None
+
+
+def _horizon_indexes(dates: list[str], horizon: int, outcome_end: str):
+    """Bộ chỉ số (quý trước cú sốc, quý cú sốc, quý kết quả) trên một chuỗi quý liền nhau."""
+    if horizon < 0:
+        return
+    last = len(dates) - 1
+    for index in range(1, last + 1):
+        end_index = index + horizon
+        if end_index > last or dates[end_index] > outcome_end:
+            continue
+        span = dates[index - 1 : end_index + 1]
+        if any(not _adjacent_quarters(left, right) for left, right in zip(span, span[1:])):
+            continue
+        yield index - 1, index, end_index
+
+
+def npat_projection_pairs(
+    npat: list[tuple[str, float]],
+    revenue: list[tuple[str, float]],
+    shock: list[tuple[str, float]],
+    horizon: int,
+    outcome_end: str,
+) -> list[tuple[float, float]]:
+    """LNST quý kết quả trừ LNST quý trước cú sốc, chia doanh thu quý trước cú sốc."""
+    profit = dict(npat)
+    sales = dict(revenue)
+    dates = sorted(set(profit) & set(sales))
+    pairs = []
+    for base, shock_index, end in _horizon_indexes(dates, horizon, outcome_end):
+        base_sales = sales[dates[base]]
+        if base_sales <= 0:
+            continue
+        oil = shock_on_or_before(shock, dates[shock_index])
+        if oil is None:
+            continue
+        delta = (profit[dates[end]] - profit[dates[base]]) / base_sales
+        pairs.append((oil, delta))
+    return pairs
+
+
+def price_projection_pairs(
+    closes: list[tuple[str, float]],
+    fiscal_dates: list[str],
+    shock: list[tuple[str, float]],
+    horizon: int,
+    outcome_end: str,
+    *,
+    lag_days: int = STATEMENT_LAG_DAYS,
+    max_slip_days: int = PRICE_SLIP_DAYS,
+) -> list[tuple[float, float]]:
+    """Lợi suất từ phiên công bố quý trước cú sốc đến phiên công bố quý kết quả."""
+    sessions = [day for day, close in closes if close > 0]
+    close_on = {day: close for day, close in closes if close > 0}
+    pairs = []
+    for base, shock_index, end in _horizon_indexes(fiscal_dates, horizon, outcome_end):
+        oil = shock_on_or_before(shock, fiscal_dates[shock_index])
+        if oil is None:
+            continue
+        buy_day = session_on_or_after(sessions, visible_day(fiscal_dates[base], lag_days), max_slip_days)
+        sell_day = session_on_or_after(sessions, visible_day(fiscal_dates[end], lag_days), max_slip_days)
+        if buy_day is None or sell_day is None:
+            continue
+        buy = close_on[buy_day]
+        if buy <= 0:
+            continue
+        pairs.append((oil, close_on[sell_day] / buy - 1.0))
     return pairs
 
 

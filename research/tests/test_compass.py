@@ -25,10 +25,14 @@ from app.compass import (
     margin_pairs,
     ols,
     price_beta,
+    npat_projection_pairs,
+    price_projection_pairs,
     projection_beta,
     projection_pairs,
+    session_on_or_after,
     shock_by_session,
     verdict,
+    visible_day,
 )
 
 
@@ -101,6 +105,31 @@ class LagPathTests(unittest.TestCase):
         margins = [("2020-03-31", 0.20), ("2020-06-30", 0.20), ("2020-12-31", 0.30)]
         shock = [("2020-06-30", 0.20), ("2020-12-31", 0.20)]
         self.assertEqual(projection_pairs(margins, shock, 1, "2020-12-31"), [])
+
+
+class FollowThroughTests(unittest.TestCase):
+    def test_npat_is_scaled_by_the_quarter_before_the_shock(self):
+        ends = _quarter_ends(6)
+        npat = [(day, 10.0) for day in ends]
+        revenue = [(day, 100.0) for day in ends]
+        npat[3] = (ends[3], 16.0)
+        shock = [(day, 0.0) for day in ends]
+        shock[2] = (ends[2], 0.25)
+        pairs = npat_projection_pairs(npat, revenue, shock, 1, ends[-1])
+        matched = [delta for oil, delta in pairs if oil == 0.25]
+        self.assertEqual(matched, [0.06])
+
+    def test_price_is_taken_when_the_statement_is_visible(self):
+        ends = _quarter_ends(4)
+        self.assertEqual(visible_day(ends[0], 45), "2014-05-15")
+        sessions = ["2014-05-14", "2014-05-16", "2014-08-14", "2014-08-15"]
+        closes = [(day, 100.0 if day < "2014-08-01" else 110.0) for day in sessions]
+        shock = [(ends[1], 0.20)]
+        pairs = price_projection_pairs(closes, ends, shock, 0, ends[-1], lag_days=45, max_slip_days=10)
+        self.assertEqual(len(pairs), 1)
+        self.assertAlmostEqual(pairs[0][0], 0.20)
+        self.assertAlmostEqual(pairs[0][1], 0.10)
+        self.assertIsNone(session_on_or_after(sessions, "2014-05-20", 2))
 
 
 class PitBetaTests(unittest.TestCase):
