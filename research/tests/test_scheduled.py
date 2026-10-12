@@ -3,7 +3,8 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timezone
 
-from app.scheduled import VN, breadth_line, expected_session, in_session
+from app.pipeline import BUSY_MESSAGE
+from app.scheduled import VN, breadth_line, expected_session, in_session, should_alert
 
 
 class SessionHoursTest(unittest.TestCase):
@@ -37,19 +38,42 @@ class BreadthLineTest(unittest.TestCase):
     def test_the_last_stored_value_of_the_session_is_reported(self) -> None:
         states = [("2026-10-12", 1.0), ("2026-10-13", 1.0), ("2026-10-13", 0.0)]
         self.assertEqual(
-            breadth_line("2026-10-13", states, "2026-10-13"), ("Độ rộng phiên 2026-10-13: đóng.", True)
+            breadth_line("2026-10-13", states, "2026-10-13"), ("Độ rộng phiên 2026-10-13: đóng.", "ok")
         )
 
     def test_a_session_without_a_state_is_flagged(self) -> None:
-        line, recorded = breadth_line("2026-10-13", [("2026-10-12", 1.0)], "2026-10-13")
-        self.assertFalse(recorded)
+        line, found = breadth_line("2026-10-13", [("2026-10-12", 1.0)], "2026-10-13")
+        self.assertEqual(found, "no_state")
         self.assertIn("chưa ghi", line)
-        self.assertFalse(breadth_line(None, [], "2026-10-13")[1])
+        self.assertEqual(breadth_line(None, [], "2026-10-13")[1], "no_index")
 
     def test_an_index_that_has_not_reached_the_closed_session_is_flagged(self) -> None:
-        line, recorded = breadth_line("2026-10-09", [("2026-10-09", 0.0)], "2026-10-12")
-        self.assertFalse(recorded)
+        line, found = breadth_line("2026-10-09", [("2026-10-09", 0.0)], "2026-10-12")
+        self.assertEqual(found, "no_bar")
         self.assertIn("Chưa có nến phiên 2026-10-12", line)
+
+
+class AlertTest(unittest.TestCase):
+    def test_a_late_bar_alerts_only_on_the_next_morning(self) -> None:
+        for hour in (15, 20):
+            same_day = datetime(2026, 10, 13, hour, 30, tzinfo=VN)
+            self.assertFalse(should_alert("Phiên 2026-10-13: Khóa 106", "no_bar", "2026-10-12", "2026-10-13", same_day))
+        morning = datetime(2026, 10, 14, 8, 0, tzinfo=VN)
+        self.assertTrue(should_alert("Phiên 2026-10-14: Khóa 106", "no_bar", "2026-10-12", "2026-10-13", morning))
+
+    def test_a_holiday_run_alerts_once(self) -> None:
+        # Nghỉ từ thứ Hai 2027-02-08: sáng thứ Ba báo, sáng thứ Tư và các ngày sau thì im.
+        tuesday = datetime(2027, 2, 9, 8, 0, tzinfo=VN)
+        wednesday = datetime(2027, 2, 10, 8, 0, tzinfo=VN)
+        self.assertTrue(should_alert("", "no_bar", "2027-02-05", "2027-02-08", tuesday))
+        self.assertFalse(should_alert("", "no_bar", "2027-02-05", "2027-02-09", wednesday))
+
+    def test_failures_and_missing_states_always_alert(self) -> None:
+        now = datetime(2026, 10, 13, 15, 30, tzinfo=VN)
+        self.assertTrue(should_alert("Phiên lỗi: timeout", "ok", "2026-10-13", "2026-10-13", now))
+        self.assertTrue(should_alert(BUSY_MESSAGE, "ok", "2026-10-13", "2026-10-13", now))
+        self.assertTrue(should_alert("Phiên 2026-10-13", "no_state", "2026-10-13", "2026-10-13", now))
+        self.assertFalse(should_alert("Phiên 2026-10-13", "ok", "2026-10-13", "2026-10-13", now))
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ thắng hay số nào suy ra kết quả (docs/breadth-signal-filter.md), nên t
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 from app.breadth_filter import Counts
 from app.config import (
@@ -18,6 +18,7 @@ from app.config import (
 from app.scheduled import VN, expected_session
 
 SOURCES = {"web": "Nút Chạy phiên", "lịch": "Lịch chạy", "": "—"}
+WAITING_UNTIL = time(20, 30)
 
 
 def _vn_time(stamp: str | None) -> str:
@@ -26,9 +27,13 @@ def _vn_time(stamp: str | None) -> str:
     return datetime.fromisoformat(stamp).astimezone(VN).strftime("%d/%m %H:%M")
 
 
-def run_rows(runs: list[dict]) -> list[dict]:
+def run_rows(runs: list[dict], live: bool) -> list[dict]:
+    """`live` says a session holds the lock now; without one, a running row was killed."""
     rows = []
     for run in runs:
+        status = run["status"]
+        if status == "running" and not live:
+            status = "dừng giữa chừng"
         seconds = None
         if run.get("finished_at"):
             seconds = round(
@@ -38,7 +43,7 @@ def run_rows(runs: list[dict]) -> list[dict]:
             {
                 "started": _vn_time(run["started_at"]),
                 "seconds": seconds,
-                "status": run["status"],
+                "status": status,
                 "source": SOURCES.get(run.get("source") or "", run.get("source") or "—"),
                 "message": run.get("message") or "",
             }
@@ -47,24 +52,36 @@ def run_rows(runs: list[dict]) -> list[dict]:
 
 
 def schedule_view(index_days: list[str], states: list[tuple[str, float]], now: datetime) -> dict:
-    """Phiên lẽ ra đã đóng cửa có trạng thái độ rộng chưa, và bao nhiêu phiên đo đã thiếu nó."""
+    """Phiên lẽ ra đã đóng cửa có trạng thái độ rộng chưa, và bao nhiêu phiên đo đã thiếu nó.
+
+    Phiên hôm nay chưa ghi chỉ là "đang chờ" cho tới sau lần chạy 20:00 của lịch: Entrade thêm
+    nến ngày một lúc sau giờ đóng cửa, nên báo đỏ từ 15:00 thì ngày nào cũng báo.
+    """
     expected = expected_session(now)
     stored = {day for day, _value in states}
     last_index = index_days[-1] if index_days else ""
     measured = [day for day in index_days if day >= BREADTH_FILTER_START]
     missing = [day for day in measured if day not in stored]
+    local = now.astimezone(VN)
     if expected in stored:
-        warning = ""
+        warning, level = "", ""
+    elif expected == local.date().isoformat() and local.time() < WAITING_UNTIL:
+        warning, level = (
+            f"Đang chờ lịch chạy ghi phiên {expected} (15:30, 20:00).",
+            "wait",
+        )
     elif last_index < expected:
-        warning = (
+        warning, level = (
             f"Kho chưa có nến VN-Index phiên {expected} (mới nhất: {last_index or 'chưa có'}). "
-            "Nguồn có thể chưa cập nhật, hoặc là ngày nghỉ."
+            "Nguồn có thể chưa cập nhật, hoặc là ngày nghỉ.",
+            "bad",
         )
     else:
-        warning = f"Phiên {expected} chưa có trạng thái độ rộng."
+        warning, level = f"Phiên {expected} chưa có trạng thái độ rộng.", "bad"
     return {
         "expected": expected,
         "warning": warning,
+        "level": level,
         "measured": len(measured),
         "missing": missing,
         "start": BREADTH_FILTER_START,
