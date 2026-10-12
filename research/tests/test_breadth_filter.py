@@ -2,22 +2,27 @@
 
 from __future__ import annotations
 
+import asyncio
 import unittest
 from datetime import date, timedelta
+from unittest.mock import AsyncMock, patch
 
 from app.breadth_filter import (
     DROP,
     KEEP,
     Counts,
     FilterSignal,
-    blocking_failures,
     classify,
     count,
     counts_text,
     judge,
     months_between,
     next_session_return,
+    refresh_bars,
+    report_text,
+    settle_unconfirmed,
     stored_states,
+    unconfirmed,
 )
 from app.config import BREADTH_FILTER_MAX_MONTHS, BREADTH_FILTER_MIN_MONTHS, BREADTH_FILTER_MIN_SIGNALS
 
@@ -139,15 +144,105 @@ class GateTest(unittest.TestCase):
         counts = Counts("2026-10-13", "2026-10-09", 0, 0, 0, 0, 0, 0, 0, 0)
         self.assertIn("Từ 2026-10-13: chưa có phiên nào, phiên mới nhất trong kho là 2026-10-09.", counts_text(counts))
 
-    def test_a_failed_refresh_blocks_only_names_used_in_the_sample(self) -> None:
+
+class ConfirmTest(unittest.TestCase):
+    """Tín hiệu nào chặn lệnh đo vì không xác nhận được nến. Tín hiệu ở phiên 0, bán ở phiên 1 + 3."""
+
+    def setUp(self) -> None:
+        self.days = _days(10)
+        self.signal = FilterSignal("AAA", self.days[0], KEEP, True, 0.05)
+
+    def _unsure(self, last: int, refreshed: set[str], listings: dict | None = None) -> list[FilterSignal]:
+        bars = {"AAA": _bars(self.days[: last + 1], [100.0] * (last + 1))}
+        return unconfirmed([self.signal], bars, self.days, listings or {}, refreshed, horizon=3)
+
+    def test_a_refreshed_name_is_confirmed_even_when_its_bars_stop_early(self) -> None:
+        # Mã tạm ngừng giao dịch: nguồn vừa trả đủ, chỉ là không có phiên sau.
+        self.assertEqual(self._unsure(1, {"AAA"}), [])
+
+    def test_stored_bars_up_to_the_exit_are_enough_without_a_refresh(self) -> None:
+        self.assertEqual(self._unsure(4, set()), [])
+
+    def test_a_delisted_name_with_bars_up_to_its_delisting_is_confirmed(self) -> None:
+        listings = {"AAA": {"delisted_date": self.days[3]}}
+        self.assertEqual(self._unsure(2, set(), listings), [])
+
+    def test_stale_bars_without_a_refresh_block_the_measure(self) -> None:
+        # Không nạp lại được, hoặc không nằm trong danh sách nạp lại: hai trường hợp như nhau.
+        self.assertEqual(self._unsure(2, set()), [self.signal])
+        listings = {"AAA": {"delisted_date": self.days[9]}}
+        self.assertEqual(self._unsure(2, set(), listings), [self.signal])
+
+    def test_signals_outside_the_measure_never_block(self) -> None:
+        bars = {"AAA": _bars(self.days[:1], [100.0])}
         signals = [
-            FilterSignal("AAA", "2027-01-04", KEEP, True, 0.05),
-            FilterSignal("BBB", "2027-01-04", DROP, False, None),
-            FilterSignal("CCC", "2027-01-04", None, True, 0.01),
+            FilterSignal("AAA", self.days[0], DROP, False, None),
+            FilterSignal("AAA", self.days[0], None, True, 0.01),
         ]
-        # BBB chưa đủ phiên và CCC không có trạng thái, nên nến cũ của chúng không vào phép đo.
-        self.assertEqual(blocking_failures(signals, ["BBB", "CCC", "DDD"]), [])
-        self.assertEqual(blocking_failures(signals, ["AAA", "DDD"]), ["AAA"])
+        self.assertEqual(unconfirmed(signals, bars, self.days, {}, set(), horizon=3), [])
+
+    def test_unconfirmed_signals_block_until_the_deadline_then_count_as_missing_price(self) -> None:
+        n = BREADTH_FILTER_MIN_SIGNALS
+        unsure = [FilterSignal("STALE", "2027-01-05", DROP, True, -0.01)]
+        signals = _signals([0.05] * n, [-0.01] * (n - 1)) + unsure
+        with self.assertRaises(SystemExit):
+            settle_unconfirmed(signals, unsure, _counts(BREADTH_FILTER_MAX_MONTHS - 1, n, n))
+        settled = settle_unconfirmed(signals, unsure, _counts(BREADTH_FILTER_MAX_MONTHS, n, n))
+        verdict = judge(settled, _counts(BREADTH_FILTER_MAX_MONTHS, n, n))
+        self.assertEqual((verdict.outcome, verdict.missing_price), ("không đủ mẫu", 1))
+        self.assertIs(settle_unconfirmed(signals, [], _counts(1, n, n)), signals)
+
+    def test_the_report_names_the_amendments_the_code_and_the_unpriced_signals(self) -> None:
+        n = BREADTH_FILTER_MIN_SIGNALS
+        signals = _signals([0.05] * n, [-0.01] * n)
+        counts = _counts(BREADTH_FILTER_MIN_MONTHS, n, n)
+        text = report_text(signals, counts, judge(signals, counts), code="abc123", unpriced=[signals[0]])
+        self.assertIn("`prereg/breadth-filter-amend2`", text)
+        self.assertIn("`abc123`", text)
+        self.assertIn("K 2027-01-04", text)
+
+
+class RefreshTest(unittest.TestCase):
+    def _run(self, entrade, vndirect) -> tuple[list[str], list[str]]:
+        written: list[str] = []
+
+        async def _replace(symbol, _bars):
+            written.append(symbol)
+
+        async def _entrade(_client, symbol, **_kwargs):
+            return entrade(symbol)
+
+        async def _vndirect(_client, symbol, _start):
+            return vndirect(symbol)
+
+        with (
+            patch("app.ingest.fetch_bars", _entrade),
+            patch("app.ingest.fetch_market_bars", _vndirect),
+            patch("app.db.init_db", AsyncMock()),
+            patch("app.db.close_db", AsyncMock()),
+            patch("app.db.replace_bars", _replace),
+        ):
+            failed = asyncio.run(refresh_bars(["AAA", "OLD", "BAD"]))
+        return failed, written
+
+    def test_falls_back_to_vndirect_and_reports_names_neither_source_has(self) -> None:
+        bar = [{"trade_date": "2027-01-04", "close": 1.0}]
+
+        def entrade(symbol):
+            if symbol == "VNINDEX" or symbol == "AAA":
+                return bar
+            if symbol == "OLD":
+                raise RuntimeError("400")
+            return []
+
+        def vndirect(symbol):
+            if symbol == "OLD":
+                return bar
+            raise RuntimeError("down")
+
+        failed, written = self._run(entrade, vndirect)
+        self.assertEqual(failed, ["BAD"])
+        self.assertEqual(sorted(written), ["AAA", "OLD", "VNINDEX"])
 
 
 if __name__ == "__main__":

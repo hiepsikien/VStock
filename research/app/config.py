@@ -381,7 +381,7 @@ BREADTH_STATE_SERIES = "BREADTH50_STATE"
 
 # --- Độ rộng làm bộ lọc tín hiệu phá nền ------------------------------------------
 # Chốt ngày 2026-10-12, trước khi có dữ liệu đo: luật ở docs/breadth-signal-filter.md, mốc là
-# tag `prereg/breadth-filter` và sửa đổi `prereg/breadth-filter-amend1` trên GitHub. Chỉ đo
+# tag `prereg/breadth-filter` và các sửa đổi `prereg/breadth-filter-amend1`, `-amend2` trên GitHub. Chỉ đo
 # trên phiên chạy thật từ ngày bắt đầu. Tách khỏi các hằng số của cổng độ rộng để đổi luật
 # cổng không kéo theo luật này.
 BREADTH_FILTER_START = "2026-10-13"
