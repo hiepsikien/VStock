@@ -423,10 +423,17 @@ def jump_limit(exchange: str | None) -> tuple[float, str]:
     return PRICE_JUMP_LIMIT_UNKNOWN, f"sàn chưa rõ (dùng {percent}%)"
 
 
+# The furthest any part of `assess_pattern` reads back: the structure lookback plus the ATR
+# that scales its pivots. A gap before that bends neither the base, the RS reference nor a
+# structure, while a board move or a listing day years ago would block the name for good.
+SPLIT_CHECK_SESSIONS = STRUCTURE_LOOKBACK_SESSIONS + ATR_WINDOW
+
+
 def unadjusted_split_gap(bars: list[dict], exchange: str | None = None) -> str | None:
-    """A gap past the daily band means the series still contains a raw split."""
+    """A gap past the daily band inside the window the pattern reads is a raw split."""
     limit, board = jump_limit(exchange)
-    for previous, current in zip(bars, bars[1:]):
+    recent = bars[-(SPLIT_CHECK_SESSIONS + 1) :]
+    for previous, current in zip(recent, recent[1:]):
         if previous["close"] <= 0:
             continue
         change = current["close"] / previous["close"] - 1
