@@ -59,14 +59,28 @@ và chỉ gắn vào localhost.
 
 ### Chạy từ dashboard
 
-Dashboard có nút **Chạy phiên**: nó tải nến, chỉ tiêu, công bố, dòng tiền ngoại và dữ liệu vĩ mô
+Dashboard có năm trang, mỗi trang trả lời một câu hỏi:
+
+| Trang | Câu hỏi | Nội dung |
+|---|---|---|
+| **Hôm nay** `/` | Hôm nay có gì để làm? | Đèn các cổng thị trường, phễu của danh sách, việc cần làm, thay đổi so với phiên trước, bảng mã lọc theo trạng thái, tên mã và ngành |
+| **Thị trường** `/market` | Thị trường mở hay đóng, vì sao? | VN-Index và MA200, vĩ mô, tiền tệ, độ rộng, kèm biểu đồ |
+| **Danh mục giấy** `/paper` | Lệnh đã xác nhận đang ra sao? | Vị thế giấy (khoảng cách tới dừng lỗ và mốc chốt) và nhật ký thao tác |
+| **Nghiên cứu** `/lab` | Giả thuyết đang đo tới đâu? | Đo sau phí (`/backtest`), bộ lọc độ rộng chốt trước, cổng độ rộng, cổng ngành, các báo cáo trong `research/reports` |
+| **Vận hành** `/ops` | Hệ thống có chạy đúng không? | Lịch chạy, các lần chạy, độ tươi của dữ liệu, danh sách mã |
+
+Khi thị trường khóa cả danh sách, bảng ở **Hôm nay** xếp mã theo **trạng thái nếu thị trường mở**
+(nhãn viền đứt): trạng thái do riêng các lớp của mã quyết định, chưa xét VN-Index, tiền tệ, độ rộng
+và vĩ mô. Nó chỉ để đọc, không bao giờ mở lệnh; phiên lưu trước khi có nó hiện nhắc chạy lại phiên.
+
+Nút **Chạy phiên** (ở Hôm nay và Vận hành) tải nến, chỉ tiêu, công bố, dòng tiền ngoại và dữ liệu vĩ mô
 cho cả danh sách, chấm lại toàn bộ, đánh dấu vị thế giấy và gửi cảnh báo. Danh sách 106 mã mất
 khoảng 35–45 giây: mỗi mã thêm một lượt nến, chỉ tiêu, công bố và dòng tiền ngoại, còn giá realtime
-đi một batch nên không phải nới nhịp poll. Thêm/bỏ mã và ghi xác nhận, bỏ qua cũng làm được ngay
-trên trang web.
+đi một batch nên không phải nới nhịp poll. Thêm/bỏ mã ở **Vận hành**, ghi xác nhận hay bỏ qua ở
+trang của từng mã.
 
 Mở trang hay bấm nút khác không bao giờ chạy việc nặng. Phép đo ở `/backtest` (vài phút) chỉ
-chạy khi bấm **Chạy phép đo**, phép đếm mẫu bộ lọc độ rộng ở `/market` (vài giây) chỉ chạy khi
+chạy khi bấm **Chạy phép đo**, phép đếm mẫu bộ lọc độ rộng ở `/lab` (vài giây) chỉ chạy khi
 bấm **Đếm mẫu**. Dòng ngay cạnh nút báo trạng thái: chưa tính, đang tính từ lúc nào, tính lúc nào
 và còn khớp dữ liệu không, hay lỗi. Kết quả lưu trong kho, nên server khởi động lại vẫn còn.
 
@@ -96,11 +110,11 @@ bao giờ có hai phiên ghi cùng lúc: khi một bên đang chạy, các nút 
 lịch chờ tối đa 15 phút. Tiến trình bị kill giữa phiên thì dòng của nó được đóng thành lỗi ở phiên kế
 tiếp, và dashboard ghi "dừng giữa chừng" ngay khi không còn ai giữ khoá.
 
-Trên dashboard, mục **Lịch chạy** liệt kê các lần chạy gần đây (nguồn: lịch hay nút bấm, thời gian,
-kết quả). Phiên hôm nay chưa có trạng thái độ rộng thì báo vàng "đang chờ" tới 20:30; sau đó, hoặc
-với phiên cũ hơn, thì báo đỏ. Trang `/market` liệt kê
-từng phiên VN-Index kèm độ rộng, ghi "chưa ghi" ở phiên thuộc phép đo mà thiếu trạng thái, và có mục
-số đếm của phép đo bộ lọc độ rộng (chỉ số đếm, không có lợi nhuận), đếm lại khi bấm **Đếm mẫu**.
+Trang **Vận hành** (`/ops`), mục **Lịch chạy**, liệt kê các lần chạy gần đây (nguồn: lịch hay nút bấm,
+thời gian, kết quả). Phiên hôm nay chưa có trạng thái độ rộng thì báo vàng "đang chờ" tới 20:30; sau đó,
+hoặc với phiên cũ hơn, thì báo đỏ, và trang Hôm nay nhắc cùng câu đó. Trang `/market` liệt kê
+từng phiên VN-Index kèm độ rộng, ghi "chưa ghi" ở phiên thuộc phép đo mà thiếu trạng thái. Trang `/lab`
+có thẻ số đếm của phép đo bộ lọc độ rộng (chỉ số đếm, không có lợi nhuận), đếm lại khi bấm **Đếm mẫu**.
 Số đếm tìm tín hiệu theo đúng luật ở tag chốt trước (luật giá chưa chỉnh chia tách quét cả lịch sử),
 nên khớp với lệnh đo chạy ở tag.
 
@@ -161,7 +175,7 @@ Bấm "Xác nhận sẽ vào" ở một mã **Được vào** sẽ mở một su
 đóng cửa dưới đỉnh nền lúc vào (phá nền thất bại), đóng khi tiền chết 30 phiên, có công bố chặn,
 hoặc dòng tiền ngoại đảo chiều. Sổ đi lần lượt từng nến sau phiên đã chấm, nên bấm chạy lại trong
 cùng ngày không cộng thêm phiên và một phiên bị lỡ vẫn được chấm đủ, kể cả phiên chạm dừng lỗ;
-phiên mà luật đóng tại giá đóng cửa kết thúc suất vẫn được tính vào cột "Phiên". Trang `/backtest`
+phiên mà luật đóng tại giá đóng cửa kết thúc suất vẫn được tính vào cột "Phiên". Trang `/paper`
 so lãi bình quân của các suất với VN-Index trong đúng cửa sổ nắm giữ; suất vừa xác nhận chưa có
 phiên mark nào thì chưa có cửa sổ để so nên không vào bình quân, và alpha chỉ tính trên những suất
 có đủ cả hai vế.
@@ -213,7 +227,7 @@ Loại, Khóa) hoặc khi một vị thế giấy đóng. Không đặt thì h�
 
 ```bash
 cd research
-.venv/bin/python -m unittest tests.test_rules tests.test_prune tests.test_patterns tests.test_layers tests.test_money tests.test_chart tests.test_industry
+.venv/bin/python -m unittest tests.test_rules tests.test_prune tests.test_patterns tests.test_layers tests.test_money tests.test_chart tests.test_industry tests.test_views
 ```
 
 

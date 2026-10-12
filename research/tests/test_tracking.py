@@ -330,23 +330,24 @@ class BacktestWalkTest(unittest.TestCase):
                 mock.patch.object(web, "load_exchanges", dict),
             ):
                 async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-                    pages = [await client.get(path) for path in ("/", "/backtest", "/market", "/backtest")]
+                    paths = ("/", "/backtest", "/lab", "/backtest", "/market", "/paper", "/ops")
+                    pages = [await client.get(path) for path in paths]
                     opened = (len(walks), len(counts))
                     await client.post("/backtest/run")
-                    await client.post("/market/filter-count")
+                    await client.post("/lab/filter-count")
                     await web.backtest_job.task
                     await web.filter_job.task
-                    after = (await client.get("/backtest")).text, (await client.get("/market")).text
+                    after = (await client.get("/backtest")).text, (await client.get("/lab")).text
             return pages, opened, after
 
-        pages, opened, (backtest, market) = _with_store(body)
-        self.assertEqual([page.status_code for page in pages], [200] * 4)
+        pages, opened, (backtest, lab) = _with_store(body)
+        self.assertEqual([page.status_code for page in pages], [200] * 7)
         self.assertEqual(opened, (0, 0))
         self.assertIn("Chưa tính phép đo", pages[1].text)
         self.assertIn("Chưa tính mẫu bộ lọc độ rộng", pages[2].text)
         self.assertEqual((len(walks), len(counts)), (1, 1))
         self.assertIn("khớp với lần chạy phiên", backtest)
-        self.assertIn("khớp với lần chạy phiên", market)
+        self.assertIn("khớp với lần chạy phiên", lab)
 
     def test_a_server_stop_mid_walk_reads_as_stopped_midway_not_as_an_error(self) -> None:
         from concurrent.futures.process import BrokenProcessPool
@@ -393,7 +394,7 @@ class BacktestWalkTest(unittest.TestCase):
             )
             transport = httpx.ASGITransport(app=web.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-                return await client.get("/market")
+                return await client.get("/lab")
 
         page = _with_store(body)
         self.assertEqual(page.status_code, 200)

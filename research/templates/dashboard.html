@@ -1,57 +1,139 @@
 {% extends "base.html" %}
-{% block title %}Kết quả — VStock Research{% endblock %}
+{% from "_macros.html" import lights_panel %}
+{% block title %}Hôm nay — VStock Research{% endblock %}
 {% block body %}
-  <h1>Phiên nghiên cứu</h1>
-  <p class="lede">
-    Mỗi mã nhận một trạng thái. Chỉ <strong>Được vào</strong> đã qua khóa thị trường,
-    cổng cơ bản, bài công bố, và nền giá ngày. Xác nhận hoặc bỏ qua được ghi lại,
-    không gửi lệnh sang công ty chứng khoán.
-  </p>
+  <div class="page-head spread">
+    <div>
+      <h1>Hôm nay</h1>
+      <p class="hint">
+        {% if as_of %}Phiên {{ as_of }}.{% else %}Chưa có phiên nào.{% endif %}
+        {% if run and run.message %}Lần chạy gần nhất: {{ run.message }}{% endif %}
+      </p>
+    </div>
+    <form method="post" action="/run">
+      <input type="hidden" name="back" value="/" />
+      <button type="submit" {% if busy %}disabled{% endif %} title="Tải nến, chỉ tiêu, công bố rồi chấm lại; thường dưới một phút">
+        {{ "Đang chạy phiên…" if busy else "Chạy phiên" }}
+      </button>
+    </form>
+  </div>
 
   {% if notice %}<p class="banner ok">{{ notice }}</p>{% endif %}
   {% if error %}<p class="banner bad">{{ error }}</p>{% endif %}
-
-  <section class="toolbar">
-    <form method="post" action="/run">
-      <button type="submit" {% if busy %}disabled{% endif %}>Chạy phiên</button>
-    </form>
-    <p class="hint">Tải nến, chỉ tiêu và công bố của danh sách, rồi chấm lại. Thường dưới một phút.</p>
-  </section>
-
-  {% if regime %}
-    <p class="regime">{{ regime }}</p>
-  {% elif not verdicts %}
-    <p class="regime">Chưa có phiên nào. Bấm Chạy phiên để chấm danh sách mặc định.</p>
-  {% endif %}
-  {% if macro %}
-    <p class="regime">{{ macro }}</p>
-  {% endif %}
-  {% if money %}
-    <p class="regime">{{ money }} <a href="/market">Chi tiết</a></p>
-  {% endif %}
-
-  {% if run and run.message %}
-    <p class="hint">Lần chạy gần nhất: {{ run.message }}</p>
-  {% endif %}
-  {% if schedule.level == "wait" %}
-    <p class="banner wait">{{ schedule.warning }} <a href="#lich-chay">Lịch chạy</a></p>
-  {% elif schedule.warning %}
-    <p class="banner bad">
-      {{ schedule.warning }} Phiên không có trạng thái độ rộng thì mọi tín hiệu của phiên đó bị loại
-      khỏi phép đo bộ lọc độ rộng. <a href="#lich-chay">Lịch chạy</a>
+  {% if schedule.warning %}
+    <p class="banner {{ 'wait' if schedule.level == 'wait' else 'bad' }}">
+      {{ schedule.warning }} <a href="/ops#lich-chay">Vận hành</a>
     </p>
   {% endif %}
 
-  {% if counts %}
-    <ul class="counts">
-      {% for status, count in counts.items() %}
-        <li><span class="pill {{ status_class(status) }}">{{ status }}</span> {{ count }}</li>
-      {% endfor %}
-    </ul>
-  {% endif %}
+  {{ lights_panel(lights, headline) }}
 
   {% if verdicts %}
-    <table>
+  <div class="grid-2">
+    <section class="card">
+      <h2>Phễu của danh sách</h2>
+      <ol class="funnel">
+        {% for step in funnel %}
+          <li class="{{ 'final' if step.final }}">
+            <span class="name">{{ step.name }}</span>
+            <span class="bar"><span class="fill" style="width: {{ (100 * step.share)|round|int }}%"></span></span>
+            <span class="value">{{ step.count }}</span>
+          </li>
+        {% endfor %}
+      </ol>
+      <p class="hint small">
+        Mỗi bậc giữ lại mã qua lớp của chính mã, theo thứ tự hệ thống xét.
+        {% if locked %}Bậc cuối là 0 vì thị trường đang khóa cả danh sách.{% endif %}
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>Việc cần làm</h2>
+      {% if to_confirm or alerts %}
+        <ul class="todo">
+          {% for item in to_confirm %}
+            <li>
+              <span class="pill enter">Được vào</span>
+              <a href="/symbol/{{ item.symbol }}">{{ item.symbol }}</a> chưa ghi xác nhận hay bỏ qua.
+            </li>
+          {% endfor %}
+          {% for alert in alerts %}
+            <li>
+              <span class="pill {{ 'out' if alert.level == 'bad' else 'wait' }}">Vị thế giấy</span>
+              <a href="/paper">{{ alert.symbol }}</a> {{ alert.text }}.
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="hint">Không có việc nào: không mã nào chờ xác nhận, không vị thế giấy nào sát mốc.</p>
+      {% endif %}
+      <p class="hint small">
+        Vị thế giấy: {{ paper.open_count }} đang mở, {{ paper.closed_count }} đã đóng.
+        <a href="/paper">Danh mục giấy</a>
+      </p>
+    </section>
+  </div>
+
+  {% if changes %}
+    <section class="card">
+      <h2>Thay đổi so với phiên {{ previous_day }}</h2>
+      <table class="changes">
+        <tbody>
+          {% for group in changes %}
+            <tr>
+              <td class="move">
+                {% if group.kind == "new" %}
+                  <span class="hint">Mới vào danh sách</span> →
+                {% else %}
+                  <span class="pill {{ status_class(group.before) }}{{ ' ghost' if group.kind == 'open' }}">{{ group.before }}</span> →
+                {% endif %}
+                <span class="pill {{ status_class(group.after) }}{{ ' ghost' if group.kind == 'open' }}">{{ group.after }}</span>
+                <span class="count">{{ group.symbols|length }}</span>
+              </td>
+              <td class="symbols">
+                {% for symbol in group.symbols %}<a href="/symbol/{{ symbol }}">{{ symbol }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if changes|selectattr("kind", "equalto", "open")|list %}
+        <p class="hint small">Viền đứt: trạng thái nếu thị trường mở đổi, trạng thái thật vẫn bị khóa.</p>
+      {% endif %}
+    </section>
+  {% elif previous_day %}
+    <p class="hint">Không mã nào đổi trạng thái so với phiên {{ previous_day }}.</p>
+  {% endif %}
+
+  <section class="card" id="danh-sach">
+    <h2>Danh sách mã</h2>
+    {% if locked %}
+      <p class="hint">
+        Thị trường đang khóa nên chưa mã nào được vào. Bảng xếp mã theo
+        <strong>trạng thái nếu thị trường mở</strong> (nhãn viền đứt), để biết mã nào sẵn sàng khi khóa được gỡ.
+      </p>
+    {% endif %}
+    {% if missing_open %}
+      <p class="banner wait">Phiên này được lưu trước khi hệ thống ghi trạng thái nếu thị trường mở. Bấm “Chạy phiên” để tính.</p>
+    {% endif %}
+
+    <div class="filters">
+      <div class="tabs" role="tablist">
+        <button type="button" class="tab active" data-lane="">Tất cả <span class="count">{{ verdicts|length }}</span></button>
+        {% for name, count in lanes %}
+          <button type="button" class="tab" data-lane="{{ name }}"><span class="pill {{ status_class(name) }}">{{ name }}</span> <span class="count">{{ count }}</span></button>
+        {% endfor %}
+      </div>
+      <input type="search" id="tim-ma" placeholder="Tìm mã" aria-label="Tìm mã" />
+      {% if industries %}
+        <select id="loc-nganh" aria-label="Lọc theo ngành">
+          <option value="">Mọi ngành</option>
+          {% for name in industries %}<option>{{ name }}</option>{% endfor %}
+        </select>
+      {% endif %}
+    </div>
+
+    <table class="verdicts">
       <thead>
         <tr>
           <th>Mã</th>
@@ -60,187 +142,51 @@
           <th>Cơ bản</th>
           <th>Tin</th>
           <th>Dòng tiền</th>
-          <th>Sức mạnh</th>
-          <th>Lý do đang giữ</th>
+          <th>Nền giá</th>
+          <th>Ngành</th>
+          <th title="Sức mạnh giá 60 phiên so với VN-Index">Sức mạnh</th>
+          <th>Lý do</th>
         </tr>
       </thead>
       <tbody>
         {% for item in verdicts %}
-          <tr>
-            <td><a href="/symbol/{{ item.symbol }}">{{ item.symbol }}</a>{% if item.priority %} <span class="pill enter">Ưu tiên</span>{% endif %}</td>
-            <td><span class="pill {{ status_class(item.status) }}">{{ item.status }}</span></td>
+          <tr data-lane="{{ item.lane }}" data-symbol="{{ item.symbol }}" data-industry="{{ item.industry_label }}">
             <td>
+              <a href="/symbol/{{ item.symbol }}"><strong>{{ item.symbol }}</strong></a>
+              {% if item.priority %}<span class="pill enter small">Ưu tiên</span>{% endif %}
+              {% if item.change and (item.change.kind == "open" or (item.change.kind == "status" and not item.held)) %}<span class="pill unstamped small" title="Đổi từ {{ item.change.before }}">mới đổi</span>{% endif %}
+            </td>
+            <td>
+              {% if item.held %}
+                <span class="pill {{ status_class(item.lane) }} ghost" title="Đang {{ item.status }} vì cổng thị trường; đây là trạng thái nếu thị trường mở">{{ item.lane }}</span>
+              {% else %}
+                <span class="pill {{ status_class(item.status) }}">{{ item.status }}</span>
+              {% endif %}
+            </td>
+            <td class="num">
               <span class="pill {{ 'enter' if item.score_ok else 'unstamped' }}">{{ item.score }}</span>
-              {% if item.f_score is not none %}<span class="hint">F{{ item.f_score }}/{{ item.f_score_max }}</span>{% endif %}
+              {% if item.f_score is not none %}<span class="hint small">F{{ item.f_score }}/{{ item.f_score_max }}</span>{% endif %}
             </td>
-            <td>{{ item.fa_label }}</td>
-            <td>{{ item.news_state }}</td>
-            <td>{{ item.flow_state }}</td>
-            <td>{{ item.rs|pct }}</td>
+            <td class="{{ 'ok' if item.fa_label == 'Đạt' else ('bad' if item.fa_label == 'Không đạt' else 'muted') }}">{{ item.fa_label }}</td>
+            <td class="{{ 'ok' if item.news_state == 'Mở' else ('bad' if item.news_state == 'Loại' else 'muted') }}">{{ news_label(item.news_state) }}</td>
+            <td class="{{ 'bad' if item.flow_state == 'Chờ' else ('ok' if item.flow_level in ('accumulation', 'support') else 'muted') }}">{{ flow_label(item.flow_level, item.flow_state) }}</td>
             <td>
-              {{ item.summary }}
-              {% if item.patterns %}<span class="hint">Mô hình: {{ item.patterns|join(", ") }}</span>{% endif %}
+              {% if item.pattern_ready %}<span class="ok">Sẵn</span>{% else %}<span class="muted">Chưa</span>{% endif %}
+              {% if item.patterns %}<span class="hint small">{{ item.patterns|join(", ") }}</span>{% endif %}
             </td>
+            <td class="muted">{{ item.industry_label or "—" }}</td>
+            <td class="num {{ 'ok' if item.rs and item.rs > 0 else 'muted' }}">{{ item.rs|pct }}</td>
+            <td class="reason">{{ item.open_summary if item.held else item.summary }}</td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
-    <p class="hint">
-      Số của phiên {{ verdicts[0].as_of }}. Điểm tổng hợp 0–100 dùng để xếp hạng;
-      điều kiện vào vẫn là các cổng cứng ở trên.
+    <p class="hint small" id="khong-co-ma" hidden>Không mã nào khớp bộ lọc.</p>
+    <p class="hint small">
+      Điểm 0–100 chỉ để xếp hạng trong cùng một trạng thái; điều kiện vào vẫn là các cổng cứng.
+      Bấm vào mã để xem từng cổng và ghi xác nhận.
     </p>
+  </section>
   {% endif %}
-
-  <section id="lich-chay">
-    <h2>Lịch chạy</h2>
-    <p class="hint">
-      Lịch launchd chạy phiên lúc 15:30 và 20:00 thứ Hai–Sáu, và 08:00 thứ Ba–Bảy
-      (<code>scripts/install-research-launchd.sh</code>, log ở
-      <code>~/Library/Logs/vstock-research-session.log</code>).
-      Phiên đã đóng cửa gần nhất: {{ schedule.expected }}.
-      {% if schedule.measured %}
-        Từ {{ schedule.start }}: {{ schedule.measured }} phiên,
-        {% if schedule.missing %}
-          thiếu trạng thái độ rộng ở {{ schedule.missing|length }} phiên:
-          {{ schedule.missing[-10:]|join(", ") }}{% if schedule.missing|length > 10 %}, …{% endif %}.
-        {% else %}
-          phiên nào cũng có trạng thái độ rộng.
-        {% endif %}
-      {% else %}
-        Phép đo bộ lọc độ rộng bắt đầu từ phiên {{ schedule.start }}.
-      {% endif %}
-      <a href="/market#bo-loc-do-rong">Số đếm của bộ lọc độ rộng</a>
-    </p>
-    {% if runs %}
-      <table>
-        <thead>
-          <tr><th>Bắt đầu</th><th>Nguồn</th><th>Trạng thái</th><th>Giây</th><th>Kết quả</th></tr>
-        </thead>
-        <tbody>
-          {% for row in runs %}
-            <tr>
-              <td>{{ row.started }}</td>
-              <td>{{ row.source }}</td>
-              <td>
-                <span class="pill {{ 'enter' if row.status == 'ok' else ('watch' if row.status == 'running' else 'out') }}">
-                  {{ {"ok": "xong", "running": "đang chạy", "error": "lỗi"}.get(row.status, row.status) }}
-                </span>
-              </td>
-              <td>{{ row.seconds if row.seconds is not none else "—" }}</td>
-              <td>{{ row.message or "—" }}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <p class="hint">Chưa có lần chạy nào.</p>
-    {% endif %}
-  </section>
-
-  <section>
-    <h2>Danh sách chấm</h2>
-    <ul class="universe">
-      {% for symbol in universe %}
-        <li>
-          {{ symbol }}
-          <form method="post" action="/universe">
-            <input type="hidden" name="symbol" value="{{ symbol }}" />
-            <input type="hidden" name="action" value="remove" />
-            <button type="submit" class="text">Bỏ</button>
-          </form>
-        </li>
-      {% endfor %}
-    </ul>
-    <form method="post" action="/universe" class="inline">
-      <input name="symbol" placeholder="Mã" maxlength="8" />
-      <input type="hidden" name="action" value="add" />
-      <button type="submit">Thêm mã</button>
-    </form>
-  </section>
-
-  <section>
-    <h2>Vị thế giấy (đo tiến)</h2>
-    {% if paper.count %}
-      <ul class="counts">
-        <li>{{ paper.open_count }} đang mở</li>
-        <li>{{ paper.closed_count }} đã đóng</li>
-        <li>Lãi bình quân {{ paper.average_return|pct }}</li>
-        <li>VN-Index cùng cửa sổ {{ paper.average_index|pct }}</li>
-        <li>Tỉ lệ thắng {{ paper.win_rate|pct }}</li>
-        {% if paper.alpha is not none %}
-          <li>
-            {% if paper.alpha >= 0 %}
-              <span class="pill enter">Hơn chỉ số {{ paper.alpha|pct }}</span>
-            {% else %}
-              <span class="pill out">Kém chỉ số {{ paper.alpha|pct }}</span>
-            {% endif %}
-          </li>
-        {% endif %}
-      </ul>
-      {% if paper.open_count %}
-        <table>
-          <thead>
-            <tr>
-              <th>Mã</th>
-              <th>Vào</th>
-              <th>Giá vào</th>
-              <th>Dừng lỗ</th>
-              <th>Mốc chốt 1/3</th>
-              <th>Phiên</th>
-              <th>Lãi hiện tại</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in paper.rows if not row.exit_date %}
-              <tr>
-                <td><a href="/symbol/{{ row.symbol }}">{{ row.symbol }}</a></td>
-                <td>{{ row.entry_date }}</td>
-                <td>{{ "%.2f"|format(row.entry_price) }}</td>
-                <td>{{ "%.2f"|format(row.stop_price) }}</td>
-                <td>{{ "%.2f"|format(row.target1) }}</td>
-                <td>{{ row.sessions }}</td>
-                <td>{{ row.return_pct|pct }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      {% endif %}
-      <p class="hint">{{ paper.assumptions }}</p>
-    {% else %}
-      <p class="hint">
-        Chưa có vị thế giấy. Xác nhận một mã Được vào ở trang mã để mở suất theo dõi.
-      </p>
-    {% endif %}
-    <p class="hint"><a href="/backtest">Toàn bộ lệnh giấy và phép đo sau phí</a></p>
-  </section>
-
-  <section>
-    <h2>Nhật ký thao tác</h2>
-    {% if decisions %}
-      <table>
-        <thead>
-          <tr>
-            <th>Lúc</th>
-            <th>Mã</th>
-            <th>Tín hiệu</th>
-            <th>Việc ghi</th>
-            <th>Ghi chú</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in decisions %}
-            <tr>
-              <td>{{ row.created_at[0:16] }}</td>
-              <td><a href="/symbol/{{ row.symbol }}">{{ row.symbol }}</a></td>
-              <td>{{ row.signal_status }}</td>
-              <td>{{ "Xác nhận sẽ vào" if row.action == "confirm" else "Bỏ qua" }}</td>
-              <td>{{ row.note or "—" }}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <p class="hint">Chưa có xác nhận hay bỏ qua.</p>
-    {% endif %}
-  </section>
 {% endblock %}
+{% block scripts %}<script src="/static/app.js" defer></script>{% endblock %}

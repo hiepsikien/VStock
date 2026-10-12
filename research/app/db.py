@@ -801,6 +801,13 @@ def _verdict_row(record) -> dict:
             "breakout_volume_ratio": extra.get("breakout_volume_ratio"),
             "failed_breakout": extra.get("failed_breakout") or None,
             "metric_groups": groups,
+            "industry_name": extra.get("industry_name") or "",
+            "industry_open": (
+                None if extra.get("industry_open") is None else bool(extra.get("industry_open"))
+            ),
+            # Phiên lưu trước khi có cột này để trống; trang hiện "—" thay vì đoán.
+            "open_status": extra.get("open_status") or "",
+            "open_summary": extra.get("open_summary") or "",
         }
     )
     return item
@@ -822,6 +829,24 @@ async def latest_verdicts() -> list[dict]:
         (as_of,),
     )
     return [_verdict_row(record) for record in await cursor.fetchall()]
+
+
+async def previous_statuses(as_of: str) -> tuple[str, dict[str, tuple[str, str]]]:
+    """Phiên đã lưu liền trước `as_of`: ngày, và {mã: (trạng thái, trạng thái nếu thị trường mở)}."""
+    db = await get_db()
+    cursor = await db.execute("SELECT MAX(as_of) FROM verdicts WHERE as_of < ?", (as_of,))
+    row = await cursor.fetchone()
+    day = row[0] if row else None
+    if not day:
+        return "", {}
+    cursor = await db.execute(
+        "SELECT symbol, status, extra_json FROM verdicts WHERE as_of = ?", (day,)
+    )
+    out: dict[str, tuple[str, str]] = {}
+    for record in await cursor.fetchall():
+        extra = json.loads(record["extra_json"] or "{}")
+        out[record["symbol"]] = (record["status"], extra.get("open_status") or "")
+    return day, out
 
 
 async def verdict(symbol: str) -> dict | None:

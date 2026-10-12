@@ -11,13 +11,20 @@
     <header class="top">
       <a class="brand" href="/">VStock Research</a>
       <nav>
-        <a href="/">Kết quả</a>
-        <a href="/market">Tiền tệ</a>
-        <a href="/backtest">Đo sau phí</a>
+        {% for key, href, label in [
+          ("today", "/", "Hôm nay"),
+          ("market", "/market", "Thị trường"),
+          ("paper", "/paper", "Danh mục giấy"),
+          ("lab", "/lab", "Nghiên cứu"),
+          ("ops", "/ops", "Vận hành"),
+        ] %}
+          <a href="{{ href }}"{% if active == key %} class="active" aria-current="page"{% endif %}>{{ label }}</a>
+        {% endfor %}
       </nav>
     </header>
     <main>
       {% block body %}{% endblock %}
     </main>
+    {% block scripts %}{% endblock %}
   </body>
 </html>

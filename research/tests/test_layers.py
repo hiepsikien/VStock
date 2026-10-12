@@ -500,6 +500,37 @@ class ComposeTest(unittest.TestCase):
         self.assertIn("Vĩ mô chặn vào", verdict.summary)
         self.assertIsNone(macro.risk)
 
+    def test_a_locked_market_keeps_what_the_name_would_be_if_it_opened(self) -> None:
+        verdict = compose(
+            "FPT",
+            date(2026, 10, 10),
+            _corporate_points(),
+            [_earnings()],
+            Regime(False, "VN-Index dưới MA200", 1000, 1100),
+            _ready_pattern(),
+            require_clock=True,
+        )
+        self.assertEqual(verdict.status, "Khóa")
+        self.assertEqual(verdict.summary, "VN-Index dưới MA200")
+        self.assertEqual(verdict.open_status, "Được vào")
+        self.assertEqual(verdict.open_summary, "Phá nền")
+        self.assertEqual(verdict.row()["extra"]["open_status"], "Được vào")
+
+    def test_macro_block_does_not_touch_the_status_if_the_market_opened(self) -> None:
+        macro = macro_state({})
+        blocked = macro.__class__(True, True, "Vĩ mô căng: tỷ giá trên MA20", [])
+        verdict = self._compose(macro=blocked)
+        self.assertEqual(verdict.status, "Theo dõi")
+        self.assertEqual(verdict.open_status, "Được vào")
+
+    def test_the_names_own_layers_still_decide_the_status_if_the_market_opened(self) -> None:
+        flow = FlowState(WAIT, BLOCK, "Nghi bán vào đà tăng", net_volume=-1.0)
+        self.assertEqual(self._compose(flow=flow).open_status, "Chờ")
+        self.assertEqual(self._compose(valuation={"pe": 40.0}).open_status, "Loại")
+        self.assertEqual(self._compose(pattern=Pattern(False, "Chưa có nền", 0.02, 40)).open_status, "Theo dõi")
+        unlocked = self._compose()
+        self.assertEqual((unlocked.open_status, unlocked.open_summary), (unlocked.status, unlocked.summary))
+
     def test_valuation_over_the_ceiling_is_rejected(self) -> None:
         verdict = self._compose(valuation={"pe": 40.0})
         self.assertEqual(verdict.status, "Loại")

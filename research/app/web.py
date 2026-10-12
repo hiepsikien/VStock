@@ -8,14 +8,15 @@ from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
 
 from app import db, paper
 from app.backtest import run_backtest_with_industries
-from app.chart import build_chart
+from app.chart import build_chart, build_line_chart
 from app.breadth import breadth_reason
 from app.breadth_filter import Counts
 from app.config import (
@@ -26,6 +27,9 @@ from app.config import (
     BREADTH_OPEN,
     BREADTH_SERIES,
     BREADTH_STATE_SERIES,
+    INDUSTRY_GATE_ENFORCED,
+    MA_WINDOW,
+    MACRO_SYMBOLS,
     MARKET_GATE_REQUIRED,
     MARKET_SERIES,
     POLICY_RATE_HISTORY,
@@ -36,12 +40,29 @@ from app.industries import industry_labels, load_industry_map
 from app.ingest import load_exchanges
 from app.jobs import Job, status_line
 from app.money import LABELS, money_state, thresholds
-from app.pattern import assess_pattern
+from app.pattern import assess_pattern, market_regime
 from app.pipeline import busy, run_session
 from app.scheduled import VN
 from app.tracking import breadth_rows, filter_counts, filter_view, run_rows, schedule_view
+from app.views import (
+    flow_label,
+    funnel,
+    gate_chain,
+    group_changes,
+    held_by_market,
+    industry_name,
+    lane,
+    lane_counts,
+    market_headline,
+    market_lights,
+    news_label,
+    paper_alerts,
+    render_markdown,
+    status_changes,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
+REPORTS = ROOT / "reports"
 templates = Jinja2Templates(directory=str(ROOT / "templates"))
 
 
@@ -64,6 +85,9 @@ def _status_class(status: str) -> str:
 
 templates.env.filters["pct"] = _pct
 templates.env.globals["status_class"] = _status_class
+templates.env.globals["news_label"] = news_label
+templates.env.globals["flow_label"] = flow_label
+templates.env.globals["industry_name"] = industry_name
 
 
 # Phép đo sau phí và phép đếm mẫu bộ lọc là CPU thuần Python, chạy hàng phút. Trên một luồng
@@ -144,12 +168,14 @@ def _ordered(verdicts: list[dict]) -> list[dict]:
 
     The state itself leads: a name that may be bought outranks one on watch. Inside a state the
     composite score decides, with the insider-buy flag and then the ticker as tie-breakers — the
-    same order the backtest buys in, so the page and the measurement read the list alike.
+    same order the backtest buys in, so the page and the measurement read the list alike. While
+    the market gates hold the list, the state is the one the name would have if they opened, so
+    a locked table still ranks the names that are ready ahead of the rest.
     """
     return sorted(
         verdicts,
         key=lambda item: (
-            STATUS_RANK.get(item["status"], 9),
+            STATUS_RANK.get(lane(item), 9),
             -item["score"],
             -item["priority"],
             item["symbol"],
@@ -161,35 +187,70 @@ async def _index_days() -> list[str]:
     return [str(bar["trade_date"]) for bar in await db.bars("VNINDEX")]
 
 
+async def _market_lights(points: dict, verdicts: list[dict]) -> tuple[list[dict], dict]:
+    shares = points.get(BREADTH_SERIES) or []
+    states = dict(points.get(BREADTH_STATE_SERIES) or [])
+    last_day, last_share = shares[-1] if shares else ("", None)
+    state = states.get(last_day)
+    lights = market_lights(
+        market_regime(await db.bars("VNINDEX")),
+        money_state(points),
+        verdicts,
+        last_share,
+        None if state is None else state > 0.5,
+    )
+    return lights, market_headline(lights)
+
+
+def _page(request: Request, name: str, active: str, context: dict):
+    return templates.TemplateResponse(request, name, {"active": active, **context})
+
+
 @app.get("/")
 async def dashboard(request: Request, notice: str = "", error: str = ""):
     verdicts = _ordered(await db.latest_verdicts())
-    counts: dict[str, int] = {}
+    as_of = verdicts[0]["as_of"] if verdicts else ""
+    previous_day, previous = await db.previous_statuses(as_of) if as_of else ("", {})
+    changes = status_changes(verdicts, previous) if previous else []
+    changed = {change["symbol"]: change for change in changes}
+    decided = {
+        row["symbol"] for row in await db.recent_decisions(500) if row["as_of"] == as_of
+    }
     for item in verdicts:
-        counts[item["status"]] = counts.get(item["status"], 0) + 1
+        item["lane"] = lane(item)
+        item["held"] = held_by_market(item)
+        item["change"] = changed.get(item["symbol"])
+        item["industry_label"] = industry_name(item.get("industry_name"))
     points = await db.market_points()
-    return templates.TemplateResponse(
+    lights, headline = await _market_lights(points, verdicts)
+    report = await paper.report()
+    alerts = paper_alerts(report["rows"])
+    to_confirm = [item for item in verdicts if item["status"] == "Được vào" and item["symbol"] not in decided]
+    schedule = schedule_view(await _index_days(), points.get(BREADTH_STATE_SERIES) or [], datetime.now(VN))
+    return _page(
         request,
         "dashboard.html",
+        "today",
         {
             "verdicts": verdicts,
-            "counts": counts,
-            "universe": await db.universe(),
-            "run": await db.latest_run(),
-            "decisions": await db.recent_decisions(),
-            "paper": await paper.report(),
+            "as_of": as_of,
+            "lights": lights,
+            "headline": headline,
+            "funnel": funnel(verdicts),
+            "lanes": lane_counts(verdicts),
+            "locked": any(item["held"] for item in verdicts),
+            "missing_open": bool(verdicts) and not any(item.get("open_status") for item in verdicts),
+            "changes": group_changes(changes),
+            "previous_day": previous_day,
+            "to_confirm": to_confirm,
+            "alerts": alerts,
+            "paper": report,
+            "industries": sorted({item["industry_label"] for item in verdicts if item["industry_label"]}),
             "notice": notice,
             "error": error,
             "busy": busy(),
-            "regime": verdicts[0]["regime_reason"] if verdicts else "",
-            "macro": verdicts[0]["macro_reason"] if verdicts else "",
-            # Cổng tiền tệ đọc từ chuỗi đã lưu, nên nó đứng được trên bảng cả khi phiên
-            # chưa chấm lại mã nào.
-            "money": money_state(points).reason,
-            "runs": run_rows(await db.recent_runs(8), busy()),
-            "schedule": schedule_view(
-                await _index_days(), points.get(BREADTH_STATE_SERIES) or [], datetime.now(VN)
-            ),
+            "run": await db.latest_run(),
+            "schedule": schedule,
         },
     )
 
@@ -202,11 +263,39 @@ def _money_value(code: str, value: float) -> str:
     return f"{value:,.2f}"
 
 
+def _index_chart(index_bars: list[dict], sessions: int = 250) -> dict | None:
+    """VN-Index và MA200 của chính nó, một năm gần nhất: khoảng cách là cổng thị trường."""
+    closes = [(str(bar["trade_date"]), float(bar["close"])) for bar in index_bars if bar["close"] > 0]
+    total = 0.0
+    averages = []
+    for index, (day, close) in enumerate(closes):
+        total += close
+        if index >= MA_WINDOW:
+            total -= closes[index - MA_WINDOW][1]
+        if index >= MA_WINDOW - 1:
+            averages.append((day, total / MA_WINDOW))
+    return build_line_chart(
+        [
+            {"name": "VN-Index", "kind": "index", "points": closes[-sessions:]},
+            {"name": f"MA{MA_WINDOW}", "kind": "ma", "points": averages[-sessions:]},
+        ],
+        value_format="{:,.0f}",
+    )
+
+
+def _macro_rows(verdicts: list[dict]) -> list[tuple[str, str]]:
+    labels = {label for _code, _symbol, label in MACRO_SYMBOLS}
+    groups = dict(verdicts[0]["metric_groups"]) if verdicts else {}
+    return [(label, value) for label, value in groups.get("Thị trường", []) if label in labels]
+
+
 @app.get("/market")
 async def market_page(request: Request):
-    """Cổng tiền tệ. Một trang riêng, vì các chuỗi này thuộc về thị trường chứ không thuộc mã nào."""
+    """Mọi cổng toàn thị trường ở một chỗ: VN-Index, vĩ mô, tiền tệ, độ rộng."""
     points = await db.market_points()
     money = money_state(points)
+    verdicts = await db.latest_verdicts()
+    lights, headline = await _market_lights(points, verdicts)
     notes = dict(money.metrics)
     rows = []
     for code, label, unit, symbol in MARKET_SERIES:
@@ -225,10 +314,18 @@ async def market_page(request: Request):
             }
         )
     days = [row["last_day"] for row in rows if row["last_day"]]
-    return templates.TemplateResponse(
+    index_bars = await db.bars("VNINDEX")
+    return _page(
         request,
         "market.html",
+        "market",
         {
+            "lights": lights,
+            "headline": headline,
+            "regime": market_regime(index_bars),
+            "index_chart": _index_chart(index_bars),
+            "macro": verdicts[0]["macro_reason"] if verdicts else "",
+            "macro_rows": _macro_rows(verdicts),
             "money": money,
             "rows": rows,
             "thresholds": thresholds(),
@@ -238,9 +335,7 @@ async def market_page(request: Request):
             ],
             "policy": POLICY_RATE_HISTORY,
             "latest_day": max(days) if days else "",
-            "breadth": _breadth_view(points, await _index_days()),
-            "breadth_filter": await _breadth_filter(),
-            "busy": busy(),
+            "breadth": _breadth_view(points, [str(bar["trade_date"]) for bar in index_bars]),
         },
     )
 
@@ -252,11 +347,21 @@ def _breadth_view(points: dict[str, list[tuple[str, float]]], index_days: list[s
     state_of = dict(states)
     last_day, last_share = shares[-1] if shares else ("", None)
     state = state_of.get(last_day)
+    recent = breadth_rows(index_days, shares, states)
     return {
         "reason": breadth_reason(last_share, None if state is None else state > 0.5) if shares else "",
         "last_day": last_day,
         "sessions": len(shares),
-        "recent": [{**row, "share": _pct(row["share"])} for row in breadth_rows(index_days, shares, states)],
+        "recent": [{**row, "share": _pct(row["share"])} for row in recent],
+        "unrecorded": sum(1 for row in recent if row["open"] is None),
+        "chart": build_line_chart(
+            [{"name": "Độ rộng", "kind": "breadth", "points": shares[-250:]}],
+            levels=[
+                {"value": BREADTH_OPEN, "label": f"mở {BREADTH_OPEN:.0%}", "kind": "open"},
+                {"value": BREADTH_CLOSE, "label": f"đóng {BREADTH_CLOSE:.0%}", "kind": "closed"},
+            ],
+            value_format="{:.0%}",
+        ),
         "enforced": BREADTH_GATE_ENFORCED,
         "rule": (
             f"Tỷ lệ mã của rổ 200 trong năm đóng cửa trên MA{BREADTH_MA_WINDOW}. Mở khi từ "
@@ -302,21 +407,26 @@ async def _breadth_filter() -> dict:
     }
 
 
+@app.post("/lab/filter-count")
 @app.post("/market/filter-count")
 async def start_filter_count():
     if not busy():
         filter_job.start(await _filter_key(), _count_filter)
-    return RedirectResponse("/market#bo-loc-do-rong", status_code=303)
+    return RedirectResponse("/lab#bo-loc-do-rong", status_code=303)
+
+
+_BACK = {"/": "/", "/ops": "/ops"}
 
 
 @app.post("/run")
-async def run():
+async def run(back: str = Form("/")):
+    target = _BACK.get(back, "/")
     if busy():
-        return RedirectResponse("/?error=Đang+chạy+một+phiên+khác", status_code=303)
+        return RedirectResponse(f"{target}?error=Đang+chạy+một+phiên+khác", status_code=303)
     message = await run_session()
     if message.startswith("Phiên lỗi") or message.startswith("Đang chạy"):
-        return RedirectResponse(f"/?error={_query(message)}", status_code=303)
-    return RedirectResponse(f"/?notice={_query(message)}", status_code=303)
+        return RedirectResponse(f"{target}?error={_query(message)}", status_code=303)
+    return RedirectResponse(f"{target}?notice={_query(message)}", status_code=303)
 
 
 @app.post("/universe")
@@ -324,11 +434,14 @@ async def update_universe(symbol: str = Form(""), action: str = Form("add")):
     cleaned = "".join(ch for ch in symbol.upper() if ch.isalnum())
     if action == "remove" and cleaned:
         await db.remove_symbol(cleaned)
-        return RedirectResponse(f"/?notice={_query('Đã bỏ ' + cleaned)}", status_code=303)
+        return RedirectResponse(f"/ops?notice={_query('Đã bỏ ' + cleaned)}#danh-sach", status_code=303)
     if len(cleaned) < 2 or len(cleaned) > 8:
-        return RedirectResponse("/?error=Mã+không+hợp+lệ", status_code=303)
+        return RedirectResponse("/ops?error=Mã+không+hợp+lệ#danh-sach", status_code=303)
     await db.add_symbol(cleaned)
-    return RedirectResponse(f"/?notice={_query('Đã thêm ' + cleaned + '. Chạy phiên để chấm mã này.')}", status_code=303)
+    return RedirectResponse(
+        f"/ops?notice={_query('Đã thêm ' + cleaned + '. Chạy phiên để chấm mã này.')}#danh-sach",
+        status_code=303,
+    )
 
 
 @app.get("/symbol/{symbol}")
@@ -344,12 +457,15 @@ async def symbol_page(request: Request, symbol: str, error: str = "", notice: st
         if item and bars and index_bars
         else None
     )
-    return templates.TemplateResponse(
+    return _page(
         request,
         "symbol.html",
+        "today",
         {
             "symbol": sym,
             "item": item,
+            "chain": gate_chain(item) if item else [],
+            "held": held_by_market(item) if item else False,
             "chart": build_chart(bars, pattern),
             "score_ceilings": SCORE_CEILINGS,
             "articles": await db.articles_for(sym),
@@ -402,6 +518,26 @@ async def decide(
     return RedirectResponse(f"{target}?notice={_query(label)}", status_code=303)
 
 
+@app.get("/paper")
+async def paper_page(request: Request):
+    """Sổ đo tiến: vị thế giấy mở từ các lần xác nhận, và nhật ký mọi lần xác nhận hay bỏ qua."""
+    report = await paper.report(200)
+    for row in report["rows"]:
+        last = row.get("last_price") or row["entry_price"]
+        row["room_stop"] = last / row["stop_price"] - 1 if row["stop_price"] else None
+        row["to_target"] = None if row.get("tp1_done") else row["target1"] / last - 1
+    return _page(
+        request,
+        "paper.html",
+        "paper",
+        {
+            "paper": report,
+            "alerts": paper_alerts(report["rows"]),
+            "decisions": await db.recent_decisions(100),
+        },
+    )
+
+
 # The portfolio walk takes minutes on the 106-symbol list. It runs in a worker process (on the
 # event loop it froze every other page) and only from the button on its page.
 backtest_job = Job("backtest_walk")
@@ -433,27 +569,123 @@ async def start_backtest():
     return RedirectResponse("/backtest", status_code=303)
 
 
-@app.get("/backtest")
-async def backtest_page(request: Request):
+async def _backtest_state() -> dict:
     symbols = len(await db.universe())
     state = await backtest_job.state(await _backtest_key())
-    return templates.TemplateResponse(
+    return {
+        "result": None if state["error"] else state["result"],
+        "failed": bool(state["error"]),
+        "running": state["running"],
+        "line": status_line(
+            state,
+            what=f"phép đo trên {symbols} mã",
+            button="Chạy phép đo",
+            takes="Thường mất vài phút",
+            refresh=20,
+            session_busy=busy(),
+        ),
+    }
+
+
+@app.get("/backtest")
+async def backtest_page(request: Request):
+    return _page(request, "backtest.html", "lab", {**await _backtest_state(), "busy": busy()})
+
+
+def _report_title(path: Path) -> str:
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("#"):
+            return line.lstrip("#").strip()
+    return path.stem
+
+
+# Thí nghiệm nào đọc báo cáo nào: thẻ của trang Nghiên cứu dẫn thẳng tới số đã đo.
+_EXPERIMENT_REPORTS = {
+    "breadth": ("breadth_gate", "breadth_gate_explained"),
+    "industry": ("industry_gate", "industry_sweep"),
+}
+
+
+def _reports(names: tuple[str, ...]) -> list[dict]:
+    out = []
+    for name in names:
+        path = REPORTS / f"{name}.md"
+        if path.exists():
+            out.append({"name": name, "title": _report_title(path)})
+    return out
+
+
+@app.get("/lab")
+async def lab_page(request: Request):
+    """Mỗi giả thuyết một thẻ: đang đo gì, đã đủ mẫu chưa, luật có đang khóa danh sách không."""
+    known = {name for names in _EXPERIMENT_REPORTS.values() for name in names}
+    others = sorted(path.stem for path in REPORTS.glob("*.md") if path.stem not in known)
+    breadth_filter = await _breadth_filter()
+    return _page(
         request,
-        "backtest.html",
+        "lab.html",
+        "lab",
         {
-            "result": None if state["error"] else state["result"],
-            "failed": bool(state["error"]),
-            "running": state["running"],
+            "backtest": await _backtest_state(),
+            "breadth_filter": breadth_filter,
+            "breadth_enforced": BREADTH_GATE_ENFORCED,
+            "industry_enforced": INDUSTRY_GATE_ENFORCED,
+            "breadth_reports": _reports(_EXPERIMENT_REPORTS["breadth"]),
+            "industry_reports": _reports(_EXPERIMENT_REPORTS["industry"]),
+            "other_reports": _reports(tuple(others)),
             "busy": busy(),
-            "line": status_line(
-                state,
-                what=f"phép đo trên {symbols} mã",
-                button="Chạy phép đo",
-                takes="Thường mất vài phút",
-                refresh=20,
-                session_busy=busy(),
+        },
+    )
+
+
+@app.get("/lab/report/{name}")
+async def report_page(request: Request, name: str):
+    path = REPORTS / f"{name}.md"
+    if not name.replace("_", "").isalnum() or not path.exists():
+        raise HTTPException(status_code=404)
+    return _page(
+        request,
+        "report.html",
+        "lab",
+        {
+            "name": name,
+            "title": _report_title(path),
+            "body": Markup(render_markdown(path.read_text(encoding="utf-8"))),
+        },
+    )
+
+
+@app.get("/ops")
+async def ops_page(request: Request, notice: str = "", error: str = ""):
+    """Hệ thống có chạy đúng không: lịch chạy, các lần chạy, độ tươi của dữ liệu, danh sách mã."""
+    points = await db.market_points()
+    index_days = await _index_days()
+    verdicts = await db.latest_verdicts()
+    freshness = [
+        ("Nến VN-Index mới nhất", index_days[-1] if index_days else "chưa có"),
+        ("Phiên chấm gần nhất", verdicts[0]["as_of"] if verdicts else "chưa có"),
+        ("Số mã đã chấm", str(len(verdicts))),
+    ]
+    for code, label, _unit, _symbol in MARKET_SERIES:
+        series = points.get(code) or []
+        freshness.append((label, f"{series[-1][0]} ({len(series)} phiên)" if series else "chưa có số"))
+    shares = points.get(BREADTH_SERIES) or []
+    freshness.append(("Độ rộng", f"{shares[-1][0]} ({len(shares)} phiên)" if shares else "chưa có số"))
+    return _page(
+        request,
+        "ops.html",
+        "ops",
+        {
+            "notice": notice,
+            "error": error,
+            "busy": busy(),
+            "run": await db.latest_run(),
+            "runs": run_rows(await db.recent_runs(20), busy()),
+            "schedule": schedule_view(
+                index_days, points.get(BREADTH_STATE_SERIES) or [], datetime.now(VN)
             ),
-            "paper": await paper.report(),
+            "freshness": freshness,
+            "universe": await db.universe(),
         },
     )
 

@@ -1,0 +1,46 @@
+{% macro lights_panel(lights, headline, detail_link=True) %}
+  <section class="market-panel {{ headline.state }}">
+    <p class="headline">{{ headline.text }}</p>
+    <ul class="lights">
+      {% for light in lights %}
+        <li class="light {{ light.state }}{% if not light.enforced %} observe{% endif %}">
+          <a href="{{ light.href }}">
+            <span class="light-head">
+              <span class="dot" aria-hidden="true"></span>
+              <span class="name">{{ light.name }}</span>
+              <span class="word">{{ light.word }}</span>
+            </span>
+            <span class="detail">{{ light.detail }}</span>
+            {% if not light.enforced %}<span class="tag">chỉ quan sát</span>{% endif %}
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+    {% if detail_link %}<p class="hint small"><a href="/market">Chi tiết thị trường</a></p>{% endif %}
+  </section>
+{% endmacro %}
+
+{% macro line_chart(chart, label) %}
+  {% if chart %}
+    <figure class="chart line-chart">
+      <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-label="{{ label }}">
+        {% for tick in chart.ticks %}
+          <line class="grid" x1="0" y1="{{ tick.y }}" x2="{{ chart.plot_right }}" y2="{{ tick.y }}" />
+          <text class="tick" x="{{ chart.plot_right + 6 }}" y="{{ tick.y + 4 }}">{{ tick.text }}</text>
+        {% endfor %}
+        {% for level in chart.levels %}
+          <line class="level {{ level.kind }}" x1="0" y1="{{ level.y }}" x2="{{ chart.plot_right }}" y2="{{ level.y }}" />
+          <text class="level-label {{ level.kind }}" x="6" y="{{ level.y - 4 }}">{{ level.label }}</text>
+        {% endfor %}
+        {% for line in chart.lines %}
+          <polyline class="series {{ line.kind }}" points="{{ line.points }}"><title>{{ line.name }}</title></polyline>
+          <text class="last {{ line.kind }}" x="{{ chart.plot_right + 6 }}" y="{{ line.last_y + 4 }}">{{ line.last_text }}</text>
+        {% endfor %}
+      </svg>
+      <figcaption>
+        {{ chart.sessions }} phiên, {{ chart.first_date }} → {{ chart.last_date }}.
+        {% for line in chart.lines %}<span class="key {{ line.kind }}">{{ line.name }}</span>{% endfor %}
+      </figcaption>
+    </figure>
+  {% endif %}
+{% endmacro %}

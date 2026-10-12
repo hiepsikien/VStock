@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} — VStock Research{% endblock %}
+{% block body %}
+  <p class="hint"><a href="/lab">← Nghiên cứu</a> · <code>reports/{{ name }}.md</code></p>
+  <article class="report">{{ body }}</article>
+{% endblock %}

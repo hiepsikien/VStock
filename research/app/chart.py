@@ -255,3 +255,77 @@ def build_chart(
         "legend": legend,
         "breakout": breakout,
     }
+
+
+LINE_HEIGHT = 220
+
+
+def build_line_chart(
+    series: list[dict],
+    *,
+    levels: list[dict] | None = None,
+    value_format: str = "{:,.0f}",
+    height: int = LINE_HEIGHT,
+) -> dict | None:
+    """Đường theo phiên cho các trang thị trường, cùng khung với nến của trang mã.
+
+    `series` là [{"name", "kind", "points": [(ngày, giá trị)]}]; chuỗi đầu tiên đặt trục thời
+    gian, điểm của chuỗi sau không có ngày đó thì bỏ. `levels` là các mốc ngang đã khai báo,
+    như ngưỡng mở và đóng của độ rộng, để đường được đọc cạnh luật của nó.
+    """
+    if not series or len(series[0]["points"]) < 2:
+        return None
+    levels = levels or []
+    dates = [str(day) for day, _value in series[0]["points"]]
+    position = {day: index for index, day in enumerate(dates)}
+    values = [float(value) for item in series for day, value in item["points"] if str(day) in position]
+    values += [float(level["value"]) for level in levels]
+    high, low = max(values), min(values)
+    if high <= low:
+        high, low = high + 1, low - 1
+    pad = (high - low) * 0.06
+    high, low = high + pad, low - pad
+
+    plot_right = CHART_WIDTH - CHART_PAD["right"]
+    span = plot_right - CHART_PAD["left"]
+    plot_top = CHART_PAD["top"]
+    plot_bottom = height - CHART_PAD["bottom"]
+    step = span / max(1, len(dates) - 1)
+
+    def x_of(index: int) -> float:
+        return round(CHART_PAD["left"] + index * step, 2)
+
+    def y_of(value: float) -> float:
+        return round(plot_top + (high - value) / (high - low) * (plot_bottom - plot_top), 2)
+
+    lines = []
+    for item in series:
+        kept = [(position[str(day)], float(value)) for day, value in item["points"] if str(day) in position]
+        if len(kept) < 2:
+            continue
+        lines.append(
+            {
+                "name": item["name"],
+                "kind": item.get("kind", ""),
+                "points": " ".join(f"{x_of(index)},{y_of(value)}" for index, value in kept),
+                "last_text": value_format.format(kept[-1][1]),
+                "last_y": y_of(kept[-1][1]),
+            }
+        )
+    return {
+        "width": CHART_WIDTH,
+        "height": height,
+        "plot_right": plot_right,
+        "plot_bottom": plot_bottom,
+        "sessions": len(dates),
+        "first_date": dates[0],
+        "last_date": dates[-1],
+        "lines": lines,
+        "levels": [
+            {**level, "y": y_of(float(level["value"]))} for level in levels
+        ],
+        "ticks": [
+            {"y": y_of(low + (high - low) * index / TICK_COUNT), "text": value_format.format(low + (high - low) * index / TICK_COUNT)}
+            for index in range(1, TICK_COUNT)
+        ],
+    }
