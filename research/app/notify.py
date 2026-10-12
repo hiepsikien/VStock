@@ -24,11 +24,15 @@ def configured() -> bool:
     return bool(os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_CHAT_ID"))
 
 
+def configured() -> bool:
+    return bool(os.environ.get("TELEGRAM_BOT_TOKEN", "").strip() and os.environ.get("TELEGRAM_CHAT_ID", "").strip())
+
+
 async def send(text: str) -> bool:
     """Post one message. Missing credentials are not an error, the operator may not want alerts."""
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
-    if not token or not chat_id:
+    if not configured():
         logger.info("Telegram skipped: token or chat id not set")
         return False
     try:

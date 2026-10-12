@@ -47,13 +47,65 @@
             <tr>
               <th>{{ row.day }}</th>
               <td>{{ row.share }}</td>
-              <td>{% if row.open is none %}—{% elif row.open > 0.5 %}mở{% else %}đóng{% endif %}</td>
+              <td>
+                {% if row.open is none %}
+                  {% if row.measured %}<span class="pill out">chưa ghi</span>{% else %}—{% endif %}
+                {% elif row.open %}mở{% else %}đóng{% endif %}
+              </td>
             </tr>
           {% endfor %}
         </tbody>
       </table>
+      <p class="hint">
+        Mỗi dòng là một phiên VN-Index. Phiên thuộc phép đo bộ lọc độ rộng mà không có trạng thái thì
+        ghi "chưa ghi": tín hiệu của phiên đó bị loại và không được tính bù.
+      </p>
     {% else %}
       <p class="hint">Chưa có phiên nào lưu độ rộng.</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if breadth_filter %}
+  <section class="group" id="bo-loc-do-rong">
+    <h2>Bộ lọc độ rộng — phép đo chốt trước</h2>
+    <p class="hint">
+      Giả thuyết: khi VN-Index trên MA200, tín hiệu phá nền lúc độ rộng đóng có lợi nhuận 40 phiên thấp
+      hơn lúc độ rộng mở. Luật ở <code>docs/breadth-signal-filter.md</code>, chốt bằng tag
+      <code>prereg/breadth-filter</code> và các sửa đổi <code>-amend1</code> tới <code>-amend3</code>.
+      Trước lần đo chỉ được xem số đếm, nên ở đây không có lợi nhuận hay tỷ lệ thắng.
+    </p>
+    {% if breadth_filter.error %}
+      <p class="banner bad">Chưa đếm được: {{ breadth_filter.error }}</p>
+    {% else %}
+      {% set c = breadth_filter.counts %}
+      <p class="regime">{{ breadth_filter.status }}</p>
+      {% if breadth_filter.started %}
+        <p class="hint">
+          Từ {{ c.start }} tới {{ c.last_day }}: {{ c.months }}/{{ breadth_filter.min_months }} tháng,
+          {{ c.sessions }} phiên, {{ c.sessions_without_state }} phiên không có trạng thái độ rộng.
+          Hạn chót {{ breadth_filter.deadline }} ({{ breadth_filter.max_months }} tháng).
+        </p>
+        <table class="numbers">
+          <thead><tr><th></th><th>Nhóm giữ (độ rộng mở)</th><th>Nhóm bỏ (độ rộng đóng)</th></tr></thead>
+          <tbody>
+            <tr><th>Tín hiệu</th><td>{{ c.keep_total }}</td><td>{{ c.drop_total }}</td></tr>
+            <tr>
+              <th>Đã đủ 40 phiên (cần {{ breadth_filter.min_signals }})</th>
+              <td>{{ c.keep_matured }}</td><td>{{ c.drop_matured }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="hint">
+          Tín hiệu bị loại vì phiên không có trạng thái độ rộng: {{ c.missing_state }}.
+          Chỉ tính tín hiệu của rổ 100 ở phiên VN-Index trên MA200.
+        </p>
+      {% else %}
+        <p class="hint">
+          Chưa có phiên nào từ {{ c.start }}; phiên mới nhất trong kho là {{ c.last_day }}.
+          Hạn chót {{ breadth_filter.deadline }}.
+        </p>
+      {% endif %}
     {% endif %}
   </section>
   {% endif %}

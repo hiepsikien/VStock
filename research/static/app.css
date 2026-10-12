@@ -105,6 +105,7 @@ input, textarea {
 
 .banner.ok { border-color: #b7d7c4; }
 .banner.bad { border-color: #e4b4b0; }
+.banner.wait { border-color: #e6d29a; }
 
 .counts {
   display: flex;

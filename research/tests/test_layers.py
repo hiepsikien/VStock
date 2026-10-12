@@ -892,31 +892,37 @@ class BacktestCacheTest(unittest.TestCase):
         path = handle.name
         os.environ["RESEARCH_DB_PATH"] = path
         calls: list[tuple] = []
-        original = web.run_backtest
-        web.run_backtest = lambda *args, **kwargs: calls.append(args) or {"n": len(calls)}
-        web._backtest_cache.update({"key": None, "result": None, "at": ""})
+        original = web.run_walk
+
+        async def fake_walk(inputs):
+            calls.append(inputs)
+            return {"n": len(calls)}
+
+        web.run_walk = fake_walk
+        web._backtest_cache.update({"key": None, "result": None, "at": "", "task": None})
         try:
             await db.init_db()
             run_id = await db.start_run()
-            first = await web.backtest_result()
-            second = await web.backtest_result()
+            first, first_pending = await web.backtest_result()
+            second, second_pending = await web.backtest_result()
             self.assertEqual(len(calls), 1)
             self.assertEqual(first, second)
+            self.assertFalse(first_pending or second_pending)
             self.assertTrue(web.backtest_computed_at())
 
-            self.assertEqual((await web.backtest_result(fresh=True))["n"], 2)
+            self.assertEqual((await web.backtest_result(fresh=True))[0]["n"], 2)
             self.assertEqual(len(calls), 2)
 
             await db.finish_run(run_id, "ok", "xong")
-            self.assertEqual((await web.backtest_result())["n"], 3)
+            self.assertEqual((await web.backtest_result())[0]["n"], 3)
             self.assertEqual(len(calls), 3)
 
             await db.add_symbol("ZZZ")
-            self.assertEqual((await web.backtest_result())["n"], 4)
+            self.assertEqual((await web.backtest_result())[0]["n"], 4)
             self.assertEqual(len(calls), 4)
         finally:
-            web.run_backtest = original
-            web._backtest_cache.update({"key": None, "result": None, "at": ""})
+            web.run_walk = original
+            web._backtest_cache.update({"key": None, "result": None, "at": "", "task": None})
             await db.close_db()
             if previous is None:
                 os.environ.pop("RESEARCH_DB_PATH", None)
