@@ -176,8 +176,12 @@ def run_backtest(
     market_points: dict[str, list[tuple[str, float]]] | None = None,
     open_map: dict[tuple[str, str], bool] | None = None,
     enforce_industry: bool = False,
+    breadth_open: dict[str, bool | None] | None = None,
 ) -> dict:
     """A book of MAX_SLOTS equal-risk slots, each with its own exit plan.
+
+    `breadth_open` adds the breadth gate next to the MA200 gate: a session whose state is not
+    True opens nothing, an unscored session included.
 
     Statements are used 45 days after period end. The news clock is skipped because old
     filings are not kept long enough. Two live gates are deliberately absent:
@@ -266,7 +270,8 @@ def run_backtest(
                 slots.remove(slot)
 
         # 3. Fill free slots with the best ranked names.
-        if regime.open and len(slots) < MAX_SLOTS:
+        breadth_ok = breadth_open is None or breadth_open.get(trade_date) is True
+        if regime.open and breadth_ok and len(slots) < MAX_SLOTS:
             held = {slot.position.symbol for slot in slots}
             found = _candidates(
                 trade_date,

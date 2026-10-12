@@ -499,6 +499,36 @@ async def bars(symbol: str) -> list[dict]:
     return [dict(row) for row in await cursor.fetchall()]
 
 
+async def all_bars() -> dict[str, list[dict]]:
+    """Nến của mọi mã trong một truy vấn, cho phần cần cả kho như rổ theo năm và độ rộng."""
+    db = await get_db()
+    cursor = await db.execute(
+        """
+        SELECT symbol, trade_date, open, high, low, close, volume, raw_close, trade_value
+        FROM daily_bars
+        ORDER BY trade_date
+        """
+    )
+    out: dict[str, list[dict]] = {}
+    for row in await cursor.fetchall():
+        bar = dict(row)
+        out.setdefault(bar.pop("symbol"), []).append(bar)
+    return out
+
+
+async def ratio_series(code: str) -> dict[str, dict[str, list[tuple[str, float]]]]:
+    """Một mã chỉ số của mọi mã, trong hình dạng `pit_universe` đọc."""
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT symbol, report_date, value FROM ratio_points WHERE code = ? ORDER BY report_date",
+        (code,),
+    )
+    out: dict[str, dict[str, list[tuple[str, float]]]] = {}
+    for row in await cursor.fetchall():
+        out.setdefault(row["symbol"], {}).setdefault(code, []).append((row["report_date"], row["value"]))
+    return out
+
+
 async def raw_tape_missing(since: str = RESEARCH_HISTORY_START) -> list[tuple[str, int, int, str]]:
     """Mã còn thiếu giá thật kể từ `since`: mã, số phiên, số phiên thiếu, phiên thiếu đầu tiên.
 

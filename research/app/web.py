@@ -12,7 +12,14 @@ from fastapi.templating import Jinja2Templates
 from app import db, paper
 from app.backtest import run_backtest
 from app.chart import build_chart
+from app.breadth import breadth_reason
 from app.config import (
+    BREADTH_CLOSE,
+    BREADTH_GATE_ENFORCED,
+    BREADTH_MA_WINDOW,
+    BREADTH_OPEN,
+    BREADTH_SERIES,
+    BREADTH_STATE_SERIES,
     MARKET_GATE_REQUIRED,
     MARKET_SERIES,
     POLICY_RATE_HISTORY,
@@ -164,8 +171,32 @@ async def market_page(request: Request):
             ],
             "policy": POLICY_RATE_HISTORY,
             "latest_day": max(days) if days else "",
+            "breadth": _breadth_view(points),
         },
     )
+
+
+def _breadth_view(points: dict[str, list[tuple[str, float]]]) -> dict:
+    """Số độ rộng mà phiên live đã lưu: tỷ lệ và trạng thái của từng phiên."""
+    shares = points.get(BREADTH_SERIES) or []
+    states = dict(points.get(BREADTH_STATE_SERIES) or [])
+    recent = [
+        {"day": day, "share": _pct(share), "open": states.get(day)}
+        for day, share in reversed(shares[-20:])
+    ]
+    last_day, last_share = shares[-1] if shares else ("", None)
+    state = states.get(last_day)
+    return {
+        "reason": breadth_reason(last_share, None if state is None else state > 0.5) if shares else "",
+        "last_day": last_day,
+        "sessions": len(shares),
+        "recent": recent,
+        "enforced": BREADTH_GATE_ENFORCED,
+        "rule": (
+            f"Tỷ lệ mã của rổ 200 trong năm đóng cửa trên MA{BREADTH_MA_WINDOW}. Mở khi từ "
+            f"{BREADTH_OPEN:.0%}, đóng khi từ {BREADTH_CLOSE:.0%} trở xuống, ở giữa giữ trạng thái trước."
+        ),
+    }
 
 
 @app.post("/run")

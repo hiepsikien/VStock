@@ -7,7 +7,8 @@ from datetime import date
 import httpx
 
 from app import db, notify, paper
-from app.config import BANKS, DEFAULT_UNIVERSE
+from app.breadth import BreadthGate, basket_on, breadth_by_day, breadth_states, gate_on
+from app.config import BANKS, BREADTH_SERIES, BREADTH_STATE_SERIES, DEFAULT_UNIVERSE
 from app.evaluate import compose
 from app.flow import flow_gate
 from app.industries import industry_of, load_industry_map
@@ -27,6 +28,7 @@ from app.ingest import (
 from app.macro import macro_state
 from app.money import money_state
 from app.pattern import assess_pattern, market_regime, session_bar
+from app.pit_universe import baskets_from_bars
 
 logger = logging.getLogger(__name__)
 _lock = asyncio.Lock()
@@ -115,6 +117,11 @@ async def _run() -> str:
         failed = [symbol for symbol in await asyncio.gather(*[_one(symbol) for symbol in symbols]) if symbol]
         if newly_backfilled:
             await db.mark_shares_backfilled([s for s in newly_backfilled if s not in failed])
+        try:
+            breadth = await _breadth(client, set(symbols))
+        except Exception as exc:
+            logger.exception("Breadth failed")
+            breadth = BreadthGate(None, f"Độ rộng chưa chấm: {exc}")
 
     market_articles = load_market_articles()
     await db.upsert_articles(market_articles)
@@ -176,6 +183,7 @@ async def _run() -> str:
             market=money,
             industry_name=industry,
             industry_open=industry_open,
+            breadth=breadth,
         )
         verdicts.append(verdict.row())
 
@@ -216,3 +224,43 @@ async def _run() -> str:
 
 async def universe_symbols() -> list[str]:
     return await db.universe()
+
+
+async def _breadth(client: httpx.AsyncClient, watched: set[str]) -> BreadthGate:
+    """Độ rộng của phiên, dựng trên rổ 200 của năm đúng như báo cáo cổng độ rộng.
+
+    Phần nạp chính chỉ đi qua danh sách theo dõi, nên mã của rổ ngoài danh sách được nạp nến ở
+    đây. Mã nạp lỗi giữ nến cũ và tự rơi khỏi phép đếm khi nến cuối đã quá cũ. Trạng thái có độ
+    trễ nên phụ thuộc cả chuỗi trước nó: chuỗi VN-Index đọc từ kho, đủ từ 2014 như báo cáo,
+    chứ không phải phần vừa nạp từ 2021.
+    """
+    index_days = [str(bar["trade_date"]) for bar in await db.bars("VNINDEX")]
+    if not index_days:
+        return BreadthGate(None, "Độ rộng chưa chấm: chưa có nến VN-Index")
+    day = index_days[-1]
+    listings = await db.symbol_meta()
+    bars = await db.all_bars()
+    baskets = baskets_from_bars(index_days, bars, await db.ratio_series("OUTSTANDING_SHARES"), listings)
+    current = basket_on(baskets, day)
+    extra = [symbol for symbol in (current.universe if current else []) if symbol not in watched]
+    semaphore = asyncio.Semaphore(4)
+
+    async def _fetch(symbol: str) -> None:
+        async with semaphore:
+            try:
+                fetched = await fetch_bars(client, symbol)
+            except Exception as exc:
+                logger.warning("Breadth bars failed for %s: %s", symbol, exc)
+                return
+        await db.replace_bars(symbol, fetched)
+
+    await asyncio.gather(*[_fetch(symbol) for symbol in extra])
+    for symbol in extra:
+        bars[symbol] = await db.bars(symbol)
+    boards = {symbol: str(meta.get("exchange") or "") for symbol, meta in listings.items()}
+    points = breadth_by_day(index_days, bars, baskets, boards)
+    gate = gate_on(day, points, breadth_states([(d, points[d].share) for d in index_days]))
+    if gate.share is not None and gate.open is not None:
+        await db.upsert_market_points(BREADTH_SERIES, [(day, gate.share)])
+        await db.upsert_market_points(BREADTH_STATE_SERIES, [(day, 1.0 if gate.open else 0.0)])
+    return gate

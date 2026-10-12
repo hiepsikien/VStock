@@ -351,6 +351,34 @@ MAX_HOLD_EXTENDED = 132
 INDUSTRY_GATE_ENFORCED = False
 INDUSTRY_HOLD_ENABLED = False
 STOCK_SHORTLIST_ENFORCED = False
+
+# --- Cổng độ rộng: bao nhiêu mã của rổ 200 đang trên MA50 -------------------------
+# Chốt ngày 2026-10-12, trước lần đo đầu. Đứng cạnh VN-Index trên MA200 và là cổng AND.
+# Số sát ngưỡng không phải lý do để nới ngưỡng; đổi một số ở đây là luật mới, đo lại từ đầu.
+BREADTH_MA_WINDOW = 50
+# Mở khi tỷ lệ chạm mốc trên, đóng khi chạm mốc dưới; ở giữa thì giữ trạng thái phiên trước.
+BREADTH_OPEN = 0.55
+BREADTH_CLOSE = 0.45
+# Phiên đầu tiên chấm được chưa có trạng thái trước, nên lấy mốc này để quyết định.
+BREADTH_START = 0.50
+# Ít hơn số mã hợp lệ này thì phiên đó "Chưa chấm".
+BREADTH_MIN_NAMES = 30
+# Nến cuối của mã phải nằm trong bao nhiêu phiên gần nhất của VN-Index mới được đếm.
+BREADTH_MAX_STALE_SESSIONS = 5
+# Luật qua cửa, phải đạt ở cả giai đoạn chọn và xác nhận.
+# Tầng thị trường: "MA200 và độ rộng" so với MA200 đơn thuần trên danh mục chia đều rổ 100.
+BREADTH_MIN_DRAWDOWN_CUT = 0.20  # sụt sâu nhất nông hơn ít nhất 20% (tương đối)
+BREADTH_MAX_YEARLY_GIVEUP = 0.01  # lợi nhuận mỗi năm không kém quá 1 điểm %
+# Tầng tín hiệu: lợi nhuận 40 phiên của tín hiệu phá nền lúc mở trừ lúc đóng.
+BREADTH_SIGNAL_HORIZON = 40
+BREADTH_MIN_SIGNAL_EDGE = 0.02
+BREADTH_MIN_SIGNALS = 30  # mỗi phía cần chừng này tín hiệu, thiếu là "chưa đủ mẫu"
+# Đứng tắt cho đến khi báo cáo cổng độ rộng qua cả hai giai đoạn.
+BREADTH_GATE_ENFORCED = False
+# Phiên live lưu tỷ lệ và trạng thái của mình vào market_points dưới hai tên này.
+BREADTH_SERIES = "BREADTH50"
+BREADTH_STATE_SERIES = "BREADTH50_STATE"
+
 MAX_SLOTS = 5
 RISK_PER_TRADE = 0.01
 MAX_POSITION_WEIGHT = 0.35
