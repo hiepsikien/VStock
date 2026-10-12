@@ -65,9 +65,29 @@ khoảng 35–45 giây: mỗi mã thêm một lượt nến, chỉ tiêu, công 
 đi một batch nên không phải nới nhịp poll. Thêm/bỏ mã và ghi xác nhận, bỏ qua cũng làm được ngay
 trên trang web. Trang
 `/backtest` tính lại bảng đo khi mở lần đầu sau mỗi phiên rồi giữ nguyên kết quả; bấm
-**Tính lại** (`/backtest?fresh=1`) nếu muốn chạy lại bằng tay. Hiện chưa có lịch chạy tự động —
-muốn tự chạy hằng ngày thì thêm một lệnh `curl -X POST http://127.0.0.1:8010/run` vào cron
-sau giờ đóng cửa.
+**Tính lại** (`/backtest?fresh=1`) nếu muốn chạy lại bằng tay.
+
+### Lịch chạy sau giờ đóng cửa
+
+Phiên nào không chạy thì phiên đó không có trạng thái độ rộng, và mọi tín hiệu của phiên đó bị loại
+khỏi phép đo bộ lọc độ rộng (`docs/breadth-signal-filter.md`), không tính bù được. Trên macOS:
+
+```bash
+bash scripts/install-research-launchd.sh
+```
+
+Script cài một job launchd chạy `python -m app.scheduled --after-close` từ thứ Hai tới thứ Sáu lúc
+15:30 và 20:00, và từ thứ Ba tới thứ Bảy lúc 08:00 (giờ máy, phải là giờ Việt Nam). Entrade chỉ thêm
+nến ngày một lúc sau giờ đóng cửa, nên các lần sau là lần thử lại. Mỗi lần ghi đè đúng phiên đó bằng
+cùng nến đã đóng, còn lần 08:00 là cơ hội cuối trước phiên kế tiếp. Lệnh không cần server web. Nó in
+kết quả phiên và trạng thái độ rộng đã lưu vào `~/Library/Logs/vstock-research-session.log`. Lệnh
+thoát với mã 1, và gửi Telegram nếu lúc cài có `TELEGRAM_BOT_TOKEN` và `TELEGRAM_CHAT_ID`, khi phiên
+lỗi, khi không ghi được độ rộng, hoặc khi nến VN-Index chưa tới phiên lẽ ra đã đóng cửa (ngày lễ cũng
+báo như vậy).
+
+Máy đang ngủ thì launchd chạy bù khi máy thức. Lần chạy bù rơi vào giờ giao dịch thì bị bỏ qua, vì
+nến phiên chưa đóng. Máy tắt hẳn thì mất phiên đó: `sudo pmset repeat wakeorpoweron MTWRF 15:25:00`
+đánh thức máy trước lần chạy đầu.
 
 Mỗi phiên **chỉ chấm những mã có nến đúng phiên đang chấm**: mã mà kho không có nến của phiên — tải
 lỗi, tạm ngừng giao dịch, hay nguồn chưa có nến — bị bỏ khỏi bảng, chứ không được chấm bằng nến và
