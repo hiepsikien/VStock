@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Tiền tệ — VStock Research{% endblock %}
+{% block head %}{% if breadth_filter and breadth_filter.running %}<meta http-equiv="refresh" content="5;url=/market#bo-loc-do-rong" />{% endif %}{% endblock %}
 {% block body %}
   <h1>Tiền tệ</h1>
   <p class="lede">
@@ -75,9 +76,13 @@
       <code>prereg/breadth-filter</code> và các sửa đổi <code>-amend1</code> tới <code>-amend3</code>.
       Trước lần đo chỉ được xem số đếm, nên ở đây không có lợi nhuận hay tỷ lệ thắng.
     </p>
-    {% if breadth_filter.error %}
-      <p class="banner bad">Chưa đếm được: {{ breadth_filter.error }}</p>
-    {% else %}
+    <div class="toolbar">
+      <form method="post" action="/market/filter-count">
+        <button type="submit" {% if breadth_filter.running or busy %}disabled{% endif %}>Đếm mẫu</button>
+      </form>
+      <p class="{{ 'banner ' ~ breadth_filter.line.kind if breadth_filter.line.kind else 'hint' }}">{{ breadth_filter.line.text }}</p>
+    </div>
+    {% if breadth_filter.counts %}
       {% set c = breadth_filter.counts %}
       <p class="regime">{{ breadth_filter.status }}</p>
       {% if breadth_filter.started %}

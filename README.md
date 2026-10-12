@@ -63,9 +63,12 @@ Dashboard có nút **Chạy phiên**: nó tải nến, chỉ tiêu, công bố, 
 cho cả danh sách, chấm lại toàn bộ, đánh dấu vị thế giấy và gửi cảnh báo. Danh sách 106 mã mất
 khoảng 35–45 giây: mỗi mã thêm một lượt nến, chỉ tiêu, công bố và dòng tiền ngoại, còn giá realtime
 đi một batch nên không phải nới nhịp poll. Thêm/bỏ mã và ghi xác nhận, bỏ qua cũng làm được ngay
-trên trang web. Trang
-`/backtest` tính lại bảng đo khi mở lần đầu sau mỗi phiên rồi giữ nguyên kết quả; bấm
-**Tính lại** (`/backtest?fresh=1`) nếu muốn chạy lại bằng tay.
+trên trang web.
+
+Mở trang hay bấm nút khác không bao giờ chạy việc nặng. Phép đo ở `/backtest` (vài phút) chỉ
+chạy khi bấm **Chạy phép đo**, phép đếm mẫu bộ lọc độ rộng ở `/market` (vài giây) chỉ chạy khi
+bấm **Đếm mẫu**. Dòng ngay cạnh nút báo trạng thái: chưa tính, đang tính từ lúc nào, tính lúc nào
+và còn khớp dữ liệu không, hay lỗi. Kết quả lưu trong kho, nên server khởi động lại vẫn còn.
 
 ### Lịch chạy sau giờ đóng cửa
 

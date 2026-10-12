@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Đo sau phí — VStock Research{% endblock %}
-{% block head %}{% if pending %}<meta http-equiv="refresh" content="20;url=/backtest" />{% endif %}{% endblock %}
+{% block head %}{% if running %}<meta http-equiv="refresh" content="20;url=/backtest" />{% endif %}{% endblock %}
 {% block body %}
   <h1>Đo sau phí</h1>
   <p class="lede">
@@ -13,25 +13,14 @@
     cùng lớp vĩ mô vì kho dữ liệu chỉ có ảnh chụp hiện tại, dùng vào đây là nhìn trước tương lai.
   </p>
 
-  {% if pending %}
-    <p class="banner ok">
-      Đang tính lại phép đo trên {{ symbols }} mã, thường mất vài phút. Các trang khác vẫn dùng được;
-      trang này tự tải lại sau 20 giây.
-      {% if result %}Bảng dưới là lần tính trước.{% endif %}
-    </p>
-  {% endif %}
-  {% if computed_at and result %}
-    <p class="hint">
-      Bảng này tính lúc {{ computed_at }}, giữ lại cho tới khi có phiên mới.
-      <a href="/backtest?fresh=1">Tính lại</a> nếu vừa chạy phiên hoặc vừa sửa danh sách.
-    </p>
-  {% endif %}
+  <section class="toolbar">
+    <form method="post" action="/backtest/run">
+      <button type="submit" {% if running or busy %}disabled{% endif %}>Chạy phép đo</button>
+    </form>
+    <p class="{{ 'banner ' ~ line.kind if line.kind else 'hint' }}">{{ line.text }}</p>
+  </section>
 
-  {% if not result %}
-  {% elif result.error %}
-    <p class="banner bad">{{ result.error }}</p>
-    <p class="hint">Chạy phiên ở trang kết quả trước, để có nến VN-Index và các mã.</p>
-  {% else %}
+  {% if result %}
     <ul class="counts">
       <li>Chiến lược {{ result.strategy_return|pct }}</li>
       <li>VN-Index {{ result.index_return|pct }}</li>

@@ -877,13 +877,14 @@ class StoreTest(unittest.TestCase):
 
 
 class BacktestCacheTest(unittest.TestCase):
-    """The walk takes seconds, so the page must not redo it on every glance."""
+    """The walk takes minutes, so it is kept and only marked stale once the data moves."""
 
-    def test_walk_is_reused_until_data_moves(self) -> None:
+    def test_walk_turns_stale_when_data_moves(self) -> None:
         asyncio.run(self._run())
 
     async def _run(self) -> None:
         from app import web
+        from app.jobs import Job
 
         await db.close_db()
         previous = os.environ.get("RESEARCH_DB_PATH")
@@ -891,38 +892,26 @@ class BacktestCacheTest(unittest.TestCase):
         handle.close()
         path = handle.name
         os.environ["RESEARCH_DB_PATH"] = path
-        calls: list[tuple] = []
-        original = web.run_walk
+        job = Job("backtest_walk")
 
-        async def fake_walk(inputs):
-            calls.append(inputs)
-            return {"n": len(calls)}
+        async def fake_walk():
+            return {"error": None, "n": 1}
 
-        web.run_walk = fake_walk
-        web._backtest_cache.update({"key": None, "result": None, "at": "", "task": None})
         try:
             await db.init_db()
             run_id = await db.start_run()
-            first, first_pending = await web.backtest_result()
-            second, second_pending = await web.backtest_result()
-            self.assertEqual(len(calls), 1)
-            self.assertEqual(first, second)
-            self.assertFalse(first_pending or second_pending)
-            self.assertTrue(web.backtest_computed_at())
-
-            self.assertEqual((await web.backtest_result(fresh=True))[0]["n"], 2)
-            self.assertEqual(len(calls), 2)
+            job.start(await web._backtest_key(), fake_walk)
+            await job.task
+            self.assertFalse((await job.state(await web._backtest_key()))["stale"])
 
             await db.finish_run(run_id, "ok", "xong")
-            self.assertEqual((await web.backtest_result())[0]["n"], 3)
-            self.assertEqual(len(calls), 3)
+            self.assertTrue((await job.state(await web._backtest_key()))["stale"])
 
+            job.start(await web._backtest_key(), fake_walk)
+            await job.task
             await db.add_symbol("ZZZ")
-            self.assertEqual((await web.backtest_result())[0]["n"], 4)
-            self.assertEqual(len(calls), 4)
+            self.assertTrue((await job.state(await web._backtest_key()))["stale"])
         finally:
-            web.run_walk = original
-            web._backtest_cache.update({"key": None, "result": None, "at": "", "task": None})
             await db.close_db()
             if previous is None:
                 os.environ.pop("RESEARCH_DB_PATH", None)

@@ -369,6 +369,23 @@ async def mark_shares_backfilled(symbols: list[str]) -> None:
     await db.commit()
 
 
+async def stored_json(key: str):
+    db = await get_db()
+    cursor = await db.execute("SELECT value FROM meta WHERE key = ?", (key,))
+    row = await cursor.fetchone()
+    return json.loads(row["value"]) if row else None
+
+
+async def store_json(key: str, value) -> None:
+    db = await get_db()
+    await db.execute(
+        "INSERT INTO meta (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, json.dumps(value, ensure_ascii=False, default=str)),
+    )
+    await db.commit()
+
+
 async def universe() -> list[str]:
     db = await get_db()
     cursor = await db.execute("SELECT symbol FROM universe ORDER BY symbol")

@@ -5,6 +5,7 @@ import logging
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from app import db, paper
 from app.backtest import run_backtest_with_industries
 from app.chart import build_chart
 from app.breadth import breadth_reason
+from app.breadth_filter import Counts
 from app.config import (
     BREADTH_CLOSE,
     BREADTH_FILTER_START,
@@ -33,6 +35,7 @@ from app.config import (
 from app.evaluate import SCORE_CEILINGS
 from app.industries import industry_labels, load_industry_map
 from app.ingest import load_exchanges
+from app.jobs import Job, status_line
 from app.money import LABELS, money_state, thresholds
 from app.pattern import assess_pattern
 from app.pipeline import busy, run_session
@@ -222,6 +225,7 @@ async def market_page(request: Request):
             "latest_day": max(days) if days else "",
             "breadth": _breadth_view(points, await _index_days()),
             "breadth_filter": await _breadth_filter(),
+            "busy": busy(),
         },
     )
 
@@ -246,22 +250,43 @@ def _breadth_view(points: dict[str, list[tuple[str, float]]], index_days: list[s
     }
 
 
-# Đếm mẫu của bộ lọc đọc lại cả kho nến (~6 giây), nên giữ số đếm tới khi có lần chạy phiên mới.
-_filter_cache: dict[str, object] = {"key": None, "view": None}
+filter_job = Job("breadth_filter_counts")
+
+
+async def _filter_key() -> list:
+    run = await db.latest_run() or {}
+    states = (await db.market_points()).get(BREADTH_STATE_SERIES) or []
+    return [run.get("id"), run.get("status"), len(states), states[-1] if states else None]
+
+
+async def _count_filter() -> dict:
+    return asdict(await count_filter_sample())
 
 
 async def _breadth_filter() -> dict:
-    run = await db.latest_run() or {}
-    states = (await db.market_points()).get(BREADTH_STATE_SERIES) or []
-    key = (run.get("id"), run.get("status"), len(states), states[-1] if states else None)
-    if _filter_cache["key"] == key and _filter_cache["view"] is not None:
-        return _filter_cache["view"]  # type: ignore[return-value]
-    try:
-        view = filter_view(await count_filter_sample())
-    except (Exception, SystemExit) as exc:
-        view = {"error": str(exc) or type(exc).__name__}
-    _filter_cache.update({"key": key, "view": view})
-    return view
+    """Số đếm đã lưu của mẫu bộ lọc; đọc cả kho nến nên chỉ đếm khi bấm nút."""
+    state = await filter_job.state(await _filter_key())
+    result = state["result"]
+    view = filter_view(Counts(**result)) if result and not state["error"] else {}
+    return {
+        **view,
+        "running": state["running"],
+        "line": status_line(
+            state,
+            what="mẫu bộ lọc độ rộng",
+            button="Đếm mẫu",
+            takes="Thường mất khoảng 10 giây",
+            refresh=5,
+            session_busy=busy(),
+        ),
+    }
+
+
+@app.post("/market/filter-count")
+async def start_filter_count():
+    if not busy():
+        filter_job.start(await _filter_key(), _count_filter)
+    return RedirectResponse("/market#bo-loc-do-rong", status_code=303)
 
 
 @app.post("/run")
@@ -357,27 +382,17 @@ async def decide(
     return RedirectResponse(f"{target}?notice={_query(label)}", status_code=303)
 
 
-# The portfolio walk takes minutes on the 106-symbol list, and the page reloads for every
-# glance, so the last walk is kept until a session changes what is stored. A new walk runs in
-# a worker process: run on the event loop it froze every other page until it finished.
-_backtest_cache: dict[str, object] = {"key": None, "result": None, "at": "", "task": None}
+# The portfolio walk takes minutes on the 106-symbol list. It runs in a worker process (on the
+# event loop it froze every other page) and only from the button on its page.
+backtest_job = Job("backtest_walk")
 
 
-async def _backtest_key() -> tuple:
+async def _backtest_key() -> list:
     run = await db.latest_run() or {}
-    return (
-        run.get("id"),
-        run.get("status"),
-        run.get("finished_at"),
-        tuple(await db.universe()),
-    )
+    return [run.get("id"), run.get("status"), run.get("finished_at"), await db.universe()]
 
 
-def backtest_computed_at() -> str:
-    return str(_backtest_cache["at"] or "")
-
-
-async def _walk(key: tuple) -> None:
+async def _walk() -> dict:
     symbols = await db.universe()
     inputs = (
         await db.bars("VNINDEX"),
@@ -388,49 +403,36 @@ async def _walk(key: tuple) -> None:
         {symbol: await db.flow(symbol) for symbol in symbols},
         await db.market_points(),
     )
-    try:
-        result = await run_walk(inputs)
-    except Exception as exc:
-        logger.exception("Backtest walk failed")
-        result = {"error": f"Phép đo lỗi: {exc}"}
-    _backtest_cache.update(
-        {"key": key, "result": result, "at": datetime.now().strftime("%H:%M:%S %d/%m")}
-    )
+    return await run_walk(inputs)
 
 
-async def backtest_result(fresh: bool = False, wait: float = 1.0) -> tuple[dict | None, bool]:
-    """The walk to show and whether a newer one is still running.
-
-    The last walk is reused until data, universe or run state moves. Otherwise one walk starts in
-    the background (never two at once), and the page shows the previous walk, if any, until it ends.
-    """
-    key = await _backtest_key()
-    cached = _backtest_cache["result"]
-    if not fresh and cached is not None and _backtest_cache["key"] == key:
-        return cached, False  # type: ignore[return-value]
-    task = _backtest_cache["task"]
-    if task is None or task.done():  # type: ignore[union-attr]
-        task = asyncio.create_task(_walk(key))
-        _backtest_cache["task"] = task
-    try:
-        await asyncio.wait_for(asyncio.shield(task), wait)  # type: ignore[arg-type]
-    except asyncio.TimeoutError:
-        return cached, True  # type: ignore[return-value]
-    return _backtest_cache["result"], False  # type: ignore[return-value]
+@app.post("/backtest/run")
+async def start_backtest():
+    if not busy():
+        backtest_job.start(await _backtest_key(), _walk)
+    return RedirectResponse("/backtest", status_code=303)
 
 
 @app.get("/backtest")
-async def backtest_page(request: Request, fresh: int = 0):
-    result, pending = await backtest_result(fresh=bool(fresh))
+async def backtest_page(request: Request):
+    symbols = len(await db.universe())
+    state = await backtest_job.state(await _backtest_key())
     return templates.TemplateResponse(
         request,
         "backtest.html",
         {
-            "result": result,
-            "pending": pending,
-            "symbols": len(await db.universe()),
+            "result": None if state["error"] else state["result"],
+            "running": state["running"],
+            "busy": busy(),
+            "line": status_line(
+                state,
+                what=f"phép đo trên {symbols} mã",
+                button="Chạy phép đo",
+                takes="Thường mất vài phút",
+                refresh=20,
+                session_busy=busy(),
+            ),
             "paper": await paper.report(),
-            "computed_at": backtest_computed_at(),
         },
     )
 
