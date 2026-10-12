@@ -1,22 +1,52 @@
 {% extends "base.html" %}
 {% block title %}{{ symbol }} — VStock Research{% endblock %}
 {% block body %}
-  <p class="hint"><a href="/">Về kết quả</a></p>
+  <p class="hint"><a href="/">← Hôm nay</a></p>
   <div class="page-head">
     <h1>{{ symbol }}</h1>
-    {% if item %}<span class="pill {{ status_class(item.status) }}">{{ item.status }}</span>{% endif %}
+    {% if item %}
+      <span class="pill {{ status_class(item.status) }}">{{ item.status }}</span>
+      {% if held %}
+        <span class="hint">nếu thị trường mở:</span>
+        <span class="pill {{ status_class(item.open_status) }} ghost">{{ item.open_status }}</span>
+      {% endif %}
+      {% if item.industry_name %}<span class="pill unstamped">{{ industry_name(item.industry_name) }}</span>{% endif %}
+      <span class="hint">phiên {{ item.as_of }}</span>
+    {% endif %}
   </div>
   {% if notice %}<p class="banner ok">{{ notice }}</p>{% endif %}
   {% if error %}<p class="banner bad">{{ error }}</p>{% endif %}
 
   {% if not item %}
-    <p>Mã này chưa có trong phiên gần nhất. Thêm vào danh sách rồi chạy phiên.</p>
+    <p>Mã này chưa có trong phiên gần nhất. Thêm vào danh sách ở <a href="/ops#danh-sach">Vận hành</a> rồi chạy phiên.</p>
   {% else %}
     {% set groups = dict(item.metric_groups) %}
 
     <section class="group">
+      <h2>Các cổng theo thứ tự xét</h2>
+      <ol class="chain">
+        {% for step in chain %}
+          <li class="step {{ step.state }}{% if step.decides %} decides{% endif %}{% if step.observe %} observe{% endif %}" title="{{ step.detail }}">
+            <span class="dot" aria-hidden="true"></span>
+            <span class="name">{{ step.name }}</span>
+            <span class="word">{{ step.word }}{% if step.observe %} · quan sát{% endif %}</span>
+          </li>
+        {% endfor %}
+      </ol>
+      {% set decider = chain|selectattr("decides")|first %}
+      {% if decider %}
+        <p class="decider"><strong>{{ decider.name }}</strong> quyết định trạng thái: {{ decider.detail }}</p>
+      {% elif item.status == "Được vào" %}
+        <p class="decider ok">Mọi cổng đều mở.</p>
+      {% endif %}
+    </section>
+
+    <section class="group">
       <h2>Quyết định</h2>
       <p>{{ item.summary }}</p>
+      {% if held and item.open_summary %}
+        <p class="hint">Nếu thị trường mở: {{ item.open_summary }}</p>
+      {% endif %}
       {# default({}) keeps a cached process that still passes the old context name from taking the
          page down; the bar then just falls back to the tallest part, as it did before. #}
       {% set ceilings = score_ceilings|default({}) %}
@@ -104,20 +134,6 @@
     </section>
 
     <section class="group">
-      <h2>Thị trường</h2>
-      <p>{{ item.regime_reason }}</p>
-      <p>{{ item.macro_reason or "—" }}</p>
-      <p><strong>Cổng tiền tệ.</strong> {{ item.market_reason or "—" }}</p>
-      {% if groups.get("Thị trường") %}
-        <table class="numbers">
-          <tbody>
-            {% for label, value in groups["Thị trường"] %}<tr><th>{{ label }}</th><td>{{ value }}</td></tr>{% endfor %}
-          </tbody>
-        </table>
-      {% endif %}
-    </section>
-
-    <section class="group">
       <h2>Cơ bản và định giá</h2>
       <p><strong>{{ item.fa_label }}.</strong> {{ item.fa_reason }}</p>
       <p><strong>{{ item.valuation_label }}.</strong> {{ item.valuation_reason }}</p>
@@ -142,7 +158,7 @@
 
     <section class="group">
       <h2>Dòng tiền ngoại</h2>
-      <p><strong>{{ item.flow_state }}.</strong> {{ item.flow_reason }}</p>
+      <p><strong>{{ flow_label(item.flow_level, item.flow_state) }}.</strong> {{ item.flow_reason }}</p>
       {% if groups.get("Dòng tiền ngoại") %}
         <table class="numbers">
           <tbody>
@@ -151,69 +167,11 @@
         </table>
       {% endif %}
     </section>
-
-    {% if paper %}
-      <section class="group">
-        <h2>Vị thế giấy</h2>
-        <table>
-          <thead>
-            <tr><th>Vào</th><th>Giá vào</th><th>Dừng lỗ</th><th>Đỉnh nền</th><th>Phiên</th><th>Trạng thái</th><th>Lãi</th></tr>
-          </thead>
-          <tbody>
-            {% for row in paper %}
-              <tr>
-                <td>{{ row.entry_date }}</td>
-                <td>{{ "%.2f"|format(row.entry_price) }}</td>
-                <td>{{ "%.2f"|format(row.stop_price) }}</td>
-                <td>{{ "%.2f"|format(row.base_ceiling) if row.base_ceiling else "—" }}</td>
-                <td>{{ row.sessions }}</td>
-                <td>{{ row.exit_reason or "Đang mở" }}</td>
-                <td>{{ row.realised|pct }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </section>
-    {% endif %}
-
-    {# Only numbers no section below claimed land here; the store files the rest by their label. #}
-    {% if groups.get("Khác") %}
-      <section class="group">
-        <h2>Khác</h2>
-        <p class="hint">Số chưa thuộc lớp nào của trang này.</p>
-        <table class="numbers">
-          <tbody>
-            {% for label, value in groups["Khác"] %}<tr><th>{{ label }}</th><td>{{ value }}</td></tr>{% endfor %}
-          </tbody>
-        </table>
-      </section>
-    {% endif %}
-
-    <section class="group">
-      <h2>Ghi thao tác</h2>
-      <p class="hint">
-        Xác nhận một mã không ở trạng thái Được vào, hoặc bỏ qua một mã Được vào, cần ghi chú.
-        Việc này chỉ vào nhật ký.
-      </p>
-      <form method="post" action="/decisions" class="decision">
-        <input type="hidden" name="symbol" value="{{ symbol }}" />
-        <input type="hidden" name="as_of" value="{{ item.as_of }}" />
-        <input type="hidden" name="signal_status" value="{{ item.status }}" />
-        <label>
-          Ghi chú
-          <textarea name="note" rows="3" maxlength="500"></textarea>
-        </label>
-        <div class="actions">
-          <button type="submit" name="action" value="confirm">Xác nhận sẽ vào</button>
-          <button type="submit" name="action" value="skip" class="secondary">Bỏ qua</button>
-        </div>
-      </form>
-    </section>
   {% endif %}
 
   <section class="group">
     <h2>Tin</h2>
-    {% if item %}<p><strong>{{ item.news_state }}.</strong> {{ item.news_reason }}</p>{% endif %}
+    {% if item %}<p><strong>{{ news_label(item.news_state) }}.</strong> {{ item.news_reason }}</p>{% endif %}
     <h3>Công bố đã phân loại</h3>
   {% set labels = {
     "earnings_release": "Công bố báo cáo",
@@ -253,6 +211,53 @@
   {% endif %}
   </section>
 
+  {% if item %}
+    <section class="group action">
+      <h2>Ghi thao tác</h2>
+      <p class="hint">
+        Xác nhận một mã Được vào mở một vị thế giấy ở <a href="/paper">Danh mục giấy</a>. Xác nhận một mã
+        không ở trạng thái Được vào, hoặc bỏ qua một mã Được vào, cần ghi chú. Không lệnh nào được gửi đi.
+      </p>
+      <form method="post" action="/decisions" class="decision">
+        <input type="hidden" name="symbol" value="{{ symbol }}" />
+        <input type="hidden" name="as_of" value="{{ item.as_of }}" />
+        <input type="hidden" name="signal_status" value="{{ item.status }}" />
+        <label>
+          Ghi chú
+          <textarea name="note" rows="3" maxlength="500"></textarea>
+        </label>
+        <div class="actions">
+          <button type="submit" name="action" value="confirm">Xác nhận sẽ vào</button>
+          <button type="submit" name="action" value="skip" class="secondary">Bỏ qua</button>
+        </div>
+      </form>
+    </section>
+  {% endif %}
+
+  {% if paper %}
+    <section class="group">
+      <h2>Vị thế giấy</h2>
+      <table>
+        <thead>
+          <tr><th>Vào</th><th>Giá vào</th><th>Dừng lỗ</th><th>Đỉnh nền</th><th>Phiên</th><th>Trạng thái</th><th>Lãi</th></tr>
+        </thead>
+        <tbody>
+          {% for row in paper %}
+            <tr>
+              <td>{{ row.entry_date }}</td>
+              <td>{{ "%.2f"|format(row.entry_price) }}</td>
+              <td>{{ "%.2f"|format(row.stop_price) }}</td>
+              <td>{{ "%.2f"|format(row.base_ceiling) if row.base_ceiling else "—" }}</td>
+              <td>{{ row.sessions }}</td>
+              <td>{{ row.exit_reason or "Đang mở" }}</td>
+              <td>{{ row.realised|pct }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% endif %}
+
   {% if decisions %}
     <section class="group">
       <h2>Nhật ký của mã</h2>
@@ -263,7 +268,7 @@
         <tbody>
           {% for row in decisions %}
             <tr>
-              <td>{{ row.created_at[0:16] }}</td>
+              <td>{{ row.created_at[0:16]|replace("T", " ") }}</td>
               <td>{{ row.signal_status }}</td>
               <td>{{ "Xác nhận sẽ vào" if row.action == "confirm" else "Bỏ qua" }}</td>
               <td>{{ row.note or "—" }}</td>
@@ -272,5 +277,34 @@
         </tbody>
       </table>
     </section>
+  {% endif %}
+
+  {% if item %}
+    <details class="group">
+      <summary><strong>Thị trường</strong> — chung cho cả danh sách, chi tiết ở <a href="/market">Thị trường</a></summary>
+      <p>{{ item.regime_reason }}</p>
+      <p>{{ item.macro_reason or "—" }}</p>
+      <p><strong>Cổng tiền tệ.</strong> {{ item.market_reason or "—" }}</p>
+      {% if groups.get("Thị trường") %}
+        <table class="numbers">
+          <tbody>
+            {% for label, value in groups["Thị trường"] %}<tr><th>{{ label }}</th><td>{{ value }}</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+    </details>
+
+    {# Only numbers no section below claimed land here; the store files the rest by their label. #}
+    {% if groups.get("Khác") %}
+      <section class="group">
+        <h2>Khác</h2>
+        <p class="hint">Số chưa thuộc lớp nào của trang này.</p>
+        <table class="numbers">
+          <tbody>
+            {% for label, value in groups["Khác"] %}<tr><th>{{ label }}</th><td>{{ value }}</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </section>
+    {% endif %}
   {% endif %}
 {% endblock %}

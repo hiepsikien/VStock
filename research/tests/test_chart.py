@@ -10,6 +10,7 @@ from app.chart import (
     VOLUME_HEIGHT,
     VOLUME_TICK_COUNT,
     build_chart,
+    build_line_chart,
     _volume_text,
 )
 
@@ -109,6 +110,36 @@ class VolumePaneTest(unittest.TestCase):
         chart = build_chart(bars(rising(3, volume=2_400_000)), None)
         self.assertIn("· V 2.4tr", chart["candles"][0]["title"])
         self.assertTrue(chart["volume"]["bars"][0]["title"].endswith("· KL 2.4tr"))
+
+
+class LineChartTest(unittest.TestCase):
+    def test_the_first_series_sets_the_axis_and_later_points_off_it_are_dropped(self) -> None:
+        close = [("2026-01-01", 100.0), ("2026-01-02", 110.0), ("2026-01-03", 120.0)]
+        ma = [("2026-01-02", 105.0), ("2026-01-03", 106.0), ("2026-01-04", 999.0)]
+        chart = build_line_chart(
+            [{"name": "Đóng cửa", "points": close}, {"name": "MA", "points": ma}]
+        )
+        self.assertEqual((chart["first_date"], chart["last_date"]), ("2026-01-01", "2026-01-03"))
+        self.assertEqual(len(chart["lines"][1]["points"].split()), 2)
+        self.assertEqual(chart["lines"][0]["last_text"], "120")
+        # Giá cao hơn nằm cao hơn trên hình, và mọi điểm nằm trong khung vẽ.
+        first, last = chart["lines"][0]["points"].split()[0], chart["lines"][0]["points"].split()[-1]
+        self.assertGreater(float(first.split(",")[1]), float(last.split(",")[1]))
+        self.assertEqual(float(last.split(",")[0]), chart["plot_right"])
+
+    def test_levels_widen_the_frame_so_a_threshold_is_always_drawn(self) -> None:
+        shares = [("2026-01-01", 0.30), ("2026-01-02", 0.31)]
+        chart = build_line_chart(
+            [{"name": "Độ rộng", "points": shares}],
+            levels=[{"value": 0.55, "label": "mở"}, {"value": 0.45, "label": "đóng"}],
+            value_format="{:.0%}",
+        )
+        top = chart["levels"][0]["y"]
+        self.assertGreater(top, CHART_PAD["top"])
+        self.assertLess(top, chart["lines"][0]["last_y"])
+
+    def test_a_single_point_draws_nothing(self) -> None:
+        self.assertIsNone(build_line_chart([{"name": "x", "points": [("2026-01-01", 1.0)]}]))
 
 
 if __name__ == "__main__":

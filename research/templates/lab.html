@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}Nghiên cứu — VStock Research{% endblock %}
+{% block head %}{% if breadth_filter.running or backtest.running %}<meta http-equiv="refresh" content="5;url=/lab" />{% endif %}{% endblock %}
+{% block body %}
+  <h1>Nghiên cứu</h1>
+  <p class="lede">
+    Mỗi thẻ là một giả thuyết đang đo: đo gì, tới đâu, và luật đó có đang khóa danh sách hằng ngày
+    hay chưa. Việc nặng chỉ chạy khi bấm nút của chính thẻ đó.
+  </p>
+
+  <div class="experiments">
+    <section class="experiment" id="do-sau-phi">
+      <header>
+        <h2>Đo sau phí</h2>
+        <span class="pill watch">Phép đo lại lịch sử</span>
+      </header>
+      <p>Chạy lại luật Được vào trên lịch sử với năm suất vốn, trừ phí, so với VN-Index cùng kỳ.</p>
+      {% set result = backtest.result %}
+      {% if result %}
+        <ul class="stats compact">
+          <li><span class="label">Chiến lược</span><span class="value">{{ result.strategy_return|pct }}</span></li>
+          <li><span class="label">VN-Index</span><span class="value">{{ result.index_return|pct }}</span></li>
+          <li><span class="label">Lệnh</span><span class="value">{{ result.trade_count }}</span></li>
+          <li><span class="label">Sụt sâu nhất</span><span class="value">{{ result.max_drawdown|pct }}</span></li>
+          <li class="{{ 'ok' if result.passed else 'bad' }}"><span class="label">Kết luận</span><span class="value">{{ "Không thua chỉ số" if result.passed else "Thua chỉ số" }}</span></li>
+        </ul>
+      {% endif %}
+      <p class="{{ 'banner ' ~ backtest.line.kind if backtest.line.kind else 'hint small' }}">{{ backtest.line.text }}</p>
+      <div class="actions">
+        <form method="post" action="/backtest/run">
+          <input type="hidden" name="back" value="/lab" />
+          <button type="submit" {% if backtest.running or busy %}disabled{% endif %}>Chạy phép đo</button>
+        </form>
+        <a href="/backtest">Toàn bộ lệnh và giả định</a>
+      </div>
+    </section>
+
+    <section class="experiment" id="bo-loc-do-rong">
+      <header>
+        <h2>Bộ lọc độ rộng</h2>
+        <span class="pill wait">Chốt trước, đang thu mẫu</span>
+      </header>
+      <p>
+        Giả thuyết: khi VN-Index trên MA200, tín hiệu phá nền lúc độ rộng đóng có lợi nhuận 40 phiên
+        thấp hơn lúc độ rộng mở.
+      </p>
+      {% if breadth_filter.counts %}
+        {% set c = breadth_filter.counts %}
+        <p class="regime">{{ breadth_filter.status }}</p>
+        {% if breadth_filter.started %}
+          <div class="progress-list">
+            <div class="progress">
+              <span class="name">Thời gian</span>
+              <span class="bar"><span class="fill" style="width: {{ [100, (100 * c.months / breadth_filter.min_months)|round|int]|min }}%"></span></span>
+              <span class="value">{{ c.months }}/{{ breadth_filter.min_months }} tháng</span>
+            </div>
+            <div class="progress">
+              <span class="name">Nhóm giữ (độ rộng mở)</span>
+              <span class="bar"><span class="fill" style="width: {{ [100, (100 * c.keep_matured / breadth_filter.min_signals)|round|int]|min }}%"></span></span>
+              <span class="value">{{ c.keep_matured }}/{{ breadth_filter.min_signals }} tín hiệu</span>
+            </div>
+            <div class="progress">
+              <span class="name">Nhóm bỏ (độ rộng đóng)</span>
+              <span class="bar"><span class="fill" style="width: {{ [100, (100 * c.drop_matured / breadth_filter.min_signals)|round|int]|min }}%"></span></span>
+              <span class="value">{{ c.drop_matured }}/{{ breadth_filter.min_signals }} tín hiệu</span>
+            </div>
+          </div>
+          <p class="hint small">
+            Từ {{ c.start }} tới {{ c.last_day }}: {{ c.sessions }} phiên, {{ c.sessions_without_state }} phiên không có
+            trạng thái độ rộng. Tín hiệu đã ghi: {{ c.keep_total }} nhóm giữ, {{ c.drop_total }} nhóm bỏ (chỉ đếm
+            tín hiệu đủ 40 phiên vào thanh). Tín hiệu bị loại vì phiên không có trạng thái: {{ c.missing_state }}.
+            Hạn chót {{ breadth_filter.deadline }} ({{ breadth_filter.max_months }} tháng).
+          </p>
+        {% else %}
+          <p class="hint small">
+            Chưa có phiên nào từ {{ c.start }}; phiên mới nhất trong kho là {{ c.last_day }}.
+            Hạn chót {{ breadth_filter.deadline }}.
+          </p>
+        {% endif %}
+      {% endif %}
+      <p class="{{ 'banner ' ~ breadth_filter.line.kind if breadth_filter.line.kind else 'hint small' }}">{{ breadth_filter.line.text }}</p>
+      <div class="actions">
+        <form method="post" action="/lab/filter-count">
+          <button type="submit" {% if breadth_filter.running or busy %}disabled{% endif %}>Đếm mẫu</button>
+        </form>
+      </div>
+      <details>
+        <summary>Luật chốt trước</summary>
+        <p class="hint small">
+          Luật ở <code>docs/breadth-signal-filter.md</code>, chốt bằng tag <code>prereg/breadth-filter</code> và các
+          sửa đổi <code>-amend1</code> tới <code>-amend3</code>. Trước lần đo chỉ được xem số đếm, nên ở đây không có
+          lợi nhuận hay tỷ lệ thắng. Tín hiệu được tìm theo đúng luật ở tag (luật giá chưa chỉnh chia tách quét cả
+          lịch sử, khác bảng hằng ngày chỉ xét 134 phiên cuối), nên số đếm khớp với lệnh đo chạy ở tag.
+          Chỉ tính tín hiệu của rổ 100 ở phiên VN-Index trên MA200.
+        </p>
+      </details>
+    </section>
+
+    <section class="experiment" id="cong-do-rong">
+      <header>
+        <h2>Cổng độ rộng</h2>
+        {% if breadth_enforced %}<span class="pill enter">Đang khóa danh sách</span>{% else %}<span class="pill unstamped">Chỉ quan sát</span>{% endif %}
+      </header>
+      <p>
+        Khóa danh sách khi số mã của rổ 200 trên MA50 xuống thấp, kể cả lúc VN-Index còn trên MA200.
+        Số hằng ngày ở <a href="/market#do-rong">Thị trường</a>.
+      </p>
+      {% if breadth_reports %}
+        <ul class="reports">
+          {% for report in breadth_reports %}<li><a href="/lab/report/{{ report.name }}">{{ report.title }}</a></li>{% endfor %}
+        </ul>
+      {% endif %}
+    </section>
+
+    <section class="experiment" id="cong-nganh">
+      <header>
+        <h2>Cổng ngành</h2>
+        {% if industry_enforced %}<span class="pill enter">Đang khóa danh sách</span>{% else %}<span class="pill unstamped">Chỉ quan sát</span>{% endif %}
+      </header>
+      <p>
+        Chỉ cho vào mã thuộc nhóm ngành đang mở. Mỗi phiên vẫn ghi ngành của từng mã và ngành đó mở hay
+        đóng, xem ở cột Ngành của <a href="/">Hôm nay</a>.
+      </p>
+      {% if industry_reports %}
+        <ul class="reports">
+          {% for report in industry_reports %}<li><a href="/lab/report/{{ report.name }}">{{ report.title }}</a></li>{% endfor %}
+        </ul>
+      {% endif %}
+    </section>
+  </div>
+
+  {% if other_reports %}
+    <section class="card">
+      <h2>Báo cáo khác</h2>
+      <ul class="reports">
+        {% for report in other_reports %}<li><a href="/lab/report/{{ report.name }}">{{ report.title }}</a></li>{% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+{% endblock %}

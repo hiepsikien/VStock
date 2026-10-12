@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Vận hành — VStock Research{% endblock %}
+{% block body %}
+  <div class="page-head spread">
+    <div>
+      <h1>Vận hành</h1>
+      <p class="hint">Lịch chạy, các lần chạy, độ tươi của dữ liệu, và danh sách mã được chấm.</p>
+    </div>
+    <form method="post" action="/run">
+      <input type="hidden" name="back" value="/ops" />
+      <button type="submit" {% if busy %}disabled{% endif %}>{{ "Đang chạy phiên…" if busy else "Chạy phiên" }}</button>
+    </form>
+  </div>
+
+  {% if notice %}<p class="banner ok">{{ notice }}</p>{% endif %}
+  {% if error %}<p class="banner bad">{{ error }}</p>{% endif %}
+
+  <section class="card" id="lich-chay">
+    <h2>Lịch chạy</h2>
+    {% if schedule.warning %}
+      <p class="banner {{ 'wait' if schedule.level == 'wait' else 'bad' }}">
+        {{ schedule.warning }}
+        {% if schedule.level != "wait" %}
+          Phiên không có trạng thái độ rộng thì mọi tín hiệu của phiên đó bị loại khỏi phép đo bộ lọc độ rộng.
+        {% endif %}
+      </p>
+    {% else %}
+      <p class="banner ok">Phiên đã đóng cửa gần nhất ({{ schedule.expected }}) đã có trạng thái độ rộng.</p>
+    {% endif %}
+    <p class="hint">
+      launchd chạy phiên lúc 15:30 và 20:00 thứ Hai–Sáu, và 08:00 thứ Ba–Bảy
+      (<code>scripts/install-research-launchd.sh</code>, log ở <code>~/Library/Logs/vstock-research-session.log</code>).
+      {% if schedule.measured %}
+        Từ {{ schedule.start }}: {{ schedule.measured }} phiên thuộc phép đo bộ lọc độ rộng,
+        {% if schedule.missing %}
+          thiếu trạng thái ở {{ schedule.missing|length }} phiên:
+          {{ schedule.missing[-10:]|join(", ") }}{% if schedule.missing|length > 10 %}, …{% endif %}.
+        {% else %}
+          phiên nào cũng có trạng thái độ rộng.
+        {% endif %}
+      {% else %}
+        Phép đo bộ lọc độ rộng bắt đầu từ phiên {{ schedule.start }}.
+      {% endif %}
+    </p>
+    {% if runs %}
+      <table>
+        <thead><tr><th>Bắt đầu</th><th>Nguồn</th><th>Trạng thái</th><th>Giây</th><th>Kết quả</th></tr></thead>
+        <tbody>
+          {% for row in runs %}
+            <tr>
+              <td>{{ row.started }}</td>
+              <td>{{ row.source }}</td>
+              <td>
+                <span class="pill {{ 'enter' if row.status == 'ok' else ('watch' if row.status == 'running' else 'out') }}">
+                  {{ {"ok": "xong", "running": "đang chạy", "error": "lỗi"}.get(row.status, row.status) }}
+                </span>
+              </td>
+              <td class="num">{{ row.seconds if row.seconds is not none else "—" }}</td>
+              <td>{{ row.message or "—" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="hint">Chưa có lần chạy nào.</p>
+    {% endif %}
+  </section>
+
+  <section class="card" id="du-lieu">
+    <h2>Độ tươi của dữ liệu</h2>
+    <table class="numbers">
+      <tbody>
+        {% for label, value in freshness %}<tr><th>{{ label }}</th><td>{{ value }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card" id="danh-sach">
+    <h2>Danh sách chấm ({{ universe|length }} mã)</h2>
+    <form method="post" action="/universe" class="inline">
+      <input name="symbol" placeholder="Mã" maxlength="8" />
+      <input type="hidden" name="action" value="add" />
+      <button type="submit">Thêm mã</button>
+    </form>
+    <ul class="universe">
+      {% for symbol in universe %}
+        <li>
+          <a href="/symbol/{{ symbol }}">{{ symbol }}</a>
+          <form method="post" action="/universe">
+            <input type="hidden" name="symbol" value="{{ symbol }}" />
+            <input type="hidden" name="action" value="remove" />
+            <button type="submit" class="text" title="Bỏ {{ symbol }} khỏi danh sách">Bỏ</button>
+          </form>
+        </li>
+      {% endfor %}
+    </ul>
+    <p class="hint small">Mã mới chỉ được chấm từ lần chạy phiên tiếp theo.</p>
+  </section>
+{% endblock %}

@@ -110,6 +110,9 @@ class Verdict:
     metric_groups: list[tuple[str, list[tuple[str, str]]]] = field(default_factory=list)
     industry_name: str | None = None
     industry_open: bool | None = None
+    # Trạng thái nếu mọi cổng toàn thị trường cùng mở; chỉ để đọc khi danh sách đang khóa.
+    open_status: str = ""
+    open_summary: str = ""
 
     def row(self) -> dict:
         """Shape used by store.save_verdicts, so the mapping lives in one place."""
@@ -156,6 +159,8 @@ class Verdict:
                 "failed_breakout": self.failed_breakout,
                 "industry_name": self.industry_name,
                 "industry_open": self.industry_open,
+                "open_status": self.open_status,
+                "open_summary": self.open_summary,
                 "metric_groups": [
                     [title, [list(metric) for metric in metrics]]
                     for title, metrics in self.metric_groups
@@ -907,6 +912,39 @@ def group_metrics(metrics) -> list[tuple[str, list[tuple[str, str]]]]:
     return groups
 
 
+def _stock_status(
+    pattern: Pattern,
+    fundamentals: Fundamentals,
+    valuation_state: Valuation,
+    news_state: str,
+    news_reason: str,
+    flow_state: FlowState,
+) -> tuple[str, str]:
+    """Trạng thái do riêng các lớp của mã quyết định, chưa xét cổng toàn thị trường."""
+    if pattern.unadjusted:
+        return "Chưa chấm", pattern.reason
+    if (
+        news_state == "Loại"
+        or fundamentals.label == "Không đạt"
+        or valuation_state.label == "Không đạt"
+    ):
+        if news_state == "Loại":
+            return "Loại", news_reason
+        if fundamentals.label == "Không đạt":
+            return "Loại", fundamentals.reason
+        return "Loại", f"Định giá: {valuation_state.reason}"
+    if fundamentals.label == "Chưa đủ số" or news_state == "Chưa chấm":
+        return "Chưa chấm", news_reason if news_state == "Chưa chấm" else fundamentals.reason
+    if news_state == "Chờ":
+        return "Chờ", news_reason
+    if not pattern.ready:
+        return "Theo dõi", pattern.reason
+    # Dòng tiền chỉ hạ cấp một lệnh sắp vào, không đổi các trạng thái khác.
+    if flow_state.state == "Chờ":
+        return "Chờ", flow_state.reason
+    return "Được vào", pattern.reason
+
+
 def compose(
     symbol: str,
     as_of: date,
@@ -929,6 +967,9 @@ def compose(
     flow_state = flow or missing_flow()
     news_state, news_reason, priority = news_gate(
         symbol, articles, as_of, require_clock=require_clock
+    )
+    stock_status, stock_summary = _stock_status(
+        pattern, fundamentals, valuation_state, news_state, news_reason, flow_state
     )
 
     if pattern.unadjusted:
@@ -956,35 +997,10 @@ def compose(
     elif BREADTH_GATE_ENFORCED and breadth is not None and breadth.open is False:
         status = "Khóa"
         summary = breadth.reason
-    elif (
-        news_state == "Loại"
-        or fundamentals.label == "Không đạt"
-        or valuation_state.label == "Không đạt"
-    ):
-        status = "Loại"
-        if news_state == "Loại":
-            summary = news_reason
-        elif fundamentals.label == "Không đạt":
-            summary = fundamentals.reason
-        else:
-            summary = f"Định giá: {valuation_state.reason}"
-    elif fundamentals.label == "Chưa đủ số" or news_state == "Chưa chấm":
-        status = "Chưa chấm"
-        summary = news_reason if news_state == "Chưa chấm" else fundamentals.reason
-    elif news_state == "Chờ":
-        status = "Chờ"
-        summary = news_reason
-    elif pattern.ready:
-        status = "Được vào"
-        summary = pattern.reason
     else:
-        status = "Theo dõi"
-        summary = pattern.reason
+        status, summary = stock_status, stock_summary
 
-    # Flow và vĩ mô chỉ hạ cấp một lệnh sắp vào, không đổi các trạng thái khác.
-    if status == "Được vào" and flow_state.state == "Chờ":
-        status = "Chờ"
-        summary = flow_state.reason
+    # Vĩ mô chỉ hạ cấp một lệnh sắp vào, không đổi các trạng thái khác.
     if status == "Được vào" and macro is not None and macro.block:
         status = "Theo dõi"
         summary = f"Vĩ mô chặn vào: {macro.reason}"
@@ -999,9 +1015,16 @@ def compose(
     if status == "Được vào" and INDUSTRY_GATE_ENFORCED and industry_open is False:
         status = "Theo dõi"
         summary = "Ngành đang đóng"
+    # Trạng thái của mã khi các cổng toàn thị trường (VN-Index, tiền tệ, độ rộng, vĩ mô) cùng mở:
+    # chỉ để đọc khi danh sách đang khóa, không bao giờ dùng để vào lệnh.
+    open_status, open_summary = stock_status, stock_summary
+    if open_status == "Được vào" and INDUSTRY_GATE_ENFORCED and industry_open is False:
+        open_status, open_summary = "Theo dõi", "Ngành đang đóng"
 
     if status == "Được vào" and priority:
         summary = "Ưu tiên vì có đăng ký mua. " + summary
+    if open_status == "Được vào" and priority:
+        open_summary = "Ưu tiên vì có đăng ký mua. " + open_summary
 
     score, score_parts = compose_score(fundamentals, flow_state, pattern, pattern.rs, priority)
     effective_priority = max(priority, flow_state.priority) if status == "Được vào" else 0
@@ -1067,4 +1090,6 @@ def compose(
         metric_groups=metric_groups,
         industry_name=industry_name,
         industry_open=industry_open,
+        open_status=open_status,
+        open_summary=open_summary,
     )

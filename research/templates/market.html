@@ -1,36 +1,111 @@
 {% extends "base.html" %}
-{% block title %}Tiền tệ — VStock Research{% endblock %}
-{% block head %}{% if breadth_filter and breadth_filter.running %}<meta http-equiv="refresh" content="5;url=/market#bo-loc-do-rong" />{% endif %}{% endblock %}
+{% from "_macros.html" import lights_panel, line_chart %}
+{% block title %}Thị trường — VStock Research{% endblock %}
 {% block body %}
-  <h1>Tiền tệ</h1>
+  <h1>Thị trường</h1>
   <p class="lede">
-    Cổng này đứng cạnh cổng VN-Index trên MA200 và là cổng AND: VN-Index trên MA200
-    <em>và</em> tiền chưa thắt thì danh sách mới được xét tiếp. Nó mô tả tiền đang thừa hay
-    thiếu, và giá của đồng tiền. Không bài báo nào được chấm điểm ở đây; bài chỉ để biết
-    ngày một quyết định bắt đầu.
+    Các cổng ở đây xét cả danh sách trước khi xét từng mã. VN-Index trên MA200 <em>và</em> tiền chưa
+    thắt thì danh sách mới được xét tiếp; vĩ mô căng chỉ chặn lệnh mới; độ rộng và ngành đang chỉ quan sát.
   </p>
 
-  <p class="regime">{{ money.reason }}</p>
-  {% if missing or short %}
-    <p class="banner bad">
-      {% if missing %}Chưa có số: {{ missing|join(", ") }}.{% endif %}
-      {% if short %}
-        Có số nhưng chưa đủ số phiên:
-        {% for label, have, need in short %}{{ label }} ({{ have }}/{{ need }}){% if not loop.last %}, {% endif %}{% endfor %}.
-      {% endif %}
-      Cổng đứng ở Chưa chấm, và không mã nào bị tự loại.
+  {% if lights %}{{ lights_panel(lights, headline, detail_link=False) }}{% endif %}
+
+  {% if regime %}
+  <section class="group" id="vn-index">
+    <h2>VN-Index và MA200</h2>
+    <p class="regime">{{ regime.reason }}.</p>
+    {{ line_chart(index_chart, "VN-Index và MA200 một năm gần nhất") }}
+    <p class="hint small">Đóng cửa dưới MA200 thì mọi mã của danh sách ở trạng thái Khóa.</p>
+  </section>
+  {% endif %}
+
+  {% if macro or macro_rows %}
+  <section class="group" id="vi-mo">
+    <h2>Vĩ mô liên thị trường</h2>
+    <p class="regime">{{ macro or "Chưa có phiên nào." }}</p>
+    {% if macro_rows %}
+      <table class="numbers">
+        <tbody>
+          {% for label, value in macro_rows %}<tr><th>{{ label }}</th><td>{{ value }}</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+    <p class="hint small">
+      Chỉ số đô la và tỷ giá cùng đứng trên vùng trung tính thì không mở lệnh mới (Được vào hạ xuống Theo dõi).
+      S&amp;P 500 và dầu chỉ là cảnh báo.
     </p>
+  </section>
   {% endif %}
-  {% if money.flags %}
-    <ul class="counts">
-      {% for flag in money.flags %}<li>{{ flag }}</li>{% endfor %}
-    </ul>
-  {% endif %}
-  {% if latest_day %}<p class="hint">Số mới nhất đã lưu: {{ latest_day }}.</p>{% endif %}
+
+  <section class="group" id="tien-te">
+    <h2>Tiền tệ</h2>
+    <p class="regime">{{ money.reason }}</p>
+    {% if missing or short %}
+      <p class="banner bad">
+        {% if missing %}Chưa có số: {{ missing|join(", ") }}.{% endif %}
+        {% if short %}
+          Có số nhưng chưa đủ số phiên:
+          {% for label, have, need in short %}{{ label }} ({{ have }}/{{ need }}){% if not loop.last %}, {% endif %}{% endfor %}.
+        {% endif %}
+        Cổng đứng ở Chưa chấm, và không mã nào bị tự loại.
+      </p>
+    {% endif %}
+    {% if money.flags %}
+      <ul class="counts">
+        {% for flag in money.flags %}<li><span class="pill out">{{ flag }}</span></li>{% endfor %}
+      </ul>
+    {% endif %}
+    <table>
+      <thead>
+        <tr><th>Chuỗi</th><th>Mới nhất</th><th>Ngày</th><th>Số phiên</th><th>Đọc ra</th></tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td>
+              {{ row.label }}
+              {% if row.required %}<span class="pill locked small">bắt buộc</span>{% endif %}
+              <span class="hint small">{{ row.source }}</span>
+            </td>
+            <td class="num">{{ row.last_value }} {{ row.unit }}</td>
+            <td>{{ row.last_day or "—" }}</td>
+            <td class="num">{{ row.sessions }}</td>
+            <td>{{ row.note or "—" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if latest_day %}<p class="hint small">Số mới nhất đã lưu: {{ latest_day }}. Số của hôm nay không bao giờ được dùng để chấm lại phiên cũ.</p>{% endif %}
+
+    <details>
+      <summary>Ngưỡng đã khai báo</summary>
+      <table class="numbers">
+        <tbody>
+          {% for label, text in thresholds %}<tr><th>{{ label }}</th><td>{{ text }}</td></tr>{% endfor %}
+        </tbody>
+      </table>
+      <p class="hint small">
+        Ngưỡng là số viết trước khi chạy. Ngưỡng để trống nghĩa là chưa khai báo, và chuỗi đó không thể khóa danh sách.
+      </p>
+    </details>
+    <details>
+      <summary>Lãi suất điều hành ({{ policy|length }} quyết định)</summary>
+      <table class="numbers">
+        <tbody>
+          {% for day, rate in policy|reverse %}<tr><th>{{ day }}</th><td>{{ "%.2f"|format(rate) }} %/năm</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </details>
+  </section>
 
   {% if breadth %}
-  <section class="group">
+  <section class="group" id="do-rong">
     <h2>Độ rộng</h2>
+    {% if breadth.sessions %}
+      <p class="regime">{{ breadth.reason }} — phiên {{ breadth.last_day }}.</p>
+    {% else %}
+      <p class="hint">Chưa có phiên nào lưu độ rộng.</p>
+    {% endif %}
     <p class="hint">
       {{ breadth.rule }}
       {% if breadth.enforced %}
@@ -39,146 +114,130 @@
         Chỉ để quan sát: cổng chưa khóa danh sách cho tới khi báo cáo cổng độ rộng qua cả hai giai đoạn.
       {% endif %}
     </p>
-    {% if breadth.sessions %}
-      <p class="regime">{{ breadth.reason }} — phiên {{ breadth.last_day }}.</p>
-      <table class="numbers">
-        <thead><tr><th>Phiên</th><th>Tỷ lệ</th><th>Trạng thái</th></tr></thead>
-        <tbody>
-          {% for row in breadth.recent %}
-            <tr>
-              <th>{{ row.day }}</th>
-              <td>{{ row.share }}</td>
-              <td>
-                {% if row.open is none %}
-                  {% if row.measured %}<span class="pill out">chưa ghi</span>{% else %}—{% endif %}
-                {% elif row.open %}mở{% else %}đóng{% endif %}
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      <p class="hint">
-        Mỗi dòng là một phiên VN-Index. Phiên thuộc phép đo bộ lọc độ rộng mà không có trạng thái thì
-        ghi "chưa ghi": tín hiệu của phiên đó bị loại và không được tính bù.
-      </p>
-    {% else %}
-      <p class="hint">Chưa có phiên nào lưu độ rộng.</p>
+    {{ line_chart(breadth.chart, "Tỷ lệ mã trên MA50 theo phiên, cùng ngưỡng mở và đóng") }}
+    {% if breadth.sessions and breadth.sessions < 20 %}
+      <p class="hint small">Đường chỉ có các phiên đã chạy live ({{ breadth.sessions }} phiên); nó dài thêm mỗi phiên.</p>
     {% endif %}
-  </section>
-  {% endif %}
-
-  {% if breadth_filter %}
-  <section class="group" id="bo-loc-do-rong">
-    <h2>Bộ lọc độ rộng — phép đo chốt trước</h2>
-    <p class="hint">
-      Giả thuyết: khi VN-Index trên MA200, tín hiệu phá nền lúc độ rộng đóng có lợi nhuận 40 phiên thấp
-      hơn lúc độ rộng mở. Luật ở <code>docs/breadth-signal-filter.md</code>, chốt bằng tag
-      <code>prereg/breadth-filter</code> và các sửa đổi <code>-amend1</code> tới <code>-amend3</code>.
-      Trước lần đo chỉ được xem số đếm, nên ở đây không có lợi nhuận hay tỷ lệ thắng.
-      Tín hiệu được tìm theo đúng luật ở tag (luật giá chưa chỉnh chia tách quét cả lịch sử, khác
-      bảng kết quả hằng ngày chỉ xét 134 phiên cuối), nên số đếm khớp với lệnh đo chạy ở tag.
-    </p>
-    <div class="toolbar">
-      <form method="post" action="/market/filter-count">
-        <button type="submit" {% if breadth_filter.running or busy %}disabled{% endif %}>Đếm mẫu</button>
-      </form>
-      <p class="{{ 'banner ' ~ breadth_filter.line.kind if breadth_filter.line.kind else 'hint' }}">{{ breadth_filter.line.text }}</p>
-    </div>
-    {% if breadth_filter.counts %}
-      {% set c = breadth_filter.counts %}
-      <p class="regime">{{ breadth_filter.status }}</p>
-      {% if breadth_filter.started %}
-        <p class="hint">
-          Từ {{ c.start }} tới {{ c.last_day }}: {{ c.months }}/{{ breadth_filter.min_months }} tháng,
-          {{ c.sessions }} phiên, {{ c.sessions_without_state }} phiên không có trạng thái độ rộng.
-          Hạn chót {{ breadth_filter.deadline }} ({{ breadth_filter.max_months }} tháng).
-        </p>
+    {% if breadth.recent %}
+      <details>
+        <summary>
+          {{ breadth.recent|length }} phiên VN-Index gần nhất{% if breadth.unrecorded %}, {{ breadth.unrecorded }} phiên không có trạng thái{% endif %}
+        </summary>
         <table class="numbers">
-          <thead><tr><th></th><th>Nhóm giữ (độ rộng mở)</th><th>Nhóm bỏ (độ rộng đóng)</th></tr></thead>
+          <thead><tr><th>Phiên</th><th>Tỷ lệ</th><th>Trạng thái</th></tr></thead>
           <tbody>
-            <tr><th>Tín hiệu</th><td>{{ c.keep_total }}</td><td>{{ c.drop_total }}</td></tr>
-            <tr>
-              <th>Đã đủ 40 phiên (cần {{ breadth_filter.min_signals }})</th>
-              <td>{{ c.keep_matured }}</td><td>{{ c.drop_matured }}</td>
-            </tr>
+            {% for row in breadth.recent %}
+              <tr>
+                <th>{{ row.day }}</th>
+                <td>{{ row.share }}</td>
+                <td>
+                  {% if row.open is none %}
+                    {% if row.measured %}<span class="pill out">chưa ghi</span>{% else %}—{% endif %}
+                  {% elif row.open %}mở{% else %}đóng{% endif %}
+                </td>
+              </tr>
+            {% endfor %}
           </tbody>
         </table>
-        <p class="hint">
-          Tín hiệu bị loại vì phiên không có trạng thái độ rộng: {{ c.missing_state }}.
-          Chỉ tính tín hiệu của rổ 100 ở phiên VN-Index trên MA200.
+        <p class="hint small">
+          Phiên thuộc phép đo bộ lọc độ rộng mà không có trạng thái thì ghi "chưa ghi": tín hiệu của
+          phiên đó bị loại và không được tính bù. Phép đo ở <a href="/lab#bo-loc-do-rong">Nghiên cứu</a>.
         </p>
-      {% else %}
-        <p class="hint">
-          Chưa có phiên nào từ {{ c.start }}; phiên mới nhất trong kho là {{ c.last_day }}.
-          Hạn chót {{ breadth_filter.deadline }}.
-        </p>
-      {% endif %}
+      </details>
     {% endif %}
   </section>
   {% endif %}
 
-  <section class="group">
-    <h2>Chuỗi số</h2>
-    <table>
+  {% if industry and industry.rows %}
+  <section class="group" id="nganh">
+    <h2>Ngành</h2>
+    {% set opened = industry.rows|selectattr("open")|list %}
+    <p class="regime">
+      {{ opened|length }}/{{ industry.rows|length }} nhóm mở phiên {{ industry.day }}{% if opened %}: {{ opened|map(attribute="name")|join(", ") }}{% endif %}.
+    </p>
+    <p class="hint">
+      Mỗi nhóm có từ {{ industry.min_names }} mã trong danh sách có chỉ số riêng: bình quân đều lợi suất các mã của nhóm.
+      Nhóm <strong>mở</strong> khi chỉ số đó tăng hơn VN-Index trong {{ industry.window }} phiên, <em>và</em> qua điều kiện riêng của nhóm:
+      năng lượng và vật liệu cần giá dầu {{ industry.window }} phiên tăng; ngân hàng và chứng khoán cần tín dụng ngân hàng tăng
+      (trung vị tăng trưởng cho vay cùng kỳ, đọc báo cáo quý sau 45 ngày); các nhóm còn lại cần VN-Index trên MA200.
+      Số đo tới hết phiên {{ industry.measured_through }}, nên phiên {{ industry.day }} không dùng giá đóng cửa của chính nó.
+    </p>
+    <p class="hint">
+      {% if industry.enforced %}
+        Cổng đang chặn: mã thuộc nhóm đóng không được vào.
+      {% else %}
+        Chỉ quan sát: phép đo cổng ngành chưa qua cả hai giai đoạn, nên nhóm đóng chưa chặn mã nào.
+        Số đo ở <a href="/lab/report/industry_gate">báo cáo cổng ngành</a> và <a href="/lab#cong-nganh">Nghiên cứu</a>.
+      {% endif %}
+    </p>
+
+    <table class="industries">
       <thead>
         <tr>
-          <th>Chuỗi</th>
-          <th>Mới nhất</th>
-          <th>Ngày</th>
-          <th>Số phiên đã lưu</th>
-          <th>Nguồn</th>
-          <th>Đọc ra</th>
+          <th>Nhóm</th>
+          <th>Trạng thái</th>
+          <th>Điều kiện phiên {{ industry.day }}</th>
+          <th>{{ industry.strip_sessions }} phiên gần nhất</th>
         </tr>
       </thead>
       <tbody>
-        {% for row in rows %}
+        {% for row in industry.rows %}
           <tr>
             <td>
-              {{ row.label }}
-              {% if row.required %}<span class="pill locked">bắt buộc</span>{% endif %}
+              <strong>{{ row.name }}</strong>
+              <span class="hint small">{{ row.kind }}</span>
+              <details class="members">
+                <summary>{{ row.members|length }} mã</summary>
+                {% for symbol in row.members %}<a href="/symbol/{{ symbol }}">{{ symbol }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+              </details>
             </td>
-            <td>{{ row.last_value }} {{ row.unit }}</td>
-            <td>{{ row.last_day or "—" }}</td>
-            <td>{{ row.sessions }}</td>
-            <td>{{ row.source }}</td>
-            <td>{{ row.note or "—" }}</td>
+            <td>
+              <span class="pill {{ 'enter' if row.open else 'out' }}">{{ "Mở" if row.open else "Đóng" }}</span>
+              <span class="since">
+                {% if row.since_known %}từ phiên {{ row.since }}{% else %}từ trước {{ row.since }}{% endif %}
+                <span class="hint small">({{ row.sessions }} phiên)</span>
+              </span>
+              <span class="hint small">Mở {{ (100 * row.open_share)|round|int }}% số phiên trong năm qua.</span>
+            </td>
+            <td>
+              <ul class="conditions">
+                {% for condition in row.conditions %}
+                  <li class="{{ 'ok' if condition.ok else 'bad' }}">
+                    <span class="mark" aria-hidden="true">{{ "✓" if condition.ok else "✗" }}</span>
+                    {{ condition.name }}: <span class="value">{{ condition.value }}</span>
+                  </li>
+                {% endfor %}
+              </ul>
+            </td>
+            <td>
+              <div class="strip" role="img" aria-label="Mở và đóng trong {{ industry.strip_sessions }} phiên gần nhất">
+                {% for segment in row.strip %}
+                  <span class="seg {{ 'open' if segment.open else 'closed' }}" style="width: {{ segment.width }}%"
+                        title="{{ 'Mở' if segment.open else 'Đóng' }} {{ segment.start }} → {{ segment.end }} ({{ segment.sessions }} phiên)"></span>
+                {% endfor %}
+              </div>
+              {% if row.changes %}
+                <ul class="changes-list small">
+                  {% for change in row.changes %}
+                    <li>{{ change.day }}: {{ "mở" if change.open else "đóng" }}</li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
+            </td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
-    <p class="hint">
-      Mỗi phiên lưu một số cho mỗi chuỗi. Số của hôm nay không bao giờ được lấy để chấm lại
-      các phiên cũ, nên phép đo lịch sử chỉ dùng chuỗi này từ ngày nó bắt đầu được lưu.
+    <p class="hint small">
+      Dải màu: xanh là phiên nhóm mở, đỏ là phiên đóng; rê chuột để xem từng đoạn. Danh sách dưới dải là các lần đổi gần nhất.
+      {% if industry.thin %}
+        Nhóm chưa đủ {{ industry.min_names }} mã không có cổng riêng, mã của nhóm chỉ cần VN-Index trên MA200:
+        {% for name, count in industry.thin %}{{ name }} ({{ count }}){% if not loop.last %}, {% endif %}{% endfor %}.
+      {% endif %}
+      {% if industry.unlabeled %}
+        {{ industry.unlabeled|length }} mã chưa có nhãn ngành cũng chỉ cần VN-Index trên MA200: {{ industry.unlabeled|join(", ") }}.
+      {% endif %}
     </p>
   </section>
-
-  <section class="group">
-    <h2>Ngưỡng đã khai báo</h2>
-    <table class="numbers">
-      <tbody>
-        {% for label, text in thresholds %}
-          <tr><th>{{ label }}</th><td>{{ text }}</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    <p class="hint">
-      Ngưỡng là số viết trước khi chạy. Một ngưỡng để trống nghĩa là chưa khai báo, và chuỗi
-      đó không thể khóa danh sách.
-    </p>
-  </section>
-
-  <section class="group">
-    <h2>Lãi suất điều hành</h2>
-    <p class="hint">
-      Mỗi dòng là một quyết định của Ngân hàng Nhà nước, ghi ngày có hiệu lực. Chuỗi bậc
-      thang này được lưu và đọc như mọi chuỗi khác.
-    </p>
-    <table class="numbers">
-      <tbody>
-        {% for day, rate in policy %}
-          <tr><th>{{ day }}</th><td>{{ "%.2f"|format(rate) }} %/năm</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
+  {% endif %}
 {% endblock %}
