@@ -118,21 +118,23 @@ async def _once(now: datetime) -> tuple[str, bool]:
         states = (await db.market_points()).get(BREADTH_STATE_SERIES) or []
         reported = set(await db.stored_json(LOST_REPORTED_KEY) or [])
         lost = lost_sessions([str(bar["trade_date"]) for bar in index], states, reported)
+        index_day = str(index[-1]["trade_date"]) if index else None
+        line, found = breadth_line(index_day, states, expected)
+        ok = found == "ok" and not message.startswith("Phiên lỗi") and message != BUSY_MESSAGE and not lost
+        text = f"{message}\n{line}"
         if lost:
+            text += (
+                f"\nMất trạng thái độ rộng ở phiên {', '.join(lost)}: không ghi bù được, tín hiệu của "
+                "các phiên này bị loại khỏi phép đo bộ lọc độ rộng."
+            )
+        sent = False
+        if lost or should_alert(message, found, index_day, expected, now):
+            sent = await notify.send("VStock research — lịch chạy cần xem lại\n" + html.escape(text, quote=False))
+        # A send that failed leaves the sessions unreported, so the next run tries again.
+        if lost and (sent or not notify.configured()):
             await db.store_json(LOST_REPORTED_KEY, sorted(reported | set(lost)))
     finally:
         await db.close_db()
-    index_day = str(index[-1]["trade_date"]) if index else None
-    line, found = breadth_line(index_day, states, expected)
-    ok = found == "ok" and not message.startswith("Phiên lỗi") and message != BUSY_MESSAGE and not lost
-    text = f"{message}\n{line}"
-    if lost:
-        text += (
-            f"\nMất trạng thái độ rộng ở phiên {', '.join(lost)}: không ghi bù được, tín hiệu của "
-            "các phiên này bị loại khỏi phép đo bộ lọc độ rộng."
-        )
-    if lost or should_alert(message, found, index_day, expected, now):
-        await notify.send("VStock research — lịch chạy cần xem lại\n" + html.escape(text, quote=False))
     return text, ok
 
 
