@@ -20,6 +20,7 @@ from app.chart import build_chart, build_line_chart
 from app.breadth import breadth_reason
 from app.breadth_filter import Counts
 from app.config import (
+    BANKS,
     BREADTH_CLOSE,
     BREADTH_FILTER_START,
     BREADTH_GATE_ENFORCED,
@@ -27,6 +28,7 @@ from app.config import (
     BREADTH_OPEN,
     BREADTH_SERIES,
     BREADTH_STATE_SERIES,
+    DEFAULT_UNIVERSE,
     INDUSTRY_GATE_ENFORCED,
     MA_WINDOW,
     MACRO_SYMBOLS,
@@ -36,7 +38,15 @@ from app.config import (
     STATUS_RANK,
 )
 from app.evaluate import SCORE_CEILINGS
-from app.industries import industry_labels, load_industry_map
+from app.industries import (
+    INDUSTRY_WINDOW,
+    MIN_INDUSTRY_NAMES,
+    industry_labels,
+    industry_of,
+    load_industry_map,
+    members,
+)
+from app.industry_screen import credit_by_day, industry_days, lead_bars_from
 from app.ingest import load_exchanges
 from app.jobs import Job, status_line
 from app.money import LABELS, money_state, thresholds
@@ -49,9 +59,11 @@ from app.views import (
     funnel,
     gate_chain,
     group_changes,
+    INDUSTRY_STRIP_SESSIONS,
     held_by_market,
     hold_reason,
     industry_name,
+    industry_panel,
     lane,
     lane_counts,
     market_headline,
@@ -352,8 +364,56 @@ async def market_page(request: Request):
             "policy": POLICY_RATE_HISTORY,
             "latest_day": max(days) if days else "",
             "breadth": _breadth_view(points, [str(bar["trade_date"]) for bar in index_bars]),
+            "industry": await _industry_view(index_bars, points),
         },
     )
+
+
+_industry_cache: dict = {"key": None, "view": None}
+
+
+async def _industry_view(index_bars: list[dict], points: dict) -> dict:
+    """Cổng ngành dựng lại từ nến đã lưu bằng đúng hàm phiên chạy dùng, kèm số và lịch sử từng nhóm."""
+    run = await db.latest_run() or {}
+    key = (
+        run.get("id"),
+        run.get("finished_at"),
+        len(index_bars),
+        str(index_bars[-1]["trade_date"]) if index_bars else "",
+    )
+    if _industry_cache["key"] == key:
+        return _industry_cache["view"]
+    universe = list(DEFAULT_UNIVERSE)
+    bars = {symbol: await db.bars(symbol) for symbol in universe}
+    credit = credit_by_day(
+        {bank: await db.ratios(bank) for bank in BANKS},
+        [str(bar["trade_date"]) for bar in index_bars],
+    )
+    days, _regimes, by_industry = await asyncio.to_thread(
+        industry_days, index_bars, bars, universe, lead_bars=lead_bars_from(points), credit_by_day=credit
+    )
+    labels = {symbol: industry_of(symbol) for symbol in universe}
+    counts: dict[str, int] = {}
+    for label in labels.values():
+        if label:
+            counts[label] = counts.get(label, 0) + 1
+    view = {
+        "rows": industry_panel(
+            days, by_industry, {industry: members(industry, universe) for industry in by_industry}, INDUSTRY_WINDOW
+        ),
+        "day": days[-1] if days else "",
+        "measured_through": days[-2] if len(days) > 1 else "",
+        "window": INDUSTRY_WINDOW,
+        "min_names": MIN_INDUSTRY_NAMES,
+        "strip_sessions": INDUSTRY_STRIP_SESSIONS,
+        "enforced": INDUSTRY_GATE_ENFORCED,
+        "thin": sorted(
+            (industry_name(label), count) for label, count in counts.items() if count < MIN_INDUSTRY_NAMES
+        ),
+        "unlabeled": sorted(symbol for symbol, label in labels.items() if not label),
+    }
+    _industry_cache.update(key=key, view=view)
+    return view
 
 
 def _breadth_view(points: dict[str, list[tuple[str, float]]], index_days: list[str]) -> dict:

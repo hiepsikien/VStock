@@ -95,6 +95,19 @@ class SweepMathTest(unittest.TestCase):
         self.assertTrue(short[("VIC", day)])
         self.assertFalse(long[("VIC", day)])
 
+    def test_the_industry_days_the_page_reads_are_the_ones_the_gate_uses(self) -> None:
+        from app.industry_screen import industry_days
+
+        index = _bars("2024-01-01", [100.0] * 80)
+        rising = [100.0 * (1.01 ** step) for step in range(80)]
+        book = {symbol: _bars("2024-01-01", rising) for symbol in ("VIC", "VHM", "VRE")}
+        regime = {bar["trade_date"]: True for bar in index}
+        days, _regimes, by_industry = industry_days(index, book, ["VIC", "VHM", "VRE"], regime_by_day=regime, window=14)
+        opened = build_open_map(index, book, ["VIC", "VHM", "VRE"], regime_by_day=regime, window=14)
+        self.assertEqual(list(by_industry), ["real_estate"])
+        self.assertEqual([record.open for record in by_industry["real_estate"]], [opened[("VIC", day)] for day in days])
+        self.assertGreater(by_industry["real_estate"][20].excess, 0)
+
 
 class IndustryMathTest(unittest.TestCase):
     def test_equal_weight_skips_a_missing_name(self) -> None:

@@ -147,4 +147,97 @@
     {% endif %}
   </section>
   {% endif %}
+
+  {% if industry and industry.rows %}
+  <section class="group" id="nganh">
+    <h2>Ngành</h2>
+    {% set opened = industry.rows|selectattr("open")|list %}
+    <p class="regime">
+      {{ opened|length }}/{{ industry.rows|length }} nhóm mở phiên {{ industry.day }}{% if opened %}: {{ opened|map(attribute="name")|join(", ") }}{% endif %}.
+    </p>
+    <p class="hint">
+      Mỗi nhóm có từ {{ industry.min_names }} mã trong danh sách có chỉ số riêng: bình quân đều lợi suất các mã của nhóm.
+      Nhóm <strong>mở</strong> khi chỉ số đó tăng hơn VN-Index trong {{ industry.window }} phiên, <em>và</em> qua điều kiện riêng của nhóm:
+      năng lượng và vật liệu cần giá dầu {{ industry.window }} phiên tăng; ngân hàng và chứng khoán cần tín dụng ngân hàng tăng
+      (trung vị tăng trưởng cho vay cùng kỳ, đọc báo cáo quý sau 45 ngày); các nhóm còn lại cần VN-Index trên MA200.
+      Số đo tới hết phiên {{ industry.measured_through }}, nên phiên {{ industry.day }} không dùng giá đóng cửa của chính nó.
+    </p>
+    <p class="hint">
+      {% if industry.enforced %}
+        Cổng đang chặn: mã thuộc nhóm đóng không được vào.
+      {% else %}
+        Chỉ quan sát: phép đo cổng ngành chưa qua cả hai giai đoạn, nên nhóm đóng chưa chặn mã nào.
+        Số đo ở <a href="/lab/report/industry_gate">báo cáo cổng ngành</a> và <a href="/lab#cong-nganh">Nghiên cứu</a>.
+      {% endif %}
+    </p>
+
+    <table class="industries">
+      <thead>
+        <tr>
+          <th>Nhóm</th>
+          <th>Trạng thái</th>
+          <th>Điều kiện phiên {{ industry.day }}</th>
+          <th>{{ industry.strip_sessions }} phiên gần nhất</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in industry.rows %}
+          <tr>
+            <td>
+              <strong>{{ row.name }}</strong>
+              <span class="hint small">{{ row.kind }}</span>
+              <details class="members">
+                <summary>{{ row.members|length }} mã</summary>
+                {% for symbol in row.members %}<a href="/symbol/{{ symbol }}">{{ symbol }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+              </details>
+            </td>
+            <td>
+              <span class="pill {{ 'enter' if row.open else 'out' }}">{{ "Mở" if row.open else "Đóng" }}</span>
+              <span class="since">
+                {% if row.since_known %}từ phiên {{ row.since }}{% else %}từ trước {{ row.since }}{% endif %}
+                <span class="hint small">({{ row.sessions }} phiên)</span>
+              </span>
+              <span class="hint small">Mở {{ (100 * row.open_share)|round|int }}% số phiên trong năm qua.</span>
+            </td>
+            <td>
+              <ul class="conditions">
+                {% for condition in row.conditions %}
+                  <li class="{{ 'ok' if condition.ok else 'bad' }}">
+                    <span class="mark" aria-hidden="true">{{ "✓" if condition.ok else "✗" }}</span>
+                    {{ condition.name }}: <span class="value">{{ condition.value }}</span>
+                  </li>
+                {% endfor %}
+              </ul>
+            </td>
+            <td>
+              <div class="strip" role="img" aria-label="Mở và đóng trong {{ industry.strip_sessions }} phiên gần nhất">
+                {% for segment in row.strip %}
+                  <span class="seg {{ 'open' if segment.open else 'closed' }}" style="width: {{ segment.width }}%"
+                        title="{{ 'Mở' if segment.open else 'Đóng' }} {{ segment.start }} → {{ segment.end }} ({{ segment.sessions }} phiên)"></span>
+                {% endfor %}
+              </div>
+              {% if row.changes %}
+                <ul class="changes-list small">
+                  {% for change in row.changes %}
+                    <li>{{ change.day }}: {{ "mở" if change.open else "đóng" }}</li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="hint small">
+      Dải màu: xanh là phiên nhóm mở, đỏ là phiên đóng; rê chuột để xem từng đoạn. Danh sách dưới dải là các lần đổi gần nhất.
+      {% if industry.thin %}
+        Nhóm chưa đủ {{ industry.min_names }} mã không có cổng riêng, mã của nhóm chỉ cần VN-Index trên MA200:
+        {% for name, count in industry.thin %}{{ name }} ({{ count }}){% if not loop.last %}, {% endif %}{% endfor %}.
+      {% endif %}
+      {% if industry.unlabeled %}
+        {{ industry.unlabeled|length }} mã chưa có nhãn ngành cũng chỉ cần VN-Index trên MA200: {{ industry.unlabeled|join(", ") }}.
+      {% endif %}
+    </p>
+  </section>
+  {% endif %}
 {% endblock %}

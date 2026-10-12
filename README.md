@@ -64,7 +64,7 @@ Dashboard có năm trang, mỗi trang trả lời một câu hỏi:
 | Trang | Câu hỏi | Nội dung |
 |---|---|---|
 | **Hôm nay** `/` | Hôm nay có gì để làm? | Đèn các cổng thị trường, phễu của danh sách, việc cần làm, thay đổi so với phiên trước, bảng mã lọc theo trạng thái, tên mã và ngành |
-| **Thị trường** `/market` | Thị trường mở hay đóng, vì sao? | VN-Index và MA200, vĩ mô, tiền tệ, độ rộng, kèm biểu đồ |
+| **Thị trường** `/market` | Thị trường mở hay đóng, vì sao? | VN-Index và MA200, vĩ mô, tiền tệ, độ rộng, kèm biểu đồ; từng nhóm ngành mở hay đóng, từ phiên nào, vì điều kiện nào |
 | **Danh mục giấy** `/paper` | Lệnh đã xác nhận đang ra sao? | Vị thế giấy (khoảng cách tới dừng lỗ và mốc chốt) và nhật ký thao tác |
 | **Nghiên cứu** `/lab` | Giả thuyết đang đo tới đâu? | Đo sau phí (`/backtest`), bộ lọc độ rộng chốt trước, cổng độ rộng, cổng ngành, các báo cáo trong `research/reports` |
 | **Vận hành** `/ops` | Hệ thống có chạy đúng không? | Lịch chạy, các lần chạy, độ tươi của dữ liệu, danh sách mã |

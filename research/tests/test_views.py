@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from app.industry_screen import IndustryDay
 from app.money import Money
 from app.pattern import Regime
 from app.views import (
@@ -10,6 +11,7 @@ from app.views import (
     group_changes,
     held_by_market,
     hold_reason,
+    industry_panel,
     lane_counts,
     market_headline,
     market_lights,
@@ -232,6 +234,37 @@ class HoldTest(unittest.TestCase):
         self.assertTrue(stale)
         self.assertEqual([light["stale"] for light in lights], [True, False, False])
         self.assertFalse(stamp_lights(lights, {"index": "2026-10-12"}, "2026-10-12"))
+
+
+class IndustryPanelTest(unittest.TestCase):
+    DAYS = ["2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09", "2026-10-12"]
+
+    def test_an_open_group_says_since_when_and_which_conditions_hold(self) -> None:
+        closed = IndustryDay(own=0.01, index=0.02, lead=0.05, credit=None, regime=False, open=False)
+        opened = IndustryDay(own=0.08, index=0.02, lead=0.05, credit=None, regime=False, open=True)
+        tech = IndustryDay(own=0.05, index=0.02, lead=None, credit=None, regime=False, open=False)
+        rows = industry_panel(
+            self.DAYS,
+            {"tech": [tech] * 5, "energy": [closed, closed, opened, opened, opened]},
+            {"energy": ["GAS", "PLX", "PVS"], "tech": ["FPT", "CMG", "ELC"]},
+            60,
+        )
+        energy, tech_row = rows
+        self.assertEqual(energy["code"], "energy")
+        self.assertEqual((energy["open"], energy["since"], energy["since_known"], energy["sessions"]), (True, "2026-10-08", True, 3))
+        self.assertEqual([(c["ok"], c["name"]) for c in energy["conditions"]], [(True, "Nhóm mạnh hơn VN-Index 60 phiên"), (True, "Giá dầu tăng 60 phiên")])
+        self.assertIn("chênh +6.0%", energy["conditions"][0]["value"])
+        self.assertEqual(energy["changes"], [{"day": "2026-10-08", "open": True}])
+        self.assertEqual([(s["open"], s["width"]) for s in energy["strip"]], [(False, 40.0), (True, 60.0)])
+        self.assertAlmostEqual(energy["open_share"], 0.6)
+
+    def test_a_group_closed_all_along_names_the_failing_condition(self) -> None:
+        tech = IndustryDay(own=0.05, index=0.02, lead=None, credit=None, regime=False, open=False)
+        (row,) = industry_panel(self.DAYS, {"tech": [tech] * 5}, {"tech": ["FPT"]}, 60)
+        self.assertFalse(row["since_known"])
+        self.assertEqual(
+            [(c["name"], c["ok"], c["value"]) for c in row["conditions"]][-1], ("VN-Index trên MA200", False, "dưới")
+        )
 
 
 class MarkdownTest(unittest.TestCase):

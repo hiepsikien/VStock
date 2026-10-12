@@ -19,7 +19,9 @@ from app.config import (
     STATUS_RANK,
     TIME_STOP_SESSIONS,
 )
+from app.industries import CREDIT_INDUSTRIES, LEAD_SERIES, REGIME_INDUSTRIES
 from app.industry_note import LABELS as INDUSTRY_LABELS
+from app.industry_screen import IndustryDay
 from app.money import Money
 from app.pattern import Regime
 
@@ -158,7 +160,7 @@ def market_lights(
             industry_state,
             industry_detail,
             enforced=INDUSTRY_GATE_ENFORCED,
-            href="/lab#cong-nganh",
+            href="/market#nganh",
             word=industry_word,
         )
     )
@@ -367,6 +369,126 @@ def _stock_decider(item: dict) -> str | None:
     if INDUSTRY_GATE_ENFORCED and item.get("industry_open") is False:
         return "Ngành"
     return None
+
+
+INDUSTRY_STRIP_SESSIONS = 120
+INDUSTRY_SHARE_SESSIONS = 250
+INDUSTRY_CHANGES = 4
+
+
+def _pct_or(value: float | None, missing: str) -> str:
+    return missing if value is None else f"{value:+.1%}"
+
+
+def _industry_conditions(industry: str, day: IndustryDay, window: int) -> list[dict]:
+    """Từng điều kiện của luật ngành, đúng như `industry_screen.wave_open` xét, kèm số đã đọc."""
+    excess = day.excess
+    conditions = [
+        {
+            "name": f"Nhóm mạnh hơn VN-Index {window} phiên",
+            "ok": excess is not None and excess > 0,
+            "value": (
+                f"chưa đủ {window} phiên"
+                if excess is None
+                else f"nhóm {day.own:+.1%}, VN-Index {day.index:+.1%}, chênh {excess:+.1%}"
+            ),
+        }
+    ]
+    if industry in LEAD_SERIES:
+        conditions.append(
+            {
+                "name": f"Giá dầu tăng {window} phiên",
+                "ok": day.lead is not None and day.lead > 0,
+                "value": _pct_or(day.lead, "chưa có số dầu"),
+            }
+        )
+    if industry in CREDIT_INDUSTRIES:
+        conditions.append(
+            {
+                "name": "Tín dụng ngân hàng tăng",
+                "ok": day.credit is not None and day.credit > 0,
+                "value": (
+                    "chưa có báo cáo quý"
+                    if day.credit is None
+                    else f"trung vị tăng trưởng cho vay cùng kỳ {day.credit:+.1%}"
+                ),
+            }
+        )
+    if industry in REGIME_INDUSTRIES:
+        conditions.append(
+            {
+                "name": "VN-Index trên MA200",
+                "ok": day.regime is True,
+                "value": {True: "trên", False: "dưới"}.get(day.regime, "chưa đủ số"),
+            }
+        )
+    return conditions
+
+
+def _industry_kind(industry: str) -> str:
+    if industry in LEAD_SERIES:
+        return "Theo giá dầu" if industry == "energy" else "Theo giá dầu (đại diện hàng hóa)"
+    if industry in CREDIT_INDUSTRIES:
+        return "Theo tín dụng ngân hàng"
+    return "Theo VN-Index trên MA200"
+
+
+def _strip(days: list[str], records: list[IndustryDay], sessions: int) -> list[dict]:
+    """Các đoạn mở/đóng liền nhau của `sessions` phiên gần nhất, độ rộng theo phần trăm."""
+    tail = list(zip(days, records))[-sessions:]
+    segments: list[dict] = []
+    for day, record in tail:
+        if segments and segments[-1]["open"] == record.open:
+            segments[-1]["end"] = day
+            segments[-1]["sessions"] += 1
+        else:
+            segments.append({"open": record.open, "start": day, "end": day, "sessions": 1})
+    for segment in segments:
+        segment["width"] = round(100 * segment["sessions"] / len(tail), 3)
+    return segments
+
+
+def industry_panel(
+    days: list[str],
+    by_industry: dict[str, list[IndustryDay]],
+    members_by_industry: dict[str, list[str]],
+    window: int,
+) -> list[dict]:
+    """Mỗi nhóm ngành một dòng: đang mở hay đóng, từ phiên nào, vì điều kiện nào, lịch sử gần đây."""
+    rows = []
+    for industry, records in by_industry.items():
+        if not records:
+            continue
+        last = records[-1]
+        start = len(records) - 1
+        while start > 0 and records[start - 1].open == last.open:
+            start -= 1
+        changes = [
+            {"day": days[position], "open": records[position].open}
+            for position in range(1, len(records))
+            if records[position].open != records[position - 1].open
+        ]
+        recent = records[-INDUSTRY_SHARE_SESSIONS:]
+        rows.append(
+            {
+                "code": industry,
+                "name": industry_name(industry),
+                "kind": _industry_kind(industry),
+                "members": members_by_industry.get(industry, []),
+                "open": last.open,
+                "since": days[start],
+                # Trạng thái đã như vậy từ phiên đầu tiên có nến thì không biết nó bắt đầu từ bao giờ.
+                "since_known": start > 0,
+                "sessions": len(records) - start,
+                "conditions": _industry_conditions(industry, last, window),
+                "excess": last.excess,
+                "changes": list(reversed(changes[-INDUSTRY_CHANGES:])),
+                "strip": _strip(days, records, INDUSTRY_STRIP_SESSIONS),
+                "open_share": sum(1 for record in recent if record.open) / len(recent),
+            }
+        )
+    rows.sort(key=lambda row: (not row["open"], -(row["excess"] if row["excess"] is not None else -9)))
+    return rows
 
 
 def gate_chain(item: dict) -> list[dict]:

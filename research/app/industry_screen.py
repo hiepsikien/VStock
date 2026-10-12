@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, timedelta
 
 from app.config import BANKS, STATEMENT_LAG_DAYS
@@ -63,6 +64,20 @@ def is_open(
     """True when the industry wave is open. None when the group is too small to be a wave."""
     if len(members(industry, universe)) < MIN_INDUSTRY_NAMES:
         return None
+    return wave_open(
+        industry, excess=excess, lead_return=lead_return, credit_growth=credit_growth, regime_open=regime_open
+    )
+
+
+def wave_open(
+    industry: str,
+    *,
+    excess: float | None,
+    lead_return: float | None,
+    credit_growth: float | None,
+    regime_open: bool | None,
+) -> bool:
+    """The industry rule itself, for a group already known to have enough names."""
     if excess is None or excess <= 0:
         return False
     if industry in LEAD_SERIES and (lead_return is None or lead_return <= 0):
@@ -186,7 +201,23 @@ def credit_by_day(
     return out
 
 
-def build_open_map(
+@dataclass(frozen=True)
+class IndustryDay:
+    """What one gated industry read on a session: every input comes from the session before."""
+
+    own: float | None
+    index: float | None
+    lead: float | None
+    credit: float | None
+    regime: bool | None
+    open: bool
+
+    @property
+    def excess(self) -> float | None:
+        return None if self.own is None or self.index is None else self.own - self.index
+
+
+def industry_days(
     index_bars: list[dict],
     bars_by_symbol: dict[str, list[dict]],
     universe: list[str],
@@ -195,11 +226,11 @@ def build_open_map(
     credit_by_day: dict[str, float | None] | None = None,
     regime_by_day: dict[str, bool | None] | None = None,
     window: int = INDUSTRY_WINDOW,
-) -> dict[tuple[str, str], bool]:
-    """Whether each name is allowed on a session, using the window that ended yesterday.
+) -> tuple[list[str], list[bool | None], dict[str, list[IndustryDay]]]:
+    """Sessions, the domestic regime each session read, and every gated industry's day by day.
 
-    Without lead_bars and credit_by_day the lead and credit industries can never open, so every
-    caller has to pass both, built by lead_bars_from and credit_by_day.
+    The lists line up with the sessions. Each session reads the window that ended the session
+    before, so nothing a session decides uses its own close.
     """
     from app.pattern import market_regime
 
@@ -227,35 +258,75 @@ def build_open_map(
         ]
         industry_roll[industry] = rolling_compound(average_by_day(series), window)
 
-    allowed: dict[tuple[str, str], bool] = {}
-    for day in index_days:
-        yesterday = previous_session(index_days, day)
+    regimes: list[bool | None] = []
+    by_industry: dict[str, list[IndustryDay]] = {industry: [] for industry in industry_roll}
+    for position, day in enumerate(index_days):
+        yesterday = index_days[position - 1] if position else None
         regime_open = regime_by_day.get(yesterday) if yesterday else None
         credit = (credit_by_day or {}).get(yesterday) if yesterday else None
         index_return = index_roll.get(yesterday) if yesterday else None
-        open_by_industry: dict[str, bool | None] = {}
+        regimes.append(regime_open)
         for industry, rolled in industry_roll.items():
             own = rolled.get(yesterday) if yesterday else None
-            excess = None if own is None or index_return is None else own - index_return
             lead_return = None
-            if industry in LEAD_SERIES:
-                lead_return = lead_roll.get(industry, {}).get(yesterday) if yesterday else None
-            open_by_industry[industry] = is_open(
-                industry,
-                universe,
-                excess=excess,
-                lead_return=lead_return,
-                credit_growth=credit,
-                regime_open=regime_open,
+            if industry in LEAD_SERIES and yesterday:
+                lead_return = lead_roll.get(industry, {}).get(yesterday)
+            excess = None if own is None or index_return is None else own - index_return
+            by_industry[industry].append(
+                IndustryDay(
+                    own=own,
+                    index=index_return,
+                    lead=lead_return,
+                    credit=credit,
+                    regime=regime_open,
+                    open=wave_open(
+                        industry,
+                        excess=excess,
+                        lead_return=lead_return,
+                        credit_growth=credit,
+                        regime_open=regime_open,
+                    ),
+                )
             )
+    return index_days, regimes, by_industry
+
+
+def build_open_map(
+    index_bars: list[dict],
+    bars_by_symbol: dict[str, list[dict]],
+    universe: list[str],
+    *,
+    lead_bars: dict[str, list[dict]] | None = None,
+    credit_by_day: dict[str, float | None] | None = None,
+    regime_by_day: dict[str, bool | None] | None = None,
+    window: int = INDUSTRY_WINDOW,
+) -> dict[tuple[str, str], bool]:
+    """Whether each name is allowed on a session, using the window that ended yesterday.
+
+    Without lead_bars and credit_by_day the lead and credit industries can never open, so every
+    caller has to pass both, built by lead_bars_from and credit_by_day.
+    """
+    days, regimes, by_industry = industry_days(
+        index_bars,
+        bars_by_symbol,
+        universe,
+        lead_bars=lead_bars,
+        credit_by_day=credit_by_day,
+        regime_by_day=regime_by_day,
+        window=window,
+    )
+    # A gated industry must be open; a thin or missing label only needs the domestic regime
+    # (`name_allowed`), worked out once per name rather than once per name and session.
+    industry_by_symbol = {symbol: industry_of(symbol) for symbol in universe}
+    allowed: dict[tuple[str, str], bool] = {}
+    for position, day in enumerate(days):
+        regime_open = regimes[position]
         for symbol in universe:
-            industry = industry_of(symbol)
-            allowed[(symbol, day)] = name_allowed(
-                symbol,
-                universe,
-                open_by_industry.get(industry) if industry else None,
-                regime_open,
-            )
+            industry = industry_by_symbol[symbol]
+            if industry in by_industry:
+                allowed[(symbol, day)] = by_industry[industry][position].open is True
+            else:
+                allowed[(symbol, day)] = regime_open is True
     return allowed
 
 
