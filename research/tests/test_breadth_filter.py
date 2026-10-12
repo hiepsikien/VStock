@@ -10,6 +10,7 @@ from app.breadth_filter import (
     KEEP,
     Counts,
     FilterSignal,
+    blocking_failures,
     classify,
     count,
     counts_text,
@@ -133,6 +134,20 @@ class GateTest(unittest.TestCase):
         text = counts_text(_counts(3, 10, 4))
         self.assertNotIn("%", text)
         self.assertIn("chưa đủ điều kiện đo", text)
+
+    def test_counts_text_before_the_first_session(self) -> None:
+        counts = Counts("2026-10-13", "2026-10-09", 0, 0, 0, 0, 0, 0, 0, 0)
+        self.assertIn("Từ 2026-10-13: chưa có phiên nào, phiên mới nhất trong kho là 2026-10-09.", counts_text(counts))
+
+    def test_a_failed_refresh_blocks_only_names_used_in_the_sample(self) -> None:
+        signals = [
+            FilterSignal("AAA", "2027-01-04", KEEP, True, 0.05),
+            FilterSignal("BBB", "2027-01-04", DROP, False, None),
+            FilterSignal("CCC", "2027-01-04", None, True, 0.01),
+        ]
+        # BBB chưa đủ phiên và CCC không có trạng thái, nên nến cũ của chúng không vào phép đo.
+        self.assertEqual(blocking_failures(signals, ["BBB", "CCC", "DDD"]), [])
+        self.assertEqual(blocking_failures(signals, ["AAA", "DDD"]), ["AAA"])
 
 
 if __name__ == "__main__":

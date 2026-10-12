@@ -214,10 +214,14 @@ def counts_text(counts: Counts) -> str:
         status = "đã quá hạn chót, đo sẽ cho kết luận \"không đủ mẫu\""
     else:
         status = "chưa đủ điều kiện đo"
+    if counts.last_day < counts.start:
+        span = f"Từ {counts.start}: chưa có phiên nào, phiên mới nhất trong kho là {counts.last_day}."
+    else:
+        span = f"Từ {counts.start} tới {counts.last_day}: {counts.months} tháng, {counts.sessions} phiên."
     return "\n".join(
         [
             "Bộ lọc độ rộng — chỉ số đếm, không có lợi nhuận",
-            f"Từ {counts.start} tới {counts.last_day}: {counts.months} tháng, {counts.sessions} phiên.",
+            span,
             f"Nhóm giữ (độ rộng mở): {counts.keep_total} tín hiệu, {counts.keep_matured} đã đủ "
             f"{BREADTH_FILTER_HORIZON} phiên.",
             f"Nhóm bỏ (độ rộng đóng): {counts.drop_total} tín hiệu, {counts.drop_matured} đã đủ "
@@ -278,11 +282,18 @@ def _trade_symbols(baskets: dict[int, Basket], since: str) -> list[str]:
     return sorted({name for year, basket in baskets.items() if year >= first_year for name in basket.trade})
 
 
-async def refresh_bars(symbols: list[str]) -> None:
-    """Nạp lại nến của VN-Index và mọi mã có thể phát tín hiệu trước khi đo.
+def blocking_failures(signals: list[FilterSignal], failed: list[str]) -> list[str]:
+    """Mã nạp lại nến lỗi mà có tín hiệu đã đủ phiên trong mẫu: đo lúc đó là đo trên nến cũ."""
+    used = {s.symbol for s in signals if s.group is not None and s.matured}
+    return sorted(set(failed) & used)
+
+
+async def refresh_bars(symbols: list[str]) -> list[str]:
+    """Nạp lại nến của VN-Index và mọi mã có thể phát tín hiệu trước khi đo; trả mã nạp lỗi.
 
     Phiên chạy thật chỉ nạp nến cho rổ 200 của năm hiện tại, nên mã rơi khỏi rổ năm sau sẽ ngừng
-    được cập nhật, và lợi nhuận 40 phiên của chúng thành đi ngang giả.
+    được cập nhật, và lợi nhuận 40 phiên của chúng thành đi ngang giả. Mã đã hủy niêm yết vẫn
+    nạp được từ bảng giá VNDirect, nên chỉ mã cả hai nguồn đều không trả mới tính là lỗi.
     """
     import httpx
 
@@ -292,6 +303,7 @@ async def refresh_bars(symbols: list[str]) -> None:
 
     await db.init_db()
     semaphore = asyncio.Semaphore(4)
+    failed: list[str] = []
     async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
         await db.replace_bars("VNINDEX", await fetch_bars(client, "VNINDEX", index=True))
 
@@ -307,12 +319,15 @@ async def refresh_bars(symbols: list[str]) -> None:
                         fetched = await fetch_market_bars(client, symbol, RESEARCH_HISTORY_START)
                     except Exception as exc:
                         logger.warning("Không nạp được nến %s: %s", symbol, exc)
-                        return
+                        fetched = []
             if fetched:
                 await db.replace_bars(symbol, fetched)
+            else:
+                failed.append(symbol)
 
         await asyncio.gather(*(_one(symbol) for symbol in symbols))
     await db.close_db()
+    return sorted(failed)
 
 
 def _sample(start: str) -> tuple[list[FilterSignal], Counts]:
@@ -357,8 +372,14 @@ def main() -> None:
     if not counts.ready and not counts.expired:
         print(counts_text(counts))
         raise SystemExit("Chưa đủ điều kiện đo.")
-    asyncio.run(refresh_bars(_symbols_to_refresh(BREADTH_FILTER_START)))
+    failed = asyncio.run(refresh_bars(_symbols_to_refresh(BREADTH_FILTER_START)))
     signals, counts = _sample(BREADTH_FILTER_START)
+    blocked = blocking_failures(signals, failed)
+    if blocked:
+        raise SystemExit(
+            "Không nạp lại được nến của " + ", ".join(blocked) + ", là mã có tín hiệu trong mẫu. "
+            "Chưa ghi báo cáo; chạy lại khi nguồn trả đủ nến."
+        )
     text = report_text(signals, counts, judge(signals, counts))
     REPORT_PATH.write_text(text)
     print(text)

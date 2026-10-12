@@ -8,7 +8,7 @@ Chốt ngày 2026-10-12. Đây là giả thuyết 7.4.1 của `research/reports/
 - các hằng số `BREADTH_FILTER_*` trong `research/app/config.py`;
 - lệnh đếm và lệnh đo `research/app/breadth_filter.py`, kèm test `research/tests/test_breadth_filter.py`.
 
-Sau mốc đó, không sửa luật, ngưỡng, định nghĩa hay cách cài đặt nào dưới đây.
+Sau mốc đó, không sửa luật, ngưỡng, định nghĩa hay cách cài đặt nào dưới đây. Ngoại lệ duy nhất là sửa đổi ở mục cuối, làm trước phiên đầu tiên của phép đo và chốt bằng tag `prereg/breadth-filter-amend1`. Phép đo chạy bằng code ở tag sửa đổi.
 
 ## Giả thuyết
 
@@ -45,7 +45,7 @@ Lợi nhuận đo từ phiên sau vì kết luận "Được vào" chỉ có sau
 
 Tín hiệu phát ra ở phiên không có `BREADTH50_STATE` bị loại khỏi mẫu, và được đếm riêng. Lý do có thể là phiên chạy thật không chạy, chạy lỗi, hoặc độ rộng "chưa chấm". Không lấp trạng thái thiếu bằng số tính lại.
 
-Định nghĩa tín hiệu, rổ, độ rộng và cách đo là bản ở tag. Mục 7.5 của báo cáo ưu tiên sửa điểm vào lệnh, nên `assess_pattern` có thể đổi trước lần đo. Khi đó, phép đo vẫn chạy bằng code ở tag (ví dụ `git worktree add ../prereg prereg/breadth-filter`).
+Định nghĩa tín hiệu, rổ, độ rộng và cách đo là bản ở tag. Mục 7.5 của báo cáo ưu tiên sửa điểm vào lệnh, nên `assess_pattern` có thể đổi trước lần đo. Khi đó, phép đo vẫn chạy bằng code ở tag (ví dụ `git worktree add ../prereg prereg/breadth-filter-amend1`).
 
 ## Luật qua cửa
 
@@ -111,3 +111,12 @@ Thời gian thường gặp là 2–4 năm. Khả năng kết thúc bằng "khô
 - **Không đo giả thuyết 7.4.2** (siết dừng lỗ khi độ rộng đóng) trên cùng dữ liệu.
 - **Đo lại cổng cứng (mục 7.2 của báo cáo)** đã được duyệt cùng ngày, như một phép đo riêng với luật riêng. Nó dùng cùng các phiên chạy thật nhưng trả lời câu hỏi khác: có nên đứng ngoài thị trường hay không. Không phép nào là lần thử lại của phép kia, và kết quả của phép này không đổi luật của phép kia.
 - **Sổ lệnh không nằm trong luật qua cửa,** vì số lệnh mỗi năm quá ít.
+
+## Sửa đổi trước phiên đầu
+
+Làm ngày 2026-10-12, sau tag `prereg/breadth-filter` và trước khi phiên 2026-10-13 đóng cửa, tức khi chưa có phiên nào của phép đo. Chốt bằng tag `prereg/breadth-filter-amend1`. Sửa đổi không đổi mẫu đo, cách chia nhóm, cách tính lợi nhuận hay luật qua cửa.
+
+1. **Dừng đo khi nạp lại nến lỗi.** Ở bản đầu, nếu nạp lại nến của một mã lỗi, lệnh đo chỉ ghi cảnh báo rồi vẫn tính và ghi báo cáo. Lợi nhuận của mã đó khi ấy tính từ nến cũ, thành đi ngang giả, đúng lỗi mà bước nạp lại được thêm vào để chặn. Nay `refresh_bars` trả danh sách mã mà cả Entrade lẫn bảng giá VNDirect đều không trả nến. Nếu có mã nào trong đó có tín hiệu đã đủ phiên trong mẫu, lệnh đo dừng *trước khi* ghi báo cáo, nên lượt đo một lần chưa bị dùng mất; chạy lại khi nguồn trả đủ nến.
+2. **Câu hiển thị trước phiên đầu.** Khi kho chưa có phiên nào từ ngày bắt đầu, lệnh đếm in "chưa có phiên nào" thay vì một khoảng ngày bị đảo.
+
+Ngày bắt đầu giữ 2026-10-13. Tag đầu đã lên GitHub trước giờ đóng cửa ngày 2026-10-12, nên phiên đó cũng đã đủ điều kiện; giữ 2026-10-13 chỉ thận trọng hơn một phiên, và cũng là phiên đầu tiên đóng cửa sau tag sửa đổi.
