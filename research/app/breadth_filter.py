@@ -1,7 +1,7 @@
 """Độ rộng làm bộ lọc tín hiệu phá nền: đếm và đo theo luật đã chốt.
 
 Luật nằm ở docs/breadth-signal-filter.md và các hằng số `BREADTH_FILTER_*`, chốt ở tag
-`prereg/breadth-filter` và các sửa đổi `prereg/breadth-filter-amend1`, `-amend2`. Mẫu là các tín
+`prereg/breadth-filter` và các sửa đổi `prereg/breadth-filter-amend1` tới `-amend3`. Mẫu là các tín
 hiệu phá nền của rổ 100 (`find_signals`) phát ra từ `BREADTH_FILTER_START`, ở phiên VN-Index trên
 MA200. Nhóm giữ là tín hiệu lúc trạng thái độ rộng
 đã lưu là mở, nhóm bỏ là lúc đóng. Lợi nhuận đo từ giá đóng cửa phiên sau phiên tín hiệu.
@@ -12,8 +12,8 @@ Chạy từ thư mục research:
     PYTHONPATH=. python3 -m app.breadth_filter --measure  # đo một lần, khi đã đủ điều kiện
 
 Chế độ đếm không in số nào suy ra được kết quả. Chế độ đo chỉ chạy khi đã đủ mẫu và đủ thời gian,
-hoặc khi đã quá hạn chót, và không ghi đè một báo cáo đã có. Trước hạn chót, nó dừng mà không ghi
-báo cáo khi còn tín hiệu không xác nhận được nến.
+hoặc khi đã quá hạn chót, và không ghi đè một báo cáo đã có. Tín hiệu không xác nhận được nến tính
+là thiếu giá; trước hạn chót, nếu bỏ chúng ra mà mẫu không còn đủ thì lệnh đo dừng, không ghi báo cáo.
 """
 
 from __future__ import annotations
@@ -192,18 +192,29 @@ def count(
     )
 
 
+def _priced(signals: list[FilterSignal], group: str) -> list[float]:
+    return [s.forward for s in signals if s.group == group and s.matured and s.forward is not None]
+
+
+def measurable(signals: list[FilterSignal], counts: Counts) -> bool:
+    """Đủ 12 tháng và mỗi nhóm đủ tín hiệu đã đủ phiên *có giá*; tín hiệu thiếu giá không được tính."""
+    return (
+        counts.months >= BREADTH_FILTER_MIN_MONTHS
+        and len(_priced(signals, KEEP)) >= BREADTH_FILTER_MIN_SIGNALS
+        and len(_priced(signals, DROP)) >= BREADTH_FILTER_MIN_SIGNALS
+    )
+
+
 def judge(signals: list[FilterSignal], counts: Counts) -> Verdict:
     """Kết luận theo luật đã chốt. Chưa đủ điều kiện mà chưa quá hạn thì không được đo."""
-    if not counts.ready:
-        if not counts.expired:
-            raise ValueError("Chưa đủ điều kiện đo: chưa đủ mẫu hoặc chưa đủ 12 tháng.")
-        return Verdict("không đủ mẫu", [], [], None, 0)
-    keep = [s.forward for s in signals if s.group == KEEP and s.matured and s.forward is not None]
-    drop = [s.forward for s in signals if s.group == DROP and s.matured and s.forward is not None]
+    keep = _priced(signals, KEEP)
+    drop = _priced(signals, DROP)
     missing_price = sum(
         1 for s in signals if s.group is not None and s.matured and s.forward is None
     )
-    if len(keep) < BREADTH_FILTER_MIN_SIGNALS or len(drop) < BREADTH_FILTER_MIN_SIGNALS:
+    if not measurable(signals, counts):
+        if not counts.expired:
+            raise ValueError("Chưa đủ điều kiện đo: chưa đủ tín hiệu có giá hoặc chưa đủ 12 tháng.")
         return Verdict("không đủ mẫu", keep, drop, None, missing_price)
     edge = statistics.mean(keep) - statistics.mean(drop)
     outcome = "qua" if edge >= BREADTH_FILTER_MIN_EDGE else "không qua"
@@ -253,7 +264,8 @@ def report_text(
         "# Bộ lọc độ rộng — kết quả đo",
         "",
         "Luật chốt ở `docs/breadth-signal-filter.md`, tag `prereg/breadth-filter` và các sửa đổi "
-        "`prereg/breadth-filter-amend1`, `prereg/breadth-filter-amend2`. Đo một lần.",
+        "`prereg/breadth-filter-amend1`, `prereg/breadth-filter-amend2`, "
+        "`prereg/breadth-filter-amend3`. Đo một lần.",
         f"Code chạy phép đo: `{code}`.",
         "",
         f"## Kết luận: {verdict.outcome}",
@@ -288,7 +300,7 @@ def report_text(
     lines.append(f"Tín hiệu đã đủ phiên nhưng thiếu giá trong kho: {verdict.missing_price}.")
     if unpriced:
         lines.append(
-            "Trong đó tính là thiếu giá vì đã quá hạn chót mà vẫn không xác nhận được nến: "
+            "Trong đó tính là thiếu giá vì không xác nhận được nến sau khi nạp lại: "
             + ", ".join(f"{s.symbol} {s.day}" for s in unpriced)
             + "."
         )
@@ -335,19 +347,8 @@ def unconfirmed(
     return out
 
 
-def settle_unconfirmed(
-    signals: list[FilterSignal], unsure: list[FilterSignal], counts: Counts
-) -> list[FilterSignal]:
-    """Trước hạn chót thì dừng, không ghi báo cáo. Tới hạn chót thì tính các tín hiệu đó là thiếu giá."""
-    if not unsure:
-        return signals
-    if not counts.expired:
-        raise SystemExit(
-            "Không xác nhận được nến của "
-            + ", ".join(sorted({s.symbol for s in unsure}))
-            + ", là mã có tín hiệu đã đủ phiên trong mẫu. Chưa ghi báo cáo; chạy lại khi nguồn trả "
-            "đủ nến. Tới hạn chót mà vẫn vậy thì các tín hiệu này tính là thiếu giá."
-        )
+def settle_unconfirmed(signals: list[FilterSignal], unsure: list[FilterSignal]) -> list[FilterSignal]:
+    """Tín hiệu không xác nhận được nến tính là thiếu giá, nên không góp vào điều kiện đủ mẫu."""
     dropped = set(unsure)
     return [replace(s, forward=None) if s in dropped else s for s in signals]
 
@@ -455,7 +456,14 @@ def main() -> None:
     failed = asyncio.run(refresh_bars(to_refresh))
     signals, counts, bars, index_days, listings = _sample(BREADTH_FILTER_START)
     unsure = unconfirmed(signals, bars, index_days, listings, set(to_refresh) - set(failed))
-    signals = settle_unconfirmed(signals, unsure, counts)
+    signals = settle_unconfirmed(signals, unsure)
+    if not counts.expired and not measurable(signals, counts):
+        raise SystemExit(
+            "Không xác nhận được nến của "
+            + ", ".join(sorted({s.symbol for s in unsure}))
+            + ". Không tính các tín hiệu này thì chưa đủ mẫu: chưa ghi báo cáo, chạy lại khi mẫu "
+            "lớn thêm hoặc khi nguồn trả đủ nến."
+        )
     text = report_text(
         signals, counts, judge(signals, counts), code=_git_commit(), unpriced=unsure
     )

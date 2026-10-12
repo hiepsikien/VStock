@@ -8,7 +8,7 @@ Chốt ngày 2026-10-12. Đây là giả thuyết 7.4.1 của `research/reports/
 - các hằng số `BREADTH_FILTER_*` trong `research/app/config.py`;
 - lệnh đếm và lệnh đo `research/app/breadth_filter.py`, kèm test `research/tests/test_breadth_filter.py`.
 
-Sau mốc đó, không sửa luật, ngưỡng, định nghĩa hay cách cài đặt nào dưới đây. Ngoại lệ duy nhất là các sửa đổi ở mục cuối, làm trước khi phiên đầu tiên của phép đo đóng cửa và chốt bằng tag `prereg/breadth-filter-amend1` và `prereg/breadth-filter-amend2`. Phép đo chạy bằng code ở tag sửa đổi sau cùng.
+Sau mốc đó, không sửa luật, ngưỡng, định nghĩa hay cách cài đặt nào dưới đây. Ngoại lệ duy nhất là các sửa đổi ở mục cuối, làm trước khi phiên đầu tiên của phép đo đóng cửa và chốt bằng tag `prereg/breadth-filter-amend1`, `prereg/breadth-filter-amend2` và `prereg/breadth-filter-amend3`. Phép đo chạy bằng code ở tag sửa đổi sau cùng.
 
 ## Giả thuyết
 
@@ -45,7 +45,7 @@ Lợi nhuận đo từ phiên sau vì kết luận "Được vào" chỉ có sau
 
 Tín hiệu phát ra ở phiên không có `BREADTH50_STATE` bị loại khỏi mẫu, và được đếm riêng. Lý do có thể là phiên chạy thật không chạy, chạy lỗi, hoặc độ rộng "chưa chấm". Không lấp trạng thái thiếu bằng số tính lại.
 
-Định nghĩa tín hiệu, rổ, độ rộng và cách đo là bản ở tag. Mục 7.5 của báo cáo ưu tiên sửa điểm vào lệnh, nên `assess_pattern` có thể đổi trước lần đo. Khi đó, phép đo vẫn chạy bằng code ở tag (ví dụ `git worktree add ../prereg prereg/breadth-filter-amend2`).
+Định nghĩa tín hiệu, rổ, độ rộng và cách đo là bản ở tag. Mục 7.5 của báo cáo ưu tiên sửa điểm vào lệnh, nên `assess_pattern` có thể đổi trước lần đo. Khi đó, phép đo vẫn chạy bằng code ở tag (ví dụ `git worktree add ../prereg prereg/breadth-filter-amend3`).
 
 ## Luật qua cửa
 
@@ -133,3 +133,15 @@ Làm trước khi phiên 2026-10-13 đóng cửa, khi kho chưa có phiên nào 
    Còn tín hiệu không xác nhận được thì lệnh đo dừng *trước khi* ghi báo cáo, và in mã cần nạp lại.
 2. **Hạn chót.** Khi đã quá 60 tháng mà vẫn còn tín hiệu không xác nhận được nến, các tín hiệu đó tính là thiếu giá: bị loại khỏi nhóm, như tín hiệu không có giá trong kho, và được liệt kê trong báo cáo. Sau đó kết luận như thường, nên nếu một nhóm còn dưới 30 tín hiệu có giá thì kết luận "không đủ mẫu".
 3. **Báo cáo ghi mốc chốt và code đã chạy.** Đầu báo cáo nêu tag gốc và cả hai tag sửa đổi, kèm kết quả `git describe` của code chạy phép đo.
+
+### Sửa đổi thứ ba
+
+Làm ngày 2026-10-12, trước khi phiên 2026-10-13 đóng cửa, khi kho vẫn chưa có phiên nào của phép đo. Chốt bằng tag `prereg/breadth-filter-amend3`. Sửa đổi này thay mục 1 và mục 2 của sửa đổi thứ hai ở phần *làm gì với tín hiệu không xác nhận được nến*. Cách xác nhận nến giữ nguyên.
+
+Sửa đổi thứ hai ghi rằng nó không đổi mẫu đo. Điều đó chưa hoàn toàn đúng. Ở bản đó, trước hạn chót chỉ một tín hiệu không xác nhận được nến cũng chặn cả lệnh đo. Ví dụ: một mã tạm ngừng giao dịch nhiều tháng rồi mới hủy niêm yết, và cả hai nguồn đều không trả nến. Khi đó lệnh đo có thể bị dời tới tận tháng 60, trừ khi bổ sung nến bằng tay. Trong lúc chờ, mẫu vẫn lớn thêm, nên thời điểm đo, và qua đó cả mẫu đo, phụ thuộc vào một lỗi dữ liệu.
+
+1. **Tín hiệu không xác nhận được nến tính là thiếu giá ngay, không chờ hạn chót.** Chúng bị loại khỏi nhóm và được liệt kê trong báo cáo.
+2. **Điều kiện "sớm nhất" đếm tín hiệu có giá.** Mỗi nhóm phải có ít nhất 30 tín hiệu đã đủ phiên *và có giá*, sau khi đã loại tín hiệu thiếu giá. Lệnh đếm vẫn in số đã đủ phiên như cũ. Khi chạy, lệnh đo nạp lại nến, xác nhận nến, rồi xét lại điều kiện này. Nếu chưa đạt thì lệnh dừng mà không ghi báo cáo, và chạy lại khi mẫu lớn thêm hoặc khi nguồn trả đủ nến. Tới hạn chót thì kết luận như thường, nên kết luận là "không đủ mẫu" nếu một nhóm còn dưới 30 tín hiệu có giá.
+3. **Số thiếu giá luôn được đếm.** Ở bản trước, khi đã quá hạn chót mà chưa đủ mẫu, báo cáo in "thiếu giá: 0" nhưng ngay sau đó lại liệt kê tín hiệu "trong đó tính là thiếu giá". Nay số thiếu giá được đếm trong mọi trường hợp, nên luôn khớp với danh sách.
+
+Cái giá của cách này: tín hiệu của mã ngừng giao dịch rồi hủy niêm yết thường là tín hiệu xấu, nên nếu nến của chúng không xác nhận được, việc loại chúng có thể làm nhóm của chúng trông tốt hơn thực tế. Rủi ro này đã có từ trước: chặn tới hạn chót rồi cũng loại các tín hiệu ấy. Báo cáo liệt kê từng tín hiệu bị loại, nên vẫn kiểm tra lại được bằng tay. Rổ 100 toàn mã thanh khoản cao, nên trường hợp này hiếm. Trên dữ liệu từ 2024, cả 100 tín hiệu đã đủ phiên đều xác nhận được nến mà không cần nạp lại.

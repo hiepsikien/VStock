@@ -16,6 +16,7 @@ from app.breadth_filter import (
     count,
     counts_text,
     judge,
+    measurable,
     months_between,
     next_session_return,
     refresh_bars,
@@ -128,12 +129,14 @@ class GateTest(unittest.TestCase):
         self.assertEqual(judge(_signals([0.031] * n, [0.01] * n), counts).outcome, "qua")
         self.assertEqual(judge(_signals([0.029] * n, [0.01] * n), counts).outcome, "không qua")
 
-    def test_missing_prices_can_push_a_group_below_the_minimum(self) -> None:
+    def test_missing_prices_do_not_count_towards_the_minimum(self) -> None:
         n = BREADTH_FILTER_MIN_SIGNALS
-        signals = _signals([0.05] * n, [-0.01] * (n - 1)) + [FilterSignal("D", "2027-01-04", DROP, True, None)]
-        verdict = judge(signals, _counts(BREADTH_FILTER_MIN_MONTHS, n, n))
-        self.assertEqual(verdict.outcome, "không đủ mẫu")
-        self.assertEqual(verdict.missing_price, 1)
+        signals = _signals([0.05] * n, [-0.01] * (n - 1)) + [FilterSignal("D", "2027-01-05", DROP, True, None)]
+        self.assertFalse(measurable(signals, _counts(BREADTH_FILTER_MIN_MONTHS, n, n)))
+        with self.assertRaises(ValueError):
+            judge(signals, _counts(BREADTH_FILTER_MIN_MONTHS, n, n))
+        verdict = judge(signals, _counts(BREADTH_FILTER_MAX_MONTHS, n, n))
+        self.assertEqual((verdict.outcome, verdict.missing_price), ("không đủ mẫu", 1))
 
     def test_counts_text_has_no_returns(self) -> None:
         text = counts_text(_counts(3, 10, 4))
@@ -146,7 +149,7 @@ class GateTest(unittest.TestCase):
 
 
 class ConfirmTest(unittest.TestCase):
-    """Tín hiệu nào chặn lệnh đo vì không xác nhận được nến. Tín hiệu ở phiên 0, bán ở phiên 1 + 3."""
+    """Tín hiệu nào không xác nhận được nến. Tín hiệu ở phiên 0, bán ở phiên 1 + 3."""
 
     def setUp(self) -> None:
         self.days = _days(10)
@@ -167,13 +170,13 @@ class ConfirmTest(unittest.TestCase):
         listings = {"AAA": {"delisted_date": self.days[3]}}
         self.assertEqual(self._unsure(2, set(), listings), [])
 
-    def test_stale_bars_without_a_refresh_block_the_measure(self) -> None:
+    def test_stale_bars_without_a_refresh_are_unconfirmed(self) -> None:
         # Không nạp lại được, hoặc không nằm trong danh sách nạp lại: hai trường hợp như nhau.
         self.assertEqual(self._unsure(2, set()), [self.signal])
         listings = {"AAA": {"delisted_date": self.days[9]}}
         self.assertEqual(self._unsure(2, set(), listings), [self.signal])
 
-    def test_signals_outside_the_measure_never_block(self) -> None:
+    def test_signals_outside_the_measure_are_never_unconfirmed(self) -> None:
         bars = {"AAA": _bars(self.days[:1], [100.0])}
         signals = [
             FilterSignal("AAA", self.days[0], DROP, False, None),
@@ -181,25 +184,36 @@ class ConfirmTest(unittest.TestCase):
         ]
         self.assertEqual(unconfirmed(signals, bars, self.days, {}, set(), horizon=3), [])
 
-    def test_unconfirmed_signals_block_until_the_deadline_then_count_as_missing_price(self) -> None:
+    def test_unconfirmed_signals_count_as_missing_price_and_only_delay_a_thin_sample(self) -> None:
         n = BREADTH_FILTER_MIN_SIGNALS
         unsure = [FilterSignal("STALE", "2027-01-05", DROP, True, -0.01)]
-        signals = _signals([0.05] * n, [-0.01] * (n - 1)) + unsure
-        with self.assertRaises(SystemExit):
-            settle_unconfirmed(signals, unsure, _counts(BREADTH_FILTER_MAX_MONTHS - 1, n, n))
-        settled = settle_unconfirmed(signals, unsure, _counts(BREADTH_FILTER_MAX_MONTHS, n, n))
-        verdict = judge(settled, _counts(BREADTH_FILTER_MAX_MONTHS, n, n))
-        self.assertEqual((verdict.outcome, verdict.missing_price), ("không đủ mẫu", 1))
-        self.assertIs(settle_unconfirmed(signals, [], _counts(1, n, n)), signals)
+        thin = settle_unconfirmed(_signals([0.05] * n, [-0.01] * (n - 1)) + unsure, unsure)
+        self.assertFalse(measurable(thin, _counts(BREADTH_FILTER_MIN_MONTHS, n, n)))
+        # Mẫu lớn thêm một tín hiệu đã xác nhận: đo được ngay, không phải chờ nến của STALE.
+        grown = settle_unconfirmed(_signals([0.05] * n, [-0.01] * n) + unsure, unsure)
+        counts = _counts(BREADTH_FILTER_MIN_MONTHS, n, n + 1)
+        self.assertTrue(measurable(grown, counts))
+        verdict = judge(grown, counts)
+        self.assertEqual((verdict.outcome, len(verdict.drop), verdict.missing_price), ("qua", n, 1))
 
     def test_the_report_names_the_amendments_the_code_and_the_unpriced_signals(self) -> None:
         n = BREADTH_FILTER_MIN_SIGNALS
         signals = _signals([0.05] * n, [-0.01] * n)
         counts = _counts(BREADTH_FILTER_MIN_MONTHS, n, n)
         text = report_text(signals, counts, judge(signals, counts), code="abc123", unpriced=[signals[0]])
-        self.assertIn("`prereg/breadth-filter-amend2`", text)
+        self.assertIn("`prereg/breadth-filter-amend3`", text)
         self.assertIn("`abc123`", text)
         self.assertIn("K 2027-01-04", text)
+
+    def test_past_the_deadline_the_unpriced_list_agrees_with_the_missing_count(self) -> None:
+        # Quá hạn chót, chưa đủ mẫu, còn một tín hiệu không xác nhận được nến.
+        unsure = [FilterSignal("AAA", "2027-01-04", DROP, True, 0.02)]
+        signals = settle_unconfirmed(_signals([0.05] * 40, [-0.01] * 5) + unsure, unsure)
+        counts = _counts(BREADTH_FILTER_MAX_MONTHS, 40, 6)
+        text = report_text(signals, counts, judge(signals, counts), unpriced=unsure)
+        self.assertIn("## Kết luận: không đủ mẫu", text)
+        self.assertIn("thiếu giá trong kho: 1.", text)
+        self.assertIn("không xác nhận được nến sau khi nạp lại: AAA 2027-01-04.", text)
 
 
 class RefreshTest(unittest.TestCase):
