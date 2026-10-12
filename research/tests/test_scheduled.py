@@ -88,17 +88,22 @@ class LostSessionTest(unittest.TestCase):
         self.assertEqual(lost_sessions(days, states, set()), ["2026-10-13"])
         self.assertEqual(lost_sessions(days, states, {"2026-10-13"}), [])
 
-    def test_a_mac_asleep_through_every_run_is_reported_once(self) -> None:
-        """Ngủ qua 15:30, 20:00 và 08:00, thức trong giờ giao dịch: lần 15:30 hôm sau mới thấy."""
+    def _runs(self, outcomes: list[bool], configured: bool) -> tuple[list[tuple[str, bool]], int]:
+        """Ngủ qua 15:30, 20:00 và 08:00, thức trong giờ giao dịch: lần 15:30 hôm sau mới thấy.
+
+        `outcomes` là kết quả của từng lần gửi Telegram, theo thứ tự.
+        """
         from unittest import mock
 
         from app import db, scheduled
 
         previous = os.environ.get("RESEARCH_DB_PATH")
-        sent: list[str] = []
+        sends = iter(outcomes)
+        attempts: list[str] = []
 
-        async def fake_send(text: str) -> None:
-            sent.append(text)
+        async def fake_send(text: str) -> bool:
+            attempts.append(text)
+            return next(sends)
 
         async def fake_session(*_args, **_kwargs) -> str:
             return "Phiên 2026-10-14: Khóa 106"
@@ -113,24 +118,38 @@ class LostSessionTest(unittest.TestCase):
             await db.upsert_market_points(BREADTH_STATE_SERIES, [("2026-10-12", 1.0), ("2026-10-14", 1.0)])
             await db.close_db()
             now = datetime(2026, 10, 14, 15, 30, tzinfo=VN)
-            with mock.patch.object(scheduled, "run_session", fake_session), mock.patch.object(
-                scheduled.notify, "send", fake_send
+            with (
+                mock.patch.object(scheduled, "run_session", fake_session),
+                mock.patch.object(scheduled.notify, "send", fake_send),
+                mock.patch.object(scheduled.notify, "configured", lambda: configured),
             ):
-                first = await scheduled._once(now)
-                second = await scheduled._once(now)
-            return first, second
+                return [await scheduled._once(now) for _ in range(len(outcomes) + 1)]
 
         try:
-            first, second = asyncio.run(_run())
+            results = asyncio.run(_run())
         finally:
             if previous is None:
                 os.environ.pop("RESEARCH_DB_PATH", None)
             else:
                 os.environ["RESEARCH_DB_PATH"] = previous
-        self.assertFalse(first[1])
-        self.assertIn("Mất trạng thái độ rộng ở phiên 2026-10-13", first[0])
-        self.assertTrue(second[1])
-        self.assertEqual(len(sent), 1)
+        return results, len(attempts)
+
+    def test_a_mac_asleep_through_every_run_is_reported_once(self) -> None:
+        results, attempts = self._runs([True], configured=True)
+        self.assertFalse(results[0][1])
+        self.assertIn("Mất trạng thái độ rộng ở phiên 2026-10-13", results[0][0])
+        self.assertTrue(results[1][1])
+        self.assertEqual(attempts, 1)
+
+    def test_a_failed_send_is_retried_on_the_next_run(self) -> None:
+        results, attempts = self._runs([False, True], configured=True)
+        self.assertEqual([ok for _text, ok in results], [False, False, True])
+        self.assertEqual(attempts, 2)
+
+    def test_without_telegram_the_loss_is_logged_once(self) -> None:
+        results, attempts = self._runs([False], configured=False)
+        self.assertEqual([ok for _text, ok in results], [False, True])
+        self.assertEqual(attempts, 1)
 
 
 if __name__ == "__main__":
