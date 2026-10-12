@@ -33,6 +33,12 @@
   {% if run and run.message %}
     <p class="hint">Lần chạy gần nhất: {{ run.message }}</p>
   {% endif %}
+  {% if schedule.warning %}
+    <p class="banner bad">
+      {{ schedule.warning }} Phiên không có trạng thái độ rộng thì mọi tín hiệu của phiên đó bị loại
+      khỏi phép đo bộ lọc độ rộng. <a href="#lich-chay">Lịch chạy</a>
+    </p>
+  {% endif %}
 
   {% if counts %}
     <ul class="counts">
@@ -82,6 +88,52 @@
       điều kiện vào vẫn là các cổng cứng ở trên.
     </p>
   {% endif %}
+
+  <section id="lich-chay">
+    <h2>Lịch chạy</h2>
+    <p class="hint">
+      Lịch launchd chạy phiên lúc 15:30 và 20:00 thứ Hai–Sáu, và 08:00 thứ Ba–Bảy
+      (<code>scripts/install-research-launchd.sh</code>, log ở
+      <code>~/Library/Logs/vstock-research-session.log</code>).
+      Phiên đã đóng cửa gần nhất: {{ schedule.expected }}.
+      {% if schedule.measured %}
+        Từ {{ schedule.start }}: {{ schedule.measured }} phiên,
+        {% if schedule.missing %}
+          thiếu trạng thái độ rộng ở {{ schedule.missing|length }} phiên:
+          {{ schedule.missing[-10:]|join(", ") }}{% if schedule.missing|length > 10 %}, …{% endif %}.
+        {% else %}
+          phiên nào cũng có trạng thái độ rộng.
+        {% endif %}
+      {% else %}
+        Phép đo bộ lọc độ rộng bắt đầu từ phiên {{ schedule.start }}.
+      {% endif %}
+      <a href="/market#bo-loc-do-rong">Số đếm của bộ lọc độ rộng</a>
+    </p>
+    {% if runs %}
+      <table>
+        <thead>
+          <tr><th>Bắt đầu</th><th>Nguồn</th><th>Trạng thái</th><th>Giây</th><th>Kết quả</th></tr>
+        </thead>
+        <tbody>
+          {% for row in runs %}
+            <tr>
+              <td>{{ row.started }}</td>
+              <td>{{ row.source }}</td>
+              <td>
+                <span class="pill {{ 'enter' if row.status == 'ok' else ('watch' if row.status == 'running' else 'out') }}">
+                  {{ {"ok": "xong", "running": "đang chạy", "error": "lỗi"}.get(row.status, row.status) }}
+                </span>
+              </td>
+              <td>{{ row.seconds if row.seconds is not none else "—" }}</td>
+              <td>{{ row.message or "—" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="hint">Chưa có lần chạy nào.</p>
+    {% endif %}
+  </section>
 
   <section>
     <h2>Danh sách chấm</h2>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -13,8 +14,10 @@ from app import db, paper
 from app.backtest import run_backtest
 from app.chart import build_chart
 from app.breadth import breadth_reason
+from app.breadth_filter import _sample as breadth_filter_sample
 from app.config import (
     BREADTH_CLOSE,
+    BREADTH_FILTER_START,
     BREADTH_GATE_ENFORCED,
     BREADTH_MA_WINDOW,
     BREADTH_OPEN,
@@ -31,6 +34,8 @@ from app.ingest import load_exchanges
 from app.money import LABELS, money_state, thresholds
 from app.pattern import assess_pattern
 from app.pipeline import busy, run_session
+from app.scheduled import VN
+from app.tracking import breadth_rows, filter_view, run_rows, schedule_view
 
 ROOT = Path(__file__).resolve().parents[1]
 templates = Jinja2Templates(directory=str(ROOT / "templates"))
@@ -99,12 +104,17 @@ def _ordered(verdicts: list[dict]) -> list[dict]:
     )
 
 
+async def _index_days() -> list[str]:
+    return [str(bar["trade_date"]) for bar in await db.bars("VNINDEX")]
+
+
 @app.get("/")
 async def dashboard(request: Request, notice: str = "", error: str = ""):
     verdicts = _ordered(await db.latest_verdicts())
     counts: dict[str, int] = {}
     for item in verdicts:
         counts[item["status"]] = counts.get(item["status"], 0) + 1
+    points = await db.market_points()
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -122,7 +132,11 @@ async def dashboard(request: Request, notice: str = "", error: str = ""):
             "macro": verdicts[0]["macro_reason"] if verdicts else "",
             # Cổng tiền tệ đọc từ chuỗi đã lưu, nên nó đứng được trên bảng cả khi phiên
             # chưa chấm lại mã nào.
-            "money": money_state(await db.market_points()).reason,
+            "money": money_state(points).reason,
+            "runs": run_rows(await db.recent_runs(8)),
+            "schedule": schedule_view(
+                await _index_days(), points.get(BREADTH_STATE_SERIES) or [], datetime.now(VN)
+            ),
         },
     )
 
@@ -171,32 +185,49 @@ async def market_page(request: Request):
             ],
             "policy": POLICY_RATE_HISTORY,
             "latest_day": max(days) if days else "",
-            "breadth": _breadth_view(points),
+            "breadth": _breadth_view(points, await _index_days()),
+            "breadth_filter": await _breadth_filter(),
         },
     )
 
 
-def _breadth_view(points: dict[str, list[tuple[str, float]]]) -> dict:
-    """Số độ rộng mà phiên live đã lưu: tỷ lệ và trạng thái của từng phiên."""
+def _breadth_view(points: dict[str, list[tuple[str, float]]], index_days: list[str]) -> dict:
+    """Số độ rộng mà phiên live đã lưu, xếp theo phiên VN-Index để phiên bỏ lỡ hiện ra."""
     shares = points.get(BREADTH_SERIES) or []
-    states = dict(points.get(BREADTH_STATE_SERIES) or [])
-    recent = [
-        {"day": day, "share": _pct(share), "open": states.get(day)}
-        for day, share in reversed(shares[-20:])
-    ]
+    states = points.get(BREADTH_STATE_SERIES) or []
+    state_of = dict(states)
     last_day, last_share = shares[-1] if shares else ("", None)
-    state = states.get(last_day)
+    state = state_of.get(last_day)
     return {
         "reason": breadth_reason(last_share, None if state is None else state > 0.5) if shares else "",
         "last_day": last_day,
         "sessions": len(shares),
-        "recent": recent,
+        "recent": [{**row, "share": _pct(row["share"])} for row in breadth_rows(index_days, shares, states)],
         "enforced": BREADTH_GATE_ENFORCED,
         "rule": (
             f"Tỷ lệ mã của rổ 200 trong năm đóng cửa trên MA{BREADTH_MA_WINDOW}. Mở khi từ "
             f"{BREADTH_OPEN:.0%}, đóng khi từ {BREADTH_CLOSE:.0%} trở xuống, ở giữa giữ trạng thái trước."
         ),
     }
+
+
+# Đếm mẫu của bộ lọc đọc lại cả kho nến (~6 giây), nên giữ số đếm tới khi có lần chạy phiên mới.
+_filter_cache: dict[str, object] = {"key": None, "view": None}
+
+
+async def _breadth_filter() -> dict:
+    run = await db.latest_run() or {}
+    states = (await db.market_points()).get(BREADTH_STATE_SERIES) or []
+    key = (run.get("id"), run.get("status"), len(states), states[-1] if states else None)
+    if _filter_cache["key"] == key and _filter_cache["view"] is not None:
+        return _filter_cache["view"]  # type: ignore[return-value]
+    try:
+        _signals, counts, *_rest = await asyncio.to_thread(breadth_filter_sample, BREADTH_FILTER_START)
+        view = filter_view(counts)
+    except (Exception, SystemExit) as exc:
+        view = {"error": str(exc) or type(exc).__name__}
+    _filter_cache.update({"key": key, "view": view})
+    return view
 
 
 @app.post("/run")

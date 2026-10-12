@@ -215,6 +215,11 @@ _BAR_EXTRA_COLUMNS = (
     ("trade_value", "REAL"),
 )
 
+# Lần chạy bắt đầu từ đâu: "web" là nút Chạy phiên, "lịch" là `app.scheduled`. Lần chạy cũ để trống.
+_RUN_EXTRA_COLUMNS = (
+    ("source", "TEXT NOT NULL DEFAULT ''"),
+)
+
 
 def db_path() -> Path:
     override = os.environ.get("RESEARCH_DB_PATH")
@@ -321,6 +326,7 @@ async def _ensure_schema_migrations(db: aiosqlite.Connection) -> None:
         ("verdicts", _VERDICT_EXTRA_COLUMNS),
         ("paper_positions", _PAPER_EXTRA_COLUMNS),
         ("daily_bars", _BAR_EXTRA_COLUMNS),
+        ("runs", _RUN_EXTRA_COLUMNS),
     ):
         cursor = await db.execute(f"PRAGMA table_info({table})")
         existing = {row[1] for row in await cursor.fetchall()}
@@ -850,11 +856,11 @@ async def decisions_for(symbol: str) -> list[dict]:
     return [dict(row) for row in await cursor.fetchall()]
 
 
-async def start_run() -> int:
+async def start_run(source: str = "web") -> int:
     db = await get_db()
     cursor = await db.execute(
-        "INSERT INTO runs (started_at, status, message) VALUES (?, 'running', '')",
-        (_now(),),
+        "INSERT INTO runs (started_at, status, message, source) VALUES (?, 'running', '', ?)",
+        (_now(), source),
     )
     await db.commit()
     return int(cursor.lastrowid)
@@ -870,17 +876,22 @@ async def finish_run(run_id: int, status: str, message: str) -> None:
 
 
 async def latest_run() -> dict | None:
+    runs = await recent_runs(1)
+    return runs[0] if runs else None
+
+
+async def recent_runs(limit: int = 10) -> list[dict]:
     db = await get_db()
     cursor = await db.execute(
         """
-        SELECT id, started_at, finished_at, status, message
+        SELECT id, started_at, finished_at, status, message, source
         FROM runs
         ORDER BY id DESC
-        LIMIT 1
-        """
+        LIMIT ?
+        """,
+        (limit,),
     )
-    row = await cursor.fetchone()
-    return dict(row) if row else None
+    return [dict(row) for row in await cursor.fetchall()]
 
 
 def _flow_rows(symbol: str, points: dict[str, list[tuple[str, float]]]) -> list[tuple]:

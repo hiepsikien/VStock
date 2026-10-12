@@ -38,11 +38,11 @@ def busy() -> bool:
     return _lock.locked()
 
 
-async def run_session() -> str:
+async def run_session(source: str = "web") -> str:
     if _lock.locked():
         return "Đang chạy một phiên khác."
     async with _lock:
-        run_id = await db.start_run()
+        run_id = await db.start_run(source)
         try:
             message = await _run()
         except Exception as exc:

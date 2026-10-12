@@ -85,6 +85,12 @@ thoát với mã 1, và gửi Telegram nếu lúc cài có `TELEGRAM_BOT_TOKEN` 
 lỗi, khi không ghi được độ rộng, hoặc khi nến VN-Index chưa tới phiên lẽ ra đã đóng cửa (ngày lễ cũng
 báo như vậy).
 
+Trên dashboard, mục **Lịch chạy** liệt kê các lần chạy gần đây (nguồn: lịch hay nút bấm, thời gian,
+kết quả) và báo đỏ khi phiên đã đóng cửa gần nhất chưa có trạng thái độ rộng. Trang `/market` liệt kê
+từng phiên VN-Index kèm độ rộng, ghi "chưa ghi" ở phiên thuộc phép đo mà thiếu trạng thái, và có mục
+số đếm của phép đo bộ lọc độ rộng (chỉ số đếm, không có lợi nhuận). Lần mở `/market` đầu tiên sau mỗi
+lần chạy mất vài giây để đếm lại mẫu.
+
 Máy đang ngủ thì launchd chạy bù khi máy thức. Lần chạy bù rơi vào giờ giao dịch thì bị bỏ qua, vì
 nến phiên chưa đóng. Máy tắt hẳn thì mất phiên đó: `sudo pmset repeat wakeorpoweron MTWRF 15:25:00`
 đánh thức máy trước lần chạy đầu.

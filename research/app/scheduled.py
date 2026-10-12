@@ -67,7 +67,7 @@ def breadth_line(index_day: str | None, states: list[tuple[str, float]], expecte
 async def _once(expected: str) -> tuple[str, bool]:
     await db.init_db()
     try:
-        message = await run_session()
+        message = await run_session("lịch")
         index = await db.bars("VNINDEX")
         points = await db.market_points()
     finally:

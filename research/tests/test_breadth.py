@@ -135,16 +135,23 @@ class BreadthLiveTest(unittest.TestCase):
             {
                 BREADTH_SERIES: [("2026-10-08", 0.58), ("2026-10-09", 0.51)],
                 BREADTH_STATE_SERIES: [("2026-10-08", 1.0), ("2026-10-09", 1.0)],
-            }
+            },
+            ["2026-10-08", "2026-10-09", "2026-10-13"],
         )
         self.assertEqual((view["last_day"], view["sessions"]), ("2026-10-09", 2))
         self.assertIn("Độ rộng mở: 51%", view["reason"])
+        self.assertEqual(
+            [(row["day"], row["share"], row["open"]) for row in view["recent"]],
+            [("2026-10-13", "—", None), ("2026-10-09", "51.0%", True), ("2026-10-08", "58.0%", True)],
+        )
         page = templates.get_template("market.html").render(
             money=money_state({}), rows=[], thresholds=[], missing=[], short=[], policy=[],
             latest_day="", breadth=view,
         )
         self.assertIn("Độ rộng mở: 51%", page)
         self.assertIn("Chỉ để quan sát", page)
+        # Phiên 2026-10-13 thuộc phép đo bộ lọc mà không có trạng thái.
+        self.assertIn("chưa ghi", page)
 
     def test_enforced_gate_locks_a_ready_name(self) -> None:
         from datetime import date as day_type
