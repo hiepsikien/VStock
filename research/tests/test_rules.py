@@ -6,7 +6,14 @@ from datetime import date, timedelta
 from app.classify import classify_article
 from app.evaluate import compose, latest_due_quarter_end, score_fundamentals
 from app.ingest import parse_vietstock_filings
-from app.pattern import Pattern, Regime, assess_pattern, market_regime
+from app.pattern import (
+    SPLIT_CHECK_SESSIONS,
+    Pattern,
+    Regime,
+    assess_pattern,
+    market_regime,
+    unadjusted_split_gap,
+)
 
 
 def _regime_open() -> Regime:
@@ -240,6 +247,42 @@ class RulesTest(unittest.TestCase):
         hnx = assess_pattern(bars, bars, "HNX")
         self.assertTrue(hose.unadjusted)
         self.assertFalse(hnx.unadjusted)
+
+    def test_gap_before_the_pattern_window_does_not_block(self) -> None:
+        """MIG nhảy 13% năm 2017 lúc còn ở UPCOM; nền giá hôm nay không đọc tới phiên đó."""
+        start = date(2017, 1, 2)
+        closes = [10.0] * 30 + [11.3] + [11.3] * SPLIT_CHECK_SESSIONS
+        bars = [
+            {"trade_date": (start + timedelta(days=step)).isoformat(), "close": close}
+            for step, close in enumerate(closes)
+        ]
+        self.assertIsNone(unadjusted_split_gap(bars, "HOSE"))
+        self.assertIsNotNone(unadjusted_split_gap(bars[:-1], "HOSE"))
+        self.assertIsNotNone(unadjusted_split_gap(bars, "HOSE", sessions=None))
+
+    def test_pre_registered_signals_keep_the_whole_history_scan(self) -> None:
+        """Phép đo bộ lọc độ rộng chạy ở tag, nơi luật còn quét cả lịch sử; số đếm phải khớp nó."""
+        from unittest import mock
+
+        from app import breadth_report
+        from app.pit_universe import Basket
+
+        start = date(2024, 1, 2)
+        days = [(start + timedelta(days=step)).isoformat() for step in range(70)]
+        bars = [
+            {"trade_date": day, "open": 10.0, "high": 10.0, "low": 10.0, "close": 10.0, "volume": 1.0}
+            for day in days
+        ]
+        bars[-1] = {**bars[-1], "high": 11.0, "close": 11.0, "volume": 5.0}
+        seen: list[dict] = []
+
+        def record(*args, **kwargs):
+            seen.append(kwargs)
+            return Pattern(False, "")
+
+        with mock.patch.object(breadth_report, "assess_pattern", record):
+            breadth_report.find_signals(bars, {"AAA": bars}, {2024: Basket(days[0], ["AAA"], ["AAA"])}, {})
+        self.assertEqual(seen, [{"split_sessions": None}])
 
     def test_bank_npl_fails(self) -> None:
         report = "2026-06-30"

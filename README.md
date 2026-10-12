@@ -63,9 +63,12 @@ Dashboard có nút **Chạy phiên**: nó tải nến, chỉ tiêu, công bố, 
 cho cả danh sách, chấm lại toàn bộ, đánh dấu vị thế giấy và gửi cảnh báo. Danh sách 106 mã mất
 khoảng 35–45 giây: mỗi mã thêm một lượt nến, chỉ tiêu, công bố và dòng tiền ngoại, còn giá realtime
 đi một batch nên không phải nới nhịp poll. Thêm/bỏ mã và ghi xác nhận, bỏ qua cũng làm được ngay
-trên trang web. Trang
-`/backtest` tính lại bảng đo khi mở lần đầu sau mỗi phiên rồi giữ nguyên kết quả; bấm
-**Tính lại** (`/backtest?fresh=1`) nếu muốn chạy lại bằng tay.
+trên trang web.
+
+Mở trang hay bấm nút khác không bao giờ chạy việc nặng. Phép đo ở `/backtest` (vài phút) chỉ
+chạy khi bấm **Chạy phép đo**, phép đếm mẫu bộ lọc độ rộng ở `/market` (vài giây) chỉ chạy khi
+bấm **Đếm mẫu**. Dòng ngay cạnh nút báo trạng thái: chưa tính, đang tính từ lúc nào, tính lúc nào
+và còn khớp dữ liệu không, hay lỗi. Kết quả lưu trong kho, nên server khởi động lại vẫn còn.
 
 ### Lịch chạy sau giờ đóng cửa
 
@@ -88,7 +91,8 @@ báo một lần. Phiên đo nào đã qua mà mất trạng thái độ rộng 
 ngủ qua cả ba lần chạy rồi thức trong giờ giao dịch.
 
 Server web và lệnh theo lịch dùng chung một khoá file cạnh kho (`research.db.session.lock`), nên không
-bao giờ có hai phiên ghi cùng lúc: khi một bên đang chạy, nút **Chạy phiên** bị khoá, còn lệnh theo
+bao giờ có hai phiên ghi cùng lúc: khi một bên đang chạy, các nút **Chạy phiên**, **Chạy phép đo** và
+**Đếm mẫu** bị khoá, còn lệnh theo
 lịch chờ tối đa 15 phút. Tiến trình bị kill giữa phiên thì dòng của nó được đóng thành lỗi ở phiên kế
 tiếp, và dashboard ghi "dừng giữa chừng" ngay khi không còn ai giữ khoá.
 
@@ -96,8 +100,9 @@ Trên dashboard, mục **Lịch chạy** liệt kê các lần chạy gần đâ
 kết quả). Phiên hôm nay chưa có trạng thái độ rộng thì báo vàng "đang chờ" tới 20:30; sau đó, hoặc
 với phiên cũ hơn, thì báo đỏ. Trang `/market` liệt kê
 từng phiên VN-Index kèm độ rộng, ghi "chưa ghi" ở phiên thuộc phép đo mà thiếu trạng thái, và có mục
-số đếm của phép đo bộ lọc độ rộng (chỉ số đếm, không có lợi nhuận). Lần mở `/market` đầu tiên sau mỗi
-lần chạy mất vài giây để đếm lại mẫu.
+số đếm của phép đo bộ lọc độ rộng (chỉ số đếm, không có lợi nhuận), đếm lại khi bấm **Đếm mẫu**.
+Số đếm tìm tín hiệu theo đúng luật ở tag chốt trước (luật giá chưa chỉnh chia tách quét cả lịch sử),
+nên khớp với lệnh đo chạy ở tag.
 
 Máy đang ngủ thì launchd chạy bù khi máy thức. Lần chạy bù rơi vào giờ giao dịch thì bị bỏ qua, vì
 nến phiên chưa đóng. Máy tắt hẳn thì mất phiên đó: `sudo pmset repeat wakeorpoweron MTWRF 15:25:00`

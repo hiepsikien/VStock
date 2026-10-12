@@ -147,7 +147,11 @@ def find_signals(
             if series[i]["volume"] / volume < BREAKOUT_VOLUME_RATIO:
                 continue
             position = position_of[day]
-            pattern = assess_pattern(series[: i + 1], index[: position + 1], exchanges.get(symbol))
+            # Both pre-registered measurements read their signals here, so the split guard keeps
+            # the whole-history scan it had at the tags; the live screen uses the recent window.
+            pattern = assess_pattern(
+                series[: i + 1], index[: position + 1], exchanges.get(symbol), split_sessions=None
+            )
             if not pattern.ready:
                 continue
             entry = float(series[i]["close"])
