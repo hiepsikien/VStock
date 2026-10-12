@@ -820,9 +820,11 @@ thảo luận:
   là quyết định tùy nghi của anh. Nên ghi lại trong phần quyết định (`decisions`) để sau này đo được, chứ không
   phải luật của hệ thống.
 
-### 7.2 Luật đo lại bằng dữ liệu chạy thật (đề xuất, cần anh duyệt)
+### 7.2 Luật đo lại bằng dữ liệu chạy thật (đã duyệt ngày 2026-10-12)
 
-Từ 2026-10-12, mỗi phiên chạy thật là dữ liệu chưa ai xem. Đề xuất chốt ngay:
+Từ 2026-10-12, mỗi phiên chạy thật là dữ liệu chưa ai xem. Luật đã duyệt dưới đây là một phép đo riêng, khác
+phép đo bộ lọc tín hiệu ở `docs/breadth-signal-filter.md`: hai phép dùng cùng các phiên chạy thật nhưng trả lời
+hai câu hỏi khác nhau, mỗi phép có luật riêng, và không phép nào là lần thử lại của phép kia.
 
 | Mục | Đề xuất |
 |---|---|
@@ -852,6 +854,8 @@ Mỗi giả thuyết dưới đây là một luật mới. Nó phải được c
    - *Luật:* khi MA200 mở mà độ rộng đóng, bỏ tín hiệu phá nền; danh mục và các lệnh khác không bị ảnh hưởng.
    - *Cơ sở:* đây là quy luật nhất quán nhất ở cả ba giai đoạn, với cách biệt 4.9–8.2 điểm (mục 5.5).
    - *Ưu điểm:* ít tốn lợi nhuận hơn cổng cứng, vì chỉ bỏ những tín hiệu xấu chứ không đóng cả danh mục.
+   - *Đã chốt trước* ngày 2026-10-12 ở `docs/breadth-signal-filter.md` (tag `prereg/breadth-filter`), đo trên
+     phiên chạy thật từ 2026-10-13, lợi nhuận tính từ giá đóng cửa phiên sau phiên tín hiệu.
 2. **Độ rộng như tín hiệu quản lý lệnh đang giữ.**
    - *Luật:* khi độ rộng chuyển sang đóng, siết dừng lỗ của các lệnh đang giữ, ví dụ kéo theo MA20 sớm hơn, thay
      vì chặn mua.

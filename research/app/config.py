@@ -379,6 +379,19 @@ BREADTH_GATE_ENFORCED = False
 BREADTH_SERIES = "BREADTH50"
 BREADTH_STATE_SERIES = "BREADTH50_STATE"
 
+# --- Độ rộng làm bộ lọc tín hiệu phá nền ------------------------------------------
+# Chốt ngày 2026-10-12, trước khi có dữ liệu đo: luật ở docs/breadth-signal-filter.md, mốc là
+# tag `prereg/breadth-filter` trên GitHub. Chỉ đo trên phiên chạy thật từ ngày bắt đầu, là phiên
+# đóng cửa đầu tiên sau khi tag được push. Tách khỏi các hằng số của cổng độ rộng để đổi luật
+# cổng không kéo theo luật này.
+BREADTH_FILTER_START = "2026-10-13"
+# Lợi nhuận đo từ giá đóng cửa phiên sau phiên tín hiệu, vì kết luận chỉ có sau giờ đóng cửa.
+BREADTH_FILTER_HORIZON = 40
+BREADTH_FILTER_MIN_SIGNALS = 30  # mỗi nhóm, chỉ đếm tín hiệu đã đủ 40 phiên
+BREADTH_FILTER_MIN_EDGE = 0.02  # nhóm giữ hơn nhóm bỏ ít nhất 2 điểm %
+BREADTH_FILTER_MIN_MONTHS = 12
+BREADTH_FILTER_MAX_MONTHS = 60
+
 MAX_SLOTS = 5
 RISK_PER_TRADE = 0.01
 MAX_POSITION_WEIGHT = 0.35
