@@ -28,6 +28,7 @@
       <p class="{{ 'banner ' ~ backtest.line.kind if backtest.line.kind else 'hint small' }}">{{ backtest.line.text }}</p>
       <div class="actions">
         <form method="post" action="/backtest/run">
+          <input type="hidden" name="back" value="/lab" />
           <button type="submit" {% if backtest.running or busy %}disabled{% endif %}>Chạy phép đo</button>
         </form>
         <a href="/backtest">Toàn bộ lệnh và giả định</a>

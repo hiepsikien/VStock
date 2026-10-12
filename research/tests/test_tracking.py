@@ -333,14 +333,15 @@ class BacktestWalkTest(unittest.TestCase):
                     paths = ("/", "/backtest", "/lab", "/backtest", "/market", "/paper", "/ops")
                     pages = [await client.get(path) for path in paths]
                     opened = (len(walks), len(counts))
-                    await client.post("/backtest/run")
+                    started = await client.post("/backtest/run", data={"back": "/lab"})
                     await client.post("/lab/filter-count")
                     await web.backtest_job.task
                     await web.filter_job.task
                     after = (await client.get("/backtest")).text, (await client.get("/lab")).text
-            return pages, opened, after
+            return pages, opened, after, started
 
-        pages, opened, (backtest, lab) = _with_store(body)
+        pages, opened, (backtest, lab), started = _with_store(body)
+        self.assertEqual(started.headers["location"], "/lab#do-sau-phi")
         self.assertEqual([page.status_code for page in pages], [200] * 7)
         self.assertEqual(opened, (0, 0))
         self.assertIn("Chưa tính phép đo", pages[1].text)

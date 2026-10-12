@@ -182,6 +182,26 @@ def market_headline(lights: list[dict]) -> dict:
     return {"state": "open", "text": "Thị trường mở: danh sách được xét tiếp theo từng mã."}
 
 
+def stamp_lights(lights: list[dict], days: dict[str, str], session: str) -> bool:
+    """Ghi ngày của số sau mỗi đèn; True khi có đèn đọc số khác phiên mà bảng mã đã chấm."""
+    for light in lights:
+        light["day"] = days.get(light["key"], "")
+        light["stale"] = bool(session and light["day"] and light["day"] != session)
+    return any(light["stale"] for light in lights)
+
+
+def hold_reason(verdicts: list[dict]) -> str:
+    """Vì sao danh sách bị giữ: "locked" (cổng khóa), "unknown" (cổng thiếu số), "macro" (vĩ mô chặn lệnh mới)."""
+    held = [item for item in verdicts if held_by_market(item)]
+    if not held:
+        return ""
+    if any(item["status"] == "Khóa" for item in held):
+        return "locked"
+    if any(item["status"] == "Chưa chấm" for item in held):
+        return "unknown"
+    return "macro"
+
+
 def held_by_market(item: dict) -> bool:
     """Trạng thái thật khác trạng thái nếu thị trường mở: chỉ cổng toàn thị trường làm được vậy."""
     return bool(item.get("open_status")) and item["open_status"] != item["status"]
@@ -285,80 +305,140 @@ def paper_alerts(rows: list[dict]) -> list[dict]:
     return alerts
 
 
+_MACRO_DOWNGRADES = ("Vĩ mô chặn vào", "Vĩ mô chưa có số")
+
+
+def _market_decides(item: dict) -> bool:
+    """Cổng toàn thị trường đổi trạng thái của mã: Khóa, Chưa chấm vì thiếu số, hay vĩ mô hạ Được vào."""
+    status, summary = item["status"], item["summary"]
+    if item.get("open_status"):
+        if status != item["open_status"]:
+            return True
+        # Cả hai đều Chưa chấm: cổng thị trường thiếu số nếu lý do thật khác lý do của riêng mã.
+        return status == "Chưa chấm" and summary != (item.get("open_summary") or "")
+    # Phiên lưu trước khi có open_status: đọc từ trạng thái, lý do và các cờ đã lưu.
+    if status == "Khóa":
+        return True
+    if status == "Chưa chấm":
+        return (item.get("regime_open") is None and summary == item.get("regime_reason")) or (
+            item.get("market_open") is None and bool(item.get("market_reason")) and summary == item.get("market_reason")
+        )
+    return summary.startswith(_MACRO_DOWNGRADES)
+
+
+def _market_step(item: dict, decides: bool) -> tuple[str, str, str]:
+    """(trạng thái, lý do, chữ riêng) của ô Thị trường."""
+    if decides:
+        state = {"Khóa": "closed", "Chưa chấm": "unknown"}.get(item["status"], "closed")
+        return state, item["summary"], ""
+    if item.get("regime_open") is False or item.get("market_open") is False:
+        return "closed", item.get("regime_reason") or item.get("market_reason") or "", ""
+    if item.get("regime_open") is None or item.get("market_open") is None:
+        return "unknown", item.get("market_reason") or item.get("regime_reason") or "", ""
+    # Vĩ mô chỉ hạ một mã sắp vào; với mã đã dừng ở lớp của chính nó thì vĩ mô không đổi gì.
+    if item.get("macro_block"):
+        return "watch", item.get("macro_reason") or "", "Vĩ mô chặn lệnh mới"
+    return "open", item.get("regime_reason") or "", ""
+
+
+def _stock_decider(item: dict) -> str | None:
+    """Ô quyết định trong các lớp của riêng mã, cùng thứ tự với `evaluate._stock_status`."""
+    status = item.get("open_status") or item["status"]
+    summary = item.get("open_summary") or item["summary"]
+    news, fa = item["news_state"], item["fa_label"]
+    if status == "Chưa chấm" and summary == (item.get("pattern_reason") or ""):
+        return "Nền giá"
+    if news == "Loại":
+        return "Tin"
+    if fa == "Không đạt":
+        return "Cơ bản"
+    if item.get("valuation_label") == "Không đạt":
+        return "Định giá"
+    if news == "Chưa chấm":
+        return "Tin"
+    if fa not in ("Đạt", "Không đạt"):
+        return "Cơ bản"
+    if news == "Chờ":
+        return "Tin"
+    if not item["pattern_ready"]:
+        return "Nền giá"
+    if item.get("flow_state") == "Chờ":
+        return "Dòng tiền"
+    if INDUSTRY_GATE_ENFORCED and item.get("industry_open") is False:
+        return "Ngành"
+    return None
+
+
 def gate_chain(item: dict) -> list[dict]:
     """Chuỗi cổng của một mã, theo thứ tự xét, kèm cổng đã quyết định trạng thái."""
-    # Phiên lưu trước khi có open_status vẫn đọc được cổng thị trường từ các cờ đã lưu.
-    if held_by_market(item) or item.get("regime_open") is False or item.get("market_open") is False:
-        market = ("closed", item["summary"] if item["status"] == "Khóa" else item.get("regime_reason") or "")
-    elif item.get("macro_block") and item["status"] != "Được vào":
-        market = ("closed", item.get("macro_reason") or "")
-    elif item.get("regime_open") is None or item.get("market_open") is None:
-        market = ("unknown", item["summary"] if item["status"] == "Chưa chấm" else item.get("market_reason") or "")
-    else:
-        market = ("open", item.get("regime_reason") or "")
+    market_decides = item["status"] != "Được vào" and _market_decides(item)
+    market = _market_step(item, market_decides)
     fa = {"Đạt": "open", "Không đạt": "closed"}.get(item["fa_label"], "unknown")
     valuation = {"Đạt": "open", "Không đạt": "closed"}.get(item.get("valuation_label") or "", "unknown")
     news = {"Mở": "open", "Chờ": "watch", "Loại": "closed"}.get(item["news_state"], "unknown")
     flow = {"Mở": "open", "Chờ": "closed"}.get(item.get("flow_state") or "", "unknown")
     industry_open = item.get("industry_open")
     steps = [
-        {"name": "Thị trường", "state": market[0], "detail": market[1], "blocks": True},
-        {"name": "Cơ bản", "state": fa, "detail": f"{item['fa_label']}. {item.get('fa_reason') or ''}", "blocks": True},
+        {"name": "Thị trường", "state": market[0], "detail": market[1], "word": market[2]},
+        {"name": "Cơ bản", "state": fa, "detail": f"{item['fa_label']}. {item.get('fa_reason') or ''}"},
         {
             "name": "Định giá",
             "state": valuation,
             "detail": f"{item.get('valuation_label') or '—'}. {item.get('valuation_reason') or ''}",
-            # Thiếu P/E không chặn mã, nên ô này không bao giờ là cổng quyết định khi chỉ thiếu số.
-            "blocks": valuation == "closed",
         },
-        {"name": "Tin", "state": news, "detail": f"{news_label(item['news_state'])}. {item.get('news_reason') or ''}", "blocks": True},
+        {"name": "Tin", "state": news, "detail": f"{news_label(item['news_state'])}. {item.get('news_reason') or ''}"},
         {
             "name": "Nền giá",
             "state": "open" if item["pattern_ready"] else "watch",
             "detail": item.get("pattern_reason") or "",
-            "blocks": True,
         },
         {
             "name": "Dòng tiền",
             "state": flow,
             "detail": f"{flow_label(item.get('flow_level') or '', item.get('flow_state') or '')}. {item.get('flow_reason') or ''}",
-            "blocks": flow == "closed",
         },
         {
             "name": "Ngành",
             "state": "unknown" if industry_open is None else ("open" if industry_open else "closed"),
             "detail": industry_name(item.get("industry_name")) or "Không có nhóm đã đo",
-            "blocks": INDUSTRY_GATE_ENFORCED,
             "observe": not INDUSTRY_GATE_ENFORCED,
         },
     ]
     for step in steps:
-        step["word"] = STATE_WORDS[step["state"]]
+        step["word"] = step.get("word") or STATE_WORDS[step["state"]]
     # Thiếu P/E hay thiếu số khối ngoại không chặn mã, nên ô đó nói "chưa có số" chứ không "chưa chấm".
     for step in steps[2], steps[5]:
         if step["state"] == "unknown":
             step["word"] = "Chưa có số"
     if item["status"] != "Được vào":
+        decider = "Thị trường" if market_decides else _stock_decider(item)
         for step in steps:
-            if step["blocks"] and step["state"] != "open":
+            if step["name"] == decider:
                 step["decides"] = True
-                break
     return steps
 
 
+_CODE = re.compile(r"`([^`]+)`")
 _INLINE = [
-    (re.compile(r"`([^`]+)`"), r"<code>\1</code>"),
-    (re.compile(r"\*\*([^*]+)\*\*"), r"<strong>\1</strong>"),
-    (re.compile(r"(?<![*\w])\*([^*\n]+)\*(?!\w)"), r"<em>\1</em>"),
+    (re.compile(r"\*\*(?!\s)([^*]+?)(?<!\s)\*\*"), r"<strong>\1</strong>"),
+    # Dấu * đứng giữa hai khoảng trắng là phép nhân, không phải chữ nghiêng.
+    (re.compile(r"(?<![*\w])\*(?![\s*])([^*\n]+?)(?<!\s)\*(?![*\w])"), r"<em>\1</em>"),
     (re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)"), r'<a href="\2" rel="noreferrer">\1</a>'),
 ]
 
 
 def _inline(text: str) -> str:
-    out = html.escape(text, quote=False)
-    for pattern, replacement in _INLINE:
-        out = pattern.sub(replacement, out)
-    return out
+    # Khối mã giữ nguyên chữ; dấu nháy cũng được thoát để một URL không ra khỏi thuộc tính href.
+    out = []
+    for index, part in enumerate(_CODE.split(text)):
+        escaped = html.escape(part, quote=True)
+        if index % 2:
+            out.append(f"<code>{escaped}</code>")
+            continue
+        for pattern, replacement in _INLINE:
+            escaped = pattern.sub(replacement, escaped)
+        out.append(escaped)
+    return "".join(out)
 
 
 def _table(rows: list[str]) -> str:

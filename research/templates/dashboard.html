@@ -43,7 +43,9 @@
       </ol>
       <p class="hint small">
         Mỗi bậc giữ lại mã qua lớp của chính mã, theo thứ tự hệ thống xét.
-        {% if locked %}Bậc cuối là 0 vì thị trường đang khóa cả danh sách.{% endif %}
+        {% if hold == "locked" %}Bậc cuối là 0 vì thị trường đang khóa cả danh sách.
+        {% elif hold == "unknown" %}Bậc cuối là 0 vì cổng thị trường còn thiếu số.
+        {% elif hold == "macro" %}Bậc cuối là 0 vì vĩ mô đang chặn lệnh mới: mã qua hết lớp của chính mã chỉ còn Theo dõi.{% endif %}
       </p>
     </section>
 
@@ -107,10 +109,15 @@
 
   <section class="card" id="danh-sach">
     <h2>Danh sách mã</h2>
-    {% if locked %}
+    {% if hold == "locked" or hold == "unknown" %}
       <p class="hint">
-        Thị trường đang khóa nên chưa mã nào được vào. Bảng xếp mã theo
-        <strong>trạng thái nếu thị trường mở</strong> (nhãn viền đứt), để biết mã nào sẵn sàng khi khóa được gỡ.
+        {{ "Thị trường đang khóa" if hold == "locked" else "Cổng thị trường còn thiếu số" }} nên chưa mã nào được vào.
+        Bảng xếp mã theo <strong>trạng thái nếu thị trường mở</strong> (nhãn viền đứt), để biết mã nào sẵn sàng khi cổng mở.
+      </p>
+    {% elif hold == "macro" %}
+      <p class="hint">
+        Vĩ mô đang chặn lệnh mới: mã đáng lẽ Được vào đang ở Theo dõi. Nhãn viền đứt là trạng thái nếu vĩ mô thôi chặn;
+        các mã khác không đổi vì vĩ mô chỉ hạ lệnh sắp vào.
       </p>
     {% endif %}
     {% if missing_open %}
@@ -121,7 +128,7 @@
       <div class="tabs" role="tablist">
         <button type="button" class="tab active" data-lane="">Tất cả <span class="count">{{ verdicts|length }}</span></button>
         {% for name, count in lanes %}
-          <button type="button" class="tab" data-lane="{{ name }}"><span class="pill {{ status_class(name) }}">{{ name }}</span> <span class="count">{{ count }}</span></button>
+          <button type="button" class="tab" data-lane="{{ name }}"{% if name in held_lanes %} title="Trạng thái nếu thị trường mở; trạng thái thật đang bị cổng thị trường giữ"{% endif %}><span class="pill {{ status_class(name) }}{{ ' ghost' if name in held_lanes }}">{{ name }}</span> <span class="count">{{ count }}</span></button>
         {% endfor %}
       </div>
       <input type="search" id="tim-ma" placeholder="Tìm mã" aria-label="Tìm mã" />

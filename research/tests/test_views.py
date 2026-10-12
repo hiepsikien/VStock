@@ -9,11 +9,13 @@ from app.views import (
     gate_chain,
     group_changes,
     held_by_market,
+    hold_reason,
     lane_counts,
     market_headline,
     market_lights,
     paper_alerts,
     render_markdown,
+    stamp_lights,
     status_changes,
 )
 
@@ -147,6 +149,90 @@ class GateChainTest(unittest.TestCase):
         item = _item(status="Được vào", open_status="Được vào", regime_open=True)
         self.assertFalse(any(step.get("decides") for step in gate_chain(item)))
 
+    def _decides(self, chain: list[dict]) -> list[str]:
+        return [step["name"] for step in chain if step.get("decides")]
+
+    def test_macro_blocking_an_entry_names_macro_not_the_index(self) -> None:
+        item = _item(
+            status="Theo dõi", summary="Vĩ mô chặn vào: Vĩ mô căng: USD tăng nhanh",
+            regime_open=True, regime_reason="VN-Index trên MA200", macro_block=True,
+            macro_reason="Vĩ mô căng: USD tăng nhanh",
+        )
+        chain = gate_chain(item)
+        self.assertEqual(self._decides(chain), ["Thị trường"])
+        self.assertEqual(chain[0]["state"], "closed")
+        self.assertTrue(chain[0]["detail"].startswith("Vĩ mô chặn vào"))
+
+    def test_macro_does_not_decide_a_name_its_own_layers_already_stopped(self) -> None:
+        item = _item(
+            status="Loại", open_status="Loại", summary="Có tin chặn", open_summary="Có tin chặn",
+            regime_open=True, macro_block=True, news_state="Loại",
+            macro_reason="Vĩ mô căng: USD tăng nhanh",
+        )
+        chain = gate_chain(item)
+        self.assertEqual(self._decides(chain), ["Tin"])
+        self.assertEqual((chain[0]["state"], chain[0]["word"]), ("watch", "Vĩ mô chặn lệnh mới"))
+
+    def test_missing_market_numbers_read_as_not_scored(self) -> None:
+        item = _item(
+            status="Chưa chấm", open_status="Theo dõi", summary="Cổng tiền tệ chưa chấm: thiếu lãi suất liên ngân hàng",
+            open_summary="Chưa phá nền", regime_open=True, market_open=None, pattern_ready=False,
+        )
+        chain = gate_chain(item)
+        self.assertEqual(self._decides(chain), ["Thị trường"])
+        self.assertEqual((chain[0]["state"], chain[0]["word"]), ("unknown", "Chưa chấm"))
+        self.assertEqual(chain[0]["detail"], item["summary"])
+
+    def test_missing_numbers_on_both_sides_still_name_the_market_first(self) -> None:
+        item = _item(
+            status="Chưa chấm", open_status="Chưa chấm", summary="VN-Index chưa đủ 200 phiên",
+            open_summary="Thiếu báo cáo quý", regime_open=None, fa_label="Chưa đủ số",
+        )
+        self.assertEqual(self._decides(gate_chain(item)), ["Thị trường"])
+
+    def test_a_blocking_news_item_decides_before_missing_fundamentals(self) -> None:
+        item = _item(
+            status="Loại", open_status="Loại", summary="Có tin chặn", open_summary="Có tin chặn",
+            regime_open=True, fa_label="Chưa đủ số", news_state="Loại",
+        )
+        self.assertEqual(self._decides(gate_chain(item)), ["Tin"])
+
+    def test_an_unadjusted_price_decides_on_the_price_base(self) -> None:
+        item = _item(
+            status="Chưa chấm", open_status="Chưa chấm", summary="Giá chưa chỉnh chia tách",
+            open_summary="Giá chưa chỉnh chia tách", pattern_reason="Giá chưa chỉnh chia tách",
+            regime_open=True, pattern_ready=False, news_state="Loại",
+        )
+        self.assertEqual(self._decides(gate_chain(item)), ["Nền giá"])
+
+    def test_a_row_stored_before_open_status_reads_macro_from_its_summary(self) -> None:
+        item = _item(
+            status="Theo dõi", open_status="", open_summary="", summary="Vĩ mô chặn vào: Vĩ mô căng",
+            regime_open=True, macro_block=True,
+        )
+        self.assertEqual(self._decides(gate_chain(item)), ["Thị trường"])
+        legacy_loai = _item(
+            status="Loại", open_status="", open_summary="", summary="Không đạt cổng cơ bản",
+            regime_open=True, macro_block=True, fa_label="Không đạt",
+        )
+        self.assertEqual(self._decides(gate_chain(legacy_loai)), ["Cơ bản"])
+
+
+class HoldTest(unittest.TestCase):
+    def test_the_reason_the_list_is_held_names_lock_missing_numbers_or_macro(self) -> None:
+        macro = _item(status="Theo dõi", summary="Vĩ mô chặn vào: căng")
+        self.assertEqual(hold_reason([macro, _item("B", status="Loại", open_status="Loại")]), "macro")
+        self.assertEqual(hold_reason([macro, _item("C")]), "locked")
+        self.assertEqual(hold_reason([_item(status="Chưa chấm")]), "unknown")
+        self.assertEqual(hold_reason([_item(status="Loại", open_status="Loại")]), "")
+
+    def test_lights_that_read_a_later_day_than_the_table_are_flagged(self) -> None:
+        lights = [{"key": "index"}, {"key": "macro"}, {"key": "breadth"}]
+        stale = stamp_lights(lights, {"index": "2026-10-13", "macro": "2026-10-12"}, "2026-10-12")
+        self.assertTrue(stale)
+        self.assertEqual([light["stale"] for light in lights], [True, False, False])
+        self.assertFalse(stamp_lights(lights, {"index": "2026-10-12"}, "2026-10-12"))
+
 
 class MarkdownTest(unittest.TestCase):
     def test_reports_render_headings_tables_lists_and_escape_html(self) -> None:
@@ -159,6 +245,18 @@ class MarkdownTest(unittest.TestCase):
         self.assertIn("<th>A</th>", out)
         self.assertIn("<td>2</td>", out)
         self.assertIn("<ul><li>một</li><li>hai</li></ul>", out)
+
+    def test_a_quote_in_a_link_stays_inside_the_href(self) -> None:
+        out = render_markdown('[x](https://a.b/"onmouseover="alert(1))')
+        self.assertNotIn('"onmouseover', out)
+        self.assertIn("&quot;onmouseover=&quot;", out)
+
+    def test_a_product_is_not_italic_and_code_is_left_alone(self) -> None:
+        self.assertNotIn("<em>", render_markdown("Lãi = a * b * c"))
+        self.assertIn("<em>nghiêng</em>", render_markdown("chữ *nghiêng* ở đây"))
+        out = render_markdown("Viết `**x**` và **đậm**")
+        self.assertIn("<code>**x**</code>", out)
+        self.assertIn("<strong>đậm</strong>", out)
 
 
 if __name__ == "__main__":

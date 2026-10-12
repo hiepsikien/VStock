@@ -50,6 +50,7 @@ from app.views import (
     gate_chain,
     group_changes,
     held_by_market,
+    hold_reason,
     industry_name,
     lane,
     lane_counts,
@@ -58,6 +59,7 @@ from app.views import (
     news_label,
     paper_alerts,
     render_markdown,
+    stamp_lights,
     status_changes,
 )
 
@@ -192,14 +194,27 @@ async def _market_lights(points: dict, verdicts: list[dict]) -> tuple[list[dict]
     states = dict(points.get(BREADTH_STATE_SERIES) or [])
     last_day, last_share = shares[-1] if shares else ("", None)
     state = states.get(last_day)
+    index_bars = await db.bars("VNINDEX")
     lights = market_lights(
-        market_regime(await db.bars("VNINDEX")),
+        market_regime(index_bars),
         money_state(points),
         verdicts,
         last_share,
         None if state is None else state > 0.5,
     )
-    return lights, market_headline(lights)
+    session = verdicts[0]["as_of"] if verdicts else ""
+    money_days = [points[code][-1][0] for code in MARKET_GATE_REQUIRED if points.get(code)]
+    days = {
+        "index": str(index_bars[-1]["trade_date"]) if index_bars else "",
+        "money": max(money_days) if money_days else "",
+        "macro": session,
+        "breadth": last_day,
+        "industry": session,
+    }
+    headline = market_headline(lights)
+    headline["session"] = session
+    headline["stale"] = stamp_lights(lights, days, session)
+    return lights, headline
 
 
 def _page(request: Request, name: str, active: str, context: dict):
@@ -224,7 +239,7 @@ async def dashboard(request: Request, notice: str = "", error: str = ""):
     points = await db.market_points()
     lights, headline = await _market_lights(points, verdicts)
     report = await paper.report()
-    alerts = paper_alerts(report["rows"])
+    alerts = paper_alerts(await db.open_paper_positions())
     to_confirm = [item for item in verdicts if item["status"] == "Được vào" and item["symbol"] not in decided]
     schedule = schedule_view(await _index_days(), points.get(BREADTH_STATE_SERIES) or [], datetime.now(VN))
     return _page(
@@ -238,7 +253,8 @@ async def dashboard(request: Request, notice: str = "", error: str = ""):
             "headline": headline,
             "funnel": funnel(verdicts),
             "lanes": lane_counts(verdicts),
-            "locked": any(item["held"] for item in verdicts),
+            "hold": hold_reason(verdicts),
+            "held_lanes": {item["lane"] for item in verdicts if item["held"]},
             "missing_open": bool(verdicts) and not any(item.get("open_status") for item in verdicts),
             "changes": group_changes(changes),
             "previous_day": previous_day,
@@ -562,11 +578,14 @@ async def _walk() -> dict:
     return await run_walk(inputs)
 
 
+_BACKTEST_BACK = {"/backtest": "/backtest", "/lab": "/lab#do-sau-phi"}
+
+
 @app.post("/backtest/run")
-async def start_backtest():
+async def start_backtest(back: str = Form("/backtest")):
     if not busy():
         backtest_job.start(await _backtest_key(), _walk)
-    return RedirectResponse("/backtest", status_code=303)
+    return RedirectResponse(_BACKTEST_BACK.get(back, "/backtest"), status_code=303)
 
 
 async def _backtest_state() -> dict:
