@@ -46,13 +46,20 @@ class Job:
         self.task = asyncio.create_task(self._finish(_plain(key), work))
         return True
 
+    @property
+    def _started_key(self) -> str:
+        return f"{self.meta_key}_started"
+
     async def _finish(self, key, work: Callable[[], Awaitable[dict]]) -> None:
+        # The mark outlives a restart that kills the run, so the next process can say so.
+        await db.store_json(self._started_key, self.started)
         try:
             result = await work()
         except (Exception, SystemExit) as exc:
             logger.exception("%s failed", self.meta_key)
             result = {"error": str(exc) or type(exc).__name__}
         await db.store_json(self.meta_key, {"key": key, "at": stamp(), "result": result})
+        await db.store_json(self._started_key, "")
 
     async def state(self, key) -> dict:
         stored = await db.stored_json(self.meta_key) or {}
@@ -60,6 +67,7 @@ class Job:
         return {
             "running": self.running,
             "started": self.started,
+            "interrupted": "" if self.running else (await db.stored_json(self._started_key) or ""),
             "at": stored.get("at", ""),
             "result": result,
             "error": (result or {}).get("error") or "",
@@ -80,7 +88,15 @@ def status_line(
         if state["result"] and not state["error"]:
             text += f" Số dưới đây là lần tính lúc {at}."
         return {"text": text, "kind": "ok"}
-    if state["error"]:
+    if state.get("interrupted"):
+        text = (
+            f"Lần tính bắt đầu lúc {state['interrupted']} bị dừng giữa chừng (server khởi động lại "
+            f"hoặc bị tắt) nên không có kết quả. Bấm “{button}” để tính lại."
+        )
+        if state["result"] and not state["error"]:
+            text += f" Số dưới đây là lần tính lúc {at}."
+        kind = "bad"
+    elif state["error"]:
         text, kind = f"Lần tính lúc {at} lỗi: {state['error']}", "bad"
     elif not state["result"]:
         text, kind = f"Chưa tính {what}. Bấm “{button}” để tính; {takes[0].lower()}{takes[1:]}.", ""

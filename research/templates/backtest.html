@@ -19,6 +19,9 @@
     </form>
     <p class="{{ 'banner ' ~ line.kind if line.kind else 'hint' }}">{{ line.text }}</p>
   </section>
+  {% if failed and not running %}
+    <p class="hint">Nếu lỗi là thiếu nến, chạy phiên ở trang kết quả trước, để có nến VN-Index và các mã.</p>
+  {% endif %}
 
   {% if result %}
     <ul class="counts">

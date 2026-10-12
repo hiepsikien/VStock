@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from contextlib import asynccontextmanager
@@ -42,7 +41,6 @@ from app.pipeline import busy, run_session
 from app.scheduled import VN
 from app.tracking import breadth_rows, filter_counts, filter_view, run_rows, schedule_view
 
-logger = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[1]
 templates = Jinja2Templates(directory=str(ROOT / "templates"))
 
@@ -278,7 +276,12 @@ async def _breadth_filter() -> dict:
     """Số đếm đã lưu của mẫu bộ lọc; đọc cả kho nến nên chỉ đếm khi bấm nút."""
     state = await filter_job.state(await _filter_key())
     result = state["result"]
-    view = filter_view(Counts(**result)) if result and not state["error"] else {}
+    view = {}
+    if result and not state["error"]:
+        try:
+            view = filter_view(Counts(**result))
+        except TypeError:
+            state = {**state, "error": "số đã lưu theo định dạng cũ, không đọc được nữa; bấm “Đếm mẫu” để đếm lại"}
     return {
         **view,
         "running": state["running"],
@@ -433,6 +436,7 @@ async def backtest_page(request: Request):
         "backtest.html",
         {
             "result": None if state["error"] else state["result"],
+            "failed": bool(state["error"]),
             "running": state["running"],
             "busy": busy(),
             "line": status_line(

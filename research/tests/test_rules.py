@@ -258,6 +258,31 @@ class RulesTest(unittest.TestCase):
         ]
         self.assertIsNone(unadjusted_split_gap(bars, "HOSE"))
         self.assertIsNotNone(unadjusted_split_gap(bars[:-1], "HOSE"))
+        self.assertIsNotNone(unadjusted_split_gap(bars, "HOSE", sessions=None))
+
+    def test_pre_registered_signals_keep_the_whole_history_scan(self) -> None:
+        """Phép đo bộ lọc độ rộng chạy ở tag, nơi luật còn quét cả lịch sử; số đếm phải khớp nó."""
+        from unittest import mock
+
+        from app import breadth_report
+        from app.pit_universe import Basket
+
+        start = date(2024, 1, 2)
+        days = [(start + timedelta(days=step)).isoformat() for step in range(70)]
+        bars = [
+            {"trade_date": day, "open": 10.0, "high": 10.0, "low": 10.0, "close": 10.0, "volume": 1.0}
+            for day in days
+        ]
+        bars[-1] = {**bars[-1], "high": 11.0, "close": 11.0, "volume": 5.0}
+        seen: list[dict] = []
+
+        def record(*args, **kwargs):
+            seen.append(kwargs)
+            return Pattern(False, "")
+
+        with mock.patch.object(breadth_report, "assess_pattern", record):
+            breadth_report.find_signals(bars, {"AAA": bars}, {2024: Basket(days[0], ["AAA"], ["AAA"])}, {})
+        self.assertEqual(seen, [{"split_sessions": None}])
 
     def test_bank_npl_fails(self) -> None:
         report = "2026-06-30"

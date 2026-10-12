@@ -423,16 +423,19 @@ def jump_limit(exchange: str | None) -> tuple[float, str]:
     return PRICE_JUMP_LIMIT_UNKNOWN, f"sàn chưa rõ (dùng {percent}%)"
 
 
-# The furthest any part of `assess_pattern` reads back: the structure lookback plus the ATR
-# that scales its pivots. A gap before that bends neither the base, the RS reference nor a
-# structure, while a board move or a listing day years ago would block the name for good.
+# The structure lookback plus the ATR that scales its pivots. The base, the RS reference and the
+# named structures all sit inside it. The ZigZag itself walks the whole series, so an older gap
+# can still shift where its first pivots fall, but that settles within a swing or two, while a
+# board move or a listing day years ago would otherwise block the name for good.
 SPLIT_CHECK_SESSIONS = STRUCTURE_LOOKBACK_SESSIONS + ATR_WINDOW
 
 
-def unadjusted_split_gap(bars: list[dict], exchange: str | None = None) -> str | None:
-    """A gap past the daily band inside the window the pattern reads is a raw split."""
+def unadjusted_split_gap(
+    bars: list[dict], exchange: str | None = None, sessions: int | None = SPLIT_CHECK_SESSIONS
+) -> str | None:
+    """A gap past the daily band inside the last `sessions` sessions (None: all) is a raw split."""
     limit, board = jump_limit(exchange)
-    recent = bars[-(SPLIT_CHECK_SESSIONS + 1) :]
+    recent = bars if sessions is None else bars[-(sessions + 1) :]
     for previous, current in zip(recent, recent[1:]):
         if previous["close"] <= 0:
             continue
@@ -508,9 +511,14 @@ def assess_pattern(
     stock_bars: list[dict],
     index_bars: list[dict],
     exchange: str | None = None,
+    split_sessions: int | None = SPLIT_CHECK_SESSIONS,
 ) -> Pattern:
-    """Daily base: tighter range, drier volume, then a close through the base high, with RS > 0."""
-    gap = unadjusted_split_gap(stock_bars, exchange)
+    """Daily base: tighter range, drier volume, then a close through the base high, with RS > 0.
+
+    `split_sessions=None` checks the whole series for unadjusted gaps, the rule as it stood at
+    the pre-registration tags.
+    """
+    gap = unadjusted_split_gap(stock_bars, exchange, split_sessions)
     if gap:
         return Pattern(False, gap, unadjusted=True)
     if len(stock_bars) < 61 or len(index_bars) < 61:

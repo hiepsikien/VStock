@@ -194,6 +194,33 @@ class JobTest(unittest.TestCase):
         state = _with_store(body)
         self.assertEqual(state["error"], "Kho chưa có nến")
 
+    def test_a_run_killed_by_a_restart_is_reported(self) -> None:
+        async def body():
+            await db.store_json("walk", {"key": None, "at": "09:00:00 12/10", "result": {"n": 1}})
+            await db.store_json("walk_started", "15:40:00 12/10")
+            return await Job("walk").state(None)
+
+        state = _with_store(body)
+        self.assertEqual(state["interrupted"], "15:40:00 12/10")
+        line = status_line(
+            state, what="phép đo", button="Chạy phép đo", takes="Vài phút", refresh=20, session_busy=False
+        )
+        self.assertEqual(line["kind"], "bad")
+        self.assertIn("bắt đầu lúc 15:40:00 12/10 bị dừng giữa chừng", line["text"])
+        self.assertIn("lần tính lúc 09:00:00 12/10", line["text"])
+
+    def test_a_finished_run_clears_its_mark(self) -> None:
+        async def done():
+            return {"n": 1}
+
+        async def body():
+            job = Job("walk")
+            job.start(None, done)
+            await job.task
+            return await Job("walk").state(None)
+
+        self.assertEqual(_with_store(body)["interrupted"], "")
+
 
 class StatusLineTest(unittest.TestCase):
     def _line(self, **state) -> dict:
@@ -320,6 +347,24 @@ class BacktestWalkTest(unittest.TestCase):
         self.assertEqual((len(walks), len(counts)), (1, 1))
         self.assertIn("khớp với lần chạy phiên", backtest)
         self.assertIn("khớp với lần chạy phiên", market)
+
+    def test_counts_stored_in_an_older_shape_do_not_break_the_page(self) -> None:
+        import httpx
+
+        from app import web
+
+        async def body():
+            web.filter_job = Job("breadth_filter_counts")
+            await db.store_json(
+                "breadth_filter_counts", {"key": None, "at": "09:00:00 12/10", "result": {"start": "2026-10-13"}}
+            )
+            transport = httpx.ASGITransport(app=web.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                return await client.get("/market")
+
+        page = _with_store(body)
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("định dạng cũ", page.text)
 
     def test_the_worker_process_gets_the_industry_table_of_the_web_process(self) -> None:
         from app import industries, web
