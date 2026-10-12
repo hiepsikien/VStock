@@ -9,7 +9,9 @@ Không cần server web: lệnh tự mở kho, chạy `run_session`, rồi in k�
 đã lưu cho phiên VN-Index mới nhất. Phiên lỗi, phiên chạy xong mà không có trạng thái độ rộng, hoặc
 nến VN-Index chưa tới phiên lẽ ra đã đóng cửa thì thoát với mã 1. Cảnh báo Telegram (nếu đã cấu
 hình) đi ngay khi phiên lỗi hay thiếu trạng thái; thiếu nến chỉ báo ở lần thử cuối, sáng hôm sau,
-và một chuỗi ngày nghỉ chỉ báo một lần. Nếu server web đang chạy phiên, lệnh chờ nó xong.
+và một chuỗi ngày nghỉ chỉ báo một lần. Phiên đo nào đã qua mà không có trạng thái độ rộng (không
+ghi bù được) thì báo một lần, dù các lần chạy trước bị bỏ lỡ vì lý do gì. Nếu server web đang chạy
+phiên, lệnh chờ nó xong.
 
 Phiên nào không có trạng thái độ rộng thì mọi tín hiệu của phiên đó bị loại khỏi phép đo bộ lọc độ
 rộng, và không được tính bù (docs/breadth-signal-filter.md).
@@ -25,7 +27,7 @@ from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from app import db, notify
-from app.config import BREADTH_STATE_SERIES
+from app.config import BREADTH_FILTER_START, BREADTH_STATE_SERIES
 from app.pipeline import BUSY_MESSAGE, run_session
 
 VN = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -33,6 +35,7 @@ SESSION_OPEN = time(9, 0)
 SESSION_CLOSE = time(15, 0)
 # A session started from the web takes under a minute; the scheduled run queues behind it.
 SESSION_WAIT_SECONDS = 15 * 60
+LOST_REPORTED_KEY = "scheduled_lost_sessions_reported"
 
 
 def in_session(now: datetime) -> bool:
@@ -91,20 +94,44 @@ def should_alert(message: str, found: str, index_day: str | None, expected: str,
     return found != "ok"
 
 
+def lost_sessions(index_days: list[str], states: list[tuple[str, float]], reported: set[str]) -> list[str]:
+    """Measured sessions behind the latest bar that never got a breadth state, not yet reported.
+
+    Breadth is only written for the latest bar, so these can no longer be recorded. This catches
+    a session lost whatever the clock said, e.g. a Mac asleep through all three runs that wakes
+    during trading hours, when the next run already sees today's bar.
+    """
+    stored = {day for day, _value in states}
+    return [
+        day
+        for day in index_days[:-1]
+        if day >= BREADTH_FILTER_START and day not in stored and day not in reported
+    ]
+
+
 async def _once(now: datetime) -> tuple[str, bool]:
     expected = expected_session(now)
     await db.init_db()
     try:
         message = await run_session("lịch", wait=SESSION_WAIT_SECONDS)
         index = await db.bars("VNINDEX")
-        points = await db.market_points()
+        states = (await db.market_points()).get(BREADTH_STATE_SERIES) or []
+        reported = set(await db.stored_json(LOST_REPORTED_KEY) or [])
+        lost = lost_sessions([str(bar["trade_date"]) for bar in index], states, reported)
+        if lost:
+            await db.store_json(LOST_REPORTED_KEY, sorted(reported | set(lost)))
     finally:
         await db.close_db()
     index_day = str(index[-1]["trade_date"]) if index else None
-    line, found = breadth_line(index_day, points.get(BREADTH_STATE_SERIES) or [], expected)
-    ok = found == "ok" and not message.startswith("Phiên lỗi") and message != BUSY_MESSAGE
+    line, found = breadth_line(index_day, states, expected)
+    ok = found == "ok" and not message.startswith("Phiên lỗi") and message != BUSY_MESSAGE and not lost
     text = f"{message}\n{line}"
-    if should_alert(message, found, index_day, expected, now):
+    if lost:
+        text += (
+            f"\nMất trạng thái độ rộng ở phiên {', '.join(lost)}: không ghi bù được, tín hiệu của "
+            "các phiên này bị loại khỏi phép đo bộ lọc độ rộng."
+        )
+    if lost or should_alert(message, found, index_day, expected, now):
         await notify.send("VStock research — lịch chạy cần xem lại\n" + html.escape(text, quote=False))
     return text, ok
 

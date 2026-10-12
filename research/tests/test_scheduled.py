@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import os
+import tempfile
 import unittest
 from datetime import datetime, timezone
 
+from app.config import BREADTH_STATE_SERIES
 from app.pipeline import BUSY_MESSAGE
-from app.scheduled import VN, breadth_line, expected_session, in_session, should_alert
+from app.scheduled import VN, breadth_line, expected_session, in_session, lost_sessions, should_alert
 
 
 class SessionHoursTest(unittest.TestCase):
@@ -74,6 +78,59 @@ class AlertTest(unittest.TestCase):
         self.assertTrue(should_alert(BUSY_MESSAGE, "ok", "2026-10-13", "2026-10-13", now))
         self.assertTrue(should_alert("Phiên 2026-10-13", "no_state", "2026-10-13", "2026-10-13", now))
         self.assertFalse(should_alert("Phiên 2026-10-13", "ok", "2026-10-13", "2026-10-13", now))
+
+
+class LostSessionTest(unittest.TestCase):
+    def test_only_measured_sessions_behind_the_latest_bar_count(self) -> None:
+        days = ["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15"]
+        states = [("2026-10-14", 1.0)]
+        # 2026-10-12 trước phép đo, 2026-10-15 là nến mới nhất còn ghi được.
+        self.assertEqual(lost_sessions(days, states, set()), ["2026-10-13"])
+        self.assertEqual(lost_sessions(days, states, {"2026-10-13"}), [])
+
+    def test_a_mac_asleep_through_every_run_is_reported_once(self) -> None:
+        """Ngủ qua 15:30, 20:00 và 08:00, thức trong giờ giao dịch: lần 15:30 hôm sau mới thấy."""
+        from unittest import mock
+
+        from app import db, scheduled
+
+        previous = os.environ.get("RESEARCH_DB_PATH")
+        sent: list[str] = []
+
+        async def fake_send(text: str) -> None:
+            sent.append(text)
+
+        async def fake_session(*_args, **_kwargs) -> str:
+            return "Phiên 2026-10-14: Khóa 106"
+
+        async def _run():
+            os.environ["RESEARCH_DB_PATH"] = os.path.join(tempfile.mkdtemp(), "research.db")
+            await db.init_db()
+            bar = {"open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 1.0}
+            await db.replace_bars(
+                "VNINDEX", [{"trade_date": day, **bar} for day in ("2026-10-12", "2026-10-13", "2026-10-14")]
+            )
+            await db.upsert_market_points(BREADTH_STATE_SERIES, [("2026-10-12", 1.0), ("2026-10-14", 1.0)])
+            await db.close_db()
+            now = datetime(2026, 10, 14, 15, 30, tzinfo=VN)
+            with mock.patch.object(scheduled, "run_session", fake_session), mock.patch.object(
+                scheduled.notify, "send", fake_send
+            ):
+                first = await scheduled._once(now)
+                second = await scheduled._once(now)
+            return first, second
+
+        try:
+            first, second = asyncio.run(_run())
+        finally:
+            if previous is None:
+                os.environ.pop("RESEARCH_DB_PATH", None)
+            else:
+                os.environ["RESEARCH_DB_PATH"] = previous
+        self.assertFalse(first[1])
+        self.assertIn("Mất trạng thái độ rộng ở phiên 2026-10-13", first[0])
+        self.assertTrue(second[1])
+        self.assertEqual(len(sent), 1)
 
 
 if __name__ == "__main__":
