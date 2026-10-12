@@ -84,7 +84,8 @@ kết quả phiên và trạng thái độ rộng đã lưu vào `~/Library/Logs
 thoát với mã 1 khi phiên lỗi, khi không ghi được độ rộng, hoặc khi nến VN-Index chưa tới phiên lẽ ra
 đã đóng cửa. Nếu lúc cài có `TELEGRAM_BOT_TOKEN` và `TELEGRAM_CHAT_ID`, phiên lỗi và thiếu độ rộng
 báo Telegram ngay; thiếu nến chỉ báo ở lần thử cuối, sáng hôm sau, và một chuỗi ngày nghỉ như Tết chỉ
-báo một lần.
+báo một lần. Phiên đo nào đã qua mà mất trạng thái độ rộng cũng báo, mỗi phiên một lần, kể cả khi máy
+ngủ qua cả ba lần chạy rồi thức trong giờ giao dịch.
 
 Server web và lệnh theo lịch dùng chung một khoá file cạnh kho (`research.db.session.lock`), nên không
 bao giờ có hai phiên ghi cùng lúc: khi một bên đang chạy, nút **Chạy phiên** bị khoá, còn lệnh theo
