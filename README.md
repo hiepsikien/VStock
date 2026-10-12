@@ -84,15 +84,24 @@ Script cài một job launchd chạy `python -m app.scheduled --after-close` t�
 nến ngày một lúc sau giờ đóng cửa, nên các lần sau là lần thử lại. Mỗi lần ghi đè đúng phiên đó bằng
 cùng nến đã đóng, còn lần 08:00 là cơ hội cuối trước phiên kế tiếp. Lệnh không cần server web. Nó in
 kết quả phiên và trạng thái độ rộng đã lưu vào `~/Library/Logs/vstock-research-session.log`. Lệnh
-thoát với mã 1, và gửi Telegram nếu lúc cài có `TELEGRAM_BOT_TOKEN` và `TELEGRAM_CHAT_ID`, khi phiên
-lỗi, khi không ghi được độ rộng, hoặc khi nến VN-Index chưa tới phiên lẽ ra đã đóng cửa (ngày lễ cũng
-báo như vậy).
+thoát với mã 1 khi phiên lỗi, khi không ghi được độ rộng, hoặc khi nến VN-Index chưa tới phiên lẽ ra
+đã đóng cửa. Nếu lúc cài có `TELEGRAM_BOT_TOKEN` và `TELEGRAM_CHAT_ID`, phiên lỗi và thiếu độ rộng
+báo Telegram ngay; thiếu nến chỉ báo ở lần thử cuối, sáng hôm sau, và một chuỗi ngày nghỉ như Tết chỉ
+báo một lần.
+
+Server web và lệnh theo lịch dùng chung một khoá file cạnh kho (`research.db.session.lock`), nên không
+bao giờ có hai phiên ghi cùng lúc: khi một bên đang chạy, các nút **Chạy phiên**, **Chạy phép đo** và
+**Đếm mẫu** bị khoá, còn lệnh theo
+lịch chờ tối đa 15 phút. Tiến trình bị kill giữa phiên thì dòng của nó được đóng thành lỗi ở phiên kế
+tiếp, và dashboard ghi "dừng giữa chừng" ngay khi không còn ai giữ khoá.
 
 Trên dashboard, mục **Lịch chạy** liệt kê các lần chạy gần đây (nguồn: lịch hay nút bấm, thời gian,
-kết quả) và báo đỏ khi phiên đã đóng cửa gần nhất chưa có trạng thái độ rộng. Trang `/market` liệt kê
+kết quả). Phiên hôm nay chưa có trạng thái độ rộng thì báo vàng "đang chờ" tới 20:30; sau đó, hoặc
+với phiên cũ hơn, thì báo đỏ. Trang `/market` liệt kê
 từng phiên VN-Index kèm độ rộng, ghi "chưa ghi" ở phiên thuộc phép đo mà thiếu trạng thái, và có mục
-số đếm của phép đo bộ lọc độ rộng (chỉ số đếm, không có lợi nhuận). Lần mở `/market` đầu tiên sau mỗi
-lần chạy mất vài giây để đếm lại mẫu.
+số đếm của phép đo bộ lọc độ rộng (chỉ số đếm, không có lợi nhuận), đếm lại khi bấm **Đếm mẫu**.
+Số đếm tìm tín hiệu theo đúng luật ở tag chốt trước (luật giá chưa chỉnh chia tách quét cả lịch sử),
+nên khớp với lệnh đo chạy ở tag.
 
 Máy đang ngủ thì launchd chạy bù khi máy thức. Lần chạy bù rơi vào giờ giao dịch thì bị bỏ qua, vì
 nến phiên chưa đóng. Máy tắt hẳn thì mất phiên đó: `sudo pmset repeat wakeorpoweron MTWRF 15:25:00`

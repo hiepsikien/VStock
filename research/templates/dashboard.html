@@ -33,7 +33,9 @@
   {% if run and run.message %}
     <p class="hint">Lần chạy gần nhất: {{ run.message }}</p>
   {% endif %}
-  {% if schedule.warning %}
+  {% if schedule.level == "wait" %}
+    <p class="banner wait">{{ schedule.warning }} <a href="#lich-chay">Lịch chạy</a></p>
+  {% elif schedule.warning %}
     <p class="banner bad">
       {{ schedule.warning }} Phiên không có trạng thái độ rộng thì mọi tín hiệu của phiên đó bị loại
       khỏi phép đo bộ lọc độ rộng. <a href="#lich-chay">Lịch chạy</a>

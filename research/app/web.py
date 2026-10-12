@@ -103,9 +103,20 @@ async def lifespan(_app: FastAPI):
     await db.init_db()
     await load_industry_map()
     yield
-    if _pool is not None:
-        _pool.shutdown(wait=False, cancel_futures=True)
+    _stop_pool()
     await db.close_db()
+
+
+def _stop_pool() -> None:
+    """Kill the workers: Python joins them at exit, so a walk in flight would hold up a stop or
+    a --reload for minutes. The walk in flight is lost."""
+    global _pool
+    if _pool is None:
+        return
+    for process in list((_pool._processes or {}).values()):
+        process.terminate()
+    _pool.shutdown(wait=True, cancel_futures=True)
+    _pool = None
 
 
 app = FastAPI(title="VStock Research", lifespan=lifespan)
@@ -171,7 +182,7 @@ async def dashboard(request: Request, notice: str = "", error: str = ""):
             # Cổng tiền tệ đọc từ chuỗi đã lưu, nên nó đứng được trên bảng cả khi phiên
             # chưa chấm lại mã nào.
             "money": money_state(points).reason,
-            "runs": run_rows(await db.recent_runs(8)),
+            "runs": run_rows(await db.recent_runs(8), busy()),
             "schedule": schedule_view(
                 await _index_days(), points.get(BREADTH_STATE_SERIES) or [], datetime.now(VN)
             ),

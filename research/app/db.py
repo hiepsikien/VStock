@@ -892,6 +892,17 @@ async def finish_run(run_id: int, status: str, message: str) -> None:
     await db.commit()
 
 
+async def abandon_running_runs(message: str) -> int:
+    """Close rows still marked running. Only safe while holding the session lock."""
+    db = await get_db()
+    cursor = await db.execute(
+        "UPDATE runs SET finished_at = ?, status = 'error', message = ? WHERE status = 'running'",
+        (_now(), message),
+    )
+    await db.commit()
+    return cursor.rowcount
+
+
 async def latest_run() -> dict | None:
     runs = await recent_runs(1)
     return runs[0] if runs else None

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import logging
 from datetime import date
+from pathlib import Path
+from typing import IO
 
 import httpx
 
@@ -32,25 +35,74 @@ from app.pit_universe import baskets_from_bars
 
 logger = logging.getLogger(__name__)
 _lock = asyncio.Lock()
+BUSY_MESSAGE = "Đang chạy một phiên khác."
+ABANDONED_MESSAGE = "Bị dừng giữa chừng: tiến trình chạy phiên đã thoát trước khi xong."
+
+
+# The web server and the scheduled job are separate processes writing to one store, so the
+# asyncio lock alone lets both run a session at once. The file lock spans processes, and the
+# OS drops it when its holder dies, so a killed session never blocks the next one.
+def _lock_path() -> Path:
+    path = db.db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path.with_name(path.name + ".session.lock")
+
+
+def _try_file_lock() -> IO | None:
+    handle = open(_lock_path(), "a")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return None
+    return handle
+
+
+def _held_elsewhere() -> bool:
+    handle = _try_file_lock()
+    if handle is None:
+        return True
+    handle.close()
+    return False
 
 
 def busy() -> bool:
-    return _lock.locked()
+    return _lock.locked() or _held_elsewhere()
 
 
-async def run_session(source: str = "web") -> str:
+async def _acquire_file_lock(wait: float) -> IO | None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + wait
+    while True:
+        handle = _try_file_lock()
+        if handle is not None or loop.time() >= deadline:
+            return handle
+        await asyncio.sleep(1)
+
+
+async def run_session(source: str = "web", wait: float = 0.0) -> str:
+    """Run one session; `wait` is how long to queue behind a session of another process."""
     if _lock.locked():
-        return "Đang chạy một phiên khác."
+        return BUSY_MESSAGE
     async with _lock:
-        run_id = await db.start_run(source)
+        handle = await _acquire_file_lock(wait)
+        if handle is None:
+            return BUSY_MESSAGE
         try:
-            message = await _run()
-        except Exception as exc:
-            logger.exception("Research run failed")
-            await db.finish_run(run_id, "error", str(exc))
-            return f"Phiên lỗi: {exc}"
-        await db.finish_run(run_id, "ok", message)
-        return message
+            # Holding the lock, no other session can be live: a row still running is one
+            # whose process was killed.
+            await db.abandon_running_runs(ABANDONED_MESSAGE)
+            run_id = await db.start_run(source)
+            try:
+                message = await _run()
+            except Exception as exc:
+                logger.exception("Research run failed")
+                await db.finish_run(run_id, "error", str(exc))
+                return f"Phiên lỗi: {exc}"
+            await db.finish_run(run_id, "ok", message)
+            return message
+        finally:
+            handle.close()
 
 
 async def _run() -> str:

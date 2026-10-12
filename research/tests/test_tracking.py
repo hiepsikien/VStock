@@ -10,6 +10,7 @@ from datetime import datetime
 from app import db
 from app.breadth_filter import Counts
 from app.jobs import Job, status_line
+from app.pipeline import ABANDONED_MESSAGE, BUSY_MESSAGE
 from app.scheduled import VN
 from app.tracking import breadth_rows, filter_view, run_rows, schedule_view
 
@@ -26,10 +27,15 @@ class RunRowsTest(unittest.TestCase):
                     "source": "lịch",
                 },
                 {"started_at": "2026-10-12T07:08:40+00:00", "finished_at": None, "status": "running", "message": "", "source": ""},
-            ]
+            ],
+            True,
         )
         self.assertEqual((rows[0]["started"], rows[0]["seconds"], rows[0]["source"]), ("13/10 15:30", 150, "Lịch chạy"))
-        self.assertEqual((rows[1]["seconds"], rows[1]["source"]), (None, "—"))
+        self.assertEqual((rows[1]["seconds"], rows[1]["source"], rows[1]["status"]), (None, "—", "running"))
+
+    def test_a_running_row_without_a_live_session_was_killed(self) -> None:
+        row = {"started_at": "2026-10-12T07:08:40+00:00", "finished_at": None, "status": "running", "source": "lịch"}
+        self.assertEqual(run_rows([row], False)[0]["status"], "dừng giữa chừng")
 
 
 class ScheduleViewTest(unittest.TestCase):
@@ -39,12 +45,20 @@ class ScheduleViewTest(unittest.TestCase):
         self.assertEqual((view["measured"], view["missing"]), (1, []))
 
     def test_a_closed_session_without_its_bar_or_its_state_is_flagged(self) -> None:
-        now = datetime(2026, 10, 14, 16, 0, tzinfo=VN)
+        now = datetime(2026, 10, 14, 21, 0, tzinfo=VN)
         no_bar = schedule_view(["2026-10-13"], [("2026-10-13", 1.0)], now)
         self.assertIn("chưa có nến VN-Index phiên 2026-10-14", no_bar["warning"])
+        self.assertEqual(no_bar["level"], "bad")
         no_state = schedule_view(["2026-10-13", "2026-10-14"], [("2026-10-13", 1.0)], now)
         self.assertEqual(no_state["warning"], "Phiên 2026-10-14 chưa có trạng thái độ rộng.")
         self.assertEqual(no_state["missing"], ["2026-10-14"])
+
+    def test_today_is_only_waiting_until_after_the_evening_run(self) -> None:
+        view = schedule_view(["2026-10-13"], [("2026-10-13", 1.0)], datetime(2026, 10, 14, 16, 0, tzinfo=VN))
+        self.assertEqual(view["level"], "wait")
+        self.assertIn("Đang chờ lịch chạy ghi phiên 2026-10-14", view["warning"])
+        morning = schedule_view(["2026-10-13"], [("2026-10-13", 1.0)], datetime(2026, 10, 15, 8, 30, tzinfo=VN))
+        self.assertEqual(morning["level"], "bad")
 
     def test_sessions_before_the_measurement_never_count_as_missing(self) -> None:
         view = schedule_view(["2026-10-09", "2026-10-12"], [], datetime(2026, 10, 12, 14, 0, tzinfo=VN))
@@ -204,6 +218,45 @@ class StatusLineTest(unittest.TestCase):
         self.assertIn("khớp", self._line(result={"n": 1}, at="09:00:00 12/10")["text"])
         failed = self._line(result={"error": "hỏng"}, error="hỏng", at="09:00:00 12/10")
         self.assertEqual((failed["kind"], failed["text"]), ("bad", "Lần tính lúc 09:00:00 12/10 lỗi: hỏng"))
+
+
+class SessionLockTest(unittest.TestCase):
+    def test_a_session_held_by_another_process_blocks_and_a_killed_one_is_closed(self) -> None:
+        from unittest import mock
+
+        from app import pipeline
+
+        previous = os.environ.get("RESEARCH_DB_PATH")
+
+        async def fake_run():
+            return "Phiên 2026-10-13: Khóa 106"
+
+        async def _run():
+            os.environ["RESEARCH_DB_PATH"] = os.path.join(tempfile.mkdtemp(), "research.db")
+            await db.close_db()
+            await db.init_db()
+            killed = await db.start_run("lịch")
+            # A second open file description stands in for the scheduled process.
+            other = pipeline._try_file_lock()
+            held = (pipeline.busy(), await pipeline.run_session("web"))
+            other.close()
+            with mock.patch.object(pipeline, "_run", fake_run):
+                free = (pipeline.busy(), await pipeline.run_session("web"))
+            runs = {run["id"]: run for run in await db.recent_runs(5)}
+            await db.close_db()
+            return held, free, runs, killed
+
+        try:
+            held, free, runs, killed = asyncio.run(_run())
+        finally:
+            if previous is None:
+                os.environ.pop("RESEARCH_DB_PATH", None)
+            else:
+                os.environ["RESEARCH_DB_PATH"] = previous
+        self.assertEqual(held, (True, BUSY_MESSAGE))
+        self.assertEqual(free, (False, "Phiên 2026-10-13: Khóa 106"))
+        self.assertEqual((runs[killed]["status"], runs[killed]["message"]), ("error", ABANDONED_MESSAGE))
+        self.assertEqual(len(runs), 2)
 
 
 class BacktestWalkTest(unittest.TestCase):
