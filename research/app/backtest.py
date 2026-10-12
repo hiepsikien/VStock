@@ -15,7 +15,7 @@ from app.config import (
     STATEMENT_LAG_DAYS,
     STOCK_SHORTLIST_ENFORCED,
 )
-from app.industries import industry_of
+from app.industries import industry_of, set_industry_map
 from app.evaluate import compose
 from app.exits import (
     OpenPosition,
@@ -164,6 +164,12 @@ def _candidates(
             continue
         found.append((verdict.score, verdict.priority, symbol, price, pattern))
     return found
+
+
+def run_backtest_with_industries(industries: dict[str, str], *inputs) -> dict:
+    """`run_backtest` in a worker process, which starts without the industry table attached."""
+    set_industry_map(industries)
+    return run_backtest(*inputs)
 
 
 def run_backtest(

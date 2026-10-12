@@ -96,6 +96,13 @@ def _add_months(start: str, months: int) -> str:
     return day.replace(year=day.year + total // 12, month=total % 12 + 1).isoformat()
 
 
+def filter_counts(start: str = BREADTH_FILTER_START) -> Counts:
+    """Chỉ số đếm của mẫu, để worker process không phải gửi lại cả kho nến."""
+    from app.breadth_filter import _sample
+
+    return _sample(start)[1]
+
+
 def filter_view(counts: Counts) -> dict:
     if counts.ready:
         status = "Đã đủ điều kiện đo: chạy lệnh đo một lần."

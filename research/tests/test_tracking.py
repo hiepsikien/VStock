@@ -117,5 +117,78 @@ class RunSourceTest(unittest.TestCase):
         self.assertEqual(latest["source"], "lịch")
 
 
+class BacktestWalkTest(unittest.TestCase):
+    def test_a_slow_walk_reports_pending_and_runs_only_once(self) -> None:
+        from unittest import mock
+
+        from app import web
+
+        previous = os.environ.get("RESEARCH_DB_PATH")
+        calls: list[int] = []
+
+        async def slow_walk(_inputs):
+            calls.append(1)
+            await asyncio.sleep(0.3)
+            return {"trade_count": 3}
+
+        async def _run():
+            os.environ["RESEARCH_DB_PATH"] = os.path.join(tempfile.mkdtemp(), "research.db")
+            await db.close_db()
+            await db.init_db()
+            web._backtest_cache.update({"key": None, "result": None, "at": "", "task": None})
+            with mock.patch.object(web, "run_walk", slow_walk), mock.patch.object(web, "load_exchanges", dict):
+                first = await web.backtest_result(wait=0.05)
+                second = await web.backtest_result(wait=0.05)
+                await web._backtest_cache["task"]
+                third = await web.backtest_result(wait=0.05)
+            await db.close_db()
+            return first, second, third
+
+        try:
+            first, second, third = asyncio.run(_run())
+        finally:
+            if previous is None:
+                os.environ.pop("RESEARCH_DB_PATH", None)
+            else:
+                os.environ["RESEARCH_DB_PATH"] = previous
+            web._backtest_cache.update({"key": None, "result": None, "at": "", "task": None})
+        self.assertEqual(first, (None, True))
+        self.assertEqual(second, (None, True))
+        self.assertEqual(third, ({"trade_count": 3}, False))
+        self.assertEqual(len(calls), 1)
+
+    def test_the_worker_process_gets_the_industry_table_of_the_web_process(self) -> None:
+        from app import industries, web
+
+        saved = industries.industry_labels()
+
+        async def _run():
+            industries.set_industry_map({"ZZZ": "bank"})
+            try:
+                # Một lần đo trên kho rỗng: chỉ cần đi hết đường gửi sang worker và nhận về.
+                return await web.run_walk(([], {}, {}, {}, {}, {}, {}))
+            finally:
+                if web._pool is not None:
+                    web._pool.shutdown(wait=True)
+                    web._pool = None
+
+        try:
+            result = asyncio.run(_run())
+        finally:
+            industries.set_industry_map(saved)
+        self.assertIsInstance(result, dict)
+
+    def test_the_wrapper_attaches_the_table_before_walking(self) -> None:
+        from app import industries
+        from app.backtest import run_backtest_with_industries
+
+        saved = industries.industry_labels()
+        try:
+            run_backtest_with_industries({"ZZZ": "bank"}, [], {}, {}, {})
+            self.assertEqual(industries.industry_labels(), {"ZZZ": "bank"})
+        finally:
+            industries.set_industry_map(saved)
+
+
 if __name__ == "__main__":
     unittest.main()
