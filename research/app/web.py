@@ -55,11 +55,11 @@ from app.pipeline import busy, run_session
 from app.scheduled import VN
 from app.tracking import breadth_rows, filter_counts, filter_view, run_rows, schedule_view
 from app.views import (
+    INDUSTRY_STRIP_SESSIONS,
     flow_label,
     funnel,
     gate_chain,
     group_changes,
-    INDUSTRY_STRIP_SESSIONS,
     held_by_market,
     hold_reason,
     industry_name,

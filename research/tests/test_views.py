@@ -165,6 +165,15 @@ class GateChainTest(unittest.TestCase):
         self.assertEqual(chain[0]["state"], "closed")
         self.assertTrue(chain[0]["detail"].startswith("Vĩ mô chặn vào"))
 
+    def test_macro_numbers_that_failed_to_load_read_as_not_scored(self) -> None:
+        item = _item(
+            status="Theo dõi", summary="Vĩ mô chưa có số: không tải được chuỗi vĩ mô",
+            regime_open=True, macro_block=False, macro_reason="",
+        )
+        chain = gate_chain(item)
+        self.assertEqual(self._decides(chain), ["Thị trường"])
+        self.assertEqual((chain[0]["state"], chain[0]["word"]), ("unknown", "Chưa chấm"))
+
     def test_macro_does_not_decide_a_name_its_own_layers_already_stopped(self) -> None:
         item = _item(
             status="Loại", open_status="Loại", summary="Có tin chặn", open_summary="Có tin chặn",

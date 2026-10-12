@@ -332,6 +332,9 @@ def _market_step(item: dict, decides: bool) -> tuple[str, str, str]:
     """(trạng thái, lý do, chữ riêng) của ô Thị trường."""
     if decides:
         state = {"Khóa": "closed", "Chưa chấm": "unknown"}.get(item["status"], "closed")
+        # Vĩ mô tải lỗi cũng hạ Được vào xuống Theo dõi, nhưng đó là thiếu số chứ không phải cổng đóng.
+        if item["summary"].startswith(_MACRO_DOWNGRADES[1]):
+            state = "unknown"
         return state, item["summary"], ""
     if item.get("regime_open") is False or item.get("market_open") is False:
         return "closed", item.get("regime_reason") or item.get("market_reason") or "", ""
