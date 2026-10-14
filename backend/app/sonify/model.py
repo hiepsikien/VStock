@@ -51,7 +51,7 @@ class Score:
     bpm: int
     bars: int
     regimes: tuple[Regime, Regime, Regime]
-    regime_samples: tuple[int, int, int]
+    regime_samples: tuple[int, int, int] | None  # None when regimes were passed in
     slots: tuple[ChordSlot, ...]
     violin: tuple[NoteEvent, ...]
     cello: tuple[NoteEvent, ...]

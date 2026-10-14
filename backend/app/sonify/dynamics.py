@@ -36,19 +36,21 @@ CLIP_MULTIPLE = 4.0
 def marking_for_volume(volume: float, low: float, high: float) -> str:
     """Map one slot's average volume onto p–f.
 
-    low and high are the 10th and 90th percentile of those averages. With no
-    positive volume to compare, or with a gap smaller than MIN_SPAN_RATIO,
-    every traded slot is mf and an untraded one is p.
+    low and high are the 10th and 90th percentile of the traded slots only:
+    an untraded slot is p and must not drag low to zero, or the log scale
+    anchors at log1p(0) and every traded slot lands near f. A session with no
+    volume at all is missing data, not a quiet tape, so it stays mf. With a
+    gap smaller than MIN_SPAN_RATIO, every traded slot is mf.
     """
     if high <= 0:
         return "mf"
-    if low > 0 and high / low < MIN_SPAN_RATIO:
-        return "mf" if volume > 0 else MARKINGS[0]
-    floor = log1p(max(0.0, low))
+    if volume <= 0:
+        return MARKINGS[0]
+    if low <= 0 or high / low < MIN_SPAN_RATIO:
+        return "mf"
+    floor = log1p(low)
     ceiling = log1p(high)
-    if ceiling <= floor:
-        return "mf" if volume > 0 else MARKINGS[0]
-    norm = (log1p(max(0.0, volume)) - floor) / (ceiling - floor)
+    norm = (log1p(volume) - floor) / (ceiling - floor)
     norm = min(1.0, max(0.0, norm))
     index = min(len(MARKINGS) - 1, int(norm * len(MARKINGS)))
     return MARKINGS[index]

@@ -11,7 +11,7 @@ import pytest
 from app.sonify.dynamics import DYNAMICS, MARKINGS, SOUND, marking_for_volume
 from app.sonify.form import plan_slots
 from app.sonify.model import Bar
-from app.sonify.musicxml import score_to_musicxml
+from app.sonify.musicxml import BASS_WRITTEN_OCTAVES, score_to_musicxml
 from app.sonify.quantize import C_MAJOR_PCS, c_major_scale, price_to_scale_index
 from app.sonify.regime import classify, moving_average
 from app.sonify.chords import AM7, CMAJ7, DM7, EM7, FMAJ7, G7
@@ -268,6 +268,47 @@ def test_bass_dynamics_follow_slot_volume() -> None:
         assert round(SOUND[marking] / 100 * 90) == velocity
 
 
+def _markings(volumes: list[float]) -> list[str]:
+    score = render([Bar(100.0, volume, 100.0) for volume in volumes], regimes=("sideway",) * 3)
+    assert score.regime_samples is None
+    return [event.marking for event in score.dynamics]
+
+
+def test_untraded_tail_does_not_push_the_session_to_f() -> None:
+    ramp = [50_000 + 100_000 * index / 29 for index in range(30)]
+    assert _markings(ramp) == ["p"] * 4 + ["mp"] * 2 + ["mf"] * 3 + ["f"] * 5
+
+    wide = [20_000 + 180_000 * index / 21 for index in range(22)]
+    with_tail = _markings(wide + [0.0] * 8)
+    assert with_tail[-3:] == ["p"] * 3
+    assert with_tail[:11] == sorted(with_tail[:11], key=MARKINGS.index)
+    assert set(with_tail[:11]) == {"p", "mp", "mf", "f"}
+
+    steady = [60_000.0, 180_000.0] * 11 + [0.0] * 8
+    assert _markings(steady)[:11] == ["mf"] * 11
+
+
+def test_session_without_any_volume_stays_neutral() -> None:
+    assert set(_markings([0.0] * 30)) == {"mf"}
+
+
+def test_nan_close_is_dropped_not_clamped_to_c3() -> None:
+    def stamp(minute: int) -> int:
+        return int(datetime(2024, 1, 15, 10, minute, tzinfo=VN).timestamp())
+
+    payload = {
+        "t": [stamp(minute) for minute in range(4)],
+        "c": [100.0, "nan", float("inf"), 101.0],
+        "v": [1.0, 1.0, "nan", 2.0],
+    }
+    bars = bars_from_ohlc(payload, date(2024, 1, 15))
+    assert [bar.close for bar in bars] == [100.0, 101.0]
+    samples = [(stamp(0), 100.0, float("nan")), (stamp(1), float("nan"), 1.0)]
+    assert [(bar.close, bar.volume) for bar in session_bars(samples, date(2024, 1, 15))] == [
+        (100.0, 0.0)
+    ]
+
+
 def test_bass_attacks_more_often_as_volume_rises() -> None:
     volumes = [1.0] * 30
     for index in (0, 1, 26, 27, 28, 29):
@@ -423,7 +464,9 @@ def _assert_measure_timing(violin_measures, cello_measures, piano_measures, bass
         bass_notes = [note for note in bass_measure if note.tag == "note"]
         assert all(note.find("chord") is None for note in bass_notes)
         assert sum(int(note.find("duration").text) for note in bass_notes) == 8
-        assert _written(bass_notes) == [_pitch(midi) for midi in _line(score.bass, bar)]
+        assert _written(bass_notes) == [
+            _pitch(midi + 12 * BASS_WRITTEN_OCTAVES) for midi in _line(score.bass, bar)
+        ]
 
 
 def _changed(markings: list[str]) -> list[str]:
@@ -450,7 +493,10 @@ def test_outro_bass_restarts_the_root_every_bar() -> None:
         assert measure.find("note/tie") is None
         assert measure.find("note/pitch/step").text == "A"
     assert bass_measures[26].find("note/pitch/step").text == "A"
-    assert bass_measures[26].find("note/pitch/octave").text == "2"
+    assert bass_measures[26].find("note/pitch/octave").text == str(2 + BASS_WRITTEN_OCTAVES)
+    transpose = bass_measures[0].find("attributes/transpose")
+    assert transpose.find("chromatic").text == "0"
+    assert transpose.find("octave-change").text == str(-BASS_WRITTEN_OCTAVES)
     assert bass_measures[26].find("harmony") is None
     assert _part(root, "P1").findall("measure")[26].find("harmony/kind").text == "minor-seventh"
 

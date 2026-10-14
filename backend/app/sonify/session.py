@@ -8,6 +8,7 @@ already has an MA20.
 from __future__ import annotations
 
 from datetime import date, datetime
+from math import isfinite
 from zoneinfo import ZoneInfo
 
 from app.sonify.model import Bar
@@ -44,12 +45,13 @@ def session_bars(
     """samples are (unix seconds, close, volume), in any order."""
     trading: list[tuple[datetime, float, float]] = []
     for timestamp, close, volume in samples:
-        if close is None or close <= 0:
+        if close is None or not isfinite(close) or close <= 0:
             continue
         moment = datetime.fromtimestamp(int(timestamp), VN)
         if not is_recap_minute(moment):
             continue
-        trading.append((moment, float(close), float(volume)))
+        traded = float(volume) if isfinite(volume) and volume > 0 else 0.0
+        trading.append((moment, float(close), traded))
     trading.sort(key=lambda row: row[0])
     if not trading:
         return []
@@ -64,12 +66,14 @@ def session_bars(
 
 
 def _number(value: object, default: float | None = None) -> float | None:
+    """NaN and infinity count as missing, so they cannot clamp to a scale edge."""
     try:
         if value is None or value == "":
             return default
-        return float(value)  # type: ignore[arg-type]
+        parsed = float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return default
+    return parsed if isfinite(parsed) else default
 
 
 def bars_from_ohlc(payload: dict, session: date | None = None) -> list[Bar]:

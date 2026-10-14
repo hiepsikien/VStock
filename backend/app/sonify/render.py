@@ -281,10 +281,13 @@ def render(
         raise ValueError("need at least one price bar")
 
     groups = assign_source_bars(len(bars))
-    samples = tuple(_phrase_regime(bars, groups, start) for start in PHRASE_STARTS)
-    sample_indexes = tuple(index for index, _regime in samples)
-    inferred = tuple(regime for _index, regime in samples)
-    chosen = inferred if regimes is None else regimes
+    if regimes is None:
+        samples = tuple(_phrase_regime(bars, groups, start) for start in PHRASE_STARTS)
+        sample_indexes: tuple[int, int, int] | None = tuple(index for index, _regime in samples)
+        chosen = tuple(regime for _index, regime in samples)
+    else:
+        sample_indexes = None
+        chosen = regimes
     for regime in chosen:
         progression(regime)
     slots = plan_slots(chosen)
@@ -292,8 +295,9 @@ def render(
     slot_volumes = average_liquidity(
         [_slot_candles(bars, groups, slot) for slot in slots]
     )
-    low_volume = percentile(slot_volumes, 0.10)
-    high_volume = percentile(slot_volumes, 0.90)
+    traded = [volume for volume in slot_volumes if volume > 0]
+    low_volume = percentile(traded, 0.10)
+    high_volume = percentile(traded, 0.90)
     markings = [
         marking_for_volume(volume, low_volume, high_volume) for volume in slot_volumes
     ]

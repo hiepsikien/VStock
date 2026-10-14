@@ -12,6 +12,7 @@ Its loudness is a <dynamics> letter from p to f, plus the matching
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
+from typing import TypeVar
 
 from app.sonify.dynamics import MARKINGS, SOUND
 from app.sonify.form import BEATS_PER_BAR, MUSICAL_BARS
@@ -69,7 +70,12 @@ def _note_type(beats: float) -> tuple[str, int]:
 
 
 def _add_note(
-    parent: ET.Element, event: NoteEvent, *, chord: bool = False, staves: int = 1
+    parent: ET.Element,
+    event: NoteEvent,
+    *,
+    chord: bool = False,
+    staves: int = 1,
+    written_shift: int = 0,
 ) -> None:
     note = _add(parent, "note")
     if chord:
@@ -80,7 +86,7 @@ def _add_note(
         else:
             _add(note, "rest")
     else:
-        step, octave = midi_to_pitch(event.midi)
+        step, octave = midi_to_pitch(event.midi + written_shift)
         pitch = _add(note, "pitch")
         _add(pitch, "step", step)
         _add(pitch, "octave", str(octave))
@@ -112,7 +118,9 @@ TREBLE = ("G", "2")
 BASS_CLEF = ("F", "4")
 
 
-def _attributes(parent: ET.Element, *clefs: tuple[str, str]) -> None:
+def _attributes(
+    parent: ET.Element, *clefs: tuple[str, str], octave_change: int = 0
+) -> None:
     attributes = _add(parent, "attributes")
     _add(attributes, "divisions", str(DIVISIONS))
     key = _add(attributes, "key")
@@ -129,6 +137,11 @@ def _attributes(parent: ET.Element, *clefs: tuple[str, str]) -> None:
             clef.set("number", str(number))
         _add(clef, "sign", sign)
         _add(clef, "line", line)
+    if octave_change:
+        transpose = _add(attributes, "transpose")
+        _add(transpose, "diatonic", "0")
+        _add(transpose, "chromatic", "0")
+        _add(transpose, "octave-change", str(octave_change))
 
 
 def _metronome(parent: ET.Element, bpm: int) -> None:
@@ -158,8 +171,11 @@ def _dynamic(parent: ET.Element, event: DynamicEvent) -> None:
     _add(direction, "sound", dynamics=str(event.sound))
 
 
-def _group(events: tuple[NoteEvent, ...] | tuple[DynamicEvent, ...] | tuple[HarmonyEvent, ...]) -> list[list]:
-    grouped: list[list] = [[] for _ in range(MUSICAL_BARS)]
+E = TypeVar("E", NoteEvent, DynamicEvent, HarmonyEvent)
+
+
+def _group(events: tuple[E, ...]) -> list[list[E]]:
+    grouped: list[list[E]] = [[] for _ in range(MUSICAL_BARS)]
     for event in events:
         grouped[event.bar].append(event)
     return grouped
@@ -237,7 +253,11 @@ def _piano_part(root: ET.Element, score: Score) -> None:
                 previous_beat = event.beat
 
 
+BASS_WRITTEN_OCTAVES = 1
+
+
 def _bass_part(root: ET.Element, score: Score) -> None:
+    """Bass guitar is written an octave above where it sounds."""
     part = _add(root, "part", id="P4")
     notes = _group(score.bass)
     printed: dict[int, DynamicEvent] = {}
@@ -250,12 +270,12 @@ def _bass_part(root: ET.Element, score: Score) -> None:
     for bar in range(score.bars):
         measure = _add(part, "measure", number=str(bar + 1))
         if bar == 0:
-            _attributes(measure, BASS_CLEF)
+            _attributes(measure, BASS_CLEF, octave_change=-BASS_WRITTEN_OCTAVES)
         event = printed.get(bar)
         if event is not None:
             _dynamic(measure, event)
         for note in sorted(notes[bar], key=lambda note: note.beat):
-            _add_note(measure, note)
+            _add_note(measure, note, written_shift=12 * BASS_WRITTEN_OCTAVES)
 
 
 def score_to_musicxml(score: Score) -> str:
