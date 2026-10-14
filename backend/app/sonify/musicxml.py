@@ -2,17 +2,18 @@
 
 Violin and cello share the legato melody; whichever is not playing rests.
 Violin also carries a <harmony> symbol at each chord attack. Piano is a grand
-staff arpeggio. None of them has dynamics in this phase: liquidity is the
-bass part. Bass is a single root per attack. Its loudness is a <dynamics>
-letter from ppp to fff, plus the matching <sound dynamics> percentage, written
-only when the letter changes.
+staff of light comping, marked p once so it stays behind the melody. Violin
+and cello have no dynamics in this phase: liquidity is the bass part, which
+plays root, fifth, and octave more often as volume rises.
+Its loudness is a <dynamics> letter from p to f, plus the matching
+<sound dynamics> percentage, written only when the letter changes.
 """
 
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-from app.sonify.dynamics import MARKINGS
+from app.sonify.dynamics import MARKINGS, SOUND
 from app.sonify.form import BEATS_PER_BAR, MUSICAL_BARS
 from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score
 
@@ -149,7 +150,7 @@ def _harmony(parent: ET.Element, event: HarmonyEvent) -> None:
 
 def _dynamic(parent: ET.Element, event: DynamicEvent) -> None:
     if event.marking not in MARKINGS:
-        raise ValueError(f"dynamic {event.marking} is outside ppp–fff")
+        raise ValueError(f"dynamic {event.marking} is outside p–f")
     direction = _add(parent, "direction", placement="below")
     direction_type = _add(direction, "direction-type")
     dynamics = _add(direction_type, "dynamics")
@@ -168,7 +169,7 @@ _PARTS = (
     ("P1", "Violin", "Violin", "1", "41"),
     ("P2", "Cello", "Cello", "2", "43"),
     ("P3", "Piano", "Piano", "3", "1"),
-    ("P4", "Bass", "Acoustic Bass", "4", "33"),
+    ("P4", "Bass", "Electric Bass (finger)", "4", "34"),
 )
 
 
@@ -210,13 +211,18 @@ def _cello_part(root: ET.Element, score: Score) -> None:
             _add_note(measure, event)
 
 
+PIANO_DYNAMIC = DynamicEvent(bar=0, marking="p", sound=SOUND["p"])
+
+
 def _piano_part(root: ET.Element, score: Score) -> None:
+    """Right hand on the treble staff, left hand on the bass staff, one voice each."""
     part = _add(root, "part", id="P3")
     events = _group(score.piano)
     for bar in range(score.bars):
         measure = _add(part, "measure", number=str(bar + 1))
         if bar == 0:
             _attributes(measure, TREBLE, BASS_CLEF)
+            _dynamic(measure, PIANO_DYNAMIC)
         for staff in (1, 2):
             if staff > 1:
                 backup = _add(measure, "backup")
@@ -225,8 +231,10 @@ def _piano_part(root: ET.Element, score: Score) -> None:
                 (event for event in events[bar] if event.staff == staff),
                 key=lambda event: event.beat,
             )
+            previous_beat: float | None = None
             for event in hand:
-                _add_note(measure, event, staves=2)
+                _add_note(measure, event, chord=event.beat == previous_beat, staves=2)
+                previous_beat = event.beat
 
 
 def _bass_part(root: ET.Element, score: Score) -> None:
@@ -246,9 +254,8 @@ def _bass_part(root: ET.Element, score: Score) -> None:
         event = printed.get(bar)
         if event is not None:
             _dynamic(measure, event)
-        if len(notes[bar]) != 1:
-            raise ValueError(f"bass bar {bar} should hold exactly one root")
-        _add_note(measure, notes[bar][0])
+        for note in sorted(notes[bar], key=lambda note: note.beat):
+            _add_note(measure, note)
 
 
 def score_to_musicxml(score: Score) -> str:

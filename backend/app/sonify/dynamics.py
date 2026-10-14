@@ -1,8 +1,8 @@
-"""Letter dynamics from ppp to fff, as MusicXML 4.0 spells them.
+"""Letter dynamics from p to f, as MusicXML 4.0 spells them.
 
-MusicXML prints a dynamic as an empty child of <dynamics>. The eight names
-ppp, pp, p, mp, mf, f, ff, fff are all in that content model. pppp and ffff
-exist too, and they sit outside the range used here.
+MusicXML prints a dynamic as an empty child of <dynamics>. Only the four
+middle names p, mp, mf, f are used: ppp is inaudible under the melody and fff
+buries it, so liquidity is ranked into four steps the ear can tell apart.
 
 Playback is a sibling <sound dynamics="N"/> element. N is a percentage of
 MusicXML's default forte, which is MIDI velocity 90. The percentages below
@@ -15,14 +15,10 @@ from math import log1p
 
 # marking, sound-dynamics percent, intended MIDI velocity
 DYNAMICS: tuple[tuple[str, int, int], ...] = (
-    ("ppp", 18, 16),
-    ("pp", 37, 33),
     ("p", 54, 49),
     ("mp", 71, 64),
     ("mf", 89, 80),
     ("f", 107, 96),
-    ("ff", 124, 112),
-    ("fff", 141, 127),
 )
 
 MARKINGS: tuple[str, ...] = tuple(row[0] for row in DYNAMICS)
@@ -38,20 +34,20 @@ CLIP_MULTIPLE = 4.0
 
 
 def marking_for_volume(volume: float, low: float, high: float) -> str:
-    """Map one slot's average volume onto ppp–fff.
+    """Map one slot's average volume onto p–f.
 
     low and high are the 10th and 90th percentile of those averages. With no
     positive volume to compare, or with a gap smaller than MIN_SPAN_RATIO,
-    every traded slot is mf.
+    every traded slot is mf and an untraded one is p.
     """
     if high <= 0:
         return "mf"
     if low > 0 and high / low < MIN_SPAN_RATIO:
-        return "mf" if volume > 0 else "ppp"
+        return "mf" if volume > 0 else MARKINGS[0]
     floor = log1p(max(0.0, low))
     ceiling = log1p(high)
     if ceiling <= floor:
-        return "mf" if volume > 0 else "ppp"
+        return "mf" if volume > 0 else MARKINGS[0]
     norm = (log1p(max(0.0, volume)) - floor) / (ceiling - floor)
     norm = min(1.0, max(0.0, norm))
     index = min(len(MARKINGS) - 1, int(norm * len(MARKINGS)))

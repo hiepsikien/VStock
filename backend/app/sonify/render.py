@@ -1,4 +1,4 @@
-"""Build a 30-bar score: violin and cello on the price, piano arpeggio, bass on the root."""
+"""Build a 30-bar score: violin and cello on the price, light piano comping, bass on liquidity."""
 
 from __future__ import annotations
 
@@ -13,6 +13,31 @@ EIGHTHS_PER_BAR = 8
 HALF_BAR = 4
 VIOLIN_LOWEST = 55  # G3
 CELLO_HANDBACK = 60  # C4
+PIANO_ROOT_LOW = 41  # F2
+GUIDE_LOW = 57  # A3
+
+ROOT, FIFTH, OCTAVE = 0, 7, 12
+# One bar of bass per dynamic: (start eighth, length in eighths, interval).
+# A busier slot attacks more often, not only louder.
+_HELD = ((0, 8, ROOT),)
+_HALVES = ((0, 4, ROOT), (4, 4, FIFTH))
+_QUARTERS = ((0, 2, ROOT), (2, 2, FIFTH), (4, 2, OCTAVE), (6, 2, FIFTH))
+_EIGHTHS = (
+    (0, 1, ROOT),
+    (1, 1, ROOT),
+    (2, 1, OCTAVE),
+    (3, 1, ROOT),
+    (4, 1, FIFTH),
+    (5, 1, FIFTH),
+    (6, 1, OCTAVE),
+    (7, 1, FIFTH),
+)
+BASS_PATTERNS = {
+    "p": _HELD,
+    "mp": _HALVES,
+    "mf": _QUARTERS,
+    "f": _EIGHTHS,
+}
 
 
 def assign_source_bars(count: int, musical_bars: int = MUSICAL_BARS) -> list[list[int]]:
@@ -182,26 +207,54 @@ def _melody_parts(
     return _with_rests(parts["violin"], total), _with_rests(parts["cello"], total)
 
 
-def _arpeggio(chord: Chord, bar: int) -> list[NoteEvent]:
-    """Broken chord in eighths, twice per bar.
+def _bass_bar(chord: Chord, marking: str, bar: int) -> list[NoteEvent]:
+    return [
+        NoteEvent(
+            bar=bar,
+            beat=start * 0.5,
+            midi=chord.bass_midi + interval,
+            duration_beats=length * 0.5,
+            voice=1,
+        )
+        for start, length, interval in BASS_PATTERNS[marking]
+    ]
 
-    Left hand plays root and fifth an octave down on beats 1 and 3; right hand
-    answers on beats 2 and 4, third–seventh, then fifth–third on the way back.
+
+def comp_pitches(chord: Chord) -> tuple[int, tuple[int, int]]:
+    """Root in F2–E3, and the third and seventh inside A3–G#4.
+
+    The third and seventh alone say major, minor, or dominant; the fixed
+    windows keep both hands within a few steps from one chord to the next.
     """
-    root, third, fifth, seventh = chord.pitches
-    answers = ((third, seventh), (fifth, third))
+    root_pc, third_pc, _fifth_pc, seventh_pc = (pitch % 12 for pitch in chord.pitches)
+    root = PIANO_ROOT_LOW + (root_pc - PIANO_ROOT_LOW) % 12
+    guide = tuple(sorted(GUIDE_LOW + (pc - GUIDE_LOW) % 12 for pc in (third_pc, seventh_pc)))
+    return root, guide
+
+
+def _comp(slot: ChordSlot) -> list[NoteEvent]:
+    """A light touch per bar so the harmony is heard without filling the texture.
+
+    Right hand: third and seventh on beat 1, held for half a bar. Left hand:
+    the root once, held through the first bar of the chord.
+    """
+    root, guide = comp_pitches(slot.chord)
     events: list[NoteEvent] = []
-    for half, (upper, lower) in enumerate(answers):
-        beat = half * 2.0
+    for offset, bar in enumerate(slot.bars()):
         events.extend(
-            [
-                NoteEvent(bar=bar, beat=beat, midi=None, duration_beats=1.0, voice=1),
-                NoteEvent(bar=bar, beat=beat + 1.0, midi=upper, duration_beats=0.5, voice=1),
-                NoteEvent(bar=bar, beat=beat + 1.5, midi=lower, duration_beats=0.5, voice=1),
-                NoteEvent(bar=bar, beat=beat, midi=root - 12, duration_beats=0.5, voice=5, staff=2),
-                NoteEvent(bar=bar, beat=beat + 0.5, midi=fifth - 12, duration_beats=0.5, voice=5, staff=2),
-                NoteEvent(bar=bar, beat=beat + 1.0, midi=None, duration_beats=1.0, voice=5, staff=2),
-            ]
+            NoteEvent(bar=bar, beat=0.0, midi=midi, duration_beats=2.0, voice=1)
+            for midi in guide
+        )
+        events.append(NoteEvent(bar=bar, beat=2.0, midi=None, duration_beats=2.0, voice=1))
+        events.append(
+            NoteEvent(
+                bar=bar,
+                beat=0.0,
+                midi=root if offset == 0 else None,
+                duration_beats=4.0,
+                voice=5,
+                staff=2,
+            )
         )
     return events
 
@@ -218,10 +271,11 @@ def render(
     phrase's downbeat, then held for the phrase. Intro uses phrase 1's regime;
     outro uses phrase 3's. The melody walks the whole C major scale rather than
     only chord tones: every chord is diatonic, so its own mode shares those
-    seven notes. Piano arpeggiates the chord; bass attacks once per chord and
-    holds the root.
+    seven notes. Piano only touches the third, seventh, and root.
     Dynamics follow the average continuous volume of the slot and are written
-    on the bass only.
+    on the bass only. The same band sets how often the bass attacks: a held
+    root at p, halves at mp, quarters at mf, a root–octave–fifth eighth-note
+    drive at f.
     """
     if not bars:
         raise ValueError("need at least one price bar")
@@ -265,22 +319,10 @@ def render(
 
     piano: list[NoteEvent] = []
     bass: list[NoteEvent] = []
-    for slot in slots:
-        for offset, musical_bar in enumerate(slot.bars()):
-            tie_start = offset < slot.length - 1
-            tie_stop = offset > 0
-            bass.append(
-                NoteEvent(
-                    bar=musical_bar,
-                    beat=0.0,
-                    midi=slot.chord.bass_midi,
-                    duration_beats=4.0,
-                    voice=1,
-                    tie_start=tie_start,
-                    tie_stop=tie_stop,
-                )
-            )
-            piano.extend(_arpeggio(slot.chord, musical_bar))
+    for slot, marking in zip(slots, markings):
+        piano.extend(_comp(slot))
+        for musical_bar in slot.bars():
+            bass.extend(_bass_bar(slot.chord, marking, musical_bar))
 
     violin, cello = _melody_parts(pitches, slots)
     return Score(
