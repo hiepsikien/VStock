@@ -55,6 +55,7 @@ research/.venv/
 research/**/__pycache__/
 research/**/*.pyc
 research/data/
+research/sonify/out/*.wav
 .pytest_cache/
 
 # Editor / agent
