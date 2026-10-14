@@ -18,13 +18,18 @@ class Bar:
 
 @dataclass(frozen=True)
 class NoteEvent:
+    """A sounding note, or a rest when midi is None."""
+
     bar: int
     beat: float
-    midi: int
+    midi: int | None
     duration_beats: float
     voice: int
+    staff: int = 1
     tie_start: bool = False
     tie_stop: bool = False
+    slur_start: bool = False
+    slur_stop: bool = False
 
 
 @dataclass(frozen=True)
@@ -48,8 +53,9 @@ class Score:
     regimes: tuple[Regime, Regime, Regime]
     regime_samples: tuple[int, int, int]
     slots: tuple[ChordSlot, ...]
+    violin: tuple[NoteEvent, ...]
+    cello: tuple[NoteEvent, ...]
     piano: tuple[NoteEvent, ...]
-    pad: tuple[NoteEvent, ...]
     bass: tuple[NoteEvent, ...]
     dynamics: tuple[DynamicEvent, ...]
     harmonies: tuple[HarmonyEvent, ...]

@@ -1,11 +1,9 @@
-"""Map a close onto the C major scale, then snap it to the current chord."""
+"""Map a close onto the C major scale."""
 
 from __future__ import annotations
 
-from app.sonify.chords import Chord
-
-SCALE_LOW = 60  # C4
-SCALE_HIGH = 84  # C6
+SCALE_LOW = 48  # C3
+SCALE_HIGH = 96  # C7
 C_MAJOR_PCS = frozenset({0, 2, 4, 5, 7, 9, 11})
 
 
@@ -21,30 +19,6 @@ def price_to_scale_index(close: float, low: float, high: float, size: int) -> in
     fraction = (close - low) / (high - low)
     fraction = min(1.0, max(0.0, fraction))
     return round(fraction * (size - 1))
-
-
-def quantize(
-    target: int,
-    chord: Chord,
-    scale: tuple[int, ...],
-    previous: int | None,
-) -> int:
-    """Keep a chord tone. Otherwise take the nearest chord tone on the scale.
-
-    A tie in semitones prefers the tone closer to the previous melody note,
-    and a remaining tie prefers the lower note.
-    """
-    if target % 12 in chord.pitch_classes:
-        return target
-    candidates = [note for note in scale if note % 12 in chord.pitch_classes]
-    if not candidates:
-        raise ValueError(f"{chord.name} has no tone in the melody register")
-
-    def key(note: int) -> tuple[int, int, int]:
-        distance_to_previous = abs(note - previous) if previous is not None else 0
-        return (abs(note - target), distance_to_previous, note)
-
-    return min(candidates, key=key)
 
 
 def resample(values: list[float], count: int) -> list[float]:

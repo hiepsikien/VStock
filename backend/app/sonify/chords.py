@@ -23,10 +23,6 @@ class Chord:
     pitches: tuple[int, ...]
 
     @property
-    def pitch_classes(self) -> frozenset[int]:
-        return frozenset(pitch % 12 for pitch in self.pitches)
-
-    @property
     def bass_midi(self) -> int:
         """Root kept inside C2–B2 so a minor chord does not drop the bass an octave."""
         return 36 + (self.pitches[0] % 12)
