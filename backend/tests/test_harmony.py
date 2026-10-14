@@ -1,0 +1,622 @@
+"""Harmony recap: chord form, quantization, bass dynamics, MusicXML."""
+
+from __future__ import annotations
+
+import xml.etree.ElementTree as ET
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
+import pytest
+
+from app.sonify.dynamics import DYNAMICS, MARKINGS, SOUND, marking_for_volume
+from app.sonify.form import plan_slots
+from app.sonify.model import Bar
+from app.sonify.musicxml import BASS_WRITTEN_OCTAVES, score_to_musicxml
+from app.sonify.quantize import C_MAJOR_PCS, c_major_scale, price_to_scale_index
+from app.sonify.regime import classify, moving_average
+from app.sonify.chords import AM7, CMAJ7, DM7, EM7, FMAJ7, G7
+from app.sonify.render import assign_source_bars, comp_pitches, render
+from app.sonify.session import bars_from_ohlc, is_auction_minute, is_recap_minute, session_bars
+
+VN = ZoneInfo("Asia/Ho_Chi_Minh")
+_STEPS = ["C", "", "D", "", "E", "F", "", "G", "", "A", "", "B"]
+
+
+def _pitch(midi: int) -> tuple[str, int]:
+    step = _STEPS[midi % 12]
+    assert step
+    return step, midi // 12 - 1
+
+
+def _xml(score):
+    text = score_to_musicxml(score)
+    root = ET.fromstring(text)
+    return text, root
+
+
+def _part(root: ET.Element, part_id: str) -> ET.Element:
+    part = root.find(f"part[@id='{part_id}']")
+    assert part is not None
+    return part
+
+
+def _sounding(score):
+    notes = [note for note in score.violin + score.cello if note.midi is not None]
+    return sorted(notes, key=lambda note: (note.bar, note.beat))
+
+
+def _line(events, bar: int):
+    return [note.midi for note in sorted(events, key=lambda note: note.beat) if note.bar == bar]
+
+
+COMPING = {
+    "Cmaj7": (48, (59, 64)),  # C3 | B3 E4
+    "Fmaj7": (41, (57, 64)),  # F2 | A3 E4
+    "G7": (43, (59, 65)),  # G2 | B3 F4
+    "Am7": (45, (60, 67)),  # A2 | C4 G4
+    "Dm7": (50, (60, 65)),  # D3 | C4 F4
+    "Em7": (52, (62, 67)),  # E3 | D4 G4
+}
+
+
+def test_moving_average_waits_for_a_full_window() -> None:
+    assert moving_average([1, 2, 3, 4], 3) == [None, None, 2.0, 3.0]
+
+
+def test_regime_uses_a_deadband_around_ma20() -> None:
+    ma = 100.0
+    band = 0.0015
+    assert classify(ma, ma) == "sideway"
+    assert classify(ma * (1 + band), ma) == "sideway"
+    assert classify(ma * (1 + band) + 0.01, ma) == "uptrend"
+    assert classify(ma * (1 - band), ma) == "sideway"
+    assert classify(ma * (1 - band) - 0.01, ma) == "downtrend"
+    assert classify(ma, None) == "sideway"
+
+
+def test_source_bars_stay_in_order() -> None:
+    assert [index for group in assign_source_bars(60) for index in group] == list(range(60))
+    assert all(len(group) == 2 for group in assign_source_bars(60))
+    assert assign_source_bars(1)[0] == [0]
+    assert assign_source_bars(30) == [[index] for index in range(30)]
+
+
+def test_price_walks_the_scale_from_low_to_high() -> None:
+    scale = c_major_scale()
+    assert scale[0] == 48 and scale[-1] == 96
+    assert len(scale) == 29
+    assert price_to_scale_index(0, 0, 100, len(scale)) == 0
+    assert price_to_scale_index(100, 0, 100, len(scale)) == len(scale) - 1
+    assert price_to_scale_index(50, 50, 50, len(scale)) == len(scale) // 2
+    indexes = [price_to_scale_index(value, 0, 100, len(scale)) for value in range(101)]
+    assert indexes == sorted(indexes)
+
+
+def test_phrase_regime_uses_the_downbeat_window() -> None:
+    closes = [80.0] * 30
+    closes[2:7] = [120.0] * 5
+    closes[18:23] = [100.0] * 5
+    score = render([Bar(close, 1.0, 100.0) for close in closes], title="VNM")
+    assert score.regimes == ("uptrend", "downtrend", "sideway")
+    assert score.regime_samples == (2, 10, 18)
+    assert [slot.chord.name for slot in score.slots] == [
+        "Cmaj7",
+        "Cmaj7",
+        "Fmaj7",
+        "Dm7",
+        "G7",
+        "Am7",
+        "Fmaj7",
+        "Dm7",
+        "Em7",
+        "Cmaj7",
+        "Am7",
+        "Cmaj7",
+        "Am7",
+        "Cmaj7",
+    ]
+    assert [(slot.start, slot.length) for slot in score.slots] == [
+        (0, 2),
+        (2, 2),
+        (4, 2),
+        (6, 2),
+        (8, 2),
+        (10, 2),
+        (12, 2),
+        (14, 2),
+        (16, 2),
+        (18, 2),
+        (20, 2),
+        (22, 2),
+        (24, 2),
+        (26, 4),
+    ]
+    by_bar = {
+        bar: slot.chord
+        for slot in score.slots
+        for bar in range(slot.start, slot.start + slot.length)
+    }
+    assert [by_bar[bar].name for bar in range(2, 10)] == [
+        "Cmaj7",
+        "Cmaj7",
+        "Fmaj7",
+        "Fmaj7",
+        "Dm7",
+        "Dm7",
+        "G7",
+        "G7",
+    ]
+    for note in _sounding(score):
+        assert note.midi % 12 in C_MAJOR_PCS
+    bass_roots = [36, 36, 41, 38, 43, 45, 41, 38, 40, 36, 45, 36, 45, 36]
+    for slot, root in zip(score.slots, bass_roots):
+        for bar in slot.bars():
+            line = _line(score.bass, bar)
+            assert line[0] == root
+            assert set(line) <= {root, root + 7, root + 12}
+        bass_note, guide = COMPING[slot.chord.name]
+        for offset, bar in enumerate(slot.bars()):
+            right = [note for note in score.piano if note.bar == bar and note.staff == 1]
+            left = [note for note in score.piano if note.bar == bar and note.staff == 2]
+            assert [(note.beat, note.midi, note.duration_beats) for note in right] == [
+                (0.0, guide[0], 2.0),
+                (0.0, guide[1], 2.0),
+                (2.0, None, 2.0),
+            ]
+            assert [(note.midi, note.duration_beats) for note in left] == [
+                (bass_note if offset == 0 else None, 4.0)
+            ]
+
+
+def test_comping_keeps_third_and_seventh_close() -> None:
+    for chord in (CMAJ7, FMAJ7, G7, AM7, DM7, EM7):
+        root, guide = comp_pitches(chord)
+        assert (root, guide) == COMPING[chord.name]
+        assert 41 <= root <= 52
+        assert all(57 <= midi <= 68 for midi in guide)
+        third, seventh = chord.pitches[1] % 12, chord.pitches[3] % 12
+        assert {midi % 12 for midi in guide} == {third, seventh}
+
+
+def test_one_minute_twitch_does_not_flip_the_phrase() -> None:
+    ma = 100.0
+    above = ma * (1 + 0.0015) + 0.01
+    below = ma * (1 - 0.0015) - 0.01
+    closes = [ma] * 30
+    closes[2] = above
+    closes[10] = below
+    closes[18] = above
+    score = render([Bar(close, 1.0, ma) for close in closes])
+    assert score.regimes == ("sideway", "sideway", "sideway")
+
+
+def test_flat_session_on_the_sideway_loop_holds_c() -> None:
+    score = render([Bar(50.0, 1.0, 50.0)] * 30)
+    assert score.regimes == ("sideway", "sideway", "sideway")
+    assert {note.midi for note in score.violin} == {72}
+    assert [(note.bar, note.duration_beats) for note in score.violin] == [
+        (bar, 4.0) for bar in range(30)
+    ]
+    assert not any(note.slur_start or note.slur_stop for note in score.violin)
+    assert {note.midi for note in score.cello} == {None}
+
+
+def _indexed_session(first_bar: list[int], rest: int) -> list[Bar]:
+    """240 closes equal to C3–C7 scale indexes, so one close is one eighth."""
+    closes = [float(index) for index in first_bar] + [float(rest)] * (240 - len(first_bar))
+    closes[-1] = 28.0
+    closes[-2] = 0.0
+    return [Bar(close, 1.0, close) for close in closes]
+
+
+def test_repeated_pitches_merge_into_held_notes() -> None:
+    score = render(_indexed_session([14, 14, 14], 16), regimes=("sideway",) * 3)
+    first = [note for note in score.violin if note.bar == 0]
+    assert [note.duration_beats for note in first] == [1.5, 0.5, 2.0]
+    assert [note.midi for note in first] == [72, 76, 76]
+    assert not first[0].tie_start
+    assert first[1].tie_start and first[2].tie_stop and first[2].tie_start
+    assert first[0].slur_start
+    second = [note for note in score.violin if note.bar == 1]
+    assert [note.duration_beats for note in second] == [4.0]
+    assert second[0].tie_stop and second[0].slur_stop
+
+
+def test_cello_takes_the_line_below_g3_until_c4() -> None:
+    score = render(_indexed_session([28, 9, 0, 5, 6, 5, 7, 9], 9), regimes=("sideway",) * 3)
+    assert _line(score.violin, 0) == [96, 64, None, None, 60, 64]
+    assert _line(score.cello, 0) == [None, 48, 57, 59, 57, None]
+    cello = [note for note in score.cello if note.midi is not None and note.bar == 0]
+    assert cello[0].slur_start and cello[-1].slur_stop
+    for part in (score.violin, score.cello):
+        for bar in range(30):
+            assert sum(note.duration_beats for note in part if note.bar == bar) == 4.0
+    assert all(note.midi >= 55 for note in score.violin if note.midi is not None)
+
+
+def test_melody_keeps_scale_tones_outside_the_chord() -> None:
+    score = render(
+        [Bar(50.0, 1.0, 50.0)] * 30,
+        regimes=("uptrend", "uptrend", "uptrend"),
+    )
+    assert {note.midi for note in _sounding(score)} == {72}
+
+    scale = c_major_scale()
+    closes = [float(scale.index(62))] * 30
+    closes[0] = 0.0
+    closes[-1] = float(len(scale) - 1)
+    score = render([Bar(close, 1.0, close) for close in closes], regimes=("uptrend",) * 3)
+    assert [note.midi for note in _sounding(score) if note.bar == 2] == [62]
+
+
+def test_bass_dynamics_follow_slot_volume() -> None:
+    volumes = [1.0] * 30
+    for index in (0, 1, 26, 27, 28, 29):
+        volumes[index] = 1000.0
+    score = render(
+        [Bar(100.0, volume, 100.0) for volume in volumes],
+        regimes=("uptrend", "uptrend", "uptrend"),
+    )
+    markings = [event.marking for event in score.dynamics]
+    assert MARKINGS == ("p", "mp", "mf", "f")
+    assert markings[0] == "f"
+    assert markings[1] == "p"
+    assert markings[-1] == "f"
+    assert all(marking in MARKINGS for marking in markings)
+    assert score.bass[0].midi == 36
+    for marking, _percent, velocity in DYNAMICS:
+        assert round(SOUND[marking] / 100 * 90) == velocity
+
+
+def _markings(volumes: list[float]) -> list[str]:
+    score = render([Bar(100.0, volume, 100.0) for volume in volumes], regimes=("sideway",) * 3)
+    assert score.regime_samples is None
+    return [event.marking for event in score.dynamics]
+
+
+def test_untraded_tail_does_not_push_the_session_to_f() -> None:
+    ramp = [50_000 + 100_000 * index / 29 for index in range(30)]
+    assert _markings(ramp) == ["p"] * 4 + ["mp"] * 2 + ["mf"] * 3 + ["f"] * 5
+
+    wide = [20_000 + 180_000 * index / 21 for index in range(22)]
+    with_tail = _markings(wide + [0.0] * 8)
+    assert with_tail[-3:] == ["p"] * 3
+    assert with_tail[:11] == sorted(with_tail[:11], key=MARKINGS.index)
+    assert set(with_tail[:11]) == {"p", "mp", "mf", "f"}
+
+    steady = [60_000.0, 180_000.0] * 11 + [0.0] * 8
+    assert _markings(steady)[:11] == ["mf"] * 11
+
+
+def test_session_without_any_volume_stays_neutral() -> None:
+    assert set(_markings([0.0] * 30)) == {"mf"}
+
+
+def test_nan_close_is_dropped_not_clamped_to_c3() -> None:
+    def stamp(minute: int) -> int:
+        return int(datetime(2024, 1, 15, 10, minute, tzinfo=VN).timestamp())
+
+    payload = {
+        "t": [stamp(minute) for minute in range(4)],
+        "c": [100.0, "nan", float("inf"), 101.0],
+        "v": [1.0, 1.0, "nan", 2.0],
+    }
+    bars = bars_from_ohlc(payload, date(2024, 1, 15))
+    assert [bar.close for bar in bars] == [100.0, 101.0]
+    samples = [(stamp(0), 100.0, float("nan")), (stamp(1), float("nan"), 1.0)]
+    assert [(bar.close, bar.volume) for bar in session_bars(samples, date(2024, 1, 15))] == [
+        (100.0, 0.0)
+    ]
+
+
+def test_bass_attacks_more_often_as_volume_rises() -> None:
+    volumes = [1.0] * 30
+    for index in (0, 1, 26, 27, 28, 29):
+        volumes[index] = 1000.0
+    score = render(
+        [Bar(100.0, volume, 100.0) for volume in volumes],
+        regimes=("uptrend", "uptrend", "uptrend"),
+    )
+    assert _line(score.bass, 0) == [36, 36, 48, 36, 43, 43, 48, 43]
+    assert _line(score.bass, 2) == [36]
+    assert _line(score.bass, 29) == [36, 36, 48, 36, 43, 43, 48, 43]
+
+    steady = render([Bar(100.0, 100.0, 100.0)] * 30, regimes=("sideway",) * 3)
+    assert {event.marking for event in steady.dynamics} == {"mf"}
+    assert _line(steady.bass, 10) == [36, 43, 48, 43]
+    assert _line(steady.bass, 12) == [45, 52, 57, 52]
+    for bar in range(30):
+        assert sum(note.duration_beats for note in steady.bass if note.bar == bar) == 4.0
+    assert not any(note.tie_start or note.tie_stop for note in steady.bass)
+
+
+def test_musicxml_writes_harmony_and_letter_dynamics() -> None:
+    closes = [80.0] * 30
+    closes[2:7] = [120.0] * 5
+    closes[18:23] = [100.0] * 5
+    volumes = [1.0] * 30
+    for index in (0, 1, 26, 27, 28, 29):
+        volumes[index] = 1000.0
+    score = render(
+        [Bar(close, volume, 100.0) for close, volume in zip(closes, volumes)],
+        title="VNM 1-Day Recap",
+    )
+    text, root = _xml(score)
+    assert text.startswith('<?xml version="1.0" encoding="UTF-8"?>')
+    assert root.tag == "score-partwise"
+    assert root.get("version") == "4.0"
+    assert root.find("work/work-title").text == "VNM 1-Day Recap"
+
+    names = [part.find("part-name").text for part in root.findall("part-list/score-part")]
+    assert names == ["Violin", "Cello", "Piano", "Bass"]
+    programs = root.findall("part-list/score-part/midi-instrument/midi-program")
+    assert [program.text for program in programs] == ["41", "43", "1", "34"]
+
+    violin = _part(root, "P1")
+    cello = _part(root, "P2")
+    piano = _part(root, "P3")
+    bass = _part(root, "P4")
+    violin_measures = violin.findall("measure")
+    cello_measures = cello.findall("measure")
+    piano_measures = piano.findall("measure")
+    bass_measures = bass.findall("measure")
+    assert [measure.get("number") for measure in violin_measures] == [str(n) for n in range(1, 31)]
+    assert len(cello_measures) == 30
+    assert len(piano_measures) == 30
+    assert len(bass_measures) == 30
+    assert cello_measures[0].find("attributes/clef/sign").text == "F"
+    piano_attributes = piano_measures[0].find("attributes")
+    assert piano_attributes.find("staves").text == "2"
+    assert [
+        (clef.get("number"), clef.find("sign").text) for clef in piano_attributes.findall("clef")
+    ] == [("1", "G"), ("2", "F")]
+
+    attributes = violin_measures[0].find("attributes")
+    assert attributes.find("divisions").text == "2"
+    assert attributes.find("key/fifths").text == "0"
+    assert attributes.find("key/mode").text == "major"
+    assert attributes.find("time/beats").text == "4"
+    assert attributes.find("time/beat-type").text == "4"
+    assert attributes.find("clef/sign").text == "G"
+    assert bass_measures[0].find("attributes/clef/sign").text == "F"
+    assert violin_measures[0].find("direction/sound").get("tempo") == "90"
+
+    harmonies = violin.findall("measure/harmony")
+    assert len(harmonies) == 14
+    assert bass.findall("measure/harmony") == []
+    assert violin_measures[0].find("harmony/root/root-step").text == "C"
+    assert violin_measures[0].find("harmony/kind").text == "major-seventh"
+    assert violin_measures[0].find("harmony/kind").get("text") == "maj7"
+    assert violin_measures[1].find("harmony") is None
+    assert violin_measures[8].find("harmony/root/root-step").text == "G"
+    assert violin_measures[8].find("harmony/kind").text == "dominant"
+    assert violin_measures[8].find("harmony/kind").get("text") == "7"
+    assert violin_measures[10].find("harmony/root/root-step").text == "A"
+    assert violin_measures[10].find("harmony/kind").text == "minor-seventh"
+    assert violin_measures[10].find("harmony/kind").get("text") == "m7"
+
+    for measure, event in zip(
+        (violin_measures[slot.start] for slot in score.slots),
+        score.harmonies,
+    ):
+        kind = measure.find("harmony/kind")
+        assert kind.text == event.chord.kind
+        assert kind.get("text") == event.chord.kind_text
+        assert measure.find("harmony/root/root-step").text == event.chord.root_step
+
+    for part in (violin, cello):
+        assert part.findall(".//dynamics") == []
+    assert [child.tag for child in piano.find(".//dynamics")] == ["p"]
+    assert len(piano.findall(".//dynamics")) == 1
+    for part in (cello, piano):
+        assert part.findall("measure/harmony") == []
+    dynamic_marks = []
+    for measure in bass_measures:
+        for direction in measure.findall("direction"):
+            dynamics = direction.find("direction-type/dynamics")
+            children = [child.tag for child in dynamics]
+            assert children == [children[0]]
+            assert children[0] in MARKINGS
+            assert direction.get("placement") == "below"
+            assert direction.find("sound").get("dynamics") == str(SOUND[children[0]])
+            dynamic_marks.append(children[0])
+    assert dynamic_marks == _changed([event.marking for event in score.dynamics])
+    assert dynamic_marks[0] == "f"
+    assert "p" in dynamic_marks
+    assert len(dynamic_marks) < len(score.dynamics)
+
+    _assert_measure_timing(violin_measures, cello_measures, piano_measures, bass_measures, score)
+
+
+def _written(notes: list[ET.Element]) -> list[tuple[str, int]]:
+    return [
+        (note.find("pitch/step").text, int(note.find("pitch/octave").text))
+        for note in notes
+        if note.find("rest") is None
+    ]
+
+
+def _assert_measure_timing(violin_measures, cello_measures, piano_measures, bass_measures, score) -> None:
+    for bar, (violin_measure, cello_measure, piano_measure, bass_measure) in enumerate(
+        zip(violin_measures, cello_measures, piano_measures, bass_measures)
+    ):
+        for measure in (violin_measure, cello_measure):
+            melody = [note for note in measure if note.tag == "note"]
+            assert melody
+            assert all(note.find("chord") is None for note in melody)
+            assert sum(int(note.find("duration").text) for note in melody) == 8
+            assert measure.find("backup") is None
+
+        assert piano_measure.find("backup/duration").text == "8"
+        hands = [note for note in piano_measure if note.tag == "note"]
+        right = [note for note in hands if note.find("staff").text == "1"]
+        left = [note for note in hands if note.find("staff").text == "2"]
+        assert len(right) + len(left) == len(hands)
+        for hand in (right, left):
+            attacks = [note for note in hand if note.find("chord") is None]
+            assert sum(int(note.find("duration").text) for note in attacks) == 8
+        slot = score.slots[_slot_index(score, bar)]
+        root, guide = COMPING[slot.chord.name]
+        assert _written(right) == [_pitch(midi) for midi in guide]
+        assert right[1].find("chord") is not None
+        assert _written(left) == ([_pitch(root)] if bar == slot.start else [])
+
+        bass_notes = [note for note in bass_measure if note.tag == "note"]
+        assert all(note.find("chord") is None for note in bass_notes)
+        assert sum(int(note.find("duration").text) for note in bass_notes) == 8
+        assert _written(bass_notes) == [
+            _pitch(midi + 12 * BASS_WRITTEN_OCTAVES) for midi in _line(score.bass, bar)
+        ]
+
+
+def _changed(markings: list[str]) -> list[str]:
+    kept: list[str] = []
+    for marking in markings:
+        if kept and kept[-1] == marking:
+            continue
+        kept.append(marking)
+    return kept
+
+
+def _slot_index(score, bar: int) -> int:
+    for index, slot in enumerate(score.slots):
+        if bar in slot.bars():
+            return index
+    raise AssertionError(bar)
+
+
+def test_outro_bass_restarts_the_root_every_bar() -> None:
+    score = render([Bar(100.0, 1.0, 100.0)] * 30, regimes=("downtrend",) * 3)
+    _text, root = _xml(score)
+    bass_measures = _part(root, "P4").findall("measure")
+    for measure in bass_measures[26:]:
+        assert measure.find("note/tie") is None
+        assert measure.find("note/pitch/step").text == "A"
+    assert bass_measures[26].find("note/pitch/step").text == "A"
+    assert bass_measures[26].find("note/pitch/octave").text == str(2 + BASS_WRITTEN_OCTAVES)
+    transpose = bass_measures[0].find("attributes/transpose")
+    assert transpose.find("chromatic").text == "0"
+    assert transpose.find("octave-change").text == str(-BASS_WRITTEN_OCTAVES)
+    assert bass_measures[26].find("harmony") is None
+    assert _part(root, "P1").findall("measure")[26].find("harmony/kind").text == "minor-seventh"
+
+
+def test_session_drops_lunch_and_warms_up_ma20() -> None:
+    def stamp(day: int, hour: int, minute: int) -> int:
+        return int(datetime(2024, 1, day, hour, minute, tzinfo=VN).timestamp())
+
+    samples = [(stamp(12, 9, minute), 100.0, 1.0) for minute in range(25)]
+    samples.extend(
+        [
+            (stamp(15, 8, 59), 999.0, 50.0),
+            (stamp(15, 11, 29), 110.0, 2.0),
+            (stamp(15, 11, 30), 999.0, 50.0),
+            (stamp(15, 12, 15), 999.0, 50.0),
+            (stamp(15, 13, 0), 120.0, 3.0),
+            (stamp(15, 14, 45), 130.0, 4.0),
+            (stamp(15, 14, 46), 777.0, 9.0),
+            (stamp(15, 15, 0), 999.0, 50.0),
+        ]
+    )
+    bars = session_bars(samples, date(2024, 1, 15))
+    assert [bar.close for bar in bars] == [110.0, 120.0, 130.0]
+    assert bars[0].ma20 == (19 * 100 + 110) / 20
+    assert bars[1].ma20 == (18 * 100 + 110 + 120) / 20
+    assert bars[2].volume == 4.0
+    assert bars[2].auction is True
+    assert bars[0].auction is False
+    assert bars[1].auction is False
+
+    payload = {
+        "t": [row[0] for row in samples],
+        "c": [row[1] for row in samples],
+        "v": [row[2] for row in samples],
+    }
+    assert [bar.close for bar in bars_from_ohlc(payload, date(2024, 1, 15))] == [110.0, 120.0, 130.0]
+
+
+def test_progressions_match_the_locked_loops() -> None:
+    assert [slot.chord.name for slot in plan_slots(("uptrend",) * 3) if slot.section == "phrase"][:4] == [
+        "Cmaj7",
+        "Fmaj7",
+        "Dm7",
+        "G7",
+    ]
+    assert [slot.chord.name for slot in plan_slots(("downtrend",) * 3) if slot.section == "phrase"][:4] == [
+        "Am7",
+        "Fmaj7",
+        "Dm7",
+        "Em7",
+    ]
+    assert [slot.chord.name for slot in plan_slots(("sideway",) * 3) if slot.section == "phrase"][:4] == [
+        "Cmaj7",
+        "Am7",
+        "Cmaj7",
+        "Am7",
+    ]
+
+
+def test_render_rejects_an_empty_session() -> None:
+    with pytest.raises(ValueError):
+        render([])
+
+
+def test_equal_volume_does_not_follow_how_many_candles_a_slot_holds() -> None:
+    score = render([Bar(100.0, 100.0, 100.0)] * 227, regimes=("sideway",) * 3)
+    assert {event.marking for event in score.dynamics} == {"mf"}
+
+
+def test_small_volume_gap_stays_at_mf() -> None:
+    assert marking_for_volume(150_000, 150_000, 160_000) == "mf"
+    assert marking_for_volume(160_000, 150_000, 160_000) == "mf"
+
+
+def test_auction_prints_do_not_pin_the_body_quiet() -> None:
+    bars = [Bar(100.0, 100.0, 100.0) for _ in range(227)]
+    bars[0] = Bar(100.0, 3_000.0, 100.0, auction=True)
+    bars[-1] = Bar(100.0, 3_000.0, 100.0, auction=True)
+    score = render(bars, regimes=("sideway",) * 3)
+    assert {event.marking for event in score.dynamics} == {"mf"}
+
+
+def test_unlabeled_spike_is_clipped_before_the_scale_opens() -> None:
+    bars = [Bar(100.0, 100.0, 100.0) for _ in range(227)]
+    bars[0] = Bar(100.0, 3_000.0, 100.0)
+    bars[-1] = Bar(100.0, 3_000.0, 100.0)
+    score = render(bars, regimes=("sideway",) * 3)
+    assert {event.marking for event in score.dynamics} == {"mf"}
+
+
+def test_repeated_dynamics_are_printed_once() -> None:
+    score = render([Bar(100.0, 100.0, 100.0)] * 30, regimes=("sideway",) * 3)
+    _text, root = _xml(score)
+    marks = [
+        child.tag
+        for dynamics in _part(root, "P4").findall(".//dynamics")
+        for child in dynamics
+    ]
+    assert marks == ["mf"]
+    for part_id in ("P1", "P2"):
+        assert _part(root, part_id).findall(".//dynamics") == []
+
+
+def test_short_volume_array_keeps_every_close() -> None:
+    def stamp(minute: int) -> int:
+        return int(datetime(2024, 1, 15, 13, minute, tzinfo=VN).timestamp())
+
+    closes = [100.0 + index for index in range(10)]
+    payload = {"t": [stamp(minute) for minute in range(10)], "c": closes, "v": [5.0, 6.0]}
+    bars = bars_from_ohlc(payload, date(2024, 1, 15))
+    assert [bar.close for bar in bars] == closes
+    assert [bar.volume for bar in bars] == [5.0, 6.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+
+def test_recap_stops_at_the_closing_auction() -> None:
+    assert is_recap_minute(datetime(2024, 1, 15, 14, 45, tzinfo=VN))
+    assert not is_recap_minute(datetime(2024, 1, 15, 14, 46, tzinfo=VN))
+    assert is_auction_minute(datetime(2024, 1, 15, 9, 0, tzinfo=VN))
+    assert is_auction_minute(datetime(2024, 1, 15, 9, 15, tzinfo=VN))
+    assert not is_auction_minute(datetime(2024, 1, 15, 9, 16, tzinfo=VN))
+    assert is_auction_minute(datetime(2024, 1, 15, 14, 30, tzinfo=VN))
+    assert is_auction_minute(datetime(2024, 1, 15, 14, 45, tzinfo=VN))
+    assert not is_auction_minute(datetime(2024, 1, 15, 13, 0, tzinfo=VN))
