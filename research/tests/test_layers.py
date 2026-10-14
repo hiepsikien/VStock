@@ -288,6 +288,14 @@ class ServicesTemplateTest(unittest.TestCase):
         self.assertEqual(score_valuation({"pe": None}).label, "Chưa có số")
         self.assertEqual(score_valuation(None).label, "Chưa có số")
 
+    def test_roe_from_the_market_snapshot_is_a_fraction(self) -> None:
+        """Simplize's 18.734 means 18.7%. The page multiplies a fraction by 100."""
+        from app.ingest import _ratio_from_percent_points
+
+        fraction = _ratio_from_percent_points(18.7343748236137)
+        scored = score_valuation({"pe": 15.3, "roe": fraction})
+        self.assertEqual(dict(scored.metrics)["ROE"], "18.7%")
+
 
 class ExitPlanTest(unittest.TestCase):
     def test_stop_uses_the_base_low(self) -> None:

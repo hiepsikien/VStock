@@ -786,6 +786,17 @@ async def fetch_market(
     return points
 
 
+def _ratio_from_percent_points(value: float | None) -> float | None:
+    """Simplize stores ROE and ROA as percent points: 18.7 means 18.7%, not 0.187.
+
+    The scorer prints ratios with `_pct`, which multiplies by 100. Leaving the
+    snapshot untouched showed GAS at 1873.4%.
+    """
+    if value is None:
+        return None
+    return float(value) / 100.0
+
+
 def load_valuation() -> dict[str, dict]:
     """P/E, P/B and ROE per symbol from the market database. A snapshot, not a history."""
     connection = _open_market_db()
@@ -799,8 +810,8 @@ def load_valuation() -> dict[str, dict]:
             str(row["symbol"]).upper(): {
                 "pe": row["pe"],
                 "pb": row["pb"],
-                "roe": row["roe"],
-                "roa": row["roa"],
+                "roe": _ratio_from_percent_points(row["roe"]),
+                "roa": _ratio_from_percent_points(row["roa"]),
                 "updated_at": row["updated_at"],
             }
             for row in cursor
