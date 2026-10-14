@@ -28,17 +28,25 @@ DYNAMICS: tuple[tuple[str, int, int], ...] = (
 MARKINGS: tuple[str, ...] = tuple(row[0] for row in DYNAMICS)
 SOUND: dict[str, int] = {marking: percent for marking, percent, _velocity in DYNAMICS}
 
+# p90 must be at least this many times p10 before the piece leaves mf.
+# A 7% gap (150k against 160k) stays put; a real doubling opens the scale.
+MIN_SPAN_RATIO = 2.0
+# A single print many times a normal minute — the opening and closing
+# auctions, or an unlabeled spike — is clipped to this multiple of the
+# median before the slot average is taken.
+CLIP_MULTIPLE = 4.0
+
 
 def marking_for_volume(volume: float, low: float, high: float) -> str:
-    """Map one slot volume onto ppp–fff using log1p between low and high.
+    """Map one slot's average volume onto ppp–fff.
 
-    low and high are the reference ends (the 10th and 90th percentile of the
-    piece). With no positive volume to compare, every slot is mf: a neutral
-    mark, rather than a claim that the session was silent.
+    low and high are the 10th and 90th percentile of those averages. With no
+    positive volume to compare, or with a gap smaller than MIN_SPAN_RATIO,
+    every traded slot is mf.
     """
     if high <= 0:
         return "mf"
-    if high <= low:
+    if low > 0 and high / low < MIN_SPAN_RATIO:
         return "mf" if volume > 0 else "ppp"
     floor = log1p(max(0.0, low))
     ceiling = log1p(high)
@@ -47,9 +55,37 @@ def marking_for_volume(volume: float, low: float, high: float) -> str:
     norm = (log1p(max(0.0, volume)) - floor) / (ceiling - floor)
     norm = min(1.0, max(0.0, norm))
     index = min(len(MARKINGS) - 1, int(norm * len(MARKINGS)))
-    if norm >= 1:
-        index = len(MARKINGS) - 1
     return MARKINGS[index]
+
+
+def positive_median(volumes: list[float]) -> float:
+    positive = sorted(volume for volume in volumes if volume > 0)
+    if not positive:
+        return 0.0
+    mid = len(positive) // 2
+    if len(positive) % 2:
+        return positive[mid]
+    return (positive[mid - 1] + positive[mid]) / 2
+
+
+def average_liquidity(groups: list[list[float]]) -> list[float]:
+    """Mean volume per candle, after clipping spikes to CLIP_MULTIPLE × median.
+
+    An empty group (a slot whose candles were all auction prints) takes the
+    median of the other slots, so it does not become the loudest bar in the piece.
+    """
+    positive = [volume for group in groups for volume in group if volume > 0]
+    ceiling = positive_median(positive) * CLIP_MULTIPLE
+    raw: list[float | None] = []
+    for group in groups:
+        if not group:
+            raw.append(None)
+            continue
+        kept = [min(volume, ceiling) if ceiling > 0 else volume for volume in group]
+        raw.append(sum(kept) / len(kept))
+    known = [level for level in raw if level is not None]
+    fallback = positive_median(known) if known else 0.0
+    return [fallback if level is None else level for level in raw]
 
 
 def percentile(values: list[float], fraction: float) -> float:

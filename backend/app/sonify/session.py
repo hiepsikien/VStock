@@ -17,15 +17,23 @@ VN = ZoneInfo("Asia/Ho_Chi_Minh")
 
 
 def is_recap_minute(moment: datetime) -> bool:
-    """Morning auction through the close, with the lunch break removed.
+    """Morning through the 14:45 close, with the lunch break removed.
 
-    14:45 stays in so the closing print is part of the recap. 11:30 does not:
-    that stamp is already the lunch gap.
+    11:30 is already the lunch gap. After 14:45 the prints are negotiated
+    deals, so the recap stops at 14:45.
     """
     minutes = moment.hour * 60 + moment.minute
     morning = 9 * 60 <= minutes < 11 * 60 + 30
-    afternoon = 13 * 60 <= minutes < 15 * 60
+    afternoon = 13 * 60 <= minutes <= 14 * 60 + 45
     return morning or afternoon
+
+
+def is_auction_minute(moment: datetime) -> bool:
+    """ATO runs through the 9:15 match; ATC runs from 14:30 through 14:45."""
+    minutes = moment.hour * 60 + moment.minute
+    opening = 9 * 60 <= minutes <= 9 * 60 + 15
+    closing = 14 * 60 + 30 <= minutes <= 14 * 60 + 45
+    return opening or closing
 
 
 def session_bars(
@@ -49,7 +57,7 @@ def session_bars(
     chosen = session if session is not None else trading[-1][0].date()
     averages = moving_average([close for _moment, close, _volume in trading], window)
     return [
-        Bar(close, volume, average)
+        Bar(close, volume, average, is_auction_minute(moment))
         for (moment, close, volume), average in zip(trading, averages)
         if moment.date() == chosen
     ]
@@ -65,18 +73,26 @@ def _number(value: object, default: float | None = None) -> float | None:
 
 
 def bars_from_ohlc(payload: dict, session: date | None = None) -> list[Bar]:
-    """Read an Entrade-shaped payload with t, c, and optional v."""
-    times = payload.get("t") or []
-    closes = payload.get("c") or []
-    volumes = payload.get("v") or [0.0] * len(closes)
+    """Read an Entrade-shaped payload with t, c, and optional v.
+
+    A missing or short ``v`` does not drop closes. The missing tail is volume 0.
+    """
+    times = list(payload.get("t") or [])
+    closes = list(payload.get("c") or [])
+    raw_volume = payload.get("v")
+    volumes = [0.0] * len(closes)
+    for index, value in enumerate(raw_volume or []):
+        if index >= len(volumes):
+            break
+        parsed = _number(value, 0.0)
+        volumes[index] = 0.0 if parsed is None else parsed
     samples: list[tuple[int, float, float]] = []
-    for timestamp, close, volume in zip(times, closes, volumes):
-        price = _number(close)
+    for index in range(min(len(times), len(closes))):
+        price = _number(closes[index])
         if price is None or price <= 0:
             continue
-        stamped = _number(timestamp)
+        stamped = _number(times[index])
         if stamped is None:
             continue
-        amount = _number(volume, 0.0)
-        samples.append((int(stamped), price, 0.0 if amount is None else amount))
+        samples.append((int(stamped), price, volumes[index]))
     return session_bars(samples, session)

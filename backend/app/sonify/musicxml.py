@@ -1,8 +1,10 @@
 """Write a score as MusicXML 4.0 partwise.
 
 Piano carries the melody, the chord voicing, and a <harmony> symbol at each
-chord attack. Bass is a single root per attack; its loudness is a <dynamics>
-letter from ppp to fff plus the matching <sound dynamics> percentage.
+chord attack. It has no dynamics in this phase: liquidity is the bass part.
+Bass is a single root per attack. Its loudness is a <dynamics> letter from
+ppp to fff, plus the matching <sound dynamics> percentage, written only when
+the letter changes.
 """
 
 from __future__ import annotations
@@ -168,12 +170,19 @@ def _piano_part(root: ET.Element, score: Score) -> None:
 def _bass_part(root: ET.Element, score: Score) -> None:
     part = _add(root, "part", id="P2")
     notes = _group(score.bass)
-    dynamics = _group(score.dynamics)
+    printed: dict[int, DynamicEvent] = {}
+    previous: str | None = None
+    for event in score.dynamics:
+        if event.marking == previous:
+            continue
+        printed[event.bar] = event
+        previous = event.marking
     for bar in range(score.bars):
         measure = _add(part, "measure", number=str(bar + 1))
         if bar == 0:
             _attributes(measure, "F", "4")
-        for event in dynamics[bar]:
+        event = printed.get(bar)
+        if event is not None:
             _dynamic(measure, event)
         if len(notes[bar]) != 1:
             raise ValueError(f"bass bar {bar} should hold exactly one root")

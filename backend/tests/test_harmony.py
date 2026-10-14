@@ -6,15 +6,17 @@ import xml.etree.ElementTree as ET
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from app.sonify.chords import CMAJ7, G7
-from app.sonify.dynamics import DYNAMICS, MARKINGS, SOUND
+from app.sonify.dynamics import DYNAMICS, MARKINGS, SOUND, marking_for_volume
 from app.sonify.form import plan_slots
 from app.sonify.model import Bar
 from app.sonify.musicxml import score_to_musicxml
 from app.sonify.quantize import c_major_scale, price_to_scale_index, quantize
 from app.sonify.regime import classify, moving_average
 from app.sonify.render import assign_source_bars, render
-from app.sonify.session import bars_from_ohlc, session_bars
+from app.sonify.session import bars_from_ohlc, is_auction_minute, is_recap_minute, session_bars
 
 VN = ZoneInfo("Asia/Ho_Chi_Minh")
 _STEPS = ["C", "", "D", "", "E", "F", "", "G", "", "A", "", "B"]
@@ -80,11 +82,10 @@ def test_quantize_keeps_chord_tones_and_breaks_ties() -> None:
     assert quantize(60, G7, scale, None) == 62
 
 
-def test_phrase_regime_is_read_once_at_the_downbeat() -> None:
+def test_phrase_regime_uses_the_downbeat_window() -> None:
     closes = [80.0] * 30
-    closes[2] = 120.0
-    closes[10] = 80.0
-    closes[18] = 100.0
+    closes[2:7] = [120.0] * 5
+    closes[18:23] = [100.0] * 5
     score = render([Bar(close, 1.0, 100.0) for close in closes], title="VNM")
     assert score.regimes == ("uptrend", "downtrend", "sideway")
     assert score.regime_samples == (2, 10, 18)
@@ -144,6 +145,18 @@ def test_phrase_regime_is_read_once_at_the_downbeat() -> None:
         assert [note.midi for note in score.pad if note.bar == slot.start] == list(slot.chord.pitches)
 
 
+def test_one_minute_twitch_does_not_flip_the_phrase() -> None:
+    ma = 100.0
+    above = ma * (1 + 0.0015) + 0.01
+    below = ma * (1 - 0.0015) - 0.01
+    closes = [ma] * 30
+    closes[2] = above
+    closes[10] = below
+    closes[18] = above
+    score = render([Bar(close, 1.0, ma) for close in closes])
+    assert score.regimes == ("sideway", "sideway", "sideway")
+
+
 def test_flat_session_on_the_sideway_loop_holds_c() -> None:
     score = render([Bar(50.0, 1.0, 50.0)] * 30)
     assert score.regimes == ("sideway", "sideway", "sideway")
@@ -180,9 +193,8 @@ def test_bass_dynamics_follow_slot_volume() -> None:
 
 def test_musicxml_writes_harmony_and_letter_dynamics() -> None:
     closes = [80.0] * 30
-    closes[2] = 120.0
-    closes[10] = 80.0
-    closes[18] = 100.0
+    closes[2:7] = [120.0] * 5
+    closes[18:23] = [100.0] * 5
     volumes = [1.0] * 30
     for index in (0, 1, 26, 27, 28, 29):
         volumes[index] = 1000.0
@@ -236,6 +248,7 @@ def test_musicxml_writes_harmony_and_letter_dynamics() -> None:
         assert kind.get("text") == event.chord.kind_text
         assert measure.find("harmony/root/root-step").text == event.chord.root_step
 
+    assert piano.findall(".//dynamics") == []
     dynamic_marks = []
     for measure in bass_measures:
         for direction in measure.findall("direction"):
@@ -246,9 +259,10 @@ def test_musicxml_writes_harmony_and_letter_dynamics() -> None:
             assert direction.get("placement") == "below"
             assert direction.find("sound").get("dynamics") == str(SOUND[children[0]])
             dynamic_marks.append(children[0])
-    assert dynamic_marks == [event.marking for event in score.dynamics]
+    assert dynamic_marks == _changed([event.marking for event in score.dynamics])
     assert dynamic_marks[0] == "fff"
     assert "ppp" in dynamic_marks
+    assert len(dynamic_marks) < len(score.dynamics)
 
     _assert_measure_timing(piano_measures, bass_measures, score)
 
@@ -284,6 +298,15 @@ def _assert_measure_timing(piano_measures, bass_measures, score) -> None:
         assert (step, octave) == _pitch(score.bass[bar].midi)
         assert _tie_types(bass_notes[0]) == _expected_ties(score, bar)
         assert _tied_types(bass_notes[0]) == _expected_ties(score, bar)
+
+
+def _changed(markings: list[str]) -> list[str]:
+    kept: list[str] = []
+    for marking in markings:
+        if kept and kept[-1] == marking:
+            continue
+        kept.append(marking)
+    return kept
 
 
 def _slot_index(score, bar: int) -> int:
@@ -338,6 +361,7 @@ def test_session_drops_lunch_and_warms_up_ma20() -> None:
             (stamp(15, 12, 15), 999.0, 50.0),
             (stamp(15, 13, 0), 120.0, 3.0),
             (stamp(15, 14, 45), 130.0, 4.0),
+            (stamp(15, 14, 46), 777.0, 9.0),
             (stamp(15, 15, 0), 999.0, 50.0),
         ]
     )
@@ -346,6 +370,9 @@ def test_session_drops_lunch_and_warms_up_ma20() -> None:
     assert bars[0].ma20 == (19 * 100 + 110) / 20
     assert bars[1].ma20 == (18 * 100 + 110 + 120) / 20
     assert bars[2].volume == 4.0
+    assert bars[2].auction is True
+    assert bars[0].auction is False
+    assert bars[1].auction is False
 
     payload = {
         "t": [row[0] for row in samples],
@@ -377,8 +404,65 @@ def test_progressions_match_the_locked_loops() -> None:
 
 
 def test_render_rejects_an_empty_session() -> None:
-    try:
+    with pytest.raises(ValueError):
         render([])
-    except ValueError:
-        return
-    raise AssertionError("empty session should fail")
+
+
+def test_equal_volume_does_not_follow_how_many_candles_a_slot_holds() -> None:
+    score = render([Bar(100.0, 100.0, 100.0)] * 227, regimes=("sideway",) * 3)
+    assert {event.marking for event in score.dynamics} == {"mf"}
+
+
+def test_small_volume_gap_stays_at_mf() -> None:
+    assert marking_for_volume(150_000, 150_000, 160_000) == "mf"
+    assert marking_for_volume(160_000, 150_000, 160_000) == "mf"
+
+
+def test_auction_prints_do_not_pin_the_body_quiet() -> None:
+    bars = [Bar(100.0, 100.0, 100.0) for _ in range(227)]
+    bars[0] = Bar(100.0, 3_000.0, 100.0, auction=True)
+    bars[-1] = Bar(100.0, 3_000.0, 100.0, auction=True)
+    score = render(bars, regimes=("sideway",) * 3)
+    assert {event.marking for event in score.dynamics} == {"mf"}
+
+
+def test_unlabeled_spike_is_clipped_before_the_scale_opens() -> None:
+    bars = [Bar(100.0, 100.0, 100.0) for _ in range(227)]
+    bars[0] = Bar(100.0, 3_000.0, 100.0)
+    bars[-1] = Bar(100.0, 3_000.0, 100.0)
+    score = render(bars, regimes=("sideway",) * 3)
+    assert {event.marking for event in score.dynamics} == {"mf"}
+
+
+def test_repeated_dynamics_are_printed_once() -> None:
+    score = render([Bar(100.0, 100.0, 100.0)] * 30, regimes=("sideway",) * 3)
+    _text, root = _xml(score)
+    marks = [
+        child.tag
+        for dynamics in _part(root, "P2").findall(".//dynamics")
+        for child in dynamics
+    ]
+    assert marks == ["mf"]
+    assert _part(root, "P1").findall(".//dynamics") == []
+
+
+def test_short_volume_array_keeps_every_close() -> None:
+    def stamp(minute: int) -> int:
+        return int(datetime(2024, 1, 15, 13, minute, tzinfo=VN).timestamp())
+
+    closes = [100.0 + index for index in range(10)]
+    payload = {"t": [stamp(minute) for minute in range(10)], "c": closes, "v": [5.0, 6.0]}
+    bars = bars_from_ohlc(payload, date(2024, 1, 15))
+    assert [bar.close for bar in bars] == closes
+    assert [bar.volume for bar in bars] == [5.0, 6.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+
+def test_recap_stops_at_the_closing_auction() -> None:
+    assert is_recap_minute(datetime(2024, 1, 15, 14, 45, tzinfo=VN))
+    assert not is_recap_minute(datetime(2024, 1, 15, 14, 46, tzinfo=VN))
+    assert is_auction_minute(datetime(2024, 1, 15, 9, 0, tzinfo=VN))
+    assert is_auction_minute(datetime(2024, 1, 15, 9, 15, tzinfo=VN))
+    assert not is_auction_minute(datetime(2024, 1, 15, 9, 16, tzinfo=VN))
+    assert is_auction_minute(datetime(2024, 1, 15, 14, 30, tzinfo=VN))
+    assert is_auction_minute(datetime(2024, 1, 15, 14, 45, tzinfo=VN))
+    assert not is_auction_minute(datetime(2024, 1, 15, 13, 0, tzinfo=VN))

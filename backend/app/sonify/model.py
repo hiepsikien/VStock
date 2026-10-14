@@ -13,6 +13,7 @@ class Bar:
     close: float
     volume: float = 0.0
     ma20: float | None = None
+    auction: bool = False
 
 
 @dataclass(frozen=True)
