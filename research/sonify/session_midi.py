@@ -41,8 +41,7 @@ BASS_DROP = 12
 # Volume relative to the session median. Positions are eighths inside a 4/4 bar.
 SPARSE_BELOW = 0.7  # downbeat only
 DENSE_FROM = 1.6  # a quarter-note pulse
-BASS_TICKS = PPQ  # quarter note: a pulse with body, not a click
-PIANO_VELOCITY = 78
+MELODY_VELOCITY = 78
 
 # Lunch is a long hole. Compress it to one silent measure.
 # The ATC halt is shorter and keeps its real length in eighth notes.
@@ -85,12 +84,34 @@ def note_name(midi: int) -> str:
 
 
 def fetch_payload() -> dict:
-    now = int(datetime.now(tz=TZ).timestamp())
-    start = now - 5 * 24 * 3600
-    url = f"{ENTRADE}?from={start}&to={now}&symbol={SYMBOL}&resolution={RESOLUTION}"
+    day = datetime.fromisoformat(SESSION_DAY).replace(tzinfo=TZ)
+    start = int((day - timedelta(days=5)).timestamp())
+    end = int((day + timedelta(days=1)).timestamp())
+    url = f"{ENTRADE}?from={start}&to={end}&symbol={SYMBOL}&resolution={RESOLUTION}"
     req = urllib.request.Request(url, headers=HEADERS)
     with urllib.request.urlopen(req, timeout=20) as resp:
         return json.loads(resp.read().decode())
+
+
+def bars_from_saved(path: Path) -> list[Bar]:
+    payload = json.loads(path.read_text())
+    day = datetime.fromisoformat(payload["day"])
+    bars: list[Bar] = []
+    for row in payload["bars"]:
+        hour, minute = (int(part) for part in row["t"].split(":"))
+        stamp = datetime(day.year, day.month, day.day, hour, minute, tzinfo=TZ)
+        bars.append(
+            Bar(
+                int(stamp.timestamp()),
+                row["t"],
+                float(row["close"]),
+                float(row["volume"]),
+                float(row["ma20"]),
+            )
+        )
+    if not bars:
+        raise SystemExit(f"Saved file {path} has no bars")
+    return bars
 
 
 def bars_from_payload(payload: dict) -> list[Bar]:
@@ -122,6 +143,7 @@ def map_price(price: float, lo: float, hi: float, midi_low: int, midi_high: int)
     if hi <= lo:
         return (midi_low + midi_high) / 2
     span = (price - lo) / (hi - lo)
+    span = min(1.0, max(0.0, span))
     return midi_low + span * (midi_high - midi_low)
 
 
@@ -154,12 +176,6 @@ def bass_hits(eighth_in_bar: int, ratio: float) -> bool:
     if ratio >= SPARSE_BELOW:
         return eighth_in_bar in (0, 4)
     return eighth_in_bar == 0
-
-
-def bass_ticks(ratio: float) -> int:
-    if ratio >= DENSE_FROM:
-        return EIGHTH_TICKS
-    return BASS_TICKS
 
 
 def bass_velocity(ratio: float) -> int:
@@ -231,7 +247,7 @@ def write_midi(path: Path, slots: list[Slot], lo: float, hi: float) -> dict:
     )
     time_sig = bytes([0xFF, 0x58, 0x04, 0x04, 0x02, 0x18, 0x08])
 
-    piano: list[tuple[int, int, bytes]] = [
+    violin: list[tuple[int, int, bytes]] = [
         (0, 0, meta_text(0x03, f"{SYMBOL} {SESSION_DAY} violin")),
         (0, 1, tempo),
         (0, 2, time_sig),
@@ -244,25 +260,28 @@ def write_midi(path: Path, slots: list[Slot], lo: float, hi: float) -> dict:
 
     score: list[dict] = []
     prev_close: float | None = None
-    prev_piano: int | None = None
+    prev_melody: int | None = None
     agree = 0
     compared = 0
     wrong_way = 0
     flattened = 0
-    piano_run: dict | None = None
+    melody_run: dict | None = None
+    bass_attacks = {
+        start: (end, note, velocity) for start, end, note, velocity in bass_notes(slots, lo, hi)
+    }
 
-    def close_piano_run(next_index: int | None) -> None:
-        nonlocal piano_run
-        if piano_run is None:
+    def close_melody_run(next_index: int | None) -> None:
+        nonlocal melody_run
+        if melody_run is None:
             return
-        start = piano_run["start"] * EIGHTH_TICKS
-        end = piano_run["end"] * EIGHTH_TICKS
-        if next_index is not None and next_index == piano_run["end"]:
+        start = melody_run["start"] * EIGHTH_TICKS
+        end = melody_run["end"] * EIGHTH_TICKS
+        if next_index is not None and next_index == melody_run["end"]:
             end += LEGATO_TICKS
-        note = piano_run["note"]
-        piano.append((start, 10, bytes([0x90, note, PIANO_VELOCITY])))
-        piano.append((end, 0, bytes([0x80, note, 0])))
-        piano_run = None
+        note = melody_run["note"]
+        violin.append((start, 10, bytes([0x90, note, MELODY_VELOCITY])))
+        violin.append((end, 0, bytes([0x80, note, 0])))
+        melody_run = None
 
     for index, slot in enumerate(slots):
         tick = index * EIGHTH_TICKS
@@ -274,28 +293,30 @@ def write_midi(path: Path, slots: list[Slot], lo: float, hi: float) -> dict:
             "label": slot.label,
         }
         if slot.kind == "rest" or slot.close is None or slot.ma20 is None or slot.ratio is None:
-            close_piano_run(None)
+            close_melody_run(None)
             row["event"] = slot.label
             score.append(row)
             continue
 
-        piano_note = melody_midi(slot.close, lo, hi)
-        bass_note = bass_midi(slot.ma20, lo, hi)
-        if piano_run is not None and piano_run["note"] == piano_note:
-            piano_run["end"] = index + 1
+        melody_note = melody_midi(slot.close, lo, hi)
+        if melody_run is not None and melody_run["note"] == melody_note:
+            melody_run["end"] = index + 1
         else:
-            close_piano_run(index)
-            piano_run = {"note": piano_note, "start": index, "end": index + 1}
+            close_melody_run(index)
+            melody_run = {"note": melody_note, "start": index, "end": index + 1}
 
-        played = bass_hits(eighth, slot.ratio)
-        velocity = bass_velocity(slot.ratio)
-        if played:
+        attack = bass_attacks.get(index)
+        if attack is not None:
+            end, bass_note, velocity = attack
             bass.append((tick, 10, bytes([0x91, bass_note, velocity])))
-            bass.append((tick + bass_ticks(slot.ratio), 0, bytes([0x81, bass_note, 0])))
+            bass.append((end * EIGHTH_TICKS, 0, bytes([0x81, bass_note, 0])))
+        else:
+            bass_note = None
+            velocity = 0
 
-        if prev_close is not None and prev_piano is not None:
+        if prev_close is not None and prev_melody is not None:
             price_step = slot.close - prev_close
-            note_step = piano_note - prev_piano
+            note_step = melody_note - prev_melody
             if price_step != 0:
                 compared += 1
                 if note_step == 0:
@@ -306,23 +327,23 @@ def write_midi(path: Path, slots: list[Slot], lo: float, hi: float) -> dict:
                     wrong_way += 1
 
         prev_close = slot.close
-        prev_piano = piano_note
+        prev_melody = melody_note
         row.update(
             {
                 "event": "note",
                 "close": slot.close,
                 "ma20": round(slot.ma20, 3),
                 "ratio": round(slot.ratio, 2),
-                "piano": note_name(piano_note),
-                "piano_midi": piano_note,
-                "bass": note_name(bass_note) if played else "—",
-                "bass_midi": bass_note if played else None,
-                "bass_vel": velocity if played else 0,
+                "violin": note_name(melody_note),
+                "violin_midi": melody_note,
+                "bass": note_name(bass_note) if bass_note is not None else "—",
+                "bass_midi": bass_note,
+                "bass_vel": velocity,
             }
         )
         score.append(row)
 
-    close_piano_run(None)
+    close_melody_run(None)
 
     header = (
         b"MThd"
@@ -331,7 +352,7 @@ def write_midi(path: Path, slots: list[Slot], lo: float, hi: float) -> dict:
         + (2).to_bytes(2, "big")
         + PPQ.to_bytes(2, "big")
     )
-    path.write_bytes(header + midi_track(piano) + midi_track(bass))
+    path.write_bytes(header + midi_track(violin) + midi_track(bass))
     return {
         "compared": compared,
         "agree": agree,
@@ -388,24 +409,22 @@ def synth_wav(path: Path, slots: list[Slot], lo: float, hi: float) -> None:
         dur = (run["end"] - run["start"]) * eighth
         if into_note:
             dur += overlap
-        render(run["note"], run["start"] * eighth, dur, PIANO_VELOCITY, "violin")
+        render(run["note"], run["start"] * eighth, dur, MELODY_VELOCITY, "violin")
         run = None
 
     for index, slot in enumerate(slots):
-        if slot.kind != "bar" or slot.close is None or slot.ma20 is None or slot.ratio is None:
+        if slot.kind != "bar" or slot.close is None:
             close_run(False)
             continue
-        piano_note = melody_midi(slot.close, lo, hi)
-        if run is not None and run["note"] == piano_note:
+        melody_note = melody_midi(slot.close, lo, hi)
+        if run is not None and run["note"] == melody_note:
             run["end"] = index + 1
         else:
             close_run(True)
-            run = {"note": piano_note, "start": index, "end": index + 1}
-        if bass_hits(index % EIGHTHS_PER_BAR, slot.ratio):
-            bass_note = bass_midi(slot.ma20, lo, hi)
-            dur = bass_ticks(slot.ratio) / PPQ * (60 / BPM)
-            render(bass_note, index * eighth, dur, bass_velocity(slot.ratio), "bass")
+            run = {"note": melody_note, "start": index, "end": index + 1}
     close_run(False)
+    for start, end, note, velocity in bass_notes(slots, lo, hi):
+        render(note, start * eighth, (end - start) * eighth, velocity, "bass")
 
     peak = np.max(np.abs(mix)) or 1.0
     pcm = np.clip(mix / peak * 0.9, -1, 1)
@@ -429,7 +448,7 @@ def print_score(report: dict, bars: list[Bar]) -> None:
     )
     compared = report["compared"]
     print(
-        f"piano vs price: {report['agree']}/{compared} same direction, "
+        f"violin vs price: {report['agree']}/{compared} same direction, "
         f"{report['flattened']} flattened, {report['wrong_way']} reversed"
     )
     print()
@@ -440,14 +459,14 @@ def print_score(report: dict, bars: list[Bar]) -> None:
                 print(f"{row['label']:5}  rest")
                 previous = row["label"]
             continue
-        if row["piano"] == previous:
+        if row["violin"] == previous:
             continue
         bass = row["bass"]
         print(
-            f"{row['label']}  px {row['close']:6.2f}  {previous or '—':4} -> {row['piano']:4}"
+            f"{row['label']}  px {row['close']:6.2f}  {previous or '—':4} -> {row['violin']:4}"
             f"  bass {bass:4}  vol {row['ratio']:4.2f}x"
         )
-        previous = row["piano"]
+        previous = row["violin"]
 
 
 def _pitch_xml(midi: int) -> str:
@@ -489,7 +508,9 @@ def _tied_notes(midi: int | None, eighths: int, tie_stop: bool, tie_start: bool,
             ties = tie_tags
             notations = f"<notations>{tied_tags}</notations>"
         head = "<rest/>" if midi is None else _pitch_xml(midi)
-        sound = "" if midi is None else f'<sound dynamics="{velocity}"/>'
+        # MusicXML dynamics is a percent of the standard forte velocity (90).
+        dynamics = round(velocity * 100 / 90, 1)
+        sound = "" if midi is None else f'<sound dynamics="{dynamics}"/>'
         chunks.append(
             "<note>"
             f"{head}<duration>{size}</duration><type>{name}</type>"
@@ -511,7 +532,7 @@ def _coverage(events: list[tuple[int, int, int | None, int]]) -> list[tuple[int,
     return covered
 
 
-def _piano_events(slots: list[Slot], lo: float, hi: float) -> list[tuple[int, int, int | None, int]]:
+def _melody_events(slots: list[Slot], lo: float, hi: float) -> list[tuple[int, int, int | None, int]]:
     events: list[tuple[int, int, int | None, int]] = []
     index = 0
     while index < len(slots):
@@ -529,13 +550,18 @@ def _piano_events(slots: list[Slot], lo: float, hi: float) -> list[tuple[int, in
             if melody_midi(slots[nxt].close, lo, hi) != note:
                 break
             nxt += 1
-        events.append((index, nxt, note, PIANO_VELOCITY))
+        events.append((index, nxt, note, MELODY_VELOCITY))
         index = nxt
     return events
 
 
-def _bass_events(slots: list[Slot], lo: float, hi: float) -> list[tuple[int, int, int | None, int]]:
-    raw: list[tuple[int, int, int | None, int]] = []
+def bass_notes(slots: list[Slot], lo: float, hi: float) -> list[tuple[int, int, int, int]]:
+    """Sounding bass notes as start, end, midi, velocity. End is exclusive.
+
+    A quarter-note pulse is cut short when the next eighth also attacks,
+    so MIDI, WAV, and MusicXML share one length.
+    """
+    notes: list[tuple[int, int, int, int]] = []
     index = 0
     while index < len(slots):
         slot = slots[index]
@@ -554,9 +580,15 @@ def _bass_events(slots: list[Slot], lo: float, hi: float) -> list[tuple[int, int
             if later.kind != "bar" or later.ratio is None or bass_hits(nxt % EIGHTHS_PER_BAR, later.ratio):
                 end = nxt
                 break
-        note = bass_midi(slot.ma20, lo, hi)
-        raw.append((index, end, note, bass_velocity(slot.ratio)))
+        notes.append((index, end, bass_midi(slot.ma20, lo, hi), bass_velocity(slot.ratio)))
         index = end
+    return notes
+
+
+def _bass_events(slots: list[Slot], lo: float, hi: float) -> list[tuple[int, int, int | None, int]]:
+    raw: list[tuple[int, int, int | None, int]] = [
+        (start, end, note, velocity) for start, end, note, velocity in bass_notes(slots, lo, hi)
+    ]
     covered = _coverage(raw)
     if covered and covered[-1][1] < len(slots):
         covered.append((covered[-1][1], len(slots), None, 0))
@@ -628,7 +660,7 @@ def _part_xml(part_id: str, events: list[tuple[int, int, int | None, int]], tota
 
 
 def write_musicxml(path: Path, slots: list[Slot], lo: float, hi: float) -> None:
-    piano = _part_xml("P1", _piano_events(slots, lo, hi), len(slots))
+    violin = _part_xml("P1", _melody_events(slots, lo, hi), len(slots))
     bass = _part_xml("P2", _bass_events(slots, lo, hi), len(slots))
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
@@ -648,16 +680,26 @@ def write_musicxml(path: Path, slots: list[Slot], lo: float, hi: float) -> None:
         '<midi-instrument id="P2-I1"><midi-channel>2</midi-channel><midi-program>34</midi-program></midi-instrument>'
         "</score-part>"
         "</part-list>"
-        f"{piano}{bass}"
+        f"{violin}{bass}"
         "</score-partwise>"
     )
     path.write_text(xml)
 
 
+def load_bars() -> list[Bar]:
+    saved = OUT_DIR / f"{SYMBOL}_{SESSION_DAY}.json"
+    try:
+        return bars_from_payload(fetch_payload())
+    except (OSError, TimeoutError, KeyError, json.JSONDecodeError, SystemExit) as exc:
+        if not saved.exists():
+            raise
+        print(f"Using {saved.name} after fetch failed: {exc}")
+        return bars_from_saved(saved)
+
+
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    payload = fetch_payload()
-    bars = bars_from_payload(payload)
+    bars = load_bars()
     closes = [bar.close for bar in bars]
     lo, hi = min(closes), max(closes)
     slots = build_slots(bars)
