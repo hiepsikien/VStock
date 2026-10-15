@@ -34,8 +34,6 @@ class NoteEvent:
     accent: bool = False
     velocity: int | None = None
     tenuto: bool = False
-    tremolo: bool = False
-    grace_pitches: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)

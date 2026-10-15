@@ -3,8 +3,8 @@
 Violin and cello share the legato melody; whichever is not playing rests.
 Each is marked mp, then every phrase carries a slur, <wedge> hairpins toward
 its apex, <accent/> on its stressed held note, and a per-note dynamics
-attribute. Some held notes carry a single <tremolo> or <tenuto/>. Vibrato
-is left to the instrument: a <wavy-line> imports as a trill.
+attribute. Breakout held notes carry a <tenuto/>. Vibrato is left to the
+instrument: a <wavy-line> imports as a trill.
 
 A hairpin with no target letter moves playback one step and stays there, so
 mp is printed again wherever earlier hairpins did not cancel out.
@@ -27,7 +27,6 @@ from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score, Wedge
 
 DIVISIONS = 2  # per quarter note, so an eighth note is 1
 FORTE_VELOCITY = 90  # MusicXML dynamics percentages are relative to this
-TREMOLO_STROKES = "3"  # thirty-second notes
 
 _PC_STEPS = {
     0: "C",
@@ -78,27 +77,6 @@ def _note_type(beats: float) -> tuple[str, int]:
         raise ValueError(f"unsupported duration: {beats} beats") from exc
 
 
-def _add_grace_notes(parent: ET.Element, event: NoteEvent) -> None:
-    for idx, g_midi in enumerate(event.grace_pitches):
-        grace_note = _add(parent, "note")
-        if event.velocity is not None:
-            g_vel = max(48, event.velocity - 8 + idx * 4)
-            grace_note.set("dynamics", f"{g_vel * 100 / FORTE_VELOCITY:.2f}")
-        if idx == 0:
-            _add(grace_note, "grace", slash="yes")
-        else:
-            _add(grace_note, "grace")
-        step, octave = midi_to_pitch(g_midi)
-        pitch = _add(grace_note, "pitch")
-        _add(pitch, "step", step)
-        _add(pitch, "octave", str(octave))
-        _add(grace_note, "voice", str(event.voice))
-        _add(grace_note, "type", "16th")
-        if idx == 0 and event.slur_start:
-            notations = _add(grace_note, "notations")
-            _add(notations, "slur", type="start", number="1")
-
-
 def _add_note(
     parent: ET.Element,
     event: NoteEvent,
@@ -107,8 +85,6 @@ def _add_note(
     staves: int = 1,
     written_shift: int = 0,
 ) -> None:
-    if event.grace_pitches and event.midi is not None:
-        _add_grace_notes(parent, event)
     note = _add(parent, "note")
     if event.velocity is not None and event.midi is not None:
         note.set("dynamics", f"{event.velocity * 100 / FORTE_VELOCITY:.2f}")
@@ -136,15 +112,13 @@ def _add_note(
         _add(note, "dot")
     if staves > 1:
         _add(note, "staff", str(event.staff))
-    slur_start_on_main = event.slur_start and not event.grace_pitches
     marks = (
         event.tie_start,
         event.tie_stop,
-        slur_start_on_main,
+        event.slur_start,
         event.slur_stop,
         event.accent,
         event.tenuto,
-        event.tremolo,
     )
     if any(marks):
         notations = _add(note, "notations")
@@ -152,13 +126,10 @@ def _add_note(
             _add(notations, "tied", type="stop")
         if event.tie_start:
             _add(notations, "tied", type="start")
-        if slur_start_on_main:
+        if event.slur_start:
             _add(notations, "slur", type="start", number="1")
         if event.slur_stop:
             _add(notations, "slur", type="stop", number="1")
-        if event.tremolo:
-            ornaments = _add(notations, "ornaments")
-            _add(ornaments, "tremolo", TREMOLO_STROKES, type="single")
         if event.accent or event.tenuto:
             articulations = _add(notations, "articulations")
             if event.accent:
