@@ -721,13 +721,14 @@ def test_phrases_stay_two_to_four_bars_inside_sections() -> None:
             assert _balanced([wedge.kind for wedge in wedges])
 
 
-def _session(spans: dict[int, int]) -> list[Bar]:
+def _session(spans: dict[int, int], volumes: list[float] | None = None) -> list[Bar]:
     """240 scale indexes: C4/D4 alternating, with spans of held indexes laid over it."""
     indexes = [7 + eighth % 2 for eighth in range(240)]
     for start, (length, index) in spans.items():
         indexes[start : start + length] = [index] * length
     indexes[-2], indexes[-1] = 0, 28
-    return [Bar(float(index), 1.0, float(index)) for index in indexes]
+    volumes = volumes or [1.0] * 240
+    return [Bar(float(index), volume, float(index)) for index, volume in zip(indexes, volumes)]
 
 
 def test_held_note_ties_across_a_chord_change_and_breathes() -> None:
@@ -860,6 +861,96 @@ def test_unbalanced_hairpins_are_reset_so_the_melody_does_not_fade() -> None:
             printed = _part(root, part_id).findall(".//dynamics")
             assert len(printed) == 1 + len(dynamics)
     assert resets
+
+
+def test_heavy_volume_stall_after_a_fall_is_a_tremolo() -> None:
+    ramp = [50_000 + 100_000 * index / 239 for index in range(240)]
+    score = render(_session({36: (6, 6), 196: (6, 6)}, ramp), regimes=("sideway",) * 3)
+    band_at = {bar: band for slot, band in zip(score.slots, score.liquidity) for bar in slot.bars()}
+    assert band_at[4] == "p" and band_at[24] == "f"
+    held = [note for note in score.violin if note.midi == 59]
+    assert [(note.bar, note.beat, note.tremolo) for note in held] == [
+        (4, 2.0, False),
+        (5, 0.0, False),
+        (24, 2.0, True),
+        (25, 0.0, True),
+    ]
+    assert {note.bar for note in score.violin if note.tremolo} == {24, 25}
+
+    _text, root = _xml(score)
+    tremolos = _part(root, "P1").findall(".//ornaments/tremolo")
+    assert [(mark.get("type"), mark.text) for mark in tremolos] == [("single", "3")] * 2
+
+
+def test_breakout_above_four_bars_is_accented_and_held_tenuto() -> None:
+    spans = {47: (1, 9), 48: (1, 10), 49: (1, 11), 50: (5, 12)}
+    score = render(_session(spans), regimes=("sideway",) * 3)
+    phrase = next(phrase for phrase in score.phrases if phrase.start <= 50 < phrase.end)
+    held = [note for note in score.violin if note.midi == 69]
+    assert held[0].accent and held[0].tenuto
+    assert not any(note.accent or note.tenuto for note in held[1:])
+    accents = [
+        note
+        for note in score.violin
+        if note.accent and phrase.start <= note.bar * 8 + note.beat * 2 < phrase.end
+    ]
+    assert accents == [held[0]]
+
+    _text, root = _xml(score)
+    marks = [
+        [child.tag for child in articulations]
+        for articulations in _part(root, "P1").iter("articulations")
+        if articulations.find("tenuto") is not None
+    ]
+    assert marks == [["accent", "tenuto"]]
+
+
+def test_widest_leap_onto_a_held_note_slides() -> None:
+    spans = {80: (1, 16), 84: (4, 12), 100: (5, 14)}
+    score = render(_session(spans), regimes=("sideway",) * 3)
+    phrase = next(phrase for phrase in score.phrases if phrase.start == 80)
+    assert phrase.end == 105
+    starts = [
+        (note.bar * 8 + int(note.beat * 2), note.midi) for note in score.violin if note.slide_start
+    ]
+    stops = [
+        (note.bar * 8 + int(note.beat * 2), note.midi) for note in score.violin if note.slide_stop
+    ]
+    assert starts == [(99, 62)]
+    assert stops == [(100, 72)]
+    assert not any(note.tremolo or note.tenuto for note in score.violin)
+
+    _text, root = _xml(score)
+    slides = [
+        (slide.get("type"), slide.get("line-type"))
+        for slide in _part(root, "P1").iter("slide")
+    ]
+    assert slides == [("start", "solid"), ("stop", None)]
+
+
+def test_held_notes_take_at_most_one_colour() -> None:
+    for seed in range(20):
+        volumes = [50_000 + 100_000 * ((index * 37) % 240) / 239 for index in range(240)]
+        bars = [Bar(close, volume, close) for close, volume in zip(_walk(seed), volumes)]
+        score = render(bars)
+        for part in (score.violin, score.cello):
+            for note in part:
+                assert note.tremolo + note.tenuto + note.slide_stop <= 1
+                assert not (note.tenuto and not note.accent)
+            starts = [note for note in part if note.slide_start]
+            stops = [note for note in part if note.slide_stop]
+            assert len(starts) == len(stops)
+            for start, stop in zip(starts, stops):
+                assert start.bar * 8 + (start.beat + start.duration_beats) * 2 == stop.bar * 8 + stop.beat * 2
+                assert abs(stop.midi - start.midi) >= 4
+        for phrase in score.phrases:
+            inside = [
+                note
+                for note in score.violin + score.cello
+                if phrase.start <= note.bar * 8 + note.beat * 2 < phrase.end
+            ]
+            assert sum(note.slide_stop for note in inside) <= 1
+            assert sum(note.accent for note in inside) <= 1
 
 
 def test_one_accent_per_phrase_on_its_longest_syncopation() -> None:

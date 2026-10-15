@@ -635,6 +635,9 @@
         <duration>2</duration>
         <voice>1</voice>
         <type>quarter</type>
+        <notations>
+          <slide type="start" number="1" line-type="solid" />
+        </notations>
       </note>
       <note dynamics="85.56">
         <pitch>
@@ -647,6 +650,7 @@
         <type>eighth</type>
         <notations>
           <tied type="start" />
+          <slide type="stop" number="1" />
           <articulations>
             <accent />
           </articulations>
@@ -803,6 +807,9 @@
         <duration>1</duration>
         <voice>1</voice>
         <type>eighth</type>
+        <notations>
+          <slide type="start" number="1" line-type="solid" />
+        </notations>
       </note>
       <note dynamics="84.44">
         <pitch>
@@ -815,6 +822,7 @@
         <type>eighth</type>
         <notations>
           <tied type="start" />
+          <slide type="stop" number="1" />
           <articulations>
             <accent />
           </articulations>
@@ -894,6 +902,7 @@
         <type>half</type>
         <notations>
           <slur type="start" number="1" />
+          <slide type="start" number="1" line-type="solid" />
         </notations>
       </note>
       <note dynamics="77.78">
@@ -907,6 +916,7 @@
         <type>half</type>
         <notations>
           <tied type="start" />
+          <slide type="stop" number="1" />
         </notations>
       </note>
     </measure>
@@ -1242,6 +1252,7 @@
           <tied type="start" />
           <articulations>
             <accent />
+            <tenuto />
           </articulations>
         </notations>
       </note>
@@ -1586,7 +1597,7 @@
           <tied type="stop" />
         </notations>
       </note>
-      <note dynamics="93.33">
+      <note dynamics="84.44">
         <pitch>
           <step>G</step>
           <octave>6</octave>
@@ -1597,14 +1608,11 @@
         <type>quarter</type>
         <notations>
           <tied type="start" />
-          <articulations>
-            <accent />
-          </articulations>
         </notations>
       </note>
     </measure>
     <measure number="29">
-      <note dynamics="93.33">
+      <note dynamics="84.44">
         <pitch>
           <step>G</step>
           <octave>6</octave>
@@ -1676,7 +1684,7 @@
           <wedge type="diminuendo" number="1" />
         </direction-type>
       </direction>
-      <note dynamics="97.78">
+      <note dynamics="106.67">
         <pitch>
           <step>C</step>
           <octave>7</octave>
@@ -1687,9 +1695,13 @@
         <type>eighth</type>
         <notations>
           <tied type="start" />
+          <articulations>
+            <accent />
+            <tenuto />
+          </articulations>
         </notations>
       </note>
-      <note dynamics="97.78">
+      <note dynamics="106.67">
         <pitch>
           <step>C</step>
           <octave>7</octave>
@@ -1891,6 +1903,9 @@
         <type>eighth</type>
         <notations>
           <tied type="start" />
+          <ornaments>
+            <tremolo type="single">3</tremolo>
+          </ornaments>
           <articulations>
             <accent />
           </articulations>
@@ -1909,6 +1924,9 @@
         <notations>
           <tied type="stop" />
           <slur type="stop" number="1" />
+          <ornaments>
+            <tremolo type="single">3</tremolo>
+          </ornaments>
         </notations>
       </note>
       <direction placement="below">
@@ -1998,6 +2016,9 @@
         <type>quarter</type>
         <notations>
           <tied type="start" />
+          <ornaments>
+            <tremolo type="single">3</tremolo>
+          </ornaments>
         </notations>
       </note>
     </measure>
@@ -2013,6 +2034,9 @@
         <type>quarter</type>
         <notations>
           <tied type="stop" />
+          <ornaments>
+            <tremolo type="single">3</tremolo>
+          </ornaments>
         </notations>
       </note>
       <note dynamics="92.22">
@@ -2053,6 +2077,9 @@
         <duration>1</duration>
         <voice>1</voice>
         <type>eighth</type>
+        <notations>
+          <slide type="start" number="1" line-type="solid" />
+        </notations>
       </note>
     </measure>
     <measure number="8">
@@ -2066,6 +2093,7 @@
         <type>half</type>
         <notations>
           <slur type="stop" number="1" />
+          <slide type="stop" number="1" />
         </notations>
       </note>
       <direction placement="below">

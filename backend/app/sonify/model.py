@@ -33,6 +33,10 @@ class NoteEvent:
     slur_stop: bool = False
     accent: bool = False
     velocity: int | None = None
+    tenuto: bool = False
+    tremolo: bool = False
+    slide_start: bool = False
+    slide_stop: bool = False
 
 
 @dataclass(frozen=True)

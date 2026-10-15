@@ -2,8 +2,11 @@
 
 Violin and cello share the legato melody; whichever is not playing rests.
 Each is marked mp, then every phrase carries a slur, <wedge> hairpins toward
-its apex, <accent/> on syncopated held notes, and a per-note dynamics
-attribute. A hairpin with no target letter moves playback one step and stays
+its apex, <accent/> on its stressed held note, and a per-note dynamics
+attribute. Some held notes carry a single <tremolo>, <tenuto/>, or a
+straight <slide> from the note before; MuseScore plays the slide as
+portamento. Vibrato is left to the instrument: a <wavy-line> imports as a
+trill. A hairpin with no target letter moves playback one step and stays
 there, so mp is printed again wherever earlier hairpins did not cancel out.
 Violin also carries a <harmony> symbol at each chord attack. Piano is a grand
 staff of light comping, marked p once so it stays behind the melody; its
@@ -24,6 +27,7 @@ from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score, Wedge
 
 DIVISIONS = 2  # per quarter note, so an eighth note is 1
 FORTE_VELOCITY = 90  # MusicXML dynamics percentages are relative to this
+TREMOLO_STROKES = "3"  # thirty-second notes
 
 _PC_STEPS = {
     0: "C",
@@ -109,7 +113,18 @@ def _add_note(
         _add(note, "dot")
     if staves > 1:
         _add(note, "staff", str(event.staff))
-    if event.tie_start or event.tie_stop or event.slur_start or event.slur_stop or event.accent:
+    marks = (
+        event.tie_start,
+        event.tie_stop,
+        event.slur_start,
+        event.slur_stop,
+        event.accent,
+        event.tenuto,
+        event.tremolo,
+        event.slide_start,
+        event.slide_stop,
+    )
+    if any(marks):
         notations = _add(note, "notations")
         if event.tie_stop:
             _add(notations, "tied", type="stop")
@@ -119,9 +134,19 @@ def _add_note(
             _add(notations, "slur", type="start", number="1")
         if event.slur_stop:
             _add(notations, "slur", type="stop", number="1")
-        if event.accent:
+        if event.slide_stop:
+            _add(notations, "slide", type="stop", number="1")
+        if event.slide_start:
+            _add(notations, "slide", type="start", number="1", **{"line-type": "solid"})
+        if event.tremolo:
+            ornaments = _add(notations, "ornaments")
+            _add(ornaments, "tremolo", TREMOLO_STROKES, type="single")
+        if event.accent or event.tenuto:
             articulations = _add(notations, "articulations")
-            _add(articulations, "accent")
+            if event.accent:
+                _add(articulations, "accent")
+            if event.tenuto:
+                _add(articulations, "tenuto")
 
 
 TREBLE = ("G", "2")

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from app.sonify.chords import Chord, Regime, progression
 from app.sonify.dynamics import (
+    MARKINGS,
     SOUND,
     average_liquidity,
     bass_marking,
@@ -21,7 +22,7 @@ from app.sonify.form import (
     plan_slots,
 )
 from app.sonify.model import Bar, DynamicEvent, HarmonyEvent, NoteEvent, Score, WedgeEvent
-from app.sonify.phrasing import COMMA, Phrase, Run, plan_phrases, swell
+from app.sonify.phrasing import COMMA, PERIOD, Phrase, Run, plan_phrases, swell
 from app.sonify.quantize import c_major_scale, price_to_scale_index, resample
 from app.sonify.regime import REGIME_BARS, classify_window
 
@@ -44,6 +45,14 @@ MIN_RISE = 3
 ACCENT_LIFT = 8
 STRONG_EIGHTHS = (0, 4)  # beats 1 and 3
 WEDGE_MIN = 2  # eighths
+
+# Colour on held melody notes (at least PERIOD eighths), at most one each.
+TREMOLO = "tremolo"
+BREAKOUT = "breakout"
+PORTAMENTO = "portamento"
+TREMOLO_BAND = MARKINGS[-1]
+BREAKOUT_LOOKBACK = 32  # eighths: four bars
+PORTAMENTO_LEAP = 4  # semitones: a major third
 
 # Piano answers a held cadence in its last beats, while the melody holds and breathes.
 FILL_VELOCITY = 64  # mp, one step over the printed comping p
@@ -157,9 +166,14 @@ def _written(
     slur_stop: bool = False,
     accent: bool = False,
     velocity: int | None = None,
+    tenuto: bool = False,
+    tremolo: bool = False,
+    slide_start: bool = False,
+    slide_stop: bool = False,
 ) -> list[NoteEvent]:
     pieces = _spell(start, length)
     sounding = midi is not None
+    last = len(pieces) - 1
     return [
         NoteEvent(
             bar=cursor // EIGHTHS_PER_BAR,
@@ -173,6 +187,10 @@ def _written(
             slur_stop=slur_stop and index == len(pieces) - 1,
             accent=accent and index == 0,
             velocity=velocity if sounding else None,
+            tenuto=tenuto and index == 0,
+            tremolo=tremolo and sounding,
+            slide_start=slide_start and index == last,
+            slide_stop=slide_stop and index == 0,
         )
         for index, (cursor, size) in enumerate(pieces)
     ]
@@ -224,6 +242,46 @@ def accent_of(phrase: Phrase) -> Run | None:
     return max(syncopated, key=lambda run: (run.length, -run.start), default=None)
 
 
+def techniques(
+    phrase: Phrase, owners: list[str], pitches: list[int], band_at: dict[int, str]
+) -> dict[int, str]:
+    """A colour for some held notes of one phrase, keyed by run start.
+
+    Tremolo: the price fell onto the note and stalls while liquidity is in the
+    top band — heavy trading that no longer moves the price.
+    Breakout: the price climbs above every note of the previous four bars and
+    holds there; the first one in a phrase is accented and held tenuto.
+    Portamento: the line leaps at least a major third onto the note inside
+    one instrument's slur; only the widest leap in a phrase slides.
+    A note takes the first of these that applies.
+    """
+    chosen: dict[int, str] = {}
+    for run in phrase.runs:
+        if run.length < PERIOD:
+            continue
+        before = pitches[run.start - 1] if run.start else run.midi
+        window = pitches[max(0, run.start - BREAKOUT_LOOKBACK) : run.start]
+        if band_at[run.start // EIGHTHS_PER_BAR] == TREMOLO_BAND and before > run.midi:
+            chosen[run.start] = TREMOLO
+        elif (
+            BREAKOUT not in chosen.values()
+            and run.start >= BREAKOUT_LOOKBACK
+            and run.midi > max(window)
+        ):
+            chosen[run.start] = BREAKOUT
+    leaps = [
+        (abs(run.midi - previous.midi), -run.start)
+        for index, (previous, run) in enumerate(zip(phrase.runs, phrase.runs[1:]), start=1)
+        if run.length >= PERIOD
+        and run.start not in chosen
+        and owners[index] == owners[index - 1]
+        and abs(run.midi - previous.midi) >= PORTAMENTO_LEAP
+    ]
+    if leaps:
+        chosen[-max(leaps)[1]] = PORTAMENTO
+    return chosen
+
+
 def _velocity(phrase: Phrase, run: Run, lift: float, accented: bool) -> int:
     level = MELODY_FLOOR + (MELODY_PEAK - MELODY_FLOOR) * lift * swell(phrase, run.start)
     if accented:
@@ -250,7 +308,7 @@ def _hairpins(start: int, end: int, apex: int) -> list[WedgeEvent]:
 
 
 def _melody_parts(
-    pitches: list[int], phrases: tuple[Phrase, ...]
+    pitches: list[int], phrases: tuple[Phrase, ...], band_at: dict[int, str]
 ) -> tuple[_Line, _Line, list[tuple[Run, str]]]:
     """Split the legato line between violin and cello; the silent part rests.
 
@@ -258,8 +316,9 @@ def _melody_parts(
     across chord changes. The cello takes over below the violin's open G and
     keeps the line until it climbs back to C4, so a price hovering near G3 does
     not bounce between them. Each instrument's share of a phrase is one slur
-    with hairpins toward the phrase apex, and the phrase's syncopated held
-    note, if any, is accented. A share that opens after hairpins left the
+    with hairpins toward the phrase apex. The phrase's stress is its breakout
+    note, else its syncopated held note, and is accented. Held notes take
+    their colour from `techniques`. A share that opens after hairpins left the
     line off its starting step is marked mp again. A phrase that closes on a held note
     drops its last eighth for a breath; that eighth repeated the same price.
     Returns both lines and each closing cadence with the instrument holding it.
@@ -274,7 +333,11 @@ def _melody_parts(
             owners.append("cello" if on_cello else "violin")
         breath = phrase.closes and phrase.end < TOTAL_EIGHTHS
         lift = _lift(phrase)
-        stress = accent_of(phrase)
+        colours = techniques(phrase, owners, pitches, band_at)
+        breakout = next(
+            (run for run in phrase.runs if colours.get(run.start) == BREAKOUT), None
+        )
+        stress = breakout or accent_of(phrase)
         index = 0
         while index < len(phrase.runs):
             end = index + 1
@@ -297,6 +360,8 @@ def _melody_parts(
             for run_index, run in enumerate(segment):
                 length = run.length - (1 if breath and run.end == phrase.end else 0)
                 sounding_end = run.start + length
+                following = segment[run_index + 1] if run_index + 1 < len(segment) else None
+                colour = colours.get(run.start)
                 line.notes.extend(
                     _written(
                         run.start,
@@ -306,6 +371,11 @@ def _melody_parts(
                         slur_stop=slurred and run_index == len(segment) - 1,
                         accent=run == stress,
                         velocity=_velocity(phrase, run, lift, run == stress),
+                        tenuto=colour == BREAKOUT,
+                        tremolo=colour == TREMOLO,
+                        slide_start=following is not None
+                        and colours.get(following.start) == PORTAMENTO,
+                        slide_stop=colour == PORTAMENTO,
                     )
                 )
             if lift:
@@ -495,7 +565,8 @@ def render(
             pitches.append(scale[price_to_scale_index(close, session_low, session_high, len(scale))])
 
     phrases = plan_phrases(pitches, tuple(start * EIGHTHS_PER_BAR for start in SECTION_STARTS))
-    violin, cello, cadences = _melody_parts(pitches, phrases)
+    band_at = {bar: band for slot, band in zip(slots, bands) for bar in slot.bars()}
+    violin, cello, cadences = _melody_parts(pitches, phrases, band_at)
     chord_at = {bar: slot.chord for slot in slots for bar in slot.bars()}
     piano: list[NoteEvent] = list(_right_hand(slots, _fills(cadences, chord_at)))
     bass: list[NoteEvent] = []
