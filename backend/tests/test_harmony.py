@@ -484,7 +484,10 @@ def test_musicxml_writes_harmony_and_letter_dynamics() -> None:
     assert violin_measures[0].find("direction/sound").get("tempo") == "90"
 
     harmonies = violin.findall("measure/harmony")
-    assert len(harmonies) == len(score.slots)
+    assert len(harmonies) == len(score.harmonies)
+    assert all(
+        a.chord != b.chord for a, b in zip(score.harmonies, score.harmonies[1:])
+    )
     assert bass.findall("measure/harmony") == []
     assert violin_measures[0].find("harmony/root/root-step").text == "C"
     assert violin_measures[0].find("harmony/kind").text == "major"
@@ -498,7 +501,7 @@ def test_musicxml_writes_harmony_and_letter_dynamics() -> None:
     assert violin_measures[10].find("harmony/kind").get("text") == "m"
 
     for measure, event in zip(
-        (violin_measures[slot.start] for slot in score.slots),
+        (violin_measures[event.bar] for event in score.harmonies),
         score.harmonies,
     ):
         kind = measure.find("harmony/kind")
@@ -620,7 +623,11 @@ def test_outro_bass_restarts_the_root_every_bar() -> None:
     assert transpose.find("chromatic").text == "0"
     assert transpose.find("octave-change").text == str(-BASS_WRITTEN_OCTAVES)
     assert bass_measures[26].find("harmony") is None
-    assert _part(root, "P1").findall("measure")[26].find("harmony/kind").text == "minor"
+    last_harmony_bar = score.harmonies[-1].bar
+    assert (
+        _part(root, "P1").findall("measure")[last_harmony_bar].find("harmony/kind").text
+        == "minor"
+    )
 
 
 def test_session_drops_lunch_and_warms_up_ma20() -> None:

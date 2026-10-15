@@ -192,25 +192,49 @@ def plan_markov_chords(
             # held Run in `runs_of(raw_pitches, ...)`.
             held_across = raw_pitches[bar * EIGHTHS_PER_BAR - 1] == raw_pitches[bar * EIGHTHS_PER_BAR]
             boundary_pitch = raw_pitches[bar * EIGHTHS_PER_BAR]
-            assert previous_pitch is not None
-            prev_snapped_by_chord = {
-                prev_chord: quantize_chord_tone(
-                    previous_pitch, prev_chord.pitch_classes, active_scale
-                )
-                for prev_chord in CHORDS
-            }
-            emission_by_prev_snapped: dict[int, float] = {}
-            for snapped_val in set(prev_snapped_by_chord.values()):
-                emission_by_prev_snapped[snapped_val] = (
+            if previous_pitch is None:
+                raise RuntimeError("expected previous_pitch for bar > 0")
+            # Matches _quantize_strong_beats: the final eighth of bar - 1 was snapped to
+            # prev_chord only if its run touched strong beat 4 of bar - 1 or strong beat 0
+            # of the current bar (held_across); otherwise it remained a raw passing note.
+            prev_bar_start = (bar - 1) * EIGHTHS_PER_BAR
+            prev_last_touched_strong = held_across or all(
+                raw_pitches[prev_bar_start + e] == previous_pitch for e in range(4, EIGHTHS_PER_BAR)
+            )
+            if not prev_last_touched_strong or bar_notes[0] % 12 in chord.pitch_classes:
+                uniform_emission = (
                     bar_quantization_loss(
                         bar_notes,
                         chord.pitch_classes,
                         active_scale,
                         previous_pitch=previous_pitch,
-                        previous_snapped=snapped_val,
+                        previous_snapped=previous_pitch,
                     )
                     + base_bias
                 )
+                prev_snapped_by_chord = None
+                emission_by_prev_snapped = None
+            else:
+                uniform_emission = 0.0
+                prev_snapped_by_chord = {
+                    prev_chord: quantize_chord_tone(
+                        previous_pitch, prev_chord.pitch_classes, active_scale
+                    )
+                    for prev_chord in CHORDS
+                }
+                emission_by_prev_snapped = {
+                    snapped_val: (
+                        bar_quantization_loss(
+                            bar_notes,
+                            chord.pitch_classes,
+                            active_scale,
+                            previous_pitch=previous_pitch,
+                            previous_snapped=snapped_val,
+                        )
+                        + base_bias
+                    )
+                    for snapped_val in set(prev_snapped_by_chord.values())
+                }
 
             for target_held in (1, 2):
                 best_prev: tuple[Chord, int] | None = None
@@ -222,7 +246,7 @@ def plan_markov_chords(
                     if section in ("intro", "outro") and not new_section and prev_chord != chord:
                         continue
                     same_root = prev_chord.root_step == chord.root_step
-                    if bar == PHRASE_STARTS[0] or bar == OUTRO_START:
+                    if new_section:
                         if target_held != 1:
                             continue
                     elif same_root:
@@ -238,7 +262,7 @@ def plan_markov_chords(
                     # Each root's probability mass is split equally across its triad and
                     # seventh chord, so `prob * 2.0` recovers the root-to-root transition probability.
                     root_prob = prob * 2.0
-                    if not (bar == PHRASE_STARTS[0] or bar == OUTRO_START) and same_root:
+                    if not new_section and same_root:
                         if section in ("intro", "outro"):
                             trans_cost = PEDAL_STAY_COST
                         elif prev_held == 1:
@@ -247,19 +271,22 @@ def plan_markov_chords(
                             trans_cost = (
                                 -TRANSITION_WEIGHT * math.log(root_prob) + EXTENDED_STAY_PENALTY
                             )
-                        if prev_chord != chord:
-                            trans_cost += SAME_ROOT_QUALITY_CHANGE_PENALTY
                     else:
                         trans_cost = -TRANSITION_WEIGHT * math.log(root_prob)
                         if not new_section and prev_held == 1:
                             trans_cost += SINGLE_BAR_CHANGE_PENALTY
+                    if same_root and prev_chord != chord:
+                        trans_cost += SAME_ROOT_QUALITY_CHANGE_PENALTY
 
                     if held_across and _breaks_held_note_across_barline(
                         boundary_pitch, prev_chord, chord, active_scale, index_of
                     ):
                         trans_cost += CROSS_BAR_BREAK_PENALTY
 
-                    emission = emission_by_prev_snapped[prev_snapped_by_chord[prev_chord]]
+                    if emission_by_prev_snapped is None or prev_snapped_by_chord is None:
+                        emission = uniform_emission
+                    else:
+                        emission = emission_by_prev_snapped[prev_snapped_by_chord[prev_chord]]
                     total = dp[bar - 1][(prev_chord, prev_held)] + trans_cost + emission
                     if total < best_cost:
                         best_cost = total
@@ -272,9 +299,11 @@ def plan_markov_chords(
     path: list[Chord] = [last_state[0]]
     current: tuple[Chord, int] | None = last_state
     for bar in range(MUSICAL_BARS - 1, 0, -1):
-        assert current is not None
+        if current is None:
+            raise RuntimeError(f"missing Viterbi backpointer at bar {bar}")
         current = back[bar][current]
-        assert current is not None
+        if current is None:
+            raise RuntimeError(f"missing Viterbi predecessor at bar {bar}")
         path.append(current[0])
     path.reverse()
     return tuple(path)

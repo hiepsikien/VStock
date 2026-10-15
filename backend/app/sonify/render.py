@@ -1131,7 +1131,11 @@ def render(
         DynamicEvent(bar=start, marking=bass_marking(band), sound=SOUND[bass_marking(band)])
         for (start, _length), band in zip(LIQUIDITY_WINDOWS, bands)
     )
-    harmonies = tuple(HarmonyEvent(slot.start, slot.chord) for slot in slots)
+    harmonies = tuple(
+        HarmonyEvent(slot.start, slot.chord)
+        for index, slot in enumerate(slots)
+        if index == 0 or slot.chord != slots[index - 1].chord
+    )
 
     chord_at = {bar: slot.chord for slot in slots for bar in slot.bars()}
     pitches = _quantize_strong_beats(raw_pitches, chord_at, scale)

@@ -1700,12 +1700,6 @@
       </note>
     </measure>
     <measure number="11">
-      <harmony placement="above">
-        <root>
-          <root-step>E</root-step>
-        </root>
-        <kind text="m7">minor-seventh</kind>
-      </harmony>
       <direction placement="below">
         <direction-type>
           <dynamics>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from functools import lru_cache
 
 SCALE_LOW = 48  # C3
 SCALE_HIGH = 96  # C7
@@ -27,6 +28,18 @@ def price_to_scale_index(close: float, low: float, high: float, size: int) -> in
     return round(fraction * (size - 1))
 
 
+@lru_cache(maxsize=8)
+def _scale_index_map(scale: tuple[int, ...]) -> dict[int, int]:
+    return {note: index for index, note in enumerate(scale)}
+
+
+@lru_cache(maxsize=64)
+def _chord_candidates(
+    pitch_classes: frozenset[int], scale: tuple[int, ...]
+) -> tuple[tuple[int, int], ...]:
+    return tuple((index, note) for index, note in enumerate(scale) if note % 12 in pitch_classes)
+
+
 def quantize_chord_tone(
     target: int,
     pitch_classes: frozenset[int],
@@ -42,12 +55,10 @@ def quantize_chord_tone(
     """
     if target % 12 in pitch_classes:
         return target
-    candidates = [
-        (index, note) for index, note in enumerate(scale) if note % 12 in pitch_classes
-    ]
+    candidates = _chord_candidates(pitch_classes, scale)
     if not candidates:
         raise ValueError("no chord tone in the melody register")
-    target_index = scale.index(target)
+    target_index = _scale_index_map(scale)[target]
 
     def key(item: tuple[int, int]) -> tuple[int, int, int, int, int]:
         index, note = item
@@ -79,7 +90,7 @@ def bar_quantization_loss(
     tie-breaker weight. `previous_snapped` may be passed when the preceding bar
     was quantized under a different chord.
     """
-    index_of = {note: index for index, note in enumerate(scale)}
+    index_of = _scale_index_map(scale)
     for note in bar_pitches:
         if note not in index_of:
             raise ValueError(f"MIDI {note} is not on the scale")
@@ -113,19 +124,25 @@ def bar_quantization_loss(
         end = cursor + 1
         while end < n and bar_pitches[end] == note:
             end += 1
-        step = 0 if prev_raw is None else note - prev_raw
-        snapped = quantize_chord_tone(note, pitch_classes, scale, prev_snapped, step)
-        steps = abs(index_of[snapped] - index_of[note])
-        if steps > 0:
-            for eighth in range(cursor, end):
-                if eighth in STRONG_BEAT_EIGHTHS:
-                    weight = STRONG_BEAT_WEIGHT
-                elif eighth in strong_run_eighths:
-                    weight = HELD_STRONG_WEIGHT
-                else:
-                    weight = WEAK_BEAT_WEIGHT
-                loss += weight * steps
-        prev_snapped = snapped if any(e in strong_run_eighths for e in range(cursor, end)) else note
+        touches_strong = any(e in strong_run_eighths for e in range(cursor, end))
+        if note % 12 in pitch_classes:
+            snapped = note
+        elif not touches_strong and WEAK_BEAT_WEIGHT == 0.0:
+            snapped = note
+        else:
+            step = 0 if prev_raw is None else note - prev_raw
+            snapped = quantize_chord_tone(note, pitch_classes, scale, prev_snapped, step)
+            steps = abs(index_of[snapped] - index_of[note])
+            if steps > 0:
+                for eighth in range(cursor, end):
+                    if eighth in STRONG_BEAT_EIGHTHS:
+                        weight = STRONG_BEAT_WEIGHT
+                    elif eighth in strong_run_eighths:
+                        weight = HELD_STRONG_WEIGHT
+                    else:
+                        weight = WEAK_BEAT_WEIGHT
+                    loss += weight * steps
+        prev_snapped = snapped if touches_strong else note
         prev_raw = note
         cursor = end
     return loss
