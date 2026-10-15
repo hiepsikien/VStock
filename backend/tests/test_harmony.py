@@ -211,7 +211,11 @@ def test_flat_session_on_the_sideway_loop_holds_c() -> None:
         (22, 26),
         (26, 30),
     ]
-    breaths = {1, 5, 9, 13, 17, 21, 25}
+    assert [phrase.held_over for phrase in score.phrases] == [False] + [True, False] * 3 + [False]
+    breaths = {1, 9, 17, 25}
+    for bar in (6, 14, 22):
+        downbeat = next(note for note in score.violin if note.bar == bar)
+        assert downbeat.tie_stop and not downbeat.accent
     for bar in range(30):
         line = [(note.midi, note.duration_beats) for note in score.violin if note.bar == bar]
         if bar in breaths:
@@ -712,6 +716,14 @@ def test_phrases_stay_two_to_four_bars_inside_sections() -> None:
         assert score.phrases[0].start == 0 and score.phrases[-1].end == 240
         for phrase, following in zip(score.phrases, score.phrases[1:]):
             assert phrase.end == following.start
+            same_note = following.runs[0].midi == phrase.cadence.midi
+            assert phrase.held_over == (phrase.end not in sections and same_note)
+            assert not (phrase.held_over and phrase.closes)
+        for part in (score.violin, score.cello):
+            for note, following in zip(part, part[1:]):
+                assert note.tie_start == following.tie_stop
+                if note.tie_start:
+                    assert following.midi == note.midi
         for phrase in score.phrases:
             assert MIN_EIGHTHS <= phrase.end - phrase.start <= MAX_EIGHTHS
             assert not any(phrase.start < edge < phrase.end for edge in sections)
@@ -758,6 +770,7 @@ def test_piano_answers_a_held_cadence_under_the_violin() -> None:
     ]
     assert fill_tones(AM7, 76, "violin") == [64, 67, 69, 72]
     assert fill_tones(AM7, 50, "cello") == [60, 64, 67, 69]
+    assert fill_tones(AM7, 59, "cello") == [64, 67, 69, 72]
     assert len(fill_tones(AM7, 59, "violin")) < 3
 
 
@@ -775,6 +788,9 @@ def test_fills_stay_in_the_cadence_tail_on_chord_tones() -> None:
         violin_onsets = {
             (note.bar * 8 + int(note.beat * 2), note.midi) for note in score.violin if note.midi
         }
+        cello_onsets = {
+            (note.bar * 8 + int(note.beat * 2), note.midi) for note in score.cello if note.midi
+        }
         for note in score.piano:
             if note.velocity is None:
                 continue
@@ -786,6 +802,8 @@ def test_fills_stay_in_the_cadence_tail_on_chord_tones() -> None:
             cadence = tails[onset]
             if (cadence.start, cadence.midi) in violin_onsets:
                 assert note.midi <= cadence.midi - 3
+            if (cadence.start, cadence.midi) in cello_onsets:
+                assert note.midi >= cadence.midi + 3
     assert found
 
 
@@ -914,6 +932,7 @@ def test_held_notes_take_at_most_one_colour() -> None:
             for note in part:
                 assert note.tremolo + note.tenuto <= 1
                 assert not (note.tenuto and not note.accent)
+                assert not (note.tremolo and note.accent)
         for phrase in score.phrases:
             inside = [
                 note

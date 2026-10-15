@@ -166,9 +166,12 @@ def _written(
     velocity: int | None = None,
     tenuto: bool = False,
     tremolo: bool = False,
+    tie_in: bool = False,
+    tie_out: bool = False,
 ) -> list[NoteEvent]:
     pieces = _spell(start, length)
     sounding = midi is not None
+    last = len(pieces) - 1
     return [
         NoteEvent(
             bar=cursor // EIGHTHS_PER_BAR,
@@ -176,10 +179,10 @@ def _written(
             midi=midi,
             duration_beats=size * 0.5,
             voice=1,
-            tie_start=sounding and index < len(pieces) - 1,
-            tie_stop=sounding and index > 0,
+            tie_start=sounding and (index < last or tie_out),
+            tie_stop=sounding and (index > 0 or tie_in),
             slur_start=slur_start and index == 0,
-            slur_stop=slur_stop and index == len(pieces) - 1,
+            slur_stop=slur_stop and index == last,
             accent=accent and index == 0,
             velocity=velocity if sounding else None,
             tenuto=tenuto and index == 0,
@@ -222,15 +225,18 @@ def _lift(phrase: Phrase) -> float:
     return min(1.0, phrase.rise / FULL_RISE)
 
 
-def accent_of(phrase: Phrase) -> Run | None:
+def accent_of(phrase: Phrase, skip: frozenset[int] = frozenset()) -> Run | None:
     """The phrase's longest held note that lands off beats 1 and 3, the earliest on a tie.
 
     One accent per phrase, so the syncopation reads as the phrase's stress.
+    Runs starting at an eighth in skip are passed over.
     """
     syncopated = [
         run
         for run in phrase.runs
-        if run.length >= COMMA and run.start % EIGHTHS_PER_BAR not in STRONG_EIGHTHS
+        if run.length >= COMMA
+        and run.start % EIGHTHS_PER_BAR not in STRONG_EIGHTHS
+        and run.start not in skip
     ]
     return max(syncopated, key=lambda run: (run.length, -run.start), default=None)
 
@@ -300,11 +306,15 @@ def _melody_parts(
     their colour from `techniques`. A share that opens after hairpins left the
     line off its starting step is marked mp again. A phrase that closes on a held note
     drops its last eighth for a breath; that eighth repeated the same price.
+    A note held over into the next phrase is tied across, keeps its tremolo,
+    and is not accented again.
     Returns both lines and each closing cadence with the instrument holding it.
     """
     lines = {"violin": _Line(), "cello": _Line()}
     cadences: list[tuple[Run, str]] = []
     on_cello = False
+    tied_in = False
+    carried: str | None = None
     for phrase in phrases:
         owners: list[str] = []
         for run in phrase.runs:
@@ -313,10 +323,13 @@ def _melody_parts(
         breath = phrase.closes and phrase.end < TOTAL_EIGHTHS
         lift = _lift(phrase)
         colours = techniques(phrase, pitches, band_at)
+        if tied_in and carried == TREMOLO:
+            colours[phrase.start] = TREMOLO
         breakout = next(
             (run for run in phrase.runs if colours.get(run.start) == BREAKOUT), None
         )
-        stress = breakout or accent_of(phrase)
+        skip = frozenset(colours) | ({phrase.start} if tied_in else frozenset())
+        stress = breakout or accent_of(phrase, skip)
         index = 0
         while index < len(phrase.runs):
             end = index + 1
@@ -351,6 +364,8 @@ def _melody_parts(
                         velocity=_velocity(phrase, run, lift, run == stress),
                         tenuto=colour == BREAKOUT,
                         tremolo=colour == TREMOLO,
+                        tie_in=tied_in and run.start == phrase.start,
+                        tie_out=phrase.held_over and run.end == phrase.end,
                     )
                 )
             if lift:
@@ -361,6 +376,8 @@ def _melody_parts(
             index = end
         if phrase.closes:
             cadences.append((phrase.cadence, owners[-1]))
+        tied_in = phrase.held_over
+        carried = colours.get(phrase.cadence.start)
     return lines["violin"], lines["cello"], cadences
 
 
@@ -393,11 +410,12 @@ def fill_tones(chord: Chord, melody: int, owner: str) -> list[int]:
     """Up to four chord tones for the answer, out of the melody's way.
 
     Under the violin: the highest tones at least FILL_GAP semitones below it.
-    Over the cello: the lowest tones from C4 up.
+    Over the cello: the lowest tones from C4 up, at least FILL_GAP semitones above it.
     """
     pcs = {pitch % 12 for pitch in chord.pitches}
     if owner == "cello":
-        return [midi for midi in range(FILL_ABOVE_CELLO, FILL_HIGH + 1) if midi % 12 in pcs][:4]
+        floor = max(FILL_ABOVE_CELLO, melody + FILL_GAP)
+        return [midi for midi in range(floor, FILL_HIGH + 1) if midi % 12 in pcs][:4]
     ceiling = min(FILL_HIGH, melody - FILL_GAP)
     return [midi for midi in range(FILL_LOW, ceiling + 1) if midi % 12 in pcs][-4:]
 

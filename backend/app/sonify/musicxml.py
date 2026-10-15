@@ -3,9 +3,11 @@
 Violin and cello share the legato melody; whichever is not playing rests.
 Each is marked mp, then every phrase carries a slur, <wedge> hairpins toward
 its apex, <accent/> on its stressed held note, and a per-note dynamics
-attribute. Some held notes carry a single <tremolo> or <tenuto/>.
-Vibrato is left to the instrument: a <wavy-line> imports as a trill. A hairpin with no target letter moves playback one step and stays
-there, so mp is printed again wherever earlier hairpins did not cancel out.
+attribute. Some held notes carry a single <tremolo> or <tenuto/>. Vibrato
+is left to the instrument: a <wavy-line> imports as a trill.
+
+A hairpin with no target letter moves playback one step and stays there, so
+mp is printed again wherever earlier hairpins did not cancel out.
 Violin also carries a <harmony> symbol at each chord attack. Piano is a grand
 staff of light comping, marked p once so it stays behind the melody; its
 answering arpeggios carry a per-note mp. Liquidity is the bass part, which

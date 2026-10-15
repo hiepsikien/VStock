@@ -2025,7 +2025,7 @@
         <voice>1</voice>
         <type>eighth</type>
       </note>
-      <note dynamics="90.00">
+      <note dynamics="98.89">
         <pitch>
           <step>E</step>
           <octave>5</octave>
@@ -2036,11 +2036,14 @@
         <type>quarter</type>
         <notations>
           <tied type="start" />
+          <articulations>
+            <accent />
+          </articulations>
         </notations>
       </note>
     </measure>
     <measure number="29">
-      <note dynamics="90.00">
+      <note dynamics="98.89">
         <pitch>
           <step>E</step>
           <octave>5</octave>
@@ -2062,7 +2065,7 @@
         <voice>1</voice>
         <type>quarter</type>
       </note>
-      <note dynamics="93.33">
+      <note dynamics="84.44">
         <pitch>
           <step>A</step>
           <octave>4</octave>
@@ -2076,12 +2079,9 @@
           <ornaments>
             <tremolo type="single">3</tremolo>
           </ornaments>
-          <articulations>
-            <accent />
-          </articulations>
         </notations>
       </note>
-      <note dynamics="93.33">
+      <note dynamics="84.44">
         <pitch>
           <step>A</step>
           <octave>4</octave>

@@ -4,7 +4,8 @@ A close that stays on one scale tone for several eighths is a held note. A
 held note of at least PERIOD eighths (two beats) ends a phrase once the
 phrase is MIN_EIGHTHS long; an earlier one stays inside the phrase. A phrase
 that reaches MAX_EIGHTHS without one is cut after its longest COMMA-length
-note, then after its latest note change, and only then mid-note.
+note, then after its latest note change, and only then mid-note. A note cut
+mid-note is held over into the next phrase rather than closing this one.
 Section starts, where the regime may change, always open a new phrase.
 """
 
@@ -36,6 +37,8 @@ class Phrase:
     start: int
     end: int
     runs: tuple[Run, ...]
+    # The last note goes on sounding into the next phrase of the same section.
+    held_over: bool = False
 
     @property
     def apex(self) -> Run:
@@ -48,7 +51,7 @@ class Phrase:
 
     @property
     def closes(self) -> bool:
-        return self.cadence.length >= PERIOD
+        return self.cadence.length >= PERIOD and not self.held_over
 
     @property
     def rise(self) -> int:
@@ -110,7 +113,8 @@ def plan_phrases(pitches: list[int], section_starts: tuple[int, ...]) -> tuple[P
         cursor = start
         while cursor < end:
             cut = _cut(runs, cursor, end)
-            phrases.append(Phrase(cursor, cut, _clip(runs, cursor, cut)))
+            held_over = cut < end and pitches[cut] == pitches[cut - 1]
+            phrases.append(Phrase(cursor, cut, _clip(runs, cursor, cut), held_over))
             cursor = cut
     return tuple(phrases)
 
