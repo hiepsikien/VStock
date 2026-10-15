@@ -13,7 +13,7 @@ from app.sonify.dynamics import DYNAMICS, MARKINGS, SOUND, marking_for_volume
 from app.sonify.form import SECTION_STARTS, plan_slots
 from app.sonify.model import Bar, WedgeEvent
 from app.sonify.musicxml import BASS_WRITTEN_OCTAVES, score_to_musicxml
-from app.sonify.phrasing import MAX_EIGHTHS, MIN_EIGHTHS, plan_phrases
+from app.sonify.phrasing import MAX_EIGHTHS, MIN_EIGHTHS, PERIOD, plan_phrases
 from app.sonify.quantize import C_MAJOR_PCS, c_major_scale, price_to_scale_index
 from app.sonify.regime import classify, moving_average
 from app.sonify.chords import AM7, CMAJ7, DM7, EM7, FMAJ7, G7
@@ -688,6 +688,17 @@ def test_phrase_without_a_held_note_cuts_after_a_comma_then_at_four_bars() -> No
     assert [(p.start, p.end) for p in plan_phrases([60] * 40, (24,))] == [(0, 24), (24, 40)]
 
 
+def test_phrase_carries_across_section_bar_line_to_settle_before_a_leap() -> None:
+    # A phrase ending right at section boundary 16 on a repeated eighth E5 -> D5 (2 eighths)
+    # followed by a wide leap up to B5 settles after D5 at eighth 19.
+    before = [76, 76, 74, 74, 74, 74, 76, 76, 74, 74, 76, 81, 79, 77, 81, 76]
+    after = [76, 74, 74, 83, 83, 76, 76, 74, 76, 76, 76, 83, 83, 81, 76, 76, 76, 76, 74] + [76] * 6 + _alternating(16)
+    phrases = plan_phrases(before + after, (16,))
+    assert [(p.start, p.end) for p in phrases] == [(0, 19), (19, 41), (41, 57)]
+    assert [(r.midi, r.length) for r in phrases[0].runs[-2:]] == [(76, 2), (74, 2)]
+    assert phrases[1].runs[0].midi == 83
+
+
 def _walk(seed: int) -> list[float]:
     rng = random.Random(seed)
     index = 14
@@ -726,7 +737,7 @@ def test_phrases_stay_two_to_four_bars_inside_sections() -> None:
                     assert following.midi == note.midi
         for phrase in score.phrases:
             assert MIN_EIGHTHS <= phrase.end - phrase.start <= MAX_EIGHTHS
-            assert not any(phrase.start < edge < phrase.end for edge in sections)
+            assert not any(phrase.start < edge < phrase.end - PERIOD for edge in sections)
         accents = [note for note in score.violin + score.cello if note.accent]
         assert len(accents) <= len(score.phrases)
         for wedges in (score.violin_wedges, score.cello_wedges):
