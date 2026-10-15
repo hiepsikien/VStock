@@ -10,12 +10,13 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app.sonify.dynamics import DYNAMICS, MARKINGS, SOUND, marking_for_volume
-from app.sonify.form import SECTION_STARTS, plan_markov_chords, plan_slots
+from app.sonify.form import SECTION_STARTS, _prev_last_touched_strong, plan_markov_chords, plan_slots
 from app.sonify.model import Bar, WedgeEvent
 from app.sonify.musicxml import BASS_WRITTEN_OCTAVES, score_to_musicxml
 from app.sonify.phrasing import MAX_EIGHTHS, MIN_EIGHTHS, PERIOD, plan_phrases
 from app.sonify.quantize import (
     C_MAJOR_PCS,
+    CONTOUR_REPEAT_PENALTY,
     bar_quantization_loss,
     c_major_scale,
     price_to_scale_index,
@@ -44,6 +45,7 @@ from app.sonify.chords import (
 )
 from app.sonify.render import (
     STRONG_EIGHTHS,
+    _quantize_strong_beats,
     assign_source_bars,
     comp_pitches,
     fill_tones,
@@ -1325,4 +1327,89 @@ def test_markov_transitions_obey_functional_harmony_and_minimize_quantization_lo
         )
         assert markov_loss <= fixed_loss
     assert triad_total > 0 and seventh_total > 0
+
+
+def test_weak_beat_passing_note_at_bar_end_keeps_raw_previous_pitch() -> None:
+    scale = c_major_scale()
+    # Bar 2 starts on D4 (62) after a previous pitch of B3 (59, step = +3 > 0).
+    # Under chord F ({65, 69, 72}), D4 (62) snaps down to C4 (60).
+    # - When B3 (59) at the end of bar 1 was held from strong beat 4 (eighths 12..15 all 59),
+    #   _prev_last_touched_strong is True: under prev_chord C ({60, 64, 67}), 59 snapped to 60,
+    #   so snapping 62 -> 60 on bar 2 repeats 60 and incurs CONTOUR_REPEAT_PENALTY; under
+    #   prev_chord G ({55, 59, 62}), 59 stayed 59, so 62 -> 60 does not repeat 59.
+    # - When B3 (59) at the end of bar 1 was a single weak-beat passing note at eighth 15
+    #   (eighths 12..14 were 60, eighth 15 was 59), _prev_last_touched_strong is False:
+    #   _quantize_strong_beats leaves eighth 15 at raw 59 regardless of whether bar 1 was C or G,
+    #   so bar 2's loss under F is uniform and independent of prev_chord.
+    bar_two_notes = [62, 65, 65, 65, 65, 65, 65, 65]
+    loss_when_prev_was_raw_59 = bar_quantization_loss(
+        bar_two_notes, F.pitch_classes, scale, previous_pitch=59, previous_snapped=59
+    )
+    loss_when_prev_snapped_to_60 = bar_quantization_loss(
+        bar_two_notes, F.pitch_classes, scale, previous_pitch=59, previous_snapped=60
+    )
+    assert abs(loss_when_prev_snapped_to_60 - loss_when_prev_was_raw_59 - CONTOUR_REPEAT_PENALTY) < 1e-9
+
+    raw_passing_tail = [60] * 240
+    raw_passing_tail[12:15] = [60, 60, 60]
+    raw_passing_tail[15] = 59  # weak-beat passing note at the end of bar 1
+    raw_passing_tail[16:24] = bar_two_notes
+    assert not _prev_last_touched_strong(raw_passing_tail, 2)
+    for prev_chord in (C, G):
+        chord_at = {b: (prev_chord if b == 1 else F) for b in range(30)}
+        snapped = _quantize_strong_beats(raw_passing_tail, chord_at, scale)
+        assert snapped[15] == 59
+
+    raw_strong_tail = [60] * 240
+    raw_strong_tail[12:16] = [59, 59, 59, 59]  # held from strong beat 4 of bar 1
+    raw_strong_tail[16:24] = bar_two_notes
+    assert _prev_last_touched_strong(raw_strong_tail, 2)
+    snapped_under_c = _quantize_strong_beats(
+        raw_strong_tail, {b: (C if b == 1 else F) for b in range(30)}, scale
+    )
+    snapped_under_g = _quantize_strong_beats(
+        raw_strong_tail, {b: (G if b == 1 else F) for b in range(30)}, scale
+    )
+    assert snapped_under_c[15] == 60
+    assert snapped_under_g[15] == 59
+
+
+def test_dynamics_and_bass_pulse_stay_invariant_when_prices_change() -> None:
+    # A volume profile spanning all four liquidity markings (p, mp, mf, f) across the 14 windows
+    volumes = [
+        10_000.0 if (i // 16) in (0, 3, 7)
+        else 40_000.0 if (i // 16) in (1, 4, 8, 11)
+        else 90_000.0 if (i // 16) in (2, 5, 9, 12)
+        else 250_000.0
+        for i in range(240)
+    ]
+    bars_a = [Bar(close, vol, close) for close, vol in zip(_walk(0), volumes)]
+    bars_b = [Bar(close, vol, close) for close, vol in zip(_walk(2), volumes)]
+    score_a = render(bars_a)
+    score_b = render(bars_b)
+
+    # Price paths and resulting Markov chord slots differ, yet liquidity, dynamics,
+    # printed MusicXML bass dynamic markings, and per-bar bass rhythm patterns stay identical.
+    assert score_a.slots != score_b.slots
+    assert len(score_a.slots) != len(score_b.slots)
+    assert set(score_a.liquidity) == {"p", "mp", "mf", "f"}
+    assert score_a.liquidity == score_b.liquidity
+    assert score_a.dynamics == score_b.dynamics
+    for bar in range(30):
+        rhythm_a = [(n.beat, n.duration_beats) for n in score_a.bass if n.bar == bar]
+        rhythm_b = [(n.beat, n.duration_beats) for n in score_b.bass if n.bar == bar]
+        assert rhythm_a == rhythm_b
+
+    _, root_a = _xml(score_a)
+    _, root_b = _xml(score_b)
+    bass_marks_a = [
+        (m.get("number"), [c.tag for d in m.findall(".//dynamics") for c in d])
+        for m in _part(root_a, "P4").findall("measure")
+    ]
+    bass_marks_b = [
+        (m.get("number"), [c.tag for d in m.findall(".//dynamics") for c in d])
+        for m in _part(root_b, "P4").findall("measure")
+    ]
+    assert bass_marks_a == bass_marks_b
+
 

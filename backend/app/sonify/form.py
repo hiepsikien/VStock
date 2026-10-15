@@ -85,6 +85,21 @@ def _section_spans(
     )
 
 
+def _prev_last_touched_strong(raw_pitches: Sequence[int], bar: int) -> bool:
+    """Whether the final eighth of `bar - 1` belongs to a run that touches a strong beat.
+
+    Matches _quantize_strong_beats: the eighth at `bar * 8 - 1` is snapped to
+    `prev_chord` only when its run reaches strong beat 4 of `bar - 1` (all eighths
+    4..7 of `bar - 1` share that pitch) or continues onto strong beat 0 of `bar`
+    (`held_across`). Otherwise it is a weak-beat passing note and keeps its raw pitch.
+    """
+    prev_last = raw_pitches[bar * EIGHTHS_PER_BAR - 1]
+    if prev_last == raw_pitches[bar * EIGHTHS_PER_BAR]:
+        return True
+    prev_bar_start = (bar - 1) * EIGHTHS_PER_BAR
+    return all(raw_pitches[prev_bar_start + e] == prev_last for e in range(4, EIGHTHS_PER_BAR))
+
+
 def _breaks_held_note_across_barline(
     boundary_pitch: int,
     prev_chord: Chord,
@@ -194,13 +209,7 @@ def plan_markov_chords(
             boundary_pitch = raw_pitches[bar * EIGHTHS_PER_BAR]
             if previous_pitch is None:
                 raise RuntimeError("expected previous_pitch for bar > 0")
-            # Matches _quantize_strong_beats: the final eighth of bar - 1 was snapped to
-            # prev_chord only if its run touched strong beat 4 of bar - 1 or strong beat 0
-            # of the current bar (held_across); otherwise it remained a raw passing note.
-            prev_bar_start = (bar - 1) * EIGHTHS_PER_BAR
-            prev_last_touched_strong = held_across or all(
-                raw_pitches[prev_bar_start + e] == previous_pitch for e in range(4, EIGHTHS_PER_BAR)
-            )
+            prev_last_touched_strong = _prev_last_touched_strong(raw_pitches, bar)
             if not prev_last_touched_strong or bar_notes[0] % 12 in chord.pitch_classes:
                 uniform_emission = (
                     bar_quantization_loss(

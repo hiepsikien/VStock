@@ -12,6 +12,8 @@ STRONG_BEAT_EIGHTHS = (0, 4)  # beats 1 and 3 inside an 8-eighth bar
 STRONG_BEAT_WEIGHT = 2.5
 HELD_STRONG_WEIGHT = 1.0
 WEAK_BEAT_WEIGHT = 0.02
+CONTOUR_REPEAT_PENALTY = 0.3
+CONTOUR_WRONG_WAY_PENALTY = 0.2
 
 
 def c_major_scale(low: int = SCALE_LOW, high: int = SCALE_HIGH) -> tuple[int, ...]:
@@ -127,8 +129,6 @@ def bar_quantization_loss(
         touches_strong = any(e in strong_run_eighths for e in range(cursor, end))
         if note % 12 in pitch_classes:
             snapped = note
-        elif not touches_strong and WEAK_BEAT_WEIGHT == 0.0:
-            snapped = note
         else:
             step = 0 if prev_raw is None else note - prev_raw
             snapped = quantize_chord_tone(note, pitch_classes, scale, prev_snapped, step)
@@ -142,6 +142,16 @@ def bar_quantization_loss(
                     else:
                         weight = WEAK_BEAT_WEIGHT
                     loss += weight * steps
+                if touches_strong:
+                    if (
+                        prev_snapped is not None
+                        and prev_raw is not None
+                        and note != prev_raw
+                        and snapped == prev_snapped
+                    ):
+                        loss += CONTOUR_REPEAT_PENALTY
+                    if (step > 0 and snapped < note) or (step < 0 and snapped > note):
+                        loss += CONTOUR_WRONG_WAY_PENALTY
         prev_snapped = snapped if touches_strong else note
         prev_raw = note
         cursor = end
