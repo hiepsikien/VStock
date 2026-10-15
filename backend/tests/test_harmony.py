@@ -268,11 +268,13 @@ def test_cello_takes_the_line_below_g3_until_c4() -> None:
 
 def test_melody_snaps_strong_beats_to_chord_tones_and_keeps_weak_beat_passing_notes() -> None:
     scale = c_major_scale()
-    assert quantize_chord_tone(64, CMAJ7, scale) == 64
-    assert quantize_chord_tone(62, AM7, scale) == 60
-    assert quantize_chord_tone(62, AM7, scale, previous=60) == 64
-    assert quantize_chord_tone(65, AM7, scale) == 64
-    assert quantize_chord_tone(71, AM7, scale) == 72
+    assert quantize_chord_tone(64, CMAJ7.pitch_classes, scale) == 64
+    assert quantize_chord_tone(62, AM7.pitch_classes, scale) == 60
+    assert quantize_chord_tone(62, AM7.pitch_classes, scale, previous=60) == 64
+    assert quantize_chord_tone(62, CMAJ7.pitch_classes, scale, step=2) == 64
+    assert quantize_chord_tone(62, CMAJ7.pitch_classes, scale, step=-2) == 60
+    assert quantize_chord_tone(65, AM7.pitch_classes, scale) == 64
+    assert quantize_chord_tone(71, AM7.pitch_classes, scale) == 72
 
     score = render(
         [Bar(50.0, 1.0, 50.0)] * 30,
@@ -286,13 +288,13 @@ def test_melody_snaps_strong_beats_to_chord_tones_and_keeps_weak_beat_passing_no
     # while weak-beat runs keep D4 (62), F4 (65), and A4 (69) as passing tones.
     passing = _indexed_session([8, 10, 9, 8, 10, 12, 11, 12], 7)
     score = render(passing, regimes=("sideway",) * 3)
-    assert _line(score.violin, 0) == [60, 65, 64, 62, 64, 69, 67, 69]
+    assert _line(score.violin, 0) == [60, 65, 64, 62, 67, 69, 67, 69]
 
-    # When a strong-beat F4 (index 10) at eighth 20 snaps to E4 (64) and is followed by a
-    # weak-beat E4 (index 9) at eighth 21, the two eighths stay two separate attacks rather
-    # than merging into a fake held note; a genuine held note across Cmaj7 -> Am7 (30..36)
-    # stays one note.
-    no_fake_merge = _session({20: (1, 10), 21: (1, 9), 30: (6, 10)})
+    # When a strong-beat F4 (index 10) after G4 (index 11) at eighth 20 snaps down to E4 (64)
+    # and is followed by a weak-beat E4 (index 9) at eighth 21, the two eighths stay two
+    # separate attacks rather than merging into a fake held note; a genuine held note across
+    # Cmaj7 -> Am7 (30..36) stays one note on G4 (67), shared by both chords.
+    no_fake_merge = _session({19: (1, 11), 20: (1, 10), 21: (1, 9), 30: (6, 10)})
     score = render(no_fake_merge, regimes=("sideway",) * 3)
     bar_two = [
         (note.beat, note.midi, note.duration_beats, note.tie_start, note.tie_stop)
@@ -306,9 +308,21 @@ def test_melody_snaps_strong_beats_to_chord_tones_and_keeps_weak_beat_passing_no
         if (note.bar == 3 and note.beat == 3.0) or (note.bar == 4 and note.beat == 0.0)
     ]
     assert cross_chord == [
-        (3, 3.0, cross_chord[0][2], 1.0, True, False),
-        (4, 0.0, cross_chord[0][2], 1.5, False, True),
+        (3, 3.0, 67, 1.0, True, False),
+        (4, 0.0, 67, 1.5, False, True),
     ]
+    assert 67 % 12 in CMAJ7.pitch_classes & AM7.pitch_classes
+
+    # When a held note on A6 (index 26, midi 93) spans Dm7 -> Em7 (bars 7..8 in downtrend),
+    # the only shared chord tone D is four scale steps away, so each chord snaps within one step
+    # (A6 on Dm7, B6 on Em7) rather than pulling the note down a fifth to D6.
+    far_shared = _session({60: (8, 26)})
+    score = render(far_shared, regimes=("downtrend",) * 3)
+    assert [
+        (note.bar, note.beat, note.midi)
+        for note in score.violin
+        if (note.bar == 7 and note.beat == 2.0) or (note.bar == 8 and note.beat == 0.0)
+    ] == [(7, 2.0, 93), (8, 0.0, 95)]
 
 
 def test_bass_dynamics_follow_slot_volume() -> None:
@@ -766,14 +780,15 @@ def _balanced(kinds: list[str]) -> bool:
 
 def test_phrases_stay_one_to_four_bars_and_settle_near_sections() -> None:
     for seed in range(20):
-        score = render([Bar(close, 1.0, close) for close in _walk(seed)])
+        closes = _walk(seed)
+        score = render([Bar(close, 1.0, close) for close in closes])
         sections = [start * 8 for start in SECTION_STARTS] + [240]
         assert score.phrases[0].start == 0 and score.phrases[-1].end == 240
         for phrase, following in zip(score.phrases, score.phrases[1:]):
             assert phrase.end == following.start
+            raw_same = closes[phrase.end] == closes[phrase.end - 1]
             same_note = following.runs[0].midi == phrase.cadence.midi
-            if phrase.held_over:
-                assert phrase.end not in sections and same_note
+            assert phrase.held_over == (phrase.end not in sections and raw_same and same_note)
             assert not (phrase.held_over and phrase.closes)
         for part in (score.violin, score.cello):
             for note, following in zip(part, part[1:]):

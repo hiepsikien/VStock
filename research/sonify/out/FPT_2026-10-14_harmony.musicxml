@@ -198,8 +198,8 @@
       </note>
       <note dynamics="78.89">
         <pitch>
-          <step>C</step>
-          <octave>4</octave>
+          <step>A</step>
+          <octave>3</octave>
         </pitch>
         <duration>3</duration>
         <voice>1</voice>
@@ -453,7 +453,7 @@
       </direction>
       <note dynamics="97.78">
         <pitch>
-          <step>G</step>
+          <step>B</step>
           <octave>6</octave>
         </pitch>
         <duration>1</duration>
@@ -1710,7 +1710,7 @@
     <measure number="28">
       <note dynamics="91.11">
         <pitch>
-          <step>C</step>
+          <step>E</step>
           <octave>6</octave>
         </pitch>
         <duration>1</duration>

@@ -510,13 +510,15 @@ def _quantize_strong_beats(
 
     Weak-beat runs keep their diatonic scale tone as passing or neighbour notes.
     A run that spans a chord change snaps once to a tone shared by the chords on
-    its strong beats, so a held note is not split at the bar line. When a single
-    run spans an entire section whose chords share no common tone, each chord
-    slot snaps its own span.
+    its strong beats when one lies within a scale step of the original note;
+    otherwise (or when a run spans three or more chords with no common tone)
+    each chord slot snaps its own span.
     """
     pitches = list(raw)
     previous: int | None = None
+    previous_raw: int | None = None
     for run in runs_of(raw, 0, len(raw)):
+        step = 0 if previous_raw is None else run.midi - previous_raw
         strong = [
             eighth
             for eighth in range(run.start, run.end)
@@ -524,16 +526,19 @@ def _quantize_strong_beats(
         ]
         if not strong:
             previous = pitches[run.end - 1]
+            previous_raw = run.midi
             continue
         common = frozenset.intersection(
             *(chord_at[eighth // EIGHTHS_PER_BAR].pitch_classes for eighth in strong)
         )
         if common:
-            snapped = quantize_chord_tone(run.midi, common, scale, previous)
-            for eighth in range(run.start, run.end):
-                pitches[eighth] = snapped
-            previous = snapped
-            continue
+            snapped = quantize_chord_tone(run.midi, common, scale, previous, step)
+            if abs(scale.index(snapped) - scale.index(run.midi)) <= 1:
+                for eighth in range(run.start, run.end):
+                    pitches[eighth] = snapped
+                previous = snapped
+                previous_raw = run.midi
+                continue
         cursor = run.start
         for index, beat_eighth in enumerate(strong):
             chord = chord_at[beat_eighth // EIGHTHS_PER_BAR]
@@ -544,11 +549,14 @@ def _quantize_strong_beats(
                 continue
             next_bar = (beat_eighth // EIGHTHS_PER_BAR + 1) * EIGHTHS_PER_BAR
             stop = run.end if index == len(strong) - 1 else min(run.end, next_bar)
-            snapped = quantize_chord_tone(run.midi, chord, scale, previous)
+            snapped = quantize_chord_tone(
+                run.midi, chord.pitch_classes, scale, previous, step
+            )
             for eighth in range(cursor, stop):
                 pitches[eighth] = snapped
             previous = snapped
             cursor = stop
+        previous_raw = run.midi
     return pitches
 
 

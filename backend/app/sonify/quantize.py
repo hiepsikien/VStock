@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from app.sonify.chords import Chord
-
 SCALE_LOW = 48  # C3
 SCALE_HIGH = 96  # C7
 C_MAJOR_PCS = frozenset({0, 2, 4, 5, 7, 9, 11})
@@ -25,27 +23,35 @@ def price_to_scale_index(close: float, low: float, high: float, size: int) -> in
 
 def quantize_chord_tone(
     target: int,
-    chord: Chord | frozenset[int],
+    pitch_classes: frozenset[int],
     scale: tuple[int, ...],
     previous: int | None = None,
+    step: int = 0,
 ) -> int:
     """Keep a chord tone; otherwise snap to the nearest chord tone on the scale.
 
     A tie in scale steps prefers moving rather than repeating `previous`, then
-    the closer note in semitones, and finally the lower note.
+    moving in the direction of `step`, then the closer note in semitones, and
+    finally the lower note.
     """
-    pcs = chord.pitch_classes if isinstance(chord, Chord) else chord
-    if target % 12 in pcs:
+    if target % 12 in pitch_classes:
         return target
-    candidates = [(index, note) for index, note in enumerate(scale) if note % 12 in pcs]
+    candidates = [
+        (index, note) for index, note in enumerate(scale) if note % 12 in pitch_classes
+    ]
     if not candidates:
         raise ValueError("no chord tone in the melody register")
     target_index = scale.index(target)
 
-    def key(item: tuple[int, int]) -> tuple[int, int, int, int]:
+    def key(item: tuple[int, int]) -> tuple[int, int, int, int, int]:
         index, note = item
         repeats_previous = 1 if (previous is not None and note == previous) else 0
-        return (abs(index - target_index), repeats_previous, abs(note - target), note)
+        wrong_way = (
+            1
+            if (step > 0 and note < target) or (step < 0 and note > target)
+            else 0
+        )
+        return (abs(index - target_index), repeats_previous, wrong_way, abs(note - target), note)
 
     return min(candidates, key=key)[1]
 
