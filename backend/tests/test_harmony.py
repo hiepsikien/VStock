@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 import xml.etree.ElementTree as ET
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
@@ -9,13 +10,14 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app.sonify.dynamics import DYNAMICS, MARKINGS, SOUND, marking_for_volume
-from app.sonify.form import plan_slots
-from app.sonify.model import Bar
+from app.sonify.form import SECTION_STARTS, plan_slots
+from app.sonify.model import Bar, WedgeEvent
 from app.sonify.musicxml import BASS_WRITTEN_OCTAVES, score_to_musicxml
+from app.sonify.phrasing import MAX_EIGHTHS, MIN_EIGHTHS, plan_phrases
 from app.sonify.quantize import C_MAJOR_PCS, c_major_scale, price_to_scale_index
 from app.sonify.regime import classify, moving_average
 from app.sonify.chords import AM7, CMAJ7, DM7, EM7, FMAJ7, G7
-from app.sonify.render import assign_source_bars, comp_pitches, render
+from app.sonify.render import assign_source_bars, comp_pitches, fill_tones, render
 from app.sonify.session import bars_from_ohlc, is_auction_minute, is_recap_minute, session_bars
 
 VN = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -158,11 +160,16 @@ def test_phrase_regime_uses_the_downbeat_window() -> None:
         for offset, bar in enumerate(slot.bars()):
             right = [note for note in score.piano if note.bar == bar and note.staff == 1]
             left = [note for note in score.piano if note.bar == bar and note.staff == 2]
-            assert [(note.beat, note.midi, note.duration_beats) for note in right] == [
-                (0.0, guide[0], 2.0),
-                (0.0, guide[1], 2.0),
-                (2.0, None, 2.0),
+            assert [(note.beat, note.midi) for note in right[:2]] == [
+                (0.0, guide[0]),
+                (0.0, guide[1]),
             ]
+            if not any(note.velocity for note in right):
+                assert [(note.beat, note.midi, note.duration_beats) for note in right] == [
+                    (0.0, guide[0], 2.0),
+                    (0.0, guide[1], 2.0),
+                    (2.0, None, 2.0),
+                ]
             assert [(note.midi, note.duration_beats) for note in left] == [
                 (bass_note if offset == 0 else None, 4.0)
             ]
@@ -193,11 +200,27 @@ def test_one_minute_twitch_does_not_flip_the_phrase() -> None:
 def test_flat_session_on_the_sideway_loop_holds_c() -> None:
     score = render([Bar(50.0, 1.0, 50.0)] * 30)
     assert score.regimes == ("sideway", "sideway", "sideway")
-    assert {note.midi for note in score.violin} == {72}
-    assert [(note.bar, note.duration_beats) for note in score.violin] == [
-        (bar, 4.0) for bar in range(30)
+    assert {note.midi for note in score.violin} == {72, None}
+    assert [(phrase.start // 8, phrase.end // 8) for phrase in score.phrases] == [
+        (0, 2),
+        (2, 6),
+        (6, 10),
+        (10, 14),
+        (14, 18),
+        (18, 22),
+        (22, 26),
+        (26, 30),
     ]
-    assert not any(note.slur_start or note.slur_stop for note in score.violin)
+    breaths = {1, 5, 9, 13, 17, 21, 25}
+    for bar in range(30):
+        line = [(note.midi, note.duration_beats) for note in score.violin if note.bar == bar]
+        if bar in breaths:
+            assert line == [(72, 2.0), (72, 1.5), (None, 0.5)]
+        else:
+            assert line == [(72, 4.0)]
+    assert not any(note.slur_start or note.slur_stop or note.accent for note in score.violin)
+    assert score.violin_wedges == ()
+    assert {note.velocity for note in score.violin if note.midi is not None} == {64}
     assert {note.midi for note in score.cello} == {None}
 
 
@@ -217,9 +240,14 @@ def test_repeated_pitches_merge_into_held_notes() -> None:
     assert not first[0].tie_start
     assert first[1].tie_start and first[2].tie_stop and first[2].tie_start
     assert first[0].slur_start
+    assert first[1].accent and not first[2].accent
     second = [note for note in score.violin if note.bar == 1]
-    assert [note.duration_beats for note in second] == [4.0]
-    assert second[0].tie_stop and second[0].slur_stop
+    assert [(note.midi, note.duration_beats) for note in second] == [
+        (76, 2.0),
+        (76, 1.5),
+        (None, 0.5),
+    ]
+    assert second[0].tie_stop and second[1].tie_stop and second[1].slur_stop
 
 
 def test_cello_takes_the_line_below_g3_until_c4() -> None:
@@ -257,12 +285,15 @@ def test_bass_dynamics_follow_slot_volume() -> None:
         [Bar(100.0, volume, 100.0) for volume in volumes],
         regimes=("uptrend", "uptrend", "uptrend"),
     )
-    markings = [event.marking for event in score.dynamics]
     assert MARKINGS == ("p", "mp", "mf", "f")
-    assert markings[0] == "f"
+    assert score.liquidity[0] == "f"
+    assert score.liquidity[1] == "p"
+    assert score.liquidity[-1] == "f"
+    markings = [event.marking for event in score.dynamics]
+    assert markings[0] == "mp"
     assert markings[1] == "p"
-    assert markings[-1] == "f"
-    assert all(marking in MARKINGS for marking in markings)
+    assert markings[-1] == "mp"
+    assert {event.sound for event in score.dynamics} <= {SOUND["p"], SOUND["mp"]}
     assert score.bass[0].midi == 36
     for marking, _percent, velocity in DYNAMICS:
         assert round(SOUND[marking] / 100 * 90) == velocity
@@ -271,7 +302,7 @@ def test_bass_dynamics_follow_slot_volume() -> None:
 def _markings(volumes: list[float]) -> list[str]:
     score = render([Bar(100.0, volume, 100.0) for volume in volumes], regimes=("sideway",) * 3)
     assert score.regime_samples is None
-    return [event.marking for event in score.dynamics]
+    return list(score.liquidity)
 
 
 def test_untraded_tail_does_not_push_the_session_to_f() -> None:
@@ -322,7 +353,8 @@ def test_bass_attacks_more_often_as_volume_rises() -> None:
     assert _line(score.bass, 29) == [36, 36, 48, 36, 43, 43, 48, 43]
 
     steady = render([Bar(100.0, 100.0, 100.0)] * 30, regimes=("sideway",) * 3)
-    assert {event.marking for event in steady.dynamics} == {"mf"}
+    assert set(steady.liquidity) == {"mf"}
+    assert {event.marking for event in steady.dynamics} == {"mp"}
     assert _line(steady.bass, 10) == [36, 43, 48, 43]
     assert _line(steady.bass, 12) == [45, 52, 57, 52]
     for bar in range(30):
@@ -405,7 +437,9 @@ def test_musicxml_writes_harmony_and_letter_dynamics() -> None:
         assert measure.find("harmony/root/root-step").text == event.chord.root_step
 
     for part in (violin, cello):
-        assert part.findall(".//dynamics") == []
+        dynamics = part.findall(".//dynamics")
+        assert {child.tag for marks in dynamics for child in marks} == {"mp"}
+        assert part.find("measure/direction/direction-type/dynamics") is not None
     assert [child.tag for child in piano.find(".//dynamics")] == ["p"]
     assert len(piano.findall(".//dynamics")) == 1
     for part in (cello, piano):
@@ -421,7 +455,8 @@ def test_musicxml_writes_harmony_and_letter_dynamics() -> None:
             assert direction.find("sound").get("dynamics") == str(SOUND[children[0]])
             dynamic_marks.append(children[0])
     assert dynamic_marks == _changed([event.marking for event in score.dynamics])
-    assert dynamic_marks[0] == "f"
+    assert dynamic_marks[0] == "mp"
+    assert not {"mf", "f"} & set(dynamic_marks)
     assert "p" in dynamic_marks
     assert len(dynamic_marks) < len(score.dynamics)
 
@@ -457,8 +492,12 @@ def _assert_measure_timing(violin_measures, cello_measures, piano_measures, bass
             assert sum(int(note.find("duration").text) for note in attacks) == 8
         slot = score.slots[_slot_index(score, bar)]
         root, guide = COMPING[slot.chord.name]
-        assert _written(right) == [_pitch(midi) for midi in guide]
+        assert _written(right[:2]) == [_pitch(midi) for midi in guide]
         assert right[1].find("chord") is not None
+        assert all(note.get("dynamics") is None for note in right[:2])
+        for note in right[2:]:
+            if note.find("rest") is None:
+                assert note.get("dynamics") == f"{64 * 100 / 90:.2f}"
         assert _written(left) == ([_pitch(root)] if bar == slot.start else [])
 
         bass_notes = [note for note in bass_measure if note.tag == "note"]
@@ -563,7 +602,7 @@ def test_render_rejects_an_empty_session() -> None:
 
 def test_equal_volume_does_not_follow_how_many_candles_a_slot_holds() -> None:
     score = render([Bar(100.0, 100.0, 100.0)] * 227, regimes=("sideway",) * 3)
-    assert {event.marking for event in score.dynamics} == {"mf"}
+    assert set(score.liquidity) == {"mf"}
 
 
 def test_small_volume_gap_stays_at_mf() -> None:
@@ -576,7 +615,7 @@ def test_auction_prints_do_not_pin_the_body_quiet() -> None:
     bars[0] = Bar(100.0, 3_000.0, 100.0, auction=True)
     bars[-1] = Bar(100.0, 3_000.0, 100.0, auction=True)
     score = render(bars, regimes=("sideway",) * 3)
-    assert {event.marking for event in score.dynamics} == {"mf"}
+    assert set(score.liquidity) == {"mf"}
 
 
 def test_unlabeled_spike_is_clipped_before_the_scale_opens() -> None:
@@ -584,7 +623,7 @@ def test_unlabeled_spike_is_clipped_before_the_scale_opens() -> None:
     bars[0] = Bar(100.0, 3_000.0, 100.0)
     bars[-1] = Bar(100.0, 3_000.0, 100.0)
     score = render(bars, regimes=("sideway",) * 3)
-    assert {event.marking for event in score.dynamics} == {"mf"}
+    assert set(score.liquidity) == {"mf"}
 
 
 def test_repeated_dynamics_are_printed_once() -> None:
@@ -595,9 +634,10 @@ def test_repeated_dynamics_are_printed_once() -> None:
         for dynamics in _part(root, "P4").findall(".//dynamics")
         for child in dynamics
     ]
-    assert marks == ["mf"]
+    assert marks == ["mp"]
     for part_id in ("P1", "P2"):
-        assert _part(root, part_id).findall(".//dynamics") == []
+        melody = _part(root, part_id).findall(".//dynamics")
+        assert [child.tag for marks in melody for child in marks] == ["mp"]
 
 
 def test_short_volume_array_keeps_every_close() -> None:
@@ -620,3 +660,218 @@ def test_recap_stops_at_the_closing_auction() -> None:
     assert is_auction_minute(datetime(2024, 1, 15, 14, 30, tzinfo=VN))
     assert is_auction_minute(datetime(2024, 1, 15, 14, 45, tzinfo=VN))
     assert not is_auction_minute(datetime(2024, 1, 15, 13, 0, tzinfo=VN))
+
+
+def _alternating(count: int) -> list[int]:
+    return [60 + 2 * (index % 2) for index in range(count)]
+
+
+def test_phrase_ends_on_the_first_held_note_after_two_bars() -> None:
+    pitches = (
+        _alternating(8) + [64] * 4 + _alternating(8) + [67] * 5
+        + _alternating(15) + [65] * 4 + _alternating(20)
+    )
+    phrases = plan_phrases(pitches, (0,))
+    assert [(phrase.start, phrase.end) for phrase in phrases] == [(0, 25), (25, 44), (44, 64)]
+    assert [phrase.closes for phrase in phrases] == [True, True, False]
+    assert phrases[0].cadence.midi == 67
+
+
+def test_phrase_without_a_held_note_cuts_after_a_comma_then_at_four_bars() -> None:
+    pitches = _alternating(18) + [65] * 3 + _alternating(27)
+    assert [(p.start, p.end) for p in plan_phrases(pitches, (0,))] == [(0, 21), (21, 48)]
+    assert [(p.start, p.end) for p in plan_phrases(_alternating(48), (0,))] == [(0, 32), (32, 48)]
+    assert [(p.start, p.end) for p in plan_phrases([60] * 40, (24,))] == [(0, 24), (24, 40)]
+
+
+def _walk(seed: int) -> list[float]:
+    rng = random.Random(seed)
+    index = 14
+    closes: list[float] = []
+    for _ in range(240):
+        if rng.random() > 0.35:
+            index = min(28, max(0, index + rng.choice((-2, -1, 1, 2))))
+        closes.append(float(index))
+    closes[0], closes[-1] = 0.0, 28.0
+    return closes
+
+
+def _balanced(kinds: list[str]) -> bool:
+    open_ = False
+    for kind in kinds:
+        if (kind == "stop") != open_:
+            return False
+        open_ = not open_
+    return not open_
+
+
+def test_phrases_stay_two_to_four_bars_inside_sections() -> None:
+    for seed in range(20):
+        score = render([Bar(close, 1.0, close) for close in _walk(seed)])
+        sections = [start * 8 for start in SECTION_STARTS] + [240]
+        assert score.phrases[0].start == 0 and score.phrases[-1].end == 240
+        for phrase, following in zip(score.phrases, score.phrases[1:]):
+            assert phrase.end == following.start
+        for phrase in score.phrases:
+            assert MIN_EIGHTHS <= phrase.end - phrase.start <= MAX_EIGHTHS
+            assert not any(phrase.start < edge < phrase.end for edge in sections)
+        accents = [note for note in score.violin + score.cello if note.accent]
+        assert len(accents) <= len(score.phrases)
+        for wedges in (score.violin_wedges, score.cello_wedges):
+            assert _balanced([wedge.kind for wedge in wedges])
+
+
+def _session(spans: dict[int, int]) -> list[Bar]:
+    """240 scale indexes: C4/D4 alternating, with spans of held indexes laid over it."""
+    indexes = [7 + eighth % 2 for eighth in range(240)]
+    for start, (length, index) in spans.items():
+        indexes[start : start + length] = [index] * length
+    indexes[-2], indexes[-1] = 0, 28
+    return [Bar(float(index), 1.0, float(index)) for index in indexes]
+
+
+def test_held_note_ties_across_a_chord_change_and_breathes() -> None:
+    score = render(_session({30: (6, 16)}), regimes=("sideway",) * 3)
+    phrase = next(phrase for phrase in score.phrases if phrase.start == 16)
+    assert (phrase.end, phrase.closes) == (36, True)
+    held = [note for note in score.violin if note.midi == 76]
+    assert [
+        (note.bar, note.beat, note.duration_beats, note.tie_start, note.tie_stop) for note in held
+    ] == [(3, 3.0, 1.0, True, False), (4, 0.0, 1.5, False, True)]
+    assert held[0].accent and not held[1].accent
+    assert held[1].slur_stop
+    breath = next(note for note in score.violin if note.bar == 4 and note.beat == 1.5)
+    assert (breath.midi, breath.duration_beats) == (None, 0.5)
+
+
+def test_piano_answers_a_held_cadence_under_the_violin() -> None:
+    score = render(_session({30: (6, 16)}), regimes=("sideway",) * 3)
+    right = [note for note in score.piano if note.bar == 4 and note.staff == 1]
+    assert [(note.beat, note.midi, note.duration_beats, note.velocity) for note in right] == [
+        (0.0, 60, 0.5, None),
+        (0.0, 67, 0.5, None),
+        (0.5, 64, 0.5, 64),
+        (1.0, 67, 0.5, 64),
+        (1.5, 69, 0.5, 64),
+        (2.0, None, 2.0, None),
+    ]
+    assert fill_tones(AM7, 76, "violin") == [64, 67, 69, 72]
+    assert fill_tones(AM7, 50, "cello") == [60, 64, 67, 69]
+    assert len(fill_tones(AM7, 59, "violin")) < 3
+
+
+def test_fills_stay_in_the_cadence_tail_on_chord_tones() -> None:
+    found = 0
+    for seed in range(20):
+        score = render([Bar(close, 1.0, close) for close in _walk(seed)])
+        chord_at = {bar: slot.chord for slot in score.slots for bar in slot.bars()}
+        tails = {
+            eighth: phrase.cadence
+            for phrase in score.phrases
+            if phrase.closes
+            for eighth in range(max(phrase.cadence.start + 2, phrase.cadence.end - 6), phrase.cadence.end)
+        }
+        violin_onsets = {
+            (note.bar * 8 + int(note.beat * 2), note.midi) for note in score.violin if note.midi
+        }
+        for note in score.piano:
+            if note.velocity is None:
+                continue
+            found += 1
+            onset = note.bar * 8 + int(note.beat * 2)
+            assert onset % 8 and onset in tails
+            assert note.midi % 12 in {pitch % 12 for pitch in chord_at[note.bar].pitches}
+            assert 55 <= note.midi <= 79
+            cadence = tails[onset]
+            if (cadence.start, cadence.midi) in violin_onsets:
+                assert note.midi <= cadence.midi - 3
+    assert found
+
+
+def test_phrase_swells_to_its_apex_and_writes_hairpins() -> None:
+    rising = {16 + step: (1, 7 + step) for step in range(8)}
+    falling = {24 + step: (1, 13 - step) for step in range(6)}
+    score = render(_session({**rising, **falling, 30: (6, 6)}), regimes=("sideway",) * 3)
+    phrase = next(phrase for phrase in score.phrases if phrase.start == 16)
+    assert (phrase.end, phrase.apex.start, phrase.apex.midi) == (36, 23, 72)
+    attacks = {
+        note.bar * 8 + int(note.beat * 2): note.velocity
+        for note in score.violin
+        if note.midi is not None and not note.tie_stop
+    }
+    assert attacks[16] == 64
+    assert attacks[23] == 88
+    assert [attacks[eighth] for eighth in range(16, 24)] == sorted(attacks[e] for e in range(16, 24))
+    assert attacks[30] == 75 + 8
+    assert list(score.violin_wedges[:4]) == [
+        WedgeEvent(2, 0.0, "crescendo"),
+        WedgeEvent(2, 3.5, "stop"),
+        WedgeEvent(2, 3.5, "diminuendo"),
+        WedgeEvent(4, 1.5, "stop"),
+    ]
+
+    _text, root = _xml(score)
+    violin = _part(root, "P1")
+    kinds = [wedge.get("type") for wedge in violin.iter("wedge")]
+    assert kinds == [wedge.kind for wedge in score.violin_wedges]
+    assert _balanced(kinds)
+    bar_three = violin.findall("measure")[2]
+    sequence = [
+        child.find("direction-type/wedge").get("type") if child.tag == "direction" else "note"
+        for child in bar_three
+        if child.tag == "note" or child.find("direction-type/wedge") is not None
+    ]
+    assert sequence[:2] == ["crescendo", "note"]
+    assert sequence[-3:] == ["stop", "diminuendo", "note"]
+    sounding = [note for note in violin.iter("note") if note.find("rest") is None]
+    assert all(note.get("dynamics") for note in sounding)
+    assert len(violin.findall(".//accent")) == sum(note.accent for note in score.violin)
+
+
+def test_unbalanced_hairpins_are_reset_so_the_melody_does_not_fade() -> None:
+    """MuseScore moves one step per hairpin without a target and keeps it there."""
+    resets = 0
+    for seed in range(20):
+        score = render([Bar(close, 1.0, close) for close in _walk(seed)])
+        for notes, wedges, dynamics, part_id in (
+            (score.violin, score.violin_wedges, score.violin_dynamics, "P1"),
+            (score.cello, score.cello_wedges, score.cello_dynamics, "P2"),
+        ):
+            onsets = {note.bar * 8 + int(note.beat * 2) for note in notes if note.midi is not None}
+            for letter in dynamics:
+                assert letter.marking == "mp"
+                assert letter.bar * 8 + int(letter.beat * 2) in onsets
+            resets += len(dynamics)
+            timeline = sorted(
+                [(w.bar * 8 + w.beat * 2, 0 if w.kind == "stop" else 2, w.kind) for w in wedges]
+                + [(d.bar * 8 + d.beat * 2, 1, "reset") for d in dynamics]
+            )
+            level = 0
+            for _position, _order, kind in timeline:
+                if kind == "reset":
+                    level = 0
+                elif kind == "crescendo":
+                    assert level == 0
+                    level += 1
+                elif kind == "diminuendo":
+                    assert level in (0, 1)
+                    level -= 1
+            _text, root = _xml(score)
+            printed = _part(root, part_id).findall(".//dynamics")
+            assert len(printed) == 1 + len(dynamics)
+    assert resets
+
+
+def test_one_accent_per_phrase_on_its_longest_syncopation() -> None:
+    score = render(
+        _session({18: (3, 10), 22: (5, 12), 33: (5, 9)}),
+        regimes=("sideway",) * 3,
+    )
+    phrase = next(phrase for phrase in score.phrases if phrase.start == 16)
+    assert phrase.end == 38
+    accented = [
+        (note.bar, note.beat, note.midi)
+        for note in score.violin
+        if note.accent and 16 <= note.bar * 8 + note.beat * 2 < 38
+    ]
+    assert accented == [(2, 3.0, 69)]
