@@ -19,7 +19,7 @@ PERIOD = 4
 COMMA = 3
 BEAT = 2
 LEAP = 5
-MIN_EIGHTHS = 16
+MIN_EIGHTHS = 8
 MAX_EIGHTHS = 32
 
 
@@ -95,24 +95,22 @@ def _cut(runs: list[Run], start: int, end: int) -> int:
     """Where the phrase opened at start ends, inside a section ending at end."""
     low = start + MIN_EIGHTHS
     high = min(start + MAX_EIGHTHS, end - MIN_EIGHTHS)
-    candidates = [run for run in runs if low <= run.end <= high]
-
-    def held(run: Run) -> int:
-        return run.end - max(run.start, start)
+    candidates = [run for run in runs if run.start > start and low <= run.end <= high]
 
     for run in candidates:
-        if held(run) >= PERIOD:
+        if run.length >= PERIOD:
             return run.end
     if end - start <= MAX_EIGHTHS:
         return end
-    commas = [run for run in candidates if held(run) >= COMMA]
+    commas = [run for run in candidates if run.length >= COMMA]
     if commas:
-        return max(commas, key=lambda run: (held(run), run.end)).end
-    leaps = [run for run in candidates if held(run) >= BEAT and _leap_after(runs, run) >= LEAP]
+        return max(commas, key=lambda run: (run.length, run.end)).end
+    leaps = [run for run in candidates if run.length >= BEAT and _leap_after(runs, run) >= LEAP]
     if leaps:
-        return max(leaps, key=lambda run: (_leap_after(runs, run), held(run), run.end)).end
-    if candidates:
-        return candidates[-1].end
+        return max(leaps, key=lambda run: (_leap_after(runs, run), run.length, run.end)).end
+    changes = [run for run in runs if low <= run.end <= high]
+    if changes:
+        return changes[-1].end
     return high
 
 
