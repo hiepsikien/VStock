@@ -1,4 +1,4 @@
-"""Build a 30-bar score: violin and cello on the price, light piano comping, bass on liquidity."""
+"""Build a 30-bar score: violin, cello, and flute on the price, light piano comping, bass on liquidity."""
 
 from __future__ import annotations
 
@@ -31,6 +31,13 @@ HALF_BAR = 4
 TOTAL_EIGHTHS = MUSICAL_BARS * EIGHTHS_PER_BAR
 VIOLIN_LOWEST = 55  # G3
 CELLO_HANDBACK = 60  # C4
+CELLO_OVERLAP = 2  # eighths (1 beat) of dovetail overlap when Violin and Cello hand off
+VIOLIN_CEILING = 84  # C6: notes above C6 fold down an octave so Violin never shrieks
+FLUTE_CEILING = 88  # E6: keep Flute inside its sweet register (<= E6)
+FLUTE_TRIGGER = 79  # G5: Flute enters on high apex (>= G5) or Breakout
+FLUTE_HANDBACK = 76  # E5: Flute keeps soaring while melody stays at or above E5
+FLUTE_OVERLAP = 2  # eighths (1 beat) of dovetail harmony before Violin yields
+FLUTE_VELOCITY = 64  # mp ceiling so high flute stays airy and sweet
 PIANO_ROOT_LOW = 41  # F2
 GUIDE_LOW = 57  # A3
 
@@ -46,10 +53,8 @@ ACCENT_LIFT = 8
 STRONG_EIGHTHS = (0, 4)  # beats 1 and 3
 WEDGE_MIN = 2  # eighths
 
-# Colour on held melody notes (at least PERIOD eighths), at most one each.
-TREMOLO = "tremolo"
+# Colour on held melody notes (at least PERIOD eighths).
 BREAKOUT = "breakout"
-TREMOLO_BAND = MARKINGS[-1]
 BREAKOUT_LOOKBACK = 32  # eighths: four bars
 
 # Piano answers a held cadence in its last beats, while the melody holds and breathes.
@@ -165,7 +170,6 @@ def _written(
     accent: bool = False,
     velocity: int | None = None,
     tenuto: bool = False,
-    tremolo: bool = False,
     tie_in: bool = False,
     tie_out: bool = False,
 ) -> list[NoteEvent]:
@@ -186,7 +190,6 @@ def _written(
             accent=accent and index == 0,
             velocity=velocity if sounding else None,
             tenuto=tenuto and index == 0,
-            tremolo=tremolo and sounding,
         )
         for index, (cursor, size) in enumerate(pieces)
     ]
@@ -241,24 +244,18 @@ def accent_of(phrase: Phrase, skip: frozenset[int] = frozenset()) -> Run | None:
     return max(syncopated, key=lambda run: (run.length, -run.start), default=None)
 
 
-def techniques(phrase: Phrase, pitches: list[int], band_at: dict[int, str]) -> dict[int, str]:
+def techniques(phrase: Phrase, pitches: list[int], band_at: dict[int, str] | None = None) -> dict[int, str]:
     """A colour for some held notes of one phrase, keyed by run start.
 
-    Tremolo: the price fell onto the note and stalls while liquidity is in the
-    top band — heavy trading that no longer moves the price.
     Breakout: the price climbs above every note of the previous four bars and
     holds there; the first one in a phrase is accented and held tenuto.
-    A note takes the first of these that applies.
     """
     chosen: dict[int, str] = {}
     for run in phrase.runs:
         if run.length < PERIOD:
             continue
-        before = pitches[run.start - 1] if run.start else run.midi
         window = pitches[max(0, run.start - BREAKOUT_LOOKBACK) : run.start]
-        if band_at[run.start // EIGHTHS_PER_BAR] == TREMOLO_BAND and before > run.midi:
-            chosen[run.start] = TREMOLO
-        elif (
+        if (
             BREAKOUT not in chosen.values()
             and run.start >= BREAKOUT_LOOKBACK
             and run.midi > max(window)
@@ -292,98 +289,590 @@ def _hairpins(start: int, end: int, apex: int) -> list[WedgeEvent]:
     return wedges
 
 
+def flute_harmony_pitch(
+    melody_midi: int,
+    chord: Chord,
+    scale: tuple[int, ...],
+) -> int:
+    """A diatonic third or fifth above the melody (3, 4, or 7 semitones), preferring chord tones.
+
+    Only true thirds (+3, +4 semitones) and perfect fifths (+7 semitones) are
+    allowed — never a fourth (+5) or tritone (+6).
+    """
+    extended = c_major_scale(scale[0], scale[-1] + 24)
+    if melody_midi in extended:
+        idx = extended.index(melody_midi)
+        diatonic_candidates = [
+            extended[idx + step]
+            for step in (2, 4)
+            if idx + step < len(extended)
+            and (extended[idx + step] - melody_midi) in (3, 4, 7)
+        ]
+        chord_matches = [
+            note for note in diatonic_candidates if note % 12 in chord.pitch_classes
+        ]
+        if chord_matches:
+            return chord_matches[0]
+        if diatonic_candidates:
+            return diatonic_candidates[0]
+    chord_tones = [
+        melody_midi + offset
+        for offset in (3, 4, 7)
+        if (melody_midi + offset) % 12 in chord.pitch_classes
+    ]
+    if chord_tones:
+        return chord_tones[0]
+    return melody_midi + 4
+
+
+def _flute_and_violin_dovetail(
+    phrases: tuple[Phrase, ...],
+    pitches: list[int],
+    band_at: dict[int, str],
+    chord_at: dict[int, Chord],
+    scale: tuple[int, ...],
+) -> tuple[list[NoteEvent], list[tuple[int, int]]]:
+    """Build Flute highlight notes and record spans where Violin yields.
+
+    When a rising phrase reaches a high Apex (>= FLUTE_TRIGGER) or a BREAKOUT
+    run, Flute enters softly (tenuto + legato slur) onto a chordal 3rd/5th
+    above the melody. For the first FLUTE_OVERLAP eighths (1 beat), Violin and
+    Flute play together (dovetail layering); if the high passage continues
+    above FLUTE_HANDBACK, Violin rests from (span_start + FLUTE_OVERLAP) up to
+    span_end and yields the high line to Flute until the melody drops below
+    FLUTE_HANDBACK or the phrase ends. Any remaining phrase runs above
+    VIOLIN_CEILING (> C6) are also handed to Flute so Violin never has to fold
+    individual notes down an octave or sawtooth across C6.
+    """
+    flute_notes: list[NoteEvent] = []
+    yield_spans: list[tuple[int, int]] = []
+    flute_tied_in = False
+    prev_flute_midi: int | None = None
+
+    for phrase in phrases:
+        colours = techniques(phrase, pitches, band_at)
+        apex = phrase.apex
+        breath = phrase.closes and phrase.end < TOTAL_EIGHTHS
+        crosses_ceiling = (
+            max(r.midi for r in phrase.runs) > VIOLIN_CEILING
+            and min(r.midi for r in phrase.runs) <= VIOLIN_CEILING
+        )
+        ended_on_flute = False
+
+        idx = 0
+        while idx < len(phrase.runs):
+            run = phrase.runs[idx]
+            continued_hold = (
+                flute_tied_in
+                and idx == 0
+                and run.midi >= FLUTE_HANDBACK
+            )
+            is_breakout = (
+                phrase.rise >= MIN_RISE
+                and colours.get(run.start) == BREAKOUT
+                and run.midi >= FLUTE_HANDBACK
+            )
+            is_high_apex = (
+                phrase.rise >= MIN_RISE
+                and run.start == apex.start
+                and run.midi >= FLUTE_TRIGGER
+            )
+            above_ceiling = (
+                phrase.rise > 0 or crosses_ceiling
+            ) and run.midi > VIOLIN_CEILING
+            if not (continued_hold or is_breakout or is_high_apex or above_ceiling):
+                idx += 1
+                continue
+
+            end_idx = idx + 1
+            while end_idx < len(phrase.runs) and phrase.runs[end_idx].midi >= FLUTE_HANDBACK:
+                end_idx += 1
+
+            soar_runs = phrase.runs[idx:end_idx]
+            span_start = soar_runs[0].start
+            span_end = soar_runs[-1].end
+            sounding_end = span_end - (1 if breath and span_end == phrase.end else 0)
+            idx = end_idx
+            if sounding_end <= span_start:
+                continue
+
+            # Keep Flute in its sweet register (<= FLUTE_CEILING / E6) by folding any
+            # note > E6 down an octave (-12) while preserving pitch class and step changes.
+            flute_line: list[int] = []
+            for eighth in range(span_start, sounding_end):
+                f_pitch = flute_harmony_pitch(
+                    pitches[eighth],
+                    chord_at[eighth // EIGHTHS_PER_BAR],
+                    scale,
+                )
+                while f_pitch > FLUTE_CEILING:
+                    f_pitch -= 12
+                flute_line.append(f_pitch)
+            merged_flute_runs = [
+                Run(span_start + r.start, r.length, r.midi)
+                for r in runs_of(flute_line, 0, len(flute_line))
+            ]
+            has_slur = len(merged_flute_runs) > 1
+            tie_first_in = (
+                continued_hold
+                and span_start == phrase.start
+                and prev_flute_midi == merged_flute_runs[0].midi
+            )
+            # Only tie Flute across a held_over phrase boundary when the next phrase
+            # will begin on the exact same Flute pitch (same chord at phrase.end).
+            next_flute_midi: int | None = None
+            if phrase.held_over and span_end == phrase.end and phrase.end < TOTAL_EIGHTHS:
+                nf_pitch = flute_harmony_pitch(
+                    pitches[phrase.end],
+                    chord_at[phrase.end // EIGHTHS_PER_BAR],
+                    scale,
+                )
+                while nf_pitch > FLUTE_CEILING:
+                    nf_pitch -= 12
+                next_flute_midi = nf_pitch
+            tie_last_out = (
+                phrase.held_over
+                and span_end == phrase.end
+                and next_flute_midi == merged_flute_runs[-1].midi
+            )
+
+            for r_i, f_run in enumerate(merged_flute_runs):
+                is_first = r_i == 0
+                is_last = r_i == len(merged_flute_runs) - 1
+                flute_notes.extend(
+                    _written(
+                        f_run.start,
+                        f_run.length,
+                        f_run.midi,
+                        slur_start=has_slur and is_first,
+                        slur_stop=has_slur and is_last,
+                        velocity=FLUTE_VELOCITY,
+                        tenuto=is_first and not tie_first_in,
+                        tie_in=is_first and tie_first_in,
+                        tie_out=is_last and tie_last_out,
+                    )
+                )
+
+            # Yield immediately when continuing a held_over Flute note from the previous
+            # phrase, or when the entry run is already above VIOLIN_CEILING (> C6) mid-phrase;
+            # otherwise overlap for FLUTE_OVERLAP eighths.
+            yield_start = (
+                span_start
+                if (
+                    continued_hold
+                    or (soar_runs[0].midi > VIOLIN_CEILING and soar_runs[0].start > phrase.start)
+                )
+                else span_start + FLUTE_OVERLAP
+            )
+            if yield_start < span_end:
+                yield_spans.append((yield_start, span_end))
+                if span_end == phrase.end:
+                    ended_on_flute = True
+            prev_flute_midi = merged_flute_runs[-1].midi
+
+        flute_tied_in = phrase.held_over and ended_on_flute
+
+    return flute_notes, yield_spans
+
+
+def _apply_violin_yield(
+    runs: tuple[Run, ...],
+    owners: list[str],
+    yield_spans: list[tuple[int, int]] | None,
+) -> tuple[list[Run], list[str]]:
+    """Split violin runs at yield boundaries so the yielded spans become 'flute'."""
+    out_runs = list(runs)
+    out_owners = list(owners)
+    if not yield_spans:
+        return out_runs, out_owners
+    for y_start, y_end in yield_spans:
+        next_runs: list[Run] = []
+        next_owners: list[str] = []
+        for run, owner in zip(out_runs, out_owners):
+            if owner != "violin" or run.end <= y_start or run.start >= y_end:
+                next_runs.append(run)
+                next_owners.append(owner)
+                continue
+            if run.start < y_start:
+                next_runs.append(Run(run.start, y_start - run.start, run.midi))
+                next_owners.append("violin")
+            mid_start = max(run.start, y_start)
+            mid_end = min(run.end, y_end)
+            if mid_start < mid_end:
+                next_runs.append(Run(mid_start, mid_end - mid_start, run.midi))
+                next_owners.append("flute")
+            if run.end > y_end:
+                next_runs.append(Run(y_end, run.end - y_end, run.midi))
+                next_owners.append("violin")
+        out_runs, out_owners = next_runs, next_owners
+    return out_runs, out_owners
+
+
+def _cross_phrase_cello_overlaps(
+    phrases: tuple[Phrase, ...],
+    all_runs: list[list[Run]],
+    all_owners: list[list[str]],
+) -> tuple[dict[int, Run], dict[int, int]]:
+    """Record cross-phrase lead-ins and trail-outs when Violin and Cello hand off at a phrase boundary."""
+    lead_ins: dict[int, Run] = {}
+    trail_outs: dict[int, int] = {}
+    for p_idx in range(len(phrases) - 1):
+        curr_p = phrases[p_idx]
+        if curr_p.held_over:
+            continue
+        last_owner = all_owners[p_idx][-1]
+        next_owner = all_owners[p_idx + 1][0]
+        if {last_owner, next_owner} != {"violin", "cello"}:
+            continue
+        last_run = all_runs[p_idx][-1]
+        next_run = all_runs[p_idx + 1][0]
+        if (
+            not curr_p.closes
+            and last_owner == "violin"
+            and next_owner == "cello"
+            and last_run.midi < CELLO_HANDBACK
+        ):
+            if last_run.length >= 2:
+                lead = min(CELLO_OVERLAP, last_run.length)
+                lead_ins[p_idx + 1] = Run(last_run.end - lead, lead, last_run.midi)
+            else:
+                max_trail = 0
+                for step in range(1, min(CELLO_OVERLAP, next_run.length) + 1):
+                    if (last_run.end + step - 1) % EIGHTHS_PER_BAR in STRONG_EIGHTHS:
+                        break
+                    max_trail = step
+                if max_trail > 0:
+                    trail_outs[p_idx] = max_trail
+        elif (
+            not curr_p.closes
+            and last_owner == "cello"
+            and next_owner == "violin"
+            and last_run.midi >= VIOLIN_LOWEST
+        ):
+            if last_run.length >= 2:
+                lead = min(CELLO_OVERLAP, last_run.length)
+                lead_ins[p_idx + 1] = Run(last_run.end - lead, lead, last_run.midi)
+            else:
+                max_trail = 0
+                for step in range(1, min(CELLO_OVERLAP, next_run.length) + 1):
+                    if (last_run.end + step - 1) % EIGHTHS_PER_BAR in STRONG_EIGHTHS:
+                        break
+                    max_trail = step
+                if max_trail > 0:
+                    trail_outs[p_idx] = max_trail
+        elif (
+            curr_p.closes
+            and last_owner == "violin"
+            and next_owner == "cello"
+            and next_run.midi < CELLO_HANDBACK
+        ):
+            # Store on negative key -(p_idx + 1) so Cello plays the last beat of
+            # Violin's closing G3..B3 note before the breath rest.
+            eff_len = last_run.length - (1 if curr_p.end < TOTAL_EIGHTHS else 0)
+            if eff_len >= 2 and last_run.midi < CELLO_HANDBACK:
+                lead = min(CELLO_OVERLAP, eff_len)
+                lead_ins[-(p_idx + 1)] = Run(
+                    last_run.start + eff_len - lead, lead, last_run.midi
+                )
+    return lead_ins, trail_outs
+
+
+def _clip_segment(seg: list[Run], clip_start: int) -> list[Run]:
+    """Trim or drop runs in `seg` that start before `clip_start`."""
+    if not seg or seg[0].start >= clip_start:
+        return seg
+    clipped: list[Run] = []
+    for r in seg:
+        if r.end <= clip_start:
+            continue
+        if r.start < clip_start:
+            clipped.append(Run(clip_start, r.end - clip_start, r.midi))
+        else:
+            clipped.append(r)
+    return clipped
+
+
+def _instrument_segments(
+    p_runs: list[Run],
+    owners: list[str],
+    target: str,
+    cross_lead: Run | None = None,
+    cross_trail: int = 0,
+    min_start: int = 0,
+) -> list[list[Run]]:
+    """Build contiguous run segments for `target` ('violin' or 'cello') with dovetail overlap.
+
+    Instead of a hard cut when Violin and Cello hand off inside or across a phrase:
+    - When Cello enters from Violin, Cello joins on the tail of Violin's last
+      handoff run (when in G3..B3 and >= 2 eighths), or Violin extends its 1-eighth
+      G3..B3 handoff note into Cello's entry.
+    - When Violin re-enters from Cello, Violin anticipates on Cello's last
+      G3..B3 run (when >= 2 eighths), or Cello extends its last note under
+      Violin's entry when Cello's final run was below G3 or only 1 eighth.
+    Trail-out extensions stop before any strong beat (beat 1 or 3) so a held
+    handoff note never bleeds onto a new strong beat with a non-chord tone.
+    """
+    segments: list[list[Run]] = []
+    n = len(p_runs)
+    index = 0
+    while index < n:
+        if owners[index] != target:
+            index += 1
+            continue
+        end = index + 1
+        while end < n and owners[end] == target:
+            end += 1
+        seg = list(p_runs[index:end])
+        lead_added = 0
+
+        if index == 0 and cross_lead is not None:
+            seg.insert(0, cross_lead)
+            lead_added = 1
+
+        # Lead-in overlap from the preceding instrument's final run
+        if index > 0:
+            prev_owner = owners[index - 1]
+            prev_run = p_runs[index - 1]
+            if (
+                target == "cello"
+                and prev_owner == "violin"
+                and prev_run.midi < CELLO_HANDBACK
+                and prev_run.length >= 2
+            ):
+                lead = min(CELLO_OVERLAP, prev_run.length)
+                seg.insert(0, Run(prev_run.end - lead, lead, prev_run.midi))
+                lead_added = 1
+            elif (
+                target == "violin"
+                and prev_owner == "cello"
+                and prev_run.midi >= VIOLIN_LOWEST
+                and prev_run.length >= 2
+            ):
+                lead = min(CELLO_OVERLAP, prev_run.length)
+                seg.insert(0, Run(prev_run.end - lead, lead, prev_run.midi))
+                lead_added = 1
+
+        # Trail-out overlap into the succeeding instrument's opening run
+        if end < n:
+            next_owner = owners[end]
+            next_run = p_runs[end]
+            next_end = end + 1
+            while next_end < n and owners[next_end] == next_owner:
+                next_end += 1
+            next_span = p_runs[next_end - 1].end - next_run.start
+            # Do not extend a trail-out note onto a strong beat (beat 1 or 3)
+            max_trail = 0
+            for step in range(1, min(CELLO_OVERLAP, next_span) + 1):
+                if (seg[-1].end + step - 1) % EIGHTHS_PER_BAR in STRONG_EIGHTHS:
+                    break
+                max_trail = step
+            if (
+                target == "violin"
+                and next_owner == "cello"
+                and seg[-1].midi < CELLO_HANDBACK
+                and seg[-1].length == 1
+            ):
+                if max_trail > 0:
+                    seg[-1] = Run(seg[-1].start, seg[-1].length + max_trail, seg[-1].midi)
+            elif (
+                target == "cello"
+                and next_owner == "violin"
+                and next_run.midi >= CELLO_HANDBACK
+                and (seg[-1].length == 1 or seg[-1].midi < VIOLIN_LOWEST)
+            ):
+                if max_trail > 0:
+                    seg[-1] = Run(seg[-1].start, seg[-1].length + max_trail, seg[-1].midi)
+                elif seg[-1].midi >= VIOLIN_LOWEST:
+                    # Strong beat blocked trail-out, so let Cello join Violin's new note
+                    # for up to CELLO_OVERLAP eighths instead of cutting off on the barline.
+                    lead = min(CELLO_OVERLAP, next_run.length)
+                    seg.append(Run(next_run.start, lead, next_run.midi))
+        elif end == n and cross_trail > 0:
+            seg[-1] = Run(seg[-1].start, seg[-1].length + cross_trail, seg[-1].midi)
+
+        # Merge only the lead-in run with the first segment run if they share a pitch and touch
+        if lead_added and len(seg) >= 2 and seg[0].end == seg[1].start and seg[0].midi == seg[1].midi:
+            seg[:2] = [Run(seg[0].start, seg[0].length + seg[1].length, seg[0].midi)]
+
+        # Ensure segments of the same instrument never overlap each other or a previous phrase
+        clip_start = max(min_start, segments[-1][-1].end if segments else 0)
+        seg = _clip_segment(seg, clip_start)
+
+        if seg:
+            segments.append(seg)
+        index = end
+    return segments
+
+
 def _melody_parts(
-    pitches: list[int], phrases: tuple[Phrase, ...], band_at: dict[int, str]
+    pitches: list[int],
+    phrases: tuple[Phrase, ...],
+    band_at: dict[int, str],
+    yield_spans: list[tuple[int, int]] | None = None,
 ) -> tuple[_Line, _Line, list[tuple[Run, str]]]:
-    """Split the legato line between violin and cello; the silent part rests.
+    """Split the legato line between violin and cello with dovetail handoffs.
 
     Same-pitch eighths are one held note for the length of a phrase, tied
     across chord changes. The cello takes over below the violin's open G and
     keeps the line until it climbs back to C4, so a price hovering near G3 does
-    not bounce between them. Each instrument's share of a phrase is one slur
-    with hairpins toward the phrase apex. The phrase's stress is its breakout
-    note, else its syncopated held note, and is accented. Held notes take
-    their colour from `techniques`. A share that opens after hairpins left the
-    line off its starting step is marked mp again. A phrase that closes on a held note
-    drops its last eighth for a breath; that eighth repeated the same price.
-    A note held over into the next phrase is tied across, keeps its tremolo,
-    and is not accented again. A reset mp waits for the share's first fresh
-    attack and its hairpins start there; a share with none keeps no hairpins
-    and leaves the reset to the line's next share.
+    not bounce between them. At handoffs between violin and cello, the two
+    instruments overlap for up to a beat (dovetail) so neither cuts off
+    abruptly. Each instrument's share of a phrase is one slur with hairpins
+    toward the phrase apex. The phrase's stress is its breakout note, else its
+    syncopated held note, and is accented. A share that opens after hairpins
+    left the line off its starting step is marked mp again. A phrase that
+    closes on a held note drops its last eighth for a breath; that eighth
+    repeated the same price. A note held over into the next phrase is tied
+    across and is not accented again.
     Returns both lines and each closing cadence with the instrument holding it.
     """
     lines = {"violin": _Line(), "cello": _Line()}
     cadences: list[tuple[Run, str]] = []
     on_cello = False
     tied_in = False
-    carried: str | None = None
+    all_base_owners: list[list[str]] = []
+    all_p_runs: list[list[Run]] = []
+    all_owners: list[list[str]] = []
     for phrase in phrases:
-        owners: list[str] = []
+        base_owners: list[str] = []
         for run in phrase.runs:
             on_cello = run.midi < CELLO_HANDBACK if on_cello else run.midi < VIOLIN_LOWEST
-            owners.append("cello" if on_cello else "violin")
+            base_owners.append("cello" if on_cello else "violin")
+        phrase_yields = (
+            [
+                (ys, ye)
+                for ys, ye in yield_spans
+                if ys < phrase.end and ye > phrase.start
+            ]
+            if yield_spans
+            else []
+        )
+        p_runs, owners = _apply_violin_yield(phrase.runs, base_owners, phrase_yields)
+        all_base_owners.append(base_owners)
+        all_p_runs.append(p_runs)
+        all_owners.append(owners)
+
+    cross_leads, cross_trails = _cross_phrase_cello_overlaps(
+        phrases, all_p_runs, all_owners
+    )
+    last_end_by_owner = {"violin": 0, "cello": 0}
+
+    for p_idx, phrase in enumerate(phrases):
+        base_owners = all_base_owners[p_idx]
+        p_runs = all_p_runs[p_idx]
+        owners = all_owners[p_idx]
         breath = phrase.closes and phrase.end < TOTAL_EIGHTHS
         lift = _lift(phrase)
         colours = techniques(phrase, pitches, band_at)
-        if tied_in and carried == TREMOLO:
-            colours[phrase.start] = TREMOLO
         breakout = next(
-            (run for run in phrase.runs if colours.get(run.start) == BREAKOUT), None
+            (run for run in p_runs if colours.get(run.start) == BREAKOUT), None
         )
         skip = frozenset(colours) | ({phrase.start} if tied_in else frozenset())
-        stress = breakout or accent_of(phrase, skip)
-        index = 0
-        while index < len(phrase.runs):
-            end = index + 1
-            while end < len(phrase.runs) and owners[end] == owners[index]:
-                end += 1
-            segment = phrase.runs[index:end]
-            line = lines[owners[index]]
-            attacks = [run for run in segment if not (tied_in and run.start == phrase.start)]
-            swell_from: int | None = segment[0].start
-            if line.drift:
-                swell_from = attacks[0].start if attacks else None
-                if attacks:
-                    line.dynamics.append(
-                        DynamicEvent(
-                            bar=attacks[0].start // EIGHTHS_PER_BAR,
-                            marking=MELODY_MARKING,
-                            sound=SOUND[MELODY_MARKING],
-                            beat=(attacks[0].start % EIGHTHS_PER_BAR) * 0.5,
+        stress_orig = breakout or accent_of(phrase, skip)
+        stress_start = stress_orig.start if stress_orig is not None else None
+        for owner, line in lines.items():
+            c_lead = cross_leads.get(p_idx) if owners[0] == owner else None
+            c_trail = cross_trails.get(p_idx, 0) if owners[-1] == owner else 0
+            segs = _instrument_segments(
+                p_runs,
+                owners,
+                owner,
+                cross_lead=c_lead,
+                cross_trail=c_trail,
+                min_start=last_end_by_owner[owner],
+            )
+            closing_warmup = cross_leads.get(-(p_idx + 1))
+            if closing_warmup is not None and owner == "cello":
+                prev_end = segs[-1][-1].end if segs else last_end_by_owner[owner]
+                clipped_warmup = _clip_segment([closing_warmup], prev_end)
+                if clipped_warmup:
+                    segs.append(clipped_warmup)
+            for segment in segs:
+                attacks = [
+                    run
+                    for run in segment
+                    if not (
+                        tied_in
+                        and run.start == phrase.start
+                        and owners[0] == owner
+                    )
+                ]
+                swell_from: int | None = segment[0].start
+                if line.drift:
+                    swell_from = attacks[0].start if attacks else None
+                    if attacks:
+                        line.dynamics.append(
+                            DynamicEvent(
+                                bar=attacks[0].start // EIGHTHS_PER_BAR,
+                                marking=MELODY_MARKING,
+                                sound=SOUND[MELODY_MARKING],
+                                beat=(attacks[0].start % EIGHTHS_PER_BAR) * 0.5,
+                            )
+                        )
+                        line.drift = 0
+                yield_adjacent = any(o == "flute" for o in owners) and owner == "violin"
+                single_len = segment[0].length - (
+                    1 if breath and segment[0].end == phrase.end else 0
+                )
+                slurred = len(segment) > 1 or (
+                    yield_adjacent and len(_spell(segment[0].start, max(1, single_len))) > 1
+                )
+                sounding_end = segment[0].start
+                for run_index, run in enumerate(segment):
+                    length = run.length - (1 if breath and run.end == phrase.end else 0)
+                    if length <= 0:
+                        continue
+                    sounding_end = run.start + length
+                    colour = colours.get(run.start)
+                    is_stress = run.start == stress_start and owners[
+                        next(
+                            (i for i, pr in enumerate(p_runs) if pr.start <= run.start < pr.end),
+                            0,
+                        )
+                    ] == owner
+                    v_midi = (
+                        run.midi - 12
+                        if (owner == "violin" and run.midi > VIOLIN_CEILING)
+                        else run.midi
+                    )
+                    line.notes.extend(
+                        _written(
+                            run.start,
+                            length,
+                            v_midi,
+                            slur_start=slurred and run_index == 0,
+                            slur_stop=slurred and run_index == len(segment) - 1,
+                            accent=is_stress,
+                            velocity=_velocity(phrase, run, lift, is_stress),
+                            tenuto=colour == BREAKOUT,
+                            tie_in=(
+                                tied_in
+                                and run.start == phrase.start
+                                and owners[0] == owner
+                            ),
+                            tie_out=(
+                                phrase.held_over
+                                and run.end == phrase.end
+                                and owners[-1] == owner
+                            ),
                         )
                     )
-                    line.drift = 0
-            slurred = len(segment) > 1
-            sounding_end = segment[0].start
-            for run_index, run in enumerate(segment):
-                length = run.length - (1 if breath and run.end == phrase.end else 0)
-                sounding_end = run.start + length
-                colour = colours.get(run.start)
-                line.notes.extend(
-                    _written(
-                        run.start,
-                        length,
-                        run.midi,
-                        slur_start=slurred and run_index == 0,
-                        slur_stop=slurred and run_index == len(segment) - 1,
-                        accent=run == stress,
-                        velocity=_velocity(phrase, run, lift, run == stress),
-                        tenuto=colour == BREAKOUT,
-                        tremolo=colour == TREMOLO,
-                        tie_in=tied_in and run.start == phrase.start,
-                        tie_out=phrase.held_over and run.end == phrase.end,
-                    )
-                )
-            if lift and swell_from is not None:
-                hairpins = _hairpins(swell_from, sounding_end, phrase.apex.start)
-                line.wedges.extend(hairpins)
-                for wedge in hairpins:
-                    line.drift += {"crescendo": 1, "diminuendo": -1}.get(wedge.kind, 0)
-            index = end
+                last_end_by_owner[owner] = max(last_end_by_owner[owner], sounding_end)
+                if lift and swell_from is not None and sounding_end > swell_from:
+                    hairpins = _hairpins(swell_from, sounding_end, phrase.apex.start)
+                    line.wedges.extend(hairpins)
+                    for wedge in hairpins:
+                        line.drift += {"crescendo": 1, "diminuendo": -1}.get(wedge.kind, 0)
         if phrase.closes:
-            cadences.append((phrase.cadence, owners[-1]))
-        tied_in = phrase.held_over
-        carried = colours.get(phrase.cadence.start)
+            cadence_midi = (
+                phrase.cadence.midi - 12
+                if (base_owners[-1] == "violin" and phrase.cadence.midi > VIOLIN_CEILING)
+                else phrase.cadence.midi
+            )
+            cadences.append(
+                (Run(phrase.cadence.start, phrase.cadence.length, cadence_midi), base_owners[-1])
+            )
+        tied_in = phrase.held_over and owners[-1] != "flute"
     return lines["violin"], lines["cello"], cadences
 
 
@@ -566,7 +1055,7 @@ def render(
     title: str = "1-Day Recap",
     regimes: tuple[Regime, Regime, Regime] | None = None,
 ) -> Score:
-    """Turn one session of closes into violin, cello, piano, bass, and symbols.
+    """Turn one session of closes into flute, violin, cello, piano, bass, and symbols.
 
     Each phrase regime is the average of the first few source bars at that
     phrase's downbeat, then held for the phrase. Intro uses phrase 1's regime;
@@ -644,7 +1133,10 @@ def render(
         for phrase in raw_phrases
     )
     band_at = {bar: band for slot, band in zip(slots, bands) for bar in slot.bars()}
-    violin, cello, cadences = _melody_parts(pitches, phrases, band_at)
+    flute_notes, yield_spans = _flute_and_violin_dovetail(
+        phrases, pitches, band_at, chord_at, scale
+    )
+    violin, cello, cadences = _melody_parts(pitches, phrases, band_at, yield_spans)
     piano: list[NoteEvent] = list(_right_hand(slots, _fills(cadences, chord_at)))
     bass: list[NoteEvent] = []
     for slot, band in zip(slots, bands):
@@ -659,6 +1151,7 @@ def render(
         regimes=chosen,
         regime_samples=sample_indexes,
         slots=slots,
+        flute=_with_rests(flute_notes, TOTAL_EIGHTHS),
         violin=_with_rests(violin.notes, TOTAL_EIGHTHS),
         cello=_with_rests(cello.notes, TOTAL_EIGHTHS),
         piano=tuple(piano),
