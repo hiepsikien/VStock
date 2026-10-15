@@ -1,6 +1,8 @@
-"""Map a close onto the C major scale."""
+"""Map a close onto the C major scale, and snap strong beats to the active chord."""
 
 from __future__ import annotations
+
+from app.sonify.chords import Chord
 
 SCALE_LOW = 48  # C3
 SCALE_HIGH = 96  # C7
@@ -19,6 +21,32 @@ def price_to_scale_index(close: float, low: float, high: float, size: int) -> in
     fraction = (close - low) / (high - low)
     fraction = min(1.0, max(0.0, fraction))
     return round(fraction * (size - 1))
+
+
+def quantize_chord_tone(
+    target: int,
+    chord: Chord,
+    scale: tuple[int, ...],
+    previous: int | None = None,
+) -> int:
+    """Keep a chord tone; otherwise snap to the nearest chord tone on the scale.
+
+    A tie in scale steps prefers moving rather than repeating `previous`, then
+    the closer note in semitones, and finally the lower note.
+    """
+    if target % 12 in chord.pitch_classes:
+        return target
+    candidates = [(index, note) for index, note in enumerate(scale) if note % 12 in chord.pitch_classes]
+    if not candidates:
+        raise ValueError(f"{chord.name} has no tone in the melody register")
+    target_index = scale.index(target)
+
+    def key(item: tuple[int, int]) -> tuple[int, int, int, int]:
+        index, note = item
+        repeats_previous = 1 if (previous is not None and note == previous) else 0
+        return (abs(index - target_index), repeats_previous, abs(note - target), note)
+
+    return min(candidates, key=key)[1]
 
 
 def resample(values: list[float], count: int) -> list[float]:

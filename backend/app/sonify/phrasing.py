@@ -154,9 +154,9 @@ def plan_phrases(pitches: list[int], section_starts: tuple[int, ...]) -> tuple[P
     cursor = 0
     for index, edge in enumerate(bounds[1:], 1):
         while cursor < edge:
-            if edge - cursor <= MAX_EIGHTHS and edge < total:
-                edge = _settle_edge(runs, cursor, edge, bounds[index + 1])
             cut = _cut(runs, cursor, edge)
+            if cut == edge and edge < total:
+                cut = _settle_edge(runs, cursor, edge, bounds[index + 1])
             held_over = (
                 cut < total and cut not in section_set and pitches[cut] == pitches[cut - 1]
             )

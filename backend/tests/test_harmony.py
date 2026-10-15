@@ -14,10 +14,10 @@ from app.sonify.form import SECTION_STARTS, plan_slots
 from app.sonify.model import Bar, WedgeEvent
 from app.sonify.musicxml import BASS_WRITTEN_OCTAVES, score_to_musicxml
 from app.sonify.phrasing import MAX_EIGHTHS, MIN_EIGHTHS, PERIOD, plan_phrases
-from app.sonify.quantize import C_MAJOR_PCS, c_major_scale, price_to_scale_index
+from app.sonify.quantize import C_MAJOR_PCS, c_major_scale, price_to_scale_index, quantize_chord_tone
 from app.sonify.regime import classify, moving_average
 from app.sonify.chords import AM7, CMAJ7, DM7, EM7, FMAJ7, G7
-from app.sonify.render import assign_source_bars, comp_pitches, fill_tones, render
+from app.sonify.render import STRONG_EIGHTHS, assign_source_bars, comp_pitches, fill_tones, render
 from app.sonify.session import bars_from_ohlc, is_auction_minute, is_recap_minute, session_bars
 
 VN = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -266,19 +266,27 @@ def test_cello_takes_the_line_below_g3_until_c4() -> None:
     assert all(note.midi >= 55 for note in score.violin if note.midi is not None)
 
 
-def test_melody_keeps_scale_tones_outside_the_chord() -> None:
+def test_melody_snaps_strong_beats_to_chord_tones_and_keeps_weak_beat_passing_notes() -> None:
+    scale = c_major_scale()
+    assert quantize_chord_tone(64, CMAJ7, scale) == 64
+    assert quantize_chord_tone(62, AM7, scale) == 60
+    assert quantize_chord_tone(62, AM7, scale, previous=60) == 64
+    assert quantize_chord_tone(65, AM7, scale) == 64
+    assert quantize_chord_tone(71, AM7, scale) == 72
+
     score = render(
         [Bar(50.0, 1.0, 50.0)] * 30,
         regimes=("uptrend", "uptrend", "uptrend"),
     )
-    assert {note.midi for note in _sounding(score)} == {72}
+    g7_bars = {8, 9, 16, 17, 24, 25}
+    for note in _sounding(score):
+        assert note.midi == (71 if note.bar in g7_bars else 72)
 
-    scale = c_major_scale()
-    closes = [float(scale.index(62))] * 30
-    closes[0] = 0.0
-    closes[-1] = float(len(scale) - 1)
-    score = render([Bar(close, 1.0, close) for close in closes], regimes=("uptrend",) * 3)
-    assert [note.midi for note in _sounding(score) if note.bar == 2] == [62]
+    # On bar 0 (Cmaj7), strong beats (eighths 0 and 4) snap D4 (62) and F4 (65) to chord tones,
+    # while weak-beat runs keep D4 (62), F4 (65), and A4 (69) as passing tones.
+    passing = _indexed_session([8, 10, 9, 8, 10, 12, 11, 12], 7)
+    score = render(passing, regimes=("sideway",) * 3)
+    assert _line(score.violin, 0) == [60, 65, 64, 62, 64, 69, 67, 69]
 
 
 def test_bass_dynamics_follow_slot_volume() -> None:
@@ -739,6 +747,15 @@ def test_phrases_stay_two_to_four_bars_inside_sections() -> None:
         for phrase in score.phrases:
             assert MIN_EIGHTHS <= phrase.end - phrase.start <= MAX_EIGHTHS
             assert not any(phrase.start < edge < phrase.end - PERIOD for edge in sections)
+        chord_at = {bar: slot.chord for slot in score.slots for bar in slot.bars()}
+        for note in score.violin + score.cello:
+            if note.midi is None:
+                continue
+            start_eighth = note.bar * 8 + int(note.beat * 2)
+            end_eighth = start_eighth + int(note.duration_beats * 2)
+            for eighth in range(start_eighth, end_eighth):
+                if eighth % 8 in STRONG_EIGHTHS:
+                    assert note.midi % 12 in chord_at[note.bar].pitch_classes
         accents = [note for note in score.violin + score.cello if note.accent]
         assert len(accents) <= len(score.phrases)
         for wedges in (score.violin_wedges, score.cello_wedges):
@@ -822,7 +839,7 @@ def test_fills_stay_in_the_cadence_tail_on_chord_tones() -> None:
 def test_phrase_swells_to_its_apex_and_writes_hairpins() -> None:
     rising = {16 + step: (1, 7 + step) for step in range(8)}
     falling = {24 + step: (1, 13 - step) for step in range(6)}
-    score = render(_session({**rising, **falling, 30: (6, 6)}), regimes=("sideway",) * 3)
+    score = render(_session({**rising, **falling, 30: (6, 5)}), regimes=("sideway",) * 3)
     phrase = next(phrase for phrase in score.phrases if phrase.start == 16)
     assert (phrase.end, phrase.apex.start, phrase.apex.midi) == (36, 23, 72)
     attacks = {
@@ -918,10 +935,10 @@ def test_reset_after_a_held_over_note_waits_for_the_next_attack() -> None:
 
 def test_heavy_volume_stall_after_a_fall_is_a_tremolo() -> None:
     ramp = [50_000 + 100_000 * index / 239 for index in range(240)]
-    score = render(_session({36: (6, 6), 196: (6, 6)}, ramp), regimes=("sideway",) * 3)
+    score = render(_session({36: (6, 5), 196: (6, 5)}, ramp), regimes=("sideway",) * 3)
     band_at = {bar: band for slot, band in zip(score.slots, score.liquidity) for bar in slot.bars()}
     assert band_at[4] == "p" and band_at[24] == "f"
-    held = [note for note in score.violin if note.midi == 59]
+    held = [note for note in score.violin if note.midi == 57]
     assert [(note.bar, note.beat, note.tremolo) for note in held] == [
         (4, 2.0, False),
         (5, 0.0, False),
@@ -936,10 +953,10 @@ def test_heavy_volume_stall_after_a_fall_is_a_tremolo() -> None:
 
 
 def test_breakout_above_four_bars_is_accented_and_held_tenuto() -> None:
-    spans = {47: (1, 9), 48: (1, 10), 49: (1, 11), 50: (5, 12)}
+    spans = {47: (1, 9), 48: (1, 11), 49: (1, 12), 50: (5, 13)}
     score = render(_session(spans), regimes=("sideway",) * 3)
     phrase = next(phrase for phrase in score.phrases if phrase.start <= 50 < phrase.end)
-    held = [note for note in score.violin if note.midi == 69]
+    held = [note for note in score.violin if note.midi == 71]
     assert held[0].accent and held[0].tenuto
     assert not any(note.accent or note.tenuto for note in held[1:])
     accents = [
