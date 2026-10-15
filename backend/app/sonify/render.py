@@ -300,6 +300,27 @@ def _hairpins(start: int, end: int, apex: int) -> list[WedgeEvent]:
     return wedges
 
 
+def _phrase_violin_shift(phrase: Phrase) -> tuple[int, int]:
+    """Find the first eighth in a high phrase from which all remaining notes can shift by -12.
+
+    When a phrase exceeds VIOLIN_CEILING (84), shifting the high tail together
+    by -12 preserves the melodic contour across C6 without sawtoothing and keeps
+    Flute a true 3rd/5th above Violin. If the tail does not open at the start of
+    the phrase, its first shifted note must still stay above the preceding
+    unshifted note so an ascending entry never steps backward.
+    """
+    if phrase.apex.midi <= VIOLIN_CEILING:
+        return (phrase.end, 0)
+    for idx in range(len(phrase.runs)):
+        tail = phrase.runs[idx:]
+        if min(r.midi for r in tail) - 12 < VIOLIN_LOWEST:
+            continue
+        if idx > 0 and tail[0].midi - 12 < phrase.runs[idx - 1].midi:
+            continue
+        return (tail[0].start, -12)
+    return (phrase.end, 0)
+
+
 def flute_harmony_pitch(
     melody_midi: int,
     chord: Chord,
@@ -374,6 +395,7 @@ def _flute_and_violin_dovetail(
             continue
         colours = techniques(phrase, pitches, band_at)
         apex = phrase.apex
+        shift_from, shift = _phrase_violin_shift(phrase)
 
         trigger_idx: int | None = None
         for idx, run in enumerate(phrase.runs):
@@ -386,8 +408,18 @@ def _flute_and_violin_dovetail(
         if trigger_idx is None:
             continue
 
+        # Keep Flute soaring while the effective violin pitch stays >= D5 (74)
+        # (or raw pitch >= FLUTE_HANDBACK when unshifted) so a shifted phrase tail
+        # never drops Flute by more than an octave.
         end_idx = trigger_idx + 1
-        while end_idx < len(phrase.runs) and phrase.runs[end_idx].midi >= FLUTE_HANDBACK:
+        while end_idx < len(phrase.runs):
+            r_next = phrase.runs[end_idx]
+            r_shift = shift if r_next.start >= shift_from else 0
+            eff_midi = r_next.midi + r_shift
+            if eff_midi > VIOLIN_CEILING:
+                eff_midi -= 12
+            if eff_midi < (74 if r_shift < 0 else FLUTE_HANDBACK):
+                break
             end_idx += 1
 
         soar_runs = phrase.runs[trigger_idx:end_idx]
@@ -400,10 +432,15 @@ def _flute_and_violin_dovetail(
 
         # Compute Flute pitch per eighth across the soar span and merge consecutive
         # equal pitches into sustained notes (avoiding machine-gun re-attacks).
-        flute_line: list[int] = [
-            flute_harmony_pitch(pitches[eighth], chord_at[eighth // EIGHTHS_PER_BAR], scale)
-            for eighth in range(span_start, sounding_end)
-        ]
+        flute_line: list[int] = []
+        for eighth in range(span_start, sounding_end):
+            e_shift = shift if eighth >= shift_from else 0
+            v_ref = pitches[eighth] + e_shift
+            if v_ref > VIOLIN_CEILING:
+                v_ref -= 12
+            flute_line.append(
+                flute_harmony_pitch(v_ref, chord_at[eighth // EIGHTHS_PER_BAR], scale)
+            )
         merged_flute_runs = [
             Run(span_start + r.start, r.length, r.midi)
             for r in runs_of(flute_line, 0, len(flute_line))
@@ -425,14 +462,7 @@ def _flute_and_violin_dovetail(
                 )
             )
 
-        # Dovetail: Violin plays the overlap (FLUTE_OVERLAP eighths), or the full first
-        # run only when that run is a multi-run transition shorter than a phrase period;
-        # on long held peaks (or multi-run high passages), Violin yields after FLUTE_OVERLAP.
-        first_run = soar_runs[0]
-        if len(soar_runs) > 1 and first_run.length <= PERIOD:
-            yield_start = max(span_start + FLUTE_OVERLAP, first_run.end)
-        else:
-            yield_start = span_start + FLUTE_OVERLAP
+        yield_start = span_start + FLUTE_OVERLAP
         if yield_start < span_end:
             yield_spans[phrase.start] = (yield_start, span_end)
 
@@ -498,6 +528,7 @@ def _melody_parts(
     tied_in = False
     carried: str | None = None
     for phrase in phrases:
+        shift_from, shift = _phrase_violin_shift(phrase)
         base_owners: list[str] = []
         for run in phrase.runs:
             on_cello = run.midi < CELLO_HANDBACK if on_cello else run.midi < VIOLIN_LOWEST
@@ -540,18 +571,30 @@ def _melody_parts(
                         )
                     )
                     line.drift = 0
-            slurred = len(segment) > 1
+            # Keep the slur when a multi-run Violin share was truncated by Flute yield
+            # and its remaining single run spans at least two written pieces.
+            yield_adjacent = (index > 0 and owners[index - 1] == "flute") or (
+                end < len(p_runs) and owners[end] == "flute"
+            )
+            single_len = segment[0].length - (
+                1 if breath and segment[0].end == phrase.end else 0
+            )
+            slurred = len(segment) > 1 or (
+                yield_adjacent and len(_spell(segment[0].start, max(1, single_len))) > 1
+            )
             sounding_end = segment[0].start
             for run_index, run in enumerate(segment):
                 length = run.length - (1 if breath and run.end == phrase.end else 0)
                 sounding_end = run.start + length
                 colour = colours.get(run.start)
                 is_stress = run.start == stress_start
-                v_midi = (
-                    run.midi - 12
-                    if (owner == "violin" and run.midi > VIOLIN_CEILING)
-                    else run.midi
-                )
+                if owner == "violin":
+                    r_shift = shift if run.start >= shift_from else 0
+                    v_midi = run.midi + r_shift
+                    if v_midi > VIOLIN_CEILING:
+                        v_midi -= 12
+                else:
+                    v_midi = run.midi
                 line.notes.extend(
                     _written(
                         run.start,
@@ -578,11 +621,13 @@ def _melody_parts(
                     line.drift += {"crescendo": 1, "diminuendo": -1}.get(wedge.kind, 0)
             index = end
         if phrase.closes:
-            cadence_midi = (
-                phrase.cadence.midi - 12
-                if (base_owners[-1] == "violin" and phrase.cadence.midi > VIOLIN_CEILING)
-                else phrase.cadence.midi
-            )
+            if base_owners[-1] == "violin":
+                c_shift = shift if phrase.cadence.start >= shift_from else 0
+                cadence_midi = phrase.cadence.midi + c_shift
+                if cadence_midi > VIOLIN_CEILING:
+                    cadence_midi -= 12
+            else:
+                cadence_midi = phrase.cadence.midi
             cadences.append(
                 (Run(phrase.cadence.start, phrase.cadence.length, cadence_midi), base_owners[-1])
             )

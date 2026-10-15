@@ -437,7 +437,7 @@
       <note dynamics="88.89">
         <pitch>
           <step>F</step>
-          <octave>5</octave>
+          <octave>4</octave>
         </pitch>
         <duration>1</duration>
         <voice>1</voice>
@@ -473,40 +473,15 @@
       <note dynamics="93.33">
         <pitch>
           <step>B</step>
-          <octave>5</octave>
+          <octave>4</octave>
         </pitch>
         <duration>1</duration>
         <voice>1</voice>
         <type>eighth</type>
-        <notations>
-          <slur type="stop" number="1" />
-        </notations>
       </note>
-      <direction placement="below">
-        <direction-type>
-          <wedge type="stop" number="1" />
-        </direction-type>
-      </direction>
-      <note>
-        <rest />
-        <duration>2</duration>
-        <voice>1</voice>
-        <type>quarter</type>
-      </note>
-      <note>
-        <rest />
-        <duration>2</duration>
-        <voice>1</voice>
-        <type>quarter</type>
-      </note>
-      <direction placement="below">
-        <direction-type>
-          <wedge type="diminuendo" number="1" />
-        </direction-type>
-      </direction>
-      <note dynamics="95.56">
+      <note dynamics="97.78">
         <pitch>
-          <step>G</step>
+          <step>D</step>
           <octave>5</octave>
         </pitch>
         <duration>2</duration>
@@ -520,11 +495,9 @@
           </articulations>
         </notations>
       </note>
-    </measure>
-    <measure number="10">
-      <note dynamics="95.56">
+      <note dynamics="97.78">
         <pitch>
-          <step>G</step>
+          <step>D</step>
           <octave>5</octave>
         </pitch>
         <duration>1</duration>
@@ -533,6 +506,7 @@
         <type>eighth</type>
         <notations>
           <tied type="stop" />
+          <slur type="stop" number="1" />
         </notations>
       </note>
       <direction placement="below">
@@ -542,16 +516,41 @@
       </direction>
       <note>
         <rest />
-        <duration>3</duration>
+        <duration>1</duration>
+        <voice>1</voice>
+        <type>eighth</type>
+      </note>
+      <direction placement="below">
+        <direction-type>
+          <wedge type="diminuendo" number="1" />
+        </direction-type>
+      </direction>
+      <note dynamics="95.56">
+        <pitch>
+          <step>G</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>2</duration>
         <voice>1</voice>
         <type>quarter</type>
-        <dot />
+        <notations>
+          <articulations>
+            <accent />
+          </articulations>
+        </notations>
       </note>
+      <direction placement="below">
+        <direction-type>
+          <wedge type="stop" number="1" />
+        </direction-type>
+      </direction>
+    </measure>
+    <measure number="10">
       <note>
-        <rest />
-        <duration>4</duration>
+        <rest measure="yes" />
+        <duration>8</duration>
         <voice>1</voice>
-        <type>half</type>
+        <type>whole</type>
       </note>
     </measure>
     <measure number="11">
@@ -561,13 +560,34 @@
         </root>
         <kind text="maj7">major-seventh</kind>
       </harmony>
-      <note>
-        <rest />
+      <direction placement="below">
+        <direction-type>
+          <dynamics>
+            <mp />
+          </dynamics>
+        </direction-type>
+        <sound dynamics="71" />
+      </direction>
+      <direction placement="below">
+        <direction-type>
+          <wedge type="diminuendo" number="1" />
+        </direction-type>
+      </direction>
+      <note dynamics="74.44">
+        <pitch>
+          <step>C</step>
+          <octave>5</octave>
+        </pitch>
         <duration>3</duration>
         <voice>1</voice>
         <type>quarter</type>
         <dot />
       </note>
+      <direction placement="below">
+        <direction-type>
+          <wedge type="stop" number="1" />
+        </direction-type>
+      </direction>
       <direction placement="below">
         <direction-type>
           <dynamics>
@@ -592,6 +612,7 @@
         <type>eighth</type>
         <notations>
           <tied type="start" />
+          <slur type="start" number="1" />
           <articulations>
             <accent />
           </articulations>
@@ -608,6 +629,7 @@
         <type>eighth</type>
         <notations>
           <tied type="stop" />
+          <slur type="stop" number="1" />
         </notations>
       </note>
       <direction placement="below">
@@ -1349,10 +1371,10 @@
           <step>C</step>
           <octave>6</octave>
         </pitch>
-        <duration>2</duration>
+        <duration>1</duration>
         <tie type="stop" />
         <voice>1</voice>
-        <type>quarter</type>
+        <type>eighth</type>
         <notations>
           <tied type="stop" />
           <slur type="stop" number="1" />
@@ -1365,9 +1387,10 @@
       </direction>
       <note>
         <rest />
-        <duration>2</duration>
+        <duration>3</duration>
         <voice>1</voice>
         <type>quarter</type>
+        <dot />
       </note>
     </measure>
     <measure number="25">
@@ -1481,7 +1504,7 @@
       <note dynamics="71.11">
         <pitch>
           <step>A</step>
-          <octave>5</octave>
+          <octave>4</octave>
         </pitch>
         <duration>4</duration>
         <tie type="start" />
@@ -1495,7 +1518,7 @@
       <note dynamics="71.11">
         <pitch>
           <step>A</step>
-          <octave>5</octave>
+          <octave>4</octave>
         </pitch>
         <duration>1</duration>
         <tie type="stop" />
@@ -1517,7 +1540,7 @@
       <note dynamics="85.56">
         <pitch>
           <step>B</step>
-          <octave>5</octave>
+          <octave>4</octave>
         </pitch>
         <duration>2</duration>
         <voice>1</voice>
@@ -1670,11 +1693,10 @@
           <step>C</step>
           <octave>6</octave>
         </pitch>
-        <duration>3</duration>
+        <duration>1</duration>
         <tie type="stop" />
         <voice>1</voice>
-        <type>quarter</type>
-        <dot />
+        <type>eighth</type>
         <notations>
           <tied type="stop" />
           <slur type="stop" number="1" />
@@ -1687,6 +1709,15 @@
       </direction>
       <note>
         <rest />
+        <duration>2</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+      </note>
+      <note dynamics="76.67">
+        <pitch>
+          <step>B</step>
+          <octave>4</octave>
+        </pitch>
         <duration>1</duration>
         <voice>1</voice>
         <type>eighth</type>
@@ -5505,7 +5536,7 @@
         <grace slash="yes" />
         <pitch>
           <step>B</step>
-          <octave>6</octave>
+          <octave>5</octave>
         </pitch>
         <voice>1</voice>
         <type>16th</type>
@@ -5517,7 +5548,7 @@
         <grace />
         <pitch>
           <step>C</step>
-          <octave>7</octave>
+          <octave>6</octave>
         </pitch>
         <voice>1</voice>
         <type>16th</type>
@@ -5525,64 +5556,36 @@
       <note dynamics="71.11">
         <pitch>
           <step>D</step>
-          <octave>7</octave>
+          <octave>6</octave>
         </pitch>
         <duration>1</duration>
         <voice>1</voice>
         <type>eighth</type>
         <notations>
+          <slur type="stop" number="1" />
           <articulations>
             <tenuto />
           </articulations>
         </notations>
       </note>
-      <note dynamics="71.11">
-        <pitch>
-          <step>D</step>
-          <octave>6</octave>
-        </pitch>
-        <duration>1</duration>
-        <voice>1</voice>
-        <type>eighth</type>
-      </note>
-      <note dynamics="71.11">
-        <pitch>
-          <step>F</step>
-          <octave>6</octave>
-        </pitch>
-        <duration>2</duration>
-        <tie type="start" />
+      <note>
+        <rest />
+        <duration>3</duration>
         <voice>1</voice>
         <type>quarter</type>
-        <notations>
-          <tied type="start" />
-        </notations>
-      </note>
-      <note dynamics="71.11">
-        <pitch>
-          <step>F</step>
-          <octave>6</octave>
-        </pitch>
-        <duration>1</duration>
-        <tie type="stop" />
-        <voice>1</voice>
-        <type>eighth</type>
-        <notations>
-          <tied type="stop" />
-          <slur type="stop" number="1" />
-        </notations>
+        <dot />
       </note>
       <note>
         <rest />
-        <duration>1</duration>
+        <duration>2</duration>
         <voice>1</voice>
-        <type>eighth</type>
+        <type>quarter</type>
       </note>
       <note dynamics="62.22">
         <grace slash="yes" />
         <pitch>
           <step>G</step>
-          <octave>6</octave>
+          <octave>5</octave>
         </pitch>
         <voice>1</voice>
         <type>16th</type>
@@ -5594,7 +5597,7 @@
         <grace />
         <pitch>
           <step>A</step>
-          <octave>6</octave>
+          <octave>5</octave>
         </pitch>
         <voice>1</voice>
         <type>16th</type>
@@ -5602,7 +5605,7 @@
       <note dynamics="71.11">
         <pitch>
           <step>B</step>
-          <octave>6</octave>
+          <octave>5</octave>
         </pitch>
         <duration>2</duration>
         <tie type="start" />
@@ -5620,7 +5623,7 @@
       <note dynamics="71.11">
         <pitch>
           <step>B</step>
-          <octave>6</octave>
+          <octave>5</octave>
         </pitch>
         <duration>1</duration>
         <tie type="stop" />
@@ -5633,7 +5636,7 @@
       <note dynamics="71.11">
         <pitch>
           <step>G</step>
-          <octave>6</octave>
+          <octave>5</octave>
         </pitch>
         <duration>1</duration>
         <voice>1</voice>
@@ -5642,7 +5645,7 @@
       <note dynamics="71.11">
         <pitch>
           <step>F</step>
-          <octave>6</octave>
+          <octave>5</octave>
         </pitch>
         <duration>2</duration>
         <voice>1</voice>
@@ -5651,7 +5654,7 @@
       <note dynamics="71.11">
         <pitch>
           <step>G</step>
-          <octave>6</octave>
+          <octave>5</octave>
         </pitch>
         <duration>1</duration>
         <voice>1</voice>
@@ -5660,7 +5663,7 @@
       <note dynamics="71.11">
         <pitch>
           <step>F</step>
-          <octave>6</octave>
+          <octave>5</octave>
         </pitch>
         <duration>2</duration>
         <voice>1</voice>
@@ -5669,26 +5672,23 @@
       <note dynamics="71.11">
         <pitch>
           <step>G</step>
-          <octave>6</octave>
+          <octave>5</octave>
         </pitch>
         <duration>1</duration>
         <voice>1</voice>
         <type>eighth</type>
+        <notations>
+          <slur type="stop" number="1" />
+        </notations>
       </note>
     </measure>
     <measure number="11">
-      <note dynamics="71.11">
-        <pitch>
-          <step>E</step>
-          <octave>6</octave>
-        </pitch>
+      <note>
+        <rest />
         <duration>3</duration>
         <voice>1</voice>
         <type>quarter</type>
         <dot />
-        <notations>
-          <slur type="stop" number="1" />
-        </notations>
       </note>
       <note dynamics="62.22">
         <grace slash="yes" />
@@ -6232,7 +6232,7 @@
         <grace slash="yes" />
         <pitch>
           <step>G</step>
-          <octave>6</octave>
+          <octave>5</octave>
         </pitch>
         <voice>1</voice>
         <type>16th</type>
@@ -6244,7 +6244,7 @@
         <grace />
         <pitch>
           <step>A</step>
-          <octave>6</octave>
+          <octave>5</octave>
         </pitch>
         <voice>1</voice>
         <type>16th</type>
@@ -6252,7 +6252,7 @@
       <note dynamics="71.11">
         <pitch>
           <step>B</step>
-          <octave>6</octave>
+          <octave>5</octave>
         </pitch>
         <duration>2</duration>
         <voice>1</voice>
@@ -6266,7 +6266,7 @@
       <note dynamics="71.11">
         <pitch>
           <step>G</step>
-          <octave>6</octave>
+          <octave>5</octave>
         </pitch>
         <duration>1</duration>
         <tie type="start" />
@@ -6279,7 +6279,7 @@
       <note dynamics="71.11">
         <pitch>
           <step>G</step>
-          <octave>6</octave>
+          <octave>5</octave>
         </pitch>
         <duration>2</duration>
         <tie type="stop" />
@@ -6292,7 +6292,7 @@
       <note dynamics="71.11">
         <pitch>
           <step>B</step>
-          <octave>6</octave>
+          <octave>5</octave>
         </pitch>
         <duration>2</duration>
         <tie type="start" />
@@ -6307,7 +6307,7 @@
       <note dynamics="71.11">
         <pitch>
           <step>B</step>
-          <octave>6</octave>
+          <octave>5</octave>
         </pitch>
         <duration>2</duration>
         <tie type="stop" />
@@ -6343,7 +6343,7 @@
         <grace slash="yes" />
         <pitch>
           <step>C</step>
-          <octave>7</octave>
+          <octave>6</octave>
         </pitch>
         <voice>1</voice>
         <type>16th</type>
@@ -6355,7 +6355,7 @@
         <grace />
         <pitch>
           <step>D</step>
-          <octave>7</octave>
+          <octave>6</octave>
         </pitch>
         <voice>1</voice>
         <type>16th</type>
@@ -6363,7 +6363,7 @@
       <note dynamics="71.11">
         <pitch>
           <step>E</step>
-          <octave>7</octave>
+          <octave>6</octave>
         </pitch>
         <duration>1</duration>
         <tie type="start" />
@@ -6379,7 +6379,7 @@
       <note dynamics="71.11">
         <pitch>
           <step>E</step>
-          <octave>7</octave>
+          <octave>6</octave>
         </pitch>
         <duration>3</duration>
         <tie type="stop" />
@@ -6388,19 +6388,14 @@
         <dot />
         <notations>
           <tied type="stop" />
+          <slur type="stop" number="1" />
         </notations>
       </note>
-      <note dynamics="71.11">
-        <pitch>
-          <step>D</step>
-          <octave>6</octave>
-        </pitch>
+      <note>
+        <rest />
         <duration>1</duration>
         <voice>1</voice>
         <type>eighth</type>
-        <notations>
-          <slur type="stop" number="1" />
-        </notations>
       </note>
     </measure>
   </part>

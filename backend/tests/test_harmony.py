@@ -1131,3 +1131,18 @@ def test_flute_harmony_avoids_fourths_tritones_octave_drops_and_repeated_reattac
         note for note in score.violin if note.bar == 2 and note.beat >= 3.0
     ]
     assert all(note.midi is None for note in violin_bar2_after_overlap)
+
+    # A phrase crossing C6 (A5=81 -> D6=86 -> A5=81 -> E6=88 -> G6=91) shifts its whole phrase
+    # together by -12 (A4=69 -> D5=74 -> A4=69 -> E5=76 -> G5=79) instead of sawtoothing individual
+    # notes, and keeps Flute within a true 3rd/5th of the shifted Violin on the overlap beat.
+    crossing = _session({12: (4, 15), 16: (3, 19), 19: (1, 22), 20: (2, 19), 22: (2, 23), 24: (6, 25)})
+    score = render(crossing, regimes=("downtrend",) * 3)
+    v_bar2 = [note.midi for note in score.violin if note.bar == 2 and note.midi is not None]
+    assert v_bar2 == [69, 74, 69, 76]
+    v_bar3_overlap = next(
+        note for note in score.violin if note.bar == 3 and note.beat == 0.0
+    )
+    f_bar3_overlap = next(
+        note for note in score.flute if note.bar == 3 and note.beat == 0.0
+    )
+    assert f_bar3_overlap.midi - v_bar3_overlap.midi in (3, 4, 7)
