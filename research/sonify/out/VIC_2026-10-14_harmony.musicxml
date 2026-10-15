@@ -228,8 +228,8 @@
       </note>
       <note dynamics="71.11">
         <pitch>
-          <step>E</step>
-          <octave>6</octave>
+          <step>G</step>
+          <octave>5</octave>
         </pitch>
         <duration>1</duration>
         <voice>1</voice>
@@ -1100,9 +1100,9 @@
     <measure number="3">
       <harmony placement="above">
         <root>
-          <root-step>C</root-step>
+          <root-step>G</root-step>
         </root>
-        <kind text="maj7">major-seventh</kind>
+        <kind text="7">dominant</kind>
       </harmony>
       <direction placement="below">
         <direction-type>
@@ -1136,12 +1136,6 @@
       </note>
     </measure>
     <measure number="4">
-      <harmony placement="above">
-        <root>
-          <root-step>G</root-step>
-        </root>
-        <kind text="7">dominant</kind>
-      </harmony>
       <note>
         <rest measure="yes" />
         <duration>8</duration>
@@ -1150,6 +1144,12 @@
       </note>
     </measure>
     <measure number="5">
+      <harmony placement="above">
+        <root>
+          <root-step>C</root-step>
+        </root>
+        <kind text="maj7">major-seventh</kind>
+      </harmony>
       <note>
         <rest measure="yes" />
         <duration>8</duration>
@@ -1158,12 +1158,6 @@
       </note>
     </measure>
     <measure number="6">
-      <harmony placement="above">
-        <root>
-          <root-step>C</root-step>
-        </root>
-        <kind text="maj7">major-seventh</kind>
-      </harmony>
       <note>
         <rest />
         <duration>4</duration>
@@ -3429,7 +3423,7 @@
       <note>
         <chord />
         <pitch>
-          <step>E</step>
+          <step>F</step>
           <octave>4</octave>
         </pitch>
         <duration>4</duration>
@@ -3449,8 +3443,8 @@
       </backup>
       <note>
         <pitch>
-          <step>C</step>
-          <octave>3</octave>
+          <step>G</step>
+          <octave>2</octave>
         </pitch>
         <duration>8</duration>
         <voice>5</voice>
@@ -3491,10 +3485,7 @@
         <duration>8</duration>
       </backup>
       <note>
-        <pitch>
-          <step>G</step>
-          <octave>2</octave>
-        </pitch>
+        <rest measure="yes" />
         <duration>8</duration>
         <voice>5</voice>
         <type>whole</type>
@@ -3515,7 +3506,7 @@
       <note>
         <chord />
         <pitch>
-          <step>F</step>
+          <step>E</step>
           <octave>4</octave>
         </pitch>
         <duration>4</duration>
@@ -3534,7 +3525,10 @@
         <duration>8</duration>
       </backup>
       <note>
-        <rest measure="yes" />
+        <pitch>
+          <step>C</step>
+          <octave>3</octave>
+        </pitch>
         <duration>8</duration>
         <voice>5</voice>
         <type>whole</type>
@@ -3614,10 +3608,7 @@
         <duration>8</duration>
       </backup>
       <note>
-        <pitch>
-          <step>C</step>
-          <octave>3</octave>
-        </pitch>
+        <rest measure="yes" />
         <duration>8</duration>
         <voice>5</voice>
         <type>whole</type>
@@ -3657,7 +3648,10 @@
         <duration>8</duration>
       </backup>
       <note>
-        <rest measure="yes" />
+        <pitch>
+          <step>C</step>
+          <octave>3</octave>
+        </pitch>
         <duration>8</duration>
         <voice>5</voice>
         <type>whole</type>
@@ -4837,7 +4831,7 @@
       </direction>
       <note>
         <pitch>
-          <step>C</step>
+          <step>G</step>
           <octave>3</octave>
         </pitch>
         <duration>4</duration>
@@ -4846,8 +4840,8 @@
       </note>
       <note>
         <pitch>
-          <step>G</step>
-          <octave>3</octave>
+          <step>D</step>
+          <octave>4</octave>
         </pitch>
         <duration>4</duration>
         <voice>1</voice>
@@ -4885,7 +4879,7 @@
       </direction>
       <note>
         <pitch>
-          <step>G</step>
+          <step>C</step>
           <octave>3</octave>
         </pitch>
         <duration>8</duration>

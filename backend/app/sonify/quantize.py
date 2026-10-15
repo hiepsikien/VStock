@@ -67,6 +67,7 @@ def bar_quantization_loss(
     pitch_classes: frozenset[int],
     scale: tuple[int, ...],
     previous_pitch: int | None = None,
+    previous_snapped: int | None = None,
 ) -> float:
     """Weighted scale-step quantization loss for one 8-eighth bar under a candidate chord.
 
@@ -75,7 +76,8 @@ def bar_quantization_loss(
     run as a strong beat carry primary weight because _quantize_strong_beats
     snaps strong-beat runs to chord tones using contour (`previous` and `step`);
     weak-beat passing notes keep their scale tone and carry only a small
-    tie-breaker weight.
+    tie-breaker weight. `previous_snapped` may be passed when the preceding bar
+    was quantized under a different chord.
     """
     index_of = {note: index for index, note in enumerate(scale)}
     for note in bar_pitches:
@@ -97,11 +99,12 @@ def bar_quantization_loss(
             cursor += 1
 
     loss = 0.0
-    prev_snapped = (
-        quantize_chord_tone(previous_pitch, pitch_classes, scale)
-        if previous_pitch is not None and previous_pitch in index_of
-        else previous_pitch
-    )
+    if previous_snapped is not None:
+        prev_snapped: int | None = previous_snapped
+    elif previous_pitch is not None and previous_pitch in index_of:
+        prev_snapped = quantize_chord_tone(previous_pitch, pitch_classes, scale)
+    else:
+        prev_snapped = previous_pitch
     prev_raw = previous_pitch
     n = len(bar_pitches)
     cursor = 0

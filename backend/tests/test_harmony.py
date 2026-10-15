@@ -1199,6 +1199,23 @@ def test_markov_transitions_obey_functional_harmony_and_minimize_quantization_lo
         for forbidden in (F, FMAJ7, DM, DM7, EM, EM7):
             assert transition_probability(dom, forbidden) == 0.0
 
+    # When bars 2..5 repeatedly sound F4, A4, and C4 (indexes 10, 12, and 7, in both F
+    # and Fmaj7), the Markov chain never switches F <-> Fmaj7 on the same root just to
+    # reset the 2-bar stay counter.
+    held_f_triad = _session(
+        {
+            bar * 8 + offset: (length, index)
+            for bar in range(2, 6)
+            for offset, length, index in ((0, 2, 10), (2, 2, 12), (4, 4, 7))
+        }
+    )
+    score_f = render(held_f_triad, regimes=("uptrend",) * 3)
+    phrase_slots_f = [slot for slot in score_f.slots if slot.section == "phrase"]
+    assert not any(
+        a.chord.root_step == b.chord.root_step and a.chord != b.chord
+        for a, b in zip(phrase_slots_f, phrase_slots_f[1:])
+    )
+
     # When bars 2..5 repeatedly sound E4 and F4 on strong beats (indexes 9 and 10, uniquely
     # shared by Fmaj7), the Markov chain stays on Fmaj7 across all four bars rather than
     # forcing a fixed progression change, and the piano left hand re-strikes the root every 2 bars.
