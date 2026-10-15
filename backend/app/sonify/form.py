@@ -19,6 +19,8 @@ BEATS_PER_BAR = 4
 BPM = 90
 PHRASE_STARTS = (2, 10, 18)
 PHRASE_BARS = 8
+OUTRO_START = 26
+SECTION_STARTS = (0, *PHRASE_STARTS, OUTRO_START)
 
 Section = Literal["intro", "phrase", "outro"]
 
@@ -44,7 +46,9 @@ def plan_slots(regimes: tuple[Regime, Regime, Regime]) -> tuple[ChordSlot, ...]:
             slots.append(
                 ChordSlot(start + index * 2, 2, chord, regimes[phrase], "phrase")
             )
-    slots.append(ChordSlot(26, 4, tonic(regimes[2]), regimes[2], "outro"))
+    slots.append(
+        ChordSlot(OUTRO_START, MUSICAL_BARS - OUTRO_START, tonic(regimes[2]), regimes[2], "outro")
+    )
     covered = [bar for slot in slots for bar in slot.bars()]
     if covered != list(range(MUSICAL_BARS)):
         raise RuntimeError("chord slots do not cover the 30-bar form")

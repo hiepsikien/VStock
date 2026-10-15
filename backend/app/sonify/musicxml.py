@@ -1,12 +1,19 @@
 """Write a score as MusicXML 4.0 partwise.
 
 Violin and cello share the legato melody; whichever is not playing rests.
+Each is marked mp, then every phrase carries a slur, <wedge> hairpins toward
+its apex, <accent/> on its stressed held note, and a per-note dynamics
+attribute. Some held notes carry a single <tremolo> or <tenuto/>. Vibrato
+is left to the instrument: a <wavy-line> imports as a trill.
+
+A hairpin with no target letter moves playback one step and stays there, so
+mp is printed again wherever earlier hairpins did not cancel out.
 Violin also carries a <harmony> symbol at each chord attack. Piano is a grand
-staff of light comping, marked p once so it stays behind the melody. Violin
-and cello have no dynamics in this phase: liquidity is the bass part, which
-plays root, fifth, and octave more often as volume rises.
-Its loudness is a <dynamics> letter from p to f, plus the matching
-<sound dynamics> percentage, written only when the letter changes.
+staff of light comping, marked p once so it stays behind the melody; its
+answering arpeggios carry a per-note mp. Liquidity is the bass part, which
+plays root, fifth, and octave more often as volume rises. Its loudness is a
+<dynamics> letter from p up to BASS_CEILING, plus the matching <sound dynamics>
+percentage, written only when the letter changes.
 """
 
 from __future__ import annotations
@@ -16,9 +23,11 @@ from typing import TypeVar
 
 from app.sonify.dynamics import MARKINGS, SOUND
 from app.sonify.form import BEATS_PER_BAR, MUSICAL_BARS
-from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score
+from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score, WedgeEvent
 
 DIVISIONS = 2  # per quarter note, so an eighth note is 1
+FORTE_VELOCITY = 90  # MusicXML dynamics percentages are relative to this
+TREMOLO_STROKES = "3"  # thirty-second notes
 
 _PC_STEPS = {
     0: "C",
@@ -78,6 +87,8 @@ def _add_note(
     written_shift: int = 0,
 ) -> None:
     note = _add(parent, "note")
+    if event.velocity is not None and event.midi is not None:
+        note.set("dynamics", f"{event.velocity * 100 / FORTE_VELOCITY:.2f}")
     if chord:
         _add(note, "chord")
     if event.midi is None:
@@ -102,7 +113,16 @@ def _add_note(
         _add(note, "dot")
     if staves > 1:
         _add(note, "staff", str(event.staff))
-    if event.tie_start or event.tie_stop or event.slur_start or event.slur_stop:
+    marks = (
+        event.tie_start,
+        event.tie_stop,
+        event.slur_start,
+        event.slur_stop,
+        event.accent,
+        event.tenuto,
+        event.tremolo,
+    )
+    if any(marks):
         notations = _add(note, "notations")
         if event.tie_stop:
             _add(notations, "tied", type="stop")
@@ -112,6 +132,15 @@ def _add_note(
             _add(notations, "slur", type="start", number="1")
         if event.slur_stop:
             _add(notations, "slur", type="stop", number="1")
+        if event.tremolo:
+            ornaments = _add(notations, "ornaments")
+            _add(ornaments, "tremolo", TREMOLO_STROKES, type="single")
+        if event.accent or event.tenuto:
+            articulations = _add(notations, "articulations")
+            if event.accent:
+                _add(articulations, "accent")
+            if event.tenuto:
+                _add(articulations, "tenuto")
 
 
 TREBLE = ("G", "2")
@@ -171,7 +200,13 @@ def _dynamic(parent: ET.Element, event: DynamicEvent) -> None:
     _add(direction, "sound", dynamics=str(event.sound))
 
 
-E = TypeVar("E", NoteEvent, DynamicEvent, HarmonyEvent)
+def _wedge(parent: ET.Element, event: WedgeEvent) -> None:
+    direction = _add(parent, "direction", placement="below")
+    direction_type = _add(direction, "direction-type")
+    _add(direction_type, "wedge", type=event.kind, number="1")
+
+
+E = TypeVar("E", NoteEvent, DynamicEvent, HarmonyEvent, WedgeEvent)
 
 
 def _group(events: tuple[E, ...]) -> list[list[E]]:
@@ -201,30 +236,61 @@ def _part_list(root: ET.Element) -> None:
         _add(midi, "midi-program", program)
 
 
-def _violin_part(root: ET.Element, score: Score) -> None:
-    part = _add(root, "part", id="P1")
-    melody = _group(score.violin)
-    symbols = _group(score.harmonies)
+MELODY_DYNAMIC = DynamicEvent(bar=0, marking="mp", sound=SOUND["mp"])
+
+
+def _direction_order(event: WedgeEvent | DynamicEvent) -> tuple[float, int]:
+    """On one beat: close the old hairpin, print the letter, open the new hairpin."""
+    if isinstance(event, DynamicEvent):
+        return event.beat, 1
+    return event.beat, 0 if event.kind == "stop" else 2
+
+
+def _melody_part(
+    root: ET.Element,
+    score: Score,
+    part_id: str,
+    notes: tuple[NoteEvent, ...],
+    wedges: tuple[WedgeEvent, ...],
+    dynamics: tuple[DynamicEvent, ...],
+    clef: tuple[str, str],
+    *,
+    lead: bool = False,
+) -> None:
+    """Each hairpin edge and letter is written just before the note or rest it lands on.
+
+    The lead part also carries the tempo and the chord symbols.
+    """
+    part = _add(root, "part", id=part_id)
+    melody = _group(notes)
+    edges = _group(wedges)
+    letters = _group(dynamics)
+    symbols = _group(score.harmonies) if lead else [[] for _ in range(score.bars)]
     for bar in range(score.bars):
         measure = _add(part, "measure", number=str(bar + 1))
         if bar == 0:
-            _attributes(measure, TREBLE)
-            _metronome(measure, score.bpm)
+            _attributes(measure, clef)
+            if lead:
+                _metronome(measure, score.bpm)
+            _dynamic(measure, MELODY_DYNAMIC)
         for event in symbols[bar]:
             _harmony(measure, event)
-        for event in melody[bar]:
-            _add_note(measure, event)
+        pending: list[WedgeEvent | DynamicEvent] = sorted(
+            [*edges[bar], *letters[bar]], key=_direction_order
+        )
 
+        def flush(until: float) -> None:
+            while pending and pending[0].beat <= until:
+                direction = pending.pop(0)
+                if isinstance(direction, DynamicEvent):
+                    _dynamic(measure, direction)
+                else:
+                    _wedge(measure, direction)
 
-def _cello_part(root: ET.Element, score: Score) -> None:
-    part = _add(root, "part", id="P2")
-    melody = _group(score.cello)
-    for bar in range(score.bars):
-        measure = _add(part, "measure", number=str(bar + 1))
-        if bar == 0:
-            _attributes(measure, BASS_CLEF)
-        for event in melody[bar]:
+        for event in sorted(melody[bar], key=lambda note: note.beat):
+            flush(event.beat)
             _add_note(measure, event)
+        flush(float(BEATS_PER_BAR))
 
 
 PIANO_DYNAMIC = DynamicEvent(bar=0, marking="p", sound=SOUND["p"])
@@ -286,8 +352,12 @@ def score_to_musicxml(score: Score) -> str:
     encoding = _add(identification, "encoding")
     _add(encoding, "software", "vstock-sonify")
     _part_list(root)
-    _violin_part(root, score)
-    _cello_part(root, score)
+    _melody_part(
+        root, score, "P1", score.violin, score.violin_wedges, score.violin_dynamics, TREBLE, lead=True
+    )
+    _melody_part(
+        root, score, "P2", score.cello, score.cello_wedges, score.cello_dynamics, BASS_CLEF
+    )
     _piano_part(root, score)
     _bass_part(root, score)
     ET.indent(root, space="  ")

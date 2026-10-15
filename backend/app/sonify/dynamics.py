@@ -24,6 +24,10 @@ DYNAMICS: tuple[tuple[str, int, int], ...] = (
 MARKINGS: tuple[str, ...] = tuple(row[0] for row in DYNAMICS)
 SOUND: dict[str, int] = {marking: percent for marking, percent, _velocity in DYNAMICS}
 
+# The bass sits under the melody. Its busiest band still drives eighth notes,
+# but the printed and played loudness stops at this letter.
+BASS_CEILING = "mp"
+
 # p90 must be at least this many times p10 before the piece leaves mf.
 # A 7% gap (150k against 160k) stays put; a real doubling opens the scale.
 MIN_SPAN_RATIO = 2.0
@@ -54,6 +58,10 @@ def marking_for_volume(volume: float, low: float, high: float) -> str:
     norm = min(1.0, max(0.0, norm))
     index = min(len(MARKINGS) - 1, int(norm * len(MARKINGS)))
     return MARKINGS[index]
+
+
+def bass_marking(band: str) -> str:
+    return MARKINGS[min(MARKINGS.index(band), MARKINGS.index(BASS_CEILING))]
 
 
 def positive_median(volumes: list[float]) -> float:
