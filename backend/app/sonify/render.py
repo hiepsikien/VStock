@@ -49,10 +49,8 @@ WEDGE_MIN = 2  # eighths
 # Colour on held melody notes (at least PERIOD eighths), at most one each.
 TREMOLO = "tremolo"
 BREAKOUT = "breakout"
-PORTAMENTO = "portamento"
 TREMOLO_BAND = MARKINGS[-1]
 BREAKOUT_LOOKBACK = 32  # eighths: four bars
-PORTAMENTO_LEAP = 4  # semitones: a major third
 
 # Piano answers a held cadence in its last beats, while the melody holds and breathes.
 FILL_VELOCITY = 64  # mp, one step over the printed comping p
@@ -168,12 +166,9 @@ def _written(
     velocity: int | None = None,
     tenuto: bool = False,
     tremolo: bool = False,
-    slide_start: bool = False,
-    slide_stop: bool = False,
 ) -> list[NoteEvent]:
     pieces = _spell(start, length)
     sounding = midi is not None
-    last = len(pieces) - 1
     return [
         NoteEvent(
             bar=cursor // EIGHTHS_PER_BAR,
@@ -189,8 +184,6 @@ def _written(
             velocity=velocity if sounding else None,
             tenuto=tenuto and index == 0,
             tremolo=tremolo and sounding,
-            slide_start=slide_start and index == last,
-            slide_stop=slide_stop and index == 0,
         )
         for index, (cursor, size) in enumerate(pieces)
     ]
@@ -242,17 +235,13 @@ def accent_of(phrase: Phrase) -> Run | None:
     return max(syncopated, key=lambda run: (run.length, -run.start), default=None)
 
 
-def techniques(
-    phrase: Phrase, owners: list[str], pitches: list[int], band_at: dict[int, str]
-) -> dict[int, str]:
+def techniques(phrase: Phrase, pitches: list[int], band_at: dict[int, str]) -> dict[int, str]:
     """A colour for some held notes of one phrase, keyed by run start.
 
     Tremolo: the price fell onto the note and stalls while liquidity is in the
     top band — heavy trading that no longer moves the price.
     Breakout: the price climbs above every note of the previous four bars and
     holds there; the first one in a phrase is accented and held tenuto.
-    Portamento: the line leaps at least a major third onto the note inside
-    one instrument's slur; only the widest leap in a phrase slides.
     A note takes the first of these that applies.
     """
     chosen: dict[int, str] = {}
@@ -269,16 +258,6 @@ def techniques(
             and run.midi > max(window)
         ):
             chosen[run.start] = BREAKOUT
-    leaps = [
-        (abs(run.midi - previous.midi), -run.start)
-        for index, (previous, run) in enumerate(zip(phrase.runs, phrase.runs[1:]), start=1)
-        if run.length >= PERIOD
-        and run.start not in chosen
-        and owners[index] == owners[index - 1]
-        and abs(run.midi - previous.midi) >= PORTAMENTO_LEAP
-    ]
-    if leaps:
-        chosen[-max(leaps)[1]] = PORTAMENTO
     return chosen
 
 
@@ -333,7 +312,7 @@ def _melody_parts(
             owners.append("cello" if on_cello else "violin")
         breath = phrase.closes and phrase.end < TOTAL_EIGHTHS
         lift = _lift(phrase)
-        colours = techniques(phrase, owners, pitches, band_at)
+        colours = techniques(phrase, pitches, band_at)
         breakout = next(
             (run for run in phrase.runs if colours.get(run.start) == BREAKOUT), None
         )
@@ -360,7 +339,6 @@ def _melody_parts(
             for run_index, run in enumerate(segment):
                 length = run.length - (1 if breath and run.end == phrase.end else 0)
                 sounding_end = run.start + length
-                following = segment[run_index + 1] if run_index + 1 < len(segment) else None
                 colour = colours.get(run.start)
                 line.notes.extend(
                     _written(
@@ -373,9 +351,6 @@ def _melody_parts(
                         velocity=_velocity(phrase, run, lift, run == stress),
                         tenuto=colour == BREAKOUT,
                         tremolo=colour == TREMOLO,
-                        slide_start=following is not None
-                        and colours.get(following.start) == PORTAMENTO,
-                        slide_stop=colour == PORTAMENTO,
                     )
                 )
             if lift:

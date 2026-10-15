@@ -35,8 +35,6 @@ class NoteEvent:
     velocity: int | None = None
     tenuto: bool = False
     tremolo: bool = False
-    slide_start: bool = False
-    slide_stop: bool = False
 
 
 @dataclass(frozen=True)

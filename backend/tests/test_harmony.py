@@ -905,29 +905,6 @@ def test_breakout_above_four_bars_is_accented_and_held_tenuto() -> None:
     assert marks == [["accent", "tenuto"]]
 
 
-def test_widest_leap_onto_a_held_note_slides() -> None:
-    spans = {80: (1, 16), 84: (4, 12), 100: (5, 14)}
-    score = render(_session(spans), regimes=("sideway",) * 3)
-    phrase = next(phrase for phrase in score.phrases if phrase.start == 80)
-    assert phrase.end == 105
-    starts = [
-        (note.bar * 8 + int(note.beat * 2), note.midi) for note in score.violin if note.slide_start
-    ]
-    stops = [
-        (note.bar * 8 + int(note.beat * 2), note.midi) for note in score.violin if note.slide_stop
-    ]
-    assert starts == [(99, 62)]
-    assert stops == [(100, 72)]
-    assert not any(note.tremolo or note.tenuto for note in score.violin)
-
-    _text, root = _xml(score)
-    slides = [
-        (slide.get("type"), slide.get("line-type"))
-        for slide in _part(root, "P1").iter("slide")
-    ]
-    assert slides == [("start", "solid"), ("stop", None)]
-
-
 def test_held_notes_take_at_most_one_colour() -> None:
     for seed in range(20):
         volumes = [50_000 + 100_000 * ((index * 37) % 240) / 239 for index in range(240)]
@@ -935,21 +912,14 @@ def test_held_notes_take_at_most_one_colour() -> None:
         score = render(bars)
         for part in (score.violin, score.cello):
             for note in part:
-                assert note.tremolo + note.tenuto + note.slide_stop <= 1
+                assert note.tremolo + note.tenuto <= 1
                 assert not (note.tenuto and not note.accent)
-            starts = [note for note in part if note.slide_start]
-            stops = [note for note in part if note.slide_stop]
-            assert len(starts) == len(stops)
-            for start, stop in zip(starts, stops):
-                assert start.bar * 8 + (start.beat + start.duration_beats) * 2 == stop.bar * 8 + stop.beat * 2
-                assert abs(stop.midi - start.midi) >= 4
         for phrase in score.phrases:
             inside = [
                 note
                 for note in score.violin + score.cello
                 if phrase.start <= note.bar * 8 + note.beat * 2 < phrase.end
             ]
-            assert sum(note.slide_stop for note in inside) <= 1
             assert sum(note.accent for note in inside) <= 1
 
 

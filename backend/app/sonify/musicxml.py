@@ -3,10 +3,8 @@
 Violin and cello share the legato melody; whichever is not playing rests.
 Each is marked mp, then every phrase carries a slur, <wedge> hairpins toward
 its apex, <accent/> on its stressed held note, and a per-note dynamics
-attribute. Some held notes carry a single <tremolo>, <tenuto/>, or a
-straight <slide> from the note before; MuseScore plays the slide as
-portamento. Vibrato is left to the instrument: a <wavy-line> imports as a
-trill. A hairpin with no target letter moves playback one step and stays
+attribute. Some held notes carry a single <tremolo> or <tenuto/>.
+Vibrato is left to the instrument: a <wavy-line> imports as a trill. A hairpin with no target letter moves playback one step and stays
 there, so mp is printed again wherever earlier hairpins did not cancel out.
 Violin also carries a <harmony> symbol at each chord attack. Piano is a grand
 staff of light comping, marked p once so it stays behind the melody; its
@@ -121,8 +119,6 @@ def _add_note(
         event.accent,
         event.tenuto,
         event.tremolo,
-        event.slide_start,
-        event.slide_stop,
     )
     if any(marks):
         notations = _add(note, "notations")
@@ -134,10 +130,6 @@ def _add_note(
             _add(notations, "slur", type="start", number="1")
         if event.slur_stop:
             _add(notations, "slur", type="stop", number="1")
-        if event.slide_stop:
-            _add(notations, "slide", type="stop", number="1")
-        if event.slide_start:
-            _add(notations, "slide", type="start", number="1", **{"line-type": "solid"})
         if event.tremolo:
             ornaments = _add(notations, "ornaments")
             _add(ornaments, "tremolo", TREMOLO_STROKES, type="single")

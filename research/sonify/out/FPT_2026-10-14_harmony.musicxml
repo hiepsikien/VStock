@@ -635,9 +635,6 @@
         <duration>2</duration>
         <voice>1</voice>
         <type>quarter</type>
-        <notations>
-          <slide type="start" number="1" line-type="solid" />
-        </notations>
       </note>
       <note dynamics="85.56">
         <pitch>
@@ -650,7 +647,6 @@
         <type>eighth</type>
         <notations>
           <tied type="start" />
-          <slide type="stop" number="1" />
           <articulations>
             <accent />
           </articulations>
@@ -807,9 +803,6 @@
         <duration>1</duration>
         <voice>1</voice>
         <type>eighth</type>
-        <notations>
-          <slide type="start" number="1" line-type="solid" />
-        </notations>
       </note>
       <note dynamics="84.44">
         <pitch>
@@ -822,7 +815,6 @@
         <type>eighth</type>
         <notations>
           <tied type="start" />
-          <slide type="stop" number="1" />
           <articulations>
             <accent />
           </articulations>
@@ -902,7 +894,6 @@
         <type>half</type>
         <notations>
           <slur type="start" number="1" />
-          <slide type="start" number="1" line-type="solid" />
         </notations>
       </note>
       <note dynamics="77.78">
@@ -916,7 +907,6 @@
         <type>half</type>
         <notations>
           <tied type="start" />
-          <slide type="stop" number="1" />
         </notations>
       </note>
     </measure>
@@ -2077,9 +2067,6 @@
         <duration>1</duration>
         <voice>1</voice>
         <type>eighth</type>
-        <notations>
-          <slide type="start" number="1" line-type="solid" />
-        </notations>
       </note>
     </measure>
     <measure number="8">
@@ -2093,7 +2080,6 @@
         <type>half</type>
         <notations>
           <slur type="stop" number="1" />
-          <slide type="stop" number="1" />
         </notations>
       </note>
       <direction placement="below">
