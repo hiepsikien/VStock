@@ -32,6 +32,7 @@ TOTAL_EIGHTHS = MUSICAL_BARS * EIGHTHS_PER_BAR
 VIOLIN_LOWEST = 55  # G3
 CELLO_HANDBACK = 60  # C4
 VIOLIN_CEILING = 84  # C6: notes above C6 fold down an octave so Violin never shrieks
+FLUTE_CEILING = 88  # E6: keep Flute inside its sweet register (<= E6)
 FLUTE_TRIGGER = 79  # G5: Flute enters on high apex (>= G5) or Breakout
 FLUTE_HANDBACK = 76  # E5: Flute keeps soaring while melody stays at or above E5
 FLUTE_OVERLAP = 2  # eighths (1 beat) of dovetail harmony before Violin yields
@@ -372,6 +373,10 @@ def _flute_and_violin_dovetail(
         colours = techniques(phrase, pitches, band_at)
         apex = phrase.apex
         breath = phrase.closes and phrase.end < TOTAL_EIGHTHS
+        crosses_ceiling = (
+            max(r.midi for r in phrase.runs) > VIOLIN_CEILING
+            and min(r.midi for r in phrase.runs) <= VIOLIN_CEILING
+        )
 
         idx = 0
         while idx < len(phrase.runs):
@@ -386,7 +391,9 @@ def _flute_and_violin_dovetail(
                 and run.start == apex.start
                 and run.midi >= FLUTE_TRIGGER
             )
-            above_ceiling = phrase.rise >= MIN_RISE and run.midi > VIOLIN_CEILING
+            above_ceiling = (
+                phrase.rise >= MIN_RISE or crosses_ceiling
+            ) and run.midi > VIOLIN_CEILING
             if not (is_breakout or is_high_apex or above_ceiling):
                 idx += 1
                 continue
@@ -403,8 +410,8 @@ def _flute_and_violin_dovetail(
             if sounding_end <= span_start:
                 continue
 
-            # Keep Flute in its sweet register (<= E6 / 88) by folding any note > E6
-            # down an octave (-12) while preserving pitch class and step changes.
+            # Keep Flute in its sweet register (<= FLUTE_CEILING / E6) by folding any
+            # note > E6 down an octave (-12) while preserving pitch class and step changes.
             flute_line: list[int] = []
             for eighth in range(span_start, sounding_end):
                 f_pitch = flute_harmony_pitch(
@@ -412,7 +419,7 @@ def _flute_and_violin_dovetail(
                     chord_at[eighth // EIGHTHS_PER_BAR],
                     scale,
                 )
-                while f_pitch > 88:
+                while f_pitch > FLUTE_CEILING:
                     f_pitch -= 12
                 flute_line.append(f_pitch)
             merged_flute_runs = [

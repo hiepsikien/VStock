@@ -1144,6 +1144,15 @@ def test_flute_harmony_avoids_fourths_tritones_octave_drops_and_repeated_reattac
     ]
     assert all(77 <= midi <= 88 for midi in flute_bar2_3)
 
+    # Even when a high phrase has a small rise (< MIN_RISE = 3) while oscillating across C6
+    # (e.g. E6=88 -> C6=84 -> E6=88), Flute takes over so Violin plays only the 1-beat overlap [76]
+    # instead of sawtoothing E5 -> C6 -> E5.
+    narrow_osc = _session({12: (4, 15), 16: (2, 22), 18: (2, 21), 20: (6, 22)})
+    score = render(narrow_osc, regimes=("downtrend",) * 3)
+    v_bar2_narrow = [note.midi for note in score.violin if note.bar == 2 and note.midi is not None]
+    assert v_bar2_narrow == [76]
+    assert any(note.midi is not None for note in score.flute if note.bar == 2)
+
     # Held-over note across a phrase boundary where the first phrase peaks > C6 (84)
     # and settles onto C5 (index 14, midi 72) must not shift the tied note to C4 on one side.
     held_over_spans = {16 + step: (1, 22 - step) for step in range(7)}
