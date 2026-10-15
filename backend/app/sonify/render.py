@@ -300,25 +300,53 @@ def _hairpins(start: int, end: int, apex: int) -> list[WedgeEvent]:
     return wedges
 
 
-def _phrase_violin_shift(phrase: Phrase) -> tuple[int, int]:
-    """Find the first eighth in a high phrase from which all remaining notes can shift by -12.
+def _high_cluster_shifts(phrases: tuple[Phrase, ...]) -> set[int]:
+    """Eighths belonging to high clusters (>= FLUTE_HANDBACK) whose peak exceeds VIOLIN_CEILING.
 
-    When a phrase exceeds VIOLIN_CEILING (84), shifting the high tail together
-    by -12 preserves the melodic contour across C6 without sawtoothing and keeps
-    Flute a true 3rd/5th above Violin. If the tail does not open at the start of
-    the phrase, its first shifted note must still stay above the preceding
-    unshifted note so an ascending entry never steps backward.
+    Instead of shifting an entire phrase tail down to low notes (< E5) or across
+    held_over phrase boundaries, each contiguous cluster of runs >= FLUTE_HANDBACK
+    (76) that contains at least one note > VIOLIN_CEILING (84) is shifted together
+    by -12 semitones. Runs held over across phrase boundaries at <= VIOLIN_CEILING
+    are excluded so tied notes across phrases never change octave.
     """
-    if phrase.apex.midi <= VIOLIN_CEILING:
-        return (phrase.end, 0)
-    for idx in range(len(phrase.runs)):
-        tail = phrase.runs[idx:]
-        if min(r.midi for r in tail) - 12 < VIOLIN_LOWEST:
-            continue
-        if idx > 0 and tail[0].midi - 12 < phrase.runs[idx - 1].midi:
-            continue
-        return (tail[0].start, -12)
-    return (phrase.end, 0)
+    shifted: set[int] = set()
+    for p_idx, phrase in enumerate(phrases):
+        tied_in = p_idx > 0 and phrases[p_idx - 1].held_over
+        idx = 0
+        while idx < len(phrase.runs):
+            if phrase.runs[idx].midi < FLUTE_HANDBACK:
+                idx += 1
+                continue
+            end_idx = idx + 1
+            while end_idx < len(phrase.runs) and phrase.runs[end_idx].midi >= FLUTE_HANDBACK:
+                end_idx += 1
+            cluster = phrase.runs[idx:end_idx]
+            if max(r.midi for r in cluster) > VIOLIN_CEILING:
+                c_start = 0
+                c_end = len(cluster)
+                if (
+                    tied_in
+                    and idx == 0
+                    and cluster[0].midi <= VIOLIN_CEILING
+                    and cluster[0].start not in shifted
+                ):
+                    c_start = 1
+                if (
+                    phrase.held_over
+                    and end_idx == len(phrase.runs)
+                    and cluster[-1].midi <= VIOLIN_CEILING
+                ):
+                    c_end -= 1
+                for r in cluster[c_start:c_end]:
+                    if c_start > 0 and r == cluster[c_start]:
+                        prev_midi = cluster[c_start - 1].midi
+                        if r.midi - 12 < prev_midi and r.midi <= VIOLIN_CEILING:
+                            c_start += 1
+                            continue
+                    for eighth in range(r.start, r.end):
+                        shifted.add(eighth)
+            idx = end_idx
+    return shifted
 
 
 def flute_harmony_pitch(
@@ -376,6 +404,7 @@ def _flute_and_violin_dovetail(
     band_at: dict[int, str],
     chord_at: dict[int, Chord],
     scale: tuple[int, ...],
+    shifted_eighths: set[int],
 ) -> tuple[list[NoteEvent], dict[int, tuple[int, int]]]:
     """Build Flute highlight notes and record phrase spans where Violin yields.
 
@@ -395,7 +424,6 @@ def _flute_and_violin_dovetail(
             continue
         colours = techniques(phrase, pitches, band_at)
         apex = phrase.apex
-        shift_from, shift = _phrase_violin_shift(phrase)
 
         trigger_idx: int | None = None
         for idx, run in enumerate(phrase.runs):
@@ -408,18 +436,10 @@ def _flute_and_violin_dovetail(
         if trigger_idx is None:
             continue
 
-        # Keep Flute soaring while the effective violin pitch stays >= D5 (74)
-        # (or raw pitch >= FLUTE_HANDBACK when unshifted) so a shifted phrase tail
-        # never drops Flute by more than an octave.
+        # Check continuation on the raw price pitch (r_next.midi >= FLUTE_HANDBACK)
+        # so Violin octave folding never truncates Flute mid-peak.
         end_idx = trigger_idx + 1
-        while end_idx < len(phrase.runs):
-            r_next = phrase.runs[end_idx]
-            r_shift = shift if r_next.start >= shift_from else 0
-            eff_midi = r_next.midi + r_shift
-            if eff_midi > VIOLIN_CEILING:
-                eff_midi -= 12
-            if eff_midi < (74 if r_shift < 0 else FLUTE_HANDBACK):
-                break
+        while end_idx < len(phrase.runs) and phrase.runs[end_idx].midi >= FLUTE_HANDBACK:
             end_idx += 1
 
         soar_runs = phrase.runs[trigger_idx:end_idx]
@@ -434,8 +454,7 @@ def _flute_and_violin_dovetail(
         # equal pitches into sustained notes (avoiding machine-gun re-attacks).
         flute_line: list[int] = []
         for eighth in range(span_start, sounding_end):
-            e_shift = shift if eighth >= shift_from else 0
-            v_ref = pitches[eighth] + e_shift
+            v_ref = pitches[eighth] - (12 if eighth in shifted_eighths else 0)
             if v_ref > VIOLIN_CEILING:
                 v_ref -= 12
             flute_line.append(
@@ -504,6 +523,7 @@ def _melody_parts(
     phrases: tuple[Phrase, ...],
     band_at: dict[int, str],
     yield_spans: dict[int, tuple[int, int]] | None = None,
+    shifted_eighths: set[int] | None = None,
 ) -> tuple[_Line, _Line, list[tuple[Run, str]]]:
     """Split the legato line between violin and cello; the silent part rests.
 
@@ -527,8 +547,8 @@ def _melody_parts(
     on_cello = False
     tied_in = False
     carried: str | None = None
+    shifted = shifted_eighths or set()
     for phrase in phrases:
-        shift_from, shift = _phrase_violin_shift(phrase)
         base_owners: list[str] = []
         for run in phrase.runs:
             on_cello = run.midi < CELLO_HANDBACK if on_cello else run.midi < VIOLIN_LOWEST
@@ -589,8 +609,7 @@ def _melody_parts(
                 colour = colours.get(run.start)
                 is_stress = run.start == stress_start
                 if owner == "violin":
-                    r_shift = shift if run.start >= shift_from else 0
-                    v_midi = run.midi + r_shift
+                    v_midi = run.midi - (12 if run.start in shifted else 0)
                     if v_midi > VIOLIN_CEILING:
                         v_midi -= 12
                 else:
@@ -622,8 +641,9 @@ def _melody_parts(
             index = end
         if phrase.closes:
             if base_owners[-1] == "violin":
-                c_shift = shift if phrase.cadence.start >= shift_from else 0
-                cadence_midi = phrase.cadence.midi + c_shift
+                cadence_midi = phrase.cadence.midi - (
+                    12 if phrase.cadence.start in shifted else 0
+                )
                 if cadence_midi > VIOLIN_CEILING:
                     cadence_midi -= 12
             else:
@@ -893,10 +913,13 @@ def render(
         for phrase in raw_phrases
     )
     band_at = {bar: band for slot, band in zip(slots, bands) for bar in slot.bars()}
+    shifted_eighths = _high_cluster_shifts(phrases)
     flute_notes, yield_spans = _flute_and_violin_dovetail(
-        phrases, pitches, band_at, chord_at, scale
+        phrases, pitches, band_at, chord_at, scale, shifted_eighths
     )
-    violin, cello, cadences = _melody_parts(pitches, phrases, band_at, yield_spans)
+    violin, cello, cadences = _melody_parts(
+        pitches, phrases, band_at, yield_spans, shifted_eighths
+    )
     piano: list[NoteEvent] = list(_right_hand(slots, _fills(cadences, chord_at)))
     bass: list[NoteEvent] = []
     for slot, band in zip(slots, bands):

@@ -1146,3 +1146,13 @@ def test_flute_harmony_avoids_fourths_tritones_octave_drops_and_repeated_reattac
         note for note in score.flute if note.bar == 3 and note.beat == 0.0
     )
     assert f_bar3_overlap.midi - v_bar3_overlap.midi in (3, 4, 7)
+
+    # Held-over note across a phrase boundary where the first phrase peaks > C6 (84)
+    # and settles onto C5 (index 14, midi 72) must not shift the tied note to C4 on one side.
+    held_over_spans = {16 + step: (1, 22 - step) for step in range(7)}
+    held_over_spans[23] = (33, 15)
+    score = render(_session(held_over_spans), regimes=("sideway",) * 3)
+    for note, following in zip(score.violin, score.violin[1:]):
+        assert note.tie_start == following.tie_stop
+        if note.tie_start:
+            assert following.midi == note.midi
