@@ -36,7 +36,6 @@ FLUTE_TRIGGER = 79  # G5: Flute enters on high apex (>= G5) or Breakout
 FLUTE_HANDBACK = 76  # E5: Flute keeps soaring while melody stays at or above E5
 FLUTE_OVERLAP = 2  # eighths (1 beat) of dovetail harmony before Violin yields
 FLUTE_VELOCITY = 64  # mp ceiling so high flute stays airy and sweet
-FLUTE_GRACE_VELOCITY = 56
 FLUTE_GRACE_STEPS = 2
 PIANO_ROOT_LOW = 41  # F2
 GUIDE_LOW = 57  # A3
@@ -306,26 +305,43 @@ def flute_harmony_pitch(
     chord: Chord,
     scale: tuple[int, ...],
 ) -> int:
-    """A third or fifth above the violin (3–7 semitones), preferring chord tones."""
-    violin_base = melody_midi - 12 if melody_midi > VIOLIN_CEILING else melody_midi
+    """A diatonic third or fifth above the melody (3, 4, or 7 semitones), preferring chord tones.
+
+    Uses the true melody pitch (without VIOLIN_CEILING folding) so the flute
+    soars continuously across the top of the session instead of dropping an
+    octave when the price climbs above C6. Only true thirds (+3, +4 semitones)
+    and perfect fifths (+7 semitones) are allowed — never a fourth (+5) or
+    tritone (+6).
+    """
+    extended = c_major_scale(scale[0], scale[-1] + 24)
+    if melody_midi in extended:
+        idx = extended.index(melody_midi)
+        diatonic_candidates = [
+            extended[idx + step]
+            for step in (2, 4)
+            if idx + step < len(extended)
+            and (extended[idx + step] - melody_midi) in (3, 4, 7)
+        ]
+        chord_matches = [
+            note for note in diatonic_candidates if note % 12 in chord.pitch_classes
+        ]
+        if chord_matches:
+            return chord_matches[0]
+        if diatonic_candidates:
+            return diatonic_candidates[0]
     chord_tones = [
-        note
-        for note in range(violin_base + 3, violin_base + 8)
-        if note % 12 in chord.pitch_classes
+        melody_midi + offset
+        for offset in (3, 4, 7)
+        if (melody_midi + offset) % 12 in chord.pitch_classes
     ]
     if chord_tones:
         return chord_tones[0]
-    extended = c_major_scale(scale[0], scale[-1] + 12)
-    if violin_base in extended:
-        idx = extended.index(violin_base)
-        if idx + 2 < len(extended):
-            return extended[idx + 2]
-    return violin_base + 4
+    return melody_midi + 4
 
 
 def _grace_run(target_midi: int, steps: int = FLUTE_GRACE_STEPS) -> tuple[int, ...]:
     """Ascending C-major grace notes leading directly into target_midi."""
-    extended = c_major_scale(48, 96)
+    extended = c_major_scale(48, 108)
     if target_midi not in extended:
         return ()
     idx = extended.index(target_midi)
@@ -335,7 +351,6 @@ def _grace_run(target_midi: int, steps: int = FLUTE_GRACE_STEPS) -> tuple[int, .
 
 def _flute_and_violin_dovetail(
     phrases: tuple[Phrase, ...],
-    raw_phrases: tuple[Phrase, ...],
     pitches: list[int],
     band_at: dict[int, str],
     chord_at: dict[int, Chord],
@@ -353,7 +368,6 @@ def _flute_and_violin_dovetail(
     """
     flute_notes: list[NoteEvent] = []
     yield_spans: dict[int, tuple[int, int]] = {}
-    raw_phrases_by_start = {rp.start: rp for rp in raw_phrases}
 
     for phrase in phrases:
         if phrase.rise < MIN_RISE:
@@ -380,35 +394,45 @@ def _flute_and_violin_dovetail(
         breath = phrase.closes and phrase.end < TOTAL_EIGHTHS
         span_start = soar_runs[0].start
         span_end = soar_runs[-1].end
+        sounding_end = span_end - (1 if breath and span_end == phrase.end else 0)
+        if sounding_end <= span_start:
+            continue
 
-        for r_i, run in enumerate(soar_runs):
-            length = run.length - (1 if breath and run.end == phrase.end else 0)
-            if length <= 0:
-                continue
-            chord = chord_at[run.start // EIGHTHS_PER_BAR]
-            f_midi = flute_harmony_pitch(run.midi, chord, scale)
-            graces = _grace_run(f_midi) if r_i == 0 else ()
+        # Compute Flute pitch per eighth across the soar span and merge consecutive
+        # equal pitches into sustained notes (avoiding machine-gun re-attacks).
+        flute_line: list[int] = [
+            flute_harmony_pitch(pitches[eighth], chord_at[eighth // EIGHTHS_PER_BAR], scale)
+            for eighth in range(span_start, sounding_end)
+        ]
+        merged_flute_runs = [
+            Run(span_start + r.start, r.length, r.midi)
+            for r in runs_of(flute_line, 0, len(flute_line))
+        ]
+        graces = _grace_run(merged_flute_runs[0].midi)
+        has_slur = len(merged_flute_runs) > 1 or bool(graces)
+
+        for r_i, f_run in enumerate(merged_flute_runs):
             flute_notes.extend(
                 _written(
-                    run.start,
-                    length,
-                    f_midi,
-                    slur_start=r_i == 0,
-                    slur_stop=r_i == len(soar_runs) - 1,
+                    f_run.start,
+                    f_run.length,
+                    f_run.midi,
+                    slur_start=has_slur and r_i == 0,
+                    slur_stop=has_slur and r_i == len(merged_flute_runs) - 1,
                     velocity=FLUTE_VELOCITY,
                     tenuto=r_i == 0,
-                    grace_pitches=graces,
+                    grace_pitches=graces if r_i == 0 else (),
                 )
             )
 
-        # Keep Violin for the first raw run (including across a chord change) and at
-        # least FLUTE_OVERLAP eighths; yield subsequent runs in the high soar to Flute.
-        first_run_end = soar_runs[0].end
-        for raw_run in raw_phrases_by_start[phrase.start].runs:
-            if raw_run.start <= span_start < raw_run.end:
-                first_run_end = max(first_run_end, raw_run.end)
-                break
-        yield_start = max(span_start + FLUTE_OVERLAP, first_run_end)
+        # Dovetail: Violin plays the overlap (FLUTE_OVERLAP eighths), or the full first
+        # run only when that run is a multi-run transition shorter than a phrase period;
+        # on long held peaks (or multi-run high passages), Violin yields after FLUTE_OVERLAP.
+        first_run = soar_runs[0]
+        if len(soar_runs) > 1 and first_run.length <= PERIOD:
+            yield_start = max(span_start + FLUTE_OVERLAP, first_run.end)
+        else:
+            yield_start = span_start + FLUTE_OVERLAP
         if yield_start < span_end:
             yield_spans[phrase.start] = (yield_start, span_end)
 
@@ -554,7 +578,14 @@ def _melody_parts(
                     line.drift += {"crescendo": 1, "diminuendo": -1}.get(wedge.kind, 0)
             index = end
         if phrase.closes:
-            cadences.append((phrase.cadence, base_owners[-1]))
+            cadence_midi = (
+                phrase.cadence.midi - 12
+                if (base_owners[-1] == "violin" and phrase.cadence.midi > VIOLIN_CEILING)
+                else phrase.cadence.midi
+            )
+            cadences.append(
+                (Run(phrase.cadence.start, phrase.cadence.length, cadence_midi), base_owners[-1])
+            )
         tied_in = phrase.held_over and owners[-1] != "flute"
         carried = colours.get(phrase.cadence.start)
     return lines["violin"], lines["cello"], cadences
@@ -818,7 +849,7 @@ def render(
     )
     band_at = {bar: band for slot, band in zip(slots, bands) for bar in slot.bars()}
     flute_notes, yield_spans = _flute_and_violin_dovetail(
-        phrases, raw_phrases, pitches, band_at, chord_at, scale
+        phrases, pitches, band_at, chord_at, scale
     )
     violin, cello, cadences = _melody_parts(pitches, phrases, band_at, yield_spans)
     piano: list[NoteEvent] = list(_right_hand(slots, _fills(cadences, chord_at)))
