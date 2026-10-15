@@ -1,4 +1,4 @@
-"""Build a 30-bar score: violin and cello on the price, light piano comping, bass on liquidity."""
+"""Build a 30-bar score: violin, cello, and flute on the price, light piano comping, bass on liquidity."""
 
 from __future__ import annotations
 
@@ -346,6 +346,8 @@ def _flute_and_violin_dovetail(
     """
     flute_notes: list[NoteEvent] = []
     yield_spans: list[tuple[int, int]] = []
+    flute_tied_in = False
+    prev_flute_midi: int | None = None
 
     for phrase in phrases:
         colours = techniques(phrase, pitches, band_at)
@@ -355,10 +357,16 @@ def _flute_and_violin_dovetail(
             max(r.midi for r in phrase.runs) > VIOLIN_CEILING
             and min(r.midi for r in phrase.runs) <= VIOLIN_CEILING
         )
+        ended_on_flute = False
 
         idx = 0
         while idx < len(phrase.runs):
             run = phrase.runs[idx]
+            continued_hold = (
+                flute_tied_in
+                and idx == 0
+                and run.midi >= FLUTE_HANDBACK
+            )
             is_breakout = (
                 phrase.rise >= MIN_RISE
                 and colours.get(run.start) == BREAKOUT
@@ -370,9 +378,9 @@ def _flute_and_violin_dovetail(
                 and run.midi >= FLUTE_TRIGGER
             )
             above_ceiling = (
-                phrase.rise >= MIN_RISE or crosses_ceiling
+                phrase.rise > 0 or crosses_ceiling
             ) and run.midi > VIOLIN_CEILING
-            if not (is_breakout or is_high_apex or above_ceiling):
+            if not (continued_hold or is_breakout or is_high_apex or above_ceiling):
                 idx += 1
                 continue
 
@@ -405,30 +413,64 @@ def _flute_and_violin_dovetail(
                 for r in runs_of(flute_line, 0, len(flute_line))
             ]
             has_slur = len(merged_flute_runs) > 1
+            tie_first_in = (
+                continued_hold
+                and span_start == phrase.start
+                and prev_flute_midi == merged_flute_runs[0].midi
+            )
+            # Only tie Flute across a held_over phrase boundary when the next phrase
+            # will begin on the exact same Flute pitch (same chord at phrase.end).
+            next_flute_midi: int | None = None
+            if phrase.held_over and span_end == phrase.end and phrase.end < TOTAL_EIGHTHS:
+                nf_pitch = flute_harmony_pitch(
+                    pitches[phrase.end],
+                    chord_at[phrase.end // EIGHTHS_PER_BAR],
+                    scale,
+                )
+                while nf_pitch > FLUTE_CEILING:
+                    nf_pitch -= 12
+                next_flute_midi = nf_pitch
+            tie_last_out = (
+                phrase.held_over
+                and span_end == phrase.end
+                and next_flute_midi == merged_flute_runs[-1].midi
+            )
 
             for r_i, f_run in enumerate(merged_flute_runs):
+                is_first = r_i == 0
+                is_last = r_i == len(merged_flute_runs) - 1
                 flute_notes.extend(
                     _written(
                         f_run.start,
                         f_run.length,
                         f_run.midi,
-                        slur_start=has_slur and r_i == 0,
-                        slur_stop=has_slur and r_i == len(merged_flute_runs) - 1,
+                        slur_start=has_slur and is_first,
+                        slur_stop=has_slur and is_last,
                         velocity=FLUTE_VELOCITY,
-                        tenuto=r_i == 0,
+                        tenuto=is_first and not tie_first_in,
+                        tie_in=is_first and tie_first_in,
+                        tie_out=is_last and tie_last_out,
                     )
                 )
 
-            # Yield immediately when the entry run is already above VIOLIN_CEILING (> C6)
-            # and is not the first run of the phrase, so Violin never folds a mid-phrase
-            # note down an octave across C6; otherwise overlap for FLUTE_OVERLAP eighths.
+            # Yield immediately when continuing a held_over Flute note from the previous
+            # phrase, or when the entry run is already above VIOLIN_CEILING (> C6) mid-phrase;
+            # otherwise overlap for FLUTE_OVERLAP eighths.
             yield_start = (
                 span_start
-                if (soar_runs[0].midi > VIOLIN_CEILING and soar_runs[0].start > phrase.start)
+                if (
+                    continued_hold
+                    or (soar_runs[0].midi > VIOLIN_CEILING and soar_runs[0].start > phrase.start)
+                )
                 else span_start + FLUTE_OVERLAP
             )
             if yield_start < span_end:
                 yield_spans.append((yield_start, span_end))
+                if span_end == phrase.end:
+                    ended_on_flute = True
+            prev_flute_midi = merged_flute_runs[-1].midi
+
+        flute_tied_in = phrase.held_over and ended_on_flute
 
     return flute_notes, yield_spans
 
@@ -535,12 +577,28 @@ def _cross_phrase_cello_overlaps(
     return lead_ins, trail_outs
 
 
+def _clip_segment(seg: list[Run], clip_start: int) -> list[Run]:
+    """Trim or drop runs in `seg` that start before `clip_start`."""
+    if not seg or seg[0].start >= clip_start:
+        return seg
+    clipped: list[Run] = []
+    for r in seg:
+        if r.end <= clip_start:
+            continue
+        if r.start < clip_start:
+            clipped.append(Run(clip_start, r.end - clip_start, r.midi))
+        else:
+            clipped.append(r)
+    return clipped
+
+
 def _instrument_segments(
     p_runs: list[Run],
     owners: list[str],
     target: str,
     cross_lead: Run | None = None,
     cross_trail: int = 0,
+    min_start: int = 0,
 ) -> list[list[Run]]:
     """Build contiguous run segments for `target` ('violin' or 'cello') with dovetail overlap.
 
@@ -636,18 +694,9 @@ def _instrument_segments(
         if lead_added and len(seg) >= 2 and seg[0].end == seg[1].start and seg[0].midi == seg[1].midi:
             seg[:2] = [Run(seg[0].start, seg[0].length + seg[1].length, seg[0].midi)]
 
-        # Ensure segments of the same instrument never overlap each other
-        if segments and seg[0].start < segments[-1][-1].end:
-            clip_start = segments[-1][-1].end
-            clipped: list[Run] = []
-            for r in seg:
-                if r.end <= clip_start:
-                    continue
-                if r.start < clip_start:
-                    clipped.append(Run(clip_start, r.end - clip_start, r.midi))
-                else:
-                    clipped.append(r)
-            seg = clipped
+        # Ensure segments of the same instrument never overlap each other or a previous phrase
+        clip_start = max(min_start, segments[-1][-1].end if segments else 0)
+        seg = _clip_segment(seg, clip_start)
 
         if seg:
             segments.append(seg)
@@ -706,6 +755,7 @@ def _melody_parts(
     cross_leads, cross_trails = _cross_phrase_cello_overlaps(
         phrases, all_p_runs, all_owners
     )
+    last_end_by_owner = {"violin": 0, "cello": 0}
 
     for p_idx, phrase in enumerate(phrases):
         base_owners = all_base_owners[p_idx]
@@ -724,11 +774,19 @@ def _melody_parts(
             c_lead = cross_leads.get(p_idx) if owners[0] == owner else None
             c_trail = cross_trails.get(p_idx, 0) if owners[-1] == owner else 0
             segs = _instrument_segments(
-                p_runs, owners, owner, cross_lead=c_lead, cross_trail=c_trail
+                p_runs,
+                owners,
+                owner,
+                cross_lead=c_lead,
+                cross_trail=c_trail,
+                min_start=last_end_by_owner[owner],
             )
             closing_warmup = cross_leads.get(-(p_idx + 1))
             if closing_warmup is not None and owner == "cello":
-                segs.append([closing_warmup])
+                prev_end = segs[-1][-1].end if segs else last_end_by_owner[owner]
+                clipped_warmup = _clip_segment([closing_warmup], prev_end)
+                if clipped_warmup:
+                    segs.append(clipped_warmup)
             for segment in segs:
                 attacks = [
                     run
@@ -799,6 +857,7 @@ def _melody_parts(
                             ),
                         )
                     )
+                last_end_by_owner[owner] = max(last_end_by_owner[owner], sounding_end)
                 if lift and swell_from is not None and sounding_end > swell_from:
                     hairpins = _hairpins(swell_from, sounding_end, phrase.apex.start)
                     line.wedges.extend(hairpins)
@@ -996,7 +1055,7 @@ def render(
     title: str = "1-Day Recap",
     regimes: tuple[Regime, Regime, Regime] | None = None,
 ) -> Score:
-    """Turn one session of closes into violin, cello, piano, bass, and symbols.
+    """Turn one session of closes into flute, violin, cello, piano, bass, and symbols.
 
     Each phrase regime is the average of the first few source bars at that
     phrase's downbeat, then held for the phrase. Intro uses phrase 1's regime;

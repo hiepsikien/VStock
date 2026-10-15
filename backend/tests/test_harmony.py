@@ -437,9 +437,10 @@ def test_musicxml_writes_harmony_and_letter_dynamics() -> None:
     assert root.find("work/work-title").text == "VNM 1-Day Recap"
 
     names = [part.find("part-name").text for part in root.findall("part-list/score-part")]
-    assert names == ["Violin", "Cello", "Piano", "Bass", "Flute"]
+    assert names == ["Flute", "Violin", "Cello", "Piano", "Bass"]
     programs = root.findall("part-list/score-part/midi-instrument/midi-program")
-    assert [program.text for program in programs] == ["41", "43", "1", "34", "74"]
+    assert [program.text for program in programs] == ["74", "41", "43", "1", "34"]
+    assert [part.get("id") for part in root.findall("part")] == ["P5", "P1", "P2", "P3", "P4"]
 
     violin = _part(root, "P1")
     cello = _part(root, "P2")
@@ -1136,3 +1137,27 @@ def test_flute_harmony_avoids_fourths_tritones_octave_drops_and_repeated_reattac
         assert note.tie_start == following.tie_stop
         if note.tie_start:
             assert following.midi == note.midi
+
+    # Narrow oscillation completely above C6 (e.g. D6=86 <-> E6=88, min > 84, rise == 2 < MIN_RISE)
+    # still hands off to Flute rather than leaving Violin to fold down an octave.
+    above_only = _session({16: (2, 22), 18: (2, 23), 20: (6, 22)})
+    score = render(above_only, regimes=("downtrend",) * 3)
+    assert any(note.midi is not None for note in score.flute if note.bar == 2)
+
+    # When a high note is held_over across a phrase boundary while owned by Flute,
+    # Flute continues without Violin jumping back in for FLUTE_OVERLAP at the new phrase start.
+    flute_held_over = _session({16: (7, 15), 23: (33, 21)})
+    score = render(flute_held_over, regimes=("sideway",) * 3)
+    assert all(note.midi is None for note in score.violin if note.bar == 6)
+    flute_at_bar6 = next(note for note in score.flute if note.bar == 6 and note.beat == 0.0)
+    assert flute_at_bar6.midi is not None and flute_at_bar6.tie_stop
+
+    # Rapid Violin -> Cello -> Violin handoff right before a phrase boundary must never
+    # overlap two Violin notes or invert wedge order across the phrase boundary.
+    rapid_handoff = _session({28: (1, 5), 29: (1, 3), 30: (2, 5), 32: (6, 7)})
+    score = render(rapid_handoff, regimes=("sideway",) * 3)
+    for bar in range(30):
+        assert sum(n.duration_beats for n in score.violin if n.bar == bar) == 4.0
+        assert sum(n.duration_beats for n in score.cello if n.bar == bar) == 4.0
+    assert _balanced([w.kind for w in score.violin_wedges])
+    assert _balanced([w.kind for w in score.cello_wedges])

@@ -1,10 +1,13 @@
 """Write a score as MusicXML 4.0 partwise.
 
-Violin and cello share the legato melody; whichever is not playing rests.
-Each is marked mp, then every phrase carries a slur, <wedge> hairpins toward
-its apex, <accent/> on its stressed held note, and a per-note dynamics
-attribute. Breakout held notes carry a <tenuto/>. Vibrato is left to the
-instrument: a <wavy-line> imports as a trill.
+Violin, cello, and flute share the legato melody; whichever is not playing
+rests. Flute enters on high peaks and breakouts (with a dovetail overlap before
+violin yields), while cello takes the low register below G3 (with dovetail
+handoffs across G3–B3). Each melody part is marked mp, and violin/cello phrases
+carry a slur, <wedge> hairpins toward the apex, <accent/> on the stressed held
+note, and a per-note dynamics attribute. Breakout held notes and flute entries
+carry a <tenuto/>. Vibrato is left to the instrument: a <wavy-line> imports as
+a trill.
 
 A hairpin with no target letter moves playback one step and stays there, so
 mp is printed again wherever earlier hairpins did not cancel out.
@@ -212,11 +215,11 @@ def _group(events: tuple[E, ...]) -> list[list[E]]:
 
 
 _PARTS = (
+    ("P5", "Flute", "Flute", "5", "74"),
     ("P1", "Violin", "Violin", "1", "41"),
     ("P2", "Cello", "Cello", "2", "43"),
     ("P3", "Piano", "Piano", "3", "1"),
     ("P4", "Bass", "Electric Bass (finger)", "4", "34"),
-    ("P5", "Flute", "Flute", "5", "74"),
 )
 
 
@@ -349,6 +352,9 @@ def score_to_musicxml(score: Score) -> str:
     _add(encoding, "software", "vstock-sonify")
     _part_list(root)
     _melody_part(
+        root, score, "P5", score.flute, (), (), TREBLE
+    )
+    _melody_part(
         root, score, "P1", score.violin, score.violin_wedges, score.violin_dynamics, TREBLE, lead=True
     )
     _melody_part(
@@ -356,9 +362,6 @@ def score_to_musicxml(score: Score) -> str:
     )
     _piano_part(root, score)
     _bass_part(root, score)
-    _melody_part(
-        root, score, "P5", score.flute, (), (), TREBLE
-    )
     ET.indent(root, space="  ")
     body = ET.tostring(root, encoding="unicode")
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + body + "\n"
