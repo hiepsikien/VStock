@@ -31,6 +31,13 @@ HALF_BAR = 4
 TOTAL_EIGHTHS = MUSICAL_BARS * EIGHTHS_PER_BAR
 VIOLIN_LOWEST = 55  # G3
 CELLO_HANDBACK = 60  # C4
+VIOLIN_CEILING = 84  # C6: notes above C6 fold down an octave so Violin never shrieks
+FLUTE_TRIGGER = 79  # G5: Flute enters on high apex (>= G5) or Breakout
+FLUTE_HANDBACK = 76  # E5: Flute keeps soaring while melody stays at or above E5
+FLUTE_OVERLAP = 2  # eighths (1 beat) of dovetail harmony before Violin yields
+FLUTE_VELOCITY = 64  # mp ceiling so high flute stays airy and sweet
+FLUTE_GRACE_VELOCITY = 56
+FLUTE_GRACE_STEPS = 2
 PIANO_ROOT_LOW = 41  # F2
 GUIDE_LOW = 57  # A3
 
@@ -168,6 +175,7 @@ def _written(
     tremolo: bool = False,
     tie_in: bool = False,
     tie_out: bool = False,
+    grace_pitches: tuple[int, ...] = (),
 ) -> list[NoteEvent]:
     pieces = _spell(start, length)
     sounding = midi is not None
@@ -187,6 +195,7 @@ def _written(
             velocity=velocity if sounding else None,
             tenuto=tenuto and index == 0,
             tremolo=tremolo and sounding,
+            grace_pitches=grace_pitches if (sounding and index == 0) else (),
         )
         for index, (cursor, size) in enumerate(pieces)
     ]
@@ -292,8 +301,155 @@ def _hairpins(start: int, end: int, apex: int) -> list[WedgeEvent]:
     return wedges
 
 
+def flute_harmony_pitch(
+    melody_midi: int,
+    chord: Chord,
+    scale: tuple[int, ...],
+) -> int:
+    """A third or fifth above the violin (3–7 semitones), preferring chord tones."""
+    violin_base = melody_midi - 12 if melody_midi > VIOLIN_CEILING else melody_midi
+    chord_tones = [
+        note
+        for note in range(violin_base + 3, violin_base + 8)
+        if note % 12 in chord.pitch_classes
+    ]
+    if chord_tones:
+        return chord_tones[0]
+    extended = c_major_scale(scale[0], scale[-1] + 12)
+    if violin_base in extended:
+        idx = extended.index(violin_base)
+        if idx + 2 < len(extended):
+            return extended[idx + 2]
+    return violin_base + 4
+
+
+def _grace_run(target_midi: int, steps: int = FLUTE_GRACE_STEPS) -> tuple[int, ...]:
+    """Ascending C-major grace notes leading directly into target_midi."""
+    extended = c_major_scale(48, 96)
+    if target_midi not in extended:
+        return ()
+    idx = extended.index(target_midi)
+    start = max(0, idx - steps)
+    return tuple(extended[start:idx])
+
+
+def _flute_and_violin_dovetail(
+    phrases: tuple[Phrase, ...],
+    raw_phrases: tuple[Phrase, ...],
+    pitches: list[int],
+    band_at: dict[int, str],
+    chord_at: dict[int, Chord],
+    scale: tuple[int, ...],
+) -> tuple[list[NoteEvent], dict[int, tuple[int, int]]]:
+    """Build Flute highlight notes and record phrase spans where Violin yields.
+
+    When a rising phrase reaches a high Apex (>= FLUTE_TRIGGER) or a BREAKOUT
+    run, Flute enters with a fast ascending grace-note run onto a chordal 3rd/5th
+    above the melody. For the first FLUTE_OVERLAP eighths (1 beat), Violin and
+    Flute play together (dovetail layering); if the high passage continues
+    above FLUTE_HANDBACK, Violin rests from (span_start + FLUTE_OVERLAP) up to
+    span_end and yields the high line to Flute until the melody drops below
+    FLUTE_HANDBACK or the phrase ends.
+    """
+    flute_notes: list[NoteEvent] = []
+    yield_spans: dict[int, tuple[int, int]] = {}
+    raw_phrases_by_start = {rp.start: rp for rp in raw_phrases}
+
+    for phrase in phrases:
+        if phrase.rise < MIN_RISE:
+            continue
+        colours = techniques(phrase, pitches, band_at)
+        apex = phrase.apex
+
+        trigger_idx: int | None = None
+        for idx, run in enumerate(phrase.runs):
+            is_breakout = colours.get(run.start) == BREAKOUT and run.midi >= FLUTE_HANDBACK
+            is_high_apex = run.start == apex.start and run.midi >= FLUTE_TRIGGER
+            if is_breakout or is_high_apex:
+                trigger_idx = idx
+                break
+
+        if trigger_idx is None:
+            continue
+
+        end_idx = trigger_idx + 1
+        while end_idx < len(phrase.runs) and phrase.runs[end_idx].midi >= FLUTE_HANDBACK:
+            end_idx += 1
+
+        soar_runs = phrase.runs[trigger_idx:end_idx]
+        breath = phrase.closes and phrase.end < TOTAL_EIGHTHS
+        span_start = soar_runs[0].start
+        span_end = soar_runs[-1].end
+
+        for r_i, run in enumerate(soar_runs):
+            length = run.length - (1 if breath and run.end == phrase.end else 0)
+            if length <= 0:
+                continue
+            chord = chord_at[run.start // EIGHTHS_PER_BAR]
+            f_midi = flute_harmony_pitch(run.midi, chord, scale)
+            graces = _grace_run(f_midi) if r_i == 0 else ()
+            flute_notes.extend(
+                _written(
+                    run.start,
+                    length,
+                    f_midi,
+                    slur_start=r_i == 0,
+                    slur_stop=r_i == len(soar_runs) - 1,
+                    velocity=FLUTE_VELOCITY,
+                    tenuto=r_i == 0,
+                    grace_pitches=graces,
+                )
+            )
+
+        # Keep Violin for the first raw run (including across a chord change) and at
+        # least FLUTE_OVERLAP eighths; yield subsequent runs in the high soar to Flute.
+        first_run_end = soar_runs[0].end
+        for raw_run in raw_phrases_by_start[phrase.start].runs:
+            if raw_run.start <= span_start < raw_run.end:
+                first_run_end = max(first_run_end, raw_run.end)
+                break
+        yield_start = max(span_start + FLUTE_OVERLAP, first_run_end)
+        if yield_start < span_end:
+            yield_spans[phrase.start] = (yield_start, span_end)
+
+    return flute_notes, yield_spans
+
+
+def _apply_violin_yield(
+    runs: tuple[Run, ...],
+    owners: list[str],
+    yield_span: tuple[int, int] | None,
+) -> tuple[list[Run], list[str]]:
+    """Split violin runs at yield boundaries so the yielded span becomes 'flute'."""
+    if yield_span is None:
+        return list(runs), owners
+    y_start, y_end = yield_span
+    out_runs: list[Run] = []
+    out_owners: list[str] = []
+    for run, owner in zip(runs, owners):
+        if owner != "violin" or run.end <= y_start or run.start >= y_end:
+            out_runs.append(run)
+            out_owners.append(owner)
+            continue
+        if run.start < y_start:
+            out_runs.append(Run(run.start, y_start - run.start, run.midi))
+            out_owners.append("violin")
+        mid_start = max(run.start, y_start)
+        mid_end = min(run.end, y_end)
+        if mid_start < mid_end:
+            out_runs.append(Run(mid_start, mid_end - mid_start, run.midi))
+            out_owners.append("flute")
+        if run.end > y_end:
+            out_runs.append(Run(y_end, run.end - y_end, run.midi))
+            out_owners.append("violin")
+    return out_runs, out_owners
+
+
 def _melody_parts(
-    pitches: list[int], phrases: tuple[Phrase, ...], band_at: dict[int, str]
+    pitches: list[int],
+    phrases: tuple[Phrase, ...],
+    band_at: dict[int, str],
+    yield_spans: dict[int, tuple[int, int]] | None = None,
 ) -> tuple[_Line, _Line, list[tuple[Run, str]]]:
     """Split the legato line between violin and cello; the silent part rests.
 
@@ -318,27 +474,34 @@ def _melody_parts(
     tied_in = False
     carried: str | None = None
     for phrase in phrases:
-        owners: list[str] = []
+        base_owners: list[str] = []
         for run in phrase.runs:
             on_cello = run.midi < CELLO_HANDBACK if on_cello else run.midi < VIOLIN_LOWEST
-            owners.append("cello" if on_cello else "violin")
+            base_owners.append("cello" if on_cello else "violin")
+        yield_span = yield_spans.get(phrase.start) if yield_spans else None
+        p_runs, owners = _apply_violin_yield(phrase.runs, base_owners, yield_span)
         breath = phrase.closes and phrase.end < TOTAL_EIGHTHS
         lift = _lift(phrase)
         colours = techniques(phrase, pitches, band_at)
         if tied_in and carried == TREMOLO:
             colours[phrase.start] = TREMOLO
         breakout = next(
-            (run for run in phrase.runs if colours.get(run.start) == BREAKOUT), None
+            (run for run in p_runs if colours.get(run.start) == BREAKOUT), None
         )
         skip = frozenset(colours) | ({phrase.start} if tied_in else frozenset())
-        stress = breakout or accent_of(phrase, skip)
+        stress_orig = breakout or accent_of(phrase, skip)
+        stress_start = stress_orig.start if stress_orig is not None else None
         index = 0
-        while index < len(phrase.runs):
+        while index < len(p_runs):
             end = index + 1
-            while end < len(phrase.runs) and owners[end] == owners[index]:
+            while end < len(p_runs) and owners[end] == owners[index]:
                 end += 1
-            segment = phrase.runs[index:end]
-            line = lines[owners[index]]
+            owner = owners[index]
+            if owner not in lines:
+                index = end
+                continue
+            segment = p_runs[index:end]
+            line = lines[owner]
             attacks = [run for run in segment if not (tied_in and run.start == phrase.start)]
             swell_from: int | None = segment[0].start
             if line.drift:
@@ -359,19 +522,29 @@ def _melody_parts(
                 length = run.length - (1 if breath and run.end == phrase.end else 0)
                 sounding_end = run.start + length
                 colour = colours.get(run.start)
+                is_stress = run.start == stress_start
+                v_midi = (
+                    run.midi - 12
+                    if (owner == "violin" and run.midi > VIOLIN_CEILING)
+                    else run.midi
+                )
                 line.notes.extend(
                     _written(
                         run.start,
                         length,
-                        run.midi,
+                        v_midi,
                         slur_start=slurred and run_index == 0,
                         slur_stop=slurred and run_index == len(segment) - 1,
-                        accent=run == stress,
-                        velocity=_velocity(phrase, run, lift, run == stress),
+                        accent=is_stress,
+                        velocity=_velocity(phrase, run, lift, is_stress),
                         tenuto=colour == BREAKOUT,
                         tremolo=colour == TREMOLO,
                         tie_in=tied_in and run.start == phrase.start,
-                        tie_out=phrase.held_over and run.end == phrase.end,
+                        tie_out=(
+                            phrase.held_over
+                            and run.end == phrase.end
+                            and owners[-1] != "flute"
+                        ),
                     )
                 )
             if lift and swell_from is not None:
@@ -381,8 +554,8 @@ def _melody_parts(
                     line.drift += {"crescendo": 1, "diminuendo": -1}.get(wedge.kind, 0)
             index = end
         if phrase.closes:
-            cadences.append((phrase.cadence, owners[-1]))
-        tied_in = phrase.held_over
+            cadences.append((phrase.cadence, base_owners[-1]))
+        tied_in = phrase.held_over and owners[-1] != "flute"
         carried = colours.get(phrase.cadence.start)
     return lines["violin"], lines["cello"], cadences
 
@@ -644,7 +817,10 @@ def render(
         for phrase in raw_phrases
     )
     band_at = {bar: band for slot, band in zip(slots, bands) for bar in slot.bars()}
-    violin, cello, cadences = _melody_parts(pitches, phrases, band_at)
+    flute_notes, yield_spans = _flute_and_violin_dovetail(
+        phrases, raw_phrases, pitches, band_at, chord_at, scale
+    )
+    violin, cello, cadences = _melody_parts(pitches, phrases, band_at, yield_spans)
     piano: list[NoteEvent] = list(_right_hand(slots, _fills(cadences, chord_at)))
     bass: list[NoteEvent] = []
     for slot, band in zip(slots, bands):
@@ -659,6 +835,7 @@ def render(
         regimes=chosen,
         regime_samples=sample_indexes,
         slots=slots,
+        flute=_with_rests(flute_notes, TOTAL_EIGHTHS),
         violin=_with_rests(violin.notes, TOTAL_EIGHTHS),
         cello=_with_rests(cello.notes, TOTAL_EIGHTHS),
         piano=tuple(piano),

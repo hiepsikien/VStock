@@ -256,14 +256,14 @@ def test_repeated_pitches_merge_into_held_notes() -> None:
 
 def test_cello_takes_the_line_below_g3_until_c4() -> None:
     score = render(_indexed_session([28, 9, 0, 5, 6, 5, 7, 9], 9), regimes=("sideway",) * 3)
-    assert _line(score.violin, 0) == [96, 64, None, None, 60, 64]
+    assert _line(score.violin, 0) == [84, 64, None, None, 60, 64]
     assert _line(score.cello, 0) == [None, 48, 57, 59, 57, None]
     cello = [note for note in score.cello if note.midi is not None and note.bar == 0]
     assert cello[0].slur_start and cello[-1].slur_stop
-    for part in (score.violin, score.cello):
+    for part in (score.violin, score.cello, score.flute):
         for bar in range(30):
             assert sum(note.duration_beats for note in part if note.bar == bar) == 4.0
-    assert all(note.midi >= 55 for note in score.violin if note.midi is not None)
+    assert all(55 <= note.midi <= 84 for note in score.violin if note.midi is not None)
 
 
 def test_melody_snaps_strong_beats_to_chord_tones_and_keeps_weak_beat_passing_notes() -> None:
@@ -315,14 +315,15 @@ def test_melody_snaps_strong_beats_to_chord_tones_and_keeps_weak_beat_passing_no
 
     # When a held note on A6 (index 26, midi 93) spans Dm7 -> Em7 (bars 7..8 in downtrend),
     # the only shared chord tone D is four scale steps away, so each chord snaps within one step
-    # (A6 on Dm7, B6 on Em7) rather than pulling the note down a fifth to D6.
+    # (A6 on Dm7, B6 on Em7 -> folded down an octave to A5=81 and B5=83 on Violin) rather than
+    # pulling the note down a fifth to D.
     far_shared = _session({60: (8, 26)})
     score = render(far_shared, regimes=("downtrend",) * 3)
     assert [
         (note.bar, note.beat, note.midi)
         for note in score.violin
         if (note.bar == 7 and note.beat == 2.0) or (note.bar == 8 and note.beat == 0.0)
-    ] == [(7, 2.0, 93), (8, 0.0, 95)]
+    ] == [(7, 2.0, 81), (8, 0.0, 83)]
 
 
 def test_bass_dynamics_follow_slot_volume() -> None:
@@ -428,9 +429,9 @@ def test_musicxml_writes_harmony_and_letter_dynamics() -> None:
     assert root.find("work/work-title").text == "VNM 1-Day Recap"
 
     names = [part.find("part-name").text for part in root.findall("part-list/score-part")]
-    assert names == ["Violin", "Cello", "Piano", "Bass"]
+    assert names == ["Violin", "Cello", "Piano", "Bass", "Flute"]
     programs = root.findall("part-list/score-part/midi-instrument/midi-program")
-    assert [program.text for program in programs] == ["41", "43", "1", "34"]
+    assert [program.text for program in programs] == ["41", "43", "1", "34", "74"]
 
     violin = _part(root, "P1")
     cello = _part(root, "P2")
@@ -1060,3 +1061,36 @@ def test_one_accent_per_phrase_on_its_longest_syncopation() -> None:
     assert accented == [(2, 3.0, 69)]
     tied = next(note for note in score.violin if note.bar == 3 and note.beat == 0.0)
     assert (tied.midi, tied.tie_stop, tied.accent) == (69, True, False)
+
+
+def test_flute_enters_with_grace_notes_and_dovetails_with_violin_on_high_soar() -> None:
+    # A phrase rising to G5 (index 18, midi 79) at eighth 20, then continuing on E5 (index 16, midi 76)
+    # for 4 eighths: Violin plays the G5 peak with Flute, then yields the E5 tail to Flute.
+    score = render(_session({20: (2, 18), 22: (4, 16), 26: (4, 9)}), regimes=("sideway",) * 3)
+    flute_sounding = [note for note in score.flute if note.midi is not None and note.bar in (2, 3)]
+    assert len(flute_sounding) >= 2
+    first_flute = flute_sounding[0]
+    assert first_flute.bar == 2 and first_flute.beat == 2.0
+    # 3rd/5th above G5 (79) on Cmaj7 -> C6 (84, +5st)
+    assert 3 <= first_flute.midi - 79 <= 7
+    assert len(first_flute.grace_pitches) == 2
+    assert list(first_flute.grace_pitches) == sorted(first_flute.grace_pitches)
+    assert first_flute.grace_pitches[-1] < first_flute.midi
+    assert first_flute.slur_start and first_flute.tenuto
+
+    # Violin plays at 20..22 (overlap), then rests at 22..26 while Flute carries the soar
+    v_at_20 = next(note for note in score.violin if note.bar == 2 and note.beat == 2.0)
+    assert v_at_20.midi == 79
+    v_at_22 = next(note for note in score.violin if note.bar == 2 and note.beat == 3.0)
+    assert v_at_22.midi is None
+
+    _text, root = _xml(score)
+    flute_part = _part(root, "P5")
+    measure_3 = flute_part.findall("measure")[2]
+    graces = [note for note in measure_3.findall("note") if note.find("grace") is not None]
+    assert len(graces) == 2
+    assert graces[0].find("grace").get("slash") == "yes"
+    assert graces[0].find("notations/slur").get("type") == "start"
+    assert all(note.find("duration") is None for note in graces)
+    regular = [note for note in measure_3.findall("note") if note.find("grace") is None]
+    assert sum(int(note.find("duration").text) for note in regular) == 8

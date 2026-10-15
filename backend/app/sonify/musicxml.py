@@ -78,6 +78,27 @@ def _note_type(beats: float) -> tuple[str, int]:
         raise ValueError(f"unsupported duration: {beats} beats") from exc
 
 
+def _add_grace_notes(parent: ET.Element, event: NoteEvent) -> None:
+    for idx, g_midi in enumerate(event.grace_pitches):
+        grace_note = _add(parent, "note")
+        if event.velocity is not None:
+            g_vel = max(48, event.velocity - 8 + idx * 4)
+            grace_note.set("dynamics", f"{g_vel * 100 / FORTE_VELOCITY:.2f}")
+        if idx == 0:
+            _add(grace_note, "grace", slash="yes")
+        else:
+            _add(grace_note, "grace")
+        step, octave = midi_to_pitch(g_midi)
+        pitch = _add(grace_note, "pitch")
+        _add(pitch, "step", step)
+        _add(pitch, "octave", str(octave))
+        _add(grace_note, "voice", str(event.voice))
+        _add(grace_note, "type", "16th")
+        if idx == 0 and event.slur_start:
+            notations = _add(grace_note, "notations")
+            _add(notations, "slur", type="start", number="1")
+
+
 def _add_note(
     parent: ET.Element,
     event: NoteEvent,
@@ -86,6 +107,8 @@ def _add_note(
     staves: int = 1,
     written_shift: int = 0,
 ) -> None:
+    if event.grace_pitches and event.midi is not None:
+        _add_grace_notes(parent, event)
     note = _add(parent, "note")
     if event.velocity is not None and event.midi is not None:
         note.set("dynamics", f"{event.velocity * 100 / FORTE_VELOCITY:.2f}")
@@ -113,10 +136,11 @@ def _add_note(
         _add(note, "dot")
     if staves > 1:
         _add(note, "staff", str(event.staff))
+    slur_start_on_main = event.slur_start and not event.grace_pitches
     marks = (
         event.tie_start,
         event.tie_stop,
-        event.slur_start,
+        slur_start_on_main,
         event.slur_stop,
         event.accent,
         event.tenuto,
@@ -128,7 +152,7 @@ def _add_note(
             _add(notations, "tied", type="stop")
         if event.tie_start:
             _add(notations, "tied", type="start")
-        if event.slur_start:
+        if slur_start_on_main:
             _add(notations, "slur", type="start", number="1")
         if event.slur_stop:
             _add(notations, "slur", type="stop", number="1")
@@ -221,6 +245,7 @@ _PARTS = (
     ("P2", "Cello", "Cello", "2", "43"),
     ("P3", "Piano", "Piano", "3", "1"),
     ("P4", "Bass", "Electric Bass (finger)", "4", "34"),
+    ("P5", "Flute", "Flute", "5", "74"),
 )
 
 
@@ -360,6 +385,9 @@ def score_to_musicxml(score: Score) -> str:
     )
     _piano_part(root, score)
     _bass_part(root, score)
+    _melody_part(
+        root, score, "P5", score.flute, (), (), TREBLE
+    )
     ET.indent(root, space="  ")
     body = ET.tostring(root, encoding="unicode")
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + body + "\n"

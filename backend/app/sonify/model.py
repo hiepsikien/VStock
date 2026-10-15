@@ -35,6 +35,7 @@ class NoteEvent:
     velocity: int | None = None
     tenuto: bool = False
     tremolo: bool = False
+    grace_pitches: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,7 @@ class Score:
     regimes: tuple[Regime, Regime, Regime]
     regime_samples: tuple[int, int, int] | None  # None when regimes were passed in
     slots: tuple[ChordSlot, ...]
+    flute: tuple[NoteEvent, ...]
     violin: tuple[NoteEvent, ...]
     cello: tuple[NoteEvent, ...]
     piano: tuple[NoteEvent, ...]
