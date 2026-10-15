@@ -307,7 +307,9 @@ def _melody_parts(
     line off its starting step is marked mp again. A phrase that closes on a held note
     drops its last eighth for a breath; that eighth repeated the same price.
     A note held over into the next phrase is tied across, keeps its tremolo,
-    and is not accented again.
+    and is not accented again. A reset mp waits for the share's first fresh
+    attack and its hairpins start there; a share with none keeps no hairpins
+    and leaves the reset to the line's next share.
     Returns both lines and each closing cadence with the instrument holding it.
     """
     lines = {"violin": _Line(), "cello": _Line()}
@@ -337,16 +339,20 @@ def _melody_parts(
                 end += 1
             segment = phrase.runs[index:end]
             line = lines[owners[index]]
+            attacks = [run for run in segment if not (tied_in and run.start == phrase.start)]
+            swell_from: int | None = segment[0].start
             if line.drift:
-                line.dynamics.append(
-                    DynamicEvent(
-                        bar=segment[0].start // EIGHTHS_PER_BAR,
-                        marking=MELODY_MARKING,
-                        sound=SOUND[MELODY_MARKING],
-                        beat=(segment[0].start % EIGHTHS_PER_BAR) * 0.5,
+                swell_from = attacks[0].start if attacks else None
+                if attacks:
+                    line.dynamics.append(
+                        DynamicEvent(
+                            bar=attacks[0].start // EIGHTHS_PER_BAR,
+                            marking=MELODY_MARKING,
+                            sound=SOUND[MELODY_MARKING],
+                            beat=(attacks[0].start % EIGHTHS_PER_BAR) * 0.5,
+                        )
                     )
-                )
-                line.drift = 0
+                    line.drift = 0
             slurred = len(segment) > 1
             sounding_end = segment[0].start
             for run_index, run in enumerate(segment):
@@ -368,8 +374,8 @@ def _melody_parts(
                         tie_out=phrase.held_over and run.end == phrase.end,
                     )
                 )
-            if lift:
-                hairpins = _hairpins(segment[0].start, sounding_end, phrase.apex.start)
+            if lift and swell_from is not None:
+                hairpins = _hairpins(swell_from, sounding_end, phrase.apex.start)
                 line.wedges.extend(hairpins)
                 for wedge in hairpins:
                     line.drift += {"crescendo": 1, "diminuendo": -1}.get(wedge.kind, 0)

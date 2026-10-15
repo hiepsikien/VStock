@@ -851,19 +851,6 @@
         </root>
         <kind text="m7">minor-seventh</kind>
       </harmony>
-      <direction placement="below">
-        <direction-type>
-          <dynamics>
-            <mp />
-          </dynamics>
-        </direction-type>
-        <sound dynamics="71" />
-      </direction>
-      <direction placement="below">
-        <direction-type>
-          <wedge type="diminuendo" number="1" />
-        </direction-type>
-      </direction>
       <note dynamics="80.00">
         <pitch>
           <step>E</step>
@@ -878,6 +865,19 @@
           <slur type="start" number="1" />
         </notations>
       </note>
+      <direction placement="below">
+        <direction-type>
+          <dynamics>
+            <mp />
+          </dynamics>
+        </direction-type>
+        <sound dynamics="71" />
+      </direction>
+      <direction placement="below">
+        <direction-type>
+          <wedge type="diminuendo" number="1" />
+        </direction-type>
+      </direction>
       <note dynamics="77.78">
         <pitch>
           <step>C</step>

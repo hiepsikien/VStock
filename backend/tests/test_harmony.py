@@ -856,7 +856,11 @@ def test_unbalanced_hairpins_are_reset_so_the_melody_does_not_fade() -> None:
             (score.violin, score.violin_wedges, score.violin_dynamics, "P1"),
             (score.cello, score.cello_wedges, score.cello_dynamics, "P2"),
         ):
-            onsets = {note.bar * 8 + int(note.beat * 2) for note in notes if note.midi is not None}
+            onsets = {
+                note.bar * 8 + int(note.beat * 2)
+                for note in notes
+                if note.midi is not None and not note.tie_stop
+            }
             for letter in dynamics:
                 assert letter.marking == "mp"
                 assert letter.bar * 8 + int(letter.beat * 2) in onsets
@@ -879,6 +883,25 @@ def test_unbalanced_hairpins_are_reset_so_the_melody_does_not_fade() -> None:
             printed = _part(root, part_id).findall(".//dynamics")
             assert len(printed) == 1 + len(dynamics)
     assert resets
+
+
+def test_reset_after_a_held_over_note_waits_for_the_next_attack() -> None:
+    spans = {16 + step: (1, 16 - step) for step in range(7)}
+    spans[23] = (33, 9)
+    score = render(_session(spans), regimes=("sideway",) * 3)
+    assert [(p.start, p.end, p.held_over) for p in score.phrases[1:3]] == [
+        (16, 48, True),
+        (48, 80, False),
+    ]
+    tied = next(note for note in score.violin if note.bar == 6)
+    assert (tied.midi, tied.duration_beats, tied.tie_stop) == (64, 4.0, True)
+    assert (score.violin_dynamics[0].bar, score.violin_dynamics[0].beat) == (7, 0.0)
+    assert [(w.bar, w.beat, w.kind) for w in score.violin_wedges[:4]] == [
+        (2, 0.0, "diminuendo"),
+        (5, 4.0, "stop"),
+        (7, 0.0, "diminuendo"),
+        (9, 4.0, "stop"),
+    ]
 
 
 def test_heavy_volume_stall_after_a_fall_is_a_tremolo() -> None:
