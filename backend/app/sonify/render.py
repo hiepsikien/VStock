@@ -1083,20 +1083,6 @@ def render(
         chosen = regimes
     for regime in chosen:
         progression(regime)
-    slots = plan_slots(chosen)
-
-    slot_volumes = average_liquidity(
-        [_slot_candles(bars, groups, slot) for slot in slots]
-    )
-    traded = [volume for volume in slot_volumes if volume > 0]
-    low_volume = percentile(traded, 0.10)
-    high_volume = percentile(traded, 0.90)
-    bands = [marking_for_volume(volume, low_volume, high_volume) for volume in slot_volumes]
-    dynamics = tuple(
-        DynamicEvent(bar=slot.start, marking=bass_marking(band), sound=SOUND[bass_marking(band)])
-        for slot, band in zip(slots, bands)
-    )
-    harmonies = tuple(HarmonyEvent(slot.start, slot.chord) for slot in slots)
 
     scale = c_major_scale()
     session_low = min(bar.close for bar in bars)
@@ -1113,6 +1099,21 @@ def render(
             raw_pitches.append(
                 scale[price_to_scale_index(close, session_low, session_high, len(scale))]
             )
+
+    slots = plan_slots(chosen, raw_pitches, scale)
+
+    slot_volumes = average_liquidity(
+        [_slot_candles(bars, groups, slot) for slot in slots]
+    )
+    traded = [volume for volume in slot_volumes if volume > 0]
+    low_volume = percentile(traded, 0.10)
+    high_volume = percentile(traded, 0.90)
+    bands = [marking_for_volume(volume, low_volume, high_volume) for volume in slot_volumes]
+    dynamics = tuple(
+        DynamicEvent(bar=slot.start, marking=bass_marking(band), sound=SOUND[bass_marking(band)])
+        for slot, band in zip(slots, bands)
+    )
+    harmonies = tuple(HarmonyEvent(slot.start, slot.chord) for slot in slots)
 
     chord_at = {bar: slot.chord for slot in slots for bar in slot.bars()}
     pitches = _quantize_strong_beats(raw_pitches, chord_at, scale)

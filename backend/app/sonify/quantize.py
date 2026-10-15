@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 SCALE_LOW = 48  # C3
 SCALE_HIGH = 96  # C7
 C_MAJOR_PCS = frozenset({0, 2, 4, 5, 7, 9, 11})
+STRONG_BEAT_EIGHTHS = (0, 4)  # beats 1 and 3 inside an 8-eighth bar
+STRONG_BEAT_WEIGHT = 2.5
+HELD_STRONG_WEIGHT = 1.0
+WEAK_BEAT_WEIGHT = 0.02
 
 
 def c_major_scale(low: int = SCALE_LOW, high: int = SCALE_HIGH) -> tuple[int, ...]:
@@ -54,6 +60,49 @@ def quantize_chord_tone(
         return (abs(index - target_index), repeats_previous, wrong_way, abs(note - target), note)
 
     return min(candidates, key=key)[1]
+
+
+def bar_quantization_loss(
+    bar_pitches: Sequence[int],
+    pitch_classes: frozenset[int],
+    scale: tuple[int, ...],
+) -> float:
+    """Weighted scale-step quantization loss for one 8-eighth bar under a candidate chord.
+
+    Strong beats (eighths 0 and 4, beats 1 and 3) and eighths held in the same
+    run as a strong beat carry primary weight because _quantize_strong_beats
+    snaps strong-beat runs to chord tones; weak-beat passing notes keep their
+    scale tone and carry only a small tie-breaker weight.
+    """
+    index_of = {note: index for index, note in enumerate(scale)}
+    strong_run_eighths = set(STRONG_BEAT_EIGHTHS)
+    for beat in STRONG_BEAT_EIGHTHS:
+        if beat >= len(bar_pitches):
+            continue
+        pitch = bar_pitches[beat]
+        cursor = beat - 1
+        while cursor >= 0 and bar_pitches[cursor] == pitch:
+            strong_run_eighths.add(cursor)
+            cursor -= 1
+        cursor = beat + 1
+        while cursor < len(bar_pitches) and bar_pitches[cursor] == pitch:
+            strong_run_eighths.add(cursor)
+            cursor += 1
+
+    loss = 0.0
+    for eighth, note in enumerate(bar_pitches):
+        snapped = quantize_chord_tone(note, pitch_classes, scale)
+        steps = abs(index_of[snapped] - index_of[note])
+        if steps == 0:
+            continue
+        if eighth in STRONG_BEAT_EIGHTHS:
+            weight = STRONG_BEAT_WEIGHT
+        elif eighth in strong_run_eighths:
+            weight = HELD_STRONG_WEIGHT
+        else:
+            weight = WEAK_BEAT_WEIGHT
+        loss += weight * steps
+    return loss
 
 
 def resample(values: list[float], count: int) -> list[float]:
