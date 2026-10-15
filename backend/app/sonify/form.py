@@ -1,10 +1,16 @@
 """30-bar daily recap: intro, three 8-bar phrases, outro.
 
-Tempo is 90. A bar is 4 beats (8 eighths). When raw bar pitches are provided,
-harmony is chosen bar-by-bar with a Viterbi Markov chain that balances
-quantization loss against acoustic chord transition probabilities and a gentle
-regime bias, merging consecutive bars that stay on the same chord into one
-ChordSlot. Without pitches, plan_slots falls back to the regime reference loops.
+Tempo is 90. A bar is 4 beats (8 eighths). Regime changes land on the phrase
+downbeats — musical bars 3, 11 and 19 when counted from 1 — which already
+includes the 2-bar intro. Intro and outro pedal the tonic of the neighbouring
+phrase instead of running a progression of their own. Inside the three 8-bar
+phrases, when raw pitches are provided, harmony is chosen bar-by-bar with a
+Viterbi Markov chain over triads and seventh chords that balances quantization
+loss against acoustic chord transition probabilities and a gentle regime bias,
+merging consecutive bars that stay on the same chord into one ChordSlot.
+Without pitches, plan_slots falls back to the regime reference loops.
+Liquidity is always measured on the fixed 14-window grid (LIQUIDITY_WINDOWS)
+so dynamics and bass pulse depend only on volume, never on the price path.
 """
 
 from __future__ import annotations
@@ -21,6 +27,7 @@ from app.sonify.chords import (
     Regime,
     progression,
     tonic,
+    tonic_chords,
     transition_probability,
 )
 from app.sonify.quantize import bar_quantization_loss, c_major_scale, quantize_chord_tone
@@ -34,12 +41,19 @@ PHRASE_BARS = 8
 OUTRO_START = 26
 SECTION_STARTS = (0, *PHRASE_STARTS, OUTRO_START)
 
+# Fixed 14-window grid (start_bar, length) for volume / liquidity dynamics:
+# 2-bar intro, twelve 2-bar windows across the three phrases, 4-bar outro.
+LIQUIDITY_WINDOWS: tuple[tuple[int, int], ...] = (
+    (0, 2),
+    *((start, 2) for start in range(PHRASE_STARTS[0], OUTRO_START, 2)),
+    (OUTRO_START, MUSICAL_BARS - OUTRO_START),
+)
+
 TRANSITION_WEIGHT = 0.6
 SECOND_BAR_STAY_COST = 0.15
 EXTENDED_STAY_PENALTY = 0.25
 SINGLE_BAR_CHANGE_PENALTY = 0.45
-PEDAL_STAY_COST = 0.05
-PEDAL_TONIC_BONUS = 0.6
+PEDAL_STAY_COST = 0.0
 PHRASE_TONIC_BONUS = 0.25
 CROSS_BAR_BREAK_PENALTY = 1.2
 
@@ -70,6 +84,35 @@ def _section_spans(
     )
 
 
+def _breaks_held_note_across_barline(
+    boundary_pitch: int,
+    prev_chord: Chord,
+    curr_chord: Chord,
+    scale: tuple[int, ...],
+    index_of: dict[int, int],
+) -> bool:
+    """Whether changing from prev_chord to curr_chord forces a held note to split pitches.
+
+    Matches _quantize_strong_beats in render.py: when a run holds the same raw
+    pitch across a bar line (`raw[bar*8 - 1] == raw[bar*8]`, the same condition
+    `runs_of` uses to merge eighths into one Run), _quantize_strong_beats snaps
+    both sides to a single shared chord tone whenever `prev_chord & curr_chord`
+    has a tone within 1 scale step of `boundary_pitch`. A split happens only when
+    no such common tone exists and the two chords snap `boundary_pitch` to
+    different notes.
+    """
+    if prev_chord == curr_chord:
+        return False
+    common = prev_chord.pitch_classes & curr_chord.pitch_classes
+    if common:
+        snapped_common = quantize_chord_tone(boundary_pitch, common, scale)
+        if abs(index_of[snapped_common] - index_of[boundary_pitch]) <= 1:
+            return False
+    prev_snapped = quantize_chord_tone(boundary_pitch, prev_chord.pitch_classes, scale)
+    curr_snapped = quantize_chord_tone(boundary_pitch, curr_chord.pitch_classes, scale)
+    return prev_snapped != curr_snapped
+
+
 def plan_markov_chords(
     regimes: tuple[Regime, Regime, Regime],
     raw_pitches: Sequence[int],
@@ -77,12 +120,15 @@ def plan_markov_chords(
 ) -> tuple[Chord, ...]:
     """Decode the lowest-loss 30-bar Markov chord path via Viterbi.
 
-    Each bar state tracks (chord, held_bars) with held_bars in {1, 2}, where 1
-    is the opening bar of a chord inside a section and 2 means the chord has
-    held for two or more bars. Completing a 2-bar breath is cheap, changing
-    after 1 bar is chosen whenever the new chord reduces quantization loss, and
-    staying on the same chord for 3+ bars is chosen whenever staying preserves
-    the melody notes better than moving.
+    Intro (bars 0–1) and outro (bars 26–29) pedal the tonic of the neighbouring
+    phrase (selecting the tonic triad or tonic seventh chord and holding it
+    steady across the pedal section). Inside the three 8-bar phrases, each bar
+    state tracks (chord, held_bars) with held_bars in {1, 2}, where 1 is the
+    opening bar of a chord inside a section and 2 means the chord has held for
+    two or more bars. Completing a 2-bar breath is cheap, changing after 1 bar
+    is chosen whenever the new chord reduces quantization loss, and staying on
+    the same chord for 3+ bars is chosen whenever staying preserves the melody
+    notes better than moving.
     """
     if len(regimes) != 3:
         raise ValueError("expected one regime per phrase")
@@ -92,6 +138,7 @@ def plan_markov_chords(
     if len(raw_pitches) != expected_eighths:
         raise ValueError(f"expected {expected_eighths} eighth-note pitches, got {len(raw_pitches)}")
     active_scale = c_major_scale() if scale is None else scale
+    index_of = {note: index for index, note in enumerate(active_scale)}
 
     bar_regime: list[Regime] = []
     bar_section: list[Section] = []
@@ -110,17 +157,25 @@ def plan_markov_chords(
         regime = bar_regime[bar]
         section = bar_section[bar]
         bias = REGIME_BIAS[regime]
-        home = tonic(regime)
+        allowed_tonics = tonic_chords(regime)
         new_section = bar in SECTION_STARTS
+        previous_pitch = raw_pitches[bar * EIGHTHS_PER_BAR - 1] if bar > 0 else None
 
         for chord in CHORDS:
+            if section in ("intro", "outro") and chord not in allowed_tonics:
+                dp[bar][(chord, 1)] = float("inf")
+                dp[bar][(chord, 2)] = float("inf")
+                back[bar][(chord, 1)] = None
+                back[bar][(chord, 2)] = None
+                continue
+
             emission = (
-                bar_quantization_loss(bar_notes, chord.pitch_classes, active_scale)
+                bar_quantization_loss(
+                    bar_notes, chord.pitch_classes, active_scale, previous_pitch=previous_pitch
+                )
                 + bias[chord]
             )
-            if section in ("intro", "outro") and chord == home:
-                emission -= PEDAL_TONIC_BONUS
-            elif bar in PHRASE_STARTS and chord == home:
+            if bar in PHRASE_STARTS and chord in allowed_tonics:
                 emission -= PHRASE_TONIC_BONUS
 
             if bar == 0:
@@ -130,18 +185,19 @@ def plan_markov_chords(
                 back[0][(chord, 2)] = None
                 continue
 
+            # Two equal adjacent eighth-note pitches across the barline form a single
+            # held Run in `runs_of(raw_pitches, ...)`.
             held_across = raw_pitches[bar * EIGHTHS_PER_BAR - 1] == raw_pitches[bar * EIGHTHS_PER_BAR]
             boundary_pitch = raw_pitches[bar * EIGHTHS_PER_BAR]
-            curr_snapped = (
-                quantize_chord_tone(boundary_pitch, chord.pitch_classes, active_scale)
-                if held_across
-                else 0
-            )
+
             for target_held in (1, 2):
                 best_prev: tuple[Chord, int] | None = None
                 best_cost = float("inf")
                 for prev_chord, prev_held in states:
                     if dp[bar - 1][(prev_chord, prev_held)] == float("inf"):
+                        continue
+                    # Intro and outro hold one steady tonic pedal across all bars of the section.
+                    if section in ("intro", "outro") and not new_section and prev_chord != chord:
                         continue
                     if new_section:
                         if target_held != 1:
@@ -156,24 +212,27 @@ def plan_markov_chords(
                     if prob <= 0.0:
                         continue
 
+                    # Each root's probability mass is split equally across its triad and
+                    # seventh chord, so `prob * 2.0` recovers the root-to-root transition probability.
+                    root_prob = prob * 2.0
                     if not new_section and prev_chord == chord:
                         if section in ("intro", "outro"):
                             trans_cost = PEDAL_STAY_COST
                         elif prev_held == 1:
                             trans_cost = SECOND_BAR_STAY_COST
                         else:
-                            trans_cost = -TRANSITION_WEIGHT * math.log(prob) + EXTENDED_STAY_PENALTY
+                            trans_cost = (
+                                -TRANSITION_WEIGHT * math.log(root_prob) + EXTENDED_STAY_PENALTY
+                            )
                     else:
-                        trans_cost = -TRANSITION_WEIGHT * math.log(prob)
+                        trans_cost = -TRANSITION_WEIGHT * math.log(root_prob)
                         if not new_section and prev_held == 1:
                             trans_cost += SINGLE_BAR_CHANGE_PENALTY
 
-                    if held_across and prev_chord != chord:
-                        prev_snapped = quantize_chord_tone(
-                            boundary_pitch, prev_chord.pitch_classes, active_scale
-                        )
-                        if prev_snapped != curr_snapped:
-                            trans_cost += CROSS_BAR_BREAK_PENALTY
+                    if held_across and _breaks_held_note_across_barline(
+                        boundary_pitch, prev_chord, chord, active_scale, index_of
+                    ):
+                        trans_cost += CROSS_BAR_BREAK_PENALTY
 
                     total = dp[bar - 1][(prev_chord, prev_held)] + trans_cost + emission
                     if total < best_cost:
@@ -183,7 +242,9 @@ def plan_markov_chords(
                 dp[bar][(chord, target_held)] = best_cost
                 back[bar][(chord, target_held)] = best_prev
 
-    last_state = min(states, key=lambda state: dp[MUSICAL_BARS - 1][state])
+    outro_tonics = set(tonic_chords(regimes[2]))
+    outro_states = [state for state in states if state[0] in outro_tonics]
+    last_state = min(outro_states, key=lambda state: dp[MUSICAL_BARS - 1][state])
     path: list[Chord] = [last_state[0]]
     current: tuple[Chord, int] | None = last_state
     for bar in range(MUSICAL_BARS - 1, 0, -1):

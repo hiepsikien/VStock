@@ -23,14 +23,23 @@ from app.sonify.quantize import (
 )
 from app.sonify.regime import classify, moving_average
 from app.sonify.chords import (
+    AM,
     AM7,
+    C,
     CHORDS,
     CMAJ7,
+    DM,
     DM7,
+    EM,
     EM7,
+    F,
     FMAJ7,
+    G,
     G7,
+    SEVENTHS,
     TRANSITIONS,
+    TRIADS,
+    tonic_chords,
     transition_probability,
 )
 from app.sonify.render import (
@@ -75,12 +84,18 @@ def _line(events, bar: int):
 
 
 COMPING = {
+    "C": (48, (64, 67)),      # C3 | E4 G4
+    "F": (41, (57, 60)),      # F2 | A3 C4
+    "G": (43, (59, 62)),      # G2 | B3 D4
+    "Am": (45, (60, 64)),     # A2 | C4 E4
+    "Dm": (50, (57, 65)),     # D3 | A3 F4
+    "Em": (52, (59, 67)),     # E3 | B3 G4
     "Cmaj7": (48, (59, 64)),  # C3 | B3 E4
     "Fmaj7": (41, (57, 64)),  # F2 | A3 E4
-    "G7": (43, (59, 65)),  # G2 | B3 F4
-    "Am7": (45, (60, 67)),  # A2 | C4 G4
-    "Dm7": (50, (60, 65)),  # D3 | C4 F4
-    "Em7": (52, (62, 67)),  # E3 | D4 G4
+    "G7": (43, (59, 65)),     # G2 | B3 F4
+    "Am7": (45, (60, 67)),    # A2 | C4 G4
+    "Dm7": (50, (60, 65)),    # D3 | C4 F4
+    "Em7": (52, (62, 67)),    # E3 | D4 G4
 }
 
 
@@ -133,11 +148,13 @@ def test_phrase_regime_uses_the_downbeat_window() -> None:
     for bar in range(1, 30):
         assert transition_probability(by_bar[bar - 1], by_bar[bar]) > 0.0
     # Every bar in this session sits on a C octave (C3, C5, C7), so Markov harmony
-    # never picks G7 or Em7 (which lack C and would bend the flat C octaves).
+    # never picks G/G7 or Em/Em7 (which lack C and would bend the flat C octaves),
+    # and picks the clean triads C, F, Am when no 7th tone is sounded.
     assert all(0 in by_bar[bar].pitch_classes for bar in range(30))
-    assert by_bar[0] == CMAJ7
-    assert by_bar[10] == AM7
-    assert by_bar[29] == CMAJ7
+    assert by_bar[0] == C
+    assert by_bar[1] == C
+    assert by_bar[10] == AM
+    assert [by_bar[bar] for bar in range(26, 30)] == [C] * 4
     for note in _sounding(score):
         assert note.midi % 12 in C_MAJOR_PCS
     for slot in score.slots:
@@ -160,19 +177,25 @@ def test_phrase_regime_uses_the_downbeat_window() -> None:
                     (0.0, guide[1], 2.0),
                     (2.0, None, 2.0),
                 ]
-            assert [(note.midi, note.duration_beats) for note in left] == [
-                (bass_note if offset == 0 else None, 4.0)
-            ]
+            expected_left = (
+                bass_note
+                if (offset == 0 if slot.section == "outro" else offset % 2 == 0)
+                else None
+            )
+            assert [(note.midi, note.duration_beats) for note in left] == [(expected_left, 4.0)]
 
 
-def test_comping_keeps_third_and_seventh_close() -> None:
-    for chord in (CMAJ7, FMAJ7, G7, AM7, DM7, EM7):
+def test_comping_keeps_guide_tones_close_for_triads_and_sevenths() -> None:
+    for chord in CHORDS:
         root, guide = comp_pitches(chord)
         assert (root, guide) == COMPING[chord.name]
         assert 41 <= root <= 52
         assert all(57 <= midi <= 68 for midi in guide)
-        third, seventh = chord.pitches[1] % 12, chord.pitches[3] % 12
-        assert {midi % 12 for midi in guide} == {third, seventh}
+        if len(chord.pitches) == 4:
+            expected_pcs = {chord.pitches[1] % 12, chord.pitches[3] % 12}
+        else:
+            expected_pcs = {chord.pitches[1] % 12, chord.pitches[2] % 12}
+        assert {midi % 12 for midi in guide} == expected_pcs
 
 
 def test_one_minute_twitch_does_not_flip_the_phrase() -> None:
@@ -464,15 +487,15 @@ def test_musicxml_writes_harmony_and_letter_dynamics() -> None:
     assert len(harmonies) == len(score.slots)
     assert bass.findall("measure/harmony") == []
     assert violin_measures[0].find("harmony/root/root-step").text == "C"
-    assert violin_measures[0].find("harmony/kind").text == "major-seventh"
-    assert violin_measures[0].find("harmony/kind").get("text") == "maj7"
+    assert violin_measures[0].find("harmony/kind").text == "major"
+    assert violin_measures[0].find("harmony/kind").get("text") == ""
     assert violin_measures[1].find("harmony") is None
     assert violin_measures[2].find("harmony/root/root-step").text == "F"
-    assert violin_measures[2].find("harmony/kind").text == "major-seventh"
-    assert violin_measures[2].find("harmony/kind").get("text") == "maj7"
+    assert violin_measures[2].find("harmony/kind").text == "major"
+    assert violin_measures[2].find("harmony/kind").get("text") == ""
     assert violin_measures[10].find("harmony/root/root-step").text == "A"
-    assert violin_measures[10].find("harmony/kind").text == "minor-seventh"
-    assert violin_measures[10].find("harmony/kind").get("text") == "m7"
+    assert violin_measures[10].find("harmony/kind").text == "minor"
+    assert violin_measures[10].find("harmony/kind").get("text") == "m"
 
     for measure, event in zip(
         (violin_measures[slot.start] for slot in score.slots),
@@ -549,7 +572,16 @@ def _assert_measure_timing(
         for note in right[2:]:
             if note.find("rest") is None:
                 assert note.get("dynamics") == f"{64 * 100 / 90:.2f}"
-        assert _written(left) == ([_pitch(root)] if bar == slot.start else [])
+        expected_left = (
+            [_pitch(root)]
+            if (
+                bar == slot.start
+                if slot.section == "outro"
+                else (bar - slot.start) % 2 == 0
+            )
+            else []
+        )
+        assert _written(left) == expected_left
 
         bass_notes = [note for note in bass_measure if note.tag == "note"]
         assert all(note.find("chord") is None for note in bass_notes)
@@ -588,7 +620,7 @@ def test_outro_bass_restarts_the_root_every_bar() -> None:
     assert transpose.find("chromatic").text == "0"
     assert transpose.find("octave-change").text == str(-BASS_WRITTEN_OCTAVES)
     assert bass_measures[26].find("harmony") is None
-    assert _part(root, "P1").findall("measure")[26].find("harmony/kind").text == "minor-seventh"
+    assert _part(root, "P1").findall("measure")[26].find("harmony/kind").text == "minor"
 
 
 def test_session_drops_lunch_and_warms_up_ma20() -> None:
@@ -845,12 +877,13 @@ def test_piano_answers_a_held_cadence_under_the_violin() -> None:
     right = [note for note in score.piano if note.bar == 4 and note.staff == 1]
     assert [(note.beat, note.midi, note.duration_beats, note.velocity) for note in right] == [
         (0.0, 60, 0.5, None),
-        (0.0, 67, 0.5, None),
-        (0.5, 64, 0.5, 64),
-        (1.0, 67, 0.5, 64),
+        (0.0, 64, 0.5, None),
+        (0.5, 60, 0.5, 64),
+        (1.0, 64, 0.5, 64),
         (1.5, 69, 0.5, 64),
         (2.0, None, 2.0, None),
     ]
+    assert fill_tones(AM, 76, "violin") == [60, 64, 69, 72]
     assert fill_tones(AM7, 76, "violin") == [64, 67, 69, 72]
     assert fill_tones(AM7, 50, "cello") == [60, 64, 67, 69]
     assert fill_tones(AM7, 59, "cello") == [64, 67, 69, 72]
@@ -1151,20 +1184,24 @@ def test_flute_harmony_avoids_fourths_tritones_octave_drops_and_repeated_reattac
 
 def test_markov_transitions_obey_functional_harmony_and_minimize_quantization_loss() -> None:
     scale = c_major_scale()
+    with pytest.raises(ValueError):
+        bar_quantization_loss([61], C.pitch_classes, scale)
+
     for chord in CHORDS:
         row = TRANSITIONS[chord]
         assert abs(sum(row.values()) - 1.0) < 1e-9
         assert all(prob > 0.0 for prob in row.values())
         assert transition_probability(chord, chord) > 0.0
 
-    # Dominant G7 resolves only to Cmaj7, Am7, or stays on G7 — never retrogresses to IV, ii, or iii
-    assert set(TRANSITIONS[G7]) == {CMAJ7, AM7, G7}
-    for forbidden in (FMAJ7, DM7, EM7):
-        assert transition_probability(G7, forbidden) == 0.0
+    # Dominant G / G7 resolves only to C / Cmaj7, Am / Am7, or stays on G / G7 — never retrogresses to IV, ii, or iii
+    for dom in (G, G7):
+        assert set(TRANSITIONS[dom]) == {C, CMAJ7, AM, AM7, G, G7}
+        for forbidden in (F, FMAJ7, DM, DM7, EM, EM7):
+            assert transition_probability(dom, forbidden) == 0.0
 
     # When bars 2..5 repeatedly sound E4 and F4 on strong beats (indexes 9 and 10, uniquely
     # shared by Fmaj7), the Markov chain stays on Fmaj7 across all four bars rather than
-    # forcing a fixed progression change.
+    # forcing a fixed progression change, and the piano left hand re-strikes the root every 2 bars.
     held_fmaj7 = _session(
         {
             bar * 8 + offset: (4, index)
@@ -1176,44 +1213,92 @@ def test_markov_transitions_obey_functional_harmony_and_minimize_quantization_lo
     by_bar_held = {bar: slot.chord for slot in score_held.slots for bar in slot.bars()}
     assert [by_bar_held[bar] for bar in range(2, 6)] == [FMAJ7] * 4
     assert any(slot.chord == FMAJ7 and slot.length >= 4 for slot in score_held.slots)
+    left_bars_2_to_5 = [
+        next(n.midi for n in score_held.piano if n.bar == bar and n.staff == 2)
+        for bar in range(2, 6)
+    ]
+    assert left_bars_2_to_5 == [41, None, 41, None]
 
-    # When consecutive bars outline distinct harmonically connected chords (Bar 2: D4-A4 -> Dm7,
-    # Bar 3: B4-F4 -> G7, Bar 4: C4-B4 -> Cmaj7), Markov steps bar-by-bar (1-bar slots)
-    # with zero strong-beat quantization loss.
+    # When consecutive bars outline distinct harmonically connected chords (Bar 2: D4-A4 -> Dm/Dm7,
+    # Bar 3: B4-F4 -> G7, Bar 4: C4-E4 -> C), Markov steps bar-by-bar (1-bar slots)
+    # with zero strong-beat quantization loss, choosing the 7th chord G7 when the tritone
+    # is on strong beats and the clean triad C when no 7th degree is needed.
     single_bar_changes = _session(
         {
             16: (4, 8),   # D4
-            20: (4, 12),  # A4 -> Dm7
+            20: (4, 12),  # A4 -> Dm / Dm7
             24: (4, 13),  # B4
-            28: (4, 10),  # F4 -> G7
+            28: (4, 10),  # F4 -> G7 (tritone requires 7th chord)
             32: (4, 7),   # C4
-            36: (4, 13),  # B4 -> Cmaj7
+            36: (4, 9),   # E4 -> C (triad wins over Cmaj7 when B is not needed)
         }
     )
     score_changes = render(single_bar_changes, regimes=("uptrend",) * 3)
     by_bar = {bar: slot.chord for slot in score_changes.slots for bar in slot.bars()}
-    assert [by_bar[bar] for bar in (2, 3, 4)] == [DM7, G7, CMAJ7]
+    assert by_bar[2] in (DM, DM7)
+    assert [by_bar[bar] for bar in (3, 4)] == [G7, C]
     assert any(slot.length == 1 for slot in score_changes.slots)
 
-    # Across random walks, Markov chords always follow valid transitions and achieve
-    # strictly lower quantization loss than the fixed reference loops.
-    for seed in range(10):
+    # Liquidity dynamics and bass pulse use the fixed 14-window grid (independent of price path).
+    volumes = [50_000 + 100_000 * (index % 7) / 6 for index in range(240)]
+    walk_a = [Bar(close, vol, close) for close, vol in zip(_walk(0), volumes)]
+    walk_b = [Bar(close, vol, close) for close, vol in zip(_walk(1), volumes)]
+    score_a = render(walk_a)
+    score_b = render(walk_b)
+    assert len(score_a.liquidity) == 14
+    assert score_a.liquidity == score_b.liquidity
+    assert score_a.dynamics == score_b.dynamics
+
+    # Across random walks:
+    # - Intro (bars 0..1) always pedals the opening phrase's tonic (C/Cmaj7 or Am/Am7)
+    # - Outro (bars 26..29) always pedals the closing phrase's tonic (never ending on G7/Dm7/Fmaj7)
+    # - Every bar-to-bar transition has positive probability in TRANSITIONS
+    # - Both triads and seventh chords are actively selected
+    # - Total strong-beat quantization loss is lower than or equal to the fixed loops
+    triad_total = 0
+    seventh_total = 0
+    for seed in range(50):
         closes = _walk(seed)
         bars = [Bar(close, 1.0, close) for close in closes]
         score = render(bars)
-        raw_pitches = [scale[int(close)] for close in closes]
-        markov_chords = plan_markov_chords(score.regimes, raw_pitches, scale)
-        fixed_slots = plan_slots(score.regimes)
-        fixed_chords = [slot.chord for slot in fixed_slots for _ in slot.bars()]
+        groups = assign_source_bars(len(bars))
+        low, high = min(closes), max(closes)
+        raw_pitches = [
+            scale[price_to_scale_index(close, low, high, len(scale))]
+            for group in groups
+            for close in ([bars[i].close for i in group] if group else [closes[0]])
+        ]
+        bar_chords = [slot.chord for slot in score.slots for _ in slot.bars()]
+        assert len(bar_chords) == 30
+        intro_tonics = set(tonic_chords(score.regimes[0]))
+        outro_tonics = set(tonic_chords(score.regimes[2]))
+        assert bar_chords[0] in intro_tonics and bar_chords[1] == bar_chords[0]
+        assert bar_chords[26] in outro_tonics and all(
+            bar_chords[b] == bar_chords[26] for b in range(26, 30)
+        )
         for bar in range(1, 30):
-            assert transition_probability(markov_chords[bar - 1], markov_chords[bar]) > 0.0
+            assert transition_probability(bar_chords[bar - 1], bar_chords[bar]) > 0.0
+        triad_total += sum(1 for c in bar_chords if c in TRIADS)
+        seventh_total += sum(1 for c in bar_chords if c in SEVENTHS)
+        fixed_chords = [slot.chord for slot in plan_slots(score.regimes) for _ in slot.bars()]
         markov_loss = sum(
-            bar_quantization_loss(raw_pitches[b * 8 : (b + 1) * 8], markov_chords[b].pitch_classes, scale)
+            bar_quantization_loss(
+                raw_pitches[b * 8 : (b + 1) * 8],
+                bar_chords[b].pitch_classes,
+                scale,
+                previous_pitch=raw_pitches[b * 8 - 1] if b > 0 else None,
+            )
             for b in range(30)
         )
         fixed_loss = sum(
-            bar_quantization_loss(raw_pitches[b * 8 : (b + 1) * 8], fixed_chords[b].pitch_classes, scale)
+            bar_quantization_loss(
+                raw_pitches[b * 8 : (b + 1) * 8],
+                fixed_chords[b].pitch_classes,
+                scale,
+                previous_pitch=raw_pitches[b * 8 - 1] if b > 0 else None,
+            )
             for b in range(30)
         )
         assert markov_loss <= fixed_loss
+    assert triad_total > 0 and seventh_total > 0
 

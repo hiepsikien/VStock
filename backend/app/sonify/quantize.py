@@ -66,15 +66,22 @@ def bar_quantization_loss(
     bar_pitches: Sequence[int],
     pitch_classes: frozenset[int],
     scale: tuple[int, ...],
+    previous_pitch: int | None = None,
 ) -> float:
     """Weighted scale-step quantization loss for one 8-eighth bar under a candidate chord.
 
+    Every note in `bar_pitches` must belong to `scale` (raises ValueError otherwise).
     Strong beats (eighths 0 and 4, beats 1 and 3) and eighths held in the same
     run as a strong beat carry primary weight because _quantize_strong_beats
-    snaps strong-beat runs to chord tones; weak-beat passing notes keep their
-    scale tone and carry only a small tie-breaker weight.
+    snaps strong-beat runs to chord tones using contour (`previous` and `step`);
+    weak-beat passing notes keep their scale tone and carry only a small
+    tie-breaker weight.
     """
     index_of = {note: index for index, note in enumerate(scale)}
+    for note in bar_pitches:
+        if note not in index_of:
+            raise ValueError(f"MIDI {note} is not on the scale")
+
     strong_run_eighths = set(STRONG_BEAT_EIGHTHS)
     for beat in STRONG_BEAT_EIGHTHS:
         if beat >= len(bar_pitches):
@@ -90,18 +97,34 @@ def bar_quantization_loss(
             cursor += 1
 
     loss = 0.0
-    for eighth, note in enumerate(bar_pitches):
-        snapped = quantize_chord_tone(note, pitch_classes, scale)
+    prev_snapped = (
+        quantize_chord_tone(previous_pitch, pitch_classes, scale)
+        if previous_pitch is not None and previous_pitch in index_of
+        else previous_pitch
+    )
+    prev_raw = previous_pitch
+    n = len(bar_pitches)
+    cursor = 0
+    while cursor < n:
+        note = bar_pitches[cursor]
+        end = cursor + 1
+        while end < n and bar_pitches[end] == note:
+            end += 1
+        step = 0 if prev_raw is None else note - prev_raw
+        snapped = quantize_chord_tone(note, pitch_classes, scale, prev_snapped, step)
         steps = abs(index_of[snapped] - index_of[note])
-        if steps == 0:
-            continue
-        if eighth in STRONG_BEAT_EIGHTHS:
-            weight = STRONG_BEAT_WEIGHT
-        elif eighth in strong_run_eighths:
-            weight = HELD_STRONG_WEIGHT
-        else:
-            weight = WEAK_BEAT_WEIGHT
-        loss += weight * steps
+        if steps > 0:
+            for eighth in range(cursor, end):
+                if eighth in STRONG_BEAT_EIGHTHS:
+                    weight = STRONG_BEAT_WEIGHT
+                elif eighth in strong_run_eighths:
+                    weight = HELD_STRONG_WEIGHT
+                else:
+                    weight = WEAK_BEAT_WEIGHT
+                loss += weight * steps
+        prev_snapped = snapped if any(e in strong_run_eighths for e in range(cursor, end)) else note
+        prev_raw = note
+        cursor = end
     return loss
 
 

@@ -15,6 +15,7 @@ from app.sonify.dynamics import (
 )
 from app.sonify.form import (
     BPM,
+    LIQUIDITY_WINDOWS,
     MUSICAL_BARS,
     PHRASE_STARTS,
     SECTION_STARTS,
@@ -128,16 +129,23 @@ def _phrase_regime(bars: list[Bar], groups: list[list[int]], musical_bar: int) -
     return start, regime
 
 
-def _slot_candles(bars: list[Bar], groups: list[list[int]], slot: ChordSlot) -> list[float]:
-    """Continuous-auction volume only. ATO/ATC prints are not liquidity."""
+def _window_candles(
+    bars: list[Bar], groups: list[list[int]], start: int, length: int
+) -> list[float]:
+    """Continuous-auction volume only inside one fixed bar window. ATO/ATC prints are not liquidity."""
     volumes: list[float] = []
-    for musical_bar in slot.bars():
+    for musical_bar in range(start, start + length):
         for index in groups[musical_bar]:
             bar = bars[index]
             if bar.auction:
                 continue
             volumes.append(bar.volume)
     return volumes
+
+
+def _slot_candles(bars: list[Bar], groups: list[list[int]], slot: ChordSlot) -> list[float]:
+    """Continuous-auction volume only. ATO/ATC prints are not liquidity."""
+    return _window_candles(bars, groups, slot.start, slot.length)
 
 
 def _spell(start: int, length: int) -> list[tuple[int, int]]:
@@ -890,14 +898,20 @@ def _bass_bar(chord: Chord, marking: str, bar: int) -> list[NoteEvent]:
 
 
 def comp_pitches(chord: Chord) -> tuple[int, tuple[int, int]]:
-    """Root in F2–E3, and the third and seventh inside A3–G#4.
+    """Root in F2–E3, and two upper guide tones inside A3–G#4.
 
-    The third and seventh alone say major, minor, or dominant; the fixed
-    windows keep both hands within a few steps from one chord to the next.
+    Seventh chords play the third and seventh; triads play the third and fifth.
+    The fixed windows keep both hands within a few steps from one chord to the next.
     """
-    root_pc, third_pc, _fifth_pc, seventh_pc = (pitch % 12 for pitch in chord.pitches)
+    pcs = tuple(pitch % 12 for pitch in chord.pitches)
+    if len(pcs) == 4:
+        root_pc, third_pc, _fifth_pc, upper_pc = pcs
+    elif len(pcs) == 3:
+        root_pc, third_pc, upper_pc = pcs
+    else:
+        raise ValueError(f"expected triad or seventh chord, got {len(pcs)} pitches")
     root = PIANO_ROOT_LOW + (root_pc - PIANO_ROOT_LOW) % 12
-    guide = tuple(sorted(GUIDE_LOW + (pc - GUIDE_LOW) % 12 for pc in (third_pc, seventh_pc)))
+    guide = tuple(sorted(GUIDE_LOW + (pc - GUIDE_LOW) % 12 for pc in (third_pc, upper_pc)))
     return root, guide
 
 
@@ -975,13 +989,17 @@ def _right_hand(
 
 
 def _left_hand(slot: ChordSlot) -> list[NoteEvent]:
-    """The root once, held through the first bar of the chord."""
+    """The root held for a bar and re-struck every two bars (or once on the outro pedal)."""
     root, _guide = comp_pitches(slot.chord)
     return [
         NoteEvent(
             bar=bar,
             beat=0.0,
-            midi=root if offset == 0 else None,
+            midi=(
+                root
+                if (offset == 0 if slot.section == "outro" else offset % 2 == 0)
+                else None
+            ),
             duration_beats=4.0,
             voice=5,
             staff=2,
@@ -1102,16 +1120,16 @@ def render(
 
     slots = plan_slots(chosen, raw_pitches, scale)
 
-    slot_volumes = average_liquidity(
-        [_slot_candles(bars, groups, slot) for slot in slots]
+    window_volumes = average_liquidity(
+        [_window_candles(bars, groups, start, length) for start, length in LIQUIDITY_WINDOWS]
     )
-    traded = [volume for volume in slot_volumes if volume > 0]
+    traded = [volume for volume in window_volumes if volume > 0]
     low_volume = percentile(traded, 0.10)
     high_volume = percentile(traded, 0.90)
-    bands = [marking_for_volume(volume, low_volume, high_volume) for volume in slot_volumes]
+    bands = [marking_for_volume(volume, low_volume, high_volume) for volume in window_volumes]
     dynamics = tuple(
-        DynamicEvent(bar=slot.start, marking=bass_marking(band), sound=SOUND[bass_marking(band)])
-        for slot, band in zip(slots, bands)
+        DynamicEvent(bar=start, marking=bass_marking(band), sound=SOUND[bass_marking(band)])
+        for (start, _length), band in zip(LIQUIDITY_WINDOWS, bands)
     )
     harmonies = tuple(HarmonyEvent(slot.start, slot.chord) for slot in slots)
 
@@ -1133,17 +1151,21 @@ def render(
         )
         for phrase in raw_phrases
     )
-    band_at = {bar: band for slot, band in zip(slots, bands) for bar in slot.bars()}
+    band_at = {
+        bar: band
+        for (start, length), band in zip(LIQUIDITY_WINDOWS, bands)
+        for bar in range(start, start + length)
+    }
     flute_notes, yield_spans = _flute_and_violin_dovetail(
         phrases, pitches, band_at, chord_at, scale
     )
     violin, cello, cadences = _melody_parts(pitches, phrases, band_at, yield_spans)
     piano: list[NoteEvent] = list(_right_hand(slots, _fills(cadences, chord_at)))
     bass: list[NoteEvent] = []
-    for slot, band in zip(slots, bands):
+    for slot in slots:
         piano.extend(_left_hand(slot))
-        for musical_bar in slot.bars():
-            bass.extend(_bass_bar(slot.chord, band, musical_bar))
+    for bar in range(MUSICAL_BARS):
+        bass.extend(_bass_bar(chord_at[bar], band_at[bar], bar))
 
     return Score(
         title=title,
