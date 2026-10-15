@@ -4,11 +4,11 @@ A close that stays on one scale tone for several eighths is a held note. A
 held note of at least PERIOD eighths (two beats) ends a phrase once the
 phrase is MIN_EIGHTHS long; an earlier one stays inside the phrase. A phrase
 that reaches MAX_EIGHTHS without one is cut after its longest COMMA-length
-note, then after a BEAT-length note followed by a wide LEAP, then after its
-latest note change, and only then mid-note. A note cut mid-note is held over
-into the next phrase rather than closing this one. Section starts open a new
-phrase unless the closing phrase carries up to PERIOD eighths across the bar
-line to finish on a held note or before a wide leap.
+note, then after a BEAT_EIGHTHS-length note followed by a wide LEAP_SEMITONES,
+then after its latest note change, and only then mid-note. A note cut mid-note
+is held over into the next phrase rather than closing this one. Section starts
+open a new phrase unless the closing phrase carries up to PERIOD eighths across
+the bar line to finish on a held note or before a wide leap.
 """
 
 from __future__ import annotations
@@ -17,8 +17,8 @@ from dataclasses import dataclass
 
 PERIOD = 4
 COMMA = 3
-BEAT = 2
-LEAP = 5
+BEAT_EIGHTHS = 2
+LEAP_SEMITONES = 5
 MIN_EIGHTHS = 8
 MAX_EIGHTHS = 32
 
@@ -84,37 +84,61 @@ def _clip(runs: list[Run], start: int, end: int) -> tuple[Run, ...]:
     return tuple(clipped)
 
 
-def _leap_after(runs: list[Run], run: Run) -> int:
-    for following in runs:
-        if following.start == run.end:
-            return abs(following.midi - run.midi)
-    return 0
+def _leap_after(run: Run, midi_at: dict[int, int]) -> int:
+    following = midi_at.get(run.end)
+    return abs(following - run.midi) if following is not None else 0
 
 
-def _cut(runs: list[Run], start: int, end: int) -> int:
+def _cut(
+    runs: list[Run],
+    midi_at: dict[int, int],
+    start: int,
+    end: int,
+    *,
+    tied_in: bool = False,
+) -> int:
     """Where the phrase opened at start ends, inside a section ending at end."""
     low = start + MIN_EIGHTHS
     high = min(start + MAX_EIGHTHS, end - MIN_EIGHTHS)
-    candidates = [run for run in runs if run.start > start and low <= run.end <= high]
+    candidates = [
+        run
+        for run in runs
+        if low <= run.end <= high and not (tied_in and run.start < start)
+    ]
+
+    def held(run: Run) -> int:
+        return run.end - max(run.start, start)
 
     for run in candidates:
-        if run.length >= PERIOD:
+        if held(run) >= PERIOD:
             return run.end
     if end - start <= MAX_EIGHTHS:
         return end
-    commas = [run for run in candidates if run.length >= COMMA]
+    commas = [run for run in candidates if held(run) >= COMMA]
     if commas:
-        return max(commas, key=lambda run: (run.length, run.end)).end
-    leaps = [run for run in candidates if run.length >= BEAT and _leap_after(runs, run) >= LEAP]
+        return max(commas, key=lambda run: (held(run), run.end)).end
+    leaps = [
+        run
+        for run in candidates
+        if held(run) >= BEAT_EIGHTHS and _leap_after(run, midi_at) >= LEAP_SEMITONES
+    ]
     if leaps:
-        return max(leaps, key=lambda run: (_leap_after(runs, run), run.length, run.end)).end
+        return max(
+            leaps, key=lambda run: (_leap_after(run, midi_at), held(run), run.end)
+        ).end
     changes = [run for run in runs if low <= run.end <= high]
     if changes:
         return changes[-1].end
     return high
 
 
-def _settle_edge(runs: list[Run], start: int, edge: int, next_edge: int) -> int:
+def _settle_edge(
+    runs: list[Run],
+    midi_at: dict[int, int],
+    start: int,
+    edge: int,
+    next_edge: int,
+) -> int:
     """Let a phrase carry up to PERIOD eighths across a section bar line to resolve."""
     high = min(edge + PERIOD, start + MAX_EIGHTHS, next_edge - MIN_EIGHTHS)
     if high <= edge:
@@ -137,9 +161,15 @@ def _settle_edge(runs: list[Run], start: int, edge: int, next_edge: int) -> int:
     commas = [run for run in after if held(run) >= COMMA]
     if commas:
         return max(commas, key=lambda run: (held(run), run.end)).end
-    leaps = [run for run in after if held(run) >= BEAT and _leap_after(runs, run) >= LEAP]
+    leaps = [
+        run
+        for run in after
+        if held(run) >= BEAT_EIGHTHS and _leap_after(run, midi_at) >= LEAP_SEMITONES
+    ]
     if leaps:
-        return max(leaps, key=lambda run: (_leap_after(runs, run), held(run), run.end)).end
+        return max(
+            leaps, key=lambda run: (_leap_after(run, midi_at), held(run), run.end)
+        ).end
     return edge
 
 
@@ -150,13 +180,15 @@ def plan_phrases(pitches: list[int], section_starts: tuple[int, ...]) -> tuple[P
     bounds.append(total)
     section_set = set(bounds)
     runs = runs_of(pitches, 0, total)
+    midi_at = {run.start: run.midi for run in runs}
     phrases: list[Phrase] = []
     cursor = 0
     for index, edge in enumerate(bounds[1:], 1):
         while cursor < edge:
-            cut = _cut(runs, cursor, edge)
+            tied_in = bool(phrases and phrases[-1].held_over)
+            cut = _cut(runs, midi_at, cursor, edge, tied_in=tied_in)
             if cut == edge and edge < total:
-                cut = _settle_edge(runs, cursor, edge, bounds[index + 1])
+                cut = _settle_edge(runs, midi_at, cursor, edge, bounds[index + 1])
             held_over = (
                 cut < total and cut not in section_set and pitches[cut] == pitches[cut - 1]
             )

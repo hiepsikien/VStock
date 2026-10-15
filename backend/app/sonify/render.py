@@ -509,8 +509,10 @@ def _quantize_strong_beats(
     """Snap runs that land on or hold through beats 1 and 3 to the active chord.
 
     Weak-beat runs keep their diatonic scale tone as passing or neighbour notes.
-    A syncopated pickup that ties across a bar line into beat 1 takes the new
-    chord together with beat 1 rather than splitting at the bar line.
+    A run that spans a chord change snaps once to a tone shared by the chords on
+    its strong beats, so a held note is not split at the bar line. When a single
+    run spans an entire section whose chords share no common tone, each chord
+    slot snaps its own span.
     """
     pitches = list(raw)
     previous: int | None = None
@@ -522,6 +524,15 @@ def _quantize_strong_beats(
         ]
         if not strong:
             previous = pitches[run.end - 1]
+            continue
+        common = frozenset.intersection(
+            *(chord_at[eighth // EIGHTHS_PER_BAR].pitch_classes for eighth in strong)
+        )
+        if common:
+            snapped = quantize_chord_tone(run.midi, common, scale, previous)
+            for eighth in range(run.start, run.end):
+                pitches[eighth] = snapped
+            previous = snapped
             continue
         cursor = run.start
         for index, beat_eighth in enumerate(strong):
@@ -608,7 +619,22 @@ def render(
 
     chord_at = {bar: slot.chord for slot in slots for bar in slot.bars()}
     pitches = _quantize_strong_beats(raw_pitches, chord_at, scale)
-    phrases = plan_phrases(pitches, tuple(start * EIGHTHS_PER_BAR for start in SECTION_STARTS))
+    raw_phrases = plan_phrases(
+        raw_pitches, tuple(start * EIGHTHS_PER_BAR for start in SECTION_STARTS)
+    )
+    phrases = tuple(
+        Phrase(
+            phrase.start,
+            phrase.end,
+            tuple(
+                part
+                for run in phrase.runs
+                for part in runs_of(pitches, run.start, run.end)
+            ),
+            phrase.held_over and pitches[phrase.end] == pitches[phrase.end - 1],
+        )
+        for phrase in raw_phrases
+    )
     band_at = {bar: band for slot, band in zip(slots, bands) for bar in slot.bars()}
     violin, cello, cadences = _melody_parts(pitches, phrases, band_at)
     piano: list[NoteEvent] = list(_right_hand(slots, _fills(cadences, chord_at)))

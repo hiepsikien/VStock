@@ -288,6 +288,28 @@ def test_melody_snaps_strong_beats_to_chord_tones_and_keeps_weak_beat_passing_no
     score = render(passing, regimes=("sideway",) * 3)
     assert _line(score.violin, 0) == [60, 65, 64, 62, 64, 69, 67, 69]
 
+    # When a strong-beat F4 (index 10) at eighth 20 snaps to E4 (64) and is followed by a
+    # weak-beat E4 (index 9) at eighth 21, the two eighths stay two separate attacks rather
+    # than merging into a fake held note; a genuine held note across Cmaj7 -> Am7 (30..36)
+    # stays one note.
+    no_fake_merge = _session({20: (1, 10), 21: (1, 9), 30: (6, 10)})
+    score = render(no_fake_merge, regimes=("sideway",) * 3)
+    bar_two = [
+        (note.beat, note.midi, note.duration_beats, note.tie_start, note.tie_stop)
+        for note in score.violin
+        if note.bar == 2 and note.beat in (2.0, 2.5)
+    ]
+    assert bar_two == [(2.0, 64, 0.5, False, False), (2.5, 64, 0.5, False, False)]
+    cross_chord = [
+        (note.bar, note.beat, note.midi, note.duration_beats, note.tie_start, note.tie_stop)
+        for note in score.violin
+        if (note.bar == 3 and note.beat == 3.0) or (note.bar == 4 and note.beat == 0.0)
+    ]
+    assert cross_chord == [
+        (3, 3.0, cross_chord[0][2], 1.0, True, False),
+        (4, 0.0, cross_chord[0][2], 1.5, False, True),
+    ]
+
 
 def test_bass_dynamics_follow_slot_volume() -> None:
     volumes = [1.0] * 30
@@ -708,6 +730,19 @@ def test_phrase_carries_across_section_bar_line_to_settle_before_a_leap() -> Non
     assert phrases[1].closes and phrases[1].cadence.midi == 76
 
 
+def test_note_crossing_section_boundary_can_close_the_next_phrase() -> None:
+    # A long note starting at 12 and running to 26 crosses section start 16:
+    # 12..16 (4 eighths) closes the first phrase at 16, and 16..26 (10 eighths)
+    # is counted from the section downbeat 16 and closes the second phrase at 26.
+    pitches = _alternating(12) + [67] * 14 + _alternating(22)
+    phrases = plan_phrases(pitches, (16,))
+    assert [(p.start, p.end, p.closes, p.held_over) for p in phrases] == [
+        (0, 16, True, False),
+        (16, 26, True, False),
+        (26, 48, False, False),
+    ]
+
+
 def _walk(seed: int) -> list[float]:
     rng = random.Random(seed)
     index = 14
@@ -729,7 +764,7 @@ def _balanced(kinds: list[str]) -> bool:
     return not open_
 
 
-def test_phrases_stay_two_to_four_bars_inside_sections() -> None:
+def test_phrases_stay_one_to_four_bars_and_settle_near_sections() -> None:
     for seed in range(20):
         score = render([Bar(close, 1.0, close) for close in _walk(seed)])
         sections = [start * 8 for start in SECTION_STARTS] + [240]
@@ -737,7 +772,8 @@ def test_phrases_stay_two_to_four_bars_inside_sections() -> None:
         for phrase, following in zip(score.phrases, score.phrases[1:]):
             assert phrase.end == following.start
             same_note = following.runs[0].midi == phrase.cadence.midi
-            assert phrase.held_over == (phrase.end not in sections and same_note)
+            if phrase.held_over:
+                assert phrase.end not in sections and same_note
             assert not (phrase.held_over and phrase.closes)
         for part in (score.violin, score.cello):
             for note, following in zip(part, part[1:]):
@@ -996,14 +1032,16 @@ def test_held_notes_take_at_most_one_colour() -> None:
 
 def test_one_accent_per_phrase_on_its_longest_syncopation() -> None:
     score = render(
-        _session({18: (3, 10), 21: (3, 12), 33: (5, 9)}),
-        regimes=("sideway",) * 3,
+        _session({22: (3, 12), 27: (3, 9), 32: (4, 9)}),
+        regimes=("downtrend",) * 3,
     )
     phrase = next(phrase for phrase in score.phrases if phrase.start == 16)
-    assert phrase.end == 38
+    assert phrase.end == 36
     accented = [
         (note.bar, note.beat, note.midi)
         for note in score.violin
-        if note.accent and 16 <= note.bar * 8 + note.beat * 2 < 38
+        if note.accent and 16 <= note.bar * 8 + note.beat * 2 < 36
     ]
-    assert accented == [(4, 0.5, 64)]
+    assert accented == [(2, 3.0, 69)]
+    tied = next(note for note in score.violin if note.bar == 3 and note.beat == 0.0)
+    assert (tied.midi, tied.tie_stop, tied.accent) == (69, True, False)

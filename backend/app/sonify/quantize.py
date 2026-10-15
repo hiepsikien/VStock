@@ -25,7 +25,7 @@ def price_to_scale_index(close: float, low: float, high: float, size: int) -> in
 
 def quantize_chord_tone(
     target: int,
-    chord: Chord,
+    chord: Chord | frozenset[int],
     scale: tuple[int, ...],
     previous: int | None = None,
 ) -> int:
@@ -34,11 +34,12 @@ def quantize_chord_tone(
     A tie in scale steps prefers moving rather than repeating `previous`, then
     the closer note in semitones, and finally the lower note.
     """
-    if target % 12 in chord.pitch_classes:
+    pcs = chord.pitch_classes if isinstance(chord, Chord) else chord
+    if target % 12 in pcs:
         return target
-    candidates = [(index, note) for index, note in enumerate(scale) if note % 12 in chord.pitch_classes]
+    candidates = [(index, note) for index, note in enumerate(scale) if note % 12 in pcs]
     if not candidates:
-        raise ValueError(f"{chord.name} has no tone in the melody register")
+        raise ValueError("no chord tone in the melody register")
     target_index = scale.index(target)
 
     def key(item: tuple[int, int]) -> tuple[int, int, int, int]:
