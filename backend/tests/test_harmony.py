@@ -13,11 +13,11 @@ from app.sonify.dynamics import DYNAMICS, MARKINGS, SOUND, marking_for_volume
 from app.sonify.form import SECTION_STARTS, plan_slots
 from app.sonify.model import Bar, WedgeEvent
 from app.sonify.musicxml import BASS_WRITTEN_OCTAVES, score_to_musicxml
-from app.sonify.phrasing import MAX_EIGHTHS, MIN_EIGHTHS, plan_phrases
-from app.sonify.quantize import C_MAJOR_PCS, c_major_scale, price_to_scale_index
+from app.sonify.phrasing import MAX_EIGHTHS, MIN_EIGHTHS, PERIOD, plan_phrases
+from app.sonify.quantize import C_MAJOR_PCS, c_major_scale, price_to_scale_index, quantize_chord_tone
 from app.sonify.regime import classify, moving_average
 from app.sonify.chords import AM7, CMAJ7, DM7, EM7, FMAJ7, G7
-from app.sonify.render import assign_source_bars, comp_pitches, fill_tones, render
+from app.sonify.render import STRONG_EIGHTHS, assign_source_bars, comp_pitches, fill_tones, render
 from app.sonify.session import bars_from_ohlc, is_auction_minute, is_recap_minute, session_bars
 
 VN = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -266,19 +266,63 @@ def test_cello_takes_the_line_below_g3_until_c4() -> None:
     assert all(note.midi >= 55 for note in score.violin if note.midi is not None)
 
 
-def test_melody_keeps_scale_tones_outside_the_chord() -> None:
+def test_melody_snaps_strong_beats_to_chord_tones_and_keeps_weak_beat_passing_notes() -> None:
+    scale = c_major_scale()
+    assert quantize_chord_tone(64, CMAJ7.pitch_classes, scale) == 64
+    assert quantize_chord_tone(62, AM7.pitch_classes, scale) == 60
+    assert quantize_chord_tone(62, AM7.pitch_classes, scale, previous=60) == 64
+    assert quantize_chord_tone(62, CMAJ7.pitch_classes, scale, step=2) == 64
+    assert quantize_chord_tone(62, CMAJ7.pitch_classes, scale, step=-2) == 60
+    assert quantize_chord_tone(65, AM7.pitch_classes, scale) == 64
+    assert quantize_chord_tone(71, AM7.pitch_classes, scale) == 72
+
     score = render(
         [Bar(50.0, 1.0, 50.0)] * 30,
         regimes=("uptrend", "uptrend", "uptrend"),
     )
-    assert {note.midi for note in _sounding(score)} == {72}
+    g7_bars = {8, 9, 16, 17, 24, 25}
+    for note in _sounding(score):
+        assert note.midi == (71 if note.bar in g7_bars else 72)
 
-    scale = c_major_scale()
-    closes = [float(scale.index(62))] * 30
-    closes[0] = 0.0
-    closes[-1] = float(len(scale) - 1)
-    score = render([Bar(close, 1.0, close) for close in closes], regimes=("uptrend",) * 3)
-    assert [note.midi for note in _sounding(score) if note.bar == 2] == [62]
+    # On bar 0 (Cmaj7), strong beats (eighths 0 and 4) snap D4 (62) and F4 (65) to chord tones,
+    # while weak-beat runs keep D4 (62), F4 (65), and A4 (69) as passing tones.
+    passing = _indexed_session([8, 10, 9, 8, 10, 12, 11, 12], 7)
+    score = render(passing, regimes=("sideway",) * 3)
+    assert _line(score.violin, 0) == [60, 65, 64, 62, 67, 69, 67, 69]
+
+    # When a strong-beat F4 (index 10) after G4 (index 11) at eighth 20 snaps down to E4 (64)
+    # and is followed by a weak-beat E4 (index 9) at eighth 21, the two eighths stay two
+    # separate attacks rather than merging into a fake held note; a genuine held note across
+    # Cmaj7 -> Am7 (30..36) stays one note on G4 (67), shared by both chords.
+    no_fake_merge = _session({19: (1, 11), 20: (1, 10), 21: (1, 9), 30: (6, 10)})
+    score = render(no_fake_merge, regimes=("sideway",) * 3)
+    bar_two = [
+        (note.beat, note.midi, note.duration_beats, note.tie_start, note.tie_stop)
+        for note in score.violin
+        if note.bar == 2 and note.beat in (2.0, 2.5)
+    ]
+    assert bar_two == [(2.0, 64, 0.5, False, False), (2.5, 64, 0.5, False, False)]
+    cross_chord = [
+        (note.bar, note.beat, note.midi, note.duration_beats, note.tie_start, note.tie_stop)
+        for note in score.violin
+        if (note.bar == 3 and note.beat == 3.0) or (note.bar == 4 and note.beat == 0.0)
+    ]
+    assert cross_chord == [
+        (3, 3.0, 67, 1.0, True, False),
+        (4, 0.0, 67, 1.5, False, True),
+    ]
+    assert 67 % 12 in CMAJ7.pitch_classes & AM7.pitch_classes
+
+    # When a held note on A6 (index 26, midi 93) spans Dm7 -> Em7 (bars 7..8 in downtrend),
+    # the only shared chord tone D is four scale steps away, so each chord snaps within one step
+    # (A6 on Dm7, B6 on Em7) rather than pulling the note down a fifth to D6.
+    far_shared = _session({60: (8, 26)})
+    score = render(far_shared, regimes=("downtrend",) * 3)
+    assert [
+        (note.bar, note.beat, note.midi)
+        for note in score.violin
+        if (note.bar == 7 and note.beat == 2.0) or (note.bar == 8 and note.beat == 0.0)
+    ] == [(7, 2.0, 93), (8, 0.0, 95)]
 
 
 def test_bass_dynamics_follow_slot_volume() -> None:
@@ -670,9 +714,9 @@ def _alternating(count: int) -> list[int]:
     return [60 + 2 * (index % 2) for index in range(count)]
 
 
-def test_phrase_ends_on_the_first_held_note_after_two_bars() -> None:
+def test_phrase_ends_on_the_first_held_note_after_one_bar() -> None:
     pitches = (
-        _alternating(8) + [64] * 4 + _alternating(8) + [67] * 5
+        _alternating(3) + [64] * 4 + _alternating(13) + [67] * 5
         + _alternating(15) + [65] * 4 + _alternating(20)
     )
     phrases = plan_phrases(pitches, (0,))
@@ -686,6 +730,31 @@ def test_phrase_without_a_held_note_cuts_after_a_comma_then_at_four_bars() -> No
     assert [(p.start, p.end) for p in plan_phrases(pitches, (0,))] == [(0, 21), (21, 48)]
     assert [(p.start, p.end) for p in plan_phrases(_alternating(48), (0,))] == [(0, 32), (32, 48)]
     assert [(p.start, p.end) for p in plan_phrases([60] * 40, (24,))] == [(0, 24), (24, 40)]
+
+
+def test_phrase_carries_across_section_bar_line_to_settle_before_a_leap() -> None:
+    # A phrase ending right at section boundary 16 on a repeated eighth E5 -> D5 (2 eighths)
+    # followed by a wide leap up to B5 settles after D5 at eighth 19, then closes on E5 at 34.
+    before = [76, 76, 74, 74, 74, 74, 76, 76, 74, 74, 76, 81, 79, 77, 81, 76]
+    after = [76, 74, 74, 83, 83, 76, 76, 74, 76, 76, 76, 83, 83, 81, 76, 76, 76, 76, 74] + [76] * 6 + _alternating(16)
+    phrases = plan_phrases(before + after, (16,))
+    assert [(p.start, p.end) for p in phrases] == [(0, 19), (19, 34), (34, 57)]
+    assert [(r.midi, r.length) for r in phrases[0].runs[-2:]] == [(76, 2), (74, 2)]
+    assert phrases[1].runs[0].midi == 83
+    assert phrases[1].closes and phrases[1].cadence.midi == 76
+
+
+def test_note_crossing_section_boundary_can_close_the_next_phrase() -> None:
+    # A long note starting at 12 and running to 26 crosses section start 16:
+    # 12..16 (4 eighths) closes the first phrase at 16, and 16..26 (10 eighths)
+    # is counted from the section downbeat 16 and closes the second phrase at 26.
+    pitches = _alternating(12) + [67] * 14 + _alternating(22)
+    phrases = plan_phrases(pitches, (16,))
+    assert [(p.start, p.end, p.closes, p.held_over) for p in phrases] == [
+        (0, 16, True, False),
+        (16, 26, True, False),
+        (26, 48, False, False),
+    ]
 
 
 def _walk(seed: int) -> list[float]:
@@ -709,15 +778,17 @@ def _balanced(kinds: list[str]) -> bool:
     return not open_
 
 
-def test_phrases_stay_two_to_four_bars_inside_sections() -> None:
+def test_phrases_stay_one_to_four_bars_and_settle_near_sections() -> None:
     for seed in range(20):
-        score = render([Bar(close, 1.0, close) for close in _walk(seed)])
+        closes = _walk(seed)
+        score = render([Bar(close, 1.0, close) for close in closes])
         sections = [start * 8 for start in SECTION_STARTS] + [240]
         assert score.phrases[0].start == 0 and score.phrases[-1].end == 240
         for phrase, following in zip(score.phrases, score.phrases[1:]):
             assert phrase.end == following.start
+            raw_same = closes[phrase.end] == closes[phrase.end - 1]
             same_note = following.runs[0].midi == phrase.cadence.midi
-            assert phrase.held_over == (phrase.end not in sections and same_note)
+            assert phrase.held_over == (phrase.end not in sections and raw_same and same_note)
             assert not (phrase.held_over and phrase.closes)
         for part in (score.violin, score.cello):
             for note, following in zip(part, part[1:]):
@@ -726,7 +797,16 @@ def test_phrases_stay_two_to_four_bars_inside_sections() -> None:
                     assert following.midi == note.midi
         for phrase in score.phrases:
             assert MIN_EIGHTHS <= phrase.end - phrase.start <= MAX_EIGHTHS
-            assert not any(phrase.start < edge < phrase.end for edge in sections)
+            assert not any(phrase.start < edge < phrase.end - PERIOD for edge in sections)
+        chord_at = {bar: slot.chord for slot in score.slots for bar in slot.bars()}
+        for note in score.violin + score.cello:
+            if note.midi is None:
+                continue
+            start_eighth = note.bar * 8 + int(note.beat * 2)
+            end_eighth = start_eighth + int(note.duration_beats * 2)
+            for eighth in range(start_eighth, end_eighth):
+                if eighth % 8 in STRONG_EIGHTHS:
+                    assert note.midi % 12 in chord_at[note.bar].pitch_classes
         accents = [note for note in score.violin + score.cello if note.accent]
         assert len(accents) <= len(score.phrases)
         for wedges in (score.violin_wedges, score.cello_wedges):
@@ -810,7 +890,7 @@ def test_fills_stay_in_the_cadence_tail_on_chord_tones() -> None:
 def test_phrase_swells_to_its_apex_and_writes_hairpins() -> None:
     rising = {16 + step: (1, 7 + step) for step in range(8)}
     falling = {24 + step: (1, 13 - step) for step in range(6)}
-    score = render(_session({**rising, **falling, 30: (6, 6)}), regimes=("sideway",) * 3)
+    score = render(_session({**rising, **falling, 30: (6, 5)}), regimes=("sideway",) * 3)
     phrase = next(phrase for phrase in score.phrases if phrase.start == 16)
     assert (phrase.end, phrase.apex.start, phrase.apex.midi) == (36, 23, 72)
     attacks = {
@@ -906,10 +986,10 @@ def test_reset_after_a_held_over_note_waits_for_the_next_attack() -> None:
 
 def test_heavy_volume_stall_after_a_fall_is_a_tremolo() -> None:
     ramp = [50_000 + 100_000 * index / 239 for index in range(240)]
-    score = render(_session({36: (6, 6), 196: (6, 6)}, ramp), regimes=("sideway",) * 3)
+    score = render(_session({36: (6, 5), 196: (6, 5)}, ramp), regimes=("sideway",) * 3)
     band_at = {bar: band for slot, band in zip(score.slots, score.liquidity) for bar in slot.bars()}
     assert band_at[4] == "p" and band_at[24] == "f"
-    held = [note for note in score.violin if note.midi == 59]
+    held = [note for note in score.violin if note.midi == 57]
     assert [(note.bar, note.beat, note.tremolo) for note in held] == [
         (4, 2.0, False),
         (5, 0.0, False),
@@ -924,10 +1004,10 @@ def test_heavy_volume_stall_after_a_fall_is_a_tremolo() -> None:
 
 
 def test_breakout_above_four_bars_is_accented_and_held_tenuto() -> None:
-    spans = {47: (1, 9), 48: (1, 10), 49: (1, 11), 50: (5, 12)}
+    spans = {47: (1, 9), 48: (1, 11), 49: (1, 12), 50: (5, 13)}
     score = render(_session(spans), regimes=("sideway",) * 3)
     phrase = next(phrase for phrase in score.phrases if phrase.start <= 50 < phrase.end)
-    held = [note for note in score.violin if note.midi == 69]
+    held = [note for note in score.violin if note.midi == 71]
     assert held[0].accent and held[0].tenuto
     assert not any(note.accent or note.tenuto for note in held[1:])
     accents = [
@@ -967,14 +1047,16 @@ def test_held_notes_take_at_most_one_colour() -> None:
 
 def test_one_accent_per_phrase_on_its_longest_syncopation() -> None:
     score = render(
-        _session({18: (3, 10), 22: (5, 12), 33: (5, 9)}),
-        regimes=("sideway",) * 3,
+        _session({22: (3, 12), 27: (3, 9), 32: (4, 9)}),
+        regimes=("downtrend",) * 3,
     )
     phrase = next(phrase for phrase in score.phrases if phrase.start == 16)
-    assert phrase.end == 38
+    assert phrase.end == 36
     accented = [
         (note.bar, note.beat, note.midi)
         for note in score.violin
-        if note.accent and 16 <= note.bar * 8 + note.beat * 2 < 38
+        if note.accent and 16 <= note.bar * 8 + note.beat * 2 < 36
     ]
     assert accented == [(2, 3.0, 69)]
+    tied = next(note for note in score.violin if note.bar == 3 and note.beat == 0.0)
+    assert (tied.midi, tied.tie_stop, tied.accent) == (69, True, False)

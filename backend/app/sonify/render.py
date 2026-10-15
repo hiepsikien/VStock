@@ -22,8 +22,8 @@ from app.sonify.form import (
     plan_slots,
 )
 from app.sonify.model import Bar, DynamicEvent, HarmonyEvent, NoteEvent, Score, WedgeEvent
-from app.sonify.phrasing import COMMA, PERIOD, Phrase, Run, plan_phrases, swell
-from app.sonify.quantize import c_major_scale, price_to_scale_index, resample
+from app.sonify.phrasing import COMMA, PERIOD, Phrase, Run, plan_phrases, runs_of, swell
+from app.sonify.quantize import c_major_scale, price_to_scale_index, quantize_chord_tone, resample
 from app.sonify.regime import REGIME_BARS, classify_window
 
 EIGHTHS_PER_BAR = 8
@@ -501,6 +501,65 @@ def _left_hand(slot: ChordSlot) -> list[NoteEvent]:
     ]
 
 
+def _quantize_strong_beats(
+    raw: list[int],
+    chord_at: dict[int, Chord],
+    scale: tuple[int, ...],
+) -> list[int]:
+    """Snap runs that land on or hold through beats 1 and 3 to the active chord.
+
+    Weak-beat runs keep their diatonic scale tone as passing or neighbour notes.
+    A run that spans a chord change snaps once to a tone shared by the chords on
+    its strong beats when one lies within a scale step of the original note;
+    otherwise (or when a run spans three or more chords with no common tone)
+    each chord slot snaps its own span.
+    """
+    pitches = list(raw)
+    previous: int | None = None
+    previous_raw: int | None = None
+    for run in runs_of(raw, 0, len(raw)):
+        step = 0 if previous_raw is None else run.midi - previous_raw
+        strong = [
+            eighth
+            for eighth in range(run.start, run.end)
+            if eighth % EIGHTHS_PER_BAR in STRONG_EIGHTHS
+        ]
+        if not strong:
+            previous = pitches[run.end - 1]
+            previous_raw = run.midi
+            continue
+        common = frozenset.intersection(
+            *(chord_at[eighth // EIGHTHS_PER_BAR].pitch_classes for eighth in strong)
+        )
+        if common:
+            snapped = quantize_chord_tone(run.midi, common, scale, previous, step)
+            if abs(scale.index(snapped) - scale.index(run.midi)) <= 1:
+                for eighth in range(run.start, run.end):
+                    pitches[eighth] = snapped
+                previous = snapped
+                previous_raw = run.midi
+                continue
+        cursor = run.start
+        for index, beat_eighth in enumerate(strong):
+            chord = chord_at[beat_eighth // EIGHTHS_PER_BAR]
+            if (
+                index + 1 < len(strong)
+                and chord_at[strong[index + 1] // EIGHTHS_PER_BAR] == chord
+            ):
+                continue
+            next_bar = (beat_eighth // EIGHTHS_PER_BAR + 1) * EIGHTHS_PER_BAR
+            stop = run.end if index == len(strong) - 1 else min(run.end, next_bar)
+            snapped = quantize_chord_tone(
+                run.midi, chord.pitch_classes, scale, previous, step
+            )
+            for eighth in range(cursor, stop):
+                pitches[eighth] = snapped
+            previous = snapped
+            cursor = stop
+        previous_raw = run.midi
+    return pitches
+
+
 def render(
     bars: list[Bar],
     *,
@@ -511,10 +570,11 @@ def render(
 
     Each phrase regime is the average of the first few source bars at that
     phrase's downbeat, then held for the phrase. Intro uses phrase 1's regime;
-    outro uses phrase 3's. The melody walks the whole C major scale rather than
-    only chord tones: every chord is diatonic, so its own mode shares those
-    seven notes. Piano touches the third, seventh, and root, and answers each
-    phrase that closes on a held note with a short arpeggio.
+    outro uses phrase 3's. The melody stays on the C major home scale, snapping
+    notes on strong beats (beats 1 and 3) to chord tones of the active chord
+    while keeping non-chord scale tones on weak beats as passing notes. Piano
+    touches the third, seventh, and root, and answers each phrase that closes
+    on a held note with a short arpeggio.
     The melody is cut into phrases where the price stalls; see phrasing.py.
     Liquidity is the average continuous volume of the slot, ranked p–f. The
     band sets how often the bass attacks: a held root at p, halves at mp,
@@ -553,7 +613,7 @@ def render(
     session_low = min(bar.close for bar in bars)
     session_high = max(bar.close for bar in bars)
     held_close = bars[0].close
-    pitches: list[int] = []
+    raw_pitches: list[int] = []
     for group in groups:
         if group:
             closes = [bars[index].close for index in group]
@@ -561,12 +621,30 @@ def render(
         else:
             closes = [held_close]
         for close in resample(closes, EIGHTHS_PER_BAR):
-            pitches.append(scale[price_to_scale_index(close, session_low, session_high, len(scale))])
+            raw_pitches.append(
+                scale[price_to_scale_index(close, session_low, session_high, len(scale))]
+            )
 
-    phrases = plan_phrases(pitches, tuple(start * EIGHTHS_PER_BAR for start in SECTION_STARTS))
+    chord_at = {bar: slot.chord for slot in slots for bar in slot.bars()}
+    pitches = _quantize_strong_beats(raw_pitches, chord_at, scale)
+    raw_phrases = plan_phrases(
+        raw_pitches, tuple(start * EIGHTHS_PER_BAR for start in SECTION_STARTS)
+    )
+    phrases = tuple(
+        Phrase(
+            phrase.start,
+            phrase.end,
+            tuple(
+                part
+                for run in phrase.runs
+                for part in runs_of(pitches, run.start, run.end)
+            ),
+            phrase.held_over and pitches[phrase.end] == pitches[phrase.end - 1],
+        )
+        for phrase in raw_phrases
+    )
     band_at = {bar: band for slot, band in zip(slots, bands) for bar in slot.bars()}
     violin, cello, cadences = _melody_parts(pitches, phrases, band_at)
-    chord_at = {bar: slot.chord for slot in slots for bar in slot.bars()}
     piano: list[NoteEvent] = list(_right_hand(slots, _fills(cadences, chord_at)))
     bass: list[NoteEvent] = []
     for slot, band in zip(slots, bands):
