@@ -1198,10 +1198,31 @@
     </measure>
     <measure number="30">
       <note>
-        <rest measure="yes" />
-        <duration>8</duration>
+        <rest />
+        <duration>4</duration>
         <voice>1</voice>
-        <type>whole</type>
+        <type>half</type>
+      </note>
+      <note>
+        <rest />
+        <duration>3</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+        <dot />
+      </note>
+      <note dynamics="71.11">
+        <pitch>
+          <step>C</step>
+          <octave>6</octave>
+        </pitch>
+        <duration>1</duration>
+        <voice>1</voice>
+        <type>eighth</type>
+        <notations>
+          <articulations>
+            <tenuto />
+          </articulations>
+        </notations>
       </note>
     </measure>
   </part>
@@ -2526,15 +2547,6 @@
         <duration>1</duration>
         <voice>1</voice>
         <type>eighth</type>
-      </note>
-      <note dynamics="72.22">
-        <pitch>
-          <step>F</step>
-          <octave>5</octave>
-        </pitch>
-        <duration>1</duration>
-        <voice>1</voice>
-        <type>eighth</type>
         <notations>
           <slur type="stop" number="1" />
         </notations>
@@ -2544,6 +2556,12 @@
           <wedge type="stop" number="1" />
         </direction-type>
       </direction>
+      <note>
+        <rest />
+        <duration>1</duration>
+        <voice>1</voice>
+        <type>eighth</type>
+      </note>
     </measure>
   </part>
   <part id="P2">

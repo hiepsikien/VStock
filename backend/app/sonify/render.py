@@ -358,6 +358,7 @@ def _flute_and_violin_dovetail(
     """
     flute_notes: list[NoteEvent] = []
     yield_spans: list[tuple[int, int]] = []
+    on_cello = False
     flute_active = False
     flute_tied_in = False
     violin_tied_in = False
@@ -373,7 +374,6 @@ def _flute_and_violin_dovetail(
         )
         ended_on_flute = False
 
-        on_cello = False
         run_is_violin: list[bool] = []
         for r in phrase.runs:
             on_cello = r.midi < CELLO_HANDBACK if on_cello else r.midi < VIOLIN_LOWEST
@@ -404,14 +404,16 @@ def _flute_and_violin_dovetail(
                 idx += 1
                 continue
 
-            # Absorb any short standalone Violin fragment (< MIN_VIOLIN_SPAN eighths)
-            # immediately preceding this Flute entry so Violin does not blip before Flute.
+            # Absorb any short standalone Violin fragment (< MIN_VIOLIN_SPAN eighths
+            # at >= FLUTE_DIP_FLOOR) immediately preceding this Flute entry so Violin
+            # does not blip before Flute, without pulling low notes (< A4) into Flute.
             start_idx = idx
             if start_idx > 0:
                 v_prefix_start = start_idx
                 while (
                     v_prefix_start > 0
                     and run_is_violin[v_prefix_start - 1]
+                    and phrase.runs[v_prefix_start - 1].midi >= FLUTE_DIP_FLOOR
                     and (
                         not yield_spans
                         or phrase.runs[v_prefix_start - 1].start >= yield_spans[-1][1]
@@ -421,8 +423,17 @@ def _flute_and_violin_dovetail(
                 prefix_eighths = (
                     phrase.runs[start_idx].start - phrase.runs[v_prefix_start].start
                 )
+                has_unyielded_violin_before = (
+                    v_prefix_start > 0
+                    and run_is_violin[v_prefix_start - 1]
+                    and (
+                        not yield_spans
+                        or phrase.runs[v_prefix_start - 1].start >= yield_spans[-1][1]
+                    )
+                )
                 if (
                     0 < prefix_eighths < MIN_VIOLIN_SPAN
+                    and not has_unyielded_violin_before
                     and not (v_prefix_start == 0 and violin_tied_in)
                 ):
                     start_idx = v_prefix_start
@@ -469,12 +480,21 @@ def _flute_and_violin_dovetail(
             if sounding_end <= span_start:
                 continue
 
-            # Skip isolated 1–2 eighth Flute blips that do not continue a Flute line
-            if (
-                not continued_flute
-                and sounding_end - span_start <= FLUTE_OVERLAP
-            ):
-                continue
+            # Skip isolated 1–2 eighth Flute blips that stay <= VIOLIN_CEILING and do not
+            # continue a Flute line; any peak > VIOLIN_CEILING is kept on Flute so Violin
+            # never has to fold it down an octave, unless yielding a 1–2 eighth opening peak
+            # would leave an orphan < MIN_VIOLIN_SPAN Violin note before Cello takes over.
+            if not continued_flute and sounding_end - span_start <= FLUTE_OVERLAP:
+                if max(r.midi for r in soar_runs) <= VIOLIN_CEILING:
+                    continue
+                v_after = end_idx
+                while v_after < len(phrase.runs) and run_is_violin[v_after]:
+                    v_after += 1
+                after_eighths = (
+                    phrase.runs[v_after - 1].end - span_end if v_after > end_idx else 0
+                )
+                if span_start == phrase.start and 0 < after_eighths < MIN_VIOLIN_SPAN:
+                    continue
 
             # Violin overlaps for FLUTE_OVERLAP eighths only when it has already played
             # a real lead-in (>= MIN_VIOLIN_SPAN eighths) before span_start and the overlap

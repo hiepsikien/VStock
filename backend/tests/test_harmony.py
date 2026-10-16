@@ -1181,8 +1181,8 @@ def test_flute_harmony_avoids_fourths_tritones_octave_drops_and_repeated_reattac
     assert flute_at_bar6.midi is not None and flute_at_bar6.tie_stop
 
     # When consecutive high phrases each close with a breath (closes=True, held_over=False)
-    # or open with a 1–2 eighth pickup before soaring, Flute carries the high solo continuously
-    # without Violin flashing for a 1-beat overlap at each phrase start.
+    # or open with a 1–2 eighth pickup >= A4 before soaring, Flute carries the high solo
+    # continuously without Violin flashing for a 1-beat overlap at each phrase start.
     consecutive_high = _session(
         {
             16: (6, 15),   # Violin lead-in on D5 (16..22)
@@ -1194,10 +1194,47 @@ def test_flute_harmony_avoids_fourths_tritones_octave_drops_and_repeated_reattac
         }
     )
     score_consec = render(consecutive_high, regimes=("sideway",) * 3)
-    assert all(note.midi is None for note in score_consec.violin if note.bar in (3, 4) and note.beat >= 2.0)
-    assert all(note.midi is None for note in score_consec.violin if note.bar == 4)
+    assert all(
+        note.midi is None
+        for note in score_consec.violin
+        if 24 <= note.bar * 8 + int(note.beat * 2) < 44
+    )
     assert any(note.midi is not None for note in score_consec.flute if note.bar == 3)
     assert any(note.midi is not None for note in score_consec.flute if note.bar == 4)
+
+    # 1) A short Violin pickup below FLUTE_DIP_FLOOR (e.g. 2 eighths on G3=55, index 4)
+    # is kept on Violin and never pulled into Flute.
+    low_pickup = _session({12: (4, 9), 16: (2, 4), 18: (6, 20)})
+    score_low_pickup = render(low_pickup, regimes=("sideway",) * 3)
+    v_pickup = next(note for note in score_low_pickup.violin if note.bar == 2 and note.beat == 0.0)
+    f_pickup = next(note for note in score_low_pickup.flute if note.bar == 2 and note.beat == 0.0)
+    assert v_pickup.midi == 55 and f_pickup.midi is None
+    assert all(note.midi >= 72 for note in score_low_pickup.flute if note.midi is not None)
+
+    # 2) When Cello owns the line at the end of bar 1 (E3=52, index 2) and bar 2 opens
+    # with 2 eighths on A3=57 (index 5, < CELLO_HANDBACK=60) before leaping to B5=83,
+    # Cello keeps A3 and Flute waits until beat 1.0 rather than playing over Cello.
+    cello_pickup = _session({8: (8, 2), 16: (2, 5), 18: (6, 20)})
+    score_cello_pickup = render(cello_pickup, regimes=("sideway",) * 3)
+    c_at_bar2 = next(note for note in score_cello_pickup.cello if note.bar == 2 and note.beat == 0.0)
+    f_at_bar2 = next(note for note in score_cello_pickup.flute if note.bar == 2 and note.beat == 0.0)
+    assert c_at_bar2.midi is not None and f_at_bar2.midi is None
+    assert all(note.midi is None for note in score_cello_pickup.violin if note.bar == 2)
+
+    # 3) A 2-eighth peak strictly above VIOLIN_CEILING (D6=86, index 22) surrounded by
+    # notes below E5 (C4=60, index 7) is kept on Flute and yielded by Violin so D6 is
+    # never folded down an octave to D5 (74) on Violin.
+    short_above_ceiling = _session({12: (4, 9), 16: (6, 7), 22: (2, 22), 24: (8, 7)})
+    score_short_peak = render(short_above_ceiling, regimes=("sideway",) * 3)
+    v_at_peak = [
+        note for note in score_short_peak.violin if note.bar == 2 and note.beat >= 3.0
+    ]
+    f_at_peak = [
+        note for note in score_short_peak.flute if note.bar == 2 and note.beat >= 3.0
+    ]
+    assert all(note.midi is None for note in v_at_peak)
+    assert [note.midi for note in f_at_peak if note.midi is not None] != []
+    assert 74 not in [note.midi for note in score_short_peak.violin if note.bar == 2]
 
     # Rapid Violin -> Cello -> Violin handoff right before a phrase boundary must never
     # overlap two Violin notes or invert wedge order across the phrase boundary.
