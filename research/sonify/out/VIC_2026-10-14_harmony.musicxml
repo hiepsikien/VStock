@@ -1120,11 +1120,51 @@
         </root>
         <kind text="maj7">major-seventh</kind>
       </harmony>
-      <note>
-        <rest measure="yes" />
-        <duration>8</duration>
+      <direction placement="below">
+        <direction-type>
+          <wedge type="diminuendo" number="1" />
+        </direction-type>
+      </direction>
+      <note dynamics="97.78">
+        <pitch>
+          <step>G</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>1</duration>
         <voice>1</voice>
-        <type>whole</type>
+        <type>eighth</type>
+        <notations>
+          <slur type="start" number="1" />
+        </notations>
+      </note>
+      <note dynamics="95.56">
+        <pitch>
+          <step>G</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>1</duration>
+        <voice>1</voice>
+        <type>eighth</type>
+        <notations>
+          <slur type="stop" number="1" />
+        </notations>
+      </note>
+      <direction placement="below">
+        <direction-type>
+          <wedge type="stop" number="1" />
+        </direction-type>
+      </direction>
+      <note>
+        <rest />
+        <duration>2</duration>
+        <voice>1</voice>
+        <type>quarter</type>
+      </note>
+      <note>
+        <rest />
+        <duration>4</duration>
+        <voice>1</voice>
+        <type>half</type>
       </note>
     </measure>
     <measure number="2">
@@ -1186,6 +1226,14 @@
         <voice>1</voice>
         <type>quarter</type>
       </note>
+      <direction placement="below">
+        <direction-type>
+          <dynamics>
+            <mp />
+          </dynamics>
+        </direction-type>
+        <sound dynamics="71" />
+      </direction>
       <direction placement="below">
         <direction-type>
           <wedge type="diminuendo" number="1" />

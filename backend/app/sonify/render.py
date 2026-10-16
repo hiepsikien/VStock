@@ -482,23 +482,18 @@ def _flute_and_violin_dovetail(
 
             # Skip isolated 1–2 eighth Flute blips that stay <= VIOLIN_CEILING and do not
             # continue a Flute line; any peak > VIOLIN_CEILING is kept on Flute so Violin
-            # never has to fold it down an octave, unless yielding a 1–2 eighth opening peak
-            # would leave an orphan < MIN_VIOLIN_SPAN Violin note before Cello takes over.
-            if not continued_flute and sounding_end - span_start <= FLUTE_OVERLAP:
-                if max(r.midi for r in soar_runs) <= VIOLIN_CEILING:
-                    continue
-                v_after = end_idx
-                while v_after < len(phrase.runs) and run_is_violin[v_after]:
-                    v_after += 1
-                after_eighths = (
-                    phrase.runs[v_after - 1].end - span_end if v_after > end_idx else 0
-                )
-                if span_start == phrase.start and 0 < after_eighths < MIN_VIOLIN_SPAN:
-                    continue
+            # never has to fold it down an octave.
+            if (
+                not continued_flute
+                and sounding_end - span_start <= FLUTE_OVERLAP
+                and max(r.midi for r in soar_runs) <= VIOLIN_CEILING
+            ):
+                continue
 
-            # Violin overlaps for FLUTE_OVERLAP eighths only when it has already played
-            # a real lead-in (>= MIN_VIOLIN_SPAN eighths) before span_start and the overlap
-            # notes stay inside VIOLIN_CEILING.
+            # Violin overlaps for FLUTE_OVERLAP eighths when it has already played a real
+            # lead-in (>= MIN_VIOLIN_SPAN eighths) before span_start and the overlap notes
+            # stay inside VIOLIN_CEILING, or at the very beginning of the piece (bar 0,
+            # eighth 0) so Violin opens the session alongside Flute before handing off.
             v_lead_start = start_idx
             while (
                 v_lead_start > 0
@@ -514,13 +509,15 @@ def _flute_and_violin_dovetail(
                 if v_lead_start < start_idx
                 else (MIN_VIOLIN_SPAN if (start_idx == 0 and violin_tied_in) else 0)
             )
-            can_overlap = (
-                not continued_flute
-                and violin_lead >= MIN_VIOLIN_SPAN
-                and all(
-                    pitches[e] <= VIOLIN_CEILING
-                    for e in range(span_start, min(sounding_end, span_start + FLUTE_OVERLAP))
+            can_overlap = not continued_flute and (
+                (
+                    violin_lead >= MIN_VIOLIN_SPAN
+                    and all(
+                        pitches[e] <= VIOLIN_CEILING
+                        for e in range(span_start, min(sounding_end, span_start + FLUTE_OVERLAP))
+                    )
                 )
+                or span_start == 0
             )
             yield_start = span_start + FLUTE_OVERLAP if can_overlap else span_start
 

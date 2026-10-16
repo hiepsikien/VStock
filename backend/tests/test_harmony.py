@@ -1221,9 +1221,9 @@ def test_flute_harmony_avoids_fourths_tritones_octave_drops_and_repeated_reattac
     assert c_at_bar2.midi is not None and f_at_bar2.midi is None
     assert all(note.midi is None for note in score_cello_pickup.violin if note.bar == 2)
 
-    # 3) A 2-eighth peak strictly above VIOLIN_CEILING (D6=86, index 22) surrounded by
-    # notes below E5 (C4=60, index 7) is kept on Flute and yielded by Violin so D6 is
-    # never folded down an octave to D5 (74) on Violin.
+    # 3) A 2-eighth peak strictly above VIOLIN_CEILING (D6=86, index 22) — whether in the
+    # middle of a phrase or at a phrase start before 2 eighths of Violin (C4/A3/G4) and Cello
+    # (E3=52) — is kept on Flute and yielded by Violin so D6 is never folded to D5 (74).
     short_above_ceiling = _session({12: (4, 9), 16: (6, 7), 22: (2, 22), 24: (8, 7)})
     score_short_peak = render(short_above_ceiling, regimes=("sideway",) * 3)
     v_at_peak = [
@@ -1235,6 +1235,19 @@ def test_flute_harmony_avoids_fourths_tritones_octave_drops_and_repeated_reattac
     assert all(note.midi is None for note in v_at_peak)
     assert [note.midi for note in f_at_peak if note.midi is not None] != []
     assert 74 not in [note.midi for note in score_short_peak.violin if note.bar == 2]
+
+    for mid_index in (7, 5, 11):  # C4 (60), A3 (57), G4 (67)
+        opening_peak = _session({12: (4, 9), 16: (2, 22), 18: (2, mid_index), 20: (4, 2)})
+        score_open_peak = render(opening_peak, regimes=("sideway",) * 3)
+        f_open = [
+            note for note in score_open_peak.flute if note.bar == 2 and note.beat < 1.0
+        ]
+        v_open = [
+            note for note in score_open_peak.violin if note.bar == 2 and note.beat < 1.0
+        ]
+        assert [note.midi for note in f_open if note.midi is not None] != []
+        assert all(note.midi is None for note in v_open)
+        assert 74 not in [note.midi for note in score_open_peak.violin if note.bar == 2]
 
     # Rapid Violin -> Cello -> Violin handoff right before a phrase boundary must never
     # overlap two Violin notes or invert wedge order across the phrase boundary.
