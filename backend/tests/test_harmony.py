@@ -1148,12 +1148,12 @@ def test_flute_harmony_avoids_fourths_tritones_octave_drops_and_repeated_reattac
     assert all(77 <= midi <= 88 for midi in flute_bar2_3)
 
     # Even when a high phrase has a small rise (< MIN_RISE = 3) while oscillating across C6
-    # (e.g. D6=86 -> C6=84 -> D6=86), Flute takes over so Violin plays only the 1-beat overlap [74]
-    # instead of sawtoothing D5 -> C6 -> D5.
+    # (e.g. D6=86 -> C6=84 -> D6=86), Flute takes over from the start of the phrase so Violin
+    # rests rather than playing a 1-beat blip or sawtoothing D5 -> C6 -> D5.
     narrow_osc = _session({12: (4, 15), 16: (2, 22), 18: (2, 21), 20: (6, 22)})
     score = render(narrow_osc, regimes=("downtrend",) * 3)
     v_bar2_narrow = [note.midi for note in score.violin if note.bar == 2 and note.midi is not None]
-    assert v_bar2_narrow == [74]
+    assert v_bar2_narrow == []
     assert any(note.midi is not None for note in score.flute if note.bar == 2)
 
     # Held-over note across a phrase boundary where the first phrase peaks > C6 (84)
@@ -1179,6 +1179,25 @@ def test_flute_harmony_avoids_fourths_tritones_octave_drops_and_repeated_reattac
     assert all(note.midi is None for note in score.violin if note.bar == 6)
     flute_at_bar6 = next(note for note in score.flute if note.bar == 6 and note.beat == 0.0)
     assert flute_at_bar6.midi is not None and flute_at_bar6.tie_stop
+
+    # When consecutive high phrases each close with a breath (closes=True, held_over=False)
+    # or open with a 1–2 eighth pickup before soaring, Flute carries the high solo continuously
+    # without Violin flashing for a 1-beat overlap at each phrase start.
+    consecutive_high = _session(
+        {
+            16: (6, 15),   # Violin lead-in on D5 (16..22)
+            22: (6, 20),   # Flute soar on B5 closing phrase at 28
+            28: (2, 16),   # New phrase opening on E5 (28..30)
+            30: (6, 21),   # Climbing to C6 and closing at 36
+            36: (2, 15),   # Next phrase opening with a 2-eighth D5 pickup (36..38)
+            38: (6, 22),   # Climbing to D6 and closing at 44
+        }
+    )
+    score_consec = render(consecutive_high, regimes=("sideway",) * 3)
+    assert all(note.midi is None for note in score_consec.violin if note.bar in (3, 4) and note.beat >= 2.0)
+    assert all(note.midi is None for note in score_consec.violin if note.bar == 4)
+    assert any(note.midi is not None for note in score_consec.flute if note.bar == 3)
+    assert any(note.midi is not None for note in score_consec.flute if note.bar == 4)
 
     # Rapid Violin -> Cello -> Violin handoff right before a phrase boundary must never
     # overlap two Violin notes or invert wedge order across the phrase boundary.

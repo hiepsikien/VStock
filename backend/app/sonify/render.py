@@ -38,6 +38,8 @@ FLUTE_CEILING = 88  # E6: keep Flute inside its sweet register (<= E6)
 FLUTE_TRIGGER = 79  # G5: Flute enters on high apex (>= G5) or Breakout
 FLUTE_HANDBACK = 76  # E5: Flute keeps soaring while melody stays at or above E5
 FLUTE_OVERLAP = 2  # eighths (1 beat) of dovetail harmony before Violin yields
+MIN_VIOLIN_SPAN = 3  # eighths: Violin fragments <= FLUTE_OVERLAP (1–2 eighths) merge into Flute
+FLUTE_DIP_FLOOR = 69  # A4: Flute bridges short (< MIN_VIOLIN_SPAN) dips down to A4
 FLUTE_VELOCITY = 64  # mp ceiling so high flute stays airy and sweet
 PIANO_ROOT_LOW = 41  # F2
 GUIDE_LOW = 57  # A3
@@ -344,17 +346,21 @@ def _flute_and_violin_dovetail(
 
     When a rising phrase reaches a high Apex (>= FLUTE_TRIGGER) or a BREAKOUT
     run, Flute enters softly (tenuto + legato slur) onto a chordal 3rd/5th
-    above the melody. For the first FLUTE_OVERLAP eighths (1 beat), Violin and
-    Flute play together (dovetail layering); if the high passage continues
-    above FLUTE_HANDBACK, Violin rests from (span_start + FLUTE_OVERLAP) up to
-    span_end and yields the high line to Flute until the melody drops below
-    FLUTE_HANDBACK or the phrase ends. Any remaining phrase runs above
-    VIOLIN_CEILING (> C6) are also handed to Flute so Violin never has to fold
-    individual notes down an octave or sawtooth across C6.
+    above the melody. When Violin has already been playing a lead-in of at
+    least 3 eighths inside the phrase and the entry note is within
+    VIOLIN_CEILING, Violin and Flute play together for FLUTE_OVERLAP eighths
+    (1 beat of dovetail layering) before Violin yields; otherwise (or when
+    continuing from a previous Flute phrase) Violin yields immediately at
+    span_start so it never flashes for a single beat and cuts out. Short
+    isolated Violin fragments (< MIN_VIOLIN_SPAN eighths) before, between, or
+    after Flute spans in a phrase are absorbed into Flute so the high solo
+    line stays unbroken.
     """
     flute_notes: list[NoteEvent] = []
     yield_spans: list[tuple[int, int]] = []
+    flute_active = False
     flute_tied_in = False
+    violin_tied_in = False
     prev_flute_midi: int | None = None
 
     for phrase in phrases:
@@ -367,11 +373,17 @@ def _flute_and_violin_dovetail(
         )
         ended_on_flute = False
 
+        on_cello = False
+        run_is_violin: list[bool] = []
+        for r in phrase.runs:
+            on_cello = r.midi < CELLO_HANDBACK if on_cello else r.midi < VIOLIN_LOWEST
+            run_is_violin.append(not on_cello)
+
         idx = 0
         while idx < len(phrase.runs):
             run = phrase.runs[idx]
-            continued_hold = (
-                flute_tied_in
+            continued_flute = (
+                flute_active
                 and idx == 0
                 and run.midi >= FLUTE_HANDBACK
             )
@@ -388,21 +400,109 @@ def _flute_and_violin_dovetail(
             above_ceiling = (
                 phrase.rise > 0 or crosses_ceiling
             ) and run.midi > VIOLIN_CEILING
-            if not (continued_hold or is_breakout or is_high_apex or above_ceiling):
+            if not (continued_flute or is_breakout or is_high_apex or above_ceiling):
                 idx += 1
                 continue
 
-            end_idx = idx + 1
-            while end_idx < len(phrase.runs) and phrase.runs[end_idx].midi >= FLUTE_HANDBACK:
-                end_idx += 1
+            # Absorb any short standalone Violin fragment (< MIN_VIOLIN_SPAN eighths)
+            # immediately preceding this Flute entry so Violin does not blip before Flute.
+            start_idx = idx
+            if start_idx > 0:
+                v_prefix_start = start_idx
+                while (
+                    v_prefix_start > 0
+                    and run_is_violin[v_prefix_start - 1]
+                    and (
+                        not yield_spans
+                        or phrase.runs[v_prefix_start - 1].start >= yield_spans[-1][1]
+                    )
+                ):
+                    v_prefix_start -= 1
+                prefix_eighths = (
+                    phrase.runs[start_idx].start - phrase.runs[v_prefix_start].start
+                )
+                if (
+                    0 < prefix_eighths < MIN_VIOLIN_SPAN
+                    and not (v_prefix_start == 0 and violin_tied_in)
+                ):
+                    start_idx = v_prefix_start
+                    if start_idx == 0 and flute_active:
+                        continued_flute = True
 
-            soar_runs = phrase.runs[idx:end_idx]
+            end_idx = idx + 1
+            while end_idx < len(phrase.runs):
+                if phrase.runs[end_idx].midi >= FLUTE_HANDBACK:
+                    end_idx += 1
+                    continue
+                # Bridge short dips (< MIN_VIOLIN_SPAN eighths at >= FLUTE_DIP_FLOOR)
+                # between high Flute runs or at the tail of a Flute phrase.
+                dip_end = end_idx
+                dip_eighths = 0
+                while (
+                    dip_end < len(phrase.runs)
+                    and run_is_violin[dip_end]
+                    and phrase.runs[dip_end].midi < FLUTE_HANDBACK
+                    and phrase.runs[dip_end].midi >= FLUTE_DIP_FLOOR
+                ):
+                    dip_eighths += phrase.runs[dip_end].length
+                    dip_end += 1
+                if dip_end > end_idx:
+                    eff_dip = dip_eighths - (
+                        1 if breath and phrase.runs[dip_end - 1].end == phrase.end else 0
+                    )
+                    if eff_dip < MIN_VIOLIN_SPAN and (
+                        dip_end == len(phrase.runs)
+                        or (
+                            dip_end < len(phrase.runs)
+                            and phrase.runs[dip_end].midi >= FLUTE_HANDBACK
+                        )
+                    ):
+                        end_idx = dip_end
+                        continue
+                break
+
+            soar_runs = phrase.runs[start_idx:end_idx]
             span_start = soar_runs[0].start
             span_end = soar_runs[-1].end
             sounding_end = span_end - (1 if breath and span_end == phrase.end else 0)
             idx = end_idx
             if sounding_end <= span_start:
                 continue
+
+            # Skip isolated 1–2 eighth Flute blips that do not continue a Flute line
+            if (
+                not continued_flute
+                and sounding_end - span_start <= FLUTE_OVERLAP
+            ):
+                continue
+
+            # Violin overlaps for FLUTE_OVERLAP eighths only when it has already played
+            # a real lead-in (>= MIN_VIOLIN_SPAN eighths) before span_start and the overlap
+            # notes stay inside VIOLIN_CEILING.
+            v_lead_start = start_idx
+            while (
+                v_lead_start > 0
+                and run_is_violin[v_lead_start - 1]
+                and (
+                    not yield_spans
+                    or phrase.runs[v_lead_start - 1].start >= yield_spans[-1][1]
+                )
+            ):
+                v_lead_start -= 1
+            violin_lead = (
+                (span_start - phrase.runs[v_lead_start].start)
+                if v_lead_start < start_idx
+                else (MIN_VIOLIN_SPAN if (start_idx == 0 and violin_tied_in) else 0)
+            )
+            can_overlap = (
+                not continued_flute
+                and violin_lead >= MIN_VIOLIN_SPAN
+                and all(
+                    pitches[e] <= VIOLIN_CEILING
+                    for e in range(span_start, min(sounding_end, span_start + FLUTE_OVERLAP))
+                )
+            )
+            yield_start = span_start + FLUTE_OVERLAP if can_overlap else span_start
 
             # Keep Flute in its sweet register (<= FLUTE_CEILING / E6) by folding any
             # note > E6 down an octave (-12) while preserving pitch class and step changes.
@@ -422,7 +522,7 @@ def _flute_and_violin_dovetail(
             ]
             has_slur = len(merged_flute_runs) > 1
             tie_first_in = (
-                continued_hold
+                flute_tied_in
                 and span_start == phrase.start
                 and prev_flute_midi == merged_flute_runs[0].midi
             )
@@ -461,24 +561,15 @@ def _flute_and_violin_dovetail(
                     )
                 )
 
-            # Yield immediately when continuing a held_over Flute note from the previous
-            # phrase, or when the entry run is already above VIOLIN_CEILING (> C6) mid-phrase;
-            # otherwise overlap for FLUTE_OVERLAP eighths.
-            yield_start = (
-                span_start
-                if (
-                    continued_hold
-                    or (soar_runs[0].midi > VIOLIN_CEILING and soar_runs[0].start > phrase.start)
-                )
-                else span_start + FLUTE_OVERLAP
-            )
             if yield_start < span_end:
                 yield_spans.append((yield_start, span_end))
                 if span_end == phrase.end:
                     ended_on_flute = True
             prev_flute_midi = merged_flute_runs[-1].midi
 
+        flute_active = ended_on_flute
         flute_tied_in = phrase.held_over and ended_on_flute
+        violin_tied_in = phrase.held_over and not ended_on_flute and run_is_violin[-1]
 
     return flute_notes, yield_spans
 
