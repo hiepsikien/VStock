@@ -10,15 +10,42 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app.sonify.dynamics import DYNAMICS, MARKINGS, SOUND, marking_for_volume
-from app.sonify.form import SECTION_STARTS, plan_slots
+from app.sonify.form import SECTION_STARTS, _prev_last_touched_strong, plan_markov_chords, plan_slots
 from app.sonify.model import Bar, WedgeEvent
 from app.sonify.musicxml import BASS_WRITTEN_OCTAVES, score_to_musicxml
 from app.sonify.phrasing import MAX_EIGHTHS, MIN_EIGHTHS, PERIOD, plan_phrases
-from app.sonify.quantize import C_MAJOR_PCS, c_major_scale, price_to_scale_index, quantize_chord_tone
+from app.sonify.quantize import (
+    C_MAJOR_PCS,
+    CONTOUR_REPEAT_PENALTY,
+    bar_quantization_loss,
+    c_major_scale,
+    price_to_scale_index,
+    quantize_chord_tone,
+)
 from app.sonify.regime import classify, moving_average
-from app.sonify.chords import AM7, CMAJ7, DM7, EM7, FMAJ7, G7
+from app.sonify.chords import (
+    AM,
+    AM7,
+    C,
+    CHORDS,
+    CMAJ7,
+    DM,
+    DM7,
+    EM,
+    EM7,
+    F,
+    FMAJ7,
+    G,
+    G7,
+    SEVENTHS,
+    TRANSITIONS,
+    TRIADS,
+    tonic_chords,
+    transition_probability,
+)
 from app.sonify.render import (
     STRONG_EIGHTHS,
+    _quantize_strong_beats,
     assign_source_bars,
     comp_pitches,
     fill_tones,
@@ -59,12 +86,18 @@ def _line(events, bar: int):
 
 
 COMPING = {
+    "C": (48, (64, 67)),      # C3 | E4 G4
+    "F": (41, (57, 60)),      # F2 | A3 C4
+    "G": (43, (59, 62)),      # G2 | B3 D4
+    "Am": (45, (60, 64)),     # A2 | C4 E4
+    "Dm": (50, (57, 65)),     # D3 | A3 F4
+    "Em": (52, (59, 67)),     # E3 | B3 G4
     "Cmaj7": (48, (59, 64)),  # C3 | B3 E4
     "Fmaj7": (41, (57, 64)),  # F2 | A3 E4
-    "G7": (43, (59, 65)),  # G2 | B3 F4
-    "Am7": (45, (60, 67)),  # A2 | C4 G4
-    "Dm7": (50, (60, 65)),  # D3 | C4 F4
-    "Em7": (52, (62, 67)),  # E3 | D4 G4
+    "G7": (43, (59, 65)),     # G2 | B3 F4
+    "Am7": (45, (60, 67)),    # A2 | C4 G4
+    "Dm7": (50, (60, 65)),    # D3 | C4 F4
+    "Em7": (52, (62, 67)),    # E3 | D4 G4
 }
 
 
@@ -108,57 +141,26 @@ def test_phrase_regime_uses_the_downbeat_window() -> None:
     score = render([Bar(close, 1.0, 100.0) for close in closes], title="VNM")
     assert score.regimes == ("uptrend", "downtrend", "sideway")
     assert score.regime_samples == (2, 10, 18)
-    assert [slot.chord.name for slot in score.slots] == [
-        "Cmaj7",
-        "Cmaj7",
-        "Fmaj7",
-        "Dm7",
-        "G7",
-        "Am7",
-        "Fmaj7",
-        "Dm7",
-        "Em7",
-        "Cmaj7",
-        "Am7",
-        "Cmaj7",
-        "Am7",
-        "Cmaj7",
-    ]
-    assert [(slot.start, slot.length) for slot in score.slots] == [
-        (0, 2),
-        (2, 2),
-        (4, 2),
-        (6, 2),
-        (8, 2),
-        (10, 2),
-        (12, 2),
-        (14, 2),
-        (16, 2),
-        (18, 2),
-        (20, 2),
-        (22, 2),
-        (24, 2),
-        (26, 4),
-    ]
+    assert [bar for slot in score.slots for bar in slot.bars()] == list(range(30))
     by_bar = {
         bar: slot.chord
         for slot in score.slots
         for bar in range(slot.start, slot.start + slot.length)
     }
-    assert [by_bar[bar].name for bar in range(2, 10)] == [
-        "Cmaj7",
-        "Cmaj7",
-        "Fmaj7",
-        "Fmaj7",
-        "Dm7",
-        "Dm7",
-        "G7",
-        "G7",
-    ]
+    for bar in range(1, 30):
+        assert transition_probability(by_bar[bar - 1], by_bar[bar]) > 0.0
+    # Every bar in this session sits on a C octave (C3, C5, C7), so Markov harmony
+    # never picks G/G7 or Em/Em7 (which lack C and would bend the flat C octaves),
+    # and picks the clean triads C, F, Am when no 7th tone is sounded.
+    assert all(0 in by_bar[bar].pitch_classes for bar in range(30))
+    assert by_bar[0] == C
+    assert by_bar[1] == C
+    assert by_bar[10] == AM
+    assert [by_bar[bar] for bar in range(26, 30)] == [C] * 4
     for note in _sounding(score):
         assert note.midi % 12 in C_MAJOR_PCS
-    bass_roots = [36, 36, 41, 38, 43, 45, 41, 38, 40, 36, 45, 36, 45, 36]
-    for slot, root in zip(score.slots, bass_roots):
+    for slot in score.slots:
+        root = slot.chord.bass_midi
         for bar in slot.bars():
             line = _line(score.bass, bar)
             assert line[0] == root
@@ -177,19 +179,25 @@ def test_phrase_regime_uses_the_downbeat_window() -> None:
                     (0.0, guide[1], 2.0),
                     (2.0, None, 2.0),
                 ]
-            assert [(note.midi, note.duration_beats) for note in left] == [
-                (bass_note if offset == 0 else None, 4.0)
-            ]
+            expected_left = (
+                bass_note
+                if (offset == 0 if slot.section == "outro" else offset % 2 == 0)
+                else None
+            )
+            assert [(note.midi, note.duration_beats) for note in left] == [(expected_left, 4.0)]
 
 
-def test_comping_keeps_third_and_seventh_close() -> None:
-    for chord in (CMAJ7, FMAJ7, G7, AM7, DM7, EM7):
+def test_comping_keeps_guide_tones_close_for_triads_and_sevenths() -> None:
+    for chord in CHORDS:
         root, guide = comp_pitches(chord)
         assert (root, guide) == COMPING[chord.name]
         assert 41 <= root <= 52
         assert all(57 <= midi <= 68 for midi in guide)
-        third, seventh = chord.pitches[1] % 12, chord.pitches[3] % 12
-        assert {midi % 12 for midi in guide} == {third, seventh}
+        if len(chord.pitches) == 4:
+            expected_pcs = {chord.pitches[1] % 12, chord.pitches[3] % 12}
+        else:
+            expected_pcs = {chord.pitches[1] % 12, chord.pitches[2] % 12}
+        assert {midi % 12 for midi in guide} == expected_pcs
 
 
 def test_one_minute_twitch_does_not_flip_the_phrase() -> None:
@@ -285,32 +293,35 @@ def test_melody_snaps_strong_beats_to_chord_tones_and_keeps_weak_beat_passing_no
     assert quantize_chord_tone(65, AM7.pitch_classes, scale) == 64
     assert quantize_chord_tone(71, AM7.pitch_classes, scale) == 72
 
+    # On a flat session (all raw pitches C5=72), Markov harmony avoids chords that
+    # lack C (G7 and Em7), so the flat line stays on C5 (72) without fake dips.
     score = render(
         [Bar(50.0, 1.0, 50.0)] * 30,
         regimes=("uptrend", "uptrend", "uptrend"),
     )
-    g7_bars = {8, 9, 16, 17, 24, 25}
     for note in _sounding(score):
-        assert note.midi == (71 if note.bar in g7_bars else 72)
+        assert note.midi == 72
 
-    # On bar 0 (Cmaj7), strong beats (eighths 0 and 4) snap D4 (62) and F4 (65) to chord tones,
-    # while weak-beat runs keep D4 (62), F4 (65), and A4 (69) as passing tones.
-    passing = _indexed_session([8, 10, 9, 8, 10, 12, 11, 12], 7)
+    # On bar 0 (Cmaj7), strong beat 4 snaps A4 (69, index 12) after D4 (62, index 8) up to
+    # B4 (71), while weak-beat runs keep F4 (65), D4 (62), and A4 (69) as passing tones.
+    passing = _indexed_session([13, 10, 9, 8, 12, 10, 11, 12], 7)
     score = render(passing, regimes=("sideway",) * 3)
-    assert _line(score.violin, 0) == [60, 65, 64, 62, 67, 69, 67, 69]
+    assert _line(score.violin, 0) == [71, 65, 64, 62, 71, 65, 67, 69]
 
-    # When a strong-beat F4 (index 10) after G4 (index 11) at eighth 20 snaps down to E4 (64)
-    # and is followed by a weak-beat E4 (index 9) at eighth 21, the two eighths stay two
+    # When a strong-beat A4 (index 12) after B4 (index 13) at eighth 20 snaps down to G4 (67)
+    # and is followed by a weak-beat G4 (index 11) at eighth 21, the two eighths stay two
     # separate attacks rather than merging into a fake held note; a genuine held note across
     # Cmaj7 -> Am7 (30..36) stays one note on G4 (67), shared by both chords.
-    no_fake_merge = _session({19: (1, 11), 20: (1, 10), 21: (1, 9), 30: (6, 10)})
+    no_fake_merge = _session(
+        {16: (3, 13), 19: (1, 13), 20: (1, 12), 21: (1, 11), 30: (6, 11), 36: (4, 12)}
+    )
     score = render(no_fake_merge, regimes=("sideway",) * 3)
     bar_two = [
         (note.beat, note.midi, note.duration_beats, note.tie_start, note.tie_stop)
         for note in score.violin
         if note.bar == 2 and note.beat in (2.0, 2.5)
     ]
-    assert bar_two == [(2.0, 64, 0.5, False, False), (2.5, 64, 0.5, False, False)]
+    assert bar_two == [(2.0, 67, 0.5, False, False), (2.5, 67, 0.5, False, False)]
     cross_chord = [
         (note.bar, note.beat, note.midi, note.duration_beats, note.tie_start, note.tie_stop)
         for note in score.violin
@@ -325,7 +336,7 @@ def test_melody_snaps_strong_beats_to_chord_tones_and_keeps_weak_beat_passing_no
     # When a held note on A4 (index 12, midi 69) spans Dm7 -> Em7 (bars 7..8 in downtrend),
     # the only shared chord tone D is four scale steps away, so each chord snaps within one step
     # (A4=69 on Dm7, B4=71 on Em7) rather than pulling the note down a fifth to D4.
-    far_shared = _session({60: (8, 12)})
+    far_shared = _session({56: (4, 8), 60: (6, 12), 66: (6, 13), 72: (4, 8), 76: (4, 9)})
     score = render(far_shared, regimes=("downtrend",) * 3)
     assert [
         (note.bar, note.beat, note.midi)
@@ -406,7 +417,7 @@ def test_bass_attacks_more_often_as_volume_rises() -> None:
         regimes=("uptrend", "uptrend", "uptrend"),
     )
     assert _line(score.bass, 0) == [36, 36, 48, 36, 43, 43, 48, 43]
-    assert _line(score.bass, 2) == [36]
+    assert _line(score.bass, 2) == [score.slots[1].chord.bass_midi]
     assert _line(score.bass, 29) == [36, 36, 48, 36, 43, 43, 48, 43]
 
     steady = render([Bar(100.0, 100.0, 100.0)] * 30, regimes=("sideway",) * 3)
@@ -475,21 +486,24 @@ def test_musicxml_writes_harmony_and_letter_dynamics() -> None:
     assert violin_measures[0].find("direction/sound").get("tempo") == "90"
 
     harmonies = violin.findall("measure/harmony")
-    assert len(harmonies) == 14
+    assert len(harmonies) == len(score.harmonies)
+    assert all(
+        a.chord != b.chord for a, b in zip(score.harmonies, score.harmonies[1:])
+    )
     assert bass.findall("measure/harmony") == []
     assert violin_measures[0].find("harmony/root/root-step").text == "C"
-    assert violin_measures[0].find("harmony/kind").text == "major-seventh"
-    assert violin_measures[0].find("harmony/kind").get("text") == "maj7"
+    assert violin_measures[0].find("harmony/kind").text == "major"
+    assert violin_measures[0].find("harmony/kind").get("text") == ""
     assert violin_measures[1].find("harmony") is None
-    assert violin_measures[8].find("harmony/root/root-step").text == "G"
-    assert violin_measures[8].find("harmony/kind").text == "dominant"
-    assert violin_measures[8].find("harmony/kind").get("text") == "7"
+    assert violin_measures[2].find("harmony/root/root-step").text == "F"
+    assert violin_measures[2].find("harmony/kind").text == "major"
+    assert violin_measures[2].find("harmony/kind").get("text") == ""
     assert violin_measures[10].find("harmony/root/root-step").text == "A"
-    assert violin_measures[10].find("harmony/kind").text == "minor-seventh"
-    assert violin_measures[10].find("harmony/kind").get("text") == "m7"
+    assert violin_measures[10].find("harmony/kind").text == "minor"
+    assert violin_measures[10].find("harmony/kind").get("text") == "m"
 
     for measure, event in zip(
-        (violin_measures[slot.start] for slot in score.slots),
+        (violin_measures[event.bar] for event in score.harmonies),
         score.harmonies,
     ):
         kind = measure.find("harmony/kind")
@@ -563,7 +577,16 @@ def _assert_measure_timing(
         for note in right[2:]:
             if note.find("rest") is None:
                 assert note.get("dynamics") == f"{64 * 100 / 90:.2f}"
-        assert _written(left) == ([_pitch(root)] if bar == slot.start else [])
+        expected_left = (
+            [_pitch(root)]
+            if (
+                bar == slot.start
+                if slot.section == "outro"
+                else (bar - slot.start) % 2 == 0
+            )
+            else []
+        )
+        assert _written(left) == expected_left
 
         bass_notes = [note for note in bass_measure if note.tag == "note"]
         assert all(note.find("chord") is None for note in bass_notes)
@@ -602,7 +625,11 @@ def test_outro_bass_restarts_the_root_every_bar() -> None:
     assert transpose.find("chromatic").text == "0"
     assert transpose.find("octave-change").text == str(-BASS_WRITTEN_OCTAVES)
     assert bass_measures[26].find("harmony") is None
-    assert _part(root, "P1").findall("measure")[26].find("harmony/kind").text == "minor-seventh"
+    last_harmony_bar = score.harmonies[-1].bar
+    assert (
+        _part(root, "P1").findall("measure")[last_harmony_bar].find("harmony/kind").text
+        == "minor"
+    )
 
 
 def test_session_drops_lunch_and_warms_up_ma20() -> None:
@@ -859,12 +886,13 @@ def test_piano_answers_a_held_cadence_under_the_violin() -> None:
     right = [note for note in score.piano if note.bar == 4 and note.staff == 1]
     assert [(note.beat, note.midi, note.duration_beats, note.velocity) for note in right] == [
         (0.0, 60, 0.5, None),
-        (0.0, 67, 0.5, None),
-        (0.5, 64, 0.5, 64),
-        (1.0, 67, 0.5, 64),
+        (0.0, 64, 0.5, None),
+        (0.5, 60, 0.5, 64),
+        (1.0, 64, 0.5, 64),
         (1.5, 69, 0.5, 64),
         (2.0, None, 2.0, None),
     ]
+    assert fill_tones(AM, 76, "violin") == [60, 64, 69, 72]
     assert fill_tones(AM7, 76, "violin") == [64, 67, 69, 72]
     assert fill_tones(AM7, 50, "cello") == [60, 64, 67, 69]
     assert fill_tones(AM7, 59, "cello") == [64, 67, 69, 72]
@@ -1120,12 +1148,12 @@ def test_flute_harmony_avoids_fourths_tritones_octave_drops_and_repeated_reattac
     assert all(77 <= midi <= 88 for midi in flute_bar2_3)
 
     # Even when a high phrase has a small rise (< MIN_RISE = 3) while oscillating across C6
-    # (e.g. E6=88 -> C6=84 -> E6=88), Flute takes over so Violin plays only the 1-beat overlap [76]
-    # instead of sawtoothing E5 -> C6 -> E5.
+    # (e.g. D6=86 -> C6=84 -> D6=86), Flute takes over so Violin plays only the 1-beat overlap [74]
+    # instead of sawtoothing D5 -> C6 -> D5.
     narrow_osc = _session({12: (4, 15), 16: (2, 22), 18: (2, 21), 20: (6, 22)})
     score = render(narrow_osc, regimes=("downtrend",) * 3)
     v_bar2_narrow = [note.midi for note in score.violin if note.bar == 2 and note.midi is not None]
-    assert v_bar2_narrow == [76]
+    assert v_bar2_narrow == [74]
     assert any(note.midi is not None for note in score.flute if note.bar == 2)
 
     # Held-over note across a phrase boundary where the first phrase peaks > C6 (84)
@@ -1161,3 +1189,227 @@ def test_flute_harmony_avoids_fourths_tritones_octave_drops_and_repeated_reattac
         assert sum(n.duration_beats for n in score.cello if n.bar == bar) == 4.0
     assert _balanced([w.kind for w in score.violin_wedges])
     assert _balanced([w.kind for w in score.cello_wedges])
+
+
+def test_markov_transitions_obey_functional_harmony_and_minimize_quantization_loss() -> None:
+    scale = c_major_scale()
+    with pytest.raises(ValueError):
+        bar_quantization_loss([61], C.pitch_classes, scale)
+
+    for chord in CHORDS:
+        row = TRANSITIONS[chord]
+        assert abs(sum(row.values()) - 1.0) < 1e-9
+        assert all(prob > 0.0 for prob in row.values())
+        assert transition_probability(chord, chord) > 0.0
+
+    # Dominant G / G7 resolves only to C / Cmaj7, Am / Am7, or stays on G / G7 — never retrogresses to IV, ii, or iii
+    for dom in (G, G7):
+        assert set(TRANSITIONS[dom]) == {C, CMAJ7, AM, AM7, G, G7}
+        for forbidden in (F, FMAJ7, DM, DM7, EM, EM7):
+            assert transition_probability(dom, forbidden) == 0.0
+
+    # When bars 2..5 repeatedly sound F4, A4, and C4 (indexes 10, 12, and 7, in both F
+    # and Fmaj7), the Markov chain never switches F <-> Fmaj7 on the same root just to
+    # reset the 2-bar stay counter.
+    held_f_triad = _session(
+        {
+            bar * 8 + offset: (length, index)
+            for bar in range(2, 6)
+            for offset, length, index in ((0, 2, 10), (2, 2, 12), (4, 4, 7))
+        }
+    )
+    score_f = render(held_f_triad, regimes=("uptrend",) * 3)
+    phrase_slots_f = [slot for slot in score_f.slots if slot.section == "phrase"]
+    assert not any(
+        a.chord.root_step == b.chord.root_step and a.chord != b.chord
+        for a, b in zip(phrase_slots_f, phrase_slots_f[1:])
+    )
+
+    # When bars 2..5 repeatedly sound E4 and F4 on strong beats (indexes 9 and 10, uniquely
+    # shared by Fmaj7), the Markov chain stays on Fmaj7 across all four bars rather than
+    # forcing a fixed progression change, and the piano left hand re-strikes the root every 2 bars.
+    held_fmaj7 = _session(
+        {
+            bar * 8 + offset: (4, index)
+            for bar in range(2, 6)
+            for offset, index in ((0, 10), (4, 9))
+        }
+    )
+    score_held = render(held_fmaj7, regimes=("uptrend",) * 3)
+    by_bar_held = {bar: slot.chord for slot in score_held.slots for bar in slot.bars()}
+    assert [by_bar_held[bar] for bar in range(2, 6)] == [FMAJ7] * 4
+    assert any(slot.chord == FMAJ7 and slot.length >= 4 for slot in score_held.slots)
+    left_bars_2_to_5 = [
+        next(n.midi for n in score_held.piano if n.bar == bar and n.staff == 2)
+        for bar in range(2, 6)
+    ]
+    assert left_bars_2_to_5 == [41, None, 41, None]
+
+    # When consecutive bars outline distinct harmonically connected chords (Bar 2: D4-A4 -> Dm/Dm7,
+    # Bar 3: B4-F4 -> G7, Bar 4: C4-E4 -> C), Markov steps bar-by-bar (1-bar slots)
+    # with zero strong-beat quantization loss, choosing the 7th chord G7 when the tritone
+    # is on strong beats and the clean triad C when no 7th degree is needed.
+    single_bar_changes = _session(
+        {
+            16: (4, 8),   # D4
+            20: (4, 12),  # A4 -> Dm / Dm7
+            24: (4, 13),  # B4
+            28: (4, 10),  # F4 -> G7 (tritone requires 7th chord)
+            32: (4, 7),   # C4
+            36: (4, 9),   # E4 -> C (triad wins over Cmaj7 when B is not needed)
+        }
+    )
+    score_changes = render(single_bar_changes, regimes=("uptrend",) * 3)
+    by_bar = {bar: slot.chord for slot in score_changes.slots for bar in slot.bars()}
+    assert by_bar[2] in (DM, DM7)
+    assert [by_bar[bar] for bar in (3, 4)] == [G7, C]
+    assert any(slot.length == 1 for slot in score_changes.slots)
+
+    # Liquidity dynamics and bass pulse use the fixed 14-window grid (independent of price path).
+    volumes = [50_000 + 100_000 * (index % 7) / 6 for index in range(240)]
+    walk_a = [Bar(close, vol, close) for close, vol in zip(_walk(0), volumes)]
+    walk_b = [Bar(close, vol, close) for close, vol in zip(_walk(1), volumes)]
+    score_a = render(walk_a)
+    score_b = render(walk_b)
+    assert len(score_a.liquidity) == 14
+    assert score_a.liquidity == score_b.liquidity
+    assert score_a.dynamics == score_b.dynamics
+
+    # Across random walks:
+    # - Intro (bars 0..1) always pedals the opening phrase's tonic (C/Cmaj7 or Am/Am7)
+    # - Outro (bars 26..29) always pedals the closing phrase's tonic (never ending on G7/Dm7/Fmaj7)
+    # - Every bar-to-bar transition has positive probability in TRANSITIONS
+    # - Both triads and seventh chords are actively selected
+    # - Total strong-beat quantization loss is lower than or equal to the fixed loops
+    triad_total = 0
+    seventh_total = 0
+    for seed in range(50):
+        closes = _walk(seed)
+        bars = [Bar(close, 1.0, close) for close in closes]
+        score = render(bars)
+        groups = assign_source_bars(len(bars))
+        low, high = min(closes), max(closes)
+        raw_pitches = [
+            scale[price_to_scale_index(close, low, high, len(scale))]
+            for group in groups
+            for close in ([bars[i].close for i in group] if group else [closes[0]])
+        ]
+        bar_chords = [slot.chord for slot in score.slots for _ in slot.bars()]
+        assert len(bar_chords) == 30
+        intro_tonics = set(tonic_chords(score.regimes[0]))
+        outro_tonics = set(tonic_chords(score.regimes[2]))
+        assert bar_chords[0] in intro_tonics and bar_chords[1] == bar_chords[0]
+        assert bar_chords[26] in outro_tonics and all(
+            bar_chords[b] == bar_chords[26] for b in range(26, 30)
+        )
+        for bar in range(1, 30):
+            assert transition_probability(bar_chords[bar - 1], bar_chords[bar]) > 0.0
+        triad_total += sum(1 for c in bar_chords if c in TRIADS)
+        seventh_total += sum(1 for c in bar_chords if c in SEVENTHS)
+        fixed_chords = [slot.chord for slot in plan_slots(score.regimes) for _ in slot.bars()]
+        markov_loss = sum(
+            bar_quantization_loss(
+                raw_pitches[b * 8 : (b + 1) * 8],
+                bar_chords[b].pitch_classes,
+                scale,
+                previous_pitch=raw_pitches[b * 8 - 1] if b > 0 else None,
+            )
+            for b in range(30)
+        )
+        fixed_loss = sum(
+            bar_quantization_loss(
+                raw_pitches[b * 8 : (b + 1) * 8],
+                fixed_chords[b].pitch_classes,
+                scale,
+                previous_pitch=raw_pitches[b * 8 - 1] if b > 0 else None,
+            )
+            for b in range(30)
+        )
+        assert markov_loss <= fixed_loss
+    assert triad_total > 0 and seventh_total > 0
+
+
+def test_weak_beat_passing_note_at_bar_end_keeps_raw_previous_pitch() -> None:
+    scale = c_major_scale()
+    # Bar 2 starts on D4 (62) after a previous pitch of B3 (59, step = +3 > 0).
+    # Under chord F ({65, 69, 72}), D4 (62) snaps down to C4 (60).
+    # - When B3 (59) at the end of bar 1 was held from strong beat 4 (eighths 12..15 all 59),
+    #   _prev_last_touched_strong is True: under prev_chord C ({60, 64, 67}), 59 snapped to 60,
+    #   so snapping 62 -> 60 on bar 2 repeats 60 and incurs CONTOUR_REPEAT_PENALTY; under
+    #   prev_chord G ({55, 59, 62}), 59 stayed 59, so 62 -> 60 does not repeat 59.
+    # - When B3 (59) at the end of bar 1 was a single weak-beat passing note at eighth 15
+    #   (eighths 12..14 were 60, eighth 15 was 59), _prev_last_touched_strong is False:
+    #   _quantize_strong_beats leaves eighth 15 at raw 59 regardless of whether bar 1 was C or G,
+    #   so bar 2's loss under F is uniform and independent of prev_chord.
+    bar_two_notes = [62, 65, 65, 65, 65, 65, 65, 65]
+    loss_when_prev_was_raw_59 = bar_quantization_loss(
+        bar_two_notes, F.pitch_classes, scale, previous_pitch=59, previous_snapped=59
+    )
+    loss_when_prev_snapped_to_60 = bar_quantization_loss(
+        bar_two_notes, F.pitch_classes, scale, previous_pitch=59, previous_snapped=60
+    )
+    assert abs(loss_when_prev_snapped_to_60 - loss_when_prev_was_raw_59 - CONTOUR_REPEAT_PENALTY) < 1e-9
+
+    raw_passing_tail = [60] * 240
+    raw_passing_tail[12:15] = [60, 60, 60]
+    raw_passing_tail[15] = 59  # weak-beat passing note at the end of bar 1
+    raw_passing_tail[16:24] = bar_two_notes
+    assert not _prev_last_touched_strong(raw_passing_tail, 2)
+    for prev_chord in (C, G):
+        chord_at = {b: (prev_chord if b == 1 else F) for b in range(30)}
+        snapped = _quantize_strong_beats(raw_passing_tail, chord_at, scale)
+        assert snapped[15] == 59
+
+    raw_strong_tail = [60] * 240
+    raw_strong_tail[12:16] = [59, 59, 59, 59]  # held from strong beat 4 of bar 1
+    raw_strong_tail[16:24] = bar_two_notes
+    assert _prev_last_touched_strong(raw_strong_tail, 2)
+    snapped_under_c = _quantize_strong_beats(
+        raw_strong_tail, {b: (C if b == 1 else F) for b in range(30)}, scale
+    )
+    snapped_under_g = _quantize_strong_beats(
+        raw_strong_tail, {b: (G if b == 1 else F) for b in range(30)}, scale
+    )
+    assert snapped_under_c[15] == 60
+    assert snapped_under_g[15] == 59
+
+
+def test_dynamics_and_bass_pulse_stay_invariant_when_prices_change() -> None:
+    # A volume profile spanning all four liquidity markings (p, mp, mf, f) across the 14 windows
+    volumes = [
+        10_000.0 if (i // 16) in (0, 3, 7)
+        else 40_000.0 if (i // 16) in (1, 4, 8, 11)
+        else 90_000.0 if (i // 16) in (2, 5, 9, 12)
+        else 250_000.0
+        for i in range(240)
+    ]
+    bars_a = [Bar(close, vol, close) for close, vol in zip(_walk(0), volumes)]
+    bars_b = [Bar(close, vol, close) for close, vol in zip(_walk(2), volumes)]
+    score_a = render(bars_a)
+    score_b = render(bars_b)
+
+    # Price paths and resulting Markov chord slots differ, yet liquidity, dynamics,
+    # printed MusicXML bass dynamic markings, and per-bar bass rhythm patterns stay identical.
+    assert score_a.slots != score_b.slots
+    assert len(score_a.slots) != len(score_b.slots)
+    assert set(score_a.liquidity) == {"p", "mp", "mf", "f"}
+    assert score_a.liquidity == score_b.liquidity
+    assert score_a.dynamics == score_b.dynamics
+    for bar in range(30):
+        rhythm_a = [(n.beat, n.duration_beats) for n in score_a.bass if n.bar == bar]
+        rhythm_b = [(n.beat, n.duration_beats) for n in score_b.bass if n.bar == bar]
+        assert rhythm_a == rhythm_b
+
+    _, root_a = _xml(score_a)
+    _, root_b = _xml(score_b)
+    bass_marks_a = [
+        (m.get("number"), [c.tag for d in m.findall(".//dynamics") for c in d])
+        for m in _part(root_a, "P4").findall("measure")
+    ]
+    bass_marks_b = [
+        (m.get("number"), [c.tag for d in m.findall(".//dynamics") for c in d])
+        for m in _part(root_b, "P4").findall("measure")
+    ]
+    assert bass_marks_a == bass_marks_b
+
+
