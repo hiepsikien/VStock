@@ -509,15 +509,13 @@ def _flute_and_violin_dovetail(
                 if v_lead_start < start_idx
                 else (MIN_VIOLIN_SPAN if (start_idx == 0 and violin_tied_in) else 0)
             )
-            can_overlap = not continued_flute and (
-                (
-                    violin_lead >= MIN_VIOLIN_SPAN
-                    and all(
-                        pitches[e] <= VIOLIN_CEILING
-                        for e in range(span_start, min(sounding_end, span_start + FLUTE_OVERLAP))
-                    )
+            can_overlap = (
+                not continued_flute
+                and (violin_lead >= MIN_VIOLIN_SPAN or span_start == 0)
+                and all(
+                    pitches[e] <= VIOLIN_CEILING
+                    for e in range(span_start, min(sounding_end, span_start + FLUTE_OVERLAP))
                 )
-                or span_start == 0
             )
             yield_start = span_start + FLUTE_OVERLAP if can_overlap else span_start
 

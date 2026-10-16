@@ -270,7 +270,7 @@ def test_repeated_pitches_merge_into_held_notes() -> None:
 
 
 def test_cello_takes_the_line_below_g3_until_c4() -> None:
-    score = render(_indexed_session([28, 9, 0, 5, 6, 5, 7, 9], 9), regimes=("sideway",) * 3)
+    score = render(_indexed_session([21, 9, 0, 5, 6, 5, 7, 9], 9), regimes=("sideway",) * 3)
     # Violin hands off to Cello at eighth 2 (< G3) and Cello holds its last A3 (57) under Violin's
     # C4 (60) entry so the two instruments overlap on the handback.
     assert _line(score.violin, 0) == [84, 64, None, None, 60, 64]
@@ -1248,6 +1248,21 @@ def test_flute_harmony_avoids_fourths_tritones_octave_drops_and_repeated_reattac
         assert [note.midi for note in f_open if note.midi is not None] != []
         assert all(note.midi is None for note in v_open)
         assert 74 not in [note.midi for note in score_open_peak.violin if note.bar == 2]
+
+    # 4) Even at bar 0 (span_start == 0), opening on a note strictly above VIOLIN_CEILING
+    # (e.g. E6=88, index 23, for 2 or 6 eighths) yields immediately to Flute without
+    # Violin overlapping a folded E5 (76).
+    for length in (2, 6):
+        bar0_above = _session({0: (length, 23)})
+        score_bar0 = render(bar0_above, regimes=("sideway",) * 3)
+        v_bar0_open = [
+            note for note in score_bar0.violin if note.bar == 0 and note.beat < length * 0.5
+        ]
+        f_bar0_open = [
+            note for note in score_bar0.flute if note.bar == 0 and note.beat < length * 0.5
+        ]
+        assert all(note.midi is None for note in v_bar0_open)
+        assert [note.midi for note in f_bar0_open if note.midi is not None] != []
 
     # Rapid Violin -> Cello -> Violin handoff right before a phrase boundary must never
     # overlap two Violin notes or invert wedge order across the phrase boundary.
