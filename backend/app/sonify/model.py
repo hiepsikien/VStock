@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from app.sonify.chords import Chord, Regime
 from app.sonify.form import ChordSlot
 from app.sonify.phrasing import Phrase
+
+Variant = Literal["symphony", "jazz", "minimalist"]
+VARIANTS: tuple[Variant, ...] = ("symphony", "jazz", "minimalist")
 
 
 @dataclass(frozen=True)
@@ -34,6 +38,7 @@ class NoteEvent:
     accent: bool = False
     velocity: int | None = None
     tenuto: bool = False
+    staccato: bool = False
 
 
 @dataclass(frozen=True)
@@ -80,3 +85,6 @@ class Score:
     cello_wedges: tuple[WedgeEvent, ...]
     violin_dynamics: tuple[DynamicEvent, ...]
     cello_dynamics: tuple[DynamicEvent, ...]
+    variant: Variant = "symphony"
+    divisions: int = 2
+    swing: bool = False

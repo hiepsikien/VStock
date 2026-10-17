@@ -13,7 +13,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from app.sonify.chords import SEVENTHS, TRIADS
 from app.sonify.form import plan_slots
-from app.sonify.model import Bar
+from app.sonify.model import VARIANTS, Bar
 from app.sonify.musicxml import score_to_musicxml
 from app.sonify.quantize import c_major_scale, price_to_scale_index, resample
 from app.sonify.render import (
@@ -65,6 +65,11 @@ def main() -> None:
         score = render(bars, title=title)
         xml_path = OUT_DIR / f"{symbol}_{day}_harmony.musicxml"
         xml_path.write_text(score_to_musicxml(score))
+        for variant in VARIANTS:
+            variant_title = f"{symbol} {day} 1-Day Recap ({variant.capitalize()})"
+            variant_score = render(bars, title=variant_title, variant=variant)
+            variant_path = OUT_DIR / f"{symbol}_{day}_{variant}.musicxml"
+            variant_path.write_text(score_to_musicxml(variant_score))
 
         raw = _raw_eighths(bars, scale)
         markov_chord_at = {bar: slot.chord for slot in score.slots for bar in slot.bars()}

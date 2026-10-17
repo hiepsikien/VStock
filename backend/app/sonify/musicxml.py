@@ -26,9 +26,9 @@ from typing import TypeVar
 
 from app.sonify.dynamics import MARKINGS, SOUND
 from app.sonify.form import BEATS_PER_BAR, MUSICAL_BARS
-from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score, WedgeEvent
+from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score, Variant, WedgeEvent
 
-DIVISIONS = 2  # per quarter note, so an eighth note is 1
+DIVISIONS = 2  # default per quarter note, so an eighth note is 1
 FORTE_VELOCITY = 90  # MusicXML dynamics percentages are relative to this
 
 _PC_STEPS = {
@@ -56,15 +56,17 @@ def _add(parent: ET.Element, tag: str, text: str | None = None, **attrib: str) -
     return node
 
 
-def _duration(beats: float) -> int:
-    units = int(round(beats * DIVISIONS))
+def _duration(beats: float, divisions: int = DIVISIONS) -> int:
+    units = int(round(beats * divisions))
     if units < 1:
         raise ValueError("note duration is shorter than one division")
     return units
 
 
 _NOTE_TYPES = {
+    0.25: ("16th", 0),
     0.5: ("eighth", 0),
+    0.75: ("eighth", 1),
     1.0: ("quarter", 0),
     1.5: ("quarter", 1),
     2.0: ("half", 0),
@@ -87,6 +89,7 @@ def _add_note(
     chord: bool = False,
     staves: int = 1,
     written_shift: int = 0,
+    divisions: int = DIVISIONS,
 ) -> None:
     note = _add(parent, "note")
     if event.velocity is not None and event.midi is not None:
@@ -103,7 +106,7 @@ def _add_note(
         pitch = _add(note, "pitch")
         _add(pitch, "step", step)
         _add(pitch, "octave", str(octave))
-    _add(note, "duration", str(_duration(event.duration_beats)))
+    _add(note, "duration", str(_duration(event.duration_beats, divisions)))
     if event.tie_stop:
         _add(note, "tie", type="stop")
     if event.tie_start:
@@ -122,6 +125,7 @@ def _add_note(
         event.slur_stop,
         event.accent,
         event.tenuto,
+        event.staccato,
     )
     if any(marks):
         notations = _add(note, "notations")
@@ -133,12 +137,14 @@ def _add_note(
             _add(notations, "slur", type="start", number="1")
         if event.slur_stop:
             _add(notations, "slur", type="stop", number="1")
-        if event.accent or event.tenuto:
+        if event.accent or event.tenuto or event.staccato:
             articulations = _add(notations, "articulations")
             if event.accent:
                 _add(articulations, "accent")
             if event.tenuto:
                 _add(articulations, "tenuto")
+            if event.staccato:
+                _add(articulations, "staccato")
 
 
 TREBLE = ("G", "2")
@@ -146,10 +152,13 @@ BASS_CLEF = ("F", "4")
 
 
 def _attributes(
-    parent: ET.Element, *clefs: tuple[str, str], octave_change: int = 0
+    parent: ET.Element,
+    *clefs: tuple[str, str],
+    octave_change: int = 0,
+    divisions: int = DIVISIONS,
 ) -> None:
     attributes = _add(parent, "attributes")
-    _add(attributes, "divisions", str(DIVISIONS))
+    _add(attributes, "divisions", str(divisions))
     key = _add(attributes, "key")
     _add(key, "fifths", "0")
     _add(key, "mode", "major")
@@ -171,13 +180,22 @@ def _attributes(
         _add(transpose, "octave-change", str(octave_change))
 
 
-def _metronome(parent: ET.Element, bpm: int) -> None:
+def _metronome(parent: ET.Element, bpm: int, *, swing: bool = False) -> None:
     direction = _add(parent, "direction", placement="above")
     direction_type = _add(direction, "direction-type")
     metronome = _add(direction_type, "metronome")
     _add(metronome, "beat-unit", "quarter")
     _add(metronome, "per-minute", str(bpm))
-    _add(direction, "sound", tempo=str(bpm))
+    if swing:
+        word_type = _add(direction, "direction-type")
+        _add(word_type, "words", "Swing")
+    sound = _add(direction, "sound", tempo=str(bpm))
+    if swing:
+        swing_node = _add(sound, "swing")
+        _add(swing_node, "straight", "2")
+        _add(swing_node, "first", "2")
+        _add(swing_node, "second", "1")
+        _add(swing_node, "swing-type", "eighth")
 
 
 def _harmony(parent: ET.Element, event: HarmonyEvent) -> None:
@@ -222,10 +240,29 @@ _PARTS = (
     ("P4", "Bass", "Electric Bass (finger)", "4", "34"),
 )
 
+_PARTS_BY_VARIANT: dict[Variant, tuple[tuple[str, str, str, str, str], ...]] = {
+    "symphony": _PARTS,
+    "jazz": (
+        ("P5", "Vibraphone", "Vibraphone", "5", "12"),
+        ("P1", "Alto Saxophone", "Alto Sax", "1", "66"),
+        ("P2", "Tenor Saxophone", "Tenor Sax", "2", "67"),
+        ("P3", "Rhodes Piano", "Electric Piano 1", "3", "5"),
+        ("P4", "Upright Bass", "Acoustic Bass", "4", "33"),
+    ),
+    "minimalist": (
+        ("P5", "Synth Bell", "FX 3 (crystal)", "5", "99"),
+        ("P1", "Synth Arpeggio", "Lead 2 (sawtooth)", "1", "82"),
+        ("P2", "Synth Pad", "Pad 2 (warm)", "2", "90"),
+        ("P3", "Synth Pulse", "Lead 1 (square)", "3", "81"),
+        ("P4", "Sub-Bass", "Synth Bass 1", "4", "39"),
+    ),
+}
 
-def _part_list(root: ET.Element) -> None:
+
+def _part_list(root: ET.Element, variant: Variant = "symphony") -> None:
     part_list = _add(root, "part-list")
-    for part_id, part_name, instrument_name, channel, program in _PARTS:
+    parts = _PARTS_BY_VARIANT.get(variant, _PARTS)
+    for part_id, part_name, instrument_name, channel, program in parts:
         part = _add(part_list, "score-part", id=part_id)
         _add(part, "part-name", part_name)
         instrument = _add(part, "score-instrument", id=f"{part_id}-I1")
@@ -268,9 +305,9 @@ def _melody_part(
     for bar in range(score.bars):
         measure = _add(part, "measure", number=str(bar + 1))
         if bar == 0:
-            _attributes(measure, clef)
+            _attributes(measure, clef, divisions=score.divisions)
             if lead:
-                _metronome(measure, score.bpm)
+                _metronome(measure, score.bpm, swing=score.swing)
             _dynamic(measure, MELODY_DYNAMIC)
         for event in symbols[bar]:
             _harmony(measure, event)
@@ -286,9 +323,12 @@ def _melody_part(
                 else:
                     _wedge(measure, direction)
 
+        previous_beat: float | None = None
         for event in sorted(melody[bar], key=lambda note: note.beat):
             flush(event.beat)
-            _add_note(measure, event)
+            is_chord = event.beat == previous_beat and event.midi is not None
+            _add_note(measure, event, chord=is_chord, divisions=score.divisions)
+            previous_beat = event.beat
         flush(float(BEATS_PER_BAR))
 
 
@@ -302,19 +342,25 @@ def _piano_part(root: ET.Element, score: Score) -> None:
     for bar in range(score.bars):
         measure = _add(part, "measure", number=str(bar + 1))
         if bar == 0:
-            _attributes(measure, TREBLE, BASS_CLEF)
+            _attributes(measure, TREBLE, BASS_CLEF, divisions=score.divisions)
             _dynamic(measure, PIANO_DYNAMIC)
         for staff in (1, 2):
             if staff > 1:
                 backup = _add(measure, "backup")
-                _add(backup, "duration", str(BEATS_PER_BAR * DIVISIONS))
+                _add(backup, "duration", str(BEATS_PER_BAR * score.divisions))
             hand = sorted(
                 (event for event in events[bar] if event.staff == staff),
                 key=lambda event: event.beat,
             )
             previous_beat: float | None = None
             for event in hand:
-                _add_note(measure, event, chord=event.beat == previous_beat, staves=2)
+                _add_note(
+                    measure,
+                    event,
+                    chord=event.beat == previous_beat and event.midi is not None,
+                    staves=2,
+                    divisions=score.divisions,
+                )
                 previous_beat = event.beat
 
 
@@ -335,12 +381,22 @@ def _bass_part(root: ET.Element, score: Score) -> None:
     for bar in range(score.bars):
         measure = _add(part, "measure", number=str(bar + 1))
         if bar == 0:
-            _attributes(measure, BASS_CLEF, octave_change=-BASS_WRITTEN_OCTAVES)
+            _attributes(
+                measure,
+                BASS_CLEF,
+                octave_change=-BASS_WRITTEN_OCTAVES,
+                divisions=score.divisions,
+            )
         event = printed.get(bar)
         if event is not None:
             _dynamic(measure, event)
         for note in sorted(notes[bar], key=lambda note: note.beat):
-            _add_note(measure, note, written_shift=12 * BASS_WRITTEN_OCTAVES)
+            _add_note(
+                measure,
+                note,
+                written_shift=12 * BASS_WRITTEN_OCTAVES,
+                divisions=score.divisions,
+            )
 
 
 def score_to_musicxml(score: Score) -> str:
@@ -350,7 +406,7 @@ def score_to_musicxml(score: Score) -> str:
     identification = _add(root, "identification")
     encoding = _add(identification, "encoding")
     _add(encoding, "software", "vstock-sonify")
-    _part_list(root)
+    _part_list(root, score.variant)
     _melody_part(
         root, score, "P5", score.flute, (), (), TREBLE
     )

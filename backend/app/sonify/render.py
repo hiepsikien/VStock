@@ -22,7 +22,16 @@ from app.sonify.form import (
     ChordSlot,
     plan_slots,
 )
-from app.sonify.model import Bar, DynamicEvent, HarmonyEvent, NoteEvent, Score, WedgeEvent
+from app.sonify.model import (
+    VARIANTS,
+    Bar,
+    DynamicEvent,
+    HarmonyEvent,
+    NoteEvent,
+    Score,
+    Variant,
+    WedgeEvent,
+)
 from app.sonify.phrasing import COMMA, PERIOD, Phrase, Run, plan_phrases, runs_of, swell
 from app.sonify.quantize import c_major_scale, price_to_scale_index, quantize_chord_tone, resample
 from app.sonify.regime import REGIME_BARS, classify_window
@@ -1010,8 +1019,8 @@ def comp_pitches(chord: Chord) -> tuple[int, tuple[int, int]]:
     The fixed windows keep both hands within a few steps from one chord to the next.
     """
     pcs = tuple(pitch % 12 for pitch in chord.pitches)
-    if len(pcs) == 4:
-        root_pc, third_pc, _fifth_pc, upper_pc = pcs
+    if len(pcs) >= 4:
+        root_pc, third_pc, _fifth_pc, upper_pc = pcs[:4]
     elif len(pcs) == 3:
         root_pc, third_pc, upper_pc = pcs
     else:
@@ -1178,8 +1187,9 @@ def render(
     *,
     title: str = "1-Day Recap",
     regimes: tuple[Regime, Regime, Regime] | None = None,
+    variant: Variant = "symphony",
 ) -> Score:
-    """Turn one session of closes into flute, violin, cello, piano, bass, and symbols.
+    """Turn one session of closes into a 30-bar score for `variant` ('symphony', 'jazz', 'minimalist').
 
     Each phrase regime is the average of the first few source bars at that
     phrase's downbeat, then held for the phrase. Intro uses phrase 1's regime;
@@ -1196,6 +1206,8 @@ def render(
     """
     if not bars:
         raise ValueError("need at least one price bar")
+    if variant not in VARIANTS:
+        raise ValueError(f"unknown variant: {variant}")
 
     groups = assign_source_bars(len(bars))
     if regimes is None:
@@ -1266,6 +1278,38 @@ def render(
         for (start, length), band in zip(LIQUIDITY_WINDOWS, bands)
         for bar in range(start, start + length)
     }
+    if variant == "jazz":
+        from app.sonify.jazz import render_jazz_score
+
+        return render_jazz_score(
+            title=title,
+            chosen=chosen,
+            sample_indexes=sample_indexes,
+            slots=slots,
+            pitches=pitches,
+            phrases=phrases,
+            dynamics=dynamics,
+            bands=bands,
+            band_at=band_at,
+        )
+    if variant == "minimalist":
+        from app.sonify.minimalist import render_minimalist_score
+
+        return render_minimalist_score(
+            title=title,
+            chosen=chosen,
+            sample_indexes=sample_indexes,
+            slots=slots,
+            raw_pitches=raw_pitches,
+            pitches=pitches,
+            phrases=phrases,
+            dynamics=dynamics,
+            harmonies=harmonies,
+            bands=bands,
+            chord_at=chord_at,
+            band_at=band_at,
+        )
+
     flute_notes, yield_spans = _flute_and_violin_dovetail(
         phrases, pitches, band_at, chord_at, scale
     )
@@ -1297,4 +1341,7 @@ def render(
         cello_wedges=tuple(cello.wedges),
         violin_dynamics=tuple(violin.dynamics),
         cello_dynamics=tuple(cello.dynamics),
+        variant="symphony",
+        divisions=2,
+        swing=False,
     )

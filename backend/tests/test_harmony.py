@@ -1497,3 +1497,268 @@ def test_dynamics_and_bass_pulse_stay_invariant_when_prices_change() -> None:
     assert bass_marks_a == bass_marks_b
 
 
+def test_unknown_variant_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="unknown variant"):
+        render([Bar(100.0, 1.0, 100.0)] * 30, variant="rock")  # type: ignore[arg-type]
+
+
+def test_jazz_variant_swing_instruments_chords_and_vibraphone_layering() -> None:
+    # Build a session with a clear breakout above 4 bars and multi-band liquidity
+    spans = {47: (1, 9), 48: (1, 11), 49: (1, 12), 50: (6, 22)}
+    volumes = [
+        10_000.0 if (i // 16) in (0, 3)
+        else 40_000.0 if (i // 16) in (1, 4, 8)
+        else 90_000.0 if (i // 16) in (2, 5, 9)
+        else 250_000.0
+        for i in range(240)
+    ]
+    score = render(
+        _session(spans, volumes=volumes),
+        title="FPT Jazz Recap",
+        regimes=("uptrend", "sideway", "downtrend"),
+        variant="jazz",
+    )
+    assert score.variant == "jazz"
+    assert score.bpm == 82
+    assert score.swing is True
+    assert score.divisions == 2
+
+    _text, root = _xml(score)
+    names = [part.find("part-name").text for part in root.findall("part-list/score-part")]
+    assert names == [
+        "Vibraphone",
+        "Alto Saxophone",
+        "Tenor Saxophone",
+        "Rhodes Piano",
+        "Upright Bass",
+    ]
+    programs = [
+        prog.text for prog in root.findall("part-list/score-part/midi-instrument/midi-program")
+    ]
+    assert programs == ["12", "66", "67", "5", "33"]
+
+    # Swing tag and text in Measure 1 of Lead part (P1 Alto Saxophone)
+    sax_m1 = _part(root, "P1").findall("measure")[0]
+    assert sax_m1.find("direction/direction-type/words").text == "Swing"
+    swing_el = sax_m1.find("direction/sound/swing")
+    assert swing_el is not None
+    assert swing_el.find("straight").text == "2"
+    assert swing_el.find("first").text == "2"
+    assert swing_el.find("second").text == "1"
+    assert swing_el.find("swing-type").text == "eighth"
+
+    # Jazz chord symbols (9th and 7th chords)
+    jazz_kinds = {h.chord.kind for h in score.harmonies}
+    assert jazz_kinds <= {"major-ninth", "minor-ninth", "dominant-ninth", "minor-seventh"}
+    assert "major-ninth" in jazz_kinds or "minor-ninth" in jazz_kinds
+
+    # Threshold Layering:
+    # 1) Vibraphone (P5) only plays in high register >= C6 (84..91), velocity 50..70,
+    #    occupying 10%–15% of the 240-eighth piece (24..36 eighths), and plays a 3-note
+    #    chord cluster on the breakout at bar 6 (eighth 50).
+    vib_sounding = [n for n in score.flute if n.midi is not None]
+    assert vib_sounding
+    assert all(84 <= n.midi <= 91 for n in vib_sounding)
+    assert all(50 <= (n.velocity or 0) <= 70 for n in vib_sounding)
+    vib_attacks = [
+        n
+        for i, n in enumerate(score.flute)
+        if n.midi is not None
+        and (i == 0 or (score.flute[i - 1].bar, score.flute[i - 1].beat) != (n.bar, n.beat))
+    ]
+    vib_eighths = sum(int(round(n.duration_beats * 2)) for n in vib_attacks)
+    assert 24 <= vib_eighths <= 36
+
+    # Breakout bar 6 has a 3-note Vibraphone chord cluster in MusicXML (<chord/> tags)
+    vib_m7 = _part(root, "P5").findall("measure")[6]
+    vib_chord_notes = [n for n in vib_m7.findall("note") if n.find("chord") is not None]
+    assert len(vib_chord_notes) >= 2
+
+    # 2) Alto Saxophone (P1) stays inside its warm register (<= A5 = 81)
+    assert all(n.midi <= 81 for n in score.violin if n.midi is not None)
+
+    # 3) Rhodes Piano (P3) uses Charleston syncopation (beat 0.0 for 1.5 beats + beat 1.5 for 0.5)
+    charleston_bars = [
+        bar
+        for bar in range(2, 26)
+        if any(
+            n.staff == 1 and n.beat == 1.5 and n.duration_beats == 0.5 and n.tenuto
+            for n in score.piano
+            if n.bar == bar
+        )
+    ]
+    assert len(charleston_bars) > 0
+
+    # 4) Upright Bass (P4) plays 2-feel on 'p' bars and 4-beat Walking Bass on active phrase bars
+    for bar in range(2, 26):
+        bar_bass = [n for n in score.bass if n.bar == bar]
+        band = score.liquidity[
+            next(i for i, slot in enumerate(
+                [(0, 2), *((s, 2) for s in range(2, 26, 2)), (26, 4)]
+            ) if slot[0] <= bar < slot[0] + slot[1])
+        ]
+        if band == "p":
+            assert [n.duration_beats for n in bar_bass] == [2.0, 2.0]
+        else:
+            assert [n.duration_beats for n in bar_bass] == [1.0, 1.0, 1.0, 1.0]
+
+    # Measure timing invariant across all 5 parts
+    for part_id in ("P5", "P1", "P2", "P4"):
+        for measure in _part(root, part_id).findall("measure"):
+            non_chord = [n for n in measure.findall("note") if n.find("chord") is None]
+            assert sum(int(n.find("duration").text) for n in non_chord) == 8
+    for measure in _part(root, "P3").findall("measure"):
+        for staff_num in ("1", "2"):
+            non_chord = [
+                n
+                for n in measure.findall("note")
+                if n.find("staff").text == staff_num and n.find("chord") is None
+            ]
+            assert sum(int(n.find("duration").text) for n in non_chord) == 8
+
+
+def test_minimalist_variant_cutoff_brightness_4_on_the_floor_and_rhythmic_density() -> None:
+    # First phrase in low price register (index 1 -> D3=50, dark/closed filter),
+    # second phrase climbing to high price register (index 26 -> A6=93, bright/open filter).
+    spans = {
+        16: (32, 1),   # bars 2..5: low price -> closed filter
+        80: (32, 26),  # bars 10..13: high price -> wide open filter
+    }
+    volumes = [
+        10_000.0 if (i // 16) in (0, 1)      # 'p'
+        else 40_000.0 if (i // 16) in (2, 3) # 'mp'
+        else 90_000.0 if (i // 16) in (4, 5) # 'mf'
+        else 250_000.0                       # 'f'
+        for i in range(240)
+    ]
+    score = render(
+        _session(spans, volumes=volumes),
+        title="FPT Minimalist Recap",
+        regimes=("downtrend", "uptrend", "sideway"),
+        variant="minimalist",
+    )
+    assert score.variant == "minimalist"
+    assert score.bpm == 118
+    assert score.swing is False
+    assert score.divisions == 4
+
+    _text, root = _xml(score)
+    names = [part.find("part-name").text for part in root.findall("part-list/score-part")]
+    assert names == [
+        "Synth Bell",
+        "Synth Arpeggio",
+        "Synth Pad",
+        "Synth Pulse",
+        "Sub-Bass",
+    ]
+    programs = [
+        prog.text for prog in root.findall("part-list/score-part/midi-instrument/midi-program")
+    ]
+    assert programs == ["99", "82", "90", "81", "39"]
+
+    # 1) Cutoff Filter / Brightness Modulation on Synth Arpeggio (P1):
+    # Low price bar (bar 3) is lower in pitch, quieter, and staccato;
+    # High price bar (bar 11) is higher in pitch, louder, and tenuto/accented.
+    arp_low_bar = [n for n in score.violin if n.bar == 3 and n.midi is not None]
+    arp_high_bar = [n for n in score.violin if n.bar == 11 and n.midi is not None]
+    assert len(arp_low_bar) == 8 and len(arp_high_bar) == 8
+    assert sum(n.midi for n in arp_high_bar) / 8 > sum(n.midi for n in arp_low_bar) / 8 + 12
+    assert sum(n.velocity or 0 for n in arp_high_bar) > sum(n.velocity or 0 for n in arp_low_bar)
+    assert all(n.staccato for n in arp_low_bar)
+    assert any(n.tenuto and n.accent for n in arp_high_bar)
+
+    # 2) Sub-Bass (P4): Four-on-the-Floor (4 quarter notes per bar across all 30 bars)
+    for bar in range(30):
+        sub_bar = [n for n in score.bass if n.bar == bar]
+        assert [(n.beat, n.duration_beats) for n in sub_bar] == [
+            (0.0, 1.0),
+            (1.0, 1.0),
+            (2.0, 1.0),
+            (3.0, 1.0),
+        ]
+
+    # 3) Synth Pulse (P3): Rhythmic density scales with liquidity ('p' -> 2, 'mp' -> 4, 'mf' -> 8, 'f' -> 16)
+    pulse_p = [n for n in score.piano if n.bar == 0 and n.staff == 1]
+    pulse_mp = [n for n in score.piano if n.bar == 4 and n.staff == 1]
+    pulse_mf = [n for n in score.piano if n.bar == 8 and n.staff == 1]
+    pulse_f = [n for n in score.piano if n.bar == 12 and n.staff == 1]
+    assert len(pulse_p) == 2 and all(n.duration_beats == 2.0 for n in pulse_p)
+    assert len(pulse_mp) == 4 and all(n.duration_beats == 1.0 for n in pulse_mp)
+    assert len(pulse_mf) == 8 and all(n.duration_beats == 0.5 for n in pulse_mf)
+    assert len(pulse_f) == 16 and all(n.duration_beats == 0.25 for n in pulse_f)
+
+    # Backbeat on staff 2 on 'mf' and 'f' bars (beats 1.0 and 3.0 -> musical beats 2 and 4)
+    backbeat_f = [n for n in score.piano if n.bar == 12 and n.staff == 2]
+    assert [(n.beat, n.midi is not None) for n in backbeat_f] == [
+        (0.0, False),
+        (1.0, True),
+        (2.0, False),
+        (3.0, True),
+    ]
+
+    # Measure timing invariant with divisions=4 (4 beats * 4 divisions = 16 units per measure)
+    for part_id in ("P5", "P1", "P2", "P4"):
+        for measure in _part(root, part_id).findall("measure"):
+            non_chord = [n for n in measure.findall("note") if n.find("chord") is None]
+            assert sum(int(n.find("duration").text) for n in non_chord) == 16
+    for measure in _part(root, "P3").findall("measure"):
+        for staff_num in ("1", "2"):
+            non_chord = [
+                n
+                for n in measure.findall("note")
+                if n.find("staff").text == staff_num and n.find("chord") is None
+            ]
+            assert sum(int(n.find("duration").text) for n in non_chord) == 16
+
+
+def test_all_three_variants_hold_invariants_across_random_walks() -> None:
+    for seed in range(15):
+        closes = _walk(seed)
+        volumes = [20_000 + 180_000 * ((i * 19 + seed) % 240) / 239 for i in range(240)]
+        bars = [Bar(close, vol, close) for close, vol in zip(closes, volumes)]
+        for variant in ("symphony", "jazz", "minimalist"):
+            score = render(bars, variant=variant)
+            assert score.variant == variant
+            _text, root = _xml(score)
+            expected_units = 4 * score.divisions
+
+            for part_id in ("P5", "P1", "P2", "P4"):
+                for measure in _part(root, part_id).findall("measure"):
+                    non_chord = [n for n in measure.findall("note") if n.find("chord") is None]
+                    assert sum(int(n.find("duration").text) for n in non_chord) == expected_units
+
+            for measure in _part(root, "P3").findall("measure"):
+                for staff_num in ("1", "2"):
+                    non_chord = [
+                        n
+                        for n in measure.findall("note")
+                        if n.find("staff").text == staff_num and n.find("chord") is None
+                    ]
+                    assert sum(int(n.find("duration").text) for n in non_chord) == expected_units
+
+            for wedges in (score.violin_wedges, score.cello_wedges):
+                assert _balanced([w.kind for w in wedges])
+
+            for part_notes in (score.flute, score.violin, score.cello, score.piano, score.bass):
+                for note in part_notes:
+                    if note.midi is not None:
+                        assert note.midi % 12 in C_MAJOR_PCS
+
+            if variant == "jazz":
+                vib_attacks = [
+                    n
+                    for i, n in enumerate(score.flute)
+                    if n.midi is not None
+                    and (
+                        i == 0
+                        or (score.flute[i - 1].bar, score.flute[i - 1].beat) != (n.bar, n.beat)
+                    )
+                ]
+                vib_eighths = sum(int(round(n.duration_beats * 2)) for n in vib_attacks)
+                assert 24 <= vib_eighths <= 36
+                assert all(84 <= n.midi <= 91 for n in score.flute if n.midi is not None)
+                assert all(50 <= (n.velocity or 0) <= 70 for n in score.flute if n.midi is not None)
+
+
+
+
