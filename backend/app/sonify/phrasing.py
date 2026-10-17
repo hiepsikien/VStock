@@ -225,7 +225,7 @@ def _spell(start: int, length: int) -> list[tuple[int, int]]:
     return pieces
 
 
-def _written(
+def written(
     start: int,
     length: int,
     midi: int | None,
@@ -260,7 +260,7 @@ def _written(
     ]
 
 
-def _with_rests(notes: list[NoteEvent], total: int) -> tuple[NoteEvent, ...]:
+def with_rests(notes: list[NoteEvent], total: int) -> tuple[NoteEvent, ...]:
     """Fill silent gaps in an eighth-note grid with engraved rest events.
 
     Simultaneous chord notes (sharing the same ``(bar, beat)`` start position)
@@ -280,11 +280,11 @@ def _with_rests(notes: list[NoteEvent], total: int) -> tuple[NoteEvent, ...]:
     for event in sorted(notes, key=lambda e: (position(e), -duration_eighths(e))):
         start = position(event)
         if start > cursor:
-            filled.extend(_written(cursor, start - cursor, None))
+            filled.extend(written(cursor, start - cursor, None))
         filled.append(event)
         cursor = max(cursor, start + duration_eighths(event))
     if cursor < total:
-        filled.extend(_written(cursor, total - cursor, None))
+        filled.extend(written(cursor, total - cursor, None))
     return tuple(filled)
 
 
@@ -298,7 +298,7 @@ class _Line:
     drift: int = 0
 
 
-def _lift(phrase: Phrase) -> float:
+def lift(phrase: Phrase) -> float:
     if phrase.rise < MIN_RISE:
         return 0.0
     return min(1.0, phrase.rise / FULL_RISE)
@@ -354,7 +354,7 @@ def _wedge_at(position: int, kind: str) -> WedgeEvent:
     return WedgeEvent(position // EIGHTHS_PER_BAR, (position % EIGHTHS_PER_BAR) * 0.5, kind)
 
 
-def _hairpins(start: int, end: int, apex: int) -> list[WedgeEvent]:
+def hairpins(start: int, end: int, apex: int) -> list[WedgeEvent]:
     """Crescendo into the apex and diminuendo out of it, clipped to one instrument's span."""
     peak = min(max(apex, start), end)
     wedges: list[WedgeEvent] = []
@@ -594,7 +594,7 @@ def _instrument_segments(
     return segments
 
 
-def _melody_parts(
+def melody_parts(
     pitches: list[int],
     phrases: tuple[Phrase, ...],
     band_at: dict[int, str],
@@ -652,7 +652,7 @@ def _melody_parts(
         p_runs = all_p_runs[p_idx]
         owners = all_owners[p_idx]
         breath = phrase.closes and phrase.end < TOTAL_EIGHTHS
-        lift = _lift(phrase)
+        phrase_lift = lift(phrase)
         colours = techniques(phrase, pitches, band_at)
         breakout = next(
             (run for run in p_runs if colours.get(run.start) == BREAKOUT), None
@@ -726,14 +726,14 @@ def _melody_parts(
                         else run.midi
                     )
                     line.notes.extend(
-                        _written(
+                        written(
                             run.start,
                             length,
                             v_midi,
                             slur_start=slurred and run_index == 0,
                             slur_stop=slurred and run_index == len(segment) - 1,
                             accent=is_stress,
-                            velocity=_velocity(phrase, run, lift, is_stress),
+                            velocity=_velocity(phrase, run, phrase_lift, is_stress),
                             tenuto=colour == BREAKOUT,
                             tie_in=(
                                 tied_in
@@ -748,10 +748,10 @@ def _melody_parts(
                         )
                     )
                 last_end_by_owner[owner] = max(last_end_by_owner[owner], sounding_end)
-                if lift and swell_from is not None and sounding_end > swell_from:
-                    hairpins = _hairpins(swell_from, sounding_end, phrase.apex.start)
-                    line.wedges.extend(hairpins)
-                    for wedge in hairpins:
+                if phrase_lift and swell_from is not None and sounding_end > swell_from:
+                    wedges = hairpins(swell_from, sounding_end, phrase.apex.start)
+                    line.wedges.extend(wedges)
+                    for wedge in wedges:
                         line.drift += {"crescendo": 1, "diminuendo": -1}.get(wedge.kind, 0)
         if phrase.closes:
             cadence_midi = (
@@ -798,7 +798,7 @@ def fill_tones(chord: Chord, melody: int, owner: str) -> list[int]:
     return [midi for midi in range(FILL_LOW, ceiling + 1) if midi % 12 in pcs][-4:]
 
 
-def _fills(
+def fills(
     cadences: list[tuple[Run, str]], chord_at: dict[int, Chord]
 ) -> list[tuple[int, int, int]]:
     """An ascending arpeggio in the last beats of each held cadence, as start, length, midi.
@@ -834,7 +834,7 @@ def _fills(
     return notes
 
 
-def _left_hand(slot: ChordSlot) -> list[NoteEvent]:
+def left_hand(slot: ChordSlot) -> list[NoteEvent]:
     """The root held for a bar and re-struck every two bars (or once on the outro pedal)."""
     root, _guide = comp_pitches(slot.chord)
     return [
@@ -854,7 +854,7 @@ def _left_hand(slot: ChordSlot) -> list[NoteEvent]:
     ]
 
 
-def _quantize_strong_beats(
+def quantize_strong_beats(
     raw: list[int],
     chord_at: dict[int, Chord],
     scale: tuple[int, ...],
@@ -911,15 +911,4 @@ def _quantize_strong_beats(
             cursor = stop
         previous_raw = run.midi
     return pitches
-
-
-# Public exports for cross-module variant renderers (`render.py`, `jazz.py`, `minimalist.py`)
-written = _written
-with_rests = _with_rests
-lift = _lift
-hairpins = _hairpins
-melody_parts = _melody_parts
-fills = _fills
-left_hand = _left_hand
-quantize_strong_beats = _quantize_strong_beats
 

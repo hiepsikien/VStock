@@ -64,6 +64,21 @@ VIBRAPHONE_VEL_SINGLE = 58  # mp
 VIBRAPHONE_VEL_CHORD = 64  # mp-mf
 # Cap high-end Vibraphone accents at 15% of 240 eighths (36 eighths max across 30 bars)
 VIBRAPHONE_MAX_EIGHTHS = 36
+# Relative intraday span bounds for scaling Vibraphone density smoothly from 0 to VIBRAPHONE_MAX_EIGHTHS:
+# - Below 0.5% relative span (e.g. 1–2 ticks on HOSE around price 25), Vibraphone stays silent (0 eighths).
+# - Between 0.5% and 2.0% relative span, the budget ramps linearly from 0 up to 36 eighths.
+VIBRAPHONE_FLAT_SPAN = 0.005
+VIBRAPHONE_FULL_SPAN = 0.020
+
+
+def _vibraphone_budget(rel_span: float, max_eighths: int = VIBRAPHONE_MAX_EIGHTHS) -> int:
+    """Scale maximum bell eighths linearly with relative session volatility."""
+    if rel_span <= VIBRAPHONE_FLAT_SPAN:
+        return 0
+    if rel_span >= VIBRAPHONE_FULL_SPAN:
+        return max_eighths
+    ratio = (rel_span - VIBRAPHONE_FLAT_SPAN) / (VIBRAPHONE_FULL_SPAN - VIBRAPHONE_FLAT_SPAN)
+    return int(round(ratio * max_eighths))
 
 # Dynamic-programming weights for cross-phrase Saxophone octave/register selection.
 # Hierarchy:
@@ -155,21 +170,22 @@ def _vibraphone_accent_part(
     band_at: dict[int, str],
     chord_at: dict[int, Chord],
     *,
-    flat_session: bool = False,
+    rel_span: float = 1.0,
 ) -> tuple[tuple[NoteEvent, ...], list[tuple[int, int, bool, Run]]]:
     """Build the high-end Vibraphone part (P5) strictly on Breakouts and High Apexes.
 
     Controlled rules:
     - Register: strictly in C6–F6 (84..89), matching the standard 3-octave Vibraphone ceiling.
-    - Duty cycle: capped at <= 15% of total piece duration (<= 36 eighths), triggered
-      purely by threshold events (Breakout, rising phrase apex >= G5 (79), or pitch >= C6)
-      and completely silent on flat or near-flat sessions (`flat_session=True`) or
-      mid-register sessions that never reach G5 (79) or a Breakout.
+    - Duty cycle: capped at <= 15% of total piece duration (<= 36 eighths) and scaled
+      smoothly by relative session span (`_vibraphone_budget(rel_span)`): completely silent
+      when `rel_span <= 0.5%` (flat / 1–2 tick sideway sessions), ramping linearly up to
+      36 eighths at `rel_span >= 2.0%`.
     - Breakouts trigger a 3-note ringing chord in C6–F6 (velocity 64).
-    - High phrase apexes / peaks trigger melodic bell notes in C6–F6 (velocity 58)
+    - High phrase apexes / peaks (>= G5 = 79) trigger melodic bell notes in C6–F6 (velocity 58)
       that follow the price contour rather than repeating a static ceiling pitch.
     """
-    if flat_session:
+    max_eighths = _vibraphone_budget(rel_span, VIBRAPHONE_MAX_EIGHTHS)
+    if max_eighths < 2:
         return tuple(written(0, TOTAL_EIGHTHS, None)), []
 
     candidates: list[tuple[int, int, int, bool, Run]] = []
@@ -208,16 +224,16 @@ def _vibraphone_accent_part(
         bar = start // EIGHTHS_PER_BAR
         if bar in used_bars:
             continue
-        if total_eighths + length > VIBRAPHONE_MAX_EIGHTHS:
-            remain = VIBRAPHONE_MAX_EIGHTHS - total_eighths
-            if remain >= 2:
+        if total_eighths + length > max_eighths:
+            remain = max_eighths - total_eighths
+            if remain >= 2 or (remain == 1 and run.midi >= VIBRAPHONE_LOW):
                 length = remain
             else:
                 continue
         chosen_spans.append((start, length, is_breakout, run))
         used_bars.add(bar)
         total_eighths += length
-        if total_eighths >= VIBRAPHONE_MAX_EIGHTHS:
+        if total_eighths >= max_eighths:
             break
 
     chosen_spans.sort(key=lambda item: item[0])
@@ -887,14 +903,14 @@ def render_jazz_score(
     dynamics: tuple[DynamicEvent, ...],
     bands: list[str],
     band_at: dict[int, str],
-    flat_session: bool = False,
+    rel_span: float = 1.0,
 ) -> Score:
     """Assemble the 30-bar Lo-Fi / Cool Jazz score."""
     jazz_slots, harmonies, chord_at = _promote_jazz_slots(slots)
     section_at = {bar: slot.section for slot in jazz_slots for bar in slot.bars()}
 
     vibraphone, chosen_spans = _vibraphone_accent_part(
-        phrases, pitches, band_at, chord_at, flat_session=flat_session
+        phrases, pitches, band_at, chord_at, rel_span=rel_span
     )
     sax_pitches, sax_phrases, yield_spans = _sax_melody_curve(
         pitches, phrases, chosen_spans, chord_at

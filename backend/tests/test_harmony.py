@@ -18,10 +18,10 @@ from app.sonify.phrasing import (
     MIN_EIGHTHS,
     PERIOD,
     STRONG_EIGHTHS,
-    _quantize_strong_beats,
     comp_pitches,
     fill_tones,
     plan_phrases,
+    quantize_strong_beats,
 )
 from app.sonify.quantize import (
     C_MAJOR_PCS,
@@ -1446,17 +1446,17 @@ def test_weak_beat_passing_note_at_bar_end_keeps_raw_previous_pitch() -> None:
     assert not _prev_last_touched_strong(raw_passing_tail, 2)
     for prev_chord in (C, G):
         chord_at = {b: (prev_chord if b == 1 else F) for b in range(30)}
-        snapped = _quantize_strong_beats(raw_passing_tail, chord_at, scale)
+        snapped = quantize_strong_beats(raw_passing_tail, chord_at, scale)
         assert snapped[15] == 59
 
     raw_strong_tail = [60] * 240
     raw_strong_tail[12:16] = [59, 59, 59, 59]  # held from strong beat 4 of bar 1
     raw_strong_tail[16:24] = bar_two_notes
     assert _prev_last_touched_strong(raw_strong_tail, 2)
-    snapped_under_c = _quantize_strong_beats(
+    snapped_under_c = quantize_strong_beats(
         raw_strong_tail, {b: (C if b == 1 else F) for b in range(30)}, scale
     )
-    snapped_under_g = _quantize_strong_beats(
+    snapped_under_g = quantize_strong_beats(
         raw_strong_tail, {b: (G if b == 1 else F) for b in range(30)}, scale
     )
     assert snapped_under_c[15] == 60
@@ -1922,9 +1922,14 @@ def test_score_role_and_variant_property_aliases() -> None:
     from dataclasses import fields
 
     from app.sonify.chords import CMAJ9, DM9, EM7, FMAJ9, G9, AM9
-    from app.sonify.jazz import _high_bell_voicing, _sax_melody_curve, _vibraphone_accent_part
+    from app.sonify.jazz import (
+        _high_bell_voicing,
+        _sax_melody_curve,
+        _vibraphone_accent_part,
+        _vibraphone_budget,
+    )
     from app.sonify.model import NoteEvent, Phrase, Run, Score
-    from app.sonify.phrasing import _with_rests
+    from app.sonify.phrasing import with_rests
 
     # Primary dataclass fields on Score use role-neutral names (high, lead, support, comp, low)
     field_names = {f.name for f in fields(Score)}
@@ -1947,13 +1952,13 @@ def test_score_role_and_variant_property_aliases() -> None:
         assert s.lead_dynamics is s.violin_dynamics
         assert s.support_dynamics is s.cello_dynamics
 
-    # Verify _with_rests handles simultaneous chord notes robustly even if
+    # Verify with_rests handles simultaneous chord notes robustly even if
     # chord notes have different durations or reversed input order.
     chord_notes = [
         NoteEvent(bar=0, beat=1.0, duration_beats=1.0, midi=64, voice=1),
         NoteEvent(bar=0, beat=1.0, duration_beats=2.0, midi=60, voice=1),
     ]
-    filled = _with_rests(chord_notes, total=8)
+    filled = with_rests(chord_notes, total=8)
     assert [(n.beat, n.duration_beats, n.midi) for n in filled] == [
         (0.0, 1.0, None),
         (1.0, 2.0, 60),
@@ -1992,13 +1997,27 @@ def test_score_role_and_variant_property_aliases() -> None:
         wide_jazz = render([Bar(c, 1.0, c) for c in wide_closes], variant="jazz")
         assert all(n.midi <= 80 for n in wide_jazz.lead if n.midi is not None)
 
-    # Regression 2: Near-flat session (0.01 fluctuation around 100.0) and mid-register
-    # phrases (< G5 = 79) do not trigger Vibraphone or Synth Bell.
-    near_flat_bars = [Bar(100.0 + (i % 2) * 0.01, 1.0, 100.0) for i in range(240)]
-    near_flat_jazz = render(near_flat_bars, variant="jazz")
-    near_flat_mini = render(near_flat_bars, variant="minimalist")
-    assert all(n.midi is None for n in near_flat_jazz.high)
-    assert all(n.midi is None for n in near_flat_mini.high)
+    # Regression 2: Smooth relative-span Vibraphone / Synth Bell density scaling:
+    # - <= 0.5% relative span (including 1–2 ticks on HOSE around price 25.0 -> 0.2%–0.4%
+    #   or 0.47% noise): budget is 0 eighths (completely silent), independent of price unit
+    #   (thousand VND vs VND).
+    # - Between 0.5% and 2.0% relative span: budget scales smoothly from 0 up to 36 eighths.
+    assert _vibraphone_budget(0.002) == 0
+    assert _vibraphone_budget(0.004) == 0
+    assert _vibraphone_budget(0.0047) == 0
+    assert _vibraphone_budget(0.005) == 0
+    assert 0 < _vibraphone_budget(0.010) < _vibraphone_budget(0.015) < 36
+    assert _vibraphone_budget(0.020) == 36
+
+    for span_pct in (0.002, 0.004, 0.0047):
+        hose_bars = [Bar(25.0 * (1.0 + (i % 3) * (span_pct / 2)), 1.0, 25.0) for i in range(240)]
+        assert all(n.midi is None for n in render(hose_bars, variant="jazz").high)
+        assert all(n.midi is None for n in render(hose_bars, variant="minimalist").high)
+
+    # Price-unit invariance: 25.0 (thousand VND) vs 25_000.0 (VND) produce identical Vibraphone output.
+    bars_kvnd = [Bar(25.0 * (1.0 + (i % 5) * 0.003), 1.0, 25.0) for i in range(240)]
+    bars_vnd = [Bar(25_000.0 * (1.0 + (i % 5) * 0.003), 1.0, 25_000.0) for i in range(240)]
+    assert render(bars_kvnd, variant="jazz").high == render(bars_vnd, variant="jazz").high
 
     mid_phrases = (Phrase(0, 16, (Run(0, 8, 60), Run(8, 8, 77)), False),)
     vib_mid, spans_mid = _vibraphone_accent_part(

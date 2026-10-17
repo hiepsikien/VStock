@@ -55,7 +55,7 @@ from app.sonify.phrasing import (
     written,
 )
 from app.sonify.quantize import c_major_scale, price_to_scale_index, resample
-from app.sonify.regime import BAND, REGIME_BARS, classify_window
+from app.sonify.regime import REGIME_BARS, classify_window
 
 FLUTE_CEILING = 88  # E6: keep Flute inside its sweet register (<= E6)
 FLUTE_TRIGGER = 79  # G5: Flute enters on high apex (>= G5) or Breakout
@@ -567,8 +567,7 @@ def render(
         for (start, length), band in zip(LIQUIDITY_WINDOWS, bands)
         for bar in range(start, start + length)
     }
-    price_span = session_high - session_low
-    flat_session = price_span <= 0.05 or price_span / max(abs(session_low), 1.0) <= 2 * BAND
+    rel_span = (session_high - session_low) / max(abs(session_low), 1e-9)
     if variant == "jazz":
         return render_jazz_score(
             title=title,
@@ -580,7 +579,7 @@ def render(
             dynamics=dynamics,
             bands=bands,
             band_at=band_at,
-            flat_session=flat_session,
+            rel_span=rel_span,
         )
     if variant == "minimalist":
         return render_minimalist_score(
@@ -596,7 +595,7 @@ def render(
             bands=bands,
             chord_at=chord_at,
             band_at=band_at,
-            flat_session=flat_session,
+            rel_span=rel_span,
         )
 
     flute_notes, yield_spans = _flute_and_violin_dovetail(

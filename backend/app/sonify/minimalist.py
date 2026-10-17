@@ -47,6 +47,8 @@ ARP_VEL_LOW = 48
 ARP_VEL_HIGH = 90
 BELL_VELOCITY = 64
 BELL_MAX_EIGHTHS = 36
+BELL_FLAT_SPAN = 0.005
+BELL_FULL_SPAN = 0.020
 PAD_VELOCITY = 52
 PULSE_VEL_BY_BAND = {
     "p": 49,
@@ -54,6 +56,16 @@ PULSE_VEL_BY_BAND = {
     "mf": 76,
     "f": 88,
 }
+
+
+def _bell_budget(rel_span: float, max_eighths: int = BELL_MAX_EIGHTHS) -> int:
+    """Scale maximum high-bell eighths linearly with relative session volatility."""
+    if rel_span <= BELL_FLAT_SPAN:
+        return 0
+    if rel_span >= BELL_FULL_SPAN:
+        return max_eighths
+    ratio = (rel_span - BELL_FLAT_SPAN) / (BELL_FULL_SPAN - BELL_FLAT_SPAN)
+    return int(round(ratio * max_eighths))
 
 
 def _normalized_brightness(midi: int) -> float:
@@ -148,10 +160,11 @@ def _synth_bell_part(
     band_at: dict[int, str],
     chord_at: dict[int, Chord],
     *,
-    flat_session: bool = False,
+    rel_span: float = 1.0,
 ) -> tuple[NoteEvent, ...]:
     """High Synth Bell (P5): sparse accent layer (<= 15%, <= 36 eighths) on Breakouts and high peaks."""
-    if flat_session:
+    max_eighths = _bell_budget(rel_span, BELL_MAX_EIGHTHS)
+    if max_eighths < 2:
         return with_rests([], TOTAL_EIGHTHS)
     bell_events: list[NoteEvent] = []
     occupied_bars: set[int] = set()
@@ -176,8 +189,8 @@ def _synth_bell_part(
             span_len = end - run.start
             if span_len <= 0:
                 continue
-            if total_eighths + span_len > BELL_MAX_EIGHTHS:
-                remain = BELL_MAX_EIGHTHS - total_eighths
+            if total_eighths + span_len > max_eighths:
+                remain = max_eighths - total_eighths
                 if remain < 2:
                     continue
                 span_len = remain
@@ -199,7 +212,7 @@ def _synth_bell_part(
                     tenuto=True,
                 )
             )
-            if total_eighths >= BELL_MAX_EIGHTHS:
+            if total_eighths >= max_eighths:
                 break
 
     return with_rests(bell_events, TOTAL_EIGHTHS)
@@ -402,10 +415,10 @@ def render_minimalist_score(
     bands: list[str],
     chord_at: dict[int, Chord],
     band_at: dict[int, str],
-    flat_session: bool = False,
+    rel_span: float = 1.0,
 ) -> Score:
     """Assemble the 30-bar Minimalist Techno score."""
-    bell = _synth_bell_part(phrases, pitches, band_at, chord_at, flat_session=flat_session)
+    bell = _synth_bell_part(phrases, pitches, band_at, chord_at, rel_span=rel_span)
     arp_notes, arp_wedges, arp_dynamics = _synth_arpeggio_part(raw_pitches, phrases, chord_at)
     pad = _warm_pad_part(slots)
     pulse = _synth_pulse_part(chord_at, band_at)
