@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BTC streaming</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #12140f;
+      --ink: #f4f1e8;
+      --muted: #b7b1a4;
+      --line: #2a2e26;
+      --accent: #e6ff4d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink);
+      font: 16px/1.45 "Iowan Old Style", Palatino, Georgia, serif;
+    }
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 48px 24px 64px;
+    }
+    h1 {
+      font-size: 32px;
+      font-weight: 500;
+      margin: 0 0 8px;
+    }
+    p { color: var(--muted); margin: 0 0 28px; }
+    button {
+      appearance: none;
+      border: 0;
+      background: var(--accent);
+      color: #16180f;
+      font: 600 16px/1 "Helvetica Neue", Helvetica, Arial, sans-serif;
+      padding: 14px 22px;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.45; cursor: default; }
+    .readout {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin: 28px 0 16px;
+    }
+    .readout div {
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+    }
+    .readout span {
+      display: block;
+      color: var(--muted);
+      font: 12px/1.2 "Helvetica Neue", Helvetica, Arial, sans-serif;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .readout strong {
+      display: block;
+      margin-top: 4px;
+      font-size: 22px;
+      font-weight: 500;
+    }
+    canvas {
+      width: 100%;
+      height: 160px;
+      background: #0d0f0c;
+      border-radius: 12px;
+      display: block;
+    }
+    #status {
+      margin-top: 14px;
+      color: var(--muted);
+      font: 14px/1.4 "Helvetica Neue", Helvetica, Arial, sans-serif;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>BTC, bốn nốt mỗi giây</h1>
+    <p>Đoạn lịch sử BTCUSDT khoảng 90 giây, phát lại như một dòng đang chạy. Mỗi ô 250 ms thành một nốt. Nốt đã kêu không đổi khi dữ liệu phía sau nối vào.</p>
+    <button id="play" type="button">Nghe</button>
+    <div class="readout">
+      <div><span>Giá</span><strong id="price">—</strong></div>
+      <div><span>Hợp âm</span><strong id="chord">—</strong></div>
+      <div><span>Regime</span><strong id="regime">—</strong></div>
+    </div>
+    <canvas id="roll" width="720" height="160"></canvas>
+    <div id="status">Chưa phát.</div>
+  </main>
+  <script>
+    const playButton = document.querySelector("#play");
+    const priceEl = document.querySelector("#price");
+    const chordEl = document.querySelector("#chord");
+    const regimeEl = document.querySelector("#regime");
+    const statusEl = document.querySelector("#status");
+    const canvas = document.querySelector("#roll");
+    const ctx2d = canvas.getContext("2d");
+    const recent = [];
+
+    function draw() {
+      const width = canvas.width;
+      const height = canvas.height;
+      ctx2d.clearRect(0, 0, width, height);
+      ctx2d.strokeStyle = "#2a2e26";
+      ctx2d.beginPath();
+      ctx2d.moveTo(0, height / 2);
+      ctx2d.lineTo(width, height / 2);
+      ctx2d.stroke();
+      if (!recent.length) return;
+      const low = Math.min(...recent) - 2;
+      const high = Math.max(...recent) + 2;
+      const span = Math.max(1, high - low);
+      const step = width / 64;
+      ctx2d.strokeStyle = "#e6ff4d";
+      ctx2d.lineWidth = 2;
+      ctx2d.beginPath();
+      recent.forEach((midi, index) => {
+        const x = width - (recent.length - index) * step;
+        const y = height - ((midi - low) / span) * (height - 16) - 8;
+        if (index === 0) ctx2d.moveTo(x, y);
+        else ctx2d.lineTo(x, y);
+      });
+      ctx2d.stroke();
+    }
+
+    function tone(audio, master, midi, when, dur, velocity, type) {
+      const osc = audio.createOscillator();
+      const gain = audio.createGain();
+      osc.type = type;
+      osc.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
+      const peak = Math.max(0.0008, (velocity / 127) * (type === "sine" ? 0.45 : 0.22));
+      gain.gain.setValueAtTime(0.0001, when);
+      gain.gain.exponentialRampToValueAtTime(peak, when + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, when + Math.max(0.05, dur));
+      osc.connect(gain);
+      gain.connect(master);
+      osc.start(when);
+      osc.stop(when + dur + 0.03);
+    }
+
+    playButton.addEventListener("click", async () => {
+      playButton.disabled = true;
+      recent.length = 0;
+      draw();
+      const audio = new AudioContext();
+      const master = audio.createGain();
+      master.gain.value = 0.9;
+      master.connect(audio.destination);
+      await audio.resume();
+      const protocol = location.protocol === "https:" ? "wss" : "ws";
+      const socket = new WebSocket(`${protocol}://${location.host}/v1/sonify/ws`);
+      let origin = null;
+      let step = 0.25;
+      let finished = false;
+      statusEl.textContent = "Đang nối…";
+      socket.addEventListener("message", (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.type === "hello") {
+          step = msg.bucket_ms / 1000;
+          statusEl.textContent = "Đang nghe.";
+          return;
+        }
+        if (msg.type === "end") {
+          finished = true;
+          statusEl.textContent = `Hết đoạn, ${msg.notes} nốt.`;
+          playButton.disabled = false;
+          socket.close();
+          return;
+        }
+        if (msg.type !== "note") return;
+        const now = audio.currentTime;
+        if (origin === null) origin = now + 0.3 - msg.seq * step;
+        let when = origin + msg.seq * step;
+        if (when < now + 0.02) {
+          origin += now + 0.05 - when;
+          when = now + 0.05;
+        }
+        tone(audio, master, msg.midi, when, (msg.dur_ms / 1000) * 0.92, msg.velocity, "triangle");
+        if (msg.bass_midi != null) {
+          tone(audio, master, msg.bass_midi, when, msg.bass_dur_ms / 1000, 70, "sine");
+        }
+        priceEl.textContent = Number(msg.price).toLocaleString("en-US", { maximumFractionDigits: 2 });
+        chordEl.textContent = msg.chord;
+        regimeEl.textContent = msg.regime;
+        recent.push(msg.midi);
+        if (recent.length > 64) recent.shift();
+        draw();
+      });
+      socket.addEventListener("close", () => {
+        if (!finished && playButton.disabled) {
+          statusEl.textContent = "Mất kết nối.";
+          playButton.disabled = false;
+        }
+      });
+    });
+  </script>
+</body>
+</html>
