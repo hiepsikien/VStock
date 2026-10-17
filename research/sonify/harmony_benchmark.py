@@ -66,6 +66,8 @@ def main() -> None:
         xml_path = OUT_DIR / f"{symbol}_{day}_harmony.musicxml"
         xml_path.write_text(score_to_musicxml(score))
         for variant in VARIANTS:
+            if variant == "symphony":
+                continue
             variant_title = f"{symbol} {day} 1-Day Recap ({variant.capitalize()})"
             variant_score = render(bars, title=variant_title, variant=variant)
             variant_path = OUT_DIR / f"{symbol}_{day}_{variant}.musicxml"

@@ -1553,13 +1553,13 @@ def test_jazz_variant_swing_instruments_chords_and_vibraphone_layering() -> None
     assert "major-ninth" in jazz_kinds or "minor-ninth" in jazz_kinds
 
     # Threshold Layering:
-    # 1) Vibraphone (P5) only plays in high register >= C6 (84..91), velocity 50..70,
-    #    capped at <= 15% of the 240-eighth piece (<= 36 eighths), and plays a 3-note
-    #    chord cluster on the breakout at bar 6 (eighth 50). On a flat session with no
+    # 1) Vibraphone (P5) only plays in high register C6–F6 (84..89, standard 3-octave ceiling),
+    #    velocity 50..70, capped at <= 15% of the 240-eighth piece (<= 36 eighths), and plays a
+    #    3-note chord cluster on the breakout at bar 6 (eighth 50). On a flat session with no
     #    price rise or high notes, Vibraphone stays completely silent.
     vib_sounding = [n for n in score.flute if n.midi is not None]
     assert vib_sounding
-    assert all(84 <= n.midi <= 91 for n in vib_sounding)
+    assert all(84 <= n.midi <= 89 for n in vib_sounding)
     assert all(50 <= (n.velocity or 0) <= 70 for n in vib_sounding)
     vib_attacks = [
         n
@@ -1578,10 +1578,21 @@ def test_jazz_variant_swing_instruments_chords_and_vibraphone_layering() -> None
     vib_chord_notes = [n for n in vib_m7.findall("note") if n.find("chord") is not None]
     assert len(vib_chord_notes) >= 2
 
-    # 2) Alto Saxophone (P1) stays inside its warm register (<= A5 = 81)
-    assert all(n.midi <= 81 for n in score.violin if n.midi is not None)
+    # 2) Alto Saxophone (P1) stays inside its realistic warm register (<= Ab5 = 80)
+    assert all(n.midi <= 80 for n in score.violin if n.midi is not None)
 
-    # 3) Rhodes Piano (P3) uses Charleston syncopation (beat 0.0 for 1.5 beats + beat 1.5 for 0.5)
+    # 3) Rhodes Piano (P3) voices all 9th chords (including Cmaj9 and Dm9) with their 9th degree
+    #    inserted inside/above the guide tones, and uses Charleston syncopation on active bars.
+    from app.sonify.chords import AM9, CMAJ9, DM9, FMAJ9, G9
+    from app.sonify.jazz import _rhodes_voicing
+
+    assert _rhodes_voicing(CMAJ9) == (48, (59, 62, 64))
+    assert _rhodes_voicing(DM9) == (50, (60, 64, 65))
+    for ninth_chord in (CMAJ9, DM9, FMAJ9, G9, AM9):
+        _r, r_voicing = _rhodes_voicing(ninth_chord)
+        assert len(r_voicing) == 3
+        assert (ninth_chord.pitches[4] % 12) in {m % 12 for m in r_voicing}
+
     charleston_bars = [
         bar
         for bar in range(2, 26)
@@ -1760,8 +1771,18 @@ def test_all_three_variants_hold_invariants_across_random_walks() -> None:
                 ]
                 vib_eighths = sum(int(round(n.duration_beats * 2)) for n in vib_attacks)
                 assert 0 < vib_eighths <= 36
-                assert all(84 <= n.midi <= 91 for n in score.flute if n.midi is not None)
+                assert all(84 <= n.midi <= 89 for n in score.flute if n.midi is not None)
                 assert all(50 <= (n.velocity or 0) <= 70 for n in score.flute if n.midi is not None)
+                assert all(n.midi <= 80 for n in score.violin if n.midi is not None)
+
+                # Alto Sax melody must never invert pitch direction against price changes
+                sax_notes = [n for n in score.violin if n.midi is not None]
+                for a, b in zip(sax_notes, sax_notes[1:]):
+                    if a.midi == b.midi:
+                        continue
+                    ea = int(round(a.bar * 8 + a.beat * 2))
+                    eb = int(round(b.bar * 8 + b.beat * 2))
+                    assert (b.midi - a.midi) * (closes[eb] - closes[ea]) >= 0
 
 
 

@@ -1286,6 +1286,7 @@ def render(
             chosen=chosen,
             sample_indexes=sample_indexes,
             slots=slots,
+            raw_pitches=raw_pitches,
             pitches=pitches,
             phrases=phrases,
             dynamics=dynamics,

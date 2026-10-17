@@ -45,6 +45,7 @@ OPEN_CUTOFF = 0.70     # High price -> bright register (C5-C6), tenuto, bright
 ARP_VEL_LOW = 48
 ARP_VEL_HIGH = 90
 BELL_VELOCITY = 64
+BELL_MAX_EIGHTHS = 36
 PAD_VELOCITY = 52
 PULSE_VEL_BY_BAND = {
     "p": 49,
@@ -146,10 +147,11 @@ def _synth_bell_part(
     band_at: dict[int, str],
     chord_at: dict[int, Chord],
 ) -> tuple[NoteEvent, ...]:
-    """High Synth Bell (P5): sparse accent layer (~10-15%) on Breakouts and high peaks."""
+    """High Synth Bell (P5): sparse accent layer (<= 15%, <= 36 eighths) on Breakouts and high peaks."""
     bell_events: list[NoteEvent] = []
     occupied_bars: set[int] = set()
-    scale = c_major_scale(84, 96)  # C6 to C7 high bell register
+    total_eighths = 0
+    scale = c_major_scale(84, 91)  # C6 to G6 high bell register
 
     for phrase in phrases:
         colours = techniques(phrase, pitches, band_at)
@@ -164,22 +166,36 @@ def _synth_bell_part(
             bar = run.start // EIGHTHS_PER_BAR
             if bar in occupied_bars:
                 continue
-            occupied_bars.add(bar)
-            chord = chord_at[bar]
-            high_tones = [m for m in scale if m % 12 in chord.pitch_classes and m <= 91]
-            bell_midi = high_tones[0] if high_tones else 84
             length = min(max(2, run.length), PERIOD)
             end = min((bar + 1) * EIGHTHS_PER_BAR, run.start + length)
-            if end > run.start:
-                bell_events.extend(
-                    _written(
-                        run.start,
-                        end - run.start,
-                        bell_midi,
-                        velocity=BELL_VELOCITY,
-                        tenuto=True,
-                    )
+            span_len = end - run.start
+            if span_len <= 0:
+                continue
+            if total_eighths + span_len > BELL_MAX_EIGHTHS:
+                remain = BELL_MAX_EIGHTHS - total_eighths
+                if remain < 2:
+                    continue
+                span_len = remain
+                end = run.start + span_len
+            occupied_bars.add(bar)
+            total_eighths += span_len
+            chord = chord_at[bar]
+            high_tones = [m for m in scale if m % 12 in chord.pitch_classes]
+            pool = high_tones if high_tones else list(scale)
+            norm = min(1.0, max(0.0, (run.midi - 79) / (96 - 79)))
+            target = 84 + norm * (91 - 84)
+            bell_midi = min(pool, key=lambda m: (abs(m - target), m))
+            bell_events.extend(
+                _written(
+                    run.start,
+                    span_len,
+                    bell_midi,
+                    velocity=BELL_VELOCITY,
+                    tenuto=True,
                 )
+            )
+            if total_eighths >= BELL_MAX_EIGHTHS:
+                break
 
     return _with_rests(bell_events, TOTAL_EIGHTHS)
 
