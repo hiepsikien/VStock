@@ -107,13 +107,12 @@ class HarmonyEvent:
 
 @dataclass(frozen=True)
 class Score:
-    """A rendered 30-bar score across five parts (P5 high, P1 lead, P2 support, P3 comp, P4 low).
+    """A rendered 30-bar score across five role-neutral parts (P5 high, P1 lead, P2 support, P3 comp, P4 low).
 
-    Part fields retain their classic chamber names (`flute`, `violin`, `cello`, `piano`, `bass`)
-    for backwards compatibility, and also expose role-neutral aliases (`high`, `lead`, `support`,
-    `comp`, `low`) as well as variant-specific properties (`vibraphone`, `alto_sax`, `tenor_sax`,
-    `rhodes`, `upright_bass`, `synth_bell`, `synth_arpeggio`, `synth_pad`, `synth_pulse`,
-    `sub_bass`).
+    Primary fields use role-neutral names (`high`, `lead`, `support`, `comp`, `low`,
+    `lead_wedges`, `support_wedges`, `lead_dynamics`, `support_dynamics`), while classic
+    chamber names (`flute`, `violin`, `cello`, `piano`, `bass`, `violin_wedges`,
+    `cello_wedges`, `violin_dynamics`, `cello_dynamics`) are preserved as read-only properties.
     """
 
     title: str
@@ -122,98 +121,56 @@ class Score:
     regimes: tuple[Regime, Regime, Regime]
     regime_samples: tuple[int, int, int] | None  # None when regimes were passed in
     slots: tuple[ChordSlot, ...]
-    flute: tuple[NoteEvent, ...]
-    violin: tuple[NoteEvent, ...]
-    cello: tuple[NoteEvent, ...]
-    piano: tuple[NoteEvent, ...]
-    bass: tuple[NoteEvent, ...]
+    high: tuple[NoteEvent, ...]
+    lead: tuple[NoteEvent, ...]
+    support: tuple[NoteEvent, ...]
+    comp: tuple[NoteEvent, ...]
+    low: tuple[NoteEvent, ...]
     dynamics: tuple[DynamicEvent, ...]
     harmonies: tuple[HarmonyEvent, ...]
     liquidity: tuple[str, ...]  # p–f band per chord slot; sets how busy the bass is
     phrases: tuple[Phrase, ...]
-    violin_wedges: tuple[WedgeEvent, ...]
-    cello_wedges: tuple[WedgeEvent, ...]
-    violin_dynamics: tuple[DynamicEvent, ...]
-    cello_dynamics: tuple[DynamicEvent, ...]
+    lead_wedges: tuple[WedgeEvent, ...]
+    support_wedges: tuple[WedgeEvent, ...]
+    lead_dynamics: tuple[DynamicEvent, ...]
+    support_dynamics: tuple[DynamicEvent, ...]
     variant: Variant = "symphony"
     divisions: int = 2
     swing: bool = False
 
-    # Role-neutral part aliases (P5 high, P1 lead, P2 support, P3 comp, P4 low)
+    # Backwards-compatible chamber part aliases
     @property
-    def high(self) -> tuple[NoteEvent, ...]:
-        return self.flute
+    def flute(self) -> tuple[NoteEvent, ...]:
+        return self.high
 
     @property
-    def lead(self) -> tuple[NoteEvent, ...]:
-        return self.violin
+    def violin(self) -> tuple[NoteEvent, ...]:
+        return self.lead
 
     @property
-    def support(self) -> tuple[NoteEvent, ...]:
-        return self.cello
+    def cello(self) -> tuple[NoteEvent, ...]:
+        return self.support
 
     @property
-    def comp(self) -> tuple[NoteEvent, ...]:
-        return self.piano
+    def piano(self) -> tuple[NoteEvent, ...]:
+        return self.comp
 
     @property
-    def low(self) -> tuple[NoteEvent, ...]:
-        return self.bass
+    def bass(self) -> tuple[NoteEvent, ...]:
+        return self.low
 
     @property
-    def lead_wedges(self) -> tuple[WedgeEvent, ...]:
-        return self.violin_wedges
+    def violin_wedges(self) -> tuple[WedgeEvent, ...]:
+        return self.lead_wedges
 
     @property
-    def support_wedges(self) -> tuple[WedgeEvent, ...]:
-        return self.cello_wedges
+    def cello_wedges(self) -> tuple[WedgeEvent, ...]:
+        return self.support_wedges
 
     @property
-    def lead_dynamics(self) -> tuple[DynamicEvent, ...]:
-        return self.violin_dynamics
+    def violin_dynamics(self) -> tuple[DynamicEvent, ...]:
+        return self.lead_dynamics
 
     @property
-    def support_dynamics(self) -> tuple[DynamicEvent, ...]:
-        return self.cello_dynamics
-
-    # Jazz variant part aliases
-    @property
-    def vibraphone(self) -> tuple[NoteEvent, ...]:
-        return self.flute
-
-    @property
-    def alto_sax(self) -> tuple[NoteEvent, ...]:
-        return self.violin
-
-    @property
-    def tenor_sax(self) -> tuple[NoteEvent, ...]:
-        return self.cello
-
-    @property
-    def rhodes(self) -> tuple[NoteEvent, ...]:
-        return self.piano
-
-    @property
-    def upright_bass(self) -> tuple[NoteEvent, ...]:
-        return self.bass
-
-    # Minimalist variant part aliases
-    @property
-    def synth_bell(self) -> tuple[NoteEvent, ...]:
-        return self.flute
-
-    @property
-    def synth_arpeggio(self) -> tuple[NoteEvent, ...]:
-        return self.violin
-
-    @property
-    def synth_pad(self) -> tuple[NoteEvent, ...]:
-        return self.cello
-
-    @property
-    def synth_pulse(self) -> tuple[NoteEvent, ...]:
-        return self.piano
-
-    @property
-    def sub_bass(self) -> tuple[NoteEvent, ...]:
-        return self.bass
+    def cello_dynamics(self) -> tuple[DynamicEvent, ...]:
+        return self.support_dynamics

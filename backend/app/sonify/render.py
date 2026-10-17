@@ -26,7 +26,6 @@ from app.sonify.form import (
 from app.sonify.jazz import render_jazz_score
 from app.sonify.minimalist import render_minimalist_score
 from app.sonify.model import (
-    PERIOD,
     VARIANTS,
     Bar,
     DynamicEvent,
@@ -36,60 +35,27 @@ from app.sonify.model import (
     Run,
     Score,
     Variant,
-    WedgeEvent,
 )
 from app.sonify.phrasing import (
-    ACCENT_LIFT,
     BREAKOUT,
-    BREAKOUT_LOOKBACK,
     CELLO_HANDBACK,
-    CELLO_OVERLAP,
-    COMMA,
-    FILL_ABOVE_CELLO,
-    FILL_DELAY,
-    FILL_GAP,
-    FILL_HIGH,
-    FILL_LOW,
-    FILL_MIN,
-    FILL_SPAN,
     FILL_VELOCITY,
-    FULL_RISE,
-    GUIDE_LOW,
-    MELODY_FLOOR,
-    MELODY_MARKING,
-    MELODY_PEAK,
     MIN_RISE,
-    PIANO_ROOT_LOW,
-    STRONG_EIGHTHS,
     VIOLIN_CEILING,
     VIOLIN_LOWEST,
-    WEDGE_MIN,
-    _apply_violin_yield,
-    _clip_segment,
-    _cross_phrase_cello_overlaps,
-    _fills,
-    _hairpins,
-    _instrument_segments,
-    _left_hand,
-    _lift,
-    _Line,
-    _melody_parts,
-    _quantize_strong_beats,
-    _spell,
-    _velocity,
-    _wedge_at,
-    _with_rests,
-    _written,
-    accent_of,
     comp_pitches,
-    fill_tones,
+    fills,
+    left_hand,
+    melody_parts,
     plan_phrases,
+    quantize_strong_beats,
     runs_of,
-    swell,
     techniques,
+    with_rests,
+    written,
 )
-from app.sonify.quantize import c_major_scale, price_to_scale_index, quantize_chord_tone, resample
-from app.sonify.regime import REGIME_BARS, classify_window
+from app.sonify.quantize import c_major_scale, price_to_scale_index, resample
+from app.sonify.regime import BAND, REGIME_BARS, classify_window
 
 FLUTE_CEILING = 88  # E6: keep Flute inside its sweet register (<= E6)
 FLUTE_TRIGGER = 79  # G5: Flute enters on high apex (>= G5) or Breakout
@@ -443,7 +409,7 @@ def _flute_and_violin_dovetail(
                 is_first = r_i == 0
                 is_last = r_i == len(merged_flute_runs) - 1
                 flute_notes.extend(
-                    _written(
+                    written(
                         f_run.start,
                         f_run.length,
                         f_run.midi,
@@ -483,11 +449,11 @@ def _bass_bar(chord: Chord, marking: str, bar: int) -> list[NoteEvent]:
 
 
 def _right_hand(
-    slots: tuple[ChordSlot, ...], fills: list[tuple[int, int, int]]
+    slots: tuple[ChordSlot, ...], cadence_fills: list[tuple[int, int, int]]
 ) -> tuple[NoteEvent, ...]:
     """Third and seventh on beat 1 for half a bar, cut short when a fill comes in."""
     first_fill: dict[int, int] = {}
-    for start, _length, _midi in fills:
+    for start, _length, _midi in cadence_fills:
         bar = start // EIGHTHS_PER_BAR
         first_fill[bar] = min(first_fill.get(bar, start), start)
     events: list[NoteEvent] = []
@@ -500,9 +466,9 @@ def _right_hand(
                 NoteEvent(bar=bar, beat=0.0, midi=midi, duration_beats=length * 0.5, voice=1)
                 for midi in guide
             )
-    for start, length, midi in fills:
-        events.extend(_written(start, length, midi, velocity=FILL_VELOCITY))
-    return _with_rests(events, TOTAL_EIGHTHS)
+    for start, length, midi in cadence_fills:
+        events.extend(written(start, length, midi, velocity=FILL_VELOCITY))
+    return with_rests(events, TOTAL_EIGHTHS)
 
 
 def render(
@@ -579,7 +545,7 @@ def render(
     )
 
     chord_at = {bar: slot.chord for slot in slots for bar in slot.bars()}
-    pitches = _quantize_strong_beats(raw_pitches, chord_at, scale)
+    pitches = quantize_strong_beats(raw_pitches, chord_at, scale)
     raw_phrases = plan_phrases(
         raw_pitches, tuple(start * EIGHTHS_PER_BAR for start in SECTION_STARTS)
     )
@@ -601,6 +567,8 @@ def render(
         for (start, length), band in zip(LIQUIDITY_WINDOWS, bands)
         for bar in range(start, start + length)
     }
+    price_span = session_high - session_low
+    flat_session = price_span <= 0.05 or price_span / max(abs(session_low), 1.0) <= 2 * BAND
     if variant == "jazz":
         return render_jazz_score(
             title=title,
@@ -612,6 +580,7 @@ def render(
             dynamics=dynamics,
             bands=bands,
             band_at=band_at,
+            flat_session=flat_session,
         )
     if variant == "minimalist":
         return render_minimalist_score(
@@ -627,16 +596,17 @@ def render(
             bands=bands,
             chord_at=chord_at,
             band_at=band_at,
+            flat_session=flat_session,
         )
 
     flute_notes, yield_spans = _flute_and_violin_dovetail(
         phrases, pitches, band_at, chord_at, scale
     )
-    violin, cello, cadences = _melody_parts(pitches, phrases, band_at, yield_spans)
-    piano: list[NoteEvent] = list(_right_hand(slots, _fills(cadences, chord_at)))
+    violin, cello, cadences = melody_parts(pitches, phrases, band_at, yield_spans)
+    piano: list[NoteEvent] = list(_right_hand(slots, fills(cadences, chord_at)))
     bass: list[NoteEvent] = []
     for slot in slots:
-        piano.extend(_left_hand(slot))
+        piano.extend(left_hand(slot))
     for bar in range(MUSICAL_BARS):
         bass.extend(_bass_bar(chord_at[bar], band_at[bar], bar))
 
@@ -647,19 +617,19 @@ def render(
         regimes=chosen,
         regime_samples=sample_indexes,
         slots=slots,
-        flute=_with_rests(flute_notes, TOTAL_EIGHTHS),
-        violin=_with_rests(violin.notes, TOTAL_EIGHTHS),
-        cello=_with_rests(cello.notes, TOTAL_EIGHTHS),
-        piano=tuple(piano),
-        bass=tuple(bass),
+        high=with_rests(flute_notes, TOTAL_EIGHTHS),
+        lead=with_rests(violin.notes, TOTAL_EIGHTHS),
+        support=with_rests(cello.notes, TOTAL_EIGHTHS),
+        comp=tuple(piano),
+        low=tuple(bass),
         dynamics=dynamics,
         harmonies=harmonies,
         liquidity=tuple(bands),
         phrases=phrases,
-        violin_wedges=tuple(violin.wedges),
-        cello_wedges=tuple(cello.wedges),
-        violin_dynamics=tuple(violin.dynamics),
-        cello_dynamics=tuple(cello.dynamics),
+        lead_wedges=tuple(violin.wedges),
+        support_wedges=tuple(cello.wedges),
+        lead_dynamics=tuple(violin.dynamics),
+        support_dynamics=tuple(cello.dynamics),
         variant="symphony",
         divisions=2,
         swing=False,

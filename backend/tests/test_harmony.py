@@ -13,7 +13,16 @@ from app.sonify.dynamics import DYNAMICS, MARKINGS, SOUND, marking_for_volume
 from app.sonify.form import SECTION_STARTS, _prev_last_touched_strong, plan_markov_chords, plan_slots
 from app.sonify.model import Bar, WedgeEvent
 from app.sonify.musicxml import BASS_WRITTEN_OCTAVES, score_to_musicxml
-from app.sonify.phrasing import MAX_EIGHTHS, MIN_EIGHTHS, PERIOD, plan_phrases
+from app.sonify.phrasing import (
+    MAX_EIGHTHS,
+    MIN_EIGHTHS,
+    PERIOD,
+    STRONG_EIGHTHS,
+    _quantize_strong_beats,
+    comp_pitches,
+    fill_tones,
+    plan_phrases,
+)
 from app.sonify.quantize import (
     C_MAJOR_PCS,
     CONTOUR_REPEAT_PENALTY,
@@ -44,11 +53,7 @@ from app.sonify.chords import (
     transition_probability,
 )
 from app.sonify.render import (
-    STRONG_EIGHTHS,
-    _quantize_strong_beats,
     assign_source_bars,
-    comp_pitches,
-    fill_tones,
     flute_harmony_pitch,
     render,
 )
@@ -1914,8 +1919,17 @@ def test_all_three_variants_hold_invariants_across_random_walks() -> None:
 
 
 def test_score_role_and_variant_property_aliases() -> None:
-    from app.sonify.model import NoteEvent
+    from dataclasses import fields
+
+    from app.sonify.chords import CMAJ9, DM9, EM7, FMAJ9, G9, AM9
+    from app.sonify.jazz import _high_bell_voicing, _sax_melody_curve, _vibraphone_accent_part
+    from app.sonify.model import NoteEvent, Phrase, Run, Score
     from app.sonify.phrasing import _with_rests
+
+    # Primary dataclass fields on Score use role-neutral names (high, lead, support, comp, low)
+    field_names = {f.name for f in fields(Score)}
+    assert {"high", "lead", "support", "comp", "low"} <= field_names
+    assert {"lead_wedges", "support_wedges", "lead_dynamics", "support_dynamics"} <= field_names
 
     bars = [Bar(float(i % 7), 100.0 + i * 5.0, 100.0 + i) for i in range(16)]
     sym = render(bars, variant="symphony")
@@ -1933,18 +1947,6 @@ def test_score_role_and_variant_property_aliases() -> None:
         assert s.lead_dynamics is s.violin_dynamics
         assert s.support_dynamics is s.cello_dynamics
 
-    assert jazz.vibraphone is jazz.flute
-    assert jazz.alto_sax is jazz.violin
-    assert jazz.tenor_sax is jazz.cello
-    assert jazz.rhodes is jazz.piano
-    assert jazz.upright_bass is jazz.bass
-
-    assert mini.synth_bell is mini.flute
-    assert mini.synth_arpeggio is mini.violin
-    assert mini.synth_pad is mini.cello
-    assert mini.synth_pulse is mini.piano
-    assert mini.sub_bass is mini.bass
-
     # Verify _with_rests handles simultaneous chord notes robustly even if
     # chord notes have different durations or reversed input order.
     chord_notes = [
@@ -1952,14 +1954,66 @@ def test_score_role_and_variant_property_aliases() -> None:
         NoteEvent(bar=0, beat=1.0, duration_beats=2.0, midi=60, voice=1),
     ]
     filled = _with_rests(chord_notes, total=8)
-    # Expected: 1 beat rest at beat 0.0, two chord notes at beat 1.0 (longest first),
-    # and rest starting at beat 3.0 (not rewound to beat 2.0).
     assert [(n.beat, n.duration_beats, n.midi) for n in filled] == [
         (0.0, 1.0, None),
         (1.0, 2.0, 60),
         (1.0, 1.0, 64),
         (3.0, 1.0, None),
     ]
+
+    # Regression 1: When a phrase has high notes (> 80, e.g. 96/93) covered by Vibraphone at
+    # shift == 0 (so req_shift == 0), shifting that phrase down by 12 semitones to avoid a
+    # boundary reversal drops Vibraphone yield_spans; _build_phrase_candidates must NOT treat
+    # shift = 12 as exact when top - 12 > 80, ensuring Alto Sax never exceeds Ab5 (80).
+    pitches_reg = [79] * 8 + [72] * 4 + [96] * 2 + [93] * 2 + [60] * 224
+    phrases_reg = (
+        Phrase(0, 8, (Run(0, 8, 79),), False),
+        Phrase(8, 16, (Run(8, 4, 72), Run(12, 2, 96), Run(14, 2, 93)), False),
+        Phrase(16, 240, (Run(16, 224, 60),), False),
+    )
+    # Vibraphone covers eighths 12..16 at shift=0, so req_shift=0 for phrase 1,
+    # while phrase 0 ends at 79 (raw) -> 55 (at shift=24) forcing phrase 1 to shift > 0.
+    chosen_spans_reg = [(12, 4, False, Run(12, 4, 96))]
+    sax_pitches_reg, sax_phrases_reg, yields_reg = _sax_melody_curve(
+        pitches_reg, phrases_reg, chosen_spans_reg
+    )
+    for r in sax_phrases_reg[1].runs:
+        if not any(ys <= r.start and r.end <= ye for ys, ye in yields_reg):
+            assert r.midi <= 80
+
+    scale = c_major_scale()
+    for seed in (48, 204):
+        rng = random.Random(seed)
+        idx = rng.randint(0, len(scale) - 1)
+        wide_closes: list[float] = []
+        for _ in range(240):
+            idx = max(0, min(len(scale) - 1, idx + rng.choice((-3, -2, -1, 0, 1, 2, 3))))
+            wide_closes.append(float(idx))
+        wide_jazz = render([Bar(c, 1.0, c) for c in wide_closes], variant="jazz")
+        assert all(n.midi <= 80 for n in wide_jazz.lead if n.midi is not None)
+
+    # Regression 2: Near-flat session (0.01 fluctuation around 100.0) and mid-register
+    # phrases (< G5 = 79) do not trigger Vibraphone or Synth Bell.
+    near_flat_bars = [Bar(100.0 + (i % 2) * 0.01, 1.0, 100.0) for i in range(240)]
+    near_flat_jazz = render(near_flat_bars, variant="jazz")
+    near_flat_mini = render(near_flat_bars, variant="minimalist")
+    assert all(n.midi is None for n in near_flat_jazz.high)
+    assert all(n.midi is None for n in near_flat_mini.high)
+
+    mid_phrases = (Phrase(0, 16, (Run(0, 8, 60), Run(8, 8, 77)), False),)
+    vib_mid, spans_mid = _vibraphone_accent_part(
+        mid_phrases, [60] * 8 + [77] * 8 + [60] * 224, {b: "mp" for b in range(30)}, {b: CMAJ9 for b in range(30)}
+    )
+    assert spans_mid == []
+    assert all(n.midi is None for n in vib_mid)
+
+    # High bell 3-note cluster avoids E6–F6 (88, 89) semitone clashes across all Jazz chords.
+    scale_high = c_major_scale(84, 89)
+    for ch in (CMAJ9, DM9, EM7, FMAJ9, G9, AM9):
+        voicing = _high_bell_voicing(88, ch, scale_high)
+        assert len(voicing) == 3
+        assert not (88 in voicing and 89 in voicing)
+
 
 
 

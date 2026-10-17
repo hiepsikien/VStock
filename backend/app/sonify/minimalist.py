@@ -28,11 +28,11 @@ from app.sonify.phrasing import (
     MIN_RISE,
     PERIOD,
     Phrase,
-    _hairpins,
-    _lift,
-    _with_rests,
-    _written,
+    hairpins,
+    lift,
     techniques,
+    with_rests,
+    written,
 )
 from app.sonify.quantize import SCALE_HIGH, SCALE_LOW, c_major_scale
 
@@ -122,7 +122,7 @@ def _synth_arpeggio_part(
     # Filter sweep hairpins across phrases that have meaningful price movement
     drift = 0
     for phrase in phrases:
-        if _lift(phrase) <= 0.0:
+        if lift(phrase) <= 0.0:
             continue
         if drift != 0:
             dynamics.append(
@@ -134,7 +134,7 @@ def _synth_arpeggio_part(
                 )
             )
             drift = 0
-        phrase_wedges = _hairpins(phrase.start, phrase.end, phrase.apex.start)
+        phrase_wedges = hairpins(phrase.start, phrase.end, phrase.apex.start)
         wedges.extend(phrase_wedges)
         for wedge in phrase_wedges:
             drift += {"crescendo": 1, "diminuendo": -1}.get(wedge.kind, 0)
@@ -147,8 +147,12 @@ def _synth_bell_part(
     pitches: list[int],
     band_at: dict[int, str],
     chord_at: dict[int, Chord],
+    *,
+    flat_session: bool = False,
 ) -> tuple[NoteEvent, ...]:
     """High Synth Bell (P5): sparse accent layer (<= 15%, <= 36 eighths) on Breakouts and high peaks."""
+    if flat_session:
+        return with_rests([], TOTAL_EIGHTHS)
     bell_events: list[NoteEvent] = []
     occupied_bars: set[int] = set()
     total_eighths = 0
@@ -187,7 +191,7 @@ def _synth_bell_part(
             target = 84 + norm * (91 - 84)
             bell_midi = min(pool, key=lambda m: (abs(m - target), m))
             bell_events.extend(
-                _written(
+                written(
                     run.start,
                     span_len,
                     bell_midi,
@@ -198,7 +202,7 @@ def _synth_bell_part(
             if total_eighths >= BELL_MAX_EIGHTHS:
                 break
 
-    return _with_rests(bell_events, TOTAL_EIGHTHS)
+    return with_rests(bell_events, TOTAL_EIGHTHS)
 
 
 def _warm_pad_part(slots: tuple[ChordSlot, ...]) -> tuple[NoteEvent, ...]:
@@ -398,9 +402,10 @@ def render_minimalist_score(
     bands: list[str],
     chord_at: dict[int, Chord],
     band_at: dict[int, str],
+    flat_session: bool = False,
 ) -> Score:
     """Assemble the 30-bar Minimalist Techno score."""
-    bell = _synth_bell_part(phrases, pitches, band_at, chord_at)
+    bell = _synth_bell_part(phrases, pitches, band_at, chord_at, flat_session=flat_session)
     arp_notes, arp_wedges, arp_dynamics = _synth_arpeggio_part(raw_pitches, phrases, chord_at)
     pad = _warm_pad_part(slots)
     pulse = _synth_pulse_part(chord_at, band_at)
@@ -413,19 +418,19 @@ def render_minimalist_score(
         regimes=chosen,
         regime_samples=sample_indexes,
         slots=slots,
-        flute=bell,
-        violin=arp_notes,
-        cello=pad,
-        piano=pulse,
-        bass=sub_bass,
+        high=bell,
+        lead=arp_notes,
+        support=pad,
+        comp=pulse,
+        low=sub_bass,
         dynamics=dynamics,
         harmonies=harmonies,
         liquidity=tuple(bands),
         phrases=phrases,
-        violin_wedges=arp_wedges,
-        cello_wedges=(),
-        violin_dynamics=arp_dynamics,
-        cello_dynamics=(),
+        lead_wedges=arp_wedges,
+        support_wedges=(),
+        lead_dynamics=arp_dynamics,
+        support_dynamics=(),
         variant="minimalist",
         divisions=MINIMALIST_DIVISIONS,
         swing=False,

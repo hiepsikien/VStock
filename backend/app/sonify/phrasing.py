@@ -911,3 +911,15 @@ def _quantize_strong_beats(
             cursor = stop
         previous_raw = run.midi
     return pitches
+
+
+# Public exports for cross-module variant renderers (`render.py`, `jazz.py`, `minimalist.py`)
+written = _written
+with_rests = _with_rests
+lift = _lift
+hairpins = _hairpins
+melody_parts = _melody_parts
+fills = _fills
+left_hand = _left_hand
+quantize_strong_beats = _quantize_strong_beats
+

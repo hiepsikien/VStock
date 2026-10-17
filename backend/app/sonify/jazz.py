@@ -42,21 +42,22 @@ from app.sonify.phrasing import (
     VIOLIN_LOWEST,
     Phrase,
     Run,
-    _fills,
-    _left_hand,
-    _melody_parts,
-    _quantize_strong_beats,
-    _with_rests,
-    _written,
     comp_pitches,
+    fills,
+    left_hand,
+    melody_parts,
+    quantize_strong_beats,
     runs_of,
     techniques,
+    with_rests,
+    written,
 )
 from app.sonify.quantize import c_major_scale
 
 JAZZ_BPM = 82
 SAX_LOW = 48  # C3: bottom of Tenor Saxophone register
 SAX_CEILING = 80  # Ab5 (G5 = 79 in C major): top of realistic Alto Saxophone range
+VIBRAPHONE_APEX_TRIGGER = 79  # G5: minimum pitch for a phrase apex to trigger Vibraphone
 VIBRAPHONE_LOW = 84  # C6: high-end bell threshold
 VIBRAPHONE_HIGH = 89  # F6: top of the standard 3-octave Vibraphone (F3–F6)
 VIBRAPHONE_VEL_SINGLE = 58  # mp
@@ -131,15 +132,21 @@ def _high_bell_voicing(
     chord: Chord,
     scale_high: tuple[int, ...],
 ) -> tuple[int, ...]:
-    """Build a 3-note high Vibraphone cluster inside C6 (84) to F6 (89) around the peak."""
-    chord_tones = [m for m in scale_high if m % 12 in chord.pitch_classes]
-    extra = [m for m in scale_high if m not in chord_tones]
+    """Build a 3-note high Vibraphone bell chord in C6–F6 (84–89) without semitone clashes.
+
+    Within C6–F6 (`84, 86, 88, 89`), avoids combining E6 (`88`) and F6 (`89`) in the
+    same 3-note voicing so the high bell never contains a harsh minor-second clash,
+    preferring the open 5-semitone quartal/sus frame `(84, 86, 89)` (`C6–D6–F6`) when
+    F (`89`) is a chord tone, or `(84, 86, 88)` (`C6–D6–E6`) on tonic/relative major-9th
+    harmonies where E (`88`) is a chord tone.
+    """
+    pcs = chord.pitch_classes
+    if 89 % 12 in pcs and 88 % 12 not in pcs:
+        return (84, 86, 89)
+    if 88 % 12 in pcs and 89 % 12 not in pcs:
+        return (84, 86, 88)
     lead = _bell_pitch(melody_midi, chord, scale_high)
-    ranked = sorted(
-        chord_tones + extra,
-        key=lambda m: (m not in chord_tones, abs(m - lead), m),
-    )
-    return tuple(sorted(ranked[:3]))
+    return (84, 86, 89) if abs(89 - lead) <= abs(88 - lead) else (84, 86, 88)
 
 
 def _vibraphone_accent_part(
@@ -147,33 +154,44 @@ def _vibraphone_accent_part(
     pitches: list[int],
     band_at: dict[int, str],
     chord_at: dict[int, Chord],
+    *,
+    flat_session: bool = False,
 ) -> tuple[tuple[NoteEvent, ...], list[tuple[int, int, bool, Run]]]:
     """Build the high-end Vibraphone part (P5) strictly on Breakouts and High Apexes.
 
     Controlled rules:
     - Register: strictly in C6–F6 (84..89), matching the standard 3-octave Vibraphone ceiling.
     - Duty cycle: capped at <= 15% of total piece duration (<= 36 eighths), triggered
-      purely by threshold events (Breakout, rising phrase apex, or pitch >= C6) with no
-      artificial minimum padding on flat sessions.
-    - Breakouts trigger a 3-note ringing chord cluster in C6–F6 (velocity 64).
+      purely by threshold events (Breakout, rising phrase apex >= G5 (79), or pitch >= C6)
+      and completely silent on flat or near-flat sessions (`flat_session=True`) or
+      mid-register sessions that never reach G5 (79) or a Breakout.
+    - Breakouts trigger a 3-note ringing chord in C6–F6 (velocity 64).
     - High phrase apexes / peaks trigger melodic bell notes in C6–F6 (velocity 58)
       that follow the price contour rather than repeating a static ceiling pitch.
     """
+    if flat_session:
+        return tuple(written(0, TOTAL_EIGHTHS, None)), []
+
     candidates: list[tuple[int, int, int, bool, Run]] = []
     for phrase in phrases:
         colours = techniques(phrase, pitches, band_at)
         apex = phrase.apex
         for run in phrase.runs:
             is_breakout = colours.get(run.start) == BREAKOUT
-            is_apex = run.start == apex.start and phrase.rise >= MIN_RISE
+            is_apex = (
+                run.start == apex.start
+                and phrase.rise >= MIN_RISE
+                and run.midi >= VIBRAPHONE_APEX_TRIGGER
+            )
             if is_breakout or is_apex or run.midi >= VIBRAPHONE_LOW:
                 bar = run.start // EIGHTHS_PER_BAR
                 bar_end = (bar + 1) * EIGHTHS_PER_BAR
-                avail = min(bar_end - run.start, max(PERIOD, min(run.length, 6)))
-                if avail < 2:
+                target_len = PERIOD if is_breakout else min(max(2, run.length), PERIOD)
+                avail = min(bar_end - run.start, target_len)
+                if avail < 2 and not (avail == 1 and run.midi >= VIBRAPHONE_LOW):
                     continue
                 priority = (
-                    3 if is_breakout else (2 if (is_apex and run.midi >= 76) else 1)
+                    3 if is_breakout else (2 if is_apex else 1)
                 )
                 candidates.append((priority, run.start, avail, is_breakout, run))
 
@@ -209,11 +227,11 @@ def _vibraphone_accent_part(
     cursor = 0
     for start, length, is_breakout, run in chosen_spans:
         if start > cursor:
-            events.extend(_written(cursor, start - cursor, None))
+            events.extend(written(cursor, start - cursor, None))
         bar = start // EIGHTHS_PER_BAR
         chord = chord_at[bar]
         if is_breakout:
-            pieces = _written(
+            pieces = written(
                 start,
                 length,
                 scale_high[0],
@@ -248,7 +266,7 @@ def _vibraphone_accent_part(
             has_slur = len(bell_runs) > 1
             for r_idx, b_run in enumerate(bell_runs):
                 events.extend(
-                    _written(
+                    written(
                         b_run.start,
                         b_run.length,
                         b_run.midi,
@@ -261,7 +279,7 @@ def _vibraphone_accent_part(
         cursor = start + length
 
     if cursor < TOTAL_EIGHTHS:
-        events.extend(_written(cursor, TOTAL_EIGHTHS - cursor, None))
+        events.extend(written(cursor, TOTAL_EIGHTHS - cursor, None))
     return tuple(events), chosen_spans
 
 
@@ -292,7 +310,7 @@ def _compress_phrase_to_bounds(
         pad_len = phrase.start % EIGHTHS_PER_BAR
         padded = [out[0]] * pad_len + out
         rel_chords = {b - bar_start: c for b, c in chord_at.items()}
-        out = _quantize_strong_beats(
+        out = quantize_strong_beats(
             padded, rel_chords, scale[: ceiling_idx + 1]
         )[pad_len:]
 
@@ -364,6 +382,7 @@ def _realize_sax_phrase(
     chord_at: dict[int, Chord] | None,
     scale: tuple[int, ...],
     ceiling_idx: int,
+    req_shift: int,
     max_exact_shift: int,
     shift: int,
     floor_idx: int,
@@ -373,7 +392,8 @@ def _realize_sax_phrase(
     top = max(r.midi for r in phrase.runs)
     bot = min(r.midi for r in phrase.runs)
     floor_midi = scale[floor_idx]
-    if shift <= max_exact_shift and bot - shift >= floor_midi:
+    can_exact = top - shift <= SAX_CEILING or (shift == 0 and req_shift == 0)
+    if can_exact and shift <= max_exact_shift and bot - shift >= floor_midi:
         return [pitches[e] - shift for e in range(phrase.start, phrase.end)], True
     t_top = min(ceiling_idx, scale.index(max(floor_midi, top - shift)))
     span = scale.index(top) - scale.index(bot)
@@ -425,7 +445,8 @@ def _build_phrase_candidates(
     for key in keys:
         shift, floor_idx, preserve_span = key
         floor_midi = scale[floor_idx]
-        if shift <= max_exact_shift and bot - shift >= floor_midi:
+        can_exact = top - shift <= SAX_CEILING or (shift == 0 and req_shift == 0)
+        if can_exact and shift <= max_exact_shift and bot - shift >= floor_midi:
             sig: tuple[object, ...] = ("exact", shift)
         else:
             t_top = min(ceiling_idx, scale.index(max(floor_midi, top - shift)))
@@ -442,6 +463,7 @@ def _build_phrase_candidates(
             chord_at,
             scale,
             ceiling_idx,
+            req_shift,
             max_exact_shift,
             shift,
             floor_idx,
@@ -742,9 +764,9 @@ def _rhodes_comping_part(
     and 1.5 ("and of 2", eighth note, 0.5 beats). On intro/outro or quiet bars ('p'),
     it plays a warm half-note chord cushion on beat 1.0.
     """
-    fills = _fills(cadences, chord_at)
+    cadence_fills = fills(cadences, chord_at)
     first_fill: dict[int, int] = {}
-    for start, _length, _midi in fills:
+    for start, _length, _midi in cadence_fills:
         bar = start // EIGHTHS_PER_BAR
         first_fill[bar] = min(first_fill.get(bar, start), start)
 
@@ -788,12 +810,12 @@ def _rhodes_comping_part(
                         )
                     )
 
-    for start, length, midi in fills:
-        right_events.extend(_written(start, length, midi, velocity=FILL_VELOCITY))
+    for start, length, midi in cadence_fills:
+        right_events.extend(written(start, length, midi, velocity=FILL_VELOCITY))
 
-    piano: list[NoteEvent] = list(_with_rests(right_events, TOTAL_EIGHTHS))
+    piano: list[NoteEvent] = list(with_rests(right_events, TOTAL_EIGHTHS))
     for slot in slots:
-        piano.extend(_left_hand(slot))
+        piano.extend(left_hand(slot))
     return piano
 
 
@@ -865,16 +887,19 @@ def render_jazz_score(
     dynamics: tuple[DynamicEvent, ...],
     bands: list[str],
     band_at: dict[int, str],
+    flat_session: bool = False,
 ) -> Score:
     """Assemble the 30-bar Lo-Fi / Cool Jazz score."""
     jazz_slots, harmonies, chord_at = _promote_jazz_slots(slots)
     section_at = {bar: slot.section for slot in jazz_slots for bar in slot.bars()}
 
-    vibraphone, chosen_spans = _vibraphone_accent_part(phrases, pitches, band_at, chord_at)
+    vibraphone, chosen_spans = _vibraphone_accent_part(
+        phrases, pitches, band_at, chord_at, flat_session=flat_session
+    )
     sax_pitches, sax_phrases, yield_spans = _sax_melody_curve(
         pitches, phrases, chosen_spans, chord_at
     )
-    alto_sax, tenor_sax, cadences = _melody_parts(
+    alto_sax, tenor_sax, cadences = melody_parts(
         sax_pitches, sax_phrases, band_at, yield_spans=yield_spans
     )
 
@@ -902,19 +927,19 @@ def render_jazz_score(
         regimes=chosen,
         regime_samples=sample_indexes,
         slots=jazz_slots,
-        flute=vibraphone,
-        violin=_with_rests(alto_sax.notes, TOTAL_EIGHTHS),
-        cello=_with_rests(tenor_sax.notes, TOTAL_EIGHTHS),
-        piano=tuple(rhodes),
-        bass=tuple(bass),
+        high=vibraphone,
+        lead=with_rests(alto_sax.notes, TOTAL_EIGHTHS),
+        support=with_rests(tenor_sax.notes, TOTAL_EIGHTHS),
+        comp=tuple(rhodes),
+        low=tuple(bass),
         dynamics=dynamics,
         harmonies=harmonies,
         liquidity=tuple(bands),
         phrases=sax_phrases,
-        violin_wedges=tuple(alto_sax.wedges),
-        cello_wedges=tuple(tenor_sax.wedges),
-        violin_dynamics=tuple(alto_sax.dynamics),
-        cello_dynamics=tuple(tenor_sax.dynamics),
+        lead_wedges=tuple(alto_sax.wedges),
+        support_wedges=tuple(tenor_sax.wedges),
+        lead_dynamics=tuple(alto_sax.dynamics),
+        support_dynamics=tuple(tenor_sax.dynamics),
         variant="jazz",
         divisions=2,
         swing=True,
