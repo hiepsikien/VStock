@@ -19,21 +19,22 @@ from app.sonify.form import (
     BEATS_PER_BAR,
     EIGHTHS_PER_BAR,
     MUSICAL_BARS,
+    TOTAL_EIGHTHS,
     ChordSlot,
 )
 from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score, WedgeEvent
-from app.sonify.phrasing import PERIOD, Phrase
-from app.sonify.quantize import SCALE_HIGH, SCALE_LOW, c_major_scale
-from app.sonify.render import (
+from app.sonify.phrasing import (
     BREAKOUT,
     MIN_RISE,
-    TOTAL_EIGHTHS,
+    PERIOD,
+    Phrase,
     _hairpins,
     _lift,
     _with_rests,
     _written,
     techniques,
 )
+from app.sonify.quantize import SCALE_HIGH, SCALE_LOW, c_major_scale
 
 MINIMALIST_BPM = 118
 MINIMALIST_DIVISIONS = 4  # 16th-note resolution (4 divisions per quarter beat)

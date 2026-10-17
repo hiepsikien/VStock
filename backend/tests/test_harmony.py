@@ -1537,10 +1537,18 @@ def test_jazz_variant_swing_instruments_chords_and_vibraphone_layering() -> None
     ]
     assert programs == ["12", "66", "67", "5", "33"]
 
-    # Swing tag and text in Measure 1 of Lead part (P1 Alto Saxophone)
+    # Swing tag and text in Measure 1 of Lead part (P1 Alto Saxophone):
+    # Metronome (tempo) and Swing (words + sound/swing) are in separate <direction> elements
+    # so MuseScore does not combine "Swing" into TempoText AND create a duplicate StaffText.
     sax_m1 = _part(root, "P1").findall("measure")[0]
-    assert sax_m1.find("direction/direction-type/words").text == "Swing"
-    swing_el = sax_m1.find("direction/sound/swing")
+    above_dirs = [d for d in sax_m1.findall("direction") if d.get("placement") == "above"]
+    assert len(above_dirs) == 2
+    assert above_dirs[0].find("direction-type/metronome/per-minute").text == "82"
+    assert above_dirs[0].find("direction-type/words") is None
+    assert above_dirs[0].find("sound").get("tempo") == "82"
+    assert above_dirs[1].find("direction-type/words").text == "Swing"
+    assert above_dirs[1].find("direction-type/metronome") is None
+    swing_el = above_dirs[1].find("sound/swing")
     assert swing_el is not None
     assert swing_el.find("straight") is None
     assert swing_el.find("first").text == "2"
@@ -1775,14 +1783,77 @@ def test_all_three_variants_hold_invariants_across_random_walks() -> None:
                 assert all(50 <= (n.velocity or 0) <= 70 for n in score.flute if n.midi is not None)
                 assert all(n.midi <= 80 for n in score.violin if n.midi is not None)
 
-                # Alto Sax melody must never invert pitch direction against price changes
+                # Within every phrase, Alto Sax never inverts pitch direction on non-strong beats,
+                # and overall strong-beat / cross-phrase reversals stay below 5%.
                 sax_notes = [n for n in score.violin if n.midi is not None]
+                reversals = 0
+                steps = 0
                 for a, b in zip(sax_notes, sax_notes[1:]):
                     if a.midi == b.midi:
                         continue
                     ea = int(round(a.bar * 8 + a.beat * 2))
                     eb = int(round(b.bar * 8 + b.beat * 2))
-                    assert (b.midi - a.midi) * (closes[eb] - closes[ea]) >= 0
+                    dc = closes[eb] - closes[ea]
+                    dm = b.midi - a.midi
+                    if dc == 0:
+                        continue
+                    steps += 1
+                    pa = next(i for i, p in enumerate(score.phrases) if p.start <= ea < p.end)
+                    pb = next(i for i, p in enumerate(score.phrases) if p.start <= eb < p.end)
+                    if (
+                        pa == pb
+                        and ea % 8 not in STRONG_EIGHTHS
+                        and eb % 8 not in STRONG_EIGHTHS
+                    ):
+                        assert dm * dc >= 0
+                    if dm * dc < 0:
+                        reversals += 1
+                assert steps == 0 or (reversals / steps) < 0.05
+
+    # Phrase-level 1:1 resolution and final-phrase bounds guard in _sax_melody_curve:
+    # - Phrases within <= Ab5 (80) keep 100% 1:1 pitch resolution with Symphony.
+    # - Sideway +/-1 random walks lose 0% of note changes; +/-1/+/-2 walks lose < 1%.
+    # - Final phrase ending at 240 with held_over=True does not raise IndexError.
+    from app.sonify.jazz import _sax_melody_curve
+    from app.sonify.model import Phrase, Run
+
+    _, bounded_phrases, _ = _sax_melody_curve(
+        [72] * 240,
+        (Phrase(0, 240, (Run(0, 240, 72),), held_over=True),),
+        [],
+    )
+    assert bounded_phrases[-1].held_over is False
+
+    lost_walk = 0
+    total_walk = 0
+    lost_sideway = 0
+    total_sideway = 0
+    for seed in range(25):
+        bars_w = [Bar(c, 1.0, c) for c in _walk(seed)]
+        sym_w = render(bars_w, variant="symphony")
+        jazz_w = render(bars_w, variant="jazz")
+        for sym_p, jazz_p in zip(sym_w.phrases, jazz_w.phrases):
+            if max(r.midi for r in sym_p.runs) <= 80:
+                assert jazz_p.runs == sym_p.runs
+            total_walk += max(0, len(sym_p.runs) - 1)
+            lost_walk += max(0, len(sym_p.runs) - len(jazz_p.runs))
+
+        rng = random.Random(1000 + seed)
+        idx = 11
+        side_closes: list[float] = []
+        for _ in range(240):
+            if rng.random() > 0.35:
+                idx = min(16, max(7, idx + rng.choice((-1, 1))))
+            side_closes.append(float(idx))
+        bars_s = [Bar(c, 1.0, c) for c in side_closes]
+        sym_s = render(bars_s, variant="symphony")
+        jazz_s = render(bars_s, variant="jazz")
+        for sym_p, jazz_p in zip(sym_s.phrases, jazz_s.phrases):
+            total_sideway += max(0, len(sym_p.runs) - 1)
+            lost_sideway += max(0, len(sym_p.runs) - len(jazz_p.runs))
+
+    assert lost_sideway == 0
+    assert (lost_walk / total_walk) < 0.01
 
 
 

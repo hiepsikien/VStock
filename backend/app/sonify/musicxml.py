@@ -186,12 +186,13 @@ def _metronome(parent: ET.Element, bpm: int, *, swing: bool = False) -> None:
     metronome = _add(direction_type, "metronome")
     _add(metronome, "beat-unit", "quarter")
     _add(metronome, "per-minute", str(bpm))
+    _add(direction, "sound", tempo=str(bpm))
     if swing:
-        word_type = _add(direction, "direction-type")
+        swing_dir = _add(parent, "direction", placement="above")
+        word_type = _add(swing_dir, "direction-type")
         _add(word_type, "words", "Swing")
-    sound = _add(direction, "sound", tempo=str(bpm))
-    if swing:
-        swing_node = _add(sound, "swing")
+        swing_sound = _add(swing_dir, "sound")
+        swing_node = _add(swing_sound, "swing")
         _add(swing_node, "first", "2")
         _add(swing_node, "second", "1")
         _add(swing_node, "swing-type", "eighth")

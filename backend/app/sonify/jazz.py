@@ -8,9 +8,9 @@ Architecture:
   phrase apexes / peaks (melodic bell tones following the price contour).
 - Mid-High Lead Layer (G3–Ab5, P1 — Alto Saxophone, MIDI Program 66) &
   Low-Mid Handoff Layer (C3–C4, P2 — Tenor Saxophone, MIDI Program 67):
-  Carries the main Close price melody mapped monotonically onto the Saxophone
-  register (C3–G5, ceiling <= Ab5 = 80) with legato phrasing, hairpins, swing groove,
-  and high-peak yield handoffs to Vibraphone so rising prices never invert pitch.
+  Carries the main Close price melody with 1:1 scale resolution on all phrases
+  inside the Saxophone register (<= Ab5 = 80), handing high peaks to Vibraphone via
+  yield_spans and transposing only phrases that still exceed Ab5 down by whole octaves.
 - Mid Layer (F2–B4, P3 — Fender Rhodes Piano, MIDI Program 5):
   Lush 7th/9th Jazz chords (Cmaj9, Fmaj9, Dm9, G9, Am9, Em7) with the 9th voiced
   inside/above the guide tones, Charleston syncopation (beat 1 dotted-quarter +
@@ -25,27 +25,29 @@ from __future__ import annotations
 from app.sonify.chords import Chord, Regime, jazz_chord
 from app.sonify.form import (
     EIGHTHS_PER_BAR,
+    HALF_BAR,
     MUSICAL_BARS,
+    TOTAL_EIGHTHS,
     ChordSlot,
 )
 from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score
-from app.sonify.phrasing import PERIOD, Phrase, Run, runs_of
-from app.sonify.quantize import c_major_scale
-from app.sonify.render import (
+from app.sonify.phrasing import (
     BREAKOUT,
     FILL_VELOCITY,
-    HALF_BAR,
     MIN_RISE,
-    TOTAL_EIGHTHS,
+    PERIOD,
+    Phrase,
+    Run,
     _fills,
     _left_hand,
     _melody_parts,
-    _quantize_strong_beats,
     _with_rests,
     _written,
     comp_pitches,
+    runs_of,
     techniques,
 )
+from app.sonify.quantize import c_major_scale
 
 JAZZ_BPM = 82
 SAX_LOW = 48  # C3: bottom of Tenor Saxophone register
@@ -230,62 +232,85 @@ def _vibraphone_accent_part(
 
 
 def _sax_melody_curve(
-    raw_pitches: list[int],
     pitches: list[int],
     phrases: tuple[Phrase, ...],
-    chord_at: dict[int, Chord],
     chosen_spans: list[tuple[int, int, bool, Run]],
 ) -> tuple[list[int], tuple[Phrase, ...], list[tuple[int, int]]]:
-    """Map the melody monotonically into the Saxophone register (C3–G5, <= Ab5 = 80).
+    """Keep phrases within the Saxophone register (<= Ab5 = 80) at full 1:1 resolution.
 
-    Instead of folding notes above A5 down an octave per note (which inverts the
-    melody direction whenever price climbs past the ceiling), we map the raw scale
-    degrees monotonically onto the combined Tenor + Alto Saxophone scale (C3=48..G5=79)
-    and snap strong beats to the active Jazz 7th/9th chords. High non-breakout spans
-    carried by Vibraphone are yielded by Alto Saxophone when the handoff preserves
-    the surrounding melodic contour.
+    Phrases that already fit within <= Ab5 (80), or whose only notes above Ab5 are
+    covered by a non-breakout Vibraphone yield span, stay at their exact 1:1 pitches
+    so small 1-step price movements never flatten out. Only phrases that still exceed
+    Ab5 are transposed down by whole octaves (12 or 24 semitones) when their lowest
+    note stays >= C3 (48), or monotonically compressed within the phrase onto C3–G5
+    when a single phrase is too wide for a whole-octave shift.
     """
-    full_scale = c_major_scale()
-    sax_scale = c_major_scale(SAX_LOW, SAX_CEILING)
-    full_span = max(1, len(full_scale) - 1)
-    sax_span = max(1, len(sax_scale) - 1)
-    index_by_midi = {midi: idx for idx, midi in enumerate(full_scale)}
+    scale = c_major_scale(SAX_LOW, 96)
+    ceiling_idx = scale.index(79)  # G5 (79), highest C-major scale tone <= SAX_CEILING (80)
+    yield_spans: list[tuple[int, int]] = []
+    sax_pitches = list(pitches)
+    temp_phrases: list[Phrase] = []
 
-    raw_sax = [
-        sax_scale[round(index_by_midi[midi] * sax_span / full_span)]
-        for midi in raw_pitches
-    ]
-    sax_pitches = _quantize_strong_beats(raw_sax, chord_at, sax_scale)
+    for phrase in phrases:
+        p_vibe = [
+            (st, st + ln)
+            for st, ln, is_b, r in chosen_spans
+            if not is_b
+            and st >= phrase.start
+            and st + ln <= phrase.end
+            and r.midi > SAX_CEILING
+        ]
+        norm_vibe = [
+            (ys, phrase.end if ye == phrase.end - 1 else ye)
+            for ys, ye in p_vibe
+        ]
+        rem_high = [
+            r.midi
+            for r in phrase.runs
+            if r.midi > SAX_CEILING
+            and not any(ys <= r.start and r.end <= ye for ys, ye in norm_vibe)
+        ]
+        if not rem_high:
+            if norm_vibe:
+                yield_spans.extend(norm_vibe)
+            temp_phrases.append(phrase)
+            continue
+
+        top = max(r.midi for r in phrase.runs)
+        bot = min(r.midi for r in phrase.runs)
+        shift = 12 if top - 12 <= SAX_CEILING else 24
+        if bot - shift >= SAX_LOW:
+            runs = [Run(r.start, r.length, r.midi - shift) for r in phrase.runs]
+            for eighth in range(phrase.start, phrase.end):
+                sax_pitches[eighth] -= shift
+        else:
+            top_idx = scale.index(top)
+            bot_idx = scale.index(bot)
+            span_idx = max(1, top_idx - bot_idx)
+            target_bot_idx = max(0, ceiling_idx - span_idx)
+            for eighth in range(phrase.start, phrase.end):
+                idx = scale.index(pitches[eighth])
+                rel = (idx - bot_idx) / span_idx
+                mapped_idx = round(target_bot_idx + rel * (ceiling_idx - target_bot_idx))
+                sax_pitches[eighth] = scale[mapped_idx]
+            runs = [
+                part
+                for r in phrase.runs
+                for part in runs_of(sax_pitches, r.start, r.end)
+            ]
+        temp_phrases.append(Phrase(phrase.start, phrase.end, tuple(runs), False))
+
     sax_phrases = tuple(
         Phrase(
-            phrase.start,
-            phrase.end,
-            tuple(
-                part
-                for run in phrase.runs
-                for part in runs_of(sax_pitches, run.start, run.end)
-            ),
-            phrase.held_over and sax_pitches[phrase.end] == sax_pitches[phrase.end - 1],
+            p.start,
+            p.end,
+            p.runs,
+            phrases[i].held_over
+            and p.end < TOTAL_EIGHTHS
+            and sax_pitches[p.end] == sax_pitches[p.end - 1],
         )
-        for phrase in phrases
+        for i, p in enumerate(temp_phrases)
     )
-
-    yield_spans: list[tuple[int, int]] = []
-    for start, length, is_breakout, run in chosen_spans:
-        if is_breakout or run.midi <= SAX_CEILING:
-            continue
-        end = start + length
-        for sp in sax_phrases:
-            if sp.start <= start < sp.end and end == sp.end - 1:
-                end = sp.end
-        if start > 0 and end < TOTAL_EIGHTHS:
-            dm = sax_pitches[end] - sax_pitches[start - 1]
-            dr = raw_pitches[end] - raw_pitches[start - 1]
-            ds = pitches[end] - pitches[start - 1]
-            if dm != 0 and (dm * dr <= 0 or dm * ds <= 0):
-                continue
-        yield_spans.append((start, end))
-
     return sax_pitches, sax_phrases, yield_spans
 
 
@@ -433,7 +458,6 @@ def render_jazz_score(
     chosen: tuple[Regime, Regime, Regime],
     sample_indexes: tuple[int, int, int] | None,
     slots: tuple[ChordSlot, ...],
-    raw_pitches: list[int],
     pitches: list[int],
     phrases: tuple[Phrase, ...],
     dynamics: tuple[DynamicEvent, ...],
@@ -446,7 +470,7 @@ def render_jazz_score(
 
     vibraphone, chosen_spans = _vibraphone_accent_part(phrases, pitches, band_at, chord_at)
     sax_pitches, sax_phrases, yield_spans = _sax_melody_curve(
-        raw_pitches, pitches, phrases, chord_at, chosen_spans
+        pitches, phrases, chosen_spans
     )
     alto_sax, tenor_sax, cadences = _melody_parts(
         sax_pitches, sax_phrases, band_at, yield_spans=yield_spans

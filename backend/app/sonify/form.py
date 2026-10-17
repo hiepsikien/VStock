@@ -35,6 +35,8 @@ from app.sonify.quantize import bar_quantization_loss, c_major_scale, quantize_c
 MUSICAL_BARS = 30
 BEATS_PER_BAR = 4
 EIGHTHS_PER_BAR = 8
+HALF_BAR = 4
+TOTAL_EIGHTHS = MUSICAL_BARS * EIGHTHS_PER_BAR
 BPM = 90
 PHRASE_STARTS = (2, 10, 18)
 PHRASE_BARS = 8

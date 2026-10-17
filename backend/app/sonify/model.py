@@ -7,7 +7,8 @@ from typing import Literal
 
 from app.sonify.chords import Chord, Regime
 from app.sonify.form import ChordSlot
-from app.sonify.phrasing import Phrase
+
+PERIOD = 4
 
 Variant = Literal["symphony", "jazz", "minimalist"]
 VARIANTS: tuple[Variant, ...] = ("symphony", "jazz", "minimalist")
@@ -19,6 +20,46 @@ class Bar:
     volume: float = 0.0
     ma20: float | None = None
     auction: bool = False
+
+
+@dataclass(frozen=True)
+class Run:
+    """Consecutive eighths on one pitch."""
+
+    start: int
+    length: int
+    midi: int
+
+    @property
+    def end(self) -> int:
+        return self.start + self.length
+
+
+@dataclass(frozen=True)
+class Phrase:
+    start: int
+    end: int
+    runs: tuple[Run, ...]
+    # The last note goes on sounding into the next phrase of the same section.
+    held_over: bool = False
+
+    @property
+    def apex(self) -> Run:
+        """The first run on the highest pitch: the phrase's local price high."""
+        return max(self.runs, key=lambda run: (run.midi, -run.start))
+
+    @property
+    def cadence(self) -> Run:
+        return self.runs[-1]
+
+    @property
+    def closes(self) -> bool:
+        return self.cadence.length >= PERIOD and not self.held_over
+
+    @property
+    def rise(self) -> int:
+        """Semitones from the lowest note in the phrase up to its apex."""
+        return self.apex.midi - min(run.midi for run in self.runs)
 
 
 @dataclass(frozen=True)
