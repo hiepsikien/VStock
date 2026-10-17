@@ -1542,7 +1542,7 @@ def test_jazz_variant_swing_instruments_chords_and_vibraphone_layering() -> None
     assert sax_m1.find("direction/direction-type/words").text == "Swing"
     swing_el = sax_m1.find("direction/sound/swing")
     assert swing_el is not None
-    assert swing_el.find("straight").text == "2"
+    assert swing_el.find("straight") is None
     assert swing_el.find("first").text == "2"
     assert swing_el.find("second").text == "1"
     assert swing_el.find("swing-type").text == "eighth"
@@ -1554,8 +1554,9 @@ def test_jazz_variant_swing_instruments_chords_and_vibraphone_layering() -> None
 
     # Threshold Layering:
     # 1) Vibraphone (P5) only plays in high register >= C6 (84..91), velocity 50..70,
-    #    occupying 10%–15% of the 240-eighth piece (24..36 eighths), and plays a 3-note
-    #    chord cluster on the breakout at bar 6 (eighth 50).
+    #    capped at <= 15% of the 240-eighth piece (<= 36 eighths), and plays a 3-note
+    #    chord cluster on the breakout at bar 6 (eighth 50). On a flat session with no
+    #    price rise or high notes, Vibraphone stays completely silent.
     vib_sounding = [n for n in score.flute if n.midi is not None]
     assert vib_sounding
     assert all(84 <= n.midi <= 91 for n in vib_sounding)
@@ -1567,7 +1568,10 @@ def test_jazz_variant_swing_instruments_chords_and_vibraphone_layering() -> None
         and (i == 0 or (score.flute[i - 1].bar, score.flute[i - 1].beat) != (n.bar, n.beat))
     ]
     vib_eighths = sum(int(round(n.duration_beats * 2)) for n in vib_attacks)
-    assert 24 <= vib_eighths <= 36
+    assert 0 < vib_eighths <= 36
+
+    flat_jazz = render([Bar(50.0, 1.0, 50.0)] * 30, variant="jazz")
+    assert all(n.midi is None for n in flat_jazz.flute)
 
     # Breakout bar 6 has a 3-note Vibraphone chord cluster in MusicXML (<chord/> tags)
     vib_m7 = _part(root, "P5").findall("measure")[6]
@@ -1755,7 +1759,7 @@ def test_all_three_variants_hold_invariants_across_random_walks() -> None:
                     )
                 ]
                 vib_eighths = sum(int(round(n.duration_beats * 2)) for n in vib_attacks)
-                assert 24 <= vib_eighths <= 36
+                assert 0 < vib_eighths <= 36
                 assert all(84 <= n.midi <= 91 for n in score.flute if n.midi is not None)
                 assert all(50 <= (n.velocity or 0) <= 70 for n in score.flute if n.midi is not None)
 

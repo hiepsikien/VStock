@@ -192,7 +192,6 @@ def _metronome(parent: ET.Element, bpm: int, *, swing: bool = False) -> None:
     sound = _add(direction, "sound", tempo=str(bpm))
     if swing:
         swing_node = _add(sound, "swing")
-        _add(swing_node, "straight", "2")
         _add(swing_node, "first", "2")
         _add(swing_node, "second", "1")
         _add(swing_node, "swing-type", "eighth")

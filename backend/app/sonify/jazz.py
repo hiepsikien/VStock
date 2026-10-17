@@ -22,7 +22,6 @@ from __future__ import annotations
 
 from app.sonify.chords import Chord, Regime, jazz_chord
 from app.sonify.form import (
-    BEATS_PER_BAR,
     EIGHTHS_PER_BAR,
     MUSICAL_BARS,
     ChordSlot,
@@ -32,9 +31,6 @@ from app.sonify.phrasing import PERIOD, Phrase, Run
 from app.sonify.quantize import c_major_scale
 from app.sonify.render import (
     BREAKOUT,
-    FILL_DELAY,
-    FILL_MIN,
-    FILL_SPAN,
     FILL_VELOCITY,
     HALF_BAR,
     MIN_RISE,
@@ -54,8 +50,7 @@ VIBRAPHONE_LOW = 84  # C6: high-end threshold (> C6)
 VIBRAPHONE_HIGH = 91  # G6: top of the warm bell register
 VIBRAPHONE_VEL_SINGLE = 58  # mp (~50-70 range)
 VIBRAPHONE_VEL_CHORD = 64  # mp-mf (~50-70 range)
-# Target 10%–15% of 240 eighths = 24..36 eighths maximum across the 30-bar piece
-VIBRAPHONE_MIN_EIGHTHS = 24
+# Cap high-end Vibraphone accents at 15% of 240 eighths (36 eighths max across 30 bars)
 VIBRAPHONE_MAX_EIGHTHS = 36
 
 
@@ -82,7 +77,7 @@ def _promote_jazz_slots(
     return jazz_slots, harmonies, chord_at
 
 
-def _high_bell_voicing(chord: Chord, target_midi: int) -> tuple[int, ...]:
+def _high_bell_voicing(chord: Chord) -> tuple[int, ...]:
     """Build a 3-note high Vibraphone cluster inside C6 (84) to G6 (91)."""
     scale_high = c_major_scale(VIBRAPHONE_LOW, VIBRAPHONE_HIGH)
     chord_tones = [m for m in scale_high if m % 12 in chord.pitch_classes]
@@ -104,8 +99,9 @@ def _vibraphone_accent_part(
 
     Controlled rules:
     - Register: strictly >= C6 (84..91).
-    - Duty cycle: capped between 10% and 15% of total piece duration (24..36 eighths)
-      when events are available, never running as a continuous melody.
+    - Duty cycle: capped at <= 15% of total piece duration (<= 36 eighths), triggered
+      purely by threshold events (Breakout, rising phrase apex, or pitch >= C6) with no
+      artificial minimum padding on flat sessions.
     - Breakouts trigger a 3-note ringing chord cluster in C6–G6 (velocity 64).
     - High phrase apexes / pinbar peaks trigger a single ringing bell note in C6–G6 (velocity 58).
     """
@@ -128,15 +124,6 @@ def _vibraphone_accent_part(
                     3 if is_breakout else (2 if (is_apex and run.midi >= 76) else 1)
                 )
                 candidates.append((priority, run.start, avail, is_breakout, run))
-
-    # Fallback if a flat session had no rise: pick phrase opening peaks at phrase downbeats
-    if not candidates:
-        for phrase in phrases[1:7]:
-            run = phrase.apex
-            bar = run.start // EIGHTHS_PER_BAR
-            avail = min((bar + 1) * EIGHTHS_PER_BAR - run.start, PERIOD)
-            if avail >= 2:
-                candidates.append((1, run.start, avail, False, run))
 
     # Sort by musical priority (breakouts first, then highest peaks), then chronological
     ranked = sorted(
@@ -164,26 +151,6 @@ def _vibraphone_accent_part(
         if total_eighths >= VIBRAPHONE_MAX_EIGHTHS:
             break
 
-    # If still below 10% (24 eighths), top up with remaining non-overlapping phrase peaks
-    if total_eighths < VIBRAPHONE_MIN_EIGHTHS:
-        for phrase in phrases:
-            if total_eighths >= VIBRAPHONE_MIN_EIGHTHS:
-                break
-            run = phrase.apex
-            bar = run.start // EIGHTHS_PER_BAR
-            if bar in used_bars:
-                continue
-            start = (bar * EIGHTHS_PER_BAR) + (run.start % EIGHTHS_PER_BAR)
-            avail = min((bar + 1) * EIGHTHS_PER_BAR - start, PERIOD)
-            if avail < 2:
-                start = bar * EIGHTHS_PER_BAR
-                avail = PERIOD
-            length = min(avail, VIBRAPHONE_MAX_EIGHTHS - total_eighths)
-            if length >= 2:
-                chosen_spans.append((start, length, False, run))
-                used_bars.add(bar)
-                total_eighths += length
-
     chosen_spans.sort(key=lambda item: item[0])
 
     # Build NoteEvents (filling gaps with rests, supporting 3-note chord clusters on breakouts)
@@ -203,7 +170,7 @@ def _vibraphone_accent_part(
             tenuto=True,
         )
         if is_breakout:
-            cluster = _high_bell_voicing(chord, run.midi)
+            cluster = _high_bell_voicing(chord)
             for piece in pieces:
                 for tone in cluster:
                     events.append(
