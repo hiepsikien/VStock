@@ -402,6 +402,65 @@ async function fetchHistoryNetwork(symbol: string, range: ChartRange): Promise<n
   return data.prices;
 }
 
+export type RecapVariant = 'symphony' | 'jazz' | 'minimalist';
+
+export type SessionSummary = {
+  date: string;
+  close: number;
+  changePercent: number;
+  bars: number;
+};
+
+export type SessionMinutes = {
+  symbol: string;
+  date: string;
+  prices: number[];
+  times: string[];
+  changePercent: number;
+};
+
+export type RecapManifest = {
+  symbol: string;
+  date: string;
+  variant: RecapVariant;
+  durationSec: number;
+  mapDurationSec: number;
+  barCount: number;
+  peaks: number[];
+  audioUrl: string;
+};
+
+export function absoluteApiUrl(path: string): string {
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  return `${API_URL}${path}`;
+}
+
+export async function fetchSessions(symbol: string): Promise<SessionSummary[]> {
+  const sym = symbol.toUpperCase();
+  const data = await apiGet<{ symbol: string; sessions: SessionSummary[] }>(
+    `/v1/stocks/${encodeURIComponent(sym)}/sessions?limit=7`,
+  );
+  return data.sessions ?? [];
+}
+
+export async function fetchSessionMinutes(symbol: string, day: string): Promise<SessionMinutes> {
+  const sym = symbol.toUpperCase();
+  return apiGet<SessionMinutes>(
+    `/v1/stocks/${encodeURIComponent(sym)}/sessions/${encodeURIComponent(day)}`,
+  );
+}
+
+export async function fetchRecap(
+  symbol: string,
+  day: string,
+  variant: RecapVariant,
+): Promise<RecapManifest> {
+  const sym = symbol.toUpperCase();
+  return apiGet<RecapManifest>(
+    `/v1/stocks/${encodeURIComponent(sym)}/sessions/${encodeURIComponent(day)}/recap?variant=${variant}`,
+  );
+}
+
 export async function fetchHistory(symbol: string, range: ChartRange): Promise<number[]> {
   try {
     const prices = await fetchHistoryNetwork(symbol, range);

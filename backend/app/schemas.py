@@ -75,6 +75,37 @@ class HistoryResponse(BaseModel):
     prices: list[float]
 
 
+class SessionSummary(BaseModel):
+    date: str
+    close: float
+    changePercent: float
+    bars: int
+
+
+class SessionListResponse(BaseModel):
+    symbol: str
+    sessions: list[SessionSummary]
+
+
+class SessionDetailResponse(BaseModel):
+    symbol: str
+    date: str
+    prices: list[float]
+    times: list[str]
+    changePercent: float
+
+
+class RecapResponse(BaseModel):
+    symbol: str
+    date: str
+    variant: Literal["symphony", "jazz", "minimalist"]
+    durationSec: float
+    mapDurationSec: float
+    barCount: int
+    peaks: list[float]
+    audioUrl: str
+
+
 class HealthResponse(BaseModel):
     status: str
     service: str = "vstock-api"

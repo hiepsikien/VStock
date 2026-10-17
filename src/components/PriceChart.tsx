@@ -28,9 +28,18 @@ type Props = {
   positive: boolean;
   range: ChartRange;
   onRangeChange: (range: ChartRange) => void;
+  cursorIndex?: number | null;
+  cursorLabel?: string | null;
 };
 
-export function PriceChart({ prices, positive, range, onRangeChange }: Props) {
+export function PriceChart({
+  prices,
+  positive,
+  range,
+  onRangeChange,
+  cursorIndex = null,
+  cursorLabel = null,
+}: Props) {
   const { width: screenWidth } = useWindowDimensions();
   // Edge-to-edge feel — only small side inset for sparkline padding.
   const chartWidth = Math.max(300, screenWidth - 8);
@@ -39,6 +48,12 @@ export function PriceChart({ prices, positive, range, onRangeChange }: Props) {
     if (!prices.length) return { min: 0, max: 0 };
     return { min: Math.min(...prices), max: Math.max(...prices) };
   }, [prices]);
+
+  const labelLeft = useMemo(() => {
+    if (cursorIndex == null || prices.length < 2) return 8;
+    const x = (cursorIndex / (prices.length - 1)) * chartWidth;
+    return Math.min(chartWidth - 58, Math.max(8, x - 22));
+  }, [chartWidth, cursorIndex, prices.length]);
 
   return (
     <View style={styles.wrap}>
@@ -51,10 +66,16 @@ export function PriceChart({ prices, positive, range, onRangeChange }: Props) {
             positive={positive}
             strokeWidth={2.25}
             showFill
+            cursorIndex={cursorIndex}
           />
         ) : (
           <Text style={styles.emptyChart}>Chưa có dữ liệu chart</Text>
         )}
+        {cursorLabel && cursorIndex != null ? (
+          <View pointerEvents="none" style={[styles.cursorLabel, { left: labelLeft }]}>
+            <Text style={styles.cursorLabelText}>{cursorLabel}</Text>
+          </View>
+        ) : null}
       </View>
 
       {prices.length > 1 ? (
@@ -99,6 +120,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     height: CHART_HEIGHT + 12,
+    position: 'relative',
+  },
+  cursorLabel: {
+    position: 'absolute',
+    top: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: 'rgba(10,132,255,0.9)',
+  },
+  cursorLabelText: {
+    ...typography.caption,
+    color: colors.text,
+    fontVariant: ['tabular-nums'],
   },
   emptyChart: {
     color: colors.textTertiary,

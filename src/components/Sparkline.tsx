@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { View } from 'react-native';
-import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg';
+import Svg, { Circle, Defs, Line, LinearGradient, Path, Stop } from 'react-native-svg';
 import { colors } from '../theme';
 
 type Props = {
@@ -10,6 +10,8 @@ type Props = {
   positive?: boolean;
   strokeWidth?: number;
   showFill?: boolean;
+  /** Candle the recap playhead is on. */
+  cursorIndex?: number | null;
 };
 
 export function Sparkline({
@@ -19,10 +21,11 @@ export function Sparkline({
   positive = true,
   strokeWidth = 1.5,
   showFill = false,
+  cursorIndex = null,
 }: Props) {
-  const { line, fill } = useMemo(() => {
+  const { line, fill, cursor } = useMemo(() => {
     if (data.length < 2) {
-      return { line: '', fill: '' };
+      return { line: '', fill: '', cursor: null as { x: number; y: number } | null };
     }
 
     const min = Math.min(...data);
@@ -42,9 +45,13 @@ export function Sparkline({
       .join(' ');
 
     const fillPath = `${linePath} L${width},${height} L0,${height} Z`;
+    const cursor =
+      cursorIndex == null
+        ? null
+        : points[Math.min(points.length - 1, Math.max(0, cursorIndex))] ?? null;
 
-    return { line: linePath, fill: fillPath };
-  }, [data, width, height]);
+    return { line: linePath, fill: fillPath, cursor };
+  }, [cursorIndex, data, width, height]);
 
   const stroke = positive ? colors.positive : colors.negative;
   const gradId = positive ? 'sparkPos' : 'sparkNeg';
@@ -76,6 +83,19 @@ export function Sparkline({
             strokeLinecap="round"
             strokeLinejoin="round"
           />
+        ) : null}
+        {cursor ? (
+          <>
+            <Line
+              x1={cursor.x}
+              y1={0}
+              x2={cursor.x}
+              y2={height}
+              stroke={colors.accent}
+              strokeWidth={1.5}
+            />
+            <Circle cx={cursor.x} cy={cursor.y} r={4.5} fill={colors.accent} />
+          </>
         ) : null}
       </Svg>
     </View>

@@ -6,6 +6,8 @@ services:
       - "${API_PORT:-8000}:8000"
     environment:
       VSTOCK_DB_PATH: /data/vstock.db
+      VSTOCK_AUDIO_DIR: /data/audio
+      QT_QPA_PLATFORM: offscreen
       PORT: "8000"
       # Companion AI (Gemini) — set one of:
       # GEMINI_API_KEY: from Google AI Studio (local / simple)

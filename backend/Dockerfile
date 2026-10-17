@@ -1,14 +1,32 @@
-FROM python:3.11-slim
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    VSTOCK_DB_PATH=/data/vstock.db \
+    VSTOCK_AUDIO_DIR=/data/audio \
+    PORT=8000 \
+    QT_QPA_PLATFORM=offscreen \
+    XDG_RUNTIME_DIR=/tmp/runtime-root \
+    PATH="/opt/venv/bin:$PATH"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        python3-venv \
+        ca-certificates \
+        musescore3 \
+        musescore-general-soundfont \
+        ffmpeg \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /tmp/runtime-root /data/audio \
+    && chmod 700 /tmp/runtime-root
 
 WORKDIR /app
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    VSTOCK_DB_PATH=/data/vstock.db \
-    PORT=8000
-
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python3 -m venv /opt/venv \
+    && pip install --no-cache-dir -r requirements.txt
 
 COPY app/ app/
 COPY config/ config/
