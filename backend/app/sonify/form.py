@@ -90,7 +90,7 @@ def _section_spans(
 def _prev_last_touched_strong(raw_pitches: Sequence[int], bar: int) -> bool:
     """Whether the final eighth of `bar - 1` belongs to a run that touches a strong beat.
 
-    Matches _quantize_strong_beats: the eighth at `bar * 8 - 1` is snapped to
+    Matches `quantize_strong_beats`: the eighth at `bar * 8 - 1` is snapped to
     `prev_chord` only when its run reaches strong beat 4 of `bar - 1` (all eighths
     4..7 of `bar - 1` share that pitch) or continues onto strong beat 0 of `bar`
     (`held_across`). Otherwise it is a weak-beat passing note and keeps its raw pitch.
@@ -111,9 +111,9 @@ def _breaks_held_note_across_barline(
 ) -> bool:
     """Whether changing from prev_chord to curr_chord forces a held note to split pitches.
 
-    Matches _quantize_strong_beats in render.py: when a run holds the same raw
+    Matches `quantize_strong_beats` in `phrasing.py`: when a run holds the same raw
     pitch across a bar line (`raw[bar*8 - 1] == raw[bar*8]`, the same condition
-    `runs_of` uses to merge eighths into one Run), _quantize_strong_beats snaps
+    `runs_of` uses to merge eighths into one Run), `quantize_strong_beats` snaps
     both sides to a single shared chord tone whenever `prev_chord & curr_chord`
     has a tone within 1 scale step of `boundary_pitch`. A split happens only when
     no such common tone exists and the two chords snap `boundary_pitch` to

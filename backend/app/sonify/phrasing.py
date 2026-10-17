@@ -60,6 +60,24 @@ FILL_HIGH = 79  # G5
 FILL_ABOVE_CELLO = 60  # C4
 FILL_GAP = 3
 
+# High-end bell / accent budget across 240 eighths (15% max = 36 eighths), scaled smoothly
+# by relative session span (`(session_high - session_low) / session_low`):
+# - Below 0.5% relative span (e.g. 1–2 ticks on HOSE around price 25), bell stays silent (0 eighths).
+# - Between 0.5% and 2.0% relative span, the budget ramps linearly from 0 up to 36 eighths.
+BELL_MAX_EIGHTHS = 36
+BELL_FLAT_SPAN = 0.005
+BELL_FULL_SPAN = 0.020
+
+
+def bell_budget(rel_span: float, max_eighths: int = BELL_MAX_EIGHTHS) -> int:
+    """Scale maximum high-bell eighths linearly with relative session volatility."""
+    if rel_span <= BELL_FLAT_SPAN:
+        return 0
+    if rel_span >= BELL_FULL_SPAN:
+        return max_eighths
+    ratio = (rel_span - BELL_FLAT_SPAN) / (BELL_FULL_SPAN - BELL_FLAT_SPAN)
+    return int(round(ratio * max_eighths))
+
 
 def runs_of(pitches: list[int], start: int, end: int) -> list[Run]:
     runs: list[Run] = []

@@ -24,10 +24,12 @@ from app.sonify.form import (
 )
 from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score, WedgeEvent
 from app.sonify.phrasing import (
+    BELL_MAX_EIGHTHS,
     BREAKOUT,
     MIN_RISE,
     PERIOD,
     Phrase,
+    bell_budget,
     hairpins,
     lift,
     techniques,
@@ -46,9 +48,6 @@ OPEN_CUTOFF = 0.70     # High price -> bright register (C5-C6), tenuto, bright
 ARP_VEL_LOW = 48
 ARP_VEL_HIGH = 90
 BELL_VELOCITY = 64
-BELL_MAX_EIGHTHS = 36
-BELL_FLAT_SPAN = 0.005
-BELL_FULL_SPAN = 0.020
 PAD_VELOCITY = 52
 PULSE_VEL_BY_BAND = {
     "p": 49,
@@ -56,16 +55,6 @@ PULSE_VEL_BY_BAND = {
     "mf": 76,
     "f": 88,
 }
-
-
-def _bell_budget(rel_span: float, max_eighths: int = BELL_MAX_EIGHTHS) -> int:
-    """Scale maximum high-bell eighths linearly with relative session volatility."""
-    if rel_span <= BELL_FLAT_SPAN:
-        return 0
-    if rel_span >= BELL_FULL_SPAN:
-        return max_eighths
-    ratio = (rel_span - BELL_FLAT_SPAN) / (BELL_FULL_SPAN - BELL_FLAT_SPAN)
-    return int(round(ratio * max_eighths))
 
 
 def _normalized_brightness(midi: int) -> float:
@@ -163,7 +152,7 @@ def _synth_bell_part(
     rel_span: float = 1.0,
 ) -> tuple[NoteEvent, ...]:
     """High Synth Bell (P5): sparse accent layer (<= 15%, <= 36 eighths) on Breakouts and high peaks."""
-    max_eighths = _bell_budget(rel_span, BELL_MAX_EIGHTHS)
+    max_eighths = bell_budget(rel_span, BELL_MAX_EIGHTHS)
     if max_eighths < 2:
         return with_rests([], TOTAL_EIGHTHS)
     bell_events: list[NoteEvent] = []

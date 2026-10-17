@@ -32,6 +32,7 @@ from app.sonify.form import (
 )
 from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score
 from app.sonify.phrasing import (
+    BELL_MAX_EIGHTHS,
     BREAKOUT,
     CELLO_HANDBACK,
     CELLO_OVERLAP,
@@ -42,6 +43,7 @@ from app.sonify.phrasing import (
     VIOLIN_LOWEST,
     Phrase,
     Run,
+    bell_budget,
     comp_pitches,
     fills,
     left_hand,
@@ -63,22 +65,7 @@ VIBRAPHONE_HIGH = 89  # F6: top of the standard 3-octave Vibraphone (F3–F6)
 VIBRAPHONE_VEL_SINGLE = 58  # mp
 VIBRAPHONE_VEL_CHORD = 64  # mp-mf
 # Cap high-end Vibraphone accents at 15% of 240 eighths (36 eighths max across 30 bars)
-VIBRAPHONE_MAX_EIGHTHS = 36
-# Relative intraday span bounds for scaling Vibraphone density smoothly from 0 to VIBRAPHONE_MAX_EIGHTHS:
-# - Below 0.5% relative span (e.g. 1–2 ticks on HOSE around price 25), Vibraphone stays silent (0 eighths).
-# - Between 0.5% and 2.0% relative span, the budget ramps linearly from 0 up to 36 eighths.
-VIBRAPHONE_FLAT_SPAN = 0.005
-VIBRAPHONE_FULL_SPAN = 0.020
-
-
-def _vibraphone_budget(rel_span: float, max_eighths: int = VIBRAPHONE_MAX_EIGHTHS) -> int:
-    """Scale maximum bell eighths linearly with relative session volatility."""
-    if rel_span <= VIBRAPHONE_FLAT_SPAN:
-        return 0
-    if rel_span >= VIBRAPHONE_FULL_SPAN:
-        return max_eighths
-    ratio = (rel_span - VIBRAPHONE_FLAT_SPAN) / (VIBRAPHONE_FULL_SPAN - VIBRAPHONE_FLAT_SPAN)
-    return int(round(ratio * max_eighths))
+VIBRAPHONE_MAX_EIGHTHS = BELL_MAX_EIGHTHS
 
 # Dynamic-programming weights for cross-phrase Saxophone octave/register selection.
 # Hierarchy:
@@ -177,14 +164,14 @@ def _vibraphone_accent_part(
     Controlled rules:
     - Register: strictly in C6–F6 (84..89), matching the standard 3-octave Vibraphone ceiling.
     - Duty cycle: capped at <= 15% of total piece duration (<= 36 eighths) and scaled
-      smoothly by relative session span (`_vibraphone_budget(rel_span)`): completely silent
+      smoothly by relative session span (`bell_budget(rel_span)`): completely silent
       when `rel_span <= 0.5%` (flat / 1–2 tick sideway sessions), ramping linearly up to
       36 eighths at `rel_span >= 2.0%`.
     - Breakouts trigger a 3-note ringing chord in C6–F6 (velocity 64).
     - High phrase apexes / peaks (>= G5 = 79) trigger melodic bell notes in C6–F6 (velocity 58)
       that follow the price contour rather than repeating a static ceiling pitch.
     """
-    max_eighths = _vibraphone_budget(rel_span, VIBRAPHONE_MAX_EIGHTHS)
+    max_eighths = bell_budget(rel_span, VIBRAPHONE_MAX_EIGHTHS)
     if max_eighths < 2:
         return tuple(written(0, TOTAL_EIGHTHS, None)), []
 
@@ -664,7 +651,7 @@ def _sax_melody_curve(
     unless keeping them at 1:1 would create a large contrary leap (>= 9 semitones)
     at a phrase boundary. Dynamic programming across phrases selects the octave shift
     (0, 12, or 24 semitones) and register bounds for each phrase while re-quantizing
-    any compressed phrase on strong beats via `_quantize_strong_beats`.
+    any compressed phrase on strong beats via `quantize_strong_beats`.
     """
     if not phrases:
         return list(pitches), phrases, []

@@ -1428,7 +1428,7 @@ def test_weak_beat_passing_note_at_bar_end_keeps_raw_previous_pitch() -> None:
     #   prev_chord G ({55, 59, 62}), 59 stayed 59, so 62 -> 60 does not repeat 59.
     # - When B3 (59) at the end of bar 1 was a single weak-beat passing note at eighth 15
     #   (eighths 12..14 were 60, eighth 15 was 59), _prev_last_touched_strong is False:
-    #   _quantize_strong_beats leaves eighth 15 at raw 59 regardless of whether bar 1 was C or G,
+    #   quantize_strong_beats leaves eighth 15 at raw 59 regardless of whether bar 1 was C or G,
     #   so bar 2's loss under F is uniform and independent of prev_chord.
     bar_two_notes = [62, 65, 65, 65, 65, 65, 65, 65]
     loss_when_prev_was_raw_59 = bar_quantization_loss(
@@ -1926,10 +1926,9 @@ def test_score_role_and_variant_property_aliases() -> None:
         _high_bell_voicing,
         _sax_melody_curve,
         _vibraphone_accent_part,
-        _vibraphone_budget,
     )
     from app.sonify.model import NoteEvent, Phrase, Run, Score
-    from app.sonify.phrasing import with_rests
+    from app.sonify.phrasing import bell_budget, with_rests
 
     # Primary dataclass fields on Score use role-neutral names (high, lead, support, comp, low)
     field_names = {f.name for f in fields(Score)}
@@ -2002,12 +2001,12 @@ def test_score_role_and_variant_property_aliases() -> None:
     #   or 0.47% noise): budget is 0 eighths (completely silent), independent of price unit
     #   (thousand VND vs VND).
     # - Between 0.5% and 2.0% relative span: budget scales smoothly from 0 up to 36 eighths.
-    assert _vibraphone_budget(0.002) == 0
-    assert _vibraphone_budget(0.004) == 0
-    assert _vibraphone_budget(0.0047) == 0
-    assert _vibraphone_budget(0.005) == 0
-    assert 0 < _vibraphone_budget(0.010) < _vibraphone_budget(0.015) < 36
-    assert _vibraphone_budget(0.020) == 36
+    assert bell_budget(0.002) == 0
+    assert bell_budget(0.004) == 0
+    assert bell_budget(0.0047) == 0
+    assert bell_budget(0.005) == 0
+    assert 0 < bell_budget(0.010) < bell_budget(0.015) < 36
+    assert bell_budget(0.020) == 36
 
     for span_pct in (0.002, 0.004, 0.0047):
         hose_bars = [Bar(25.0 * (1.0 + (i % 3) * (span_pct / 2)), 1.0, 25.0) for i in range(240)]
