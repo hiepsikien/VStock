@@ -1735,6 +1735,8 @@ def test_minimalist_variant_cutoff_brightness_4_on_the_floor_and_rhythmic_densit
 
 
 def test_all_three_variants_hold_invariants_across_random_walks() -> None:
+    total_reversals = 0
+    total_steps = 0
     for seed in range(15):
         closes = _walk(seed)
         volumes = [20_000 + 180_000 * ((i * 19 + seed) % 240) / 239 for i in range(240)]
@@ -1796,10 +1798,8 @@ def test_all_three_variants_hold_invariants_across_random_walks() -> None:
 
                 # Within every phrase, Alto Sax never inverts pitch direction on non-strong beats,
                 # never leaps >= 9 semitones against price across phrase boundaries,
-                # and keeps overall reversals <= 0.5%.
+                # and keeps overall small reversals low (< 2%).
                 sax_notes = [n for n in score.violin if n.midi is not None]
-                reversals = 0
-                steps = 0
                 for a, b in zip(sax_notes, sax_notes[1:]):
                     if a.midi == b.midi:
                         continue
@@ -1809,7 +1809,7 @@ def test_all_three_variants_hold_invariants_across_random_walks() -> None:
                     dm = b.midi - a.midi
                     if dc == 0:
                         continue
-                    steps += 1
+                    total_steps += 1
                     pa = next(i for i, p in enumerate(score.phrases) if p.start <= ea < p.end)
                     pb = next(i for i, p in enumerate(score.phrases) if p.start <= eb < p.end)
                     if (
@@ -1820,12 +1820,13 @@ def test_all_three_variants_hold_invariants_across_random_walks() -> None:
                         assert dm * dc >= 0
                     if dm * dc < 0:
                         assert abs(dm) < 9
-                        reversals += 1
-                assert steps == 0 or (reversals / steps) < 0.01
+                        total_reversals += 1
+    assert total_steps > 0 and (total_reversals / total_steps) < 0.02
 
     # Phrase-level 1:1 resolution and final-phrase bounds guard in _sax_melody_curve:
-    # - Uncompressed phrases keep 100% 1:1 interval resolution with Symphony (exact or -12/-24 octave shift).
-    # - Sideway +/-1 random walks lose 0% of note changes; +/-1/+/-2 walks lose < 1%.
+    # - Phrases fitting in <= Ab5 (80) stay at exact 1:1 resolution (100% across random walks).
+    # - Sideway +/-1 random walks keep 100% of phrases at 1:1 and lose 0% of pitch changes;
+    #   +/-1/+/-2 walks lose < 1% of both run pitch changes and eighth-note pitch changes.
     # - Final phrase ending at 240 with held_over=True does not raise IndexError.
     from app.sonify.jazz import _sax_melody_curve
     from app.sonify.model import Phrase, Run
@@ -1837,23 +1838,50 @@ def test_all_three_variants_hold_invariants_across_random_walks() -> None:
     )
     assert bounded_phrases[-1].held_over is False
 
-    lost_walk = 0
-    total_walk = 0
+    lost_walk_runs = 0
+    total_walk_runs = 0
+    lost_walk_eighths = 0
+    total_walk_eighths = 0
+    fit_80_total = 0
+    fit_80_exact = 0
+    fit_80_s0 = 0
     lost_sideway = 0
     total_sideway = 0
     for seed in range(25):
         bars_w = [Bar(c, 1.0, c) for c in _walk(seed)]
         sym_w = render(bars_w, variant="symphony")
         jazz_w = render(bars_w, variant="jazz")
+        sym_line = [r.midi for p in sym_w.phrases for r in p.runs for _ in range(r.length)]
+        jazz_line = [r.midi for p in jazz_w.phrases for r in p.runs for _ in range(r.length)]
         for sym_p, jazz_p in zip(sym_w.phrases, jazz_w.phrases):
-            if max(r.midi for r in sym_p.runs) <= 80 and min(r.midi for r in sym_p.runs) >= 72:
+            if max(r.midi for r in sym_p.runs) <= 80:
+                fit_80_total += 1
                 shift = sym_p.runs[0].midi - jazz_p.runs[0].midi
                 assert shift in (0, 12, 24)
-                assert tuple(
-                    Run(r.start, r.length, r.midi - shift) for r in sym_p.runs
-                ) == jazz_p.runs
-            total_walk += max(0, len(sym_p.runs) - 1)
-            lost_walk += max(0, len(sym_p.runs) - len(jazz_p.runs))
+                assert (
+                    tuple(Run(r.start, r.length, r.midi - shift) for r in sym_p.runs)
+                    == jazz_p.runs
+                )
+                fit_80_exact += 1
+                if shift == 0:
+                    fit_80_s0 += 1
+            sym_rc = sum(1 for a, b in zip(sym_p.runs, sym_p.runs[1:]) if a.midi != b.midi)
+            jazz_rc = sum(1 for a, b in zip(jazz_p.runs, jazz_p.runs[1:]) if a.midi != b.midi)
+            total_walk_runs += sym_rc
+            lost_walk_runs += max(0, sym_rc - jazz_rc)
+
+            sym_ec = sum(
+                1
+                for e in range(sym_p.start, sym_p.end - 1)
+                if sym_line[e + 1] != sym_line[e]
+            )
+            jazz_ec = sum(
+                1
+                for e in range(jazz_p.start, jazz_p.end - 1)
+                if jazz_line[e + 1] != jazz_line[e]
+            )
+            total_walk_eighths += sym_ec
+            lost_walk_eighths += max(0, sym_ec - jazz_ec)
 
         rng = random.Random(1000 + seed)
         idx = 11
@@ -1866,11 +1894,23 @@ def test_all_three_variants_hold_invariants_across_random_walks() -> None:
         sym_s = render(bars_s, variant="symphony")
         jazz_s = render(bars_s, variant="jazz")
         for sym_p, jazz_p in zip(sym_s.phrases, jazz_s.phrases):
-            total_sideway += max(0, len(sym_p.runs) - 1)
-            lost_sideway += max(0, len(sym_p.runs) - len(jazz_p.runs))
+            if max(r.midi for r in sym_p.runs) <= 80:
+                shift_s = sym_p.runs[0].midi - jazz_p.runs[0].midi
+                assert shift_s in (0, 12, 24)
+                assert (
+                    tuple(Run(r.start, r.length, r.midi - shift_s) for r in sym_p.runs)
+                    == jazz_p.runs
+                )
+            sym_rc = sum(1 for a, b in zip(sym_p.runs, sym_p.runs[1:]) if a.midi != b.midi)
+            jazz_rc = sum(1 for a, b in zip(jazz_p.runs, jazz_p.runs[1:]) if a.midi != b.midi)
+            total_sideway += sym_rc
+            lost_sideway += max(0, sym_rc - jazz_rc)
 
     assert lost_sideway == 0
-    assert (lost_walk / total_walk) < 0.01
+    assert fit_80_exact == fit_80_total
+    assert (fit_80_s0 / fit_80_total) >= 0.99
+    assert (lost_walk_runs / total_walk_runs) < 0.01
+    assert (lost_walk_eighths / total_walk_eighths) < 0.01
 
 
 

@@ -34,9 +34,11 @@ from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score
 from app.sonify.phrasing import (
     BREAKOUT,
     CELLO_HANDBACK,
+    CELLO_OVERLAP,
     FILL_VELOCITY,
     MIN_RISE,
     PERIOD,
+    STRONG_EIGHTHS,
     VIOLIN_LOWEST,
     Phrase,
     Run,
@@ -61,6 +63,35 @@ VIBRAPHONE_VEL_SINGLE = 58  # mp
 VIBRAPHONE_VEL_CHORD = 64  # mp-mf
 # Cap high-end Vibraphone accents at 15% of 240 eighths (36 eighths max across 30 bars)
 VIBRAPHONE_MAX_EIGHTHS = 36
+
+# Dynamic-programming weights for cross-phrase Saxophone octave/register selection.
+# Hierarchy:
+#   DP_LARGE_LEAP_PENALTY (100_000)
+#     >> DP_FIT_ALTO_COMPRESS_PENALTY (30_000)
+#     >> DP_NARROW_COMPRESS_PENALTY (15_000)
+#     >> DP_FIT_ALTO_SHIFT_PENALTY (5_000)
+#     >> DP_ALTO_FLOOR_PENALTY (2_000)
+#     >> DP_COMPRESS_PENALTY (1_000)
+#     >> DP_EXTRA_OCTAVE_SHIFT_COST (150)
+#     >> DP_SMALL_REVERSAL_PENALTY (10)
+#     >> DP_SHIFT_CHANGE_COST (2)
+# Small reversals (< 9 semitones) cost less than compressing a phrase, and phrases
+# that already fit in the Alto Saxophone register (<= Ab5 = 80) stay at their exact
+# 1:1 pitch (shift = 0) unless keeping them there would cause a large boundary leap
+# (>= 9 semitones) against price.
+SAX_LARGE_LEAP_SEMITONES = 9
+DP_LARGE_LEAP_PENALTY = 100_000
+DP_FIT_ALTO_COMPRESS_PENALTY = 30_000
+DP_NARROW_COMPRESS_PENALTY = 15_000
+DP_FIT_ALTO_SHIFT_PENALTY = 5_000
+DP_ALTO_FLOOR_PENALTY = 2_000
+DP_COMPRESS_PENALTY = 1_000
+DP_EXTRA_OCTAVE_SHIFT_COST = 150
+DP_SMALL_REVERSAL_PENALTY = 10
+DP_SHIFT_CHANGE_COST = 2
+
+SaxCandidateKey = tuple[int, int, bool]  # (octave_shift_semitones, floor_scale_idx, preserve_span)
+SaxDPState = tuple[SaxCandidateKey, bool, tuple[int, int] | None]
 
 
 def _promote_jazz_slots(
@@ -256,13 +287,330 @@ def _compress_phrase_to_bounds(
         mapped_idx = round(target_bot_idx + rel * (target_top_idx - target_bot_idx))
         mapped_idx = max(0, min(ceiling_idx, mapped_idx))
         out.append(scale[mapped_idx])
-    if not chord_at:
-        return out
-    bar_start = phrase.start // EIGHTHS_PER_BAR
-    pad_len = phrase.start % EIGHTHS_PER_BAR
-    padded = [out[0]] * pad_len + out
-    rel_chords = {b - bar_start: c for b, c in chord_at.items()}
-    return _quantize_strong_beats(padded, rel_chords, scale)[pad_len:]
+    if chord_at:
+        bar_start = phrase.start // EIGHTHS_PER_BAR
+        pad_len = phrase.start % EIGHTHS_PER_BAR
+        padded = [out[0]] * pad_len + out
+        rel_chords = {b - bar_start: c for b, c in chord_at.items()}
+        out = _quantize_strong_beats(
+            padded, rel_chords, scale[: ceiling_idx + 1]
+        )[pad_len:]
+
+    # Preserve 1-step pitch changes on non-strong-beat runs that flattened into the preceding run.
+    for r_idx in range(1, len(phrase.runs)):
+        prev_r = phrase.runs[r_idx - 1]
+        curr_r = phrase.runs[r_idx]
+        if curr_r.midi == prev_r.midi:
+            continue
+        s_off = curr_r.start - phrase.start
+        e_off = curr_r.end - phrase.start
+        prev_m = out[s_off - 1]
+        if all(out[o] == prev_m for o in range(s_off, e_off)) and all(
+            (curr_r.start + o) % EIGHTHS_PER_BAR not in STRONG_EIGHTHS
+            for o in range(curr_r.length)
+        ):
+            step = 1 if curr_r.midi > prev_r.midi else -1
+            cand_idx = scale.index(prev_m) + step
+            if target_bot_idx <= cand_idx <= target_top_idx:
+                cand_m = scale[cand_idx]
+                if r_idx + 1 < len(phrase.runs):
+                    next_r = phrase.runs[r_idx + 1]
+                    next_m = out[next_r.start - phrase.start]
+                    if (next_r.midi - curr_r.midi) * (next_m - cand_m) < 0:
+                        continue
+                for o in range(s_off, e_off):
+                    out[o] = cand_m
+    return out
+
+
+def _phrase_vibe_spans(
+    phrase: Phrase,
+    chosen_spans: list[tuple[int, int, bool, Run]],
+) -> tuple[list[tuple[int, int]], int, int]:
+    """Return normalized Vibraphone yield spans, minimum required octave shift, and max exact shift."""
+    p_vibe = [
+        (st, st + ln)
+        for st, ln, is_b, r in chosen_spans
+        if not is_b
+        and st >= phrase.start
+        and st + ln <= phrase.end
+        and r.midi > SAX_CEILING
+    ]
+    norm_vibe = [
+        (ys, phrase.end if ye == phrase.end - 1 else ye)
+        for ys, ye in p_vibe
+    ]
+    rem_high = [
+        r.midi
+        for r in phrase.runs
+        if r.midi > SAX_CEILING
+        and not any(ys <= r.start and r.end <= ye for ys, ye in norm_vibe)
+    ]
+    top = max(r.midi for r in phrase.runs)
+    bot = min(r.midi for r in phrase.runs)
+    if not rem_high:
+        req_shift = 0
+    elif top - 12 <= SAX_CEILING:
+        req_shift = 12
+    else:
+        req_shift = 24
+    max_exact_shift = 24 if bot - 24 >= SAX_LOW else (12 if bot - 12 >= SAX_LOW else 0)
+    return norm_vibe, req_shift, max_exact_shift
+
+
+def _realize_sax_phrase(
+    pitches: list[int],
+    phrase: Phrase,
+    chord_at: dict[int, Chord] | None,
+    scale: tuple[int, ...],
+    ceiling_idx: int,
+    max_exact_shift: int,
+    shift: int,
+    floor_idx: int,
+    preserve_span: bool,
+) -> tuple[list[int], bool]:
+    """Realize one phrase at `shift` semitones down, returning `(phrase_pitches, is_exact)`."""
+    top = max(r.midi for r in phrase.runs)
+    bot = min(r.midi for r in phrase.runs)
+    floor_midi = scale[floor_idx]
+    if shift <= max_exact_shift and bot - shift >= floor_midi:
+        return [pitches[e] - shift for e in range(phrase.start, phrase.end)], True
+    t_top = min(ceiling_idx, scale.index(max(floor_midi, top - shift)))
+    span = scale.index(top) - scale.index(bot)
+    t_bot = max(floor_idx, min(t_top, t_top - span))
+    if preserve_span:
+        t_top = min(ceiling_idx, max(t_top, t_bot + span))
+    return (
+        _compress_phrase_to_bounds(
+            pitches, phrase, chord_at, scale, ceiling_idx, t_bot, t_top
+        ),
+        False,
+    )
+
+
+def _build_phrase_candidates(
+    pitches: list[int],
+    phrase: Phrase,
+    chord_at: dict[int, Chord] | None,
+    scale: tuple[int, ...],
+    ceiling_idx: int,
+    alto_low_idx: int,
+    req_shift: int,
+    max_exact_shift: int,
+    *,
+    include_extra_floors: bool = False,
+) -> dict[SaxCandidateKey, tuple[list[int], bool]]:
+    """Build deduplicated exact and compressed octave-shift candidates for a phrase."""
+    cands: dict[SaxCandidateKey, tuple[list[int], bool]] = {}
+    seen: set[tuple[object, ...]] = set()
+    top = max(r.midi for r in phrase.runs)
+    bot = min(r.midi for r in phrase.runs)
+    span = scale.index(top) - scale.index(bot)
+
+    keys: list[SaxCandidateKey] = []
+    for shift in (0, 12, 24):
+        if shift < req_shift:
+            continue
+        keys.append((shift, 0, True))
+        if shift > 0:
+            keys.append((shift, alto_low_idx, True))
+        if shift > req_shift:
+            keys.append((shift, 0, False))
+            if shift > 0:
+                keys.append((shift, alto_low_idx, False))
+    if include_extra_floors:
+        for f_extra in range(alto_low_idx + 1, ceiling_idx):
+            keys.append((req_shift, f_extra, True))
+
+    for key in keys:
+        shift, floor_idx, preserve_span = key
+        floor_midi = scale[floor_idx]
+        if shift <= max_exact_shift and bot - shift >= floor_midi:
+            sig: tuple[object, ...] = ("exact", shift)
+        else:
+            t_top = min(ceiling_idx, scale.index(max(floor_midi, top - shift)))
+            t_bot = max(floor_idx, min(t_top, t_top - span))
+            if preserve_span:
+                t_top = min(ceiling_idx, max(t_top, t_bot + span))
+            sig = ("comp", t_bot, t_top)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        cands[key] = _realize_sax_phrase(
+            pitches,
+            phrase,
+            chord_at,
+            scale,
+            ceiling_idx,
+            max_exact_shift,
+            shift,
+            floor_idx,
+            preserve_span,
+        )
+    return cands
+
+
+def _candidate_base_cost(
+    key: SaxCandidateKey,
+    is_exact: bool,
+    req_shift: int,
+) -> int:
+    """Compute the intrinsic DP cost of selecting `key` for a phrase."""
+    shift, floor_idx, preserve_span = key
+    extra_octaves = (shift - req_shift) // 12
+    compress_cost = (
+        0
+        if is_exact
+        else (DP_FIT_ALTO_COMPRESS_PENALTY if req_shift == 0 else DP_COMPRESS_PENALTY)
+    )
+    shift_cost = (
+        extra_octaves * DP_FIT_ALTO_SHIFT_PENALTY
+        if req_shift == 0
+        else extra_octaves * DP_EXTRA_OCTAVE_SHIFT_COST
+    )
+    narrow_cost = 0 if preserve_span else DP_NARROW_COMPRESS_PENALTY
+    floor_cost = DP_ALTO_FLOOR_PENALTY + floor_idx * 10 if floor_idx > 0 else 0
+    return compress_cost + narrow_cost + shift_cost + floor_cost
+
+
+def _simulate_alto_handoff(
+    phrase: Phrase,
+    phrase_pitches: list[int],
+    vibe_spans: list[tuple[int, int]],
+    on_tenor_in: bool,
+) -> tuple[bool, tuple[int, int] | None, tuple[int, int] | None]:
+    """Simulate Alto/Tenor Saxophone handoff (matching `_instrument_segments`) for one phrase."""
+    on_tenor = on_tenor_in
+    alto_pts: list[tuple[int, int]] = []
+    phrase_runs = runs_of(phrase_pitches, 0, len(phrase_pitches))
+    for r_idx, run in enumerate(phrase_runs):
+        next_on_tenor = run.midi < CELLO_HANDBACK if on_tenor else run.midi < VIOLIN_LOWEST
+        if on_tenor and not next_on_tenor and r_idx > 0:
+            prev_r = phrase_runs[r_idx - 1]
+            if prev_r.midi >= VIOLIN_LOWEST and prev_r.length >= 2:
+                lead = min(CELLO_OVERLAP, prev_r.length // 2)
+                for off in range(prev_r.end - lead, prev_r.end):
+                    eighth = phrase.start + off
+                    if not any(ys <= eighth < ye for ys, ye in vibe_spans):
+                        alto_pts.append((eighth, prev_r.midi))
+        on_tenor = next_on_tenor
+        if not on_tenor:
+            for off in range(run.start, run.end):
+                eighth = phrase.start + off
+                if not any(ys <= eighth < ye for ys, ye in vibe_spans):
+                    alto_pts.append((eighth, run.midi))
+    return (
+        on_tenor,
+        alto_pts[0] if alto_pts else None,
+        alto_pts[-1] if alto_pts else None,
+    )
+
+
+def _boundary_transition_penalty(
+    pitches: list[int],
+    prev_phrase: Phrase,
+    curr_phrase: Phrase,
+    prev_pitches: list[int],
+    curr_pitches: list[int],
+    prev_shift: int,
+    curr_shift: int,
+    last_alto_prev: tuple[int, int] | None,
+    first_alto_curr: tuple[int, int] | None,
+) -> int:
+    """Compute the DP transition penalty across a phrase boundary."""
+    dp_dir = pitches[curr_phrase.start] - pitches[prev_phrase.end - 1]
+    ds_dir = curr_pitches[0] - prev_pitches[-1]
+    rev_dir = (
+        (dp_dir > 0 and ds_dir < 0)
+        or (dp_dir < 0 and ds_dir > 0)
+        or (dp_dir == 0 and ds_dir != 0)
+    )
+    big_dir = rev_dir and abs(ds_dir) >= SAX_LARGE_LEAP_SEMITONES
+
+    rev_alto = False
+    big_alto = False
+    if last_alto_prev is not None and first_alto_curr is not None:
+        e0, m0 = last_alto_prev
+        e1, m1 = first_alto_curr
+        dp_a = pitches[e1] - pitches[e0]
+        ds_a = m1 - m0
+        rev_alto = (
+            (dp_a > 0 and ds_a < 0)
+            or (dp_a < 0 and ds_a > 0)
+            or (dp_a == 0 and ds_a != 0)
+        )
+        big_alto = rev_alto and abs(ds_a) >= SAX_LARGE_LEAP_SEMITONES
+
+    if big_alto or big_dir:
+        return DP_LARGE_LEAP_PENALTY
+    if rev_alto or rev_dir:
+        return DP_SMALL_REVERSAL_PENALTY
+    return abs(curr_shift - prev_shift) * DP_SHIFT_CHANGE_COST
+
+
+def _solve_sax_dp(
+    pitches: list[int],
+    phrases: tuple[Phrase, ...],
+    phrase_vibes: list[list[tuple[int, int]]],
+    min_shift: list[int],
+    candidates: list[dict[SaxCandidateKey, tuple[list[int], bool]]],
+) -> tuple[list[SaxCandidateKey], int]:
+    """Run DP over phrase octave/register candidates and return `(chosen_keys, min_cost)`."""
+    n = len(phrases)
+    dp: list[dict[SaxDPState, int]] = [{} for _ in range(n)]
+    parent: list[dict[SaxDPState, SaxDPState | None]] = [{} for _ in range(n)]
+
+    for key, (sl, is_exact) in candidates[0].items():
+        s_val = key[0]
+        vibes = phrase_vibes[0] if (s_val == 0 and is_exact) else []
+        on_tenor_out, _, last_a = _simulate_alto_handoff(phrases[0], sl, vibes, False)
+        st: SaxDPState = (key, on_tenor_out, last_a)
+        cost = _candidate_base_cost(key, is_exact, min_shift[0])
+        if st not in dp[0] or cost < dp[0][st]:
+            dp[0][st] = cost
+            parent[0][st] = None
+
+    for i in range(1, n):
+        for k_curr, (sl_curr, exact_curr) in candidates[i].items():
+            s_curr = k_curr[0]
+            base_c = _candidate_base_cost(k_curr, exact_curr, min_shift[i])
+            vibes = phrase_vibes[i] if (s_curr == 0 and exact_curr) else []
+            sim_by_tenor = {
+                False: _simulate_alto_handoff(phrases[i], sl_curr, vibes, False),
+                True: _simulate_alto_handoff(phrases[i], sl_curr, vibes, True),
+            }
+            for st_prev, prev_c in dp[i - 1].items():
+                k_prev, on_tenor_prev, last_a_prev = st_prev
+                s_prev = k_prev[0]
+                sl_prev, _ = candidates[i - 1][k_prev]
+                on_tenor_out, first_a_curr, last_a_curr = sim_by_tenor[on_tenor_prev]
+                new_last_a = last_a_curr if last_a_curr is not None else last_a_prev
+                st_curr: SaxDPState = (k_curr, on_tenor_out, new_last_a)
+                pen = _boundary_transition_penalty(
+                    pitches,
+                    phrases[i - 1],
+                    phrases[i],
+                    sl_prev,
+                    sl_curr,
+                    s_prev,
+                    s_curr,
+                    last_a_prev,
+                    first_a_curr,
+                )
+                tot = prev_c + base_c + pen
+                if st_curr not in dp[i] or tot < dp[i][st_curr]:
+                    dp[i][st_curr] = tot
+                    parent[i][st_curr] = st_prev
+
+    best_st = min(dp[-1], key=lambda st_key: dp[-1][st_key])
+    best_cost = dp[-1][best_st]
+    chosen_k: list[SaxCandidateKey] = [(0, 0, True)] * n
+    curr_st: SaxDPState | None = best_st
+    for i in range(n - 1, -1, -1):
+        assert curr_st is not None
+        chosen_k[i] = curr_st[0]
+        curr_st = parent[i][curr_st]
+    return chosen_k, best_cost
 
 
 def _sax_melody_curve(
@@ -275,12 +623,10 @@ def _sax_melody_curve(
 
     Phrases that already fit within <= Ab5 (80), or whose only notes above Ab5 are
     covered by a non-breakout Vibraphone yield span, stay at their exact 1:1 pitches
-    so small 1-step price movements never flatten out. When choosing whether to lower
-    a phrase by an octave (12 or 24 semitones), adjacent phrases' boundary pitches and
-    Alto/Tenor handoff state are evaluated via dynamic programming so cross-phrase
-    transitions never jump in the opposite direction of price. Any phrase that must
-    be compressed onto the Saxophone range re-runs `_quantize_strong_beats` so all
-    strong beats land on chord tones.
+    unless keeping them at 1:1 would create a large contrary leap (>= 9 semitones)
+    at a phrase boundary. Dynamic programming across phrases selects the octave shift
+    (0, 12, or 24 semitones) and register bounds for each phrase while re-quantizing
+    any compressed phrase on strong beats via `_quantize_strong_beats`.
     """
     if not phrases:
         return list(pitches), phrases, []
@@ -288,169 +634,57 @@ def _sax_melody_curve(
     scale = c_major_scale(SAX_LOW, 96)
     ceiling_idx = scale.index(79)  # G5 (79), highest C-major scale tone <= SAX_CEILING (80)
     alto_low_idx = scale.index(VIOLIN_LOWEST)  # G3 (55)
-    n = len(phrases)
-    yield_spans: list[tuple[int, int]] = []
+
     phrase_vibes: list[list[tuple[int, int]]] = []
     min_shift: list[int] = []
-    max_shift: list[int] = []
-    bots: list[int] = []
-    tops: list[int] = []
-
+    max_exact: list[int] = []
+    candidates: list[dict[SaxCandidateKey, tuple[list[int], bool]]] = []
     for phrase in phrases:
-        p_vibe = [
-            (st, st + ln)
-            for st, ln, is_b, r in chosen_spans
-            if not is_b
-            and st >= phrase.start
-            and st + ln <= phrase.end
-            and r.midi > SAX_CEILING
-        ]
-        norm_vibe = [
-            (ys, phrase.end if ye == phrase.end - 1 else ye)
-            for ys, ye in p_vibe
-        ]
+        norm_vibe, req_shift, max_exact_shift = _phrase_vibe_spans(phrase, chosen_spans)
         phrase_vibes.append(norm_vibe)
-        rem_high = [
-            r.midi
-            for r in phrase.runs
-            if r.midi > SAX_CEILING
-            and not any(ys <= r.start and r.end <= ye for ys, ye in norm_vibe)
+        min_shift.append(req_shift)
+        max_exact.append(max_exact_shift)
+        candidates.append(
+            _build_phrase_candidates(
+                pitches,
+                phrase,
+                chord_at,
+                scale,
+                ceiling_idx,
+                alto_low_idx,
+                req_shift,
+                max_exact_shift,
+            )
+        )
+
+    chosen_k, best_cost = _solve_sax_dp(
+        pitches, phrases, phrase_vibes, min_shift, candidates
+    )
+    if best_cost >= DP_FIT_ALTO_SHIFT_PENALTY:
+        candidates = [
+            _build_phrase_candidates(
+                pitches,
+                phrase,
+                chord_at,
+                scale,
+                ceiling_idx,
+                alto_low_idx,
+                min_shift[i],
+                max_exact[i],
+                include_extra_floors=True,
+            )
+            for i, phrase in enumerate(phrases)
         ]
-        top = max(r.midi for r in phrase.runs)
-        bot = min(r.midi for r in phrase.runs)
-        bots.append(bot)
-        tops.append(top)
-        if not rem_high:
-            req = 0
-        elif top - 12 <= SAX_CEILING:
-            req = 12
-        else:
-            req = 24
-        min_shift.append(req)
-        mx = 24 if bot - 24 >= SAX_LOW else (12 if bot - 12 >= SAX_LOW else 0)
-        max_shift.append(mx)
-
-    def realize_phrase(i: int, s: int, keep_alto: bool) -> tuple[list[int], bool]:
-        phrase = phrases[i]
-        floor_idx = alto_low_idx if keep_alto else 0
-        floor_midi = scale[floor_idx]
-        if s <= max_shift[i] and bots[i] - s >= floor_midi:
-            return [pitches[e] - s for e in range(phrase.start, phrase.end)], True
-        t_top = min(ceiling_idx, scale.index(max(floor_midi, tops[i] - s)))
-        span = scale.index(tops[i]) - scale.index(bots[i])
-        t_bot = max(floor_idx, min(t_top, t_top - span))
-        return (
-            _compress_phrase_to_bounds(
-                pitches, phrase, chord_at, scale, ceiling_idx, t_bot, t_top
-            ),
-            False,
+        chosen_k, _ = _solve_sax_dp(
+            pitches, phrases, phrase_vibes, min_shift, candidates
         )
 
-    candidates: list[dict[tuple[int, bool], tuple[list[int], bool]]] = []
-    for i in range(n):
-        cands: dict[tuple[int, bool], tuple[list[int], bool]] = {}
-        for s in (0, 12, 24):
-            if s >= min_shift[i]:
-                cands[(s, False)] = realize_phrase(i, s, False)
-                if s > 0:
-                    cands[(s, True)] = realize_phrase(i, s, True)
-        candidates.append(cands)
-
-    def sim_alto(
-        i: int, sl: list[int], s_val: int, on_cello_in: bool
-    ) -> tuple[bool, tuple[int, int] | None, tuple[int, int] | None]:
-        phrase = phrases[i]
-        vibes = phrase_vibes[i] if s_val == 0 else []
-        on_c = on_cello_in
-        alto_pts: list[tuple[int, int]] = []
-        for r in runs_of(sl, 0, len(sl)):
-            on_c = r.midi < CELLO_HANDBACK if on_c else r.midi < VIOLIN_LOWEST
-            if not on_c:
-                for off in range(r.start, r.end):
-                    e = phrase.start + off
-                    if not any(ys <= e < ye for ys, ye in vibes):
-                        alto_pts.append((e, r.midi))
-        return (
-            on_c,
-            alto_pts[0] if alto_pts else None,
-            alto_pts[-1] if alto_pts else None,
-        )
-
-    State = tuple[tuple[int, bool], bool, tuple[int, int] | None]
-    dp: list[dict[State, int]] = [{} for _ in range(n)]
-    parent: list[dict[State, State | None]] = [{} for _ in range(n)]
-
-    for key, (sl, is_exact) in candidates[0].items():
-        s_val, k_alto = key
-        on_c_out, _, last_a = sim_alto(0, sl, s_val, False)
-        st: State = (key, on_c_out, last_a)
-        dp[0][st] = (0 if is_exact else 50) + (s_val // 12) + (5 if k_alto else 0)
-        parent[0][st] = None
-
-    for i in range(1, n):
-        for k_curr, (sl_curr, exact_curr) in candidates[i].items():
-            s_curr, ka_curr = k_curr
-            base_c = (0 if exact_curr else 50) + (s_curr // 12) + (5 if ka_curr else 0)
-            for st_prev, prev_c in dp[i - 1].items():
-                k_prev, on_c_prev, last_a_prev = st_prev
-                s_prev, _ = k_prev
-                sl_prev, _ = candidates[i - 1][k_prev]
-                on_c_out, first_a_curr, last_a_curr = sim_alto(
-                    i, sl_curr, s_curr, on_c_prev
-                )
-                new_last_a = last_a_curr if last_a_curr is not None else last_a_prev
-                st_curr = (k_curr, on_c_out, new_last_a)
-
-                dp_dir = pitches[phrases[i].start] - pitches[phrases[i - 1].end - 1]
-                ds_dir = sl_curr[0] - sl_prev[-1]
-                rev_dir = (
-                    (dp_dir > 0 and ds_dir < 0)
-                    or (dp_dir < 0 and ds_dir > 0)
-                    or (dp_dir == 0 and ds_dir != 0)
-                )
-                big_dir = rev_dir and abs(ds_dir) >= 9
-
-                rev_alto = False
-                big_alto = False
-                if last_a_prev is not None and first_a_curr is not None:
-                    e0, m0 = last_a_prev
-                    e1, m1 = first_a_curr
-                    dp_a = pitches[e1] - pitches[e0]
-                    ds_a = m1 - m0
-                    rev_alto = (
-                        (dp_a > 0 and ds_a < 0)
-                        or (dp_a < 0 and ds_a > 0)
-                        or (dp_a == 0 and ds_a != 0)
-                    )
-                    big_alto = rev_alto and abs(ds_a) >= 9
-
-                pen = (
-                    100_000
-                    if (big_alto or big_dir)
-                    else (
-                        10_000
-                        if (rev_alto or rev_dir)
-                        else abs(s_curr - s_prev) * 2
-                    )
-                )
-                tot = prev_c + base_c + pen
-                if st_curr not in dp[i] or tot < dp[i][st_curr]:
-                    dp[i][st_curr] = tot
-                    parent[i][st_curr] = st_prev
-
-    best_st = min(dp[-1], key=lambda st_key: dp[-1][st_key])
-    chosen_k: list[tuple[int, bool]] = [(0, False)] * n
-    curr_st: State | None = best_st
-    for i in range(n - 1, -1, -1):
-        assert curr_st is not None
-        chosen_k[i] = curr_st[0]
-        curr_st = parent[i][curr_st]
-
+    yield_spans: list[tuple[int, int]] = []
     sax_pitches = list(pitches)
     temp_phrases: list[Phrase] = []
     for i, phrase in enumerate(phrases):
         k = chosen_k[i]
-        s_val, _ = k
+        s_val = k[0]
         sl, is_exact = candidates[i][k]
         sax_pitches[phrase.start : phrase.end] = sl
         if s_val == 0 and is_exact:
