@@ -14,6 +14,9 @@ KIND_MINOR = "minor"
 KIND_MAJOR_SEVENTH = "major-seventh"
 KIND_DOMINANT = "dominant"
 KIND_MINOR_SEVENTH = "minor-seventh"
+KIND_MAJOR_NINTH = "major-ninth"
+KIND_MINOR_NINTH = "minor-ninth"
+KIND_DOMINANT_NINTH = "dominant-ninth"
 
 
 @dataclass(frozen=True)
@@ -47,6 +50,26 @@ G7 = Chord("G7", "G", KIND_DOMINANT, "7", (67, 71, 74, 77))
 AM7 = Chord("Am7", "A", KIND_MINOR_SEVENTH, "m7", (57, 60, 64, 67))
 DM7 = Chord("Dm7", "D", KIND_MINOR_SEVENTH, "m7", (62, 65, 69, 72))
 EM7 = Chord("Em7", "E", KIND_MINOR_SEVENTH, "m7", (64, 67, 71, 74))
+
+CMAJ9 = Chord("Cmaj9", "C", KIND_MAJOR_NINTH, "maj9", (60, 64, 67, 71, 74))
+FMAJ9 = Chord("Fmaj9", "F", KIND_MAJOR_NINTH, "maj9", (65, 69, 72, 76, 79))
+G9 = Chord("G9", "G", KIND_DOMINANT_NINTH, "9", (67, 71, 74, 77, 81))
+AM9 = Chord("Am9", "A", KIND_MINOR_NINTH, "m9", (57, 60, 64, 67, 71))
+DM9 = Chord("Dm9", "D", KIND_MINOR_NINTH, "m9", (62, 65, 69, 72, 76))
+
+JAZZ_CHORD_BY_ROOT: dict[str, Chord] = {
+    "C": CMAJ9,
+    "F": FMAJ9,
+    "D": DM9,
+    "G": G9,
+    "A": AM9,
+    "E": EM7,
+}
+
+
+def jazz_chord(chord: Chord) -> Chord:
+    """Promote a C-major triad or seventh chord to its Lush/Lo-Fi Jazz voicing."""
+    return JAZZ_CHORD_BY_ROOT.get(chord.root_step, chord)
 
 TRIADS: tuple[Chord, ...] = (C, F, DM, G, AM, EM)
 SEVENTHS: tuple[Chord, ...] = (CMAJ7, FMAJ7, DM7, G7, AM7, EM7)

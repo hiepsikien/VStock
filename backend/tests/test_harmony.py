@@ -13,7 +13,16 @@ from app.sonify.dynamics import DYNAMICS, MARKINGS, SOUND, marking_for_volume
 from app.sonify.form import SECTION_STARTS, _prev_last_touched_strong, plan_markov_chords, plan_slots
 from app.sonify.model import Bar, WedgeEvent
 from app.sonify.musicxml import BASS_WRITTEN_OCTAVES, score_to_musicxml
-from app.sonify.phrasing import MAX_EIGHTHS, MIN_EIGHTHS, PERIOD, plan_phrases
+from app.sonify.phrasing import (
+    MAX_EIGHTHS,
+    MIN_EIGHTHS,
+    PERIOD,
+    STRONG_EIGHTHS,
+    comp_pitches,
+    fill_tones,
+    plan_phrases,
+    quantize_strong_beats,
+)
 from app.sonify.quantize import (
     C_MAJOR_PCS,
     CONTOUR_REPEAT_PENALTY,
@@ -44,11 +53,7 @@ from app.sonify.chords import (
     transition_probability,
 )
 from app.sonify.render import (
-    STRONG_EIGHTHS,
-    _quantize_strong_beats,
     assign_source_bars,
-    comp_pitches,
-    fill_tones,
     flute_harmony_pitch,
     render,
 )
@@ -1423,7 +1428,7 @@ def test_weak_beat_passing_note_at_bar_end_keeps_raw_previous_pitch() -> None:
     #   prev_chord G ({55, 59, 62}), 59 stayed 59, so 62 -> 60 does not repeat 59.
     # - When B3 (59) at the end of bar 1 was a single weak-beat passing note at eighth 15
     #   (eighths 12..14 were 60, eighth 15 was 59), _prev_last_touched_strong is False:
-    #   _quantize_strong_beats leaves eighth 15 at raw 59 regardless of whether bar 1 was C or G,
+    #   quantize_strong_beats leaves eighth 15 at raw 59 regardless of whether bar 1 was C or G,
     #   so bar 2's loss under F is uniform and independent of prev_chord.
     bar_two_notes = [62, 65, 65, 65, 65, 65, 65, 65]
     loss_when_prev_was_raw_59 = bar_quantization_loss(
@@ -1441,17 +1446,17 @@ def test_weak_beat_passing_note_at_bar_end_keeps_raw_previous_pitch() -> None:
     assert not _prev_last_touched_strong(raw_passing_tail, 2)
     for prev_chord in (C, G):
         chord_at = {b: (prev_chord if b == 1 else F) for b in range(30)}
-        snapped = _quantize_strong_beats(raw_passing_tail, chord_at, scale)
+        snapped = quantize_strong_beats(raw_passing_tail, chord_at, scale)
         assert snapped[15] == 59
 
     raw_strong_tail = [60] * 240
     raw_strong_tail[12:16] = [59, 59, 59, 59]  # held from strong beat 4 of bar 1
     raw_strong_tail[16:24] = bar_two_notes
     assert _prev_last_touched_strong(raw_strong_tail, 2)
-    snapped_under_c = _quantize_strong_beats(
+    snapped_under_c = quantize_strong_beats(
         raw_strong_tail, {b: (C if b == 1 else F) for b in range(30)}, scale
     )
-    snapped_under_g = _quantize_strong_beats(
+    snapped_under_g = quantize_strong_beats(
         raw_strong_tail, {b: (G if b == 1 else F) for b in range(30)}, scale
     )
     assert snapped_under_c[15] == 60
@@ -1495,5 +1500,540 @@ def test_dynamics_and_bass_pulse_stay_invariant_when_prices_change() -> None:
         for m in _part(root_b, "P4").findall("measure")
     ]
     assert bass_marks_a == bass_marks_b
+
+
+def test_unknown_variant_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="unknown variant"):
+        render([Bar(100.0, 1.0, 100.0)] * 30, variant="rock")  # type: ignore[arg-type]
+
+
+def test_jazz_variant_swing_instruments_chords_and_vibraphone_layering() -> None:
+    # Build a session with a clear breakout above 4 bars and multi-band liquidity
+    spans = {47: (1, 9), 48: (1, 11), 49: (1, 12), 50: (6, 22)}
+    volumes = [
+        10_000.0 if (i // 16) in (0, 3)
+        else 40_000.0 if (i // 16) in (1, 4, 8)
+        else 90_000.0 if (i // 16) in (2, 5, 9)
+        else 250_000.0
+        for i in range(240)
+    ]
+    score = render(
+        _session(spans, volumes=volumes),
+        title="FPT Jazz Recap",
+        regimes=("uptrend", "sideway", "downtrend"),
+        variant="jazz",
+    )
+    assert score.variant == "jazz"
+    assert score.bpm == 82
+    assert score.swing is True
+    assert score.divisions == 2
+
+    _text, root = _xml(score)
+    names = [part.find("part-name").text for part in root.findall("part-list/score-part")]
+    assert names == [
+        "Vibraphone",
+        "Alto Saxophone",
+        "Tenor Saxophone",
+        "Rhodes Piano",
+        "Upright Bass",
+    ]
+    programs = [
+        prog.text for prog in root.findall("part-list/score-part/midi-instrument/midi-program")
+    ]
+    assert programs == ["12", "66", "67", "5", "33"]
+
+    # Swing tag and text in Measure 1 of Lead part (P1 Alto Saxophone):
+    # Metronome (tempo) and Swing (words + sound/swing) are in separate <direction> elements
+    # so MuseScore does not combine "Swing" into TempoText AND create a duplicate StaffText.
+    sax_m1 = _part(root, "P1").findall("measure")[0]
+    above_dirs = [d for d in sax_m1.findall("direction") if d.get("placement") == "above"]
+    assert len(above_dirs) == 2
+    assert above_dirs[0].find("direction-type/metronome/per-minute").text == "82"
+    assert above_dirs[0].find("direction-type/words") is None
+    assert above_dirs[0].find("sound").get("tempo") == "82"
+    assert above_dirs[1].find("direction-type/words").text == "Swing"
+    assert above_dirs[1].find("direction-type/metronome") is None
+    swing_el = above_dirs[1].find("sound/swing")
+    assert swing_el is not None
+    assert swing_el.find("straight") is None
+    assert swing_el.find("first").text == "2"
+    assert swing_el.find("second").text == "1"
+    assert swing_el.find("swing-type").text == "eighth"
+
+    # Jazz chord symbols (9th and 7th chords)
+    jazz_kinds = {h.chord.kind for h in score.harmonies}
+    assert jazz_kinds <= {"major-ninth", "minor-ninth", "dominant-ninth", "minor-seventh"}
+    assert "major-ninth" in jazz_kinds or "minor-ninth" in jazz_kinds
+
+    # Threshold Layering:
+    # 1) Vibraphone (P5) only plays in high register C6–F6 (84..89, standard 3-octave ceiling),
+    #    velocity 50..70, capped at <= 15% of the 240-eighth piece (<= 36 eighths), and plays a
+    #    3-note chord cluster on the breakout at bar 6 (eighth 50). On a flat session with no
+    #    price rise or high notes, Vibraphone stays completely silent.
+    vib_sounding = [n for n in score.flute if n.midi is not None]
+    assert vib_sounding
+    assert all(84 <= n.midi <= 89 for n in vib_sounding)
+    assert all(50 <= (n.velocity or 0) <= 70 for n in vib_sounding)
+    vib_attacks = [
+        n
+        for i, n in enumerate(score.flute)
+        if n.midi is not None
+        and (i == 0 or (score.flute[i - 1].bar, score.flute[i - 1].beat) != (n.bar, n.beat))
+    ]
+    vib_eighths = sum(int(round(n.duration_beats * 2)) for n in vib_attacks)
+    assert 0 < vib_eighths <= 36
+
+    flat_jazz = render([Bar(50.0, 1.0, 50.0)] * 30, variant="jazz")
+    assert all(n.midi is None for n in flat_jazz.flute)
+
+    # Breakout bar 6 has a 3-note Vibraphone chord cluster in MusicXML (<chord/> tags)
+    vib_m7 = _part(root, "P5").findall("measure")[6]
+    vib_chord_notes = [n for n in vib_m7.findall("note") if n.find("chord") is not None]
+    assert len(vib_chord_notes) >= 2
+
+    # 2) Alto Saxophone (P1) stays inside its realistic warm register (<= Ab5 = 80)
+    assert all(n.midi <= 80 for n in score.violin if n.midi is not None)
+
+    # 3) Rhodes Piano (P3) voices all 9th chords (including Cmaj9 and Dm9) with their 9th degree
+    #    inserted inside/above the guide tones, and uses Charleston syncopation on active bars.
+    from app.sonify.chords import AM9, CMAJ9, DM9, FMAJ9, G9
+    from app.sonify.jazz import _rhodes_voicing
+
+    assert _rhodes_voicing(CMAJ9) == (48, (59, 62, 64))
+    assert _rhodes_voicing(DM9) == (50, (60, 64, 65))
+    for ninth_chord in (CMAJ9, DM9, FMAJ9, G9, AM9):
+        _r, r_voicing = _rhodes_voicing(ninth_chord)
+        assert len(r_voicing) == 3
+        assert (ninth_chord.pitches[4] % 12) in {m % 12 for m in r_voicing}
+
+    charleston_bars = [
+        bar
+        for bar in range(2, 26)
+        if any(
+            n.staff == 1 and n.beat == 1.5 and n.duration_beats == 0.5 and n.tenuto
+            for n in score.piano
+            if n.bar == bar
+        )
+    ]
+    assert len(charleston_bars) > 0
+
+    # 4) Upright Bass (P4) plays 2-feel on 'p' bars and 4-beat Walking Bass on active phrase bars
+    for bar in range(2, 26):
+        bar_bass = [n for n in score.bass if n.bar == bar]
+        band = score.liquidity[
+            next(i for i, slot in enumerate(
+                [(0, 2), *((s, 2) for s in range(2, 26, 2)), (26, 4)]
+            ) if slot[0] <= bar < slot[0] + slot[1])
+        ]
+        if band == "p":
+            assert [n.duration_beats for n in bar_bass] == [2.0, 2.0]
+        else:
+            assert [n.duration_beats for n in bar_bass] == [1.0, 1.0, 1.0, 1.0]
+
+    # Measure timing invariant across all 5 parts
+    for part_id in ("P5", "P1", "P2", "P4"):
+        for measure in _part(root, part_id).findall("measure"):
+            non_chord = [n for n in measure.findall("note") if n.find("chord") is None]
+            assert sum(int(n.find("duration").text) for n in non_chord) == 8
+    for measure in _part(root, "P3").findall("measure"):
+        for staff_num in ("1", "2"):
+            non_chord = [
+                n
+                for n in measure.findall("note")
+                if n.find("staff").text == staff_num and n.find("chord") is None
+            ]
+            assert sum(int(n.find("duration").text) for n in non_chord) == 8
+
+
+def test_minimalist_variant_cutoff_brightness_4_on_the_floor_and_rhythmic_density() -> None:
+    # First phrase in low price register (index 1 -> D3=50, dark/closed filter),
+    # second phrase climbing to high price register (index 26 -> A6=93, bright/open filter).
+    spans = {
+        16: (32, 1),   # bars 2..5: low price -> closed filter
+        80: (32, 26),  # bars 10..13: high price -> wide open filter
+    }
+    volumes = [
+        10_000.0 if (i // 16) in (0, 1)      # 'p'
+        else 40_000.0 if (i // 16) in (2, 3) # 'mp'
+        else 90_000.0 if (i // 16) in (4, 5) # 'mf'
+        else 250_000.0                       # 'f'
+        for i in range(240)
+    ]
+    score = render(
+        _session(spans, volumes=volumes),
+        title="FPT Minimalist Recap",
+        regimes=("downtrend", "uptrend", "sideway"),
+        variant="minimalist",
+    )
+    assert score.variant == "minimalist"
+    assert score.bpm == 118
+    assert score.swing is False
+    assert score.divisions == 4
+
+    _text, root = _xml(score)
+    names = [part.find("part-name").text for part in root.findall("part-list/score-part")]
+    assert names == [
+        "Synth Bell",
+        "Synth Arpeggio",
+        "Synth Pad",
+        "Synth Pulse",
+        "Sub-Bass",
+    ]
+    programs = [
+        prog.text for prog in root.findall("part-list/score-part/midi-instrument/midi-program")
+    ]
+    assert programs == ["99", "82", "90", "81", "39"]
+
+    # 1) Cutoff Filter / Brightness Modulation on Synth Arpeggio (P1):
+    # Low price bar (bar 3) is lower in pitch, quieter, and staccato;
+    # High price bar (bar 11) is higher in pitch, louder, and tenuto/accented.
+    arp_low_bar = [n for n in score.violin if n.bar == 3 and n.midi is not None]
+    arp_high_bar = [n for n in score.violin if n.bar == 11 and n.midi is not None]
+    assert len(arp_low_bar) == 8 and len(arp_high_bar) == 8
+    assert sum(n.midi for n in arp_high_bar) / 8 > sum(n.midi for n in arp_low_bar) / 8 + 12
+    assert sum(n.velocity or 0 for n in arp_high_bar) > sum(n.velocity or 0 for n in arp_low_bar)
+    assert all(n.staccato for n in arp_low_bar)
+    assert any(n.tenuto and n.accent for n in arp_high_bar)
+
+    # 2) Sub-Bass (P4): Four-on-the-Floor (4 quarter notes per bar across all 30 bars)
+    for bar in range(30):
+        sub_bar = [n for n in score.bass if n.bar == bar]
+        assert [(n.beat, n.duration_beats) for n in sub_bar] == [
+            (0.0, 1.0),
+            (1.0, 1.0),
+            (2.0, 1.0),
+            (3.0, 1.0),
+        ]
+
+    # 3) Synth Pulse (P3): Rhythmic density scales with liquidity ('p' -> 2, 'mp' -> 4, 'mf' -> 8, 'f' -> 16)
+    pulse_p = [n for n in score.piano if n.bar == 0 and n.staff == 1]
+    pulse_mp = [n for n in score.piano if n.bar == 4 and n.staff == 1]
+    pulse_mf = [n for n in score.piano if n.bar == 8 and n.staff == 1]
+    pulse_f = [n for n in score.piano if n.bar == 12 and n.staff == 1]
+    assert len(pulse_p) == 2 and all(n.duration_beats == 2.0 for n in pulse_p)
+    assert len(pulse_mp) == 4 and all(n.duration_beats == 1.0 for n in pulse_mp)
+    assert len(pulse_mf) == 8 and all(n.duration_beats == 0.5 for n in pulse_mf)
+    assert len(pulse_f) == 16 and all(n.duration_beats == 0.25 for n in pulse_f)
+
+    # Backbeat on staff 2 on 'mf' and 'f' bars (beats 1.0 and 3.0 -> musical beats 2 and 4)
+    backbeat_f = [n for n in score.piano if n.bar == 12 and n.staff == 2]
+    assert [(n.beat, n.midi is not None) for n in backbeat_f] == [
+        (0.0, False),
+        (1.0, True),
+        (2.0, False),
+        (3.0, True),
+    ]
+
+    # Measure timing invariant with divisions=4 (4 beats * 4 divisions = 16 units per measure)
+    for part_id in ("P5", "P1", "P2", "P4"):
+        for measure in _part(root, part_id).findall("measure"):
+            non_chord = [n for n in measure.findall("note") if n.find("chord") is None]
+            assert sum(int(n.find("duration").text) for n in non_chord) == 16
+    for measure in _part(root, "P3").findall("measure"):
+        for staff_num in ("1", "2"):
+            non_chord = [
+                n
+                for n in measure.findall("note")
+                if n.find("staff").text == staff_num and n.find("chord") is None
+            ]
+            assert sum(int(n.find("duration").text) for n in non_chord) == 16
+
+
+def test_all_three_variants_hold_invariants_across_random_walks() -> None:
+    total_reversals = 0
+    total_steps = 0
+    for seed in range(15):
+        closes = _walk(seed)
+        volumes = [20_000 + 180_000 * ((i * 19 + seed) % 240) / 239 for i in range(240)]
+        bars = [Bar(close, vol, close) for close, vol in zip(closes, volumes)]
+        for variant in ("symphony", "jazz", "minimalist"):
+            score = render(bars, variant=variant)
+            assert score.variant == variant
+            _text, root = _xml(score)
+            expected_units = 4 * score.divisions
+
+            for part_id in ("P5", "P1", "P2", "P4"):
+                for measure in _part(root, part_id).findall("measure"):
+                    non_chord = [n for n in measure.findall("note") if n.find("chord") is None]
+                    assert sum(int(n.find("duration").text) for n in non_chord) == expected_units
+
+            for measure in _part(root, "P3").findall("measure"):
+                for staff_num in ("1", "2"):
+                    non_chord = [
+                        n
+                        for n in measure.findall("note")
+                        if n.find("staff").text == staff_num and n.find("chord") is None
+                    ]
+                    assert sum(int(n.find("duration").text) for n in non_chord) == expected_units
+
+            for wedges in (score.violin_wedges, score.cello_wedges):
+                assert _balanced([w.kind for w in wedges])
+
+            for part_notes in (score.flute, score.violin, score.cello, score.piano, score.bass):
+                for note in part_notes:
+                    if note.midi is not None:
+                        assert note.midi % 12 in C_MAJOR_PCS
+
+            if variant == "jazz":
+                vib_attacks = [
+                    n
+                    for i, n in enumerate(score.flute)
+                    if n.midi is not None
+                    and (
+                        i == 0
+                        or (score.flute[i - 1].bar, score.flute[i - 1].beat) != (n.bar, n.beat)
+                    )
+                ]
+                vib_eighths = sum(int(round(n.duration_beats * 2)) for n in vib_attacks)
+                assert 0 < vib_eighths <= 36
+                assert all(84 <= n.midi <= 89 for n in score.flute if n.midi is not None)
+                assert all(50 <= (n.velocity or 0) <= 70 for n in score.flute if n.midi is not None)
+                assert all(n.midi <= 80 for n in score.violin if n.midi is not None)
+
+                # Every strong beat on Alto and Tenor Saxophone is a chord tone of the active Jazz chord.
+                jazz_chord_at = {bar: slot.chord for slot in score.slots for bar in slot.bars()}
+                for note in score.violin + score.cello:
+                    if note.midi is None:
+                        continue
+                    start_eighth = note.bar * 8 + int(note.beat * 2)
+                    end_eighth = start_eighth + int(note.duration_beats * 2)
+                    for eighth in range(start_eighth, end_eighth):
+                        if eighth % 8 in STRONG_EIGHTHS:
+                            assert note.midi % 12 in jazz_chord_at[note.bar].pitch_classes
+
+                # Within every phrase, Alto Sax never inverts pitch direction on non-strong beats,
+                # never leaps >= 9 semitones against price across phrase boundaries,
+                # and keeps overall small reversals low (< 2%).
+                sax_notes = [n for n in score.violin if n.midi is not None]
+                for a, b in zip(sax_notes, sax_notes[1:]):
+                    if a.midi == b.midi:
+                        continue
+                    ea = int(round(a.bar * 8 + a.beat * 2))
+                    eb = int(round(b.bar * 8 + b.beat * 2))
+                    dc = closes[eb] - closes[ea]
+                    dm = b.midi - a.midi
+                    if dc == 0:
+                        continue
+                    total_steps += 1
+                    pa = next(i for i, p in enumerate(score.phrases) if p.start <= ea < p.end)
+                    pb = next(i for i, p in enumerate(score.phrases) if p.start <= eb < p.end)
+                    if (
+                        pa == pb
+                        and ea % 8 not in STRONG_EIGHTHS
+                        and eb % 8 not in STRONG_EIGHTHS
+                    ):
+                        assert dm * dc >= 0
+                    if dm * dc < 0:
+                        assert abs(dm) < 9
+                        total_reversals += 1
+    assert total_steps > 0 and (total_reversals / total_steps) < 0.02
+
+    # Phrase-level 1:1 resolution and final-phrase bounds guard in _sax_melody_curve:
+    # - Phrases fitting in <= Ab5 (80) stay at exact 1:1 resolution (100% across random walks).
+    # - Sideway +/-1 random walks keep 100% of phrases at 1:1 and lose 0% of pitch changes;
+    #   +/-1/+/-2 walks lose < 1% of both run pitch changes and eighth-note pitch changes.
+    # - Final phrase ending at 240 with held_over=True does not raise IndexError.
+    from app.sonify.jazz import _sax_melody_curve
+    from app.sonify.model import Phrase, Run
+
+    _, bounded_phrases, _ = _sax_melody_curve(
+        [72] * 240,
+        (Phrase(0, 240, (Run(0, 240, 72),), held_over=True),),
+        [],
+    )
+    assert bounded_phrases[-1].held_over is False
+
+    lost_walk_runs = 0
+    total_walk_runs = 0
+    lost_walk_eighths = 0
+    total_walk_eighths = 0
+    fit_80_total = 0
+    fit_80_exact = 0
+    fit_80_s0 = 0
+    lost_sideway = 0
+    total_sideway = 0
+    for seed in range(25):
+        bars_w = [Bar(c, 1.0, c) for c in _walk(seed)]
+        sym_w = render(bars_w, variant="symphony")
+        jazz_w = render(bars_w, variant="jazz")
+        sym_line = [r.midi for p in sym_w.phrases for r in p.runs for _ in range(r.length)]
+        jazz_line = [r.midi for p in jazz_w.phrases for r in p.runs for _ in range(r.length)]
+        for sym_p, jazz_p in zip(sym_w.phrases, jazz_w.phrases):
+            if max(r.midi for r in sym_p.runs) <= 80:
+                fit_80_total += 1
+                shift = sym_p.runs[0].midi - jazz_p.runs[0].midi
+                assert shift in (0, 12, 24)
+                assert (
+                    tuple(Run(r.start, r.length, r.midi - shift) for r in sym_p.runs)
+                    == jazz_p.runs
+                )
+                fit_80_exact += 1
+                if shift == 0:
+                    fit_80_s0 += 1
+            sym_rc = sum(1 for a, b in zip(sym_p.runs, sym_p.runs[1:]) if a.midi != b.midi)
+            jazz_rc = sum(1 for a, b in zip(jazz_p.runs, jazz_p.runs[1:]) if a.midi != b.midi)
+            total_walk_runs += sym_rc
+            lost_walk_runs += max(0, sym_rc - jazz_rc)
+
+            sym_ec = sum(
+                1
+                for e in range(sym_p.start, sym_p.end - 1)
+                if sym_line[e + 1] != sym_line[e]
+            )
+            jazz_ec = sum(
+                1
+                for e in range(jazz_p.start, jazz_p.end - 1)
+                if jazz_line[e + 1] != jazz_line[e]
+            )
+            total_walk_eighths += sym_ec
+            lost_walk_eighths += max(0, sym_ec - jazz_ec)
+
+        rng = random.Random(1000 + seed)
+        idx = 11
+        side_closes: list[float] = []
+        for _ in range(240):
+            if rng.random() > 0.35:
+                idx = min(16, max(7, idx + rng.choice((-1, 1))))
+            side_closes.append(float(idx))
+        bars_s = [Bar(c, 1.0, c) for c in side_closes]
+        sym_s = render(bars_s, variant="symphony")
+        jazz_s = render(bars_s, variant="jazz")
+        for sym_p, jazz_p in zip(sym_s.phrases, jazz_s.phrases):
+            if max(r.midi for r in sym_p.runs) <= 80:
+                shift_s = sym_p.runs[0].midi - jazz_p.runs[0].midi
+                assert shift_s in (0, 12, 24)
+                assert (
+                    tuple(Run(r.start, r.length, r.midi - shift_s) for r in sym_p.runs)
+                    == jazz_p.runs
+                )
+            sym_rc = sum(1 for a, b in zip(sym_p.runs, sym_p.runs[1:]) if a.midi != b.midi)
+            jazz_rc = sum(1 for a, b in zip(jazz_p.runs, jazz_p.runs[1:]) if a.midi != b.midi)
+            total_sideway += sym_rc
+            lost_sideway += max(0, sym_rc - jazz_rc)
+
+    assert lost_sideway == 0
+    assert fit_80_exact == fit_80_total
+    assert (fit_80_s0 / fit_80_total) >= 0.99
+    assert (lost_walk_runs / total_walk_runs) < 0.01
+    assert (lost_walk_eighths / total_walk_eighths) < 0.01
+
+
+def test_score_role_and_variant_property_aliases() -> None:
+    from dataclasses import fields
+
+    from app.sonify.chords import CMAJ9, DM9, EM7, FMAJ9, G9, AM9
+    from app.sonify.jazz import (
+        _high_bell_voicing,
+        _sax_melody_curve,
+        _vibraphone_accent_part,
+    )
+    from app.sonify.model import NoteEvent, Phrase, Run, Score
+    from app.sonify.phrasing import bell_budget, with_rests
+
+    # Primary dataclass fields on Score use role-neutral names (high, lead, support, comp, low)
+    field_names = {f.name for f in fields(Score)}
+    assert {"high", "lead", "support", "comp", "low"} <= field_names
+    assert {"lead_wedges", "support_wedges", "lead_dynamics", "support_dynamics"} <= field_names
+
+    bars = [Bar(float(i % 7), 100.0 + i * 5.0, 100.0 + i) for i in range(16)]
+    sym = render(bars, variant="symphony")
+    jazz = render(bars, variant="jazz")
+    mini = render(bars, variant="minimalist")
+
+    for s in (sym, jazz, mini):
+        assert s.high is s.flute
+        assert s.lead is s.violin
+        assert s.support is s.cello
+        assert s.comp is s.piano
+        assert s.low is s.bass
+        assert s.lead_wedges is s.violin_wedges
+        assert s.support_wedges is s.cello_wedges
+        assert s.lead_dynamics is s.violin_dynamics
+        assert s.support_dynamics is s.cello_dynamics
+
+    # Verify with_rests handles simultaneous chord notes robustly even if
+    # chord notes have different durations or reversed input order.
+    chord_notes = [
+        NoteEvent(bar=0, beat=1.0, duration_beats=1.0, midi=64, voice=1),
+        NoteEvent(bar=0, beat=1.0, duration_beats=2.0, midi=60, voice=1),
+    ]
+    filled = with_rests(chord_notes, total=8)
+    assert [(n.beat, n.duration_beats, n.midi) for n in filled] == [
+        (0.0, 1.0, None),
+        (1.0, 2.0, 60),
+        (1.0, 1.0, 64),
+        (3.0, 1.0, None),
+    ]
+
+    # Regression 1: When a phrase has high notes (> 80, e.g. 96/93) covered by Vibraphone at
+    # shift == 0 (so req_shift == 0), shifting that phrase down by 12 semitones to avoid a
+    # boundary reversal drops Vibraphone yield_spans; _build_phrase_candidates must NOT treat
+    # shift = 12 as exact when top - 12 > 80, ensuring Alto Sax never exceeds Ab5 (80).
+    pitches_reg = [79] * 8 + [72] * 4 + [96] * 2 + [93] * 2 + [60] * 224
+    phrases_reg = (
+        Phrase(0, 8, (Run(0, 8, 79),), False),
+        Phrase(8, 16, (Run(8, 4, 72), Run(12, 2, 96), Run(14, 2, 93)), False),
+        Phrase(16, 240, (Run(16, 224, 60),), False),
+    )
+    # Vibraphone covers eighths 12..16 at shift=0, so req_shift=0 for phrase 1,
+    # while phrase 0 ends at 79 (raw) -> 55 (at shift=24) forcing phrase 1 to shift > 0.
+    chosen_spans_reg = [(12, 4, False, Run(12, 4, 96))]
+    sax_pitches_reg, sax_phrases_reg, yields_reg = _sax_melody_curve(
+        pitches_reg, phrases_reg, chosen_spans_reg
+    )
+    for r in sax_phrases_reg[1].runs:
+        if not any(ys <= r.start and r.end <= ye for ys, ye in yields_reg):
+            assert r.midi <= 80
+
+    scale = c_major_scale()
+    for seed in (48, 204):
+        rng = random.Random(seed)
+        idx = rng.randint(0, len(scale) - 1)
+        wide_closes: list[float] = []
+        for _ in range(240):
+            idx = max(0, min(len(scale) - 1, idx + rng.choice((-3, -2, -1, 0, 1, 2, 3))))
+            wide_closes.append(float(idx))
+        wide_jazz = render([Bar(c, 1.0, c) for c in wide_closes], variant="jazz")
+        assert all(n.midi <= 80 for n in wide_jazz.lead if n.midi is not None)
+
+    # Regression 2: Smooth relative-span Vibraphone / Synth Bell density scaling:
+    # - <= 0.5% relative span (including 1–2 ticks on HOSE around price 25.0 -> 0.2%–0.4%
+    #   or 0.47% noise): budget is 0 eighths (completely silent), independent of price unit
+    #   (thousand VND vs VND).
+    # - Between 0.5% and 2.0% relative span: budget scales smoothly from 0 up to 36 eighths.
+    assert bell_budget(0.002) == 0
+    assert bell_budget(0.004) == 0
+    assert bell_budget(0.0047) == 0
+    assert bell_budget(0.005) == 0
+    assert 0 < bell_budget(0.010) < bell_budget(0.015) < 36
+    assert bell_budget(0.020) == 36
+
+    for span_pct in (0.002, 0.004, 0.0047):
+        hose_bars = [Bar(25.0 * (1.0 + (i % 3) * (span_pct / 2)), 1.0, 25.0) for i in range(240)]
+        assert all(n.midi is None for n in render(hose_bars, variant="jazz").high)
+        assert all(n.midi is None for n in render(hose_bars, variant="minimalist").high)
+
+    # Price-unit invariance: 25.0 (thousand VND) vs 25_000.0 (VND) produce identical Vibraphone output.
+    bars_kvnd = [Bar(25.0 * (1.0 + (i % 5) * 0.003), 1.0, 25.0) for i in range(240)]
+    bars_vnd = [Bar(25_000.0 * (1.0 + (i % 5) * 0.003), 1.0, 25_000.0) for i in range(240)]
+    assert render(bars_kvnd, variant="jazz").high == render(bars_vnd, variant="jazz").high
+
+    mid_phrases = (Phrase(0, 16, (Run(0, 8, 60), Run(8, 8, 77)), False),)
+    vib_mid, spans_mid = _vibraphone_accent_part(
+        mid_phrases, [60] * 8 + [77] * 8 + [60] * 224, {b: "mp" for b in range(30)}, {b: CMAJ9 for b in range(30)}
+    )
+    assert spans_mid == []
+    assert all(n.midi is None for n in vib_mid)
+
+    # High bell 3-note cluster avoids E6–F6 (88, 89) semitone clashes across all Jazz chords.
+    scale_high = c_major_scale(84, 89)
+    for ch in (CMAJ9, DM9, EM7, FMAJ9, G9, AM9):
+        voicing = _high_bell_voicing(88, ch, scale_high)
+        assert len(voicing) == 3
+        assert not (88 in voicing and 89 in voicing)
+
+
+
+
 
 

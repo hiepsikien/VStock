@@ -56,6 +56,9 @@ research/**/__pycache__/
 research/**/*.pyc
 research/data/
 research/sonify/out/*.wav
+research/sonify/out/*_symphony.musicxml
+research/sonify/out/*_jazz.musicxml
+research/sonify/out/*_minimalist.musicxml
 .pytest_cache/
 
 # Editor / agent

@@ -86,7 +86,7 @@ def bar_quantization_loss(
 
     Every note in `bar_pitches` must belong to `scale` (raises ValueError otherwise).
     Strong beats (eighths 0 and 4, beats 1 and 3) and eighths held in the same
-    run as a strong beat carry primary weight because _quantize_strong_beats
+    run as a strong beat carry primary weight because `quantize_strong_beats`
     snaps strong-beat runs to chord tones using contour (`previous` and `step`);
     weak-beat passing notes keep their scale tone and carry only a small
     tie-breaker weight. `previous_snapped` may be passed when the preceding bar
