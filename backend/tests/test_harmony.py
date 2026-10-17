@@ -1913,5 +1913,55 @@ def test_all_three_variants_hold_invariants_across_random_walks() -> None:
     assert (lost_walk_eighths / total_walk_eighths) < 0.01
 
 
+def test_score_role_and_variant_property_aliases() -> None:
+    from app.sonify.model import NoteEvent
+    from app.sonify.phrasing import _with_rests
+
+    bars = [Bar(float(i % 7), 100.0 + i * 5.0, 100.0 + i) for i in range(16)]
+    sym = render(bars, variant="symphony")
+    jazz = render(bars, variant="jazz")
+    mini = render(bars, variant="minimalist")
+
+    for s in (sym, jazz, mini):
+        assert s.high is s.flute
+        assert s.lead is s.violin
+        assert s.support is s.cello
+        assert s.comp is s.piano
+        assert s.low is s.bass
+        assert s.lead_wedges is s.violin_wedges
+        assert s.support_wedges is s.cello_wedges
+        assert s.lead_dynamics is s.violin_dynamics
+        assert s.support_dynamics is s.cello_dynamics
+
+    assert jazz.vibraphone is jazz.flute
+    assert jazz.alto_sax is jazz.violin
+    assert jazz.tenor_sax is jazz.cello
+    assert jazz.rhodes is jazz.piano
+    assert jazz.upright_bass is jazz.bass
+
+    assert mini.synth_bell is mini.flute
+    assert mini.synth_arpeggio is mini.violin
+    assert mini.synth_pad is mini.cello
+    assert mini.synth_pulse is mini.piano
+    assert mini.sub_bass is mini.bass
+
+    # Verify _with_rests handles simultaneous chord notes robustly even if
+    # chord notes have different durations or reversed input order.
+    chord_notes = [
+        NoteEvent(bar=0, beat=1.0, duration_beats=1.0, midi=64, voice=1),
+        NoteEvent(bar=0, beat=1.0, duration_beats=2.0, midi=60, voice=1),
+    ]
+    filled = _with_rests(chord_notes, total=8)
+    # Expected: 1 beat rest at beat 0.0, two chord notes at beat 1.0 (longest first),
+    # and rest starting at beat 3.0 (not rewound to beat 2.0).
+    assert [(n.beat, n.duration_beats, n.midi) for n in filled] == [
+        (0.0, 1.0, None),
+        (1.0, 2.0, 60),
+        (1.0, 1.0, 64),
+        (3.0, 1.0, None),
+    ]
+
+
+
 
 

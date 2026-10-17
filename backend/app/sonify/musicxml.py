@@ -1,22 +1,32 @@
-"""Write a score as MusicXML 4.0 partwise.
+"""Write a score as MusicXML 4.0 partwise across all three orchestration variants.
 
-Violin, cello, and flute share the legato melody; whichever is not playing
-rests. Flute enters on high peaks and breakouts (with a dovetail overlap before
-violin yields), while cello takes the low register below G3 (with dovetail
-handoffs across G3–B3). Each melody part is marked mp, and violin/cello phrases
-carry a slur, <wedge> hairpins toward the apex, <accent/> on the stressed held
-note, and a per-note dynamics attribute. Breakout held notes and flute entries
-carry a <tenuto/>. Vibrato is left to the instrument: a <wavy-line> imports as
-a trill.
+Five parts (`P5`, `P1`, `P2`, `P3`, `P4`) map to each variant's ensemble via
+`_PARTS_BY_VARIANT`:
+- `symphony`: Flute (`P5`), Violin (`P1`), Cello (`P2`), Piano (`P3`), Bass (`P4`)
+- `jazz`: Vibraphone (`P5`), Alto Saxophone (`P1`), Tenor Saxophone (`P2`),
+  Rhodes Piano (`P3`), Upright Bass (`P4`), with eighth-note `<swing>` (2:1)
+- `minimalist`: Synth Bell (`P5`), Synth Arpeggio (`P1`), Synth Pad (`P2`),
+  Synth Pulse (`P3`), Sub-Bass (`P4`), with `divisions=4` for 16th-note pulses
+
+In `symphony` and `jazz`, the lead (`P1`), low-mid support (`P2`), and high
+accent (`P5`) parts share or layer the price melody; whichever is not playing
+rests. Each melody part is marked `mp`, and phrases carry a slur, `<wedge>`
+hairpins toward the apex, `<accent/>` on the stressed held note, and a per-note
+`dynamics` attribute. Breakout held notes and high-end bell/flute entries carry
+`<tenuto/>`, while low-cutoff minimalist arpeggio notes carry `<staccato/>`.
+Vibrato is left to the instrument: a `<wavy-line>` imports as a trill.
 
 A hairpin with no target letter moves playback one step and stays there, so
-mp is printed again wherever earlier hairpins did not cancel out.
-Violin also carries a <harmony> symbol at each chord attack. Piano is a grand
-staff of light comping, marked p once so it stays behind the melody; its
-answering arpeggios carry a per-note mp. Liquidity is the bass part, which
-plays root, fifth, and octave more often as volume rises. Its loudness is a
-<dynamics> letter from p up to BASS_CEILING, plus the matching <sound dynamics>
-percentage, written only when the letter changes.
+`mp` is printed again wherever earlier hairpins did not cancel out.
+The lead part (`P1`) also carries the `<harmony>` symbol at each chord attack
+and the opening tempo (plus `<swing>` when `score.swing` is enabled).
+
+`P3` is a two-staff grand staff (comping + fills in `symphony` and `jazz`, or
+liquidity pulse + backbeat in `minimalist`), marked `p` once so it stays behind
+the lead. `P4` is the bass part (marked from `p` up to `BASS_CEILING` as
+liquidity changes). All parts are written in C-major concert pitch (`fifths=0`)
+for direct visual comparison and General MIDI playback, except `P4` Bass which
+is written one octave above sounding pitch with `<transpose><octave-change>-1`.
 """
 
 from __future__ import annotations
@@ -338,7 +348,7 @@ PIANO_DYNAMIC = DynamicEvent(bar=0, marking="p", sound=SOUND["p"])
 def _piano_part(root: ET.Element, score: Score) -> None:
     """Right hand on the treble staff, left hand on the bass staff, one voice each."""
     part = _add(root, "part", id="P3")
-    events = _group(score.piano)
+    events = _group(score.comp)
     for bar in range(score.bars):
         measure = _add(part, "measure", number=str(bar + 1))
         if bar == 0:
@@ -368,9 +378,9 @@ BASS_WRITTEN_OCTAVES = 1
 
 
 def _bass_part(root: ET.Element, score: Score) -> None:
-    """Bass guitar is written an octave above where it sounds."""
+    """Bass part (P4) is written an octave above where it sounds."""
     part = _add(root, "part", id="P4")
-    notes = _group(score.bass)
+    notes = _group(score.low)
     printed: dict[int, DynamicEvent] = {}
     previous: str | None = None
     for event in score.dynamics:
@@ -408,13 +418,13 @@ def score_to_musicxml(score: Score) -> str:
     _add(encoding, "software", "vstock-sonify")
     _part_list(root, score.variant)
     _melody_part(
-        root, score, "P5", score.flute, (), (), TREBLE
+        root, score, "P5", score.high, (), (), TREBLE
     )
     _melody_part(
-        root, score, "P1", score.violin, score.violin_wedges, score.violin_dynamics, TREBLE, lead=True
+        root, score, "P1", score.lead, score.lead_wedges, score.lead_dynamics, TREBLE, lead=True
     )
     _melody_part(
-        root, score, "P2", score.cello, score.cello_wedges, score.cello_dynamics, BASS_CLEF
+        root, score, "P2", score.support, score.support_wedges, score.support_dynamics, BASS_CLEF
     )
     _piano_part(root, score)
     _bass_part(root, score)

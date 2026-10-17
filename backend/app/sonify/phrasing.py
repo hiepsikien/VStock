@@ -261,17 +261,28 @@ def _written(
 
 
 def _with_rests(notes: list[NoteEvent], total: int) -> tuple[NoteEvent, ...]:
+    """Fill silent gaps in an eighth-note grid with engraved rest events.
+
+    Simultaneous chord notes (sharing the same ``(bar, beat)`` start position)
+    are supported: events at the same start are ordered longest-first, and
+    ``cursor`` advances monotonically via ``max(cursor, end)`` so that
+    co-occurring chord tones never trigger a rest or rewind the cursor even if
+    chord notes have differing durations or input ordering.
+    """
     def position(event: NoteEvent) -> int:
-        return event.bar * EIGHTHS_PER_BAR + int(event.beat * 2)
+        return event.bar * EIGHTHS_PER_BAR + int(round(event.beat * 2))
+
+    def duration_eighths(event: NoteEvent) -> int:
+        return int(round(event.duration_beats * 2))
 
     filled: list[NoteEvent] = []
     cursor = 0
-    for event in sorted(notes, key=position):
+    for event in sorted(notes, key=lambda e: (position(e), -duration_eighths(e))):
         start = position(event)
         if start > cursor:
             filled.extend(_written(cursor, start - cursor, None))
         filled.append(event)
-        cursor = start + int(event.duration_beats * 2)
+        cursor = max(cursor, start + duration_eighths(event))
     if cursor < total:
         filled.extend(_written(cursor, total - cursor, None))
     return tuple(filled)
