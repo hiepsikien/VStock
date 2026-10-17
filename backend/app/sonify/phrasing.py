@@ -19,6 +19,7 @@ from app.sonify.chords import Chord
 from app.sonify.dynamics import SOUND
 from app.sonify.form import EIGHTHS_PER_BAR, HALF_BAR, TOTAL_EIGHTHS, ChordSlot
 from app.sonify.model import PERIOD, DynamicEvent, NoteEvent, Phrase, Run, WedgeEvent
+from app.sonify.quantize import quantize_chord_tone
 
 COMMA = 3
 BEAT_EIGHTHS = 2
@@ -444,6 +445,8 @@ def _cross_phrase_cello_overlaps(
             and next_owner == "cello"
             and next_run.midi < CELLO_HANDBACK
         ):
+            # Store on negative key -(p_idx + 1) so Cello plays the last beat of
+            # Violin's closing G3..B3 note before the breath rest.
             eff_len = last_run.length - (1 if curr_p.end < TOTAL_EIGHTHS else 0)
             if eff_len >= 2 and last_run.midi < CELLO_HANDBACK:
                 lead = min(CELLO_OVERLAP, eff_len)
@@ -476,7 +479,18 @@ def _instrument_segments(
     cross_trail: int = 0,
     min_start: int = 0,
 ) -> list[list[Run]]:
-    """Build contiguous run segments for `target` ('violin' or 'cello') with dovetail overlap."""
+    """Build contiguous run segments for `target` ('violin' or 'cello') with dovetail overlap.
+
+    Instead of a hard cut when Violin and Cello hand off inside or across a phrase:
+    - When Cello enters from Violin, Cello joins on the tail of Violin's last
+      handoff run (when in G3..B3 and >= 2 eighths), or Violin extends its 1-eighth
+      G3..B3 handoff note into Cello's entry.
+    - When Violin re-enters from Cello, Violin anticipates on Cello's last
+      G3..B3 run (when >= 2 eighths), or Cello extends its last note under
+      Violin's entry when Cello's final run was below G3 or only 1 eighth.
+    Trail-out extensions stop before any strong beat (beat 1 or 3) so a held
+    handoff note never bleeds onto a new strong beat with a non-chord tone.
+    """
     segments: list[list[Run]] = []
     n = len(p_runs)
     index = 0
@@ -494,6 +508,7 @@ def _instrument_segments(
             seg.insert(0, cross_lead)
             lead_added = 1
 
+        # Lead-in overlap from the preceding instrument's final run
         if index > 0:
             prev_owner = owners[index - 1]
             prev_run = p_runs[index - 1]
@@ -516,6 +531,7 @@ def _instrument_segments(
                 seg.insert(0, Run(prev_run.end - lead, lead, prev_run.midi))
                 lead_added = 1
 
+        # Trail-out overlap into the succeeding instrument's opening run
         if end < n:
             next_owner = owners[end]
             next_run = p_runs[end]
@@ -523,6 +539,7 @@ def _instrument_segments(
             while next_end < n and owners[next_end] == next_owner:
                 next_end += 1
             next_span = p_runs[next_end - 1].end - next_run.start
+            # Do not extend a trail-out note onto a strong beat (beat 1 or 3)
             max_trail = 0
             for step in range(1, min(CELLO_OVERLAP, next_span) + 1):
                 if (seg[-1].end + step - 1) % EIGHTHS_PER_BAR in STRONG_EIGHTHS:
@@ -545,14 +562,18 @@ def _instrument_segments(
                 if max_trail > 0:
                     seg[-1] = Run(seg[-1].start, seg[-1].length + max_trail, seg[-1].midi)
                 elif seg[-1].midi >= VIOLIN_LOWEST:
+                    # Strong beat blocked trail-out, so let Cello join Violin's new note
+                    # for up to CELLO_OVERLAP eighths instead of cutting off on the barline.
                     lead = min(CELLO_OVERLAP, next_run.length)
                     seg.append(Run(next_run.start, lead, next_run.midi))
         elif end == n and cross_trail > 0:
             seg[-1] = Run(seg[-1].start, seg[-1].length + cross_trail, seg[-1].midi)
 
+        # Merge only the lead-in run with the first segment run if they share a pitch and touch
         if lead_added and len(seg) >= 2 and seg[0].end == seg[1].start and seg[0].midi == seg[1].midi:
             seg[:2] = [Run(seg[0].start, seg[0].length + seg[1].length, seg[0].midi)]
 
+        # Ensure segments of the same instrument never overlap each other or a previous phrase
         clip_start = max(min_start, segments[-1][-1].end if segments else 0)
         seg = _clip_segment(seg, clip_start)
 
@@ -568,7 +589,22 @@ def _melody_parts(
     band_at: dict[int, str],
     yield_spans: list[tuple[int, int]] | None = None,
 ) -> tuple[_Line, _Line, list[tuple[Run, str]]]:
-    """Split the legato line between violin and cello with dovetail handoffs."""
+    """Split the legato line between violin and cello with dovetail handoffs.
+
+    Same-pitch eighths are one held note for the length of a phrase, tied
+    across chord changes. The cello takes over below the violin's open G and
+    keeps the line until it climbs back to C4, so a price hovering near G3 does
+    not bounce between them. At handoffs between violin and cello, the two
+    instruments overlap for up to a beat (dovetail) so neither cuts off
+    abruptly. Each instrument's share of a phrase is one slur with hairpins
+    toward the phrase apex. The phrase's stress is its breakout note, else its
+    syncopated held note, and is accented. A share that opens after hairpins
+    left the line off its starting step is marked mp again. A phrase that
+    closes on a held note drops its last eighth for a breath; that eighth
+    repeated the same price. A note held over into the next phrase is tied
+    across and is not accented again.
+    Returns both lines and each closing cadence with the instrument holding it.
+    """
     lines = {"violin": _Line(), "cello": _Line()}
     cadences: list[tuple[Run, str]] = []
     on_cello = False
@@ -720,7 +756,11 @@ def _melody_parts(
 
 
 def comp_pitches(chord: Chord) -> tuple[int, tuple[int, int]]:
-    """Root in F2–E3, and two upper guide tones inside A3–G#4."""
+    """Root in F2–E3, and two upper guide tones inside A3–G#4.
+
+    Seventh chords play the third and seventh; triads play the third and fifth.
+    The fixed windows keep both hands within a few steps from one chord to the next.
+    """
     pcs = tuple(pitch % 12 for pitch in chord.pitches)
     if len(pcs) >= 4:
         root_pc, third_pc, _fifth_pc, upper_pc = pcs[:4]
@@ -734,7 +774,11 @@ def comp_pitches(chord: Chord) -> tuple[int, tuple[int, int]]:
 
 
 def fill_tones(chord: Chord, melody: int, owner: str) -> list[int]:
-    """Up to four chord tones for the answer, out of the melody's way."""
+    """Up to four chord tones for the answer, out of the melody's way.
+
+    Under the violin: the highest tones at least FILL_GAP semitones below it.
+    Over the cello: the lowest tones from C4 up, at least FILL_GAP semitones above it.
+    """
     pcs = {pitch % 12 for pitch in chord.pitches}
     if owner == "cello":
         floor = max(FILL_ABOVE_CELLO, melody + FILL_GAP)
@@ -746,7 +790,12 @@ def fill_tones(chord: Chord, melody: int, owner: str) -> list[int]:
 def _fills(
     cadences: list[tuple[Run, str]], chord_at: dict[int, Chord]
 ) -> list[tuple[int, int, int]]:
-    """An ascending arpeggio in the last beats of each held cadence, as start, length, midi."""
+    """An ascending arpeggio in the last beats of each held cadence, as start, length, midi.
+
+    Downbeats stay with the comping chord. The top tone holds once the
+    arpeggio runs out; a chord change restarts it from the bottom. A cadence
+    whose chord has fewer than three tones out of the melody's way gets none.
+    """
     notes: list[tuple[int, int, int]] = []
     for run, owner in cadences:
         first = max(run.start + FILL_DELAY, run.end - FILL_SPAN)
@@ -792,3 +841,62 @@ def _left_hand(slot: ChordSlot) -> list[NoteEvent]:
         )
         for offset, bar in enumerate(slot.bars())
     ]
+
+
+def _quantize_strong_beats(
+    raw: list[int],
+    chord_at: dict[int, Chord],
+    scale: tuple[int, ...],
+) -> list[int]:
+    """Snap runs that land on or hold through beats 1 and 3 to the active chord.
+
+    Weak-beat runs keep their diatonic scale tone as passing or neighbour notes.
+    A run that spans a chord change snaps once to a tone shared by the chords on
+    its strong beats when one lies within a scale step of the original note;
+    otherwise (or when a run spans three or more chords with no common tone)
+    each chord slot snaps its own span.
+    """
+    pitches = list(raw)
+    previous: int | None = None
+    previous_raw: int | None = None
+    for run in runs_of(raw, 0, len(raw)):
+        step = 0 if previous_raw is None else run.midi - previous_raw
+        strong = [
+            eighth
+            for eighth in range(run.start, run.end)
+            if eighth % EIGHTHS_PER_BAR in STRONG_EIGHTHS
+        ]
+        if not strong:
+            previous = pitches[run.end - 1]
+            previous_raw = run.midi
+            continue
+        common = frozenset.intersection(
+            *(chord_at[eighth // EIGHTHS_PER_BAR].pitch_classes for eighth in strong)
+        )
+        if common:
+            snapped = quantize_chord_tone(run.midi, common, scale, previous, step)
+            if abs(scale.index(snapped) - scale.index(run.midi)) <= 1:
+                for eighth in range(run.start, run.end):
+                    pitches[eighth] = snapped
+                previous = snapped
+                previous_raw = run.midi
+                continue
+        cursor = run.start
+        for index, beat_eighth in enumerate(strong):
+            chord = chord_at[beat_eighth // EIGHTHS_PER_BAR]
+            if (
+                index + 1 < len(strong)
+                and chord_at[strong[index + 1] // EIGHTHS_PER_BAR] == chord
+            ):
+                continue
+            next_bar = (beat_eighth // EIGHTHS_PER_BAR + 1) * EIGHTHS_PER_BAR
+            stop = run.end if index == len(strong) - 1 else min(run.end, next_bar)
+            snapped = quantize_chord_tone(
+                run.midi, chord.pitch_classes, scale, previous, step
+            )
+            for eighth in range(cursor, stop):
+                pitches[eighth] = snapped
+            previous = snapped
+            cursor = stop
+        previous_raw = run.midi
+    return pitches

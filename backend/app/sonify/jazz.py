@@ -33,14 +33,17 @@ from app.sonify.form import (
 from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score
 from app.sonify.phrasing import (
     BREAKOUT,
+    CELLO_HANDBACK,
     FILL_VELOCITY,
     MIN_RISE,
     PERIOD,
+    VIOLIN_LOWEST,
     Phrase,
     Run,
     _fills,
     _left_hand,
     _melody_parts,
+    _quantize_strong_beats,
     _with_rests,
     _written,
     comp_pitches,
@@ -231,25 +234,67 @@ def _vibraphone_accent_part(
     return tuple(events), chosen_spans
 
 
+def _compress_phrase_to_bounds(
+    pitches: list[int],
+    phrase: Phrase,
+    chord_at: dict[int, Chord] | None,
+    scale: tuple[int, ...],
+    ceiling_idx: int,
+    target_bot_idx: int,
+    target_top_idx: int,
+) -> list[int]:
+    """Monotonically compress one phrase onto scale[target_bot_idx..target_top_idx] and snap strong beats."""
+    top = max(r.midi for r in phrase.runs)
+    bot = min(r.midi for r in phrase.runs)
+    top_idx = scale.index(top)
+    bot_idx = scale.index(bot)
+    span_idx = max(1, top_idx - bot_idx)
+    out: list[int] = []
+    for eighth in range(phrase.start, phrase.end):
+        idx = scale.index(pitches[eighth])
+        rel = (idx - bot_idx) / span_idx
+        mapped_idx = round(target_bot_idx + rel * (target_top_idx - target_bot_idx))
+        mapped_idx = max(0, min(ceiling_idx, mapped_idx))
+        out.append(scale[mapped_idx])
+    if not chord_at:
+        return out
+    bar_start = phrase.start // EIGHTHS_PER_BAR
+    pad_len = phrase.start % EIGHTHS_PER_BAR
+    padded = [out[0]] * pad_len + out
+    rel_chords = {b - bar_start: c for b, c in chord_at.items()}
+    return _quantize_strong_beats(padded, rel_chords, scale)[pad_len:]
+
+
 def _sax_melody_curve(
     pitches: list[int],
     phrases: tuple[Phrase, ...],
     chosen_spans: list[tuple[int, int, bool, Run]],
+    chord_at: dict[int, Chord] | None = None,
 ) -> tuple[list[int], tuple[Phrase, ...], list[tuple[int, int]]]:
     """Keep phrases within the Saxophone register (<= Ab5 = 80) at full 1:1 resolution.
 
     Phrases that already fit within <= Ab5 (80), or whose only notes above Ab5 are
     covered by a non-breakout Vibraphone yield span, stay at their exact 1:1 pitches
-    so small 1-step price movements never flatten out. Only phrases that still exceed
-    Ab5 are transposed down by whole octaves (12 or 24 semitones) when their lowest
-    note stays >= C3 (48), or monotonically compressed within the phrase onto C3–G5
-    when a single phrase is too wide for a whole-octave shift.
+    so small 1-step price movements never flatten out. When choosing whether to lower
+    a phrase by an octave (12 or 24 semitones), adjacent phrases' boundary pitches and
+    Alto/Tenor handoff state are evaluated via dynamic programming so cross-phrase
+    transitions never jump in the opposite direction of price. Any phrase that must
+    be compressed onto the Saxophone range re-runs `_quantize_strong_beats` so all
+    strong beats land on chord tones.
     """
+    if not phrases:
+        return list(pitches), phrases, []
+
     scale = c_major_scale(SAX_LOW, 96)
     ceiling_idx = scale.index(79)  # G5 (79), highest C-major scale tone <= SAX_CEILING (80)
+    alto_low_idx = scale.index(VIOLIN_LOWEST)  # G3 (55)
+    n = len(phrases)
     yield_spans: list[tuple[int, int]] = []
-    sax_pitches = list(pitches)
-    temp_phrases: list[Phrase] = []
+    phrase_vibes: list[list[tuple[int, int]]] = []
+    min_shift: list[int] = []
+    max_shift: list[int] = []
+    bots: list[int] = []
+    tops: list[int] = []
 
     for phrase in phrases:
         p_vibe = [
@@ -264,41 +309,164 @@ def _sax_melody_curve(
             (ys, phrase.end if ye == phrase.end - 1 else ye)
             for ys, ye in p_vibe
         ]
+        phrase_vibes.append(norm_vibe)
         rem_high = [
             r.midi
             for r in phrase.runs
             if r.midi > SAX_CEILING
             and not any(ys <= r.start and r.end <= ye for ys, ye in norm_vibe)
         ]
-        if not rem_high:
-            if norm_vibe:
-                yield_spans.extend(norm_vibe)
-            temp_phrases.append(phrase)
-            continue
-
         top = max(r.midi for r in phrase.runs)
         bot = min(r.midi for r in phrase.runs)
-        shift = 12 if top - 12 <= SAX_CEILING else 24
-        if bot - shift >= SAX_LOW:
-            runs = [Run(r.start, r.length, r.midi - shift) for r in phrase.runs]
-            for eighth in range(phrase.start, phrase.end):
-                sax_pitches[eighth] -= shift
+        bots.append(bot)
+        tops.append(top)
+        if not rem_high:
+            req = 0
+        elif top - 12 <= SAX_CEILING:
+            req = 12
         else:
-            top_idx = scale.index(top)
-            bot_idx = scale.index(bot)
-            span_idx = max(1, top_idx - bot_idx)
-            target_bot_idx = max(0, ceiling_idx - span_idx)
-            for eighth in range(phrase.start, phrase.end):
-                idx = scale.index(pitches[eighth])
-                rel = (idx - bot_idx) / span_idx
-                mapped_idx = round(target_bot_idx + rel * (ceiling_idx - target_bot_idx))
-                sax_pitches[eighth] = scale[mapped_idx]
+            req = 24
+        min_shift.append(req)
+        mx = 24 if bot - 24 >= SAX_LOW else (12 if bot - 12 >= SAX_LOW else 0)
+        max_shift.append(mx)
+
+    def realize_phrase(i: int, s: int, keep_alto: bool) -> tuple[list[int], bool]:
+        phrase = phrases[i]
+        floor_idx = alto_low_idx if keep_alto else 0
+        floor_midi = scale[floor_idx]
+        if s <= max_shift[i] and bots[i] - s >= floor_midi:
+            return [pitches[e] - s for e in range(phrase.start, phrase.end)], True
+        t_top = min(ceiling_idx, scale.index(max(floor_midi, tops[i] - s)))
+        span = scale.index(tops[i]) - scale.index(bots[i])
+        t_bot = max(floor_idx, min(t_top, t_top - span))
+        return (
+            _compress_phrase_to_bounds(
+                pitches, phrase, chord_at, scale, ceiling_idx, t_bot, t_top
+            ),
+            False,
+        )
+
+    candidates: list[dict[tuple[int, bool], tuple[list[int], bool]]] = []
+    for i in range(n):
+        cands: dict[tuple[int, bool], tuple[list[int], bool]] = {}
+        for s in (0, 12, 24):
+            if s >= min_shift[i]:
+                cands[(s, False)] = realize_phrase(i, s, False)
+                if s > 0:
+                    cands[(s, True)] = realize_phrase(i, s, True)
+        candidates.append(cands)
+
+    def sim_alto(
+        i: int, sl: list[int], s_val: int, on_cello_in: bool
+    ) -> tuple[bool, tuple[int, int] | None, tuple[int, int] | None]:
+        phrase = phrases[i]
+        vibes = phrase_vibes[i] if s_val == 0 else []
+        on_c = on_cello_in
+        alto_pts: list[tuple[int, int]] = []
+        for r in runs_of(sl, 0, len(sl)):
+            on_c = r.midi < CELLO_HANDBACK if on_c else r.midi < VIOLIN_LOWEST
+            if not on_c:
+                for off in range(r.start, r.end):
+                    e = phrase.start + off
+                    if not any(ys <= e < ye for ys, ye in vibes):
+                        alto_pts.append((e, r.midi))
+        return (
+            on_c,
+            alto_pts[0] if alto_pts else None,
+            alto_pts[-1] if alto_pts else None,
+        )
+
+    State = tuple[tuple[int, bool], bool, tuple[int, int] | None]
+    dp: list[dict[State, int]] = [{} for _ in range(n)]
+    parent: list[dict[State, State | None]] = [{} for _ in range(n)]
+
+    for key, (sl, is_exact) in candidates[0].items():
+        s_val, k_alto = key
+        on_c_out, _, last_a = sim_alto(0, sl, s_val, False)
+        st: State = (key, on_c_out, last_a)
+        dp[0][st] = (0 if is_exact else 50) + (s_val // 12) + (5 if k_alto else 0)
+        parent[0][st] = None
+
+    for i in range(1, n):
+        for k_curr, (sl_curr, exact_curr) in candidates[i].items():
+            s_curr, ka_curr = k_curr
+            base_c = (0 if exact_curr else 50) + (s_curr // 12) + (5 if ka_curr else 0)
+            for st_prev, prev_c in dp[i - 1].items():
+                k_prev, on_c_prev, last_a_prev = st_prev
+                s_prev, _ = k_prev
+                sl_prev, _ = candidates[i - 1][k_prev]
+                on_c_out, first_a_curr, last_a_curr = sim_alto(
+                    i, sl_curr, s_curr, on_c_prev
+                )
+                new_last_a = last_a_curr if last_a_curr is not None else last_a_prev
+                st_curr = (k_curr, on_c_out, new_last_a)
+
+                dp_dir = pitches[phrases[i].start] - pitches[phrases[i - 1].end - 1]
+                ds_dir = sl_curr[0] - sl_prev[-1]
+                rev_dir = (
+                    (dp_dir > 0 and ds_dir < 0)
+                    or (dp_dir < 0 and ds_dir > 0)
+                    or (dp_dir == 0 and ds_dir != 0)
+                )
+                big_dir = rev_dir and abs(ds_dir) >= 9
+
+                rev_alto = False
+                big_alto = False
+                if last_a_prev is not None and first_a_curr is not None:
+                    e0, m0 = last_a_prev
+                    e1, m1 = first_a_curr
+                    dp_a = pitches[e1] - pitches[e0]
+                    ds_a = m1 - m0
+                    rev_alto = (
+                        (dp_a > 0 and ds_a < 0)
+                        or (dp_a < 0 and ds_a > 0)
+                        or (dp_a == 0 and ds_a != 0)
+                    )
+                    big_alto = rev_alto and abs(ds_a) >= 9
+
+                pen = (
+                    100_000
+                    if (big_alto or big_dir)
+                    else (
+                        10_000
+                        if (rev_alto or rev_dir)
+                        else abs(s_curr - s_prev) * 2
+                    )
+                )
+                tot = prev_c + base_c + pen
+                if st_curr not in dp[i] or tot < dp[i][st_curr]:
+                    dp[i][st_curr] = tot
+                    parent[i][st_curr] = st_prev
+
+    best_st = min(dp[-1], key=lambda st_key: dp[-1][st_key])
+    chosen_k: list[tuple[int, bool]] = [(0, False)] * n
+    curr_st: State | None = best_st
+    for i in range(n - 1, -1, -1):
+        assert curr_st is not None
+        chosen_k[i] = curr_st[0]
+        curr_st = parent[i][curr_st]
+
+    sax_pitches = list(pitches)
+    temp_phrases: list[Phrase] = []
+    for i, phrase in enumerate(phrases):
+        k = chosen_k[i]
+        s_val, _ = k
+        sl, is_exact = candidates[i][k]
+        sax_pitches[phrase.start : phrase.end] = sl
+        if s_val == 0 and is_exact:
+            if phrase_vibes[i]:
+                yield_spans.extend(phrase_vibes[i])
+            temp_phrases.append(phrase)
+        elif is_exact:
+            runs = [Run(r.start, r.length, r.midi - s_val) for r in phrase.runs]
+            temp_phrases.append(Phrase(phrase.start, phrase.end, tuple(runs), False))
+        else:
             runs = [
                 part
                 for r in phrase.runs
                 for part in runs_of(sax_pitches, r.start, r.end)
             ]
-        temp_phrases.append(Phrase(phrase.start, phrase.end, tuple(runs), False))
+            temp_phrases.append(Phrase(phrase.start, phrase.end, tuple(runs), False))
 
     sax_phrases = tuple(
         Phrase(
@@ -470,7 +638,7 @@ def render_jazz_score(
 
     vibraphone, chosen_spans = _vibraphone_accent_part(phrases, pitches, band_at, chord_at)
     sax_pitches, sax_phrases, yield_spans = _sax_melody_curve(
-        pitches, phrases, chosen_spans
+        pitches, phrases, chosen_spans, chord_at
     )
     alto_sax, tenor_sax, cadences = _melody_parts(
         sax_pitches, sax_phrases, band_at, yield_spans=yield_spans

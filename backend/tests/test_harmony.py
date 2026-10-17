@@ -1783,8 +1783,20 @@ def test_all_three_variants_hold_invariants_across_random_walks() -> None:
                 assert all(50 <= (n.velocity or 0) <= 70 for n in score.flute if n.midi is not None)
                 assert all(n.midi <= 80 for n in score.violin if n.midi is not None)
 
+                # Every strong beat on Alto and Tenor Saxophone is a chord tone of the active Jazz chord.
+                jazz_chord_at = {bar: slot.chord for slot in score.slots for bar in slot.bars()}
+                for note in score.violin + score.cello:
+                    if note.midi is None:
+                        continue
+                    start_eighth = note.bar * 8 + int(note.beat * 2)
+                    end_eighth = start_eighth + int(note.duration_beats * 2)
+                    for eighth in range(start_eighth, end_eighth):
+                        if eighth % 8 in STRONG_EIGHTHS:
+                            assert note.midi % 12 in jazz_chord_at[note.bar].pitch_classes
+
                 # Within every phrase, Alto Sax never inverts pitch direction on non-strong beats,
-                # and overall strong-beat / cross-phrase reversals stay below 5%.
+                # never leaps >= 9 semitones against price across phrase boundaries,
+                # and keeps overall reversals <= 0.5%.
                 sax_notes = [n for n in score.violin if n.midi is not None]
                 reversals = 0
                 steps = 0
@@ -1807,11 +1819,12 @@ def test_all_three_variants_hold_invariants_across_random_walks() -> None:
                     ):
                         assert dm * dc >= 0
                     if dm * dc < 0:
+                        assert abs(dm) < 9
                         reversals += 1
-                assert steps == 0 or (reversals / steps) < 0.05
+                assert steps == 0 or (reversals / steps) < 0.01
 
     # Phrase-level 1:1 resolution and final-phrase bounds guard in _sax_melody_curve:
-    # - Phrases within <= Ab5 (80) keep 100% 1:1 pitch resolution with Symphony.
+    # - Uncompressed phrases keep 100% 1:1 interval resolution with Symphony (exact or -12/-24 octave shift).
     # - Sideway +/-1 random walks lose 0% of note changes; +/-1/+/-2 walks lose < 1%.
     # - Final phrase ending at 240 with held_over=True does not raise IndexError.
     from app.sonify.jazz import _sax_melody_curve
@@ -1833,8 +1846,12 @@ def test_all_three_variants_hold_invariants_across_random_walks() -> None:
         sym_w = render(bars_w, variant="symphony")
         jazz_w = render(bars_w, variant="jazz")
         for sym_p, jazz_p in zip(sym_w.phrases, jazz_w.phrases):
-            if max(r.midi for r in sym_p.runs) <= 80:
-                assert jazz_p.runs == sym_p.runs
+            if max(r.midi for r in sym_p.runs) <= 80 and min(r.midi for r in sym_p.runs) >= 72:
+                shift = sym_p.runs[0].midi - jazz_p.runs[0].midi
+                assert shift in (0, 12, 24)
+                assert tuple(
+                    Run(r.start, r.length, r.midi - shift) for r in sym_p.runs
+                ) == jazz_p.runs
             total_walk += max(0, len(sym_p.runs) - 1)
             lost_walk += max(0, len(sym_p.runs) - len(jazz_p.runs))
 
