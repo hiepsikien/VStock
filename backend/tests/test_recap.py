@@ -380,3 +380,93 @@ def test_musescore_export_applies_soundfont_via_config_folder(tmp_path: Path, mo
     assert plain_args[0] == "-o"
     assert "-c" not in plain_args
     assert silenced == ["off", "on", "off", "on"]
+
+
+def test_musescore_export_uses_installed_musesounds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+    import sqlite3
+
+    from app.sonify import audio as audio_mod
+
+    library = tmp_path / "Instruments"
+    library.mkdir()
+    database = library / ".instruments"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE instruments (id integer PRIMARY KEY, path text, state integer, version text, package_key integer, name text, abbreviation text)"
+        )
+        connection.execute("CREATE TABLE packages (key integer PRIMARY KEY, guid text, path text, name text)")
+        connection.execute("INSERT INTO packages VALUES (1, 'g', 'Muse Strings', 'Muse Strings')")
+        connection.execute(
+            "INSERT INTO instruments VALUES (91, 'Muse Strings/Violins 1', 1, '0.4', 1, ' Violins 1', 'Vln')"
+        )
+    binary = tmp_path / "mscore"
+    seen = tmp_path / "seen.txt"
+    assigned = tmp_path / "assigned.json"
+    binary.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys, zipfile, wave\n"
+        "from pathlib import Path\n"
+        f"seen = Path({str(seen)!r})\n"
+        f"assigned = Path({str(assigned)!r})\n"
+        "args = sys.argv[1:]\n"
+        "if args[:1] == ['--help']:\n"
+        "    print('usage')\n"
+        "    raise SystemExit(0)\n"
+        "seen.write_text((seen.read_text(encoding='utf-8') if seen.exists() else '') + '\\n'.join(args) + '\\n---\\n', encoding='utf-8')\n"
+        "out = Path(args[args.index('-o') + 1])\n"
+        "src = Path(args[-1])\n"
+        "if out.suffix == '.mscz':\n"
+        "    mscx = ('<?xml version=\"1.0\"?><museScore><Score>'\n"
+        "            '<Part id=\"1\"><Instrument id=\"violin\"><instrumentId>strings.violin</instrumentId></Instrument></Part>'\n"
+        "            '<Part id=\"2\"><Instrument id=\"saw-synth\"><instrumentId>synth.tone.sawtooth</instrumentId></Instrument></Part>'\n"
+        "            '</Score></museScore>')\n"
+        "    with zipfile.ZipFile(out, 'w') as archive:\n"
+        "        archive.writestr('score.mscx', mscx)\n"
+        "        archive.writestr('audiosettings.json', '{\"tracks\": []}')\n"
+        "else:\n"
+        "    with zipfile.ZipFile(src) as archive:\n"
+        "        assigned.write_text(archive.read('audiosettings.json').decode('utf-8'), encoding='utf-8')\n"
+        "    with wave.open(str(out), 'wb') as handle:\n"
+        "        handle.setnchannels(1)\n"
+        "        handle.setsampwidth(2)\n"
+        "        handle.setframerate(8000)\n"
+        "        handle.writeframes(b'\\x00\\x00' * 800)\n",
+        encoding="utf-8",
+    )
+    binary.chmod(0o755)
+    monkeypatch.setattr(audio_mod, "_silence_metronome", lambda: (lambda: None))
+    monkeypatch.setattr(audio_mod, "_muse_sounds_cache", None)
+    monkeypatch.setenv("MUSESCORE_BIN", str(binary))
+    monkeypatch.setenv("MUSESOUNDS_DIR", str(library))
+    monkeypatch.delenv("MUSESCORE_SOUNDFONT", raising=False)
+    audio_mod._config_folder_support.pop(str(binary), None)
+    xml = tmp_path / "in.musicxml"
+    xml.write_text(
+        "<score><instrument-name>Violin</instrument-name><instrument-name>Lead 2 (sawtooth)</instrument-name></score>",
+        encoding="utf-8",
+    )
+    wav = tmp_path / "out.wav"
+    audio_mod.musescore_export(xml, wav)
+    calls = [
+        [line for line in block.splitlines() if line]
+        for block in seen.read_text(encoding="utf-8").split("---")
+    ]
+    calls = [block for block in calls if block]
+    assert calls[0][0] == "-o"
+    assert calls[0][1].endswith(".mscz")
+    assert calls[1][0] == "-o"
+    assert calls[1][2].endswith(".mscz")
+    settings = json.loads(assigned.read_text(encoding="utf-8"))
+    assert settings["activeSoundProfile"] == "MuseSounds"
+    by_part = {track["partId"]: track for track in settings["tracks"]}
+    violin = by_part["1"]["in"]["resourceMeta"]
+    assert violin["id"] == "91"
+    assert violin["type"] == "muse_sampler_sound_pack"
+    assert violin["attributes"]["museUID"] == "91"
+    assert violin["attributes"]["museName"] == "Violins 1"
+    synth = by_part["2"]["in"]["resourceMeta"]
+    assert synth["type"] == "fluid_soundfont"
+    assert synth["id"] == "MS Basic"
+    assert wav.is_file()
+    assert not wav.with_suffix(".mscz").exists()

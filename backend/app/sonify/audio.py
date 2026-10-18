@@ -12,17 +12,20 @@ import logging
 import os
 import re
 import shutil
+import sqlite3
 import struct
 import subprocess
 import sys
 import threading
 import time
+import zipfile
 from array import array
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Callable
+from typing import Callable, NamedTuple
+from xml.etree import ElementTree as ET
 
 from app.sonify.form import BEATS_PER_BAR
 from app.sonify.model import Bar, Variant
@@ -33,8 +36,8 @@ from app.sonify.session import VN, is_session_closed
 
 logger = logging.getLogger(__name__)
 
-# Bump when the score or the soundfont changes, so old files are not replayed.
-RECAP_REVISION = "4"
+# Bump when the score or the sound changes, so old files are not replayed.
+RECAP_REVISION = "5"
 PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
@@ -328,6 +331,249 @@ def _silence_metronome() -> Callable[[], None]:
     return restore
 
 
+class _MuseVoice(NamedTuple):
+    """One recap instrument and the MuseSounds library voice that plays it."""
+
+    instrument_ids: tuple[str, ...]
+    xml_names: tuple[str, ...]
+    sound: str
+
+
+# MusicXML import names MuseScore writes into the score. Synths have no
+# MuseSounds library, so they stay on MS Basic. Acoustic bass uses the
+# installed electric bass: the libraries have no upright bass.
+_MUSE_VOICES = (
+    _MuseVoice(("wind.flutes.flute",), ("Flute",), "Flute 1"),
+    _MuseVoice(("strings.violin",), ("Violin",), "Violins 1"),
+    _MuseVoice(("strings.cello", "strings.violoncello", "strings.baryton"), ("Cello",), "Cellos"),
+    _MuseVoice(("keyboard.piano",), ("Piano",), "Piano"),
+    _MuseVoice(("pluck.bass.electric",), ("Electric Bass (finger)",), "Electric Bass"),
+    _MuseVoice(("pitched-percussion.vibraphone",), ("Vibraphone",), "Vibraphone"),
+    _MuseVoice(("wind.reed.saxophone.alto",), ("Alto Sax",), "Alto Saxophone"),
+    _MuseVoice(("wind.reed.saxophone.tenor",), ("Tenor Sax",), "Tenor Saxophone"),
+    _MuseVoice(("keyboard.piano.electric",), ("Electric Piano 1",), "Suitcase Piano"),
+    _MuseVoice(("pluck.bass.acoustic",), ("Acoustic Bass",), "Electric Bass"),
+)
+_VOICE_BY_INSTRUMENT = {
+    instrument_id: voice for voice in _MUSE_VOICES for instrument_id in voice.instrument_ids
+}
+_muse_sounds_cache: dict[str, tuple[str, str]] | None = None
+
+
+def _instruments_dir() -> Path | None:
+    override = os.environ.get("MUSESOUNDS_DIR")
+    if override:
+        return Path(override)
+    candidates = (
+        Path.home() / "Library/Application Support/MuseSampler/.config",
+        Path.home() / ".local/share/MuseSampler/.config",
+    )
+    for config in candidates:
+        try:
+            text = config.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        folder = Path(text.strip())
+        if folder.is_dir():
+            return folder
+    return None
+
+
+def _installed_muse_sounds() -> dict[str, tuple[str, str]]:
+    """Library voice name to ``(sound id, pack name)`` for installed packs."""
+    global _muse_sounds_cache
+    if _muse_sounds_cache is not None:
+        return _muse_sounds_cache
+    folder = _instruments_dir()
+    database = folder / ".instruments" if folder is not None else None
+    found: dict[str, tuple[str, str]] = {}
+    if database is not None and database.is_file():
+        try:
+            with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
+                rows = connection.execute(
+                    """
+                    SELECT instruments.name, instruments.id, packages.name
+                    FROM instruments
+                    JOIN packages ON instruments.package_key = packages.key
+                    WHERE instruments.state = 1
+                    """
+                )
+                for name, sound_id, pack in rows:
+                    # "Violins 1" is stored with a leading space.
+                    found.setdefault(str(name).strip(), (str(sound_id), str(pack)))
+        except sqlite3.Error as exc:
+            logger.warning("MuseSounds library could not be read: %s", exc)
+    _muse_sounds_cache = found
+    return found
+
+
+def _xml_requests_muse_sounds(xml_path: Path, library: dict[str, tuple[str, str]]) -> bool:
+    try:
+        text = xml_path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return any(
+        voice.sound in library and f"<instrument-name>{name}</instrument-name>" in text
+        for voice in _MUSE_VOICES
+        for name in voice.xml_names
+    )
+
+
+def _score_parts(mscx: str) -> list[tuple[str, str, str]]:
+    try:
+        root = ET.fromstring(mscx)
+    except ET.ParseError:
+        return []
+    parts: list[tuple[str, str, str]] = []
+    for part in root.iter("Part"):
+        part_id = part.get("id") or ""
+        instrument = next(part.iter("Instrument"), None)
+        if instrument is None:
+            continue
+        kind_node = instrument.find("instrumentId")
+        kind = kind_node.text or "" if kind_node is not None else ""
+        instrument_id = instrument.get("id") or ""
+        if part_id and instrument_id and kind:
+            parts.append((part_id, instrument_id, kind))
+    return parts
+
+
+def _sound_track(
+    part_id: str,
+    instrument_id: str,
+    resource_id: str,
+    resource_type: str,
+    vendor: str,
+    attributes: dict[str, str],
+) -> dict:
+    return {
+        "instrumentId": instrument_id,
+        "partId": part_id,
+        "soloMuteState": {"mute": False, "solo": False},
+        "in": {
+            "resourceMeta": {
+                "id": resource_id,
+                "type": resource_type,
+                "vendor": vendor,
+                "hasNativeEditorSupport": False,
+                "attributes": attributes,
+            },
+            "unitConfiguration": {},
+        },
+        "out": {"balance": 0, "fxChain": {}, "volumeDb": 0},
+    }
+
+
+def _assign_installed_sounds(mscz: Path, library: dict[str, tuple[str, str]]) -> bool:
+    """Point each matching part at an installed MuseSounds voice.
+
+    MuseScore 4's ``--sound-profile`` flag reports the voice it would use and
+    still renders MS Basic. The sampler plays only when the score stores that
+    voice's id in ``attributes.museUID``.
+    """
+    if not zipfile.is_zipfile(mscz):
+        return False
+    with zipfile.ZipFile(mscz) as archive:
+        names = archive.namelist()
+        mscx_name = next((name for name in names if name.endswith(".mscx")), None)
+        if mscx_name is None or "audiosettings.json" not in names:
+            return False
+        parts = _score_parts(archive.read(mscx_name).decode("utf-8"))
+        try:
+            settings = json.loads(archive.read("audiosettings.json"))
+        except json.JSONDecodeError:
+            return False
+        payloads = {name: archive.read(name) for name in names}
+    tracks = []
+    assigned: list[str] = []
+    for part_id, instrument_id, kind in parts:
+        voice = _VOICE_BY_INSTRUMENT.get(kind)
+        installed = library.get(voice.sound) if voice is not None else None
+        if installed is None:
+            tracks.append(
+                _sound_track(
+                    part_id,
+                    instrument_id,
+                    "MS Basic",
+                    "fluid_soundfont",
+                    "Fluid",
+                    {"playbackSetupData": "last.last.last", "soundFontName": "MS Basic"},
+                )
+            )
+            continue
+        sound_id, pack = installed
+        tracks.append(
+            _sound_track(
+                part_id,
+                instrument_id,
+                sound_id,
+                "muse_sampler_sound_pack",
+                "MuseSounds",
+                {
+                    "museUID": sound_id,
+                    "museName": voice.sound,
+                    "musePack": pack,
+                    "museCategory": pack,
+                    "museVendorName": "Muse",
+                },
+            )
+        )
+        assigned.append(f"{kind} -> {voice.sound}")
+    if not assigned:
+        return False
+    if not isinstance(settings, dict):
+        settings = {}
+    settings["activeSoundProfile"] = "MuseSounds"
+    settings["tracks"] = tracks
+    payloads["audiosettings.json"] = json.dumps(settings, indent=2).encode("utf-8")
+    temporary = mscz.with_suffix(".mscz.tmp")
+    with zipfile.ZipFile(temporary, "w") as archive:
+        for name, payload in payloads.items():
+            archive.writestr(name, payload)
+    temporary.replace(mscz)
+    logger.info("MuseSounds assigned: %s", ", ".join(assigned))
+    return True
+
+
+def _run_musescore(command: list[str], env: dict[str, str]) -> None:
+    output = Path(command[command.index("-o") + 1])
+    _raise_if_cancelled()
+    try:
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+    except OSError as exc:
+        raise RecapUnavailable(str(exc)) from exc
+    deadline = time.monotonic() + 180
+    stdout = ""
+    stderr = ""
+    try:
+        while True:
+            _raise_if_cancelled_killing(process)
+            try:
+                stdout, stderr = process.communicate(timeout=0.4)
+                break
+            except subprocess.TimeoutExpired:
+                if time.monotonic() > deadline:
+                    process.kill()
+                    raise RecapUnavailable("MuseScore export timed out")
+    finally:
+        if process.poll() is None:
+            process.kill()
+    # Converting to mscz can crash while the process exits, after the score
+    # has already been saved. A readable score is still worth using.
+    saved = output.is_file() and output.stat().st_size >= 64
+    if output.suffix == ".mscz" and saved and zipfile.is_zipfile(output):
+        return
+    if process.returncode != 0 or not saved:
+        detail = (stderr or stdout or "MuseScore export failed").strip()
+        raise RecapUnavailable(detail[-400:])
+
+
 def musescore_export(xml_path: Path, wav_path: Path) -> None:
     binary = find_musescore()
     if binary is None:
@@ -345,9 +591,13 @@ def musescore_export(xml_path: Path, wav_path: Path) -> None:
         env.setdefault("QT_QPA_PLATFORM", "offscreen")
     env["XDG_RUNTIME_DIR"] = runtime
     wav_path.parent.mkdir(parents=True, exist_ok=True)
-    command = [binary, "-o", str(wav_path), str(xml_path)]
+    source = xml_path
+    mscz_path = wav_path.with_suffix(".mscz")
     config: Path | None = None
-    if soundfont is not None and _supports_config_folder(binary):
+    use_config = soundfont is not None and _supports_config_folder(binary)
+    library = {} if use_config else _installed_muse_sounds()
+    command = [binary, "-o", str(wav_path), str(source)]
+    if use_config:
         config = wav_path.parent / f"{wav_path.stem}-mscore"
         write_synthesizer_config(config, soundfont)
         command = [binary, "-c", str(config), "-o", str(wav_path), str(xml_path)]
@@ -358,41 +608,23 @@ def musescore_export(xml_path: Path, wav_path: Path) -> None:
         )
     restore_metronome = _silence_metronome()
     try:
-        _raise_if_cancelled()
+        if library and _xml_requests_muse_sounds(xml_path, library):
+            try:
+                _run_musescore([binary, "-o", str(mscz_path), str(xml_path)], env)
+                if _assign_installed_sounds(mscz_path, library):
+                    source = mscz_path
+                    command = [binary, "-o", str(wav_path), str(source)]
+            except RecapUnavailable as exc:
+                logger.warning("MuseSounds prepare failed; exporting with MS Basic: %s", exc)
+                source = xml_path
+                command = [binary, "-o", str(wav_path), str(source)]
         try:
-            process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                env=env,
-            )
-        except OSError as exc:
-            if config is not None:
-                shutil.rmtree(config, ignore_errors=True)
-            raise RecapUnavailable(str(exc)) from exc
-        deadline = time.monotonic() + 180
-        stdout = ""
-        stderr = ""
-        try:
-            while True:
-                _raise_if_cancelled_killing(process)
-                try:
-                    stdout, stderr = process.communicate(timeout=0.4)
-                    break
-                except subprocess.TimeoutExpired:
-                    if time.monotonic() > deadline:
-                        process.kill()
-                        raise RecapUnavailable("MuseScore export timed out")
+            _run_musescore(command, env)
         finally:
-            if process.poll() is None:
-                process.kill()
             if config is not None:
                 shutil.rmtree(config, ignore_errors=True)
-        if process.returncode != 0 or not wav_path.is_file() or wav_path.stat().st_size < 64:
-            detail = (stderr or stdout or "MuseScore export failed").strip()
-            raise RecapUnavailable(detail[-400:])
     finally:
+        mscz_path.unlink(missing_ok=True)
         restore_metronome()
 
 
