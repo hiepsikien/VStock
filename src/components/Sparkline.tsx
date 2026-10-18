@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useId, useMemo } from 'react';
 import { View } from 'react-native';
 import Svg, {
   Circle,
@@ -68,10 +68,11 @@ export function Sparkline({
     return { line: linePath, fill: fillPath, cursor };
   }, [cursorIndex, data, width, height]);
 
+  const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   const stroke = positive ? colors.positive : colors.negative;
-  const gradId = positive ? 'sparkPos' : 'sparkNeg';
-  const playedClipId = positive ? 'sparkPlayedPos' : 'sparkPlayedNeg';
-  const unplayedClipId = positive ? 'sparkUnplayedPos' : 'sparkUnplayedNeg';
+  const gradId = `sparkGrad-${uid}`;
+  const playedClipId = `sparkPlayed-${uid}`;
+  const unplayedClipId = `sparkUnplayed-${uid}`;
   const splitX = cursor ? cursor.x : 0;
 
   return (
