@@ -1609,14 +1609,11 @@ def test_jazz_variant_swing_instruments_chords_and_vibraphone_layering() -> None
         assert all(RHODES_RIGHT_LOW <= m <= RHODES_RIGHT_HIGH for m in r_voicing)
         assert all(b - a >= 2 for a, b in zip(r_voicing, r_voicing[1:]))
 
-    # Synthetic 9th chord where the 3rd is at C4 (60, so 60 - 12 = 48 < RHODES_RIGHT_LOW)
-    # and the 9th is at B (pitch class 11) must lift the 9th rather than dropping the 3rd
-    # into the left-hand register (<= 52).
-    low_third_clash = Chord("Am(maj9)", "A", KIND_MINOR_NINTH, "m9", (57, 60, 64, 69, 71))
-    lt_root, lt_voicing = _rhodes_voicing(low_third_clash)
-    assert lt_root == 45
-    assert all(RHODES_RIGHT_LOW <= m <= RHODES_RIGHT_HIGH for m in lt_voicing)
-    assert all(b - a >= 2 for a, b in zip(lt_voicing, lt_voicing[1:]))
+    # Minor 9th chord where the 3rd is below F4 (Eb4 = 63 on Cm9, so 63 - 12 = 51 < RHODES_RIGHT_LOW)
+    # and clashes by 1 semitone with the 9th (D4 = 62) lifts the 9th up an octave (D5 = 74)
+    # rather than dropping the 3rd into the left-hand register (<= 52) or losing the 9th.
+    cm9 = Chord("Cm9", "C", KIND_MINOR_NINTH, "m9", (60, 63, 67, 70, 74))
+    assert _rhodes_voicing(cm9) == (48, (58, 63, 74))
 
     charleston_bars = [
         bar

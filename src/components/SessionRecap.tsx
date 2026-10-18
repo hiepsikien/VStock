@@ -450,6 +450,8 @@ function RecapPlayer({
   const started = useRef(false);
   const hasHeard = useRef(false);
   const ended = useRef(false);
+  const seekingTarget = useRef<number | null>(null);
+  const ignoreDidJustFinish = useRef(false);
 
   useEffect(() => {
     if (!autoplay || started.current || !status.isLoaded) return;
@@ -473,7 +475,20 @@ function RecapPlayer({
     const fileDuration = status.duration > 0 ? status.duration : manifest.durationSec;
     const mapDuration =
       manifest.mapDurationSec > 0 ? manifest.mapDurationSec : fileDuration;
-    if (status.playing || status.currentTime > 0.05) {
+    if (status.playing) {
+      seekingTarget.current = null;
+      ignoreDidJustFinish.current = false;
+    } else if (
+      seekingTarget.current != null &&
+      Math.abs(status.currentTime - seekingTarget.current) <= 0.5
+    ) {
+      seekingTarget.current = null;
+    }
+    const effectiveTime =
+      seekingTarget.current != null ? seekingTarget.current : status.currentTime;
+    const effectiveDidJustFinish =
+      status.didJustFinish && !ignoreDidJustFinish.current;
+    if (status.playing || effectiveTime > 0.05) {
       hasHeard.current = true;
     }
     const heard = hasHeard.current;
@@ -482,13 +497,13 @@ function RecapPlayer({
       onCursor(null, null);
       return;
     }
-    const index = candleIndexAt(status.currentTime, times.length, mapDuration);
+    const index = candleIndexAt(effectiveTime, times.length, mapDuration);
     const stillRunning = playheadHoldsPoll({
       playing: status.playing,
-      currentTime: status.currentTime,
+      currentTime: effectiveTime,
       mapDurationSec: mapDuration,
       fileDurationSec: fileDuration,
-      didJustFinish: status.didJustFinish,
+      didJustFinish: effectiveDidJustFinish,
       started: hasHeard.current,
     });
     if (!stillRunning) ended.current = true;
@@ -523,7 +538,8 @@ function RecapPlayer({
     const mapDuration =
       manifest.mapDurationSec > 0 ? manifest.mapDurationSec : duration;
     hasHeard.current = true;
-    ended.current = false;
+    seekingTarget.current = targetSec;
+    ignoreDidJustFinish.current = true;
     if (times.length > 0) {
       const index = candleIndexAt(targetSec, times.length, mapDuration);
       const holds = playheadHoldsPoll({
@@ -531,9 +547,10 @@ function RecapPlayer({
         currentTime: targetSec,
         mapDurationSec: mapDuration,
         fileDurationSec: duration,
+        didJustFinish: false,
         started: true,
       });
-      if (!holds) ended.current = true;
+      ended.current = !holds;
       onCursor(index, times[index] ?? null, holds);
     }
     void player.seekTo(targetSec);

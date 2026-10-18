@@ -742,11 +742,11 @@ def _sax_melody_curve(
 
 
 RHODES_RIGHT_LOW = 53  # F3: lowest right-hand note, strictly above left-hand F2–E3 (41–52)
-RHODES_RIGHT_HIGH = 72  # C5: top of right-hand comping window
+RHODES_RIGHT_HIGH = 76  # E5: ceiling when lifting a clashing 9th above a low 3rd
 
 
 def _rhodes_voicing(chord: Chord) -> tuple[int, tuple[int, ...]]:
-    """Return left-hand root (F2–E3) and right-hand guide+9th tones in F3–C5 without semitone clashes."""
+    """Return left-hand root (F2–E3) and right-hand guide+9th tones in F3–E5 without semitone clashes."""
     root, guide = comp_pitches(chord)
     if len(chord.pitches) >= 5:
         third_pc = chord.pitches[1] % 12
@@ -756,7 +756,7 @@ def _rhodes_voicing(chord: Chord) -> tuple[int, tuple[int, ...]]:
         ninth_midi = 60 + ninth_pc  # C4–B4
         if ninth_midi < min(guide):
             ninth_midi += 12
-        if ninth_midi not in guide:
+        if ninth_midi <= 72 and ninth_midi not in guide:
             voiced = sorted((*guide, ninth_midi))
             if any(b - a < 2 for a, b in zip(voiced, voiced[1:])):
                 # When the 3rd clashes by 1 semitone with the 9th (e.g. E4–F4 on Dm9),
