@@ -742,7 +742,7 @@ def _sax_melody_curve(
 
 
 def _rhodes_voicing(chord: Chord) -> tuple[int, tuple[int, ...]]:
-    """Return left-hand root (F2–E3) and right-hand guide+9th tones in A3–B4."""
+    """Return left-hand root (F2–E3) and right-hand guide+9th tones in F3–B4 without semitone clashes."""
     root, guide = comp_pitches(chord)
     if len(chord.pitches) >= 5:
         ninth_pc = chord.pitches[4] % 12
@@ -750,7 +750,15 @@ def _rhodes_voicing(chord: Chord) -> tuple[int, tuple[int, ...]]:
         if ninth_midi < min(guide):
             ninth_midi += 12
         if ninth_midi <= 72 and ninth_midi not in guide:
-            return root, tuple(sorted((*guide, ninth_midi)))
+            voiced = sorted((*guide, ninth_midi))
+            # Avoid minor-second (1-semitone) clashes such as E4–F4 (64, 65) on Dm9
+            # by opening the third down an octave (F4 -> F3 = 53 -> (53, 60, 64)).
+            if any(b - a < 2 for a, b in zip(voiced, voiced[1:])):
+                voiced = sorted(
+                    m - 12 if any(abs(m - o) == 1 and m > o for o in voiced) else m
+                    for m in voiced
+                )
+            return root, tuple(voiced)
     return root, guide
 
 

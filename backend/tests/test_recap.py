@@ -153,7 +153,7 @@ def test_recap_store_replays_the_same_piece_and_rerenders_when_the_session_grows
     assert len(first.peaks) == 96
     assert first.bar_count == 12
     assert f"_{RECAP_REVISION}_12" in first.audio_path.name
-    assert first.audio_url.endswith("/recap/audio.m4a?variant=symphony&v=12")
+    assert first.audio_url.endswith(f"/recap/audio.m4a?variant=symphony&v=12&r={RECAP_REVISION}")
 
     grown = bars + [Bar(112.0, 10.0, 100.0)]
     third = store.ensure("FPT", DAY, "symphony", grown)

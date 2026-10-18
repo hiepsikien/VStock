@@ -1600,11 +1600,12 @@ def test_jazz_variant_swing_instruments_chords_and_vibraphone_layering() -> None
     from app.sonify.jazz import _rhodes_voicing
 
     assert _rhodes_voicing(CMAJ9) == (48, (59, 62, 64))
-    assert _rhodes_voicing(DM9) == (50, (60, 64, 65))
+    assert _rhodes_voicing(DM9) == (50, (53, 60, 64))
     for ninth_chord in (CMAJ9, DM9, FMAJ9, G9, AM9):
         _r, r_voicing = _rhodes_voicing(ninth_chord)
         assert len(r_voicing) == 3
         assert (ninth_chord.pitches[4] % 12) in {m % 12 for m in r_voicing}
+        assert all(b - a >= 2 for a, b in zip(r_voicing, r_voicing[1:]))
 
     charleston_bars = [
         bar

@@ -39,6 +39,7 @@ export type RecapView = {
   changePercent: number;
   cursorIndex: number | null;
   cursorLabel: string | null;
+  dimUnplayed: boolean;
 };
 
 type Props = {
@@ -52,6 +53,7 @@ const EMPTY_VIEW: RecapView = {
   changePercent: 0,
   cursorIndex: null,
   cursorLabel: null,
+  dimUnplayed: false,
 };
 
 function vnToday(): string {
@@ -113,6 +115,7 @@ export function SessionRecap({ symbol, children }: Props) {
   const [listenError, setListenError] = useState<string | null>(null);
   const [autoplay, setAutoplay] = useState(false);
   const [cursor, setCursor] = useState<{ index: number; label: string } | null>(null);
+  const [playbackActive, setPlaybackActive] = useState(false);
   const cursorActive = useRef(false);
   const recapAbort = useRef<AbortController | null>(null);
   const variantChanged = useRef(false);
@@ -132,12 +135,15 @@ export function SessionRecap({ symbol, children }: Props) {
   }, []);
 
   const onCursor = useCallback((index: number | null, label: string | null, holdPoll = false) => {
-    cursorActive.current = holdPoll && index != null;
+    const active = holdPoll && index != null;
+    cursorActive.current = active;
+    setPlaybackActive(active);
     setCursor(index == null || label == null ? null : { index, label });
   }, []);
 
   const clearPlayhead = useCallback(() => {
     cursorActive.current = false;
+    setPlaybackActive(false);
     setCursor(null);
   }, []);
 
@@ -308,6 +314,8 @@ export function SessionRecap({ symbol, children }: Props) {
 
   const ready = series != null && series.date === selected;
   const playingPiece = pieceMatches(manifest, series, variant, selected);
+  const dimUnplayed =
+    composing || (playingPiece && (playbackActive || (autoplay && cursor == null)));
   const view: RecapView = loadError
     ? { ...EMPTY_VIEW, status: 'error' }
     : ready && series
@@ -317,6 +325,7 @@ export function SessionRecap({ symbol, children }: Props) {
           changePercent: series.changePercent,
           cursorIndex: cursor?.index ?? null,
           cursorLabel: cursor?.label ?? null,
+          dimUnplayed,
         }
       : selected
         ? { ...EMPTY_VIEW, status: 'loading' }

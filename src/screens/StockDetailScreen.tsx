@@ -439,6 +439,7 @@ export function StockDetailScreen({ navigation, route }: Props) {
                     onRangeChange={(next) => void onRangeChange(next)}
                     cursorIndex={view.cursorIndex}
                     cursorLabel={view.cursorLabel}
+                    dimUnplayed={view.dimUnplayed}
                   />
                   {chartLoading ? (
                     <ActivityIndicator

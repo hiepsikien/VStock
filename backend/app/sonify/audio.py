@@ -37,7 +37,7 @@ from app.sonify.session import VN, is_session_closed
 logger = logging.getLogger(__name__)
 
 # Bump when the score or the sound changes, so old files are not replayed.
-RECAP_REVISION = "5"
+RECAP_REVISION = "8"
 PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
@@ -96,7 +96,7 @@ class RecapAsset:
     def audio_url(self) -> str:
         return (
             f"/v1/stocks/{self.symbol}/sessions/{self.day.isoformat()}"
-            f"/recap/audio.m4a?variant={self.variant}&v={self.bar_count}"
+            f"/recap/audio.m4a?variant={self.variant}&v={self.bar_count}&r={RECAP_REVISION}"
         )
 
 
@@ -298,18 +298,27 @@ def _raise_if_cancelled() -> None:
 # empty factory file over the user's preferences when it exits.
 _METRONOME_DOMAIN = "org.musescore.MuseScore4"
 _METRONOME_KEY = "application.playback.metronomeEnabled"
+_COUNT_IN_KEY = "application.playback.countInEnabled"
+_CHORD_SYMBOLS_KEY = "application.playback.playChordSymbols"
 
 
 def _silence_metronome() -> Callable[[], None]:
-    """Turn MuseScore 4's playback click off and leave it off.
+    """Turn MuseScore 4's playback click off (and keep chord-symbol piano on).
 
     A missing preference uses the app default, which shows the metronome as
     on. Restoring the old value after export turned that switch back on.
     """
     if sys.platform != "darwin":
         return lambda: None
+    for key in (_METRONOME_KEY, _COUNT_IN_KEY):
+        subprocess.run(
+            ["defaults", "write", _METRONOME_DOMAIN, key, "-bool", "false"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
     subprocess.run(
-        ["defaults", "write", _METRONOME_DOMAIN, _METRONOME_KEY, "-bool", "false"],
+        ["defaults", "write", _METRONOME_DOMAIN, _CHORD_SYMBOLS_KEY, "-bool", "true"],
         check=False,
         capture_output=True,
         text=True,
@@ -450,6 +459,46 @@ def _sound_track(
     }
 
 
+def _move_harmonies_to_comp_staff(mscx: str) -> str:
+    """Move imported <Harmony> symbols from the lead staff (Staff 2) to the comp staff (Staff 4).
+
+    In MusicXML the chord symbols sit on ``P1`` (lead), which carries phrase
+    ``<wedge>`` hairpins that swell up to ``f``/``ff``. When MuseScore renders
+    chord-symbol piano from ``Staff 2``, any chord landing on a crescendo peak
+    bangs at ``f``/``ff``. Moving ``<Harmony>`` to ``Staff 4`` (``P3``, marked
+    ``p`` with no hairpins) keeps the MuseScore piano chord cushion at a steady,
+    gentle ``p`` across the whole piece.
+    """
+    try:
+        root = ET.fromstring(mscx)
+    except ET.ParseError:
+        return mscx
+    staves = {staff.get("id"): staff for staff in root.findall(".//Score/Staff")}
+    lead_staff = staves.get("2")
+    comp_staff = staves.get("4")
+    if lead_staff is None or comp_staff is None:
+        return mscx
+    moved = False
+    for m_lead, m_comp in zip(lead_staff.findall("Measure"), comp_staff.findall("Measure")):
+        v_lead = m_lead.find("voice")
+        v_comp = m_comp.find("voice")
+        if v_lead is None or v_comp is None:
+            continue
+        for harmony in list(v_lead.findall("Harmony")):
+            v_lead.remove(harmony)
+            insert_idx = 0
+            for idx, child in enumerate(v_comp):
+                if child.tag in ("Chord", "Rest"):
+                    insert_idx = idx
+                    break
+                insert_idx = idx + 1
+            v_comp.insert(insert_idx, harmony)
+            moved = True
+    if not moved:
+        return mscx
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode")
+
+
 def _assign_installed_sounds(mscz: Path, library: dict[str, tuple[str, str]]) -> bool:
     """Point each matching part at an installed MuseSounds voice.
 
@@ -464,12 +513,14 @@ def _assign_installed_sounds(mscz: Path, library: dict[str, tuple[str, str]]) ->
         mscx_name = next((name for name in names if name.endswith(".mscx")), None)
         if mscx_name is None or "audiosettings.json" not in names:
             return False
-        parts = _score_parts(archive.read(mscx_name).decode("utf-8"))
+        mscx_text = archive.read(mscx_name).decode("utf-8")
+        parts = _score_parts(mscx_text)
         try:
             settings = json.loads(archive.read("audiosettings.json"))
         except json.JSONDecodeError:
             return False
         payloads = {name: archive.read(name) for name in names}
+    payloads[mscx_name] = _move_harmonies_to_comp_staff(mscx_text).encode("utf-8")
     tracks = []
     assigned: list[str] = []
     for part_id, instrument_id, kind in parts:
