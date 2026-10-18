@@ -31,7 +31,10 @@ const VARIANTS: { id: RecapVariant; label: string }[] = [
   { id: 'minimalist', label: 'Tối giản' },
 ];
 
+export type RecapStatus = 'idle' | 'loading' | 'ready' | 'error';
+
 export type RecapView = {
+  status: RecapStatus;
   prices: number[];
   changePercent: number;
   cursorIndex: number | null;
@@ -44,6 +47,7 @@ type Props = {
 };
 
 const EMPTY_VIEW: RecapView = {
+  status: 'idle',
   prices: [],
   changePercent: 0,
   cursorIndex: null,
@@ -75,16 +79,52 @@ function recapErrorMessage(error: unknown): string {
   return 'Không tải được phiên.';
 }
 
+function isAbort(error: unknown): boolean {
+  return error instanceof Error && (error.name === 'AbortError' || /aborted/i.test(error.message));
+}
+
+function pieceMatches(
+  manifest: RecapManifest | null,
+  series: SessionMinutes | null,
+  variant: RecapVariant,
+  selected: string | null,
+): manifest is RecapManifest {
+  return (
+    manifest != null &&
+    series != null &&
+    selected != null &&
+    manifest.date === series.date &&
+    series.date === selected &&
+    manifest.variant === variant &&
+    manifest.barCount === series.prices.length
+  );
+}
+
 export function SessionRecap({ symbol, children }: Props) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [variant, setVariant] = useState<RecapVariant>('symphony');
   const [series, setSeries] = useState<SessionMinutes | null>(null);
   const [manifest, setManifest] = useState<RecapManifest | null>(null);
-  const [preparing, setPreparing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [composing, setComposing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [listenError, setListenError] = useState<string | null>(null);
+  const [autoplay, setAutoplay] = useState(false);
   const [cursor, setCursor] = useState<{ index: number; label: string } | null>(null);
   const cursorActive = useRef(false);
+  const recapAbort = useRef<AbortController | null>(null);
+  const variantChanged = useRef(false);
+  const seriesRef = useRef<SessionMinutes | null>(null);
+  const selectedRef = useRef<string | null>(null);
+  const variantRef = useRef<RecapVariant>('symphony');
+  seriesRef.current = series;
+  selectedRef.current = selected;
+  variantRef.current = variant;
+
+  const abortRecap = useCallback(() => {
+    recapAbort.current?.abort();
+    recapAbort.current = null;
+  }, []);
 
   const onCursor = useCallback((index: number | null, label: string | null) => {
     cursorActive.current = index != null;
@@ -93,12 +133,16 @@ export function SessionRecap({ symbol, children }: Props) {
 
   useEffect(() => {
     let cancelled = false;
+    abortRecap();
     setSessions([]);
     setSelected(null);
     setSeries(null);
     setManifest(null);
     setCursor(null);
-    setError(null);
+    setLoadError(null);
+    setListenError(null);
+    setComposing(false);
+    setAutoplay(false);
     void (async () => {
       try {
         const rows = await fetchSessions(symbol);
@@ -106,72 +150,143 @@ export function SessionRecap({ symbol, children }: Props) {
         setSessions(rows);
         setSelected(rows.length ? rows[rows.length - 1].date : null);
       } catch (err) {
-        if (!cancelled) setError(recapErrorMessage(err));
+        if (!cancelled) setLoadError(recapErrorMessage(err));
       }
     })();
     return () => {
       cancelled = true;
+      abortRecap();
     };
-  }, [symbol]);
+  }, [abortRecap, symbol]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const controller = new AbortController();
+    let cancelled = false;
+    abortRecap();
+    setSeries(null);
+    setManifest(null);
+    setCursor(null);
+    setLoadError(null);
+    setListenError(null);
+    setComposing(false);
+    setAutoplay(false);
+    void (async () => {
+      try {
+        const detail = await fetchSessionMinutes(symbol, selected, controller.signal);
+        if (cancelled) return;
+        setSeries(detail);
+      } catch (err) {
+        if (cancelled || isAbort(err)) return;
+        setSeries(null);
+        setLoadError(recapErrorMessage(err));
+      }
+    })();
+    return () => {
+      cancelled = true;
+      controller.abort();
+      abortRecap();
+    };
+  }, [abortRecap, selected, symbol]);
+
+  useEffect(() => {
+    if (!variantChanged.current) {
+      variantChanged.current = true;
+      return;
+    }
+    abortRecap();
+    setManifest(null);
+    setCursor(null);
+    setListenError(null);
+    setComposing(false);
+    setAutoplay(false);
+  }, [abortRecap, variant]);
 
   useEffect(() => {
     if (!selected) return;
     let cancelled = false;
-    setPreparing(true);
-    setError(null);
-    setCursor(null);
-    setManifest(null);
-    void (async () => {
-      try {
-        const detail = await fetchSessionMinutes(symbol, selected);
-        if (cancelled) return;
-        setSeries(detail);
-        const recap = await fetchRecap(symbol, selected, variant);
-        if (cancelled) return;
-        setManifest(recap);
-      } catch (err) {
-        if (!cancelled) {
-          setManifest(null);
-          setError(recapErrorMessage(err));
-        }
-      } finally {
-        if (!cancelled) setPreparing(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [selected, symbol, variant]);
-
-  useEffect(() => {
-    if (!selected) return;
+    let inflight: AbortController | null = null;
     const timer = setInterval(() => {
       if (cursorActive.current || !isMarketOpen() || selected !== vnToday()) return;
+      inflight?.abort();
+      const controller = new AbortController();
+      inflight = controller;
       void (async () => {
         try {
-          const detail = await fetchSessionMinutes(symbol, selected);
-          if (cursorActive.current) return;
+          const detail = await fetchSessionMinutes(symbol, selected, controller.signal);
+          if (cancelled || cursorActive.current || detail.date !== selected) return;
           setSeries(detail);
-          if (detail.prices.length !== manifest?.barCount) {
-            const recap = await fetchRecap(symbol, selected, variant);
-            if (!cursorActive.current) setManifest(recap);
-          }
-        } catch {
+          setManifest((current) =>
+            pieceMatches(current, detail, variantRef.current, selected) ? current : null,
+          );
+        } catch (err) {
+          if (cancelled || isAbort(err)) return;
           /* keep the session on screen */
         }
       })();
     }, REFRESH.chart1dPollMs);
-    return () => clearInterval(timer);
-  }, [manifest?.barCount, selected, symbol, variant]);
+    return () => {
+      cancelled = true;
+      inflight?.abort();
+      clearInterval(timer);
+    };
+  }, [selected, symbol]);
 
-  const view: RecapView = series
-    ? {
-        prices: series.prices,
-        changePercent: series.changePercent,
-        cursorIndex: cursor?.index ?? null,
-        cursorLabel: cursor?.label ?? null,
+  const listen = useCallback(() => {
+    const day = selectedRef.current;
+    const current = seriesRef.current;
+    const chosen = variantRef.current;
+    if (!day || !current || current.date !== day) return;
+    abortRecap();
+    const controller = new AbortController();
+    recapAbort.current = controller;
+    setComposing(true);
+    setListenError(null);
+    setManifest(null);
+    setAutoplay(false);
+    void (async () => {
+      try {
+        const recap = await fetchRecap(symbol, day, chosen, controller.signal);
+        if (controller.signal.aborted) return;
+        const latest = seriesRef.current;
+        if (
+          selectedRef.current !== day ||
+          variantRef.current !== chosen ||
+          !pieceMatches(recap, latest, chosen, day)
+        ) {
+          return;
+        }
+        setManifest(recap);
+        setAutoplay(true);
+      } catch (err) {
+        if (controller.signal.aborted || isAbort(err)) return;
+        if (selectedRef.current === day && variantRef.current === chosen) {
+          setListenError(recapErrorMessage(err));
+        }
+      } finally {
+        if (recapAbort.current === controller) {
+          recapAbort.current = null;
+          setComposing(false);
+        }
       }
-    : EMPTY_VIEW;
+    })();
+  }, [abortRecap, symbol]);
+
+  const ready = series != null && series.date === selected;
+  const playingPiece = pieceMatches(manifest, series, variant, selected);
+  const view: RecapView = loadError
+    ? { ...EMPTY_VIEW, status: 'error' }
+    : ready && series
+      ? {
+          status: 'ready',
+          prices: series.prices,
+          changePercent: series.changePercent,
+          cursorIndex: cursor?.index ?? null,
+          cursorLabel: cursor?.label ?? null,
+        }
+      : selected
+        ? { ...EMPTY_VIEW, status: 'loading' }
+        : EMPTY_VIEW;
 
   return (
     <View>
@@ -210,9 +325,11 @@ export function SessionRecap({ symbol, children }: Props) {
         </View>
       ) : null}
 
+      {loadError ? <Text style={[styles.error, styles.errorInset]}>{loadError}</Text> : null}
+
       {children(view)}
 
-      {selected ? (
+      {ready && series ? (
         <View style={styles.player}>
           <View style={styles.variantRow}>
             {VARIANTS.map((item) => {
@@ -236,21 +353,34 @@ export function SessionRecap({ symbol, children }: Props) {
             })}
           </View>
 
-          {manifest && series ? (
+          {playingPiece && manifest ? (
             <RecapPlayer
               key={manifest.audioUrl}
               manifest={manifest}
               times={series.times}
+              autoplay={autoplay}
               onCursor={onCursor}
             />
-          ) : preparing ? (
+          ) : composing ? (
             <View style={styles.preparing}>
               <ActivityIndicator color={colors.accent} />
               <Text style={styles.preparingText}>Đang soạn nhạc…</Text>
             </View>
-          ) : null}
+          ) : (
+            <Pressable
+              onPress={() => {
+                void Haptics.selectionAsync();
+                listen();
+              }}
+              style={styles.play}
+              accessibilityRole="button"
+              accessibilityLabel="Nghe"
+            >
+              <Text style={styles.playText}>Nghe</Text>
+            </Pressable>
+          )}
 
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {listenError ? <Text style={styles.error}>{listenError}</Text> : null}
         </View>
       ) : null}
     </View>
@@ -260,10 +390,12 @@ export function SessionRecap({ symbol, children }: Props) {
 function RecapPlayer({
   manifest,
   times,
+  autoplay,
   onCursor,
 }: {
   manifest: RecapManifest;
   times: string[];
+  autoplay: boolean;
   onCursor: (index: number | null, label: string | null) => void;
 }) {
   const player = useAudioPlayer(absoluteApiUrl(manifest.audioUrl), {
@@ -272,10 +404,17 @@ function RecapPlayer({
   });
   const status = useAudioPlayerStatus(player);
   const [waveWidth, setWaveWidth] = useState(0);
+  const started = useRef(false);
 
   useEffect(() => {
     void setAudioModeAsync({ playsInSilentMode: true });
   }, []);
+
+  useEffect(() => {
+    if (!autoplay || started.current) return;
+    started.current = true;
+    player.play();
+  }, [autoplay, player]);
 
   useEffect(() => {
     const fileDuration = status.duration > 0 ? status.duration : manifest.durationSec;
@@ -458,6 +597,9 @@ const styles = StyleSheet.create({
     color: colors.negative,
     textAlign: 'center',
     marginTop: spacing.sm,
+  },
+  errorInset: {
+    marginHorizontal: spacing.lg,
   },
   waveHit: {
     marginTop: spacing.md,

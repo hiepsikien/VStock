@@ -10,15 +10,17 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
 import threading
+import time
 import wave
 from array import array
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Callable
 
@@ -27,13 +29,21 @@ from app.sonify.model import Bar, Variant
 from app.sonify.musicxml import score_to_musicxml
 from app.sonify.playback import piece_seconds
 from app.sonify.render import render
-from app.sonify.session import is_session_closed
+from app.sonify.session import VN, is_session_closed
 
 logger = logging.getLogger(__name__)
 
 # Bump when the score or the soundfont changes, so old files are not replayed.
-RECAP_REVISION = "2"
+RECAP_REVISION = "3"
 PEAK_BUCKETS = 96
+# One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
+EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
+AUDIO_MAX_AGE_DAYS = max(1, int(os.environ.get("VSTOCK_AUDIO_MAX_AGE_DAYS", "30")))
+_STORED_NAME = re.compile(
+    r"^[A-Z0-9]+_\d{4}-\d{2}-\d{2}_(?:symphony|jazz|minimalist)_(?P<rev>[^_]+)_\d+\.(?:m4a|wav|json)$"
+)
+_export_cancel = threading.local()
+_config_folder_support: dict[str, bool] = {}
 
 SOUNDFONT_CANDIDATES = (
     "/usr/share/sounds/sf3/MuseScore_General_Full.sf3",
@@ -58,6 +68,10 @@ ExportFn = Callable[[Path, Path], None]
 
 class RecapUnavailable(RuntimeError):
     """MuseScore could not write an audio file."""
+
+
+class RecapCancelled(RuntimeError):
+    """The client went away before MuseScore finished."""
 
 
 @dataclass(frozen=True)
@@ -179,6 +193,70 @@ def _media_type(path: Path) -> str:
     return "application/octet-stream"
 
 
+def write_synthesizer_config(folder: Path, soundfont: Path) -> None:
+    """Point a MuseScore 3 config directory at one Fluid soundfont.
+
+    MuseScore matches the synthesizer entry by filename, and only looks in
+    its install sound directory plus ``application/paths/mySoundfonts``.
+    The ini entry adds the file's own directory so an absolute path is found.
+    """
+    folder.mkdir(parents=True, exist_ok=True)
+    escaped = (
+        str(soundfont)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+    (folder / "synthesizer.xml").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        "<Synthesizer>\n"
+        "  <Fluid>\n"
+        f'    <val id="0">{escaped}</val>\n'
+        "  </Fluid>\n"
+        "</Synthesizer>\n",
+        encoding="utf-8",
+    )
+    settings = folder / "MuseScore"
+    settings.mkdir(parents=True, exist_ok=True)
+    directory = str(soundfont.parent).replace("\n", "").replace("\r", "")
+    (settings / "MuseScore3.ini").write_text(
+        "[application]\n"
+        f"paths\\mySoundfonts={directory}\n",
+        encoding="utf-8",
+    )
+
+
+def _supports_config_folder(binary: str) -> bool:
+    cached = _config_folder_support.get(binary)
+    if cached is not None:
+        return cached
+    try:
+        completed = subprocess.run(
+            [binary, "--help"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        _config_folder_support[binary] = False
+        return False
+    supported = "--config-folder" in f"{completed.stdout}\n{completed.stderr}"
+    _config_folder_support[binary] = supported
+    return supported
+
+
+def _raise_if_cancelled_event(cancel: threading.Event | None) -> None:
+    if cancel is not None and cancel.is_set():
+        raise RecapCancelled("export cancelled")
+
+
+def _raise_if_cancelled() -> None:
+    cancel = getattr(_export_cancel, "event", None)
+    if isinstance(cancel, threading.Event) and cancel.is_set():
+        raise RecapCancelled("export cancelled")
+
+
 def musescore_export(xml_path: Path, wav_path: Path) -> None:
     binary = find_musescore()
     if binary is None:
@@ -197,20 +275,52 @@ def musescore_export(xml_path: Path, wav_path: Path) -> None:
     env["XDG_RUNTIME_DIR"] = runtime
     wav_path.parent.mkdir(parents=True, exist_ok=True)
     command = [binary, "-o", str(wav_path), str(xml_path)]
+    if soundfont is not None and _supports_config_folder(binary):
+        config = wav_path.parent / f"{wav_path.stem}-mscore"
+        write_synthesizer_config(config, soundfont)
+        command = [binary, "-c", str(config), "-o", str(wav_path), str(xml_path)]
+    elif soundfont is not None:
+        logger.warning(
+            "MuseScore at %s has no --config-folder, so MUSESCORE_SOUNDFONT is not applied",
+            binary,
+        )
+    _raise_if_cancelled()
     try:
-        completed = subprocess.run(
+        process = subprocess.Popen(
             command,
-            check=False,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=180,
             env=env,
         )
-    except subprocess.TimeoutExpired as exc:
-        raise RecapUnavailable("MuseScore export timed out") from exc
-    if completed.returncode != 0 or not wav_path.is_file() or wav_path.stat().st_size < 64:
-        detail = (completed.stderr or completed.stdout or "MuseScore export failed").strip()
+    except OSError as exc:
+        raise RecapUnavailable(str(exc)) from exc
+    deadline = time.monotonic() + 180
+    stdout = ""
+    stderr = ""
+    try:
+        while True:
+            _raise_if_cancelled_killing(process)
+            try:
+                stdout, stderr = process.communicate(timeout=0.4)
+                break
+            except subprocess.TimeoutExpired:
+                if time.monotonic() > deadline:
+                    process.kill()
+                    raise RecapUnavailable("MuseScore export timed out")
+    finally:
+        if process.poll() is None:
+            process.kill()
+    if process.returncode != 0 or not wav_path.is_file() or wav_path.stat().st_size < 64:
+        detail = (stderr or stdout or "MuseScore export failed").strip()
         raise RecapUnavailable(detail[-400:])
+
+
+def _raise_if_cancelled_killing(process: subprocess.Popen[str]) -> None:
+    cancel = getattr(_export_cancel, "event", None)
+    if isinstance(cancel, threading.Event) and cancel.is_set():
+        process.kill()
+        raise RecapCancelled("export cancelled")
 
 
 def _transcode_m4a(wav_path: Path, m4a_path: Path) -> bool:
@@ -238,10 +348,19 @@ def _transcode_m4a(wav_path: Path, m4a_path: Path) -> bool:
 
 
 class RecapStore:
-    def __init__(self, root: Path | None = None, exporter: ExportFn | None = None) -> None:
+    def __init__(
+        self,
+        root: Path | None = None,
+        exporter: ExportFn | None = None,
+        *,
+        slots: int | None = None,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
         self.root = root or audio_root()
         self.root.mkdir(parents=True, exist_ok=True)
         self._exporter = exporter or musescore_export
+        self._slots = threading.BoundedSemaphore(EXPORT_SLOTS if slots is None else max(1, slots))
+        self._clock = clock or (lambda: datetime.now(VN))
         self._locks: dict[str, threading.Lock] = {}
         self._guard = threading.Lock()
 
@@ -253,18 +372,59 @@ class RecapStore:
                 self._locks[key] = lock
             return lock
 
-    def _stem(self, symbol: str, day: date, variant: Variant) -> str:
-        return f"{symbol}_{day.isoformat()}_{variant}_{RECAP_REVISION}"
+    def _piece(self, symbol: str, day: date, variant: Variant) -> str:
+        return f"{symbol}_{day.isoformat()}_{variant}"
 
-    def ensure(self, symbol: str, day: date, variant: Variant, bars: list[Bar]) -> RecapAsset:
+    def _stem(self, symbol: str, day: date, variant: Variant, bar_count: int) -> str:
+        return f"{self._piece(symbol, day, variant)}_{RECAP_REVISION}_{bar_count}"
+
+    def _is_closed(self, day: date) -> bool:
+        return is_session_closed(day, self._clock())
+
+    def get(self, symbol: str, day: date, variant: Variant, bar_count: int) -> RecapAsset | None:
+        """Serve one finished file. Does not compose."""
+        self.prune()
+        return self._read(symbol, day, variant, self._stem(symbol, day, variant, bar_count))
+
+    def ensure(
+        self,
+        symbol: str,
+        day: date,
+        variant: Variant,
+        bars: list[Bar],
+        cancel: threading.Event | None = None,
+    ) -> RecapAsset:
         if not bars:
             raise ValueError("need at least one price bar")
-        key = self._stem(symbol, day, variant)
-        with self._lock(key):
-            cached = self._read(symbol, day, variant, key)
-            if cached is not None and cached.bar_count == len(bars):
+        self.prune()
+        piece = self._piece(symbol, day, variant)
+        with self._lock(piece):
+            _raise_if_cancelled_event(cancel)
+            cached = self._cached(symbol, day, variant, len(bars))
+            if cached is not None:
                 return cached
-            return self._render(symbol, day, variant, bars, key)
+            _raise_if_cancelled_event(cancel)
+            with self._slots:
+                _raise_if_cancelled_event(cancel)
+                cached = self._cached(symbol, day, variant, len(bars))
+                if cached is not None:
+                    return cached
+                return self._render(symbol, day, variant, bars, cancel)
+
+    def prune(self) -> None:
+        """Drop other score revisions and files older than the retention window."""
+        cutoff = time.time() - AUDIO_MAX_AGE_DAYS * 86400
+        for path in list(self.root.iterdir()):
+            if not path.is_file():
+                continue
+            match = _STORED_NAME.match(path.name)
+            current = match is not None and match.group("rev") == RECAP_REVISION
+            try:
+                expired = path.stat().st_mtime < cutoff
+            except OSError:
+                continue
+            if not current or expired:
+                path.unlink(missing_ok=True)
 
     def _render(
         self,
@@ -272,15 +432,19 @@ class RecapStore:
         day: date,
         variant: Variant,
         bars: list[Bar],
-        key: str,
+        cancel: threading.Event | None,
     ) -> RecapAsset:
+        key = self._stem(symbol, day, variant, len(bars))
         score = render(bars, title=f"{symbol} {day.isoformat()}", variant=variant)
         work = self.root / "work"
         work.mkdir(parents=True, exist_ok=True)
         xml_path = work / f"{key}.musicxml"
         wav_path = work / f"{key}.wav"
         xml_path.write_text(score_to_musicxml(score), encoding="utf-8")
+        previous = getattr(_export_cancel, "event", None)
+        _export_cancel.event = cancel
         try:
+            _raise_if_cancelled_event(cancel)
             self._exporter(xml_path, wav_path)
             duration, peaks = waveform_peaks(wav_path)
             musical = piece_seconds(score.bars, score.bpm, BEATS_PER_BAR)
@@ -289,16 +453,13 @@ class RecapStore:
             # MuseScore leaves a short release after the last note. The chart
             # follows the written piece, then rests on the close during that tail.
             map_duration = musical if 0 < musical <= duration else duration
-            m4a_path = self.root / f"{key}.m4a"
-            wav_final = self.root / f"{key}.wav"
-            if _transcode_m4a(wav_path, m4a_path):
-                audio_path = m4a_path
+            m4a_tmp = work / f"{key}.m4a"
+            if _transcode_m4a(wav_path, m4a_tmp):
+                audio_path = self._publish(m4a_tmp, self.root / f"{key}.m4a")
                 wav_path.unlink(missing_ok=True)
-                wav_final.unlink(missing_ok=True)
             else:
-                wav_path.replace(wav_final)
-                audio_path = wav_final
-                m4a_path.unlink(missing_ok=True)
+                audio_path = self._publish(wav_path, self.root / f"{key}.wav")
+                m4a_tmp.unlink(missing_ok=True)
             payload = {
                 "symbol": symbol,
                 "date": day.isoformat(),
@@ -308,15 +469,35 @@ class RecapStore:
                 "barCount": len(bars),
                 "peaks": peaks,
                 "audio": audio_path.name,
-                "closed": is_session_closed(day),
+                "closed": self._is_closed(day),
             }
-            meta_path = self.root / f"{key}.json"
-            temporary = meta_path.with_suffix(".json.part")
-            temporary.write_text(json.dumps(payload), encoding="utf-8")
-            temporary.replace(meta_path)
+            meta_tmp = work / f"{key}.json"
+            meta_tmp.write_text(json.dumps(payload), encoding="utf-8")
+            self._publish(meta_tmp, self.root / f"{key}.json")
+            if self._is_closed(day):
+                self._drop_other_counts(symbol, day, variant, len(bars))
             return self._asset(symbol, day, variant, audio_path, payload)
         finally:
+            _export_cancel.event = previous
             xml_path.unlink(missing_ok=True)
+
+    def _publish(self, source: Path, dest: Path) -> Path:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(source, dest)
+        return dest
+
+    def _cached(self, symbol: str, day: date, variant: Variant, bar_count: int) -> RecapAsset | None:
+        cached = self._read(symbol, day, variant, self._stem(symbol, day, variant, bar_count))
+        if cached is not None and self._is_closed(day):
+            self._drop_other_counts(symbol, day, variant, bar_count)
+        return cached
+
+    def _drop_other_counts(self, symbol: str, day: date, variant: Variant, keep: int) -> None:
+        prefix = f"{self._piece(symbol, day, variant)}_{RECAP_REVISION}_"
+        keep_stem = f"{prefix}{keep}"
+        for path in list(self.root.iterdir()):
+            if path.stem.startswith(prefix) and path.stem != keep_stem:
+                path.unlink(missing_ok=True)
 
     def _read(self, symbol: str, day: date, variant: Variant, key: str) -> RecapAsset | None:
         meta_path = self.root / f"{key}.json"
@@ -326,9 +507,11 @@ class RecapStore:
             payload = json.loads(meta_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return None
+        if int(payload.get("barCount") or 0) <= 0:
+            return None
         name = str(payload.get("audio") or "")
         audio_path = self.root / name
-        if not name or not audio_path.is_file():
+        if not name or audio_path.name != name or not audio_path.is_file():
             return None
         return self._asset(symbol, day, variant, audio_path, payload)
 

@@ -40,7 +40,9 @@ npm run start:local
 
 `start:local` bật `EXPO_PUBLIC_LOCAL_API=1`. Simulator dùng `http://localhost:8000`. Máy thật lấy IP LAN của Metro và gọi `http://<ip-metro>:8000`. Lần đầu macOS có thể hỏi cho phép mạng nội bộ và kết nối đến cổng 8000.
 
-Mở MuseScore một lần và đóng hộp thoại khởi động trước khi bấm Nghe. App tìm binary trong `/Applications/MuseScore 4.app`. Soundfont General đầy đủ là tùy chọn (`MUSESCORE_SOUNDFONT=/đường/dẫn.sf3`); không có file đó thì MuseScore dùng font đi kèm app. Audio cache: `backend/var/audio`.
+Mở MuseScore một lần và đóng hộp thoại khởi động trước khi bấm Nghe. App tìm binary trong `/Applications/MuseScore 4.app`. Đổi ngày chỉ tải nến; MuseScore chạy khi bấm Nghe. Audio cache: `backend/var/audio` (hoặc `VSTOCK_AUDIO_DIR`).
+
+MuseScore 3 nhận `MUSESCORE_SOUNDFONT` qua `-c`: `synthesizer.xml` chọn file, `MuseScore3.ini` thêm thư mục chứa font vào đường tìm. MuseScore 4 không có `--config-folder`, nên biến đó không đổi font — app dùng soundfont đi kèm. Một tiến trình export tại một thời điểm (`VSTOCK_MUSESCORE_SLOTS`, mặc định 1).
 
 ## Deploy (production)
 
@@ -68,14 +70,14 @@ Tạm verify: `SENTRY_DEBUG_ENDPOINT=1` rồi `curl .../sentry-debug` — tắt 
 - `GET /v1/stocks/{symbol}/history?range=1D|1W|1M|3M|1Y|5Y`
 - `GET /v1/stocks/{symbol}/sessions?limit=7` — bảy phiên gần nhất
 - `GET /v1/stocks/{symbol}/sessions/{date}` — nến 1 phút của phiên đó
-- `GET /v1/stocks/{symbol}/sessions/{date}/recap?variant=symphony|jazz|minimalist` — manifest nhạc (peaks, thời lượng)
-- `GET /v1/stocks/{symbol}/sessions/{date}/recap/audio?variant=symphony|jazz|minimalist` — file audio
+- `GET /v1/stocks/{symbol}/sessions/{date}/recap?variant=symphony|jazz|minimalist` — soạn nhạc khi bấm Nghe, rồi trả manifest (peaks, thời lượng, số nến)
+- `GET /v1/stocks/{symbol}/sessions/{date}/recap/audio?variant=symphony|jazz|minimalist&v={số nến}` — chỉ trả file đã soạn; 404 nếu chưa có đúng số nến đó
 
 ## Nhạc phiên (MuseScore)
 
-Ảnh Docker cài `musescore3`, `ffmpeg`, và soundfont miễn phí **MuseScore General** (`musescore-general-soundfont`, file `MuseScore_General_Full.sf3`). Gói này đăng ký font làm soundfont mặc định của MuseScore.
+Ảnh Docker cài `musescore3`, `ffmpeg`, và soundfont miễn phí **MuseScore General** (`musescore-general-soundfont`, file `/usr/share/sounds/sf3/MuseScore_General_Full.sf3`). Export truyền font đó bằng thư mục cấu hình `-c` và `synthesizer.xml`, không chỉ ghi log.
 
-Lần đầu một mã + ngày + biến thể được soạn từ nến 1 phút ra MusicXML, MuseScore xuất WAV, rồi ffmpeg nén AAC. File nằm ở `VSTOCK_AUDIO_DIR` (mặc định `/data/audio`). Lần sau cùng số nến thì phát lại file đó. Phiên đang mở được soạn lại khi có thêm nến.
+Bấm Nghe mới soạn: nến 1 phút thành MusicXML, MuseScore xuất WAV ra file tạm, ffmpeg nén AAC, rồi đổi tên vào `{mã}_{ngày}_{biến thể}_{revision}_{số nến}.m4a`. Cùng số nến thì phát lại. Phiên đang mở giữ từng snapshot để lượt tải cũ không bị file mới ghi đè. Phiên đã đóng chỉ giữ snapshot cuối. File khác revision, và file cũ hơn `VSTOCK_AUDIO_MAX_AGE_DAYS` (mặc định 30 ngày), bị xóa. `VSTOCK_AUDIO_DIR` mặc định trong container là `/data/audio`.
 
 Ba biến thể: `symphony`, `jazz`, `minimalist`. Bài dài khoảng 80 giây (30 nhịp, tempo 90). Vị trí phát map đều lên các nến của phiên.
 

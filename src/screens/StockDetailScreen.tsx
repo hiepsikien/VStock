@@ -426,13 +426,15 @@ export function StockDetailScreen({ navigation, route }: Props) {
                 <View>
                   <PriceChart
                     prices={
-                      view.prices.length > 1
+                      view.status === 'ready' && view.prices.length > 1
                         ? view.prices
-                        : rangePrices.length
-                          ? rangePrices
-                          : stock.sparkline
+                        : view.status === 'loading' || view.status === 'error'
+                          ? []
+                          : rangePrices.length
+                            ? rangePrices
+                            : stock.sparkline
                     }
-                    positive={view.prices.length > 1 ? view.changePercent >= 0 : isUp}
+                    positive={view.status === 'ready' ? view.changePercent >= 0 : isUp}
                     range={range}
                     onRangeChange={(next) => void onRangeChange(next)}
                     cursorIndex={view.cursorIndex}

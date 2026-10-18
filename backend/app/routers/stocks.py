@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import date
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
 from app.schemas import (
@@ -24,8 +24,8 @@ from app.schemas import (
     WatchlistItem,
 )
 from app.services import fundamentals, history, indices, market_session, quotes, symbols as symbols_service
-from app.services.sessions import list_sessions, load_recap, load_session
-from app.sonify.audio import RecapUnavailable
+from app.services.sessions import list_sessions, load_recap, load_session, ready_recap
+from app.sonify.audio import RecapCancelled, RecapUnavailable
 from app.sonify.model import Variant
 
 router = APIRouter(prefix="/v1")
@@ -371,16 +371,19 @@ async def get_session_minutes(symbol: str, session_date: date) -> SessionDetailR
 async def get_recap(
     symbol: str,
     session_date: date,
+    request: Request,
     variant: Variant = Query(default="symphony"),
 ) -> RecapResponse:
     sym = symbol.upper()
     try:
-        asset = await load_recap(sym, session_date, variant)
+        asset = await load_recap(sym, session_date, variant, request)
     except LookupError:
         raise HTTPException(
             status_code=404,
             detail=f"No 1-minute session for {sym} on {session_date}",
         ) from None
+    except RecapCancelled:
+        raise HTTPException(status_code=499, detail="Recap cancelled") from None
     except RecapUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
@@ -402,21 +405,12 @@ async def get_recap_audio(
     symbol: str,
     session_date: date,
     variant: Variant = Query(default="symphony"),
-    v: int | None = Query(default=None),
+    v: int = Query(..., ge=1),
 ) -> FileResponse:
-    del v  # cache-buster for the client; the file is chosen by symbol, day, and variant
     sym = symbol.upper()
-    try:
-        asset = await load_recap(sym, session_date, variant)
-    except LookupError:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No 1-minute session for {sym} on {session_date}",
-        ) from None
-    except RecapUnavailable as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Minute history unavailable: {exc}") from exc
+    asset = ready_recap(sym, session_date, variant, v)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Recap audio is not ready")
     return FileResponse(
         asset.audio_path,
         media_type=asset.media_type,

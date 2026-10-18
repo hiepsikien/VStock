@@ -205,8 +205,8 @@ type HistoryDto = {
   prices: number[];
 };
 
-async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`);
+async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, { signal });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new Error(`API ${res.status}: ${body || res.statusText}`);
@@ -445,10 +445,15 @@ export async function fetchSessions(symbol: string): Promise<SessionSummary[]> {
   return data.sessions ?? [];
 }
 
-export async function fetchSessionMinutes(symbol: string, day: string): Promise<SessionMinutes> {
+export async function fetchSessionMinutes(
+  symbol: string,
+  day: string,
+  signal?: AbortSignal,
+): Promise<SessionMinutes> {
   const sym = symbol.toUpperCase();
   return apiGet<SessionMinutes>(
     `/v1/stocks/${encodeURIComponent(sym)}/sessions/${encodeURIComponent(day)}`,
+    signal,
   );
 }
 
@@ -456,10 +461,12 @@ export async function fetchRecap(
   symbol: string,
   day: string,
   variant: RecapVariant,
+  signal?: AbortSignal,
 ): Promise<RecapManifest> {
   const sym = symbol.toUpperCase();
   return apiGet<RecapManifest>(
     `/v1/stocks/${encodeURIComponent(sym)}/sessions/${encodeURIComponent(day)}/recap?variant=${variant}`,
+    signal,
   );
 }
 
