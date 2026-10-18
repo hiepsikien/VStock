@@ -470,3 +470,59 @@ def test_musescore_export_uses_installed_musesounds(tmp_path: Path, monkeypatch:
     assert synth["id"] == "MS Basic"
     assert wav.is_file()
     assert not wav.with_suffix(".mscz").exists()
+
+
+def test_assign_installed_sounds_removes_partial_score(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import zipfile
+
+    from app.sonify import audio as audio_mod
+
+    mscz = tmp_path / "piece.mscz"
+    mscx = (
+        '<?xml version="1.0"?><museScore><Score>'
+        '<Part id="1"><Instrument id="violin">'
+        "<instrumentId>strings.violin</instrumentId></Instrument></Part>"
+        "</Score></museScore>"
+    )
+    with zipfile.ZipFile(mscz, "w") as archive:
+        archive.writestr("score.mscx", mscx)
+        archive.writestr("audiosettings.json", '{"tracks": []}')
+    original = mscz.read_bytes()
+    real_zip = zipfile.ZipFile
+
+    def broken_zip(path, mode="r", *args, **kwargs):
+        if mode == "w":
+            Path(path).write_bytes(b"partial")
+            raise OSError("disk full")
+        return real_zip(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(audio_mod.zipfile, "ZipFile", broken_zip)
+    with pytest.raises(OSError, match="disk full"):
+        audio_mod._assign_installed_sounds(mscz, {"Violins 1": ("91", "Muse Strings")})
+    assert not mscz.with_suffix(".mscz.tmp").exists()
+    assert mscz.read_bytes() == original
+
+
+def test_silence_metronome_stays_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+    import sys
+
+    from app.sonify import audio as audio_mod
+
+    if sys.platform != "darwin":
+        pytest.skip("MuseScore 4 metronome preference is a macOS defaults key")
+    domain = "org.vstock.recap.metronome-test"
+    monkeypatch.setattr(audio_mod, "_METRONOME_DOMAIN", domain)
+    subprocess.run(["defaults", "delete", domain], check=False, capture_output=True)
+    try:
+        restore = audio_mod._silence_metronome()
+        restore()
+        read = subprocess.run(
+            ["defaults", "read", domain, audio_mod._METRONOME_KEY],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert read.stdout.strip() == "0"
+    finally:
+        subprocess.run(["defaults", "delete", domain], check=False, capture_output=True)

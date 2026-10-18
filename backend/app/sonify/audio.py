@@ -293,42 +293,28 @@ def _raise_if_cancelled() -> None:
         raise RecapCancelled("export cancelled")
 
 
-def _silence_metronome() -> Callable[[], None]:
-    """Turn off MuseScore 4's playback click for one export, then restore it.
+# MuseScore 4 mixes this playback click into a command-line export.
+# ``--factory-settings`` also drops the click, but that process writes the
+# empty factory file over the user's preferences when it exits.
+_METRONOME_DOMAIN = "org.musescore.MuseScore4"
+_METRONOME_KEY = "application.playback.metronomeEnabled"
 
-    The click is the app preference ``application.playback.metronomeEnabled``,
-    and the command-line export mixes it into the WAV. ``--factory-settings``
-    also drops the click, but that process writes the empty factory file over
-    the user's preferences when it exits.
+
+def _silence_metronome() -> Callable[[], None]:
+    """Turn MuseScore 4's playback click off and leave it off.
+
+    A missing preference uses the app default, which shows the metronome as
+    on. Restoring the old value after export turned that switch back on.
     """
     if sys.platform != "darwin":
         return lambda: None
-    domain = "org.musescore.MuseScore4"
-    key = "application.playback.metronomeEnabled"
-    read = subprocess.run(
-        ["defaults", "read", domain, key],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if read.returncode != 0 or read.stdout.strip() not in {"1", "true", "YES"}:
-        return lambda: None
     subprocess.run(
-        ["defaults", "write", domain, key, "-bool", "false"],
+        ["defaults", "write", _METRONOME_DOMAIN, _METRONOME_KEY, "-bool", "false"],
         check=False,
         capture_output=True,
         text=True,
     )
-
-    def restore() -> None:
-        subprocess.run(
-            ["defaults", "write", domain, key, "-bool", "true"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-
-    return restore
+    return lambda: None
 
 
 class _MuseVoice(NamedTuple):
@@ -527,10 +513,14 @@ def _assign_installed_sounds(mscz: Path, library: dict[str, tuple[str, str]]) ->
     settings["tracks"] = tracks
     payloads["audiosettings.json"] = json.dumps(settings, indent=2).encode("utf-8")
     temporary = mscz.with_suffix(".mscz.tmp")
-    with zipfile.ZipFile(temporary, "w") as archive:
-        for name, payload in payloads.items():
-            archive.writestr(name, payload)
-    temporary.replace(mscz)
+    try:
+        with zipfile.ZipFile(temporary, "w") as archive:
+            for name, payload in payloads.items():
+                archive.writestr(name, payload)
+        temporary.replace(mscz)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
     logger.info("MuseSounds assigned: %s", ", ".join(assigned))
     return True
 
@@ -625,6 +615,7 @@ def musescore_export(xml_path: Path, wav_path: Path) -> None:
                 shutil.rmtree(config, ignore_errors=True)
     finally:
         mscz_path.unlink(missing_ok=True)
+        mscz_path.with_suffix(".mscz.tmp").unlink(missing_ok=True)
         restore_metronome()
 
 
