@@ -94,6 +94,41 @@ def test_loud_minimalist_pulses_four_times_a_second() -> None:
             assert any(voice.role == "stab" for voice in note.voices)
 
 
+def test_climb_from_g5_to_c7_returns_for_every_variant() -> None:
+    """G, A, B and F do not exist inside a fifth. Arranging them must return."""
+    from app.sonify.chords import CMAJ7
+    from app.sonify.voices import arrange
+
+    for variant in VARIANTS:
+        for midi in range(79, 97):
+            voices, _sax = arrange(
+                variant,  # type: ignore[arg-type]
+                seq=midi,
+                midi=midi,
+                velocity=80,
+                chord=CMAJ7,
+                next_chord=CMAJ7,
+                band="mf",
+                prev_sax=None,
+                allow_high=True,
+                price_held=False,
+            )
+            assert voices
+            for voice in voices:
+                if voice.role == "flute":
+                    assert 79 <= voice.midi <= 88
+                if voice.role == "vibe":
+                    assert 84 <= voice.midi <= 89
+                if voice.role == "bell":
+                    assert 84 <= voice.midi <= 96
+        notes = render_stream(
+            [Trade(index * BUCKET_MS, 80_000 + index * 80, 1.0) for index in range(64)],
+            variant=variant,  # type: ignore[arg-type]
+        )
+        assert notes
+        assert max(note.midi for note in notes) >= 79
+
+
 def test_websocket_selects_the_jazz_variant() -> None:
     app = FastAPI()
     app.include_router(router)

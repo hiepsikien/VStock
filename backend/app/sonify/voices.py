@@ -101,12 +101,17 @@ def _brightness(midi: int) -> float:
     return min(1.0, max(0.0, (midi - SCALE_LOW) / span))
 
 
-def _in_register(midi: int, low: int, high: int) -> int:
-    while midi < low:
-        midi += 12
-    while midi > high:
-        midi -= 12
-    return midi
+def _accent_pitch(midi: int, low: int, high: int, chord: Chord) -> int:
+    """Nearest note that already sits in [low, high].
+
+    A window narrower than an octave does not contain every pitch class.
+    Transposing until the note fits then walks off the top and back forever.
+    """
+    if high < low:
+        raise ValueError("register is empty")
+    tones = [note for note in range(low, high + 1) if note % 12 in chord.pitch_classes]
+    pool = tones or list(range(low, high + 1))
+    return min(pool, key=lambda note: (abs(note - midi), note))
 
 
 def _chord_tone_below(chord: Chord, midi: int) -> int:
@@ -126,11 +131,7 @@ def _upper(chord: Chord, low: int, high: int, skip_root: bool = True) -> list[in
         pcs = pcs[1:]
     tones: list[int] = []
     for pc in pcs[:3]:
-        tone = low + (pc - low % 12) % 12
-        while tone < low:
-            tone += 12
-        while tone > high:
-            tone -= 12
+        tone = low + (pc - (low % 12)) % 12
         if low <= tone <= high and tone not in tones:
             tones.append(tone)
     return tones
@@ -197,7 +198,7 @@ def arrange(
             if pos == start:
                 voices.append(_voice("bass", chord.bass_midi + interval, length, 72, "sine"))
         if allow_high:
-            voices.append(_voice("flute", _in_register(midi, 79, 88), 2, 64, "sine"))
+            voices.append(_voice("flute", _accent_pitch(midi, 79, 88, chord), 2, 64, "sine"))
 
     elif variant == "jazz":
         sax = place_sax(midi, prev_sax)
@@ -210,7 +211,7 @@ def arrange(
             if stab:
                 voices.append(_voice("rhodes", stab[-1], 2, 70, "triangle"))
         if allow_high:
-            voices.append(_voice("vibe", _in_register(midi, 84, 89), 2, 60, "sine"))
+            voices.append(_voice("vibe", _accent_pitch(midi, 84, 89, chord), 2, 60, "sine"))
         voices.extend(_jazz_bass(seq, pos, beat, band, chord, next_chord))
 
     else:
@@ -231,7 +232,7 @@ def arrange(
             root = chord.bass_midi + (12 if band == "f" and beat == 3 else 0)
             voices.append(_voice("bass", root, 4, 78, "sine"))
         if allow_high:
-            voices.append(_voice("bell", _in_register(midi, 84, 96), 2, 64, "sine"))
+            voices.append(_voice("bell", _accent_pitch(midi, 84, 96, chord), 2, 64, "sine"))
 
     return tuple(voices), sax
 

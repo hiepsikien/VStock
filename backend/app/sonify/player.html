@@ -177,22 +177,41 @@
 
     async function start(variant) {
       const mine = ++session;
-      if (socket) socket.close();
-      if (audio) await audio.close();
+      if (socket) {
+        socket.close();
+        socket = null;
+      }
+      if (audio) {
+        const previous = audio;
+        audio = null;
+        if (previous.state !== "closed") previous.close().catch(() => {});
+      }
+      if (mine !== session) return;
       buttons.forEach((button) => button.classList.toggle("active", button.dataset.variant === variant));
       recent.length = 0;
       draw();
       priceEl.textContent = "—";
       chordEl.textContent = "—";
       regimeEl.textContent = "—";
-      audio = new AudioContext();
-      const master = audio.createGain();
+      const ctx = new AudioContext();
+      audio = ctx;
+      const master = ctx.createGain();
       master.gain.value = 0.55;
-      master.connect(audio.destination);
-      await audio.resume();
+      master.connect(ctx.destination);
+      try {
+        await ctx.resume();
+      } catch (err) {
+        if (mine === session) statusEl.textContent = "Không mở được tiếng.";
+        return;
+      }
+      if (mine !== session) return;
       const protocol = location.protocol === "https:" ? "wss" : "ws";
-      socket = new WebSocket(`${protocol}://${location.host}/v1/sonify/ws?variant=${variant}`);
-      const ctx = audio;
+      const opened = new WebSocket(`${protocol}://${location.host}/v1/sonify/ws?variant=${variant}`);
+      if (mine !== session) {
+        opened.close();
+        return;
+      }
+      socket = opened;
       let origin = null;
       let step = 0.25;
       let finished = false;
