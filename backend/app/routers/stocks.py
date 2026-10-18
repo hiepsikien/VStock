@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import date
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -27,6 +28,8 @@ from app.services import fundamentals, history, indices, market_session, quotes,
 from app.services.sessions import list_sessions, load_recap, load_session, ready_recap
 from app.sonify.audio import RecapCancelled, RecapUnavailable
 from app.sonify.model import Variant
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1")
 
@@ -385,6 +388,7 @@ async def get_recap(
     except RecapCancelled:
         raise HTTPException(status_code=499, detail="Recap cancelled") from None
     except RecapUnavailable as exc:
+        logger.warning("Recap export failed: %s", exc)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Minute history unavailable: {exc}") from exc
@@ -400,7 +404,7 @@ async def get_recap(
     )
 
 
-@router.get("/stocks/{symbol}/sessions/{session_date}/recap/audio")
+@router.get("/stocks/{symbol}/sessions/{session_date}/recap/audio.m4a")
 async def get_recap_audio(
     symbol: str,
     session_date: date,

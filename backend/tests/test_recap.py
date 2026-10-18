@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import os
+import struct
 import threading
 import time
 import wave
+from array import array
 from datetime import date, datetime
 from pathlib import Path
 
@@ -117,6 +119,19 @@ def test_waveform_peaks_are_normalized() -> None:
     assert min(peaks) == 0.0
 
 
+def test_waveform_peaks_read_musescore4_float_wav(tmp_path: Path) -> None:
+    path = tmp_path / "float.wav"
+    samples = array("f", [0.0] * 400 + [0.5] * 400)
+    payload = samples.tobytes()
+    fmt = struct.pack("<HHIIHH", 3, 1, 8000, 32000, 4, 32)
+    body = b"fmt " + struct.pack("<I", len(fmt)) + fmt + b"data" + struct.pack("<I", len(payload)) + payload
+    path.write_bytes(b"RIFF" + struct.pack("<I", 4 + len(body)) + b"WAVE" + body)
+    duration, peaks = waveform_peaks(path, buckets=8)
+    assert duration == 0.1
+    assert max(peaks) == 1.0
+    assert min(peaks) == 0.0
+
+
 def _export_recorder(calls: list[Path]):
     def export(xml: Path, wav: Path) -> None:
         assert xml.is_file() and xml.stat().st_size > 50
@@ -138,7 +153,7 @@ def test_recap_store_replays_the_same_piece_and_rerenders_when_the_session_grows
     assert len(first.peaks) == 96
     assert first.bar_count == 12
     assert f"_{RECAP_REVISION}_12" in first.audio_path.name
-    assert first.audio_url.endswith("variant=symphony&v=12")
+    assert first.audio_url.endswith("/recap/audio.m4a?variant=symphony&v=12")
 
     grown = bars + [Bar(112.0, 10.0, 100.0)]
     third = store.ensure("FPT", DAY, "symphony", grown)
@@ -308,6 +323,17 @@ def test_musescore_export_applies_soundfont_via_config_folder(tmp_path: Path, mo
         encoding="utf-8",
     )
     binary.chmod(0o755)
+    silenced: list[str] = []
+
+    def silence() -> Callable[[], None]:
+        silenced.append("off")
+
+        def restore() -> None:
+            silenced.append("on")
+
+        return restore
+
+    monkeypatch.setattr(audio_mod, "_silence_metronome", silence)
     monkeypatch.setenv("MUSESCORE_BIN", str(binary))
     monkeypatch.setenv("MUSESCORE_SOUNDFONT", str(font))
     audio_mod._config_folder_support.pop(str(binary), None)
@@ -353,3 +379,4 @@ def test_musescore_export_applies_soundfont_via_config_folder(tmp_path: Path, mo
     plain_args = plain_seen.read_text(encoding="utf-8").splitlines()
     assert plain_args[0] == "-o"
     assert "-c" not in plain_args
+    assert silenced == ["off", "on", "off", "on"]

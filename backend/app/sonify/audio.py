@@ -12,11 +12,11 @@ import logging
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import threading
 import time
-import wave
 from array import array
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -34,7 +34,7 @@ from app.sonify.session import VN, is_session_closed
 logger = logging.getLogger(__name__)
 
 # Bump when the score or the soundfont changes, so old files are not replayed.
-RECAP_REVISION = "3"
+RECAP_REVISION = "4"
 PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
@@ -93,7 +93,7 @@ class RecapAsset:
     def audio_url(self) -> str:
         return (
             f"/v1/stocks/{self.symbol}/sessions/{self.day.isoformat()}"
-            f"/recap/audio?variant={self.variant}&v={self.bar_count}"
+            f"/recap/audio.m4a?variant={self.variant}&v={self.bar_count}"
         )
 
 
@@ -152,40 +152,70 @@ def find_musescore() -> str | None:
 
 
 def waveform_peaks(path: Path, buckets: int = PEAK_BUCKETS) -> tuple[float, list[float]]:
-    """Duration and normalized peak envelope of a 16-bit PCM wav."""
-    with wave.open(str(path), "rb") as handle:
-        channels = handle.getnchannels()
-        width = handle.getsampwidth()
-        rate = handle.getframerate()
-        frames = handle.getnframes()
-        raw = handle.readframes(frames)
-    duration = frames / rate if rate else 0.0
-    if width != 2 or frames < 1 or channels < 1:
-        return duration, [0.0] * buckets
-    samples = array("h")
-    samples.frombytes(raw[: len(raw) - (len(raw) % 2)])
-    count = len(samples) // channels
-    if count < 1:
+    """Duration and normalized peak envelope of a WAV file.
+
+    MuseScore 3 writes 16-bit integer samples. MuseScore 4 writes 32-bit float,
+    which the stdlib ``wave`` reader rejects.
+    """
+    channels, rate, samples = _wav_samples(path)
+    count = len(samples) // channels if channels else 0
+    duration = count / rate if rate else 0.0
+    if count < 1 or channels < 1:
         return duration, [0.0] * buckets
     peaks: list[float] = []
-    loudest = 1
+    loudest = 0.0
     for index in range(buckets):
         start = index * count // buckets
         end = max(start + 1, (index + 1) * count // buckets)
         stride = max(1, (end - start) // 64)
-        local = 0
+        local = 0.0
         for frame in range(start, end, stride):
-            level = 0
             base = frame * channels
+            level = 0.0
             for channel in range(channels):
-                level += abs(int(samples[base + channel]))
-            level //= channels
+                level += abs(float(samples[base + channel]))
+            level /= channels
             if level > local:
                 local = level
         if local > loudest:
             loudest = local
-        peaks.append(float(local))
+        peaks.append(local)
+    if loudest <= 0:
+        return duration, [0.0] * buckets
     return duration, [round(peak / loudest, 4) for peak in peaks]
+
+
+def _wav_samples(path: Path) -> tuple[int, int, array]:
+    data = path.read_bytes()
+    if len(data) < 12 or data[:4] != b"RIFF" or data[8:12] != b"WAVE":
+        return 0, 0, array("h")
+    audio_format = 0
+    channels = 0
+    rate = 0
+    bits = 0
+    payload = b""
+    offset = 12
+    while offset + 8 <= len(data):
+        chunk_id = data[offset : offset + 4]
+        size = struct.unpack_from("<I", data, offset + 4)[0]
+        start = offset + 8
+        body = data[start : start + size]
+        if chunk_id == b"fmt " and len(body) >= 16:
+            audio_format, channels, rate, _byte_rate, _align, bits = struct.unpack_from("<HHIIHH", body)
+        elif chunk_id == b"data":
+            payload = body
+        offset = start + size + (size & 1)
+    if audio_format == 1 and bits == 16:
+        count = len(payload) // 2
+        samples = array("h")
+        samples.frombytes(payload[: count * 2])
+        return channels, rate, samples
+    if audio_format == 3 and bits == 32:
+        count = len(payload) // 4
+        samples = array("f")
+        samples.frombytes(payload[: count * 4])
+        return channels, rate, samples
+    raise RecapUnavailable(f"unsupported wav format {audio_format} ({bits}-bit)")
 
 
 def _media_type(path: Path) -> str:
@@ -260,6 +290,44 @@ def _raise_if_cancelled() -> None:
         raise RecapCancelled("export cancelled")
 
 
+def _silence_metronome() -> Callable[[], None]:
+    """Turn off MuseScore 4's playback click for one export, then restore it.
+
+    The click is the app preference ``application.playback.metronomeEnabled``,
+    and the command-line export mixes it into the WAV. ``--factory-settings``
+    also drops the click, but that process writes the empty factory file over
+    the user's preferences when it exits.
+    """
+    if sys.platform != "darwin":
+        return lambda: None
+    domain = "org.musescore.MuseScore4"
+    key = "application.playback.metronomeEnabled"
+    read = subprocess.run(
+        ["defaults", "read", domain, key],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if read.returncode != 0 or read.stdout.strip() not in {"1", "true", "YES"}:
+        return lambda: None
+    subprocess.run(
+        ["defaults", "write", domain, key, "-bool", "false"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    def restore() -> None:
+        subprocess.run(
+            ["defaults", "write", domain, key, "-bool", "true"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    return restore
+
+
 def musescore_export(xml_path: Path, wav_path: Path) -> None:
     binary = find_musescore()
     if binary is None:
@@ -288,40 +356,44 @@ def musescore_export(xml_path: Path, wav_path: Path) -> None:
             "MuseScore at %s has no --config-folder, so MUSESCORE_SOUNDFONT is not applied",
             binary,
         )
-    _raise_if_cancelled()
+    restore_metronome = _silence_metronome()
     try:
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=env,
-        )
-    except OSError as exc:
-        if config is not None:
-            shutil.rmtree(config, ignore_errors=True)
-        raise RecapUnavailable(str(exc)) from exc
-    deadline = time.monotonic() + 180
-    stdout = ""
-    stderr = ""
-    try:
-        while True:
-            _raise_if_cancelled_killing(process)
-            try:
-                stdout, stderr = process.communicate(timeout=0.4)
-                break
-            except subprocess.TimeoutExpired:
-                if time.monotonic() > deadline:
-                    process.kill()
-                    raise RecapUnavailable("MuseScore export timed out")
+        _raise_if_cancelled()
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+            )
+        except OSError as exc:
+            if config is not None:
+                shutil.rmtree(config, ignore_errors=True)
+            raise RecapUnavailable(str(exc)) from exc
+        deadline = time.monotonic() + 180
+        stdout = ""
+        stderr = ""
+        try:
+            while True:
+                _raise_if_cancelled_killing(process)
+                try:
+                    stdout, stderr = process.communicate(timeout=0.4)
+                    break
+                except subprocess.TimeoutExpired:
+                    if time.monotonic() > deadline:
+                        process.kill()
+                        raise RecapUnavailable("MuseScore export timed out")
+        finally:
+            if process.poll() is None:
+                process.kill()
+            if config is not None:
+                shutil.rmtree(config, ignore_errors=True)
+        if process.returncode != 0 or not wav_path.is_file() or wav_path.stat().st_size < 64:
+            detail = (stderr or stdout or "MuseScore export failed").strip()
+            raise RecapUnavailable(detail[-400:])
     finally:
-        if process.poll() is None:
-            process.kill()
-        if config is not None:
-            shutil.rmtree(config, ignore_errors=True)
-    if process.returncode != 0 or not wav_path.is_file() or wav_path.stat().st_size < 64:
-        detail = (stderr or stdout or "MuseScore export failed").strip()
-        raise RecapUnavailable(detail[-400:])
+        restore_metronome()
 
 
 def _raise_if_cancelled_killing(process: subprocess.Popen[str]) -> None:

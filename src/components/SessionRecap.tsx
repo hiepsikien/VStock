@@ -442,14 +442,18 @@ function RecapPlayer({
   const ended = useRef(false);
 
   useEffect(() => {
-    void setAudioModeAsync({ playsInSilentMode: true });
-  }, []);
-
-  useEffect(() => {
-    if (!autoplay || started.current) return;
-    started.current = true;
-    player.play();
-  }, [autoplay, player]);
+    if (!autoplay || started.current || !status.isLoaded) return;
+    let cancelled = false;
+    void (async () => {
+      await setAudioModeAsync({ playsInSilentMode: true });
+      if (cancelled || started.current) return;
+      started.current = true;
+      player.play();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [autoplay, player, status.isLoaded]);
 
   useEffect(() => {
     return () => onCursor(null, null);
@@ -493,6 +497,7 @@ function RecapPlayer({
 
   const toggle = () => {
     void Haptics.selectionAsync();
+    if (!status.isLoaded) return;
     if (status.playing) player.pause();
     else player.play();
   };
@@ -511,7 +516,9 @@ function RecapPlayer({
         accessibilityRole="button"
         accessibilityLabel={status.playing ? 'Tạm dừng' : 'Nghe'}
       >
-        <Text style={styles.playText}>{status.playing ? 'Tạm dừng' : 'Nghe'}</Text>
+        <Text style={styles.playText}>
+          {!status.isLoaded ? 'Đang tải…' : status.playing ? 'Tạm dừng' : 'Nghe'}
+        </Text>
       </Pressable>
       <Pressable
         onPress={(event) => seek(event.nativeEvent.locationX)}
