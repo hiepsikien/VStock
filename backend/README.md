@@ -22,6 +22,26 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+### Mac + MuseScore + Metro
+
+Hai terminal, cùng Wi-Fi với điện thoại. Không dùng `expo start --tunnel` (điện thoại sẽ không tới được uvicorn).
+
+```bash
+brew install --cask musescore
+brew install ffmpeg
+backend/scripts/run_local.sh
+```
+
+Terminal kia, ở thư mục gốc repo:
+
+```bash
+npm run start:local
+```
+
+`start:local` bật `EXPO_PUBLIC_LOCAL_API=1`. Simulator dùng `http://localhost:8000`. Máy thật lấy IP LAN của Metro và gọi `http://<ip-metro>:8000`. Lần đầu macOS có thể hỏi cho phép mạng nội bộ và kết nối đến cổng 8000.
+
+Mở MuseScore một lần và đóng hộp thoại khởi động trước khi bấm Nghe. App tìm binary trong `/Applications/MuseScore 4.app`. Soundfont General đầy đủ là tùy chọn (`MUSESCORE_SOUNDFONT=/đường/dẫn.sf3`); không có file đó thì MuseScore dùng font đi kèm app. Audio cache: `backend/var/audio`.
+
 ## Deploy (production)
 
 **Google Cloud GCE (kế hoạch chính):** **[docs/DEPLOY-GCE.md](../docs/DEPLOY-GCE.md)**

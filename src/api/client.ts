@@ -99,8 +99,10 @@ function resolveApiUrl(): string {
     if (Platform.OS === 'ios' && !Device.isDevice) {
       return configured;
     }
-    // Physical device: cloud URL wins over Metro LAN rewrite (no local uvicorn needed)
-    if (Device.isDevice && isUsableApiBase(deviceFallback)) {
+    // Physical device: cloud URL wins over Metro LAN rewrite, unless this
+    // Metro session was started to talk to uvicorn on the same Mac.
+    const preferLocalApi = process.env.EXPO_PUBLIC_LOCAL_API === '1';
+    if (!preferLocalApi && Device.isDevice && isUsableApiBase(deviceFallback)) {
       try {
         const fbHost = new URL(deviceFallback).hostname;
         if (

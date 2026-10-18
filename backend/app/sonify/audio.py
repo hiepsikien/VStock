@@ -12,9 +12,11 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import wave
 from array import array
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -39,7 +41,17 @@ SOUNDFONT_CANDIDATES = (
     "/usr/share/sounds/sf2/MuseScore_General.sf3",
 )
 
-MUSESCORE_BINARIES = ("mscore3", "musescore3", "mscore", "musescore")
+MUSESCORE_BINARIES = ("mscore3", "musescore3", "mscore", "musescore", "MuseScore4")
+
+# Homebrew's cask installs the app bundle and does not put a binary on PATH.
+MAC_MUSESCORE_APPS = (
+    "/Applications/MuseScore 4.app/Contents/MacOS/mscore",
+    "/Applications/MuseScore 4.app/Contents/MacOS/MuseScore4",
+    "/Applications/MuseScore 3.app/Contents/MacOS/mscore",
+    "/Applications/MuseScore.app/Contents/MacOS/mscore",
+    "/opt/homebrew/bin/mscore",
+    "/usr/local/bin/mscore",
+)
 
 ExportFn = Callable[[Path, Path], None]
 
@@ -86,14 +98,40 @@ def general_soundfont() -> Path | None:
     return None
 
 
-def find_musescore() -> str | None:
+def musescore_candidates() -> list[str]:
     configured = os.environ.get("MUSESCORE_BIN", "").strip()
-    names = (configured, *MUSESCORE_BINARIES) if configured else MUSESCORE_BINARIES
+    names = [configured] if configured else []
+    names.extend(MUSESCORE_BINARIES)
+    if sys.platform == "darwin":
+        home = Path.home()
+        names.extend(MAC_MUSESCORE_APPS)
+        names.extend(
+            str(home / relative)
+            for relative in (
+                "Applications/MuseScore 4.app/Contents/MacOS/mscore",
+                "Applications/MuseScore 3.app/Contents/MacOS/mscore",
+            )
+        )
+    return names
+
+
+def resolve_executable(names: Iterable[str]) -> str | None:
     for name in names:
+        if not name:
+            continue
+        path = Path(name)
+        if path.is_absolute():
+            if path.is_file() and os.access(path, os.X_OK):
+                return str(path)
+            continue
         found = shutil.which(name)
         if found:
             return found
     return None
+
+
+def find_musescore() -> str | None:
+    return resolve_executable(musescore_candidates())
 
 
 def waveform_peaks(path: Path, buckets: int = PEAK_BUCKETS) -> tuple[float, list[float]]:
@@ -153,7 +191,9 @@ def musescore_export(xml_path: Path, wav_path: Path) -> None:
     runtime = os.environ.get("XDG_RUNTIME_DIR", "/tmp/runtime-mscore")
     Path(runtime).mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
-    env.setdefault("QT_QPA_PLATFORM", "offscreen")
+    # Linux servers have no display. On macOS this flag keeps MuseScore from exporting.
+    if sys.platform.startswith("linux"):
+        env.setdefault("QT_QPA_PLATFORM", "offscreen")
     env["XDG_RUNTIME_DIR"] = runtime
     wav_path.parent.mkdir(parents=True, exist_ok=True)
     command = [binary, "-o", str(wav_path), str(xml_path)]

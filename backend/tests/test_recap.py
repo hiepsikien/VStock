@@ -6,7 +6,7 @@ import wave
 from datetime import date, datetime
 from pathlib import Path
 
-from app.sonify.audio import RecapStore, waveform_peaks
+from app.sonify.audio import RecapStore, resolve_executable, waveform_peaks
 from app.sonify.model import Bar
 from app.sonify.playback import candle_index_at, piece_seconds
 from app.sonify.render import assign_source_bars
@@ -78,6 +78,14 @@ def _write_wav(path: Path) -> None:
         handle.setsampwidth(2)
         handle.setframerate(8000)
         handle.writeframes(b"\x00\x00" * 400 + b"\xff\x7f" * 400)
+
+
+def test_resolve_executable_accepts_an_absolute_binary(tmp_path: Path) -> None:
+    binary = tmp_path / "mscore"
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    binary.chmod(0o755)
+    assert resolve_executable([str(binary), "missing-mscore"]) == str(binary)
+    assert resolve_executable(["missing-mscore-bin"]) is None
 
 
 def test_waveform_peaks_are_normalized() -> None:
