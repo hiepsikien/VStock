@@ -156,6 +156,7 @@
     const ctx2d = canvas.getContext("2d");
     const recent = [];
     const recentVolumes = [];
+    let heldGlass = null;
     let currentSymbol = "BTCUSDT";
 
     function formatUsdVolume(vol) {
@@ -205,18 +206,22 @@
         ctx2d.fillStyle = `rgba(230, 255, 77, ${0.08 + norm * 0.24})`;
         ctx2d.fillRect(x - step * 0.4, height - barH, Math.max(2, step * 0.72), barH);
       });
-      if (!recent.length) return;
-      const low = Math.min(...recent) - 2;
-      const high = Math.max(...recent) + 2;
+      const pitches = recent.filter((midi) => midi != null);
+      if (!pitches.length) return;
+      const low = Math.min(...pitches) - 2;
+      const high = Math.max(...pitches) + 2;
       const span = Math.max(1, high - low);
       ctx2d.strokeStyle = "#e6ff4d";
       ctx2d.lineWidth = 2;
       ctx2d.beginPath();
+      let drawing = false;
       recent.forEach((midi, index) => {
+        if (midi == null) return;
         const x = width - (recent.length - index) * step;
         const y = height - ((midi - low) / span) * (height - 20) - 10;
-        if (index === 0) ctx2d.moveTo(x, y);
+        if (!drawing) ctx2d.moveTo(x, y);
         else ctx2d.lineTo(x, y);
+        drawing = true;
       });
       ctx2d.stroke();
     }
@@ -361,6 +366,7 @@
       updateHeadline(variant);
       recent.length = 0;
       recentVolumes.length = 0;
+      heldGlass = null;
       draw();
       priceEl.textContent = "—";
       chordEl.textContent = "—";
@@ -439,8 +445,13 @@
         volumeEl.textContent = formatTradeVol(msg.volume, msg.band);
         regimeEl.textContent = msg.regime;
         recentVolumes.push(msg.velocity || 60);
-        const glass = (msg.voices || []).some((voice) => voice.role === "glass");
-        if (msg.variant !== "ambient" || glass) recent.push(msg.midi);
+        if (msg.variant === "ambient") {
+          const glass = (msg.voices || []).find((voice) => voice.role === "glass");
+          if (glass) heldGlass = glass.midi;
+          recent.push(heldGlass);
+        } else {
+          recent.push(msg.midi);
+        }
         if (recent.length > 64) recent.shift();
         if (recentVolumes.length > 64) recentVolumes.shift();
         draw();
