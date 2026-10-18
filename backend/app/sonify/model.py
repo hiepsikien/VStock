@@ -13,6 +13,9 @@ PERIOD = 4
 Variant = Literal["symphony", "jazz", "minimalist"]
 VARIANTS: tuple[Variant, ...] = ("symphony", "jazz", "minimalist")
 
+StreamVariant = Literal["symphony", "jazz", "minimalist", "ambient"]
+STREAM_VARIANTS: tuple[StreamVariant, ...] = ("symphony", "jazz", "minimalist", "ambient")
+
 
 @dataclass(frozen=True)
 class Bar:
