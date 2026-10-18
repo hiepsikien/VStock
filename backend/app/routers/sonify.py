@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 
+from app.sonify.model import VARIANTS, Variant
 from app.sonify.replay import hello, load_trades, pace
 from app.sonify.stream import BUCKET_MS, piece_bounds
 
@@ -20,14 +21,21 @@ def player() -> str:
 
 
 @router.websocket("/ws")
-async def stream(websocket: WebSocket, speed: float = 1.0) -> None:
+async def stream(
+    websocket: WebSocket,
+    speed: float = 1.0,
+    variant: Variant = "symphony",
+) -> None:
     await websocket.accept()
+    if variant not in VARIANTS:
+        await websocket.close(code=1008)
+        return
     trades = load_trades()
     paced = min(500.0, max(0.25, speed))
     start, end = piece_bounds(trades)
-    await websocket.send_json(hello((end - start) // BUCKET_MS))
+    await websocket.send_json(hello((end - start) // BUCKET_MS, variant))
     try:
-        async for event in pace(trades, speed=paced):
+        async for event in pace(trades, speed=paced, variant=variant):
             await websocket.send_json(event)
     except WebSocketDisconnect:
         return

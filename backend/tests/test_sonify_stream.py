@@ -94,9 +94,7 @@ def test_four_notes_fill_each_second_and_the_chord_waits_for_the_bar() -> None:
     notes = render_stream(trades)
     start, end = piece_bounds(trades)
     assert len(notes) == (end - start) // BUCKET_MS
-    assert [note.bass_midi is not None for note in notes] == [
-        index % BEAT_NOTES == 0 for index in range(len(notes))
-    ]
+    assert all(any(voice.role == "violin" for voice in note.voices) for note in notes)
     for previous, current in zip(notes, notes[1:]):
         if current.seq % BAR_NOTES != 0:
             assert current.chord == previous.chord
@@ -109,7 +107,6 @@ def test_strong_beats_are_chord_tones_and_every_note_stays_on_the_scale() -> Non
         assert note.midi % 12 in C_MAJOR_PCS
         if note.seq % BEAT_NOTES == 0:
             assert note.midi % 12 in _CHORDS[note.chord].pitch_classes
-            assert note.bass_midi == _CHORDS[note.chord].bass_midi
 
 
 def test_a_one_cent_wiggle_does_not_cover_the_whole_scale() -> None:

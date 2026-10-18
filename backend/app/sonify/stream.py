@@ -17,9 +17,11 @@ from collections import deque
 from dataclasses import dataclass
 
 from app.sonify.chords import REGIME_BIAS, TRANSITIONS, Chord, Regime, tonic
-from app.sonify.dynamics import percentile
+from app.sonify.dynamics import marking_for_volume, percentile
+from app.sonify.model import VARIANTS, Variant
 from app.sonify.quantize import c_major_scale, price_to_scale_index, quantize_chord_tone
 from app.sonify.regime import MA_WINDOW, classify
+from app.sonify.voices import HighBudget, Voice, arrange, sounding_chord, wants_high
 
 BUCKET_MS = 250
 BEAT_NOTES = 4
@@ -50,6 +52,10 @@ class NoteEvent:
     bass_dur_ms: int
     regime: Regime
     price: float
+    variant: Variant
+    band: str
+    swing: bool
+    voices: tuple[Voice, ...]
 
     def payload(self) -> dict[str, object]:
         return {
@@ -64,23 +70,36 @@ class NoteEvent:
             "bass_dur_ms": self.bass_dur_ms,
             "regime": self.regime,
             "price": self.price,
+            "variant": self.variant,
+            "band": self.band,
+            "swing": self.swing,
+            "voices": [voice.payload() for voice in self.voices],
         }
 
 
 class StreamEngine:
     """Consume trades in time order and emit one note per closed 250 ms bucket."""
 
-    def __init__(self, seed: int = 1) -> None:
+    def __init__(self, seed: int = 1, variant: Variant = "symphony") -> None:
+        if variant not in VARIANTS:
+            raise ValueError(f"unknown variant: {variant}")
+        self.variant: Variant = variant
         self._rng = random.Random(seed)
         self._scale = c_major_scale()
         self._chord: Chord = tonic("sideway")
+        self._next_chord: Chord = tonic("sideway")
         self._regime: Regime = "sideway"
+        self._band = "mf"
         self._prices: deque[float] = deque(maxlen=SCALE_TICKS)
         self._volumes: deque[float] = deque(maxlen=SCALE_TICKS)
         self._second_closes: deque[float] = deque(maxlen=MA_WINDOW)
+        self._budget = HighBudget(SCALE_TICKS)
         self._seq = 0
         self._prev_midi: int | None = None
         self._prev_raw: int | None = None
+        self._prev_sax: int | None = None
+        self._held_price: float | None = None
+        self._hold_count = 0
         self._open: int | None = None
         self._price: float | None = None
         self._volume = 0.0
@@ -153,35 +172,65 @@ class StreamEngine:
             return []
         price = self._price
         volume = self._volume
+        if self._seq % BAR_NOTES == 0:
+            self._band = self._band_now()
+            if self._seq > 0:
+                self._chord = self._next_chord
+            self._next_chord = self._pick(self._chord)
         self._prices.append(price)
         self._volumes.append(volume)
+        if self._held_price == price:
+            self._hold_count += 1
+        else:
+            self._held_price = price
+            self._hold_count = 1
         low, high = _scale_bounds(self._prices)
         raw = self._scale[price_to_scale_index(price, low, high, len(self._scale))]
         step = 0 if self._prev_raw is None else raw - self._prev_raw
-        if self._seq > 0 and self._seq % BAR_NOTES == 0:
-            self._step_chord()
+        heard = sounding_chord(self.variant, self._chord)
         strong = self._seq % BEAT_NOTES == 0
         if strong:
             midi = quantize_chord_tone(
                 raw,
-                self._chord.pitch_classes,
+                heard.pitch_classes,
                 self._scale,
                 previous=self._prev_midi,
                 step=step,
             )
         else:
             midi = raw
+        velocity = self._velocity(volume)
+        allow_high = self._budget.take(wants_high(self.variant, raw))
+        voices, sax = arrange(
+            self.variant,
+            seq=self._seq,
+            midi=midi,
+            velocity=velocity,
+            chord=self._chord,
+            next_chord=self._next_chord,
+            band=self._band,
+            prev_sax=self._prev_sax,
+            allow_high=allow_high,
+            price_held=self._hold_count == 4,
+        )
+        if sax is not None:
+            self._prev_sax = sax
+        bass = next((voice for voice in voices if voice.role == "bass"), None)
         note = NoteEvent(
             seq=self._seq,
             t=self._open,
             midi=midi,
             dur_ms=BUCKET_MS,
-            velocity=self._velocity(volume),
-            chord=self._chord.name,
-            bass_midi=self._chord.bass_midi if strong else None,
-            bass_dur_ms=900 if strong else 0,
+            velocity=velocity,
+            chord=heard.name,
+            bass_midi=None if bass is None else bass.midi,
+            bass_dur_ms=0 if bass is None else bass.dur_ms,
             regime=self._regime,
             price=price,
+            variant=self.variant,
+            band=self._band,
+            swing=self.variant == "jazz",
+            voices=voices,
         )
         self._prev_midi = midi
         self._prev_raw = raw
@@ -197,17 +246,28 @@ class StreamEngine:
         average = sum(self._second_closes) / MA_WINDOW
         return classify(self._second_closes[-1], average)
 
-    def _step_chord(self) -> None:
+    def _band_now(self) -> str:
+        positive = [item for item in self._volumes if item > 0]
+        if len(positive) < 4:
+            return "mf"
+        low = percentile(positive, 0.10)
+        high = percentile(positive, 0.90)
+        window = list(self._volumes)[-BAR_NOTES:]
+        recent = sum(window) / len(window) if window else 0.0
+        return marking_for_volume(recent, low, high)
+
+    def _pick(self, chord: Chord) -> Chord:
         bias = REGIME_BIAS[self._regime]
         choices: list[Chord] = []
         weights: list[float] = []
-        for chord, prob in TRANSITIONS[self._chord].items():
+        for candidate, prob in TRANSITIONS[chord].items():
             if prob <= 0:
                 continue
-            choices.append(chord)
-            weights.append(prob / (0.05 + bias[chord]))
-        if choices:
-            self._chord = self._rng.choices(choices, weights=weights, k=1)[0]
+            choices.append(candidate)
+            weights.append(prob / (0.05 + bias[candidate]))
+        if not choices:
+            return chord
+        return self._rng.choices(choices, weights=weights, k=1)[0]
 
     def _velocity(self, volume: float) -> int:
         if volume <= 0:
@@ -263,11 +323,15 @@ def pump(
     return index, notes
 
 
-def render_stream(trades: list[Trade], seed: int = 1) -> list[NoteEvent]:
+def render_stream(
+    trades: list[Trade],
+    seed: int = 1,
+    variant: Variant = "symphony",
+) -> list[NoteEvent]:
     """Run the whole tape. Equivalent to pumping one bucket at a time."""
     if not trades:
         return []
     _start, piece_end = piece_bounds(trades)
-    engine = StreamEngine(seed=seed)
+    engine = StreamEngine(seed=seed, variant=variant)
     _index, notes = pump(engine, trades, 0, piece_end, piece_end)
     return notes
