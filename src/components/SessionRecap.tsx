@@ -22,7 +22,7 @@ import {
 } from '../api/client';
 import { formatPercent } from '../data/stocks';
 import { colors, spacing, typography } from '../theme';
-import { candleIndexAt } from '../utils/recapCursor';
+import { candleIndexAt, playheadHoldsPoll } from '../utils/recapCursor';
 import { isMarketOpen, REFRESH } from '../utils/marketSession';
 
 const VARIANTS: { id: RecapVariant; label: string }[] = [
@@ -117,10 +117,12 @@ export function SessionRecap({ symbol, children }: Props) {
   const recapAbort = useRef<AbortController | null>(null);
   const variantChanged = useRef(false);
   const seriesRef = useRef<SessionMinutes | null>(null);
+  const manifestRef = useRef<RecapManifest | null>(null);
   const selectedRef = useRef<string | null>(null);
   const variantRef = useRef<RecapVariant>('symphony');
   const seriesEpoch = useRef(0);
   seriesRef.current = series;
+  manifestRef.current = manifest;
   selectedRef.current = selected;
   variantRef.current = variant;
 
@@ -129,9 +131,14 @@ export function SessionRecap({ symbol, children }: Props) {
     recapAbort.current = null;
   }, []);
 
-  const onCursor = useCallback((index: number | null, label: string | null) => {
-    cursorActive.current = index != null;
+  const onCursor = useCallback((index: number | null, label: string | null, holdPoll = false) => {
+    cursorActive.current = holdPoll && index != null;
     setCursor(index == null || label == null ? null : { index, label });
+  }, []);
+
+  const clearPlayhead = useCallback(() => {
+    cursorActive.current = false;
+    setCursor(null);
   }, []);
 
   useEffect(() => {
@@ -141,7 +148,7 @@ export function SessionRecap({ symbol, children }: Props) {
     setSelected(null);
     setSeries(null);
     setManifest(null);
-    setCursor(null);
+    clearPlayhead();
     setLoadError(null);
     setListenError(null);
     setComposing(false);
@@ -160,7 +167,7 @@ export function SessionRecap({ symbol, children }: Props) {
       cancelled = true;
       abortRecap();
     };
-  }, [abortRecap, symbol]);
+  }, [abortRecap, clearPlayhead, symbol]);
 
   useEffect(() => {
     if (!selected) return;
@@ -169,7 +176,7 @@ export function SessionRecap({ symbol, children }: Props) {
     abortRecap();
     setSeries(null);
     setManifest(null);
-    setCursor(null);
+    clearPlayhead();
     setLoadError(null);
     setListenError(null);
     setComposing(false);
@@ -190,7 +197,7 @@ export function SessionRecap({ symbol, children }: Props) {
       controller.abort();
       abortRecap();
     };
-  }, [abortRecap, selected, symbol]);
+  }, [abortRecap, clearPlayhead, selected, symbol]);
 
   useEffect(() => {
     if (!variantChanged.current) {
@@ -199,11 +206,11 @@ export function SessionRecap({ symbol, children }: Props) {
     }
     abortRecap();
     setManifest(null);
-    setCursor(null);
+    clearPlayhead();
     setListenError(null);
     setComposing(false);
     setAutoplay(false);
-  }, [abortRecap, variant]);
+  }, [abortRecap, clearPlayhead, variant]);
 
   useEffect(() => {
     if (!selected) return;
@@ -221,9 +228,9 @@ export function SessionRecap({ symbol, children }: Props) {
           if (cancelled || cursorActive.current || detail.date !== selected) return;
           if (seriesEpoch.current !== epoch) return;
           setSeries(detail);
-          setManifest((current) =>
-            pieceMatches(current, detail, variantRef.current, selected) ? current : null,
-          );
+          if (pieceMatches(manifestRef.current, detail, variantRef.current, selected)) return;
+          clearPlayhead();
+          setManifest(null);
         } catch (err) {
           if (cancelled || isAbort(err)) return;
           /* keep the session on screen */
@@ -235,7 +242,7 @@ export function SessionRecap({ symbol, children }: Props) {
       inflight?.abort();
       clearInterval(timer);
     };
-  }, [selected, symbol]);
+  }, [clearPlayhead, selected, symbol]);
 
   const listen = useCallback(() => {
     const day = selectedRef.current;
@@ -423,7 +430,7 @@ function RecapPlayer({
   manifest: RecapManifest;
   times: string[];
   autoplay: boolean;
-  onCursor: (index: number | null, label: string | null) => void;
+  onCursor: (index: number | null, label: string | null, holdPoll?: boolean) => void;
 }) {
   const player = useAudioPlayer(absoluteApiUrl(manifest.audioUrl), {
     updateInterval: 80,
@@ -432,6 +439,7 @@ function RecapPlayer({
   const status = useAudioPlayerStatus(player);
   const [waveWidth, setWaveWidth] = useState(0);
   const started = useRef(false);
+  const ended = useRef(false);
 
   useEffect(() => {
     void setAudioModeAsync({ playsInSilentMode: true });
@@ -444,21 +452,36 @@ function RecapPlayer({
   }, [autoplay, player]);
 
   useEffect(() => {
+    return () => onCursor(null, null);
+  }, [onCursor]);
+
+  useEffect(() => {
     const fileDuration = status.duration > 0 ? status.duration : manifest.durationSec;
     const mapDuration =
       manifest.mapDurationSec > 0 ? manifest.mapDurationSec : fileDuration;
-    const started = status.playing || status.currentTime > 0.05;
-    if (!started || times.length < 1) {
+    const heard = status.playing || status.currentTime > 0.05;
+    if (!heard || times.length < 1) {
+      ended.current = false;
       onCursor(null, null);
       return;
     }
     const index = candleIndexAt(status.currentTime, times.length, mapDuration);
-    onCursor(index, times[index] ?? null);
+    const stillRunning = playheadHoldsPoll({
+      playing: status.playing,
+      currentTime: status.currentTime,
+      mapDurationSec: mapDuration,
+      fileDurationSec: fileDuration,
+      didJustFinish: status.didJustFinish,
+    });
+    if (!stillRunning) ended.current = true;
+    if (status.playing && stillRunning) ended.current = false;
+    onCursor(index, times[index] ?? null, stillRunning && !ended.current);
   }, [
     manifest.durationSec,
     manifest.mapDurationSec,
     onCursor,
     status.currentTime,
+    status.didJustFinish,
     status.duration,
     status.playing,
     times,
