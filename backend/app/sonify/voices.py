@@ -2,6 +2,9 @@
 
 Symphony, jazz, minimalist, and ambient share the tape. They differ in which
 voices sound, not in the clock. Nothing here reads a later bucket.
+
+A repeated lead pitch rings for a quarter, a half, or an eighth instead of
+being struck again every sixteenth. A new pitch speaks at once.
 """
 
 from __future__ import annotations
@@ -161,6 +164,62 @@ def _bass_pattern(band: str) -> tuple[tuple[int, int, int], ...]:
     return tuple((index * 2, 2, interval) for index, interval in enumerate((0, 0, 12, 0, 7, 7, 12, 7)))
 
 
+def lead_hold(band: str, velocity: int) -> int:
+    """Sixteenths a repeated pitch rings before it may be struck again.
+
+    Quiet tapes hold a half note. A loud tape re-articulates on the eighth
+    so a flat price still moves, without falling back to a sixteenth grid.
+    """
+    if band == "p":
+        return 8
+    if band == "mp":
+        return 6
+    if band == "f" or velocity >= 100:
+        return 2
+    return 4
+
+
+def lead_span(
+    seq: int,
+    midi: int,
+    velocity: int,
+    band: str,
+    prev: tuple[int, int, int] | None,
+) -> int | None:
+    """Length of a new lead attack, or None when the pitch already ringing continues.
+
+    `prev` is the last attack's pitch, sequence, and length in sixteenths.
+    The same pitch waits out that length. A different pitch cuts in now, on a
+    short value, so a moving tape stays articulate.
+    """
+    hold = lead_hold(band, velocity)
+    if prev is None:
+        return hold
+    last_midi, last_seq, last_hold = prev
+    if midi == last_midi:
+        if seq < last_seq + last_hold:
+            return None
+        return hold
+    if abs(midi - last_midi) >= 7 or band == "f" or velocity >= 96:
+        return 1
+    return 2
+
+
+def _arp_pattern(band: str) -> tuple[tuple[int, int], ...]:
+    """(sixteenth, length) of each arp attack in a bar.
+
+    Quarters and eighths, with a dotted rhythm at mezzo-forte. Forte adds
+    sixteenths, but never on every slot of the beat.
+    """
+    if band == "p":
+        return ((0, 8), (8, 8))
+    if band == "mp":
+        return ((0, 4), (6, 2), (8, 4), (14, 2))
+    if band == "f":
+        return ((0, 2), (2, 1), (3, 1), (4, 2), (6, 2), (8, 2), (10, 2), (12, 1), (13, 1), (14, 2))
+    return ((0, 3), (3, 1), (4, 2), (6, 2), (8, 4), (12, 2), (14, 2))
+
+
 def should_strike_ambient(
     seq: int,
     midi: int,
@@ -248,17 +307,26 @@ def arrange(
     allow_high: bool,
     price_held: bool,
     prev_ambient: tuple[int, int] | None = None,
-) -> tuple[tuple[Voice, ...], int | None]:
-    """Voices for this bucket, and the sax pitch to remember (jazz only)."""
+    prev_lead: tuple[int, int, int] | None = None,
+) -> tuple[tuple[Voice, ...], int | None, tuple[int, int, int] | None]:
+    """Voices for this bucket, the sax pitch to remember, and the lead still ringing.
+
+    `prev_lead` is `(midi, seq, sixteenths)` of the last violin, sax, or arp
+    attack. Ambient keeps its own gate and leaves the lead memory unchanged.
+    """
     pos = seq % BAR_NOTES
     beat = pos // BEAT_NOTES
     chord = sounding_chord(variant, chord)
     next_chord = sounding_chord(variant, next_chord)
     voices: list[Voice] = []
     sax: int | None = None
+    lead = prev_lead
 
     if variant == "symphony":
-        voices.append(_voice("violin", midi, 1, velocity, "triangle"))
+        span = lead_span(seq, midi, velocity, band, prev_lead)
+        if span is not None:
+            voices.append(_voice("violin", midi, span, velocity, "triangle"))
+            lead = (midi, seq, span)
         if pos % BEAT_NOTES == 0:
             voices.append(_voice("cello", _chord_tone_below(chord, midi), 4, 64, "sine"))
         if pos == 0:
@@ -276,8 +344,14 @@ def arrange(
             voices.append(_voice("flute", _accent_pitch(midi, 79, 88, chord), 2, 64, "sine"))
 
     elif variant == "jazz":
-        sax = place_sax(midi, prev_sax)
-        voices.append(_voice("sax", sax, 1, velocity, "sawtooth"))
+        placed = place_sax(midi, prev_sax)
+        span = lead_span(seq, placed, velocity, band, prev_lead)
+        if span is not None:
+            sax = placed
+            voices.append(_voice("sax", placed, span, velocity, "sawtooth"))
+            lead = (placed, seq, span)
+        else:
+            sax = prev_sax
         if pos == 0:
             for tone in _upper(chord, 58, 76):
                 voices.append(_voice("rhodes", tone, 6, 62, "triangle"))
@@ -303,14 +377,23 @@ def arrange(
 
     else:
         bright = _brightness(midi)
-        arp = _arp_midi(chord, seq, bright)
-        if bright < CLOSED_CUTOFF:
-            arp_len, arp_vel = 1, 48
-        elif bright >= OPEN_CUTOFF:
-            arp_len, arp_vel = 2, 90
-        else:
-            arp_len, arp_vel = 1, round(48 + bright * 42)
-        voices.append(_voice("arp", arp, arp_len, arp_vel, "square"))
+        pattern = _arp_pattern(band)
+        hit = next((item for item in pattern if item[0] == pos), None)
+        if hit is not None:
+            span = hit[1]
+            step = (seq // BAR_NOTES) * len(pattern) + pattern.index(hit)
+            arp = _arp_midi(chord, step, bright)
+            if bright < CLOSED_CUTOFF:
+                arp_vel = 48
+            elif bright >= OPEN_CUTOFF:
+                arp_vel = 90
+            else:
+                arp_vel = round(48 + bright * 42)
+            if prev_lead is not None and prev_lead[0] == arp and seq < prev_lead[1] + prev_lead[2]:
+                pass
+            else:
+                voices.append(_voice("arp", arp, span, arp_vel, "square"))
+                lead = (arp, seq, span)
         if pos == 0:
             for tone in _upper(chord, 60, 76) or [chord.bass_midi + 12]:
                 voices.append(_voice("pad", tone, 16, 40, "triangle"))
@@ -321,7 +404,7 @@ def arrange(
         if allow_high:
             voices.append(_voice("bell", _accent_pitch(midi, 84, 96, chord), 2, 64, "sine"))
 
-    return tuple(voices), sax
+    return tuple(voices), sax, lead
 
 
 def wants_high(variant: StreamVariant, midi: int) -> bool:

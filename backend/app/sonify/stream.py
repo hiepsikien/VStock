@@ -4,9 +4,10 @@ The closed recap in render.py plans thirty bars from a finished session.
 This machine never looks ahead: a bucket closes into one note, and appending
 later trades does not rewrite notes that have already been emitted.
 
-One wall-clock second is four sixteenth notes at 60 BPM. A chord is chosen
-only on the downbeat of each 4/4 bar, from the Markov row of the current
-chord tilted by the regime of the last twenty one-second closes.
+One wall-clock second is four sixteenth notes at 60 BPM. A repeated lead
+pitch is held across those sixteenths instead of struck again. A chord is
+chosen only on the downbeat of each 4/4 bar, from the Markov row of the
+current chord tilted by the regime of the last twenty one-second closes.
 """
 
 from __future__ import annotations
@@ -101,6 +102,7 @@ class StreamEngine:
         self._prev_raw: int | None = None
         self._prev_sax: int | None = None
         self._prev_ambient: tuple[int, int] | None = None
+        self._prev_lead: tuple[int, int, int] | None = None
         self._held_price: float | None = None
         self._hold_count = 0
         self._open: int | None = None
@@ -204,7 +206,7 @@ class StreamEngine:
             midi = raw
         velocity = self._velocity(volume)
         allow_high = self._budget.take(wants_high(self.variant, raw))
-        voices, sax = arrange(
+        voices, sax, lead = arrange(
             self.variant,
             seq=self._seq,
             midi=midi,
@@ -216,7 +218,9 @@ class StreamEngine:
             allow_high=allow_high,
             price_held=self._hold_count == 4,
             prev_ambient=self._prev_ambient,
+            prev_lead=self._prev_lead,
         )
+        self._prev_lead = lead
         if sax is not None:
             self._prev_sax = sax
         glass = next((voice for voice in voices if voice.role == "glass"), None)

@@ -85,6 +85,35 @@ def test_jazz_walks_into_the_chord_already_chosen_for_the_next_bar() -> None:
     assert checked > 0
 
 
+def test_a_repeated_pitch_rings_instead_of_four_attacks_a_second() -> None:
+    from app.sonify.voices import lead_span
+
+    # The same pitch is still ringing, so the next sixteenth does not attack.
+    assert lead_span(1, 60, 70, "mf", (60, 0, 4)) is None
+    # Once that hold ends, the pitch is struck again and rings for another quarter.
+    assert lead_span(4, 60, 70, "mf", (60, 0, 4)) == 4
+    # A new pitch cuts in at once, on a short value.
+    assert lead_span(1, 64, 70, "mf", (60, 0, 4)) == 2
+
+    for variant in ("symphony", "jazz", "minimalist"):
+        notes = render_stream(_tape([1.0] * 32, price=81_500.0), variant=variant)  # type: ignore[arg-type]
+        role = {"symphony": "violin", "jazz": "sax", "minimalist": "arp"}[variant]
+        leads = [
+            (note.seq, voice.dur_ms)
+            for note in notes
+            for voice in note.voices
+            if voice.role == role
+        ]
+        assert leads
+        assert sum(dur > BUCKET_MS for _seq, dur in leads) > len(leads) / 2
+        gaps = [b[0] - a[0] for a, b in zip(leads, leads[1:])]
+        assert gaps
+        assert min(gaps) >= 1
+        if variant != "minimalist":
+            assert all(dur > BUCKET_MS for _seq, dur in leads)
+            assert min(gaps) >= 4
+
+
 def test_loud_minimalist_pulses_four_times_a_second() -> None:
     volumes = [1.0] * 8 + [8.0] * 8 + [40.0] * 32
     notes = render_stream(_tape(volumes), variant="minimalist")
@@ -103,7 +132,7 @@ def test_climb_from_g5_to_c7_returns_for_every_variant() -> None:
 
     for variant in STREAM_VARIANTS:
         for midi in range(79, 97):
-            voices, _sax = arrange(
+            voices, _sax, _lead = arrange(
                 variant,  # type: ignore[arg-type]
                 seq=midi,
                 midi=midi,
