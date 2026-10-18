@@ -490,25 +490,25 @@ def test_musicxml_writes_harmony_and_letter_dynamics() -> None:
     assert bass_measures[0].find("attributes/clef/sign").text == "F"
     assert violin_measures[0].find("direction/sound").get("tempo") == "90"
 
-    harmonies = violin.findall("measure/harmony")
+    harmonies = piano.findall("measure/harmony")
     assert len(harmonies) == len(score.harmonies)
     assert all(
         a.chord != b.chord for a, b in zip(score.harmonies, score.harmonies[1:])
     )
     assert bass.findall("measure/harmony") == []
-    assert violin_measures[0].find("harmony/root/root-step").text == "C"
-    assert violin_measures[0].find("harmony/kind").text == "major"
-    assert violin_measures[0].find("harmony/kind").get("text") == ""
-    assert violin_measures[1].find("harmony") is None
-    assert violin_measures[2].find("harmony/root/root-step").text == "F"
-    assert violin_measures[2].find("harmony/kind").text == "major"
-    assert violin_measures[2].find("harmony/kind").get("text") == ""
-    assert violin_measures[10].find("harmony/root/root-step").text == "A"
-    assert violin_measures[10].find("harmony/kind").text == "minor"
-    assert violin_measures[10].find("harmony/kind").get("text") == "m"
+    assert piano_measures[0].find("harmony/root/root-step").text == "C"
+    assert piano_measures[0].find("harmony/kind").text == "major"
+    assert piano_measures[0].find("harmony/kind").get("text") == ""
+    assert piano_measures[1].find("harmony") is None
+    assert piano_measures[2].find("harmony/root/root-step").text == "F"
+    assert piano_measures[2].find("harmony/kind").text == "major"
+    assert piano_measures[2].find("harmony/kind").get("text") == ""
+    assert piano_measures[10].find("harmony/root/root-step").text == "A"
+    assert piano_measures[10].find("harmony/kind").text == "minor"
+    assert piano_measures[10].find("harmony/kind").get("text") == "m"
 
     for measure, event in zip(
-        (violin_measures[event.bar] for event in score.harmonies),
+        (piano_measures[event.bar] for event in score.harmonies),
         score.harmonies,
     ):
         kind = measure.find("harmony/kind")
@@ -522,7 +522,7 @@ def test_musicxml_writes_harmony_and_letter_dynamics() -> None:
         assert part.find("measure/direction/direction-type/dynamics") is not None
     assert [child.tag for child in piano.find(".//dynamics")] == ["p"]
     assert len(piano.findall(".//dynamics")) == 1
-    for part in (cello, piano):
+    for part in (flute, violin, cello):
         assert part.findall("measure/harmony") == []
     dynamic_marks = []
     for measure in bass_measures:
@@ -632,7 +632,7 @@ def test_outro_bass_restarts_the_root_every_bar() -> None:
     assert bass_measures[26].find("harmony") is None
     last_harmony_bar = score.harmonies[-1].bar
     assert (
-        _part(root, "P1").findall("measure")[last_harmony_bar].find("harmony/kind").text
+        _part(root, "P3").findall("measure")[last_harmony_bar].find("harmony/kind").text
         == "minor"
     )
 
@@ -1596,15 +1596,24 @@ def test_jazz_variant_swing_instruments_chords_and_vibraphone_layering() -> None
 
     # 3) Rhodes Piano (P3) voices all 9th chords (including Cmaj9 and Dm9) with their 9th degree
     #    inserted inside/above the guide tones, and uses Charleston syncopation on active bars.
-    from app.sonify.chords import AM9, CMAJ9, DM9, FMAJ9, G9
-    from app.sonify.jazz import _rhodes_voicing
+    from app.sonify.chords import AM9, CMAJ9, DM9, FMAJ9, G9, Chord, KIND_MINOR_NINTH
+    from app.sonify.jazz import RHODES_RIGHT_HIGH, RHODES_RIGHT_LOW, _rhodes_voicing
 
     assert _rhodes_voicing(CMAJ9) == (48, (59, 62, 64))
-    assert _rhodes_voicing(DM9) == (50, (60, 64, 65))
+    assert _rhodes_voicing(DM9) == (50, (53, 60, 64))
     for ninth_chord in (CMAJ9, DM9, FMAJ9, G9, AM9):
-        _r, r_voicing = _rhodes_voicing(ninth_chord)
+        r_root, r_voicing = _rhodes_voicing(ninth_chord)
+        assert 41 <= r_root <= 52
         assert len(r_voicing) == 3
         assert (ninth_chord.pitches[4] % 12) in {m % 12 for m in r_voicing}
+        assert all(RHODES_RIGHT_LOW <= m <= RHODES_RIGHT_HIGH for m in r_voicing)
+        assert all(b - a >= 2 for a, b in zip(r_voicing, r_voicing[1:]))
+
+    # Minor 9th chord where the 3rd is below F4 (Eb4 = 63 on Cm9, so 63 - 12 = 51 < RHODES_RIGHT_LOW)
+    # and clashes by 1 semitone with the 9th (D4 = 62) lifts the 9th up an octave (D5 = 74)
+    # rather than dropping the 3rd into the left-hand register (<= 52) or losing the 9th.
+    cm9 = Chord("Cm9", "C", KIND_MINOR_NINTH, "m9", (60, 63, 67, 70, 74))
+    assert _rhodes_voicing(cm9) == (48, (58, 63, 74))
 
     charleston_bars = [
         bar
@@ -1753,11 +1762,18 @@ def test_all_three_variants_hold_invariants_across_random_walks() -> None:
             expected_units = 4 * score.divisions
 
             for part_id in ("P5", "P1", "P2", "P4"):
+                assert _part(root, part_id).findall("measure/harmony") == []
                 for measure in _part(root, part_id).findall("measure"):
                     non_chord = [n for n in measure.findall("note") if n.find("chord") is None]
                     assert sum(int(n.find("duration").text) for n in non_chord) == expected_units
 
-            for measure in _part(root, "P3").findall("measure"):
+            p3_measures = _part(root, "P3").findall("measure")
+            assert [
+                (bar_idx, m.find("harmony/root/root-step").text, m.find("harmony/kind").text)
+                for bar_idx, m in enumerate(p3_measures)
+                if m.find("harmony") is not None
+            ] == [(h.bar, h.chord.root_step, h.chord.kind) for h in score.harmonies]
+            for measure in p3_measures:
                 for staff_num in ("1", "2"):
                     non_chord = [
                         n

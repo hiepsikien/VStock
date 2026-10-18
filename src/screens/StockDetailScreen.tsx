@@ -31,6 +31,7 @@ import {
   getFallbackStock,
 } from '../data/stocks';
 import { PriceChart } from '../components/PriceChart';
+import { SessionRecap } from '../components/SessionRecap';
 import { colors, spacing, typography } from '../theme';
 import { isMarketOpen, marketSessionLabel, REFRESH } from '../utils/marketSession';
 import { upsertPriceAlert } from '../storage/alerts';
@@ -419,20 +420,52 @@ export function StockDetailScreen({ navigation, route }: Props) {
             ) : null}
           </View>
 
-          <View>
-            <PriceChart
-              prices={rangePrices.length ? rangePrices : stock.sparkline}
-              positive={isUp}
-              range={range}
-              onRangeChange={(r) => void onRangeChange(r)}
-            />
-            {chartLoading ? (
-              <ActivityIndicator
-                style={styles.chartSpinner}
-                color={colors.textSecondary}
+          {range === '1D' && !isIndexLike && !isCommodity && !stock.unavailable ? (
+            <SessionRecap key={symbol} symbol={symbol}>
+              {(view) => (
+                <View>
+                  <PriceChart
+                    prices={
+                      view.status === 'ready' && view.prices.length > 1
+                        ? view.prices
+                        : view.status === 'loading' || view.status === 'error'
+                          ? []
+                          : rangePrices.length
+                            ? rangePrices
+                            : stock.sparkline
+                    }
+                    positive={view.status === 'ready' ? view.changePercent >= 0 : isUp}
+                    range={range}
+                    onRangeChange={(next) => void onRangeChange(next)}
+                    cursorIndex={view.cursorIndex}
+                    cursorLabel={view.cursorLabel}
+                    dimUnplayed={view.dimUnplayed}
+                  />
+                  {chartLoading ? (
+                    <ActivityIndicator
+                      style={styles.chartSpinner}
+                      color={colors.textSecondary}
+                    />
+                  ) : null}
+                </View>
+              )}
+            </SessionRecap>
+          ) : (
+            <View>
+              <PriceChart
+                prices={rangePrices.length ? rangePrices : stock.sparkline}
+                positive={isUp}
+                range={range}
+                onRangeChange={(next) => void onRangeChange(next)}
               />
-            ) : null}
-          </View>
+              {chartLoading ? (
+                <ActivityIndicator
+                  style={styles.chartSpinner}
+                  color={colors.textSecondary}
+                />
+              ) : null}
+            </View>
+          )}
 
           {statColumns.length > 0 ? (
             <View style={styles.statsBlock}>

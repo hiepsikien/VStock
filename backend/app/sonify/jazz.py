@@ -741,16 +741,36 @@ def _sax_melody_curve(
     return sax_pitches, sax_phrases, yield_spans
 
 
+RHODES_RIGHT_LOW = 53  # F3: lowest right-hand note, strictly above left-hand F2–E3 (41–52)
+RHODES_RIGHT_HIGH = 76  # E5: ceiling when lifting a clashing 9th above a low 3rd
+
+
 def _rhodes_voicing(chord: Chord) -> tuple[int, tuple[int, ...]]:
-    """Return left-hand root (F2–E3) and right-hand guide+9th tones in A3–B4."""
+    """Return left-hand root (F2–E3) and right-hand guide+9th tones in F3–E5 without semitone clashes."""
     root, guide = comp_pitches(chord)
     if len(chord.pitches) >= 5:
+        third_pc = chord.pitches[1] % 12
+        third_midi = next((m for m in guide if m % 12 == third_pc), guide[0])
+        other_guide = tuple(m for m in guide if m != third_midi)
         ninth_pc = chord.pitches[4] % 12
         ninth_midi = 60 + ninth_pc  # C4–B4
         if ninth_midi < min(guide):
             ninth_midi += 12
         if ninth_midi <= 72 and ninth_midi not in guide:
-            return root, tuple(sorted((*guide, ninth_midi)))
+            voiced = sorted((*guide, ninth_midi))
+            if any(b - a < 2 for a, b in zip(voiced, voiced[1:])):
+                # When the 3rd clashes by 1 semitone with the 9th (e.g. E4–F4 on Dm9),
+                # open the 3rd down an octave if it stays >= F3 (53); otherwise lift the 9th.
+                if abs(third_midi - ninth_midi) == 1 and third_midi - 12 >= RHODES_RIGHT_LOW:
+                    voiced = sorted((*other_guide, third_midi - 12, ninth_midi))
+                elif ninth_midi + 12 <= RHODES_RIGHT_HIGH:
+                    voiced = sorted((*guide, ninth_midi + 12))
+            if (
+                voiced[0] >= RHODES_RIGHT_LOW
+                and voiced[-1] <= RHODES_RIGHT_HIGH
+                and all(b - a >= 2 for a, b in zip(voiced, voiced[1:]))
+            ):
+                return root, tuple(voiced)
     return root, guide
 
 

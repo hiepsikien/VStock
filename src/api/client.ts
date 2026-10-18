@@ -99,8 +99,10 @@ function resolveApiUrl(): string {
     if (Platform.OS === 'ios' && !Device.isDevice) {
       return configured;
     }
-    // Physical device: cloud URL wins over Metro LAN rewrite (no local uvicorn needed)
-    if (Device.isDevice && isUsableApiBase(deviceFallback)) {
+    // Physical device: cloud URL wins over Metro LAN rewrite, unless this
+    // Metro session was started to talk to uvicorn on the same Mac.
+    const preferLocalApi = process.env.EXPO_PUBLIC_LOCAL_API === '1';
+    if (!preferLocalApi && Device.isDevice && isUsableApiBase(deviceFallback)) {
       try {
         const fbHost = new URL(deviceFallback).hostname;
         if (
@@ -203,8 +205,8 @@ type HistoryDto = {
   prices: number[];
 };
 
-async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`);
+async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, { signal });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new Error(`API ${res.status}: ${body || res.statusText}`);
@@ -400,6 +402,72 @@ async function fetchHistoryNetwork(symbol: string, range: ChartRange): Promise<n
     `/v1/stocks/${encodeURIComponent(sym)}/history?range=${range}`,
   );
   return data.prices;
+}
+
+export type RecapVariant = 'symphony' | 'jazz' | 'minimalist';
+
+export type SessionSummary = {
+  date: string;
+  close: number;
+  changePercent: number;
+  bars: number;
+};
+
+export type SessionMinutes = {
+  symbol: string;
+  date: string;
+  prices: number[];
+  times: string[];
+  changePercent: number;
+};
+
+export type RecapManifest = {
+  symbol: string;
+  date: string;
+  variant: RecapVariant;
+  durationSec: number;
+  mapDurationSec: number;
+  barCount: number;
+  peaks: number[];
+  audioUrl: string;
+};
+
+export function absoluteApiUrl(path: string): string {
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  return `${API_URL}${path}`;
+}
+
+export async function fetchSessions(symbol: string): Promise<SessionSummary[]> {
+  const sym = symbol.toUpperCase();
+  const data = await apiGet<{ symbol: string; sessions: SessionSummary[] }>(
+    `/v1/stocks/${encodeURIComponent(sym)}/sessions?limit=7`,
+  );
+  return data.sessions ?? [];
+}
+
+export async function fetchSessionMinutes(
+  symbol: string,
+  day: string,
+  signal?: AbortSignal,
+): Promise<SessionMinutes> {
+  const sym = symbol.toUpperCase();
+  return apiGet<SessionMinutes>(
+    `/v1/stocks/${encodeURIComponent(sym)}/sessions/${encodeURIComponent(day)}`,
+    signal,
+  );
+}
+
+export async function fetchRecap(
+  symbol: string,
+  day: string,
+  variant: RecapVariant,
+  signal?: AbortSignal,
+): Promise<RecapManifest> {
+  const sym = symbol.toUpperCase();
+  return apiGet<RecapManifest>(
+    `/v1/stocks/${encodeURIComponent(sym)}/sessions/${encodeURIComponent(day)}/recap?variant=${variant}`,
+    signal,
+  );
 }
 
 export async function fetchHistory(symbol: string, range: ChartRange): Promise<number[]> {

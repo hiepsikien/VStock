@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+from datetime import date
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import FileResponse
 
 from app.schemas import (
     DEFAULT_WATCHLIST,
     ChartRange,
     HistoryResponse,
+    RecapResponse,
+    SessionDetailResponse,
+    SessionListResponse,
+    SessionSummary,
     IncomePeriod,
     IndicesResponse,
     IndexQuote,
@@ -18,6 +25,11 @@ from app.schemas import (
     WatchlistItem,
 )
 from app.services import fundamentals, history, indices, market_session, quotes, symbols as symbols_service
+from app.services.sessions import list_sessions, load_recap, load_session, ready_recap
+from app.sonify.audio import RecapCancelled, RecapUnavailable
+from app.sonify.model import Variant
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1")
 
@@ -328,3 +340,83 @@ async def get_history(
         raise HTTPException(status_code=404, detail=f"No history for {sym}")
 
     return HistoryResponse(symbol=sym, range=range, prices=prices)
+
+
+@router.get("/stocks/{symbol}/sessions", response_model=SessionListResponse)
+async def get_sessions(
+    symbol: str,
+    limit: int = Query(default=7, ge=1, le=7),
+) -> SessionListResponse:
+    sym = symbol.upper()
+    try:
+        rows = await list_sessions(sym, limit)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Minute history unavailable: {exc}") from exc
+    return SessionListResponse(
+        symbol=sym,
+        sessions=[SessionSummary(**row) for row in rows],
+    )
+
+
+@router.get("/stocks/{symbol}/sessions/{session_date}", response_model=SessionDetailResponse)
+async def get_session_minutes(symbol: str, session_date: date) -> SessionDetailResponse:
+    sym = symbol.upper()
+    try:
+        detail = await load_session(sym, session_date)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Minute history unavailable: {exc}") from exc
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"No 1-minute session for {sym} on {session_date}")
+    return SessionDetailResponse(symbol=sym, **detail)
+
+
+@router.get("/stocks/{symbol}/sessions/{session_date}/recap", response_model=RecapResponse)
+async def get_recap(
+    symbol: str,
+    session_date: date,
+    request: Request,
+    variant: Variant = Query(default="symphony"),
+) -> RecapResponse:
+    sym = symbol.upper()
+    try:
+        asset = await load_recap(sym, session_date, variant, request)
+    except LookupError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No 1-minute session for {sym} on {session_date}",
+        ) from None
+    except RecapCancelled:
+        raise HTTPException(status_code=499, detail="Recap cancelled") from None
+    except RecapUnavailable as exc:
+        logger.warning("Recap export failed: %s", exc)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Minute history unavailable: {exc}") from exc
+    return RecapResponse(
+        symbol=asset.symbol,
+        date=asset.day.isoformat(),
+        variant=asset.variant,
+        durationSec=asset.duration_sec,
+        mapDurationSec=asset.map_duration_sec,
+        barCount=asset.bar_count,
+        peaks=asset.peaks,
+        audioUrl=asset.audio_url,
+    )
+
+
+@router.get("/stocks/{symbol}/sessions/{session_date}/recap/audio.m4a")
+async def get_recap_audio(
+    symbol: str,
+    session_date: date,
+    variant: Variant = Query(default="symphony"),
+    v: int = Query(..., ge=1),
+) -> FileResponse:
+    sym = symbol.upper()
+    asset = ready_recap(sym, session_date, variant, v)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Recap audio is not ready")
+    return FileResponse(
+        asset.audio_path,
+        media_type=asset.media_type,
+        filename=asset.audio_path.name,
+    )

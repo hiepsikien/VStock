@@ -18,12 +18,14 @@ Vibrato is left to the instrument: a `<wavy-line>` imports as a trill.
 
 A hairpin with no target letter moves playback one step and stays there, so
 `mp` is printed again wherever earlier hairpins did not cancel out.
-The lead part (`P1`) also carries the `<harmony>` symbol at each chord attack
-and the opening tempo (plus `<swing>` when `score.swing` is enabled).
+The lead part (`P1`) carries the opening tempo (plus `<swing>` when
+`score.swing` is enabled).
 
 `P3` is a two-staff grand staff (comping + fills in `symphony` and `jazz`, or
 liquidity pulse + backbeat in `minimalist`), marked `p` once so it stays behind
-the lead. `P4` is the bass part (marked from `p` up to `BASS_CEILING` as
+the lead. `P3` also carries the `<harmony>` symbol at each chord attack on
+staff 1 so MuseScore's chord-symbol piano stays at `P3`'s steady `p` dynamic
+instead of swelling with the lead's hairpins. `P4` is the bass part (marked from `p` up to `BASS_CEILING` as
 liquidity changes). All parts are written in C-major concert pitch (`fifths=0`)
 for direct visual comparison and General MIDI playback, except `P4` Bass which
 is written one octave above sounding pitch with `<transpose><octave-change>-1`.
@@ -305,13 +307,12 @@ def _melody_part(
 ) -> None:
     """Each hairpin edge and letter is written just before the note or rest it lands on.
 
-    The lead part also carries the tempo and the chord symbols.
+    The lead part also carries the opening tempo (and swing, when enabled).
     """
     part = _add(root, "part", id=part_id)
     melody = _group(notes)
     edges = _group(wedges)
     letters = _group(dynamics)
-    symbols = _group(score.harmonies) if lead else [[] for _ in range(score.bars)]
     for bar in range(score.bars):
         measure = _add(part, "measure", number=str(bar + 1))
         if bar == 0:
@@ -319,8 +320,6 @@ def _melody_part(
             if lead:
                 _metronome(measure, score.bpm, swing=score.swing)
             _dynamic(measure, MELODY_DYNAMIC)
-        for event in symbols[bar]:
-            _harmony(measure, event)
         pending: list[WedgeEvent | DynamicEvent] = sorted(
             [*edges[bar], *letters[bar]], key=_direction_order
         )
@@ -346,14 +345,21 @@ PIANO_DYNAMIC = DynamicEvent(bar=0, marking="p", sound=SOUND["p"])
 
 
 def _piano_part(root: ET.Element, score: Score) -> None:
-    """Right hand on the treble staff, left hand on the bass staff, one voice each."""
+    """Right hand on the treble staff, left hand on the bass staff, one voice each.
+
+    Carries the `<harmony>` symbols on staff 1 so chord-symbol playback stays
+    at the comping part's steady `p` dynamic rather than riding `P1` hairpins.
+    """
     part = _add(root, "part", id="P3")
     events = _group(score.comp)
+    symbols = _group(score.harmonies)
     for bar in range(score.bars):
         measure = _add(part, "measure", number=str(bar + 1))
         if bar == 0:
             _attributes(measure, TREBLE, BASS_CLEF, divisions=score.divisions)
             _dynamic(measure, PIANO_DYNAMIC)
+        for event in symbols[bar]:
+            _harmony(measure, event)
         for staff in (1, 2):
             if staff > 1:
                 backup = _add(measure, "backup")
