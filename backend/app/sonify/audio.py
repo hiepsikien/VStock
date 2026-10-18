@@ -39,6 +39,9 @@ PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
 AUDIO_MAX_AGE_DAYS = max(1, int(os.environ.get("VSTOCK_AUDIO_MAX_AGE_DAYS", "30")))
+# Export temps under work/ outlive a crashed MuseScore. A live export is at most
+# the 180s deadline, so anything older than this is leftover.
+WORK_KEEP_SEC = 15 * 60
 _STORED_NAME = re.compile(
     r"^[A-Z0-9]+_\d{4}-\d{2}-\d{2}_(?:symphony|jazz|minimalist)_(?P<rev>[^_]+)_\d+\.(?:m4a|wav|json)$"
 )
@@ -275,6 +278,7 @@ def musescore_export(xml_path: Path, wav_path: Path) -> None:
     env["XDG_RUNTIME_DIR"] = runtime
     wav_path.parent.mkdir(parents=True, exist_ok=True)
     command = [binary, "-o", str(wav_path), str(xml_path)]
+    config: Path | None = None
     if soundfont is not None and _supports_config_folder(binary):
         config = wav_path.parent / f"{wav_path.stem}-mscore"
         write_synthesizer_config(config, soundfont)
@@ -294,6 +298,8 @@ def musescore_export(xml_path: Path, wav_path: Path) -> None:
             env=env,
         )
     except OSError as exc:
+        if config is not None:
+            shutil.rmtree(config, ignore_errors=True)
         raise RecapUnavailable(str(exc)) from exc
     deadline = time.monotonic() + 180
     stdout = ""
@@ -311,6 +317,8 @@ def musescore_export(xml_path: Path, wav_path: Path) -> None:
     finally:
         if process.poll() is None:
             process.kill()
+        if config is not None:
+            shutil.rmtree(config, ignore_errors=True)
     if process.returncode != 0 or not wav_path.is_file() or wav_path.stat().st_size < 64:
         detail = (stderr or stdout or "MuseScore export failed").strip()
         raise RecapUnavailable(detail[-400:])
@@ -412,9 +420,13 @@ class RecapStore:
                 return self._render(symbol, day, variant, bars, cancel)
 
     def prune(self) -> None:
-        """Drop other score revisions and files older than the retention window."""
+        """Drop other score revisions, expired files, and leftover export temps."""
         cutoff = time.time() - AUDIO_MAX_AGE_DAYS * 86400
         for path in list(self.root.iterdir()):
+            if path.is_dir():
+                if path.name == "work":
+                    self._prune_work(path)
+                continue
             if not path.is_file():
                 continue
             match = _STORED_NAME.match(path.name)
@@ -424,6 +436,20 @@ class RecapStore:
             except OSError:
                 continue
             if not current or expired:
+                path.unlink(missing_ok=True)
+
+    def _prune_work(self, work: Path) -> None:
+        cutoff = time.time() - WORK_KEEP_SEC
+        for path in list(work.iterdir()):
+            try:
+                stale = path.stat().st_mtime < cutoff
+            except OSError:
+                continue
+            if not stale:
+                continue
+            if path.is_dir():
+                shutil.rmtree(path, ignore_errors=True)
+            else:
                 path.unlink(missing_ok=True)
 
     def _render(

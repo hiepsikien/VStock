@@ -79,6 +79,6 @@ Tạm verify: `SENTRY_DEBUG_ENDPOINT=1` rồi `curl .../sentry-debug` — tắt 
 
 Bấm Nghe mới soạn: nến 1 phút thành MusicXML, MuseScore xuất WAV ra file tạm, ffmpeg nén AAC, rồi đổi tên vào `{mã}_{ngày}_{biến thể}_{revision}_{số nến}.m4a`. Cùng số nến thì phát lại. Phiên đang mở giữ từng snapshot để lượt tải cũ không bị file mới ghi đè. Phiên đã đóng chỉ giữ snapshot cuối. File khác revision, và file cũ hơn `VSTOCK_AUDIO_MAX_AGE_DAYS` (mặc định 30 ngày), bị xóa. `VSTOCK_AUDIO_DIR` mặc định trong container là `/data/audio`.
 
-Ba biến thể: `symphony`, `jazz`, `minimalist`. Bài dài khoảng 80 giây (30 nhịp, tempo 90). Vị trí phát map đều lên các nến của phiên.
+Ba biến thể đều 30 nhịp. Giao hưởng tempo 90 (80 giây). Jazz tempo 82 (khoảng 88 giây). Tối giản tempo 118 (khoảng 61 giây). Vạch trên chart đi theo thời lượng viết từ tempo của bài, rồi dừng ở giá đóng cửa trong đuôi vang của file.
 
 Prices are in **nghìn đồng** (same display convention as typical VN board UIs).

@@ -83,6 +83,8 @@ function isAbort(error: unknown): boolean {
   return error instanceof Error && (error.name === 'AbortError' || /aborted/i.test(error.message));
 }
 
+const GREW_DURING_COMPOSE = 'Phiên vừa thêm nến trong lúc soạn. Bấm Nghe lại.';
+
 function pieceMatches(
   manifest: RecapManifest | null,
   series: SessionMinutes | null,
@@ -117,6 +119,7 @@ export function SessionRecap({ symbol, children }: Props) {
   const seriesRef = useRef<SessionMinutes | null>(null);
   const selectedRef = useRef<string | null>(null);
   const variantRef = useRef<RecapVariant>('symphony');
+  const seriesEpoch = useRef(0);
   seriesRef.current = series;
   selectedRef.current = selected;
   variantRef.current = variant;
@@ -211,10 +214,12 @@ export function SessionRecap({ symbol, children }: Props) {
       inflight?.abort();
       const controller = new AbortController();
       inflight = controller;
+      const epoch = seriesEpoch.current;
       void (async () => {
         try {
           const detail = await fetchSessionMinutes(symbol, selected, controller.signal);
           if (cancelled || cursorActive.current || detail.date !== selected) return;
+          if (seriesEpoch.current !== epoch) return;
           setSeries(detail);
           setManifest((current) =>
             pieceMatches(current, detail, variantRef.current, selected) ? current : null,
@@ -244,19 +249,41 @@ export function SessionRecap({ symbol, children }: Props) {
     setListenError(null);
     setManifest(null);
     setAutoplay(false);
+    const stillHere = () =>
+      !controller.signal.aborted &&
+      selectedRef.current === day &&
+      variantRef.current === chosen;
+    const composeOnce = async () => {
+      const recap = await fetchRecap(symbol, day, chosen, controller.signal);
+      if (!stillHere()) return null;
+      const detail = await fetchSessionMinutes(symbol, day, controller.signal);
+      if (!stillHere()) return null;
+      return { recap, detail };
+    };
     void (async () => {
       try {
-        const recap = await fetchRecap(symbol, day, chosen, controller.signal);
-        if (controller.signal.aborted) return;
-        const latest = seriesRef.current;
-        if (
-          selectedRef.current !== day ||
-          variantRef.current !== chosen ||
-          !pieceMatches(recap, latest, chosen, day)
-        ) {
+        // The chart is up to five minutes old. The server composes whatever
+        // candles it has when Nghe is pressed, so reload that snapshot and
+        // play it. If the session grew during export, compose that pass once.
+        let pass = await composeOnce();
+        if (!pass || !stillHere()) return;
+        const samePiece = (recap: RecapManifest, detail: SessionMinutes) =>
+          recap.date === detail.date &&
+          recap.variant === chosen &&
+          recap.barCount === detail.prices.length;
+        if (!samePiece(pass.recap, pass.detail)) {
+          pass = await composeOnce();
+          if (!pass || !stillHere()) return;
+        }
+        if (!samePiece(pass.recap, pass.detail)) {
+          seriesEpoch.current += 1;
+          setSeries(pass.detail);
+          setListenError(GREW_DURING_COMPOSE);
           return;
         }
-        setManifest(recap);
+        seriesEpoch.current += 1;
+        setSeries(pass.detail);
+        setManifest(pass.recap);
         setAutoplay(true);
       } catch (err) {
         if (controller.signal.aborted || isAbort(err)) return;

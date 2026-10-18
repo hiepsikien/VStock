@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 import wave
@@ -12,6 +13,7 @@ import pytest
 
 from app.sonify.audio import (
     RECAP_REVISION,
+    WORK_KEEP_SEC,
     RecapCancelled,
     RecapStore,
     resolve_executable,
@@ -169,6 +171,21 @@ def test_open_session_keeps_each_bar_count_and_closed_session_drops_the_partial(
     assert closed_store.get("FPT", DAY, "jazz", 5) is not None
 
 
+def test_prune_drops_stale_export_config_dirs(tmp_path: Path) -> None:
+    work = tmp_path / "work"
+    fresh = work / "FPT_2026-10-14_symphony_3_12-mscore"
+    stale = work / "VNM_2026-10-14_jazz_3_10-mscore"
+    fresh.mkdir(parents=True)
+    stale.mkdir()
+    (fresh / "synthesizer.xml").write_text("<Synthesizer/>", encoding="utf-8")
+    (stale / "synthesizer.xml").write_text("<Synthesizer/>", encoding="utf-8")
+    expired = time.time() - WORK_KEEP_SEC - 60
+    os.utime(stale, (expired, expired))
+    RecapStore(tmp_path, exporter=lambda xml, wav: None).prune()
+    assert fresh.is_dir()
+    assert not stale.exists()
+
+
 def test_get_does_not_compose(tmp_path: Path) -> None:
     def export(xml: Path, wav: Path) -> None:
         raise AssertionError(f"audio lookup composed {xml}")
@@ -192,8 +209,6 @@ def test_prune_drops_other_revisions_and_expired_files(tmp_path: Path) -> None:
 
     expired = time.time() - 40 * 86400
     current.touch()
-    import os
-
     os.utime(current, (expired, expired))
     store.prune()
     assert not current.exists()
@@ -278,6 +293,12 @@ def test_musescore_export_applies_soundfont_via_config_folder(tmp_path: Path, mo
         "    print('--config-folder')\n"
         "    raise SystemExit(0)\n"
         "seen.write_text('\\n'.join(args), encoding='utf-8')\n"
+        "config = Path(args[1])\n"
+        "seen.with_suffix('.snap').write_text(\n"
+        "    (config / 'synthesizer.xml').read_text(encoding='utf-8')\n"
+        "    + (config / 'MuseScore' / 'MuseScore3.ini').read_text(encoding='utf-8'),\n"
+        "    encoding='utf-8',\n"
+        ")\n"
         "out = Path(args[args.index('-o') + 1])\n"
         "with wave.open(str(out), 'wb') as handle:\n"
         "    handle.setnchannels(1)\n"
@@ -297,8 +318,10 @@ def test_musescore_export_applies_soundfont_via_config_folder(tmp_path: Path, mo
     args = seen.read_text(encoding="utf-8").splitlines()
     assert args[0] == "-c"
     config = Path(args[1])
-    assert str(font) in (config / "synthesizer.xml").read_text(encoding="utf-8")
-    assert str(font.parent) in (config / "MuseScore" / "MuseScore3.ini").read_text(encoding="utf-8")
+    snap = seen.with_suffix(".snap").read_text(encoding="utf-8")
+    assert str(font) in snap
+    assert str(font.parent) in snap
+    assert not config.exists()
     assert wav.is_file()
 
     plain = tmp_path / "mscore4"
