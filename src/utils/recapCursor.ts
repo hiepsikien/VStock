@@ -17,8 +17,9 @@ export function playheadHoldsPoll(input: {
   mapDurationSec: number;
   fileDurationSec: number;
   didJustFinish?: boolean;
+  started?: boolean;
 }): boolean {
-  const heard = input.playing || input.currentTime > 0.05;
+  const heard = Boolean(input.started) || input.playing || input.currentTime > 0.05;
   if (!heard) return false;
   if (input.playing) return true;
   if (input.didJustFinish) return false;

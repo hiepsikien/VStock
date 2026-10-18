@@ -37,7 +37,7 @@ from app.sonify.session import VN, is_session_closed
 logger = logging.getLogger(__name__)
 
 # Bump when the score or the sound changes, so old files are not replayed.
-RECAP_REVISION = "5"
+RECAP_REVISION = "9"
 PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
@@ -96,7 +96,7 @@ class RecapAsset:
     def audio_url(self) -> str:
         return (
             f"/v1/stocks/{self.symbol}/sessions/{self.day.isoformat()}"
-            f"/recap/audio.m4a?variant={self.variant}&v={self.bar_count}"
+            f"/recap/audio.m4a?variant={self.variant}&v={self.bar_count}&r={RECAP_REVISION}"
         )
 
 

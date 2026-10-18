@@ -30,6 +30,7 @@ type Props = {
   onRangeChange: (range: ChartRange) => void;
   cursorIndex?: number | null;
   cursorLabel?: string | null;
+  dimUnplayed?: boolean;
 };
 
 export function PriceChart({
@@ -39,6 +40,7 @@ export function PriceChart({
   onRangeChange,
   cursorIndex = null,
   cursorLabel = null,
+  dimUnplayed = false,
 }: Props) {
   const { width: screenWidth } = useWindowDimensions();
   // Edge-to-edge feel — only small side inset for sparkline padding.
@@ -67,6 +69,7 @@ export function PriceChart({
             strokeWidth={2.25}
             showFill
             cursorIndex={cursorIndex}
+            dimUnplayed={dimUnplayed}
           />
         ) : (
           <Text style={styles.emptyChart}>Chưa có dữ liệu chart</Text>

@@ -39,6 +39,7 @@ export type RecapView = {
   changePercent: number;
   cursorIndex: number | null;
   cursorLabel: string | null;
+  dimUnplayed: boolean;
 };
 
 type Props = {
@@ -52,6 +53,7 @@ const EMPTY_VIEW: RecapView = {
   changePercent: 0,
   cursorIndex: null,
   cursorLabel: null,
+  dimUnplayed: false,
 };
 
 function vnToday(): string {
@@ -113,6 +115,7 @@ export function SessionRecap({ symbol, children }: Props) {
   const [listenError, setListenError] = useState<string | null>(null);
   const [autoplay, setAutoplay] = useState(false);
   const [cursor, setCursor] = useState<{ index: number; label: string } | null>(null);
+  const [playbackActive, setPlaybackActive] = useState(false);
   const cursorActive = useRef(false);
   const recapAbort = useRef<AbortController | null>(null);
   const variantChanged = useRef(false);
@@ -132,12 +135,15 @@ export function SessionRecap({ symbol, children }: Props) {
   }, []);
 
   const onCursor = useCallback((index: number | null, label: string | null, holdPoll = false) => {
-    cursorActive.current = holdPoll && index != null;
+    const active = holdPoll && index != null;
+    cursorActive.current = active;
+    setPlaybackActive(active);
     setCursor(index == null || label == null ? null : { index, label });
   }, []);
 
   const clearPlayhead = useCallback(() => {
     cursorActive.current = false;
+    setPlaybackActive(false);
     setCursor(null);
   }, []);
 
@@ -308,6 +314,8 @@ export function SessionRecap({ symbol, children }: Props) {
 
   const ready = series != null && series.date === selected;
   const playingPiece = pieceMatches(manifest, series, variant, selected);
+  const dimUnplayed =
+    composing || (playingPiece && (playbackActive || (autoplay && cursor == null)));
   const view: RecapView = loadError
     ? { ...EMPTY_VIEW, status: 'error' }
     : ready && series
@@ -317,6 +325,7 @@ export function SessionRecap({ symbol, children }: Props) {
           changePercent: series.changePercent,
           cursorIndex: cursor?.index ?? null,
           cursorLabel: cursor?.label ?? null,
+          dimUnplayed,
         }
       : selected
         ? { ...EMPTY_VIEW, status: 'loading' }
@@ -439,7 +448,10 @@ function RecapPlayer({
   const status = useAudioPlayerStatus(player);
   const [waveWidth, setWaveWidth] = useState(0);
   const started = useRef(false);
+  const hasHeard = useRef(false);
   const ended = useRef(false);
+  const seekingTarget = useRef<number | null>(null);
+  const ignoreDidJustFinish = useRef(false);
 
   useEffect(() => {
     if (!autoplay || started.current || !status.isLoaded) return;
@@ -463,19 +475,36 @@ function RecapPlayer({
     const fileDuration = status.duration > 0 ? status.duration : manifest.durationSec;
     const mapDuration =
       manifest.mapDurationSec > 0 ? manifest.mapDurationSec : fileDuration;
-    const heard = status.playing || status.currentTime > 0.05;
+    if (status.playing) {
+      seekingTarget.current = null;
+      ignoreDidJustFinish.current = false;
+    } else if (
+      seekingTarget.current != null &&
+      Math.abs(status.currentTime - seekingTarget.current) <= 0.5
+    ) {
+      seekingTarget.current = null;
+    }
+    const effectiveTime =
+      seekingTarget.current != null ? seekingTarget.current : status.currentTime;
+    const effectiveDidJustFinish =
+      status.didJustFinish && !ignoreDidJustFinish.current;
+    if (status.playing || effectiveTime > 0.05) {
+      hasHeard.current = true;
+    }
+    const heard = hasHeard.current;
     if (!heard || times.length < 1) {
       ended.current = false;
       onCursor(null, null);
       return;
     }
-    const index = candleIndexAt(status.currentTime, times.length, mapDuration);
+    const index = candleIndexAt(effectiveTime, times.length, mapDuration);
     const stillRunning = playheadHoldsPoll({
       playing: status.playing,
-      currentTime: status.currentTime,
+      currentTime: effectiveTime,
       mapDurationSec: mapDuration,
       fileDurationSec: fileDuration,
-      didJustFinish: status.didJustFinish,
+      didJustFinish: effectiveDidJustFinish,
+      started: hasHeard.current,
     });
     if (!stillRunning) ended.current = true;
     if (status.playing && stillRunning) ended.current = false;
@@ -505,7 +534,26 @@ function RecapPlayer({
   const seek = (locationX: number) => {
     if (waveWidth <= 0 || duration <= 0) return;
     const ratio = Math.min(1, Math.max(0, locationX / waveWidth));
-    void player.seekTo(ratio * duration);
+    const targetSec = ratio * duration;
+    const mapDuration =
+      manifest.mapDurationSec > 0 ? manifest.mapDurationSec : duration;
+    hasHeard.current = true;
+    seekingTarget.current = targetSec;
+    ignoreDidJustFinish.current = true;
+    if (times.length > 0) {
+      const index = candleIndexAt(targetSec, times.length, mapDuration);
+      const holds = playheadHoldsPoll({
+        playing: status.playing,
+        currentTime: targetSec,
+        mapDurationSec: mapDuration,
+        fileDurationSec: duration,
+        didJustFinish: false,
+        started: true,
+      });
+      ended.current = !holds;
+      onCursor(index, times[index] ?? null, holds);
+    }
+    void player.seekTo(targetSec);
   };
 
   return (
