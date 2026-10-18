@@ -1,7 +1,7 @@
-"""Three open-ended orchestrations for one closed 250 ms bucket.
+"""Four open-ended orchestrations for one closed 250 ms bucket.
 
-Symphony, jazz, and minimalist share the tape. They differ in which voices
-sound, not in the clock. Nothing here reads a later bucket.
+Symphony, jazz, minimalist, and ambient share the tape. They differ in which
+voices sound, not in the clock. Nothing here reads a later bucket.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from collections import deque
 from dataclasses import dataclass
 
 from app.sonify.chords import Chord, jazz_chord
-from app.sonify.model import Variant
+from app.sonify.model import StreamVariant
 from app.sonify.phrasing import comp_pitches
 from app.sonify.quantize import C_MAJOR_PCS, SCALE_HIGH, SCALE_LOW
 
@@ -58,8 +58,8 @@ class HighBudget:
         return granted
 
 
-def sounding_chord(variant: Variant, chord: Chord) -> Chord:
-    if variant == "jazz":
+def sounding_chord(variant: StreamVariant, chord: Chord) -> Chord:
+    if variant in ("jazz", "ambient"):
         return jazz_chord(chord)
     return chord
 
@@ -161,8 +161,80 @@ def _bass_pattern(band: str) -> tuple[tuple[int, int, int], ...]:
     return tuple((index * 2, 2, interval) for index, interval in enumerate((0, 0, 12, 0, 7, 7, 12, 7)))
 
 
+def should_strike_ambient(
+    seq: int,
+    midi: int,
+    velocity: int,
+    prev_ambient: tuple[int, int] | None,
+) -> bool:
+    """Gate ambient melody notes so repeated or tiny moves ring out instead of retriggering."""
+    if prev_ambient is None:
+        return True
+    last_midi, last_seq = prev_ambient
+    age = seq - last_seq
+    move = abs(midi - last_midi)
+    pos = seq % BAR_NOTES
+    if move == 0:
+        return pos == 0 and age >= BAR_NOTES
+    if move == 1:
+        return (pos == 0 and age >= 8) or age >= 12
+    if move <= 3:
+        return age >= 4 or (age >= 2 and velocity >= 84)
+    if age >= 2:
+        return True
+    return pos % BEAT_NOTES == 0 and velocity >= 90 and age >= 4
+
+
+def _ambient_voices(
+    *,
+    seq: int,
+    pos: int,
+    midi: int,
+    velocity: int,
+    chord: Chord,
+    band: str,
+    allow_high: bool,
+    prev_ambient: tuple[int, int] | None,
+) -> tuple[list[Voice], tuple[int, int] | None]:
+    voices: list[Voice] = []
+    ambient_state = prev_ambient
+    drone_vel = {"p": 42, "mp": 54, "mf": 68, "f": 82}.get(band, 58)
+    halo_vel = {"p": 36, "mp": 48, "mf": 60, "f": 74}.get(band, 52)
+    halo_count = {"p": 2, "mp": 3, "mf": 3, "f": 4}.get(band, 3)
+
+    if pos == 0:
+        voices.append(_voice("drone", chord.bass_midi, 16, drone_vel, "sine"))
+        if band in ("mf", "f"):
+            voices.append(_voice("drone", chord.bass_midi + 7, 16, max(38, drone_vel - 10), "sine"))
+        halo_tones = _upper(chord, 55, 79, skip_root=False) or [chord.bass_midi + 12]
+        for tone in halo_tones[:halo_count]:
+            voices.append(_voice("halo", tone, 16, halo_vel, "triangle"))
+
+    if should_strike_ambient(seq, midi, velocity, prev_ambient):
+        hold_sixteenths = 12 if band in ("mf", "f") or velocity >= 78 else 10
+        glass_vel = max(46, min(98, velocity))
+        voices.append(_voice("glass", midi, hold_sixteenths, glass_vel, "sine"))
+        ambient_state = (midi, seq)
+
+    # Liquidity swells: market volume directly blooms the harmonic space.
+    if velocity >= 82 and pos % 2 == 0:
+        swell_tone = _accent_pitch(midi, 62, 79, chord)
+        voices.append(_voice("swell", swell_tone, 8, min(100, velocity), "triangle"))
+        if velocity >= 88 or (band == "f" and pos % BEAT_NOTES == 0):
+            voices.append(_voice("sub", chord.bass_midi, 6, min(104, velocity), "sine"))
+    elif velocity >= 58 and pos == 8:
+        swell_tone = _accent_pitch(midi, 60, 76, chord)
+        voices.append(_voice("swell", swell_tone, 8, round(velocity * 0.8), "triangle"))
+
+    if allow_high or (velocity >= 92 and pos % BEAT_NOTES == 0):
+        shimmer_vel = max(52, min(88, velocity))
+        voices.append(_voice("shimmer", _accent_pitch(midi, 84, 96, chord), 8, shimmer_vel, "sine"))
+
+    return voices, ambient_state
+
+
 def arrange(
-    variant: Variant,
+    variant: StreamVariant,
     *,
     seq: int,
     midi: int,
@@ -173,6 +245,7 @@ def arrange(
     prev_sax: int | None,
     allow_high: bool,
     price_held: bool,
+    prev_ambient: tuple[int, int] | None = None,
 ) -> tuple[tuple[Voice, ...], int | None]:
     """Voices for this bucket, and the sax pitch to remember (jazz only)."""
     pos = seq % BAR_NOTES
@@ -214,6 +287,18 @@ def arrange(
             voices.append(_voice("vibe", _accent_pitch(midi, 84, 89, chord), 2, 60, "sine"))
         voices.extend(_jazz_bass(seq, pos, beat, band, chord, next_chord))
 
+    elif variant == "ambient":
+        voices, _ambient = _ambient_voices(
+            seq=seq,
+            pos=pos,
+            midi=midi,
+            velocity=velocity,
+            chord=chord,
+            band=band,
+            allow_high=allow_high,
+            prev_ambient=prev_ambient,
+        )
+
     else:
         bright = _brightness(midi)
         arp = _arp_midi(chord, seq, bright)
@@ -237,9 +322,11 @@ def arrange(
     return tuple(voices), sax
 
 
-def wants_high(variant: Variant, midi: int) -> bool:
+def wants_high(variant: StreamVariant, midi: int) -> bool:
     if variant == "minimalist":
         return _brightness(midi) >= OPEN_CUTOFF
+    if variant == "ambient":
+        return midi >= 76
     return midi >= HIGH_TRIGGER
 
 

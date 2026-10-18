@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from app.sonify.chords import REGIME_BIAS, TRANSITIONS, Chord, Regime, tonic
 from app.sonify.dynamics import marking_for_volume, percentile
-from app.sonify.model import VARIANTS, Variant
+from app.sonify.model import STREAM_VARIANTS, StreamVariant
 from app.sonify.quantize import c_major_scale, price_to_scale_index, quantize_chord_tone
 from app.sonify.regime import MA_WINDOW, classify
 from app.sonify.voices import HighBudget, Voice, arrange, sounding_chord, wants_high
@@ -52,10 +52,11 @@ class NoteEvent:
     bass_dur_ms: int
     regime: Regime
     price: float
-    variant: Variant
+    variant: StreamVariant
     band: str
     swing: bool
     voices: tuple[Voice, ...]
+    volume: float = 0.0
 
     def payload(self) -> dict[str, object]:
         return {
@@ -70,6 +71,7 @@ class NoteEvent:
             "bass_dur_ms": self.bass_dur_ms,
             "regime": self.regime,
             "price": self.price,
+            "volume": self.volume,
             "variant": self.variant,
             "band": self.band,
             "swing": self.swing,
@@ -80,10 +82,10 @@ class NoteEvent:
 class StreamEngine:
     """Consume trades in time order and emit one note per closed 250 ms bucket."""
 
-    def __init__(self, seed: int = 1, variant: Variant = "symphony") -> None:
-        if variant not in VARIANTS:
+    def __init__(self, seed: int = 1, variant: StreamVariant = "symphony") -> None:
+        if variant not in STREAM_VARIANTS:
             raise ValueError(f"unknown variant: {variant}")
-        self.variant: Variant = variant
+        self.variant: StreamVariant = variant
         self._rng = random.Random(seed)
         self._scale = c_major_scale()
         self._chord: Chord = tonic("sideway")
@@ -98,6 +100,7 @@ class StreamEngine:
         self._prev_midi: int | None = None
         self._prev_raw: int | None = None
         self._prev_sax: int | None = None
+        self._prev_ambient: tuple[int, int] | None = None
         self._held_price: float | None = None
         self._hold_count = 0
         self._open: int | None = None
@@ -212,10 +215,13 @@ class StreamEngine:
             prev_sax=self._prev_sax,
             allow_high=allow_high,
             price_held=self._hold_count == 4,
+            prev_ambient=self._prev_ambient,
         )
         if sax is not None:
             self._prev_sax = sax
-        bass = next((voice for voice in voices if voice.role == "bass"), None)
+        if any(voice.role == "glass" for voice in voices):
+            self._prev_ambient = (midi, self._seq)
+        bass = next((voice for voice in voices if voice.role in ("bass", "drone", "sub")), None)
         note = NoteEvent(
             seq=self._seq,
             t=self._open,
@@ -231,6 +237,7 @@ class StreamEngine:
             band=self._band,
             swing=self.variant == "jazz",
             voices=voices,
+            volume=volume,
         )
         self._prev_midi = midi
         self._prev_raw = raw
@@ -326,7 +333,7 @@ def pump(
 def render_stream(
     trades: list[Trade],
     seed: int = 1,
-    variant: Variant = "symphony",
+    variant: StreamVariant = "symphony",
 ) -> list[NoteEvent]:
     """Run the whole tape. Equivalent to pumping one bucket at a time."""
     if not trades:

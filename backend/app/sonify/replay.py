@@ -8,7 +8,7 @@ import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-from app.sonify.model import Variant
+from app.sonify.model import StreamVariant
 from app.sonify.stream import (
     BUCKET_MS,
     Trade,
@@ -37,7 +37,7 @@ async def pace(
     seed: int = 1,
     buffer_ms: int = BUFFER_MS,
     speed: float = 1.0,
-    variant: Variant = "symphony",
+    variant: StreamVariant = "symphony",
 ) -> AsyncIterator[dict[str, object]]:
     """Yield note payloads about `buffer_ms` before they should be heard.
 
@@ -69,12 +69,13 @@ async def pace(
 
 def hello(
     note_count: int | None = None,
-    variant: Variant = "symphony",
+    variant: StreamVariant = "symphony",
     source: str = "history",
+    symbol: str = "BTCUSDT",
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "type": "hello",
-        "symbol": "BTCUSDT",
+        "symbol": symbol,
         "bucket_ms": BUCKET_MS,
         "bpm": 60,
         "buffer_ms": BUFFER_MS,

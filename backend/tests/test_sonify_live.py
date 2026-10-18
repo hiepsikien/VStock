@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from app.routers.sonify import router
-from app.sonify.live import follow, trade_from_agg
+from app.sonify.live import follow, rank_top_symbols, trade_from_agg, valid_symbol
 from app.sonify.stream import BUCKET_MS, Trade
 
 
@@ -123,3 +123,56 @@ def test_unknown_source_is_rejected() -> None:
         with client.websocket_connect("/v1/sonify/ws?source=tape") as socket:
             with pytest.raises(WebSocketDisconnect):
                 socket.receive_json()
+
+
+def test_rank_top_symbols_filters_stablecoins_and_sorts_by_quote_volume() -> None:
+    rows = [
+        {"symbol": "USDCUSDT", "quoteVolume": "1900000000", "lastPrice": "1.0001"},
+        {"symbol": "FDUSDUSDT", "quoteVolume": "950000000", "lastPrice": "0.9999"},
+        {"symbol": "BTCUPUSDT", "quoteVolume": "800000000", "lastPrice": "120.0"},
+        {"symbol": "ETHUSDT", "quoteVolume": "320000000", "lastPrice": "2410.5"},
+        {"symbol": "BTCUSDT", "quoteVolume": "610000000", "lastPrice": "81700.0"},
+        {"symbol": "SOLUSDT", "quoteVolume": "110000000", "lastPrice": "103.6"},
+    ]
+    top = rank_top_symbols(rows, limit=10)
+    assert [item["symbol"] for item in top] == ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+    assert [item["base"] for item in top] == ["BTC", "ETH", "SOL"]
+    assert valid_symbol("USDCUSDT") is None
+    assert valid_symbol("ethusdt") == "ETHUSDT"
+
+
+def test_symbols_endpoint_and_ambient_multi_coin_stream(monkeypatch) -> None:
+    base = 10_000_000_000
+    seen_symbols: list[str] = []
+
+    async def fake_top(limit: int = 10):
+        return [
+            {"symbol": "BTCUSDT", "base": "BTC", "quote_volume": 600_000_000.0, "last_price": 81_700.0},
+            {"symbol": "ETHUSDT", "base": "ETH", "quote_volume": 320_000_000.0, "last_price": 2_410.0},
+        ][:limit]
+
+    async def fake_trades(*, symbol: str = "BTCUSDT", url: str | None = None):
+        seen_symbols.append(symbol)
+        for index in range(4):
+            yield Trade(base + index * BUCKET_MS, 2_410.0 + index * 2.0, 4.5)
+
+    monkeypatch.setattr("app.sonify.live.top_volume_symbols", fake_top)
+    monkeypatch.setattr("app.sonify.live.binance_trades", fake_trades)
+    app = FastAPI()
+    app.include_router(router)
+    with TestClient(app) as client:
+        res = client.get("/v1/sonify/symbols")
+        assert res.status_code == 200
+        assert [item["symbol"] for item in res.json()["symbols"]] == ["BTCUSDT", "ETHUSDT"]
+
+        with client.websocket_connect("/v1/sonify/ws?source=live&variant=ambient&symbol=ETHUSDT") as socket:
+            hello = socket.receive_json()
+            assert hello["source"] == "live"
+            assert hello["variant"] == "ambient"
+            assert hello["symbol"] == "ETHUSDT"
+            first = socket.receive_json()
+            assert first["type"] == "note"
+            assert first["variant"] == "ambient"
+            assert first["volume"] == 4.5
+            assert any(voice["role"] in ("drone", "halo", "glass") for voice in first["voices"])
+    assert seen_symbols == ["ETHUSDT"]

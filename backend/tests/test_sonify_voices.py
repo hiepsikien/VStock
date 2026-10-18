@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.routers.sonify import router
 from app.sonify.chords import AM9, CMAJ9, DM9, EM7, FMAJ9, G9
-from app.sonify.model import VARIANTS
+from app.sonify.model import STREAM_VARIANTS, VARIANTS
 from app.sonify.stream import BAR_NOTES, BEAT_NOTES, BUCKET_MS, Trade, render_stream
 from app.sonify.voices import approach_note
 
@@ -24,20 +24,22 @@ def _roles(variant: str) -> set[str]:
 
 
 def test_three_variants_orchestrate_differently() -> None:
-    roles = {variant: _roles(variant) for variant in VARIANTS}
+    roles = {variant: _roles(variant) for variant in STREAM_VARIANTS}
     assert "violin" in roles["symphony"] and "piano" in roles["symphony"]
     assert "sax" in roles["jazz"] and "rhodes" in roles["jazz"]
     assert "arp" in roles["minimalist"] and "pad" in roles["minimalist"]
-    assert roles["symphony"].isdisjoint({"sax", "arp"})
-    assert roles["jazz"].isdisjoint({"violin", "arp"})
-    assert roles["minimalist"].isdisjoint({"violin", "sax"})
+    assert "glass" in roles["ambient"] and "halo" in roles["ambient"] and "drone" in roles["ambient"]
+    assert roles["symphony"].isdisjoint({"sax", "arp", "glass"})
+    assert roles["jazz"].isdisjoint({"violin", "arp", "glass"})
+    assert roles["minimalist"].isdisjoint({"violin", "sax", "glass"})
+    assert roles["ambient"].isdisjoint({"violin", "sax", "arp"})
 
 
 def test_each_variant_locks_notes_when_the_tape_grows() -> None:
     early_trades = _tape([1.0, 5.0] * 20)
     later = early_trades + _tape([2.0] * 16)
     later = [Trade(index * BUCKET_MS, trade.price, trade.qty) for index, trade in enumerate(later)]
-    for variant in VARIANTS:
+    for variant in STREAM_VARIANTS:
         early = render_stream(early_trades, seed=2, variant=variant)  # type: ignore[arg-type]
         full = render_stream(later, seed=2, variant=variant)  # type: ignore[arg-type]
         assert early == full[: len(early)]
@@ -99,7 +101,7 @@ def test_climb_from_g5_to_c7_returns_for_every_variant() -> None:
     from app.sonify.chords import CMAJ7
     from app.sonify.voices import arrange
 
-    for variant in VARIANTS:
+    for variant in STREAM_VARIANTS:
         for midi in range(79, 97):
             voices, _sax = arrange(
                 variant,  # type: ignore[arg-type]
@@ -119,7 +121,7 @@ def test_climb_from_g5_to_c7_returns_for_every_variant() -> None:
                     assert 79 <= voice.midi <= 88
                 if voice.role == "vibe":
                     assert 84 <= voice.midi <= 89
-                if voice.role == "bell":
+                if voice.role in ("bell", "shimmer"):
                     assert 84 <= voice.midi <= 96
         notes = render_stream(
             [Trade(index * BUCKET_MS, 80_000 + index * 80, 1.0) for index in range(64)],
@@ -127,6 +129,32 @@ def test_climb_from_g5_to_c7_returns_for_every_variant() -> None:
         )
         assert notes
         assert max(note.midi for note in notes) >= 79
+
+
+def test_ambient_strikes_sparse_long_notes_on_steady_price_and_blooms_with_volume() -> None:
+    # Steady price across 32 buckets (2 bars): ambient glass melody only rings once per bar.
+    steady = render_stream(_tape([1.0] * 32, price=81_500.0), variant="ambient")
+    glass_strikes = [
+        voice
+        for note in steady
+        for voice in note.voices
+        if voice.role == "glass"
+    ]
+    assert len(glass_strikes) == 2
+    assert all(voice.dur_ms >= 2500 for voice in glass_strikes)
+
+    # Low liquidity vs high liquidity in ambient mode: high volume blooms swell & sub voices.
+    volumes = [1.0] * 8 + [8.0] * 8 + [0.0] * 32 + [50.0] * 32
+    dynamic = render_stream(_tape(volumes, price=81_500.0), variant="ambient")
+    quiet_bar = [note for note in dynamic if 32 <= note.seq < 48]
+    loud_bar = [note for note in dynamic if 64 <= note.seq < 80]
+    assert quiet_bar[0].band == "p"
+    assert loud_bar[0].band == "f"
+    quiet_swells = sum(voice.role in ("swell", "sub") for note in quiet_bar for voice in note.voices)
+    loud_swells = sum(voice.role in ("swell", "sub") for note in loud_bar for voice in note.voices)
+    assert quiet_swells == 0
+    assert loud_swells >= 6
+    assert any(voice.role == "sub" for note in loud_bar for voice in note.voices)
 
 
 def test_websocket_selects_the_jazz_variant() -> None:
