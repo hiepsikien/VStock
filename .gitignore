@@ -48,6 +48,7 @@ yarn-error.*
 
 # Python backend
 backend/.venv/
+backend/var/
 backend/**/__pycache__/
 backend/**/*.pyc
 backend/data/

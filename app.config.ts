@@ -43,6 +43,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     favicon: './assets/favicon.png',
   },
   plugins: [
+    [
+      'expo-audio',
+      {
+        microphonePermission: false,
+        recordAudioAndroid: false,
+      },
+    ],
     'expo-dev-client',
     'expo-web-browser',
     'expo-background-task',
