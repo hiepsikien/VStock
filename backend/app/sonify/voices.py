@@ -180,9 +180,11 @@ def should_strike_ambient(
         return (pos == 0 and age >= 8) or age >= 12
     if move <= 3:
         return age >= 4 or (age >= 2 and velocity >= 84)
+    # A leap past a minor third waits half a second. Inside that window it
+    # only cuts through on a beat, and only when the print is loud.
     if age >= 2:
         return True
-    return pos % BEAT_NOTES == 0 and velocity >= 90 and age >= 4
+    return pos % BEAT_NOTES == 0 and velocity >= 90
 
 
 def _ambient_voices(

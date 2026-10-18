@@ -116,6 +116,44 @@ def test_live_socket_plays_the_injected_tape(monkeypatch) -> None:
     assert notes[0]["swing"] is True
 
 
+def test_a_foreign_page_cannot_open_the_tape() -> None:
+    app = FastAPI()
+    app.include_router(router)
+    with TestClient(app) as client:
+        with client.websocket_connect(
+            "/v1/sonify/ws?source=history",
+            headers={"origin": "https://evil.example"},
+        ) as socket:
+            with pytest.raises(WebSocketDisconnect):
+                socket.receive_json()
+
+
+def test_live_sessions_stop_at_the_cap(monkeypatch) -> None:
+    import app.routers.sonify as sonify
+
+    monkeypatch.setattr(sonify, "LIVE_SESSION_LIMIT", 2)
+    monkeypatch.setattr(sonify, "_live_slots", 0)
+
+    async def hang(**_kwargs):
+        await asyncio.Event().wait()
+        if False:
+            yield Trade(0, 1.0, 1.0)
+
+    monkeypatch.setattr("app.sonify.live.binance_trades", hang)
+    app = FastAPI()
+    app.include_router(router)
+    url = "/v1/sonify/ws?source=live&variant=ambient&symbol=ETHUSDT"
+    with TestClient(app) as client:
+        with client.websocket_connect(url) as first, client.websocket_connect(url) as second:
+            assert first.receive_json()["type"] == "hello"
+            assert second.receive_json()["type"] == "hello"
+            with client.websocket_connect(url) as third:
+                denied = third.receive_json()
+                assert denied == {"type": "error", "text": "Đã đủ người nghe trực tiếp."}
+        with client.websocket_connect(url) as again:
+            assert again.receive_json()["type"] == "hello"
+
+
 def test_unknown_source_is_rejected() -> None:
     app = FastAPI()
     app.include_router(router)

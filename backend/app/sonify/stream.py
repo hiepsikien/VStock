@@ -219,14 +219,15 @@ class StreamEngine:
         )
         if sax is not None:
             self._prev_sax = sax
-        if any(voice.role == "glass" for voice in voices):
+        glass = next((voice for voice in voices if voice.role == "glass"), None)
+        if glass is not None:
             self._prev_ambient = (midi, self._seq)
         bass = next((voice for voice in voices if voice.role in ("bass", "drone", "sub")), None)
         note = NoteEvent(
             seq=self._seq,
             t=self._open,
             midi=midi,
-            dur_ms=BUCKET_MS,
+            dur_ms=BUCKET_MS if glass is None else glass.dur_ms,
             velocity=velocity,
             chord=heard.name,
             bass_midi=None if bass is None else bass.midi,

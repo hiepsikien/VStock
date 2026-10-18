@@ -142,6 +142,12 @@ def test_ambient_strikes_sparse_long_notes_on_steady_price_and_blooms_with_volum
     ]
     assert len(glass_strikes) == 2
     assert all(voice.dur_ms >= 2500 for voice in glass_strikes)
+    for note in steady:
+        glasses = [voice for voice in note.voices if voice.role == "glass"]
+        if glasses:
+            assert note.dur_ms == glasses[0].dur_ms
+        else:
+            assert note.dur_ms == BUCKET_MS
 
     # Low liquidity vs high liquidity in ambient mode: high volume blooms swell & sub voices.
     volumes = [1.0] * 8 + [8.0] * 8 + [0.0] * 32 + [50.0] * 32
@@ -155,6 +161,18 @@ def test_ambient_strikes_sparse_long_notes_on_steady_price_and_blooms_with_volum
     assert quiet_swells == 0
     assert loud_swells >= 6
     assert any(voice.role == "sub" for note in loud_bar for voice in note.voices)
+
+
+def test_ambient_large_leap_waits_half_a_second_unless_the_beat_is_loud() -> None:
+    from app.sonify.voices import should_strike_ambient
+
+    # 500 ms after the last glass note, the leap itself is enough.
+    assert should_strike_ambient(2, 72, 40, (60, 0)) is True
+    # 250 ms later, off the beat, a loud print still waits.
+    assert should_strike_ambient(1, 72, 100, (60, 0)) is False
+    # 250 ms later, on a beat, only a loud print cuts through.
+    assert should_strike_ambient(4, 72, 90, (60, 3)) is True
+    assert should_strike_ambient(4, 72, 70, (60, 3)) is False
 
 
 def test_websocket_selects_the_jazz_variant() -> None:
