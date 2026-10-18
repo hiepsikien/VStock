@@ -130,15 +130,38 @@ def test_rank_top_symbols_filters_stablecoins_and_sorts_by_quote_volume() -> Non
         {"symbol": "USDCUSDT", "quoteVolume": "1900000000", "lastPrice": "1.0001"},
         {"symbol": "FDUSDUSDT", "quoteVolume": "950000000", "lastPrice": "0.9999"},
         {"symbol": "BTCUPUSDT", "quoteVolume": "800000000", "lastPrice": "120.0"},
+        {"symbol": "ETHDOWNUSDT", "quoteVolume": "700000000", "lastPrice": "0.045"},
         {"symbol": "ETHUSDT", "quoteVolume": "320000000", "lastPrice": "2410.5"},
         {"symbol": "BTCUSDT", "quoteVolume": "610000000", "lastPrice": "81700.0"},
+        {"symbol": "JUPUSDT", "quoteVolume": "150000000", "lastPrice": "0.289"},
+        {"symbol": "PUMPUSDT", "quoteVolume": "120000000", "lastPrice": "0.004"},
         {"symbol": "SOLUSDT", "quoteVolume": "110000000", "lastPrice": "103.6"},
     ]
     top = rank_top_symbols(rows, limit=10)
-    assert [item["symbol"] for item in top] == ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
-    assert [item["base"] for item in top] == ["BTC", "ETH", "SOL"]
+    assert [item["symbol"] for item in top] == [
+        "BTCUSDT",
+        "ETHUSDT",
+        "JUPUSDT",
+        "PUMPUSDT",
+        "SOLUSDT",
+    ]
+    assert [item["base"] for item in top] == ["BTC", "ETH", "JUP", "PUMP", "SOL"]
     assert valid_symbol("USDCUSDT") is None
+    assert valid_symbol("BTCUPUSDT") is None
+    assert valid_symbol("ETHDOWNUSDT") is None
+    assert valid_symbol("JUPUSDT") == "JUPUSDT"
+    assert valid_symbol("SYRUPUSDT") == "SYRUPUSDT"
+    assert valid_symbol("PUMPUSDT") == "PUMPUSDT"
     assert valid_symbol("ethusdt") == "ETHUSDT"
+
+
+def test_history_source_only_accepts_btcusdt() -> None:
+    app = FastAPI()
+    app.include_router(router)
+    with TestClient(app) as client:
+        with client.websocket_connect("/v1/sonify/ws?source=history&symbol=ETHUSDT") as socket:
+            with pytest.raises(WebSocketDisconnect):
+                socket.receive_json()
 
 
 def test_symbols_endpoint_and_ambient_multi_coin_stream(monkeypatch) -> None:

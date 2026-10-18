@@ -326,14 +326,27 @@
       return active ? active.dataset.variant : null;
     }
 
+    function setSymbol(symbol) {
+      currentSymbol = symbol;
+      const symBtns = [...symbolsBox.querySelectorAll("[data-symbol]")];
+      symBtns.forEach((item) => item.classList.toggle("active", item.dataset.symbol === symbol));
+    }
+
     function setSource(source) {
       sourceButtons.forEach((item) => item.classList.toggle("active", item.dataset.source === source));
+      if (source === "history" && currentSymbol !== "BTCUSDT") {
+        setSymbol("BTCUSDT");
+        updateHeadline(currentVariant());
+      }
     }
 
     async function start(variant) {
       const mine = ++session;
       const chosenSource = currentSource();
-      const chosenSymbol = currentSymbol;
+      if (chosenSource === "history" && currentSymbol !== "BTCUSDT") {
+        setSymbol("BTCUSDT");
+      }
+      const chosenSymbol = chosenSource === "history" ? "BTCUSDT" : currentSymbol;
       if (socket) {
         socket.close();
         socket = null;
@@ -441,8 +454,7 @@
       const symBtns = [...symbolsBox.querySelectorAll("[data-symbol]")];
       symBtns.forEach((button) => {
         button.addEventListener("click", () => {
-          currentSymbol = button.dataset.symbol;
-          symBtns.forEach((item) => item.classList.toggle("active", item === button));
+          setSymbol(button.dataset.symbol);
           if (currentSymbol !== "BTCUSDT" && currentSource() === "history") {
             setSource("live");
           }

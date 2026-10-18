@@ -54,6 +54,54 @@ EXCLUDED_BASES = frozenset(
     }
 )
 
+_LEVERAGED_UNDERLYINGS = (
+    "BTC",
+    "ETH",
+    "ADA",
+    "LINK",
+    "BNB",
+    "XTZ",
+    "EOS",
+    "TRX",
+    "XRP",
+    "DOT",
+    "LTC",
+    "UNI",
+    "SXP",
+    "FIL",
+    "YFI",
+    "BCH",
+    "AAVE",
+    "SUSHI",
+    "XLM",
+    "1INCH",
+    "MATIC",
+    "SOL",
+    "AVAX",
+    "DOGE",
+    "SHIB",
+    "NEAR",
+    "SAND",
+    "MANA",
+    "GALA",
+    "APE",
+    "GMT",
+    "OP",
+    "ARB",
+    "SUI",
+    "PEPE",
+    "WLD",
+)
+
+LEVERAGED_BASES = frozenset(
+    {"BULL", "BEAR"}
+    | {
+        f"{coin}{side}"
+        for coin in _LEVERAGED_UNDERLYINGS
+        for side in ("UP", "DOWN", "BULL", "BEAR")
+    }
+)
+
 DEFAULT_TOP_SYMBOLS: tuple[dict[str, object], ...] = (
     {"symbol": "BTCUSDT", "base": "BTC", "quote_volume": 600_000_000.0, "last_price": 81_700.0},
     {"symbol": "ETHUSDT", "base": "ETH", "quote_volume": 320_000_000.0, "last_price": 2_410.0},
@@ -81,9 +129,7 @@ def valid_symbol(symbol: str) -> str | None:
     if len(cleaned) < 5 or len(cleaned) > 16:
         return None
     base = cleaned[:-4]
-    if not base or base in EXCLUDED_BASES:
-        return None
-    if base.endswith(("UP", "DOWN", "BULL", "BEAR")):
+    if not base or base in EXCLUDED_BASES or base in LEVERAGED_BASES:
         return None
     return cleaned
 

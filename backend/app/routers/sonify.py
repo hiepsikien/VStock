@@ -42,6 +42,9 @@ async def stream(
     if variant not in STREAM_VARIANTS or source not in _SOURCES or checked_symbol is None:
         await websocket.close(code=1008)
         return
+    if source == "history" and checked_symbol != "BTCUSDT":
+        await websocket.close(code=1008)
+        return
     if source == "live":
         await _live(websocket, variant, checked_symbol)
         return
@@ -49,7 +52,7 @@ async def stream(
     paced = min(500.0, max(0.25, speed))
     start, end = piece_bounds(trades)
     await websocket.send_json(
-        hello((end - start) // BUCKET_MS, variant, source="history", symbol=checked_symbol)
+        hello((end - start) // BUCKET_MS, variant, source="history", symbol="BTCUSDT")
     )
     try:
         async for event in pace(trades, speed=paced, variant=variant):
