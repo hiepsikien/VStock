@@ -67,7 +67,11 @@ async def pace(
         await asyncio.sleep(0.02)
 
 
-def hello(note_count: int | None = None, variant: Variant = "symphony") -> dict[str, object]:
+def hello(
+    note_count: int | None = None,
+    variant: Variant = "symphony",
+    source: str = "history",
+) -> dict[str, object]:
     payload: dict[str, object] = {
         "type": "hello",
         "symbol": "BTCUSDT",
@@ -75,6 +79,7 @@ def hello(note_count: int | None = None, variant: Variant = "symphony") -> dict[
         "bpm": 60,
         "buffer_ms": BUFFER_MS,
         "variant": variant,
+        "source": source,
     }
     if note_count is not None:
         payload["notes"] = note_count

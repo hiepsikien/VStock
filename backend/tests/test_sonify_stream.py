@@ -143,6 +143,7 @@ def test_websocket_plays_the_fixture_to_the_end() -> None:
         with client.websocket_connect("/v1/sonify/ws?speed=500") as socket:
             hello = socket.receive_json()
             assert hello["type"] == "hello"
+            assert hello["source"] == "history"
             assert hello["bucket_ms"] == BUCKET_MS
             assert hello["notes"] == expected
             count = 0

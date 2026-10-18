@@ -32,7 +32,14 @@
       margin: 0 0 8px;
     }
     p { color: var(--muted); margin: 0 0 28px; }
-    .variants { display: flex; gap: 8px; flex-wrap: wrap; }
+    .kicker {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font: 12px/1.2 "Helvetica Neue", Helvetica, Arial, sans-serif;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .variants { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
     button {
       appearance: none;
       border: 1px solid transparent;
@@ -89,7 +96,13 @@
 <body>
   <main>
     <h1>BTC, bốn nốt mỗi giây</h1>
-    <p>Đoạn lịch sử BTCUSDT khoảng 90 giây, phát lại như một dòng đang chạy. Mỗi ô 250 ms thành một nốt. Ba cách phối dùng chung một dòng. Đổi cách phối là nghe lại từ đầu.</p>
+    <p>Lịch sử phát lại đoạn BTCUSDT khoảng 90 giây. Nghe thật lấy từng lệnh đang khớp trên Binance và chạy tiếp khi lệnh mới tới. Mỗi ô 250 ms là một nốt. Đổi cách phối là nghe lại từ đầu.</p>
+    <p class="kicker">Nguồn</p>
+    <div class="variants" id="sources">
+      <button type="button" data-source="history" class="active">Lịch sử</button>
+      <button type="button" data-source="live">Nghe thật</button>
+    </div>
+    <p class="kicker">Phối</p>
     <div class="variants">
       <button type="button" data-variant="symphony">Symphony</button>
       <button type="button" data-variant="jazz">Jazz</button>
@@ -105,6 +118,7 @@
   </main>
   <script>
     const buttons = [...document.querySelectorAll("[data-variant]")];
+    const sourceButtons = [...document.querySelectorAll("[data-source]")];
     const priceEl = document.querySelector("#price");
     const chordEl = document.querySelector("#chord");
     const regimeEl = document.querySelector("#regime");
@@ -175,8 +189,14 @@
       return beatStart + long + ((pos - 2) * short) / 2;
     }
 
+    function currentSource() {
+      const active = sourceButtons.find((button) => button.classList.contains("active"));
+      return active ? active.dataset.source : "history";
+    }
+
     async function start(variant) {
       const mine = ++session;
+      const chosenSource = currentSource();
       if (socket) {
         socket.close();
         socket = null;
@@ -206,7 +226,7 @@
       }
       if (mine !== session) return;
       const protocol = location.protocol === "https:" ? "wss" : "ws";
-      const opened = new WebSocket(`${protocol}://${location.host}/v1/sonify/ws?variant=${variant}`);
+      const opened = new WebSocket(`${protocol}://${location.host}/v1/sonify/ws?variant=${variant}&source=${chosenSource}`);
       if (mine !== session) {
         opened.close();
         return;
@@ -215,18 +235,29 @@
       let origin = null;
       let step = 0.25;
       let finished = false;
+      let listening = chosenSource;
       statusEl.textContent = "Đang nối…";
       socket.addEventListener("message", (event) => {
         if (mine !== session) return;
         const msg = JSON.parse(event.data);
         if (msg.type === "hello") {
           step = msg.bucket_ms / 1000;
-          statusEl.textContent = `Đang nghe · ${msg.variant}.`;
+          listening = msg.source || listening;
+          statusEl.textContent = listening === "live"
+            ? `Nghe thật · ${msg.variant}.`
+            : `Đoạn lịch sử · ${msg.variant}.`;
+          return;
+        }
+        if (msg.type === "error") {
+          finished = true;
+          statusEl.textContent = msg.text || "Không nối được Binance.";
           return;
         }
         if (msg.type === "end") {
           finished = true;
-          statusEl.textContent = `Hết đoạn, ${msg.notes} nốt.`;
+          statusEl.textContent = listening === "live"
+            ? "Dòng Binance đã dừng."
+            : `Hết đoạn, ${msg.notes} nốt.`;
           socket.close();
           return;
         }
@@ -256,6 +287,13 @@
 
     buttons.forEach((button) => {
       button.addEventListener("click", () => start(button.dataset.variant));
+    });
+    sourceButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        sourceButtons.forEach((item) => item.classList.toggle("active", item === button));
+        const playing = buttons.find((item) => item.classList.contains("active"));
+        if (playing) start(playing.dataset.variant);
+      });
     });
   </script>
 </body>
