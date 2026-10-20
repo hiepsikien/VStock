@@ -8,6 +8,7 @@ import {
   Text,
   TextInput,
   View,
+  type FlatListInstance,
   type KeyboardEvent,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -99,7 +100,7 @@ export function CompanionChatScreen({ navigation, route }: Props) {
   const [confirmActions, setConfirmActions] = useState<
     CompanionWatchlistAction[] | null
   >(null);
-  const listRef = useRef<FlatList<Bubble>>(null);
+  const listRef = useRef<FlatListInstance>(null);
   const seeded = useRef(false);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollThrottle = useRef(0);
