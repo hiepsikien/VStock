@@ -1,5 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  type ScrollViewInstance,
+} from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useKeyboardBottomInset } from '../hooks/useKeyboardBottomInset';
 import type { PriceAlert } from '../storage/alerts';
@@ -32,7 +41,7 @@ export function ManageAlertsSheet({
   onDelete,
 }: Props) {
   const keyboardInset = useKeyboardBottomInset();
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   const rowOffsets = useRef<Record<string, number>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -197,7 +206,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   sheet: {

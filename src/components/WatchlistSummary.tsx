@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Text,
   View,
+  type ScrollViewInstance,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { formatPercent } from '../data/stocks';
@@ -75,7 +76,7 @@ export function WatchlistSummary({
   const flatRatio = total > 0 ? flat / total : 0;
   const avgColor = avgChange >= 0 ? colors.positive : colors.negative;
 
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   const indexRef = useRef(0);
   const pausedRef = useRef(false);
   const chipWidths = useRef<number[]>([]);

@@ -8,6 +8,7 @@ import {
   Text,
   TextInput,
   View,
+  type TextInputInstance,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as WebBrowser from 'expo-web-browser';
@@ -126,7 +127,7 @@ export function WatchlistScreen({ navigation }: Props) {
   const [manageVisible, setManageVisible] = useState(false);
   const [manageAlertsVisible, setManageAlertsVisible] = useState(false);
   const searchSeq = useRef(0);
-  const searchRef = useRef<TextInput>(null);
+  const searchRef = useRef<TextInputInstance>(null);
   const stocksCacheRef = useRef<Map<string, Stock[]>>(new Map());
   const symbolListRef = useRef(symbolList);
   symbolListRef.current = symbolList;
@@ -741,7 +742,7 @@ export function WatchlistScreen({ navigation }: Props) {
         </View>
       )}
     </View>
-      ) : null,
+      ) : undefined,
     [inSearchMode, navigation, newsLoading, newsPreview, openNewsArticle],
   );
 
@@ -820,7 +821,7 @@ export function WatchlistScreen({ navigation }: Props) {
           ListEmptyComponent={
             !searching ? (
               <Text style={styles.empty}>Không tìm thấy mã phù hợp</Text>
-            ) : null
+            ) : undefined
           }
           renderItem={renderSearchItem}
           renderSectionHeader={() => null}

@@ -263,7 +263,7 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
   },
   priceFlash: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   price: {
     ...typography.price,

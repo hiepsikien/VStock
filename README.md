@@ -272,4 +272,4 @@ npm run start:dev
 
 ## Stack
 
-Expo SDK 54 · React Native · React Navigation · FastAPI · httpx · EAS Build
+Expo SDK 58 · React Native · React Navigation · FastAPI · httpx · EAS Build

@@ -1,6 +1,8 @@
 import React, { memo, useRef } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Swipeable } from 'react-native-gesture-handler';
+import Swipeable, {
+  type SwipeableMethods,
+} from 'react-native-gesture-handler/ReanimatedSwipeable';
 import * as Haptics from 'expo-haptics';
 import type { Stock } from '../types';
 import { StockRow } from './StockRow';
@@ -27,7 +29,7 @@ function SwipeableStockRowInner({
   isLast,
   disabled,
 }: Props) {
-  const ref = useRef<Swipeable>(null);
+  const ref = useRef<SwipeableMethods>(null);
 
   const renderLeft = () => (
     <Pressable

@@ -13,8 +13,21 @@ function isGoingToBackground(prev: AppStateStatus, next: AppStateStatus): boolea
  * Run a final price-alert pass when the app leaves the foreground so users
  * get push notifications instead of missing in-app-only checks.
  */
+function asAppStateStatus(value: string | null | undefined): AppStateStatus {
+  if (
+    value === 'active' ||
+    value === 'background' ||
+    value === 'inactive' ||
+    value === 'unknown' ||
+    value === 'extension'
+  ) {
+    return value;
+  }
+  return 'unknown';
+}
+
 export function useBackgroundPriceAlerts() {
-  const appState = useRef(AppState.currentState);
+  const appState = useRef<AppStateStatus>(asAppStateStatus(AppState.currentState));
   const checking = useRef(false);
 
   useEffect(() => {

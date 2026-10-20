@@ -83,9 +83,11 @@ export function CompanionWatchlistConfirmSheet({
               const key =
                 action.type === 'remove_symbol'
                   ? `remove-${action.symbol}-${action.watchlistId ?? index}`
-                  : action.type === 'add_symbol' || action.type === 'suggest_add_symbol'
+                  : action.type === 'add_symbol'
                     ? `add-${action.symbol}-${action.watchlistId ?? index}`
-                    : `${action.type}-${index}`;
+                    : action.type === 'suggest_add_symbol'
+                      ? `suggest-${action.symbol}-${index}`
+                      : `${action.type}-${index}`;
               return (
                 <Pressable
                   key={key}
