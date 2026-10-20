@@ -94,7 +94,9 @@ def test_four_notes_fill_each_second_and_the_chord_waits_for_the_bar() -> None:
     notes = render_stream(trades)
     start, end = piece_bounds(trades)
     assert len(notes) == (end - start) // BUCKET_MS
-    assert all(any(voice.role == "violin" for voice in note.voices) for note in notes)
+    violins = [note for note in notes if any(voice.role == "violin" for voice in note.voices)]
+    assert violins
+    assert len(violins) < len(notes)
     for previous, current in zip(notes, notes[1:]):
         if current.seq % BAR_NOTES != 0:
             assert current.chord == previous.chord
