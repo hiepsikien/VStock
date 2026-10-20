@@ -1,5 +1,6 @@
-import React, { memo, useRef } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { memo } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import { RectButton } from 'react-native-gesture-handler';
 import Swipeable, {
   type SwipeableMethods,
 } from 'react-native-gesture-handler/ReanimatedSwipeable';
@@ -29,43 +30,51 @@ function SwipeableStockRowInner({
   isLast,
   disabled,
 }: Props) {
-  const ref = useRef<SwipeableMethods>(null);
-
-  const renderLeft = () => (
-    <Pressable
+  // RectButton (RNGH) — not RN Pressable — so taps compete correctly with the
+  // ReanimatedSwipeable pan gesture (RN Pressable onPress can fail to fire).
+  const renderLeft = (
+    _progress: unknown,
+    _translation: unknown,
+    methods: SwipeableMethods,
+  ) => (
+    <RectButton
       style={[styles.action, styles.pinAction]}
       onPress={() => {
         void Haptics.selectionAsync();
-        ref.current?.close();
+        methods.close();
         onPin(stock);
       }}
     >
       <Text style={styles.actionText}>{pinned ? 'Bỏ ghim' : 'Ghim'}</Text>
-    </Pressable>
+    </RectButton>
   );
 
-  const renderRight = () => (
+  const renderRight = (
+    _progress: unknown,
+    _translation: unknown,
+    methods: SwipeableMethods,
+  ) => (
     <View style={styles.rightActions}>
-      <Pressable
+      <RectButton
         style={[styles.action, styles.alertAction]}
         onPress={() => {
           void Haptics.selectionAsync();
-          ref.current?.close();
+          methods.close();
           onAlert(stock);
         }}
       >
         <Text style={styles.actionText}>Cảnh báo</Text>
-      </Pressable>
-      <Pressable
+      </RectButton>
+      <RectButton
         style={[styles.action, styles.deleteAction]}
         onPress={() => {
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-          ref.current?.close();
+          methods.close();
           onRemove(stock);
         }}
       >
         <Text style={styles.actionText}>Xóa</Text>
-      </Pressable>
+      </RectButton>
     </View>
   );
 
@@ -82,7 +91,6 @@ function SwipeableStockRowInner({
 
   return (
     <Swipeable
-      ref={ref}
       renderLeftActions={renderLeft}
       renderRightActions={renderRight}
       overshootLeft={false}
