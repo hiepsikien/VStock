@@ -269,6 +269,33 @@ def _place(pillars: list[Run], section_end: int, *, hold: int) -> list[tuple[int
     return placed
 
 
+def _omit_same_pitch_reattacks(
+    segments: list[tuple[int, int, int, bool, bool, bool]],
+) -> list[tuple[int, int, int, bool, bool, bool]]:
+    """A pitch that already faded is not tongued again.
+
+    Tied or slurred segments that touch stay one breath. A later segment of
+    the same midi, with a rest between them, is dropped. The line speaks
+    again only when the pitch has moved.
+    """
+    kept: list[tuple[int, int, int, bool, bool, bool]] = []
+    for start, length, midi, slur, tie_in, tie_out in segments:
+        if kept:
+            prev_start, prev_length, prev_midi, prev_slur, prev_tie_in, prev_tie_out = kept[-1]
+            touches = prev_start + prev_length == start
+            linked = touches and (prev_slur or prev_tie_out or tie_in)
+            if midi == prev_midi and not linked:
+                continue
+            if not touches:
+                kept[-1] = (prev_start, prev_length, prev_midi, False, prev_tie_in, False)
+                tie_in = False
+        kept.append((start, length, midi, slur, tie_in, tie_out))
+    if kept:
+        start, length, midi, _slur, tie_in, _tie_out = kept[-1]
+        kept[-1] = (start, length, midi, False, tie_in, False)
+    return kept
+
+
 def _emit(segments: list[tuple[int, int, int, bool, bool, bool]]) -> list[NoteEvent]:
     """segments are start, length, midi, slur-into-next, tie-in, tie-out."""
     notes: list[NoteEvent] = []
@@ -360,6 +387,8 @@ def _glass(
                 segments.append((outro_start, outro_end - outro_start, outro_midi, False, False, False))
         else:
             segments.append((outro_start, outro_end - outro_start, outro_midi, False, False, False))
+
+    segments = _omit_same_pitch_reattacks(segments)
 
     # Group contiguous/slurred/tied segments into long fading breaths (mp/mf >)
     index = 0

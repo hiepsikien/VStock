@@ -86,7 +86,7 @@ Ngày đi ngang thì hợp âm ít đổi, giường gần như một tiếng. �
 
 Tỉa từng `FormSection` có `kind == "phrase"`, sau khi các `Phrase` bên trong đã bị cắt vào biên section.
 
-Đoạn phẳng: biên độ của `pitches` trong cả section nhỏ hơn `MIN_RISE` (3 semitone). Một lần tấn công ở phách 1 ô đầu của đoạn, cao độ đó (đã gập vào `G3–C6`), dài tối đa 4 ô (`FLAT_HOLD`). Phần còn lại của đoạn là nghỉ trên P1. Giường tiếp tục.
+Đoạn phẳng: biên độ của `pitches` trong cả section nhỏ hơn `MIN_RISE` (3 semitone). Một lần tấn công ở phách 1 ô đầu của đoạn, cao độ đó (đã gập vào `G3–C6`), dài tối đa 4 ô (`FLAT_HOLD`). Phần còn lại của đoạn là nghỉ trên P1. Giường tiếp tục. Nếu cao độ đó trùng hơi vừa tan và hai miền không chạm nhau thì không tấn công: P1 nghỉ hết đoạn, để nốt vừa fade không bị thổi lại.
 
 Đoạn có hướng đi lên hoặc đi xuống thì giữ trụ theo thứ tự thời gian:
 
@@ -104,7 +104,7 @@ Cách đặt nốt:
 - Dài tối đa 4 ô (`GLASS_HOLD`, 32 móc đơn). Khoảng tới trụ sau dài hơn 4 ô thì phần dư là nghỉ trên P1.
 - Trụ sau cách không quá 4 ô và khác cao độ: nối bằng liaison (`<slur>`) trong cùng đoạn. Nốt mở đầu một hơi có `<tenuto/>`.
 - Cùng cao độ chỉ buộc khi hai miền ngân chạm nhau. `<tie>` không đi qua nốt nghỉ. Trụ ngân tối đa 4 ô, nên chỉ gộp một lần tấn công qua `written()` khi trụ trước, trong trần đó, chạm đúng đầu trụ sau.
-- Trụ trùng cao độ nằm giữa đoạn mà không chạm được thì bỏ. Run kết cùng cao độ nhưng không chạm được thì đánh lại, để cuối đoạn vẫn có nốt.
+- Trụ trùng cao độ mà không chạm được hơi trước thì bỏ, kể cả run kết của đoạn. Nốt vừa fade không bị thổi lại. Cao độ chỉ trở lại sau khi giai điệu đã đi chỗ khác.
 
 Mỗi chuỗi nốt nối liền nhau (bằng `<tie>` hoặc `<slur>`, kể cả trên đoạn phẳng, intro và outro) tạo thành một hơi ngân lắng chậm (`_breath`):
 
@@ -112,7 +112,7 @@ Mỗi chuỗi nốt nối liền nhau (bằng `<tie>` hoặc `<slur>`, kể cả
 
 Intro: một nốt kính suốt section intro, cùng cao độ với nốt mở của đoạn `phrase` đầu. Trùng cao độ và chạm nhau thì buộc sang đoạn đó.
 
-Outro: một nốt, cao độ close cuối đã lượng tử hóa và gập vào `G3–C6`, giữ hết section outro, nhả ở ô cuối. Hai ô cuối của outro không có shimmer. Không có section outro thì không viết nốt outro.
+Outro: một nốt, cao độ close cuối đã lượng tử hóa và gập vào `G3–C6`, giữ hết section outro, nhả ở ô cuối. Trùng cao độ với hơi vừa ngân mà không buộc được vào hơi đó thì outro không có sáo. Hai ô cuối của outro không có shimmer. Không có section outro thì không viết nốt outro.
 
 ## Nở và shimmer
 

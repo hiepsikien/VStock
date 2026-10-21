@@ -45,17 +45,24 @@ def _part(xml: str, part_id: str) -> ET.Element:
     return next(part for part in root.findall("part") if part.get("id") == part_id)
 
 
-def test_flat_day_holds_one_glass_note_per_phrase_section() -> None:
+def test_flat_day_states_the_flute_pitch_once() -> None:
     score = render([Bar(80.0, 0.0, 80.0) for _ in range(30)], variant="ambient")
     assert score.variant == "ambient"
     assert score.bpm == 60
     chains = _chains(score.lead)
-    assert [chain[0].bar for chain in chains] == [0, 10, 18, 26]
+    assert [chain[0].bar for chain in chains] == [0]
     assert _beats(chains[0]) == 24
-    assert _beats(chains[1]) == 16
-    assert _beats(chains[2]) == 16
-    assert _beats(chains[3]) == 16
+    assert len({note.midi for note in chains[0]}) == 1
     assert _sounding_eighths(score.high) == 0
+
+
+def test_a_faded_pitch_is_not_rebreathed_until_the_line_moves() -> None:
+    closes = [80.0] * 12 + [80.4, 80.8, 81.2, 80.8, 80.4] + [80.2] * 13
+    score = render([Bar(close, 1_000.0, close) for close in closes], variant="ambient")
+    attacks = _onsets(score.lead)
+    assert attacks[0].bar == 0
+    assert all(left.midi != right.midi for left, right in zip(attacks, attacks[1:]))
+    assert any(note.bar >= 10 for note in attacks)
 
 
 def test_a_rising_phrase_section_keeps_at_most_four_glass_attacks() -> None:
@@ -182,7 +189,7 @@ def test_month_movement_without_an_outro_does_not_invent_one() -> None:
     )
     assert score.bars == 72
     assert score.bpm == 72
-    assert [note.bar for note in _onsets(score.lead)] == [0, 32, 48]
+    assert [note.bar for note in _onsets(score.lead)] == [0]
 
 
 def test_breathing_directions_land_before_a_sounding_note_and_harp_swell_is_open() -> None:
