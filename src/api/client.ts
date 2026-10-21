@@ -404,7 +404,7 @@ async function fetchHistoryNetwork(symbol: string, range: ChartRange): Promise<n
   return data.prices;
 }
 
-export type RecapVariant = 'symphony' | 'jazz' | 'minimalist';
+export type RecapVariant = 'symphony' | 'jazz' | 'minimalist' | 'ambient';
 
 export type SessionSummary = {
   date: string;

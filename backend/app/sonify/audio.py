@@ -28,7 +28,7 @@ from typing import Callable, NamedTuple
 from xml.etree import ElementTree as ET
 
 from app.sonify.form import BEATS_PER_BAR
-from app.sonify.model import Bar, Variant
+from app.sonify.model import VARIANTS, Bar, Variant
 from app.sonify.musicxml import score_to_musicxml
 from app.sonify.playback import piece_seconds
 from app.sonify.render import render
@@ -48,7 +48,9 @@ AUDIO_MAX_AGE_DAYS = max(1, int(os.environ.get("VSTOCK_AUDIO_MAX_AGE_DAYS", "30"
 # the 180s deadline, so anything older than this is leftover.
 WORK_KEEP_SEC = 15 * 60
 _STORED_NAME = re.compile(
-    r"^[A-Z0-9]+_\d{4}-\d{2}-\d{2}_(?:symphony|jazz|minimalist)_(?P<rev>[^_]+)_\d+\.(?:m4a|wav|json)$"
+    r"^[A-Z0-9]+_\d{4}-\d{2}-\d{2}_(?:"
+    + "|".join(VARIANTS)
+    + r")_(?P<rev>[^_]+)_\d+\.(?:m4a|wav|json)$"
 )
 _export_cancel = threading.local()
 _export_timeout = threading.local()
@@ -441,6 +443,11 @@ _MUSE_VOICES = (
     _MuseVoice(("wind.reed.saxophone.tenor",), ("Tenor Sax",), "Tenor Saxophone"),
     _MuseVoice(("keyboard.piano.electric",), ("Electric Piano 1",), "Suitcase Piano"),
     _MuseVoice(("pluck.bass.acoustic",), ("Acoustic Bass",), "Electric Bass"),
+    _MuseVoice(
+        ("pitched-percussion.celesta", "keyboard.celesta", "celesta"),
+        ("Celesta",),
+        "Celesta",
+    ),
 )
 _VOICE_BY_INSTRUMENT = {
     instrument_id: voice for voice in _MUSE_VOICES for instrument_id in voice.instrument_ids
@@ -846,7 +853,7 @@ class RecapStore:
                 continue
             current = any(
                 f"_{variant}_{SPAN_REVISION}_" in path.name
-                for variant in ("symphony", "jazz", "minimalist")
+                for variant in VARIANTS
             )
             if not current or expired:
                 path.unlink(missing_ok=True)

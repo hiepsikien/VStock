@@ -2,105 +2,138 @@
 
 Kiểu nghe thứ tư, cạnh Giao hưởng và Jazz. Tối giản giữ nguyên.
 
-Ambient ở đây là một `Score` được soạn xong cả chương rồi mới xuất tiếng, cùng đường với `render_jazz_score`. Form, hợp âm Markov, câu nhạc và nốt đã lượng tử hóa có trước. Phần Ambient chỉ viết năm bè lên cái khung đó. Im lặng là mặc định, nhưng im lặng nằm trong câu, không phải từng nhịp bị cắt rời.
+Ambient là một `Score` soạn xong cả chương rồi mới xuất tiếng, cùng đường với `render_jazz_score`. Form, hợp âm Markov, câu nhạc và nốt đã lượng tử hóa có trước. Phần Ambient chỉ viết năm bè lên cái khung đó. Im lặng là mặc định, và im lặng nằm trong câu.
 
 ## Vì sao không lấy cách stream
 
 `arrange()` trong `voices.py` chỉ thấy một bucket 250 ms và nốt vừa kêu. Giao hưởng, Jazz và Ambient trên stream đều nghe vỡ vụn vì vậy: không có câu, không có hợp âm đã chọn cho cả đoạn, mỗi bucket tự quyết định có đánh hay không.
 
-`should_strike_ambient` là cổng của stream. Bản nghe không gọi nó. Một nốt kính được giữ hay bỏ khi đã nhìn hết câu.
+`should_strike_ambient` là cổng của stream. Bản nghe không gọi nó. Một nốt kính được giữ hay bỏ khi đã nhìn hết đoạn.
 
 Stream để nguyên. Tài liệu này chỉ nói bản nghe phiên và bản nghe dài.
+
+## Hai đơn vị câu
+
+`FormSection` là đoạn của form. Ở 1D, ba đoạn `phrase` dài 8 ô, intro dài 2 ô, outro dài 4 ô. Từ 1W trở đi độ dài lấy từ `spec.sections`. Intro của bản dài là 8 ô. Outro có thể là 8, 12, 16 hoặc 40 ô. Chương II của 1M không có outro.
+
+`Phrase` của `plan_phrases()` là câu giai điệu bên trong đoạn đó. Trần là `MAX_EIGHTHS = 32`, tức 4 ô. Một đoạn `phrase` 8 ô luôn bị cắt thành ít nhất hai `Phrase`. Phiên phẳng bị cắt giữa nốt, `held_over=True` ở câu đầu. `_settle_edge` còn cho một câu tràn tối đa `PERIOD` (4 móc đơn, nửa ô) sang section sau.
+
+Mọi quy tắc «một câu 8 ô» trong tài liệu này nói về `FormSection` có `kind == "phrase"`. `plan_phrases()` chỉ cung cấp đường viền: run mở, `apex`, `cadence`, `rise`, bước nhảy. Trước khi tỉa, cắt mỗi `Phrase` vào đúng biên section, bỏ phần tràn.
 
 ## Chỗ nó ngồi
 
 `render()` / `_compose()` làm xong phần chung, rồi rẽ biến thể. Ambient rẽ cùng chỗ Jazz và Tối giản đang rẽ, sau khi đã có:
 
-- `plan_slots`: intro, các phrase, outro, hợp âm từng ô
+- `plan_slots`: intro, các đoạn phrase, outro, hợp âm từng ô
 - thang giá và `raw_pitches`
 - `quantize_strong_beats`: giai điệu trên thang, phách mạnh bám âm hợp âm
-- `plan_phrases`: câu, đỉnh (`apex`), nốt kết (`cadence`), `rise`, `held_over`
-- cửa sổ thanh khoản và băng `p`–`f`
+- `plan_phrases`: đường viền bên trong từng đoạn
+- `liquidity_windows_for(spec)` và băng `p`–`f` trên `band_at`
 
-`ambient.py` nhận đúng các thứ `render_jazz_score` đang nhận, rồi trả một `Score` với `variant="ambient"`.
+`render_ambient_score` nhận các thứ của `render_jazz_score`, cộng thêm `windows` và `spec.sections`. `band_at` một mình không đủ: hai cửa sổ `f` liền nhau là bốn ô `f`, không còn thấy đâu là ô thứ hai của từng cửa sổ. Bản 1D truyền `DAILY_SPEC` và `LIQUIDITY_WINDOWS`.
 
-`Variant` thêm `"ambient"`. `StreamVariant` đã có chữ này cho stream; hai kiểu không dùng chung hàm soạn. Khóa cache đã gồm variant, nên file Giao hưởng, Jazz, Tối giản không bị thay. Regex tên file trong `audio.py` thêm `ambient`.
+`Variant` thêm `"ambient"`. `StreamVariant` đã có chữ này cho stream. Hai kiểu không dùng chung hàm soạn. Khóa cache đã gồm variant, nên file Giao hưởng, Jazz, Tối giản không bị thay.
+
+`audio.py` có hai danh sách variant viết cứng. Regex `_STORED_NAME` và tuple trong `_prune_spans` đều lấy từ `VARIANTS`. Thiếu `_prune_spans` thì file span Ambient vừa render bị `prune()` xóa ở lần gọi sau.
 
 ## Form giữ nguyên
 
-1D vẫn là tiểu phẩm 30 ô: 2 ô intro, ba phrase 8 ô, 4 ô outro. Từ 1W trở đi Ambient nhận cùng `FormSpec` với hai kiểu kia: cùng số ô, cùng chỗ intro và coda, cùng BPM của bảng trong `docs/sonify-long-form.md`. Nghỉ giữa chương vẫn do player chèn.
+1D vẫn là tiểu phẩm 30 ô. Từ 1W trở đi Ambient nhận cùng `FormSpec` với hai kiểu kia: cùng số ô, cùng chỗ intro và coda, cùng BPM của bảng trong `docs/sonify-long-form.md`. Nghỉ giữa chương vẫn do player chèn.
 
-Intro và outro đã đạp chủ âm của phrase bên cạnh. Ambient không viết tiến trình riêng.
+Intro và outro đã đạp chủ âm của đoạn bên cạnh. Ambient không viết tiến trình riêng.
 
 Mỗi chương là một file. Đuôi reverb chỉ ở cuối chương, cùng quy ước `map_duration`.
 
 ## Năm bè
 
-| Phần | Vai | Nhạc cụ MuseScore | Program |
-|---|---|---|---|
-| P4 | Drone | Pad 1 (new age) | 89 |
-| P2 | Halo | Pad 2 (warm) | 90 |
-| P1 | Kính | Pad 3 (polysynth) | 91 |
-| P3 | Nở | Pad 8 (sweep) | 96 |
-| P5 | Shimmer | Celesta | 9 |
+| Phần | Vai | Nhạc cụ MuseScore | Program | Khuông |
+|---|---|---|---|---|
+| P4 | Drone | Pad 1 (new age) | 89 | Fa, như bass hiện tại |
+| P2 | Halo | Pad 2 (warm) | 90 | Sol |
+| P1 | Kính | Pad 3 (polysynth) | 91 | Sol |
+| P3 | Nở | Pad 8 (sweep) | 96 | Sol, một khuông |
+| P5 | Shimmer | Celesta | 9 | Sol |
 
-P1 phải là tiếng ngân được. Hộp nhạc và chuông tắt ngay, nốt dài trên giấy sẽ vẫn nghe như nốt rời. Sự liền mạch của giai điệu là một tiếng được giữ, không phải một tiếng được gõ lại.
+P1 phải là tiếng ngân được. Hộp nhạc và chuông tắt ngay, nốt dài trên giấy sẽ vẫn nghe như nốt rời. Sự liền mạch của giai điệu là một tiếng được giữ.
 
-`divisions = 2`, `swing = false`. Không có móc kép, không có nhịp đi bộ, không có ostinato.
+P2 xuất khóa Sol vì guide tone nằm ở A3–E5. P3 của Ambient đi một khuông. `_piano_part` dùng chung vẫn hai khuông và chữ `p` cố định cho Giao hưởng và Jazz. Khuông trống sau `backup` dễ làm file hỏng, nên nhánh Ambient không gọi `_piano_part`. Nhánh đó vẫn in `<harmony>`.
 
-Màu hợp âm của giường nhạc lấy `jazz_chord()`: maj9, m9, dominant 9. Giai điệu giữ nguyên nốt đã lượng tử hóa trên thang. Shimmer chọn một âm hợp âm ở vùng cao, gần đỉnh câu, một nốt.
+`divisions = 2`, `swing = false`. Không có móc kép, không có nhịp đi bộ, không có ostinato. Mọi nốt đi qua `written()`, để nốt cắt ở vạch nhịp được buộc đúng. Một `NoteEvent` dài 4 phách chỉ hợp lệ khi bắt đầu ở phách 1.
+
+Màu hợp âm của giường nhạc lấy `jazz_chord()`. Giai điệu giữ nguyên nốt đã lượng tử hóa trên thang. Shimmer chọn một âm hợp âm ở vùng cao, gần đỉnh, một nốt.
+
+`C` và `Cmaj7` đều thành `Cmaj9` sau `jazz_chord()`. Các ô liền nhau cùng hợp âm jazz gộp thành một lần tấn công. `Score.slots` lưu các slot đã nâng, cùng cách Jazz, để `musicxml.py` tra đúng chính tả `E9`, `Fm9` và các hợp âm mượn.
 
 ## Giường nhạc là sợi chỉ
 
-Drone và halo không nghỉ giữa câu. Chúng tấn công khi hợp âm đổi, buộc (`tie`) suốt `ChordSlot`, và tấn công lại khi slot sau khác hợp âm. Hai ô cùng hợp âm là một nốt dài, không đánh lại ở phách 1.
+Drone và halo không nghỉ giữa đoạn. Chúng tấn công khi hợp âm jazz đổi, và buộc tiếp những cao độ còn mặt ở ô sau.
 
-- Drone: nốt gốc. Thêm quãng 5 lấy từ `chord.pitches[2]` chỉ khi băng của slot là `mf` hoặc `f`. Cả hai nốt kéo hết slot.
-- Halo: hai âm hợp âm khi băng là `p` hoặc `mp`, ba âm khi `mf` hoặc `f`. Nốt tròn, nhỏ hơn drone một bậc.
-- Cường độ giường: `p` và `mp` giữ nguyên, `mf` và `f` đều viết `mf`. Chữ `f` dành cho tiếng nở. Đổi marking ở đầu cửa sổ thanh khoản, cùng chỗ dynamic hiện tại.
+`ChordSlot` của Markov và cửa sổ thanh khoản không trùng nhau. Slot có thể dài 1 đến 8 ô và cắt ngang nhiều cửa sổ. Băng đọc theo từng ô, `band_at[bar]`, không lấy một băng cho cả slot.
 
-Intro: giường vào phách 1 của ô 0. Outro: giường là pedal chủ âm sẵn có, ngân hết 4 ô rồi nhả.
+- Drone: nốt gốc trên mọi ô. Quãng 5 lấy từ `fifth_above_bass()` chỉ trên ô `mf` hoặc `f`. Gốc buộc qua những ô cùng hợp âm. Quãng 5 buộc qua các ô `mf`/`f` liền nhau, rồi nhả khi ô sau dịu hơn.
+- Halo: hai âm khi ô là `p` hoặc `mp`, ba âm khi ô là `mf` hoặc `f`. Hai âm là guide tone của `comp_pitches` (quãng 3 và quãng 7, hoặc quãng 3 và quãng 5 với hợp âm ba). Ba âm là tay phải của `_rhodes_voicing`, đã tránh quãng 2 thứ kiểu E–F trên Dm9. Cao độ còn lại thì buộc. Cao độ mới thì tấn công. Cao độ rơi mất thì nhả.
+- Cường độ in trên P4: `p` và `mp` giữ nguyên, `mf` và `f` đều viết `mf`. Chữ `f` dành cho tiếng nở. `DynamicEvent` đổi ở đầu mỗi cửa sổ thanh khoản.
 
-Ngày đi ngang thì hợp âm ít đổi, giường gần như một tiếng. Đó là Ambient của một phiên phẳng, và vẫn là một bài vì intro, câu và outro còn đó.
+`score.dynamics` mà `_compose` dựng sẵn đã đi qua `bass_marking()`, trần `BASS_CEILING = "mp"`. Ambient không dùng tuple đó. Nó tự dựng chữ từ `windows` và `bands`, trần `mf`. `_bass_part` in các chữ này.
 
-## Giai điệu kính: ít nốt, nhưng là một câu
+Halo nhỏ hơn drone bằng `velocity` trên nốt, thấp hơn velocity của chữ drone một nấc (`p` 49, `mp` 64, `mf` 80). `MARKINGS` chỉ có `p`, `mp`, `mf`, `f`. `_dynamic()` ném lỗi nếu gặp `pp`. Ô 0 của mọi bè đi qua `_melody_part` đã in sẵn `mp`. Halo không in thêm một chữ ở phách 1 ô 0.
 
-Tỉa từng phrase sau khi `plan_phrases` đã chạy. Một phrase 8 ô có tối đa bốn lần tấn công.
+`_bass_part` hiện không truyền `chord` khi hai nốt cùng phách. Gốc và quãng 5 sẽ thành tám phách trong ô 4/4. Thêm `chord` theo cách `_melody_part` đang làm: nốt sau, cùng phách, có `midi`, thì là hợp âm. Bass một nốt của ba biến thể kia vẫn tuần tự.
 
-Giữ lại, theo thứ tự thời gian:
+Intro: giường vào phách 1 của ô 0 và ngân hết section intro. Outro: giường là pedal chủ âm sẵn có, ngân hết section outro. Đoạn không có outro thì không có pedal outro.
 
-1. Run mở của câu.
-2. `apex`, khi `rise >= MIN_RISE` (3 semitone) và đỉnh không trùng run mở hay run kết.
-3. Một run lệch ít nhất một quãng 4 đúng (5 semitone) so với trụ đang giữ gần nhất. Bước đi bậc thang không thêm trụ. Trần bốn trụ tính cả run mở và run kết.
-4. Run kết, nếu khác cao độ với trụ cuối. Cùng cao độ thì buộc dài, không đánh lại.
+Ngày đi ngang thì hợp âm ít đổi, giường gần như một tiếng. Đó là Ambient của một phiên phẳng, và vẫn là một bài vì intro, các đoạn phrase và outro còn đó.
 
-Phrase phẳng (`rise < MIN_RISE`): một nốt, cao độ run mở, dài khoảng nửa câu, phần còn lại là nghỉ trên P1. Giường tiếp tục.
+## Giai điệu kính
+
+Tỉa từng `FormSection` có `kind == "phrase"`, sau khi các `Phrase` bên trong đã bị cắt vào biên section.
+
+Đoạn phẳng: mọi `Phrase` bên trong có `rise < MIN_RISE` (3 semitone). Một lần tấn công, ở run mở của đoạn, cao độ đó, dài tối đa 4 ô. Phần còn lại của đoạn là nghỉ trên P1. Giường tiếp tục. Không có hairpin.
+
+Đoạn có hướng đi lên hoặc đi xuống thì giữ trụ theo thứ tự thời gian:
+
+1. Run mở của đoạn.
+2. `apex` của một `Phrase` bên trong, khi `rise >= MIN_RISE` và đỉnh không trùng run mở hay run kết của đoạn.
+3. Một run lệch ít nhất một quãng 4 đúng (5 semitone) so với trụ đang giữ gần nhất. Bước đi bậc thang không thêm trụ.
+4. Run kết của đoạn. Khác cao độ với trụ cuối thì giữ. Cùng cao độ thì xử lý theo quy tắc buộc ở dưới.
+
+Trần là bốn lần tấn công cho mỗi 8 ô của section. Đoạn 8 ô được bốn trụ. Đoạn 24 ô được mười hai. Trần tính cả run mở và run kết.
 
 Cách đặt nốt:
 
-- Bắt đầu tại ô chứa run đó.
+- Bắt đầu tại `run.start`, qua `written()`.
+- Mỗi ô tối đa một trụ. Hai trụ rơi vào cùng một ô thì giữ run bắt đầu sớm hơn, để P1 không thành hợp âm.
 - Dài tối đa 2 ô. Khoảng tới trụ sau dài hơn 2 ô thì phần dư là nghỉ trên P1.
-- Trụ sau cách không quá 2 ô và khác cao độ: nối bằng liaison trong cùng một câu, không chọc một lỗ ngắn giữa hai trụ gần nhau.
-- Cùng cao độ: `tie`, một lần tấn công.
-- `held_over` và nốt kết trùng cao độ nốt mở của phrase sau trong cùng section: buộc qua ranh giới câu, cùng quy ước giai điệu giao hưởng.
+- Trụ sau cách không quá 2 ô và khác cao độ: nối bằng liaison trong cùng đoạn.
+- Cùng cao độ chỉ buộc khi hai miền ngân chạm nhau. `<tie>` không đi qua nốt nghỉ. Trụ ngân tối đa 2 ô, nên chỉ gộp một lần tấn công qua `written()` khi trụ trước, trong trần đó, chạm đúng `run.start` của trụ sau.
+- Trụ trùng cao độ nằm giữa đoạn mà không chạm được thì bỏ. Run kết cùng cao độ nhưng không chạm được thì đánh lại, để cuối đoạn vẫn có nốt.
+- `held_over` buộc nốt kết sang `Phrase` sau trong cùng section chỉ khi nốt đang ngân chạm nốt mở và hai nốt cùng cao độ.
 
-Hairpin dùng `hairpins()` của câu: crescendo tới đỉnh, diminuendo về nốt kết, vẽ trên P1. Phrase phẳng không có hairpin.
+Hairpin chỉ phủ những móc đơn mà P1 đang kêu: crescendo tới đỉnh, diminuendo về nốt kết, bằng `hairpins()` trên khoảng đó. Nốt tấn công sau một hairpin in lại `mp`, cùng cách `melody_parts` đưa `drift` về 0, để cái nêm không dính sang nốt sau.
 
-Intro không phải phrase 8 ô. Một nốt kính suốt 2 ô, cùng cao độ với nốt mở của phrase 1, buộc sang phrase đó.
+Intro: một nốt kính suốt section intro, cùng cao độ với nốt mở của đoạn `phrase` đầu. Trùng cao độ thì buộc sang đoạn đó.
 
-Outro: một nốt, cao độ close cuối đã lượng tử hóa, giữ hết 4 ô, nhả ở ô cuối. Hai ô cuối không có shimmer.
+Outro: một nốt, cao độ close cuối đã lượng tử hóa, giữ hết section outro, nhả ở ô cuối. Hai ô cuối của outro không có shimmer. Không có section outro thì không viết nốt outro.
 
-Register lấy đúng nốt giai điệu đã có. Không dò octave từng nốt. Đường viền giá vì thế không bị gãy khi một nốt bị bỏ.
+Register lấy đúng nốt giai điệu đã có. Không dò octave từng nốt.
 
-## Nở và shimmer là sự kiện của cả bài
+## Nở và shimmer
 
-P3 để trống, trừ một lần nở trong một cửa sổ thanh khoản băng `f`. Đặt ở phách 1 của ô thứ hai trong cửa sổ, dài 2 phách, voicing jazz ở giữa register, rồi nghỉ đến cửa sổ sau. Cửa sổ `p`, `mp`, `mf` không nở. Outro không nở.
+P3 để trống, trừ một lần nở trong một cửa sổ thanh khoản. Cửa sổ phải có băng `f`, và ô thứ hai của cửa sổ phải thuộc section `phrase`. Đặt ở phách 1 của ô thứ hai đó, dài 2 phách, voicing tay phải của `_rhodes_voicing`, `velocity` 96. Chữ in trên ô đó là `f`. Cửa sổ `p`, `mp`, `mf`, intro và outro không nở.
 
-Shimmer nhìn cả chương rồi mới chọn, cùng kiểu ngân sách chuông:
+Shimmer chọn sau khi nhìn hết cửa sổ ngân sách. Cửa sổ là `spec.chunk_bounds()`:
 
-- Ứng viên là đỉnh câu có MIDI từ G5 (79) trở lên, và các sự kiện breakout sẵn có.
-- Ngân sách mỗi section là `round(0.05 * số móc đơn của section)`. 1W tính theo từng phiên 32 ô, không phải 5% của cả tuần.
-- Các nốt cách nhau ít nhất 4 ô. Hết ngân sách thì bỏ ứng viên yếu hơn (`rise` nhỏ hơn).
-- Mỗi shimmer là một nốt tròn, `mp`, một âm. Section không có đỉnh cao thì không có shimmer.
+- 1D, `chunks` rỗng: cả 30 ô.
+- 1W: từng phiên 32 ô.
+- 1M trở đi: từng chunk của chương.
+
+Không tính theo `spec.sections`. Section 8 ô có 64 móc đơn, `round(0.05 × 64) = 3`, nhỏ hơn một nốt tròn (8 móc đơn). `week_spec` còn chia mỗi phiên thành bốn section 8 ô, nên vòng `bell_caps` hiện tại cũng ra 3 móc đơn.
+
+Ngân sách thô của một cửa sổ là `round(0.05 × số móc đơn)`. Nhân với `bell_budget(span_cửa_sổ) / BELL_MAX_EIGHTHS`, bằng 0 khi span đó không quá 0,5%. Làm tròn. Một shimmer tốn 8 móc đơn. Cửa sổ còn dưới 8 thì không có shimmer. 1D đủ biến động được 12 móc đơn, tức một nốt tròn. Một phiên 1W đủ biến động được 13 móc đơn, cũng một nốt tròn.
+
+`span_cửa_sổ` là `_section_rel_span(bars, groups, chunk_start, chunk_end)` của chính chunk đó. `rel_span` mà `render.py` tính cho cả chương không dùng ở đây. Với 1W, đó là biên độ của một phiên, nên ngày phẳng trong tuần có sóng không có shimmer. `render_ambient_score` nhận `bars` và `groups` để tính span này.
+
+Ứng viên là đỉnh có MIDI từ G5 (79) trở lên, và các sự kiện breakout sẵn có, nằm trong đoạn `phrase`. Hết ngân sách thì bỏ ứng viên có `rise` nhỏ hơn. Hai shimmer cách nhau ít nhất 4 ô. Mỗi shimmer là một nốt tròn, `mp`, một âm, bắt đầu bằng `written()` tại phách 1 của ô chứa đỉnh.
 
 ## Tempo
 
@@ -109,7 +142,7 @@ Shimmer nhìn cả chương rồi mới chọn, cùng kiểu ngân sách chuông
 | 1D | 60. Ba mươi ô thành 2:00. Hằng `AMBIENT_BPM`. |
 | 1W trở đi | BPM của `FormSpec`, chung với Giao hưởng và Jazz. |
 
-Từ 1W, khoảng trống nằm ở nốt nghỉ và nốt giữ. Không chạy chậm hơn bảng form.
+Từ 1W, khoảng trống nằm ở nốt nghỉ và nốt giữ.
 
 ## Việc không làm
 
@@ -117,25 +150,27 @@ Từ 1W, khoảng trống nằm ở nốt nghỉ và nốt giữ. Không chạy 
 - Không đưa `should_strike_ambient` vào bản nghe.
 - Không đổi `voices.py`. Stream vẫn một bucket một lần.
 - Không thêm hợp âm mới. Giường dùng `jazz_chord()` trên slot sẵn có.
+- Không thêm `pp` vào `MARKINGS`.
+- Không đổi `_piano_part` mà Giao hưởng và Jazz đang dùng.
 - Không fill arpeggio ở cadence. Sự kết là giường về chủ âm và nốt kính cuối ngân hết outro.
 
 ## Khi đưa vào code
 
-1. `backend/app/sonify/ambient.py`: `render_ambient_score`, `AMBIENT_BPM = 60`. Tỉa trụ, giường theo slot, nở theo cửa sổ `f`, shimmer theo ngân sách 5%.
-2. Nhánh `variant == "ambient"` trong `_compose`, sau khi slot, phrase và pitch đã có. 1D truyền `AMBIENT_BPM`. Có `FormSpec` thì dùng `spec.bpm`.
+1. `backend/app/sonify/ambient.py`: `render_ambient_score(..., windows, sections, bars, groups)`, `AMBIENT_BPM = 60`. Tỉa theo `FormSection`, giường theo từng ô sau `jazz_chord()`, nở theo cửa sổ `f`, shimmer theo `chunk_bounds` và `bell_budget` của từng chunk.
+2. Nhánh `variant == "ambient"` trong `_compose`, sau khi slot, phrase và pitch đã có. Truyền `windows`, `spec.sections`, `bars` và `groups`. 1D dùng `DAILY_SPEC` và `AMBIENT_BPM`. Có `FormSpec` thì BPM là `spec.bpm`. `Score.slots` là slot đã nâng. `Score.dynamics` là chữ giường trần `mf`.
 3. `Variant` trong `model.py` và schema recap / span thêm `"ambient"`. `Score.variant` nhận giá trị đó.
-4. `_PARTS_BY_VARIANT` trong `musicxml.py` thêm năm program ở bảng trên.
-5. Regex file trong `audio.py` nhận `ambient`.
+4. `_PARTS_BY_VARIANT` thêm năm program ở bảng trên. `_bass_part` gắn `chord` khi hai nốt cùng phách. P2 Ambient dùng khóa Sol. P3 Ambient là một khuông, có chữ `f` trên ô nở, và vẫn in `<harmony>`.
+5. `_STORED_NAME` và `_prune_spans` dùng `VARIANTS`.
 6. Chip «Ambient» trong `SessionRecap` và `SpanRecap`. `RecapVariant` ở client thêm `'ambient'`.
 
 ## Kiểm tra
 
-- Phiên phẳng: mỗi phrase 8 ô có một lần tấn công kính; drone có mặt suốt bài và không đánh lại khi hợp âm không đổi.
-- Phrase đi lên đủ `MIN_RISE`: có nốt mở, nốt đỉnh, nốt kết, đúng thứ tự thời gian, không quá bốn lần tấn công.
-- Hai trụ cùng cao độ là một tie, không phải hai nốt.
-- `held_over` buộc nốt cuối sang phrase sau khi cao độ không đổi.
-- Cửa sổ `f` có đúng một tiếng nở. Cửa sổ nhỏ hơn và outro không có.
-- Tổng độ dài shimmer trong một section không quá 5% số móc đơn, và hai shimmer cách nhau ít nhất 4 ô.
-- Intro dài 2 ô, outro dài 4 ô, giường outro là hợp âm chủ của phrase cuối.
-- Một tuần đủ 5 phiên vẫn 160 ô và dùng BPM của form, không dùng 60.
-- Score Tối giản của cùng một chuỗi nến không đổi.
+- Phiên 1D phẳng: mỗi `FormSection` `phrase` 8 ô có một lần tấn công kính, dài tối đa 4 ô. Hai `Phrase` 4 ô bên trong không thành hai lần tấn công.
+- Đoạn 8 ô có `rise` đủ `MIN_RISE`: có nốt mở, nốt đỉnh, nốt kết, đúng thứ tự, không quá bốn lần tấn công. Hai trụ trong cùng một ô chỉ còn một nốt.
+- Hai trụ cùng cao độ chỉ thành một tie khi nốt trước chạm nốt sau trong trần 2 ô. Trụ trùng ở giữa đoạn, cách xa hơn, bị bỏ. Run kết cùng cao độ mà không chạm được thì có một lần tấn công mới. `held_over` buộc nốt trong cùng section khi hai nốt chạm nhau. Intro 1D dài 2 ô và buộc sang đoạn phrase đầu khi cùng cao độ và chạm nhau. Outro 1D dài 4 ô.
+- Chương II của 1M không có nốt kính outro. Intro của 1W dài 8 ô.
+- `C` rồi `Cmaj7` sau `jazz_chord()` là một lần tấn công `Cmaj9`. Drone không đánh lại khi hợp âm jazz không đổi. Quãng 5 chỉ có trên ô `mf` và `f`, và trong MusicXML là `<chord>`, không làm ô 4/4 thành 8 phách.
+- Cửa sổ `f` mà ô thứ hai thuộc `phrase` có đúng một tiếng nở, chữ `f`. Cửa sổ nhỏ hơn, intro và outro không có. P3 một khuông.
+- Shimmer của 1D đủ biến động dài 8 móc đơn và không vượt `round(0.05 × 240)`. Span của cửa sổ không quá 0,5% thì cửa sổ đó không có shimmer. Hai shimmer, khi cửa sổ chứa được hai nốt, cách nhau ít nhất 4 ô.
+- Một tuần đủ 5 phiên vẫn 160 ô, BPM của form, ngân sách shimmer tính theo từng chunk 32 ô. Phiên phẳng trong tuần có sóng không có shimmer. Phiên đủ biến động vẫn có.
+- Score Tối giản của cùng một chuỗi nến không đổi. File span Ambient còn sau `prune()`.

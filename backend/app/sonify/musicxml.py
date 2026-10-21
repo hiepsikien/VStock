@@ -7,6 +7,8 @@ Five parts (`P5`, `P1`, `P2`, `P3`, `P4`) map to each variant's ensemble via
   Rhodes Piano (`P3`), Upright Bass (`P4`), with eighth-note `<swing>` (2:1)
 - `minimalist`: Synth Bell (`P5`), Synth Arpeggio (`P1`), Synth Pad (`P2`),
   Synth Pulse (`P3`), Sub-Bass (`P4`), with `divisions=4` for 16th-note pulses
+- `ambient`: Celesta (`P5`), polysynth (`P1`), warm pad (`P2`, treble),
+  sweep (`P3`, one staff, `f` on a swell), new-age pad (`P4`)
 
 In `symphony` and `jazz`, the lead (`P1`), low-mid support (`P2`), and high
 accent (`P5`) parts share or layer the price melody; whichever is not playing
@@ -297,6 +299,13 @@ _PARTS_BY_VARIANT: dict[Variant, tuple[tuple[str, str, str, str, str], ...]] = {
         ("P3", "Synth Pulse", "Lead 1 (square)", "3", "81"),
         ("P4", "Sub-Bass", "Synth Bass 1", "4", "39"),
     ),
+    "ambient": (
+        ("P5", "Celesta", "Celesta", "5", "9"),
+        ("P1", "Glass", "Pad 3 (polysynth)", "1", "91"),
+        ("P2", "Halo", "Pad 2 (warm)", "2", "90"),
+        ("P3", "Swell", "Pad 8 (sweep)", "3", "96"),
+        ("P4", "Drone", "Pad 1 (new age)", "4", "89"),
+    ),
 }
 
 
@@ -445,15 +454,46 @@ def _bass_part(root: ET.Element, score: Score) -> None:
         event = printed.get(bar)
         if event is not None:
             _dynamic(measure, event)
-        for note in sorted(notes[bar], key=lambda note: note.beat):
+        previous_beat: float | None = None
+        for note in sorted(notes[bar], key=lambda note: (note.beat, note.midi is None, note.midi or 0)):
             _add_note(
                 measure,
                 note,
+                chord=note.beat == previous_beat and note.midi is not None,
                 written_shift=12 * BASS_WRITTEN_OCTAVES,
                 divisions=score.divisions,
                 harmony=_chord_on(score, bar),
                 key=score.key,
             )
+            previous_beat = note.beat
+
+
+def _ambient_swell_part(root: ET.Element, score: Score) -> None:
+    """One treble staff. A swell prints f; empty bars stay silent. Harmony stays here."""
+    part = _add(root, "part", id="P3")
+    events = _group(score.comp, score.bars)
+    symbols = _group(score.harmonies, score.bars)
+    for bar in range(score.bars):
+        measure = _add(part, "measure", number=str(bar + 1))
+        if bar == 0:
+            _attributes(measure, TREBLE, divisions=score.divisions, fifths=score.key.fifths)
+            _dynamic(measure, MELODY_DYNAMIC)
+        for event in symbols[bar]:
+            _harmony(measure, event, score.key)
+        hand = sorted(events[bar], key=lambda event: (event.beat, event.midi or 0))
+        if any(event.midi is not None for event in hand):
+            _dynamic(measure, DynamicEvent(bar=bar, marking="f", sound=SOUND["f"]))
+        previous_beat: float | None = None
+        for event in hand:
+            _add_note(
+                measure,
+                event,
+                chord=event.beat == previous_beat and event.midi is not None,
+                divisions=score.divisions,
+                harmony=_chord_on(score, bar),
+                key=score.key,
+            )
+            previous_beat = event.beat
 
 
 def score_to_musicxml(score: Score) -> str:
@@ -470,10 +510,14 @@ def score_to_musicxml(score: Score) -> str:
     _melody_part(
         root, score, "P1", score.lead, score.lead_wedges, score.lead_dynamics, TREBLE, lead=True
     )
+    support_clef = TREBLE if score.variant == "ambient" else BASS_CLEF
     _melody_part(
-        root, score, "P2", score.support, score.support_wedges, score.support_dynamics, BASS_CLEF
+        root, score, "P2", score.support, score.support_wedges, score.support_dynamics, support_clef
     )
-    _piano_part(root, score)
+    if score.variant == "ambient":
+        _ambient_swell_part(root, score)
+    else:
+        _piano_part(root, score)
     _bass_part(root, score)
     ET.indent(root, space="  ")
     body = ET.tostring(root, encoding="unicode")
