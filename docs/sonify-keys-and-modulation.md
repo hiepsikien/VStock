@@ -15,6 +15,7 @@ Toàn bộ engine hiện tại (`form.py`, `phrasing.py`, `jazz.py`, `minimalist
    - Không dịch kép ở cả `Score` lẫn `musicxml.py`, và **không gấp quãng 8 sau khi dịch**.
    - Khi xuất MusicXML, mọi `NoteEvent.midi` và `HarmonyEvent.chord` được cộng `key.semitones`. Các kèn Sax và Bass vẫn xuất ở concert pitch như hiện tại (Bass giữ `<octave-change>-1`).
    - Thẻ `<fifths>` trong `_attributes()` ghi `score.key.fifths`.
+   - **Chính tả nốt và hợp âm (`step`, `alter`) bám theo `key.fifths` của giọng đích:** Ví dụ hợp âm mượn `B♭` (trong hệ `C`) khi dịch `+3` bán âm sang giọng `E♭` (`fifths = -3`) có pitch class `1` và phải được viết là **`D♭`** (`step="D", alter=-1`), không viết là `C♯`. Các bậc thuộc thang lấy từ bảng 7 bậc của `key.fifths`; các âm mượn ngoài thang lấy chính tả theo hướng dấu hóa của `key.fifths` (giọng giáng viết giáng, secondary dominants dẫn lên viết thăng theo bậc đích).
 3. **Hạ trần và nâng sàn theo `key.semitones` ngay trước khi dựng nốt**:
    - Dịch dương (`D` `+2`, `Eb` `+3`) đẩy các nốt cao lên; dịch âm (`Bb` `-2`, `A` `-3`) kéo nốt sàn `G3 (55)` của Violin và Alto Sax xuống `F3 (53)` / `E3 (52)` (thấp hơn dây buông `G3` của Violin).
    - Vì vậy, dùng một cơ chế duy nhất trước khi soạn:
@@ -78,17 +79,19 @@ Cả việc chọn `MovementCharacter` lẫn kịch bản chuyển giọng đề
 | `3M` | 1 tháng (trong quý) | `4.0%` (`0.040`) | `6.5%` (`0.065`) |
 | `1Y` | 1 tháng (trong năm) | `4.0%` (`0.040`) | `6.5%` (`0.065`) |
 
-Từ `(return_pct, volatility)` so với `(trend_th, vol_th)` của `span` đó, mỗi chương nhận một `MovementCharacter` với bộ tham số cụ thể truyền vào `plan_markov_chords()`:
+Từ `(return_pct, volatility)` so với `(trend_th, vol_th)` của `span` đó, mỗi chương nhận một `MovementCharacter` với bộ tham số cụ thể truyền vào `plan_markov_chords()`.
 
-| `character` | Điều kiện | Điều chỉnh `REGIME_BIAS` cục bộ | `seventh_tension_cost` | `single_bar_change_penalty` |
-|---|---|---|---|---|
-| `None` | Mặc định cho `1D` | Không chỉnh (giữ nguyên bảng `REGIME_BIAS` gốc) | `0.05` (mặc định) | `0.65` (mặc định) |
-| `"rally"` | `return_pct >= +trend_th` | Giảm `0.08` cost cho các root trưởng (`C`, `F`, `G`) và cho secondary dominants (`D7`, `C7`, `A7`); cộng `0.06` vào các root thứ (`A`, `D`, `E`) | `0.05` | `0.60` |
-| `"selloff"` | `return_pct <= -trend_th` | Giảm `0.08` cost cho các root thứ (`A`, `D`, `E`) và nhóm hợp âm mượn màu thứ (`Fm`, `A♭`, `E♭`, `Bm7♭5`, `E7`); cộng `0.06` vào root `C` | `0.05` | `0.60` |
-| `"volatile"` | `\|return_pct\| < trend_th` và `volatility >= vol_th` | Giữ nguyên bias theo root | `0.00` (ưu tiên hợp âm 7 màu sắc) | `0.45` (đổi hợp âm linh hoạt hơn) |
-| `"calm"` | `\|return_pct\| < trend_th` và `volatility < vol_th` | Giữ nguyên bias theo root | `0.08` (ưu tiên hợp âm 3 trong trẻo) | `0.80` (giữ hợp âm ngân dài, tĩnh) |
+Vì `REGIME_BIAS` gốc khóa theo `root_step` và chỉ chứa 12 hợp âm diatonic (`CHORDS`), trong khi các hợp âm mượn (`BORROWED`: `D7`, `C7`, `A7`, `Fm`, `Gm`, `A♭`, `B♭`, `B♭7`, `E♭`, `Bm7♭5`, `E7`, `F♯°7`) nằm ngoài `REGIME_BIAS` (đang lấy fallback `0.08`), việc chỉnh bias theo chữ cái `root_step` sẽ làm `A7` đắt lên cùng với `Am` hoặc `D7` đắt lên cùng với `Dm`. Do đó, độ lệch bias của `character` được **gắn trực tiếp trên từng đối tượng `Chord`**, tách biệt nhóm `CHORDS` và nhóm `BORROWED`:
 
-*(Không sửa biến toàn cục `REGIME_BIAS`, `SEVENTH_TENSION_COST` hay `SINGLE_BAR_CHANGE_PENALTY`; `plan_markov_chords()` tính bảng bias cục bộ từ `spec.character`).*
+| `character` | Điều kiện | Điều chỉnh trên `CHORDS` (diatonic) | Điều chỉnh trên `BORROWED` (ngoài `REGIME_BIAS`, gốc `0.08`) | `seventh_tension_cost` | `single_bar_change_penalty` |
+|---|---|---|---|---|---|
+| `None` | Mặc định cho `1D` | Không chỉnh (giữ nguyên `REGIME_BIAS`) | Giữ nguyên `0.08` | `0.05` (mặc định) | `0.65` (mặc định) |
+| `"rally"` | `return_pct >= +trend_th` | Giảm `0.08` cho `(C, Cmaj7, F, Fmaj7, G, G7)`; cộng `0.06` vào `(Am, Am7, Dm, Dm7, Em, Em7)` | Giảm `0.06` (còn `0.02`) cho `(D7, C7, A7)` | `0.05` | `0.60` |
+| `"selloff"` | `return_pct <= -trend_th` | Giảm `0.08` cho `(Am, Am7, Dm, Dm7, Em, Em7)`; cộng `0.06` vào `(C, Cmaj7)` | Giảm `0.06` (còn `0.02`) cho `(Fm, Gm, Ab, Eb, Bm7b5, E7)` | `0.05` | `0.60` |
+| `"volatile"` | `\|return_pct\| < trend_th` và `volatility >= vol_th` | Giữ nguyên theo root | Giữ nguyên `0.08` | `0.00` (ưu tiên hợp âm 7) | `0.45` (đổi hợp âm linh hoạt) |
+| `"calm"` | `\|return_pct\| < trend_th` và `volatility < vol_th` | Giữ nguyên theo root | Giữ nguyên `0.08` | `0.08` (ưu tiên hợp âm 3) | `0.80` (giữ hợp âm ngân dài) |
+
+*(Không sửa biến toàn cục `REGIME_BIAS`, `SEVENTH_TENSION_COST` hay `SINGLE_BAR_CHANGE_PENALTY`; `plan_markov_chords()` tra hàm `_chord_bias(chord, regime, character)` cho từng `Chord`).*
 
 ---
 
@@ -110,9 +113,9 @@ Gọi `idx_home` là chỉ số của `Home Key` trong `KEY_RING` (`0..4`):
 
 1. **Chương I (Trình bày):** Luôn ở `Home Key` (`idx_i = idx_home`).
 2. **Chương II (Chậm / Ballad):** Chọn `idx_ii` khác `idx_home`:
-   - Tại hai mép vòng:
+   - Tại hai mép vòng (chỉ có một láng giềng sát cạnh nên không phụ thuộc `character`):
      - Nếu `idx_home == 0` (`Eb`, `+3` bán âm): `idx_ii = 1` (`Bb`, `-2` bán âm — cữ âm hạ xuống một quãng 4 ấm và trầm hơn).
-     - Nếu `idx_home == 4` (`A`, `-3` bán âm): `idx_ii = 3` (`D`, `+2` bán âm).
+     - Nếu `idx_home == 4` (`A`, `-3` bán âm): `idx_ii = 3` (`D`, `+2` bán âm — cữ âm nâng lên một quãng 4 sáng và mở hơn).
    - Tại các vị trí giữa (`idx_home ∈ {1, 2, 3}`), hai láng giềng là `left = idx_home - 1` (nhiều dấu giáng hơn) và `right = idx_home + 1` (nhiều dấu thăng hơn):
      - Nếu chương II là `"selloff"` hoặc `"calm"`: chọn `idx_ii = left`.
      - Nếu chương II là `"rally"`: chọn `idx_ii = right`.
@@ -133,12 +136,21 @@ Gọi `idx_home` là chỉ số của `Home Key` trong `KEY_RING` (`0..4`):
 ### 5.4. Bản `1Y` (Tổ khúc 12 tháng theo thứ tự thời gian thực)
 - **Chương đầu tiên (`position == 0`)** và **Chương cuối cùng (`position == len(movements) - 1`)** luôn đặt ở **`Home Key`** (`idx_home`).
 - **Các chương ở giữa (`0 < position < len - 1`):**
-  - Xác định chỉ số cơ sở theo quý lịch `season = (day.month - 1) // 3`:
+  - Ba quý đầu đi qua **3 vùng giọng hoàn toàn phân biệt** (cùng cấu trúc với Chương I – II – III của `1M`), và Quý 4 quay về **`idx_home`** để mùa cuối chuẩn bị cho Finale:
     - Quý 1 (`season == 0`): `base = idx_home`
-    - Quý 2 (`season == 1`): `base = idx_home + 1 if idx_home < 4 else 3`
-    - Quý 3 (`season == 2`): `base = idx_home - 1 if idx_home > 0 else 1`
-    - Quý 4 (`season == 3`): `base = idx_home - 1 if idx_home >= 2 else idx_home + 1`
-  - Nếu tháng đó có `character == "selloff"` và `base > 0`, lùi 1 nấc `max(0, base - 1)`; nếu `character == "rally"` và `base < 4`, tiến 1 nấc `min(4, base + 1)`.
+    - Quý 2 (`season == 1`): `base = 1 if idx_home == 0 else (3 if idx_home == 4 else idx_home + 1)`
+    - Quý 3 (`season == 2`): `base = 2 if idx_home in (0, 4) else idx_home - 1`
+    - Quý 4 (`season == 3`): `base = idx_home`
+
+  | `Home Key` (`idx_home`) | Quý 1 (`season 0`) | Quý 2 (`season 1`) | Quý 3 (`season 2`) | Quý 4 (`season 3`) |
+  |---|---|---|---|---|
+  | `Eb` (`0`) | `0` (`Eb`) | `1` (`Bb`) | `2` (`C`) | `0` (`Eb`) |
+  | `Bb` (`1`) | `1` (`Bb`) | `2` (`C`) | `0` (`Eb`) | `1` (`Bb`) |
+  | `C` (`2`) | `2` (`C`) | `3` (`D`) | `1` (`Bb`) | `2` (`C`) |
+  | `D` (`3`) | `3` (`D`) | `4` (`A`) | `2` (`C`) | `3` (`D`) |
+  | `A` (`4`) | `4` (`A`) | `3` (`D`) | `2` (`C`) | `4` (`A`) |
+
+  - Bên trong mỗi quý, nếu một tháng ở giữa chuỗi có `character == "selloff"` và `base > 0`, lùi 1 nấc `base - 1`; nếu có `character == "rally"` và `base < 4`, tiến 1 nấc `base + 1`.
 
 ---
 
