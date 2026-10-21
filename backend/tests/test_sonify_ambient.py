@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-from app.sonify.ambient import GLASS_HOLD, _omit_same_pitch_reattacks, promote_ambient_slots
+from app.sonify.ambient import (
+    COOLDOWN_HOLD,
+    GLASS_HOLD,
+    _attach_daily_frames,
+    _omit_same_pitch_reattacks,
+    promote_ambient_slots,
+)
 from app.sonify.chords import C, CMAJ7
-from app.sonify.form import ChordSlot
+from app.sonify.form import DAILY_AMBIENT_SPEC, ChordSlot
 from app.sonify.model import Bar, NoteEvent
 from app.sonify.musicxml import score_to_musicxml
 from app.sonify.playback import ambient_daily_candle_index, piece_seconds
@@ -52,14 +58,14 @@ def test_flat_day_states_the_flute_pitch_once() -> None:
     assert score.bpm == 60
     assert score.bars == 36
     chains = _chains(score.lead)
-    assert [chain[0].bar for chain in chains] == [0, 32]
+    assert [chain[0].bar for chain in chains] == [0]
     assert _beats(chains[0]) == 24
-    assert _beats(chains[1]) == 16
     assert len({note.midi for note in chains[0]}) == 1
-    assert chains[0][0].midi % 12 == chains[1][0].midi % 12 == 0
+    assert chains[0][0].midi % 12 == 0
+    assert not any(note.bar >= 32 and note.midi is not None for note in score.lead)
     assert score.lead_dynamics[0].marking == "p"
     assert any(wedge.kind == "crescendo" and wedge.bar == 0 for wedge in score.lead_wedges)
-    assert any(wedge.kind == "diminuendo" and wedge.bar == 32 for wedge in score.lead_wedges)
+    assert any(wedge.kind == "diminuendo" and wedge.bar == 32 for wedge in score.support_wedges)
     assert _sounding_eighths(score.high) == 0
 
 
@@ -95,10 +101,33 @@ def test_a_rise_that_levels_off_ties_across_the_bar_then_rests() -> None:
     assert not any(
         note.bar == 10 and note.midi == held[0].midi and not note.tie_stop for note in score.lead
     )
-    outro = chains[-1]
-    assert outro[0].bar == 32
-    assert outro[0].midi % 12 == 0
-    assert _beats(outro) == 16
+    assert not any(
+        note.bar >= 32 and note.midi == held[0].midi and not note.tie_stop for note in score.lead
+    )
+
+
+def test_cool_down_extends_a_touching_breath_to_five_bars_then_rests() -> None:
+    outro = 32 * 8
+    chords = {bar: CMAJ7 for bar in range(36)}
+
+    def body(segments: list[tuple[int, int, int, bool, bool, bool]]):
+        attached = _attach_daily_frames(segments, DAILY_AMBIENT_SPEC, chords)
+        return [segment for segment in attached if segment[0] >= 16]
+
+    four_bars = (outro - GLASS_HOLD, GLASS_HOLD, 72, False, False, False)
+    assert body([four_bars]) == [(outro - GLASS_HOLD, COOLDOWN_HOLD, 72, False, False, False)]
+
+    two_bars = (outro - 16, 16, 72, False, False, False)
+    assert body([two_bars]) == [(outro - 16, COOLDOWN_HOLD, 72, False, False, False)]
+
+    five_bars = (outro - COOLDOWN_HOLD, COOLDOWN_HOLD, 72, False, False, False)
+    assert body([five_bars]) == [five_bars]
+
+    rested = (outro - 48, GLASS_HOLD, 72, False, False, False)
+    assert all(segment[0] < outro for segment in body([rested]))
+
+    other = body([(outro - GLASS_HOLD, GLASS_HOLD, 67, False, False, False)])
+    assert other[-1][:3] == (outro, 4 * 8, 72)
 
 
 def test_a_faded_pitch_is_not_rebreathed_until_the_line_moves() -> None:

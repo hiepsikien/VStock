@@ -40,6 +40,9 @@ from app.sonify.phrasing import (
 
 AMBIENT_BPM = 60
 GLASS_HOLD = 4 * EIGHTHS_PER_BAR
+# A cool-down may keep sounding the note that touches it, up to five bars
+# from the start of that breath. It does not open a second drone.
+COOLDOWN_HOLD = 5 * EIGHTHS_PER_BAR
 FLAT_HOLD = 4 * EIGHTHS_PER_BAR
 PILLAR_GAP = 3 * EIGHTHS_PER_BAR
 LEAP = 5
@@ -418,9 +421,11 @@ def _attach_daily_frames(
 ) -> list[tuple[int, int, int, bool, bool, bool]]:
     """Prepend a tonic warm-up and append a tonic cool-down.
 
-    Neither frame reads the price inside its bars. A matching pitch that still
-    has room in the four-bar hold is tied. A finished breath releases, and the
-    cool-down speaks on its own.
+    Neither frame reads the price inside its bars. A cool-down on the same
+    pitch follows the four-bar breath rule, except a note that still touches
+    it may sound on for whatever is left of five bars, then rests. The same
+    pitch after a rest is not tongued again. A different pitch holds the
+    cool-down.
     """
     intro = next(section for section in form.sections if section.kind == "intro")
     outro = next((section for section in form.sections if section.kind == "outro"), None)
@@ -444,10 +449,22 @@ def _attach_daily_frames(
     outro_midi = _tonic_glass(chord_at[outro.start], prev_midi)
     touches = prev_start + prev_length == outro_start
     same = prev_midi == outro_midi
-    sounded = _breath_eighths(segments, prev_midi, outro_start) if same and touches else 0
-    if same and touches and sounded < GLASS_HOLD:
-        segments[-1] = (prev_start, prev_length, prev_midi, prev_slur, prev_tie_in, True)
-        segments.append((outro_start, length, outro_midi, False, True, False))
+    if same:
+        if touches:
+            room = COOLDOWN_HOLD - _breath_eighths(segments, prev_midi, outro_start)
+            if room > 0:
+                take = min(length, room)
+                segments[-1] = (
+                    prev_start,
+                    prev_length + take,
+                    prev_midi,
+                    False,
+                    prev_tie_in,
+                    False,
+                )
+                return segments
+        if touches and (prev_slur or prev_tie_out):
+            segments[-1] = (prev_start, prev_length, prev_midi, False, prev_tie_in, False)
         return segments
     if touches and (prev_slur or prev_tie_out):
         segments[-1] = (prev_start, prev_length, prev_midi, False, prev_tie_in, False)
