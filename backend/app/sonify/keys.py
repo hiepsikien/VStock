@@ -367,7 +367,9 @@ def _spell_chord_root(
         else:
             direction = 0
         diatonic_penalty = 0 if diatonic.get(pitch_class) == item else 1
-        return (worst, diatonic_penalty, abs(alter), direction, step)
+        # Both stacks are single accidentals: follow the key before the
+        # smaller accidental, so Ab in Eb is C♭–E♭–G♭ rather than B–D♯–F♯.
+        return (worst, diatonic_penalty, direction, abs(alter), step)
 
     return min(candidates, key=preference)
 

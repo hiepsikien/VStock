@@ -59,8 +59,7 @@ JAZZ_BPM = 82
 SAX_LOW = 48  # C3: bottom of Tenor Saxophone register
 SAX_CEILING = C_REGISTER.sax_ceiling  # Ab5 (G5 = 79 in C major): top of realistic Alto Saxophone range
 VIBRAPHONE_APEX_TRIGGER = 79  # G5: minimum pitch for a phrase apex to trigger Vibraphone
-VIBRAPHONE_LOW = 84  # C6: high-end bell threshold
-VIBRAPHONE_HIGH = C_REGISTER.vibraphone_high  # F6: top of the standard 3-octave Vibraphone (F3–F6)
+VIBRAPHONE_LOW = 84  # C6 when the score is still in C. The live ceiling is active_register().
 VIBRAPHONE_VEL_SINGLE = 58  # mp
 VIBRAPHONE_VEL_CHORD = 64  # mp-mf
 # Cap high-end Vibraphone accents at 15% of 240 eighths (36 eighths max across 30 bars)
@@ -119,12 +118,20 @@ def _promote_jazz_slots(
     return jazz_slots, harmonies, chord_at
 
 
+def _vibraphone_window() -> tuple[int, int]:
+    """C-space bell span. Positive keys shift it down so the sounding notes stay in C6–F6."""
+    high = active_register().vibraphone_high
+    up = C_REGISTER.vibraphone_high - high
+    return VIBRAPHONE_LOW - up, high
+
+
 def _bell_pitch(melody_midi: int, chord: Chord, scale_high: tuple[int, ...]) -> int:
-    """Select a Vibraphone chord tone in C6–F6 (84–89) tracking the price contour."""
+    """Select a Vibraphone chord tone inside `scale_high`, tracking the price contour."""
     chord_tones = [m for m in scale_high if m % 12 in chord.pitch_classes]
     pool = chord_tones if chord_tones else list(scale_high)
     norm = min(1.0, max(0.0, (melody_midi - 76) / (95 - 76)))
-    target = VIBRAPHONE_LOW + norm * (VIBRAPHONE_HIGH - VIBRAPHONE_LOW)
+    low, high = scale_high[0], scale_high[-1]
+    target = low + norm * (high - low)
     return min(pool, key=lambda m: (abs(m - target), m))
 
 
@@ -133,30 +140,30 @@ def _high_bell_voicing(
     chord: Chord,
     scale_high: tuple[int, ...],
 ) -> tuple[int, ...]:
-    """Build a 3-note high Vibraphone bell chord in C6–F6 (84–89) without semitone clashes.
+    """Build a 3-note bell from the C-major tones in the active window.
 
-    Within C6–F6 (`84, 86, 88, 89`), avoids combining E6 (`88`) and F6 (`89`) in the
-    same 3-note voicing so the high bell never contains a harsh minor-second clash,
-    preferring the open 5-semitone quartal/sus frame `(84, 86, 89)` (`C6–D6–F6`) when
-    F (`89`) is a chord tone, or `(84, 86, 88)` (`C6–D6–E6`) on tonic/relative major-9th
-    harmonies where E (`88`) is a chord tone.
+    In C that window is C6–F6 (`84, 86, 88, 89`). The top two notes are a minor
+    second, so the voicing keeps only one of them: the open frame `(84, 86, 89)`
+    when F is a chord tone, or `(84, 86, 88)` when E is. A shifted key uses the
+    same shape inside `VIBRAPHONE_LOW - up` .. `vibraphone_high` instead of
+    dropping the C cluster by an octave.
     """
+    tones = scale_high
+    if len(tones) < 3:
+        return tuple(tones)
+    top = tones[-1]
+    lower = tones[-2]
     pcs = chord.pitch_classes
-    if 89 % 12 in pcs and 88 % 12 not in pcs:
-        return (84, 86, 89)
-    if 88 % 12 in pcs and 89 % 12 not in pcs:
-        return (84, 86, 88)
+    with_top = (tones[0], tones[1], top)
+    with_lower = (tones[0], tones[1], lower)
+    if top - lower == 1 and top % 12 in pcs and lower % 12 not in pcs:
+        return with_top
+    if top - lower == 1 and lower % 12 in pcs and top % 12 not in pcs:
+        return with_lower
+    if top - lower != 1:
+        return with_top if len(tones) > 3 else tuple(tones[:3])
     lead = _bell_pitch(melody_midi, chord, scale_high)
-    return (84, 86, 89) if abs(89 - lead) <= abs(88 - lead) else (84, 86, 88)
-
-
-def _fit_vibraphone(tones: tuple[int, ...]) -> tuple[int, ...]:
-    """Drop a bell cluster by octaves until it sounds at or below F6."""
-    ceiling = active_register().vibraphone_high
-    drop = 0
-    while any(tone - drop > ceiling for tone in tones):
-        drop += 12
-    return tuple(tone - drop for tone in tones)
+    return with_top if abs(top - lead) <= abs(lower - lead) else with_lower
 
 
 def _vibraphone_accent_part(
@@ -245,7 +252,7 @@ def _vibraphone_accent_part(
 
     chosen_spans.sort(key=lambda item: item[0])
 
-    scale_high = c_major_scale(VIBRAPHONE_LOW, active_register().vibraphone_high)
+    scale_high = c_major_scale(*_vibraphone_window())
     events: list[NoteEvent] = []
     cursor = 0
     for start, length, is_breakout, run in chosen_spans:
@@ -261,7 +268,7 @@ def _vibraphone_accent_part(
                 velocity=VIBRAPHONE_VEL_CHORD,
                 tenuto=True,
             )
-            cluster = _fit_vibraphone(_high_bell_voicing(run.midi, chord, scale_high))
+            cluster = _high_bell_voicing(run.midi, chord, scale_high)
             for piece in pieces:
                 for tone in cluster:
                     events.append(

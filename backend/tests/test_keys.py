@@ -4,10 +4,11 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from app.sonify.chords import A7, AM, BF, BORROWED, CHORDS, D7, DM, REGIME_BIAS
+from app.sonify.chords import A7, AF, AM, BF, BORROWED, CHORDS, D7, DM, FDIM7, REGIME_BIAS
 from app.sonify.form import DAILY_SPEC, chord_bias, plan_slots
 from app.sonify.keys import (
     A_KEY,
+    D_KEY,
     EB_KEY,
     KEY_RING,
     midi_to_spelled_pitch,
@@ -95,6 +96,13 @@ def test_every_chord_spells_inside_its_key():
     assert (step, alter) == ("D", -1)
     third = transpose_chord(D7, EB_KEY)
     assert third.spelling(third.pitches[1] % 12) == ("A", 0)
+    flat_ab = transpose_chord(AF, EB_KEY)
+    assert [(step, alter) for step, alter, _octave in (
+        midi_to_spelled_pitch(pitch, EB_KEY, AF) for pitch in flat_ab.pitches
+    )] == [("C", -1), ("E", -1), ("G", -1)]
+    assert (transpose_chord(BF, D_KEY).root_step, transpose_chord(BF, D_KEY).alter) == ("C", 0)
+    assert (transpose_chord(BF, A_KEY).root_step, transpose_chord(BF, A_KEY).alter) == ("G", 0)
+    assert (transpose_chord(FDIM7, EB_KEY).root_step, transpose_chord(FDIM7, EB_KEY).alter) == ("A", 0)
 
     for key in KEY_RING:
         for chord in (*CHORDS, *BORROWED):
@@ -124,7 +132,13 @@ def test_positive_shift_lowers_the_ceiling_and_negative_shift_raises_the_floor()
     assert all(note.midi is None or note.midi <= 77 for note in eb_jazz.lead)
     eb_bells = [note.midi + EB_KEY.semitones for note in eb_jazz.high if note.midi is not None]
     assert eb_bells
+    assert min(eb_bells) >= 84 - EB_KEY.semitones
     assert max(eb_bells) <= 89
+    d_jazz = render(steep, variant="jazz", key=D_KEY, title="sax-d")
+    d_bells = [note.midi + D_KEY.semitones for note in d_jazz.high if note.midi is not None]
+    assert d_bells
+    assert min(d_bells) >= 84 - D_KEY.semitones
+    assert max(d_bells) <= 89
     eb_arp = [
         note.midi + EB_KEY.semitones
         for note in render(steep, variant="minimalist", key=EB_KEY, title="arp").lead
