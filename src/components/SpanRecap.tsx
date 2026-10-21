@@ -297,7 +297,7 @@ function MovementPlayer({
     return (
       <View style={styles.preparing}>
         <ActivityIndicator color={colors.accent} />
-        <Text style={styles.preparingText}>Đang soạn {movement.label}…</Text>
+        <Text style={styles.preparingText}>Đang soạn {movement.label} · {movement.keyLabel}…</Text>
       </View>
     );
   }
@@ -313,7 +313,7 @@ function MovementPlayer({
       accessibilityRole="button"
     >
       <Text style={styles.playText}>
-        {status.playing ? 'Tạm dừng' : 'Tiếp tục'} · {movement.label}
+        {status.playing ? 'Tạm dừng' : 'Tiếp tục'} · {movement.label} · {movement.keyLabel}
       </Text>
     </Pressable>
   );

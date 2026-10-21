@@ -11,6 +11,19 @@ from dataclasses import dataclass, replace
 from datetime import date
 
 from app.sonify.form import FormSection, FormSpec
+from app.sonify.keys import (
+    C_KEY,
+    KeySpec,
+    MovementCharacter,
+    OutroOverride,
+    boundary_regimes,
+    finale_outro,
+    month_keys,
+    movement_character,
+    quarter_keys,
+    stock_home_key,
+    year_key,
+)
 from app.sonify.model import (
     Bar,
     DynamicEvent,
@@ -282,13 +295,16 @@ def _season(day: date) -> tuple[int, int]:
 
 @dataclass(frozen=True)
 class PreparedMovement:
-    """One movement ready for `render`: its own bars, form, and chart slice."""
+    """One movement ready for `render`: its own bars, form, key, and chart slice."""
 
     label: str
     spec: FormSpec
     bars: list[Bar]
     groups: list[list[int]] | None
     rest_after: float
+    key: KeySpec = C_KEY
+    character: MovementCharacter | None = None
+    outro_override: OutroOverride | None = None
 
     @property
     def candle_count(self) -> int:
@@ -298,7 +314,9 @@ class PreparedMovement:
     def scale_fingerprint(self) -> str:
         low = min(bar.close for bar in self.bars)
         high = max(bar.close for bar in self.bars)
-        return f"{low:.2f}-{high:.2f}"
+        character = self.character or "std"
+        coda = self.outro_override or "none"
+        return f"{self.key.name}-{character}-{coda}-{low:.2f}-{high:.2f}"
 
 
 def _flatten(sessions: list[tuple[date, list[Bar]]], sizes: list[int]) -> list[list[Bar]]:
@@ -371,14 +389,35 @@ def year_groups(stamped: list[tuple[date, Bar]]) -> list[tuple[date, list[Bar]]]
     return groups[-12:]
 
 
+def _edges(parts: list[list[Bar]]):
+    return [
+        boundary_regimes([bar.close for bar in part], [bar.ma20 for bar in part])
+        for part in parts
+    ]
+
+
+def _home(symbol: str | None) -> KeySpec:
+    if not symbol:
+        return C_KEY
+    return stock_home_key(symbol)
+
+
 def _prepared(
     movements: tuple[Movement, ...],
     parts: list[list[Bar]],
     *,
     grouped: list[list[int]] | None = None,
+    keys: tuple[KeySpec, ...] | None = None,
+    characters: tuple[MovementCharacter, ...] | None = None,
+    outros: tuple[OutroOverride | None, ...] | None = None,
 ) -> tuple[PreparedMovement, ...]:
+    chosen_keys = keys or tuple(C_KEY for _ in movements)
+    chosen_characters = characters or tuple(None for _ in movements)
+    chosen_outros = outros or tuple(None for _ in movements)
     prepared: list[PreparedMovement] = []
-    for movement, bars in zip(movements, parts):
+    for movement, bars, key, character, outro in zip(
+        movements, parts, chosen_keys, chosen_characters, chosen_outros
+    ):
         if not bars:
             continue
         prepared.append(
@@ -388,6 +427,9 @@ def _prepared(
                 bars=bars,
                 groups=grouped,
                 rest_after=movement.rest_after,
+                key=key,
+                character=character,
+                outro_override=outro,
             )
         )
     if len(prepared) != len(movements):
@@ -395,7 +437,9 @@ def _prepared(
     return tuple(prepared)
 
 
-def prepare_week(sessions: list[list[Bar]]) -> tuple[PreparedMovement, ...]:
+def prepare_week(
+    sessions: list[list[Bar]], symbol: str | None = None
+) -> tuple[PreparedMovement, ...]:
     usable = [bars for bars in sessions if bars][-5:]
     if not usable:
         raise ValueError("a week needs one session")
@@ -408,31 +452,51 @@ def prepare_week(sessions: list[list[Bar]]) -> tuple[PreparedMovement, ...]:
             bars=flat,
             groups=week_source_groups([len(bars) for bars in usable]),
             rest_after=0.0,
+            key=_home(symbol),
+            character=movement_character([bar.close for bar in flat], "1W"),
         ),
     )
 
 
-def prepare_month(sessions: list[tuple[date, list[Bar]]]) -> tuple[PreparedMovement, ...]:
+def prepare_month(
+    sessions: list[tuple[date, list[Bar]]], symbol: str | None = None
+) -> tuple[PreparedMovement, ...]:
     parts = month_parts(sessions)
     movements = plan_month([len(part) for part in parts])
-    return _prepared(movements, parts)
+    characters = tuple(movement_character([bar.close for bar in part], "1M") for part in parts)
+    edges = _edges(parts)
+    home = _home(symbol)
+    keys = month_keys(home, characters, edges)
+    outros = (None, None, None, finale_outro(characters[0], characters[-1]))
+    return _prepared(movements, parts, keys=keys, characters=characters, outros=outros)
 
 
-def prepare_quarter(stamped: list[tuple[date, Bar]]) -> tuple[PreparedMovement, ...]:
+def prepare_quarter(
+    stamped: list[tuple[date, Bar]], symbol: str | None = None
+) -> tuple[PreparedMovement, ...]:
     parts = quarter_parts(stamped)
     movements = plan_quarter([len(part) for part in parts])
-    return _prepared(movements, parts)
+    characters = tuple(movement_character([bar.close for bar in part], "3M") for part in parts)
+    edges = _edges(parts)
+    home = _home(symbol)
+    keys = quarter_keys(home, characters, edges)
+    outros = (None, None, finale_outro(characters[0], characters[-1]))
+    return _prepared(movements, parts, keys=keys, characters=characters, outros=outros)
 
 
-def prepare_year(stamped: list[tuple[date, Bar]]) -> tuple[PreparedMovement, ...]:
+def prepare_year(
+    stamped: list[tuple[date, Bar]], symbol: str | None = None
+) -> tuple[PreparedMovement, ...]:
     """Months play in time order. The form follows the calendar month, so December is the finale whenever it falls."""
     specs = year_specs()
     kept = [(day, bars) for day, bars in year_groups(stamped) if len(bars) >= MIN_YEAR_CANDLES]
     if not kept:
         raise ValueError("a year needs one month with enough candles")
+    home = _home(symbol)
     prepared: list[PreparedMovement] = []
+    last = len(kept) - 1
     for position, (day, bars) in enumerate(kept):
-        if position == len(kept) - 1:
+        if position == last:
             rest = 0.0
         else:
             rest = (
@@ -440,6 +504,7 @@ def prepare_year(stamped: list[tuple[date, Bar]]) -> tuple[PreparedMovement, ...
                 if _season(kept[position + 1][0]) != _season(day)
                 else SEASON_REST_SECONDS
             )
+        character = movement_character([bar.close for bar in bars], "1Y")
         prepared.append(
             PreparedMovement(
                 label=f"{day.month:02d}/{day.year % 100:02d}",
@@ -447,6 +512,13 @@ def prepare_year(stamped: list[tuple[date, Bar]]) -> tuple[PreparedMovement, ...
                 bars=bars,
                 groups=None,
                 rest_after=rest,
+                key=year_key(
+                    home,
+                    (day.month - 1) // 3,
+                    character,
+                    frame=position in (0, last),
+                ),
+                character=character,
             )
         )
     return tuple(prepared)

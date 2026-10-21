@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 # Bump when the score or the sound changes, so old files are not replayed.
 RECAP_REVISION = "9"
 # Long-form files live beside the daily recap and use their own revision.
-SPAN_REVISION = "1"
+SPAN_REVISION = "2"
 PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
@@ -923,6 +923,9 @@ class RecapStore:
             variant=variant,
             form=movement.spec,
             source_groups=movement.groups,
+            key=movement.key,
+            character=movement.character,
+            outro_override=movement.outro_override,
         )
         work = self.root / "work"
         work.mkdir(parents=True, exist_ok=True)

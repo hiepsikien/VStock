@@ -53,21 +53,21 @@ async def plan_span(symbol: str, span: str) -> tuple[PreparedMovement, ...]:
         payload = await fetch_minute_payload(symbol)
         samples = samples_from_ohlc(payload)
         days = session_dates(samples, 5)
-        return prepare_week([session_bars(samples, day) for day in days])
+        return prepare_week([session_bars(samples, day) for day in days], symbol)
     if span == "1M":
         payload = await fetch_ohlc(symbol, MONTH_LOOKBACK_DAYS, "1")
         if payload_truncated(payload, MONTH_LOOKBACK_DAYS):
             payload = await fetch_ohlc(symbol, MONTH_LOOKBACK_DAYS, "5")
-            return prepare_month(_days(coarse_bars(samples_from_ohlc(payload))))
+            return prepare_month(_days(coarse_bars(samples_from_ohlc(payload))), symbol)
         samples = samples_from_ohlc(payload)
         days = session_dates(samples, 10_000)
-        return prepare_month([(day, session_bars(samples, day)) for day in days])
+        return prepare_month([(day, session_bars(samples, day)) for day in days], symbol)
     if span == "3M":
         payload = await fetch_ohlc(symbol, QUARTER_LOOKBACK_DAYS, "5")
-        return prepare_quarter(coarse_bars(samples_from_ohlc(payload)))
+        return prepare_quarter(coarse_bars(samples_from_ohlc(payload)), symbol)
     if span == "1Y":
         payload = await fetch_ohlc(symbol, YEAR_LOOKBACK_DAYS, "30")
-        return prepare_year(coarse_bars(samples_from_ohlc(payload)))
+        return prepare_year(coarse_bars(samples_from_ohlc(payload)), symbol)
     raise ValueError(f"unsupported span: {span}")
 
 

@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from app.sonify.chords import Chord
 from app.sonify.dynamics import SOUND
 from app.sonify.form import EIGHTHS_PER_BAR, HALF_BAR, TOTAL_EIGHTHS, ChordSlot
+from app.sonify.keys import active_register
 from app.sonify.model import PERIOD, DynamicEvent, NoteEvent, Phrase, Run, WedgeEvent
 from app.sonify.quantize import melody_pitch_classes, quantize_chord_tone
 
@@ -439,7 +440,7 @@ def _cross_phrase_cello_overlaps(
             not curr_p.closes
             and last_owner == "violin"
             and next_owner == "cello"
-            and last_run.midi < CELLO_HANDBACK
+            and last_run.midi < active_register().cello_handback
         ):
             if last_run.length >= 2:
                 lead = min(CELLO_OVERLAP, last_run.length)
@@ -456,7 +457,7 @@ def _cross_phrase_cello_overlaps(
             not curr_p.closes
             and last_owner == "cello"
             and next_owner == "violin"
-            and last_run.midi >= VIOLIN_LOWEST
+            and last_run.midi >= active_register().violin_lowest
         ):
             if last_run.length >= 2:
                 lead = min(CELLO_OVERLAP, last_run.length)
@@ -473,12 +474,12 @@ def _cross_phrase_cello_overlaps(
             curr_p.closes
             and last_owner == "violin"
             and next_owner == "cello"
-            and next_run.midi < CELLO_HANDBACK
+            and next_run.midi < active_register().cello_handback
         ):
             # Store on negative key -(p_idx + 1) so Cello plays the last beat of
             # Violin's closing G3..B3 note before the breath rest.
             eff_len = last_run.length - (1 if curr_p.end < piece_eighths else 0)
-            if eff_len >= 2 and last_run.midi < CELLO_HANDBACK:
+            if eff_len >= 2 and last_run.midi < active_register().cello_handback:
                 lead = min(CELLO_OVERLAP, eff_len)
                 lead_ins[-(p_idx + 1)] = Run(
                     last_run.start + eff_len - lead, lead, last_run.midi
@@ -545,7 +546,7 @@ def _instrument_segments(
             if (
                 target == "cello"
                 and prev_owner == "violin"
-                and prev_run.midi < CELLO_HANDBACK
+                and prev_run.midi < active_register().cello_handback
                 and prev_run.length >= 2
             ):
                 lead = min(CELLO_OVERLAP, prev_run.length)
@@ -554,7 +555,7 @@ def _instrument_segments(
             elif (
                 target == "violin"
                 and prev_owner == "cello"
-                and prev_run.midi >= VIOLIN_LOWEST
+                and prev_run.midi >= active_register().violin_lowest
                 and prev_run.length >= 2
             ):
                 lead = min(CELLO_OVERLAP, prev_run.length)
@@ -578,7 +579,7 @@ def _instrument_segments(
             if (
                 target == "violin"
                 and next_owner == "cello"
-                and seg[-1].midi < CELLO_HANDBACK
+                and seg[-1].midi < active_register().cello_handback
                 and seg[-1].length == 1
             ):
                 if max_trail > 0:
@@ -586,12 +587,12 @@ def _instrument_segments(
             elif (
                 target == "cello"
                 and next_owner == "violin"
-                and next_run.midi >= CELLO_HANDBACK
-                and (seg[-1].length == 1 or seg[-1].midi < VIOLIN_LOWEST)
+                and next_run.midi >= active_register().cello_handback
+                and (seg[-1].length == 1 or seg[-1].midi < active_register().violin_lowest)
             ):
                 if max_trail > 0:
                     seg[-1] = Run(seg[-1].start, seg[-1].length + max_trail, seg[-1].midi)
-                elif seg[-1].midi >= VIOLIN_LOWEST:
+                elif seg[-1].midi >= active_register().violin_lowest:
                     # Strong beat blocked trail-out, so let Cello join Violin's new note
                     # for up to CELLO_OVERLAP eighths instead of cutting off on the barline.
                     lead = min(CELLO_OVERLAP, next_run.length)
@@ -646,7 +647,7 @@ def melody_parts(
     for phrase in phrases:
         base_owners: list[str] = []
         for run in phrase.runs:
-            on_cello = run.midi < CELLO_HANDBACK if on_cello else run.midi < VIOLIN_LOWEST
+            on_cello = run.midi < active_register().cello_handback if on_cello else run.midi < active_register().violin_lowest
             base_owners.append("cello" if on_cello else "violin")
         phrase_yields = (
             [
@@ -742,7 +743,7 @@ def melody_parts(
                     ] == owner
                     v_midi = (
                         run.midi - 12
-                        if (owner == "violin" and run.midi > VIOLIN_CEILING)
+                        if (owner == "violin" and run.midi > active_register().violin_ceiling)
                         else run.midi
                     )
                     line.notes.extend(
@@ -776,7 +777,7 @@ def melody_parts(
         if phrase.closes:
             cadence_midi = (
                 phrase.cadence.midi - 12
-                if (base_owners[-1] == "violin" and phrase.cadence.midi > VIOLIN_CEILING)
+                if (base_owners[-1] == "violin" and phrase.cadence.midi > active_register().violin_ceiling)
                 else phrase.cadence.midi
             )
             cadences.append(

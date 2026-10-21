@@ -109,6 +109,7 @@ class RecapResponse(BaseModel):
 class SpanMovementResponse(BaseModel):
     index: int
     label: str
+    keyLabel: str
     candleCount: int
     durationSec: float
     ready: bool

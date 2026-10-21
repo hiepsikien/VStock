@@ -30,17 +30,16 @@ from app.sonify.form import (
     TOTAL_EIGHTHS,
     ChordSlot,
 )
+from app.sonify.keys import active_register
 from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score
 from app.sonify.phrasing import (
     BELL_MAX_EIGHTHS,
     BREAKOUT,
-    CELLO_HANDBACK,
     CELLO_OVERLAP,
     FILL_VELOCITY,
     MIN_RISE,
     PERIOD,
     STRONG_EIGHTHS,
-    VIOLIN_LOWEST,
     Phrase,
     Run,
     bell_budget,
@@ -367,7 +366,7 @@ def _phrase_vibe_spans(
         if not is_b
         and st >= phrase.start
         and st + ln <= phrase.end
-        and r.midi > SAX_CEILING
+        and r.midi > active_register().sax_ceiling
     ]
     norm_vibe = [
         (ys, phrase.end if ye == phrase.end - 1 else ye)
@@ -376,14 +375,14 @@ def _phrase_vibe_spans(
     rem_high = [
         r.midi
         for r in phrase.runs
-        if r.midi > SAX_CEILING
+        if r.midi > active_register().sax_ceiling
         and not any(ys <= r.start and r.end <= ye for ys, ye in norm_vibe)
     ]
     top = max(r.midi for r in phrase.runs)
     bot = min(r.midi for r in phrase.runs)
     if not rem_high:
         req_shift = 0
-    elif top - 12 <= SAX_CEILING:
+    elif top - 12 <= active_register().sax_ceiling:
         req_shift = 12
     else:
         req_shift = 24
@@ -407,7 +406,7 @@ def _realize_sax_phrase(
     top = max(r.midi for r in phrase.runs)
     bot = min(r.midi for r in phrase.runs)
     floor_midi = scale[floor_idx]
-    can_exact = top - shift <= SAX_CEILING or (shift == 0 and req_shift == 0)
+    can_exact = top - shift <= active_register().sax_ceiling or (shift == 0 and req_shift == 0)
     if can_exact and shift <= max_exact_shift and bot - shift >= floor_midi:
         return [pitches[e] - shift for e in range(phrase.start, phrase.end)], True
     t_top = min(ceiling_idx, scale.index(max(floor_midi, top - shift)))
@@ -460,7 +459,7 @@ def _build_phrase_candidates(
     for key in keys:
         shift, floor_idx, preserve_span = key
         floor_midi = scale[floor_idx]
-        can_exact = top - shift <= SAX_CEILING or (shift == 0 and req_shift == 0)
+        can_exact = top - shift <= active_register().sax_ceiling or (shift == 0 and req_shift == 0)
         if can_exact and shift <= max_exact_shift and bot - shift >= floor_midi:
             sig: tuple[object, ...] = ("exact", shift)
         else:
@@ -521,10 +520,14 @@ def _simulate_alto_handoff(
     alto_pts: list[tuple[int, int]] = []
     phrase_runs = runs_of(phrase_pitches, 0, len(phrase_pitches))
     for r_idx, run in enumerate(phrase_runs):
-        next_on_tenor = run.midi < CELLO_HANDBACK if on_tenor else run.midi < VIOLIN_LOWEST
+        next_on_tenor = (
+            run.midi < active_register().cello_handback
+            if on_tenor
+            else run.midi < active_register().violin_lowest
+        )
         if on_tenor and not next_on_tenor and r_idx > 0:
             prev_r = phrase_runs[r_idx - 1]
-            if prev_r.midi >= VIOLIN_LOWEST and prev_r.length >= 2:
+            if prev_r.midi >= active_register().violin_lowest and prev_r.length >= 2:
                 lead = min(CELLO_OVERLAP, prev_r.length // 2)
                 for off in range(prev_r.end - lead, prev_r.end):
                     eighth = phrase.start + off
@@ -670,8 +673,10 @@ def _sax_melody_curve(
         return list(pitches), phrases, []
 
     scale = c_major_scale(SAX_LOW, 96)
-    ceiling_idx = scale.index(79)  # G5 (79), highest C-major scale tone <= SAX_CEILING (80)
-    alto_low_idx = scale.index(VIOLIN_LOWEST)  # G3 (55)
+    ceiling = active_register().sax_ceiling
+    floor = active_register().violin_lowest
+    ceiling_idx = max(index for index, midi in enumerate(scale) if midi <= ceiling)
+    alto_low_idx = min(index for index, midi in enumerate(scale) if midi >= floor)
 
     phrase_vibes: list[list[tuple[int, int]]] = []
     min_shift: list[int] = []
