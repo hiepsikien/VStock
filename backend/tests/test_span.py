@@ -3,13 +3,15 @@
 from array import array
 from datetime import date
 
-from app.sonify.audio import join_chunks
-from app.sonify.chords import BF, BM7B5, C, EF, FDIM7, fifth_above_bass
+from app.sonify.audio import RecapStore, join_chunks, write_wav
+from app.sonify.chords import A7, BF, BM7B5, C, EF, FDIM7, FM, fifth_above_bass
 from app.sonify.phrasing import quantize_strong_beats
 from app.sonify.quantize import c_major_scale
 from app.sonify.form import (
     _breaks_held_note_across_barline,
     DAILY_SPEC,
+    FormSection,
+    FormSpec,
     LIQUIDITY_WINDOWS,
     _borrowed_allowed,
     liquidity_windows_for,
@@ -24,7 +26,6 @@ from app.sonify.span import (
     prepare_week,
     prepare_year,
     plan_week,
-    plan_year,
     quarter_specs,
     slice_score,
     split_into,
@@ -80,15 +81,19 @@ def test_month_split_keeps_the_extra_on_the_finale():
 
 
 def test_year_skips_a_thin_month_and_rests_between_seasons():
-    counts = [40] * 12
-    counts[2] = 10
-    movements = plan_year(counts)
+    stamped = [
+        (date(2026, month, 1), Bar(float(month)))
+        for month in range(1, 13)
+        for _ in range(10 if month == 3 else 40)
+    ]
+    movements = prepare_year(stamped)
     assert [item.label for item in movements] == [
-        "01", "02", "04", "05", "06", "07", "08", "09", "10", "11", "12"
+        "01/26", "02/26", "04/26", "05/26", "06/26", "07/26", "08/26", "09/26", "10/26", "11/26", "12/26"
     ]
     february = movements[1]
     assert february.rest_after == 8.0
     assert movements[-1].rest_after == 0.0
+    assert movements[-1].spec.bars == 108
 
 
 def test_borrowed_chords_follow_the_regime_and_miss_the_downbeat():
@@ -97,6 +102,14 @@ def test_borrowed_chords_follow_the_regime_and_miss_the_downbeat():
     assert _borrowed_allowed(FDIM7, "uptrend", phrase_downbeat=False) is False
     assert _borrowed_allowed(BM7B5, "downtrend", phrase_downbeat=False) is True
     assert _borrowed_allowed(C, "uptrend", phrase_downbeat=True) is True
+    assert _borrowed_allowed(A7, "sideway", phrase_downbeat=False) is True
+    assert _borrowed_allowed(A7, "uptrend", phrase_downbeat=False) is False
+
+
+def test_a_borrowed_chord_can_last_two_bars():
+    spec = FormSpec(8, 90, (FormSection(0, 8, "phrase", 0),), borrowed=True)
+    slots = plan_slots(("downtrend",), [65] * 64, spec=spec)
+    assert any(slot.chord == FM and slot.length >= 2 for slot in slots)
 
 
 def test_a_chromatic_shared_tone_does_not_stop_the_melody():
@@ -157,13 +170,34 @@ def test_fifth_week_folds_into_the_finale():
     assert len(parts[-1]) == 2
 
 
-def test_year_keeps_the_newer_october_and_skips_a_thin_month():
+def test_year_keeps_both_octobers_in_time_order():
     stamped = [(date(2025, 10, day), Bar(20.0)) for day in range(1, 32)]
     stamped += [(date(2026, 10, day), Bar(30.0)) for day in range(1, 32)]
     stamped += [(date(2026, 11, 1), Bar(31.0))]
     movements = prepare_year(stamped)
-    assert [item.label for item in movements] == ["10"]
-    assert movements[0].bars[0].close == 30.0
+    assert [item.label for item in movements] == ["10/25", "10/26"]
+    assert movements[0].bars[0].close == 20.0
+    assert movements[1].bars[0].close == 30.0
+    assert movements[0].rest_after == 8.0
+
+
+def test_a_week_launches_musescore_once(tmp_path):
+    calls: list[str] = []
+
+    def export(xml, wav) -> None:
+        calls.append(xml.name)
+        write_wav(wav, 1, 8000, array("h", [1000] * 800))
+
+    store = RecapStore(tmp_path, exporter=export)
+    movement = prepare_week(
+        [
+            [Bar(10.0 + index * 0.1) for index in range(20)],
+            [Bar(12.0 + index * 0.1) for index in range(20)],
+        ]
+    )[0]
+    asset = store.ensure_movement("MBB", "1W", 0, "symphony", movement)
+    assert len(calls) == 1
+    assert asset.audio_path.is_file()
 
 
 def test_week_score_uses_the_shared_series_and_the_week_form():
@@ -183,6 +217,19 @@ def test_week_score_uses_the_shared_series_and_the_week_form():
     assert score.bpm == 90
     assert len(prepared[0].groups) == 64
     assert prepared[0].groups[31] == []
+
+
+def test_join_keeps_float_samples_audible():
+    rate = 1000
+    first = array("f", [0.5] * 100)
+    second = array("f", [0.25] * 100)
+    _channels, _rate, joined = join_chunks(
+        [(1, rate, first), (1, rate, second)],
+        [0.05, 0.1],
+        crossfade_seconds=0.01,
+    )
+    assert joined.typecode == "f"
+    assert max(joined) > 0.2
 
 
 def test_join_trims_the_tail_of_every_chunk_but_the_last():

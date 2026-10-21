@@ -469,6 +469,7 @@ export type SpanMovement = {
   chartStartRatio: number;
   chartEndRatio: number;
   restAfterSec: number;
+  prices: number[];
 };
 
 export type SpanManifest = {

@@ -6,6 +6,25 @@ export function candleIndexAt(elapsedSec: number, count: number, durationSec: nu
   return Math.min(count - 1, Math.floor((elapsedSec / durationSec) * count));
 }
 
+/** Visible listen chart: the whole current movement, then the opening of the next.
+
+The split is about 70% current and 30% next, counted in the candles that
+were sonified, so each impulse lines up with the note it produced.
+*/
+export function listenWindow(
+  current: number[],
+  next: number[] | null,
+): { prices: number[]; playedCount: number } {
+  if (!next || next.length === 0 || current.length < 2) {
+    return { prices: current, playedCount: current.length };
+  }
+  const peek = Math.max(1, Math.round((current.length * 0.3) / 0.7));
+  return {
+    prices: current.concat(next.slice(0, peek)),
+    playedCount: current.length,
+  };
+}
+
 /** Chart index for one movement. A rest holds the playhead on the movement that just ended. */
 export function spanChartIndex(input: {
   elapsedSec: number;

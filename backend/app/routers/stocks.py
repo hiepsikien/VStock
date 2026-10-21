@@ -443,6 +443,7 @@ async def get_span(
                 chartStartRatio=movement.chart_start,
                 chartEndRatio=movement.chart_end,
                 restAfterSec=movement.rest_after,
+                prices=[round(bar.close, 2) for bar in movement.bars],
             )
         )
     return SpanResponse(symbol=sym, range=range, variant=variant, movements=rows)

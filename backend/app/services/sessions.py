@@ -61,7 +61,10 @@ def payload_truncated(payload: dict, lookback_days: int, now: int | None = None)
     earliest = min(sample[0] for sample in samples)
     clock = int(time.time()) if now is None else now
     requested = clock - lookback_days * 24 * 3600
-    return earliest > requested + 2 * 24 * 3600
+    # Friday's close to Monday's open is already longer than two days, and a
+    # holiday stretches it further. Five days still catches a feed that started
+    # in the middle of the requested window.
+    return earliest > requested + 5 * 24 * 3600
 
 
 async def fetch_minute_payload(symbol: str) -> dict:

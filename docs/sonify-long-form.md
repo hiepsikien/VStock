@@ -111,7 +111,7 @@ Tháng thiếu phiên thì chương đó vẫn đủ số ô của form; nến �
 
 ## 1Y
 
-Mười hai chương, mỗi chương một tháng. Nến 30 phút. Bốn mùa lặp cùng một tính cách. Tháng 12 dài hơn để kết cả năm. Cộng nghỉ (8 lần 4 giây trong mùa, 3 lần 8 giây giữa mùa) là 45 phút. Cả ba biến thể dùng BPM trong bảng.
+Mười hai chương, mỗi chương một tháng, theo thứ tự thời gian của mười hai tháng gần nhất. Nến 30 phút. Form của từng chương lấy theo tháng lịch trong bảng, nên tháng 12 là finale khi nó nằm trong cửa sổ, không phải lúc nào cũng là chương cuối. Bốn mùa lặp cùng một tính cách. Cộng nghỉ (4 giây trong mùa, 8 giây khi sang mùa khác) xấp xỉ 45 phút khi đủ năm. Cả ba biến thể dùng BPM trong bảng.
 
 | Vị trí trong mùa | Ô | BPM | Đồng hồ | Các tháng |
 |---|---|---|---|---|
@@ -183,31 +183,22 @@ MusicXML hiện từ chối nốt ngoài C major. Bước làm là cho phép cá
 
 File mà client phát là một file cho mỗi chương. Nghỉ 4, 6 hoặc 8 giây chỉ nằm giữa chương, do player chèn. Client không nối file ở giữa một chương.
 
-Server vẫn được render từng cụm để chương 8 phút không phải chờ hết MuseScore. `Score` của cả chương được dựng trước: Markov, phrasing, và dovetail flute, violin, cello chạy trên đủ số ô. Sau đó mới cắt measure theo ranh giới section để xuất MusicXML từng cụm. Trạng thái chuyển câu (`on_cello`, `flute_active`, drift của hairpin) đã nằm trong nốt của score, nên không tính lại ở mỗi cụm.
+`Score` của cả chương được dựng trước: Markov, phrasing, và dovetail flute, violin, cello chạy trên đủ số ô. MuseScore mở một lần và xuất cả chương đó. Cột «cụm xuất» trong các bảng form vẫn mô tả ranh giới câu bên trong score; chúng không còn thành từng lần gọi MuseScore, vì mỗi lần gọi trên macOS mở rồi đóng app.
 
-Cụm kết thúc ở ranh giới section của `FormSpec`, đúng các cột «cụm xuất» ở trên. 1W cắt mỗi phiên một cụm 32 ô. Không cắt cứng mỗi 32 ô trên các chương khác. 72, 80, 84, 108, 120 và 216 ô không chia hết cho 32; cắt cứng sẽ bổ đôi câu và bổ đôi nốt tie hoặc slur.
+Đuôi reverb nằm ở cuối chương, cùng quy ước `map_duration` của bản 1D. Không cắt đuôi giữa chương, vì bản nhạc được render liền.
 
-Ghép cụm trên server, trước khi encode:
-
-- Xuất WAV từng cụm.
-- Cắt đuôi reverb của MuseScore ở mọi cụm trừ cụm cuối của chương. Độ dài giữ lại là `piece_seconds` của cụm, cùng quy ước `map_duration` trong `audio.py`. Cụm cuối giữ đuôi, để chương còn có release như bản 1D.
-- Crossfade khoảng 15 ms ở mỗi mối nối.
-- Encode một M4A cho cả chương.
-
-Cụm đầu, sau khi đã cắt đuôi, có thể trả về để nghe trong lúc các cụm sau đang render. Khi M4A cả chương xong, player nhảy tới đúng offset nhạc đang nghe.
-
-Manifest của một span gồm nhãn chương, số nến, thời lượng, chương nào đã có file, và `chartStartRatio`, `chartEndRatio`. Hai tỷ lệ này là đoạn trên mảng `prices` của chart đang hiển thị, không phải tỷ lệ trên số nến sonify. Chart đã bị downsample và không có timestamp từng điểm, nên tỷ lệ lấy theo các khúc phiên đã dùng để chia chương. Tháng ít phiên vẫn khớp chart. Trong lúc nghỉ giữa chương, playhead đứng ở `chartEndRatio` của chương vừa kết.
+Manifest của một span gồm nhãn chương, số nến, thời lượng, chương nào đã có file, và mảng `prices` đúng nến đã dùng để soạn chương đó. Khi đang nghe, chart bỏ chuỗi history đã downsample và vẽ các nến này. Chương đang phát chiếm khoảng 70% chiều ngang. 30% còn lại là đoạn mở của chương kế, cùng đơn vị nến. Sang chương sau thì cửa sổ trượt: chương mới đầy 70%, chương kế tiếp chiếm 30%. Chương cuối chiếm cả khung. Trong lúc nghỉ, playhead đứng ở nến cuối của chương vừa xong.
 
 Khóa cache gồm mã, range, chỉ số chương, variant, số nến, và fingerprint của thang giá chương đó. Chương của ngày đang mở được render lại khi có nến mới, giống recap 1D. File 1D đã cache không dùng lại cho 1W, vì thang giá khác.
 
-Playhead trong một chương dùng `candle_index_at` trên nến của chương đó. Thời gian playlist quy ra chương, trừ các khoảng nghỉ, rồi mới quy ra nến.
+Playhead trong một chương dùng `candle_index_at` trên nến của chương đó, trong phần 70% đang hiện. Thời gian playlist quy ra chương, trừ các khoảng nghỉ, rồi mới quy ra nến.
 
 ## Thứ tự làm
 
 1. `FormSpec` và biên giá, biên volume tùy chọn trong `render()`. Các vòng 30 ô đọc spec. Manifest và player nối chương, với nghỉ giữa chương. Làm 1W trước vì dữ liệu phút đã có. Tuần thiếu phiên rút theo `số phiên × 32`.
-2. Dựng `Score` cả chương, rồi cắt measure theo cụm. Ghép WAV trên server: cắt đuôi theo `piece_seconds`, crossfade 15 ms, một M4A mỗi chương. 1W mỗi phiên một cụm 32 ô. Cụm đầu phát được trước.
+2. Dựng `Score` cả chương và xuất một file WAV bằng một lần MuseScore. Một M4A mỗi chương.
 3. Nghe vài mã: ngày biến động, ngày trần, tuần có gap, tuần 3 phiên. Nghe ô 32 ghim giá đóng cửa.
 4. Form bốn chương của 1M, rồi ba chương của 3M, kèm gộp nến khi API không đủ phút. Tháng thiếu tuần chia theo quy tắc phiên ở mục 1M.
 5. Mười hai hợp âm: `jazz_voicing`, `same_root` theo nhóm chất, `<root-alter>`, chính tả thăng giáng theo hợp âm của ô, bậc 5 lấy từ `chord.pitches[2]`. Vào bè đệm trước, với cổng regime ở trên.
 6. Tổ khúc 1Y và nới băng regime nếu sideway biến mất.
-7. Playhead trên chart của range đang nghe, dùng `chartStartRatio` và `chartEndRatio`, và đứng yên suốt khoảng nghỉ.
+7. Lúc nghe, chart vẽ nến sonify của chương hiện tại (khoảng 70%) và đoạn mở chương sau (khoảng 30%). Playhead đứng yên suốt khoảng nghỉ.

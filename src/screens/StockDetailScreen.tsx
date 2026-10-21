@@ -199,6 +199,7 @@ export function StockDetailScreen({ navigation, route }: Props) {
         return;
       }
 
+      setRangePrices([]);
       setChartLoading(true);
       try {
         await loadHistory(symbol, next, {
@@ -455,16 +456,17 @@ export function StockDetailScreen({ navigation, route }: Props) {
             !isIndexLike &&
             !isCommodity &&
             !stock.unavailable ? (
-            <SpanRecap
-              key={`${symbol}-${range}`}
-              symbol={symbol}
-              range={range}
-              priceCount={rangePrices.length}
-            >
+            <SpanRecap key={`${symbol}-${range}`} symbol={symbol} range={range}>
               {(view) => (
                 <View>
                   <PriceChart
-                    prices={rangePrices.length ? rangePrices : stock.sparkline}
+                    prices={
+                      view.prices.length > 1
+                        ? view.prices
+                        : rangePrices.length
+                          ? rangePrices
+                          : stock.sparkline
+                    }
                     positive={isUp}
                     range={range}
                     onRangeChange={(next) => void onRangeChange(next)}

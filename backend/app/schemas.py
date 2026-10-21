@@ -116,6 +116,7 @@ class SpanMovementResponse(BaseModel):
     chartStartRatio: float
     chartEndRatio: float
     restAfterSec: float
+    prices: list[float]
 
 
 class SpanResponse(BaseModel):

@@ -188,7 +188,7 @@ def _section_spans(
 
 _UP_EXTRA = frozenset({"D7", "C7"})
 _DOWN_EXTRA = frozenset({"Fm", "Gm", "Ab", "Eb", "E7", "Bm7b5"})
-_SIDE_EXTRA = frozenset({"Bb", "Bb7", "C7", "F#dim7"})
+_SIDE_EXTRA = frozenset({"Bb", "Bb7", "C7", "A7", "F#dim7"})
 _PASSING = frozenset({"Bm7b5", "F#dim7"})
 
 
@@ -406,12 +406,21 @@ def plan_markov_chords(
                     elif target_held != 1:
                         continue
 
+                    if borrowed and chord.quality_group == "diminished" and target_held != 1:
+                        continue
                     prob = transition_probability(prev_chord, chord)
                     if prob <= 0.0 and borrowed:
                         prob = borrowed_transition(prev_chord, chord)
+                    # A borrowed chord has no self-edge in the diatonic table. Staying
+                    # on it is still a legal hold; only the passing diminished is one bar.
+                    if (
+                        prob <= 0.0
+                        and borrowed
+                        and prev_chord == chord
+                        and chord.quality_group != "diminished"
+                    ):
+                        prob = 1.0
                     if prob <= 0.0:
-                        continue
-                    if borrowed and chord.quality_group == "diminished" and target_held != 1:
                         continue
 
                     # Each root's probability mass is split equally across its triad and

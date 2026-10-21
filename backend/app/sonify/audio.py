@@ -51,6 +51,7 @@ _STORED_NAME = re.compile(
     r"^[A-Z0-9]+_\d{4}-\d{2}-\d{2}_(?:symphony|jazz|minimalist)_(?P<rev>[^_]+)_\d+\.(?:m4a|wav|json)$"
 )
 _export_cancel = threading.local()
+_export_timeout = threading.local()
 _config_folder_support: dict[str, bool] = {}
 
 SOUNDFONT_CANDIDATES = (
@@ -279,8 +280,11 @@ def join_chunks(
             for channel in range(frame):
                 position = tail + step * frame + channel
                 incoming = part[step * frame + channel]
-                mixed = int(joined[position] * (1.0 - weight) + incoming * weight)
-                joined[position] = max(-32768, min(32767, mixed))
+                mixed = joined[position] * (1.0 - weight) + incoming * weight
+                if joined.typecode == "f":
+                    joined[position] = mixed
+                else:
+                    joined[position] = max(-32768, min(32767, int(mixed)))
         joined.extend(part[overlap * frame :])
     return channels, rate, joined
 
@@ -635,7 +639,8 @@ def _run_musescore(command: list[str], env: dict[str, str]) -> None:
         )
     except OSError as exc:
         raise RecapUnavailable(str(exc)) from exc
-    deadline = time.monotonic() + 180
+    allowance = getattr(_export_timeout, "seconds", None)
+    deadline = time.monotonic() + (180 if allowance is None else allowance)
     stdout = ""
     stderr = ""
     try:
@@ -838,7 +843,11 @@ class RecapStore:
                 expired = path.stat().st_mtime < cutoff
             except OSError:
                 continue
-            if expired:
+            current = any(
+                f"_{variant}_{SPAN_REVISION}_" in path.name
+                for variant in ("symphony", "jazz", "minimalist")
+            )
+            if not current or expired:
                 path.unlink(missing_ok=True)
 
     def _span_dir(self) -> Path:
@@ -880,8 +889,6 @@ class RecapStore:
         movement,  # PreparedMovement; kept untyped to avoid an import cycle
         cancel: threading.Event | None = None,
     ) -> SpanAsset:
-        from app.sonify.span import slice_score
-
         fingerprint = movement.scale_fingerprint
         candle_count = movement.candle_count
         piece = f"span:{symbol}:{span}:{index}:{variant}"
@@ -895,9 +902,7 @@ class RecapStore:
                 cached = self.get_movement(symbol, span, index, variant, candle_count, fingerprint)
                 if cached is not None:
                     return cached
-                return self._render_movement(
-                    symbol, span, index, variant, movement, slice_score, cancel
-                )
+                return self._render_movement(symbol, span, index, variant, movement, cancel)
 
     def _render_movement(
         self,
@@ -906,7 +911,6 @@ class RecapStore:
         index: int,
         variant: Variant,
         movement,
-        slice_score,
         cancel: threading.Event | None,
     ) -> SpanAsset:
         stem = self._span_stem(
@@ -919,37 +923,28 @@ class RecapStore:
             form=movement.spec,
             source_groups=movement.groups,
         )
-        bounds = movement.spec.chunk_bounds()
         work = self.root / "work"
         work.mkdir(parents=True, exist_ok=True)
-        wavs: list[tuple[int, int, array]] = []
-        lengths: list[float] = []
+        xml_path = work / f"{stem}.musicxml"
+        wav_path = work / f"{stem}.wav"
+        xml_path.write_text(score_to_musicxml(score), encoding="utf-8")
+        musical = piece_seconds(score.bars, score.bpm, BEATS_PER_BAR)
         previous = getattr(_export_cancel, "event", None)
+        previous_timeout = getattr(_export_timeout, "seconds", None)
         _export_cancel.event = cancel
+        # A week is several minutes of audio. One MuseScore launch writes the
+        # whole movement; slicing it would open the Mac app once per session.
+        _export_timeout.seconds = max(180, int(musical * 2) + 60)
         try:
-            for chunk_index, (start, end) in enumerate(bounds):
-                _raise_if_cancelled_event(cancel)
-                part = score if len(bounds) == 1 else slice_score(score, start, end)
-                xml_path = work / f"{stem}_{chunk_index}.musicxml"
-                wav_path = work / f"{stem}_{chunk_index}.wav"
-                xml_path.write_text(score_to_musicxml(part), encoding="utf-8")
-                try:
-                    self._exporter(xml_path, wav_path)
-                    wavs.append(_wav_samples(wav_path))
-                    lengths.append(piece_seconds(part.bars, part.bpm, BEATS_PER_BAR))
-                finally:
-                    xml_path.unlink(missing_ok=True)
-                    wav_path.unlink(missing_ok=True)
-            if any(rate == 0 for _channels, rate, _samples in wavs):
-                raise RecapUnavailable("MuseScore wrote an empty chunk")
-            channels, rate, joined = join_chunks(wavs, lengths)
-            joined_path = work / f"{stem}.wav"
-            write_wav(joined_path, channels, rate, joined)
-            duration, peaks = waveform_peaks(joined_path)
-            musical = sum(lengths)
+            _raise_if_cancelled_event(cancel)
+            self._exporter(xml_path, wav_path)
+            if not wav_path.is_file() or wav_path.stat().st_size < 64:
+                raise RecapUnavailable("MuseScore wrote an empty movement")
+            duration, peaks = waveform_peaks(wav_path)
             if duration <= 0:
                 duration = musical
             map_duration = musical if 0 < musical <= duration else duration
+            joined_path = wav_path
             m4a_tmp = work / f"{stem}.m4a"
             if _transcode_m4a(joined_path, m4a_tmp):
                 audio_path = self._publish(m4a_tmp, self._span_dir() / f"{stem}.m4a")
@@ -978,6 +973,8 @@ class RecapStore:
             return asset
         finally:
             _export_cancel.event = previous
+            _export_timeout.seconds = previous_timeout
+            xml_path.unlink(missing_ok=True)
 
     def _read_span(
         self,

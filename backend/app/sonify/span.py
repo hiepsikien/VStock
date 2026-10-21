@@ -200,17 +200,6 @@ def split_into(count: int, parts: int) -> list[int]:
     return [base] * (parts - extra) + [base + 1] * extra
 
 
-def month_session_sizes(session_count: int, calendar_weeks: int) -> list[int]:
-    """Four movements. Five or more calendar weeks fold into the finale; fewer are split evenly."""
-    if session_count < 4:
-        raise ValueError("a month sonata needs four sessions")
-    if calendar_weeks >= 4:
-        # The caller already folded extra weeks onto the last movement and passes the
-        # session count of each movement. This helper only covers the even split.
-        return split_into(session_count, 4)
-    return split_into(session_count, 4)
-
-
 def slice_score(score: Score, start: int, end: int) -> Score:
     """Rebase one export chunk. Ties that crossed the cut are cleared so the file stands alone."""
     if not 0 <= start < end <= score.bars:
@@ -300,24 +289,8 @@ def plan_quarter(session_counts: list[int]) -> tuple[Movement, ...]:
     )
 
 
-def plan_year(month_counts: list[int]) -> tuple[Movement, ...]:
-    """One movement per month that has enough candles. Indexes follow the calendar month, 1 through 12."""
-    specs = year_specs()
-    if len(month_counts) != 12:
-        raise ValueError("a year passes twelve month weights; use 0 to skip a month")
-    chosen = [(index, count) for index, count in enumerate(month_counts) if count >= MIN_YEAR_CANDLES]
-    if not chosen:
-        raise ValueError("a year needs one month with enough candles")
-    ratios = chart_ratios([count for _index, count in chosen])
-    movements: list[Movement] = []
-    for position, ((index, count), (start, end)) in enumerate(zip(chosen, ratios)):
-        if position == len(chosen) - 1:
-            rest = 0.0
-        else:
-            next_index = chosen[position + 1][0]
-            rest = YEAR_SEASON_REST_SECONDS if next_index // 3 != index // 3 else SEASON_REST_SECONDS
-        movements.append(Movement(f"{index + 1:02d}", specs[index], count, start, end, rest))
-    return tuple(movements)
+def _season(day: date) -> tuple[int, int]:
+    return day.year, (day.month - 1) // 3
 
 
 @dataclass(frozen=True)
@@ -397,20 +370,17 @@ def quarter_parts(stamped: list[tuple[date, Bar]]) -> list[list[Bar]]:
     return parts
 
 
-def year_parts(stamped: list[tuple[date, Bar]]) -> list[list[Bar]]:
-    """Twelve calendar-month buckets. The newest print wins when a month number repeats."""
-    buckets: list[list[Bar]] = [[] for _ in range(12)]
-    seen: dict[int, tuple[int, int]] = {}
+def year_groups(stamped: list[tuple[date, Bar]]) -> list[tuple[date, list[Bar]]]:
+    """Chronological calendar months, keeping the latest twelve in the series."""
+    groups: list[tuple[date, list[Bar]]] = []
+    key: tuple[int, int] | None = None
     for day, bar in stamped:
-        previous = seen.get(day.month)
         stamp = (day.year, day.month)
-        if previous is not None and stamp < previous:
-            continue
-        if previous is not None and stamp > previous:
-            buckets[day.month - 1] = []
-        seen[day.month] = stamp
-        buckets[day.month - 1].append(bar)
-    return buckets
+        if stamp != key:
+            groups.append((date(day.year, day.month, 1), []))
+            key = stamp
+        groups[-1][1].append(bar)
+    return groups[-12:]
 
 
 def _prepared(
@@ -471,7 +441,31 @@ def prepare_quarter(stamped: list[tuple[date, Bar]]) -> tuple[PreparedMovement, 
 
 
 def prepare_year(stamped: list[tuple[date, Bar]]) -> tuple[PreparedMovement, ...]:
-    buckets = year_parts(stamped)
-    movements = plan_year([len(bucket) for bucket in buckets])
-    kept = [bucket for bucket in buckets if len(bucket) >= MIN_YEAR_CANDLES]
-    return _prepared(movements, kept)
+    """Months play in time order. The form follows the calendar month, so December is the finale whenever it falls."""
+    specs = year_specs()
+    kept = [(day, bars) for day, bars in year_groups(stamped) if len(bars) >= MIN_YEAR_CANDLES]
+    if not kept:
+        raise ValueError("a year needs one month with enough candles")
+    ratios = chart_ratios([len(bars) for _day, bars in kept])
+    prepared: list[PreparedMovement] = []
+    for position, ((day, bars), (start, end)) in enumerate(zip(kept, ratios)):
+        if position == len(kept) - 1:
+            rest = 0.0
+        else:
+            rest = (
+                YEAR_SEASON_REST_SECONDS
+                if _season(kept[position + 1][0]) != _season(day)
+                else SEASON_REST_SECONDS
+            )
+        prepared.append(
+            PreparedMovement(
+                label=f"{day.month:02d}/{day.year % 100:02d}",
+                spec=specs[day.month - 1],
+                bars=bars,
+                groups=None,
+                chart_start=start,
+                chart_end=end,
+                rest_after=rest,
+            )
+        )
+    return tuple(prepared)

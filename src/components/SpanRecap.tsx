@@ -10,7 +10,7 @@ import {
   type SpanRange,
 } from '../api/client';
 import { colors, spacing, typography } from '../theme';
-import { spanChartIndex } from '../utils/recapCursor';
+import { candleIndexAt, listenWindow } from '../utils/recapCursor';
 import type { RecapView } from './SessionRecap';
 
 const VARIANTS: { id: RecapVariant; label: string }[] = [
@@ -29,7 +29,6 @@ const RANGE_LABEL: Record<SpanRange, string> = {
 type Props = {
   symbol: string;
   range: SpanRange;
-  priceCount: number;
   children: (view: RecapView) => React.ReactNode;
 };
 
@@ -42,12 +41,14 @@ const EMPTY_VIEW: RecapView = {
   dimUnplayed: false,
 };
 
-export function SpanRecap({ symbol, range, priceCount, children }: Props) {
+export function SpanRecap({ symbol, range, children }: Props) {
   const [variant, setVariant] = useState<RecapVariant>('symphony');
   const [movements, setMovements] = useState<SpanMovement[] | null>(null);
   const [index, setIndex] = useState(0);
+  const [playEpoch, setPlayEpoch] = useState(0);
   const [composing, setComposing] = useState(false);
   const [resting, setResting] = useState(false);
+  const [finished, setFinished] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cursor, setCursor] = useState<number | null>(null);
   const restTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -67,6 +68,7 @@ export function SpanRecap({ symbol, range, priceCount, children }: Props) {
     clearRest();
     setMovements(null);
     setIndex(0);
+    setFinished(false);
     setCursor(null);
     setError(null);
     setComposing(false);
@@ -93,6 +95,7 @@ export function SpanRecap({ symbol, range, priceCount, children }: Props) {
         }
         setMovements(manifest.movements);
         setIndex(0);
+        setPlayEpoch((epoch) => epoch + 1);
       } catch (err) {
         if (controller.signal.aborted) return;
         const text = err instanceof Error ? err.message : '';
@@ -107,38 +110,32 @@ export function SpanRecap({ symbol, range, priceCount, children }: Props) {
   }, [range, reset, symbol, variant]);
 
   const current = movements?.[index] ?? null;
-  const playing = current != null;
+  const upcoming = movements && index + 1 < movements.length ? movements[index + 1] : null;
+  const playing = current != null && !finished;
+  const chartWindow = current ? listenWindow(current.prices, upcoming?.prices ?? null) : null;
+
+  const placeCursor = useCallback((elapsed: number, holdAtEnd: boolean) => {
+    if (!current) return;
+    const count = Math.max(1, current.prices.length);
+    const at = holdAtEnd ? count - 1 : candleIndexAt(elapsed, count, current.durationSec);
+    setCursor(at);
+  }, [current]);
 
   const onTime = useCallback(
     (elapsed: number) => {
-      if (!current || priceCount < 2) return;
-      setCursor(
-        spanChartIndex({
-          elapsedSec: elapsed,
-          durationSec: current.durationSec,
-          chartStart: current.chartStartRatio,
-          chartEnd: current.chartEndRatio,
-          priceCount,
-          holdAtEnd: false,
-        }),
-      );
+      placeCursor(elapsed, false);
     },
-    [current, priceCount],
+    [placeCursor],
   );
 
   const onEnded = useCallback(() => {
     if (!current || !movements) return;
-    const hold = spanChartIndex({
-      elapsedSec: current.durationSec,
-      durationSec: current.durationSec,
-      chartStart: current.chartStartRatio,
-      chartEnd: current.chartEndRatio,
-      priceCount: Math.max(priceCount, 1),
-      holdAtEnd: true,
-    });
-    setCursor(hold);
+    placeCursor(current.durationSec, true);
     const next = index + 1;
-    if (next >= movements.length) return;
+    if (next >= movements.length) {
+      setFinished(true);
+      return;
+    }
     const wait = current.restAfterSec * 1000;
     if (wait <= 0) {
       setIndex(next);
@@ -150,13 +147,34 @@ export function SpanRecap({ symbol, range, priceCount, children }: Props) {
       setResting(false);
       setIndex(next);
     }, wait);
-  }, [current, index, movements, priceCount]);
+  }, [current, index, movements, placeCursor]);
+
+  const failPlayback = useCallback(
+    (message: string) => {
+      clearRest();
+      setMovements(null);
+      setCursor(null);
+      setFinished(false);
+      setError(message);
+    },
+    [clearRest],
+  );
+
+  const replay = useCallback(() => {
+    clearRest();
+    setFinished(false);
+    setIndex(0);
+    setCursor(null);
+    setError(null);
+    setPlayEpoch((epoch) => epoch + 1);
+  }, [clearRest]);
 
   const view: RecapView = {
     ...EMPTY_VIEW,
+    prices: chartWindow?.prices ?? [],
     cursorIndex: cursor,
     cursorLabel: current ? current.label : null,
-    dimUnplayed: composing || playing,
+    dimUnplayed: Boolean(chartWindow) && !finished && (composing || current != null),
   };
 
   return (
@@ -185,12 +203,24 @@ export function SpanRecap({ symbol, range, priceCount, children }: Props) {
         </View>
         {playing && current ? (
           <MovementPlayer
-            key={current.audioUrl}
+            key={`${current.audioUrl}#${playEpoch}`}
             movement={current}
             onTime={onTime}
             onEnded={onEnded}
-            onError={setError}
+            onError={failPlayback}
           />
+        ) : finished ? (
+          <Pressable
+            onPress={() => {
+              void Haptics.selectionAsync();
+              replay();
+            }}
+            style={styles.play}
+            accessibilityRole="button"
+            accessibilityLabel="Nghe lại"
+          >
+            <Text style={styles.playText}>Nghe lại</Text>
+          </Pressable>
         ) : composing ? (
           <View style={styles.preparing}>
             <ActivityIndicator color={colors.accent} />
