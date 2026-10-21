@@ -293,6 +293,21 @@ def _breath(
     return wedges, dynamics
 
 
+def _split_at(
+    segments: list[tuple[int, int, int, bool, bool, bool]],
+    point: int,
+) -> list[tuple[int, int, int, bool, bool, bool]]:
+    """Split a held segment at point into two tied segments so a dynamic lands on an onset."""
+    result: list[tuple[int, int, int, bool, bool, bool]] = []
+    for start, length, midi, slur, tie_in, tie_out in segments:
+        if start < point < start + length:
+            result.append((start, point - start, midi, False, tie_in, True))
+            result.append((point, start + length - point, midi, slur, True, tie_out))
+        else:
+            result.append((start, length, midi, slur, tie_in, tie_out))
+    return result
+
+
 def _glass(
     form: FormSpec,
     phrases: tuple[Phrase, ...],
@@ -345,6 +360,7 @@ def _glass(
             segments.append((outro_start, outro_end - outro_start, outro_midi, False, False, False))
 
     # Group contiguous/slurred/tied segments into breathing arcs (p -> mp/mf -> p)
+    arcs: list[tuple[int, int, str]] = []
     index = 0
     while index < len(segments):
         arc_start = segments[index][0]
@@ -359,10 +375,16 @@ def _glass(
             arc_midis.append(segments[end_idx][2])
         arc_end = segments[end_idx][0] + segments[end_idx][1]
         peak = "mf" if max(arc_midis) - min(arc_midis) >= MIN_RISE else "mp"
-        arc_wedges, arc_dynamics = _breath(arc_start, arc_end - arc_start, peak_marking=peak)
+        arcs.append((arc_start, arc_end - arc_start, peak))
+        index = end_idx + 1
+
+    for arc_start, arc_len, peak in arcs:
+        mid = arc_start + arc_len // 2
+        if mid - arc_start >= 2 and (arc_start + arc_len) - mid >= 2:
+            segments = _split_at(segments, mid)
+        arc_wedges, arc_dynamics = _breath(arc_start, arc_len, peak_marking=peak)
         wedges.extend(arc_wedges)
         dynamics.extend(arc_dynamics)
-        index = end_idx + 1
 
     return _emit(segments), wedges, dynamics
 
@@ -450,16 +472,24 @@ def _swell(
         top = max(60, tones[-1])
         low_tones = [
             note
-            for note in range(52, top - 2)
+            for note in range(max(48, top - 16), top - 7)
             if note % 12 in chord.pitch_classes and (top - note) % 12 not in (1, 2, 10, 11)
         ]
-        bottom = low_tones[-1] if low_tones else max(48, top - 7)
+        bottom = low_tones[0] if low_tones else max(48, top - 12)
         mid_tones = [
             note
             for note in range(bottom + 3, top - 2)
             if note % 12 in chord.pitch_classes
+            and (note - bottom) % 12 not in (0, 1, 2, 10, 11)
+            and (top - note) % 12 not in (0, 1, 2, 10, 11)
         ]
-        middle = mid_tones[len(mid_tones) // 2] if mid_tones else (bottom + top) // 2
+        if not mid_tones:
+            mid_tones = [
+                note
+                for note in range(bottom + 3, top - 2)
+                if note % 12 in chord.pitch_classes
+            ]
+        middle = min(mid_tones, key=lambda note: abs(note - (bottom + top) / 2))
         notes.extend(
             (
                 NoteEvent(

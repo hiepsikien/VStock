@@ -70,8 +70,7 @@ def test_a_rising_phrase_section_keeps_at_most_four_glass_attacks() -> None:
     for note in score.lead:
         if note.midi is not None:
             assert 55 <= note.midi <= 84
-            assert note.beat == 0.0
-            assert note.duration_beats == 4.0
+            assert note.duration_beats in (2.0, 4.0)
     assert _sounding_eighths(score.high) == 8
 
 
@@ -168,6 +167,45 @@ def test_month_movement_without_an_outro_does_not_invent_one() -> None:
     assert score.bars == 72
     assert score.bpm == 72
     assert [note.bar for note in _onsets(score.lead)] == [0, 32, 48]
+
+
+def test_breathing_directions_land_before_a_sounding_note_and_harp_swell_is_open() -> None:
+    closes = [100.0] * 10 + [100.0 + (index % 5) * 3.0 for index in range(10)] + [102.0] * 10
+    volumes = [100.0] * 8 + [50_000.0] * 22
+    score = render(
+        [Bar(close, volume, close) for close, volume in zip(closes, volumes)],
+        variant="ambient",
+    )
+    xml = score_to_musicxml(score)
+    lead = _part(xml, "P1")
+    for measure in lead.findall("measure"):
+        children = list(measure)
+        for index, node in enumerate(children):
+            if node.tag != "direction":
+                continue
+            has_dynamic = node.find("direction-type/dynamics") is not None
+            wedge = node.find("direction-type/wedge")
+            is_opening_wedge = wedge is not None and wedge.get("type") in ("crescendo", "diminuendo")
+            if has_dynamic or is_opening_wedge:
+                assert any(
+                    later.tag == "note" and later.find("rest") is None
+                    for later in children[index + 1 :]
+                ), f"direction at bar {measure.get('number')} fell after the last sounding note"
+
+    chord_by_bar = {bar: slot.chord for slot in score.slots for bar in slot.bars()}
+    by_bar: dict[int, list[NoteEvent]] = {}
+    for note in score.comp:
+        if note.midi is not None:
+            by_bar.setdefault(note.bar, []).append(note)
+    assert by_bar
+    for bar, notes in by_bar.items():
+        ordered = [note.midi for note in sorted(notes, key=lambda item: item.beat) if note.midi is not None]
+        assert len(ordered) == 3
+        pcs = chord_by_bar[bar].pitch_classes
+        assert all(midi % 12 in pcs for midi in ordered)
+        assert ordered[1] - ordered[0] >= 3
+        assert ordered[2] - ordered[1] >= 3
+        assert ordered[2] - ordered[0] >= 8
 
 
 def test_minimalist_score_stays_on_its_own_clock() -> None:
