@@ -59,6 +59,8 @@ Một tác phẩm, không phải năm tiểu phẩm nối nhau. Nến 1 phút. M
 | 4 | 32 | trở lại |
 | 5 | 32 | kết |
 
+Cụm xuất của 1W là mỗi phiên một cụm 32 ô. Mối cắt trùng ô ghim giá đóng cửa, hoặc trùng coda của phiên cuối. Tuần 3 phiên ra ba cụm, tuần 4 phiên ra bốn cụm.
+
 Ô giữ nốt nằm trong lưới 8 ô, không phải một ô thừa bên ngoài Markov. Với các phiên trừ phiên cuối, ô 32 là ô cuối của phrase thứ 4: tám móc đơn ghim đúng giá đóng cửa. Ba mươi mốt ô trước mang nến. Markov vẫn chạy trên đủ 32 ô. Phiên cuối không có ô ghim riêng; 32 ô của phiên đó là đoạn kết, gồm coda.
 
 Tuần thiếu phiên thì bài rút thành `số phiên × 32` ô, không kéo giãn lên 160. Phiên đầu luôn là mở, phiên cuối luôn là kết. Vai giữa bỏ bớt theo thứ tự tương phản, chuyển, trở lại. Ba phiên còn mở, chuyển, kết (96 ô, 4:16). Bốn phiên còn mở, tương phản, trở lại, kết (128 ô, 5:41). Mật độ khoảng 8 phút thị trường mỗi ô giữ nguyên.
@@ -181,7 +183,9 @@ MusicXML hiện từ chối nốt ngoài C major. Bước làm là cho phép cá
 
 File mà client phát là một file cho mỗi chương. Nghỉ 4, 6 hoặc 8 giây chỉ nằm giữa chương, do player chèn. Client không nối file ở giữa một chương.
 
-Server vẫn được render từng cụm để chương 8 phút không phải chờ hết MuseScore. Cụm kết thúc ở ranh giới section của `FormSpec`, đúng các cột «cụm xuất» ở trên. Không cắt cứng mỗi 32 ô. 72, 80, 84, 108, 120 và 216 ô không chia hết cho 32; cắt cứng sẽ bổ đôi câu và bổ đôi nốt tie hoặc slur.
+Server vẫn được render từng cụm để chương 8 phút không phải chờ hết MuseScore. `Score` của cả chương được dựng trước: Markov, phrasing, và dovetail flute, violin, cello chạy trên đủ số ô. Sau đó mới cắt measure theo ranh giới section để xuất MusicXML từng cụm. Trạng thái chuyển câu (`on_cello`, `flute_active`, drift của hairpin) đã nằm trong nốt của score, nên không tính lại ở mỗi cụm.
+
+Cụm kết thúc ở ranh giới section của `FormSpec`, đúng các cột «cụm xuất» ở trên. 1W cắt mỗi phiên một cụm 32 ô. Không cắt cứng mỗi 32 ô trên các chương khác. 72, 80, 84, 108, 120 và 216 ô không chia hết cho 32; cắt cứng sẽ bổ đôi câu và bổ đôi nốt tie hoặc slur.
 
 Ghép cụm trên server, trước khi encode:
 
@@ -201,7 +205,7 @@ Playhead trong một chương dùng `candle_index_at` trên nến của chương
 ## Thứ tự làm
 
 1. `FormSpec` và biên giá, biên volume tùy chọn trong `render()`. Các vòng 30 ô đọc spec. Manifest và player nối chương, với nghỉ giữa chương. Làm 1W trước vì dữ liệu phút đã có. Tuần thiếu phiên rút theo `số phiên × 32`.
-2. Ghép WAV trên server: cắt đuôi theo `piece_seconds`, crossfade 15 ms, một M4A mỗi chương. Cụm đầu phát được trước.
+2. Dựng `Score` cả chương, rồi cắt measure theo cụm. Ghép WAV trên server: cắt đuôi theo `piece_seconds`, crossfade 15 ms, một M4A mỗi chương. 1W mỗi phiên một cụm 32 ô. Cụm đầu phát được trước.
 3. Nghe vài mã: ngày biến động, ngày trần, tuần có gap, tuần 3 phiên. Nghe ô 32 ghim giá đóng cửa.
 4. Form bốn chương của 1M, rồi ba chương của 3M, kèm gộp nến khi API không đủ phút. Tháng thiếu tuần chia theo quy tắc phiên ở mục 1M.
 5. Mười hai hợp âm: `jazz_voicing`, `same_root` theo nhóm chất, `<root-alter>`, chính tả thăng giáng theo hợp âm của ô, bậc 5 lấy từ `chord.pitches[2]`. Vào bè đệm trước, với cổng regime ở trên.
