@@ -39,7 +39,7 @@ import xml.etree.ElementTree as ET
 from typing import TypeVar
 
 from app.sonify.chords import Chord
-from app.sonify.dynamics import MARKINGS, SOUND
+from app.sonify.dynamics import COOLDOWN_MARKING, SOUND
 from app.sonify.form import BEATS_PER_BAR, MUSICAL_BARS
 from app.sonify.keys import KeySpec, midi_to_spelled_pitch, transpose_chord
 from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score, Variant, WedgeEvent
@@ -250,8 +250,8 @@ def _harmony(parent: ET.Element, event: HarmonyEvent, key: KeySpec) -> None:
 
 
 def _dynamic(parent: ET.Element, event: DynamicEvent) -> None:
-    if event.marking not in MARKINGS:
-        raise ValueError(f"dynamic {event.marking} is outside p–f")
+    if event.marking not in SOUND:
+        raise ValueError(f"dynamic {event.marking} is outside ppp–f")
     direction = _add(parent, "direction", placement="below")
     direction_type = _add(direction, "direction-type")
     dynamics = _add(direction_type, "dynamics")
@@ -423,7 +423,7 @@ def _piano_part(root: ET.Element, score: Score) -> None:
             if any(wedge.kind == "diminuendo" and wedge.beat == 0.0 for wedge in bar_wedges):
                 letters.append(DynamicEvent(bar, "mp", SOUND["mp"]))
             if any(wedge.kind == "stop" and bar >= 32 for wedge in bar_wedges):
-                letters.append(DynamicEvent(bar, "p", SOUND["p"]))
+                letters.append(DynamicEvent(bar, COOLDOWN_MARKING, SOUND[COOLDOWN_MARKING]))
             for direction in sorted([*bar_wedges, *letters], key=_direction_order):
                 if isinstance(direction, DynamicEvent):
                     _dynamic(measure, direction)

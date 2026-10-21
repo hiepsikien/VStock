@@ -7,7 +7,7 @@ the five parts. Silence is the default, and a rest still belongs to its section.
 from __future__ import annotations
 
 from app.sonify.chords import Chord, Regime, fifth_above_bass, jazz_chord
-from app.sonify.dynamics import SOUND
+from app.sonify.dynamics import COOLDOWN_MARKING, SOUND
 from app.sonify.form import (
     EIGHTHS_PER_BAR,
     ChordSlot,
@@ -476,7 +476,7 @@ def _daily_frame_breaths(
     segments: list[tuple[int, int, int, bool, bool, bool]],
     form: FormSpec,
 ) -> tuple[list[WedgeEvent], list[DynamicEvent]]:
-    """Warm-up grows from p to the phrase. Cool-down leaves mp and settles to p."""
+    """Warm-up grows from p to the phrase. Cool-down leaves mp and settles to ppp."""
     intro = next(section for section in form.sections if section.kind == "intro")
     outro = next((section for section in form.sections if section.kind == "outro"), None)
     intro_end = intro.end * EIGHTHS_PER_BAR
@@ -514,8 +514,8 @@ def _daily_frame_breaths(
         dynamics.append(
             DynamicEvent(
                 bar=last,
-                marking="p",
-                sound=SOUND["p"],
+                marking=COOLDOWN_MARKING,
+                sound=SOUND[COOLDOWN_MARKING],
                 beat=0.0,
             )
         )
@@ -626,7 +626,7 @@ def _framed_bed_dynamics(
     bands: list[str],
     form: FormSpec,
 ) -> tuple[DynamicEvent, ...]:
-    """p rising to mp across the warm-up, then volume, then mp falling to p."""
+    """p rising to mp across the warm-up, then volume, then mp falling to ppp."""
     intro = next(section for section in form.sections if section.kind == "intro")
     phrase = next(section for section in form.sections if section.kind == "phrase")
     outro = next((section for section in form.sections if section.kind == "outro"), None)
@@ -650,7 +650,7 @@ def _framed_bed_dynamics(
         add(start, _bed_marking(band))
     if outro is not None:
         add(outro.start, "mp")
-        add(outro.end - 1, "p")
+        add(outro.end - 1, COOLDOWN_MARKING)
     return tuple(events)
 
 
@@ -925,8 +925,8 @@ def render_ambient_score(
                 DynamicEvent(bar=next(section.start for section in form.sections if section.kind == "phrase"), marking="mp", sound=SOUND["mp"]),
                 DynamicEvent(
                     bar=next(section.end for section in form.sections if section.kind == "outro") - 1,
-                    marking="p",
-                    sound=SOUND["p"],
+                    marking=COOLDOWN_MARKING,
+                    sound=SOUND[COOLDOWN_MARKING],
                 ),
             )
             if frame

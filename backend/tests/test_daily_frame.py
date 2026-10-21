@@ -112,6 +112,8 @@ def test_symphony_frame_is_a_tonic_pedal_around_the_price() -> None:
     _assert_cool_join(score.lead)
     _assert_cool_join(score.support)
     assert {wedge.kind for wedge in score.low_wedges} == {"crescendo", "diminuendo", "stop"}
+    assert (score.dynamics[-1].bar, score.dynamics[-1].marking) == (35, "ppp")
+    assert score.lead_dynamics[-1].marking == "ppp"
     _measures_fill(score)
 
 
@@ -138,6 +140,7 @@ def test_jazz_frame_is_a_vamp_then_a_tag() -> None:
     assert sax
     assert {note.midi % 12 for note in sax} == {_root(score, 32)}
     assert all(note.duration_beats == 4 for note in sax)
+    assert (score.dynamics[-1].bar, score.dynamics[-1].marking) == (35, "ppp")
     walking = [note for note in score.low if 4 <= note.bar < 28 and note.duration_beats == 1]
     assert walking
     _measures_fill(score)
@@ -156,5 +159,7 @@ def test_minimalist_frame_opens_on_the_sub_and_closes_the_filter() -> None:
         quarters = _sounding(score.low, bar)
         assert [note.beat for note in quarters] == [0.0, 1.0, 2.0, 3.0]
         assert len({note.midi for note in quarters}) == 1
+    assert (score.dynamics[-1].bar, score.dynamics[-1].marking) == (35, "ppp")
+    assert score.support_dynamics[-1].marking == "ppp"
     assert any(wedge.bar == 32 and wedge.kind == "diminuendo" for wedge in score.support_wedges)
     _measures_fill(score)

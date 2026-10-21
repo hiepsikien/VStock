@@ -37,7 +37,7 @@ from app.sonify.session import VN, is_session_closed
 logger = logging.getLogger(__name__)
 
 # Bump when the score or the sound changes, so old files are not replayed.
-RECAP_REVISION = "23"
+RECAP_REVISION = "24"
 # Long-form files live beside the daily recap and use their own revision.
 SPAN_REVISION = "13"
 PEAK_BUCKETS = 96

@@ -11,7 +11,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 
 from app.sonify.chords import Chord
-from app.sonify.dynamics import SOUND
+from app.sonify.dynamics import COOLDOWN_MARKING, SOUND
 from app.sonify.form import DAILY_AMBIENT_BARS, EIGHTHS_PER_BAR
 from app.sonify.keys import active_register
 from app.sonify.model import DynamicEvent, NoteEvent, Score, WedgeEvent
@@ -175,7 +175,7 @@ def _minimalist(score: Score) -> Score:
             WedgeEvent(33, _BEAT, "stop"),
         ),
         lead_dynamics=_body_dynamics(score.lead_dynamics),
-        support_dynamics=(DynamicEvent(33, "p", SOUND["p"]),),
+        support_dynamics=(DynamicEvent(33, COOLDOWN_MARKING, SOUND[COOLDOWN_MARKING]),),
         low_wedges=_hairpin(0),
     )
 
@@ -379,7 +379,7 @@ def _line_letters(events: Sequence[DynamicEvent], *, cool_attack: bool) -> tuple
     letters.extend(kept)
     if cool_attack:
         letters.append(DynamicEvent(COOL_START, "mp", SOUND["mp"]))
-    letters.append(DynamicEvent(PIECE_END - 1, "p", SOUND["p"]))
+    letters.append(DynamicEvent(PIECE_END - 1, COOLDOWN_MARKING, SOUND[COOLDOWN_MARKING]))
     return tuple(letters)
 
 
@@ -389,7 +389,7 @@ def _cool_letters(events: Sequence[DynamicEvent], *, sing: bool, attack: bool) -
         return tuple(letters)
     if attack:
         letters.append(DynamicEvent(COOL_START, "mp", SOUND["mp"]))
-    letters.append(DynamicEvent(PIECE_END - 1, "p", SOUND["p"]))
+    letters.append(DynamicEvent(PIECE_END - 1, COOLDOWN_MARKING, SOUND[COOLDOWN_MARKING]))
     return tuple(letters)
 
 
@@ -401,7 +401,7 @@ def _bass_letters(events: Sequence[DynamicEvent]) -> tuple[DynamicEvent, ...]:
     letters.extend(kept)
     if not kept or kept[-1].marking != "mp":
         letters.append(DynamicEvent(COOL_START, "mp", SOUND["mp"]))
-    letters.append(DynamicEvent(PIECE_END - 1, "p", SOUND["p"]))
+    letters.append(DynamicEvent(PIECE_END - 1, COOLDOWN_MARKING, SOUND[COOLDOWN_MARKING]))
     return tuple(letters)
 
 

@@ -64,6 +64,9 @@ def test_flat_day_states_the_flute_pitch_once() -> None:
     assert chains[0][0].midi % 12 == 0
     assert not any(note.bar >= 32 and note.midi is not None for note in score.lead)
     assert score.lead_dynamics[0].marking == "p"
+    assert score.dynamics[0].marking == "p"
+    assert (score.dynamics[-1].bar, score.dynamics[-1].marking) == (35, "ppp")
+    assert score.support_dynamics[-1].marking == "ppp"
     assert any(wedge.kind == "crescendo" and wedge.bar == 0 for wedge in score.lead_wedges)
     assert any(wedge.kind == "diminuendo" and wedge.bar == 32 for wedge in score.support_wedges)
     assert _sounding_eighths(score.high) == 0
