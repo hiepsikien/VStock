@@ -132,12 +132,12 @@ def test_positive_shift_lowers_the_ceiling_and_negative_shift_raises_the_floor()
     assert all(note.midi is None or note.midi <= 77 for note in eb_jazz.lead)
     eb_bells = [note.midi + EB_KEY.semitones for note in eb_jazz.high if note.midi is not None]
     assert eb_bells
-    assert min(eb_bells) >= 84 - EB_KEY.semitones
+    assert min(eb_bells) >= 84
     assert max(eb_bells) <= 89
     d_jazz = render(steep, variant="jazz", key=D_KEY, title="sax-d")
     d_bells = [note.midi + D_KEY.semitones for note in d_jazz.high if note.midi is not None]
     assert d_bells
-    assert min(d_bells) >= 84 - D_KEY.semitones
+    assert min(d_bells) >= 84
     assert max(d_bells) <= 89
     eb_arp = [
         note.midi + EB_KEY.semitones
@@ -151,6 +151,28 @@ def test_positive_shift_lowers_the_ceiling_and_negative_shift_raises_the_floor()
     ]
     assert eb_arp and max(eb_arp) <= 84
     assert a_arp and min(a_arp) >= 48
+
+
+def test_bell_clusters_have_no_minor_second():
+    from app.sonify.chords import jazz_chord
+    from app.sonify.jazz import _high_bell_voicing, _vibraphone_window
+    from app.sonify.keys import compose_register
+
+    for key in KEY_RING:
+        with compose_register(key):
+            scale = c_major_scale(*_vibraphone_window())
+            voicings: set[tuple[int, ...]] = set()
+            for chord in (*CHORDS, *BORROWED):
+                for candidate in (chord, jazz_chord(chord)):
+                    voicing = tuple(sorted(_high_bell_voicing(88, candidate, scale)))
+                    assert all(b - a != 1 for a, b in zip(voicing, voicing[1:]))
+                    sounded = [note + key.semitones for note in voicing]
+                    assert max(sounded) <= 89
+                    if key.semitones >= 0:
+                        assert min(sounded) >= 84
+                    voicings.add(voicing)
+            if key.name in ("Eb", "D"):
+                assert len(voicings) > 1
 
 
 def test_musicxml_uses_the_key_signature_once():

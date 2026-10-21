@@ -22,6 +22,8 @@ Architecture:
 
 from __future__ import annotations
 
+from itertools import combinations
+
 from app.sonify.chords import Chord, Regime, jazz_chord
 from app.sonify.form import (
     EIGHTHS_PER_BAR,
@@ -140,30 +142,35 @@ def _high_bell_voicing(
     chord: Chord,
     scale_high: tuple[int, ...],
 ) -> tuple[int, ...]:
-    """Build a 3-note bell from the C-major tones in the active window.
+    """Pick bell notes in `scale_high` with no minor second, preferring chord tones.
 
-    In C that window is C6–F6 (`84, 86, 88, 89`). The top two notes are a minor
-    second, so the voicing keeps only one of them: the open frame `(84, 86, 89)`
-    when F is a chord tone, or `(84, 86, 88)` when E is. A shifted key uses the
-    same shape inside `VIBRAPHONE_LOW - up` .. `vibraphone_high` instead of
-    dropping the C cluster by an octave.
+    Three notes when the window has a clash-free triple. In C that is `(84, 86, 88)`
+    or `(84, 86, 89)`, so E and F are not struck together. D's window (82–87) only
+    holds B–C–D, and B–C is a minor second, so that key rings two notes instead of
+    dipping below C6.
     """
-    tones = scale_high
-    if len(tones) < 3:
-        return tuple(tones)
-    top = tones[-1]
-    lower = tones[-2]
+    tones = tuple(sorted(scale_high))
+    if len(tones) <= 1:
+        return tones
     pcs = chord.pitch_classes
-    with_top = (tones[0], tones[1], top)
-    with_lower = (tones[0], tones[1], lower)
-    if top - lower == 1 and top % 12 in pcs and lower % 12 not in pcs:
-        return with_top
-    if top - lower == 1 and lower % 12 in pcs and top % 12 not in pcs:
-        return with_lower
-    if top - lower != 1:
-        return with_top if len(tones) > 3 else tuple(tones[:3])
-    lead = _bell_pitch(melody_midi, chord, scale_high)
-    return with_top if abs(top - lead) <= abs(lower - lead) else with_lower
+    lead = _bell_pitch(melody_midi, chord, tones)
+    for size in (3, 2):
+        choices = [
+            combo
+            for combo in combinations(tones, size)
+            if all(b - a != 1 for a, b in zip(combo, combo[1:]))
+        ]
+        if not choices:
+            continue
+        return min(
+            choices,
+            key=lambda combo: (
+                -sum(note % 12 in pcs for note in combo),
+                sum(abs(note - lead) for note in combo),
+                -sum(combo),
+            ),
+        )
+    return (tones[-1],)
 
 
 def _vibraphone_accent_part(
@@ -184,7 +191,7 @@ def _vibraphone_accent_part(
       smoothly by relative session span (`bell_budget(rel_span)`): completely silent
       when `rel_span <= 0.5%` (flat / 1–2 tick sideway sessions), ramping linearly up to
       36 eighths at `rel_span >= 2.0%`.
-    - Breakouts trigger a 3-note ringing chord in C6–F6 (velocity 64).
+    - Breakouts trigger a ringing chord in the bell window (velocity 64), two or three notes and never a minor second.
     - High phrase apexes / peaks (>= G5 = 79) trigger melodic bell notes in C6–F6 (velocity 58)
       that follow the price contour rather than repeating a static ceiling pitch.
     """
