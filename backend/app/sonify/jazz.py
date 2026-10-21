@@ -22,6 +22,8 @@ Architecture:
 
 from __future__ import annotations
 
+from itertools import combinations
+
 from app.sonify.chords import Chord, Regime, jazz_chord
 from app.sonify.form import (
     EIGHTHS_PER_BAR,
@@ -30,17 +32,16 @@ from app.sonify.form import (
     TOTAL_EIGHTHS,
     ChordSlot,
 )
+from app.sonify.keys import C_REGISTER, active_register
 from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score
 from app.sonify.phrasing import (
     BELL_MAX_EIGHTHS,
     BREAKOUT,
-    CELLO_HANDBACK,
     CELLO_OVERLAP,
     FILL_VELOCITY,
     MIN_RISE,
     PERIOD,
     STRONG_EIGHTHS,
-    VIOLIN_LOWEST,
     Phrase,
     Run,
     bell_budget,
@@ -58,10 +59,9 @@ from app.sonify.quantize import c_major_scale
 
 JAZZ_BPM = 82
 SAX_LOW = 48  # C3: bottom of Tenor Saxophone register
-SAX_CEILING = 80  # Ab5 (G5 = 79 in C major): top of realistic Alto Saxophone range
+SAX_CEILING = C_REGISTER.sax_ceiling  # Ab5 (G5 = 79 in C major): top of realistic Alto Saxophone range
 VIBRAPHONE_APEX_TRIGGER = 79  # G5: minimum pitch for a phrase apex to trigger Vibraphone
-VIBRAPHONE_LOW = 84  # C6: high-end bell threshold
-VIBRAPHONE_HIGH = 89  # F6: top of the standard 3-octave Vibraphone (F3–F6)
+VIBRAPHONE_LOW = 84  # C6 when the score is still in C. The live ceiling is active_register().
 VIBRAPHONE_VEL_SINGLE = 58  # mp
 VIBRAPHONE_VEL_CHORD = 64  # mp-mf
 # Cap high-end Vibraphone accents at 15% of 240 eighths (36 eighths max across 30 bars)
@@ -120,12 +120,20 @@ def _promote_jazz_slots(
     return jazz_slots, harmonies, chord_at
 
 
+def _vibraphone_window() -> tuple[int, int]:
+    """C-space bell span. Positive keys shift it down so the sounding notes stay in C6–F6."""
+    high = active_register().vibraphone_high
+    up = C_REGISTER.vibraphone_high - high
+    return VIBRAPHONE_LOW - up, high
+
+
 def _bell_pitch(melody_midi: int, chord: Chord, scale_high: tuple[int, ...]) -> int:
-    """Select a Vibraphone chord tone in C6–F6 (84–89) tracking the price contour."""
+    """Select a Vibraphone chord tone inside `scale_high`, tracking the price contour."""
     chord_tones = [m for m in scale_high if m % 12 in chord.pitch_classes]
     pool = chord_tones if chord_tones else list(scale_high)
     norm = min(1.0, max(0.0, (melody_midi - 76) / (95 - 76)))
-    target = VIBRAPHONE_LOW + norm * (VIBRAPHONE_HIGH - VIBRAPHONE_LOW)
+    low, high = scale_high[0], scale_high[-1]
+    target = low + norm * (high - low)
     return min(pool, key=lambda m: (abs(m - target), m))
 
 
@@ -134,21 +142,35 @@ def _high_bell_voicing(
     chord: Chord,
     scale_high: tuple[int, ...],
 ) -> tuple[int, ...]:
-    """Build a 3-note high Vibraphone bell chord in C6–F6 (84–89) without semitone clashes.
+    """Pick bell notes in `scale_high` with no minor second, preferring chord tones.
 
-    Within C6–F6 (`84, 86, 88, 89`), avoids combining E6 (`88`) and F6 (`89`) in the
-    same 3-note voicing so the high bell never contains a harsh minor-second clash,
-    preferring the open 5-semitone quartal/sus frame `(84, 86, 89)` (`C6–D6–F6`) when
-    F (`89`) is a chord tone, or `(84, 86, 88)` (`C6–D6–E6`) on tonic/relative major-9th
-    harmonies where E (`88`) is a chord tone.
+    Three notes when the window has a clash-free triple. In C that is `(84, 86, 88)`
+    or `(84, 86, 89)`, so E and F are not struck together. D's window (82–87) only
+    holds B–C–D, and B–C is a minor second, so that key rings two notes instead of
+    dipping below C6.
     """
+    tones = tuple(sorted(scale_high))
+    if len(tones) <= 1:
+        return tones
     pcs = chord.pitch_classes
-    if 89 % 12 in pcs and 88 % 12 not in pcs:
-        return (84, 86, 89)
-    if 88 % 12 in pcs and 89 % 12 not in pcs:
-        return (84, 86, 88)
-    lead = _bell_pitch(melody_midi, chord, scale_high)
-    return (84, 86, 89) if abs(89 - lead) <= abs(88 - lead) else (84, 86, 88)
+    lead = _bell_pitch(melody_midi, chord, tones)
+    for size in (3, 2):
+        choices = [
+            combo
+            for combo in combinations(tones, size)
+            if all(b - a != 1 for a, b in zip(combo, combo[1:]))
+        ]
+        if not choices:
+            continue
+        return min(
+            choices,
+            key=lambda combo: (
+                -sum(note % 12 in pcs for note in combo),
+                sum(abs(note - lead) for note in combo),
+                -sum(combo),
+            ),
+        )
+    return (tones[-1],)
 
 
 def _vibraphone_accent_part(
@@ -169,8 +191,8 @@ def _vibraphone_accent_part(
       smoothly by relative session span (`bell_budget(rel_span)`): completely silent
       when `rel_span <= 0.5%` (flat / 1–2 tick sideway sessions), ramping linearly up to
       36 eighths at `rel_span >= 2.0%`.
-    - Breakouts trigger a 3-note ringing chord in C6–F6 (velocity 64).
-    - High phrase apexes / peaks (>= G5 = 79) trigger melodic bell notes in C6–F6 (velocity 58)
+    - Breakouts trigger a ringing chord in the bell window (velocity 64), two or three notes and never a minor second.
+    - High phrase apexes / peaks (>= G5 = 79) trigger melodic bell notes in the bell window (velocity 58)
       that follow the price contour rather than repeating a static ceiling pitch.
     """
     max_eighths = bell_budget(rel_span, VIBRAPHONE_MAX_EIGHTHS)
@@ -237,7 +259,7 @@ def _vibraphone_accent_part(
 
     chosen_spans.sort(key=lambda item: item[0])
 
-    scale_high = c_major_scale(VIBRAPHONE_LOW, VIBRAPHONE_HIGH)
+    scale_high = c_major_scale(*_vibraphone_window())
     events: list[NoteEvent] = []
     cursor = 0
     for start, length, is_breakout, run in chosen_spans:
@@ -367,7 +389,7 @@ def _phrase_vibe_spans(
         if not is_b
         and st >= phrase.start
         and st + ln <= phrase.end
-        and r.midi > SAX_CEILING
+        and r.midi > active_register().sax_ceiling
     ]
     norm_vibe = [
         (ys, phrase.end if ye == phrase.end - 1 else ye)
@@ -376,14 +398,14 @@ def _phrase_vibe_spans(
     rem_high = [
         r.midi
         for r in phrase.runs
-        if r.midi > SAX_CEILING
+        if r.midi > active_register().sax_ceiling
         and not any(ys <= r.start and r.end <= ye for ys, ye in norm_vibe)
     ]
     top = max(r.midi for r in phrase.runs)
     bot = min(r.midi for r in phrase.runs)
     if not rem_high:
         req_shift = 0
-    elif top - 12 <= SAX_CEILING:
+    elif top - 12 <= active_register().sax_ceiling:
         req_shift = 12
     else:
         req_shift = 24
@@ -407,7 +429,7 @@ def _realize_sax_phrase(
     top = max(r.midi for r in phrase.runs)
     bot = min(r.midi for r in phrase.runs)
     floor_midi = scale[floor_idx]
-    can_exact = top - shift <= SAX_CEILING or (shift == 0 and req_shift == 0)
+    can_exact = top - shift <= active_register().sax_ceiling or (shift == 0 and req_shift == 0)
     if can_exact and shift <= max_exact_shift and bot - shift >= floor_midi:
         return [pitches[e] - shift for e in range(phrase.start, phrase.end)], True
     t_top = min(ceiling_idx, scale.index(max(floor_midi, top - shift)))
@@ -460,7 +482,7 @@ def _build_phrase_candidates(
     for key in keys:
         shift, floor_idx, preserve_span = key
         floor_midi = scale[floor_idx]
-        can_exact = top - shift <= SAX_CEILING or (shift == 0 and req_shift == 0)
+        can_exact = top - shift <= active_register().sax_ceiling or (shift == 0 and req_shift == 0)
         if can_exact and shift <= max_exact_shift and bot - shift >= floor_midi:
             sig: tuple[object, ...] = ("exact", shift)
         else:
@@ -521,10 +543,14 @@ def _simulate_alto_handoff(
     alto_pts: list[tuple[int, int]] = []
     phrase_runs = runs_of(phrase_pitches, 0, len(phrase_pitches))
     for r_idx, run in enumerate(phrase_runs):
-        next_on_tenor = run.midi < CELLO_HANDBACK if on_tenor else run.midi < VIOLIN_LOWEST
+        next_on_tenor = (
+            run.midi < active_register().cello_handback
+            if on_tenor
+            else run.midi < active_register().violin_lowest
+        )
         if on_tenor and not next_on_tenor and r_idx > 0:
             prev_r = phrase_runs[r_idx - 1]
-            if prev_r.midi >= VIOLIN_LOWEST and prev_r.length >= 2:
+            if prev_r.midi >= active_register().violin_lowest and prev_r.length >= 2:
                 lead = min(CELLO_OVERLAP, prev_r.length // 2)
                 for off in range(prev_r.end - lead, prev_r.end):
                     eighth = phrase.start + off
@@ -670,8 +696,10 @@ def _sax_melody_curve(
         return list(pitches), phrases, []
 
     scale = c_major_scale(SAX_LOW, 96)
-    ceiling_idx = scale.index(79)  # G5 (79), highest C-major scale tone <= SAX_CEILING (80)
-    alto_low_idx = scale.index(VIOLIN_LOWEST)  # G3 (55)
+    ceiling = active_register().sax_ceiling
+    floor = active_register().violin_lowest
+    ceiling_idx = max(index for index, midi in enumerate(scale) if midi <= ceiling)
+    alto_low_idx = min(index for index, midi in enumerate(scale) if midi >= floor)
 
     phrase_vibes: list[list[tuple[int, int]]] = []
     min_shift: list[int] = []

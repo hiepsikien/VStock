@@ -7,6 +7,7 @@ from typing import Literal
 
 from app.sonify.chords import Chord, Regime
 from app.sonify.form import ChordSlot
+from app.sonify.keys import C_KEY, KeySpec
 
 PERIOD = 4
 
@@ -140,6 +141,7 @@ class Score:
     variant: Variant = "symphony"
     divisions: int = 2
     swing: bool = False
+    key: KeySpec = C_KEY
 
     # Backwards-compatible chamber part aliases
     @property

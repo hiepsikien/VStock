@@ -25,6 +25,7 @@ from app.sonify.chords import (
     REGIME_BIAS,
     Chord,
     Regime,
+    _ROOT_REGIME_BIAS,
     borrowed_transition,
     chords_for_spec,
     progression,
@@ -33,6 +34,7 @@ from app.sonify.chords import (
     tonic_chords,
     transition_probability,
 )
+from app.sonify.keys import MovementCharacter
 from app.sonify.quantize import (
     bar_quantization_loss,
     c_major_scale,
@@ -63,6 +65,26 @@ TRANSITION_WEIGHT = 0.6
 SECOND_BAR_STAY_COST = 0.15
 EXTENDED_STAY_PENALTY = 0.25
 SINGLE_BAR_CHANGE_PENALTY = 0.65
+_CHARACTER_SEVENTH = {"rally": 0.05, "selloff": 0.05, "volatile": 0.0, "calm": 0.08}
+_CHARACTER_BAR_CHANGE = {"rally": 0.60, "selloff": 0.60, "volatile": 0.45, "calm": 0.80}
+_DIATONIC_DELTA: dict[str, dict[str, float]] = {
+    "rally": {
+        "C": -0.08, "Cmaj7": -0.08, "F": -0.08, "Fmaj7": -0.08, "G": -0.08, "G7": -0.08,
+        "Am": 0.06, "Am7": 0.06, "Dm": 0.06, "Dm7": 0.06, "Em": 0.06, "Em7": 0.06,
+    },
+    "selloff": {
+        "Am": -0.08, "Am7": -0.08, "Dm": -0.08, "Dm7": -0.08, "Em": -0.08, "Em7": -0.08,
+        "C": 0.06, "Cmaj7": 0.06,
+    },
+    "volatile": {},
+    "calm": {},
+}
+_BORROWED_DELTA: dict[str, dict[str, float]] = {
+    "rally": {"D7": -0.06, "C7": -0.06, "A7": -0.06},
+    "selloff": {"Fm": -0.06, "Gm": -0.06, "Ab": -0.06, "Eb": -0.06, "Bm7b5": -0.06, "E7": -0.06},
+    "volatile": {},
+    "calm": {},
+}
 SAME_ROOT_QUALITY_CHANGE_PENALTY = 0.35
 PEDAL_STAY_COST = 0.0
 PHRASE_TONIC_BONUS = 0.25
@@ -252,11 +274,33 @@ def _breaks_held_note_across_barline(
     return prev_snapped != curr_snapped
 
 
+def chord_bias(chord: Chord, regime: Regime, character: MovementCharacter | None) -> float:
+    """Per-chord cost. `None` reads the baked `REGIME_BIAS` table, sevenths included."""
+    if character is None:
+        return REGIME_BIAS[regime][chord] if chord in REGIME_BIAS[regime] else 0.08
+    if chord in CHORDS:
+        seventh = _CHARACTER_SEVENTH[character] if len(chord.pitches) == 4 else 0.0
+        return (
+            _ROOT_REGIME_BIAS[regime][chord.root_step]
+            + seventh
+            + _DIATONIC_DELTA[character].get(chord.name, 0.0)
+        )
+    return 0.08 + _BORROWED_DELTA[character].get(chord.name, 0.0)
+
+
+def _bar_change_penalty(character: MovementCharacter | None) -> float:
+    if character is None:
+        return SINGLE_BAR_CHANGE_PENALTY
+    return _CHARACTER_BAR_CHANGE[character]
+
+
 def plan_markov_chords(
     regimes: tuple[Regime, ...] | tuple[Regime, Regime, Regime],
     raw_pitches: Sequence[int],
     scale: tuple[int, ...] | None = None,
     spec: FormSpec | None = None,
+    character: MovementCharacter | None = None,
+    outro_override: Literal["major", "minor"] | None = None,
 ) -> tuple[Chord, ...]:
     """Decode the lowest-loss 30-bar Markov chord path via Viterbi.
 
@@ -287,6 +331,7 @@ def plan_markov_chords(
         phrase_starts = spec.phrase_starts
         spans = spec.spans(regimes)
         borrowed = spec.borrowed
+    bar_change_penalty = _bar_change_penalty(character)
     for regime in regimes:
         progression(regime)
     expected_eighths = musical_bars * EIGHTHS_PER_BAR
@@ -312,8 +357,11 @@ def plan_markov_chords(
         bar_notes = raw_pitches[bar * EIGHTHS_PER_BAR : (bar + 1) * EIGHTHS_PER_BAR]
         regime = bar_regime[bar]
         section = bar_section[bar]
-        bias = REGIME_BIAS[regime]
         allowed_tonics = tonic_chords(regime)
+        if section == "outro" and outro_override == "major":
+            allowed_tonics = tonic_chords("uptrend")
+        elif section == "outro" and outro_override == "minor":
+            allowed_tonics = tonic_chords("downtrend")
         new_section = bar in section_starts
         previous_pitch = raw_pitches[bar * EIGHTHS_PER_BAR - 1] if bar > 0 else None
         phrase_downbeat = bar in phrase_starts
@@ -332,7 +380,7 @@ def plan_markov_chords(
                 back[bar][(chord, 2)] = None
                 continue
 
-            base_bias = bias[chord] if chord in bias else 0.08
+            base_bias = chord_bias(chord, regime, character)
             if phrase_downbeat and chord in allowed_tonics:
                 base_bias -= PHRASE_TONIC_BONUS
 
@@ -449,7 +497,7 @@ def plan_markov_chords(
                     else:
                         trans_cost = -TRANSITION_WEIGHT * math.log(root_prob)
                         if not new_section and prev_held == 1:
-                            trans_cost += SINGLE_BAR_CHANGE_PENALTY
+                            trans_cost += bar_change_penalty
                     if same_root and prev_chord != chord:
                         trans_cost += SAME_ROOT_QUALITY_CHANGE_PENALTY
 
@@ -489,6 +537,8 @@ def plan_slots(
     raw_pitches: Sequence[int] | None = None,
     scale: tuple[int, ...] | None = None,
     spec: FormSpec | None = None,
+    character: MovementCharacter | None = None,
+    outro_override: Literal["major", "minor"] | None = None,
 ) -> tuple[ChordSlot, ...]:
     if spec is None and len(regimes) != 3:
         raise ValueError("expected one regime per phrase")
@@ -511,7 +561,9 @@ def plan_slots(
             )
         )
     else:
-        chords = plan_markov_chords(regimes, raw_pitches, scale, spec)
+        chords = plan_markov_chords(
+            regimes, raw_pitches, scale, spec, character, outro_override
+        )
         slots = []
         spans = _section_spans(regimes) if spec is None else spec.spans(regimes)  # type: ignore[arg-type]
         for sec_start, sec_end, regime, section in spans:

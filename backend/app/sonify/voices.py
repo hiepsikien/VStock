@@ -13,6 +13,7 @@ from collections import deque
 from dataclasses import dataclass
 
 from app.sonify.chords import Chord, jazz_chord
+from app.sonify.keys import C_REGISTER
 from app.sonify.model import StreamVariant
 from app.sonify.phrasing import comp_pitches
 from app.sonify.quantize import C_MAJOR_PCS, SCALE_HIGH, SCALE_LOW
@@ -23,7 +24,7 @@ BAR_NOTES = 16
 HIGH_TRIGGER = 79  # G5
 HIGH_BUDGET = 0.15
 SAX_LOW = 48
-SAX_CEILING = 80
+SAX_CEILING = C_REGISTER.sax_ceiling
 SAX_LEAP = 9
 CLOSED_CUTOFF = 0.35
 OPEN_CUTOFF = 0.70

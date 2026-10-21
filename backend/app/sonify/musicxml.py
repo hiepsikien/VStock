@@ -26,8 +26,8 @@ liquidity pulse + backbeat in `minimalist`), marked `p` once so it stays behind
 the lead. `P3` also carries the `<harmony>` symbol at each chord attack on
 staff 1 so MuseScore's chord-symbol piano stays at `P3`'s steady `p` dynamic
 instead of swelling with the lead's hairpins. `P4` is the bass part (marked from `p` up to `BASS_CEILING` as
-liquidity changes). All parts are written in C-major concert pitch (`fifths=0`)
-for direct visual comparison and General MIDI playback, except `P4` Bass which
+liquidity changes). Parts are written in concert pitch. The key signature is
+`score.key.fifths` (C major when the score was not transposed). `P4` Bass
 is written one octave above sounding pitch with `<transpose><octave-change>-1`.
 """
 
@@ -39,6 +39,7 @@ from typing import TypeVar
 from app.sonify.chords import Chord
 from app.sonify.dynamics import MARKINGS, SOUND
 from app.sonify.form import BEATS_PER_BAR, MUSICAL_BARS
+from app.sonify.keys import KeySpec, midi_to_spelled_pitch, transpose_chord
 from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score, Variant, WedgeEvent
 
 DIVISIONS = 2  # default per quarter note, so an eighth note is 1
@@ -119,6 +120,7 @@ def _add_note(
     written_shift: int = 0,
     divisions: int = DIVISIONS,
     harmony: Chord | None = None,
+    key: KeySpec | None = None,
 ) -> None:
     note = _add(parent, "note")
     if event.velocity is not None and event.midi is not None:
@@ -131,7 +133,11 @@ def _add_note(
         else:
             _add(note, "rest")
     else:
-        step, alter, octave = midi_to_pitch(event.midi + written_shift, harmony)
+        sounding = event.midi + written_shift
+        if key is None:
+            step, alter, octave = midi_to_pitch(sounding, harmony)
+        else:
+            step, alter, octave = midi_to_spelled_pitch(sounding + key.semitones, key, harmony)
         pitch = _add(note, "pitch")
         _add(pitch, "step", step)
         if alter:
@@ -187,11 +193,12 @@ def _attributes(
     *clefs: tuple[str, str],
     octave_change: int = 0,
     divisions: int = DIVISIONS,
+    fifths: int = 0,
 ) -> None:
     attributes = _add(parent, "attributes")
     _add(attributes, "divisions", str(divisions))
     key = _add(attributes, "key")
-    _add(key, "fifths", "0")
+    _add(key, "fifths", str(fifths))
     _add(key, "mode", "major")
     time = _add(attributes, "time")
     _add(time, "beats", str(BEATS_PER_BAR))
@@ -229,14 +236,15 @@ def _metronome(parent: ET.Element, bpm: int, *, swing: bool = False) -> None:
         _add(swing_node, "swing-type", "eighth")
 
 
-def _harmony(parent: ET.Element, event: HarmonyEvent) -> None:
+def _harmony(parent: ET.Element, event: HarmonyEvent, key: KeySpec) -> None:
+    chord = transpose_chord(event.chord, key)
     harmony = _add(parent, "harmony", placement="above")
     root = _add(harmony, "root")
-    _add(root, "root-step", event.chord.root_step)
-    if event.chord.alter:
-        _add(root, "root-alter", str(event.chord.alter))
-    kind = _add(harmony, "kind", event.chord.kind)
-    kind.set("text", event.chord.kind_text)
+    _add(root, "root-step", chord.root_step)
+    if chord.alter:
+        _add(root, "root-alter", str(chord.alter))
+    kind = _add(harmony, "kind", chord.kind)
+    kind.set("text", chord.kind_text)
 
 
 def _dynamic(parent: ET.Element, event: DynamicEvent) -> None:
@@ -337,7 +345,7 @@ def _melody_part(
     for bar in range(score.bars):
         measure = _add(part, "measure", number=str(bar + 1))
         if bar == 0:
-            _attributes(measure, clef, divisions=score.divisions)
+            _attributes(measure, clef, divisions=score.divisions, fifths=score.key.fifths)
             if lead:
                 _metronome(measure, score.bpm, swing=score.swing)
             _dynamic(measure, MELODY_DYNAMIC)
@@ -363,6 +371,7 @@ def _melody_part(
                 chord=is_chord,
                 divisions=score.divisions,
                 harmony=_chord_on(score, bar),
+                key=score.key,
             )
             previous_beat = event.beat
         flush(float(BEATS_PER_BAR))
@@ -383,10 +392,10 @@ def _piano_part(root: ET.Element, score: Score) -> None:
     for bar in range(score.bars):
         measure = _add(part, "measure", number=str(bar + 1))
         if bar == 0:
-            _attributes(measure, TREBLE, BASS_CLEF, divisions=score.divisions)
+            _attributes(measure, TREBLE, BASS_CLEF, divisions=score.divisions, fifths=score.key.fifths)
             _dynamic(measure, PIANO_DYNAMIC)
         for event in symbols[bar]:
-            _harmony(measure, event)
+            _harmony(measure, event, score.key)
         for staff in (1, 2):
             if staff > 1:
                 backup = _add(measure, "backup")
@@ -404,6 +413,7 @@ def _piano_part(root: ET.Element, score: Score) -> None:
                     staves=2,
                     harmony=_chord_on(score, bar),
                     divisions=score.divisions,
+                    key=score.key,
                 )
                 previous_beat = event.beat
 
@@ -430,6 +440,7 @@ def _bass_part(root: ET.Element, score: Score) -> None:
                 BASS_CLEF,
                 octave_change=-BASS_WRITTEN_OCTAVES,
                 divisions=score.divisions,
+                fifths=score.key.fifths,
             )
         event = printed.get(bar)
         if event is not None:
@@ -441,6 +452,7 @@ def _bass_part(root: ET.Element, score: Score) -> None:
                 written_shift=12 * BASS_WRITTEN_OCTAVES,
                 divisions=score.divisions,
                 harmony=_chord_on(score, bar),
+                key=score.key,
             )
 
 

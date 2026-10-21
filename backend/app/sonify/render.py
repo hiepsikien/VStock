@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from app.sonify.chords import Chord, Regime, fifth_above_bass, progression
 from app.sonify.dynamics import (
     MARKINGS,
@@ -26,6 +28,14 @@ from app.sonify.form import (
     liquidity_windows_for,
     plan_slots,
 )
+from app.sonify.keys import (
+    C_KEY,
+    KeySpec,
+    MovementCharacter,
+    OutroOverride,
+    active_register,
+    compose_register,
+)
 from app.sonify.jazz import render_jazz_score
 from app.sonify.minimalist import render_minimalist_score
 from app.sonify.model import (
@@ -41,11 +51,8 @@ from app.sonify.model import (
 )
 from app.sonify.phrasing import (
     BREAKOUT,
-    CELLO_HANDBACK,
     FILL_VELOCITY,
     MIN_RISE,
-    VIOLIN_CEILING,
-    VIOLIN_LOWEST,
     comp_pitches,
     fills,
     left_hand,
@@ -60,7 +67,6 @@ from app.sonify.phrasing import (
 from app.sonify.quantize import c_major_scale, price_to_scale_index, resample
 from app.sonify.regime import REGIME_BARS, classify_window
 
-FLUTE_CEILING = 88  # E6: keep Flute inside its sweet register (<= E6)
 FLUTE_TRIGGER = 79  # G5: Flute enters on high apex (>= G5) or Breakout
 FLUTE_HANDBACK = 76  # E5: Flute keeps soaring while melody stays at or above E5
 FLUTE_OVERLAP = 2  # eighths (1 beat) of dovetail harmony before Violin yields
@@ -219,14 +225,14 @@ def _flute_and_violin_dovetail(
         apex = phrase.apex
         breath = phrase.closes and phrase.end < piece_eighths
         crosses_ceiling = (
-            max(r.midi for r in phrase.runs) > VIOLIN_CEILING
-            and min(r.midi for r in phrase.runs) <= VIOLIN_CEILING
+            max(r.midi for r in phrase.runs) > active_register().violin_ceiling
+            and min(r.midi for r in phrase.runs) <= active_register().violin_ceiling
         )
         ended_on_flute = False
 
         run_is_violin: list[bool] = []
         for r in phrase.runs:
-            on_cello = r.midi < CELLO_HANDBACK if on_cello else r.midi < VIOLIN_LOWEST
+            on_cello = r.midi < active_register().cello_handback if on_cello else r.midi < active_register().violin_lowest
             run_is_violin.append(not on_cello)
 
         idx = 0
@@ -249,7 +255,7 @@ def _flute_and_violin_dovetail(
             )
             above_ceiling = (
                 phrase.rise > 0 or crosses_ceiling
-            ) and run.midi > VIOLIN_CEILING
+            ) and run.midi > active_register().violin_ceiling
             if not (continued_flute or is_breakout or is_high_apex or above_ceiling):
                 idx += 1
                 continue
@@ -330,13 +336,13 @@ def _flute_and_violin_dovetail(
             if sounding_end <= span_start:
                 continue
 
-            # Skip isolated 1–2 eighth Flute blips that stay <= VIOLIN_CEILING and do not
-            # continue a Flute line; any peak > VIOLIN_CEILING is kept on Flute so Violin
+            # Skip isolated 1–2 eighth Flute blips that stay in the Violin register and do not
+            # continue a Flute line; any peak above that register is kept on Flute so Violin
             # never has to fold it down an octave.
             if (
                 not continued_flute
                 and sounding_end - span_start <= FLUTE_OVERLAP
-                and max(r.midi for r in soar_runs) <= VIOLIN_CEILING
+                and max(r.midi for r in soar_runs) <= active_register().violin_ceiling
             ):
                 continue
 
@@ -363,14 +369,14 @@ def _flute_and_violin_dovetail(
                 not continued_flute
                 and (violin_lead >= MIN_VIOLIN_SPAN or span_start == 0)
                 and all(
-                    pitches[e] <= VIOLIN_CEILING
+                    pitches[e] <= active_register().violin_ceiling
                     for e in range(span_start, min(sounding_end, span_start + FLUTE_OVERLAP))
                 )
             )
             yield_start = span_start + FLUTE_OVERLAP if can_overlap else span_start
 
-            # Keep Flute in its sweet register (<= FLUTE_CEILING / E6) by folding any
-            # note > E6 down an octave (-12) while preserving pitch class and step changes.
+            # Keep Flute at or below E6 by folding any higher note down an octave
+            # while preserving pitch class and step changes.
             flute_line: list[int] = []
             for eighth in range(span_start, sounding_end):
                 f_pitch = flute_harmony_pitch(
@@ -378,7 +384,7 @@ def _flute_and_violin_dovetail(
                     chord_at[eighth // EIGHTHS_PER_BAR],
                     scale,
                 )
-                while f_pitch > FLUTE_CEILING:
+                while f_pitch > active_register().flute_ceiling:
                     f_pitch -= 12
                 flute_line.append(f_pitch)
             merged_flute_runs = [
@@ -400,7 +406,7 @@ def _flute_and_violin_dovetail(
                     chord_at[phrase.end // EIGHTHS_PER_BAR],
                     scale,
                 )
-                while nf_pitch > FLUTE_CEILING:
+                while nf_pitch > active_register().flute_ceiling:
                     nf_pitch -= 12
                 next_flute_midi = nf_pitch
             tie_last_out = (
@@ -503,6 +509,45 @@ def render(
     price_high: float | None = None,
     volume_low: float | None = None,
     volume_high: float | None = None,
+    key: KeySpec | None = None,
+    character: MovementCharacter | None = None,
+    outro_override: OutroOverride | None = None,
+) -> Score:
+    """Compose in C, with register bounds shifted for `key` before any note is placed."""
+    chosen_key = C_KEY if key is None else key
+    with compose_register(chosen_key):
+        return _compose(
+            bars,
+            title=title,
+            regimes=regimes,
+            variant=variant,
+            form=form,
+            source_groups=source_groups,
+            price_low=price_low,
+            price_high=price_high,
+            volume_low=volume_low,
+            volume_high=volume_high,
+            key=chosen_key,
+            character=character,
+            outro_override=outro_override,
+        )
+
+
+def _compose(
+    bars: list[Bar],
+    *,
+    title: str,
+    regimes: tuple[Regime, ...] | None,
+    variant: Variant,
+    form: FormSpec | None,
+    source_groups: list[list[int]] | None,
+    price_low: float | None,
+    price_high: float | None,
+    volume_low: float | None,
+    volume_high: float | None,
+    key: KeySpec,
+    character: MovementCharacter | None,
+    outro_override: OutroOverride | None,
 ) -> Score:
     """Turn one session of closes into a 30-bar score for `variant` ('symphony', 'jazz', 'minimalist').
 
@@ -562,7 +607,9 @@ def render(
                 scale[price_to_scale_index(close, session_low, session_high, len(scale))]
             )
 
-    slots = plan_slots(chosen, raw_pitches, scale, spec)
+    slots = plan_slots(
+        chosen, raw_pitches, scale, spec, character=character, outro_override=outro_override
+    )
 
     windows = LIQUIDITY_WINDOWS if spec is None else liquidity_windows_for(spec)
     window_volumes = average_liquidity(
@@ -626,43 +673,49 @@ def render(
     if variant == "jazz":
         from app.sonify.jazz import JAZZ_BPM
 
-        return render_jazz_score(
-            title=title,
-            chosen=chosen,
-            sample_indexes=sample_indexes,
-            slots=slots,
-            pitches=pitches,
-            phrases=phrases,
-            dynamics=dynamics,
-            bands=bands,
-            band_at=band_at,
-            rel_span=rel_span,
-            musical_bars=musical_bars,
-            total_eighths=piece_eighths,
-            bpm=JAZZ_BPM if spec is None else spec.bpm,
-            bell_caps=bell_caps,
+        return replace(
+            render_jazz_score(
+                title=title,
+                chosen=chosen,
+                sample_indexes=sample_indexes,
+                slots=slots,
+                pitches=pitches,
+                phrases=phrases,
+                dynamics=dynamics,
+                bands=bands,
+                band_at=band_at,
+                rel_span=rel_span,
+                musical_bars=musical_bars,
+                total_eighths=piece_eighths,
+                bpm=JAZZ_BPM if spec is None else spec.bpm,
+                bell_caps=bell_caps,
+            ),
+            key=key,
         )
     if variant == "minimalist":
         from app.sonify.minimalist import MINIMALIST_BPM
 
-        return render_minimalist_score(
-            title=title,
-            chosen=chosen,
-            sample_indexes=sample_indexes,
-            slots=slots,
-            raw_pitches=raw_pitches,
-            pitches=pitches,
-            phrases=phrases,
-            dynamics=dynamics,
-            harmonies=harmonies,
-            bands=bands,
-            chord_at=chord_at,
-            band_at=band_at,
-            rel_span=rel_span,
-            musical_bars=musical_bars,
-            total_eighths=piece_eighths,
-            bpm=MINIMALIST_BPM if spec is None else spec.bpm,
-            bell_caps=bell_caps,
+        return replace(
+            render_minimalist_score(
+                title=title,
+                chosen=chosen,
+                sample_indexes=sample_indexes,
+                slots=slots,
+                raw_pitches=raw_pitches,
+                pitches=pitches,
+                phrases=phrases,
+                dynamics=dynamics,
+                harmonies=harmonies,
+                bands=bands,
+                chord_at=chord_at,
+                band_at=band_at,
+                rel_span=rel_span,
+                musical_bars=musical_bars,
+                total_eighths=piece_eighths,
+                bpm=MINIMALIST_BPM if spec is None else spec.bpm,
+                bell_caps=bell_caps,
+            ),
+            key=key,
         )
 
     flute_notes, yield_spans = _flute_and_violin_dovetail(
@@ -702,5 +755,6 @@ def render(
         support_dynamics=tuple(cello.dynamics),
         variant="symphony",
         divisions=2,
+        key=key,
         swing=False,
     )

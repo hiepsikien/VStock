@@ -436,6 +436,7 @@ async def get_span(
             SpanMovementResponse(
                 index=index,
                 label=movement.label,
+                keyLabel=movement.key.label,
                 candleCount=movement.candle_count,
                 durationSec=round(movement_duration(movement), 3),
                 ready=cached is not None,

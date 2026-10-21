@@ -462,6 +462,7 @@ export type SpanRange = '1W' | '1M' | '3M' | '1Y';
 export type SpanMovement = {
   index: number;
   label: string;
+  keyLabel: string;
   candleCount: number;
   durationSec: number;
   ready: boolean;
