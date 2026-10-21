@@ -127,15 +127,24 @@ def test_fifth_is_a_chord_on_loud_bars_and_absent_on_quiet_ones() -> None:
     swell = _part(xml, "P3")
     assert swell.find("measure/attributes/staves") is None
     assert swell.findall("measure/harmony") == []
-    assert any(measure.find("direction/direction-type/dynamics/mp") is not None for measure in swell.findall("measure"))
+    assert any(
+        measure.find("direction/direction-type/dynamics/mp") is not None
+        or measure.find("direction/direction-type/dynamics/mf") is not None
+        for measure in swell.findall("measure")
+    )
+    assert any(
+        measure.find("direction/direction-type/wedge[@type='crescendo']") is not None
+        for measure in swell.findall("measure")
+    )
     halo = _part(xml, "P2")
     assert halo.find("measure/attributes/clef/sign").text == "G"
     assert halo.find("measure[@number='1']/direction/direction-type/dynamics/p") is not None
+    assert _sounding_eighths(score.support) > 0
     programs = {
         part.get("id"): part.find("midi-instrument/midi-program").text
         for part in ET.fromstring(xml).find("part-list").findall("score-part")
     }
-    assert programs == {"P5": "9", "P1": "74", "P2": "42", "P3": "47", "P4": "43"}
+    assert programs == {"P5": "9", "P1": "74", "P2": "74", "P3": "61", "P4": "43"}
 
 
 def test_week_uses_form_tempo_and_chunk_spans_for_shimmer() -> None:

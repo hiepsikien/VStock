@@ -37,9 +37,9 @@ from app.sonify.session import VN, is_session_closed
 logger = logging.getLogger(__name__)
 
 # Bump when the score or the sound changes, so old files are not replayed.
-RECAP_REVISION = "16"
+RECAP_REVISION = "19"
 # Long-form files live beside the daily recap and use their own revision.
-SPAN_REVISION = "9"
+SPAN_REVISION = "12"
 PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
@@ -436,6 +436,7 @@ class _MuseVoice(NamedTuple):
 _MUSE_VOICES = (
     _MuseVoice(("wind.flutes.flute",), ("Flute",), "Flute 1"),
     _MuseVoice(("wind.flutes.flute.alto",), ("Alto Flute",), "Alto Flute"),
+    _MuseVoice(("wind.flutes.flute.bass",), ("Bass Flute",), "Bass Flute"),
     _MuseVoice(("strings.violin",), ("Violin",), "Violins 1"),
     _MuseVoice(("strings.cello", "strings.violoncello", "strings.baryton"), ("Cello",), "Cellos"),
     _MuseVoice(("strings.contrabass",), ("Contrabass",), "Contrabasses"),
@@ -453,6 +454,7 @@ _MUSE_VOICES = (
     ),
     _MuseVoice(("strings.viola",), ("Viola",), "Violas"),
     _MuseVoice(("pluck.harp",), ("Harp",), "Harp"),
+    _MuseVoice(("brass.french-horn",), ("Horn in F",), "French Horn"),
     _MuseVoice(
         (
             "voice.vocals",
@@ -633,7 +635,15 @@ def _assign_installed_sounds(mscz: Path, library: dict[str, tuple[str, str]]) ->
                     "museCategory": pack,
                     "museVendorName": "Muse",
                 },
-                volume_db=10 if voice.sound == "Harp" else 0,
+                volume_db=(
+                    6
+                    if voice.sound == "Celesta"
+                    else 4
+                    if voice.sound == "Contrabasses"
+                    else -5
+                    if voice.sound == "Bass Flute"
+                    else 0
+                ),
             )
         )
         assigned.append(f"{kind} -> {voice.sound}")

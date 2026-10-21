@@ -14,7 +14,6 @@ from app.sonify.form import (
     FormSection,
     FormSpec,
 )
-from app.sonify.jazz import RHODES_RIGHT_HIGH
 from app.sonify.keys import active_register
 from app.sonify.model import (
     Bar,
@@ -47,14 +46,15 @@ PILLARS_PER_EIGHT = 2
 SHIMMER_EIGHTHS = EIGHTHS_PER_BAR
 SHIMMER_GAP_BARS = 4
 SWELL_GAP_BARS = 4
-SHIMMER_TRIGGER = 79
+SHIMMER_TRIGGER = 76
+SHIMMER_VELOCITY = 90
 GLASS_VELOCITY = 60
 SWELL_VELOCITY = 64
 SWELL_HOLD = 2 * EIGHTHS_PER_BAR
-_DRONE_MARKING = {"p": "p", "mp": "p", "mf": "mp", "f": "mp"}
-_DRONE_VELOCITY = {"p": 38, "mp": 44, "mf": 50, "f": 54}
-_FIFTH_VELOCITY = 40
-_HALO_VELOCITY = {"p": 36, "mp": 42, "mf": 48, "f": 52}
+_DRONE_MARKING = {"p": "p", "mp": "mp", "mf": "mp", "f": "mp"}
+_DRONE_VELOCITY = {"p": 52, "mp": 58, "mf": 64, "f": 68}
+_FIFTH_VELOCITY = 48
+_HALO_VELOCITY = {"p": 40, "mp": 46, "mf": 50, "f": 54}
 
 
 def promote_ambient_slots(
@@ -405,18 +405,10 @@ def _bed_dynamics(windows: list[tuple[int, int]] | tuple[tuple[int, int], ...], 
     return tuple(events)
 
 
-def _halo_midis(chord: Chord, band: str) -> tuple[int, ...]:
+def _halo_midis(chord: Chord) -> tuple[int, ...]:
+    """Low, warm guide tones in D3–C#4 (50..61) for a soft Bass Flute murmur."""
     _root, guide = comp_pitches(chord)
-    base = tuple(sorted(guide))
-    if band not in ("mf", "f") or len(chord.pitches) < 5:
-        return base
-    ninth_pc = chord.pitches[4] % 12
-    ninth = 60 + ninth_pc
-    while ninth < base[-1] + 3:
-        ninth += 12
-    if ninth <= RHODES_RIGHT_HIGH and ninth not in base:
-        return (*base, ninth)
-    return base
+    return tuple(sorted(midi - 12 if midi >= 62 else midi for midi in guide))
 
 
 def _sustain(
@@ -473,16 +465,14 @@ def _swell(
             continue
         chosen_bars.append(bar)
         chord = chord_at[bar]
-        tones = _halo_midis(chord, "f")
-        top = max(60, tones[-1]) + 12
-        while top > active_register().flute_ceiling:
-            top -= 12
+        high_tones = [note for note in range(60, 70) if note % 12 in chord.pitch_classes]
+        top = high_tones[-1]
         low_tones = [
             note
-            for note in range(max(60, top - 16), top - 7)
+            for note in range(max(45, top - 16), top - 7)
             if note % 12 in chord.pitch_classes and (top - note) % 12 not in (1, 2, 10, 11)
         ]
-        bottom = low_tones[0] if low_tones else max(60, top - 12)
+        bottom = low_tones[0] if low_tones else max(48, top - 12)
         mid_tones = [
             note
             for note in range(bottom + 3, top - 2)
@@ -563,7 +553,7 @@ def _shimmer(
         if spent + SHIMMER_EIGHTHS > budget:
             continue
         notes.extend(
-            written(bar * EIGHTHS_PER_BAR, SHIMMER_EIGHTHS, midi, velocity=GLASS_VELOCITY)
+            written(bar * EIGHTHS_PER_BAR, SHIMMER_EIGHTHS, midi, velocity=SHIMMER_VELOCITY)
         )
         used[chunk] = spent + SHIMMER_EIGHTHS
         chosen_bars.append(bar)
@@ -571,10 +561,15 @@ def _shimmer(
 
 
 def _shimmer_midi(melody: int, chord: Chord) -> int:
-    window = range(SHIMMER_TRIGGER, 97)
+    folded = melody
+    while folded > 84:
+        folded -= 12
+    while folded < 74:
+        folded += 12
+    window = range(74, 85)
     tones = [note for note in window if note % 12 in chord.pitch_classes]
     pool = tones or list(window)
-    return min(pool, key=lambda note: (abs(note - melody), note))
+    return min(pool, key=lambda note: (abs(note - folded), note))
 
 
 def render_ambient_score(
@@ -608,15 +603,15 @@ def render_ambient_score(
         chord = chord_at[bar]
         band = band_at[bar]
         roots.append((chord.bass_midi,))
-        root_velocity.append(_DRONE_VELOCITY.get(band, 44))
+        root_velocity.append(_DRONE_VELOCITY.get(band, 58))
         if band in ("mf", "f"):
             fifths.append((fifth_above_bass(chord),))
             fifth_velocity.append(_FIFTH_VELOCITY)
         else:
             fifths.append(())
             fifth_velocity.append(None)
-        halos.append(_halo_midis(chord, band))
-        halo_velocity.append(_HALO_VELOCITY.get(band, 42))
+        halos.append(_halo_midis(chord))
+        halo_velocity.append(_HALO_VELOCITY.get(band, 46))
     low = _sustain(roots, root_velocity) + _sustain(fifths, fifth_velocity)
     halo = _sustain(halos, halo_velocity)
     swell = _swell(form, windows, bands, chord_at)
