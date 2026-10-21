@@ -39,7 +39,7 @@ import xml.etree.ElementTree as ET
 from typing import TypeVar
 
 from app.sonify.chords import Chord
-from app.sonify.dynamics import MARKINGS, SOUND
+from app.sonify.dynamics import COOLDOWN_MARKING, SOUND
 from app.sonify.form import BEATS_PER_BAR, MUSICAL_BARS
 from app.sonify.keys import KeySpec, midi_to_spelled_pitch, transpose_chord
 from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score, Variant, WedgeEvent
@@ -250,8 +250,8 @@ def _harmony(parent: ET.Element, event: HarmonyEvent, key: KeySpec) -> None:
 
 
 def _dynamic(parent: ET.Element, event: DynamicEvent) -> None:
-    if event.marking not in MARKINGS:
-        raise ValueError(f"dynamic {event.marking} is outside p–f")
+    if event.marking not in SOUND:
+        raise ValueError(f"dynamic {event.marking} is outside ppp–f")
     direction = _add(parent, "direction", placement="below")
     direction_type = _add(direction, "direction-type")
     dynamics = _add(direction_type, "dynamics")
@@ -390,6 +390,15 @@ def _melody_part(
 PIANO_DYNAMIC = DynamicEvent(bar=0, marking="p", sound=SOUND["p"])
 
 
+def _opening_p(
+    dynamics: tuple[DynamicEvent, ...], default: DynamicEvent
+) -> tuple[DynamicEvent, tuple[DynamicEvent, ...]]:
+    """A printed p on the first downbeat is the part's opening dynamic."""
+    if dynamics and dynamics[0].bar == 0 and dynamics[0].beat == 0.0 and dynamics[0].marking == "p":
+        return dynamics[0], dynamics[1:]
+    return default, dynamics
+
+
 def _piano_part(root: ET.Element, score: Score) -> None:
     """Right hand on the treble staff, left hand on the bass staff, one voice each.
 
@@ -406,6 +415,20 @@ def _piano_part(root: ET.Element, score: Score) -> None:
             _dynamic(measure, PIANO_DYNAMIC)
         for event in symbols[bar]:
             _harmony(measure, event, score.key)
+        if score.variant == "jazz" and score.low_wedges:
+            bar_wedges = [wedge for wedge in score.low_wedges if wedge.bar == bar]
+            letters: list[DynamicEvent] = []
+            if any(wedge.kind == "stop" and wedge.beat == 0.0 and bar == 2 for wedge in bar_wedges):
+                letters.append(DynamicEvent(bar, "mp", SOUND["mp"]))
+            if any(wedge.kind == "diminuendo" and wedge.beat == 0.0 for wedge in bar_wedges):
+                letters.append(DynamicEvent(bar, "mp", SOUND["mp"]))
+            if any(wedge.kind == "stop" and bar >= 32 for wedge in bar_wedges):
+                letters.append(DynamicEvent(bar, COOLDOWN_MARKING, SOUND[COOLDOWN_MARKING]))
+            for direction in sorted([*bar_wedges, *letters], key=_direction_order):
+                if isinstance(direction, DynamicEvent):
+                    _dynamic(measure, direction)
+                else:
+                    _wedge(measure, direction)
         for staff in (1, 2):
             if staff > 1:
                 backup = _add(measure, "backup")
@@ -435,6 +458,12 @@ def _bass_part(root: ET.Element, score: Score) -> None:
     """Bass part (P4) is written an octave above where it sounds."""
     part = _add(root, "part", id="P4")
     notes = _group(score.low, score.bars)
+    if score.low_wedges:
+        frame_wedges = _group(score.low_wedges, score.bars)
+    elif score.variant == "ambient":
+        frame_wedges = _group(score.support_wedges, score.bars)
+    else:
+        frame_wedges = None
     printed: dict[int, DynamicEvent] = {}
     previous: str | None = None
     for event in score.dynamics:
@@ -452,9 +481,16 @@ def _bass_part(root: ET.Element, score: Score) -> None:
                 divisions=score.divisions,
                 fifths=score.key.fifths,
             )
+        bar_wedges = [] if frame_wedges is None else frame_wedges[bar]
+        for wedge in bar_wedges:
+            if wedge.beat <= 0 and wedge.kind == "stop":
+                _wedge(measure, wedge)
         event = printed.get(bar)
         if event is not None:
             _dynamic(measure, event)
+        for wedge in bar_wedges:
+            if wedge.beat <= 0 and wedge.kind != "stop":
+                _wedge(measure, wedge)
         previous_beat: float | None = None
         for note in sorted(notes[bar], key=lambda note: (note.beat, note.midi is None, note.midi or 0)):
             _add_note(
@@ -467,6 +503,9 @@ def _bass_part(root: ET.Element, score: Score) -> None:
                 key=score.key,
             )
             previous_beat = note.beat
+        for wedge in bar_wedges:
+            if wedge.beat > 0:
+                _wedge(measure, wedge)
 
 
 def _ambient_swell_part(root: ET.Element, score: Score) -> None:
@@ -535,16 +574,10 @@ def score_to_musicxml(score: Score) -> str:
     _melody_part(
         root, score, "P5", score.high, (), (), TREBLE, opening_dynamic=high_dynamic
     )
-    lead_dynamic = (
-        score.lead_dynamics[0]
-        if score.variant == "ambient" and score.lead_dynamics and score.lead_dynamics[0].bar == 0 and score.lead_dynamics[0].beat == 0.0
-        else MELODY_DYNAMIC
-    )
-    lead_rest_dynamics = (
-        score.lead_dynamics[1:]
-        if score.variant == "ambient" and score.lead_dynamics and score.lead_dynamics[0].bar == 0 and score.lead_dynamics[0].beat == 0.0
-        else score.lead_dynamics
-    )
+    if score.variant == "ambient" and score.lead_dynamics and score.lead_dynamics[0].bar == 0 and score.lead_dynamics[0].beat == 0.0:
+        lead_dynamic, lead_rest_dynamics = score.lead_dynamics[0], score.lead_dynamics[1:]
+    else:
+        lead_dynamic, lead_rest_dynamics = _opening_p(score.lead_dynamics, MELODY_DYNAMIC)
     _melody_part(
         root,
         score,
@@ -557,14 +590,17 @@ def score_to_musicxml(score: Score) -> str:
         opening_dynamic=lead_dynamic,
     )
     support_clef = TREBLE if score.variant == "ambient" else BASS_CLEF
-    support_dynamic = PIANO_DYNAMIC if score.variant == "ambient" else MELODY_DYNAMIC
+    if score.variant == "ambient":
+        support_dynamic, support_dynamics = PIANO_DYNAMIC, score.support_dynamics
+    else:
+        support_dynamic, support_dynamics = _opening_p(score.support_dynamics, MELODY_DYNAMIC)
     _melody_part(
         root,
         score,
         "P2",
         score.support,
         score.support_wedges,
-        score.support_dynamics,
+        support_dynamics,
         support_clef,
         opening_dynamic=support_dynamic,
     )

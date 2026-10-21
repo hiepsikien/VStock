@@ -22,7 +22,7 @@ import {
 } from '../api/client';
 import { formatPercent } from '../data/stocks';
 import { colors, spacing, typography } from '../theme';
-import { candleIndexAt, playheadHoldsPoll } from '../utils/recapCursor';
+import { ambientDailyCandleIndexAt, playheadHoldsPoll } from '../utils/recapCursor';
 import { isMarketOpen, REFRESH } from '../utils/marketSession';
 
 const VARIANTS: { id: RecapVariant; label: string }[] = [
@@ -498,7 +498,7 @@ function RecapPlayer({
       onCursor(null, null);
       return;
     }
-    const index = candleIndexAt(effectiveTime, times.length, mapDuration);
+    const index = ambientDailyCandleIndexAt(effectiveTime, times.length, mapDuration);
     const stillRunning = playheadHoldsPoll({
       playing: status.playing,
       currentTime: effectiveTime,
@@ -542,7 +542,7 @@ function RecapPlayer({
     seekingTarget.current = targetSec;
     ignoreDidJustFinish.current = true;
     if (times.length > 0) {
-      const index = candleIndexAt(targetSec, times.length, mapDuration);
+      const index = ambientDailyCandleIndexAt(targetSec, times.length, mapDuration);
       const holds = playheadHoldsPoll({
         playing: status.playing,
         currentTime: targetSec,

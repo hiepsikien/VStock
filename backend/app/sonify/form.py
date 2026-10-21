@@ -190,6 +190,76 @@ DAILY_SPEC = FormSpec(
 )
 
 
+# 1D Ambient keeps the 30-bar price body and attaches a frame around it.
+# Bars 0–1 warm up. Bars 2–31 are the old day, with the former intro joined to
+# phrase 1 and the former outro joined to phrase 3 so those minutes follow the
+# price. Bars 32–33 cool down. 60 BPM makes each frame 8s, and the body
+# stays 2:00.
+DAILY_WARMUP_BARS = 2
+DAILY_BODY_BARS = MUSICAL_BARS
+DAILY_COOLDOWN_BARS = 2
+DAILY_AMBIENT_BARS = DAILY_WARMUP_BARS + DAILY_BODY_BARS + DAILY_COOLDOWN_BARS
+DAILY_AMBIENT_SPEC = FormSpec(
+    bars=DAILY_AMBIENT_BARS,
+    bpm=60,
+    sections=(
+        FormSection(0, DAILY_WARMUP_BARS, "intro", 0),
+        FormSection(DAILY_WARMUP_BARS, DAILY_WARMUP_BARS + PHRASE_STARTS[1], "phrase", 0),
+        FormSection(
+            DAILY_WARMUP_BARS + PHRASE_STARTS[1],
+            DAILY_WARMUP_BARS + PHRASE_STARTS[2],
+            "phrase",
+            1,
+        ),
+        FormSection(
+            DAILY_WARMUP_BARS + PHRASE_STARTS[2],
+            DAILY_WARMUP_BARS + MUSICAL_BARS,
+            "phrase",
+            2,
+        ),
+        FormSection(DAILY_WARMUP_BARS + MUSICAL_BARS, DAILY_AMBIENT_BARS, "outro", 2),
+    ),
+)
+
+
+# Symphony, jazz, and minimalist use the same 34-bar day. The old intro and
+# outro stay inside the body as phrase bars, so those minutes follow the price.
+# Only the attached warm-up and cool-down pedal the tonic.
+DAILY_ENSEMBLE_SPEC = FormSpec(
+    bars=DAILY_AMBIENT_BARS,
+    bpm=BPM,
+    sections=(
+        FormSection(0, DAILY_WARMUP_BARS, "intro", 0),
+        FormSection(DAILY_WARMUP_BARS, DAILY_WARMUP_BARS + PHRASE_STARTS[0], "phrase", 0),
+        FormSection(
+            DAILY_WARMUP_BARS + PHRASE_STARTS[0],
+            DAILY_WARMUP_BARS + PHRASE_STARTS[1],
+            "phrase",
+            0,
+        ),
+        FormSection(
+            DAILY_WARMUP_BARS + PHRASE_STARTS[1],
+            DAILY_WARMUP_BARS + PHRASE_STARTS[2],
+            "phrase",
+            1,
+        ),
+        FormSection(
+            DAILY_WARMUP_BARS + PHRASE_STARTS[2],
+            DAILY_WARMUP_BARS + OUTRO_START,
+            "phrase",
+            2,
+        ),
+        FormSection(
+            DAILY_WARMUP_BARS + OUTRO_START,
+            DAILY_WARMUP_BARS + MUSICAL_BARS,
+            "phrase",
+            2,
+        ),
+        FormSection(DAILY_WARMUP_BARS + MUSICAL_BARS, DAILY_AMBIENT_BARS, "outro", 2),
+    ),
+)
+
+
 @dataclass(frozen=True)
 class ChordSlot:
     start: int

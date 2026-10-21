@@ -138,6 +138,7 @@ class Score:
     support_wedges: tuple[WedgeEvent, ...]
     lead_dynamics: tuple[DynamicEvent, ...]
     support_dynamics: tuple[DynamicEvent, ...]
+    low_wedges: tuple[WedgeEvent, ...] = ()
     variant: Variant = "symphony"
     divisions: int = 2
     swing: bool = False

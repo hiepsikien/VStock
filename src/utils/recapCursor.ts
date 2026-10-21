@@ -6,6 +6,25 @@ export function candleIndexAt(elapsedSec: number, count: number, durationSec: nu
   return Math.min(count - 1, Math.floor((elapsedSec / durationSec) * count));
 }
 
+/** Same hold as `ambient_daily_candle_index`. Every 1D variant uses this 34-bar frame. */
+export function ambientDailyCandleIndexAt(
+  elapsedSec: number,
+  count: number,
+  durationSec: number,
+): number {
+  if (count <= 1) return 0;
+  if (durationSec <= 0 || elapsedSec <= 0) return 0;
+  const introEnd = (durationSec * 2) / 34;
+  const outroStart = (durationSec * 32) / 34;
+  if (elapsedSec < introEnd) return 0;
+  if (elapsedSec >= outroStart) return count - 1;
+  const span = outroStart - introEnd;
+  if (span <= 0) return 0;
+  const fraction = (elapsedSec - introEnd) / span;
+  if (fraction >= 1) return count - 1;
+  return Math.min(count - 1, Math.floor(fraction * count));
+}
+
 /** Visible listen chart: the whole current movement, then the opening of the next.
 
 The split is about 70% current and 30% next, counted in the candles that

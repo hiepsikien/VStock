@@ -4,12 +4,19 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-from app.sonify.ambient import GLASS_HOLD, _omit_same_pitch_reattacks, promote_ambient_slots
+from app.sonify.ambient import (
+    COOLDOWN_HOLD,
+    GLASS_HOLD,
+    _attach_daily_frames,
+    _omit_same_pitch_reattacks,
+    promote_ambient_slots,
+)
 from app.sonify.chords import C, CMAJ7
-from app.sonify.form import ChordSlot
+from app.sonify.form import DAILY_AMBIENT_SPEC, ChordSlot
 from app.sonify.model import Bar, NoteEvent
 from app.sonify.musicxml import score_to_musicxml
-from app.sonify.render import assign_source_bars, render
+from app.sonify.playback import ambient_daily_candle_index, piece_seconds
+from app.sonify.render import assign_daily_ambient_bars, assign_source_bars, render
 from app.sonify.span import month_specs, prepare_week
 
 
@@ -49,10 +56,19 @@ def test_flat_day_states_the_flute_pitch_once() -> None:
     score = render([Bar(80.0, 0.0, 80.0) for _ in range(30)], variant="ambient")
     assert score.variant == "ambient"
     assert score.bpm == 60
+    assert score.bars == 34
     chains = _chains(score.lead)
     assert [chain[0].bar for chain in chains] == [0]
     assert _beats(chains[0]) == 24
     assert len({note.midi for note in chains[0]}) == 1
+    assert chains[0][0].midi % 12 == 0
+    assert not any(note.bar >= 32 and note.midi is not None for note in score.lead)
+    assert score.lead_dynamics[0].marking == "p"
+    assert score.dynamics[0].marking == "p"
+    assert (score.dynamics[-1].bar, score.dynamics[-1].marking) == (33, "ppp")
+    assert score.support_dynamics[-1].marking == "ppp"
+    assert any(wedge.kind == "crescendo" and wedge.bar == 0 for wedge in score.lead_wedges)
+    assert any(wedge.kind == "diminuendo" and wedge.bar == 32 for wedge in score.support_wedges)
     assert _sounding_eighths(score.high) == 0
 
 
@@ -76,14 +92,45 @@ def test_a_rise_that_levels_off_ties_across_the_bar_then_rests() -> None:
     closes = [100.0, 102.0, 104.0, 106.0] + [106.0] * 26
     score = render([Bar(close, 1_000.0, close) for close in closes], variant="ambient")
     chains = _chains(score.lead)
-    assert [(chain[0].bar, chain[0].midi, _beats(chain)) for chain in chains] == [
-        (0, 81, 24.0),
-        (7, 84, 16.0),
-    ]
-    carried = next(note for note in score.lead if note.midi == 84 and note.bar == 10)
+    assert chains[0][0].bar == 0
+    assert chains[0][0].midi % 12 == 0
+    assert _beats(chains[0]) == 24
+    held = next(chain for chain in chains if chain[0].bar == 9)
+    assert _beats(held) == 16
+    assert len({note.midi for note in held}) == 1
+    carried = next(note for note in score.lead if note.bar == 10 and note.midi == held[0].midi)
     assert carried.tie_stop
     assert carried.beat == 0.0
-    assert not any(note.bar == 10 and note.midi == 84 and not note.tie_stop for note in score.lead)
+    assert not any(
+        note.bar == 10 and note.midi == held[0].midi and not note.tie_stop for note in score.lead
+    )
+    assert not any(
+        note.bar >= 32 and note.midi == held[0].midi and not note.tie_stop for note in score.lead
+    )
+
+
+def test_cool_down_extends_a_touching_breath_to_five_bars_then_rests() -> None:
+    outro = 32 * 8
+    chords = {bar: CMAJ7 for bar in range(34)}
+
+    def body(segments: list[tuple[int, int, int, bool, bool, bool]]):
+        attached = _attach_daily_frames(segments, DAILY_AMBIENT_SPEC, chords)
+        return [segment for segment in attached if segment[0] >= 16]
+
+    four_bars = (outro - GLASS_HOLD, GLASS_HOLD, 72, False, False, False)
+    assert body([four_bars]) == [(outro - GLASS_HOLD, COOLDOWN_HOLD, 72, False, False, False)]
+
+    two_bars = (outro - 16, 16, 72, False, False, False)
+    assert body([two_bars]) == [(outro - 16, 16 + 16, 72, False, False, False)]
+
+    five_bars = (outro - COOLDOWN_HOLD, COOLDOWN_HOLD, 72, False, False, False)
+    assert body([five_bars]) == [five_bars]
+
+    rested = (outro - 48, GLASS_HOLD, 72, False, False, False)
+    assert all(segment[0] < outro for segment in body([rested]))
+
+    other = body([(outro - GLASS_HOLD, GLASS_HOLD, 67, False, False, False)])
+    assert other[-1][:3] == (outro, 2 * 8, 72)
 
 
 def test_a_faded_pitch_is_not_rebreathed_until_the_line_moves() -> None:
@@ -153,7 +200,7 @@ def test_fifth_is_a_chord_on_loud_bars_and_absent_on_quiet_ones() -> None:
     xml = score_to_musicxml(score)
     bass = _part(xml, "P4")
     quiet = bass.find("measure[@number='5']")
-    loud = bass.find("measure[@number='17']")
+    loud = bass.find("measure[@number='19']")
     assert quiet is not None and loud is not None
     assert quiet.find("note/chord") is None
     assert loud.find("note/chord") is not None
@@ -272,6 +319,44 @@ def test_breathing_directions_land_before_a_sounding_note_and_harp_swell_is_open
             m is not None and m.find("direction/direction-type/wedge[@type='diminuendo']") is not None
             for m in (measure, next_measure)
         )
+
+
+def test_daily_warmup_is_the_tonic_and_the_price_starts_at_the_phrase() -> None:
+    groups = assign_daily_ambient_bars(30)
+    assert len(groups) == 34
+    assert groups[0] == []
+    assert groups[1] == []
+    assert groups[2] == [0]
+    assert groups[31] == [29]
+    assert groups[32] == []
+    assert groups[33] == []
+    assert [index for group in groups for index in group] == list(range(30))
+    assert assign_source_bars(30)[0] == [0]
+
+    closes = [200.0 - index * 0.5 for index in range(30)]
+    score = render([Bar(close, 1_000.0, close) for close in closes], variant="ambient")
+    intro = next(note for note in score.lead if note.midi is not None and note.bar == 0)
+    phrase = next(note for note in _onsets(score.lead) if note.bar >= 2)
+    assert intro.midi % 12 == score.slots[0].chord.pitches[0] % 12 == 0
+    assert phrase.midi != intro.midi
+    outro = next(note for note in _onsets(score.lead) if note.bar >= 32)
+    assert outro.bar == 32
+    assert outro.midi % 12 == 0
+    symphony = render([Bar(close, 1_000.0, close) for close in closes], variant="symphony")
+    assert symphony.bars == 34
+    assert not any(note.bar == 0 and note.midi is not None for note in symphony.lead)
+    assert any(note.bar == 0 and note.midi is not None and note.midi % 12 == 0 for note in symphony.support)
+
+
+def test_ambient_daily_playhead_holds_the_open_and_the_close() -> None:
+    duration = piece_seconds(34, 60)
+    assert duration == 136
+    assert ambient_daily_candle_index(0, 100, duration) == 0
+    assert ambient_daily_candle_index(7.9, 100, duration) == 0
+    assert ambient_daily_candle_index(8.0, 100, duration) == 0
+    assert ambient_daily_candle_index(8.0 + 60, 100, duration) == 50
+    assert ambient_daily_candle_index(128, 100, duration) == 99
+    assert ambient_daily_candle_index(135.9, 100, duration) == 99
 
 
 def test_minimalist_score_stays_on_its_own_clock() -> None:

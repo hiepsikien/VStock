@@ -55,8 +55,14 @@ from app.sonify.chords import (
 from app.sonify.render import (
     assign_source_bars,
     flute_harmony_pitch,
-    render,
+    render as _render,
 )
+
+
+def render(*args, **kwargs):
+    """These tests pin the 30-bar phrase engine. The 1D frame is tested beside it."""
+    kwargs.setdefault("framed", False)
+    return _render(*args, **kwargs)
 from app.sonify.session import bars_from_ohlc, is_auction_minute, is_recap_minute, session_bars
 
 VN = ZoneInfo("Asia/Ho_Chi_Minh")

@@ -1,8 +1,8 @@
 """Letter dynamics from p to f, as MusicXML 4.0 spells them.
 
-MusicXML prints a dynamic as an empty child of <dynamics>. Only the four
-middle names p, mp, mf, f are used: ppp is inaudible under the melody and fff
-buries it, so liquidity is ranked into four steps the ear can tell apart.
+MusicXML prints a dynamic as an empty child of <dynamics>. Liquidity uses the
+four middle names p, mp, mf, f. The cool-down diminuendo ends at ppp, which is
+not a volume step. fff is unused.
 
 Playback is a sibling <sound dynamics="N"/> element. N is a percentage of
 MusicXML's default forte, which is MIDI velocity 90. The percentages below
@@ -23,6 +23,9 @@ DYNAMICS: tuple[tuple[str, int, int], ...] = (
 
 MARKINGS: tuple[str, ...] = tuple(row[0] for row in DYNAMICS)
 SOUND: dict[str, int] = {marking: percent for marking, percent, _velocity in DYNAMICS}
+# Cool-down arrival. 22% of forte is velocity 20, under p at 49.
+COOLDOWN_MARKING = "ppp"
+SOUND[COOLDOWN_MARKING] = 22
 
 # The bass sits under the melody. Its busiest band still drives eighth notes,
 # but the printed and played loudness stops at this letter.
