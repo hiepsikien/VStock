@@ -1,165 +1,171 @@
 # Giọng gốc, chuyển giọng và bản sắc hợp âm theo cổ phiếu & chương
 
-Kế hoạch bước tiếp theo sau `docs/sonify-long-form.md`: mở rộng hệ thống từ một giọng cố định (`C major / A minor`) sang **6 vùng giọng trên vòng quãng 5**, cho phép **chuyển giọng (modulation) Trưởng ↔ Thứ / Át / Hạ Át giữa các chương**, và **điều phối màu sắc hòa âm theo tính chất cổ phiếu cũng như nội dung từng chương**.
+Kế hoạch bước tiếp theo sau `docs/sonify-long-form.md`: mở rộng hệ thống từ một giọng cố định (`C major / A minor`) sang bộ **vùng giọng trong biên độ dịch ±3 bán âm**, cho phép **chuyển vùng giọng giữa các chương**, và **điều phối màu sắc hòa âm theo tính chất cổ phiếu cũng như nội dung từng chương** mà không làm lệch register nhạc cụ hay đổi hành vi bản 1D.
 
 ---
 
-## 1. Nguyên tắc cốt lõi: Soạn trên bậc âm (Roman Numerals), xuất theo Giọng (`KeySpec`)
+## 1. Nguyên tắc cốt lõi: Soạn trên bậc âm (hệ C), chỉ dịch một lần khi xuất MusicXML
 
 Toàn bộ engine hiện tại (`form.py`, `phrasing.py`, `jazz.py`, `minimalist.py`, `render.py`) đang giải bài toán hòa âm và giai điệu trên **thang 7 bậc diatonic + 12 hợp âm mượn** lấy `C` (`MIDI 60`) làm bậc `I` và `A` (`MIDI 57`) làm bậc `vi`.
 
-Để đổi giọng gốc mà **không phải viết lại** Markov Viterbi, quy tắc dovetail Violin/Cello/Flute, hay DP tầm cữ của Alto/Tenor Sax:
-
-1. **Mọi phép tính nội bộ giữ nguyên trên hệ quy chiếu bậc `I = C` (`fifths = 0`)**:
-   - Bậc thang âm, khoảng cách semitone, và ma trận chuyển tiếp `TRANSITIONS` + `_BORROWED_EDGES` là bất biến đối với phép dịch giọng (transposition-invariant).
-2. **Dịch giọng (`semitone_shift`) trong phạm vi hẹp `[-3, +2]` bán âm ở bước xuất `Score` / `MusicXML`**:
-   - Dịch không quá 3 bán âm giúp mọi nhạc cụ (`Flute <= E6`, `Violin G3–C6`, `Cello C2–C4`, `Alto Sax G3–A♭5`, `Bass E1–C4`) vẫn nằm trọn trong vùng âm sắc ngọt nhất (sweet spot), không bị chói ở quãng cao hay đục ở quãng trầm.
-3. **Chính tả nốt (`step`, `alter`) và ký hiệu hợp âm (`<harmony>`) dịch theo vòng quãng 5 (`fifths`)**:
-   - Khuông nhạc khai báo `<fifths>` từ `-3` đến `+2`.
-   - Mọi hợp âm trong `CHORDS` và `BORROWED` được dịch tên gốc theo bậc diatonic + dấu hóa tương ứng của giọng đích (ví dụ ở `F major` (`fifths = -1`): bậc `I` là `F`, bậc `IV` là `B♭`, bậc `vi` là `Dm`, hợp âm mượn `iv` là `B♭m`, `♭VI` là `D♭`, `V/V` là `G7`).
-
----
-
-## 2. Bộ 6 vùng giọng chuẩn (`KeySpec`)
-
-Sáu vùng giọng nằm quanh đỉnh vòng quãng 5, mỗi vùng gồm **một giọng Trưởng (bậc `I`)** và **giọng Thứ song song (bậc `vi`)**, kèm khả năng mượn sang **giọng Thứ cùng chủ âm (Parallel Minor — lùi 3 nấc `fifths`)**:
-
-| Mã giọng (`key`) | Giọng Trưởng (`uptrend` / `sideway`) | Giọng Thứ song song (`downtrend`) | Giọng Thứ cùng chủ âm (Parallel Minor) | `fifths` | `semitones` (so với C) | Đặc tính âm sắc |
-|---|---|---|---|---|---|---|
-| `C` | C Major | A minor | C minor (`fifths = -3`) | `0` | `0` | Trong sáng, trung tính, cân bằng |
-| `G` | G Major | E minor | G minor (`fifths = -2`) | `+1` (1♯) | `+2` *(hoặc `-5` ở bass)* | Sáng, vang, giàu bồi âm dây buông Violin/Cello |
-| `D` | D Major | B minor | D minor (`fifths = -1`) | `+2` (2♯) | `+2` | Rực rỡ, hào sảng, hợp nhịp tăng trưởng / bứt phá |
-| `F` | F Major | D minor | F minor (`fifths = -4`) | `-1` (1♭) | `-1` | Trầm tĩnh, điềm đạm (Pastoral), vững chãi |
-| `Bb` | B♭ Major | G minor | B♭ minor (`fifths = -5`) | `-2` (2♭) | `-2` | Ấm, dày, giọng sở trường của Saxophone & Rhodes |
-| `Eb` | E♭ Major | C minor | E♭ minor | `-3` (3♭) | `-3` *(hoặc `+3`)* | Bề thế, kịch tính (Heroic khi Trưởng, sâu lắng khi Thứ) |
-
-*Lưu ý về độ dịch `G Major`:* Để giai điệu không bị đẩy cao thêm +7 bán âm, `G` có thể dịch `-5` bán âm ở bè giai điệu hoặc dùng dịch chuyển quãng 5 trong cữ đàn, hoặc chọn cặp dịch nhỏ: `Eb (-3)`, `Bb (-2)`, `F (-1)`, `C (0)`, `D (+2)`, và `A (-3)` / `G (-5/+2)`. Trong bước đầu, ưu tiên độ dịch tuyệt đối `<= 3` bán âm:
-- `Eb`: `-3` bán âm (`fifths = -3`)
-- `Bb`: `-2` bán âm (`fifths = -2`)
-- `F`: `-1` bán âm (`fifths = -1`)
-- `C`: `0` bán âm (`fifths = 0`)
-- `G`: `-5` bán âm cho bass / `+2` với quy ước cữ đàn, hoặc dùng `D` (`+2` bán âm, `fifths = +2`) và `A` (`-3` bán âm, `fifths = +3`).
+1. **Mọi phép tính nội bộ và `Score` giữ nguyên trên hệ quy chiếu bậc `I = C` (`fifths = 0`)**:
+   - Bậc thang âm, khoảng cách semitone, và ma trận chuyển tiếp `TRANSITIONS` + `_BORROWED_EDGES` là bất biến đối với phép dịch giọng.
+   - `Score` vẫn lưu các `NoteEvent.midi` và `HarmonyEvent.chord` ở hệ C để các unit test hiện tại và việc kiểm tra contour hoạt động nguyên vẹn.
+2. **Chỉ dịch một lần duy nhất trong `musicxml.py` (concert pitch)**:
+   - Không dịch kép ở cả `Score` lẫn `musicxml.py`.
+   - Khi xuất MusicXML, mọi `NoteEvent.midi` và `HarmonyEvent.chord` được dịch đi `key.semitones` bán âm. Các kèn Sax và Bass vẫn xuất ở concert pitch như hiện tại (Bass giữ `<octave-change>-1`).
+   - Thẻ `<fifths>` trong `_attributes()` ghi `score.key.fifths`.
+3. **Giữ nguyên trần register nhạc cụ sau khi dịch**:
+   - Hiện tại các trần chạy trước khi xuất: Flute `FLUTE_CEILING = 88` (`E6`), Violin `VIOLIN_CEILING = 84` (`C6`), Alto Sax `SAX_CEILING = 80` (`A♭5`), Cello handback `CELLO_HANDBACK = 60` (`C4`).
+   - Để phép dịch dương (`+2`, `+3` bán âm) không đẩy Flute vượt `E6`, Violin vượt `C6` hay Sax vượt `A♭5` khi phát thực tế, chỉ chọn các giọng có **`semitones` nằm trong `[-3, +3]`** và trừ `max(0, key.semitones)` vào trần của Flute/Violin/Sax lúc dựng nốt (hoặc gấp quãng 8 những nốt vượt trần sau khi cộng `key.semitones` đối với Flute/Violin).
 
 ---
 
-## 3. Ánh xạ Giọng gốc (`Home Key`) theo tính chất cổ phiếu
+## 2. Bộ 5 vùng giọng chuẩn (`KeySpec`)
 
-Người dùng có thể để **`Auto`** (mặc định) hoặc chọn trực tiếp giọng trên UI (`Auto`, `C`, `G`, `D`, `F`, `B♭`, `E♭`).
+Trên vòng quãng 5, mỗi nấc dấu hóa (`fifths`) cách nhau một quãng 4/5 ($\pm 7$ bán âm mod 12), không phải 1 bán âm. `F` (`+5` hoặc `-7` bán âm) và `G` (`+7` hoặc `-5` bán âm) nằm ngoài cửa sổ dịch `±3` bán âm nên nếu dịch toàn cục sẽ đẩy cữ đàn đi quá xa hoặc phải gấp quãng 8 từng nốt làm gãy contour giai điệu.
 
-Khi ở chế độ **`Auto`**, `home_key(symbol, bars)` chọn giọng gốc ổn định cho mã cổ phiếu dựa trên nhóm ngành / tính chất giao dịch:
+Do đó, bộ giọng chuẩn chốt ở **5 vùng giọng** vừa khít cả cửa sổ hóa biểu `fifths ∈ [-3, +3]` lẫn độ dịch chủ âm thực `semitones ∈ [-3, +3]`:
 
-| Nhóm cổ phiếu | Mã tiêu biểu | Giọng gốc (`Home Key`) | Lý do âm nhạc |
+| Mã giọng (`key`) | Chủ âm bậc `I` (Trưởng) | Chủ âm bậc `vi` (Thứ song song) | `fifths` | `semitones` (dịch từ C) | Đặc tính âm sắc |
+|---|---|---|---|---|---|
+| `Eb` | E♭ Major | C minor | `-3` (3♭) | `+3` | Bề thế, kịch tính (bậc `I` hùng tráng ở E♭ trưởng, bậc `vi` sâu lắng ở Đô thứ) |
+| `Bb` | B♭ Major | G minor | `-2` (2♭) | `-2` | Ấm, dày, giọng sở trường của Saxophone, Rhodes và dàn dây trầm |
+| `C` | C Major | A minor | `0` | `0` | Trong sáng, trung tính, cân bằng |
+| `D` | D Major | B minor | `+2` (2♯) | `+2` | Rực rỡ, sáng, giàu bồi âm dây (Violin/Cello) |
+| `A` | A Major | F♯ minor | `+3` (3♯) | `-3` | Sắc nét nhưng đằm ở âm khu trầm (`-3` bán âm), hợp nhịp chuyển giao |
+
+### Chuyển Trưởng ↔ Thứ trong cùng một hệ bậc
+- **Không dùng "Thứ cùng chủ âm (Parallel Minor)" bằng phép dịch ở bước này**: Đô trưởng và Đô thứ khác tập hợp nốt; chỉ dịch bán âm không biến bậc `I` thành hợp âm thứ.
+- Thay vào đó, mỗi `KeySpec` đã có sẵn cặp **Trưởng (`I`) – Thứ song song (`vi`)** do `regime` điều khiển (`uptrend`/`sideway` mở ở `I`, `downtrend` mở ở `vi`), cộng với các hợp âm mượn màu thứ đã có sẵn trong catalog (`Fm`, `Gm`, `A♭`, `E♭`, `Bm7♭5`, `E7`).
+- Đáng chú ý: khi chuyển vùng giọng từ `C` (`C Major / A minor`) sang `Eb` (`E♭ Major / C minor`) trong một chương giảm điểm (`downtrend`), bậc `vi` của vùng `Eb` chính là **Đô thứ (`C minor`)** — đạt đúng hiệu ứng màu Đô thứ bằng chính hệ bậc hiện có mà không cần viết hệ thang thứ riêng.
+
+---
+
+## 3. Ánh xạ Giọng gốc (`Home Key`) cố định theo cổ phiếu
+
+Mỗi cổ phiếu ánh xạ **1–1** vào một `Home Key` cố định (không phụ thuộc vào dữ liệu giá hay `rel_span`, và không dùng `hash()` mặc định của Python vốn đổi theo `PYTHONHASHSEED`):
+
+| Nhóm cổ phiếu | Mã cố định trong bảng | Giọng gốc (`Home Key`) | Lý do âm nhạc |
 |---|---|---|---|
-| **Ngân hàng & Tài chính trụ cột** | `VCB`, `BID`, `CTG`, `TCB`, `MBB`, `ACB`, `VPB` | **`F`** (`F Major / D minor`) hoặc **`Bb`** (`B♭ Major / G minor`) | Âm khu ấm, chững chạc; đặc biệt hợp tiếng kèn Sax và Piano trầm. |
-| **Công nghệ, Bán lẻ & Tăng trưởng** | `FPT`, `MWG`, `DGW`, `FRT`, `PNJ`, `CTR` | **`D`** (`D Major / B minor`) hoặc **`G`** (`G Major / E minor`) | Nhánh dấu thăng (`♯`) làm dàn dây sáng, giàu năng lượng tiến tới. |
-| **Thép, Bất động sản, Chứng khoán (Chu kỳ cao)** | `HPG`, `HSG`, `NKG`, `VIC`, `VHM`, `NVL`, `SSI`, `VND` | **`Eb`** (`E♭ Major / C minor`) | Biên độ cảm xúc rộng: khi tăng nghe hùng tráng (`E♭`), khi giảm rơi vào `C minor` đầy kịch tính. |
-| **Tiêu dùng, Phòng thủ, Điện – Khí** | `VNM`, `MSN`, `SAB`, `GAS`, `POW`, `REE` | **`C`** (`C Major / A minor`) | Trong trẻo, ổn định, ít màu sắc cực đoan. |
-| **Mã khác (ngoài bảng cố định)** | Các mã HOSE/HNX còn lại | Suy ra từ `hash(symbol)` kết hợp biên độ `rel_span` | Đảm bảo mỗi mã có một "chữ ký giọng" nhất quán, không bị đổi ngẫu nhiên giữa các lần bấm. |
+| **Ngân hàng & Tài chính** | `VCB`, `BID`, `CTG`, `TCB`, `MBB`, `ACB`, `VPB`, `STB`, `HDB`, `TPB` | **`Bb`** (`B♭ Major / G minor`) | Âm khu trầm ấm (`-2` bán âm), chững chạc, hợp tiếng Sax và Piano. |
+| **Công nghệ, Bán lẻ & Tăng trưởng** | `FPT`, `MWG`, `DGW`, `FRT`, `PNJ`, `CTR`, `CMG` | **`D`** (`D Major / B minor`) | Nhánh dấu thăng (`+2♯`, `+2` bán âm) làm dàn dây sáng, giàu năng lượng. |
+| **Thép, BĐS, Chứng khoán (Chu kỳ cao)** | `HPG`, `HSG`, `NKG`, `VIC`, `VHM`, `VRE`, `NVL`, `KDH`, `SSI`, `VND`, `HCM`, `VCI` | **`Eb`** (`E♭ Major / C minor`) | Khi `uptrend` mở ở `E♭ Major` bề thế; khi `downtrend` rơi vào `C minor` kịch tính. |
+| **Tiêu dùng, Phòng thủ, Điện – Khí** | `VNM`, `MSN`, `SAB`, `GAS`, `POW`, `REE`, `PLX`, `BVH` | **`C`** (`C Major / A minor`) | Trong trẻo, ổn định, cân bằng. |
+| **Hạ tầng, Cảng biển, Hóa chất, Xuất khẩu** | `GMD`, `HAH`, `DGC`, `DPM`, `DCM`, `VHC`, `ANV`, `PTB` | **`A`** (`A Major / F♯ minor`) | Dấu hóa sáng (`+3♯`) nhưng cữ âm trầm (`-3` bán âm), vững và rõ nét. |
+| **Các mã còn lại** | Ngoài danh sách trên | `KEY_ORDER[zlib.crc32(symbol.encode("utf-8")) % 5]` | Tất định (deterministic) tuyệt đối qua mọi lần khởi động server, đảm bảo một mã luôn giữ đúng một giọng. |
+
+*Chế độ chọn giọng:* Bước đầu chạy hoàn toàn tự động (`Auto`) theo bảng trên để không làm phình bộ nhớ cache (`6 giọng × 3 biến thể`).
 
 ---
 
-## 4. Kịch bản chuyển giọng (Modulation) qua các chương
+## 4. Ngưỡng theo `span` và Bản sắc chương (`MovementCharacter`)
 
-### 4.1. Bản `1D` và `1W` (Một chương liền mạch)
-- Giữ **một `Home Key` duy nhất** cho cả bài.
-- Sự chuyển hóa Trưởng ↔ Thứ diễn ra tự nhiên bên trong giọng đó thông qua `regime` của từng phrase (`uptrend` → chủ âm `I`, `downtrend` → chủ âm `vi` thứ + hợp âm mượn `iv`, `♭VI`, `V/vi`).
+Một mức biến động `2.5%` là lớn với 1 phiên (`1D`), vừa phải với 1 tuần (`1W`/`1M`), nhưng nhỏ với 1 tháng (`3M`/`1Y`). Vì vậy cả việc chọn `MovementCharacter` lẫn kịch bản chuyển giọng đều đọc chung `return_pct` và `volatility` của chương với **bảng ngưỡng theo `span`**:
 
-### 4.2. Bản `1M` (Sonata 4 chương: `I – II – III – IV`)
-Lấy `K` là `Home Key` (có số dấu hóa `f = K.fifths`):
-
-- **Chương I (Trình bày — 96 ô, 96 BPM):** Mở tại **`K`** (`fifths = f`).
-- **Chương II (Chậm / Ballad — 72 ô, 72 BPM):**
-  - Nếu tuần 2 **giảm điểm** (`close_end < close_start * 0.99`): chuyển sang **Parallel Minor** (`fifths = f - 3`, ví dụ `C Major → C minor / E♭`). Giai điệu trầm hẳn xuống.
-  - Nếu tuần 2 **tăng hoặc đi ngang**: chuyển sang **Subdominant** (`fifths = f - 1`, ví dụ `C → F`, `D → G`) — màu sắc thư giãn kinh điển của chương II Sonata.
-- **Chương III (Scherzo — 72 ô, 120 BPM):**
-  - Đặt ở **Dominant** (`fifths = f + 1`) hoặc giữ ở nhánh Thứ của `K` nếu tuần 3 biến động mạnh, tạo đà căng (tension) trước chương kết.
-- **Chương IV (Finale — 96 ô, 96 BPM):**
-  - Quay về **`K`** (`fifths = f`).
-  - **Luật đảo chiều cuối kỳ (Triumph / Tragedy):**
-    - Nếu đầu tháng giảm sâu nhưng tuần cuối bứt phá mạnh (`uptrend`): khóa chủ âm chương IV ở **Trưởng (`I`)** với cadence sáng.
-    - Nếu cả tháng tăng nhưng tuần cuối gãy xu hướng mạnh (`downtrend` > 3%): chuyển Finale sang **Parallel Minor (`fifths = f - 3`)** để kết thúc đúng thực tế thị trường.
-
-### 4.3. Bản `3M` (Concerto 3 chương: `I – II – III`)
-- **Chương I (Tháng 1):** `Home Key` (`K`).
-- **Chương II (Tháng 2 — Chậm, 60 BPM):** Chuyển sang **Subdominant (`f - 1`)** nếu tháng 2 tích lũy/tăng, hoặc **Parallel Minor (`f - 3`)** nếu tháng 2 suy giảm.
-- **Chương III (Tháng 3 — Finale, 108 BPM):** Trở về **`K`** (hoặc `Parallel Minor` của `K` nếu tháng cuối rơi vào downtrend sâu).
-
-### 4.4. Bản `1Y` (Tổ khúc 4 mùa — tối đa 12 chương)
-Mười hai tháng đi qua **4 vùng giọng theo 4 mùa** trên vòng quãng 5, mỗi mùa 3 tháng (`Mở – Giữa – Khép`):
-
-| Mùa trong năm | Các tháng lịch | Vùng giọng cơ sở (so với `Home Key = f`) | Biến thiên theo nội dung tháng |
-|---|---|---|---|
-| **Mùa Xuân (Q1)** | Tháng 1, 2, 3 | **`f`** (`Home Key`) | Tháng tăng dùng nhánh Trưởng; tháng giảm dùng nhánh Thứ song song (`vi`). |
-| **Mùa Hạ (Q2)** | Tháng 4, 5, 6 | **`f + 1`** (Sang hướng Át — sáng hơn 1 nấc `♯`) | Nếu cả quý 2 giảm điểm thì đi theo hướng ngược lại **`f - 1`**. |
-| **Mùa Thu (Q3)** | Tháng 7, 8, 9 | **`f - 1`** (Sang hướng Hạ Át — dịu và trầm hơn 1 nấc `♭`) | Tháng giảm sâu (> 5%) mượn xuống **`f - 3`** (Parallel Minor). |
-| **Mùa Đông (Q4)** | Tháng 10, 11, 12 | Tháng 10–11 ở **`f - 2`** hoặc **`f + 1`**, Tháng 12 (Finale) quay về **`f`** | Tháng 12 chốt lại toàn bộ hành trình năm tại `Home Key`. |
-
----
-
-## 5. Bản sắc hợp âm theo nội dung chương (`MovementCharacter`)
-
-Ngoài việc chọn giọng (`KeySpec`) và `regime` từng phrase, toàn bộ chương có một chỉ số tổng kết từ chuỗi `bars` của chính chương đó:
 - `return_pct = (bars[-1].close - bars[0].close) / bars[0].close`
 - `volatility = (max_close - min_close) / min_close`
 
-Từ hai con số này, chương mang một trong 4 **Bản sắc hòa âm (`MovementCharacter`)** tác động trực tiếp lên `REGIME_BIAS` và trọng số hợp âm mượn trong `form.py`:
+| `span` | Đơn vị 1 chương | Ngưỡng xu hướng `trend_th` (`|return_pct|`) | Ngưỡng biến động `vol_th` (`volatility`) |
+|---|---|---|---|
+| `1W` | 1 tuần (tối đa 5 phiên) | `2.0%` (`0.020`) | `3.5%` (`0.035`) |
+| `1M` | ~1 tuần (1 chương của tháng) | `2.0%` (`0.020`) | `3.5%` (`0.035`) |
+| `3M` | 1 tháng (trong quý) | `4.0%` (`0.040`) | `6.5%` (`0.065`) |
+| `1Y` | 1 tháng (trong năm) | `4.0%` (`0.040`) | `6.5%` (`0.065`) |
 
-1. **`rally` (Tăng trưởng rõ rệt: `return_pct >= +2.5%`):**
-   - Giảm nhẹ chi phí của Secondary Dominants (`D7 -> G`, `C7 -> F`, `A7 -> Dm`).
-   - Ưu tiên mở và kết phrase trên hợp âm Trưởng (`I`, `IV`, `V7`), tạo lực đẩy hướng lên.
-2. **`selloff` (Sụt giảm mạnh: `return_pct <= -2.5%`):**
-   - Tăng ưu tiên cho chủ âm thứ (`Am`/`Am7`) và nhóm modal mixture (`Fm`, `A♭`, `Bm7♭5`, `E7`).
-   - Ở cadence cuối phrase, ưu tiên kết về `vi` (`Am`) hoặc half-cadence trên `E7` thay vì về `C` trưởng.
-3. **`volatile` (Giằng co biên độ lớn: `|return_pct| < 2.5%` nhưng `volatility >= 4%`):**
-   - Mở rộng xác suất đi qua hợp âm giảm và nửa giảm (`F♯°7`, `Bm7♭5`), hợp âm bảy (`maj7`, `7`, `m7`) thắng thế so với hợp âm ba thuần (`SEVENTH_TENSION_COST` giảm về `0.0`).
-4. **`calm` (Tích lũy / Đi ngang biên độ hẹp: `|return_pct| < 2.5%` và `volatility < 4%`):**
-   - Tăng `SEVENTH_TENSION_COST` ở bản Giao hưởng để ưu tiên hợp âm ba trong trẻo (`C`, `F`, `Am`, `Dm`) và màu Mixolydian nhẹ (`B♭`, `Gm`).
-   - Giảm tần suất đổi hợp âm 1 ô (`SINGLE_BAR_CHANGE_PENALTY` tăng nhẹ) để nhịp thở hòa âm chậm và tĩnh hơn.
+Từ `(return_pct, volatility)` so với `(trend_th, vol_th)` của `span` đó, mỗi chương dài (`1W`–`1Y`) nhận một `MovementCharacter`:
 
----
+1. **`None` (Mặc định cho `1D`):**
+   - Bản 1 ngày giữ `character = None`. Không chỉnh sửa `REGIME_BIAS` hay `SINGLE_BAR_CHANGE_PENALTY`, đảm bảo âm thanh và test của `1D` không thay đổi.
+2. **`"rally"` (`return_pct >= +trend_th`):**
+   - Trong hàm tạo bias theo chương `_regime_bias_for(character)`, giảm nhẹ bias penalty cho hợp âm trưởng và giảm chi phí quá độ qua các secondary dominants (`D7 -> G`, `C7 -> F`, `A7 -> Dm`).
+3. **`"selloff"` (`return_pct <= -trend_th`):**
+   - Giảm bias cost cho chủ âm thứ (`Am`, `Am7`) và các hợp âm mượn nhóm thứ (`Fm`, `A♭`, `Bm7♭5`, `E7`).
+4. **`"volatile"` (`|return_pct| < trend_th` và `volatility >= vol_th`):**
+   - Bỏ `SEVENTH_TENSION_COST` (hợp âm 7 không bị phạt so với hợp âm 3) và truyền `single_bar_change_penalty = 0.45` (thấp hơn mức `0.65` mặc định) vào `plan_markov_chords` để nhịp hòa âm đổi nhanh hơn theo sóng giằng co.
+5. **`"calm"` (`|return_pct| < trend_th` và `volatility < vol_th`):**
+   - Tăng nhẹ `seventh_tension_cost = 0.08` khi xây bảng bias của chương để ưu tiên hợp âm ba trong trẻo (`C`, `F`, `Am`, `Dm`), và truyền `single_bar_change_penalty = 0.80` để giữ hợp âm ngân dài, tĩnh lặng.
 
-## 6. Chỗ nối hòa âm giữa hai chương (`Pivot Chord Bonus`)
-
-Khi chuyển từ Chương $k$ (ở giọng $K_k$) sang Chương $k+1$ (ở giọng $K_{k+1}$):
-- Lấy tập pitch classes thực tế (sau khi đã cộng `K_k.semitones`) của hợp âm kết Chương $k$.
-- Trong `plan_markov_chords()` của Chương $k+1$, tại `bar == 0` (intro) và ô đầu tiên của `phrase` đầu tiên:
-  - Hợp âm ứng viên nào (sau khi cộng `K_{k+1}.semitones`) chia sẻ **ít nhất 1 hoặc 2 âm chung (common tones)** với hợp âm kết của Chương $k$ sẽ được hưởng `PIVOT_CHORD_BONUS = 0.20`.
-- Kết quả: Dù đổi giọng sau khoảng nghỉ 4–8 giây, hợp âm mở màn của chương mới vẫn nối tiếp âm hưởng vừa tắt của chương trước (đúng kỹ thuật *common-tone modulation* trong âm nhạc cổ điển).
+*(Lưu ý kỹ thuật: Không gán lại hằng số toàn cục `SEVENTH_TENSION_COST` hay `SINGLE_BAR_CHANGE_PENALTY`; `plan_markov_chords()` nhận tham số hoặc đọc từ `spec.character` để tính bảng `bias` cục bộ cho lần chạy đó).*
 
 ---
 
-## 7. Thiết kế kỹ thuật & Các file cần chạm
+## 5. Kịch bản chuyển vùng giọng (Modulation) và chọn giọng theo Pivot
 
-### 7.1. Module mới `backend/app/sonify/keys.py`
-- Định nghĩa `KeyName = Literal["C", "G", "D", "F", "Bb", "Eb"]` và `KeySpec(name, fifths, semitones)`.
-- Hàm `transpose_chord(chord: Chord, key: KeySpec) -> Chord`: dịch `root_step`, `alter`, `pitches`, và bảng `tones` của `Chord` sang giọng `key`.
-- Hàm `midi_to_spelled_pitch(midi: int, key: KeySpec, harmony: Chord | None) -> tuple[str, int, int]`: trả về `(step, alter, octave)` đúng với hóa biểu `key.fifths` để không viết nhầm dấu thăng/giáng (ví dụ trong `F Major`, nốt `MIDI 70` luôn viết là `B♭` thay vì `A♯`).
-- Hàm `stock_home_key(symbol: str, bars: list[Bar]) -> KeySpec` và `plan_movement_keys(home: KeySpec, span: str, parts: list[list[Bar]]) -> tuple[KeySpec, ...]`.
+Đặt thứ tự 5 vùng giọng theo chiều dấu hóa tăng dần (`fifths` từ `-3` đến `+3`):
 
-### 7.2. Cập nhật `Score`, `FormSpec` và `PreparedMovement`
-- `FormSpec` và `PreparedMovement` nhận thêm `key: KeySpec = C_KEY` và `character: MovementCharacter = "calm"`.
-- `Score` lưu `key: KeySpec = C_KEY` (hoặc `fifths: int = 0`).
-- Trong `render()`:
-  - Trước khi trả `Score`, dịch các `NoteEvent.midi` (hoặc dịch tại `musicxml.py` + truyền `key` vào `Score`) theo `key.semitones` và dịch `HarmonyEvent.chord` qua `transpose_chord(chord, key)`.
-- Trong `musicxml.py`:
-  - `_attributes()` ghi `<fifths>{score.key.fifths}</fifths>` thay vì `"0"`.
-  - `midi_to_pitch()` đọc `score.key` để chọn đúng chính tả theo hóa biểu.
+```
+KEY_RING = (Eb [-3], Bb [-2], C [0], D [+2], A [+3])
+```
 
-### 7.3. Cache & API (`audio.py`, `schemas.py`, `SpanRecap.tsx`)
-- `scale_fingerprint` của `PreparedMovement` nối thêm mã giọng (`f"{key.name}:{low:.2f}-{high:.2f}"`), hoặc tăng `SPAN_REVISION = "2"` và `RECAP_REVISION = "10"` khi bật giọng mới.
-- `SpanMovementResponse` có thể trả thêm trường `keyLabel: str` (ví dụ `"F Trưởng"`, `"D Thứ"`) để hiển thị tinh tế cạnh nhãn chương trên UI (`"I · F Trưởng"`).
-- Tuỳ chọn: thêm query `key: KeyName | Literal["auto"] = "auto"` nếu muốn cho người dùng tự chọn giọng trên giao diện.
+Mọi phép dịch chuyển vùng giọng giữa các chương đều đi trên chỉ số `idx ∈ {0, 1, 2, 3, 4}` của `KEY_RING` (dùng hàm kẹp hoặc bước lân cận hợp lệ trong `KEY_RING`), tuyệt đối không sinh ra `fifths` nằm ngoài 5 giọng này.
+
+### 5.1. Luật chọn ứng viên giọng theo âm chung (`Pivot Key Selection`)
+Khi chương $k$ kết thúc và chương $k+1$ có tập ứng viên giọng $C_{\text{keys}} \subseteq \text{KEY\_RING}$:
+- Xác định hợp âm kết thực tế của chương $k$: vì outro khóa trên chủ âm của phrase cuối chương $k$, pitch classes ở concert pitch của hợp âm kết chương $k$ là `(tonic_pcs(last_regime_k) + key_k.semitones) mod 12`.
+- Xác định chủ âm mở đầu (intro) của chương $k+1$ dưới mỗi giọng ứng viên $K' \in C_{\text{keys}}$: `(tonic_pcs(first_regime_{k+1}) + K'.semitones) mod 12`.
+- Ưu tiên giọng $K'$ nào mà hai tập pitch classes trên có **từ 2 âm chung trở lên** (`len(prev_pcs & next_pcs) >= 2`). Nếu có nhiều ứng viên cùng đạt, chọn theo hướng kịch bản của chương dưới đây.
+
+### 5.2. Bản `1D` và `1W`
+- Chỉ có 1 chương: dùng trực tiếp `Home Key` (`K_home`) của cổ phiếu.
+
+### 5.3. Bản `1M` (Sonata 4 chương: `I – II – III – IV`) và `3M` (Concerto 3 chương: `I – II – III`)
+Gọi `idx_home` là vị trí của `Home Key` trong `KEY_RING`:
+
+- **Chương I (Trình bày):** Luôn ở `Home Key` (`KEY_RING[idx_home]`).
+- **Chương II (Chậm / Ballad):**
+  - Nếu chương II có `character == "selloff"` (`return_pct <= -trend_th`): bước về phía nhiều dấu giáng hơn trên `KEY_RING` (`max(0, idx_home - 1)`, hoặc `idx_home + 1` nếu `idx_home == 0`, tức từ `Eb` sang `Bb`).
+  - Nếu chương II là `"rally"`, `"calm"` hoặc `"volatile"`: chọn trong hai giọng lân cận `{idx_home - 1, idx_home + 1}` (nằm trong `[0..4]`) giọng nào thỏa điều kiện **Pivot $\ge 2$ âm chung** với hợp âm kết của Chương I.
+- **Chương III của `1M` (Scherzo):**
+  - Bước sang hướng đối diện trên `KEY_RING` (`min(4, idx_home + 1)`, hoặc `idx_home - 1` nếu `idx_home == 4`) để tạo độ sáng/độ căng trước khi về chương kết.
+- **Chương cuối (Finale — Chương IV của `1M`, Chương III của `3M`):**
+  - Luôn quay về **`Home Key`** (`KEY_RING[idx_home]`) để đóng khung tác phẩm.
+  - **Hiệu ứng Coda kết (Triumph / Tragedy trên section `outro`):**
+    - Không can thiệp vào regime của cả chương (để không xung đột với `plan_markov_chords`).
+    - Chỉ riêng section `outro` (coda cuối chương Finale): nếu cả kỳ (`1M` hoặc `3M`) mở đầu giảm nhưng chương Finale có `character == "rally"`, section `outro` được phép kết trên chủ âm Trưởng (`I` — `C`/`Cmaj7` trong hệ quy chiếu) ngay cả khi phrase sát trước đó là `sideway`/`downtrend`. Ngược lại, nếu chương Finale là `"selloff"`, section `outro` kết trên chủ âm Thứ (`vi` — `Am`/`Am7`).
+
+### 5.4. Bản `1Y` (Tổ khúc 12 tháng theo thứ tự thời gian thực)
+Vì `prepare_year()` xếp tối đa 12 tháng gần nhất theo **thứ tự thời gian thực** (tháng 12 có thể nằm ở giữa chuỗi chứ không nhất thiết là chương cuối):
+- **Chương đầu tiên (`position == 0`)** và **Chương cuối cùng (`position == len(movements) - 1`)** luôn đặt ở **`Home Key`** (`idx_home`), đảm bảo cả tổ khúc mở và khép đúng giọng gốc của cổ phiếu.
+- **Các chương ở giữa (`0 < position < len - 1`):**
+  - Mỗi quý lịch (`season = (day.month - 1) // 3`) có một độ lệch bước nhỏ `season_offset` quanh `idx_home`, được kẹp chặt trong `[0, 4]`:
+    - Quý 1 (`season == 0`): `idx_home`
+    - Quý 2 (`season == 1`): `min(4, idx_home + 1)` (nếu `idx_home == 4` thì `3`)
+    - Quý 3 (`season == 2`): `max(0, idx_home - 1)` (nếu `idx_home == 0` thì `1`)
+    - Quý 4 (`season == 3`): chọn giữa `idx_home` và giọng lân cận theo điều kiện Pivot với chương trước.
+  - Bên trong một mùa, tháng nào có `character == "selloff"` lùi 1 bước về phía giáng `max(0, season_idx - 1)` để tạo độ tối tương phản.
 
 ---
 
-## 8. Thứ tự triển khai (Từng bước nhỏ, kiểm thử độc lập)
+## 6. Cache & Fingerprint (`audio.py`, `span.py`)
 
-1. **Bước 1 — `keys.py` & `musicxml.py`:**
-   - Viết `KeySpec`, phép dịch `Chord` và `midi_to_pitch` theo `fifths`.
-   - Test xuất MusicXML ở cả 6 giọng (`C`, `G`, `D`, `F`, `Bb`, `Eb`) với cả hợp âm thuận lẫn 12 hợp âm mượn, đảm bảo không có lỗi chính tả nốt và MuseScore đọc đúng hóa biểu.
-2. **Bước 2 — `MovementCharacter` & `Pivot Chord Bonus` trong `form.py`:**
-   - Thêm điều chỉnh bias theo 4 tính cách (`rally`, `selloff`, `volatile`, `calm`) và điểm thưởng nối hợp âm giữa hai chương.
-3. **Bước 3 — Gắn `Home Key` theo cổ phiếu & kịch bản chuyển giọng `1M / 3M / 1Y` trong `span.py`:**
-   - Áp dụng bảng ánh xạ ngành cho cổ phiếu và quy tắc chuyển giọng qua các chương / các mùa.
-4. **Bước 4 — Hiển thị nhãn giọng trên UI (`SpanRecap.tsx` / `SessionRecap.tsx`):**
-   - Hiển thị giọng của chương đang phát và (tuỳ chọn) chip đổi giọng gốc.
+Vì âm thanh của một chương giờ phụ thuộc vào:
+1. Chuỗi nến (`candle_count`, `min_close`, `max_close`)
+2. Giọng của chương (`key.name`)
+3. Bản sắc hòa âm (`character`)
+4. Hợp âm kết của chương (`outro_override` nếu là Finale)
+
+`scale_fingerprint` trên `PreparedMovement` sẽ bao gồm đầy đủ các thành phần này:
+
+```python
+f"{self.key.name}-{self.character or 'std'}-{low:.2f}-{high:.2f}"
+```
+
+Đồng thời tăng `SPAN_REVISION = "2"` trong `backend/app/sonify/audio.py` để tự động dọn các file span cũ chưa có giọng mới. Bản `1D` (`RECAP_REVISION = "9"`) giữ nguyên hoặc chỉ tăng khi bật `stock_home_key` cho 1D.
+
+---
+
+## 7. Thứ tự triển khai (Từng bước kiểm thử độc lập)
+
+1. **Bước 1 — `keys.py` & `musicxml.py` (Chính tả & Dịch giọng khi xuất):**
+   - Tạo `backend/app/sonify/keys.py` với 5 `KeySpec` (`Eb`, `Bb`, `C`, `D`, `A`), hàm `transpose_chord(chord, key)` và `midi_to_spelled_pitch(midi, key, harmony)`.
+   - Cập nhật `musicxml.py` để ghi `<fifths>{score.key.fifths}</fifths>` và dịch cao độ + hợp âm một lần duy nhất lúc xuất XML; giữ trần nhạc cụ an toàn khi `key.semitones > 0`.
+   - Viết unit test kiểm tra cả 5 giọng với toàn bộ 12 hợp âm thuận + 12 hợp âm mượn: không nốt nào sai chính tả hoặc lệch quãng 8, MuseScore đọc đúng hóa biểu.
+2. **Bước 2 — `MovementCharacter` trong `form.py`:**
+   - Thêm hàm tạo bảng bias theo `character` (`None`, `"rally"`, `"selloff"`, `"volatile"`, `"calm"`) và tham số `single_bar_change_penalty` trong `plan_markov_chords()`.
+   - Kiểm thử: khi `character=None`, đầu ra của `plan_slots()` trùng khít 100% với bản 1D hiện tại.
+3. **Bước 3 — Gắn `Home Key` cố định & Chuyển giọng các chương trong `span.py`:**
+   - Áp dụng `stock_home_key(symbol)` dùng `zlib.crc32` cho các mã ngoài bảng.
+   - Áp dụng quy tắc chọn giọng theo `KEY_RING` + Pivot $\ge 2$ âm chung cho `1M`, `3M`, `1Y`, và cập nhật `scale_fingerprint` + `SPAN_REVISION`.
+4. **Bước 4 — Nhãn giọng trên UI (`SpanRecap.tsx`):**
+   - Thêm `keyLabel` vào `SpanMovementResponse` (ví dụ `"Si♭ Trưởng"`, `"Đô Thứ"`) để hiển thị cạnh tên chương khi phát.
