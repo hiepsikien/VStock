@@ -192,7 +192,7 @@ def _vibraphone_accent_part(
       when `rel_span <= 0.5%` (flat / 1–2 tick sideway sessions), ramping linearly up to
       36 eighths at `rel_span >= 2.0%`.
     - Breakouts trigger a ringing chord in the bell window (velocity 64), two or three notes and never a minor second.
-    - High phrase apexes / peaks (>= G5 = 79) trigger melodic bell notes in C6–F6 (velocity 58)
+    - High phrase apexes / peaks (>= G5 = 79) trigger melodic bell notes in the bell window (velocity 58)
       that follow the price contour rather than repeating a static ceiling pitch.
     """
     max_eighths = bell_budget(rel_span, VIBRAPHONE_MAX_EIGHTHS)
