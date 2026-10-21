@@ -61,8 +61,14 @@ def test_flat_day_holds_one_glass_note_per_phrase_section() -> None:
 def test_a_rising_phrase_section_keeps_at_most_four_glass_attacks() -> None:
     closes = [100.0 + index * 4.0 for index in range(30)]
     score = render([Bar(close, 1_000.0, close) for close in closes], variant="ambient")
+    all_attacks = _onsets(score.lead)
+    assert all(
+        b.bar - a.bar >= 3
+        for a, b in zip(all_attacks, all_attacks[1:])
+    )
+    assert any(event.marking == "mf" for event in score.lead_dynamics)
     for start in (2, 10, 18):
-        attacks = [note for note in _onsets(score.lead) if start <= note.bar < start + 8]
+        attacks = [note for note in all_attacks if start <= note.bar < start + 8]
         assert 1 <= len(attacks) <= 2
         bars = [note.bar for note in attacks]
         assert bars == sorted(bars)
@@ -121,7 +127,7 @@ def test_fifth_is_a_chord_on_loud_bars_and_absent_on_quiet_ones() -> None:
     swell = _part(xml, "P3")
     assert swell.find("measure/attributes/staves") is None
     assert swell.findall("measure/harmony") == []
-    assert any(measure.find("direction/direction-type/dynamics/f") is not None for measure in swell.findall("measure"))
+    assert any(measure.find("direction/direction-type/dynamics/mp") is not None for measure in swell.findall("measure"))
     halo = _part(xml, "P2")
     assert halo.find("measure/attributes/clef/sign").text == "G"
     assert halo.find("measure[@number='1']/direction/direction-type/dynamics/p") is not None
@@ -196,11 +202,11 @@ def test_breathing_directions_land_before_a_sounding_note_and_harp_swell_is_open
     chord_by_bar = {bar: slot.chord for slot in score.slots for bar in slot.bars()}
     by_bar: dict[int, list[NoteEvent]] = {}
     for note in score.comp:
-        if note.midi is not None:
+        if note.midi is not None and not note.tie_stop:
             by_bar.setdefault(note.bar, []).append(note)
     assert by_bar
     for bar, notes in by_bar.items():
-        ordered = [note.midi for note in sorted(notes, key=lambda item: item.beat) if note.midi is not None]
+        ordered = sorted(note.midi for note in notes if note.midi is not None)
         assert len(ordered) == 3
         pcs = chord_by_bar[bar].pitch_classes
         assert all(midi % 12 in pcs for midi in ordered)

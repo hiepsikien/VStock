@@ -37,9 +37,9 @@ from app.sonify.session import VN, is_session_closed
 logger = logging.getLogger(__name__)
 
 # Bump when the score or the sound changes, so old files are not replayed.
-RECAP_REVISION = "14"
+RECAP_REVISION = "16"
 # Long-form files live beside the daily recap and use their own revision.
-SPAN_REVISION = "7"
+SPAN_REVISION = "9"
 PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
@@ -561,6 +561,7 @@ def _sound_track(
     resource_type: str,
     vendor: str,
     attributes: dict[str, str],
+    volume_db: float = 0,
 ) -> dict:
     return {
         "instrumentId": instrument_id,
@@ -576,7 +577,7 @@ def _sound_track(
             },
             "unitConfiguration": {},
         },
-        "out": {"balance": 0, "fxChain": {}, "volumeDb": 0},
+        "out": {"balance": 0, "fxChain": {}, "volumeDb": volume_db},
     }
 
 
@@ -632,6 +633,7 @@ def _assign_installed_sounds(mscz: Path, library: dict[str, tuple[str, str]]) ->
                     "museCategory": pack,
                     "museVendorName": "Muse",
                 },
+                volume_db=10 if voice.sound == "Harp" else 0,
             )
         )
         assigned.append(f"{kind} -> {voice.sound}")

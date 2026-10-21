@@ -49,7 +49,8 @@ SHIMMER_GAP_BARS = 4
 SWELL_GAP_BARS = 4
 SHIMMER_TRIGGER = 79
 GLASS_VELOCITY = 60
-SWELL_VELOCITY = 92
+SWELL_VELOCITY = 64
+SWELL_HOLD = 2 * EIGHTHS_PER_BAR
 _DRONE_MARKING = {"p": "p", "mp": "p", "mf": "mp", "f": "mp"}
 _DRONE_VELOCITY = {"p": 38, "mp": 44, "mf": 50, "f": 54}
 _FIFTH_VELOCITY = 40
@@ -151,6 +152,7 @@ def _pillars(
     previous_midi: int | None = None,
 ) -> list[Run]:
     start = section.start * EIGHTHS_PER_BAR
+    end = section.end * EIGHTHS_PER_BAR
     if not phrases:
         return [Run(start, 1, _fold_glass(pitches[start], previous_midi))]
     covered = next(
@@ -186,6 +188,11 @@ def _pillars(
         kept.append(closing)
     kept.sort(key=lambda run: run.start)
     kept = _one_per_bar(kept)
+    kept = [
+        run
+        for index, run in enumerate(kept)
+        if index == 0 or end - run.start >= PILLAR_GAP
+    ]
     folded: list[Run] = []
     last_midi = previous_midi
     for run in kept:
@@ -209,7 +216,11 @@ def _pillars(
         cap = 1
     if len(kept) > cap:
         must = {kept[0].start}
-        if len(kept) > 1 and kept[-1].start - kept[0].start >= GLASS_HOLD:
+        if (
+            len(kept) > 1
+            and kept[-1].start - kept[0].start >= GLASS_HOLD
+            and end - kept[-1].start >= PILLAR_GAP
+        ):
             must.add(kept[-1].start)
         extra = [run for run in kept if run.start not in must]
         extra.sort(
@@ -350,6 +361,7 @@ def _glass(
 
     # Group contiguous/slurred/tied segments into long fading breaths (mp/mf >)
     index = 0
+    prev_arc_midi: int | None = None
     while index < len(segments):
         arc_start = segments[index][0]
         arc_midis = [segments[index][2]]
@@ -362,10 +374,16 @@ def _glass(
             end_idx += 1
             arc_midis.append(segments[end_idx][2])
         arc_end = segments[end_idx][0] + segments[end_idx][1]
-        peak = "mf" if max(arc_midis) - min(arc_midis) >= MIN_RISE else "mp"
+        step = abs(arc_midis[0] - prev_arc_midi) if prev_arc_midi is not None else 0
+        peak = (
+            "mf"
+            if max(arc_midis) - min(arc_midis) >= MIN_RISE or step >= MIN_RISE
+            else "mp"
+        )
         arc_wedges, arc_dynamics = _breath(arc_start, arc_end - arc_start, peak_marking=peak)
         wedges.extend(arc_wedges)
         dynamics.extend(arc_dynamics)
+        prev_arc_midi = arc_midis[-1]
         index = end_idx + 1
 
     return _emit(segments), wedges, dynamics
@@ -438,6 +456,11 @@ def _swell(
         for section in form.sections
         for bar in range(section.start, section.end)
     }
+    section_end_at = {
+        bar: section.end
+        for section in form.sections
+        for bar in range(section.start, section.end)
+    }
     notes: list[NoteEvent] = []
     chosen_bars: list[int] = []
     for (start, length), band in zip(windows, bands):
@@ -474,38 +497,14 @@ def _swell(
                 if note % 12 in chord.pitch_classes
             ]
         middle = min(mid_tones, key=lambda note: abs(note - (bottom + top) / 2))
-        peak_vel = SWELL_VELOCITY if band == "f" else SWELL_VELOCITY - 8
-        notes.extend(
-            (
-                NoteEvent(
-                    bar=bar,
-                    beat=0.0,
-                    midi=bottom,
-                    duration_beats=1.0,
-                    voice=1,
-                    velocity=peak_vel - 8,
-                    slur_start=True,
-                ),
-                NoteEvent(
-                    bar=bar,
-                    beat=1.0,
-                    midi=middle,
-                    duration_beats=1.0,
-                    voice=1,
-                    velocity=peak_vel - 4,
-                ),
-                NoteEvent(
-                    bar=bar,
-                    beat=2.0,
-                    midi=top,
-                    duration_beats=2.0,
-                    voice=1,
-                    velocity=peak_vel,
-                    slur_stop=True,
-                    tenuto=True,
-                ),
-            )
+        vel = SWELL_VELOCITY if band == "f" else SWELL_VELOCITY - 8
+        hold_eighths = min(
+            SWELL_HOLD,
+            (section_end_at.get(bar, bar + 1) - bar) * EIGHTHS_PER_BAR,
         )
+        start_eighth = bar * EIGHTHS_PER_BAR
+        for midi in (bottom, middle, top):
+            notes.extend(written(start_eighth, hold_eighths, midi, velocity=vel))
     return notes
 
 
