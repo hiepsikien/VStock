@@ -193,11 +193,11 @@ DAILY_SPEC = FormSpec(
 # 1D Ambient keeps the 30-bar price body and attaches a frame around it.
 # Bars 0–1 warm up. Bars 2–31 are the old day, with the former intro joined to
 # phrase 1 and the former outro joined to phrase 3 so those minutes follow the
-# price. Bars 32–35 cool down. 60 BPM makes the frame 8s and 16s, and the body
+# price. Bars 32–33 cool down. 60 BPM makes each frame 8s, and the body
 # stays 2:00.
 DAILY_WARMUP_BARS = 2
 DAILY_BODY_BARS = MUSICAL_BARS
-DAILY_COOLDOWN_BARS = 4
+DAILY_COOLDOWN_BARS = 2
 DAILY_AMBIENT_BARS = DAILY_WARMUP_BARS + DAILY_BODY_BARS + DAILY_COOLDOWN_BARS
 DAILY_AMBIENT_SPEC = FormSpec(
     bars=DAILY_AMBIENT_BARS,
@@ -222,7 +222,7 @@ DAILY_AMBIENT_SPEC = FormSpec(
 )
 
 
-# Symphony, jazz, and minimalist use the same 36-bar day. The old intro and
+# Symphony, jazz, and minimalist use the same 34-bar day. The old intro and
 # outro stay inside the body as phrase bars, so those minutes follow the price.
 # Only the attached warm-up and cool-down pedal the tonic.
 DAILY_ENSEMBLE_SPEC = FormSpec(

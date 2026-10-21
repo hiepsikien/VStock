@@ -56,7 +56,7 @@ def test_flat_day_states_the_flute_pitch_once() -> None:
     score = render([Bar(80.0, 0.0, 80.0) for _ in range(30)], variant="ambient")
     assert score.variant == "ambient"
     assert score.bpm == 60
-    assert score.bars == 36
+    assert score.bars == 34
     chains = _chains(score.lead)
     assert [chain[0].bar for chain in chains] == [0]
     assert _beats(chains[0]) == 24
@@ -65,7 +65,7 @@ def test_flat_day_states_the_flute_pitch_once() -> None:
     assert not any(note.bar >= 32 and note.midi is not None for note in score.lead)
     assert score.lead_dynamics[0].marking == "p"
     assert score.dynamics[0].marking == "p"
-    assert (score.dynamics[-1].bar, score.dynamics[-1].marking) == (35, "ppp")
+    assert (score.dynamics[-1].bar, score.dynamics[-1].marking) == (33, "ppp")
     assert score.support_dynamics[-1].marking == "ppp"
     assert any(wedge.kind == "crescendo" and wedge.bar == 0 for wedge in score.lead_wedges)
     assert any(wedge.kind == "diminuendo" and wedge.bar == 32 for wedge in score.support_wedges)
@@ -111,7 +111,7 @@ def test_a_rise_that_levels_off_ties_across_the_bar_then_rests() -> None:
 
 def test_cool_down_extends_a_touching_breath_to_five_bars_then_rests() -> None:
     outro = 32 * 8
-    chords = {bar: CMAJ7 for bar in range(36)}
+    chords = {bar: CMAJ7 for bar in range(34)}
 
     def body(segments: list[tuple[int, int, int, bool, bool, bool]]):
         attached = _attach_daily_frames(segments, DAILY_AMBIENT_SPEC, chords)
@@ -121,7 +121,7 @@ def test_cool_down_extends_a_touching_breath_to_five_bars_then_rests() -> None:
     assert body([four_bars]) == [(outro - GLASS_HOLD, COOLDOWN_HOLD, 72, False, False, False)]
 
     two_bars = (outro - 16, 16, 72, False, False, False)
-    assert body([two_bars]) == [(outro - 16, COOLDOWN_HOLD, 72, False, False, False)]
+    assert body([two_bars]) == [(outro - 16, 16 + 16, 72, False, False, False)]
 
     five_bars = (outro - COOLDOWN_HOLD, COOLDOWN_HOLD, 72, False, False, False)
     assert body([five_bars]) == [five_bars]
@@ -130,7 +130,7 @@ def test_cool_down_extends_a_touching_breath_to_five_bars_then_rests() -> None:
     assert all(segment[0] < outro for segment in body([rested]))
 
     other = body([(outro - GLASS_HOLD, GLASS_HOLD, 67, False, False, False)])
-    assert other[-1][:3] == (outro, 4 * 8, 72)
+    assert other[-1][:3] == (outro, 2 * 8, 72)
 
 
 def test_a_faded_pitch_is_not_rebreathed_until_the_line_moves() -> None:
@@ -323,13 +323,13 @@ def test_breathing_directions_land_before_a_sounding_note_and_harp_swell_is_open
 
 def test_daily_warmup_is_the_tonic_and_the_price_starts_at_the_phrase() -> None:
     groups = assign_daily_ambient_bars(30)
-    assert len(groups) == 36
+    assert len(groups) == 34
     assert groups[0] == []
     assert groups[1] == []
     assert groups[2] == [0]
     assert groups[31] == [29]
     assert groups[32] == []
-    assert groups[35] == []
+    assert groups[33] == []
     assert [index for group in groups for index in group] == list(range(30))
     assert assign_source_bars(30)[0] == [0]
 
@@ -343,20 +343,20 @@ def test_daily_warmup_is_the_tonic_and_the_price_starts_at_the_phrase() -> None:
     assert outro.bar == 32
     assert outro.midi % 12 == 0
     symphony = render([Bar(close, 1_000.0, close) for close in closes], variant="symphony")
-    assert symphony.bars == 36
+    assert symphony.bars == 34
     assert not any(note.bar == 0 and note.midi is not None for note in symphony.lead)
     assert any(note.bar == 0 and note.midi is not None and note.midi % 12 == 0 for note in symphony.support)
 
 
 def test_ambient_daily_playhead_holds_the_open_and_the_close() -> None:
-    duration = piece_seconds(36, 60)
-    assert duration == 144
+    duration = piece_seconds(34, 60)
+    assert duration == 136
     assert ambient_daily_candle_index(0, 100, duration) == 0
     assert ambient_daily_candle_index(7.9, 100, duration) == 0
     assert ambient_daily_candle_index(8.0, 100, duration) == 0
     assert ambient_daily_candle_index(8.0 + 60, 100, duration) == 50
     assert ambient_daily_candle_index(128, 100, duration) == 99
-    assert ambient_daily_candle_index(143.9, 100, duration) == 99
+    assert ambient_daily_candle_index(135.9, 100, duration) == 99
 
 
 def test_minimalist_score_stays_on_its_own_clock() -> None:

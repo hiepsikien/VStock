@@ -10,7 +10,7 @@ from app.sonify.musicxml import score_to_musicxml
 from app.sonify.render import render
 
 WARM = (0, 1)
-COOL = (32, 33, 34, 35)
+COOL = (32, 33)
 
 
 def _measures_fill(score: Score) -> None:
@@ -94,7 +94,7 @@ def test_a_caller_form_stays_on_the_thirty_bar_grid() -> None:
 
 def test_symphony_frame_is_a_tonic_pedal_around_the_price() -> None:
     score = render(_day(), variant="symphony")
-    assert (score.bars, score.bpm) == (36, 90)
+    assert (score.bars, score.bpm) == (34, 90)
     assert score.slots[0].section == "intro"
     assert next(slot for slot in score.slots if slot.start == 2).section == "phrase"
     assert _silent(score.lead, (0,))
@@ -124,14 +124,14 @@ def test_symphony_frame_is_a_tonic_pedal_around_the_price() -> None:
     _assert_cool_join(score.lead)
     _assert_cool_join(score.support)
     assert {wedge.kind for wedge in score.low_wedges} == {"crescendo", "diminuendo", "stop"}
-    assert (score.dynamics[-1].bar, score.dynamics[-1].marking) == (35, "ppp")
+    assert (score.dynamics[-1].bar, score.dynamics[-1].marking) == (33, "ppp")
     assert score.lead_dynamics[-1].marking == "ppp"
     _measures_fill(score)
 
 
 def test_jazz_frame_is_a_vamp_then_a_tag() -> None:
     score = render(_day(), variant="jazz")
-    assert (score.bars, score.bpm) == (36, 82)
+    assert (score.bars, score.bpm) == (34, 82)
     assert _silent(score.lead, WARM)
     assert _silent(score.support, WARM)
     assert _silent(score.high, WARM + COOL)
@@ -142,9 +142,9 @@ def test_jazz_frame_is_a_vamp_then_a_tag() -> None:
     for bar in COOL:
         bass = _sounding(score.low, bar)
         assert len(bass) == 1 and bass[0].duration_beats == 4
-        assert bass[0].tie_start is (bar < 35)
+        assert bass[0].tie_start is (bar < 33)
         assert bass[0].tie_stop is (bar > 32 or _sounding(score.low, 31) and _sounding(score.low, 31)[-1].tie_start)
-    right = [note for note in score.comp if 32 <= note.bar <= 35 and note.staff == 1 and note.midi is not None]
+    right = [note for note in score.comp if 32 <= note.bar <= 33 and note.staff == 1 and note.midi is not None]
     assert right
     assert all(note.duration_beats == 4 for note in right)
     assert any(note.tie_start for note in right if note.bar == 32)
@@ -152,7 +152,7 @@ def test_jazz_frame_is_a_vamp_then_a_tag() -> None:
     assert sax
     assert {note.midi % 12 for note in sax} == {_root(score, 32)}
     assert all(note.duration_beats == 4 for note in sax)
-    assert (score.dynamics[-1].bar, score.dynamics[-1].marking) == (35, "ppp")
+    assert (score.dynamics[-1].bar, score.dynamics[-1].marking) == (33, "ppp")
     walking = [note for note in score.low if 4 <= note.bar < 28 and note.duration_beats == 1]
     assert walking
     _measures_fill(score)
@@ -160,18 +160,18 @@ def test_jazz_frame_is_a_vamp_then_a_tag() -> None:
 
 def test_minimalist_frame_opens_on_the_sub_and_closes_the_filter() -> None:
     score = render(_day(), variant="minimalist")
-    assert (score.bars, score.bpm) == (36, 118)
+    assert (score.bars, score.bpm) == (34, 118)
     assert _silent(score.lead, WARM + COOL)
     assert _silent(score.high, WARM + COOL)
     assert _silent(score.comp, WARM + COOL)
-    assert _silent(score.support, WARM + (34, 35))
+    assert _silent(score.support, WARM)
     assert _sounding(score.support, 32) and _sounding(score.support, 33)
     assert _sounding(score.lead, 4)
     for bar in WARM + COOL:
         quarters = _sounding(score.low, bar)
         assert [note.beat for note in quarters] == [0.0, 1.0, 2.0, 3.0]
         assert len({note.midi for note in quarters}) == 1
-    assert (score.dynamics[-1].bar, score.dynamics[-1].marking) == (35, "ppp")
+    assert (score.dynamics[-1].bar, score.dynamics[-1].marking) == (33, "ppp")
     assert score.support_dynamics[-1].marking == "ppp"
     assert any(wedge.bar == 32 and wedge.kind == "diminuendo" for wedge in score.support_wedges)
     _measures_fill(score)

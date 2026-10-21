@@ -1,7 +1,7 @@
 """Warm-up and cool-down for a 1D symphony, jazz, or minimalist score.
 
-The 30-bar price body is already written. This pass clears bars 0–1 and 32–35
-and writes a tonic frame: two bars in, four bars out. Ambient keeps its own
+The 30-bar price body is already written. This pass clears bars 0–1 and 32–33
+and writes a tonic frame: two bars in, two bars out. Ambient keeps its own
 frame and does not come through here.
 """
 

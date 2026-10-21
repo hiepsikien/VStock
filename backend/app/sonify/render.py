@@ -126,7 +126,7 @@ def assign_daily_ambient_bars(count: int) -> list[list[int]]:
 
     The body is the old 30-bar grid shifted two bars right, so the minutes that
     used to sit in the intro and the outro stay in the price line. Bars 0–1
-    and 32–35 are the warm-up and the cool-down.
+    and 32–33 are the warm-up and the cool-down.
     """
     if count < 1:
         raise ValueError("need at least one source bar")
