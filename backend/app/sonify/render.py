@@ -15,7 +15,11 @@ from app.sonify.dynamics import (
 )
 from app.sonify.form import (
     BPM,
+    DAILY_AMBIENT_BARS,
+    DAILY_AMBIENT_SPEC,
+    DAILY_BODY_BARS,
     DAILY_SPEC,
+    DAILY_WARMUP_BARS,
     EIGHTHS_PER_BAR,
     HALF_BAR,
     LIQUIDITY_WINDOWS,
@@ -113,6 +117,22 @@ def assign_source_bars(count: int, musical_bars: int = MUSICAL_BARS) -> list[lis
         if group >= musical_bars:
             group = musical_bars - 1
         groups[group].append(index)
+    return groups
+
+
+def assign_daily_ambient_bars(count: int) -> list[list[int]]:
+    """Map every candle across the 30-bar body. The frame bars stay empty.
+
+    The body is the old 30-bar grid shifted two bars right, so the minutes that
+    used to sit in the intro and the outro stay in the price line. Bars 0–1
+    and 32–35 are the warm-up and the cool-down.
+    """
+    if count < 1:
+        raise ValueError("need at least one source bar")
+    body = assign_source_bars(count, DAILY_BODY_BARS)
+    groups: list[list[int]] = [[] for _ in range(DAILY_AMBIENT_BARS)]
+    for offset, members in enumerate(body):
+        groups[DAILY_WARMUP_BARS + offset] = members
     return groups
 
 
@@ -570,8 +590,16 @@ def _compose(
         raise ValueError(f"unknown variant: {variant}")
 
     spec = form
+    daily_ambient = variant == "ambient" and spec is None and source_groups is None
+    if daily_ambient:
+        spec = DAILY_AMBIENT_SPEC
     musical_bars = MUSICAL_BARS if spec is None else spec.bars
-    groups = source_groups if source_groups is not None else assign_source_bars(len(bars), musical_bars)
+    if source_groups is not None:
+        groups = source_groups
+    elif daily_ambient:
+        groups = assign_daily_ambient_bars(len(bars))
+    else:
+        groups = assign_source_bars(len(bars), musical_bars)
     if len(groups) != musical_bars:
         raise ValueError(f"expected {musical_bars} source groups, got {len(groups)}")
     if regimes is None:
@@ -736,7 +764,8 @@ def _compose(
                 source_groups=groups,
                 musical_bars=musical_bars,
                 total_eighths=piece_eighths,
-                bpm=AMBIENT_BPM if spec is None else spec.bpm,
+                bpm=AMBIENT_BPM if daily_ambient or spec is None else spec.bpm,
+                frame=daily_ambient,
             ),
             key=key,
         )

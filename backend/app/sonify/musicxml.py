@@ -435,6 +435,7 @@ def _bass_part(root: ET.Element, score: Score) -> None:
     """Bass part (P4) is written an octave above where it sounds."""
     part = _add(root, "part", id="P4")
     notes = _group(score.low, score.bars)
+    frame_wedges = _group(score.support_wedges, score.bars) if score.variant == "ambient" else None
     printed: dict[int, DynamicEvent] = {}
     previous: str | None = None
     for event in score.dynamics:
@@ -452,9 +453,16 @@ def _bass_part(root: ET.Element, score: Score) -> None:
                 divisions=score.divisions,
                 fifths=score.key.fifths,
             )
+        bar_wedges = [] if frame_wedges is None else frame_wedges[bar]
+        for wedge in bar_wedges:
+            if wedge.beat <= 0 and wedge.kind == "stop":
+                _wedge(measure, wedge)
         event = printed.get(bar)
         if event is not None:
             _dynamic(measure, event)
+        for wedge in bar_wedges:
+            if wedge.beat <= 0 and wedge.kind != "stop":
+                _wedge(measure, wedge)
         previous_beat: float | None = None
         for note in sorted(notes[bar], key=lambda note: (note.beat, note.midi is None, note.midi or 0)):
             _add_note(
@@ -467,6 +475,9 @@ def _bass_part(root: ET.Element, score: Score) -> None:
                 key=score.key,
             )
             previous_beat = note.beat
+        for wedge in bar_wedges:
+            if wedge.beat > 0:
+                _wedge(measure, wedge)
 
 
 def _ambient_swell_part(root: ET.Element, score: Score) -> None:

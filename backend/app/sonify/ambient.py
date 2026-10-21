@@ -29,6 +29,7 @@ from app.sonify.phrasing import (
     BREAKOUT,
     MIN_RISE,
     BELL_MAX_EIGHTHS,
+    _wedge_at,
     bell_budget,
     comp_pitches,
     hairpins,
@@ -362,58 +363,14 @@ def _breath(
     return wedges, dynamics
 
 
-def _glass(
-    form: FormSpec,
-    phrases: tuple[Phrase, ...],
-    pitches: list[int],
-) -> tuple[list[NoteEvent], list[WedgeEvent], list[DynamicEvent]]:
-    segments: list[tuple[int, int, int, bool, bool, bool]] = []
+def _arc_breaths(
+    segments: list[tuple[int, int, int, bool, bool, bool]],
+    prev_arc_midi: int | None = None,
+) -> tuple[list[WedgeEvent], list[DynamicEvent]]:
+    """One diminuendo for each tied or slurred chain."""
     wedges: list[WedgeEvent] = []
     dynamics: list[DynamicEvent] = []
-    last_midi: int | None = None
-    phrase_sections = [section for section in form.sections if section.kind == "phrase"]
-    for section in phrase_sections:
-        inside = _phrases_inside(phrases, section.start, section.end)
-        end = section.end * EIGHTHS_PER_BAR
-        span = pitches[section.start * EIGHTHS_PER_BAR : end]
-        flat = not span or max(span) - min(span) < MIN_RISE
-        if flat:
-            opening_at = section.start * EIGHTHS_PER_BAR
-            length = min(FLAT_HOLD, end - opening_at)
-            folded = _fold_glass(pitches[opening_at], last_midi)
-            placed = [(opening_at, length, folded, False)] if length > 0 else []
-        else:
-            placed = _place(_pillars(section, inside, pitches, last_midi), end, hold=GLASS_HOLD)
-        for start, length, midi, slur in placed:
-            segments.append((start, length, midi, slur, False, False))
-            last_midi = midi
-
-    intro = next((section for section in form.sections if section.kind == "intro"), None)
-    if intro is not None and segments:
-        intro_start = intro.start * EIGHTHS_PER_BAR
-        intro_end = intro.end * EIGHTHS_PER_BAR
-        first = segments[0]
-        tie = first[0] == intro_end and intro_end > intro_start
-        segments.insert(0, (intro_start, intro_end - intro_start, first[2], False, False, tie))
-        if tie:
-            start, length, midi, slur, _tie_in, tie_out = segments[1]
-            segments[1] = (start, length, midi, slur, True, tie_out)
-
-    outro = next((section for section in form.sections if section.kind == "outro"), None)
-    if outro is not None and pitches:
-        outro_start = outro.start * EIGHTHS_PER_BAR
-        outro_end = min(outro.end * EIGHTHS_PER_BAR, len(pitches))
-        if outro_end > outro_start:
-            outro_midi = _fold_glass(pitches[outro_end - 1], last_midi)
-            segments.append(
-                (outro_start, outro_end - outro_start, outro_midi, False, False, False)
-            )
-
-    segments = _omit_same_pitch_reattacks(segments)
-
-    # Group contiguous/slurred/tied segments into long fading breaths (mp/mf >)
     index = 0
-    prev_arc_midi: int | None = None
     while index < len(segments):
         arc_start = segments[index][0]
         arc_midis = [segments[index][2]]
@@ -437,7 +394,172 @@ def _glass(
         dynamics.extend(arc_dynamics)
         prev_arc_midi = arc_midis[-1]
         index = end_idx + 1
+    return wedges, dynamics
 
+
+def _tonic_glass(chord: Chord, neighbor: int | None) -> int:
+    """The chord's root inside the flute register, within an octave of `neighbor`."""
+    pitch_class = chord.pitches[0] % 12
+    low = active_register().violin_lowest
+    high = active_register().violin_ceiling
+    seeds = [note for note in range(low, high + 1) if note % 12 == pitch_class]
+    if not seeds:
+        return _fold_glass(60 + pitch_class, neighbor)
+    if neighbor is None:
+        middle = (low + high) // 2
+        return min(seeds, key=lambda note: (abs(note - middle), note))
+    return min(seeds, key=lambda note: (abs(note - neighbor) > 12, abs(note - neighbor), note))
+
+
+def _attach_daily_frames(
+    segments: list[tuple[int, int, int, bool, bool, bool]],
+    form: FormSpec,
+    chord_at: dict[int, Chord],
+) -> list[tuple[int, int, int, bool, bool, bool]]:
+    """Prepend a tonic warm-up and append a tonic cool-down.
+
+    Neither frame reads the price inside its bars. A matching pitch that still
+    has room in the four-bar hold is tied. A finished breath releases, and the
+    cool-down speaks on its own.
+    """
+    intro = next(section for section in form.sections if section.kind == "intro")
+    outro = next((section for section in form.sections if section.kind == "outro"), None)
+    intro_start = intro.start * EIGHTHS_PER_BAR
+    intro_end = intro.end * EIGHTHS_PER_BAR
+    neighbor = segments[0][2] if segments else None
+    intro_midi = _tonic_glass(chord_at[intro.start], neighbor)
+    tie = bool(segments) and segments[0][0] == intro_end and segments[0][2] == intro_midi
+    if tie:
+        start, length, midi, slur, _tie_in, tie_out = segments[0]
+        segments[0] = (start, length, midi, slur, True, tie_out)
+    segments.insert(0, (intro_start, intro_end - intro_start, intro_midi, False, False, tie))
+    if outro is None or outro.start not in chord_at:
+        return segments
+    outro_start = outro.start * EIGHTHS_PER_BAR
+    outro_end = min(outro.end * EIGHTHS_PER_BAR, outro.start * EIGHTHS_PER_BAR + (outro.end - outro.start) * EIGHTHS_PER_BAR)
+    length = outro_end - outro_start
+    if length <= 0:
+        return segments
+    prev_start, prev_length, prev_midi, prev_slur, prev_tie_in, prev_tie_out = segments[-1]
+    outro_midi = _tonic_glass(chord_at[outro.start], prev_midi)
+    touches = prev_start + prev_length == outro_start
+    same = prev_midi == outro_midi
+    sounded = _breath_eighths(segments, prev_midi, outro_start) if same and touches else 0
+    if same and touches and sounded < GLASS_HOLD:
+        segments[-1] = (prev_start, prev_length, prev_midi, prev_slur, prev_tie_in, True)
+        segments.append((outro_start, length, outro_midi, False, True, False))
+        return segments
+    if touches and (prev_slur or prev_tie_out):
+        segments[-1] = (prev_start, prev_length, prev_midi, False, prev_tie_in, False)
+    segments.append((outro_start, length, outro_midi, False, False, False))
+    return segments
+
+
+def _daily_frame_breaths(
+    segments: list[tuple[int, int, int, bool, bool, bool]],
+    form: FormSpec,
+) -> tuple[list[WedgeEvent], list[DynamicEvent]]:
+    """Warm-up grows from p to the phrase. Cool-down leaves mp and settles to p."""
+    intro = next(section for section in form.sections if section.kind == "intro")
+    outro = next((section for section in form.sections if section.kind == "outro"), None)
+    intro_end = intro.end * EIGHTHS_PER_BAR
+    outro_start = outro.start * EIGHTHS_PER_BAR if outro is not None else 10**9
+    intro_midi = next(segment[2] for segment in segments if segment[0] < intro_end)
+    phrase_segments = [segment for segment in segments if intro_end <= segment[0] < outro_start]
+    outro_segments = [segment for segment in segments if segment[0] >= outro_start]
+    wedges = [_wedge_at(intro.start * EIGHTHS_PER_BAR, "crescendo"), WedgeEvent(intro.end, 0.0, "stop")]
+    dynamics = [
+        DynamicEvent(
+            bar=intro.start,
+            marking="p",
+            sound=SOUND["p"],
+            beat=0.0,
+        )
+    ]
+    phrase_wedges, phrase_dynamics = _arc_breaths(phrase_segments, intro_midi)
+    wedges.extend(phrase_wedges)
+    dynamics.extend(phrase_dynamics)
+    if outro_segments:
+        start, length, _midi, _slur, tie_in, _tie_out = outro_segments[0]
+        end = start + length
+        if not tie_in:
+            dynamics.append(
+                DynamicEvent(
+                    bar=start // EIGHTHS_PER_BAR,
+                    marking="mp",
+                    sound=SOUND["mp"],
+                    beat=(start % EIGHTHS_PER_BAR) * 0.5,
+                )
+            )
+        last = max(start // EIGHTHS_PER_BAR, end // EIGHTHS_PER_BAR - 1)
+        wedges.append(_wedge_at(start, "diminuendo"))
+        wedges.append(WedgeEvent(last, 0.0, "stop"))
+        dynamics.append(
+            DynamicEvent(
+                bar=last,
+                marking="p",
+                sound=SOUND["p"],
+                beat=0.0,
+            )
+        )
+    return wedges, dynamics
+
+
+def _glass(
+    form: FormSpec,
+    phrases: tuple[Phrase, ...],
+    pitches: list[int],
+    *,
+    frame: bool = False,
+    chord_at: dict[int, Chord] | None = None,
+) -> tuple[list[NoteEvent], list[WedgeEvent], list[DynamicEvent]]:
+    segments: list[tuple[int, int, int, bool, bool, bool]] = []
+    last_midi: int | None = None
+    phrase_sections = [section for section in form.sections if section.kind == "phrase"]
+    for section in phrase_sections:
+        inside = _phrases_inside(phrases, section.start, section.end)
+        end = section.end * EIGHTHS_PER_BAR
+        span = pitches[section.start * EIGHTHS_PER_BAR : end]
+        flat = not span or max(span) - min(span) < MIN_RISE
+        if flat:
+            opening_at = section.start * EIGHTHS_PER_BAR
+            length = min(FLAT_HOLD, end - opening_at)
+            folded = _fold_glass(pitches[opening_at], last_midi)
+            placed = [(opening_at, length, folded, False)] if length > 0 else []
+        else:
+            placed = _place(_pillars(section, inside, pitches, last_midi), end, hold=GLASS_HOLD)
+        for start, length, midi, slur in placed:
+            segments.append((start, length, midi, slur, False, False))
+            last_midi = midi
+
+    if frame and chord_at is not None:
+        segments = _attach_daily_frames(_omit_same_pitch_reattacks(segments), form, chord_at)
+        wedges, dynamics = _daily_frame_breaths(segments, form)
+        return _emit(segments), wedges, dynamics
+
+    intro = next((section for section in form.sections if section.kind == "intro"), None)
+    if intro is not None and segments:
+        intro_start = intro.start * EIGHTHS_PER_BAR
+        intro_end = intro.end * EIGHTHS_PER_BAR
+        first = segments[0]
+        tie = first[0] == intro_end and intro_end > intro_start
+        segments.insert(0, (intro_start, intro_end - intro_start, first[2], False, False, tie))
+        if tie:
+            start, length, midi, slur, _tie_in, tie_out = segments[1]
+            segments[1] = (start, length, midi, slur, True, tie_out)
+
+    outro = next((section for section in form.sections if section.kind == "outro"), None)
+    if outro is not None and pitches:
+        outro_start = outro.start * EIGHTHS_PER_BAR
+        outro_end = min(outro.end * EIGHTHS_PER_BAR, len(pitches))
+        if outro_end > outro_start:
+            outro_midi = _fold_glass(pitches[outro_end - 1], last_midi)
+            segments.append(
+                (outro_start, outro_end - outro_start, outro_midi, False, False, False)
+            )
+
+    segments = _omit_same_pitch_reattacks(segments)
+    wedges, dynamics = _arc_breaths(segments)
     return _emit(segments), wedges, dynamics
 
 
@@ -455,6 +577,77 @@ def _bed_dynamics(windows: list[tuple[int, int]] | tuple[tuple[int, int], ...], 
         events.append(DynamicEvent(bar=start, marking=marking, sound=SOUND[marking]))
         previous = marking
     return tuple(events)
+
+
+def _quiet_frame_bands(
+    form: FormSpec,
+    windows: list[tuple[int, int]] | tuple[tuple[int, int], ...],
+    bands: list[str],
+    band_at: dict[int, str],
+) -> tuple[list[str], dict[int, str]]:
+    """Warm-up stays p. Cool-down stays mp, so neither frame grows a fifth."""
+    kind_at = {
+        bar: section.kind
+        for section in form.sections
+        for bar in range(section.start, section.end)
+    }
+    framed = dict(band_at)
+    for bar, kind in kind_at.items():
+        if kind == "intro":
+            framed[bar] = "p"
+        elif kind == "outro":
+            framed[bar] = "mp"
+    quiet = [
+        "p" if kind_at.get(start) == "intro" else "mp" if kind_at.get(start) == "outro" else band
+        for (start, _length), band in zip(windows, bands)
+    ]
+    return quiet, framed
+
+
+def _framed_bed_dynamics(
+    windows: list[tuple[int, int]] | tuple[tuple[int, int], ...],
+    bands: list[str],
+    form: FormSpec,
+) -> tuple[DynamicEvent, ...]:
+    """p rising to mp across the warm-up, then volume, then mp falling to p."""
+    intro = next(section for section in form.sections if section.kind == "intro")
+    phrase = next(section for section in form.sections if section.kind == "phrase")
+    outro = next((section for section in form.sections if section.kind == "outro"), None)
+    events: list[DynamicEvent] = []
+    previous: str | None = None
+
+    def add(bar: int, marking: str) -> None:
+        nonlocal previous
+        if marking == previous:
+            return
+        events.append(DynamicEvent(bar=bar, marking=marking, sound=SOUND[marking]))
+        previous = marking
+
+    add(intro.start, "p")
+    add(phrase.start, "mp")
+    for (start, _length), band in zip(windows, bands):
+        if start <= phrase.start:
+            continue
+        if outro is not None and start >= outro.start:
+            continue
+        add(start, _bed_marking(band))
+    if outro is not None:
+        add(outro.start, "mp")
+        add(outro.end - 1, "p")
+    return tuple(events)
+
+
+def _frame_bed_wedges(form: FormSpec) -> tuple[WedgeEvent, ...]:
+    intro = next(section for section in form.sections if section.kind == "intro")
+    outro = next((section for section in form.sections if section.kind == "outro"), None)
+    wedges = [
+        _wedge_at(intro.start * EIGHTHS_PER_BAR, "crescendo"),
+        WedgeEvent(intro.end, 0.0, "stop"),
+    ]
+    if outro is not None:
+        wedges.append(_wedge_at(outro.start * EIGHTHS_PER_BAR, "diminuendo"))
+        wedges.append(WedgeEvent(outro.end - 1, 0.0, "stop"))
+    return tuple(wedges)
 
 
 def _halo_midis(chord: Chord) -> tuple[int, ...]:
@@ -659,10 +852,15 @@ def render_ambient_score(
     musical_bars: int,
     total_eighths: int,
     bpm: int,
+    frame: bool = False,
 ) -> Score:
     """Assemble one movement. The bed follows each bar; the line follows each section."""
     jazz_slots, harmonies, chord_at = promote_ambient_slots(slots)
-    glass, wedges, glass_dynamics = _glass(form, phrases, pitches)
+    if frame:
+        bands, band_at = _quiet_frame_bands(form, windows, bands, band_at)
+    glass, wedges, glass_dynamics = _glass(
+        form, phrases, pitches, frame=frame, chord_at=chord_at
+    )
     roots: list[tuple[int, ...]] = []
     fifths: list[tuple[int, ...]] = []
     root_velocity: list[int | None] = []
@@ -698,14 +896,25 @@ def render_ambient_score(
         support=with_rests(halo, total_eighths),
         comp=with_rests(swell, total_eighths),
         low=with_rests(low, total_eighths),
-        dynamics=_bed_dynamics(windows, bands),
+        dynamics=_framed_bed_dynamics(windows, bands, form) if frame else _bed_dynamics(windows, bands),
         harmonies=harmonies,
         liquidity=tuple(bands),
         phrases=phrases,
         lead_wedges=tuple(wedges),
-        support_wedges=(),
+        support_wedges=_frame_bed_wedges(form) if frame else (),
         lead_dynamics=tuple(glass_dynamics),
-        support_dynamics=(),
+        support_dynamics=(
+            (
+                DynamicEvent(bar=next(section.start for section in form.sections if section.kind == "phrase"), marking="mp", sound=SOUND["mp"]),
+                DynamicEvent(
+                    bar=next(section.end for section in form.sections if section.kind == "outro") - 1,
+                    marking="p",
+                    sound=SOUND["p"],
+                ),
+            )
+            if frame
+            else ()
+        ),
         variant="ambient",
         divisions=2,
         swing=False,
