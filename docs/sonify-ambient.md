@@ -48,15 +48,15 @@ Mỗi chương là một file. Đuôi reverb chỉ ở cuối chương, cùng qu
 
 | Phần | Vai | Nhạc cụ MuseScore | Program | Khuông |
 |---|---|---|---|---|
-| P4 | Drone | Cello | 43 | Fa, như bass hiện tại |
-| P2 | Halo | Voice | 53 | Sol |
-| P1 | Kính | Viola | 42 | Sol |
-| P3 | Nở | Voice | 53 | Sol, một khuông |
+| P4 | Drone | Contrabass | 43 | Fa, như bass hiện tại |
+| P2 | Halo | Viola | 42 | Sol |
+| P1 | Kính | Alto Flute | 74 | Sol |
+| P3 | Nở | Harp | 47 | Sol, một khuông |
 | P5 | Shimmer | Celesta | 9 | Sol |
 
-P1 phải là tiếng ngân được. Pad GM, hộp nhạc và chuông đánh một tiếng rồi tắt, nên nốt dài trên giấy vẫn nghe như nốt rời. Drone dùng Cellos, halo và tiếng nở dùng Full Choir, kính dùng Violas. Cả ba đều giữ tiếng sau khi kéo hoặc hát. Shimmer vẫn là Celesta, chỉ điểm ở đỉnh rồi tắt. Sự liền mạch của giai điệu là một tiếng được giữ.
+P1 phải là tiếng ngân được và có nhịp thở. Pad GM, hộp nhạc và chuông đánh một tiếng rồi tắt, nên nốt dài trên giấy vẫn nghe như nốt rời. Drone dùng Contrabasses ở dải `p`–`mp`, halo dùng Violas mở đầu ở `p` với quãng mở (không xếp quãng 2 sát nhau), kính dùng Alto Flute giữ trong tầm ấm `G3–C6` kèm cung thở `p < mp/mf > p` trên mỗi câu ngân, tiếng nở dùng Harp rải nhẹ 3 nốt hợp âm mở ở các cửa sổ `f`. Shimmer vẫn là Celesta, chỉ điểm ở đỉnh rồi tắt. Sự liền mạch của giai điệu là một tiếng được giữ và có độ phập phồng tự nhiên.
 
-P2 xuất khóa Sol vì guide tone nằm ở A3–E5. P3 của Ambient đi một khuông. `_piano_part` dùng chung vẫn hai khuông và chữ `p` cố định cho Giao hưởng và Jazz. Khuông trống sau `backup` dễ làm file hỏng, nên nhánh Ambient không gọi `_piano_part`. Nhánh đó vẫn in `<harmony>`.
+P2 xuất khóa Sol vì guide tone nằm ở A3–E5. P3 của Ambient đi một khuông và không xuất `<harmony>` để MuseScore không gắn kênh Grand Piano tự động đánh hợp âm ở đầu mỗi slot.
 
 `divisions = 2`, `swing = false`. Không có móc kép, không có nhịp đi bộ, không có ostinato. Mọi nốt đi qua `written()`, để nốt cắt ở vạch nhịp được buộc đúng. Một `NoteEvent` dài 4 phách chỉ hợp lệ khi bắt đầu ở phách 1.
 

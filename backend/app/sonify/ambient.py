@@ -14,7 +14,8 @@ from app.sonify.form import (
     FormSection,
     FormSpec,
 )
-from app.sonify.jazz import _rhodes_voicing
+from app.sonify.jazz import RHODES_RIGHT_HIGH
+from app.sonify.keys import active_register
 from app.sonify.model import (
     Bar,
     DynamicEvent,
@@ -38,17 +39,20 @@ from app.sonify.phrasing import (
 )
 
 AMBIENT_BPM = 60
-GLASS_HOLD = 2 * EIGHTHS_PER_BAR
+GLASS_HOLD = 3 * EIGHTHS_PER_BAR
 FLAT_HOLD = 4 * EIGHTHS_PER_BAR
 LEAP = 5
 PILLARS_PER_EIGHT = 4
 SHIMMER_EIGHTHS = EIGHTHS_PER_BAR
 SHIMMER_GAP_BARS = 4
+SWELL_GAP_BARS = 6
 SHIMMER_TRIGGER = 79
-GLASS_VELOCITY = 64
-SWELL_VELOCITY = 96
-_DRONE_MARKING = {"p": "p", "mp": "mp", "mf": "mf", "f": "mf"}
-_HALO_VELOCITY = {"p": 40, "mp": 49, "mf": 64, "f": 64}
+GLASS_VELOCITY = 60
+SWELL_VELOCITY = 60
+_DRONE_MARKING = {"p": "p", "mp": "p", "mf": "mp", "f": "mp"}
+_DRONE_VELOCITY = {"p": 38, "mp": 44, "mf": 50, "f": 54}
+_FIFTH_VELOCITY = 40
+_HALO_VELOCITY = {"p": 36, "mp": 42, "mf": 48, "f": 52}
 
 
 def promote_ambient_slots(
@@ -113,19 +117,41 @@ def _phrases_inside(
     return tuple(kept)
 
 
+def _fold_glass(midi: int, previous: int | None = None) -> int:
+    low = active_register().violin_lowest
+    high = active_register().violin_ceiling
+    while midi > high:
+        midi -= 12
+    while midi < low:
+        midi += 12
+    if previous is None:
+        return midi
+    while midi - previous > 12 and midi - 12 >= low:
+        midi -= 12
+    while previous - midi > 12 and midi + 12 <= high:
+        midi += 12
+    return midi
+
+
 def _one_per_bar(runs: list[Run]) -> list[Run]:
     kept: list[Run] = []
     for run in runs:
-        if kept and kept[-1].start // EIGHTHS_PER_BAR == run.start // EIGHTHS_PER_BAR:
+        bar_start = (run.start // EIGHTHS_PER_BAR) * EIGHTHS_PER_BAR
+        if kept and kept[-1].start == bar_start:
             continue
-        kept.append(run)
+        kept.append(Run(bar_start, run.length, run.midi))
     return kept
 
 
-def _pillars(section: FormSection, phrases: tuple[Phrase, ...], pitches: list[int]) -> list[Run]:
+def _pillars(
+    section: FormSection,
+    phrases: tuple[Phrase, ...],
+    pitches: list[int],
+    previous_midi: int | None = None,
+) -> list[Run]:
     start = section.start * EIGHTHS_PER_BAR
     if not phrases:
-        return [Run(start, 1, pitches[start])]
+        return [Run(start, 1, _fold_glass(pitches[start], previous_midi))]
     covered = next(
         (run for phrase in phrases for run in phrase.runs if run.start <= start < run.end),
         None,
@@ -139,6 +165,7 @@ def _pillars(section: FormSection, phrases: tuple[Phrase, ...], pitches: list[in
         and phrase.apex.start != opening.start
         and phrase.apex.start != closing.start
     }
+    apex_bars = {pos // EIGHTHS_PER_BAR for pos in apex_starts}
     kept: list[Run] = [opening]
     for phrase in phrases:
         if phrase.apex.start in apex_starts:
@@ -158,13 +185,25 @@ def _pillars(section: FormSection, phrases: tuple[Phrase, ...], pitches: list[in
         kept.append(closing)
     kept.sort(key=lambda run: run.start)
     kept = _one_per_bar(kept)
+    folded: list[Run] = []
+    last_midi = previous_midi
+    for run in kept:
+        midi = _fold_glass(run.midi, last_midi)
+        folded.append(Run(run.start, run.length, midi))
+        last_midi = midi
+    kept = folded
     cap = PILLARS_PER_EIGHT * (section.end - section.start) // 8
     if cap < 1:
         cap = 1
     if len(kept) > cap:
         must = {kept[0].start, kept[-1].start}
         extra = [run for run in kept if run.start not in must]
-        extra.sort(key=lambda run: (run.start in apex_starts, abs(run.midi - kept[0].midi)))
+        extra.sort(
+            key=lambda run: (
+                (run.start // EIGHTHS_PER_BAR) in apex_bars,
+                abs(run.midi - kept[0].midi),
+            )
+        )
         drop: set[int] = set()
         for run in extra:
             if len(kept) - len(drop) <= cap:
@@ -216,11 +255,42 @@ def _emit(segments: list[tuple[int, int, int, bool, bool, bool]]) -> list[NoteEv
                 slur_start=slur,
                 slur_stop=previous_slur,
                 velocity=GLASS_VELOCITY,
+                tenuto=not tie_in and not previous_slur,
                 tie_in=tie_in,
                 tie_out=tie_out,
             )
         )
     return notes
+
+
+def _breath(
+    start: int,
+    length: int,
+    *,
+    peak_marking: str = "mp",
+) -> tuple[list[WedgeEvent], list[DynamicEvent]]:
+    """Open at p, swell to peak_marking at the midpoint, and fade back to p."""
+    end = start + length
+    mid = start + length // 2
+    wedges = hairpins(start, end, mid)
+    dynamics = [
+        DynamicEvent(
+            bar=start // EIGHTHS_PER_BAR,
+            marking="p",
+            sound=SOUND["p"],
+            beat=(start % EIGHTHS_PER_BAR) * 0.5,
+        )
+    ]
+    if mid - start >= 2 and end - mid >= 2:
+        dynamics.append(
+            DynamicEvent(
+                bar=mid // EIGHTHS_PER_BAR,
+                marking=peak_marking,
+                sound=SOUND[peak_marking],
+                beat=(mid % EIGHTHS_PER_BAR) * 0.5,
+            )
+        )
+    return wedges, dynamics
 
 
 def _glass(
@@ -231,6 +301,7 @@ def _glass(
     segments: list[tuple[int, int, int, bool, bool, bool]] = []
     wedges: list[WedgeEvent] = []
     dynamics: list[DynamicEvent] = []
+    last_midi: int | None = None
     phrase_sections = [section for section in form.sections if section.kind == "phrase"]
     for section in phrase_sections:
         inside = _phrases_inside(phrases, section.start, section.end)
@@ -240,29 +311,13 @@ def _glass(
         if flat:
             opening_at = section.start * EIGHTHS_PER_BAR
             length = min(FLAT_HOLD, end - opening_at)
-            placed = [(opening_at, length, pitches[opening_at], False)] if length > 0 else []
+            folded = _fold_glass(pitches[opening_at], last_midi)
+            placed = [(opening_at, length, folded, False)] if length > 0 else []
         else:
-            placed = _place(_pillars(section, inside, pitches), end, hold=GLASS_HOLD)
-            apexes = [phrase.apex.start for phrase in inside if phrase.rise >= MIN_RISE]
-            apex = max(apexes) if apexes else None
-            for start, length, _midi, _slur in placed:
-                overlap_start = start
-                overlap_end = start + length
-                if apex is None or overlap_end - overlap_start < 2:
-                    continue
-                peak = min(max(apex, overlap_start), overlap_end - 1)
-                wedges.extend(hairpins(overlap_start, overlap_end, peak))
+            placed = _place(_pillars(section, inside, pitches, last_midi), end, hold=GLASS_HOLD)
         for start, length, midi, slur in placed:
-            if not flat and start > 0:
-                dynamics.append(
-                    DynamicEvent(
-                        bar=start // EIGHTHS_PER_BAR,
-                        marking="mp",
-                        sound=SOUND["mp"],
-                        beat=(start % EIGHTHS_PER_BAR) * 0.5,
-                    )
-                )
             segments.append((start, length, midi, slur, False, False))
+            last_midi = midi
 
     intro = next((section for section in form.sections if section.kind == "intro"), None)
     if intro is not None and segments:
@@ -279,7 +334,7 @@ def _glass(
     if outro is not None and pitches:
         outro_start = outro.start * EIGHTHS_PER_BAR
         outro_end = min(outro.end * EIGHTHS_PER_BAR, len(pitches))
-        outro_midi = pitches[outro_end - 1]
+        outro_midi = _fold_glass(pitches[outro_end - 1], last_midi)
         if segments:
             start, length, midi, slur, tie_in, _tie_out = segments[-1]
             if midi == outro_midi and start + length == outro_start:
@@ -288,6 +343,27 @@ def _glass(
                 segments.append((outro_start, outro_end - outro_start, outro_midi, False, False, False))
         else:
             segments.append((outro_start, outro_end - outro_start, outro_midi, False, False, False))
+
+    # Group contiguous/slurred/tied segments into breathing arcs (p -> mp/mf -> p)
+    index = 0
+    while index < len(segments):
+        arc_start = segments[index][0]
+        arc_midis = [segments[index][2]]
+        end_idx = index
+        while (
+            end_idx + 1 < len(segments)
+            and (segments[end_idx][3] or segments[end_idx][5])
+            and segments[end_idx][0] + segments[end_idx][1] == segments[end_idx + 1][0]
+        ):
+            end_idx += 1
+            arc_midis.append(segments[end_idx][2])
+        arc_end = segments[end_idx][0] + segments[end_idx][1]
+        peak = "mf" if max(arc_midis) - min(arc_midis) >= MIN_RISE else "mp"
+        arc_wedges, arc_dynamics = _breath(arc_start, arc_end - arc_start, peak_marking=peak)
+        wedges.extend(arc_wedges)
+        dynamics.extend(arc_dynamics)
+        index = end_idx + 1
+
     return _emit(segments), wedges, dynamics
 
 
@@ -308,11 +384,17 @@ def _bed_dynamics(windows: list[tuple[int, int]] | tuple[tuple[int, int], ...], 
 
 
 def _halo_midis(chord: Chord, band: str) -> tuple[int, ...]:
-    if band in ("mf", "f"):
-        _root, right = _rhodes_voicing(chord)
-        return tuple(right)
     _root, guide = comp_pitches(chord)
-    return tuple(guide)
+    base = tuple(sorted(guide))
+    if band not in ("mf", "f") or len(chord.pitches) < 5:
+        return base
+    ninth_pc = chord.pitches[4] % 12
+    ninth = 60 + ninth_pc
+    while ninth < base[-1] + 3:
+        ninth += 12
+    if ninth <= RHODES_RIGHT_HIGH and ninth not in base:
+        return (*base, ninth)
+    return base
 
 
 def _sustain(
@@ -353,24 +435,62 @@ def _swell(
         for bar in range(section.start, section.end)
     }
     notes: list[NoteEvent] = []
+    chosen_bars: list[int] = []
     for (start, length), band in zip(windows, bands):
         if band != "f" or length < 2:
             continue
         bar = start + 1
         if kind_at.get(bar) != "phrase" or bar not in chord_at:
             continue
-        _root, right = _rhodes_voicing(chord_at[bar])
-        for midi in right:
-            notes.append(
+        if any(abs(bar - other) < SWELL_GAP_BARS for other in chosen_bars):
+            continue
+        chosen_bars.append(bar)
+        chord = chord_at[bar]
+        tones = _halo_midis(chord, "f")
+        top = max(60, tones[-1])
+        low_tones = [
+            note
+            for note in range(52, top - 2)
+            if note % 12 in chord.pitch_classes and (top - note) % 12 not in (1, 2, 10, 11)
+        ]
+        bottom = low_tones[-1] if low_tones else max(48, top - 7)
+        mid_tones = [
+            note
+            for note in range(bottom + 3, top - 2)
+            if note % 12 in chord.pitch_classes
+        ]
+        middle = mid_tones[len(mid_tones) // 2] if mid_tones else (bottom + top) // 2
+        notes.extend(
+            (
                 NoteEvent(
                     bar=bar,
                     beat=0.0,
-                    midi=midi,
+                    midi=bottom,
+                    duration_beats=1.0,
+                    voice=1,
+                    velocity=SWELL_VELOCITY - 12,
+                    slur_start=True,
+                ),
+                NoteEvent(
+                    bar=bar,
+                    beat=1.0,
+                    midi=middle,
+                    duration_beats=1.0,
+                    voice=1,
+                    velocity=SWELL_VELOCITY - 6,
+                ),
+                NoteEvent(
+                    bar=bar,
+                    beat=2.0,
+                    midi=top,
                     duration_beats=2.0,
                     voice=1,
                     velocity=SWELL_VELOCITY,
-                )
+                    slur_stop=True,
+                    tenuto=True,
+                ),
             )
+        )
     return notes
 
 
@@ -466,19 +586,24 @@ def render_ambient_score(
     glass, wedges, glass_dynamics = _glass(form, phrases, pitches)
     roots: list[tuple[int, ...]] = []
     fifths: list[tuple[int, ...]] = []
+    root_velocity: list[int | None] = []
+    fifth_velocity: list[int | None] = []
     halos: list[tuple[int, ...]] = []
     halo_velocity: list[int | None] = []
     for bar in range(musical_bars):
         chord = chord_at[bar]
         band = band_at[bar]
         roots.append((chord.bass_midi,))
+        root_velocity.append(_DRONE_VELOCITY.get(band, 44))
         if band in ("mf", "f"):
             fifths.append((fifth_above_bass(chord),))
+            fifth_velocity.append(_FIFTH_VELOCITY)
         else:
             fifths.append(())
+            fifth_velocity.append(None)
         halos.append(_halo_midis(chord, band))
-        halo_velocity.append(_HALO_VELOCITY.get(band, 49))
-    low = _sustain(roots, [None] * musical_bars) + _sustain(fifths, [None] * musical_bars)
+        halo_velocity.append(_HALO_VELOCITY.get(band, 42))
+    low = _sustain(roots, root_velocity) + _sustain(fifths, fifth_velocity)
     halo = _sustain(halos, halo_velocity)
     swell = _swell(form, windows, bands, chord_at)
     shimmer = _shimmer(form, phrases, pitches, chord_at, source_bars, source_groups)

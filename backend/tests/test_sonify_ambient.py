@@ -67,6 +67,11 @@ def test_a_rising_phrase_section_keeps_at_most_four_glass_attacks() -> None:
         bars = [note.bar for note in attacks]
         assert bars == sorted(bars)
         assert len(bars) == len(set(bars))
+    for note in score.lead:
+        if note.midi is not None:
+            assert 55 <= note.midi <= 84
+            assert note.beat == 0.0
+            assert note.duration_beats == 4.0
     assert _sounding_eighths(score.high) == 8
 
 
@@ -115,14 +120,16 @@ def test_fifth_is_a_chord_on_loud_bars_and_absent_on_quiet_ones() -> None:
 
     swell = _part(xml, "P3")
     assert swell.find("measure/attributes/staves") is None
-    assert any(measure.find("direction/direction-type/dynamics/f") is not None for measure in swell.findall("measure"))
+    assert swell.findall("measure/harmony") == []
+    assert any(measure.find("direction/direction-type/dynamics/mp") is not None for measure in swell.findall("measure"))
     halo = _part(xml, "P2")
     assert halo.find("measure/attributes/clef/sign").text == "G"
+    assert halo.find("measure[@number='1']/direction/direction-type/dynamics/p") is not None
     programs = {
         part.get("id"): part.find("midi-instrument/midi-program").text
         for part in ET.fromstring(xml).find("part-list").findall("score-part")
     }
-    assert programs == {"P5": "9", "P1": "42", "P2": "53", "P3": "53", "P4": "43"}
+    assert programs == {"P5": "9", "P1": "74", "P2": "42", "P3": "47", "P4": "43"}
 
 
 def test_week_uses_form_tempo_and_chunk_spans_for_shimmer() -> None:
