@@ -36,6 +36,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from typing import TypeVar
 
+from app.sonify.chords import Chord
 from app.sonify.dynamics import MARKINGS, SOUND
 from app.sonify.form import BEATS_PER_BAR, MUSICAL_BARS
 from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score, Variant, WedgeEvent
@@ -54,11 +55,26 @@ _PC_STEPS = {
 }
 
 
-def midi_to_pitch(midi: int) -> tuple[str, int]:
-    step = _PC_STEPS.get(midi % 12)
+def midi_to_pitch(midi: int, harmony: Chord | None = None) -> tuple[str, int, int]:
+    """Step, alter, octave. Chord tones use that chord's spelling; the melody stays diatonic."""
+    pitch_class = midi % 12
+    octave = midi // 12 - 1
+    if harmony is not None:
+        spelled = harmony.spelling(pitch_class)
+        if spelled is not None:
+            step, alter = spelled
+            return step, alter, octave
+    step = _PC_STEPS.get(pitch_class)
     if step is None:
         raise ValueError(f"MIDI {midi} is not diatonic to C major")
-    return step, midi // 12 - 1
+    return step, 0, octave
+
+
+def _chord_on(score: Score, bar: int) -> Chord | None:
+    for slot in score.slots:
+        if slot.start <= bar < slot.start + slot.length:
+            return slot.chord
+    return None
 
 
 def _add(parent: ET.Element, tag: str, text: str | None = None, **attrib: str) -> ET.Element:
@@ -102,6 +118,7 @@ def _add_note(
     staves: int = 1,
     written_shift: int = 0,
     divisions: int = DIVISIONS,
+    harmony: Chord | None = None,
 ) -> None:
     note = _add(parent, "note")
     if event.velocity is not None and event.midi is not None:
@@ -114,9 +131,11 @@ def _add_note(
         else:
             _add(note, "rest")
     else:
-        step, octave = midi_to_pitch(event.midi + written_shift)
+        step, alter, octave = midi_to_pitch(event.midi + written_shift, harmony)
         pitch = _add(note, "pitch")
         _add(pitch, "step", step)
+        if alter:
+            _add(pitch, "alter", str(alter))
         _add(pitch, "octave", str(octave))
     _add(note, "duration", str(_duration(event.duration_beats, divisions)))
     if event.tie_stop:
@@ -214,6 +233,8 @@ def _harmony(parent: ET.Element, event: HarmonyEvent) -> None:
     harmony = _add(parent, "harmony", placement="above")
     root = _add(harmony, "root")
     _add(root, "root-step", event.chord.root_step)
+    if event.chord.alter:
+        _add(root, "root-alter", str(event.chord.alter))
     kind = _add(harmony, "kind", event.chord.kind)
     kind.set("text", event.chord.kind_text)
 
@@ -237,8 +258,8 @@ def _wedge(parent: ET.Element, event: WedgeEvent) -> None:
 E = TypeVar("E", NoteEvent, DynamicEvent, HarmonyEvent, WedgeEvent)
 
 
-def _group(events: tuple[E, ...]) -> list[list[E]]:
-    grouped: list[list[E]] = [[] for _ in range(MUSICAL_BARS)]
+def _group(events: tuple[E, ...], bars: int = MUSICAL_BARS) -> list[list[E]]:
+    grouped: list[list[E]] = [[] for _ in range(bars)]
     for event in events:
         grouped[event.bar].append(event)
     return grouped
@@ -310,9 +331,9 @@ def _melody_part(
     The lead part also carries the opening tempo (and swing, when enabled).
     """
     part = _add(root, "part", id=part_id)
-    melody = _group(notes)
-    edges = _group(wedges)
-    letters = _group(dynamics)
+    melody = _group(notes, score.bars)
+    edges = _group(wedges, score.bars)
+    letters = _group(dynamics, score.bars)
     for bar in range(score.bars):
         measure = _add(part, "measure", number=str(bar + 1))
         if bar == 0:
@@ -336,7 +357,13 @@ def _melody_part(
         for event in sorted(melody[bar], key=lambda note: note.beat):
             flush(event.beat)
             is_chord = event.beat == previous_beat and event.midi is not None
-            _add_note(measure, event, chord=is_chord, divisions=score.divisions)
+            _add_note(
+                measure,
+                event,
+                chord=is_chord,
+                divisions=score.divisions,
+                harmony=_chord_on(score, bar),
+            )
             previous_beat = event.beat
         flush(float(BEATS_PER_BAR))
 
@@ -351,8 +378,8 @@ def _piano_part(root: ET.Element, score: Score) -> None:
     at the comping part's steady `p` dynamic rather than riding `P1` hairpins.
     """
     part = _add(root, "part", id="P3")
-    events = _group(score.comp)
-    symbols = _group(score.harmonies)
+    events = _group(score.comp, score.bars)
+    symbols = _group(score.harmonies, score.bars)
     for bar in range(score.bars):
         measure = _add(part, "measure", number=str(bar + 1))
         if bar == 0:
@@ -375,6 +402,7 @@ def _piano_part(root: ET.Element, score: Score) -> None:
                     event,
                     chord=event.beat == previous_beat and event.midi is not None,
                     staves=2,
+                    harmony=_chord_on(score, bar),
                     divisions=score.divisions,
                 )
                 previous_beat = event.beat
@@ -386,7 +414,7 @@ BASS_WRITTEN_OCTAVES = 1
 def _bass_part(root: ET.Element, score: Score) -> None:
     """Bass part (P4) is written an octave above where it sounds."""
     part = _add(root, "part", id="P4")
-    notes = _group(score.low)
+    notes = _group(score.low, score.bars)
     printed: dict[int, DynamicEvent] = {}
     previous: str | None = None
     for event in score.dynamics:
@@ -412,6 +440,7 @@ def _bass_part(root: ET.Element, score: Score) -> None:
                 note,
                 written_shift=12 * BASS_WRITTEN_OCTAVES,
                 divisions=score.divisions,
+                harmony=_chord_on(score, bar),
             )
 
 

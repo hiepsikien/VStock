@@ -12,6 +12,8 @@ from app.schemas import (
     ChartRange,
     HistoryResponse,
     RecapResponse,
+    SpanMovementResponse,
+    SpanResponse,
     SessionDetailResponse,
     SessionListResponse,
     SessionSummary,
@@ -26,6 +28,14 @@ from app.schemas import (
 )
 from app.services import fundamentals, history, indices, market_session, quotes, symbols as symbols_service
 from app.services.sessions import list_sessions, load_recap, load_session, ready_recap
+from app.services.spans import (
+    SPAN_RANGES,
+    load_movement_audio,
+    movement_audio_path,
+    movement_duration,
+    plan_span,
+    ready_movement,
+)
 from app.sonify.audio import RecapCancelled, RecapUnavailable
 from app.sonify.model import Variant
 
@@ -401,6 +411,71 @@ async def get_recap(
         barCount=asset.bar_count,
         peaks=asset.peaks,
         audioUrl=asset.audio_url,
+    )
+
+
+@router.get("/stocks/{symbol}/span", response_model=SpanResponse)
+async def get_span(
+    symbol: str,
+    range: str = Query(default="1W"),
+    variant: Variant = Query(default="symphony"),
+) -> SpanResponse:
+    sym = symbol.upper()
+    if range not in SPAN_RANGES:
+        raise HTTPException(status_code=404, detail=f"No sonification for {range}")
+    try:
+        movements = await plan_span(sym, range)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Span history unavailable: {exc}") from exc
+    rows = []
+    for index, movement in enumerate(movements):
+        cached = ready_movement(sym, range, index, variant, movement)
+        rows.append(
+            SpanMovementResponse(
+                index=index,
+                label=movement.label,
+                candleCount=movement.candle_count,
+                durationSec=round(movement_duration(movement), 3),
+                ready=cached is not None,
+                audioUrl=movement_audio_path(sym, range, index, variant, movement),
+                chartStartRatio=movement.chart_start,
+                chartEndRatio=movement.chart_end,
+                restAfterSec=movement.rest_after,
+            )
+        )
+    return SpanResponse(symbol=sym, range=range, variant=variant, movements=rows)
+
+
+@router.get("/stocks/{symbol}/span/audio.m4a")
+async def get_span_audio(
+    symbol: str,
+    request: Request,
+    range: str = Query(default="1W"),
+    movement: int = Query(default=0, ge=0),
+    variant: Variant = Query(default="symphony"),
+) -> FileResponse:
+    sym = symbol.upper()
+    if range not in SPAN_RANGES:
+        raise HTTPException(status_code=404, detail=f"No sonification for {range}")
+    try:
+        asset = await load_movement_audio(sym, range, movement, variant, request)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="That movement is not in this span") from None
+    except RecapCancelled:
+        raise HTTPException(status_code=499, detail="Span cancelled") from None
+    except RecapUnavailable as exc:
+        logger.warning("Span export failed: %s", exc)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Span history unavailable: {exc}") from exc
+    return FileResponse(
+        asset.audio_path,
+        media_type=asset.media_type,
+        filename=asset.audio_path.name,
     )
 
 

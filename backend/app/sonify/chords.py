@@ -31,10 +31,33 @@ class Chord:
     def pitch_classes(self) -> frozenset[int]:
         return frozenset(pitch % 12 for pitch in self.pitches)
 
+    alter: int = 0
+    # (pitch class, step letter, alter) for tones that are not the C-major spelling.
+    tones: tuple[tuple[int, str, int], ...] = ()
+
     @property
     def bass_midi(self) -> int:
         """Root kept inside C2–B2 so a minor chord does not drop the bass an octave."""
         return 36 + (self.pitches[0] % 12)
+
+    @property
+    def quality_group(self) -> str:
+        if self.kind in (KIND_MINOR, KIND_MINOR_SEVENTH, KIND_MINOR_NINTH):
+            return "minor"
+        if self.kind in (KIND_DOMINANT, KIND_DOMINANT_NINTH):
+            return "dominant"
+        if self.kind == "half-diminished":
+            return "half-diminished"
+        if "diminished" in self.kind:
+            return "diminished"
+        return "major"
+
+    def spelling(self, pitch_class: int) -> tuple[str, int] | None:
+        """Explicit step and alter for one pitch class, when this chord owns it."""
+        for pc, step, alter in self.tones:
+            if pc == pitch_class:
+                return step, alter
+        return None
 
 
 C = Chord("C", "C", KIND_MAJOR, "", (60, 64, 67))
@@ -57,6 +80,73 @@ G9 = Chord("G9", "G", KIND_DOMINANT_NINTH, "9", (67, 71, 74, 77, 81))
 AM9 = Chord("Am9", "A", KIND_MINOR_NINTH, "m9", (57, 60, 64, 67, 71))
 DM9 = Chord("Dm9", "D", KIND_MINOR_NINTH, "m9", (62, 65, 69, 72, 76))
 
+KIND_HALF_DIMINISHED = "half-diminished"
+KIND_DIMINISHED_SEVENTH = "diminished-seventh"
+
+# Secondary dominants, borrowed chords, and the missing leading-tone seventh.
+# Melody stays on C major; these tones are accompaniment spellings.
+BM7B5 = Chord("Bm7b5", "B", KIND_HALF_DIMINISHED, "m7♭5", (71, 74, 77, 81))
+D7 = Chord("D7", "D", KIND_DOMINANT, "7", (62, 66, 69, 72), tones=((6, "F", 1),))
+E7 = Chord("E7", "E", KIND_DOMINANT, "7", (64, 68, 71, 74), tones=((8, "G", 1),))
+A7 = Chord("A7", "A", KIND_DOMINANT, "7", (57, 61, 64, 67), tones=((1, "C", 1),))
+C7 = Chord("C7", "C", KIND_DOMINANT, "7", (60, 64, 67, 70), tones=((10, "B", -1),))
+FM = Chord("Fm", "F", KIND_MINOR, "m", (65, 68, 72), tones=((8, "A", -1),))
+GM = Chord("Gm", "G", KIND_MINOR, "m", (67, 70, 74), tones=((10, "B", -1),))
+AF = Chord("Ab", "A", KIND_MAJOR, "", (68, 72, 75), alter=-1, tones=((8, "A", -1), (3, "E", -1)))
+BF = Chord("Bb", "B", KIND_MAJOR, "", (70, 74, 77), alter=-1, tones=((10, "B", -1),))
+BF7 = Chord(
+    "Bb7", "B", KIND_DOMINANT, "7", (70, 74, 77, 80),
+    alter=-1, tones=((10, "B", -1), (8, "A", -1)),
+)
+EF = Chord(
+    "Eb", "E", KIND_MAJOR, "", (63, 67, 70),
+    alter=-1, tones=((3, "E", -1), (10, "B", -1)),
+)
+FDIM7 = Chord(
+    "F#dim7", "F", KIND_DIMINISHED_SEVENTH, "°7", (66, 69, 72, 75),
+    alter=1, tones=((6, "F", 1), (3, "E", -1)),
+)
+
+BORROWED: tuple[Chord, ...] = (BM7B5, D7, E7, A7, C7, FM, GM, AF, BF, BF7, EF, FDIM7)
+
+D9 = Chord("D9", "D", KIND_DOMINANT_NINTH, "9", (62, 66, 69, 72, 76), tones=((6, "F", 1),))
+E9 = Chord("E9", "E", KIND_DOMINANT_NINTH, "9", (64, 68, 71, 74, 78), tones=((8, "G", 1), (6, "F", 1)))
+A9 = Chord("A9", "A", KIND_DOMINANT_NINTH, "9", (57, 61, 64, 67, 71), tones=((1, "C", 1),))
+C9 = Chord("C9", "C", KIND_DOMINANT_NINTH, "9", (60, 64, 67, 70, 74), tones=((10, "B", -1),))
+FM9 = Chord("Fm9", "F", KIND_MINOR_NINTH, "m9", (65, 68, 72, 75, 79), tones=((8, "A", -1), (3, "E", -1)))
+GM9 = Chord("Gm9", "G", KIND_MINOR_NINTH, "m9", (67, 70, 74, 77, 81), tones=((10, "B", -1),))
+AFMAJ7 = Chord(
+    "Abmaj7", "A", KIND_MAJOR_SEVENTH, "maj7", (68, 72, 75, 79),
+    alter=-1, tones=((8, "A", -1), (3, "E", -1)),
+)
+BFMAJ7 = Chord(
+    "Bbmaj7", "B", KIND_MAJOR_SEVENTH, "maj7", (70, 74, 77, 81),
+    alter=-1, tones=((10, "B", -1),),
+)
+BF9 = Chord(
+    "Bb9", "B", KIND_DOMINANT_NINTH, "9", (70, 74, 77, 80, 84),
+    alter=-1, tones=((10, "B", -1), (8, "A", -1)),
+)
+EFMAJ7 = Chord(
+    "Ebmaj7", "E", KIND_MAJOR_SEVENTH, "maj7", (63, 67, 70, 74),
+    alter=-1, tones=((3, "E", -1), (10, "B", -1)),
+)
+
+JAZZ_VOICING_BY_NAME: dict[str, Chord] = {
+    "D7": D9,
+    "E7": E9,
+    "A7": A9,
+    "C7": C9,
+    "Fm": FM9,
+    "Gm": GM9,
+    "Ab": AFMAJ7,
+    "Bb": BFMAJ7,
+    "Bb7": BF9,
+    "Eb": EFMAJ7,
+    "Bm7b5": BM7B5,
+    "F#dim7": FDIM7,
+}
+
 JAZZ_CHORD_BY_ROOT: dict[str, Chord] = {
     "C": CMAJ9,
     "F": FMAJ9,
@@ -68,8 +158,96 @@ JAZZ_CHORD_BY_ROOT: dict[str, Chord] = {
 
 
 def jazz_chord(chord: Chord) -> Chord:
-    """Promote a C-major triad or seventh chord to its Lush/Lo-Fi Jazz voicing."""
+    """Promote a triad or seventh chord to its Lush/Lo-Fi Jazz voicing."""
+    named = JAZZ_VOICING_BY_NAME.get(chord.name)
+    if named is not None:
+        return named
     return JAZZ_CHORD_BY_ROOT.get(chord.root_step, chord)
+
+
+def fifth_above_bass(chord: Chord) -> int:
+    """MIDI of the chord's fifth above the written bass, diminished when the chord says so."""
+    root = chord.bass_midi
+    root_pc = chord.pitches[0] % 12
+    fifth_pc = chord.pitches[2] % 12
+    return root + ((fifth_pc - root_pc) % 12)
+
+
+def same_harmonic_root(previous: Chord, current: Chord) -> bool:
+    """Same root letter and accidental. Original G/G7 still count as one root."""
+    if previous.root_step != current.root_step or previous.alter != current.alter:
+        return False
+    if previous.quality_group == current.quality_group:
+        return True
+    original = {chord.name for chord in CHORDS}
+    return (
+        {previous.quality_group, current.quality_group} == {"major", "dominant"}
+        and previous.name in original
+        and current.name in original
+    )
+
+
+def chords_for_spec(borrowed: bool) -> tuple[Chord, ...]:
+    if not borrowed:
+        return CHORDS
+    return (*CHORDS, *BORROWED)
+
+
+_BORROWED_EDGES: dict[tuple[str, str], float] = {
+    ("C", "D7"): 0.12,
+    ("Cmaj7", "D7"): 0.12,
+    ("Am", "E7"): 0.16,
+    ("Am7", "E7"): 0.16,
+    ("Dm", "A7"): 0.16,
+    ("Dm7", "A7"): 0.16,
+    ("F", "C7"): 0.14,
+    ("Fmaj7", "C7"): 0.14,
+    ("C", "C7"): 0.08,
+    ("C", "Fm"): 0.06,
+    ("Am", "Fm"): 0.12,
+    ("F", "Fm"): 0.10,
+    ("Am", "Ab"): 0.10,
+    ("C", "Ab"): 0.05,
+    ("Am", "Eb"): 0.08,
+    ("C", "Eb"): 0.04,
+    ("C", "Bb"): 0.08,
+    ("F", "Bb"): 0.14,
+    ("Bb", "Bb7"): 0.20,
+    ("C", "Gm"): 0.05,
+    ("G", "Gm"): 0.08,
+    ("Am", "Bm7b5"): 0.08,
+    ("Dm", "Bm7b5"): 0.10,
+    ("C", "F#dim7"): 0.06,
+    ("G", "F#dim7"): 0.04,
+    ("D7", "G"): 0.46,
+    ("D7", "G7"): 0.34,
+    ("E7", "Am"): 0.40,
+    ("E7", "Am7"): 0.36,
+    ("A7", "Dm"): 0.40,
+    ("A7", "Dm7"): 0.36,
+    ("C7", "F"): 0.42,
+    ("C7", "Fmaj7"): 0.34,
+    ("Fm", "C"): 0.30,
+    ("Fm", "Ab"): 0.22,
+    ("Ab", "Eb"): 0.20,
+    ("Ab", "Bb"): 0.16,
+    ("Eb", "Bb"): 0.22,
+    ("Eb", "Ab"): 0.18,
+    ("Bb", "F"): 0.24,
+    ("Bb", "Eb"): 0.20,
+    ("Bb7", "Eb"): 0.40,
+    ("Gm", "C"): 0.28,
+    ("Gm", "Bb"): 0.16,
+    ("Bm7b5", "C"): 0.34,
+    ("Bm7b5", "Am"): 0.30,
+    ("F#dim7", "G"): 0.55,
+    ("F#dim7", "G7"): 0.35,
+}
+
+
+def borrowed_transition(previous: Chord, current: Chord) -> float:
+    """Chord-to-chord weight outside the diatonic matrix. Zero when the pair is absent."""
+    return _BORROWED_EDGES.get((previous.name, current.name), 0.0)
 
 TRIADS: tuple[Chord, ...] = (C, F, DM, G, AM, EM)
 SEVENTHS: tuple[Chord, ...] = (CMAJ7, FMAJ7, DM7, G7, AM7, EM7)

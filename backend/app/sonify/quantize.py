@@ -42,6 +42,14 @@ def _chord_candidates(
     return tuple((index, note) for index, note in enumerate(scale) if note % 12 in pitch_classes)
 
 
+def melody_pitch_classes(
+    pitch_classes: frozenset[int], scale: tuple[int, ...]
+) -> frozenset[int]:
+    """Chord tones the C-major melody can sing. Chromatic accompaniment tones drop out."""
+    on_scale = frozenset(note % 12 for note in scale)
+    return frozenset(pitch_class for pitch_class in pitch_classes if pitch_class in on_scale)
+
+
 def quantize_chord_tone(
     target: int,
     pitch_classes: frozenset[int],

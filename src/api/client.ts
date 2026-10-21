@@ -457,6 +457,40 @@ export async function fetchSessionMinutes(
   );
 }
 
+export type SpanRange = '1W' | '1M' | '3M' | '1Y';
+
+export type SpanMovement = {
+  index: number;
+  label: string;
+  candleCount: number;
+  durationSec: number;
+  ready: boolean;
+  audioUrl: string;
+  chartStartRatio: number;
+  chartEndRatio: number;
+  restAfterSec: number;
+};
+
+export type SpanManifest = {
+  symbol: string;
+  range: SpanRange;
+  variant: RecapVariant;
+  movements: SpanMovement[];
+};
+
+export async function fetchSpan(
+  symbol: string,
+  range: SpanRange,
+  variant: RecapVariant,
+  signal?: AbortSignal,
+): Promise<SpanManifest> {
+  const sym = symbol.toUpperCase();
+  return apiGet<SpanManifest>(
+    `/v1/stocks/${encodeURIComponent(sym)}/span?range=${range}&variant=${variant}`,
+    signal,
+  );
+}
+
 export async function fetchRecap(
   symbol: string,
   day: string,

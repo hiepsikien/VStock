@@ -6,6 +6,24 @@ export function candleIndexAt(elapsedSec: number, count: number, durationSec: nu
   return Math.min(count - 1, Math.floor((elapsedSec / durationSec) * count));
 }
 
+/** Chart index for one movement. A rest holds the playhead on the movement that just ended. */
+export function spanChartIndex(input: {
+  elapsedSec: number;
+  durationSec: number;
+  chartStart: number;
+  chartEnd: number;
+  priceCount: number;
+  holdAtEnd: boolean;
+}): number {
+  const count = Math.max(1, input.priceCount);
+  const fraction =
+    input.holdAtEnd || input.durationSec <= 0 || input.elapsedSec >= input.durationSec
+      ? 1
+      : Math.max(0, input.elapsedSec) / input.durationSec;
+  const ratio = input.chartStart + (input.chartEnd - input.chartStart) * fraction;
+  return Math.min(count - 1, Math.max(0, Math.floor(ratio * count)));
+}
+
 /** Keep the open-session poll parked only while this take can still resume.
 
 The chart may keep the last candle on screen after the file ends. That resting

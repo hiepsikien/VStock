@@ -158,6 +158,8 @@ def _vibraphone_accent_part(
     chord_at: dict[int, Chord],
     *,
     rel_span: float = 1.0,
+    total_eighths: int = TOTAL_EIGHTHS,
+    bell_caps: tuple[tuple[int, int, int], ...] | None = None,
 ) -> tuple[tuple[NoteEvent, ...], list[tuple[int, int, bool, Run]]]:
     """Build the high-end Vibraphone part (P5) strictly on Breakouts and High Apexes.
 
@@ -172,8 +174,8 @@ def _vibraphone_accent_part(
       that follow the price contour rather than repeating a static ceiling pitch.
     """
     max_eighths = bell_budget(rel_span, VIBRAPHONE_MAX_EIGHTHS)
-    if max_eighths < 2:
-        return tuple(written(0, TOTAL_EIGHTHS, None)), []
+    if bell_caps is None and max_eighths < 2:
+        return tuple(written(0, total_eighths, None)), []
 
     candidates: list[tuple[int, int, int, bool, Run]] = []
     for phrase in phrases:
@@ -205,22 +207,32 @@ def _vibraphone_accent_part(
 
     chosen_spans: list[tuple[int, int, bool, Run]] = []
     used_bars: set[int] = set()
-    total_eighths = 0
+    spent = 0
+    spent_by_section: dict[tuple[int, int], int] = {}
 
     for _prio, start, length, is_breakout, run in ranked:
         bar = start // EIGHTHS_PER_BAR
         if bar in used_bars:
             continue
-        if total_eighths + length > max_eighths:
-            remain = max_eighths - total_eighths
-            if remain >= 2 or (remain == 1 and run.midi >= VIBRAPHONE_LOW):
-                length = remain
-            else:
+        if bell_caps is None:
+            room = max_eighths - spent
+        else:
+            cap = next((item for item in bell_caps if item[0] <= start < item[1]), None)
+            if cap is None:
                 continue
+            room = cap[2] - spent_by_section.get((cap[0], cap[1]), 0)
+        if room < 2 and not (room == 1 and run.midi >= VIBRAPHONE_LOW):
+            continue
+        if length > room:
+            length = room
         chosen_spans.append((start, length, is_breakout, run))
         used_bars.add(bar)
-        total_eighths += length
-        if total_eighths >= max_eighths:
+        spent += length
+        if bell_caps is not None:
+            cap = next(item for item in bell_caps if item[0] <= start < item[1])
+            key = (cap[0], cap[1])
+            spent_by_section[key] = spent_by_section.get(key, 0) + length
+        elif spent >= max_eighths:
             break
 
     chosen_spans.sort(key=lambda item: item[0])
@@ -281,8 +293,8 @@ def _vibraphone_accent_part(
                 )
         cursor = start + length
 
-    if cursor < TOTAL_EIGHTHS:
-        events.extend(written(cursor, TOTAL_EIGHTHS - cursor, None))
+    if cursor < total_eighths:
+        events.extend(written(cursor, total_eighths - cursor, None))
     return tuple(events), chosen_spans
 
 
@@ -643,6 +655,7 @@ def _sax_melody_curve(
     phrases: tuple[Phrase, ...],
     chosen_spans: list[tuple[int, int, bool, Run]],
     chord_at: dict[int, Chord] | None = None,
+    total_eighths: int = TOTAL_EIGHTHS,
 ) -> tuple[list[int], tuple[Phrase, ...], list[tuple[int, int]]]:
     """Keep phrases within the Saxophone register (<= Ab5 = 80) at full 1:1 resolution.
 
@@ -733,7 +746,7 @@ def _sax_melody_curve(
             p.end,
             p.runs,
             phrases[i].held_over
-            and p.end < TOTAL_EIGHTHS
+            and p.end < total_eighths
             and sax_pitches[p.end] == sax_pitches[p.end - 1],
         )
         for i, p in enumerate(temp_phrases)
@@ -779,6 +792,7 @@ def _rhodes_comping_part(
     cadences: list[tuple[Run, str]],
     chord_at: dict[int, Chord],
     band_at: dict[int, str],
+    total_eighths: int = TOTAL_EIGHTHS,
 ) -> list[NoteEvent]:
     """Build Fender Rhodes Piano (P3) with Charleston syncopation and Jazz fills.
 
@@ -836,7 +850,7 @@ def _rhodes_comping_part(
     for start, length, midi in cadence_fills:
         right_events.extend(written(start, length, midi, velocity=FILL_VELOCITY))
 
-    piano: list[NoteEvent] = list(with_rests(right_events, TOTAL_EIGHTHS))
+    piano: list[NoteEvent] = list(with_rests(right_events, total_eighths))
     for slot in slots:
         piano.extend(left_hand(slot))
     return piano
@@ -860,7 +874,9 @@ def _walking_bass_bar(
       Beat 4: Diatonic scale approach note (1 step above or below next bar's Root).
     """
     root = chord.bass_midi
-    fifth = root + 7
+    from app.sonify.chords import fifth_above_bass
+
+    fifth = fifth_above_bass(chord)
     if section == "outro":
         return [
             NoteEvent(bar=bar, beat=0.0, midi=root, duration_beats=4.0, voice=1),
@@ -902,8 +918,8 @@ def _walking_bass_bar(
 def render_jazz_score(
     *,
     title: str,
-    chosen: tuple[Regime, Regime, Regime],
-    sample_indexes: tuple[int, int, int] | None,
+    chosen: tuple[Regime, ...],
+    sample_indexes: tuple[int, ...] | None,
     slots: tuple[ChordSlot, ...],
     pitches: list[int],
     phrases: tuple[Phrase, ...],
@@ -911,27 +927,37 @@ def render_jazz_score(
     bands: list[str],
     band_at: dict[int, str],
     rel_span: float = 1.0,
+    musical_bars: int = MUSICAL_BARS,
+    total_eighths: int = TOTAL_EIGHTHS,
+    bpm: int = JAZZ_BPM,
+    bell_caps: tuple[tuple[int, int, int], ...] | None = None,
 ) -> Score:
     """Assemble the 30-bar Lo-Fi / Cool Jazz score."""
     jazz_slots, harmonies, chord_at = _promote_jazz_slots(slots)
     section_at = {bar: slot.section for slot in jazz_slots for bar in slot.bars()}
 
     vibraphone, chosen_spans = _vibraphone_accent_part(
-        phrases, pitches, band_at, chord_at, rel_span=rel_span
+        phrases,
+        pitches,
+        band_at,
+        chord_at,
+        rel_span=rel_span,
+        total_eighths=total_eighths,
+        bell_caps=bell_caps,
     )
     sax_pitches, sax_phrases, yield_spans = _sax_melody_curve(
-        pitches, phrases, chosen_spans, chord_at
+        pitches, phrases, chosen_spans, chord_at, total_eighths
     )
     alto_sax, tenor_sax, cadences = melody_parts(
-        sax_pitches, sax_phrases, band_at, yield_spans=yield_spans
+        sax_pitches, sax_phrases, band_at, yield_spans=yield_spans, piece_eighths=total_eighths
     )
 
-    rhodes = _rhodes_comping_part(jazz_slots, cadences, chord_at, band_at)
+    rhodes = _rhodes_comping_part(jazz_slots, cadences, chord_at, band_at, total_eighths)
 
     scale_bass = c_major_scale(33, 60)
     bass: list[NoteEvent] = []
-    for bar in range(MUSICAL_BARS):
-        next_chord = chord_at[min(MUSICAL_BARS - 1, bar + 1)]
+    for bar in range(musical_bars):
+        next_chord = chord_at[min(musical_bars - 1, bar + 1)]
         bass.extend(
             _walking_bass_bar(
                 chord_at[bar],
@@ -945,14 +971,14 @@ def render_jazz_score(
 
     return Score(
         title=title,
-        bpm=JAZZ_BPM,
-        bars=MUSICAL_BARS,
+        bpm=bpm,
+        bars=musical_bars,
         regimes=chosen,
         regime_samples=sample_indexes,
         slots=jazz_slots,
         high=vibraphone,
-        lead=with_rests(alto_sax.notes, TOTAL_EIGHTHS),
-        support=with_rests(tenor_sax.notes, TOTAL_EIGHTHS),
+        lead=with_rests(alto_sax.notes, total_eighths),
+        support=with_rests(tenor_sax.notes, total_eighths),
         comp=tuple(rhodes),
         low=tuple(bass),
         dynamics=dynamics,

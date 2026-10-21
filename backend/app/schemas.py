@@ -106,6 +106,25 @@ class RecapResponse(BaseModel):
     audioUrl: str
 
 
+class SpanMovementResponse(BaseModel):
+    index: int
+    label: str
+    candleCount: int
+    durationSec: float
+    ready: bool
+    audioUrl: str
+    chartStartRatio: float
+    chartEndRatio: float
+    restAfterSec: float
+
+
+class SpanResponse(BaseModel):
+    symbol: str
+    range: Literal["1W", "1M", "3M", "1Y"]
+    variant: Literal["symphony", "jazz", "minimalist"]
+    movements: list[SpanMovementResponse]
+
+
 class HealthResponse(BaseModel):
     status: str
     service: str = "vstock-api"

@@ -19,7 +19,7 @@ from app.sonify.chords import Chord
 from app.sonify.dynamics import SOUND
 from app.sonify.form import EIGHTHS_PER_BAR, HALF_BAR, TOTAL_EIGHTHS, ChordSlot
 from app.sonify.model import PERIOD, DynamicEvent, NoteEvent, Phrase, Run, WedgeEvent
-from app.sonify.quantize import quantize_chord_tone
+from app.sonify.quantize import melody_pitch_classes, quantize_chord_tone
 
 COMMA = 3
 BEAT_EIGHTHS = 2
@@ -420,6 +420,7 @@ def _cross_phrase_cello_overlaps(
     phrases: tuple[Phrase, ...],
     all_runs: list[list[Run]],
     all_owners: list[list[str]],
+    piece_eighths: int = TOTAL_EIGHTHS,
 ) -> tuple[dict[int, Run], dict[int, int]]:
     """Record cross-phrase lead-ins and trail-outs when Violin and Cello hand off at a phrase boundary."""
     lead_ins: dict[int, Run] = {}
@@ -476,7 +477,7 @@ def _cross_phrase_cello_overlaps(
         ):
             # Store on negative key -(p_idx + 1) so Cello plays the last beat of
             # Violin's closing G3..B3 note before the breath rest.
-            eff_len = last_run.length - (1 if curr_p.end < TOTAL_EIGHTHS else 0)
+            eff_len = last_run.length - (1 if curr_p.end < piece_eighths else 0)
             if eff_len >= 2 and last_run.midi < CELLO_HANDBACK:
                 lead = min(CELLO_OVERLAP, eff_len)
                 lead_ins[-(p_idx + 1)] = Run(
@@ -617,6 +618,7 @@ def melody_parts(
     phrases: tuple[Phrase, ...],
     band_at: dict[int, str],
     yield_spans: list[tuple[int, int]] | None = None,
+    piece_eighths: int = TOTAL_EIGHTHS,
 ) -> tuple[_Line, _Line, list[tuple[Run, str]]]:
     """Split the legato line between violin and cello with dovetail handoffs.
 
@@ -661,7 +663,7 @@ def melody_parts(
         all_owners.append(owners)
 
     cross_leads, cross_trails = _cross_phrase_cello_overlaps(
-        phrases, all_p_runs, all_owners
+        phrases, all_p_runs, all_owners, piece_eighths
     )
     last_end_by_owner = {"violin": 0, "cello": 0}
 
@@ -669,7 +671,7 @@ def melody_parts(
         base_owners = all_base_owners[p_idx]
         p_runs = all_p_runs[p_idx]
         owners = all_owners[p_idx]
-        breath = phrase.closes and phrase.end < TOTAL_EIGHTHS
+        breath = phrase.closes and phrase.end < piece_eighths
         phrase_lift = lift(phrase)
         colours = techniques(phrase, pitches, band_at)
         breakout = next(
@@ -899,8 +901,11 @@ def quantize_strong_beats(
             previous = pitches[run.end - 1]
             previous_raw = run.midi
             continue
-        common = frozenset.intersection(
-            *(chord_at[eighth // EIGHTHS_PER_BAR].pitch_classes for eighth in strong)
+        common = melody_pitch_classes(
+            frozenset.intersection(
+                *(chord_at[eighth // EIGHTHS_PER_BAR].pitch_classes for eighth in strong)
+            ),
+            scale,
         )
         if common:
             snapped = quantize_chord_tone(run.midi, common, scale, previous, step)

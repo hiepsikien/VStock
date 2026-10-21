@@ -32,6 +32,7 @@ import {
 } from '../data/stocks';
 import { PriceChart } from '../components/PriceChart';
 import { SessionRecap } from '../components/SessionRecap';
+import { SpanRecap } from '../components/SpanRecap';
 import { colors, spacing, typography } from '../theme';
 import { isMarketOpen, marketSessionLabel, REFRESH } from '../utils/marketSession';
 import { upsertPriceAlert } from '../storage/alerts';
@@ -450,6 +451,36 @@ export function StockDetailScreen({ navigation, route }: Props) {
                 </View>
               )}
             </SessionRecap>
+          ) : (range === '1W' || range === '1M' || range === '3M' || range === '1Y') &&
+            !isIndexLike &&
+            !isCommodity &&
+            !stock.unavailable ? (
+            <SpanRecap
+              key={`${symbol}-${range}`}
+              symbol={symbol}
+              range={range}
+              priceCount={rangePrices.length}
+            >
+              {(view) => (
+                <View>
+                  <PriceChart
+                    prices={rangePrices.length ? rangePrices : stock.sparkline}
+                    positive={isUp}
+                    range={range}
+                    onRangeChange={(next) => void onRangeChange(next)}
+                    cursorIndex={view.cursorIndex}
+                    cursorLabel={view.cursorLabel}
+                    dimUnplayed={view.dimUnplayed}
+                  />
+                  {chartLoading ? (
+                    <ActivityIndicator
+                      style={styles.chartSpinner}
+                      color={colors.textSecondary}
+                    />
+                  ) : null}
+                </View>
+              )}
+            </SpanRecap>
           ) : (
             <View>
               <PriceChart

@@ -26,6 +26,44 @@ def _cache_key(symbol: str) -> str:
     return f"minute-ohlc:{symbol}"
 
 
+async def fetch_ohlc(symbol: str, lookback_days: int, resolution: str) -> dict:
+    """OHLC for a long-form span. The 1-day recap keeps `fetch_minute_payload`."""
+    sym = symbol.upper()
+    key = f"ohlc:{resolution}:{lookback_days}:{sym}"
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+
+    now = int(time.time())
+    params = {
+        "from": now - lookback_days * 24 * 3600,
+        "to": now,
+        "symbol": sym,
+        "resolution": resolution,
+    }
+    async with httpx.AsyncClient(timeout=20.0, headers=ENTRADE_HEADERS) as client:
+        response = await client.get(ENTRADE_OHLC, params=params)
+        response.raise_for_status()
+        payload = response.json()
+    if not isinstance(payload, dict):
+        raise ValueError("history payload is not an object")
+    cache.set(key, payload, MINUTE_TTL)
+    return payload
+
+
+def payload_truncated(payload: dict, lookback_days: int, now: int | None = None) -> bool:
+    """True when the feed starts well after the requested window."""
+    from app.sonify.session import samples_from_ohlc
+
+    samples = samples_from_ohlc(payload)
+    if not samples:
+        return True
+    earliest = min(sample[0] for sample in samples)
+    clock = int(time.time()) if now is None else now
+    requested = clock - lookback_days * 24 * 3600
+    return earliest > requested + 2 * 24 * 3600
+
+
 async def fetch_minute_payload(symbol: str) -> dict:
     sym = symbol.upper()
     key = _cache_key(sym)

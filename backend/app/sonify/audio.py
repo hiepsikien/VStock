@@ -38,6 +38,8 @@ logger = logging.getLogger(__name__)
 
 # Bump when the score or the sound changes, so old files are not replayed.
 RECAP_REVISION = "9"
+# Long-form files live beside the daily recap and use their own revision.
+SPAN_REVISION = "1"
 PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
@@ -98,6 +100,44 @@ class RecapAsset:
             f"/v1/stocks/{self.symbol}/sessions/{self.day.isoformat()}"
             f"/recap/audio.m4a?variant={self.variant}&v={self.bar_count}&r={RECAP_REVISION}"
         )
+
+
+@dataclass(frozen=True)
+class SpanAsset:
+    symbol: str
+    span: str
+    index: int
+    variant: Variant
+    audio_path: Path
+    duration_sec: float
+    map_duration_sec: float
+    peaks: list[float]
+    bar_count: int
+    media_type: str
+    fingerprint: str
+
+
+def write_wav(path: Path, channels: int, rate: int, samples: array) -> None:
+    payload = samples.tobytes()
+    bits = 16 if samples.typecode == "h" else 32
+    block = channels * (bits // 8)
+    header = struct.pack(
+        "<4sI4s4sIHHIIHH4sI",
+        b"RIFF",
+        36 + len(payload),
+        b"WAVE",
+        b"fmt ",
+        16,
+        1 if bits == 16 else 3,
+        channels,
+        rate,
+        rate * block,
+        block,
+        bits,
+        b"data",
+        len(payload),
+    )
+    path.write_bytes(header + payload)
 
 
 def audio_root() -> Path:
@@ -186,6 +226,63 @@ def waveform_peaks(path: Path, buckets: int = PEAK_BUCKETS) -> tuple[float, list
     if loudest <= 0:
         return duration, [0.0] * buckets
     return duration, [round(peak / loudest, 4) for peak in peaks]
+
+
+def join_chunks(
+    chunks: list[tuple[int, int, array]],
+    musical_seconds: list[float],
+    crossfade_seconds: float = 0.015,
+) -> tuple[int, int, array]:
+    """Trim every chunk but the last to the written length, then overlap the joins.
+
+    MuseScore leaves a reverb tail past the final barline. Mid-movement chunks lose
+    that tail. The last chunk keeps it, matching the single-file recap.
+    """
+    if not chunks or len(chunks) != len(musical_seconds):
+        raise ValueError("each chunk needs a written length")
+    channels, rate, _samples = chunks[0]
+    if channels < 1 or rate < 1:
+        raise ValueError("chunks need a sample rate")
+    if any(item_channels != channels or item_rate != rate for item_channels, item_rate, _item in chunks):
+        raise ValueError("chunks must share a sample rate and channel count")
+    fade = max(0, round(crossfade_seconds * rate))
+    frame = channels
+
+    def frames_of(samples: array) -> int:
+        return len(samples) // frame
+
+    trimmed: list[array] = []
+    for index, ((_item_channels, _item_rate, samples), seconds) in enumerate(zip(chunks, musical_seconds)):
+        keep = frames_of(samples)
+        if index != len(chunks) - 1:
+            keep = min(keep, max(1, round(seconds * rate)))
+        trimmed.append(array(samples.typecode, samples[: keep * frame]))
+
+    if len(trimmed) == 1 or fade == 0:
+        joined: array = array(trimmed[0].typecode)
+        for part in trimmed:
+            joined.extend(part)
+        return channels, rate, joined
+
+    joined = array(trimmed[0].typecode)
+    for index, part in enumerate(trimmed):
+        if index == 0:
+            joined.extend(part)
+            continue
+        overlap = min(fade, frames_of(part), len(joined) // frame)
+        if overlap <= 0:
+            joined.extend(part)
+            continue
+        tail = len(joined) - overlap * frame
+        for step in range(overlap):
+            weight = (step + 1) / (overlap + 1)
+            for channel in range(frame):
+                position = tail + step * frame + channel
+                incoming = part[step * frame + channel]
+                mixed = int(joined[position] * (1.0 - weight) + incoming * weight)
+                joined[position] = max(-32768, min(32767, mixed))
+        joined.extend(part[overlap * frame :])
+    return channels, rate, joined
 
 
 def _wav_samples(path: Path) -> tuple[int, int, array]:
@@ -721,6 +818,8 @@ class RecapStore:
             if path.is_dir():
                 if path.name == "work":
                     self._prune_work(path)
+                elif path.name == "spans":
+                    self._prune_spans(path, cutoff)
                 continue
             if not path.is_file():
                 continue
@@ -732,6 +831,191 @@ class RecapStore:
                 continue
             if not current or expired:
                 path.unlink(missing_ok=True)
+
+    def _prune_spans(self, spans: Path, cutoff: float) -> None:
+        for path in list(spans.iterdir()):
+            try:
+                expired = path.stat().st_mtime < cutoff
+            except OSError:
+                continue
+            if expired:
+                path.unlink(missing_ok=True)
+
+    def _span_dir(self) -> Path:
+        folder = self.root / "spans"
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder
+
+    def _span_stem(
+        self,
+        symbol: str,
+        span: str,
+        index: int,
+        variant: Variant,
+        candle_count: int,
+        fingerprint: str,
+    ) -> str:
+        token = fingerprint.replace(".", "p").replace("-", "_")
+        return f"{symbol}_{span}_{index}_{variant}_{SPAN_REVISION}_{candle_count}_{token}"
+
+    def get_movement(
+        self,
+        symbol: str,
+        span: str,
+        index: int,
+        variant: Variant,
+        candle_count: int,
+        fingerprint: str,
+    ) -> SpanAsset | None:
+        self.prune()
+        stem = self._span_stem(symbol, span, index, variant, candle_count, fingerprint)
+        return self._read_span(symbol, span, index, variant, stem, fingerprint)
+
+    def ensure_movement(
+        self,
+        symbol: str,
+        span: str,
+        index: int,
+        variant: Variant,
+        movement,  # PreparedMovement; kept untyped to avoid an import cycle
+        cancel: threading.Event | None = None,
+    ) -> SpanAsset:
+        from app.sonify.span import slice_score
+
+        fingerprint = movement.scale_fingerprint
+        candle_count = movement.candle_count
+        piece = f"span:{symbol}:{span}:{index}:{variant}"
+        with self._lock(piece):
+            _raise_if_cancelled_event(cancel)
+            cached = self.get_movement(symbol, span, index, variant, candle_count, fingerprint)
+            if cached is not None:
+                return cached
+            with self._slots:
+                _raise_if_cancelled_event(cancel)
+                cached = self.get_movement(symbol, span, index, variant, candle_count, fingerprint)
+                if cached is not None:
+                    return cached
+                return self._render_movement(
+                    symbol, span, index, variant, movement, slice_score, cancel
+                )
+
+    def _render_movement(
+        self,
+        symbol: str,
+        span: str,
+        index: int,
+        variant: Variant,
+        movement,
+        slice_score,
+        cancel: threading.Event | None,
+    ) -> SpanAsset:
+        stem = self._span_stem(
+            symbol, span, index, variant, movement.candle_count, movement.scale_fingerprint
+        )
+        score = render(
+            movement.bars,
+            title=f"{symbol} {span} {movement.label}",
+            variant=variant,
+            form=movement.spec,
+            source_groups=movement.groups,
+        )
+        bounds = movement.spec.chunk_bounds()
+        work = self.root / "work"
+        work.mkdir(parents=True, exist_ok=True)
+        wavs: list[tuple[int, int, array]] = []
+        lengths: list[float] = []
+        previous = getattr(_export_cancel, "event", None)
+        _export_cancel.event = cancel
+        try:
+            for chunk_index, (start, end) in enumerate(bounds):
+                _raise_if_cancelled_event(cancel)
+                part = score if len(bounds) == 1 else slice_score(score, start, end)
+                xml_path = work / f"{stem}_{chunk_index}.musicxml"
+                wav_path = work / f"{stem}_{chunk_index}.wav"
+                xml_path.write_text(score_to_musicxml(part), encoding="utf-8")
+                try:
+                    self._exporter(xml_path, wav_path)
+                    wavs.append(_wav_samples(wav_path))
+                    lengths.append(piece_seconds(part.bars, part.bpm, BEATS_PER_BAR))
+                finally:
+                    xml_path.unlink(missing_ok=True)
+                    wav_path.unlink(missing_ok=True)
+            if any(rate == 0 for _channels, rate, _samples in wavs):
+                raise RecapUnavailable("MuseScore wrote an empty chunk")
+            channels, rate, joined = join_chunks(wavs, lengths)
+            joined_path = work / f"{stem}.wav"
+            write_wav(joined_path, channels, rate, joined)
+            duration, peaks = waveform_peaks(joined_path)
+            musical = sum(lengths)
+            if duration <= 0:
+                duration = musical
+            map_duration = musical if 0 < musical <= duration else duration
+            m4a_tmp = work / f"{stem}.m4a"
+            if _transcode_m4a(joined_path, m4a_tmp):
+                audio_path = self._publish(m4a_tmp, self._span_dir() / f"{stem}.m4a")
+                joined_path.unlink(missing_ok=True)
+            else:
+                audio_path = self._publish(joined_path, self._span_dir() / f"{stem}.wav")
+                m4a_tmp.unlink(missing_ok=True)
+            payload = {
+                "symbol": symbol,
+                "span": span,
+                "index": index,
+                "variant": variant,
+                "durationSec": round(duration, 3),
+                "mapDurationSec": round(map_duration, 3),
+                "barCount": movement.candle_count,
+                "peaks": peaks,
+                "audio": audio_path.name,
+                "fingerprint": movement.scale_fingerprint,
+            }
+            meta_tmp = work / f"{stem}.json"
+            meta_tmp.write_text(json.dumps(payload), encoding="utf-8")
+            self._publish(meta_tmp, self._span_dir() / f"{stem}.json")
+            asset = self._read_span(symbol, span, index, variant, stem, movement.scale_fingerprint)
+            if asset is None:
+                raise RecapUnavailable("movement audio was not stored")
+            return asset
+        finally:
+            _export_cancel.event = previous
+
+    def _read_span(
+        self,
+        symbol: str,
+        span: str,
+        index: int,
+        variant: Variant,
+        stem: str,
+        fingerprint: str,
+    ) -> SpanAsset | None:
+        folder = self.root / "spans"
+        meta_path = folder / f"{stem}.json"
+        if not meta_path.is_file():
+            return None
+        try:
+            payload = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        name = str(payload.get("audio") or "")
+        audio_path = folder / name
+        if not name or audio_path.name != name or not audio_path.is_file():
+            return None
+        if str(payload.get("fingerprint") or "") != fingerprint:
+            return None
+        peaks = payload.get("peaks") or []
+        return SpanAsset(
+            symbol=symbol,
+            span=span,
+            index=index,
+            variant=variant,
+            audio_path=audio_path,
+            duration_sec=float(payload.get("durationSec") or 0.0),
+            map_duration_sec=float(payload.get("mapDurationSec") or 0.0),
+            peaks=[float(peak) for peak in peaks],
+            bar_count=int(payload.get("barCount") or 0),
+            media_type=_media_type(audio_path),
+            fingerprint=fingerprint,
+        )
 
     def _prune_work(self, work: Path) -> None:
         cutoff = time.time() - WORK_KEEP_SEC

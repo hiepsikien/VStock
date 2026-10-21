@@ -25,12 +25,20 @@ from app.sonify.chords import (
     REGIME_BIAS,
     Chord,
     Regime,
+    borrowed_transition,
+    chords_for_spec,
     progression,
+    same_harmonic_root,
     tonic,
     tonic_chords,
     transition_probability,
 )
-from app.sonify.quantize import bar_quantization_loss, c_major_scale, quantize_chord_tone
+from app.sonify.quantize import (
+    bar_quantization_loss,
+    c_major_scale,
+    melody_pitch_classes,
+    quantize_chord_tone,
+)
 
 MUSICAL_BARS = 30
 BEATS_PER_BAR = 4
@@ -64,6 +72,97 @@ Section = Literal["intro", "phrase", "outro"]
 
 
 @dataclass(frozen=True)
+class FormSection:
+    """One harmonic region. `regime_slot` indexes the regime tuple passed at plan time."""
+
+    start: int
+    end: int
+    kind: Section
+    regime_slot: int
+
+
+@dataclass(frozen=True)
+class FormSpec:
+    """Bar grid for one movement. The 30-bar daily recap stays `DAILY_SPEC`."""
+
+    bars: int
+    bpm: int
+    sections: tuple[FormSection, ...]
+    # Exclusive end bars of each export chunk. Empty means the movement is one file.
+    chunks: tuple[int, ...] = ()
+    borrowed: bool = False
+
+    @property
+    def eighths(self) -> int:
+        return self.bars * EIGHTHS_PER_BAR
+
+    @property
+    def regime_slots(self) -> int:
+        return max(section.regime_slot for section in self.sections) + 1
+
+    @property
+    def section_starts(self) -> tuple[int, ...]:
+        return tuple(section.start for section in self.sections)
+
+    @property
+    def phrase_starts(self) -> tuple[int, ...]:
+        return tuple(section.start for section in self.sections if section.kind == "phrase")
+
+    def spans(
+        self, regimes: Sequence[Regime]
+    ) -> tuple[tuple[int, int, Regime, Section], ...]:
+        if len(regimes) != self.regime_slots:
+            raise ValueError(f"expected {self.regime_slots} regimes, got {len(regimes)}")
+        return tuple(
+            (section.start, section.end, regimes[section.regime_slot], section.kind)
+            for section in self.sections
+        )
+
+    def chunk_bounds(self) -> tuple[tuple[int, int], ...]:
+        if not self.chunks:
+            return ((0, self.bars),)
+        bounds: list[tuple[int, int]] = []
+        start = 0
+        for end in self.chunks:
+            bounds.append((start, end))
+            start = end
+        if start != self.bars:
+            raise ValueError("chunk ends must cover the movement")
+        return tuple(bounds)
+
+
+def liquidity_windows_for(spec: FormSpec) -> tuple[tuple[int, int], ...]:
+    """Intro and outro are one window each. Phrases split into 2-bar windows."""
+    windows: list[tuple[int, int]] = []
+    for section in spec.sections:
+        if section.kind in ("intro", "outro"):
+            windows.append((section.start, section.end - section.start))
+            continue
+        bar = section.start
+        while bar < section.end:
+            windows.append((bar, min(2, section.end - bar)))
+            bar += 2
+    return tuple(windows)
+
+
+# Same grid as the constants above, so a daily plan with this spec matches the
+# historical 30-bar path.
+DAILY_SPEC = FormSpec(
+    bars=MUSICAL_BARS,
+    bpm=BPM,
+    sections=(
+        FormSection(0, PHRASE_STARTS[0], "intro", 0),
+        FormSection(PHRASE_STARTS[0], PHRASE_STARTS[1], "phrase", 0),
+        FormSection(PHRASE_STARTS[1], PHRASE_STARTS[2], "phrase", 1),
+        FormSection(PHRASE_STARTS[2], OUTRO_START, "phrase", 2),
+        FormSection(OUTRO_START, MUSICAL_BARS, "outro", 2),
+    ),
+    chunks=(),
+    borrowed=False,
+)
+
+
+@dataclass(frozen=True)
 class ChordSlot:
     start: int
     length: int
@@ -85,6 +184,22 @@ def _section_spans(
         (PHRASE_STARTS[2], OUTRO_START, regimes[2], "phrase"),
         (OUTRO_START, MUSICAL_BARS, regimes[2], "outro"),
     )
+
+
+_UP_EXTRA = frozenset({"D7", "C7"})
+_DOWN_EXTRA = frozenset({"Fm", "Gm", "Ab", "Eb", "E7", "Bm7b5"})
+_SIDE_EXTRA = frozenset({"Bb", "Bb7", "C7", "F#dim7"})
+_PASSING = frozenset({"Bm7b5", "F#dim7"})
+
+
+def _borrowed_allowed(chord: Chord, regime: Regime, phrase_downbeat: bool) -> bool:
+    """Diatonic chords stay. Extras are regime-gated, and passing chords miss the downbeat."""
+    if chord in CHORDS:
+        return True
+    if phrase_downbeat and chord.name in _PASSING:
+        return False
+    extras = {"uptrend": _UP_EXTRA, "downtrend": _DOWN_EXTRA, "sideway": _SIDE_EXTRA}[regime]
+    return chord.name in extras
 
 
 def _prev_last_touched_strong(raw_pitches: Sequence[int], bar: int) -> bool:
@@ -121,7 +236,7 @@ def _breaks_held_note_across_barline(
     """
     if prev_chord == curr_chord:
         return False
-    common = prev_chord.pitch_classes & curr_chord.pitch_classes
+    common = melody_pitch_classes(prev_chord.pitch_classes & curr_chord.pitch_classes, scale)
     if common:
         snapped_common = quantize_chord_tone(boundary_pitch, common, scale)
         if abs(index_of[snapped_common] - index_of[boundary_pitch]) <= 1:
@@ -132,9 +247,10 @@ def _breaks_held_note_across_barline(
 
 
 def plan_markov_chords(
-    regimes: tuple[Regime, Regime, Regime],
+    regimes: tuple[Regime, ...] | tuple[Regime, Regime, Regime],
     raw_pitches: Sequence[int],
     scale: tuple[int, ...] | None = None,
+    spec: FormSpec | None = None,
 ) -> tuple[Chord, ...]:
     """Decode the lowest-loss 30-bar Markov chord path via Viterbi.
 
@@ -151,11 +267,23 @@ def plan_markov_chords(
     chord for 3+ bars is chosen whenever staying preserves the melody notes
     better than moving.
     """
-    if len(regimes) != 3:
-        raise ValueError("expected one regime per phrase")
+    if spec is None:
+        if len(regimes) != 3:
+            raise ValueError("expected one regime per phrase")
+        musical_bars = MUSICAL_BARS
+        section_starts = SECTION_STARTS
+        phrase_starts = PHRASE_STARTS
+        spans = _section_spans(regimes)  # type: ignore[arg-type]
+        borrowed = False
+    else:
+        musical_bars = spec.bars
+        section_starts = spec.section_starts
+        phrase_starts = spec.phrase_starts
+        spans = spec.spans(regimes)
+        borrowed = spec.borrowed
     for regime in regimes:
         progression(regime)
-    expected_eighths = MUSICAL_BARS * EIGHTHS_PER_BAR
+    expected_eighths = musical_bars * EIGHTHS_PER_BAR
     if len(raw_pitches) != expected_eighths:
         raise ValueError(f"expected {expected_eighths} eighth-note pitches, got {len(raw_pitches)}")
     active_scale = c_major_scale() if scale is None else scale
@@ -163,26 +291,34 @@ def plan_markov_chords(
 
     bar_regime: list[Regime] = []
     bar_section: list[Section] = []
-    for start, end, regime, section in _section_spans(regimes):
+    for start, end, regime, section in spans:
         bar_regime.extend([regime] * (end - start))
         bar_section.extend([section] * (end - start))
 
-    states = [(chord, held) for chord in CHORDS for held in (1, 2)]
-    dp: list[dict[tuple[Chord, int], float]] = [{} for _ in range(MUSICAL_BARS)]
+    catalog = chords_for_spec(borrowed)
+    states = [(chord, held) for chord in catalog for held in (1, 2)]
+    dp: list[dict[tuple[Chord, int], float]] = [{} for _ in range(musical_bars)]
     back: list[dict[tuple[Chord, int], tuple[Chord, int] | None]] = [
-        {} for _ in range(MUSICAL_BARS)
+        {} for _ in range(musical_bars)
     ]
 
-    for bar in range(MUSICAL_BARS):
+    for bar in range(musical_bars):
         bar_notes = raw_pitches[bar * EIGHTHS_PER_BAR : (bar + 1) * EIGHTHS_PER_BAR]
         regime = bar_regime[bar]
         section = bar_section[bar]
         bias = REGIME_BIAS[regime]
         allowed_tonics = tonic_chords(regime)
-        new_section = bar in SECTION_STARTS
+        new_section = bar in section_starts
         previous_pitch = raw_pitches[bar * EIGHTHS_PER_BAR - 1] if bar > 0 else None
+        phrase_downbeat = bar in phrase_starts
 
-        for chord in CHORDS:
+        for chord in catalog:
+            if borrowed and not _borrowed_allowed(chord, regime, phrase_downbeat):
+                dp[bar][(chord, 1)] = float("inf")
+                dp[bar][(chord, 2)] = float("inf")
+                back[bar][(chord, 1)] = None
+                back[bar][(chord, 2)] = None
+                continue
             if section in ("intro", "outro") and chord not in allowed_tonics:
                 dp[bar][(chord, 1)] = float("inf")
                 dp[bar][(chord, 2)] = float("inf")
@@ -190,8 +326,8 @@ def plan_markov_chords(
                 back[bar][(chord, 2)] = None
                 continue
 
-            base_bias = bias[chord]
-            if bar in PHRASE_STARTS and chord in allowed_tonics:
+            base_bias = bias[chord] if chord in bias else 0.08
+            if phrase_downbeat and chord in allowed_tonics:
                 base_bias -= PHRASE_TONIC_BONUS
 
             if bar == 0:
@@ -231,7 +367,7 @@ def plan_markov_chords(
                     prev_chord: quantize_chord_tone(
                         previous_pitch, prev_chord.pitch_classes, active_scale
                     )
-                    for prev_chord in CHORDS
+                    for prev_chord in catalog
                 }
                 emission_by_prev_snapped = {
                     snapped_val: (
@@ -256,7 +392,11 @@ def plan_markov_chords(
                     # Intro and outro hold one steady tonic pedal across all bars of the section.
                     if section in ("intro", "outro") and not new_section and prev_chord != chord:
                         continue
-                    same_root = prev_chord.root_step == chord.root_step
+                    same_root = (
+                        same_harmonic_root(prev_chord, chord)
+                        if borrowed
+                        else prev_chord.root_step == chord.root_step
+                    )
                     if new_section:
                         if target_held != 1:
                             continue
@@ -267,12 +407,21 @@ def plan_markov_chords(
                         continue
 
                     prob = transition_probability(prev_chord, chord)
+                    if prob <= 0.0 and borrowed:
+                        prob = borrowed_transition(prev_chord, chord)
                     if prob <= 0.0:
+                        continue
+                    if borrowed and chord.quality_group == "diminished" and target_held != 1:
                         continue
 
                     # Each root's probability mass is split equally across its triad and
                     # seventh chord, so `prob * 2.0` recovers the root-to-root transition probability.
-                    root_prob = prob * 2.0
+                    # Borrowed catalogs do not have two chords per root, so they read the
+                    # root table directly.
+                    if not borrowed or (prev_chord in CHORDS and chord in CHORDS):
+                        root_prob = prob * 2.0
+                    else:
+                        root_prob = max(prob, borrowed_transition(prev_chord, chord))
                     if not new_section and same_root:
                         if section in ("intro", "outro"):
                             trans_cost = PEDAL_STAY_COST
@@ -306,10 +455,10 @@ def plan_markov_chords(
                 dp[bar][(chord, target_held)] = best_cost
                 back[bar][(chord, target_held)] = best_prev
 
-    last_state = min(states, key=lambda state: dp[MUSICAL_BARS - 1][state])
+    last_state = min(states, key=lambda state: dp[musical_bars - 1][state])
     path: list[Chord] = [last_state[0]]
     current: tuple[Chord, int] | None = last_state
-    for bar in range(MUSICAL_BARS - 1, 0, -1):
+    for bar in range(musical_bars - 1, 0, -1):
         if current is None:
             raise RuntimeError(f"missing Viterbi backpointer at bar {bar}")
         current = back[bar][current]
@@ -321,15 +470,19 @@ def plan_markov_chords(
 
 
 def plan_slots(
-    regimes: tuple[Regime, Regime, Regime],
+    regimes: tuple[Regime, ...] | tuple[Regime, Regime, Regime],
     raw_pitches: Sequence[int] | None = None,
     scale: tuple[int, ...] | None = None,
+    spec: FormSpec | None = None,
 ) -> tuple[ChordSlot, ...]:
-    if len(regimes) != 3:
+    if spec is None and len(regimes) != 3:
         raise ValueError("expected one regime per phrase")
     for regime in regimes:
         progression(regime)
+    musical_bars = MUSICAL_BARS if spec is None else spec.bars
 
+    if raw_pitches is None and spec is not None:
+        raise ValueError("a form spec needs raw pitches")
     if raw_pitches is None:
         slots = [ChordSlot(0, 2, tonic(regimes[0]), regimes[0], "intro")]
         for phrase, start in enumerate(PHRASE_STARTS):
@@ -343,9 +496,10 @@ def plan_slots(
             )
         )
     else:
-        chords = plan_markov_chords(regimes, raw_pitches, scale)
+        chords = plan_markov_chords(regimes, raw_pitches, scale, spec)
         slots = []
-        for sec_start, sec_end, regime, section in _section_spans(regimes):
+        spans = _section_spans(regimes) if spec is None else spec.spans(regimes)  # type: ignore[arg-type]
+        for sec_start, sec_end, regime, section in spans:
             cursor = sec_start
             while cursor < sec_end:
                 chord = chords[cursor]
@@ -356,7 +510,7 @@ def plan_slots(
                 cursor = stop
 
     covered = [bar for slot in slots for bar in slot.bars()]
-    if covered != list(range(MUSICAL_BARS)):
-        raise RuntimeError("chord slots do not cover the 30-bar form")
+    if covered != list(range(musical_bars)):
+        raise RuntimeError("chord slots do not cover the form")
     return tuple(slots)
 

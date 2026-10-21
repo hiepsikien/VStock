@@ -73,6 +73,7 @@ def _synth_arpeggio_part(
     raw_pitches: list[int],
     phrases: tuple[Phrase, ...],
     chord_at: dict[int, Chord],
+    musical_bars: int = MUSICAL_BARS,
 ) -> tuple[tuple[NoteEvent, ...], tuple[WedgeEvent, ...], tuple[DynamicEvent, ...]]:
     """Build the repetitive Synth Arpeggio (P1) with cutoff-filter brightness modulation.
 
@@ -86,7 +87,7 @@ def _synth_arpeggio_part(
     dynamics: list[DynamicEvent] = []
     ostinato_offsets = (0, 1, 2, 1, 0, 2, 1, 2)
 
-    for bar in range(MUSICAL_BARS):
+    for bar in range(musical_bars):
         chord = chord_at[bar]
         ladder = _arp_chord_ladder(chord)
         max_base = max(0, len(ladder) - 3)
@@ -150,14 +151,17 @@ def _synth_bell_part(
     chord_at: dict[int, Chord],
     *,
     rel_span: float = 1.0,
+    total_eighths: int = TOTAL_EIGHTHS,
+    bell_caps: tuple[tuple[int, int, int], ...] | None = None,
 ) -> tuple[NoteEvent, ...]:
     """High Synth Bell (P5): sparse accent layer (<= 15%, <= 36 eighths) on Breakouts and high peaks."""
     max_eighths = bell_budget(rel_span, BELL_MAX_EIGHTHS)
-    if max_eighths < 2:
-        return with_rests([], TOTAL_EIGHTHS)
+    if bell_caps is None and max_eighths < 2:
+        return with_rests([], total_eighths)
     bell_events: list[NoteEvent] = []
     occupied_bars: set[int] = set()
-    total_eighths = 0
+    spent = 0
+    spent_by_section: dict[tuple[int, int], int] = {}
     scale = c_major_scale(84, 91)  # C6 to G6 high bell register
 
     for phrase in phrases:
@@ -178,14 +182,24 @@ def _synth_bell_part(
             span_len = end - run.start
             if span_len <= 0:
                 continue
-            if total_eighths + span_len > max_eighths:
-                remain = max_eighths - total_eighths
-                if remain < 2:
+            if bell_caps is None:
+                room = max_eighths - spent
+            else:
+                cap = next((item for item in bell_caps if item[0] <= run.start < item[1]), None)
+                if cap is None:
                     continue
-                span_len = remain
+                room = cap[2] - spent_by_section.get((cap[0], cap[1]), 0)
+            if span_len > room:
+                if room < 2:
+                    continue
+                span_len = room
                 end = run.start + span_len
             occupied_bars.add(bar)
-            total_eighths += span_len
+            spent += span_len
+            if bell_caps is not None:
+                cap = next(item for item in bell_caps if item[0] <= run.start < item[1])
+                key = (cap[0], cap[1])
+                spent_by_section[key] = spent_by_section.get(key, 0) + span_len
             chord = chord_at[bar]
             high_tones = [m for m in scale if m % 12 in chord.pitch_classes]
             pool = high_tones if high_tones else list(scale)
@@ -201,10 +215,10 @@ def _synth_bell_part(
                     tenuto=True,
                 )
             )
-            if total_eighths >= max_eighths:
+            if bell_caps is None and spent >= max_eighths:
                 break
 
-    return with_rests(bell_events, TOTAL_EIGHTHS)
+    return with_rests(bell_events, total_eighths)
 
 
 def _warm_pad_part(slots: tuple[ChordSlot, ...]) -> tuple[NoteEvent, ...]:
@@ -245,6 +259,7 @@ def _warm_pad_part(slots: tuple[ChordSlot, ...]) -> tuple[NoteEvent, ...]:
 def _synth_pulse_part(
     chord_at: dict[int, Chord],
     band_at: dict[int, str],
+    musical_bars: int = MUSICAL_BARS,
 ) -> tuple[NoteEvent, ...]:
     """Rhythmic Pulse / Electronic Percussion (P3): volume controls rhythmic density.
 
@@ -258,7 +273,7 @@ def _synth_pulse_part(
     - Rests on 'p' and 'mp'; active on 'mf' and 'f' on beats 2 and 4.
     """
     events: list[NoteEvent] = []
-    for bar in range(MUSICAL_BARS):
+    for bar in range(musical_bars):
         band = band_at[bar]
         chord = chord_at[bar]
         vel = PULSE_VEL_BY_BAND[band]
@@ -367,10 +382,11 @@ def _synth_pulse_part(
 def _sub_bass_part(
     chord_at: dict[int, Chord],
     band_at: dict[int, str],
+    musical_bars: int = MUSICAL_BARS,
 ) -> tuple[NoteEvent, ...]:
     """Four-on-the-floor Sub-Bass (P4): steady quarter-note kick/bass pulse on every beat."""
     events: list[NoteEvent] = []
-    for bar in range(MUSICAL_BARS):
+    for bar in range(musical_bars):
         chord = chord_at[bar]
         band = band_at[bar]
         root = chord.bass_midi
@@ -393,8 +409,8 @@ def _sub_bass_part(
 def render_minimalist_score(
     *,
     title: str,
-    chosen: tuple[Regime, Regime, Regime],
-    sample_indexes: tuple[int, int, int] | None,
+    chosen: tuple[Regime, ...],
+    sample_indexes: tuple[int, ...] | None,
     slots: tuple[ChordSlot, ...],
     raw_pitches: list[int],
     pitches: list[int],
@@ -405,18 +421,32 @@ def render_minimalist_score(
     chord_at: dict[int, Chord],
     band_at: dict[int, str],
     rel_span: float = 1.0,
+    musical_bars: int = MUSICAL_BARS,
+    total_eighths: int = TOTAL_EIGHTHS,
+    bpm: int = MINIMALIST_BPM,
+    bell_caps: tuple[tuple[int, int, int], ...] | None = None,
 ) -> Score:
-    """Assemble the 30-bar Minimalist Techno score."""
-    bell = _synth_bell_part(phrases, pitches, band_at, chord_at, rel_span=rel_span)
-    arp_notes, arp_wedges, arp_dynamics = _synth_arpeggio_part(raw_pitches, phrases, chord_at)
+    """Assemble the Minimalist Techno score."""
+    bell = _synth_bell_part(
+        phrases,
+        pitches,
+        band_at,
+        chord_at,
+        rel_span=rel_span,
+        total_eighths=total_eighths,
+        bell_caps=bell_caps,
+    )
+    arp_notes, arp_wedges, arp_dynamics = _synth_arpeggio_part(
+        raw_pitches, phrases, chord_at, musical_bars
+    )
     pad = _warm_pad_part(slots)
-    pulse = _synth_pulse_part(chord_at, band_at)
-    sub_bass = _sub_bass_part(chord_at, band_at)
+    pulse = _synth_pulse_part(chord_at, band_at, musical_bars)
+    sub_bass = _sub_bass_part(chord_at, band_at, musical_bars)
 
     return Score(
         title=title,
-        bpm=MINIMALIST_BPM,
-        bars=MUSICAL_BARS,
+        bpm=bpm,
+        bars=musical_bars,
         regimes=chosen,
         regime_samples=sample_indexes,
         slots=slots,

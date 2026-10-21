@@ -169,3 +169,15 @@ def samples_from_ohlc(payload: dict) -> list[tuple[int, float, float]]:
 def bars_from_ohlc(payload: dict, session: date | None = None) -> list[Bar]:
     """Read an Entrade-shaped payload with t, c, and optional v."""
     return session_bars(samples_from_ohlc(payload), session)
+
+
+def coarse_bars(samples: list[tuple[int, float, float]]) -> list[tuple[date, Bar]]:
+    """Session-filtered bars for a 5-minute or 30-minute series. Auctions stay on the minute recap."""
+    trading = _trading_rows(samples)
+    if not trading:
+        return []
+    averages = moving_average([close for _moment, close, _volume in trading], MA_WINDOW)
+    return [
+        (moment.date(), Bar(close, volume, average, False))
+        for (moment, close, volume), average in zip(trading, averages)
+    ]
