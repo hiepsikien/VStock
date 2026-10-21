@@ -37,9 +37,9 @@ from app.sonify.session import VN, is_session_closed
 logger = logging.getLogger(__name__)
 
 # Bump when the score or the sound changes, so old files are not replayed.
-RECAP_REVISION = "9"
+RECAP_REVISION = "10"
 # Long-form files live beside the daily recap and use their own revision.
-SPAN_REVISION = "2"
+SPAN_REVISION = "3"
 PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
@@ -431,7 +431,8 @@ class _MuseVoice(NamedTuple):
 
 # MusicXML import names MuseScore writes into the score. Synths have no
 # MuseSounds library, so they stay on MS Basic. Acoustic bass uses the
-# installed electric bass: the libraries have no upright bass.
+# installed electric bass: the libraries have no upright bass. Ambient
+# voices are bowed or sung, because the GM pad programs decay after the attack.
 _MUSE_VOICES = (
     _MuseVoice(("wind.flutes.flute",), ("Flute",), "Flute 1"),
     _MuseVoice(("strings.violin",), ("Violin",), "Violins 1"),
@@ -447,6 +448,23 @@ _MUSE_VOICES = (
         ("pitched-percussion.celesta", "keyboard.celesta", "celesta"),
         ("Celesta",),
         "Celesta",
+    ),
+    _MuseVoice(("strings.viola",), ("Viola",), "Violas"),
+    _MuseVoice(
+        (
+            "voice.vocals",
+            "voice.soprano",
+            "voice.mezzo-soprano",
+            "voice.alto",
+            "voice.tenor",
+            "voice.baritone",
+            "voice.bass",
+            "voice.child",
+            "voice.female",
+            "voice.male",
+        ),
+        ("Voice",),
+        "Full Choir",
     ),
 )
 _VOICE_BY_INSTRUMENT = {

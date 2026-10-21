@@ -7,8 +7,8 @@ Five parts (`P5`, `P1`, `P2`, `P3`, `P4`) map to each variant's ensemble via
   Rhodes Piano (`P3`), Upright Bass (`P4`), with eighth-note `<swing>` (2:1)
 - `minimalist`: Synth Bell (`P5`), Synth Arpeggio (`P1`), Synth Pad (`P2`),
   Synth Pulse (`P3`), Sub-Bass (`P4`), with `divisions=4` for 16th-note pulses
-- `ambient`: Celesta (`P5`), polysynth (`P1`), warm pad (`P2`, treble),
-  sweep (`P3`, one staff, `f` on a swell), new-age pad (`P4`)
+- `ambient`: Celesta (`P5`), Viola (`P1`), Choir (`P2`, treble),
+  Choir (`P3`, one staff, `f` on a swell), Cello (`P4`)
 
 In `symphony` and `jazz`, the lead (`P1`), low-mid support (`P2`), and high
 accent (`P5`) parts share or layer the price melody; whichever is not playing
@@ -301,10 +301,10 @@ _PARTS_BY_VARIANT: dict[Variant, tuple[tuple[str, str, str, str, str], ...]] = {
     ),
     "ambient": (
         ("P5", "Celesta", "Celesta", "5", "9"),
-        ("P1", "Glass", "Pad 3 (polysynth)", "1", "91"),
-        ("P2", "Halo", "Pad 2 (warm)", "2", "90"),
-        ("P3", "Swell", "Pad 8 (sweep)", "3", "96"),
-        ("P4", "Drone", "Pad 1 (new age)", "4", "89"),
+        ("P1", "Glass", "Viola", "1", "42"),
+        ("P2", "Halo", "Voice", "2", "53"),
+        ("P3", "Swell", "Voice", "3", "53"),
+        ("P4", "Drone", "Cello", "4", "43"),
     ),
 }
 

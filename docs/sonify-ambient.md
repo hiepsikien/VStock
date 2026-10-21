@@ -48,13 +48,13 @@ Mỗi chương là một file. Đuôi reverb chỉ ở cuối chương, cùng qu
 
 | Phần | Vai | Nhạc cụ MuseScore | Program | Khuông |
 |---|---|---|---|---|
-| P4 | Drone | Pad 1 (new age) | 89 | Fa, như bass hiện tại |
-| P2 | Halo | Pad 2 (warm) | 90 | Sol |
-| P1 | Kính | Pad 3 (polysynth) | 91 | Sol |
-| P3 | Nở | Pad 8 (sweep) | 96 | Sol, một khuông |
+| P4 | Drone | Cello | 43 | Fa, như bass hiện tại |
+| P2 | Halo | Voice | 53 | Sol |
+| P1 | Kính | Viola | 42 | Sol |
+| P3 | Nở | Voice | 53 | Sol, một khuông |
 | P5 | Shimmer | Celesta | 9 | Sol |
 
-P1 phải là tiếng ngân được. Hộp nhạc và chuông tắt ngay, nốt dài trên giấy sẽ vẫn nghe như nốt rời. Sự liền mạch của giai điệu là một tiếng được giữ.
+P1 phải là tiếng ngân được. Pad GM, hộp nhạc và chuông đánh một tiếng rồi tắt, nên nốt dài trên giấy vẫn nghe như nốt rời. Drone dùng Cellos, halo và tiếng nở dùng Full Choir, kính dùng Violas. Cả ba đều giữ tiếng sau khi kéo hoặc hát. Shimmer vẫn là Celesta, chỉ điểm ở đỉnh rồi tắt. Sự liền mạch của giai điệu là một tiếng được giữ.
 
 P2 xuất khóa Sol vì guide tone nằm ở A3–E5. P3 của Ambient đi một khuông. `_piano_part` dùng chung vẫn hai khuông và chữ `p` cố định cho Giao hưởng và Jazz. Khuông trống sau `backup` dễ làm file hỏng, nên nhánh Ambient không gọi `_piano_part`. Nhánh đó vẫn in `<harmony>`.
 

@@ -122,7 +122,7 @@ def test_fifth_is_a_chord_on_loud_bars_and_absent_on_quiet_ones() -> None:
         part.get("id"): part.find("midi-instrument/midi-program").text
         for part in ET.fromstring(xml).find("part-list").findall("score-part")
     }
-    assert programs["P5"] == "9"
+    assert programs == {"P5": "9", "P1": "42", "P2": "53", "P3": "53", "P4": "43"}
 
 
 def test_week_uses_form_tempo_and_chunk_spans_for_shimmer() -> None:
