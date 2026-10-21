@@ -100,10 +100,13 @@ def test_every_chord_spells_inside_its_key():
         for chord in (*CHORDS, *BORROWED):
             written = transpose_chord(chord, key)
             assert written.pitches[0] - chord.pitches[0] == key.semitones
+            assert abs(written.alter) <= 1
+            for _pc, _step, tone_alter in written.tones:
+                assert abs(tone_alter) <= 1
             for pitch in written.pitches:
                 step, alter, octave = midi_to_spelled_pitch(pitch, key, chord)
-                assert (_NATURAL[step] + alter) % 12 == pitch % 12
-                assert octave == pitch // 12 - 1
+                assert abs(alter) <= 1
+                assert (octave + 1) * 12 + _NATURAL[step] + alter == pitch
 
 
 def test_positive_shift_lowers_the_ceiling_and_negative_shift_raises_the_floor():
@@ -116,6 +119,24 @@ def test_positive_shift_lowers_the_ceiling_and_negative_shift_raises_the_floor()
     jazz = render(bars, variant="jazz", key=A_KEY, title="sax")
     assert all(note.midi is None or note.midi >= 55 + 3 for note in jazz.lead)
     assert all(note.midi is None or note.midi <= 80 for note in jazz.lead)
+    steep = [Bar(10.0 + index * 2.5, volume=float(100 + index)) for index in range(40)]
+    eb_jazz = render(steep, variant="jazz", key=EB_KEY, title="sax-eb")
+    assert all(note.midi is None or note.midi <= 77 for note in eb_jazz.lead)
+    eb_bells = [note.midi + EB_KEY.semitones for note in eb_jazz.high if note.midi is not None]
+    assert eb_bells
+    assert max(eb_bells) <= 89
+    eb_arp = [
+        note.midi + EB_KEY.semitones
+        for note in render(steep, variant="minimalist", key=EB_KEY, title="arp").lead
+        if note.midi is not None
+    ]
+    a_arp = [
+        note.midi + A_KEY.semitones
+        for note in render(steep, variant="minimalist", key=A_KEY, title="arp-a").lead
+        if note.midi is not None
+    ]
+    assert eb_arp and max(eb_arp) <= 84
+    assert a_arp and min(a_arp) >= 48
 
 
 def test_musicxml_uses_the_key_signature_once():

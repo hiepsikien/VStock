@@ -30,7 +30,7 @@ from app.sonify.form import (
     TOTAL_EIGHTHS,
     ChordSlot,
 )
-from app.sonify.keys import active_register
+from app.sonify.keys import C_REGISTER, active_register
 from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score
 from app.sonify.phrasing import (
     BELL_MAX_EIGHTHS,
@@ -57,10 +57,10 @@ from app.sonify.quantize import c_major_scale
 
 JAZZ_BPM = 82
 SAX_LOW = 48  # C3: bottom of Tenor Saxophone register
-SAX_CEILING = 80  # Ab5 (G5 = 79 in C major): top of realistic Alto Saxophone range
+SAX_CEILING = C_REGISTER.sax_ceiling  # Ab5 (G5 = 79 in C major): top of realistic Alto Saxophone range
 VIBRAPHONE_APEX_TRIGGER = 79  # G5: minimum pitch for a phrase apex to trigger Vibraphone
 VIBRAPHONE_LOW = 84  # C6: high-end bell threshold
-VIBRAPHONE_HIGH = 89  # F6: top of the standard 3-octave Vibraphone (F3–F6)
+VIBRAPHONE_HIGH = C_REGISTER.vibraphone_high  # F6: top of the standard 3-octave Vibraphone (F3–F6)
 VIBRAPHONE_VEL_SINGLE = 58  # mp
 VIBRAPHONE_VEL_CHORD = 64  # mp-mf
 # Cap high-end Vibraphone accents at 15% of 240 eighths (36 eighths max across 30 bars)
@@ -150,6 +150,15 @@ def _high_bell_voicing(
     return (84, 86, 89) if abs(89 - lead) <= abs(88 - lead) else (84, 86, 88)
 
 
+def _fit_vibraphone(tones: tuple[int, ...]) -> tuple[int, ...]:
+    """Drop a bell cluster by octaves until it sounds at or below F6."""
+    ceiling = active_register().vibraphone_high
+    drop = 0
+    while any(tone - drop > ceiling for tone in tones):
+        drop += 12
+    return tuple(tone - drop for tone in tones)
+
+
 def _vibraphone_accent_part(
     phrases: tuple[Phrase, ...],
     pitches: list[int],
@@ -236,7 +245,7 @@ def _vibraphone_accent_part(
 
     chosen_spans.sort(key=lambda item: item[0])
 
-    scale_high = c_major_scale(VIBRAPHONE_LOW, VIBRAPHONE_HIGH)
+    scale_high = c_major_scale(VIBRAPHONE_LOW, active_register().vibraphone_high)
     events: list[NoteEvent] = []
     cursor = 0
     for start, length, is_breakout, run in chosen_spans:
@@ -252,7 +261,7 @@ def _vibraphone_accent_part(
                 velocity=VIBRAPHONE_VEL_CHORD,
                 tenuto=True,
             )
-            cluster = _high_bell_voicing(run.midi, chord, scale_high)
+            cluster = _fit_vibraphone(_high_bell_voicing(run.midi, chord, scale_high))
             for piece in pieces:
                 for tone in cluster:
                     events.append(

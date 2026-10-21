@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from app.sonify.chords import Chord
 from app.sonify.dynamics import SOUND
 from app.sonify.form import EIGHTHS_PER_BAR, HALF_BAR, TOTAL_EIGHTHS, ChordSlot
-from app.sonify.keys import active_register
+from app.sonify.keys import C_REGISTER, active_register
 from app.sonify.model import PERIOD, DynamicEvent, NoteEvent, Phrase, Run, WedgeEvent
 from app.sonify.quantize import melody_pitch_classes, quantize_chord_tone
 
@@ -28,10 +28,10 @@ LEAP_SEMITONES = 5
 MIN_EIGHTHS = 8
 MAX_EIGHTHS = 32
 
-VIOLIN_LOWEST = 55  # G3
-CELLO_HANDBACK = 60  # C4
+VIOLIN_LOWEST = C_REGISTER.violin_lowest  # G3
+CELLO_HANDBACK = C_REGISTER.cello_handback  # C4
 CELLO_OVERLAP = 2  # eighths (1 beat) of dovetail overlap when Violin and Cello hand off
-VIOLIN_CEILING = 84  # C6: notes above C6 fold down an octave so Violin never shrieks
+VIOLIN_CEILING = C_REGISTER.violin_ceiling  # C6: notes above C6 fold down an octave so Violin never shrieks
 PIANO_ROOT_LOW = 41  # F2
 GUIDE_LOW = 57  # A3
 

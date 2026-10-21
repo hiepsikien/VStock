@@ -25,12 +25,15 @@ _NATURAL = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 _MAJOR_STEPS = (0, 2, 4, 5, 7, 9, 11)
 _REGIME_BARS = 5
 
-# Unshifted sweet spot. These match the constants in phrasing.py, render.py, and jazz.py.
+# Unshifted sweet spot. phrasing.py, render.py, jazz.py, and voices.py read these.
 _FLUTE_CEILING = 88
 _VIOLIN_CEILING = 84
 _VIOLIN_LOWEST = 55
 _CELLO_HANDBACK = 60
 _SAX_CEILING = 80
+_VIBRAPHONE_HIGH = 89  # F6
+_SYNTH_LOW = 48  # C3
+_SYNTH_HIGH = 84  # C6
 
 
 @dataclass(frozen=True)
@@ -52,6 +55,9 @@ class Register:
     violin_lowest: int = _VIOLIN_LOWEST
     cello_handback: int = _CELLO_HANDBACK
     sax_ceiling: int = _SAX_CEILING
+    vibraphone_high: int = _VIBRAPHONE_HIGH
+    synth_low: int = _SYNTH_LOW
+    synth_high: int = _SYNTH_HIGH
 
 
 EB_KEY = KeySpec("Eb", "Mi♭", -3, 3, "E", -1)
@@ -107,6 +113,9 @@ def register_for(key: KeySpec) -> Register:
         violin_lowest=_VIOLIN_LOWEST + down,
         cello_handback=_CELLO_HANDBACK + down,
         sax_ceiling=_SAX_CEILING - up,
+        vibraphone_high=_VIBRAPHONE_HIGH - up,
+        synth_low=_SYNTH_LOW - key.semitones,
+        synth_high=_SYNTH_HIGH - key.semitones,
     )
 
 
@@ -212,7 +221,7 @@ def transpose_chord(chord: Chord, key: KeySpec) -> Chord:
         return chord
     pitches = tuple(pitch + key.semitones for pitch in chord.pitches)
     diatonic = _diatonic(key)
-    root_step, root_alter = _spell_root(pitches[0] % 12, key, diatonic)
+    root_step, root_alter = _spell_chord_root(pitches, key, diatonic)
     root_letter = _LETTERS.index(root_step)
     tones: list[tuple[int, str, int]] = []
     for index, pitch in enumerate(pitches):
@@ -241,18 +250,17 @@ def midi_to_spelled_pitch(
     if key.fifths == 0 and key.semitones == 0:
         return midi_to_pitch(midi, harmony)
     pitch_class = midi % 12
-    octave = midi // 12 - 1
     if harmony is not None:
         spelled = transpose_chord(harmony, key).spelling(pitch_class)
         if spelled is not None:
             step, alter = spelled
-            return step, alter, octave
+            return step, alter, _octave(midi, step, alter)
     diatonic = _diatonic(key)
     if pitch_class in diatonic:
         step, alter = diatonic[pitch_class]
-        return step, alter, octave
+        return step, alter, _octave(midi, step, alter)
     step, alter = _spell_root(pitch_class, key, diatonic)
-    return step, alter, octave
+    return step, alter, _octave(midi, step, alter)
 
 
 def _index(key: KeySpec) -> int:
@@ -322,11 +330,46 @@ def _diatonic(key: KeySpec) -> dict[int, tuple[str, int]]:
     return spellings
 
 
+def _octave(midi: int, step: str, alter: int) -> int:
+    """MusicXML octave of a letter, so C♭ and B♯ stay on the sounding MIDI note."""
+    return (midi - _NATURAL[step] - alter) // 12 - 1
+
+
 def _alter_for(step: str, pitch_class: int) -> int:
     alter = (pitch_class - _NATURAL[step]) % 12
     if alter > 6:
         alter -= 12
     return alter
+
+
+def _spell_chord_root(
+    pitches: tuple[int, ...], key: KeySpec, diatonic: dict[int, tuple[str, int]]
+) -> tuple[str, int]:
+    """Pick a root whose stacked thirds stay inside single accidentals."""
+    pitch_class = pitches[0] % 12
+    candidates = [
+        (step, alter)
+        for step in _LETTERS
+        if -2 <= (alter := _alter_for(step, pitch_class)) <= 2
+    ]
+
+    def preference(item: tuple[str, int]) -> tuple[int, int, int, int, str]:
+        step, alter = item
+        worst = abs(alter)
+        letter = _LETTERS.index(step)
+        for index, pitch in enumerate(pitches):
+            tone = _LETTERS[(letter + index * 2) % 7]
+            worst = max(worst, abs(_alter_for(tone, pitch % 12)))
+        if key.fifths < 0:
+            direction = alter
+        elif key.fifths > 0:
+            direction = -alter
+        else:
+            direction = 0
+        diatonic_penalty = 0 if diatonic.get(pitch_class) == item else 1
+        return (worst, diatonic_penalty, abs(alter), direction, step)
+
+    return min(candidates, key=preference)
 
 
 def _spell_root(
@@ -340,8 +383,17 @@ def _spell_root(
         for step in _LETTERS
         if -2 <= (alter := _alter_for(step, pitch_class)) <= 2
     ]
-    if key.fifths < 0:
-        return min(candidates, key=lambda item: item[1])
-    if key.fifths > 0:
-        return max(candidates, key=lambda item: item[1])
-    return min(candidates, key=lambda item: (abs(item[1]), item[0]))
+
+    def preference(item: tuple[str, int]) -> tuple[int, int, str]:
+        step, alter = item
+        # The smaller accidental wins. A tie follows the key: flats take the
+        # flatter spelling, sharps the sharper one.
+        if key.fifths < 0:
+            direction = alter
+        elif key.fifths > 0:
+            direction = -alter
+        else:
+            direction = 0
+        return (abs(alter), direction, step)
+
+    return min(candidates, key=preference)

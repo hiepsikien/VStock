@@ -22,6 +22,7 @@ from app.sonify.form import (
     TOTAL_EIGHTHS,
     ChordSlot,
 )
+from app.sonify.keys import C_REGISTER, active_register
 from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score, WedgeEvent
 from app.sonify.phrasing import (
     BELL_MAX_EIGHTHS,
@@ -63,10 +64,31 @@ def _normalized_brightness(midi: int) -> float:
     return min(1.0, max(0.0, (midi - SCALE_LOW) / span))
 
 
+def _concert_shift() -> int:
+    """Semitones MusicXML will add. Compose this much lower so the sounding pitch stays put."""
+    return C_REGISTER.synth_low - active_register().synth_low
+
+
+def _window(low: int, high: int) -> tuple[int, int]:
+    shift = _concert_shift()
+    return low - shift, high - shift
+
+
+def _keep(midi: int, low: int, high: int) -> int:
+    """Move by octaves until the sounding pitch stays inside the C-major window."""
+    floor, ceiling = _window(low, high)
+    while midi > ceiling:
+        midi -= 12
+    while midi < floor:
+        midi += 12
+    return midi
+
+
 def _arp_chord_ladder(chord: Chord) -> list[int]:
-    """All chord tones across C3 (48) to C6 (84) in ascending order."""
+    """Chord tones from C3 to C6, shifted so the sounding line stays in that span."""
     pcs = chord.pitch_classes
-    return [midi for midi in range(48, 85) if midi % 12 in pcs]
+    low, high = _window(48, 84)
+    return [midi for midi in range(low, high + 1) if midi % 12 in pcs]
 
 
 def _synth_arpeggio_part(
@@ -162,7 +184,8 @@ def _synth_bell_part(
     occupied_bars: set[int] = set()
     spent = 0
     spent_by_section: dict[tuple[int, int], int] = {}
-    scale = c_major_scale(84, 91)  # C6 to G6 high bell register
+    bell_low, bell_high = _window(84, 91)  # C6 to G6, kept in that sounding register
+    scale = c_major_scale(bell_low, bell_high)
 
     for phrase in phrases:
         colours = techniques(phrase, pitches, band_at)
@@ -204,7 +227,7 @@ def _synth_bell_part(
             high_tones = [m for m in scale if m % 12 in chord.pitch_classes]
             pool = high_tones if high_tones else list(scale)
             norm = min(1.0, max(0.0, (run.midi - 79) / (96 - 79)))
-            target = 84 + norm * (91 - 84)
+            target = bell_low + norm * (bell_high - bell_low)
             bell_midi = min(pool, key=lambda m: (abs(m - target), m))
             bell_events.extend(
                 written(
@@ -228,10 +251,8 @@ def _warm_pad_part(slots: tuple[ChordSlot, ...]) -> tuple[NoteEvent, ...]:
         pcs = tuple(p % 12 for p in slot.chord.pitches)
         root_pc = pcs[0]
         third_pc = pcs[1]
-        root_midi = 48 + root_pc  # C3-B3
-        if root_midi > 57:
-            root_midi -= 12
-        third_midi = root_midi + ((third_pc - root_pc) % 12)
+        root_midi = _keep(48 + root_pc, 46, 57)
+        third_midi = _keep(root_midi + ((third_pc - root_pc) % 12), 46, 68)
         for bar in slot.bars():
             events.append(
                 NoteEvent(
@@ -279,10 +300,8 @@ def _synth_pulse_part(
         vel = PULSE_VEL_BY_BAND[band]
         root_pc = chord.pitches[0] % 12
         fifth_pc = chord.pitches[2] % 12
-        hi_root = 72 + root_pc   # C5-B5
-        hi_fifth = 72 + fifth_pc
-        if hi_fifth > 84:
-            hi_fifth -= 12
+        hi_root = _keep(72 + root_pc, 72, 83)
+        hi_fifth = _keep(72 + fifth_pc, 72, 84)
 
         # Staff 1: Rhythmic density
         if band == "p":
@@ -330,7 +349,8 @@ def _synth_pulse_part(
                     )
                 )
         else:  # band == "f": 16th-note techno burst
-            cycle = (hi_root, hi_fifth, hi_root + 12 if hi_root + 12 <= 88 else hi_root, hi_fifth)
+            lifted = _keep(hi_root + 12, 72, 88)
+            cycle = (hi_root, hi_fifth, lifted, hi_fifth)
             for sixteenth in range(16):
                 events.append(
                     NoteEvent(
@@ -347,9 +367,7 @@ def _synth_pulse_part(
                 )
 
         # Staff 2: Backbeat on beats 2 and 4 when volume is mf or f
-        low_stab = 48 + fifth_pc
-        if low_stab > 55:
-            low_stab -= 12
+        low_stab = _keep(48 + fifth_pc, 36, 55)
         if band in ("mf", "f"):
             for beat, is_hit in ((0.0, False), (1.0, True), (2.0, False), (3.0, True)):
                 events.append(
@@ -389,10 +407,10 @@ def _sub_bass_part(
     for bar in range(musical_bars):
         chord = chord_at[bar]
         band = band_at[bar]
-        root = chord.bass_midi
+        root = _keep(chord.bass_midi, 36, 47)
         for beat in range(BEATS_PER_BAR):
             # On high-volume bars ('f'), beat 4 lifts an octave for pumping drive
-            midi = root + 12 if (band == "f" and beat == 3) else root
+            midi = _keep(root + 12, 48, 59) if (band == "f" and beat == 3) else root
             events.append(
                 NoteEvent(
                     bar=bar,
