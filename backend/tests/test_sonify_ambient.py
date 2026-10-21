@@ -214,6 +214,7 @@ def test_breathing_directions_land_before_a_sounding_note_and_harp_swell_is_open
         if note.midi is not None and not note.tie_stop:
             by_bar.setdefault(note.bar, []).append(note)
     assert by_bar
+    swell_part = _part(xml, "P3")
     for bar, notes in by_bar.items():
         ordered = sorted(note.midi for note in notes if note.midi is not None)
         assert len(ordered) == 3
@@ -222,6 +223,18 @@ def test_breathing_directions_land_before_a_sounding_note_and_harp_swell_is_open
         assert ordered[1] - ordered[0] >= 3
         assert ordered[2] - ordered[1] >= 3
         assert ordered[2] - ordered[0] >= 8
+        assert all(note.velocity == 49 for note in notes)
+        measure = swell_part.find(f"measure[@number='{bar + 1}']")
+        assert measure is not None
+        assert measure.find("direction/direction-type/dynamics/p") is not None
+        assert measure.find("direction/direction-type/wedge[@type='crescendo']") is not None
+        first_note = measure.find("note")
+        assert first_note is not None and first_note.get("dynamics") == "54.44"
+        next_measure = swell_part.find(f"measure[@number='{bar + 2}']")
+        assert any(
+            m is not None and m.find("direction/direction-type/wedge[@type='diminuendo']") is not None
+            for m in (measure, next_measure)
+        )
 
 
 def test_minimalist_score_stays_on_its_own_clock() -> None:

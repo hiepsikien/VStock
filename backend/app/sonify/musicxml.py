@@ -470,7 +470,7 @@ def _bass_part(root: ET.Element, score: Score) -> None:
 
 
 def _ambient_swell_part(root: ET.Element, score: Score) -> None:
-    """One treble staff. A swell blooms p < mp/mf > p across two bars without chord-symbol piano."""
+    """One treble staff. Every swell blooms p < mp/mf > across its two tied halves."""
     part = _add(root, "part", id="P3")
     events = _group(score.comp, score.bars)
     for bar in range(score.bars):
@@ -480,34 +480,42 @@ def _ambient_swell_part(root: ET.Element, score: Score) -> None:
             _dynamic(measure, PIANO_DYNAMIC)
         hand = sorted(events[bar], key=lambda event: (event.beat, event.midi is None, event.midi or 0))
         sounding = [event for event in hand if event.midi is not None]
-        starts_swell = any(not event.tie_stop for event in sounding)
-        continues_swell = any(event.tie_stop for event in sounding)
-        ties_forward = any(event.tie_start for event in sounding)
-        peak_marking = "mf" if any((event.velocity or 0) >= 64 for event in sounding) else "mp"
-        if starts_swell and ties_forward:
-            if bar > 0:
-                _dynamic(measure, PIANO_DYNAMIC)
-            _wedge(measure, WedgeEvent(bar=bar, beat=0.0, kind="crescendo"))
-        elif starts_swell:
-            _dynamic(measure, DynamicEvent(bar=bar, marking=peak_marking, sound=SOUND[peak_marking]))
-            _wedge(measure, WedgeEvent(bar=bar, beat=0.0, kind="diminuendo"))
-        elif continues_swell:
-            _wedge(measure, WedgeEvent(bar=bar, beat=0.0, kind="stop"))
-            _dynamic(measure, DynamicEvent(bar=bar, marking=peak_marking, sound=SOUND[peak_marking]))
-            _wedge(measure, WedgeEvent(bar=bar, beat=0.0, kind="diminuendo"))
-        harmony_bar = bar - 1 if continues_swell and bar > 0 else bar
+        continues_from_prev_bar = any(event.tie_stop and event.beat == 0.0 for event in sounding)
+        harmony_bar = bar - 1 if continues_from_prev_bar and bar > 0 else bar
         previous_beat: float | None = None
         for event in hand:
+            is_new_beat = event.beat != previous_beat
+            if is_new_beat and event.midi is not None:
+                if not event.tie_stop:
+                    if bar > 0 or event.beat > 0.0:
+                        _dynamic(
+                            measure,
+                            DynamicEvent(bar=bar, marking="p", sound=SOUND["p"], beat=event.beat),
+                        )
+                    _wedge(measure, WedgeEvent(bar=bar, beat=event.beat, kind="crescendo"))
+                else:
+                    peak_marking = "mf" if (event.velocity or 0) >= 80 else "mp"
+                    _wedge(measure, WedgeEvent(bar=bar, beat=event.beat, kind="stop"))
+                    _dynamic(
+                        measure,
+                        DynamicEvent(
+                            bar=bar,
+                            marking=peak_marking,
+                            sound=SOUND[peak_marking],
+                            beat=event.beat,
+                        ),
+                    )
+                    _wedge(measure, WedgeEvent(bar=bar, beat=event.beat, kind="diminuendo"))
             _add_note(
                 measure,
                 event,
-                chord=event.beat == previous_beat and event.midi is not None,
+                chord=not is_new_beat and event.midi is not None,
                 divisions=score.divisions,
                 harmony=_chord_on(score, harmony_bar),
                 key=score.key,
             )
             previous_beat = event.beat
-        if (starts_swell or continues_swell) and not ties_forward:
+        if any(event.tie_stop and not event.tie_start for event in sounding):
             _wedge(measure, WedgeEvent(bar=bar, beat=float(BEATS_PER_BAR), kind="stop"))
 
 

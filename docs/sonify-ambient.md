@@ -56,7 +56,7 @@ Mỗi chương là một file. Đuôi reverb chỉ ở cuối chương, cùng qu
 
 P1 phải là tiếng ngân được và lắng chậm. Pad GM, hộp nhạc và chuông đánh một tiếng rồi tắt, nên nốt dài trên giấy vẫn nghe như nốt rời. Drone dùng Contrabasses ở dải `p`–`mp` (`+4 dB` trên fader mixer để làm nền rù rì dày ấm), Halo (`P2`) dùng Bass Flute ở dải trầm `D3–C#4` (`-5 dB`, mở đầu ở `p`) tạo lớp hơi ấm rù rì không có tiếng cọ vĩ rít của đàn dây, kính dùng Alto Flute giữ trong tầm ấm `G3–C6` kèm một đường `<diminuendo>` lắng chậm suốt cả hơi ngân, tiếng nở dùng French Horn (`Horn in F`) vuốt sóng `p < mp/mf > p` kéo dài 2 ô nhịp trên các cửa sổ `mf`/`f`. Shimmer vẫn là Celesta (`f`, `+6 dB`, vùng chuông vang `D5–C6`), điểm ở đỉnh rồi tắt. Sự liền mạch của giai điệu là một tiếng được giữ và tan dần.
 
-P2 xuất khóa Sol vì guide tone nằm ở A3–E5. P3 của Ambient đi một khuông, mở đầu ở `p`, dâng crescendo ở ô đầu và diminuendo ở ô sau của tiếng nở, và không xuất `<harmony>` để MuseScore không gắn kênh Grand Piano tự động đánh hợp âm ở đầu mỗi slot.
+P2 xuất khóa Sol vì hai âm guide tone của Bass Flute nằm ở `D3–C#4` (`50..61`, cách nhau một quãng 4 hoặc quãng 5). P3 của Ambient đi một khuông, mở đầu ở `p`, dâng crescendo ở nửa đầu và diminuendo ở nửa sau của mỗi tiếng nở, và không xuất `<harmony>` để MuseScore không gắn kênh Grand Piano tự động đánh hợp âm ở đầu mỗi slot.
 
 `divisions = 2`, `swing = false`. Không có móc kép, không có nhịp đi bộ, không có ostinato. Mọi nốt đi qua `written()`, để nốt cắt ở vạch nhịp được buộc đúng. Một `NoteEvent` dài 4 phách chỉ hợp lệ khi bắt đầu ở phách 1.
 
@@ -116,12 +116,12 @@ Outro: một nốt, cao độ close cuối đã lượng tử hóa và gập và
 
 ## Nở và shimmer
 
-P3 để trống, trừ các cửa sổ thanh khoản có băng `mf` hoặc `f` mà ô thứ hai của cửa sổ thuộc section `phrase`. Hai lần nở cách nhau ít nhất 4 ô (`SWELL_GAP_BARS = 4`). Đặt tại phách 1 của ô thứ hai đó một hợp âm 3 âm mở trên kèn French Horn (`Horn in F`, `Muse Brass`) ở vùng ấm `Eb3–A4` (`48..69`), viết qua `written()` với độ dài 2 ô nhịp (`SWELL_HOLD = 16` móc đơn, cắt ở cuối section `phrase`):
+P3 để trống, trừ các cửa sổ thanh khoản có băng `mf` hoặc `f` mà ô thứ hai của cửa sổ thuộc section `phrase`. Hai lần nở cách nhau ít nhất 4 ô (`SWELL_GAP_BARS = 4`). Đặt tại phách 1 của ô thứ hai đó một hợp âm 3 âm mở trên kèn French Horn (`Horn in F`, `Muse Brass`) ở vùng ấm `C3–A4` (`48..69`), viết qua `written()` thành hai nửa buộc nhau với tổng độ dài tối đa 2 ô nhịp (`SWELL_HOLD = 16` móc đơn, hoặc 1 ô = 8 móc đơn khi chạm biên cuối section `phrase`):
 
 - Nốt đỉnh (`top`) là âm hợp âm cao nhất trong vùng `C4–A4` (`60..69`).
 - Nốt đáy (`bottom`) là âm hợp âm trong vùng khoảng một quãng 8 dưới `top` (`max(45, top - 16) .. top - 8`) không tạo quãng 2 với `top`.
 - Nốt giữa (`middle`) là âm hợp âm (`chord.pitch_classes`) nằm giữa `bottom` và `top` với khoảng cách ít nhất một quãng 3 thứ so với cả hai đầu.
-- Trên hai ô của tiếng nở, `_ambient_swell_part` in cung sóng `p < mp >` (khi băng là `mf`) hoặc `p < mf >` (khi băng là `f`), để tiếng kèn đồng dâng dần từ nền êm lên đỉnh ở đầu ô thứ hai rồi tan dần. Các cửa sổ `p`, `mp`, intro và outro không nở.
+- Nửa đầu của tiếng nở mang `velocity = 49` (`p`), nửa sau mang `velocity = 64` (`mp`, khi băng là `mf`) hoặc `80` (`mf`, khi băng là `f`), khớp với bảng `DYNAMICS`. `_ambient_swell_part` in cung sóng `p < mp >` hoặc `p < mf >` trên hai nửa đó (kể cả khi tiếng nở ở cuối phrase chỉ dài 1 ô và tách làm hai nốt trắng buộc nhau), để cả direction lẫn note velocity đều xuất phát từ `p` rồi dâng lên đỉnh trước khi tan dần. Các cửa sổ `p`, `mp`, intro và outro không nở.
 
 Shimmer chọn sau khi nhìn hết cửa sổ ngân sách. Cửa sổ là `spec.chunk_bounds()`:
 

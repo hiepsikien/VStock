@@ -49,7 +49,9 @@ SWELL_GAP_BARS = 4
 SHIMMER_TRIGGER = 76
 SHIMMER_VELOCITY = 90
 GLASS_VELOCITY = 60
-SWELL_VELOCITY = 64
+SWELL_OPEN_VELOCITY = 49
+SWELL_MP_VELOCITY = 64
+SWELL_VELOCITY = 80
 SWELL_HOLD = 2 * EIGHTHS_PER_BAR
 _DRONE_MARKING = {"p": "p", "mp": "mp", "mf": "mp", "f": "mp"}
 _DRONE_VELOCITY = {"p": 52, "mp": 58, "mf": 64, "f": 68}
@@ -487,14 +489,32 @@ def _swell(
                 if note % 12 in chord.pitch_classes
             ]
         middle = min(mid_tones, key=lambda note: abs(note - (bottom + top) / 2))
-        vel = SWELL_VELOCITY if band == "f" else SWELL_VELOCITY - 8
+        peak_vel = SWELL_VELOCITY if band == "f" else SWELL_MP_VELOCITY
         hold_eighths = min(
             SWELL_HOLD,
             (section_end_at.get(bar, bar + 1) - bar) * EIGHTHS_PER_BAR,
         )
+        half = hold_eighths // 2
         start_eighth = bar * EIGHTHS_PER_BAR
         for midi in (bottom, middle, top):
-            notes.extend(written(start_eighth, hold_eighths, midi, velocity=vel))
+            notes.extend(
+                written(
+                    start_eighth,
+                    half,
+                    midi,
+                    velocity=SWELL_OPEN_VELOCITY,
+                    tie_out=True,
+                )
+            )
+            notes.extend(
+                written(
+                    start_eighth + half,
+                    hold_eighths - half,
+                    midi,
+                    velocity=peak_vel,
+                    tie_in=True,
+                )
+            )
     return notes
 
 
