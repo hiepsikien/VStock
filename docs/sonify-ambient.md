@@ -54,7 +54,7 @@ Mỗi chương là một file. Đuôi reverb chỉ ở cuối chương, cùng qu
 | P3 | Nở | Horn in F | 61 | Sol, một khuông |
 | P5 | Shimmer | Celesta | 9 | Sol |
 
-P1 phải là tiếng ngân được và lắng chậm. Pad GM, hộp nhạc và chuông đánh một tiếng rồi tắt, nên nốt dài trên giấy vẫn nghe như nốt rời. Drone dùng Contrabasses ở dải `p`–`mp` (`+4 dB` trên fader mixer để làm nền rù rì dày ấm), Halo (`P2`) dùng Bass Flute ở dải trầm `D3–C#4` (`-5 dB`, mở đầu ở `p`) tạo lớp hơi ấm rù rì không có tiếng cọ vĩ rít của đàn dây, kính dùng Alto Flute giữ trong tầm ấm `G3–C6` kèm một đường `<diminuendo>` lắng chậm suốt cả hơi ngân, tiếng nở dùng French Horn (`Horn in F`) vuốt sóng `p < mp/mf > p` kéo dài 2 ô nhịp trên các cửa sổ `mf`/`f`. Shimmer vẫn là Celesta (`f`, `+6 dB`, vùng chuông vang `D5–C6`), điểm ở đỉnh rồi tắt. Sự liền mạch của giai điệu là một tiếng được giữ và tan dần.
+P1 phải là tiếng ngân được và lắng chậm. Pad GM, hộp nhạc và chuông đánh một tiếng rồi tắt, nên nốt dài trên giấy vẫn nghe như nốt rời. Drone dùng Contrabasses ở dải `p`–`mp` (`+4 dB` trên fader mixer để làm nền rù rì dày ấm), Halo (`P2`) dùng Bass Flute ở dải trầm `D3–C#4` (`-5 dB`, mở đầu ở `p`) tạo lớp hơi ấm rù rì không có tiếng cọ vĩ rít của đàn dây, kính dùng Alto Flute giữ trong tầm ấm `G3–C6` kèm một đường `<diminuendo>` lắng chậm suốt cả hơi ngân, tiếng nở dùng French Horn (`Horn in F`) vuốt sóng `p < mp >` hoặc `p < mf >` qua hai nửa buộc nhau (dài 1–2 ô nhịp) trên các cửa sổ `mf`/`f`. Shimmer vẫn là Celesta (`f`, `+6 dB`, vùng chuông vang `D5–C6`), điểm ở đỉnh rồi tắt. Sự liền mạch của giai điệu là một tiếng được giữ và tan dần.
 
 P2 xuất khóa Sol vì hai âm guide tone của Bass Flute nằm ở `D3–C#4` (`50..61`, cách nhau một quãng 4 hoặc quãng 5). P3 của Ambient đi một khuông, mở đầu ở `p`, dâng crescendo ở nửa đầu và diminuendo ở nửa sau của mỗi tiếng nở, và không xuất `<harmony>` để MuseScore không gắn kênh Grand Piano tự động đánh hợp âm ở đầu mỗi slot.
 
@@ -161,7 +161,7 @@ Từ 1W, khoảng trống nằm ở nốt nghỉ và nốt giữ.
 1. `backend/app/sonify/ambient.py`: `render_ambient_score(..., windows, sections, bars, groups)`, `AMBIENT_BPM = 60`. Tỉa theo `FormSection` (tối đa 2 trụ mỗi 8 ô, cách nhau ít nhất 3 ô, giữ 4 ô và lắng dần), giường theo từng ô sau `jazz_chord()`, nở French Horn theo cửa sổ `mf`/`f`, shimmer theo `chunk_bounds` và `bell_budget` của từng chunk.
 2. Nhánh `variant == "ambient"` trong `_compose`, sau khi slot, phrase và pitch đã có. Truyền `windows`, `spec.sections`, `bars` và `groups`. 1D dùng `DAILY_SPEC` và `AMBIENT_BPM`. Có `FormSpec` thì BPM là `spec.bpm`. `Score.slots` là slot đã nâng. `Score.dynamics` là chữ giường trần `mp`.
 3. `Variant` trong `model.py` và schema recap / span thêm `"ambient"`. `Score.variant` nhận giá trị đó.
-4. `_PARTS_BY_VARIANT` thêm năm program ở bảng trên. `_bass_part` gắn `chord` khi hai nốt cùng phách. P2 Ambient dùng khóa Sol và mở đầu ở `p`. P3 Ambient là một khuông (`Horn in F`), mở đầu ở `p`, vuốt sóng `p < mp/mf >` trên 2 ô nở, và không in `<harmony>`.
+4. `_PARTS_BY_VARIANT` thêm năm program ở bảng trên. `_bass_part` gắn `chord` khi hai nốt cùng phách. P2 Ambient dùng khóa Sol và mở đầu ở `p`. P3 Ambient là một khuông (`Horn in F`), mở đầu ở `p`, vuốt sóng `p < mp >` hoặc `p < mf >` qua hai nửa buộc nhau (1–2 ô), và không in `<harmony>`.
 5. `_STORED_NAME` và `_prune_spans` dùng `VARIANTS`.
 6. Chip «Ambient» trong `SessionRecap` và `SpanRecap`. `RecapVariant` ở client thêm `'ambient'`.
 
@@ -173,7 +173,7 @@ Từ 1W, khoảng trống nằm ở nốt nghỉ và nốt giữ.
 - Hai trụ cùng cao độ chỉ thành một tie khi nốt trước chạm nốt sau trong trần 4 ô (`GLASS_HOLD`). Trụ trùng ở giữa đoạn, cách xa hơn, bị bỏ. Run kết cùng cao độ mà không chạm được thì có một lần tấn công mới. Intro 1D dài 2 ô và buộc sang đoạn phrase đầu khi cùng cao độ và chạm nhau. Outro 1D dài 4 ô.
 - Chương II của 1M không có nốt kính outro. Intro của 1W dài 8 ô.
 - `C` rồi `Cmaj7` sau `jazz_chord()` là một lần tấn công `Cmaj9`. Drone không đánh lại khi hợp âm jazz không đổi. Quãng 5 chỉ có trên ô `mf` và `f`, và trong MusicXML là `<chord>`, không làm ô 4/4 thành 8 phách.
-- Cửa sổ `mf`/`f` mà ô thứ hai thuộc `phrase` (cách lần nở trước ít nhất 4 ô) có một hợp âm French Horn 3 âm mở (mỗi quãng liền kề từ 3 semitone trở lên) buộc ngân 2 ô với cung sóng `p < mp/mf >`. Cửa sổ nhỏ hơn, intro và outro không có. P3 một khuông, không có `<harmony>`.
+- Cửa sổ `mf`/`f` mà ô thứ hai thuộc `phrase` (cách lần nở trước ít nhất 4 ô) có một hợp âm French Horn 3 âm mở (mỗi quãng liền kề từ 3 semitone trở lên) chia hai nửa buộc nhau (dài 1–2 ô) với cung sóng `p < mp >` hoặc `p < mf >`. Cửa sổ nhỏ hơn, intro và outro không có. P3 một khuông, không có `<harmony>`.
 - Shimmer của 1D đủ biến động dài 8 móc đơn và không vượt `round(0.05 × 240)`. Span của cửa sổ không quá 0,5% thì cửa sổ đó không có shimmer. Hai shimmer, khi cửa sổ chứa được hai nốt, cách nhau ít nhất 4 ô.
 - Một tuần đủ 5 phiên vẫn 160 ô, BPM của form, ngân sách shimmer tính theo từng chunk 32 ô. Phiên phẳng trong tuần có sóng không có shimmer. Phiên đủ biến động vẫn có.
 - Score Tối giản của cùng một chuỗi nến không đổi. File span Ambient còn sau `prune()`.
