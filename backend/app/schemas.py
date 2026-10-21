@@ -98,7 +98,7 @@ class SessionDetailResponse(BaseModel):
 class RecapResponse(BaseModel):
     symbol: str
     date: str
-    variant: Literal["symphony", "jazz", "minimalist"]
+    variant: Literal["symphony", "jazz", "minimalist", "ambient"]
     durationSec: float
     mapDurationSec: float
     barCount: int
@@ -121,7 +121,7 @@ class SpanMovementResponse(BaseModel):
 class SpanResponse(BaseModel):
     symbol: str
     range: Literal["1W", "1M", "3M", "1Y"]
-    variant: Literal["symphony", "jazz", "minimalist"]
+    variant: Literal["symphony", "jazz", "minimalist", "ambient"]
     movements: list[SpanMovementResponse]
 
 

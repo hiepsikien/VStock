@@ -717,6 +717,29 @@ def _compose(
             ),
             key=key,
         )
+    if variant == "ambient":
+        from app.sonify.ambient import AMBIENT_BPM, render_ambient_score
+
+        return replace(
+            render_ambient_score(
+                title=title,
+                chosen=chosen,
+                sample_indexes=sample_indexes,
+                slots=slots,
+                pitches=pitches,
+                phrases=phrases,
+                bands=bands,
+                band_at=band_at,
+                windows=windows,
+                form=spec if spec is not None else DAILY_SPEC,
+                source_bars=bars,
+                source_groups=groups,
+                musical_bars=musical_bars,
+                total_eighths=piece_eighths,
+                bpm=AMBIENT_BPM if spec is None else spec.bpm,
+            ),
+            key=key,
+        )
 
     flute_notes, yield_spans = _flute_and_violin_dovetail(
         phrases, pitches, band_at, chord_at, scale, piece_eighths=piece_eighths

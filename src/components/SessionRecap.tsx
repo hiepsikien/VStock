@@ -29,6 +29,7 @@ const VARIANTS: { id: RecapVariant; label: string }[] = [
   { id: 'symphony', label: 'Giao hưởng' },
   { id: 'jazz', label: 'Jazz' },
   { id: 'minimalist', label: 'Tối giản' },
+  { id: 'ambient', label: 'Ambient' },
 ];
 
 export type RecapStatus = 'idle' | 'loading' | 'ready' | 'error';

@@ -7,6 +7,8 @@ Five parts (`P5`, `P1`, `P2`, `P3`, `P4`) map to each variant's ensemble via
   Rhodes Piano (`P3`), Upright Bass (`P4`), with eighth-note `<swing>` (2:1)
 - `minimalist`: Synth Bell (`P5`), Synth Arpeggio (`P1`), Synth Pad (`P2`),
   Synth Pulse (`P3`), Sub-Bass (`P4`), with `divisions=4` for 16th-note pulses
+- `ambient`: Celesta (`P5`), Alto Flute (`P1`), Bass Flute (`P2`, treble),
+  French Horn (`P3`, one staff, `p < mp/mf >` swell), Contrabass (`P4`)
 
 In `symphony` and `jazz`, the lead (`P1`), low-mid support (`P2`), and high
 accent (`P5`) parts share or layer the price melody; whichever is not playing
@@ -297,6 +299,13 @@ _PARTS_BY_VARIANT: dict[Variant, tuple[tuple[str, str, str, str, str], ...]] = {
         ("P3", "Synth Pulse", "Lead 1 (square)", "3", "81"),
         ("P4", "Sub-Bass", "Synth Bass 1", "4", "39"),
     ),
+    "ambient": (
+        ("P5", "Celesta", "Celesta", "5", "9"),
+        ("P1", "Glass", "Alto Flute", "1", "74"),
+        ("P2", "Halo", "Bass Flute", "2", "74"),
+        ("P3", "Swell", "Horn in F", "3", "61"),
+        ("P4", "Drone", "Contrabass", "4", "43"),
+    ),
 }
 
 
@@ -333,6 +342,7 @@ def _melody_part(
     clef: tuple[str, str],
     *,
     lead: bool = False,
+    opening_dynamic: DynamicEvent = MELODY_DYNAMIC,
 ) -> None:
     """Each hairpin edge and letter is written just before the note or rest it lands on.
 
@@ -348,7 +358,7 @@ def _melody_part(
             _attributes(measure, clef, divisions=score.divisions, fifths=score.key.fifths)
             if lead:
                 _metronome(measure, score.bpm, swing=score.swing)
-            _dynamic(measure, MELODY_DYNAMIC)
+            _dynamic(measure, opening_dynamic)
         pending: list[WedgeEvent | DynamicEvent] = sorted(
             [*edges[bar], *letters[bar]], key=_direction_order
         )
@@ -445,15 +455,68 @@ def _bass_part(root: ET.Element, score: Score) -> None:
         event = printed.get(bar)
         if event is not None:
             _dynamic(measure, event)
-        for note in sorted(notes[bar], key=lambda note: note.beat):
+        previous_beat: float | None = None
+        for note in sorted(notes[bar], key=lambda note: (note.beat, note.midi is None, note.midi or 0)):
             _add_note(
                 measure,
                 note,
+                chord=note.beat == previous_beat and note.midi is not None,
                 written_shift=12 * BASS_WRITTEN_OCTAVES,
                 divisions=score.divisions,
                 harmony=_chord_on(score, bar),
                 key=score.key,
             )
+            previous_beat = note.beat
+
+
+def _ambient_swell_part(root: ET.Element, score: Score) -> None:
+    """One treble staff. Every swell blooms p < mp/mf > across its two tied halves."""
+    part = _add(root, "part", id="P3")
+    events = _group(score.comp, score.bars)
+    for bar in range(score.bars):
+        measure = _add(part, "measure", number=str(bar + 1))
+        if bar == 0:
+            _attributes(measure, TREBLE, divisions=score.divisions, fifths=score.key.fifths)
+            _dynamic(measure, PIANO_DYNAMIC)
+        hand = sorted(events[bar], key=lambda event: (event.beat, event.midi is None, event.midi or 0))
+        sounding = [event for event in hand if event.midi is not None]
+        continues_from_prev_bar = any(event.tie_stop and event.beat == 0.0 for event in sounding)
+        harmony_bar = bar - 1 if continues_from_prev_bar and bar > 0 else bar
+        previous_beat: float | None = None
+        for event in hand:
+            is_new_beat = event.beat != previous_beat
+            if is_new_beat and event.midi is not None:
+                if not event.tie_stop:
+                    if bar > 0 or event.beat > 0.0:
+                        _dynamic(
+                            measure,
+                            DynamicEvent(bar=bar, marking="p", sound=SOUND["p"], beat=event.beat),
+                        )
+                    _wedge(measure, WedgeEvent(bar=bar, beat=event.beat, kind="crescendo"))
+                else:
+                    peak_marking = "mf" if (event.velocity or 0) >= 80 else "mp"
+                    _wedge(measure, WedgeEvent(bar=bar, beat=event.beat, kind="stop"))
+                    _dynamic(
+                        measure,
+                        DynamicEvent(
+                            bar=bar,
+                            marking=peak_marking,
+                            sound=SOUND[peak_marking],
+                            beat=event.beat,
+                        ),
+                    )
+                    _wedge(measure, WedgeEvent(bar=bar, beat=event.beat, kind="diminuendo"))
+            _add_note(
+                measure,
+                event,
+                chord=not is_new_beat and event.midi is not None,
+                divisions=score.divisions,
+                harmony=_chord_on(score, harmony_bar),
+                key=score.key,
+            )
+            previous_beat = event.beat
+        if any(event.tie_stop and not event.tie_start for event in sounding):
+            _wedge(measure, WedgeEvent(bar=bar, beat=float(BEATS_PER_BAR), kind="stop"))
 
 
 def score_to_musicxml(score: Score) -> str:
@@ -464,16 +527,51 @@ def score_to_musicxml(score: Score) -> str:
     encoding = _add(identification, "encoding")
     _add(encoding, "software", "vstock-sonify")
     _part_list(root, score.variant)
-    _melody_part(
-        root, score, "P5", score.high, (), (), TREBLE
+    high_dynamic = (
+        DynamicEvent(bar=0, marking="f", sound=SOUND["f"])
+        if score.variant == "ambient"
+        else MELODY_DYNAMIC
     )
     _melody_part(
-        root, score, "P1", score.lead, score.lead_wedges, score.lead_dynamics, TREBLE, lead=True
+        root, score, "P5", score.high, (), (), TREBLE, opening_dynamic=high_dynamic
+    )
+    lead_dynamic = (
+        score.lead_dynamics[0]
+        if score.variant == "ambient" and score.lead_dynamics and score.lead_dynamics[0].bar == 0 and score.lead_dynamics[0].beat == 0.0
+        else MELODY_DYNAMIC
+    )
+    lead_rest_dynamics = (
+        score.lead_dynamics[1:]
+        if score.variant == "ambient" and score.lead_dynamics and score.lead_dynamics[0].bar == 0 and score.lead_dynamics[0].beat == 0.0
+        else score.lead_dynamics
     )
     _melody_part(
-        root, score, "P2", score.support, score.support_wedges, score.support_dynamics, BASS_CLEF
+        root,
+        score,
+        "P1",
+        score.lead,
+        score.lead_wedges,
+        lead_rest_dynamics,
+        TREBLE,
+        lead=True,
+        opening_dynamic=lead_dynamic,
     )
-    _piano_part(root, score)
+    support_clef = TREBLE if score.variant == "ambient" else BASS_CLEF
+    support_dynamic = PIANO_DYNAMIC if score.variant == "ambient" else MELODY_DYNAMIC
+    _melody_part(
+        root,
+        score,
+        "P2",
+        score.support,
+        score.support_wedges,
+        score.support_dynamics,
+        support_clef,
+        opening_dynamic=support_dynamic,
+    )
+    if score.variant == "ambient":
+        _ambient_swell_part(root, score)
+    else:
+        _piano_part(root, score)
     _bass_part(root, score)
     ET.indent(root, space="  ")
     body = ET.tostring(root, encoding="unicode")

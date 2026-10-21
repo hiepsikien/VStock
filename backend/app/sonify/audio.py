@@ -28,7 +28,7 @@ from typing import Callable, NamedTuple
 from xml.etree import ElementTree as ET
 
 from app.sonify.form import BEATS_PER_BAR
-from app.sonify.model import Bar, Variant
+from app.sonify.model import VARIANTS, Bar, Variant
 from app.sonify.musicxml import score_to_musicxml
 from app.sonify.playback import piece_seconds
 from app.sonify.render import render
@@ -37,9 +37,9 @@ from app.sonify.session import VN, is_session_closed
 logger = logging.getLogger(__name__)
 
 # Bump when the score or the sound changes, so old files are not replayed.
-RECAP_REVISION = "9"
+RECAP_REVISION = "20"
 # Long-form files live beside the daily recap and use their own revision.
-SPAN_REVISION = "2"
+SPAN_REVISION = "13"
 PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
@@ -48,7 +48,9 @@ AUDIO_MAX_AGE_DAYS = max(1, int(os.environ.get("VSTOCK_AUDIO_MAX_AGE_DAYS", "30"
 # the 180s deadline, so anything older than this is leftover.
 WORK_KEEP_SEC = 15 * 60
 _STORED_NAME = re.compile(
-    r"^[A-Z0-9]+_\d{4}-\d{2}-\d{2}_(?:symphony|jazz|minimalist)_(?P<rev>[^_]+)_\d+\.(?:m4a|wav|json)$"
+    r"^[A-Z0-9]+_\d{4}-\d{2}-\d{2}_(?:"
+    + "|".join(VARIANTS)
+    + r")_(?P<rev>[^_]+)_\d+\.(?:m4a|wav|json)$"
 )
 _export_cancel = threading.local()
 _export_timeout = threading.local()
@@ -429,11 +431,15 @@ class _MuseVoice(NamedTuple):
 
 # MusicXML import names MuseScore writes into the score. Synths have no
 # MuseSounds library, so they stay on MS Basic. Acoustic bass uses the
-# installed electric bass: the libraries have no upright bass.
+# installed electric bass: the libraries have no upright bass. Ambient
+# voices are bowed or sung, because the GM pad programs decay after the attack.
 _MUSE_VOICES = (
     _MuseVoice(("wind.flutes.flute",), ("Flute",), "Flute 1"),
+    _MuseVoice(("wind.flutes.flute.alto",), ("Alto Flute",), "Alto Flute"),
+    _MuseVoice(("wind.flutes.flute.bass",), ("Bass Flute",), "Bass Flute"),
     _MuseVoice(("strings.violin",), ("Violin",), "Violins 1"),
     _MuseVoice(("strings.cello", "strings.violoncello", "strings.baryton"), ("Cello",), "Cellos"),
+    _MuseVoice(("strings.contrabass",), ("Contrabass",), "Contrabasses"),
     _MuseVoice(("keyboard.piano",), ("Piano",), "Piano"),
     _MuseVoice(("pluck.bass.electric",), ("Electric Bass (finger)",), "Electric Bass"),
     _MuseVoice(("pitched-percussion.vibraphone",), ("Vibraphone",), "Vibraphone"),
@@ -441,6 +447,30 @@ _MUSE_VOICES = (
     _MuseVoice(("wind.reed.saxophone.tenor",), ("Tenor Sax",), "Tenor Saxophone"),
     _MuseVoice(("keyboard.piano.electric",), ("Electric Piano 1",), "Suitcase Piano"),
     _MuseVoice(("pluck.bass.acoustic",), ("Acoustic Bass",), "Electric Bass"),
+    _MuseVoice(
+        ("pitched-percussion.celesta", "keyboard.celesta", "celesta"),
+        ("Celesta",),
+        "Celesta",
+    ),
+    _MuseVoice(("strings.viola",), ("Viola",), "Violas"),
+    _MuseVoice(("pluck.harp",), ("Harp",), "Harp"),
+    _MuseVoice(("brass.french-horn",), ("Horn in F",), "French Horn"),
+    _MuseVoice(
+        (
+            "voice.vocals",
+            "voice.soprano",
+            "voice.mezzo-soprano",
+            "voice.alto",
+            "voice.tenor",
+            "voice.baritone",
+            "voice.bass",
+            "voice.child",
+            "voice.female",
+            "voice.male",
+        ),
+        ("Voice",),
+        "Full Choir",
+    ),
 )
 _VOICE_BY_INSTRUMENT = {
     instrument_id: voice for voice in _MUSE_VOICES for instrument_id in voice.instrument_ids
@@ -533,6 +563,7 @@ def _sound_track(
     resource_type: str,
     vendor: str,
     attributes: dict[str, str],
+    volume_db: float = 0,
 ) -> dict:
     return {
         "instrumentId": instrument_id,
@@ -548,7 +579,7 @@ def _sound_track(
             },
             "unitConfiguration": {},
         },
-        "out": {"balance": 0, "fxChain": {}, "volumeDb": 0},
+        "out": {"balance": 0, "fxChain": {}, "volumeDb": volume_db},
     }
 
 
@@ -604,6 +635,15 @@ def _assign_installed_sounds(mscz: Path, library: dict[str, tuple[str, str]]) ->
                     "museCategory": pack,
                     "museVendorName": "Muse",
                 },
+                volume_db=(
+                    6
+                    if voice.sound == "Celesta"
+                    else 4
+                    if voice.sound == "Contrabasses"
+                    else -5
+                    if voice.sound == "Bass Flute"
+                    else 0
+                ),
             )
         )
         assigned.append(f"{kind} -> {voice.sound}")
@@ -846,7 +886,7 @@ class RecapStore:
                 continue
             current = any(
                 f"_{variant}_{SPAN_REVISION}_" in path.name
-                for variant in ("symphony", "jazz", "minimalist")
+                for variant in VARIANTS
             )
             if not current or expired:
                 path.unlink(missing_ok=True)
