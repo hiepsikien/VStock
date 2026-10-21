@@ -236,8 +236,9 @@ def join_chunks(
 ) -> tuple[int, int, array]:
     """Trim every chunk but the last to the written length, then overlap the joins.
 
-    MuseScore leaves a reverb tail past the final barline. Mid-movement chunks lose
-    that tail. The last chunk keeps it, matching the single-file recap.
+    The live movement export does not call this. It writes one MuseScore file
+    per movement. This stays for a sliced export: mid-file tails are dropped,
+    the last tail is kept, and 32-bit float samples are mixed as floats.
     """
     if not chunks or len(chunks) != len(musical_seconds):
         raise ValueError("each chunk needs a written length")

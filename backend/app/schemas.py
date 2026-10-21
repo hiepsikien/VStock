@@ -113,8 +113,6 @@ class SpanMovementResponse(BaseModel):
     durationSec: float
     ready: bool
     audioUrl: str
-    chartStartRatio: float
-    chartEndRatio: float
     restAfterSec: float
     prices: list[float]
 

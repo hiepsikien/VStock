@@ -466,8 +466,6 @@ export type SpanMovement = {
   durationSec: number;
   ready: boolean;
   audioUrl: string;
-  chartStartRatio: number;
-  chartEndRatio: number;
   restAfterSec: number;
   prices: number[];
 };

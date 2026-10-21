@@ -28,6 +28,9 @@ QUARTER_REST_SECONDS = 8.0
 SEASON_REST_SECONDS = 4.0
 YEAR_SEASON_REST_SECONDS = 8.0
 MIN_YEAR_CANDLES = 30
+# About three HOSE sessions of 5-minute bars. A month that has only just opened
+# joins the previous month instead of becoming its own eight-minute movement.
+MIN_QUARTER_MONTH_CANDLES = 150
 
 SectionPart = tuple[int, str, int]
 
@@ -175,21 +178,6 @@ def year_specs() -> tuple[FormSpec, ...]:
     return by_month
 
 
-def chart_ratios(weights: list[int]) -> list[tuple[float, float]]:
-    """Fractions of the on-screen series, in the same order as the movements."""
-    total = sum(weights)
-    if total <= 0:
-        raise ValueError("chart weights must be positive")
-    ratios: list[tuple[float, float]] = []
-    start = 0.0
-    for weight in weights:
-        end = start + weight / total
-        ratios.append((start, end))
-        start = end
-    ratios[-1] = (ratios[-1][0], 1.0)
-    return ratios
-
-
 def split_into(count: int, parts: int) -> list[int]:
     """Contiguous sizes that differ by at most one. The remainder stays on the last part."""
     if parts < 1 or count < parts:
@@ -201,7 +189,12 @@ def split_into(count: int, parts: int) -> list[int]:
 
 
 def slice_score(score: Score, start: int, end: int) -> Score:
-    """Rebase one export chunk. Ties that crossed the cut are cleared so the file stands alone."""
+    """Rebase one section of a score. Ties that crossed the cut are cleared.
+
+    The live export writes a whole movement in one MuseScore call and does not
+    use this. It stays so a movement can be cut into files again without
+    leaving a tie that points outside the file.
+    """
     if not 0 <= start < end <= score.bars:
         raise ValueError("chunk is outside the movement")
 
@@ -251,16 +244,12 @@ class Movement:
     label: str
     spec: FormSpec
     session_count: int
-    chart_start: float
-    chart_end: float
     rest_after: float
 
 
 def plan_week(session_count: int) -> tuple[Movement, ...]:
     spec = week_spec(session_count)
-    return (
-        Movement("Tuần", spec, session_count, 0.0, 1.0, 0.0),
-    )
+    return (Movement("Tuần", spec, session_count, 0.0),)
 
 
 def plan_month(session_counts: list[int]) -> tuple[Movement, ...]:
@@ -269,10 +258,9 @@ def plan_month(session_counts: list[int]) -> tuple[Movement, ...]:
         raise ValueError("a month is four movements")
     labels = ("I", "II", "III", "IV")
     rests = (MONTH_REST_SECONDS, MONTH_REST_SECONDS, MONTH_REST_SECONDS, 0.0)
-    ratios = chart_ratios(session_counts)
     return tuple(
-        Movement(label, spec, count, start, end, rest)
-        for label, spec, count, (start, end), rest in zip(labels, specs, session_counts, ratios, rests)
+        Movement(label, spec, count, rest)
+        for label, spec, count, rest in zip(labels, specs, session_counts, rests)
     )
 
 
@@ -282,10 +270,9 @@ def plan_quarter(session_counts: list[int]) -> tuple[Movement, ...]:
         raise ValueError("a quarter is three movements")
     labels = ("I", "II", "III")
     rests = (QUARTER_REST_SECONDS, QUARTER_REST_SECONDS, 0.0)
-    ratios = chart_ratios(session_counts)
     return tuple(
-        Movement(label, spec, count, start, end, rest)
-        for label, spec, count, (start, end), rest in zip(labels, specs, session_counts, ratios, rests)
+        Movement(label, spec, count, rest)
+        for label, spec, count, rest in zip(labels, specs, session_counts, rests)
     )
 
 
@@ -301,8 +288,6 @@ class PreparedMovement:
     spec: FormSpec
     bars: list[Bar]
     groups: list[list[int]] | None
-    chart_start: float
-    chart_end: float
     rest_after: float
 
     @property
@@ -346,7 +331,7 @@ def month_parts(sessions: list[tuple[date, list[Bar]]]) -> list[list[Bar]]:
 
 
 def quarter_parts(stamped: list[tuple[date, Bar]]) -> list[list[Bar]]:
-    """Three movements, one per calendar month. Fewer months are split so none is dropped."""
+    """Three movements. A month that has only just opened joins the month before it."""
     months: list[list[Bar]] = []
     key: tuple[int, int] | None = None
     for day, bar in stamped:
@@ -356,6 +341,9 @@ def quarter_parts(stamped: list[tuple[date, Bar]]) -> list[list[Bar]]:
             key = stamp
         months[-1].append(bar)
     months = [month for month in months if month]
+    if len(months) >= 2 and len(months[-1]) < MIN_QUARTER_MONTH_CANDLES:
+        months[-2].extend(months[-1])
+        months.pop()
     if len(months) >= 3:
         return months[-3:]
     flat = [bar for month in months for bar in month]
@@ -399,8 +387,6 @@ def _prepared(
                 spec=movement.spec,
                 bars=bars,
                 groups=grouped,
-                chart_start=movement.chart_start,
-                chart_end=movement.chart_end,
                 rest_after=movement.rest_after,
             )
         )
@@ -421,8 +407,6 @@ def prepare_week(sessions: list[list[Bar]]) -> tuple[PreparedMovement, ...]:
             spec=movement.spec,
             bars=flat,
             groups=week_source_groups([len(bars) for bars in usable]),
-            chart_start=0.0,
-            chart_end=1.0,
             rest_after=0.0,
         ),
     )
@@ -446,9 +430,8 @@ def prepare_year(stamped: list[tuple[date, Bar]]) -> tuple[PreparedMovement, ...
     kept = [(day, bars) for day, bars in year_groups(stamped) if len(bars) >= MIN_YEAR_CANDLES]
     if not kept:
         raise ValueError("a year needs one month with enough candles")
-    ratios = chart_ratios([len(bars) for _day, bars in kept])
     prepared: list[PreparedMovement] = []
-    for position, ((day, bars), (start, end)) in enumerate(zip(kept, ratios)):
+    for position, (day, bars) in enumerate(kept):
         if position == len(kept) - 1:
             rest = 0.0
         else:
@@ -463,8 +446,6 @@ def prepare_year(stamped: list[tuple[date, Bar]]) -> tuple[PreparedMovement, ...
                 spec=specs[day.month - 1],
                 bars=bars,
                 groups=None,
-                chart_start=start,
-                chart_end=end,
                 rest_after=rest,
             )
         )

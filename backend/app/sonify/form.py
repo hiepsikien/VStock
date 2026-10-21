@@ -66,6 +66,10 @@ SINGLE_BAR_CHANGE_PENALTY = 0.65
 SAME_ROOT_QUALITY_CHANGE_PENALTY = 0.35
 PEDAL_STAY_COST = 0.0
 PHRASE_TONIC_BONUS = 0.25
+# Matches the smaller diatonic self-stays (F and D are 0.16 in _ROOT_TRANSITIONS).
+# A borrowed chord may hold for a second bar, but bars after that cost the same
+# as staying on a diatonic root. prob 1.0 would make those later bars almost free.
+BORROWED_HOLD_PROB = 0.16
 CROSS_BAR_BREAK_PENALTY = 1.2
 
 Section = Literal["intro", "phrase", "outro"]
@@ -88,7 +92,9 @@ class FormSpec:
     bars: int
     bpm: int
     sections: tuple[FormSection, ...]
-    # Exclusive end bars of each export chunk. Empty means the movement is one file.
+    # Exclusive end bars of the phrase grid. The live export does not cut the
+    # score here; MuseScore writes the whole movement once. slice_score can
+    # still rebase a span of these bars if a file is ever split again.
     chunks: tuple[int, ...] = ()
     borrowed: bool = False
 
@@ -419,7 +425,7 @@ def plan_markov_chords(
                         and prev_chord == chord
                         and chord.quality_group != "diminished"
                     ):
-                        prob = 1.0
+                        prob = BORROWED_HOLD_PROB
                     if prob <= 0.0:
                         continue
 

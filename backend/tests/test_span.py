@@ -1,18 +1,20 @@
 """Long-form geometry stays off the 30-bar daily path."""
 
+import math
 from array import array
 from datetime import date
 
 from app.sonify.audio import RecapStore, join_chunks, write_wav
-from app.sonify.chords import A7, BF, BM7B5, C, EF, FDIM7, FM, fifth_above_bass
+from app.sonify.chords import A7, BF, BM7B5, C, EF, FDIM7, fifth_above_bass
 from app.sonify.phrasing import quantize_strong_beats
 from app.sonify.quantize import c_major_scale
 from app.sonify.form import (
     _breaks_held_note_across_barline,
+    BORROWED_HOLD_PROB,
     DAILY_SPEC,
-    FormSection,
-    FormSpec,
+    EXTENDED_STAY_PENALTY,
     LIQUIDITY_WINDOWS,
+    TRANSITION_WEIGHT,
     _borrowed_allowed,
     liquidity_windows_for,
     plan_slots,
@@ -20,6 +22,7 @@ from app.sonify.form import (
 from app.sonify.model import Bar, NoteEvent, Score
 from app.sonify.render import render
 from app.sonify.span import (
+    quarter_parts,
     month_parts,
     month_specs,
     plan_month,
@@ -77,7 +80,17 @@ def test_month_split_keeps_the_extra_on_the_finale():
     assert [item.label for item in movements] == ["I", "II", "III", "IV"]
     assert movements[0].rest_after == 6.0
     assert movements[-1].rest_after == 0.0
-    assert movements[-1].chart_end == 1.0
+
+
+def test_a_new_month_joins_the_previous_quarter_movement():
+    stamped = [
+        (date(2026, month, 1), Bar(float(month)))
+        for month, count in ((7, 400), (8, 800), (9, 800), (10, 12))
+        for _ in range(count)
+    ]
+    parts = quarter_parts(stamped)
+    assert [len(part) for part in parts] == [400, 800, 812]
+    assert parts[-1][-1].close == 10.0
 
 
 def test_year_skips_a_thin_month_and_rests_between_seasons():
@@ -106,10 +119,14 @@ def test_borrowed_chords_follow_the_regime_and_miss_the_downbeat():
     assert _borrowed_allowed(A7, "uptrend", phrase_downbeat=False) is False
 
 
-def test_a_borrowed_chord_can_last_two_bars():
-    spec = FormSpec(8, 90, (FormSection(0, 8, "phrase", 0),), borrowed=True)
-    slots = plan_slots(("downtrend",), [65] * 64, spec=spec)
-    assert any(slot.chord == FM and slot.length >= 2 for slot in slots)
+def test_a_borrowed_hold_is_not_cheaper_than_staying_on_f():
+    # The second bar uses a fixed stay cost. From the third bar on, the borrowed
+    # self-probability matches F's root stay, so a borrowed chord is not parked
+    # for many bars just because staying was free.
+    borrowed = -TRANSITION_WEIGHT * math.log(BORROWED_HOLD_PROB) + EXTENDED_STAY_PENALTY
+    diatonic_f = -TRANSITION_WEIGHT * math.log(0.16) + EXTENDED_STAY_PENALTY
+    assert borrowed == diatonic_f
+    assert borrowed > EXTENDED_STAY_PENALTY
 
 
 def test_a_chromatic_shared_tone_does_not_stop_the_melody():

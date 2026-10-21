@@ -107,7 +107,7 @@ Ba chương, mỗi chương một tháng. Nến 5 phút, khoảng 6–9 nến m�
 | II | 120 | 60 | 8:00 | chậm, aba | 40, 40, 40 |
 | III | 216 | 108 | 8:00 | nhanh, coda nặng | 64, 64, 88 (48 recap + 40 coda) |
 
-Tháng thiếu phiên thì chương đó vẫn đủ số ô của form; nến ít hơn nên mỗi nốt ngân lâu hơn. Không bỏ chương.
+Tháng đã có khoảng ba phiên trở lên vẫn là một chương riêng; nến ít hơn thì mỗi nốt ngân lâu hơn. Tháng vừa mở, chưa đủ khoảng 150 nến 5 phút, nhập vào tháng liền trước thay vì đứng một mình thành chương III dài 8 phút. Không bỏ chương khi cả quý còn dữ liệu.
 
 ## 1Y
 

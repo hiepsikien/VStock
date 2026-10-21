@@ -440,8 +440,6 @@ async def get_span(
                 durationSec=round(movement_duration(movement), 3),
                 ready=cached is not None,
                 audioUrl=movement_audio_path(sym, range, index, variant, movement),
-                chartStartRatio=movement.chart_start,
-                chartEndRatio=movement.chart_end,
                 restAfterSec=movement.rest_after,
                 prices=[round(bar.close, 2) for bar in movement.bars],
             )
