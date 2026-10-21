@@ -56,22 +56,34 @@ def _assert_join(notes: tuple[NoteEvent, ...], left: int, right: int) -> None:
 
 
 def _assert_cool_join(notes: tuple[NoteEvent, ...]) -> None:
-    reaching = [
-        note
-        for note in _sounding(notes, 31)
-        if note.beat + note.duration_beats >= 4 - 1e-6
-    ]
+    sounding = sorted(_sounding(notes, 31), key=lambda note: (note.beat + note.duration_beats, note.beat))
     cool = [note for note in _sounding(notes, 32) if note.beat == 0.0]
     assert cool
-    same = bool(reaching) and reaching[-1].midi == cool[0].midi
-    assert cool[0].tie_stop is same
-    if same:
-        assert reaching[-1].tie_start
+    if not sounding:
+        assert not cool[0].tie_stop
+        return
+    last = sounding[-1]
+    gap = 4 - (last.beat + last.duration_beats)
+    # A closing phrase leaves one eighth. That breath still joins the same pitch.
+    if last.midi == cool[0].midi and gap <= 0.5 + 1e-6:
+        assert last.tie_start and cool[0].tie_stop
+        assert gap <= 1e-6
+    else:
+        assert not cool[0].tie_stop
 
 
 def _root(score, bar: int) -> int:
     slot = next(slot for slot in score.slots if slot.start <= bar < slot.start + slot.length)
     return slot.chord.pitches[0] % 12
+
+
+def test_flat_day_cool_down_continues_across_the_breath() -> None:
+    bars = [Bar(80.0, 0.0, 80.0) for _ in range(30)]
+    symphony = render(bars, variant="symphony")
+    _assert_cool_join(symphony.lead)
+    jazz = render(bars, variant="jazz")
+    sax = jazz.lead if any(note.bar == 31 and note.midi is not None for note in jazz.lead) else jazz.support
+    _assert_cool_join(sax)
 
 
 def test_a_caller_form_stays_on_the_thirty_bar_grid() -> None:

@@ -21,6 +21,7 @@ BODY_START = 2
 COOL_START = 32
 PIECE_END = DAILY_AMBIENT_BARS
 _BEAT = 4.0
+_BREATH = 0.5  # one eighth, the rest a closing phrase leaves before the bar line
 
 
 def apply_daily_frame(score: Score) -> Score:
@@ -256,29 +257,34 @@ def _later(left: Sequence[NoteEvent], right: Sequence[NoteEvent]) -> bool:
 
 
 def _reaching(notes: Sequence[NoteEvent], bar: int, midi: int, staff: int = 1) -> NoteEvent | None:
-    for note in notes:
-        if (
-            note.bar == bar
-            and note.staff == staff
-            and note.midi == midi
-            and note.beat + note.duration_beats >= _BEAT - 1e-6
-        ):
-            return note
-    return None
+    """The last note of the bar when it is `midi` and a breath is all that remains.
+
+    A phrase that closes drops its last eighth. That note still belongs to the
+    cool-down: the gap is a breath, not a rest that ended the pitch.
+    """
+    sounding = [note for note in notes if note.bar == bar and note.staff == staff and note.midi is not None]
+    if not sounding:
+        return None
+    last = max(sounding, key=lambda note: (note.beat + note.duration_beats, note.beat))
+    if last.midi != midi:
+        return None
+    if last.beat + last.duration_beats < _BEAT - _BREATH - 1e-6:
+        return None
+    return last
 
 
 def _retie(notes: list[NoteEvent], bar: int, midi: int, *, start: bool = False, stop: bool = False) -> list[NoteEvent]:
+    target = _reaching(notes, bar, midi) if start else None
     out: list[NoteEvent] = []
     done = False
     for note in notes:
-        if (
-            not done
-            and note.bar == bar
-            and note.midi == midi
-            and (stop and note.beat == 0.0 or start and note.beat + note.duration_beats >= _BEAT - 1e-6)
-        ):
-            note = replace(note, tie_start=note.tie_start or start, tie_stop=note.tie_stop or stop)
+        if stop and not done and note.bar == bar and note.midi == midi and note.beat == 0.0:
+            note = replace(note, tie_stop=True)
             done = True
+        if start and note is target:
+            end = note.beat + note.duration_beats
+            duration = _BEAT - note.beat if end < _BEAT - 1e-6 else note.duration_beats
+            note = replace(note, duration_beats=duration, tie_start=True)
         out.append(note)
     return out
 
@@ -406,15 +412,17 @@ def _bass_letters(events: Sequence[DynamicEvent]) -> tuple[DynamicEvent, ...]:
 
 
 def _tie_outro_bass(notes: Sequence[NoteEvent], root: int) -> list[NoteEvent]:
-    touch = _reaching(notes, COOL_START - 1, root) is not None
+    target = _reaching(notes, COOL_START - 1, root)
     out: list[NoteEvent] = []
     for note in notes:
-        if note.bar == COOL_START - 1 and touch and note.midi == root and note.beat + note.duration_beats >= _BEAT - 1e-6:
-            note = replace(note, tie_start=True)
+        if note is target:
+            end = note.beat + note.duration_beats
+            duration = _BEAT - note.beat if end < _BEAT - 1e-6 else note.duration_beats
+            note = replace(note, duration_beats=duration, tie_start=True)
         elif COOL_START <= note.bar < PIECE_END and note.midi is not None and note.beat == 0.0:
             note = replace(
                 note,
-                tie_stop=note.bar > COOL_START or touch,
+                tie_stop=note.bar > COOL_START or target is not None,
                 tie_start=note.bar < PIECE_END - 1,
             )
         out.append(note)
