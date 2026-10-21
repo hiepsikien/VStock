@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-from app.sonify.ambient import promote_ambient_slots
+from app.sonify.ambient import GLASS_HOLD, _omit_same_pitch_reattacks, promote_ambient_slots
 from app.sonify.chords import C, CMAJ7
 from app.sonify.form import ChordSlot
 from app.sonify.model import Bar, NoteEvent
@@ -54,6 +54,36 @@ def test_flat_day_states_the_flute_pitch_once() -> None:
     assert _beats(chains[0]) == 24
     assert len({note.midi for note in chains[0]}) == 1
     assert _sounding_eighths(score.high) == 0
+
+
+def test_a_touching_same_pitch_finishes_four_bars_then_rests() -> None:
+    kept = _omit_same_pitch_reattacks(
+        [
+            (56, 24, 84, False, False, False),
+            (80, 32, 84, False, False, False),
+            (144, 32, 84, False, False, False),
+        ]
+    )
+    assert kept == [(56, GLASS_HOLD, 84, False, False, False)]
+
+
+def test_a_finished_breath_releases_when_the_same_pitch_touches() -> None:
+    note = (0, GLASS_HOLD, 84, False, False, False)
+    assert _omit_same_pitch_reattacks([note, (GLASS_HOLD, GLASS_HOLD, 84, False, False, False)]) == [note]
+
+
+def test_a_rise_that_levels_off_ties_across_the_bar_then_rests() -> None:
+    closes = [100.0, 102.0, 104.0, 106.0] + [106.0] * 26
+    score = render([Bar(close, 1_000.0, close) for close in closes], variant="ambient")
+    chains = _chains(score.lead)
+    assert [(chain[0].bar, chain[0].midi, _beats(chain)) for chain in chains] == [
+        (0, 81, 24.0),
+        (7, 84, 16.0),
+    ]
+    carried = next(note for note in score.lead if note.midi == 84 and note.bar == 10)
+    assert carried.tie_stop
+    assert carried.beat == 0.0
+    assert not any(note.bar == 10 and note.midi == 84 and not note.tie_stop for note in score.lead)
 
 
 def test_a_faded_pitch_is_not_rebreathed_until_the_line_moves() -> None:

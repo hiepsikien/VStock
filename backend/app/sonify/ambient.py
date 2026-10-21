@@ -269,22 +269,47 @@ def _place(pillars: list[Run], section_end: int, *, hold: int) -> list[tuple[int
     return placed
 
 
+def _breath_eighths(
+    kept: list[tuple[int, int, int, bool, bool, bool]], midi: int, at: int
+) -> int:
+    """How long the contiguous same-pitch breath has already sounded at `at`."""
+    start = at
+    for seg_start, seg_length, seg_midi, *_rest in reversed(kept):
+        if seg_midi != midi or seg_start + seg_length != start:
+            break
+        start = seg_start
+    return at - start
+
+
 def _omit_same_pitch_reattacks(
     segments: list[tuple[int, int, int, bool, bool, bool]],
 ) -> list[tuple[int, int, int, bool, bool, bool]]:
-    """A pitch that already faded is not tongued again.
+    """Finish a breath that reaches the next bar, and do not tongue it again.
 
-    Tied or slurred segments that touch stay one breath. A later segment of
-    the same midi, with a rest between them, is dropped. The line speaks
-    again only when the pitch has moved.
+    A same pitch that merely touches is tied on for whatever is left of the
+    four-bar hold, then released. A same pitch after a rest is dropped. A
+    breath that already lasts ``GLASS_HOLD`` releases at the boundary. Tied
+    intro notes stay as written. The line speaks again when the pitch moves.
     """
     kept: list[tuple[int, int, int, bool, bool, bool]] = []
     for start, length, midi, slur, tie_in, tie_out in segments:
         if kept:
-            prev_start, prev_length, prev_midi, prev_slur, prev_tie_in, prev_tie_out = kept[-1]
+            prev_start, prev_length, prev_midi, _prev_slur, prev_tie_in, prev_tie_out = kept[-1]
             touches = prev_start + prev_length == start
-            linked = touches and (prev_slur or prev_tie_out or tie_in)
+            linked = touches and (kept[-1][3] or prev_tie_out or tie_in)
             if midi == prev_midi and not linked:
+                if touches:
+                    room = GLASS_HOLD - _breath_eighths(kept, midi, start)
+                    if room > 0:
+                        take = min(length, room)
+                        kept[-1] = (
+                            prev_start,
+                            prev_length + take,
+                            midi,
+                            slur if take == length else False,
+                            prev_tie_in,
+                            False,
+                        )
                 continue
             if not touches:
                 kept[-1] = (prev_start, prev_length, prev_midi, False, prev_tie_in, False)
@@ -378,15 +403,11 @@ def _glass(
     if outro is not None and pitches:
         outro_start = outro.start * EIGHTHS_PER_BAR
         outro_end = min(outro.end * EIGHTHS_PER_BAR, len(pitches))
-        outro_midi = _fold_glass(pitches[outro_end - 1], last_midi)
-        if segments:
-            start, length, midi, slur, tie_in, _tie_out = segments[-1]
-            if midi == outro_midi and start + length == outro_start:
-                segments[-1] = (start, outro_end - start, midi, slur, tie_in, False)
-            else:
-                segments.append((outro_start, outro_end - outro_start, outro_midi, False, False, False))
-        else:
-            segments.append((outro_start, outro_end - outro_start, outro_midi, False, False, False))
+        if outro_end > outro_start:
+            outro_midi = _fold_glass(pitches[outro_end - 1], last_midi)
+            segments.append(
+                (outro_start, outro_end - outro_start, outro_midi, False, False, False)
+            )
 
     segments = _omit_same_pitch_reattacks(segments)
 

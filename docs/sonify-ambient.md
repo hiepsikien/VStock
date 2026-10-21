@@ -104,7 +104,8 @@ Cách đặt nốt:
 - Dài tối đa 4 ô (`GLASS_HOLD`, 32 móc đơn). Khoảng tới trụ sau dài hơn 4 ô thì phần dư là nghỉ trên P1.
 - Trụ sau cách không quá 4 ô và khác cao độ: nối bằng liaison (`<slur>`) trong cùng đoạn. Nốt mở đầu một hơi có `<tenuto/>`.
 - Cùng cao độ chỉ buộc khi hai miền ngân chạm nhau. `<tie>` không đi qua nốt nghỉ. Trụ ngân tối đa 4 ô, nên chỉ gộp một lần tấn công qua `written()` khi trụ trước, trong trần đó, chạm đúng đầu trụ sau.
-- Trụ trùng cao độ mà không chạm được hơi trước thì bỏ, kể cả run kết của đoạn. Nốt vừa fade không bị thổi lại. Cao độ chỉ trở lại sau khi giai điệu đã đi chỗ khác.
+- Trụ trùng cao độ mà có nghỉ ở giữa thì bỏ, kể cả run kết của đoạn. Nốt vừa fade không bị thổi lại.
+- Trụ trùng cao độ chạm đúng biên đoạn thì buộc tiếp, chỉ phần còn thiếu cho đủ 4 ô (`GLASS_HOLD`), rồi nhả. Hơi đã đủ 4 ô thì nhả tại biên và đoạn sau để P1 nghỉ. Cao độ khác mới là hơi mới.
 
 Mỗi chuỗi nốt nối liền nhau (bằng `<tie>` hoặc `<slur>`, kể cả trên đoạn phẳng, intro và outro) tạo thành một hơi ngân lắng chậm (`_breath`):
 
@@ -112,7 +113,7 @@ Mỗi chuỗi nốt nối liền nhau (bằng `<tie>` hoặc `<slur>`, kể cả
 
 Intro: một nốt kính suốt section intro, cùng cao độ với nốt mở của đoạn `phrase` đầu. Trùng cao độ và chạm nhau thì buộc sang đoạn đó.
 
-Outro: một nốt, cao độ close cuối đã lượng tử hóa và gập vào `G3–C6`, giữ hết section outro, nhả ở ô cuối. Trùng cao độ với hơi vừa ngân mà không buộc được vào hơi đó thì outro không có sáo. Hai ô cuối của outro không có shimmer. Không có section outro thì không viết nốt outro.
+Outro: một nốt, cao độ close cuối đã lượng tử hóa và gập vào `G3–C6`. Cao độ khác hơi vừa ngân thì giữ hết section outro. Cùng cao độ và chạm biên thì chỉ buộc phần hơi còn thiếu cho đủ 4 ô, rồi nghỉ. Cùng cao độ mà hơi đã đủ, hoặc đã có nghỉ, thì outro không có sáo. Hai ô cuối của outro không có shimmer. Không có section outro thì không viết nốt outro.
 
 ## Nở và shimmer
 
