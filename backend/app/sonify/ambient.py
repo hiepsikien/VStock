@@ -39,16 +39,17 @@ from app.sonify.phrasing import (
 )
 
 AMBIENT_BPM = 60
-GLASS_HOLD = 3 * EIGHTHS_PER_BAR
+GLASS_HOLD = 4 * EIGHTHS_PER_BAR
 FLAT_HOLD = 4 * EIGHTHS_PER_BAR
+PILLAR_GAP = 3 * EIGHTHS_PER_BAR
 LEAP = 5
-PILLARS_PER_EIGHT = 4
+PILLARS_PER_EIGHT = 2
 SHIMMER_EIGHTHS = EIGHTHS_PER_BAR
 SHIMMER_GAP_BARS = 4
-SWELL_GAP_BARS = 6
+SWELL_GAP_BARS = 4
 SHIMMER_TRIGGER = 79
 GLASS_VELOCITY = 60
-SWELL_VELOCITY = 60
+SWELL_VELOCITY = 92
 _DRONE_MARKING = {"p": "p", "mp": "p", "mf": "mp", "f": "mp"}
 _DRONE_VELOCITY = {"p": 38, "mp": 44, "mf": 50, "f": 54}
 _FIFTH_VELOCITY = 40
@@ -192,11 +193,24 @@ def _pillars(
         folded.append(Run(run.start, run.length, midi))
         last_midi = midi
     kept = folded
+    spaced: list[Run] = []
+    for run in kept:
+        if not spaced or run.start - spaced[-1].start >= PILLAR_GAP:
+            spaced.append(run)
+            continue
+        prev = spaced[-1]
+        run_is_apex = (run.start // EIGHTHS_PER_BAR) in apex_bars
+        prev_is_apex = (prev.start // EIGHTHS_PER_BAR) in apex_bars
+        if prev.start != kept[0].start and run_is_apex and not prev_is_apex:
+            spaced[-1] = run
+    kept = spaced
     cap = PILLARS_PER_EIGHT * (section.end - section.start) // 8
     if cap < 1:
         cap = 1
     if len(kept) > cap:
-        must = {kept[0].start, kept[-1].start}
+        must = {kept[0].start}
+        if len(kept) > 1 and kept[-1].start - kept[0].start >= GLASS_HOLD:
+            must.add(kept[-1].start)
         extra = [run for run in kept if run.start not in must]
         extra.sort(
             key=lambda run: (
@@ -269,43 +283,18 @@ def _breath(
     *,
     peak_marking: str = "mp",
 ) -> tuple[list[WedgeEvent], list[DynamicEvent]]:
-    """Open at p, swell to peak_marking at the midpoint, and fade back to p."""
+    """Open at peak_marking and fade slowly across the entire held span."""
     end = start + length
-    mid = start + length // 2
-    wedges = hairpins(start, end, mid)
+    wedges = hairpins(start, end, start)
     dynamics = [
         DynamicEvent(
             bar=start // EIGHTHS_PER_BAR,
-            marking="p",
-            sound=SOUND["p"],
+            marking=peak_marking,
+            sound=SOUND[peak_marking],
             beat=(start % EIGHTHS_PER_BAR) * 0.5,
         )
     ]
-    if mid - start >= 2 and end - mid >= 2:
-        dynamics.append(
-            DynamicEvent(
-                bar=mid // EIGHTHS_PER_BAR,
-                marking=peak_marking,
-                sound=SOUND[peak_marking],
-                beat=(mid % EIGHTHS_PER_BAR) * 0.5,
-            )
-        )
     return wedges, dynamics
-
-
-def _split_at(
-    segments: list[tuple[int, int, int, bool, bool, bool]],
-    point: int,
-) -> list[tuple[int, int, int, bool, bool, bool]]:
-    """Split a held segment at point into two tied segments so a dynamic lands on an onset."""
-    result: list[tuple[int, int, int, bool, bool, bool]] = []
-    for start, length, midi, slur, tie_in, tie_out in segments:
-        if start < point < start + length:
-            result.append((start, point - start, midi, False, tie_in, True))
-            result.append((point, start + length - point, midi, slur, True, tie_out))
-        else:
-            result.append((start, length, midi, slur, tie_in, tie_out))
-    return result
 
 
 def _glass(
@@ -359,8 +348,7 @@ def _glass(
         else:
             segments.append((outro_start, outro_end - outro_start, outro_midi, False, False, False))
 
-    # Group contiguous/slurred/tied segments into breathing arcs (p -> mp/mf -> p)
-    arcs: list[tuple[int, int, str]] = []
+    # Group contiguous/slurred/tied segments into long fading breaths (mp/mf >)
     index = 0
     while index < len(segments):
         arc_start = segments[index][0]
@@ -375,16 +363,10 @@ def _glass(
             arc_midis.append(segments[end_idx][2])
         arc_end = segments[end_idx][0] + segments[end_idx][1]
         peak = "mf" if max(arc_midis) - min(arc_midis) >= MIN_RISE else "mp"
-        arcs.append((arc_start, arc_end - arc_start, peak))
-        index = end_idx + 1
-
-    for arc_start, arc_len, peak in arcs:
-        mid = arc_start + arc_len // 2
-        if mid - arc_start >= 2 and (arc_start + arc_len) - mid >= 2:
-            segments = _split_at(segments, mid)
-        arc_wedges, arc_dynamics = _breath(arc_start, arc_len, peak_marking=peak)
+        arc_wedges, arc_dynamics = _breath(arc_start, arc_end - arc_start, peak_marking=peak)
         wedges.extend(arc_wedges)
         dynamics.extend(arc_dynamics)
+        index = end_idx + 1
 
     return _emit(segments), wedges, dynamics
 
@@ -459,7 +441,7 @@ def _swell(
     notes: list[NoteEvent] = []
     chosen_bars: list[int] = []
     for (start, length), band in zip(windows, bands):
-        if band != "f" or length < 2:
+        if band not in ("mf", "f") or length < 2:
             continue
         bar = start + 1
         if kind_at.get(bar) != "phrase" or bar not in chord_at:
@@ -469,13 +451,15 @@ def _swell(
         chosen_bars.append(bar)
         chord = chord_at[bar]
         tones = _halo_midis(chord, "f")
-        top = max(60, tones[-1])
+        top = max(60, tones[-1]) + 12
+        while top > active_register().flute_ceiling:
+            top -= 12
         low_tones = [
             note
-            for note in range(max(48, top - 16), top - 7)
+            for note in range(max(60, top - 16), top - 7)
             if note % 12 in chord.pitch_classes and (top - note) % 12 not in (1, 2, 10, 11)
         ]
-        bottom = low_tones[0] if low_tones else max(48, top - 12)
+        bottom = low_tones[0] if low_tones else max(60, top - 12)
         mid_tones = [
             note
             for note in range(bottom + 3, top - 2)
@@ -490,6 +474,7 @@ def _swell(
                 if note % 12 in chord.pitch_classes
             ]
         middle = min(mid_tones, key=lambda note: abs(note - (bottom + top) / 2))
+        peak_vel = SWELL_VELOCITY if band == "f" else SWELL_VELOCITY - 8
         notes.extend(
             (
                 NoteEvent(
@@ -498,7 +483,7 @@ def _swell(
                     midi=bottom,
                     duration_beats=1.0,
                     voice=1,
-                    velocity=SWELL_VELOCITY - 12,
+                    velocity=peak_vel - 8,
                     slur_start=True,
                 ),
                 NoteEvent(
@@ -507,7 +492,7 @@ def _swell(
                     midi=middle,
                     duration_beats=1.0,
                     voice=1,
-                    velocity=SWELL_VELOCITY - 6,
+                    velocity=peak_vel - 4,
                 ),
                 NoteEvent(
                     bar=bar,
@@ -515,7 +500,7 @@ def _swell(
                     midi=top,
                     duration_beats=2.0,
                     voice=1,
-                    velocity=SWELL_VELOCITY,
+                    velocity=peak_vel,
                     slur_stop=True,
                     tenuto=True,
                 ),

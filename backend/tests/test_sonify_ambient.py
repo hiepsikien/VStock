@@ -63,14 +63,15 @@ def test_a_rising_phrase_section_keeps_at_most_four_glass_attacks() -> None:
     score = render([Bar(close, 1_000.0, close) for close in closes], variant="ambient")
     for start in (2, 10, 18):
         attacks = [note for note in _onsets(score.lead) if start <= note.bar < start + 8]
-        assert 1 <= len(attacks) <= 4
+        assert 1 <= len(attacks) <= 2
         bars = [note.bar for note in attacks]
         assert bars == sorted(bars)
         assert len(bars) == len(set(bars))
     for note in score.lead:
         if note.midi is not None:
             assert 55 <= note.midi <= 84
-            assert note.duration_beats in (2.0, 4.0)
+            assert note.beat == 0.0
+            assert note.duration_beats == 4.0
     assert _sounding_eighths(score.high) == 8
 
 
@@ -120,7 +121,7 @@ def test_fifth_is_a_chord_on_loud_bars_and_absent_on_quiet_ones() -> None:
     swell = _part(xml, "P3")
     assert swell.find("measure/attributes/staves") is None
     assert swell.findall("measure/harmony") == []
-    assert any(measure.find("direction/direction-type/dynamics/mp") is not None for measure in swell.findall("measure"))
+    assert any(measure.find("direction/direction-type/dynamics/f") is not None for measure in swell.findall("measure"))
     halo = _part(xml, "P2")
     assert halo.find("measure/attributes/clef/sign").text == "G"
     assert halo.find("measure[@number='1']/direction/direction-type/dynamics/p") is not None

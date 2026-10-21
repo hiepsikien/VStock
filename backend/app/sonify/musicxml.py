@@ -8,7 +8,7 @@ Five parts (`P5`, `P1`, `P2`, `P3`, `P4`) map to each variant's ensemble via
 - `minimalist`: Synth Bell (`P5`), Synth Arpeggio (`P1`), Synth Pad (`P2`),
   Synth Pulse (`P3`), Sub-Bass (`P4`), with `divisions=4` for 16th-note pulses
 - `ambient`: Celesta (`P5`), Alto Flute (`P1`), Viola (`P2`, treble),
-  Harp (`P3`, one staff, `mp` on a swell), Contrabass (`P4`)
+  Harp (`P3`, one staff, `f` on a swell), Contrabass (`P4`)
 
 In `symphony` and `jazz`, the lead (`P1`), low-mid support (`P2`), and high
 accent (`P5`) parts share or layer the price melody; whichever is not playing
@@ -470,7 +470,7 @@ def _bass_part(root: ET.Element, score: Score) -> None:
 
 
 def _ambient_swell_part(root: ET.Element, score: Score) -> None:
-    """One treble staff. A swell prints mp; empty bars stay silent without chord-symbol piano."""
+    """One treble staff. A swell prints f; empty bars stay silent without chord-symbol piano."""
     part = _add(root, "part", id="P3")
     events = _group(score.comp, score.bars)
     for bar in range(score.bars):
@@ -480,7 +480,7 @@ def _ambient_swell_part(root: ET.Element, score: Score) -> None:
             _dynamic(measure, PIANO_DYNAMIC)
         hand = sorted(events[bar], key=lambda event: (event.beat, event.midi or 0))
         if any(event.midi is not None for event in hand):
-            _dynamic(measure, DynamicEvent(bar=bar, marking="mp", sound=SOUND["mp"]))
+            _dynamic(measure, DynamicEvent(bar=bar, marking="f", sound=SOUND["f"]))
         previous_beat: float | None = None
         for event in hand:
             _add_note(
