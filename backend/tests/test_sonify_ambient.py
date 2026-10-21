@@ -340,7 +340,9 @@ def test_daily_warmup_is_the_tonic_and_the_price_starts_at_the_phrase() -> None:
     assert outro.bar == 32
     assert outro.midi % 12 == 0
     symphony = render([Bar(close, 1_000.0, close) for close in closes], variant="symphony")
-    assert any(note.bar == 0 and note.midi is not None for note in symphony.lead)
+    assert symphony.bars == 36
+    assert not any(note.bar == 0 and note.midi is not None for note in symphony.lead)
+    assert any(note.bar == 0 and note.midi is not None and note.midi % 12 == 0 for note in symphony.support)
 
 
 def test_ambient_daily_playhead_holds_the_open_and_the_close() -> None:

@@ -10,11 +10,11 @@ def piece_seconds(musical_bars: int, bpm: float, beats_per_bar: int = 4) -> floa
 
 
 def ambient_daily_candle_index(elapsed: float, count: int, duration: float) -> int:
-    """Candle under the playhead for a 1D Ambient recap.
+    """Candle under the playhead for a 1D recap.
 
-    The piece is 36 bars. Bars 0–1 warm up and bars 32–35 cool down. The chart
-    holds the open through the warm-up and the close through the cool-down.
-    Every candle is spread across the 30-bar body.
+    Every variant is 36 bars. Bars 0–1 warm up and bars 32–35 cool down. The
+    chart holds the open through the warm-up and the close through the
+    cool-down. Every candle is spread across the 30-bar body.
     """
     intro_bars = 2
     body_bars = 30

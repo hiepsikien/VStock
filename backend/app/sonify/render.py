@@ -18,6 +18,7 @@ from app.sonify.form import (
     DAILY_AMBIENT_BARS,
     DAILY_AMBIENT_SPEC,
     DAILY_BODY_BARS,
+    DAILY_ENSEMBLE_SPEC,
     DAILY_SPEC,
     DAILY_WARMUP_BARS,
     EIGHTHS_PER_BAR,
@@ -532,8 +533,13 @@ def render(
     key: KeySpec | None = None,
     character: MovementCharacter | None = None,
     outro_override: OutroOverride | None = None,
+    framed: bool = True,
 ) -> Score:
-    """Compose in C, with register bounds shifted for `key` before any note is placed."""
+    """Compose in C, with register bounds shifted for `key` before any note is placed.
+
+    `framed` attaches the 1D warm-up and cool-down around the 30-bar price body.
+    The daily recap turns it on. A caller that passes `form` keeps that form.
+    """
     chosen_key = C_KEY if key is None else key
     with compose_register(chosen_key):
         return _compose(
@@ -550,6 +556,7 @@ def render(
             key=chosen_key,
             character=character,
             outro_override=outro_override,
+            framed=framed,
         )
 
 
@@ -568,6 +575,7 @@ def _compose(
     key: KeySpec,
     character: MovementCharacter | None,
     outro_override: OutroOverride | None,
+    framed: bool = True,
 ) -> Score:
     """Turn one session of closes into a 30-bar score for `variant` ('symphony', 'jazz', 'minimalist').
 
@@ -590,13 +598,17 @@ def _compose(
         raise ValueError(f"unknown variant: {variant}")
 
     spec = form
-    daily_ambient = variant == "ambient" and spec is None and source_groups is None
+    daily = form is None and source_groups is None
+    daily_ambient = daily and variant == "ambient"
+    daily_ensemble = daily and framed and variant in ("symphony", "jazz", "minimalist")
     if daily_ambient:
         spec = DAILY_AMBIENT_SPEC
+    elif daily_ensemble:
+        spec = DAILY_ENSEMBLE_SPEC
     musical_bars = MUSICAL_BARS if spec is None else spec.bars
     if source_groups is not None:
         groups = source_groups
-    elif daily_ambient:
+    elif daily_ambient or daily_ensemble:
         groups = assign_daily_ambient_bars(len(bars))
     else:
         groups = assign_source_bars(len(bars), musical_bars)
@@ -684,7 +696,7 @@ def _compose(
     rel_span = (session_high - session_low) / max(abs(session_low), 1e-9)
     piece_eighths = TOTAL_EIGHTHS if spec is None else spec.eighths
     bell_caps = None
-    if spec is not None:
+    if form is not None:
         from app.sonify.phrasing import bell_budget
 
         bell_caps = tuple(
@@ -698,10 +710,17 @@ def _compose(
             )
             for section in spec.sections
         )
+    def _finish(score: Score) -> Score:
+        if daily_ensemble:
+            from app.sonify.daily_frame import apply_daily_frame
+
+            score = apply_daily_frame(score)
+        return replace(score, key=key)
+
     if variant == "jazz":
         from app.sonify.jazz import JAZZ_BPM
 
-        return replace(
+        return _finish(
             render_jazz_score(
                 title=title,
                 chosen=chosen,
@@ -715,15 +734,14 @@ def _compose(
                 rel_span=rel_span,
                 musical_bars=musical_bars,
                 total_eighths=piece_eighths,
-                bpm=JAZZ_BPM if spec is None else spec.bpm,
+                bpm=JAZZ_BPM if form is None else spec.bpm,
                 bell_caps=bell_caps,
-            ),
-            key=key,
+            )
         )
     if variant == "minimalist":
         from app.sonify.minimalist import MINIMALIST_BPM
 
-        return replace(
+        return _finish(
             render_minimalist_score(
                 title=title,
                 chosen=chosen,
@@ -740,10 +758,9 @@ def _compose(
                 rel_span=rel_span,
                 musical_bars=musical_bars,
                 total_eighths=piece_eighths,
-                bpm=MINIMALIST_BPM if spec is None else spec.bpm,
+                bpm=MINIMALIST_BPM if form is None else spec.bpm,
                 bell_caps=bell_caps,
-            ),
-            key=key,
+            )
         )
     if variant == "ambient":
         from app.sonify.ambient import AMBIENT_BPM, render_ambient_score
@@ -764,7 +781,7 @@ def _compose(
                 source_groups=groups,
                 musical_bars=musical_bars,
                 total_eighths=piece_eighths,
-                bpm=AMBIENT_BPM if daily_ambient or spec is None else spec.bpm,
+                bpm=AMBIENT_BPM if form is None else spec.bpm,
                 frame=daily_ambient,
             ),
             key=key,
@@ -785,9 +802,9 @@ def _compose(
     for bar in range(musical_bars):
         bass.extend(_bass_bar(chord_at[bar], band_at[bar], bar))
 
-    return Score(
+    return _finish(Score(
         title=title,
-        bpm=BPM if spec is None else spec.bpm,
+        bpm=BPM if form is None else spec.bpm,
         bars=musical_bars,
         regimes=chosen,
         regime_samples=sample_indexes,
@@ -809,4 +826,4 @@ def _compose(
         divisions=2,
         key=key,
         swing=False,
-    )
+    ))

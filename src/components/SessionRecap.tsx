@@ -22,7 +22,7 @@ import {
 } from '../api/client';
 import { formatPercent } from '../data/stocks';
 import { colors, spacing, typography } from '../theme';
-import { ambientDailyCandleIndexAt, candleIndexAt, playheadHoldsPoll } from '../utils/recapCursor';
+import { ambientDailyCandleIndexAt, playheadHoldsPoll } from '../utils/recapCursor';
 import { isMarketOpen, REFRESH } from '../utils/marketSession';
 
 const VARIANTS: { id: RecapVariant; label: string }[] = [
@@ -498,10 +498,7 @@ function RecapPlayer({
       onCursor(null, null);
       return;
     }
-    const index =
-      manifest.variant === 'ambient'
-        ? ambientDailyCandleIndexAt(effectiveTime, times.length, mapDuration)
-        : candleIndexAt(effectiveTime, times.length, mapDuration);
+    const index = ambientDailyCandleIndexAt(effectiveTime, times.length, mapDuration);
     const stillRunning = playheadHoldsPoll({
       playing: status.playing,
       currentTime: effectiveTime,
@@ -516,7 +513,6 @@ function RecapPlayer({
   }, [
     manifest.durationSec,
     manifest.mapDurationSec,
-    manifest.variant,
     onCursor,
     status.currentTime,
     status.didJustFinish,
@@ -546,10 +542,7 @@ function RecapPlayer({
     seekingTarget.current = targetSec;
     ignoreDidJustFinish.current = true;
     if (times.length > 0) {
-      const index =
-        manifest.variant === 'ambient'
-          ? ambientDailyCandleIndexAt(targetSec, times.length, mapDuration)
-          : candleIndexAt(targetSec, times.length, mapDuration);
+      const index = ambientDailyCandleIndexAt(targetSec, times.length, mapDuration);
       const holds = playheadHoldsPoll({
         playing: status.playing,
         currentTime: targetSec,

@@ -222,6 +222,44 @@ DAILY_AMBIENT_SPEC = FormSpec(
 )
 
 
+# Symphony, jazz, and minimalist use the same 36-bar day. The old intro and
+# outro stay inside the body as phrase bars, so those minutes follow the price.
+# Only the attached warm-up and cool-down pedal the tonic.
+DAILY_ENSEMBLE_SPEC = FormSpec(
+    bars=DAILY_AMBIENT_BARS,
+    bpm=BPM,
+    sections=(
+        FormSection(0, DAILY_WARMUP_BARS, "intro", 0),
+        FormSection(DAILY_WARMUP_BARS, DAILY_WARMUP_BARS + PHRASE_STARTS[0], "phrase", 0),
+        FormSection(
+            DAILY_WARMUP_BARS + PHRASE_STARTS[0],
+            DAILY_WARMUP_BARS + PHRASE_STARTS[1],
+            "phrase",
+            0,
+        ),
+        FormSection(
+            DAILY_WARMUP_BARS + PHRASE_STARTS[1],
+            DAILY_WARMUP_BARS + PHRASE_STARTS[2],
+            "phrase",
+            1,
+        ),
+        FormSection(
+            DAILY_WARMUP_BARS + PHRASE_STARTS[2],
+            DAILY_WARMUP_BARS + OUTRO_START,
+            "phrase",
+            2,
+        ),
+        FormSection(
+            DAILY_WARMUP_BARS + OUTRO_START,
+            DAILY_WARMUP_BARS + MUSICAL_BARS,
+            "phrase",
+            2,
+        ),
+        FormSection(DAILY_WARMUP_BARS + MUSICAL_BARS, DAILY_AMBIENT_BARS, "outro", 2),
+    ),
+)
+
+
 @dataclass(frozen=True)
 class ChordSlot:
     start: int

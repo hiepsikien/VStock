@@ -6,7 +6,7 @@ export function candleIndexAt(elapsedSec: number, count: number, durationSec: nu
   return Math.min(count - 1, Math.floor((elapsedSec / durationSec) * count));
 }
 
-/** Same hold as `ambient_daily_candle_index` in backend/app/sonify/playback.py. */
+/** Same hold as `ambient_daily_candle_index`. Every 1D variant uses this 36-bar frame. */
 export function ambientDailyCandleIndexAt(
   elapsedSec: number,
   count: number,

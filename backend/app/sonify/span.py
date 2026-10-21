@@ -247,6 +247,7 @@ def slice_score(score: Score, start: int, end: int) -> Score:
         support_wedges=wedges(score.support_wedges),
         lead_dynamics=dynamics(score.lead_dynamics),
         support_dynamics=dynamics(score.support_dynamics),
+        low_wedges=wedges(score.low_wedges),
         harmonies=harmonies(score.harmonies),
         dynamics=dynamics(score.dynamics),
     )
