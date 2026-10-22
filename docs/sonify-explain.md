@@ -1,7 +1,7 @@
 # Tổng hợp Hiện trạng & Kế hoạch Nhịp điệu / Cấu trúc theo Tính cách Thị trường
 
 > **Trạng thái tài liệu & Liên kết thiết kế**:
-> - **Mục 1 – 3 (Hiện trạng)**: Bản tổng hợp tra cứu nhanh đã đối chiếu trực tiếp với code tại ngày `2026-10-22`. Nguồn thiết kế chi tiết nằm ở [`docs/sonify-long-form.md`](./sonify-long-form.md) (form đa chương & 12 hợp âm mở rộng), [`docs/sonify-meter-frame.md`](./sonify-meter-frame.md) (nhịp điệu & khung warm-up/cool-down), [`docs/sonify-sonata-mode.md`](./sonify-sonata-mode.md) (giọng nhà & lật Trưởng/Thứ cùng tên), [`docs/sonify-ambient.md`](./sonify-ambient.md) và [`docs/sonify-instrument-sets.md`](./sonify-instrument-sets.md). Các thông số đồng hồ, số ô và hóa biểu trong mục 1–3 đang được khóa bởi `backend/tests/test_sonify_plan.py` và `backend/tests/test_sonify_stream.py`.
+> - **Mục 1 – 3 (Hiện trạng)**: Bản tổng hợp tra cứu nhanh đã đối chiếu trực tiếp với code tại ngày `2026-10-22`. Nguồn thiết kế chi tiết nằm ở [`docs/sonify-long-form.md`](./sonify-long-form.md) (form đa chương & 12 hợp âm mở rộng), [`docs/sonify-meter-frame.md`](./sonify-meter-frame.md) (nhịp điệu & khung warm-up/cool-down), [`docs/sonify-sonata-mode.md`](./sonify-sonata-mode.md) (giọng nhà & lật Trưởng/Thứ cùng tên), [`docs/sonify-ambient.md`](./sonify-ambient.md) và [`docs/sonify-instrument-sets.md`](./sonify-instrument-sets.md). Các thông số đồng hồ, số ô và hóa biểu trong mục 1–3 đang được khóa bởi `backend/tests/test_sonify_plan.py`.
 > - **Mục 4 (Đề xuất nâng cấp — Chưa triển khai)**: Đặc tả kỹ thuật nhằm đa dạng hóa nhịp điệu/cấu trúc nội tại và gắn kết chặt với tính cách thị trường (`Character` & `Regime`) trên cả 5 khung `1D`, `1W`, `1M`, `3M`, `1Y`.
 
 Dưới đây là bức tranh tổng thể về **Giọng & Hòa âm gốc (Key, Mode, Tonic)** và **Nhịp điệu (Time Signature, Tempo, Swing, Khung Warm-up/Cool-down)** cho cả **4 variants** (`Giao hưởng`, `Jazz`, `Tối giản`, `Ambient`) trên **5 khung thời gian** (`1D`, `1W`, `1M`, `3M`, `1Y`):
@@ -150,21 +150,23 @@ Hiện tại trong `DAILY_ENSEMBLE_SPEC` (`form.py`), 2 ô đầu (`0–2`) và 
 
 Bản `1W` dài hơn 7 phút (160 ô thân khi đủ 5 phiên) đi qua 5 ngày giao dịch liên tiếp. Hiện tại cả tuần chỉ có 1 `character` chung và mỗi phiên trừ phiên cuối ghim giá đóng cửa ở ô thứ 32.
 
-1. **Bổ sung Khung Warm-up (2 ô) & Cool-down (2 ô) cho `1W`**:
-   - Đưa `1W` qua `attach_frame(spec, "1W")` với 2 ô warm-up và 2 ô cool-down (tổng 164 ô khi đủ 5 phiên), đồng thời cập nhật `warmupSec` và `cooldownSec` trong manifest `1W` (hiện `SpanRecap` đã dùng `spanCandleIndexAt(elapsed, count, durationSec, warmupSec, cooldownSec)` nên playhead tự động đứng ở nến đầu/cuối trong khung mà không cần sửa logic frontend).
+1. **Bổ sung Khung Warm-up (2 ô) & Cool-down (2 ô) cho `1W` (Tổng `164` ô · `7:17` khi đủ 5 phiên)**:
+   - Để gắn khung `2+2` cho `1W` trong `backend/app/sonify/span.py`, cần thực hiện đủ **3 mắt xích ở backend**:
+     1. Trong `frame_bars_for(meter, span)`: thêm nhánh `if span in ("1W", "1Y"):` để nhịp `4/4` của `1W` trả về **`2` ô mỗi đầu** (thay vì rơi vào nhánh `else` trả `4` ô).
+     2. Trong `attach_frame(spec, span)`: mở rộng điều kiện thành `if span not in ("1W", "1M", "3M", "1Y"): return spec` và gọi `attach_frame(week_spec(session_count), "1W")` trong `plan_week`.
+     3. Trong `prepare_week`: vì `render()` yêu cầu `len(groups) == spec.bars` (`164` ô cho 5 phiên), cần bọc nhóm nguồn của `week_source_groups` bằng **2 nhóm rỗng `[[] , []]` ở đầu (warm-up) và 2 nhóm rỗng `[[], []]` ở cuối (cool-down)** trước khi truyền vào `PreparedMovement.groups`.
+   - Khi đó `movement_frame(movement)` trong `services/spans.py` sẽ tự động trả `warmupSec = 5.333s` và `cooldownSec = 5.333s` (ở `90 BPM`), và `spanCandleIndexAt` trên frontend tự động giữ playhead ở nến đầu/nến cuối suốt khung mà không cần sửa `src/utils/recapCursor.ts`.
 2. **Hạ `Character` xuống từng Phiên 32 ô (`session_characters` trong `1W`)**:
-   - Thay vì dùng 1 `character` duy nhất cho cả 160 ô, chấm `character` riêng cho từng phiên 32 ô (`rally`, `selloff`, `volatile`, `calm`) và truyền mảng `character_by_bar` vào `plan_markov_chords` cũng như bộ render:
+   - Thay vì dùng 1 `character` duy nhất cho cả 160 ô thân, chấm `character` riêng cho từng phiên 32 ô (`rally`, `selloff`, `volatile`, `calm`) và truyền mảng `character_by_bar` vào `plan_markov_chords` cũng như bộ render:
      - **Phiên Tích lũy (`calm`)**: Tự động rút gọn về **Chamber / Half-time Texture** ở 16 ô giữa phiên (Giao hưởng lược bớt tay phải Piano, Cello giữ nốt dài; Jazz Bass về *2-feel*; Tối giản tắt tiếng clap phách 2–4; Ambient giãn thưa trụ kính).
      - **Phiên Rung lắc (`volatile`)**: Giảm `bar_change_penalty` trong phiên đó và bật Groove Giằng co ở các cửa sổ `mf`/`f`.
      - **Phiên Bán tháo giữa tuần (`selloff`)**: Áp `_DIATONIC_DELTA["selloff"]` và `_BORROWED_DELTA["selloff"]` ngay trên 32 ô của phiên đó để nhuộm màu Thứ (`Fm, A♭, E♭, E7`) đúng ngày thị trường giảm.
-3. **Nâng cấp "Ô thứ 32" thành Cầu nối qua đêm (Overnight Gap Bridge — Foreshadowing có lọc GDKHQ)**:
-   - **Bản chất âm nhạc**: Trong `week_source_groups`, ô 32 của phiên $k$ (`k < last`) vốn có nhóm nguồn rỗng `[]` (ghim lại giá đóng cửa phiên $k$). Khi phát lại tuần lịch sử, ta dùng ô 32 này như một nhịp **báo trước có chủ đích (musical foreshadowing / attacca transition)** dẫn sang phách 1 của phiên $k+1$.
-   - **Xử lý đặc thù dữ liệu HOSE (Nhiễu ATO & Ngày GDKHQ)**:
-     - Khoảng cách giá mở cửa ở HOSE có thể bị nhiễu bởi lệnh ATO hoặc bị điều chỉnh kỹ thuật vào ngày Giao dịch không hưởng quyền (cổ tức, thưởng cổ phiếu) khiến giá giảm > 7% mà không phải bán tháo.
-     - **Quy tắc lọc an toàn**:
-       1. Tính `gap_pct` giữa giá đóng cửa phiên $k$ và **giá trung vị của 15 phút đầu sau ATO (09:15–09:30) của phiên $k+1$**.
-       2. Chỉ kích hoạt *Overnight Gap Bridge* khi **`0.008 (0.8%) ≤ |gap_pct| ≤ 0.068 (6.8%)`** (nằm trong biên độ trần/sàn `±7%` của HOSE; mọi cú lệch `> 6.8%` được coi là điều chỉnh tham chiếu GDKHQ hoặc dữ liệu khuyết và sẽ giữ nguyên hợp âm tĩnh như hiện tại).
-       3. Khi hợp lệ: **Gap Up (`+0.8%` đến `+6.8%`)** ưu tiên hợp âm dẫn mở (`G7` hoặc `D7`) ở ô 32 kèm crescendo nhẹ; **Gap Down (`-0.8%` đến `-6.8%`)** ưu tiên hợp âm căng (`E7`, `Fm` hoặc `Bm7♭5`) kèm diminuendo.
+3. **Nâng cấp "Ô thứ 32" thành Cầu nối qua đêm (Overnight Gap Bridge — Foreshadowing & Giới hạn lọc nhiễu)**:
+   - **Đánh đổi thiết kế**: Trong `week_source_groups`, ô 32 của phiên $k$ (`k < last`) vốn có nhóm nguồn rỗng `[]` (ghim lại giá đóng cửa phiên $k$). Khi phát lại tuần lịch sử, ta chủ đích dùng ô 32 này như một nhịp **báo trước (musical foreshadowing / attacca transition)** dẫn sang phách 1 của phiên $k+1$ — tức **chấp nhận đánh đổi tính "trung thực thời gian thực tại thời điểm đóng cửa phiên $k$" để đổi lấy tính kể chuyện liền mạch giữa hai phiên**.
+   - **Đường lấy dữ liệu & Giới hạn lọc GDKHQ ở HOSE**:
+     - Trong `services/spans.py`, thay vì chỉ gọi `session_bars(samples, day)` (vốn bỏ mốc giờ), `plan_span("1W")` gọi `session_points(samples, day)` từ `sonify/session.py` (giữ `point.moment`) để lấy **giá trung vị của các phút khớp lệnh liên tục đầu tiên sau ATO (`09:16–09:30`)** của phiên $k+1$, loại bỏ nhiễu lệnh ATO đầu phiên.
+     - Chỉ kích hoạt *Overnight Gap Bridge* khi **`0.008 (0.8%) ≤ |gap_pct| ≤ 0.068 (6.8%)`** (nằm trong biên độ trần/sàn `±7%` của HOSE).
+     - *Lưu ý giới hạn*: Ngưỡng `≤ 6.8%` chỉ là **bộ lọc nhiễu thô** nhằm loại trừ các đợt chia tách cổ phiếu lớn hoặc lỗi dữ liệu; các đợt điều chỉnh giá tham chiếu do chia cổ tức tiền mặt nhỏ (`2%–5%`) vẫn nằm trong dải này nếu không có lịch sự kiện doanh nghiệp (corporate actions calendar — nằm ngoài phạm vi sonify hiện tại). Do đó, hiệu ứng ở ô 32 chỉ dừng ở **1 hợp âm dẫn nhẹ** (`G7`/`D7` khi mở tăng; `E7`/`Fm` khi mở giảm) mà không đổi mode hay cấu trúc của phiên.
 
 ---
 
@@ -174,16 +176,16 @@ Bản `1W` dài hơn 7 phút (160 ô thân khi đủ 5 phiên) đi qua 5 ngày g
 
 - **Vấn đề hiện tại**: Trong `1Y`, Giao hưởng, Jazz và Ambient dùng nhịp `4/4` cho cả Tháng Mở mùa (`T1, 4, 7, 10`), Tháng Khép mùa (`T3, 6, 9`) và Tháng 12 (`T12`) — tức 8/12 chương đều là `4/4`.
 - **Tái sử dụng `METER_34` đã có của Scherzo `1M-III`**:
-  - Chuyển các **Tháng Khép mùa (`T3, T6, T9` · `108 BPM`)** sang nhịp **`3/4`** cho Giao hưởng (*Scherzo 3/4*), Jazz (*Jazz Waltz 3/4 Swing*) và Ambient (*Floating 3/4*), trong khi Tối giản giữ `7/8`.
+  - Chuyển các **Tháng Khép mùa (`T3, T6, 9` · `108 BPM`)** sang nhịp **`3/4`** cho Giao hưởng (*Scherzo 3/4*), Jazz (*Jazz Waltz 3/4 Swing*) và Ambient (*Floating 3/4*), trong khi Tối giản giữ `7/8`.
 - **Bài toán đồng hồ & khung chương (`frame_bars_for`)**:
   - Hiện tại tháng khép mùa `4/4` có `84` ô thân + `2+2` ô khung = `88` ô `4/4` = **`704` móc đơn** (`195.56s` ở `108 BPM`).
-  - Trong `span.py`, `frame_bars_for(METER_34, "1Y")` quy định **3 ô mỗi đầu** (`3+3 = 6` ô khung `3/4` = **`36` móc đơn**). Nếu lấy `112` ô thân (`672` móc đơn) thì tổng tháng sẽ là `672 + 36 = 708` móc đơn (dư `+4` móc đơn/tháng = `+3.33s` cả năm, đẩy Giao hưởng lên `47:24`, vượt trần `47:21` trong `docs/sonify-long-form.md` và làm gãy `test_piece_clocks_include_the_frame_and_the_rests`).
-  - **Giải pháp chính xác**: Đặt thân Tháng Khép mùa `3/4` bằng **`111` ô** (`666` móc đơn thân + `36` móc đơn khung `3+3` = **`702` móc đơn tổng**, tức `195.00s` ở `108 BPM`, chỉ ngắn hơn `0.56s` mỗi tháng so với `4/4`).
+  - Trong `span.py`, `frame_bars_for(METER_34, "1Y")` quy định **3 ô mỗi đầu** (`3+3 = 6` ô khung `3/4` = **`36` móc đơn**). Nếu lấy `112` ô thân (`672` móc đơn) thì tổng tháng sẽ là `672 + 36 = 708` móc đơn (dư `+4` móc đơn/tháng = `+3.33s` cả năm, đẩy Giao hưởng lên `47:25`, vượt trần `47:21` trong `docs/sonify-long-form.md` và làm gãy `test_piece_clocks_include_the_frame_and_the_rests`).
+  - **Giải pháp chính xác**: Đặt thân Tháng Khép mùa `3/4` bằng **`111` ô** (`666` móc đơn thân + `36` móc đơn khung `3+3` = **`702` móc đơn tổng**, tức `195.00s` ở `108 BPM`, ngắn hơn `0.556s` mỗi tháng và `-1.67s` trên cả 3 tháng khép mùa so với `4/4` hiện tại).
     - Chia đoạn của `closer` `3/4` (`111` ô thân): `8 intro + 42 phrase 0 + 42 phrase 1 + 11 phrase 2 (coda_drive) + 8 outro = 111 ô`, cụm xuất `(50, 111)`.
-    - **Tổng thời lượng `1Y` sau nâng cấp**:
-      - **Giao hưởng**: `2839.3s` (**`47:19`**, nằm dưới trần `47:21`).
-      - **Tối giản**: giữ nguyên `2840.6s` (**`47:20`**).
-      - **Jazz & Ambient**: `2818.0s` (**`46:58`**).
+    - **Tổng thời lượng `1Y` tính theo `_year_clock` sau nâng cấp**:
+      - **Giao hưởng**: `2840.1s` (**`47:20`**, giảm từ `2841.8s`, nằm gọn dưới trần `47:21` / `2841.0s ± 1.5s`).
+      - **Tối giản**: giữ nguyên `2840.6s` (**`47:21`**).
+      - **Jazz & Ambient**: `2818.3s` (**`46:58`**, giảm từ `2820.0s`).
   - Nhờ đó, **mỗi Quý (Mùa)** trong `1Y` đều có **3 nhịp khác nhau hoàn toàn** ở cả 4 variants (`4/4 → 6/8 → 3/4` cho Giao hưởng; `4/4 Swing → 12/8 Ballad → 3/4 Waltz` cho Jazz; `5/4 → 4/4 → 7/8` cho Tối giản; `4/4 → 6/4 → 3/4` cho Ambient), rồi **Tháng 12 (Finale)** quay về `4/4` (`96 BPM`).
 
 #### 2. Giải quyết "Đoạn chết" ở Coda dài & Cấu trúc Nội tại của từng Chương
@@ -193,8 +195,8 @@ Thay vì thêm một loại `Section` mới vào `_PEDAL` (sẽ kéo theo sửa 
 | Vai chương | Vấn đề hiện tại & Giải pháp Cấu trúc | Cơ chế kỹ thuật & Phản ứng theo Thị trường |
 |---|---|---|
 | **Chương Kết / Finale**<br>*(`1M-IV`, `3M-III`, `1Y-T12`, `1W`)* | • Hiện tại `outro` (thuộc `_PEDAL`, khóa cứng 1 hợp âm chủ âm) quá dài: `1M-IV` có `16` ô outro, `3M-III` có tới **`40` ô outro** (`45` ô ở Tối giản) đạp lì 1 hợp âm trong lúc giá vẫn biến động.<br>• **Giải pháp (Coda 2 tầng)**: Giữ `outro` pedal đúng **8 ô cuối**, chuyển toàn bộ số ô dư phía trước (`8` ô ở `1M-IV`, `32` ô ở `3M-III`, `37` ô ở `3M-III` Tối giản, `4` ô ở `1Y-T12`) thành một `FormSection(..., kind="phrase", regime_slot=2)`. | • Vì mang `kind="phrase"`, nửa đầu Coda tự động được Viterbi chọn hợp âm bám theo những cây nến cuối kỳ và tự động chia cửa sổ thanh khoản 2 ô trong `liquidity_windows_for`.<br>• 2 ô cuối của đoạn `phrase` này nhận thưởng `V/V7` để đổ về 8 ô `outro` Pedal chủ âm (vẫn tôn trọng `finale_outro` override giữa đầu kỳ và cuối kỳ).<br>• Không làm thay đổi tổng số ô hay logic `spanCandleIndexAt` trong `recapCursor.ts`. |
-| **Chương Scherzo / Bài ngắn / Khép mùa**<br>*(`1M-III`, `1Y` T3, 6, 9)* | • Chưa có sự tương phản về phối khí ở đoạn giữa như hình thức **Scherzo – Trio – Scherzo (`A – B – A`)** cổ điển. | • Đánh dấu đoạn giữa (`regime_slot=1`) là **Trio**: rút nhẹ 1 bậc mật độ bè trầm/percussion ở nửa đầu đoạn giữa để tạo khoảng sáng.<br>• **Hiệu ứng "Bear-market Bounce"**: Nếu cả chương đang ở mode **Thứ (`minor`)** nhưng đoạn giữa có `regime == "uptrend"`, `minor_bias` tại đoạn giữa giảm cost cho **`♭III` (`E♭`, `E♭maj7`) và `♭VI` (`A♭`, `A♭maj7`)** (vốn đã có sẵn trong `MINOR_CATALOG`), đồng thời thưởng phách đầu đoạn giữa cho `E♭`/`E♭maj7`. Người nghe cảm nhận rõ nhịp hồi phục ấm áp giữa thị trường giá xuống trước khi quay về chủ âm Thứ ở đoạn A cuối. |
-| **Chương Chậm / Ballad**<br>*(`1M-II`, `3M-II`, `1Y` Giữa mùa)* | • Chuyển từ đoạn giữa (B) về đoạn tái hiện (A') chưa có điểm lắng lấy hơi. | • **Tận dụng `bridge=True` và `bridge_cadence` sẵn có**: Bật `bridge=True` cho đoạn giữa của Chương Chậm ở cả Giao hưởng (hiện mới bật cho Jazz và Ambient).<br>• **Caesura tại ô cuối cùng của đoạn Bridge (`section.end - 1`)**: Không chèn thêm ô mới ngoài lưới; ngay tại ô cuối cùng của Bridge (nơi `bridge_cadence` đã ưu tiên hợp âm `G`/`G7`), bộ render (`render.py`, `jazz.py`, `minimalist.py`) ngắt chạy bass/fill ở nửa sau ô và chỉ ngân hợp âm `V7` để tạo nhịp lấy hơi trước khi vào phách 1 của câu tái hiện. |
+| **Chương Scherzo / Bài ngắn / Khép mùa**<br>*(`1M-III`, `1Y` T3, 6, 9)* | • Chưa có sự tương phản về phối khí ở đoạn giữa như hình thức **Scherzo – Trio – Scherzo (`A – B – A`)** cổ điển. | • Đánh dấu đoạn giữa (`regime_slot=1`) là **Trio**: rút nhẹ 1 bậc mật độ bè trầm/percussion ở nửa đầu đoạn giữa để tạo khoảng sáng (áp dụng trên cả `render.py`, `jazz.py`, `minimalist.py`, và giãn trụ kính ở `ambient.py`).<br>• **Hiệu ứng "Bear-market Bounce"**: Nếu cả chương đang ở mode **Thứ (`minor`)** nhưng đoạn giữa có `regime == "uptrend"`, `minor_bias` tại đoạn giữa giảm cost cho **`♭III` (`E♭`, `E♭maj7`) và `♭VI` (`A♭`, `A♭maj7`)** (vốn đã có sẵn trong `MINOR_CATALOG`), đồng thời thưởng phách đầu đoạn giữa cho `E♭`/`E♭maj7`. Người nghe cảm nhận rõ nhịp hồi phục ấm áp giữa thị trường giá xuống trước khi quay về chủ âm Thứ ở đoạn A cuối. |
+| **Chương Chậm / Ballad**<br>*(`1M-II`, `3M-II`, `1Y` Giữa mùa)* | • Chuyển từ đoạn giữa (B) về đoạn tái hiện (A') chưa có điểm lắng lấy hơi. | • **Tận dụng `bridge=True` và `bridge_cadence` sẵn có**: Bật `bridge=True` cho đoạn giữa của Chương Chậm ở cả Giao hưởng (hiện mới bật cho Jazz và Ambient).<br>• **Caesura tại ô cuối cùng của đoạn Bridge (`section.end - 1`)**: Không chèn thêm ô mới ngoài lưới; ngay tại ô cuối cùng của Bridge (nơi `bridge_cadence` đã ưu tiên hợp âm `G`/`G7`), bộ render (`render.py`, `jazz.py`, `minimalist.py`, `ambient.py`) ngắt chạy bass/fill/shimmer ở nửa sau ô và chỉ ngân hợp âm `V7` để tạo nhịp lấy hơi trước khi vào phách 1 của câu tái hiện. |
 
 ---
 
@@ -215,10 +217,11 @@ Thay vì thêm một loại `Section` mới vào `_PEDAL` (sẽ kéo theo sửa 
 
 #### 1. Chú giải Tính cách Thị trường trên Player UI
 Để người nghe hiểu ngay mối liên hệ giữa âm nhạc (nhịp dồn dập, màu thứ trầm, hay nhịp thưa tĩnh lặng) với dữ liệu thị trường thay vì tưởng là hiệu ứng ngẫu nhiên:
-- **Backend (`backend/app/routers/sonify.py`, `stream.py`, `replay.py`)**:
-  - Trả thêm `character: MovementCharacter` và `characterLabel: str` (`"Tăng giá" | "Bán tháo" | "Giằng co" | "Tích lũy"`) trong `RecapManifest` (`1D`) và `SpanMovementResponse` (`1W, 1M, 3M, 1Y`).
+- **Backend (`backend/app/schemas.py`, `backend/app/routers/stocks.py`, `backend/app/services/sessions.py`, `backend/app/services/spans.py`)**:
+  - Trả thêm `character: MovementCharacter` và `characterLabel: str` (`"Tăng giá" | "Bán tháo" | "Giằng co" | "Tích lũy"`) trong `RecapResponse` (`1D`) và `SpanMovementResponse` (`1W, 1M, 3M, 1Y`).
+  - **Quy ước nhất quán cho `1W` (1 chương nhiều phiên)**: `SpanMovementResponse.characterLabel` giữ nhãn tổng của cả tuần (để hiển thị khi đang tải hoặc nghỉ), đồng thời trả thêm mảng nhẹ `sessionCharacters: list[str]` (1 nhãn cho mỗi phiên trong tuần) hoặc ánh xạ theo vị trí `cursor` để khi playhead đi qua phiên nào trong tuần thì nhãn trên nút phát cập nhật đúng tính cách của phiên đang nghe (`Phiên 2 · Tích lũy`, `Phiên 3 · Bán tháo`...).
 - **Frontend (`src/api/client.ts`, `src/components/SessionRecap.tsx`, `src/components/SpanRecap.tsx`)**:
-  - Ở `SpanRecap.tsx`: hiển thị nhãn tính cách ngay trên nút phát và trạng thái chuẩn bị, ví dụ: `Tạm dừng · I · Rê thứ · Bán tháo` hoặc `Tiếp tục · II · Đô trưởng · Tích lũy`.
+  - Ở `SpanRecap.tsx`: hiển thị nhãn tính cách ngay trên nút phát và trạng thái chuẩn bị, ví dụ: `Tạm dừng · I · Rê thứ · Bán tháo` (với `1M/3M/1Y`) hoặc cập nhật theo phiên đang phát với `1W`.
   - Ở `SessionRecap.tsx` (`1D`): hiển thị dòng chú giải nhỏ cạnh thông tin phiên/nút Nghe (ví dụ: `Đô trưởng · Giằng co`).
 
 #### 2. Thứ tự triển khai trong Codebase (Từ tác động cao nhất & tần suất nghe nhiều nhất)
@@ -227,23 +230,29 @@ Thay vì thêm một loại `Section` mới vào `_PEDAL` (sẽ kéo theo sửa 
    - **Phạm vi file**: `backend/app/sonify/span.py`, `backend/app/sonify/form.py`, `backend/tests/test_sonify_plan.py`.
    - Rút `outro` pedal về đúng 8 ô cuối ở các chương Finale, chuyển các ô phía trước thành `phrase` đi theo giá cuối kỳ kèm thưởng `V/V7` ở 2 ô sát `outro`.
 2. **Bước 2 — `Character` & Groove cho `1D` và `1W` + Nhãn UI trên Player (Tần suất sử dụng hằng ngày cao nhất)**:
-   - **Phạm vi file**: `backend/app/sonify/keys.py`, `backend/app/sonify/form.py`, `backend/app/sonify/span.py`, `backend/app/sonify/render.py`, `backend/app/sonify/jazz.py`, `backend/app/sonify/minimalist.py`, `backend/app/sonify/ambient.py`, `backend/app/routers/sonify.py`, `src/api/client.ts`, `src/components/SessionRecap.tsx`, `src/components/SpanRecap.tsx`.
-   - Chạy thống kê phân vị trên dữ liệu phiên HOSE để chốt `_SPAN_THRESHOLD["1D"]`; bật `borrowed=True` và `character` cho `1D`; chấm `character` theo từng phiên 32 ô của `1W` + thêm khung `2+2` và *Overnight Gap Bridge* (lọc `0.8% ≤ |gap| ≤ 6.8%`); bổ sung pattern Groove (`3+3+2` cho Giao hưởng/Tối giản, *Hard-Bop syncopation* cho Jazz, *Half-feel* cho `calm`) và hiển thị `characterLabel` trên UI.
+   - **Phạm vi file**: `backend/app/sonify/keys.py`, `backend/app/sonify/form.py`, `backend/app/sonify/span.py`, `backend/app/sonify/session.py`, `backend/app/sonify/render.py`, `backend/app/sonify/jazz.py`, `backend/app/sonify/minimalist.py`, `backend/app/sonify/ambient.py`, `backend/app/services/sessions.py`, `backend/app/services/spans.py`, `backend/app/schemas.py`, `backend/app/routers/stocks.py`, `src/api/client.ts`, `src/components/SessionRecap.tsx`, `src/components/SpanRecap.tsx`.
+   - Chạy thống kê phân vị trên dữ liệu phiên HOSE để chốt `_SPAN_THRESHOLD["1D"]`; bật `borrowed=True` và `character` cho `1D`; thêm khung `2+2` cho `1W` (`frame_bars_for`, `attach_frame`, đệm `[[], []]` hai đầu `groups` trong `prepare_week`); chấm `character` theo từng phiên 32 ô của `1W` + *Overnight Gap Bridge* qua `session_points` (`09:16–09:30`, lọc `0.8% ≤ |gap| ≤ 6.8%`); bổ sung pattern Groove (`3+3+2` cho Giao hưởng/Tối giản, *Hard-Bop syncopation* cho Jazz, *Half-feel* cho `calm`) và hiển thị `characterLabel` trên UI.
 3. **Bước 3 — Cấu trúc nội tại `Trio` (Scherzo) & `Caesura` (Chương Chậm) cho `1M`, `3M`, `1Y`**:
-   - **Phạm vi file**: `backend/app/sonify/form.py`, `backend/app/sonify/chords.py`, `backend/app/sonify/span.py`, `backend/app/sonify/render.py`, `backend/app/sonify/jazz.py`, `backend/app/sonify/minimalist.py`.
-   - Thêm thiên lệch *Bear-market Bounce* (`♭III` / `♭VI`) và rút mỏng phối khí ở đoạn giữa của Scherzo; bật `bridge=True` cho chương chậm Giao hưởng và tạo điểm lắng *Caesura* ở nửa sau ô cuối đoạn Bridge.
+   - **Phạm vi file**: `backend/app/sonify/form.py`, `backend/app/sonify/chords.py`, `backend/app/sonify/span.py`, `backend/app/sonify/render.py`, `backend/app/sonify/jazz.py`, `backend/app/sonify/minimalist.py`, `backend/app/sonify/ambient.py`.
+   - Thêm thiên lệch *Bear-market Bounce* (`♭III` / `♭VI`) và rút mỏng phối khí ở đoạn giữa của Scherzo; bật `bridge=True` cho chương chậm Giao hưởng và tạo điểm lắng *Caesura* ở nửa sau ô cuối đoạn Bridge trên cả 4 variants.
 4. **Bước 4 — Nhịp `3/4` cho Tháng Khép mùa (`T3, 6, 9`) của `1Y`**:
    - **Phạm vi file**: `backend/app/sonify/span.py`, `backend/tests/test_sonify_plan.py`.
-   - Cập nhật `closer` của `year_specs` sang `METER_34` với `111` ô thân + `3+3` ô khung (`702` móc đơn), giữ tổng thời lượng `1Y` ở `47:19` (Giao hưởng) và `46:58` (Jazz/Ambient), nằm dưới trần `47:21`.
+   - Cập nhật `closer` của `year_specs` sang `METER_34` với `111` ô thân + `3+3` ô khung (`702` móc đơn), giữ tổng thời lượng `1Y` ở `2840.1s` (`47:20` cho Giao hưởng) và `2818.3s` (`46:58` cho Jazz/Ambient), nằm dưới trần `47:21`.
 
 ---
 
 ### G. Tiêu chí Nghiệm thu (Acceptance Criteria & Kiểm thử)
 
-1. **Kiểm thử Tự động (`pytest` trong `backend/tests/test_sonify_plan.py` & `test_sonify_stream.py`)**:
-   - **Khóa đồng hồ**: Tổng thời lượng `1M`, `3M`, `1Y` của cả 4 variants không vượt trần `47:21` (`2841s`); riêng `1Y` Giao hưởng sau khi đổi `closer` sang `111` ô `3/4` đạt `2839.3s ± 1.5s`.
+1. **Kiểm thử Tự động (`pytest` trong `backend/tests/test_sonify_plan.py`)**:
+   - **Khóa đồng hồ (`1W`, `1M`, `3M`, `1Y`)**:
+     - `1W` đủ 5 phiên sau khi gắn khung `2+2` đạt `164` ô (`1312` móc đơn = **`437.3s`** / `7:17` ở `90 BPM`), `len(movement.groups) == 164` với 2 nhóm đầu và 2 nhóm cuối rỗng `[]`.
+     - Tổng thời lượng `1M`, `3M`, `1Y` của cả 4 variants không vượt trần `47:21` (`2841s`); riêng `1Y` Giao hưởng sau khi đổi `closer` sang `111` ô `3/4` đạt **`2840.1s ± 1.5s`** (`47:20`), Jazz/Ambient đạt **`2818.3s ± 1.5s`** (`46:58`).
    - **Khóa lưới nhịp & Swing**: Score Jazz `4/4` ở trạng thái `volatile` vẫn giữ `swing=True` và mọi nốt Rhodes/Walking Bass nằm hợp lệ trong độ dài ô; Score Giao hưởng/Tối giản `4/4` ở trạng thái `volatile` xuất đúng mẫu `3+3+2` (`0, 3, 6`) trên các ô `mf`/`f`.
    - **Khóa Coda & Playhead**: Số ô `outro` pedal của `3M-III` giảm từ `40` xuống `8` ô (các ô trước đó có `section == "phrase"` và có mặt trong `liquidity_windows_for`); `span_candle_index` và `ambientDailyCandleIndexAt` không bị lệch biên warm-up/cool-down.
-   - **Khóa bộ lọc Gap `1W`**: Cú lệch qua đêm `> 6.8%` (mô phỏng ngày GDKHQ chia cổ tức/cổ phiếu) không kích hoạt hợp âm bán tháo ở ô thứ 32.
-2. **Nghiệm thu Nghe đối chứng (Listening Benchmark `5 mã × 4 tính cách`)**:
-   - Xuất MusicXML & MP4/M4A và nghe kiểm tra trực tiếp trên 5 mã đại diện cho 5 giọng nhà (`VNM` – Đô, `FPT` – Rê, `HPG` – Mi♭, `VCB` – Si♭, `GMD` – La) qua 4 mẫu thị trường thực tế (`rally`, `selloff`, `volatile`, `calm`) ở `1D`, `1W` và `1M` để xác nhận chuyển tiếp tự nhiên, không gắt phách trước khi merge từng bước.
+   - **Khóa bộ lọc Gap `1W`**: Cú lệch qua đêm `> 6.8%` hoặc `< 0.8%` không kích hoạt hợp âm dẫn ở ô thứ 32.
+2. **Checklist Nghe đối chứng (Listening Benchmark `5 mã × 4 tính cách`)**:
+   - Xuất MusicXML & M4A trên 5 mã đại diện cho 5 giọng nhà (`VNM` – Đô, `FPT` – Rê, `HPG` – Mi♭, `VCB` – Si♭, `GMD` – La) qua 4 mẫu thị trường thực tế (`rally`, `selloff`, `volatile`, `calm`) ở `1D`, `1W` và `1M`, kiểm tra từng điểm cụ thể:
+     - [ ] **Coda 2 tầng**: Đoạn `phrase` nửa đầu Coda có bám theo chiều nến cuối kỳ không, và 8 ô `outro` pedal cuối có đủ thời gian lắng tự nhiên vào `cooldown` không?
+     - [ ] **Caesura (cuối Bridge chương chậm)**: Nửa sau ô cuối Bridge khi ngắt bass/fill có tạo cảm giác lấy hơi tự nhiên hay bị cảm giác đứt tiếng đột ngột?
+     - [ ] **Soft cadential bias ở `1D`**: Hợp âm `V7` ở ô `30–31` có nâng đỡ nến ATC mà không ép giai điệu nhảy sai cao độ giá đóng cửa không?
+     - [ ] **Groove `volatile`**: Mẫu `3+3+2` của Giao hưởng/Tối giản và *Hard-Bop syncopation* của Jazz có giữ rõ mạch phách chính mà không gây rối tai khi nghe hết 1 chương không?
