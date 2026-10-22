@@ -1,6 +1,6 @@
 # Nhịp và khung chương
 
-Kế hoạch bổ sung nhịp cho bốn dạng nghe, và gắn warm-up với cool-down vào từng chương từ 1M trở lên. Form, BPM và chỗ nghỉ giữa chương nằm ở `docs/sonify-long-form.md`. Khung 2 ô của bản ngày nằm ở `daily_frame.py` và `ambient.py`. 1D và 1W giữ nguyên.
+Kế hoạch bổ sung nhịp cho bốn dạng nghe, và gắn warm-up với cool-down vào từng chương từ 1M trở lên. Form, BPM và chỗ nghỉ giữa chương nằm ở `docs/sonify-long-form.md`. Khung 2 ô của bản ngày nằm ở `daily_frame.py` và `ambient.py`. Chủ âm của sonata giao hưởng nằm ở `docs/sonify-sonata-mode.md`. 1D và 1W giữ nguyên.
 
 Hôm nay mọi bản đều là 4/4. `BEATS_PER_BAR = 4`, mỗi ô 8 móc đơn, phách mạnh ở móc 0 và 4. Một nốt dài cả ô được viết 4 phách. Jazz bật `swing` tỉ lệ 2:1 trên từng cặp móc đơn. `_spell` cắt trong ô tại `HALF_BAR = 4`. `BASS_PATTERNS`, `left_hand` và ostinato tối giản cũng viết theo ô 8 móc.
 
