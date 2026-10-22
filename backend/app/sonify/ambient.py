@@ -218,10 +218,18 @@ def _pillars(
         kept.append(closing)
     kept.sort(key=lambda run: run.start)
     kept = _one_per_bar(kept)
+    from app.sonify.groove import groove_at
+
+    def _gap(start: int) -> int:
+        gap = _hold(PILLAR_GAP)
+        if groove_at(start // max(active_meter().eighths_per_bar, 1)).calm:
+            gap += active_meter().eighths_per_bar
+        return gap
+
     kept = [
         run
         for index, run in enumerate(kept)
-        if index == 0 or end - run.start >= _hold(PILLAR_GAP)
+        if index == 0 or end - run.start >= _gap(run.start)
     ]
     folded: list[Run] = []
     last_midi = previous_midi
@@ -748,7 +756,12 @@ def _swell(
         bar = start + 1
         if kind_at.get(bar) != "phrase" or bar not in chord_at:
             continue
-        if any(abs(bar - other) < SWELL_GAP_BARS for other in chosen_bars):
+        from app.sonify.groove import groove_at
+
+        if groove_at(bar).trio_thin:
+            continue
+        gap = 3 if groove_at(bar).volatile else SWELL_GAP_BARS
+        if any(abs(bar - other) < gap for other in chosen_bars):
             continue
         chosen_bars.append(bar)
         chord = chord_at[bar]
@@ -774,6 +787,10 @@ def _swell(
                 if note % 12 in chord.pitch_classes
             ]
         middle = min(mid_tones, key=lambda note: abs(note - (bottom + top) / 2))
+        if groove_at(bar).selloff:
+            top -= 12
+            bottom -= 12
+            middle -= 12
         peak_vel = SWELL_VELOCITY if band == "f" else SWELL_MP_VELOCITY
         hold_eighths = min(
             _hold(SWELL_HOLD),
@@ -868,12 +885,17 @@ def _shimmer(
         ratio = bell_budget(_chunk_span(source_bars, source_groups, body_start, body_end)) / BELL_MAX_EIGHTHS
         budget = round(raw * ratio)
         spent = used.get(chunk, 0)
-        if spent + _hold(SHIMMER_EIGHTHS) > budget:
+        from app.sonify.groove import groove_at
+
+        length = _hold(SHIMMER_EIGHTHS)
+        if groove_at(bar).caesura:
+            length = min(length, active_meter().eighths_per_bar // 2)
+        if spent + length > budget:
             continue
         notes.extend(
-            written(bar * active_meter().eighths_per_bar, _hold(SHIMMER_EIGHTHS), midi, velocity=SHIMMER_VELOCITY)
+            written(bar * active_meter().eighths_per_bar, length, midi, velocity=SHIMMER_VELOCITY)
         )
-        used[chunk] = spent + _hold(SHIMMER_EIGHTHS)
+        used[chunk] = spent + length
         chosen_bars.append(bar)
     return notes
 
@@ -948,7 +970,12 @@ def render_ambient_score(
             fifth_velocity.append(None)
         halos.append(_halo_midis(chord))
         halo_velocity.append(_HALO_VELOCITY.get(band, 46))
+    from app.sonify.groove import groove_at, silence_second_half
+
     low = _sustain(roots, root_velocity) + _sustain(fifths, fifth_velocity)
+    for bar in range(musical_bars):
+        if groove_at(bar).caesura:
+            low = silence_second_half(low, bar)
     halo = _sustain(halos, halo_velocity)
     swell = _swell(form, windows, bands, chord_at)
     shimmer = _shimmer(form, phrases, pitches, chord_at, source_bars, source_groups)

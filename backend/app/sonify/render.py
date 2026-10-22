@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import replace
 
 from app.sonify.chords import Chord, Regime, fifth_above_bass, progression
@@ -135,15 +136,34 @@ _BASS_34 = {
 }
 
 
-def _bass_pattern(marking: str) -> tuple[tuple[int, int, int], ...]:
+def _bass_pattern(marking: str, bar: int | None = None) -> tuple[tuple[int, int, int], ...]:
     from app.sonify.form import active_meter
+    from app.sonify.groove import groove_at
 
     meter = active_meter()
-    if (meter.beats, meter.beat_type) == (6, 8):
-        return _BASS_68[marking]
-    if (meter.beats, meter.beat_type) == (3, 4):
-        return _BASS_34[marking]
-    return BASS_PATTERNS[marking]
+    groove = groove_at(bar) if bar is not None else None
+    if groove is not None and groove.chamber:
+        marking = "p"
+    elif groove is not None and groove.trio_thin:
+        marking = {"f": "mf", "mf": "mp", "mp": "p", "p": "p"}[marking]
+    elif groove is not None and groove.half and marking == "mp":
+        marking = "p"
+    if groove is not None and groove.tresillo and (meter.beats, meter.beat_type) == (4, 4):
+        pattern: tuple[tuple[int, int, int], ...] = ((0, 3, ROOT), (3, 3, FIFTH), (6, 2, ROOT))
+    elif (meter.beats, meter.beat_type) == (6, 8):
+        pattern = _BASS_68[marking]
+    elif (meter.beats, meter.beat_type) == (3, 4):
+        pattern = _BASS_34[marking]
+    else:
+        pattern = BASS_PATTERNS[marking]
+    if groove is not None and groove.selloff:
+        pattern = tuple((start, length, ROOT if interval == OCTAVE else interval) for start, length, interval in pattern)
+    elif groove is not None and groove.rally and marking in ("mf", "f"):
+        pattern = tuple(
+            (start, length, OCTAVE if start in (0, 4) and interval == FIFTH else interval)
+            for start, length, interval in pattern
+        )
+    return pattern
 
 
 def assign_source_bars(count: int, musical_bars: int = MUSICAL_BARS) -> list[list[int]]:
@@ -552,7 +572,7 @@ def _bass_bar(chord: Chord, marking: str, bar: int) -> list[NoteEvent]:
         FIFTH: fifth_above_bass(chord),
         OCTAVE: chord.bass_midi + OCTAVE,
     }
-    return [
+    events = [
         NoteEvent(
             bar=bar,
             beat=start * 0.5,
@@ -560,8 +580,13 @@ def _bass_bar(chord: Chord, marking: str, bar: int) -> list[NoteEvent]:
             duration_beats=length * 0.5,
             voice=1,
         )
-        for start, length, interval in _bass_pattern(marking)
+        for start, length, interval in _bass_pattern(marking, bar)
     ]
+    from app.sonify.groove import groove_at, silence_second_half
+
+    if groove_at(bar).caesura:
+        return silence_second_half(events, bar)
+    return events
 
 
 def _right_hand(
@@ -570,6 +595,8 @@ def _right_hand(
     piece_eighths: int = TOTAL_EIGHTHS,
 ) -> tuple[NoteEvent, ...]:
     """Third and seventh on beat 1 for half a bar, cut short when a fill comes in."""
+    from app.sonify.groove import groove_at
+
     first_fill: dict[int, int] = {}
     for start, _length, _midi in cadence_fills:
         bar = start // active_meter().eighths_per_bar
@@ -578,6 +605,8 @@ def _right_hand(
     for slot in slots:
         _root, guide = comp_pitches(slot.chord)
         for bar in slot.bars():
+            if groove_at(bar).chamber:
+                continue
             epb = active_meter().eighths_per_bar
             downbeat = bar * epb
             guide_eighths = 3 if (active_meter().beats, active_meter().beat_type) == (6, 8) else min(HALF_BAR, epb)
@@ -587,6 +616,11 @@ def _right_hand(
                 for midi in guide
             )
     for start, length, midi in cadence_fills:
+        bar = start // active_meter().eighths_per_bar
+        if groove_at(bar).caesura:
+            beat = (start % active_meter().eighths_per_bar) * 0.5
+            if beat >= active_meter().quarter_beats / 2:
+                continue
         events.extend(written(start, length, midi, velocity=FILL_VELOCITY))
     return with_rests(events, piece_eighths)
 
@@ -619,6 +653,8 @@ def render(
     mode: str = "major",
     home_pedal: bool = False,
     ensemble: Ensemble = "classic",
+    character_at: Sequence[MovementCharacter | None] | None = None,
+    gap_leads: Sequence[str | None] | None = None,
 ) -> Score:
     """Compose in C, with register bounds shifted for `key` before any note is placed.
 
@@ -646,6 +682,8 @@ def render(
             mode=mode,
             home_pedal=home_pedal,
             ensemble=ensemble,
+            character_at=character_at,
+            gap_leads=gap_leads,
         )
     return score
 
@@ -669,6 +707,8 @@ def _compose(
     mode: str = "major",
     home_pedal: bool = False,
     ensemble: Ensemble = "classic",
+    character_at: Sequence[MovementCharacter | None] | None = None,
+    gap_leads: Sequence[str | None] | None = None,
 ) -> Score:
     """Turn one session of closes into a 30-bar score for `variant` ('symphony', 'jazz', 'minimalist').
 
@@ -758,7 +798,9 @@ def _compose(
             outro_override=None if home_pedal else outro_override,
             mode=mode,  # type: ignore[arg-type]
             home_pedal=home_pedal,
-            harmonic_bridge=variant == "jazz",
+            harmonic_bridge=variant in ("jazz", "symphony"),
+            character_at=character_at,
+            gap_leads=gap_leads,
         )
 
         windows = LIQUIDITY_WINDOWS if spec is None else liquidity_windows_for(spec)
@@ -844,9 +886,17 @@ def _compose(
             elif spec is not None and any(section.kind == "warmup" for section in spec.sections):
                 from app.sonify.movement_frame import apply_span_frame
 
-                score = apply_span_frame(score, spec)
+                score = apply_span_frame(score, spec, character)
+            from app.sonify.groove import _GROOVE
+
+            _GROOVE.set({})
             return score
 
+        from app.sonify.groove import _GROOVE, build_groove
+
+        _GROOVE.set(
+            build_groove(spec, windows, bands, variant, character, character_at, chosen)
+        )
         if variant == "jazz":
             from app.sonify.jazz import JAZZ_BPM
 

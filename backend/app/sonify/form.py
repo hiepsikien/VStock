@@ -162,6 +162,7 @@ class FormSection:
     kind: Section
     regime_slot: int
     bridge: bool = False
+    trio: bool = False
 
 
 @dataclass(frozen=True)
@@ -279,6 +280,7 @@ DAILY_AMBIENT_SPEC = FormSpec(
         ),
         FormSection(DAILY_WARMUP_BARS + MUSICAL_BARS, DAILY_AMBIENT_BARS, "outro", 2),
     ),
+    borrowed=True,
 )
 
 
@@ -317,6 +319,7 @@ DAILY_ENSEMBLE_SPEC = FormSpec(
         ),
         FormSection(DAILY_WARMUP_BARS + MUSICAL_BARS, DAILY_AMBIENT_BARS, "outro", 2),
     ),
+    borrowed=True,
 )
 
 
@@ -443,6 +446,8 @@ def plan_markov_chords(
     mode: Literal["major", "minor"] = "major",
     home_pedal: bool = False,
     harmonic_bridge: bool = True,
+    character_at: Sequence[MovementCharacter | None] | None = None,
+    gap_leads: Sequence[str | None] | None = None,
 ) -> tuple[Chord, ...]:
     """Decode the lowest-loss 30-bar Markov chord path via Viterbi.
 
@@ -475,7 +480,39 @@ def plan_markov_chords(
         borrowed = spec.borrowed
     meter = METER_44 if spec is None else spec.meter
     epb = meter.eighths_per_bar
-    bar_change_penalty = _bar_change_penalty(character)
+    bar_slot = [0] * musical_bars
+    trio_bars: set[int] = set()
+    trio_downbeats: set[int] = set()
+    coda_v: set[int] = set()
+    coda_iv: set[int] = set()
+    if spec is not None:
+        for index, section in enumerate(spec.sections):
+            for bar in range(section.start, min(section.end, musical_bars)):
+                bar_slot[bar] = section.regime_slot
+            if section.trio:
+                trio_downbeats.add(section.start)
+                mid = section.start + max(1, (section.end - section.start) // 2)
+                trio_bars.update(range(section.start, mid))
+            if section.kind != "outro" or index == 0:
+                continue
+            previous = spec.sections[index - 1]
+            if previous.kind != "phrase" or section.start - previous.start < 2:
+                continue
+            coda_v.add(section.start - 1)
+            coda_v.add(section.start - 2)
+            if spec.bars == DAILY_AMBIENT_BARS and section.start == DAILY_WARMUP_BARS + MUSICAL_BARS:
+                coda_iv.update((28, 29))
+    penalties: list[float] = []
+    bar_character: list[MovementCharacter | None] = []
+    for bar in range(musical_bars):
+        chosen = character
+        if character_at is not None and bar < len(character_at) and character_at[bar] is not None:
+            chosen = character_at[bar]
+        penalty = _bar_change_penalty(chosen)
+        if chosen == "volatile" and bar_slot[bar] == 1:
+            penalty = 0.35
+        penalties.append(penalty)
+        bar_character.append(chosen)
     for regime in regimes:
         progression(regime)
     expected_eighths = musical_bars * epb
@@ -564,13 +601,37 @@ def plan_markov_chords(
             if mode == "minor":
                 base_bias = minor_bias(chord, regime)
             else:
-                base_bias = chord_bias(chord, regime, character)
+                base_bias = chord_bias(chord, regime, bar_character[bar])
             if bar in bridge_starts and is_subdominant(chord, mode):
                 base_bias -= PHRASE_TONIC_BONUS
             elif phrase_downbeat and chord in allowed_tonics and bar not in bridge_starts:
                 base_bias -= PHRASE_TONIC_BONUS
             if bar in bridge_cadence and chord.name in ("G", "G7"):
                 base_bias -= PHRASE_TONIC_BONUS
+            if (
+                mode == "minor"
+                and regime == "uptrend"
+                and bar in trio_bars
+                and chord.name in ("Eb", "Ebmaj7", "Ab", "Abmaj7")
+            ):
+                base_bias -= 0.12
+            if (
+                bar in trio_downbeats
+                and mode == "minor"
+                and regime == "uptrend"
+                and chord.name in ("Eb", "Ebmaj7")
+            ):
+                base_bias -= PHRASE_TONIC_BONUS
+            if bar in coda_v and chord.name in ("G", "G7", "G9"):
+                base_bias -= PHRASE_TONIC_BONUS
+            if bar in coda_iv and is_subdominant(chord, mode):
+                base_bias -= 0.15
+            if gap_leads is not None and bar < len(gap_leads):
+                lead = gap_leads[bar]
+                if lead == "up" and chord.name in ("G7", "D7"):
+                    base_bias -= PHRASE_TONIC_BONUS
+                elif lead == "down" and chord.name in ("E7", "Fm"):
+                    base_bias -= PHRASE_TONIC_BONUS
 
             if bar == 0:
                 emission = emit(bar_notes, chord) + base_bias
@@ -693,7 +754,7 @@ def plan_markov_chords(
                     else:
                         trans_cost = -TRANSITION_WEIGHT * math.log(root_prob)
                         if not new_section and prev_held == 1:
-                            trans_cost += bar_change_penalty
+                            trans_cost += penalties[bar]
                     if same_root and prev_chord != chord:
                         trans_cost += SAME_ROOT_QUALITY_CHANGE_PENALTY
 
@@ -738,6 +799,8 @@ def plan_slots(
     mode: Literal["major", "minor"] = "major",
     home_pedal: bool = False,
     harmonic_bridge: bool = True,
+    character_at: Sequence[MovementCharacter | None] | None = None,
+    gap_leads: Sequence[str | None] | None = None,
 ) -> tuple[ChordSlot, ...]:
     if spec is None and len(regimes) != 3:
         raise ValueError("expected one regime per phrase")
@@ -770,6 +833,8 @@ def plan_slots(
             mode,
             home_pedal,
             harmonic_bridge,
+            character_at,
+            gap_leads,
         )
         slots = []
         spans = _section_spans(regimes) if spec is None else spec.spans(regimes)  # type: ignore[arg-type]

@@ -37,7 +37,7 @@ from app.sonify.session import VN, is_session_closed
 logger = logging.getLogger(__name__)
 
 # Bump when the score or the sound changes, so old files are not replayed.
-RECAP_REVISION = "26"
+RECAP_REVISION = "28"
 # Long-form files live beside the daily recap and use their own revision.
 SPAN_REVISION = "14"
 PEAK_BUCKETS = 96
@@ -99,6 +99,8 @@ class RecapAsset:
     bar_count: int
     media_type: str
     ensemble: Ensemble = "classic"
+    character: str | None = None
+    key_label: str = ""
 
     @property
     def audio_url(self) -> str:
@@ -1077,6 +1079,8 @@ class RecapStore:
             framed=False,
             mode=movement.mode,
             home_pedal=movement.home_pedal,
+            character_at=movement.bar_characters,
+            gap_leads=movement.gap_leads,
             ensemble=ensemble,
         )
         work = self.root / "work"
@@ -1194,7 +1198,16 @@ class RecapStore:
         ensemble: Ensemble = "classic",
     ) -> RecapAsset:
         key = self._stem(symbol, day, variant, len(bars), ensemble)
-        score = render(bars, title=f"{symbol} {day.isoformat()}", variant=variant, ensemble=ensemble)
+        from app.sonify.keys import movement_character, stock_home_key
+
+        score = render(
+            bars,
+            title=f"{symbol} {day.isoformat()}",
+            variant=variant,
+            ensemble=ensemble,
+            key=stock_home_key(symbol),
+            character=movement_character([bar.close for bar in bars], "1D"),
+        )
         work = self.root / "work"
         work.mkdir(parents=True, exist_ok=True)
         xml_path = work / f"{key}.musicxml"

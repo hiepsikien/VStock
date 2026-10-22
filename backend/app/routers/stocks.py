@@ -39,7 +39,7 @@ from app.services.spans import (
 )
 from app.sonify.audio import RecapCancelled, RecapUnavailable
 from app.sonify.ensemble import Ensemble, ensemble_for
-from app.sonify.keys import key_label
+from app.sonify.keys import CHARACTER_LABEL, key_label
 from app.sonify.model import Variant
 
 logger = logging.getLogger(__name__)
@@ -424,6 +424,9 @@ async def get_recap(
         barCount=asset.bar_count,
         peaks=asset.peaks,
         audioUrl=asset.audio_url,
+        character=asset.character,
+        characterLabel=CHARACTER_LABEL.get(asset.character or "", ""),
+        keyLabel=asset.key_label,
     )
 
 
@@ -460,6 +463,11 @@ async def get_span(
                 warmupSec=round(movement_frame(movement)[0], 3),
                 cooldownSec=round(movement_frame(movement)[1], 3),
                 prices=[round(bar.close, 2) for bar in movement.bars],
+                character=movement.character,
+                characterLabel=CHARACTER_LABEL.get(movement.character or "", ""),
+                sessionCharacters=[
+                    CHARACTER_LABEL[item] for item in movement.session_characters
+                ],
             )
         )
     return SpanResponse(symbol=sym, range=range, variant=variant, ensemble=chosen, movements=rows)

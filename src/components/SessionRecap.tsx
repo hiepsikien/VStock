@@ -603,6 +603,9 @@ function RecapPlayer({
       >
         <Text style={styles.playText}>
           {!status.isLoaded ? 'Đang tải…' : status.playing ? 'Tạm dừng' : 'Nghe'}
+          {manifest.keyLabel && manifest.characterLabel
+            ? ` · ${manifest.keyLabel} · ${manifest.characterLabel}`
+            : ''}
         </Text>
       </Pressable>
       <Pressable

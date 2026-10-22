@@ -17,20 +17,33 @@ from app.sonify.model import DynamicEvent, NoteEvent, Score, WedgeEvent
 from app.sonify.phrasing import with_rests, written
 
 
-def apply_span_frame(score: Score, spec: FormSpec) -> Score:
+def _is_dynamic_frame(score: Score, spec: FormSpec, character: str | None) -> bool:
+    return (
+        score.variant != "ambient"
+        and spec.bpm >= 96
+        and character in ("rally", "selloff", "volatile")
+    )
+
+
+def apply_span_frame(score: Score, spec: FormSpec, character: str | None = None) -> Score:
     warmup = next(section for section in spec.sections if section.kind == "warmup")
     cool = next(section for section in spec.sections if section.kind == "cooldown")
+    dynamic = _is_dynamic_frame(score, spec, character)
+    cool_len = cool.end - cool.start
+    tag = cool_len // 2 if dynamic and cool_len >= 3 else 0
     with compose_meter(spec.meter):
         if score.variant == "jazz":
-            return _jazz(score, warmup.start, warmup.end, cool.start, cool.end)
+            return _jazz(score, warmup.start, warmup.end, cool.start, cool.end, tag)
         if score.variant == "minimalist":
-            return _minimalist(score, warmup.start, warmup.end, cool.start, cool.end)
+            return _minimalist(score, warmup.start, warmup.end, cool.start, cool.end, dynamic, tag)
         if score.variant == "ambient":
             return _ambient(score, warmup.start, warmup.end, cool.start, cool.end)
-        return _symphony(score, warmup.start, warmup.end, cool.start, cool.end)
+        return _symphony(score, warmup.start, warmup.end, cool.start, cool.end, dynamic, tag)
 
 
-def _symphony(score: Score, warm_start: int, body: int, cool: int, end: int) -> Score:
+def _symphony(
+    score: Score, warm_start: int, body: int, cool: int, end: int, dynamic: bool = False, tag: int = 0
+) -> Score:
     reg = active_register()
     opening = _chord(score, body)
     closing = _chord(score, cool - 1)
@@ -80,17 +93,29 @@ def _symphony(score: Score, warm_start: int, body: int, cool: int, end: int) -> 
         ],
         total,
     )
-    low = (
-        *low_body,
-        *_pedal(warm_start, body, opening.bass_midi, tie_out=_joins(low_body, body, opening.bass_midi)),
-        *_pedal(cool, end, closing.bass_midi, tie_in=bass_touch is not None),
-    )
+    if dynamic:
+        from app.sonify.chords import fifth_above_bass
+
+        low = (
+            *low_body,
+            *_split_bass(warm_start, body, opening.bass_midi, fifth_above_bass(opening)),
+            *_split_bass(cool, cool + tag, closing.bass_midi, fifth_above_bass(closing)),
+            *_pedal(cool + tag, end, closing.bass_midi),
+        )
+        comp = _curtain_comp(score, warm_start, body, cool, end, opening, closing, tag)
+    else:
+        low = (
+            *low_body,
+            *_pedal(warm_start, body, opening.bass_midi, tie_out=_joins(low_body, body, opening.bass_midi)),
+            *_pedal(cool, end, closing.bass_midi, tie_in=bass_touch is not None),
+        )
+        comp = _rest_comp(score, warm_start, body, cool, end)
     return replace(
         score,
         high=with_rests(_body(score.high, body, cool), total),
         lead=lead,
         support=support,
-        comp=_rest_comp(score, warm_start, body, cool, end),
+        comp=comp,
         low=tuple(sorted(low, key=lambda note: (note.bar, note.beat, note.midi or -1))),
         lead_wedges=_body_wedges(score.lead_wedges, body, cool) + _hairpin(violin_at, body, cool, end - 1),
         support_wedges=_body_wedges(score.support_wedges, body, cool) + _hairpin(warm_start, body, cool, end - 1),
@@ -101,7 +126,7 @@ def _symphony(score: Score, warm_start: int, body: int, cool: int, end: int) -> 
     )
 
 
-def _jazz(score: Score, warm_start: int, body: int, cool: int, end: int) -> Score:
+def _jazz(score: Score, warm_start: int, body: int, cool: int, end: int, tag: int = 0) -> Score:
     total = score.bars * _epb()
     closing = _chord(score, cool - 1)
     beats = _beats()
@@ -130,7 +155,7 @@ def _jazz(score: Score, warm_start: int, body: int, cool: int, end: int) -> Scor
         high=with_rests(_body(score.high, body, cool), total),
         lead=with_rests([*lead_body, *added_lead], total),
         support=with_rests([*support_body, *added_support], total),
-        comp=_jazz_comp(score, warm_start, body, cool, end),
+        comp=_jazz_comp(score, warm_start, body, cool, end, tag),
         low=tuple(
             [
                 *low_body,
@@ -147,11 +172,23 @@ def _jazz(score: Score, warm_start: int, body: int, cool: int, end: int) -> Scor
     )
 
 
-def _minimalist(score: Score, warm_start: int, body: int, cool: int, end: int) -> Score:
+def _minimalist(
+    score: Score,
+    warm_start: int,
+    body: int,
+    cool: int,
+    end: int,
+    dynamic: bool = False,
+    tag: int = 0,
+) -> Score:
     total = score.bars * _epb()
     opening = _chord(score, body)
     closing = _chord(score, cool - 1)
     pulse = _even_pulse(warm_start, body, opening.bass_midi) + _even_pulse(cool, end, closing.bass_midi)
+    lead_body = list(_body(score.lead, body, cool))
+    if dynamic:
+        lead_body.extend(_ostinato(warm_start, body, opening))
+        lead_body.extend(_ostinato(cool, cool + tag, closing))
     pad = [
         *_body(score.support, body, cool),
         *_pedal(warm_start, body, _pad_pitch(opening)),
@@ -160,7 +197,7 @@ def _minimalist(score: Score, warm_start: int, body: int, cool: int, end: int) -
     return replace(
         score,
         high=with_rests(_body(score.high, body, cool), total),
-        lead=with_rests(_body(score.lead, body, cool), total),
+        lead=with_rests(lead_body, total),
         support=with_rests(pad, total),
         comp=_rest_comp(score, warm_start, body, cool, end),
         low=tuple([*_body(score.low, body, cool), *pulse]),
@@ -323,8 +360,10 @@ def _rest_comp(
     )
 
 
-def _jazz_comp(score: Score, warm_start: int, body: int, cool: int, end: int) -> tuple[NoteEvent, ...]:
-    """Warm-up Rhodes follows the meter on the opening chord. Cool-down rests."""
+def _jazz_comp(
+    score: Score, warm_start: int, body: int, cool: int, end: int, tag: int = 0
+) -> tuple[NoteEvent, ...]:
+    """Warm-up Rhodes follows the meter on the opening chord. A dynamic tag answers on the close."""
     from app.sonify.form import active_meter
     from app.sonify.jazz import _rhodes_voicing
 
@@ -334,17 +373,107 @@ def _jazz_comp(score: Score, warm_start: int, body: int, cool: int, end: int) ->
     right: list[NoteEvent] = []
     for bar in range(warm_start, body):
         right.extend(_rhodes_warmup_bar(bar, voicing, signature))
+    if tag:
+        _root, closing = _rhodes_voicing(_chord(score, cool - 1))
+        for bar in range(cool, min(end, cool + tag)):
+            right.extend(_rhodes_warmup_bar(bar, closing, signature))
     # The figure starts after the downbeat in 12/8 and leaves a beat open in 3/4.
     # The MusicXML writer does not invent those rests, so engrave them here.
-    filled = with_rests(right, body * meter.eighths_per_bar)
-    if warm_start:
-        filled = tuple(note for note in filled if note.bar >= warm_start)
+    filled = with_rests(right, end * meter.eighths_per_bar)
+    filled = tuple(
+        note
+        for note in filled
+        if warm_start <= note.bar < body or cool <= note.bar < cool + tag
+    )
     return tuple(
         [
             *filled,
             *_bar_rests(warm_start, body, staves=((2, 5),)),
             *_kept_comp(score.comp, body, cool),
-            *_bar_rests(cool, end),
+            *_bar_rests(cool, end, staves=((2, 5),)),
+            *_bar_rests(cool + tag, end, staves=((1, 1),)),
+        ]
+    )
+
+
+def _split_bass(start: int, end: int, root: int, fifth: int) -> list[NoteEvent]:
+    """Two or more attacks per bar, so a dynamic frame is not one tied pedal."""
+    from app.sonify.form import active_meter
+
+    quarters = int(active_meter().quarter_beats)
+    if quarters < 2 or start >= end:
+        return _pedal(start, end, root)
+    mid = max(1, quarters // 2)
+    notes: list[NoteEvent] = []
+    for bar in range(start, end):
+        notes.append(NoteEvent(bar=bar, beat=0.0, midi=root, duration_beats=float(mid), voice=1))
+        notes.append(
+            NoteEvent(
+                bar=bar,
+                beat=float(mid),
+                midi=fifth,
+                duration_beats=float(quarters - mid),
+                voice=1,
+            )
+        )
+    return notes
+
+
+def _ostinato(start: int, end: int, chord: Chord) -> list[NoteEvent]:
+    if start >= end:
+        return []
+    tones = [48 + (midi % 12) for midi in chord.pitches] or [chord.bass_midi]
+    notes: list[NoteEvent] = []
+    for bar in range(start, end):
+        for index, beat in enumerate((0.0, 1.0, 2.0)):
+            notes.append(
+                NoteEvent(
+                    bar=bar,
+                    beat=beat,
+                    midi=tones[index % len(tones)],
+                    duration_beats=0.5,
+                    voice=1,
+                )
+            )
+    return notes
+
+
+def _curtain_comp(
+    score: Score,
+    warm_start: int,
+    body: int,
+    cool: int,
+    end: int,
+    opening: Chord,
+    closing: Chord,
+    tag: int,
+) -> tuple[NoteEvent, ...]:
+    from app.sonify.form import active_meter
+    from app.sonify.jazz import _rhodes_voicing
+
+    meter = active_meter()
+    signature = (meter.beats, meter.beat_type)
+    notes: list[NoteEvent] = []
+    _root, opening_voicing = _rhodes_voicing(opening)
+    for bar in range(warm_start, body):
+        notes.extend(_rhodes_warmup_bar(bar, opening_voicing, signature))
+    if tag:
+        _root, closing_voicing = _rhodes_voicing(closing)
+        for bar in range(cool, min(end, cool + tag)):
+            notes.extend(_rhodes_warmup_bar(bar, closing_voicing, signature))
+    filled = with_rests(notes, end * meter.eighths_per_bar)
+    filled = tuple(
+        note
+        for note in filled
+        if warm_start <= note.bar < body or cool <= note.bar < cool + tag
+    )
+    return tuple(
+        [
+            *filled,
+            *_kept_comp(score.comp, body, cool),
+            *_bar_rests(warm_start, body, staves=((2, 5),)),
+            *_bar_rests(cool, end, staves=((2, 5),)),
+            *_bar_rests(cool + tag, end, staves=((1, 1),)),
         ]
     )
 

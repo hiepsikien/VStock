@@ -125,6 +125,13 @@ def _synth_arpeggio_part(
             eighth = bar * meter.eighths_per_bar + eighth_in_bar
             raw_midi = raw_pitches[eighth]
             norm = _normalized_brightness(raw_midi)
+            from app.sonify.groove import groove_at
+
+            groove = groove_at(bar)
+            if groove.rally:
+                norm = max(norm, OPEN_CUTOFF)
+            elif groove.selloff or groove.half:
+                norm = min(norm, CLOSED_CUTOFF if groove.half and not groove.selloff else CLOSED_CUTOFF * 0.5)
             base_idx = round(norm * max_base)
             # In dark/closed state (< CLOSED_CUTOFF), narrow the pattern to 2 tones (0, 1)
             if norm < CLOSED_CUTOFF:
@@ -397,6 +404,39 @@ def _synth_pulse_part(
         hi_root = _keep(72 + root_pc, 72, 83)
         hi_fifth = _keep(72 + fifth_pc, 72, 84)
         low_stab = _keep(48 + fifth_pc, 36, 55)
+        from app.sonify.groove import groove_at
+
+        groove = groove_at(bar)
+        if groove.trio_thin:
+            band = {"f": "mf", "mf": "mp", "mp": "p", "p": "p"}[band]
+            vel = PULSE_VEL_BY_BAND[band]
+        if groove.tresillo and band in ("mf", "f"):
+            for beat, duration in ((0.0, 1.5), (1.5, 1.5), (3.0, 1.0)):
+                events.append(
+                    NoteEvent(
+                        bar=bar,
+                        beat=beat,
+                        midi=hi_root,
+                        duration_beats=duration,
+                        voice=1,
+                        staff=1,
+                        staccato=True,
+                        velocity=vel,
+                    )
+                )
+                events.append(
+                    NoteEvent(
+                        bar=bar,
+                        beat=beat,
+                        midi=low_stab,
+                        duration_beats=duration,
+                        voice=5,
+                        staff=2,
+                        staccato=True,
+                        velocity=vel,
+                    )
+                )
+            continue
         if _pulse_other_meter(events, bar, band, vel, hi_root, hi_fifth, low_stab):
             continue
 
@@ -441,7 +481,7 @@ def _synth_pulse_part(
                         voice=1,
                         staff=1,
                         staccato=True,
-                        accent=off_beat,
+                        accent=off_beat and not groove.selloff,
                         velocity=vel if off_beat else vel - 12,
                     )
                 )
@@ -458,14 +498,14 @@ def _synth_pulse_part(
                         voice=1,
                         staff=1,
                         staccato=True,
-                        accent=sixteenth % 4 == 2,
+                        accent=sixteenth % 4 == 2 and not groove.selloff,
                         velocity=vel if sixteenth % 4 == 2 else vel - 8,
                     )
                 )
 
         # Staff 2: Backbeat on beats 2 and 4 when volume is mf or f
         low_stab = _keep(48 + fifth_pc, 36, 55)
-        if band in ("mf", "f"):
+        if band in ("mf", "f") and not groove.chamber:
             for beat, is_hit in ((0.0, False), (1.0, True), (2.0, False), (3.0, True)):
                 events.append(
                     NoteEvent(
@@ -491,6 +531,10 @@ def _synth_pulse_part(
                     staff=2,
                 )
             )
+    from app.sonify.groove import groove_at, silence_second_half
+
+    for bar in {note.bar for note in events if groove_at(note.bar).caesura}:
+        events = silence_second_half(events, bar)
     return tuple(events)
 
 
@@ -507,11 +551,19 @@ def _sub_bass_part(
         root = _keep(chord.bass_midi, 36, 47)
         meter = active_meter()
         signature = (meter.beats, meter.beat_type)
+        from app.sonify.groove import groove_at, silence_second_half
+
+        groove = groove_at(bar)
+        bar_notes: list[NoteEvent] = []
         if signature == (7, 8):
-            pulses = ((0.0, 1.0), (1.0, 1.0), (2.0, 1.5))
+            pulses = (
+                ((0.0, 2.0), (2.0, 1.5))
+                if groove.half or groove.trio_thin
+                else ((0.0, 1.0), (1.0, 1.0), (2.0, 1.5))
+            )
             for index, (beat, duration) in enumerate(pulses):
-                midi = _keep(root + 12, 48, 59) if band == "f" and index == 2 else root
-                events.append(
+                midi = _keep(root + 12, 48, 59) if band == "f" and index == len(pulses) - 1 else root
+                bar_notes.append(
                     NoteEvent(
                         bar=bar,
                         beat=beat,
@@ -521,23 +573,51 @@ def _sub_bass_part(
                         tenuto=index == 0,
                     )
                 )
-            continue
-        quarters = 5 if signature == (5, 4) else BEATS_PER_BAR
-        for beat in range(quarters):
-            lifted = band == "f" and (
-                beat == quarters - 1 if signature == (5, 4) else beat == 3
-            )
-            midi = _keep(root + 12, 48, 59) if lifted else root
-            events.append(
-                NoteEvent(
-                    bar=bar,
-                    beat=float(beat),
-                    midi=midi,
-                    duration_beats=1.0,
-                    voice=1,
-                    tenuto=beat == 0 or (signature == (5, 4) and beat == 3),
+        elif signature == (4, 4) and groove.tresillo:
+            for beat, duration in ((0.0, 1.5), (1.5, 1.5), (3.0, 1.0)):
+                bar_notes.append(
+                    NoteEvent(
+                        bar=bar,
+                        beat=beat,
+                        midi=root,
+                        duration_beats=duration,
+                        voice=1,
+                        tenuto=beat == 0.0,
+                    )
                 )
-            )
+        elif groove.half or groove.trio_thin:
+            spans = ((0.0, 2.5), (2.5, 2.5)) if signature == (5, 4) else ((0.0, 2.0), (2.0, 2.0))
+            for beat, duration in spans:
+                bar_notes.append(
+                    NoteEvent(
+                        bar=bar,
+                        beat=beat,
+                        midi=root,
+                        duration_beats=duration,
+                        voice=1,
+                        tenuto=beat == 0.0,
+                    )
+                )
+        else:
+            quarters = 5 if signature == (5, 4) else BEATS_PER_BAR
+            for beat in range(quarters):
+                lifted = band == "f" and (
+                    beat == quarters - 1 if signature == (5, 4) else beat == 3
+                )
+                midi = _keep(root + 12, 48, 59) if lifted else root
+                bar_notes.append(
+                    NoteEvent(
+                        bar=bar,
+                        beat=float(beat),
+                        midi=midi,
+                        duration_beats=1.0,
+                        voice=1,
+                        tenuto=beat == 0 or (signature == (5, 4) and beat == 3),
+                    )
+                )
+        if groove.caesura:
+            bar_notes = silence_second_half(bar_notes, bar)
+        events.extend(bar_notes)
     return tuple(events)
 
 

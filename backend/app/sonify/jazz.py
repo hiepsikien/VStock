@@ -895,6 +895,18 @@ def _rhodes_comping_part(
                 and avail_eighths == HALF_BAR
                 and bar % 2 == 0
             )
+            from app.sonify.groove import groove_at
+
+            if groove_at(bar).syncopate and avail_eighths == HALF_BAR:
+                for beat, duration in ((0.0, 0.5), (1.5, 0.5), (3.5, 0.5)):
+                    room = _before_fill(bar, beat, duration, first_fill)
+                    if room is None:
+                        continue
+                    for midi in voicing:
+                        right_events.append(
+                            NoteEvent(bar=bar, beat=beat, midi=midi, duration_beats=room, voice=1)
+                        )
+                continue
             if use_charleston:
                 for midi in voicing:
                     right_events.append(
@@ -923,8 +935,18 @@ def _rhodes_comping_part(
                         )
                     )
 
+    from app.sonify.groove import groove_at, silence_second_half
+
+    meter = active_meter()
     for start, length, midi in cadence_fills:
+        bar = start // meter.eighths_per_bar
+        beat = (start % meter.eighths_per_bar) * 0.5
+        if groove_at(bar).caesura and beat >= meter.quarter_beats / 2:
+            continue
         right_events.extend(written(start, length, midi, velocity=FILL_VELOCITY))
+    caesura_bars = {note.bar for note in right_events if groove_at(note.bar).caesura}
+    for bar in caesura_bars:
+        right_events = silence_second_half(right_events, bar)
 
     piano: list[NoteEvent] = list(with_rests(right_events, total_eighths))
     for slot in slots:
@@ -974,9 +996,17 @@ def _walk_waltz(
     root: int,
     fifth: int,
 ) -> list[NoteEvent]:
+    from app.sonify.groove import groove_at
+
     third = root + ((chord.pitches[1] % 12 - chord.pitches[0] % 12) % 12)
     lead = _approach_note(next_chord, fifth, scale_bass, fifth)
-    if band in ("p",) or section in ("intro", "warmup", "outro", "cooldown"):
+    groove = groove_at(bar)
+    if (
+        band in ("p",)
+        or section in ("intro", "warmup", "outro", "cooldown")
+        or groove.half
+        or groove.trio_thin
+    ):
         return [
             NoteEvent(bar=bar, beat=0.0, midi=root, duration_beats=2.0, voice=1),
             NoteEvent(bar=bar, beat=2.0, midi=lead, duration_beats=1.0, voice=1),
@@ -999,7 +1029,15 @@ def _walk_ballad(
     root: int,
     fifth: int,
 ) -> list[NoteEvent]:
-    if band == "p" or section in ("intro", "warmup", "outro", "cooldown"):
+    from app.sonify.groove import groove_at
+
+    groove = groove_at(bar)
+    if (
+        band == "p"
+        or section in ("intro", "warmup", "outro", "cooldown")
+        or groove.half
+        or groove.trio_thin
+    ):
         return [
             NoteEvent(bar=bar, beat=0.0, midi=root, duration_beats=3.0, voice=1),
             NoteEvent(bar=bar, beat=3.0, midi=fifth, duration_beats=3.0, voice=1),
@@ -1047,19 +1085,38 @@ def _walking_bass_bar(
         scale_bass = leading_scale(scale_bass)
     meter = active_meter()
     signature = (meter.beats, meter.beat_type)
+    from app.sonify.groove import groove_at, silence_second_half
+
     if signature == (3, 4):
-        return _walk_waltz(chord, next_chord, band, bar, section, scale_bass, root, fifth)
-    if signature == (12, 8):
-        return _walk_ballad(chord, next_chord, band, bar, section, scale_bass, root, fifth)
-    if section == "outro":
-        return [
+        notes = _walk_waltz(chord, next_chord, band, bar, section, scale_bass, root, fifth)
+    elif signature == (12, 8):
+        notes = _walk_ballad(chord, next_chord, band, bar, section, scale_bass, root, fifth)
+    elif section == "outro":
+        notes = [
             NoteEvent(bar=bar, beat=0.0, midi=root, duration_beats=4.0, voice=1),
         ]
-    if band == "p" or section == "intro":
-        return [
+    elif band == "p" or section == "intro" or groove_at(bar).half or groove_at(bar).trio_thin:
+        notes = [
             NoteEvent(bar=bar, beat=0.0, midi=root, duration_beats=2.0, voice=1),
             NoteEvent(bar=bar, beat=2.0, midi=fifth, duration_beats=2.0, voice=1),
         ]
+    else:
+        notes = _walk_four(chord, next_chord, band, bar, scale_bass, root, fifth)
+    if groove_at(bar).caesura:
+        return silence_second_half(notes, bar)
+    return notes
+
+
+def _walk_four(
+    chord: Chord,
+    next_chord: Chord,
+    band: str,
+    bar: int,
+    scale_bass: tuple[int, ...],
+    root: int,
+    fifth: int,
+) -> list[NoteEvent]:
+    from app.sonify.groove import groove_at
 
     # 4-beat Walking Bass
     third_pc = chord.pitches[1] % 12
@@ -1080,6 +1137,8 @@ def _walking_bass_bar(
             beat4 = fifth
     else:
         beat4 = fifth
+    if groove_at(bar).chromatic:
+        beat4 = next_root - 1 if next_root > 36 else next_root + 1
 
     return [
         NoteEvent(bar=bar, beat=0.0, midi=root, duration_beats=1.0, voice=1),

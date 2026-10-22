@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import date
 
+from app.sonify.groove import gap_direction
 from app.sonify.form import (
     METER_34,
     METER_44,
@@ -94,6 +95,43 @@ def _spec(
     return FormSpec(bars, bpm, built, chunks, borrowed=True, meter=meter)
 
 
+def _retarget_pedal(spec: FormSpec, *, intro: int | None = None, outro: int | None = None) -> FormSpec:
+    """Give surplus intro and outro bars to the neighbouring phrase. Total length stays put."""
+    sections = list(spec.sections)
+    if intro is not None:
+        index = next((i for i, section in enumerate(sections) if section.kind == "intro"), None)
+        if index is not None and index + 1 < len(sections):
+            current = sections[index]
+            extra = current.end - current.start - intro
+            if extra > 0:
+                nxt = sections[index + 1]
+                sections[index] = replace(current, end=current.start + intro)
+                sections[index + 1] = replace(nxt, start=current.start + intro)
+    if outro is not None:
+        index = next((i for i, section in enumerate(sections) if section.kind == "outro"), None)
+        if index is not None and index > 0:
+            current = sections[index]
+            extra = current.end - current.start - outro
+            if extra > 0:
+                previous = sections[index - 1]
+                start = current.end - outro
+                sections[index - 1] = replace(previous, end=start)
+                sections[index] = replace(current, start=start)
+    return replace(spec, sections=tuple(sections))
+
+
+def _with_trio(spec: FormSpec) -> FormSpec:
+    return replace(
+        spec,
+        sections=tuple(
+            replace(section, trio=True)
+            if section.kind == "phrase" and section.regime_slot == 1
+            else section
+            for section in spec.sections
+        ),
+    )
+
+
 def frame_bars_for(meter: Meter, span: str) -> int:
     """Bars of warm-up and of cool-down. 1Y is the short frame."""
     key = (meter.beats, meter.beat_type)
@@ -116,6 +154,7 @@ def attach_frame(spec: FormSpec, span: str) -> FormSpec:
             section.kind,
             section.regime_slot,
             section.bridge,
+            section.trio,
         )
         for section in spec.sections
     ]
@@ -161,12 +200,13 @@ def week_spec(session_count: int) -> FormSpec:
     for index in range(count):
         for step in range(4):
             if index == 0 and step == 0:
-                kind = "intro"
+                parts.append(_part(4, "intro", index))
+                parts.append(_part(4, "phrase", index))
             elif index == count - 1 and step == 3:
-                kind = "outro"
+                parts.append(_part(4, "phrase", index))
+                parts.append(_part(4, "outro", index))
             else:
-                kind = "phrase"
-            parts.append(_part(8, kind, index))
+                parts.append(_part(8, "phrase", index))
     chunks = tuple((index + 1) * BARS_PER_SESSION for index in range(count))
     return _spec(count * BARS_PER_SESSION, WEEK_BPM, tuple(parts), chunks)
 
@@ -259,7 +299,7 @@ def month_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSpec
             (
                 _part(8, "intro", 0),
                 _part(24, "phrase", 0),
-                _part(16, "phrase", 1),
+                _part(16, "phrase", 1, True),
                 _part(24, "phrase", 2),
             ),
             (32, 72),
@@ -278,7 +318,12 @@ def month_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSpec
             (40, 82),
             METER_78,
         )
-        return first, second, third, _finale()
+        return (
+            _retarget_pedal(first, intro=4, outro=4),
+            _retarget_pedal(second, intro=4),
+            _with_trio(_retarget_pedal(third, intro=4, outro=6)),
+            _retarget_pedal(_finale(), intro=4, outro=8),
+        )
     if variant == "jazz":
         second = _spec(
             48,
@@ -292,7 +337,12 @@ def month_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSpec
             (20, 48),
             METER_128,
         )
-        return _fast(True), second, _scherzo(), _finale(True)
+        return (
+            _retarget_pedal(_fast(True), intro=4, outro=4),
+            second,
+            _with_trio(_retarget_pedal(_scherzo(), intro=4, outro=4)),
+            _retarget_pedal(_finale(True), intro=4, outro=8),
+        )
     if variant == "ambient":
         second = _spec(
             48,
@@ -306,20 +356,30 @@ def month_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSpec
             (20, 48),
             METER_64,
         )
-        return _fast(True), second, _scherzo(True), _finale(True)
+        return (
+            _retarget_pedal(_fast(True), intro=4, outro=4),
+            second,
+            _with_trio(_retarget_pedal(_scherzo(True), intro=4, outro=4)),
+            _retarget_pedal(_finale(True), intro=4, outro=8),
+        )
     second = _spec(
         96,
         72,
         (
             _part(8, "intro", 0),
             _part(32, "phrase", 0),
-            _part(24, "phrase", 1),
+            _part(24, "phrase", 1, True),
             _part(32, "phrase", 2),
         ),
         (40, 96),
         METER_68,
     )
-    return _fast(bridge), second, _scherzo(), _finale(bridge)
+    return (
+        _retarget_pedal(_fast(bridge), intro=4, outro=4),
+        _retarget_pedal(second, intro=4),
+        _with_trio(_retarget_pedal(_scherzo(), intro=4, outro=4)),
+        _retarget_pedal(_finale(bridge), intro=4, outro=8),
+    )
 
 
 def quarter_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSpec]:
@@ -343,7 +403,7 @@ def quarter_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSp
             (
                 _part(8, "intro", 0),
                 _part(32, "phrase", 0),
-                _part(40, "phrase", 1),
+                _part(40, "phrase", 1, True),
                 _part(32, "phrase", 2),
                 _part(8, "outro", 2),
             ),
@@ -362,7 +422,11 @@ def quarter_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSp
             (73, 146, 246),
             METER_78,
         )
-        return first, second, third
+        return (
+            _retarget_pedal(first, intro=3, outro=4),
+            _retarget_pedal(second, intro=4, outro=4),
+            _retarget_pedal(third, intro=4, outro=10),
+        )
     drone = variant == "ambient"
     first = _spec(
         192,
@@ -411,7 +475,7 @@ def quarter_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSp
             (
                 _part(8, "intro", 0),
                 _part(44, "phrase", 0),
-                _part(56, "phrase", 1),
+                _part(56, "phrase", 1, True),
                 _part(44, "phrase", 2),
                 _part(8, "outro", 2),
             ),
@@ -430,7 +494,12 @@ def quarter_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSp
         ),
         (64, 128, 216),
     )
-    return first, second, third
+    second_outro = 2 if variant in ("jazz", "ambient") else 4
+    return (
+        _retarget_pedal(first, intro=4, outro=4),
+        _retarget_pedal(second, intro=4, outro=second_outro),
+        _retarget_pedal(third, intro=4, outro=8),
+    )
 
 
 def year_specs(variant: str = "symphony") -> tuple[FormSpec, ...]:
@@ -473,15 +542,17 @@ def year_specs(variant: str = "symphony") -> tuple[FormSpec, ...]:
             (40, 80),
         )
         closer = _spec(
-            84,
+            111,
             108,
             (
-                _part(8, "intro", 0),
-                _part(32, "phrase", 0),
-                _part(32, "phrase", 1, drone),
-                _part(12, "outro", 2),
+                _part(4, "intro", 0),
+                _part(46, "phrase", 0),
+                _part(42, "phrase", 1, drone),
+                _part(13, "phrase", 2),
+                _part(6, "outro", 2),
             ),
-            (40, 84),
+            (50, 111),
+            METER_34,
         )
     if variant == "jazz":
         center = _spec(
@@ -518,7 +589,7 @@ def year_specs(variant: str = "symphony") -> tuple[FormSpec, ...]:
             (
                 _part(8, "intro", 0),
                 _part(24, "phrase", 0),
-                _part(16, "phrase", 1),
+                _part(16, "phrase", 1, True),
                 _part(16, "phrase", 2),
                 _part(8, "outro", 2),
             ),
@@ -531,7 +602,7 @@ def year_specs(variant: str = "symphony") -> tuple[FormSpec, ...]:
             (
                 _part(8, "intro", 0),
                 _part(32, "phrase", 0),
-                _part(24, "phrase", 1),
+                _part(24, "phrase", 1, True),
                 _part(24, "phrase", 2),
                 _part(8, "outro", 2),
             ),
@@ -550,6 +621,16 @@ def year_specs(variant: str = "symphony") -> tuple[FormSpec, ...]:
         ),
         (40, 72, 108),
     )
+    opener = _retarget_pedal(opener, intro=4, outro=4)
+    if variant in ("jazz", "ambient"):
+        center = _retarget_pedal(center, outro=2)
+    else:
+        center = _retarget_pedal(center, intro=4, outro=4)
+    if variant == "minimalist":
+        closer = _with_trio(_retarget_pedal(closer, intro=4, outro=6))
+    else:
+        closer = _with_trio(closer)
+    finale = _retarget_pedal(finale, intro=4, outro=8)
     return (
         opener, center, closer,
         opener, center, closer,
@@ -676,6 +757,9 @@ class PreparedMovement:
     mode: Mode = "major"
     swing: bool = False
     home_pedal: bool = False
+    session_characters: tuple[MovementCharacter, ...] = ()
+    bar_characters: tuple[MovementCharacter | None, ...] | None = None
+    gap_leads: tuple[str | None, ...] | None = None
 
     @property
     def candle_count(self) -> int:
@@ -688,10 +772,17 @@ class PreparedMovement:
         character = self.character or "std"
         coda = self.outro_override or "none"
         meter = self.spec.meter
+        sessions = "".join(item[0] for item in self.session_characters)
+        bridges = ""
+        if self.gap_leads:
+            bridges = "".join(
+                (self.gap_leads[index] or "-")[0]
+                for index in range(31, len(self.gap_leads), 32)
+            )
         return (
             f"{self.key.name}-{self.mode}-{character}-{coda}-"
             f"{meter.beats}-{meter.beat_type}-{int(self.swing)}-"
-            f"{low:.2f}-{high:.2f}"
+            f"{low:.2f}-{high:.2f}-rhythm4-{sessions}-{bridges}"
         )
 
 
@@ -859,13 +950,34 @@ def _prepared(
 
 
 def prepare_week(
-    sessions: list[list[Bar]], symbol: str | None = None
+    sessions: list[list[Bar]],
+    symbol: str | None = None,
+    openings: Sequence[float | None] | None = None,
 ) -> tuple[PreparedMovement, ...]:
     usable = [bars for bars in sessions if bars][-5:]
     if not usable:
         raise ValueError("a week needs one session")
     flat = [bar for bars in usable for bar in bars]
     movement = plan_week(len(usable))[0]
+    session_characters = tuple(
+        movement_character([bar.close for bar in bars], "1W") for bars in usable
+    )
+    bar_characters = tuple(
+        character
+        for character in session_characters
+        for _ in range(BARS_PER_SESSION)
+    )
+    leads: list[str | None] = [None] * (len(usable) * BARS_PER_SESSION)
+    if openings is not None and len(usable) >= 2:
+        chosen_openings = list(openings)[-len(usable) :]
+        if len(chosen_openings) == len(usable):
+            for index in range(len(usable) - 1):
+                direction = gap_direction(usable[index][-1].close, chosen_openings[index + 1])
+                if direction is not None:
+                    leads[(index + 1) * BARS_PER_SESSION - 1] = direction
+    outro = None
+    if len(usable) >= 2:
+        outro = finale_outro(session_characters[0], session_characters[-1])
     return (
         PreparedMovement(
             label=movement.label,
@@ -875,6 +987,10 @@ def prepare_week(
             rest_after=0.0,
             key=_home(symbol),
             character=movement_character([bar.close for bar in flat], "1W"),
+            outro_override=outro,
+            session_characters=session_characters,
+            bar_characters=bar_characters,
+            gap_leads=tuple(leads),
         ),
     )
 

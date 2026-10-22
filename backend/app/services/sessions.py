@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
+from dataclasses import replace
 from datetime import date
 
 import httpx
@@ -187,7 +188,10 @@ async def load_recap(
     points = session_points(samples_from_ohlc(payload), day)
     if not points:
         raise LookupError(day.isoformat())
+    from app.sonify.keys import key_label, movement_character, stock_home_key
+
     bars = [point.bar for point in points]
+    character = movement_character([bar.close for bar in bars], "1D")
     cancel = threading.Event()
 
     async def watch_disconnect() -> None:
@@ -201,7 +205,7 @@ async def load_recap(
 
     watcher = asyncio.create_task(watch_disconnect())
     try:
-        return await asyncio.to_thread(
+        asset = await asyncio.to_thread(
             recap_store().ensure,
             symbol.upper(),
             day,
@@ -209,6 +213,11 @@ async def load_recap(
             bars,
             cancel,
             ensemble,
+        )
+        return replace(
+            asset,
+            character=character,
+            key_label=key_label(stock_home_key(symbol), "major"),
         )
     except (RecapUnavailable, RecapCancelled):
         raise
