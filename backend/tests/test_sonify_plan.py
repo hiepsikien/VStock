@@ -7,8 +7,10 @@ from app.sonify.form import (
     FormSection,
     FormSpec,
     METER_128,
+    METER_34,
     METER_44,
     METER_54,
+    METER_64,
     liquidity_windows_for,
     plan_slots,
     swing_for,
@@ -146,6 +148,49 @@ def test_symphony_frame_layers_the_strings() -> None:
     assert 0 in {note.bar for note in score.low if note.midi is not None}
     assert any(wedge.kind == "crescendo" and wedge.bar == 2 for wedge in score.lead_wedges)
     assert any(wedge.kind == "diminuendo" and wedge.bar == 8 for wedge in score.lead_wedges)
+
+
+def test_long_form_ambient_writes_its_meter_mode_and_frame() -> None:
+    slow = FormSpec(
+        6,
+        72,
+        (
+            FormSection(0, 1, "warmup", 0),
+            FormSection(1, 5, "phrase", 0),
+            FormSection(5, 6, "cooldown", 0),
+        ),
+        (6,),
+        meter=METER_64,
+    )
+    scherzo = FormSpec(
+        6,
+        108,
+        (
+            FormSection(0, 1, "warmup", 0),
+            FormSection(1, 5, "phrase", 0),
+            FormSection(5, 6, "cooldown", 0),
+        ),
+        (6,),
+        meter=METER_34,
+    )
+    prices = [Bar(40.0, 10.0, 40.0) for _ in range(6)]
+    slow_score = render(prices, variant="ambient", form=slow, mode="minor", home_pedal=True)
+    assert (slow_score.beats, slow_score.beat_type, slow_score.bar_beats, slow_score.mode) == (
+        6,
+        4,
+        6.0,
+        "minor",
+    )
+    assert 0 in {note.bar for note in slow_score.lead if note.midi is not None}
+    root = ET.fromstring(score_to_musicxml(slow_score))
+    assert {node.text for node in root.iter("beats")} == {"6"}
+    assert {node.text for node in root.iter("beat-type")} == {"4"}
+    assert {node.text for node in root.iter("fifths")} == {"-3"}
+    waltz = render(prices, variant="ambient", form=scherzo, mode="major", home_pedal=True)
+    assert (waltz.beats, waltz.beat_type, waltz.bar_beats) == (3, 4, 3.0)
+    day = render([Bar(80.0, 0.0, 80.0) for _ in range(30)], variant="ambient")
+    assert day.bars == 34
+    assert (day.beats, day.beat_type, day.bar_beats, day.mode) == (4, 4, 4.0, "major")
 
 
 def test_five_four_whole_rest_has_no_type() -> None:

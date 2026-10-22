@@ -882,7 +882,7 @@ def _compose(
         if variant == "ambient":
             from app.sonify.ambient import AMBIENT_BPM, render_ambient_score
 
-            return replace(
+            return _finish(
                 render_ambient_score(
                     title=title,
                     chosen=chosen,
@@ -900,8 +900,7 @@ def _compose(
                     total_eighths=piece_eighths,
                     bpm=AMBIENT_BPM if form is None else spec.bpm,
                     frame=daily_ambient,
-                ),
-                key=key,
+                )
             )
 
         flute_notes, yield_spans = _flute_and_violin_dovetail(
