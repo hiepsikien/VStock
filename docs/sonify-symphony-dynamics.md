@@ -167,7 +167,8 @@ def emit_flute_dynamic(eighth_pos: int, target_marking: str) -> None:
 ### D. Công thức `span_swell(onset)` cho `NoteEvent.velocity`
 
 - Với mỗi run `f_run` trong `merged_flute_runs` của đoạn có `phrase.rise >= MIN_RISE` và `first_attack is not None`, đặt `onset = max(arc_start, f_run.start)`:
-  - Nếu `overlaps_breakout(f_run.start, f_run.end)`: `vel = peak` (`80`).
+  - Nếu là `Glockenspiel` 1 run (`ensemble == "brass"` và `len(merged_flute_runs) == 1`): `vel = peak` (`72` hoặc `80`, không đi qua `span_swell`).
+  - Ngược lại, nếu `overlaps_breakout(f_run.start, f_run.end)`: `vel = peak` (`80`).
   - Ngược lại:
     - Nếu `onset <= eff_apex`: `s = 1.0 if eff_apex == arc_start else (onset - arc_start) / (eff_apex - arc_start)`
     - Nếu `onset > eff_apex`: `s = 1.0 - (onset - eff_apex) / max(1, sounding_end - eff_apex)`
