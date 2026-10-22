@@ -3,10 +3,35 @@
 from __future__ import annotations
 
 
-def piece_seconds(musical_bars: int, bpm: float, beats_per_bar: int = 4) -> float:
+def piece_seconds(musical_bars: int, bpm: float, beats_per_bar: float = 4) -> float:
     if musical_bars < 1 or bpm <= 0 or beats_per_bar < 1:
         return 0.0
     return musical_bars * beats_per_bar * 60.0 / bpm
+
+
+def span_candle_index(
+    elapsed: float, count: int, duration: float, warmup: float, cooldown: float
+) -> int:
+    """Candle under the playhead for one movement from 1M upward.
+
+    The chart holds the first candle through the warm-up and the last candle
+    through the cool-down. A week sends both holds as zero and walks the file.
+    """
+    if count <= 1:
+        return 0
+    if duration <= 0 or elapsed <= 0:
+        return 0
+    if elapsed < warmup:
+        return 0
+    if elapsed >= duration - cooldown:
+        return count - 1
+    body = duration - warmup - cooldown
+    if body <= 0:
+        return 0
+    fraction = (elapsed - warmup) / body
+    if fraction >= 1:
+        return count - 1
+    return min(count - 1, int(fraction * count))
 
 
 def ambient_daily_candle_index(elapsed: float, count: int, duration: float) -> int:

@@ -115,6 +115,8 @@ class SpanMovementResponse(BaseModel):
     ready: bool
     audioUrl: str
     restAfterSec: float
+    warmupSec: float
+    cooldownSec: float
     prices: list[float]
 
 

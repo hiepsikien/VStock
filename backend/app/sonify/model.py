@@ -143,6 +143,10 @@ class Score:
     divisions: int = 2
     swing: bool = False
     key: KeySpec = C_KEY
+    mode: Literal["major", "minor"] = "major"
+    beats: int = 4
+    beat_type: int = 4
+    bar_beats: float = 4.0
 
     # Backwards-compatible chamber part aliases
     @property

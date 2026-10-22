@@ -27,7 +27,6 @@ from pathlib import Path
 from typing import Callable, NamedTuple
 from xml.etree import ElementTree as ET
 
-from app.sonify.form import BEATS_PER_BAR
 from app.sonify.model import VARIANTS, Bar, Variant
 from app.sonify.musicxml import score_to_musicxml
 from app.sonify.playback import piece_seconds
@@ -39,7 +38,7 @@ logger = logging.getLogger(__name__)
 # Bump when the score or the sound changes, so old files are not replayed.
 RECAP_REVISION = "26"
 # Long-form files live beside the daily recap and use their own revision.
-SPAN_REVISION = "13"
+SPAN_REVISION = "14"
 PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
@@ -966,13 +965,16 @@ class RecapStore:
             key=movement.key,
             character=movement.character,
             outro_override=movement.outro_override,
+            framed=False,
+            mode=movement.mode,
+            home_pedal=movement.home_pedal,
         )
         work = self.root / "work"
         work.mkdir(parents=True, exist_ok=True)
         xml_path = work / f"{stem}.musicxml"
         wav_path = work / f"{stem}.wav"
         xml_path.write_text(score_to_musicxml(score), encoding="utf-8")
-        musical = piece_seconds(score.bars, score.bpm, BEATS_PER_BAR)
+        musical = piece_seconds(score.bars, score.bpm, score.bar_beats)
         previous = getattr(_export_cancel, "event", None)
         previous_timeout = getattr(_export_timeout, "seconds", None)
         _export_cancel.event = cancel
@@ -1093,7 +1095,7 @@ class RecapStore:
             _raise_if_cancelled_event(cancel)
             self._exporter(xml_path, wav_path)
             duration, peaks = waveform_peaks(wav_path)
-            musical = piece_seconds(score.bars, score.bpm, BEATS_PER_BAR)
+            musical = piece_seconds(score.bars, score.bpm, score.bar_beats)
             if duration <= 0:
                 duration = musical
             # MuseScore leaves a short release after the last note. The chart

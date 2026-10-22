@@ -255,7 +255,7 @@ def test_week_uses_form_tempo_and_chunk_spans_for_shimmer() -> None:
 
 
 def test_month_movement_without_an_outro_does_not_invent_one() -> None:
-    spec = month_specs()[1]
+    spec = month_specs("ambient")[1]
     assert all(section.kind != "outro" for section in spec.sections)
     bars = [Bar(40.0, 0.0, 40.0) for _ in range(spec.bars)]
     score = render(
@@ -264,7 +264,7 @@ def test_month_movement_without_an_outro_does_not_invent_one() -> None:
         form=spec,
         source_groups=assign_source_bars(len(bars), spec.bars),
     )
-    assert score.bars == 72
+    assert score.bars == 48
     assert score.bpm == 72
     assert [note.bar for note in _onsets(score.lead)] == [0]
 

@@ -468,6 +468,8 @@ export type SpanMovement = {
   ready: boolean;
   audioUrl: string;
   restAfterSec: number;
+  warmupSec: number;
+  cooldownSec: number;
   prices: number[];
 };
 

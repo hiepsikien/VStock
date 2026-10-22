@@ -114,6 +114,23 @@ E9 = Chord("E9", "E", KIND_DOMINANT_NINTH, "9", (64, 68, 71, 74, 78), tones=((8,
 A9 = Chord("A9", "A", KIND_DOMINANT_NINTH, "9", (57, 61, 64, 67, 71), tones=((1, "C", 1),))
 C9 = Chord("C9", "C", KIND_DOMINANT_NINTH, "9", (60, 64, 67, 70, 74), tones=((10, "B", -1),))
 FM9 = Chord("Fm9", "F", KIND_MINOR_NINTH, "m9", (65, 68, 72, 75, 79), tones=((8, "A", -1), (3, "E", -1)))
+CM = Chord("Cm", "C", KIND_MINOR, "m", (60, 63, 67), tones=((3, "E", -1),))
+CM7 = Chord(
+    "Cm7", "C", KIND_MINOR_SEVENTH, "m7", (60, 63, 67, 70),
+    tones=((3, "E", -1), (10, "B", -1)),
+)
+CM9 = Chord(
+    "Cm9", "C", KIND_MINOR_NINTH, "m9", (60, 63, 67, 70, 74),
+    tones=((3, "E", -1), (10, "B", -1)),
+)
+FM7 = Chord(
+    "Fm7", "F", KIND_MINOR_SEVENTH, "m7", (65, 68, 72, 75),
+    tones=((8, "A", -1), (3, "E", -1)),
+)
+DM7B5 = Chord(
+    "Dm7b5", "D", KIND_HALF_DIMINISHED, "m7♭5", (62, 65, 68, 72),
+    tones=((8, "A", -1),),
+)
 GM9 = Chord("Gm9", "G", KIND_MINOR_NINTH, "m9", (67, 70, 74, 77, 81), tones=((10, "B", -1),))
 AFMAJ7 = Chord(
     "Abmaj7", "A", KIND_MAJOR_SEVENTH, "maj7", (68, 72, 75, 79),
@@ -138,6 +155,10 @@ JAZZ_VOICING_BY_NAME: dict[str, Chord] = {
     "A7": A9,
     "C7": C9,
     "Fm": FM9,
+    "Fm7": FM9,
+    "Cm": CM9,
+    "Cm7": CM9,
+    "Dm7b5": DM7B5,
     "Gm": GM9,
     "Ab": AFMAJ7,
     "Bb": BFMAJ7,
@@ -324,5 +345,45 @@ def tonic_chords(regime: Regime) -> tuple[Chord, Chord]:
 def transition_probability(previous: Chord, current: Chord) -> float:
     """Markov transition probability P(current | previous), or 0.0 if disallowed."""
     return TRANSITIONS.get(previous, {}).get(current, 0.0)
+
+
+MINOR_DIATONIC: tuple[Chord, ...] = (
+    CM, CM7, FM, FM7, DM7B5, G, G7, AF, AFMAJ7, EF, EFMAJ7,
+)
+MINOR_CATALOG: tuple[Chord, ...] = (*MINOR_DIATONIC, FDIM7)
+HOME_MAJOR: tuple[Chord, Chord] = (C, CMAJ7)
+HOME_MINOR: tuple[Chord, Chord] = (CM, CM7)
+_IV_MAJOR = frozenset({"F", "Fmaj7"})
+_IV_MINOR = frozenset({"Fm", "Fm7"})
+_MINOR_ROOT_BIAS = {"C": 0.00, "F": 0.04, "G": 0.04, "A": 0.06, "E": 0.06, "D": 0.06}
+
+
+def minor_bias(chord: Chord, regime: Regime) -> float:
+    """Smaller is preferred. C and G never take the downtrend penalty."""
+    if chord.name == "F#dim7":
+        return 0.08
+    base = _MINOR_ROOT_BIAS[chord.root_step]
+    if chord.root_step in ("F", "A", "E"):
+        if regime == "uptrend":
+            base += 0.04
+        elif regime == "downtrend":
+            base -= 0.02
+    return base
+
+
+def minor_root_probability(previous: Chord, current: Chord) -> float:
+    """Root-to-root weight. F#dim7 is one bar and only resolves to G or G7."""
+    if current.name == "F#dim7":
+        if previous.name == "F#dim7":
+            return 0.0
+        return 0.06
+    if previous.name == "F#dim7":
+        return 0.9 if current.name in ("G", "G7") else 0.0
+    return _ROOT_TRANSITIONS.get(previous.root_step, {}).get(current.root_step, 0.0)
+
+
+def is_subdominant(chord: Chord, mode: str) -> bool:
+    names = _IV_MINOR if mode == "minor" else _IV_MAJOR
+    return chord.name in names
 
 

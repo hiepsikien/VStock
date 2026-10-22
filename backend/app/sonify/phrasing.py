@@ -13,14 +13,26 @@ the bar line to finish on a held note or before a wide leap.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from app.sonify.chords import Chord
 from app.sonify.dynamics import SOUND
-from app.sonify.form import EIGHTHS_PER_BAR, HALF_BAR, TOTAL_EIGHTHS, ChordSlot
+from app.sonify.form import (
+    EIGHTHS_PER_BAR,
+    HALF_BAR,
+    TOTAL_EIGHTHS,
+    WHOLE_BAR_BEATS,
+    ChordSlot,
+    active_meter,
+)
 from app.sonify.keys import C_REGISTER, active_register
 from app.sonify.model import PERIOD, DynamicEvent, NoteEvent, Phrase, Run, WedgeEvent
-from app.sonify.quantize import melody_pitch_classes, quantize_chord_tone
+from app.sonify.quantize import (
+    leading_scale,
+    melody_pitch_classes,
+    quantize_chord_tone,
+    sing_leading,
+)
 
 COMMA = 3
 BEAT_EIGHTHS = 2
@@ -225,20 +237,27 @@ def swell(phrase: Phrase, onset: int) -> float:
 
 
 def _spell(start: int, length: int) -> list[tuple[int, int]]:
-    """Cut a run of eighths at bar lines, and inside a bar at beat 3.
+    """Cut a run at bar lines and at the meter's in-bar breaks.
 
-    A run that fills a whole bar stays one whole note. Every other piece is
-    1 to 4 eighths: eighth, quarter, dotted quarter, or half.
+    A run that fills a whole bar stays one note when that length has a note
+    type (3, 4, or 6 quarters). 5/4 and 7/8 always break, then tie.
     """
+    meter = active_meter()
+    epb = meter.eighths_per_bar
+    whole = meter.quarter_beats in WHOLE_BAR_BEATS
     pieces: list[tuple[int, int]] = []
     cursor = start
     end = start + length
     while cursor < end:
-        bar_end = (cursor // EIGHTHS_PER_BAR + 1) * EIGHTHS_PER_BAR
-        if cursor % EIGHTHS_PER_BAR == 0 and end >= bar_end:
+        bar_start = (cursor // epb) * epb
+        bar_end = bar_start + epb
+        pos = cursor - bar_start
+        if pos == 0 and end >= bar_end and whole:
             stop = bar_end
         else:
-            stop = min(end, cursor - cursor % HALF_BAR + HALF_BAR)
+            later = [mark for mark in meter.subbar_breaks if mark > pos]
+            next_pos = later[0] if later else epb
+            stop = min(end, bar_start + next_pos)
         pieces.append((cursor, stop - cursor))
         cursor = stop
     return pieces
@@ -257,13 +276,26 @@ def written(
     tie_in: bool = False,
     tie_out: bool = False,
 ) -> list[NoteEvent]:
-    pieces = _spell(start, length)
+    meter = active_meter()
+    epb = meter.eighths_per_bar
+    if midi is None and start % epb == 0:
+        # A silent bar is one measure rest even when the meter has no whole note.
+        pieces: list[tuple[int, int]] = []
+        cursor = start
+        end = start + length
+        while cursor + epb <= end:
+            pieces.append((cursor, epb))
+            cursor += epb
+        if cursor < end:
+            pieces.extend(_spell(cursor, end - cursor))
+    else:
+        pieces = _spell(start, length)
     sounding = midi is not None
     last = len(pieces) - 1
     return [
         NoteEvent(
-            bar=cursor // EIGHTHS_PER_BAR,
-            beat=(cursor % EIGHTHS_PER_BAR) * 0.5,
+            bar=cursor // epb,
+            beat=(cursor % epb) * 0.5,
             midi=midi,
             duration_beats=size * 0.5,
             voice=1,
@@ -289,7 +321,7 @@ def with_rests(notes: list[NoteEvent], total: int) -> tuple[NoteEvent, ...]:
     chord notes have differing durations or input ordering.
     """
     def position(event: NoteEvent) -> int:
-        return event.bar * EIGHTHS_PER_BAR + int(round(event.beat * 2))
+        return event.bar * active_meter().eighths_per_bar + int(round(event.beat * 2))
 
     def duration_eighths(event: NoteEvent) -> int:
         return int(round(event.duration_beats * 2))
@@ -333,7 +365,7 @@ def accent_of(phrase: Phrase, skip: frozenset[int] = frozenset()) -> Run | None:
         run
         for run in phrase.runs
         if run.length >= COMMA
-        and run.start % EIGHTHS_PER_BAR not in STRONG_EIGHTHS
+        and run.start % active_meter().eighths_per_bar not in active_meter().strong_eighths
         and run.start not in skip
     ]
     return max(syncopated, key=lambda run: (run.length, -run.start), default=None)
@@ -368,9 +400,10 @@ def _velocity(phrase: Phrase, run: Run, lift: float, accented: bool) -> int:
 
 def _wedge_at(position: int, kind: str) -> WedgeEvent:
     """A stop on a bar line closes the bar before it."""
-    if kind == "stop" and position > 0 and position % EIGHTHS_PER_BAR == 0:
-        return WedgeEvent(position // EIGHTHS_PER_BAR - 1, 4.0, kind)
-    return WedgeEvent(position // EIGHTHS_PER_BAR, (position % EIGHTHS_PER_BAR) * 0.5, kind)
+    epb = active_meter().eighths_per_bar
+    if kind == "stop" and position > 0 and position % epb == 0:
+        return WedgeEvent(position // epb - 1, active_meter().quarter_beats, kind)
+    return WedgeEvent(position // epb, (position % epb) * 0.5, kind)
 
 
 def hairpins(start: int, end: int, apex: int) -> list[WedgeEvent]:
@@ -448,7 +481,7 @@ def _cross_phrase_cello_overlaps(
             else:
                 max_trail = 0
                 for step in range(1, min(CELLO_OVERLAP, next_run.length) + 1):
-                    if (last_run.end + step - 1) % EIGHTHS_PER_BAR in STRONG_EIGHTHS:
+                    if (last_run.end + step - 1) % active_meter().eighths_per_bar in active_meter().strong_eighths:
                         break
                     max_trail = step
                 if max_trail > 0:
@@ -465,7 +498,7 @@ def _cross_phrase_cello_overlaps(
             else:
                 max_trail = 0
                 for step in range(1, min(CELLO_OVERLAP, next_run.length) + 1):
-                    if (last_run.end + step - 1) % EIGHTHS_PER_BAR in STRONG_EIGHTHS:
+                    if (last_run.end + step - 1) % active_meter().eighths_per_bar in active_meter().strong_eighths:
                         break
                     max_trail = step
                 if max_trail > 0:
@@ -573,7 +606,7 @@ def _instrument_segments(
             # Do not extend a trail-out note onto a strong beat (beat 1 or 3)
             max_trail = 0
             for step in range(1, min(CELLO_OVERLAP, next_span) + 1):
-                if (seg[-1].end + step - 1) % EIGHTHS_PER_BAR in STRONG_EIGHTHS:
+                if (seg[-1].end + step - 1) % active_meter().eighths_per_bar in active_meter().strong_eighths:
                     break
                 max_trail = step
             if (
@@ -714,10 +747,10 @@ def melody_parts(
                     if attacks:
                         line.dynamics.append(
                             DynamicEvent(
-                                bar=attacks[0].start // EIGHTHS_PER_BAR,
+                                bar=attacks[0].start // active_meter().eighths_per_bar,
                                 marking=MELODY_MARKING,
                                 sound=SOUND[MELODY_MARKING],
-                                beat=(attacks[0].start % EIGHTHS_PER_BAR) * 0.5,
+                                beat=(attacks[0].start % active_meter().eighths_per_bar) * 0.5,
                             )
                         )
                         line.drift = 0
@@ -831,17 +864,17 @@ def fills(
     notes: list[tuple[int, int, int]] = []
     for run, owner in cadences:
         first = max(run.start + FILL_DELAY, run.end - FILL_SPAN)
-        eighths = [eighth for eighth in range(first, run.end) if eighth % EIGHTHS_PER_BAR]
+        eighths = [eighth for eighth in range(first, run.end) if eighth % active_meter().eighths_per_bar]
         if len(eighths) < FILL_MIN:
             continue
-        chords = {chord_at[eighth // EIGHTHS_PER_BAR] for eighth in eighths}
+        chords = {chord_at[eighth // active_meter().eighths_per_bar] for eighth in eighths}
         tones = {chord: fill_tones(chord, run.midi, owner) for chord in chords}
         if any(len(found) < 3 for found in tones.values()):
             continue
         step = 0
         previous: Chord | None = None
         for eighth in eighths:
-            chord = chord_at[eighth // EIGHTHS_PER_BAR]
+            chord = chord_at[eighth // active_meter().eighths_per_bar]
             if chord != previous:
                 step = 0
                 previous = chord
@@ -858,27 +891,25 @@ def fills(
 def left_hand(slot: ChordSlot) -> list[NoteEvent]:
     """The root held for a bar and re-struck every two bars (or once on the outro pedal)."""
     root, _guide = comp_pitches(slot.chord)
-    return [
-        NoteEvent(
-            bar=bar,
-            beat=0.0,
-            midi=(
-                root
-                if (offset == 0 if slot.section == "outro" else offset % 2 == 0)
-                else None
-            ),
-            duration_beats=4.0,
-            voice=5,
-            staff=2,
-        )
-        for offset, bar in enumerate(slot.bars())
-    ]
+    epb = active_meter().eighths_per_bar
+    events: list[NoteEvent] = []
+    for offset, bar in enumerate(slot.bars()):
+        if slot.section in ("warmup", "cooldown"):
+            sound = True
+        elif slot.section == "outro":
+            sound = offset == 0
+        else:
+            sound = offset % 2 == 0
+        for note in written(bar * epb, epb, root if sound else None):
+            events.append(replace(note, voice=5, staff=2))
+    return events
 
 
 def quantize_strong_beats(
     raw: list[int],
     chord_at: dict[int, Chord],
     scale: tuple[int, ...],
+    mode: str = "major",
 ) -> list[int]:
     """Snap runs that land on or hold through beats 1 and 3 to the active chord.
 
@@ -891,24 +922,30 @@ def quantize_strong_beats(
     pitches = list(raw)
     previous: int | None = None
     previous_raw: int | None = None
+    meter = active_meter()
+    epb = meter.eighths_per_bar
+    strong_eighths = meter.strong_eighths
     for run in runs_of(raw, 0, len(raw)):
         step = 0 if previous_raw is None else run.midi - previous_raw
         strong = [
             eighth
             for eighth in range(run.start, run.end)
-            if eighth % EIGHTHS_PER_BAR in STRONG_EIGHTHS
+            if eighth % epb in strong_eighths
         ]
         if not strong:
             previous = pitches[run.end - 1]
             previous_raw = run.midi
             continue
+        strong_chords = [chord_at[eighth // epb] for eighth in strong]
         common = melody_pitch_classes(
-            frozenset.intersection(
-                *(chord_at[eighth // EIGHTHS_PER_BAR].pitch_classes for eighth in strong)
-            ),
+            frozenset.intersection(*(chord.pitch_classes for chord in strong_chords)),
             scale,
         )
-        if common:
+        if common and not (
+            mode == "minor"
+            and run.midi % 12 == 10
+            and any(chord.name in ("G", "G7") for chord in strong_chords)
+        ):
             snapped = quantize_chord_tone(run.midi, common, scale, previous, step)
             if abs(scale.index(snapped) - scale.index(run.midi)) <= 1:
                 for eighth in range(run.start, run.end):
@@ -918,21 +955,31 @@ def quantize_strong_beats(
                 continue
         cursor = run.start
         for index, beat_eighth in enumerate(strong):
-            chord = chord_at[beat_eighth // EIGHTHS_PER_BAR]
+            chord = chord_at[beat_eighth // epb]
             if (
                 index + 1 < len(strong)
-                and chord_at[strong[index + 1] // EIGHTHS_PER_BAR] == chord
+                and chord_at[strong[index + 1] // epb] == chord
             ):
                 continue
-            next_bar = (beat_eighth // EIGHTHS_PER_BAR + 1) * EIGHTHS_PER_BAR
+            next_bar = (beat_eighth // epb + 1) * epb
             stop = run.end if index == len(strong) - 1 else min(run.end, next_bar)
+            target = run.midi
+            snap_scale = scale
+            if mode == "minor" and chord.name in ("G", "G7") and run.midi % 12 == 10:
+                target = sing_leading(run.midi)
+                snap_scale = leading_scale(scale)
             snapped = quantize_chord_tone(
-                run.midi, chord.pitch_classes, scale, previous, step
+                target, chord.pitch_classes, snap_scale, previous, step
             )
             for eighth in range(cursor, stop):
                 pitches[eighth] = snapped
             previous = snapped
             cursor = stop
         previous_raw = run.midi
+    if mode == "minor":
+        for index, pitch in enumerate(pitches):
+            chord = chord_at[index // epb]
+            if chord.name in ("G", "G7") and pitch % 12 == 10:
+                pitches[index] = pitch + 1
     return pitches
 

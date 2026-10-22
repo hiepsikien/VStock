@@ -9,7 +9,7 @@ from __future__ import annotations
 from app.sonify.chords import Chord, Regime, fifth_above_bass, jazz_chord
 from app.sonify.dynamics import COOLDOWN_MARKING, SOUND
 from app.sonify.form import (
-    EIGHTHS_PER_BAR,
+    active_meter,
     ChordSlot,
     FormSection,
     FormSpec,
@@ -39,15 +39,11 @@ from app.sonify.phrasing import (
 )
 
 AMBIENT_BPM = 60
-GLASS_HOLD = 4 * EIGHTHS_PER_BAR
 # A cool-down may keep sounding the note that touches it, up to five bars
 # from the start of that breath. It does not open a second drone.
-COOLDOWN_HOLD = 5 * EIGHTHS_PER_BAR
-FLAT_HOLD = 4 * EIGHTHS_PER_BAR
-PILLAR_GAP = 3 * EIGHTHS_PER_BAR
+COOLDOWN_HOLD = 40
 LEAP = 5
 PILLARS_PER_EIGHT = 2
-SHIMMER_EIGHTHS = EIGHTHS_PER_BAR
 SHIMMER_GAP_BARS = 4
 SWELL_GAP_BARS = 4
 SHIMMER_TRIGGER = 76
@@ -56,11 +52,39 @@ GLASS_VELOCITY = 60
 SWELL_OPEN_VELOCITY = 49
 SWELL_MP_VELOCITY = 64
 SWELL_VELOCITY = 80
-SWELL_HOLD = 2 * EIGHTHS_PER_BAR
+
+
+def _hold(raw: int) -> int:
+    """Round an eighth-count onto the active bar, between one bar and 36 eighths."""
+    epb = active_meter().eighths_per_bar
+    if epb == 8:
+        return raw
+    table = {
+        (32, 6): 30,
+        (24, 6): 24,
+        (16, 6): 12,
+        (8, 6): 6,
+        (32, 12): 36,
+        (24, 12): 24,
+        (16, 12): 12,
+        (8, 12): 6,
+    }
+    return table.get((raw, epb), raw)
+
+
+GLASS_HOLD = 32
+FLAT_HOLD = 32
+PILLAR_GAP = 24
+SWELL_HOLD = 16
+SHIMMER_EIGHTHS = 8
 _DRONE_MARKING = {"p": "p", "mp": "mp", "mf": "mp", "f": "mp"}
 _DRONE_VELOCITY = {"p": 52, "mp": 58, "mf": 64, "f": 68}
 _FIFTH_VELOCITY = 48
 _HALO_VELOCITY = {"p": 40, "mp": 46, "mf": 50, "f": 54}
+
+
+def _middle(form: FormSpec, bar: int) -> bool:
+    return any(section.bridge and section.start <= bar < section.end for section in form.sections)
 
 
 def promote_ambient_slots(
@@ -110,8 +134,8 @@ def _phrases_inside(
     phrases: tuple[Phrase, ...], start_bar: int, end_bar: int
 ) -> tuple[Phrase, ...]:
     """Phrases that open inside the section, with any spill past the end removed."""
-    start = start_bar * EIGHTHS_PER_BAR
-    end = end_bar * EIGHTHS_PER_BAR
+    start = start_bar * active_meter().eighths_per_bar
+    end = end_bar * active_meter().eighths_per_bar
     kept: list[Phrase] = []
     for phrase in phrases:
         if phrase.start < start or phrase.start >= end:
@@ -144,7 +168,7 @@ def _fold_glass(midi: int, previous: int | None = None) -> int:
 def _one_per_bar(runs: list[Run]) -> list[Run]:
     kept: list[Run] = []
     for run in runs:
-        bar_start = (run.start // EIGHTHS_PER_BAR) * EIGHTHS_PER_BAR
+        bar_start = (run.start // active_meter().eighths_per_bar) * active_meter().eighths_per_bar
         if kept and kept[-1].start == bar_start:
             continue
         kept.append(Run(bar_start, run.length, run.midi))
@@ -157,8 +181,8 @@ def _pillars(
     pitches: list[int],
     previous_midi: int | None = None,
 ) -> list[Run]:
-    start = section.start * EIGHTHS_PER_BAR
-    end = section.end * EIGHTHS_PER_BAR
+    start = section.start * active_meter().eighths_per_bar
+    end = section.end * active_meter().eighths_per_bar
     if not phrases:
         return [Run(start, 1, _fold_glass(pitches[start], previous_midi))]
     covered = next(
@@ -174,7 +198,7 @@ def _pillars(
         and phrase.apex.start != opening.start
         and phrase.apex.start != closing.start
     }
-    apex_bars = {pos // EIGHTHS_PER_BAR for pos in apex_starts}
+    apex_bars = {pos // active_meter().eighths_per_bar for pos in apex_starts}
     kept: list[Run] = [opening]
     for phrase in phrases:
         if phrase.apex.start in apex_starts:
@@ -197,7 +221,7 @@ def _pillars(
     kept = [
         run
         for index, run in enumerate(kept)
-        if index == 0 or end - run.start >= PILLAR_GAP
+        if index == 0 or end - run.start >= _hold(PILLAR_GAP)
     ]
     folded: list[Run] = []
     last_midi = previous_midi
@@ -208,30 +232,31 @@ def _pillars(
     kept = folded
     spaced: list[Run] = []
     for run in kept:
-        if not spaced or run.start - spaced[-1].start >= PILLAR_GAP:
+        if not spaced or run.start - spaced[-1].start >= _hold(PILLAR_GAP):
             spaced.append(run)
             continue
         prev = spaced[-1]
-        run_is_apex = (run.start // EIGHTHS_PER_BAR) in apex_bars
-        prev_is_apex = (prev.start // EIGHTHS_PER_BAR) in apex_bars
+        run_is_apex = (run.start // active_meter().eighths_per_bar) in apex_bars
+        prev_is_apex = (prev.start // active_meter().eighths_per_bar) in apex_bars
         if prev.start != kept[0].start and run_is_apex and not prev_is_apex:
             spaced[-1] = run
     kept = spaced
-    cap = PILLARS_PER_EIGHT * (section.end - section.start) // 8
+    section_eighths = (section.end - section.start) * active_meter().eighths_per_bar
+    cap = 2 * section_eighths // 64
     if cap < 1:
         cap = 1
     if len(kept) > cap:
         must = {kept[0].start}
         if (
             len(kept) > 1
-            and kept[-1].start - kept[0].start >= GLASS_HOLD
-            and end - kept[-1].start >= PILLAR_GAP
+            and kept[-1].start - kept[0].start >= _hold(GLASS_HOLD)
+            and end - kept[-1].start >= _hold(PILLAR_GAP)
         ):
             must.add(kept[-1].start)
         extra = [run for run in kept if run.start not in must]
         extra.sort(
             key=lambda run: (
-                (run.start // EIGHTHS_PER_BAR) in apex_bars,
+                (run.start // active_meter().eighths_per_bar) in apex_bars,
                 abs(run.midi - kept[0].midi),
             )
         )
@@ -244,7 +269,7 @@ def _pillars(
     thinned = [kept[0]]
     for run in kept[1:]:
         previous = thinned[-1]
-        distant = run.midi == previous.midi and run.start - previous.start > GLASS_HOLD
+        distant = run.midi == previous.midi and run.start - previous.start > _hold(GLASS_HOLD)
         if distant and run.start != kept[-1].start:
             continue
         thinned.append(run)
@@ -292,7 +317,7 @@ def _omit_same_pitch_reattacks(
 
     A same pitch that merely touches is tied on for whatever is left of the
     four-bar hold, then released. A same pitch after a rest is dropped. A
-    breath that already lasts ``GLASS_HOLD`` releases at the boundary. Tied
+    breath that already lasts ``_hold(GLASS_HOLD)`` releases at the boundary. Tied
     intro notes stay as written. The line speaks again when the pitch moves.
     """
     kept: list[tuple[int, int, int, bool, bool, bool]] = []
@@ -303,7 +328,7 @@ def _omit_same_pitch_reattacks(
             linked = touches and (kept[-1][3] or prev_tie_out or tie_in)
             if midi == prev_midi and not linked:
                 if touches:
-                    room = GLASS_HOLD - _breath_eighths(kept, midi, start)
+                    room = _hold(GLASS_HOLD) - _breath_eighths(kept, midi, start)
                     if room > 0:
                         take = min(length, room)
                         kept[-1] = (
@@ -357,10 +382,10 @@ def _breath(
     wedges = hairpins(start, end, start)
     dynamics = [
         DynamicEvent(
-            bar=start // EIGHTHS_PER_BAR,
+            bar=start // active_meter().eighths_per_bar,
             marking=peak_marking,
             sound=SOUND[peak_marking],
-            beat=(start % EIGHTHS_PER_BAR) * 0.5,
+            beat=(start % active_meter().eighths_per_bar) * 0.5,
         )
     ]
     return wedges, dynamics
@@ -429,8 +454,8 @@ def _attach_daily_frames(
     """
     intro = next(section for section in form.sections if section.kind == "intro")
     outro = next((section for section in form.sections if section.kind == "outro"), None)
-    intro_start = intro.start * EIGHTHS_PER_BAR
-    intro_end = intro.end * EIGHTHS_PER_BAR
+    intro_start = intro.start * active_meter().eighths_per_bar
+    intro_end = intro.end * active_meter().eighths_per_bar
     neighbor = segments[0][2] if segments else None
     intro_midi = _tonic_glass(chord_at[intro.start], neighbor)
     tie = bool(segments) and segments[0][0] == intro_end and segments[0][2] == intro_midi
@@ -440,8 +465,8 @@ def _attach_daily_frames(
     segments.insert(0, (intro_start, intro_end - intro_start, intro_midi, False, False, tie))
     if outro is None or outro.start not in chord_at:
         return segments
-    outro_start = outro.start * EIGHTHS_PER_BAR
-    outro_end = min(outro.end * EIGHTHS_PER_BAR, outro.start * EIGHTHS_PER_BAR + (outro.end - outro.start) * EIGHTHS_PER_BAR)
+    outro_start = outro.start * active_meter().eighths_per_bar
+    outro_end = min(outro.end * active_meter().eighths_per_bar, outro.start * active_meter().eighths_per_bar + (outro.end - outro.start) * active_meter().eighths_per_bar)
     length = outro_end - outro_start
     if length <= 0:
         return segments
@@ -479,12 +504,12 @@ def _daily_frame_breaths(
     """Warm-up grows from p to the phrase. Cool-down leaves mp and settles to ppp."""
     intro = next(section for section in form.sections if section.kind == "intro")
     outro = next((section for section in form.sections if section.kind == "outro"), None)
-    intro_end = intro.end * EIGHTHS_PER_BAR
-    outro_start = outro.start * EIGHTHS_PER_BAR if outro is not None else 10**9
+    intro_end = intro.end * active_meter().eighths_per_bar
+    outro_start = outro.start * active_meter().eighths_per_bar if outro is not None else 10**9
     intro_midi = next(segment[2] for segment in segments if segment[0] < intro_end)
     phrase_segments = [segment for segment in segments if intro_end <= segment[0] < outro_start]
     outro_segments = [segment for segment in segments if segment[0] >= outro_start]
-    wedges = [_wedge_at(intro.start * EIGHTHS_PER_BAR, "crescendo"), WedgeEvent(intro.end, 0.0, "stop")]
+    wedges = [_wedge_at(intro.start * active_meter().eighths_per_bar, "crescendo"), WedgeEvent(intro.end, 0.0, "stop")]
     dynamics = [
         DynamicEvent(
             bar=intro.start,
@@ -502,13 +527,13 @@ def _daily_frame_breaths(
         if not tie_in:
             dynamics.append(
                 DynamicEvent(
-                    bar=start // EIGHTHS_PER_BAR,
+                    bar=start // active_meter().eighths_per_bar,
                     marking="mp",
                     sound=SOUND["mp"],
-                    beat=(start % EIGHTHS_PER_BAR) * 0.5,
+                    beat=(start % active_meter().eighths_per_bar) * 0.5,
                 )
             )
-        last = max(start // EIGHTHS_PER_BAR, end // EIGHTHS_PER_BAR - 1)
+        last = max(start // active_meter().eighths_per_bar, end // active_meter().eighths_per_bar - 1)
         wedges.append(_wedge_at(start, "diminuendo"))
         wedges.append(WedgeEvent(last, 0.0, "stop"))
         dynamics.append(
@@ -535,16 +560,16 @@ def _glass(
     phrase_sections = [section for section in form.sections if section.kind == "phrase"]
     for section in phrase_sections:
         inside = _phrases_inside(phrases, section.start, section.end)
-        end = section.end * EIGHTHS_PER_BAR
-        span = pitches[section.start * EIGHTHS_PER_BAR : end]
+        end = section.end * active_meter().eighths_per_bar
+        span = pitches[section.start * active_meter().eighths_per_bar : end]
         flat = not span or max(span) - min(span) < MIN_RISE
         if flat:
-            opening_at = section.start * EIGHTHS_PER_BAR
-            length = min(FLAT_HOLD, end - opening_at)
+            opening_at = section.start * active_meter().eighths_per_bar
+            length = min(_hold(FLAT_HOLD), end - opening_at)
             folded = _fold_glass(pitches[opening_at], last_midi)
             placed = [(opening_at, length, folded, False)] if length > 0 else []
         else:
-            placed = _place(_pillars(section, inside, pitches, last_midi), end, hold=GLASS_HOLD)
+            placed = _place(_pillars(section, inside, pitches, last_midi), end, hold=_hold(GLASS_HOLD))
         for start, length, midi, slur in placed:
             segments.append((start, length, midi, slur, False, False))
             last_midi = midi
@@ -556,8 +581,8 @@ def _glass(
 
     intro = next((section for section in form.sections if section.kind == "intro"), None)
     if intro is not None and segments:
-        intro_start = intro.start * EIGHTHS_PER_BAR
-        intro_end = intro.end * EIGHTHS_PER_BAR
+        intro_start = intro.start * active_meter().eighths_per_bar
+        intro_end = intro.end * active_meter().eighths_per_bar
         first = segments[0]
         tie = first[0] == intro_end and intro_end > intro_start
         segments.insert(0, (intro_start, intro_end - intro_start, first[2], False, False, tie))
@@ -567,8 +592,8 @@ def _glass(
 
     outro = next((section for section in form.sections if section.kind == "outro"), None)
     if outro is not None and pitches:
-        outro_start = outro.start * EIGHTHS_PER_BAR
-        outro_end = min(outro.end * EIGHTHS_PER_BAR, len(pitches))
+        outro_start = outro.start * active_meter().eighths_per_bar
+        outro_end = min(outro.end * active_meter().eighths_per_bar, len(pitches))
         if outro_end > outro_start:
             outro_midi = _fold_glass(pitches[outro_end - 1], last_midi)
             segments.append(
@@ -658,11 +683,11 @@ def _frame_bed_wedges(form: FormSpec) -> tuple[WedgeEvent, ...]:
     intro = next(section for section in form.sections if section.kind == "intro")
     outro = next((section for section in form.sections if section.kind == "outro"), None)
     wedges = [
-        _wedge_at(intro.start * EIGHTHS_PER_BAR, "crescendo"),
+        _wedge_at(intro.start * active_meter().eighths_per_bar, "crescendo"),
         WedgeEvent(intro.end, 0.0, "stop"),
     ]
     if outro is not None:
-        wedges.append(_wedge_at(outro.start * EIGHTHS_PER_BAR, "diminuendo"))
+        wedges.append(_wedge_at(outro.start * active_meter().eighths_per_bar, "diminuendo"))
         wedges.append(WedgeEvent(outro.end - 1, 0.0, "stop"))
     return tuple(wedges)
 
@@ -684,11 +709,11 @@ def _sustain(
         for midi in list(active):
             if midi not in sounding:
                 start, velocity = active.pop(midi)
-                spans.append((start, bar * EIGHTHS_PER_BAR - start, midi, velocity))
+                spans.append((start, bar * active_meter().eighths_per_bar - start, midi, velocity))
         for midi in midis:
             if midi not in active:
-                active[midi] = (bar * EIGHTHS_PER_BAR, velocity_at[bar])
-    last = len(per_bar) * EIGHTHS_PER_BAR
+                active[midi] = (bar * active_meter().eighths_per_bar, velocity_at[bar])
+    last = len(per_bar) * active_meter().eighths_per_bar
     for midi, (start, velocity) in active.items():
         spans.append((start, last - start, midi, velocity))
     notes: list[NoteEvent] = []
@@ -751,11 +776,11 @@ def _swell(
         middle = min(mid_tones, key=lambda note: abs(note - (bottom + top) / 2))
         peak_vel = SWELL_VELOCITY if band == "f" else SWELL_MP_VELOCITY
         hold_eighths = min(
-            SWELL_HOLD,
-            (section_end_at.get(bar, bar + 1) - bar) * EIGHTHS_PER_BAR,
+            _hold(SWELL_HOLD),
+            (section_end_at.get(bar, bar + 1) - bar) * active_meter().eighths_per_bar,
         )
         half = hold_eighths // 2
-        start_eighth = bar * EIGHTHS_PER_BAR
+        start_eighth = bar * active_meter().eighths_per_bar
         for midi in (bottom, middle, top):
             notes.extend(
                 written(
@@ -808,7 +833,7 @@ def _shimmer(
                 apex = run.start == phrase.apex.start and phrase.apex.midi >= SHIMMER_TRIGGER and phrase.rise >= MIN_RISE
                 if not breakout and not apex:
                     continue
-                bar = run.start // EIGHTHS_PER_BAR
+                bar = run.start // active_meter().eighths_per_bar
                 if bar in quiet or bar not in chord_at:
                     continue
                 candidates.append((phrase.rise, bar, _shimmer_midi(run.midi, chord_at[bar])))
@@ -825,17 +850,17 @@ def _shimmer(
             continue
         if any(abs(bar - other) < SHIMMER_GAP_BARS for other in chosen_bars):
             continue
-        eighths = (chunk[1] - chunk[0]) * EIGHTHS_PER_BAR
+        eighths = (chunk[1] - chunk[0]) * active_meter().eighths_per_bar
         raw = round(0.05 * eighths)
         ratio = bell_budget(_chunk_span(source_bars, source_groups, chunk[0], chunk[1])) / BELL_MAX_EIGHTHS
         budget = round(raw * ratio)
         spent = used.get(chunk, 0)
-        if spent + SHIMMER_EIGHTHS > budget:
+        if spent + _hold(SHIMMER_EIGHTHS) > budget:
             continue
         notes.extend(
-            written(bar * EIGHTHS_PER_BAR, SHIMMER_EIGHTHS, midi, velocity=SHIMMER_VELOCITY)
+            written(bar * active_meter().eighths_per_bar, _hold(SHIMMER_EIGHTHS), midi, velocity=SHIMMER_VELOCITY)
         )
-        used[chunk] = spent + SHIMMER_EIGHTHS
+        used[chunk] = spent + _hold(SHIMMER_EIGHTHS)
         chosen_bars.append(bar)
     return notes
 
@@ -884,10 +909,23 @@ def render_ambient_score(
     fifth_velocity: list[int | None] = []
     halos: list[tuple[int, ...]] = []
     halo_velocity: list[int | None] = []
+    tonic_bar = next(
+        (
+            bar
+            for section in form.sections
+            if section.kind not in ("warmup", "cooldown")
+            for bar in range(section.start, section.end)
+        ),
+        0,
+    )
+    tonic_bass = chord_at[tonic_bar].bass_midi
     for bar in range(musical_bars):
         chord = chord_at[bar]
         band = band_at[bar]
-        roots.append((chord.bass_midi,))
+        if _middle(form, bar):
+            roots.append((tonic_bass,))
+        else:
+            roots.append((chord.bass_midi,))
         root_velocity.append(_DRONE_VELOCITY.get(band, 58))
         if band in ("mf", "f"):
             fifths.append((fifth_above_bass(chord),))

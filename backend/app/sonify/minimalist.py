@@ -17,7 +17,7 @@ from app.sonify.chords import Chord, Regime
 from app.sonify.dynamics import SOUND
 from app.sonify.form import (
     BEATS_PER_BAR,
-    EIGHTHS_PER_BAR,
+    active_meter,
     MUSICAL_BARS,
     TOTAL_EIGHTHS,
     ChordSlot,
@@ -107,14 +107,22 @@ def _synth_arpeggio_part(
     notes: list[NoteEvent] = []
     wedges: list[WedgeEvent] = []
     dynamics: list[DynamicEvent] = []
-    ostinato_offsets = (0, 1, 2, 1, 0, 2, 1, 2)
+    meter = active_meter()
+    ostinato_by_meter = {
+        (4, 4): (0, 1, 2, 1, 0, 2, 1, 2),
+        (5, 4): (0, 1, 2, 1, 0, 2, 0, 1, 2, 1),
+        (7, 8): (0, 1, 0, 2, 0, 1, 2),
+    }
+    ostinato_offsets = ostinato_by_meter.get(
+        (meter.beats, meter.beat_type), (0, 1, 2, 1, 0, 2, 1, 2)
+    )
 
     for bar in range(musical_bars):
         chord = chord_at[bar]
         ladder = _arp_chord_ladder(chord)
         max_base = max(0, len(ladder) - 3)
-        for eighth_in_bar in range(EIGHTHS_PER_BAR):
-            eighth = bar * EIGHTHS_PER_BAR + eighth_in_bar
+        for eighth_in_bar in range(meter.eighths_per_bar):
+            eighth = bar * meter.eighths_per_bar + eighth_in_bar
             raw_midi = raw_pitches[eighth]
             norm = _normalized_brightness(raw_midi)
             base_idx = round(norm * max_base)
@@ -128,7 +136,11 @@ def _synth_arpeggio_part(
             vel = round(ARP_VEL_LOW + norm * (ARP_VEL_HIGH - ARP_VEL_LOW))
             is_closed = norm < CLOSED_CUTOFF
             is_open = norm >= OPEN_CUTOFF
-            is_downbeat = eighth_in_bar in (0, 4)
+            is_downbeat = eighth_in_bar in meter.strong_eighths
+            accent = is_open and eighth_in_bar == 0
+            if is_open and (meter.beats, meter.beat_type) == (5, 4) and eighth_in_bar == 6:
+                accent = True
+                vel = max(1, vel - 8)
             notes.append(
                 NoteEvent(
                     bar=bar,
@@ -138,7 +150,7 @@ def _synth_arpeggio_part(
                     voice=1,
                     staccato=is_closed,
                     tenuto=is_open and is_downbeat,
-                    accent=is_open and eighth_in_bar == 0,
+                    accent=accent,
                     velocity=vel,
                 )
             )
@@ -151,10 +163,10 @@ def _synth_arpeggio_part(
         if drift != 0:
             dynamics.append(
                 DynamicEvent(
-                    bar=phrase.start // EIGHTHS_PER_BAR,
+                    bar=phrase.start // active_meter().eighths_per_bar,
                     marking="mp",
                     sound=SOUND["mp"],
-                    beat=(phrase.start % EIGHTHS_PER_BAR) * 0.5,
+                    beat=(phrase.start % active_meter().eighths_per_bar) * 0.5,
                 )
             )
             drift = 0
@@ -197,11 +209,11 @@ def _synth_bell_part(
             or (phrase.rise >= MIN_RISE and run.start == apex.start and run.midi >= 79)
         ]
         for run in candidates[:1]:
-            bar = run.start // EIGHTHS_PER_BAR
+            bar = run.start // active_meter().eighths_per_bar
             if bar in occupied_bars:
                 continue
             length = min(max(2, run.length), PERIOD)
-            end = min((bar + 1) * EIGHTHS_PER_BAR, run.start + length)
+            end = min((bar + 1) * active_meter().eighths_per_bar, run.start + length)
             span_len = end - run.start
             if span_len <= 0:
                 continue
@@ -253,28 +265,108 @@ def _warm_pad_part(slots: tuple[ChordSlot, ...]) -> tuple[NoteEvent, ...]:
         third_pc = pcs[1]
         root_midi = _keep(48 + root_pc, 46, 57)
         third_midi = _keep(root_midi + ((third_pc - root_pc) % 12), 46, 68)
+        epb = active_meter().eighths_per_bar
         for bar in slot.bars():
-            events.append(
-                NoteEvent(
-                    bar=bar,
-                    beat=0.0,
-                    midi=root_midi,
-                    duration_beats=float(BEATS_PER_BAR),
-                    voice=1,
-                    velocity=PAD_VELOCITY,
-                )
-            )
-            events.append(
-                NoteEvent(
-                    bar=bar,
-                    beat=0.0,
-                    midi=third_midi,
-                    duration_beats=float(BEATS_PER_BAR),
-                    voice=1,
-                    velocity=PAD_VELOCITY,
-                )
-            )
+            for midi in (root_midi, third_midi):
+                for note in written(bar * epb, epb, midi, velocity=PAD_VELOCITY):
+                    events.append(note)
     return tuple(events)
+
+
+def _hit(
+    events: list[NoteEvent],
+    bar: int,
+    beat: float,
+    midi: int | None,
+    duration: float,
+    *,
+    staff: int,
+    voice: int,
+    vel: int,
+    accent: bool = False,
+) -> None:
+    events.append(
+        NoteEvent(
+            bar=bar,
+            beat=beat,
+            midi=midi,
+            duration_beats=duration,
+            voice=voice,
+            staff=staff,
+            staccato=midi is not None,
+            accent=accent and midi is not None,
+            velocity=vel if midi is not None else None,
+        )
+    )
+
+
+def _pulse_other_meter(
+    events: list[NoteEvent],
+    bar: int,
+    band: str,
+    vel: int,
+    hi_root: int,
+    hi_fifth: int,
+    low_stab: int,
+) -> bool:
+    meter = active_meter()
+    signature = (meter.beats, meter.beat_type)
+    if signature == (7, 8):
+        if band == "p":
+            _hit(events, bar, 0.0, hi_root, 2.0, staff=1, voice=1, vel=vel)
+            _hit(events, bar, 2.0, hi_root, 1.5, staff=1, voice=1, vel=vel)
+        elif band == "mp":
+            _hit(events, bar, 0.0, hi_root, 1.0, staff=1, voice=1, vel=vel)
+            _hit(events, bar, 1.0, hi_fifth, 1.0, staff=1, voice=1, vel=vel)
+            _hit(events, bar, 2.0, hi_root, 1.5, staff=1, voice=1, vel=vel)
+        elif band == "mf":
+            for eighth in range(7):
+                _hit(
+                    events, bar, eighth * 0.5,
+                    hi_root if eighth % 2 == 0 else hi_fifth,
+                    0.5, staff=1, voice=1, vel=vel, accent=eighth in (0, 2, 4),
+                )
+        else:
+            for step in range(14):
+                _hit(
+                    events, bar, step * 0.25, hi_root, 0.25,
+                    staff=1, voice=1, vel=vel, accent=step in (0, 4, 8),
+                )
+        _hit(events, bar, 0.0, None, meter.quarter_beats, staff=2, voice=5, vel=vel)
+        return True
+    if signature == (5, 4):
+        if band == "p":
+            _hit(events, bar, 0.0, hi_root, 3.0, staff=1, voice=1, vel=vel)
+            _hit(events, bar, 3.0, hi_fifth, 2.0, staff=1, voice=1, vel=vel)
+        elif band == "mp":
+            for beat in range(5):
+                _hit(
+                    events, bar, float(beat),
+                    hi_root if beat % 2 == 0 else hi_fifth,
+                    1.0, staff=1, voice=1, vel=vel,
+                )
+        elif band == "mf":
+            for eighth in range(10):
+                _hit(
+                    events, bar, eighth * 0.5,
+                    hi_root if eighth % 2 == 0 else hi_fifth,
+                    0.5, staff=1, voice=1, vel=vel, accent=eighth in meter.strong_eighths,
+                )
+        else:
+            for step in range(20):
+                _hit(
+                    events, bar, step * 0.25, hi_root, 0.25,
+                    staff=1, voice=1, vel=vel, accent=step in (0, 12),
+                )
+        if band in ("mf", "f"):
+            _hit(events, bar, 0.0, None, 1.0, staff=2, voice=5, vel=vel)
+            _hit(events, bar, 1.0, low_stab, 1.0, staff=2, voice=5, vel=vel, accent=band == "f")
+            _hit(events, bar, 2.0, None, 2.0, staff=2, voice=5, vel=vel)
+            _hit(events, bar, 4.0, low_stab, 1.0, staff=2, voice=5, vel=vel, accent=band == "f")
+        else:
+            _hit(events, bar, 0.0, None, 5.0, staff=2, voice=5, vel=vel)
+        return True
+    return False
 
 
 def _synth_pulse_part(
@@ -302,6 +394,9 @@ def _synth_pulse_part(
         fifth_pc = chord.pitches[2] % 12
         hi_root = _keep(72 + root_pc, 72, 83)
         hi_fifth = _keep(72 + fifth_pc, 72, 84)
+        low_stab = _keep(48 + fifth_pc, 36, 55)
+        if _pulse_other_meter(events, bar, band, vel, hi_root, hi_fifth, low_stab):
+            continue
 
         # Staff 1: Rhythmic density
         if band == "p":
@@ -408,9 +503,29 @@ def _sub_bass_part(
         chord = chord_at[bar]
         band = band_at[bar]
         root = _keep(chord.bass_midi, 36, 47)
-        for beat in range(BEATS_PER_BAR):
-            # On high-volume bars ('f'), beat 4 lifts an octave for pumping drive
-            midi = _keep(root + 12, 48, 59) if (band == "f" and beat == 3) else root
+        meter = active_meter()
+        signature = (meter.beats, meter.beat_type)
+        if signature == (7, 8):
+            pulses = ((0.0, 1.0), (1.0, 1.0), (2.0, 1.5))
+            for index, (beat, duration) in enumerate(pulses):
+                midi = _keep(root + 12, 48, 59) if band == "f" and index == 2 else root
+                events.append(
+                    NoteEvent(
+                        bar=bar,
+                        beat=beat,
+                        midi=midi,
+                        duration_beats=duration,
+                        voice=1,
+                        tenuto=index == 0,
+                    )
+                )
+            continue
+        quarters = 5 if signature == (5, 4) else BEATS_PER_BAR
+        for beat in range(quarters):
+            lifted = band == "f" and (
+                beat == quarters - 1 if signature == (5, 4) else beat == 3
+            )
+            midi = _keep(root + 12, 48, 59) if lifted else root
             events.append(
                 NoteEvent(
                     bar=bar,
@@ -418,7 +533,7 @@ def _sub_bass_part(
                     midi=midi,
                     duration_beats=1.0,
                     voice=1,
-                    tenuto=beat == 0,
+                    tenuto=beat == 0 or (signature == (5, 4) and beat == 3),
                 )
             )
     return tuple(events)

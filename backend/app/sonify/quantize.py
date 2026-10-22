@@ -8,6 +8,7 @@ from functools import lru_cache
 SCALE_LOW = 48  # C3
 SCALE_HIGH = 96  # C7
 C_MAJOR_PCS = frozenset({0, 2, 4, 5, 7, 9, 11})
+C_NATURAL_MINOR_PCS = frozenset({0, 2, 3, 5, 7, 8, 10})
 STRONG_BEAT_EIGHTHS = (0, 4)  # beats 1 and 3 inside an 8-eighth bar
 STRONG_BEAT_WEIGHT = 2.5
 HELD_STRONG_WEIGHT = 1.0
@@ -17,7 +18,26 @@ CONTOUR_WRONG_WAY_PENALTY = 0.2
 
 
 def c_major_scale(low: int = SCALE_LOW, high: int = SCALE_HIGH) -> tuple[int, ...]:
-    return tuple(note for note in range(low, high + 1) if note % 12 in C_MAJOR_PCS)
+    return scale_from_classes(low, high, C_MAJOR_PCS)
+
+
+def c_natural_minor_scale(low: int = SCALE_LOW, high: int = SCALE_HIGH) -> tuple[int, ...]:
+    return scale_from_classes(low, high, C_NATURAL_MINOR_PCS)
+
+
+def scale_from_classes(
+    low: int, high: int, classes: frozenset[int]
+) -> tuple[int, ...]:
+    return tuple(note for note in range(low, high + 1) if note % 12 in classes)
+
+
+def leading_scale(scale: tuple[int, ...]) -> tuple[int, ...]:
+    """Natural minor with the 7th raised, for a G or G7 bar."""
+    return tuple(note + 1 if note % 12 == 10 else note for note in scale)
+
+
+def sing_leading(note: int) -> int:
+    return note + 1 if note % 12 == 10 else note
 
 
 def price_to_scale_index(close: float, low: float, high: float, size: int) -> int:
@@ -89,6 +109,10 @@ def bar_quantization_loss(
     scale: tuple[int, ...],
     previous_pitch: int | None = None,
     previous_snapped: int | None = None,
+    strong_eighths: tuple[int, ...] | None = None,
+    extra_weights: tuple[tuple[int, float], ...] = (),
+    mode: str = "major",
+    chord_name: str | None = None,
 ) -> float:
     """Weighted scale-step quantization loss for one 8-eighth bar under a candidate chord.
 
@@ -100,13 +124,22 @@ def bar_quantization_loss(
     tie-breaker weight. `previous_snapped` may be passed when the preceding bar
     was quantized under a different chord.
     """
+    if mode == "minor" and chord_name in ("G", "G7"):
+        scale = leading_scale(scale)
+        bar_pitches = [sing_leading(note) for note in bar_pitches]
+        if previous_pitch is not None:
+            previous_pitch = sing_leading(previous_pitch)
+        if previous_snapped is not None:
+            previous_snapped = sing_leading(previous_snapped)
     index_of = _scale_index_map(scale)
     for note in bar_pitches:
         if note not in index_of:
             raise ValueError(f"MIDI {note} is not on the scale")
 
-    strong_run_eighths = set(STRONG_BEAT_EIGHTHS)
-    for beat in STRONG_BEAT_EIGHTHS:
+    strong_beats = STRONG_BEAT_EIGHTHS if strong_eighths is None else strong_eighths
+    accent = {eighth: weight for eighth, weight in extra_weights}
+    strong_run_eighths = set(strong_beats)
+    for beat in strong_beats:
         if beat >= len(bar_pitches):
             continue
         pitch = bar_pitches[beat]
@@ -143,8 +176,10 @@ def bar_quantization_loss(
             steps = abs(index_of[snapped] - index_of[note])
             if steps > 0:
                 for eighth in range(cursor, end):
-                    if eighth in STRONG_BEAT_EIGHTHS:
+                    if eighth in strong_beats:
                         weight = STRONG_BEAT_WEIGHT
+                    elif eighth in accent:
+                        weight = accent[eighth]
                     elif eighth in strong_run_eighths:
                         weight = HELD_STRONG_WEIGHT
                     else:

@@ -41,7 +41,7 @@ from typing import TypeVar
 from app.sonify.chords import Chord
 from app.sonify.dynamics import COOLDOWN_MARKING, SOUND
 from app.sonify.form import BEATS_PER_BAR, MUSICAL_BARS
-from app.sonify.keys import KeySpec, midi_to_spelled_pitch, transpose_chord
+from app.sonify.keys import KeySpec, midi_to_spelled_pitch, signature_fifths, transpose_chord
 from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score, Variant, WedgeEvent
 
 DIVISIONS = 2  # default per quarter note, so an eighth note is 1
@@ -103,6 +103,7 @@ _NOTE_TYPES = {
     2.0: ("half", 0),
     3.0: ("half", 1),
     4.0: ("whole", 0),
+    6.0: ("whole", 1),
 }
 
 
@@ -123,14 +124,22 @@ def _add_note(
     divisions: int = DIVISIONS,
     harmony: Chord | None = None,
     key: KeySpec | None = None,
+    bar_beats: float | None = None,
+    mode: str = "major",
 ) -> None:
     note = _add(parent, "note")
     if event.velocity is not None and event.midi is not None:
         note.set("dynamics", f"{event.velocity * 100 / FORTE_VELOCITY:.2f}")
     if chord:
         _add(note, "chord")
+    whole_rest = (
+        event.midi is None
+        and event.beat == 0.0
+        and bar_beats is not None
+        and abs(event.duration_beats - bar_beats) < 1e-6
+    )
     if event.midi is None:
-        if event.duration_beats == BEATS_PER_BAR:
+        if whole_rest:
             _add(note, "rest", measure="yes")
         else:
             _add(note, "rest")
@@ -139,13 +148,20 @@ def _add_note(
         if key is None:
             step, alter, octave = midi_to_pitch(sounding, harmony)
         else:
-            step, alter, octave = midi_to_spelled_pitch(sounding + key.semitones, key, harmony)
+            step, alter, octave = midi_to_spelled_pitch(
+                sounding + key.semitones, key, harmony, mode
+            )
         pitch = _add(note, "pitch")
         _add(pitch, "step", step)
         if alter:
             _add(pitch, "alter", str(alter))
         _add(pitch, "octave", str(octave))
     _add(note, "duration", str(_duration(event.duration_beats, divisions)))
+    if whole_rest:
+        _add(note, "voice", str(event.voice))
+        if staves > 1:
+            _add(note, "staff", str(event.staff))
+        return
     if event.tie_stop:
         _add(note, "tie", type="stop")
     if event.tie_start:
@@ -196,15 +212,18 @@ def _attributes(
     octave_change: int = 0,
     divisions: int = DIVISIONS,
     fifths: int = 0,
+    mode: str = "major",
+    beats: int = BEATS_PER_BAR,
+    beat_type: int = 4,
 ) -> None:
     attributes = _add(parent, "attributes")
     _add(attributes, "divisions", str(divisions))
     key = _add(attributes, "key")
     _add(key, "fifths", str(fifths))
-    _add(key, "mode", "major")
+    _add(key, "mode", mode)
     time = _add(attributes, "time")
-    _add(time, "beats", str(BEATS_PER_BAR))
-    _add(time, "beat-type", "4")
+    _add(time, "beats", str(beats))
+    _add(time, "beat-type", str(beat_type))
     if len(clefs) > 1:
         _add(attributes, "staves", str(len(clefs)))
     for number, (sign, line) in enumerate(clefs, start=1):
@@ -238,8 +257,10 @@ def _metronome(parent: ET.Element, bpm: int, *, swing: bool = False) -> None:
         _add(swing_node, "swing-type", "eighth")
 
 
-def _harmony(parent: ET.Element, event: HarmonyEvent, key: KeySpec) -> None:
-    chord = transpose_chord(event.chord, key)
+def _harmony(parent: ET.Element, event: HarmonyEvent, key: KeySpec, mode: str = "major") -> None:
+    from app.sonify.keys import spelling_key
+
+    chord = transpose_chord(event.chord, spelling_key(key, mode), mode)
     harmony = _add(parent, "harmony", placement="above")
     root = _add(harmony, "root")
     _add(root, "root-step", chord.root_step)
@@ -355,7 +376,15 @@ def _melody_part(
     for bar in range(score.bars):
         measure = _add(part, "measure", number=str(bar + 1))
         if bar == 0:
-            _attributes(measure, clef, divisions=score.divisions, fifths=score.key.fifths)
+            _attributes(
+                measure,
+                clef,
+                divisions=score.divisions,
+                fifths=signature_fifths(score.key, score.mode),
+                mode=score.mode,
+                beats=score.beats,
+                beat_type=score.beat_type,
+            )
             if lead:
                 _metronome(measure, score.bpm, swing=score.swing)
             _dynamic(measure, opening_dynamic)
@@ -382,9 +411,11 @@ def _melody_part(
                 divisions=score.divisions,
                 harmony=_chord_on(score, bar),
                 key=score.key,
+                bar_beats=score.bar_beats,
+                mode=score.mode,
             )
             previous_beat = event.beat
-        flush(float(BEATS_PER_BAR))
+        flush(score.bar_beats)
 
 
 PIANO_DYNAMIC = DynamicEvent(bar=0, marking="p", sound=SOUND["p"])
@@ -411,10 +442,19 @@ def _piano_part(root: ET.Element, score: Score) -> None:
     for bar in range(score.bars):
         measure = _add(part, "measure", number=str(bar + 1))
         if bar == 0:
-            _attributes(measure, TREBLE, BASS_CLEF, divisions=score.divisions, fifths=score.key.fifths)
+            _attributes(
+                measure,
+                TREBLE,
+                BASS_CLEF,
+                divisions=score.divisions,
+                fifths=signature_fifths(score.key, score.mode),
+                mode=score.mode,
+                beats=score.beats,
+                beat_type=score.beat_type,
+            )
             _dynamic(measure, PIANO_DYNAMIC)
         for event in symbols[bar]:
-            _harmony(measure, event, score.key)
+            _harmony(measure, event, score.key, score.mode)
         if score.variant == "jazz" and score.low_wedges:
             bar_wedges = [wedge for wedge in score.low_wedges if wedge.bar == bar]
             letters: list[DynamicEvent] = []
@@ -432,7 +472,7 @@ def _piano_part(root: ET.Element, score: Score) -> None:
         for staff in (1, 2):
             if staff > 1:
                 backup = _add(measure, "backup")
-                _add(backup, "duration", str(BEATS_PER_BAR * score.divisions))
+                _add(backup, "duration", str(int(round(score.bar_beats * score.divisions))))
             hand = sorted(
                 (event for event in events[bar] if event.staff == staff),
                 key=lambda event: event.beat,
@@ -447,6 +487,8 @@ def _piano_part(root: ET.Element, score: Score) -> None:
                     harmony=_chord_on(score, bar),
                     divisions=score.divisions,
                     key=score.key,
+                    bar_beats=score.bar_beats,
+                    mode=score.mode,
                 )
                 previous_beat = event.beat
 
@@ -479,7 +521,10 @@ def _bass_part(root: ET.Element, score: Score) -> None:
                 BASS_CLEF,
                 octave_change=-BASS_WRITTEN_OCTAVES,
                 divisions=score.divisions,
-                fifths=score.key.fifths,
+                fifths=signature_fifths(score.key, score.mode),
+                mode=score.mode,
+                beats=score.beats,
+                beat_type=score.beat_type,
             )
         bar_wedges = [] if frame_wedges is None else frame_wedges[bar]
         for wedge in bar_wedges:
@@ -501,6 +546,8 @@ def _bass_part(root: ET.Element, score: Score) -> None:
                 divisions=score.divisions,
                 harmony=_chord_on(score, bar),
                 key=score.key,
+                bar_beats=score.bar_beats,
+                mode=score.mode,
             )
             previous_beat = note.beat
         for wedge in bar_wedges:
@@ -515,7 +562,15 @@ def _ambient_swell_part(root: ET.Element, score: Score) -> None:
     for bar in range(score.bars):
         measure = _add(part, "measure", number=str(bar + 1))
         if bar == 0:
-            _attributes(measure, TREBLE, divisions=score.divisions, fifths=score.key.fifths)
+            _attributes(
+                measure,
+                TREBLE,
+                divisions=score.divisions,
+                fifths=signature_fifths(score.key, score.mode),
+                mode=score.mode,
+                beats=score.beats,
+                beat_type=score.beat_type,
+            )
             _dynamic(measure, PIANO_DYNAMIC)
         hand = sorted(events[bar], key=lambda event: (event.beat, event.midi is None, event.midi or 0))
         sounding = [event for event in hand if event.midi is not None]
@@ -552,10 +607,12 @@ def _ambient_swell_part(root: ET.Element, score: Score) -> None:
                 divisions=score.divisions,
                 harmony=_chord_on(score, harmony_bar),
                 key=score.key,
+                bar_beats=score.bar_beats,
+                mode=score.mode,
             )
             previous_beat = event.beat
         if any(event.tie_stop and not event.tie_start for event in sounding):
-            _wedge(measure, WedgeEvent(bar=bar, beat=float(BEATS_PER_BAR), kind="stop"))
+            _wedge(measure, WedgeEvent(bar=bar, beat=score.bar_beats, kind="stop"))
 
 
 def score_to_musicxml(score: Score) -> str:

@@ -106,7 +106,7 @@ def test_year_skips_a_thin_month_and_rests_between_seasons():
     february = movements[1]
     assert february.rest_after == 8.0
     assert movements[-1].rest_after == 0.0
-    assert movements[-1].spec.bars == 108
+    assert movements[-1].spec.bars == 112
 
 
 def test_borrowed_chords_follow_the_regime_and_miss_the_downbeat():

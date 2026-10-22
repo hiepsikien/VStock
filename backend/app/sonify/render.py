@@ -21,7 +21,10 @@ from app.sonify.form import (
     DAILY_ENSEMBLE_SPEC,
     DAILY_SPEC,
     DAILY_WARMUP_BARS,
-    EIGHTHS_PER_BAR,
+    METER_44,
+    active_meter,
+    compose_meter,
+    swing_for,
     HALF_BAR,
     LIQUIDITY_WINDOWS,
     MUSICAL_BARS,
@@ -69,7 +72,7 @@ from app.sonify.phrasing import (
     with_rests,
     written,
 )
-from app.sonify.quantize import c_major_scale, price_to_scale_index, resample
+from app.sonify.quantize import c_major_scale, c_natural_minor_scale, price_to_scale_index, resample
 from app.sonify.regime import REGIME_BARS, classify_window
 
 FLUTE_TRIGGER = 79  # G5: Flute enters on high apex (>= G5) or Breakout
@@ -101,6 +104,43 @@ BASS_PATTERNS = {
     "mf": _QUARTERS,
     "f": _EIGHTHS,
 }
+_BASS_68 = {
+    "p": ((0, 6, ROOT),),
+    "mp": ((0, 3, ROOT), (3, 3, FIFTH)),
+    "mf": ((0, 2, ROOT), (2, 1, FIFTH), (3, 2, OCTAVE), (5, 1, FIFTH)),
+    "f": (
+        (0, 1, ROOT),
+        (1, 1, FIFTH),
+        (2, 1, OCTAVE),
+        (3, 1, ROOT),
+        (4, 1, FIFTH),
+        (5, 1, FIFTH),
+    ),
+}
+_BASS_34 = {
+    "p": ((0, 6, ROOT),),
+    "mp": ((0, 4, ROOT), (4, 2, FIFTH)),
+    "mf": ((0, 2, ROOT), (2, 2, FIFTH), (4, 2, FIFTH)),
+    "f": (
+        (0, 1, ROOT),
+        (1, 1, FIFTH),
+        (2, 1, OCTAVE),
+        (3, 1, ROOT),
+        (4, 1, FIFTH),
+        (5, 1, FIFTH),
+    ),
+}
+
+
+def _bass_pattern(marking: str) -> tuple[tuple[int, int, int], ...]:
+    from app.sonify.form import active_meter
+
+    meter = active_meter()
+    if (meter.beats, meter.beat_type) == (6, 8):
+        return _BASS_68[marking]
+    if (meter.beats, meter.beat_type) == (3, 4):
+        return _BASS_34[marking]
+    return BASS_PATTERNS[marking]
 
 
 def assign_source_bars(count: int, musical_bars: int = MUSICAL_BARS) -> list[list[int]]:
@@ -118,6 +158,27 @@ def assign_source_bars(count: int, musical_bars: int = MUSICAL_BARS) -> list[lis
         if group >= musical_bars:
             group = musical_bars - 1
         groups[group].append(index)
+    return groups
+
+
+def _frame_edges(spec: FormSpec | None) -> tuple[int, int]:
+    if spec is None:
+        return 0, MUSICAL_BARS
+    warmup = 0
+    cooldown = spec.bars
+    for section in spec.sections:
+        if section.kind == "warmup":
+            warmup = section.end
+        elif section.kind == "cooldown":
+            cooldown = section.start
+    return warmup, cooldown
+
+
+def _assign_framed(count: int, musical_bars: int, warmup: int, body_end: int) -> list[list[int]]:
+    body = assign_source_bars(count, body_end - warmup)
+    groups: list[list[int]] = [[] for _ in range(musical_bars)]
+    for offset, members in enumerate(body):
+        groups[warmup + offset] = members
     return groups
 
 
@@ -185,7 +246,10 @@ def flute_harmony_pitch(
     Only true thirds (+3, +4 semitones) and perfect fifths (+7 semitones) are
     allowed — never a fourth (+5) or tritone (+6).
     """
-    extended = c_major_scale(scale[0], scale[-1] + 24)
+    from app.sonify.quantize import scale_from_classes
+
+    classes = frozenset(note % 12 for note in scale)
+    extended = scale_from_classes(scale[0], scale[-1] + 24, classes)
     if melody_midi in extended:
         idx = extended.index(melody_midi)
         diatonic_candidates = [
@@ -218,6 +282,7 @@ def _flute_and_violin_dovetail(
     chord_at: dict[int, Chord],
     scale: tuple[int, ...],
     piece_eighths: int = TOTAL_EIGHTHS,
+    mode: str = "major",
 ) -> tuple[list[NoteEvent], list[tuple[int, int]]]:
     """Build Flute highlight notes and record spans where Violin yields.
 
@@ -400,10 +465,16 @@ def _flute_and_violin_dovetail(
             # while preserving pitch class and step changes.
             flute_line: list[int] = []
             for eighth in range(span_start, sounding_end):
+                flute_chord = chord_at[eighth // active_meter().eighths_per_bar]
+                flute_scale = scale
+                if mode == "minor" and flute_chord.name in ("G", "G7"):
+                    from app.sonify.quantize import leading_scale
+
+                    flute_scale = leading_scale(scale)
                 f_pitch = flute_harmony_pitch(
                     pitches[eighth],
-                    chord_at[eighth // EIGHTHS_PER_BAR],
-                    scale,
+                    flute_chord,
+                    flute_scale,
                 )
                 while f_pitch > active_register().flute_ceiling:
                     f_pitch -= 12
@@ -422,10 +493,16 @@ def _flute_and_violin_dovetail(
             # will begin on the exact same Flute pitch (same chord at phrase.end).
             next_flute_midi: int | None = None
             if phrase.held_over and span_end == phrase.end and phrase.end < piece_eighths:
+                next_chord = chord_at[phrase.end // active_meter().eighths_per_bar]
+                next_scale = scale
+                if mode == "minor" and next_chord.name in ("G", "G7"):
+                    from app.sonify.quantize import leading_scale as _lead_scale
+
+                    next_scale = _lead_scale(scale)
                 nf_pitch = flute_harmony_pitch(
                     pitches[phrase.end],
-                    chord_at[phrase.end // EIGHTHS_PER_BAR],
-                    scale,
+                    next_chord,
+                    next_scale,
                 )
                 while nf_pitch > active_register().flute_ceiling:
                     nf_pitch -= 12
@@ -480,7 +557,7 @@ def _bass_bar(chord: Chord, marking: str, bar: int) -> list[NoteEvent]:
             duration_beats=length * 0.5,
             voice=1,
         )
-        for start, length, interval in BASS_PATTERNS[marking]
+        for start, length, interval in _bass_pattern(marking)
     ]
 
 
@@ -492,14 +569,16 @@ def _right_hand(
     """Third and seventh on beat 1 for half a bar, cut short when a fill comes in."""
     first_fill: dict[int, int] = {}
     for start, _length, _midi in cadence_fills:
-        bar = start // EIGHTHS_PER_BAR
+        bar = start // active_meter().eighths_per_bar
         first_fill[bar] = min(first_fill.get(bar, start), start)
     events: list[NoteEvent] = []
     for slot in slots:
         _root, guide = comp_pitches(slot.chord)
         for bar in slot.bars():
-            downbeat = bar * EIGHTHS_PER_BAR
-            length = min(HALF_BAR, first_fill.get(bar, downbeat + HALF_BAR) - downbeat)
+            epb = active_meter().eighths_per_bar
+            downbeat = bar * epb
+            guide_eighths = 3 if (active_meter().beats, active_meter().beat_type) == (6, 8) else min(HALF_BAR, epb)
+            length = min(guide_eighths, first_fill.get(bar, downbeat + guide_eighths) - downbeat)
             events.extend(
                 NoteEvent(bar=bar, beat=0.0, midi=midi, duration_beats=length * 0.5, voice=1)
                 for midi in guide
@@ -534,6 +613,8 @@ def render(
     character: MovementCharacter | None = None,
     outro_override: OutroOverride | None = None,
     framed: bool = True,
+    mode: str = "major",
+    home_pedal: bool = False,
 ) -> Score:
     """Compose in C, with register bounds shifted for `key` before any note is placed.
 
@@ -557,6 +638,8 @@ def render(
             character=character,
             outro_override=outro_override,
             framed=framed,
+            mode=mode,
+            home_pedal=home_pedal,
         )
 
 
@@ -576,6 +659,8 @@ def _compose(
     character: MovementCharacter | None,
     outro_override: OutroOverride | None,
     framed: bool = True,
+    mode: str = "major",
+    home_pedal: bool = False,
 ) -> Score:
     """Turn one session of closes into a 30-bar score for `variant` ('symphony', 'jazz', 'minimalist').
 
@@ -606,224 +691,256 @@ def _compose(
     elif daily_ensemble:
         spec = DAILY_ENSEMBLE_SPEC
     musical_bars = MUSICAL_BARS if spec is None else spec.bars
-    if source_groups is not None:
-        groups = source_groups
-    elif daily_ambient or daily_ensemble:
-        groups = assign_daily_ambient_bars(len(bars))
-    else:
-        groups = assign_source_bars(len(bars), musical_bars)
-    if len(groups) != musical_bars:
-        raise ValueError(f"expected {musical_bars} source groups, got {len(groups)}")
-    if regimes is None:
-        if spec is None:
-            phrase_starts = PHRASE_STARTS
+    warmup, body_end = _frame_edges(spec)
+    meter = METER_44 if spec is None else spec.meter
+    with compose_meter(meter):
+        if source_groups is not None:
+            groups = source_groups
+        elif daily_ambient or daily_ensemble:
+            groups = assign_daily_ambient_bars(len(bars))
+        elif warmup or (spec is not None and body_end != spec.bars):
+            groups = _assign_framed(len(bars), musical_bars, warmup, body_end)
         else:
-            phrase_starts = tuple(
-                next(section.start for section in spec.sections if section.regime_slot == slot)
-                for slot in range(spec.regime_slots)
-            )
-        samples = tuple(_phrase_regime(bars, groups, start) for start in phrase_starts)
-        sample_indexes: tuple[int, ...] | None = tuple(index for index, _regime in samples)
-        chosen = tuple(regime for _index, regime in samples)
-    else:
-        sample_indexes = None
-        chosen = regimes
-    for regime in chosen:
-        progression(regime)
-
-    scale = c_major_scale()
-    session_low = min(bar.close for bar in bars) if price_low is None else price_low
-    session_high = max(bar.close for bar in bars) if price_high is None else price_high
-    held_close = bars[0].close
-    raw_pitches: list[int] = []
-    for group in groups:
-        if group:
-            closes = [bars[index].close for index in group]
-            held_close = closes[-1]
+            groups = assign_source_bars(len(bars), musical_bars)
+        if len(groups) != musical_bars:
+            raise ValueError(f"expected {musical_bars} source groups, got {len(groups)}")
+        if regimes is None:
+            if spec is None:
+                phrase_starts = PHRASE_STARTS
+            else:
+                phrase_starts = tuple(
+                    next(
+                        section.start
+                        for section in spec.sections
+                        if section.regime_slot == slot and section.kind not in ("warmup", "cooldown")
+                    )
+                    for slot in range(spec.regime_slots)
+                )
+            samples = tuple(_phrase_regime(bars, groups, start) for start in phrase_starts)
+            sample_indexes: tuple[int, ...] | None = tuple(index for index, _regime in samples)
+            chosen = tuple(regime for _index, regime in samples)
         else:
-            closes = [held_close]
-        for close in resample(closes, EIGHTHS_PER_BAR):
-            raw_pitches.append(
-                scale[price_to_scale_index(close, session_low, session_high, len(scale))]
-            )
+            sample_indexes = None
+            chosen = regimes
+        for regime in chosen:
+            progression(regime)
 
-    slots = plan_slots(
-        chosen, raw_pitches, scale, spec, character=character, outro_override=outro_override
-    )
+        scale = c_natural_minor_scale() if mode == "minor" else c_major_scale()
+        session_low = min(bar.close for bar in bars) if price_low is None else price_low
+        session_high = max(bar.close for bar in bars) if price_high is None else price_high
+        held_close = bars[0].close
+        raw_pitches: list[int] = []
+        for group in groups:
+            if group:
+                closes = [bars[index].close for index in group]
+                held_close = closes[-1]
+            else:
+                closes = [held_close]
+            for close in resample(closes, active_meter().eighths_per_bar):
+                raw_pitches.append(
+                    scale[price_to_scale_index(close, session_low, session_high, len(scale))]
+                )
 
-    windows = LIQUIDITY_WINDOWS if spec is None else liquidity_windows_for(spec)
-    window_volumes = average_liquidity(
-        [_window_candles(bars, groups, start, length) for start, length in windows]
-    )
-    traded = [volume for volume in window_volumes if volume > 0]
-    low_volume = percentile(traded, 0.10) if volume_low is None else volume_low
-    high_volume = percentile(traded, 0.90) if volume_high is None else volume_high
-    bands = [marking_for_volume(volume, low_volume, high_volume) for volume in window_volumes]
-    dynamics = tuple(
-        DynamicEvent(bar=start, marking=bass_marking(band), sound=SOUND[bass_marking(band)])
-        for (start, _length), band in zip(windows, bands)
-    )
-    harmonies = tuple(
-        HarmonyEvent(slot.start, slot.chord)
-        for index, slot in enumerate(slots)
-        if index == 0 or slot.chord != slots[index - 1].chord
-    )
-
-    chord_at = {bar: slot.chord for slot in slots for bar in slot.bars()}
-    pitches = quantize_strong_beats(raw_pitches, chord_at, scale)
-    section_starts = SECTION_STARTS if spec is None else spec.section_starts
-    raw_phrases = plan_phrases(
-        raw_pitches, tuple(start * EIGHTHS_PER_BAR for start in section_starts)
-    )
-    phrases = tuple(
-        Phrase(
-            phrase.start,
-            phrase.end,
-            tuple(
-                part
-                for run in phrase.runs
-                for part in runs_of(pitches, run.start, run.end)
-            ),
-            phrase.held_over and pitches[phrase.end] == pitches[phrase.end - 1],
+        slots = plan_slots(
+            chosen,
+            raw_pitches,
+            scale,
+            spec,
+            character=character,
+            outro_override=None if home_pedal else outro_override,
+            mode=mode,  # type: ignore[arg-type]
+            home_pedal=home_pedal,
         )
-        for phrase in raw_phrases
-    )
-    band_at = {
-        bar: band
-        for (start, length), band in zip(windows, bands)
-        for bar in range(start, start + length)
-    }
-    rel_span = (session_high - session_low) / max(abs(session_low), 1e-9)
-    piece_eighths = TOTAL_EIGHTHS if spec is None else spec.eighths
-    bell_caps = None
-    if form is not None:
-        from app.sonify.phrasing import bell_budget
 
-        bell_caps = tuple(
-            (
-                section.start * EIGHTHS_PER_BAR,
-                section.end * EIGHTHS_PER_BAR,
-                bell_budget(
-                    _section_rel_span(bars, groups, section.start, section.end),
-                    round(0.15 * (section.end - section.start) * EIGHTHS_PER_BAR),
+        windows = LIQUIDITY_WINDOWS if spec is None else liquidity_windows_for(spec)
+        window_volumes = average_liquidity(
+            [_window_candles(bars, groups, start, length) for start, length in windows]
+        )
+        traded = [volume for volume in window_volumes if volume > 0]
+        low_volume = percentile(traded, 0.10) if volume_low is None else volume_low
+        high_volume = percentile(traded, 0.90) if volume_high is None else volume_high
+        bands = [marking_for_volume(volume, low_volume, high_volume) for volume in window_volumes]
+        dynamics = tuple(
+            DynamicEvent(bar=start, marking=bass_marking(band), sound=SOUND[bass_marking(band)])
+            for (start, _length), band in zip(windows, bands)
+        )
+        harmonies = tuple(
+            HarmonyEvent(slot.start, slot.chord)
+            for index, slot in enumerate(slots)
+            if index == 0 or slot.chord != slots[index - 1].chord
+        )
+
+        chord_at = {bar: slot.chord for slot in slots for bar in slot.bars()}
+        pitches = quantize_strong_beats(raw_pitches, chord_at, scale, mode)
+        section_starts = SECTION_STARTS if spec is None else spec.section_starts
+        raw_phrases = plan_phrases(
+            raw_pitches, tuple(start * active_meter().eighths_per_bar for start in section_starts)
+        )
+        phrases = tuple(
+            Phrase(
+                phrase.start,
+                phrase.end,
+                tuple(
+                    part
+                    for run in phrase.runs
+                    for part in runs_of(pitches, run.start, run.end)
                 ),
+                phrase.held_over and pitches[phrase.end] == pitches[phrase.end - 1],
             )
-            for section in spec.sections
+            for phrase in raw_phrases
         )
-    def _finish(score: Score) -> Score:
-        if daily_ensemble:
-            from app.sonify.daily_frame import apply_daily_frame
+        band_at = {
+            bar: band
+            for (start, length), band in zip(windows, bands)
+            for bar in range(start, start + length)
+        }
+        for bar in range(musical_bars):
+            band_at.setdefault(bar, "p")
+        rel_span = (session_high - session_low) / max(abs(session_low), 1e-9)
+        piece_eighths = TOTAL_EIGHTHS if spec is None else spec.eighths
+        bell_caps = None
+        if form is not None:
+            from app.sonify.phrasing import bell_budget
 
-            score = apply_daily_frame(score)
-        return replace(score, key=key)
-
-    if variant == "jazz":
-        from app.sonify.jazz import JAZZ_BPM
-
-        return _finish(
-            render_jazz_score(
-                title=title,
-                chosen=chosen,
-                sample_indexes=sample_indexes,
-                slots=slots,
-                pitches=pitches,
-                phrases=phrases,
-                dynamics=dynamics,
-                bands=bands,
-                band_at=band_at,
-                rel_span=rel_span,
-                musical_bars=musical_bars,
-                total_eighths=piece_eighths,
-                bpm=JAZZ_BPM if form is None else spec.bpm,
-                bell_caps=bell_caps,
+            bell_caps = tuple(
+                (
+                    section.start * active_meter().eighths_per_bar,
+                    section.end * active_meter().eighths_per_bar,
+                    bell_budget(
+                        _section_rel_span(bars, groups, section.start, section.end),
+                        round(0.15 * (section.end - section.start) * active_meter().eighths_per_bar),
+                    ),
+                )
+                for section in spec.sections
+                if section.kind not in ("warmup", "cooldown")
             )
-        )
-    if variant == "minimalist":
-        from app.sonify.minimalist import MINIMALIST_BPM
+        def _finish(score: Score) -> Score:
+            if daily_ensemble:
+                from app.sonify.daily_frame import apply_daily_frame
 
-        return _finish(
-            render_minimalist_score(
-                title=title,
-                chosen=chosen,
-                sample_indexes=sample_indexes,
-                slots=slots,
-                raw_pitches=raw_pitches,
-                pitches=pitches,
-                phrases=phrases,
-                dynamics=dynamics,
-                harmonies=harmonies,
-                bands=bands,
-                chord_at=chord_at,
-                band_at=band_at,
-                rel_span=rel_span,
-                musical_bars=musical_bars,
-                total_eighths=piece_eighths,
-                bpm=MINIMALIST_BPM if form is None else spec.bpm,
-                bell_caps=bell_caps,
+                score = apply_daily_frame(score)
+            elif spec is not None and any(section.kind == "warmup" for section in spec.sections):
+                from app.sonify.movement_frame import apply_span_frame
+
+                score = apply_span_frame(score, spec)
+            return replace(
+                score,
+                key=key,
+                mode=mode,  # type: ignore[arg-type]
+                beats=meter.beats,
+                beat_type=meter.beat_type,
+                bar_beats=meter.quarter_beats,
+                swing=swing_for(variant, meter),
             )
-        )
-    if variant == "ambient":
-        from app.sonify.ambient import AMBIENT_BPM, render_ambient_score
 
-        return replace(
-            render_ambient_score(
-                title=title,
-                chosen=chosen,
-                sample_indexes=sample_indexes,
-                slots=slots,
-                pitches=pitches,
-                phrases=phrases,
-                bands=bands,
-                band_at=band_at,
-                windows=windows,
-                form=spec if spec is not None else DAILY_SPEC,
-                source_bars=bars,
-                source_groups=groups,
-                musical_bars=musical_bars,
-                total_eighths=piece_eighths,
-                bpm=AMBIENT_BPM if form is None else spec.bpm,
-                frame=daily_ambient,
-            ),
+        if variant == "jazz":
+            from app.sonify.jazz import JAZZ_BPM
+
+            return _finish(
+                render_jazz_score(
+                    title=title,
+                    chosen=chosen,
+                    sample_indexes=sample_indexes,
+                    slots=slots,
+                    pitches=pitches,
+                    phrases=phrases,
+                    dynamics=dynamics,
+                    bands=bands,
+                    band_at=band_at,
+                    rel_span=rel_span,
+                    musical_bars=musical_bars,
+                    total_eighths=piece_eighths,
+                    bpm=JAZZ_BPM if form is None else spec.bpm,
+                    bell_caps=bell_caps,
+                    mode=mode,
+                )
+            )
+        if variant == "minimalist":
+            from app.sonify.minimalist import MINIMALIST_BPM
+
+            return _finish(
+                render_minimalist_score(
+                    title=title,
+                    chosen=chosen,
+                    sample_indexes=sample_indexes,
+                    slots=slots,
+                    raw_pitches=raw_pitches,
+                    pitches=pitches,
+                    phrases=phrases,
+                    dynamics=dynamics,
+                    harmonies=harmonies,
+                    bands=bands,
+                    chord_at=chord_at,
+                    band_at=band_at,
+                    rel_span=rel_span,
+                    musical_bars=musical_bars,
+                    total_eighths=piece_eighths,
+                    bpm=MINIMALIST_BPM if form is None else spec.bpm,
+                    bell_caps=bell_caps,
+                )
+            )
+        if variant == "ambient":
+            from app.sonify.ambient import AMBIENT_BPM, render_ambient_score
+
+            return replace(
+                render_ambient_score(
+                    title=title,
+                    chosen=chosen,
+                    sample_indexes=sample_indexes,
+                    slots=slots,
+                    pitches=pitches,
+                    phrases=phrases,
+                    bands=bands,
+                    band_at=band_at,
+                    windows=windows,
+                    form=spec if spec is not None else DAILY_SPEC,
+                    source_bars=bars,
+                    source_groups=groups,
+                    musical_bars=musical_bars,
+                    total_eighths=piece_eighths,
+                    bpm=AMBIENT_BPM if form is None else spec.bpm,
+                    frame=daily_ambient,
+                ),
+                key=key,
+            )
+
+        flute_notes, yield_spans = _flute_and_violin_dovetail(
+            phrases, pitches, band_at, chord_at, scale, piece_eighths=piece_eighths, mode=mode
+        )
+        violin, cello, cadences = melody_parts(
+            pitches, phrases, band_at, yield_spans, piece_eighths=piece_eighths
+        )
+        piano: list[NoteEvent] = list(
+            _right_hand(slots, fills(cadences, chord_at), piece_eighths)
+        )
+        bass: list[NoteEvent] = []
+        for slot in slots:
+            piano.extend(left_hand(slot))
+        for bar in range(musical_bars):
+            bass.extend(_bass_bar(chord_at[bar], band_at[bar], bar))
+
+        return _finish(Score(
+            title=title,
+            bpm=BPM if form is None else spec.bpm,
+            bars=musical_bars,
+            regimes=chosen,
+            regime_samples=sample_indexes,
+            slots=slots,
+            high=with_rests(flute_notes, piece_eighths),
+            lead=with_rests(violin.notes, piece_eighths),
+            support=with_rests(cello.notes, piece_eighths),
+            comp=tuple(piano),
+            low=tuple(bass),
+            dynamics=dynamics,
+            harmonies=harmonies,
+            liquidity=tuple(bands),
+            phrases=phrases,
+            lead_wedges=tuple(violin.wedges),
+            support_wedges=tuple(cello.wedges),
+            lead_dynamics=tuple(violin.dynamics),
+            support_dynamics=tuple(cello.dynamics),
+            variant="symphony",
+            divisions=2,
             key=key,
-        )
-
-    flute_notes, yield_spans = _flute_and_violin_dovetail(
-        phrases, pitches, band_at, chord_at, scale, piece_eighths=piece_eighths
-    )
-    violin, cello, cadences = melody_parts(
-        pitches, phrases, band_at, yield_spans, piece_eighths=piece_eighths
-    )
-    piano: list[NoteEvent] = list(
-        _right_hand(slots, fills(cadences, chord_at), piece_eighths)
-    )
-    bass: list[NoteEvent] = []
-    for slot in slots:
-        piano.extend(left_hand(slot))
-    for bar in range(musical_bars):
-        bass.extend(_bass_bar(chord_at[bar], band_at[bar], bar))
-
-    return _finish(Score(
-        title=title,
-        bpm=BPM if form is None else spec.bpm,
-        bars=musical_bars,
-        regimes=chosen,
-        regime_samples=sample_indexes,
-        slots=slots,
-        high=with_rests(flute_notes, piece_eighths),
-        lead=with_rests(violin.notes, piece_eighths),
-        support=with_rests(cello.notes, piece_eighths),
-        comp=tuple(piano),
-        low=tuple(bass),
-        dynamics=dynamics,
-        harmonies=harmonies,
-        liquidity=tuple(bands),
-        phrases=phrases,
-        lead_wedges=tuple(violin.wedges),
-        support_wedges=tuple(cello.wedges),
-        lead_dynamics=tuple(violin.dynamics),
-        support_dynamics=tuple(cello.dynamics),
-        variant="symphony",
-        divisions=2,
-        key=key,
-        swing=False,
-    ))
+            swing=False,
+        ))

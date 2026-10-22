@@ -6,6 +6,25 @@ export function candleIndexAt(elapsedSec: number, count: number, durationSec: nu
   return Math.min(count - 1, Math.floor((elapsedSec / durationSec) * count));
 }
 
+/** Same hold as `span_candle_index`. A week sends both holds as zero. */
+export function spanCandleIndexAt(
+  elapsedSec: number,
+  count: number,
+  durationSec: number,
+  warmupSec: number,
+  cooldownSec: number,
+): number {
+  if (count <= 1) return 0;
+  if (durationSec <= 0 || elapsedSec <= 0) return 0;
+  if (elapsedSec < warmupSec) return 0;
+  if (elapsedSec >= durationSec - cooldownSec) return count - 1;
+  const body = durationSec - warmupSec - cooldownSec;
+  if (body <= 0) return 0;
+  const fraction = (elapsedSec - warmupSec) / body;
+  if (fraction >= 1) return count - 1;
+  return Math.min(count - 1, Math.floor(fraction * count));
+}
+
 /** Same hold as `ambient_daily_candle_index`. Every 1D variant uses this 34-bar frame. */
 export function ambientDailyCandleIndexAt(
   elapsedSec: number,

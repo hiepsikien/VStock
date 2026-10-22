@@ -191,8 +191,10 @@ def test_span_fingerprint_includes_key_character_and_coda():
             bars = [Bar(80.0 + week * 8 + index * 0.3, volume=100) for index in range(20)]
             stamped.append((date(2026, 3, 2 + week * 7 + day), bars))
     movements = prepare_month(stamped, "HPG")
-    assert [item.key.name for item in movements[:3]] == ["Eb", "Bb", "C"]
+    assert [item.key.name for item in movements[:3]] == ["Eb", "Eb", "Eb"]
     assert movements[3].key.name == "Eb"
+    minimalist = prepare_month(stamped, "HPG", "minimalist")
+    assert [item.key.name for item in minimalist[:3]] == ["Eb", "Bb", "C"]
     assert movements[0].scale_fingerprint.startswith("Eb-")
     assert "-none-" in movements[0].scale_fingerprint
     assert movement_character([80.0, 70.0], "1M") == "selloff"

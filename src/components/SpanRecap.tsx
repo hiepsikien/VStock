@@ -10,7 +10,7 @@ import {
   type SpanRange,
 } from '../api/client';
 import { colors, spacing, typography } from '../theme';
-import { candleIndexAt, listenWindow } from '../utils/recapCursor';
+import { listenWindow, spanCandleIndexAt } from '../utils/recapCursor';
 import type { RecapView } from './SessionRecap';
 
 const VARIANTS: { id: RecapVariant; label: string }[] = [
@@ -118,7 +118,15 @@ export function SpanRecap({ symbol, range, children }: Props) {
   const placeCursor = useCallback((elapsed: number, holdAtEnd: boolean) => {
     if (!current) return;
     const count = Math.max(1, current.prices.length);
-    const at = holdAtEnd ? count - 1 : candleIndexAt(elapsed, count, current.durationSec);
+    const at = holdAtEnd
+      ? count - 1
+      : spanCandleIndexAt(
+          elapsed,
+          count,
+          current.durationSec,
+          current.warmupSec,
+          current.cooldownSec,
+        );
     setCursor(at);
   }, [current]);
 

@@ -33,6 +33,7 @@ from app.services.spans import (
     load_movement_audio,
     movement_audio_path,
     movement_duration,
+    movement_frame,
     plan_span,
     ready_movement,
 )
@@ -424,7 +425,7 @@ async def get_span(
     if range not in SPAN_RANGES:
         raise HTTPException(status_code=404, detail=f"No sonification for {range}")
     try:
-        movements = await plan_span(sym, range)
+        movements = await plan_span(sym, range, variant)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
@@ -442,6 +443,8 @@ async def get_span(
                 ready=cached is not None,
                 audioUrl=movement_audio_path(sym, range, index, variant, movement),
                 restAfterSec=movement.rest_after,
+                warmupSec=round(movement_frame(movement)[0], 3),
+                cooldownSec=round(movement_frame(movement)[1], 3),
                 prices=[round(bar.close, 2) for bar in movement.bars],
             )
         )

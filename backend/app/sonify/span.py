@@ -7,23 +7,41 @@ Longer spans let render spread the movement's own bars across the form.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import date
 
-from app.sonify.form import FormSection, FormSpec
+from app.sonify.form import (
+    METER_34,
+    METER_44,
+    METER_54,
+    METER_64,
+    METER_68,
+    METER_78,
+    METER_128,
+    FormSection,
+    FormSpec,
+    Meter,
+    swing_for,
+)
 from app.sonify.keys import (
     C_KEY,
     KeySpec,
+    Mode,
     MovementCharacter,
     OutroOverride,
     boundary_regimes,
     finale_outro,
+    jazz_month_keys,
+    jazz_quarter_keys,
     month_keys,
     movement_character,
+    movement_mode,
     quarter_keys,
     stock_home_key,
     year_key,
 )
+from app.sonify.model import Variant
 from app.sonify.model import (
     Bar,
     DynamicEvent,
@@ -45,14 +63,18 @@ MIN_YEAR_CANDLES = 30
 # joins the previous month instead of becoming its own eight-minute movement.
 MIN_QUARTER_MONTH_CANDLES = 150
 
-SectionPart = tuple[int, str, int]
+SectionPart = tuple[int, str, int, bool]
+
+
+def _part(length: int, kind: str, slot: int, bridge: bool = False) -> SectionPart:
+    return (length, kind, slot, bridge)
 
 
 def _sections(parts: tuple[SectionPart, ...]) -> tuple[FormSection, ...]:
     sections: list[FormSection] = []
     cursor = 0
-    for length, kind, slot in parts:
-        sections.append(FormSection(cursor, cursor + length, kind, slot))
+    for length, kind, slot, bridge in parts:
+        sections.append(FormSection(cursor, cursor + length, kind, slot, bridge))  # type: ignore[arg-type]
         cursor += length
     return tuple(sections)
 
@@ -62,13 +84,74 @@ def _spec(
     bpm: int,
     parts: tuple[SectionPart, ...],
     chunks: tuple[int, ...],
+    meter: Meter = METER_44,
 ) -> FormSpec:
     built = _sections(parts)
     if built[-1].end != bars:
         raise ValueError(f"sections cover {built[-1].end} bars, form has {bars}")
     if chunks[-1] != bars:
         raise ValueError("the last chunk must end on the last bar")
-    return FormSpec(bars, bpm, built, chunks, borrowed=True)
+    return FormSpec(bars, bpm, built, chunks, borrowed=True, meter=meter)
+
+
+def frame_bars_for(meter: Meter, span: str) -> int:
+    """Bars of warm-up and of cool-down. 1Y is the short frame."""
+    key = (meter.beats, meter.beat_type)
+    if span == "1Y":
+        table = {(4, 4): 2, (3, 4): 3, (6, 8): 3, (12, 8): 1, (6, 4): 1, (5, 4): 2, (7, 8): 2}
+    else:
+        table = {(4, 4): 4, (3, 4): 6, (6, 8): 6, (12, 8): 3, (6, 4): 3, (5, 4): 4, (7, 8): 5}
+    return table[key]
+
+
+def attach_frame(spec: FormSpec, span: str) -> FormSpec:
+    """Shift the body right and pedal a warm-up and a cool-down outside it."""
+    if span not in ("1M", "3M", "1Y"):
+        return spec
+    count = frame_bars_for(spec.meter, span)
+    shifted = [
+        FormSection(
+            section.start + count,
+            section.end + count,
+            section.kind,
+            section.regime_slot,
+            section.bridge,
+        )
+        for section in spec.sections
+    ]
+    last_slot = spec.sections[-1].regime_slot
+    sections = (
+        FormSection(0, count, "warmup", 0),
+        *shifted,
+        FormSection(spec.bars + count, spec.bars + 2 * count, "cooldown", last_slot),
+    )
+    chunks = tuple(end + count for end in spec.chunks[:-1]) + (spec.bars + 2 * count,)
+    return FormSpec(
+        spec.bars + 2 * count,
+        spec.bpm,
+        sections,
+        chunks,
+        borrowed=spec.borrowed,
+        meter=spec.meter,
+    )
+
+
+def frame_bounds(spec: FormSpec) -> tuple[int, int]:
+    """Body start and cool-down start. A spec with no frame returns (0, bars)."""
+    warmup = 0
+    cooldown = spec.bars
+    for section in spec.sections:
+        if section.kind == "warmup":
+            warmup = section.end
+        elif section.kind == "cooldown":
+            cooldown = section.start
+    return warmup, cooldown
+
+
+def frame_seconds(spec: FormSpec) -> tuple[float, float]:
+    warmup, cooldown = frame_bounds(spec)
+    eighth = spec.meter.eighths_per_bar * 30.0 / spec.bpm
+    return warmup * eighth, (spec.bars - cooldown) * eighth
 
 
 def week_spec(session_count: int) -> FormSpec:
@@ -83,7 +166,7 @@ def week_spec(session_count: int) -> FormSpec:
                 kind = "outro"
             else:
                 kind = "phrase"
-            parts.append((8, kind, index))
+            parts.append(_part(8, kind, index))
     chunks = tuple((index + 1) * BARS_PER_SESSION for index in range(count))
     return _spec(count * BARS_PER_SESSION, WEEK_BPM, tuple(parts), chunks)
 
@@ -105,90 +188,375 @@ def week_source_groups(session_lengths: list[int]) -> list[list[int]]:
     return groups
 
 
-def month_specs() -> tuple[FormSpec, FormSpec, FormSpec, FormSpec]:
-    first = _spec(
+def _fast(bridge: bool = False) -> FormSpec:
+    """Movement I, still 4/4. The 24-bar phrase is the contrast."""
+    return _spec(
         96,
         96,
-        ((8, "intro", 0), (32, "phrase", 0), (24, "phrase", 1), (24, "phrase", 2), (8, "outro", 2)),
+        (
+            _part(8, "intro", 0),
+            _part(32, "phrase", 0),
+            _part(24, "phrase", 1, bridge),
+            _part(24, "phrase", 2),
+            _part(8, "outro", 2),
+        ),
         (40, 64, 96),
     )
-    second = _spec(
-        72,
-        72,
-        ((8, "intro", 0), (24, "phrase", 0), (16, "phrase", 1), (24, "phrase", 2)),
-        (32, 72),
+
+
+def _finale(bridge: bool = False) -> FormSpec:
+    return _spec(
+        96,
+        96,
+        (
+            _part(8, "intro", 0),
+            _part(32, "phrase", 0),
+            _part(24, "phrase", 1, bridge),
+            _part(16, "phrase", 2),
+            _part(16, "outro", 2),
+        ),
+        (40, 64, 96),
     )
-    third = _spec(
-        72,
+
+
+def _scherzo(bridge: bool = False) -> FormSpec:
+    return _spec(
+        96,
         120,
         (
-            (8, "intro", 0),
-            (16, "phrase", 0),
-            (16, "phrase", 1),
-            (16, "phrase", 2),
-            (8, "phrase", 2),
-            (8, "outro", 2),
+            _part(8, "intro", 0),
+            _part(24, "phrase", 0),
+            _part(24, "phrase", 1, bridge),
+            _part(24, "phrase", 2),
+            _part(8, "phrase", 2),
+            _part(8, "outro", 2),
         ),
-        (40, 72),
+        (56, 96),
+        METER_34,
     )
-    fourth = _spec(
-        96,
-        96,
-        ((8, "intro", 0), (32, "phrase", 0), (24, "phrase", 1), (16, "phrase", 2), (16, "outro", 2)),
-        (40, 64, 96),
-    )
-    return first, second, third, fourth
 
 
-def quarter_specs() -> tuple[FormSpec, FormSpec, FormSpec]:
+def month_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSpec, FormSpec]:
+    """Body only. `attach_frame` adds the warm-up and the cool-down."""
+    bridge = variant in ("jazz", "ambient")
+    if variant == "minimalist":
+        first = _spec(
+            76,
+            96,
+            (
+                _part(8, "intro", 0),
+                _part(24, "phrase", 0),
+                _part(20, "phrase", 1),
+                _part(16, "phrase", 2),
+                _part(8, "outro", 2),
+            ),
+            (32, 52, 76),
+            METER_54,
+        )
+        second = _spec(
+            72,
+            72,
+            (
+                _part(8, "intro", 0),
+                _part(24, "phrase", 0),
+                _part(16, "phrase", 1),
+                _part(24, "phrase", 2),
+            ),
+            (32, 72),
+        )
+        third = _spec(
+            82,
+            120,
+            (
+                _part(8, "intro", 0),
+                _part(16, "phrase", 0),
+                _part(16, "phrase", 1),
+                _part(16, "phrase", 2),
+                _part(14, "phrase", 2),
+                _part(12, "outro", 2),
+            ),
+            (40, 82),
+            METER_78,
+        )
+        return first, second, third, _finale()
+    if variant == "jazz":
+        second = _spec(
+            48,
+            72,
+            (
+                _part(4, "intro", 0),
+                _part(16, "phrase", 0),
+                _part(12, "phrase", 1, True),
+                _part(16, "phrase", 2),
+            ),
+            (20, 48),
+            METER_128,
+        )
+        return _fast(True), second, _scherzo(), _finale(True)
+    if variant == "ambient":
+        second = _spec(
+            48,
+            72,
+            (
+                _part(4, "intro", 0),
+                _part(16, "phrase", 0),
+                _part(12, "phrase", 1, True),
+                _part(16, "phrase", 2),
+            ),
+            (20, 48),
+            METER_64,
+        )
+        return _fast(True), second, _scherzo(True), _finale(True)
+    second = _spec(
+        96,
+        72,
+        (
+            _part(8, "intro", 0),
+            _part(32, "phrase", 0),
+            _part(24, "phrase", 1),
+            _part(32, "phrase", 2),
+        ),
+        (40, 96),
+        METER_68,
+    )
+    return _fast(bridge), second, _scherzo(), _finale(bridge)
+
+
+def quarter_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSpec]:
+    bridge = variant in ("jazz", "ambient")
     first = _spec(
         192,
         96,
-        ((8, "intro", 0), (56, "phrase", 0), (64, "phrase", 1), (48, "phrase", 2), (16, "outro", 2)),
+        (
+            _part(8, "intro", 0),
+            _part(56, "phrase", 0),
+            _part(64, "phrase", 1, bridge),
+            _part(48, "phrase", 2),
+            _part(16, "outro", 2),
+        ),
         (64, 128, 192),
+        METER_54 if variant == "minimalist" else METER_44,
     )
-    second = _spec(
-        120,
-        60,
-        ((8, "intro", 0), (32, "phrase", 0), (40, "phrase", 1), (32, "phrase", 2), (8, "outro", 2)),
-        (40, 80, 120),
-    )
+    if variant == "minimalist":
+        first = _spec(
+            153,
+            96,
+            (
+                _part(6, "intro", 0),
+                _part(45, "phrase", 0),
+                _part(51, "phrase", 1),
+                _part(38, "phrase", 2),
+                _part(13, "outro", 2),
+            ),
+            (51, 102, 153),
+            METER_54,
+        )
+        second = _spec(
+            120,
+            60,
+            (
+                _part(8, "intro", 0),
+                _part(32, "phrase", 0),
+                _part(40, "phrase", 1),
+                _part(32, "phrase", 2),
+                _part(8, "outro", 2),
+            ),
+            (40, 80, 120),
+        )
+        third = _spec(
+            246,
+            108,
+            (
+                _part(9, "intro", 0),
+                _part(64, "phrase", 0),
+                _part(73, "phrase", 1),
+                _part(55, "phrase", 2),
+                _part(45, "outro", 2),
+            ),
+            (73, 146, 246),
+            METER_78,
+        )
+        return first, second, third
+    if variant == "jazz":
+        second = _spec(
+            80,
+            60,
+            (
+                _part(4, "intro", 0),
+                _part(24, "phrase", 0),
+                _part(24, "phrase", 1, True),
+                _part(24, "phrase", 2),
+                _part(4, "outro", 2),
+            ),
+            (28, 52, 80),
+            METER_128,
+        )
+    elif variant == "ambient":
+        second = _spec(
+            80,
+            60,
+            (
+                _part(4, "intro", 0),
+                _part(24, "phrase", 0),
+                _part(24, "phrase", 1, True),
+                _part(24, "phrase", 2),
+                _part(4, "outro", 2),
+            ),
+            (28, 52, 80),
+            METER_64,
+        )
+    else:
+        second = _spec(
+            160,
+            60,
+            (
+                _part(8, "intro", 0),
+                _part(44, "phrase", 0),
+                _part(56, "phrase", 1),
+                _part(44, "phrase", 2),
+                _part(8, "outro", 2),
+            ),
+            (52, 108, 160),
+            METER_68,
+        )
     third = _spec(
         216,
         108,
-        ((8, "intro", 0), (56, "phrase", 0), (64, "phrase", 1), (48, "phrase", 2), (40, "outro", 2)),
+        (
+            _part(8, "intro", 0),
+            _part(56, "phrase", 0),
+            _part(64, "phrase", 1, bridge),
+            _part(48, "phrase", 2),
+            _part(40, "outro", 2),
+        ),
         (64, 128, 216),
     )
     return first, second, third
 
 
-def year_specs() -> tuple[FormSpec, ...]:
-    opener = _spec(
-        80,
-        100,
-        ((8, "intro", 0), (32, "phrase", 0), (32, "phrase", 1), (8, "outro", 2)),
-        (40, 80),
-    )
-    center = _spec(
-        72,
-        66,
-        ((8, "intro", 0), (24, "phrase", 0), (16, "phrase", 1), (16, "phrase", 2), (8, "outro", 2)),
-        (32, 72),
-    )
-    closer = _spec(
-        84,
-        108,
-        ((8, "intro", 0), (32, "phrase", 0), (32, "phrase", 1), (12, "outro", 2)),
-        (40, 84),
-    )
+def year_specs(variant: str = "symphony") -> tuple[FormSpec, ...]:
+    bridge = variant in ("jazz", "ambient")
+    if variant == "minimalist":
+        opener = _spec(
+            64,
+            100,
+            (
+                _part(8, "intro", 0),
+                _part(24, "phrase", 0),
+                _part(24, "phrase", 1),
+                _part(8, "outro", 2),
+            ),
+            (32, 64),
+            METER_54,
+        )
+        closer = _spec(
+            96,
+            108,
+            (
+                _part(8, "intro", 0),
+                _part(36, "phrase", 0),
+                _part(36, "phrase", 1),
+                _part(16, "outro", 2),
+            ),
+            (44, 96),
+            METER_78,
+        )
+    else:
+        opener = _spec(
+            80,
+            100,
+            (
+                _part(8, "intro", 0),
+                _part(32, "phrase", 0),
+                _part(32, "phrase", 1, bridge),
+                _part(8, "outro", 2),
+            ),
+            (40, 80),
+        )
+        closer = _spec(
+            84,
+            108,
+            (
+                _part(8, "intro", 0),
+                _part(32, "phrase", 0),
+                _part(32, "phrase", 1, bridge),
+                _part(12, "outro", 2),
+            ),
+            (40, 84),
+        )
+    if variant == "jazz":
+        center = _spec(
+            48,
+            66,
+            (
+                _part(4, "intro", 0),
+                _part(16, "phrase", 0),
+                _part(12, "phrase", 1, True),
+                _part(12, "phrase", 2),
+                _part(4, "outro", 2),
+            ),
+            (20, 48),
+            METER_128,
+        )
+    elif variant == "ambient":
+        center = _spec(
+            48,
+            66,
+            (
+                _part(4, "intro", 0),
+                _part(16, "phrase", 0),
+                _part(12, "phrase", 1, True),
+                _part(12, "phrase", 2),
+                _part(4, "outro", 2),
+            ),
+            (20, 48),
+            METER_64,
+        )
+    elif variant == "minimalist":
+        center = _spec(
+            72,
+            66,
+            (
+                _part(8, "intro", 0),
+                _part(24, "phrase", 0),
+                _part(16, "phrase", 1),
+                _part(16, "phrase", 2),
+                _part(8, "outro", 2),
+            ),
+            (32, 72),
+        )
+    else:
+        center = _spec(
+            96,
+            66,
+            (
+                _part(8, "intro", 0),
+                _part(32, "phrase", 0),
+                _part(24, "phrase", 1),
+                _part(24, "phrase", 2),
+                _part(8, "outro", 2),
+            ),
+            (40, 96),
+            METER_68,
+        )
     finale = _spec(
         108,
         96,
-        ((8, "intro", 0), (32, "phrase", 0), (32, "phrase", 1), (24, "phrase", 2), (12, "outro", 2)),
+        (
+            _part(8, "intro", 0),
+            _part(32, "phrase", 0),
+            _part(32, "phrase", 1, bridge),
+            _part(24, "phrase", 2),
+            _part(12, "outro", 2),
+        ),
         (40, 72, 108),
     )
-    by_month = (opener, center, closer, opener, center, closer, opener, center, closer, opener, center, finale)
-    return by_month
+    return (
+        opener, center, closer,
+        opener, center, closer,
+        opener, center, closer,
+        opener, center, finale,
+    )
 
 
 def split_into(count: int, parts: int) -> list[int]:
@@ -266,8 +634,8 @@ def plan_week(session_count: int) -> tuple[Movement, ...]:
     return (Movement("Tuần", spec, session_count, 0.0),)
 
 
-def plan_month(session_counts: list[int]) -> tuple[Movement, ...]:
-    specs = month_specs()
+def plan_month(session_counts: list[int], variant: str = "symphony") -> tuple[Movement, ...]:
+    specs = tuple(attach_frame(spec, "1M") for spec in month_specs(variant))
     if len(session_counts) != 4:
         raise ValueError("a month is four movements")
     labels = ("I", "II", "III", "IV")
@@ -278,8 +646,8 @@ def plan_month(session_counts: list[int]) -> tuple[Movement, ...]:
     )
 
 
-def plan_quarter(session_counts: list[int]) -> tuple[Movement, ...]:
-    specs = quarter_specs()
+def plan_quarter(session_counts: list[int], variant: str = "symphony") -> tuple[Movement, ...]:
+    specs = tuple(attach_frame(spec, "3M") for spec in quarter_specs(variant))
     if len(session_counts) != 3:
         raise ValueError("a quarter is three movements")
     labels = ("I", "II", "III")
@@ -306,6 +674,9 @@ class PreparedMovement:
     key: KeySpec = C_KEY
     character: MovementCharacter | None = None
     outro_override: OutroOverride | None = None
+    mode: Mode = "major"
+    swing: bool = False
+    home_pedal: bool = False
 
     @property
     def candle_count(self) -> int:
@@ -317,7 +688,12 @@ class PreparedMovement:
         high = max(bar.close for bar in self.bars)
         character = self.character or "std"
         coda = self.outro_override or "none"
-        return f"{self.key.name}-{character}-{coda}-{low:.2f}-{high:.2f}"
+        meter = self.spec.meter
+        return (
+            f"{self.key.name}-{self.mode}-{character}-{coda}-"
+            f"{meter.beats}-{meter.beat_type}-{int(self.swing)}-"
+            f"{low:.2f}-{high:.2f}"
+        )
 
 
 def _flatten(sessions: list[tuple[date, list[Bar]]], sizes: list[int]) -> list[list[Bar]]:
@@ -403,6 +779,37 @@ def _home(symbol: str | None) -> KeySpec:
     return stock_home_key(symbol)
 
 
+def _modes(
+    variant: str,
+    characters: Sequence[MovementCharacter],
+    edges: Sequence[tuple[str, str]],
+) -> tuple[Mode, ...]:
+    if variant == "minimalist":
+        return tuple("major" for _ in characters)
+    return tuple(
+        movement_mode(character, edge[1])  # type: ignore[arg-type]
+        for character, edge in zip(characters, edges)
+    )
+
+
+def _span_keys(
+    variant: str,
+    span: str,
+    home: KeySpec,
+    characters: tuple[MovementCharacter, ...],
+    edges: list[tuple[str, str]],
+) -> tuple[KeySpec, ...]:
+    if variant == "minimalist":
+        if span == "1M":
+            return month_keys(home, characters, edges)  # type: ignore[arg-type]
+        return quarter_keys(home, characters, edges)  # type: ignore[arg-type]
+    if variant == "jazz" and span == "1M":
+        return jazz_month_keys(home, characters, edges)  # type: ignore[arg-type]
+    if variant == "jazz" and span == "3M":
+        return jazz_quarter_keys(home, characters, edges)  # type: ignore[arg-type]
+    return tuple(home for _ in characters)
+
+
 def _prepared(
     movements: tuple[Movement, ...],
     parts: list[list[Bar]],
@@ -411,13 +818,24 @@ def _prepared(
     keys: tuple[KeySpec, ...] | None = None,
     characters: tuple[MovementCharacter, ...] | None = None,
     outros: tuple[OutroOverride | None, ...] | None = None,
+    modes: tuple[Mode, ...] | None = None,
+    swings: tuple[bool, ...] | None = None,
+    home_pedal: bool = False,
 ) -> tuple[PreparedMovement, ...]:
     chosen_keys = keys or tuple(C_KEY for _ in movements)
     chosen_characters = characters or tuple(None for _ in movements)
     chosen_outros = outros or tuple(None for _ in movements)
+    chosen_modes = modes or tuple("major" for _ in movements)
+    chosen_swings = swings or tuple(False for _ in movements)
     prepared: list[PreparedMovement] = []
-    for movement, bars, key, character, outro in zip(
-        movements, parts, chosen_keys, chosen_characters, chosen_outros
+    for movement, bars, key, character, outro, mode, swing in zip(
+        movements,
+        parts,
+        chosen_keys,
+        chosen_characters,
+        chosen_outros,
+        chosen_modes,
+        chosen_swings,
     ):
         if not bars:
             continue
@@ -431,6 +849,9 @@ def _prepared(
                 key=key,
                 character=character,
                 outro_override=outro,
+                mode=mode,
+                swing=swing,
+                home_pedal=home_pedal,
             )
         )
     if len(prepared) != len(movements):
@@ -460,36 +881,64 @@ def prepare_week(
 
 
 def prepare_month(
-    sessions: list[tuple[date, list[Bar]]], symbol: str | None = None
+    sessions: list[tuple[date, list[Bar]]],
+    symbol: str | None = None,
+    variant: Variant = "symphony",
 ) -> tuple[PreparedMovement, ...]:
     parts = month_parts(sessions)
-    movements = plan_month([len(part) for part in parts])
+    movements = plan_month([len(part) for part in parts], variant)
     characters = tuple(movement_character([bar.close for bar in part], "1M") for part in parts)
     edges = _edges(parts)
     home = _home(symbol)
-    keys = month_keys(home, characters, edges)
+    keys = _span_keys(variant, "1M", home, characters, edges)
+    modes = _modes(variant, characters, edges)
     outros = (None, None, None, finale_outro(characters[0], characters[-1]))
-    return _prepared(movements, parts, keys=keys, characters=characters, outros=outros)
+    swings = tuple(swing_for(variant, movement.spec.meter) for movement in movements)
+    return _prepared(
+        movements,
+        parts,
+        keys=keys,
+        characters=characters,
+        outros=outros,
+        modes=modes,
+        swings=swings,
+        home_pedal=variant != "minimalist",
+    )
 
 
 def prepare_quarter(
-    stamped: list[tuple[date, Bar]], symbol: str | None = None
+    stamped: list[tuple[date, Bar]],
+    symbol: str | None = None,
+    variant: Variant = "symphony",
 ) -> tuple[PreparedMovement, ...]:
     parts = quarter_parts(stamped)
-    movements = plan_quarter([len(part) for part in parts])
+    movements = plan_quarter([len(part) for part in parts], variant)
     characters = tuple(movement_character([bar.close for bar in part], "3M") for part in parts)
     edges = _edges(parts)
     home = _home(symbol)
-    keys = quarter_keys(home, characters, edges)
+    keys = _span_keys(variant, "3M", home, characters, edges)
+    modes = _modes(variant, characters, edges)
     outros = (None, None, finale_outro(characters[0], characters[-1]))
-    return _prepared(movements, parts, keys=keys, characters=characters, outros=outros)
+    swings = tuple(swing_for(variant, movement.spec.meter) for movement in movements)
+    return _prepared(
+        movements,
+        parts,
+        keys=keys,
+        characters=characters,
+        outros=outros,
+        modes=modes,
+        swings=swings,
+        home_pedal=variant != "minimalist",
+    )
 
 
 def prepare_year(
-    stamped: list[tuple[date, Bar]], symbol: str | None = None
+    stamped: list[tuple[date, Bar]],
+    symbol: str | None = None,
+    variant: Variant = "symphony",
 ) -> tuple[PreparedMovement, ...]:
     """Months play in time order. The form follows the calendar month, so December is the finale whenever it falls."""
-    specs = year_specs()
+    specs = tuple(attach_frame(spec, "1Y") for spec in year_specs(variant))
     kept = [(day, bars) for day, bars in year_groups(stamped) if len(bars) >= MIN_YEAR_CANDLES]
     if not kept:
         raise ValueError("a year needs one month with enough candles")
@@ -506,10 +955,14 @@ def prepare_year(
                 else SEASON_REST_SECONDS
             )
         character = movement_character([bar.close for bar in bars], "1Y")
+        spec = specs[day.month - 1]
+        closing = boundary_regimes(
+            [bar.close for bar in bars], [bar.ma20 for bar in bars]
+        )[1]
         prepared.append(
             PreparedMovement(
                 label=f"{day.month:02d}/{day.year % 100:02d}",
-                spec=specs[day.month - 1],
+                spec=spec,
                 bars=bars,
                 groups=None,
                 rest_after=rest,
@@ -520,6 +973,9 @@ def prepare_year(
                     frame=position in (0, last),
                 ),
                 character=character,
+                mode="major" if variant == "minimalist" else movement_mode(character, closing),
+                swing=swing_for(variant, spec.meter),
+                home_pedal=variant != "minimalist",
             )
         )
     return tuple(prepared)

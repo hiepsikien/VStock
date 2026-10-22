@@ -19,10 +19,12 @@ from app.sonify.regime import classify_window
 
 MovementCharacter = Literal["rally", "selloff", "volatile", "calm"]
 OutroOverride = Literal["major", "minor"]
+Mode = Literal["major", "minor"]
 
 _LETTERS = "CDEFGAB"
 _NATURAL = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 _MAJOR_STEPS = (0, 2, 4, 5, 7, 9, 11)
+_MINOR_STEPS = (0, 2, 3, 5, 7, 8, 10)
 _REGIME_BARS = 5
 
 # Unshifted sweet spot. phrasing.py, render.py, jazz.py, and voices.py read these.
@@ -156,6 +158,35 @@ def boundary_regimes(
     )
 
 
+def movement_mode(character: MovementCharacter, closing: Regime) -> Mode:
+    """Parallel major or minor. Volatile flips only when the movement closes down."""
+    if character == "selloff":
+        return "minor"
+    if character == "volatile" and closing == "downtrend":
+        return "minor"
+    return "major"
+
+
+def signature_fifths(key: KeySpec, mode: Mode) -> int:
+    """Parallel natural minor adds three flats. The sounding shift stays on `semitones`."""
+    if mode == "minor":
+        return key.fifths - 3
+    return key.fifths
+
+
+def spelling_key(key: KeySpec, mode: Mode) -> KeySpec:
+    if mode == "major":
+        return key
+    return KeySpec(
+        key.name,
+        key.label,
+        signature_fifths(key, mode),
+        key.semitones,
+        key.tonic_step,
+        key.tonic_alter,
+    )
+
+
 def finale_outro(
     opening: MovementCharacter, finale: MovementCharacter
 ) -> OutroOverride | None:
@@ -193,6 +224,29 @@ def quarter_keys(
     return (home, KEY_RING[second], home)
 
 
+def jazz_month_keys(
+    home: KeySpec,
+    characters: Sequence[MovementCharacter],
+    edges: Sequence[tuple[Regime, Regime]],
+) -> tuple[KeySpec, ...]:
+    """One set. Head, ballad, and finale stay home. Only the short tune steps once."""
+    if len(characters) != 4 or len(edges) != 4:
+        raise ValueError("a month sonata needs four movements")
+    step = _chapter_two(_index(home), characters[2], edges[1][1], edges[2][0])
+    return (home, home, KEY_RING[step], home)
+
+
+def jazz_quarter_keys(
+    home: KeySpec,
+    characters: Sequence[MovementCharacter],
+    edges: Sequence[tuple[Regime, Regime]],
+) -> tuple[KeySpec, ...]:
+    """Three tunes, all at home. There is no short tune to step away on."""
+    if len(characters) != 3 or len(edges) != 3:
+        raise ValueError("a quarter needs three movements")
+    return (home, home, home)
+
+
 def year_key(
     home: KeySpec,
     season: int,
@@ -215,12 +269,12 @@ def year_key(
     return KEY_RING[base]
 
 
-def transpose_chord(chord: Chord, key: KeySpec) -> Chord:
+def transpose_chord(chord: Chord, key: KeySpec, mode: Mode = "major") -> Chord:
     """Shift a C-space chord and spell it in thirds from the destination root."""
     if key.semitones == 0 and key.fifths == 0:
         return chord
     pitches = tuple(pitch + key.semitones for pitch in chord.pitches)
-    diatonic = _diatonic(key)
+    diatonic = _diatonic(key, mode)
     root_step, root_alter = _spell_chord_root(pitches, key, diatonic)
     root_letter = _LETTERS.index(root_step)
     tones: list[tuple[int, str, int]] = []
@@ -242,20 +296,21 @@ def transpose_chord(chord: Chord, key: KeySpec) -> Chord:
 
 
 def midi_to_spelled_pitch(
-    midi: int, key: KeySpec, harmony: Chord | None = None
+    midi: int, key: KeySpec, harmony: Chord | None = None, mode: Mode = "major"
 ) -> tuple[str, int, int]:
     """Step, alter, octave for a sounding MIDI note already shifted into `key`."""
     from app.sonify.musicxml import midi_to_pitch
 
-    if key.fifths == 0 and key.semitones == 0:
+    spell = spelling_key(key, mode)
+    if spell.fifths == 0 and spell.semitones == 0 and mode == "major":
         return midi_to_pitch(midi, harmony)
     pitch_class = midi % 12
     if harmony is not None:
-        spelled = transpose_chord(harmony, key).spelling(pitch_class)
+        spelled = transpose_chord(harmony, spell, mode).spelling(pitch_class)
         if spelled is not None:
             step, alter = spelled
             return step, alter, _octave(midi, step, alter)
-    diatonic = _diatonic(key)
+    diatonic = _diatonic(spell, mode)
     if pitch_class in diatonic:
         step, alter = diatonic[pitch_class]
         return step, alter, _octave(midi, step, alter)
@@ -320,11 +375,12 @@ def _season_base(home: int, season: int) -> int:
     return home
 
 
-def _diatonic(key: KeySpec) -> dict[int, tuple[str, int]]:
+def _diatonic(key: KeySpec, mode: Mode = "major") -> dict[int, tuple[str, int]]:
     tonic_pc = key.semitones % 12
     letter = _LETTERS.index(key.tonic_step)
+    steps = _MINOR_STEPS if mode == "minor" else _MAJOR_STEPS
     spellings: dict[int, tuple[str, int]] = {}
-    for degree, interval in enumerate(_MAJOR_STEPS):
+    for degree, interval in enumerate(steps):
         step = _LETTERS[(letter + degree) % 7]
         spellings[(tonic_pc + interval) % 12] = (step, _alter_for(step, (tonic_pc + interval) % 12))
     return spellings

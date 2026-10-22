@@ -17,17 +17,25 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Literal
 
 from app.sonify.chords import (
     CHORDS,
+    HOME_MAJOR,
+    HOME_MINOR,
+    MINOR_CATALOG,
     REGIME_BIAS,
     Chord,
     Regime,
     _ROOT_REGIME_BIAS,
     borrowed_transition,
     chords_for_spec,
+    is_subdominant,
+    minor_bias,
+    minor_root_probability,
     progression,
     same_harmonic_root,
     tonic,
@@ -40,6 +48,7 @@ from app.sonify.quantize import (
     c_major_scale,
     melody_pitch_classes,
     quantize_chord_tone,
+    sing_leading,
 )
 
 MUSICAL_BARS = 30
@@ -94,7 +103,54 @@ PHRASE_TONIC_BONUS = 0.25
 BORROWED_HOLD_PROB = 0.16
 CROSS_BAR_BREAK_PENALTY = 1.2
 
-Section = Literal["intro", "phrase", "outro"]
+Section = Literal["intro", "phrase", "outro", "warmup", "cooldown"]
+_PEDAL: frozenset[str] = frozenset({"intro", "outro", "warmup", "cooldown"})
+WHOLE_BAR_BEATS = frozenset({3.0, 4.0, 6.0})
+
+
+@dataclass(frozen=True)
+class Meter:
+    """One time signature. `quarter_beats` is the bar length in quarter notes."""
+
+    beats: int
+    beat_type: int
+    eighths_per_bar: int
+    strong_eighths: tuple[int, ...]
+    subbar_breaks: tuple[int, ...]
+    extra_weights: tuple[tuple[int, float], ...] = ()
+
+    @property
+    def quarter_beats(self) -> float:
+        return self.eighths_per_bar / 2
+
+
+METER_44 = Meter(4, 4, 8, (0, 4), (4,))
+METER_34 = Meter(3, 4, 6, (0,), (4,), ((4, 0.8),))
+METER_68 = Meter(6, 8, 6, (0, 3), (3,))
+METER_128 = Meter(12, 8, 12, (0, 3, 6, 9), (3, 6, 9))
+METER_54 = Meter(5, 4, 10, (0, 6), (6,))
+METER_64 = Meter(6, 4, 12, (0, 4, 8), (6,))
+METER_78 = Meter(7, 8, 7, (0, 2, 4), (2, 4))
+
+_METER: ContextVar[Meter] = ContextVar("sonify_meter", default=METER_44)
+
+
+def active_meter() -> Meter:
+    return _METER.get()
+
+
+@contextmanager
+def compose_meter(meter: Meter):
+    token = _METER.set(meter)
+    try:
+        yield
+    finally:
+        _METER.reset(token)
+
+
+def swing_for(variant: str, meter: Meter) -> bool:
+    """Jazz swings 4/4 and 3/4. 12/8 is already four groups of three, so it stays straight."""
+    return variant == "jazz" and meter.beat_type == 4
 
 
 @dataclass(frozen=True)
@@ -105,6 +161,7 @@ class FormSection:
     end: int
     kind: Section
     regime_slot: int
+    bridge: bool = False
 
 
 @dataclass(frozen=True)
@@ -119,10 +176,11 @@ class FormSpec:
     # still rebase a span of these bars if a file is ever split again.
     chunks: tuple[int, ...] = ()
     borrowed: bool = False
+    meter: Meter = METER_44
 
     @property
     def eighths(self) -> int:
-        return self.bars * EIGHTHS_PER_BAR
+        return self.bars * self.meter.eighths_per_bar
 
     @property
     def regime_slots(self) -> int:
@@ -163,6 +221,8 @@ def liquidity_windows_for(spec: FormSpec) -> tuple[tuple[int, int], ...]:
     """Intro and outro are one window each. Phrases split into 2-bar windows."""
     windows: list[tuple[int, int]] = []
     for section in spec.sections:
+        if section.kind in ("warmup", "cooldown"):
+            continue
         if section.kind in ("intro", "outro"):
             windows.append((section.start, section.end - section.start))
             continue
@@ -300,19 +360,22 @@ def _borrowed_allowed(chord: Chord, regime: Regime, phrase_downbeat: bool) -> bo
     return chord.name in extras
 
 
-def _prev_last_touched_strong(raw_pitches: Sequence[int], bar: int) -> bool:
+def _prev_last_touched_strong(
+    raw_pitches: Sequence[int], bar: int, meter: Meter | None = None
+) -> bool:
     """Whether the final eighth of `bar - 1` belongs to a run that touches a strong beat.
 
-    Matches `quantize_strong_beats`: the eighth at `bar * 8 - 1` is snapped to
-    `prev_chord` only when its run reaches strong beat 4 of `bar - 1` (all eighths
-    4..7 of `bar - 1` share that pitch) or continues onto strong beat 0 of `bar`
-    (`held_across`). Otherwise it is a weak-beat passing note and keeps its raw pitch.
+    The run counts when it holds from the last strong eighth through the end of
+    the bar, or when the same pitch continues onto the next downbeat.
     """
-    prev_last = raw_pitches[bar * EIGHTHS_PER_BAR - 1]
-    if prev_last == raw_pitches[bar * EIGHTHS_PER_BAR]:
+    grid = METER_44 if meter is None else meter
+    epb = grid.eighths_per_bar
+    prev_last = raw_pitches[bar * epb - 1]
+    if prev_last == raw_pitches[bar * epb]:
         return True
-    prev_bar_start = (bar - 1) * EIGHTHS_PER_BAR
-    return all(raw_pitches[prev_bar_start + e] == prev_last for e in range(4, EIGHTHS_PER_BAR))
+    prev_bar_start = (bar - 1) * epb
+    last_strong = grid.strong_eighths[-1]
+    return all(raw_pitches[prev_bar_start + e] == prev_last for e in range(last_strong, epb))
 
 
 def _breaks_held_note_across_barline(
@@ -321,6 +384,7 @@ def _breaks_held_note_across_barline(
     curr_chord: Chord,
     scale: tuple[int, ...],
     index_of: dict[int, int],
+    mode: str = "major",
 ) -> bool:
     """Whether changing from prev_chord to curr_chord forces a held note to split pitches.
 
@@ -334,6 +398,11 @@ def _breaks_held_note_across_barline(
     """
     if prev_chord == curr_chord:
         return False
+    if mode == "minor" and boundary_pitch % 12 == 10:
+        prev_sung = sing_leading(boundary_pitch) if prev_chord.name in ("G", "G7") else boundary_pitch
+        curr_sung = sing_leading(boundary_pitch) if curr_chord.name in ("G", "G7") else boundary_pitch
+        if prev_sung != curr_sung:
+            return True
     common = melody_pitch_classes(prev_chord.pitch_classes & curr_chord.pitch_classes, scale)
     if common:
         snapped_common = quantize_chord_tone(boundary_pitch, common, scale)
@@ -371,6 +440,8 @@ def plan_markov_chords(
     spec: FormSpec | None = None,
     character: MovementCharacter | None = None,
     outro_override: Literal["major", "minor"] | None = None,
+    mode: Literal["major", "minor"] = "major",
+    home_pedal: bool = False,
 ) -> tuple[Chord, ...]:
     """Decode the lowest-loss 30-bar Markov chord path via Viterbi.
 
@@ -401,10 +472,12 @@ def plan_markov_chords(
         phrase_starts = spec.phrase_starts
         spans = spec.spans(regimes)
         borrowed = spec.borrowed
+    meter = METER_44 if spec is None else spec.meter
+    epb = meter.eighths_per_bar
     bar_change_penalty = _bar_change_penalty(character)
     for regime in regimes:
         progression(regime)
-    expected_eighths = musical_bars * EIGHTHS_PER_BAR
+    expected_eighths = musical_bars * epb
     if len(raw_pitches) != expected_eighths:
         raise ValueError(f"expected {expected_eighths} eighth-note pitches, got {len(raw_pitches)}")
     active_scale = c_major_scale() if scale is None else scale
@@ -416,7 +489,16 @@ def plan_markov_chords(
         bar_regime.extend([regime] * (end - start))
         bar_section.extend([section] * (end - start))
 
-    catalog = chords_for_spec(borrowed)
+    catalog = MINOR_CATALOG if mode == "minor" else chords_for_spec(borrowed)
+    bridge_starts = {
+        section.start for section in (spec.sections if spec is not None else ()) if section.bridge
+    }
+    bridge_cadence: set[int] = set()
+    if spec is not None:
+        for section in spec.sections:
+            if section.bridge and section.end - section.start >= 2:
+                bridge_cadence.add(section.end - 2)
+                bridge_cadence.add(section.end - 1)
     states = [(chord, held) for chord in catalog for held in (1, 2)]
     dp: list[dict[tuple[Chord, int], float]] = [{} for _ in range(musical_bars)]
     back: list[dict[tuple[Chord, int], tuple[Chord, int] | None]] = [
@@ -424,41 +506,71 @@ def plan_markov_chords(
     ]
 
     for bar in range(musical_bars):
-        bar_notes = raw_pitches[bar * EIGHTHS_PER_BAR : (bar + 1) * EIGHTHS_PER_BAR]
+        bar_notes = raw_pitches[bar * epb : (bar + 1) * epb]
         regime = bar_regime[bar]
         section = bar_section[bar]
-        allowed_tonics = tonic_chords(regime)
-        if section == "outro" and outro_override == "major":
-            allowed_tonics = tonic_chords("uptrend")
-        elif section == "outro" and outro_override == "minor":
-            allowed_tonics = tonic_chords("downtrend")
+        if mode == "minor" or home_pedal:
+            allowed_tonics = HOME_MINOR if mode == "minor" else HOME_MAJOR
+        else:
+            allowed_tonics = tonic_chords(regime)
+            if section == "outro" and outro_override == "major":
+                allowed_tonics = tonic_chords("uptrend")
+            elif section == "outro" and outro_override == "minor":
+                allowed_tonics = tonic_chords("downtrend")
         new_section = bar in section_starts
-        previous_pitch = raw_pitches[bar * EIGHTHS_PER_BAR - 1] if bar > 0 else None
+        previous_pitch = raw_pitches[bar * epb - 1] if bar > 0 else None
         phrase_downbeat = bar in phrase_starts
 
+        def emit(notes: Sequence[int], chord: Chord, **extra: int | None) -> float:
+            return bar_quantization_loss(
+                notes,
+                chord.pitch_classes,
+                active_scale,
+                strong_eighths=meter.strong_eighths,
+                extra_weights=meter.extra_weights,
+                mode=mode,
+                chord_name=chord.name,
+                previous_pitch=extra.get("previous_pitch"),
+                previous_snapped=extra.get("previous_snapped"),
+            )
+
         for chord in catalog:
-            if borrowed and not _borrowed_allowed(chord, regime, phrase_downbeat):
+            if (
+                mode != "minor"
+                and borrowed
+                and not _borrowed_allowed(chord, regime, phrase_downbeat)
+            ):
                 dp[bar][(chord, 1)] = float("inf")
                 dp[bar][(chord, 2)] = float("inf")
                 back[bar][(chord, 1)] = None
                 back[bar][(chord, 2)] = None
                 continue
-            if section in ("intro", "outro") and chord not in allowed_tonics:
+            if mode == "minor" and chord.name == "F#dim7" and phrase_downbeat:
+                dp[bar][(chord, 1)] = float("inf")
+                dp[bar][(chord, 2)] = float("inf")
+                back[bar][(chord, 1)] = None
+                back[bar][(chord, 2)] = None
+                continue
+            if section in _PEDAL and chord not in allowed_tonics:
                 dp[bar][(chord, 1)] = float("inf")
                 dp[bar][(chord, 2)] = float("inf")
                 back[bar][(chord, 1)] = None
                 back[bar][(chord, 2)] = None
                 continue
 
-            base_bias = chord_bias(chord, regime, character)
-            if phrase_downbeat and chord in allowed_tonics:
+            if mode == "minor":
+                base_bias = minor_bias(chord, regime)
+            else:
+                base_bias = chord_bias(chord, regime, character)
+            if bar in bridge_starts and is_subdominant(chord, mode):
+                base_bias -= PHRASE_TONIC_BONUS
+            elif phrase_downbeat and chord in allowed_tonics and bar not in bridge_starts:
+                base_bias -= PHRASE_TONIC_BONUS
+            if bar in bridge_cadence and chord.name in ("G", "G7"):
                 base_bias -= PHRASE_TONIC_BONUS
 
             if bar == 0:
-                emission = (
-                    bar_quantization_loss(bar_notes, chord.pitch_classes, active_scale)
-                    + base_bias
-                )
+                emission = emit(bar_notes, chord) + base_bias
                 dp[0][(chord, 1)] = emission
                 back[0][(chord, 1)] = None
                 dp[0][(chord, 2)] = float("inf")
@@ -467,17 +579,16 @@ def plan_markov_chords(
 
             # Two equal adjacent eighth-note pitches across the barline form a single
             # held Run in `runs_of(raw_pitches, ...)`.
-            held_across = raw_pitches[bar * EIGHTHS_PER_BAR - 1] == raw_pitches[bar * EIGHTHS_PER_BAR]
-            boundary_pitch = raw_pitches[bar * EIGHTHS_PER_BAR]
+            held_across = raw_pitches[bar * epb - 1] == raw_pitches[bar * epb]
+            boundary_pitch = raw_pitches[bar * epb]
             if previous_pitch is None:
                 raise RuntimeError("expected previous_pitch for bar > 0")
-            prev_last_touched_strong = _prev_last_touched_strong(raw_pitches, bar)
+            prev_last_touched_strong = _prev_last_touched_strong(raw_pitches, bar, meter)
             if not prev_last_touched_strong or bar_notes[0] % 12 in chord.pitch_classes:
                 uniform_emission = (
-                    bar_quantization_loss(
+                    emit(
                         bar_notes,
-                        chord.pitch_classes,
-                        active_scale,
+                        chord,
                         previous_pitch=previous_pitch,
                         previous_snapped=previous_pitch,
                     )
@@ -495,10 +606,9 @@ def plan_markov_chords(
                 }
                 emission_by_prev_snapped = {
                     snapped_val: (
-                        bar_quantization_loss(
+                        emit(
                             bar_notes,
-                            chord.pitch_classes,
-                            active_scale,
+                            chord,
                             previous_pitch=previous_pitch,
                             previous_snapped=snapped_val,
                         )
@@ -514,13 +624,17 @@ def plan_markov_chords(
                     if dp[bar - 1][(prev_chord, prev_held)] == float("inf"):
                         continue
                     # Intro and outro hold one steady tonic pedal across all bars of the section.
-                    if section in ("intro", "outro") and not new_section and prev_chord != chord:
+                    if section in _PEDAL and not new_section and prev_chord != chord:
                         continue
-                    same_root = (
-                        same_harmonic_root(prev_chord, chord)
-                        if borrowed
-                        else prev_chord.root_step == chord.root_step
-                    )
+                    if mode == "minor":
+                        same_root = (
+                            prev_chord.root_step == chord.root_step
+                            and prev_chord.alter == chord.alter
+                        )
+                    elif borrowed:
+                        same_root = same_harmonic_root(prev_chord, chord)
+                    else:
+                        same_root = prev_chord.root_step == chord.root_step
                     if new_section:
                         if target_held != 1:
                             continue
@@ -530,33 +644,42 @@ def plan_markov_chords(
                     elif target_held != 1:
                         continue
 
-                    if borrowed and chord.quality_group == "diminished" and target_held != 1:
-                        continue
-                    prob = transition_probability(prev_chord, chord)
-                    if prob <= 0.0 and borrowed:
-                        prob = borrowed_transition(prev_chord, chord)
-                    # A borrowed chord has no self-edge in the diatonic table. Staying
-                    # on it is still a legal hold; only the passing diminished is one bar.
                     if (
-                        prob <= 0.0
-                        and borrowed
-                        and prev_chord == chord
-                        and chord.quality_group != "diminished"
+                        (borrowed or mode == "minor")
+                        and chord.quality_group == "diminished"
+                        and target_held != 1
                     ):
-                        prob = BORROWED_HOLD_PROB
-                    if prob <= 0.0:
                         continue
-
-                    # Each root's probability mass is split equally across its triad and
-                    # seventh chord, so `prob * 2.0` recovers the root-to-root transition probability.
-                    # Borrowed catalogs do not have two chords per root, so they read the
-                    # root table directly.
-                    if not borrowed or (prev_chord in CHORDS and chord in CHORDS):
-                        root_prob = prob * 2.0
+                    if mode == "minor":
+                        root_prob = minor_root_probability(prev_chord, chord)
+                        if root_prob <= 0.0:
+                            continue
                     else:
-                        root_prob = max(prob, borrowed_transition(prev_chord, chord))
+                        prob = transition_probability(prev_chord, chord)
+                        if prob <= 0.0 and borrowed:
+                            prob = borrowed_transition(prev_chord, chord)
+                        # A borrowed chord has no self-edge in the diatonic table. Staying
+                        # on it is still a legal hold; only the passing diminished is one bar.
+                        if (
+                            prob <= 0.0
+                            and borrowed
+                            and prev_chord == chord
+                            and chord.quality_group != "diminished"
+                        ):
+                            prob = BORROWED_HOLD_PROB
+                        if prob <= 0.0:
+                            continue
+
+                        # Each root's probability mass is split equally across its triad and
+                        # seventh chord, so `prob * 2.0` recovers the root-to-root transition probability.
+                        # Borrowed catalogs do not have two chords per root, so they read the
+                        # root table directly.
+                        if not borrowed or (prev_chord in CHORDS and chord in CHORDS):
+                            root_prob = prob * 2.0
+                        else:
+                            root_prob = max(prob, borrowed_transition(prev_chord, chord))
                     if not new_section and same_root:
-                        if section in ("intro", "outro"):
+                        if section in _PEDAL:
                             trans_cost = PEDAL_STAY_COST
                         elif prev_held == 1:
                             trans_cost = SECOND_BAR_STAY_COST
@@ -572,7 +695,7 @@ def plan_markov_chords(
                         trans_cost += SAME_ROOT_QUALITY_CHANGE_PENALTY
 
                     if held_across and _breaks_held_note_across_barline(
-                        boundary_pitch, prev_chord, chord, active_scale, index_of
+                        boundary_pitch, prev_chord, chord, active_scale, index_of, mode
                     ):
                         trans_cost += CROSS_BAR_BREAK_PENALTY
 
@@ -609,6 +732,8 @@ def plan_slots(
     spec: FormSpec | None = None,
     character: MovementCharacter | None = None,
     outro_override: Literal["major", "minor"] | None = None,
+    mode: Literal["major", "minor"] = "major",
+    home_pedal: bool = False,
 ) -> tuple[ChordSlot, ...]:
     if spec is None and len(regimes) != 3:
         raise ValueError("expected one regime per phrase")
@@ -632,7 +757,14 @@ def plan_slots(
         )
     else:
         chords = plan_markov_chords(
-            regimes, raw_pitches, scale, spec, character, outro_override
+            regimes,
+            raw_pitches,
+            scale,
+            spec,
+            character,
+            outro_override,
+            mode,
+            home_pedal,
         )
         slots = []
         spans = _section_spans(regimes) if spec is None else spec.spans(regimes)  # type: ignore[arg-type]
