@@ -38,6 +38,7 @@ from app.services.spans import (
     ready_movement,
 )
 from app.sonify.audio import RecapCancelled, RecapUnavailable
+from app.sonify.keys import key_label
 from app.sonify.model import Variant
 
 logger = logging.getLogger(__name__)
@@ -437,7 +438,7 @@ async def get_span(
             SpanMovementResponse(
                 index=index,
                 label=movement.label,
-                keyLabel=movement.key.label,
+                keyLabel=key_label(movement.key, movement.mode),
                 candleCount=movement.candle_count,
                 durationSec=round(movement_duration(movement), 3),
                 ready=cached is not None,

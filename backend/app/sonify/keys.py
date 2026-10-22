@@ -174,6 +174,13 @@ def signature_fifths(key: KeySpec, mode: Mode) -> int:
     return key.fifths
 
 
+def key_label(key: KeySpec, mode: Mode = "major") -> str:
+    """The tonic name. Parallel minor keeps that tonic and says so."""
+    if mode == "minor":
+        return f"{key.label} thứ"
+    return key.label
+
+
 def spelling_key(key: KeySpec, mode: Mode) -> KeySpec:
     if mode == "major":
         return key

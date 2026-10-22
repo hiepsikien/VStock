@@ -13,6 +13,7 @@ from app.sonify.keys import (
     KEY_RING,
     midi_to_spelled_pitch,
     month_keys,
+    key_label,
     movement_character,
     stock_home_key,
     transpose_chord,
@@ -198,3 +199,39 @@ def test_span_fingerprint_includes_key_character_and_coda():
     assert movements[0].scale_fingerprint.startswith("Eb-")
     assert "-none-" in movements[0].scale_fingerprint
     assert movement_character([80.0, 70.0], "1M") == "selloff"
+
+
+def test_a_selloff_movement_stays_on_the_home_tonic_and_says_minor() -> None:
+    from datetime import date
+
+    def series(start: float, end: float) -> list[Bar]:
+        return [Bar(start + (end - start) * index / 19, volume=100) for index in range(20)]
+
+    stamped = []
+    for week, (start, end) in enumerate(((100.0, 110.0), (100.0, 80.0), (100.0, 75.0), (80.0, 100.0))):
+        for day in range(3):
+            stamped.append((date(2026, 3, 2 + week * 7 + day), series(start, end)))
+    symphony = prepare_month(stamped, "VIC")
+    assert [(item.key.name, item.mode) for item in symphony] == [
+        ("Eb", "major"),
+        ("Eb", "minor"),
+        ("Eb", "minor"),
+        ("Eb", "major"),
+    ]
+    assert [key_label(item.key, item.mode) for item in symphony] == [
+        "Mi♭",
+        "Mi♭ thứ",
+        "Mi♭ thứ",
+        "Mi♭",
+    ]
+    jazz = prepare_month(stamped, "VIC", "jazz")
+    assert [(item.key.name, item.mode) for item in jazz] == [
+        ("Eb", "major"),
+        ("Eb", "minor"),
+        ("Bb", "minor"),
+        ("Eb", "major"),
+    ]
+    assert key_label(jazz[2].key, jazz[2].mode) == "Si♭ thứ"
+    minimalist = prepare_month(stamped, "VIC", "minimalist")
+    assert [item.mode for item in minimalist] == ["major", "major", "major", "major"]
+    assert [key_label(item.key, item.mode) for item in minimalist] == ["Mi♭", "Si♭", "Đô", "Mi♭"]
