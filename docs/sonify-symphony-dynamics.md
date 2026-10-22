@@ -42,13 +42,16 @@ Thực nghiệm xuất WAV qua `musescore_export` trên MuseScore 4.7.5 với th
        | Giường `<p/>` + `<crescendo>` (không in `<mp/>`) | `-24.1 dB` | `-37.6 dB` | **`-28.5` $\rightarrow$ `-24.1 dB`** | Nở mượt từ `p` lên đúng `mp` (+1 bậc) |
        | Giường `<mp/>` + `<crescendo>` (không in `<mf/>`) | `-18.4 dB` | `-31.9 dB` | **`-22.4` $\rightarrow$ `-18.4 dB`** | Nở mượt từ `mp` lên đúng `mf` (+1 bậc) |
        | In `<mf/>` đầu fill + `<crescendo>` | `-14.0 dB` | `-27.5 dB` | `-17.6` $\rightarrow$ **`-14.0 dB`** | Bị đẩy vọt 2 bậc từ giường `mp` lên `f`! |
-       | In `<mp/>` đầu fill + `<diminuendo>` | `-21.8 dB` | `-35.9 dB` | **`-23.4` $\rightarrow$ `-26.6 dB`** | Vào ở `mp` (+1 bậc trên `p`) rồi lắng về `p` |
+       | In `<mp/>` đầu fill + `<diminuendo>` (trên giường `p`) | `-21.8 dB` | `-35.9 dB` | **`-23.4` $\rightarrow$ `-26.6 dB`** | Mở ở `mp` (+1 bậc trên `p`), nốt cuối giảm `3.2 dB` và còn ngồi trên giường `p` (`-29.2 dB`) `2.6 dB` |
+       | In `<mf/>` đầu fill + `<diminuendo>` (trên giường `mp`) | `-16.2 dB` | `-30.5 dB` | **`-17.3` $\rightarrow$ `-20.7 dB`** | Mở ở `mf` (+1 bậc trên `mp`), nốt cuối giảm `3.4 dB` và còn ngồi trên giường `mp` (`-23.1 dB`) `2.4 dB` |
 
      - **Kết luận thiết kế từ thực nghiệm**:
-       1. Trên Flute (`P5`): Một `<wedge type="crescendo">` từ `mp` đã tự động đạt đỉnh `mf` (`-22.9 dB` Peak / `-36.5 dB` RMS trên `C6`), nên **không bao giờ cần in chữ `mf` ở đỉnh của Hình thái 1 và Hình thái 2** (nhờ đó `Glockenspiel` cũng không bị kích chữ `mf` ở giữa đoạn!). Chữ `mf` chỉ dùng để mở đầu Hình thái 3 (khi vào ngay tại đỉnh lúc `peak == 80` rồi `diminuendo`).
-       2. Trên Piano Fill (`P3`): Vì `<crescendo>` tự nâng 1 bậc còn `<diminuendo>` tự hạ 1 bậc:
-          - Khi fill có hướng **`Nở` (`rise`, $\ge 2$ nốt)**: **giữ nguyên chữ giường hiện tại (`p` hoặc `mp`) và chỉ mở `<crescendo>`** qua câu fill — âm lượng sẽ nở mượt từ mức giường lên đúng +1 bậc (`p -> mp` hoặc `mp -> mf`) mà không bị nhảy 2 bậc lên `f`!
-          - Khi fill có hướng **`Lắng` (`fall`, $\ge 2$ nốt)**: **in chữ `fill_mark` (+1 bậc trên giường: `mp` trên `p`, hoặc `mf` trên `mp`) ở đầu fill kèm `<diminuendo>`** — câu fill vào nổi bật trên giường đúng 1 bậc rồi lắng dần về mức giường ở nốt cuối!
+       1. Trên Flute (`P5`): Một `<wedge type="crescendo">` từ `mp` đã tự động đạt đỉnh `mf` (`-22.9 dB` Peak / `-36.5 dB` RMS trên `C6`). Do đó:
+          - Khi **`peak == 72`** (thanh khoản tại đỉnh là `p`/`mp` và không có `BREAKOUT` — câu yên): Flute **giữ chữ `"mp"` phẳng và không sinh `<wedge>`** (chỉ vuốt nhẹ `NoteEvent.velocity` từ `64` lên tối đa `72` cho MS Basic / `Glockenspiel`).
+          - Chỉ khi **`peak == 80`** (thanh khoản tại đỉnh là `mf`/`f` hoặc có `BREAKOUT`): Flute mới sinh `<wedge>` theo 3 Hình thái, và không bao giờ cần in chữ `mf` ở đỉnh của Hình thái 1 và Hình thái 2 (nhờ đó `Glockenspiel` cũng không bị kích chữ `mf` ở giữa đoạn!). Chữ `mf` chỉ dùng để mở đầu Hình thái 3 (khi vào ngay tại đỉnh lúc `peak == 80` rồi `diminuendo`).
+       2. Trên Piano Fill (`P3`): Vì `<crescendo>` tự nâng 1 bậc còn `<diminuendo>` giảm khoảng `3.2–3.4 dB` tính tới đầu nốt gõ cuối:
+          - Khi fill có hướng **`Nở` (`rise`, $\ge 2$ nốt)**: **giữ nguyên chữ giường hiện tại (`p` hoặc `mp`) và chỉ mở `<crescendo>`** qua câu fill — âm lượng sẽ nở mượt từ mức giường lên đúng +1 bậc (`p -> mp` hoặc `mp -> mf`), đồng thời velocity trên nốt cũng đi từ đúng **velocity giường của ô đó (`bed_velocity_at[b]`: `46`/`54` hoặc `62`/`68`)** lên mức `fill_mark` (`64` hoặc `80`)!
+          - Khi fill có hướng **`Lắng` (`fall`, $\ge 2$ nốt)**: **in chữ `fill_mark` (+1 bậc trên giường: `mp` trên `p`, hoặc `mf` trên `mp`) ở đầu fill kèm `<diminuendo>`** — câu fill vào nổi bật trên giường đúng 1 bậc rồi lắng xuống `3.2–3.4 dB` ở nốt cuối (nốt cuối vẫn đứng trên mức giường `2.4–2.6 dB` nên không bị chìm mất), sau đó hợp âm đệm ở `beat = 0.0` của ô kế tiếp in lại chữ giường để trả kênh `P3` về đúng mức giường!
           - Khi fill **`Ngang` (`flat`) hoặc chỉ có 1 nốt**: **in chữ `fill_mark` (+1 bậc trên giường), không kèm `<wedge>`**.
 
 2. **Thẻ `<harmony>` trên `P3` khiến MuseScore 4 tự tổng hợp thêm một Piano ẩn đánh chồng lên phách 1 (+6.2 dB RMS / +6.7 dB Peak)**:
@@ -60,9 +63,9 @@ Thực nghiệm xuất WAV qua `musescore_export` trên MuseScore 4.7.5 với th
 
 | Tầng chuyển động | Flute / P5 (`classic`, `wood`, `brass`) | Violin & Cello (`P1`, `P2`) | Piano / P3 (`classic`, `wood`, `brass`) | Bass / P4 (`classic`, `wood`, `brass`) |
 |---|---|---|---|---|
-| **1. Giá trong câu** (`phrase.rise`, đỉnh, `BREAKOUT`) | 1 nốt ngân dài $\ge 4$ móc nở `< >` ở giữa ngân; đoạn leo lên đỉnh chạy `< >` tới `span_apex`; vào ngay đỉnh lúc `peak == 80` mở `mf` rồi `>` | Giữ nguyên vòng cung `hairpins()` và `melody_parts()` hiện có; được tôn nổi nhờ Bass nhường dải tần và bảng `_VOICE_VOLUME_DB` | Fill `Nở` dùng `<crescendo>` từ giường lên +1 bậc; Fill `Lắng` mở ở `fill_mark` (+1 bậc) rồi `<diminuendo>` về giường; kèm nội suy velocity theo từng ô | Gập mọi nốt Bass `>= C3 (48)` xuống dưới `48` trên những ô Cello hát chính ($\ge \max(\text{nửa ô}, 2\text{ phách đen})$) |
-| **2. Thanh khoản `p–f`** (`band_at`) | Band `mf`/`f` tại đỉnh hoặc đoạn có `BREAKOUT` đặt `peak = 80` (cho phép Hình thái 3 mở `mf`); band `p`/`mp` giữ `peak = 72` | Velocity và nốt nhấn phản ánh câu | Chữ in giường (`p` cho `p`/`mp`, `mp` cho `mf`/`f`), 4 bậc velocity (`46 / 54 / 62 / 68` cho MS Basic), và tay trái điểm gốc mỗi ô ở `f` | Mật độ tiết tấu từ tròn (`p`) tới 8 móc đơn (`f`), chữ in trần `mp` |
-| **3. Tính cách phiên (`BarGroove`)** | `BREAKOUT` luôn đặt `peak = 80` | `selloff` nhường sớm vùng trung-trầm cho Cello | Đọc `chamber`, `trio_thin`, `half`, `rally`, `selloff`, `caesura`; gốc tay trái đánh mỗi ô khi `f` hoặc `rally` | Đọc `chamber`, `trio_thin`, `half`, `tresillo`, `selloff`, `rally`, `caesura` |
+| **1. Giá trong câu** (`phrase.rise`, đỉnh, `BREAKOUT`) | Khi `peak == 80`: 1 nốt ngân dài $\ge 4$ móc nở `< >` ở giữa ngân; đoạn leo lên đỉnh chạy `< >` tới `span_apex`; vào ngay đỉnh mở `mf` rồi `>` | Giữ nguyên vòng cung `hairpins()` và `melody_parts()` hiện có; được tôn nổi nhờ Bass nhường dải tần và bảng `_VOICE_VOLUME_DB` | Fill `Nở` dùng `<crescendo>` + ramp velocity từ mức giường lên +1 bậc; Fill `Lắng` mở ở `fill_mark` (+1 bậc) kèm `<diminuendo>` lắng `3.2–3.4 dB` (vẫn trên giường `2.4–2.6 dB`) rồi ô sau trả về giường | Gập mọi nốt Bass `>= C3 (48)` xuống dưới `48` trên những ô Cello hát chính ($\ge \max(\text{nửa ô}, 2\text{ phách đen})$) |
+| **2. Thanh khoản `p–f`** (`band_at`) | Band `mf`/`f` tại đỉnh hoặc `BREAKOUT` (`peak == 80`) mở `<wedge>` / chữ `mf` lên đỉnh `mf`; band `p`/`mp` không breakout (`peak == 72`) giữ `mp` phẳng (không `<wedge>`) | Velocity và nốt nhấn phản ánh câu | Chữ in giường (`p` cho `p`/`mp`, `mp` cho `mf`/`f`), 4 bậc velocity (`46 / 54 / 62 / 68` cho MS Basic), và tay trái điểm gốc mỗi ô ở `f` | Mật độ tiết tấu từ tròn (`p`) tới 8 móc đơn (`f`), chữ in trần `mp` |
+| **3. Tính cách phiên (`BarGroove`)** | `BREAKOUT` luôn đặt `peak = 80` (bật `<wedge>` / `mf`) | `selloff` nhường sớm vùng trung-trầm cho Cello | Đọc `chamber`, `trio_thin`, `half`, `rally`, `selloff`, `caesura`; gốc tay trái đánh mỗi ô khi `f` hoặc `rally` | Đọc `chamber`, `trio_thin`, `half`, `tresillo`, `selloff`, `rally`, `caesura` |
 
 ---
 
@@ -101,16 +104,16 @@ Flute vào khi câu lên cao (`>= FLUTE_TRIGGER`), khi có `BREAKOUT`, hoặc kh
 
 Với mỗi đoạn Flute có `sounding_end > span_start` và `first_attack is not None`, đặt `arc_start = first_attack.start`:
 
-- **Nhánh A — Đoạn phẳng hoặc quá ngắn (`phrase.rise < MIN_RISE` hoặc `sounding_end - arc_start < WEDGE_MIN`)**:
-  - Không sinh `<wedge>`.
-  - Riêng `ensemble == "brass"` (`Glockenspiel`) khi `phrase.rise >= MIN_RISE` và `len(merged_flute_runs) == 1`: gán `velocity = peak`; chữ mở đoạn `start_marking = "mf"` nếu `peak == 80`, ngược lại `"mp"`.
-  - Mọi trường hợp phẳng/ngắn khác: `start_marking = "mp"`, gán `velocity = 64`.
+- **Nhánh A — Đoạn phẳng, quá ngắn, hoặc câu yên không có dòng tiền (`phrase.rise < MIN_RISE` hoặc `sounding_end - arc_start < WEDGE_MIN` hoặc `peak == 72`)**:
+  - Không sinh `<wedge>` (để trên MuseSounds, câu yên `p`/`mp` không có `BREAKOUT` đứng ở mức `mp` êm dịu, tách biệt hoàn toàn với câu có thanh khoản `mf`/`f` hoặc `BREAKOUT`).
+  - `start_marking = "mp"`.
+  - Về `velocity`: nếu `phrase.rise < MIN_RISE` thì giữ `velocity = 64`; nếu `phrase.rise >= MIN_RISE` (khi `peak == 72`), nếu là `Glockenspiel` 1 run thì gán `velocity = 72`, còn lại vuốt nhẹ `NoteEvent.velocity` trong khoảng `64..72` theo `span_swell` (với `eff_apex = arc_start + (sounding_end - arc_start) // 2` nếu 1 run dài $\ge 4$ móc, ngược lại `eff_apex = span_apex`).
 
-- **Nhánh B — Đoạn có độ dốc và đủ độ dài (`phrase.rise >= MIN_RISE` và `sounding_end - arc_start >= WEDGE_MIN`)**:
+- **Nhánh B — Đoạn có độ dốc, đủ độ dài VÀ có xác nhận của thanh khoản / Breakout (`phrase.rise >= MIN_RISE` và `sounding_end - arc_start >= WEDGE_MIN` và `peak == 80`)**:
   Kiểm tra theo đúng thứ tự ưu tiên từ 1 đến 4 (không in chữ `"mf"` ở đỉnh của Hình thái 1 và 2 vì `<wedge>` từ `"mp"` đã tự động đạt đỉnh `"mf"` trên MuseSounds):
   1. **Ưu tiên 1 — `Glockenspiel` 1 tiếng gõ (`ensemble == "brass"` và `len(merged_flute_runs) < 2`)**:
      - Không sinh `<wedge>` (nhạc cụ gõ kim loại tắt dần sau cú gõ).
-     - Gán `velocity = peak`; `start_marking = "mf"` nếu `peak == 80`, ngược lại `"mp"`.
+     - Gán `velocity = 80`, và yêu cầu `start_marking = "mf"`.
   2. **Ưu tiên 2 (Hình thái 2) — Một cao độ sáo ngân dài duy nhất (`len(merged_flute_runs) == 1` và `sounding_end - arc_start >= 4`)**:
      - Đặt đỉnh vào giữa hơi ngân: `eff_apex = arc_start + (sounding_end - arc_start) // 2`, `start_marking = "mp"`.
      - Sinh `wedges = hairpins(arc_start, sounding_end, eff_apex)` (luôn đủ $\ge 2$ móc mỗi bên nên luôn có đủ cặp `< >` nở từ `mp` lên `mf` rồi khép về `mp`).
@@ -119,11 +122,8 @@ Với mỗi đoạn Flute có `sounding_end > span_start` và `first_attack is n
      - Sinh `wedges = hairpins(arc_start, sounding_end, eff_apex)` (gồm `crescendo` từ `arc_start` tới `eff_apex`, và `diminuendo` từ `eff_apex` tới `sounding_end` nếu `sounding_end - eff_apex >= WEDGE_MIN`).
   4. **Ưu tiên 4 (Hình thái 3) — Vào ngay tại đỉnh rồi đi xuống (`span_apex - arc_start < WEDGE_MIN`)**:
      - `eff_apex = arc_start`.
-     - **Nếu `peak == 80` (thanh khoản `mf`/`f` hoặc có `BREAKOUT`)**:
-       - Với `ensemble == "brass"` (`Glockenspiel`, vốn nghe cả chữ lẫn velocity): giữ `start_marking = "mp"` và mở `diminuendo` (`>`) từ `arc_start` tới `sounding_end` để chuỗi tiếng chuông giảm dần theo velocity mà không bị chữ `"mf"` kích vọt `+14 dB` ở đầu đoạn.
-       - Với `classic` (`Flute 1`) và `wood` (`Piccolo`): yêu cầu `start_marking = "mf"` ngay tại `arc_start` (đón tiếp đỉnh cao trào từ Violin) rồi sinh `wedges = [_wedge_at(arc_start, "diminuendo"), _wedge_at(sounding_end, "stop")]`.
-     - **Nếu `peak == 72` (thanh khoản `p`/`mp` và không có `BREAKOUT` — câu yên)**:
-       - Giữ `start_marking = "mp"` và **không sinh `diminuendo` trần** (tránh nhảy lên `"mf"` trên câu yên hoặc tụt từ `"mp"` xuống `"p"`). Velocity vẫn vuốt nhẹ từ `72` về `64` theo `span_swell`.
+     - Với `ensemble == "brass"` (`Glockenspiel`, vốn nghe cả chữ lẫn velocity): giữ `start_marking = "mp"` và mở `diminuendo` (`>`) từ `arc_start` tới `sounding_end` để chuỗi tiếng chuông giảm dần theo velocity mà không bị chữ `"mf"` kích vọt `+14 dB` ở đầu đoạn.
+     - Với `classic` (`Flute 1`) và `wood` (`Piccolo`): yêu cầu `start_marking = "mf"` ngay tại `arc_start` (đón tiếp đỉnh cao trào từ Violin) rồi sinh `wedges = [_wedge_at(arc_start, "diminuendo"), _wedge_at(sounding_end, "stop")]`.
 
 ### C. State Machine duy nhất quản lý chữ in (`high_dynamics`), Bảng chuyển trạng thái và chống trùng ở `bar == 0`
 
@@ -149,10 +149,10 @@ def emit_flute_dynamic(eighth_pos: int, target_marking: str) -> None:
 
 | Cách thực thi của đoạn Flute | Lệnh gọi `emit_flute_dynamic` trong đoạn | Giá trị `effective_level` sau khi kết thúc đoạn | Hệ quả ở đoạn Flute kế tiếp (có `first_attack`) |
 |---|---|---|---|
-| **1. Không có `<wedge>` và đứng ở `"mp"`**<br>*(Đoạn phẳng `rise < MIN_RISE`, đoạn `< WEDGE_MIN`, Hình thái 3 ở `peak == 72`, hoặc `Glockenspiel` 1 run ở `peak == 72`)* | `emit_flute_dynamic(arc_start, "mp")` | **`"mp"`** | Đoạn sau mở `"mp"` sẽ không in lặp `"mp"`; đoạn sau mở `"mf"` sẽ in `"mf"`. |
+| **1. Không có `<wedge>` và đứng ở `"mp"`**<br>*(Nhánh A: đoạn phẳng `rise < MIN_RISE`, đoạn `< WEDGE_MIN`, hoặc mọi đoạn câu yên `peak == 72`)* | `emit_flute_dynamic(arc_start, "mp")` | **`"mp"`** | Đoạn sau mở `"mp"` sẽ không in lặp `"mp"`; đoạn sau mở `"mf"` sẽ in `"mf"`. |
 | **2. Không có `<wedge>` nhưng mở `"mf"`**<br>*(`Glockenspiel` 1 run với `rise >= MIN_RISE` và `peak == 80`)* | `emit_flute_dynamic(arc_start, "mf")` | **`"drifted"`** | Đoạn sau bắt buộc in lại `"mp"` (nếu `start_marking == "mp"`) hoặc in `"mf"` (nếu `start_marking == "mf"`). |
-| **3. Có cặp `< >` cân bằng đủ hai cạnh trên nền `"mp"`**<br>*(Hình thái 2, hoặc Hình thái 1 khi `sounding_end - eff_apex >= WEDGE_MIN`)* | `emit_flute_dynamic(arc_start, "mp")` | **`"mp"`** | Thực nghiệm Mục 1 chứng minh sau `< >` cân bằng, mức phát tự trả về `-46.5 dB` RMS (khớp `<mp/>` tường minh `-46.3 dB` RMS, giống `drift == 0` của Violin/Cello), nên đoạn sau mở `"mp"` không cần in thừa chữ. |
-| **4. Đoạn chỉ có 1 cạnh `<wedge>` (bất đối xứng)**<br>*(Gồm: **(4a)** Hình thái 1 kết thúc ngay tại đỉnh chỉ có `crescendo` trần `sounding_end - eff_apex < WEDGE_MIN`; **(4b)** Hình thái 3 ở `peak == 80` mở `"mf"`/`"mp"` rồi chỉ có `diminuendo`)* | • **(4a)**: `emit_flute_dynamic(arc_start, "mp")`<br>• **(4b)**: `emit_flute_dynamic(arc_start, start_marking)` | **`"drifted"`** | Vì `"drifted"` khác cả `"mp"` lẫn `"mf"`, đoạn kế tiếp **luôn in tường minh** `start_marking` của nó (`"mp"` để reset về nền, hoặc `"mf"` nếu đoạn kế tiếp là Hình thái 3 ở `peak == 80`!). |
+| **3. Có cặp `< >` cân bằng đủ hai cạnh trên nền `"mp"`**<br>*(Nhánh B `peak == 80`: Hình thái 2, hoặc Hình thái 1 khi `sounding_end - eff_apex >= WEDGE_MIN`)* | `emit_flute_dynamic(arc_start, "mp")` | **`"mp"`** | Thực nghiệm Mục 1 chứng minh sau `< >` cân bằng, mức phát tự trả về `-46.5 dB` RMS (khớp `<mp/>` tường minh `-46.3 dB` RMS, giống `drift == 0` của Violin/Cello), nên đoạn sau mở `"mp"` không cần in thừa chữ. |
+| **4. Đoạn chỉ có 1 cạnh `<wedge>` (bất đối xứng)**<br>*(Nhánh B `peak == 80`: **(4a)** Hình thái 1 kết thúc ngay tại đỉnh chỉ có `crescendo` trần `sounding_end - eff_apex < WEDGE_MIN`; **(4b)** Hình thái 3 mở `"mf"`/`"mp"` rồi chỉ có `diminuendo`)* | • **(4a)**: `emit_flute_dynamic(arc_start, "mp")`<br>• **(4b)**: `emit_flute_dynamic(arc_start, start_marking)` | **`"drifted"`** | Vì `"drifted"` khác cả `"mp"` lẫn `"mf"`, đoạn kế tiếp **luôn in tường minh** `start_marking` của nó (`"mp"` để reset về nền, hoặc `"mf"` nếu đoạn kế tiếp là Hình thái 3 ở `peak == 80`!). |
 
 - **Lưu ý thực thi**: Bản thân lệnh `emit_flute_dynamic` gán `effective_level = target_marking`, nên ở Trường hợp 2 và Trường hợp 4, **ngay sau khi xử lý xong đoạn phải có lệnh gán tường minh `effective_level = "drifted"`**.
 - **Chống trùng ở `bar == 0, beat == 0.0` (chỉ áp dụng cho `P5` và `P3`)**: Trong `musicxml.py`, giữ nguyên `_opening_p` cho `P1` (Violin) và `P2` (Cello). Viết hàm `_opening_dynamic(dynamics, default)` chỉ dùng cho `P5` và `P3` của Giao hưởng: nếu phần tử đầu tiên của `dynamics` nằm tại `(bar=0, beat=0.0)`, dùng phần tử đó làm `opening_dynamic` của part và trả về `dynamics[1:]`, đảm bảo ô 1 không bao giờ có 2 thẻ `<dynamics>`.
@@ -256,21 +256,26 @@ def emit_flute_dynamic(eighth_pos: int, target_marking: str) -> None:
        - **Mức giường và mức đích của fill tại ô `b`**:
          - `bed_mark = bed_marking_at[b]` (`"p"` hoặc `"mp"`).
          - `fill_mark = "mp" if bed_mark == "p" else "mf"`.
-       - **Quy tắc kết hợp Chữ và `<wedge>` để luôn nâng đúng +1 bậc trên MuseSounds (theo bảng đo `M1..M7` ở Mục 1)**:
+       - **Quy tắc kết hợp Chữ và `<wedge>` để luôn nâng đúng +1 bậc trên MuseSounds (theo bảng đo `M1..M8` ở Mục 1)**:
          1. **Khi `m_b >= 2` và `sub_end - sub_start >= WEDGE_MIN` và `direction == "rise"` (`Nở`)**:
             - Vì `<wedge type="crescendo">` trên Piano đã tự động nâng đúng +1 bậc từ mức hiện tại (`p -> mp` hoặc `mp -> mf`), **chữ bắt đầu tại `fill_beat` là `bed_mark`** (tức giữ nguyên mức giường của ô `b`, không nâng sẵn lên `fill_mark` để tránh bị cộng thành +2 bậc lên `f`!), kèm mở `<wedge type="crescendo">` tại `sub_start` và đóng `stop` tại `sub_end`.
             - Ghi nhận sự kiện fill `(b, fill_beat, bed_mark, True)` (`has_wedge = True`).
          2. **Khi `m_b >= 2` và `sub_end - sub_start >= WEDGE_MIN` và `direction == "fall"` (`Lắng`)**:
-            - Cần câu fill vào nổi bật trên giường đúng +1 bậc rồi lắng dần về mức giường: **chữ bắt đầu tại `fill_beat` là `fill_mark`** (`"mp"` trên giường `"p"`, hoặc `"mf"` trên giường `"mp"`), kèm mở `<wedge type="diminuendo">` tại `sub_start` và đóng `stop` tại `sub_end` (theo phép đo `M6`, câu fill bắt đầu ở `-23.4 dB` và lắng về `-26.6 dB`, vẫn ngồi trên giường `p = -29.2 dB`).
+            - Cần câu fill vào nổi bật trên giường đúng +1 bậc rồi lắng xuống: **chữ bắt đầu tại `fill_beat` là `fill_mark`** (`"mp"` trên giường `"p"`, hoặc `"mf"` trên giường `"mp"`), kèm mở `<wedge type="diminuendo">` tại `sub_start` và đóng `stop` tại `sub_end` (theo phép đo `M6` và `M8`, câu fill giảm `3.2–3.4 dB` tới nốt gõ cuối, vẫn đứng cao hơn mức giường `2.4–2.6 dB` để nốt kết fill không bị chìm, sau đó đầu ô kế tiếp in lại chữ giường).
             - Ghi nhận sự kiện fill `(b, fill_beat, fill_mark, True)` (`has_wedge = True`).
-         3. **Ketika `m_b == 1` hoặc `sub_end - sub_start < WEDGE_MIN` hoặc `direction == "flat"` (`Ngang`)**:
+         3. **Khi `m_b == 1` hoặc `sub_end - sub_start < WEDGE_MIN` hoặc `direction == "flat"` (`Ngang`)**:
             - Không sinh `<wedge>`. **Chữ bắt đầu tại `fill_beat` là `fill_mark`** (+1 bậc trên giường).
             - Ghi nhận sự kiện fill `(b, fill_beat, fill_mark, False)` (`has_wedge = False`).
-       - **Công thức nội suy tuyến tính cho `NoteEvent.velocity` trên chính `sub_group` (`m_b` nốt trong ô `b`)**:
-         - Với `fill_mark == "mp"` (mốc `64`): `"rise"` đi từ `v_start = 58` đến `v_end = 66`; `"fall"` đi từ `v_start = 64` đến `v_end = 56`; `"flat"` giữ `64`.
-         - Với `fill_mark == "mf"` (mốc `80`): `"rise"` đi từ `v_start = 74` đến `v_end = 80`; `"fall"` đi từ `v_start = 80` đến `v_end = 72`; `"flat"` giữ `80`.
-         - Nếu `m_b == 1` hoặc `direction == "flat"`: `vel_k = 64 if fill_mark == "mp" else 80`.
-         - Nếu `m_b >= 2`: nốt thứ `k` (`0 <= k < m_b`) trong `sub_group` nhận `vel_k = round(v_start + (v_end - v_start) * k / (m_b - 1))`.
+       - **Công thức nội suy tuyến tính cho `NoteEvent.velocity` trên chính `sub_group` (`m_b` nốt trong ô `b`) — đi cùng chiều với chữ in**:
+         - Đặt `bed_vel = bed_velocity_at[b]` (`46`/`54` khi giường `p`, hoặc `62`/`68` khi giường `mp`), và `target_vel = 64 if fill_mark == "mp" else 80`.
+         - Nếu `m_b == 1` hoặc `sub_end - sub_start < WEDGE_MIN` hoặc `direction == "flat"` (`Ngang`): mọi nốt trong `sub_group` nhận `vel_k = target_vel` (`64` hoặc `80`, khớp với chữ `fill_mark` không có wedge).
+         - Nếu `m_b >= 2` và `sub_end - sub_start >= WEDGE_MIN`:
+           - Với `direction == "rise"` (`Nở` — mở từ mức giường rồi `<crescendo>` lên `fill_mark`): đi từ **`v_start = bed_vel`** lên **`v_end = target_vel`** (tức `46 → 64` hoặc `54 → 64` khi giường là `p`; `62 → 80` hoặc `68 → 80` khi giường là `mp`).
+           - Với `direction == "fall"` (`Lắng` — mở ở `fill_mark` rồi `<diminuendo>` hạ hơn nửa bậc, vẫn đứng trên giường): đi từ **`v_start = target_vel`** xuống **`v_end = 56 if fill_mark == "mp" else 72`** (tức `64 → 56` trên giường `p`, hoặc `80 → 72` trên giường `mp`).
+           - Nốt thứ `k` (`0 <= k < m_b`) trong `sub_group` nhận:
+             ```python
+             vel_k = round(v_start + (v_end - v_start) * k / (m_b - 1))
+             ```
 4. **Dựng `comp_dynamics` theo từng ô và từng phách**:
    - Duyệt `bar` từ `0` đến `musical_bars - 1`, theo dõi `current_comp_mark: str | None = None`:
      - Tại `beat = 0.0`: nếu ô `bar` có ít nhất một nốt kêu tại `beat == 0.0` (guide tone ở khuông 1 hoặc root ở khuông 2) và `bed_marking_at[bar] != current_comp_mark`:
@@ -298,16 +303,25 @@ def emit_flute_dynamic(eighth_pos: int, target_marking: str) -> None:
        - Nếu `start_w.bar < body` nhưng `stop_w` nằm sau `(body, 0.0)` (câu bắt đầu từ vùng warm-up nhưng đỉnh/kết thúc vẫn nằm trong thân bài `[body, cool)`): **mở lại `start_w` tại `(bar=body, beat=0.0)`** (`start_w = WedgeEvent(body, 0.0, start_w.kind)`).
        - Nếu `stop_w.bar >= cool`: cắt `stop_w` về cuối thân bài `WedgeEvent(cool - 1, beats, "stop")`.
        - Chỉ giữ cặp `(start_w, stop_w)` nếu khoảng cách giữa chúng sau khi cắt vẫn đạt ít nhất `WEDGE_MIN` (`1.0` phách đen = 2 móc đơn).
-   - **Hàm `_flute_body_dynamics(events, body, cool)`**:
-     - Suy chữ đang có hiệu lực tại `(body, 0.0)` từ các sự kiện tại hoặc trước `(body, 0.0)`:
+   - **Hàm `_flute_body_dynamics(events, notes, body, cool)`**:
+     - Tách riêng bước **khôi phục chữ `"mf"` đang có hiệu lực tại `(body, 0.0)`** và bước **xóa chữ `"mp"` thừa tại đúng `(body, 0.0)`** (tuyệt đối không xóa chữ `"mp"` ở `bar > body` hoặc `beat > 0.0`, vì đó là chữ reset sau một `<wedge>` trong thân bài!):
        ```python
        before = [e.marking for e in events if e.bar < body or (e.bar == body and e.beat == 0.0)]
        body_mark = before[-1] if before else "mp"
        kept = [e for e in events if body <= e.bar < cool]
+       # 1) Chỉ bỏ phần tử đầu nếu nó nằm ngay tại (body, 0.0) và trùng với "mp" mở đầu ở bar 0:
+       if kept and kept[0].bar == body and kept[0].beat == 0.0 and kept[0].marking == "mp":
+           kept = kept[1:]
+       # 2) Nếu mức hiệu lực lúc bước vào (body, 0.0) đang là "mf" và Flute có nốt kêu tại (body, 0.0),
+       #    đảm bảo (body, 0.0) có chữ "mf" (ngay cả khi phía sau trong kept có chữ "mp" ở phách/ô khác):
+       has_body_note = any(n.bar == body and n.beat == 0.0 and n.midi is not None for n in notes)
+       if (
+           body_mark == "mf"
+           and has_body_note
+           and not (kept and kept[0].bar == body and kept[0].beat == 0.0)
+       ):
+           kept.insert(0, DynamicEvent(bar=body, marking="mf", sound=SOUND["mf"], beat=0.0))
        ```
-     - Vì `P5` mở đầu bằng `"mp"` tại `bar == 0` và nghỉ suốt `0..body`:
-       - Nếu `kept` mở đầu bằng `"mp"`: bỏ `kept[0]` (`kept = kept[1:]`) để không in trùng 2 chữ `"mp"`.
-       - Ngược lại, nếu `body_mark == "mf"` và `kept` chưa có sự kiện tại `(bar=body, beat=0.0)`: chèn `DynamicEvent(bar=body, marking="mf", sound=SOUND["mf"], beat=0.0)` vào đầu `kept` (khi Flute có nốt kêu tại `(body, 0.0)`).
    - **Hàm `_piano_frame_dynamics` cho `comp_dynamics`**:
      - Suy chữ giường tại ô `body` từ sự kiện giường (`beat == 0.0`) gần nhất tại hoặc trước `body`:
        ```python
@@ -435,19 +449,21 @@ _VOICE_VOLUME_DB: dict[str, float] = {
 ## 8. Tiêu chí Kiểm tra (Test Plan)
 
 - **Flute (`P5`)**:
-  - Đỉnh hairpin trùng móc giá gốc cao nhất đầu tiên (`span_apex` từ `pitches`), kể cả khi `flute_harmony_pitch` đã gập nốt đó xuống một quãng tám.
-  - Đoạn 1 nốt sáo ngân dài duy nhất ($\ge 4$ móc, Hình thái 2 — ưu tiên trước Hình thái 1) luôn sinh cặp `< >` với đỉnh ở giữa ngân (`mid_apex`), không in chữ `mf` ở giữa đoạn.
-  - Khi Flute vào ngay tại đỉnh (`span_apex - arc_start < WEDGE_MIN`, Hình thái 3): nếu `peak == 80` (và `ensemble != "brass"`), `P5` mở chữ `mf` tại `arc_start` kèm `diminuendo`, rồi in lại `mp` ở tiếng đánh mới kế tiếp (nếu rơi vào `(bar=0, beat=0.0)`, ô 1 chỉ in đúng một thẻ `<dynamics><mf/></dynamics>`); nếu `peak == 72` (câu yên `p`/`mp`), giữ `"mp"` và không mở `"mf"` hay `diminuendo` trần.
+  - Khi `peak == 72` (thanh khoản tại đỉnh là `p`/`mp` và không có `BREAKOUT`), Flute giữ chữ `"mp"` phẳng và **không sinh `<wedge>`** (velocity vuốt nhẹ trong `64..72`).
+  - Khi `peak == 80` (thanh khoản tại đỉnh là `mf`/`f` hoặc có `BREAKOUT`) và `phrase.rise >= MIN_RISE`:
+    - Đoạn 1 nốt sáo ngân dài duy nhất ($\ge 4$ móc, Hình thái 2 — ưu tiên trước Hình thái 1) sinh cặp `< >` với đỉnh ở giữa ngân (`mid_apex`), không in chữ `mf` ở giữa đoạn.
+    - Đoạn leo lên đỉnh (`span_apex - arc_start >= WEDGE_MIN`, Hình thái 1) có đỉnh hairpin trùng móc giá gốc cao nhất đầu tiên (`span_apex` từ `pitches`), kể cả khi `flute_harmony_pitch` đã gập nốt đó xuống một quãng tám.
+    - Khi Flute vào ngay tại đỉnh (`span_apex - arc_start < WEDGE_MIN`, Hình thái 3, `ensemble != "brass"`), `P5` mở chữ `mf` tại `arc_start` kèm `diminuendo`, rồi in lại `mp` ở tiếng đánh mới kế tiếp (nếu rơi vào `(bar=0, beat=0.0)`, ô 1 chỉ in đúng một thẻ `<dynamics><mf/></dynamics>`).
   - **Chuyển trạng thái sau `crescendo` trần (Trường hợp 4a)**: Đoạn Flute kết thúc ngay tại đỉnh (`sounding_end - span_apex < WEDGE_MIN`, chỉ có `crescendo`) đặt `effective_level = "drifted"`; đoạn Flute kế tiếp luôn in tường minh `start_marking` của nó (`"mp"` hoặc `"mf"`).
   - **Đoạn có nốt đầu buộc nối qua ranh giới phrase (`tie_first_in == True`)** và **giao khoảng `BREAKOUT`**: Không đặt chữ/wedge trên nốt nối dây (`r_i == 0`), và `f_run` giao với run `BREAKOUT` của `phrase.runs` nhận đúng `vel = 80`.
-  - `ensemble == "brass"` (`Glockenspiel`): đoạn 1 run không sinh `<wedge>` (chỉ in `mf` khi `peak == 80` và `rise >= MIN_RISE`); đoạn $\ge 2$ runs có `<wedge>` và không bao giờ bị kích chữ `"mf"` ở cả Hình thái 1, 2 lẫn 3.
+  - `ensemble == "brass"` (`Glockenspiel`): đoạn 1 run không sinh `<wedge>` (chỉ in `mf` khi `peak == 80` và `rise >= MIN_RISE`); đoạn $\ge 2$ runs ở `peak == 80` có `<wedge>` và không bao giờ bị kích chữ `"mf"` ở cả Hình thái 1, 2 lẫn 3.
 - **Violin (`P1`), Cello (`P2`) & Bass (`P4`)**:
   - `lead_wedges` và `support_wedges` giữ nguyên hành vi hiện tại (pass toàn bộ test trong `test_harmony.py`).
   - Khi Cello hát chính ở ô `bar` (tổng thời lượng nốt Cello $\ge \max(\text{quarter\_beats}/2, 2.0)$ phách đen), toàn bộ nốt Bass trong ô đó (kể cả bậc 5 của các hợp âm `F..B`) đều có `midi < 48` (`Đô3`). Các ô chỉ có nốt dovetail ngắn (`< 2.0` phách đen, bao gồm đoạn 3 móc ở `6/8`) giữ nguyên pattern Bass hiện tại.
 - **Piano (`P3`) & Frame (`daily_frame`, `movement_frame`)**:
   - Giường chỉ in `p` và `mp` theo `effective_comp_band`, đứng trước `<harmony>` tại `beat == 0.0`. Velocity giường nhận đúng `46 / 54 / 62 / 68`.
   - Ô `f` (sau groove) hoặc `groove.rally` đánh gốc tay trái mỗi ô trên Giao hưởng; `left_hand` của Jazz giữ nguyên đánh mỗi 2 ô.
-  - Trên mỗi `sub_group` của câu fill: hướng `Nở` ($\ge 2$ nốt) giữ nguyên chữ giường và mở `<crescendo>` (tăng đúng +1 bậc); hướng `Lắng` ($\ge 2$ nốt) in `fill_mark` (+1 bậc) kèm `<diminuendo>`; hướng `Ngang` hoặc 1 nốt in `fill_mark` không kèm `<wedge>`. Nội suy velocity tính theo từng `sub_group` trên mỗi ô nhịp `b`, khớp chữ của ô đó kể cả khi fill vượt qua vạch ô nhịp. Hợp âm đệm kế tiếp in lại chữ giường ở `beat = 0.0`.
-  - **Cắt/nối qua Frame**: Nốt do `_curtain_comp` sinh ở warm-up / `tag_bars` có `velocity = 49` (không chạm `_kept_comp`). Khi một `<wedge>` của Flute mở trước `body` nhưng kết thúc sau `(body, 0.0)` với độ dài còn lại $\ge \text{WEDGE\_MIN}$, `_trim_frame_wedges` mở lại cạnh wedge tại `(bar=body, beat=0.0)`. Khi chữ hiệu lực tại `(body, 0.0)` khác chữ mặc định đầu bài (`"mf"` trên Flute hoặc `"mp"` trên Piano), khung khôi phục chữ đó tại `(bar=body, beat=0.0)`.
+  - Trên mỗi `sub_group` của câu fill: hướng `Nở` ($\ge 2$ nốt) giữ nguyên chữ giường, mở `<crescendo>` và nội suy velocity từ `bed_velocity_at[b]` lên `target_vel` (`46/54 → 64` hoặc `62/68 → 80`); hướng `Lắng` ($\ge 2$ nốt) in `fill_mark` (+1 bậc), mở `<diminuendo>` và nội suy velocity từ `target_vel` xuống `56` hoặc `72`; hướng `Ngang` hoặc 1 nốt in `fill_mark` (`64` hoặc `80`) không kèm `<wedge>`. Hợp âm đệm kế tiếp in lại chữ giường ở `beat = 0.0`.
+  - **Cắt/nối qua Frame**: Nốt do `_curtain_comp` sinh ở warm-up / `tag_bars` có `velocity = 49` (không chạm `_kept_comp`). Khi một `<wedge>` của Flute mở trước `body` nhưng kết thúc sau `(body, 0.0)` với độ dài còn lại $\ge \text{WEDGE\_MIN}$, `_trim_frame_wedges` mở lại cạnh wedge tại `(bar=body, beat=0.0)`. Khi mức hiệu lực tại `(body, 0.0)` là `"mf"` trên Flute (kể cả khi phía sau trong thân bài có chữ `"mp"` ở phách/ô khác) hoặc `"mp"` trên Piano, khung khôi phục đúng chữ đó tại `(bar=body, beat=0.0)` mà không làm mất chữ `"mp"` reset phía sau.
 - **Audio & `<Harmony>` (`audio.py`)**:
   - Unit test với fixture `.mscz` xác nhận `_mute_mscx_harmony` chèn `<play>0</play>` (idempotent, giữ nguyên phần còn lại của `score.mscx`) và gắn đúng `volumeDb` từ `_VOICE_VOLUME_DB`, kèm smoke test tích hợp qua `musescore_export` (tự động `pytest.skip` khi không có binary MuseScore) kiểm tra cả xuất WAV thành công lẫn độ giảm RMS (~6 dB) khi tắt Piano ẩn của `<Harmony>`.
