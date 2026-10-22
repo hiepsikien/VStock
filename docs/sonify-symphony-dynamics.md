@@ -104,16 +104,23 @@ Flute vào khi câu lên cao (`>= FLUTE_TRIGGER`), khi có `BREAKOUT`, hoặc kh
 
 Với mỗi đoạn Flute có `sounding_end > span_start` và `first_attack is not None`, đặt `arc_start = first_attack.start`:
 
-- **Nhánh A — Đoạn phẳng, quá ngắn, hoặc câu yên không có dòng tiền (`phrase.rise < MIN_RISE` hoặc `sounding_end - arc_start < WEDGE_MIN` hoặc `peak == 72`)**:
-  - Không sinh `<wedge>` (để trên MuseSounds, câu yên `p`/`mp` không có `BREAKOUT` đứng ở mức `mp` êm dịu, tách biệt hoàn toàn với câu có thanh khoản `mf`/`f` hoặc `BREAKOUT`).
-  - `start_marking = "mp"`.
-  - Về `velocity`: nếu `phrase.rise < MIN_RISE` thì giữ `velocity = 64`; nếu `phrase.rise >= MIN_RISE` (khi `peak == 72`), nếu là `Glockenspiel` 1 run thì gán `velocity = 72`, còn lại vuốt nhẹ `NoteEvent.velocity` trong khoảng `64..72` theo `span_swell` (với `eff_apex = arc_start + (sounding_end - arc_start) // 2` nếu 1 run dài $\ge 4$ móc, ngược lại `eff_apex = span_apex`).
+- **Nhánh A — Đoạn không sinh `<wedge>` (`phrase.rise < MIN_RISE` hoặc `peak == 72` hoặc `sounding_end - arc_start < WEDGE_MIN`)**:
+  - Không sinh `<wedge>` (câu phẳng, câu có `peak == 72`, hoặc đoạn 1 móc không đủ chỗ cho vòng cung).
+  - **Chữ mở đoạn (`start_marking`)**:
+    - Nếu `ensemble == "brass"` (`Glockenspiel`), `len(merged_flute_runs) == 1`, `phrase.rise >= MIN_RISE` và `peak == 80` (kể cả khi đoạn chỉ dài 1 móc): `start_marking = "mf"` (để tiếng chuông đơn ở đỉnh `mf`/`f` hoặc `BREAKOUT` vang đúng mức `mf`, thuộc Trường hợp 2 của bảng chuyển trạng thái).
+    - Mọi trường hợp còn lại của Nhánh A (bao gồm `Flute 1` và `Piccolo` trên đoạn 1 móc `sounding_end - arc_start < WEDGE_MIN`, mọi đoạn `peak == 72`, và mọi đoạn `phrase.rise < MIN_RISE`): `start_marking = "mp"` (thuộc Trường hợp 1 của bảng chuyển trạng thái).
+  - **Về `velocity`**:
+    - Nếu `phrase.rise < MIN_RISE`: mọi nốt trong đoạn giữ `velocity = 64`.
+    - Nếu `phrase.rise >= MIN_RISE`:
+      - Với `Glockenspiel` 1 run (`ensemble == "brass"` và `len(merged_flute_runs) == 1`): gán `velocity = peak` (`72` khi `peak == 72`, `80` khi `peak == 80`).
+      - Với sáo (`classic` / `wood`) trên đoạn 1 móc ở `peak == 80`: run giao với `BREAKOUT` (`overlaps_breakout`) nhận `velocity = 80`, ngược lại tính theo `span_swell` (tại `eff_apex = span_apex`, tức nhận `round(64 + 16 * lift(phrase))`).
+      - Với `peak == 72`: vuốt nhẹ `NoteEvent.velocity` trong khoảng `64..72` theo `span_swell` (với `eff_apex = arc_start + (sounding_end - arc_start) // 2` nếu 1 run dài $\ge 4$ móc, ngược lại `eff_apex = span_apex`).
 
-- **Nhánh B — Đoạn có độ dốc, đủ độ dài VÀ có xác nhận của thanh khoản / Breakout (`phrase.rise >= MIN_RISE` và `sounding_end - arc_start >= WEDGE_MIN` và `peak == 80`)**:
+- **Nhánh B — Đoạn có độ dốc, đủ độ dài VÀ `peak == 80` (`phrase.rise >= MIN_RISE` và `sounding_end - arc_start >= WEDGE_MIN` và `peak == 80`)**:
   Kiểm tra theo đúng thứ tự ưu tiên từ 1 đến 4 (không in chữ `"mf"` ở đỉnh của Hình thái 1 và 2 vì `<wedge>` từ `"mp"` đã tự động đạt đỉnh `"mf"` trên MuseSounds):
   1. **Ưu tiên 1 — `Glockenspiel` 1 tiếng gõ (`ensemble == "brass"` và `len(merged_flute_runs) < 2`)**:
      - Không sinh `<wedge>` (nhạc cụ gõ kim loại tắt dần sau cú gõ).
-     - Gán `velocity = 80`, và yêu cầu `start_marking = "mf"`.
+     - Gán `velocity = 80`, và yêu cầu `start_marking = "mf"` (thuộc Trường hợp 2 của bảng chuyển trạng thái).
   2. **Ưu tiên 2 (Hình thái 2) — Một cao độ sáo ngân dài duy nhất (`len(merged_flute_runs) == 1` và `sounding_end - arc_start >= 4`)**:
      - Đặt đỉnh vào giữa hơi ngân: `eff_apex = arc_start + (sounding_end - arc_start) // 2`, `start_marking = "mp"`.
      - Sinh `wedges = hairpins(arc_start, sounding_end, eff_apex)` (luôn đủ $\ge 2$ móc mỗi bên nên luôn có đủ cặp `< >` nở từ `mp` lên `mf` rồi khép về `mp`).
@@ -149,8 +156,8 @@ def emit_flute_dynamic(eighth_pos: int, target_marking: str) -> None:
 
 | Cách thực thi của đoạn Flute | Lệnh gọi `emit_flute_dynamic` trong đoạn | Giá trị `effective_level` sau khi kết thúc đoạn | Hệ quả ở đoạn Flute kế tiếp (có `first_attack`) |
 |---|---|---|---|
-| **1. Không có `<wedge>` và đứng ở `"mp"`**<br>*(Nhánh A: đoạn phẳng `rise < MIN_RISE`, đoạn `< WEDGE_MIN`, hoặc mọi đoạn câu yên `peak == 72`)* | `emit_flute_dynamic(arc_start, "mp")` | **`"mp"`** | Đoạn sau mở `"mp"` sẽ không in lặp `"mp"`; đoạn sau mở `"mf"` sẽ in `"mf"`. |
-| **2. Không có `<wedge>` nhưng mở `"mf"`**<br>*(`Glockenspiel` 1 run với `rise >= MIN_RISE` và `peak == 80`)* | `emit_flute_dynamic(arc_start, "mf")` | **`"drifted"`** | Đoạn sau bắt buộc in lại `"mp"` (nếu `start_marking == "mp"`) hoặc in `"mf"` (nếu `start_marking == "mf"`). |
+| **1. Không có `<wedge>` và đứng ở `"mp"`**<br>*(Đoạn phẳng `rise < MIN_RISE`, mọi đoạn `peak == 72`, hoặc đoạn `< WEDGE_MIN` của sáo `classic`/`wood`)* | `emit_flute_dynamic(arc_start, "mp")` | **`"mp"`** | Đoạn sau mở `"mp"` sẽ không in lặp `"mp"`; đoạn sau mở `"mf"` sẽ in `"mf"`. |
+| **2. Không có `<wedge>` nhưng mở `"mf"`**<br>*(`Glockenspiel` 1 run với `rise >= MIN_RISE` và `peak == 80`, kể cả khi dài 1 móc `< WEDGE_MIN` hay $\ge \text{WEDGE\_MIN}$)* | `emit_flute_dynamic(arc_start, "mf")` | **`"drifted"`** | Đoạn sau bắt buộc in lại `"mp"` (nếu `start_marking == "mp"`) hoặc in `"mf"` (nếu `start_marking == "mf"`). |
 | **3. Có cặp `< >` cân bằng đủ hai cạnh trên nền `"mp"`**<br>*(Nhánh B `peak == 80`: Hình thái 2, hoặc Hình thái 1 khi `sounding_end - eff_apex >= WEDGE_MIN`)* | `emit_flute_dynamic(arc_start, "mp")` | **`"mp"`** | Thực nghiệm Mục 1 chứng minh sau `< >` cân bằng, mức phát tự trả về `-46.5 dB` RMS (khớp `<mp/>` tường minh `-46.3 dB` RMS, giống `drift == 0` của Violin/Cello), nên đoạn sau mở `"mp"` không cần in thừa chữ. |
 | **4. Đoạn chỉ có 1 cạnh `<wedge>` (bất đối xứng)**<br>*(Nhánh B `peak == 80`: **(4a)** Hình thái 1 kết thúc ngay tại đỉnh chỉ có `crescendo` trần `sounding_end - eff_apex < WEDGE_MIN`; **(4b)** Hình thái 3 mở `"mf"`/`"mp"` rồi chỉ có `diminuendo`)* | • **(4a)**: `emit_flute_dynamic(arc_start, "mp")`<br>• **(4b)**: `emit_flute_dynamic(arc_start, start_marking)` | **`"drifted"`** | Vì `"drifted"` khác cả `"mp"` lẫn `"mf"`, đoạn kế tiếp **luôn in tường minh** `start_marking` của nó (`"mp"` để reset về nền, hoặc `"mf"` nếu đoạn kế tiếp là Hình thái 3 ở `peak == 80`!). |
 
