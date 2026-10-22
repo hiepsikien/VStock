@@ -112,6 +112,7 @@ def emit_flute_dynamic(eighth_pos: int, target_marking: str) -> None:
 | **3. Có cặp `< >` cân bằng trên nền `"mp"`, không in `"mf"` ở đỉnh**<br>*(Hình thái 1 hoặc 2 với `peak == 72` và có đủ cả `crescendo` lẫn `diminuendo`)* | `emit_flute_dynamic(arc_start, "mp")` | **`"mp"`** | `crescendo` (+1) và `diminuendo` (-1) tự triệt tiêu về `"mp"` (giống `drift == 0` của Violin/Cello), đoạn sau mở `"mp"` không in thừa chữ. |
 | **4. Mọi đoạn có `<wedge>` còn lại**<br>*(Gồm: **(4a)** Hình thái 1 kết thúc ngay tại đỉnh chỉ có `crescendo` trần; **(4b)** Hình thái 1 hoặc 2 có `peak == 80` in `"mf"` tại `eff_apex` rồi `diminuendo`; **(4c)** Hình thái 3 mở `"mf"` tại `arc_start` rồi `diminuendo`)* | • **(4a)**: `emit(arc_start, "mp")`<br>• **(4b)**: `emit(arc_start, "mp")` rồi `emit(eff_apex, "mf")`<br>• **(4c)**: `emit(arc_start, "mf")` | **`"drifted"`** | Vì `"drifted"` khác cả `"mp"` lẫn `"mf"`, đoạn kế tiếp **luôn in tường minh** `start_marking` của nó (`"mp"` để reset về nền, hoặc `"mf"` nếu đoạn kế tiếp lại là Hình thái 3!). |
 
+- **Lưu ý thực thi**: Bản thân lệnh `emit_flute_dynamic` gán `effective_level = target_marking` (`"mp"` hoặc `"mf"`), nên ở Trường hợp 2 và Trường hợp 4, **ngay sau khi xử lý xong đoạn phải có lệnh gán tường minh `effective_level = "drifted"`**.
 - **Chống trùng ở `bar == 0, beat == 0.0`**: Nếu đoạn Flute đầu tiên rơi ngay vào `arc_start == 0` và `start_marking == "mf"`, `flute_dynamics[0]` là `DynamicEvent(0, "mf", SOUND["mf"], 0.0)`. Trong `musicxml.py`, hàm `_opening_dynamic(score.high_dynamics, MELODY_DYNAMIC)` lấy phần tử `(bar=0, beat=0.0)` đó làm `opening_dynamic` của `P5` và trả về phần còn lại `score.high_dynamics[1:]`, đảm bảo ô 1 chỉ có đúng một thẻ `<dynamics>`.
 
 ### D. Công thức `span_swell(onset)` cho `NoteEvent.velocity` (không dùng `stress_start`)
@@ -404,7 +405,12 @@ _VOICE_VOLUME_DB: dict[str, float] = {
    - Tăng `RECAP_REVISION` từ `"28"` lên **`"29"`**, và `SPAN_REVISION` từ `"14"` lên **`"15"`**.
 8. **`backend/tests/test_harmony.py`, `test_sonify_plan.py`, `test_daily_frame.py`, `test_recap.py`**:
    - Cập nhật `test_chamber_bar_drops_the_symphony_right_hand` trong `test_sonify_plan.py` (dòng 928) mở tuple `notes, _ = _right_hand(...)`.
-   - Cập nhật assertion Piano Giao hưởng trong `test_harmony.py` (dòng 530, 587–590) theo bảng `PIANO_VELOCITY` và `comp_dynamics`, kèm bổ sung đầy đủ các bài test ở Mục 8.
+   - Trong `test_harmony.py`, cập nhật đầy đủ các assertion Piano/velocity hiện hữu bị ảnh hưởng bởi thiết kế mới:
+     1. `test_phrase_regime_uses_the_downbeat_window` (dòng 187–197): kiểm tra ô không có fill theo `len(right) == 3` (thay vì `not any(note.velocity for note in right)` vì guide tones đã mang velocity giường), và cập nhật `expected_left` khi ô có `eff_band == "f"` hoặc `groove.rally`.
+     2. `test_musicxml_writes_harmony_and_letter_dynamics` & `_assert_measure_timing` (dòng 529–530, 587–600): cập nhật assertion các thẻ `<dynamics>` của `piano` (`P3`) theo `score.comp_dynamics`, kiểm tra `dynamics` attribute của guide tones (`right[:2]`) và fill (`right[2:]`) theo `PIANO_VELOCITY` / nội suy fill, và cập nhật `expected_left` cho các ô đánh gốc mỗi ô (`eff_band == "f"` ở đầu/cuối phiên của bài test).
+     3. `test_piano_answers_a_held_cadence_under_the_violin` (dòng 897–905): cập nhật tuple `(beat, midi, duration_beats, velocity)` của `right` tại `bar == 4` (guide tones ở `beat == 0.0` nhận velocity giường `62` của band `mf`, 3 nốt fill nhận velocity nội suy của mức `mf`).
+     4. `test_fills_stay_in_the_cadence_tail_on_chord_tones` (dòng 930–936): nhận diện nốt fill bằng `note.staff == 1 and note.midi is not None and note.beat > 0.0` (thay vì `note.velocity is not None`).
+   - Chạy toàn bộ test suite (`pytest`) và bổ sung đầy đủ các bài test mới ở Mục 8.
 
 ---
 
@@ -427,5 +433,5 @@ _VOICE_VOLUME_DB: dict[str, float] = {
   - Chữ fill (`mp` hoặc `mf`) đứng đúng tại `beat` bắt đầu fill trên khuông 1; hợp âm đệm kế tiếp in lại chữ giường ở `beat = 0.0`. Velocity các nốt trong fill khớp công thức nội suy tuyến tính (`58 → 66`, `64 → 56`, `74 → 80`, `80 → 72`, hoặc `64`/`80` khi 1 nốt / ngang). Fill bị `caesura` cắt sạch không sinh chữ fill.
   - **Cắt/nối qua Frame**: Nốt do `_curtain_comp` sinh ở warm-up / `tag_bars` có `velocity = 49`, trong khi nốt thân bài (`_kept_comp`) giữ nguyên velocity `46/54/62/68` và velocity fill. Khi chữ giường tại ô `body` là `"mp"` (suy từ sự kiện giường `beat == 0.0` gần nhất $\le body$), cả khung tĩnh lẫn khung động đều in `"mp"` tại `(bar=body, beat=0.0)` và không in chữ trên các ô khung nghỉ.
 - **Audio & `<Harmony>` (`audio.py`)**:
-  - Unit test với fixture `.mscz` chứa `<Harmony><harmonyInfo>...</harmonyInfo></Harmony>` trong `score.mscx` xác nhận `_assign_installed_sounds` chèn `<play>0</play>` (idempotent) và gắn đúng `volumeDb` từ `_VOICE_VOLUME_DB`, kèm smoke test qua `musescore_export` xác nhận file `.mscz` đã gắn `<play>0</play>` xuất WAV thành công.
+  - Unit test với fixture `.mscz` chứa `<Harmony><harmonyInfo>...</harmonyInfo></Harmony>` trong `score.mscx` xác nhận `_assign_installed_sounds` chèn `<play>0</play>` (idempotent) và gắn đúng `volumeDb` từ `_VOICE_VOLUME_DB`, kèm smoke test tích hợp qua `musescore_export` (tự động `pytest.skip` khi môi trường CI/máy chạy test không cài đặt binary MuseScore) xác nhận file `.mscz` đã gắn `<play>0</play>` xuất WAV thành công.
   - Jazz, Tối giản và Ambient giữ nguyên số chữ và số hairpin trên cả 5 bè trong MusicXML.
