@@ -37,7 +37,7 @@ Giao hưởng 1M và giao hưởng 3M dùng một giọng nhà cho mọi chươn
 
 Một tháng bốn tuần đều tăng vẫn là bốn chương trưởng trên cùng một gốc. Tempo và mật độ hợp âm của chương chậm vẫn phân biệt chương II. Mode chỉ lật khi chính chương đó giảm, hoặc khi chương biến động kết bằng downtrend.
 
-Hợp âm đi qua trong câu giữ nguyên chức năng: Rê thứ là bậc ii, Sol là bậc V, Fa là bậc IV. Những hợp âm đó không phải chủ âm mới.
+Hợp âm đi qua trong câu giữ chức năng của giọng. Chương trưởng: Rê thứ là bậc ii, Sol là bậc V, Fa là bậc IV. Chương thứ: bậc ii là Rê thứ bảy giảm năm (`Dm7♭5`, gồm La♭), bậc V vẫn là Sol hoặc Sol bảy, bậc IV là Fa thứ. Những hợp âm đó không phải chủ âm mới.
 
 Chủ âm đạp của intro, của phách đầu mỗi câu, và của outro là hợp âm bậc I của mode chương đó.
 
@@ -77,7 +77,7 @@ Bên trong chương, drone không cadence sang chủ âm khác. Đoạn giữa �
 
 Score vẫn soạn ở không gian Đô, rồi dịch đúng `semitones` của giọng nhà. Chương thứ không chọn một `KeySpec` khác trên vòng.
 
-Hóa biểu là thứ cùng tên của giọng nhà. Dịch cao độ giữ nguyên.
+Hóa biểu là thứ tự nhiên cùng tên của giọng nhà. Dịch cao độ giữ nguyên. Si tự nhiên trên ô Sol là dấu hóa bất thường, viết theo hợp âm Sol, không đưa vào hóa biểu.
 
 | Giọng nhà | Hóa biểu trưởng | Hóa biểu thứ cùng tên |
 |---|---|---|
@@ -87,51 +87,101 @@ Hóa biểu là thứ cùng tên của giọng nhà. Dịch cao độ giữ nguy
 | Si♭ | 2 giáng | 5 giáng |
 | Mi♭ | 3 giáng | 6 giáng |
 
-Giai điệu của chương thứ lượng tử trên thang Đô thứ hòa thanh: Đô, Rê, Mi♭, Fa, Sol, La♭, Si. Si trưởng là âm dẫn của Sol trưởng, nên cadence V–i còn lực kéo. Nốt Si đó viết theo hợp âm khi hợp âm là Sol hoặc Sol bảy. Các nốt còn lại viết theo hóa biểu thứ tự nhiên.
+### Hợp âm có mặt trước Viterbi
 
-Markov vẫn chạy trên bảng chuyển hiện có. Một lớp đổi tên chạy sau đó, trên mọi chương đang ở mode thứ:
+`plan_markov_chords` chấm từng hợp âm bằng `bar_quantization_loss` trên chính `pitch_classes` của hợp âm đó. Catalog của chương thứ phải là hợp âm thứ ngay từ vòng này. Đổi tên sau khi Viterbi đã chọn sẽ để `C`, `F`, `Am`, `Em` mang Mi tự nhiên và La tự nhiên, trong lúc giai điệu đang hát Mi♭ và La♭, nên loss đẩy cả bài về Sol bảy hoặc Rê thứ.
 
-| Hợp âm Markov | Hợp âm nghe |
+Bậc chức năng lấy xác suất từ bảng chuyển gốc hiện có. Hàng của Đô dùng cho Đô thứ, hàng của Fa dùng cho Fa thứ, hàng của La thứ dùng cho La giáng, hàng của Mi thứ dùng cho Mi♭, hàng của Rê thứ dùng cho `Dm7♭5`, hàng của Sol giữ cho Sol và Sol bảy.
+
+| Chức năng | Hợp âm trong catalog thứ |
 |---|---|
-| Đô, Đô trưởng bảy | Đô thứ, Đô thứ bảy |
-| Fa, Fa trưởng bảy | Fa thứ, Fa thứ bảy nếu đã có, không thì Fa thứ |
-| La thứ, La thứ bảy | La giáng, La giáng trưởng bảy |
-| Mi thứ, Mi thứ bảy | Mi giáng, Mi giáng trưởng bảy |
-| Sol, Sol bảy | giữ nguyên, bậc V hòa thanh |
-| Rê thứ, Rê thứ bảy | giữ nguyên, bậc ii |
-| Các dominant phụ, hợp âm mượn còn lại | giữ nguyên |
+| i | Đô thứ, Đô thứ bảy |
+| iv | Fa thứ, Fa thứ bảy |
+| ii° | `Dm7♭5` (`D–F–A♭–C`) |
+| V | Sol, Sol bảy |
+| ♭VI | La giáng, La giáng trưởng bảy |
+| ♭III | Mi♭, Mi♭ trưởng bảy |
+| đi qua, một ô, trước Sol | Fa♯ giảm bảy |
 
-Đô thứ và Đô thứ bảy là hai hợp âm mới: bậc ba của Đô trưởng hạ xuống một semitone, bậc bảy của hợp âm bảy là Si giáng. Chúng chỉ đứng ở vị trí chủ âm của chương thứ. Chương trưởng không chọn chúng.
+Đô thứ và Đô thứ bảy hạ bậc ba của Đô trưởng. Bậc bảy của Đô thứ bảy là Si♭. `Dm7♭5` thay Rê thứ và Rê thứ bảy: bậc 5 là La♭, cùng âm với thang, và nối `ii°7–V7–i`. Rê thứ (`D–F–A`) để La tự nhiên chồng lên La♭ của giai điệu.
 
-Sau lớp đổi tên, sideway trong chương thứ thành Đô thứ xen La giáng, tức i–VI. Sideway trong chương trưởng vẫn là Đô xen La thứ, tức I–vi, và phách đầu câu vẫn về Đô.
+`E7` và `A7` không có trong catalog thứ. `E7` là dominant của La thứ. Sau khi La thứ thành La giáng, `E7` đi tới La giáng là sai chức năng. `A7` mang Đô♯. `D7` mang La tự nhiên, nên cũng ở ngoài catalog. Fa♯ giảm bảy chỉ được một ô ngay trước Sol hoặc Sol bảy, cùng cửa với hợp âm đi qua hiện tại.
+
+`_ROOT_REGIME_BIAS["downtrend"]` phạt Đô và Sol ở `0.35` vì bảng đó lấy La thứ làm chủ âm. Chương thứ lấy Đô thứ làm i và Sol làm V, nên không dùng hàng phạt đó. Bias gốc của chương thứ, số nhỏ là được ưu tiên:
+
+| Gốc | Hợp âm | Bias |
+|---|---|---|
+| Đô | Đô thứ, Đô thứ bảy | 0,00 |
+| Fa | Fa thứ, Fa thứ bảy | 0,04 |
+| Sol | Sol, Sol bảy | 0,04 |
+| La giáng | La giáng, La giáng trưởng bảy | 0,06 |
+| Mi♭ | Mi♭, Mi♭ trưởng bảy | 0,06 |
+| Rê | `Dm7♭5` | 0,06 |
+
+Regime vẫn đổi màu câu: uptrend nghi về i và V, downtrend nghi về iv, ♭VI và ♭III. Cả ba regime đều để i và V ở bias thấp.
+
+### Thang giai điệu
+
+`raw_pitches` của chương thứ đi trên Đô thứ tự nhiên: Đô, Rê, Mi♭, Fa, Sol, La♭, Si♭. Bước liền bậc không có quãng 2 tăng La♭–Si. Giá đi qua bậc 6 và bậc 7 vẫn là một bước thang.
+
+`quantize_strong_beats` và `bar_quantization_loss` nâng bậc 7 từ Si♭ lên Si tự nhiên chỉ trên ô có hợp âm Sol hoặc Sol bảy. Ô Đô thứ, Fa thứ, La giáng và Mi♭ hát Si♭. Ô Sol hát Si, nên cadence V–i còn âm dẫn, và Si không chọi Si♭ của Đô thứ bảy hay Mi♭. Nốt giữ xuyên vạch từ ô Sol sang ô chủ âm được tách, vì Si và Si♭ là hai cao độ.
+
+`flute_harmony_pitch` dựng thang mở rộng bằng cách lặp pitch class của `scale` đang soạn qua các quãng 8. Hôm nay hàm gọi `c_major_scale`, nên sáo chương thứ thổi Mi tự nhiên và La tự nhiên lên trên violin đang hát Mi♭ và La♭. Trên ô Sol, thang mở rộng của ô đó dùng Si tự nhiên thay Si♭.
+
+## Jazz ở mode thứ
+
+`jazz_chord` tra `JAZZ_VOICING_BY_NAME` theo tên, rồi rơi xuống `JAZZ_CHORD_BY_ROOT` theo chữ cái gốc. Đô thứ có `root_step` là Đô, nên không có tên riêng thì nó thành Đô trưởng chín, mang Mi tự nhiên và Si tự nhiên. Ambient gọi cùng `jazz_chord` qua `promote_ambient_slots`.
+
+Thêm `Cm9` (`C–E♭–G–B♭–D`, MIDI `60, 63, 67, 70, 74`). Đăng ký `"Cm"` và `"Cm7"` vào `JAZZ_VOICING_BY_NAME` trỏ tới `Cm9`. `"Fm"` đã trỏ `Fm9`. `"Fm7"` trỏ cùng `Fm9`. `"Dm7b5"` có mục riêng và không rơi xuống `DM9`, vì `DM9` mang La tự nhiên.
+
+`_sax_melody_curve` đang gọi `c_major_scale`. Cao độ Mi♭ hoặc La♭ làm `scale.index` văng `ValueError`. `_walking_bass_bar` lấy nốt dẫn từ `c_major_scale(33, 60)`, nên bước qua Mi tự nhiên và La tự nhiên. `render_jazz_score` nhận thang của chương. Sax, vibraphone và walking bass dùng thang đó. Ô Sol trong bài thứ dùng thang của ô đó, có Si tự nhiên.
+
+Bridge của head, ballad và finale nằm ở `plan_markov_chords`, trên catalog đúng mode:
+
+- Phách đầu câu của đoạn giữa thưởng `PHRASE_TONIC_BONUS` cho bậc IV. Bài trưởng là Fa và Fa trưởng bảy. Bài thứ là Fa thứ và Fa thứ bảy. Đoạn giữa là câu tương phản 24 ô của chương I và IV, 16 ô giữa của chương II trong 1M, và câu giữa của ballad 3M.
+- Hai ô cuối của đoạn đó hạ cost của Sol và Sol bảy.
+- Phách đầu câu hát trở lại thưởng lại bậc I.
+
+Bài ngắn không mở bridge sang một giọng thứ tư.
+
+## Pedal của ambient
+
+Halo, swell, shimmer và kính đọc `chord_at` của từng ô, nên màu hợp âm vẫn đổi. Drone của đoạn giữa giữ một nốt: `bass_midi` của chủ âm chương, trong không gian Đô là nốt gốc bậc I ở quãng 8 của bass. Fa trưởng chín, Rê thứ chín, La giáng trưởng bảy hoặc Sol chín đứng trên nốt Đô thành hợp âm slash. Intro, câu ngoài đoạn giữa, và outro vẫn để drone theo gốc hợp âm của ô, và các ô đạp đó là bậc I.
 
 ## Chỗ sửa trong code
 
 - `prepare_month` và `prepare_quarter` nhận variant, cùng đường với `plan_span(symbol, span, variant)` ở kế hoạch nhịp. Giao hưởng và ambient gán mọi chương bằng giọng nhà. Jazz 1M chỉ đưa chương III lên một bước của vòng. Jazz 3M giữ giọng nhà. Tối giản gọi `month_keys` và `quarter_keys` như cũ.
 - Mỗi `PreparedMovement` có `mode`, mặc định trưởng. Fingerprint cache thêm mode. File trưởng đã render không dùng cho chương thứ của cùng mã.
-- `plan_markov_chords` nhận mode. Intro, outro và thưởng phách đầu câu dùng cặp chủ âm của mode, cho mọi regime. Hôm nay đoạn downtrend thưởng cho `tonic("downtrend")`, tức La thứ. Riêng bridge của jazz head, ballad và finale thưởng cho bậc IV, và hai ô cuối bridge ưu tiên bậc V của giọng bài.
-- Lớp đổi tên hợp âm chạy sau Markov, trước `transpose_chord` và trước khi viết nốt.
-- Thang giai điệu của chương thứ là Đô thứ hòa thanh. `quantize_strong_beats` đọc thang đó. Chương trưởng vẫn là Đô trưởng.
-- MusicXML lấy `fifths` từ mode. `semitones` và `compose_register` vẫn theo giọng nhà, nên chương thứ không hạ trần violin thêm một lần nữa.
-- `_diatonic` của chương thứ dùng các bậc thứ tự nhiên để viết nốt trong hóa biểu. Âm dẫn Si lấy chính tả từ hợp âm Sol.
+- `plan_markov_chords` nhận mode và nhận thang. Chương thứ dựng catalog ở bảng trên trước vòng Viterbi. Xác suất chuyển chép theo bậc chức năng. Bias gốc dùng bảng chương thứ. Intro, outro và thưởng phách đầu câu dùng Đô thứ và Đô thứ bảy cho mọi regime.
+- Bridge jazz thưởng bậc IV ở phách đầu đoạn giữa, và hạ cost Sol cùng Sol bảy ở hai ô cuối đoạn.
+- `raw_pitches` chương thứ là Đô thứ tự nhiên. Lượng tử hóa nâng Si chỉ trên ô Sol và Sol bảy.
+- `flute_harmony_pitch` mở rộng đúng `scale` của chương. `render_jazz_score` đưa thang đó vào sax và walking bass.
+- `Cm9` và `Dm7♭5` có mặt trong voicing jazz theo tên. `jazz_chord` của Đô thứ ra `Cm9`.
+- Drone ambient ở đoạn giữa giữ `bass_midi` của chủ âm chương.
+- MusicXML lấy `fifths` từ mode. `semitones` và `compose_register` vẫn theo giọng nhà. `_diatonic` của chương thứ là thứ tự nhiên. Si trên ô Sol lấy chính tả từ hợp âm.
 
 ## Thứ tự làm
 
 1. Thêm `mode` trên movement và trên fingerprint. Giao hưởng và ambient gán mọi chương bằng giọng nhà. Jazz 1M giữ giọng nhà ở chương I, II, IV và bước vòng ở chương III. Tối giản giữ test ba giọng khác nhau.
-2. Chủ âm đạp và thưởng phách đầu câu theo mode. Chương trưởng hết lấy La thứ làm gốc của đoạn giảm.
-3. Thêm Đô thứ, Đô thứ bảy, và lớp đổi tên. Hóa biểu và thang thứ hòa thanh chỉ bật khi mode là thứ.
-4. Nghe một mã giọng Đô và một mã giọng Rê: tháng bốn tuần tăng, tháng có một tuần giảm, quý có tháng giữa giảm.
+2. Dựng catalog thứ, bias và thang thứ tự nhiên. Viterbi chấm trên `pitch_classes` của catalog đó. Chủ âm đạp là Đô thứ.
+3. Nâng Si trên ô Sol. Sáo, sax và walking bass đọc thang chương. Voicing jazz của Đô thứ là `Cm9`.
+4. Bridge jazz và pedal drone của đoạn giữa ambient.
+5. Nghe một mã giọng Đô và một mã giọng Rê: tháng bốn tuần tăng, tháng có một tuần giảm, quý có tháng giữa giảm. Nghe ballad jazz thứ và một chương ambient thứ.
 
 ## Kiểm tra
 
 - Giao hưởng 1M của VNM là bốn chương, cùng `semitones` 0. Chương selloff có hóa biểu 3 giáng. Chương rally có hóa biểu 0.
 - Giao hưởng 1M của FPT là bốn chương Rê. Không có chương La và không có chương Đô. Chương selloff có hóa biểu 1 giáng.
 - Giao hưởng 3M chỉ khác mode ở chương nào có tính cách selloff hoặc volatile kết bằng downtrend.
-- Jazz 1M của VNM: chương I, II và IV cùng `semitones` 0. Chương III là Rê khi tuần đó tăng, Si♭ khi tuần đó giảm hoặc đi ngang. Bridge của ballad thưởng cho Fa khi bài trưởng, và cho Fa thứ khi bài thứ. Câu hát trở lại về Đô.
-- Ambient 1M và 3M của cùng mã dùng một `semitones` cho mọi chương. Đoạn giữa không đổi gốc pedal.
+- Jazz 1M của VNM: chương I, II và IV cùng `semitones` 0. Chương III là Rê khi tuần đó tăng, Si♭ khi tuần đó giảm hoặc đi ngang. Bridge của ballad thưởng cho Fa khi bài trưởng, và cho Fa thứ khi bài thứ. Hai ô cuối bridge ưu tiên Sol hoặc Sol bảy. Câu hát trở lại về Đô.
+- Ambient 1M và 3M của cùng mã dùng một `semitones` cho mọi chương. Drone của đoạn giữa là một nốt, đúng `bass_midi` của chủ âm chương. Halo của ô đó vẫn đổi theo hợp âm.
 - Tối giản 1M vẫn ba giọng trong ba chương đầu, đúng `month_keys`.
 - Intro và outro của chương trưởng là Đô hoặc Đô trưởng bảy, kể cả regime downtrend.
 - Intro và outro của chương thứ là Đô thứ hoặc Đô thứ bảy. Sau khi dịch, FPT nghe Rê thứ.
+- Viterbi của chương thứ đọc `pitch_classes` có Mi♭ và La♭. `Dm7♭5` có La♭. Catalog thứ không có `E7`, `A7`, `D7`, Rê thứ.
+- Bias của Đô và Sol trong chương thứ là 0,00 và 0,04. Hàng `downtrend` phạt 0,35 không áp vào chương thứ.
+- `raw_pitches` chương thứ là bảy âm Đô thứ tự nhiên. Ô Sol lượng tử hóa bậc 7 thành Si. Ô Đô thứ giữ Si♭.
+- `jazz_chord` của Đô thứ là `Cm9`. Sax của bài thứ nhận thang có Mi♭ mà không văng `ValueError`.
+- `flute_harmony_pitch` của chương thứ không trả Mi tự nhiên hay La tự nhiên khi giai điệu đang ở Mi♭ hoặc La♭.
 - Một câu sideway chương trưởng còn hợp âm La thứ ở giữa câu. Phách đầu câu không phải La thứ.
-- Giai điệu chương thứ chỉ dùng bảy âm của Đô thứ hòa thanh, rồi dịch theo giọng nhà.
 - 1Y của mọi dạng vẫn đổi giọng theo mùa. 1D và 1W vẫn một giọng.
