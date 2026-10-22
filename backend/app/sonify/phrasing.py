@@ -236,11 +236,30 @@ def swell(phrase: Phrase, onset: int) -> float:
     return 1.0 - (onset - apex) / (phrase.end - apex)
 
 
+# Eighth-counts MusicXML can print as one note. Five eighths is 2.5 quarters
+# and has no type, so a rest that starts off the 5/4 grid must be split.
+_NOTE_EIGHTHS = (12, 8, 6, 4, 3, 2, 1)
+
+
+def _engrave(start: int, eighths: int) -> list[tuple[int, int]]:
+    pieces: list[tuple[int, int]] = []
+    cursor = start
+    left = eighths
+    while left > 0:
+        take = next(size for size in _NOTE_EIGHTHS if size <= left)
+        pieces.append((cursor, take))
+        cursor += take
+        left -= take
+    return pieces
+
+
 def _spell(start: int, length: int) -> list[tuple[int, int]]:
     """Cut a run at bar lines and at the meter's in-bar breaks.
 
     A run that fills a whole bar stays one note when that length has a note
-    type (3, 4, or 6 quarters). 5/4 and 7/8 always break, then tie.
+    type (3, 4, or 6 quarters). 5/4 and 7/8 always break, then tie. A fragment
+    that is not itself a note type, such as five eighths, is engraved as the
+    longest fitting notes.
     """
     meter = active_meter()
     epb = meter.eighths_per_bar
@@ -258,7 +277,7 @@ def _spell(start: int, length: int) -> list[tuple[int, int]]:
             later = [mark for mark in meter.subbar_breaks if mark > pos]
             next_pos = later[0] if later else epb
             stop = min(end, bar_start + next_pos)
-        pieces.append((cursor, stop - cursor))
+        pieces.extend(_engrave(cursor, stop - cursor))
         cursor = stop
     return pieces
 

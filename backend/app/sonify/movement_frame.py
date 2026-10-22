@@ -83,6 +83,7 @@ def _symphony(score: Score, warm_start: int, body: int, cool: int, end: int) -> 
         high=with_rests(_body(score.high, body, cool), total),
         lead=lead,
         support=support,
+        comp=_rest_comp(score, warm_start, body, cool, end),
         low=tuple(sorted(low, key=lambda note: (note.bar, note.beat, note.midi or -1))),
         lead_wedges=_body_wedges(score.lead_wedges, body, cool) + _hairpin(violin_at, body, cool, end - 1),
         support_wedges=_body_wedges(score.support_wedges, body, cool) + _hairpin(warm_start, body, cool, end - 1),
@@ -112,6 +113,7 @@ def _jazz(score: Score, warm_start: int, body: int, cool: int, end: int) -> Scor
         high=with_rests(_body(score.high, body, cool), total),
         lead=with_rests([*lead_body, *added], total),
         support=with_rests(support_body, total),
+        comp=_jazz_comp(score, warm_start, body, cool, end),
         low=tuple(
             [
                 *low_body,
@@ -135,6 +137,7 @@ def _minimalist(score: Score, warm_start: int, body: int, cool: int, end: int) -
         high=with_rests(_body(score.high, body, cool), total),
         lead=with_rests(_body(score.lead, body, cool), total),
         support=with_rests(pad, total),
+        comp=_rest_comp(score, warm_start, body, cool, end),
         low=tuple([*_body(score.low, body, cool), *pulse]),
         support_wedges=_body_wedges(score.support_wedges, body, cool) + _fade(cool, end - 1),
         support_dynamics=(DynamicEvent(end - 1, COOLDOWN_MARKING, SOUND[COOLDOWN_MARKING], beat=0.0),),
@@ -160,6 +163,7 @@ def _ambient(score: Score, warm_start: int, body: int, cool: int, end: int) -> S
             [*lead_body, *_pedal(warm_start, body, glass), *added],
             total,
         ),
+        comp=_rest_comp(score, warm_start, body, cool, end, staves=((1, 1),)),
         support_wedges=_body_wedges(score.support_wedges, body, cool) + _fade(cool, end - 1),
         lead_dynamics=_letters(score.lead_dynamics, body, cool, end),
     )
@@ -186,6 +190,109 @@ def _chord(score: Score, bar: int) -> Chord:
 
 def _body(notes: Sequence[NoteEvent], body: int, cool: int) -> list[NoteEvent]:
     return [note for note in notes if note.midi is not None and body <= note.bar < cool]
+
+
+def _kept_comp(notes: Sequence[NoteEvent], body: int, cool: int) -> list[NoteEvent]:
+    beats = _beats()
+    kept: list[NoteEvent] = []
+    for note in notes:
+        if note.bar < body or note.bar >= cool:
+            continue
+        reaches = (
+            note.bar == cool - 1
+            and note.midi is not None
+            and note.beat + note.duration_beats >= beats - 1e-6
+        )
+        crosses = note.tie_stop and note.bar == body and note.beat == 0.0
+        if reaches or crosses:
+            note = replace(
+                note,
+                tie_start=False if reaches else note.tie_start,
+                tie_stop=False if crosses else note.tie_stop,
+            )
+        kept.append(note)
+    return kept
+
+
+def _bar_rests(
+    start: int, end: int, staves: tuple[tuple[int, int], ...] = ((1, 1), (2, 5))
+) -> list[NoteEvent]:
+    beats = _beats()
+    return [
+        NoteEvent(bar=bar, beat=0.0, midi=None, duration_beats=beats, voice=voice, staff=staff)
+        for bar in range(start, end)
+        for staff, voice in staves
+    ]
+
+
+def _rest_comp(
+    score: Score,
+    warm_start: int,
+    body: int,
+    cool: int,
+    end: int,
+    *,
+    staves: tuple[tuple[int, int], ...] = ((1, 1), (2, 5)),
+) -> tuple[NoteEvent, ...]:
+    """Drop the body's comping in the frame and leave those bars silent."""
+    return tuple(
+        [
+            *_kept_comp(score.comp, body, cool),
+            *_bar_rests(warm_start, body, staves),
+            *_bar_rests(cool, end, staves),
+        ]
+    )
+
+
+def _jazz_comp(score: Score, warm_start: int, body: int, cool: int, end: int) -> tuple[NoteEvent, ...]:
+    """Warm-up Rhodes follows the meter on the opening chord. Cool-down rests."""
+    from app.sonify.form import active_meter
+    from app.sonify.jazz import _rhodes_voicing
+
+    _root, voicing = _rhodes_voicing(_chord(score, body))
+    signature = (active_meter().beats, active_meter().beat_type)
+    warm: list[NoteEvent] = []
+    for bar in range(warm_start, body):
+        warm.extend(_rhodes_warmup_bar(bar, voicing, signature))
+        warm.append(
+            NoteEvent(
+                bar=bar,
+                beat=0.0,
+                midi=None,
+                duration_beats=_beats(),
+                voice=5,
+                staff=2,
+            )
+        )
+    return tuple([*warm, *_kept_comp(score.comp, body, cool), *_bar_rests(cool, end)])
+
+
+def _rhodes_warmup_bar(
+    bar: int, voicing: tuple[int, ...], signature: tuple[int, int]
+) -> list[NoteEvent]:
+    notes: list[NoteEvent] = []
+    if signature == (12, 8):
+        beats = (1.5, 4.5)
+        for beat in beats:
+            for midi in voicing:
+                notes.append(NoteEvent(bar=bar, beat=beat, midi=midi, duration_beats=1.5, voice=1))
+        return notes
+    if signature == (3, 4):
+        if bar % 2 == 0:
+            for midi in voicing:
+                notes.append(NoteEvent(bar=bar, beat=0.0, midi=midi, duration_beats=1.5, voice=1))
+                notes.append(
+                    NoteEvent(bar=bar, beat=1.5, midi=midi, duration_beats=0.5, voice=1, tenuto=True)
+                )
+        else:
+            for beat in (0.0, 2.0):
+                for midi in voicing:
+                    notes.append(NoteEvent(bar=bar, beat=beat, midi=midi, duration_beats=1.0, voice=1))
+        return notes
+    for midi in voicing:
+        notes.append(NoteEvent(bar=bar, beat=0.0, midi=midi, duration_beats=2.0, voice=1))
+    notes.append(NoteEvent(bar=bar, beat=2.0, midi=None, duration_beats=2.0, voice=1))
+    return notes
 
 
 def _midi_at(notes: Sequence[NoteEvent], bar: int) -> int | None:

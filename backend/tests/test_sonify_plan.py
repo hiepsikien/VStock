@@ -11,10 +11,12 @@ from app.sonify.form import (
     METER_44,
     METER_54,
     METER_64,
+    compose_meter,
     liquidity_windows_for,
     plan_slots,
     swing_for,
 )
+from app.sonify.phrasing import written
 from app.sonify.keys import C_KEY, EB_KEY, jazz_month_keys, movement_mode, signature_fifths
 from app.sonify.model import Bar
 from app.sonify.musicxml import score_to_musicxml
@@ -148,6 +150,58 @@ def test_symphony_frame_layers_the_strings() -> None:
     assert 0 in {note.bar for note in score.low if note.midi is not None}
     assert any(wedge.kind == "crescendo" and wedge.bar == 2 for wedge in score.lead_wedges)
     assert any(wedge.kind == "diminuendo" and wedge.bar == 8 for wedge in score.lead_wedges)
+    frame = {note.bar for note in score.comp if note.midi is not None and (note.bar < 4 or note.bar >= 8)}
+    assert frame == set()
+
+
+def test_five_four_rest_off_the_grid_exports() -> None:
+    with compose_meter(METER_54):
+        gap = written(1, 5, None)
+    assert [note.duration_beats for note in gap] == [2.0, 0.5]
+    spec = FormSpec(
+        8,
+        96,
+        (
+            FormSection(0, 2, "warmup", 0),
+            FormSection(2, 6, "phrase", 0),
+            FormSection(6, 8, "cooldown", 0),
+        ),
+        (8,),
+        meter=METER_54,
+    )
+    closes = [40.0 + (index % 5) for index in range(8)]
+    score = render(
+        [Bar(close, 50_000.0, close) for close in closes],
+        variant="minimalist",
+        form=spec,
+    )
+    score_to_musicxml(score)
+    assert not any(note.midi is not None and (note.bar < 2 or note.bar >= 6) for note in score.comp)
+
+
+def test_jazz_warmup_replaces_the_body_comping() -> None:
+    spec = FormSpec(
+        8,
+        96,
+        (
+            FormSection(0, 2, "warmup", 0),
+            FormSection(2, 6, "phrase", 0),
+            FormSection(6, 8, "cooldown", 0),
+        ),
+        (8,),
+        meter=METER_44,
+    )
+    score = render(
+        [Bar(100.0 + index, 10_000.0, 100.0) for index in range(8)],
+        variant="jazz",
+        form=spec,
+        home_pedal=True,
+    )
+    warm = [note for note in score.comp if note.bar < 2 and note.midi is not None]
+    assert warm
+    assert {note.duration_beats for note in warm} == {2.0}
+    assert all(note.beat == 0.0 for note in warm)
+    assert not any(note.midi is not None and note.bar >= 6 for note in score.comp)
 
 
 def test_long_form_ambient_writes_its_meter_mode_and_frame() -> None:
