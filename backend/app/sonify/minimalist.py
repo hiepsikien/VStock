@@ -481,7 +481,7 @@ def _synth_pulse_part(
                         voice=1,
                         staff=1,
                         staccato=True,
-                        accent=off_beat,
+                        accent=off_beat and not groove.selloff,
                         velocity=vel if off_beat else vel - 12,
                     )
                 )
@@ -498,14 +498,14 @@ def _synth_pulse_part(
                         voice=1,
                         staff=1,
                         staccato=True,
-                        accent=sixteenth % 4 == 2,
+                        accent=sixteenth % 4 == 2 and not groove.selloff,
                         velocity=vel if sixteenth % 4 == 2 else vel - 8,
                     )
                 )
 
         # Staff 2: Backbeat on beats 2 and 4 when volume is mf or f
         low_stab = _keep(48 + fifth_pc, 36, 55)
-        if band in ("mf", "f"):
+        if band in ("mf", "f") and not groove.chamber:
             for beat, is_hit in ((0.0, False), (1.0, True), (2.0, False), (3.0, True)):
                 events.append(
                     NoteEvent(

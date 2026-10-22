@@ -615,7 +615,12 @@ def plan_markov_chords(
                 and chord.name in ("Eb", "Ebmaj7", "Ab", "Abmaj7")
             ):
                 base_bias -= 0.12
-            if bar in trio_downbeats and mode == "minor" and chord.name in ("Eb", "Ebmaj7"):
+            if (
+                bar in trio_downbeats
+                and mode == "minor"
+                and regime == "uptrend"
+                and chord.name in ("Eb", "Ebmaj7")
+            ):
                 base_bias -= PHRASE_TONIC_BONUS
             if bar in coda_v and chord.name in ("G", "G7", "G9"):
                 base_bias -= PHRASE_TONIC_BONUS

@@ -142,7 +142,9 @@ def _bass_pattern(marking: str, bar: int | None = None) -> tuple[tuple[int, int,
 
     meter = active_meter()
     groove = groove_at(bar) if bar is not None else None
-    if groove is not None and groove.trio_thin:
+    if groove is not None and groove.chamber:
+        marking = "p"
+    elif groove is not None and groove.trio_thin:
         marking = {"f": "mf", "mf": "mp", "mp": "p", "p": "p"}[marking]
     elif groove is not None and groove.half and marking == "mp":
         marking = "p"
@@ -593,6 +595,8 @@ def _right_hand(
     piece_eighths: int = TOTAL_EIGHTHS,
 ) -> tuple[NoteEvent, ...]:
     """Third and seventh on beat 1 for half a bar, cut short when a fill comes in."""
+    from app.sonify.groove import groove_at
+
     first_fill: dict[int, int] = {}
     for start, _length, _midi in cadence_fills:
         bar = start // active_meter().eighths_per_bar
@@ -601,6 +605,8 @@ def _right_hand(
     for slot in slots:
         _root, guide = comp_pitches(slot.chord)
         for bar in slot.bars():
+            if groove_at(bar).chamber:
+                continue
             epb = active_meter().eighths_per_bar
             downbeat = bar * epb
             guide_eighths = 3 if (active_meter().beats, active_meter().beat_type) == (6, 8) else min(HALF_BAR, epb)
@@ -609,8 +615,6 @@ def _right_hand(
                 NoteEvent(bar=bar, beat=0.0, midi=midi, duration_beats=length * 0.5, voice=1)
                 for midi in guide
             )
-    from app.sonify.groove import groove_at
-
     for start, length, midi in cadence_fills:
         bar = start // active_meter().eighths_per_bar
         if groove_at(bar).caesura:

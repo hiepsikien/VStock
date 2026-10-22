@@ -299,7 +299,7 @@ def month_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSpec
             (
                 _part(8, "intro", 0),
                 _part(24, "phrase", 0),
-                _part(16, "phrase", 1),
+                _part(16, "phrase", 1, True),
                 _part(24, "phrase", 2),
             ),
             (32, 72),
@@ -403,7 +403,7 @@ def quarter_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSp
             (
                 _part(8, "intro", 0),
                 _part(32, "phrase", 0),
-                _part(40, "phrase", 1),
+                _part(40, "phrase", 1, True),
                 _part(32, "phrase", 2),
                 _part(8, "outro", 2),
             ),
@@ -589,7 +589,7 @@ def year_specs(variant: str = "symphony") -> tuple[FormSpec, ...]:
             (
                 _part(8, "intro", 0),
                 _part(24, "phrase", 0),
-                _part(16, "phrase", 1),
+                _part(16, "phrase", 1, True),
                 _part(16, "phrase", 2),
                 _part(8, "outro", 2),
             ),
@@ -782,7 +782,7 @@ class PreparedMovement:
         return (
             f"{self.key.name}-{self.mode}-{character}-{coda}-"
             f"{meter.beats}-{meter.beat_type}-{int(self.swing)}-"
-            f"{low:.2f}-{high:.2f}-rhythm3-{sessions}-{bridges}"
+            f"{low:.2f}-{high:.2f}-rhythm4-{sessions}-{bridges}"
         )
 
 

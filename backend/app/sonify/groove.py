@@ -25,6 +25,7 @@ class BarGroove:
     selloff: bool = False
     caesura: bool = False
     trio_thin: bool = False
+    chamber: bool = False
 
 
 _GROOVE: ContextVar[dict[int, BarGroove]] = ContextVar("sonify_groove", default={})
@@ -97,6 +98,8 @@ def build_groove(
         )
     if spec is not None and spec.bars == 34 and regimes:
         _daily_session(plan, spec, band_at, variant, character, regimes)
+    if spec is not None:
+        _week_chamber(plan, spec, character, character_at)
     return plan
 
 
@@ -136,6 +139,25 @@ def _daily_session(
         )
 
 
+def _week_chamber(
+    plan: dict[int, BarGroove],
+    spec: FormSpec,
+    character: MovementCharacter | None,
+    character_at: Sequence[MovementCharacter | None] | None,
+) -> None:
+    """Calm week sessions thin the middle 16 bars, not only the first half of each phrase."""
+    if spec.bpm != 90 or spec.bars % 32 or any(section.kind == "warmup" for section in spec.sections):
+        return
+    for origin in range(0, spec.bars, 32):
+        for bar in range(origin + 8, origin + 24):
+            chosen = character
+            if character_at is not None and bar < len(character_at) and character_at[bar] is not None:
+                chosen = character_at[bar]
+            if chosen != "calm":
+                continue
+            plan[bar] = _replace_groove(plan.get(bar), half=True, chamber=True, calm=True)
+
+
 def _replace_groove(groove: BarGroove | None, **flags: bool) -> BarGroove:
     if groove is None:
         return BarGroove(**flags)
@@ -158,6 +180,7 @@ def silence_second_half(notes: list, bar: int) -> list:
     end = meter.quarter_beats
     kept = []
     voices: set[tuple[int, int]] = set()
+    broken: set[tuple[int | None, int, int]] = set()
     for note in notes:
         if note.bar != bar:
             kept.append(note)
@@ -166,9 +189,22 @@ def silence_second_half(notes: list, bar: int) -> list:
         if note.beat + 1e-9 >= half:
             continue
         if note.beat + note.duration_beats > half + 1e-9:
-            kept.append(replace(note, duration_beats=half - note.beat))
+            kept.append(replace(note, duration_beats=half - note.beat, tie_start=False))
+            broken.add((note.midi, note.voice, note.staff))
         else:
             kept.append(note)
+    if broken:
+        retied = []
+        for note in kept:
+            if (
+                note.bar == bar + 1
+                and note.beat <= 1e-9
+                and (note.midi, note.voice, note.staff) in broken
+            ):
+                retied.append(replace(note, tie_stop=False))
+            else:
+                retied.append(note)
+        kept = retied
     for voice, staff in voices or {(1, 1)}:
         covered = max(
             (

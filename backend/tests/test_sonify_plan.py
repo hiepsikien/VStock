@@ -812,3 +812,81 @@ def test_jazz_compound_meters_take_half_feel_and_a_caesura() -> None:
     with compose_meter(METER_44):
         assert _before_fill(0, 3.5, 0.5, {0: 4}) is None
         assert _before_fill(0, 0.0, 0.5, {0: 4}) == 0.5
+
+
+def test_volatile_straight_bass_is_tresillo_and_jazz_stays_in_swing() -> None:
+    from app.sonify.form import swing_for
+    from app.sonify.groove import BarGroove, compose_groove
+    from app.sonify.render import _bass_pattern
+
+    with compose_meter(METER_44), compose_groove({0: BarGroove(tresillo=True)}):
+        assert [start for start, _length, _interval in _bass_pattern("mf", 0)] == [0, 3, 6]
+    assert swing_for("jazz", METER_44)
+    assert not swing_for("symphony", METER_44)
+
+
+def test_calm_week_chambers_the_middle_sixteen_bars() -> None:
+    from app.sonify.groove import build_groove
+    from app.sonify.span import week_spec
+
+    week = week_spec(1)
+    plan = build_groove(week, [(0, week.bars)], ["f"], "symphony", "calm")
+    assert all(plan[bar].chamber and plan[bar].half for bar in range(8, 24))
+    assert not any(plan[bar].chamber for bar in (0, 7, 24, 31))
+
+
+def test_minimalist_slow_movement_has_a_caesura_bar() -> None:
+    from app.sonify.groove import build_groove
+
+    slow = month_specs("minimalist")[1]
+    assert any(section.bridge for section in slow.sections)
+    plan = build_groove(slow, [(0, slow.bars)], ["mf"], "minimalist", "calm")
+    assert any(item.caesura for item in plan.values())
+
+
+def test_bear_bounce_downbeat_requires_an_uptrend() -> None:
+    from app.sonify.form import plan_markov_chords
+    from app.sonify.quantize import c_natural_minor_scale
+
+    spec = FormSpec(
+        4,
+        120,
+        (FormSection(0, 4, "phrase", 0, False, True),),
+        (4,),
+        meter=METER_34,
+    )
+    pitches = [63, 67, 70] * 8
+    scale = c_natural_minor_scale()
+    rising = plan_markov_chords(("uptrend",), pitches, scale, spec, mode="minor")
+    flat = plan_markov_chords(("sideway",), pitches, scale, spec, mode="minor")
+    assert rising[0].name in ("Eb", "Ebmaj7")
+    assert flat[0].name not in ("Eb", "Ebmaj7")
+
+
+def test_daily_coda_prefers_subdominant_then_dominant() -> None:
+    from app.sonify.form import DAILY_ENSEMBLE_SPEC, c_major_scale
+
+    spec = DAILY_ENSEMBLE_SPEC
+    epb = spec.meter.eighths_per_bar
+    pitches = [60] * (spec.bars * epb)
+    for bar in (28, 29):
+        pitches[bar * epb : (bar + 1) * epb] = [65] * epb
+    for bar in (30, 31):
+        pitches[bar * epb : (bar + 1) * epb] = [67] * epb
+    slots = plan_slots(("sideway", "sideway", "sideway"), pitches, c_major_scale(), spec)
+    by_bar = {bar: slot.chord.name for slot in slots for bar in slot.bars()}
+    assert by_bar[28] in ("F", "Fmaj7")
+    assert by_bar[29] in ("F", "Fmaj7")
+    assert by_bar[30] in ("G", "G7", "G9")
+    assert by_bar[31] in ("G", "G7", "G9")
+    assert by_bar[32] in ("C", "Cmaj7")
+
+
+def test_chamber_bar_drops_the_symphony_right_hand() -> None:
+    from app.sonify.form import ChordSlot
+    from app.sonify.groove import BarGroove, compose_groove
+    from app.sonify.render import _right_hand
+
+    with compose_meter(METER_44), compose_groove({0: BarGroove(chamber=True)}):
+        notes = _right_hand((ChordSlot(0, 1, C, "sideway", "phrase"),), [])
+    assert not any(note.midi is not None for note in notes)

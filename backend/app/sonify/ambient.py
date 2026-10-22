@@ -970,7 +970,12 @@ def render_ambient_score(
             fifth_velocity.append(None)
         halos.append(_halo_midis(chord))
         halo_velocity.append(_HALO_VELOCITY.get(band, 46))
+    from app.sonify.groove import groove_at, silence_second_half
+
     low = _sustain(roots, root_velocity) + _sustain(fifths, fifth_velocity)
+    for bar in range(musical_bars):
+        if groove_at(bar).caesura:
+            low = silence_second_half(low, bar)
     halo = _sustain(halos, halo_velocity)
     swell = _swell(form, windows, bands, chord_at)
     shimmer = _shimmer(form, phrases, pitches, chord_at, source_bars, source_groups)
