@@ -70,10 +70,10 @@ def _year_clock(variant: str) -> float:
 
 def test_piece_clocks_include_the_frame_and_the_rests() -> None:
     expected = {
-        "symphony": (970.0, 1530.0, 2841.0),
-        "jazz": (970.0, 1530.0, 2820.0),
-        "minimalist": (968.0, 1529.0, 2841.0),
-        "ambient": (970.0, 1530.0, 2820.0),
+        "symphony": (970.0, 1530.0, 2840.1),
+        "jazz": (970.0, 1530.0, 2818.3),
+        "minimalist": (968.0, 1529.0, 2840.8),
+        "ambient": (970.0, 1530.0, 2818.3),
     }
     for variant, (month, quarter, year) in expected.items():
         assert abs(_clock(plan_month([1, 1, 1, 1], variant)) - month) < 1.5
@@ -627,3 +627,140 @@ def test_six_eight_and_three_four_bass_patterns() -> None:
     with compose_meter(METER_34):
         assert _bass_pattern("p") == ((0, 6, 0),)
         assert _bass_pattern("mf")[0] == (0, 2, 0)
+
+
+def _pedal(spec: FormSpec, kind: str) -> int:
+    section = next((item for item in spec.sections if item.kind == kind), None)
+    if section is None:
+        return 0
+    return section.end - section.start
+
+
+def test_pedal_table_matches_the_market_rhythm_plan() -> None:
+    from app.sonify.span import month_specs, quarter_specs, week_spec, year_specs
+
+    week = week_spec(5)
+    assert week.bars == 160
+    assert _pedal(week, "intro") == 4
+    assert _pedal(week, "outro") == 4
+    for variant in ("symphony", "jazz", "ambient"):
+        month = month_specs(variant)
+        assert _pedal(month[0], "intro") == 4
+        assert _pedal(month[2], "intro") == 4
+        assert _pedal(month[3], "intro") == 4
+        assert _pedal(month[0], "outro") == 4
+        assert _pedal(month[1], "outro") == 0
+        assert _pedal(month[2], "outro") == 4
+        assert _pedal(month[3], "outro") == 8
+        quarter = quarter_specs(variant)
+        assert _pedal(quarter[0], "intro") == 4
+        assert _pedal(quarter[1], "intro") == 4
+        assert _pedal(quarter[2], "intro") == 4
+        assert _pedal(quarter[0], "outro") == 4
+        assert _pedal(quarter[2], "outro") == 8
+    assert _pedal(quarter_specs("symphony")[1], "outro") == 4
+    assert _pedal(quarter_specs("jazz")[1], "outro") == 2
+    assert _pedal(quarter_specs("ambient")[1], "outro") == 2
+    assert _pedal(quarter_specs("minimalist")[1], "outro") == 4
+    minimalist = quarter_specs("minimalist")
+    assert _pedal(minimalist[0], "intro") == 3
+    assert _pedal(minimalist[0], "outro") == 4
+    assert _pedal(minimalist[2], "intro") == 4
+    assert _pedal(minimalist[2], "outro") == 10
+    year = year_specs("symphony")
+    assert year[2].meter.beats == 3 and year[2].bars == 111
+    assert _pedal(year[2], "outro") == 6
+    assert _pedal(year[1], "outro") == 4
+    assert _pedal(year_specs("jazz")[1], "outro") == 2
+    assert _pedal(year_specs("ambient")[1], "outro") == 2
+    assert _pedal(year_specs("minimalist")[2], "outro") == 6
+    assert _pedal(year[-1], "outro") == 8
+    scherzo = month_specs("symphony")[2]
+    assert any(section.trio for section in scherzo.sections)
+    framed = attach_frame(scherzo, "1M")
+    assert any(section.trio for section in framed.sections)
+    assert not any(section.trio for section in month_specs("symphony")[1].sections)
+    phrases = [
+        section
+        for section in quarter_specs("symphony")[2].sections
+        if section.kind == "phrase"
+    ]
+    assert phrases[-1].end == next(
+        section.start for section in quarter_specs("symphony")[2].sections if section.kind == "outro"
+    )
+
+
+def test_gap_bridge_stays_inside_the_hose_band() -> None:
+    from app.sonify.groove import gap_direction
+
+    assert gap_direction(100, 101) == "up"
+    assert gap_direction(100, 99) == "down"
+    assert gap_direction(100, 100.5) is None
+    assert gap_direction(100, 107) is None
+
+
+def test_dynamic_frame_attacks_on_a_fast_rally_and_stays_still_when_calm() -> None:
+    from app.sonify.form import ChordSlot
+    from app.sonify.model import Score
+    from app.sonify.movement_frame import apply_span_frame
+
+    slots = (
+        ChordSlot(0, 4, C, "uptrend", "warmup"),
+        ChordSlot(4, 4, F, "uptrend", "phrase"),
+        ChordSlot(8, 4, C, "uptrend", "cooldown"),
+    )
+    body = tuple(
+        NoteEvent(bar=bar, beat=0.0, midi=60, duration_beats=4.0, voice=1) for bar in range(4, 8)
+    )
+    spec = FormSpec(
+        12,
+        96,
+        (
+            FormSection(0, 4, "warmup", 0),
+            FormSection(4, 8, "phrase", 0),
+            FormSection(8, 12, "cooldown", 0),
+        ),
+        (12,),
+    )
+
+    def score(variant: str) -> Score:
+        return Score(
+            title="frame",
+            bpm=96,
+            bars=12,
+            regimes=("uptrend", "uptrend", "uptrend"),
+            regime_samples=None,
+            slots=slots,
+            high=(),
+            lead=body,
+            support=body,
+            comp=(),
+            low=body,
+            dynamics=(),
+            harmonies=(),
+            liquidity=(),
+            phrases=(),
+            lead_wedges=(),
+            support_wedges=(),
+            lead_dynamics=(),
+            support_dynamics=(),
+            variant=variant,  # type: ignore[arg-type]
+        )
+
+    rally = apply_span_frame(score("symphony"), spec, "rally")
+    assert any(note.midi is not None and note.bar < 4 for note in rally.comp)
+    for bar in range(4):
+        attacks = [
+            note
+            for note in rally.low
+            if note.bar == bar and note.midi is not None and not note.tie_stop
+        ]
+        assert len(attacks) > 1
+    calm = apply_span_frame(score("symphony"), spec, "calm")
+    assert all(note.midi is None or note.bar >= 4 for note in calm.comp if note.bar < 4)
+    jazz = apply_span_frame(score("jazz"), spec, "rally")
+    assert any(note.midi is not None and 8 <= note.bar < 10 for note in jazz.comp)
+    assert all(note.midi is None for note in jazz.comp if note.bar >= 10)
+    minimal = apply_span_frame(score("minimalist"), spec, "volatile")
+    assert any(note.midi is not None and note.bar < 4 for note in minimal.lead)
+    assert any(note.midi is not None and 8 <= note.bar < 10 for note in minimal.lead)

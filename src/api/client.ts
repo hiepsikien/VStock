@@ -465,6 +465,9 @@ export type RecapManifest = {
   barCount: number;
   peaks: number[];
   audioUrl: string;
+  character?: string | null;
+  characterLabel?: string;
+  keyLabel?: string;
 };
 
 export function absoluteApiUrl(path: string): string {
@@ -506,6 +509,9 @@ export type SpanMovement = {
   warmupSec: number;
   cooldownSec: number;
   prices: number[];
+  character?: string | null;
+  characterLabel?: string;
+  sessionCharacters?: string[];
 };
 
 export type SpanManifest = {

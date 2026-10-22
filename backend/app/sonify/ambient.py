@@ -218,10 +218,18 @@ def _pillars(
         kept.append(closing)
     kept.sort(key=lambda run: run.start)
     kept = _one_per_bar(kept)
+    from app.sonify.groove import groove_at
+
+    def _gap(start: int) -> int:
+        gap = _hold(PILLAR_GAP)
+        if groove_at(start // max(active_meter().eighths_per_bar, 1)).calm:
+            gap += active_meter().eighths_per_bar
+        return gap
+
     kept = [
         run
         for index, run in enumerate(kept)
-        if index == 0 or end - run.start >= _hold(PILLAR_GAP)
+        if index == 0 or end - run.start >= _gap(run.start)
     ]
     folded: list[Run] = []
     last_midi = previous_midi
@@ -748,7 +756,12 @@ def _swell(
         bar = start + 1
         if kind_at.get(bar) != "phrase" or bar not in chord_at:
             continue
-        if any(abs(bar - other) < SWELL_GAP_BARS for other in chosen_bars):
+        from app.sonify.groove import groove_at
+
+        if groove_at(bar).trio_thin:
+            continue
+        gap = 3 if groove_at(bar).volatile else SWELL_GAP_BARS
+        if any(abs(bar - other) < gap for other in chosen_bars):
             continue
         chosen_bars.append(bar)
         chord = chord_at[bar]
@@ -774,6 +787,10 @@ def _swell(
                 if note % 12 in chord.pitch_classes
             ]
         middle = min(mid_tones, key=lambda note: abs(note - (bottom + top) / 2))
+        if groove_at(bar).selloff:
+            top -= 12
+            bottom -= 12
+            middle -= 12
         peak_vel = SWELL_VELOCITY if band == "f" else SWELL_MP_VELOCITY
         hold_eighths = min(
             _hold(SWELL_HOLD),
@@ -846,7 +863,9 @@ def _shimmer(
                 if not breakout and not apex:
                     continue
                 bar = run.start // active_meter().eighths_per_bar
-                if bar in quiet or bar not in chord_at:
+                from app.sonify.groove import groove_at
+
+                if bar in quiet or bar not in chord_at or groove_at(bar).caesura:
                     continue
                 candidates.append((phrase.rise, bar, _shimmer_midi(run.midi, chord_at[bar])))
     candidates.sort(key=lambda item: (-item[0], item[1]))

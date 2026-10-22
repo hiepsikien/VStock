@@ -125,6 +125,13 @@ def _synth_arpeggio_part(
             eighth = bar * meter.eighths_per_bar + eighth_in_bar
             raw_midi = raw_pitches[eighth]
             norm = _normalized_brightness(raw_midi)
+            from app.sonify.groove import groove_at
+
+            groove = groove_at(bar)
+            if groove.rally:
+                norm = max(norm, OPEN_CUTOFF)
+            elif groove.selloff or groove.half:
+                norm = min(norm, CLOSED_CUTOFF if groove.half and not groove.selloff else CLOSED_CUTOFF * 0.5)
             base_idx = round(norm * max_base)
             # In dark/closed state (< CLOSED_CUTOFF), narrow the pattern to 2 tones (0, 1)
             if norm < CLOSED_CUTOFF:
@@ -397,6 +404,39 @@ def _synth_pulse_part(
         hi_root = _keep(72 + root_pc, 72, 83)
         hi_fifth = _keep(72 + fifth_pc, 72, 84)
         low_stab = _keep(48 + fifth_pc, 36, 55)
+        from app.sonify.groove import groove_at
+
+        groove = groove_at(bar)
+        if groove.trio_thin:
+            band = {"f": "mf", "mf": "mp", "mp": "p", "p": "p"}[band]
+            vel = PULSE_VEL_BY_BAND[band]
+        if groove.tresillo and band in ("mf", "f"):
+            for beat, duration in ((0.0, 1.5), (1.5, 1.5), (3.0, 1.0)):
+                events.append(
+                    NoteEvent(
+                        bar=bar,
+                        beat=beat,
+                        midi=hi_root,
+                        duration_beats=duration,
+                        voice=1,
+                        staff=1,
+                        staccato=True,
+                        velocity=vel,
+                    )
+                )
+                events.append(
+                    NoteEvent(
+                        bar=bar,
+                        beat=beat,
+                        midi=low_stab,
+                        duration_beats=duration,
+                        voice=5,
+                        staff=2,
+                        staccato=True,
+                        velocity=vel,
+                    )
+                )
+            continue
         if _pulse_other_meter(events, bar, band, vel, hi_root, hi_fifth, low_stab):
             continue
 
@@ -520,6 +560,28 @@ def _sub_bass_part(
                         voice=1,
                         tenuto=index == 0,
                     )
+                )
+            continue
+        from app.sonify.groove import groove_at
+
+        groove = groove_at(bar)
+        if signature == (4, 4) and groove.tresillo:
+            for beat, duration in ((0.0, 1.5), (1.5, 1.5), (3.0, 1.0)):
+                events.append(
+                    NoteEvent(
+                        bar=bar,
+                        beat=beat,
+                        midi=root,
+                        duration_beats=duration,
+                        voice=1,
+                        tenuto=beat == 0.0,
+                    )
+                )
+            continue
+        if signature == (4, 4) and (groove.half or groove.trio_thin):
+            for beat in (0.0, 2.0):
+                events.append(
+                    NoteEvent(bar=bar, beat=beat, midi=root, duration_beats=2.0, voice=1, tenuto=beat == 0.0)
                 )
             continue
         quarters = 5 if signature == (5, 4) else BEATS_PER_BAR

@@ -87,11 +87,22 @@ for _symbol in ("VNM", "MSN", "SAB", "GAS", "POW", "REE", "PLX", "BVH"):
 for _symbol in ("GMD", "HAH", "DGC", "DPM", "DCM", "VHC", "ANV", "PTB"):
     _HOME[_symbol] = A_KEY
 
+# 1D uses the close-to-close return first, then the session range. 1.2% / 2.8% keeps an
+# ordinary 1.5–2% HOSE range in `calm` instead of labeling almost every day `volatile`.
+# No local minute archive was available to fit percentiles; these are the basket cuts.
 _SPAN_THRESHOLD: dict[str, tuple[float, float]] = {
+    "1D": (0.012, 0.028),
     "1W": (0.020, 0.035),
     "1M": (0.020, 0.035),
     "3M": (0.040, 0.065),
     "1Y": (0.040, 0.065),
+}
+
+CHARACTER_LABEL = {
+    "rally": "Tăng giá",
+    "selloff": "Bán tháo",
+    "volatile": "Giằng co",
+    "calm": "Tích lũy",
 }
 
 
@@ -135,7 +146,7 @@ def stock_home_key(symbol: str) -> KeySpec:
 
 
 def movement_character(closes: Sequence[float], span: str) -> MovementCharacter:
-    """Classify one movement. `1D` never calls this; it stays on the untouched bias table."""
+    """Classify one movement or one session. Trend is tested before the range."""
     trend, vol_th = _SPAN_THRESHOLD[span]
     if len(closes) < 2 or closes[0] == 0 or min(closes) <= 0:
         return "calm"

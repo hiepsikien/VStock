@@ -280,6 +280,16 @@ export function SpanRecap({ symbol, range, children }: Props) {
   );
 }
 
+function movementCaption(movement: SpanMovement, currentTime: number): string {
+  const sessions = movement.sessionCharacters ?? [];
+  if (sessions.length > 1) {
+    const bar = Math.floor(currentTime / ((8 * 30) / 90));
+    const index = Math.min(sessions.length - 1, Math.max(0, Math.floor(bar / 32)));
+    return ` · Phiên ${index + 1} · ${sessions[index]}`;
+  }
+  return movement.characterLabel ? ` · ${movement.characterLabel}` : '';
+}
+
 function MovementPlayer({
   movement,
   onTime,
@@ -331,7 +341,10 @@ function MovementPlayer({
     return (
       <View style={styles.preparing}>
         <ActivityIndicator color={colors.accent} />
-        <Text style={styles.preparingText}>Đang soạn {movement.label} · {movement.keyLabel}…</Text>
+        <Text style={styles.preparingText}>
+          Đang soạn {movement.label} · {movement.keyLabel}
+          {movement.characterLabel ? ` · ${movement.characterLabel}` : ''}…
+        </Text>
       </View>
     );
   }
@@ -348,6 +361,7 @@ function MovementPlayer({
     >
       <Text style={styles.playText}>
         {status.playing ? 'Tạm dừng' : 'Tiếp tục'} · {movement.label} · {movement.keyLabel}
+        {movementCaption(movement, status.currentTime)}
       </Text>
     </Pressable>
   );

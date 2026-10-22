@@ -895,6 +895,15 @@ def _rhodes_comping_part(
                 and avail_eighths == HALF_BAR
                 and bar % 2 == 0
             )
+            from app.sonify.groove import groove_at
+
+            if groove_at(bar).syncopate and avail_eighths == HALF_BAR:
+                for beat, duration in ((0.0, 0.5), (1.5, 0.5), (3.5, 0.5)):
+                    for midi in voicing:
+                        right_events.append(
+                            NoteEvent(bar=bar, beat=beat, midi=midi, duration_beats=duration, voice=1)
+                        )
+                continue
             if use_charleston:
                 for midi in voicing:
                     right_events.append(
@@ -1055,7 +1064,9 @@ def _walking_bass_bar(
         return [
             NoteEvent(bar=bar, beat=0.0, midi=root, duration_beats=4.0, voice=1),
         ]
-    if band == "p" or section == "intro":
+    from app.sonify.groove import groove_at
+
+    if band == "p" or section == "intro" or groove_at(bar).half or groove_at(bar).trio_thin:
         return [
             NoteEvent(bar=bar, beat=0.0, midi=root, duration_beats=2.0, voice=1),
             NoteEvent(bar=bar, beat=2.0, midi=fifth, duration_beats=2.0, voice=1),
@@ -1080,6 +1091,8 @@ def _walking_bass_bar(
             beat4 = fifth
     else:
         beat4 = fifth
+    if groove_at(bar).chromatic:
+        beat4 = next_root - 1 if next_root > 36 else next_root + 1
 
     return [
         NoteEvent(bar=bar, beat=0.0, midi=root, duration_beats=1.0, voice=1),

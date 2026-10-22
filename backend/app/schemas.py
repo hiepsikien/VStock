@@ -107,6 +107,9 @@ class RecapResponse(BaseModel):
     barCount: int
     peaks: list[float]
     audioUrl: str
+    character: str | None = None
+    characterLabel: str = ""
+    keyLabel: str = ""
 
 
 class SpanMovementResponse(BaseModel):
@@ -121,6 +124,9 @@ class SpanMovementResponse(BaseModel):
     warmupSec: float
     cooldownSec: float
     prices: list[float]
+    character: str | None = None
+    characterLabel: str = ""
+    sessionCharacters: list[str] = []
 
 
 class SpanResponse(BaseModel):

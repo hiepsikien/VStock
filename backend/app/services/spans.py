@@ -66,8 +66,26 @@ async def plan_span(
     if span == "1W":
         payload = await fetch_minute_payload(symbol)
         samples = samples_from_ohlc(payload)
+        from app.sonify.groove import opening_median
+        from app.sonify.session import session_points
+
         days = session_dates(samples, 5)
-        return prepare_week([session_bars(samples, day) for day in days], symbol)
+        day_points = [session_points(samples, day) for day in days]
+        openings = [
+            opening_median(
+                [
+                    point.bar.close
+                    for point in points
+                    if 9 * 60 + 16 <= point.moment.hour * 60 + point.moment.minute <= 9 * 60 + 30
+                ]
+            )
+            for points in day_points
+        ]
+        return prepare_week(
+            [[point.bar for point in points] for points in day_points],
+            symbol,
+            openings,
+        )
     if span == "1M":
         payload = await fetch_ohlc(symbol, MONTH_LOOKBACK_DAYS, "1")
         if payload_truncated(payload, MONTH_LOOKBACK_DAYS):
