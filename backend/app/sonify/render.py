@@ -50,6 +50,7 @@ from app.sonify.model import (
     VARIANTS,
     Bar,
     DynamicEvent,
+    Ensemble,
     HarmonyEvent,
     NoteEvent,
     Phrase,
@@ -615,6 +616,7 @@ def render(
     framed: bool = True,
     mode: str = "major",
     home_pedal: bool = False,
+    ensemble: Ensemble = "classic",
 ) -> Score:
     """Compose in C, with register bounds shifted for `key` before any note is placed.
 
@@ -623,7 +625,7 @@ def render(
     """
     chosen_key = C_KEY if key is None else key
     with compose_register(chosen_key):
-        return _compose(
+        score = _compose(
             bars,
             title=title,
             regimes=regimes,
@@ -641,6 +643,7 @@ def render(
             mode=mode,
             home_pedal=home_pedal,
         )
+    return replace(score, ensemble=ensemble)
 
 
 def _compose(

@@ -406,6 +406,40 @@ async function fetchHistoryNetwork(symbol: string, range: ChartRange): Promise<n
 
 export type RecapVariant = 'symphony' | 'jazz' | 'minimalist' | 'ambient';
 
+export type RecapEnsemble =
+  | 'classic'
+  | 'wood'
+  | 'brass'
+  | 'soul'
+  | 'organ'
+  | 'mallet'
+  | 'guitar'
+  | 'breath'
+  | 'choir';
+
+export const ENSEMBLE_ROWS: Record<RecapVariant, { id: RecapEnsemble; label: string }[]> = {
+  symphony: [
+    { id: 'classic', label: 'Dây' },
+    { id: 'wood', label: 'Gỗ' },
+    { id: 'brass', label: 'Đồng' },
+  ],
+  jazz: [
+    { id: 'classic', label: 'Combo' },
+    { id: 'soul', label: 'Soul' },
+    { id: 'organ', label: 'Organ' },
+  ],
+  minimalist: [
+    { id: 'classic', label: 'Synth' },
+    { id: 'mallet', label: 'Mallet' },
+    { id: 'guitar', label: 'Guitar' },
+  ],
+  ambient: [
+    { id: 'classic', label: 'Kính' },
+    { id: 'breath', label: 'Hơi' },
+    { id: 'choir', label: 'Hợp xướng' },
+  ],
+};
+
 export type SessionSummary = {
   date: string;
   close: number;
@@ -425,6 +459,7 @@ export type RecapManifest = {
   symbol: string;
   date: string;
   variant: RecapVariant;
+  ensemble: RecapEnsemble;
   durationSec: number;
   mapDurationSec: number;
   barCount: number;
@@ -477,6 +512,7 @@ export type SpanManifest = {
   symbol: string;
   range: SpanRange;
   variant: RecapVariant;
+  ensemble: RecapEnsemble;
   movements: SpanMovement[];
 };
 
@@ -484,11 +520,12 @@ export async function fetchSpan(
   symbol: string,
   range: SpanRange,
   variant: RecapVariant,
+  ensemble: RecapEnsemble = 'classic',
   signal?: AbortSignal,
 ): Promise<SpanManifest> {
   const sym = symbol.toUpperCase();
   return apiGet<SpanManifest>(
-    `/v1/stocks/${encodeURIComponent(sym)}/span?range=${range}&variant=${variant}`,
+    `/v1/stocks/${encodeURIComponent(sym)}/span?range=${range}&variant=${variant}&ensemble=${ensemble}`,
     signal,
   );
 }
@@ -497,11 +534,12 @@ export async function fetchRecap(
   symbol: string,
   day: string,
   variant: RecapVariant,
+  ensemble: RecapEnsemble = 'classic',
   signal?: AbortSignal,
 ): Promise<RecapManifest> {
   const sym = symbol.toUpperCase();
   return apiGet<RecapManifest>(
-    `/v1/stocks/${encodeURIComponent(sym)}/sessions/${encodeURIComponent(day)}/recap?variant=${variant}`,
+    `/v1/stocks/${encodeURIComponent(sym)}/sessions/${encodeURIComponent(day)}/recap?variant=${variant}&ensemble=${ensemble}`,
     signal,
   );
 }

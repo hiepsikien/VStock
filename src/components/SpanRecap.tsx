@@ -4,7 +4,9 @@ import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-au
 import * as Haptics from 'expo-haptics';
 import {
   absoluteApiUrl,
+  ENSEMBLE_ROWS,
   fetchSpan,
+  type RecapEnsemble,
   type RecapVariant,
   type SpanMovement,
   type SpanRange,
@@ -44,6 +46,7 @@ const EMPTY_VIEW: RecapView = {
 
 export function SpanRecap({ symbol, range, children }: Props) {
   const [variant, setVariant] = useState<RecapVariant>('symphony');
+  const [ensemble, setEnsemble] = useState<RecapEnsemble>('classic');
   const [movements, setMovements] = useState<SpanMovement[] | null>(null);
   const [index, setIndex] = useState(0);
   const [playEpoch, setPlayEpoch] = useState(0);
@@ -77,7 +80,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
 
   useEffect(() => {
     reset();
-  }, [range, symbol, variant, reset]);
+  }, [ensemble, range, symbol, variant, reset]);
 
   useEffect(() => () => clearRest(), [clearRest]);
 
@@ -88,7 +91,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
     setComposing(true);
     void (async () => {
       try {
-        const manifest = await fetchSpan(symbol, range, variant, controller.signal);
+        const manifest = await fetchSpan(symbol, range, variant, ensemble, controller.signal);
         if (controller.signal.aborted) return;
         if (!manifest.movements.length) {
           setError('Chưa đủ phiên để soạn bản này.');
@@ -108,7 +111,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
         }
       }
     })();
-  }, [range, reset, symbol, variant]);
+  }, [ensemble, range, reset, symbol, variant]);
 
   const current = movements?.[index] ?? null;
   const upcoming = movements && index + 1 < movements.length ? movements[index + 1] : null;
@@ -200,12 +203,34 @@ export function SpanRecap({ symbol, range, children }: Props) {
                 onPress={() => {
                   void Haptics.selectionAsync();
                   setVariant(item.id);
+                  setEnsemble('classic');
                 }}
                 style={[styles.variant, active && styles.variantActive]}
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
               >
                 <Text style={[styles.variantText, active && styles.variantTextActive]}>{item.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <View style={[styles.variantRow, styles.ensembleRow]}>
+          {ENSEMBLE_ROWS[variant].map((item) => {
+            const active = item.id === ensemble;
+            return (
+              <Pressable
+                key={item.id}
+                onPress={() => {
+                  void Haptics.selectionAsync();
+                  setEnsemble(item.id);
+                }}
+                style={[styles.variant, active && styles.variantActive]}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+              >
+                <Text style={[styles.variantText, active && styles.variantTextActive]} numberOfLines={1}>
+                  {item.label}
+                </Text>
               </Pressable>
             );
           })}
@@ -341,6 +366,9 @@ const styles = StyleSheet.create({
   variantRow: {
     flexDirection: 'row',
     gap: spacing.sm,
+  },
+  ensembleRow: {
+    marginTop: spacing.sm,
   },
   variant: {
     paddingHorizontal: 12,

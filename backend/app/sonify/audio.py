@@ -27,7 +27,8 @@ from pathlib import Path
 from typing import Callable, NamedTuple
 from xml.etree import ElementTree as ET
 
-from app.sonify.model import VARIANTS, Bar, Variant
+from app.sonify.ensemble import Ensemble
+from app.sonify.model import ENSEMBLES, VARIANTS, Bar, Variant
 from app.sonify.musicxml import score_to_musicxml
 from app.sonify.playback import piece_seconds
 from app.sonify.render import render
@@ -49,7 +50,9 @@ WORK_KEEP_SEC = 15 * 60
 _STORED_NAME = re.compile(
     r"^[A-Z0-9]+_\d{4}-\d{2}-\d{2}_(?:"
     + "|".join(VARIANTS)
-    + r")_(?P<rev>[^_]+)_\d+\.(?:m4a|wav|json)$"
+    + r")(?:-(?:"
+    + "|".join(name for name in ENSEMBLES if name != "classic")
+    + r"))?_(?P<rev>[^_]+)_\d+\.(?:m4a|wav|json)$"
 )
 _export_cancel = threading.local()
 _export_timeout = threading.local()
@@ -95,12 +98,14 @@ class RecapAsset:
     peaks: list[float]
     bar_count: int
     media_type: str
+    ensemble: Ensemble = "classic"
 
     @property
     def audio_url(self) -> str:
+        extra = "" if self.ensemble == "classic" else f"&ensemble={self.ensemble}"
         return (
             f"/v1/stocks/{self.symbol}/sessions/{self.day.isoformat()}"
-            f"/recap/audio.m4a?variant={self.variant}&v={self.bar_count}&r={RECAP_REVISION}"
+            f"/recap/audio.m4a?variant={self.variant}&v={self.bar_count}&r={RECAP_REVISION}{extra}"
         )
 
 
@@ -460,9 +465,7 @@ _MUSE_VOICES = (
             "voice.soprano",
             "voice.mezzo-soprano",
             "voice.alto",
-            "voice.tenor",
             "voice.baritone",
-            "voice.bass",
             "voice.child",
             "voice.female",
             "voice.male",
@@ -470,10 +473,43 @@ _MUSE_VOICES = (
         ("Voice",),
         "Full Choir",
     ),
+    _MuseVoice(("wind.flutes.flute.piccolo",), ("Piccolo",), "Piccolo"),
+    _MuseVoice(("wind.reed.oboe",), ("Oboe",), "Oboe"),
+    _MuseVoice(
+        ("wind.reed.clarinet.bflat", "wind.reed.clarinet"),
+        ("Clarinet",),
+        "Clarinet in Bb",
+    ),
+    _MuseVoice(("wind.reed.contrabassoon",), ("Contrabassoon",), "Contrabassoon"),
+    _MuseVoice(("pitched-percussion.glockenspiel",), ("Glockenspiel",), "Glockenspiel"),
+    _MuseVoice(("brass.trumpet.bflat", "brass.trumpet", "brass.trumpet.c"), ("Trumpet",), "Trumpet"),
+    _MuseVoice(("brass.trombone", "brass.trombone.tenor"), ("Trombone",), "Trombone"),
+    _MuseVoice((), ("French Horns a6",), "French Horns a6"),
+    _MuseVoice(("brass.tuba", "brass.tuba.bass"), ("Tuba",), "Tuba"),
+    _MuseVoice((), ("Electric LP - Clean",), "Electric LP - Clean"),
+    _MuseVoice((), ("Electric SC - Clean",), "Electric SC - Clean"),
+    _MuseVoice((), ("Wurly 200A",), "Wurly 200A"),
+    _MuseVoice(("wind.reed.saxophone.soprano",), ("Soprano Saxophone",), "Soprano Saxophone"),
+    _MuseVoice(("wind.reed.saxophone.baritone",), ("Baritone Saxophone",), "Baritone Saxophone"),
+    _MuseVoice(("keyboard.organ.drawbar",), ("Hammond Organ",), "Hammond Organ"),
+    _MuseVoice(("metal.crotales",), ("Crotales",), "Crotales"),
+    _MuseVoice(("pitched-percussion.marimba",), ("Marimba",), "Marimba"),
+    _MuseVoice(("keyboard.harpsichord",), ("Harpsichord",), "Harpsichord"),
+    _MuseVoice((), ("Flute 2",), "Flute 2"),
+    _MuseVoice((), ("Acoustic Steel Plucked",), "Acoustic Steel Plucked"),
+    _MuseVoice(("keyboard.piano.upright",), ("Upright Piano",), "Upright Piano"),
+    _MuseVoice((), ("Handchimes",), "Handchimes"),
+    _MuseVoice(("wind.reed.english-horn",), ("English Horn",), "English Horn"),
+    _MuseVoice(("wind.reed.clarinet.bass",), ("Bass Clarinet",), "Bass Clarinet"),
+    _MuseVoice((), ("Trombones a3",), "Trombones a3"),
+    _MuseVoice(("pitched-percussion.handbells",), ("Hand Bells",), "Handbells"),
+    _MuseVoice(("voice.tenor",), ("Tenor",), "Tenors"),
+    _MuseVoice(("voice.bass",), ("Bass",), "Basses"),
 )
 _VOICE_BY_INSTRUMENT = {
     instrument_id: voice for voice in _MUSE_VOICES for instrument_id in voice.instrument_ids
 }
+_VOICE_BY_SOUND = {voice.sound: voice for voice in _MUSE_VOICES}
 _muse_sounds_cache: dict[str, tuple[str, str]] | None = None
 
 
@@ -530,10 +566,33 @@ def _xml_requests_muse_sounds(xml_path: Path, library: dict[str, tuple[str, str]
     except OSError:
         return False
     return any(
-        voice.sound in library and f"<instrument-name>{name}</instrument-name>" in text
+        voice.sound in library
+        and (
+            f"<instrument-name>{name}</instrument-name>" in text
+            or f"<part-name>{name}</part-name>" in text
+        )
         for voice in _MUSE_VOICES
-        for name in voice.xml_names
+        for name in (*voice.xml_names, voice.sound)
     )
+
+
+def _xml_part_sounds(xml_path: Path) -> list[str | None]:
+    """MuseSounds voice requested by each score-part, in part-list order."""
+    try:
+        root = ET.parse(xml_path).getroot()
+    except (ET.ParseError, OSError):
+        return []
+    sounds: list[str | None] = []
+    for part in root.findall("part-list/score-part"):
+        part_name = (part.findtext("part-name") or "").strip()
+        instrument_name = (part.findtext("score-instrument/instrument-name") or "").strip()
+        if part_name in _VOICE_BY_SOUND:
+            sounds.append(part_name)
+        elif instrument_name in _VOICE_BY_SOUND:
+            sounds.append(instrument_name)
+        else:
+            sounds.append(None)
+    return sounds
 
 
 def _score_parts(mscx: str) -> list[tuple[str, str, str]]:
@@ -582,7 +641,11 @@ def _sound_track(
     }
 
 
-def _assign_installed_sounds(mscz: Path, library: dict[str, tuple[str, str]]) -> bool:
+def _assign_installed_sounds(
+    mscz: Path,
+    library: dict[str, tuple[str, str]],
+    xml_path: Path | None = None,
+) -> bool:
     """Point each matching part at an installed MuseSounds voice.
 
     MuseScore 4's ``--sound-profile`` flag reports the voice it would use and
@@ -602,10 +665,16 @@ def _assign_installed_sounds(mscz: Path, library: dict[str, tuple[str, str]]) ->
         except json.JSONDecodeError:
             return False
         payloads = {name: archive.read(name) for name in names}
+    requested = _xml_part_sounds(xml_path) if xml_path is not None else []
     tracks = []
     assigned: list[str] = []
-    for part_id, instrument_id, kind in parts:
-        voice = _VOICE_BY_INSTRUMENT.get(kind)
+    for index, (part_id, instrument_id, kind) in enumerate(parts):
+        named = requested[index] if index < len(requested) else None
+        voice = _VOICE_BY_SOUND.get(named) if named else None
+        if voice is not None and voice.sound not in library:
+            voice = None
+        if voice is None:
+            voice = _VOICE_BY_INSTRUMENT.get(kind)
         installed = library.get(voice.sound) if voice is not None else None
         if installed is None:
             tracks.append(
@@ -743,7 +812,7 @@ def musescore_export(xml_path: Path, wav_path: Path) -> None:
         if library and _xml_requests_muse_sounds(xml_path, library):
             try:
                 _run_musescore([binary, "-o", str(mscz_path), str(xml_path)], env)
-                if _assign_installed_sounds(mscz_path, library):
+                if _assign_installed_sounds(mscz_path, library, xml_path):
                     source = mscz_path
                     command = [binary, "-o", str(wav_path), str(source)]
             except RecapUnavailable as exc:
@@ -817,19 +886,38 @@ class RecapStore:
                 self._locks[key] = lock
             return lock
 
-    def _piece(self, symbol: str, day: date, variant: Variant) -> str:
-        return f"{symbol}_{day.isoformat()}_{variant}"
+    def _tag(self, variant: Variant, ensemble: Ensemble) -> str:
+        if ensemble == "classic":
+            return variant
+        return f"{variant}-{ensemble}"
 
-    def _stem(self, symbol: str, day: date, variant: Variant, bar_count: int) -> str:
-        return f"{self._piece(symbol, day, variant)}_{RECAP_REVISION}_{bar_count}"
+    def _piece(self, symbol: str, day: date, variant: Variant, ensemble: Ensemble = "classic") -> str:
+        return f"{symbol}_{day.isoformat()}_{self._tag(variant, ensemble)}"
+
+    def _stem(
+        self,
+        symbol: str,
+        day: date,
+        variant: Variant,
+        bar_count: int,
+        ensemble: Ensemble = "classic",
+    ) -> str:
+        return f"{self._piece(symbol, day, variant, ensemble)}_{RECAP_REVISION}_{bar_count}"
 
     def _is_closed(self, day: date) -> bool:
         return is_session_closed(day, self._clock())
 
-    def get(self, symbol: str, day: date, variant: Variant, bar_count: int) -> RecapAsset | None:
+    def get(
+        self,
+        symbol: str,
+        day: date,
+        variant: Variant,
+        bar_count: int,
+        ensemble: Ensemble = "classic",
+    ) -> RecapAsset | None:
         """Serve one finished file. Does not compose."""
         self.prune()
-        return self._read(symbol, day, variant, self._stem(symbol, day, variant, bar_count))
+        return self._read(symbol, day, variant, self._stem(symbol, day, variant, bar_count, ensemble))
 
     def ensure(
         self,
@@ -838,23 +926,24 @@ class RecapStore:
         variant: Variant,
         bars: list[Bar],
         cancel: threading.Event | None = None,
+        ensemble: Ensemble = "classic",
     ) -> RecapAsset:
         if not bars:
             raise ValueError("need at least one price bar")
         self.prune()
-        piece = self._piece(symbol, day, variant)
+        piece = self._piece(symbol, day, variant, ensemble)
         with self._lock(piece):
             _raise_if_cancelled_event(cancel)
-            cached = self._cached(symbol, day, variant, len(bars))
+            cached = self._cached(symbol, day, variant, len(bars), ensemble)
             if cached is not None:
                 return cached
             _raise_if_cancelled_event(cancel)
             with self._slots:
                 _raise_if_cancelled_event(cancel)
-                cached = self._cached(symbol, day, variant, len(bars))
+                cached = self._cached(symbol, day, variant, len(bars), ensemble)
                 if cached is not None:
                     return cached
-                return self._render(symbol, day, variant, bars, cancel)
+                return self._render(symbol, day, variant, bars, cancel, ensemble)
 
     def prune(self) -> None:
         """Drop other score revisions, expired files, and leftover export temps."""
@@ -885,6 +974,11 @@ class RecapStore:
                 continue
             current = any(
                 f"_{variant}_{SPAN_REVISION}_" in path.name
+                or any(
+                    f"_{variant}_{ensemble}_{SPAN_REVISION}_" in path.name
+                    for ensemble in ENSEMBLES
+                    if ensemble != "classic"
+                )
                 for variant in VARIANTS
             )
             if not current or expired:
@@ -903,9 +997,11 @@ class RecapStore:
         variant: Variant,
         candle_count: int,
         fingerprint: str,
+        ensemble: Ensemble = "classic",
     ) -> str:
         token = fingerprint.replace(".", "p").replace("-", "_")
-        return f"{symbol}_{span}_{index}_{variant}_{SPAN_REVISION}_{candle_count}_{token}"
+        marker = variant if ensemble == "classic" else f"{variant}_{ensemble}"
+        return f"{symbol}_{span}_{index}_{marker}_{SPAN_REVISION}_{candle_count}_{token}"
 
     def get_movement(
         self,
@@ -915,9 +1011,10 @@ class RecapStore:
         variant: Variant,
         candle_count: int,
         fingerprint: str,
+        ensemble: Ensemble = "classic",
     ) -> SpanAsset | None:
         self.prune()
-        stem = self._span_stem(symbol, span, index, variant, candle_count, fingerprint)
+        stem = self._span_stem(symbol, span, index, variant, candle_count, fingerprint, ensemble)
         return self._read_span(symbol, span, index, variant, stem, fingerprint)
 
     def ensure_movement(
@@ -928,21 +1025,26 @@ class RecapStore:
         variant: Variant,
         movement,  # PreparedMovement; kept untyped to avoid an import cycle
         cancel: threading.Event | None = None,
+        ensemble: Ensemble = "classic",
     ) -> SpanAsset:
         fingerprint = movement.scale_fingerprint
         candle_count = movement.candle_count
-        piece = f"span:{symbol}:{span}:{index}:{variant}"
+        piece = f"span:{symbol}:{span}:{index}:{self._tag(variant, ensemble)}"
         with self._lock(piece):
             _raise_if_cancelled_event(cancel)
-            cached = self.get_movement(symbol, span, index, variant, candle_count, fingerprint)
+            cached = self.get_movement(
+                symbol, span, index, variant, candle_count, fingerprint, ensemble
+            )
             if cached is not None:
                 return cached
             with self._slots:
                 _raise_if_cancelled_event(cancel)
-                cached = self.get_movement(symbol, span, index, variant, candle_count, fingerprint)
+                cached = self.get_movement(
+                    symbol, span, index, variant, candle_count, fingerprint, ensemble
+                )
                 if cached is not None:
                     return cached
-                return self._render_movement(symbol, span, index, variant, movement, cancel)
+                return self._render_movement(symbol, span, index, variant, movement, cancel, ensemble)
 
     def _render_movement(
         self,
@@ -952,9 +1054,16 @@ class RecapStore:
         variant: Variant,
         movement,
         cancel: threading.Event | None,
+        ensemble: Ensemble = "classic",
     ) -> SpanAsset:
         stem = self._span_stem(
-            symbol, span, index, variant, movement.candle_count, movement.scale_fingerprint
+            symbol,
+            span,
+            index,
+            variant,
+            movement.candle_count,
+            movement.scale_fingerprint,
+            ensemble,
         )
         score = render(
             movement.bars,
@@ -968,6 +1077,7 @@ class RecapStore:
             framed=False,
             mode=movement.mode,
             home_pedal=movement.home_pedal,
+            ensemble=ensemble,
         )
         work = self.root / "work"
         work.mkdir(parents=True, exist_ok=True)
@@ -1081,9 +1191,10 @@ class RecapStore:
         variant: Variant,
         bars: list[Bar],
         cancel: threading.Event | None,
+        ensemble: Ensemble = "classic",
     ) -> RecapAsset:
-        key = self._stem(symbol, day, variant, len(bars))
-        score = render(bars, title=f"{symbol} {day.isoformat()}", variant=variant)
+        key = self._stem(symbol, day, variant, len(bars), ensemble)
+        score = render(bars, title=f"{symbol} {day.isoformat()}", variant=variant, ensemble=ensemble)
         work = self.root / "work"
         work.mkdir(parents=True, exist_ok=True)
         xml_path = work / f"{key}.musicxml"
@@ -1112,6 +1223,7 @@ class RecapStore:
                 "symbol": symbol,
                 "date": day.isoformat(),
                 "variant": variant,
+                "ensemble": ensemble,
                 "durationSec": round(duration, 3),
                 "mapDurationSec": round(map_duration, 3),
                 "barCount": len(bars),
@@ -1123,7 +1235,7 @@ class RecapStore:
             meta_tmp.write_text(json.dumps(payload), encoding="utf-8")
             self._publish(meta_tmp, self.root / f"{key}.json")
             if self._is_closed(day):
-                self._drop_other_counts(symbol, day, variant, len(bars))
+                self._drop_other_counts(symbol, day, variant, len(bars), ensemble)
             return self._asset(symbol, day, variant, audio_path, payload)
         finally:
             _export_cancel.event = previous
@@ -1134,14 +1246,28 @@ class RecapStore:
         os.replace(source, dest)
         return dest
 
-    def _cached(self, symbol: str, day: date, variant: Variant, bar_count: int) -> RecapAsset | None:
-        cached = self._read(symbol, day, variant, self._stem(symbol, day, variant, bar_count))
+    def _cached(
+        self,
+        symbol: str,
+        day: date,
+        variant: Variant,
+        bar_count: int,
+        ensemble: Ensemble = "classic",
+    ) -> RecapAsset | None:
+        cached = self._read(symbol, day, variant, self._stem(symbol, day, variant, bar_count, ensemble))
         if cached is not None and self._is_closed(day):
-            self._drop_other_counts(symbol, day, variant, bar_count)
+            self._drop_other_counts(symbol, day, variant, bar_count, ensemble)
         return cached
 
-    def _drop_other_counts(self, symbol: str, day: date, variant: Variant, keep: int) -> None:
-        prefix = f"{self._piece(symbol, day, variant)}_{RECAP_REVISION}_"
+    def _drop_other_counts(
+        self,
+        symbol: str,
+        day: date,
+        variant: Variant,
+        keep: int,
+        ensemble: Ensemble = "classic",
+    ) -> None:
+        prefix = f"{self._piece(symbol, day, variant, ensemble)}_{RECAP_REVISION}_"
         keep_stem = f"{prefix}{keep}"
         for path in list(self.root.iterdir()):
             if path.stem.startswith(prefix) and path.stem != keep_stem:
@@ -1182,6 +1308,7 @@ class RecapStore:
             peaks=[float(peak) for peak in peaks],
             bar_count=int(payload.get("barCount") or 0),
             media_type=_media_type(audio_path),
+            ensemble=payload.get("ensemble") or "classic",
         )
 
 

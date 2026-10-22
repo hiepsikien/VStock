@@ -13,7 +13,7 @@ from fastapi import Request
 from app.services.cache import cache
 from app.services.http_utils import ENTRADE_HEADERS
 from app.sonify.audio import RecapAsset, RecapCancelled, RecapUnavailable, recap_store
-from app.sonify.model import Variant
+from app.sonify.model import Ensemble, Variant
 from app.sonify.session import samples_from_ohlc, session_dates, session_points
 
 ENTRADE_OHLC = "https://services.entrade.com.vn/chart-api/v2/ohlcs/stock"
@@ -165,9 +165,15 @@ async def load_session(symbol: str, day: date) -> dict | None:
     return minute_series(payload, day)
 
 
-def ready_recap(symbol: str, day: date, variant: Variant, bar_count: int) -> RecapAsset | None:
+def ready_recap(
+    symbol: str,
+    day: date,
+    variant: Variant,
+    bar_count: int,
+    ensemble: Ensemble = "classic",
+) -> RecapAsset | None:
     """Return a file that was already composed. Never starts MuseScore."""
-    return recap_store().get(symbol.upper(), day, variant, bar_count)
+    return recap_store().get(symbol.upper(), day, variant, bar_count, ensemble)
 
 
 async def load_recap(
@@ -175,6 +181,7 @@ async def load_recap(
     day: date,
     variant: Variant,
     request: Request | None = None,
+    ensemble: Ensemble = "classic",
 ) -> RecapAsset:
     payload = await fetch_minute_payload(symbol)
     points = session_points(samples_from_ohlc(payload), day)
@@ -201,6 +208,7 @@ async def load_recap(
             variant,
             bars,
             cancel,
+            ensemble,
         )
     except (RecapUnavailable, RecapCancelled):
         raise

@@ -42,7 +42,8 @@ from app.sonify.chords import Chord
 from app.sonify.dynamics import COOLDOWN_MARKING, SOUND
 from app.sonify.form import BEATS_PER_BAR, MUSICAL_BARS
 from app.sonify.keys import KeySpec, midi_to_spelled_pitch, signature_fifths, transpose_chord
-from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score, Variant, WedgeEvent
+from app.sonify.ensemble import fit_ensemble, parts_for, sounds_at_pitch
+from app.sonify.model import DynamicEvent, Ensemble, HarmonyEvent, NoteEvent, Score, Variant, WedgeEvent
 
 DIVISIONS = 2  # default per quarter note, so an eighth note is 1
 FORTE_VELOCITY = 90  # MusicXML dynamics percentages are relative to this
@@ -330,9 +331,9 @@ _PARTS_BY_VARIANT: dict[Variant, tuple[tuple[str, str, str, str, str], ...]] = {
 }
 
 
-def _part_list(root: ET.Element, variant: Variant = "symphony") -> None:
+def _part_list(root: ET.Element, variant: Variant = "symphony", ensemble: Ensemble = "classic") -> None:
     part_list = _add(root, "part-list")
-    parts = _PARTS_BY_VARIANT.get(variant, _PARTS)
+    parts = parts_for(variant, ensemble) or _PARTS_BY_VARIANT.get(variant, _PARTS)
     for part_id, part_name, instrument_name, channel, program in parts:
         part = _add(part_list, "score-part", id=part_id)
         _add(part, "part-name", part_name)
@@ -497,7 +498,13 @@ BASS_WRITTEN_OCTAVES = 1
 
 
 def _bass_part(root: ET.Element, score: Score) -> None:
-    """Bass part (P4) is written an octave above where it sounds."""
+    """Bass part (P4) is written an octave above where it sounds.
+
+    Choir basses sing the sounding pitch, so that row skips the octave shift.
+    """
+    sounding = sounds_at_pitch(score.ensemble)
+    written_shift = 0 if sounding else 12 * BASS_WRITTEN_OCTAVES
+    octave_change = 0 if sounding else -BASS_WRITTEN_OCTAVES
     part = _add(root, "part", id="P4")
     notes = _group(score.low, score.bars)
     if score.low_wedges:
@@ -519,7 +526,7 @@ def _bass_part(root: ET.Element, score: Score) -> None:
             _attributes(
                 measure,
                 BASS_CLEF,
-                octave_change=-BASS_WRITTEN_OCTAVES,
+                octave_change=octave_change,
                 divisions=score.divisions,
                 fifths=signature_fifths(score.key, score.mode),
                 mode=score.mode,
@@ -542,7 +549,7 @@ def _bass_part(root: ET.Element, score: Score) -> None:
                 measure,
                 note,
                 chord=note.beat == previous_beat and note.midi is not None,
-                written_shift=12 * BASS_WRITTEN_OCTAVES,
+                written_shift=written_shift,
                 divisions=score.divisions,
                 harmony=_chord_on(score, bar),
                 key=score.key,
@@ -616,13 +623,14 @@ def _ambient_swell_part(root: ET.Element, score: Score) -> None:
 
 
 def score_to_musicxml(score: Score) -> str:
+    score = fit_ensemble(score)
     root = ET.Element("score-partwise", version="4.0")
     work = _add(root, "work")
     _add(work, "work-title", score.title)
     identification = _add(root, "identification")
     encoding = _add(identification, "encoding")
     _add(encoding, "software", "vstock-sonify")
-    _part_list(root, score.variant)
+    _part_list(root, score.variant, score.ensemble)
     high_dynamic = (
         DynamicEvent(bar=0, marking="f", sound=SOUND["f"])
         if score.variant == "ambient"

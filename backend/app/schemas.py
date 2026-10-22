@@ -99,6 +99,9 @@ class RecapResponse(BaseModel):
     symbol: str
     date: str
     variant: Literal["symphony", "jazz", "minimalist", "ambient"]
+    ensemble: Literal[
+        "classic", "wood", "brass", "soul", "organ", "mallet", "guitar", "breath", "choir"
+    ] = "classic"
     durationSec: float
     mapDurationSec: float
     barCount: int
@@ -124,6 +127,9 @@ class SpanResponse(BaseModel):
     symbol: str
     range: Literal["1W", "1M", "3M", "1Y"]
     variant: Literal["symphony", "jazz", "minimalist", "ambient"]
+    ensemble: Literal[
+        "classic", "wood", "brass", "soul", "organ", "mallet", "guitar", "breath", "choir"
+    ] = "classic"
     movements: list[SpanMovementResponse]
 
 

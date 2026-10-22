@@ -14,6 +14,29 @@ PERIOD = 4
 Variant = Literal["symphony", "jazz", "minimalist", "ambient"]
 VARIANTS: tuple[Variant, ...] = ("symphony", "jazz", "minimalist", "ambient")
 
+Ensemble = Literal[
+    "classic",
+    "wood",
+    "brass",
+    "soul",
+    "organ",
+    "mallet",
+    "guitar",
+    "breath",
+    "choir",
+]
+ENSEMBLES: tuple[Ensemble, ...] = (
+    "classic",
+    "wood",
+    "brass",
+    "soul",
+    "organ",
+    "mallet",
+    "guitar",
+    "breath",
+    "choir",
+)
+
 StreamVariant = Literal["symphony", "jazz", "minimalist", "ambient"]
 STREAM_VARIANTS: tuple[StreamVariant, ...] = ("symphony", "jazz", "minimalist", "ambient")
 
@@ -140,6 +163,7 @@ class Score:
     support_dynamics: tuple[DynamicEvent, ...]
     low_wedges: tuple[WedgeEvent, ...] = ()
     variant: Variant = "symphony"
+    ensemble: Ensemble = "classic"
     divisions: int = 2
     swing: bool = False
     key: KeySpec = C_KEY
