@@ -15,7 +15,7 @@ from app.sonify.dynamics import COOLDOWN_MARKING, SOUND
 from app.sonify.form import DAILY_AMBIENT_BARS, EIGHTHS_PER_BAR
 from app.sonify.keys import active_register
 from app.sonify.model import DynamicEvent, NoteEvent, Score, WedgeEvent
-from app.sonify.phrasing import with_rests
+from app.sonify.phrasing import WEDGE_MIN, with_rests
 
 BODY_START = 2
 COOL_START = 32
@@ -109,6 +109,12 @@ def _symphony(score: Score) -> Score:
         lead_dynamics=_line_letters(score.lead_dynamics, cool_attack=not violin_touch),
         support_dynamics=_line_letters(score.support_dynamics, cool_attack=not cello_touch),
         low_wedges=_hairpin(0),
+        high_wedges=_trim_frame_wedges(score.high_wedges, BODY_START, COOL_START, _BEAT, EIGHTHS_PER_BAR),
+        high_dynamics=_flute_body_dynamics(score.high_dynamics, score.high, BODY_START, COOL_START),
+        comp_wedges=_trim_frame_wedges(score.comp_wedges, BODY_START, COOL_START, _BEAT, EIGHTHS_PER_BAR),
+        comp_dynamics=_piano_frame_dynamics(
+            score.comp_dynamics, BODY_START, COOL_START, dynamic=False, warm_start=0, tag=0
+        ),
     )
 
 
@@ -512,4 +518,82 @@ def _even_sub(notes: Sequence[NoteEvent]) -> tuple[NoteEvent, ...]:
                     tenuto=beat == 0,
                 )
             )
+    return tuple(out)
+
+
+def _eighth_at(event: WedgeEvent, eighths_per_bar: int) -> int:
+    return event.bar * eighths_per_bar + int(round(event.beat * 2))
+
+
+def _trim_frame_wedges(
+    wedges: tuple[WedgeEvent, ...],
+    body: int,
+    cool: int,
+    beats: float,
+    eighths_per_bar: int,
+) -> tuple[WedgeEvent, ...]:
+    """Drop hairpins that miss the body. Reopen one that is still sounding at the downbeat."""
+    ordered = sorted(wedges, key=lambda event: (event.bar, event.beat, 0 if event.kind == "stop" else 1))
+    body_eighth = body * eighths_per_bar
+    kept: list[WedgeEvent] = []
+    index = 0
+    while index + 1 < len(ordered):
+        start, stop = ordered[index], ordered[index + 1]
+        if stop.kind != "stop":
+            index += 1
+            continue
+        index += 2
+        if _eighth_at(stop, eighths_per_bar) <= body_eighth or start.bar >= cool:
+            continue
+        if start.bar < body:
+            start = WedgeEvent(body, 0.0, start.kind)
+        if stop.bar >= cool:
+            stop = WedgeEvent(cool - 1, beats, "stop")
+        if _eighth_at(stop, eighths_per_bar) - _eighth_at(start, eighths_per_bar) >= WEDGE_MIN:
+            kept.extend((start, stop))
+    return tuple(kept)
+
+
+def _flute_body_dynamics(
+    events: tuple[DynamicEvent, ...],
+    notes: tuple[NoteEvent, ...],
+    body: int,
+    cool: int,
+) -> tuple[DynamicEvent, ...]:
+    """Carry mf onto the body downbeat. Drop only a duplicate mp exactly there."""
+    before = [event for event in events if event.bar < body or (event.bar == body and event.beat == 0.0)]
+    body_mark = before[-1].marking if before else "mp"
+    kept = [event for event in events if body <= event.bar < cool]
+    if kept and kept[0].bar == body and kept[0].beat == 0.0 and kept[0].marking == "mp":
+        kept = kept[1:]
+    sounding = any(note.bar == body and note.beat == 0.0 and note.midi is not None for note in notes)
+    starts = bool(kept) and kept[0].bar == body and kept[0].beat == 0.0
+    if body_mark == "mf" and sounding and not starts:
+        kept.insert(0, DynamicEvent(body, "mf", SOUND["mf"], 0.0))
+    return tuple(kept)
+
+
+def _piano_frame_dynamics(
+    events: tuple[DynamicEvent, ...],
+    body: int,
+    cool: int,
+    *,
+    dynamic: bool,
+    warm_start: int,
+    tag: int,
+) -> tuple[DynamicEvent, ...]:
+    """Restore the bed at the body downbeat. A dynamic frame opens on p and can close on p."""
+    beds = [event for event in events if event.beat == 0.0 and event.bar <= body]
+    body_mark = beds[-1].marking if beds else "p"
+    kept = [event for event in events if body <= event.bar < cool]
+    if kept and kept[0].bar == body and kept[0].beat == 0.0 and kept[0].marking == "p":
+        kept = kept[1:]
+    starts = bool(kept) and kept[0].bar == body and kept[0].beat == 0.0
+    if not starts and body_mark != "p":
+        kept.insert(0, DynamicEvent(body, body_mark, SOUND[body_mark], 0.0))
+    if not dynamic:
+        return tuple(kept)
+    out = [DynamicEvent(warm_start, "p", SOUND["p"], 0.0), *kept]
+    if tag > 0 and out[-1].marking != "p":
+        out.append(DynamicEvent(cool, "p", SOUND["p"], 0.0))
     return tuple(out)

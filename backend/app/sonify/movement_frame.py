@@ -14,6 +14,7 @@ from app.sonify.dynamics import COOLDOWN_MARKING, SOUND
 from app.sonify.form import FormSpec, compose_meter
 from app.sonify.keys import active_register
 from app.sonify.model import DynamicEvent, NoteEvent, Score, WedgeEvent
+from app.sonify.daily_frame import _flute_body_dynamics, _piano_frame_dynamics, _trim_frame_wedges
 from app.sonify.phrasing import with_rests, written
 
 
@@ -123,6 +124,12 @@ def _symphony(
         support_dynamics=_letters(score.support_dynamics, body, cool, end, entrance=warm_start),
         dynamics=_bass_letters(score.dynamics, warm_start, body, cool, end),
         low_wedges=_hairpin(warm_start, body, cool, end - 1),
+        high_wedges=_trim_frame_wedges(score.high_wedges, body, cool, beats, _epb()),
+        high_dynamics=_flute_body_dynamics(score.high_dynamics, score.high, body, cool),
+        comp_wedges=_trim_frame_wedges(score.comp_wedges, body, cool, beats, _epb()),
+        comp_dynamics=_piano_frame_dynamics(
+            score.comp_dynamics, body, cool, dynamic=dynamic, warm_start=warm_start, tag=tag
+        ),
     )
 
 
@@ -461,6 +468,7 @@ def _curtain_comp(
         _root, closing_voicing = _rhodes_voicing(closing)
         for bar in range(cool, min(end, cool + tag)):
             notes.extend(_rhodes_warmup_bar(bar, closing_voicing, signature))
+    notes = [replace(note, velocity=49) if note.midi is not None else note for note in notes]
     filled = with_rests(notes, end * meter.eighths_per_bar)
     filled = tuple(
         note

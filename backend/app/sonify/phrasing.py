@@ -911,8 +911,17 @@ def fills(
     return notes
 
 
-def left_hand(slot: ChordSlot) -> list[NoteEvent]:
-    """The root held for a bar and re-struck every two bars (or once on the outro pedal)."""
+def left_hand(
+    slot: ChordSlot,
+    *,
+    velocity_at: dict[int, int] | None = None,
+    every_bar_at: frozenset[int] = frozenset(),
+) -> list[NoteEvent]:
+    """The root held for a bar and re-struck every two bars (or once on the outro pedal).
+
+    Symphony passes a bed velocity and the bars that restrike every bar. Jazz
+    calls left_hand(slot) and keeps the two-bar pedal with no velocity.
+    """
     root, _guide = comp_pitches(slot.chord)
     epb = active_meter().eighths_per_bar
     events: list[NoteEvent] = []
@@ -921,9 +930,12 @@ def left_hand(slot: ChordSlot) -> list[NoteEvent]:
             sound = True
         elif slot.section == "outro":
             sound = offset == 0
+        elif bar in every_bar_at:
+            sound = True
         else:
             sound = offset % 2 == 0
-        for note in written(bar * epb, epb, root if sound else None):
+        velocity = None if velocity_at is None else velocity_at.get(bar)
+        for note in written(bar * epb, epb, root if sound else None, velocity=velocity):
             events.append(replace(note, voice=5, staff=2))
     return events
 

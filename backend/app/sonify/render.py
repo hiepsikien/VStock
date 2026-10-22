@@ -9,11 +9,14 @@ from app.sonify.chords import Chord, Regime, fifth_above_bass, progression
 from app.sonify.ensemble import fit_ensemble, tune_register
 from app.sonify.dynamics import (
     MARKINGS,
+    PIANO_VELOCITY,
     SOUND,
     average_liquidity,
     bass_marking,
+    effective_comp_band,
     marking_for_volume,
     percentile,
+    piano_marking,
 )
 from app.sonify.form import (
     BPM,
@@ -60,14 +63,19 @@ from app.sonify.model import (
     Run,
     Score,
     Variant,
+    WedgeEvent,
 )
 from app.sonify.phrasing import (
     BREAKOUT,
     FILL_VELOCITY,
     MIN_RISE,
+    WEDGE_MIN,
+    _wedge_at,
     comp_pitches,
     fills,
+    hairpins,
     left_hand,
+    lift,
     melody_parts,
     plan_phrases,
     quantize_strong_beats,
@@ -136,7 +144,9 @@ _BASS_34 = {
 }
 
 
-def _bass_pattern(marking: str, bar: int | None = None) -> tuple[tuple[int, int, int], ...]:
+def _bass_pattern(
+    marking: str, bar: int | None = None, *, under_cello: bool = False
+) -> tuple[tuple[int, int, int], ...]:
     from app.sonify.form import active_meter
     from app.sonify.groove import groove_at
 
@@ -156,7 +166,7 @@ def _bass_pattern(marking: str, bar: int | None = None) -> tuple[tuple[int, int,
         pattern = _BASS_34[marking]
     else:
         pattern = BASS_PATTERNS[marking]
-    if groove is not None and groove.selloff:
+    if (groove is not None and groove.selloff) or under_cello:
         pattern = tuple((start, length, ROOT if interval == OCTAVE else interval) for start, length, interval in pattern)
     elif groove is not None and groove.rally and marking in ("mf", "f"):
         pattern = tuple(
@@ -298,6 +308,110 @@ def flute_harmony_pitch(
     return melody_midi + 4
 
 
+def _shape_flute_span(
+    phrase: Phrase,
+    pitches: list[int],
+    span_start: int,
+    sounding_end: int,
+    merged_flute_runs: list[Run],
+    tie_first_in: bool,
+    colours: dict[int, str],
+    band_at: dict[int, str],
+    ensemble: Ensemble,
+    effective_level: str,
+) -> tuple[list[WedgeEvent], list[DynamicEvent], list[int], str]:
+    """Letters, hairpins, and velocities for one flute entrance.
+
+    A glockenspiel of one run takes velocity = peak and never opens a wedge.
+    A quiet span (peak 72) stays a flat mp. A loud span swells with a hairpin
+    and does not print mf at the apex; mf is only the opening letter when the
+    line is already at the top, or the single glockenspiel attack.
+    """
+    epb = active_meter().eighths_per_bar
+
+    def overlaps_breakout(start: int, end: int) -> bool:
+        return any(
+            colours.get(run.start) == BREAKOUT and run.end > start and run.start < end
+            for run in phrase.runs
+        )
+
+    span_apex = max(range(span_start, sounding_end), key=lambda eighth: (pitches[eighth], -eighth))
+    has_breakout = overlaps_breakout(span_start, sounding_end)
+    peak = 80 if has_breakout or band_at.get(span_apex // epb, "mp") in ("mf", "f") else 72
+    first_attack = next(
+        (run for index, run in enumerate(merged_flute_runs) if not (index == 0 and tie_first_in)),
+        None,
+    )
+    if first_attack is None:
+        return [], [], [64] * len(merged_flute_runs), effective_level
+
+    arc_start = first_attack.start
+    length = sounding_end - arc_start
+    glock_one = ensemble == "brass" and len(merged_flute_runs) == 1
+    branch_a = phrase.rise < MIN_RISE or peak == 72 or length < WEDGE_MIN
+    eff_apex = span_apex
+    wedges: list[WedgeEvent] = []
+    start_marking = "mp"
+    case = 1
+    if branch_a:
+        if glock_one and phrase.rise >= MIN_RISE and peak == 80:
+            start_marking = "mf"
+            case = 2
+        if len(merged_flute_runs) == 1 and length >= 4:
+            eff_apex = arc_start + length // 2
+    elif glock_one:
+        start_marking = "mf"
+        case = 2
+    elif len(merged_flute_runs) == 1 and length >= 4:
+        eff_apex = arc_start + length // 2
+        wedges = hairpins(arc_start, sounding_end, eff_apex)
+        case = 3
+    elif span_apex - arc_start >= WEDGE_MIN:
+        eff_apex = span_apex
+        wedges = hairpins(arc_start, sounding_end, eff_apex)
+        case = 3 if sounding_end - eff_apex >= WEDGE_MIN else 4
+    else:
+        eff_apex = arc_start
+        if ensemble != "brass":
+            start_marking = "mf"
+        wedges = [_wedge_at(arc_start, "diminuendo"), _wedge_at(sounding_end, "stop")]
+        case = 4
+
+    dynamics: list[DynamicEvent] = []
+    level = effective_level
+    if level != start_marking:
+        dynamics.append(
+            DynamicEvent(
+                arc_start // epb,
+                start_marking,
+                SOUND[start_marking],
+                (arc_start % epb) * 0.5,
+            )
+        )
+        level = start_marking
+    if case in (2, 4):
+        level = "drifted"
+
+    velocities: list[int] = []
+    for run in merged_flute_runs:
+        if phrase.rise < MIN_RISE:
+            velocities.append(64)
+            continue
+        if glock_one:
+            velocities.append(peak)
+            continue
+        if overlaps_breakout(run.start, run.end):
+            velocities.append(peak)
+            continue
+        onset = max(arc_start, run.start)
+        if onset <= eff_apex:
+            span = 1.0 if eff_apex == arc_start else (onset - arc_start) / (eff_apex - arc_start)
+        else:
+            span = 1.0 - (onset - eff_apex) / max(1, sounding_end - eff_apex)
+        velocities.append(round(64 + (peak - 64) * lift(phrase) * span))
+    return wedges, dynamics, velocities, level
+
+
 def _flute_and_violin_dovetail(
     phrases: tuple[Phrase, ...],
     pitches: list[int],
@@ -306,7 +420,8 @@ def _flute_and_violin_dovetail(
     scale: tuple[int, ...],
     piece_eighths: int = TOTAL_EIGHTHS,
     mode: str = "major",
-) -> tuple[list[NoteEvent], list[tuple[int, int]]]:
+    ensemble: Ensemble = "classic",
+) -> tuple[list[NoteEvent], list[tuple[int, int]], list[WedgeEvent], list[DynamicEvent]]:
     """Build Flute highlight notes and record spans where Violin yields.
 
     When a rising phrase reaches a high Apex (>= FLUTE_TRIGGER) or a BREAKOUT
@@ -328,6 +443,9 @@ def _flute_and_violin_dovetail(
     flute_tied_in = False
     violin_tied_in = False
     prev_flute_midi: int | None = None
+    flute_wedges: list[WedgeEvent] = []
+    flute_dynamics: list[DynamicEvent] = []
+    effective_level = "mp"
 
     for phrase in phrases:
         colours = techniques(phrase, pitches, band_at)
@@ -535,6 +653,20 @@ def _flute_and_violin_dovetail(
                 and span_end == phrase.end
                 and next_flute_midi == merged_flute_runs[-1].midi
             )
+            span_wedges, span_dynamics, span_velocities, effective_level = _shape_flute_span(
+                phrase,
+                pitches,
+                span_start,
+                sounding_end,
+                merged_flute_runs,
+                tie_first_in,
+                colours,
+                band_at,
+                ensemble,
+                effective_level,
+            )
+            flute_wedges.extend(span_wedges)
+            flute_dynamics.extend(span_dynamics)
 
             for r_i, f_run in enumerate(merged_flute_runs):
                 is_first = r_i == 0
@@ -546,7 +678,7 @@ def _flute_and_violin_dovetail(
                         f_run.midi,
                         slur_start=has_slur and is_first,
                         slur_stop=has_slur and is_last,
-                        velocity=FLUTE_VELOCITY,
+                        velocity=span_velocities[r_i],
                         tenuto=is_first and not tie_first_in,
                         tie_in=is_first and tie_first_in,
                         tie_out=is_last and tie_last_out,
@@ -563,10 +695,20 @@ def _flute_and_violin_dovetail(
         flute_tied_in = phrase.held_over and ended_on_flute
         violin_tied_in = phrase.held_over and not ended_on_flute and run_is_violin[-1]
 
-    return flute_notes, yield_spans
+    return flute_notes, yield_spans, flute_wedges, flute_dynamics
 
 
-def _bass_bar(chord: Chord, marking: str, bar: int) -> list[NoteEvent]:
+def _fold_under_cello(midi: int, root: int) -> int:
+    """Keep a cello-lead bar under C3. A fifth that already sits at C3–F#3 drops one octave."""
+    if midi < 48:
+        return midi
+    folded = midi - 12
+    return folded if folded >= 36 else root
+
+
+def _bass_bar(
+    chord: Chord, marking: str, bar: int, *, under_cello: bool = False
+) -> list[NoteEvent]:
     degree = {
         ROOT: chord.bass_midi,
         FIFTH: fifth_above_bass(chord),
@@ -580,8 +722,15 @@ def _bass_bar(chord: Chord, marking: str, bar: int) -> list[NoteEvent]:
             duration_beats=length * 0.5,
             voice=1,
         )
-        for start, length, interval in _bass_pattern(marking, bar)
+        for start, length, interval in _bass_pattern(marking, bar, under_cello=under_cello)
     ]
+    if under_cello:
+        events = [
+            replace(event, midi=_fold_under_cello(event.midi, chord.bass_midi))
+            if event.midi is not None
+            else event
+            for event in events
+        ]
     from app.sonify.groove import groove_at, silence_second_half
 
     if groove_at(bar).caesura:
@@ -593,13 +742,23 @@ def _right_hand(
     slots: tuple[ChordSlot, ...],
     cadence_fills: list[tuple[int, int, int]],
     piece_eighths: int = TOTAL_EIGHTHS,
-) -> tuple[NoteEvent, ...]:
-    """Third and seventh on beat 1 for half a bar, cut short when a fill comes in."""
+    *,
+    bed_velocity_at: dict[int, int] | None = None,
+    bed_marking_at: dict[int, str] | None = None,
+    phrases: tuple[Phrase, ...] | None = None,
+) -> tuple[tuple[NoteEvent, ...], list[tuple[int, float, str, bool]], list[WedgeEvent]]:
+    """Third and seventh on beat 1 for half a bar, cut short when a fill comes in.
+
+    Without a bed map the fills stay at FILL_VELOCITY and no hairpin is written.
+    Symphony passes the bed so each fill group swells or settles against it.
+    """
     from app.sonify.groove import groove_at
 
+    meter = active_meter()
+    epb = meter.eighths_per_bar
     first_fill: dict[int, int] = {}
     for start, _length, _midi in cadence_fills:
-        bar = start // active_meter().eighths_per_bar
+        bar = start // epb
         first_fill[bar] = min(first_fill.get(bar, start), start)
     events: list[NoteEvent] = []
     for slot in slots:
@@ -607,22 +766,122 @@ def _right_hand(
         for bar in slot.bars():
             if groove_at(bar).chamber:
                 continue
-            epb = active_meter().eighths_per_bar
             downbeat = bar * epb
-            guide_eighths = 3 if (active_meter().beats, active_meter().beat_type) == (6, 8) else min(HALF_BAR, epb)
+            guide_eighths = 3 if (meter.beats, meter.beat_type) == (6, 8) else min(HALF_BAR, epb)
             length = min(guide_eighths, first_fill.get(bar, downbeat + guide_eighths) - downbeat)
+            velocity = None if bed_velocity_at is None else bed_velocity_at.get(bar)
             events.extend(
-                NoteEvent(bar=bar, beat=0.0, midi=midi, duration_beats=length * 0.5, voice=1)
+                NoteEvent(
+                    bar=bar,
+                    beat=0.0,
+                    midi=midi,
+                    duration_beats=length * 0.5,
+                    voice=1,
+                    velocity=velocity,
+                )
                 for midi in guide
             )
+    kept: list[tuple[int, int, int]] = []
     for start, length, midi in cadence_fills:
-        bar = start // active_meter().eighths_per_bar
-        if groove_at(bar).caesura:
-            beat = (start % active_meter().eighths_per_bar) * 0.5
-            if beat >= active_meter().quarter_beats / 2:
-                continue
-        events.extend(written(start, length, midi, velocity=FILL_VELOCITY))
-    return with_rests(events, piece_eighths)
+        bar = start // epb
+        if groove_at(bar).caesura and (start % epb) * 0.5 >= meter.quarter_beats / 2:
+            continue
+        kept.append((start, length, midi))
+    if bed_velocity_at is None or bed_marking_at is None:
+        for start, length, midi in kept:
+            events.extend(written(start, length, midi, velocity=FILL_VELOCITY))
+        return with_rests(events, piece_eighths), [], []
+
+    groups: list[tuple[Phrase | None, list[tuple[int, int, int]]]] = []
+    current: list[tuple[int, int, int]] = []
+    current_phrase: Phrase | None = None
+    for start, length, midi in kept:
+        phrase = next(
+            (
+                candidate
+                for candidate in phrases or ()
+                if candidate.closes and candidate.cadence.start <= start < candidate.cadence.end
+            ),
+            None,
+        )
+        if current and phrase is not current_phrase:
+            groups.append((current_phrase, current))
+            current = []
+        current.append((start, length, midi))
+        current_phrase = phrase
+    if current:
+        groups.append((current_phrase, current))
+
+    fill_marks: list[tuple[int, float, str, bool]] = []
+    comp_wedges: list[WedgeEvent] = []
+    for phrase, group in groups:
+        by_bar: dict[int, list[tuple[int, int, int]]] = {}
+        for start, length, midi in group:
+            by_bar.setdefault(start // epb, []).append((start, length, midi))
+        for bar in sorted(by_bar):
+            sub = by_bar[bar]
+            groove = groove_at(bar)
+            if groove.selloff:
+                direction = "fall"
+            elif groove.rally:
+                direction = "rise"
+            elif phrase is None or not phrase.runs:
+                direction = "flat"
+            elif phrase.cadence.midi > phrase.runs[0].midi:
+                direction = "rise"
+            elif phrase.cadence.midi < phrase.runs[0].midi:
+                direction = "fall"
+            else:
+                direction = "flat"
+            bed_mark = bed_marking_at[bar]
+            fill_mark = "mp" if bed_mark == "p" else "mf"
+            bed_vel = bed_velocity_at[bar]
+            target = 64 if fill_mark == "mp" else 80
+            sub_start = sub[0][0]
+            sub_end = sub[-1][0] + sub[-1][1]
+            long_enough = len(sub) >= 2 and sub_end - sub_start >= WEDGE_MIN
+            if direction == "rise" and long_enough:
+                letter, has_wedge = bed_mark, True
+                start_vel, end_vel = bed_vel, target
+                comp_wedges.extend((_wedge_at(sub_start, "crescendo"), _wedge_at(sub_end, "stop")))
+            elif direction == "fall" and long_enough:
+                letter, has_wedge = fill_mark, True
+                start_vel, end_vel = target, 56 if fill_mark == "mp" else 72
+                comp_wedges.extend((_wedge_at(sub_start, "diminuendo"), _wedge_at(sub_end, "stop")))
+            else:
+                letter, has_wedge = fill_mark, False
+                start_vel = end_vel = target
+            fill_marks.append((bar, (sub_start % epb) * 0.5, letter, has_wedge))
+            last = len(sub) - 1
+            for index, (start, length, midi) in enumerate(sub):
+                velocity = start_vel if last == 0 else round(start_vel + (end_vel - start_vel) * index / last)
+                events.extend(written(start, length, midi, velocity=velocity))
+    return with_rests(events, piece_eighths), fill_marks, comp_wedges
+
+
+def _comp_dynamics(
+    notes: list[NoteEvent],
+    fill_marks: list[tuple[int, float, str, bool]],
+    bed_marking_at: dict[int, str],
+    bars: int,
+) -> list[DynamicEvent]:
+    """Bed letter on a sounding downbeat, then the fill letter. A wedge drifts the level."""
+    by_bar: dict[int, list[tuple[float, str, bool]]] = {}
+    for bar, beat, marking, has_wedge in fill_marks:
+        by_bar.setdefault(bar, []).append((beat, marking, has_wedge))
+    sounding = {(note.bar, note.beat) for note in notes if note.midi is not None and note.beat == 0.0}
+    current: str | None = None
+    events: list[DynamicEvent] = []
+    for bar in range(bars):
+        bed = bed_marking_at[bar]
+        if (bar, 0.0) in sounding and bed != current:
+            events.append(DynamicEvent(bar, bed, SOUND[bed], 0.0))
+            current = bed
+        for beat, marking, has_wedge in by_bar.get(bar, []):
+            if marking != current:
+                events.append(DynamicEvent(bar, marking, SOUND[marking], beat))
+            current = "drifted" if has_wedge else marking
+    return events
 
 
 def _section_rel_span(bars: list[Bar], groups: list[list[int]], start: int, end: int) -> float:
@@ -967,20 +1226,57 @@ def _compose(
                 )
             )
 
-        flute_notes, yield_spans = _flute_and_violin_dovetail(
-            phrases, pitches, band_at, chord_at, scale, piece_eighths=piece_eighths, mode=mode
+        flute_notes, yield_spans, flute_wedges, flute_dynamics = _flute_and_violin_dovetail(
+            phrases,
+            pitches,
+            band_at,
+            chord_at,
+            scale,
+            piece_eighths=piece_eighths,
+            mode=mode,
+            ensemble=ensemble,
         )
         violin, cello, cadences = melody_parts(
             pitches, phrases, band_at, yield_spans, piece_eighths=piece_eighths
         )
-        piano: list[NoteEvent] = list(
-            _right_hand(slots, fills(cadences, chord_at), piece_eighths)
+        from app.sonify.groove import groove_at
+
+        eff_bands = {
+            bar: effective_comp_band(band_at[bar], bar) for bar in range(musical_bars)
+        }
+        bed_velocity_at = {bar: PIANO_VELOCITY[eff_bands[bar]] for bar in range(musical_bars)}
+        bed_marking_at = {bar: piano_marking(eff_bands[bar]) for bar in range(musical_bars)}
+        dense_left = frozenset(
+            bar
+            for bar in range(musical_bars)
+            if eff_bands[bar] == "f" or groove_at(bar).rally
         )
-        bass: list[NoteEvent] = []
+        piano_notes, fill_marks, comp_wedges = _right_hand(
+            slots,
+            fills(cadences, chord_at),
+            piece_eighths,
+            bed_velocity_at=bed_velocity_at,
+            bed_marking_at=bed_marking_at,
+            phrases=phrases,
+        )
+        piano: list[NoteEvent] = list(piano_notes)
         for slot in slots:
-            piano.extend(left_hand(slot))
+            piano.extend(
+                left_hand(slot, velocity_at=bed_velocity_at, every_bar_at=dense_left)
+            )
+        comp_dynamics = _comp_dynamics(piano, fill_marks, bed_marking_at, musical_bars)
+        threshold = max(active_meter().quarter_beats / 2, 2.0) - 1e-6
+        cello_beats: dict[int, float] = {}
+        for note in cello.notes:
+            if note.midi is None:
+                continue
+            cello_beats[note.bar] = cello_beats.get(note.bar, 0.0) + note.duration_beats
+        cello_lead = {bar for bar, beats in cello_beats.items() if beats >= threshold}
+        bass: list[NoteEvent] = []
         for bar in range(musical_bars):
-            bass.extend(_bass_bar(chord_at[bar], band_at[bar], bar))
+            bass.extend(
+                _bass_bar(chord_at[bar], band_at[bar], bar, under_cello=bar in cello_lead)
+            )
 
         return _finish(Score(
             title=title,
@@ -1002,6 +1298,10 @@ def _compose(
             support_wedges=tuple(cello.wedges),
             lead_dynamics=tuple(violin.dynamics),
             support_dynamics=tuple(cello.dynamics),
+            high_wedges=tuple(flute_wedges),
+            high_dynamics=tuple(flute_dynamics),
+            comp_wedges=tuple(comp_wedges),
+            comp_dynamics=tuple(comp_dynamics),
             variant="symphony",
             divisions=2,
             key=key,

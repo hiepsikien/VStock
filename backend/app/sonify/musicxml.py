@@ -422,6 +422,15 @@ def _melody_part(
 PIANO_DYNAMIC = DynamicEvent(bar=0, marking="p", sound=SOUND["p"])
 
 
+def _opening_dynamic(
+    dynamics: tuple[DynamicEvent, ...], default: DynamicEvent
+) -> tuple[DynamicEvent, tuple[DynamicEvent, ...]]:
+    """The first downbeat letter is the part's opening dynamic. Later letters stay in the bar."""
+    if dynamics and dynamics[0].bar == 0 and dynamics[0].beat == 0.0:
+        return dynamics[0], dynamics[1:]
+    return default, dynamics
+
+
 def _opening_p(
     dynamics: tuple[DynamicEvent, ...], default: DynamicEvent
 ) -> tuple[DynamicEvent, tuple[DynamicEvent, ...]]:
@@ -440,6 +449,15 @@ def _piano_part(root: ET.Element, score: Score) -> None:
     part = _add(root, "part", id="P3")
     events = _group(score.comp, score.bars)
     symbols = _group(score.harmonies, score.bars)
+    symphony = score.variant == "symphony"
+    if symphony:
+        comp_open, comp_rest = _opening_dynamic(score.comp_dynamics, PIANO_DYNAMIC)
+        rest_by_bar = _group(comp_rest, score.bars)
+        wedge_by_bar = _group(score.comp_wedges, score.bars)
+    else:
+        comp_open = PIANO_DYNAMIC
+        rest_by_bar = []
+        wedge_by_bar = []
     for bar in range(score.bars):
         measure = _add(part, "measure", number=str(bar + 1))
         if bar == 0:
@@ -453,7 +471,11 @@ def _piano_part(root: ET.Element, score: Score) -> None:
                 beats=score.beats,
                 beat_type=score.beat_type,
             )
-            _dynamic(measure, PIANO_DYNAMIC)
+            _dynamic(measure, comp_open)
+        elif symphony:
+            for event in rest_by_bar[bar]:
+                if event.beat == 0.0:
+                    _dynamic(measure, event)
         for event in symbols[bar]:
             _harmony(measure, event, score.key, score.mode)
         if score.variant == "jazz" and score.low_wedges:
@@ -478,8 +500,25 @@ def _piano_part(root: ET.Element, score: Score) -> None:
                 (event for event in events[bar] if event.staff == staff),
                 key=lambda event: event.beat,
             )
+            pending: list[WedgeEvent | DynamicEvent] = []
+            if symphony and staff == 1:
+                pending = sorted(
+                    [event for event in rest_by_bar[bar] if event.beat > 0.0] + wedge_by_bar[bar],
+                    key=_direction_order,
+                )
+
+            def flush(until: float) -> None:
+                while pending and pending[0].beat <= until:
+                    direction = pending.pop(0)
+                    if isinstance(direction, DynamicEvent):
+                        _dynamic(measure, direction)
+                    else:
+                        _wedge(measure, direction)
+
             previous_beat: float | None = None
             for event in hand:
+                if symphony and staff == 1:
+                    flush(event.beat)
                 _add_note(
                     measure,
                     event,
@@ -492,6 +531,8 @@ def _piano_part(root: ET.Element, score: Score) -> None:
                     mode=score.mode,
                 )
                 previous_beat = event.beat
+            if symphony and staff == 1:
+                flush(score.bar_beats)
 
 
 BASS_WRITTEN_OCTAVES = 1
@@ -630,13 +671,24 @@ def score_to_musicxml(score: Score) -> str:
     encoding = _add(identification, "encoding")
     _add(encoding, "software", "vstock-sonify")
     _part_list(root, score.variant, score.ensemble)
-    high_dynamic = (
-        DynamicEvent(bar=0, marking="f", sound=SOUND["f"])
-        if score.variant == "ambient"
-        else MELODY_DYNAMIC
-    )
+    if score.variant == "symphony":
+        high_open, high_rest = _opening_dynamic(score.high_dynamics, MELODY_DYNAMIC)
+        high_wedges = score.high_wedges
+    elif score.variant == "ambient":
+        high_open = DynamicEvent(bar=0, marking="f", sound=SOUND["f"])
+        high_rest = ()
+        high_wedges = ()
+    else:
+        high_open, high_rest, high_wedges = MELODY_DYNAMIC, (), ()
     _melody_part(
-        root, score, "P5", score.high, (), (), TREBLE, opening_dynamic=high_dynamic
+        root,
+        score,
+        "P5",
+        score.high,
+        high_wedges,
+        high_rest,
+        TREBLE,
+        opening_dynamic=high_open,
     )
     if score.variant == "ambient" and score.lead_dynamics and score.lead_dynamics[0].bar == 0 and score.lead_dynamics[0].beat == 0.0:
         lead_dynamic, lead_rest_dynamics = score.lead_dynamics[0], score.lead_dynamics[1:]

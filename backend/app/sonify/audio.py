@@ -37,9 +37,9 @@ from app.sonify.session import VN, is_session_closed
 logger = logging.getLogger(__name__)
 
 # Bump when the score or the sound changes, so old files are not replayed.
-RECAP_REVISION = "28"
+RECAP_REVISION = "29"
 # Long-form files live beside the daily recap and use their own revision.
-SPAN_REVISION = "14"
+SPAN_REVISION = "15"
 PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
@@ -616,6 +616,50 @@ def _score_parts(mscx: str) -> list[tuple[str, str, str]]:
     return parts
 
 
+_VOICE_VOLUME_DB: dict[str, float] = {
+    "Flute 1": 5,
+    "Glockenspiel": 10,
+    "Crotales": 12,
+    "Vibraphone": 3,
+    "Electric LP - Clean": 4,
+    "Electric SC - Clean": 4,
+    "Celesta": 6,
+    "Violins 1": 2,
+    "Oboe": 6,
+    "Trumpet": 6,
+    "Clarinet in Bb": 3,
+    "Marimba": 10,
+    "Acoustic Steel Plucked": 8,
+    "Cellos": 4,
+    "Trombone": 8,
+    "Full Choir": 8,
+    "Tenors": 2,
+    "Bass Flute": -5,
+    "Piano": -2,
+    "Harp": 8,
+    "French Horns a6": -5,
+    "Suitcase Piano": -2,
+    "Violas": 3,
+    "Electric Bass": -6,
+    "Contrabassoon": 10,
+    "Tuba": -5,
+}
+_HARMONY_BLOCK = re.compile(r"<Harmony\b[^>]*>.*?</Harmony>", re.DOTALL)
+_HARMONY_MUTED = re.compile(r"<play>\s*0\s*</play>")
+
+
+def _mute_mscx_harmony(mscx: bytes) -> bytes:
+    """Stop MuseScore playing the hidden piano inside each <Harmony> chord symbol."""
+
+    def mute(match: re.Match[str]) -> str:
+        block = match.group(0)
+        if _HARMONY_MUTED.search(block):
+            return block
+        return block.replace("</Harmony>", "<play>0</play></Harmony>", 1)
+
+    return _HARMONY_BLOCK.sub(mute, mscx.decode("utf-8")).encode("utf-8")
+
+
 def _sound_track(
     part_id: str,
     instrument_id: str,
@@ -705,15 +749,7 @@ def _assign_installed_sounds(
                     "museCategory": pack,
                     "museVendorName": "Muse",
                 },
-                volume_db=(
-                    6
-                    if voice.sound == "Celesta"
-                    else 4
-                    if voice.sound == "Contrabasses"
-                    else -5
-                    if voice.sound == "Bass Flute"
-                    else 0
-                ),
+                volume_db=_VOICE_VOLUME_DB.get(voice.sound, 0),
             )
         )
         assigned.append(f"{kind} -> {voice.sound}")
@@ -724,6 +760,7 @@ def _assign_installed_sounds(
     settings["activeSoundProfile"] = "MuseSounds"
     settings["tracks"] = tracks
     payloads["audiosettings.json"] = json.dumps(settings, indent=2).encode("utf-8")
+    payloads[mscx_name] = _mute_mscx_harmony(payloads[mscx_name])
     temporary = mscz.with_suffix(".mscz.tmp")
     try:
         with zipfile.ZipFile(temporary, "w") as archive:
