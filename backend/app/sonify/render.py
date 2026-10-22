@@ -580,23 +580,10 @@ def _bass_bar(chord: Chord, marking: str, bar: int) -> list[NoteEvent]:
         )
         for start, length, interval in _bass_pattern(marking, bar)
     ]
-    from app.sonify.form import active_meter
-    from app.sonify.groove import groove_at
+    from app.sonify.groove import groove_at, silence_second_half
 
     if groove_at(bar).caesura:
-        half = active_meter().quarter_beats / 2
-        kept = [note for note in events if note.beat < half]
-        if kept and half < active_meter().quarter_beats:
-            kept.append(
-                NoteEvent(
-                    bar=bar,
-                    beat=half,
-                    midi=None,
-                    duration_beats=active_meter().quarter_beats - half,
-                    voice=1,
-                )
-            )
-        return kept
+        return silence_second_half(events, bar)
     return events
 
 

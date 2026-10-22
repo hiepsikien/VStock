@@ -143,19 +143,52 @@ def _replace_groove(groove: BarGroove | None, **flags: bool) -> BarGroove:
 
 
 def silence_second_half(notes: list, bar: int) -> list:
-    """Drop attacks from the midpoint on, and shorten a note that crosses it."""
+    """Keep the first half of one bar and engrave a rest for whatever is left.
+
+    The MusicXML writer does not invent the missing beats. A voice that stops
+    at the midpoint has to carry an explicit rest through the end of the bar.
+    """
     from dataclasses import replace
 
     from app.sonify.form import active_meter
+    from app.sonify.model import NoteEvent
 
-    half = active_meter().quarter_beats / 2
+    meter = active_meter()
+    half = meter.quarter_beats / 2
+    end = meter.quarter_beats
     kept = []
+    voices: set[tuple[int, int]] = set()
     for note in notes:
-        if note.bar != bar or note.beat + 1e-9 < half:
-            if note.bar == bar and note.beat + note.duration_beats > half + 1e-9:
-                kept.append(replace(note, duration_beats=half - note.beat))
-            else:
-                kept.append(note)
+        if note.bar != bar:
+            kept.append(note)
+            continue
+        voices.add((note.voice, note.staff))
+        if note.beat + 1e-9 >= half:
+            continue
+        if note.beat + note.duration_beats > half + 1e-9:
+            kept.append(replace(note, duration_beats=half - note.beat))
+        else:
+            kept.append(note)
+    for voice, staff in voices or {(1, 1)}:
+        covered = max(
+            (
+                note.beat + note.duration_beats
+                for note in kept
+                if note.bar == bar and note.voice == voice and note.staff == staff
+            ),
+            default=0.0,
+        )
+        if covered + 1e-9 < end:
+            kept.append(
+                NoteEvent(
+                    bar=bar,
+                    beat=covered,
+                    midi=None,
+                    duration_beats=end - covered,
+                    voice=voice,
+                    staff=staff,
+                )
+            )
     return kept
 
 

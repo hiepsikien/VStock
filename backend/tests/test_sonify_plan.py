@@ -786,11 +786,29 @@ def test_jazz_compound_meters_take_half_feel_and_a_caesura() -> None:
         thinned = _walking_bass_bar(C, G, "mf", 0, "phrase", scale)
         assert [note.beat for note in thinned] == [0.0, 2.0]
         breath = _walking_bass_bar(C, G, "mf", 1, "phrase", scale)
-        assert breath
-        assert all(note.beat + note.duration_beats <= 1.5 + 1e-6 for note in breath)
-    with compose_meter(METER_128), compose_groove({0: BarGroove(trio_thin=True)}):
+        sounding = [note for note in breath if note.midi is not None]
+        assert sounding
+        assert all(note.beat + note.duration_beats <= 1.5 + 1e-6 for note in sounding)
+        assert sum(note.duration_beats for note in breath) == 3
+    with compose_meter(METER_128), compose_groove(
+        {0: BarGroove(trio_thin=True), 1: BarGroove(caesura=True)}
+    ):
         ballad = _walking_bass_bar(C, G, "f", 0, "phrase", scale)
         assert [note.beat for note in ballad] == [0.0, 3.0]
+        rested = _walking_bass_bar(C, G, "p", 1, "phrase", scale)
+        assert any(note.midi is None and note.beat == 3 for note in rested)
+        assert sum(note.duration_beats for note in rested) == 6
+    from app.sonify.render import _bass_bar
+
+    with compose_meter(METER_68), compose_groove({0: BarGroove(half=True, caesura=True)}):
+        held = _bass_bar(C, "mp", 0)
+        assert any(note.midi is None and note.beat == 1.5 for note in held)
+        assert sum(note.duration_beats for note in held) == 3
+        assert all(
+            note.beat + note.duration_beats <= 1.5 + 1e-6
+            for note in held
+            if note.midi is not None
+        )
     with compose_meter(METER_44):
         assert _before_fill(0, 3.5, 0.5, {0: 4}) is None
         assert _before_fill(0, 0.0, 0.5, {0: 4}) == 0.5
