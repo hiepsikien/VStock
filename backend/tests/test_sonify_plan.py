@@ -32,6 +32,18 @@ from app.sonify.span import (
 )
 
 
+def _covered(notes: list) -> float:
+    cursor = 0.0
+    covered = 0.0
+    for note in sorted(notes, key=lambda item: (item.beat, item.duration_beats)):
+        end = note.beat + note.duration_beats
+        if end <= cursor:
+            continue
+        covered += end - max(note.beat, cursor)
+        cursor = max(cursor, end)
+    return covered
+
+
 def _clock(movements) -> float:
     return sum(
         movement.spec.eighths * 30.0 / movement.spec.bpm + movement.rest_after
@@ -202,6 +214,28 @@ def test_jazz_warmup_replaces_the_body_comping() -> None:
     assert {note.duration_beats for note in warm} == {2.0}
     assert all(note.beat == 0.0 for note in warm)
     assert not any(note.midi is not None and note.bar >= 6 for note in score.comp)
+
+
+def test_jazz_warmup_fills_three_four_and_twelve_eight() -> None:
+    prices = [Bar(100.0 + index, 10_000.0, 100.0) for index in range(6)]
+    for meter in (METER_34, METER_128):
+        spec = FormSpec(
+            6,
+            96,
+            (
+                FormSection(0, 2, "warmup", 0),
+                FormSection(2, 4, "phrase", 0),
+                FormSection(4, 6, "cooldown", 0),
+            ),
+            (6,),
+            meter=meter,
+        )
+        score = render(prices, variant="jazz", form=spec, home_pedal=True)
+        for bar in (0, 1):
+            hand = [note for note in score.comp if note.bar == bar and note.staff == 1]
+            assert abs(_covered(hand) - meter.quarter_beats) < 1e-6
+            assert any(note.midi is None for note in hand)
+        score_to_musicxml(score)
 
 
 def test_long_form_ambient_writes_its_meter_mode_and_frame() -> None:

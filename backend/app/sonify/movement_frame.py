@@ -249,22 +249,25 @@ def _jazz_comp(score: Score, warm_start: int, body: int, cool: int, end: int) ->
     from app.sonify.form import active_meter
     from app.sonify.jazz import _rhodes_voicing
 
+    meter = active_meter()
     _root, voicing = _rhodes_voicing(_chord(score, body))
-    signature = (active_meter().beats, active_meter().beat_type)
-    warm: list[NoteEvent] = []
+    signature = (meter.beats, meter.beat_type)
+    right: list[NoteEvent] = []
     for bar in range(warm_start, body):
-        warm.extend(_rhodes_warmup_bar(bar, voicing, signature))
-        warm.append(
-            NoteEvent(
-                bar=bar,
-                beat=0.0,
-                midi=None,
-                duration_beats=_beats(),
-                voice=5,
-                staff=2,
-            )
-        )
-    return tuple([*warm, *_kept_comp(score.comp, body, cool), *_bar_rests(cool, end)])
+        right.extend(_rhodes_warmup_bar(bar, voicing, signature))
+    # The figure starts after the downbeat in 12/8 and leaves a beat open in 3/4.
+    # The MusicXML writer does not invent those rests, so engrave them here.
+    filled = with_rests(right, body * meter.eighths_per_bar)
+    if warm_start:
+        filled = tuple(note for note in filled if note.bar >= warm_start)
+    return tuple(
+        [
+            *filled,
+            *_bar_rests(warm_start, body, staves=((2, 5),)),
+            *_kept_comp(score.comp, body, cool),
+            *_bar_rests(cool, end),
+        ]
+    )
 
 
 def _rhodes_warmup_bar(
@@ -291,7 +294,6 @@ def _rhodes_warmup_bar(
         return notes
     for midi in voicing:
         notes.append(NoteEvent(bar=bar, beat=0.0, midi=midi, duration_beats=2.0, voice=1))
-    notes.append(NoteEvent(bar=bar, beat=2.0, midi=None, duration_beats=2.0, voice=1))
     return notes
 
 
