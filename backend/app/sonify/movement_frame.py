@@ -95,7 +95,7 @@ def _symphony(score: Score, warm_start: int, body: int, cool: int, end: int) -> 
         support_wedges=_body_wedges(score.support_wedges, body, cool) + _hairpin(warm_start, body, cool, end - 1),
         lead_dynamics=_letters(score.lead_dynamics, body, cool, end, entrance=violin_at),
         support_dynamics=_letters(score.support_dynamics, body, cool, end, entrance=warm_start),
-        dynamics=_bass_letters(warm_start, end),
+        dynamics=_bass_letters(score.dynamics, warm_start, body, cool, end),
         low_wedges=_hairpin(warm_start, body, cool, end - 1),
     )
 
@@ -194,11 +194,13 @@ def _ambient(score: Score, warm_start: int, body: int, cool: int, end: int) -> S
             total,
         ),
         comp=_rest_comp(score, warm_start, body, cool, end, staves=((1, 1),)),
-        lead_wedges=_body_wedges(score.lead_wedges, body, cool) + _hairpin(warm_start, body, cool, end - 1),
+        lead_wedges=_body_wedges(score.lead_wedges, body, cool)
+        + _attack(warm_start, body)
+        + (_fade(cool, end - 1) if added else ()),
         support_wedges=_body_wedges(score.support_wedges, body, cool) + _fade(cool, end - 1),
-        lead_dynamics=_letters(score.lead_dynamics, body, cool, end, entrance=warm_start),
+        lead_dynamics=_letters(score.lead_dynamics, body, cool, end, entrance=warm_start, sing=bool(added)),
         support_dynamics=_letters(score.support_dynamics, body, cool, end),
-        dynamics=_bass_letters(warm_start, end),
+        dynamics=_bass_letters(score.dynamics, warm_start, body, cool, end),
     )
 
 
@@ -485,6 +487,10 @@ def _hairpin(start: int, body: int, cool: int, last: int) -> tuple[WedgeEvent, .
     )
 
 
+def _attack(start: int, body: int) -> tuple[WedgeEvent, ...]:
+    return (WedgeEvent(start, 0.0, "crescendo"), WedgeEvent(body, 0.0, "stop"))
+
+
 def _fade(cool: int, last: int) -> tuple[WedgeEvent, ...]:
     return (WedgeEvent(cool, 0.0, "diminuendo"), WedgeEvent(last, 0.0, "stop"))
 
@@ -524,8 +530,13 @@ def _letters(
     return tuple(letters)
 
 
-def _bass_letters(warm: int, end: int) -> tuple[DynamicEvent, ...]:
-    return (
-        DynamicEvent(warm, "p", SOUND["p"]),
-        DynamicEvent(end - 1, COOLDOWN_MARKING, SOUND[COOLDOWN_MARKING]),
-    )
+def _bass_letters(
+    events: Sequence[DynamicEvent], warm: int, body: int, cool: int, end: int
+) -> tuple[DynamicEvent, ...]:
+    kept = [event for event in events if body <= event.bar < cool]
+    letters = [DynamicEvent(warm, "p", SOUND["p"])]
+    if not any(event.bar == body and event.beat == 0.0 for event in kept):
+        letters.append(DynamicEvent(body, "mp", SOUND["mp"]))
+    letters.extend(kept)
+    letters.append(DynamicEvent(end - 1, COOLDOWN_MARKING, SOUND[COOLDOWN_MARKING]))
+    return tuple(letters)

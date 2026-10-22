@@ -542,6 +542,82 @@ def test_rhodes_yields_the_bar_to_a_cadence_fill() -> None:
         assert _before_fill(0, 1.5, 0.5, {0: 2}) is None
 
 
+def test_frame_keeps_body_bass_letters_and_rests_the_glass() -> None:
+    from app.sonify.model import ChordSlot, DynamicEvent, Score
+    from app.sonify.movement_frame import apply_span_frame
+
+    slots = (
+        ChordSlot(0, 2, C, "sideway", "warmup"),
+        ChordSlot(2, 4, C, "sideway", "phrase"),
+        ChordSlot(6, 2, C, "sideway", "cooldown"),
+    )
+    spec = FormSpec(
+        8,
+        96,
+        (
+            FormSection(0, 2, "warmup", 0),
+            FormSection(2, 6, "phrase", 0),
+            FormSection(6, 8, "cooldown", 0),
+        ),
+        (8,),
+    )
+    bass = Score(
+        title="bass",
+        bpm=96,
+        bars=8,
+        regimes=("sideway", "sideway", "sideway"),
+        regime_samples=None,
+        slots=slots,
+        high=(),
+        lead=(),
+        support=(),
+        comp=(),
+        low=(),
+        dynamics=(DynamicEvent(3, "f", 80),),
+        harmonies=(),
+        liquidity=(),
+        phrases=(),
+        lead_wedges=(),
+        support_wedges=(),
+        lead_dynamics=(),
+        support_dynamics=(),
+        variant="symphony",
+    )
+    framed = apply_span_frame(bass, spec)
+    assert [(event.bar, event.marking) for event in framed.dynamics] == [
+        (0, "p"),
+        (2, "mp"),
+        (3, "f"),
+        (7, "ppp"),
+    ]
+
+    glass = Score(
+        title="glass",
+        bpm=96,
+        bars=8,
+        regimes=("sideway", "sideway", "sideway"),
+        regime_samples=None,
+        slots=slots,
+        high=(),
+        lead=(NoteEvent(bar=2, beat=0.0, midi=72, duration_beats=1.0, voice=1),),
+        support=(),
+        comp=(),
+        low=(),
+        dynamics=(),
+        harmonies=(),
+        liquidity=(),
+        phrases=(),
+        lead_wedges=(),
+        support_wedges=(),
+        lead_dynamics=(),
+        support_dynamics=(),
+        variant="ambient",
+    )
+    rested = apply_span_frame(glass, spec)
+    assert [wedge.kind for wedge in rested.lead_wedges] == ["crescendo", "stop"]
+    assert all(event.marking != "ppp" for event in rested.lead_dynamics)
+
+
 def test_six_eight_and_three_four_bass_patterns() -> None:
     from app.sonify.render import _bass_pattern
 
