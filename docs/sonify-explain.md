@@ -121,9 +121,9 @@ Mục tiêu là **cân bằng cả hai yếu tố**:
   - Mật độ tiết tấu theo thanh khoản `p–f` trên từng cửa sổ 2 ô (`LIQUIDITY_WINDOWS` / `liquidity_windows_for`).
   - Thưởng `bridge_cadence` về `G`/`G7` ở 2 ô cuối của section có `bridge=True` (`form.py`).
 - **Đề xuất mở rộng mới trong kế hoạch này**:
-  1. **Thiết kế lại phần Mở (Opening) & Kết (Closing) của `1W`, `1M`, `3M`, `1Y` theo Vai chương & Tính cách Thị trường**:
+  1. **Thiết kế lại phần Mở (Opening) & Kết (Closing) của `1W`, `1M`, `3M`, `1Y` theo Tempo & Tính cách Thị trường**:
      - Giữ nguyên khung `2+2` tĩnh cho `1D` (vì bản ngày ngắn ~90s và không có `intro`/`outro` riêng trong thân).
-     - **Không gắn khung tĩnh `2+2` cho `1W`**; đồng thời **loại bỏ hiện tượng "Khung chồng Khung"** (`warmup` kéo 1 nốt tĩnh + `intro` đạp lì 1 hợp âm, và `outro` đạp lì + `cooldown` kéo 1 nốt tĩnh) ở `1M`, `3M`, `1Y` (`movement_frame.py` + `span.py`). Thay bằng phần Mở/Kết động mang đúng tiết tấu, hòa âm và năng lượng (`Character`) của chương đó.
+     - **Không gắn khung tĩnh `2+2` cho `1W`**; đồng thời **loại bỏ hiện tượng "Khung chồng Khung"** ở `1M`, `3M`, `1Y` (`movement_frame.py` + `span.py`). Mở rộng nguyên mẫu `warmup` của Jazz sang Giao hưởng (cả 2 đầu khung), `cooldown` của Jazz và Arpeggio của Tối giản trên các chương nhanh (`bpm >= 96`) có tính cách động (`rally`, `selloff`, `volatile`).
   2. **Hạ cơ chế `Character` xuống cho `1D` và từng phiên 32 ô của `1W`** (kèm điều chỉnh groove của bè đệm theo character và sự đảo chiều `Regime` giữa các phrase).
   3. **Bổ sung hình thức nội tại cho chương giữa**: đoạn *Trio mỏng phối khí + Bear-market Bounce (`♭III`/`♭VI`)* cho chương Scherzo, và *1 ô lắng Caesura* ở cuối Bridge của chương Chậm.
   4. **Đưa nhịp `3/4` vào các Tháng Khép mùa (`T3, 6, 9`) của `1Y`** với số ô thân điều chỉnh (`111` ô) để không vượt trần thời lượng `47:21`.
@@ -157,7 +157,8 @@ Bản `1W` dài hơn 7 phút (160 ô khi đủ 5 phiên) đi qua 5 ngày giao d�
    - **Mở tuần động (8 ô `intro` đầu Phiên 1)**:
      - Thay vì khóa cứng 1 hợp âm pedal suốt 8 ô (`section in _PEDAL`), tách 8 ô đầu thành **`4` ô `intro` (thiết lập chủ âm + groove của Phiên 1) + `4` ô `phrase` mở đà** (cho phép đi `I – IV – V7` hoặc `i – ♭VI – V7` theo giá mở tuần).
    - **Kết tuần động (8 ô `outro` cuối Phiên cuối)**:
-     - Tách thành **`4` ô `phrase` (Summary Cadence bám theo nhịp đóng cửa chiều Thứ Sáu, thưởng `V/V7` ở 2 ô cuối) + `4` ô `outro` chủ âm** (xét `finale_outro` giữa phiên đầu và phiên cuối tuần).
+     - Tách thành **`4` ô `phrase` (Summary Cadence bám theo nhịp đóng cửa chiều Thứ Sáu, thưởng `V/V7` ở 2 ô cuối) + `4` ô `outro` chủ âm**.
+     - *Thứ tự phụ thuộc với `finale_outro`*: Ngay trong `prepare_week(sessions, symbol)` ở Bước 1, khi `len(usable) >= 2`, tính trực tiếp `opening_char = movement_character([b.close for b in usable[0]], "1W")` và `closing_char = movement_character([b.close for b in usable[-1]], "1W")` để gán `outro_override=finale_outro(opening_char, closing_char)` lên `PreparedMovement` của tuần (không cần đợi mảng `session_characters` đầy đủ của Bước 2).
    - Giữ nguyên tổng số ô `160` ô (`7:07` ở `90 BPM`) và `warmupSec = 0.0`, `cooldownSec = 0.0`.
 2. **Hạ `Character` xuống từng Phiên 32 ô (`session_characters` trong `1W`)**:
    - Thay vì dùng 1 `character` duy nhất cho cả 160 ô, chấm `character` riêng cho từng phiên 32 ô (`rally`, `selloff`, `volatile`, `calm`) và truyền mảng `character_by_bar` vào `plan_markov_chords` cũng như bộ render:
@@ -184,25 +185,44 @@ Bản `1W` dài hơn 7 phút (160 ô khi đủ 5 phiên) đi qua 5 ngày giao d�
   - Hiện tại tháng khép mùa `4/4` có `84` ô thân + `2+2` ô khung = `88` ô `4/4` = **`704` móc đơn** (`195.56s` ở `108 BPM`).
   - Trong `span.py`, `frame_bars_for(METER_34, "1Y")` quy định **3 ô mỗi đầu** (`3+3 = 6` ô khung `3/4` = **`36` móc đơn**). Nếu lấy `112` ô thân (`672` móc đơn) thì tổng tháng sẽ là `672 + 36 = 708` móc đơn (dư `+4` móc đơn/tháng = `+3.33s` cả năm, đẩy Giao hưởng lên `47:25`, vượt trần `47:21` trong `docs/sonify-long-form.md` và làm gãy `test_piece_clocks_include_the_frame_and_the_rests`).
   - **Giải pháp chính xác**: Đặt thân Tháng Khép mùa `3/4` bằng **`111` ô** (`666` móc đơn thân + `36` móc đơn khung `3+3` = **`702` móc đơn tổng**, tức `195.00s` ở `108 BPM`, ngắn hơn `0.556s` mỗi tháng và `-1.67s` trên cả 3 tháng khép mùa so với `4/4` hiện tại).
-    - Chia đoạn của `closer` `3/4` (`111` ô thân): `4 intro + 46 phrase 0 + 42 phrase 1 + 15 phrase 2 + 4 outro = 111 ô`, cụm xuất `(50, 111)`.
+    - Chia đoạn của `closer` `3/4` (`111` ô thân): `4 intro + 46 phrase 0 + 42 phrase 1 + 13 phrase 2 + 6 outro = 111 ô`, cụm xuất `(50, 111)`.
     - **Tổng thời lượng `1Y` tính theo `_year_clock` sau nâng cấp**:
       - **Giao hưởng**: `2840.1s` (**`47:20`**, giảm từ `2841.8s`, nằm gọn dưới trần `47:21` / `2841.0s ± 1.5s`).
       - **Tối giản**: giữ nguyên `2840.6s` (**`47:21`**).
       - **Jazz & Ambient**: `2818.3s` (**`46:58`**, giảm từ `2820.0s`).
   - Nhờ đó, **mỗi Quý (Mùa)** trong `1Y` đều có **3 nhịp khác nhau hoàn toàn** ở cả 4 variants (`4/4 → 6/8 → 3/4` cho Giao hưởng; `4/4 Swing → 12/8 Ballad → 3/4 Waltz` cho Jazz; `5/4 → 4/4 → 7/8` cho Tối giản; `4/4 → 6/4 → 3/4` cho Ambient), rồi **Tháng 12 (Finale)** quay về `4/4` (`96 BPM`).
 
-#### 2. Thay Khung tĩnh "1 nốt" bằng Mở/Kết động (`movement_frame.py` & `span.py`) và Cấu trúc Nội tại Chương
+#### 2. Mở rộng nguyên mẫu Khung động (`movement_frame.py` & `span.py`) và Cấu trúc Nội tại Chương
 
-**Vấn đề lớn hiện tại ở `1M`, `3M`, `1Y`**:
-- Mỗi chương đang bị **"Khung chồng Khung"**: đầu chương có `4–6` ô `warmup` chỉ kéo 1 nốt đơn câm lặng (`_rest_comp` trong `movement_frame.py`) cộng tiếp `8` ô `intro` đạp lì 1 hợp âm chủ âm; cuối chương lại có `8–40` ô `outro` đạp lì 1 hợp âm cộng tiếp `4–6` ô `cooldown` kéo 1 nốt `ppp`.
-- Cách mở/kết kéo 1 nốt tĩnh này chỉ hợp với `Ambient` hoặc chương Chậm/`calm`, nhưng lại **quá đơn điệu và lệch hẳn năng lượng** khi đặt vào một chương Nhanh (`96–108 BPM`), chương Scherzo (`120 BPM`), hoặc một tháng `rally`/`volatile`.
+**Đối chiếu hiện trạng `movement_frame.py` & `span.py` theo từng Variant**:
+- **Hiện tượng "Khung chồng Khung" trong `span.py`**: Sau `4–6` ô `warmup` bên ngoài, thân chương vẫn khóa cứng tiếp `8` ô `intro` pedal; ở cuối thân `1M-IV` khóa `16` ô `outro`, còn `3M-III` khóa tới **`40–45` ô `outro`** đạp 1 hợp âm trong lúc giá vẫn chạy, trước khi vào tiếp `4–6` ô `cooldown`.
+- **Hiện trạng `movement_frame.py` trên từng variant (ở các chương nhanh `96–120 BPM`, nơi khung `4–6` ô của `1M`/`3M` kéo dài `9–10 giây` mỗi đầu)**:
+  - **Jazz (`_jazz` & `_jazz_comp`)**: Đã có nguyên mẫu *Rhythmic Curtain* ở `warmup` (Rhodes đánh figure theo nhịp `4/4`, `3/4`, `12/8` trên hợp âm mở, Bass đạp chủ âm); nhưng **`cooldown` lại đang xóa trắng comp (`_bar_rests(cool, end)`)** và chỉ kéo 1 nốt đơn suốt `9–10 giây`.
+  - **Tối giản (`_minimalist`)**: Sub-bass (`low`) đã đánh xung đều từng phách (`_even_pulse`, hoặc `2+2+3` ở `7/8`) ở cả hai đầu khung; nhưng **Arpeggio (`lead`) và Pulse (`comp`) bị cắt trắng hoàn toàn**, chỉ còn Pad kéo 1 nốt.
+  - **Giao hưởng (`_symphony`)**: Là variant đang **tĩnh hoàn toàn ở cả hai đầu** (`comp` nghỉ trắng cả hai tay qua `_rest_comp`, Bass/Cello kéo 1 nốt dài từ đầu `warmup`, Violin vào từ giữa `warmup`, và cả 3 bè dây kéo 1 nốt suốt `cooldown`).
+  - **Ambient (`_ambient`)**: Vốn mang thẩm mỹ drone/kính ngân dài nên giữ nguyên.
 
-**Giải pháp (Giữ nguyên tổng số ô `warmup`/`cooldown` để không lệch đồng hồ, nhưng biến đổi nội dung theo Vai chương & `Character`)**:
+**Giải pháp cơ chế (`movement_frame.py`, `render.py` & `span.py`)**:
 
-| Hạng mục / Vai chương | Hiện trạng gây nhàm chán | Thiết kế mới khớp Tính cách Thị trường (`movement_frame.py` & `span.py`) |
+1. **Đường ống truyền `character` và Quy tắc suy Khung Động (`_is_dynamic_frame`)**:
+   - Trong `render.py`, hàm `_finish(score)` truyền thêm `character` vào `apply_span_frame(score, spec, character=character)`.
+   - Không cần thêm trường "vai chương" mới; suy trực tiếp từ `(score.variant, spec.bpm, character)` (vì mọi chương Chậm đều có `bpm in (60, 66, 72)`, còn mọi chương Mở / Scherzo / Khép / Finale đều có `bpm >= 96`):
+     ```python
+     is_dynamic = (
+         score.variant != "ambient"
+         and spec.bpm >= 96
+         and character in ("rally", "selloff", "volatile")
+     )
+     ```
+   - Mọi chương Chậm (`bpm <= 72`, kể cả khi `character == "selloff"`), mọi chương `Ambient`, và mọi chương có `character == "calm"` (hoặc `None`) đều giữ nguyên khung tĩnh (`is_dynamic = False`).
+   - **Ràng buộc hòa âm & động lực bất biến của Khung**: Vì các ô khung không có nến (`groups` rỗng), `warmup` **chỉ xoay quanh đúng hợp âm mở `_chord(score, body)`** và `cooldown` **chỉ xoay quanh đúng hợp âm kết `_chord(score, cool - 1)` — tuyệt đối không tự chạy tiến trình hợp âm mới trong khung**. Giữ nguyên vòng cung hairpin hiện có của `movement_frame.py` (`p < mp` từ `warmup` tới đầu `body`, và diminuendo từ `cool` về `ppp` ở `end - 1`).
+
+2. **Chi tiết nâng cấp theo từng Hạng mục**:
+
+| Hạng mục / Vai chương | Hiện trạng cần cải thiện | Thiết kế mới khớp Tính cách Thị trường (`movement_frame.py` & `span.py`) |
 |---|---|---|
-| **1. Phần Mở & Kết Khung (`warmup` / `cooldown` trong `movement_frame.py`)** | • Mọi chương của Giao hưởng, Jazz, Tối giản đều kéo 1 nốt pedal dài ở `warmup`/`cooldown` và xóa sạch phần đệm (`_rest_comp`), bất kể tempo hay tính cách chương. | • **Chương Chậm (`1M-II`, `3M-II`, `1Y` Giữa mùa), mọi chương `Ambient`, hoặc chương có `character == "calm"`**: Giữ nguyên kiểu mở/kết ngân dài, vào bè theo tầng (`p < mp`) và lắng dần về `ppp` như hiện tại.<br>• **Chương Nhanh / Scherzo / Finale có `character` là `rally`, `selloff`, hoặc `volatile`**:<br>  - **`warmup` thành *Rhythmic Curtain / Vào đà***: Thay vì kéo 1 nốt câm, Bass và Piano/Rhodes/Arpeggio đánh ngay **motif nhịp đặc trưng của chương** (ví dụ: figure `3/4` ở Scherzo, *2-feel groove* ở Jazz, *pulse + filter mở dần* ở Tối giản, *ostinato dây trầm* ở Giao hưởng) từ `mp` dẫn thẳng vào thân bài.<br>  - **`cooldown` thành *Cadential Tag / Hồi kết khớp năng lượng***: Nửa đầu `cooldown` giữ nhịp đệm trên hợp âm kết, chỉ ngân lắng ở **2 ô cuối cùng** (tránh việc một chương Scherzo `120 BPM` hay Finale kịch tính bị treo 1 nốt câm suốt 15 giây cuối). |
-| **2. Rút gọn `intro` & `outro` Pedal bên trong thân (`span.py`)** | • Đã có `warmup` (4–6 ô) bên ngoài nhưng vẫn khóa thêm `8` ô `intro` pedal ở đầu thân; ở cuối thân `1M-IV` khóa `16` ô `outro`, `3M-III` khóa tới **`40–45` ô `outro`** đạp 1 hợp âm trong lúc giá vẫn chạy. | • **Ở đầu thân (`intro`)**: Rút phần `intro` khóa cứng chủ âm từ `8` ô xuống **`4` ô** (nhập 4 ô còn lại vào `phrase` đầu tiên) để giai điệu và hòa âm bắt đầu chuyển động theo giá sớm hơn ngay sau `warmup`.<br>• **Ở cuối thân (`outro` / Coda 2 tầng)**: Rút `outro` pedal của mọi chương lớn (`1M-IV`, `3M-III`, `1Y-T12`, `1Y` Closer) về tối đa **`4–6` ô cuối**, chuyển toàn bộ số ô dư phía trước (`10–36` ô) thành `FormSection(..., kind="phrase", regime_slot=2)` kèm thưởng `V/V7` ở 2 ô sát `outro`. Hòa âm đi theo đúng những cây nến cuối kỳ rồi mới chốt chủ âm. |
+| **1. Mở rộng Khung Động khi `is_dynamic == True` (`movement_frame.py`)** | • Giao hưởng nghỉ trắng `comp` và kéo 1 nốt dây suốt `9–10s` ở cả 2 đầu.<br>• Jazz nghỉ trắng `comp` suốt `cooldown`.<br>• Tối giản cắt trắng Arpeggio ở cả 2 đầu. | • **Quy tắc chia nửa `cooldown` (*Cadential Tag*)**: Đặt `cool_len = end - cool` và `tag_bars = cool_len // 2` khi `cool_len >= 4` (tức các khung `4–6` ô của `1M`/`3M`, nơi `tag_bars` là `2–3` ô đầu). Với các khung ngắn `1–2` ô của `1Y` (`cool_len <= 2`, chỉ dài `3–5.5s`), đặt `tag_bars = 0` để giữ nguyên cả khung ngân lắng về `ppp`.<br>• **Giao hưởng**: Ở `warmup` và `tag_bars` đầu của `cooldown`, Piano (`comp`) điểm guide-tone + gốc theo nhịp chương (lấy `_jazz_comp` làm nguyên mẫu) và Bass phân phách nhẹ (`mp` pattern) trên hợp âm khung; phần còn lại của `cooldown` (`cool + tag_bars` đến `end`) nghỉ comp và giữ dây ngân về `ppp`.<br>• **Jazz**: Giữ nguyên `warmup` Rhodes đã có; ở `tag_bars` đầu của `cooldown`, Rhodes đánh tiếp figure nhịp chương trên hợp âm kết trước khi nghỉ ở nửa sau `cooldown`.<br>• **Tối giản**: Giữ `_even_pulse` của Sub-bass; ở `warmup` và `tag_bars` đầu của `cooldown`, cho Arpeggio (`lead`) chạy mẫu ostinato ở vùng đóng (`CLOSED_CUTOFF`) trên hợp âm khung để nối mượt vào/ra thân bài. |
+| **2. Bảng chốt số ô `intro` & `outro` Pedal bên trong thân (`span.py`)** | • Đã có `warmup` bên ngoài nhưng vẫn khóa thêm `8` ô `intro` pedal ở đầu thân; ở cuối thân `1M-IV` khóa `16` ô `outro`, `3M-III` khóa tới **`40–45` ô `outro`** đạp 1 hợp âm trong lúc giá vẫn chạy. | • **Quy tắc `intro` (đầu thân)**: Mọi section `intro` có độ dài `8` ô giảm xuống **`4` ô** (4 ô dư cộng vào `phrase 0`); riêng `3M-I` Tối giản (`6` ô $\rightarrow$ `3` ô `intro` + `3` ô vào `phrase 0`), `3M-III` Tối giản (`9` ô $\rightarrow$ `4` ô `intro` + `5` ô vào `phrase 0`), còn các chương `12/8` và `6/4` vốn có `4` ô `intro` thì giữ nguyên `4` ô.<br>• **Bảng chốt số ô `outro` pedal cuối thân (Coda 2 tầng — các ô dư phía trước chuyển thành `phrase` đi theo giá kèm thưởng `V/V7` ở 2 ô sát `outro`)**:<br>  - `1W` (Phiên cuối): `outro` giảm từ `8` $\rightarrow$ **`4` ô** (4 ô trước thành `phrase`).<br>  - `1M-I`, `1M-III` (`3/4`), `1Y` Opener (`4/4` & `5/4`), `1Y` Center: `outro` giảm từ `8` $\rightarrow$ **`4` ô** (4 ô trước nhập vào `phrase` cuối).<br>  - `1M-III` Tối giản (`7/8`, 82 ô) & `1Y` Closer (`3/4`, 111 ô): `outro` chốt **`6` ô** (`6` đến `13` ô trước là `phrase`).<br>  - `1M-IV` (`4/4`), `3M-I` (`4/4`), `3M-III` (`4/4`, từ 40 ô!), `1Y` Closer Tối giản (`7/8`), `1Y-T12` (`4/4`): `outro` chốt đúng **`8` ô** (riêng `3M-I` `5/4` chốt **`6` ô**, `3M-III` `7/8` giảm từ `45` xuống **`10` ô**). |
 | **3. Chương Scherzo / Bài ngắn / Khép mùa**<br>*(`1M-III`, `1Y` T3, 6, 9)* | • Chưa có sự tương phản phối khí ở đoạn giữa như hình thức **Scherzo – Trio – Scherzo (`A – B – A`)**. | • Đánh dấu đoạn giữa (`regime_slot=1`) là **Trio**: rút nhẹ 1 bậc mật độ bè trầm/percussion ở nửa đầu đoạn giữa để tạo khoảng sáng (`render.py`, `jazz.py`, `minimalist.py`, `ambient.py`).<br>• **Hiệu ứng "Bear-market Bounce"**: Nếu cả chương đang ở mode **Thứ (`minor`)** nhưng đoạn giữa có `regime == "uptrend"`, `minor_bias` tại đoạn giữa giảm cost cho **`♭III` (`E♭`, `E♭maj7`) và `♭VI` (`A♭`, `A♭maj7`)** và thưởng phách đầu đoạn giữa cho `E♭`/`E♭maj7`. |
 | **4. Chương Chậm / Ballad**<br>*(`1M-II`, `3M-II`, `1Y` Giữa mùa)* | • Chuyển từ đoạn giữa (B) về đoạn tái hiện (A') chưa có điểm lắng lấy hơi. | • Bật `bridge=True` cho đoạn giữa của Chương Chậm ở cả Giao hưởng.<br>• **Caesura tại ô cuối cùng của đoạn Bridge (`section.end - 1`)**: Ngay tại ô cuối cùng của Bridge (nơi `bridge_cadence` đã ưu tiên hợp âm `G`/`G7`), bộ render ngắt chạy bass/fill/shimmer ở nửa sau ô và chỉ ngân hợp âm `V7` để tạo nhịp lấy hơi trước khi vào phách 1 của câu tái hiện. |
 
@@ -235,9 +255,9 @@ Bản `1W` dài hơn 7 phút (160 ô khi đủ 5 phiên) đi qua 5 ngày giao d�
 #### 2. Thứ tự triển khai trong Codebase (Từ tác động cao nhất & tần suất nghe nhiều nhất)
 
 1. **Bước 1 — Mở/Kết động & Coda 2 tầng (Xóa bỏ đoạn "chết" đầu/cuối chương ở `1W`, `1M`, `3M`, `1Y`)**:
-   - **Phạm vi file**: `backend/app/sonify/span.py`, `backend/app/sonify/form.py`, `backend/app/sonify/movement_frame.py`, `backend/tests/test_sonify_plan.py`.
-   - Rút gọn `intro` pedal (từ `8` xuống `4` ô) và `outro` pedal (từ `16–45` xuống `4–6` ô cuối) trong `span.py`, chuyển các ô dư thành `phrase` đi theo giá kèm thưởng `V/V7` trước `outro`.
-   - Nâng cấp `movement_frame.py` để các chương Nhanh / Scherzo / Finale có tính cách `rally`, `selloff`, `volatile` mở bằng *Rhythmic Curtain* (bè đệm đánh motif nhịp của chương ngay trong `warmup`) và kết bằng *Cadential Tag* thay vì kéo 1 nốt tĩnh suốt 4–6 ô; chỉ giữ kiểu ngân tĩnh `p < mp` / `ppp` cho chương Chậm, `Ambient` và chương `calm`.
+   - **Phạm vi file**: `backend/app/sonify/span.py`, `backend/app/sonify/form.py`, `backend/app/sonify/render.py`, `backend/app/sonify/movement_frame.py`, `backend/tests/test_sonify_plan.py`.
+   - Rút gọn `intro` pedal và `outro` pedal theo đúng bảng chốt số ô ở Mục 4.D.2 trong `span.py`, chuyển các ô dư thành `phrase` đi theo giá kèm thưởng `V/V7` trước `outro` (kèm tính `outro_override` cho `1W` từ phiên đầu/cuối tuần trong `prepare_week`).
+   - Truyền `character` từ `render.py` vào `apply_span_frame(score, spec, character=character)`. Khi `is_dynamic == True` (`variant != "ambient"`, `spec.bpm >= 96`, `character in ("rally", "selloff", "volatile")`), bổ sung comping + bass phân phách cho Giao hưởng ở `warmup` và `tag_bars` đầu của `cooldown`, thêm Rhodes ở `tag_bars` đầu của `cooldown` cho Jazz, và chạy ostinato Arpeggio vùng đóng cho Tối giản (giữ nguyên hợp âm khung và vòng cung hairpin `p < mp` / `ppp`).
 2. **Bước 2 — `Character` & Groove cho `1D` và `1W` + Nhãn UI trên Player (Tần suất sử dụng hằng ngày cao nhất)**:
    - **Phạm vi file**: `backend/app/sonify/keys.py`, `backend/app/sonify/form.py`, `backend/app/sonify/span.py`, `backend/app/sonify/session.py`, `backend/app/sonify/render.py`, `backend/app/sonify/jazz.py`, `backend/app/sonify/minimalist.py`, `backend/app/sonify/ambient.py`, `backend/app/services/sessions.py`, `backend/app/services/spans.py`, `backend/app/schemas.py`, `backend/app/routers/stocks.py`, `src/api/client.ts`, `src/components/SessionRecap.tsx`, `src/components/SpanRecap.tsx`.
    - Chạy thống kê phân vị trên dữ liệu phiên HOSE để chốt `_SPAN_THRESHOLD["1D"]`; bật `borrowed=True` và `character` cho `1D`; chấm `character` theo từng phiên 32 ô của `1W` (giữ nguyên `160` ô không gắn khung tĩnh ngoài) + *Overnight Gap Bridge* qua `session_points` (`09:16–09:30`, lọc `0.8% ≤ |gap| ≤ 6.8%`); bổ sung pattern Groove (`3+3+2` cho Giao hưởng/Tối giản, *Hard-Bop syncopation* cho Jazz, *Half-feel* cho `calm`) và hiển thị `characterLabel` trên UI.
@@ -254,16 +274,20 @@ Bản `1W` dài hơn 7 phút (160 ô khi đủ 5 phiên) đi qua 5 ngày giao d�
 
 1. **Kiểm thử Tự động (`pytest` trong `backend/tests/test_sonify_plan.py`)**:
    - **Khóa đồng hồ (`1W`, `1M`, `3M`, `1Y`)**:
-     - `1W` đủ 5 phiên giữ nguyên `160` ô (`426.7s` / `7:07` ở `90 BPM`), nhưng `intro` và `outro` khóa cứng chỉ còn `4` ô mỗi đầu (thay vì `8` ô).
+     - `1W` đủ 5 phiên giữ nguyên `160` ô (`426.7s` / `7:07` ở `90 BPM`), nhưng `intro` và `outro` khóa cứng chỉ còn đúng `4` ô mỗi đầu (thay vì `8` ô).
      - Tổng thời lượng `1M`, `3M`, `1Y` của cả 4 variants không vượt trần `47:21` (`2841s`); riêng `1Y` Giao hưởng sau khi đổi `closer` sang `111` ô `3/4` đạt **`2840.1s ± 1.5s`** (`47:20`), Jazz/Ambient đạt **`2818.3s ± 1.5s`** (`46:58`).
-   - **Khóa Mở/Kết động (`movement_frame.py` & `span.py`)**:
-     - Số ô `intro` pedal của các chương lớn giảm từ `8` xuống `4` ô; số ô `outro` pedal của `3M-III` giảm từ `40–45` xuống `4–6` ô (các ô trước đó có `section == "phrase"` và có mặt trong `liquidity_windows_for`).
-     - Với chương Nhanh / Scherzo có `character in ("rally", "selloff", "volatile")`, các ô `warmup` của Giao hưởng, Jazz, Tối giản có nốt đệm hoạt động theo nhịp chương thay vì nghỉ trắng hoặc kéo 1 nốt đơn suốt khung.
+   - **Khóa Mở/Kết động (`movement_frame.py` & `span.py`) với assertion cụ thể theo Variant**:
+     - Số ô `intro` pedal của `1M-I/III/IV`, `3M-I/II/III` (`4/4`, `3/4`, `6/8`) bằng đúng **`4` ô**; số ô `outro` pedal của `3M-III` giảm từ `40` xuống đúng **`8` ô** ở `4/4` (và từ `45` xuống **`10` ô** ở `7/8`), các ô trước đó có `section == "phrase"` và nằm trong `liquidity_windows_for`.
+     - Khi `spec.bpm >= 96` và `character in ("rally", "selloff", "volatile")` (ví dụ `1M-I` hoặc `1M-III` với `cool_len >= 4`):
+       1. **Giao hưởng**: `score.comp` trong `warmup` và trong `tag_bars = cool_len // 2` ô đầu của `cooldown` có các sự kiện nốt có cao độ (`note.midi is not None`), không còn nghỉ trắng toàn phần; `score.low` trong `warmup` đánh nhiều hơn 1 xung mỗi ô.
+       2. **Jazz**: `score.comp` trong `tag_bars` ô đầu của `cooldown` có nốt Rhodes (`note.midi is not None`), và nghỉ trắng ở `cool_len - tag_bars` ô cuối.
+       3. **Tối giản**: `score.lead` (Arpeggio) trong `warmup` và `tag_bars` ô đầu của `cooldown` có nốt ostinato (`note.midi is not None`).
+     - Khi `spec.bpm <= 72` (Chương Chậm), `variant == "ambient"`, `character == "calm"`, hoặc `cool_len <= 2` (khung ngắn `1Y` cho phần `cooldown`): giữ nguyên hành vi khung tĩnh hiện tại.
    - **Khóa lưới nhịp & Swing**: Score Jazz `4/4` ở trạng thái `volatile` vẫn giữ `swing=True` và mọi nốt Rhodes/Walking Bass nằm hợp lệ trong độ dài ô; Score Giao hưởng/Tối giản `4/4` ở trạng thái `volatile` xuất đúng mẫu `3+3+2` (`0, 3, 6`) trên các ô `mf`/`f`.
    - **Khóa bộ lọc Gap `1W`**: Cú lệch qua đêm `> 6.8%` hoặc `< 0.8%` không kích hoạt hợp âm dẫn ở ô thứ 32.
 2. **Checklist Nghe đối chứng (Listening Benchmark `5 mã × 4 tính cách`)**:
    - Xuất MusicXML & M4A trên 5 mã đại diện cho 5 giọng nhà (`VNM` – Đô, `FPT` – Rê, `HPG` – Mi♭, `VCB` – Si♭, `GMD` – La) qua 4 mẫu thị trường thực tế (`rally`, `selloff`, `volatile`, `calm`) ở `1D`, `1W` và `1M`, kiểm tra từng điểm cụ thể:
-     - [ ] **Mở/Kết chương dài (`1W`, `1M`, `3M`)**: Phần mở và kết của các chương Nhanh / Scherzo / `rally` / `volatile` có vào nhịp gọn gàng, giàu năng lượng và khớp với thân bài (không còn cảm giác lê thê 30 giây đầu/cuối chương) không?
+     - [ ] **Mở/Kết chương dài (`1W`, `1M`, `3M`)**: Phần mở và kết của các chương Nhanh / Scherzo / `rally` / `volatile` có vào nhịp gọn gàng, giàu năng lượng và khớp với thân bài (không còn cảm giác lê thê đầu/cuối chương) không?
      - [ ] **Caesura (cuối Bridge chương chậm)**: Nửa sau ô cuối Bridge khi ngắt bass/fill có tạo cảm giác lấy hơi tự nhiên hay bị cảm giác đứt tiếng đột ngột?
      - [ ] **Soft cadential bias ở `1D`**: Hợp âm `V7` ở ô `30–31` có nâng đỡ nến ATC mà không ép giai điệu nhảy sai cao độ giá đóng cửa không?
      - [ ] **Groove `volatile`**: Mẫu `3+3+2` của Giao hưởng/Tối giản và *Hard-Bop syncopation* của Jazz có giữ rõ mạch phách chính mà không gây rối tai khi nghe hết 1 chương không?
