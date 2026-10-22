@@ -824,17 +824,9 @@ def _compose(
                 if section.kind not in ("warmup", "cooldown")
             )
         def _finish(score: Score) -> Score:
-            # Fold before the frame chooses pedals, so a tied warmup matches the body.
-            score = fit_ensemble(replace(score, ensemble=ensemble))
-            if daily_ensemble:
-                from app.sonify.daily_frame import apply_daily_frame
-
-                score = apply_daily_frame(score)
-            elif spec is not None and any(section.kind == "warmup" for section in spec.sections):
-                from app.sonify.movement_frame import apply_span_frame
-
-                score = apply_span_frame(score, spec)
-            return replace(
+            # The key has to be on the score before the fold. Drone and swell are
+            # written in C; A and Bb then drop them, and the fold must see that.
+            score = replace(
                 score,
                 ensemble=ensemble,
                 key=key,
@@ -844,6 +836,16 @@ def _compose(
                 bar_beats=meter.quarter_beats,
                 swing=swing_for(variant, meter),
             )
+            score = fit_ensemble(score)
+            if daily_ensemble:
+                from app.sonify.daily_frame import apply_daily_frame
+
+                score = apply_daily_frame(score)
+            elif spec is not None and any(section.kind == "warmup" for section in spec.sections):
+                from app.sonify.movement_frame import apply_span_frame
+
+                score = apply_span_frame(score, spec)
+            return score
 
         if variant == "jazz":
             from app.sonify.jazz import JAZZ_BPM

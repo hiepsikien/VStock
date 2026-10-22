@@ -11,7 +11,7 @@ import pytest
 from app.sonify.audio import RECAP_REVISION, SPAN_REVISION, RecapAsset, RecapStore, _STORED_NAME
 from app.sonify.chords import C
 from app.sonify.ensemble import ensemble_for, fit_ensemble, tune_register
-from app.sonify.keys import A_KEY, C_KEY, compose_register, register_for
+from app.sonify.keys import A_KEY, BB_KEY, C_KEY, compose_register, register_for
 from app.sonify.model import Bar, NoteEvent
 from app.sonify.musicxml import score_to_musicxml
 from app.sonify.phrasing import fill_tones
@@ -142,6 +142,23 @@ def _meets(start: NoteEvent, stop: NoteEvent) -> bool:
     end = start.bar * 4 + start.beat + start.duration_beats
     begin = stop.bar * 4 + stop.beat
     return abs(end - begin) < 1e-6
+
+
+@pytest.mark.parametrize("key", (A_KEY, BB_KEY))
+def test_choir_fold_uses_the_key_render_attaches(key) -> None:
+    score = render(
+        [Bar(100.0, 100.0, 100.0)] * 30,
+        variant="ambient",
+        ensemble="choir",
+        key=key,
+        framed=False,
+        regimes=("sideway",) * 3,
+    )
+    low = [note.midi + key.semitones for note in score.low if note.midi is not None]
+    viola = [note.midi + key.semitones for note in score.comp if note.midi is not None]
+    assert low
+    assert min(low) >= 36
+    assert all(midi >= 48 for midi in viola)
 
 
 def test_choir_sings_at_pitch_and_clamps_viola_and_bass() -> None:
