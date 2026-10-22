@@ -94,6 +94,7 @@ Giọng của bốn chương. Chi tiết nằm ở `docs/sonify-sonata-mode.md`.
 - Giao hưởng giữ một giọng nhà cho cả bốn chương. Tuần tăng hoặc đi ngang thì chương đó trưởng. Tuần giảm thì thứ cùng gốc. Tuần biến động chỉ sang thứ khi khúc đóng là downtrend. Intro, phách đầu câu và outro đạp bậc I của mode đó. La thứ còn đi trong câu với vai bậc vi, và không làm chủ âm của câu.
 - Jazz là một set. Head, ballad và finale ở giọng nhà, mode theo tuần của chương. Ballad nghe ra ở 12/8, swing tắt và tempo chậm. Chỉ bài ngắn, chương III, bước một bậc trên vòng: tuần tăng đi lên, tuần giảm hoặc đi ngang đi xuống. Trong head, ballad và finale, đoạn giữa là bridge: phách đầu câu về bậc IV, hai ô cuối về bậc V, câu hát trở lại bậc I.
 - Ambient giữ một pedal, là giọng nhà, suốt bốn chương. Mode theo tuần. Tuần tăng thì chương chậm vẫn trưởng. Scherzo chỉ đổi sang 3/4 trên cùng gốc. Đoạn giữa đổi màu hợp âm phía trên pedal, gốc không rời.
+- Tối giản giữ bước giọng hiện tại: chương II và chương III sang hai giọng kế bên trên vòng, chương IV về giọng nhà.
 
 Nến 1 phút, cùng hạt với 1D và 1W. Lookback phút hiện là 18 ngày; bản tháng cần khoảng 35 ngày. Nếu API không trả đủ, chương đó dùng nến 5 phút và giai điệu mượt hơn.
 
