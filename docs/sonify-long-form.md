@@ -1,6 +1,6 @@
 # Sonify nhiều chương: 1D, 1W, 1M, 3M, 1Y
 
-Kế hoạch form cho các bản nghe theo range chart. 5Y không làm nhạc. Trần độ dài là bản 1 năm: **12 chương, 45 phút**.
+Kế hoạch form cho các bản nghe theo range chart. 5Y không làm nhạc. Trần độ dài là bản 1 năm sau khi cộng khung: **12 chương, 47:21**.
 
 Engine hôm nay là một tiểu phẩm 30 ô nhịp. Ba biến thể trên UI không cùng tempo: giao hưởng 90 BPM (1:20), jazz 82 BPM (1:28), tối giản 118 BPM (1:01). Giai điệu hát thang C major. Bộ hợp âm đang có 12 hợp âm thuận trong C major / A minor: C, F, G, Am, Dm, Em và bảy của chúng. Jazz nâng các root đó lên maj9, m9, dominant 9 qua `JAZZ_CHORD_BY_ROOT`. Markov, phrase 8 ô, intro và coda đang khóa vào form 30 ô.
 
@@ -18,7 +18,7 @@ Từ 1W trở đi, cả ba biến thể dùng chung số ô, chung BPM của b�
 | 1W | 1 | 7:07 khi đủ 5 phiên | một mạch, 32 ô mỗi phiên, 90 BPM | tác phẩm một chương | cùng lưới, có swing | cùng lưới, thưa nốt |
 | 1M | 4 | 14:42 | sonata 4 chương | nhanh, chậm, scherzo, kết | head, ballad, bài ngắn, finale | cùng vai, texture thưa |
 | 3M | 3 | 24:16 | concerto / symphony vừa | nhanh, chậm, nhanh | set 1, ballad, set cuối | cùng vai, texture thưa |
-| 1Y | 12 | 45:00 | tổ khúc 4 mùa | mỗi mùa: mở, chậm, khép | bốn set, mỗi set ba bài | cùng vai, texture thưa |
+| 1Y | 12 | 47:21 | tổ khúc 4 mùa | mỗi mùa: mở, chậm, khép | bốn set, mỗi set ba bài | cùng vai, texture thưa |
 
 1M là sonata bốn phần. Hình dung tổ khúc ba chương nằm ở 3M.
 
@@ -93,7 +93,7 @@ Giọng của bốn chương. Chi tiết nằm ở `docs/sonify-sonata-mode.md`.
 
 - Giao hưởng giữ một giọng nhà cho cả bốn chương. Tuần tăng hoặc đi ngang thì chương đó trưởng. Tuần giảm thì thứ cùng gốc. Tuần biến động chỉ sang thứ khi khúc đóng là downtrend. Intro, phách đầu câu và outro đạp bậc I của mode đó. La thứ còn đi trong câu với vai bậc vi, và không làm chủ âm của câu.
 - Jazz là một set. Head, ballad và finale ở giọng nhà, mode theo tuần của chương. Ballad nghe ra ở 12/8, swing tắt và tempo chậm. Chỉ bài ngắn, chương III, bước một bậc trên vòng: tuần tăng đi lên, tuần giảm hoặc đi ngang đi xuống. Trong head, ballad và finale, đoạn giữa là bridge: phách đầu câu về bậc IV, hai ô cuối về bậc V, câu hát trở lại bậc I.
-- Ambient giữ một pedal, là giọng nhà, suốt bốn chương. Mode theo tuần. Tuần tăng thì chương chậm vẫn trưởng. Scherzo chỉ đổi sang 3/4 trên cùng gốc. Đoạn giữa đổi màu hợp âm phía trên pedal, gốc không rời.
+- Ambient giữ giọng nhà suốt bốn chương. Mode theo tuần. Tuần tăng thì chương chậm vẫn trưởng. Scherzo chỉ đổi sang 3/4 trên cùng gốc. Đoạn giữa đổi màu hợp âm phía trên, còn drone của đoạn đó giữ gốc chủ âm. Ngoài đoạn giữa, drone theo gốc hợp âm của ô. Intro, phách đầu câu và outro là bậc I.
 - Tối giản giữ bước giọng hiện tại: chương II và chương III sang hai giọng kế bên trên vòng, chương IV về giọng nhà.
 
 Nến 1 phút, cùng hạt với 1D và 1W. Lookback phút hiện là 18 ngày; bản tháng cần khoảng 35 ngày. Nếu API không trả đủ, chương đó dùng nến 5 phút và giai điệu mượt hơn.
@@ -120,7 +120,7 @@ Giọng của ba chương, cùng quy tắc với bản tháng và không có bà
 
 ## 1Y
 
-Mười hai chương, mỗi chương một tháng, theo thứ tự thời gian của mười hai tháng gần nhất. Nến 30 phút. Form của từng chương lấy theo tháng lịch trong bảng, nên tháng 12 là finale khi nó nằm trong cửa sổ, không phải lúc nào cũng là chương cuối. Bốn mùa lặp cùng một tính cách. Cộng nghỉ (4 giây trong mùa, 8 giây khi sang mùa khác) xấp xỉ 45 phút khi đủ năm. Cả ba biến thể dùng BPM trong bảng.
+Mười hai chương, mỗi chương một tháng, theo thứ tự thời gian của mười hai tháng gần nhất. Nến 30 phút. Form của từng chương lấy theo tháng lịch trong bảng, nên tháng 12 là finale khi nó nằm trong cửa sổ, không phải lúc nào cũng là chương cuối. Bốn mùa lặp cùng một tính cách. Cộng nghỉ (4 giây trong mùa, 8 giây khi sang mùa khác) và khung hai đầu, bản năm dài 47:21 với giao hưởng, 47:20 với tối giản, 46:59 với jazz và ambient. Trần là 47:21. Đồng hồ từng dạng nằm ở `docs/sonify-meter-frame.md`. Cả ba biến thể dùng BPM trong bảng.
 
 | Vị trí trong mùa | Ô | BPM | Đồng hồ | Các tháng |
 |---|---|---|---|---|

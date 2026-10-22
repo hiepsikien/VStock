@@ -4,7 +4,7 @@ Kế hoạch giọng cho giao hưởng, jazz và ambient từ 1M trở lên. Nh�
 
 ## Hiện trạng
 
-Một chương được soạn trong không gian Đô trưởng. `KeySpec.semitones` dịch cao độ lúc ghi MusicXML, và `KeySpec.fifths` là hóa biểu. Vòng giọng là năm giọng trưởng, mỗi bước cách nhau hai hoặc ba semitone: Mi♭, Si♭, Đô, Rê, La. Mỗi mã có một giọng nhà trên vòng đó. FPT ở Rê, VNM ở Đô, HPG ở Mi♭, VCB ở Si♭, GMD ở La.
+Một chương được soạn trong không gian Đô trưởng. `KeySpec.semitones` dịch cao độ lúc ghi MusicXML, và `KeySpec.fifths` là hóa biểu. Vòng giọng là năm giọng trưởng theo thứ tự Mi♭, Si♭, Đô, Rê, La, và La nối lại Mi♭. Một bước là giọng kề trên vòng này. Khoảng cách semitone của các cặp kề không bằng nhau: Mi♭–Si♭ là 5, Si♭–Đô là 2, Đô–Rê là 2, Rê–La là 5, La–Mi♭ là 6. Mỗi mã có một giọng nhà trên vòng đó. FPT ở Rê, VNM ở Đô, HPG ở Mi♭, VCB ở Si♭, GMD ở La.
 
 `month_keys` dựng sonata bốn chương: chương I và IV ở giọng nhà, chương II bước sang một giọng kế bên theo tính cách tuần, chương III lấy giọng kế bên còn lại. `quarter_keys` làm vậy với chương chậm của 3M. Bài kiểm tra `test_month_movements_one_two_and_three_use_three_keys` khóa ba tên giọng khác nhau trong ba chương đầu.
 
@@ -18,7 +18,7 @@ Với tuần đi ngang hoặc giảm, chương II đi xuống vòng. Với tuầ
 | Si♭ | Si♭, Mi♭, Đô, Si♭ | Si♭, Đô, Mi♭, Si♭ |
 | Mi♭ | Mi♭, Si♭, Đô, Mi♭ | Mi♭, Đô, Si♭, Mi♭ |
 
-3M chỉ đổi chương II, rồi chương III về giọng nhà. Một mã giọng Rê mà chương chậm tăng sẽ nghe Rê rồi La rồi Rê. Một mã giọng Đô mà chương II tăng sẽ nghe Đô rồi Rê rồi Si♭ rồi Đô.
+3M có ba chương: chỉ chương II đổi giọng, rồi chương III về giọng nhà. Một mã giọng Rê mà chương chậm tăng sẽ nghe Rê rồi La rồi Rê. Một mã giọng Đô mà chương II tăng sẽ nghe Đô rồi Rê rồi Đô.
 
 Bên trong một chương còn một lần đổi chủ âm nữa. `tonic("downtrend")` là La thứ, và vòng sideway là Đô trưởng xen La thứ. Phách đầu câu được thưởng khi hợp âm là chủ âm của regime, nên một đoạn giảm lấy La làm gốc. Người nghe nghe gốc nhảy Đô sang La giữa chương, rồi sang giọng của chương sau.
 
@@ -59,7 +59,7 @@ Jazz 1M là một set: head, ballad, bài ngắn, finale. Mỗi chương là m�
 
 Chương III là bài duy nhất được đổi bậc. Bước lấy từ `_chapter_two`, với tính cách của chương III. Tuần tăng đi lên vòng. Tuần giảm hoặc đi ngang đi xuống vòng. Tuần biến động chọn phía nào chung nhiều âm hơn với chương trước. Giọng nhà Đô thì chương III là Rê khi tuần tăng, và Si♭ khi tuần giảm. Giọng nhà Rê thì chương III là La khi tuần tăng, và Đô khi tuần giảm. Mode của bài ngắn vẫn là trưởng hoặc thứ cùng tên của giọng vừa chọn.
 
-Bên trong head, ballad và finale, chỉ đoạn giữa được rời gốc. Đó là câu tương phản 24 ô của chương I và chương IV, và 16 ô đoạn giữa của chương II. Đoạn này là bridge: phách đầu câu thưởng cho bậc IV của mode bài đó. Đô trưởng thì bridge về Fa. Đô thứ thì bridge về Fa thứ. Hai ô cuối bridge ưu tiên Sol hoặc Sol bảy, để câu trở lại rơi về bậc I. Các câu A, intro và outro giữ bậc I của bài. La thứ không làm chủ âm của câu.
+Bên trong head, ballad và finale, chỉ đoạn giữa được rời gốc. Đó là câu tương phản 24 ô của chương I và chương IV, và 12 ô đoạn giữa của ballad 1M. Bảng 12/8 ghi đoạn này là số 12 trong dãy 4, 16, 12, 16. Ballad 3M dài 24 ô, ballad giữa năm dài 12 ô. Đoạn này là bridge: phách đầu câu thưởng cho bậc IV của mode bài đó. Đô trưởng thì bridge về Fa. Đô thứ thì bridge về Fa thứ. Hai ô cuối của đúng đoạn đó ưu tiên Sol hoặc Sol bảy, để câu trở lại rơi về bậc I. Các câu A, intro và outro giữ bậc I của bài. La thứ không làm chủ âm của câu.
 
 Bài ngắn không có bridge sang giọng thứ tư. Cả chương III ở một giọng.
 
@@ -71,7 +71,7 @@ Ambient 1M và 3M giữ một gốc cho mọi chương, là giọng nhà. Mode t
 
 Chương scherzo ambient đổi sang 3/4 trên cùng pedal. Đổi thêm giọng ở đây đánh thức tai đúng lúc nhịp đã là tương phản.
 
-Bên trong chương, drone không cadence sang chủ âm khác. Đoạn giữa đổi màu hợp âm phía trên pedal, rồi gốc đứng yên. Intro, phách đầu câu và outro là bậc I của mode. La thứ không nhận thưởng chủ âm.
+Bên trong chương, drone của đoạn giữa giữ gốc chủ âm trong khi hợp âm phía trên đổi màu. Ngoài đoạn giữa, drone theo gốc hợp âm của từng ô. Intro, phách đầu câu và outro là bậc I của mode. La thứ không nhận thưởng chủ âm.
 
 ## Cách viết chương thứ
 
@@ -138,7 +138,7 @@ Thêm `Cm9` (`C–E♭–G–B♭–D`, MIDI `60, 63, 67, 70, 74`). Đăng ký `
 
 Bridge của head, ballad và finale nằm ở `plan_markov_chords`, trên catalog đúng mode:
 
-- Phách đầu câu của đoạn giữa thưởng `PHRASE_TONIC_BONUS` cho bậc IV. Bài trưởng là Fa và Fa trưởng bảy. Bài thứ là Fa thứ và Fa thứ bảy. Đoạn giữa là câu tương phản 24 ô của chương I và IV, 16 ô giữa của chương II trong 1M, và câu giữa của ballad 3M.
+- Phách đầu câu của đoạn giữa thưởng `PHRASE_TONIC_BONUS` cho bậc IV. Bài trưởng là Fa và Fa trưởng bảy. Bài thứ là Fa thứ và Fa thứ bảy. Đoạn giữa là câu tương phản 24 ô của chương I và IV, 12 ô giữa của ballad 1M, 24 ô giữa của ballad 3M, và 12 ô giữa của ballad trong năm. Hai ô cuối là hai ô cuối của chính đoạn đó.
 - Hai ô cuối của đoạn đó hạ cost của Sol và Sol bảy.
 - Phách đầu câu hát trở lại thưởng lại bậc I.
 
@@ -146,7 +146,7 @@ Bài ngắn không mở bridge sang một giọng thứ tư.
 
 ## Pedal của ambient
 
-Halo, swell, shimmer và kính đọc `chord_at` của từng ô, nên màu hợp âm vẫn đổi. Drone của đoạn giữa giữ một nốt: `bass_midi` của chủ âm chương, trong không gian Đô là nốt gốc bậc I ở quãng 8 của bass. Fa trưởng chín, Rê thứ chín, La giáng trưởng bảy hoặc Sol chín đứng trên nốt Đô thành hợp âm slash. Intro, câu ngoài đoạn giữa, và outro vẫn để drone theo gốc hợp âm của ô, và các ô đạp đó là bậc I.
+Halo, swell, shimmer và kính đọc `chord_at` của từng ô, nên màu hợp âm vẫn đổi. Drone của đoạn giữa giữ một nốt: `bass_midi` của chủ âm chương, trong không gian Đô là nốt gốc bậc I ở quãng 8 của bass. Fa trưởng chín, Rê thứ chín, La giáng trưởng bảy hoặc Sol chín đứng trên nốt Đô thành hợp âm slash. Ngoài đoạn giữa, drone theo gốc hợp âm của từng ô. Intro, phách đầu câu và outro đạp bậc I.
 
 ## Chỗ sửa trong code
 

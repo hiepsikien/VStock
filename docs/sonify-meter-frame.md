@@ -226,7 +226,7 @@ Khung 1M và 3M dài khoảng 16 phách đen mỗi đầu, làm tròn lên thàn
 | 5/4 | 4 | 20 |
 | 7/8 | 5 | 17,5 |
 
-1Y dùng khoảng 8 phách đen mỗi đầu. Mười hai tháng thêm 16 phách hai đầu sẽ kéo bản năm thêm khoảng 4 phút, qua trần 45 phút. Riêng 12/8 và 6/4 của 1Y chỉ một ô mỗi đầu. Một ô đã dài 6 phách, khoảng 5,5 giây ở 66 BPM, sát mức 7 đến 9 phách của các nhịp còn lại.
+1Y dùng khoảng 8 phách đen mỗi đầu. Mười hai tháng thêm 16 phách hai đầu sẽ kéo jazz và ambient lên khoảng 47:42, qua trần 47:21 ở `docs/sonify-long-form.md`. Riêng 12/8 và 6/4 của 1Y chỉ một ô mỗi đầu, và đồng hồ của hai dạng đó còn 46:59. Một ô đã dài 6 phách, khoảng 5,5 giây ở 66 BPM, sát mức 7 đến 9 phách của các nhịp còn lại.
 
 | Nhịp | Ô mỗi đầu | Phách đen |
 |---|---|---|
