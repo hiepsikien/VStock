@@ -36,7 +36,7 @@ Bộ gỗ hợp với những phiên ở `mp`. Bộ đồng hợp với những 
 | P3 | Harp | Harp |
 | P4 | Contrabassoon | Contrabassoon |
 
-Oboe hát trong vùng violin. Nốt dưới Si♭3 gập lên một quãng tám. Clarinet thay cello. Harp đánh hợp âm hai khuông. Contrabassoon giữ bass ở C2–Si2, khác `Contrabasses` của Ambient.
+Oboe hát trong vùng violin. Nốt dưới Si♭3 gập lên một quãng tám. Clarinet nhận bè cello. Đáy kèn là Rê3, nên nốt dưới Rê3 gập lên một quãng tám: ở giọng Đô đó là Đô3, ở giọng La và Si♭ bè này xuống tới La2. Harp đánh hợp âm hai khuông. Contrabassoon chơi đường bass hiện tại, gồm nốt quãng tám. Dịch giọng đưa gốc xuống tới La1, và kèn vẫn ngân được vùng đó.
 
 ### Đồng
 
@@ -48,7 +48,7 @@ Oboe hát trong vùng violin. Nốt dưới Si♭3 gập lên một quãng tám.
 | P3 | Sáu kèn cor | French Horns a6 |
 | P4 | Tuba | Tuba |
 
-Glockenspiel giữ vai điểm sáng ngắn của flute. Trumpet hát đến khoảng Si♭5; nốt cao hơn thì gập xuống. Trombone là bè giữa. Sáu kèn cor đệm hợp âm, khác kèn cor đơn đang làm tiếng nở ở Ambient. Tuba nằm ở C2–Si2.
+Glockenspiel giữ vai điểm sáng ngắn của flute. Trumpet hát đến khoảng Si♭5; nốt cao hơn thì gập xuống. Trombone là bè giữa. Sáu kèn cor đệm hợp âm trong Fa2–Sol♯4, khác kèn cor đơn đang làm tiếng nở ở Ambient. Fill móc đơn cuối câu của piano lên tới Sol5; trên bộ này fill dừng ở Fa5. Tuba chơi đường bass hiện tại, gồm cả khi dịch giọng.
 
 ## Jazz
 
@@ -74,7 +74,7 @@ Bộ đang phát: Vibraphone, Alto Sax, Tenor Sax, Suitcase Piano, Electric Bass
 | P3 | Hammond | Hammond Organ |
 | P4 | Electric Bass | Electric Bass |
 
-Guitar chỉ đánh cụm ngắn ở C6–F6. LP và SC là hai giọng khác nhau trong Muse Guitars Vol. 1. Trumpet chạm trần ở La♭5. Soprano gập lên từ Si♭3. Baritone nằm ở C3–C4. Wurly và Hammond đánh được hợp âm Fa2–Mi5.
+Guitar chỉ đánh cụm ngắn ở C6–F6. LP và SC là hai giọng khác nhau trong Muse Guitars Vol. 1. Trumpet chạm trần ở La♭5. Điểm giao soprano và baritone dời từ Sol3 lên La♭3, đúng đáy thực của soprano. Nốt chạm đáy sang baritone, soprano giữ nguyên đường nét. Baritone nhận thêm đoạn đó và vẫn hát thoải mái tới Fa4. Wurly và Hammond đánh được hợp âm Fa2–Mi5.
 
 ## Tối giản
 
@@ -104,7 +104,7 @@ Marimba và guitar thép gánh ostinato. Harpsichord và piano đứng gánh pul
 
 ## Ambient
 
-Bộ đang phát: Celesta, Alto Flute, Bass Flute, French Horn, Contrabasses. Kính ngân ở Sol3–Đô6 và lắng bằng diminuendo. Halo là hai nốt Rê3–Đô♯4. Tiếng nở là hợp âm Đô3–La4. Drone ở C2. Shimmer là một nốt tròn Rê5–Đô6.
+Bộ đang phát: Celesta, Alto Flute, Bass Flute, French Horn, Contrabasses. Kính ngân ở Sol3–Đô6 và lắng bằng diminuendo. Halo là hai nốt Rê3–Đô♯4. Tiếng nở có đỉnh trong Đô4–La4; đáy lấy từ khoảng dưới đỉnh và có thể xuống La2. Drone theo gốc hợp âm trong Đô2–Si2, ghim chủ âm ở đoạn giữa, và thêm quãng 5 tới Fa♯3 khi thanh khoản `mf`–`f` ở ngoài đoạn giữa. Sau dịch giọng, gốc vang từ La1 tới Rê3 và quãng 5 có thể tới La3. Shimmer là một nốt tròn Rê5–Đô6.
 
 ### Hơi trầm
 
@@ -126,7 +126,7 @@ Bộ đang phát: Celesta, Alto Flute, Bass Flute, French Horn, Contrabasses. K�
 | P3 | Viola | Violas |
 | P4 | Giọng bass | Basses |
 
-Handchimes và Handbells ngân hết nốt tròn, khác Celesta. Cor anglais và clarinet phủ Sol3–Đô6, nên hơi kính vẫn diminuendo trên cùng một tiếng. Bass clarinet và tenor giữ halo. Trombones a3 và viola nở hợp âm. Contrabassoon và Basses giữ drone ở C2.
+Handchimes và Handbells ngân hết nốt tròn, khác Celesta. Clarinet phủ Sol3–Đô6. Cor anglais giữ hơi kính tới Đô6: Si5–Đô6 chỉ cao hơn trần thường một đến hai nửa cung, nên vẫn để trên kèn. Bass clarinet và tenor giữ halo. Trombones a3 nở được hợp âm kể cả đáy La2. Viola nở cùng vùng đó; đáy giữ ở Đô3 sau khi dịch giọng, vì dây trầm nhất của viola là Đô3. Contrabassoon chơi đủ drone đã dịch, kể cả La1, và giữ cách viết bass hiện tại. Basses viết đúng cao độ vang, không kèm `<octave-change>-1` của part bass. Nốt dưới Đô2 gập lên một quãng tám; Đô2 giữ lại.
 
 ## Giọng xuất hiện ở hơn một kiểu
 
