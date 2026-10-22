@@ -882,6 +882,34 @@ def test_daily_coda_prefers_subdominant_then_dominant() -> None:
     assert by_bar[32] in ("C", "Cmaj7")
 
 
+def test_week_gap_lead_reaches_the_hold_bar_and_plan_slots() -> None:
+    from app.sonify.form import c_major_scale
+    from app.sonify.span import prepare_week
+
+    first = [Bar(100.0) for _ in range(8)]
+    second = [Bar(100.0) for _ in range(8)]
+    rising = prepare_week([first, second], openings=[100.0, 101.0])[0]
+    assert rising.gap_leads is not None
+    assert rising.gap_leads[31] == "up"
+    assert rising.gap_leads[63] is None
+    wide = prepare_week([first, second], openings=[100.0, 107.0])[0]
+    assert wide.gap_leads is not None
+    assert wide.gap_leads[31] is None
+
+    epb = rising.spec.meter.eighths_per_bar
+    pitches = [60] * (rising.spec.bars * epb)
+    slots = plan_slots(
+        ("sideway", "sideway"),
+        pitches,
+        c_major_scale(),
+        rising.spec,
+        gap_leads=rising.gap_leads,
+    )
+    covered = [bar for slot in slots for bar in slot.bars()]
+    assert covered == list(range(rising.spec.bars))
+    assert any(31 in slot.bars() for slot in slots)
+
+
 def test_chamber_bar_drops_the_symphony_right_hand() -> None:
     from app.sonify.form import ChordSlot
     from app.sonify.groove import BarGroove, compose_groove
