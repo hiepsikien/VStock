@@ -782,7 +782,7 @@ class PreparedMovement:
         return (
             f"{self.key.name}-{self.mode}-{character}-{coda}-"
             f"{meter.beats}-{meter.beat_type}-{int(self.swing)}-"
-            f"{low:.2f}-{high:.2f}-rhythm2-{sessions}-{bridges}"
+            f"{low:.2f}-{high:.2f}-rhythm3-{sessions}-{bridges}"
         )
 
 

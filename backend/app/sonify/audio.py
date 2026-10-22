@@ -37,7 +37,7 @@ from app.sonify.session import VN, is_session_closed
 logger = logging.getLogger(__name__)
 
 # Bump when the score or the sound changes, so old files are not replayed.
-RECAP_REVISION = "27"
+RECAP_REVISION = "28"
 # Long-form files live beside the daily recap and use their own revision.
 SPAN_REVISION = "14"
 PEAK_BUCKETS = 96
@@ -1198,13 +1198,14 @@ class RecapStore:
         ensemble: Ensemble = "classic",
     ) -> RecapAsset:
         key = self._stem(symbol, day, variant, len(bars), ensemble)
-        from app.sonify.keys import movement_character
+        from app.sonify.keys import movement_character, stock_home_key
 
         score = render(
             bars,
             title=f"{symbol} {day.isoformat()}",
             variant=variant,
             ensemble=ensemble,
+            key=stock_home_key(symbol),
             character=movement_character([bar.close for bar in bars], "1D"),
         )
         work = self.root / "work"

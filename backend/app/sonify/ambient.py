@@ -863,9 +863,7 @@ def _shimmer(
                 if not breakout and not apex:
                     continue
                 bar = run.start // active_meter().eighths_per_bar
-                from app.sonify.groove import groove_at
-
-                if bar in quiet or bar not in chord_at or groove_at(bar).caesura:
+                if bar in quiet or bar not in chord_at:
                     continue
                 candidates.append((phrase.rise, bar, _shimmer_midi(run.midi, chord_at[bar])))
     candidates.sort(key=lambda item: (-item[0], item[1]))
@@ -887,12 +885,17 @@ def _shimmer(
         ratio = bell_budget(_chunk_span(source_bars, source_groups, body_start, body_end)) / BELL_MAX_EIGHTHS
         budget = round(raw * ratio)
         spent = used.get(chunk, 0)
-        if spent + _hold(SHIMMER_EIGHTHS) > budget:
+        from app.sonify.groove import groove_at
+
+        length = _hold(SHIMMER_EIGHTHS)
+        if groove_at(bar).caesura:
+            length = min(length, active_meter().eighths_per_bar // 2)
+        if spent + length > budget:
             continue
         notes.extend(
-            written(bar * active_meter().eighths_per_bar, _hold(SHIMMER_EIGHTHS), midi, velocity=SHIMMER_VELOCITY)
+            written(bar * active_meter().eighths_per_bar, length, midi, velocity=SHIMMER_VELOCITY)
         )
-        used[chunk] = spent + _hold(SHIMMER_EIGHTHS)
+        used[chunk] = spent + length
         chosen_bars.append(bar)
     return notes
 

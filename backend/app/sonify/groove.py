@@ -68,7 +68,7 @@ def build_groove(
         if section.kind == "phrase":
             mid = section.start + max(1, (section.end - section.start) // 2)
             first_half.update(range(section.start, mid))
-        if section.bridge and section.end > section.start:
+        if section.bridge and section.end > section.start and spec.bpm <= 72:
             caesura.add(section.end - 1)
         if section.trio:
             mid = section.start + max(1, (section.end - section.start) // 2)
@@ -140,6 +140,23 @@ def _replace_groove(groove: BarGroove | None, **flags: bool) -> BarGroove:
     if groove is None:
         return BarGroove(**flags)
     return BarGroove(**{**groove.__dict__, **flags})
+
+
+def silence_second_half(notes: list, bar: int) -> list:
+    """Drop attacks from the midpoint on, and shorten a note that crosses it."""
+    from dataclasses import replace
+
+    from app.sonify.form import active_meter
+
+    half = active_meter().quarter_beats / 2
+    kept = []
+    for note in notes:
+        if note.bar != bar or note.beat + 1e-9 < half:
+            if note.bar == bar and note.beat + note.duration_beats > half + 1e-9:
+                kept.append(replace(note, duration_beats=half - note.beat))
+            else:
+                kept.append(note)
+    return kept
 
 
 def opening_median(closes: Sequence[float]) -> float | None:

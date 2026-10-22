@@ -764,3 +764,33 @@ def test_dynamic_frame_attacks_on_a_fast_rally_and_stays_still_when_calm() -> No
     minimal = apply_span_frame(score("minimalist"), spec, "volatile")
     assert any(note.midi is not None and note.bar < 4 for note in minimal.lead)
     assert any(note.midi is not None and 8 <= note.bar < 10 for note in minimal.lead)
+
+
+def test_caesura_belongs_only_to_a_slow_bridge() -> None:
+    from app.sonify.groove import build_groove
+
+    ballad = month_specs("jazz")[1]
+    fast = month_specs("jazz")[0]
+    slow = build_groove(ballad, [(0, ballad.bars)], ["mf"], "jazz", "calm")
+    quick = build_groove(fast, [(0, fast.bars)], ["mf"], "jazz", "rally")
+    assert any(item.caesura for item in slow.values())
+    assert not any(item.caesura for item in quick.values())
+
+
+def test_jazz_compound_meters_take_half_feel_and_a_caesura() -> None:
+    from app.sonify.groove import BarGroove, compose_groove
+    from app.sonify.jazz import _before_fill, _walking_bass_bar
+
+    scale = tuple(range(36, 72))
+    with compose_meter(METER_34), compose_groove({0: BarGroove(half=True), 1: BarGroove(caesura=True)}):
+        thinned = _walking_bass_bar(C, G, "mf", 0, "phrase", scale)
+        assert [note.beat for note in thinned] == [0.0, 2.0]
+        breath = _walking_bass_bar(C, G, "mf", 1, "phrase", scale)
+        assert breath
+        assert all(note.beat + note.duration_beats <= 1.5 + 1e-6 for note in breath)
+    with compose_meter(METER_128), compose_groove({0: BarGroove(trio_thin=True)}):
+        ballad = _walking_bass_bar(C, G, "f", 0, "phrase", scale)
+        assert [note.beat for note in ballad] == [0.0, 3.0]
+    with compose_meter(METER_44):
+        assert _before_fill(0, 3.5, 0.5, {0: 4}) is None
+        assert _before_fill(0, 0.0, 0.5, {0: 4}) == 0.5

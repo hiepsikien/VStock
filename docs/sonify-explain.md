@@ -2,7 +2,7 @@
 
 > **Trạng thái tài liệu & Liên kết thiết kế**:
 > - **Mục 1 – 3 (Hiện trạng)**: Bản tổng hợp tra cứu nhanh đã đối chiếu trực tiếp với code tại ngày `2026-10-22`. Nguồn thiết kế chi tiết nằm ở [`docs/sonify-long-form.md`](./sonify-long-form.md) (form đa chương & 12 hợp âm mở rộng), [`docs/sonify-meter-frame.md`](./sonify-meter-frame.md) (nhịp điệu & khung warm-up/cool-down), [`docs/sonify-sonata-mode.md`](./sonify-sonata-mode.md) (giọng nhà & lật Trưởng/Thứ cùng tên), [`docs/sonify-ambient.md`](./sonify-ambient.md) và [`docs/sonify-instrument-sets.md`](./sonify-instrument-sets.md). Các thông số đồng hồ, số ô và hóa biểu trong mục 1–3 đang được khóa bởi `backend/tests/test_sonify_plan.py`.
-> - **Mục 4 (Đề xuất nâng cấp — Chưa triển khai)**: Đặc tả kỹ thuật nhằm đa dạng hóa nhịp điệu/cấu trúc nội tại và gắn kết chặt với tính cách thị trường (`Character` & `Regime`) trên cả 5 khung `1D`, `1W`, `1M`, `3M`, `1Y`.
+> - **Mục 4 (Đặc tả đã triển khai)**: Hợp đồng nhịp điệu và cấu trúc theo tính cách thị trường (`Character` & `Regime`) trên cả 5 khung `1D`, `1W`, `1M`, `3M`, `1Y`. Những câu «hiện tại» và «chưa» bên trong mục này mô tả trạng thái trước khi code trên nhánh này vào, không phải việc còn lại.
 
 Dưới đây là bức tranh tổng thể về **Giọng & Hòa âm gốc (Key, Mode, Tonic)** và **Nhịp điệu (Time Signature, Tempo, Swing, Khung Warm-up/Cool-down)** cho cả **4 variants** (`Giao hưởng`, `Jazz`, `Tối giản`, `Ambient`) trên **5 khung thời gian** (`1D`, `1W`, `1M`, `3M`, `1Y`):
 
@@ -106,7 +106,7 @@ Thay vì nhảy sang La thứ giữa bài khi thị trường giảm, cả chư�
 
 ---
 
-## 4. Kế hoạch nâng cấp (Đề xuất): Đa dạng hóa Nhịp điệu / Cấu trúc gắn liền với Tính cách Thị trường (`1D`, `1W`, `1M`, `3M`, `1Y`)
+## 4. Kế hoạch nâng cấp (Đã triển khai): Đa dạng hóa Nhịp điệu / Cấu trúc gắn liền với Tính cách Thị trường (`1D`, `1W`, `1M`, `3M`, `1Y`)
 
 ### A. Triết lý thiết kế & Phân định "Đã có vs. Đề xuất mới"
 
