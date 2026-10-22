@@ -1,6 +1,6 @@
-# Chủ âm của sonata giao hưởng
+# Chủ âm của bản nhiều chương
 
-Kế hoạch cho giọng của giao hưởng 1M và 3M. Nhịp và khung chương nằm ở `docs/sonify-meter-frame.md`. 1D, 1W, 1Y và ba dạng Jazz, Tối giản, Ambient giữ cách chọn giọng hiện tại.
+Kế hoạch giọng cho giao hưởng, jazz và ambient từ 1M trở lên. Nhịp và khung chương nằm ở `docs/sonify-meter-frame.md`. 1D và 1W giữ một giọng như hiện tại. Tối giản giữ `month_keys` và `quarter_keys`. 1Y của mọi dạng vẫn đi theo mùa trên vòng giọng, vì mỗi tháng là một bài trong tổ khúc bốn mùa.
 
 ## Hiện trạng
 
@@ -46,7 +46,32 @@ Chủ âm đạp của intro, của phách đầu mỗi câu, và của outro l�
 
 `finale_outro` giữ nguyên. Khi nó bật, chương cuối đã cùng mode với nốt kết: mở tăng và kết giảm thì cả chương cuối là thứ, mở giảm và kết tăng thì cả chương cuối là trưởng. Không thêm một lần lật mode riêng ở coda.
 
-Jazz, Tối giản và Ambient của 1M và 3M vẫn gọi `month_keys` và `quarter_keys`. 1Y của giao hưởng vẫn đi theo mùa trên vòng giọng, vì tổ khúc bốn mùa lấy việc đổi giọng làm màu của từng mùa.
+## Jazz: set bốn bài
+
+Jazz 1M là một set: head, ballad, bài ngắn, finale. Mỗi chương là một bài, một giọng. Giọng đứng yên suốt bài. Finale về giọng nhà, nên set khép lại đúng chỗ đã mở.
+
+| Chương | Vai | Gốc | Mode |
+|---|---|---|---|
+| I | head | giọng nhà | theo tính cách tuần, bảng ở trên |
+| II | ballad | giọng nhà | theo tính cách tuần. Ballad nghe ra ở 12/8, swing tắt, và tempo chậm |
+| III | bài ngắn | một bước trên vòng | theo tính cách của chính tuần đó |
+| IV | finale | giọng nhà | theo tính cách tuần |
+
+Chương III là bài duy nhất được đổi bậc. Bước lấy từ `_chapter_two`, với tính cách của chương III. Tuần tăng đi lên vòng. Tuần giảm hoặc đi ngang đi xuống vòng. Tuần biến động chọn phía nào chung nhiều âm hơn với chương trước. Giọng nhà Đô thì chương III là Rê khi tuần tăng, và Si♭ khi tuần giảm. Giọng nhà Rê thì chương III là La khi tuần tăng, và Đô khi tuần giảm. Mode của bài ngắn vẫn là trưởng hoặc thứ cùng tên của giọng vừa chọn.
+
+Bên trong head, ballad và finale, chỉ đoạn giữa được rời gốc. Đó là câu tương phản 24 ô của chương I và chương IV, và 16 ô đoạn giữa của chương II. Đoạn này là bridge: phách đầu câu thưởng cho bậc IV của mode bài đó. Đô trưởng thì bridge về Fa. Đô thứ thì bridge về Fa thứ. Hai ô cuối bridge ưu tiên Sol hoặc Sol bảy, để câu trở lại rơi về bậc I. Các câu A, intro và outro giữ bậc I của bài. La thứ không làm chủ âm của câu.
+
+Bài ngắn không có bridge sang giọng thứ tư. Cả chương III ở một giọng.
+
+Jazz 3M là set ba bài: mở, ballad, khép. Cả ba giữ giọng nhà, mode theo từng tháng. Ballad vẫn có bridge sang bậc IV rồi về. Không có bài nào bước trên vòng, vì set ba bài không có ô bài ngắn.
+
+## Ambient: một pedal
+
+Ambient 1M và 3M giữ một gốc cho mọi chương, là giọng nhà. Mode từng chương theo bảng tính cách. Chương chậm là thứ cùng gốc khi tuần đó giảm. Tuần tăng thì ballad ambient vẫn trưởng: sự tĩnh nằm ở drone, kính thưa, và nhịp 6/4, không nằm ở việc đổi giọng.
+
+Chương scherzo ambient đổi sang 3/4 trên cùng pedal. Đổi thêm giọng ở đây đánh thức tai đúng lúc nhịp đã là tương phản.
+
+Bên trong chương, drone không cadence sang chủ âm khác. Đoạn giữa đổi màu hợp âm phía trên pedal, rồi gốc đứng yên. Intro, phách đầu câu và outro là bậc I của mode. La thứ không nhận thưởng chủ âm.
 
 ## Cách viết chương thứ
 
@@ -64,7 +89,7 @@ Hóa biểu là thứ cùng tên của giọng nhà. Dịch cao độ giữ nguy
 
 Giai điệu của chương thứ lượng tử trên thang Đô thứ hòa thanh: Đô, Rê, Mi♭, Fa, Sol, La♭, Si. Si trưởng là âm dẫn của Sol trưởng, nên cadence V–i còn lực kéo. Nốt Si đó viết theo hợp âm khi hợp âm là Sol hoặc Sol bảy. Các nốt còn lại viết theo hóa biểu thứ tự nhiên.
 
-Markov vẫn chạy trên bảng chuyển hiện có. Một lớp đổi tên chạy sau đó, chỉ trên chương giao hưởng đang ở mode thứ:
+Markov vẫn chạy trên bảng chuyển hiện có. Một lớp đổi tên chạy sau đó, trên mọi chương đang ở mode thứ:
 
 | Hợp âm Markov | Hợp âm nghe |
 |---|---|
@@ -82,9 +107,9 @@ Sau lớp đổi tên, sideway trong chương thứ thành Đô thứ xen La gi�
 
 ## Chỗ sửa trong code
 
-- `prepare_month` và `prepare_quarter` nhận variant, cùng đường với `plan_span(symbol, span, variant)` ở kế hoạch nhịp. Giao hưởng gọi một hàm mode thay cho `month_keys` và `quarter_keys`. Ba dạng kia gọi hai hàm cũ.
+- `prepare_month` và `prepare_quarter` nhận variant, cùng đường với `plan_span(symbol, span, variant)` ở kế hoạch nhịp. Giao hưởng và ambient gán mọi chương bằng giọng nhà. Jazz 1M chỉ đưa chương III lên một bước của vòng. Jazz 3M giữ giọng nhà. Tối giản gọi `month_keys` và `quarter_keys` như cũ.
 - Mỗi `PreparedMovement` có `mode`, mặc định trưởng. Fingerprint cache thêm mode. File trưởng đã render không dùng cho chương thứ của cùng mã.
-- `plan_markov_chords` nhận mode. Intro, outro và thưởng phách đầu câu dùng cặp chủ âm của mode, cho mọi regime. Hôm nay đoạn downtrend thưởng cho `tonic("downtrend")`, tức La thứ.
+- `plan_markov_chords` nhận mode. Intro, outro và thưởng phách đầu câu dùng cặp chủ âm của mode, cho mọi regime. Hôm nay đoạn downtrend thưởng cho `tonic("downtrend")`, tức La thứ. Riêng bridge của jazz head, ballad và finale thưởng cho bậc IV, và hai ô cuối bridge ưu tiên bậc V của giọng bài.
 - Lớp đổi tên hợp âm chạy sau Markov, trước `transpose_chord` và trước khi viết nốt.
 - Thang giai điệu của chương thứ là Đô thứ hòa thanh. `quantize_strong_beats` đọc thang đó. Chương trưởng vẫn là Đô trưởng.
 - MusicXML lấy `fifths` từ mode. `semitones` và `compose_register` vẫn theo giọng nhà, nên chương thứ không hạ trần violin thêm một lần nữa.
@@ -92,7 +117,7 @@ Sau lớp đổi tên, sideway trong chương thứ thành Đô thứ xen La gi�
 
 ## Thứ tự làm
 
-1. Thêm `mode` trên movement và trên fingerprint. Giao hưởng 1M và 3M gán mọi chương bằng giọng nhà. Ba dạng kia giữ test ba giọng khác nhau.
+1. Thêm `mode` trên movement và trên fingerprint. Giao hưởng và ambient gán mọi chương bằng giọng nhà. Jazz 1M giữ giọng nhà ở chương I, II, IV và bước vòng ở chương III. Tối giản giữ test ba giọng khác nhau.
 2. Chủ âm đạp và thưởng phách đầu câu theo mode. Chương trưởng hết lấy La thứ làm gốc của đoạn giảm.
 3. Thêm Đô thứ, Đô thứ bảy, và lớp đổi tên. Hóa biểu và thang thứ hòa thanh chỉ bật khi mode là thứ.
 4. Nghe một mã giọng Đô và một mã giọng Rê: tháng bốn tuần tăng, tháng có một tuần giảm, quý có tháng giữa giảm.
@@ -102,9 +127,11 @@ Sau lớp đổi tên, sideway trong chương thứ thành Đô thứ xen La gi�
 - Giao hưởng 1M của VNM là bốn chương, cùng `semitones` 0. Chương selloff có hóa biểu 3 giáng. Chương rally có hóa biểu 0.
 - Giao hưởng 1M của FPT là bốn chương Rê. Không có chương La và không có chương Đô. Chương selloff có hóa biểu 1 giáng.
 - Giao hưởng 3M chỉ khác mode ở chương nào có tính cách selloff hoặc volatile kết bằng downtrend.
-- Jazz 1M của cùng mã vẫn ba giọng trong ba chương đầu, đúng `month_keys`.
+- Jazz 1M của VNM: chương I, II và IV cùng `semitones` 0. Chương III là Rê khi tuần đó tăng, Si♭ khi tuần đó giảm hoặc đi ngang. Bridge của ballad thưởng cho Fa khi bài trưởng, và cho Fa thứ khi bài thứ. Câu hát trở lại về Đô.
+- Ambient 1M và 3M của cùng mã dùng một `semitones` cho mọi chương. Đoạn giữa không đổi gốc pedal.
+- Tối giản 1M vẫn ba giọng trong ba chương đầu, đúng `month_keys`.
 - Intro và outro của chương trưởng là Đô hoặc Đô trưởng bảy, kể cả regime downtrend.
 - Intro và outro của chương thứ là Đô thứ hoặc Đô thứ bảy. Sau khi dịch, FPT nghe Rê thứ.
 - Một câu sideway chương trưởng còn hợp âm La thứ ở giữa câu. Phách đầu câu không phải La thứ.
 - Giai điệu chương thứ chỉ dùng bảy âm của Đô thứ hòa thanh, rồi dịch theo giọng nhà.
-- 1Y giao hưởng vẫn đổi giọng theo mùa. 1D và 1W vẫn một giọng.
+- 1Y của mọi dạng vẫn đổi giọng theo mùa. 1D và 1W vẫn một giọng.
