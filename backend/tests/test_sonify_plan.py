@@ -895,19 +895,28 @@ def test_week_gap_lead_reaches_the_hold_bar_and_plan_slots() -> None:
     wide = prepare_week([first, second], openings=[100.0, 107.0])[0]
     assert wide.gap_leads is not None
     assert wide.gap_leads[31] is None
+    tiny = prepare_week([first, second], openings=[100.0, 100.4])[0]
+    assert tiny.gap_leads is not None
+    assert tiny.gap_leads[31] is None
 
     epb = rising.spec.meter.eighths_per_bar
     pitches = [60] * (rising.spec.bars * epb)
-    slots = plan_slots(
-        ("sideway", "sideway"),
-        pitches,
-        c_major_scale(),
-        rising.spec,
-        gap_leads=rising.gap_leads,
-    )
-    covered = [bar for slot in slots for bar in slot.bars()]
-    assert covered == list(range(rising.spec.bars))
-    assert any(31 in slot.bars() for slot in slots)
+    # The hold is a two-bar chord. B on bar 31 alone still spells Cmaj7 with the C before it.
+    for bar in (30, 31):
+        pitches[bar * epb : (bar + 1) * epb] = [71] * epb
+
+    def chord_at(leads: tuple[str | None, ...] | None) -> str:
+        slots = plan_slots(
+            ("sideway", "sideway"),
+            pitches,
+            c_major_scale(),
+            rising.spec,
+            gap_leads=leads,
+        )
+        return next(slot.chord.name for slot in slots if 31 in slot.bars())
+
+    assert chord_at(rising.gap_leads) == "G7"
+    assert chord_at(tiny.gap_leads) == "G"
 
 
 def test_chamber_bar_drops_the_symphony_right_hand() -> None:
