@@ -750,6 +750,7 @@ def _compose(
             outro_override=None if home_pedal else outro_override,
             mode=mode,  # type: ignore[arg-type]
             home_pedal=home_pedal,
+            harmonic_bridge=variant == "jazz",
         )
 
         windows = LIQUIDITY_WINDOWS if spec is None else liquidity_windows_for(spec)

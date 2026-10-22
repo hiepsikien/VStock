@@ -46,6 +46,12 @@ def _symphony(score: Score, warm_start: int, body: int, cool: int, end: int) -> 
     cello_high = max(reg.cello_handback, reg.violin_lowest)
     cello_in = _fold(opening.pitches[0] % 12, 48, cello_high, _midi_at(support_body, body))
     cello_out = _fold(closing.pitches[0] % 12, 48, cello_high, _latest(support_body))
+    if _joins(lead_body, body, violin_in):
+        lead_body = _tie_downbeat(lead_body, body, violin_in)
+    if _joins(support_body, body, cello_in):
+        support_body = _tie_downbeat(support_body, body, cello_in)
+    if _joins(low_body, body, opening.bass_midi):
+        low_body = _tie_downbeat(low_body, body, opening.bass_midi)
 
     lead_touch = _touching(lead_body, cool - 1, violin_out, beats)
     cello_touch = _touching(support_body, cool - 1, cello_out, beats)
@@ -68,14 +74,14 @@ def _symphony(score: Score, warm_start: int, body: int, cool: int, end: int) -> 
     support = with_rests(
         [
             *support_body,
-            *_pedal(warm_start, body, cello_in),
+            *_pedal(warm_start, body, cello_in, tie_out=_joins(support_body, body, cello_in)),
             *_pedal(cool, end, cello_out, tie_in=cello_touch is not None),
         ],
         total,
     )
     low = (
         *low_body,
-        *_pedal(warm_start, body, opening.bass_midi),
+        *_pedal(warm_start, body, opening.bass_midi, tie_out=_joins(low_body, body, opening.bass_midi)),
         *_pedal(cool, end, closing.bass_midi, tie_in=bass_touch is not None),
     )
     return replace(
@@ -87,8 +93,9 @@ def _symphony(score: Score, warm_start: int, body: int, cool: int, end: int) -> 
         low=tuple(sorted(low, key=lambda note: (note.bar, note.beat, note.midi or -1))),
         lead_wedges=_body_wedges(score.lead_wedges, body, cool) + _hairpin(violin_at, body, cool, end - 1),
         support_wedges=_body_wedges(score.support_wedges, body, cool) + _hairpin(warm_start, body, cool, end - 1),
-        lead_dynamics=_letters(score.lead_dynamics, body, cool, end),
-        support_dynamics=_letters(score.support_dynamics, body, cool, end),
+        lead_dynamics=_letters(score.lead_dynamics, body, cool, end, entrance=violin_at),
+        support_dynamics=_letters(score.support_dynamics, body, cool, end, entrance=warm_start),
+        dynamics=_bass_letters(warm_start, end),
         low_wedges=_hairpin(warm_start, body, cool, end - 1),
     )
 
@@ -100,10 +107,19 @@ def _jazz(score: Score, warm_start: int, body: int, cool: int, end: int) -> Scor
     lead_body = _body(score.lead, body, cool)
     support_body = _body(score.support, body, cool)
     sung = _latest(lead_body) or _latest(support_body) or closing.pitches[0]
-    touch = _touching(lead_body, cool - 1, sung, beats)
-    if touch is not None:
-        lead_body = _retie(lead_body, touch, beats)
-    added = _pedal(cool, end, sung, tie_in=touch is not None) if touch is not None else []
+    lead_touch = _touching(lead_body, cool - 1, sung, beats)
+    support_touch = None if lead_touch is not None else _touching(support_body, cool - 1, sung, beats)
+    if lead_touch is not None:
+        lead_body = _retie(lead_body, lead_touch, beats)
+        added_lead = _pedal(cool, end, sung, tie_in=True)
+        added_support: list[NoteEvent] = []
+    elif support_touch is not None:
+        support_body = _retie(support_body, support_touch, beats)
+        added_lead = []
+        added_support = _pedal(cool, end, sung, tie_in=True)
+    else:
+        added_lead = []
+        added_support = []
     low_body = _body(score.low, body, cool)
     bass_touch = _touching(low_body, cool - 1, closing.bass_midi, beats)
     if bass_touch is not None:
@@ -111,8 +127,8 @@ def _jazz(score: Score, warm_start: int, body: int, cool: int, end: int) -> Scor
     return replace(
         score,
         high=with_rests(_body(score.high, body, cool), total),
-        lead=with_rests([*lead_body, *added], total),
-        support=with_rests(support_body, total),
+        lead=with_rests([*lead_body, *added_lead], total),
+        support=with_rests([*support_body, *added_support], total),
         comp=_jazz_comp(score, warm_start, body, cool, end),
         low=tuple(
             [
@@ -121,8 +137,12 @@ def _jazz(score: Score, warm_start: int, body: int, cool: int, end: int) -> Scor
                 *_pedal(cool, end, closing.bass_midi, tie_in=bass_touch is not None),
             ]
         ),
-        lead_wedges=_body_wedges(score.lead_wedges, body, cool) + _fade(cool, end - 1),
-        lead_dynamics=_letters(score.lead_dynamics, body, cool, end),
+        lead_wedges=_body_wedges(score.lead_wedges, body, cool)
+        + (_fade(cool, end - 1) if added_lead else ()),
+        support_wedges=_body_wedges(score.support_wedges, body, cool)
+        + (_fade(cool, end - 1) if added_support else ()),
+        lead_dynamics=_letters(score.lead_dynamics, body, cool, end, sing=bool(added_lead)),
+        support_dynamics=_letters(score.support_dynamics, body, cool, end, sing=bool(added_support)),
     )
 
 
@@ -131,7 +151,11 @@ def _minimalist(score: Score, warm_start: int, body: int, cool: int, end: int) -
     opening = _chord(score, body)
     closing = _chord(score, cool - 1)
     pulse = _even_pulse(warm_start, body, opening.bass_midi) + _even_pulse(cool, end, closing.bass_midi)
-    pad = _body(score.support, body, cool) + _pedal(warm_start, end, _fold(opening.pitches[0] % 12, 46, 68, None))
+    pad = [
+        *_body(score.support, body, cool),
+        *_pedal(warm_start, body, _pad_pitch(opening)),
+        *_pedal(cool, end, _pad_pitch(closing)),
+    ]
     return replace(
         score,
         high=with_rests(_body(score.high, body, cool), total),
@@ -155,17 +179,26 @@ def _ambient(score: Score, warm_start: int, body: int, cool: int, end: int) -> S
     if touch is not None:
         lead_body = _retie(lead_body, touch, beats)
     added = _pedal(cool, end, sung, tie_in=True) if touch is not None and sung is not None else []
-    glass = _fold(opening.pitches[0] % 12, 72, 88, _midi_at(lead_body, body))
+    reg = active_register()
+    glass = _fold(
+        opening.pitches[0] % 12, reg.violin_lowest, reg.violin_ceiling, _midi_at(lead_body, body)
+    )
+    joins = _joins(lead_body, body, glass)
+    if joins:
+        lead_body = _tie_downbeat(lead_body, body, glass)
     return replace(
         score,
         high=with_rests(_body(score.high, body, cool), total),
         lead=with_rests(
-            [*lead_body, *_pedal(warm_start, body, glass), *added],
+            [*lead_body, *_pedal(warm_start, body, glass, tie_out=joins), *added],
             total,
         ),
         comp=_rest_comp(score, warm_start, body, cool, end, staves=((1, 1),)),
+        lead_wedges=_body_wedges(score.lead_wedges, body, cool) + _hairpin(warm_start, body, cool, end - 1),
         support_wedges=_body_wedges(score.support_wedges, body, cool) + _fade(cool, end - 1),
-        lead_dynamics=_letters(score.lead_dynamics, body, cool, end),
+        lead_dynamics=_letters(score.lead_dynamics, body, cool, end, entrance=warm_start),
+        support_dynamics=_letters(score.support_dynamics, body, cool, end),
+        dynamics=_bass_letters(warm_start, end),
     )
 
 
@@ -189,7 +222,47 @@ def _chord(score: Score, bar: int) -> Chord:
 
 
 def _body(notes: Sequence[NoteEvent], body: int, cool: int) -> list[NoteEvent]:
-    return [note for note in notes if note.midi is not None and body <= note.bar < cool]
+    beats = _beats()
+    kept: list[NoteEvent] = []
+    for note in notes:
+        if note.midi is None or note.bar < body or note.bar >= cool:
+            continue
+        reaches = note.bar == cool - 1 and note.beat + note.duration_beats >= beats - 1e-6
+        at_downbeat = note.bar == body and note.beat == 0.0
+        tie_stop = note.tie_stop and not at_downbeat
+        tie_start = note.tie_start and not reaches
+        slur_stop = note.slur_stop and not at_downbeat
+        slur_start = note.slur_start and not reaches
+        if (tie_stop, tie_start, slur_stop, slur_start) != (
+            note.tie_stop,
+            note.tie_start,
+            note.slur_stop,
+            note.slur_start,
+        ):
+            note = replace(
+                note,
+                tie_stop=tie_stop,
+                tie_start=tie_start,
+                slur_stop=slur_stop,
+                slur_start=slur_start,
+            )
+        kept.append(note)
+    return kept
+
+
+def _tie_downbeat(notes: list[NoteEvent], bar: int, midi: int) -> list[NoteEvent]:
+    out: list[NoteEvent] = []
+    for note in notes:
+        if note.bar == bar and note.beat == 0.0 and note.midi == midi:
+            note = replace(note, tie_stop=True)
+        out.append(note)
+    return out
+
+
+def _pad_pitch(chord: Chord) -> int:
+    from app.sonify.minimalist import _keep
+
+    return _keep(48 + (chord.pitches[0] % 12), 46, 68)
 
 
 def _kept_comp(notes: Sequence[NoteEvent], body: int, cool: int) -> list[NoteEvent]:
@@ -417,11 +490,42 @@ def _fade(cool: int, last: int) -> tuple[WedgeEvent, ...]:
 
 
 def _body_wedges(wedges: Sequence[WedgeEvent], body: int, cool: int) -> tuple[WedgeEvent, ...]:
-    return tuple(wedge for wedge in wedges if body <= wedge.bar < cool)
+    beats = _beats()
+    kept: list[WedgeEvent] = []
+    for wedge in wedges:
+        if wedge.bar < body or wedge.bar >= cool:
+            if wedge.kind == "stop" and wedge.bar >= cool and kept and kept[-1].kind != "stop":
+                kept.append(WedgeEvent(cool - 1, beats, "stop"))
+            continue
+        if wedge.bar == body and wedge.beat == 0.0 and wedge.kind == "stop":
+            continue
+        kept.append(wedge)
+    return tuple(kept)
 
 
 def _letters(
-    events: Sequence[DynamicEvent], body: int, cool: int, end: int
+    events: Sequence[DynamicEvent],
+    body: int,
+    cool: int,
+    end: int,
+    *,
+    entrance: int | None = None,
+    sing: bool = True,
 ) -> tuple[DynamicEvent, ...]:
     kept = [event for event in events if body <= event.bar < cool]
-    return tuple([*kept, DynamicEvent(end - 1, COOLDOWN_MARKING, SOUND[COOLDOWN_MARKING])])
+    letters: list[DynamicEvent] = []
+    if entrance is not None:
+        letters.append(DynamicEvent(entrance, "p", SOUND["p"]))
+        if not any(event.bar == body and event.beat == 0.0 for event in kept):
+            letters.append(DynamicEvent(body, "mp", SOUND["mp"]))
+    letters.extend(kept)
+    if sing:
+        letters.append(DynamicEvent(end - 1, COOLDOWN_MARKING, SOUND[COOLDOWN_MARKING]))
+    return tuple(letters)
+
+
+def _bass_letters(warm: int, end: int) -> tuple[DynamicEvent, ...]:
+    return (
+        DynamicEvent(warm, "p", SOUND["p"]),
+        DynamicEvent(end - 1, COOLDOWN_MARKING, SOUND[COOLDOWN_MARKING]),
+    )

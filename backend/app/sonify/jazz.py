@@ -319,6 +319,16 @@ def _vibraphone_accent_part(
     return tuple(events), chosen_spans
 
 
+def _degree(scale: tuple[int, ...], midi: int) -> int:
+    """Index a pitch. A raised leading tone shares the natural-minor 7th degree."""
+    try:
+        return scale.index(midi)
+    except ValueError:
+        if midi % 12 == 11 and midi - 1 in scale:
+            return scale.index(midi - 1)
+        raise
+
+
 def _compress_phrase_to_bounds(
     pitches: list[int],
     phrase: Phrase,
@@ -331,12 +341,12 @@ def _compress_phrase_to_bounds(
     """Monotonically compress one phrase onto scale[target_bot_idx..target_top_idx] and snap strong beats."""
     top = max(r.midi for r in phrase.runs)
     bot = min(r.midi for r in phrase.runs)
-    top_idx = scale.index(top)
-    bot_idx = scale.index(bot)
+    top_idx = _degree(scale, top)
+    bot_idx = _degree(scale, bot)
     span_idx = max(1, top_idx - bot_idx)
     out: list[int] = []
     for eighth in range(phrase.start, phrase.end):
-        idx = scale.index(pitches[eighth])
+        idx = _degree(scale, pitches[eighth])
         rel = (idx - bot_idx) / span_idx
         mapped_idx = round(target_bot_idx + rel * (target_top_idx - target_bot_idx))
         mapped_idx = max(0, min(ceiling_idx, mapped_idx))
@@ -364,7 +374,7 @@ def _compress_phrase_to_bounds(
             for o in range(curr_r.length)
         ):
             step = 1 if curr_r.midi > prev_r.midi else -1
-            cand_idx = scale.index(prev_m) + step
+            cand_idx = _degree(scale, prev_m) + step
             if target_bot_idx <= cand_idx <= target_top_idx:
                 cand_m = scale[cand_idx]
                 if r_idx + 1 < len(phrase.runs):
@@ -431,8 +441,8 @@ def _realize_sax_phrase(
     can_exact = top - shift <= active_register().sax_ceiling or (shift == 0 and req_shift == 0)
     if can_exact and shift <= max_exact_shift and bot - shift >= floor_midi:
         return [pitches[e] - shift for e in range(phrase.start, phrase.end)], True
-    t_top = min(ceiling_idx, scale.index(max(floor_midi, top - shift)))
-    span = scale.index(top) - scale.index(bot)
+    t_top = min(ceiling_idx, _degree(scale, max(floor_midi, top - shift)))
+    span = _degree(scale, top) - _degree(scale, bot)
     t_bot = max(floor_idx, min(t_top, t_top - span))
     if preserve_span:
         t_top = min(ceiling_idx, max(t_top, t_bot + span))
@@ -461,7 +471,7 @@ def _build_phrase_candidates(
     seen: set[tuple[object, ...]] = set()
     top = max(r.midi for r in phrase.runs)
     bot = min(r.midi for r in phrase.runs)
-    span = scale.index(top) - scale.index(bot)
+    span = _degree(scale, top) - _degree(scale, bot)
 
     keys: list[SaxCandidateKey] = []
     for shift in (0, 12, 24):
@@ -485,7 +495,7 @@ def _build_phrase_candidates(
         if can_exact and shift <= max_exact_shift and bot - shift >= floor_midi:
             sig: tuple[object, ...] = ("exact", shift)
         else:
-            t_top = min(ceiling_idx, scale.index(max(floor_midi, top - shift)))
+            t_top = min(ceiling_idx, _degree(scale, max(floor_midi, top - shift)))
             t_bot = max(floor_idx, min(t_top, t_top - span))
             if preserve_span:
                 t_top = min(ceiling_idx, max(t_top, t_bot + span))
@@ -843,27 +853,38 @@ def _rhodes_comping_part(
             signature = (meter.beats, meter.beat_type)
             if signature == (12, 8):
                 for beat in (1.5, 4.5):
+                    duration = _before_fill(bar, beat, 1.5, first_fill)
+                    if duration is None:
+                        continue
                     for midi in voicing:
                         right_events.append(
-                            NoteEvent(bar=bar, beat=beat, midi=midi, duration_beats=1.5, voice=1)
+                            NoteEvent(bar=bar, beat=beat, midi=midi, duration_beats=duration, voice=1)
                         )
                 continue
             if signature == (3, 4) and (slot.section in ("phrase", "warmup") or band_at[bar] != "p"):
                 if bar % 2 == 0:
-                    for midi in voicing:
-                        right_events.append(
-                            NoteEvent(bar=bar, beat=0.0, midi=midi, duration_beats=1.5, voice=1)
-                        )
-                        right_events.append(
-                            NoteEvent(
-                                bar=bar, beat=1.5, midi=midi, duration_beats=0.5, voice=1, tenuto=True
-                            )
-                        )
-                else:
-                    for beat in (0.0, 2.0):
+                    duration = _before_fill(bar, 0.0, 1.5, first_fill)
+                    if duration is not None:
                         for midi in voicing:
                             right_events.append(
-                                NoteEvent(bar=bar, beat=beat, midi=midi, duration_beats=1.0, voice=1)
+                                NoteEvent(bar=bar, beat=0.0, midi=midi, duration_beats=duration, voice=1)
+                            )
+                    pickup = _before_fill(bar, 1.5, 0.5, first_fill)
+                    if pickup is not None:
+                        for midi in voicing:
+                            right_events.append(
+                                NoteEvent(
+                                    bar=bar, beat=1.5, midi=midi, duration_beats=pickup, voice=1, tenuto=True
+                                )
+                            )
+                else:
+                    for beat in (0.0, 2.0):
+                        duration = _before_fill(bar, beat, 1.0, first_fill)
+                        if duration is None:
+                            continue
+                        for midi in voicing:
+                            right_events.append(
+                                NoteEvent(bar=bar, beat=beat, midi=midi, duration_beats=duration, voice=1)
                             )
                 continue
             downbeat = bar * meter.eighths_per_bar
@@ -909,6 +930,23 @@ def _rhodes_comping_part(
     for slot in slots:
         piano.extend(left_hand(slot))
     return piano
+
+
+def _before_fill(
+    bar: int, beat: float, duration: float, first_fill: dict[int, int]
+) -> float | None:
+    """Shorten a Rhodes chord so it ends when the cadence fill of the same voice begins."""
+    meter = active_meter()
+    start = bar * meter.eighths_per_bar + int(round(beat * 2))
+    limit = first_fill.get(bar)
+    if limit is None:
+        return duration
+    if start >= limit:
+        return None
+    room = (limit - start) * 0.5
+    if room < 0.5:
+        return None
+    return min(duration, room)
 
 
 def _approach_note(
@@ -1002,7 +1040,7 @@ def _walking_bass_bar(
 
     fifth = fifth_above_bass(chord)
     if mode == "minor" and (
-        chord.name in ("G", "G7") or next_chord.name in ("G", "G7")
+        chord.name in ("G", "G7", "G9") or next_chord.name in ("G", "G7", "G9")
     ):
         from app.sonify.quantize import leading_scale
 
@@ -1085,9 +1123,8 @@ def render_jazz_score(
     from app.sonify.quantize import C_NATURAL_MINOR_PCS, scale_from_classes
 
     if mode == "minor":
-        classes = C_NATURAL_MINOR_PCS | frozenset({11})
-        melody_scale = scale_from_classes(SAX_LOW, 96, classes)
-        scale_bass = scale_from_classes(33, 60, classes)
+        melody_scale = scale_from_classes(SAX_LOW, 96, C_NATURAL_MINOR_PCS)
+        scale_bass = scale_from_classes(33, 60, C_NATURAL_MINOR_PCS)
     else:
         melody_scale = None
         scale_bass = c_major_scale(33, 60)

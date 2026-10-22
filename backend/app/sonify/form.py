@@ -442,6 +442,7 @@ def plan_markov_chords(
     outro_override: Literal["major", "minor"] | None = None,
     mode: Literal["major", "minor"] = "major",
     home_pedal: bool = False,
+    harmonic_bridge: bool = True,
 ) -> tuple[Chord, ...]:
     """Decode the lowest-loss 30-bar Markov chord path via Viterbi.
 
@@ -491,10 +492,12 @@ def plan_markov_chords(
 
     catalog = MINOR_CATALOG if mode == "minor" else chords_for_spec(borrowed)
     bridge_starts = {
-        section.start for section in (spec.sections if spec is not None else ()) if section.bridge
+        section.start
+        for section in (spec.sections if spec is not None and harmonic_bridge else ())
+        if section.bridge
     }
     bridge_cadence: set[int] = set()
-    if spec is not None:
+    if spec is not None and harmonic_bridge:
         for section in spec.sections:
             if section.bridge and section.end - section.start >= 2:
                 bridge_cadence.add(section.end - 2)
@@ -513,9 +516,9 @@ def plan_markov_chords(
             allowed_tonics = HOME_MINOR if mode == "minor" else HOME_MAJOR
         else:
             allowed_tonics = tonic_chords(regime)
-            if section == "outro" and outro_override == "major":
+            if section in ("outro", "cooldown") and outro_override == "major":
                 allowed_tonics = tonic_chords("uptrend")
-            elif section == "outro" and outro_override == "minor":
+            elif section in ("outro", "cooldown") and outro_override == "minor":
                 allowed_tonics = tonic_chords("downtrend")
         new_section = bar in section_starts
         previous_pitch = raw_pitches[bar * epb - 1] if bar > 0 else None
@@ -734,6 +737,7 @@ def plan_slots(
     outro_override: Literal["major", "minor"] | None = None,
     mode: Literal["major", "minor"] = "major",
     home_pedal: bool = False,
+    harmonic_bridge: bool = True,
 ) -> tuple[ChordSlot, ...]:
     if spec is None and len(regimes) != 3:
         raise ValueError("expected one regime per phrase")
@@ -765,6 +769,7 @@ def plan_slots(
             outro_override,
             mode,
             home_pedal,
+            harmonic_bridge,
         )
         slots = []
         spans = _section_spans(regimes) if spec is None else spec.spans(regimes)  # type: ignore[arg-type]

@@ -323,20 +323,6 @@ def month_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSpec
 
 
 def quarter_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSpec]:
-    bridge = variant in ("jazz", "ambient")
-    first = _spec(
-        192,
-        96,
-        (
-            _part(8, "intro", 0),
-            _part(56, "phrase", 0),
-            _part(64, "phrase", 1, bridge),
-            _part(48, "phrase", 2),
-            _part(16, "outro", 2),
-        ),
-        (64, 128, 192),
-        METER_54 if variant == "minimalist" else METER_44,
-    )
     if variant == "minimalist":
         first = _spec(
             153,
@@ -377,6 +363,19 @@ def quarter_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSp
             METER_78,
         )
         return first, second, third
+    drone = variant == "ambient"
+    first = _spec(
+        192,
+        96,
+        (
+            _part(8, "intro", 0),
+            _part(56, "phrase", 0),
+            _part(64, "phrase", 1, drone),
+            _part(48, "phrase", 2),
+            _part(16, "outro", 2),
+        ),
+        (64, 128, 192),
+    )
     if variant == "jazz":
         second = _spec(
             80,
@@ -425,7 +424,7 @@ def quarter_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSp
         (
             _part(8, "intro", 0),
             _part(56, "phrase", 0),
-            _part(64, "phrase", 1, bridge),
+            _part(64, "phrase", 1, drone),
             _part(48, "phrase", 2),
             _part(40, "outro", 2),
         ),
@@ -435,7 +434,7 @@ def quarter_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSp
 
 
 def year_specs(variant: str = "symphony") -> tuple[FormSpec, ...]:
-    bridge = variant in ("jazz", "ambient")
+    drone = variant == "ambient"
     if variant == "minimalist":
         opener = _spec(
             64,
@@ -468,7 +467,7 @@ def year_specs(variant: str = "symphony") -> tuple[FormSpec, ...]:
             (
                 _part(8, "intro", 0),
                 _part(32, "phrase", 0),
-                _part(32, "phrase", 1, bridge),
+                _part(32, "phrase", 1, drone),
                 _part(8, "outro", 2),
             ),
             (40, 80),
@@ -479,7 +478,7 @@ def year_specs(variant: str = "symphony") -> tuple[FormSpec, ...]:
             (
                 _part(8, "intro", 0),
                 _part(32, "phrase", 0),
-                _part(32, "phrase", 1, bridge),
+                _part(32, "phrase", 1, drone),
                 _part(12, "outro", 2),
             ),
             (40, 84),
@@ -545,7 +544,7 @@ def year_specs(variant: str = "symphony") -> tuple[FormSpec, ...]:
         (
             _part(8, "intro", 0),
             _part(32, "phrase", 0),
-            _part(32, "phrase", 1, bridge),
+            _part(32, "phrase", 1, drone),
             _part(24, "phrase", 2),
             _part(12, "outro", 2),
         ),

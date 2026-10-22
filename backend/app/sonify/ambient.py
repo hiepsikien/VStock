@@ -803,6 +803,18 @@ def _swell(
     return notes
 
 
+def _body_window(form: FormSpec, chunk: tuple[int, int]) -> tuple[int, int]:
+    """Clip a chunk to the body. Warm-up and cool-down stay outside the shimmer budget."""
+    warm = 0
+    cool = form.bars
+    for section in form.sections:
+        if section.kind == "warmup":
+            warm = max(warm, section.end)
+        elif section.kind == "cooldown":
+            cool = min(cool, section.start)
+    return max(chunk[0], warm), min(chunk[1], cool)
+
+
 def _chunk_span(bars: list[Bar], groups: list[list[int]], start: int, end: int) -> float:
     from app.sonify.render import _section_rel_span
 
@@ -850,9 +862,10 @@ def _shimmer(
             continue
         if any(abs(bar - other) < SHIMMER_GAP_BARS for other in chosen_bars):
             continue
-        eighths = (chunk[1] - chunk[0]) * active_meter().eighths_per_bar
+        body_start, body_end = _body_window(form, chunk)
+        eighths = max(0, body_end - body_start) * active_meter().eighths_per_bar
         raw = round(0.05 * eighths)
-        ratio = bell_budget(_chunk_span(source_bars, source_groups, chunk[0], chunk[1])) / BELL_MAX_EIGHTHS
+        ratio = bell_budget(_chunk_span(source_bars, source_groups, body_start, body_end)) / BELL_MAX_EIGHTHS
         budget = round(raw * ratio)
         spent = used.get(chunk, 0)
         if spent + _hold(SHIMMER_EIGHTHS) > budget:
@@ -927,7 +940,7 @@ def render_ambient_score(
         else:
             roots.append((chord.bass_midi,))
         root_velocity.append(_DRONE_VELOCITY.get(band, 58))
-        if band in ("mf", "f"):
+        if band in ("mf", "f") and not _middle(form, bar):
             fifths.append((fifth_above_bass(chord),))
             fifth_velocity.append(_FIFTH_VELOCITY)
         else:

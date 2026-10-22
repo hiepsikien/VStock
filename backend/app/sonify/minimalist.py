@@ -138,6 +138,8 @@ def _synth_arpeggio_part(
             is_open = norm >= OPEN_CUTOFF
             is_downbeat = eighth_in_bar in meter.strong_eighths
             accent = is_open and eighth_in_bar == 0
+            if is_open and (meter.beats, meter.beat_type) == (7, 8) and eighth_in_bar in (2, 4):
+                accent = True
             if is_open and (meter.beats, meter.beat_type) == (5, 4) and eighth_in_bar == 6:
                 accent = True
                 vel = max(1, vel - 8)

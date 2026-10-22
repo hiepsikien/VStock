@@ -882,7 +882,8 @@ def fills(
     """
     notes: list[tuple[int, int, int]] = []
     for run, owner in cadences:
-        first = max(run.start + FILL_DELAY, run.end - FILL_SPAN)
+        span = 3 if (active_meter().beats, active_meter().beat_type) == (6, 8) else FILL_SPAN
+        first = max(run.start + FILL_DELAY, run.end - span)
         eighths = [eighth for eighth in range(first, run.end) if eighth % active_meter().eighths_per_bar]
         if len(eighths) < FILL_MIN:
             continue
