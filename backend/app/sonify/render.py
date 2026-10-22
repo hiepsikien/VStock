@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from app.sonify.chords import Chord, Regime, fifth_above_bass, progression
+from app.sonify.ensemble import fit_ensemble, tune_register
 from app.sonify.dynamics import (
     MARKINGS,
     SOUND,
@@ -43,6 +44,7 @@ from app.sonify.keys import (
     OutroOverride,
     active_register,
     compose_register,
+    register_for,
 )
 from app.sonify.jazz import render_jazz_score
 from app.sonify.minimalist import render_minimalist_score
@@ -624,7 +626,8 @@ def render(
     The daily recap turns it on. A caller that passes `form` keeps that form.
     """
     chosen_key = C_KEY if key is None else key
-    with compose_register(chosen_key):
+    tuned = tune_register(register_for(chosen_key), ensemble, chosen_key.semitones)
+    with compose_register(chosen_key, tuned):
         score = _compose(
             bars,
             title=title,
@@ -642,8 +645,9 @@ def render(
             framed=framed,
             mode=mode,
             home_pedal=home_pedal,
+            ensemble=ensemble,
         )
-    return replace(score, ensemble=ensemble)
+    return score
 
 
 def _compose(
@@ -664,6 +668,7 @@ def _compose(
     framed: bool = True,
     mode: str = "major",
     home_pedal: bool = False,
+    ensemble: Ensemble = "classic",
 ) -> Score:
     """Turn one session of closes into a 30-bar score for `variant` ('symphony', 'jazz', 'minimalist').
 
@@ -819,6 +824,8 @@ def _compose(
                 if section.kind not in ("warmup", "cooldown")
             )
         def _finish(score: Score) -> Score:
+            # Fold before the frame chooses pedals, so a tied warmup matches the body.
+            score = fit_ensemble(replace(score, ensemble=ensemble))
             if daily_ensemble:
                 from app.sonify.daily_frame import apply_daily_frame
 
@@ -829,6 +836,7 @@ def _compose(
                 score = apply_span_frame(score, spec)
             return replace(
                 score,
+                ensemble=ensemble,
                 key=key,
                 mode=mode,  # type: ignore[arg-type]
                 beats=meter.beats,

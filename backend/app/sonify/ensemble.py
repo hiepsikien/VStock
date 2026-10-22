@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import cast
 
+from app.sonify.keys import Register
 from app.sonify.model import ENSEMBLES, Ensemble, NoteEvent, Score, Variant
 
 # part id, part name (MuseSounds voice), MusicXML instrument, channel, program
@@ -109,8 +110,37 @@ def sounds_at_pitch(ensemble: Ensemble) -> bool:
     return ensemble == "choir"
 
 
+def tune_register(register: Register, ensemble: Ensemble, semitones: int) -> Register:
+    """Shift the composing register so the voice's limits apply before notes and fills exist.
+
+    Organ hands the soprano line to the baritone at Ab3 instead of G3. Brass writes
+    the trumpet under Bb5 and stops horn fills at F5. Wood keeps the clarinet pedal
+    at or above D3 and the oboe pedal at or above Bb3. Sounding pitch is the C-space
+    note plus `semitones`.
+    """
+    if ensemble == "organ":
+        return replace(register, violin_lowest=max(register.violin_lowest, SOPRANO_FLOOR - semitones))
+    if ensemble == "brass":
+        return replace(
+            register,
+            violin_ceiling=min(register.violin_ceiling, TRUMPET_CEILING - semitones),
+            fill_high=min(register.fill_high, HORN_FILL_CEILING - semitones),
+        )
+    if ensemble == "wood":
+        return replace(
+            register,
+            support_floor=max(register.support_floor, CLARINET_FLOOR - semitones),
+            lead_floor=max(register.lead_floor, OBOE_FLOOR - semitones),
+        )
+    return register
+
+
 def fit_ensemble(score: Score) -> Score:
-    """Fold the notes a voice cannot play. `classic` and the held English-horn top stay put."""
+    """Fold notes that stay on the same part. Handoffs and fill tops are composed, not pasted.
+
+    Wood folds the oboe and clarinet up. Choir folds the viola and the bass voice up.
+    The English-horn top stays. Organ, brass, and `classic` are already inside range.
+    """
     if score.ensemble == "classic":
         return score
     shift = score.key.semitones
@@ -120,21 +150,6 @@ def fit_ensemble(score: Score) -> Score:
             lead=_map(score.lead, lambda midi: _above(midi, shift, OBOE_FLOOR)),
             support=_map(score.support, lambda midi: _above(midi, shift, CLARINET_FLOOR)),
         )
-    if score.ensemble == "brass":
-        return replace(
-            score,
-            lead=_map(score.lead, lambda midi: _below(midi, shift, TRUMPET_CEILING)),
-            comp=_map(score.comp, lambda midi: _below(midi, shift, HORN_FILL_CEILING)),
-        )
-    if score.ensemble == "organ":
-        stay: list[NoteEvent] = []
-        moved: list[NoteEvent] = []
-        for note in score.lead:
-            if note.midi is not None and note.midi + shift < SOPRANO_FLOOR:
-                moved.append(note)
-            else:
-                stay.append(note)
-        return replace(score, lead=tuple(stay), support=score.support + tuple(moved))
     if score.ensemble == "choir":
         return replace(
             score,

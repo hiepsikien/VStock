@@ -47,8 +47,9 @@ def _symphony(score: Score) -> Score:
     flute = with_rests(_body_notes(score.high), total)
 
     violin_body = _body_notes(score.lead)
-    violin_in = _fold(intro.pitches[0] % 12, reg.violin_lowest, reg.violin_ceiling, _midi_at(violin_body, BODY_START))
-    violin_out = _fold(outro.pitches[0] % 12, reg.violin_lowest, reg.violin_ceiling, _latest_midi(violin_body))
+    lead_low = max(reg.violin_lowest, reg.lead_floor)
+    violin_in = _fold(intro.pitches[0] % 12, lead_low, reg.violin_ceiling, _midi_at(violin_body, BODY_START))
+    violin_out = _fold(outro.pitches[0] % 12, lead_low, reg.violin_ceiling, _latest_midi(violin_body))
     violin_join = _midi_at(violin_body, BODY_START) == violin_in
     violin_touch = _reaching(violin_body, COOL_START - 1, violin_out) is not None
     if violin_join:
@@ -65,8 +66,8 @@ def _symphony(score: Score) -> Score:
     )
 
     cello_body = _body_notes(score.support)
-    cello_in = _fold(intro.pitches[0] % 12, 48, cello_high, _midi_at(cello_body, BODY_START))
-    cello_out = _fold(outro.pitches[0] % 12, 48, cello_high, _latest_midi(cello_body))
+    cello_in = _fold(intro.pitches[0] % 12, reg.support_floor, cello_high, _midi_at(cello_body, BODY_START))
+    cello_out = _fold(outro.pitches[0] % 12, reg.support_floor, cello_high, _latest_midi(cello_body))
     cello_join = _midi_at(cello_body, BODY_START) == cello_in
     cello_touch = _reaching(cello_body, COOL_START - 1, cello_out) is not None
     if cello_join:

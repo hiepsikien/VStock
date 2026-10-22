@@ -41,11 +41,12 @@ def _symphony(score: Score, warm_start: int, body: int, cool: int, end: int) -> 
     lead_body = _body(score.lead, body, cool)
     support_body = _body(score.support, body, cool)
     low_body = _body(score.low, body, cool)
-    violin_in = _fold(opening.pitches[0] % 12, reg.violin_lowest, reg.violin_ceiling, _midi_at(lead_body, body))
-    violin_out = _fold(closing.pitches[0] % 12, reg.violin_lowest, reg.violin_ceiling, _latest(lead_body))
+    lead_low = max(reg.violin_lowest, reg.lead_floor)
+    violin_in = _fold(opening.pitches[0] % 12, lead_low, reg.violin_ceiling, _midi_at(lead_body, body))
+    violin_out = _fold(closing.pitches[0] % 12, lead_low, reg.violin_ceiling, _latest(lead_body))
     cello_high = max(reg.cello_handback, reg.violin_lowest)
-    cello_in = _fold(opening.pitches[0] % 12, 48, cello_high, _midi_at(support_body, body))
-    cello_out = _fold(closing.pitches[0] % 12, 48, cello_high, _latest(support_body))
+    cello_in = _fold(opening.pitches[0] % 12, reg.support_floor, cello_high, _midi_at(support_body, body))
+    cello_out = _fold(closing.pitches[0] % 12, reg.support_floor, cello_high, _latest(support_body))
     if _joins(lead_body, body, violin_in):
         lead_body = _tie_downbeat(lead_body, body, violin_in)
     if _joins(support_body, body, cello_in):
@@ -181,7 +182,10 @@ def _ambient(score: Score, warm_start: int, body: int, cool: int, end: int) -> S
     added = _pedal(cool, end, sung, tie_in=True) if touch is not None and sung is not None else []
     reg = active_register()
     glass = _fold(
-        opening.pitches[0] % 12, reg.violin_lowest, reg.violin_ceiling, _midi_at(lead_body, body)
+        opening.pitches[0] % 12,
+        max(reg.violin_lowest, reg.lead_floor),
+        reg.violin_ceiling,
+        _midi_at(lead_body, body),
     )
     joins = _joins(lead_body, body, glass)
     if joins:

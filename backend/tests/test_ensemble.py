@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -10,10 +9,12 @@ from pathlib import Path
 import pytest
 
 from app.sonify.audio import RECAP_REVISION, SPAN_REVISION, RecapAsset, RecapStore, _STORED_NAME
-from app.sonify.ensemble import ensemble_for, fit_ensemble
-from app.sonify.keys import A_KEY
+from app.sonify.chords import C
+from app.sonify.ensemble import ensemble_for, fit_ensemble, tune_register
+from app.sonify.keys import A_KEY, C_KEY, compose_register, register_for
 from app.sonify.model import Bar, NoteEvent
 from app.sonify.musicxml import score_to_musicxml
+from app.sonify.phrasing import fill_tones
 from app.sonify.render import render
 
 
@@ -64,23 +65,83 @@ def test_a_major_wood_fold_uses_the_sounding_pitch() -> None:
     assert fitted.lead[0].midi == 72
 
 
-def test_brass_caps_the_trumpet_and_the_horn_fill() -> None:
-    fitted = fit_ensemble(
-        replace(_score(), ensemble="brass", lead=(_note(84),), comp=(_note(79),))
-    )
-    assert fitted.lead[0].midi == 72
-    assert fitted.comp[0].midi == 67
+def _full(notes: tuple[NoteEvent, ...], bars: int) -> None:
+    """Every voice fills each bar once. A pasted handoff leaves a hole or a double."""
+    width = bars * 8
+    grids: dict[int, list[int]] = {}
+    for note in notes:
+        if note.staff != 1:
+            continue
+        start = note.bar * 8 + int(round(note.beat * 2))
+        length = int(round(note.duration_beats * 2))
+        grid = grids.setdefault(note.voice, [0] * width)
+        for offset in range(length):
+            grid[start + offset] += 1
+    assert grids
+    for grid in grids.values():
+        assert grid == [1] * width
+
+
+def test_brass_fill_stops_at_f5_under_the_folded_trumpet() -> None:
+    reg = tune_register(register_for(C_KEY), "brass", 0)
+    assert reg.violin_ceiling == 82
+    assert reg.fill_high == 77
+    with compose_register(C_KEY, reg):
+        climbing = fill_tones(C, 84, "violin")
+        under_folded = fill_tones(C, 72, "violin")
+    assert climbing == sorted(climbing)
+    assert max(climbing) <= 77
+    assert 79 not in climbing
+    assert max(under_folded) <= 72 - 3
     xml = score_to_musicxml(replace(_score(), ensemble="brass"))
     assert "<part-name>French Horns a6</part-name>" in xml
     assert "<instrument-name>Horn in F</instrument-name>" in xml
 
 
-def test_organ_hands_a_low_lead_to_the_baritone() -> None:
-    fitted = fit_ensemble(
-        replace(_score(), ensemble="organ", variant="jazz", lead=(_note(55), _note(56)))
-    )
-    assert [note.midi for note in fitted.lead] == [56]
-    assert fitted.support[-1].midi == 55
+def test_brass_score_keeps_the_trumpet_and_the_fill_inside_range() -> None:
+    closes = [50.0 + index * 5 for index in range(30)]
+    bars = [Bar(close, 100.0, close) for close in closes]
+    score = render(bars, ensemble="brass", framed=False, regimes=("uptrend",) * 3)
+    assert all(note.midi is None or note.midi <= 82 for note in score.lead)
+    assert all(note.midi is None or note.midi <= 77 for note in score.comp)
+
+
+def test_organ_handoff_keeps_full_bars() -> None:
+    closes = [80.0 - index for index in range(30)]
+    bars = [Bar(close, 100.0, close) for close in closes]
+    score = render(bars, variant="jazz", ensemble="organ", framed=False, regimes=("downtrend",) * 3)
+    assert score.ensemble == "organ"
+    assert all(note.midi is None or note.midi >= 56 for note in score.lead)
+    _full(score.lead, score.bars)
+    _full(score.support, score.bars)
+
+
+def test_wood_frame_matches_the_folded_pitch() -> None:
+    closes = [40.0] * 8 + [70.0] * 22
+    bars = [Bar(close, 100.0, close) for close in closes]
+    score = render(bars, ensemble="wood", regimes=("sideway",) * 3)
+    assert all(note.midi is None or note.midi >= 58 for note in score.lead)
+    assert all(note.midi is None or note.midi >= 50 for note in score.support)
+    for stop in score.support:
+        if not stop.tie_stop or stop.midi is None:
+            continue
+        assert any(
+            start.tie_start and start.midi == stop.midi and _meets(start, stop)
+            for start in score.support
+        )
+    for stop in score.lead:
+        if not stop.tie_stop or stop.midi is None:
+            continue
+        assert any(
+            start.tie_start and start.midi == stop.midi and _meets(start, stop)
+            for start in score.lead
+        )
+
+
+def _meets(start: NoteEvent, stop: NoteEvent) -> bool:
+    end = start.bar * 4 + start.beat + start.duration_beats
+    begin = stop.bar * 4 + stop.beat
+    return abs(end - begin) < 1e-6
 
 
 def test_choir_sings_at_pitch_and_clamps_viola_and_bass() -> None:

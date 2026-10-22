@@ -793,11 +793,7 @@ def melody_parts(
                             0,
                         )
                     ] == owner
-                    v_midi = (
-                        run.midi - 12
-                        if (owner == "violin" and run.midi > active_register().violin_ceiling)
-                        else run.midi
-                    )
+                    v_midi = _under_ceiling(run.midi, owner)
                     line.notes.extend(
                         written(
                             run.start,
@@ -827,11 +823,7 @@ def melody_parts(
                     for wedge in wedges:
                         line.drift += {"crescendo": 1, "diminuendo": -1}.get(wedge.kind, 0)
         if phrase.closes:
-            cadence_midi = (
-                phrase.cadence.midi - 12
-                if (base_owners[-1] == "violin" and phrase.cadence.midi > active_register().violin_ceiling)
-                else phrase.cadence.midi
-            )
+            cadence_midi = _under_ceiling(phrase.cadence.midi, base_owners[-1])
             cadences.append(
                 (Run(phrase.cadence.start, phrase.cadence.length, cadence_midi), base_owners[-1])
             )
@@ -857,6 +849,16 @@ def comp_pitches(chord: Chord) -> tuple[int, tuple[int, int]]:
     return root, guide
 
 
+def _under_ceiling(midi: int, owner: str) -> int:
+    """Fold a violin note down until it fits. One pass matches the classic C6 ceiling."""
+    if owner != "violin":
+        return midi
+    ceiling = active_register().violin_ceiling
+    while midi > ceiling:
+        midi -= 12
+    return midi
+
+
 def fill_tones(chord: Chord, melody: int, owner: str) -> list[int]:
     """Up to four chord tones for the answer, out of the melody's way.
 
@@ -864,10 +866,11 @@ def fill_tones(chord: Chord, melody: int, owner: str) -> list[int]:
     Over the cello: the lowest tones from C4 up, at least FILL_GAP semitones above it.
     """
     pcs = {pitch % 12 for pitch in chord.pitches}
+    high = active_register().fill_high
     if owner == "cello":
         floor = max(FILL_ABOVE_CELLO, melody + FILL_GAP)
-        return [midi for midi in range(floor, FILL_HIGH + 1) if midi % 12 in pcs][:4]
-    ceiling = min(FILL_HIGH, melody - FILL_GAP)
+        return [midi for midi in range(floor, high + 1) if midi % 12 in pcs][:4]
+    ceiling = min(high, melody - FILL_GAP)
     return [midi for midi in range(FILL_LOW, ceiling + 1) if midi % 12 in pcs][-4:]
 
 

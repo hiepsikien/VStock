@@ -42,7 +42,7 @@ from app.sonify.chords import Chord
 from app.sonify.dynamics import COOLDOWN_MARKING, SOUND
 from app.sonify.form import BEATS_PER_BAR, MUSICAL_BARS
 from app.sonify.keys import KeySpec, midi_to_spelled_pitch, signature_fifths, transpose_chord
-from app.sonify.ensemble import fit_ensemble, parts_for, sounds_at_pitch
+from app.sonify.ensemble import parts_for, sounds_at_pitch
 from app.sonify.model import DynamicEvent, Ensemble, HarmonyEvent, NoteEvent, Score, Variant, WedgeEvent
 
 DIVISIONS = 2  # default per quarter note, so an eighth note is 1
@@ -623,7 +623,6 @@ def _ambient_swell_part(root: ET.Element, score: Score) -> None:
 
 
 def score_to_musicxml(score: Score) -> str:
-    score = fit_ensemble(score)
     root = ET.Element("score-partwise", version="4.0")
     work = _add(root, "work")
     _add(work, "work-title", score.title)

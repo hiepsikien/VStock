@@ -60,6 +60,9 @@ class Register:
     vibraphone_high: int = _VIBRAPHONE_HIGH
     synth_low: int = _SYNTH_LOW
     synth_high: int = _SYNTH_HIGH
+    fill_high: int = 79  # G5, the classic fill top
+    support_floor: int = 48  # C3, the classic cello-pedal bottom
+    lead_floor: int = 0  # raised only when a lead voice sits above violin_lowest
 
 
 EB_KEY = KeySpec("Eb", "Mi♭", -3, 3, "E", -1)
@@ -97,9 +100,9 @@ def active_register() -> Register:
 
 
 @contextmanager
-def compose_register(key: KeySpec):
+def compose_register(key: KeySpec, register: Register | None = None):
     """Lower ceilings and raise floors for the duration of one `render` call."""
-    token = _REGISTER.set(register_for(key))
+    token = _REGISTER.set(register if register is not None else register_for(key))
     try:
         yield
     finally:
