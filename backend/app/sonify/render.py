@@ -41,6 +41,7 @@ from app.sonify.form import (
     liquidity_windows_for,
     plan_slots,
 )
+from app.sonify.harmony import dialect_for
 from app.sonify.keys import (
     C_KEY,
     KeySpec,
@@ -992,7 +993,7 @@ def _compose(
     spec = form
     daily = form is None and source_groups is None
     daily_ambient = daily and variant == "ambient"
-    daily_ensemble = daily and framed and variant in ("symphony", "jazz", "minimalist")
+    daily_ensemble = daily and framed and variant in ("symphony", "jazz", "minimalist", "guitar")
     if daily_ambient:
         spec = DAILY_AMBIENT_SPEC
     elif daily_ensemble:
@@ -1060,6 +1061,7 @@ def _compose(
             harmonic_bridge=variant in ("jazz", "symphony"),
             character_at=character_at,
             gap_leads=gap_leads,
+            dialect=dialect_for(ensemble),
         )
 
         windows = LIQUIDITY_WINDOWS if spec is None else liquidity_windows_for(spec)
@@ -1137,15 +1139,16 @@ def _compose(
                 bar_beats=meter.quarter_beats,
                 swing=swing_for(variant, meter),
             )
-            score = fit_ensemble(score)
-            if daily_ensemble:
-                from app.sonify.daily_frame import apply_daily_frame
+            if variant != "guitar":
+                score = fit_ensemble(score)
+                if daily_ensemble:
+                    from app.sonify.daily_frame import apply_daily_frame
 
-                score = apply_daily_frame(score)
-            elif spec is not None and any(section.kind == "warmup" for section in spec.sections):
-                from app.sonify.movement_frame import apply_span_frame
+                    score = apply_daily_frame(score)
+                elif spec is not None and any(section.kind == "warmup" for section in spec.sections):
+                    from app.sonify.movement_frame import apply_span_frame
 
-                score = apply_span_frame(score, spec, character)
+                    score = apply_span_frame(score, spec, character)
             from app.sonify.groove import _GROOVE
 
             _GROOVE.set({})
@@ -1223,6 +1226,30 @@ def _compose(
                     total_eighths=piece_eighths,
                     bpm=AMBIENT_BPM if form is None else spec.bpm,
                     frame=daily_ambient,
+                )
+            )
+        if variant == "guitar":
+            from app.sonify.guitar import GUITAR_BPM, render_guitar_score
+
+            return _finish(
+                render_guitar_score(
+                    title=title,
+                    chosen=chosen,
+                    sample_indexes=sample_indexes,
+                    slots=slots,
+                    pitches=pitches,
+                    phrases=phrases,
+                    dynamics=dynamics,
+                    bands=bands,
+                    band_at=band_at,
+                    musical_bars=musical_bars,
+                    total_eighths=piece_eighths,
+                    bpm=GUITAR_BPM[ensemble] if form is None else spec.bpm,
+                    ensemble=ensemble,
+                    harmonies=harmonies,
+                    mode=mode,
+                    character=character,
+                    character_at=character_at,
                 )
             )
 

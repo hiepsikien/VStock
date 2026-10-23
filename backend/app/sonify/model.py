@@ -11,8 +11,8 @@ from app.sonify.keys import C_KEY, KeySpec
 
 PERIOD = 4
 
-Variant = Literal["symphony", "jazz", "minimalist", "ambient"]
-VARIANTS: tuple[Variant, ...] = ("symphony", "jazz", "minimalist", "ambient")
+Variant = Literal["symphony", "jazz", "minimalist", "ambient", "guitar"]
+VARIANTS: tuple[Variant, ...] = ("symphony", "jazz", "minimalist", "ambient", "guitar")
 
 Ensemble = Literal[
     "classic",
@@ -24,6 +24,8 @@ Ensemble = Literal[
     "guitar",
     "breath",
     "choir",
+    "villa",
+    "barrios",
 ]
 ENSEMBLES: tuple[Ensemble, ...] = (
     "classic",
@@ -35,6 +37,8 @@ ENSEMBLES: tuple[Ensemble, ...] = (
     "guitar",
     "breath",
     "choir",
+    "villa",
+    "barrios",
 )
 
 StreamVariant = Literal["symphony", "jazz", "minimalist", "ambient"]

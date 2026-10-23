@@ -63,6 +63,14 @@ class Register:
     fill_high: int = 79  # G5, the classic fill top
     support_floor: int = 48  # C3, the classic cello-pedal bottom
     lead_floor: int = 0  # raised only when a lead voice sits above violin_lowest
+    # Written pitches in C-space. Sounding guitar limits shift both ways with the key.
+    guitar_floor: int = 40
+    guitar_bass_top: int = 53
+    guitar_mid_low: int = 50
+    guitar_mid_high: int = 65
+    guitar_treble_floor: int = 59
+    guitar_treble_top: int = 81
+    guitar_ceiling: int = 83
 
 
 EB_KEY = KeySpec("Eb", "Mi♭", -3, 3, "E", -1)
@@ -132,6 +140,13 @@ def register_for(key: KeySpec) -> Register:
         vibraphone_high=_VIBRAPHONE_HIGH - up,
         synth_low=_SYNTH_LOW - key.semitones,
         synth_high=_SYNTH_HIGH - key.semitones,
+        guitar_floor=40 - key.semitones,
+        guitar_bass_top=53 - key.semitones,
+        guitar_mid_low=50 - key.semitones,
+        guitar_mid_high=65 - key.semitones,
+        guitar_treble_floor=59 - key.semitones,
+        guitar_treble_top=81 - key.semitones,
+        guitar_ceiling=83 - key.semitones,
     )
 
 
@@ -301,7 +316,8 @@ def transpose_chord(chord: Chord, key: KeySpec, mode: Mode = "major") -> Chord:
     tones: list[tuple[int, str, int]] = []
     for index, pitch in enumerate(pitches):
         pc = pitch % 12
-        step = _LETTERS[(root_letter + index * 2) % 7]
+        span = chord.degrees[index] if chord.degrees else index * 2
+        step = _LETTERS[(root_letter + span) % 7]
         alter = _alter_for(step, pc)
         if diatonic.get(pc) != (step, alter):
             tones.append((pc, step, alter))
@@ -313,6 +329,7 @@ def transpose_chord(chord: Chord, key: KeySpec, mode: Mode = "major") -> Chord:
         pitches,
         alter=root_alter,
         tones=tuple(tones),
+        degrees=chord.degrees,
     )
 
 

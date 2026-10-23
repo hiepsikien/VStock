@@ -32,6 +32,7 @@ const VARIANTS: { id: RecapVariant; label: string }[] = [
   { id: 'jazz', label: 'Jazz' },
   { id: 'minimalist', label: 'Tối giản' },
   { id: 'ambient', label: 'Ambient' },
+  { id: 'guitar', label: 'Guitar' },
 ];
 
 export type RecapStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -404,7 +405,12 @@ export function SessionRecap({ symbol, children }: Props) {
                   accessibilityRole="button"
                   accessibilityState={{ selected: active }}
                 >
-                  <Text style={[styles.variantText, active && styles.variantTextActive]}>
+                  <Text
+                    style={[styles.variantText, active && styles.variantTextActive]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.75}
+                  >
                     {item.label}
                   </Text>
                 </Pressable>

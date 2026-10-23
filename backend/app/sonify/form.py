@@ -31,6 +31,7 @@ from app.sonify.chords import (
     Chord,
     Regime,
     _ROOT_REGIME_BIAS,
+    SEVENTH_TENSION_COST,
     borrowed_transition,
     chords_for_spec,
     is_subdominant,
@@ -42,6 +43,7 @@ from app.sonify.chords import (
     tonic_chords,
     transition_probability,
 )
+from app.sonify.harmony import COMMON, HarmonyDialect
 from app.sonify.keys import MovementCharacter
 from app.sonify.quantize import (
     bar_quantization_loss,
@@ -448,6 +450,7 @@ def plan_markov_chords(
     harmonic_bridge: bool = True,
     character_at: Sequence[MovementCharacter | None] | None = None,
     gap_leads: Sequence[str | None] | None = None,
+    dialect: HarmonyDialect | None = None,
 ) -> tuple[Chord, ...]:
     """Decode the lowest-loss 30-bar Markov chord path via Viterbi.
 
@@ -478,6 +481,7 @@ def plan_markov_chords(
         phrase_starts = spec.phrase_starts
         spans = spec.spans(regimes)
         borrowed = spec.borrowed
+    active_dialect = COMMON if dialect is None else dialect
     meter = METER_44 if spec is None else spec.meter
     epb = meter.eighths_per_bar
     bar_slot = [0] * musical_bars
@@ -527,7 +531,10 @@ def plan_markov_chords(
         bar_regime.extend([regime] * (end - start))
         bar_section.extend([section] * (end - start))
 
-    catalog = MINOR_CATALOG if mode == "minor" else chords_for_spec(borrowed)
+    base_catalog = MINOR_CATALOG if mode == "minor" else chords_for_spec(borrowed)
+    extra = active_dialect.extra(mode)
+    extra_ids = set(extra)
+    catalog = tuple([*base_catalog, *(chord for chord in extra if chord not in set(base_catalog))])
     bridge_starts = {
         section.start
         for section in (spec.sections if spec is not None and harmonic_bridge else ())
@@ -547,6 +554,11 @@ def plan_markov_chords(
 
     for bar in range(musical_bars):
         bar_notes = raw_pitches[bar * epb : (bar + 1) * epb]
+        strong_pcs = frozenset(
+            bar_notes[eighth] % 12
+            for eighth in meter.strong_eighths
+            if eighth < len(bar_notes)
+        )
         regime = bar_regime[bar]
         section = bar_section[bar]
         if mode == "minor" or home_pedal:
@@ -561,10 +573,22 @@ def plan_markov_chords(
         previous_pitch = raw_pitches[bar * epb - 1] if bar > 0 else None
         phrase_downbeat = bar in phrase_starts
 
-        def emit(notes: Sequence[int], chord: Chord, **extra: int | None) -> float:
+        def emit(
+            notes: Sequence[int],
+            chord: Chord,
+            *,
+            heard: frozenset[int] | None = None,
+            **extra: int | None,
+        ) -> float:
+            if heard is None:
+                heard = (
+                    active_dialect.opening_pitch_classes(chord, mode)
+                    if bar == 0
+                    else chord.pitch_classes
+                )
             return bar_quantization_loss(
                 notes,
-                chord.pitch_classes,
+                heard,
                 active_scale,
                 strong_eighths=meter.strong_eighths,
                 extra_weights=meter.extra_weights,
@@ -575,9 +599,22 @@ def plan_markov_chords(
             )
 
         for chord in catalog:
+            if not active_dialect.allowed(
+                chord,
+                pedal=section in _PEDAL,
+                phrase_downbeat=phrase_downbeat,
+                character=bar_character[bar],
+                mode=mode,
+            ):
+                dp[bar][(chord, 1)] = float("inf")
+                dp[bar][(chord, 2)] = float("inf")
+                back[bar][(chord, 1)] = None
+                back[bar][(chord, 2)] = None
+                continue
             if (
                 mode != "minor"
                 and borrowed
+                and chord not in extra_ids
                 and not _borrowed_allowed(chord, regime, phrase_downbeat)
             ):
                 dp[bar][(chord, 1)] = float("inf")
@@ -598,10 +635,17 @@ def plan_markov_chords(
                 back[bar][(chord, 2)] = None
                 continue
 
-            if mode == "minor":
+            if chord in extra_ids:
+                # Villa colors sit on the strange-chord floor. Minor root bias
+                # would price a C sus at 0.00 and let the dialect discount undercut Cm.
+                base_bias = 0.08
+            elif mode == "minor":
                 base_bias = minor_bias(chord, regime)
             else:
                 base_bias = chord_bias(chord, regime, bar_character[bar])
+            base_bias += active_dialect.bias(chord, bar_character[bar], mode, strong_pcs)
+            if chord in extra_ids and len(chord.pitches) >= 4:
+                base_bias += SEVENTH_TENSION_COST
             if bar in bridge_starts and is_subdominant(chord, mode):
                 base_bias -= PHRASE_TONIC_BONUS
             elif phrase_downbeat and chord in allowed_tonics and bar not in bridge_starts:
@@ -634,7 +678,9 @@ def plan_markov_chords(
                     base_bias -= PHRASE_TONIC_BONUS
 
             if bar == 0:
-                emission = emit(bar_notes, chord) + base_bias
+                emission = emit(bar_notes, chord) + base_bias - active_dialect.color_credit(
+                    chord, strong_pcs, None
+                )
                 dp[0][(chord, 1)] = emission
                 back[0][(chord, 1)] = None
                 dp[0][(chord, 2)] = float("inf")
@@ -648,38 +694,48 @@ def plan_markov_chords(
             if previous_pitch is None:
                 raise RuntimeError("expected previous_pitch for bar > 0")
             prev_last_touched_strong = _prev_last_touched_strong(raw_pitches, bar, meter)
-            if not prev_last_touched_strong or bar_notes[0] % 12 in chord.pitch_classes:
-                uniform_emission = (
-                    emit(
-                        bar_notes,
-                        chord,
-                        previous_pitch=previous_pitch,
-                        previous_snapped=previous_pitch,
+            plain = active_dialect.opening_pitch_classes(chord, mode)
+            full = chord.pitch_classes
+            strips_color = plain != full
+
+            def priced(heard: frozenset[int], snapped: int) -> float:
+                try:
+                    return (
+                        emit(
+                            bar_notes,
+                            chord,
+                            heard=heard,
+                            previous_pitch=previous_pitch,
+                            previous_snapped=snapped,
+                        )
+                        + base_bias
                     )
-                    + base_bias
-                )
+                except ValueError:
+                    # A heard set with no scale tone cannot be priced.
+                    return 1e6
+
+            if not prev_last_touched_strong or bar_notes[0] % 12 in full:
+                uniform_full = priced(full, previous_pitch)
+                uniform_plain = priced(plain, previous_pitch) if strips_color else uniform_full
                 prev_snapped_by_chord = None
-                emission_by_prev_snapped = None
+                emission_full = None
+                emission_plain = None
             else:
-                uniform_emission = 0.0
+                uniform_full = 0.0
+                uniform_plain = 0.0
                 prev_snapped_by_chord = {
                     prev_chord: quantize_chord_tone(
                         previous_pitch, prev_chord.pitch_classes, active_scale
                     )
                     for prev_chord in catalog
                 }
-                emission_by_prev_snapped = {
-                    snapped_val: (
-                        emit(
-                            bar_notes,
-                            chord,
-                            previous_pitch=previous_pitch,
-                            previous_snapped=snapped_val,
-                        )
-                        + base_bias
-                    )
-                    for snapped_val in set(prev_snapped_by_chord.values())
-                }
+                snaps = set(prev_snapped_by_chord.values())
+                emission_full = {snapped: priced(full, snapped) for snapped in snaps}
+                emission_plain = (
+                    {snapped: priced(plain, snapped) for snapped in snaps}
+                    if strips_color
+                    else emission_full
+                )
 
             for target_held in (1, 2):
                 best_prev: tuple[Chord, int] | None = None
@@ -694,11 +750,16 @@ def plan_markov_chords(
                         same_root = (
                             prev_chord.root_step == chord.root_step
                             and prev_chord.alter == chord.alter
-                        )
+                        ) or active_dialect.shares_root(prev_chord, chord)
                     elif borrowed:
-                        same_root = same_harmonic_root(prev_chord, chord)
+                        same_root = same_harmonic_root(prev_chord, chord) or active_dialect.shares_root(
+                            prev_chord, chord
+                        )
                     else:
-                        same_root = prev_chord.root_step == chord.root_step
+                        same_root = (
+                            prev_chord.root_step == chord.root_step
+                            or active_dialect.shares_root(prev_chord, chord)
+                        )
                     if new_section:
                         if target_held != 1:
                             continue
@@ -714,7 +775,16 @@ def plan_markov_chords(
                         and target_held != 1
                     ):
                         continue
-                    if mode == "minor":
+                    weight = active_dialect.transition(prev_chord, chord, mode)
+                    if weight is not None:
+                        if weight <= 0.0:
+                            if prev_chord == chord and chord.quality_group != "diminished":
+                                root_prob = BORROWED_HOLD_PROB
+                            else:
+                                continue
+                        else:
+                            root_prob = weight
+                    elif mode == "minor":
                         root_prob = minor_root_probability(prev_chord, chord)
                         if root_prob <= 0.0:
                             continue
@@ -763,11 +833,24 @@ def plan_markov_chords(
                     ):
                         trans_cost += CROSS_BAR_BREAK_PENALTY
 
-                    if emission_by_prev_snapped is None or prev_snapped_by_chord is None:
-                        emission = uniform_emission
+                    if prev_snapped_by_chord is None or emission_full is None or emission_plain is None:
+                        emission = uniform_plain if strips_color and not same_root else uniform_full
                     else:
-                        emission = emission_by_prev_snapped[prev_snapped_by_chord[prev_chord]]
-                    total = dp[bar - 1][(prev_chord, prev_held)] + trans_cost + emission
+                        table = emission_plain if strips_color and not same_root else emission_full
+                        emission = table[prev_snapped_by_chord[prev_chord]]
+                    credit = active_dialect.color_credit(chord, strong_pcs, prev_chord)
+                    # A color tone is only paid for while its own root is held, and only
+                    # the parent triad may buy the 0.15 or new-phrase arrival.
+                    if prev_chord != chord and not active_dialect.is_parent(prev_chord, chord, mode):
+                        credit = 0.0
+                    elif not new_section and prev_held == 1 and prev_chord == chord:
+                        credit = 0.0
+                    total = (
+                        dp[bar - 1][(prev_chord, prev_held)]
+                        + trans_cost
+                        + emission
+                        - credit
+                    )
                     if total < best_cost:
                         best_cost = total
                         best_prev = (prev_chord, prev_held)
@@ -801,6 +884,7 @@ def plan_slots(
     harmonic_bridge: bool = True,
     character_at: Sequence[MovementCharacter | None] | None = None,
     gap_leads: Sequence[str | None] | None = None,
+    dialect: HarmonyDialect | None = None,
 ) -> tuple[ChordSlot, ...]:
     if spec is None and len(regimes) != 3:
         raise ValueError("expected one regime per phrase")
@@ -835,6 +919,7 @@ def plan_slots(
             harmonic_bridge,
             character_at,
             gap_leads,
+            dialect,
         )
         slots = []
         spans = _section_spans(regimes) if spec is None else spec.spans(regimes)  # type: ignore[arg-type]

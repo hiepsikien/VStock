@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
 import {
@@ -20,6 +20,7 @@ const VARIANTS: { id: RecapVariant; label: string }[] = [
   { id: 'jazz', label: 'Jazz' },
   { id: 'minimalist', label: 'Tối giản' },
   { id: 'ambient', label: 'Ambient' },
+  { id: 'guitar', label: 'Guitar' },
 ];
 
 const RANGE_LABEL: Record<SpanRange, string> = {
@@ -194,7 +195,11 @@ export function SpanRecap({ symbol, range, children }: Props) {
       {children(view)}
       <View style={styles.player}>
         <Text style={styles.caption}>{RANGE_LABEL[range]} · một chương mỗi lần</Text>
-        <View style={styles.variantRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.variantRow}
+        >
           {VARIANTS.map((item) => {
             const active = item.id === variant;
             return (
@@ -209,11 +214,16 @@ export function SpanRecap({ symbol, range, children }: Props) {
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
               >
-                <Text style={[styles.variantText, active && styles.variantTextActive]}>{item.label}</Text>
+                <Text
+                  style={[styles.variantText, active && styles.variantTextActive]}
+                  numberOfLines={1}
+                >
+                  {item.label}
+                </Text>
               </Pressable>
             );
           })}
-        </View>
+        </ScrollView>
         <View style={[styles.variantRow, styles.ensembleRow]}>
           {ENSEMBLE_ROWS[variant].map((item) => {
             const active = item.id === ensemble;

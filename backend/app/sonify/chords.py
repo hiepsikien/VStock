@@ -17,6 +17,9 @@ KIND_MINOR_SEVENTH = "minor-seventh"
 KIND_MAJOR_NINTH = "major-ninth"
 KIND_MINOR_NINTH = "minor-ninth"
 KIND_DOMINANT_NINTH = "dominant-ninth"
+KIND_SUSPENDED_SECOND = "suspended-second"
+KIND_SUSPENDED_FOURTH = "suspended-fourth"
+KIND_OTHER = "other"
 
 
 @dataclass(frozen=True)
@@ -34,6 +37,8 @@ class Chord:
     alter: int = 0
     # (pitch class, step letter, alter) for tones that are not the C-major spelling.
     tones: tuple[tuple[int, str, int], ...] = ()
+    # Letter offsets from the root. Empty keeps the tertian spelling (index * 2).
+    degrees: tuple[int, ...] = ()
 
     @property
     def bass_midi(self) -> int:
@@ -50,6 +55,8 @@ class Chord:
             return "half-diminished"
         if "diminished" in self.kind:
             return "diminished"
+        if self.kind in (KIND_SUSPENDED_SECOND, KIND_SUSPENDED_FOURTH):
+            return "suspended"
         return "major"
 
     def spelling(self, pitch_class: int) -> tuple[str, int] | None:

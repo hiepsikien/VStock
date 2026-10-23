@@ -404,7 +404,7 @@ async function fetchHistoryNetwork(symbol: string, range: ChartRange): Promise<n
   return data.prices;
 }
 
-export type RecapVariant = 'symphony' | 'jazz' | 'minimalist' | 'ambient';
+export type RecapVariant = 'symphony' | 'jazz' | 'minimalist' | 'ambient' | 'guitar';
 
 export type RecapEnsemble =
   | 'classic'
@@ -415,7 +415,9 @@ export type RecapEnsemble =
   | 'mallet'
   | 'guitar'
   | 'breath'
-  | 'choir';
+  | 'choir'
+  | 'villa'
+  | 'barrios';
 
 export const ENSEMBLE_ROWS: Record<RecapVariant, { id: RecapEnsemble; label: string }[]> = {
   symphony: [
@@ -431,12 +433,17 @@ export const ENSEMBLE_ROWS: Record<RecapVariant, { id: RecapEnsemble; label: str
   minimalist: [
     { id: 'classic', label: 'Synth' },
     { id: 'mallet', label: 'Mallet' },
-    { id: 'guitar', label: 'Guitar' },
+    { id: 'guitar', label: 'Guitar thép' },
   ],
   ambient: [
     { id: 'classic', label: 'Kính' },
     { id: 'breath', label: 'Hơi' },
     { id: 'choir', label: 'Hợp xướng' },
+  ],
+  guitar: [
+    { id: 'classic', label: 'Sor' },
+    { id: 'barrios', label: 'Barrios' },
+    { id: 'villa', label: 'Lobos' },
   ],
 };
 

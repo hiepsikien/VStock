@@ -37,9 +37,9 @@ from app.sonify.session import VN, is_session_closed
 logger = logging.getLogger(__name__)
 
 # Bump when the score or the sound changes, so old files are not replayed.
-RECAP_REVISION = "29"
+RECAP_REVISION = "34"
 # Long-form files live beside the daily recap and use their own revision.
-SPAN_REVISION = "15"
+SPAN_REVISION = "20"
 PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
@@ -499,6 +499,11 @@ _MUSE_VOICES = (
     _MuseVoice(("keyboard.harpsichord",), ("Harpsichord",), "Harpsichord"),
     _MuseVoice((), ("Flute 2",), "Flute 2"),
     _MuseVoice((), ("Acoustic Steel Plucked",), "Acoustic Steel Plucked"),
+    _MuseVoice(
+        ("pluck.guitar.nylon-string",),
+        ("Classical Guitar", "Acoustic Nylon"),
+        "Acoustic Nylon",
+    ),
     _MuseVoice(("keyboard.piano.upright",), ("Upright Piano",), "Upright Piano"),
     _MuseVoice((), ("Handchimes",), "Handchimes"),
     _MuseVoice(("wind.reed.english-horn",), ("English Horn",), "English Horn"),
@@ -630,6 +635,7 @@ _VOICE_VOLUME_DB: dict[str, float] = {
     "Clarinet in Bb": 3,
     "Marimba": 10,
     "Acoustic Steel Plucked": 8,
+    "Acoustic Nylon": 6,
     "Cellos": 4,
     "Trombone": 8,
     "Full Choir": 8,
@@ -718,6 +724,7 @@ def _assign_installed_sounds(
     requested = _xml_part_sounds(xml_path) if xml_path is not None else []
     tracks = []
     assigned: list[str] = []
+    prepared_basic = False
     for index, (part_id, instrument_id, kind) in enumerate(parts):
         named = requested[index] if index < len(requested) else None
         voice = _VOICE_BY_SOUND.get(named) if named else None
@@ -725,6 +732,25 @@ def _assign_installed_sounds(
             voice = None
         if voice is None:
             voice = _VOICE_BY_INSTRUMENT.get(kind)
+        if voice is not None and voice.sound == "Acoustic Nylon":
+            # MuseSounds nylon renders every note at the part's printed
+            # dynamic and ignores per-note velocity (verified: opposite
+            # velocities export byte-identical audio). The guitar balance
+            # is written note by note, so this part stays on MS Basic,
+            # where velocity actually speaks.
+            tracks.append(
+                _sound_track(
+                    part_id,
+                    instrument_id,
+                    "MS Basic",
+                    "fluid_soundfont",
+                    "Fluid",
+                    {"playbackSetupData": "last.last.last", "soundFontName": "MS Basic"},
+                    volume_db=_VOICE_VOLUME_DB.get(voice.sound, 0),
+                )
+            )
+            prepared_basic = True
+            continue
         installed = library.get(voice.sound) if voice is not None else None
         if installed is None:
             tracks.append(
@@ -757,11 +783,11 @@ def _assign_installed_sounds(
             )
         )
         assigned.append(f"{kind} -> {voice.sound}")
-    if not assigned:
+    if not assigned and not prepared_basic:
         return False
     if not isinstance(settings, dict):
         settings = {}
-    settings["activeSoundProfile"] = "MuseSounds"
+    settings["activeSoundProfile"] = "MuseSounds" if assigned else "MS Basic"
     settings["tracks"] = tracks
     payloads["audiosettings.json"] = json.dumps(settings, indent=2).encode("utf-8")
     payloads[mscx_name] = _mute_mscx_harmony(payloads[mscx_name])
@@ -774,7 +800,10 @@ def _assign_installed_sounds(
     except Exception:
         temporary.unlink(missing_ok=True)
         raise
-    logger.info("MuseSounds assigned: %s", ", ".join(assigned))
+    logger.info(
+        "MuseSounds assigned: %s",
+        ", ".join(assigned) if assigned else "none (nylon guitar stays on MS Basic)",
+    )
     return True
 
 
