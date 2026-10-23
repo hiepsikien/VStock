@@ -633,6 +633,12 @@ def test_thumb_cantabile_sings_in_the_cello_window_only_in_trio_or_bridge() -> N
     assert [note.midi for note in thumb] == sorted(note.midi for note in thumb if note.midi is not None)
     assert not any(note.bar == 1 and abs(note.beat) < 1e-6 and note.midi is not None for note in score.lead)
     assert {round(note.beat, 2) for note in score.lead if note.bar == 1 and note.midi is not None} == {1.0, 3.0}
+    assert {round(note.beat, 2) for note in score.support if note.bar == 1 and note.midi is not None} == {1.0, 3.0}
+    assert all(
+        note.duration_beats == 0.5
+        for note in (*score.lead, *score.support)
+        if note.bar == 1 and note.midi is not None
+    )
     bridge = (FormSection(0, 2, "phrase", 1, bridge=True),)
     slow = _pattern_score(
         [60, 62, 64, 65, 67, 64] * 2,
@@ -1115,8 +1121,11 @@ def test_phase1_a_running_line_stays_arpeggio() -> None:
     )
     assert score.divisions == 2  # the movement never leaves the eighth grid
     assert _sixteenths(score.lead, 1) == []
-    assert _onset_beats(score.low, 1) == [0.0, 2.0]
-    assert _onset_beats(score.support, 1) == [0.5, 1.0, 1.5, 2.5, 3.0, 3.5]
+    # Barrios arpeggio is Preludio: a two-bar ringing root and flowing eighths.
+    assert _onset_beats(score.low, 0) == [0.0]
+    assert _onset_beats(score.low, 1) == [0.0]
+    assert all(note.tie_stop for note in score.low if note.bar == 1 and note.midi is not None)
+    assert _onset_beats(score.support, 1) == [index * 0.5 for index in range(8)]
 
 
 def test_phase1_pedal_bars_and_the_opening_phrase_do_not_tremolo() -> None:
@@ -1542,6 +1551,16 @@ def test_barrios_choro_dances_only_the_later_running_phrase() -> None:
     assert at_100.divisions == 4
     assert 0.75 not in _onsets(at_100.support, 1)
     assert all(note.duration_beats != 0.25 for note in at_100.support if note.midi is not None)
+    # At 90–100 BPM a running Barrios phrase falls back to reduced Preludio
+    # (two-bar ringing bass and flowing eighths matching calm), not Sor's study.
+    assert _onsets(at_100.low, 1) == [0.0]
+    assert all(note.tie_stop for note in at_100.low if note.bar == 1 and note.midi is not None)
+    assert _onsets(at_100.support, 1) == _onsets(calm.support, 1)
+    assert 0.0 in _onsets(at_100.support, 1) and 0.5 in _onsets(at_100.support, 1)
+    at_96 = _barrios_score([_C_RUN, _C_RUN], [C, C], bpm=96, character="rally")
+    assert _onsets(at_96.low, 1) == [0.0]
+    assert all(note.tie_stop for note in at_96.low if note.bar == 1 and note.midi is not None)
+    assert _onsets(at_96.support, 1) == _onsets(calm.support, 1)
 
 
 def test_barrios_scherzo_picks_tremolo_polca_or_hemiola_by_the_line() -> None:
@@ -1625,6 +1644,35 @@ def test_barrios_dance_approaches_a_fifth_and_tapers_when_it_leaves() -> None:
     guard_chromatic_approach(leading[0].midi, 0, profile="barrios_dance")
     with pytest.raises(ValueError):
         guard_chromatic_approach(leading[0].midi, 0, profile="study")
+
+    # D7 falling to G is also a fifth, and its approach note is F# (off C major).
+    from app.sonify.chords import D7
+    from app.sonify.harmony import VILLA
+
+    d7_run = [62, 66, 69, 72, 74, 72, 69, 66]
+    sharp_choro = _barrios_score([_C_RUN, d7_run, _G_RUN], [C, D7, G], character="rally")
+    fsharp = _notes_at(sharp_choro.low, 1, 3.75)
+    assert len(fsharp) == 1 and fsharp[0].midi is not None and fsharp[0].midi % 12 == 6
+    sharp_xml = score_to_musicxml(sharp_choro).split("</measure>")[1]
+    assert "<step>F</step>\n          <alter>1</alter>" in sharp_xml
+
+    # Flat Villa planing chords (Bbsus2, Ebsus2) spell their bass roots as Bb and Eb, not A# and D#.
+    bbsus2 = next(chord for chord in VILLA.extra("major") if chord.name == "Bbsus2")
+    ebsus2 = next(chord for chord in VILLA.extra("major") if chord.name == "Ebsus2")
+    flat_villa = _pattern_score(
+        [72] * 16,
+        (_joined(0, [72] * 16),),
+        ensemble="villa",
+        bpm=100,
+        chords={0: bbsus2, 1: ebsus2},
+        character="calm",
+    )
+    flat_xml = score_to_musicxml(flat_villa)
+    first_bar, second_bar = flat_xml.split("</measure>")[:2]
+    assert "<step>B</step>\n          <alter>-1</alter>" in first_bar
+    assert "<step>A</step>\n          <alter>1</alter>" not in first_bar
+    assert "<step>E</step>\n          <alter>-1</alter>" in second_bar
+    assert "<step>D</step>\n          <alter>1</alter>" not in second_bar
 
     # The next phrase is held, so it is tremolo. The dance bar rests its last
     # sixteenth and gives the last eighth of the melody and the inner voice

@@ -450,9 +450,7 @@ def _select_body(
         if trio:
             return "vals"
         return "hemiola" if band == "f" else "polca"
-    if ctx.ensemble == "barrios" and mood == "calm":
-        return "preludio"
-    return {"classic": "study", "villa": "villa_pattern"}.get(ctx.ensemble, "study")
+    return {"classic": "study", "villa": "villa_pattern"}.get(ctx.ensemble, "preludio")
 
 
 def _patterns(ctx: _Ctx) -> list[str]:
@@ -1272,7 +1270,12 @@ def _same_phrase(ctx: _Ctx, bar: int, nxt: int) -> bool:
     return False
 
 
-def _apply_campanella(ctx: _Ctx, support: list[NoteEvent], lead: list[NoteEvent]) -> list[NoteEvent]:
+def _apply_campanella(
+    ctx: _Ctx,
+    support: list[NoteEvent],
+    lead: list[NoteEvent],
+    villa_bars: set[int] | None = None,
+) -> list[NoteEvent]:
     lead_at: dict[int, int] = {}
     for event in lead:
         if event.midi is None:
@@ -1291,7 +1294,7 @@ def _apply_campanella(ctx: _Ctx, support: list[NoteEvent], lead: list[NoteEvent]
     nxt = {left: right for left, right in zip(onsets, onsets[1:])}
     updated: list[NoteEvent] = []
     for event in support:
-        if event.midi is None:
+        if event.midi is None or (villa_bars is not None and event.bar not in villa_bars):
             updated.append(event)
             continue
         eighth = _start16(event, ctx.epb) // 2
@@ -2172,10 +2175,11 @@ def render_patterned_voices(
             lead.extend(_sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex))
     # Preludio bass rings for two bars, counted from each contiguous region.
     low.extend(_preludio_bass(ctx, patterns))
-    if any(pattern == "villa_pattern" for pattern in patterns) or any(
-        _bar_pattern(ctx, bar, patterns) == "villa_pattern" for bar in range(musical_bars)
-    ):
-        support = _apply_campanella(ctx, support, lead)
+    villa_bars = {
+        bar for bar in range(musical_bars) if _bar_pattern(ctx, bar, patterns) == "villa_pattern"
+    }
+    if villa_bars:
+        support = _apply_campanella(ctx, support, lead, villa_bars)
     for index, phrase in enumerate(phrases):
         following = None
         for later in range(index + 1, len(patterns)):

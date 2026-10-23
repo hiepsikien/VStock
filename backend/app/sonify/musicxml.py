@@ -719,7 +719,11 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                     chord=event.beat == previous_beat and event.midi is not None,
                     written_shift=12,
                     divisions=score.divisions,
-                    harmony=_chord_on(score, bar) if voice_index == 0 else None,
+                    harmony=_chord_on(
+                        score,
+                        bar - 1 if event.tie_stop and event.beat == 0.0 and bar > 0 else bar,
+                    )
+                    or _chord_on(score, bar),
                     key=score.key,
                     bar_beats=score.bar_beats,
                     mode=score.mode,
