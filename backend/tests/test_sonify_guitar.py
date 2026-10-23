@@ -89,6 +89,16 @@ def test_a_rising_phrase_stays_rising_after_it_is_compressed() -> None:
     assert all(59 <= note <= 81 for note in placed)
 
 
+def test_a_minor_phrase_with_a_raised_leading_tone_is_placed() -> None:
+    # B natural (83) is the raised leading tone the main pipeline sings over
+    # the dominant; the natural-minor guitar scale has no place for it, and
+    # placing the phrase used to crash the strong-beat quantize lookup.
+    raw = [71, 83, 82, 79]
+    placed = _place_melody(raw, (_phrase(0, raw),), 59, 81, {0: C}, "minor")
+    assert all(59 <= note <= 81 for note in placed)
+    assert all(note % 12 in {0, 2, 3, 5, 7, 8, 10} for note in placed)
+
+
 def test_a_wide_phrase_lands_inside_the_window_without_reversing() -> None:
     raw = [50, 53, 57, 60, 64, 67, 71]
     placed = _place_melody(raw, (_phrase(0, raw),), 59, 81, {0: C}, "major")

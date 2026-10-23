@@ -163,6 +163,14 @@ def _place_melody(
     scale degrees in order, so a rise stays a rise. A phrase already inside
     the window stays put: shift 0 wins a tie with +12.
     """
+    if mode == "minor":
+        # The line arrives with its leading tone raised (B natural over the
+        # dominant), but the guitar scale here is natural minor. Flatten the
+        # leading tone back before placing; the strong-beat quantize below
+        # raises it again exactly where the dominant chord wants it. Without
+        # this, a phrase carrying B natural fits no shift candidate and the
+        # quantize lookup crashes on the off-scale note.
+        pitches = [note - 1 if note % 12 == 11 else note for note in pitches]
     scale = _melody_scale(mode)
     degree = {note: index for index, note in enumerate(scale)}
     usable = [phrase for phrase in phrases if phrase.end > phrase.start]
