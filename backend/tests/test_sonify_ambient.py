@@ -341,6 +341,8 @@ def test_a_major_chord_drops_the_perfect_fourth_and_minor_or_dominant_keep_it() 
 def test_an_unframed_outro_does_not_reattack_the_same_pitch_after_a_rest() -> None:
     sections = (FormSection(0, 8, "phrase", 0), FormSection(8, 12, "outro", 0))
     rested, _wedges, _dynamics = _line(sections, _held(72, 8) + _held(72, 1) + _held(76, 1) + _held(72, 2))
+    held = [note for note in rested if note.midi is not None]
+    assert [(note.bar, note.midi) for note in held] == [(0, 72), (1, 72), (2, 72), (3, 72)]
     assert not any(note.bar >= 8 and note.midi is not None for note in rested)
     sounded, _wedges, _dynamics = _line(sections, _held(72, 8) + _held(76, 4))
     outro = [note for note in sounded if note.bar >= 8 and note.midi is not None]
