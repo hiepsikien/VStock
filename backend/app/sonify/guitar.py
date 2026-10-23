@@ -19,7 +19,12 @@ from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score
 from app.sonify.phrasing import Phrase, quantize_strong_beats, with_rests, written
 from app.sonify.quantize import C_MAJOR_PCS, C_NATURAL_MINOR_PCS, scale_from_classes
 
-GUITAR_BPM = {"classic": 88, "villa": 100, "barrios": 76}
+GUITAR_BPM = {"classic": 88, "villa": 100, "barrios": 120}
+# Listening tests: a tremolo only reads as a sung line from 90 BPM up, sits
+# best around 120, and can run to 140. A Barrios movement under that floor
+# is not sped up and gets no tremolo at all: it keeps its slow tempo and
+# sings as arpeggio instead. The daily tempo is the 120 middle of the range.
+BARRIOS_TREMOLO_MIN_BPM = 90
 _PEDAL = frozenset({"intro", "outro", "warmup", "cooldown"})
 # 64 is mp on the nylon voice, still under the bright nail layer. The apex
 # alone lifts. The thumb stays under the line so the downbeat is not the attack.
@@ -32,8 +37,22 @@ _OVERFLOW_COST = 50
 _REVERSAL_COST = 80
 _LARGE_LEAP_COST = 400
 _LARGE_LEAP = 9
-# Share of melody attacks the nylon voice may play as a hammer-on.
-_HAMMER_SHARE = 0.10
+# Cap on melody attacks the nylon voice may play as a hammer-on. A hammer is
+# an exception for a stressed note, never a texture: keep it under 5%.
+_HAMMER_SHARE = 0.04
+# Inside one p-a-m-i cluster the fingers sit at a=52, m=55, i=54 (the fourth
+# sixteenth is a again), under the thumb at 58, the strongest attack.
+_TREMOLO_FILL_PATTERN = (52, 55, 54, 52)
+# The thumb strikes every cluster (root and fifth together) and rings the
+# whole quarter, so the bass line stays focused under the fill instead of
+# scattering between sparse, soft attacks.
+_TREMOLO_THUMB = 58
+# The fill repeats sing around mp, back at the written melody velocity.
+# The distribution inside the cluster stays as approved; only the level
+# moves.
+# One tremolo cluster is one quarter note: four sixteenth repeats of a single
+# melody pitch, with the thumb ringing underneath for the whole quarter.
+_TREMOLO_CLUSTER = 4
 
 
 def render_guitar_score(
@@ -68,7 +87,7 @@ def render_guitar_score(
         chord_at,
         mode,
     )
-    if ensemble == "barrios":
+    if ensemble == "barrios" and bpm >= BARRIOS_TREMOLO_MIN_BPM:
         lead, support, low = _tremolo(
             melody,
             chord_at,
@@ -373,10 +392,15 @@ def _tremolo(
     mid_high: int,
     phrases: tuple[Phrase, ...],
 ) -> tuple[tuple[NoteEvent, ...], tuple[NoteEvent, ...], tuple[NoteEvent, ...]]:
-    """Thumb on the beat, the melody repeated through the rest of the beat.
+    """One tremolo cluster per quarter note, filled with four sixteenths.
 
-    Above 100 BPM the grid is counted inside the meter's own beat. A 6/8 beat
-    is a dotted quarter, so the thumb stays on sixteenths 0 and 6.
+    At the score tempo (120 BPM for Barrios) each cluster lasts one quarter
+    and carries one melody pitch through all four sixteenth repeats, so the
+    clusters join into a sung melody line instead of changing pitch every
+    two sixteenths. The thumb is its own voice and the strongest attack at
+    58: it strikes the root and fifth together on each quarter and rings
+    through it, never yielding the downbeat of a chord change, so the bass
+    stays dark, full, and steady. Inside the fill, a=52, m=55, i=54.
     """
     meter = active_meter()
     epb = meter.eighths_per_bar
@@ -384,11 +408,6 @@ def _tremolo(
     line: list[NoteEvent] = []
     inner: list[NoteEvent] = []
     bass: list[NoteEvent] = []
-    if bpm > 100:
-        _reduced_tremolo(
-            melody, chord_at, kind_at, bars, bass_low, mid_low, mid_high, line, inner, bass, apex
-        )
-        return tuple(_slur(line, phrases)), tuple(inner), tuple(bass)
     grain = 2
     duration = 0.25
     for bar in range(bars):
@@ -427,110 +446,35 @@ def _tremolo(
                 )
             )
             continue
-        attacks = {point for point in meter.strong_eighths if point < epb}
-        for slot in range(epb * grain):
-            eighth = slot // grain
-            beat = slot * duration
-            on_thumb = eighth in attacks and slot % grain == 0
+        cluster_beats = _TREMOLO_CLUSTER * duration  # one quarter note
+        for cluster_index, cluster in enumerate(range(0, epb * grain, _TREMOLO_CLUSTER)):
+            eighth = cluster // grain
+            beat = cluster * duration
             sung = melody[bar * epb + eighth]
-            if on_thumb and eighth == 0 and changed:
+            if cluster_index == 0 and changed:
+                # The colour joins the downbeat, but the thumb keeps the root:
+                # yielding it left chord-change bars with no bass at all.
                 color = _color_below(chord, sung, mid_low, mid_high, bass_low)
-                inner.append(_hit(bar, beat, duration, color, 2, _INNER))
-                bass.append(_hit(bar, beat, duration, None, 3, _BASS))
-                line.append(_hit(bar, beat, duration, None, 1, _MELODY))
-            elif on_thumb:
-                inner.append(_hit(bar, beat, duration, None, 2, _INNER))
-                bass.append(_hit(bar, beat, duration, root, 3, _BASS))
-                line.append(_hit(bar, beat, duration, None, 1, _MELODY))
+                inner.append(_hit(bar, beat, cluster_beats, color, 2, _TREMOLO_THUMB))
             else:
-                inner.append(_hit(bar, beat, duration, None, 2, _INNER))
-                bass.append(_hit(bar, beat, duration, None, 3, _BASS))
+                inner.append(_hit(bar, beat, cluster_beats, None, 2, _INNER))
+            bass.append(_hit(bar, beat, cluster_beats, root, 3, _TREMOLO_THUMB))
+            if len(chord.pitches) >= 3:
+                fifth = _fit(chord.pitches[2] % 12, bass_low, bass_low + 11)
+                if fifth != root:
+                    bass.append(_hit(bar, beat, cluster_beats, fifth, 3, _TREMOLO_THUMB))
+            for repeat in range(_TREMOLO_CLUSTER):
                 line.append(
-                    _hit(bar, beat, duration, sung, 1, _eighth_velocity(bar * epb + eighth, apex))
+                    _hit(
+                        bar,
+                        beat + repeat * duration,
+                        duration,
+                        sung,
+                        1,
+                        _TREMOLO_FILL_PATTERN[repeat],
+                    )
                 )
     return tuple(_slur(line, phrases)), tuple(inner), tuple(bass)
-
-
-def _reduced_tremolo(
-    melody: list[int],
-    chord_at: dict[int, Chord],
-    kind_at: dict[int, str],
-    bars: int,
-    bass_low: int,
-    mid_low: int,
-    mid_high: int,
-    line: list[NoteEvent],
-    inner: list[NoteEvent],
-    bass: list[NoteEvent],
-    apex: set[int],
-) -> None:
-    """Two attacks per meter beat: thumb on sixteenth 0, melody from sixteenth 2."""
-    meter = active_meter()
-    epb = meter.eighths_per_bar
-    sixteenths = epb * 2
-    # 6/8 counts a dotted quarter. 4/4 and 3/4 count a quarter note.
-    if meter.beat_type == 8 and epb == 6:
-        beats = ((0, 6), (6, 6))
-    else:
-        beats = tuple((start, 4) for start in range(0, sixteenths, 4))
-    step = 0.25
-    for bar in range(bars):
-        chord = chord_at[bar]
-        root = _fit(chord.pitches[0] % 12, bass_low, bass_low + 11)
-        changed = bar == 0 or chord_at.get(bar - 1) != chord
-        if kind_at.get(bar) in _PEDAL:
-            start = bar * epb
-            index = start
-            end = start + epb
-            while index < end:
-                nxt = index + 1
-                while nxt < end and melody[nxt] == melody[index]:
-                    nxt += 1
-                line.extend(
-                    written(index, nxt - index, melody[index], velocity=_span_velocity(index, nxt - index, apex))
-                )
-                index = nxt
-            bass.append(
-                NoteEvent(
-                    bar=bar,
-                    beat=0.0,
-                    midi=root,
-                    duration_beats=meter.quarter_beats,
-                    voice=3,
-                    velocity=_BASS,
-                )
-            )
-            inner.append(
-                NoteEvent(
-                    bar=bar,
-                    beat=0.0,
-                    midi=None,
-                    duration_beats=meter.quarter_beats,
-                    voice=2,
-                )
-            )
-            continue
-        for origin, length in beats:
-            thumb = origin * step
-            gap = (origin + 1) * step
-            sung_at = (origin + 2) * step
-            sung = melody[bar * epb + (origin + 2) // 2]
-            held = (length - 2) * step
-            if origin == 0 and changed:
-                color = _color_below(chord, sung, mid_low, mid_high, bass_low)
-                inner.append(_hit(bar, thumb, step, color, 2, _INNER))
-                bass.append(_hit(bar, thumb, step, None, 3, _BASS))
-            else:
-                inner.append(_hit(bar, thumb, step, None, 2, _INNER))
-                bass.append(_hit(bar, thumb, step, root, 3, _BASS))
-            line.append(_hit(bar, thumb, step, None, 1, _MELODY))
-            for voice, bucket, velocity in ((1, line, _MELODY), (2, inner, _INNER), (3, bass, _BASS)):
-                bucket.append(_hit(bar, gap, step, None, voice, velocity))
-            line.append(
-                _hit(bar, sung_at, held, sung, 1, _eighth_velocity(bar * epb + (origin + 2) // 2, apex))
-            )
-            inner.append(_hit(bar, sung_at, held, None, 2, _INNER))
-            bass.append(_hit(bar, sung_at, held, None, 3, _BASS))
 
 
 def _color_below(chord: Chord, sung: int, mid_low: int, mid_high: int, lowest: int) -> int | None:
@@ -669,12 +613,16 @@ def _spread(count: int, want: int) -> list[int]:
 
 
 def _slur(events: list[NoteEvent], phrases: tuple[Phrase, ...]) -> list[NoteEvent]:
-    """Hammer about one melody attack in ten, and only onto a touching step.
+    """Hammer rarely, and only onto a stressed note after the opening phrase.
 
-    The nylon voice plays a slur as a left-hand hammer. A leap, a rest, and a
-    new phrase stay plucked. The kept steps are spread through the line.
+    The nylon voice plays a slur as a left-hand hammer. A leap, a rest, a new
+    phrase, an unstressed step, a tremolo sixteenth, and anything in the first
+    phrase stay plucked. A stress is the phrase apex (or an accented attack
+    already carrying the apex velocity). The kept steps are spread through
+    the eligible stresses, capped under one attack in twenty.
     """
     result = list(events)
+    apex = _apex_eighths(phrases)
 
     def position(event: NoteEvent) -> float:
         return event.bar * active_meter().quarter_beats + event.beat
@@ -710,8 +658,22 @@ def _slur(events: list[NoteEvent], phrases: tuple[Phrase, ...]) -> list[NoteEven
         right_first = result[right[0]]
         interval = abs((left_last.midi or 0) - (right_first.midi or 0))
         touches = abs(position(left_last) + left_last.duration_beats - position(right_first)) < 1e-6
-        same_phrase = phrase_of(result[left[0]]) is not None and phrase_of(result[left[0]]) == phrase_of(right_first)
-        if same_phrase and 1 <= interval <= 2 and touches:
+        target_phrase = phrase_of(right_first)
+        same_phrase = target_phrase is not None and phrase_of(result[left[0]]) == target_phrase
+        stressed = (
+            _attack_eighth(right_first) in apex
+            or right_first.accent
+            or (right_first.velocity or 0) >= _MELODY_APEX
+        )
+        held_step = left_last.duration_beats >= 0.5 and right_first.duration_beats >= 0.5
+        if (
+            same_phrase
+            and target_phrase != 0
+            and stressed
+            and held_step
+            and 1 <= interval <= 2
+            and touches
+        ):
             pairs.append((left[0], right[0]))
             cursor += 2
         else:

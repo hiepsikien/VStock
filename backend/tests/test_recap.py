@@ -472,6 +472,33 @@ def test_musescore_export_uses_installed_musesounds(tmp_path: Path, monkeypatch:
     assert not wav.with_suffix(".mscz").exists()
 
 
+def test_nylon_guitar_stays_on_ms_basic_so_note_velocities_speak(tmp_path: Path) -> None:
+    import json
+    import zipfile
+
+    from app.sonify.audio import _assign_installed_sounds
+
+    mscz = tmp_path / "guitar.mscz"
+    body = (
+        '<?xml version="1.0"?><museScore><Score>'
+        '<Part id="1"><Instrument id="guitar">'
+        "<instrumentId>pluck.guitar.nylon-string</instrumentId></Instrument></Part>"
+        "</Score></museScore>"
+    )
+    with zipfile.ZipFile(mscz, "w") as archive:
+        archive.writestr("score.mscx", body)
+        archive.writestr("audiosettings.json", '{"tracks": []}')
+    # Even with the MuseSounds nylon installed, the part must not take it:
+    # that sampler ignores per-note velocity, which carries the guitar balance.
+    assert _assign_installed_sounds(mscz, {"Acoustic Nylon": ("77", "Muse Guitars")})
+    with zipfile.ZipFile(mscz) as archive:
+        settings = json.loads(archive.read("audiosettings.json"))
+    assert settings["activeSoundProfile"] == "MS Basic"
+    track = settings["tracks"][0]["in"]["resourceMeta"]
+    assert track["type"] == "fluid_soundfont"
+    assert track["id"] == "MS Basic"
+
+
 def test_assign_installed_sounds_removes_partial_score(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import zipfile
 

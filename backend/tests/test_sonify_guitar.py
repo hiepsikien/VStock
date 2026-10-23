@@ -18,7 +18,7 @@ def _bars() -> list[Bar]:
 
 
 def test_guitar_score_is_one_nylon_part() -> None:
-    expected = {"classic": (88, 2), "villa": (100, 2), "barrios": (76, 4)}
+    expected = {"classic": (88, 2), "villa": (100, 2), "barrios": (120, 4)}
     for ensemble, (bpm, divisions) in expected.items():
         score = render(_bars(), title="Guitar", variant="guitar", ensemble=ensemble)  # type: ignore[arg-type]
         assert score.bpm == bpm
@@ -35,6 +35,17 @@ def test_guitar_score_is_one_nylon_part() -> None:
         assert first.count("<backup>") == 2
         assert all(f"<voice>{voice}</voice>" in first for voice in (1, 2, 3))
         assert "<chord" not in first
+
+
+def test_barrios_prints_mp_for_the_fill_and_the_thumb() -> None:
+    import re
+
+    score = render(_bars(), title="Guitar", variant="guitar", ensemble="barrios")  # type: ignore[arg-type]
+    first = score_to_musicxml(score).split("</measure>")[0]
+    assert re.findall(r"<dynamics>\s*<(\w+)", first) == ["mp", "mp", "mp"]
+    classic = render(_bars(), title="Guitar", variant="guitar", ensemble="classic")  # type: ignore[arg-type]
+    first_classic = score_to_musicxml(classic).split("</measure>")[0]
+    assert re.findall(r"<dynamics>\s*<(\w+)", first_classic) == ["mp"]
 
 
 def test_guitar_rejects_a_foreign_ensemble() -> None:
@@ -95,29 +106,81 @@ def test_barrios_opening_downbeat_of_g_is_not_silent() -> None:
         lead, inner, bass = _tremolo(melody, {0: G}, {0: "phrase"}, 1, 76, 40, 50, 65, ())
     assert _sounding(inner, 0) == [0.0]
     assert inner[0].midi is not None and inner[0].midi < 59
-    assert 0.0 not in _sounding(bass, 0)
-    assert 0.0 not in _sounding(lead, 0)
+    assert inner[0].velocity == 58  # the middle voice is a thumb voice too
+    # The thumb keeps the root under the colour, and the fill starts with it.
+    assert 0.0 in _sounding(bass, 0)
+    assert 0.0 in _sounding(lead, 0)
 
 
-def test_barrios_scherzo_counts_the_dotted_beat() -> None:
+def test_barrios_scherzo_keeps_the_full_tremolo_grid() -> None:
     melody = [72] * 12
     chords = {0: G, 1: G}
     with compose_meter(METER_68):
         lead, _inner, bass = _tremolo(melody, chords, {0: "phrase", 1: "phrase"}, 2, 120, 40, 50, 65, ())
-    assert _sounding(lead, 1) == [0.5, 2.0]
-    assert _sounding(bass, 1) == [0.0, 1.5]
-    assert 1.0 not in _sounding(lead, 1)
-    assert 2.5 not in _sounding(lead, 1)
+    # Every sixteenth sings; the thumb opens every quarter-note cluster.
+    assert _sounding(lead, 1) == [index * 0.25 for index in range(12)]
+    # Root and fifth together on each cluster.
+    assert _sounding(bass, 1) == [0.0, 0.0, 1.0, 1.0, 2.0, 2.0]
 
 
-def test_barrios_fast_four_four_counts_quarter_beats() -> None:
+def test_barrios_fast_four_four_keeps_the_full_tremolo_grid() -> None:
     melody = [72] * 16
     chords = {0: G, 1: G}
     kinds = {0: "phrase", 1: "phrase"}
     with compose_meter(METER_44):
-        lead, _inner, bass = _tremolo(melody, chords, kinds, 2, 108, 40, 50, 65, ())
-    assert _sounding(lead, 1) == [0.5, 1.5, 2.5, 3.5]
-    assert _sounding(bass, 1) == [0.0, 1.0, 2.0, 3.0]
+        lead, _inner, bass = _tremolo(melody, chords, kinds, 2, 120, 40, 50, 65, ())
+    # Every sixteenth sings; the thumb opens every quarter-note cluster.
+    assert _sounding(bass, 1) == [0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0]
+    assert _sounding(lead, 1) == [index * 0.25 for index in range(16)]
+
+
+def test_barrios_tremolo_thumb_is_strongest_and_m_leads_the_fill() -> None:
+    melody = [72] * 16
+    chords = {0: G, 1: G}
+    with compose_meter(METER_44):
+        lead, _inner, bass = _tremolo(melody, chords, {0: "phrase", 1: "phrase"}, 2, 120, 40, 50, 65, ())
+    sung = sorted(
+        (note for note in lead if note.bar == 1 and note.midi is not None),
+        key=lambda note: note.beat,
+    )
+    thumb = next(note for note in bass if note.bar == 1 and note.midi is not None)
+    # p-a-m-i: the thumb at 58 tops the cluster, then m 55, i 54, a 52.
+    assert [note.velocity for note in sung[:4]] == [52, 55, 54, 52]
+    assert thumb.velocity is not None and thumb.velocity == 58
+    assert all(thumb.velocity > (note.velocity or 0) for note in sung[:4])
+
+
+def test_barrios_cluster_holds_one_pitch_for_a_quarter_and_the_thumb_rings() -> None:
+    melody = [60, 62, 64, 65, 67, 69, 71, 72]
+    with compose_meter(METER_44):
+        lead, _inner, bass = _tremolo(melody, {0: G}, {0: "phrase"}, 1, 120, 40, 50, 65, ())
+    sung = sorted(
+        (note for note in lead if note.bar == 0 and note.midi is not None),
+        key=lambda note: note.beat,
+    )
+    # One pitch per quarter-note cluster, four sixteenth repeats each.
+    assert [note.midi for note in sung] == [60] * 4 + [64] * 4 + [67] * 4 + [71] * 4
+    assert all(note.duration_beats == 0.25 for note in sung)
+    thumbs = [note for note in bass if note.bar == 0 and note.midi is not None]
+    assert sorted({note.beat for note in thumbs}) == [0.0, 1.0, 2.0, 3.0]
+    assert len(thumbs) == 8  # root and fifth on every cluster
+    assert all(note.duration_beats == 1.0 for note in thumbs)
+
+
+def test_barrios_slow_movement_keeps_its_tempo_and_skips_tremolo() -> None:
+    from app.sonify.span import month_specs, quarter_specs
+
+    slow = quarter_specs("guitar")[1]
+    assert slow.bpm == 60
+    barrios = render(_bars(), title="Guitar", variant="guitar", ensemble="barrios", form=slow)  # type: ignore[arg-type]
+    # No tempo lift and no sixteenth tremolo grid: the slow movement sings
+    # as arpeggio at its own tempo.
+    assert barrios.bpm == 60
+    assert barrios.divisions == 2
+    assert all(note.duration_beats != 0.25 for note in barrios.lead if note.midi is not None)
+    fast = render(_bars(), title="Guitar", variant="guitar", ensemble="barrios", form=month_specs("guitar")[0])  # type: ignore[arg-type]
+    assert fast.bpm == 96
+    assert fast.divisions == 4
 
 
 def test_a_sixteenth_at_beat_075_stays_in_its_eighth() -> None:
@@ -126,24 +189,45 @@ def test_a_sixteenth_at_beat_075_stays_in_its_eighth() -> None:
         assert _attack_eighth(event) == 1
 
 
-def test_about_one_melody_note_in_ten_is_a_hammer() -> None:
-    events = [
-        NoteEvent(
-            bar=index // 8,
-            beat=(index % 8) * 0.5,
-            midi=60 + index,
-            duration_beats=0.5,
-            voice=1,
-        )
-        for index in range(20)
-    ]
-    phrase = Phrase(0, 20, (Run(0, 20, 60),), False)
+def _step_line(phrases_notes: list[list[int]]) -> tuple[list[NoteEvent], tuple[Phrase, ...]]:
+    events: list[NoteEvent] = []
+    phrases: list[Phrase] = []
+    index = 0
+    for notes in phrases_notes:
+        runs = tuple(Run(index + offset, 1, midi) for offset, midi in enumerate(notes))
+        phrases.append(Phrase(index, index + len(notes), runs, False))
+        for midi in notes:
+            events.append(
+                NoteEvent(
+                    bar=index // 8,
+                    beat=(index % 8) * 0.5,
+                    midi=midi,
+                    duration_beats=0.5,
+                    voice=1,
+                )
+            )
+            index += 1
+    return events, tuple(phrases)
+
+
+def test_hammers_are_rare_stressed_and_never_in_the_opening_phrase() -> None:
+    # Each phrase climbs by step to its apex (offset 9), then falls by step.
+    shape = [*range(60, 70), *range(68, 58, -1)]
+    events, phrases = _step_line([shape] * 5)
     with compose_meter(METER_44):
-        slurred = _slur(events, (phrase,))
+        slurred = _slur(events, phrases)
     hammers = [index for index, note in enumerate(slurred) if note.slur_stop]
-    plucks = [index for index, note in enumerate(slurred) if note.slur_start]
-    assert hammers == [5, 15]
-    assert plucks == [4, 14]
+    # Only the step onto each later phrase's apex, capped under 5% of attacks.
+    assert hammers == [29, 49, 69, 89]
+    assert len(hammers) / len(events) < 0.05
+    assert all(index >= 20 for index in hammers)
+
+
+def test_an_unstressed_step_after_the_opening_phrase_stays_plucked() -> None:
+    events, phrases = _step_line([[60, 61, 62, 63], [60, 61, 70, 69]])
+    with compose_meter(METER_44):
+        slurred = _slur(events, phrases)
+    assert not any(note.slur_start or note.slur_stop for note in slurred)
 
 
 def test_a_leap_or_a_rest_is_plucked() -> None:

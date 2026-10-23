@@ -692,13 +692,20 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                 beat_type=score.beat_type,
             )
             _metronome(measure, score.bpm, swing=False)
-            _dynamic(measure, MELODY_DYNAMIC)
+            if score.ensemble != "barrios":
+                _dynamic(measure, MELODY_DYNAMIC)
         for event in symbols[bar]:
             _harmony(measure, event, score.key, score.mode)
         for voice_index, voice in enumerate(voices):
             if voice_index:
                 backup = _add(measure, "backup")
                 _add(backup, "duration", bar_units)
+            if bar == 0 and score.ensemble == "barrios":
+                # One letter per voice, printed inside that voice's own stream:
+                # the tremolo fill and both thumb voices (the middle colour
+                # and the bass) all sit around mp.
+                marking = ("mp", "mp", "mp")[voice_index]
+                _dynamic(measure, DynamicEvent(bar=0, marking=marking, sound=SOUND[marking]))
             previous_beat: float | None = None
             for event in sorted(voice[bar], key=lambda note: note.beat):
                 _add_note(
