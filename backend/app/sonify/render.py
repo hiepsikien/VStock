@@ -1250,6 +1250,7 @@ def _compose(
                     mode=mode,
                     character=character,
                     character_at=character_at,
+                    sections=spec.sections if spec is not None else (),
                 )
             )
 
