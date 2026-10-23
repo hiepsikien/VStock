@@ -2,9 +2,11 @@
 
 Sor keeps a study texture: the price is the top voice, chord tones fill the
 weak eighths, and the root sits on the strong beats. Villa-Lobos rolls a
-chord-tone pattern under that line. Barrios repeats the melody as a tremolo
-and puts the thumb on the beat. All three read the written guitar bounds from
-the active register, so a transposed key stays inside the same sounding range.
+chord-tone pattern under that line. Barrios chooses per phrase: arpeggio on
+the first body phrase from 90 BPM, tremolo when a note is held, andante under
+90, and a dance (choro, polca, or hemiola) when the line is running above 100
+BPM. All three read the written guitar bounds from the active register, so a
+transposed key stays inside the same sounding range.
 """
 
 from __future__ import annotations
@@ -25,6 +27,13 @@ GUITAR_BPM = {"classic": 88, "villa": 100, "barrios": 120}
 # is not sped up and gets no tremolo at all: it keeps its slow tempo and
 # sings as arpeggio instead. The daily tempo is the 120 middle of the range.
 BARRIOS_TREMOLO_MIN_BPM = 90
+BARRIOS_TREMOLO_MAX_BPM = 140
+# Dance is strictly faster than 100. 100 itself stays on arpeggio.
+BARRIOS_DANCE_MIN_BPM = 100
+# A held melody note is two quarter-notes: four eighths on the data grid.
+_HELD_EIGHTHS = 4
+_PRINTABLE_SIXTEENTHS = (16, 12, 8, 6, 4, 3, 2, 1)
+_PRINTABLE_EIGHTHS = (8, 6, 4, 3, 2, 1)
 _PEDAL = frozenset({"intro", "outro", "warmup", "cooldown"})
 # 64 is mp on the nylon voice, still under the bright nail layer. The apex
 # alone lifts. The thumb stays under the line so the downbeat is not the attack.
@@ -87,20 +96,23 @@ def render_guitar_score(
         chord_at,
         mode,
     )
-    if ensemble == "barrios" and bpm >= BARRIOS_TREMOLO_MIN_BPM:
-        lead, support, low = _tremolo(
+    if ensemble == "barrios":
+        lead, support, low, divisions = _render_barrios(
             melody,
             chord_at,
             kind_at,
+            band_at,
+            phrases,
             musical_bars,
+            total_eighths,
             bpm,
+            character,
+            character_at,
             register.guitar_floor,
             register.guitar_bass_top,
             register.guitar_mid_low,
             register.guitar_mid_high,
-            phrases,
         )
-        divisions = 4
     else:
         lead = _melody_line(melody, phrases, musical_bars)
         support, low = _arpeggio(
@@ -349,6 +361,7 @@ def _arpeggio(
     bass_high: int,
     mid_low: int,
     mid_high: int,
+    only: set[int] | None = None,
 ) -> tuple[list[NoteEvent], list[NoteEvent]]:
     meter = active_meter()
     epb = meter.eighths_per_bar
@@ -357,6 +370,8 @@ def _arpeggio(
     inner: list[NoteEvent] = []
     bass: list[NoteEvent] = []
     for bar in range(bars):
+        if only is not None and bar not in only:
+            continue
         chord = chord_at[bar]
         root = _clamp(chord.pitches[0], bass_low, bass_high)
         start = bar * epb
@@ -401,6 +416,7 @@ def _tremolo(
     mid_low: int,
     mid_high: int,
     phrases: tuple[Phrase, ...],
+    only: set[int] | None = None,
 ) -> tuple[tuple[NoteEvent, ...], tuple[NoteEvent, ...], tuple[NoteEvent, ...]]:
     """One tremolo cluster per quarter note, filled with four sixteenths.
 
@@ -421,6 +437,8 @@ def _tremolo(
     grain = 2
     duration = 0.25
     for bar in range(bars):
+        if only is not None and bar not in only:
+            continue
         chord = chord_at[bar]
         root = _clamp(chord.pitches[0], bass_low, bass_high)
         changed = bar == 0 or chord_at.get(bar - 1) != chord
@@ -693,3 +711,612 @@ def _slur(events: list[NoteEvent], phrases: tuple[Phrase, ...]) -> list[NoteEven
         result[start] = replace(result[start], slur_start=True)
         result[stop] = replace(result[stop], slur_stop=True)
     return result
+
+
+def guard_chromatic_approach(midi: int, next_root_pc: int, *, profile: str) -> None:
+    """A semitone under the next root belongs to `barrios_dance`.
+
+    `study` rejects that bass note. `barrios_dance` accepts it and stays quiet.
+    Any other pitch is outside this check.
+    """
+    if midi % 12 != (next_root_pc - 1) % 12:
+        return
+    if profile == "barrios_dance":
+        return
+    raise ValueError(f"{profile} rejects a chromatic approach into the next root")
+
+
+def _split_count(count: int, sizes: tuple[int, ...]) -> list[int]:
+    pieces: list[int] = []
+    left = count
+    while left > 0:
+        take = next(size for size in sizes if size <= left)
+        pieces.append(take)
+        left -= take
+    return pieces
+
+
+def _held_phrase(phrase: Phrase) -> bool:
+    return any(run.length >= _HELD_EIGHTHS for run in phrase.runs)
+
+
+def _running_phrase(phrase: Phrase) -> bool:
+    return bool(phrase.runs) and all(run.length < _HELD_EIGHTHS for run in phrase.runs)
+
+
+def _phrase_mood(
+    phrase: Phrase,
+    character: MovementCharacter | None,
+    character_at: tuple[MovementCharacter | None, ...] | list[MovementCharacter | None] | None,
+    eighths_per_bar: int,
+) -> MovementCharacter | None:
+    if phrase.runs and character_at is not None:
+        apex_bar = phrase.apex.start // eighths_per_bar
+        if apex_bar < len(character_at) and character_at[apex_bar] is not None:
+            return character_at[apex_bar]
+    return character
+
+
+def _phrase_band(phrase: Phrase, band_at: dict[int, str], eighths_per_bar: int) -> str:
+    if not phrase.runs:
+        return "mf"
+    return band_at.get(phrase.apex.start // eighths_per_bar, "mf")
+
+
+def _is_body(phrase: Phrase, kind_at: dict[int, str], eighths_per_bar: int) -> bool:
+    return any(
+        kind_at.get(eighth // eighths_per_bar, "phrase") not in _PEDAL
+        for eighth in range(phrase.start, phrase.end)
+    )
+
+
+def _choose_barrios_pattern(
+    phrase: Phrase,
+    *,
+    first_body: bool,
+    tremolo_run: int,
+    bpm: int,
+    meter_key: tuple[int, int],
+    mood: MovementCharacter | None,
+) -> str:
+    """Selector steps 1–5 for one body phrase. Pedal bars are assigned aside."""
+    if first_body and bpm >= BARRIOS_TREMOLO_MIN_BPM:
+        return "arpeggio"
+    if _held_phrase(phrase) and BARRIOS_TREMOLO_MIN_BPM <= bpm <= BARRIOS_TREMOLO_MAX_BPM:
+        if tremolo_run >= 2:
+            return "andante"
+        return "tremolo"
+    if bpm < BARRIOS_TREMOLO_MIN_BPM:
+        return "andante"
+    if (
+        _running_phrase(phrase)
+        and mood != "calm"
+        and bpm > BARRIOS_DANCE_MIN_BPM
+        and meter_key in {(4, 4), (6, 8)}
+    ):
+        return "dance"
+    return "arpeggio"
+
+
+def _assign_barrios(
+    phrases: tuple[Phrase, ...],
+    kind_at: dict[int, str],
+    band_at: dict[int, str],
+    musical_bars: int,
+    bpm: int,
+    character: MovementCharacter | None,
+    character_at: tuple[MovementCharacter | None, ...] | list[MovementCharacter | None] | None,
+) -> tuple[dict[int, tuple[str, str, Phrase | None]], list[tuple[Phrase, str, str]]]:
+    meter = active_meter()
+    epb = meter.eighths_per_bar
+    plans: dict[int, tuple[str, str, Phrase | None]] = {}
+    for bar in range(musical_bars):
+        if kind_at.get(bar) in _PEDAL:
+            plans[bar] = ("pedal", band_at.get(bar, "mf"), None)
+    choices: list[tuple[Phrase, str, str]] = []
+    tremolo_run = 0
+    first_body = True
+    meter_key = (meter.beats, meter.beat_type)
+    for phrase in phrases:
+        if phrase.end <= phrase.start or not _is_body(phrase, kind_at, epb):
+            continue
+        mood = _phrase_mood(phrase, character, character_at, epb)
+        pattern = _choose_barrios_pattern(
+            phrase,
+            first_body=first_body,
+            tremolo_run=tremolo_run,
+            bpm=bpm,
+            meter_key=meter_key,
+            mood=mood,
+        )
+        band = _phrase_band(phrase, band_at, epb)
+        choices.append((phrase, pattern, band))
+        tremolo_run = tremolo_run + 1 if pattern == "tremolo" else 0
+        first_body = False
+        for eighth in range(phrase.start, phrase.end):
+            if eighth % epb != 0:
+                continue
+            bar = eighth // epb
+            if bar >= musical_bars or plans.get(bar, ("", "", None))[0] == "pedal":
+                continue
+            plans[bar] = (pattern, band, phrase)
+    for bar in range(musical_bars):
+        plans.setdefault(bar, ("arpeggio", band_at.get(bar, "mf"), None))
+    return plans, choices
+
+
+def _following_pattern(
+    phrase: Phrase | None, choices: list[tuple[Phrase, str, str]]
+) -> str | None:
+    if phrase is None:
+        return None
+    for index, (candidate, pattern, _band) in enumerate(choices):
+        if candidate is phrase:
+            if index + 1 < len(choices):
+                return choices[index + 1][1]
+            return None
+    return None
+
+
+def _fill_one_eighth_bar(events: list[NoteEvent], bar: int, epb: int) -> list[NoteEvent]:
+    def position(event: NoteEvent) -> int:
+        return int(round(event.beat * 2))
+
+    def duration(event: NoteEvent) -> int:
+        return int(round(event.duration_beats * 2))
+
+    filled: list[NoteEvent] = []
+    cursor = 0
+    for event in sorted(events, key=lambda item: (position(item), -duration(item))):
+        start = position(event)
+        if start > cursor:
+            filled.extend(written(bar * epb + cursor, start - cursor, None))
+        filled.append(event)
+        cursor = max(cursor, start + duration(event))
+    if cursor < epb:
+        filled.extend(written(bar * epb + cursor, epb - cursor, None))
+    return filled
+
+
+def _fill_eighth_bars(events: list[NoteEvent], bars: set[int], epb: int) -> list[NoteEvent]:
+    grouped: dict[int, list[NoteEvent]] = {bar: [] for bar in bars}
+    for event in events:
+        if event.bar in grouped:
+            grouped[event.bar].append(event)
+    filled: list[NoteEvent] = []
+    for bar in sorted(grouped):
+        filled.extend(_fill_one_eighth_bar(grouped[bar], bar, epb))
+    return filled
+
+
+def _andante_attacks(epb: int, beats: int, marked: bool) -> list[tuple[int, int]]:
+    """(eighth, length in eighths) for one bar. Lengths sum to the bar."""
+    if epb == 8:
+        return [(0, 4), (4, 4)]
+    if epb == 6 and beats == 6:
+        return [(0, 3), (3, 3)]
+    if epb == 6 and marked:
+        return [(0, 4), (4, 2)]
+    if epb == 6:
+        return [(0, 6)]
+    return [(0, epb)]
+
+
+def _marked_andante_bars(phrases: tuple[Phrase, ...], epb: int) -> set[int]:
+    marked: set[int] = set()
+    for phrase in phrases:
+        if not phrase.runs or phrase.end <= phrase.start:
+            continue
+        marked.add(phrase.apex.start // epb)
+        if phrase.closes:
+            marked.add((phrase.end - 1) // epb)
+    return marked
+
+
+def _andante(
+    melody: list[int],
+    chord_at: dict[int, Chord],
+    phrases: tuple[Phrase, ...],
+    bars: int,
+    bass_low: int,
+    bass_high: int,
+    mid_low: int,
+    mid_high: int,
+    only: set[int],
+) -> tuple[list[NoteEvent], list[NoteEvent]]:
+    meter = active_meter()
+    epb = meter.eighths_per_bar
+    marked = _marked_andante_bars(phrases, epb)
+    inner: list[NoteEvent] = []
+    bass: list[NoteEvent] = []
+    for bar in sorted(only):
+        if bar >= bars:
+            continue
+        chord = chord_at[bar]
+        root = _clamp(chord.pitches[0], bass_low, bass_high)
+        start = bar * epb
+        for eighth, length in _andante_attacks(epb, meter.beats, bar in marked):
+            sung = melody[start + eighth]
+            tone = _tone_below(chord, sung, mid_low, mid_high, "third")
+            bass.extend(written(start + eighth, length, root, velocity=_BASS))
+            if tone is not None and root < tone < sung:
+                inner.extend(written(start + eighth, length, tone, velocity=_INNER))
+    return inner, bass
+
+
+def _tone_below(
+    chord: Chord,
+    sung: int,
+    mid_low: int,
+    mid_high: int,
+    prefer: str,
+) -> int | None:
+    """One trimmed chord tone strictly under the lead, inside the middle register."""
+    third = chord.pitches[1] % 12
+    seventh = chord.pitches[3] % 12 if len(chord.pitches) >= 4 else None
+    if prefer == "seventh":
+        order = [tone for tone in (seventh, third, *_pool(chord)) if tone is not None]
+    else:
+        order = [tone for tone in (third, seventh, *_pool(chord)) if tone is not None]
+    seen: list[int] = []
+    for pitch_class in order:
+        if pitch_class in seen:
+            continue
+        seen.append(pitch_class)
+        tone = _fit(pitch_class, mid_low, mid_high)
+        while tone >= sung and tone - 12 >= mid_low:
+            tone -= 12
+        if tone < sung:
+            return tone
+    return None
+
+
+def _approach_pitch(chord: Chord, bass_low: int, bass_high: int) -> int:
+    root = _clamp(chord.pitches[0], bass_low, bass_high)
+    note = root - 1
+    if bass_low <= note <= bass_high:
+        return note
+    return _fit(note % 12, bass_low, bass_high)
+
+
+def _falls_a_fifth(current: Chord, nxt: Chord) -> bool:
+    return (current.pitches[0] - nxt.pitches[0]) % 12 == 7
+
+
+def _events_from_slots(
+    bar: int,
+    slots: list[tuple[int | None, int | None]],
+    voice: int,
+) -> list[NoteEvent]:
+    events: list[NoteEvent] = []
+    index = 0
+    total = len(slots)
+    while index < total:
+        midi, velocity = slots[index]
+        if midi is None:
+            end = index + 1
+            while end < total and slots[end][0] is None:
+                end += 1
+            cursor = index
+            for length in _split_count(end - index, _PRINTABLE_SIXTEENTHS):
+                events.append(_hit(bar, cursor * 0.25, length * 0.25, None, voice, 0))
+                cursor += length
+            index = end
+            continue
+        events.append(_hit(bar, index * 0.25, 0.25, midi, voice, velocity if velocity is not None else _INNER))
+        index += 1
+    return events
+
+
+def _place_slot(
+    grid: list[tuple[int | None, int | None]],
+    index: int,
+    midi: int | None,
+    velocity: int,
+) -> None:
+    if midi is None or index < 0 or index >= len(grid):
+        return
+    grid[index] = (midi, velocity)
+
+
+def _clear_slot(grid: list[tuple[int | None, int | None]], index: int) -> None:
+    if 0 <= index < len(grid):
+        grid[index] = (None, None)
+
+
+def _lead_bar(
+    bar: int,
+    melody: list[int],
+    epb: int,
+    breath_eighth: int | None,
+    apex: set[int],
+) -> list[NoteEvent]:
+    """Melody on the eighth grid. A pattern-change breath is one eighth of rest."""
+    start = bar * epb
+    end = start + epb
+    events: list[NoteEvent] = []
+    eighth = start
+    while eighth < end:
+        if breath_eighth is not None and eighth == breath_eighth:
+            events.append(_hit(bar, (eighth - start) * 0.5, 0.5, None, 1, 0))
+            eighth += 1
+            continue
+        pitch = melody[eighth]
+        nxt = eighth + 1
+        while nxt < end and nxt != breath_eighth and melody[nxt] == pitch:
+            nxt += 1
+        cursor = eighth
+        for piece in _split_count(nxt - eighth, _PRINTABLE_EIGHTHS):
+            events.append(
+                _hit(
+                    bar,
+                    (cursor - start) * 0.5,
+                    piece * 0.5,
+                    pitch,
+                    1,
+                    _span_velocity(cursor, piece, apex),
+                )
+            )
+            cursor += piece
+        eighth = nxt
+    return events
+
+
+def _dance_bar(
+    bar: int,
+    *,
+    chord: Chord,
+    melody: list[int],
+    epb: int,
+    band: str,
+    beats: int,
+    bass_low: int,
+    bass_high: int,
+    mid_low: int,
+    mid_high: int,
+    approach: int | None,
+    leaving: bool,
+    breath_eighth: int | None,
+    apex: set[int],
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    sixteenths = epb * 2
+    low: list[tuple[int | None, int | None]] = [(None, None)] * sixteenths
+    support: list[tuple[int | None, int | None]] = [(None, None)] * sixteenths
+    root = _clamp(chord.pitches[0], bass_low, bass_high)
+    fifth = _clamp(chord.pitches[2], bass_low, bass_high) if len(chord.pitches) >= 3 else root
+
+    def sung(index: int) -> int:
+        return melody[bar * epb + index // 2]
+
+    def support_at(index: int, prefer: str) -> None:
+        _place_slot(
+            support,
+            index,
+            _tone_below(chord, sung(index), mid_low, mid_high, prefer),
+            _INNER,
+        )
+
+    if beats == 6 and epb == 6 and band == "f":
+        _place_slot(low, 0, root, _BASS)
+        _place_slot(low, 4, fifth, _BASS)
+        _place_slot(low, 8, root, _BASS)
+    elif beats == 6 and epb == 6:
+        _place_slot(low, 0, root, _BASS)
+        _place_slot(low, 6, fifth, _BASS)
+        for index, prefer in ((2, "third"), (4, "third"), (8, "third"), (10, "third")):
+            support_at(index, prefer)
+    else:
+        for origin in (0, 8):
+            _place_slot(low, origin, root, _BASS)
+            _place_slot(low, origin + 4, fifth, _BASS)
+            support_at(origin + 3, "third")
+            support_at(origin + 6, "seventh")
+            support_at(origin + 7, "third")
+
+    last = sixteenths - 1
+    if leaving:
+        _clear_slot(low, last)
+        _clear_slot(support, last)
+        for index in range(max(0, sixteenths - 4), sixteenths):
+            if index % 2 == 1:
+                _clear_slot(support, index)
+    elif approach is not None:
+        _clear_slot(support, last)
+        _place_slot(low, last, approach, _BASS)
+    if breath_eighth is not None and bar * epb <= breath_eighth < (bar + 1) * epb:
+        local = breath_eighth - bar * epb
+        _clear_slot(support, local * 2)
+        _clear_slot(support, local * 2 + 1)
+    return (
+        _lead_bar(bar, melody, epb, breath_eighth if _breath_in_bar(breath_eighth, bar, epb) else None, apex),
+        _events_from_slots(bar, support, 2),
+        _events_from_slots(bar, low, 3),
+    )
+
+
+def _breath_in_bar(breath_eighth: int | None, bar: int, epb: int) -> bool:
+    return breath_eighth is not None and bar * epb <= breath_eighth < (bar + 1) * epb
+
+
+def _dance(
+    melody: list[int],
+    chord_at: dict[int, Chord],
+    plans: dict[int, tuple[str, str, Phrase | None]],
+    choices: list[tuple[Phrase, str, str]],
+    musical_bars: int,
+    bass_low: int,
+    bass_high: int,
+    mid_low: int,
+    mid_high: int,
+    phrases: tuple[Phrase, ...],
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    meter = active_meter()
+    epb = meter.eighths_per_bar
+    apex = _apex_eighths(phrases)
+    lead: list[NoteEvent] = []
+    support: list[NoteEvent] = []
+    low: list[NoteEvent] = []
+    for bar, (pattern, band, phrase) in plans.items():
+        if pattern != "dance" or bar >= musical_bars:
+            continue
+        chord = chord_at[bar]
+        nxt = chord_at.get(bar + 1)
+        next_pattern = plans[bar + 1][0] if bar + 1 < musical_bars else None
+        ends_phrase = phrase is not None and bar == (phrase.end - 1) // epb
+        following = _following_pattern(phrase, choices)
+        leaving = ends_phrase and following != "dance"
+        breath = None
+        if (
+            leaving
+            and following is not None
+            and phrase is not None
+            and phrase.end - phrase.start >= _HELD_EIGHTHS
+        ):
+            breath = phrase.end - 1
+        approach = None
+        if (
+            not leaving
+            and next_pattern == "dance"
+            and nxt is not None
+            and _falls_a_fifth(chord, nxt)
+        ):
+            approach = _approach_pitch(nxt, bass_low, bass_high)
+        bar_lead, bar_support, bar_low = _dance_bar(
+            bar,
+            chord=chord,
+            melody=melody,
+            epb=epb,
+            band=band,
+            beats=meter.beats,
+            bass_low=bass_low,
+            bass_high=bass_high,
+            mid_low=mid_low,
+            mid_high=mid_high,
+            approach=approach,
+            leaving=leaving,
+            breath_eighth=breath,
+            apex=apex,
+        )
+        lead.extend(bar_lead)
+        support.extend(bar_support)
+        low.extend(bar_low)
+    return lead, support, low
+
+
+def _render_barrios(
+    melody: list[int],
+    chord_at: dict[int, Chord],
+    kind_at: dict[int, str],
+    band_at: dict[int, str],
+    phrases: tuple[Phrase, ...],
+    musical_bars: int,
+    total_eighths: int,
+    bpm: int,
+    character: MovementCharacter | None,
+    character_at: tuple[MovementCharacter | None, ...] | list[MovementCharacter | None] | None,
+    bass_low: int,
+    bass_high: int,
+    mid_low: int,
+    mid_high: int,
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent], int]:
+    meter = active_meter()
+    epb = meter.eighths_per_bar
+    plans, choices = _assign_barrios(
+        phrases, kind_at, band_at, musical_bars, bpm, character, character_at
+    )
+
+    def selected(name: str) -> set[int]:
+        return {bar for bar, plan in plans.items() if plan[0] == name}
+
+    pedal = selected("pedal")
+    arpeggio = selected("arpeggio")
+    tremolo = selected("tremolo")
+    andante = selected("andante")
+    dance = selected("dance")
+    fast = bpm >= BARRIOS_TREMOLO_MIN_BPM
+    line = _melody_line(melody, phrases, musical_bars)
+    lead: list[NoteEvent] = []
+    support: list[NoteEvent] = []
+    low: list[NoteEvent] = []
+    eighth_bars = pedal | arpeggio | andante
+    if eighth_bars:
+        lead.extend(
+            _fill_eighth_bars([event for event in line if event.bar in eighth_bars], eighth_bars, epb)
+        )
+    for bar in sorted(pedal):
+        root = _clamp(chord_at[bar].pitches[0], bass_low, bass_high)
+        low.append(_hit(bar, 0.0, meter.quarter_beats, root, 3, _BASS))
+        support.append(_hit(bar, 0.0, meter.quarter_beats, None, 2, 0))
+    if arpeggio:
+        inner, bass = _arpeggio(
+            melody,
+            chord_at,
+            kind_at,
+            band_at,
+            musical_bars,
+            rolling=False,
+            character=character,
+            character_at=character_at,
+            bass_low=bass_low,
+            bass_high=bass_high,
+            mid_low=mid_low,
+            mid_high=mid_high,
+            only=arpeggio,
+        )
+        support.extend(_fill_eighth_bars(inner, arpeggio, epb))
+        low.extend(_fill_eighth_bars(bass, arpeggio, epb))
+    if andante:
+        inner, bass = _andante(
+            melody,
+            chord_at,
+            phrases,
+            musical_bars,
+            bass_low,
+            bass_high,
+            mid_low,
+            mid_high,
+            andante,
+        )
+        support.extend(_fill_eighth_bars(inner, andante, epb))
+        low.extend(_fill_eighth_bars(bass, andante, epb))
+    if tremolo:
+        tremolo_lead, tremolo_inner, tremolo_bass = _tremolo(
+            melody,
+            chord_at,
+            kind_at,
+            musical_bars,
+            bpm,
+            bass_low,
+            bass_high,
+            mid_low,
+            mid_high,
+            phrases,
+            only=tremolo,
+        )
+        lead.extend(tremolo_lead)
+        support.extend(tremolo_inner)
+        low.extend(tremolo_bass)
+    if dance:
+        dance_lead, dance_support, dance_low = _dance(
+            melody,
+            chord_at,
+            plans,
+            choices,
+            musical_bars,
+            bass_low,
+            bass_high,
+            mid_low,
+            mid_high,
+            phrases,
+        )
+        lead.extend(dance_lead)
+        support.extend(dance_support)
+        low.extend(dance_low)
+    if not fast:
+        return (
+            list(with_rests(lead, total_eighths)),
+            list(with_rests(support, total_eighths)),
+            list(with_rests(low, total_eighths)),
+            2,
+        )
+    return lead, support, low, 4

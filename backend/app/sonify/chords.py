@@ -57,6 +57,8 @@ class Chord:
             return "diminished"
         if self.kind in (KIND_SUSPENDED_SECOND, KIND_SUSPENDED_FOURTH):
             return "suspended"
+        if self.kind_text == "+6":
+            return "augmented-sixth"
         return "major"
 
     def spelling(self, pitch_class: int) -> tuple[str, int] | None:
@@ -104,6 +106,13 @@ BF = Chord("Bb", "B", KIND_MAJOR, "", (70, 74, 77), alter=-1, tones=((10, "B", -
 BF7 = Chord(
     "Bb7", "B", KIND_DOMINANT, "7", (70, 74, 77, 80),
     alter=-1, tones=((10, "B", -1), (8, "A", -1)),
+)
+# German augmented sixth in C minor: Ab–C–Eb–F#. degrees keep the fourth
+# tone on F; without them the tertian spelling prints it as Gb.
+AB_AUG6 = Chord(
+    "Ab+6", "A", KIND_OTHER, "+6", (68, 72, 75, 78),
+    alter=-1, degrees=(0, 2, 4, 5),
+    tones=((8, "A", -1), (3, "E", -1), (6, "F", 1)),
 )
 EF = Chord(
     "Eb", "E", KIND_MAJOR, "", (63, 67, 70),

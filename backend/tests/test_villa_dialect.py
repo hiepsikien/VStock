@@ -97,7 +97,14 @@ def test_shares_root_covers_suspended_only() -> None:
     assert COMMON.shares_root(C, csus4) is False
     assert COMMON.allowed(csus4, pedal=True, phrase_downbeat=True, character=None, mode="major") is True
     assert dialect_for("classic") is COMMON
-    assert dialect_for("barrios") is COMMON
+    assert dialect_for("barrios").name == "barrios"
+    barrios = dialect_for("barrios")
+    for mode in ("major", "minor"):
+        assert all(
+            chord.kind_text not in {"sus2", "sus4", "7sus4", "add9", "madd9"}
+            for chord in barrios.extra(mode)
+        )
+        assert all(chord.quality_group != "suspended" for chord in barrios.extra(mode))
     assert dialect_for("villa") is VILLA
 
 

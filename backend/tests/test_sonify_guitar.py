@@ -12,6 +12,7 @@ from app.sonify.guitar import (
     _place_melody,
     _slur,
     _tremolo,
+    guard_chromatic_approach,
     render_guitar_score,
 )
 from app.sonify.keys import D_KEY, compose_register, register_for
@@ -410,3 +411,233 @@ def test_bass_folds_the_stored_root_up_to_f3() -> None:
         key=D_KEY,
     )
     assert _bass_pitches(written, 0) == {50}
+
+
+def _runs_of(start: int, notes: list[int]) -> tuple[Run, ...]:
+    runs: list[Run] = []
+    cursor = 0
+    while cursor < len(notes):
+        nxt = cursor + 1
+        while nxt < len(notes) and notes[nxt] == notes[cursor]:
+            nxt += 1
+        runs.append(Run(start + cursor, nxt - cursor, notes[cursor]))
+        cursor = nxt
+    return tuple(runs)
+
+
+def _barrios_score(
+    groups: list[list[int]],
+    chords: list,
+    *,
+    bpm: int = 120,
+    meter=METER_44,
+    character: str = "rally",
+    band: str = "mf",
+):
+    phrases = []
+    pitches: list[int] = []
+    for notes in groups:
+        phrases.append(Phrase(len(pitches), len(pitches) + len(notes), _runs_of(len(pitches), notes), False))
+        pitches.extend(notes)
+    bars = len(chords)
+    slots = tuple(ChordSlot(bar, 1, chord, "sideway", "phrase") for bar, chord in enumerate(chords))
+    with compose_meter(meter):
+        score = render_guitar_score(
+            title="Guitar",
+            chosen=(),
+            sample_indexes=None,
+            slots=slots,
+            pitches=pitches,
+            phrases=tuple(phrases),
+            dynamics=(),
+            bands=[band] * bars,
+            band_at={bar: band for bar in range(bars)},
+            musical_bars=bars,
+            total_eighths=len(pitches),
+            bpm=bpm,
+            ensemble="barrios",
+            harmonies=(),
+            character=character,  # type: ignore[arg-type]
+        )
+    # Every voice has to fill the bar. Overlapping chord tones (tremolo root
+    # and fifth) count once; a gap or a note past the bar line fails.
+    for bar in range(bars):
+        for voice in (score.lead, score.support, score.low):
+            _assert_covers(voice, bar, score.bar_beats)
+    score_to_musicxml(score)
+    return score
+
+
+def _assert_covers(events, bar: int, bar_beats: float) -> None:
+    spans = sorted(
+        (event.beat, event.beat + event.duration_beats)
+        for event in events
+        if event.bar == bar
+    )
+    assert spans, f"voice has no events in bar {bar}"
+    cursor = 0.0
+    for start, end in spans:
+        assert start <= cursor + 1e-6, f"gap before beat {start} in bar {bar}"
+        cursor = max(cursor, end)
+    assert abs(cursor - bar_beats) < 1e-6
+
+
+def _onsets(events, bar: int) -> list[float]:
+    return sorted(round(event.beat, 2) for event in events if event.bar == bar and event.midi is not None)
+
+
+def _notes_at(events, bar: int, beat: float) -> list[NoteEvent]:
+    return [
+        event
+        for event in events
+        if event.bar == bar and event.midi is not None and abs(event.beat - beat) < 1e-6
+    ]
+
+
+# Chord tones inside the guitar treble window, neighbours always different,
+# so each eighth is a new melody attack and strong-beat quantize leaves it.
+_C_RUN = [60, 64, 67, 72, 76, 79, 67, 64]
+_G_RUN = [67, 71, 74, 79, 71, 74, 67, 71]
+_C_RUN_68 = [60, 64, 67, 72, 76, 79]
+_G_RUN_68 = [67, 71, 74, 79, 71, 67]
+
+
+def test_barrios_choro_dances_only_the_later_running_phrase() -> None:
+    # Opening body phrase stays arpeggio. The next running phrase, above 100
+    # and not calm, is choro: bass on the beat, inner notes on the off sixteenths.
+    score = _barrios_score([_C_RUN, _C_RUN, _C_RUN], [C, C, C], character="rally")
+    assert score.divisions == 4
+    assert 0.75 not in _onsets(score.support, 0)
+    assert 0.75 not in _onsets(score.low, 0)
+    assert all(note.duration_beats != 0.25 for note in score.lead if note.bar == 0 and note.midi is not None)
+
+    low = _notes_at(score.low, 1, 0.0) + _notes_at(score.low, 1, 1.0)
+    low += _notes_at(score.low, 1, 2.0) + _notes_at(score.low, 1, 3.0)
+    assert [round(note.beat, 2) for note in low] == [0.0, 1.0, 2.0, 3.0]
+    assert [note.midi % 12 for note in low] == [0, 7, 0, 7]
+    assert all(note.duration_beats == 0.25 for note in low)
+    # Same chord next bar: sixteenth 15 stays an inner note, not a leading tone.
+    assert _onsets(score.support, 1) == [0.75, 1.5, 1.75, 2.75, 3.5, 3.75]
+    assert all(note.duration_beats == 0.25 for note in score.support if note.bar == 1 and note.midi is not None)
+    # Sixteenth 2 is the melody alone. The sung pitch is the data eighth.
+    assert [note.midi for note in _notes_at(score.lead, 1, 0.5)] == [64]
+    assert _onsets(score.low, 1).count(0.5) == 0
+    assert 0.5 not in _onsets(score.support, 1)
+    melody_beats = [index * 0.5 for index in range(8)]
+    assert _onsets(score.lead, 1) == melody_beats
+
+    calm = _barrios_score([_C_RUN, _C_RUN], [C, C], character="calm")
+    assert 0.75 not in _onsets(calm.support, 1)
+    assert all(note.duration_beats != 0.25 for note in calm.low if note.midi is not None)
+
+    with compose_meter(METER_34):
+        three = _barrios_score(
+            [_C_RUN_68, _C_RUN_68],
+            [C, C],
+            meter=METER_34,
+            character="rally",
+        )
+    assert 0.75 not in _onsets(three.support, 1)
+    assert three.divisions == 4
+
+    at_100 = _barrios_score([_C_RUN, _C_RUN], [C, C], bpm=100, character="rally")
+    assert at_100.divisions == 4
+    assert 0.75 not in _onsets(at_100.support, 1)
+    assert all(note.duration_beats != 0.25 for note in at_100.support if note.midi is not None)
+
+
+def test_barrios_scherzo_picks_tremolo_polca_or_hemiola_by_the_line() -> None:
+    held = [72] * 6
+    tremolo = _barrios_score(
+        [_C_RUN_68, held],
+        [C, C],
+        meter=METER_68,
+        character="rally",
+        band="mp",
+    )
+    assert all(note.duration_beats != 0.25 for note in tremolo.lead if note.bar == 0 and note.midi is not None)
+    assert _onsets(tremolo.lead, 1) == [index * 0.25 for index in range(12)]
+    assert all(note.duration_beats == 0.25 for note in tremolo.lead if note.bar == 1 and note.midi is not None)
+
+    # A running line at band f is hemiola: accompaniment only on eighths 0, 2, 4.
+    hemiola = _barrios_score(
+        [_G_RUN_68, _G_RUN_68, _G_RUN_68],
+        [G, G, G],
+        meter=METER_68,
+        character="rally",
+        band="f",
+    )
+    accompaniment = set(_onsets(hemiola.low, 1)) | set(_onsets(hemiola.support, 1))
+    assert accompaniment == {0.0, 1.0, 2.0}
+    assert {0.5, 1.5, 2.5} <= set(_onsets(hemiola.lead, 1))
+    assert 2.75 not in _onsets(hemiola.low, 1)
+
+    # The same band on a held line stays tremolo. Hemiola never repeats sixteenths.
+    held_forte = _barrios_score(
+        [_C_RUN_68, held],
+        [C, C],
+        meter=METER_68,
+        character="rally",
+        band="f",
+    )
+    assert _onsets(held_forte.lead, 1) == [index * 0.25 for index in range(12)]
+
+    polca = _barrios_score(
+        [_G_RUN_68, _G_RUN_68, _G_RUN_68],
+        [G, G, G],
+        meter=METER_68,
+        character="rally",
+        band="mp",
+    )
+    assert _onsets(polca.low, 1) == [0.0, 1.5]
+    assert [note.midi % 12 for note in _notes_at(polca.low, 1, 0.0)] == [7]
+    assert [note.midi % 12 for note in _notes_at(polca.low, 1, 1.5)] == [2]
+    assert _onsets(polca.support, 1) == [0.5, 1.0, 2.0, 2.5]
+    assert all(note.duration_beats == 0.25 for note in polca.support if note.bar == 1 and note.midi is not None)
+    assert 2.75 not in _onsets(polca.low, 1)
+
+
+def test_barrios_dance_approaches_a_fifth_and_tapers_when_it_leaves() -> None:
+    # G falling to C is one fifth. The dance continues, so the last sixteenth
+    # is a bass note one semitone under the next root.
+    choro = _barrios_score([_C_RUN, _G_RUN, _C_RUN], [C, G, C], character="rally")
+    approach = _notes_at(choro.low, 1, 3.75)
+    assert len(approach) == 1
+    assert approach[0].duration_beats == 0.25
+    assert approach[0].midi is not None and approach[0].midi % 12 == 11
+    assert 40 <= approach[0].midi <= 53
+    assert not _notes_at(choro.support, 1, 3.75)
+    guard_chromatic_approach(approach[0].midi, 0, profile="barrios_dance")
+    with pytest.raises(ValueError):
+        guard_chromatic_approach(approach[0].midi, 0, profile="study")
+
+    polca = _barrios_score(
+        [_C_RUN_68, _G_RUN_68, _C_RUN_68],
+        [C, G, C],
+        meter=METER_68,
+        character="rally",
+        band="mp",
+    )
+    leading = _notes_at(polca.low, 1, 2.75)
+    assert len(leading) == 1
+    assert leading[0].midi is not None and leading[0].midi % 12 == 11
+    assert leading[0].duration_beats == 0.25
+    kept = _notes_at(polca.support, 1, 2.5)
+    assert len(kept) == 1 and kept[0].duration_beats == 0.25
+    guard_chromatic_approach(leading[0].midi, 0, profile="barrios_dance")
+    with pytest.raises(ValueError):
+        guard_chromatic_approach(leading[0].midi, 0, profile="study")
+
+    # The next phrase is held, so it is tremolo. The dance bar rests its last
+    # sixteenth and gives the last eighth of the melody and the inner voice
+    # back as a breath, even though the roots fall a fifth.
+    leaving = _barrios_score(
+        [_C_RUN, _G_RUN, [72] * 8],
+        [C, G, C],
+        character="rally",
+    )
+    assert 3.75 not in _onsets(leaving.low, 1)
+    assert 3.75 not in _onsets(leaving.support, 1)
+    assert 3.5 not in _onsets(leaving.lead, 1)
+    assert 3.5 not in _onsets(leaving.support, 1)
+    assert _onsets(leaving.lead, 2) == [index * 0.25 for index in range(16)]
