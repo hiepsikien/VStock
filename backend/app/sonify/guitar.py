@@ -25,6 +25,19 @@ GUITAR_BPM = {"classic": 88, "villa": 100, "barrios": 120}
 # is not sped up and gets no tremolo at all: it keeps its slow tempo and
 # sings as arpeggio instead. The daily tempo is the 120 middle of the range.
 BARRIOS_TREMOLO_MIN_BPM = 90
+
+
+def guard_chromatic_approach(midi: int, next_root_pc: int, *, profile: str) -> None:
+    """A semitone under the next root belongs to `barrios_dance`.
+
+    `study` rejects that bass note. `barrios_dance` accepts it and stays quiet.
+    Any other pitch is outside this check.
+    """
+    if midi % 12 != (next_root_pc - 1) % 12:
+        return
+    if profile == "barrios_dance":
+        return
+    raise ValueError(f"{profile} rejects a chromatic approach into the next root")
 _PEDAL = frozenset({"intro", "outro", "warmup", "cooldown"})
 # 64 is mp on the nylon voice, still under the bright nail layer. The apex
 # alone lifts. The thumb stays under the line so the downbeat is not the attack.
