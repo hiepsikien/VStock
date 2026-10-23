@@ -11,7 +11,6 @@ from app.sonify.dynamics import COOLDOWN_MARKING, SOUND
 from app.sonify.form import (
     active_meter,
     ChordSlot,
-    FormSection,
     FormSpec,
 )
 from app.sonify.keys import active_register
@@ -42,8 +41,9 @@ AMBIENT_BPM = 60
 # A cool-down may keep sounding the note that touches it, up to five bars
 # from the start of that breath. It does not open a second drone.
 COOLDOWN_HOLD = 40
-LEAP = 5
-PILLARS_PER_EIGHT = 2
+# A slurred inflection inside one breath. Retests after a rest use MIN_RISE.
+STEP_INFLECT = 1
+WINDOW_BARS = 4
 SHIMMER_GAP_BARS = 4
 SWELL_GAP_BARS = 4
 SHIMMER_TRIGGER = 76
@@ -74,7 +74,6 @@ def _hold(raw: int) -> int:
 
 GLASS_HOLD = 32
 FLAT_HOLD = 32
-PILLAR_GAP = 24
 SWELL_HOLD = 16
 SHIMMER_EIGHTHS = 8
 _DRONE_MARKING = {"p": "p", "mp": "mp", "mf": "mp", "f": "mp"}
@@ -165,145 +164,133 @@ def _fold_glass(midi: int, previous: int | None = None) -> int:
     return midi
 
 
-def _one_per_bar(runs: list[Run]) -> list[Run]:
-    kept: list[Run] = []
-    for run in runs:
-        bar_start = (run.start // active_meter().eighths_per_bar) * active_meter().eighths_per_bar
-        if kept and kept[-1].start == bar_start:
-            continue
-        kept.append(Run(bar_start, run.length, run.midi))
-    return kept
+_Segment = tuple[int, int, int, bool, bool, bool]
 
 
-def _pillars(
-    section: FormSection,
-    phrases: tuple[Phrase, ...],
-    pitches: list[int],
-    previous_midi: int | None = None,
-) -> list[Run]:
-    start = section.start * active_meter().eighths_per_bar
-    end = section.end * active_meter().eighths_per_bar
-    if not phrases:
-        return [Run(start, 1, _fold_glass(pitches[start], previous_midi))]
-    covered = next(
-        (run for phrase in phrases for run in phrase.runs if run.start <= start < run.end),
-        None,
-    )
-    opening = covered if covered is not None else Run(start, 1, pitches[start])
-    closing = phrases[-1].runs[-1]
-    apex_starts = {
-        phrase.apex.start
-        for phrase in phrases
-        if phrase.rise >= MIN_RISE
-        and phrase.apex.start != opening.start
-        and phrase.apex.start != closing.start
-    }
-    apex_bars = {pos // active_meter().eighths_per_bar for pos in apex_starts}
-    kept: list[Run] = [opening]
-    for phrase in phrases:
-        if phrase.apex.start in apex_starts:
-            kept.append(phrase.apex)
-    kept.sort(key=lambda run: run.start)
-    for phrase in phrases:
-        for run in phrase.runs:
-            if any(run.start == pillar.start for pillar in kept):
-                continue
-            earlier = sorted(
-                (pillar for pillar in kept if pillar.start < run.start),
-                key=lambda pillar: pillar.start,
-            )
-            if earlier and abs(run.midi - earlier[-1].midi) >= LEAP:
-                kept.append(run)
-    if all(run.start != closing.start for run in kept):
-        kept.append(closing)
-    kept.sort(key=lambda run: run.start)
-    kept = _one_per_bar(kept)
+def _split_bars(count: int, parts: int) -> list[int]:
+    """Even bar lengths, the extra bars landing on the later parts."""
+    base, extra = divmod(count, parts)
+    return [base] * (parts - extra) + [base + 1] * extra
+
+
+def _max_hold_bars() -> int:
+    epb = active_meter().eighths_per_bar
+    return max(1, _hold(GLASS_HOLD) // epb)
+
+
+def _rest_bars(bar: int) -> int:
+    """Calm adds a bar of rest in 4/4 and 3/4. 6/4 stays at one bar."""
+    if active_meter().eighths_per_bar == 12:
+        return 1
     from app.sonify.groove import groove_at
 
-    def _gap(start: int) -> int:
-        gap = _hold(PILLAR_GAP)
-        if groove_at(start // max(active_meter().eighths_per_bar, 1)).calm:
-            gap += active_meter().eighths_per_bar
-        return gap
+    return 2 if groove_at(bar).calm else 1
 
-    kept = [
-        run
-        for index, run in enumerate(kept)
-        if index == 0 or end - run.start >= _gap(run.start)
-    ]
-    folded: list[Run] = []
-    last_midi = previous_midi
-    for run in kept:
-        midi = _fold_glass(run.midi, last_midi)
-        folded.append(Run(run.start, run.length, midi))
-        last_midi = midi
-    kept = folded
-    spaced: list[Run] = []
-    for run in kept:
-        if not spaced or run.start - spaced[-1].start >= _hold(PILLAR_GAP):
-            spaced.append(run)
+
+def _breath_spans(start: int, end: int) -> list[tuple[int, int]]:
+    """Sounding bar ranges for one phrase section, half-open."""
+    length = end - start
+    if length <= 0:
+        return []
+    max_hold = _max_hold_bars()
+    if length <= max_hold:
+        return [(start, end)]
+    sizes = _split_bars(length, max(2, length // WINDOW_BARS))
+    windows: list[tuple[int, int]] = []
+    cursor = start
+    for size in sizes:
+        windows.append((cursor, cursor + size))
+        cursor += size
+    spans: list[tuple[int, int]] = []
+    last = len(windows) - 1
+    for index, (w_start, w_end) in enumerate(windows):
+        if index == last:
+            spans.append((max(w_start, end - max_hold), end))
             continue
-        prev = spaced[-1]
-        run_is_apex = (run.start // active_meter().eighths_per_bar) in apex_bars
-        prev_is_apex = (prev.start // active_meter().eighths_per_bar) in apex_bars
-        if prev.start != kept[0].start and run_is_apex and not prev_is_apex:
-            spaced[-1] = run
-    kept = spaced
-    section_eighths = (section.end - section.start) * active_meter().eighths_per_bar
-    cap = 2 * section_eighths // 64
-    if cap < 1:
-        cap = 1
-    if len(kept) > cap:
-        must = {kept[0].start}
-        if (
-            len(kept) > 1
-            and kept[-1].start - kept[0].start >= _hold(GLASS_HOLD)
-            and end - kept[-1].start >= _hold(PILLAR_GAP)
-        ):
-            must.add(kept[-1].start)
-        extra = [run for run in kept if run.start not in must]
-        extra.sort(
-            key=lambda run: (
-                (run.start // active_meter().eighths_per_bar) in apex_bars,
-                abs(run.midi - kept[0].midi),
-            )
-        )
-        drop: set[int] = set()
-        for run in extra:
-            if len(kept) - len(drop) <= cap:
-                break
-            drop.add(run.start)
-        kept = [run for run in kept if run.start not in drop]
-    thinned = [kept[0]]
-    for run in kept[1:]:
-        previous = thinned[-1]
-        distant = run.midi == previous.midi and run.start - previous.start > _hold(GLASS_HOLD)
-        if distant and run.start != kept[-1].start:
+        width = w_end - w_start
+        rest_tail = min(width - 1, max(_rest_bars(w_start), width - max_hold))
+        spans.append((w_start, w_end - rest_tail))
+    return spans
+
+
+def _downbeat(pitches: list[int], bar: int) -> int | None:
+    index = bar * active_meter().eighths_per_bar
+    if index >= len(pitches):
+        return None
+    return pitches[index]
+
+
+def _candidate(
+    bar: int,
+    pitches: list[int],
+    origin: int,
+    chord_at: dict[int, Chord] | None,
+) -> int:
+    epb = active_meter().eighths_per_bar
+    start = bar * epb
+    span = pitches[start : min(len(pitches), start + epb)]
+    if not span:
+        return _fold_glass(pitches[min(start, len(pitches) - 1)], origin)
+    chord = None if chord_at is None else chord_at.get(bar)
+    avoid = None
+    if chord is not None and chord.quality_group == "major":
+        avoid = (chord.pitches[0] + 5) % 12
+    pool = [pitch for pitch in span if avoid is None or pitch % 12 != avoid] or [span[0]]
+    return max((_fold_glass(pitch, origin) for pitch in pool), key=lambda midi: abs(midi - origin))
+
+
+def _anchors(
+    b_start: int,
+    b_end: int,
+    pitches: list[int],
+    previous: int | None,
+    chord_at: dict[int, Chord] | None,
+) -> list[tuple[int, int]]:
+    opening = _downbeat(pitches, b_start)
+    if opening is None:
+        return []
+    origin = _fold_glass(opening, previous)
+    anchors = [(b_start, origin)]
+    best: tuple[tuple[int, int], int, int] | None = None
+    for bar in range(b_start + 1, b_end - 1):
+        if _downbeat(pitches, bar) is None:
+            break
+        midi = _candidate(bar, pitches, origin, chord_at)
+        deviation = abs(midi - origin)
+        if deviation < STEP_INFLECT:
             continue
-        thinned.append(run)
-    return thinned
+        rank = (deviation, -bar)
+        if best is None or rank > best[0]:
+            best = (rank, bar, midi)
+    if best is not None:
+        anchors.append((best[1], best[2]))
+    close_bar = b_end - 1
+    if close_bar > b_start:
+        close_pitch = _downbeat(pitches, close_bar)
+        if close_pitch is not None:
+            neighbor = anchors[-1][1]
+            folded = _fold_glass(close_pitch, neighbor)
+            if abs(folded - neighbor) >= STEP_INFLECT:
+                anchors.append((close_bar, folded))
+    return anchors
 
 
-def _place(pillars: list[Run], section_end: int, *, hold: int) -> list[tuple[int, int, int, bool]]:
-    """(start, length, midi, slur into the next pillar) inside one section."""
-    placed: list[tuple[int, int, int, bool]] = []
-    index = 0
-    while index < len(pillars):
-        pillar = pillars[index]
-        limit = pillar.start + hold
-        nxt = index + 1
-        while nxt < len(pillars) and pillars[nxt].midi == pillar.midi and pillars[nxt].start <= limit:
-            nxt += 1
-        if nxt < len(pillars) and pillars[nxt].midi != pillar.midi and pillars[nxt].start - pillar.start <= hold:
-            length = pillars[nxt].start - pillar.start
-            slur = True
-        else:
-            length = min(hold, section_end - pillar.start)
-            slur = False
+def _anchor_segments(anchors: list[tuple[int, int]], b_end: int) -> list[_Segment]:
+    if not anchors:
+        return []
+    epb = active_meter().eighths_per_bar
+    if len(anchors) == 1:
+        bar, midi = anchors[0]
+        length = (b_end - bar) * epb
+        return [(bar * epb, length, midi, False, False, False)] if length > 0 else []
+    segments: list[_Segment] = []
+    for index, (bar, midi) in enumerate(anchors):
+        last = index + 1 == len(anchors)
+        nxt = b_end if last else anchors[index + 1][0]
+        length = (nxt - bar) * epb
         if length > 0:
-            placed.append((pillar.start, length, pillar.midi, slur))
-        index = nxt if nxt > index else index + 1
-    return placed
+            segments.append((bar * epb, length, midi, not last, False, False))
+    return segments
 
 
 def _breath_eighths(
@@ -318,47 +305,100 @@ def _breath_eighths(
     return at - start
 
 
-def _omit_same_pitch_reattacks(
-    segments: list[tuple[int, int, int, bool, bool, bool]],
-) -> list[tuple[int, int, int, bool, bool, bool]]:
-    """Finish a breath that reaches the next bar, and do not tongue it again.
-
-    A same pitch that merely touches is tied on for whatever is left of the
-    four-bar hold, then released. A same pitch after a rest is dropped. A
-    breath that already lasts ``_hold(GLASS_HOLD)`` releases at the boundary. Tied
-    intro notes stay as written. The line speaks again when the pitch moves.
-    """
-    kept: list[tuple[int, int, int, bool, bool, bool]] = []
-    for start, length, midi, slur, tie_in, tie_out in segments:
-        if kept:
-            prev_start, prev_length, prev_midi, _prev_slur, prev_tie_in, prev_tie_out = kept[-1]
-            touches = prev_start + prev_length == start
-            linked = touches and (kept[-1][3] or prev_tie_out or tie_in)
-            if midi == prev_midi and not linked:
-                if touches:
-                    room = _hold(GLASS_HOLD) - _breath_eighths(kept, midi, start)
-                    if room > 0:
-                        take = min(length, room)
-                        kept[-1] = (
-                            prev_start,
-                            prev_length + take,
-                            midi,
-                            slur if take == length else False,
-                            prev_tie_in,
-                            False,
-                        )
+def _breath_chains(segments: list[_Segment]) -> list[list[_Segment]]:
+    """Group segments that touch and are joined by a slur or a tie."""
+    chains: list[list[_Segment]] = []
+    current: list[_Segment] = []
+    for segment in segments:
+        if current:
+            previous = current[-1]
+            touches = previous[0] + previous[1] == segment[0]
+            linked = touches and (previous[3] or previous[5] or segment[4])
+            if linked:
+                current.append(segment)
                 continue
-            if not touches:
-                kept[-1] = (prev_start, prev_length, prev_midi, False, prev_tie_in, False)
-                tie_in = False
-        kept.append((start, length, midi, slur, tie_in, tie_out))
+        if current:
+            chains.append(current)
+        current = [segment]
+    if current:
+        chains.append(current)
+    return chains
+
+
+def _release(segment: _Segment) -> _Segment:
+    start, length, midi, _slur, tie_in, _tie_out = segment
+    return (start, length, midi, False, tie_in, False)
+
+
+def _clear_tie_in(segment: _Segment) -> _Segment:
+    start, length, midi, slur, _tie_in, tie_out = segment
+    return (start, length, midi, slur, False, tie_out)
+
+
+def _excursion(chain: list[_Segment], prev_midi: int, prev_end: int, pitches: list[int] | None) -> int:
+    chain_end = chain[-1][0] + chain[-1][1]
+    if pitches is None:
+        return max(abs(segment[2] - prev_midi) for segment in chain)
+    window = pitches[prev_end : min(chain_end, len(pitches))]
+    return max((abs(_fold_glass(pitch, prev_midi) - prev_midi) for pitch in window), default=0)
+
+
+def _omit_same_pitch_reattacks(
+    segments: list[_Segment],
+    pitches: list[int] | None = None,
+) -> list[_Segment]:
+    """Tie a touching same pitch up to the hold, and drop a still reattack.
+
+    Slurred or tied segments are one breath, kept or dropped together. A breath
+    already linked with a tie stays as written, past the four-bar ceiling.
+    After a rest, that breath returns only when it leaves the previous pitch
+    or the folded price moved by ``MIN_RISE``.
+    """
+    kept: list[_Segment] = []
+    for chain in _breath_chains(segments):
+        if not kept:
+            kept.extend(chain)
+            continue
+        prev = kept[-1]
+        prev_end = prev[0] + prev[1]
+        prev_midi = prev[2]
+        chain_start = chain[0][0]
+        anchor_0 = chain[0][2]
+        anchor_last = chain[-1][2]
+        touches = chain_start == prev_end
+        linked = touches and (prev[3] or prev[5] or chain[0][4])
+        if touches and linked:
+            kept.extend(chain)
+            continue
+        if touches and anchor_0 == prev_midi:
+            room = _hold(GLASS_HOLD) - _breath_eighths(kept, prev_midi, chain_start)
+            take = min(chain[0][1], max(0, room))
+            if take > 0:
+                full = take == chain[0][1]
+                slur = (True if len(chain) > 1 else chain[0][3]) if full else False
+                kept[-1] = (prev[0], prev[1] + take, prev_midi, slur, prev[4], False)
+            elif len(chain) > 1:
+                kept[-1] = _release(prev)
+            if len(chain) > 1:
+                kept.extend(chain[1:])
+            continue
+        if chain_start > prev_end and anchor_0 == prev_midi:
+            kept[-1] = _release(prev)
+            chain = [_clear_tie_in(chain[0]), *chain[1:]]
+            moved = anchor_last != prev_midi or _excursion(chain, prev_midi, prev_end, pitches) >= MIN_RISE
+            if moved:
+                kept.extend(chain)
+            continue
+        if not touches:
+            kept[-1] = _release(prev)
+            chain = [_clear_tie_in(chain[0]), *chain[1:]]
+        kept.extend(chain)
     if kept:
-        start, length, midi, _slur, tie_in, _tie_out = kept[-1]
-        kept[-1] = (start, length, midi, False, tie_in, False)
+        kept[-1] = _release(kept[-1])
     return kept
 
 
-def _emit(segments: list[tuple[int, int, int, bool, bool, bool]]) -> list[NoteEvent]:
+def _emit(segments: list[_Segment]) -> list[NoteEvent]:
     """segments are start, length, midi, slur-into-next, tie-in, tie-out."""
     notes: list[NoteEvent] = []
     for index, (start, length, midi, slur, tie_in, tie_out) in enumerate(segments):
@@ -368,8 +408,8 @@ def _emit(segments: list[tuple[int, int, int, bool, bool, bool]]) -> list[NoteEv
                 start,
                 length,
                 midi,
-                slur_start=slur,
-                slur_stop=previous_slur,
+                slur_start=slur and not previous_slur,
+                slur_stop=previous_slur and not slur,
                 velocity=GLASS_VELOCITY,
                 tenuto=not tie_in and not previous_slur,
                 tie_in=tie_in,
@@ -552,38 +592,63 @@ def _daily_frame_breaths(
                 beat=0.0,
             )
         )
+    elif outro is not None:
+        extended = next(
+            (
+                segment
+                for segment in segments
+                if segment[0] < outro_start < segment[0] + segment[1]
+            ),
+            None,
+        )
+        if extended is not None:
+            end = extended[0] + extended[1]
+            last = max(outro.start, end // active_meter().eighths_per_bar - 1)
+            dynamics.append(
+                DynamicEvent(
+                    bar=last,
+                    marking=COOLDOWN_MARKING,
+                    sound=SOUND[COOLDOWN_MARKING],
+                    beat=0.0,
+                )
+            )
     return wedges, dynamics
 
 
 def _glass(
     form: FormSpec,
-    phrases: tuple[Phrase, ...],
+    _phrases: tuple[Phrase, ...],
     pitches: list[int],
     *,
     frame: bool = False,
     chord_at: dict[int, Chord] | None = None,
 ) -> tuple[list[NoteEvent], list[WedgeEvent], list[DynamicEvent]]:
-    segments: list[tuple[int, int, int, bool, bool, bool]] = []
+    segments: list[_Segment] = []
     last_midi: int | None = None
-    phrase_sections = [section for section in form.sections if section.kind == "phrase"]
-    for section in phrase_sections:
-        inside = _phrases_inside(phrases, section.start, section.end)
-        end = section.end * active_meter().eighths_per_bar
-        span = pitches[section.start * active_meter().eighths_per_bar : end]
-        flat = not span or max(span) - min(span) < MIN_RISE
-        if flat:
-            opening_at = section.start * active_meter().eighths_per_bar
-            length = min(_hold(FLAT_HOLD), end - opening_at)
-            folded = _fold_glass(pitches[opening_at], last_midi)
-            placed = [(opening_at, length, folded, False)] if length > 0 else []
-        else:
-            placed = _place(_pillars(section, inside, pitches, last_midi), end, hold=_hold(GLASS_HOLD))
-        for start, length, midi, slur in placed:
-            segments.append((start, length, midi, slur, False, False))
-            last_midi = midi
+    epb = active_meter().eighths_per_bar
+    for section in form.sections:
+        if section.kind != "phrase":
+            continue
+        start = section.start * epb
+        end = min(section.end * epb, len(pitches))
+        span = pitches[start:end]
+        if not span:
+            continue
+        if max(span) == min(span):
+            length = min(_hold(FLAT_HOLD), end - start)
+            folded = _fold_glass(pitches[start], last_midi)
+            if length > 0:
+                segments.append((start, length, folded, False, False, False))
+                last_midi = folded
+            continue
+        for b_start, b_end in _breath_spans(section.start, section.end):
+            placed = _anchor_segments(_anchors(b_start, b_end, pitches, last_midi, chord_at), b_end)
+            segments.extend(placed)
+            if placed:
+                last_midi = placed[-1][2]
 
     if frame and chord_at is not None:
-        segments = _attach_daily_frames(_omit_same_pitch_reattacks(segments), form, chord_at)
+        segments = _attach_daily_frames(_omit_same_pitch_reattacks(segments, pitches), form, chord_at)
         wedges, dynamics = _daily_frame_breaths(segments, form)
         return _emit(segments), wedges, dynamics
 
@@ -608,7 +673,7 @@ def _glass(
                 (outro_start, outro_end - outro_start, outro_midi, False, False, False)
             )
 
-    segments = _omit_same_pitch_reattacks(segments)
+    segments = _omit_same_pitch_reattacks(segments, pitches)
     wedges, dynamics = _arc_breaths(segments)
     return _emit(segments), wedges, dynamics
 

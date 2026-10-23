@@ -8,11 +8,13 @@ from app.sonify.ambient import (
     COOLDOWN_HOLD,
     GLASS_HOLD,
     _attach_daily_frames,
+    _breath_spans,
     _omit_same_pitch_reattacks,
     promote_ambient_slots,
 )
 from app.sonify.chords import C, CMAJ7
-from app.sonify.form import DAILY_AMBIENT_SPEC, ChordSlot
+from app.sonify.form import DAILY_AMBIENT_SPEC, METER_34, METER_64, ChordSlot, compose_meter
+from app.sonify.groove import BarGroove, compose_groove
 from app.sonify.model import Bar, NoteEvent
 from app.sonify.musicxml import score_to_musicxml
 from app.sonify.playback import ambient_daily_candle_index, piece_seconds
@@ -37,6 +39,45 @@ def _chains(notes: tuple[NoteEvent, ...]) -> list[list[NoteEvent]]:
     if current:
         chains.append(current)
     return chains
+
+
+def _breaths(notes: tuple[NoteEvent, ...]) -> list[list[NoteEvent]]:
+    breaths: list[list[NoteEvent]] = []
+    current: list[NoteEvent] = []
+    in_slur = False
+    for note in sorted(notes, key=lambda item: (item.bar, item.beat)):
+        if note.midi is None:
+            continue
+        if current and (note.tie_stop or in_slur):
+            current.append(note)
+        else:
+            if current:
+                breaths.append(current)
+            current = [note]
+        if note.slur_start:
+            in_slur = True
+        if note.slur_stop:
+            in_slur = False
+    if current:
+        breaths.append(current)
+    return breaths
+
+
+def _phrase_breaths(
+    breaths: list[list[NoteEvent]],
+    start: int,
+    end: int,
+    earlier: tuple[int, ...],
+) -> list[list[NoteEvent]]:
+    selected: list[list[NoteEvent]] = []
+    for breath in breaths:
+        if not any(start <= note.bar < end for note in breath):
+            continue
+        origin = breath[0].bar
+        if any(phrase_start <= origin < start for phrase_start in earlier):
+            continue
+        selected.append(breath)
+    return selected
 
 
 def _beats(chain: list[NoteEvent]) -> float:
@@ -88,24 +129,63 @@ def test_a_finished_breath_releases_when_the_same_pitch_touches() -> None:
     assert _omit_same_pitch_reattacks([note, (GLASS_HOLD, GLASS_HOLD, 84, False, False, False)]) == [note]
 
 
+def test_breath_windows_follow_the_meter_and_calm() -> None:
+    assert _breath_spans(0, 4) == [(0, 4)]
+    assert _breath_spans(0, 5) == [(0, 1), (2, 5)]
+    assert _breath_spans(0, 6) == [(0, 2), (3, 6)]
+    assert _breath_spans(0, 7) == [(0, 2), (3, 7)]
+    assert _breath_spans(2, 12) == [(2, 6), (8, 12)]
+    assert _breath_spans(12, 20) == [(12, 15), (16, 20)]
+    assert _breath_spans(20, 32) == [(20, 23), (24, 27), (28, 32)]
+    calm = {bar: BarGroove(calm=True) for bar in range(34)}
+    with compose_groove(calm):
+        assert _breath_spans(0, 5) == [(0, 1), (2, 5)]
+        assert _breath_spans(0, 6) == [(0, 1), (3, 6)]
+        assert _breath_spans(0, 7) == [(0, 1), (3, 7)]
+        assert _breath_spans(2, 12) == [(2, 5), (8, 12)]
+        assert _breath_spans(12, 20) == [(12, 14), (16, 20)]
+        assert _breath_spans(20, 32) == [(20, 22), (24, 26), (28, 32)]
+    with compose_meter(METER_34):
+        assert _breath_spans(0, 5) == [(0, 5)]
+        assert _breath_spans(0, 6) == [(0, 2), (3, 6)]
+        assert _breath_spans(0, 11) == [(0, 4), (6, 11)]
+    with compose_meter(METER_64):
+        assert _breath_spans(0, 3) == [(0, 3)]
+        assert _breath_spans(0, 4) == [(0, 1), (2, 4)]
+        assert _breath_spans(0, 8) == [(0, 3), (5, 8)]
+        assert _breath_spans(0, 12) == [(0, 3), (4, 7), (9, 12)]
+        assert _breath_spans(0, 14) == [(0, 3), (4, 7), (11, 14)]
+        assert _breath_spans(0, 16) == [(0, 3), (4, 7), (8, 11), (13, 16)]
+        assert _breath_spans(0, 24) == [(0, 3), (4, 7), (8, 11), (12, 15), (16, 19), (21, 24)]
+        assert _breath_spans(0, 26) == [(0, 3), (4, 7), (8, 11), (12, 15), (16, 19), (23, 26)]
+        with compose_groove(calm):
+            assert _breath_spans(0, 8) == [(0, 3), (5, 8)]
+
+
 def test_a_rise_that_levels_off_ties_across_the_bar_then_rests() -> None:
     closes = [100.0, 102.0, 104.0, 106.0] + [106.0] * 26
     score = render([Bar(close, 1_000.0, close) for close in closes], variant="ambient")
-    chains = _chains(score.lead)
-    assert chains[0][0].bar == 0
-    assert chains[0][0].midi % 12 == 0
-    assert _beats(chains[0]) == 24
-    held = next(chain for chain in chains if chain[0].bar == 9)
-    assert _beats(held) == 16
-    assert len({note.midi for note in held}) == 1
-    carried = next(note for note in score.lead if note.bar == 10 and note.midi == held[0].midi)
+    breaths = _breaths(score.lead)
+    opening = breaths[0]
+    assert opening[0].bar == 0
+    assert opening[0].midi % 12 == 0
+    tonic = [note for note in opening if note.midi == opening[0].midi]
+    assert _beats(tonic) == 16
+    assert any(note.bar == 2 and note.tie_stop and note.midi % 12 == 0 for note in score.lead)
+    step = next(note for note in opening if note.midi != opening[0].midi)
+    assert step.bar == 4
+    assert not step.tenuto
+    leveled = next(breath for breath in breaths if breath[0].bar == 8)
+    assert _beats(leveled) == 16
+    assert len({note.midi for note in leveled}) == 1
+    carried = next(note for note in score.lead if note.bar == 10 and note.midi == leveled[0].midi)
     assert carried.tie_stop
     assert carried.beat == 0.0
     assert not any(
-        note.bar == 10 and note.midi == held[0].midi and not note.tie_stop for note in score.lead
+        note.bar == 10 and note.midi == leveled[0].midi and not note.tie_stop for note in score.lead
     )
     assert not any(
-        note.bar >= 32 and note.midi == held[0].midi and not note.tie_stop for note in score.lead
+        note.bar >= 12 and note.midi == leveled[0].midi and not note.tie_stop for note in score.lead
     )
 
 
@@ -134,29 +214,43 @@ def test_cool_down_extends_a_touching_breath_to_five_bars_then_rests() -> None:
 
 
 def test_a_faded_pitch_is_not_rebreathed_until_the_line_moves() -> None:
-    closes = [80.0] * 12 + [80.4, 80.8, 81.2, 80.8, 80.4] + [80.2] * 13
-    score = render([Bar(close, 1_000.0, close) for close in closes], variant="ambient")
-    attacks = _onsets(score.lead)
-    assert attacks[0].bar == 0
-    assert all(left.midi != right.midi for left, right in zip(attacks, attacks[1:]))
-    assert any(note.bar >= 10 for note in attacks)
+    held = (0, 16, 64, False, False, False)
+    sideways = [
+        (32, 8, 64, True, False, False),
+        (40, 8, 65, True, False, False),
+        (48, 8, 64, False, False, False),
+    ]
+    assert _omit_same_pitch_reattacks([held, *sideways]) == [held]
+    assert _omit_same_pitch_reattacks(
+        [held, (32, 8, 64, False, False, False)],
+        pitches=[64] * 32 + [77] * 8 + [64] * 8,
+    ) == [held]
+    kept_step = _omit_same_pitch_reattacks([held, (32, 8, 64, True, False, False), (40, 8, 65, False, False, False)])
+    assert [segment[2] for segment in kept_step] == [64, 64, 65]
+    kept_leap = _omit_same_pitch_reattacks(
+        [held, (32, 8, 64, True, False, False), (40, 8, 67, True, False, False), (48, 8, 64, False, False, False)]
+    )
+    assert [segment[2] for segment in kept_leap] == [64, 64, 67, 64]
+    kept_fold = _omit_same_pitch_reattacks(
+        [held, (32, 8, 64, False, False, False)],
+        pitches=[64] * 32 + [79] * 8,
+    )
+    assert [segment[2] for segment in kept_fold] == [64, 64]
 
 
 def test_a_rising_phrase_section_keeps_at_most_four_glass_attacks() -> None:
     closes = [100.0 + index * 4.0 for index in range(30)]
     score = render([Bar(close, 1_000.0, close) for close in closes], variant="ambient")
-    all_attacks = _onsets(score.lead)
-    assert all(
-        b.bar - a.bar >= 3
-        for a, b in zip(all_attacks, all_attacks[1:])
-    )
+    breaths = _breaths(score.lead)
+    phrases = ((2, 12), (12, 20), (20, 32))
+    counted = [
+        _phrase_breaths(breaths, start, end, tuple(item[0] for item in phrases if item[0] < start))
+        for start, end in phrases
+    ]
+    assert [len(group) for group in counted] == [2, 2, 3]
+    for group, (_start, end) in zip(counted, phrases):
+        assert any(note.bar == end - 1 for note in group[-1])
     assert any(event.marking == "mf" for event in score.lead_dynamics)
-    for start in (2, 10, 18):
-        attacks = [note for note in all_attacks if start <= note.bar < start + 8]
-        assert 1 <= len(attacks) <= 2
-        bars = [note.bar for note in attacks]
-        assert bars == sorted(bars)
-        assert len(bars) == len(set(bars))
     for note in score.lead:
         if note.midi is not None:
             assert 55 <= note.midi <= 84
@@ -339,9 +433,13 @@ def test_daily_warmup_is_the_tonic_and_the_price_starts_at_the_phrase() -> None:
     phrase = next(note for note in _onsets(score.lead) if note.bar >= 2)
     assert intro.midi % 12 == score.slots[0].chord.pitches[0] % 12 == 0
     assert phrase.midi != intro.midi
-    outro = next(note for note in _onsets(score.lead) if note.bar >= 32)
-    assert outro.bar == 32
+    outro = next(note for note in score.lead if note.midi is not None and note.bar == 32)
+    assert outro.tie_stop
     assert outro.midi % 12 == 0
+    assert not any(
+        note.bar >= 32 and note.midi is not None and not note.tie_stop for note in score.lead
+    )
+    assert (score.lead_dynamics[-1].bar, score.lead_dynamics[-1].marking) == (33, "ppp")
     symphony = render([Bar(close, 1_000.0, close) for close in closes], variant="symphony")
     assert symphony.bars == 34
     assert not any(note.bar == 0 and note.midi is not None for note in symphony.lead)
