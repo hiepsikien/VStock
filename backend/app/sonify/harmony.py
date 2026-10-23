@@ -1,14 +1,17 @@
 """Harmony dialects beside the tertian Markov catalog.
 
-`COMMON` is the symphony path. Only `villa` registers today; Sor and Barrios
-stay on `COMMON` until a later dialect is added to `DIALECTS`.
+`COMMON` is the symphony and Sor path. `villa` and `barrios` register in
+`DIALECTS`. An unknown ensemble stays on `COMMON`.
 """
 
 from __future__ import annotations
 
 from app.sonify.chords import (
+    AB_AUG6,
     BF,
+    BF7,
     CHORDS,
+    D7,
     EF,
     KIND_OTHER,
     KIND_SUSPENDED_FOURTH,
@@ -421,9 +424,115 @@ class VillaDialect(HarmonyDialect):
         return 0.0
 
 
+# Minor circle of fifths, the V/V close, and the German sixth. A pair that
+# touches an extra chord and is missing here is illegal (0), because Bb has no
+# row in `_ROOT_TRANSITIONS` and minor D7 shares a letter with ii.
+_BARRIOS_MINOR: dict[tuple[str, str], float] = {
+    ("Fm", "Bb"): 0.42,
+    ("Fm7", "Bb"): 0.42,
+    ("Fm", "Bb7"): 0.34,
+    ("Fm7", "Bb7"): 0.34,
+    ("Cm", "Bb"): 0.12,
+    ("Cm7", "Bb"): 0.12,
+    ("Bb", "Eb"): 0.42,
+    ("Bb", "Ebmaj7"): 0.26,
+    ("Bb7", "Eb"): 0.50,
+    ("Bb7", "Ebmaj7"): 0.34,
+    ("Bb", "G"): 0.22,
+    ("Bb", "G7"): 0.26,
+    ("Bb", "Bb"): 0.18,
+    ("Bb", "Bb7"): 0.24,
+    ("Bb7", "Bb"): 0.24,
+    ("Bb7", "Bb7"): 0.14,
+    ("Ab", "D7"): 0.48,
+    ("Abmaj7", "D7"): 0.40,
+    ("Dm7b5", "D7"): 0.40,
+    ("D7", "G"): 0.46,
+    ("D7", "G7"): 0.55,
+    ("D7", "D7"): 0.12,
+    ("Fm", "Ab+6"): 0.24,
+    ("Fm7", "Ab+6"): 0.20,
+    ("Cm", "Ab+6"): 0.06,
+    ("Cm7", "Ab+6"): 0.06,
+    ("Ab+6", "G"): 0.62,
+    ("Ab+6", "G7"): 0.55,
+}
+# Major borrows the existing secondary dominants and only adds the choro chain.
+_BARRIOS_MAJOR: dict[tuple[str, str], float] = {
+    ("E7", "A7"): 0.55,
+    ("A7", "D7"): 0.55,
+    ("D7", "G7"): 0.55,
+}
+_BARRIOS_MINOR_EXTRA: tuple[Chord, ...] = (BF, BF7, D7, AB_AUG6)
+
+
+class BarriosDialect(HarmonyDialect):
+    """Functional minor circle and a major secondary-dominant chain. No color tones."""
+
+    name = "barrios"
+
+    def extra(self, mode: str) -> tuple[Chord, ...]:
+        if mode == "minor":
+            return _BARRIOS_MINOR_EXTRA
+        return ()
+
+    def transition(self, prev: Chord, curr: Chord, mode: str) -> float | None:
+        if mode == "major":
+            return _BARRIOS_MAJOR.get((prev.name, curr.name))
+        if prev in _BARRIOS_MINOR_EXTRA or curr in _BARRIOS_MINOR_EXTRA:
+            return _BARRIOS_MINOR.get((prev.name, curr.name), 0.0)
+        return None
+
+    def shares_root(self, prev: Chord, curr: Chord) -> bool:
+        del prev, curr
+        return False
+
+    def allowed(
+        self,
+        chord: Chord,
+        *,
+        pedal: bool,
+        phrase_downbeat: bool,
+        character: MovementCharacter | None,
+        mode: str,
+    ) -> bool:
+        del character
+        if chord not in self.extra(mode):
+            return True
+        if pedal or phrase_downbeat:
+            return False
+        return True
+
+    def bias(
+        self,
+        chord: Chord,
+        character: MovementCharacter | None,
+        mode: str,
+        strong_pitch_classes: frozenset[int] = frozenset(),
+    ) -> float:
+        del strong_pitch_classes
+        if mode != "minor":
+            return 0.0
+        if character == "volatile" and chord.name in {"Bb", "Bb7", "D7"}:
+            return -0.06
+        if character == "rally" and chord.name in {"D7", "Bb7"}:
+            return -0.04
+        return 0.0
+
+    def color_credit(
+        self,
+        chord: Chord,
+        strong_pitch_classes: frozenset[int],
+        prev: Chord | None,
+    ) -> float:
+        del chord, strong_pitch_classes, prev
+        return 0.0
+
+
 COMMON = HarmonyDialect()
 VILLA = VillaDialect()
-DIALECTS: dict[str, HarmonyDialect] = {"villa": VILLA}
+BARRIOS = BarriosDialect()
+DIALECTS: dict[str, HarmonyDialect] = {"villa": VILLA, "barrios": BARRIOS}
 
 
 def dialect_for(ensemble: str) -> HarmonyDialect:

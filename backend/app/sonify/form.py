@@ -418,6 +418,18 @@ def _breaks_held_note_across_barline(
     return prev_snapped != curr_snapped
 
 
+def extra_floor(chord: Chord) -> float:
+    """Strange-chord floor for a dialect `extra()`.
+
+    Three-note extras stop at 0.08. Four-note extras add `SEVENTH_TENSION_COST`
+    and land at 0.13. `minor_bias` is not applied here: a root such as B is not
+    in the minor table, and the planner must not call it for these chords.
+    """
+    if len(chord.pitches) >= 4:
+        return 0.08 + SEVENTH_TENSION_COST
+    return 0.08
+
+
 def chord_bias(chord: Chord, regime: Regime, character: MovementCharacter | None) -> float:
     """Per-chord cost. `None` reads the baked `REGIME_BIAS` table, sevenths included."""
     if character is None:
@@ -636,16 +648,15 @@ def plan_markov_chords(
                 continue
 
             if chord in extra_ids:
-                # Villa colors sit on the strange-chord floor. Minor root bias
-                # would price a C sus at 0.00 and let the dialect discount undercut Cm.
-                base_bias = 0.08
+                # Villa colors and Barrios extras sit on the strange-chord floor.
+                # Minor root bias would price a C sus at 0.00 and let the dialect
+                # discount undercut Cm. Bb is not in the minor table at all.
+                base_bias = extra_floor(chord)
             elif mode == "minor":
                 base_bias = minor_bias(chord, regime)
             else:
                 base_bias = chord_bias(chord, regime, bar_character[bar])
             base_bias += active_dialect.bias(chord, bar_character[bar], mode, strong_pcs)
-            if chord in extra_ids and len(chord.pitches) >= 4:
-                base_bias += SEVENTH_TENSION_COST
             if bar in bridge_starts and is_subdominant(chord, mode):
                 base_bias -= PHRASE_TONIC_BONUS
             elif phrase_downbeat and chord in allowed_tonics and bar not in bridge_starts:
@@ -771,14 +782,17 @@ def plan_markov_chords(
 
                     if (
                         (borrowed or mode == "minor")
-                        and chord.quality_group == "diminished"
+                        and chord.quality_group in ("diminished", "augmented-sixth")
                         and target_held != 1
                     ):
                         continue
                     weight = active_dialect.transition(prev_chord, chord, mode)
                     if weight is not None:
                         if weight <= 0.0:
-                            if prev_chord == chord and chord.quality_group != "diminished":
+                            if (
+                                prev_chord == chord
+                                and chord.quality_group not in ("diminished", "augmented-sixth")
+                            ):
                                 root_prob = BORROWED_HOLD_PROB
                             else:
                                 continue
@@ -798,7 +812,7 @@ def plan_markov_chords(
                             prob <= 0.0
                             and borrowed
                             and prev_chord == chord
-                            and chord.quality_group != "diminished"
+                            and chord.quality_group not in ("diminished", "augmented-sixth")
                         ):
                             prob = BORROWED_HOLD_PROB
                         if prob <= 0.0:

@@ -1250,6 +1250,8 @@ def _compose(
                     mode=mode,
                     character=character,
                     character_at=character_at,
+                    sections=tuple(spec.sections) if spec is not None else None,
+                    rel_span=rel_span,
                 )
             )
 

@@ -2084,7 +2084,284 @@ def test_score_role_and_variant_property_aliases() -> None:
         assert not (88 in voicing and 89 in voicing)
 
 
+def _barrios_names(chords) -> list[str]:
+    return [chord.name for chord in chords]
 
+
+def _barrios_plan(
+    bars: list[list[int]],
+    *,
+    character="calm",
+    regime="sideway",
+    mode="minor",
+    dialect=None,
+    splits: tuple[int, ...] = (),
+    sections=None,
+    regimes=None,
+):
+    """One borrowed movement. Minor uses the natural-minor catalog plus the dialect."""
+    from app.sonify.form import FormSection, FormSpec, plan_markov_chords
+    from app.sonify.harmony import BARRIOS
+    from app.sonify.quantize import c_major_scale, c_natural_minor_scale
+
+    if dialect is None:
+        dialect = BARRIOS
+    if sections is None:
+        starts = [0, *splits, len(bars)]
+        sections = tuple(
+            FormSection(starts[index], starts[index + 1], "phrase", 0)
+            for index in range(len(starts) - 1)
+        )
+    spec = FormSpec(bars=len(bars), bpm=88, sections=sections, borrowed=True)
+    if regimes is None:
+        regimes = (regime,) * spec.regime_slots
+    scale = c_natural_minor_scale() if mode == "minor" else c_major_scale()
+    flat = [note for bar in bars for note in bar]
+    return plan_markov_chords(
+        regimes,
+        flat,
+        scale,
+        spec,
+        character=character,  # type: ignore[arg-type]
+        mode=mode,  # type: ignore[arg-type]
+        dialect=dialect,
+    )
+
+
+def _fill(downbeat: int, middle: int, other: int) -> list[int]:
+    row = [other] * 8
+    row[0] = downbeat
+    row[4] = middle
+    return row
+
+
+def test_barrios_dialect_catalog_and_the_common_path_stay_apart() -> None:
+    """Phase 2 harmony 1: Barrios registers; classic and the common minor path do not."""
+    from app.sonify.chords import D7
+    from app.sonify.harmony import BARRIOS, COMMON, VILLA, BarriosDialect, dialect_for
+
+    assert isinstance(dialect_for("barrios"), BarriosDialect)
+    assert dialect_for("barrios").name == "barrios"
+    assert dialect_for("classic") is COMMON
+    # Symphony ensembles are not in DIALECTS, so they stay on the common catalog.
+    assert dialect_for("brass") is COMMON
+    assert {chord.name for chord in BARRIOS.extra("minor")} == {"Bb", "Bb7", "D7", "Ab+6"}
+    assert BARRIOS.extra("major") == ()
+    assert D7 in BARRIOS.extra("minor")
+    assert all(
+        chord.kind_text not in {"sus2", "sus4", "7sus4", "add9", "madd9"}
+        for chord in (*BARRIOS.extra("minor"), *BARRIOS.extra("major"))
+    )
+
+    # The locked Villa color still wins while its root is held.
+    tonic = [64, 60, 60, 60, 60, 60, 60, 60]
+    villa = _barrios_plan(
+        [tonic, [65] * 8], character="rally", regime="uptrend", mode="major", dialect=VILLA
+    )
+    assert villa[1].name == "Csus4"
+
+    minor_color = [
+        _fill(65, 68, 60),  # F, Ab, C
+        _fill(70, 62, 65),  # Bb, D, F
+        _fill(68, 60, 63),  # Ab, C, Eb
+        _fill(62, 60, 62),  # D, C
+    ]
+    for dialect in (COMMON, None):
+        common = _barrios_names(
+            _barrios_plan(minor_color, dialect=COMMON if dialect is None else dialect)
+        )
+        assert not {"Bb", "Bb7", "D7", "Ab+6"} & set(common)
+
+
+def test_barrios_extra_floor_is_eight_then_a_seventh() -> None:
+    """Phase 2 harmony 2: Bb stops at 0.08; the four-note extras land at 0.13."""
+    from app.sonify.chords import AB_AUG6, BF, BF7, D7
+    from app.sonify.form import extra_floor
+    from app.sonify.harmony import BARRIOS
+
+    assert extra_floor(BF) == pytest.approx(0.08)
+    assert extra_floor(BF7) == pytest.approx(0.13)
+    assert extra_floor(D7) == pytest.approx(0.13)
+    assert extra_floor(AB_AUG6) == pytest.approx(0.13)
+    # Calm adds nothing, so the planner floor is the number above.
+    for chord in (BF, BF7, D7, AB_AUG6):
+        assert BARRIOS.bias(chord, "calm", "minor") == 0.0
+    assert BARRIOS.bias(BF, "volatile", "minor") == -0.06
+    assert BARRIOS.bias(BF7, "volatile", "minor") == -0.06
+    assert BARRIOS.bias(D7, "volatile", "minor") == -0.06
+    assert BARRIOS.bias(AB_AUG6, "volatile", "minor") == 0.0
+    assert BARRIOS.bias(D7, "rally", "minor") == -0.04
+    assert BARRIOS.bias(BF7, "rally", "minor") == -0.04
+    assert BARRIOS.bias(BF, "rally", "minor") == 0.0
+
+
+def test_minor_circle_after_fm_picks_bb_then_bb7() -> None:
+    """Phase 2 harmony 3: after Fm, {Bb, D, F} is Bb; a strong Ab makes it Bb7."""
+    triad = _barrios_plan([
+        _fill(65, 68, 60),
+        _fill(70, 62, 65),
+    ])
+    assert _barrios_names(triad) == ["Fm", "Bb"], _barrios_names(triad)
+    seventh = _barrios_plan([
+        _fill(65, 68, 60),
+        _fill(70, 68, 65),
+    ])
+    assert _barrios_names(seventh) == ["Fm", "Bb7"], _barrios_names(seventh)
+
+
+def test_minor_d7_follows_ab_only_when_d_is_strong() -> None:
+    """Phase 2 harmony 4: after Ab, strong D with {D, C} is D7; strong Ab is not."""
+    # Ebmaj7 opens (strong D is not in Cm7). The next bar keeps Eb on a strong
+    # eighth so Dm7b5 cannot read {Ab, C, Eb} as its own triad plus a weak Eb.
+    opening = _fill(63, 62, 67)  # Eb, D, G
+    ab = _fill(68, 63, 60)  # Ab, Eb, C
+    flat = _barrios_plan([
+        opening,
+        ab,
+        _fill(62, 60, 62),  # D, C
+    ])
+    assert _barrios_names(flat) == ["Ebmaj7", "Ab", "D7"], _barrios_names(flat)
+    stayed = _barrios_plan([
+        opening,
+        ab,
+        _fill(68, 68, 60),
+    ])
+    assert stayed[2].name != "D7", _barrios_names(stayed)
+
+
+def test_augmented_sixth_is_one_bar_between_the_subdominant_and_the_dominant() -> None:
+    """Phase 2 harmony 5: Ab+6 after two bars of F, then G or G7. Not from Ab, not two bars."""
+    from app.sonify.harmony import BARRIOS
+
+    german = _barrios_plan([
+        _fill(65, 68, 60),   # F, Ab, C — root F, triad or seventh
+        _fill(68, 60, 63),   # Ab, C, Eb → second bar of F is Fm7
+        _fill(68, 60, 63),   # F already held two bars → Ab+6
+        _fill(67, 62, 67),   # G, D → G or G7
+    ])
+    names = _barrios_names(german)
+    assert names[0] in {"Fm", "Fm7"}, names
+    assert names[1] == "Fm7", names
+    assert names[2] == "Ab+6", names
+    assert names[3] in {"G", "G7"}, names
+
+    opened = _barrios_plan([_fill(68, 60, 63)])
+    assert opened[0].name != "Ab+6"
+
+    # Same root as Ab, so the one-bar rule refuses the augmented sixth.
+    # Strong Eb keeps this bar on Ab rather than on Dm7b5.
+    from_ab = _barrios_plan([
+        _fill(63, 62, 67),
+        _fill(68, 63, 60),
+        _fill(68, 63, 60),
+    ])
+    assert from_ab[1].name == "Ab", _barrios_names(from_ab)
+    assert "Ab+6" not in _barrios_names(from_ab), _barrios_names(from_ab)
+
+    # Three bars of {Ab, C, Eb} never open the sixth: the next bar cannot pay
+    # for G, so the one-bar chord loses to a chord that can stay.
+    held = _barrios_plan([
+        _fill(65, 68, 60),
+        _fill(68, 60, 63),
+        _fill(68, 60, 63),
+        _fill(68, 60, 63),
+    ])
+    held_names = _barrios_names(held)
+    assert "Ab+6" not in held_names, held_names
+    assert BARRIOS.transition(
+        next(chord for chord in BARRIOS.extra("minor") if chord.name == "Ab+6"),
+        next(chord for chord in BARRIOS.extra("minor") if chord.name == "Ab+6"),
+        "minor",
+    ) == 0.0
+
+
+def test_major_choro_chain_prefers_d7_unless_f_is_strong() -> None:
+    """Phase 2 harmony 6: after A7, strong C, A, or D is D7; strong F is Dm or Dm7."""
+    from app.sonify.form import FormSection
+
+    sections = (
+        FormSection(0, 1, "phrase", 0),
+        FormSection(1, 2, "phrase", 1),
+    )
+    regimes = ("sideway", "uptrend")
+    a7 = _fill(69, 67, 64)  # A, G, E
+
+    def planned(target: list[int]) -> list[str]:
+        return _barrios_names(
+            _barrios_plan(
+                [a7, target],
+                character="rally",
+                mode="major",
+                sections=sections,
+                regimes=regimes,
+            )
+        )
+
+    assert planned(_fill(60, 69, 62)) == ["A7", "D7"]  # C, A, D
+    assert planned(_fill(69, 62, 64)) == ["A7", "D7"]  # A, D, E
+    assert planned(_fill(62, 69, 60)) == ["A7", "D7"]  # D, A, C
+    fa = planned(_fill(65, 65, 64))
+    assert fa[0] == "A7", fa
+    assert fa[1] in {"Dm", "Dm7"}, fa
+
+
+def test_barrios_has_no_color_credit_and_the_sixth_stays_sharp() -> None:
+    """Phase 2 harmony 7: color credit is 0, and transpose keeps the raised sixth."""
+    from app.sonify.chords import AB_AUG6, AF
+    from app.sonify.harmony import BARRIOS
+    from app.sonify.keys import D_KEY, transpose_chord
+
+    assert BARRIOS.color_credit(AB_AUG6, frozenset({6, 8}), AF) == 0.0
+    assert BARRIOS.color_credit(AF, frozenset({8}), AB_AUG6) == 0.0
+    assert AB_AUG6.spelling(6) == ("F", 1)
+    assert AB_AUG6.quality_group == "augmented-sixth"
+    assert AB_AUG6.degrees == (0, 2, 4, 5)
+    spelled = transpose_chord(AB_AUG6, D_KEY)
+    assert spelled.degrees == (0, 2, 4, 5)
+    last = spelled.pitches[3] % 12
+    step, alter = next((tone[1], tone[2]) for tone in spelled.tones if tone[0] == last)
+    root_index = "CDEFGAB".index(spelled.root_step)
+    assert step == "CDEFGAB"[(root_index + 5) % 7]
+    assert alter == 1
+
+
+def test_barrios_edges_are_explicit_for_every_extra_pair() -> None:
+    from app.sonify.chords import A7, AF, AFMAJ7, CM, D7, DM7B5, E7, EF, FM, G, G7
+    from app.sonify.harmony import BARRIOS
+
+    minor = {chord.name: chord for chord in BARRIOS.extra("minor")}
+    assert BARRIOS.transition(FM, minor["Bb"], "minor") == 0.42
+    assert BARRIOS.transition(FM, minor["Bb7"], "minor") == 0.34
+    assert BARRIOS.transition(CM, minor["Ab+6"], "minor") == 0.06
+    assert BARRIOS.transition(AF, D7, "minor") == 0.48
+    assert BARRIOS.transition(AFMAJ7, D7, "minor") == 0.40
+    assert BARRIOS.transition(DM7B5, D7, "minor") == 0.40
+    assert BARRIOS.transition(D7, G, "minor") == 0.46
+    assert BARRIOS.transition(D7, G7, "minor") == 0.55
+    assert BARRIOS.transition(minor["Ab+6"], G, "minor") == 0.62
+    assert BARRIOS.transition(minor["Ab+6"], G7, "minor") == 0.55
+    # Not in the table: illegal, rather than the letter row of ii or bVII.
+    assert BARRIOS.transition(minor["Bb"], AF, "minor") == 0.0
+    assert BARRIOS.transition(G, D7, "minor") == 0.0
+    assert BARRIOS.transition(FM, EF, "minor") is None
+    assert BARRIOS.transition(E7, A7, "major") == 0.55
+    assert BARRIOS.transition(A7, D7, "major") == 0.55
+    assert BARRIOS.transition(D7, G7, "major") == 0.55
+    # D7 → G in major keeps the borrowed door; the dialect does not override it.
+    assert BARRIOS.transition(D7, G, "major") is None
+    assert BARRIOS.shares_root(minor["Bb"], minor["Bb7"]) is False
+    assert BARRIOS.allowed(
+        minor["Bb"], pedal=True, phrase_downbeat=False, character=None, mode="minor"
+    ) is False
+    assert BARRIOS.allowed(
+        minor["D7"], pedal=False, phrase_downbeat=True, character=None, mode="minor"
+    ) is False
+    assert BARRIOS.allowed(
+        minor["Ab+6"], pedal=False, phrase_downbeat=False, character="rally", mode="minor"
+    ) is True
+    assert BARRIOS.allowed(
+        FM, pedal=True, phrase_downbeat=True, character=None, mode="minor"
+    ) is True
 
 
 
