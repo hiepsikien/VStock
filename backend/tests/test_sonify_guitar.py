@@ -5,7 +5,7 @@ import pytest
 from app.sonify.chords import C, G
 from app.sonify.ensemble import ensemble_for
 from app.sonify.form import METER_34, METER_44, METER_68, compose_meter
-from app.sonify.guitar import _arpeggio, _place_melody, _slur, _tremolo
+from app.sonify.guitar import _arpeggio, _attack_eighth, _melody_line, _place_melody, _slur, _tremolo
 from app.sonify.keys import D_KEY, register_for
 from app.sonify.model import Bar, NoteEvent, Phrase, Run
 from app.sonify.musicxml import score_to_musicxml
@@ -120,17 +120,89 @@ def test_barrios_fast_four_four_counts_quarter_beats() -> None:
     assert _sounding(bass, 1) == [0.0, 1.0, 2.0, 3.0]
 
 
-def test_a_barrios_slur_keeps_the_sixteenth_inside_its_eighth() -> None:
+def test_a_sixteenth_at_beat_075_stays_in_its_eighth() -> None:
+    event = NoteEvent(bar=0, beat=0.75, midi=62, duration_beats=0.25, voice=1)
+    with compose_meter(METER_44):
+        assert _attack_eighth(event) == 1
+
+
+def test_about_one_melody_note_in_ten_is_a_hammer() -> None:
     events = [
-        NoteEvent(bar=0, beat=0.0, midi=60, duration_beats=0.25, voice=1),
-        NoteEvent(bar=0, beat=0.75, midi=62, duration_beats=0.25, voice=1),
-        NoteEvent(bar=0, beat=1.0, midi=64, duration_beats=0.25, voice=1),
+        NoteEvent(
+            bar=index // 8,
+            beat=(index % 8) * 0.5,
+            midi=60 + index,
+            duration_beats=0.5,
+            voice=1,
+        )
+        for index in range(20)
     ]
-    phrase = Phrase(0, 2, (Run(0, 2, 60),), False)
+    phrase = Phrase(0, 20, (Run(0, 20, 60),), False)
     with compose_meter(METER_44):
         slurred = _slur(events, (phrase,))
-    assert slurred[0].slur_start and slurred[1].slur_stop
-    assert not slurred[2].slur_start and not slurred[2].slur_stop
+    hammers = [index for index, note in enumerate(slurred) if note.slur_stop]
+    plucks = [index for index, note in enumerate(slurred) if note.slur_start]
+    assert hammers == [5, 15]
+    assert plucks == [4, 14]
+
+
+def test_a_leap_or_a_rest_is_plucked() -> None:
+    leap = [
+        NoteEvent(bar=0, beat=0.0, midi=60, duration_beats=0.5, voice=1),
+        NoteEvent(bar=0, beat=0.5, midi=67, duration_beats=0.5, voice=1),
+    ]
+    gap = [
+        NoteEvent(bar=0, beat=0.0, midi=60, duration_beats=0.5, voice=1),
+        NoteEvent(bar=0, beat=1.0, midi=62, duration_beats=0.5, voice=1),
+    ]
+    phrase = Phrase(0, 4, (Run(0, 4, 60),), False)
+    with compose_meter(METER_44):
+        leapt = _slur(leap, (phrase,))
+        rested = _slur(gap, (phrase,))
+    assert not any(note.slur_start or note.slur_stop for note in leapt)
+    assert not any(note.slur_start or note.slur_stop for note in rested)
+
+
+def test_the_apex_is_the_only_louder_melody_note() -> None:
+    pitches = [60, 62, 64, 62, 60, 60, 60, 60]
+    phrase = Phrase(
+        0,
+        4,
+        (Run(0, 1, 60), Run(1, 1, 62), Run(2, 1, 64), Run(3, 1, 62)),
+        False,
+    )
+    with compose_meter(METER_44):
+        line = _melody_line(pitches, (phrase,), 1)
+    sounding = [note for note in line if note.midi is not None]
+    assert [note.velocity for note in sounding] == [64, 64, 72, 64, 64]
+
+
+def test_a_quiet_bar_plucks_one_inner_note() -> None:
+    melody = [72] * 8
+    chords = {0: C}
+    kinds = {0: "phrase"}
+
+    def beats(band: str) -> list[float]:
+        inner, _bass = _arpeggio(
+            melody,
+            chords,
+            kinds,
+            {0: band},
+            1,
+            rolling=False,
+            character=None,
+            character_at=None,
+            bass_low=40,
+            bass_high=51,
+            mid_low=50,
+            mid_high=65,
+        )
+        return _sounding(inner, 0)
+
+    with compose_meter(METER_44):
+        assert beats("p") == [0.5]
+        assert beats("mp") == [0.5, 1.5, 3.0]
+        assert beats("f") == [0.5, 1.0, 1.5, 2.5, 3.0, 3.5]
 
 
 def test_villa_tresillo_is_only_two_volatile_bars_of_four_four() -> None:

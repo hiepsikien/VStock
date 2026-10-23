@@ -21,14 +21,19 @@ from app.sonify.quantize import C_MAJOR_PCS, C_NATURAL_MINOR_PCS, scale_from_cla
 
 GUITAR_BPM = {"classic": 88, "villa": 100, "barrios": 76}
 _PEDAL = frozenset({"intro", "outro", "warmup", "cooldown"})
-_MELODY = 74
+# 64 is mp on the nylon voice, still under the bright nail layer. The apex
+# alone lifts. The thumb stays under the line so the downbeat is not the attack.
+_MELODY = 64
+_MELODY_APEX = 72
 _INNER = 56
-_BASS = 68
+_BASS = 60
 _SHIFTS = (0, -12, 12, -24)
 _OVERFLOW_COST = 50
 _REVERSAL_COST = 80
 _LARGE_LEAP_COST = 400
 _LARGE_LEAP = 9
+# Share of melody attacks the nylon voice may play as a hammer-on.
+_HAMMER_SHARE = 0.10
 
 
 def render_guitar_score(
@@ -285,6 +290,7 @@ def _boundary_cost(raw_dir: int, placed_dir: int) -> int:
 
 def _melody_line(pitches: list[int], phrases: tuple[Phrase, ...], bars: int) -> list[NoteEvent]:
     epb = active_meter().eighths_per_bar
+    apex = _apex_eighths(phrases)
     events: list[NoteEvent] = []
     for bar in range(bars):
         start = bar * epb
@@ -294,7 +300,9 @@ def _melody_line(pitches: list[int], phrases: tuple[Phrase, ...], bars: int) -> 
             nxt = index + 1
             while nxt < end and pitches[nxt] == pitches[index]:
                 nxt += 1
-            events.extend(written(index, nxt - index, pitches[index], velocity=_MELODY))
+            events.extend(
+                written(index, nxt - index, pitches[index], velocity=_span_velocity(index, nxt - index, apex))
+            )
             index = nxt
     return _slur(events, phrases)
 
@@ -332,8 +340,9 @@ def _arpeggio(
         for left, right in zip(edges, edges[1:]):
             bass.extend(written(start + left, right - left, root, velocity=_BASS))
         pool = _pool(chord)
+        played = _inner_eighths(epb, strong, rolling, band_at.get(bar, "mf"))
         for eighth in range(epb):
-            if not rolling and eighth in strong:
+            if eighth not in played:
                 continue
             tone = _fit(pool[eighth % len(pool)], mid_low, mid_high)
             while tone >= melody[start + eighth] and tone - 12 >= mid_low:
@@ -371,12 +380,13 @@ def _tremolo(
     """
     meter = active_meter()
     epb = meter.eighths_per_bar
+    apex = _apex_eighths(phrases)
     line: list[NoteEvent] = []
     inner: list[NoteEvent] = []
     bass: list[NoteEvent] = []
     if bpm > 100:
         _reduced_tremolo(
-            melody, chord_at, kind_at, bars, bass_low, mid_low, mid_high, line, inner, bass
+            melody, chord_at, kind_at, bars, bass_low, mid_low, mid_high, line, inner, bass, apex
         )
         return tuple(_slur(line, phrases)), tuple(inner), tuple(bass)
     grain = 2
@@ -393,7 +403,9 @@ def _tremolo(
                 nxt = index + 1
                 while nxt < end and melody[nxt] == melody[index]:
                     nxt += 1
-                line.extend(written(index, nxt - index, melody[index], velocity=_MELODY))
+                line.extend(
+                    written(index, nxt - index, melody[index], velocity=_span_velocity(index, nxt - index, apex))
+                )
                 index = nxt
             bass.append(
                 NoteEvent(
@@ -433,7 +445,9 @@ def _tremolo(
             else:
                 inner.append(_hit(bar, beat, duration, None, 2, _INNER))
                 bass.append(_hit(bar, beat, duration, None, 3, _BASS))
-                line.append(_hit(bar, beat, duration, sung, 1, _MELODY))
+                line.append(
+                    _hit(bar, beat, duration, sung, 1, _eighth_velocity(bar * epb + eighth, apex))
+                )
     return tuple(_slur(line, phrases)), tuple(inner), tuple(bass)
 
 
@@ -448,6 +462,7 @@ def _reduced_tremolo(
     line: list[NoteEvent],
     inner: list[NoteEvent],
     bass: list[NoteEvent],
+    apex: set[int],
 ) -> None:
     """Two attacks per meter beat: thumb on sixteenth 0, melody from sixteenth 2."""
     meter = active_meter()
@@ -471,7 +486,9 @@ def _reduced_tremolo(
                 nxt = index + 1
                 while nxt < end and melody[nxt] == melody[index]:
                     nxt += 1
-                line.extend(written(index, nxt - index, melody[index], velocity=_MELODY))
+                line.extend(
+                    written(index, nxt - index, melody[index], velocity=_span_velocity(index, nxt - index, apex))
+                )
                 index = nxt
             bass.append(
                 NoteEvent(
@@ -509,7 +526,9 @@ def _reduced_tremolo(
             line.append(_hit(bar, thumb, step, None, 1, _MELODY))
             for voice, bucket, velocity in ((1, line, _MELODY), (2, inner, _INNER), (3, bass, _BASS)):
                 bucket.append(_hit(bar, gap, step, None, voice, velocity))
-            line.append(_hit(bar, sung_at, held, sung, 1, _MELODY))
+            line.append(
+                _hit(bar, sung_at, held, sung, 1, _eighth_velocity(bar * epb + (origin + 2) // 2, apex))
+            )
             inner.append(_hit(bar, sung_at, held, None, 2, _INNER))
             bass.append(_hit(bar, sung_at, held, None, 3, _BASS))
 
@@ -594,23 +613,111 @@ def _voice(notes: tuple[NoteEvent, ...] | list[NoteEvent], voice: int) -> tuple[
     return tuple(replace(note, voice=voice) for note in notes)
 
 
-def _slur(events: list[NoteEvent], phrases: tuple[Phrase, ...]) -> list[NoteEvent]:
+def _apex_eighths(phrases: tuple[Phrase, ...]) -> set[int]:
+    eighths: set[int] = set()
+    for phrase in phrases:
+        if not phrase.runs:
+            continue
+        apex = phrase.apex
+        eighths.update(range(apex.start, apex.end))
+    return eighths
+
+
+def _eighth_velocity(eighth: int, apex: set[int]) -> int:
+    return _MELODY_APEX if eighth in apex else _MELODY
+
+
+def _span_velocity(start: int, length: int, apex: set[int]) -> int:
+    if any(eighth in apex for eighth in range(start, start + length)):
+        return _MELODY_APEX
+    return _MELODY
+
+
+def _inner_eighths(epb: int, strong: set[int], rolling: bool, band: str) -> set[int]:
+    """A quiet bar plucks one inner note. mp keeps every other. mf and f keep the pattern."""
+    candidates = [eighth for eighth in range(epb) if rolling or eighth not in strong]
+    if not candidates:
+        return set()
+    if band == "p":
+        return {candidates[0]}
+    if band == "mp":
+        return set(candidates[::2])
+    return set(candidates)
+
+
+def _attack_eighth(event: NoteEvent) -> int:
+    """Eighth index of an attack. Floor, so a sixteenth at beat 0.75 stays in its eighth."""
     epb = active_meter().eighths_per_bar
+    return event.bar * epb + math.floor(event.beat * 2 + 1e-9)
+
+
+def _hammer_count(notes: int) -> int:
+    if notes <= 0:
+        return 0
+    return int(notes * _HAMMER_SHARE + 0.5)
+
+
+def _spread(count: int, want: int) -> list[int]:
+    """Indexes spread through ``count`` items. Short of ``want`` when there are not enough."""
+    if want <= 0 or count <= 0:
+        return []
+    kept = min(want, count)
+    if kept == count:
+        return list(range(count))
+    step = count / kept
+    return [min(count - 1, int((index + 0.5) * step)) for index in range(kept)]
+
+
+def _slur(events: list[NoteEvent], phrases: tuple[Phrase, ...]) -> list[NoteEvent]:
+    """Hammer about one melody attack in ten, and only onto a touching step.
+
+    The nylon voice plays a slur as a left-hand hammer. A leap, a rest, and a
+    new phrase stay plucked. The kept steps are spread through the line.
+    """
     result = list(events)
 
-    def eighth(event: NoteEvent) -> int:
-        # floor, not round: round(1.5) is 2, so a sixteenth at beat 0.75
-        # would be counted as the next eighth.
-        return event.bar * epb + math.floor(event.beat * 2 + 1e-9)
+    def position(event: NoteEvent) -> float:
+        return event.bar * active_meter().quarter_beats + event.beat
 
-    for phrase in phrases:
-        sounding = [
-            index
-            for index, event in enumerate(result)
-            if event.midi is not None and phrase.start <= eighth(event) < phrase.end
-        ]
-        if len(sounding) < 2:
-            continue
-        result[sounding[0]] = replace(result[sounding[0]], slur_start=True)
-        result[sounding[-1]] = replace(result[sounding[-1]], slur_stop=True)
+    def phrase_of(event: NoteEvent) -> int | None:
+        eighth = _attack_eighth(event)
+        for index, phrase in enumerate(phrases):
+            if phrase.start <= eighth < phrase.end:
+                return index
+        return None
+
+    sounding = [index for index, event in enumerate(result) if event.midi is not None]
+    sounding.sort(key=lambda index: (result[index].bar, result[index].beat, index))
+    chains: list[list[int]] = []
+    for index in sounding:
+        event = result[index]
+        if event.tie_stop and chains:
+            previous = result[chains[-1][-1]]
+            continues = previous.midi == event.midi and abs(
+                position(previous) + previous.duration_beats - position(event)
+            ) < 1e-6
+            if continues:
+                chains[-1].append(index)
+                continue
+        chains.append([index])
+
+    pairs: list[tuple[int, int]] = []
+    cursor = 0
+    while cursor < len(chains) - 1:
+        left = chains[cursor]
+        right = chains[cursor + 1]
+        left_last = result[left[-1]]
+        right_first = result[right[0]]
+        interval = abs((left_last.midi or 0) - (right_first.midi or 0))
+        touches = abs(position(left_last) + left_last.duration_beats - position(right_first)) < 1e-6
+        same_phrase = phrase_of(result[left[0]]) is not None and phrase_of(result[left[0]]) == phrase_of(right_first)
+        if same_phrase and 1 <= interval <= 2 and touches:
+            pairs.append((left[0], right[0]))
+            cursor += 2
+        else:
+            cursor += 1
+    for pair_index in _spread(len(pairs), _hammer_count(len(chains))):
+        start, stop = pairs[pair_index]
+        result[start] = replace(result[start], slur_start=True)
+        result[stop] = replace(result[stop], slur_stop=True)
     return result
