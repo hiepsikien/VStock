@@ -711,8 +711,7 @@ def plan_markov_chords(
                         + base_bias
                     )
                 except ValueError:
-                    # Planing sus2 keeps only Eb and Bb once the 2nd is removed,
-                    # and neither sits on the written scale.
+                    # A heard set with no scale tone cannot be priced.
                     return 1e6
 
             if not prev_last_touched_strong or bar_notes[0] % 12 in full:

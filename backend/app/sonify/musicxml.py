@@ -329,7 +329,7 @@ _PARTS_BY_VARIANT: dict[Variant, tuple[tuple[str, str, str, str, str], ...]] = {
         ("P3", "Swell", "Horn in F", "3", "61"),
         ("P4", "Drone", "Contrabass", "4", "43"),
     ),
-    "guitar": (("P1", "Acoustic Nylon", "Acoustic Guitar", "1", "25"),),
+    "guitar": (("P1", "Acoustic Nylon", "Classical Guitar", "1", "25"),),
 }
 
 
@@ -341,6 +341,9 @@ def _part_list(root: ET.Element, variant: Variant = "symphony", ensemble: Ensemb
         _add(part, "part-name", part_name)
         instrument = _add(part, "score-instrument", id=f"{part_id}-I1")
         _add(instrument, "instrument-name", instrument_name)
+        if part_name == "Acoustic Nylon":
+            # "Acoustic Guitar" is MuseScore's steel instrument. Nylon is this id.
+            _add(instrument, "instrument-sound", "pluck.guitar.nylon-string")
         midi = _add(part, "midi-instrument", id=f"{part_id}-I1")
         _add(midi, "midi-channel", channel)
         _add(midi, "midi-program", program)

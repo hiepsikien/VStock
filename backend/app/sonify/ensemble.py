@@ -19,7 +19,7 @@ from app.sonify.model import ENSEMBLES, Ensemble, NoteEvent, Score, Variant
 # part id, part name (MuseSounds voice), MusicXML instrument, channel, program
 PartSpec = tuple[str, str, str, str, str]
 
-_NYLON = ("P1", "Acoustic Nylon", "Acoustic Guitar", "1", "25")
+_NYLON = ("P1", "Acoustic Nylon", "Classical Guitar", "1", "25")
 
 _ROWS: dict[tuple[Variant, Ensemble], tuple[PartSpec, ...]] = {
     ("symphony", "wood"): (

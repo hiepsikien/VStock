@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.sonify.chords import AF, C, CM, EF, F, FDIM7, FM, G, fifth_above_bass, same_harmonic_root
 from app.sonify.form import FormSection, FormSpec, plan_markov_chords
-from app.sonify.harmony import COMMON, VILLA, dialect_for
+from app.sonify.harmony import COMMON, VILLA, color_pitch_classes, dialect_for
 from app.sonify.keys import D_KEY, transpose_chord
-from app.sonify.quantize import c_major_scale, c_natural_minor_scale
+from app.sonify.quantize import bar_quantization_loss, c_major_scale, c_natural_minor_scale
 
 _MAJOR = {
     "Csus2", "Dsus2", "Fsus2", "Gsus2", "Asus2",
@@ -97,6 +99,17 @@ def test_shares_root_covers_suspended_only() -> None:
     assert dialect_for("classic") is COMMON
     assert dialect_for("barrios") is COMMON
     assert dialect_for("villa") is VILLA
+
+
+def test_planing_ebsus2_is_heard_as_eb() -> None:
+    ebsus2 = next(chord for chord in VILLA.extra("major") if chord.name == "Ebsus2")
+    assert VILLA.is_parent(EF, ebsus2, "major") is True
+    heard = VILLA.opening_pitch_classes(ebsus2, "major")
+    assert heard == EF.pitch_classes
+    assert bar_quantization_loss([67] * 8, heard, c_major_scale()) == 0.0
+    stripped = ebsus2.pitch_classes - color_pitch_classes(ebsus2)
+    with pytest.raises(ValueError):
+        bar_quantization_loss([67] * 8, stripped, c_major_scale())
 
 
 def test_planing_edges_are_major_only() -> None:

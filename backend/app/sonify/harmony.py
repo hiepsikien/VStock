@@ -7,7 +7,9 @@ stay on `COMMON` until a later dialect is added to `DIALECTS`.
 from __future__ import annotations
 
 from app.sonify.chords import (
+    BF,
     CHORDS,
+    EF,
     KIND_OTHER,
     KIND_SUSPENDED_FOURTH,
     KIND_SUSPENDED_SECOND,
@@ -270,6 +272,18 @@ def _root_probability(prev: Chord, curr: Chord) -> float:
     return _ROOT_TRANSITIONS.get(prev.root_step, {}).get(curr.root_step, 0.0)
 
 
+def _parent_triad(chord: Chord, mode: str) -> Chord | None:
+    """The 3-note parent. Planing Eb and Bb are borrowed, so they are not in CHORDS."""
+    parent = _PARENTS[mode].get((chord.root_step, chord.alter))
+    if parent is not None:
+        return parent
+    if mode == "major" and chord.name == "Bbsus2":
+        return BF
+    if mode == "major" and chord.name == "Ebsus2":
+        return EF
+    return None
+
+
 def color_pitch_classes(chord: Chord) -> frozenset[int]:
     """Pitch classes of the 2nd, 4th, 9th, or b7. Root and fifth are not colors."""
     wanted = _COLOR_DEGREES.get(chord.kind_text, frozenset())
@@ -342,15 +356,22 @@ class VillaDialect(HarmonyDialect):
         return True
 
     def is_parent(self, prev: Chord, curr: Chord, mode: str) -> bool:
-        parent = _PARENTS[mode].get((curr.root_step, curr.alter))
+        parent = _parent_triad(curr, mode)
         return parent is not None and prev == parent
 
     def opening_pitch_classes(self, chord: Chord, mode: str) -> frozenset[int]:
-        """Bar 0 hears a villa color as its parent. The color tone is not free yet."""
-        classes = chord.pitch_classes
-        if self._villa(chord, mode):
-            classes = classes - color_pitch_classes(chord)
-        return classes
+        """Hear a villa color as its parent triad until that root is held.
+
+        Stripping the color out of the sus chord itself drops the parent's
+        other scale tone. Ebsus2 then keeps only Eb and Bb, and the bar cannot
+        be priced on C major.
+        """
+        if not self._villa(chord, mode):
+            return chord.pitch_classes
+        parent = _parent_triad(chord, mode)
+        if parent is not None:
+            return parent.pitch_classes
+        return chord.pitch_classes - color_pitch_classes(chord)
 
     def bias(
         self,

@@ -1247,6 +1247,9 @@ def _compose(
                     bpm=GUITAR_BPM[ensemble] if form is None else spec.bpm,
                     ensemble=ensemble,
                     harmonies=harmonies,
+                    mode=mode,
+                    character=character,
+                    character_at=character_at,
                 )
             )
 
