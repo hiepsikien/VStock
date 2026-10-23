@@ -20,6 +20,7 @@ const VARIANTS: { id: RecapVariant; label: string }[] = [
   { id: 'jazz', label: 'Jazz' },
   { id: 'minimalist', label: 'Tối giản' },
   { id: 'ambient', label: 'Ambient' },
+  { id: 'guitar', label: 'Guitar' },
 ];
 
 const RANGE_LABEL: Record<SpanRange, string> = {
@@ -86,6 +87,10 @@ export function SpanRecap({ symbol, range, children }: Props) {
 
   const listen = useCallback(() => {
     reset();
+    if (variant === 'guitar') {
+      setError('Guitar chưa được soạn.');
+      return;
+    }
     const controller = new AbortController();
     request.current = controller;
     setComposing(true);
@@ -209,7 +214,12 @@ export function SpanRecap({ symbol, range, children }: Props) {
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
               >
-                <Text style={[styles.variantText, active && styles.variantTextActive]}>{item.label}</Text>
+                <Text
+                  style={[styles.variantText, active && styles.variantTextActive]}
+                  numberOfLines={1}
+                >
+                  {item.label}
+                </Text>
               </Pressable>
             );
           })}
@@ -379,6 +389,7 @@ const styles = StyleSheet.create({
   },
   variantRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
   },
   ensembleRow: {

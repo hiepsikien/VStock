@@ -573,10 +573,22 @@ def plan_markov_chords(
         previous_pitch = raw_pitches[bar * epb - 1] if bar > 0 else None
         phrase_downbeat = bar in phrase_starts
 
-        def emit(notes: Sequence[int], chord: Chord, **extra: int | None) -> float:
+        def emit(
+            notes: Sequence[int],
+            chord: Chord,
+            *,
+            heard: frozenset[int] | None = None,
+            **extra: int | None,
+        ) -> float:
+            if heard is None:
+                heard = (
+                    active_dialect.opening_pitch_classes(chord, mode)
+                    if bar == 0
+                    else chord.pitch_classes
+                )
             return bar_quantization_loss(
                 notes,
-                chord.pitch_classes,
+                heard,
                 active_scale,
                 strong_eighths=meter.strong_eighths,
                 extra_weights=meter.extra_weights,
@@ -631,7 +643,7 @@ def plan_markov_chords(
                 base_bias = minor_bias(chord, regime)
             else:
                 base_bias = chord_bias(chord, regime, bar_character[bar])
-            base_bias += active_dialect.bias(chord, bar_character[bar], mode)
+            base_bias += active_dialect.bias(chord, bar_character[bar], mode, strong_pcs)
             if chord in extra_ids and len(chord.pitches) >= 4:
                 base_bias += SEVENTH_TENSION_COST
             if bar in bridge_starts and is_subdominant(chord, mode):
@@ -682,38 +694,49 @@ def plan_markov_chords(
             if previous_pitch is None:
                 raise RuntimeError("expected previous_pitch for bar > 0")
             prev_last_touched_strong = _prev_last_touched_strong(raw_pitches, bar, meter)
-            if not prev_last_touched_strong or bar_notes[0] % 12 in chord.pitch_classes:
-                uniform_emission = (
-                    emit(
-                        bar_notes,
-                        chord,
-                        previous_pitch=previous_pitch,
-                        previous_snapped=previous_pitch,
+            plain = active_dialect.opening_pitch_classes(chord, mode)
+            full = chord.pitch_classes
+            strips_color = plain != full
+
+            def priced(heard: frozenset[int], snapped: int) -> float:
+                try:
+                    return (
+                        emit(
+                            bar_notes,
+                            chord,
+                            heard=heard,
+                            previous_pitch=previous_pitch,
+                            previous_snapped=snapped,
+                        )
+                        + base_bias
                     )
-                    + base_bias
-                )
+                except ValueError:
+                    # Planing sus2 keeps only Eb and Bb once the 2nd is removed,
+                    # and neither sits on the written scale.
+                    return 1e6
+
+            if not prev_last_touched_strong or bar_notes[0] % 12 in full:
+                uniform_full = priced(full, previous_pitch)
+                uniform_plain = priced(plain, previous_pitch) if strips_color else uniform_full
                 prev_snapped_by_chord = None
-                emission_by_prev_snapped = None
+                emission_full = None
+                emission_plain = None
             else:
-                uniform_emission = 0.0
+                uniform_full = 0.0
+                uniform_plain = 0.0
                 prev_snapped_by_chord = {
                     prev_chord: quantize_chord_tone(
                         previous_pitch, prev_chord.pitch_classes, active_scale
                     )
                     for prev_chord in catalog
                 }
-                emission_by_prev_snapped = {
-                    snapped_val: (
-                        emit(
-                            bar_notes,
-                            chord,
-                            previous_pitch=previous_pitch,
-                            previous_snapped=snapped_val,
-                        )
-                        + base_bias
-                    )
-                    for snapped_val in set(prev_snapped_by_chord.values())
-                }
+                snaps = set(prev_snapped_by_chord.values())
+                emission_full = {snapped: priced(full, snapped) for snapped in snaps}
+                emission_plain = (
+                    {snapped: priced(plain, snapped) for snapped in snaps}
+                    if strips_color
+                    else emission_full
+                )
 
             for target_held in (1, 2):
                 best_prev: tuple[Chord, int] | None = None
@@ -811,17 +834,17 @@ def plan_markov_chords(
                     ):
                         trans_cost += CROSS_BAR_BREAK_PENALTY
 
-                    if emission_by_prev_snapped is None or prev_snapped_by_chord is None:
-                        emission = uniform_emission
+                    if prev_snapped_by_chord is None or emission_full is None or emission_plain is None:
+                        emission = uniform_plain if strips_color and not same_root else uniform_full
                     else:
-                        emission = emission_by_prev_snapped[prev_snapped_by_chord[prev_chord]]
+                        table = emission_plain if strips_color and not same_root else emission_full
+                        emission = table[prev_snapped_by_chord[prev_chord]]
                     credit = active_dialect.color_credit(chord, strong_pcs, prev_chord)
-                    # The second bar of a root is priced at 0.15, plus 0.35 when the color changes.
-                    # A stay, or a change between two villa colors, must not collect 0.70: that
-                    # negative bar pays Viterbi to open G7sus4 into Gsus4. Entering from the
-                    # parent (C → Csus4) still takes the credit; without it a two-bar F opens Fmaj7.
-                    second_bar = same_root and not new_section and prev_held == 1
-                    if second_bar and (prev_chord == chord or prev_chord in extra_ids):
+                    # A color tone is only paid for while its own root is held, and only
+                    # the parent triad may buy the 0.15 or new-phrase arrival.
+                    if prev_chord != chord and not active_dialect.is_parent(prev_chord, chord, mode):
+                        credit = 0.0
+                    elif not new_section and prev_held == 1 and prev_chord == chord:
                         credit = 0.0
                     total = (
                         dp[bar - 1][(prev_chord, prev_held)]

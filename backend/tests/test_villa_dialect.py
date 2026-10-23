@@ -193,16 +193,37 @@ def test_a_root_note_does_not_open_the_sus_that_calls_it_a_fourth() -> None:
     assert opened[2].name == "Csus4"
     only_g = _plan([[67] * 8, [67] * 8], character="rally")
     assert all(chord.name != "Dsus4" for chord in only_g)
-    three = _plan([[60] * 8, [60] * 8, [60] * 8], character="rally")
-    common = _plan([[60] * 8, [60] * 8, [60] * 8], character="rally", dialect=COMMON)
-    assert [chord.name for chord in three] == [chord.name for chord in common]
-    # Minor prices a villa color on the 0.08 floor, so the G→C door lands on Cm, not Csus4.
+    # A bare tonic does not open a sus of another root. The G→C door and the
+    # calm floor-cancel both lose to the diatonic path.
+    for character in ("rally", "calm", "selloff", None):
+        bare = _plan([[60] * 8, [60] * 8, [60] * 8], character=character)
+        common = _plan([[60] * 8, [60] * 8, [60] * 8], character=character, dialect=COMMON)
+        assert [chord.name for chord in bare] == [chord.name for chord in common]
     minor_c = _plan([[60] * 8, [60] * 8, [60] * 8], character="rally", mode="minor")
-    assert minor_c[-1].name in {"Cm", "Cm7"}
-    calm = _plan([[60] * 8, [60] * 8, [60] * 8], character="calm", mode="minor")
-    assert calm[-1].name != "Csus2"
+    minor_common = _plan(
+        [[60] * 8, [60] * 8, [60] * 8], character="rally", mode="minor", dialect=COMMON
+    )
+    assert [chord.name for chord in minor_c] == [chord.name for chord in minor_common]
     only_eb = _plan([[63] * 8, [63] * 8], character="rally", mode="minor")
     assert all(chord.name != "F7sus4" for chord in only_eb)
+
+
+def test_a_color_stays_silent_until_its_root_is_held() -> None:
+    """A fourth or a flat seventh only counts once that root is already held."""
+    for character in ("rally", "calm", "selloff", "volatile", None):
+        fa = [[65] * 8, [65] * 8, [65] * 8]
+        assert [chord.name for chord in _plan(fa, character=character)] == [
+            chord.name for chord in _plan(fa, character=character, dialect=COMMON)
+        ]
+        eb = [[63] * 8, [63] * 8, [63] * 8]
+        assert [chord.name for chord in _plan(eb, character=character, mode="minor")] == [
+            chord.name
+            for chord in _plan(eb, character=character, mode="minor", dialect=COMMON)
+        ]
+    split = [[60] * 8, [60] * 8, [60] * 8]
+    assert [chord.name for chord in _plan(split, character="selloff", splits=(1,))] == [
+        chord.name for chord in _plan(split, character="selloff", splits=(1,), dialect=COMMON)
+    ]
 
 
 def test_flat_roots_do_not_borrow_the_natural_letter_row() -> None:

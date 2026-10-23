@@ -69,9 +69,23 @@ class HarmonyDialect:
         del chord, pedal, phrase_downbeat, character, mode
         return True
 
-    def bias(self, chord: Chord, character: MovementCharacter | None, mode: str) -> float:
-        del chord, character, mode
+    def bias(
+        self,
+        chord: Chord,
+        character: MovementCharacter | None,
+        mode: str,
+        strong_pitch_classes: frozenset[int] = frozenset(),
+    ) -> float:
+        del chord, character, mode, strong_pitch_classes
         return 0.0
+
+    def is_parent(self, prev: Chord, curr: Chord, mode: str) -> bool:
+        del prev, curr, mode
+        return False
+
+    def opening_pitch_classes(self, chord: Chord, mode: str) -> frozenset[int]:
+        del mode
+        return chord.pitch_classes
 
     def color_credit(
         self,
@@ -327,8 +341,29 @@ class VillaDialect(HarmonyDialect):
             return False
         return True
 
-    def bias(self, chord: Chord, character: MovementCharacter | None, mode: str) -> float:
+    def is_parent(self, prev: Chord, curr: Chord, mode: str) -> bool:
+        parent = _PARENTS[mode].get((curr.root_step, curr.alter))
+        return parent is not None and prev == parent
+
+    def opening_pitch_classes(self, chord: Chord, mode: str) -> frozenset[int]:
+        """Bar 0 hears a villa color as its parent. The color tone is not free yet."""
+        classes = chord.pitch_classes
+        if self._villa(chord, mode):
+            classes = classes - color_pitch_classes(chord)
+        return classes
+
+    def bias(
+        self,
+        chord: Chord,
+        character: MovementCharacter | None,
+        mode: str,
+        strong_pitch_classes: frozenset[int] = frozenset(),
+    ) -> float:
         if not self._villa(chord, mode):
+            return 0.0
+        # A fifth or a root does not buy the color discount. Calm −0.08 would
+        # otherwise cancel the 0.08 floor and undercut F with Fsus2.
+        if not (strong_pitch_classes & color_pitch_classes(chord)):
             return 0.0
         text = chord.kind_text
         if character == "calm" and text in ("sus2", "add9"):
