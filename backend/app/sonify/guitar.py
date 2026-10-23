@@ -14,9 +14,9 @@ from dataclasses import replace
 
 from app.sonify.chords import Chord
 from app.sonify.form import active_meter
-from app.sonify.keys import MovementCharacter, active_register
+from app.sonify.keys import C_KEY, MovementCharacter, active_register
 from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score
-from app.sonify.phrasing import Phrase, quantize_strong_beats, with_rests, written
+from app.sonify.phrasing import Phrase, quantize_strong_beats, written
 from app.sonify.quantize import C_MAJOR_PCS, C_NATURAL_MINOR_PCS, scale_from_classes
 
 GUITAR_BPM = {"classic": 88, "villa": 100, "barrios": 120}
@@ -74,6 +74,8 @@ def render_guitar_score(
     mode: str = "major",
     character: MovementCharacter | None = None,
     character_at: tuple[MovementCharacter | None, ...] | list[MovementCharacter | None] | None = None,
+    sections: tuple | None = None,
+    rel_span: float = 1.0,
 ) -> Score:
     meter = active_meter()
     register = active_register()
@@ -87,40 +89,26 @@ def render_guitar_score(
         chord_at,
         mode,
     )
-    if ensemble == "barrios" and bpm >= BARRIOS_TREMOLO_MIN_BPM:
-        lead, support, low = _tremolo(
-            melody,
-            chord_at,
-            kind_at,
-            musical_bars,
-            bpm,
-            register.guitar_floor,
-            register.guitar_bass_top,
-            register.guitar_mid_low,
-            register.guitar_mid_high,
-            phrases,
-        )
-        divisions = 4
-    else:
-        lead = _melody_line(melody, phrases, musical_bars)
-        support, low = _arpeggio(
-            melody,
-            chord_at,
-            kind_at,
-            band_at,
-            musical_bars,
-            rolling=ensemble == "villa",
-            character=character,
-            character_at=character_at,
-            bass_low=register.guitar_floor,
-            bass_high=register.guitar_bass_top,
-            mid_low=register.guitar_mid_low,
-            mid_high=register.guitar_mid_high,
-        )
-        lead = with_rests(lead, total_eighths)
-        support = with_rests(list(support), total_eighths)
-        low = with_rests(list(low), total_eighths)
-        divisions = 2
+    from app.sonify.guitar_patterns import render_patterned_voices
+
+    lead, support, low, divisions = render_patterned_voices(
+        melody=melody,
+        raw_pitches=list(pitches),
+        phrases=phrases,
+        chord_at=chord_at,
+        kind_at=kind_at,
+        band_at=band_at,
+        musical_bars=musical_bars,
+        total_eighths=total_eighths,
+        bpm=bpm,
+        ensemble=ensemble,
+        mode=mode,
+        character=character,
+        character_at=character_at,
+        sections=sections,
+        rel_span=rel_span,
+        register=register,
+    )
     return Score(
         title=title,
         bpm=bpm,
@@ -148,6 +136,13 @@ def render_guitar_score(
         beat_type=meter.beat_type,
         bar_beats=meter.quarter_beats,
     )
+
+
+def assert_playable(score: Score, key=C_KEY, profiles: str | dict | tuple | list = "study"):
+    """Report an unplayable guitar voicing. Does not rewrite the score."""
+    from app.sonify.guitar_patterns import assert_playable as _assert_playable
+
+    return _assert_playable(score, key=key, profiles=profiles)
 
 
 def _place_melody(

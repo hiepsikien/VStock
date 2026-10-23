@@ -70,7 +70,12 @@ def midi_to_pitch(midi: int, harmony: Chord | None = None) -> tuple[str, int, in
             return step, alter, octave
     step = _PC_STEPS.get(pitch_class)
     if step is None:
-        raise ValueError(f"MIDI {midi} is not diatonic to C major")
+        # A chromatic approach or leading tone (F♯, C♯, …) is not in the
+        # C-major collection. Spell it as a sharp so the guitar can print it.
+        raised = _PC_STEPS.get((pitch_class - 1) % 12)
+        if raised is None:
+            raise ValueError(f"MIDI {midi} is not diatonic to C major")
+        return raised, 1, octave
     return step, 0, octave
 
 
