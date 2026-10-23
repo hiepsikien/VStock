@@ -29,13 +29,13 @@ Chỗ code còn lệch so với hợp đồng bên dưới: Barrios nhanh tremol
 
 ### Phase 1 — Bộ chọn, và hai cách hát
 
-Nghe được: câu ngân từ 90 BPM là tremolo; chương dưới 90 là thánh ca của nhà đó; câu chạy và câu mở vẫn là arpeggio đang có. Chưa có điệu Nam Mỹ, chưa có dialect Barrios, chưa có scale.
+Nghe được: câu ngân từ 90 BPM là tremolo; chương dưới 90 của Barrios và các câu vai hát ở bước 3 là thánh ca của nhà đó; câu mở của chương từ 90 BPM và các câu còn lại vẫn là arpeggio đang có. Chưa có điệu Nam Mỹ, chưa có dialect Barrios, chưa có scale.
 
 - Hàm chọn pattern theo thứ tự mục 3. Cửa tempo lọc trước sở thích của nhà.
-- Tremolo chỉ khi được chọn. Giữ nguyên lưới, lực, và việc ngón cái không nhường phách. Không viết lại thành phách chấm ở 6/8.
+- Tremolo chỉ khi được chọn. Giữ nguyên lưới, lực, và việc ngón cái không nhường phách. Không viết lại thành phách chấm ở 6/8. Tắt tremolo ở hai phách đen cuối của câu đóng (`phrase.closes`) khi phần trước của câu còn ít nhất hai phách tremolo.
 - Thánh ca: Andante của Barrios, chord-melody của Villa, Élégiaque của Sor, đúng mục 6.
 - Sau hai câu tremolo liên tiếp, câu kế là thánh ca. Luật này chỉ chạy khi tremolo đang hợp lệ.
-- Mở bài và câu chạy nhanh vẫn gọi arpeggio hiện tại. Chuông Preludio và vòng étude để Phase 3.
+- Câu mở của chương từ 90 BPM và câu chạy không rơi vào thánh ca vẫn gọi arpeggio hiện tại. Chuông Preludio và vòng étude để Phase 3.
 
 ### Phase 2 — Dialect Barrios và điệu nhanh
 
@@ -85,14 +85,18 @@ Arpeggio là phương án còn lại: tempo nào cũng đứng được. Tremolo
 
 ## 3. Bộ chọn
 
-Khóa theo câu. Band của câu là band ô chứa nốt đỉnh (`phrase.apex`). Scale và nốt dẫn của điệu được chiếm một đoạn trong câu mà không đổi pattern của cả câu.
+Mọi ô thuộc `_PEDAL` (`intro`, `outro`, `warmup`, `cooldown`) được tách riêng theo từng ô trước bộ chọn câu: bass gốc ngân cả ô, Trung nghỉ, Cao ngân theo dữ liệu, không tremolo, không thánh ca, không dance (Phase 3 mới mở Preludio và chuông ở `intro`/`warmup` của Barrios).
+
+Với các câu thân bài, bộ chọn khóa theo câu (`Phrase`). Band và `character` của câu đều đọc tại ô chứa nốt đỉnh (`phrase.apex`): lấy `band_at[apex_bar]`, và lấy `character_at[apex_bar]` nếu có (như `1W` đổi character mỗi phiên 32 ô), ngược lại lấy `character` của chương. Scale và nốt dẫn của điệu được chiếm một đoạn trong câu mà không đổi pattern của cả câu.
+
+Một chương chỉ có một `Score.divisions`: bằng `4` khi chương có bất kỳ ô móc kép nào (Barrios ở `bpm >= 90`, hoặc chương có đoạn scale móc kép ở Phase 3), bằng `2` khi cả chương chỉ dùng lưới móc đơn. Trong chương `divisions = 4`, các ô pedal, arpeggio, thánh ca và đuôi kết câu vẫn phát `NoteEvent` trên cùng `Score` có `divisions = 4` (với `duration_beats` tính bằng phách đen: `0.5` cho móc đơn, `1.0` cho nốt đen), không đổi `divisions` giữa chương.
 
 Lọc rồi mới xếp. Một pattern ngoài cửa tempo, ngoài meter, hoặc trái hình câu thì bị loại trước khi xét thứ tự.
 
-1. Ô khung mở (`intro`, `warmup`) hoặc câu đầu chương → arpeggio khai của nhà đó.
-2. Câu có nốt giai điệu giữ từ hai phách đen (≥ 4 móc đơn liền cùng cao độ trên đường giai điệu đã nén), và palette có tremolo, và BPM nằm trong 90–140 → tremolo. Đã có hai câu tremolo liền trước thì câu này là thánh ca.
-3. Câu đang ở vai hát: Barrios khi BPM dưới 90; Sor khi chương chậm (`bpm <= 72`), `selloff`, hoặc đoạn `trio` ở thứ; Villa khi chương chậm (`bpm <= 72`), band `p`, hoặc `calm` → thánh ca của nhà đó.
-4. Câu đang chạy (mọi nốt trong câu đều ngắn hơn hai phách đen), character khác `calm`, BPM trên 100, meter 4/4 hoặc 6/8, và palette có điệu của meter đó → dance. Phase 1 chưa có nhánh này: câu chạy rơi xuống bước 5.
+1. Câu thân đầu chương khi `bpm >= 90` → arpeggio khai của nhà đó. Chương dưới 90 BPM bỏ qua bước này để vào thẳng thánh ca ở bước 3 ngay từ câu đầu.
+2. Câu có nốt giai điệu giữ từ hai phách đen (≥ 4 móc đơn liền cùng cao độ trên đường giai điệu đã nén), và palette có tremolo, và BPM nằm trong 90–140 → tremolo. Câu vừa có nốt chạy vừa có một nốt giữ từ hai phách đen vẫn là câu tremolo. Đã có hai câu tremolo liền trước thì câu này là thánh ca.
+3. Câu đang ở vai hát: Barrios khi BPM dưới 90; Sor khi chương chậm (`bpm <= 72`), `selloff`, hoặc section mang `section.trio` ở mode thứ; Villa khi chương chậm (`bpm <= 72`), band `p`, hoặc `calm` → thánh ca của nhà đó. `section.trio` là cờ trên `FormSection` phủ trọn câu giữa (`regime_slot == 1`), không phải `trio_bars` của `form.py` (vốn chỉ lấy nửa đầu câu). Vì chương thứ là `selloff` hoặc `volatile` đóng cửa xuống mà `selloff` đã bật Élégiaque ở mọi câu, cửa `section.trio` thực chất bắt thêm đoạn giữa của chương `volatile` đóng cửa xuống.
+4. Câu đang chạy (mọi nốt trong câu đều ngắn hơn hai phách đen), character khác `calm`, `bpm > 100`, meter 4/4 hoặc 6/8, và palette có điệu của meter đó → dance. Phase 1 chưa có nhánh này: câu chạy rơi xuống bước 5.
 5. Còn lại → arpeggio của nhà đó.
 
 Scale không tranh cả câu. Phase 3 phủ một đoạn ở đỉnh hoặc ở hai phách cuối câu đóng, trên pattern đã chọn, khi còn ngân sách.
@@ -101,14 +105,14 @@ Hệ quả trên bản đồ đang chạy:
 
 | Chỗ | BPM, meter | Barrios | Sor | Villa |
 |---|---|---|---|---|
-| `1D` | 120 / 100 / 88, 4/4 | Ngân: tremolo. Chạy, từ Phase 2: choro. Mở: arpeggio | Arpeggio. 88 nằm dưới cửa tremolo | Arpeggio. `calm` và band `p`: thánh ca |
-| `1W` | 90, 4/4 | Tremolo ở sàn cửa, chỉ câu ngân | Arpeggio hoặc Élégiaque nếu `selloff` | Arpeggio hoặc chord-melody |
-| Chương 96 BPM, 4/4 | 96 | Tremolo nếu câu ngân. Chạy: arpeggio, vì điệu chỉ từ trên 100 | Theo character | Theo character |
-| Chương chậm `1M` II, `3M` II, tháng giữa `1Y` | 72, 60, 66, đều 3/4 | Thánh ca. Không tremolo, không choro | Élégiaque | Chord-melody |
-| Scherzo `1M`, tháng khép `1Y` | 120 và 108, 6/8 | Ngân: tremolo đầy, ba trùm nốt đen. Chạy, từ Phase 2: polca; band `f` là hemiola của polca | Élégiaque khi `selloff` hoặc `trio` ở thứ; còn lại arpeggio | Arpeggio; `calm` thì chord-melody |
+| `1D` | 120 / 100 / 88, 4/4 | Ngân: tremolo. Chạy, từ Phase 2: choro. Mở: arpeggio | Arpeggio; `selloff`: Élégiaque. 88 dưới cửa tremolo nhưng trên ngưỡng chương chậm 72 | Arpeggio (100 không vượt `bpm > 100`). `calm` và band `p`: chord-melody |
+| `1W` | 90, 4/4 | Tremolo ở sàn cửa, chỉ câu ngân | Arpeggio hoặc Élégiaque theo `character_at` của phiên | Arpeggio hoặc chord-melody theo `character_at` / band của câu |
+| Chương 96 hoặc 100 BPM, 4/4 | 96, 100 | Tremolo nếu câu ngân. Chạy: arpeggio, vì điệu đòi `bpm > 100` | Theo character | Theo character |
+| Chương chậm `1M` II, `3M` II, tháng giữa `1Y` | 72, 60, 66, đều 3/4 | Thánh ca cả thân chương (kể cả câu đầu). Không tremolo, không choro | Élégiaque cả thân chương | Chord-melody cả thân chương |
+| Scherzo `1M`, tháng khép `1Y` | 120 và 108, 6/8 | Ngân: tremolo đầy, ba trùm nốt đen. Chạy, từ Phase 2: polca; band `f` là hemiola của polca | Élégiaque khi `selloff` hoặc `section.trio` ở thứ; còn lại arpeggio | Arpeggio; `calm` hoặc band `p` thì chord-melody |
 | Chương III `3M` | 108, 4/4 | Như `1D` của Barrios | Theo character | Theo character |
 
-`1M` I và IV, tháng mở và tháng 12 của `1Y` là các chương 96 BPM. `3M` I là 4/4 cùng họ với chúng.
+`1M` I và IV, tháng 12 của `1Y`, và `3M` I là các chương 96 BPM; tháng mở của `1Y` là 100 BPM.
 
 ## 4. Bản đồ nhịp
 
@@ -149,7 +153,13 @@ Ba biến thể, cùng vai: giai điệu là nốt trên, hợp âm đánh cùng
 
 ### 6.1. Barrios — Andante
 
-Nhà của mọi chương Barrios dưới 90, và của câu nghỉ sau hai câu tremolo. Hợp âm ngân cùng giai điệu ở phách mạnh. Giữa phách, Trung không gảy nốt mới. Bass gốc, thưa. Chưa viết luật đảo 6/3: tổng phổ Andante có planing, tài liệu này không lấy đó làm hợp âm mới và cũng chưa khóa thành luật bè.
+Nhà của mọi chương Barrios dưới 90, và của câu nghỉ sau hai câu tremolo (kể cả ở 4/4 hoặc 6/8, 90–120 BPM). Lưới cú khối ba nốt (Trầm gốc + Trung âm hợp âm dưới Cao + Cao giai điệu) khóa theo meter:
+
+- 4/4: móc đơn 0 và 4, mỗi cú Trầm và Trung ngân 4 móc đơn.
+- 6/8: móc đơn 0 và 3 (đầu mỗi nhóm chấm dôi), mỗi cú Trầm và Trung ngân 3 móc đơn.
+- 3/4: móc đơn 0 (Trầm và Trung ngân cả ô 6 móc đơn); riêng ô chứa đỉnh câu (`phrase.apex`) hoặc ô kết câu đóng thì thêm một cú khối ở móc đơn 4 (khi đó cú móc 0 ngân 4 móc, cú móc 4 ngân 2 móc).
+
+Giữa các móc khối trên, Trầm và Trung giữ ngân, không gảy nốt mới; nếu đường giai điệu có nốt dữ liệu mới ở các móc đơn khác thì chỉ bè Cao đánh nốt đó. Chưa viết luật đảo 6/3: tổng phổ Andante có planing, tài liệu này không lấy đó làm hợp âm mới và cũng chưa khóa thành luật bè.
 
 ### 6.2. Villa — chord-melody
 
@@ -159,7 +169,7 @@ Riêng câu chương chậm, band `f`, `volatile`, có breakout: Phase 3 mới p
 
 ### 6.3. Sor — Élégiaque
 
-Bật khi chương chậm (`bpm <= 72`), hoặc `selloff`, hoặc section mang `trio` ở mode thứ. Scherzo 120 và tháng khép 108 đều đi cửa `trio` này. `3M` không có trio.
+Bật khi chương chậm (`bpm <= 72`), hoặc `selloff`, hoặc section mang `section.trio` ở mode thứ. Scherzo 120 và tháng khép 108 đều đi cửa `section.trio` này. `3M` không có trio.
 
 Bass hành khúc, theo meter:
 
@@ -167,7 +177,7 @@ Bass hành khúc, theo meter:
 - 3/4: móc 0 dài 3, móc 3 ngắn 1 đi xuống, móc 4 dài 2. Ô kết câu, bass ngân từ móc 0.
 - 6/8: móc 0 dài 2, móc 2 ngắn 1, móc 3 dài 2, móc 5 ngắn 1.
 
-Hai ô cuối câu đóng ở thứ: bass ưu tiên đi xuống liền bậc theo thang, khi hợp âm chứa những bậc đó. Trung thưa hơn study một bậc. Appoggiatura: tối đa một mỗi câu, khi nốt phách mạnh được giữ từ hai móc và nốt dữ liệu kế lệch đúng một bậc thang. Móc đầu của nốt phách mạnh là nốt thang ngoài hợp âm, cách nốt giải quyết một bậc theo hướng ngược, rồi móc sau trả về đúng nốt dữ liệu. Không có fill kết câu.
+Hai ô cuối câu đóng ở thứ: bass ưu tiên đi xuống liền bậc theo thang, khi hợp âm chứa những bậc đó. Trung thưa hơn study một bậc. Appoggiatura: tối đa một mỗi câu, khi nốt dữ liệu ở phách mạnh được giữ từ hai móc đơn và nốt dữ liệu kế tiếp (sau nốt phách mạnh đó) lệch đúng một bậc thang. Móc đơn đầu của nốt phách mạnh được thay bằng nốt thang ngoài hợp âm tạo thành bước đi liền bậc cùng chiều với bước sang nốt dữ liệu kế tiếp (nếu nốt dữ liệu kế tiếp thấp hơn nốt phách mạnh một bậc thang thì nốt tựa nằm cao hơn nốt phách mạnh một bậc thang, tạo ba bậc đi xuống liên tiếp; nếu nốt kế tiếp cao hơn một bậc thì nốt tựa nằm thấp hơn một bậc), rồi móc đơn thứ hai trả về đúng nốt dữ liệu của phách mạnh. Không có fill kết câu.
 
 ## 7. Tremolo — lưới đã chạy, cửa là Phase 1
 
@@ -177,7 +187,7 @@ Một trùm là một nốt đen: bốn móc kép cùng một cao độ giai đi
 
 Ngón cái, velocity 58, đánh gốc và quãng 5 cùng lúc, ngân hết nốt đen. Hai nốt đó cùng voice Trầm. Bè lặp 52, 55, 54, 52. Ô đổi hợp âm: Trung đánh một nốt màu dưới giai điệu ở đầu ô, cùng lúc với ngón cái. Phách đó có bốn cao độ. Đó là ngoại lệ đã nghe, không siết về ba cao độ trong Phase 1 hay Phase 3.
 
-Ô pedal không tremolo: giai điệu ngân theo câu, bass gốc. Hai phách cuối câu đóng tắt tremolo, trả về arpeggio kết, hoặc về đoạn scale khi Phase 3 đã có.
+Ô pedal không tremolo: giai điệu ngân theo câu, bass gốc. Tắt tremolo ở hai phách đen cuối (4 móc đơn = 8 móc kép) của câu đóng (`phrase.closes`) là việc của Phase 1 (hiện chưa có trong `_tremolo`): trả hai phách cuối đó về arpeggio kết, hoặc về đoạn scale khi Phase 3 đã có. Luật cắt đuôi này chỉ cắt khi phần câu trước hai phách cuối vẫn còn ít nhất hai phách đen tremolo; nếu cả câu chỉ dài hai phách hoặc chỉ có đúng hai phách cuối là nốt giữ tạo `phrase.closes` mà câu ngắn hơn bốn phách, không cắt mất đoạn tremolo duy nhất của câu.
 
 Ép ngón giữ luật đang chạy: dưới 4%, không ở câu đầu, không trên móc kép tremolo.
 
@@ -189,15 +199,15 @@ Giá trị nốt theo tempo của chương. Dưới 90, chạy bằng móc đơn
 
 Ngân sách: tối đa một đoạn mỗi câu, số ô có chạy không quá khoảng 15% ô của section, mỗi section còn ít nhất một câu không chạy. Âm lấy từ thang của mode. Barrios được một nốt dẫn bán cung ở móc kép ngay trước đích, tối đa một mỗi đoạn. Sor và Villa không lấy nốt đó trong đoạn scale.
 
-Đệm không dùng chung. Sor và Villa giữ bass của pattern chủ, Trung nghỉ trong lúc chạy. Barrios: Trung nghỉ, bass gốc ở phách 1 và 3. Dạng chạy cả ô (perpetual) chỉ Barrios, chỉ khi giá đứng yên từ một ô, band `f`, `volatile`, tối đa hai ô: mốc dữ liệu neo ở móc kép 0 của mỗi phách, móc kép 2 là nốt chạy, rồi quay về đúng nốt đang giữ.
+Đệm không dùng chung. Sor và Villa giữ bass của pattern chủ, Trung nghỉ trong lúc chạy. Barrios: Trung nghỉ, bass gốc ở phách 1 và 3 (ở 6/8 là đầu hai nhóm chấm dôi, móc đơn 0 và 3). Dạng chạy cả ô (perpetual) chỉ Barrios, chỉ khi giá đứng yên từ một ô, band `f`, `volatile`, `bpm >= 90`, tối đa hai ô liên tiếp: trong tối đa hai ô đó, đoạn chạy thay thế các trùm lặp của bè Cao tremolo, bè Trung nghỉ, bè Trầm chuyển từ ngón cái mỗi nốt đen sang đánh gốc ở phách 1 và 3; mốc dữ liệu neo ở móc kép 0 của mỗi phách, móc kép 2 là nốt chạy, rồi quay về đúng nốt đang giữ.
 
 Grand Solo của Sor dùng đoạn scale này khi câu ở lớp arpeggio dày, `phrase.rise` đủ, band `mf`/`f`. Biến tấu theo lần lặp cũng thuộc Phase 3: hai câu cùng họ khi cùng pitch-class gốc ô mở, cùng dấu hướng, đỉnh lệch không quá hai bậc, độ dài lệch không quá bốn móc đơn. Mức figuration tăng một bậc trong họ, đặt lại khi sang section không phải tái hiện. Khung nốt phách mạnh không đổi giữa các lần. Đầu section ở band `f`, ô mở của Grand Solo đánh hợp âm khối ba nốt (Trầm + Trung + Cao cùng lúc); trước câu chứa đỉnh cao nhất của section, nếu câu trước đó đóng, cả ba bè được lặng một móc đơn (caesura) để lấy hơi kịch tính.
 
 ## 9. Điệu — Phase 2
 
-Điệu không đổi `slots` và không đổi ký hiệu nhịp. Giai điệu giá đứng trên móc kép chẵn. Móc lẻ là đệm. Cụm cùng vang tối đa ba nốt, đi qua luật gập bass và thứ tự bè đang có.
+Điệu không đổi `slots` và không đổi ký hiệu nhịp. Ở mọi mẫu điệu (choro 4/4, polca 6/8 thường, và hemiola 6/8), bè Cao (voice 1) luôn hát nguyên vẹn đường giai điệu đã nén trên lưới móc đơn của dữ liệu (mọi móc kép chẵn có nốt dữ liệu mới đều đánh, không bỏ và không dời sang móc khác). Móc lẻ là đệm của Trầm và Trung. Các bảng ở 9.1 và 9.2 là lịch gảy của bè Trầm (voice 3) và bè Trung (voice 2) đặt dưới đường giai điệu đó; ở móc kép chẵn không có trong bảng (như móc kép 2 của choro hay móc kép 2, 8 của polca thường), nếu lưới dữ liệu có nốt mới thì bè Cao vẫn hát một mình. Cụm cùng vang tối đa ba nốt (khi móc kép chẵn có cả Trầm, Trung và Cao thì tỉa theo thứ tự đang có, Trung luôn thấp hơn Cao đang vang), đi qua luật gập bass và thứ tự bè đang có.
 
-Chỉ chọn khi bước 4 của bộ chọn đạt: câu không giữ hai phách, character khác `calm`, BPM trên 100, meter 4/4 hoặc 6/8. Câu ngân ở scherzo 120 band `f` vẫn là tremolo.
+Chỉ chọn khi bước 4 của bộ chọn đạt: câu không giữ hai phách, character khác `calm`, `bpm > 100`, meter 4/4 hoặc 6/8. Câu ngân ở scherzo 120 band `f` vẫn là tremolo.
 
 ### 9.1. Choro, meter 4/4
 
@@ -284,7 +294,7 @@ Chord(
 
 Trong `form.py`, điều kiện một ô đang dành cho `"diminished"` (`target_held != 1`) nhận thêm `"augmented-sixth"`, trước nhánh đổi tự thân thành `BORROWED_HOLD_PROB` 0.16. `Ab+6` cùng gốc với La♭, nhánh cùng gốc đòi `target_held == 2`, luật một ô cấm `target_held == 2`, nên `Ab+6` không đi từ La♭ hay La♭maj7 và không đứng hai ô.
 
-`shares_root` trả `False`. `transition` trả số khi một đầu thuộc `extra()` của mode đang chạy, hoặc khi cặp nằm trong ba cạnh chuỗi át trưởng. Không có trong bảng mà một đầu thuộc `extra()` thì trả 0. Cặp khác trả `None`. Bắt buộc có số tường minh vì `Bb` không có hàng trong `_ROOT_TRANSITIONS`, và `D7` thứ trùng `root_step` với ii. Trọng số đưa thẳng vào `−0.6·ln`, không nhân 2. Ô thứ hai của một gốc (`prev_held == 1`, không mở section) vẫn dùng `SECOND_BAR_STAY_COST` 0.15, cạnh không vào giá.
+`shares_root` trả `False`. `transition` trả số khi một đầu thuộc `extra()` của mode đang chạy, hoặc khi cặp nằm trong ba cạnh chuỗi át trưởng. Không có trong bảng mà một đầu thuộc `extra()` thì trả 0. Trả `0` là cấm cặp chuyển tiếp đó (`weight <= 0` bị vòng lặp `form.py` bỏ qua, không đưa vào `ln`), trừ khi giữ nguyên hợp âm (`prev == curr`) mà chất không phải `"diminished"` hay `"augmented-sixth"` thì `form.py` viết lại thành `BORROWED_HOLD_PROB` 0.16. Cặp khác trả `None`. Bắt buộc có số tường minh vì `Bb` không có hàng trong `_ROOT_TRANSITIONS`, và `D7` thứ trùng `root_step` với ii. Trọng số đưa thẳng vào `−0.6·ln`, không nhân 2. Ô thứ hai của một gốc (`prev_held == 1`, không mở section) vẫn dùng `SECOND_BAR_STAY_COST` 0.15, cạnh không vào giá.
 
 Tỉa bốn nốt: bỏ `pitches[2]`. `Ab+6` còn La♭–Đô–Fa♯. `D7` còn Rê–Fa♯–Đô. `Bb7` còn Si♭–Rê–La♭. Ống sửa Phase 3 phải coi Fa♯ của `Ab+6` là âm được giữ, cùng chỗ với âm 7, không bỏ như nốt lạ. Không gọi `jazz_chord`.
 
@@ -357,7 +367,7 @@ Hợp âm `extra()` nhận sàn 0.08, rồi hợp âm bốn nốt cộng 0.05. `
 
 Ba voice: Cao 1, Trung 2, Trầm 3. Khi cùng vang, Trầm thấp hơn Trung, Trung thấp hơn Cao. Tremolo được xếp gốc và quãng 5 trong cùng voice Trầm. Part, giọng Muse và transpose đã khóa trong `musicxml.py` và `audio.py`.
 
-Phase 3 thêm mô hình dây (buông 40, 45, 50, 55, 59, 64), phím tối đa 12 / 17 / 19, khoảng phím ≤ 5 cho nốt cùng vang, và khoảng phím theo từng thế bốn móc kép cho đoạn scale. `assert_playable` chỉ báo, không sửa. Profile theo pattern đang chạy: `study`, `elegiaque`, `villa_pattern`, `villa_chord`, `barrios_tremolo`, `barrios_chorale`, `barrios_dance`. Luật bass của profile này không áp cho profile khác.
+Phase 3 thêm mô hình dây (dây 6→1 buông ở 40, 45, 50, 55, 59, 64), giới hạn phím theo dây (dây 6–4 nhận phím 0–12, dây 3 nhận 0–17, dây 2–1 nhận 0–19), khoảng phím ≤ 5 trên các nốt bấm cho cụm cùng vang (dây buông phím 0 không tính vào khoảng phím), và khoảng phím ≤ 5 theo từng thế bốn móc kép cho đoạn scale. `assert_playable` chỉ báo, không sửa. Profile theo pattern đang chạy: `study`, `grand`, `elegiaque`, `villa_pattern`, `villa_chord`, `barrios_preludio` (cho phép nốt chuông ở bè Cao lên tới vang 83 / `guitar_ceiling`), `barrios_tremolo`, `barrios_chorale`, `barrios_dance`, `barrios_run`. Luật bass và trần riêng của profile này không áp cho profile khác.
 
 ## 12. Test theo phase
 
@@ -365,12 +375,12 @@ Phase 3 thêm mô hình dây (buông 40, 45, 50, 55, 59, 64), phím tối đa 12
 
 **Phase 1**, trong `test_sonify_guitar.py`:
 
-1. 120 BPM, giai điệu giữ từ hai phách, band `mf`: tremolo đầy. 6/8 vẫn ba trùm nốt đen, mọi móc kép hát.
+1. 120 BPM, giai điệu giữ từ hai phách, band `mf`: tremolo đầy trên câu không đóng (`closes=False`) hoặc trên các ô trước hai phách cuối của câu đóng; riêng câu đóng (`closes=True`) dài từ một ô trở lên thì hai phách đen cuối tắt tremolo về arpeggio kết. 6/8 vẫn ba trùm nốt đen, mọi móc kép hát.
 2. 120 BPM, giai điệu đổi từng móc đơn: arpeggio, không tremolo, không dance.
-3. Ô `intro` ở 120: arpeggio, không tremolo.
-4. 72, 60 hoặc 66 BPM, 3/4: thánh ca của nhà đó, BPM không đổi, không một trùm tremolo.
-5. Barrios, câu tremolo thứ ba liên tiếp: thánh ca.
-6. Sor, chương chậm hoặc `selloff` hoặc `trio` ở thứ: bass đúng mẫu chấm của meter đó. Appoggiatura giải về đúng nốt dữ liệu, tối đa một mỗi câu.
+3. Ô `_PEDAL` (`intro`, `outro`, `warmup`, `cooldown`) ở 120: giữ pedal (bass gốc ngân cả ô, không tremolo); câu thân đầu chương ở 120: arpeggio, không tremolo.
+4. 72, 60 hoặc 66 BPM, 3/4: cả thân chương (kể cả câu thân đầu) là thánh ca của nhà đó, BPM không đổi, không một trùm tremolo.
+5. Barrios, câu tremolo thứ ba liên tiếp: thánh ca Andante theo lưới mục 6.1, trên cùng `Score.divisions = 4` của chương.
+6. Sor, chương chậm hoặc `selloff` hoặc `section.trio` ở thứ: bass đúng mẫu chấm của meter đó. Appoggiatura giải về đúng nốt dữ liệu theo hướng bước kế tiếp, tối đa một mỗi câu.
 7. Villa, chương chậm: ba bè cùng onset ở móc 0; ở 3/4 không có khối ở móc 2.
 8. `calm` ở 6/8, 120, band `f`, giai điệu giữ nốt: tremolo, không hemiola.
 
@@ -383,11 +393,11 @@ Phase 3 thêm mô hình dây (buông 40, 45, 50, 55, 59, 64), phím tối đa 12
 5. Thứ, {La♭, Đô, Mi♭}, giữa câu, gốc Fa đã giữ từ hai ô, ô sau trên {Sol, Rê} hoặc đường kết tại ô này: `Ab+6`. Ô thứ hai của gốc Fa: `Fm7`. Ô mở section: không `Ab+6`. `Ab+6` không đi từ `Ab` và không đứng hai ô. Ô sau là `G` hoặc `G7`.
 6. Trưởng, sau `A7`, phách mạnh Đô, La hoặc Rê: `D7`. Phách mạnh Fa: `Dm` hoặc `Dm7`.
 7. `color_credit` Barrios là 0. `transpose_chord` của `Ab+6` giữ Fa♯.
-8. 4/4, trên 100, câu nốt chạy, `rally`: dance, đúng các móc đã khóa sau khi đọc tổng phổ. Cao trên móc chẵn trùng nốt dữ liệu. `calm`: không dance. 3/4: không dance.
+8. 4/4, `bpm > 100`, câu nốt chạy, `rally`: dance, đúng các móc đã khóa sau khi đọc tổng phổ. Mọi nốt Cao trên móc kép chẵn trùng nốt dữ liệu (kể cả móc kép 2 nếu dữ liệu có nốt mới). `calm`: không dance. 3/4: không dance. 100 BPM: không dance.
 9. 6/8, 120, band `mp`, câu ngân: tremolo, không polca. Cùng tempo, band `f`, câu nốt chạy: hemiola, đệm chỉ móc kép 0, 4, 8. Cùng tempo, band `f`, câu ngân: tremolo.
 10. Ô dance rơi đúng một quãng 5: 4/4 móc kép 15, 6/8 móc kép 11, là Trầm nửa cung dưới gốc sau. Profile `study` báo lỗi; `barrios_dance` im.
 
-**Phase 3:** nốt đích của scale trùng nốt dữ liệu; nốt đầu được lệch và test không đòi nó trùng dữ liệu; phách mạnh trong đoạn giữ cao độ; không section nào quá khoảng 15% ô chạy; chuông tính bằng `bell_budget`, tách khỏi hạn một nốt mỗi hai ô; cụm cùng vang gán được dây, khoảng phím ≤ 5, trừ ngoại lệ tremolo đã khóa; bass Élégiaque và nốt dẫn của Villa hoặc của `barrios_dance` đạt ở đúng profile và lỗi ở `study`.
+**Phase 3:** nốt đích của scale trùng nốt dữ liệu; nốt đầu được lệch và test không đòi nó trùng dữ liệu; phách mạnh trong đoạn giữ cao độ; ô perpetual thay trùm lặp bè Cao của tremolo trong tối đa hai ô và chuyển bass về phách 1 và 3; không section nào quá khoảng 15% ô chạy; Grand Solo ở band `f` mở section bằng hợp âm khối ba nốt và có khoảng lặng một móc đơn (caesura) ở cả ba bè trước câu đỉnh khi câu trước đó đóng; chuông Preludio tính bằng `bell_budget`, tách khỏi hạn một nốt mỗi hai ô, được phép tới vang 83 dưới profile `barrios_preludio`; cụm cùng vang gán được dây (dây 6–4 ≤ 12, dây 3 ≤ 17, dây 2–1 ≤ 19), khoảng phím ≤ 5, trừ ngoại lệ tremolo đã khóa; bass Élégiaque và nốt dẫn của Villa hoặc của `barrios_dance` đạt ở đúng profile và lỗi ở `study`.
 
 ## 13. Nghe
 
