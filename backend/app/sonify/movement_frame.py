@@ -111,6 +111,7 @@ def _symphony(
             *_pedal(cool, end, closing.bass_midi, tie_in=bass_touch is not None),
         )
         comp = _rest_comp(score, warm_start, body, cool, end)
+    comp_wedges = _trim_frame_wedges(score.comp_wedges, body, cool, beats, _epb())
     return replace(
         score,
         high=with_rests(_body(score.high, body, cool), total),
@@ -126,9 +127,15 @@ def _symphony(
         low_wedges=_hairpin(warm_start, body, cool, end - 1),
         high_wedges=_trim_frame_wedges(score.high_wedges, body, cool, beats, _epb()),
         high_dynamics=_flute_body_dynamics(score.high_dynamics, score.high, body, cool),
-        comp_wedges=_trim_frame_wedges(score.comp_wedges, body, cool, beats, _epb()),
+        comp_wedges=comp_wedges,
         comp_dynamics=_piano_frame_dynamics(
-            score.comp_dynamics, body, cool, dynamic=dynamic, warm_start=warm_start, tag=tag
+            score.comp_dynamics,
+            body,
+            cool,
+            dynamic=dynamic,
+            warm_start=warm_start,
+            tag=tag,
+            wedges=comp_wedges,
         ),
     )
 

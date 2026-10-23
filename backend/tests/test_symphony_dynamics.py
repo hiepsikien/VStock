@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
+import os
 import zipfile
+from math import log10
 
-from app.sonify.audio import _VOICE_VOLUME_DB, _assign_installed_sounds, _mute_mscx_harmony
+import pytest
+
+from app.sonify.audio import (
+    _VOICE_VOLUME_DB,
+    _assign_installed_sounds,
+    _installed_muse_sounds,
+    _mute_mscx_harmony,
+    _run_musescore,
+    _wav_samples,
+    find_musescore,
+    musescore_export,
+)
 from app.sonify.chords import C, F
 from app.sonify.daily_frame import _flute_body_dynamics, _piano_frame_dynamics, _trim_frame_wedges
 from app.sonify.dynamics import PIANO_VELOCITY, SOUND
@@ -187,6 +200,18 @@ def test_jazz_left_hand_stays_on_every_other_bar_without_velocity() -> None:
     assert all(note.velocity is None for note in sounding)
 
 
+def test_outro_root_restrikes_every_marked_bar() -> None:
+    slot = ChordSlot(0, 4, C, "sideway", "outro")
+    plain = [note.bar for note in left_hand(slot) if note.midi is not None]
+    marked = [
+        note.bar
+        for note in left_hand(slot, every_bar_at=frozenset({1, 3}))
+        if note.midi is not None
+    ]
+    assert plain == [0]
+    assert marked == [0, 1, 3]
+
+
 def test_frame_reopens_a_wedge_and_restores_mf_without_dropping_a_later_mp() -> None:
     wedges = (
         WedgeEvent(0, 0.0, "crescendo"),
@@ -217,6 +242,26 @@ def test_frame_reopens_a_wedge_and_restores_mf_without_dropping_a_later_mp() -> 
     assert piano[0].marking == "mp"
     assert piano[0].bar == 2
 
+    risen = _piano_frame_dynamics(
+        (DynamicEvent(4, "p", SOUND["p"]),),
+        2,
+        8,
+        dynamic=True,
+        warm_start=0,
+        tag=2,
+        wedges=(WedgeEvent(4, 2.0, "crescendo"), WedgeEvent(4, 4.0, "stop")),
+    )
+    assert risen[-1] == DynamicEvent(8, "p", SOUND["p"], 0.0)
+    settled = _piano_frame_dynamics(
+        (DynamicEvent(4, "p", SOUND["p"]),),
+        2,
+        8,
+        dynamic=True,
+        warm_start=0,
+        tag=2,
+    )
+    assert settled[-1].bar != 8
+
 
 def _eighth_span(wedges: tuple[WedgeEvent, ...]) -> int:
     start = wedges[0].bar * 8 + int(round(wedges[0].beat * 2))
@@ -233,12 +278,25 @@ def test_mute_harmony_is_idempotent_and_voice_gain_is_stored(tmp_path) -> None:
         "<instrumentId>strings.violin</instrumentId></Instrument></Part>"
         "</Score></museScore>"
     )
-    once = _mute_mscx_harmony(body.encode())
+    source = body.encode()
+    once = _mute_mscx_harmony(source)
     twice = _mute_mscx_harmony(once)
     assert twice == once
     text = once.decode()
     assert text.count("<play>0</play>") == 2
     assert "<root>0</root>" in text
+
+    loud = (
+        '<?xml version="1.0"?><museScore><Score>'
+        "<Harmony><root>0</root><play>1</play></Harmony>"
+        "<tail>keep</tail></Score></museScore>"
+    ).encode()
+    muted = _mute_mscx_harmony(loud)
+    assert b"<play>1</play>" not in muted
+    assert muted.count(b"<play>0</play>") == 1
+    assert b"<tail>keep</tail>" in muted
+    odd = b"\xff\xfe"
+    assert _mute_mscx_harmony(odd) is odd
 
     mscz = tmp_path / "piece.mscz"
     with zipfile.ZipFile(mscz, "w") as archive:
@@ -251,3 +309,95 @@ def test_mute_harmony_is_idempotent_and_voice_gain_is_stored(tmp_path) -> None:
     assert b"<play>0</play>" in written
     assert _VOICE_VOLUME_DB["Violins 1"] == 2
     assert b'"volumeDb": 2' in settings or b'"volumeDb": 2.0' in settings
+
+
+_ONE_BAR = """<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list>
+    <score-part id="P3">
+      <part-name>Piano</part-name>
+      <score-instrument id="P3-I1"><instrument-name>Piano</instrument-name></score-instrument>
+    </score-part>
+  </part-list>
+  <part id="P3">
+    <measure number="1">
+      <attributes>
+        <divisions>1</divisions>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef>
+      </attributes>
+      <harmony><root><root-step>C</root-step></root><kind text="maj7">major-seventh</kind></harmony>
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>4</duration><voice>1</voice><type>whole</type>
+      </note>
+      <note>
+        <chord/>
+        <pitch><step>E</step><octave>4</octave></pitch>
+        <duration>4</duration><voice>1</voice><type>whole</type>
+      </note>
+      <note>
+        <chord/>
+        <pitch><step>G</step><octave>4</octave></pitch>
+        <duration>4</duration><voice>1</voice><type>whole</type>
+      </note>
+      <note>
+        <chord/>
+        <pitch><step>B</step><octave>4</octave></pitch>
+        <duration>4</duration><voice>1</voice><type>whole</type>
+      </note>
+    </measure>
+  </part>
+</score-partwise>
+"""
+
+
+def _rms(path) -> float:
+    channels, _rate, samples = _wav_samples(path)
+    if channels < 1 or len(samples) < channels:
+        return 0.0
+    total = 0.0
+    count = 0
+    for index in range(0, len(samples) - channels + 1, channels):
+        for channel in range(channels):
+            value = float(samples[index + channel])
+            total += value * value
+            count += 1
+    return (total / count) ** 0.5 if count else 0.0
+
+
+def test_musescore_export_mutes_the_hidden_harmony_piano(tmp_path) -> None:
+    binary = find_musescore()
+    if binary is None:
+        pytest.skip("MuseScore is not installed")
+    xml = tmp_path / "bar.musicxml"
+    xml.write_text(_ONE_BAR, encoding="utf-8")
+    quiet = tmp_path / "quiet.wav"
+    musescore_export(xml, quiet)
+    assert quiet.is_file() and quiet.stat().st_size > 64
+    if "Piano" not in _installed_muse_sounds():
+        pytest.skip("MuseSounds Piano is not installed; WAV export succeeded")
+
+    loud_score = tmp_path / "loud.mscz"
+    env = os.environ.copy()
+    runtime = env.get("XDG_RUNTIME_DIR", "/tmp/runtime-mscore")
+    os.makedirs(runtime, exist_ok=True)
+    env["XDG_RUNTIME_DIR"] = runtime
+    _run_musescore([binary, "-o", str(loud_score), str(xml)], env)
+    assert _assign_installed_sounds(loud_score, _installed_muse_sounds(), xml)
+    with zipfile.ZipFile(loud_score) as archive:
+        name = next(item for item in archive.namelist() if item.endswith(".mscx"))
+        text = archive.read(name).decode("utf-8")
+        payload = {item: archive.read(item) for item in archive.namelist()}
+    text = text.replace("<play>0</play>", "<play>1</play>")
+    payload[name] = text.encode("utf-8")
+    with zipfile.ZipFile(loud_score, "w") as archive:
+        for name, blob in payload.items():
+            archive.writestr(name, blob)
+    loud = tmp_path / "loud.wav"
+    _run_musescore([binary, "-o", str(loud), str(loud_score)], env)
+    loud_rms = _rms(loud)
+    quiet_rms = _rms(quiet)
+    assert loud_rms > 0 and quiet_rms > 0
+    drop = 20 * log10(loud_rms / quiet_rms)
+    assert 4.0 <= drop <= 9.0

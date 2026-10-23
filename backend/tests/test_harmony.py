@@ -621,15 +621,11 @@ def _assert_measure_timing(
         for xml_note, event in zip(xml_fills, score_fills, strict=True):
             assert xml_note.get("dynamics") == f"{event.velocity * 100 / 90:.2f}"
         dense = eff == "f" or slot.section in ("warmup", "cooldown")
-        expected_left = (
-            [_pitch(root)]
-            if (
-                bar == slot.start
-                if slot.section == "outro"
-                else dense or (bar - slot.start) % 2 == 0
-            )
-            else []
-        )
+        if slot.section == "outro":
+            sound = eff == "f" or bar == slot.start
+        else:
+            sound = dense or (bar - slot.start) % 2 == 0
+        expected_left = [_pitch(root)] if sound else []
         assert _written(left) == expected_left
 
         bass_notes = [note for note in bass_measure if note.tag == "note"]

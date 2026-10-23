@@ -573,6 +573,23 @@ def _flute_body_dynamics(
     return tuple(kept)
 
 
+def _crescendo_follows(last: DynamicEvent, wedges: tuple[WedgeEvent, ...], cool: int) -> bool:
+    """A rise wedge at or after the last letter leaves Piano one step louder than that letter."""
+    last_at = (last.bar, last.beat)
+    index = 0
+    while index + 1 < len(wedges):
+        start, stop = wedges[index], wedges[index + 1]
+        if stop.kind != "stop":
+            index += 1
+            continue
+        index += 2
+        if start.kind != "crescendo" or start.bar >= cool:
+            continue
+        if (start.bar, start.beat) >= last_at:
+            return True
+    return False
+
+
 def _piano_frame_dynamics(
     events: tuple[DynamicEvent, ...],
     body: int,
@@ -581,6 +598,7 @@ def _piano_frame_dynamics(
     dynamic: bool,
     warm_start: int,
     tag: int,
+    wedges: tuple[WedgeEvent, ...] = (),
 ) -> tuple[DynamicEvent, ...]:
     """Restore the bed at the body downbeat. A dynamic frame opens on p and can close on p."""
     beds = [event for event in events if event.beat == 0.0 and event.bar <= body]
@@ -594,6 +612,6 @@ def _piano_frame_dynamics(
     if not dynamic:
         return tuple(kept)
     out = [DynamicEvent(warm_start, "p", SOUND["p"], 0.0), *kept]
-    if tag > 0 and out[-1].marking != "p":
+    if tag > 0 and (out[-1].marking != "p" or _crescendo_follows(out[-1], wedges, cool)):
         out.append(DynamicEvent(cool, "p", SOUND["p"], 0.0))
     return tuple(out)

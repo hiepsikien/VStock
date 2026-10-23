@@ -645,19 +645,23 @@ _VOICE_VOLUME_DB: dict[str, float] = {
     "Tuba": -5,
 }
 _HARMONY_BLOCK = re.compile(r"<Harmony\b[^>]*>.*?</Harmony>", re.DOTALL)
-_HARMONY_MUTED = re.compile(r"<play>\s*0\s*</play>")
 
 
 def _mute_mscx_harmony(mscx: bytes) -> bytes:
     """Stop MuseScore playing the hidden piano inside each <Harmony> chord symbol."""
+    try:
+        text = mscx.decode("utf-8")
+    except UnicodeDecodeError:
+        return mscx
 
     def mute(match: re.Match[str]) -> str:
         block = match.group(0)
-        if _HARMONY_MUTED.search(block):
-            return block
+        if "<play>" in block:
+            return re.sub(r"<play>\s*[^<]*\s*</play>", "<play>0</play>", block)
         return block.replace("</Harmony>", "<play>0</play></Harmony>", 1)
 
-    return _HARMONY_BLOCK.sub(mute, mscx.decode("utf-8")).encode("utf-8")
+    updated = _HARMONY_BLOCK.sub(mute, text)
+    return updated.encode("utf-8") if updated != text else mscx
 
 
 def _sound_track(

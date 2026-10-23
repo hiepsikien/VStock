@@ -919,8 +919,8 @@ def left_hand(
 ) -> list[NoteEvent]:
     """The root held for a bar and re-struck every two bars (or once on the outro pedal).
 
-    Symphony passes a bed velocity and the bars that restrike every bar. Jazz
-    calls left_hand(slot) and keeps the two-bar pedal with no velocity.
+    Symphony passes a bed velocity and the bars that restrike every bar, including
+    an outro slot. Jazz calls left_hand(slot) and keeps the single outro pedal.
     """
     root, _guide = comp_pitches(slot.chord)
     epb = active_meter().eighths_per_bar
@@ -928,10 +928,10 @@ def left_hand(
     for offset, bar in enumerate(slot.bars()):
         if slot.section in ("warmup", "cooldown"):
             sound = True
-        elif slot.section == "outro":
-            sound = offset == 0
         elif bar in every_bar_at:
             sound = True
+        elif slot.section == "outro":
+            sound = offset == 0
         else:
             sound = offset % 2 == 0
         velocity = None if velocity_at is None else velocity_at.get(bar)
