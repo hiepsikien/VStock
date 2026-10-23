@@ -7,13 +7,23 @@ import xml.etree.ElementTree as ET
 from app.sonify.ambient import (
     COOLDOWN_HOLD,
     GLASS_HOLD,
+    _anchors,
     _attach_daily_frames,
     _breath_spans,
+    _glass,
     _omit_same_pitch_reattacks,
     promote_ambient_slots,
 )
-from app.sonify.chords import C, CMAJ7
-from app.sonify.form import DAILY_AMBIENT_SPEC, METER_34, METER_64, ChordSlot, compose_meter
+from app.sonify.chords import AM9, C, CMAJ7, CMAJ9, G9
+from app.sonify.form import (
+    DAILY_AMBIENT_SPEC,
+    METER_34,
+    METER_64,
+    ChordSlot,
+    FormSection,
+    FormSpec,
+    compose_meter,
+)
 from app.sonify.groove import BarGroove, compose_groove
 from app.sonify.model import Bar, NoteEvent
 from app.sonify.musicxml import score_to_musicxml
@@ -257,6 +267,105 @@ def test_a_rising_phrase_section_keeps_at_most_four_glass_attacks() -> None:
             assert note.beat == 0.0
             assert note.duration_beats == 4.0
     assert _sounding_eighths(score.high) == 8
+
+
+def _held(midi: int, bars: int) -> list[int]:
+    return [midi] * (bars * 8)
+
+
+def _line(
+    sections: tuple[FormSection, ...],
+    pitches: list[int],
+    chord_at: dict | None = None,
+):
+    form = FormSpec(bars=sections[-1].end, bpm=60, sections=sections)
+    return _glass(form, (), pitches, chord_at=chord_at)
+
+
+def test_the_eight_bar_diagram_slurs_two_breaths() -> None:
+    notes, _wedges, dynamics = _line(
+        (FormSection(0, 8, "phrase", 0),),
+        _held(72, 2) + _held(76, 1) + _held(74, 4) + _held(72, 1),
+    )
+    breaths = _breaths(tuple(notes))
+    assert [[note.bar for note in breath if not note.tie_stop] for breath in breaths] == [
+        [0, 2],
+        [4, 7],
+    ]
+    assert [breath[0].midi for breath in breaths] == [72, 74]
+    assert breaths[0][-1].midi == 76
+    assert breaths[1][-1].midi == 72
+    opening, close = [note for note in breaths[0] if not note.tie_stop]
+    assert opening.slur_start and opening.tenuto and not opening.slur_stop
+    assert close.slur_stop and not close.slur_start and not close.tenuto
+    assert [(event.bar, event.marking) for event in dynamics] == [(0, "mf"), (4, "mp")]
+    assert not any(note.bar == 3 and note.midi is not None for note in notes)
+
+
+def test_a_weak_beat_extreme_moves_to_the_downbeat_under_one_slur() -> None:
+    dipped = [72, 76, 76, 76, 76, 76, 76, 76]
+    notes, _wedges, _dynamics = _line(
+        (FormSection(0, 4, "phrase", 0),),
+        _held(72, 1) + dipped + _held(72, 1) + _held(74, 1),
+    )
+    attacks = _onsets(tuple(notes))
+    assert [(note.bar, note.midi) for note in attacks] == [(0, 72), (1, 76), (3, 74)]
+    assert attacks[0].slur_start and attacks[0].tenuto
+    assert not attacks[1].slur_start and not attacks[1].slur_stop and not attacks[1].tenuto
+    assert attacks[2].slur_stop and not attacks[2].tenuto
+
+
+def test_anchors_keep_a_semitone_and_the_earlier_tied_extreme() -> None:
+    assert _anchors(0, 4, _held(60, 3) + _held(61, 1), None, None) == [(0, 60), (3, 61)]
+    assert _anchors(0, 4, _held(60, 4), None, None) == [(0, 60)]
+    tied = _held(60, 1) + _held(56, 1) + _held(64, 1) + _held(60, 1)
+    assert _anchors(0, 4, tied, None, None)[1][0] == 1
+
+
+def test_a_major_chord_drops_the_perfect_fourth_and_minor_or_dominant_keep_it() -> None:
+    fourth = [60] + [65] * 7
+    body = _held(60, 1) + fourth + _held(60, 2)
+    major, _wedges, _dynamics = _line((FormSection(0, 4, "phrase", 0),), body, {1: CMAJ9})
+    assert [note.midi for note in _onsets(tuple(major))] == [60]
+    minor, _wedges, _dynamics = _line((FormSection(0, 4, "phrase", 0),), body, {1: AM9})
+    assert [(note.bar, note.midi) for note in _onsets(tuple(minor))] == [(0, 60), (1, 65), (3, 60)]
+    eleventh = [67] + [60] * 7
+    dominant, _wedges, _dynamics = _line(
+        (FormSection(0, 4, "phrase", 0),),
+        _held(67, 1) + eleventh + _held(67, 2),
+        {1: G9},
+    )
+    assert [(note.bar, note.midi) for note in _onsets(tuple(dominant))] == [(0, 67), (1, 60), (3, 67)]
+
+
+def test_an_unframed_outro_does_not_reattack_the_same_pitch_after_a_rest() -> None:
+    sections = (FormSection(0, 8, "phrase", 0), FormSection(8, 12, "outro", 0))
+    rested, _wedges, _dynamics = _line(sections, _held(72, 8) + _held(72, 1) + _held(76, 1) + _held(72, 2))
+    assert not any(note.bar >= 8 and note.midi is not None for note in rested)
+    sounded, _wedges, _dynamics = _line(sections, _held(72, 8) + _held(76, 4))
+    outro = [note for note in sounded if note.bar >= 8 and note.midi is not None]
+    assert outro[0].bar == 8 and outro[0].midi == 76 and outro[0].tenuto
+    assert _beats(outro) == 16
+    touching, _wedges, _dynamics = _line(
+        (FormSection(0, 2, "phrase", 0), FormSection(2, 6, "outro", 0)),
+        _held(72, 6),
+    )
+    assert [note.bar for note in _onsets(tuple(touching))] == [0]
+    assert _beats([note for note in touching if note.midi is not None]) == 16
+
+
+def test_a_calm_rising_day_shortens_the_breath_before_the_last() -> None:
+    closes = [100.0 + index * 4.0 for index in range(30)]
+    score = render(
+        [Bar(close, 1_000.0, close) for close in closes],
+        variant="ambient",
+        character="calm",
+    )
+    sounding = {note.bar for note in score.lead if note.midi is not None}
+    assert {2, 3, 4, 8, 9, 10, 11} <= sounding
+    assert not sounding & {5, 6, 7}
+    assert {12, 13, 16, 17, 18, 19} <= sounding
+    assert not sounding & {14, 15}
 
 
 def test_same_jazz_chord_is_one_drone_attack() -> None:

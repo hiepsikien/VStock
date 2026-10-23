@@ -473,6 +473,51 @@ def _arc_breaths(
     return wedges, dynamics
 
 
+def _attach_unframed_outro(
+    segments: list[_Segment],
+    outro_start: int,
+    outro_end: int,
+    pitches: list[int],
+) -> list[_Segment]:
+    """Hold a new close. Tie a touching same pitch only up to the glass ceiling.
+
+    The same pitch after a rest stays silent. Movement inside the outro does
+    not reopen that pitch.
+    """
+    length = outro_end - outro_start
+    if length <= 0 or not pitches:
+        return segments
+    close_at = min(outro_end, len(pitches)) - 1
+    neighbor = segments[-1][2] if segments else None
+    outro_midi = _fold_glass(pitches[close_at], neighbor)
+    if not segments:
+        segments.append((outro_start, length, outro_midi, False, False, False))
+        return segments
+    prev_start, prev_length, prev_midi, prev_slur, prev_tie_in, prev_tie_out = segments[-1]
+    touches = prev_start + prev_length == outro_start
+    if prev_midi == outro_midi:
+        if touches:
+            room = _hold(GLASS_HOLD) - _breath_eighths(segments, prev_midi, outro_start)
+            take = min(length, max(0, room))
+            if take > 0:
+                segments[-1] = (
+                    prev_start,
+                    prev_length + take,
+                    prev_midi,
+                    False,
+                    prev_tie_in,
+                    False,
+                )
+                return segments
+        if touches and (prev_slur or prev_tie_out):
+            segments[-1] = (prev_start, prev_length, prev_midi, False, prev_tie_in, False)
+        return segments
+    if touches and (prev_slur or prev_tie_out):
+        segments[-1] = (prev_start, prev_length, prev_midi, False, prev_tie_in, False)
+    segments.append((outro_start, length, outro_midi, False, False, False))
+    return segments
+
+
 def _tonic_glass(chord: Chord, neighbor: int | None) -> int:
     """The chord's root inside the flute register, within an octave of `neighbor`."""
     pitch_class = chord.pitches[0] % 12
@@ -663,17 +708,12 @@ def _glass(
             start, length, midi, slur, _tie_in, tie_out = segments[1]
             segments[1] = (start, length, midi, slur, True, tie_out)
 
+    segments = _omit_same_pitch_reattacks(segments, pitches)
     outro = next((section for section in form.sections if section.kind == "outro"), None)
     if outro is not None and pitches:
-        outro_start = outro.start * active_meter().eighths_per_bar
-        outro_end = min(outro.end * active_meter().eighths_per_bar, len(pitches))
-        if outro_end > outro_start:
-            outro_midi = _fold_glass(pitches[outro_end - 1], last_midi)
-            segments.append(
-                (outro_start, outro_end - outro_start, outro_midi, False, False, False)
-            )
-
-    segments = _omit_same_pitch_reattacks(segments, pitches)
+        outro_start = outro.start * epb
+        outro_end = min(outro.end * epb, len(pitches))
+        segments = _attach_unframed_outro(segments, outro_start, outro_end, pitches)
     wedges, dynamics = _arc_breaths(segments)
     return _emit(segments), wedges, dynamics
 
