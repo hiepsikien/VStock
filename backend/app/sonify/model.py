@@ -171,6 +171,10 @@ class Score:
     beats: int = 4
     beat_type: int = 4
     bar_beats: float = 4.0
+    high_wedges: tuple[WedgeEvent, ...] = ()
+    high_dynamics: tuple[DynamicEvent, ...] = ()
+    comp_wedges: tuple[WedgeEvent, ...] = ()
+    comp_dynamics: tuple[DynamicEvent, ...] = ()
 
     # Backwards-compatible chamber part aliases
     @property
@@ -208,3 +212,19 @@ class Score:
     @property
     def cello_dynamics(self) -> tuple[DynamicEvent, ...]:
         return self.support_dynamics
+
+    @property
+    def flute_wedges(self) -> tuple[WedgeEvent, ...]:
+        return self.high_wedges
+
+    @property
+    def flute_dynamics(self) -> tuple[DynamicEvent, ...]:
+        return self.high_dynamics
+
+    @property
+    def piano_wedges(self) -> tuple[WedgeEvent, ...]:
+        return self.comp_wedges
+
+    @property
+    def piano_dynamics(self) -> tuple[DynamicEvent, ...]:
+        return self.comp_dynamics

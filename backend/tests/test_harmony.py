@@ -9,10 +9,17 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from app.sonify.dynamics import DYNAMICS, MARKINGS, SOUND, marking_for_volume
+from app.sonify.dynamics import (
+    DYNAMICS,
+    MARKINGS,
+    PIANO_VELOCITY,
+    SOUND,
+    effective_comp_band,
+    marking_for_volume,
+)
 from app.sonify.form import SECTION_STARTS, _prev_last_touched_strong, plan_markov_chords, plan_slots
 from app.sonify.model import Bar, WedgeEvent
-from app.sonify.musicxml import BASS_WRITTEN_OCTAVES, score_to_musicxml
+from app.sonify.musicxml import BASS_WRITTEN_OCTAVES, PIANO_DYNAMIC, _opening_dynamic, score_to_musicxml
 from app.sonify.phrasing import (
     MAX_EIGHTHS,
     MIN_EIGHTHS,
@@ -175,7 +182,15 @@ def test_phrase_regime_uses_the_downbeat_window() -> None:
         for bar in slot.bars():
             line = _line(score.bass, bar)
             assert line[0] == root
-            assert set(line) <= {root, root + 7, root + 12}
+            cello_beats = sum(
+                note.duration_beats
+                for note in score.cello
+                if note.bar == bar and note.midi is not None
+            )
+            if cello_beats >= 2.0 - 1e-6:
+                assert all(midi < 48 for midi in line)
+            else:
+                assert set(line) <= {root, root + 7, root + 12}
         bass_note, guide = COMPING[slot.chord.name]
         for offset, bar in enumerate(slot.bars()):
             right = [note for note in score.piano if note.bar == bar and note.staff == 1]
@@ -184,7 +199,7 @@ def test_phrase_regime_uses_the_downbeat_window() -> None:
                 (0.0, guide[0]),
                 (0.0, guide[1]),
             ]
-            if not any(note.velocity for note in right):
+            if len(right) == 3:
                 assert [(note.beat, note.midi, note.duration_beats) for note in right] == [
                     (0.0, guide[0], 2.0),
                     (0.0, guide[1], 2.0),
@@ -526,8 +541,15 @@ def test_musicxml_writes_harmony_and_letter_dynamics() -> None:
         dynamics = part.findall(".//dynamics")
         assert {child.tag for marks in dynamics for child in marks} == {"mp"}
         assert part.find("measure/direction/direction-type/dynamics") is not None
-    assert [child.tag for child in piano.find(".//dynamics")] == ["p"]
-    assert len(piano.findall(".//dynamics")) == 1
+    opening, rest = _opening_dynamic(score.comp_dynamics, PIANO_DYNAMIC)
+    assert [child.tag for dynamics in piano.findall(".//dynamics") for child in dynamics] == [
+        opening.marking,
+        *[event.marking for event in rest],
+    ]
+    first_measure = list(piano_measures[0])
+    assert first_measure.index(piano_measures[0].find("direction")) < first_measure.index(
+        piano_measures[0].find("harmony")
+    )
     for part in (flute, violin, cello):
         assert part.findall("measure/harmony") == []
     dynamic_marks = []
@@ -584,19 +606,26 @@ def _assert_measure_timing(
         root, guide = COMPING[slot.chord.name]
         assert _written(right[:2]) == [_pitch(midi) for midi in guide]
         assert right[1].find("chord") is not None
-        assert all(note.get("dynamics") is None for note in right[:2])
-        for note in right[2:]:
+        eff = effective_comp_band(score.liquidity[_slot_index(score, bar)], bar)
+        bed = PIANO_VELOCITY[eff]
+        for note in right[:2]:
             if note.find("rest") is None:
-                assert note.get("dynamics") == f"{64 * 100 / 90:.2f}"
-        expected_left = (
-            [_pitch(root)]
-            if (
-                bar == slot.start
-                if slot.section == "outro"
-                else (bar - slot.start) % 2 == 0
-            )
-            else []
-        )
+                assert note.get("dynamics") == f"{bed * 100 / 90:.2f}"
+        score_fills = [
+            note
+            for note in score.piano
+            if note.bar == bar and note.staff == 1 and note.midi is not None and note.beat > 0
+        ]
+        xml_fills = [note for note in right[2:] if note.find("rest") is None]
+        assert len(xml_fills) == len(score_fills)
+        for xml_note, event in zip(xml_fills, score_fills, strict=True):
+            assert xml_note.get("dynamics") == f"{event.velocity * 100 / 90:.2f}"
+        dense = eff == "f" or slot.section in ("warmup", "cooldown")
+        if slot.section == "outro":
+            sound = eff == "f" or bar == slot.start
+        else:
+            sound = dense or (bar - slot.start) % 2 == 0
+        expected_left = [_pitch(root)] if sound else []
         assert _written(left) == expected_left
 
         bass_notes = [note for note in bass_measure if note.tag == "note"]
@@ -896,11 +925,11 @@ def test_piano_answers_a_held_cadence_under_the_violin() -> None:
     score = render(_session({30: (6, 16)}), regimes=("sideway",) * 3)
     right = [note for note in score.piano if note.bar == 4 and note.staff == 1]
     assert [(note.beat, note.midi, note.duration_beats, note.velocity) for note in right] == [
-        (0.0, 60, 0.5, None),
-        (0.0, 64, 0.5, None),
-        (0.5, 60, 0.5, 64),
-        (1.0, 64, 0.5, 64),
-        (1.5, 69, 0.5, 64),
+        (0.0, 60, 0.5, 62),
+        (0.0, 64, 0.5, 62),
+        (0.5, 60, 0.5, 62),
+        (1.0, 64, 0.5, 71),
+        (1.5, 69, 0.5, 80),
         (2.0, None, 2.0, None),
     ]
     assert fill_tones(AM, 76, "violin") == [60, 64, 69, 72]
@@ -928,7 +957,7 @@ def test_fills_stay_in_the_cadence_tail_on_chord_tones() -> None:
             (note.bar * 8 + int(note.beat * 2), note.midi) for note in score.cello if note.midi
         }
         for note in score.piano:
-            if note.velocity is None:
+            if note.staff != 1 or note.midi is None or note.beat <= 0:
                 continue
             found += 1
             onset = note.bar * 8 + int(note.beat * 2)

@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from math import log1p
 
+from app.sonify.groove import groove_at
+
 # marking, sound-dynamics percent, intended MIDI velocity
 DYNAMICS: tuple[tuple[str, int, int], ...] = (
     ("p", 54, 49),
@@ -65,6 +67,30 @@ def marking_for_volume(volume: float, low: float, high: float) -> str:
 
 def bass_marking(band: str) -> str:
     return MARKINGS[min(MARKINGS.index(band), MARKINGS.index(BASS_CEILING))]
+
+
+# MuseScore Basic hears these velocities on the piano. Muse Sounds hears the
+# printed letter, which piano_marking collapses to p or mp.
+PIANO_VELOCITY: dict[str, int] = {"p": 46, "mp": 54, "mf": 62, "f": 68}
+
+
+def effective_comp_band(band: str, bar: int | None = None) -> str:
+    """The piano bed after the groove flags that thin the comp, not the bass rhythm."""
+    groove = groove_at(bar) if bar is not None else None
+    if groove is not None and groove.chamber:
+        return "p"
+    if groove is not None and groove.trio_thin:
+        return {"f": "mf", "mf": "mp", "mp": "p", "p": "p"}[band]
+    if groove is not None and groove.half and band == "mp":
+        return "p"
+    return band
+
+
+def piano_marking(band: str) -> str:
+    """Printed piano letter. mf and f share mp; p and mp share p."""
+    if band in ("mf", "f"):
+        return "mp"
+    return "p"
 
 
 def positive_median(volumes: list[float]) -> float:

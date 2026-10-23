@@ -925,5 +925,5 @@ def test_chamber_bar_drops_the_symphony_right_hand() -> None:
     from app.sonify.render import _right_hand
 
     with compose_meter(METER_44), compose_groove({0: BarGroove(chamber=True)}):
-        notes = _right_hand((ChordSlot(0, 1, C, "sideway", "phrase"),), [])
+        notes, *_ = _right_hand((ChordSlot(0, 1, C, "sideway", "phrase"),), [])
     assert not any(note.midi is not None for note in notes)
