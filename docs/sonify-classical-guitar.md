@@ -175,9 +175,9 @@ Hệ quả khi gốc trước là C và mọi phách mạnh thuộc {C, F}. Cả
 | add9 | `other` | `add9` | `(0, 2, 4, 1)` | C–E–G–D | bỏ quãng 5, còn 1–3–9 |
 | 7sus4 | `suspended-fourth` | `7sus4` | `(0, 3, 4, 6)` | G–C–D–F | bỏ quãng 5, còn 1–4–b7 |
 
-`fifth_above_bass` lấy quãng 5 ở `pitches[2]`. Mọi hợp âm villa giữ đúng thứ tự trong cột `degrees`: quãng 5 đứng thứ ba, quãng 9 và b7 không được đưa lên chỗ đó. Add9 thứ của bậc I là C–E♭–G–D, cùng `degrees` `(0, 2, 4, 1)`, dấu thăng giáng nằm ở âm ba của hợp âm cha.
+`fifth_above_bass` lấy quãng 5 ở `pitches[2]`. Mọi hợp âm villa giữ đúng thứ tự trong cột `degrees`: quãng 5 đứng thứ ba, quãng 9 và b7 không được đưa lên chỗ đó. Add9 thứ của bậc I là C–E♭–G–D, cùng `degrees` `(0, 2, 4, 1)`, dấu thăng giáng nằm ở âm ba của hợp âm cha. `kind_text` của add9 thứ là `madd9`, nên ký hiệu đọc `Cmadd9` và `Fmadd9`. Nhóm chất vẫn là `"major"`.
 
-Playback của ký hiệu `<harmony>` đã bị tắt trong `_mute_mscx_harmony`. Tiếng nằm ở nốt viết; chữ chỉ để đọc. Add9 không có kind MusicXML riêng, nên `other` với chữ `add9`.
+Playback của ký hiệu `<harmony>` đã bị tắt trong `_mute_mscx_harmony`. Tiếng nằm ở nốt viết; chữ chỉ để đọc. Add9 không có kind MusicXML riêng, nên `other`. Trưởng in `add9`, thứ in `madd9`.
 
 **`VillaDialect` — luật dựng catalog**, sinh trong không gian Đô theo mode, rồi `transpose_chord` đẩy đi như mọi hợp âm khác. Gốc duyệt là gốc của catalog mode, không phải bảy chữ cái không dấu: trưởng là sáu gốc của `CHORDS` (C, D, E, F, G, A); thứ là gốc của `MINOR_DIATONIC` (C, D, E♭, F, G, A♭), bỏ `F#dim7`. Hợp âm villa chép `root_step` và `alter` của hợp âm cha. `Ebsus2` thứ là gốc `E` với `alter -1`, cùng `Eb`, không phải một chữ riêng — nếu không, `shares_root` và cửa `Ebsus2` → `E♭` không thấy chúng là một gốc. Với mỗi gốc đó, xét sus2, sus4, add9 và 7sus4, rồi bỏ theo hai luật:
 

@@ -190,7 +190,7 @@ def test_add9_needs_the_ninth_and_the_same_root() -> None:
 
 def test_common_dialect_does_not_invent_sus() -> None:
     chords = _plan([[60] * 8, [65] * 8], dialect=COMMON)
-    assert all(chord.kind_text not in {"sus2", "sus4", "7sus4", "add9"} for chord in chords)
+    assert all(chord.kind_text not in {"sus2", "sus4", "7sus4", "add9", "madd9"} for chord in chords)
     assert all(chord.quality_group != "suspended" for chord in chords)
 
 
@@ -262,3 +262,9 @@ def test_minor_add9_uses_the_parent_third() -> None:
     assert cmadd9.pitches[1] % 12 == CM.pitches[1] % 12
     assert fmadd9.pitches[1] % 12 == FM.pitches[1] % 12
     assert cmadd9.quality_group == "major"
+    assert cmadd9.kind_text == "madd9"
+    assert fmadd9.kind_text == "madd9"
+    assert f"{cmadd9.root_step}{cmadd9.kind_text}" == "Cmadd9"
+    assert f"{fmadd9.root_step}{fmadd9.kind_text}" == "Fmadd9"
+    assert color_pitch_classes(cmadd9) == frozenset({2})
+    assert VILLA.bias(cmadd9, "calm", "minor", frozenset({2})) == -0.08

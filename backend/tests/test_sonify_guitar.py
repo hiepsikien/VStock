@@ -2,11 +2,19 @@
 
 import pytest
 
-from app.sonify.chords import C, G
+from app.sonify.chords import C, DM, EM, F, G
 from app.sonify.ensemble import ensemble_for
-from app.sonify.form import METER_34, METER_44, METER_68, compose_meter
-from app.sonify.guitar import _arpeggio, _attack_eighth, _melody_line, _place_melody, _slur, _tremolo
-from app.sonify.keys import D_KEY, register_for
+from app.sonify.form import METER_34, METER_44, METER_68, ChordSlot, compose_meter
+from app.sonify.guitar import (
+    _arpeggio,
+    _attack_eighth,
+    _melody_line,
+    _place_melody,
+    _slur,
+    _tremolo,
+    render_guitar_score,
+)
+from app.sonify.keys import D_KEY, compose_register, register_for
 from app.sonify.model import Bar, NoteEvent, Phrase, Run
 from app.sonify.musicxml import score_to_musicxml
 from app.sonify.render import render
@@ -113,7 +121,7 @@ def _sounding(events: tuple[NoteEvent, ...] | list[NoteEvent], bar: int) -> list
 def test_barrios_opening_downbeat_of_g_is_not_silent() -> None:
     melody = [59] * 8
     with compose_meter(METER_44):
-        lead, inner, bass = _tremolo(melody, {0: G}, {0: "phrase"}, 1, 76, 40, 50, 65, ())
+        lead, inner, bass = _tremolo(melody, {0: G}, {0: "phrase"}, 1, 76, 40, 53, 50, 65, ())
     assert _sounding(inner, 0) == [0.0]
     assert inner[0].midi is not None and inner[0].midi < 59
     assert inner[0].velocity == 58  # the middle voice is a thumb voice too
@@ -126,7 +134,7 @@ def test_barrios_scherzo_keeps_the_full_tremolo_grid() -> None:
     melody = [72] * 12
     chords = {0: G, 1: G}
     with compose_meter(METER_68):
-        lead, _inner, bass = _tremolo(melody, chords, {0: "phrase", 1: "phrase"}, 2, 120, 40, 50, 65, ())
+        lead, _inner, bass = _tremolo(melody, chords, {0: "phrase", 1: "phrase"}, 2, 120, 40, 53, 50, 65, ())
     # Every sixteenth sings; the thumb opens every quarter-note cluster.
     assert _sounding(lead, 1) == [index * 0.25 for index in range(12)]
     # Root and fifth together on each cluster.
@@ -138,7 +146,7 @@ def test_barrios_fast_four_four_keeps_the_full_tremolo_grid() -> None:
     chords = {0: G, 1: G}
     kinds = {0: "phrase", 1: "phrase"}
     with compose_meter(METER_44):
-        lead, _inner, bass = _tremolo(melody, chords, kinds, 2, 120, 40, 50, 65, ())
+        lead, _inner, bass = _tremolo(melody, chords, kinds, 2, 120, 40, 53, 50, 65, ())
     # Every sixteenth sings; the thumb opens every quarter-note cluster.
     assert _sounding(bass, 1) == [0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0]
     assert _sounding(lead, 1) == [index * 0.25 for index in range(16)]
@@ -148,7 +156,7 @@ def test_barrios_tremolo_thumb_is_strongest_and_m_leads_the_fill() -> None:
     melody = [72] * 16
     chords = {0: G, 1: G}
     with compose_meter(METER_44):
-        lead, _inner, bass = _tremolo(melody, chords, {0: "phrase", 1: "phrase"}, 2, 120, 40, 50, 65, ())
+        lead, _inner, bass = _tremolo(melody, chords, {0: "phrase", 1: "phrase"}, 2, 120, 40, 53, 50, 65, ())
     sung = sorted(
         (note for note in lead if note.bar == 1 and note.midi is not None),
         key=lambda note: note.beat,
@@ -163,7 +171,7 @@ def test_barrios_tremolo_thumb_is_strongest_and_m_leads_the_fill() -> None:
 def test_barrios_cluster_holds_one_pitch_for_a_quarter_and_the_thumb_rings() -> None:
     melody = [60, 62, 64, 65, 67, 69, 71, 72]
     with compose_meter(METER_44):
-        lead, _inner, bass = _tremolo(melody, {0: G}, {0: "phrase"}, 1, 120, 40, 50, 65, ())
+        lead, _inner, bass = _tremolo(melody, {0: G}, {0: "phrase"}, 1, 120, 40, 53, 50, 65, ())
     sung = sorted(
         (note for note in lead if note.bar == 0 and note.midi is not None),
         key=lambda note: note.beat,
@@ -337,3 +345,68 @@ def test_villa_tresillo_is_only_two_volatile_bars_of_four_four() -> None:
             mid_high=65,
         )
     assert not any(event.accent for event in six)
+
+
+def _render_guitar(slots, pitches, *, ensemble="classic", bpm=88, key=None):
+    bars = len(pitches) // 8
+    phrase = _phrase(0, pitches)
+
+    def build():
+        return render_guitar_score(
+            title="Guitar",
+            chosen=(),
+            sample_indexes=None,
+            slots=tuple(slots),
+            pitches=list(pitches),
+            phrases=(phrase,),
+            dynamics=(),
+            bands=["mf"] * bars,
+            band_at={bar: "mf" for bar in range(bars)},
+            musical_bars=bars,
+            total_eighths=len(pitches),
+            bpm=bpm,
+            ensemble=ensemble,
+            harmonies=(),
+        )
+
+    if key is None:
+        return build()
+    with compose_register(key):
+        return build()
+
+
+def _bass_pitches(score, bar: int) -> set[int]:
+    return {note.midi for note in score.low if note.bar == bar and note.midi is not None}
+
+
+def test_bass_folds_the_stored_root_up_to_f3() -> None:
+    score = _render_guitar(
+        (
+            ChordSlot(0, 1, DM, "sideway", "phrase"),
+            ChordSlot(1, 1, EM, "sideway", "phrase"),
+            ChordSlot(2, 1, F, "sideway", "phrase"),
+        ),
+        [74] * 8 + [76] * 8 + [77] * 8,
+    )
+    # D3 stays. E4 folds to E3, not E2. F4 folds to F3, the ceiling.
+    assert _bass_pitches(score, 0) == {50}
+    assert _bass_pitches(score, 1) == {52}
+    assert _bass_pitches(score, 2) == {53}
+
+    tremolo = _render_guitar(
+        (ChordSlot(0, 1, EM, "sideway", "phrase"),),
+        [76] * 8,
+        ensemble="barrios",
+        bpm=120,
+    )
+    thumb = _bass_pitches(tremolo, 0)
+    assert 52 in thumb and 40 not in thumb
+    assert all(40 <= note <= 53 for note in thumb)
+
+    # FPT writes in [38, 51]. D4 (62) folds to 50, which the old Eb3 ceiling pushed to 38.
+    written = _render_guitar(
+        (ChordSlot(0, 1, DM, "sideway", "phrase"),),
+        [74] * 8,
+        key=D_KEY,
+    )
+    assert _bass_pitches(written, 0) == {50}

@@ -28,6 +28,7 @@ _COLOR_DEGREES = {
     "sus2": frozenset({1}),
     "sus4": frozenset({3}),
     "add9": frozenset({1}),
+    "madd9": frozenset({1}),
     "7sus4": frozenset({3, 6}),
 }
 _COLOR_CREDIT = 0.70
@@ -177,12 +178,14 @@ def _sus4(step: str, alter: int = 0) -> Chord:
 
 
 def _add9(step: str, alter: int, third: int, name: str) -> Chord:
+    # Minor keeps the parent's third. The printed suffix has to carry the "m",
+    # because MusicXML joins root-step with kind_text and would otherwise read Cadd9.
     return _build(
         name,
         step,
         alter,
         KIND_OTHER,
-        "add9",
+        "madd9" if third == 3 else "add9",
         (0, third, 7, 14),
         (0, 2, 4, 1),
     )
@@ -387,7 +390,7 @@ class VillaDialect(HarmonyDialect):
         if not (strong_pitch_classes & color_pitch_classes(chord)):
             return 0.0
         text = chord.kind_text
-        if character == "calm" and text in ("sus2", "add9"):
+        if character == "calm" and text in ("sus2", "add9", "madd9"):
             return -0.08
         if character == "volatile" and (
             text == "7sus4" or (mode == "major" and chord.name in {"Bbsus2", "Ebsus2"})

@@ -95,6 +95,7 @@ def render_guitar_score(
             musical_bars,
             bpm,
             register.guitar_floor,
+            register.guitar_bass_top,
             register.guitar_mid_low,
             register.guitar_mid_high,
             phrases,
@@ -112,7 +113,7 @@ def render_guitar_score(
             character=character,
             character_at=character_at,
             bass_low=register.guitar_floor,
-            bass_high=register.guitar_floor + 11,
+            bass_high=register.guitar_bass_top,
             mid_low=register.guitar_mid_low,
             mid_high=register.guitar_mid_high,
         )
@@ -357,7 +358,7 @@ def _arpeggio(
     bass: list[NoteEvent] = []
     for bar in range(bars):
         chord = chord_at[bar]
-        root = _fit(chord.pitches[0] % 12, bass_low, bass_high)
+        root = _clamp(chord.pitches[0], bass_low, bass_high)
         start = bar * epb
         if kind_at.get(bar) in _PEDAL:
             bass.extend(written(start, epb, root, velocity=_BASS))
@@ -396,6 +397,7 @@ def _tremolo(
     bars: int,
     bpm: int,
     bass_low: int,
+    bass_high: int,
     mid_low: int,
     mid_high: int,
     phrases: tuple[Phrase, ...],
@@ -420,7 +422,7 @@ def _tremolo(
     duration = 0.25
     for bar in range(bars):
         chord = chord_at[bar]
-        root = _fit(chord.pitches[0] % 12, bass_low, bass_low + 11)
+        root = _clamp(chord.pitches[0], bass_low, bass_high)
         changed = bar == 0 or chord_at.get(bar - 1) != chord
         if kind_at.get(bar) in _PEDAL:
             start = bar * epb
@@ -468,7 +470,7 @@ def _tremolo(
                 inner.append(_hit(bar, beat, cluster_beats, None, 2, _INNER))
             bass.append(_hit(bar, beat, cluster_beats, root, 3, _TREMOLO_THUMB))
             if len(chord.pitches) >= 3:
-                fifth = _fit(chord.pitches[2] % 12, bass_low, bass_low + 11)
+                fifth = _clamp(chord.pitches[2], bass_low, bass_high)
                 if fifth != root:
                     bass.append(_hit(bar, beat, cluster_beats, fifth, 3, _TREMOLO_THUMB))
             for repeat in range(_TREMOLO_CLUSTER):
