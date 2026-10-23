@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import os
+import re
+import shutil
+import sys
 import zipfile
 from math import log10
 
@@ -16,7 +19,6 @@ from app.sonify.audio import (
     _run_musescore,
     _wav_samples,
     find_musescore,
-    musescore_export,
 )
 from app.sonify.chords import C, F
 from app.sonify.daily_frame import _flute_body_dynamics, _piano_frame_dynamics, _trim_frame_wedges
@@ -366,38 +368,62 @@ def _rms(path) -> float:
     return (total / count) ** 0.5 if count else 0.0
 
 
-def test_musescore_export_mutes_the_hidden_harmony_piano(tmp_path) -> None:
+def _score_parts(mscz) -> tuple[bytes, bytes]:
+    with zipfile.ZipFile(mscz) as archive:
+        name = next(item for item in archive.namelist() if item.endswith(".mscx"))
+        return archive.read(name), archive.read("audiosettings.json")
+
+
+def _set_harmony_play(mscz, value: str) -> None:
+    pattern = re.compile(r"<Harmony\b[^>]*>.*?</Harmony>", re.DOTALL)
+    with zipfile.ZipFile(mscz) as archive:
+        payload = {item: archive.read(item) for item in archive.namelist()}
+    mscx_name = next(item for item in payload if item.endswith(".mscx"))
+
+    def repl(match: re.Match[str]) -> str:
+        block = match.group(0)
+        if "<play>" in block:
+            return re.sub(r"<play>\s*[^<]*\s*</play>", f"<play>{value}</play>", block)
+        return block.replace("</Harmony>", f"<play>{value}</play></Harmony>", 1)
+
+    payload[mscx_name] = pattern.sub(repl, payload[mscx_name].decode("utf-8")).encode("utf-8")
+    with zipfile.ZipFile(mscz, "w") as archive:
+        for item, blob in payload.items():
+            archive.writestr(item, blob)
+
+
+def test_muted_harmony_piano_is_about_six_db_quieter(tmp_path) -> None:
     binary = find_musescore()
     if binary is None:
         pytest.skip("MuseScore is not installed")
+    library = _installed_muse_sounds()
+    if "Piano" not in library:
+        pytest.skip("MuseSounds Piano is not installed")
     xml = tmp_path / "bar.musicxml"
     xml.write_text(_ONE_BAR, encoding="utf-8")
-    quiet = tmp_path / "quiet.wav"
-    musescore_export(xml, quiet)
-    assert quiet.is_file() and quiet.stat().st_size > 64
-    if "Piano" not in _installed_muse_sounds():
-        pytest.skip("MuseSounds Piano is not installed; WAV export succeeded")
-
-    loud_score = tmp_path / "loud.mscz"
+    quiet_score = tmp_path / "quiet.mscz"
     env = os.environ.copy()
+    if sys.platform.startswith("linux"):
+        env.setdefault("QT_QPA_PLATFORM", "offscreen")
     runtime = env.get("XDG_RUNTIME_DIR", "/tmp/runtime-mscore")
     os.makedirs(runtime, exist_ok=True)
     env["XDG_RUNTIME_DIR"] = runtime
-    _run_musescore([binary, "-o", str(loud_score), str(xml)], env)
-    assert _assign_installed_sounds(loud_score, _installed_muse_sounds(), xml)
-    with zipfile.ZipFile(loud_score) as archive:
-        name = next(item for item in archive.namelist() if item.endswith(".mscx"))
-        text = archive.read(name).decode("utf-8")
-        payload = {item: archive.read(item) for item in archive.namelist()}
-    text = text.replace("<play>0</play>", "<play>1</play>")
-    payload[name] = text.encode("utf-8")
-    with zipfile.ZipFile(loud_score, "w") as archive:
-        for name, blob in payload.items():
-            archive.writestr(name, blob)
+    _run_musescore([binary, "-o", str(quiet_score), str(xml)], env)
+    assert _assign_installed_sounds(quiet_score, library, xml)
+    loud_score = tmp_path / "loud.mscz"
+    shutil.copy(quiet_score, loud_score)
+    _set_harmony_play(loud_score, "1")
+    quiet_xml, quiet_settings = _score_parts(quiet_score)
+    loud_xml, loud_settings = _score_parts(loud_score)
+    assert quiet_settings == loud_settings
+    assert b"<play>0</play>" in quiet_xml and b"<play>1</play>" not in quiet_xml
+    assert b"<play>1</play>" in loud_xml
+    quiet = tmp_path / "quiet.wav"
     loud = tmp_path / "loud.wav"
+    _run_musescore([binary, "-o", str(quiet), str(quiet_score)], env)
     _run_musescore([binary, "-o", str(loud), str(loud_score)], env)
     loud_rms = _rms(loud)
     quiet_rms = _rms(quiet)
     assert loud_rms > 0 and quiet_rms > 0
     drop = 20 * log10(loud_rms / quiet_rms)
-    assert 4.0 <= drop <= 9.0
+    assert 4.0 <= drop <= 8.0, drop
