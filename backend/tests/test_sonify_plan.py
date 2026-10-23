@@ -74,6 +74,7 @@ def test_piece_clocks_include_the_frame_and_the_rests() -> None:
         "jazz": (970.0, 1530.0, 2818.3),
         "minimalist": (968.0, 1529.0, 2840.8),
         "ambient": (970.0, 1530.0, 2818.3),
+        "guitar": (970.0, 1530.0, 2840.1),
     }
     for variant, (month, quarter, year) in expected.items():
         assert abs(_clock(plan_month([1, 1, 1, 1], variant)) - month) < 1.5

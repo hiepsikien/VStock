@@ -127,6 +127,7 @@ def _add_note(
     key: KeySpec | None = None,
     bar_beats: float | None = None,
     mode: str = "major",
+    slur_number: str = "1",
 ) -> None:
     note = _add(parent, "note")
     if event.velocity is not None and event.midi is not None:
@@ -190,9 +191,9 @@ def _add_note(
         if event.tie_start:
             _add(notations, "tied", type="start")
         if event.slur_start:
-            _add(notations, "slur", type="start", number="1")
+            _add(notations, "slur", type="start", number=slur_number)
         if event.slur_stop:
-            _add(notations, "slur", type="stop", number="1")
+            _add(notations, "slur", type="stop", number=slur_number)
         if event.accent or event.tenuto or event.staccato:
             articulations = _add(notations, "articulations")
             if event.accent:
@@ -328,6 +329,7 @@ _PARTS_BY_VARIANT: dict[Variant, tuple[tuple[str, str, str, str, str], ...]] = {
         ("P3", "Swell", "Horn in F", "3", "61"),
         ("P4", "Drone", "Contrabass", "4", "43"),
     ),
+    "guitar": (("P1", "Acoustic Nylon", "Acoustic Guitar", "1", "25"),),
 }
 
 
@@ -663,6 +665,54 @@ def _ambient_swell_part(root: ET.Element, score: Score) -> None:
             _wedge(measure, WedgeEvent(bar=bar, beat=score.bar_beats, kind="stop"))
 
 
+def _guitar_part(root: ET.Element, score: Score) -> None:
+    """One nylon part. Three voices share the measure and meet again through backup."""
+    part = _add(root, "part", id="P1")
+    voices = (
+        _group(score.lead, score.bars),
+        _group(score.support, score.bars),
+        _group(score.low, score.bars),
+    )
+    symbols = _group(score.harmonies, score.bars)
+    bar_units = str(int(round(score.bar_beats * score.divisions)))
+    for bar in range(score.bars):
+        measure = _add(part, "measure", number=str(bar + 1))
+        if bar == 0:
+            _attributes(
+                measure,
+                TREBLE,
+                octave_change=-1,
+                divisions=score.divisions,
+                fifths=signature_fifths(score.key, score.mode),
+                mode=score.mode,
+                beats=score.beats,
+                beat_type=score.beat_type,
+            )
+            _metronome(measure, score.bpm, swing=False)
+            _dynamic(measure, MELODY_DYNAMIC)
+        for event in symbols[bar]:
+            _harmony(measure, event, score.key, score.mode)
+        for voice_index, voice in enumerate(voices):
+            if voice_index:
+                backup = _add(measure, "backup")
+                _add(backup, "duration", bar_units)
+            previous_beat: float | None = None
+            for event in sorted(voice[bar], key=lambda note: note.beat):
+                _add_note(
+                    measure,
+                    event,
+                    chord=event.beat == previous_beat and event.midi is not None,
+                    written_shift=12,
+                    divisions=score.divisions,
+                    harmony=_chord_on(score, bar) if voice_index == 0 else None,
+                    key=score.key,
+                    bar_beats=score.bar_beats,
+                    mode=score.mode,
+                    slur_number=str(event.voice),
+                )
+                previous_beat = event.beat
+
+
 def score_to_musicxml(score: Score) -> str:
     root = ET.Element("score-partwise", version="4.0")
     work = _add(root, "work")
@@ -671,6 +721,11 @@ def score_to_musicxml(score: Score) -> str:
     encoding = _add(identification, "encoding")
     _add(encoding, "software", "vstock-sonify")
     _part_list(root, score.variant, score.ensemble)
+    if score.variant == "guitar":
+        _guitar_part(root, score)
+        ET.indent(root, space="  ")
+        body = ET.tostring(root, encoding="unicode")
+        return '<?xml version="1.0" encoding="UTF-8"?>\n' + body + "\n"
     if score.variant == "symphony":
         high_open, high_rest = _opening_dynamic(score.high_dynamics, MELODY_DYNAMIC)
         high_wedges = score.high_wedges

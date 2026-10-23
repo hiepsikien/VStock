@@ -276,8 +276,21 @@ def _scherzo(bridge: bool = False) -> FormSpec:
     )
 
 
+def _guitar_meter(spec: FormSpec) -> FormSpec:
+    """Keep the symphony bars and tempo. Slow movements become 3/4 and the scherzo becomes 6/8."""
+    if spec.meter == METER_68:
+        meter: Meter = METER_34
+    elif spec.meter == METER_34:
+        meter = METER_68
+    else:
+        return spec
+    return replace(spec, meter=meter)
+
+
 def month_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSpec, FormSpec]:
     """Body only. `attach_frame` adds the warm-up and the cool-down."""
+    if variant == "guitar":
+        return tuple(_guitar_meter(spec) for spec in month_specs("symphony"))
     bridge = variant in ("jazz", "ambient")
     if variant == "minimalist":
         first = _spec(
@@ -383,6 +396,8 @@ def month_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSpec
 
 
 def quarter_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSpec]:
+    if variant == "guitar":
+        return tuple(_guitar_meter(spec) for spec in quarter_specs("symphony"))
     if variant == "minimalist":
         first = _spec(
             153,
@@ -503,6 +518,8 @@ def quarter_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSp
 
 
 def year_specs(variant: str = "symphony") -> tuple[FormSpec, ...]:
+    if variant == "guitar":
+        return tuple(_guitar_meter(spec) for spec in year_specs("symphony"))
     drone = variant == "ambient"
     if variant == "minimalist":
         opener = _spec(

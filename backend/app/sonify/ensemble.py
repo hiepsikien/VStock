@@ -3,6 +3,9 @@
 The five parts stay P5, P1, P2, P3, P4. `classic` is the row already written
 into `musicxml.py`. The other rows only change which MuseSounds voice plays
 each part, plus the few pitch edges that voice cannot cover.
+
+Guitar is the exception. `classic`, `villa`, and `barrios` are one nylon part,
+and the ensemble chooses the writing algorithm in `guitar.py`, not a different instrument.
 """
 
 from __future__ import annotations
@@ -15,6 +18,8 @@ from app.sonify.model import ENSEMBLES, Ensemble, NoteEvent, Score, Variant
 
 # part id, part name (MuseSounds voice), MusicXML instrument, channel, program
 PartSpec = tuple[str, str, str, str, str]
+
+_NYLON = ("P1", "Acoustic Nylon", "Acoustic Guitar", "1", "25")
 
 _ROWS: dict[tuple[Variant, Ensemble], tuple[PartSpec, ...]] = {
     ("symphony", "wood"): (
@@ -73,6 +78,8 @@ _ROWS: dict[tuple[Variant, Ensemble], tuple[PartSpec, ...]] = {
         ("P3", "Violas", "Viola", "3", "42"),
         ("P4", "Basses", "Bass", "4", "53"),
     ),
+    ("guitar", "villa"): (_NYLON,),
+    ("guitar", "barrios"): (_NYLON,),
 }
 
 _ALLOWED: dict[Variant, frozenset[Ensemble]] = {
@@ -80,6 +87,7 @@ _ALLOWED: dict[Variant, frozenset[Ensemble]] = {
     "jazz": frozenset({"classic", "soul", "organ"}),
     "minimalist": frozenset({"classic", "mallet", "guitar"}),
     "ambient": frozenset({"classic", "breath", "choir"}),
+    "guitar": frozenset({"classic", "villa", "barrios"}),
 }
 
 OBOE_FLOOR = 58  # Bb3

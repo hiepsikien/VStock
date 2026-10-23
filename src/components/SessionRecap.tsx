@@ -265,10 +265,6 @@ export function SessionRecap({ symbol, children }: Props) {
     const chosen = variantRef.current;
     const band = ensembleRef.current;
     if (!day || !current || current.date !== day) return;
-    if (chosen === 'guitar') {
-      setListenError('Guitar chưa được soạn.');
-      return;
-    }
     abortRecap();
     const controller = new AbortController();
     recapAbort.current = controller;

@@ -98,9 +98,19 @@ class SessionDetailResponse(BaseModel):
 class RecapResponse(BaseModel):
     symbol: str
     date: str
-    variant: Literal["symphony", "jazz", "minimalist", "ambient"]
+    variant: Literal["symphony", "jazz", "minimalist", "ambient", "guitar"]
     ensemble: Literal[
-        "classic", "wood", "brass", "soul", "organ", "mallet", "guitar", "breath", "choir"
+        "classic",
+        "wood",
+        "brass",
+        "soul",
+        "organ",
+        "mallet",
+        "guitar",
+        "breath",
+        "choir",
+        "villa",
+        "barrios",
     ] = "classic"
     durationSec: float
     mapDurationSec: float
@@ -132,9 +142,19 @@ class SpanMovementResponse(BaseModel):
 class SpanResponse(BaseModel):
     symbol: str
     range: Literal["1W", "1M", "3M", "1Y"]
-    variant: Literal["symphony", "jazz", "minimalist", "ambient"]
+    variant: Literal["symphony", "jazz", "minimalist", "ambient", "guitar"]
     ensemble: Literal[
-        "classic", "wood", "brass", "soul", "organ", "mallet", "guitar", "breath", "choir"
+        "classic",
+        "wood",
+        "brass",
+        "soul",
+        "organ",
+        "mallet",
+        "guitar",
+        "breath",
+        "choir",
+        "villa",
+        "barrios",
     ] = "classic"
     movements: list[SpanMovementResponse]
 

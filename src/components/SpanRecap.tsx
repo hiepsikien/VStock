@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
 import {
@@ -87,10 +87,6 @@ export function SpanRecap({ symbol, range, children }: Props) {
 
   const listen = useCallback(() => {
     reset();
-    if (variant === 'guitar') {
-      setError('Guitar chưa được soạn.');
-      return;
-    }
     const controller = new AbortController();
     request.current = controller;
     setComposing(true);
@@ -199,7 +195,11 @@ export function SpanRecap({ symbol, range, children }: Props) {
       {children(view)}
       <View style={styles.player}>
         <Text style={styles.caption}>{RANGE_LABEL[range]} · một chương mỗi lần</Text>
-        <View style={styles.variantRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.variantRow}
+        >
           {VARIANTS.map((item) => {
             const active = item.id === variant;
             return (
@@ -223,7 +223,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
               </Pressable>
             );
           })}
-        </View>
+        </ScrollView>
         <View style={[styles.variantRow, styles.ensembleRow]}>
           {ENSEMBLE_ROWS[variant].map((item) => {
             const active = item.id === ensemble;
@@ -389,7 +389,6 @@ const styles = StyleSheet.create({
   },
   variantRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: spacing.sm,
   },
   ensembleRow: {

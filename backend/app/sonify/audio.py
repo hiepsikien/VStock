@@ -37,9 +37,9 @@ from app.sonify.session import VN, is_session_closed
 logger = logging.getLogger(__name__)
 
 # Bump when the score or the sound changes, so old files are not replayed.
-RECAP_REVISION = "29"
+RECAP_REVISION = "30"
 # Long-form files live beside the daily recap and use their own revision.
-SPAN_REVISION = "15"
+SPAN_REVISION = "16"
 PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
@@ -499,6 +499,7 @@ _MUSE_VOICES = (
     _MuseVoice(("keyboard.harpsichord",), ("Harpsichord",), "Harpsichord"),
     _MuseVoice((), ("Flute 2",), "Flute 2"),
     _MuseVoice((), ("Acoustic Steel Plucked",), "Acoustic Steel Plucked"),
+    _MuseVoice((), ("Acoustic Guitar", "Classical Guitar", "Acoustic Nylon"), "Acoustic Nylon"),
     _MuseVoice(("keyboard.piano.upright",), ("Upright Piano",), "Upright Piano"),
     _MuseVoice((), ("Handchimes",), "Handchimes"),
     _MuseVoice(("wind.reed.english-horn",), ("English Horn",), "English Horn"),
@@ -630,6 +631,7 @@ _VOICE_VOLUME_DB: dict[str, float] = {
     "Clarinet in Bb": 3,
     "Marimba": 10,
     "Acoustic Steel Plucked": 8,
+    "Acoustic Nylon": 6,
     "Cellos": 4,
     "Trombone": 8,
     "Full Choir": 8,
