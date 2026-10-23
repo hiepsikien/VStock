@@ -186,13 +186,16 @@ def _extra(mode: str, name: str):
 
 
 def test_a_root_note_does_not_open_the_sus_that_calls_it_a_fourth() -> None:
-    """The second bar of an exact stay is priced at 0.15, so it must not collect 0.70."""
+    """A second-bar same-root move is priced at 0.15, so it must not collect 0.70."""
     opened = _plan([[60] * 8, [60] * 8, [65] * 8], character="rally")
     assert opened[0].name in {"C", "Cmaj7"}
     assert opened[1].name in {"C", "Cmaj7"}
     assert opened[2].name == "Csus4"
     only_g = _plan([[67] * 8, [67] * 8], character="rally")
     assert all(chord.name != "Dsus4" for chord in only_g)
+    three = _plan([[60] * 8, [60] * 8, [60] * 8], character="rally")
+    common = _plan([[60] * 8, [60] * 8, [60] * 8], character="rally", dialect=COMMON)
+    assert [chord.name for chord in three] == [chord.name for chord in common]
     # Minor prices a villa color on the 0.08 floor, so the G→C door lands on Cm, not Csus4.
     minor_c = _plan([[60] * 8, [60] * 8, [60] * 8], character="rally", mode="minor")
     assert minor_c[-1].name in {"Cm", "Cm7"}
@@ -210,6 +213,13 @@ def test_flat_roots_do_not_borrow_the_natural_letter_row() -> None:
     assert VILLA.transition(_extra("major", "Asus4"), AF, "major") == 0.0
     assert VILLA.transition(G, _extra("major", "Csus4"), "major") == 0.50
     assert VILLA.transition(FDIM7, _extra("minor", "Fsus4"), "minor") == 0.0
+    assert VILLA.transition(EF, _extra("minor", "Fsus2"), "minor") == 0.22
+    assert VILLA.transition(C, _extra("minor", "Ebsus4"), "minor") == 0.08
+    assert VILLA.transition(_extra("minor", "Ebsus4"), FM, "minor") == 0.22
+    assert VILLA.transition(AF, _extra("minor", "Absus2"), "minor") == 0.30
+    flat = _plan([[63] * 8, [68] * 8], character="rally", mode="minor")
+    assert all(chord.root_step == "E" and chord.alter == -1 for chord in flat)
+    assert flat[1].name == "Ebsus4"
 
 
 def test_minor_add9_uses_the_parent_third() -> None:

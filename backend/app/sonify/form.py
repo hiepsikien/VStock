@@ -816,9 +816,12 @@ def plan_markov_chords(
                     else:
                         emission = emission_by_prev_snapped[prev_snapped_by_chord[prev_chord]]
                     credit = active_dialect.color_credit(chord, strong_pcs, prev_chord)
-                    # The second bar of a root is priced at 0.15, not the 1.35 hold.
-                    # Crediting an exact stay there goes negative and pays Viterbi to open the sus.
-                    if prev_chord == chord and not new_section and prev_held == 1:
+                    # The second bar of a root is priced at 0.15, plus 0.35 when the color changes.
+                    # A stay, or a change between two villa colors, must not collect 0.70: that
+                    # negative bar pays Viterbi to open G7sus4 into Gsus4. Entering from the
+                    # parent (C → Csus4) still takes the credit; without it a two-bar F opens Fmaj7.
+                    second_bar = same_root and not new_section and prev_held == 1
+                    if second_bar and (prev_chord == chord or prev_chord in extra_ids):
                         credit = 0.0
                     total = (
                         dp[bar - 1][(prev_chord, prev_held)]
