@@ -31,8 +31,8 @@ Chỗ code còn lệch so với hợp đồng bên dưới: Barrios nhanh tremol
 
 Nghe được: câu ngân từ 90 BPM là tremolo; chương dưới 90 của Barrios và các câu vai hát ở bước 3 là thánh ca của nhà đó; câu mở của chương từ 90 BPM và các câu còn lại vẫn là arpeggio đang có. Chưa có điệu Nam Mỹ, chưa có dialect Barrios, chưa có scale.
 
-- Hàm chọn pattern theo thứ tự mục 3. Cửa tempo lọc trước sở thích của nhà.
-- Tremolo chỉ khi được chọn. Giữ nguyên lưới, lực, và việc ngón cái không nhường phách. Không viết lại thành phách chấm ở 6/8. Tắt tremolo ở hai phách đen cuối của câu đóng (`phrase.closes`) khi phần trước của câu còn ít nhất hai phách tremolo.
+- Hàm chọn pattern theo thứ tự mục 3, và quy tắc khớp nối / điểm thở ở mục 3.2. Cửa tempo lọc trước sở thích của nhà.
+- Tremolo chỉ khi được chọn. Giữ nguyên lưới, lực, và việc ngón cái không nhường phách. Không viết lại thành phách chấm ở 6/8. Tắt tremolo ở hai phách đen cuối của câu đóng (`phrase.closes`) hoặc của câu tremolo ngay trước khi đổi sang pattern khác (khi câu dài từ bốn phách đen trở lên, phần trước còn ít nhất hai phách tremolo).
 - Thánh ca: Andante của Barrios, chord-melody của Villa, Élégiaque của Sor, đúng mục 6.
 - Sau hai câu tremolo liên tiếp, câu kế là thánh ca. Luật này chỉ chạy khi tremolo đang hợp lệ.
 - Câu mở của chương từ 90 BPM và câu chạy không rơi vào thánh ca vẫn gọi arpeggio hiện tại. Pattern `preludio` (arpeggio khai của *La Catedral* kèm chuông), pattern `villa_pattern` (*Étude No. 1*), và các lớp phủ/biến tấu cấp câu để Phase 3.
@@ -67,7 +67,13 @@ Người nghe vẫn chọn một nhà: `classic` (Sor), `villa`, `barrios`. Bên
 
 **Pattern** là cách tay phải dệt ba bè trong phạm vi một ô nhịp. Mỗi pattern khai cửa tempo, meter được đứng, bè nào hát, bè nào giữ nhịp, và cách band `p–f` làm nó thưa hay dày. Band đổi mật độ trong pattern. Band không đổi họ pattern. Các đoạn hợp âm của Villa (`chord_melody`), `andante` của Barrios, khung hành khúc chấm dôi `elegiaque` của Sor, và `preludio` của *La Catedral* đều là các pattern thật sự ở tầng này.
 
-**Palette** là danh sách pattern của một nhà, cộng thứ tự khi nhiều pattern cùng hợp lệ. Bộ chọn lọc cửa trước, rồi mới xét thứ tự.
+**Palette** là danh sách pattern riêng của từng nhà soạn nhạc, cộng thứ tự ưu tiên khi nhiều pattern cùng hợp lệ. Bộ chọn chỉ được rút pattern từ palette của nhà đang chọn (lọc cửa tempo và meter trước, rồi mới xét thứ tự):
+
+| Nhà soạn nhạc (`ensemble`) | Phong cách & Thẩm mỹ | Palette Pattern của riêng nhà đó | Lớp phủ & Biến tấu cấp câu (Phase 3) |
+|---|---|---|---|
+| **Sor (`classic`)** | Cổ điển châu Âu (cân đối, rõ câu cú, đối vị hai bè, hành khúc bi tráng) | • `study` (Arpeggio cổ điển đều)<br>• `elegiaque` (Hành khúc tang chấm dôi + bass lament)<br>• `cantabile` *(Phase 3)* (Song thanh quãng 3 / quãng 6 kiểu *Op. 6 No. 10*) | **`Grand Solo`** (Biến tấu dày dần `level 0→1→2` trên nền `study`, khối fanfare đầu đoạn, caesura) + **`Scale`** |
+| **Villa-Lobos (`villa`)** | Hiện đại Brazil (cuộn sóng, hợp âm khối dồn dập, giai điệu dây trầm) | • `villa_pattern` (Arpeggio cuộn *Étude No. 1* + nhấn tresillo 3+3+2)<br>• `chord_melody` (Khối 3 nốt hát *Étude No. 11*)<br>• `thumb_cantabile` *(Phase 3)* (Giai điệu ngón cái `p` vùng Cello *Prélude No. 1*) | **`Scale`** (*Étude No. 7*) + **`Campanella`** (ngân chồng dây buông) |
+| **Barrios (`barrios`)** | Lãng mạn muộn Nam Mỹ (nhà thờ, tremolo ngân liền, điệu nhảy dân gian) | • `preludio` (*La Catedral* — bass mỗi 2 ô + chuông)<br>• `tremolo` (`p–a–m–i` ngân liền)<br>• `andante` (Khối hợp âm nhà thờ *Andante Religioso*)<br>• `choro` (4/4), `polca` & `hemiola` (6/8), `vals` (6/8 trio, *Phase 3*)<br>• `thumb_cantabile` *(Phase 3)* (*Julia Florida*) | **`Scale` / `Perpetual`** (*Allegro Solemne*) |
 
 **Lớp phủ và biến tấu cấp câu (Phrase Overlays / Modifiers — Phase 3)** như **Scale** hay **Grand Solo** không phải là một pattern tay phải độc lập trong ô nhịp, mà là quy tắc trang trí/biến tấu đặt lên trên pattern chủ của câu đó (Scale phủ lên bè Cao ở đỉnh/cuối câu; Grand Solo tăng bậc dày của pattern `study`, điểm khối fanfare đầu section và ngắt caesura).
 
@@ -119,6 +125,31 @@ Hệ quả trên bản đồ đang chạy:
 | Chương III `3M` | 108, 4/4 | Như `1D` của Barrios | Câu thân đầu: arpeggio. Từ câu 2: theo character | Câu thân đầu: arpeggio. Từ câu 2: theo character / band |
 
 `1M` I và IV, tháng 12 của `1Y`, và `3M` I là các chương 96 BPM; tháng mở của `1Y` là 100 BPM.
+
+### 3.1. Diễn biến thị trường điều khiển bộ chọn như thế nào
+
+Ngoài tốc độ (`bpm`), nhịp (`meter`) và mode Trưởng/Thứ của chương, bộ chọn đọc bốn tín hiệu thị trường ngay trên từng `Phrase` để đổi kết cấu âm nhạc theo đúng tâm lý phiên giao dịch:
+
+- **Thị trường đi ngang hoặc thanh khoản cạn (`calm` hoặc band `p` tại `phrase.apex`)** → **Lắng xuống, hát nội tâm**: Sor chuyển sang hát hai bè song thanh quãng 3/6 (`cantabile`, Phase 3); Villa gảy hợp âm ngân chậm (`chord_melody`); Barrios ngân `tremolo` êm hoặc nghỉ sang `andante`. Tuyệt đối không bật điệu nhảy (`choro`, `polca`, `vals`) hay `Grand Solo` khi `calm`.
+- **Thị trường bán tháo hoặc suy yếu (`selloff`, hoặc đoạn giữa `section.trio` ở chương Thứ)** → **Trầm hùng, bi tráng**: Sor lập tức vào hành khúc tang chấm dôi kèm bass lament đi xuống từng bậc (`elegiaque`); Villa dùng hợp âm treo thứ trên `chord_melody` hoặc đưa giai điệu xuống dây Cello trầm (`thumb_cantabile`); Barrios đi vòng hòa âm quãng 5 thứ (`Fm → Bb → Eb → Ab → D7 → G7`) dưới `tremolo` hoặc `andante`.
+- **Thị trường tăng mạnh hoặc giằng co thanh khoản lớn (`rally` / `volatile`, band `mf–f`)** → **Động năng cao, đẩy tiết tấu tới trước**:
+  - Khi **giá giữ nhịp / tích lũy trên đường đi** (trong câu có nốt giữ $\ge 2$ phách đen): Barrios bật `tremolo` căng đầy; Sor và Villa cuộn arpeggio dày (`study` / `villa_pattern`).
+  - Khi **giá nhảy liên tục từng mốc** (mọi nốt trong câu $< 2$ phách đen): Barrios ở `bpm > 100` bật điệu nhảy lệch phách (`choro` ở 4/4, `polca`/`hemiola` hoặc `vals` ở 6/8); Sor ở `bpm >= 90` bật biến tấu `Grand Solo` dày dần theo họ câu; Villa nhấn lệch nhịp `3+3+2` (tresillo) ở `volatile` 4/4.
+  - Khi câu **leo dốc mạnh (`phrase.rise >= MIN_RISE`) hoặc phá đỉnh (`breakout`)**: `chord_melody` của Villa dồn dày cú khối về phía đỉnh câu; ở Phase 3, cả ba nhà được phủ thêm đoạn chạy `Scale` lao thẳng vào nốt đỉnh ở phách mạnh.
+
+### 3.2. Khớp nối khi đổi pattern (Transition, Giảm tốc kết cấu & Điểm thở)
+
+Giá chạy liên tục từng móc đơn, nhưng trên đàn guitar thật không thể cắt dán đột ngột từ một câu 16 móc kép (`tremolo`, `choro`, `polca`) sang một câu hợp âm tĩnh (`andante`, `chord_melody`, `elegiaque`) mà không có điểm thở. Để chuyển pattern mượt mà mà **không làm lệch tổng số móc đơn hay con trỏ playhead**, biên giữa câu `phrase_i` và câu kế tiếp `phrase_{i+1}` (khi cả hai đều nằm trong thân bài, không phải ô `_PEDAL`) tuân theo ba quy luật khớp nối sau:
+
+1. **Giảm tốc kết cấu ở cuối câu mật độ cao (Textural Tapering — từ Phase 1 cho `tremolo`, Phase 2 cho `dance`)**:
+   - **Với `tremolo`**: tắt lặp `a–m–i` ở **hai phách đen cuối** (`4 móc đơn = 8 móc kép`) không chỉ khi câu đóng (`phrase.closes == True`), mà cả khi câu kế tiếp **đổi sang một pattern khác `tremolo`** (ví dụ sang `andante`, `choro`, `polca`, hoặc `arpeggio`), miễn là câu `tremolo` đó dài từ **bốn phách đen trở lên** (để phần trước vẫn còn ít nhất hai phách tremolo). Trong hai phách đen cuối đó, bè Cao giữ ngân nốt dữ liệu và bè dưới trả về arpeggio kết câu nhẹ (hoặc đoạn scale đi xuống ở Phase 3).
+   - **Với `dance` (`choro`, `polca`, `hemiola`, `vals` — Phase 2–3)**: nếu câu kế tiếp **không còn là `dance`**, thì ở phách đen cuối cùng của câu `dance`, bè Trung bỏ các móc kép lẻ và bè Trầm **tắt nốt dẫn bán cung ở móc kép cuối ô** (móc kép 15 của 4/4 hoặc móc kép 11 của 6/8 nghỉ thay vì trượt bán cung, tránh đẩy đà giả vào một câu tĩnh).
+2. **Khe thở một móc đơn tại biên đổi pattern (Pattern-Change Breath — từ Phase 1)**:
+   - Khi `pattern(phrase_i) != pattern(phrase_{i+1})`, móc đơn cuối cùng của câu trước (`eighth = phrase_i.end - 1`, ngay trước khi câu mới mở ra) được dùng làm **điểm nhấc tay lấy hơi**:
+     - Nếu `phrase_i` kết thúc bằng một nốt giữ dài $\ge 2$ móc đơn: rút ngắn nốt cuối của bè Cao và bè Trung đi **1 móc đơn**, biến móc đơn `phrase_i.end - 1` thành dấu lặng (`midi=None`) ở cả bè Cao và bè Trung.
+     - Nếu `phrase_i` kết thúc bằng các nốt móc đơn rời liên tiếp (câu chạy mở) và câu kế tiếp đổi sang một **họ pattern khác** (ví dụ từ `dance` hoặc `arpeggio` sang họ Thánh ca hoặc `tremolo`) với câu `phrase_i` dài từ 4 móc đơn trở lên: nhường nốt ở móc đơn cuối `phrase_i.end - 1` của bè Cao và bè Trung thành **1 móc đơn lặng** (`midi=None`). Bỏ một móc đơn cuối câu chạy này trên lưới có sẵn giúp hai câu tách bạch tự nhiên như người chơi thật lấy hơi mà đồng hồ chương không lệch một giây nào.
+3. **Nốt bass bắc cầu khi đi từ Thưa sang Dày (Anacrusis / Pickup Bass — Phase 2–3)**:
+   - Khi chuyển từ một câu họ Thánh ca (`andante`, `chord_melody`, `elegiaque`, `cantabile`) sang một câu động năng cao (`tremolo`, `dance`, hoặc `study` có phủ `Grand Solo`), tại đúng móc đơn lấy hơi `phrase_i.end - 1` (khi bè Cao và bè Trung đang nghỉ), **bè Trầm (voice 3, ngón cái `p`)** được gảy nhẹ một nốt dẫn móc đơn (quãng 5 hoặc bậc thang liền kề dẫn vào gốc hợp âm đầu câu `phrase_{i+1}`, velocity `_INNER`) để tạo đà bước qua vạch câu.
 
 ## 4. Bản đồ nhịp
 
@@ -211,7 +242,7 @@ Một trùm là một nốt đen: bốn móc kép cùng một cao độ giai đi
 
 Ngón cái, velocity 58, đánh gốc và quãng 5 cùng lúc, ngân hết nốt đen. Hai nốt đó cùng voice Trầm. Bè lặp 52, 55, 54, 52. Ô đổi hợp âm: Trung đánh một nốt màu dưới giai điệu ở đầu ô, cùng lúc với ngón cái. Phách đó có bốn cao độ. Đó là ngoại lệ đã nghe, không siết về ba cao độ trong Phase 1 hay Phase 3.
 
-Ô pedal không tremolo: giai điệu ngân theo câu, bass gốc. Tắt tremolo ở hai phách đen cuối (4 móc đơn = 8 móc kép) của câu đóng (`phrase.closes`) là việc của Phase 1 (hiện chưa có trong `_tremolo`): trả hai phách cuối đó về arpeggio kết, hoặc về đoạn scale khi Phase 3 đã có. Luật cắt đuôi này chỉ cắt khi phần câu trước hai phách cuối vẫn còn ít nhất hai phách đen tremolo; nếu cả câu chỉ dài hai phách hoặc chỉ có đúng hai phách cuối là nốt giữ tạo `phrase.closes` mà câu ngắn hơn bốn phách, không cắt mất đoạn tremolo duy nhất của câu.
+Ô pedal không tremolo: giai điệu ngân theo câu, bass gốc. Tắt tremolo ở hai phách đen cuối (4 móc đơn = 8 móc kép) của câu đóng (`phrase.closes`) hoặc của câu tremolo mà câu kế tiếp đổi sang pattern khác (mục 3.2) là việc của Phase 1 (hiện chưa có trong `_tremolo`): trả hai phách cuối đó về arpeggio kết, hoặc về đoạn scale khi Phase 3 đã có, kèm khe thở 1 móc đơn ở `phrase.end - 1` khi đổi pattern. Luật cắt đuôi này chỉ cắt khi phần câu trước hai phách cuối vẫn còn ít nhất hai phách đen tremolo (tức câu dài từ bốn phách đen trở lên); nếu câu ngắn hơn bốn phách đen, không cắt mất đoạn tremolo duy nhất của câu.
 
 Ép ngón giữ luật đang chạy: dưới 4%, không ở câu đầu, không trên móc kép tremolo.
 
@@ -416,7 +447,7 @@ Phase 3 thêm mô hình dây (dây 6→1 buông ở 40, 45, 50, 55, 59, 64), gi�
 
 **Phase 1**, trong `test_sonify_guitar.py` (ở các test tại `bpm >= 90` như 1, 2, 5, 6, 8, câu cần kiểm tra tremolo hoặc thánh ca đặt từ **câu thân thứ hai trở đi**, vì câu thân đầu chương ở `bpm >= 90` luôn là arpeggio theo bước 1):
 
-1. 120 BPM, từ câu thân thứ hai, giai điệu giữ từ hai phách, band `mf`: tremolo đầy trên câu không đóng (`closes=False`) hoặc trên câu đóng ngắn hơn bốn phách đen (như một câu đóng dài đúng một ô 6/8 = 3 phách đen); riêng câu đóng (`closes=True`) dài từ **bốn phách đen trở lên** (≥ 8 móc đơn, phần trước còn ít nhất hai phách tremolo) thì hai phách đen cuối tắt tremolo về arpeggio kết. 6/8 vẫn ba trùm nốt đen, mọi móc kép hát.
+1. 120 BPM, từ câu thân thứ hai, giai điệu giữ từ hai phách, band `mf`: tremolo đầy trên câu không đóng (`closes=False`) khi câu kế tiếp vẫn là tremolo, hoặc trên câu ngắn hơn bốn phách đen (như một câu đóng dài đúng một ô 6/8 = 3 phách đen); riêng câu đóng (`closes=True`) hoặc câu tremolo ngay trước khi đổi sang pattern khác mà dài từ **bốn phách đen trở lên** (≥ 8 móc đơn, phần trước còn ít nhất hai phách tremolo) thì hai phách đen cuối tắt tremolo về arpeggio kết, và khi đổi pattern sang câu sau thì móc đơn cuối `phrase.end - 1` của bè Cao và bè Trung nghỉ lấy hơi (mục 3.2). 6/8 vẫn ba trùm nốt đen, mọi móc kép hát.
 2. 120 BPM, từ câu thân thứ hai, giai điệu đổi từng móc đơn: arpeggio, không tremolo, không dance.
 3. Ô `_PEDAL` (`intro`, `outro`, `warmup`, `cooldown`) ở 120: giữ pedal (bass gốc ngân cả ô, không tremolo); câu thân đầu chương ở 120 (kể cả khi giữ nốt): arpeggio, không tremolo.
 4. 72, 60 hoặc 66 BPM, 3/4: cả thân chương (kể cả câu thân đầu) là thánh ca của nhà đó, BPM không đổi, không một trùm tremolo.
@@ -436,13 +467,13 @@ Phase 3 thêm mô hình dây (dây 6→1 buông ở 40, 45, 50, 55, 59, 64), gi�
 7. `color_credit` Barrios là 0. `transpose_chord` của `Ab+6` giữ Fa♯.
 8. 4/4, `bpm > 100`, từ câu thân thứ hai, câu nốt chạy, `rally`: dance (câu thân đầu vẫn là arpeggio), đúng các móc đã khóa sau khi đọc tổng phổ. Mọi nốt Cao trên móc kép chẵn trùng nốt dữ liệu (kể cả móc kép 2 nếu dữ liệu có nốt mới). `calm`: không dance. 3/4: không dance. 100 BPM: không dance.
 9. 6/8, 120, từ câu thân thứ hai, band `mp`, câu ngân: tremolo, không polca (câu thân đầu vẫn là arpeggio). Cùng tempo, từ câu thân thứ hai, band `f`, câu nốt chạy: hemiola, đệm chỉ móc kép 0, 4, 8. Cùng tempo, từ câu thân thứ hai, band `f`, câu ngân: tremolo.
-10. Ô dance (từ câu thân thứ hai) rơi đúng một quãng 5: 4/4 móc kép 15, 6/8 móc kép 11, là Trầm nửa cung dưới gốc sau. Profile `study` báo lỗi; `barrios_dance` im.
+10. Ô dance (từ câu thân thứ hai) rơi đúng một quãng 5 khi câu vẫn đang ở dance: 4/4 móc kép 15, 6/8 móc kép 11, là Trầm nửa cung dưới gốc sau; nếu ô đó là cuối câu mà câu kế tiếp đổi sang pattern không phải dance thì móc kép cuối nghỉ và móc đơn cuối câu nhường khe thở theo mục 3.2. Profile `study` báo lỗi trên nốt dẫn; `barrios_dance` im.
 
 **Phase 3:** nốt đích của scale trùng nốt dữ liệu; nốt đầu được lệch và test không đòi nó trùng dữ liệu; phách mạnh trong đoạn giữ cao độ; ô perpetual thay trùm lặp bè Cao của tremolo trong tối đa hai ô và chuyển bass về phách 1 và 3; không section nào quá khoảng 15% ô chạy; Grand Solo (chỉ ở `bpm >= 90`, từ câu thân thứ hai) ở band `f` mở section bằng hợp âm khối ba nốt và có khoảng lặng một móc đơn (caesura) ở cả ba bè trước câu đỉnh khi câu trước đó đóng; Sor `calm` ở `bpm > 72` chạy `cantabile` với bè Trung đi song song quãng 3 hoặc quãng 6 thuận thang dưới bè Cao (từ câu đầu ở 88 BPM, từ câu thân thứ hai ở `bpm >= 90`); `thumb_cantabile` ở `section.trio` đưa đường giá đã dịch quãng tám xuống voice 3 (vang trong 48–64, đơn điệu cùng hướng câu gốc) và chỉ đánh hợp âm voice 1–2 ở phách yếu (móc `2, 4` ở 3/4; móc `2, 5` ở 6/8; móc `2, 6` ở 4/4); Barrios câu chạy ở `section.trio` của 6/8 chạy `vals` với bass ở móc đơn `0, 3, 4`; chuông Preludio tính bằng `bell_budget`, tách khỏi hạn một nốt mỗi hai ô, được phép tới vang 83 dưới profile `barrios_preludio`; cụm cùng vang gán được dây (dây 6–4 ≤ 12, dây 3 ≤ 17, dây 2–1 ≤ 19), khoảng phím ≤ 5, trừ ngoại lệ tremolo đã khóa; bass Élégiaque, giai điệu Trầm của `thumb_cantabile`, và nốt dẫn của Villa hoặc của `barrios_dance` đạt ở đúng profile và lỗi ở `study`.
 
 ## 13. Nghe
 
-Phase 1: `1D` Barrios, câu thân đầu vẫn là arpeggio; từ câu thân thứ hai, câu ngân thì tremolo liền, bass đầu mỗi nốt đen, còn câu nốt ngắn vẫn arpeggio. Chương chậm 3/4 của cả ba nhà hát hợp âm ngay từ câu đầu, không tremolo, không bị kéo nhanh. Sor `selloff` nghe ra bass chấm (ở `1D` 88 BPM nghe ngay từ câu đầu; ở chương `bpm >= 90` nghe từ câu thân thứ hai). Mở bài Barrios chưa cần chuông.
+Phase 1: `1D` Barrios, câu thân đầu vẫn là arpeggio; từ câu thân thứ hai, câu ngân thì tremolo liền, bass đầu mỗi nốt đen, còn câu nốt ngắn vẫn arpeggio; chỗ chuyển từ tremolo sang `andante` hoặc arpeggio có giảm tốc hai phách cuối và khe thở một móc đơn tự nhiên, không bị cắt dán đột ngột. Chương chậm 3/4 của cả ba nhà hát hợp âm ngay từ câu đầu, không tremolo, không bị kéo nhanh. Sor `selloff` nghe ra bass chấm (ở `1D` 88 BPM nghe ngay từ câu đầu; ở chương `bpm >= 90` nghe từ câu thân thứ hai). Mở bài Barrios chưa cần chuông.
 
 Phase 2: phiên thứ, ô {Si♭, Rê, Fa} sau Fa thứ là một ô Si♭ rồi đi tiếp, không có ô Rê♭. Chuỗi át đi tiếp khi giá trên Đô, La hoặc Rê, và về thứ khi giá trên Fa. `1D` từ câu thân thứ hai, câu chạy ở `rally` có đệm bass và Trung lệch phách kiểu choro bên dưới giai điệu giá giữ nguyên trên lưới móc đơn; câu ngân không bị levada cắt. Scherzo band `f` chỉ nghe hemiola khi giai điệu đang chạy (sau câu mở). `calm` không dày hơn Phase 1.
 
