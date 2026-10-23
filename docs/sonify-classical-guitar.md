@@ -41,7 +41,7 @@ Nghe được: câu ngân từ 90 BPM là tremolo; chương dưới 90 là thán
 
 Nghe được: thứ đi được vòng quãng 5 trên nốt thuộc thang; trưởng đi được chuỗi át bảy khi giá ngồi trên Đô, La hoặc Rê; câu nốt chạy trên 100 BPM ở 4/4 hoặc 6/8 là choro hoặc polca. Câu đang ngân vẫn tremolo.
 
-- Đầu phase, đọc tổng phổ và khóa số móc mục 8.2. Lệch thì sửa bảng trong file này trước khi viết renderer.
+- Đầu phase, đọc tổng phổ và khóa số móc mục 9.1 và 9.2. Lệch thì sửa bảng trong file này trước khi viết renderer.
 - `BarriosDialect`, bốn hợp âm thứ, các cạnh, `quality_group` của `+6`, và luật một ô `"augmented-sixth"` trong `form.py`. Không sửa `minor_bias`.
 - Điệu chỉ khi bộ chọn đã trả `dance`. Hemiola là bản to của polca, không phải cách thay tremolo.
 
@@ -90,9 +90,9 @@ Khóa theo câu. Band của câu là band ô chứa nốt đỉnh (`phrase.apex`
 Lọc rồi mới xếp. Một pattern ngoài cửa tempo, ngoài meter, hoặc trái hình câu thì bị loại trước khi xét thứ tự.
 
 1. Ô khung mở (`intro`, `warmup`) hoặc câu đầu chương → arpeggio khai của nhà đó.
-2. Giai điệu giữ từ hai phách, và palette có tremolo, và BPM nằm trong 90–140 → tremolo. Đã có hai câu tremolo liền trước thì câu này là thánh ca.
-3. BPM dưới 90, hoặc nhà đó không có tremolo mà câu đang ở vai hát (chương chậm, `selloff`, đoạn `trio` ở thứ với Sor, chương chậm hoặc band `p` / `calm` với Villa) → thánh ca của nhà đó.
-4. Giai điệu đang chạy, character khác `calm`, BPM trên 100, meter 4/4 hoặc 6/8, và palette có điệu của meter đó → dance. Phase 1 chưa có nhánh này: câu chạy rơi xuống bước 5.
+2. Câu có nốt giai điệu giữ từ hai phách đen (≥ 4 móc đơn liền cùng cao độ trên đường giai điệu đã nén), và palette có tremolo, và BPM nằm trong 90–140 → tremolo. Đã có hai câu tremolo liền trước thì câu này là thánh ca.
+3. Câu đang ở vai hát: Barrios khi BPM dưới 90; Sor khi chương chậm (`bpm <= 72`), `selloff`, hoặc đoạn `trio` ở thứ; Villa khi chương chậm (`bpm <= 72`), band `p`, hoặc `calm` → thánh ca của nhà đó.
+4. Câu đang chạy (mọi nốt trong câu đều ngắn hơn hai phách đen), character khác `calm`, BPM trên 100, meter 4/4 hoặc 6/8, và palette có điệu của meter đó → dance. Phase 1 chưa có nhánh này: câu chạy rơi xuống bước 5.
 5. Còn lại → arpeggio của nhà đó.
 
 Scale không tranh cả câu. Phase 3 phủ một đoạn ở đỉnh hoặc ở hai phách cuối câu đóng, trên pattern đã chọn, khi còn ngân sách.
@@ -185,13 +185,13 @@ Ngón cái, velocity 58, đánh gốc và quãng 5 cùng lúc, ngân hết nốt
 
 Một grammar cho cả ba nhà. Bè Cao chạy liền bậc giữa hai mốc dữ liệu. Nốt đích trùng nốt giá hoặc nốt đỉnh. Nốt đầu được lệch 3–5 bậc thang để lấy đà, và phải thuộc thang. Nốt ở phách mạnh trong đoạn giữ nguyên cao độ so với bản không chạy. Hướng chạy cùng hướng câu, trừ đoạn đi xuống ở hai phách cuối câu đóng.
 
-Giá trị nốt theo tempo của chương. Dưới 90, chạy bằng móc đơn. Từ 90, được dùng móc kép. Cùng một luật «liền bậc, rơi đúng mốc».
+Giá trị nốt theo tempo của chương. Dưới 90, chạy bằng móc đơn (2–4 móc đơn mỗi đoạn). Từ 90, được dùng móc kép (4–8 móc kép mỗi đoạn; riêng perpetual tới 16 móc kép một ô). Cùng một luật «liền bậc, rơi đúng mốc».
 
 Ngân sách: tối đa một đoạn mỗi câu, số ô có chạy không quá khoảng 15% ô của section, mỗi section còn ít nhất một câu không chạy. Âm lấy từ thang của mode. Barrios được một nốt dẫn bán cung ở móc kép ngay trước đích, tối đa một mỗi đoạn. Sor và Villa không lấy nốt đó trong đoạn scale.
 
 Đệm không dùng chung. Sor và Villa giữ bass của pattern chủ, Trung nghỉ trong lúc chạy. Barrios: Trung nghỉ, bass gốc ở phách 1 và 3. Dạng chạy cả ô (perpetual) chỉ Barrios, chỉ khi giá đứng yên từ một ô, band `f`, `volatile`, tối đa hai ô: mốc dữ liệu neo ở móc kép 0 của mỗi phách, móc kép 2 là nốt chạy, rồi quay về đúng nốt đang giữ.
 
-Grand Solo của Sor dùng đoạn scale này khi câu ở lớp arpeggio dày, `phrase.rise` đủ, band `mf`/`f`. Biến tấu theo lần lặp cũng thuộc Phase 3: hai câu cùng họ khi cùng pitch-class gốc ô mở, cùng dấu hướng, đỉnh lệch không quá hai bậc, độ dài lệch không quá bốn móc đơn. Mức figuration tăng một bậc trong họ, đặt lại khi sang section không phải tái hiện. Khung nốt phách mạnh không đổi giữa các lần.
+Grand Solo của Sor dùng đoạn scale này khi câu ở lớp arpeggio dày, `phrase.rise` đủ, band `mf`/`f`. Biến tấu theo lần lặp cũng thuộc Phase 3: hai câu cùng họ khi cùng pitch-class gốc ô mở, cùng dấu hướng, đỉnh lệch không quá hai bậc, độ dài lệch không quá bốn móc đơn. Mức figuration tăng một bậc trong họ, đặt lại khi sang section không phải tái hiện. Khung nốt phách mạnh không đổi giữa các lần. Đầu section ở band `f`, ô mở của Grand Solo đánh hợp âm khối ba nốt (Trầm + Trung + Cao cùng lúc); trước câu chứa đỉnh cao nhất của section, nếu câu trước đó đóng, cả ba bè được lặng một móc đơn (caesura) để lấy hơi kịch tính.
 
 ## 9. Điệu — Phase 2
 
