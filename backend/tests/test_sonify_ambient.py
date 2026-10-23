@@ -144,21 +144,18 @@ def test_breath_windows_follow_the_meter_and_calm() -> None:
     assert _breath_spans(0, 5) == [(0, 1), (2, 5)]
     assert _breath_spans(0, 6) == [(0, 2), (3, 6)]
     assert _breath_spans(0, 7) == [(0, 2), (3, 7)]
-    assert _breath_spans(2, 12) == [(2, 6), (8, 12)]
-    assert _breath_spans(12, 20) == [(12, 15), (16, 20)]
-    assert _breath_spans(20, 32) == [(20, 23), (24, 27), (28, 32)]
+    assert _breath_spans(2, 12) == [(2, 5), (8, 12)]
+    assert _breath_spans(12, 20) == [(12, 14), (16, 20)]
+    assert _breath_spans(20, 32) == [(20, 22), (24, 26), (28, 32)]
     calm = {bar: BarGroove(calm=True) for bar in range(34)}
     with compose_groove(calm):
-        assert _breath_spans(0, 5) == [(0, 1), (2, 5)]
-        assert _breath_spans(0, 6) == [(0, 1), (3, 6)]
-        assert _breath_spans(0, 7) == [(0, 1), (3, 7)]
         assert _breath_spans(2, 12) == [(2, 5), (8, 12)]
         assert _breath_spans(12, 20) == [(12, 14), (16, 20)]
         assert _breath_spans(20, 32) == [(20, 22), (24, 26), (28, 32)]
     with compose_meter(METER_34):
         assert _breath_spans(0, 5) == [(0, 5)]
         assert _breath_spans(0, 6) == [(0, 2), (3, 6)]
-        assert _breath_spans(0, 11) == [(0, 4), (6, 11)]
+        assert _breath_spans(0, 11) == [(0, 3), (6, 11)]
     with compose_meter(METER_64):
         assert _breath_spans(0, 3) == [(0, 3)]
         assert _breath_spans(0, 4) == [(0, 1), (2, 4)]
@@ -180,22 +177,23 @@ def test_a_rise_that_levels_off_ties_across_the_bar_then_rests() -> None:
     assert opening[0].bar == 0
     assert opening[0].midi % 12 == 0
     tonic = [note for note in opening if note.midi == opening[0].midi]
-    assert _beats(tonic) == 16
+    assert _beats(tonic) == 12
     assert any(note.bar == 2 and note.tie_stop and note.midi % 12 == 0 for note in score.lead)
     step = next(note for note in opening if note.midi != opening[0].midi)
-    assert step.bar == 4
+    assert step.bar == 3
     assert not step.tenuto
+    assert not any(note.bar in (5, 6, 7) and note.midi is not None for note in score.lead)
     leveled = next(breath for breath in breaths if breath[0].bar == 8)
-    assert _beats(leveled) == 16
-    assert len({note.midi for note in leveled}) == 1
-    carried = next(note for note in score.lead if note.bar == 10 and note.midi == leveled[0].midi)
+    held = [note for note in leveled if note.midi == leveled[-1].midi]
+    assert _beats(held) == 16
+    carried = next(note for note in score.lead if note.bar == 10 and note.midi == leveled[-1].midi)
     assert carried.tie_stop
     assert carried.beat == 0.0
     assert not any(
-        note.bar == 10 and note.midi == leveled[0].midi and not note.tie_stop for note in score.lead
+        note.bar == 10 and note.midi == leveled[-1].midi and not note.tie_stop for note in score.lead
     )
     assert not any(
-        note.bar >= 12 and note.midi == leveled[0].midi and not note.tie_stop for note in score.lead
+        note.bar >= 13 and note.midi == leveled[-1].midi and not note.tie_stop for note in score.lead
     )
 
 
@@ -285,11 +283,11 @@ def _line(
 def test_the_eight_bar_diagram_slurs_two_breaths() -> None:
     notes, _wedges, dynamics = _line(
         (FormSection(0, 8, "phrase", 0),),
-        _held(72, 2) + _held(76, 1) + _held(74, 4) + _held(72, 1),
+        _held(72, 1) + _held(76, 2) + _held(74, 4) + _held(72, 1),
     )
     breaths = _breaths(tuple(notes))
     assert [[note.bar for note in breath if not note.tie_stop] for breath in breaths] == [
-        [0, 2],
+        [0, 1],
         [4, 7],
     ]
     assert [breath[0].midi for breath in breaths] == [72, 74]
@@ -299,7 +297,7 @@ def test_the_eight_bar_diagram_slurs_two_breaths() -> None:
     assert opening.slur_start and opening.tenuto and not opening.slur_stop
     assert close.slur_stop and not close.slur_start and not close.tenuto
     assert [(event.bar, event.marking) for event in dynamics] == [(0, "mf"), (4, "mp")]
-    assert not any(note.bar == 3 and note.midi is not None for note in notes)
+    assert not any(note.bar in (2, 3) and note.midi is not None for note in notes)
 
 
 def test_a_weak_beat_extreme_moves_to_the_downbeat_under_one_slur() -> None:
@@ -356,18 +354,24 @@ def test_an_unframed_outro_does_not_reattack_the_same_pitch_after_a_rest() -> No
     assert _beats([note for note in touching if note.midi is not None]) == 16
 
 
-def test_a_calm_rising_day_shortens_the_breath_before_the_last() -> None:
+def test_a_calm_day_keeps_the_same_flute_rests() -> None:
     closes = [100.0 + index * 4.0 for index in range(30)]
-    score = render(
-        [Bar(close, 1_000.0, close) for close in closes],
-        variant="ambient",
-        character="calm",
-    )
-    sounding = {note.bar for note in score.lead if note.midi is not None}
-    assert {2, 3, 4, 8, 9, 10, 11} <= sounding
-    assert not sounding & {5, 6, 7}
-    assert {12, 13, 16, 17, 18, 19} <= sounding
-    assert not sounding & {14, 15}
+    bars = [Bar(close, 1_000.0, close) for close in closes]
+    plain = render(bars, variant="ambient")
+    calm = render(bars, variant="ambient", character="calm")
+
+    def flute(score):
+        return [
+            (note.bar, note.midi, note.tie_stop)
+            for note in score.lead
+            if note.midi is not None
+        ]
+
+    assert flute(calm) == flute(plain)
+    sounding = {bar for bar, _midi, _tie in flute(plain)}
+    assert {2, 3, 4, 8, 9, 10, 11, 12, 13, 16, 17, 18, 19} <= sounding
+    assert {20, 21, 24, 25, 28, 29, 30, 31} <= sounding
+    assert not sounding & {5, 6, 7, 14, 15, 22, 23, 26, 27}
 
 
 def test_same_jazz_chord_is_one_drone_attack() -> None:

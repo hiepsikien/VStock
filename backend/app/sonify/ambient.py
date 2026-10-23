@@ -178,13 +178,11 @@ def _max_hold_bars() -> int:
     return max(1, _hold(GLASS_HOLD) // epb)
 
 
-def _rest_bars(bar: int) -> int:
-    """Calm adds a bar of rest in 4/4 and 3/4. 6/4 stays at one bar."""
+def _rest_bars(_bar: int) -> int:
+    """Two bars of rest in 4/4 and 3/4. 6/4 stays at one bar. Calm does not add another."""
     if active_meter().eighths_per_bar == 12:
         return 1
-    from app.sonify.groove import groove_at
-
-    return 2 if groove_at(bar).calm else 1
+    return 2
 
 
 def _breath_spans(start: int, end: int) -> list[tuple[int, int]]:
@@ -208,7 +206,8 @@ def _breath_spans(start: int, end: int) -> list[tuple[int, int]]:
             spans.append((max(w_start, end - max_hold), end))
             continue
         width = w_end - w_start
-        rest_tail = min(width - 1, max(_rest_bars(w_start), width - max_hold))
+        cap = width - 2 if width >= 3 else width - 1
+        rest_tail = min(cap, max(_rest_bars(w_start), width - max_hold))
         spans.append((w_start, w_end - rest_tail))
     return spans
 
