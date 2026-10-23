@@ -15,7 +15,15 @@ Người nghe vẫn chọn một hàng `barrios`. Bên trong hàng đó thêm ha
 
 Chất nghe được nằm ở cả hai. Vòng quãng 5 và chuỗi át phụ là hòa âm. Levada 2/4 và polca 6/8 là cách đánh. Tremolo vẫn là cách hát của câu giai điệu giữ nốt. Choro là cách đi của câu giai điệu đang chạy.
 
-Hòa âm này là hợp âm chức năng. Không có sus, không có add9. Những hợp âm thêm sở hữu một pitch-class mà catalog thứ không có (Si♭, Rê♭, Fa♯ của sext tăng), nên phạt phách mạnh 2.5 đã kéo chúng vào đúng ô. `color_credit` của dialect này trả 0. Khoản 0.70 là của Villa.
+Hòa âm này là hợp âm chức năng. Không có sus, không có add9. Giai điệu thứ đi trên `c_natural_minor_scale`: Đô, Rê, Mi♭, Fa, Sol, La♭, Si♭. Trưởng đi trên Đô trưởng. `raw_pitches` chỉ lấy nốt của thang đó, và `bar_quantization_loss` ném lỗi nếu một nốt nằm ngoài. Fa♯, Rê♭ và Đô♯ không có trong bài thật. `color_credit` trả 0. Khoản 0.70 là của Villa.
+
+Hợp âm thêm thắng khi các nốt thang của ô nằm trong nó, còn hợp âm catalog cùng chứa những nốt đó thì đắt hơn. Phạt 2.5 không nhìn một nốt ngoài thang. Si♭ đã nằm trong `Cm7` và `Eb`. Fa♯ đã nằm trong Fa♯°7. Rê♭ không có trong catalog và cũng không có trên thang.
+
+Ba trường hợp đó có thật:
+
+- `{Si♭, Rê, Fa}` sau Fa thứ ra `Bb`. Không hợp âm catalog nào chứa cả ba.
+- Rê sau La♭ ra `D7`. Cửa 0.48 giá khoảng 0.57. `Dm7b5` từ La♭ giá khoảng 1.09. Sol giá khoảng 1.73. La♭ vẫn loại `D7`.
+- `{La♭, Đô, Mi♭}` sau Fa thứ ra `Ab+6` khi gốc Fa đã giữ từ hai ô, ô đó nằm giữa câu, và ô sau ngồi trên {Sol, Rê} (thêm Fa nếu muốn `G7`). Fa thứ không chứa Mi♭. Cửa 0.24 giá khoảng 0.99. Hợp âm La♭ đi cửa Fa→La 0.14, giá khoảng 1.28. Fa♯°7 không chứa La♭. Ô thứ hai của gốc Fa thì `Fm7` chứa cả ba nốt với giá đổi chất 0.50 và thắng. `Ab+6` ở ô đó còn cộng phạt đổi ô, nên khoảng cách rộng hơn 0.99.
 
 ---
 
@@ -29,9 +37,9 @@ tức V–i–iv–♭VII–III–VI–V/V–V. Mắt La♭→Rê là quãng 5 g
 
 Preludio Saudade thêm sequence ngắn Si–Mi–La, tức i–iv–♭VII, trên bass ostinato lệch phách. *Una Limosna por el Amor de Dios* (Mi thứ) thêm cadence i → VI → Napolitaine (♭II) → ii → V.
 
-`MINOR_CATALOG` có i, iv, iiø, V, V7, VI, III và Fa♯°7 giải vào Sol. Thiếu Si♭, Rê♭, Rê7, và La♭ có sext tăng. Hàng Fa của `_ROOT_TRANSITIONS` không có cạnh sang Si. Vì vậy vòng gãy đúng những mắt tạo chất.
+`MINOR_CATALOG` có i, iv, iiø, V, V7, VI, III và Fa♯°7 giải vào Sol. Thiếu Si♭, Rê♭, Rê7, và La♭ có sext tăng. Hàng Fa của `_ROOT_TRANSITIONS` không có cạnh sang Si. Vì vậy vòng gãy đúng những mắt tạo chất. Pha 1 chỉ thêm hợp âm mà các nốt thang của nó không bị catalog nuốt: Si♭, Si♭7, Rê7, La♭+6. Rê♭ có trong tổng phổ và không vào `extra()`.
 
-Ở trưởng, choro (*Choro da Saudade*, và đệm của nhiều bản salon) là chuỗi át phụ rơi quãng 5: Mi7→La7→Rê7→Sol7→Đô, cộng một giảm bảy đi qua nằm nửa cung dưới hợp âm đích. `BORROWED` đã có các át phụ đó, nhưng La7 chỉ được giải vào Rê thứ (0.40), Rê7 ưu tiên Sol hợp âm ba (0.46) hơn Sol7 (0.34). Chuỗi át bảy không tự đi. Giảm bảy đi qua vào ii thì chưa có: catalog chỉ có Fa♯°7 vào Sol.
+Ở trưởng, choro (*Choro da Saudade*, và đệm của nhiều bản salon) là chuỗi át phụ rơi quãng 5: Mi7→La7→Rê7→Sol7→Đô, cộng một giảm bảy đi qua nằm nửa cung dưới hợp âm đích. `BORROWED` đã có các át phụ đó, nhưng La7 chỉ được giải vào Rê thứ (0.40), Rê7 ưu tiên Sol hợp âm ba (0.46) hơn Sol7 (0.34). Chuỗi át bảy không tự đi. Giảm bảy đi qua có trong bản; nốt đặc trưng của nó là Đô♯, ngoài Đô trưởng, nên Pha 1 không đăng ký. Ba cạnh chuỗi át thì có.
 
 Planing hợp âm 6/3 của Andante và Preludio là luật viết bè của lớp Thánh ca / Preludio trong file guitar, không phải hợp âm mới. Trưởng cùng tên ở coda của *Una Limosna* là đổi mode, ngoài pipeline một-mode-mỗi-bài.
 
@@ -49,32 +57,16 @@ DIALECTS = {"villa": VILLA, "barrios": BARRIOS}
 
 ### 3.1. Hợp âm thêm
 
-Sinh trong không gian Đô, rồi `transpose_chord` đẩy đi như mọi hợp âm khác. Thứ dùng bảy hợp âm dưới. Trưởng chỉ thêm Đô♯°7; chuỗi át phụ trưởng dùng hợp âm `BORROWED` sẵn có, chỉ thêm cạnh.
+Sinh trong không gian Đô, rồi `transpose_chord` đẩy đi như mọi hợp âm khác. Thứ dùng bốn hợp âm dưới. Trưởng không thêm hợp âm. Chuỗi át phụ trưởng dùng hợp âm `BORROWED` sẵn có, chỉ thêm cạnh.
 
-| Tên | Mode | Nguồn | `root_step`, `alter` | Nốt | Vai |
-|---|---|---|---|---|---|
-| `Bb` | thứ | `BF` sẵn có | B, −1 | Si♭–Rê–Fa | ♭VII |
-| `Bb7` | thứ | `BF7` sẵn có | B, −1 | Si♭–Rê–Fa–La♭ | ♭VII7, át của III |
-| `Db` | thứ | mới | D, −1 | Rê♭–Fa–La♭ | Napolitaine, ♭II |
-| `D7` | thứ | `D7` sẵn có | D, 0 | Rê–Fa♯–La–Đô | V/V |
-| `Ab+6` | thứ | mới | A, −1 | La♭–Đô–Mi♭–Fa♯ | sext tăng Đức, vào V |
-| `C#dim7` | thứ và trưởng | mới | C, +1 | Đô♯–Mi–Sol–Si♭ | giảm bảy đi qua, vào ii hoặc vào V/V |
+| Tên | Mode | Nguồn | `root_step`, `alter` | Nốt | Nốt trên thang thứ | Vai |
+|---|---|---|---|---|---|---|
+| `Bb` | thứ | `BF` sẵn có | B, −1 | Si♭–Rê–Fa | cả ba | ♭VII |
+| `Bb7` | thứ | `BF7` sẵn có | B, −1 | Si♭–Rê–Fa–La♭ | cả bốn | ♭VII7, át của III |
+| `D7` | thứ | `D7` sẵn có | D, 0 | Rê–Fa♯–La–Đô | Rê, Đô | V/V |
+| `Ab+6` | thứ | mới | A, −1 | La♭–Đô–Mi♭–Fa♯ | La♭, Đô, Mi♭ | sext tăng Đức, vào V |
 
-`Db`:
-
-```python
-Chord("Db", "D", KIND_MAJOR, "", (61, 65, 68), alter=-1,
-      tones=((1, "D", -1), (8, "A", -1)))
-```
-
-`C#dim7`, cùng kiểu với `F#dim7`:
-
-```python
-Chord("C#dim7", "C", KIND_DIMINISHED_SEVENTH, "°7", (61, 64, 67, 70),
-      alter=1, tones=((1, "C", 1), (10, "B", -1)))
-```
-
-`Ab+6` không phải La♭7. Âm đặc trưng là Fa♯, sext tăng, giải ra ngoài vào gốc của át. Lời gọi phải mang `degrees`, vì hai constructor `Db` và `C#dim7` không có trường này và đường mặc định không áp cho hợp âm này:
+`Ab+6` không phải La♭7. Âm đặc trưng là Fa♯, sext tăng, giải ra ngoài vào gốc của át. Fa♯ không có trên thang giai điệu; ba nốt kia có. Lời gọi phải mang `degrees`:
 
 ```python
 Chord(
@@ -86,7 +78,7 @@ Chord(
 
 `(68, 72, 75, 78)` là La♭4–Đô5–Mi♭5–Fa♯5. Fa♯ 66 nằm dưới gốc và không dùng. Pitch-class không đổi nên Viterbi không đổi; bậc 5 là chữ Fa. Thiếu `degrees`, `transpose_chord` lấy `index * 2` cho nốt thứ tư và viết Sol♭. `quality_group` trả `"augmented-sixth"` khi `kind_text == "+6"`, đặt trước nhánh mặc định `"major"`. Ở thứ, cùng `root_step` và cùng `alter` đã là cùng gốc trước khi xét nhóm. Nhóm này chỉ để luật một ô bắt được hợp âm. Rơi vào `"major"` thì luật đó bỏ qua, và La♭ → `Ab+6` thành đổi chất hợp lệ với giá 0.50 (`SECOND_BAR_STAY_COST` 0.15 cộng phạt đổi chất 0.35).
 
-Tỉa theo mục 5.3 của file guitar: hợp âm bốn nốt bỏ `pitches[2]` (quãng 5) trước. `Ab+6` còn La♭–Đô–Fa♯. `D7` còn Rê–Fa♯–Đô. `Bb7` còn Si♭–Rê–La♭. `C#dim7` còn Đô♯–Mi–Si♭. Không gọi `jazz_chord` trên slot của dialect này.
+Tỉa theo mục 5.3 của file guitar: hợp âm bốn nốt bỏ `pitches[2]` (quãng 5) trước. `Ab+6` còn La♭–Đô–Fa♯. `D7` còn Rê–Fa♯–Đô. `Bb7` còn Si♭–Rê–La♭. Không gọi `jazz_chord` trên slot của dialect này.
 
 ### 3.2. Cạnh — tường minh với mọi cặp đụng `extra()`
 
@@ -95,7 +87,7 @@ Tỉa theo mục 5.3 của file guitar: hợp âm bốn nốt bỏ `pitches[2]` 
 Cửa này bắt buộc vì hai va chạm `root_step`:
 
 - `Bb` / `Bb7` có `root_step` B. `_ROOT_TRANSITIONS` không có hàng B. Trả `None` thì mọi cửa từ Si♭ là 0, hợp âm không bao giờ được chọn.
-- `Db` dùng `root_step` D, nên trả `None` sẽ đi nhầm cửa của ii (Rê→Sol = 0.34, Rê→La = 0.14). `C#dim7` dùng `root_step` C, nên trả `None` sẽ nhận xác suất ở-lại của chủ (0.18).
+- `D7` dùng `root_step` D, cùng hàng với ii. Trả `None` thì nó đi cửa của `Dm7b5` (Rê→Sol = 0.34, Rê→La = 0.14). Mọi cặp có một đầu là `D7` phải có số tường minh.
 
 `shares_root` trả `False`. Mode thứ đã coi cùng `root_step` và cùng `alter` là cùng gốc (`form.py`), nên Rê7♭5 → Rê7 là đổi chất trên ii, và La♭ → `Ab+6` cũng vậy. Không mở thêm cửa.
 
@@ -122,6 +114,8 @@ Trọng số là xác suất mức gốc, đưa thẳng vào `−0.6·ln`, khôn
 
 `Cm` → `Fm` giữ cửa Markov 0.26 (cặp không đụng `extra()`). `Eb` → `Ab` giữ cửa E→A = 0.34. Hai mắt thuận thang đó không cần dialect. `Bb7` đắt hơn `Bb` đúng bằng phạt bốn nốt 0.05 cộng chênh cửa: từ Fa thứ, giai điệu nằm trong {Si♭, Rê, Fa} ra `Bb`; có thêm La♭ thì ra `Bb7`, vì hợp âm ba không chứa La♭.
 
+Ô chỉ Si♭ không giữ `Bb` mãi. `sing_leading` nâng Si♭ thành Si khi ứng viên là Sol hoặc Sol7, nên hai hợp âm đó hát Si♭ với phát xạ 0. Cửa `Bb` → `G` là 0.22, giá khoảng 0.95. Ô thứ hai của gốc Si♭ (`prev_held == 1`) ở lại giá 0.15 cộng sàn 0.08. Sol còn bị phạt đổi ô, nên ở lại thắng. Từ ô thứ ba, ở lại đi cửa tự thân 0.18: `−0.6·ln(0.18) + 0.25` cộng sàn 0.08, khoảng 1.36. Sol rẻ hơn khoảng 0.41. Ô chỉ Si♭ sau khi `Bb` đã giữ hai ô ra `G` hoặc `G7`.
+
 **Khép vòng và bật iiø thành V/V**
 
 | Cặp | Trọng số |
@@ -132,25 +126,19 @@ Trọng số là xác suất mức gốc, đưa thẳng vào `−0.6·ln`, khôn
 | `D7` → `G7` | 0.55 |
 | `D7` → `D7` | 0.12 |
 
-Không có hợp âm ba Rê trưởng. Mọi nốt của hợp âm ba đó đã nằm trong `D7`, và cửa vào `D7` rẻ hơn, nên hợp âm ba không bao giờ thắng. `D7` không chứa La♭: phách mạnh La♭ sau La♭ ở lại VI hoặc đi Napolitaine, không bị hút sang V/V.
+Không có hợp âm ba Rê trưởng. Mọi nốt thang của hợp âm ba đó đã nằm trong `D7` hoặc trong `Dm7b5`. Nốt thang của `D7` chỉ là Rê và Đô. Fa♯ và La không có trên thang thứ.
 
-`Dm7b5` → `D7` cùng gốc. Ô thứ hai của gốc (`prev_held == 1`) lấy 0.15 cộng phạt đổi chất 0.35, thành 0.50. Cạnh 0.40 không vào cú bật đó. Cạnh ấy chỉ vào khi gốc đã giữ từ hai ô: `−0.6·ln(0.40) ≈ 0.55`, cộng `EXTENDED_STAY_PENALTY` 0.25, rồi cộng phạt đổi chất. Ở lại trên `Dm7b5` ở ô thứ hai chỉ tốn 0.15 khi cả hai hợp âm đều chứa phách mạnh. Cú bật nghe được khi phách mạnh là Fa♯ hoặc La: nửa giảm không chứa hai nốt đó và mất 2.5.
+`Dm7b5` → `D7` cùng gốc. Ô thứ hai của gốc (`prev_held == 1`) lấy 0.15 cộng phạt đổi chất 0.35, thành 0.50, rồi cộng sàn `D7` 0.13. Ở lại trên `Dm7b5` chỉ tốn 0.15 cộng `minor_bias` 0.06. Khi ô thuộc {Rê, Đô}, ô thứ hai ở lại nửa giảm. Cạnh 0.40 chỉ vào từ ô thứ ba: `−0.6·ln(0.40) ≈ 0.55` cộng `EXTENDED_STAY_PENALTY` 0.25 cộng phạt đổi chất, rồi cộng sàn 0.13, thành khoảng 1.28. Ở lại từ ô thứ ba khoảng 1.41. `D7` thắng mà không cần Fa♯.
 
-Phách mạnh Fa♯ sau La♭ thì `D7` thắng Fa♯°7. Cửa vào Fa♯°7 là 0.06 với mọi hợp âm trước (`minor_root_probability`), giá `−0.6·ln(0.06) ≈ 1.68` cộng `minor_bias` 0.08 thành ≈ 1.76. `D7` cửa 0.48 giá ≈ 0.44, cộng sàn `extra()` bốn nốt 0.13, thành ≈ 0.57.
+Phách mạnh Rê sau La♭ thì `D7` thắng. Cửa 0.48 giá ≈ 0.44 cộng sàn 0.13 thành ≈ 0.57. `Dm7b5` từ La♭ đi cửa A→D = 0.18, giá ≈ 1.03 cộng bias 0.06 thành ≈ 1.09. Sol đi cửa A→G = 0.06, giá ≈ 1.69 cộng bias 0.04 thành ≈ 1.73. Fa♯°7 không chứa Rê. Phách mạnh La♭ thì `D7` mất 2.5, vì `D7` không chứa La♭.
 
-**Napolitaine**
+**Không đăng ký `Db` và `C#dim7`**
 
-| Cặp | Trọng số |
-|---|---|
-| `Cm`/`Cm7` → `Db` | 0.14 / 0.12 |
-| `Ab`/`Abmaj7` → `Db` | 0.22 / 0.18 |
-| `Fm`/`Fm7` → `Db` | 0.16 |
-| `Db` → `G` | 0.46 |
-| `Db` → `G7` | 0.52 |
-| `Db` → `Dm7b5` | 0.28 |
-| `Db` → `Db` | 0.14 |
+Napolitaine và giảm bảy đi qua có trong tổng phổ Barrios. Pipeline không hát được nốt đặc trưng của chúng.
 
-`Db` chứa Rê♭–Fa–La♭. Phách mạnh chỉ là Rê♭ thì nó thắng `C#dim7`: cửa 0.14 giá chuyển tiếp ≈ 1.18 cộng sàn extra ba nốt 0.08 thành ≈ 1.26; cửa 0.10 giá ≈ 1.38 cộng sàn bốn nốt 0.13 thành ≈ 1.51. Phách mạnh có Sol (nốt của giảm bảy, không có trong Rê♭) thì giảm bảy thắng.
+`Db` có nốt thang Fa và La♭. Fa thứ chứa cả hai. Từ Đô thứ, cửa sang Fa thứ là 0.26, giá khoảng 0.81, cửa sang `Db` là 0.14, giá khoảng 1.18 cộng sàn 0.08. Bias `selloff` −0.08 không bù khoản này. Rê♭ tự nó không có trên thang, nên không có ô nào để phạt 2.5 kéo `Db` vào.
+
+`C#dim7` ở thứ có nốt thang Sol và Si♭. Ô chỉ Sol sau Đô thứ ở lại `Cm`: Sol nằm trong chủ, giá giữ 0.15. Thêm Si♭ thì `Cm7` chứa cả hai với giá đổi chất 0.50. Cửa vào giảm bảy khoảng 1.51. Ở trưởng, nốt thang của nó là Mi và Sol, và Đô trưởng chứa cả hai. Ở lại Đô giá 0.15. Cửa 0.20 giá khoảng 1.10. Ô thuận thang không bước lên hợp âm đó.
 
 **Sext tăng**
 
@@ -161,55 +149,45 @@ Phách mạnh Fa♯ sau La♭ thì `D7` thắng Fa♯°7. Cửa vào Fa♯°7 l�
 | `Ab+6` → `G` | 0.62 |
 | `Ab+6` → `G7` | 0.55 |
 
-`Ab+6` là một ô nhờ nhóm `"augmented-sixth"`, không nhờ cạnh tự thân bằng 0. Khi `transition` trả ≤ 0 mà chất không phải `"diminished"`, vòng lặp đổi tự thân thành `BORROWED_HOLD_PROB` 0.16. Luật một ô phải thấy `"augmented-sixth"` trước nhánh đó thì ô giữ mới bị chặn. Thêm nhóm này vào điều kiện đang dành cho `"diminished"` trong `form.py` (`target_held != 1`). Hai việc đi cùng nhau: nhóm chất, và điều kiện một ô. Cùng gốc với La♭ nên nhánh `same_root` đòi `held == 2`; luật một ô cấm `held == 2`; vậy `Ab+6` không đi được từ La♭ / La♭maj7. Nó vào từ chủ hoặc từ hạ át, rồi ra Sol.
+`Ab+6` là một ô nhờ nhóm `"augmented-sixth"`, không nhờ cạnh tự thân bằng 0. Khi `transition` trả ≤ 0 mà chất không phải `"diminished"`, vòng lặp đổi tự thân thành `BORROWED_HOLD_PROB` 0.16. Luật một ô phải thấy `"augmented-sixth"` trước nhánh đó thì ô giữ mới bị chặn. Thêm nhóm này vào điều kiện đang dành cho `"diminished"` trong `form.py` (`target_held != 1`). Hai việc đi cùng nhau: nhóm chất, và điều kiện một ô. Cùng gốc với La♭ nên nhánh `same_root` đòi `held == 2`; luật một ô cấm `held == 2`; vậy `Ab+6` không đi được từ La♭ / La♭maj7. Trên thang thật nó vào từ hạ át, giữa câu, khi gốc Fa đã giữ từ hai ô, rồi ra Sol. Cửa từ chủ 0.06 không thắng một ô thuận thang. Ô mở section cũng không: mục 3.5.
 
-Fa♯°7 không đi cửa gốc Fa. `minor_root_probability` trả 0.06 cho mọi hợp âm đi vào nó, rồi `minor_bias` cộng 0.08. `Ab+6` mang sàn `extra()` 0.13. Mọi móc của ô thuộc {Fa♯, Đô, Mi♭} — giao của hai hợp âm — thì phạt 2.5 không tách được chúng:
+Trên thang thật, ô thuộc {La♭, Đô, Mi♭} sau Fa thứ. Fa thứ không chứa Mi♭. `Ab+6` cửa 0.24 giá ≈ 0.86 + sàn 0.13 ≈ 0.99. Hợp âm La♭ cửa Fa→La = 0.14 giá ≈ 1.18 cộng bias gốc La ≈ 0.10, thành khoảng 1.28. Fa♯°7 không chứa La♭. `Fm7` chứa cả ba nốt. Ô thứ hai của gốc Fa đổi chất giá 0.50 và thắng `Ab+6`. Ở ô đó `Ab+6` còn cộng phạt đổi ô vì `prev_held == 1` và khác gốc: 0.45 với `volatile`, 0.35 khi `volatile` rơi vào slot 1, 0.60 với `rally` và `selloff`, 0.80 với `calm`, 0.65 khi character là `None`. Giá không dừng ở 0.99. `Fm7` vẫn thắng, khoảng cách rộng hơn. Gốc Fa đã giữ từ hai ô, và ô đó không phải phách đầu câu, thì `Fm7` khoảng 1.70, `Ab+6` khoảng 0.99, và `Ab+6` thắng.
 
-- Sau Fa thứ, cửa 0.24 giá ≈ 0.86 + 0.13 ≈ 0.99. `Ab+6` rẻ hơn Fa♯°7 (≈ 1.76) khoảng 0.78.
-- Sau Đô thứ, cửa 0.06 giá ≈ 1.68 + 0.13 ≈ 1.81. Fa♯°7 rẻ hơn 0.05. Cửa 0.12 đảo người thắng: 1.27 + 0.13 ≈ 1.40, rẻ hơn khoảng 0.36. Móc yếu lệch một bậc nặng 0.02 (`WEAK_BEAT_WEIGHT`). Khoản 0.05 chịu hai móc như vậy và thua từ móc thứ ba, nên test khóa mọi móc thuộc giao, không chỉ phách mạnh.
+Ô sau cũng phải thuộc Sol. `Ab+6` chỉ có cửa ra `G` và `G7`, và không hợp âm nào trong hai cửa đó chứa La♭, Đô hay Mi♭. Ba ô liên tiếp toàn {La♭, Đô, Mi♭} thì Sol mất 2.5 ở ô kế, và Viterbi không mở sext tăng. Đường sống là đường kết tại ô sext, hoặc ô sau ngồi trên {Sol, Rê}. Thêm Fa thì `G7` chứa nốt đó, Sol hợp âm ba thì không. Ô pedal kế tiếp cũng chết: pedal chỉ cho chủ, còn cửa `Ab+6` → chủ là 0.
 
-**Giảm bảy đi qua, trong thứ**
-
-| Cặp | Trọng số |
-|---|---|
-| `Cm`/`Cm7` → `C#dim7` | 0.10 |
-| `C#dim7` → `D7` | 0.55 |
-
-`C#dim7` một ô bởi luật giảm bảy sẵn có: chất `"diminished"` không bị đổi tự thân thành 0.16. Bảng này chỉ thuộc mode thứ. `C#dim7` → `D7` không có ở trưởng. Mọi cửa khác có một đầu là hợp âm `extra()` của thứ, không nằm ở các bảng trên, trả 0.
+Cửa `Cm` → `Ab+6` giữ 0.06 vì khoản 0.05 với Fa♯°7. Đó là sổ sách của một ô có Fa♯, không phải test pipeline: Fa♯°7 vào bằng 0.06, giá ≈ 1.68 cộng bias 0.08 thành ≈ 1.76. `Ab+6` trên giao {Fa♯, Đô, Mi♭} giá ≈ 1.68 + 0.13 ≈ 1.81, đắt hơn đúng 0.05. Cửa 0.12 đảo người thắng. Móc yếu lệch một bậc nặng 0.02 và thuộc run riêng. Hai móc như vậy còn trong khoản 0.05. Móc thứ ba vượt. Móc yếu ngân tiếp đúng cao độ của phách mạnh không tính 0.02: nó thuộc run của phách mạnh và nặng 1.0 (`HELD_STRONG_WEIGHT`). Ô pipeline không có Fa♯, nên vế «sau Đô thứ ra Fa♯°7» không có test trên thang. Ô {Đô, Mi♭} sau Đô thứ ở lại `Cm`, giá giữ 0.15.
 
 ### 3.4. Bảng cạnh, mode trưởng — chuỗi choro
 
-Sáu cặp trong bảng được trả số: ba mắt chuỗi át, cửa `C`/`Cmaj7` → `C#dim7`, và hai cửa từ `C#dim7` ra Rê thứ. Các cửa còn lại của La7, Rê7, Mi7 giữ `borrowed_transition`. Bảng trưởng và bảng thứ không gộp một dict: `C#dim7` → `D7` ở đây trả 0.
+Ba cặp trong bảng được trả số. Các cửa còn lại của La7, Rê7, Mi7 giữ `borrowed_transition`. Không có `C#dim7` ở trưởng.
 
 | Cặp | Trọng số |
 |---|---|
 | `E7` → `A7` | 0.55 |
 | `A7` → `D7` | 0.55 |
 | `D7` → `G7` | 0.55 |
-| `C`/`Cmaj7` → `C#dim7` | 0.20 / 0.18 |
-| `C#dim7` → `Dm` | 0.62 |
-| `C#dim7` → `Dm7` | 0.55 |
 
 `A7` → `Dm` vẫn 0.40. `D7` → `G` vẫn 0.46. Giá chuyển tiếp khi cả hai hợp âm đều chứa phách mạnh:
 
-- `A7` → `D7` giá `−0.6·ln(0.55) ≈ 0.36`. `A7` → `Dm` giá ≈ 0.55. Rê thứ còn lợi khoảng 0.02 vì `D7` mang sàn hợp âm mượn 0.08 còn Rê thứ nằm trong `CHORDS`. Chuỗi vẫn rẻ hơn khoảng 0.17. Phách mạnh là Fa (âm ba thứ, không có trong Rê7) thì Rê7 mất 2.5 và Rê thứ thắng. Phách mạnh Fa♯ thì chuỗi đi tiếp.
-- `D7` → `G7` giá ≈ 0.36. `D7` → `G` giá ≈ 0.47. Sol7 thắng khi cả hai đều chứa phách mạnh. Phách mạnh Fa (âm 7 của Sol7, không có trong Sol) giữ Sol7; không cần phạt thêm.
-
-`C#dim7` ở trưởng chỉ giải vào Rê thứ / Rê thứ bảy. Mọi cửa khác có `C#dim7` trả 0.
+- `A7` → `D7` giá `−0.6·ln(0.55) ≈ 0.36`. `A7` → `Dm` giá ≈ 0.55. Rê thứ còn lợi khoảng 0.02 vì `D7` mang sàn hợp âm mượn 0.08 còn Rê thứ nằm trong `CHORDS`. Chuỗi vẫn rẻ hơn khoảng 0.17 khi nốt là Đô, La hoặc Rê. Đô là âm 7 của Rê7 và có trên Đô trưởng. La và Rê nằm trong cả Rê7 lẫn Rê thứ. Phách mạnh Fa thì Rê7 mất 2.5 và Rê thứ thắng. Fa♯ là âm dẫn của chuỗi này và không có trên thang, nên không phải điều kiện của test.
+- `D7` → `G7` giá ≈ 0.36. `D7` → `G` giá ≈ 0.47. Sol7 thắng khi cả hai đều chứa phách mạnh. Phách mạnh Fa (âm 7 của Sol7, có trên thang) giữ Sol7.
 
 ### 3.5. `allowed`, `bias`, `color_credit`
 
-`allowed` trả `True` với hợp âm không thuộc `extra()`, để `_borrowed_allowed` chạy tiếp. Mọi hợp âm `extra()` trả `False` ở ô pedal và ở phách đầu câu. Ô pedal vẫn là hợp âm chủ. Câu vẫn mở bằng chủ; vòng và Napolitaine đứng từ ô thứ hai của câu.
+`allowed` trả `True` với hợp âm không thuộc `extra()`, để `_borrowed_allowed` chạy tiếp. Mọi hợp âm `extra()` trả `False` ở ô pedal và ở phách đầu câu.
+
+`phrase_starts` là mọi section có `kind == "phrase"`. `Section` chỉ có `intro`, `phrase`, `outro`, `warmup`, `cooldown`. Bốn kind còn lại nằm trong `_PEDAL`. Trên form thật, mọi ô `new_section` rơi vào một trong hai cửa: phách đầu câu, hoặc pedal. Cả hai đều chặn `extra()` trước khi tính giá. Pedal còn lọc thêm `allowed_tonics`, nên chủ vẫn là hợp âm duy nhất ở đó kể cả khi `allowed()` lỏng. Không có ô mở section nào cho `Ab+6`.
+
+`Bb` đứng được từ ô thứ hai của câu. `Ab+6` chỉ đứng giữa câu, khi gốc Fa đã giữ từ hai ô và ô sau thuộc Sol, như mục 3.3.
 
 `bias`, cộng thêm lên bias sẵn có, trị tuyệt đối dưới 0.1:
 
 | Điều kiện | Mức |
 |---|---|
-| `selloff`, thứ, `Db` | −0.08 |
-| `volatile`, hợp âm là `Bb`, `Bb7`, `D7` hoặc `C#dim7` | −0.06 |
+| `volatile`, hợp âm là `Bb`, `Bb7` hoặc `D7` | −0.06 |
 | `rally`, `D7` hoặc `Bb7` | −0.04 |
 
-Không có mức +0.08 cho `C#dim7`. Hợp âm đó đã nhận sàn `extra()` 0.13 trước bias dialect (mục 3.6). Cộng thêm 0.08 thành 0.21, đắt hơn mọi hợp âm lạ bốn nốt. Không mức nào trong bảng bù được phạt phách mạnh 2.5.
+Không mức nào trong bảng bù được phạt phách mạnh 2.5, và cũng không bù cửa 0.26 của Fa thứ khi nốt thang đã nằm trong Fa thứ.
 
 `color_credit` trả 0 với mọi hợp âm, kể cả khi `prev` là `None`.
 
@@ -217,7 +195,7 @@ Không có mức +0.08 cho `C#dim7`. Hợp âm đó đã nhận sàn `extra()` 0
 
 Trong vòng lặp, hợp âm thuộc `extra()` nhận sàn 0.08 ngay, rồi hợp âm bốn nốt cộng `SEVENTH_TENSION_COST` 0.05. `minor_bias` chỉ chạy cho hợp âm còn lại. `Bb` chỉ sống trong `extra()`, nên `root_step` B không chạm `_MINOR_ROOT_BIAS` và không ném `KeyError` trên đường planner. Pha 1 không sửa `minor_bias`. Gọi thẳng `minor_bias(Bb)` vẫn lỗi; đó không phải đường chọn hợp âm.
 
-`C#dim7` cùng cửa này: sàn trước bias dialect là 0.13. `Db` ba nốt dừng ở 0.08. Fa♯°7 không thuộc `extra()`, nên vẫn đi `minor_bias` và giữ 0.08.
+`D7`, `Bb7` và `Ab+6` sàn 0.13. `Bb` ba nốt dừng ở 0.08. Fa♯°7 không thuộc `extra()`, nên vẫn đi `minor_bias` và giữ 0.08.
 
 ---
 
@@ -320,15 +298,15 @@ Mỗi pha nghe được một mình. Không pha nào nằm trong Bước 1–6 c
 
 **Pha 0 — Tổng phổ, chưa đụng code sản phẩm.** Đọc và ghi lại số, không chép giai điệu:
 
-- *La Catedral*, Allegro, quanh ô 141–150: đúng gốc Fa♯–Si–Mi–La–Rê–Sol–Đô♯–Fa♯, và chất của mắt Đô♯ (bảy hay ba).
+- *La Catedral*, Allegro, quanh ô 141–150: đúng gốc Fa♯–Si–Mi–La–Rê–Sol–Đô♯–Fa♯. Chất của mắt Đô♯ ghi lại để biết bản viết gì; mắt đó không vào `extra()`.
 - Preludio: sequence Si–Mi–La và chỗ nó rơi vào át.
-- *Una Limosna*: ô vào Napolitaine và ô sext tăng hoặc giảm bảy dẫn vào át, nếu có.
+- *Una Limosna*: ô sext tăng hoặc giảm bảy dẫn vào át, nếu có. Napolitaine ghi lại, không đăng ký.
 - *Choro da Saudade*: mẫu tay phải một ô, tính bằng móc kép, và chuỗi át thực sự đi những bậc nào.
 - *Danza Paraguaya*: mẫu 6/8, và ô nào melody hát theo 3/4 trên đệm 6/8.
 
-Đầu ra sửa mục 4.2 và 4.3 của file này nếu số móc lệch. Bảng cạnh mục 3 chỉ sửa khi tổng phổ cho một cửa khác hẳn (ví dụ mắt Đô♯ là hợp âm ba, không phải bảy — trường hợp đó mới mở lại quyết định bỏ hợp âm ba Rê).
+Đầu ra sửa mục 4.2 và 4.3 của file này nếu số móc lệch. Bảng cạnh mục 3 chỉ sửa khi tổng phổ cho một cửa khác hẳn trên nốt thuộc thang (ví dụ mắt Rê của vòng thứ là hợp âm ba, không phải bảy — trường hợp đó mới mở lại quyết định bỏ hợp âm ba Rê). Nốt đặc trưng ngoài thang, kể cả Napolitaine và Đô♯°7, không được thêm vào `extra()` dù tổng phổ có hợp âm đó.
 
-**Pha 1 — Dialect, texture Bước 4 giữ nguyên.** `BarriosDialect` trong `harmony.py`, bảy hợp âm, hai bảng cạnh tách theo mode, `allowed` / `bias` / `color_credit`, `quality_group` của `+6`, và điều kiện một ô cho `"augmented-sixth"` trong `form.py`. Không sửa `minor_bias`. Chưa có lớp dance. Nghe vòng trên tremolo và thánh ca hiện có: chuỗi hợp âm đổi, cách gảy chưa đổi.
+**Pha 1 — Dialect, texture Bước 4 giữ nguyên.** `BarriosDialect` trong `harmony.py`, bốn hợp âm thứ, bảng cạnh thứ và ba cạnh chuỗi át trưởng, `allowed` / `bias` / `color_credit`, `quality_group` của `+6`, và điều kiện một ô cho `"augmented-sixth"` trong `form.py`. Không sửa `minor_bias`. Chưa có lớp dance. Nghe vòng trên tremolo và thánh ca hiện có: chuỗi hợp âm đổi, cách gảy chưa đổi.
 
 **Pha 2 — Lớp dance.** `barrios_layer` nhận meter và thêm nhánh `"dance"` đúng thứ tự mục 4.1. Renderer viết hai mẫu. Profile `barrios_dance`. Số móc lấy từ Pha 0; nếu Pha 0 chưa sửa, dùng đề xuất mục 4.2 và 4.3.
 
@@ -342,20 +320,20 @@ Khi Pha 1 vào code, gỡ câu Barrios đi `COMMON` ở cả các chỗ sau củ
 
 Pha 1, trong `test_harmony.py`:
 
-1. `dialect_for("barrios")` là `BarriosDialect`. `dialect_for("classic")` là `COMMON`. `dialect_for("villa")` vẫn sinh `Csus4` đúng các ca đã khóa. Symphony và `classic` ở thứ không sinh `Bb`, `Db`, `Ab+6`, `D7`.
-2. Hợp âm `extra()` trên đường thứ nhận sàn 0.08 trong planner, không qua `minor_bias`. `Bb` và `Db` dừng ở 0.08. `Bb7`, `D7`, `Ab+6` và `C#dim7` thêm 0.05 thành 0.13. Không có test gọi thẳng `minor_bias(Bb)`.
+1. `dialect_for("barrios")` là `BarriosDialect`. `dialect_for("classic")` là `COMMON`. `dialect_for("villa")` vẫn sinh `Csus4` đúng các ca đã khóa. Symphony và `classic` ở thứ không sinh `Bb`, `Ab+6`, `D7`. `extra()` thứ là đúng bốn tên: `Bb`, `Bb7`, `D7`, `Ab+6`. `extra()` trưởng rỗng.
+2. Hợp âm `extra()` trên đường thứ nhận sàn 0.08 trong planner, không qua `minor_bias`. `Bb` dừng ở 0.08. `Bb7`, `D7` và `Ab+6` thêm 0.05 thành 0.13. Không có test gọi thẳng `minor_bias(Bb)`.
 3. Thứ, ô trước `Fm`, mọi phách mạnh thuộc {Si♭, Rê, Fa}: ra `Bb`. Thêm La♭ ở phách mạnh: ra `Bb7`.
 4. Thứ, ô trước `Bb`, phách mạnh Mi♭: ra `Eb` hoặc `Ebmaj7`.
-5. Thứ, ô trước `Ab`, phách mạnh Fa♯ (và không có La♭): ra `D7`. Cùng ô mà phách mạnh là La♭: không ra `D7`.
-6. Thứ, ô trước `Cm`, phách mạnh chỉ Rê♭: ra `Db`, không ra `C#dim7`. Thêm Sol ở phách mạnh: ra `C#dim7`.
-7. Thứ, mọi móc của ô thuộc {Fa♯, Đô, Mi♭}. Ô trước `Fm`: ra `Ab+6`. Ô trước `Cm`: ra `F#dim7`. Khóa mỗi phách mạnh chưa đủ: từ móc yếu lệch bậc thứ ba (0.02 một móc), vế Đô thứ đổi người thắng.
-8. `Ab+6` không đi từ `Ab`. Ô sau `Ab+6` là `G` hoặc `G7`. `C#dim7` không đứng hai ô.
-9. `Db` rồi phách mạnh thuộc {Sol, Si, Rê}: ra `G` hoặc `G7`.
-10. Trưởng, phách mạnh Fa♯ trên đường La7: ô sau là `D7`. Cùng chỗ mà phách mạnh là Fa: ô sau là `Dm` hoặc `Dm7`.
-11. Trưởng, Đô rồi Đô♯°7 rồi Rê thứ, khi phách mạnh lần lượt là Đô, Đô♯, Rê. `C#dim7` không giữ ô, và không đi sang `D7`.
-12. Ô pedal thứ là `Cm` hoặc `Cm7` dù phách mạnh là Si♭ hoặc Rê♭. Phách đầu câu không phải `Db` hay `Ab+6`.
-13. `color_credit` của mọi hợp âm Barrios là 0. Ô chỉ có Đô và Sol, gốc trước Đô, không ra `Db` hay `Bb`.
-14. `transpose_chord` của `Ab+6` giữ Fa♯ là sext tăng, không viết thành Sol♭. `Db` giữ quãng 5 là La♭.
+5. Thứ, ô trước `Ab`, phách mạnh Rê, các móc khác thuộc {Rê, Đô}: ra `D7`. Cùng ô mà phách mạnh là La♭: không ra `D7`.
+6. Thứ, ô trước `Cm`, mọi móc là Sol: ở lại `Cm`, giá giữ 0.15. Thêm Si♭ ở phách mạnh, `prev_held == 1`: ra `Cm7`. `Cm7` giá 0.50 và chứa cả Sol lẫn Si♭. Sol hát Si♭ với phát xạ 0, nhưng cửa Đô→Sol 0.10 giá khoảng 1.42 rồi còn cộng phạt đổi ô, nên đắt hơn. `prev_held == 2`, ô thường không phải phách đầu trio: Sol khoảng 1.42, Sol7 khoảng 1.47, Mi♭ khoảng 1.58, `Cm7` khoảng 1.68, ra `G` hoặc `G7`. Không khóa `Cm7` từ ô thứ ba. Không có `Db` hay `C#dim7` trong dialect.
+7. Thứ, mọi móc thuộc {La♭, Đô, Mi♭}, ô giữa câu, không phải phách đầu câu và không phải pedal. Gốc Fa đã giữ từ hai ô, ô trước là `Fm`, và đường kết tại ô này hoặc ô sau ngồi trên {Sol, Rê}: ra `Ab+6`. Thêm Fa ở ô sau thì ra được `G7`. Ô thứ hai của gốc Fa: ra `Fm7`. Ô mở section, kể cả khi ô trước là `Fm`: không ra `Ab+6`. Ô trước `Cm`, mọi móc thuộc {Đô, Mi♭}: ở lại `Cm`. Không có vế Fa♯°7 trên thang.
+8. `Ab+6` không đi từ `Ab`. Ô sau `Ab+6` là `G` hoặc `G7`. `Ab+6` không đứng hai ô. Ba ô liên tiếp toàn {La♭, Đô, Mi♭} không mở sext tăng.
+9. Thứ, ô trước `Bb`, phách mạnh Sol: ra `G` hoặc `G7`. Ô có Si♭ được Sol và Sol7 hát thành Si, nên hai hợp âm đó không mất 2.5 trên Si♭; nốt Si tự nhiên thì `bar_quantization_loss` ném lỗi. Ô chỉ Si♭, `prev_held == 1`: ở lại `Bb`. Cùng ô sau khi `Bb` đã giữ hai ô: ra `G` hoặc `G7`, không ở lại `Bb`.
+10. Trưởng, sau `A7`. Phách mạnh Đô, La hoặc Rê: ô sau là `D7`. Phách mạnh Fa: ô sau là `Dm` hoặc `Dm7`. Không khóa bằng Fa♯.
+11. Trưởng, ô thuộc {Mi, Sol} sau Đô ở lại Đô. `extra()` trưởng không có `C#dim7`.
+12. Ô pedal thứ là `Cm` hoặc `Cm7` dù phách mạnh là Si♭. Phách đầu câu không phải `Bb` hay `Ab+6`.
+13. `color_credit` của mọi hợp âm Barrios là 0. Ô chỉ có Đô và Sol, gốc trước Đô, không ra `Bb`.
+14. `transpose_chord` của `Ab+6` giữ Fa♯ là sext tăng, không viết thành Sol♭.
 
 Pha 2, trong `test_sonify_guitar.py`:
 
@@ -375,12 +353,12 @@ Pha 2, trong `test_sonify_guitar.py`:
 
 Năm mã × bốn character, ở `1D` (4/4, 76 BPM) và ở `1M` (chương chậm 3/4, scherzo 6/8):
 
-- [ ] `1D`, câu nốt ngắn, `rally` hoặc `volatile`: đệm lệch phách kiểu choro, giai điệu vẫn là nốt giá. Chuỗi át có đi tiếp khi giá ngồi trên âm dẫn, và có chịu về hợp âm thứ khi giá ngồi trên âm ba thứ.
+- [ ] `1D`, câu nốt ngắn, `rally` hoặc `volatile`: đệm lệch phách kiểu choro, giai điệu vẫn là nốt giá. Chuỗi át có đi tiếp khi giá ngồi trên Đô, La hoặc Rê, và có chịu về hợp âm thứ khi giá ngồi trên Fa.
 - [ ] `1D`, câu giữ nốt: vẫn tremolo ngân, bass đầu phách, không bị levada cắt vụn.
 - [ ] Chương chậm 3/4: không có nhịp choro. Thánh ca và tremolo như Bước 4.
 - [ ] Scherzo 6/8 band `f`: nghe ra polca hoặc hemiola, không nghe tremolo rè.
-- [ ] Phiên `selloff` thứ, giá chạm bậc hạ hai: có một ô Napolitaine rồi át, không trải Rê♭ suốt câu.
-- [ ] Mở bài: Preludio, hợp âm chủ ở pedal, chưa có Si♭ hay Rê♭.
+- [ ] Phiên thứ, ô {Si♭, Rê, Fa} sau Fa thứ: một ô Si♭, rồi đi tiếp. Không có ô Rê♭.
+- [ ] Mở bài: Preludio, hợp âm chủ ở pedal, chưa có hợp âm Si♭.
 - [ ] `calm`: không dance, không dày hơn bản Bước 4.
 
 ---
@@ -389,7 +367,7 @@ Năm mã × bốn character, ở `1D` (4/4, 76 BPM) và ở `1M` (chương chậ
 
 | Pha | File | Việc |
 |---|---|---|
-| 1 | `backend/app/sonify/chords.py` | `Db`, `C#dim7`, `Ab+6` với `degrees=(0, 2, 4, 5)` và `pitches` kết bằng 78. `quality_group` nhận `+6` |
+| 1 | `backend/app/sonify/chords.py` | `Ab+6` với `degrees=(0, 2, 4, 5)` và `pitches` kết bằng 78. `quality_group` nhận `+6`. `Bb`, `Bb7`, `D7` lấy hợp âm sẵn có |
 | 1 | `backend/app/sonify/harmony.py` | `BarriosDialect`, khóa `barrios` trong `DIALECTS`. Hai bảng cạnh tách mode |
 | 1 | `backend/app/sonify/form.py` | Một ô cho `"augmented-sixth"` cạnh `"diminished"`, trước nhánh `BORROWED_HOLD_PROB` |
 | 1 | `backend/tests/test_harmony.py` | Mục 6, Pha 1 |
