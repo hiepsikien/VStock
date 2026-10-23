@@ -301,7 +301,8 @@ def transpose_chord(chord: Chord, key: KeySpec, mode: Mode = "major") -> Chord:
     tones: list[tuple[int, str, int]] = []
     for index, pitch in enumerate(pitches):
         pc = pitch % 12
-        step = _LETTERS[(root_letter + index * 2) % 7]
+        span = chord.degrees[index] if chord.degrees else index * 2
+        step = _LETTERS[(root_letter + span) % 7]
         alter = _alter_for(step, pc)
         if diatonic.get(pc) != (step, alter):
             tones.append((pc, step, alter))
@@ -313,6 +314,7 @@ def transpose_chord(chord: Chord, key: KeySpec, mode: Mode = "major") -> Chord:
         pitches,
         alter=root_alter,
         tones=tuple(tones),
+        degrees=chord.degrees,
     )
 
 

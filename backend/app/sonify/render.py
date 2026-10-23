@@ -41,6 +41,7 @@ from app.sonify.form import (
     liquidity_windows_for,
     plan_slots,
 )
+from app.sonify.harmony import dialect_for
 from app.sonify.keys import (
     C_KEY,
     KeySpec,
@@ -1060,6 +1061,7 @@ def _compose(
             harmonic_bridge=variant in ("jazz", "symphony"),
             character_at=character_at,
             gap_leads=gap_leads,
+            dialect=dialect_for(ensemble),
         )
 
         windows = LIQUIDITY_WINDOWS if spec is None else liquidity_windows_for(spec)
