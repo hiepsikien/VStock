@@ -82,38 +82,64 @@ Intro: giường vào phách 1 của ô 0 và ngân hết section intro. Outro: 
 
 Ngày đi ngang thì hợp âm ít đổi, giường gần như một tiếng. Đó là Ambient của một phiên phẳng, và vẫn là một bài vì intro, các đoạn phrase và outro còn đó.
 
-## Giai điệu kính
+## Giai điệu kính: Hơi thở uốn lượn (Inflected Breaths)
 
-Tỉa từng `FormSection` có `kind == "phrase"`, sau khi các `Phrase` bên trong đã bị cắt vào biên section.
+### Vấn đề của trụ phẳng (Flat Pillars) và hướng giải quyết
 
-Đoạn phẳng: biên độ của `pitches` trong cả section nhỏ hơn `MIN_RISE` (3 semitone). Một lần tấn công ở phách 1 ô đầu của đoạn, cao độ đó (đã gập vào `G3–C6`), dài tối đa 4 ô (`FLAT_HOLD`). Phần còn lại của đoạn là nghỉ trên P1. Giường tiếp tục. Nếu cao độ đó trùng hơi vừa tan và hai miền không chạm nhau thì không tấn công: P1 nghỉ hết đoạn, để nốt vừa fade không bị thổi lại.
+Cách tỉa trụ cũ giữ tối đa 2 nốt đơn cho mỗi 8 ô (`PILLARS_PER_EIGHT = 2`, `PILLAR_GAP = 24` móc đơn), chỉ bắt bước nhảy từ quãng 4 đúng trở lên (`LEAP = 5` semitone), gộp mọi section có biên độ dưới `MIN_RISE` (3 semitone) thành một nốt phẳng duy nhất, xóa toàn bộ trụ rơi vào 3 ô cuối section (`end - run.start >= _gap`), và xóa mọi nốt trùng cao độ sau khoảng nghỉ bất chấp giá ở giữa đã dao động. Hệ quả là ở `60 BPM` (1 ô 4/4 = 4 giây), sáo giữ một nốt ngang suốt 16 giây rồi nghỉ 8–16 giây, làm mất dấu các nhịp bò dần theo bậc thang (1–2 bậc âm giai), các nhịp nhúng xuống (trough / dip) và giá đóng cửa ở cuối đoạn.
 
-Đoạn có hướng đi lên hoặc đi xuống thì giữ trụ theo thứ tự thời gian:
+Để giữ đúng bản chất Ambient (ít lần lấy hơi, không chạy nốt vụn, luôn có khoảng lặng để nghe nền Drone + Halo) nhưng phản ánh sát **Price Action**, bè kính chuyển từ **«Trụ phẳng 1 nốt»** sang **«Hơi thở uốn lượn» (Inflected Breaths)**:
 
-1. Run mở của đoạn.
-2. `apex` của một `Phrase` bên trong, khi `rise >= MIN_RISE` và đỉnh không trùng run mở hay run kết của đoạn.
-3. Một run lệch ít nhất một quãng 4 đúng (5 semitone) so với trụ đang giữ gần nhất. Bước đi bậc thang không thêm trụ.
-4. Run kết của đoạn. Khác cao độ với trụ cuối thì giữ. Cùng cao độ thì xử lý theo quy tắc buộc ở dưới.
+```text
+Trụ phẳng cũ (Flat Pillar + Long Silence):
+Ô nhịp: | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+Giá:      C5 ──> D5 ──> E5 ──> D5 ──> C5
+Sáo P1: [====== C5 (4 ô) ======] [ Nghỉ 4 ô ... ]  (Bỏ sót nhịp tăng lên E5 rồi lùi về C5)
 
-Trần là hai lần tấn công cho mỗi 8 ô của section (`PILLARS_PER_EIGHT = 2`). Đoạn 8 ô được hai trụ. Đoạn 24 ô được sáu trụ. Các trụ cách nhau ít nhất 3 ô (`PILLAR_GAP = 24` móc đơn).
+Hơi thở uốn lượn (Inflected Breath + Short Breath Gap):
+Ô nhịp: | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+Giá:      C5 ──> D5 ──> E5 ──> D5 ──> C5
+Sáo P1: [=== C5 === (slur) == E5 ==] [Nghỉ] [== D5 == (slur) == C5 ==]
+         mp ───────────────────────>         mp ────────────────────>
+```
 
-Cách đặt nốt:
+### Quy tắc tỉa và đặt hơi thở trên từng `FormSection` (`kind == "phrase"`)
 
-- Mỗi trụ đặt ở phách 1 của ô đó (`_one_per_bar`), qua `written()`. Hai trụ cách nhau ít nhất 3 ô, và mọi trụ sau trụ mở phải còn ít nhất 3 ô trước biên kết đoạn (`end - run.start >= PILLAR_GAP`), để trụ cuối đoạn không bị cắt còn 1–2 ô rồi dính sát vào trụ mở của đoạn sau.
-- Cao độ mỗi trụ được gập quãng 8 (`_fold_glass`) vào vùng `G3–C6` và tránh nhảy quá một quãng 8 so với trụ ngay trước.
-- Dài tối đa 4 ô (`GLASS_HOLD`, 32 móc đơn). Khoảng tới trụ sau dài hơn 4 ô thì phần dư là nghỉ trên P1.
-- Trụ sau cách không quá 4 ô và khác cao độ: nối bằng liaison (`<slur>`) trong cùng đoạn. Nốt mở đầu một hơi có `<tenuto/>`.
-- Cùng cao độ chỉ buộc khi hai miền ngân chạm nhau. `<tie>` không đi qua nốt nghỉ. Trụ ngân tối đa 4 ô, nên chỉ gộp một lần tấn công qua `written()` khi trụ trước, trong trần đó, chạm đúng đầu trụ sau.
-- Trụ trùng cao độ mà có nghỉ ở giữa thì bỏ, kể cả run kết của đoạn. Nốt vừa fade không bị thổi lại.
-- Trụ trùng cao độ chạm đúng biên đoạn thì buộc tiếp, chỉ phần còn thiếu cho đủ 4 ô (`GLASS_HOLD`), rồi nhả. Hơi đã đủ 4 ô thì nhả tại biên và đoạn sau để P1 nghỉ. Cao độ khác mới là hơi mới.
+Tỉa từng `FormSection` có `kind == "phrase"`, sau khi các `Phrase` bên trong đã bị cắt vào biên section:
 
-Mỗi chuỗi nốt nối liền nhau (bằng `<tie>` hoặc `<slur>`, kể cả trên đoạn phẳng, intro và outro) tạo thành một hơi ngân lắng chậm (`_breath`):
+1. **Đoạn đứng yên hoàn toàn (`max(span) == min(span)`)**:
+   - Khi `pitches` trong cả section hoàn toàn không đổi (`max(span) - min(span) == 0`), đặt một lần tấn công ở phách 1 ô đầu của đoạn, cao độ đã gập vào `G3–C6`, dài tối đa 4 ô (`_hold(FLAT_HOLD)`). Phần còn lại của đoạn là nghỉ trên P1, giường tiếp tục.
+   - Nếu cao độ đó trùng hơi vừa tan và đường giá từ hơi trước tới đây không hề nhúc nhích thì không tấn công: P1 nghỉ hết đoạn để nốt vừa fade không bị thổi lại.
+   - Những đoạn có dịch chuyển bậc thang nhẹ (`1..2` semitone, tức `0 < max(span) - min(span) < MIN_RISE`) **không** bị ép thành một nốt phẳng như cũ mà đi vào bộ dựng hơi thở bên dưới để bắt được bước chuyển nấc thang.
 
-- Mở đầu ngay ở phách 1 của nốt đầu hơi bằng chữ `mp` (khi hơi ngân đứng yên và chênh dưới `MIN_RISE` so với hơi trước) hoặc `mf` (khi các nốt trong hơi hoặc bước chuyển từ hơi trước chênh nhau ít nhất `MIN_RISE`), rồi mở một `<diminuendo>` kéo dài suốt toàn bộ hơi ngân để tiếng sáo tan dần tự nhiên mà không cần cắt nhỏ nốt tròn giữa chừng.
+2. **Chia cửa sổ thở (Breath Windows) trong mỗi section có chuyển động**:
+   - Mỗi section được chia thành các cửa sổ thở liên tiếp có độ dài chuẩn bằng `_hold(GLASS_HOLD)` (`32` móc đơn = 4 ô ở 4/4; `30` móc = 5 ô ở 3/4; `36` móc = 3 ô ở 6/4). Một section 8 ô 4/4 có 2 cửa sổ thở (4 ô đầu và 4 ô sau).
+   - Giữa hai hơi thở liên tiếp phải có tối thiểu **1 ô nhịp nghỉ lấy hơi** (`BREATH_REST = epb` móc đơn, hoặc `2 * epb` khi `groove_at(bar).calm`). Nhờ vậy mỗi cửa sổ 4 ô tạo ra một hơi ngân dài `2–3` ô nhịp (`16–24` móc đơn) kèm `1–2` ô nhịp nghỉ thoáng đãng trước khi sang hơi thở kế tiếp.
+   - Hơi thở ở cửa sổ cuối của section được phép bắt đầu và ngân trong nửa sau của section (không bị cắt bỏ bởi điều kiện `end - run.start >= PILLAR_GAP`), giúp giữ được hành động giá và mức đóng cửa ở cuối đoạn.
 
-Intro: một nốt kính suốt section intro, cùng cao độ với nốt mở của đoạn `phrase` đầu. Trùng cao độ và chạm nhau thì buộc sang đoạn đó.
+3. **Điểm neo đường viền (Contour Anchors) và sự uốn lượn bên trong một hơi thở**:
+   - Mọi điểm đổi nốt trong hơi thở đều đặt tại phách 1 của ô nhịp (`bar_start`, qua `_one_per_bar`) để giữ nhịp điệu khoan thai của Ambient, không sinh nốt móc lẻ hay nhịp vụn.
+   - Trong phạm vi các ô đang kêu của một hơi thở (dài `2–3` ô nhịp), chọn tối đa **2 đến 3 điểm neo** theo đường viền giá thực tế:
+     1. **Nốt mở hơi (`anchor_0`)**: cao độ tại đầu cửa sổ thở.
+     2. **Cực trị cục bộ (`apex` hoặc `trough`)**: ô nhịp bên trong hơi thở có độ lệch lớn nhất so với `anchor_0` theo **cả chiều tăng lẫn chiều giảm** (bắt cả đỉnh kéo lên lẫn đáy nhúng xuống), miễn là chênh lệch ít nhất một bậc âm giai (`abs(midi - anchor_0.midi) >= STEP_INFLECT`, với `STEP_INFLECT = 2` semitone).
+     3. **Nốt kết hơi (`closing anchor`)**: cao độ ở ô cuối của hơi thở nếu nó tiếp tục đi xa hơn hoặc đổi chiều $\ge 2$ semitone so với điểm neo liền trước.
+   - Nếu trong suốt cửa sổ thở giá không lệch đủ `2` semitone, hơi thở giữ nguyên **1 nốt ngân dài**. Nếu giá dịch chuyển một chiều, hơi thở gồm **2 nốt nối `<slur>`**. Nếu giá nhún xuống rồi rút lên (hoặc kéo lên đỉnh rồi lùi lại) trong cửa sổ, hơi thở gồm **2–3 nốt nối `<slur>`** bám đúng đường cong đó.
 
-Outro: một nốt, cao độ close cuối đã lượng tử hóa và gập vào `G3–C6`. Cao độ khác hơi vừa ngân thì giữ hết section outro. Cùng cao độ và chạm biên thì chỉ buộc phần hơi còn thiếu cho đủ 4 ô, rồi nghỉ. Cùng cao độ mà hơi đã đủ, hoặc đã có nghỉ, thì outro không có sáo. Hai ô cuối của outro không có shimmer. Không có section outro thì không viết nốt outro.
+4. **Cách đặt nốt, nối `<slur>` / `<tie>` và lọc tấn công trùng cao độ**:
+   - Cao độ mỗi điểm neo được gập quãng 8 (`_fold_glass`) vào vùng `G3–C6` và tránh nhảy quá một quãng 8 so với nốt ngay trước.
+   - Các nốt khác cao độ nằm trong cùng một hơi thở chạm nhau tại vạch nhịp và được nối liền thành một làn hơi bằng liaison (`<slur>` từ nốt đầu hơi đến nốt cuối hơi). Chỉ nốt mở đầu hơi mới mang `<tenuto/>`; các nốt uốn lượn bên trong hơi trượt mềm dưới `<slur>` mà không đánh lưỡi lại.
+   - Cùng cao độ chỉ buộc `<tie>` khi hai miền ngân chạm nhau, tổng độ dài một cao độ đứng yên liên tục không vượt quá `_hold(GLASS_HOLD)` (4 ô). Hơi đã đủ trần 4 ô ở cùng một cao độ thì nhả tại biên để P1 nghỉ.
+   - **Quy tắc không thổi lại sau khoảng nghỉ (`_omit_same_pitch_reattacks`)**:
+     - Khi sau một khoảng nghỉ mà hơi mới mở ra ở cùng cao độ `prev_midi` với cuối hơi trước: **chỉ bỏ hơi mới** nếu hơi mới là một nốt đơn đứng yên **và** trong suốt khoảng thời gian từ hơi trước đến hơi mới, đường giá `pitches` cũng đứng yên (`max(span) - min(span) < STEP_INFLECT`).
+     - Nếu giữa hai hơi giá đã dao động đi nơi khác rồi mới quay lại test đúng cao độ `prev_midi`, hoặc nếu hơi mới tự nó uốn lượn sang cao độ khác (`slur`), thì hơi mới **vẫn được phát âm** để người nghe nhận biết sự vận động của giá.
+
+5. **Động lực học của một hơi ngân (`_breath` & `_arc_breaths`)**:
+   - Mỗi chuỗi nốt nối liền nhau (bằng `<tie>` hoặc `<slur>`, kể cả hơi có 2–3 nốt uốn lượn, đoạn phẳng, intro và outro) tạo thành **một hơi ngân lắng chậm duy nhất**:
+   - Mở đầu ngay ở phách 1 của nốt đầu hơi bằng chữ `mp` (khi biên độ trong hơi và bước chuyển từ hơi trước nhỏ hơn `MIN_RISE`) hoặc `mf` (khi các nốt trong hơi hoặc bước chuyển từ hơi trước chênh nhau ít nhất `MIN_RISE` = 3 semitone), rồi mở **một `<diminuendo>` duy nhất** kéo dài từ đầu hơi tới hết nốt cuối của hơi đó để tiếng sáo tan dần tự nhiên.
+
+6. **Intro và Outro**:
+   - Intro: một nốt kính suốt section intro (chủ âm ở bản có frame, hoặc cùng cao độ với nốt mở của đoạn `phrase` đầu ở bản không frame). Trùng cao độ và chạm nhau thì buộc `<tie>` sang đoạn `phrase` đầu.
+   - Outro: một nốt (chủ âm ở bản có frame, hoặc cao độ close cuối đã lượng tử hóa và gập vào `G3–C6`). Cao độ khác hơi vừa ngân thì giữ hết section outro. Cùng cao độ và chạm biên thì chỉ buộc phần hơi còn thiếu cho đủ trần (`COOLDOWN_HOLD = 40` móc ở bản ngày có frame, hoặc `_hold(GLASS_HOLD)` ở bản thường), rồi nghỉ. Cùng cao độ mà hơi đã đủ, hoặc đã có nghỉ mà giá đứng yên, thì outro không có sáo. Hai ô cuối của outro không có shimmer. Không có section outro thì không viết nốt outro.
 
 ## Nở và shimmer
 
@@ -159,7 +185,7 @@ Từ 1W, khoảng trống nằm ở nốt nghỉ và nốt giữ.
 
 ## Khi đưa vào code
 
-1. `backend/app/sonify/ambient.py`: `render_ambient_score(..., windows, sections, bars, groups)`, `AMBIENT_BPM = 60`. Tỉa theo `FormSection` (tối đa 2 trụ mỗi 8 ô, cách nhau ít nhất 3 ô, giữ 4 ô và lắng dần), giường theo từng ô sau `jazz_chord()`, nở French Horn theo cửa sổ `mf`/`f`, shimmer theo `chunk_bounds` và `bell_budget` của từng chunk.
+1. `backend/app/sonify/ambient.py`: `render_ambient_score(..., windows, sections, bars, groups)`, `AMBIENT_BPM = 60`. Dựng hơi thở uốn lượn (Inflected Breaths) theo cửa sổ thở trong từng `FormSection` (mỗi hơi dài 2–3 ô nhịp nối `<slur>` qua tối đa 2–3 điểm neo bắt cả đỉnh, đáy và bước chuyển bậc thang $\ge 2$ semitone, cách nhau 1–2 ô nghỉ và lắng dần qua một `<diminuendo>`), giường theo từng ô sau `jazz_chord()`, nở French Horn theo cửa sổ `mf`/`f`, shimmer theo `chunk_bounds` và `bell_budget` của từng chunk.
 2. Nhánh `variant == "ambient"` trong `_compose`, sau khi slot, phrase và pitch đã có. Truyền `windows`, `spec.sections`, `bars` và `groups`. 1D dùng `DAILY_SPEC` và `AMBIENT_BPM`. Có `FormSpec` thì BPM là `spec.bpm`. `Score.slots` là slot đã nâng. `Score.dynamics` là chữ giường trần `mp`.
 3. `Variant` trong `model.py` và schema recap / span thêm `"ambient"`. `Score.variant` nhận giá trị đó.
 4. `_PARTS_BY_VARIANT` thêm năm program ở bảng trên. `_bass_part` gắn `chord` khi hai nốt cùng phách. P2 Ambient dùng khóa Sol và mở đầu ở `p`. P3 Ambient là một khuông (`Horn in F`), mở đầu ở `p`, vuốt sóng `p < mp >` hoặc `p < mf >` qua hai nửa buộc nhau (1–2 ô), và không in `<harmony>`.
@@ -168,10 +194,12 @@ Từ 1W, khoảng trống nằm ở nốt nghỉ và nốt giữ.
 
 ## Kiểm tra
 
-- Phiên 1D phẳng: mỗi `FormSection` `phrase` 8 ô có một lần tấn công kính, dài tối đa 4 ô. Hai `Phrase` 4 ô bên trong không thành hai lần tấn công.
-- Đoạn 8 ô có `rise` đủ `MIN_RISE`: tối đa hai lần tấn công, cách nhau ít nhất 3 ô.
+- Phiên 1D đứng yên hoàn toàn (`max(span) == min(span)`): chỉ mở một hơi phẳng ở đầu thân rồi nghỉ hết các đoạn phẳng tiếp theo; warm-up buộc sang đoạn đầu khi trùng cao độ, cool-down nghỉ khi hơi đã tan.
+- Đoạn có chuyển động bậc thang ($\ge 2$ semitone) hoặc có đỉnh/đáy cục bộ (`apex` / `trough`): mỗi cửa sổ thở 4 ô tạo một hơi thở uốn lượn gồm 2–3 nốt nối `<slur>` ở đầu các ô nhịp kèm một `<diminuendo>` duy nhất, cách hơi thở kế tiếp 1–2 ô nghỉ.
+- Giá ở cuối section (`closing anchor`) vẫn được giữ trong hơi thở nửa sau của section thay vì bị xóa trắng 3 ô cuối đoạn.
+- Khi giá dao động đi chỗ khác rồi quay lại test cao độ cũ sau một khoảng nghỉ, hơi thở mới vẫn cất tiếng; chỉ khi đường giá thực tế đứng yên suốt khoảng nghỉ thì nốt đơn trùng cao độ mới bị lược bỏ.
 - Mọi chữ dynamic và `<wedge>` của hơi thở trên P1 đều đứng ngay phách 1 của nốt đầu hơi, không bị đẩy ra cuối ô sau một nốt tròn.
-- Hai trụ cùng cao độ chỉ thành một tie khi nốt trước chạm nốt sau trong trần 4 ô (`GLASS_HOLD`). Trụ trùng ở giữa đoạn, cách xa hơn, bị bỏ. Run kết cùng cao độ mà không chạm được thì có một lần tấn công mới. Intro 1D dài 2 ô và buộc sang đoạn phrase đầu khi cùng cao độ và chạm nhau. Outro 1D dài 4 ô.
+- Hai miền cùng cao độ chạm nhau buộc `<tie>` tối đa đủ trần 4 ô (`GLASS_HOLD`), rồi nhả. Intro 1D dài 2 ô và buộc sang đoạn phrase đầu khi cùng cao độ và chạm nhau. Outro 1D dài 2 ô (bản có frame) hoặc 4 ô (`DAILY_SPEC`).
 - Chương II của 1M không có nốt kính outro. Intro của 1W dài 8 ô.
 - `C` rồi `Cmaj7` sau `jazz_chord()` là một lần tấn công `Cmaj9`. Drone không đánh lại khi hợp âm jazz không đổi. Quãng 5 chỉ có trên ô `mf` và `f`, và trong MusicXML là `<chord>`, không làm ô 4/4 thành 8 phách.
 - Cửa sổ `mf`/`f` mà ô thứ hai thuộc `phrase` (cách lần nở trước ít nhất 4 ô) có một hợp âm French Horn 3 âm mở (mỗi quãng liền kề từ 3 semitone trở lên) chia hai nửa buộc nhau (dài 1–2 ô) với cung sóng `p < mp >` hoặc `p < mf >`. Cửa sổ nhỏ hơn, intro và outro không có. P3 một khuông, không có `<harmony>`.
