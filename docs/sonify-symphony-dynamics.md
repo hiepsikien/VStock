@@ -235,6 +235,7 @@ def emit_flute_dynamic(eighth_pos: int, target_marking: str) -> None:
 
 1. **`left_hand` trong `backend/app/sonify/phrasing.py`**:
    - Thêm 2 tham số keyword-only tùy chọn `velocity_at: dict[int, int] | None = None` và `every_bar_at: frozenset[int] = frozenset()` (mặc định giữ nguyên 100% hành vi của `jazz.py`).
+   - Trong mỗi ô của slot, thứ tự là: `warmup` / `cooldown` luôn đánh; rồi `bar in every_bar_at` đánh lại gốc, kể cả ô giữa một slot `outro`; rồi slot `outro` chỉ đánh khi `offset == 0`; các slot còn lại đánh khi `offset % 2 == 0`. Giao hưởng truyền `every_bar_at` gồm mọi ô có `effective_comp_band == "f"` hoặc `groove_at(bar).rally`. Jazz gọi `left_hand(slot)`, tập đó rỗng, nên outro vẫn chỉ đánh một lần.
 2. **Hạ band theo Groove (`effective_comp_band`) và bảng `PIANO_VELOCITY` trong `dynamics.py`**:
    - `effective_comp_band(band: str, bar: int | None = None) -> str` áp dụng đúng 3 nhánh `chamber`, `trio_thin`, `half`.
    - `piano_marking(eff_band)` trả về `"p"` cho `"p"/"mp"`, và `"mp"` cho `"mf"/"f"`.
@@ -249,7 +250,7 @@ def emit_flute_dynamic(eighth_pos: int, target_marking: str) -> None:
          *,
          bed_velocity_at: dict[int, int] | None = None,
          bed_marking_at: dict[int, str] | None = None,
-         phrases: tuple[Phrase, ...] = (),
+         phrases: tuple[Phrase, ...] | None = None,
      ) -> tuple[tuple[NoteEvent, ...], list[tuple[int, float, str, bool]], list[WedgeEvent]]:
      ```
    - Khi gọi với mặc định `bed_velocity_at=None` (`test_chamber_bar_drops_the_symphony_right_hand`): guide tones giữ `velocity=None`, fill giữ `FILL_VELOCITY = 64`, trả về `(notes, [], [])`.
@@ -305,7 +306,7 @@ def emit_flute_dynamic(eighth_pos: int, target_marking: str) -> None:
 2. **`_curtain_comp` trong `movement_frame.py` (Khung động của Giao hưởng)**:
    - Chỉ gán `velocity = 49` trên danh sách `notes` của warm-up / `tag_bars` **trước khi gọi `with_rests(notes, ...)`** bên trong `_curtain_comp` (tuyệt đối không chạm vào `*_kept_comp(score.comp, body, cool)`).
 3. **Cắt và mở lại `high_wedges`, `high_dynamics`, `comp_wedges`, `comp_dynamics` tại biên khung (`daily_frame.py` & `movement_frame.py`)**:
-   - **Hàm `_trim_frame_wedges(wedges, body, cool, beats)` (dùng cho `high_wedges` và `comp_wedges`)**:
+   - **Hàm `_trim_frame_wedges(wedges, body, cool, beats, eighths_per_bar)` (dùng cho `high_wedges` và `comp_wedges`)**:
      - Ghép từng cặp `(start_w, stop_w)` liên tiếp trong `wedges`:
        - Nếu `stop_w` kết thúc tại hoặc trước `(body, 0.0)` (`stop_w.bar < body` hoặc `(stop_w.bar == body and stop_w.beat <= 0.0)`), hoặc `start_w.bar >= cool`: loại bỏ cả cặp.
        - Nếu `start_w.bar < body` nhưng `stop_w` nằm sau `(body, 0.0)` (câu bắt đầu từ vùng warm-up nhưng đỉnh/kết thúc vẫn nằm trong thân bài `[body, cool)`): **mở lại `start_w` tại `(bar=body, beat=0.0)`** (`start_w = WedgeEvent(body, 0.0, start_w.kind)`).
@@ -338,7 +339,7 @@ def emit_flute_dynamic(eighth_pos: int, target_marking: str) -> None:
        kept = [e for e in score.comp_dynamics if body <= e.bar < cool]
        ```
      - **Khung tĩnh**: Đầu bài (`bar == 0`) đã là `"p"`. Nếu `kept` có phần tử đầu tại `(bar == body, beat == 0.0)` với `marking == "p"` thì bỏ phần tử đó; nếu `kept` chưa có phần tử tại `(bar == body, beat == 0.0)` và `body_mark != "p"` thì chèn `DynamicEvent(bar=body, marking=body_mark, sound=SOUND[body_mark], beat=0.0)` vào đầu `kept`.
-     - **Khung động**: Mở đầu bằng `DynamicEvent(bar=warm_start, marking="p", sound=SOUND["p"], beat=0.0)`, xử lý biên `(bar == body, beat == 0.0)` giống khung tĩnh, nối `kept`, và nếu `tag > 0` mà sự kiện cuối trước `cool` khác `"p"` thì nối thêm `DynamicEvent(bar=cool, marking="p", sound=SOUND["p"], beat=0.0)`.
+     - **Khung động**: Mở đầu bằng `DynamicEvent(bar=warm_start, marking="p", sound=SOUND["p"], beat=0.0)`, xử lý biên `(bar == body, beat == 0.0)` giống khung tĩnh, nối `kept`. Nếu `tag > 0` thì nối thêm `DynamicEvent(bar=cool, marking="p", sound=SOUND["p"], beat=0.0)` khi chữ cuối khác `"p"`, hoặc khi chữ cuối vẫn là `"p"` nhưng một nêm `crescendo` bắt đầu tại hoặc sau chữ đó và `start.bar < cool`. Fill `Nở` trên giường `p` không in chữ mới; nêm nằm trọn trong ô nên tag vẫn được kéo về `p`. Khung nhận `comp_wedges` đã cắt biên.
 
 ---
 
@@ -431,11 +432,11 @@ _VOICE_VOLUME_DB: dict[str, float] = {
    - Thêm `effective_comp_band(band: str, bar: int | None = None) -> str` (hạ band qua `groove.chamber`, `groove.trio_thin`, `groove.half`).
    - Thêm `piano_marking(band: str) -> str` (`"p"` khi `band in ("p", "mp")`, `"mp"` khi `band in ("mf", "f")`).
 3. **`backend/app/sonify/phrasing.py`**:
-   - Mở rộng `left_hand(slot, *, velocity_at=None, every_bar_at=frozenset())` để nhận velocity giường và tập các ô đánh gốc mỗi ô mà không làm thay đổi lời gọi `left_hand(slot)` của `jazz.py`.
+   - Mở rộng `left_hand(slot, *, velocity_at=None, every_bar_at=frozenset())` để nhận velocity giường và tập các ô đánh gốc mỗi ô. `every_bar_at` được xét trước nhánh outro, nên ô `f` hoặc `rally` trong slot outro vẫn đánh lại gốc. Lời gọi `left_hand(slot)` của `jazz.py` không truyền tập đó và giữ pedal outro một lần.
 4. **`backend/app/sonify/render.py`**:
    - `_flute_and_violin_dovetail`: thêm tham số `ensemble: Ensemble = "classic"`, trả về `(flute_notes, yield_spans, flute_wedges, flute_dynamics)` theo đúng state machine và bảng chuyển trạng thái ở Mục 3.
    - `_bass_pattern` / `_bass_bar`: thêm tham số `under_cello: bool = False`, chỉ bật khi ô đó nằm trong `cello_lead_bars` (Cello kêu $\ge \max(\text{quarter\_beats}/2, 2.0)$ phách đen), hạ bước `OCTAVE` về `ROOT` và gập mọi nốt Bass `>= 48` (`Đô3`) xuống dưới `48`.
-   - `_right_hand`: nhận thêm `bed_velocity_at`, `bed_marking_at`, `phrases`, trả về `(comp_notes, fill_marks, comp_wedges)` với `<wedge>` ngắn và nội suy velocity theo từng `sub_group` trên mỗi ô nhịp `b` đúng như Mục 5B.
+   - `_right_hand`: nhận thêm `bed_velocity_at`, `bed_marking_at`, `phrases=None` (coi như `()`), trả về `(comp_notes, fill_marks, comp_wedges)` với `<wedge>` ngắn và nội suy velocity theo từng `sub_group` trên mỗi ô nhịp `b` đúng như Mục 5B.
    - Trong nhánh `symphony` của `_compose`: tính `eff_bands`, `bed_velocity_at`, `bed_marking_at`, `dense_left_bars`, dựng `comp_dynamics` cùng `comp_wedges` và gán vào `Score`.
 5. **`backend/app/sonify/musicxml.py`**:
    - Giữ nguyên `_opening_p` cho `P1` và `P2`. Thêm `_opening_dynamic(dynamics, default)` chỉ dùng cho `P5` và `P3` của Giao hưởng.
@@ -470,7 +471,7 @@ _VOICE_VOLUME_DB: dict[str, float] = {
   - Khi Cello hát chính ở ô `bar` (tổng thời lượng nốt Cello $\ge \max(\text{quarter\_beats}/2, 2.0)$ phách đen), toàn bộ nốt Bass trong ô đó (kể cả bậc 5 của các hợp âm `F..B`) đều có `midi < 48` (`Đô3`). Các ô chỉ có nốt dovetail ngắn (`< 2.0` phách đen, bao gồm đoạn 3 móc ở `6/8`) giữ nguyên pattern Bass hiện tại.
 - **Piano (`P3`) & Frame (`daily_frame`, `movement_frame`)**:
   - Giường chỉ in `p` và `mp` theo `effective_comp_band`, đứng trước `<harmony>` tại `beat == 0.0`. Velocity giường nhận đúng `46 / 54 / 62 / 68`.
-  - Ô `f` (sau groove) hoặc `groove.rally` đánh gốc tay trái mỗi ô trên Giao hưởng; `left_hand` của Jazz giữ nguyên đánh mỗi 2 ô.
+  - Ô `f` (sau groove) hoặc `groove.rally` đánh gốc tay trái mỗi ô trên Giao hưởng, kể cả khi ô đó nằm trong slot `outro`. `left_hand` của Jazz giữ nguyên đánh mỗi 2 ô và outro chỉ đánh một lần. Kiểm tra XML sau `render` chỉ còn thấy band `f` trên `liquidity`, vì groove đã được xóa khi `render` trả về; ô `rally` được kiểm tra khi ngữ cảnh groove còn mở.
   - Trên mỗi `sub_group` của câu fill: hướng `Nở` ($\ge 2$ nốt) giữ nguyên chữ giường, mở `<crescendo>` và nội suy velocity từ `bed_velocity_at[b]` lên `target_vel` (`46/54 → 64` hoặc `62/68 → 80`); hướng `Lắng` ($\ge 2$ nốt) in `fill_mark` (+1 bậc), mở `<diminuendo>` và nội suy velocity từ `target_vel` xuống `56` hoặc `72`; hướng `Ngang` hoặc 1 nốt in `fill_mark` (`64` hoặc `80`) không kèm `<wedge>`. Hợp âm đệm kế tiếp in lại chữ giường ở `beat = 0.0`.
   - **Cắt/nối qua Frame**: Nốt do `_curtain_comp` sinh ở warm-up / `tag_bars` có `velocity = 49` (không chạm `_kept_comp`). Khi một `<wedge>` của Flute mở trước `body` nhưng kết thúc sau `(body, 0.0)` với độ dài còn lại $\ge \text{WEDGE\_MIN}$, `_trim_frame_wedges` mở lại cạnh wedge tại `(bar=body, beat=0.0)`. Khi mức hiệu lực tại `(body, 0.0)` là `"mf"` trên Flute (kể cả khi phía sau trong thân bài có chữ `"mp"` ở phách/ô khác) hoặc `"mp"` trên Piano, khung khôi phục đúng chữ đó tại `(bar=body, beat=0.0)` mà không làm mất chữ `"mp"` reset phía sau.
 - **Audio & `<Harmony>` (`audio.py`)**:
