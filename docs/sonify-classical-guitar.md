@@ -1,6 +1,6 @@
 # Guitar cổ điển: variant thứ năm, một nhạc cụ, tối đa ba bè
 
-> **Trạng thái**: Bản v7 sau sáu vòng review đối chiếu code (2026-10-23), chưa triển khai. Kiến trúc, đường xuất part, ràng buộc cao độ vang, luật chọn lớp và chính sách sửa nốt trong bản này là **đã chốt để code theo**. Các bảng figuration cụ thể vẫn là giả thuyết cho đến khi catalog Bước 0b xong; Bước 1 chỉ code khung, hàm chọn lớp, bộ sửa nốt và những pattern đã khóa ở mục 4, phần catalog-dependent để sau cờ bật/tắt rõ ràng.
+> **Trạng thái**: Bản v8 (2026-10-23), chưa triển khai. Kiến trúc, đường xuất part, ràng buộc cao độ vang, luật chọn lớp, chính sách sửa nốt, và dialect hòa âm (mục 3.4) là **đã chốt để code theo**. Dialect hiện chỉ `villa` đăng ký; Sor và Barrios đi `COMMON`. Các bảng figuration cụ thể vẫn là giả thuyết cho đến khi catalog Bước 0b xong; Bước 1 chỉ code khung, hàm chọn lớp, bộ sửa nốt và những pattern đã khóa ở mục 4, phần catalog-dependent để sau cờ bật/tắt rõ ràng.
 >
 > **Liên kết**: Pipeline hiện tại nằm ở [`docs/sonify-explain.md`](./sonify-explain.md) (giọng nhà, mode, nhịp, form theo khung `1D–1Y`), [`docs/sonify-instrument-sets.md`](./sonify-instrument-sets.md) (bộ nhạc cụ MuseSounds của 4 variant hiện tại) và [`docs/sonify-long-form.md`](./sonify-long-form.md) (form nhiều chương, trần thời lượng `47:21` cho bản `1Y`).
 
@@ -21,9 +21,10 @@ Ba lựa chọn cho người nghe, tương ứng ba phong cách viết cho guita
 Các quyết định đã chốt trong kế hoạch này:
 
 1. **Dùng lại trục `variant` × `ensemble` sẵn có** thay vì tạo ba variant riêng. `variant = "guitar"` là cây đàn và cách viết một-nhạc-cụ; `ensemble` chọn phong cách (`classic` = Sor, `villa`, `barrios`). Cách này khớp mô hình hiện tại: mọi variant đều có `classic` là hàng mặc định cộng hai hàng phụ, cache key đã gồm cả variant lẫn ensemble (`RecapStore._tag` trong `backend/app/sonify/audio.py`), và UI đã có sẵn hàng chọn ensemble thứ hai (`ENSEMBLE_ROWS` trong `src/api/client.ts`). Điểm khác: ở bốn variant cũ, ensemble chỉ đổi nhạc cụ; ở guitar, ensemble đổi **thuật toán viết bè**. Đây là mở rộng ngữ nghĩa có chủ đích, cần ghi rõ trong docstring của `ensemble.py`.
-2. **Ba bè tối đa, mỗi bè một nốt tại một thời điểm**: **Cao** (giai điệu giá), **Trung** (hòa âm/arpeggio), **Trầm** (bass theo gốc hợp âm). Không hợp âm khối 4–5 nốt như piano. Khi hợp âm có 4–5 âm (7th, 9th), phải **tỉa bè** theo thứ tự ưu tiên ở mục 5.3 và qua ống sửa nốt ở mục 5.5.
+2. **Ba bè tối đa, mỗi bè một nốt tại một thời điểm**: **Cao** (giai điệu giá), **Trung** (hòa âm/arpeggio), **Trầm** (bass theo gốc hợp âm). Không hợp âm khối 4–5 nốt như piano. Khi hợp âm có 4–5 âm (7th, 9th, 7sus4, add9), phải **tỉa bè** theo thứ tự ưu tiên ở mục 5.3 và qua ống sửa nốt ở mục 5.5. Hợp âm `suspended` giữ quãng 2 hoặc quãng 4 đến cùng; quãng 5 bị bỏ trước.
 3. **Nhãn không được trùng**: Id `guitar` trên cả hai trục dùng được vì cache tách bạch — variant guitar ra stem `guitar`, `guitar-villa`, `guitar-barrios`, còn ensemble dây thép của minimalist là `minimalist-guitar`. Nhưng nhãn UI phải phân biệt: variant mới là **«Guitar cổ điển»**, hàng ensemble của minimalist đổi nhãn từ «Guitar» thành **«Guitar thép»** (id `guitar` và giọng `Acoustic Steel Plucked` giữ nguyên, chỉ đổi nhãn hiển thị trong `ENSEMBLE_ROWS` và `docs/sonify-instrument-sets.md`).
 4. **Nhịp điệu phải đổi thật, không phải mọi thứ đều 4/4**: Guitar có bản đồ meter riêng (mục 4.0) — chương chậm của bản dài là **3/4** và scherzo là **6/8** (hoán đổi so với giao hưởng, giữ nguyên số ô/BPM/đồng hồ), trong chương còn đổi nhóm phách (hành khúc, hemiola, lệch 3+3+2) và đổi mật độ chia nhỏ (móc đơn → móc kép tremolo/chạy dây). Mọi pattern viết theo `active_meter()`, cấm khóa cứng lưới 4/4. Hai thứ cố ý không làm: đổi ký hiệu nhịp giữa chương và rubato — cả hai phá các giả định một-meter-mỗi-chương và phép tính thời lượng/playhead hiện tại.
+5. **Hòa âm theo dialect, mặc định là catalog chung.** `plan_slots` nhận một `HarmonyDialect` (mục 3.4). Sor (`classic`) và Barrios dùng `COMMON` — đúng catalog và ma trận Markov hiện tại. Chỉ `villa` đăng ký dialect riêng, vì sus và add9 của Villa-Lobos phải có mặt lúc Viterbi chọn hợp âm thì giai điệu mới hát được những nốt đó. Dialect sau này cho Sor hoặc Barrios là một lớp mới cộng một dòng trong bảng đăng ký; vòng Viterbi không có tên phong cách nào cứng trong code.
 
 Không làm trong giai đoạn đầu: live stream (`StreamVariant` trong `backend/app/sonify/voices.py`/`stream.py` phát bằng sóng synth, không có tiếng gảy), và ký hiệu ngón tay/dây (fingering) in trên bản nhạc.
 
@@ -40,15 +41,15 @@ Không làm trong giai đoạn đầu: live stream (`StreamVariant` trong `backe
 
 ## 3. Ánh xạ dữ liệu → ba bè (phần chung cho cả ba phong cách)
 
-Tái dùng tối đa pipeline hiện tại trong `backend/app/sonify/render.py::_compose`: chuỗi đóng cửa → `raw_pitches` trên thang → `plan_slots` (Viterbi Markov chọn hợp âm từng ô) → `plan_phrases` → `band_at` (thanh khoản `p–f`). Module guitar mới nhận đúng các đầu vào mà `render_jazz_score`/`render_minimalist_score` đang nhận (`slots`, `pitches`, `phrases`, `band_at`, `chord_at`, `dynamics`, `rel_span`...), chỉ thay phần viết bè.
+Tái dùng tối đa pipeline hiện tại trong `backend/app/sonify/render.py::_compose`: chuỗi đóng cửa → `raw_pitches` trên thang → `plan_slots` (Viterbi Markov chọn hợp âm từng ô) → `plan_phrases` → `band_at` (thanh khoản `p–f`). Module guitar nhận đúng các đầu vào mà `render_jazz_score`/`render_minimalist_score` đang nhận (`slots`, `pitches`, `phrases`, `band_at`, `chord_at`, `dynamics`, `rel_span`...). Sor và Barrios dùng `slots` của dialect `COMMON`. `villa` lập `slots` bằng dialect của mình (mục 3.4) rồi mới viết bè — sus phải thắng ngay trong `plan_slots`, trước `quantize_strong_beats`, vì bước lượng tử hóa hút phách mạnh về âm của hợp âm đã chọn.
 
 | Nguồn dữ liệu / tầng sẵn có | Bè Cao (giai điệu) | Bè Trung (đệm) | Bè Trầm (bass) |
 |---|---|---|---|
 | Giá đóng cửa (`raw_pitches`, `quantize_strong_beats`) | Đường giai điệu chính, phách mạnh bắt âm hợp âm như hiện tại | — | — |
-| Hợp âm ô nhịp (`slots`/`chord_at`) | Âm hợp âm ở phách mạnh | Âm 3, âm 7/9 của hợp âm, gảy theo pattern từng phong cách | Gốc hợp âm; phách 3 có thể là quãng 5 (`fifth_above_bass`) |
+| Hợp âm ô nhịp (`slots`/`chord_at`) | Âm hợp âm ở phách mạnh | Âm 3, âm 7/9; với hợp âm `suspended` của dialect `villa` thì là quãng 2, quãng 4 hoặc b7 (mục 3.4, 5.3) | Gốc hợp âm; phách 3 có thể là quãng 5 (`fifth_above_bass`) |
 | Thanh khoản cửa sổ 2 ô (`band_at`: `p/mp/mf/f`) | Nhấn (accent) ở đỉnh câu, velocity | **Mật độ pattern**: thưa → arpeggio đầy → tremolo (xem bảng từng phong cách) | Số lần đánh trong ô: `p` 1 nốt → `f` theo pattern |
 | Câu nhạc (`phrases`, `phrase.apex`, `phrase.closes`) | Slur theo câu, hairpin về đỉnh câu, accent ở nốt breakout (tái dùng `techniques`, `hairpins`) | Fill arpeggio ngắn ở cuối câu đóng, giống vai `fills()` của piano hiện tại | Nốt dẫn (approach) về gốc ô sau ở cuối câu |
-| Regime/character/mode (`movement_character`, Trưởng/Thứ cùng tên) | Giữ nguyên quy tắc mode hiện tại | Màu hợp âm mượn theo character như hiện tại | Giữ nguyên |
+| Regime/character/mode (`movement_character`, Trưởng/Thứ cùng tên) | Giữ nguyên quy tắc mode hiện tại | Sor/Barrios: màu mượn như hiện tại. Villa: dialect mục 3.4, nudge character dưới 0.1 | Giữ nguyên |
 | Đỉnh giá cao / breakout | Nốt điểm cao tenuto, thưa (tương đương vai flute/vibraphone cũ nhưng vẫn trên cùng cây đàn) | — | — |
 
 ### 3.1. Âm vực ba bè — bảng tính trên cao độ vang, renderer dùng biên viết đã dịch
@@ -84,6 +85,88 @@ guitar_ceiling       = 83 - key.semitones   # trần cứng vang; khoảng (treb
 ```
 
 Bảy trường này là **biên của số viết** (`NoteEvent.midi` trong không gian Đô): renderer gập/tỉa/nâng nốt hoàn toàn bằng các biên này và không bao giờ viết một cao độ vang vào score. Cao độ vang `midi + key.semitones` chỉ được tính ở hai nơi: phép gán dây/phím (mục 5.2) và test. Renderer và `assert_playable` chỉ đọc các trường này từ `active_register()` (đã được `compose_register` đặt theo giọng của bài), không tự cộng/trừ `semitones` rải rác. Mọi test âm vực/gập nốt phải chạy cả năm giọng nhà và ít nhất một test phải dùng giọng khác Đô (ví dụ FPT `+2`) — test ở Đô không bắt được lỗi lẫn hai không gian, vì ở Đô hai hệ số trùng nhau.
+
+### 3.4. Dialect hòa âm — vỏ dùng chung, hiện chỉ Villa-Lobos đăng ký
+
+Chất Villa-Lobos nằm ở hợp âm, không chỉ ở cách gảy. Sus của ông thay âm ba bằng quãng 2 hoặc quãng 4; add9 giữ âm ba và thêm quãng 9 mà không kèm âm 7; một số ô trượt nguyên một hình xuống nửa cung. `jazz_chord` không làm được việc này: nó chạy sau `quantize_strong_beats` và chỉ thêm âm 7/9 lên hợp âm đã chọn, nên nốt phách mạnh vẫn là âm ba. Sus phải là ứng viên trong catalog mà Viterbi nhìn.
+
+Vỏ nằm ở module mới `backend/app/sonify/harmony.py`. `plan_markov_chords` / `plan_slots` nhận một dialect; vòng lặp không nhắc tới `villa`, `classic` hay `barrios`. `_compose` lấy dialect bằng `dialect_for(ensemble)` ngay trước `plan_slots`.
+
+```python
+class HarmonyDialect:
+    name: str
+
+    def extra(self, mode: Literal["major", "minor"]) -> tuple[Chord, ...]:
+        """Hợp âm thêm bên cạnh CHORDS (trưởng) hoặc MINOR_CATALOG (thứ). COMMON trả rỗng."""
+
+    def transition(self, prev: Chord, curr: Chord, mode: str) -> float | None:
+        """Trọng số mức gốc khi một trong hai hợp âm thuộc dialect này.
+        None: cặp không thuộc dialect, bảng Markov hiện tại quyết định.
+        0: cặp bị cấm. Số dương là xác suất mức gốc, không nhân 2."""
+
+    def shares_root(self, prev: Chord, curr: Chord) -> bool:
+        """Đổi màu trên cùng một gốc. COMMON trả False và planner chỉ dùng same_harmonic_root."""
+
+    def allowed(
+        self, chord: Chord, *, pedal: bool, phrase_downbeat: bool,
+        character: MovementCharacter | None, mode: str,
+    ) -> bool: ...
+
+    def bias(self, chord: Chord, character: MovementCharacter | None, mode: str) -> float:
+        """Chỉ để phân hòa. Trị tuyệt đối dưới 0.15, nhỏ hơn STRONG_BEAT_WEIGHT (2.5)."""
+
+
+DIALECTS: dict[str, HarmonyDialect] = {"villa": VillaDialect()}
+
+def dialect_for(ensemble: str) -> HarmonyDialect:
+    return DIALECTS.get(ensemble, COMMON)
+```
+
+`COMMON.extra` rỗng, `COMMON.transition` trả `None`, `COMMON.shares_root` trả `False`, `COMMON.bias` trả 0. Sor (`classic`) và Barrios không có dòng trong `DIALECTS`, nên chúng đi đúng catalog, ma trận `_ROOT_TRANSITIONS`, cổng `_borrowed_allowed` và `chord_bias` như symphony. Đăng ký dialect cho một trong hai phong cách đó về sau là viết một lớp và thêm một khóa vào `DIALECTS`.
+
+Trong vòng Viterbi, khi `prev` hoặc `curr` thuộc `extra()` của dialect đang chạy:
+
+- Lấy `root_prob` từ `dialect.transition`. Không đi nhánh `prob * 2.0`: nhánh đó giả định mỗi gốc đúng hai hợp âm (ba và bảy). Nhét sus vào `CHORDS` làm hàng xác suất không còn cộng thành 1.
+- `same_root` là `same_harmonic_root(prev, curr) or dialect.shares_root(prev, curr)`. Đổi màu trên cùng gốc vẫn chịu `SAME_ROOT_QUALITY_CHANGE_PENALTY` (0.35) và không bị phạt đổi ô (0.45–0.80), `held_bars` không reset.
+- Giữ nguyên một hợp âm dialect dùng `BORROWED_HOLD_PROB` (0.16), cùng nhánh giữ đã có cho hợp âm mượn.
+- Hợp âm dialect không nằm trong `allowed_tonics`, nên ô pedal (`intro` / `outro` / `warmup` / `cooldown`) vẫn chỉ hợp âm chủ.
+
+Một phách mạnh lệch một bậc thang bị phạt 2.5 (`STRONG_BEAT_WEIGHT` trong `quantize.py`). Đổi màu trên cùng gốc tốn 0.35; đổi gốc tốn khoảng 0.4–1.6. Hợp âm nào chứa đúng nốt phách mạnh thì thắng. Ô giá ngồi trên quãng 2 hoặc quãng 4 giữ nguyên gốc và nghe sus. Ô ngồi trên âm ba ra hợp âm ba hoặc add9. Không có lịch ép sus, và không có bonus nào lớn hơn một phách mạnh.
+
+**Điều kiện trên `Chord`, dùng cho mọi dialect không chồng âm ba.** `transpose_chord` trong `keys.py` đang đánh vần theo chồng âm ba (`index * 2`): `Csus4` (C–F–G) sẽ viết F thành E♯. Thêm trường `degrees: tuple[int, ...] = ()` trên `Chord`. Để trống thì đường cũ giữ nguyên (test dịch giọng hiện tại không đổi). Có giá trị thì chữ cái là gốc cộng `degrees[index]`, không phải `index * 2`. `quality_group` thêm `"suspended"` cho sus2, sus4 và 7sus4. Add9 giữ nhóm `"major"` vì còn âm ba. Hai nhóm này hiện chỉ được `ambient.py`, `form.py` và `same_harmonic_root` đọc.
+
+| Hình | `kind` | `kind_text` | `degrees` | Ví dụ trong Đô | Ba nốt guitar giữ lại |
+|---|---|---|---|---|---|
+| sus4 | `suspended-fourth` | `sus4` | `(0, 3, 4)` | C–F–G | đủ ba |
+| sus2 | `suspended-second` | `sus2` | `(0, 1, 4)` | C–D–G | đủ ba |
+| add9 | `other` | `add9` | `(0, 2, 4, 1)` | C–E–G–D | bỏ quãng 5, còn 1–3–9 |
+| 7sus4 | `suspended-fourth` | `7sus4` | `(0, 3, 4, 6)` | G–C–D–F | bỏ quãng 5, còn 1–4–b7 |
+
+Playback của ký hiệu `<harmony>` đã bị tắt trong `_mute_mscx_harmony`. Tiếng nằm ở nốt viết; chữ chỉ để đọc. Add9 không có kind MusicXML riêng, nên `other` với chữ `add9`.
+
+**`VillaDialect` — luật dựng catalog**, sinh trong không gian Đô theo mode, rồi `transpose_chord` đẩy đi như mọi hợp âm khác. Với mỗi gốc thuận thang, xét sus2, sus4, add9 và 7sus4, rồi bỏ theo hai luật:
+
+1. Quãng màu (2, 4, 9, b7) không nằm trên thang của mode thì bỏ. Nó hòa với hợp âm ba ở mọi nốt giai điệu hát được, và phạt hòa 0.05 (cùng cỡ `SEVENTH_TENSION_COST`) loại nó. Trưởng vì vậy không có `Esus2` (F♯) và `Fsus4` (B♭).
+2. Không còn pitch-class nào trên thang thì bỏ hẳn. `quantize_chord_tone` ném lỗi `"no chord tone in the melody register"` khi hợp âm không có âm nào để hát. `Absus2` chết ở trưởng; ở thứ tự nhiên thì La♭–Si♭–Mi♭ đều thuộc thang, nên nó sống như sus thuận thang, không cần danh sách tay.
+
+Add9 chỉ trên ba trụ I, IV, V. Sus2 của các bậc khác đã bắt nốt 9 khi nó là phách mạnh; add9 chỉ còn việc khi âm ba và quãng 9 cùng có mặt trong một ô. 7sus4 chỉ khi cả quãng 4 và b7 đều hát được: trưởng ra `G7sus4`, `D7sus4`, `A7sus4`; thứ thêm `C7sus4` vì Si♭ thuộc thang.
+
+Trượt song song ở trưởng chỉ hai hình, mỗi hình còn ít nhất một nốt thuận thang để giai điệu hát: `Bbsus2` (còn C, F) và `Ebsus2` (còn F). Ký hiệu theo bass. Giai điệu hát nốt thuận thang (quãng 2 hoặc quãng 4); bass là gốc chromatic — cùng hợp đồng với hợp âm mượn hiện tại, giai điệu không bị kéo khỏi thang Đô. Nốt dẫn bán cung ở móc cuối ô (bảng Pattern, band `f`) vẫn là figuration: nó không đổi ký hiệu hợp âm của ô. Ô nào ký hiệu tự trượt thì đó là cặp `villa_transition` chọn được, không phải nốt dẫn.
+
+Catalog villa khoảng hai mươi hợp âm thêm, cộng mười hai hợp âm thuận thang. Viterbi to hơn đường borrowed khoảng một lần rưỡi, và chỉ ensemble `villa` trả giá đó.
+
+**`VillaDialect.transition`** dùng lại `_ROOT_TRANSITIONS`, không chép ma trận mới:
+
+- Đi vào một màu villa của gốc X được trọng số đúng bằng đi vào hợp âm ba của X. `G` → `Csus4` cùng cửa với `G` → `C`. Hai ứng viên tranh nhau bằng độ khớp nốt.
+- Đổi màu trên cùng gốc: cạnh 0.30, chỉ để cặp được coi là hợp lệ. Giá thật là phạt đổi chất 0.35 khi gốc đang được giữ. `shares_root` trả đúng khi cùng `root_step` + `alter` và một trong hai hợp âm có `quality_group == "suspended"`, hoặc khi add9 cùng gốc với hợp âm ba (hai nhóm `"major"` đã được `same_harmonic_root` nhận).
+- Trả về hợp âm ba cùng gốc: 0.40.
+- Trượt `Csus2` → `Bbsus2` và `Fsus2` → `Ebsus2`: 0.22. Rời hợp âm trượt thì về hợp âm thuận thang nào chứa các nốt thang của nó, trọng số 0.34. `Bbsus2` về được `F`.
+
+**`VillaDialect.allowed`**: hợp âm trượt không đứng ở phách đầu câu. Sus thuận thang thì được — câu mở bằng quãng 4 phải nghe sus, nếu không nốt đó bị hút về âm ba. Pedal trả `False` cho mọi hợp âm villa (khớp `allowed_tonics`). Bonus chủ âm đầu câu (`PHRASE_TONIC_BONUS` 0.25) chỉ trao cho hợp âm ba/bảy chủ, không trao cho sus.
+
+**`VillaDialect.bias`**, tất cả dưới 0.1: `calm` trừ 0.08 cho sus2 và add9; `volatile` trừ 0.08 cho 7sus4 và hợp âm trượt; `rally` trừ 0.04 cho sus4; `selloff` ở mode thứ trừ 0.08 cho sus của dialect và cho `Absus2`.
+
+Tỉa bè của các hình này nằm ở mục 5.3. Bè giữa của lớp Chord-melody và Pattern lấy âm màu đó, không đi tìm âm ba của một hợp âm sus.
 
 ---
 
@@ -175,14 +258,14 @@ Hàm chọn lớp chất liệu đề xuất: `sor_layer(character, *, slow_move
 3. **Thưa, lặng và appoggiatura thật**: Mật độ bè Trung giảm một bậc so với bảng Study (đang `mf` viết như `mp`), hairpin dài hơn (theo cả câu thay vì nửa câu), và nốt cuối câu ngân hết phần còn lại thay vì fill. **Appoggiatura** phải là nốt tựa thật, không phải tie: ở lớp này, khi nốt giai điệu dữ liệu ở phách mạnh được giữ ≥ 2 móc và nốt dữ liệu kế tiếp thấp/cao hơn đúng 1 bậc thang, cho phép thay móc đầu tiên của nốt phách mạnh bằng một **nốt ngoài hợp âm** nằm cách nốt giải quyết (chính nốt dữ liệu đó) đúng 1 bậc thang theo hướng ngược với hướng giải quyết, đánh ở phách mạnh với accent, rồi giải quyết vào nốt dữ liệu ở móc ngay sau. Tối đa 1 appoggiatura mỗi câu; nốt tựa lấy từ thang của mode (không chromatic), và vì nó chiếm phách mạnh nên đây là ngoại lệ có chủ đích với quy tắc "phách mạnh là âm hợp âm" của pipeline — chỉ bật trong lớp Élégiaque và có test khóa nốt giải quyết.
 
 **Quy tắc chung của cả ba lớp**:
-- Hòa âm giữ dạng ba/âm bảy nguyên bản từ `slots`, tỉa xuống tối đa 3 nốt theo mục 5.3; ưu tiên hợp âm thuận thang, hợp âm mượn chỉ ở vai trò hiện tại của chúng (đi qua, màu downtrend).
+- Dialect hòa âm của Sor là `COMMON` (mục 3.4): hòa âm giữ dạng ba/âm bảy nguyên bản từ `slots`, tỉa xuống tối đa 3 nốt theo mục 5.3; ưu tiên hợp âm thuận thang, hợp âm mượn chỉ ở vai trò hiện tại của chúng (đi qua, màu downtrend).
 - Cuối mỗi câu đóng (`phrase.closes`): bass kết câu đi theo `slots`, không tự chế — chỉ khi hợp âm của ô cuối câu trong `slots` đã là V (hoặc V7 tỉa bè) thì bass mới là bậc V và ô đầu câu sau về I/i như thường lệ; nếu slot của ô đó không phải V, giữ bass đúng gốc của slot. Không bao giờ viết bass bậc V dưới một ký hiệu hợp âm khác: bản nhạc sẽ hiện một hợp âm và nghe một bass khác. (Đổi luôn ký hiệu hợp âm theo bass là phương án bị loại — ký hiệu phải khớp Viterbi `slots` mà mọi tầng khác đang đọc.) Bè Trung chạy fill arpeggio lên 3 nốt giống `fills()` hiện tại nhưng nằm trong âm vực bè Trung (ở lớp Élégiaque, fill này bị tắt — kết câu bằng lặng).
 - Slur theo câu, hairpin về đỉnh câu, dynamics theo `band_at` — tái dùng nguyên `phrasing.py`.
 - Không chromatic approach tự do, không nhịp lệch (syncopation) ngoài accent sẵn có của `accent_of` và các cơ chế đã liệt kê. Tính "cổ điển" nằm ở kỷ luật này, còn sức nặng biểu cảm lấy từ chọn lớp chất liệu, biến tấu và khoảng lặng — không phải từ thêm nốt.
 
 ### 4.2. Phong cách hiện đại kiểu Villa-Lobos (`villa`)
 
-**Thẩm mỹ tham chiếu**: Étude No. 1 của Villa-Lobos là một mẫu tay phải lặp nguyên vẹn qua từng ô trong khi tay trái trượt hợp âm — gồm cả hợp âm giảm và chromatic. Étude No. 2 mở arpeggio ra khoảng rất rộng, No. 7 chạy bậc thang nhanh. Nhưng nếu chỉ có arpeggio thì phong cách này cũng đơn điệu như Sor chỉ-study — vì vậy phải dùng thêm **Étude No. 11**, bản étude tương phản nhất trong bộ 12: đoạn mở chậm, hát, viết kiểu **giai điệu nằm trên hợp âm** (chord-melody — giai điệu là nốt cao nhất của các hợp âm được đánh cùng lúc, bè dưới đi những bước tay trái rộng), tương phản với đoạn nhanh hợp âm dồn dập, mạnh. No. 11 cho phong cách này lớp chất liệu chậm/biểu cảm mà No. 1/2 không có, và rất hợp với trần 3 nốt của ta vì chord-melody của Villa-Lobos thường chỉ cần đúng 3 nốt một lúc là đủ nghe ra.
+**Thẩm mỹ tham chiếu**: Étude No. 1 của Villa-Lobos là một mẫu tay phải lặp nguyên vẹn qua từng ô trong khi tay trái trượt hợp âm — gồm cả hợp âm giảm và chromatic. Étude No. 2 mở arpeggio ra khoảng rất rộng, No. 7 chạy bậc thang nhanh. Nhưng nếu chỉ có arpeggio thì phong cách này cũng đơn điệu như Sor chỉ-study — vì vậy phải dùng thêm **Étude No. 11**, bản étude tương phản nhất trong bộ 12: đoạn mở chậm, hát, viết kiểu **giai điệu nằm trên hợp âm** (chord-melody — giai điệu là nốt cao nhất của các hợp âm được đánh cùng lúc, bè dưới đi những bước tay trái rộng), tương phản với đoạn nhanh hợp âm dồn dập, mạnh. No. 11 cho phong cách này lớp chất liệu chậm/biểu cảm mà No. 1/2 không có, và rất hợp với trần 3 nốt của ta vì chord-melody của Villa-Lobos thường chỉ cần đúng 3 nốt một lúc là đủ nghe ra. Chất hòa âm — sus, add9 không kèm âm 7, và trượt cùng một hình — do dialect mục 3.4 chọn. Đổi pattern gảy trên catalog hợp âm ba không ra chất này.
 
 **Nghiên cứu cần làm trước khi code (Bước 0b ở mục 7)**: đọc tổng phổ các Étude No. 1, 2, 7, 11 (bộ 12 études đã hết bản quyền ở nhiều nơi nhưng bản biên tập còn có thể có bản quyền — chỉ trích ngữ pháp chất liệu, không chép đoạn nhạc) và trích catalog: mẫu ngón tay phải của No. 1, khoảng arpeggio của No. 2, kiểu chạy bậc thang của No. 7, và ở No. 11: nhịp điệu đánh hợp âm của đoạn chậm, cách giai điệu ngồi trên hợp âm, và cách đoạn nhanh dồn hợp âm theo nhóm.
 
@@ -208,20 +291,20 @@ Ba lớp chất liệu nội bộ, chọn bằng hàm `villa_layer(character, ba
 **Lớp Pattern ở 6/8 và 3/4**: 6/8 chạy đúng một vòng mỗi ô — Trầm(0) → Trung(1) → Trung cao(2) → Trầm quãng 5(3) → Trung(4) → Trung cao(5) — nhấn đầu hai nhóm (móc 0 và 3). 3/4 chạy vòng Trầm(0) → Trung(1) → Trung cao(2) → Trầm(3) → Trung(4) → Trung cao(5), và ở band `f` nhấn móc 0 và 3 — hai nhóm ba móc chồng lên ba phách đen, đó là hemiola thật của phong cách này. Band `p`/`mp` ở hai meter này rút vòng xuống còn móc 0, 2, 4 (`mp` thêm móc đầu nhóm/phách cuối).
 
 **Quy tắc viết**:
-- Hòa âm được phép "hiện đại" hơn Sor: khi hợp âm là 9th (qua `jazz_chord` hoặc catalog sẵn có), bè Trung ưu tiên âm 7 và âm 9 thay vì âm 5. Danh mục hợp âm mượn sẵn có (`BORROWED` trong `chords.py`) dùng tự do hơn ở band `mf/f`, nhưng vẫn qua Viterbi hiện tại — không thêm hợp âm mới trong giai đoạn đầu.
+- Hòa âm là `VillaDialect` (mục 3.4), đã chọn xong trong `plan_slots`. Bè Trung lấy âm màu của hợp âm đó: quãng 2, quãng 4, b7, hoặc quãng 9 của add9. Không gọi `jazz_chord` trên slot villa — hàm đó đổi hợp âm thành dạng chín theo gốc và xóa sus. Không nới `BORROWED` cho villa; màu chromatic của ông nằm ở hai hợp âm trượt của dialect.
 - Campanella có giới hạn: cho phép nốt bè Trung ngân chồng qua nốt Cao kế tiếp (duration kéo dài thêm 1 móc) khi hai nốt khác dây theo mô hình dây ở mục 5.2 — tạo tiếng vang chồng đặc trưng mà vẫn tối đa ba bè logic.
 - Accent theo nhóm bất đối xứng ở `f` (nhấn móc 0, 3, 6) thay vì đều phách — khác biệt nghe rõ nhất so với Sor.
 - Câu chậm (chương II của `1M/3M`, tháng giữa mùa `1Y`): giảm một bậc mật độ (đang `mf` viết như `mp`) để giữ chất hát — trừ khi lớp Chord-melody đang chạy, vì lớp đó có quy tắc riêng dưới đây.
 
 **Lớp Chord-melody kiểu Étude No. 11 — quy tắc riêng**:
-- Giai điệu vẫn là đường giá ở bè Cao, nhưng ở phách mạnh, nốt Cao được đánh **cùng lúc** với bè Trầm (gốc) và một nốt bè Trung (âm 3 hoặc âm 7) thành hợp âm khối đúng 3 nốt — đây là ngoại lệ có chủ đích của quy tắc "arpeggio là chính", và là dấu hiệu nhận diện của lớp này. Lưới cú khối theo meter: 4/4 ở móc 0 và 4; 6/8 ở đầu mỗi nhóm (móc 0 và 3); **3/4 — nhà chính của lớp này ở chương chậm — chỉ ở móc 0**, vì `METER_34.strong_eighths` chỉ có móc 0. Móc 4 của 3/4 (trọng số phụ 0.8 trong `extra_weights`, không phải phách mạnh) chỉ được thêm **một** cú khối tăng cường ở ô chứa đỉnh câu hoặc ô kết câu, không thành lưới hai cú đều khắp lớp — viết khối ở cả 0 và 4 mọi ô 3/4 sẽ biến chương chậm thành nhịp hai phách và xóa dấu hiệu nhịp ba mà mục 4.0 cố tạo.
+- Giai điệu vẫn là đường giá ở bè Cao, nhưng ở phách mạnh, nốt Cao được đánh **cùng lúc** với bè Trầm (gốc) và một nốt bè Trung thành hợp âm khối đúng 3 nốt — đây là ngoại lệ có chủ đích của quy tắc "arpeggio là chính", và là dấu hiệu nhận diện của lớp này. Nốt Trung là âm 3 hoặc âm 7 với hợp âm ba/bảy, và là quãng 2, quãng 4 hoặc b7 khi hợp âm có `quality_group == "suspended"` (mục 3.4, 5.3). Lưới cú khối theo meter: 4/4 ở móc 0 và 4; 6/8 ở đầu mỗi nhóm (móc 0 và 3); **3/4 — nhà chính của lớp này ở chương chậm — chỉ ở móc 0**, vì `METER_34.strong_eighths` chỉ có móc 0. Móc 4 của 3/4 (trọng số phụ 0.8 trong `extra_weights`, không phải phách mạnh) chỉ được thêm **một** cú khối tăng cường ở ô chứa đỉnh câu hoặc ô kết câu, không thành lưới hai cú đều khắp lớp — viết khối ở cả 0 và 4 mọi ô 3/4 sẽ biến chương chậm thành nhịp hai phách và xóa dấu hiệu nhịp ba mà mục 4.0 cố tạo.
 - Giữa các phách mạnh, bè Trung chỉ gảy 0–2 nốt nối rất thưa (ưu tiên ngân hợp âm vừa đánh), để cảm giác là hợp âm hát chứ không phải arpeggio. Bass được phép nhảy rộng (bước tay trái rộng là chất của No. 11) theo profile `villa_chord` ở mục 5.4, nhưng vẫn trong âm vực Trầm và phải qua kiểm tra gán dây.
 - Nhịp đánh hợp âm đi theo câu, nhưng **không được phá lưới cú khối của meter** ở gạch trên: luật "dồn dần" dưới đây chỉ áp trong 4/4. Ở 4/4, câu đang lên thì các cú đánh hợp âm dồn dần (cách nhau 4 móc → 2 móc), câu đóng thì giãn ra và cú cuối ngân hết phần còn lại của ô; ở đoạn cao trào của section (câu chứa đỉnh cao nhất, band `f`), cho phép 2–3 cú hợp âm khối liên tiếp cách nhau 2 móc — mô phỏng đoạn nhanh dồn dập của No. 11 mà vẫn không vượt 3 nốt/lúc. Ở **6/8**, cú khối chỉ rơi vào đầu nhóm (móc 0 và 3): "dồn" nghĩa là đi từ một đầu nhóm mỗi ô lên cả hai đầu nhóm, và cao trào tăng bằng velocity/thời lượng ngân chứ không chèn cú ở móc 2 hay 4. Ở **3/4**, cú khối chỉ ở móc 0 (cộng cú tăng cường móc 4 ở ô đỉnh/kết): "dồn" diễn ra *giữa các ô* — từ khối cách 2 ô thành mỗi ô một khối khi câu lên — và cao trào chỉ được dùng cú móc 4 tăng cường đó, không có chuỗi khối cách nhau 2 móc trong ô 3/4. Viết khối ở móc 2 của ô 3/4, hay ở móc 2/4 của ô 6/8, là lỗi lưới chứ không phải biến tấu.
 - Dynamics của lớp này đi theo cả câu (một hairpin dài) thay vì theo ô, và velocity cú đánh hợp âm cao hơn nốt nối 8–12 đơn vị để giai điệu trên hợp âm nổi rõ.
 
 ### 4.3. Phong cách tự do kiểu Barrios (`barrios`) — tremolo là trung tâm, *La Catedral* là khung
 
-Chỉ tremolo suốt bài vừa mệt tai vừa phí mất Barrios. *La Catedral* — tác phẩm nổi tiếng nhất của ông, lấy cảm hứng từ tiếng chuông và không gian nhà thờ — tự nó đã có một cung hình ba phần rất hợp để tổ chức một bài sonify: **Preludio Saudade** (mở đầu mơ, motif chuông bằng harmonics trên nền arpeggio), **Andante Religioso** (hợp âm hát chậm như thánh ca), **Allegro Solemne** (chạy dây nhanh liên tục, virtuoso). Phong cách `barrios` dùng cung hình đó làm khung, và đặt tremolo của *El Último Trémolo*/*Sueño en la Floresta* ở giữa làm chất liệu hát chính. Người nghe vẫn chỉ chọn một lựa chọn `barrios`; hệ thống chọn lớp chất liệu theo vị trí trong bài, tính cách thị trường và thanh khoản.
+Chỉ tremolo suốt bài vừa mệt tai vừa phí mất Barrios. *La Catedral* — tác phẩm nổi tiếng nhất của ông, lấy cảm hứng từ tiếng chuông và không gian nhà thờ — tự nó đã có một cung hình ba phần rất hợp để tổ chức một bài sonify: **Preludio Saudade** (mở đầu mơ, motif chuông bằng harmonics trên nền arpeggio), **Andante Religioso** (hợp âm hát chậm như thánh ca), **Allegro Solemne** (chạy dây nhanh liên tục, virtuoso). Phong cách `barrios` dùng cung hình đó làm khung, và đặt tremolo của *El Último Trémolo*/*Sueño en la Floresta* ở giữa làm chất liệu hát chính. Người nghe vẫn chỉ chọn một lựa chọn `barrios`; hệ thống chọn lớp chất liệu theo vị trí trong bài, tính cách thị trường và thanh khoản. Dialect hòa âm của Barrios là `COMMON` (mục 3.4), cùng catalog với Sor. Một dialect riêng — nếu sau này thánh ca hoặc choro cần hợp âm của ông — đăng ký thêm một lớp vào `DIALECTS`, không sửa `plan_markov_chords`.
 
 **Nghiên cứu cần làm trước khi code (Bước 0b ở mục 7)**: đọc cả ba phần của *La Catedral* (tác phẩm đã hết bản quyền; lưu ý Preludio được Barrios bổ sung sau, nên các bản biên tập có thể khác nhau đôi chút) và trích catalog riêng cho Barrios: motif chuông của Preludio (nhịp và khoảng cách các nốt chuông, cách arpeggio đệm chảy bên dưới), nhịp hợp âm thánh ca của Andante, và ở Allegro Solemne: độ dài một đoạn chạy dây (thường gom theo nhóm móc kép), cách chạy lên/xuống đổi hướng, và cách đoạn chạy nối vào nốt đích ở phách mạnh. Chỉ học ngữ pháp, không chép đoạn nhạc.
 
@@ -306,7 +389,11 @@ Hai luật khoảng phím, không trộn:
 Khi một cụm cùng vang không gán được, renderer không sửa tại chỗ trong bộ kiểm tra — nó đi qua ống sửa nốt ở mục 5.5. Bộ kiểm tra ở đây (`assert_playable(score, key, profiles)`) là hàm thuần, chỉ báo lỗi, không sửa nốt.
 
 ### 5.3. Thứ tự tỉa bè khi quá tải
-Giữ theo thứ tự: (1) bass gốc → (2) giai điệu → (3) âm 3 của hợp âm (bè Trung) → (4) âm 7/9 màu (bè Trung) → (5) âm 5. Bỏ từ dưới lên: âm 5 bỏ trước, rồi âm 9/7, không bao giờ bỏ âm 3 trước âm 5. Khi giai điệu trùng âm bè Trung, bè Trung đổi sang âm hợp âm thấp hơn tiếp theo: còn trong dải Trung ở ngữ cảnh thường, nhưng ở **cú hợp âm khối** thì nốt thay phải là âm hợp âm cùng thế với giai điệu theo mục 5.2, kể cả khi nó vượt trần Trung — không bao giờ vượt lên trên hoặc trùng giai điệu.
+Với hợp âm ba, bảy, chín và add9: (1) bass gốc → (2) giai điệu → (3) âm 3 của hợp âm (bè Trung) → (4) âm 7/9 màu (bè Trung) → (5) âm 5. Bỏ từ dưới lên: âm 5 bỏ trước, rồi âm 9/7, không bao giờ bỏ âm 3 trước âm 5. Add9 của dialect `villa` đi đúng thứ tự này: bỏ quãng 5, còn 1–3–9.
+
+Với `quality_group == "suspended"` không có âm ba để giữ. Quãng 2 hoặc quãng 4 chiếm chỗ (3); b7 chiếm chỗ (4); quãng 5 vẫn là (5) và bị bỏ trước. Sus2 và sus4 đã đúng ba nốt. 7sus4 bỏ quãng 5, còn 1–4–b7. Coi quãng 4 là màu được bỏ sẽ để lại mỗi gốc — mất đúng chất sus.
+
+Khi giai điệu trùng âm bè Trung, bè Trung đổi sang âm hợp âm thấp hơn tiếp theo: còn trong dải Trung ở ngữ cảnh thường, nhưng ở **cú hợp âm khối** thì nốt thay phải là âm hợp âm cùng thế với giai điệu theo mục 5.2, kể cả khi nó vượt trần Trung — không bao giờ vượt lên trên hoặc trùng giai điệu.
 
 ### 5.4. Chuyển động bè — theo profile của từng lớp, không có luật chung
 
@@ -318,7 +405,7 @@ Không tồn tại một luật bass/trung áp cho cả ba phong cách. `assert_
 | `grand` (Sor) | Như `study`, cộng hợp âm khối ở đầu câu và nốt dẫn gốc ô sau ở móc cuối câu | Như `study`, dày hơn theo mức biến tấu; trong cú khối được dùng phép gán cùng-thế trên trần Trung (mục 5.2) |
 | `elegiaque` (Sor) | **Đi xuống liền bậc** theo thang ở cuối câu (mục 4.1); mẫu chấm dôi theo meter; gốc–quãng 5 chỉ ở ô mở câu | Thưa, liền bậc; appoggiatura chỉ ở bè Cao |
 | `villa_pattern` | Gốc/quãng 5 theo vòng arpeggio; **nốt dẫn bán cung** về gốc ô sau ở móc cuối ô được phép và được chờ đợi | Theo vòng mẫu cố định, được nhảy theo sequence |
-| `villa_chord` (No. 11) | **Nhảy rộng tự do** (gốc, âm 3, quãng 5 ở bất kỳ thứ tự nào) trong dải Trầm — bước tay trái rộng là chất của lớp này | Âm 3/7 ngồi ngay dưới giai điệu, đổi thế theo hợp âm khối; ở vùng cao dùng phép gán cùng-thế trên trần Trung (mục 5.2) |
+| `villa_chord` (No. 11) | **Nhảy rộng tự do** (gốc, âm 3 hoặc âm màu sus, quãng 5 ở bất kỳ thứ tự nào) trong dải Trầm — bước tay trái rộng là chất của lớp này | Âm màu ngồi ngay dưới giai điệu: âm 3/7 với hợp âm ba/bảy, quãng 2/4 hoặc b7 khi `suspended` (mục 5.3); ở vùng cao dùng phép gán cùng-thế trên trần Trung (mục 5.2) |
 | `barrios_tremolo` | Ngón cái: gốc ở phách 1, quãng 5 ở phách 3 (4/4). Phách thường: không nốt Trung đánh mới, Trung chỉ ngân tiếp. Ngoại lệ duy nhất: phách đầu ô đổi hợp âm thì móc kép 0 là một nốt Trung mới và phách đó không có nốt Trầm riêng | Chỉ nốt ngân, hoặc nốt mới ở móc kép 0 thế chỗ Trầm khi đổi hợp âm (mục 4.3.2) |
 | `barrios_preludio` / `barrios_chorale` | Gốc thưa đầu ô/đầu 2 ô; hợp âm thánh ca đánh cùng giai điệu ở phách mạnh | Âm hợp âm ngân dài, liền bậc |
 | `barrios_run` | Gốc ở phách 1 và 3, nghỉ còn lại | Nghỉ; bè Cao chạy một mình (mục 4.3.3) |
@@ -329,9 +416,9 @@ Không tồn tại một luật bass/trung áp cho cả ba phong cách. `assert_
 
 Renderer sửa nốt **khi dựng bè**, theo thứ tự cố định này cho mỗi cụm nốt cùng vang; `assert_playable` ở Bước 2 chỉ kiểm chứng kết quả, không sửa gì thêm:
 
-1. Tính các cao độ ứng viên theo thứ tự ưu tiên ở mục 5.3 (Trầm gốc → Cao giai điệu → Trung âm 3 → Trung âm 7/9 → Trung âm 5). Mọi ứng viên là **số viết trong không gian Đô**; không bước nào trong ống này cộng `key.semitones` vào nốt — cao độ vang chỉ được suy ra bên trong phép gán dây/phím ở bước 4 và trong test.
+1. Tính các cao độ ứng viên theo thứ tự ưu tiên ở mục 5.3 (Trầm gốc → Cao giai điệu → Trung âm 3 hoặc âm màu sus → Trung âm 7/9/b7 → Trung âm 5). Mọi ứng viên là **số viết trong không gian Đô**; không bước nào trong ống này cộng `key.semitones` vào nốt — cao độ vang chỉ được suy ra bên trong phép gán dây/phím ở bước 4 và trong test.
 2. **Gập bass vào dải Trầm trong không gian viết**: nốt Trầm (gốc, quãng 5, hay "quãng 8") cộng/trừ 12 cho đến khi nằm trong [`guitar_floor`, `guitar_bass_top`] = [40 − semitones, 53 − semitones] theo số viết. Không bao giờ viết `gốc + 12` nguyên trạng khi nó vượt trần này. Ví dụ khóa lỗi lẫn không gian: với FPT (`+2`), khoảng viết hợp lệ là 38–51; một ứng viên viết 55 (vang 57) phải gập xuống 43 (vang 45) — test ở Đô không bắt được lỗi này vì ở Đô hai khoảng trùng nhau.
-3. Tỉa xuống tối đa 3 nốt theo thứ tự ngược của mục 5.3 (bỏ âm 5 trước, rồi 7/9, giữ âm 3 đến cuối).
+3. Tỉa xuống tối đa 3 nốt theo thứ tự ngược của mục 5.3 (bỏ âm 5 trước, rồi 7/9/b7, giữ âm 3 — hoặc quãng 2/4 khi hợp âm `suspended` — đến cuối).
 4. Thử gán dây/phím theo mục 5.2 (bước này, và chỉ bước này, quy mỗi nốt viết ra cao độ vang `midi + semitones` để tính phím). Nếu hỏng: nâng bè Trung lên 12 (nếu vẫn trong [`guitar_mid_low`, `guitar_mid_high`] theo số viết và vẫn dưới bè Cao) rồi thử lại. Nếu cụm là **cú hợp âm khối** mà vẫn hỏng, thử tiếp phép gán cùng-thế của mục 5.2: đổi bè Trung sang âm hợp âm nằm ngay dưới giai điệu với phím cách phím giai điệu ≤ 5, kể cả khi nó vượt `guitar_mid_high` — bước này đứng trước mọi bước bỏ nốt, vì bỏ Trung ở cú khối đỉnh câu là hỏng đúng hai lớp chất liệu cần 3 nốt nhất.
 5. Vẫn hỏng: đổi bè Trung sang âm hợp âm gần nhất còn lại (âm 3 ↔ âm 7) trong dải viết của bè Trung (hoặc trong vùng cùng-thế nếu là cú khối), thử lại.
 6. Vẫn hỏng: bỏ bè Trung, thử lại với Trầm + Cao. Cặp này gần như luôn gán được; nếu vẫn hỏng, gập Trầm thêm một quãng tám trong dải và thử lần cuối. Trường hợp cuối cùng này phải bằng 0 trong benchmark (mục 8) — nó tồn tại để renderer không bao giờ xuất nốt không chơi được, không phải để dùng thường xuyên.
@@ -405,7 +492,8 @@ Mỗi bước xong đều nghe được và kiểm thử được, theo đúng t
 - `assert_playable(score, key, profiles)` độc lập, thuần kiểm tra (không sửa nốt): âm vực/thứ tự bè, gán dây cho cụm cùng vang, luật thế cho đoạn tuần tự, và luật chuyển động theo đúng profile của từng đoạn (mục 5.4). Dùng cho test và benchmark trên cả năm giọng nhà.
 
 **Bước 3 — Villa-Lobos (`villa`)**
-- Lớp Pattern (arpeggio mẫu cố định + trượt chromatic + tỉa hòa âm 9th) theo mục 4.2, BPM 100 cho `1D`; hàm `villa_layer(...)` với **thứ tự ưu tiên khi nhiều lớp cùng khớp ở đầu mục 4.2** và lớp Chord-melody kiểu Étude No. 11 (hợp âm khối 3 nốt ở phách mạnh cho chương chậm/band `p`) vào ngay trong bước này, không để sau, vì chương chậm là nơi arpeggio thuần dễ chán nhất. Lớp Bậc thang (No. 7) có thể để cuối bước nếu phải cắt. Đường giai điệu giá của lớp Pattern nằm ở bè Cao trên lưới móc riêng, arpeggio chạy bên dưới (đoạn «Đường giá nằm ở đâu» ở mục 4.2) — không viết pattern như thể arpeggio *là* giai điệu. Ensemble này chỉ khác hàm viết bè trong cùng `guitar.py`.
+- Dialect hòa âm trước khi viết bè. Vỏ `HarmonyDialect`, `COMMON` và `dialect_for` trong `harmony.py`; `plan_slots` / `plan_markov_chords` nhận dialect; `_compose` truyền `dialect_for(ensemble)`. `Chord.degrees` và `quality_group == "suspended"` trong `chords.py`; `transpose_chord` dùng `degrees` khi trường này có giá trị. `VillaDialect` theo đúng luật catalog, cạnh và cổng ở mục 3.4. Sor và Barrios không có khóa trong `DIALECTS`. Không gọi `jazz_chord` trên slot villa.
+- Lớp Pattern (arpeggio mẫu cố định + trượt chromatic + tỉa theo mục 5.3, gồm ngoại lệ sus) theo mục 4.2, BPM 100 cho `1D`; hàm `villa_layer(...)` với **thứ tự ưu tiên khi nhiều lớp cùng khớp ở đầu mục 4.2** và lớp Chord-melody kiểu Étude No. 11 (hợp âm khối 3 nốt ở phách mạnh cho chương chậm/band `p`) vào ngay trong bước này, không để sau, vì chương chậm là nơi arpeggio thuần dễ chán nhất. Lớp Bậc thang (No. 7) có thể để cuối bước nếu phải cắt. Đường giai điệu giá của lớp Pattern nằm ở bè Cao trên lưới móc riêng, arpeggio chạy bên dưới (đoạn «Đường giá nằm ở đâu» ở mục 4.2) — không viết pattern như thể arpeggio *là* giai điệu. Ensemble này chỉ khác hàm viết bè trong cùng `guitar.py`, cộng dialect hòa âm ở trên.
 
 **Bước 4 — Barrios (`barrios`)**
 - Hàm `barrios_layer(...)` và cả bốn lớp theo mục 4.3. Thứ tự *triển khai* là Tremolo (lớp chính) → Preludio → Chạy dây → Thánh ca, nhưng thứ tự *chọn lớp khi chạy* là thứ tự ưu tiên ở đầu mục 4.3 (Preludio thắng ở đầu bài/chương, Chạy dây chỉ thắng ở điều kiện breakout, chương chậm mặc định Tremolo/Thánh ca) — hai thứ tự này khác nhau và test phải khóa thứ tự chọn. Tremolo khóa kiểu tuần tự `p–a–m–i` (mục 4.3.2): ở phách thường, móc kép 0 chỉ có nốt Trầm và không có nốt đánh mới nào của bè Trung trong cả phách; riêng phách đầu ô khi hợp âm đổi, móc kép 0 là một nốt Trung mới thế chỗ nốt Trầm (phách đó không có Trầm riêng) — đúng ngoại lệ mà test 7 chừa ra, không được triển khai thành cấm tuyệt đối. Chạy dây chiếm riêng bè Cao, nốt đích trùng nốt dữ liệu, nốt đầu được phép là nốt thang thấp hơn vài bậc (mục 4.3.3), ngân sách ~15% số ô. `divisions = 4`, BPM 76 cho `1D`; tự giảm mật độ tremolo/chạy dây khi BPM chương dài > 100 theo mục 4.3.4. Motif chuông dùng nốt cao ngân chồng; ký hiệu harmonic thật chỉ xuất nếu phép thử ở Bước 0 cho thấy sample đáp ứng.
@@ -425,7 +513,7 @@ Mỗi bước xong đều nghe được và kiểm thử được, theo đúng t
 
 ## 8. Kiểm thử và nghiệm thu
 
-**Test tự động mới** (`backend/tests/test_sonify_guitar.py`, cộng khóa trong `test_ensemble.py`/`test_sonify_plan.py`):
+**Test tự động mới** (`backend/tests/test_sonify_guitar.py`, cộng khóa dialect trong `test_harmony.py` và khóa ensemble trong `test_ensemble.py`/`test_sonify_plan.py`):
 1. **Âm vực trên cao độ vang, cả năm giọng nhà**: mọi nốt guitar phát âm (`midi + key.semitones`) nằm trong 40–83; Trầm trong 40–53, Cao ≥ 59 trừ khi bè Cao nghỉ; tại mỗi thời điểm đánh tối đa 3 nốt, thuộc 3 bè khác nhau và Trầm < Trung < Cao nghiêm ngặt khi cùng vang. Chạy trên cả 5 giọng nhà (VNM–Đô, FPT–Rê, HPG–Mi♭, VCB–Si♭, GMD–La). Đồng thời khẳng định trên **số viết**: Trầm viết trong [`40 − semitones`, `53 − semitones`], Trung viết trong [`50 − semitones`, `65 − semitones`] (trừ Trung của cú hợp âm khối theo mục 5.2), Cao viết trong [`59 − semitones`, `81 − semitones`] — **ngoại lệ trần**: riêng nốt chuông Preludio (nốt renderer tự sinh, không nằm trên đường giá đã nén) được viết lên tới `guitar_ceiling` (`83 − semitones`) theo mục 3.1, và test phải khẳng định mọi nốt Cao vượt `81 − semitones` đều là nốt chuông — đỉnh câu/breakout trên đường giá vẫn nằm trong cửa sổ nén, không ngoại lệ (khóa 81 tuyệt đối cho cả chuông sẽ mâu thuẫn mục 3.1 và tự đóng câu hỏi mở về chuông 82–83 ở mục 9). Không được kiểm tra trên cao độ Đô chưa dịch, và `<octave-change>-1` không được tham gia phép tính nào ngoài xuất bản nhạc.
 2. Mỗi voice lấp đầy lưới thời gian không hở không chồng (tương tự `_full` trong `test_ensemble.py`), ở cả `divisions = 2` (Sor/Villa) và `divisions = 4` (Barrios).
 3. Đường giai điệu sau nén vẫn đơn điệu theo giá trong từng câu (không nốt nào đảo hướng so với `raw_pitches` trong cùng câu, ngoài lượng tử hóa phách mạnh và hai ngoại lệ có tên: appoggiatura của Élégiaque và nốt đầu đoạn chạy dây của Barrios, xem mục 4). Một câu giá nằm hoàn toàn dưới sàn bè Cao phải được dịch **+12** vào cửa sổ Cao (tập ứng viên dịch gồm cả +12, mục 3.2) — không nốt Cao nào của câu đó được rơi xuống dưới `guitar_treble_floor` theo số viết. Ca biên bề rộng: một câu trải 50–70 (rộng 20, hẹp hơn cửa sổ 22, không mức dịch nào đặt vừa) sau dịch + nén phải nằm trọn trong cửa sổ viết — test không được chỉ kiểm tra câu rộng hơn cửa sổ.
@@ -436,10 +524,11 @@ Mỗi bước xong đều nghe được và kiểm thử được, theo đúng t
 8. **Chạy dây**: nốt *đích* (cuối đoạn) trùng nốt dữ liệu tại phách mạnh đích; nốt đầu được phép là nốt thang thấp hơn đích 3–5 bậc và test không được đòi nó trùng nốt dữ liệu; mọi nốt ở phách mạnh trong đoạn giữ nguyên cao độ so với bản không-chạy; riêng dạng perpetual, móc kép 0 của mỗi phách trùng nốt giai điệu đang giữ còn móc kép 2 (mốc móc đơn giữa phách) là nốt chạy — test không được đòi nó là nốt dữ liệu; trong thời gian chạy, bè Cao không có nốt giữ song song nào khác và bè Trung nghỉ; đoạn chạy chia được thành các thế tay liên tiếp mỗi thế ≤ 5 phím (được phép đổi thế ở biên nhóm 4 móc kép), và tổng khoảng phím của cả đoạn **không** bị giới hạn 5; không section nào có quá ~15% số ô chứa chạy dây; ngân sách chuông Preludio tính bằng móc đơn (`bell_budget`) tách khỏi giới hạn số nốt (1 nốt/2 ô) — phiên có `rel_span ≤ 0.5%` cho ra đúng 0 nốt chuông.
 9. **Chơi được và ống sửa nốt**: `assert_playable(score, key, profiles)` chạy trên cả năm giọng nhà — cụm cùng vang phải gán được dây với khoảng ≤ 5 phím và giới hạn phím theo dây (6–4 ≤ 12, dây 3 ≤ 17, dây 1–2 ≤ 19); chuyển động bass hợp lệ theo *profile của lớp đó* (test phải khẳng định bass đi xuống liền bậc của Élégiaque và nốt dẫn bán cung của Villa **đạt**, trong khi cùng chuyển động đó ở lớp Study thì bị báo lỗi — không có luật bass chung). Ống sửa nốt: test gập bass phải chạy ở giọng khác Đô — với FPT (`+2`), ứng viên bass viết 55 phải thành 43 (số viết trong [38, 51], vang trong [40, 53]), và một test chỉ chạy ở Đô bị coi là chưa khóa lỗi này. **Hợp âm khối ở đỉnh**: cụm khối có giai điệu vang ≥ 80 phải giữ đủ 3 nốt với bè Trung nằm ngay dưới giai điệu trong cùng thế (phím cách phím giai điệu ≤ 5, được vượt trần vang 65) — không được bỏ âm 3 ở những cú này; trường hợp "gập lần cuối" ở bước 6 của mục 5.5 xảy ra 0 lần trên bộ benchmark 5 mã × 4 tính cách, và số ô phải bỏ hẳn bè Trung (cũng ở bước 6, trước gập lần cuối) không vượt **1% tổng số ô** của benchmark — không ô nào trong số đó là ô cú hợp âm khối.
 10. **Tích hợp part/nhãn**: render variant `guitar` ra MusicXML có đúng **một** `score-part` với `<part-name>Acoustic Nylon</part-name>`, một `<transpose>` với `octave-change = -1`, program 25, ba voice phân biệt — và không bao giờ ra bản 5 part kiểu giao hưởng (khóa việc thêm `VARIANTS` mà quên nhánh `_compose`). Phân tích XML: trong mỗi measure, tổng duration của từng voice bằng đúng độ dài ô, có hai `<backup>` nối ba voice (không có ô nào dài gấp ba), không nốt nào của voice khác mang cờ `<chord/>` chung với voice khác, và số slur của ba voice khác nhau; khóa cặp transpose bằng một nốt cụ thể — ở giọng Đô, một nốt score có `midi` viết 40 phải xuất thành pitch **E3** trong XML cùng `octave-change = -1` (thiếu `written_shift = +12` thì nốt này thành E2 và MuseScore phát thấp hơn một quãng tám, dù test âm vực trên `NoteEvent` vẫn xanh); `ensemble_for("guitar", "villa")` hợp lệ, `ensemble_for("guitar", "wood")` ném lỗi; nhãn variant là «Guitar cổ điển», hàng minimalist `guitar` hiển thị «Guitar thép», và stem cache `minimalist-guitar` không đổi.
+11. **Dialect hòa âm, chỉ villa**: cùng một dãy `raw_pitches`, `plan_slots` của symphony và của guitar `classic` / `barrios` không sinh kind `suspended-second`, `suspended-fourth` hay chữ `add9`. Guitar `villa` thì: phách mạnh là F và gốc trước là C ra `Csus4`, F không bị hút về E và gốc không nhảy sang F; phách mạnh là E ra C hoặc `Cadd9`, không ra `Csus4`; ô pedal vẫn là C / Cmaj7 khi nốt thô là F. `transpose_chord` của `Csus4` sang một giọng có dấu viết quãng 4 là quãng 4, không thành âm ba tăng. Hợp âm villa không giao thang của mode bị loại lúc dựng `extra()`, trước khi quantize chạy. Cú hợp âm khối sus giữ quãng 2 hoặc quãng 4; quãng 5 của 7sus4 được bỏ trước hai âm đó. `dialect_for("classic")` và `dialect_for("barrios")` là `COMMON`.
 
 **Nghe đối chứng** (theo checklist sẵn có của dự án): 5 mã × 4 tính cách thị trường (`rally`, `selloff`, `volatile`, `calm`) ở `1D` và `1M`, nghe riêng từng phong cách:
 - [ ] Sor: câu nhạc có nghe ra câu hỏi–đáp và điểm kết câu không? Bass có lấn giai điệu không? Lớp Grand Solo — lần trình bày lại của cùng một ý có nghe ra là biến tấu dày lên chứ không phải lặp lại y hệt không? Lớp Élégiaque ở chương chậm/phiên bán tháo — bass hành khúc và đoạn bass đi xuống có tạo được màu tang buồn khác hẳn lớp Study không, hay vẫn nghe như study chậm?
-- [ ] Villa: mẫu arpeggio lặp có tạo đà cuộn mà không che đường giá (nốt Cao vẫn là nốt nổi nhất) không? Lớp Chord-melody (No. 11) ở chương chậm — hợp âm khối 3 nốt có hát như giai điệu trên hợp âm không, có bị nặng/đục ở vùng Trung không?
+- [ ] Villa: mẫu arpeggio lặp có tạo đà cuộn mà không che đường giá (nốt Cao vẫn là nốt nổi nhất) không? Lớp Chord-melody (No. 11) ở chương chậm — hợp âm khối 3 nốt có hát như giai điệu trên hợp âm không, có bị nặng/đục ở vùng Trung không? Ô nào giá ngồi trên quãng 2 hoặc quãng 4 có nghe sus trên cùng một gốc không, và ô ngồi trên âm ba có còn là hợp âm ba hoặc add9 không?
 - [ ] Barrios: đoạn mở Preludio — nốt chuông cao có gợi được không gian "nhà thờ" và nhường rõ cho câu đầu tiên không, hay nghe như nốt điểm cao lạc chỗ? Tremolo có ngân mượt, không thành tiếng rè đều? Đoạn chạy dây lên nốt breakout có nghe như một hơi thở dồn tới đỉnh không, và sau khi chạy xong có còn nhận ra đường giá ở các phách mạnh không (hay chạy dây đã thành nhân vật chính)? Đoạn tắt tremolo cuối câu có nghe như lấy hơi không?
 - [ ] Cả ba: phiên đi ngang (`calm`, biên độ < 0.5%) có bị trang trí quá tay không (ngân sách điểm cao/breakout vẫn theo `bell_budget` hiện tại)?
 - [ ] Nhịp điệu: ở bản `1M`, chương chậm 3/4 có nghe ra nhịp ba chậm (khác hẳn 6/8 của chương scherzo phía sau) không, hay mọi chương vẫn nghe như 4/4 đổi tốc độ? Lớp Pattern của Villa ở 3/4 band `f` có nghe ra hemiola không? Élégiaque ở 3/4 có nghe ra nhịp tang trong điệu van chậm không?
@@ -460,6 +549,7 @@ Mỗi bước xong đều nghe được và kiểm thử được, theo đúng t
 | Bản đồ nhịp guitar lệch đồng hồ bản dài | Trung | Guitar dùng cùng số ô và BPM như giao hưởng, chỉ hoán đổi 6/8 ↔ 3/4 (cùng 6 móc/ô) nên tổng thời lượng không đổi; hàng đồng hồ `"guitar"` khóa trần `47:21` ở mục 8. Đổi nhịp *trong* một chương và rubato bị loại có chủ đích vì sẽ phá `piece_seconds`/playhead (mục 4.0) |
 | Sample `Acoustic Nylon` không chơi harmonics | Thấp | Motif chuông của Preludio mặc định dùng nốt cao ngân chồng (campanella), không phụ thuộc harmonics; chỉ xuất `<harmonic>` nếu phép thử Bước 0 đạt |
 | Hợp âm 9th/âm mượn không gán được dây | Trung | Tỉa bè theo thứ tự cố định (mục 5.3); test 9 khóa: ô phải bỏ hẳn bè Trung ≤ 1% tổng số ô benchmark (không ô nào là cú hợp âm khối), gập lần cuối bằng 0 |
+| Sus bị trải lên ô đang ngồi âm ba, hoặc F của câu bị hút về E | Trung | Sus chỉ có mặt trong catalog villa và thắng bằng phạt phách mạnh 2.5, không bằng bonus; test 11 khóa cả hai chiều. `jazz_chord` không chạy trên slot villa |
 | `_guitar_part` một part làm lệch các giả định 5-part ở nơi khác (frame, groove, player) | Trung | Bỏ qua frame 5-part cho guitar, renderer tự viết khung; rà `slice_score` trong `span.py` (đang truy cập đủ 5 trường — tuple rỗng vẫn an toàn) |
 | Live stream chưa có guitar | Thấp | Ngoài phạm vi giai đoạn đầu; nếu làm sau, `voices.py` cần một "wave" gảy riêng và đó là việc tách biệt |
 
@@ -472,10 +562,13 @@ Mỗi bước xong đều nghe được và kiểm thử được, theo đúng t
 | File | Thay đổi |
 |---|---|
 | `backend/app/sonify/guitar.py` | **Mới** — renderer ba phong cách, pattern theo meter/band/lớp, ống sửa nốt (mục 5.5), `assert_playable` theo profile |
+| `backend/app/sonify/harmony.py` | **Mới** — `HarmonyDialect`, `COMMON`, `VillaDialect`, `dialect_for` (mục 3.4). Sor và Barrios không có khóa |
+| `backend/app/sonify/chords.py` | `Chord.degrees`; `quality_group` `"suspended"`; hằng kind sus2/sus4/add9/7sus4 |
+| `backend/app/sonify/form.py` | `plan_slots` / `plan_markov_chords` nhận dialect; nhánh cạnh dialect không nhân `prob * 2` |
 | `backend/app/sonify/model.py` | Thêm variant `guitar`, ensemble `villa`/`barrios` |
-| `backend/app/sonify/keys.py` | Bảy trường biên viết guitar trong `Register`/`register_for`, dịch hai chiều theo giọng nhà (mục 3.3) |
+| `backend/app/sonify/keys.py` | Bảy trường biên viết guitar trong `Register`/`register_for`, dịch hai chiều theo giọng nhà (mục 3.3). `transpose_chord` dùng `degrees` khi có |
 | `backend/app/sonify/ensemble.py` | `_ALLOWED["guitar"]`; chỉ `_ROWS` cho `villa`/`barrios` (hàng `classic` ở `musicxml.py`), docstring về ensemble = phong cách |
-| `backend/app/sonify/render.py` | Rẽ nhánh guitar trong `_compose` (cùng commit với `VARIANTS`), daily-ensemble gồm guitar, bỏ frame 5-part cho guitar |
+| `backend/app/sonify/render.py` | Rẽ nhánh guitar trong `_compose` (cùng commit với `VARIANTS`), daily-ensemble gồm guitar, bỏ frame 5-part cho guitar, truyền `dialect_for(ensemble)` vào `plan_slots` |
 | `backend/app/sonify/musicxml.py` | `_PARTS_BY_VARIANT["guitar"]` (part `Acoustic Nylon` cho `classic`), `_guitar_part` 1 part 3 voice, rẽ nhánh trước đường 5 part |
 | `backend/app/sonify/audio.py` | Thêm `_MuseVoice` `Acoustic Nylon` + hiệu chỉnh volume, tăng revision |
 | `backend/app/sonify/span.py` | Nhánh guitar trong `month_specs`/`quarter_specs`/`year_specs`: hoán đổi 6/8 ↔ 3/4 ở chương chậm/scherzo (mục 4.0), tăng `SPAN_REVISION` |
@@ -483,4 +576,5 @@ Mỗi bước xong đều nghe được và kiểm thử được, theo đúng t
 | `src/api/client.ts` | Type + `ENSEMBLE_ROWS.guitar`; đổi nhãn hàng `guitar` của minimalist thành «Guitar thép» |
 | `src/components/SessionRecap.tsx`, `SpanRecap.tsx` | Thêm lựa chọn variant «Guitar cổ điển» |
 | `backend/tests/test_sonify_guitar.py` | **Mới** — các khóa ở mục 8 |
+| `backend/tests/test_harmony.py` | Khóa dialect mục 8.11: villa sinh sus đúng ô, symphony/`classic`/`barrios` không sinh |
 | `docs/sonify-instrument-sets.md`, `docs/sonify-explain.md` | Cập nhật sau khi nghe đạt |
