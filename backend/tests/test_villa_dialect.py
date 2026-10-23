@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.sonify.chords import C, CM, EF, F, FM, fifth_above_bass, same_harmonic_root
+from app.sonify.chords import AF, C, CM, EF, F, FDIM7, FM, G, fifth_above_bass, same_harmonic_root
 from app.sonify.form import FormSection, FormSpec, plan_markov_chords
 from app.sonify.harmony import COMMON, VILLA, dialect_for
 from app.sonify.keys import D_KEY, transpose_chord
@@ -179,6 +179,37 @@ def test_common_dialect_does_not_invent_sus() -> None:
     chords = _plan([[60] * 8, [65] * 8], dialect=COMMON)
     assert all(chord.kind_text not in {"sus2", "sus4", "7sus4", "add9"} for chord in chords)
     assert all(chord.quality_group != "suspended" for chord in chords)
+
+
+def _extra(mode: str, name: str):
+    return next(chord for chord in VILLA.extra(mode) if chord.name == name)
+
+
+def test_a_root_note_does_not_open_the_sus_that_calls_it_a_fourth() -> None:
+    """The second bar of an exact stay is priced at 0.15, so it must not collect 0.70."""
+    opened = _plan([[60] * 8, [60] * 8, [65] * 8], character="rally")
+    assert opened[0].name in {"C", "Cmaj7"}
+    assert opened[1].name in {"C", "Cmaj7"}
+    assert opened[2].name == "Csus4"
+    only_g = _plan([[67] * 8, [67] * 8], character="rally")
+    assert all(chord.name != "Dsus4" for chord in only_g)
+    # Minor prices a villa color on the 0.08 floor, so the G→C door lands on Cm, not Csus4.
+    minor_c = _plan([[60] * 8, [60] * 8, [60] * 8], character="rally", mode="minor")
+    assert minor_c[-1].name in {"Cm", "Cm7"}
+    calm = _plan([[60] * 8, [60] * 8, [60] * 8], character="calm", mode="minor")
+    assert calm[-1].name != "Csus2"
+    only_eb = _plan([[63] * 8, [63] * 8], character="rally", mode="minor")
+    assert all(chord.name != "F7sus4" for chord in only_eb)
+
+
+def test_flat_roots_do_not_borrow_the_natural_letter_row() -> None:
+    for name in ("Asus4", "Asus2", "A7sus4"):
+        assert VILLA.transition(AF, _extra("major", name), "major") == 0.0
+    for name in ("Esus4", "E7sus4"):
+        assert VILLA.transition(EF, _extra("major", name), "major") == 0.0
+    assert VILLA.transition(_extra("major", "Asus4"), AF, "major") == 0.0
+    assert VILLA.transition(G, _extra("major", "Csus4"), "major") == 0.50
+    assert VILLA.transition(FDIM7, _extra("minor", "Fsus4"), "minor") == 0.0
 
 
 def test_minor_add9_uses_the_parent_third() -> None:

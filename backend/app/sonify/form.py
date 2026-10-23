@@ -623,7 +623,11 @@ def plan_markov_chords(
                 back[bar][(chord, 2)] = None
                 continue
 
-            if mode == "minor":
+            if chord in extra_ids:
+                # Villa colors sit on the strange-chord floor. Minor root bias
+                # would price a C sus at 0.00 and let the dialect discount undercut Cm.
+                base_bias = 0.08
+            elif mode == "minor":
                 base_bias = minor_bias(chord, regime)
             else:
                 base_bias = chord_bias(chord, regime, bar_character[bar])
@@ -811,11 +815,16 @@ def plan_markov_chords(
                         emission = uniform_emission
                     else:
                         emission = emission_by_prev_snapped[prev_snapped_by_chord[prev_chord]]
+                    credit = active_dialect.color_credit(chord, strong_pcs, prev_chord)
+                    # The second bar of a root is priced at 0.15, not the 1.35 hold.
+                    # Crediting an exact stay there goes negative and pays Viterbi to open the sus.
+                    if prev_chord == chord and not new_section and prev_held == 1:
+                        credit = 0.0
                     total = (
                         dp[bar - 1][(prev_chord, prev_held)]
                         + trans_cost
                         + emission
-                        - active_dialect.color_credit(chord, strong_pcs, prev_chord)
+                        - credit
                     )
                     if total < best_cost:
                         best_cost = total

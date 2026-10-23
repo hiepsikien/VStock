@@ -1,6 +1,6 @@
 # Guitar cổ điển: variant thứ năm, một nhạc cụ, tối đa ba bè
 
-> **Trạng thái**: Bản v10 (2026-10-23), chưa triển khai. Kiến trúc, đường xuất part, ràng buộc cao độ vang, luật chọn lớp, chính sách sửa nốt, và dialect hòa âm (mục 3.4) là **đã chốt để code theo**. Dialect hiện chỉ `villa` đăng ký; Sor và Barrios đi `COMMON`. Lưới tremolo giảm đếm theo phách của meter (mục 4.3.4). Sus không thắng F bằng phạt chất 0.35: khoản màu 0.70 chỉ trừ khi đã có hợp âm trước, cùng gốc, và phách mạnh là âm màu (mục 3.4). Các bảng figuration cụ thể vẫn là giả thuyết cho đến khi catalog Bước 0b xong; Bước 1 chỉ code khung, hàm chọn lớp, bộ sửa nốt và những pattern đã khóa ở mục 4, phần catalog-dependent để sau cờ bật/tắt rõ ràng.
+> **Trạng thái**: Bản v10 (2026-10-23), chưa triển khai. Kiến trúc, đường xuất part, ràng buộc cao độ vang, luật chọn lớp, chính sách sửa nốt, và dialect hòa âm (mục 3.4) là **đã chốt để code theo**. Dialect hiện chỉ `villa` đăng ký; Sor và Barrios đi `COMMON`. Lưới tremolo giảm đếm theo phách của meter (mục 4.3.4). Sus không thắng F bằng phạt chất 0.35: khoản màu 0.70 chỉ trừ khi đã có hợp âm trước, cùng gốc, phách mạnh là âm màu, và ô không phải lần giữ đúng hợp âm ở giá 0.15 (mục 3.4). Các bảng figuration cụ thể vẫn là giả thuyết cho đến khi catalog Bước 0b xong; Bước 1 chỉ code khung, hàm chọn lớp, bộ sửa nốt và những pattern đã khóa ở mục 4, phần catalog-dependent để sau cờ bật/tắt rõ ràng.
 >
 > **Liên kết**: Pipeline hiện tại nằm ở [`docs/sonify-explain.md`](./sonify-explain.md) (giọng nhà, mode, nhịp, form theo khung `1D–1Y`), [`docs/sonify-instrument-sets.md`](./sonify-instrument-sets.md) (bộ nhạc cụ MuseSounds của 4 variant hiện tại) và [`docs/sonify-long-form.md`](./sonify-long-form.md) (form nhiều chương, trần thời lượng `47:21` cho bản `1Y`).
 
@@ -149,11 +149,12 @@ Một phách mạnh lệch một bậc thang bị phạt 2.5 (`STRONG_BEAT_WEIGH
 
 Dialect trừ một **khoản màu** vào phát xạ, đúng một lần mỗi ô, qua `color_credit`. `chord_bias` cộng vào cùng phát xạ đó. Bảng ở trên chỉ là giá chuyển tiếp (`held_bars >= 2` là 1.32 đối 0.81), chưa cộng bias: sàn của hợp âm không nằm trong `CHORDS` là 0.08, F ở uptrend và downtrend là 0.04, `rally` trừ thêm 0.08 cho F (`_DIATONIC_DELTA`) và dialect trừ 0.04 cho sus4. Người thắng là tổng của cả ba.
 
-`color_credit` trả **0.70** chỉ khi đủ cả ba điều. Thiếu một điều thì trả 0:
+Khoản trừ vào phát xạ chỉ khi đủ cả bốn điều. `color_credit` xét ba điều đầu và trả 0.70 hoặc 0. Điều thứ tư nằm trong vòng Viterbi, vì hàm không biết `prev_held`. Thiếu một điều thì khoản là 0:
 
 - Đã có hợp âm trước. Ô đầu bài (`prev is None`) không được khoản. Nếu vẫn trừ 0.60, uptrend ra `Csus4` ở `0.08 − 0.60 = −0.52`, rẻ hơn F ở 0.04 khoảng nửa đơn vị.
 - Cùng gốc với hợp âm trước (`root_step` và `alter`). Hợp âm khác gốc không được khoản, dù phách mạnh trùng âm màu của nó.
 - Một phách mạnh là âm màu của chính hợp âm villa đó: quãng 4 của sus4 và của 7sus4, quãng 2 của sus2, quãng 9 của add9, b7 của 7sus4. Gốc và quãng 5 không được khoản.
+- Ô không phải lần giữ đúng hợp âm ở giá 0.15. `prev_chord == chord`, `prev_held == 1`, và ô không mở section thì giá là `SECOND_BAR_STAY_COST`. Khoản không trừ ở nhánh đó: `0.15 + 0.08 − 0.70` âm, và Viterbi mở `Gsus4` trên hai ô toàn Đô chỉ để thu khoản ở ô thứ hai. Đổi màu (`C` → `Csus4`, giá 0.50) và lần giữ từ ô thứ ba (`BORROWED_HOLD_PROB`, giá 1.35) vẫn trừ 0.70. Ô giữ đúng hợp âm ở giá 0.15 còn `0.15 + 0.08 = 0.23`, vẫn rẻ hơn chuyển sang F.
 
 0.70 lớn hơn 0.62 và nhỏ hơn một phạt phách mạnh 2.5. 0.60 không giữ được sus khi F còn ở phách mạnh. Nhánh giữ bằng `BORROWED_HOLD_PROB` 0.16 là khoảng 1.35; trừ 0.60 còn 0.75; cộng sàn 0.08 và mức `rally` −0.04 của sus4 thành khoảng 0.79. Cùng lúc `rally` kéo F xuống `0.81 + 0.04 − 0.08 = 0.77`. F rẻ hơn. Với 0.70, nhánh giữ ở `rally` còn `1.35 − 0.70 + 0.04 = 0.69`, dưới 0.77. Character khác không trừ 0.08 cho F: giữ sus còn `1.35 − 0.70 + 0.08 = 0.73`, F còn `0.81 + 0.04 = 0.85`.
 
@@ -203,15 +204,15 @@ Trượt song song chỉ ở trưởng, xuống một cung, và chỉ hai hình 
 1. Mode trưởng, và một trong hai hợp âm là hợp âm trượt của trưởng (`Bbsus2`, `Ebsus2`). Chỉ bốn cặp sau khác 0: `Csus2` → `Bbsus2` và `Fsus2` → `Ebsus2` là 0.22; `Bbsus2` → `F` và `Ebsus2` → `F` là 0.34. Mọi cặp khác có một đầu là hợp âm trượt của trưởng trả 0. `Ebsus2` trưởng chỉ còn một nốt thuận thang là F; không mở thành «mọi hợp âm chứa F» (Dm, `Csus4`, Fmaj7 đều không được cửa). Ở thứ, `Ebsus2` không thuộc danh sách này: nó là sus2 thuận thang của gốc E♭, đi cửa 2–6, và `Ebsus2` → `E♭` lấy 0.40. `Bbsus2` không có trong `extra()` thứ.
 2. Cùng gốc, hợp âm hiện tại là hợp âm ba cha, hợp âm trước là màu villa của gốc đó: 0.40. `Csus4` → `C` đi cửa này, không đi cửa 0.30.
 3. Cùng gốc, một bên là màu villa của gốc đó: 0.30.
-4. Hợp âm hiện tại là màu villa của gốc X, và `_ROOT_TRANSITIONS` có cửa từ gốc của hợp âm trước sang X: lấy xác suất gốc đó, không nhân 2. `G` → `Csus4` cùng cửa với `G` → `C`.
-5. Hợp âm trước là màu villa của gốc X và hợp âm hiện tại thuận thang có cửa từ X: lấy xác suất gốc đó.
+4. Hợp âm hiện tại là màu villa của gốc X, và `_ROOT_TRANSITIONS` có cửa từ gốc của hợp âm trước sang X: lấy xác suất gốc đó, không nhân 2. `G` → `Csus4` cùng cửa với `G` → `C`. Cửa chỉ khớp khi cả hai hợp âm có `alter` 0, đúng các gốc không dấu của bảng. `Ab` không lấy self-loop 0.18 của `A`; `Eb` không lấy self-loop của `E`. `F#dim7` (`alter` +1) cũng không lấy hàng `F`.
+5. Hợp âm trước là màu villa của gốc X và hợp âm hiện tại thuận thang có cửa từ X: lấy xác suất gốc đó, cùng điều kiện `alter` 0.
 6. Còn lại: 0 nếu một bên thuộc `extra()`, `None` nếu không bên nào thuộc — bảng Markov cũ quyết định.
 
 Từ `held_bars >= 2` và ở ô mở section, các số 0.30 và 0.40 đi vào `−0.6·ln` rồi cộng phạt chất. Chúng chỉ bị bỏ qua khi `held_bars == 1` và ô không mở section (nhánh `SECOND_BAR_STAY_COST`). Thứ tự trên quyết định số nào được log: `Csus4` → `C` lấy 0.40, không lấy 0.30. Khoản màu 0.70 trừ vào phát xạ, không đổi các trọng số này.
 
 **`VillaDialect.allowed`**: trả `True` với hợp âm không thuộc `extra()`, để `_borrowed_allowed` chạy tiếp. Pedal trả `False` cho mọi hợp âm villa (khớp `allowed_tonics`). Hợp âm trượt không đứng ở phách đầu câu. Sus thuận thang được đứng ở phách đầu câu. Nó chỉ nghe là sus khi gốc đó đang được giữ và phách mạnh là âm màu — khoản 0.70 lúc đó mới kéo giá xuống dưới F, kể cả ở `rally`. Ô đầu không phải pedal, uptrend hoặc downtrend, character không phải `selloff`, về F. Bonus chủ âm đầu câu (`PHRASE_TONIC_BONUS` 0.25) chỉ trao cho hợp âm ba/bảy chủ.
 
-**`VillaDialect.bias`**, tất cả dưới 0.1, cộng thêm lên sàn 0.08 chứ không thay sàn đó: `calm` trừ 0.08 cho sus2 và add9; `volatile` trừ 0.08 cho 7sus4 và hợp âm trượt; `rally` trừ 0.04 cho sus4; `selloff` ở mode thứ trừ 0.08 cho sus của dialect và cho `Absus2`. Không bias nào bù được phạt phách mạnh 2.5. Mức `rally` −0.04 của sus4 cũng không tự giữ sus trước F: phần đó nằm ở khoản 0.70. Ô đầu bài, khoản bằng 0, nên 0.04 của F ở uptrend và downtrend vẫn rẻ hơn sàn 0.08 — trừ `selloff` và sideway, như mục trên.
+**`VillaDialect.bias`**, tất cả dưới 0.1, cộng thêm lên sàn 0.08 chứ không thay sàn đó. Thứ cũng vậy: hợp âm villa không lấy `minor_bias` của gốc (Đô là 0.00). Nếu lấy, `rally` trừ 0.04 cho sus4 khiến `Csus4` rẻ hơn `Cm` trên cùng một cửa. `calm` trừ 0.08 cho sus2 và add9; `volatile` trừ 0.08 cho 7sus4 và hợp âm trượt; `rally` trừ 0.04 cho sus4; `selloff` ở mode thứ trừ 0.08 cho sus của dialect và cho `Absus2`. Không bias nào bù được phạt phách mạnh 2.5. Mức `rally` −0.04 của sus4 cũng không tự giữ sus trước F: phần đó nằm ở khoản 0.70. Ô đầu bài, khoản bằng 0, nên 0.04 của F ở uptrend và downtrend vẫn rẻ hơn sàn 0.08 — trừ `selloff` và sideway, như mục trên.
 
 Tỉa bè của các hình này nằm ở mục 5.3. Bè giữa của lớp Chord-melody và Pattern lấy âm màu đó, không đi tìm âm ba của một hợp âm sus.
 

@@ -249,6 +249,13 @@ _PARENTS = {
 _DIATONIC = {"major": frozenset(CHORDS), "minor": frozenset(MINOR_CATALOG)}
 
 
+def _unaltered_root_probability(prev: Chord, curr: Chord) -> float:
+    """Door in the unaltered letter table. Ab is not A, and Eb is not E."""
+    if prev.alter != 0 or curr.alter != 0:
+        return 0.0
+    return _ROOT_TRANSITIONS.get(prev.root_step, {}).get(curr.root_step, 0.0)
+
+
 def color_pitch_classes(chord: Chord) -> frozenset[int]:
     """Pitch classes of the 2nd, 4th, 9th, or b7. Root and fifth are not colors."""
     wanted = _COLOR_DEGREES.get(chord.kind_text, frozenset())
@@ -286,11 +293,11 @@ class VillaDialect(HarmonyDialect):
             if same_root and (self._villa(prev, mode) or self._villa(curr, mode)):
                 return _COLOR_WEIGHT
             if self._villa(curr, mode):
-                prob = _ROOT_TRANSITIONS.get(prev.root_step, {}).get(curr.root_step, 0.0)
+                prob = _unaltered_root_probability(prev, curr)
                 if prob > 0.0:
                     return prob
             if self._villa(prev, mode) and curr in _DIATONIC[mode]:
-                prob = _ROOT_TRANSITIONS.get(prev.root_step, {}).get(curr.root_step, 0.0)
+                prob = _unaltered_root_probability(prev, curr)
                 if prob > 0.0:
                     return prob
         if self._villa(prev, mode) or self._villa(curr, mode):
