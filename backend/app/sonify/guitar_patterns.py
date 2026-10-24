@@ -782,10 +782,6 @@ def _bach_primary(ctx: _Ctx, phrases: list[Phrase], bars: list[int], mood: str |
         return "bach_gigue"
     if mood == "calm":
         return "bach_gavotte"
-    if mood == "rally":
-        if _is_suite_finale(ctx):
-            return "bach_chaconne"
-        return "bach_bourree"
     return "bach_bourree"
 
 

@@ -3297,6 +3297,12 @@ def test_bach_trio_answers_the_bourree_with_the_fugue() -> None:
     assert answer[0].midi is not None and answer[0].midi % 12 in _chord_pcs(G)
     _assert_engraved(score, "bach")
 
+    # A rally finale with a long coda still dances the bourrée, not the chaconne.
+    finale = _suite(3, "bach", character="rally")
+    assert finale.divisions == 2
+    assert _sixteenths(finale.lead, 12) == []
+    assert _sixteenths(finale.support, 12) == []
+
 
 def test_bach_voices_stay_playable_across_meters_and_keys() -> None:
     from app.sonify.chords import DM7, G7
