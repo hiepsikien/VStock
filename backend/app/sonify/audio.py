@@ -37,9 +37,9 @@ from app.sonify.session import VN, is_session_closed
 logger = logging.getLogger(__name__)
 
 # Bump when the score or the sound changes, so old files are not replayed.
-RECAP_REVISION = "38"
+RECAP_REVISION = "41"
 # Long-form files live beside the daily recap and use their own revision.
-SPAN_REVISION = "24"
+SPAN_REVISION = "27"
 PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
@@ -933,13 +933,10 @@ def _ffmpeg_aac(ffmpeg: str, wav_path: Path, m4a_path: Path, audio_filter: str |
 
 
 def _transcode_m4a(wav_path: Path, m4a_path: Path, *, variant: str | None = None) -> bool:
+    del variant
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
         return False
-    if variant == "guitar" and _ffmpeg_aac(ffmpeg, wav_path, m4a_path, _GUITAR_HALL):
-        return True
-    if variant == "guitar":
-        m4a_path.unlink(missing_ok=True)
     return _ffmpeg_aac(ffmpeg, wav_path, m4a_path, None)
 
 
