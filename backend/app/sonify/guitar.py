@@ -3,8 +3,10 @@
 Sor keeps a study texture: the price is the top voice, chord tones fill the
 weak eighths, and the root sits on the strong beats. Villa-Lobos rolls a
 chord-tone pattern under that line. Barrios repeats the melody as a tremolo
-and puts the thumb on the beat. All three read the written guitar bounds from
-the active register, so a transposed key stays inside the same sounding range.
+and puts the thumb on the beat. Brouwer writes the modern row: a lyrical
+ballad, a Cuban tumbao, a staccato ostinato, or a sarabande accent. All four
+read the written guitar bounds from the active register, so a transposed key
+stays inside the same sounding range.
 """
 
 from __future__ import annotations
@@ -19,7 +21,7 @@ from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score
 from app.sonify.phrasing import Phrase, quantize_strong_beats, written
 from app.sonify.quantize import C_MAJOR_PCS, C_NATURAL_MINOR_PCS, scale_from_classes
 
-GUITAR_BPM = {"classic": 88, "villa": 100, "barrios": 120}
+GUITAR_BPM = {"classic": 88, "villa": 100, "barrios": 120, "brouwer": 108}
 # Listening tests: a tremolo only reads as a sung line from 90 BPM up, sits
 # best around 120, and can run to 140. A Barrios movement under that floor
 # is not sped up and gets no tremolo at all: it keeps its slow tempo and
@@ -639,14 +641,20 @@ def _spread(count: int, want: int) -> list[int]:
     return [min(count - 1, int((index + 0.5) * step)) for index in range(kept)]
 
 
-def _slur(events: list[NoteEvent], phrases: tuple[Phrase, ...]) -> list[NoteEvent]:
+def _slur(
+    events: list[NoteEvent],
+    phrases: tuple[Phrase, ...],
+    *,
+    skip_bars: set[int] | None = None,
+) -> list[NoteEvent]:
     """Hammer rarely, and only onto a stressed note after the opening phrase.
 
     The nylon voice plays a slur as a left-hand hammer. A leap, a rest, a new
     phrase, an unstressed step, a tremolo sixteenth, and anything in the first
     phrase stay plucked. A stress is the phrase apex (or an accented attack
     already carrying the apex velocity). The kept steps are spread through
-    the eligible stresses, capped under one attack in twenty.
+    the eligible stresses, capped under one attack in twenty. Notes in
+    `skip_bars` stay plucked too: a Preludio canto is never a hammer-on.
     """
     result = list(events)
     apex = _apex_eighths(phrases)
@@ -693,6 +701,9 @@ def _slur(events: list[NoteEvent], phrases: tuple[Phrase, ...]) -> list[NoteEven
             or (right_first.velocity or 0) >= _MELODY_APEX
         )
         held_step = left_last.duration_beats >= 0.5 and right_first.duration_beats >= 0.5
+        blocked = bool(skip_bars) and any(
+            result[index].bar in skip_bars for index in (*left, *right)
+        )
         if (
             same_phrase
             and target_phrase != 0
@@ -700,6 +711,7 @@ def _slur(events: list[NoteEvent], phrases: tuple[Phrase, ...]) -> list[NoteEven
             and held_step
             and 1 <= interval <= 2
             and touches
+            and not blocked
         ):
             pairs.append((left[0], right[0]))
             cursor += 2

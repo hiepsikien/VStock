@@ -37,9 +37,9 @@ from app.sonify.session import VN, is_session_closed
 logger = logging.getLogger(__name__)
 
 # Bump when the score or the sound changes, so old files are not replayed.
-RECAP_REVISION = "35"
+RECAP_REVISION = "41"
 # Long-form files live beside the daily recap and use their own revision.
-SPAN_REVISION = "21"
+SPAN_REVISION = "27"
 PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
@@ -909,28 +909,35 @@ def _raise_if_cancelled_killing(process: subprocess.Popen[str]) -> None:
         raise RecapCancelled("export cancelled")
 
 
-def _transcode_m4a(wav_path: Path, m4a_path: Path) -> bool:
+# Dry MS Basic nylon. A short high shelf, three early reflections, and a
+# slight widening stand in for the glass of a cathedral dome.
+_GUITAR_HALL = "highshelf=f=4200:g=2.5,aecho=0.88:0.82:38|67|105:0.20|0.14|0.09,extrastereo=m=1.18"
+
+
+def _ffmpeg_aac(ffmpeg: str, wav_path: Path, m4a_path: Path, audio_filter: str | None) -> bool:
+    command = [ffmpeg, "-y", "-i", str(wav_path)]
+    if audio_filter:
+        command.extend(["-af", audio_filter])
+    command.extend(["-c:a", "aac", "-b:a", "160k", str(m4a_path)])
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return completed.returncode == 0 and m4a_path.is_file() and m4a_path.stat().st_size > 64
+
+
+def _transcode_m4a(wav_path: Path, m4a_path: Path, *, variant: str | None = None) -> bool:
+    del variant
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
         return False
-    completed = subprocess.run(
-        [
-            ffmpeg,
-            "-y",
-            "-i",
-            str(wav_path),
-            "-c:a",
-            "aac",
-            "-b:a",
-            "160k",
-            str(m4a_path),
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    return completed.returncode == 0 and m4a_path.is_file() and m4a_path.stat().st_size > 64
+    return _ffmpeg_aac(ffmpeg, wav_path, m4a_path, None)
 
 
 class RecapStore:
@@ -1176,7 +1183,7 @@ class RecapStore:
             map_duration = musical if 0 < musical <= duration else duration
             joined_path = wav_path
             m4a_tmp = work / f"{stem}.m4a"
-            if _transcode_m4a(joined_path, m4a_tmp):
+            if _transcode_m4a(joined_path, m4a_tmp, variant=variant):
                 audio_path = self._publish(m4a_tmp, self._span_dir() / f"{stem}.m4a")
                 joined_path.unlink(missing_ok=True)
             else:
@@ -1296,7 +1303,7 @@ class RecapStore:
             # follows the written piece, then rests on the close during that tail.
             map_duration = musical if 0 < musical <= duration else duration
             m4a_tmp = work / f"{key}.m4a"
-            if _transcode_m4a(wav_path, m4a_tmp):
+            if _transcode_m4a(wav_path, m4a_tmp, variant=variant):
                 audio_path = self._publish(m4a_tmp, self.root / f"{key}.m4a")
                 wav_path.unlink(missing_ok=True)
             else:

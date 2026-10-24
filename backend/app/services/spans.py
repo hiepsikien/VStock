@@ -17,7 +17,7 @@ from app.services.sessions import (
     fetch_ohlc,
     payload_truncated,
 )
-from app.sonify.audio import SpanAsset, RecapCancelled, RecapUnavailable, recap_store
+from app.sonify.audio import SPAN_REVISION, SpanAsset, RecapCancelled, RecapUnavailable, recap_store
 from app.sonify.model import Ensemble, Variant
 from app.sonify.session import coarse_bars, samples_from_ohlc, session_bars, session_dates
 from app.sonify.span import (
@@ -56,7 +56,7 @@ def movement_audio_path(
     return (
         f"/v1/stocks/{symbol}/span/audio.m4a"
         f"?range={span}&movement={index}&variant={variant}"
-        f"&candles={movement.candle_count}&scale={fingerprint}{extra}"
+        f"&candles={movement.candle_count}&scale={fingerprint}&r={SPAN_REVISION}{extra}"
     )
 
 

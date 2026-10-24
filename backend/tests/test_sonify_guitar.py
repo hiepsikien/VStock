@@ -20,7 +20,7 @@ from app.sonify.guitar import (
     guard_chromatic_approach,
     render_guitar_score,
 )
-from app.sonify.keys import C_KEY, D_KEY, compose_register, register_for
+from app.sonify.keys import C_KEY, D_KEY, compose_register, movement_character, register_for
 from app.sonify.model import Bar, NoteEvent, Phrase, Run, Score
 from app.sonify.musicxml import score_to_musicxml
 from app.sonify.phrasing import MIN_RISE
@@ -66,8 +66,11 @@ def test_barrios_prints_mp_for_the_fill_and_the_thumb() -> None:
 def test_guitar_rejects_a_foreign_ensemble() -> None:
     assert ensemble_for("guitar", "villa") == "villa"
     assert ensemble_for("guitar", "barrios") == "barrios"
+    assert ensemble_for("guitar", "brouwer") == "brouwer"
     with pytest.raises(ValueError):
         ensemble_for("guitar", "wood")
+    with pytest.raises(ValueError):
+        ensemble_for("symphony", "brouwer")
 
 
 def test_written_bounds_move_both_ways_with_the_key() -> None:
@@ -1704,7 +1707,7 @@ def _frame_score(
     body: int = 4,
 ):
     """Intro and outro of `frame` bars around a short body, with the form attached."""
-    bpm = {"classic": 88, "villa": 100, "barrios": 120}[ensemble]
+    bpm = {"classic": 88, "villa": 100, "barrios": 120, "brouwer": 108}[ensemble]
     epb = 8
     phrases = (
         _held(0, frame * epb, 67),
@@ -2182,3 +2185,876 @@ def test_a_later_tremolo_bar_breathes_and_the_first_bar_stays_locked() -> None:
     # thumb > m > i > a still holds after the breath.
     assert 60 > later[1] > later[2] > later[0]
     _assert_engraved(score, {0: "barrios_preludio", 1: "barrios_tremolo", 2: "barrios_tremolo"})
+
+
+def test_one_day_character_hears_a_hose_session() -> None:
+    """0.45% separates a rally from a selloff. A 1.35% range with no trend is volatile."""
+    assert movement_character([100.0, 100.4, 100.8], "1D") == "rally"
+    assert movement_character([100.0, 99.6, 99.2], "1D") == "selloff"
+    # The close sits in the middle of a 1.8% range, so the day is not a trend.
+    assert movement_character([100.0, 101.8, 100.2], "1D") == "volatile"
+    assert movement_character([100.0, 100.1, 100.2], "1D") == "calm"
+    # The old 1.2% cut called each of these calm. They are ordinary HOSE days.
+    assert movement_character([100.0, 99.11], "1D") == "selloff"
+    assert movement_character([100.0, 100.90], "1D") == "rally"
+    assert movement_character([100.0, 99.48], "1D") == "selloff"
+
+
+def test_sor_galop_and_mozart_variations_and_the_op9_overture() -> None:
+    galop = _frame_score("classic", 2)
+    bass = _pitched(galop.low, 2)
+    assert [round(note.beat, 2) for note in bass] == [0.0, 2.0]
+    assert all(note.staccato and abs(note.duration_beats - 1.0) < 1e-9 for note in bass)
+    assert bass[0].accent
+    inner = _pitched(galop.support, 2)
+    assert [round(note.beat, 2) for note in inner] == [0.5, 1.0, 2.5, 3.0]
+    assert all(note.staccato and note.accent for note in inner)
+    assert len({note.midi for note in inner}) == 2
+    lead = _pitched(galop.lead, 2)
+    downbeat = next(note for note in lead if note.beat == 0.0)
+    sparkle = next(note for note in lead if abs(note.beat - 0.5) < 1e-9)
+    assert sparkle.staccato and sparkle.midi is not None and downbeat.midi is not None
+    assert sparkle.midi > downbeat.midi
+    assert _sixteenths(galop.lead, 2) == []
+    assert_playable(galop, C_KEY, "study")
+
+    mozart = _frame_score("classic", 2, character="volatile")
+    halves = _pitched(mozart.low, 2)
+    assert [round(note.beat, 2) for note in halves] == [0.0, 2.0]
+    assert all(abs(note.duration_beats - 2.0) < 1e-9 and not note.staccato for note in halves)
+    counter = _pitched(mozart.support, 2)
+    assert [round(note.beat, 2) for note in counter] == [0.5, 1.0, 1.5, 2.5, 3.0, 3.5]
+    steps = [right.midi - left.midi for left, right in zip(counter, counter[1:]) if left.midi and right.midi]
+    assert steps and all(0 < abs(step) <= 2 for step in steps)
+    assert_playable(mozart, C_KEY, "study")
+
+    overture = galop
+    tonic = _pitched(overture.lead, 0)
+    assert [round(note.beat, 2) for note in tonic] == [0.0, 1.5, 2.0, 3.5]
+    assert [round(note.duration_beats, 2) for note in tonic] == [1.5, 0.5, 1.5, 0.5]
+    assert all(note.staccato for note in tonic if note.duration_beats <= 0.5)
+    assert all(note.velocity is not None and note.velocity <= 52 for note in tonic)
+    assert {note.voice for note in (*_pitched(overture.lead, 0), *_pitched(overture.support, 0), *_pitched(overture.low, 0)) if note.beat == 0.0} == {1, 2, 3}
+    scale = [note.midi for note in _pitched(overture.lead, 1) if note.beat >= 2.0]
+    assert len(scale) >= 3
+    assert scale == sorted(scale)
+    dominant = [note for note in _pitched(overture.low, 1) if note.beat < 3]
+    assert {0.0, 1.5, 2.0} <= {round(note.beat, 2) for note in dominant}
+    assert any(note.staccato and note.duration_beats <= 0.5 for note in dominant)
+
+    long = _frame_score("classic", 4)
+    assert any(note.staccato for note in _pitched(long.lead, 0))
+    lyric = _pitched(long.support, 1)
+    assert len(lyric) >= 2
+    assert all(note.midi is not None and note.midi < _pitched(long.lead, 1)[0].midi for note in lyric)
+    flourish = [note.midi for note in _pitched(long.lead, 3) if note.beat >= 2.0]
+    assert len(flourish) >= 3 and flourish == sorted(flourish)
+
+
+def _suite(movement: int, ensemble: str, *, character: str = "rally"):
+    from app.sonify.span import attach_frame, month_specs
+
+    form = attach_frame(month_specs("guitar")[movement], "1M")
+    return render(_bars(), title="Guitar", variant="guitar", ensemble=ensemble, form=form, character=character)  # type: ignore[arg-type]
+
+
+def _attack_onsets(voice, bar: int) -> list[float]:
+    return sorted(
+        round(note.beat, 2)
+        for note in voice
+        if note.bar == bar and note.midi is not None and not note.tie_stop
+    )
+
+
+_CATEDRAL_SUPPORT_44 = [0.25, 0.5, 0.75, 1.0, 1.25, 1.75, 2.25, 2.5, 2.75, 3.0, 3.25, 3.75]
+_CATEDRAL_LEAD_44 = [(0.0, 1.5), (1.5, 0.5), (2.0, 1.5), (3.5, 0.5)]
+
+
+def _assert_catedral_wave(notes: list[NoteEvent]) -> None:
+    """V of three inner tones, or a two-tone line whose neighbours always change."""
+    pitches = [note.midi for note in notes if note.midi is not None]
+    assert len(pitches) == 6
+    if len(set(pitches[:5])) >= 3:
+        upper, mid, low, mid_again, upper_again, last = pitches
+        assert low < mid < upper
+        assert mid_again == mid and upper_again == upper
+        assert last in {upper, mid}
+    elif len(set(pitches)) >= 2:
+        assert all(left != right for left, right in zip(pitches, pitches[1:]))
+
+
+def _assert_catedral_shimmer(score, bar: int) -> None:
+    """Canto stays in the warm nylon layer (54..64) right above the soft inner wave (48..55)."""
+    semitones = score.key.semitones
+    floor = 59 - semitones
+    lead = _attacks(score.lead, bar)
+    support = _attacks(score.support, bar)
+    assert lead and support
+    assert all(note.velocity is not None and 54 <= note.velocity <= 64 for note in lead)
+    assert all(note.velocity is not None and 48 <= note.velocity <= 55 for note in support)
+    assert all(note.midi is not None and note.midi >= floor for note in lead)
+    for voice in (score.lead, score.support, score.low):
+        assert not any(note.slur_start or note.slur_stop for note in voice if note.bar == bar)
+    for beat in {round(note.beat, 2) for note in support}:
+        canto = _covering(score.lead, bar, beat)
+        inner = _covering(score.support, bar, beat)
+        assert canto is not None and inner is not None
+        assert canto.velocity is not None and inner.velocity is not None
+        assert 2 <= canto.velocity - inner.velocity <= 16
+
+
+def _assert_catedral_44(score, bar: int, *, pitches: list[int] | None = None) -> None:
+    lead = _attacks(score.lead, bar)
+    assert [(round(note.beat, 2), round(note.duration_beats, 2)) for note in lead] == _CATEDRAL_LEAD_44
+    if pitches is not None:
+        assert [note.midi for note in lead] == pitches
+    support = _attacks(score.support, bar)
+    assert [round(note.beat, 2) for note in support] == _CATEDRAL_SUPPORT_44
+    assert all(abs(note.duration_beats - 0.25) < 1e-9 for note in support)
+    onsets = sorted({round(note.beat, 2) for note in (*lead, *support)})
+    assert onsets == [index * 0.25 for index in range(16)]
+    _assert_catedral_wave(support[:6])
+    _assert_catedral_wave(support[6:])
+    for beat in (0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75):
+        sung = _covering(score.lead, bar, beat)
+        inner = _covering(score.support, bar, beat)
+        bass = _covering(score.low, bar, beat)
+        assert sung is not None and inner is not None and bass is not None
+        assert sung.midi is not None and inner.midi is not None and bass.midi is not None
+        assert bass.midi < inner.midi < sung.midi
+    assert all(not note.tenuto and not note.accent for note in lead)
+
+
+def _catedral_score(line: list[int], *, meter=METER_44, bpm: int = 96, bands: dict[int, str] | None = None):
+    """Intro and outro around a calm Barrios body, so the body is framed Preludio."""
+    epb = meter.eighths_per_bar
+    frame = 2
+    body_bars = 4
+    phrases = (
+        _held(0, frame * epb, 67),
+        _from_notes(frame * epb, line * body_bars),
+        _held((frame + body_bars) * epb, frame * epb, 67),
+    )
+    total = frame + body_bars + frame
+    kinds = {
+        bar: ("intro" if bar < frame else "outro" if bar >= frame + body_bars else "phrase")
+        for bar in range(total)
+    }
+    sections = (
+        FormSection(0, frame, "intro", 0),
+        FormSection(frame, frame + body_bars, "phrase", 0),
+        FormSection(frame + body_bars, total, "outro", 0),
+    )
+    return _guitar(
+        phrases,
+        ensemble="barrios",
+        bpm=bpm,
+        meter=meter,
+        character="calm",
+        kinds=kinds,
+        sections=sections,
+        bands=bands,
+    )
+
+
+def test_suite_movements_use_preludio_dances_tremolo_and_villa_chorale() -> None:
+    opening = _suite(0, "barrios")
+    assert opening.bpm == 96 and opening.divisions == 4
+    ringing = [
+        bar
+        for bar in range(8, 40)
+        if any(note.duration_beats >= 3.5 for note in _pitched(opening.low, bar))
+        and len(_attack_onsets(opening.support, bar)) >= 8
+    ]
+    assert len(ringing) >= 10
+    for bar in ringing:
+        _assert_catedral_44(opening, bar)
+
+    moderate = [Bar(close=100 + (index % 9) * 0.1, volume=1000 + index) for index in range(48)]
+    day = render(moderate, title="Guitar", variant="guitar", ensemble="barrios", character="rally")
+    assert day.bpm == 120 and day.bars == 34
+    assert any(note.duration_beats >= 3.5 for note in _pitched(day.low, 4))
+    assert len(_attack_onsets(day.support, 4)) >= 8
+
+    choppy = [Bar(close=100.0 if index % 2 == 0 else 100.5, volume=1000 + index) for index in range(240)]
+    dance = render(choppy, title="Guitar", variant="guitar", ensemble="barrios", character="volatile")
+    assert _attack_onsets(dance.low, 4) == [0.0, 1.0, 2.0, 3.0]
+    assert {0.75, 1.75} <= set(_attack_onsets(dance.support, 4))
+    assert sum(1 for note in _pitched(dance.lead, 4) if abs(note.duration_beats - 0.25) < 1e-9) < 8
+
+    wide = render(_bars(), title="Guitar", variant="guitar", ensemble="barrios", character="rally")
+    assert sum(1 for note in _pitched(wide.lead, 4) if abs(note.duration_beats - 0.25) < 1e-9) >= 12
+
+    scherzo = _suite(2, "barrios")
+    assert scherzo.bpm == 120 and scherzo.beat_type == 8
+    polca = next(note for note in _pitched(scherzo.low, 12) if abs(note.beat - 1.5) < 1e-9)
+    assert polca.accent and 2.0 not in _attack_onsets(scherzo.low, 12)
+    vals = next(note for note in _pitched(scherzo.low, 40) if abs(note.beat - 2.0) < 1e-9)
+    assert vals.accent and abs(vals.duration_beats - 0.25) < 1e-9
+
+    finale = _suite(3, "barrios")
+    assert finale.bpm == 96
+    tremolo_bars = sum(
+        1
+        for bar in range(10, 40)
+        if sum(1 for note in _pitched(finale.lead, bar) if abs(note.duration_beats - 0.25) < 1e-9) >= 12
+    )
+    assert tremolo_bars >= 20
+
+    slow = _suite(1, "villa")
+    assert slow.bpm == 72 and slow.beats == 3 and slow.divisions == 2
+    assert 0.0 in _attack_onsets(slow.lead, 12)
+    assert 0.0 not in _attack_onsets(slow.lead, 48)
+    assert _attack_onsets(slow.lead, 48) == _attack_onsets(slow.support, 48) == [1.0, 2.0]
+
+
+def test_la_catedral_preludio_interlocks_two_high_melody_notes_with_sixteenth_arpeggio() -> None:
+    # Strong beats stay chord tones so quantize leaves them. The other canto
+    # notes are the 4th eighth of each 2-beat cell (index 3 and index 7).
+    line = [72, 69, 67, 74, 76, 74, 72, 72]
+    score = _catedral_score(line)
+    assert score.divisions == 4
+    for bar in (2, 3, 4, 5):
+        _assert_catedral_44(score, bar, pitches=[72, 74, 76, 72])
+        support = _attacks(score.support, bar)
+        assert {note.midi % 12 for note in support if note.midi is not None} <= {0, 4, 7}
+        canto = _covering(score.lead, bar, 0.25)
+        inner = _covering(score.support, bar, 0.25)
+        assert canto is not None and inner is not None
+        assert canto.velocity is not None and inner.velocity is not None
+        assert canto.velocity > inner.velocity
+        _assert_catedral_shimmer(score, bar)
+    # The pedal still rings for two bars. The last body bar keeps the wave
+    # under the pickup bass.
+    assert _onset_beats(score.low, 2) == [0.0]
+    assert all(note.tie_stop for note in score.low if note.bar == 3 and note.midi is not None)
+    assert 3.75 in _onsets(score.support, 5)
+    assert_playable(score, C_KEY, "barrios_preludio")
+    score_to_musicxml(score)
+
+    # 3/4 keeps the 8-sixteenth cell, then one descending group on beat 3.
+    three = _catedral_score([72, 69, 67, 74, 76, 74], meter=METER_34)
+    for bar in (2, 3):
+        lead = _attacks(three.lead, bar)
+        assert [(round(note.beat, 2), round(note.duration_beats, 2)) for note in lead] == [
+            (0.0, 1.5),
+            (1.5, 0.5),
+            (2.0, 1.0),
+        ]
+        assert [note.midi for note in lead] == [72, 74, 76]
+        support = _attacks(three.support, bar)
+        assert [round(note.beat, 2) for note in support] == [
+            0.25,
+            0.5,
+            0.75,
+            1.0,
+            1.25,
+            1.75,
+            2.25,
+            2.5,
+            2.75,
+        ]
+        assert all(abs(note.duration_beats - 0.25) < 1e-9 for note in support)
+        onsets = sorted({round(note.beat, 2) for note in (*lead, *support)})
+        assert onsets == [index * 0.25 for index in range(12)]
+        _assert_catedral_wave(support[:6])
+        tail = [note.midi for note in support[6:] if note.midi is not None]
+        assert tail[0] >= tail[1] >= tail[2]
+        if len(set(tail)) >= 3:
+            assert tail[0] > tail[1] > tail[2]
+        _assert_catedral_shimmer(three, bar)
+    assert_playable(three, C_KEY, "barrios_preludio")
+    score_to_musicxml(three)
+
+    # A low C4–E4 canto keeps its natural placed register while staying above the soft inner wave.
+    hush_line = [60, 62, 64, 60, 64, 62, 60, 62]
+    hush = _catedral_score(hush_line, bands={bar: "p" for bar in range(8)})
+    for bar in (2, 3, 4, 5):
+        _assert_catedral_44(hush, bar)
+        _assert_catedral_shimmer(hush, bar)
+        sung = [note.midi for note in _attacks(hush.lead, bar)]
+        assert sung == [60, 60, 64, 62]
+    assert_playable(hush, C_KEY, "barrios_preludio")
+    score_to_musicxml(hush)
+
+    opening = _suite(0, "barrios")
+    assert opening.bpm == 96 and opening.divisions == 4
+    pure = list(range(8, 40))
+    for bar in pure:
+        _assert_catedral_44(opening, bar)
+        _assert_catedral_shimmer(opening, bar)
+    waved = sum(
+        1
+        for bar in pure
+        if len({note.midi for note in _attacks(opening.support, bar)[:5] if note.midi is not None}) >= 3
+    )
+    assert waved >= 1
+    assert_playable(opening, C_KEY, "barrios_preludio")
+    score_to_musicxml(opening)
+
+
+def _brouwer_pattern(melody: list[int], **kwargs):
+    bars = len(melody) // kwargs.get("meter", METER_44).eighths_per_bar
+    chords = kwargs.pop("chords", None) or {bar: C for bar in range(bars)}
+    return _pattern_score(
+        melody,
+        (_joined(0, melody),),
+        ensemble="brouwer",
+        bpm=kwargs.pop("bpm", 108),
+        bands=kwargs.pop("bands", None) or {bar: "mf" for bar in range(bars)},
+        chords=chords,
+        character=kwargs.pop("character", "rally"),
+        rel_span=0.0,
+        **kwargs,
+    )
+
+
+def test_brouwer_renders_one_nylon_part_at_108() -> None:
+    from app.sonify.guitar import GUITAR_BPM
+
+    assert GUITAR_BPM["brouwer"] == 108
+    score = render(_bars(), title="Guitar", variant="guitar", ensemble="brouwer")  # type: ignore[arg-type]
+    assert score.bpm == 108
+    assert score.ensemble == "brouwer"
+    assert score.divisions == 2
+    xml = score_to_musicxml(score)
+    assert xml.count("<score-part ") == 1
+    assert xml.count("<part ") == 1
+    assert "<part-name>Acoustic Nylon</part-name>" in xml
+    assert "<midi-program>25</midi-program>" in xml
+    _assert_score_covers(score, 8)
+    assert_playable(score, C_KEY, "brouwer")
+    _assert_engraved(score, "brouwer")
+
+
+def test_brouwer_dialect_planes_suspensions_and_the_minor_flat_seven() -> None:
+    from app.sonify.chords import AM7, BF, BF7, BM7B5, CM, CMAJ7, DM7B5, E7, EF, EFMAJ7, F, FM
+    from app.sonify.harmony import BROUWER, COMMON, VILLA, dialect_for
+
+    assert dialect_for("brouwer") is BROUWER
+    assert dialect_for("classic") is COMMON
+    major = {chord.name for chord in BROUWER.extra("major")}
+    minor = {chord.name for chord in BROUWER.extra("minor")}
+    assert major == {"Csus2", "Dsus2", "Esus4", "Fsus2", "G7sus4", "Bbsus2", "Ebsus2"}
+    assert minor == major - {"Dsus2", "Esus4", "Bbsus2"} | {"Dsus4", "Cmadd9", "Fmadd9", "Bb", "Bb7", "D7"}
+
+    def named(mode: str, name: str):
+        return next(chord for chord in BROUWER.extra(mode) if chord.name == name)
+
+    csus2 = named("major", "Csus2")
+    bbsus2 = named("major", "Bbsus2")
+    fsus2 = named("major", "Fsus2")
+    ebsus2 = named("major", "Ebsus2")
+    for left, right in ((csus2, bbsus2), (bbsus2, fsus2), (fsus2, ebsus2)):
+        assert BROUWER.transition(left, right, "major") == 0.32
+        assert BROUWER.transition(right, left, "major") == 0.32
+    fmadd9 = named("minor", "Fmadd9")
+    g7sus4 = named("minor", "G7sus4")
+    for left, right in (
+        (FM, BF),
+        (FM, BF7),
+        (fmadd9, BF),
+        (fmadd9, BF7),
+        (BF, EF),
+        (BF, EFMAJ7),
+        (BF7, EF),
+        (BF7, EFMAJ7),
+        (EF, g7sus4),
+        (EFMAJ7, g7sus4),
+        (g7sus4, CM),
+    ):
+        assert BROUWER.transition(left, right, "minor") == 0.42
+    assert BROUWER.transition(BF, CM, "minor") == 0.0
+    assert BROUWER.transition(C, F, "major") is None
+    assert BROUWER.transition(C, csus2, "major") == 0.30
+    assert BROUWER.transition(csus2, C, "major") == 0.40
+    assert BROUWER.transition(csus2, csus2, "major") == 0.0
+    assert BROUWER.color_credit(csus2, frozenset({2}), C) == 0.65
+    assert BROUWER.color_credit(csus2, frozenset({0, 7}), C) == 0.0
+    assert BROUWER.color_credit(csus2, frozenset({2}), F) == 0.0
+    assert BROUWER.is_parent(C, csus2, "major")
+    assert BROUWER.shares_root(C, csus2)
+    assert not BROUWER.shares_root(C, F)
+    assert not BROUWER.allowed(csus2, pedal=True, phrase_downbeat=False, character="calm", mode="major")
+    assert BROUWER.allowed(C, pedal=True, phrase_downbeat=False, character="calm", mode="major")
+    assert not BROUWER.allowed(bbsus2, pedal=False, phrase_downbeat=True, character="rally", mode="major")
+    cadd9 = next(chord for chord in VILLA.extra("major") if chord.name == "Cadd9")
+    esus4 = named("major", "Esus4")
+    assert BROUWER.bias(CMAJ7, "calm", "major") == -0.06
+    assert BROUWER.bias(AM7, "rally", "major") == -0.06
+    assert BROUWER.bias(csus2, "calm", "major") == -0.06
+    assert BROUWER.bias(cadd9, "rally", "major") == -0.06
+    assert BROUWER.bias(g7sus4, "volatile", "minor") == -0.07
+    assert BROUWER.bias(esus4, "selloff", "major") == -0.07
+    for chord in (BF7, BM7B5, DM7B5, E7):
+        assert BROUWER.bias(chord, "volatile", "minor") == -0.07
+    assert BROUWER.bias(CMAJ7, "volatile", "major") == 0.0
+    assert BROUWER.bias(esus4, "calm", "major") == 0.0
+
+
+def test_noviembre_sings_over_a_two_beat_pulse_and_a_walking_pickup() -> None:
+    held = _brouwer_pattern([72] * 8, character="calm")
+    assert _onset_beats(held.low, 0) == [0.0, 2.0]
+    assert _onset_beats(held.support, 0) == [0.5, 1.0, 1.5, 2.5, 3.0]
+    assert {note.velocity for note in _attacks(held.lead, 0)} == {64}
+    _assert_engraved(held, "brouwer")
+
+    walking = _pattern_score(
+        [72] * 16,
+        (_joined(0, [72] * 16),),
+        ensemble="brouwer",
+        bpm=108,
+        chords={0: C, 1: F},
+        character="calm",
+        rel_span=0.0,
+    )
+    assert 3.5 in _onset_beats(walking.low, 0)
+    pulse = next(note for note in _attacks(walking.low, 0) if abs(note.beat - 2.0) < 1e-6)
+    pickup = next(note for note in _attacks(walking.low, 0) if abs(note.beat - 3.5) < 1e-6)
+    assert pulse.velocity is not None and pickup.velocity is not None
+    assert pickup.velocity < pulse.velocity
+    _assert_engraved(walking, "brouwer")
+
+    rising = [67, 69, 71, 72, 74, 72, 71, 69]
+    sung = _brouwer_pattern(rising, character="calm")
+    lead = _attacks(sung.lead, 0)
+    assert lead[0].velocity == 60
+    assert any(note.velocity == 72 for note in lead)
+    assert lead[-1].velocity is not None and lead[-1].velocity < 72
+    _assert_engraved(sung, "brouwer")
+
+
+def test_brouwer_etude_plays_the_cuban_tumbao() -> None:
+    score = _brouwer_pattern([72] * 8, character="rally")
+    bass = _attacks(score.low, 0)
+    assert [round(note.beat, 2) for note in bass] == [0.0, 1.5, 3.0]
+    assert [round(note.duration_beats, 2) for note in bass] == [1.5, 1.5, 1.0]
+    assert bass[0].accent
+    for beat in (0.5, 1.0, 2.0, 2.5, 3.5):
+        assert beat in _onset_beats(score.support, 0)
+    assert any(note.duration_beats >= 1.0 for note in score.support if note.midi is not None)
+    _assert_engraved(score, "brouwer")
+
+    six = _brouwer_pattern([72] * 6, character="rally", meter=METER_68)
+    six_bass = _attacks(six.low, 0)
+    assert [round(note.beat, 2) for note in six_bass] == [0.0, 1.0, 2.0]
+    assert [round(note.duration_beats, 2) for note in six_bass] == [1.0, 1.0, 1.0]
+    _assert_engraved(six, "brouwer")
+
+    three = _brouwer_pattern([72] * 6, character="rally", meter=METER_34)
+    three_bass = _attacks(three.low, 0)
+    assert [round(note.beat, 2) for note in three_bass] == [0.0, 1.5]
+    assert [round(note.duration_beats, 2) for note in three_bass] == [1.5, 1.5]
+    _assert_engraved(three, "brouwer")
+
+
+def test_elogio_pizz_stabs_and_slaps_the_offbeat() -> None:
+    score = _brouwer_pattern([72] * 8, character="volatile", bands={0: "mf"})
+    bass = _attacks(score.low, 0)
+    assert [round(note.beat, 2) for note in bass] == [0.0, 1.0, 1.5, 2.5, 3.0]
+    assert all(note.staccato for note in bass)
+    slap = next(note for note in bass if abs(note.beat - 1.5) < 1e-6)
+    assert slap.accent and slap.staccato
+    assert slap.velocity is not None and bass[0].velocity is not None
+    assert slap.velocity > bass[0].velocity
+    lead = _attacks(score.lead, 0)
+    lead_slap = next(note for note in lead if abs(note.beat - 1.5) < 1e-6)
+    assert lead_slap.accent and lead_slap.staccato
+    assert lead_slap.velocity is not None and lead[0].velocity is not None
+    assert lead_slap.velocity > lead[0].velocity
+    _assert_engraved(score, "brouwer")
+
+
+def test_sarabande_accents_beat_two_and_swarms_when_the_line_rises() -> None:
+    flat = _brouwer_pattern([72] * 8, character="selloff")
+    assert [round(note.beat, 2) for note in _attacks(flat.lead, 0)] == [0.0, 1.0]
+    for voice in (flat.low, flat.support, flat.lead):
+        accented = [note for note in _attacks(voice, 0) if abs(note.beat - 1.0) < 1e-6]
+        assert len(accented) == 1
+        assert accented[0].accent and not accented[0].staccato
+    assert all(note.beat < 2 for note in _attacks(flat.lead, 0))
+    _assert_engraved(flat, "brouwer")
+
+    rising = [64, 65, 67, 69, 71, 72, 74, 76]
+    swarm = _brouwer_pattern(rising, character="selloff")
+    later = [note.midi for note in _attacks(swarm.lead, 0) if note.midi is not None and note.beat >= 2 - 1e-6]
+    diffs = [abs(right - left) for left, right in zip(later, later[1:])]
+    assert len(later) >= 4
+    assert diffs and max(diffs) <= 2
+    assert any(diff in {1, 2} for diff in diffs)
+    _assert_engraved(swarm, "brouwer")
+
+    slow = _brouwer_pattern([72] * 8, character="rally", bpm=72)
+    assert any(note.accent and abs(note.beat - 1.0) < 1e-6 for note in _attacks(slow.low, 0))
+    assert [round(note.beat, 2) for note in _attacks(slow.low, 0)] == [0.0, 1.0]
+    quiet = _brouwer_pattern([72] * 8, character="calm", bpm=60)
+    assert _onset_beats(quiet.low, 0) == [0.0, 2.0]
+    _assert_engraved(slow, "brouwer")
+    _assert_engraved(quiet, "brouwer")
+
+
+def test_brouwer_trio_answers_the_tumbao_with_noviembre() -> None:
+    epb = 8
+    regions = (
+        (0, 2, "intro", False),
+        (2, 6, "phrase", False),
+        (6, 10, "phrase", True),
+        (10, 14, "phrase", False),
+        (14, 16, "outro", False),
+    )
+    phrases = tuple(_held(start * epb, (end - start) * epb, 67) for start, end, _kind, _trio in regions)
+    sections = tuple(FormSection(start, end, kind, 0, trio=trio) for start, end, kind, trio in regions)
+    kinds = {bar: ("intro" if bar < 2 else "outro" if bar >= 14 else "phrase") for bar in range(16)}
+    score = _guitar(
+        phrases,
+        ensemble="brouwer",
+        bpm=108,
+        character="rally",
+        kinds=kinds,
+        sections=sections,
+    )
+    assert [round(note.beat, 2) for note in _attacks(score.low, 3)] == [0.0, 1.5, 3.0]
+    assert _onset_beats(score.low, 7) == [0.0, 2.0]
+    assert_playable(score, C_KEY, "brouwer")
+    _assert_engraved(score, "brouwer")
+
+
+def test_brouwer_frames_for_lyric_and_edge_modes() -> None:
+    lyric = _frame_score("brouwer", 2, character="rally")
+    assert _onset_beats(lyric.low, 0) == [0.0]
+    assert _pitched(lyric.lead, 0) == []
+    assert all(note.velocity is not None and note.velocity <= 50 for note in _pitched(lyric.low, 0))
+    assert all(note.duration_beats >= 3 for note in _pitched(lyric.low, 0))
+    assert len(_attacks(lyric.lead, 1)) >= 4
+    final = _pitched(lyric.lead, lyric.bars - 1)
+    assert final and all(note.midi >= 76 and note.velocity is not None and note.velocity <= 48 for note in final)
+    assert _pitched(lyric.low, lyric.bars - 1)
+    assert any(note.duration_beats >= 3 for note in _pitched(lyric.low, lyric.bars - 1))
+    _assert_under_apex(lyric, (0, 1, lyric.bars - 2, lyric.bars - 1))
+    _assert_engraved(lyric, "brouwer")
+
+    lyric_long = _frame_score("brouwer", 4, character="calm")
+    opening = _attacks(lyric_long.lead, 0)
+    assert len(opening) == 1 and opening[0].midi >= 76 and opening[0].velocity is not None
+    assert opening[0].velocity <= 48
+    assert _pitched(lyric_long.low, 0) == []
+    assert 0.0 in _onset_beats(lyric_long.low, 1)
+    assert len(_attacks(lyric_long.support, 1)) >= 2
+    assert len([note for note in _attacks(lyric_long.lead, 3) if note.beat >= 2]) >= 3
+    assert len(_attacks(lyric_long.low, lyric_long.bars - 3)) >= 2
+    farewell = _pitched(lyric_long.lead, lyric_long.bars - 1)
+    assert farewell and any(note.midi >= 76 and note.velocity is not None and note.velocity <= 48 for note in farewell)
+    assert _pitched(lyric_long.low, lyric_long.bars - 1)
+    _assert_under_apex(lyric_long, (0, 1, 2, 3, lyric_long.bars - 4, lyric_long.bars - 1))
+    _assert_engraved(lyric_long, "brouwer")
+
+    edge = _frame_score("brouwer", 2, character="volatile")
+    assert any(note.staccato and note.accent for note in (*edge.lead, *edge.support, *edge.low) if note.bar == 0)
+    assert _pitched(edge.low, 0)
+    assert len([note for note in _attacks(edge.lead, 1) if note.staccato]) >= 4
+    penultimate = edge.bars - 2
+    offbeat = [note for note in _attacks(edge.lead, penultimate) if note.staccato and note.beat > 0]
+    assert len(offbeat) >= 2
+    last = edge.bars - 1
+    stab = [note for note in (*_attacks(edge.lead, last), *_attacks(edge.low, last)) if abs(note.beat) < 1e-6]
+    assert stab and all(note.staccato and note.accent for note in stab)
+    assert any(
+        note.velocity is not None and note.velocity <= 48 and note.beat >= 1
+        for note in _pitched(edge.lead, last)
+    )
+    _assert_under_apex(edge, (0, 1, penultimate, last))
+    _assert_engraved(edge, "brouwer")
+
+    edge_long = _frame_score("brouwer", 4, character="selloff")
+    pluck = _attacks(edge_long.low, 0)
+    assert len(pluck) == 1 and pluck[0].staccato and pluck[0].accent
+    assert pluck[0].duration_beats <= 0.5
+    assert len(_attacks(edge_long.low, 1)) >= 2
+    assert all(note.duration_beats >= 1 for note in _attacks(edge_long.low, 1))
+    assert any(note.staccato and abs(note.beat - 0.5) < 1e-6 for note in _attacks(edge_long.lead, 2))
+    second_half = [note for note in _attacks(edge_long.lead, 3) if note.beat >= 2]
+    first_half = [note for note in _attacks(edge_long.lead, 3) if note.beat < 2]
+    assert len(second_half) >= 4 and len(second_half) > len(first_half)
+    outro = edge_long.bars - 4
+    sparse = _attacks(edge_long.lead, outro)
+    assert 1 <= len(sparse) <= 3
+    assert sparse[-1].velocity is not None and sparse[0].velocity is not None
+    assert sparse[-1].velocity < sparse[0].velocity
+    assert len(_attacks(edge_long.lead, outro + 1)) >= 4
+    assert any(note.duration_beats >= 2 for note in _pitched(edge_long.low, outro + 2))
+    ending = _attacks(edge_long.low, outro + 3)
+    assert ending and ending[0].staccato and ending[0].accent and ending[0].midi <= 48
+    _assert_under_apex(edge_long, (0, 1, 2, 3, outro, outro + 3))
+    _assert_engraved(edge_long, "brouwer")
+
+    for character in ("rally", "volatile"):
+        compressed = _frame_score("brouwer", 1, character=character)
+        assert_playable(compressed, C_KEY, "brouwer")
+        _assert_engraved(compressed, "brouwer")
+
+
+_SOR_JAZZ = frozenset({
+    "Cmaj7", "Fmaj7", "Am7", "Em7",
+    "Cm7", "Fm7", "Ebmaj7", "Abmaj7",
+})
+_SOR_MAJOR = frozenset({
+    "C", "F", "G", "Am", "Dm", "Em", "G7", "Dm7",
+    "D7", "E7", "A7", "C7", "F#dim7",
+})
+_SOR_MINOR = frozenset({
+    "Cm", "Fm", "Dm7b5", "G", "G7", "Eb", "Ab", "D7", "F#dim7",
+})
+_PEDAL_SECTIONS = frozenset({"intro", "outro", "warmup", "cooldown"})
+
+
+def _sor_bar(downbeat: int, middle: int, other: int) -> list[int]:
+    row = [other] * 8
+    row[0] = downbeat
+    row[4] = middle
+    return row
+
+
+def _sor_plan(
+    bars: list[list[int]],
+    *,
+    mode: str = "major",
+    character: str = "rally",
+    regime: str = "uptrend",
+    kinds: tuple[str, ...] | None = None,
+):
+    from app.sonify.form import FormSection, FormSpec, plan_markov_chords
+    from app.sonify.harmony import SOR
+    from app.sonify.quantize import c_major_scale, c_natural_minor_scale
+
+    if kinds is None:
+        sections = (FormSection(0, len(bars), "phrase", 0),)
+    else:
+        sections = tuple(
+            FormSection(index, index + 1, kind, 0)  # type: ignore[arg-type]
+            for index, kind in enumerate(kinds)
+        )
+    spec = FormSpec(bars=len(bars), bpm=88, sections=sections, borrowed=True)
+    scale = c_natural_minor_scale() if mode == "minor" else c_major_scale()
+    return plan_markov_chords(
+        (regime,) * spec.regime_slots,  # type: ignore[arg-type]
+        [note for bar in bars for note in bar],
+        scale,
+        spec,
+        character=character,  # type: ignore[arg-type]
+        mode=mode,  # type: ignore[arg-type]
+        dialect=SOR,
+    )
+
+
+def _sor_names(score) -> list[str]:
+    return [slot.chord.name for slot in score.slots]
+
+
+def test_guitar_classic_uses_sor_and_symphony_classic_stays_common() -> None:
+    from app.sonify.chords import D7
+    from app.sonify.harmony import COMMON, SOR, VILLA, SorDialect, dialect_for
+
+    assert isinstance(dialect_for("classic", "guitar"), SorDialect)
+    assert dialect_for("classic", "guitar") is SOR
+    assert dialect_for("sor") is SOR
+    assert dialect_for("sor", "guitar") is SOR
+    assert dialect_for("classic") is COMMON
+    assert dialect_for("classic", "symphony") is COMMON
+    assert dialect_for("classic", "jazz") is COMMON
+    assert dialect_for("villa", "guitar") is VILLA
+    assert dialect_for("brass", "guitar") is COMMON
+    assert SOR.extra("major") == ()
+    assert SOR.extra("minor") == (D7,)
+    assert SOR.name == "sor"
+
+
+def test_sor_allows_triads_and_refuses_jazz_sevenths() -> None:
+    from app.sonify.chords import (
+        A7, AF, AFMAJ7, AM, AM7, BF, BM7B5, C, C7, CM, CM7, CMAJ7, D7, DM, DM7,
+        DM7B5, E7, EF, EFMAJ7, EM, EM7, F, FDIM7, FM, FM7, FMAJ7, G, G7, GM,
+    )
+    from app.sonify.harmony import SOR
+
+    def allowed(chord, *, pedal=False, downbeat=False, mode="major") -> bool:
+        return SOR.allowed(
+            chord, pedal=pedal, phrase_downbeat=downbeat, character=None, mode=mode
+        )
+
+    assert allowed(C, pedal=True) is True
+    assert allowed(CM, pedal=True, mode="minor") is True
+    for chord in (CMAJ7, AM7, F, G, G7, AM, DM):
+        assert allowed(chord, pedal=True) is False
+    assert allowed(CM7, pedal=True, mode="minor") is False
+    assert allowed(FM, pedal=True, mode="minor") is False
+
+    for chord in (CMAJ7, FMAJ7, AM7, EM7, AF, EF, BF, GM, FM, BM7B5):
+        assert allowed(chord) is False
+    for chord in (C, F, G, G7, DM, DM7, AM, EM):
+        assert allowed(chord) is True
+    for chord in (D7, E7, A7, C7, FDIM7):
+        assert allowed(chord, downbeat=True) is False
+        assert allowed(chord, downbeat=False) is True
+
+    for chord in (CM7, FM7, EFMAJ7, AFMAJ7):
+        assert allowed(chord, mode="minor") is False
+    for chord in (CM, FM, DM7B5, G, G7, EF, AF):
+        assert allowed(chord, mode="minor") is True
+    for chord in (D7, FDIM7):
+        assert allowed(chord, downbeat=True, mode="minor") is False
+        assert allowed(chord, pedal=True, mode="minor") is False
+        assert allowed(chord, downbeat=False, mode="minor") is True
+
+
+def test_sor_weights_classical_cadences_and_blocks_retrogression() -> None:
+    from app.sonify.chords import (
+        A7, AF, AM, C, C7, CM, D7, DM, DM7, DM7B5, E7, EF, EM, F, FDIM7, FM, G, G7,
+    )
+    from app.sonify.harmony import SOR
+
+    major = {
+        (C, G): 0.28, (C, G7): 0.26, (C, F): 0.28, (C, DM): 0.18, (C, AM): 0.18,
+        (F, G): 0.36, (F, G7): 0.40, (F, C): 0.24, (F, DM): 0.22, (F, DM7): 0.18,
+        (F, D7): 0.18,
+        (DM, G): 0.40, (DM, G7): 0.44, (DM7, G): 0.40, (DM7, G7): 0.46,
+        (G, C): 0.62, (G7, C): 0.68, (G, AM): 0.20, (G7, AM): 0.18,
+        (C, D7): 0.14, (AM, D7): 0.20, (D7, G): 0.52, (D7, G7): 0.48,
+        (C, E7): 0.10, (AM, E7): 0.18, (E7, AM): 0.58,
+        (DM, A7): 0.16, (A7, DM): 0.55,
+        (C, C7): 0.12, (C7, F): 0.58,
+        (F, FDIM7): 0.12, (FDIM7, G): 0.60, (FDIM7, G7): 0.40,
+        (G, F): 0.0, (G7, F): 0.0, (G, DM): 0.0, (G7, DM): 0.0, (G, DM7): 0.0, (G7, DM7): 0.0,
+    }
+    minor = {
+        (CM, FM): 0.34, (CM, G): 0.26, (CM, G7): 0.28, (CM, DM7B5): 0.22,
+        (CM, EF): 0.18, (CM, AF): 0.14,
+        (FM, G): 0.40, (FM, G7): 0.44, (FM, DM7B5): 0.24, (FM, D7): 0.20, (FM, CM): 0.22,
+        (DM7B5, G): 0.44, (DM7B5, G7): 0.48, (DM7B5, D7): 0.24,
+        (EF, AF): 0.38, (EF, FM): 0.26, (EF, G): 0.22, (EF, G7): 0.24,
+        (AF, DM7B5): 0.36, (AF, FM): 0.28, (AF, G): 0.32, (AF, G7): 0.34, (AF, D7): 0.26,
+        (D7, G): 0.52, (D7, G7): 0.56, (D7, D7): 0.12,
+        (G, CM): 0.60, (G7, CM): 0.66, (G, AF): 0.20, (G7, AF): 0.18,
+    }
+    for (prev, curr), weight in major.items():
+        assert SOR.transition(prev, curr, "major") == weight
+    for (prev, curr), weight in minor.items():
+        assert SOR.transition(prev, curr, "minor") == weight
+    # Unlisted diatonic motion keeps the shared catalog. Unlisted D7 does not.
+    assert SOR.transition(C, EM, "major") is None
+    assert SOR.transition(D7, CM, "minor") == 0.0
+    assert SOR.transition(G, D7, "minor") == 0.0
+
+
+def test_sor_bias_prefers_the_primary_triads_and_the_character() -> None:
+    from app.sonify.chords import AF, C, CM, D7, DM7B5, F, FDIM7, FM, G, G7
+    from app.sonify.harmony import SOR
+
+    assert SOR.bias(C, "calm", "major") == -0.06
+    assert SOR.bias(F, "calm", "major") == -0.06
+    assert SOR.bias(G, "rally", "major") == -0.06
+    assert SOR.bias(CM, "calm", "minor") == -0.06
+    assert SOR.bias(FM, "selloff", "minor") == -0.06
+    assert SOR.bias(G, "calm", "minor") == -0.06
+    assert SOR.bias(G7, None, "major", frozenset()) == 0.0
+    assert SOR.bias(G7, "calm", "major", frozenset({5})) == -0.06
+    assert SOR.bias(G7, "calm", "minor", frozenset({2})) == -0.06
+    assert SOR.bias(G7, "rally", "major") == -0.06
+    assert SOR.bias(D7, "rally", "major") == -0.06
+    assert SOR.bias(D7, "calm", "major") == 0.0
+    for chord in (CM, FM, DM7B5, G, G7, AF, FDIM7):
+        assert SOR.bias(chord, "selloff", "minor") == -0.06
+    assert SOR.bias(DM7B5, "calm", "minor") == 0.0
+    assert SOR.bias(AF, "calm", "minor") == 0.0
+
+
+def test_sor_cadences_resolve_and_the_secondary_dominant_reaches_the_dominant() -> None:
+    tonic = _sor_plan([
+        _sor_bar(60, 64, 67),  # C E G
+        _sor_bar(65, 60, 69),  # F C A
+        _sor_bar(65, 71, 67),  # F B G
+        _sor_bar(60, 64, 67),
+    ])
+    assert [chord.name for chord in tonic] == ["C", "F", "G7", "C"]
+
+    predominant = _sor_plan([
+        _sor_bar(60, 64, 67),
+        _sor_bar(62, 69, 65),  # D A, with F off the beat
+        _sor_bar(65, 71, 67),
+        _sor_bar(60, 64, 67),
+    ], character="calm")
+    names = [chord.name for chord in predominant]
+    assert names[0] == "C", names
+    assert names[1] in {"Dm", "Dm7"}, names
+    assert names[2] == "G7", names
+    assert names[3] == "C", names
+
+    secondary = _sor_plan([
+        _sor_bar(60, 64, 67),
+        _sor_bar(60, 62, 69),  # C D A
+        _sor_bar(67, 71, 62),  # G B D
+        _sor_bar(60, 64, 67),
+    ])
+    heard = [chord.name for chord in secondary]
+    assert heard[1] == "D7", heard
+    assert heard[2] in {"G", "G7"}, heard
+
+    minor = _sor_plan([
+        _sor_bar(60, 63, 67),  # C Eb G
+        _sor_bar(65, 68, 60),  # F Ab C
+        _sor_bar(65, 70, 67),  # F Bb G
+        _sor_bar(60, 63, 67),
+    ], mode="minor", character="selloff", regime="downtrend")
+    assert [chord.name for chord in minor] == ["Cm", "Fm", "G7", "Cm"]
+
+
+def test_sor_downtrend_pedal_holds_the_major_triad() -> None:
+    """Am/Am7 are the downtrend tonics. Sor still pedals C, never Am7."""
+    kinds = ("intro", "intro", "phrase", "phrase", "outro", "outro")
+    chords = _sor_plan(
+        [_sor_bar(69, 64, 60)] * 6,
+        mode="major",
+        character="calm",
+        regime="downtrend",
+        kinds=kinds,
+    )
+    names = [chord.name for chord in chords]
+    assert names[:2] == ["C", "C"], names
+    assert names[4:] == ["C", "C"], names
+    assert "Am7" not in names
+    assert "Cmaj7" not in names
+
+
+def test_rendered_sor_scores_never_use_jazz_sevenths() -> None:
+    """1D and every 1M movement, in major and minor, stay inside the Classical vocabulary."""
+    from app.sonify.span import plan_month
+
+    def check(score, mode: str) -> None:
+        found = set(_sor_names(score))
+        legal = _SOR_MAJOR if mode == "major" else _SOR_MINOR
+        assert not found & _SOR_JAZZ, sorted(found & _SOR_JAZZ)
+        assert found <= legal, sorted(found - legal)
+        if mode == "major":
+            assert {"C", "F"} <= found
+            assert found & {"G", "G7"}
+        else:
+            assert "Cm" in found
+            assert found & {"Fm", "G", "G7", "Dm7b5"}
+        pedal = {
+            slot.chord.name
+            for slot in score.slots
+            if slot.section in _PEDAL_SECTIONS
+        }
+        assert pedal == {"C" if mode == "major" else "Cm"}, pedal
+
+    forms = (None, *(movement.spec for movement in plan_month([8, 8, 8, 8], "guitar")))
+    for form in forms:
+        for mode, character in (("major", "rally"), ("minor", "selloff")):
+            score = render(
+                _bars(),
+                title="Sor",
+                variant="guitar",
+                ensemble="classic",
+                form=form,
+                mode=mode,
+                character=character,  # type: ignore[arg-type]
+            )
+            check(score, mode)
