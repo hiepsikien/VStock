@@ -679,45 +679,86 @@ def _march_grid(ctx: _Ctx) -> list[tuple[int, int, str]]:
 
 
 def _fit_elegiaque_melody(ctx: _Ctx, patterns: list[str]) -> None:
-    """Keep Elegiaque melodies inside the first-position reach of the dotted bass march.
+    """Shift a high Elegiaque melody down an octave only when the whole score fits `treble_floor..69`.
 
-    When a high line has to come down so the fifth/step bass can share one hand
-    position with the melody, shift or compress the entire score's melody
-    monotonically instead of folding individual bars and reversing the contour.
+    When every note in the score is at least `treble_floor + 12` (like a held `76`
+    or a high phrase `71..81`), shifting the whole score by `-12` keeps every
+    interval and rhythm 100% exact while placing the melody in first position
+    over the `[48, 47, 43, 41]` march bass. When the score also contains lower
+    notes (`< treble_floor + 12`), keep the melody untouched (no compression)
+    and let `_elegiaque_bass_pitch` adapt the bass notes that need a closer hand
+    position.
     """
     elegy_bars = [
         bar for bar in range(ctx.bars) if _bar_pattern(ctx, bar, patterns) == "elegiaque"
     ]
     if not elegy_bars or not ctx.melody:
         return
-    top = min(ctx.treble_top, 69 - ctx.semitones)
+    first_pos_top = min(ctx.treble_top, 69 - ctx.semitones)
     floor = ctx.treble_floor
     if all(
-        max(ctx.melody[bar * ctx.epb : (bar + 1) * ctx.epb] or [floor]) <= top
+        max(ctx.melody[bar * ctx.epb : (bar + 1) * ctx.epb] or [floor]) <= first_pos_top
         for bar in elegy_bars
     ):
         return
-    if all(floor <= note - 12 <= top for note in ctx.melody):
+    if all(floor <= note - 12 <= first_pos_top for note in ctx.melody):
         ctx.melody = [note - 12 for note in ctx.melody]
-        return
-    scale = _melody_scale(ctx.mode)
-    degree = {note: index for index, note in enumerate(scale)}
-    snapped = [
-        note if note in degree else _nearest(note, ctx.mode, 24, 120)
-        for note in ctx.melody
-    ]
-    compressed = _compress_monotone(snapped, floor, top, degree, scale)
-    window_scale = tuple(note for note in scale if floor <= note <= top)
-    if window_scale and ctx.chord_at:
-        quantized = quantize_strong_beats(list(compressed), ctx.chord_at, window_scale, ctx.mode)
-        monotone_ok = all(
-            not ((b0 > a0 and b1 <= a1) or (b0 < a0 and b1 >= a1))
-            for a0, b0, a1, b1 in zip(snapped, snapped[1:], quantized, quantized[1:])
-        )
-        if monotone_ok:
-            ctx.melody = quantized
-            return
-    ctx.melody = compressed
+
+
+def _elegiaque_bass_pitch(
+    ctx: _Ctx,
+    chord: Chord,
+    preferred: int,
+    role: str,
+    prev: int | None,
+    uppers: list[int],
+    *,
+    need_inner: bool,
+) -> int:
+    if not uppers:
+        return preferred
+
+    def fits(bass: int) -> bool:
+        if bass >= min(uppers):
+            return False
+        if not all(_playable([bass + ctx.semitones, u + ctx.semitones]) for u in uppers):
+            return False
+        if need_inner:
+            return any(
+                any(
+                    _playable([bass + ctx.semitones, m + ctx.semitones, u + ctx.semitones])
+                    for m in range(max(ctx.mid_low, bass + 1), min(ctx.mid_high, u - 1) + 1)
+                )
+                for u in uppers
+            )
+        return True
+
+    if fits(preferred):
+        return preferred
+    root = _clamp(chord.pitches[0], ctx.bass_low, ctx.bass_high)
+    third = _clamp(chord.pitches[1], ctx.bass_low, ctx.bass_high) if len(chord.pitches) > 1 else root
+    fifth = _clamp(chord.pitches[2], ctx.bass_low, ctx.bass_high) if len(chord.pitches) > 2 else root
+    candidates: list[int] = []
+    if role == "step" and prev is not None:
+        step = prev
+        for _ in range(4):
+            step = _step_down(step, ctx.mode, ctx.bass_low, ctx.bass_high)
+            if step not in candidates:
+                candidates.append(step)
+    for note in (root, fifth, third):
+        if note not in candidates:
+            candidates.append(note)
+    for open_pitch in (50, 45, 40):
+        written = open_pitch - ctx.semitones
+        if ctx.bass_low <= written <= ctx.bass_high and written not in candidates:
+            candidates.append(written)
+    for note in range(ctx.bass_high, ctx.bass_low - 1, -1):
+        if note not in candidates:
+            candidates.append(note)
+    for cand in candidates:
+        if fits(cand):
+            return cand
+    return preferred
 
 
 def _render_elegiaque_bar(ctx: _Ctx, bar: int, phrase: Phrase | None, descend: bool) -> tuple[list[NoteEvent], list[NoteEvent]]:
@@ -735,19 +776,31 @@ def _render_elegiaque_bar(ctx: _Ctx, bar: int, phrase: Phrase | None, descend: b
     start_bar = phrase.start // ctx.epb if phrase is not None else bar
     sustain = bool(ctx.kind == "3/4" and closes and bar == last_bar)
     lament = bool(ctx.mode == "minor" and closes and bar >= max(start_bar, last_bar - 1))
+    thinner = _SPARSER.get(ctx.band(bar), "mp")
+    inner_locals = set(_inner_eighths(ctx.epb, set(ctx.strong), thinner))
     if sustain:
-        low.extend(_eighth_event(start, ctx.epb, root, ctx.epb, 3, _BASS))
-        prev = root
+        uppers = [_melody_at(ctx, start + step) for step in range(ctx.epb)]
+        pitch = _elegiaque_bass_pitch(
+            ctx, chord, root, "root", prev, uppers, need_inner=bool(inner_locals)
+        )
+        low.extend(_eighth_event(start, ctx.epb, pitch, ctx.epb, 3, _BASS))
+        prev = pitch
     else:
         for local, length, role in _march_grid(ctx):
             if lament:
-                pitch = root if prev is None else _step_down(prev, ctx.mode, ctx.bass_low, ctx.bass_high)
+                preferred = root if prev is None else _step_down(prev, ctx.mode, ctx.bass_low, ctx.bass_high)
             elif role == "fifth":
-                pitch = fifth
+                preferred = fifth
             elif role == "step":
-                pitch = _step_down(root if prev is None else prev, ctx.mode, ctx.bass_low, ctx.bass_high)
+                preferred = _step_down(root if prev is None else prev, ctx.mode, ctx.bass_low, ctx.bass_high)
             else:
-                pitch = root
+                preferred = root
+            span_locals = [step for step in range(local, min(ctx.epb, local + length))]
+            uppers = [_melody_at(ctx, start + step) for step in span_locals]
+            has_inner = any(step in inner_locals for step in span_locals)
+            pitch = _elegiaque_bass_pitch(
+                ctx, chord, preferred, role, prev, uppers, need_inner=has_inner
+            )
             low.extend(_eighth_event(start + local, length, pitch, ctx.epb, 3, _BASS))
             prev = pitch
     ctx.elegy_prev[key] = prev
