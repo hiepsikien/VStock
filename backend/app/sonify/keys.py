@@ -95,11 +95,11 @@ for _symbol in ("VNM", "MSN", "SAB", "GAS", "POW", "REE", "PLX", "BVH"):
 for _symbol in ("GMD", "HAH", "DGC", "DPM", "DCM", "VHC", "ANV", "PTB"):
     _HOME[_symbol] = A_KEY
 
-# 1D uses the close-to-close return first, then the session range. 1.2% / 2.8% keeps an
-# ordinary 1.5–2% HOSE range in `calm` instead of labeling almost every day `volatile`.
-# No local minute archive was available to fit percentiles; these are the basket cuts.
+# 1D uses the close-to-close return first, then the session range. HOSE days are
+# narrow: 0.45% separates a rally or a selloff, and a 1.35% high–low is volatile.
+# The old 1.2% / 2.8% pair left ordinary 0.5–1% sessions in `calm`.
 _SPAN_THRESHOLD: dict[str, tuple[float, float]] = {
-    "1D": (0.012, 0.028),
+    "1D": (0.0045, 0.0135),
     "1W": (0.020, 0.035),
     "1M": (0.020, 0.035),
     "3M": (0.040, 0.065),

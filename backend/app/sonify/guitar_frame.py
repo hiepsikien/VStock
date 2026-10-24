@@ -144,50 +144,150 @@ def _villa(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int) -
     return _villa_intro_long(ctx, bar, role, index)
 
 
+def _overture_cells(epb: int) -> list[tuple[int, int]]:
+    """French-overture long-short cells on the eighth grid. No sixteenths."""
+    if epb >= 8:
+        return [(0, 3), (3, 1), (4, 3), (7, 1)]
+    if epb == 6:
+        return [(0, 2), (2, 1), (3, 2), (5, 1)]
+    if epb >= 4:
+        return [(0, 3), (3, 1)]
+    return [(0, epb)]
+
+
+def _near_step(ctx, pitch: int, direction: int, low: int, high: int) -> int:
+    """One diatonic neighbor, or the same pitch when the step would leave the hand."""
+    nxt = _step(pitch, direction, ctx.mode, low, high)
+    if abs(nxt - pitch) > 4:
+        return pitch
+    return nxt
+
+
+def _sor_dotted_upper(
+    ctx,
+    bar: int,
+    cells: list[tuple[int, int]],
+    bass: int,
+    inner: int | None,
+    lead: int,
+    velocity: int,
+    *,
+    name: str,
+) -> list[tuple]:
+    """Dotted upper voices over a sustained bass. The downbeat is the block chord."""
+    pcs = _function(ctx, bar, name)
+    specs: list[tuple] = []
+    lead_pitch = lead
+    for index, (offset, length) in enumerate(cells):
+        short = length <= 1
+        flags = {"staccato": True} if short else {}
+        if index:
+            direction = 1 if index % 2 else -1
+            stepped = _near_step(ctx, lead_pitch, direction, _lead_lo(ctx), _lead_hi(ctx))
+            if stepped > bass:
+                lead_pitch = stepped
+        specs.append((offset, length, lead_pitch, 1, velocity, flags))
+        if inner is None:
+            continue
+        under = inner if index == 0 else _between(ctx, pcs, bass, lead_pitch)
+        if under is None or not bass < under < lead_pitch:
+            continue
+        specs.append((offset, length, under, 2, velocity, flags))
+    return specs
+
+
 def _sor_intro_short(ctx, bar: int, role: int) -> list[tuple]:
-    """Direct classical entry: tonic bloom, then a dominant step into the body."""
+    """Mozart Op. 9 Introduction: tonic chord, French-overture dots, dominant run."""
     epb = ctx.epb
     if role == 0:
+        # One bass attack at beat 1, piano, so the overture chord blooms under the dots.
         bass, inner, lead = _stack(ctx, _function(ctx, bar, "I"))
         specs = [(0, epb, bass, 3, _P, {})]
-        if inner is not None:
-            specs.append((min(2, epb - 1), max(1, epb - min(2, epb - 1)), inner, 2, _P, {}))
-        specs.append((min(4, epb - 1) if epb >= 6 else 1, max(1, epb - (min(4, epb - 1) if epb >= 6 else 1)), lead, 1, _P, {}))
+        specs.extend(
+            _sor_dotted_upper(ctx, bar, _overture_cells(epb), bass, inner, lead, _P, name="I")
+        )
         return _clip_voice(specs, epb)
-    bass, inner, lead = _stack(ctx, _function(ctx, bar, "V7"), lead_floor=_lead_lo(ctx))
+    pcs = _function(ctx, bar, "V7")
+    bass, inner, lead = _stack(ctx, pcs, lead_floor=_lead_lo(ctx))
+    root = pcs[0]
+    fifth = pcs[2] if len(pcs) > 2 else pcs[-1]
+    specs = []
+    for index, (offset, length) in enumerate(_overture_cells(epb)):
+        if offset >= epb:
+            break
+        length = min(length, epb - offset)
+        pc = root if index % 2 == 0 else fifth
+        flags = {"staccato": True} if length <= 1 else {}
+        specs.append((offset, length, _bass_note(ctx, pc, lead), 3, _MP, flags))
     cut = max(1, epb // 2)
-    specs = [(0, epb, bass, 3, _MP, {})]
     if inner is not None and cut > 1:
-        specs.append((0, cut, inner, 2, _MP, {}))
+        specs.append((0, min(3, cut), inner, 2, _MP, {}))
+    if cut > 0:
+        specs.append((0, cut, lead, 1, _MP, {}))
     specs.extend(_scale_into(ctx, bar, cut, epb - cut, _MP))
     return _clip_voice(specs, epb)
 
 
+def _sor_lyric_walk(ctx, bar: int, velocity: int, index: int) -> list[tuple]:
+    """Walking bass with a sixth or a third moving underneath a lyrical top voice."""
+    specs = _bass_walk(ctx, bar, ("I", "IV", "V"), velocity, index)
+    lead_pitch = next((midi for _offset, _length, midi, voice, _vel, _flags in specs if voice == 1), None)
+    if lead_pitch is None:
+        return specs
+    extra: list[tuple] = []
+    for offset, length, midi, voice, _vel, _flags in specs:
+        if voice != 3 or midi is None:
+            continue
+        under = _between(ctx, _function(ctx, bar, "I") + _function(ctx, bar, "IV"), midi, lead_pitch)
+        if under is None or not midi < under < lead_pitch:
+            continue
+        extra.append((offset, length, under, 2, max(_PP, velocity - 4), {}))
+    return _clip_voice([*specs, *extra], ctx.epb)
+
+
 def _sor_intro_long(ctx, bar: int, role: int, index: int) -> list[tuple]:
-    """Formal cadence: clean tonic, a bass step, dotted dominant, gentle tonic."""
+    """Op. 9 in four bars: staccato tonic, lyric sixths, dotted dominant, scale."""
     epb = ctx.epb
     if role == 0:
         bass, inner, lead = _stack(ctx, _function(ctx, bar, "I"))
+        chord = min(2, epb)
         specs = [
-            (0, min(2, epb), bass, 3, _P, {"staccato": True}),
-            (0, min(2, epb), lead, 1, _P, {"staccato": True}),
+            (0, chord, bass, 3, _P, {"staccato": True}),
+            (0, chord, lead, 1, _P, {"staccato": True}),
         ]
         if inner is not None:
-            specs.append((0, min(2, epb), inner, 2, _P, {"staccato": True}))
-        rest = epb - min(2, epb)
+            specs.append((0, chord, inner, 2, _P, {"staccato": True}))
+        rest = epb - chord
         if rest > 0:
-            specs.append((min(2, epb), rest, bass, 3, _PP, {}))
-            specs.append((min(2, epb), rest, lead, 1, _PP, {}))
+            specs.append((chord, rest, bass, 3, _PP, {}))
+            if rest >= 4:
+                pickup = [(chord, 3), (chord + 3, 1)]
+                if rest > 4:
+                    pickup.append((chord + 4, rest - 4))
+            else:
+                pickup = [(chord, rest)]
+            specs.extend(
+                _sor_dotted_upper(ctx, bar, pickup, bass, inner, lead, _P, name="I")
+            )
         return _clip_voice(specs, epb)
     if role == 1:
-        return _bass_walk(ctx, bar, ("I", "IV", "V"), _P, index)
+        return _sor_lyric_walk(ctx, bar, _P, index)
     if role == 2:
         return _dotted(ctx, bar, "V7", _MP, index)
     bass, inner, lead = _stack(ctx, _function(ctx, bar, "I"))
     cut = max(1, epb // 2)
     specs = [(0, epb, bass, 3, _P, {})]
-    if inner is not None:
-        specs.append((0, cut, inner, 2, _P, {}))
+    if inner is not None and cut > 0:
+        cursor = inner
+        step = max(1, cut // 2)
+        offset = 0
+        while offset < cut:
+            length = min(step, cut - offset)
+            if bass < cursor < lead:
+                specs.append((offset, length, cursor, 2, _P, {}))
+            nxt = _step(cursor, 1, ctx.mode, _mid_lo(ctx), _mid_hi(ctx))
+            cursor = nxt if bass < nxt < lead else inner
+            offset += length
     specs.extend(_scale_into(ctx, bar, cut, epb - cut, _MP))
     return _clip_voice(specs, epb)
 
