@@ -1218,6 +1218,7 @@ def test_phase1_elegiaque_march_appoggiatura_and_lament() -> None:
         (3.5, 0.5, 41),
     ]
     assert _onset_beats(slow.support, 0) == [0.5, 1.5, 3.0]
+    _assert_engraved(slow, "elegiaque")
 
     # 1D at 88 is under 90, so selloff is Élégiaque from the first body phrase.
     daily = _guitar((_held(0, 8, 76),), bpm=88, ensemble="classic", character="selloff")

@@ -719,6 +719,21 @@ def _render_elegiaque_bar(ctx: _Ctx, bar: int, phrase: Phrase | None, descend: b
         begin = _start16(event, ctx.epb) // 2
         for offset in range(max(1, _dur16(event) // 2)):
             sounding[begin + offset] = event.midi
+    bar_slice = ctx.melody[start : start + ctx.epb]
+    if (
+        bar_slice
+        and all(note - 12 >= ctx.treble_floor for note in bar_slice)
+        and any(
+            not _playable([sounding.get(start + local, root) + ctx.semitones, bar_slice[local] + ctx.semitones])
+            for local in range(len(bar_slice))
+        )
+        and all(
+            _playable([sounding.get(start + local, root) + ctx.semitones, (bar_slice[local] - 12) + ctx.semitones])
+            for local in range(len(bar_slice))
+        )
+    ):
+        for local in range(len(bar_slice)):
+            ctx.melody[start + local] = bar_slice[local] - 12
     previous_inner: int | None = None
     previous_bass: int | None = None
     root_pc = chord.pitches[0] % 12

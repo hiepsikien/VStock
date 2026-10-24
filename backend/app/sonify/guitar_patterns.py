@@ -1772,8 +1772,6 @@ def _repair(ctx: _Ctx, lead: list[NoteEvent], support: list[NoteEvent], low: lis
         bass = _sounding_midi(low, when // 2, ctx.epb) or ctx.bass_low
         sung = _sounding_midi(lead, when // 2, ctx.epb) or ctx.treble_top
         tone = _fallback_inner(ctx, ctx.chord(event.bar), sung, bass)
-        if tone is None:
-            tone = _choose_inner(ctx.chord(event.bar), sung, bass, ctx.mid_low, ctx.mid_high, ctx.semitones, False, 0)
         if ctx.ensemble == "bach":
             if tone is not None and _valid_prefix_dur(tone, when, dur, lead, low, ctx) == dur:
                 repaired.append(replace(event, midi=tone))
@@ -1787,14 +1785,6 @@ def _repair(ctx: _Ctx, lead: list[NoteEvent], support: list[NoteEvent], low: lis
                 continue
             if tone_dur > 0:
                 repaired.extend(_spell16(when, tone_dur, tone, ctx.epb, 2, event.velocity, event.accent))
-                continue
-            if (
-                tone != event.midi
-                and bass < tone < sung
-                and not _playable([bass + ctx.semitones, sung + ctx.semitones])
-                and _valid_prefix_dur(tone, when, dur, lead, [], ctx) == dur
-            ):
-                repaired.append(replace(event, midi=tone))
                 continue
         if valid_dur > 0:
             repaired.extend(_spell16(when, valid_dur, event.midi, ctx.epb, 2, event.velocity, event.accent))
