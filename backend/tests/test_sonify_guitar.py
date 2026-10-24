@@ -2661,6 +2661,18 @@ def test_brouwer_etude_plays_the_cuban_tumbao() -> None:
     opens = {note.midi for note in score.support if note.midi is not None} & {50, 55, 59}
     assert opens
 
+    # Open strings are used only when the chord owns that pitch class.
+    from app.sonify.chords import BF, EF
+    from app.sonify.harmony import BROUWER
+
+    bbsus2 = next(chord for chord in BROUWER.extra("major") if chord.name == "Bbsus2")
+    for non_b_chord in (BF, EF, bbsus2):
+        barred = _brouwer_pattern([72] * 8, character="rally", chords={0: non_b_chord})
+        inner_pcs = {note.midi % 12 for note in _attacks(barred.support, 0) if note.midi is not None}
+        allowed_pcs = set(non_b_chord.pitch_classes)
+        assert inner_pcs <= allowed_pcs, (non_b_chord.name, inner_pcs, allowed_pcs)
+        assert 11 not in inner_pcs
+
     three = _brouwer_pattern([72] * 6, character="rally", meter=METER_34)
     three_bass = _attacks(three.low, 0)
     assert [round(note.beat, 2) for note in three_bass] == [0.0, 1.5]
@@ -2715,10 +2727,35 @@ def test_sarabande_accents_beat_two_and_swarms_when_the_line_rises() -> None:
     assert later[-1] < later[0]
     assert diffs and max(diffs) <= 2
     assert any(diff in {1, 2} for diff in diffs)
-    assert abs(later[-1] - falling[-1]) <= 1
+    assert later[-1] == falling[-1]
     opening = [note.midi for note in _attacks(selloff.lead, 0) if note.midi is not None and note.beat < 2 - 1e-6]
     assert opening and opening[0] == falling[0]
     _assert_engraved(selloff, "brouwer")
+
+    # A flat bar inside a moving phrase stays flat instead of looping away from the price.
+    mixed = falling + [64] * 8
+    mixed_score = _pattern_score(
+        mixed,
+        (_joined(0, mixed),),
+        ensemble="brouwer",
+        bpm=108,
+        character="selloff",
+        rel_span=0.0,
+    )
+    assert len([note for note in _attacks(mixed_score.lead, 0) if note.beat >= 2 - 1e-6]) >= 4
+    assert all(note.beat < 2 for note in _attacks(mixed_score.lead, 1))
+    assert {note.midi for note in _attacks(mixed_score.lead, 1)} == {64}
+    _assert_engraved(mixed_score, "brouwer")
+
+    # A steep drop (> 6 semitones across the second half) subdivides into sixteenths and lands on the close.
+    steep = [79, 77, 76, 74, 72, 69, 65, 62]
+    steep_score = _brouwer_pattern(steep, character="selloff")
+    steep_later = [note.midi for note in _attacks(steep_score.lead, 0) if note.midi is not None and note.beat >= 2 - 1e-6]
+    steep_diffs = [abs(right - left) for left, right in zip(steep_later, steep_later[1:])]
+    assert len(steep_later) == 8
+    assert steep_later[0] == 72 and steep_later[-1] == 62
+    assert max(steep_diffs) <= 2 and all(diff >= 1 for diff in steep_diffs)
+    _assert_engraved(steep_score, "brouwer")
 
     slow = _brouwer_pattern([72] * 8, character="rally", bpm=72)
     assert any(note.accent and abs(note.beat - 1.0) < 1e-6 for note in _attacks(slow.low, 0))

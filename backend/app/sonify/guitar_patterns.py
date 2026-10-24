@@ -281,9 +281,20 @@ def _playable(sounding: list[int]) -> bool:
 
 def _position_ok(sounding: list[int]) -> bool:
     """One hand position: some string choice keeps fretted notes inside five frets."""
-    if len(sounding) <= 1:
-        return all(_string_options(pitch) for pitch in sounding)
-    return _playable(sounding)
+    if not sounding:
+        return True
+    options = []
+    for pitch in sounding:
+        choices = _string_options(pitch)
+        if not choices:
+            return False
+        options.append(choices)
+    for combo in itertools.product(*options):
+        frets = [fret for _string, fret in combo if fret > 0]
+        if frets and max(frets) - min(frets) > 5:
+            continue
+        return True
+    return False
 
 
 def _uses_color(chord: Chord) -> bool:
@@ -3343,11 +3354,14 @@ def _toward_next(ctx: _Ctx, bar: int, origin: int, eighth: int) -> int | None:
     return None
 
 
-def _brouwer_open_tones(ctx: _Ctx, sung: int, bass: int) -> list[int]:
-    """Playable open D, G, and B between the sounding bass and the melody."""
+def _brouwer_open_tones(ctx: _Ctx, chord: Chord, sung: int, bass: int) -> list[int]:
+    """Playable open D, G, and B whose pitch class belongs to `chord` or its color tones."""
+    allowed = set(chord.pitch_classes) | set(_ordered_pool(chord, True))
     found: list[int] = []
     for sounding in (50, 55, 59):
         tone = sounding - ctx.semitones
+        if (tone % 12) not in allowed:
+            continue
         if not bass < tone < sung:
             continue
         if tone < ctx.mid_low or tone > ctx.mid_high:
@@ -3361,15 +3375,15 @@ def _brouwer_open_tones(ctx: _Ctx, sung: int, bass: int) -> list[int]:
 def _color_inner(ctx: _Ctx, chord: Chord, sung: int, bass: int, step: int, previous: int | None) -> int | None:
     """A 3rd, 7th, or sus/add9 color that sits above every legal bass note.
 
-    Brouwer alternates those colors with the open D, G, and B strings so the
-    etude motor can ring them across the next eighth.
+    Brouwer alternates those colors with the open D, G, and B strings when the
+    chord owns them, so the etude motor can ring them across the next eighth.
     """
     tones = [
         tone
         for tone in _inner_choices(chord, sung, bass, ctx.mid_low, ctx.mid_high, ctx.semitones, True)
         if tone > ctx.bass_high
     ]
-    opens = _brouwer_open_tones(ctx, sung, bass) if ctx.ensemble == "brouwer" else []
+    opens = _brouwer_open_tones(ctx, chord, sung, bass) if ctx.ensemble == "brouwer" else []
     if not tones and not opens:
         return _choose_inner(chord, sung, bass, ctx.mid_low, ctx.mid_high, ctx.semitones, True, step)
     root = chord.pitches[0] % 12
@@ -3539,56 +3553,60 @@ def _sarabande_points(ctx: _Ctx) -> tuple[int, int]:
     return accent, figure
 
 
-def _sarabande_swarms(ctx: _Ctx, bar: int, phrase: Phrase | None) -> bool:
-    """A moving line swarms. A completely flat bar, rising or falling, does not."""
-    if phrase is None:
+def _sarabande_swarms(ctx: _Ctx, bar: int, figure_at: int) -> bool:
+    """A moving bar swarms. A flat bar, or a bar whose second half holds, does not."""
+    start = bar * ctx.epb
+    begin = start + figure_at
+    end = (bar + 1) * ctx.epb
+    bar_line = ctx.melody[start:end]
+    half_line = ctx.melody[begin:end]
+    if not bar_line or not half_line:
         return False
-    if phrase.rise >= MIN_RISE:
-        return True
-    window = ctx.melody[phrase.start : phrase.end]
-    if window and ctx.mood(bar) == "selloff" and max(window) - min(window) >= 2:
-        return True
-    bar_line = ctx.melody[bar * ctx.epb : (bar + 1) * ctx.epb]
-    return bool(bar_line) and max(bar_line) != min(bar_line)
+    if half_line[0] == half_line[-1] or max(half_line) == min(half_line):
+        return False
+    threshold = 2 if ctx.mood(bar) == "selloff" else MIN_RISE
+    return max(bar_line) - min(bar_line) >= threshold
 
 
 def _swarm_line(start: int, arrival: int, steps: int, lo: int, hi: int, direction: int) -> list[int]:
     """Stepwise pitches from `start` to `arrival`. Each move is 1 or 2 semitones."""
+    if steps <= 0:
+        return [arrival]
     line = [start]
     cursor = start
     for index in range(steps):
         left = steps - index
         remaining = arrival - cursor
-        if remaining == 0 and left > 1:
+        if left == 1:
+            step = remaining
+        elif remaining == 0:
             nudge = direction if direction in (1, -1) else 1
             step = 0
-            for size in (2, 1):
-                candidate = nudge * size
+            for candidate in (nudge, -nudge, 2 * nudge, -2 * nudge):
                 nxt = cursor + candidate
-                if lo <= nxt <= hi and abs(arrival - nxt) <= (left - 1) * 2:
+                if lo <= nxt <= hi and 1 <= abs(arrival - nxt) <= (left - 1) * 2:
+                    step = candidate
+                    break
+        elif left == 2 and abs(remaining) == 1:
+            toward = 1 if remaining > 0 else -1
+            step = 0
+            for candidate in (2 * toward, -toward):
+                nxt = cursor + candidate
+                if lo <= nxt <= hi and 1 <= abs(arrival - nxt) <= 2:
                     step = candidate
                     break
             if step == 0:
-                opposite = -nudge
-                for size in (1, 2):
-                    candidate = opposite * size
-                    nxt = cursor + candidate
-                    if lo <= nxt <= hi and abs(arrival - nxt) <= (left - 1) * 2:
-                        step = candidate
-                        break
-        elif left == 1:
-            step = remaining if abs(remaining) <= 2 else (2 if remaining > 0 else -2 if remaining < 0 else 0)
+                step = toward
         else:
             toward = 1 if remaining > 0 else -1
-            size = 2 if abs(remaining) > 1 + (left - 1) * 2 else 1
+            max_step = max(2, (abs(remaining) + left - 1) // left)
+            min_needed = max(1, abs(remaining) - (left - 1) * max_step)
+            size = min(max_step, max(min_needed, 2 if abs(remaining) > left else 1))
             step = toward * size
-        nxt = cursor + step
-        if nxt < lo or nxt > hi:
-            nxt = cursor
+        nxt = max(lo, min(hi, cursor + step))
         line.append(nxt)
         cursor = nxt
-    if len(line) >= 2 and lo <= arrival <= hi and abs(arrival - line[-2]) <= 2:
-        line[-1] = arrival
+    line[-1] = arrival
     return line
 
 
@@ -3617,16 +3635,16 @@ def _modal_figure(
     count = end - begin
     room = max(0, count - 1) * 2
     gap = end_pitch - start_pitch
-    if abs(gap) > room:
-        arrival = start_pitch + (room if gap > 0 else -room)
-    else:
-        arrival = end_pitch
-    arrival = max(lo, min(hi, arrival))
-    line = _swarm_line(start_pitch, arrival, count - 1, lo, hi, direction)
+    sixteenths = abs(gap) > room
+    total_notes = count * 2 if sixteenths else count
+    line = _swarm_line(start_pitch, end_pitch, total_notes - 1, lo, hi, direction)
     events: list[NoteEvent] = []
     level = _MELODY
     for offset, pitch in enumerate(line):
-        events.extend(_eighth_event(begin + offset, 1, pitch, epb, 1, level))
+        if sixteenths:
+            events.extend(_spell16(begin * 2 + offset, 1, pitch, epb, 1, level))
+        else:
+            events.extend(_eighth_event(begin + offset, 1, pitch, epb, 1, level))
         level = max(48, level - 1) if direction < 0 else min(_MELODY_APEX, level + 1)
     return events
 
@@ -3641,7 +3659,7 @@ def _render_sarabande_bar(
     start = bar * ctx.epb
     epb = ctx.epb
     accent, figure = _sarabande_points(ctx)
-    figure_at = figure if _sarabande_swarms(ctx, bar, phrase) and figure < epb else epb
+    figure_at = figure if _sarabande_swarms(ctx, bar, figure) and figure < epb else epb
     root = _bass_at(ctx, chord, 0, start)
     fifth = _bass_at(ctx, chord, 2, start + accent)
     low: list[NoteEvent] = []
