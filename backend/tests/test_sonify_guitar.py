@@ -2283,6 +2283,26 @@ def _assert_catedral_wave(notes: list[NoteEvent]) -> None:
         assert all(left != right for left, right in zip(pitches, pitches[1:]))
 
 
+def _assert_catedral_shimmer(score, bar: int) -> None:
+    """Canto sings, the inner wave whispers, and every Preludio note is plucked."""
+    semitones = score.key.semitones
+    floor = 65 - semitones
+    lead = _attacks(score.lead, bar)
+    support = _attacks(score.support, bar)
+    assert lead and support
+    assert all(note.velocity is not None and 64 <= note.velocity <= 78 for note in lead)
+    assert all(note.velocity is not None and 34 <= note.velocity <= 42 for note in support)
+    assert all(note.midi is not None and note.midi >= floor for note in lead)
+    for voice in (score.lead, score.support, score.low):
+        assert not any(note.slur_start or note.slur_stop for note in voice if note.bar == bar)
+    for beat in {round(note.beat, 2) for note in support}:
+        canto = _covering(score.lead, bar, beat)
+        inner = _covering(score.support, bar, beat)
+        assert canto is not None and inner is not None
+        assert canto.velocity is not None and inner.velocity is not None
+        assert canto.velocity - inner.velocity >= 22
+
+
 def _assert_catedral_44(score, bar: int, *, pitches: list[int] | None = None) -> None:
     lead = _attacks(score.lead, bar)
     assert [(round(note.beat, 2), round(note.duration_beats, 2)) for note in lead] == _CATEDRAL_LEAD_44
@@ -2308,7 +2328,7 @@ def _assert_catedral_44(score, bar: int, *, pitches: list[int] | None = None) ->
     assert answers and all(not note.tenuto for note in answers)
 
 
-def _catedral_score(line: list[int], *, meter=METER_44, bpm: int = 96):
+def _catedral_score(line: list[int], *, meter=METER_44, bpm: int = 96, bands: dict[int, str] | None = None):
     """Intro and outro around a calm Barrios body, so the body is framed Preludio."""
     epb = meter.eighths_per_bar
     frame = 2
@@ -2336,6 +2356,7 @@ def _catedral_score(line: list[int], *, meter=METER_44, bpm: int = 96):
         character="calm",
         kinds=kinds,
         sections=sections,
+        bands=bands,
     )
 
 
@@ -2405,6 +2426,7 @@ def test_la_catedral_preludio_interlocks_two_high_melody_notes_with_sixteenth_ar
         assert canto is not None and inner is not None
         assert canto.velocity is not None and inner.velocity is not None
         assert canto.velocity > inner.velocity
+        _assert_catedral_shimmer(score, bar)
     # The pedal still rings for two bars. The last body bar keeps the wave
     # under the pickup bass.
     assert _onset_beats(score.low, 2) == [0.0]
@@ -2443,14 +2465,28 @@ def test_la_catedral_preludio_interlocks_two_high_melody_notes_with_sixteenth_ar
         assert tail[0] >= tail[1] >= tail[2]
         if len(set(tail)) >= 3:
             assert tail[0] > tail[1] > tail[2]
+        _assert_catedral_shimmer(three, bar)
     assert_playable(three, C_KEY, "barrios_preludio")
     score_to_musicxml(three)
+
+    # A dull C4–E4 canto leaves the middle of the guitar. *p* must not drag it
+    # back down onto the inner wave, and the octave lift stays on the 1st string.
+    hush_line = [60, 62, 64, 60, 64, 62, 60, 62]
+    hush = _catedral_score(hush_line, bands={bar: "p" for bar in range(8)})
+    for bar in (2, 3, 4, 5):
+        _assert_catedral_44(hush, bar)
+        _assert_catedral_shimmer(hush, bar)
+        sung = [note.midi for note in _attacks(hush.lead, bar)]
+        assert sung == [72, 72, 76, 74]
+    assert_playable(hush, C_KEY, "barrios_preludio")
+    score_to_musicxml(hush)
 
     opening = _suite(0, "barrios")
     assert opening.bpm == 96 and opening.divisions == 4
     pure = list(range(8, 40))
     for bar in pure:
         _assert_catedral_44(opening, bar)
+        _assert_catedral_shimmer(opening, bar)
     waved = sum(
         1
         for bar in pure

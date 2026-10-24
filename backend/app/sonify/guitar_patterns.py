@@ -3846,9 +3846,17 @@ def render_patterned_voices(
     lead = _resolve(lead, epb, 1)
     support = _resolve(support, epb, 2)
     low = _resolve(low, epb, 3)
-    lead = _slur(lead, phrases)
+    # A guitar slur is a left-hand hammer. On Preludio it clips the canto attack.
+    plucked = None
+    if _catedral_preludio(ctx):
+        plucked = {
+            bar
+            for bar in range(musical_bars)
+            if _bar_pattern(ctx, bar, patterns) == "preludio"
+        }
+    lead = _slur(lead, phrases, skip_bars=plucked)
     if _framed(ctx):
-        lead, support, low = _shape_dynamics(ctx, lead, support, low, relaxed)
+        lead, support, low = _shape_dynamics(ctx, lead, support, low, relaxed, patterns)
     divisions = 4 if _needs_sixteenths([*lead, *support, *low]) else 2
     # Fast Barrios stays on the sixteenth grid once a character is set, and a
     # long suite movement does too, so Preludio still engraves at the tremolo
@@ -3937,21 +3945,97 @@ def _catedral_bass(ctx: _Ctx, bar: int, patterns: list[str]) -> int:
     )
 
 
-def _catedral_support_velocity(ctx: _Ctx, bar: int, patterns: list[str], lead_vel: int) -> int:
-    """Inner sixteenths stay under the canto and under the ringing bass."""
-    anchor = _preludio_anchor(ctx, bar, patterns)
-    anchor_lead = _covering_melody_velocity(ctx, anchor * ctx.epb)
-    _support, bass_vel = _under_lead(anchor_lead, ctx.band(anchor))
-    support_vel, _bass = _under_lead(lead_vel, ctx.band(bar))
-    support_vel = max(40, support_vel - 4)
-    return max(40, min(support_vel, bass_vel - 2, lead_vel - 4))
+def _catedral_open(ctx: _Ctx, tone: int) -> bool:
+    """Open 4th, 3rd, 2nd, or 1st string: D3, G3, B3, E4."""
+    return (tone + ctx.semitones) in {50, 55, 59, 64}
+
+
+def _catedral_canto_ceiling(ctx: _Ctx) -> int:
+    return min(ctx.treble_top, 79 - ctx.semitones)
+
+
+def _catedral_canto_pitch(ctx: _Ctx, pitch: int) -> int:
+    """Lift a dull canto note onto the singing 1st string.
+
+    Notes already at F4 and above stay put, so a line that is already
+    `[72, 74, 76, 72]` is not moved. A C4–E4 canto steps up by octaves until
+    it rings at G4 or higher, and never past the glass ceiling.
+    """
+    ceiling = _catedral_canto_ceiling(ctx)
+    shimmer = 65 - ctx.semitones
+    lifted = pitch
+    while lifted < shimmer and lifted + 12 <= ceiling:
+        lifted += 12
+    return lifted
+
+
+def _catedral_canto_pair(ctx: _Ctx, pitch_a: int, pitch_b: int) -> tuple[int, int]:
+    """Lift a low cell by the same octave so the two canto notes keep their shape."""
+    lifted_a = _catedral_canto_pitch(ctx, pitch_a)
+    lifted_b = _catedral_canto_pitch(ctx, pitch_b)
+    glass = 66 - ctx.semitones
+    if pitch_a < glass and pitch_b < glass:
+        shift = max(lifted_a - pitch_a, lifted_b - pitch_b)
+        ceiling = _catedral_canto_ceiling(ctx)
+        if shift and pitch_a + shift <= ceiling and pitch_b + shift <= ceiling:
+            return pitch_a + shift, pitch_b + shift
+    return lifted_a, lifted_b
+
+
+def _catedral_glass_tones(ctx: _Ctx, tones: list[int], lead: int) -> list[int]:
+    """Three inner tones. Prefer an open string as the top of the wave.
+
+    The open string sits on a different string from the fretted canto, so the
+    two ring together. When nothing is open, the highest three stay.
+    """
+    ordered = sorted(tones)
+    if len(ordered) <= 3:
+        return ordered
+    best: tuple[int, ...] | None = None
+    best_key: tuple[int, ...] | None = None
+    for combo in itertools.combinations(ordered, 3):
+        low, mid, upper = combo
+        opens = sum(_catedral_open(ctx, tone) for tone in combo)
+        upper_open = int(_catedral_open(ctx, upper))
+        distinct = sum(_strings_differ(tone, lead, ctx.semitones) for tone in combo)
+        spread = (
+            int(_strings_differ(low, mid, ctx.semitones))
+            + int(_strings_differ(mid, upper, ctx.semitones))
+            + int(_strings_differ(low, upper, ctx.semitones))
+        )
+        key = (upper_open, opens, upper, distinct, spread)
+        if best_key is None or key > best_key:
+            best_key = key
+            best = combo
+    return list(best if best is not None else tones[-3:])
+
+
+def _catedral_rank_glass(ctx: _Ctx, tones: list[int], lead: int) -> list[int]:
+    """Keep every legal tone, with the campanella triple at the end."""
+    if len(tones) <= 3:
+        return list(tones)
+    glass = _catedral_glass_tones(ctx, tones, lead)
+    chosen = set(glass)
+    return [tone for tone in tones if tone not in chosen] + glass
+
+
+def _catedral_whisper(pitches: list[int | None]) -> list[int]:
+    """38 along the wave, 35 on its lowest note, never above a whisper."""
+    sounding = [pitch for pitch in pitches if pitch is not None]
+    bottom = min(sounding) if sounding else None
+    levels: list[int] = []
+    for pitch in pitches:
+        level = 35 if pitch is not None and pitch == bottom else 38
+        levels.append(min(42, level))
+    return levels
 
 
 def _catedral_playable_tones(ctx: _Ctx, chord: Chord, bass: int, lead: int) -> list[int]:
     """Chord tones strictly between the bass and this canto note, low to high.
 
     Each one has to share a hand with the bass and the note that is actually
-    ringing, so `_repair` has nothing to drop.
+    ringing, so `_repair` has nothing to drop. Open strings under the canto
+    are kept and floated into the campanella triple.
     """
     if lead <= bass + 1:
         return []
@@ -3964,7 +4048,7 @@ def _catedral_playable_tones(ctx: _Ctx, chord: Chord, bass: int, lead: int) -> l
 
     playable = [tone for tone in tones if fits(tone)]
     if playable:
-        return playable
+        return _catedral_rank_glass(ctx, playable, lead)
     # No chord tone frets. A scale tone in the same window keeps the sixteenths moving.
     found: list[int] = []
     low = max(ctx.mid_low, bass + 1)
@@ -3972,7 +4056,7 @@ def _catedral_playable_tones(ctx: _Ctx, chord: Chord, bass: int, lead: int) -> l
     for note in range(low, high + 1):
         if _on_scale(note, ctx.mode) and fits(note):
             found.append(note)
-    return found
+    return _catedral_rank_glass(ctx, found, lead)
 
 
 def _catedral_lead_note(
@@ -3990,31 +4074,33 @@ def _catedral_lead_note(
     return events
 
 
-def _catedral_wave(tones: list[int], pitch_b: int) -> list[int]:
+def _catedral_wave(ctx: _Ctx, tones: list[int], pitch_b: int, lead: int) -> list[int]:
     """Six inner pitches for sixteenths 1, 2, 3, 4, 5, and 7 of one 2-beat cell."""
-    if len(tones) >= 3:
-        low_mid, mid, upper_mid = tones[-3:]
+    chosen = _catedral_glass_tones(ctx, tones, lead)
+    if len(chosen) >= 3:
+        low_mid, mid, upper_mid = chosen[-3:]
         last = upper_mid if upper_mid < pitch_b else mid
         return [upper_mid, mid, low_mid, mid, upper_mid, last]
-    if len(tones) == 2:
-        lower, higher = tones
+    if len(chosen) == 2:
+        lower, higher = chosen
         # Neighbours change pitch. The second example in the spec.
         return [higher, lower, higher, lower, higher, lower]
-    return [tones[0]] * 6
+    return [chosen[0]] * 6
 
 
-def _catedral_descend(tones: list[int], count: int) -> list[int]:
+def _catedral_descend(ctx: _Ctx, tones: list[int], count: int, lead: int) -> list[int]:
     """`upper_mid, mid, low_mid` across the leftover beat of a 3/4 or 6/8 bar."""
-    if count <= 0 or not tones:
+    chosen = _catedral_glass_tones(ctx, tones, lead)
+    if count <= 0 or not chosen:
         return []
-    if len(tones) >= 3:
-        low_mid, mid, upper_mid = tones[-3:]
+    if len(chosen) >= 3:
+        low_mid, mid, upper_mid = chosen[-3:]
         pattern = [upper_mid, mid, low_mid]
-    elif len(tones) == 2:
-        lower, higher = tones
+    elif len(chosen) == 2:
+        lower, higher = chosen
         pattern = [higher, lower, lower]
     else:
-        pattern = [tones[0]]
+        pattern = [chosen[0]]
     if count <= len(pattern):
         return pattern[:count]
     return [*pattern, *([pattern[-1]] * (count - len(pattern)))]
@@ -4026,7 +4112,8 @@ def _catedral_schedule(ctx: _Ctx, chord: Chord, bass: int, pitch_a: int, pitch_b
     under_b = _catedral_playable_tones(ctx, chord, bass, pitch_b)
     shared = [tone for tone in under_a if tone in set(under_b)]
     source = shared or under_a or under_b
-    planned = _catedral_wave(source, pitch_b) if source else [None] * 6
+    canto = max(pitch_a, pitch_b)
+    planned = _catedral_wave(ctx, source, pitch_b, canto) if source else [None] * 6
     pools = (under_a, under_a, under_a, under_a, under_a, under_b)
     resolved: list[int | None] = []
     previous: int | None = None
@@ -4050,12 +4137,12 @@ def _catedral_emit_support(
     slots: tuple[int, ...] | list[int],
     pitches: list[int | None],
     epb: int,
-    velocity: int,
+    velocities: list[int],
 ) -> None:
-    for slot, pitch in zip(slots, pitches):
+    for slot, pitch, velocity in zip(slots, pitches, velocities):
         if pitch is None:
             continue
-        events.extend(_spell16(start16 + slot, 1, pitch, epb, 2, velocity))
+        events.extend(_spell16(start16 + slot, 1, pitch, epb, 2, min(42, velocity)))
 
 
 def _catedral_cell(
@@ -4065,37 +4152,23 @@ def _catedral_cell(
     bass: int,
     apex: set[int],
     phrase: Phrase | None,
-    patterns: list[str],
+    _patterns: list[str],
     lead: list[NoteEvent],
     support: list[NoteEvent],
 ) -> None:
     """One 2-beat *La Catedral* cell: dotted quarter, V-wave, eighth, closing inner note."""
-    pitch_a = _melody_at(ctx, eighth)
-    pitch_b = _melody_at(ctx, eighth + 3)
+    pitch_a, pitch_b = _catedral_canto_pair(ctx, _melody_at(ctx, eighth), _melody_at(ctx, eighth + 3))
     start16 = eighth * 2
-    vel_a = _note_velocity(eighth, 3, apex, phrase)
-    vel_b = max(56, vel_a - 2)
+    vel_a = max(68, _note_velocity(eighth, 3, apex, phrase))
+    vel_b = max(64, vel_a - 3)
     lead.extend(_catedral_lead_note(start16, 6, pitch_a, ctx.epb, vel_a, tenuto=True))
     lead.extend(_catedral_lead_note(start16 + 6, 2, pitch_b, ctx.epb, vel_b))
     slots = (1, 2, 3, 4, 5, 7)
     pitches = _catedral_schedule(ctx, ctx.chord(bar), bass, pitch_a, pitch_b)
+    levels = _catedral_whisper(pitches)
     # Sixteenths 1..5 ring under the dotted quarter. Sixteenth 7 rings under the eighth.
-    _catedral_emit_support(
-        support,
-        start16,
-        slots[:5],
-        pitches[:5],
-        ctx.epb,
-        _catedral_support_velocity(ctx, bar, patterns, vel_a),
-    )
-    _catedral_emit_support(
-        support,
-        start16,
-        slots[5:],
-        pitches[5:],
-        ctx.epb,
-        _catedral_support_velocity(ctx, bar, patterns, vel_b),
-    )
+    _catedral_emit_support(support, start16, slots[:5], pitches[:5], ctx.epb, levels[:5])
+    _catedral_emit_support(support, start16, slots[5:], pitches[5:], ctx.epb, levels[5:])
 
 
 def _catedral_tail(
@@ -4106,27 +4179,27 @@ def _catedral_tail(
     bass: int,
     apex: set[int],
     phrase: Phrase | None,
-    patterns: list[str],
+    _patterns: list[str],
     lead: list[NoteEvent],
     support: list[NoteEvent],
 ) -> None:
     """The leftover beat of 3/4 or 6/8: one melody note, then a descending inner group."""
     if eighths <= 0:
         return
-    pitch = _melody_at(ctx, eighth)
+    pitch = _catedral_canto_pitch(ctx, _melody_at(ctx, eighth))
     start16 = eighth * 2
     length16 = eighths * 2
-    velocity = _note_velocity(eighth, eighths, apex, phrase)
+    velocity = max(68, _note_velocity(eighth, eighths, apex, phrase))
     lead.extend(_catedral_lead_note(start16, length16, pitch, ctx.epb, velocity, tenuto=True))
     tones = _catedral_playable_tones(ctx, ctx.chord(bar), bass, pitch)
-    descending = _catedral_descend(tones, length16 - 1)
+    descending = _catedral_descend(ctx, tones, length16 - 1, pitch)
     _catedral_emit_support(
         support,
         start16,
         list(range(1, length16)),
         descending,
         ctx.epb,
-        _catedral_support_velocity(ctx, bar, patterns, velocity),
+        _catedral_whisper(descending),
     )
 
 
@@ -4500,9 +4573,18 @@ def _smooth_boundaries(ctx: _Ctx, patterns, lead, support, low):
 _BAND_DELTA = {"p": -12, "mp": -6, "mf": 0, "f": 4}
 
 
-def _shape_dynamics(ctx: _Ctx, lead, support, low, relaxed: set[int]):
-    """Liquidity and the phrase swell move the dynamic inside a locked pattern."""
+def _shape_dynamics(ctx: _Ctx, lead, support, low, relaxed: set[int], patterns: list[str] | None = None):
+    """Liquidity and the phrase swell move the dynamic inside a locked pattern.
+
+    *La Catedral* keeps the canto in the singing window and the inner wave in
+    a whisper. A `p` or `mp` band must not close that gap.
+    """
     pedal = set(_pedal_regions(ctx)[0]) | set(_pedal_regions(ctx)[1])
+    preludio_bars: set[int] = set()
+    if patterns is not None and _catedral_preludio(ctx):
+        preludio_bars = {
+            bar for bar in range(ctx.bars) if _bar_pattern(ctx, bar, patterns) == "preludio"
+        }
 
     def phrase_at(eighth: int) -> Phrase | None:
         for phrase in ctx.phrases:
@@ -4510,10 +4592,10 @@ def _shape_dynamics(ctx: _Ctx, lead, support, low, relaxed: set[int]):
                 return phrase
         return None
 
-    def shape(events: list[NoteEvent]) -> list[NoteEvent]:
+    def shape(events: list[NoteEvent], voice: str) -> list[NoteEvent]:
         shaped: list[NoteEvent] = []
         for event in events:
-            if event.midi is None or event.velocity is None or event.bar in pedal or event.velocity >= _MELODY_APEX:
+            if event.midi is None or event.velocity is None or event.bar in pedal:
                 shaped.append(event)
                 continue
             eighth = event.bar * ctx.epb + int(math.floor(event.beat * 2 + 1e-9))
@@ -4524,11 +4606,25 @@ def _shape_dynamics(ctx: _Ctx, lead, support, low, relaxed: set[int]):
             phrase = phrase_at(eighth)
             if phrase is not None:
                 extra = round(4 * swell(phrase, min(max(eighth, phrase.start), phrase.end - 1)))
-            velocity = max(44, min(78, event.velocity + _BAND_DELTA.get(ctx.band(event.bar), 0) + extra))
+            delta = _BAND_DELTA.get(ctx.band(event.bar), 0)
+            if event.bar in preludio_bars and voice == "lead":
+                # Negative band deltas would drag the canto into the inner voice.
+                lift = delta if delta > 0 else 0
+                velocity = max(66, min(78, event.velocity + lift + extra))
+                shaped.append(replace(event, velocity=velocity))
+                continue
+            if event.bar in preludio_bars and voice == "support":
+                velocity = max(34, min(42, event.velocity + delta + extra))
+                shaped.append(replace(event, velocity=velocity))
+                continue
+            if event.velocity >= _MELODY_APEX:
+                shaped.append(event)
+                continue
+            velocity = max(44, min(78, event.velocity + delta + extra))
             shaped.append(replace(event, velocity=velocity))
         return shaped
 
-    return shape(lead), shape(support), shape(low)
+    return shape(lead, "lead"), shape(support, "support"), shape(low, "low")
 
 
 def _transitions(ctx, patterns, levels, lead, support, low):

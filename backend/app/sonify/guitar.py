@@ -641,14 +641,20 @@ def _spread(count: int, want: int) -> list[int]:
     return [min(count - 1, int((index + 0.5) * step)) for index in range(kept)]
 
 
-def _slur(events: list[NoteEvent], phrases: tuple[Phrase, ...]) -> list[NoteEvent]:
+def _slur(
+    events: list[NoteEvent],
+    phrases: tuple[Phrase, ...],
+    *,
+    skip_bars: set[int] | None = None,
+) -> list[NoteEvent]:
     """Hammer rarely, and only onto a stressed note after the opening phrase.
 
     The nylon voice plays a slur as a left-hand hammer. A leap, a rest, a new
     phrase, an unstressed step, a tremolo sixteenth, and anything in the first
     phrase stay plucked. A stress is the phrase apex (or an accented attack
     already carrying the apex velocity). The kept steps are spread through
-    the eligible stresses, capped under one attack in twenty.
+    the eligible stresses, capped under one attack in twenty. Notes in
+    `skip_bars` stay plucked too: a Preludio canto is never a hammer-on.
     """
     result = list(events)
     apex = _apex_eighths(phrases)
@@ -695,6 +701,9 @@ def _slur(events: list[NoteEvent], phrases: tuple[Phrase, ...]) -> list[NoteEven
             or (right_first.velocity or 0) >= _MELODY_APEX
         )
         held_step = left_last.duration_beats >= 0.5 and right_first.duration_beats >= 0.5
+        blocked = bool(skip_bars) and any(
+            result[index].bar in skip_bars for index in (*left, *right)
+        )
         if (
             same_phrase
             and target_phrase != 0
@@ -702,6 +711,7 @@ def _slur(events: list[NoteEvent], phrases: tuple[Phrase, ...]) -> list[NoteEven
             and held_step
             and 1 <= interval <= 2
             and touches
+            and not blocked
         ):
             pairs.append((left[0], right[0]))
             cursor += 2
