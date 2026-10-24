@@ -34,7 +34,7 @@ from app.sonify.guitar import (
 )
 from app.sonify.keys import C_KEY, KeySpec
 from app.sonify.model import NoteEvent, Phrase, Score
-from app.sonify.phrasing import MIN_RISE, bell_budget, quantize_strong_beats, written
+from app.sonify.phrasing import MIN_RISE, bell_budget, quantize_strong_beats, swell, written
 from app.sonify.quantize import C_MAJOR_PCS, C_NATURAL_MINOR_PCS
 
 # Sounding open strings, string 6 → 1, and the highest fret each string allows.
@@ -453,6 +453,16 @@ def _select_body(
     return {"classic": "study", "villa": "villa_pattern"}.get(ctx.ensemble, "preludio")
 
 
+def _framed(ctx: _Ctx) -> bool:
+    """A real movement carries intro or outro sections.
+
+    Synthetic pattern tests pass a trio or a phrase and no pedal, and the
+    one-bar pedal fixture passes kinds without sections. Both keep the
+    per-phrase selector. `render` always sends the form's sections.
+    """
+    return any(getattr(section, "kind", None) in _PEDAL for section in ctx.sections)
+
+
 def _patterns(ctx: _Ctx) -> list[str]:
     chosen = ["pedal"] * len(ctx.phrases)
     body: list[int] = []
@@ -463,6 +473,8 @@ def _patterns(ctx: _Ctx) -> list[str]:
         if ctx.kind_at.get(bar) in _PEDAL:
             continue
         body.append(index)
+    if _framed(ctx):
+        return _assign_macro(ctx, chosen, body)
     previous: list[str] = []
     for ordinal, index in enumerate(body):
         phrase = ctx.phrases[index]
@@ -479,17 +491,199 @@ def _patterns(ctx: _Ctx) -> list[str]:
     return chosen
 
 
+def _body_bars(ctx: _Ctx) -> list[int]:
+    return [bar for bar in range(ctx.bars) if ctx.kind_at.get(bar, "phrase") not in _PEDAL]
+
+
+def _phrase_bars(ctx: _Ctx, indexes: list[int]) -> list[int]:
+    found: list[int] = []
+    for index in indexes:
+        phrase = ctx.phrases[index]
+        start = phrase.start // ctx.epb
+        end = max(start + 1, (max(phrase.end, phrase.start + 1) - 1) // ctx.epb + 1)
+        for bar in range(start, min(ctx.bars, end)):
+            if ctx.kind_at.get(bar, "phrase") in _PEDAL or bar in found:
+                continue
+            found.append(bar)
+    return found
+
+
+def _majority_mood(ctx: _Ctx, bars: list[int]) -> str | None:
+    counts: dict[str, int] = {}
+    for bar in bars:
+        mood = ctx.mood(bar)
+        if mood is None:
+            continue
+        counts[mood] = counts.get(mood, 0) + 1
+    if not counts:
+        return ctx.character
+    return max(counts, key=lambda key: (counts[key], key))
+
+
+def _has_contrast_section(ctx: _Ctx) -> bool:
+    return any(
+        (getattr(section, "trio", False) or getattr(section, "bridge", False))
+        and getattr(section, "kind", None) not in _PEDAL
+        for section in ctx.sections
+    )
+
+
+def _dominant_pattern(ctx: _Ctx, phrases: list[Phrase], bars: list[int]) -> str:
+    """One pattern for a whole body, a formal section, or one weekly session."""
+    mood = _majority_mood(ctx, bars)
+    if ctx.ensemble == "classic":
+        if mood == "selloff":
+            return "elegiaque"
+        if mood == "calm":
+            return "cantabile"
+        return "study"
+    if ctx.ensemble == "villa":
+        quiet = sum(1 for bar in bars if ctx.band(bar) == "p")
+        if mood == "calm" or (bars and quiet * 2 > len(bars)):
+            return "chord_melody"
+        return "villa_pattern"
+    if ctx.bpm < BARRIOS_TREMOLO_MIN_BPM:
+        return "preludio" if mood == "calm" else "andante"
+    holds = sum(1 for phrase in phrases if _has_hold(ctx.melody, phrase))
+    running = sum(1 for phrase in phrases if _running(ctx.melody, phrase))
+    if mood == "calm":
+        return "preludio"
+    if phrases and (
+        holds / len(phrases) >= 0.3 or (mood in {"rally", "selloff"} and holds > 0)
+    ):
+        return "tremolo"
+    if (
+        ctx.bpm > 100
+        and mood in {"rally", "volatile"}
+        and phrases
+        and running * 2 >= len(phrases)
+    ):
+        if ctx.kind == "6/8":
+            return "polca"
+        return "choro" if ctx.kind == "4/4" else "preludio"
+    if holds:
+        return "tremolo"
+    return "preludio"
+
+
+def _contrast_pattern(ctx: _Ctx, primary: str, phrases: list[Phrase], bars: list[int]) -> str:
+    """The other formal area: one contrasting pattern, then the piece returns."""
+    mood = _majority_mood(ctx, bars)
+    if ctx.ensemble == "classic":
+        choice = "elegiaque" if ctx.mode == "minor" or mood == "selloff" else "cantabile"
+        if choice != primary:
+            return choice
+        return "cantabile" if primary == "elegiaque" else "study"
+    if ctx.ensemble == "villa":
+        return "chord_melody" if primary == "thumb_cantabile" else "thumb_cantabile"
+    if ctx.bpm < BARRIOS_TREMOLO_MIN_BPM:
+        return "andante" if primary == "thumb_cantabile" else "thumb_cantabile"
+    running = sum(1 for phrase in phrases if _running(ctx.melody, phrase))
+    if ctx.kind == "6/8" and phrases and running * 2 >= len(phrases):
+        return "preludio" if primary == "vals" else "vals"
+    return "andante" if primary == "thumb_cantabile" else "thumb_cantabile"
+
+
+def _assign_macro(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
+    """Lock the body to one pattern, to A–B–A, or to one pattern per session."""
+    if not body:
+        return chosen
+    if ctx.bars <= 40 and not _has_contrast_section(ctx):
+        pattern = _dominant_pattern(ctx, [ctx.phrases[index] for index in body], _body_bars(ctx))
+        for index in body:
+            chosen[index] = pattern
+        return chosen
+    if _has_contrast_section(ctx):
+        groups: dict[str, list[int]] = {"A": [], "B": []}
+        for index in body:
+            bar = min(ctx.bars - 1, ctx.phrases[index].start // ctx.epb)
+            section = ctx.section(bar)
+            key = "B" if section is not None and (section.trio or section.bridge) else "A"
+            groups[key].append(index)
+        primary_bars = _phrase_bars(ctx, groups["A"]) or _body_bars(ctx)
+        primary = _dominant_pattern(
+            ctx,
+            [ctx.phrases[index] for index in groups["A"]] or [ctx.phrases[index] for index in body],
+            primary_bars,
+        )
+        contrast = _contrast_pattern(
+            ctx,
+            primary,
+            [ctx.phrases[index] for index in groups["B"]],
+            _phrase_bars(ctx, groups["B"]),
+        )
+        for index in groups["A"]:
+            chosen[index] = primary
+        for index in groups["B"]:
+            chosen[index] = contrast
+        return chosen
+    buckets: dict[int, list[int]] = {}
+    for index in body:
+        bar = min(ctx.bars - 1, ctx.phrases[index].start // ctx.epb)
+        section = ctx.section(bar)
+        slot = 0 if section is None else section.regime_slot
+        buckets.setdefault(slot, []).append(index)
+    for indexes in buckets.values():
+        pattern = _dominant_pattern(
+            ctx,
+            [ctx.phrases[index] for index in indexes],
+            _phrase_bars(ctx, indexes),
+        )
+        for index in indexes:
+            chosen[index] = pattern
+    return chosen
+
+
+def _cap_accents(ctx: _Ctx, plans: dict, perpetual: dict, limit: int = 2) -> tuple[dict, dict]:
+    """A short framed movement keeps at most two scale or perpetual breaks."""
+    ranked: list[tuple[int, int, str, object]] = []
+    for index, plan in plans.items():
+        rise = ctx.phrases[index].rise if index < len(ctx.phrases) else 0
+        ranked.append((rise, 1, index, "scale", plan))
+    for index, bars in perpetual.items():
+        rise = ctx.phrases[index].rise if index < len(ctx.phrases) else 0
+        ranked.append((rise, 0, index, "perpetual", bars))
+    ranked.sort(reverse=True)
+    kept_plans: dict = {}
+    kept_perpetual: dict = {}
+    for _rise, _prefer, index, kind, payload in ranked[:limit]:
+        if kind == "scale":
+            kept_plans[index] = payload
+        else:
+            kept_perpetual[index] = payload
+    return kept_plans, kept_perpetual
+
+
 def _bar_pattern(ctx: _Ctx, bar: int, patterns: list[str]) -> str:
     kind = ctx.kind_at.get(bar, "phrase")
     if kind in _PEDAL:
         return "pedal"
+    pattern = _owning_pattern(ctx, bar, patterns)
+    if pattern == "pedal" and _framed(ctx):
+        return _fallback_body_pattern(ctx, bar, patterns)
+    return pattern
+
+
+def _owning_pattern(ctx: _Ctx, bar: int, patterns: list[str]) -> str:
     eighth = bar * ctx.epb
     for index, phrase in enumerate(ctx.phrases):
         if phrase.start <= eighth < phrase.end:
-            return patterns[index]
+            return patterns[index] if index < len(patterns) else "pedal"
     for index, phrase in enumerate(ctx.phrases):
         if phrase.start < (bar + 1) * ctx.epb and phrase.end > eighth:
+            return patterns[index] if index < len(patterns) else "pedal"
+    return {"classic": "study", "villa": "villa_pattern"}.get(ctx.ensemble, "preludio")
+
+
+def _fallback_body_pattern(ctx: _Ctx, bar: int, patterns: list[str]) -> str:
+    """A pedal phrase that spills a few eighths into the body keeps the body pattern."""
+    eighth = bar * ctx.epb
+    for index, phrase in enumerate(ctx.phrases):
+        if index < len(patterns) and patterns[index] != "pedal" and phrase.end > eighth:
             return patterns[index]
+    for pattern in reversed(patterns):
+        if pattern != "pedal":
+            return pattern
     return {"classic": "study", "villa": "villa_pattern"}.get(ctx.ensemble, "preludio")
 
 
@@ -1890,19 +2084,20 @@ def _resolve(events: list[NoteEvent], epb: int, voice: int) -> list[NoteEvent]:
                 dur = nxt - start
             if dur <= 0:
                 continue
-            resolved.extend(
-                _spell16(
-                    start,
-                    dur,
-                    event.midi,
-                    epb,
-                    voice,
-                    event.velocity,
-                    event.accent,
-                    tie_in=event.tie_stop,
-                    tie_out=event.tie_start,
-                )
+            spelled = _spell16(
+                start,
+                dur,
+                event.midi,
+                epb,
+                voice,
+                event.velocity,
+                event.accent,
+                tie_in=event.tie_stop,
+                tie_out=event.tie_start,
             )
+            if event.staccato and spelled:
+                spelled[0] = replace(spelled[0], staccato=True)
+            resolved.extend(spelled)
     return resolved
 
 
@@ -2048,6 +2243,8 @@ def render_patterned_voices(
     patterns = _patterns(ctx) if phrases else []
     levels = _grand_levels(ctx, patterns)
     plans, perpetual = _allocate_overlays(ctx, patterns, levels)
+    if _framed(ctx) and ctx.bars <= 40:
+        plans, perpetual = _cap_accents(ctx, plans, perpetual)
     lead: list[NoteEvent] = []
     support: list[NoteEvent] = []
     low: list[NoteEvent] = []
@@ -2103,9 +2300,11 @@ def render_patterned_voices(
             support.extend(event for event in trem_inner if event.bar == bar and event.midi is not None)
             low.extend(event for event in trem_bass if event.bar == bar and event.midi is not None)
         elif pattern == "pedal":
-            lead.extend(_sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex))
-            root = _choose_bass(ctx.chord(bar), 0, _melody_at(ctx, bar * epb), ctx.bass_low, ctx.bass_high, ctx.semitones)
-            low.extend(_eighth_event(bar * epb, epb, root, epb, 3, _BASS))
+            # Framed movements replace this held close with a composer entrance.
+            if not _framed(ctx):
+                lead.extend(_sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex))
+                root = _choose_bass(ctx.chord(bar), 0, _melody_at(ctx, bar * epb), ctx.bass_low, ctx.bass_high, ctx.semitones)
+                low.extend(_eighth_event(bar * epb, epb, root, epb, 3, _BASS))
         elif pattern == "preludio":
             lead.extend(_sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex))
             support.extend(_preludio_inner(ctx, bar))
@@ -2180,28 +2379,36 @@ def render_patterned_voices(
     }
     if villa_bars:
         support = _apply_campanella(ctx, support, lead, villa_bars)
-    for index, phrase in enumerate(phrases):
-        following = None
-        for later in range(index + 1, len(patterns)):
-            start_bar = phrases[later].start // epb
-            if ctx.kind_at.get(start_bar, "phrase") in _PEDAL:
-                continue
-            following = patterns[later]
-            break
-        if (
-            patterns[index] == "tremolo"
-            and index not in perpetual
-            and phrase.end - phrase.start >= 8
-            and following is not None
-            and (phrase.closes or following != "tremolo")
-        ):
-            lead, support, low = _taper(ctx, lead, support, low, phrase)
+    if not _framed(ctx):
+        for index, phrase in enumerate(phrases):
+            following = None
+            for later in range(index + 1, len(patterns)):
+                start_bar = phrases[later].start // epb
+                if ctx.kind_at.get(start_bar, "phrase") in _PEDAL:
+                    continue
+                following = patterns[later]
+                break
+            if (
+                patterns[index] == "tremolo"
+                and index not in perpetual
+                and phrase.end - phrase.start >= 8
+                and following is not None
+                and (phrase.closes or following != "tremolo")
+            ):
+                lead, support, low = _taper(ctx, lead, support, low, phrase)
     bell_bars = {
         bar
         for bar in range(musical_bars)
-        if ctx.kind_at.get(bar, "phrase") in {"intro", "warmup"}
+        if (not _framed(ctx) and ctx.kind_at.get(bar, "phrase") in {"intro", "warmup"})
         or (_bar_pattern(ctx, bar, patterns) == "preludio" and _bells_here(ctx, bar, patterns))
     }
+    if _framed(ctx) and ctx.bars <= 40 and len(bell_bars) > 2:
+        ranked_bells = sorted(
+            bell_bars,
+            key=lambda bar: max(ctx.melody[bar * epb : (bar + 1) * epb] or [0]),
+            reverse=True,
+        )
+        bell_bars = set(ranked_bells[:2])
     lead, support = _insert_bells(ctx, lead, support, bell_bars)
     for index, (target, ascent, chromatic) in plans.items():
         lead, support, low, _bars = _apply_scale_run(
@@ -2211,7 +2418,13 @@ def render_patterned_voices(
         lead, support, low = _apply_perpetual(ctx, lead, support, low, bars)
     for bar in _fanfare_bars(ctx, levels):
         lead, support, low = _apply_fanfare(ctx, lead, support, low, bar)
-    lead, support, low = _transitions(ctx, patterns, levels, lead, support, low)
+    relaxed: set[int] = set()
+    if _framed(ctx):
+        lead, support, low = _strip_pedal(ctx, lead, support, low)
+        lead, support, low = _paint_frames(ctx, lead, support, low)
+        lead, support, low, relaxed = _smooth_boundaries(ctx, patterns, lead, support, low)
+    else:
+        lead, support, low = _transitions(ctx, patterns, levels, lead, support, low)
     for eighth in _caesura_eighths(ctx, levels):
         lead = _silence(lead, eighth, epb)
         support = _silence(support, eighth, epb)
@@ -2221,6 +2434,8 @@ def render_patterned_voices(
     support = _resolve(support, epb, 2)
     low = _resolve(low, epb, 3)
     lead = _slur(lead, phrases)
+    if _framed(ctx):
+        lead, support, low = _shape_dynamics(ctx, lead, support, low, relaxed)
     divisions = 4 if _needs_sixteenths([*lead, *support, *low]) else 2
     # Phase 2 engraves every fast Barrios movement on the sixteenth grid once a
     # character is set, even when the line itself stays in eighths.
@@ -2388,6 +2603,235 @@ def _apply_appoggiatura(ctx: _Ctx, lead: list[NoteEvent], ornaments: dict[int, t
                 )
             )
     return rewritten
+
+
+def _pedal_regions(ctx: _Ctx) -> tuple[list[int], list[int]]:
+    leading: list[int] = []
+    bar = 0
+    while bar < ctx.bars and ctx.kind_at.get(bar, "phrase") in _PEDAL:
+        leading.append(bar)
+        bar += 1
+    trailing: list[int] = []
+    bar = ctx.bars - 1
+    while bar >= 0 and bar not in leading and ctx.kind_at.get(bar, "phrase") in _PEDAL:
+        trailing.append(bar)
+        bar -= 1
+    trailing.reverse()
+    return leading, trailing
+
+
+def _strip_pedal(ctx: _Ctx, lead, support, low):
+    leading, trailing = _pedal_regions(ctx)
+    drop = set(leading) | set(trailing)
+    if not drop:
+        return lead, support, low
+    return (
+        [event for event in lead if event.bar not in drop],
+        [event for event in support if event.bar not in drop],
+        [event for event in low if event.bar not in drop],
+    )
+
+
+def _paint_frames(ctx: _Ctx, lead, support, low):
+    from app.sonify.guitar_frame import render_intro, render_outro
+
+    leading, trailing = _pedal_regions(ctx)
+    if leading:
+        part_lead, part_support, part_low = render_intro(ctx, leading)
+        lead.extend(part_lead)
+        support.extend(part_support)
+        low.extend(part_low)
+    if trailing:
+        part_lead, part_support, part_low = render_outro(ctx, trailing)
+        lead.extend(part_lead)
+        support.extend(part_support)
+        low.extend(part_low)
+    return lead, support, low
+
+
+def _boundary_bars(ctx: _Ctx, patterns: list[str]) -> list[int]:
+    """Last bar before intro yields to the body, A yields to B, or the body yields to the outro."""
+    found: list[int] = []
+    leading, trailing = _pedal_regions(ctx)
+    if leading:
+        nxt = leading[-1] + 1
+        if nxt < ctx.bars and ctx.kind_at.get(nxt, "phrase") not in _PEDAL:
+            found.append(leading[-1])
+    if trailing:
+        prev = trailing[0] - 1
+        if prev >= 0 and ctx.kind_at.get(prev, "phrase") not in _PEDAL:
+            found.append(prev)
+    for bar in range(ctx.bars - 1):
+        if ctx.kind_at.get(bar, "phrase") in _PEDAL or ctx.kind_at.get(bar + 1, "phrase") in _PEDAL:
+            continue
+        left = ctx.section(bar)
+        right = ctx.section(bar + 1)
+        if left is None or right is None or left is right:
+            continue
+        crosses = bool(left.trio or left.bridge or right.trio or right.bridge)
+        if crosses or _bar_pattern(ctx, bar, patterns) != _bar_pattern(ctx, bar + 1, patterns):
+            found.append(bar)
+    ordered: list[int] = []
+    for bar in found:
+        if bar not in ordered:
+            ordered.append(bar)
+    return ordered
+
+
+def _event_covers(event: NoteEvent, eighth: int, epb: int) -> bool:
+    if event.midi is None:
+        return False
+    start = _start16(event, epb)
+    return start <= eighth * 2 < start + _dur16(event)
+
+
+def _previous_bass(low: list[NoteEvent], eighth: int, epb: int) -> NoteEvent | None:
+    when = eighth * 2
+    best: NoteEvent | None = None
+    best_at = -1
+    for event in low:
+        if event.midi is None:
+            continue
+        begin = _start16(event, epb)
+        finish = begin + _dur16(event)
+        if finish <= when and begin >= best_at:
+            best = event
+            best_at = begin
+    return best
+
+
+def _upper_ceiling(ctx: _Ctx, support, lead, eighth: int) -> int | None:
+    pitches = [
+        event.midi
+        for event in (*support, *lead)
+        if _event_covers(event, eighth, ctx.epb) and event.midi is not None
+    ]
+    if not pitches:
+        return None
+    return min(pitches)
+
+
+def _fold_bass(ctx: _Ctx, pc: int) -> int:
+    high = min(ctx.bass_high, 53 - ctx.semitones)
+    return _clamp(pc + 48, ctx.bass_low, max(ctx.bass_low, high))
+
+
+def _safe_pickup(ctx: _Ctx, bar: int, support, lead, low) -> int:
+    """Root or fifth of the next bar, never a chromatic approach or a short lament."""
+    nxt = min(ctx.bars - 1, bar + 1)
+    root_pc = ctx.chord(nxt).pitches[0] % 12
+    fifth_pc = (root_pc + 7) % 12
+    eighth = (bar + 1) * ctx.epb - 1
+    ceiling = _upper_ceiling(ctx, support, lead, eighth)
+    high = min(ctx.bass_high, 53 - ctx.semitones)
+    if ceiling is not None:
+        high = min(high, ceiling - 1)
+    if high < ctx.bass_low:
+        high = ctx.bass_low
+    previous = _previous_bass(low, eighth, ctx.epb)
+    candidates: list[int] = []
+    for pc in (root_pc, fifth_pc):
+        for sounding in (40, 45, 50):
+            written_pitch = sounding - ctx.semitones
+            if ctx.bass_low <= written_pitch <= high and written_pitch % 12 == pc:
+                candidates.append(written_pitch)
+        folded = _fold_bass(ctx, pc)
+        if ctx.bass_low <= folded <= high:
+            candidates.append(folded)
+    if previous is not None and previous.midi is not None and ctx.bass_low <= previous.midi <= high:
+        candidates.append(previous.midi)
+    for note in candidates:
+        if (note + ctx.semitones) % 12 == (root_pc - 1) % 12:
+            continue
+        if (
+            previous is not None
+            and previous.midi is not None
+            and previous.duration_beats >= 1.0 - 1e-6
+            and previous.midi - note in {1, 2}
+        ):
+            continue
+        sounding = [note + ctx.semitones]
+        for event in (*support, *lead):
+            if _event_covers(event, eighth, ctx.epb) and event.midi is not None:
+                sounding.append(event.midi + ctx.semitones)
+        if _playable(sounding) and (ceiling is None or note < ceiling):
+            return note
+    if previous is not None and previous.midi is not None and (ceiling is None or previous.midi < ceiling):
+        return previous.midi
+    return _clamp(ctx.chord(nxt).pitches[0], ctx.bass_low, max(ctx.bass_low, high))
+
+
+def _relax_texture(ctx: _Ctx, lead, support, low, bar: int):
+    """Last half-bar of a tremolo or dance eases to eighths and a decrescendo."""
+    half = max(1, ctx.epb // 2)
+    start = (bar + 1) * ctx.epb - half
+    end = (bar + 1) * ctx.epb
+    lead = _drop_overlap(lead, start * 2, end * 2, ctx.epb)
+    support = _drop_overlap(support, start * 2, end * 2, ctx.epb)
+    low = _drop_overlap(low, start * 2, end * 2, ctx.epb)
+    span = end - start
+    top, bottom = 58, 46
+    for offset in range(span):
+        level = bottom if span == 1 else round(top - (top - bottom) * offset / (span - 1))
+        eighth = start + offset
+        lead.extend(_eighth_event(eighth, 1, _melody_at(ctx, eighth), ctx.epb, 1, level))
+    if span > 1:
+        root = _clamp(ctx.chord(bar).pitches[0], ctx.bass_low, ctx.bass_high)
+        low.extend(_eighth_event(start, span - 1, root, ctx.epb, 3, top))
+    return lead, support, low, set(range(start, end))
+
+
+def _plant_pickup(ctx: _Ctx, lead, support, low, bar: int):
+    eighth = (bar + 1) * ctx.epb - 1
+    low = _silence(low, eighth, ctx.epb)
+    pitch = _safe_pickup(ctx, bar, support, lead, low)
+    low.extend(_eighth_event(eighth, 1, pitch, ctx.epb, 3, 50))
+    return lead, support, low
+
+
+def _smooth_boundaries(ctx: _Ctx, patterns, lead, support, low):
+    relaxed: set[int] = set()
+    for bar in _boundary_bars(ctx, patterns):
+        pattern = _bar_pattern(ctx, bar, patterns)
+        if ctx.kind_at.get(bar, "phrase") not in _PEDAL and (pattern == "tremolo" or pattern in _DANCE):
+            lead, support, low, window = _relax_texture(ctx, lead, support, low, bar)
+            relaxed.update(window)
+        lead, support, low = _plant_pickup(ctx, lead, support, low, bar)
+    return lead, support, low, relaxed
+
+
+_BAND_DELTA = {"p": -12, "mp": -6, "mf": 0, "f": 4}
+
+
+def _shape_dynamics(ctx: _Ctx, lead, support, low, relaxed: set[int]):
+    """Liquidity and the phrase swell move the dynamic inside a locked pattern."""
+    pedal = set(_pedal_regions(ctx)[0]) | set(_pedal_regions(ctx)[1])
+
+    def phrase_at(eighth: int) -> Phrase | None:
+        for phrase in ctx.phrases:
+            if phrase.start <= eighth < phrase.end and phrase.rise > 0:
+                return phrase
+        return None
+
+    def shape(events: list[NoteEvent]) -> list[NoteEvent]:
+        shaped: list[NoteEvent] = []
+        for event in events:
+            if event.midi is None or event.velocity is None or event.bar in pedal or event.velocity >= _MELODY_APEX:
+                shaped.append(event)
+                continue
+            eighth = event.bar * ctx.epb + int(math.floor(event.beat * 2 + 1e-9))
+            if eighth in relaxed:
+                shaped.append(event)
+                continue
+            extra = 0
+            phrase = phrase_at(eighth)
+            if phrase is not None:
+                extra = round(4 * swell(phrase, min(max(eighth, phrase.start), phrase.end - 1)))
+            velocity = max(44, min(78, event.velocity + _BAND_DELTA.get(ctx.band(event.bar), 0) + extra))
+            shaped.append(replace(event, velocity=velocity))
+        return shaped
+
+    return shape(lead), shape(support), shape(low)
 
 
 def _transitions(ctx, patterns, levels, lead, support, low):

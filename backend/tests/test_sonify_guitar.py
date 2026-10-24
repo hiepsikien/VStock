@@ -8,6 +8,8 @@ from app.sonify.chords import KIND_SUSPENDED_FOURTH, C, Chord, DM, EM, F, G
 from app.sonify.ensemble import ensemble_for
 from app.sonify.form import METER_34, METER_44, METER_68, ChordSlot, FormSection, compose_meter
 from app.sonify.guitar import (
+    _MELODY_APEX,
+    _apex_eighths,
     _arpeggio,
     _attack_eighth,
     _melody_line,
@@ -1687,3 +1689,288 @@ def test_barrios_dance_approaches_a_fifth_and_tapers_when_it_leaves() -> None:
     assert 3.5 not in _onsets(leaving.lead, 1)
     assert 3.5 not in _onsets(leaving.support, 1)
     assert _onsets(leaving.lead, 2) == [index * 0.25 for index in range(16)]
+
+
+def _pitched(events: tuple[NoteEvent, ...], bar: int) -> list[NoteEvent]:
+    return [note for note in events if note.bar == bar and note.midi is not None]
+
+
+def _frame_score(
+    ensemble: str,
+    frame: int,
+    *,
+    character: str = "rally",
+    mode: str = "major",
+    body: int = 4,
+):
+    """Intro and outro of `frame` bars around a short body, with the form attached."""
+    bpm = {"classic": 88, "villa": 100, "barrios": 120}[ensemble]
+    epb = 8
+    phrases = (
+        _held(0, frame * epb, 67),
+        _held(frame * epb, body * epb, 67),
+        _held((frame + body) * epb, frame * epb, 67),
+    )
+    total = frame + body + frame
+    kinds = {
+        bar: ("intro" if bar < frame else "outro" if bar >= frame + body else "phrase")
+        for bar in range(total)
+    }
+    sections = (
+        FormSection(0, frame, "intro", 0),
+        FormSection(frame, frame + body, "phrase", 0),
+        FormSection(frame + body, total, "outro", 0),
+    )
+    return _guitar(
+        phrases,
+        ensemble=ensemble,
+        bpm=bpm,
+        character=character,
+        mode=mode,
+        kinds=kinds,
+        sections=sections,
+    )
+
+
+def _assert_under_apex(score, bars: tuple[int, ...] | list[int]) -> None:
+    for bar in bars:
+        for voice in (score.lead, score.support, score.low):
+            for note in _pitched(voice, bar):
+                assert note.velocity is not None and note.velocity < _MELODY_APEX
+
+
+def test_a_flat_phrase_does_not_mark_every_eighth_as_the_apex() -> None:
+    flat = Phrase(0, 16, (Run(0, 16, 60),), False)
+    assert flat.rise == 0
+    assert _apex_eighths((flat,)) == set()
+    rising = Phrase(
+        0,
+        4,
+        (Run(0, 1, 60), Run(1, 1, 62), Run(2, 1, 64), Run(3, 1, 62)),
+        False,
+    )
+    assert _apex_eighths((rising,)) == {2}
+
+
+def test_intro_and_outro_frames_are_not_hammered_at_the_apex() -> None:
+    for ensemble in ("classic", "villa", "barrios"):
+        score = render(_bars(), title="Guitar", variant="guitar", ensemble=ensemble)  # type: ignore[arg-type]
+        _assert_under_apex(score, (0, 1, 32, 33))
+        assert score_to_musicxml(score).split("</measure>")[0].count("<chord") == 0
+
+
+def test_composer_intro_and_outro_frames_for_two_and_four_bars() -> None:
+    from app.sonify.guitar_frame import frame_roles
+
+    assert frame_roles(2) == [0, 1]
+    assert frame_roles(4) == [0, 1, 2, 3]
+    assert frame_roles(1) == [0]
+    assert frame_roles(6) == [0, 0, 1, 2, 2, 3]
+
+    classic = _frame_score("classic", 2)
+    assert classic.divisions == 2
+    assert _onset_beats(classic.low, 0) == [0.0]
+    assert all(note.velocity <= 52 for note in _pitched(classic.low, 0))
+    # Bar 2 of the direct frame is the dominant, then a root pickup into the body.
+    assert any(note.midi % 12 in {2, 5, 7, 11} for note in _pitched(classic.low, 1) if note.beat < 3)
+    assert any(note.staccato for note in (*classic.lead, *classic.low) if note.bar == classic.bars - 2)
+    assert any(note.duration_beats >= 3 for note in _pitched(classic.low, classic.bars - 1))
+    _assert_under_apex(classic, (0, 1, classic.bars - 2, classic.bars - 1))
+    assert_playable(classic, C_KEY, "study")
+
+    classic_long = _frame_score("classic", 4)
+    assert any(note.staccato for note in (*classic_long.lead, *classic_long.low) if note.bar == 0)
+    assert {0.0, 1.5} <= set(_onset_beats(classic_long.low, 2))
+    assert any(note.beat == 0 and note.duration_beats >= 2 for note in _pitched(classic_long.low, 3))
+    assert any(note.duration_beats >= 3 for note in _pitched(classic_long.low, classic_long.bars - 1))
+    _assert_under_apex(classic_long, (0, 1, 2, 3, classic_long.bars - 4, classic_long.bars - 1))
+    assert_playable(classic_long, C_KEY, "study")
+
+    barrios = _frame_score("barrios", 2)
+    bells = _pitched(barrios.lead, 0)
+    assert len(bells) >= 2
+    assert all(note.midi >= 76 and note.velocity <= 52 for note in bells)
+    assert _pitched(barrios.low, 0) == []
+    assert 0.0 in _onset_beats(barrios.low, 1)
+    final = _pitched(barrios.lead, barrios.bars - 1)
+    assert final and all(note.midi >= 76 and note.velocity <= 48 for note in final)
+    assert _pitched(barrios.low, barrios.bars - 1)
+    for bar in (0, 1, barrios.bars - 2, barrios.bars - 1):
+        assert _sixteenths(barrios.lead, bar) == []
+    body = {bar: "barrios_tremolo" if 2 <= bar < 6 else "study" for bar in range(barrios.bars)}
+    assert_playable(barrios, C_KEY, body)
+
+    barrios_long = _frame_score("barrios", 4)
+    assert len(_pitched(barrios_long.lead, 0)) >= 2 and _pitched(barrios_long.low, 0) == []
+    assert all(note.midi >= 76 for note in _pitched(barrios_long.lead, 0))
+    assert 0.0 in _onset_beats(barrios_long.low, 1)
+    assert any(note.midi >= 76 and note.velocity <= 48 for note in _pitched(barrios_long.lead, barrios_long.bars - 1))
+    long_body = {bar: "barrios_tremolo" if 4 <= bar < 8 else "study" for bar in range(barrios_long.bars)}
+    assert_playable(barrios_long, C_KEY, long_body)
+
+    villa = _frame_score("villa", 2)
+    assert villa.divisions == 2
+    assert 0.0 in _onset_beats(villa.low, 0)
+    assert min(_onset_beats(villa.support, 0)) > 0
+    assert min(_onset_beats(villa.lead, 0)) >= min(_onset_beats(villa.support, 0))
+    assert 0.5 in _onset_beats(villa.lead, 1)
+    assert any(note.accent for note in _pitched(villa.lead, 1))
+    assert 0.5 in _onset_beats(villa.lead, villa.bars - 1)
+    _assert_under_apex(villa, (0, 1, villa.bars - 2, villa.bars - 1))
+    assert_playable(villa, C_KEY, "study")
+
+    villa_long = _frame_score("villa", 4)
+    assert 0.0 in _onset_beats(villa_long.low, 0)
+    assert 0.0 in _onset_beats(villa_long.low, 1)
+    assert len(_onset_beats(villa_long.lead, 2)) >= 6
+    assert any(note.accent and note.beat == 0.0 for note in _pitched(villa_long.lead, 3))
+    assert_playable(villa_long, C_KEY, "study")
+
+
+def test_a_daily_piece_keeps_one_pattern_across_the_body() -> None:
+    def bass(score, bar: int) -> list[float]:
+        return _onset_beats(score.low, bar)
+
+    plain = render(_bars(), title="Guitar", variant="guitar", ensemble="classic")
+    for bar in (2, 10, 20, 30):
+        assert bass(plain, bar) == [0.0, 2.0]
+        assert _sixteenths(plain.lead, bar) == []
+    assert len({note.velocity for note in plain.lead if note.midi is not None and 2 <= note.bar <= 30}) > 1
+
+    selloff = render(_bars(), title="Guitar", variant="guitar", ensemble="classic", character="selloff")
+    for bar in (2, 10, 20, 30):
+        assert bass(selloff, bar) == [0.0, 1.5, 2.0, 3.5]
+
+    calm = render(_bars(), title="Guitar", variant="guitar", ensemble="classic", character="calm")
+    matched = [
+        bar
+        for bar in range(2, 31)
+        if _onset_beats(calm.support, bar) and _onset_beats(calm.support, bar) == _onset_beats(calm.lead, bar)
+    ]
+    assert len(matched) >= 20
+
+    villa = render(_bars(), title="Guitar", variant="guitar", ensemble="villa", character="rally")
+    assert villa.divisions == 2
+    assert sum(1 for bar in range(2, 32) if 0.5 in _onset_beats(villa.support, bar)) == 30
+    quiet = render(_bars(), title="Guitar", variant="guitar", ensemble="villa", character="calm")
+    assert all(0.5 not in _onset_beats(quiet.support, bar) for bar in range(2, 32))
+
+    barrios = render(_bars(), title="Guitar", variant="guitar", ensemble="barrios")
+    assert _sixteenths(barrios.lead, 2) == [index * 0.25 for index in range(16)]
+    assert _sixteenths(barrios.lead, 4) == [index * 0.25 for index in range(16)]
+    tremolo_bars = sum(
+        1
+        for bar in range(2, 32)
+        if sum(1 for note in _pitched(barrios.lead, bar) if abs(note.duration_beats - 0.25) < 1e-9) >= 8
+    )
+    assert tremolo_bars >= 20
+    sung = render(_bars(), title="Guitar", variant="guitar", ensemble="barrios", character="calm")
+    dense = sum(
+        1
+        for bar in range(2, 32)
+        if sum(1 for note in _pitched(sung.lead, bar) if abs(note.duration_beats - 0.25) < 1e-9) >= 12
+    )
+    assert dense <= 2
+    tail = sorted(
+        (note.beat, note.velocity)
+        for note in _pitched(barrios.lead, 31)
+        if note.beat >= 2
+    )
+    assert [velocity for _beat, velocity in tail] == sorted(
+        (velocity for _beat, velocity in tail), reverse=True
+    )
+    assert len({velocity for _beat, velocity in tail}) == len(tail)
+
+
+def test_ternary_sections_share_one_pattern_and_hand_off_on_a_bass_pickup() -> None:
+    epb = 8
+    regions = (
+        (0, 2, "intro", False),
+        (2, 6, "phrase", False),
+        (6, 10, "phrase", True),
+        (10, 14, "phrase", False),
+        (14, 16, "outro", False),
+    )
+    phrases = tuple(_held(start * epb, (end - start) * epb, 67) for start, end, _kind, _trio in regions)
+    sections = tuple(
+        FormSection(start, end, kind, 0, trio=trio) for start, end, kind, trio in regions
+    )
+    kinds = {bar: ("intro" if bar < 2 else "outro" if bar >= 14 else "phrase") for bar in range(16)}
+    classic = _guitar(
+        phrases,
+        ensemble="classic",
+        bpm=88,
+        character="rally",
+        mode="minor",
+        kinds=kinds,
+        sections=sections,
+    )
+    for bar in (3, 11):
+        assert _onset_beats(classic.low, bar) == [0.0, 2.0]
+    for bar in (6, 7, 8):
+        assert _onset_beats(classic.low, bar) == [0.0, 1.5, 2.0, 3.5]
+    for bar in (5, 9, 13):
+        assert _covers(classic.lead, bar * epb + 7, epb)
+        assert _covers(classic.low, bar * epb + 7, epb)
+        pickup = _attack_at(classic.low, bar * epb + 7, epb)
+        assert pickup is not None and pickup.midi is not None
+        assert pickup.midi % 12 in {0, 7}
+        assert pickup.midi % 12 != 11
+    assert_playable(
+        classic,
+        C_KEY,
+        {bar: "elegiaque" if 6 <= bar < 10 else "study" for bar in range(classic.bars)},
+    )
+
+    villa = _guitar(
+        phrases,
+        ensemble="villa",
+        bpm=100,
+        character="rally",
+        kinds=kinds,
+        sections=sections,
+    )
+    for bar in (3, 11):
+        assert 0.5 in _onset_beats(villa.support, bar)
+    assert 0.0 not in _onset_beats(villa.lead, 7)
+    assert _onset_beats(villa.low, 7) == [0.0]
+    assert 0.5 in _onset_beats(villa.support, 11)
+    assert_playable(
+        villa,
+        C_KEY,
+        {
+            bar: "thumb_cantabile" if 6 <= bar < 10 else "villa_pattern" if 2 <= bar < 14 else "study"
+            for bar in range(villa.bars)
+        },
+    )
+
+
+def test_a_long_piece_locks_one_pattern_per_session() -> None:
+    epb = 8
+    phrases = (
+        _held(0, 2 * epb, 67),
+        _held(2 * epb, 22 * epb, 67),
+        _held(24 * epb, 22 * epb, 67),
+        _held(46 * epb, 2 * epb, 67),
+    )
+    sections = (
+        FormSection(0, 2, "intro", 0),
+        FormSection(2, 24, "phrase", 0),
+        FormSection(24, 46, "phrase", 1),
+        FormSection(46, 48, "outro", 1),
+    )
+    kinds = {bar: ("intro" if bar < 2 else "outro" if bar >= 46 else "phrase") for bar in range(48)}
+    character_at = tuple("calm" if bar < 24 else "rally" for bar in range(48))
+    score = _guitar(
+        phrases,
+        ensemble="classic",
+        bpm=88,
+        character="rally",
+        character_at=character_at,
+        kinds=kinds,
+        sections=sections,
+    )
+    assert _onset_beats(score.support, 4) == _onset_beats(score.lead, 4)
+    assert _onset_beats(score.low, 30) == [0.0, 2.0]
+    assert 1.5 not in _onset_beats(score.low, 30)
+    assert _covers(score.low, 23 * epb + 7, epb)
