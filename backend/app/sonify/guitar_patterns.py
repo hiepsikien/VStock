@@ -3343,25 +3343,55 @@ def _toward_next(ctx: _Ctx, bar: int, origin: int, eighth: int) -> int | None:
     return None
 
 
+def _brouwer_open_tones(ctx: _Ctx, sung: int, bass: int) -> list[int]:
+    """Playable open D, G, and B between the sounding bass and the melody."""
+    found: list[int] = []
+    for sounding in (50, 55, 59):
+        tone = sounding - ctx.semitones
+        if not bass < tone < sung:
+            continue
+        if tone < ctx.mid_low or tone > ctx.mid_high:
+            continue
+        if not _playable([bass + ctx.semitones, tone + ctx.semitones, sung + ctx.semitones]):
+            continue
+        found.append(tone)
+    return found
+
+
 def _color_inner(ctx: _Ctx, chord: Chord, sung: int, bass: int, step: int, previous: int | None) -> int | None:
-    """A 3rd, 7th, or sus/add9 color that sits above every legal bass note."""
+    """A 3rd, 7th, or sus/add9 color that sits above every legal bass note.
+
+    Brouwer alternates those colors with the open D, G, and B strings so the
+    etude motor can ring them across the next eighth.
+    """
     tones = [
         tone
         for tone in _inner_choices(chord, sung, bass, ctx.mid_low, ctx.mid_high, ctx.semitones, True)
         if tone > ctx.bass_high
     ]
-    if not tones:
+    opens = _brouwer_open_tones(ctx, sung, bass) if ctx.ensemble == "brouwer" else []
+    if not tones and not opens:
         return _choose_inner(chord, sung, bass, ctx.mid_low, ctx.mid_high, ctx.semitones, True, step)
     root = chord.pitches[0] % 12
     rich = {(root + interval) % 12 for interval in (2, 3, 4, 10, 11)}
     if _uses_color(chord):
         rich.update(_ordered_pool(chord, True)[:2])
-    preferred = [tone for tone in tones if tone % 12 in rich] or tones
-    choices = preferred
+    preferred = [tone for tone in tones if tone % 12 in rich] or list(tones)
+    for tone in opens:
+        if tone not in preferred:
+            preferred.append(tone)
+    if opens:
+        colored = [tone for tone in preferred if tone not in set(opens)]
+        if step % 2 == 0:
+            choices = [tone for tone in opens if tone != previous] or opens
+        else:
+            choices = [tone for tone in colored if tone != previous] or colored or opens
+    else:
+        choices = preferred
     if previous is not None:
         crossed = [
             tone
-            for tone in preferred
+            for tone in choices
             if tone != previous and _strings_differ(previous, tone, ctx.semitones)
         ]
         if crossed:
@@ -3424,7 +3454,9 @@ def _etude_cells(ctx: _Ctx) -> list[tuple[int, int, int, bool]]:
     """Thumb cells: offset, length, chord degree, and whether the cell may walk."""
     epb = ctx.epb
     if ctx.kind == "6/8":
-        cells = [(0, 2, 0, False), (2, 2, 2, False), (4, 2, 0, True)]
+        # Afro-Cuban tumbao: bass on eighths 0, 2, and 5. The fifth ties across
+        # beat 1.5 and the last eighth picks up into the next bar.
+        cells = [(0, 2, 0, False), (2, 3, 2, False), (5, 1, 0, True)]
     elif ctx.kind == "3/4":
         cells = [(0, 3, 0, False), (3, 3, 2, False)]
     elif epb >= 8:
@@ -3507,6 +3539,59 @@ def _sarabande_points(ctx: _Ctx) -> tuple[int, int]:
     return accent, figure
 
 
+def _sarabande_swarms(ctx: _Ctx, bar: int, phrase: Phrase | None) -> bool:
+    """A moving line swarms. A completely flat bar, rising or falling, does not."""
+    if phrase is None:
+        return False
+    if phrase.rise >= MIN_RISE:
+        return True
+    window = ctx.melody[phrase.start : phrase.end]
+    if window and ctx.mood(bar) == "selloff" and max(window) - min(window) >= 2:
+        return True
+    bar_line = ctx.melody[bar * ctx.epb : (bar + 1) * ctx.epb]
+    return bool(bar_line) and max(bar_line) != min(bar_line)
+
+
+def _swarm_line(start: int, arrival: int, steps: int, lo: int, hi: int, direction: int) -> list[int]:
+    """Stepwise pitches from `start` to `arrival`. Each move is 1 or 2 semitones."""
+    line = [start]
+    cursor = start
+    for index in range(steps):
+        left = steps - index
+        remaining = arrival - cursor
+        if remaining == 0 and left > 1:
+            nudge = direction if direction in (1, -1) else 1
+            step = 0
+            for size in (2, 1):
+                candidate = nudge * size
+                nxt = cursor + candidate
+                if lo <= nxt <= hi and abs(arrival - nxt) <= (left - 1) * 2:
+                    step = candidate
+                    break
+            if step == 0:
+                opposite = -nudge
+                for size in (1, 2):
+                    candidate = opposite * size
+                    nxt = cursor + candidate
+                    if lo <= nxt <= hi and abs(arrival - nxt) <= (left - 1) * 2:
+                        step = candidate
+                        break
+        elif left == 1:
+            step = remaining if abs(remaining) <= 2 else (2 if remaining > 0 else -2 if remaining < 0 else 0)
+        else:
+            toward = 1 if remaining > 0 else -1
+            size = 2 if abs(remaining) > 1 + (left - 1) * 2 else 1
+            step = toward * size
+        nxt = cursor + step
+        if nxt < lo or nxt > hi:
+            nxt = cursor
+        line.append(nxt)
+        cursor = nxt
+    if len(line) >= 2 and lo <= arrival <= hi and abs(arrival - line[-2]) <= 2:
+        line[-1] = arrival
+    return line
+
+
 def _modal_figure(
     ctx: _Ctx,
     bar: int,
@@ -3514,7 +3599,8 @@ def _modal_figure(
     bass_midi: int,
     phrase: Phrase | None,
 ) -> list[NoteEvent]:
-    """Stepwise swarm in the second half. Selloff bars move by semitone."""
+    """Ornamental swarm over the second half. Endpoints stay on the price."""
+    del phrase
     epb = ctx.epb
     begin = bar * epb + figure_at
     end = (bar + 1) * epb
@@ -3524,22 +3610,24 @@ def _modal_figure(
     hi = min(ctx.treble_top, ctx.ceiling)
     if lo > hi:
         lo = ctx.treble_floor
-    seed = max(lo, min(hi, _melody_at(ctx, min(begin, len(ctx.melody) - 1))))
-    descend = phrase is not None and begin >= phrase.apex.start
-    direction = -1 if descend else 1
-    chromatic = ctx.mood(bar) == "selloff"
-    cursor = seed
+    start_pitch = max(lo, min(hi, _melody_at(ctx, begin)))
+    end_pitch = max(lo, min(hi, _melody_at(ctx, end - 1)))
+    bar_open = _melody_at(ctx, bar * epb)
+    direction = -1 if end_pitch < bar_open or end_pitch < start_pitch else 1
+    count = end - begin
+    room = max(0, count - 1) * 2
+    gap = end_pitch - start_pitch
+    if abs(gap) > room:
+        arrival = start_pitch + (room if gap > 0 else -room)
+    else:
+        arrival = end_pitch
+    arrival = max(lo, min(hi, arrival))
+    line = _swarm_line(start_pitch, arrival, count - 1, lo, hi, direction)
     events: list[NoteEvent] = []
     level = _MELODY
-    for offset in range(end - begin):
-        events.extend(_eighth_event(begin + offset, 1, cursor, epb, 1, level))
-        level = max(48, level - 1) if descend else min(_MELODY_APEX, level + 1)
-        nxt = cursor + direction if chromatic else _walk(cursor, direction, ctx.mode, lo, hi)
-        if nxt < lo or nxt > hi or nxt == cursor:
-            nxt = cursor - direction
-            if nxt < lo or nxt > hi:
-                nxt = cursor
-        cursor = nxt
+    for offset, pitch in enumerate(line):
+        events.extend(_eighth_event(begin + offset, 1, pitch, epb, 1, level))
+        level = max(48, level - 1) if direction < 0 else min(_MELODY_APEX, level + 1)
     return events
 
 
@@ -3548,12 +3636,12 @@ def _render_sarabande_bar(
     bar: int,
     phrase: Phrase | None,
 ) -> tuple[list[NoteEvent], list[NoteEvent], int, list[NoteEvent]]:
-    """Beat 2 carries the heavy chord. A rising phrase then swarms."""
+    """Beat 2 carries the heavy chord. A moving line then swarms over the price."""
     chord = ctx.chord(bar)
     start = bar * ctx.epb
     epb = ctx.epb
     accent, figure = _sarabande_points(ctx)
-    figure_at = figure if _rises(phrase) and figure < epb else epb
+    figure_at = figure if _sarabande_swarms(ctx, bar, phrase) and figure < epb else epb
     root = _bass_at(ctx, chord, 0, start)
     fifth = _bass_at(ctx, chord, 2, start + accent)
     low: list[NoteEvent] = []

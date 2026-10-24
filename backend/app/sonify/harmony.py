@@ -558,7 +558,10 @@ for _left, _right in zip(
 ):
     _BROUWER_PLANING[(_left, _right)] = 0.32
     _BROUWER_PLANING[(_right, _left)] = 0.32
-# Fm/Fmadd9 -> Bb/Bb7 -> Eb/Ebmaj7 -> G7sus4 -> Cm.
+# Fm/Fmadd9 -> Bb/Bb7 -> Eb/Ebmaj7 -> G7sus4 -> Cm, plus the Noviembre
+# i <-> bVII door and the D7 secondary dominant. Pairs missing here stay
+# illegal: Bb has no row in `_ROOT_TRANSITIONS`, and minor D7 shares a letter
+# with ii.
 _BROUWER_MODAL: dict[tuple[str, str], float] = {
     pair: 0.42
     for pair in (
@@ -575,7 +578,35 @@ _BROUWER_MODAL: dict[tuple[str, str], float] = {
         ("G7sus4", "Cm"),
     )
 }
+_BROUWER_MODAL.update(
+    {
+        ("Cm", "Bb"): 0.32,
+        ("Cm7", "Bb"): 0.32,
+        ("Cmadd9", "Bb"): 0.34,
+        ("Cm", "Bb7"): 0.28,
+        ("Bb", "Cm"): 0.36,
+        ("Bb", "Cmadd9"): 0.34,
+        ("Bb7", "Cm"): 0.32,
+        ("Bb", "G"): 0.24,
+        ("Bb", "G7"): 0.28,
+        ("Bb", "G7sus4"): 0.32,
+        ("Bb7", "G7"): 0.28,
+        ("Bb", "Bb7"): 0.24,
+        ("Bb7", "Bb"): 0.24,
+        ("Ab", "D7"): 0.46,
+        ("Abmaj7", "D7"): 0.40,
+        ("Dm7b5", "D7"): 0.40,
+        ("Fm", "D7"): 0.32,
+        ("Fmadd9", "D7"): 0.32,
+        ("D7", "G"): 0.48,
+        ("D7", "G7"): 0.55,
+        ("D7", "G7sus4"): 0.44,
+        ("D7", "D7"): 0.12,
+    }
+)
 _BROUWER_CALM = frozenset({"maj7", "m7", "add9", "madd9", "sus2"})
+_BROUWER_COLOR_TEXT = frozenset({"sus2", "sus4", "7sus4", "add9", "madd9"})
+_BROUWER_SEVENTH_TEXT = frozenset({"maj7", "m7"})
 _BROUWER_EDGE_TEXT = frozenset({"sus4", "7sus4"})
 _BROUWER_EDGE_NAMES = frozenset({"Bb7", "Bm7b5", "Dm7b5", "E7"})
 _BROUWER_DOWNBEAT = frozenset({"Bbsus2", "Ebsus2", "Bb", "Bb7", "D7"})
@@ -617,6 +648,18 @@ class BrouwerDialect(HarmonyDialect):
             if parent is not None and curr == parent and self._color(prev, mode):
                 return _BROUWER_PARENT_WEIGHT
             return _BROUWER_COLOR_WEIGHT
+        # Color chords change root the way Villa does. Bb, Bb7, and D7 are not
+        # colors, so a minor pair that missed `_BROUWER_MODAL` stays illegal
+        # instead of borrowing D's ii row or leaking Bb into Ab.
+        if prev != curr:
+            if self._color(curr, mode) and (prev in _DIATONIC[mode] or self._color(prev, mode)):
+                prob = _root_probability(prev, curr)
+                if prob > 0.0:
+                    return prob
+            if self._color(prev, mode) and curr in _DIATONIC[mode]:
+                prob = _root_probability(prev, curr)
+                if prob > 0.0:
+                    return prob
         return 0.0
 
     def shares_root(self, prev: Chord, curr: Chord) -> bool:
@@ -661,6 +704,16 @@ class BrouwerDialect(HarmonyDialect):
             return parent.pitch_classes
         return chord.pitch_classes - color_pitch_classes(chord)
 
+    def _tone_heard(self, chord: Chord, strong_pitch_classes: frozenset[int]) -> bool:
+        """A color, seventh, or edge discount needs that tone on a strong beat."""
+        if chord in _BROUWER_COLOR or chord.kind_text in _BROUWER_COLOR_TEXT:
+            return bool(strong_pitch_classes & color_pitch_classes(chord))
+        if chord.kind_text in _BROUWER_SEVENTH_TEXT:
+            return len(chord.pitches) >= 4 and (chord.pitches[3] % 12) in strong_pitch_classes
+        if chord.name in _BROUWER_EDGE_NAMES:
+            return bool(strong_pitch_classes & chord.pitch_classes)
+        return False
+
     def bias(
         self,
         chord: Chord,
@@ -668,7 +721,9 @@ class BrouwerDialect(HarmonyDialect):
         mode: str,
         strong_pitch_classes: frozenset[int] = frozenset(),
     ) -> float:
-        del mode, strong_pitch_classes
+        del mode
+        if not self._tone_heard(chord, strong_pitch_classes):
+            return 0.0
         if character in {"calm", "rally"} and chord.kind_text in _BROUWER_CALM:
             return -0.06
         if character in {"volatile", "selloff"} and (

@@ -1139,7 +1139,7 @@ def _syncopated_blocks(ctx, bar: int) -> list[tuple]:
 
 
 def _stab_and_ring(ctx, bar: int) -> list[tuple]:
-    """Accented chord on beat 1, a gap, then a quiet Picardy resonance."""
+    """Pickup stab on the downbeat, final staccato stab on beat 2, then silence."""
     epb = ctx.epb
     bass, inner, lead = _stack(ctx, _function(ctx, bar, "I+"))
     specs = [
@@ -1149,11 +1149,10 @@ def _stab_and_ring(ctx, bar: int) -> list[tuple]:
     if inner is not None:
         specs.append((0, 1, inner, 2, _MP, {"staccato": True, "accent": True}))
     if epb > 2:
-        quiet_bass, quiet_inner, quiet_lead = _stack(ctx, _function(ctx, bar, "I+"))
-        specs.append((2, epb - 2, quiet_bass, 3, _PP, {}))
-        specs.append((2, epb - 2, quiet_lead, 1, _PP, {}))
-        if quiet_inner is not None:
-            specs.append((2, epb - 2, quiet_inner, 2, _PP, {}))
+        specs.append((2, 1, bass, 3, _MF, {"staccato": True, "accent": True}))
+        specs.append((2, 1, lead, 1, _MF, {"staccato": True, "accent": True}))
+        if inner is not None:
+            specs.append((2, 1, inner, 2, _MP, {"staccato": True, "accent": True}))
     return _clip_voice(specs, epb)
 
 
