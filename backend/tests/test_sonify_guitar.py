@@ -66,8 +66,11 @@ def test_barrios_prints_mp_for_the_fill_and_the_thumb() -> None:
 def test_guitar_rejects_a_foreign_ensemble() -> None:
     assert ensemble_for("guitar", "villa") == "villa"
     assert ensemble_for("guitar", "barrios") == "barrios"
+    assert ensemble_for("guitar", "brouwer") == "brouwer"
     with pytest.raises(ValueError):
         ensemble_for("guitar", "wood")
+    with pytest.raises(ValueError):
+        ensemble_for("symphony", "brouwer")
 
 
 def test_written_bounds_move_both_ways_with_the_key() -> None:
@@ -1704,7 +1707,7 @@ def _frame_score(
     body: int = 4,
 ):
     """Intro and outro of `frame` bars around a short body, with the form attached."""
-    bpm = {"classic": 88, "villa": 100, "barrios": 120}[ensemble]
+    bpm = {"classic": 88, "villa": 100, "barrios": 120, "brouwer": 108}[ensemble]
     epb = 8
     phrases = (
         _held(0, frame * epb, 67),
@@ -2310,3 +2313,303 @@ def test_suite_movements_use_preludio_dances_tremolo_and_villa_chorale() -> None
     assert 0.0 in _attack_onsets(slow.lead, 12)
     assert 0.0 not in _attack_onsets(slow.lead, 48)
     assert _attack_onsets(slow.lead, 48) == _attack_onsets(slow.support, 48) == [1.0, 2.0]
+
+
+def _brouwer_pattern(melody: list[int], **kwargs):
+    bars = len(melody) // kwargs.get("meter", METER_44).eighths_per_bar
+    chords = kwargs.pop("chords", None) or {bar: C for bar in range(bars)}
+    return _pattern_score(
+        melody,
+        (_joined(0, melody),),
+        ensemble="brouwer",
+        bpm=kwargs.pop("bpm", 108),
+        bands=kwargs.pop("bands", None) or {bar: "mf" for bar in range(bars)},
+        chords=chords,
+        character=kwargs.pop("character", "rally"),
+        rel_span=0.0,
+        **kwargs,
+    )
+
+
+def test_brouwer_renders_one_nylon_part_at_108() -> None:
+    from app.sonify.guitar import GUITAR_BPM
+
+    assert GUITAR_BPM["brouwer"] == 108
+    score = render(_bars(), title="Guitar", variant="guitar", ensemble="brouwer")  # type: ignore[arg-type]
+    assert score.bpm == 108
+    assert score.ensemble == "brouwer"
+    assert score.divisions == 2
+    xml = score_to_musicxml(score)
+    assert xml.count("<score-part ") == 1
+    assert xml.count("<part ") == 1
+    assert "<part-name>Acoustic Nylon</part-name>" in xml
+    assert "<midi-program>25</midi-program>" in xml
+    _assert_score_covers(score, 8)
+    assert_playable(score, C_KEY, "brouwer")
+    _assert_engraved(score, "brouwer")
+
+
+def test_brouwer_dialect_planes_suspensions_and_the_minor_flat_seven() -> None:
+    from app.sonify.chords import AM7, BF, BF7, BM7B5, CM, CMAJ7, DM7B5, E7, EF, EFMAJ7, F, FM
+    from app.sonify.harmony import BROUWER, COMMON, VILLA, dialect_for
+
+    assert dialect_for("brouwer") is BROUWER
+    assert dialect_for("classic") is COMMON
+    major = {chord.name for chord in BROUWER.extra("major")}
+    minor = {chord.name for chord in BROUWER.extra("minor")}
+    assert major == {"Csus2", "Dsus2", "Esus4", "Fsus2", "G7sus4", "Bbsus2", "Ebsus2"}
+    assert minor == major - {"Dsus2", "Esus4", "Bbsus2"} | {"Dsus4", "Cmadd9", "Fmadd9", "Bb", "Bb7", "D7"}
+
+    def named(mode: str, name: str):
+        return next(chord for chord in BROUWER.extra(mode) if chord.name == name)
+
+    csus2 = named("major", "Csus2")
+    bbsus2 = named("major", "Bbsus2")
+    fsus2 = named("major", "Fsus2")
+    ebsus2 = named("major", "Ebsus2")
+    for left, right in ((csus2, bbsus2), (bbsus2, fsus2), (fsus2, ebsus2)):
+        assert BROUWER.transition(left, right, "major") == 0.32
+        assert BROUWER.transition(right, left, "major") == 0.32
+    fmadd9 = named("minor", "Fmadd9")
+    g7sus4 = named("minor", "G7sus4")
+    for left, right in (
+        (FM, BF),
+        (FM, BF7),
+        (fmadd9, BF),
+        (fmadd9, BF7),
+        (BF, EF),
+        (BF, EFMAJ7),
+        (BF7, EF),
+        (BF7, EFMAJ7),
+        (EF, g7sus4),
+        (EFMAJ7, g7sus4),
+        (g7sus4, CM),
+    ):
+        assert BROUWER.transition(left, right, "minor") == 0.42
+    assert BROUWER.transition(BF, CM, "minor") == 0.0
+    assert BROUWER.transition(C, F, "major") is None
+    assert BROUWER.transition(C, csus2, "major") == 0.30
+    assert BROUWER.transition(csus2, C, "major") == 0.40
+    assert BROUWER.transition(csus2, csus2, "major") == 0.0
+    assert BROUWER.color_credit(csus2, frozenset({2}), C) == 0.65
+    assert BROUWER.color_credit(csus2, frozenset({0, 7}), C) == 0.0
+    assert BROUWER.color_credit(csus2, frozenset({2}), F) == 0.0
+    assert BROUWER.is_parent(C, csus2, "major")
+    assert BROUWER.shares_root(C, csus2)
+    assert not BROUWER.shares_root(C, F)
+    assert not BROUWER.allowed(csus2, pedal=True, phrase_downbeat=False, character="calm", mode="major")
+    assert BROUWER.allowed(C, pedal=True, phrase_downbeat=False, character="calm", mode="major")
+    assert not BROUWER.allowed(bbsus2, pedal=False, phrase_downbeat=True, character="rally", mode="major")
+    cadd9 = next(chord for chord in VILLA.extra("major") if chord.name == "Cadd9")
+    esus4 = named("major", "Esus4")
+    assert BROUWER.bias(CMAJ7, "calm", "major") == -0.06
+    assert BROUWER.bias(AM7, "rally", "major") == -0.06
+    assert BROUWER.bias(csus2, "calm", "major") == -0.06
+    assert BROUWER.bias(cadd9, "rally", "major") == -0.06
+    assert BROUWER.bias(g7sus4, "volatile", "minor") == -0.07
+    assert BROUWER.bias(esus4, "selloff", "major") == -0.07
+    for chord in (BF7, BM7B5, DM7B5, E7):
+        assert BROUWER.bias(chord, "volatile", "minor") == -0.07
+    assert BROUWER.bias(CMAJ7, "volatile", "major") == 0.0
+    assert BROUWER.bias(esus4, "calm", "major") == 0.0
+
+
+def test_noviembre_sings_over_a_two_beat_pulse_and_a_walking_pickup() -> None:
+    held = _brouwer_pattern([72] * 8, character="calm")
+    assert _onset_beats(held.low, 0) == [0.0, 2.0]
+    assert _onset_beats(held.support, 0) == [0.5, 1.0, 1.5, 2.5, 3.0]
+    assert {note.velocity for note in _attacks(held.lead, 0)} == {64}
+    _assert_engraved(held, "brouwer")
+
+    walking = _pattern_score(
+        [72] * 16,
+        (_joined(0, [72] * 16),),
+        ensemble="brouwer",
+        bpm=108,
+        chords={0: C, 1: F},
+        character="calm",
+        rel_span=0.0,
+    )
+    assert 3.5 in _onset_beats(walking.low, 0)
+    pulse = next(note for note in _attacks(walking.low, 0) if abs(note.beat - 2.0) < 1e-6)
+    pickup = next(note for note in _attacks(walking.low, 0) if abs(note.beat - 3.5) < 1e-6)
+    assert pulse.velocity is not None and pickup.velocity is not None
+    assert pickup.velocity < pulse.velocity
+    _assert_engraved(walking, "brouwer")
+
+    rising = [67, 69, 71, 72, 74, 72, 71, 69]
+    sung = _brouwer_pattern(rising, character="calm")
+    lead = _attacks(sung.lead, 0)
+    assert lead[0].velocity == 60
+    assert any(note.velocity == 72 for note in lead)
+    assert lead[-1].velocity is not None and lead[-1].velocity < 72
+    _assert_engraved(sung, "brouwer")
+
+
+def test_brouwer_etude_plays_the_cuban_tumbao() -> None:
+    score = _brouwer_pattern([72] * 8, character="rally")
+    bass = _attacks(score.low, 0)
+    assert [round(note.beat, 2) for note in bass] == [0.0, 1.5, 3.0]
+    assert [round(note.duration_beats, 2) for note in bass] == [1.5, 1.5, 1.0]
+    assert bass[0].accent
+    for beat in (0.5, 1.0, 2.0, 2.5, 3.5):
+        assert beat in _onset_beats(score.support, 0)
+    assert any(note.duration_beats >= 1.0 for note in score.support if note.midi is not None)
+    _assert_engraved(score, "brouwer")
+
+    six = _brouwer_pattern([72] * 6, character="rally", meter=METER_68)
+    six_bass = _attacks(six.low, 0)
+    assert [round(note.beat, 2) for note in six_bass] == [0.0, 1.0, 2.0]
+    assert [round(note.duration_beats, 2) for note in six_bass] == [1.0, 1.0, 1.0]
+    _assert_engraved(six, "brouwer")
+
+    three = _brouwer_pattern([72] * 6, character="rally", meter=METER_34)
+    three_bass = _attacks(three.low, 0)
+    assert [round(note.beat, 2) for note in three_bass] == [0.0, 1.5]
+    assert [round(note.duration_beats, 2) for note in three_bass] == [1.5, 1.5]
+    _assert_engraved(three, "brouwer")
+
+
+def test_elogio_pizz_stabs_and_slaps_the_offbeat() -> None:
+    score = _brouwer_pattern([72] * 8, character="volatile", bands={0: "mf"})
+    bass = _attacks(score.low, 0)
+    assert [round(note.beat, 2) for note in bass] == [0.0, 1.0, 1.5, 2.5, 3.0]
+    assert all(note.staccato for note in bass)
+    slap = next(note for note in bass if abs(note.beat - 1.5) < 1e-6)
+    assert slap.accent and slap.staccato
+    assert slap.velocity is not None and bass[0].velocity is not None
+    assert slap.velocity > bass[0].velocity
+    lead = _attacks(score.lead, 0)
+    lead_slap = next(note for note in lead if abs(note.beat - 1.5) < 1e-6)
+    assert lead_slap.accent and lead_slap.staccato
+    assert lead_slap.velocity is not None and lead[0].velocity is not None
+    assert lead_slap.velocity > lead[0].velocity
+    _assert_engraved(score, "brouwer")
+
+
+def test_sarabande_accents_beat_two_and_swarms_when_the_line_rises() -> None:
+    flat = _brouwer_pattern([72] * 8, character="selloff")
+    assert [round(note.beat, 2) for note in _attacks(flat.lead, 0)] == [0.0, 1.0]
+    for voice in (flat.low, flat.support, flat.lead):
+        accented = [note for note in _attacks(voice, 0) if abs(note.beat - 1.0) < 1e-6]
+        assert len(accented) == 1
+        assert accented[0].accent and not accented[0].staccato
+    assert all(note.beat < 2 for note in _attacks(flat.lead, 0))
+    _assert_engraved(flat, "brouwer")
+
+    rising = [64, 65, 67, 69, 71, 72, 74, 76]
+    swarm = _brouwer_pattern(rising, character="selloff")
+    later = [note.midi for note in _attacks(swarm.lead, 0) if note.midi is not None and note.beat >= 2 - 1e-6]
+    diffs = [abs(right - left) for left, right in zip(later, later[1:])]
+    assert len(later) >= 4
+    assert diffs and max(diffs) <= 2
+    assert any(diff in {1, 2} for diff in diffs)
+    _assert_engraved(swarm, "brouwer")
+
+    slow = _brouwer_pattern([72] * 8, character="rally", bpm=72)
+    assert any(note.accent and abs(note.beat - 1.0) < 1e-6 for note in _attacks(slow.low, 0))
+    assert [round(note.beat, 2) for note in _attacks(slow.low, 0)] == [0.0, 1.0]
+    quiet = _brouwer_pattern([72] * 8, character="calm", bpm=60)
+    assert _onset_beats(quiet.low, 0) == [0.0, 2.0]
+    _assert_engraved(slow, "brouwer")
+    _assert_engraved(quiet, "brouwer")
+
+
+def test_brouwer_trio_answers_the_tumbao_with_noviembre() -> None:
+    epb = 8
+    regions = (
+        (0, 2, "intro", False),
+        (2, 6, "phrase", False),
+        (6, 10, "phrase", True),
+        (10, 14, "phrase", False),
+        (14, 16, "outro", False),
+    )
+    phrases = tuple(_held(start * epb, (end - start) * epb, 67) for start, end, _kind, _trio in regions)
+    sections = tuple(FormSection(start, end, kind, 0, trio=trio) for start, end, kind, trio in regions)
+    kinds = {bar: ("intro" if bar < 2 else "outro" if bar >= 14 else "phrase") for bar in range(16)}
+    score = _guitar(
+        phrases,
+        ensemble="brouwer",
+        bpm=108,
+        character="rally",
+        kinds=kinds,
+        sections=sections,
+    )
+    assert [round(note.beat, 2) for note in _attacks(score.low, 3)] == [0.0, 1.5, 3.0]
+    assert _onset_beats(score.low, 7) == [0.0, 2.0]
+    assert_playable(score, C_KEY, "brouwer")
+    _assert_engraved(score, "brouwer")
+
+
+def test_brouwer_frames_for_lyric_and_edge_modes() -> None:
+    lyric = _frame_score("brouwer", 2, character="rally")
+    assert _onset_beats(lyric.low, 0) == [0.0]
+    assert _pitched(lyric.lead, 0) == []
+    assert all(note.velocity is not None and note.velocity <= 50 for note in _pitched(lyric.low, 0))
+    assert all(note.duration_beats >= 3 for note in _pitched(lyric.low, 0))
+    assert len(_attacks(lyric.lead, 1)) >= 4
+    final = _pitched(lyric.lead, lyric.bars - 1)
+    assert final and all(note.midi >= 76 and note.velocity is not None and note.velocity <= 48 for note in final)
+    assert _pitched(lyric.low, lyric.bars - 1)
+    assert any(note.duration_beats >= 3 for note in _pitched(lyric.low, lyric.bars - 1))
+    _assert_under_apex(lyric, (0, 1, lyric.bars - 2, lyric.bars - 1))
+    _assert_engraved(lyric, "brouwer")
+
+    lyric_long = _frame_score("brouwer", 4, character="calm")
+    opening = _attacks(lyric_long.lead, 0)
+    assert len(opening) == 1 and opening[0].midi >= 76 and opening[0].velocity is not None
+    assert opening[0].velocity <= 48
+    assert _pitched(lyric_long.low, 0) == []
+    assert 0.0 in _onset_beats(lyric_long.low, 1)
+    assert len(_attacks(lyric_long.support, 1)) >= 2
+    assert len([note for note in _attacks(lyric_long.lead, 3) if note.beat >= 2]) >= 3
+    assert len(_attacks(lyric_long.low, lyric_long.bars - 3)) >= 2
+    farewell = _pitched(lyric_long.lead, lyric_long.bars - 1)
+    assert farewell and any(note.midi >= 76 and note.velocity is not None and note.velocity <= 48 for note in farewell)
+    assert _pitched(lyric_long.low, lyric_long.bars - 1)
+    _assert_under_apex(lyric_long, (0, 1, 2, 3, lyric_long.bars - 4, lyric_long.bars - 1))
+    _assert_engraved(lyric_long, "brouwer")
+
+    edge = _frame_score("brouwer", 2, character="volatile")
+    assert any(note.staccato and note.accent for note in (*edge.lead, *edge.support, *edge.low) if note.bar == 0)
+    assert _pitched(edge.low, 0)
+    assert len([note for note in _attacks(edge.lead, 1) if note.staccato]) >= 4
+    penultimate = edge.bars - 2
+    offbeat = [note for note in _attacks(edge.lead, penultimate) if note.staccato and note.beat > 0]
+    assert len(offbeat) >= 2
+    last = edge.bars - 1
+    stab = [note for note in (*_attacks(edge.lead, last), *_attacks(edge.low, last)) if abs(note.beat) < 1e-6]
+    assert stab and all(note.staccato and note.accent for note in stab)
+    assert any(
+        note.velocity is not None and note.velocity <= 48 and note.beat >= 1
+        for note in _pitched(edge.lead, last)
+    )
+    _assert_under_apex(edge, (0, 1, penultimate, last))
+    _assert_engraved(edge, "brouwer")
+
+    edge_long = _frame_score("brouwer", 4, character="selloff")
+    pluck = _attacks(edge_long.low, 0)
+    assert len(pluck) == 1 and pluck[0].staccato and pluck[0].accent
+    assert pluck[0].duration_beats <= 0.5
+    assert len(_attacks(edge_long.low, 1)) >= 2
+    assert all(note.duration_beats >= 1 for note in _attacks(edge_long.low, 1))
+    assert any(note.staccato and abs(note.beat - 0.5) < 1e-6 for note in _attacks(edge_long.lead, 2))
+    second_half = [note for note in _attacks(edge_long.lead, 3) if note.beat >= 2]
+    first_half = [note for note in _attacks(edge_long.lead, 3) if note.beat < 2]
+    assert len(second_half) >= 4 and len(second_half) > len(first_half)
+    outro = edge_long.bars - 4
+    sparse = _attacks(edge_long.lead, outro)
+    assert 1 <= len(sparse) <= 3
+    assert sparse[-1].velocity is not None and sparse[0].velocity is not None
+    assert sparse[-1].velocity < sparse[0].velocity
+    assert len(_attacks(edge_long.lead, outro + 1)) >= 4
+    assert any(note.duration_beats >= 2 for note in _pitched(edge_long.low, outro + 2))
+    ending = _attacks(edge_long.low, outro + 3)
+    assert ending and ending[0].staccato and ending[0].accent and ending[0].midi <= 48
+    _assert_under_apex(edge_long, (0, 1, 2, 3, outro, outro + 3))
+    _assert_engraved(edge_long, "brouwer")
+
+    for character in ("rally", "volatile"):
+        compressed = _frame_score("brouwer", 1, character=character)
+        assert_playable(compressed, C_KEY, "brouwer")
+        _assert_engraved(compressed, "brouwer")

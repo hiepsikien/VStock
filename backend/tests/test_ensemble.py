@@ -179,8 +179,11 @@ def test_breath_keeps_the_english_horn_top() -> None:
 def test_ensemble_must_belong_to_the_variant() -> None:
     assert ensemble_for("jazz", "classic") == "classic"
     assert ensemble_for("jazz", "soul") == "soul"
+    assert ensemble_for("guitar", "brouwer") == "brouwer"
     with pytest.raises(ValueError):
         ensemble_for("jazz", "wood")
+    with pytest.raises(ValueError):
+        ensemble_for("symphony", "brouwer")
 
 
 def test_cache_names_keep_the_classic_stem(tmp_path: Path) -> None:
