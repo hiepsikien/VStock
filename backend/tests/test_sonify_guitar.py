@@ -3505,15 +3505,28 @@ def test_villa_live_tresillo_boosts_velocity_identically_in_mf_and_f_and_keeps_b
         for bar in (0, 1):
             assert _onset_beats(score.low, bar)[:2] == [0.0, 2.0]
             assert {0.5, 1.0, 1.5, 2.5, 3.0} <= set(_onset_beats(score.support, bar))
+            lead_vel = _pitched(score.lead, bar)[0].velocity or 64
             low_accents = {round(note.beat, 2): note.velocity for note in _pitched(score.low, bar) if note.accent}
             inner_accents = {
                 round(note.beat, 2): note.velocity for note in _pitched(score.support, bar) if note.accent
             }
-            expected_low = 70 if band == "f" else 68
-            expected_inner = 68 if band == "f" else 64
-            assert low_accents == {0.0: expected_low}
-            assert inner_accents == {1.5: expected_inner, 3.0: expected_inner}
+            unaccented_inner = [note.velocity for note in _pitched(score.support, bar) if not note.accent]
+            assert low_accents == {0.0: 63}
+            assert inner_accents == {1.5: 62, 3.0: 62}
+            assert all(vel < 62 for vel in unaccented_inner if vel is not None)
+            assert all(vel < lead_vel for vel in (*low_accents.values(), *inner_accents.values()) if vel is not None)
         assert not any(note.accent for note in _pitched(score.support, 2))
+
+    # Framed daily score: even after _shape_dynamics adds band delta (+4 on `f`),
+    # tresillo accents on bass and inner voice stay strictly below the melody.
+    framed_vol = render(_bars(), title="Guitar", variant="guitar", ensemble="villa", character="volatile")
+    for bar in range(2, 32):
+        lead_vels = [note.velocity for note in _pitched(framed_vol.lead, bar) if note.velocity is not None]
+        if not lead_vels:
+            continue
+        ceiling = max(lead_vels)
+        for note in (*_pitched(framed_vol.low, bar), *_pitched(framed_vol.support, bar)):
+            assert note.velocity is not None and note.velocity < ceiling
 
     unmarked = _pattern_score(
         [72] * 8,
@@ -3525,6 +3538,80 @@ def test_villa_live_tresillo_boosts_velocity_identically_in_mf_and_f_and_keeps_b
         chords={0: C},
     )
     assert _onset_beats(unmarked.low, 0) == [0.0, 2.0]
+
+
+def test_barrios_mozart_brouwer_and_villa_feedback_regressions() -> None:
+    # 1. Barrios: calm finale (trailing pedal >= 10 bars) still selects Ultimo Tremolo.
+    finale = _suite(3, "barrios", character="calm")
+    tremolo_bars = sum(
+        1
+        for bar in range(10, 40)
+        if sum(1 for note in _pitched(finale.lead, bar) if abs(note.duration_beats - 0.25) < 1e-9) >= 12
+    )
+    assert tremolo_bars >= 20
+
+    # Barrios 1D: flat/zero-activity rally or selloff under 1.4% span still sings Preludio.
+    flat_day = [Bar(close=100.0, volume=1000 + index) for index in range(48)]
+    preludio_day = render(flat_day, title="Guitar", variant="guitar", ensemble="barrios", character="rally")
+    assert any(note.duration_beats >= 3.5 for note in _pitched(preludio_day.low, 4))
+
+    # 2. Sor Op. 9 (`mozart_var`): held 76 and arch 64 -> 77 -> 67 stay stepwise after `_repair`.
+    for line in ([76] * 8, [64, 69, 74, 77, 77, 74, 71, 67]):
+        mozart = _pattern_score(
+            line,
+            (_joined(0, line),),
+            ensemble="classic",
+            bpm=88,
+            character="volatile",
+            chords={0: C},
+        )
+        inner_midis = [note.midi for note in _attacks(mozart.support, 0) if note.midi is not None]
+        assert len(inner_midis) >= 5
+        assert max(abs(right - left) for left, right in zip(inner_midis, inner_midis[1:])) <= 2
+        _assert_engraved(mozart, "study")
+
+    # 3. Brouwer `_modal_figure`: stays inside the bar's pitch range and preserves an early peak.
+    drop_bar = [72, 64, 64, 64, 64, 64, 64, 60]
+    drop_score = _pattern_score(
+        drop_bar,
+        (_joined(0, drop_bar),),
+        ensemble="brouwer",
+        bpm=108,
+        character="selloff",
+        chords={0: C},
+    )
+    drop_midis = [note.midi for note in _attacks(drop_score.lead, 0) if note.midi is not None]
+    assert min(drop_midis) >= 60
+    assert max(abs(right - left) for left, right in zip(drop_midis, drop_midis[1:])) <= 2
+
+    arch_bar = [60, 72, 72, 72, 72, 72, 72, 67]
+    arch_score = _pattern_score(
+        arch_bar,
+        (_joined(0, arch_bar),),
+        ensemble="brouwer",
+        bpm=108,
+        character="selloff",
+        chords={0: C},
+    )
+    arch_midis = [note.midi for note in _attacks(arch_score.lead, 0) if note.midi is not None]
+    assert max(arch_midis) == 72
+    assert min(arch_midis) >= 60
+    assert max(abs(right - left) for left, right in zip(arch_midis, arch_midis[1:])) <= 2
+
+    # 4. Villa-Lobos: unframed `_select_body` and slow 72 BPM movements also sing `thumb_cantabile` on `selloff`.
+    unframed_selloff = _pattern_score(
+        [67, 69, 71, 72, 74, 72, 71, 69] * 2,
+        (_joined(0, [67, 69, 71, 72, 74, 72, 71, 69]), _joined(8, [67, 69, 71, 72, 74, 72, 71, 69])),
+        ensemble="villa",
+        bpm=100,
+        character="selloff",
+    )
+    assert 0.0 not in _onset_beats(unframed_selloff.lead, 1)
+    assert all(48 <= (note.midi or 0) <= 64 for note in _pitched(unframed_selloff.low, 1))
+
+    slow_selloff = _suite(1, "villa", character="selloff")
+    assert 0.0 not in _attack_onsets(slow_selloff.lead, 12)
+    assert 0.0 in _attack_onsets(slow_selloff.lead, 48)
 
 
 def test_villa_preserves_forte_chromatic_approach_across_boundary_and_outro_reads_character_at() -> None:
