@@ -1,47 +1,22 @@
-"""Heitor Villa-Lobos classical guitar patterns (`ensemble = "villa"`)."""
+"""Heitor Villa-Lobos Etude No. 1 arpeggio wave, Etude No. 11 block chords, and Prelude No. 1 thumb cantabile."""
 
 from __future__ import annotations
 
 from dataclasses import replace
+import itertools
+import math
 
 from app.sonify.chords import Chord
-from app.sonify.guitar import (
-    _BASS,
-    _INNER,
-    _MELODY,
-    _MELODY_APEX,
-    _compress_monotone,
-    _fit,
-    _melody_scale,
-    _overflow,
-    _pool,
-    _tresillo_bars,
-)
-from app.sonify.guitar_patterns import (
-    _Ctx,
-    _choose_bass,
-    _choose_inner,
-    _covering_melody_velocity,
-    _covers,
-    _cut_before,
-    _eighth_event,
-    _inner_choices,
-    _melody_at,
-    _nearest,
-    _peak,
-    _playable,
-    _rises,
-    _shape_accompaniment,
-    _sounding_midi,
-    _start16,
-    _strings_differ,
-    _support_eighths,
-    _sustain,
-    _wave_tone,
-)
-from app.sonify.model import NoteEvent, Phrase
-from app.sonify.phrasing import MIN_RISE, quantize_strong_beats, swell
+from app.sonify.model import NoteEvent, Phrase, Score
+from app.sonify.phrasing import MIN_RISE, swell
 
+# Default velocity constants evaluated at function definition time
+_MELODY = 64
+_MELODY_APEX = 72
+_BASS = 56
+_INNER = 46
+_MORDENT_SPAN = 4
+BARRIOS_TREMOLO_MIN_BPM = 90
 
 def _villa_wave(ctx: _Ctx, bar: int, low: list[NoteEvent], offsets: list[int]) -> list[NoteEvent]:
     """Thumb keeps root and fifth. i and m roll up and down the inner chord."""
@@ -50,12 +25,41 @@ def _villa_wave(ctx: _Ctx, bar: int, low: list[NoteEvent], offsets: list[int]) -
     support: list[NoteEvent] = []
     previous: int | None = None
     step = 0
+    offset_set = set(offsets)
     for offset in offsets:
         sung = _melody_at(ctx, start + offset)
         bass = _sounding_midi(low, start + offset, ctx.epb) or _choose_bass(
             chord, 0, sung, ctx.bass_low, ctx.bass_high, ctx.semitones
         )
         tones = _inner_choices(chord, sung, bass, ctx.mid_low, ctx.mid_high, ctx.semitones, True)
+        if offset + 1 < ctx.epb and (offset + 1) not in offset_set:
+            next_sung = _melody_at(ctx, start + offset + 1)
+            next_bass = _sounding_midi(low, start + offset + 1, ctx.epb) or bass
+            if next_bass > bass:
+                shared_tones = _inner_choices(
+                    chord,
+                    min(sung, next_sung),
+                    max(bass, next_bass),
+                    ctx.mid_low,
+                    ctx.mid_high,
+                    ctx.semitones,
+                    True,
+                )
+                if shared_tones:
+                    tones = shared_tones
+            outer_ok = _playable([next_bass + ctx.semitones, next_sung + ctx.semitones])
+            ring_able = [
+                tone
+                for tone in tones
+                if next_bass < tone < next_sung
+                and _strings_differ(tone, next_sung, ctx.semitones)
+                and _playable(
+                    ([next_bass + ctx.semitones] if outer_ok else [])
+                    + [tone + ctx.semitones, next_sung + ctx.semitones]
+                )
+            ]
+            if ring_able:
+                tones = ring_able
         if len(tones) >= 2 and previous is not None:
             crossed = [tone for tone in tones if tone != previous and _strings_differ(previous, tone, ctx.semitones)]
             if len(crossed) >= 2:
@@ -72,8 +76,14 @@ def _villa_wave(ctx: _Ctx, bar: int, low: list[NoteEvent], offsets: list[int]) -
     return support
 
 
+
 def _villa_bass(ctx: _Ctx, bar: int) -> list[NoteEvent]:
-    """Root and fifth on the strong beats, even when `character` is None."""
+    """Root and fifth on the strong beats, even when `character` is None.
+
+    Keeping 4/4 `f` on two half-note thumb attacks (0 and 4) leaves eighth 6 to
+    the inner wave, so the 3+3+2 tresillo accents `{0, 3, 6}` always fall on
+    the thumb at 0 and the inner voice at 3 and 6 in both `mf` and `f`.
+    """
     band = ctx.band(bar)
     chord = ctx.chord(bar)
     start = bar * ctx.epb
@@ -99,12 +109,16 @@ def _villa_bass(ctx: _Ctx, bar: int) -> list[NoteEvent]:
     ]
 
 
+
 def _render_villa_bar(ctx: _Ctx, bar: int, approach: bool) -> tuple[list[NoteEvent], list[NoteEvent]]:
     band = ctx.band(bar)
+    chord = ctx.chord(bar)
     start = bar * ctx.epb
     epb = ctx.epb
     low = _villa_bass(ctx, bar)
     if band in {"mf", "f"} and ctx.kind == "4/4":
+        # Full roll on every eighth the thumb does not open. The bass eighths
+        # stay empty so the previous inner note can ring across them (campanella).
         occupied = {(_start16(event, epb) // 2) - start for event in low if event.midi is not None}
         offsets = [offset for offset in range(epb) if offset not in occupied]
     else:
@@ -135,6 +149,7 @@ def _render_villa_bar(ctx: _Ctx, bar: int, approach: bool) -> tuple[list[NoteEve
     return support, low
 
 
+
 def _accent_at(
     ctx: _Ctx,
     event: NoteEvent,
@@ -154,6 +169,7 @@ def _accent_at(
     if event.velocity is not None:
         return replace(event, velocity=max(40, event.velocity - 2))
     return event
+
 
 
 def _chord_grid(ctx: _Ctx, bar: int, phrase: Phrase | None) -> tuple[list[int], list[int]]:
@@ -176,6 +192,7 @@ def _chord_grid(ctx: _Ctx, bar: int, phrase: Phrase | None) -> tuple[list[int], 
     if (rise and phrase.start <= bar * ctx.epb <= phrase.apex.start) or bar == apex_bar or (phrase.closes and bar == end_bar):
         return [0, 4], [4, 2]
     return points, spans
+
 
 
 def _place_thumb(ctx: _Ctx, phrase: Phrase) -> list[int]:
@@ -209,6 +226,7 @@ def _place_thumb(ctx: _Ctx, phrase: Phrase) -> list[int]:
     return [max(floor, min(top, note)) for note in line]
 
 
+
 def _upper_dyad(ctx: _Ctx, chord: Chord, floor_pitch: int) -> tuple[int, int] | None:
     pool = _pool(chord)
     notes = [
@@ -232,12 +250,14 @@ def _upper_dyad(ctx: _Ctx, chord: Chord, floor_pitch: int) -> tuple[int, int] | 
     return best
 
 
+
 def _thumb_offsets(ctx: _Ctx, band: str) -> tuple[int, ...]:
     if ctx.kind == "3/4":
         return (2, 4)
     if ctx.kind == "6/8":
         return (1, 2, 4, 5) if band in {"mf", "f"} else (2, 5)
     return (2, 6)
+
 
 
 def _render_thumb(ctx: _Ctx, phrase: Phrase) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
@@ -255,6 +275,7 @@ def _render_thumb(ctx: _Ctx, phrase: Phrase) -> tuple[list[NoteEvent], list[Note
             continue
         eighth = _start16(event, ctx.epb) // 2
         if _rises(phrase):
+            # The thumb sings from the written melody level up to the apex.
             if phrase.apex.start <= eighth < phrase.apex.end:
                 velocity = _MELODY_APEX
             else:
@@ -285,6 +306,8 @@ def _render_thumb(ctx: _Ctx, phrase: Phrase) -> tuple[list[NoteEvent], list[Note
                     thumb_vel = event.velocity
                     break
             amount = swell(phrase, min(eighth, phrase.end - 1)) if _rises(phrase) else 0.0
+            # Both dyad notes stay in the bell window [_INNER - 4, _INNER],
+            # and the lower one is the softer of the pair when the window allows.
             upper_vel = int(round((_INNER - 4) + 4 * amount))
             upper_vel = min(_INNER, max(_INNER - 4, upper_vel), thumb_vel - 2)
             lower_vel = min(upper_vel - 2, _INNER - 2)
@@ -294,3 +317,38 @@ def _render_thumb(ctx: _Ctx, phrase: Phrase) -> tuple[list[NoteEvent], list[Note
             support.extend(_eighth_event(eighth, 1, lower, ctx.epb, 2, lower_vel))
             lead.extend(_eighth_event(eighth, 1, higher, ctx.epb, 1, upper_vel))
     return lead, support, low
+
+
+from app.sonify.guitar_patterns import (  # noqa: E402
+    _BASS,
+    _Ctx,
+    _INNER,
+    _MELODY,
+    _MELODY_APEX,
+    _choose_bass,
+    _choose_inner,
+    _compress_monotone,
+    _covering_melody_velocity,
+    _covers,
+    _cut_before,
+    _eighth_event,
+    _fit,
+    _inner_choices,
+    _melody_at,
+    _melody_scale,
+    _nearest,
+    _overflow,
+    _peak,
+    _playable,
+    _pool,
+    _rises,
+    _shape_accompaniment,
+    _sounding_midi,
+    _start16,
+    _strings_differ,
+    _support_eighths,
+    _sustain,
+    _tresillo_bars,
+    _wave_tone,
+    quantize_strong_beats,
+)

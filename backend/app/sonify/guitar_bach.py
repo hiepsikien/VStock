@@ -1,39 +1,22 @@
-"""J.S. Bach Baroque classical guitar patterns (`ensemble = "bach"`)."""
+"""J.S. Bach classical guitar counterpoint, dance suites, and Chaconne."""
 
 from __future__ import annotations
 
 from dataclasses import replace
+import itertools
+import math
 
 from app.sonify.chords import Chord
-from app.sonify.guitar import _BASS, _INNER, _MELODY, _MELODY_APEX, _PEDAL
-from app.sonify.guitar_patterns import (
-    _Ctx,
-    _choose_inner,
-    _dur16,
-    _eighth_event,
-    _has_contrast_section,
-    _inner_choices,
-    _melody_at,
-    _nearest,
-    _note_velocity,
-    _on_scale,
-    _parallel,
-    _playable,
-    _position_ok,
-    _punch,
-    _rises,
-    _runs,
-    _shape_accompaniment,
-    _soften_attack,
-    _sounding_midi,
-    _spell16,
-    _stamp,
-    _start16,
-    _sustain,
-    _walk,
-)
-from app.sonify.model import NoteEvent, Phrase
+from app.sonify.model import NoteEvent, Phrase, Score
+from app.sonify.phrasing import MIN_RISE, swell
 
+# Default velocity constants evaluated at function definition time
+_MELODY = 64
+_MELODY_APEX = 72
+_BASS = 56
+_INNER = 46
+_MORDENT_SPAN = 4
+BARRIOS_TREMOLO_MIN_BPM = 90
 
 def _bach_primary(ctx: _Ctx, phrases: list[Phrase], bars: list[int], mood: str | None) -> str:
     """One Bach dance for a body, a section, or a single phrase."""
@@ -54,6 +37,7 @@ def _bach_primary(ctx: _Ctx, phrases: list[Phrase], bars: list[int], mood: str |
     return "bach_bourree"
 
 
+
 def _bach_contrast(ctx: _Ctx, primary: str, mood: str | None) -> str:
     """Trio and bridge: the other Baroque texture, then the dance returns."""
     if ctx.kind == "6/8" or primary == "bach_gigue":
@@ -67,13 +51,16 @@ def _bach_contrast(ctx: _Ctx, primary: str, mood: str | None) -> str:
     return "bach_bourree"
 
 
+
 def _bach_bass_high(ctx: _Ctx) -> int:
     """Walking counterpoint stays inside the bass register, E2 through F3."""
     return min(ctx.bass_high, 53 - ctx.semitones)
 
 
+
 def _bach_lead_high(ctx: _Ctx) -> int:
     return min(ctx.treble_top, 81 - ctx.semitones)
+
 
 
 def _bach_opens(ctx: _Ctx) -> list[int]:
@@ -85,6 +72,7 @@ def _bach_opens(ctx: _Ctx) -> list[int]:
     ]
 
 
+
 def _quarter_ok(pitches: list[int]) -> bool:
     """The sixteenth-scale rule: a tight group must share one hand position."""
     ordered = sorted(set(pitches))
@@ -93,6 +81,7 @@ def _quarter_ok(pitches: list[int]) -> bool:
     if any(abs(left - right) > 4 for left, right in zip(ordered, ordered[1:])):
         return True
     return _position_ok(ordered)
+
 
 
 def _scale_cell(ctx: _Ctx, pitch: int, count: int) -> list[int]:
@@ -138,6 +127,7 @@ def _scale_cell(ctx: _Ctx, pitch: int, count: int) -> list[int]:
         while len(turn) < count - 1:
             turn.append(above if len(turn) % 2 == 0 else pitch)
         cells.append(turn + [pitch])
+    # A leap wider than a hand cluster is legal, then the line settles on the note.
     cursor = pitch
     for _ in range(6):
         cursor = _walk(cursor, -1, mode, low, high)
@@ -159,8 +149,13 @@ def _scale_cell(ctx: _Ctx, pitch: int, count: int) -> list[int]:
     return min(valid, key=rank)
 
 
+
 def _fitting_scale(ctx: _Ctx, start_slot: int, target: int, count: int) -> list[int]:
-    """Diatonic sixteenths that land on `target` and satisfy the scale-position rule."""
+    """Diatonic sixteenths that land on `target` and satisfy the scale-position rule.
+
+    Each quarter is its own cell. The last cell arrives on `target`; earlier
+    cells end a step below the next one, so a long run still climbs.
+    """
     if count <= 0:
         return []
     low = ctx.treble_floor
@@ -192,6 +187,7 @@ def _fitting_scale(ctx: _Ctx, start_slot: int, target: int, count: int) -> list[
     return [target] * count
 
 
+
 def _lead_during(lead: list[NoteEvent], eighth: int, length: int, epb: int) -> list[int]:
     found: list[int] = []
     for offset in range(max(1, length)):
@@ -199,6 +195,7 @@ def _lead_during(lead: list[NoteEvent], eighth: int, length: int, epb: int) -> l
         if pitch is not None and pitch not in found:
             found.append(pitch)
     return found
+
 
 
 def _hold_at(events: list[NoteEvent], eighth: int, epb: int) -> int:
@@ -214,10 +211,12 @@ def _hold_at(events: list[NoteEvent], eighth: int, epb: int) -> int:
     return right - left
 
 
+
 def _covers_upper(ctx: _Ctx, note: int, uppers: list[int]) -> bool:
     if any(note >= upper for upper in uppers):
         return False
     return all(_playable([note + ctx.semitones, upper + ctx.semitones]) for upper in uppers)
+
 
 
 def _bach_bass(
@@ -270,10 +269,13 @@ def _bach_bass(
     if previous is None or direction == 0 or strong:
         prefer = chord.pitches[min(degree, len(chord.pitches) - 1)] % 12
         preferred = [note for note in tones if note % 12 == prefer]
+        open_preferred = [note for note in preferred if note in opens]
         if previous is not None and direction > 0:
             above = [note for note in (preferred or tones or playable) if note > previous]
             if above:
                 return min(above)
+            # The window has no chord tone above. Hold the nearest one instead of
+            # leaping back to the open string and reversing the subject's rise.
             held = [note for note in (preferred or tones or playable) if note <= previous]
             if held:
                 return max(held)
@@ -284,12 +286,15 @@ def _bach_bass(
             held = [note for note in (preferred or tones or playable) if note >= previous]
             if held:
                 return min(held)
+        # Enter on the lowest chord tone so a rising answer still has room.
+        # Open strings stay in the pool when that degree is not in the window.
         pool = preferred or [note for note in opens if note % 12 in pcs] or opens or tones or playable
         if pool:
             return pool[0]
     if previous is not None and ok(previous):
         return previous
     return opens[0] if opens else ctx.bass_low
+
 
 
 def _bach_keep_bass_below(ctx: _Ctx, lead: list[NoteEvent], low: list[NoteEvent]) -> list[NoteEvent]:
@@ -325,6 +330,7 @@ def _bach_keep_bass_below(ctx: _Ctx, lead: list[NoteEvent], low: list[NoteEvent]
     return fixed
 
 
+
 def _bach_lag_bar(ctx: _Ctx, bar: int) -> int:
     if bar >= 2 and ctx.kind_at.get(bar - 2, "phrase") not in _PEDAL:
         return bar - 2
@@ -333,8 +339,13 @@ def _bach_lag_bar(ctx: _Ctx, bar: int) -> int:
     return bar
 
 
+
 def _fuga_motif(ctx: _Ctx, src_bar: int) -> list[tuple[int, int, int]]:
-    """(offset, length, direction) of the lagged subject, 1:1 and never retrograde."""
+    """(offset, length, direction) of the lagged subject, 1:1 and never retrograde.
+
+    A repeated pitch is direction 0. A flat bar stays one held value; nothing
+    is invented when the subject has a single run.
+    """
     epb = ctx.epb
     start = src_bar * epb
     runs = _runs(ctx.melody, start, min(len(ctx.melody), start + epb))
@@ -354,6 +365,7 @@ def _fuga_motif(ctx: _Ctx, src_bar: int) -> list[tuple[int, int, int]]:
     return motif
 
 
+
 def _fuga_bass_ok(ctx: _Ctx, note: int, sung: list[int]) -> bool:
     high = _bach_bass_high(ctx)
     if sung:
@@ -363,6 +375,7 @@ def _fuga_bass_ok(ctx: _Ctx, note: int, sung: list[int]) -> bool:
     if not sung:
         return True
     return all(_playable([note + ctx.semitones, upper + ctx.semitones]) for upper in sung)
+
 
 
 def _fuga_pitch(
@@ -408,6 +421,7 @@ def _fuga_pitch(
     )
 
 
+
 def _treble_step(ctx: _Ctx, pitch: int, steps: int) -> int:
     high = _bach_lead_high(ctx)
     stepped = _walk(pitch, steps, ctx.mode, ctx.treble_floor, high)
@@ -416,6 +430,7 @@ def _treble_step(ctx: _Ctx, pitch: int, steps: int) -> int:
         if ctx.treble_floor <= nudged <= high:
             return nudged
     return max(ctx.treble_floor, min(high, stepped))
+
 
 
 def _approach_eighths(ctx: _Ctx, target: int, count: int) -> list[int]:
@@ -435,6 +450,7 @@ def _approach_eighths(ctx: _Ctx, target: int, count: int) -> list[int]:
     while len(notes) < count:
         notes.insert(0, notes[0] if notes else target)
     return notes[-count:]
+
 
 
 def _render_bach_fuga_bar(
@@ -509,12 +525,14 @@ def _render_bach_fuga_bar(
     return lead, support, low
 
 
+
 def _bourree_cells(ctx: _Ctx) -> list[tuple[int, int]]:
     if ctx.kind == "6/8":
         return [(0, 3), (3, 3)]
     if ctx.kind == "4/4":
         return [(0, 4), (4, 4)]
     return [(0, ctx.epb)]
+
 
 
 def _render_bach_bourree_bar(
@@ -587,6 +605,7 @@ def _render_bach_bourree_bar(
             lead_moves_downbeat = _melody_at(ctx, start + origin) != _melody_at(ctx, start + origin + 1)
             lead_holds_upbeat = _melody_at(ctx, start + origin + 2) == _melody_at(ctx, start + origin + 3)
             downbeat = place(origin, 0, 2, degree, previous=None, direction=0, strong=True, staccato=False)
+            # A held quarter (this upbeat, or the downbeat before it) takes the two-note anacrusis.
             if lead_holds_upbeat or not lead_moves_downbeat:
                 walk_pair(origin, span, cell_index, downbeat)
             else:
@@ -638,6 +657,7 @@ def _render_bach_bourree_bar(
             support.extend(_eighth_event(eighth, 1, tone, epb, 2, _INNER))
     support, low = _shape_accompaniment(ctx, support, low)
     return lead, support, low
+
 
 
 def _render_bach_gavotte_bar(
@@ -700,6 +720,7 @@ def _render_bach_gavotte_bar(
     return lead, support, low
 
 
+
 def _ornament_neighbor(ctx: _Ctx, principal: int) -> int:
     """Upper neighbor when the pair fits one position; otherwise a lower one or a leap."""
     low = ctx.treble_floor
@@ -714,6 +735,7 @@ def _ornament_neighbor(ctx: _Ctx, principal: int) -> int:
         if cursor != principal and _quarter_ok([principal, cursor]):
             return cursor
     return principal
+
 
 
 def _gavotte_tail_bass(ctx: _Ctx, chord: Chord, line: list[int]) -> int:
@@ -747,6 +769,7 @@ def _gavotte_tail_bass(ctx: _Ctx, chord: Chord, line: list[int]) -> int:
     return _bach_bass(ctx, chord, line, previous=None, direction=0, strong=True, degree=0)
 
 
+
 def _mordent_events(ctx: _Ctx, eighth: int, principal: int, epb: int, velocity: int) -> list[NoteEvent]:
     neighbor = _ornament_neighbor(ctx, principal)
     base = eighth * 2
@@ -757,8 +780,10 @@ def _mordent_events(ctx: _Ctx, eighth: int, principal: int, epb: int, velocity: 
     return events
 
 
+
 def _sarabande_pitch(ctx: _Ctx, eighth: int) -> int:
     return max(ctx.treble_floor, min(_bach_lead_high(ctx), _melody_at(ctx, eighth)))
+
 
 
 def _sarabande_ornament(ctx: _Ctx, bar: int, start: int, epb: int, apex: set[int], phrase: Phrase | None) -> bool:
@@ -770,6 +795,7 @@ def _sarabande_ornament(ctx: _Ctx, bar: int, start: int, epb: int, apex: set[int
     return any(start <= eighth < start + epb for eighth in apex)
 
 
+
 def _sarabande_passes(ctx: _Ctx, bar: int, start: int, epb: int) -> bool:
     """A passing scale only when the bar opens, or the chord or phrase is about to change."""
     if bar == 0:
@@ -779,6 +805,7 @@ def _sarabande_passes(ctx: _Ctx, bar: int, start: int, epb: int) -> bool:
     if ctx.chord(bar + 1) != ctx.chord(bar):
         return True
     return (start + epb) in {item.start for item in ctx.phrases}
+
 
 
 def _render_bach_sarabande_bar(
@@ -894,6 +921,7 @@ def _render_bach_sarabande_bar(
     return lead, support, low
 
 
+
 def _gigue_plan(ctx: _Ctx) -> dict:
     if ctx.epb <= 6:
         return {
@@ -912,6 +940,7 @@ def _gigue_plan(ctx: _Ctx) -> dict:
         "scale_at": 8,
         "scale_count": 8,
     }
+
 
 
 def _render_bach_gigue_bar(
@@ -997,6 +1026,7 @@ def _render_bach_gigue_bar(
     return lead, support, low
 
 
+
 def _bariolage_pair(ctx: _Ctx, chord: Chord, bass: int, lead: int | None) -> tuple[int | None, int | None]:
     ceiling = lead if lead is not None else ctx.mid_high + 1
     if ceiling <= bass + 1:
@@ -1024,12 +1054,14 @@ def _bariolage_pair(ctx: _Ctx, chord: Chord, bass: int, lead: int | None) -> tup
     return lower, upper
 
 
+
 def _chaconne_bass_slots(ctx: _Ctx) -> list[int]:
     if ctx.kind == "3/4":
         return [0, 4]
     if ctx.kind == "6/8":
         return [0, 6]
     return [0, 8]
+
 
 
 def _chaconne_beats(ctx: _Ctx, eighth: int) -> tuple[int, int]:
@@ -1040,6 +1072,7 @@ def _chaconne_beats(ctx: _Ctx, eighth: int) -> tuple[int, int]:
     if beat_second == beat_melody:
         beat_second = _treble_step(ctx, beat_melody, 1)
     return beat_melody, beat_second
+
 
 
 def _render_bach_chaconne_bar(
@@ -1151,3 +1184,36 @@ def _render_bach_chaconne_bar(
         )
     support, low = _shape_accompaniment(ctx, support, low)
     return lead, support, low
+
+
+from app.sonify.guitar_patterns import (  # noqa: E402
+    _BASS,
+    _Ctx,
+    _INNER,
+    _MELODY,
+    _MELODY_APEX,
+    _PEDAL,
+    _choose_inner,
+    _dur16,
+    _eighth_event,
+    _has_contrast_section,
+    _inner_choices,
+    _melody_at,
+    _nearest,
+    _note_velocity,
+    _on_scale,
+    _parallel,
+    _playable,
+    _position_ok,
+    _punch,
+    _rises,
+    _runs,
+    _shape_accompaniment,
+    _soften_attack,
+    _sounding_midi,
+    _spell16,
+    _stamp,
+    _start16,
+    _sustain,
+    _walk,
+)

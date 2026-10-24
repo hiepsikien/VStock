@@ -3555,8 +3555,13 @@ def test_barrios_mozart_brouwer_and_villa_feedback_regressions() -> None:
     preludio_day = render(flat_day, title="Guitar", variant="guitar", ensemble="barrios", character="rally")
     assert any(note.duration_beats >= 3.5 for note in _pitched(preludio_day.low, 4))
 
-    # 2. Sor Op. 9 (`mozart_var`): held 76 and arch 64 -> 77 -> 67 stay stepwise after `_repair`.
-    for line in ([76] * 8, [64, 69, 74, 77, 77, 74, 71, 67]):
+    # 2. Sor Op. 9 (`mozart_var`): held 76, arch, zig-zag leaps, and drops stay stepwise after `_repair`.
+    for line in (
+        [76] * 8,
+        [64, 69, 74, 77, 77, 74, 71, 67],
+        [60, 76, 62, 76, 64, 74, 67, 72],
+        [76, 74, 72, 69, 67, 64, 62, 60],
+    ):
         mozart = _pattern_score(
             line,
             (_joined(0, line),),
@@ -3570,7 +3575,7 @@ def test_barrios_mozart_brouwer_and_villa_feedback_regressions() -> None:
         assert max(abs(right - left) for left, right in zip(inner_midis, inner_midis[1:])) <= 2
         _assert_engraved(mozart, "study")
 
-    # 3. Brouwer `_modal_figure`: stays inside the bar's pitch range and preserves an early peak.
+    # 3. Brouwer `_modal_figure`: stays inside the bar's pitch range and preserves an early peak at eighth 1.
     drop_bar = [72, 64, 64, 64, 64, 64, 64, 60]
     drop_score = _pattern_score(
         drop_bar,
@@ -3593,12 +3598,31 @@ def test_barrios_mozart_brouwer_and_villa_feedback_regressions() -> None:
         character="selloff",
         chords={0: C},
     )
-    arch_midis = [note.midi for note in _attacks(arch_score.lead, 0) if note.midi is not None]
-    assert max(arch_midis) == 72
-    assert min(arch_midis) >= 60
-    assert max(abs(right - left) for left, right in zip(arch_midis, arch_midis[1:])) <= 2
+    arch_attacks = [note for note in _attacks(arch_score.lead, 0) if note.midi is not None]
+    assert any(abs(note.beat - 0.5) < 1e-6 and note.midi == 72 for note in arch_attacks)
+    from_peak = [note.midi for note in arch_attacks if note.beat >= 0.5 - 1e-6 and note.midi is not None]
+    assert max(from_peak) == 72 and from_peak[-1] == 67
+    assert max(abs(right - left) for left, right in zip(from_peak, from_peak[1:])) <= 2
 
-    # 4. Villa-Lobos: unframed `_select_body` and slow 72 BPM movements also sing `thumb_cantabile` on `selloff`.
+    # 4. Villa-Lobos: campanella rings across the thumb's 5th at beat 2.0 (eighth 3 -> 4).
+    villa_line = [64, 65, 67, 69, 67, 65, 64, 62]
+    villa_etude = _pattern_score(
+        villa_line,
+        (_joined(0, villa_line),),
+        ensemble="villa",
+        bpm=100,
+        character="rally",
+        bands={0: "mf"},
+        chords={0: C},
+    )
+    campanella_notes = [
+        note for note in _attacks(villa_etude.support, 0) if note.duration_beats >= 1.0 - 1e-6
+    ]
+    assert len(campanella_notes) >= 1
+    assert any(abs(note.beat - 1.5) < 1e-6 for note in campanella_notes)
+    _assert_engraved(villa_etude, "villa_pattern")
+
+    # 5. Villa-Lobos: unframed `_select_body` and slow 72 BPM movements also sing `thumb_cantabile` on `selloff`.
     unframed_selloff = _pattern_score(
         [67, 69, 71, 72, 74, 72, 71, 69] * 2,
         (_joined(0, [67, 69, 71, 72, 74, 72, 71, 69]), _joined(8, [67, 69, 71, 72, 74, 72, 71, 69])),

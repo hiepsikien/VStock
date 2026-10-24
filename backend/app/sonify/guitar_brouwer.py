@@ -1,34 +1,22 @@
-"""Leo Brouwer Afro-Cuban and Avant-Garde classical guitar patterns (`ensemble = "brouwer"`)."""
+"""Leo Brouwer Un Dia de Noviembre, Estudio Sencillo No. 6, Elogio de la Danza, and Sarabande modal swarm."""
 
 from __future__ import annotations
 
-from app.sonify.chords import Chord
-from app.sonify.guitar import _BASS, _INNER, _MELODY, _MELODY_APEX
-from app.sonify.guitar_patterns import (
-    _Ctx,
-    _choose_bass,
-    _choose_inner,
-    _color_note,
-    _eighth_event,
-    _inner_choices,
-    _mark,
-    _melody_at,
-    _ordered_pool,
-    _playable,
-    _punch,
-    _shape_accompaniment,
-    _soften_attack,
-    _sounding_midi,
-    _spell16,
-    _start16,
-    _strings_differ,
-    _uses_color,
-    _walk,
-    _wave_tone,
-)
-from app.sonify.model import NoteEvent, Phrase
-from app.sonify.phrasing import MIN_RISE
+from dataclasses import replace
+import itertools
+import math
 
+from app.sonify.chords import Chord
+from app.sonify.model import NoteEvent, Phrase, Score
+from app.sonify.phrasing import MIN_RISE, swell
+
+# Default velocity constants evaluated at function definition time
+_MELODY = 64
+_MELODY_APEX = 72
+_BASS = 56
+_INNER = 46
+_MORDENT_SPAN = 4
+BARRIOS_TREMOLO_MIN_BPM = 90
 
 def _brouwer_primary(ctx: _Ctx, mood: str | None) -> str:
     """One Brouwer texture for a phrase, a section, or a daily session."""
@@ -41,68 +29,13 @@ def _brouwer_primary(ctx: _Ctx, mood: str | None) -> str:
     return "brouwer_etude"
 
 
+
 def _brouwer_contrast(primary: str) -> str:
     """The lyrical ballad answers the motor, and the motor answers the ballad."""
     if primary in {"noviembre", "sarabande"}:
         return "brouwer_etude"
     return "noviembre"
 
-
-def _bass_at(ctx: _Ctx, chord: Chord, degree: int, eighth: int) -> int:
-    """A chord bass under this melody. A fifth that will not fret falls back."""
-    sung = _melody_at(ctx, eighth)
-    low, high = ctx.bass_low, ctx.bass_high
-
-    def fits(note: int) -> bool:
-        return note < sung and _playable([note + ctx.semitones, sung + ctx.semitones])
-
-    preferred = _choose_bass(chord, degree, sung, low, high, ctx.semitones)
-    if fits(preferred):
-        return preferred
-    root = _choose_bass(chord, 0, sung, low, high, ctx.semitones)
-    if fits(root):
-        return root
-    wanted = chord.pitches[min(degree, len(chord.pitches) - 1)] % 12
-    pcs = {pitch % 12 for pitch in chord.pitches}
-    found = [note for note in range(low, high + 1) if fits(note)]
-    if not found:
-        return preferred if preferred < sung else low
-    found.sort(key=lambda note: (note % 12 != wanted, note % 12 not in pcs, note + ctx.semitones not in {40, 45, 50}, note))
-    return found[0]
-
-
-def _root_changes(ctx: _Ctx, bar: int) -> bool:
-    if bar + 1 >= ctx.bars:
-        return False
-    return ctx.chord(bar).pitches[0] % 12 != ctx.chord(bar + 1).pitches[0] % 12
-
-
-def _toward_next(ctx: _Ctx, bar: int, origin: int, eighth: int) -> int | None:
-    """One scale step from `origin` toward the next chord's root."""
-    if not _root_changes(ctx, bar):
-        return None
-    target = _bass_at(ctx, ctx.chord(bar + 1), 0, min(len(ctx.melody) - 1, (bar + 1) * ctx.epb))
-    while target - origin > 5 and target - 12 >= ctx.bass_low:
-        target -= 12
-    while origin - target > 5 and target + 12 <= ctx.bass_high:
-        target += 12
-    if target == origin:
-        return None
-    direction = 1 if target > origin else -1
-    step = _walk(origin, direction, ctx.mode, ctx.bass_low, ctx.bass_high)
-    if step == origin:
-        nudged = origin + direction
-        if ctx.bass_low <= nudged <= ctx.bass_high:
-            step = nudged
-        else:
-            return None
-    sung = _melody_at(ctx, eighth)
-    if step < sung and _playable([step + ctx.semitones, sung + ctx.semitones]):
-        return step
-    root = _bass_at(ctx, ctx.chord(bar), 0, eighth)
-    if root != origin and root < sung and _playable([root + ctx.semitones, sung + ctx.semitones]):
-        return root
-    return None
 
 
 def _brouwer_open_tones(ctx: _Ctx, chord: Chord, sung: int, bass: int) -> list[int]:
@@ -123,8 +56,13 @@ def _brouwer_open_tones(ctx: _Ctx, chord: Chord, sung: int, bass: int) -> list[i
     return found
 
 
+
 def _color_inner(ctx: _Ctx, chord: Chord, sung: int, bass: int, step: int, previous: int | None) -> int | None:
-    """A 3rd, 7th, or sus/add9 color that sits above every legal bass note."""
+    """A 3rd, 7th, or sus/add9 color that sits above every legal bass note.
+
+    Brouwer alternates those colors with the open D, G, and B strings when the
+    chord owns them, so the etude motor can ring them across the next eighth.
+    """
     tones = [
         tone
         for tone in _inner_choices(chord, sung, bass, ctx.mid_low, ctx.mid_high, ctx.semitones, True)
@@ -163,6 +101,7 @@ def _color_inner(ctx: _Ctx, chord: Chord, sung: int, bass: int, step: int, previ
     return None
 
 
+
 def _brouwer_wave(ctx: _Ctx, bar: int, low: list[NoteEvent], offsets: list[int]) -> list[NoteEvent]:
     chord = ctx.chord(bar)
     start = bar * ctx.epb
@@ -178,6 +117,7 @@ def _brouwer_wave(ctx: _Ctx, bar: int, low: list[NoteEvent], offsets: list[int])
         previous = tone
         support.extend(_eighth_event(eighth, 1, tone, ctx.epb, 2, _INNER))
     return support
+
 
 
 def _render_noviembre_bar(ctx: _Ctx, bar: int) -> tuple[list[NoteEvent], list[NoteEvent]]:
@@ -211,10 +151,13 @@ def _render_noviembre_bar(ctx: _Ctx, bar: int) -> tuple[list[NoteEvent], list[No
     return support, low
 
 
+
 def _etude_cells(ctx: _Ctx) -> list[tuple[int, int, int, bool]]:
     """Thumb cells: offset, length, chord degree, and whether the cell may walk."""
     epb = ctx.epb
     if ctx.kind == "6/8":
+        # Afro-Cuban tumbao: bass on eighths 0, 2, and 5. The fifth ties across
+        # beat 1.5 and the last eighth picks up into the next bar.
         cells = [(0, 2, 0, False), (2, 3, 2, False), (5, 1, 0, True)]
     elif ctx.kind == "3/4":
         cells = [(0, 3, 0, False), (3, 3, 2, False)]
@@ -230,6 +173,7 @@ def _etude_cells(ctx: _Ctx) -> list[tuple[int, int, int, bool]]:
             continue
         clipped.append((offset, min(length, epb - offset), degree, approach))
     return clipped
+
 
 
 def _render_etude_bar(ctx: _Ctx, bar: int) -> tuple[list[NoteEvent], list[NoteEvent]]:
@@ -256,9 +200,11 @@ def _render_etude_bar(ctx: _Ctx, bar: int) -> tuple[list[NoteEvent], list[NoteEv
     return support, low
 
 
+
 def _elogio_offsets(ctx: _Ctx) -> list[int]:
     wanted = (0, 2, 3, 5, 6) if ctx.kind == "4/4" or ctx.epb >= 8 else (0, 2, 3, 5)
     return [offset for offset in wanted if offset < ctx.epb]
+
 
 
 def _render_elogio_bar(ctx: _Ctx, bar: int) -> tuple[list[NoteEvent], list[NoteEvent], int | None]:
@@ -289,6 +235,7 @@ def _render_elogio_bar(ctx: _Ctx, bar: int) -> tuple[list[NoteEvent], list[NoteE
     return support, low, slap
 
 
+
 def _sarabande_points(ctx: _Ctx) -> tuple[int, int]:
     epb = ctx.epb
     accent = 3 if ctx.kind == "6/8" else min(2, epb - 1)
@@ -296,6 +243,7 @@ def _sarabande_points(ctx: _Ctx) -> tuple[int, int]:
     if figure > epb:
         figure = epb
     return accent, figure
+
 
 
 def _sarabande_swarms(ctx: _Ctx, bar: int, figure_at: int) -> bool:
@@ -313,12 +261,15 @@ def _sarabande_swarms(ctx: _Ctx, bar: int, figure_at: int) -> bool:
     return max(bar_line) - min(bar_line) >= threshold
 
 
+
 def _swarm_line(start: int, arrival: int, steps: int, lo: int, hi: int, direction: int) -> list[int]:
     """Stepwise pitches into `arrival`. Every move is strictly 1 or 2 semitones."""
     if steps <= 0:
         return [arrival]
     max_reach = steps * 2
     if abs(arrival - start) > max_reach:
+        # Clamp the entry of the run within `max_reach` of `arrival` so no step
+        # ever exceeds 2 semitones, even across a wide 6/8 or 4/4 drop.
         start = max(lo, min(hi, arrival - (max_reach if arrival > start else -max_reach)))
     seg_lo = max(lo, min(start, arrival)) if start != arrival else lo
     seg_hi = min(hi, max(start, arrival)) if start != arrival else hi
@@ -371,6 +322,7 @@ def _swarm_line(start: int, arrival: int, steps: int, lo: int, hi: int, directio
     return line
 
 
+
 def _modal_figure(
     ctx: _Ctx,
     bar: int,
@@ -402,22 +354,29 @@ def _modal_figure(
     first_half_ok = all(abs(right - left) <= 2 for left, right in zip(first_half, first_half[1:]))
     pre_accent = [max(lo, min(hi, _melody_at(ctx, bar_start + offset))) for offset in range(accent + 1)]
     pre_accent_ok = all(abs(right - left) <= 2 for left, right in zip(pre_accent, pre_accent[1:]))
+    # If the first half opens with a leap onto an arch plateau (e.g. [60, 72, 72, 72] -> 67),
+    # keep the early peak at its original eighth (`beat = 0.5`) instead of dragging it to `figure_at`.
+    plateau_after_open = len(first_half) >= 2 and all(
+        abs(right - left) <= 2 for left, right in zip(first_half[1:], first_half[2:])
+    )
+    arch_reversal = (start_pitch - open_pitch) * (end_pitch - start_pitch) < 0
+    keep_first_half = first_half_ok or (plateau_after_open and arch_reversal)
     sixteenths = False
     origin16 = begin * 2
     if (
-        first_half_ok
+        keep_first_half
         and abs(start_pitch - prev_pitch) <= 2
         and abs(end_pitch - start_pitch) <= max(0, count - 1) * 2
     ):
         line = _swarm_line(start_pitch, end_pitch, count - 1, lo, hi, direction)
     elif (
-        first_half_ok
+        keep_first_half
         and abs(start_pitch - prev_pitch) <= 2
         and abs(end_pitch - start_pitch) <= max(0, count * 2 - 1) * 2
     ):
         sixteenths = True
         line = _swarm_line(start_pitch, end_pitch, count * 2 - 1, lo, hi, direction)
-    elif first_half_ok and abs(end_pitch - prev_pitch) <= count * 4:
+    elif keep_first_half and abs(end_pitch - prev_pitch) <= count * 4:
         sixteenths = True
         line = _swarm_line(prev_pitch, end_pitch, count * 2, lo, hi, direction)[1:]
     else:
@@ -426,17 +385,6 @@ def _modal_figure(
         if pre_accent_ok and after_accent > 0 and abs(end_pitch - accent_pitch) <= after_accent * 2:
             origin16 = (bar_start + accent) * 2 + 1
             line = _swarm_line(accent_pitch, end_pitch, after_accent, lo, hi, direction)[1:]
-        elif (
-            figure_at > 0
-            and abs(start_pitch - open_pitch) <= figure_at * 4
-            and abs(end_pitch - start_pitch) <= max(0, count * 2 - 1) * 2
-        ):
-            origin16 = bar_start * 2
-            dir1 = 1 if start_pitch >= open_pitch else -1
-            dir2 = 1 if end_pitch >= start_pitch else -1
-            leg1 = _swarm_line(open_pitch, start_pitch, figure_at * 2, lo, hi, dir1)
-            leg2 = _swarm_line(start_pitch, end_pitch, count * 2 - 1, lo, hi, dir2)
-            line = leg1[:-1] + leg2
         else:
             origin16 = bar_start * 2
             line = _swarm_line(open_pitch, end_pitch, epb * 2 - 1, lo, hi, direction)
@@ -449,6 +397,7 @@ def _modal_figure(
             events.extend(_eighth_event(begin + offset, 1, pitch, epb, 1, level))
         level = max(48, level - 1) if direction < 0 else min(_MELODY_APEX, level + 1)
     return events
+
 
 
 def _render_sarabande_bar(
@@ -493,3 +442,32 @@ def _render_sarabande_bar(
     low = _punch(low, start + accent, epb, amount=8)
     support = _punch(support, start + accent, epb, amount=8)
     return support, low, accent, figure_events
+
+
+from app.sonify.guitar_patterns import (  # noqa: E402
+    _BASS,
+    _Ctx,
+    _INNER,
+    _MELODY,
+    _MELODY_APEX,
+    _bass_at,
+    _choose_bass,
+    _choose_inner,
+    _color_note,
+    _eighth_event,
+    _inner_choices,
+    _mark,
+    _melody_at,
+    _ordered_pool,
+    _playable,
+    _punch,
+    _shape_accompaniment,
+    _soften_attack,
+    _sounding_midi,
+    _spell16,
+    _start16,
+    _strings_differ,
+    _toward_next,
+    _uses_color,
+    _wave_tone,
+)
