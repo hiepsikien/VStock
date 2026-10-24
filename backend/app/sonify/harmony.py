@@ -1,7 +1,7 @@
 """Harmony dialects beside the tertian Markov catalog.
 
-`COMMON` is the symphony and Sor path. `villa` and `barrios` register in
-`DIALECTS`. An unknown ensemble stays on `COMMON`.
+`COMMON` is the symphony and Sor path. `villa`, `barrios`, and `brouwer` register
+in `DIALECTS`. An unknown ensemble stays on `COMMON`.
 """
 
 from __future__ import annotations
@@ -529,10 +529,175 @@ class BarriosDialect(HarmonyDialect):
         return 0.0
 
 
+def _pick(catalog: tuple[Chord, ...], names: tuple[str, ...]) -> tuple[Chord, ...]:
+    found = {chord.name: chord for chord in catalog}
+    return tuple(found[name] for name in names)
+
+
+# Estudios Sencillos suspensions plus the open-string planing of Estudio No. 6.
+_BROUWER_MAJOR_COLOR = _pick(
+    _MAJOR_EXTRA,
+    ("Csus2", "Dsus2", "Esus4", "Fsus2", "G7sus4", "Bbsus2", "Ebsus2"),
+)
+# Un Día de Noviembre keeps the minor add9/sus colors and the bVII door.
+_BROUWER_MINOR_COLOR = _pick(
+    _MINOR_EXTRA,
+    ("Csus2", "Dsus4", "Ebsus2", "Fsus2", "G7sus4", "Cmadd9", "Fmadd9"),
+)
+_BROUWER_MAJOR = _BROUWER_MAJOR_COLOR
+_BROUWER_MINOR = _BROUWER_MINOR_COLOR + (BF, BF7, D7)
+_BROUWER_COLOR = frozenset(_BROUWER_MAJOR_COLOR + _BROUWER_MINOR_COLOR)
+_BROUWER_CREDIT = 0.65
+_BROUWER_COLOR_WEIGHT = 0.30
+_BROUWER_PARENT_WEIGHT = 0.40
+_BROUWER_PLANING: dict[tuple[str, str], float] = {}
+for _left, _right in zip(
+    ("Csus2", "Bbsus2", "Fsus2"),
+    ("Bbsus2", "Fsus2", "Ebsus2"),
+):
+    _BROUWER_PLANING[(_left, _right)] = 0.32
+    _BROUWER_PLANING[(_right, _left)] = 0.32
+# Fm/Fmadd9 -> Bb/Bb7 -> Eb/Ebmaj7 -> G7sus4 -> Cm.
+_BROUWER_MODAL: dict[tuple[str, str], float] = {
+    pair: 0.42
+    for pair in (
+        ("Fm", "Bb"),
+        ("Fm", "Bb7"),
+        ("Fmadd9", "Bb"),
+        ("Fmadd9", "Bb7"),
+        ("Bb", "Eb"),
+        ("Bb", "Ebmaj7"),
+        ("Bb7", "Eb"),
+        ("Bb7", "Ebmaj7"),
+        ("Eb", "G7sus4"),
+        ("Ebmaj7", "G7sus4"),
+        ("G7sus4", "Cm"),
+    )
+}
+_BROUWER_CALM = frozenset({"maj7", "m7", "add9", "madd9", "sus2"})
+_BROUWER_EDGE_TEXT = frozenset({"sus4", "7sus4"})
+_BROUWER_EDGE_NAMES = frozenset({"Bb7", "Bm7b5", "Dm7b5", "E7"})
+_BROUWER_DOWNBEAT = frozenset({"Bbsus2", "Ebsus2", "Bb", "Bb7", "D7"})
+
+
+class BrouwerDialect(HarmonyDialect):
+    """Afro-Cuban modal harmony with suspended planing.
+
+    Villa's sus2/add9 colors and Barrios's bVII / secondary dominant sit in
+    one catalog. Parallel sus2 planing and the minor bVII chain are explicit.
+    """
+
+    name = "brouwer"
+
+    def extra(self, mode: str) -> tuple[Chord, ...]:
+        if mode == "minor":
+            return _BROUWER_MINOR
+        return _BROUWER_MAJOR
+
+    def _owns(self, chord: Chord, mode: str) -> bool:
+        return chord in self.extra(mode)
+
+    def _color(self, chord: Chord, mode: str) -> bool:
+        return self._owns(chord, mode) and chord in _BROUWER_COLOR
+
+    def transition(self, prev: Chord, curr: Chord, mode: str) -> float | None:
+        planned = _BROUWER_PLANING.get((prev.name, curr.name))
+        if planned is not None and (mode == "major" or "Bbsus2" not in {prev.name, curr.name}):
+            return planned
+        if mode == "minor":
+            modal = _BROUWER_MODAL.get((prev.name, curr.name))
+            if modal is not None:
+                return modal
+        owns = self._owns(prev, mode) or self._owns(curr, mode)
+        if not owns:
+            return None
+        if prev != curr and prev.root_step == curr.root_step and prev.alter == curr.alter:
+            parent = _parent_triad(curr, mode)
+            if parent is not None and curr == parent and self._color(prev, mode):
+                return _BROUWER_PARENT_WEIGHT
+            return _BROUWER_COLOR_WEIGHT
+        return 0.0
+
+    def shares_root(self, prev: Chord, curr: Chord) -> bool:
+        if prev.root_step != curr.root_step or prev.alter != curr.alter:
+            return False
+        kinds = {prev.kind_text, curr.kind_text}
+        return (
+            prev.quality_group == "suspended"
+            or curr.quality_group == "suspended"
+            or bool(kinds & {"add9", "madd9"})
+        )
+
+    def allowed(
+        self,
+        chord: Chord,
+        *,
+        pedal: bool,
+        phrase_downbeat: bool,
+        character: MovementCharacter | None,
+        mode: str,
+    ) -> bool:
+        del character
+        if not self._owns(chord, mode):
+            return True
+        if pedal:
+            return False
+        if phrase_downbeat and chord.name in _BROUWER_DOWNBEAT:
+            return False
+        return True
+
+    def is_parent(self, prev: Chord, curr: Chord, mode: str) -> bool:
+        if not self._color(curr, mode):
+            return False
+        parent = _parent_triad(curr, mode)
+        return parent is not None and prev == parent
+
+    def opening_pitch_classes(self, chord: Chord, mode: str) -> frozenset[int]:
+        if not self._color(chord, mode):
+            return chord.pitch_classes
+        parent = _parent_triad(chord, mode)
+        if parent is not None:
+            return parent.pitch_classes
+        return chord.pitch_classes - color_pitch_classes(chord)
+
+    def bias(
+        self,
+        chord: Chord,
+        character: MovementCharacter | None,
+        mode: str,
+        strong_pitch_classes: frozenset[int] = frozenset(),
+    ) -> float:
+        del mode, strong_pitch_classes
+        if character in {"calm", "rally"} and chord.kind_text in _BROUWER_CALM:
+            return -0.06
+        if character in {"volatile", "selloff"} and (
+            chord.kind_text in _BROUWER_EDGE_TEXT or chord.name in _BROUWER_EDGE_NAMES
+        ):
+            return -0.07
+        return 0.0
+
+    def color_credit(
+        self,
+        chord: Chord,
+        strong_pitch_classes: frozenset[int],
+        prev: Chord | None,
+    ) -> float:
+        if prev is None or not chord.degrees:
+            return 0.0
+        if chord.root_step != prev.root_step or chord.alter != prev.alter:
+            return 0.0
+        if chord not in _BROUWER_COLOR:
+            return 0.0
+        if strong_pitch_classes & color_pitch_classes(chord):
+            return _BROUWER_CREDIT
+        return 0.0
+
+
 COMMON = HarmonyDialect()
 VILLA = VillaDialect()
 BARRIOS = BarriosDialect()
-DIALECTS: dict[str, HarmonyDialect] = {"villa": VILLA, "barrios": BARRIOS}
+BROUWER = BrouwerDialect()
+DIALECTS: dict[str, HarmonyDialect] = {"villa": VILLA, "barrios": BARRIOS, "brouwer": BROUWER}
 
 
 def dialect_for(ensemble: str) -> HarmonyDialect:

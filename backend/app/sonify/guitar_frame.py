@@ -2,8 +2,8 @@
 
 The pedal region at the start (`intro` / `warmup`) and at the end
 (`cooldown` / `outro`) is a safety buffer: the price there is one repeated
-close. These frames ignore that flat line and write a short Sor, Barrios, or
-Villa-Lobos entrance and cadence instead. A frame of one or two bars uses the
+close. These frames ignore that flat line and write a short Sor, Barrios,
+Villa-Lobos, or Brouwer entrance and cadence instead. A frame of one or two bars uses the
 direct version. A frame of three bars or more uses the four-bar version and
 stretches it across the region.
 
@@ -84,7 +84,7 @@ def _render_region(ctx, bars: list[int], *, closing: bool) -> tuple[list, list, 
 def _gesture(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int, length: int) -> list[tuple]:
     if length == 1:
         return _compressed(ctx, bar, closing)
-    composer = {"villa": _villa, "barrios": _barrios}.get(ctx.ensemble, _sor)
+    composer = {"villa": _villa, "barrios": _barrios, "brouwer": _brouwer}.get(ctx.ensemble, _sor)
     return composer(ctx, bar, role, steps=steps, closing=closing, index=index)
 
 
@@ -109,7 +109,7 @@ def _compressed(ctx, bar: int, closing: bool) -> list[tuple]:
 
 
 def _gesture_body(ctx, bar: int, role: int, *, closing: bool) -> list[tuple]:
-    composer = {"villa": _villa, "barrios": _barrios}.get(ctx.ensemble, _sor)
+    composer = {"villa": _villa, "barrios": _barrios, "brouwer": _brouwer}.get(ctx.ensemble, _sor)
     return composer(ctx, bar, role, steps=2, closing=closing, index=role)
 
 
@@ -295,6 +295,301 @@ def _villa_outro_long(ctx, bar: int, role: int, index: int, bright: bool) -> lis
     if bright:
         return _stabs(ctx, bar, "I", _MF, release=True)
     return _bell_chord(ctx, bar, _P, picardy=False)
+
+
+def _brouwer(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int) -> list[tuple]:
+    """Edge writing for volatile and selloff. Everything else stays lyrical."""
+    del index
+    edge = ctx.character in {"volatile", "selloff"}
+    if closing and steps == 2:
+        return _brouwer_outro_short(ctx, bar, role, edge)
+    if closing:
+        return _brouwer_outro_long(ctx, bar, role, edge)
+    if steps == 2:
+        return _brouwer_intro_short(ctx, bar, role, edge)
+    return _brouwer_intro_long(ctx, bar, role, edge)
+
+
+def _brouwer_intro_short(ctx, bar: int, role: int, edge: bool) -> list[tuple]:
+    if edge:
+        if role == 0:
+            return _edge_stab(ctx, bar)
+        return _edge_run(ctx, bar)
+    if role == 0:
+        return [(0, ctx.epb, _deep_open(ctx), 3, _PP, {})]
+    return _color_roll(ctx, bar, _P)
+
+
+def _brouwer_intro_long(ctx, bar: int, role: int, edge: bool) -> list[tuple]:
+    if edge:
+        if role == 0:
+            return [(0, 1, _deep_open(ctx), 3, _MF, {"accent": True, "staccato": True})]
+        if role == 1:
+            return _hesitant_bass(ctx, bar)
+        if role == 2:
+            return _parallel_stabs(ctx, bar)
+        return _accel(ctx, bar)
+    if role == 0:
+        notes = _bell_pitches(ctx, _function(ctx, bar, "I+"), 1)
+        pitch = notes[0] if notes else _lead_hi(ctx)
+        return [(0, ctx.epb, pitch, 1, _PP, {})]
+    if role == 1:
+        return _cantabile(ctx, bar, _P, 0)
+    if role == 2:
+        return _color_roll(ctx, bar, _P)
+    return _settled(ctx, bar, "I", _MP)
+
+
+def _brouwer_outro_short(ctx, bar: int, role: int, edge: bool) -> list[tuple]:
+    if edge:
+        if role == 0:
+            return _syncopated_blocks(ctx, bar)
+        return _stab_and_ring(ctx, bar)
+    if role == 0:
+        return _sparse(ctx, bar, "I", _P)
+    return _bell_chord(ctx, bar, _PP, picardy=True)
+
+
+def _brouwer_outro_long(ctx, bar: int, role: int, edge: bool) -> list[tuple]:
+    if edge:
+        if role == 0:
+            return _sparse(ctx, bar, "I", _P)
+        if role == 1:
+            return _ascending(ctx, bar, "I", _MP)
+        if role == 2:
+            return _wide_chord(ctx, bar, _P)
+        return [(0, 1, _deep_open(ctx), 3, _MF, {"staccato": True, "accent": True})]
+    if role == 0:
+        return _thin_roll(ctx, bar, _PP)
+    if role == 1:
+        return _tonic_steps(ctx, bar, _P)
+    if role == 2:
+        return _beat_two_hang(ctx, bar, _P)
+    return _bell_chord(ctx, bar, _PP, picardy=True)
+
+
+def _sus2(ctx, bar: int) -> list[int]:
+    root = ctx.chord(bar).pitches[0] % 12
+    return [root, (root + 2) % 12, (root + 7) % 12]
+
+
+def _deep_open(ctx) -> int:
+    """Lowest open string in the bass window. C uses E2, not a root match."""
+    for sounding in (40, 45, 50):
+        written = _open_written(ctx, sounding)
+        if ctx.bass_low <= written <= _bass_hi(ctx):
+            return written
+    return ctx.bass_low
+
+
+def _color_roll(ctx, bar: int, velocity: int) -> list[tuple]:
+    """Open-string sus2 arpeggio. The bass rings while the lead climbs the color."""
+    epb = ctx.epb
+    pcs = _sus2(ctx, bar)
+    bass, _inner, lead = _stack(ctx, pcs)
+    line = _rising(ctx, pcs, epb, lead)
+    specs = [(0, epb, bass, 3, velocity, {})]
+    for offset, pitch in enumerate(line):
+        specs.append((offset, 1, pitch, 1, min(_MF, velocity + offset), {}))
+    inner = _between(ctx, pcs, bass, min(line) if line else lead)
+    if inner is not None and epb > 2:
+        specs.append((1, 1, inner, 2, velocity, {}))
+    return _clip_voice(specs, epb)
+
+
+def _thin_roll(ctx, bar: int, velocity: int) -> list[tuple]:
+    """The arpeggio only occupies the first half, and each note is quieter."""
+    epb = ctx.epb
+    pcs = _sus2(ctx, bar)
+    bass, _inner, lead = _stack(ctx, pcs)
+    count = max(1, epb // 2)
+    line = _rising(ctx, pcs, count, lead)
+    specs = [(0, epb, bass, 3, velocity, {})]
+    level = _P
+    for offset, pitch in enumerate(line):
+        specs.append((offset, 1, pitch, 1, max(_PP, level), {}))
+        level -= 4
+    return _clip_voice(specs, epb)
+
+
+def _edge_stab(ctx, bar: int) -> list[tuple]:
+    """One accented color chord, then the open bass rings into the next bar."""
+    epb = ctx.epb
+    bass, inner, lead = _stack(ctx, _sus2(ctx, bar))
+    specs = [
+        (0, 1, bass, 3, _MF, {"staccato": True, "accent": True}),
+        (0, 1, lead, 1, _MF, {"staccato": True, "accent": True}),
+    ]
+    if inner is not None:
+        specs.append((0, 1, inner, 2, _MP, {"staccato": True, "accent": True}))
+    if epb > 1:
+        specs.append((1, epb - 1, _deep_open(ctx), 3, _P, {}))
+    return _clip_voice(specs, epb)
+
+
+def _edge_run(ctx, bar: int) -> list[tuple]:
+    """Four staccato steps into the body. The bass stops before they start."""
+    epb = ctx.epb
+    count = min(4, epb)
+    start = epb - count
+    lo, hi = _lead_lo(ctx), _lead_hi(ctx)
+    cursor = lo
+    pitches = [cursor]
+    while len(pitches) < count:
+        nxt = _step(cursor, 1, ctx.mode, lo, hi)
+        if nxt == cursor:
+            nxt = min(hi, cursor + 1)
+        pitches.append(nxt)
+        cursor = nxt
+    specs = []
+    if start > 0:
+        specs.append((0, start, _bass_note(ctx, ctx.chord(bar).pitches[0] % 12, None), 3, _P, {}))
+    level = _MP
+    for offset, pitch in enumerate(pitches):
+        specs.append((start + offset, 1, pitch, 1, min(_MF, level), {"staccato": True}))
+        level += 2
+    return _clip_voice(specs, epb)
+
+
+def _hesitant_bass(ctx, bar: int) -> list[tuple]:
+    """Two long bass notes a semitone apart. Each one lasts at least a beat."""
+    epb = ctx.epb
+    cut = max(2, epb // 2)
+    if cut >= epb:
+        cut = max(1, epb - 1)
+    root = _deep_open(ctx)
+    step = root + 1 if root + 1 <= _bass_hi(ctx) else root - 1
+    if step < ctx.bass_low:
+        step = root
+    return [(0, cut, root, 3, _P, {}), (cut, epb - cut, step, 3, _P, {})]
+
+
+def _parallel_stabs(ctx, bar: int) -> list[tuple]:
+    """Off-beat sus2 chords a whole step apart. 4/4 uses 1, 3, and 6."""
+    epb = ctx.epb
+    points = (1, 3, 6) if epb >= 8 else tuple(offset for offset in (1, 4) if offset < epb)
+    root = ctx.chord(bar).pitches[0] % 12
+    lowered = (root - 2) % 12
+    catalogs = (
+        _sus2(ctx, bar),
+        [lowered, root % 12, (lowered + 7) % 12],
+    )
+    specs = []
+    for index, offset in enumerate(points):
+        bass, inner, lead = _stack(ctx, catalogs[index % 2])
+        specs.append((offset, 1, bass, 3, _MP, {"staccato": True}))
+        specs.append((offset, 1, lead, 1, _MP, {"staccato": True}))
+        if inner is not None:
+            specs.append((offset, 1, inner, 2, _P, {"staccato": True}))
+    return _clip_voice(specs, epb)
+
+
+def _accel(ctx, bar: int) -> list[tuple]:
+    """Longer cells, then a run of eighths, over one open bass."""
+    from app.sonify.guitar_patterns import _playable
+
+    epb = ctx.epb
+    bass = _deep_open(ctx)
+    if epb >= 8:
+        cells = [(0, 2), (2, 2), (4, 1), (5, 1), (6, 1), (7, 1)]
+    elif epb >= 6:
+        cells = [(0, 2), (2, 1), (3, 1), (4, 1), (5, 1)]
+    else:
+        cells = [(offset, 1) for offset in range(epb)]
+    lo, hi = _lead_lo(ctx), _lead_hi(ctx)
+    pcs = set(_function(ctx, bar, "I"))
+    pool = [
+        note
+        for note in range(lo, hi + 1)
+        if note % 12 in pcs and note > bass and _playable([bass + ctx.semitones, note + ctx.semitones])
+    ]
+    if not pool:
+        pool = [
+            note
+            for note in range(max(lo, bass + 7), hi + 1)
+            if _playable([bass + ctx.semitones, note + ctx.semitones])
+        ]
+    specs = [(0, epb, bass, 3, _P, {})] if pool else []
+    if not pool:
+        pool = [min(hi, max(lo, bass + 12))]
+    for index, (offset, length) in enumerate(cells):
+        if offset >= epb:
+            continue
+        pitch = pool[min(index, len(pool) - 1)]
+        specs.append((offset, min(length, epb - offset), pitch, 1, min(_MF, _MP + index), {}))
+    return _clip_voice(specs, epb)
+
+
+def _syncopated_blocks(ctx, bar: int) -> list[tuple]:
+    epb = ctx.epb
+    points = (1, 5) if epb >= 8 else tuple(offset for offset in (1, 4) if offset < epb)
+    bass, inner, lead = _stack(ctx, _sus2(ctx, bar))
+    specs = []
+    for offset in points:
+        specs.append((offset, 1, bass, 3, _MP, {"staccato": True}))
+        specs.append((offset, 1, lead, 1, _MP, {"staccato": True}))
+        if inner is not None:
+            specs.append((offset, 1, inner, 2, _P, {"staccato": True}))
+    return _clip_voice(specs, epb)
+
+
+def _stab_and_ring(ctx, bar: int) -> list[tuple]:
+    """Accented chord on beat 1, a gap, then a quiet Picardy resonance."""
+    epb = ctx.epb
+    bass, inner, lead = _stack(ctx, _function(ctx, bar, "I+"))
+    specs = [
+        (0, 1, bass, 3, _MF, {"staccato": True, "accent": True}),
+        (0, 1, lead, 1, _MF, {"staccato": True, "accent": True}),
+    ]
+    if inner is not None:
+        specs.append((0, 1, inner, 2, _MP, {"staccato": True, "accent": True}))
+    if epb > 2:
+        quiet_bass, quiet_inner, quiet_lead = _stack(ctx, _function(ctx, bar, "I+"))
+        specs.append((2, epb - 2, quiet_bass, 3, _PP, {}))
+        specs.append((2, epb - 2, quiet_lead, 1, _PP, {}))
+        if quiet_inner is not None:
+            specs.append((2, epb - 2, quiet_inner, 2, _PP, {}))
+    return _clip_voice(specs, epb)
+
+
+def _wide_chord(ctx, bar: int, velocity: int) -> list[tuple]:
+    bass, inner, lead = _stack(ctx, _function(ctx, bar, "I"), high=True)
+    specs = [(0, ctx.epb, bass, 3, velocity, {}), (0, ctx.epb, lead, 1, velocity, {})]
+    if inner is not None:
+        specs.append((0, ctx.epb, inner, 2, velocity, {}))
+    return specs
+
+
+def _tonic_steps(ctx, bar: int, velocity: int) -> list[tuple]:
+    """A scale step below the tonic, then the tonic. Each step is half a bar."""
+    epb = ctx.epb
+    root_pc = ctx.chord(bar).pitches[0] % 12
+    tonic = _fit(root_pc, ctx.bass_low, _bass_hi(ctx))
+    below = _step(tonic, -1, ctx.mode, ctx.bass_low, _bass_hi(ctx))
+    if below == tonic:
+        below = _fit((root_pc + 7) % 12, ctx.bass_low, _bass_hi(ctx))
+    cut = max(1, epb // 2)
+    lead = _best_lead(ctx, _function(ctx, bar, "I"), [below % 12, root_pc], high=False)
+    specs = [
+        (0, epb, lead, 1, velocity, {}),
+        (0, cut, _bass_note(ctx, below % 12, lead), 3, velocity, {}),
+        (cut, epb - cut, _bass_note(ctx, root_pc, lead), 3, velocity, {}),
+    ]
+    return _clip_voice(specs, epb)
+
+
+def _beat_two_hang(ctx, bar: int, velocity: int) -> list[tuple]:
+    """The sarabande accent: a resonant sus2 chord on beat 2, not a slap."""
+    epb = ctx.epb
+    bass, inner, lead = _stack(ctx, _sus2(ctx, bar))
+    accent = 3 if ctx.kind == "6/8" else min(2, epb - 1)
+    specs = [(0, epb, bass, 3, velocity, {})]
+    if accent > 0:
+        specs.append((0, accent, lead, 1, _PP, {}))
+    specs.append((accent, max(1, epb - accent), lead, 1, velocity, {"accent": True}))
+    if inner is not None:
+        specs.append((accent, max(1, epb - accent), inner, 2, velocity, {"accent": True}))
+    return _clip_voice(specs, epb)
 
 
 def _function(ctx, bar: int, name: str) -> list[int]:

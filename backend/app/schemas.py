@@ -111,6 +111,7 @@ class RecapResponse(BaseModel):
         "choir",
         "villa",
         "barrios",
+        "brouwer",
     ] = "classic"
     durationSec: float
     mapDurationSec: float
@@ -155,6 +156,7 @@ class SpanResponse(BaseModel):
         "choir",
         "villa",
         "barrios",
+        "brouwer",
     ] = "classic"
     movements: list[SpanMovementResponse]
 
