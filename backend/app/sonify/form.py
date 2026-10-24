@@ -584,6 +584,26 @@ def plan_markov_chords(
         new_section = bar in section_starts
         previous_pitch = raw_pitches[bar * epb - 1] if bar > 0 else None
         phrase_downbeat = bar in phrase_starts
+        # Sor refuses Cmaj7 and the downtrend pair Am/Am7, which would otherwise
+        # leave a pedal bar with no legal tonic. Hold the pure triad instead.
+        pedal_chords = allowed_tonics
+        if section in _PEDAL:
+            surviving = tuple(
+                tonic
+                for tonic in allowed_tonics
+                if active_dialect.allowed(
+                    tonic,
+                    pedal=True,
+                    phrase_downbeat=phrase_downbeat,
+                    character=bar_character[bar],
+                    mode=mode,
+                )
+            )
+            if surviving:
+                pedal_chords = surviving
+            else:
+                pure = "Cm" if mode == "minor" else "C"
+                pedal_chords = tuple(chord for chord in catalog if chord.name == pure)
 
         def emit(
             notes: Sequence[int],
@@ -640,7 +660,7 @@ def plan_markov_chords(
                 back[bar][(chord, 1)] = None
                 back[bar][(chord, 2)] = None
                 continue
-            if section in _PEDAL and chord not in allowed_tonics:
+            if section in _PEDAL and chord not in pedal_chords:
                 dp[bar][(chord, 1)] = float("inf")
                 dp[bar][(chord, 2)] = float("inf")
                 back[bar][(chord, 1)] = None

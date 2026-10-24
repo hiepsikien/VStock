@@ -2613,3 +2613,270 @@ def test_brouwer_frames_for_lyric_and_edge_modes() -> None:
         compressed = _frame_score("brouwer", 1, character=character)
         assert_playable(compressed, C_KEY, "brouwer")
         _assert_engraved(compressed, "brouwer")
+
+
+_SOR_JAZZ = frozenset({
+    "Cmaj7", "Fmaj7", "Am7", "Em7",
+    "Cm7", "Fm7", "Ebmaj7", "Abmaj7",
+})
+_SOR_MAJOR = frozenset({
+    "C", "F", "G", "Am", "Dm", "Em", "G7", "Dm7",
+    "D7", "E7", "A7", "C7", "F#dim7",
+})
+_SOR_MINOR = frozenset({
+    "Cm", "Fm", "Dm7b5", "G", "G7", "Eb", "Ab", "D7", "F#dim7",
+})
+_PEDAL_SECTIONS = frozenset({"intro", "outro", "warmup", "cooldown"})
+
+
+def _sor_bar(downbeat: int, middle: int, other: int) -> list[int]:
+    row = [other] * 8
+    row[0] = downbeat
+    row[4] = middle
+    return row
+
+
+def _sor_plan(
+    bars: list[list[int]],
+    *,
+    mode: str = "major",
+    character: str = "rally",
+    regime: str = "uptrend",
+    kinds: tuple[str, ...] | None = None,
+):
+    from app.sonify.form import FormSection, FormSpec, plan_markov_chords
+    from app.sonify.harmony import SOR
+    from app.sonify.quantize import c_major_scale, c_natural_minor_scale
+
+    if kinds is None:
+        sections = (FormSection(0, len(bars), "phrase", 0),)
+    else:
+        sections = tuple(
+            FormSection(index, index + 1, kind, 0)  # type: ignore[arg-type]
+            for index, kind in enumerate(kinds)
+        )
+    spec = FormSpec(bars=len(bars), bpm=88, sections=sections, borrowed=True)
+    scale = c_natural_minor_scale() if mode == "minor" else c_major_scale()
+    return plan_markov_chords(
+        (regime,) * spec.regime_slots,  # type: ignore[arg-type]
+        [note for bar in bars for note in bar],
+        scale,
+        spec,
+        character=character,  # type: ignore[arg-type]
+        mode=mode,  # type: ignore[arg-type]
+        dialect=SOR,
+    )
+
+
+def _sor_names(score) -> list[str]:
+    return [slot.chord.name for slot in score.slots]
+
+
+def test_guitar_classic_uses_sor_and_symphony_classic_stays_common() -> None:
+    from app.sonify.chords import D7
+    from app.sonify.harmony import COMMON, SOR, VILLA, SorDialect, dialect_for
+
+    assert isinstance(dialect_for("classic", "guitar"), SorDialect)
+    assert dialect_for("classic", "guitar") is SOR
+    assert dialect_for("sor") is SOR
+    assert dialect_for("sor", "guitar") is SOR
+    assert dialect_for("classic") is COMMON
+    assert dialect_for("classic", "symphony") is COMMON
+    assert dialect_for("classic", "jazz") is COMMON
+    assert dialect_for("villa", "guitar") is VILLA
+    assert dialect_for("brass", "guitar") is COMMON
+    assert SOR.extra("major") == ()
+    assert SOR.extra("minor") == (D7,)
+    assert SOR.name == "sor"
+
+
+def test_sor_allows_triads_and_refuses_jazz_sevenths() -> None:
+    from app.sonify.chords import (
+        A7, AF, AFMAJ7, AM, AM7, BF, BM7B5, C, C7, CM, CM7, CMAJ7, D7, DM, DM7,
+        DM7B5, E7, EF, EFMAJ7, EM, EM7, F, FDIM7, FM, FM7, FMAJ7, G, G7, GM,
+    )
+    from app.sonify.harmony import SOR
+
+    def allowed(chord, *, pedal=False, downbeat=False, mode="major") -> bool:
+        return SOR.allowed(
+            chord, pedal=pedal, phrase_downbeat=downbeat, character=None, mode=mode
+        )
+
+    assert allowed(C, pedal=True) is True
+    assert allowed(CM, pedal=True, mode="minor") is True
+    for chord in (CMAJ7, AM7, F, G, G7, AM, DM):
+        assert allowed(chord, pedal=True) is False
+    assert allowed(CM7, pedal=True, mode="minor") is False
+    assert allowed(FM, pedal=True, mode="minor") is False
+
+    for chord in (CMAJ7, FMAJ7, AM7, EM7, AF, EF, BF, GM, FM, BM7B5):
+        assert allowed(chord) is False
+    for chord in (C, F, G, G7, DM, DM7, AM, EM):
+        assert allowed(chord) is True
+    for chord in (D7, E7, A7, C7, FDIM7):
+        assert allowed(chord, downbeat=True) is False
+        assert allowed(chord, downbeat=False) is True
+
+    for chord in (CM7, FM7, EFMAJ7, AFMAJ7):
+        assert allowed(chord, mode="minor") is False
+    for chord in (CM, FM, DM7B5, G, G7, EF, AF):
+        assert allowed(chord, mode="minor") is True
+    for chord in (D7, FDIM7):
+        assert allowed(chord, downbeat=True, mode="minor") is False
+        assert allowed(chord, pedal=True, mode="minor") is False
+        assert allowed(chord, downbeat=False, mode="minor") is True
+
+
+def test_sor_weights_classical_cadences_and_blocks_retrogression() -> None:
+    from app.sonify.chords import (
+        A7, AF, AM, C, C7, CM, D7, DM, DM7, DM7B5, E7, EF, EM, F, FDIM7, FM, G, G7,
+    )
+    from app.sonify.harmony import SOR
+
+    major = {
+        (C, G): 0.28, (C, G7): 0.26, (C, F): 0.28, (C, DM): 0.18, (C, AM): 0.18,
+        (F, G): 0.36, (F, G7): 0.40, (F, C): 0.24, (F, DM): 0.22, (F, DM7): 0.18,
+        (F, D7): 0.18,
+        (DM, G): 0.40, (DM, G7): 0.44, (DM7, G): 0.40, (DM7, G7): 0.46,
+        (G, C): 0.62, (G7, C): 0.68, (G, AM): 0.20, (G7, AM): 0.18,
+        (C, D7): 0.14, (AM, D7): 0.20, (D7, G): 0.52, (D7, G7): 0.48,
+        (C, E7): 0.10, (AM, E7): 0.18, (E7, AM): 0.58,
+        (DM, A7): 0.16, (A7, DM): 0.55,
+        (C, C7): 0.12, (C7, F): 0.58,
+        (F, FDIM7): 0.12, (FDIM7, G): 0.60, (FDIM7, G7): 0.40,
+        (G, F): 0.0, (G7, F): 0.0, (G, DM): 0.0, (G7, DM): 0.0, (G, DM7): 0.0, (G7, DM7): 0.0,
+    }
+    minor = {
+        (CM, FM): 0.34, (CM, G): 0.26, (CM, G7): 0.28, (CM, DM7B5): 0.22,
+        (CM, EF): 0.18, (CM, AF): 0.14,
+        (FM, G): 0.40, (FM, G7): 0.44, (FM, DM7B5): 0.24, (FM, D7): 0.20, (FM, CM): 0.22,
+        (DM7B5, G): 0.44, (DM7B5, G7): 0.48, (DM7B5, D7): 0.24,
+        (EF, AF): 0.38, (EF, FM): 0.26, (EF, G): 0.22, (EF, G7): 0.24,
+        (AF, DM7B5): 0.36, (AF, FM): 0.28, (AF, G): 0.32, (AF, G7): 0.34, (AF, D7): 0.26,
+        (D7, G): 0.52, (D7, G7): 0.56, (D7, D7): 0.12,
+        (G, CM): 0.60, (G7, CM): 0.66, (G, AF): 0.20, (G7, AF): 0.18,
+    }
+    for (prev, curr), weight in major.items():
+        assert SOR.transition(prev, curr, "major") == weight
+    for (prev, curr), weight in minor.items():
+        assert SOR.transition(prev, curr, "minor") == weight
+    # Unlisted diatonic motion keeps the shared catalog. Unlisted D7 does not.
+    assert SOR.transition(C, EM, "major") is None
+    assert SOR.transition(D7, CM, "minor") == 0.0
+    assert SOR.transition(G, D7, "minor") == 0.0
+
+
+def test_sor_bias_prefers_the_primary_triads_and_the_character() -> None:
+    from app.sonify.chords import AF, C, CM, D7, DM7B5, F, FDIM7, FM, G, G7
+    from app.sonify.harmony import SOR
+
+    assert SOR.bias(C, "calm", "major") == -0.06
+    assert SOR.bias(F, "calm", "major") == -0.06
+    assert SOR.bias(G, "rally", "major") == -0.06
+    assert SOR.bias(CM, "calm", "minor") == -0.06
+    assert SOR.bias(FM, "selloff", "minor") == -0.06
+    assert SOR.bias(G, "calm", "minor") == -0.06
+    assert SOR.bias(G7, None, "major", frozenset()) == 0.0
+    assert SOR.bias(G7, "calm", "major", frozenset({5})) == -0.06
+    assert SOR.bias(G7, "calm", "minor", frozenset({2})) == -0.06
+    assert SOR.bias(G7, "rally", "major") == -0.06
+    assert SOR.bias(D7, "rally", "major") == -0.06
+    assert SOR.bias(D7, "calm", "major") == 0.0
+    for chord in (CM, FM, DM7B5, G, G7, AF, FDIM7):
+        assert SOR.bias(chord, "selloff", "minor") == -0.06
+    assert SOR.bias(DM7B5, "calm", "minor") == 0.0
+    assert SOR.bias(AF, "calm", "minor") == 0.0
+
+
+def test_sor_cadences_resolve_and_the_secondary_dominant_reaches_the_dominant() -> None:
+    tonic = _sor_plan([
+        _sor_bar(60, 64, 67),  # C E G
+        _sor_bar(65, 60, 69),  # F C A
+        _sor_bar(65, 71, 67),  # F B G
+        _sor_bar(60, 64, 67),
+    ])
+    assert [chord.name for chord in tonic] == ["C", "F", "G7", "C"]
+
+    predominant = _sor_plan([
+        _sor_bar(60, 64, 67),
+        _sor_bar(62, 69, 65),  # D A, with F off the beat
+        _sor_bar(65, 71, 67),
+        _sor_bar(60, 64, 67),
+    ], character="calm")
+    names = [chord.name for chord in predominant]
+    assert names[0] == "C", names
+    assert names[1] in {"Dm", "Dm7"}, names
+    assert names[2] == "G7", names
+    assert names[3] == "C", names
+
+    secondary = _sor_plan([
+        _sor_bar(60, 64, 67),
+        _sor_bar(60, 62, 69),  # C D A
+        _sor_bar(67, 71, 62),  # G B D
+        _sor_bar(60, 64, 67),
+    ])
+    heard = [chord.name for chord in secondary]
+    assert heard[1] == "D7", heard
+    assert heard[2] in {"G", "G7"}, heard
+
+    minor = _sor_plan([
+        _sor_bar(60, 63, 67),  # C Eb G
+        _sor_bar(65, 68, 60),  # F Ab C
+        _sor_bar(65, 70, 67),  # F Bb G
+        _sor_bar(60, 63, 67),
+    ], mode="minor", character="selloff", regime="downtrend")
+    assert [chord.name for chord in minor] == ["Cm", "Fm", "G7", "Cm"]
+
+
+def test_sor_downtrend_pedal_holds_the_major_triad() -> None:
+    """Am/Am7 are the downtrend tonics. Sor still pedals C, never Am7."""
+    kinds = ("intro", "intro", "phrase", "phrase", "outro", "outro")
+    chords = _sor_plan(
+        [_sor_bar(69, 64, 60)] * 6,
+        mode="major",
+        character="calm",
+        regime="downtrend",
+        kinds=kinds,
+    )
+    names = [chord.name for chord in chords]
+    assert names[:2] == ["C", "C"], names
+    assert names[4:] == ["C", "C"], names
+    assert "Am7" not in names
+    assert "Cmaj7" not in names
+
+
+def test_rendered_sor_scores_never_use_jazz_sevenths() -> None:
+    """1D and every 1M movement, in major and minor, stay inside the Classical vocabulary."""
+    from app.sonify.span import plan_month
+
+    def check(score, mode: str) -> None:
+        found = set(_sor_names(score))
+        legal = _SOR_MAJOR if mode == "major" else _SOR_MINOR
+        assert not found & _SOR_JAZZ, sorted(found & _SOR_JAZZ)
+        assert found <= legal, sorted(found - legal)
+        if mode == "major":
+            assert {"C", "F"} <= found
+            assert found & {"G", "G7"}
+        else:
+            assert "Cm" in found
+            assert found & {"Fm", "G", "G7", "Dm7b5"}
+        pedal = {
+            slot.chord.name
+            for slot in score.slots
+            if slot.section in _PEDAL_SECTIONS
+        }
+        assert pedal == {"C" if mode == "major" else "Cm"}, pedal
+
+    forms = (None, *(movement.spec for movement in plan_month([8, 8, 8, 8], "guitar")))
+    for form in forms:
+        for mode, character in (("major", "rally"), ("minor", "selloff")):
+            score = render(
+                _bars(),
+                title="Sor",
+                variant="guitar",
+                ensemble="classic",
+                form=form,
+                mode=mode,
+                character=character,  # type: ignore[arg-type]
+            )
+            check(score, mode)
