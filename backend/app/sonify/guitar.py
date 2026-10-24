@@ -576,9 +576,18 @@ def _voice(notes: tuple[NoteEvent, ...] | list[NoteEvent], voice: int) -> tuple[
 
 
 def _apex_eighths(phrases: tuple[Phrase, ...]) -> set[int]:
+    """Eighths of a real melodic peak.
+
+    A flat phrase has one pitch, so its apex is the whole run. Marking that
+    run used to hammer every intro and outro eighth at ``_MELODY_APEX``. A
+    phrase contributes a peak only when it actually moves.
+    """
     eighths: set[int] = set()
     for phrase in phrases:
         if not phrase.runs:
+            continue
+        distinct = {run.midi for run in phrase.runs}
+        if phrase.rise <= 0 or len(distinct) <= 1:
             continue
         apex = phrase.apex
         eighths.update(range(apex.start, apex.end))
