@@ -21,7 +21,7 @@ from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score
 from app.sonify.phrasing import Phrase, quantize_strong_beats, written
 from app.sonify.quantize import C_MAJOR_PCS, C_NATURAL_MINOR_PCS, scale_from_classes
 
-GUITAR_BPM = {"classic": 88, "villa": 100, "barrios": 120, "brouwer": 108}
+GUITAR_BPM = {"classic": 88, "villa": 100, "barrios": 120, "brouwer": 108, "bach": 96}
 # Listening tests: a tremolo only reads as a sung line from 90 BPM up, sits
 # best around 120, and can run to 140. A Barrios movement under that floor
 # is not sped up and gets no tremolo at all: it keeps its slow tempo and

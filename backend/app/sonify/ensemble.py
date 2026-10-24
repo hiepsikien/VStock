@@ -81,6 +81,7 @@ _ROWS: dict[tuple[Variant, Ensemble], tuple[PartSpec, ...]] = {
     ("guitar", "villa"): (_NYLON,),
     ("guitar", "barrios"): (_NYLON,),
     ("guitar", "brouwer"): (_NYLON,),
+    ("guitar", "bach"): (_NYLON,),
 }
 
 _ALLOWED: dict[Variant, frozenset[Ensemble]] = {
@@ -88,7 +89,7 @@ _ALLOWED: dict[Variant, frozenset[Ensemble]] = {
     "jazz": frozenset({"classic", "soul", "organ"}),
     "minimalist": frozenset({"classic", "mallet", "guitar"}),
     "ambient": frozenset({"classic", "breath", "choir"}),
-    "guitar": frozenset({"classic", "villa", "barrios", "brouwer"}),
+    "guitar": frozenset({"classic", "villa", "barrios", "brouwer", "bach"}),
 }
 
 OBOE_FLOOR = 58  # Bb3
