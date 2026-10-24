@@ -20,7 +20,7 @@ from app.sonify.guitar import (
     guard_chromatic_approach,
     render_guitar_score,
 )
-from app.sonify.keys import C_KEY, D_KEY, compose_register, register_for
+from app.sonify.keys import C_KEY, D_KEY, compose_register, movement_character, register_for
 from app.sonify.model import Bar, NoteEvent, Phrase, Run, Score
 from app.sonify.musicxml import score_to_musicxml
 from app.sonify.phrasing import MIN_RISE
@@ -2182,3 +2182,131 @@ def test_a_later_tremolo_bar_breathes_and_the_first_bar_stays_locked() -> None:
     # thumb > m > i > a still holds after the breath.
     assert 60 > later[1] > later[2] > later[0]
     _assert_engraved(score, {0: "barrios_preludio", 1: "barrios_tremolo", 2: "barrios_tremolo"})
+
+
+def test_one_day_character_hears_a_hose_session() -> None:
+    """0.45% separates a rally from a selloff. A 1.35% range with no trend is volatile."""
+    assert movement_character([100.0, 100.4, 100.8], "1D") == "rally"
+    assert movement_character([100.0, 99.6, 99.2], "1D") == "selloff"
+    # The close sits in the middle of a 1.8% range, so the day is not a trend.
+    assert movement_character([100.0, 101.8, 100.2], "1D") == "volatile"
+    assert movement_character([100.0, 100.1, 100.2], "1D") == "calm"
+    # The old 1.2% cut called each of these calm. They are ordinary HOSE days.
+    assert movement_character([100.0, 99.11], "1D") == "selloff"
+    assert movement_character([100.0, 100.90], "1D") == "rally"
+    assert movement_character([100.0, 99.48], "1D") == "selloff"
+
+
+def test_sor_galop_and_mozart_variations_and_the_op9_overture() -> None:
+    galop = _frame_score("classic", 2)
+    bass = _pitched(galop.low, 2)
+    assert [round(note.beat, 2) for note in bass] == [0.0, 2.0]
+    assert all(note.staccato and abs(note.duration_beats - 1.0) < 1e-9 for note in bass)
+    assert bass[0].accent
+    inner = _pitched(galop.support, 2)
+    assert [round(note.beat, 2) for note in inner] == [0.5, 1.0, 2.5, 3.0]
+    assert all(note.staccato and note.accent for note in inner)
+    assert len({note.midi for note in inner}) == 2
+    lead = _pitched(galop.lead, 2)
+    downbeat = next(note for note in lead if note.beat == 0.0)
+    sparkle = next(note for note in lead if abs(note.beat - 0.5) < 1e-9)
+    assert sparkle.staccato and sparkle.midi is not None and downbeat.midi is not None
+    assert sparkle.midi > downbeat.midi
+    assert _sixteenths(galop.lead, 2) == []
+    assert_playable(galop, C_KEY, "study")
+
+    mozart = _frame_score("classic", 2, character="volatile")
+    halves = _pitched(mozart.low, 2)
+    assert [round(note.beat, 2) for note in halves] == [0.0, 2.0]
+    assert all(abs(note.duration_beats - 2.0) < 1e-9 and not note.staccato for note in halves)
+    counter = _pitched(mozart.support, 2)
+    assert [round(note.beat, 2) for note in counter] == [0.5, 1.0, 1.5, 2.5, 3.0, 3.5]
+    steps = [right.midi - left.midi for left, right in zip(counter, counter[1:]) if left.midi and right.midi]
+    assert steps and all(0 < abs(step) <= 2 for step in steps)
+    assert_playable(mozart, C_KEY, "study")
+
+    overture = galop
+    tonic = _pitched(overture.lead, 0)
+    assert [round(note.beat, 2) for note in tonic] == [0.0, 1.5, 2.0, 3.5]
+    assert [round(note.duration_beats, 2) for note in tonic] == [1.5, 0.5, 1.5, 0.5]
+    assert all(note.staccato for note in tonic if note.duration_beats <= 0.5)
+    assert all(note.velocity is not None and note.velocity <= 52 for note in tonic)
+    assert {note.voice for note in (*_pitched(overture.lead, 0), *_pitched(overture.support, 0), *_pitched(overture.low, 0)) if note.beat == 0.0} == {1, 2, 3}
+    scale = [note.midi for note in _pitched(overture.lead, 1) if note.beat >= 2.0]
+    assert len(scale) >= 3
+    assert scale == sorted(scale)
+    dominant = [note for note in _pitched(overture.low, 1) if note.beat < 3]
+    assert {0.0, 1.5, 2.0} <= {round(note.beat, 2) for note in dominant}
+    assert any(note.staccato and note.duration_beats <= 0.5 for note in dominant)
+
+    long = _frame_score("classic", 4)
+    assert any(note.staccato for note in _pitched(long.lead, 0))
+    lyric = _pitched(long.support, 1)
+    assert len(lyric) >= 2
+    assert all(note.midi is not None and note.midi < _pitched(long.lead, 1)[0].midi for note in lyric)
+    flourish = [note.midi for note in _pitched(long.lead, 3) if note.beat >= 2.0]
+    assert len(flourish) >= 3 and flourish == sorted(flourish)
+
+
+def _suite(movement: int, ensemble: str, *, character: str = "rally"):
+    from app.sonify.span import attach_frame, month_specs
+
+    form = attach_frame(month_specs("guitar")[movement], "1M")
+    return render(_bars(), title="Guitar", variant="guitar", ensemble=ensemble, form=form, character=character)  # type: ignore[arg-type]
+
+
+def _attack_onsets(voice, bar: int) -> list[float]:
+    return sorted(
+        round(note.beat, 2)
+        for note in voice
+        if note.bar == bar and note.midi is not None and not note.tie_stop
+    )
+
+
+def test_suite_movements_use_preludio_dances_tremolo_and_villa_chorale() -> None:
+    opening = _suite(0, "barrios")
+    assert opening.bpm == 96 and opening.divisions == 4
+    ringing = [
+        bar
+        for bar in range(8, 40)
+        if any(note.duration_beats >= 3.5 for note in _pitched(opening.low, bar))
+        and len(_attack_onsets(opening.support, bar)) >= 8
+    ]
+    assert len(ringing) >= 10
+
+    moderate = [Bar(close=100 + (index % 9) * 0.1, volume=1000 + index) for index in range(48)]
+    day = render(moderate, title="Guitar", variant="guitar", ensemble="barrios", character="rally")
+    assert day.bpm == 120 and day.bars == 34
+    assert any(note.duration_beats >= 3.5 for note in _pitched(day.low, 4))
+    assert len(_attack_onsets(day.support, 4)) >= 8
+
+    choppy = [Bar(close=100.0 if index % 2 == 0 else 100.5, volume=1000 + index) for index in range(240)]
+    dance = render(choppy, title="Guitar", variant="guitar", ensemble="barrios", character="volatile")
+    assert _attack_onsets(dance.low, 4) == [0.0, 1.0, 2.0, 3.0]
+    assert {0.75, 1.75} <= set(_attack_onsets(dance.support, 4))
+    assert sum(1 for note in _pitched(dance.lead, 4) if abs(note.duration_beats - 0.25) < 1e-9) < 8
+
+    wide = render(_bars(), title="Guitar", variant="guitar", ensemble="barrios", character="rally")
+    assert sum(1 for note in _pitched(wide.lead, 4) if abs(note.duration_beats - 0.25) < 1e-9) >= 12
+
+    scherzo = _suite(2, "barrios")
+    assert scherzo.bpm == 120 and scherzo.beat_type == 8
+    polca = next(note for note in _pitched(scherzo.low, 12) if abs(note.beat - 1.5) < 1e-9)
+    assert polca.accent and 2.0 not in _attack_onsets(scherzo.low, 12)
+    vals = next(note for note in _pitched(scherzo.low, 40) if abs(note.beat - 2.0) < 1e-9)
+    assert vals.accent and abs(vals.duration_beats - 0.25) < 1e-9
+
+    finale = _suite(3, "barrios")
+    assert finale.bpm == 96
+    tremolo_bars = sum(
+        1
+        for bar in range(10, 40)
+        if sum(1 for note in _pitched(finale.lead, bar) if abs(note.duration_beats - 0.25) < 1e-9) >= 12
+    )
+    assert tremolo_bars >= 20
+
+    slow = _suite(1, "villa")
+    assert slow.bpm == 72 and slow.beats == 3 and slow.divisions == 2
+    assert 0.0 in _attack_onsets(slow.lead, 12)
+    assert 0.0 not in _attack_onsets(slow.lead, 48)
+    assert _attack_onsets(slow.lead, 48) == _attack_onsets(slow.support, 48) == [1.0, 2.0]
