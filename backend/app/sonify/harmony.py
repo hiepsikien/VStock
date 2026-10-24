@@ -1,7 +1,8 @@
 """Harmony dialects beside the tertian Markov catalog.
 
-`COMMON` is the symphony and Sor path. `villa` and `barrios` register in
-`DIALECTS`. An unknown ensemble stays on `COMMON`.
+`COMMON` is the symphony path. `villa`, `barrios`, and `sor` register in
+`DIALECTS`. Guitar `classic` resolves to `sor`. An unknown ensemble stays
+on `COMMON`.
 """
 
 from __future__ import annotations
@@ -529,11 +530,171 @@ class BarriosDialect(HarmonyDialect):
         return 0.0
 
 
+# Classical functional weights. A missing pair keeps the shared Markov row.
+# G/G7 back to IV or ii is a retrogression and stays illegal.
+_SOR_MAJOR: dict[tuple[str, str], float] = {
+    ("C", "G"): 0.28,
+    ("C", "G7"): 0.26,
+    ("C", "F"): 0.28,
+    ("C", "Dm"): 0.18,
+    ("C", "Am"): 0.18,
+    ("F", "G"): 0.36,
+    ("F", "G7"): 0.40,
+    ("F", "C"): 0.24,
+    ("F", "Dm"): 0.22,
+    ("F", "Dm7"): 0.18,
+    ("F", "D7"): 0.18,
+    ("Dm", "G"): 0.40,
+    ("Dm", "G7"): 0.44,
+    ("Dm7", "G"): 0.40,
+    ("Dm7", "G7"): 0.46,
+    ("G", "C"): 0.62,
+    ("G7", "C"): 0.68,
+    ("G", "Am"): 0.20,
+    ("G7", "Am"): 0.18,
+    ("C", "D7"): 0.14,
+    ("Am", "D7"): 0.20,
+    ("D7", "G"): 0.52,
+    ("D7", "G7"): 0.48,
+    ("C", "E7"): 0.10,
+    ("Am", "E7"): 0.18,
+    ("E7", "Am"): 0.58,
+    ("Dm", "A7"): 0.16,
+    ("A7", "Dm"): 0.55,
+    ("C", "C7"): 0.12,
+    ("C7", "F"): 0.58,
+    ("F", "F#dim7"): 0.12,
+    ("F#dim7", "G"): 0.60,
+    ("F#dim7", "G7"): 0.40,
+    ("G", "F"): 0.0,
+    ("G7", "F"): 0.0,
+    ("G", "Dm"): 0.0,
+    ("G7", "Dm"): 0.0,
+    ("G", "Dm7"): 0.0,
+    ("G7", "Dm7"): 0.0,
+}
+_SOR_MINOR: dict[tuple[str, str], float] = {
+    ("Cm", "Fm"): 0.34,
+    ("Cm", "G"): 0.26,
+    ("Cm", "G7"): 0.28,
+    ("Cm", "Dm7b5"): 0.22,
+    ("Cm", "Eb"): 0.18,
+    ("Cm", "Ab"): 0.14,
+    ("Fm", "G"): 0.40,
+    ("Fm", "G7"): 0.44,
+    ("Fm", "Dm7b5"): 0.24,
+    ("Fm", "D7"): 0.20,
+    ("Fm", "Cm"): 0.22,
+    ("Dm7b5", "G"): 0.44,
+    ("Dm7b5", "G7"): 0.48,
+    ("Dm7b5", "D7"): 0.24,
+    ("Eb", "Ab"): 0.38,
+    ("Eb", "Fm"): 0.26,
+    ("Eb", "G"): 0.22,
+    ("Eb", "G7"): 0.24,
+    ("Ab", "Dm7b5"): 0.36,
+    ("Ab", "Fm"): 0.28,
+    ("Ab", "G"): 0.32,
+    ("Ab", "G7"): 0.34,
+    ("Ab", "D7"): 0.26,
+    ("D7", "G"): 0.52,
+    ("D7", "G7"): 0.56,
+    ("D7", "D7"): 0.12,
+    ("G", "Cm"): 0.60,
+    ("G7", "Cm"): 0.66,
+    ("G", "Ab"): 0.20,
+    ("G7", "Ab"): 0.18,
+}
+_SOR_MAJOR_BANNED = frozenset({
+    "Cmaj7", "Fmaj7", "Am7", "Em7",
+    "Ab", "Eb", "Bb", "Bb7", "Gm", "Fm", "Bm7b5",
+})
+_SOR_MAJOR_SECONDARY = frozenset({"D7", "E7", "A7", "C7", "F#dim7"})
+_SOR_MINOR_BANNED = frozenset({"Cm7", "Fm7", "Ebmaj7", "Abmaj7"})
+_SOR_MINOR_PASSING = frozenset({"D7", "F#dim7"})
+_SOR_PREFERENCE = -0.06
+# F is the chordal seventh of G7. D is scale degree 2, the fifth of that dominant.
+_G7_COLOR = frozenset({2, 5})
+
+
+class SorDialect(HarmonyDialect):
+    """Triads, V7, and secondary dominants. No pop or jazz sevenths."""
+
+    name = "sor"
+
+    def extra(self, mode: str) -> tuple[Chord, ...]:
+        if mode == "minor":
+            return (D7,)
+        return ()
+
+    def transition(self, prev: Chord, curr: Chord, mode: str) -> float | None:
+        table = _SOR_MAJOR if mode == "major" else _SOR_MINOR
+        key = (prev.name, curr.name)
+        if key in table:
+            return table[key]
+        # D7 is not in the minor letter table. An unlisted edge would read ii.
+        if mode == "minor" and (prev.name == "D7" or curr.name == "D7"):
+            return 0.0
+        return None
+
+    def allowed(
+        self,
+        chord: Chord,
+        *,
+        pedal: bool,
+        phrase_downbeat: bool,
+        character: MovementCharacter | None,
+        mode: str,
+    ) -> bool:
+        del character
+        if pedal:
+            return chord.name == ("Cm" if mode == "minor" else "C")
+        if mode == "minor":
+            if chord.name in _SOR_MINOR_BANNED:
+                return False
+            if phrase_downbeat and chord.name in _SOR_MINOR_PASSING:
+                return False
+            return True
+        if chord.name in _SOR_MAJOR_BANNED:
+            return False
+        if phrase_downbeat and chord.name in _SOR_MAJOR_SECONDARY:
+            return False
+        return True
+
+    def bias(
+        self,
+        chord: Chord,
+        character: MovementCharacter | None,
+        mode: str,
+        strong_pitch_classes: frozenset[int] = frozenset(),
+    ) -> float:
+        primary = {"C", "F", "G"} if mode == "major" else {"Cm", "Fm", "G"}
+        if chord.name in primary:
+            return _SOR_PREFERENCE
+        if chord.name == "G7" and (strong_pitch_classes & _G7_COLOR):
+            return _SOR_PREFERENCE
+        if character == "rally" and chord.name in {"C", "F", "G", "G7", "D7"}:
+            return _SOR_PREFERENCE
+        if character == "selloff" and chord.name in {
+            "Cm", "Fm", "Dm7b5", "G", "G7", "Ab", "F#dim7",
+        }:
+            return _SOR_PREFERENCE
+        return 0.0
+
+
 COMMON = HarmonyDialect()
 VILLA = VillaDialect()
 BARRIOS = BarriosDialect()
-DIALECTS: dict[str, HarmonyDialect] = {"villa": VILLA, "barrios": BARRIOS}
+SOR = SorDialect()
+DIALECTS: dict[str, HarmonyDialect] = {"villa": VILLA, "barrios": BARRIOS, "sor": SOR}
 
 
-def dialect_for(ensemble: str) -> HarmonyDialect:
+def dialect_for(ensemble: str, variant: str | None = None) -> HarmonyDialect:
+    """Resolve a dialect. Symphony `classic` stays on `COMMON`.
+
+    Guitar `classic` is Fernando Sor. `ensemble="sor"` selects the same dialect
+    for either variant.
+    """
+    if variant == "guitar" and ensemble == "classic":
+        return SOR
     return DIALECTS.get(ensemble, COMMON)

@@ -1061,7 +1061,7 @@ def _compose(
             harmonic_bridge=variant in ("jazz", "symphony"),
             character_at=character_at,
             gap_leads=gap_leads,
-            dialect=dialect_for(ensemble),
+            dialect=dialect_for(ensemble, variant),
         )
 
         windows = LIQUIDITY_WINDOWS if spec is None else liquidity_windows_for(spec)
