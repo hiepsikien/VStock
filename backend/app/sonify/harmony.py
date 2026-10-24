@@ -1,8 +1,8 @@
 """Harmony dialects beside the tertian Markov catalog.
 
-`COMMON` is the symphony path. `villa`, `barrios`, `brouwer`, and `sor` register
-in `DIALECTS`. Guitar `classic` resolves to `sor`. An unknown ensemble stays
-on `COMMON`.
+`COMMON` is the symphony path. `bach`, `villa`, `barrios`, `brouwer`, and `sor`
+register in `DIALECTS`. Guitar `classic` resolves to `sor`. An unknown ensemble
+stays on `COMMON`.
 """
 
 from __future__ import annotations
@@ -846,12 +846,186 @@ class SorDialect(HarmonyDialect):
         return 0.0
 
 
+# Circle of fifths, secondary dominants, and the leading-tone diminished seventh.
+# A missing major pair keeps the shared Markov row. G/G7 back to IV or ii is blocked.
+_BACH_MAJOR: dict[tuple[str, str], float] = {
+    ("C", "F"): 0.30,
+    ("C", "Fmaj7"): 0.22,
+    ("F", "Bm7b5"): 0.38,
+    ("Fmaj7", "Bm7b5"): 0.42,
+    ("Bm7b5", "Em"): 0.44,
+    ("Bm7b5", "E7"): 0.48,
+    ("Em", "Am"): 0.46,
+    ("Em", "Am7"): 0.36,
+    ("E7", "Am"): 0.60,
+    ("E7", "Am7"): 0.42,
+    ("Am", "Dm"): 0.38,
+    ("Am", "Dm7"): 0.36,
+    ("Am7", "Dm"): 0.40,
+    ("Am7", "Dm7"): 0.42,
+    ("Am", "D7"): 0.28,
+    ("Dm", "G"): 0.42,
+    ("Dm", "G7"): 0.48,
+    ("Dm7", "G"): 0.42,
+    ("Dm7", "G7"): 0.50,
+    ("G", "C"): 0.62,
+    ("G7", "C"): 0.68,
+    ("G", "Am"): 0.22,
+    ("G7", "Am"): 0.20,
+    ("C", "C7"): 0.18,
+    ("C7", "F"): 0.60,
+    ("C", "A7"): 0.14,
+    ("Em", "A7"): 0.26,
+    ("A7", "Dm"): 0.56,
+    ("A7", "Dm7"): 0.44,
+    ("A7", "D7"): 0.36,
+    ("F", "D7"): 0.24,
+    ("Dm", "D7"): 0.24,
+    ("D7", "G"): 0.54,
+    ("D7", "G7"): 0.52,
+    ("F", "F#dim7"): 0.18,
+    ("Dm", "F#dim7"): 0.18,
+    ("F#dim7", "G"): 0.62,
+    ("F#dim7", "G7"): 0.44,
+    ("C", "E7"): 0.14,
+    ("G", "F"): 0.0,
+    ("G7", "F"): 0.0,
+    ("G", "Dm"): 0.0,
+    ("G7", "Dm"): 0.0,
+}
+# Minor circle through bVII and III, plus the Chaconne descent back to i.
+# An unlisted pair that touches Bb, Bb7, or D7 is illegal rather than letter-row ii.
+_BACH_MINOR: dict[tuple[str, str], float] = {
+    ("Cm", "Fm"): 0.34,
+    ("Cm", "Fm7"): 0.26,
+    ("Fm", "Bb"): 0.42,
+    ("Fm", "Bb7"): 0.46,
+    ("Fm7", "Bb"): 0.42,
+    ("Fm7", "Bb7"): 0.48,
+    ("Cm", "Bb"): 0.16,
+    ("Cm", "Bb7"): 0.16,
+    ("Bb", "Eb"): 0.52,
+    ("Bb7", "Eb"): 0.60,
+    ("Bb", "G"): 0.20,
+    ("Bb", "G7"): 0.24,
+    ("Bb", "Bb"): 0.16,
+    ("Bb7", "Bb7"): 0.14,
+    ("Bb", "Bb7"): 0.22,
+    ("Bb7", "Bb"): 0.20,
+    ("Eb", "Ab"): 0.44,
+    ("Eb", "Fm"): 0.26,
+    ("Eb", "Dm7b5"): 0.24,
+    ("Eb", "G7"): 0.22,
+    ("Ab", "Dm7b5"): 0.42,
+    ("Ab", "F#dim7"): 0.28,
+    ("Ab", "D7"): 0.34,
+    ("Ab", "G"): 0.32,
+    ("Ab", "G7"): 0.36,
+    ("Dm7b5", "G"): 0.46,
+    ("Dm7b5", "G7"): 0.52,
+    ("Dm7b5", "D7"): 0.32,
+    ("Fm", "D7"): 0.26,
+    ("Fm7", "D7"): 0.26,
+    ("Fm", "F#dim7"): 0.22,
+    ("F#dim7", "G"): 0.62,
+    ("F#dim7", "G7"): 0.56,
+    ("D7", "G"): 0.52,
+    ("D7", "G7"): 0.58,
+    ("D7", "D7"): 0.12,
+    ("G", "Cm"): 0.60,
+    ("G7", "Cm"): 0.66,
+    ("G", "Ab"): 0.24,
+    ("G7", "Ab"): 0.22,
+    ("Cm", "G"): 0.28,
+    ("Cm", "G7"): 0.30,
+    ("Cm", "Ab"): 0.18,
+    ("Cm", "Dm7b5"): 0.22,
+}
+_BACH_MINOR_EXTRA_NAMES = frozenset({"Bb", "Bb7", "D7"})
+_BACH_SUSPENDED_TEXT = frozenset({"sus2", "sus4", "7sus4", "add9", "madd9"})
+_BACH_MAJOR_BANNED = frozenset({"Cmaj7", "Em7", "Ab", "Eb", "Bb", "Bb7", "Gm", "Fm"})
+_BACH_MAJOR_PASSING = frozenset({"D7", "E7", "A7", "C7", "F#dim7", "Bm7b5"})
+_BACH_MINOR_BANNED = frozenset({"Cm7", "Ebmaj7", "Abmaj7"})
+_BACH_MINOR_PASSING = frozenset({"Bb", "Bb7", "D7", "F#dim7", "Dm7b5"})
+_BACH_MAJOR_DRIVERS = frozenset({"C", "F", "Dm", "Dm7", "G", "G7", "D7", "E7", "A7", "F#dim7"})
+_BACH_MINOR_DRIVERS = frozenset({
+    "Cm", "Fm", "Fm7", "Bb", "Bb7", "Eb", "Ab", "Dm7b5", "D7", "F#dim7", "G", "G7",
+})
+_BACH_PREFERENCE = -0.06
+
+
+class BachDialect(HarmonyDialect):
+    """Circle-of-fifths sequences, secondary dominants, and the minor bVII door.
+
+    Lute-suite and Chaconne harmony. No modern suspensions, and no seventh
+    chord on a pedal bar.
+    """
+
+    name = "bach"
+
+    def extra(self, mode: str) -> tuple[Chord, ...]:
+        if mode == "minor":
+            return (BF, BF7, D7)
+        return ()
+
+    def transition(self, prev: Chord, curr: Chord, mode: str) -> float | None:
+        if mode == "minor":
+            key = (prev.name, curr.name)
+            if key in _BACH_MINOR:
+                return _BACH_MINOR[key]
+            if prev.name in _BACH_MINOR_EXTRA_NAMES or curr.name in _BACH_MINOR_EXTRA_NAMES:
+                return 0.0
+            return None
+        return _BACH_MAJOR.get((prev.name, curr.name))
+
+    def allowed(
+        self,
+        chord: Chord,
+        *,
+        pedal: bool,
+        phrase_downbeat: bool,
+        character: MovementCharacter | None,
+        mode: str,
+    ) -> bool:
+        del character
+        if pedal:
+            return chord.name == ("Cm" if mode == "minor" else "C")
+        if chord.quality_group == "suspended" or chord.kind_text in _BACH_SUSPENDED_TEXT:
+            return False
+        if mode == "minor":
+            if chord.name in _BACH_MINOR_BANNED:
+                return False
+            if phrase_downbeat and chord.name in _BACH_MINOR_PASSING:
+                return False
+            return True
+        if chord.name in _BACH_MAJOR_BANNED:
+            return False
+        if phrase_downbeat and chord.name in _BACH_MAJOR_PASSING:
+            return False
+        return True
+
+    def bias(
+        self,
+        chord: Chord,
+        character: MovementCharacter | None,
+        mode: str,
+        strong_pitch_classes: frozenset[int] = frozenset(),
+    ) -> float:
+        del character, strong_pitch_classes
+        drivers = _BACH_MINOR_DRIVERS if mode == "minor" else _BACH_MAJOR_DRIVERS
+        if chord.name in drivers:
+            return _BACH_PREFERENCE
+        return 0.0
+
+
 COMMON = HarmonyDialect()
 VILLA = VillaDialect()
 BARRIOS = BarriosDialect()
 BROUWER = BrouwerDialect()
 SOR = SorDialect()
+BACH = BachDialect()
 DIALECTS: dict[str, HarmonyDialect] = {
+    "bach": BACH,
     "villa": VILLA,
     "barrios": BARRIOS,
     "brouwer": BROUWER,

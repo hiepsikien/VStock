@@ -2,7 +2,7 @@
 
 The pedal region at the start (`intro` / `warmup`) and at the end
 (`cooldown` / `outro`) is a safety buffer: the price there is one repeated
-close. These frames ignore that flat line and write a short Sor, Barrios,
+close. These frames ignore that flat line and write a short Bach, Sor, Barrios,
 Villa-Lobos, or Brouwer entrance and cadence instead. A frame of one or two bars uses the
 direct version. A frame of three bars or more uses the four-bar version and
 stretches it across the region.
@@ -81,10 +81,19 @@ def _render_region(ctx, bars: list[int], *, closing: bool) -> tuple[list, list, 
     return lead, support, low
 
 
+def _frame_composer(ctx):
+    return {
+        "bach": _bach,
+        "villa": _villa,
+        "barrios": _barrios,
+        "brouwer": _brouwer,
+    }.get(ctx.ensemble, _sor)
+
+
 def _gesture(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int, length: int) -> list[tuple]:
     if length == 1:
         return _compressed(ctx, bar, closing)
-    composer = {"villa": _villa, "barrios": _barrios, "brouwer": _brouwer}.get(ctx.ensemble, _sor)
+    composer = _frame_composer(ctx)
     return composer(ctx, bar, role, steps=steps, closing=closing, index=index)
 
 
@@ -109,7 +118,7 @@ def _compressed(ctx, bar: int, closing: bool) -> list[tuple]:
 
 
 def _gesture_body(ctx, bar: int, role: int, *, closing: bool) -> list[tuple]:
-    composer = {"villa": _villa, "barrios": _barrios, "brouwer": _brouwer}.get(ctx.ensemble, _sor)
+    composer = _frame_composer(ctx)
     return composer(ctx, bar, role, steps=2, closing=closing, index=role)
 
 
@@ -466,6 +475,419 @@ def _brouwer_outro_long(ctx, bar: int, role: int, edge: bool) -> list[tuple]:
     if role == 2:
         return _beat_two_hang(ctx, bar, _P)
     return _bell_chord(ctx, bar, _PP, picardy=True)
+
+
+def _bach_dance(ctx) -> bool:
+    """Bourrée, gavotte, and gigue. Fuga, sarabande, and chaconne stay polyphonic."""
+    return ctx.character not in {"volatile", "selloff"} and ctx.bpm > 72
+
+
+def _bach(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int) -> list[tuple]:
+    del index
+    dance = _bach_dance(ctx)
+    if closing and steps == 2:
+        return _bach_outro_short(ctx, bar, role, dance)
+    if closing:
+        return _bach_outro_long(ctx, bar, role, dance)
+    if steps == 2:
+        return _bach_intro_short(ctx, bar, role, dance)
+    return _bach_intro_long(ctx, bar, role, dance)
+
+
+def _bach_intro_short(ctx, bar: int, role: int, dance: bool) -> list[tuple]:
+    if dance:
+        if role == 0:
+            return _bach_tonic_anacrusis(ctx, bar)
+        return _bach_dominant_run(ctx, bar)
+    if role == 0:
+        return _bach_pedal_arpeggio(ctx, bar, _P)
+    return _bach_dominant_neighbor(ctx, bar, _MP, drive=True)
+
+
+def _bach_intro_long(ctx, bar: int, role: int, dance: bool) -> list[tuple]:
+    if dance:
+        if role == 0:
+            return _bach_staccato_pickup(ctx, bar)
+        if role == 1:
+            return _bach_tetrachord(ctx, bar, _P)
+        if role == 2:
+            return _bach_mordent(ctx, bar, _MP)
+        return _bach_upbeat_scale(ctx, bar, 4)
+    if role == 0:
+        return _bach_subject(ctx, bar, _P)
+    if role == 1:
+        return _bach_answer(ctx, bar, _P)
+    if role == 2:
+        return _bach_block(ctx, bar, "V7", _MP)
+    return _bach_block(ctx, bar, "I", _P)
+
+
+def _bach_outro_short(ctx, bar: int, role: int, dance: bool) -> list[tuple]:
+    if dance:
+        if role == 0:
+            return _bach_half_cadence(ctx, bar, _MP)
+        return _bach_block(ctx, bar, "I", _P)
+    if role == 0:
+        return _sparse(ctx, bar, "I", _P)
+    return _bach_picardy(ctx, bar, _P)
+
+
+def _bach_outro_long(ctx, bar: int, role: int, dance: bool) -> list[tuple]:
+    if dance:
+        if role == 0:
+            return _bach_tetrachord(ctx, bar, _P)
+        if role == 1:
+            return _bach_dominant_flourish(ctx, bar, _MP)
+        if role == 2:
+            return _bach_mordent(ctx, bar, _MP)
+        return _bach_block(ctx, bar, "I", _P)
+    if role == 0:
+        return _bach_pedal_upper(ctx, bar, "V7", _MP)
+    if role == 1:
+        return _bach_pedal_upper(ctx, bar, "I", _P)
+    if role == 2:
+        return _roll(ctx, bar, "I+", _P, shift=0)
+    return _bach_picardy(ctx, bar, _PP)
+
+
+def _bach_root_voices(ctx, pcs: list[int]) -> tuple[int, int | None, int]:
+    """A playable stack whose bass is the root, not an open third or fifth."""
+    from app.sonify.guitar_patterns import _playable
+
+    _bass, inner, lead = _stack(ctx, pcs)
+    root = _bass_note(ctx, pcs[0], lead)
+    if root == _bass:
+        return _bass, inner, lead
+    sounding = [root + ctx.semitones, lead + ctx.semitones]
+    if inner is not None and root < inner < lead:
+        with_inner = [root + ctx.semitones, inner + ctx.semitones, lead + ctx.semitones]
+        if _playable(with_inner):
+            return root, inner, lead
+    if root < lead and _playable(sounding):
+        return root, _between(ctx, pcs, root, lead), lead
+    aimed = _best_lead(ctx, pcs, [pcs[0]], high=False)
+    root = _bass_note(ctx, pcs[0], aimed)
+    return root, _between(ctx, pcs, root, aimed), aimed
+
+
+def _bach_tonic_anacrusis(ctx, bar: int) -> list[tuple]:
+    """Beat-1 tonic bass, then three eighths that push into the next bar."""
+    epb = ctx.epb
+    bass, _inner, _lead = _bach_root_voices(ctx, _function(ctx, bar, "I"))
+    pickup = _bach_pickup(ctx, bar, 3, _P)
+    if pickup and all(_bach_pair(ctx, bass, item[2]) for item in pickup):
+        specs = [(0, epb, bass, 3, _P, {})]
+    else:
+        start = pickup[0][0] if pickup else epb
+        specs = [(0, max(1, start), bass, 3, _P, {})]
+    specs.extend(pickup)
+    return _clip_voice(specs, epb)
+
+
+def _bach_dominant_run(ctx, bar: int) -> list[tuple]:
+    """V7 on beat 1, then an ascending scale into the body."""
+    epb = ctx.epb
+    cut = max(1, epb // 2)
+    bass, inner, lead = _bach_root_voices(ctx, _function(ctx, bar, "V7"))
+    specs = [(0, cut, bass, 3, _MP, {}), (0, cut, lead, 1, _MP, {})]
+    if inner is not None:
+        specs.append((0, cut, inner, 2, _MP, {}))
+    specs.extend(_scale_into(ctx, bar, cut, epb - cut, _MP))
+    return _clip_voice(specs, epb)
+
+
+def _bach_staccato_pickup(ctx, bar: int) -> list[tuple]:
+    """A crisp tonic attack, then a short upbeat into the walking bass."""
+    epb = ctx.epb
+    bass, inner, lead = _bach_root_voices(ctx, _function(ctx, bar, "I"))
+    specs = [
+        (0, 1, bass, 3, _P, {"staccato": True}),
+        (0, 1, lead, 1, _P, {"staccato": True}),
+    ]
+    if inner is not None:
+        specs.append((0, 1, inner, 2, _P, {"staccato": True}))
+    specs.extend(_bach_pickup(ctx, bar, 2, _P))
+    return _clip_voice(specs, epb)
+
+
+def _bach_pickup(ctx, bar: int, count: int, velocity: int) -> list[tuple]:
+    count = min(count, ctx.epb)
+    if count <= 0:
+        return []
+    return _scale_into(ctx, bar, ctx.epb - count, count, velocity)
+
+
+def _bach_upbeat_scale(ctx, bar: int, count: int) -> list[tuple]:
+    """Three or four ascending eighths locking onto the body downbeat."""
+    epb = ctx.epb
+    count = min(count, epb)
+    start = epb - count
+    specs: list[tuple] = []
+    if start > 0:
+        bass, _inner, _lead = _bach_root_voices(ctx, _function(ctx, bar, "I"))
+        specs.append((0, start, bass, 3, _P, {}))
+    specs.extend(_scale_into(ctx, bar, start, count, _MP))
+    return _clip_voice(specs, epb)
+
+
+def _bach_tetrachord(ctx, bar: int, velocity: int) -> list[tuple]:
+    """Do–Ti–La–Sol under a held upper voice. The chaconne bass, one bar long."""
+    epb = ctx.epb
+    tonic = _fit(_function(ctx, bar, "I")[0], ctx.bass_low, _bass_hi(ctx))
+    line = [tonic]
+    cursor = tonic
+    for _ in range(3):
+        nxt = _step(cursor, -1, ctx.mode, ctx.bass_low, _bass_hi(ctx))
+        if nxt == cursor:
+            break
+        line.append(nxt)
+        cursor = nxt
+    lead = _best_lead(ctx, _function(ctx, bar, "I"), [note % 12 for note in line], high=False)
+    voiced = [_bass_note(ctx, note % 12, lead) for note in line]
+    inner = _between(ctx, _function(ctx, bar, "I"), min(voiced), lead)
+    if inner is not None and not _bach_hand(ctx, voiced, inner, lead):
+        inner = None
+    lengths = _lengths(epb, len(voiced))
+    specs = [(0, epb, lead, 1, velocity, {})]
+    if inner is not None:
+        specs.append((0, epb, inner, 2, max(_PP, velocity - 4), {}))
+    offset = 0
+    for note, length in zip(voiced, lengths):
+        specs.append((offset, length, note, 3, velocity, {}))
+        offset += length
+    return _clip_voice(specs, epb)
+
+
+def _bach_pair(ctx, bass: int, lead: int) -> bool:
+    from app.sonify.guitar_patterns import _playable
+
+    return lead > bass and _playable([bass + ctx.semitones, lead + ctx.semitones])
+
+
+def _bach_hand(ctx, basses: list[int], inner: int, lead: int) -> bool:
+    from app.sonify.guitar_patterns import _playable
+
+    for bass in basses:
+        if not bass < inner < lead:
+            return False
+        sounding = [bass + ctx.semitones, inner + ctx.semitones, lead + ctx.semitones]
+        if not _playable(sounding):
+            return False
+    return True
+
+
+def _bach_mordent(ctx, bar: int, velocity: int) -> list[tuple]:
+    """Upper neighbor over a sustained dominant bass."""
+    epb = ctx.epb
+    bass, inner, lead = _bach_root_voices(ctx, _function(ctx, bar, "V7"))
+    upper = _bach_neighbor(ctx, bass, lead)
+    specs = [(0, epb, bass, 3, velocity, {})]
+    if epb >= 3 and upper != lead:
+        specs.append((0, 1, lead, 1, velocity, {}))
+        specs.append((1, 1, upper, 1, velocity, {}))
+        specs.append((2, epb - 2, lead, 1, velocity, {}))
+        if (
+            inner is not None
+            and _bach_hand(ctx, [bass], inner, lead)
+            and _bach_hand(ctx, [bass], inner, upper)
+        ):
+            specs.append((0, epb, inner, 2, max(_PP, velocity - 4), {}))
+    else:
+        specs.append((0, epb, lead, 1, velocity, {}))
+        if inner is not None:
+            specs.append((0, epb, inner, 2, max(_PP, velocity - 4), {}))
+    return _clip_voice(specs, epb)
+
+
+def _bach_neighbor(ctx, bass: int, lead: int) -> int:
+    from app.sonify.guitar_patterns import _playable
+
+    upper = _near_step(ctx, lead, 1, _lead_lo(ctx), _lead_hi(ctx))
+    if upper != lead and _playable([bass + ctx.semitones, upper + ctx.semitones]):
+        return upper
+    for note in range(lead + 1, min(_lead_hi(ctx), lead + 2) + 1):
+        if _on_scale(note, ctx.mode) and _playable([bass + ctx.semitones, note + ctx.semitones]):
+            return note
+    return lead
+
+
+def _bach_half_cadence(ctx, bar: int, velocity: int) -> list[tuple]:
+    """IV in the first half, V7 in the second. Minor uses the same iv–V7 pair."""
+    epb = ctx.epb
+    cut = max(1, epb // 2)
+    specs: list[tuple] = []
+    for name, start, length in (("IV", 0, cut), ("V7", cut, epb - cut)):
+        bass, inner, lead = _bach_root_voices(ctx, _function(ctx, bar, name))
+        specs.append((start, length, bass, 3, velocity, {}))
+        specs.append((start, length, lead, 1, velocity, {}))
+        if inner is not None:
+            specs.append((start, length, inner, 2, max(_PP, velocity - 4), {}))
+    return _clip_voice(specs, epb)
+
+
+def _bach_picardy(ctx, bar: int, velocity: int) -> list[tuple]:
+    """Root-position major tonic. The bell voicing keeps its open third when the root still fits."""
+    epb = ctx.epb
+    bells = _bell_chord(ctx, bar, velocity, picardy=True)
+    root = _function(ctx, bar, "I")[0]
+    third = (root + 4) % 12
+    basses = [midi for _offset, _length, midi, voice, _vel, _flags in bells if voice == 3]
+    pitches = [midi for _offset, _length, midi, _voice, _vel, _flags in bells]
+    if basses and basses[0] % 12 == root and third in {midi % 12 for midi in pitches}:
+        return bells
+    bass, inner, lead = _bach_root_voices(ctx, _function(ctx, bar, "I+"))
+    specs = [(0, epb, bass, 3, velocity, {}), (0, epb, lead, 1, velocity, {})]
+    if inner is not None:
+        specs.append((0, epb, inner, 2, velocity, {}))
+    return _clip_voice(specs, epb)
+
+
+def _bach_block(ctx, bar: int, name: str, velocity: int) -> list[tuple]:
+    epb = ctx.epb
+    bass, inner, lead = _bach_root_voices(ctx, _function(ctx, bar, name))
+    specs = [(0, epb, bass, 3, velocity, {}), (0, epb, lead, 1, velocity, {})]
+    if inner is not None:
+        specs.append((0, epb, inner, 2, velocity, {}))
+    return specs
+
+
+def _bach_pedal_arpeggio(ctx, bar: int, velocity: int) -> list[tuple]:
+    """Tonic root ringing while the upper voices enter one after another."""
+    epb = ctx.epb
+    bass, inner, lead = _bach_root_voices(ctx, _function(ctx, bar, "I"))
+    support_at = min(1, epb - 1)
+    lead_at = min(2, epb - 1)
+    specs = [(0, epb, bass, 3, velocity, {})]
+    if inner is not None:
+        specs.append((support_at, epb - support_at, inner, 2, velocity, {}))
+    specs.append((lead_at, epb - lead_at, lead, 1, velocity, {}))
+    return _clip_voice(specs, epb)
+
+
+def _bach_dominant_flourish(ctx, bar: int, velocity: int) -> list[tuple]:
+    """The ascending scale of `_ascending`, planted on the dominant root."""
+    from app.sonify.guitar_patterns import _playable
+
+    specs = _ascending(ctx, bar, "V7", velocity)
+    leads = [midi for _offset, _length, midi, voice, _vel, _flags in specs if voice == 1]
+    root = _bass_note(ctx, _function(ctx, bar, "V7")[0], min(leads) if leads else None)
+    kept = []
+    for offset, length, midi, voice, vel, flags in specs:
+        if voice == 3:
+            kept.append((offset, length, root, voice, vel, flags))
+            continue
+        if voice == 1 and (midi <= root or not _playable([root + ctx.semitones, midi + ctx.semitones])):
+            continue
+        kept.append((offset, length, midi, voice, vel, flags))
+    return _clip_voice(kept, ctx.epb)
+
+
+def _bach_dominant_neighbor(ctx, bar: int, velocity: int, *, drive: bool) -> list[tuple]:
+    """V7 with an upper neighbor. The tail climbs into the next downbeat."""
+    epb = ctx.epb
+    bass, inner, lead = _bach_root_voices(ctx, _function(ctx, bar, "V7"))
+    upper = _bach_neighbor(ctx, bass, lead)
+    specs = [(0, epb, bass, 3, velocity, {})]
+    if drive and epb >= 6 and upper != lead:
+        specs.append((0, 1, lead, 1, velocity, {}))
+        specs.append((1, 1, upper, 1, velocity, {}))
+        specs.append((2, 1, lead, 1, velocity, {}))
+        if inner is not None and _bach_hand(ctx, [bass], inner, min(lead, upper)):
+            specs.append((0, 3, inner, 2, max(_PP, velocity - 4), {}))
+        for item in _scale_into(ctx, bar, 3, epb - 3, velocity):
+            if _bach_pair(ctx, bass, item[2]):
+                specs.append(item)
+        return _clip_voice(specs, epb)
+    return _bach_mordent(ctx, bar, velocity)
+
+
+def _bach_subject(ctx, bar: int, velocity: int) -> list[tuple]:
+    """Solo soprano. Bass and alto stay silent until the answer."""
+    epb = ctx.epb
+    start = _bach_chord_tone(ctx, bar, "I", 64 - ctx.semitones)
+    line = _bach_steps(ctx, start, (1, 1, -1), _lead_lo(ctx), _lead_hi(ctx))
+    return _bach_durations(line, 1, velocity, epb)
+
+
+def _bach_answer(ctx, bar: int, velocity: int) -> list[tuple]:
+    """Bass answer on the dominant, with the soprano weaving above it."""
+    epb = ctx.epb
+    dominant = _fit(_function(ctx, bar, "V")[0], ctx.bass_low, _bass_hi(ctx))
+    bass_line = _bach_steps(ctx, dominant, (1, 1, -1), ctx.bass_low, _bass_hi(ctx))
+    lead_start = _bach_chord_tone(ctx, bar, "I", 69 - ctx.semitones)
+    lead_line = _bach_steps(ctx, lead_start, (-1, -1, 1), _lead_lo(ctx), _lead_hi(ctx))
+    lead_line = [_bach_fit_lead(ctx, bass, lead) for bass, lead in zip(bass_line, lead_line)]
+    lengths = _lengths(epb, len(bass_line))
+    specs: list[tuple] = []
+    offset = 0
+    for bass, lead, length in zip(bass_line, lead_line, lengths):
+        specs.append((offset, length, bass, 3, velocity, {}))
+        specs.append((offset, length, lead, 1, velocity, {}))
+        offset += length
+    return _clip_voice(specs, epb)
+
+
+def _bach_chord_tone(ctx, bar: int, name: str, aim: int) -> int:
+    lo, hi = _lead_lo(ctx), _lead_hi(ctx)
+    found = [note for note in range(lo, hi + 1) if note % 12 in _function(ctx, bar, name)]
+    if not found:
+        return min(hi, max(lo, aim))
+    return min(found, key=lambda note: (abs(note - aim), note))
+
+
+def _bach_steps(ctx, start: int, directions: tuple[int, ...], low: int, high: int) -> list[int]:
+    notes = [min(high, max(low, start))]
+    cursor = notes[0]
+    for direction in directions:
+        nxt = _step(cursor, direction, ctx.mode, low, high)
+        if nxt == cursor:
+            nxt = _step(cursor, -direction, ctx.mode, low, high)
+        notes.append(nxt)
+        cursor = nxt
+    return notes
+
+
+def _bach_fit_lead(ctx, bass: int, target: int) -> int:
+    from app.sonify.guitar_patterns import _playable
+
+    lo, hi = _lead_lo(ctx), _lead_hi(ctx)
+    if lo <= target <= hi and target > bass and _playable([bass + ctx.semitones, target + ctx.semitones]):
+        return target
+    best = None
+    for note in range(lo, hi + 1):
+        if note <= bass or not _on_scale(note, ctx.mode):
+            continue
+        if not _playable([bass + ctx.semitones, note + ctx.semitones]):
+            continue
+        if best is None or abs(note - target) < abs(best - target):
+            best = note
+    if best is not None:
+        return best
+    return min(hi, max(lo, bass + 12))
+
+
+def _bach_durations(notes: list[int], voice: int, velocity: int, epb: int) -> list[tuple]:
+    lengths = _lengths(epb, len(notes))
+    specs = []
+    offset = 0
+    for note, length in zip(notes, lengths):
+        specs.append((offset, length, note, voice, velocity, {}))
+        offset += length
+    return specs
+
+
+def _bach_pedal_upper(ctx, bar: int, upper: str, velocity: int) -> list[tuple]:
+    """Tonic pedal in the bass while the upper voices hold `upper`."""
+    epb = ctx.epb
+    tonic = _function(ctx, bar, "I")
+    pcs = _function(ctx, bar, upper)
+    lead = _best_lead(ctx, pcs, [tonic[0]], high=False)
+    bass = _bass_note(ctx, tonic[0], lead)
+    inner = _between(ctx, pcs, bass, lead)
+    specs = [(0, epb, bass, 3, velocity, {}), (0, epb, lead, 1, velocity, {})]
+    if inner is not None:
+        specs.append((0, epb, inner, 2, velocity, {}))
+    return _clip_voice(specs, epb)
 
 
 def _sus2(ctx, bar: int) -> list[int]:

@@ -4,7 +4,7 @@ The five parts stay P5, P1, P2, P3, P4. `classic` is the row already written
 into `musicxml.py`. The other rows only change which MuseSounds voice plays
 each part, plus the few pitch edges that voice cannot cover.
 
-Guitar is the exception. `classic`, `villa`, `barrios`, and `brouwer` are one nylon part,
+Guitar is the exception. `bach`, `classic`, `villa`, `barrios`, and `brouwer` are one nylon part,
 and the ensemble chooses the writing algorithm in `guitar.py`, not a different instrument.
 """
 
@@ -78,6 +78,7 @@ _ROWS: dict[tuple[Variant, Ensemble], tuple[PartSpec, ...]] = {
         ("P3", "Violas", "Viola", "3", "42"),
         ("P4", "Basses", "Bass", "4", "53"),
     ),
+    ("guitar", "bach"): (_NYLON,),
     ("guitar", "villa"): (_NYLON,),
     ("guitar", "barrios"): (_NYLON,),
     ("guitar", "brouwer"): (_NYLON,),
@@ -88,7 +89,7 @@ _ALLOWED: dict[Variant, frozenset[Ensemble]] = {
     "jazz": frozenset({"classic", "soul", "organ"}),
     "minimalist": frozenset({"classic", "mallet", "guitar"}),
     "ambient": frozenset({"classic", "breath", "choir"}),
-    "guitar": frozenset({"classic", "villa", "barrios", "brouwer"}),
+    "guitar": frozenset({"bach", "classic", "villa", "barrios", "brouwer"}),
 }
 
 OBOE_FLOOR = 58  # Bb3

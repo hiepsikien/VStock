@@ -186,6 +186,29 @@ def test_ensemble_must_belong_to_the_variant() -> None:
         ensemble_for("symphony", "brouwer")
 
 
+def test_bach_is_the_first_guitar_ensemble_at_allegro_moderato() -> None:
+    from typing import get_args
+
+    from app.schemas import RecapResponse, SpanResponse
+    from app.sonify.ensemble import parts_for
+    from app.sonify.guitar import GUITAR_BPM
+    from app.sonify.model import ENSEMBLES
+
+    assert ensemble_for("guitar", "bach") == "bach"
+    assert "bach" in ENSEMBLES
+    assert GUITAR_BPM["bach"] == 96
+    row = parts_for("guitar", "bach")
+    assert row is not None
+    assert row[0][1] == "Acoustic Nylon"
+    assert row[0][2] == "Classical Guitar"
+    with pytest.raises(ValueError):
+        ensemble_for("symphony", "bach")
+    with pytest.raises(ValueError):
+        ensemble_for("jazz", "bach")
+    assert "bach" in get_args(RecapResponse.model_fields["ensemble"].annotation)
+    assert "bach" in get_args(SpanResponse.model_fields["ensemble"].annotation)
+
+
 def test_cache_names_keep_the_classic_stem(tmp_path: Path) -> None:
     store = RecapStore(tmp_path)
     day = date(2026, 10, 22)
