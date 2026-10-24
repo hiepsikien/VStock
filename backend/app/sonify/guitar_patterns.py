@@ -1975,6 +1975,7 @@ def render_patterned_voices(
         bar_beats=meter.quarter_beats,
     )
     patterns = _patterns(ctx) if phrases else []
+    _fit_elegiaque_melody(ctx, patterns)
     levels = _grand_levels(ctx, patterns)
     plans, perpetual = _allocate_overlays(ctx, patterns, levels)
     if _framed(ctx) and ctx.bars <= 40:
@@ -2924,6 +2925,7 @@ from app.sonify.guitar_sor import (  # noqa: E402
     _classic_macro,
     _dotted_pair,
     _fanfare_bars,
+    _fit_elegiaque_melody,
     _galop_bass_points,
     _galop_inner_offsets,
     _galop_leap,

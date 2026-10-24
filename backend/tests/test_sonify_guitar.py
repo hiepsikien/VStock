@@ -1218,7 +1218,20 @@ def test_phase1_elegiaque_march_appoggiatura_and_lament() -> None:
         (3.5, 0.5, 41),
     ]
     assert _onset_beats(slow.support, 0) == [0.5, 1.5, 3.0]
+    assert [note.midi for note in _pitched(slow.lead, 0)] == [64]
     _assert_engraved(slow, "elegiaque")
+
+    # A descending 76 -> 67 line across bars keeps its downward direction after first-position placement.
+    for phrases in (
+        (_held(0, 8, 76), _held(8, 8, 67)),
+        (_from_notes(0, [76] * 8 + [67] * 8),),
+    ):
+        drop = _guitar(phrases, bpm=72, ensemble="classic", character="calm")
+        bar0_lead = [note.midi for note in _pitched(drop.lead, 0) if note.midi is not None]
+        bar1_lead = [note.midi for note in _pitched(drop.lead, 1) if note.midi is not None]
+        assert bar0_lead and bar1_lead
+        assert min(bar0_lead) > max(bar1_lead)
+        _assert_engraved(drop, "elegiaque")
 
     # 1D at 88 is under 90, so selloff is Élégiaque from the first body phrase.
     daily = _guitar((_held(0, 8, 76),), bpm=88, ensemble="classic", character="selloff")

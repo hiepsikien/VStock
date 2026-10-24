@@ -678,6 +678,48 @@ def _march_grid(ctx: _Ctx) -> list[tuple[int, int, str]]:
 
 
 
+def _fit_elegiaque_melody(ctx: _Ctx, patterns: list[str]) -> None:
+    """Keep Elegiaque melodies inside the first-position reach of the dotted bass march.
+
+    When a high line has to come down so the fifth/step bass can share one hand
+    position with the melody, shift or compress the entire score's melody
+    monotonically instead of folding individual bars and reversing the contour.
+    """
+    elegy_bars = [
+        bar for bar in range(ctx.bars) if _bar_pattern(ctx, bar, patterns) == "elegiaque"
+    ]
+    if not elegy_bars or not ctx.melody:
+        return
+    top = min(ctx.treble_top, 69 - ctx.semitones)
+    floor = ctx.treble_floor
+    if all(
+        max(ctx.melody[bar * ctx.epb : (bar + 1) * ctx.epb] or [floor]) <= top
+        for bar in elegy_bars
+    ):
+        return
+    if all(floor <= note - 12 <= top for note in ctx.melody):
+        ctx.melody = [note - 12 for note in ctx.melody]
+        return
+    scale = _melody_scale(ctx.mode)
+    degree = {note: index for index, note in enumerate(scale)}
+    snapped = [
+        note if note in degree else _nearest(note, ctx.mode, 24, 120)
+        for note in ctx.melody
+    ]
+    compressed = _compress_monotone(snapped, floor, top, degree, scale)
+    window_scale = tuple(note for note in scale if floor <= note <= top)
+    if window_scale and ctx.chord_at:
+        quantized = quantize_strong_beats(list(compressed), ctx.chord_at, window_scale, ctx.mode)
+        monotone_ok = all(
+            not ((b0 > a0 and b1 <= a1) or (b0 < a0 and b1 >= a1))
+            for a0, b0, a1, b1 in zip(snapped, snapped[1:], quantized, quantized[1:])
+        )
+        if monotone_ok:
+            ctx.melody = quantized
+            return
+    ctx.melody = compressed
+
+
 def _render_elegiaque_bar(ctx: _Ctx, bar: int, phrase: Phrase | None, descend: bool) -> tuple[list[NoteEvent], list[NoteEvent]]:
     del descend
     chord = ctx.chord(bar)
@@ -719,21 +761,6 @@ def _render_elegiaque_bar(ctx: _Ctx, bar: int, phrase: Phrase | None, descend: b
         begin = _start16(event, ctx.epb) // 2
         for offset in range(max(1, _dur16(event) // 2)):
             sounding[begin + offset] = event.midi
-    bar_slice = ctx.melody[start : start + ctx.epb]
-    if (
-        bar_slice
-        and all(note - 12 >= ctx.treble_floor for note in bar_slice)
-        and any(
-            not _playable([sounding.get(start + local, root) + ctx.semitones, bar_slice[local] + ctx.semitones])
-            for local in range(len(bar_slice))
-        )
-        and all(
-            _playable([sounding.get(start + local, root) + ctx.semitones, (bar_slice[local] - 12) + ctx.semitones])
-            for local in range(len(bar_slice))
-        )
-    ):
-        for local in range(len(bar_slice)):
-            ctx.melody[start + local] = bar_slice[local] - 12
     previous_inner: int | None = None
     previous_bass: int | None = None
     root_pc = chord.pitches[0] % 12
@@ -1072,10 +1099,12 @@ from app.sonify.guitar_patterns import (  # noqa: E402
     _PEDAL,
     _SPARSER,
     _apex_eighths,
+    _bar_pattern,
     _bass_ceiling,
     _choose_bass,
     _choose_inner,
     _clamp,
+    _compress_monotone,
     _degree,
     _dur16,
     _eighth_event,
@@ -1084,6 +1113,7 @@ from app.sonify.guitar_patterns import (  # noqa: E402
     _inner_eighths,
     _melody_at,
     _melody_scale,
+    _nearest,
     _on_scale,
     _owner,
     _parallel,
@@ -1104,4 +1134,5 @@ from app.sonify.guitar_patterns import (  # noqa: E402
     _swell_band,
     _under_lead,
     _walk,
+    quantize_strong_beats,
 )
