@@ -1974,3 +1974,211 @@ def test_a_long_piece_locks_one_pattern_per_session() -> None:
     assert _onset_beats(score.low, 30) == [0.0, 2.0]
     assert 1.5 not in _onset_beats(score.low, 30)
     assert _covers(score.low, 23 * epb + 7, epb)
+
+
+def _attacks(voice, bar: int) -> list[NoteEvent]:
+    return sorted(
+        (
+            note
+            for note in voice
+            if note.bar == bar and note.midi is not None and not note.tie_stop
+        ),
+        key=lambda note: (note.beat, note.voice),
+    )
+
+
+def _covering(voice, bar: int, beat: float) -> NoteEvent | None:
+    sounding = [
+        note
+        for note in voice
+        if note.bar == bar
+        and note.midi is not None
+        and note.beat <= beat + 1e-6 < note.beat + note.duration_beats
+    ]
+    if not sounding:
+        return None
+    return max(sounding, key=lambda note: note.beat)
+
+
+def _assert_voices_separate(score, bar: int, beats: list[float], *, thumb: bool = False) -> None:
+    for beat in beats:
+        lead = _covering(score.lead, bar, beat)
+        inner = _covering(score.support, bar, beat)
+        bass = _covering(score.low, bar, beat)
+        assert lead is not None and inner is not None and bass is not None
+        assert lead.velocity is not None and inner.velocity is not None and bass.velocity is not None
+        if thumb:
+            assert bass.velocity > lead.velocity
+            assert bass.velocity > inner.velocity
+        else:
+            assert lead.velocity > bass.velocity > inner.velocity
+
+
+def _assert_engraved(score, profiles) -> None:
+    assert_playable(score, profiles=profiles)
+    xml = score_to_musicxml(score)
+    assert "<part-name>Acoustic Nylon</part-name>" in xml
+    assert xml.count("<voice>1</voice>") >= 1
+    assert xml.count("<voice>2</voice>") >= 1
+    assert xml.count("<voice>3</voice>") >= 1
+
+
+def test_arpeggio_families_alternate_inner_chord_tones() -> None:
+    # A held C under a sustained E keeps several playable inner tones. Each
+    # family has to walk across them instead of parking on the top one.
+    held = [72] * 8
+    study = _pattern_score(
+        held,
+        (_joined(0, held),),
+        bands={0: "mf"},
+        bpm=88,
+        character="rally",
+        rel_span=0.0,
+    )
+    study_inner = _attacks(study.support, 0)
+    study_midis = [note.midi for note in study_inner]
+    assert [round(note.beat, 2) for note in study_inner] == [1.0, 1.5, 3.0, 3.5]
+    assert study_midis == [study_midis[0], study_midis[1], study_midis[0], study_midis[1]]
+    assert study_midis[0] != study_midis[1]
+    assert {note % 12 for note in study_midis} == {4, 7}  # i on the 3rd, m on the 5th
+    assert {note.velocity for note in study_inner} == {56}
+    assert {note.velocity for note in _attacks(study.low, 0)} == {60}
+    _assert_engraved(study, "study")
+
+    villa = _pattern_score(
+        held,
+        (_joined(0, held),),
+        ensemble="villa",
+        bpm=100,
+        bands={0: "mf"},
+        character="rally",
+        rel_span=0.0,
+    )
+    villa_inner = _attacks(villa.support, 0)
+    villa_midis = [note.midi for note in villa_inner]
+    assert len(set(villa_midis)) >= 3
+    assert all(left != right for left, right in zip(villa_midis, villa_midis[1:]))
+    assert any(note.duration_beats >= 1.0 for note in villa.support if note.midi is not None)
+    assert {note.velocity for note in villa_inner} == {56}
+    _assert_engraved(villa, "villa_pattern")
+
+    preludio = _pattern_score(
+        [72] * 16,
+        (_joined(0, [72] * 16),),
+        ensemble="barrios",
+        bpm=120,
+        character="calm",
+        rel_span=0.0,
+    )
+    rolled = _attacks(preludio.support, 0)
+    rolled_midis = [note.midi for note in rolled]
+    assert [round(note.beat, 2) for note in rolled] == [index * 0.5 for index in range(8)]
+    assert rolled_midis[:4] == rolled_midis[4:]
+    assert len(set(rolled_midis)) >= 3
+    assert all(left != right for left, right in zip(rolled_midis, rolled_midis[1:]))
+    for note in rolled:
+        if int(round(note.beat * 2)) % 2 == 0:
+            assert note.velocity == 56
+        else:
+            assert note.velocity == 52
+    assert _attacks(preludio.low, 0)[0].velocity == 60
+    _assert_engraved(preludio, "barrios_preludio")
+
+
+def test_rising_phrases_swell_toward_the_apex_and_keep_the_voices_apart() -> None:
+    # Chord blocks on a rising Villa line open quietly and arrive at the apex.
+    rising = [67, 67, 69, 69, 71, 71, 74, 74]
+    chord = _pattern_score(
+        rising,
+        (_joined(0, rising),),
+        ensemble="villa",
+        bpm=72,
+        character="calm",
+        bands={0: "mf"},
+        rel_span=0.0,
+    )
+    chord_lead = _attacks(chord.lead, 0)
+    chord_inner = _attacks(chord.support, 0)
+    chord_bass = _attacks(chord.low, 0)
+    assert [note.velocity for note in chord_lead] == [60, 65, 69, 72]
+    assert [note.velocity for note in chord_bass] == [54, 54, 60, 64]
+    assert [note.velocity for note in chord_inner] == [50, 50, 56, 60]
+    assert len({note.midi for note in chord_inner}) >= 2
+    assert {note.midi % 12 for note in chord_inner} <= {3, 4, 10, 11}
+    _assert_voices_separate(chord, 0, [0.0, 1.0, 2.0, 3.0])
+    _assert_engraved(chord, "villa_chord")
+
+    # Cantabile sings 60 up to 72 and eases after the apex. The lower voice
+    # stays a third or a sixth and never catches the bass.
+    shape = [67, 69, 71, 72, 71, 69, 67, 65]
+    cantabile = _pattern_score(
+        shape,
+        (_joined(0, shape),),
+        ensemble="classic",
+        bpm=88,
+        character="calm",
+        rel_span=0.0,
+    )
+    sung = _attacks(cantabile.lead, 0)
+    inner = _attacks(cantabile.support, 0)
+    assert [note.velocity for note in sung] == [60, 65, 69, 72, 68, 66, 64]
+    assert [note.beat for note in inner] == [note.beat for note in sung]
+    assert len({note.midi for note in inner}) >= 3
+    for melody_note, lower in zip(sung, inner):
+        assert melody_note.midi is not None and lower.midi is not None
+        assert (_degree(melody_note.midi) - _degree(lower.midi)) % 7 in {2, 5}
+    _assert_voices_separate(cantabile, 0, [note.beat for note in sung])
+    _assert_engraved(cantabile, "cantabile")
+
+    # The thumb is the singing voice. It leaves 64 and touches 72 only on the
+    # apex, while the off-beat dyads stay bell-soft underneath it.
+    line = [60, 62, 64, 65, 67, 69, 71, 72]
+    trio = (FormSection(0, 2, "phrase", 1, trio=True),)
+    thumb = _pattern_score(
+        line + line,
+        (_joined(0, line), _joined(8, line)),
+        ensemble="villa",
+        bpm=108,
+        sections=trio,
+        character="rally",
+        rel_span=0.0,
+    )
+    cello = _attacks(thumb.low, 1)
+    assert [note.velocity for note in cello] == [64, 65, 66, 67, 69, 70, 71, 72]
+    assert cello[-1].velocity == 72
+    assert all(note.velocity is not None and note.velocity < 72 for note in cello[:-1])
+    dyad_beats = [1.0, 3.0]
+    for beat in dyad_beats:
+        upper = _covering(thumb.lead, 1, beat)
+        lower = _covering(thumb.support, 1, beat)
+        assert upper is not None and lower is not None
+        assert upper.velocity is not None and lower.velocity is not None
+        assert 52 <= lower.velocity <= upper.velocity <= 56
+    _assert_voices_separate(thumb, 1, dyad_beats, thumb=True)
+    _assert_engraved(thumb, {0: "villa_pattern", 1: "thumb_cantabile"})
+
+
+def test_a_later_tremolo_bar_breathes_and_the_first_bar_stays_locked() -> None:
+    # The opening bar is preludio. The next phrase holds, so it tremolos, and
+    # only the bar after the phrase has begun is allowed to swell.
+    opening = [60, 62, 64, 65, 67, 69, 71, 72]
+    held = [67] * 8 + [72] * 8
+    score = _pattern_score(
+        opening + held,
+        (_joined(0, opening), _joined(8, held)),
+        ensemble="barrios",
+        bpm=120,
+        character="rally",
+        rel_span=0.0,
+    )
+    first = [note.velocity for note in _attacks(score.lead, 1)[:4]]
+    later = [note.velocity for note in _attacks(score.lead, 2)[:4]]
+    assert first == [52, 55, 54, 52]
+    assert later == [54, 57, 56, 54]
+    first_thumb = {note.velocity for note in score.low if note.bar == 1 and abs(note.beat) < 1e-6 and note.midi}
+    later_thumb = {note.velocity for note in score.low if note.bar == 2 and abs(note.beat) < 1e-6 and note.midi}
+    assert first_thumb == {58}
+    assert later_thumb == {60}
+    # thumb > m > i > a still holds after the breath.
+    assert 60 > later[1] > later[2] > later[0]
+    _assert_engraved(score, {0: "barrios_preludio", 1: "barrios_tremolo", 2: "barrios_tremolo"})

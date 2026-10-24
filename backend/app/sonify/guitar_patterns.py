@@ -339,6 +339,263 @@ def _choose_inner(
     return max(choices)
 
 
+# Liquidity shapes the bed. A rising phrase still sings 60 → 68 → 72 → 62
+# on the melody, and these beds stay under that line (lead > bass > inner).
+_BAND_SUPPORT = {"p": 50, "mp": 54, "mf": _INNER, "f": 60}
+_BAND_BASS = {"p": 54, "mp": 58, "mf": _BASS, "f": 64}
+_SWELL_OPEN = 60
+_SWELL_MID = 68
+_SWELL_CLOSE = 62
+
+
+def _rises(phrase: Phrase | None) -> bool:
+    return bool(phrase and phrase.runs and phrase.rise >= MIN_RISE)
+
+
+def _phrase_at(ctx: _Ctx, eighth: int) -> Phrase | None:
+    for phrase in ctx.phrases:
+        if phrase.start <= eighth < phrase.end:
+            return phrase
+    return None
+
+
+def _melody_swell(phrase: Phrase, eighth: int) -> int:
+    """60 at the opening, 68 halfway up, 72 on the apex, 62 at the close."""
+    if phrase.apex.start <= eighth < phrase.apex.end:
+        return _MELODY_APEX
+    amount = swell(phrase, min(max(eighth, phrase.start), phrase.end - 1))
+    if eighth < phrase.apex.start:
+        if amount <= 0.5:
+            value = _SWELL_OPEN + (_SWELL_MID - _SWELL_OPEN) * (amount / 0.5)
+        else:
+            value = _SWELL_MID + (_MELODY_APEX - _SWELL_MID) * ((amount - 0.5) / 0.5)
+    else:
+        value = _SWELL_CLOSE + (_MELODY_APEX - _SWELL_CLOSE) * amount
+    return int(round(value))
+
+
+def _note_velocity(start: int, length: int, apex: set[int], phrase: Phrase | None) -> int:
+    """Flat phrases keep the locked 64/72 span. A real rise follows the swell."""
+    if not _rises(phrase) or length <= 0:
+        return _span_velocity(start, length, apex)
+    if any(phrase.apex.start <= eighth < phrase.apex.end for eighth in range(start, start + length)):
+        return _MELODY_APEX
+    return _melody_swell(phrase, start)
+
+
+def _swell_band(amount: float) -> str:
+    """Block chords on a rising phrase open at p and arrive at f."""
+    if amount >= 0.8:
+        return "f"
+    if amount >= 0.35:
+        return "mf"
+    return "p"
+
+
+def _under_lead(lead_vel: int, band: str) -> tuple[int, int]:
+    """Support and bass for one attack, with lead > bass > support."""
+    support = _BAND_SUPPORT.get(band, _INNER)
+    bass = _BAND_BASS.get(band, _BASS)
+    bass = min(bass, lead_vel - 2)
+    support = min(support, bass - 2, lead_vel - 4)
+    support = max(40, support)
+    bass = max(support + 2, bass)
+    if bass >= lead_vel:
+        bass = max(42, lead_vel - 2)
+        support = max(40, min(support, bass - 2))
+    return support, bass
+
+
+def _covering_melody_velocity(ctx: _Ctx, eighth: int, breaks: set[int] | None = None) -> int:
+    """Velocity of the melody note that is already sounding at this eighth."""
+    phrase = _phrase_at(ctx, eighth)
+    apex = _apex_eighths(ctx.phrases)
+    cuts = breaks or set()
+    bar_start = (eighth // ctx.epb) * ctx.epb
+    bar_end = min(len(ctx.melody), bar_start + ctx.epb)
+    attack = eighth
+    while (
+        attack > bar_start
+        and attack not in cuts
+        and attack - 1 < len(ctx.melody)
+        and ctx.melody[attack - 1] == ctx.melody[eighth]
+    ):
+        attack -= 1
+    end = min(bar_end, eighth + 1)
+    while end < bar_end and end not in cuts and ctx.melody[end] == ctx.melody[eighth]:
+        end += 1
+    return _note_velocity(attack, max(1, end - attack), apex, phrase)
+
+
+def _inner_choices(
+    chord: Chord,
+    lead: int,
+    bass: int,
+    low: int,
+    high: int,
+    semitones: int,
+    color: bool,
+) -> list[int]:
+    """Distinct chord tones strictly between the bass and the melody, low to high."""
+    if lead <= bass + 1:
+        return []
+    found: list[int] = []
+    for pc in _ordered_pool(chord, color):
+        for note in range(max(low, bass + 1), min(high, lead - 1) + 1):
+            if note % 12 == pc and note not in found:
+                found.append(note)
+    playable = [
+        note
+        for note in found
+        if _playable([bass + semitones, note + semitones, lead + semitones])
+    ]
+    return sorted(playable or found)
+
+
+def _study_pair(chord: Chord, tones: list[int]) -> list[int]:
+    """Index then middle: a third against a fifth, seventh, or root."""
+    if len(tones) < 2:
+        return list(tones)
+    third_pc = chord.pitches[1] % 12 if len(chord.pitches) > 1 else None
+    fifth_pc = chord.pitches[2] % 12 if len(chord.pitches) > 2 else None
+    seventh_pc = chord.pitches[3] % 12 if len(chord.pitches) >= 4 else None
+    root_pc = chord.pitches[0] % 12
+    thirds = [tone for tone in tones if third_pc is not None and tone % 12 == third_pc]
+    others: list[int] = []
+    for pc in (fifth_pc, seventh_pc, root_pc):
+        if pc is None or pc == third_pc:
+            continue
+        matches = [tone for tone in tones if tone % 12 == pc]
+        if matches:
+            others = matches
+            break
+    if thirds and others:
+        lower, upper = min(thirds), max(others)
+        if lower == upper:
+            lower, upper = tones[0], tones[-1]
+        if lower > upper:
+            lower, upper = upper, lower
+        if lower != upper:
+            return [lower, upper]
+    if tones[0] != tones[-1]:
+        return [tones[0], tones[-1]]
+    return [tones[0]]
+
+
+def _wave_index(count: int, step: int) -> int:
+    if count <= 1:
+        return 0
+    cycle = count * 2 - 2
+    pos = step % cycle
+    if pos < count:
+        return pos
+    return cycle - pos
+
+
+def _wave_tone(tones: list[int], step: int, previous: int | None) -> int:
+    if len(tones) == 1:
+        return tones[0]
+    for shift in range(len(tones) * 2):
+        choice = tones[_wave_index(len(tones), step + shift)]
+        if previous is None or choice != previous:
+            return choice
+    return tones[_wave_index(len(tones), step)]
+
+
+def _contour_tone(chord: Chord, tones: list[int], step: int, previous: int | None) -> int:
+    """Low-mid, upper-mid, a colour tone, then low-mid again."""
+    if len(tones) == 1:
+        return tones[0]
+    low = tones[0]
+    upper = tones[-1]
+    root = chord.pitches[0] % 12
+    color_pcs = {(root + interval) % 12 for interval in (2, 3, 4, 5, 9, 10, 11)}
+    colors = [tone for tone in tones if tone % 12 in color_pcs and tone not in {low, upper}]
+    if not colors:
+        colors = [tones[len(tones) // 2]]
+    returning = tones[1] if len(tones) > 2 else low
+    pattern = [low, upper, colors[step % len(colors)], returning]
+    choice = pattern[step % 4]
+    if previous is not None and choice == previous:
+        for tone in tones:
+            if tone != previous:
+                return tone
+    return choice
+
+
+def _strings_differ(left: int, right: int, semitones: int) -> bool:
+    first = _string_options(left + semitones)
+    second = _string_options(right + semitones)
+    return any(left_string != right_string for left_string, _fret in first for right_string, _fret in second)
+
+
+def _shape_line(
+    ctx: _Ctx,
+    events: list[NoteEvent],
+    role: str,
+    breaks: set[int] | None = None,
+    soften: set[int] | None = None,
+    band_at=None,
+    ceiling: dict[int, int] | None = None,
+) -> list[NoteEvent]:
+    """One velocity per attack. Tied continuations keep the attack's level."""
+    shaped: list[NoteEvent] = []
+    carried: int | None = None
+    for event in events:
+        if event.midi is None or event.velocity is None:
+            shaped.append(event)
+            continue
+        if event.tie_stop and carried is not None:
+            velocity = carried
+        else:
+            eighth = _start16(event, ctx.epb) // 2
+            lead_vel = _covering_melody_velocity(ctx, eighth, breaks)
+            band = band_at(eighth) if band_at is not None else ctx.band(event.bar)
+            support_vel, bass_vel = _under_lead(lead_vel, band)
+            velocity = bass_vel if role == "bass" else support_vel
+            if role == "support" and soften and eighth in soften:
+                velocity = max(40, velocity - 4)
+            if ceiling is not None and eighth in ceiling:
+                velocity = min(velocity, ceiling[eighth])
+            velocity = max(40, velocity)
+            carried = velocity
+        shaped.append(event if event.velocity == velocity else replace(event, velocity=velocity))
+    return shaped
+
+
+def _bass_ceiling(ctx: _Ctx, low: list[NoteEvent]) -> dict[int, int]:
+    ceiling: dict[int, int] = {}
+    for event in low:
+        if event.midi is None or event.velocity is None:
+            continue
+        begin = _start16(event, ctx.epb) // 2
+        length = max(1, _dur16(event) // 2)
+        for eighth in range(begin, begin + length):
+            ceiling[eighth] = event.velocity - 2
+    return ceiling
+
+
+def _shape_accompaniment(
+    ctx: _Ctx,
+    support: list[NoteEvent],
+    low: list[NoteEvent],
+    breaks: set[int] | None = None,
+    soften: set[int] | None = None,
+    band_at=None,
+) -> tuple[list[NoteEvent], list[NoteEvent]]:
+    low = _shape_line(ctx, low, "bass", breaks, band_at=band_at)
+    support = _shape_line(
+        ctx,
+        support,
+        "support",
+        breaks,
+        soften,
+        band_at=band_at,
+        ceiling=_bass_ceiling(ctx, low),
+    )
+    return support, low
+
+
 def _sustain(
     melody: list[int],
     start: int,
@@ -346,6 +603,7 @@ def _sustain(
     epb: int,
     apex: set[int],
     breaks: set[int] | None = None,
+    phrase: Phrase | None = None,
 ) -> list[NoteEvent]:
     cuts = breaks or set()
     events: list[NoteEvent] = []
@@ -362,7 +620,7 @@ def _sustain(
                     index,
                     nxt - index,
                     melody[index],
-                    velocity=_span_velocity(index, nxt - index, apex),
+                    velocity=_note_velocity(index, nxt - index, apex, phrase),
                 )
             )
             index = nxt
@@ -786,8 +1044,10 @@ def _render_study_bar(ctx: _Ctx, bar: int, level: int, color: bool) -> tuple[lis
         else:
             low.extend(_eighth_event(start, 4, root, epb, 3, _BASS))
             low.extend(_eighth_event(start + 4, 2, fifth, epb, 3, _BASS))
-    points = _support_eighths(ctx.kind, band, color, level)
-    for offset in sorted(points):
+    points = sorted(_support_eighths(ctx.kind, band, color, level))
+    step = 0
+    previous: int | None = None
+    for offset in points:
         sung = _melody_at(ctx, start + offset)
         sounding_bass = root
         for event in low:
@@ -797,7 +1057,17 @@ def _render_study_bar(ctx: _Ctx, bar: int, level: int, color: bool) -> tuple[lis
             if begin <= start + offset < begin + _dur16(event) // 2:
                 sounding_bass = event.midi
         tone = _choose_inner(chord, sung, sounding_bass, ctx.mid_low, ctx.mid_high, ctx.semitones, color, offset)
-        if band == "p" and level < 1 and tone is not None:
+        quiet = band == "p" and level < 1
+        choices = _inner_choices(chord, sung, sounding_bass, ctx.mid_low, ctx.mid_high, ctx.semitones, color)
+        if not quiet and len(points) >= 2 and len(choices) >= 2:
+            pair = _study_pair(chord, choices)
+            if len(pair) >= 2:
+                tone = pair[step % 2]
+                if previous is not None and tone == previous:
+                    tone = pair[(step + 1) % 2]
+                step += 1
+                previous = tone
+        elif quiet and tone is not None:
             # A quiet bar keeps one inner note, the 3rd when it fits.
             third = _choose_bass(chord, 1, sung, ctx.mid_low, ctx.mid_high, ctx.semitones)
             if sounding_bass < third < sung:
@@ -806,8 +1076,38 @@ def _render_study_bar(ctx: _Ctx, bar: int, level: int, color: bool) -> tuple[lis
                 tone = None
         if tone is None:
             continue
+        previous = tone
         support.extend(_eighth_event(start + offset, 1, tone, epb, 2, _INNER))
-    return support, low
+    return _shape_accompaniment(ctx, support, low)
+
+
+def _villa_wave(ctx: _Ctx, bar: int, low: list[NoteEvent], offsets: list[int]) -> list[NoteEvent]:
+    """Thumb keeps root and fifth. i and m roll up and down the inner chord."""
+    chord = ctx.chord(bar)
+    start = bar * ctx.epb
+    support: list[NoteEvent] = []
+    previous: int | None = None
+    step = 0
+    for offset in offsets:
+        sung = _melody_at(ctx, start + offset)
+        bass = _sounding_midi(low, start + offset, ctx.epb) or _choose_bass(
+            chord, 0, sung, ctx.bass_low, ctx.bass_high, ctx.semitones
+        )
+        tones = _inner_choices(chord, sung, bass, ctx.mid_low, ctx.mid_high, ctx.semitones, True)
+        if len(tones) >= 2 and previous is not None:
+            crossed = [tone for tone in tones if tone != previous and _strings_differ(previous, tone, ctx.semitones)]
+            if len(crossed) >= 2:
+                tones = crossed
+        if not tones:
+            tone = _choose_inner(chord, sung, bass, ctx.mid_low, ctx.mid_high, ctx.semitones, True, offset)
+        else:
+            tone = _wave_tone(sorted(tones), step, previous)
+            step += 1
+        if tone is None:
+            continue
+        previous = tone
+        support.extend(_eighth_event(start + offset, 1, tone, ctx.epb, 2, _INNER))
+    return support
 
 
 def _render_villa_bar(ctx: _Ctx, bar: int, approach: bool) -> tuple[list[NoteEvent], list[NoteEvent]]:
@@ -817,17 +1117,13 @@ def _render_villa_bar(ctx: _Ctx, bar: int, approach: bool) -> tuple[list[NoteEve
     start = bar * ctx.epb
     epb = ctx.epb
     if band in {"mf", "f"} and ctx.kind == "4/4":
-        # Full eight attacks: inner notes fill every eighth the bass does not open.
+        # Full roll on every eighth the thumb does not open. The bass eighths
+        # stay empty so the previous inner note can ring across them (campanella).
         occupied = {(_start16(event, epb) // 2) - start for event in low if event.midi is not None}
-        support = []
-        for offset in range(epb):
-            if offset in occupied:
-                continue
-            sung = _melody_at(ctx, start + offset)
-            bass = _sounding_midi(low, start + offset, epb) or _choose_bass(chord, 0, sung, ctx.bass_low, ctx.bass_high, ctx.semitones)
-            tone = _choose_inner(chord, sung, bass, ctx.mid_low, ctx.mid_high, ctx.semitones, True, offset)
-            if tone is not None:
-                support.extend(_eighth_event(start + offset, 1, tone, epb, 2, _INNER))
+        offsets = [offset for offset in range(epb) if offset not in occupied]
+    else:
+        offsets = sorted({(_start16(event, epb) // 2) - start for event in support if event.midi is not None})
+    support = _villa_wave(ctx, bar, low, offsets)
     if approach and band == "f":
         nxt = ctx.chord(bar + 1)
         target = _choose_bass(nxt, 0, _melody_at(ctx, (bar + 1) * epb), ctx.bass_low, ctx.bass_high, ctx.semitones)
@@ -846,6 +1142,7 @@ def _render_villa_bar(ctx: _Ctx, bar: int, approach: bool) -> tuple[list[NoteEve
         accents = {0, 3}
     elif ctx.kind == "3/4" and band == "f":
         accents = {0, 3}
+    support, low = _shape_accompaniment(ctx, support, low)
     if accents:
         support = [_accent_at(event, start, accents, epb) for event in support]
         low = [_accent_at(event, start, accents, epb) for event in low]
@@ -903,6 +1200,53 @@ def _color_note(ctx: _Ctx, chord: Chord, sung: int, bass: int) -> int | None:
     return found[0] if found else None
 
 
+def _block_tone(
+    ctx: _Ctx,
+    chord: Chord,
+    sung: int,
+    bass: int,
+    previous: int | None,
+    melody_delta: int,
+    inner: str,
+) -> int | None:
+    """Move the inner voice with the melody instead of parking it on one pitch."""
+    if inner == "color":
+        suspended = chord.quality_group == "suspended" or chord.kind_text in {"sus2", "sus4", "7sus4", "add9", "madd9"}
+        allowed = _COLOR_SUSPENDED if suspended else _COLOR_TERTIAN
+        tones = [
+            tone
+            for tone in _inner_choices(chord, sung, bass, ctx.mid_low, ctx.mid_high, ctx.semitones, True)
+            if tone % 12 in allowed
+        ]
+        fallback = _color_note(ctx, chord, sung, bass)
+    elif inner == "third":
+        tones = _inner_choices(chord, sung, bass, ctx.mid_low, ctx.mid_high, ctx.semitones, False)
+        fallback = _choose_inner(chord, sung, bass, ctx.mid_low, ctx.mid_high, ctx.semitones, False, 1)
+    else:
+        parallel = _parallel(sung, bass, ctx.mode, ctx.mid_low, ctx.mid_high, ctx.semitones, previous)
+        tones = _inner_choices(chord, sung, bass, ctx.mid_low, ctx.mid_high, ctx.semitones, False)
+        if parallel is not None and (not tones or parallel in tones or previous is not None):
+            return parallel
+        fallback = _choose_inner(chord, sung, bass, ctx.mid_low, ctx.mid_high, ctx.semitones, False, 0)
+    pool = tones or ([fallback] if fallback is not None else [])
+    if not pool:
+        return None
+    if previous is None:
+        return max(pool)
+    if melody_delta > 0:
+        higher = [tone for tone in pool if tone > previous]
+        if higher:
+            return min(higher)
+    elif melody_delta < 0:
+        lower = [tone for tone in pool if tone < previous]
+        if lower:
+            return max(lower)
+    different = [tone for tone in pool if tone != previous]
+    if different:
+        return min(different, key=lambda tone: (abs(tone - previous), -tone))
+    return previous
+
+
 def _render_block_bar(
     ctx: _Ctx,
     bar: int,
@@ -910,23 +1254,31 @@ def _render_block_bar(
     spans: list[int],
     *,
     inner: str,
+    phrase: Phrase | None = None,
 ) -> tuple[list[NoteEvent], list[NoteEvent]]:
     chord = ctx.chord(bar)
     start = bar * ctx.epb
     low: list[NoteEvent] = []
     support: list[NoteEvent] = []
+    breaks = {start + point for point in points}
+    previous: int | None = None
+    previous_sung: int | None = None
     for offset, span in zip(points, spans):
-        sung = _melody_at(ctx, start + offset)
+        eighth = start + offset
+        sung = _melody_at(ctx, eighth)
         root = _choose_bass(chord, 0, sung, ctx.bass_low, ctx.bass_high, ctx.semitones)
-        if inner == "color":
-            tone = _color_note(ctx, chord, sung, root)
-        elif inner == "third":
-            tone = _choose_inner(chord, sung, root, ctx.mid_low, ctx.mid_high, ctx.semitones, False, 1)
-        else:
-            tone = _choose_inner(chord, sung, root, ctx.mid_low, ctx.mid_high, ctx.semitones, False, 0)
-        low.extend(_eighth_event(start + offset, span, root, ctx.epb, 3, _BASS))
+        melody_delta = 0 if previous_sung is None else sung - previous_sung
+        tone = _block_tone(ctx, chord, sung, root, previous, melody_delta, inner)
+        band = ctx.band(bar)
+        if _rises(phrase):
+            band = _swell_band(swell(phrase, min(eighth, phrase.end - 1)))
+        lead_vel = _covering_melody_velocity(ctx, eighth, breaks)
+        support_vel, bass_vel = _under_lead(lead_vel, band)
+        low.extend(_eighth_event(start + offset, span, root, ctx.epb, 3, bass_vel))
         if tone is not None:
-            support.extend(_eighth_event(start + offset, span, tone, ctx.epb, 2, _INNER))
+            support.extend(_eighth_event(start + offset, span, tone, ctx.epb, 2, support_vel))
+            previous = tone
+        previous_sung = sung
     return support, low
 
 
@@ -1024,23 +1376,51 @@ def _render_elegiaque_bar(ctx: _Ctx, bar: int, phrase: Phrase | None, descend: b
     thinner = _SPARSER.get(ctx.band(bar), "mp")
     pool = _pool(chord)
     support: list[NoteEvent] = []
-    sounding = {}
+    sounding: dict[int, int] = {}
     for event in low:
         if event.midi is None:
             continue
         begin = _start16(event, ctx.epb) // 2
         for offset in range(max(1, _dur16(event) // 2)):
             sounding[begin + offset] = event.midi
+    previous_inner: int | None = None
+    previous_bass: int | None = None
+    root_pc = chord.pitches[0] % 12
+    rich_pcs = {(root_pc + interval) % 12 for interval in (3, 4, 8, 9, 10, 11)}
     for local in sorted(_inner_eighths(ctx.epb, set(ctx.strong), thinner)):
         eighth = start + local
         sung = _melody_at(ctx, eighth)
-        tone = _fit(pool[local % len(pool)], ctx.mid_low, ctx.mid_high)
-        while tone >= sung and tone - 12 >= ctx.mid_low:
-            tone -= 12
-        if tone >= sung or tone <= sounding.get(eighth, root):
-            continue
+        bass = sounding.get(eighth, root)
+        bass_delta = 0 if previous_bass is None else bass - previous_bass
+        playable_now = [
+            note
+            for note in range(ctx.mid_low, ctx.mid_high + 1)
+            if note % 12 in rich_pcs and bass < note < sung and _playable(
+                [bass + ctx.semitones, note + ctx.semitones, sung + ctx.semitones]
+            )
+        ]
+        tone: int | None = None
+        if playable_now and previous_inner is not None and bass_delta < 0:
+            higher = [note for note in playable_now if note > previous_inner]
+            others = [note for note in playable_now if note != previous_inner]
+            tone = min(higher) if higher else (max(others) if others else playable_now[-1])
+        elif playable_now and previous_inner is not None and bass_delta > 0:
+            lower = [note for note in playable_now if note < previous_inner]
+            tone = max(lower) if lower else min(playable_now)
+        elif playable_now:
+            thirds = [note for note in playable_now if note % 12 in {(root_pc + 3) % 12, (root_pc + 4) % 12}]
+            tone = max(thirds or playable_now)
+        if tone is None:
+            tone = _fit(pool[local % len(pool)], ctx.mid_low, ctx.mid_high)
+            while tone >= sung and tone - 12 >= ctx.mid_low:
+                tone -= 12
+            if tone >= sung or tone <= bass:
+                previous_bass = bass
+                continue
+        previous_inner = tone
+        previous_bass = bass
         support.extend(_eighth_event(eighth, 1, tone, ctx.epb, 2, _INNER))
-    return support, low
+    return _shape_accompaniment(ctx, support, low)
 
 
 def _step_below(note: int, mode: str, floor: int) -> int | None:
@@ -1067,7 +1447,16 @@ def _short_pair(ctx: _Ctx, eighth: int, long: int, short_len: int, root: int, de
     return events
 
 
-def _parallel(lead: int, bass: int, mode: str, low: int, high: int, semitones: int = 0) -> int | None:
+def _parallel(
+    lead: int,
+    bass: int,
+    mode: str,
+    low: int,
+    high: int,
+    semitones: int = 0,
+    previous: int | None = None,
+) -> int | None:
+    """A third under the melody, or a sixth when the third leaves the hand."""
     if not _on_scale(lead, mode):
         lead = _nearest(lead, mode, low, high + 12)
     classes = _classes(mode)
@@ -1080,19 +1469,22 @@ def _parallel(lead: int, bass: int, mode: str, low: int, high: int, semitones: i
         want = classes[(lead_degree - steps) % len(classes)]
         return [note for note in range(high, low - 1, -1) if note % 12 == want and bass < note < lead]
 
-    thirds = options(2)
-    sixths = options(5)
-    for note in thirds + sixths:
-        if _playable([bass + semitones, note + semitones, lead + semitones]):
-            return note
-    if thirds:
-        return thirds[0]
-    return sixths[0] if sixths else None
+    def playable(notes: list[int]) -> list[int]:
+        return [note for note in notes if _playable([bass + semitones, note + semitones, lead + semitones])]
+
+    thirds = playable(options(2))
+    sixths = playable(options(5))
+    pool = thirds or sixths or options(2) or options(5)
+    if not pool:
+        return None
+    if previous is None:
+        return pool[0]
+    return min(pool, key=lambda note: (abs(note - previous), -note))
 
 
 def _render_cantabile(ctx: _Ctx, phrase: Phrase) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
-    apex = _apex_eighths((phrase,))
-    lead = _sustain(ctx.melody, phrase.start, phrase.end, ctx.epb, apex)
+    apex = _apex_eighths(ctx.phrases)
+    lead = _sustain(ctx.melody, phrase.start, phrase.end, ctx.epb, apex, phrase=phrase)
     support: list[NoteEvent] = []
     low: list[NoteEvent] = []
     for bar in range(phrase.start // ctx.epb, (phrase.end - 1) // ctx.epb + 1):
@@ -1102,16 +1494,29 @@ def _render_cantabile(ctx: _Ctx, phrase: Phrase) -> tuple[list[NoteEvent], list[
         if ctx.kind == "4/4" and band in {"mf", "f"}:
             fifth = _choose_bass(ctx.chord(bar), 2, _melody_at(ctx, bar * ctx.epb + 4), ctx.bass_low, ctx.bass_high, ctx.semitones)
             low.extend(_eighth_event(bar * ctx.epb + 4, 4, fifth, ctx.epb, 3, _BASS))
+    low = _shape_line(ctx, low, "bass")
+    ceiling = _bass_ceiling(ctx, low)
+    previous: int | None = None
+    shaped: list[NoteEvent] = []
     for event in lead:
         if event.midi is None:
             continue
         eighth = _start16(event, ctx.epb) // 2
         bass = _sounding_midi(low, eighth, ctx.epb) or ctx.bass_low
-        tone = _parallel(event.midi, bass, ctx.mode, ctx.mid_low, ctx.mid_high, ctx.semitones)
+        tone = _parallel(event.midi, bass, ctx.mode, ctx.mid_low, ctx.mid_high, ctx.semitones, previous)
         if tone is None:
             continue
-        support.append(replace(event, midi=tone, velocity=_INNER, voice=2, slur_start=False, slur_stop=False))
-    return lead, support, low
+        previous = tone
+        lead_vel = event.velocity or _MELODY
+        band = ctx.band(event.bar)
+        if _rises(phrase):
+            band = _swell_band(swell(phrase, min(eighth, phrase.end - 1)))
+        support_vel, _bass_vel = _under_lead(lead_vel, band)
+        if eighth in ceiling:
+            support_vel = min(support_vel, ceiling[eighth])
+        support_vel = max(40, min(support_vel, lead_vel - 4))
+        shaped.append(replace(event, midi=tone, velocity=support_vel, voice=2, slur_start=False, slur_stop=False))
+    return lead, shaped, low
 
 
 def _place_thumb(ctx: _Ctx, phrase: Phrase) -> list[int]:
@@ -1187,8 +1592,19 @@ def _render_thumb(ctx: _Ctx, phrase: Phrase) -> tuple[list[NoteEvent], list[Note
         {phrase.start + offset for offset, note in enumerate(line) if note == peak},
     )
     for index, event in enumerate(low):
-        if event.midi is not None:
-            low[index] = replace(event, velocity=_MELODY_APEX if event.midi == peak else _MELODY, voice=3)
+        if event.midi is None:
+            continue
+        eighth = _start16(event, ctx.epb) // 2
+        if _rises(phrase):
+            # The thumb sings from the written melody level up to the apex.
+            if phrase.apex.start <= eighth < phrase.apex.end:
+                velocity = _MELODY_APEX
+            else:
+                amount = swell(phrase, min(max(eighth, phrase.start), phrase.end - 1))
+                velocity = int(round(_MELODY + (_MELODY_APEX - _MELODY) * amount))
+        else:
+            velocity = _MELODY_APEX if event.midi == peak else _MELODY
+        low[index] = replace(event, velocity=velocity, voice=3)
     support: list[NoteEvent] = []
     lead: list[NoteEvent] = []
     for bar in range(phrase.start // ctx.epb, (phrase.end - 1) // ctx.epb + 1):
@@ -1205,8 +1621,22 @@ def _render_thumb(ctx: _Ctx, phrase: Phrase) -> tuple[list[NoteEvent], list[Note
             if dyad is None:
                 continue
             lower, higher = dyad
-            support.extend(_eighth_event(eighth, 1, lower, ctx.epb, 2, _INNER))
-            lead.extend(_eighth_event(eighth, 1, higher, ctx.epb, 1, _INNER))
+            thumb_vel = _INNER
+            for event in low:
+                if event.midi is not None and _covers(event, eighth * 2, ctx.epb) and event.velocity is not None:
+                    thumb_vel = event.velocity
+                    break
+            amount = swell(phrase, min(eighth, phrase.end - 1)) if _rises(phrase) else 0.0
+            # Both dyad notes stay in the bell window [_INNER - 4, _INNER],
+            # and the lower one is the softer of the pair when the window allows.
+            upper_vel = int(round((_INNER - 4) + 4 * amount))
+            upper_vel = min(_INNER, max(_INNER - 4, upper_vel), thumb_vel - 2)
+            lower_vel = min(upper_vel - 2, _INNER - 2)
+            lower_vel = max(_INNER - 4, lower_vel)
+            if lower_vel > upper_vel:
+                lower_vel = upper_vel
+            support.extend(_eighth_event(eighth, 1, lower, ctx.epb, 2, lower_vel))
+            lead.extend(_eighth_event(eighth, 1, higher, ctx.epb, 1, upper_vel))
     return lead, support, low
 
 
@@ -1251,6 +1681,7 @@ def _lead_bar(ctx: _Ctx, bar: int, breath: int | None, apex: set[int]) -> list[N
     """Melody on the eighth grid. A pattern-change breath is one eighth of rest."""
     start = bar * ctx.epb
     end = start + ctx.epb
+    phrase = _phrase_at(ctx, start)
     events: list[NoteEvent] = []
     eighth = start
     while eighth < end:
@@ -1262,7 +1693,7 @@ def _lead_bar(ctx: _Ctx, bar: int, breath: int | None, apex: set[int]) -> list[N
         while nxt < end and nxt != breath and _melody_at(ctx, nxt) == pitch:
             nxt += 1
         events.extend(
-            _eighth_event(eighth, nxt - eighth, pitch, ctx.epb, 1, _span_velocity(eighth, nxt - eighth, apex))
+            _eighth_event(eighth, nxt - eighth, pitch, ctx.epb, 1, _note_velocity(eighth, nxt - eighth, apex, phrase))
         )
         eighth = nxt
     return events
@@ -1326,13 +1757,54 @@ def _finish_dance_grid(
             support[local + 1] = (None, None)
 
 
-def _events_from_slots(bar: int, slots: list[tuple[int | None, int | None]], voice: int) -> list[NoteEvent]:
+def _events_from_slots(
+    bar: int,
+    slots: list[tuple[int | None, int | None]],
+    voice: int,
+    accents: set[int] | None = None,
+) -> list[NoteEvent]:
+    marked = accents or set()
     events: list[NoteEvent] = []
     for index, (midi, velocity) in enumerate(slots):
         if midi is None:
             continue
-        events.append(_hit(bar, index * 0.25, 0.25, midi, voice, velocity if velocity is not None else _INNER))
+        event = _hit(bar, index * 0.25, 0.25, midi, voice, velocity if velocity is not None else _INNER)
+        if index in marked:
+            event = replace(event, accent=True)
+        events.append(event)
     return events
+
+
+def _dance_ranked(chord: Chord, sung: int, low: int, high: int) -> list[int]:
+    """Third, then seventh or sixth, then the rest of the chord."""
+    third = chord.pitches[1] % 12 if len(chord.pitches) > 1 else chord.pitches[0] % 12
+    seventh = chord.pitches[3] % 12 if len(chord.pitches) >= 4 else None
+    sixth = (chord.pitches[0] + 9) % 12
+    fifth = chord.pitches[2] % 12 if len(chord.pitches) > 2 else None
+    found: list[int] = []
+    seen: set[int] = set()
+    for pc in (third, seventh, sixth, fifth, *_pool(chord)):
+        if pc is None or pc in seen:
+            continue
+        seen.add(pc)
+        tone = _fit(pc, low, high)
+        while tone >= sung and tone - 12 >= low:
+            tone -= 12
+        if low <= tone < sung and tone not in found:
+            found.append(tone)
+    return found
+
+
+def _dance_velocity(ctx: _Ctx, eighth: int, role: str, *, sync: bool) -> int:
+    lead_vel = _covering_melody_velocity(ctx, eighth)
+    support_vel, bass_vel = _under_lead(lead_vel, ctx.band(eighth // ctx.epb))
+    velocity = bass_vel if role == "bass" else support_vel
+    if sync:
+        bumped = velocity + 4
+        limit = lead_vel - 2 if role == "bass" else min(lead_vel - 4, bass_vel - 2)
+        if bumped < limit:
+            velocity = bumped
+    return max(40, velocity)
 
 
 def _render_vals_bar(
@@ -1347,14 +1819,39 @@ def _render_vals_bar(
     lead = _lead_bar(ctx, bar, breath, apex)
     support: list[NoteEvent] = []
     low = [
-        _hit(bar, 0.0, 0.5, root, 3, _BASS),
-        _hit(bar, 1.5, 0.5, fifth, 3, _BASS),
-        replace(_hit(bar, 2.0, 0.25, passing, 3, _BASS), accent=True),
+        _hit(bar, 0.0, 0.5, root, 3, _dance_velocity(ctx, start, "bass", sync=False)),
+        _hit(bar, 1.5, 0.5, fifth, 3, _dance_velocity(ctx, start + 3, "bass", sync=False)),
+        replace(
+            _hit(bar, 2.0, 0.25, passing, 3, _dance_velocity(ctx, start + 4, "bass", sync=True)),
+            accent=True,
+        ),
     ]
+    previous: int | None = None
+    step = 0
     for eighth in (1, 2, 4, 5):
-        tone = _tone_below(chord, _melody_at(ctx, start + eighth), ctx.mid_low, ctx.mid_high, "third")
-        if tone is not None and root < tone < _melody_at(ctx, start + eighth):
-            support.append(_hit(bar, eighth * 0.5, 0.25, tone, 2, _INNER))
+        melody = _melody_at(ctx, start + eighth)
+        legacy = _tone_below(chord, melody, ctx.mid_low, ctx.mid_high, "third")
+        ranked = [
+            tone
+            for tone in _dance_ranked(chord, melody, ctx.mid_low, ctx.mid_high)
+            if root < tone < melody and _playable([tone + ctx.semitones, melody + ctx.semitones])
+        ]
+        if len(ranked) >= 2:
+            tone = ranked[step % 2]
+            if previous is not None and tone == previous:
+                tone = ranked[(step + 1) % len(ranked)]
+            step += 1
+        else:
+            tone = legacy
+        if tone is None or not root < tone < melody:
+            continue
+        previous = tone
+        # Eighth 4 is beat 2, where 6/8 and 3/4 cross.
+        sync = eighth == 4
+        event = _hit(bar, eighth * 0.5, 0.25, tone, 2, _dance_velocity(ctx, start + eighth, "support", sync=sync))
+        if sync:
+            event = replace(event, accent=True)
+        support.append(event)
     if do_approach and bar + 1 < ctx.bars:
         low.append(_hit(bar, ctx.bar_beats - 0.25, 0.25, _approach_pitch(ctx, ctx.chord(bar + 1)), 3, _BASS))
     if leaving:
@@ -1388,32 +1885,63 @@ def _slot_dance(
     root = _clamp(chord.pitches[0], ctx.bass_low, ctx.bass_high)
     fifth = _clamp(chord.pitches[2], ctx.bass_low, ctx.bass_high) if len(chord.pitches) >= 3 else root
 
+    low_accents: set[int] = set()
+    support_accents: set[int] = set()
+    step = 0
+    previous: int | None = None
+
     def sung(index: int) -> int:
         return _melody_at(ctx, bar * ctx.epb + index // 2)
 
-    def support_at(index: int, prefer: str) -> None:
-        tone = _tone_below(chord, sung(index), ctx.mid_low, ctx.mid_high, prefer)
-        if tone is not None:
-            support[index] = (tone, _INNER)
+    def place_low(index: int, midi: int, *, sync: bool = False) -> None:
+        eighth = bar * ctx.epb + index // 2
+        low[index] = (midi, _dance_velocity(ctx, eighth, "bass", sync=sync))
+        if sync:
+            low_accents.add(index)
+
+    def support_at(index: int, prefer: str, *, sync: bool = False) -> None:
+        nonlocal step, previous
+        del prefer
+        melody = sung(index)
+        legacy = _tone_below(chord, melody, ctx.mid_low, ctx.mid_high, "third" if not sync else "seventh")
+        ranked = [
+            tone
+            for tone in _dance_ranked(chord, melody, ctx.mid_low, ctx.mid_high)
+            if root < tone < melody and _playable([tone + ctx.semitones, melody + ctx.semitones])
+        ]
+        if len(ranked) >= 2:
+            tone = ranked[step % 2]
+            if previous is not None and tone == previous:
+                tone = ranked[(step + 1) % len(ranked)]
+            step += 1
+        else:
+            tone = legacy
+        if tone is None:
+            return
+        previous = tone
+        eighth = bar * ctx.epb + index // 2
+        support[index] = (tone, _dance_velocity(ctx, eighth, "support", sync=sync))
+        if sync:
+            support_accents.add(index)
 
     if kind == "hemiola":
-        low[0] = (root, _BASS)
-        low[4] = (fifth, _BASS)
-        low[8] = (root, _BASS)
+        place_low(0, root)
+        place_low(4, fifth, sync=True)
+        place_low(8, root, sync=True)
         for index in (0, 4, 8):
-            support_at(index, "third")
+            support_at(index, "third", sync=index in {4, 8})
     elif kind == "polca":
-        low[0] = (root, _BASS)
-        low[6] = (fifth, _BASS)
+        place_low(0, root)
+        place_low(6, fifth, sync=True)
         for index in (2, 4, 8, 10):
-            support_at(index, "third")
+            support_at(index, "third", sync=index in {4, 10})
     else:
         for origin in (0, 8):
-            low[origin] = (root, _BASS)
-            low[origin + 4] = (fifth, _BASS)
+            place_low(origin, root)
+            place_low(origin + 4, fifth)
             support_at(origin + 3, "third")
-            support_at(origin + 6, "seventh")
-            support_at(origin + 7, "third")
+            support_at(origin + 6, "seventh", sync=True)
+            support_at(origin + 7, "third", sync=True)
     leading = _approach_pitch(ctx, ctx.chord(bar + 1)) if do_approach and bar + 1 < ctx.bars else None
     _finish_dance_grid(
         low,
@@ -1424,10 +1952,15 @@ def _slot_dance(
         bar=bar,
         epb=ctx.epb,
     )
+    if leading is not None and not leaving:
+        last = len(low) - 1
+        if low[last][0] == leading:
+            eighth = bar * ctx.epb + last // 2
+            low[last] = (leading, _dance_velocity(ctx, eighth, "bass", sync=False))
     return (
         _lead_bar(ctx, bar, breath, apex),
-        _events_from_slots(bar, support, 2),
-        _events_from_slots(bar, low, 3),
+        _events_from_slots(bar, support, 2, support_accents),
+        _events_from_slots(bar, low, 3, low_accents),
     )
 
 
@@ -2163,7 +2696,9 @@ def _repair(ctx: _Ctx, lead: list[NoteEvent], support: list[NoteEvent], low: lis
         bass = _sounding_midi(low, when // 2, ctx.epb) or ctx.bass_low
         sung = _sounding_midi(lead, when // 2, ctx.epb) or ctx.treble_top
         tone = _choose_inner(ctx.chord(event.bar), sung, bass, ctx.mid_low, ctx.mid_high, ctx.semitones, False, 0)
-        if tone is not None and tone != event.midi:
+        if tone is not None and (
+            tone != event.midi or not _playable([bass + ctx.semitones, sung + ctx.semitones])
+        ):
             repaired.append(replace(event, midi=tone))
     return lead, repaired, low
 
@@ -2182,6 +2717,32 @@ def _ordered(support_and_more: list[int], event: NoteEvent, lead, low, ctx: _Ctx
 def _covers(event: NoteEvent, when: int, epb: int) -> bool:
     begin = _start16(event, epb)
     return begin <= when < begin + _dur16(event)
+
+
+def _tremolo_boost(ctx: _Ctx, bar: int) -> int:
+    """Later bars of a rising tremolo breathe. The first bar stays locked."""
+    phrase = _phrase_at(ctx, bar * ctx.epb)
+    if phrase is None or not _rises(phrase) or phrase.end - phrase.start < ctx.epb * 2:
+        return 0
+    if bar <= phrase.start // ctx.epb:
+        return 0
+    eighth = min(phrase.end - 1, bar * ctx.epb + ctx.epb // 2)
+    amount = swell(phrase, eighth)
+    if amount < 0.5:
+        return 0
+    return 4 if amount >= 0.85 else 2
+
+
+def _boost(events: list[NoteEvent], amount: int) -> list[NoteEvent]:
+    if amount <= 0:
+        return list(events)
+    boosted: list[NoteEvent] = []
+    for event in events:
+        if event.velocity is None:
+            boosted.append(event)
+        else:
+            boosted.append(replace(event, velocity=event.velocity + amount))
+    return boosted
 
 
 def render_patterned_voices(
@@ -2295,54 +2856,72 @@ def render_patterned_voices(
         owner = _owner(ctx, bar)
         attacks = attacks_by_phrase.get(owner, set()) if owner is not None else set()
         allow_approach = _allow_approach(ctx, bar, patterns)
+        phrase_here = phrases[owner] if owner is not None else _phrase_at(ctx, bar * epb)
         if pattern == "tremolo" and bar in tremolo_bars:
-            lead.extend(event for event in trem_lead if event.bar == bar and event.midi is not None)
-            support.extend(event for event in trem_inner if event.bar == bar and event.midi is not None)
-            low.extend(event for event in trem_bass if event.bar == bar and event.midi is not None)
+            boost = _tremolo_boost(ctx, bar)
+            lead.extend(_boost([event for event in trem_lead if event.bar == bar and event.midi is not None], boost))
+            support.extend(_boost([event for event in trem_inner if event.bar == bar and event.midi is not None], boost))
+            low.extend(_boost([event for event in trem_bass if event.bar == bar and event.midi is not None], boost))
         elif pattern == "pedal":
             # Framed movements replace this held close with a composer entrance.
             if not _framed(ctx):
-                lead.extend(_sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex))
+                lead.extend(_sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex, phrase=phrase_here))
                 root = _choose_bass(ctx.chord(bar), 0, _melody_at(ctx, bar * epb), ctx.bass_low, ctx.bass_high, ctx.semitones)
                 low.extend(_eighth_event(bar * epb, epb, root, epb, 3, _BASS))
         elif pattern == "preludio":
-            lead.extend(_sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex))
-            support.extend(_preludio_inner(ctx, bar))
+            lead.extend(_sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex, phrase=phrase_here))
+            support.extend(_preludio_inner(ctx, bar, patterns))
         elif pattern == "study":
             level = levels.get(owner, 0) if owner is not None else 0
             part_support, part_low = _render_study_bar(ctx, bar, level, False)
-            lead.extend(_sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex))
+            lead.extend(_sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex, phrase=phrase_here))
             support.extend(part_support)
             low.extend(part_low)
         elif pattern == "villa_pattern":
             part_support, part_low = _render_villa_bar(ctx, bar, allow_approach)
-            lead.extend(_sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex))
+            lead.extend(_sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex, phrase=phrase_here))
             support.extend(part_support)
             low.extend(part_low)
         elif pattern == "andante":
-            phrase = phrases[owner] if owner is not None else None
+            phrase = phrase_here
             points, spans = _andante_grid(ctx, bar, phrase)
-            part_support, part_low = _render_block_bar(ctx, bar, points, spans, inner="chord")
+            part_support, part_low = _render_block_bar(ctx, bar, points, spans, inner="chord", phrase=phrase)
             lead.extend(
-                _sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex, {bar * epb + point for point in points})
+                _sustain(
+                    ctx.melody,
+                    bar * epb,
+                    (bar + 1) * epb,
+                    epb,
+                    apex,
+                    {bar * epb + point for point in points},
+                    phrase,
+                )
             )
             support.extend(part_support)
             low.extend(part_low)
         elif pattern == "chord_melody":
-            phrase = phrases[owner] if owner is not None else None
+            phrase = phrase_here
             points, spans = _chord_grid(ctx, bar, phrase)
-            part_support, part_low = _render_block_bar(ctx, bar, points, spans, inner="color")
+            part_support, part_low = _render_block_bar(ctx, bar, points, spans, inner="color", phrase=phrase)
             lead.extend(
-                _sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex, {bar * epb + point for point in points})
+                _sustain(
+                    ctx.melody,
+                    bar * epb,
+                    (bar + 1) * epb,
+                    epb,
+                    apex,
+                    {bar * epb + point for point in points},
+                    phrase,
+                )
             )
             support.extend(part_support)
             low.extend(part_low)
         elif pattern == "elegiaque":
-            phrase = phrases[owner] if owner is not None else None
+            phrase = phrase_here
             # The short bass of the dotted group always steps down one scale degree.
             descend = True
             part_support, part_low = _render_elegiaque_bar(ctx, bar, phrase, descend)
-            part_lead = _sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex)
+            part_lead = _sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex, phrase=phrase)
             if owner is not None and owner in ornaments and any(
                 bar * epb <= eighth < (bar + 1) * epb for eighth in ornaments[owner]
             ):
@@ -2371,7 +2950,7 @@ def render_patterned_voices(
             support.extend(part_support)
             low.extend(part_low)
         else:
-            lead.extend(_sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex))
+            lead.extend(_sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex, phrase=phrase_here))
     # Preludio bass rings for two bars, counted from each contiguous region.
     low.extend(_preludio_bass(ctx, patterns))
     villa_bars = {
@@ -2494,17 +3073,51 @@ def _bells_here(ctx: _Ctx, bar: int, patterns: list[str]) -> bool:
     return owner is not None and owner == first and patterns[owner] == "preludio"
 
 
-def _preludio_inner(ctx: _Ctx, bar: int) -> list[NoteEvent]:
+def _preludio_anchor(ctx: _Ctx, bar: int, patterns: list[str]) -> int:
+    """The bar whose pedal attack rings under this preludio bar."""
+    region = bar
+    while region > 0 and _bar_pattern(ctx, region - 1, patterns) == "preludio":
+        region -= 1
+    end = bar
+    while end + 1 < ctx.bars and _bar_pattern(ctx, end + 1, patterns) == "preludio":
+        end += 1
+    if end == region:
+        return bar
+    anchor = region + ((bar - region) // 2) * 2
+    if anchor + 1 > end:
+        return bar
+    return anchor
+
+
+def _preludio_inner(ctx: _Ctx, bar: int, patterns: list[str]) -> list[NoteEvent]:
     events: list[NoteEvent] = []
     chord = ctx.chord(bar)
     start = bar * ctx.epb
+    anchor = _preludio_anchor(ctx, bar, patterns)
+    anchor_lead = _covering_melody_velocity(ctx, anchor * ctx.epb)
+    _support_vel, bass_vel = _under_lead(anchor_lead, ctx.band(anchor))
+    strong = set(ctx.strong)
+    midpoints = {ctx.epb // 2}
+    if ctx.epb >= 4:
+        midpoints |= {ctx.epb // 4, (3 * ctx.epb) // 4}
+    previous: int | None = None
     for offset in range(ctx.epb):
         sung = _melody_at(ctx, start + offset)
         bass_guess = _choose_bass(chord, 0, sung, ctx.bass_low, ctx.bass_high, ctx.semitones)
-        tone = _choose_inner(chord, sung, bass_guess, ctx.mid_low, ctx.mid_high, ctx.semitones, False, offset)
+        tones = _inner_choices(chord, sung, bass_guess, ctx.mid_low, ctx.mid_high, ctx.semitones, False)
+        if tones:
+            tone = _contour_tone(chord, tones, offset, previous)
+        else:
+            tone = _choose_inner(chord, sung, bass_guess, ctx.mid_low, ctx.mid_high, ctx.semitones, False, offset)
         if tone is None:
             continue
-        events.extend(_eighth_event(start + offset, 1, tone, ctx.epb, 2, _INNER))
+        previous = tone
+        lead_vel = _covering_melody_velocity(ctx, start + offset)
+        support_vel, _bass = _under_lead(lead_vel, ctx.band(bar))
+        if offset not in strong and offset not in midpoints:
+            support_vel = max(40, support_vel - 4)
+        support_vel = min(support_vel, bass_vel - 2, lead_vel - 4)
+        events.extend(_eighth_event(start + offset, 1, tone, ctx.epb, 2, max(40, support_vel)))
     return events
 
 
@@ -2526,16 +3139,17 @@ def _preludio_bass(ctx: _Ctx, patterns: list[str]) -> list[NoteEvent]:
                 span = 1
             bar = run[cursor]
             root = _choose_bass(ctx.chord(bar), 0, _melody_at(ctx, bar * ctx.epb), ctx.bass_low, ctx.bass_high, ctx.semitones)
+            _support_vel, bass_vel = _under_lead(_covering_melody_velocity(ctx, bar * ctx.epb), ctx.band(bar))
             if span == 1:
                 # A one-bar opening keeps the strong-beat arpeggio, not a whole-note pedal.
                 strong = [offset for offset in ctx.strong if offset < ctx.epb] or [0]
                 bounds = [*strong, ctx.epb]
                 for left, right in zip(bounds, bounds[1:]):
                     if right > left:
-                        events.extend(_eighth_event(bar * ctx.epb + left, right - left, root, ctx.epb, 3, _BASS))
+                        events.extend(_eighth_event(bar * ctx.epb + left, right - left, root, ctx.epb, 3, bass_vel))
             else:
                 length = span * ctx.epb
-                events.extend(_eighth_event(bar * ctx.epb, length, root, ctx.epb, 3, _BASS))
+                events.extend(_eighth_event(bar * ctx.epb, length, root, ctx.epb, 3, bass_vel))
             cursor += span
     return events
 
@@ -2874,7 +3488,7 @@ def _taper(ctx, lead, support, low, phrase: Phrase):
     lead = _drop_overlap(lead, start * 2, phrase.end * 2, ctx.epb)
     support = _drop_overlap(support, start * 2, phrase.end * 2, ctx.epb)
     low = _drop_overlap(low, start * 2, phrase.end * 2, ctx.epb)
-    lead.extend(_sustain(ctx.melody, start, phrase.end, ctx.epb, _apex_eighths((phrase,))))
+    lead.extend(_sustain(ctx.melody, start, phrase.end, ctx.epb, _apex_eighths((phrase,)), phrase=phrase))
     eighth = start
     while eighth < phrase.end:
         anchor = eighth % ctx.epb in ctx.strong or eighth == start
