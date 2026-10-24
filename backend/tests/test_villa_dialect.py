@@ -392,12 +392,14 @@ def test_bach_dance_frames_take_an_upbeat_into_an_authentic_cadence() -> None:
     _assert_bach_hand(long_lead, long_support, long_low)
     attack = [note for note in (*_sounding(long_lead, 0), *_sounding(long_low, 0)) if note.beat == 0.0]
     assert attack and all(note.staccato and note.velocity == 50 for note in attack)
-    assert any(note.beat >= 3.0 for note in _sounding(long_lead, 0))
+    assert _sounding(long_lead, 0) and all(note.beat == 0.0 for note in _sounding(long_lead, 0))
     assert _pcs(long_low, 1) == [0, 11, 9, 7]
     assert any(note.duration_beats >= 3 for note in _sounding(long_lead, 1))
     assert _sounding(long_low, 2)[0].midi % 12 == 7
     assert _neighbor_figure(long_lead, 2)
-    assert sum(1 for note in _sounding(long_lead, 3) if note.beat >= 2.0) >= 3
+    upbeat = sorted(_sounding(long_lead, 3), key=lambda note: note.beat)
+    assert [round(note.beat, 2) for note in upbeat] == [2.5, 3.0, 3.5]
+    assert [note.midi for note in upbeat] == sorted(note.midi for note in upbeat)
 
     out_lead, out_support, out_low = _bach_region(2, character="rally", bpm=96, closing=True)
     _assert_bach_hand(out_lead, out_support, out_low)
@@ -413,10 +415,13 @@ def test_bach_dance_frames_take_an_upbeat_into_an_authentic_cadence() -> None:
     _assert_bach_hand(coda_lead, coda_support, coda_low)
     assert _pcs(coda_low, 0) == [0, 11, 9, 7]
     assert _sounding(coda_low, 1)[0].midi % 12 == 7
-    assert len(_sounding(coda_lead, 1)) >= 4
-    assert [note.midi for note in _sounding(coda_lead, 1)] == sorted(
-        note.midi for note in _sounding(coda_lead, 1)
-    )
+    flourish = _sounding(coda_lead, 1)
+    assert len(flourish) >= 4
+    assert [note.midi for note in flourish] == sorted(note.midi for note in flourish)
+    assert {note.midi % 12 for note in flourish} <= {2, 5, 7, 11}
+    inner = _sounding(coda_support, 1)
+    assert inner and inner[0].beat == 0.0
+    assert {note.midi % 12 for note in inner} <= {2, 5, 7, 11}
     assert _neighbor_figure(coda_lead, 2)
     final = _sounding(coda_low, 3)
     assert final[0].midi % 12 == 0 and final[0].velocity == 50 and final[0].duration_beats >= 3.5
@@ -446,9 +451,16 @@ def test_bach_polyphonic_frames_expose_a_subject_and_a_picardy_third() -> None:
     assert _sounding(fugue_support, 1) == []
     assert _sounding(fugue_low, 1)[0].midi % 12 == 7
     assert max(note.midi for note in _sounding(fugue_low, 1)) <= 53
-    assert all(note.velocity == 56 for note in _sounding(fugue_low, 2))
-    assert _sounding(fugue_low, 2)[0].midi % 12 == 7
-    assert _sounding(fugue_lead, 2) and _sounding(fugue_support, 2)
+    fugue_bass = sorted(_sounding(fugue_low, 2), key=lambda note: note.beat)
+    assert all(note.velocity == 56 for note in fugue_bass)
+    assert fugue_bass[0].beat == 0.0 and fugue_bass[0].midi % 12 == 7
+    assert len(fugue_bass) >= 2 and fugue_bass[1].beat >= 1.5
+    fugue_line = sorted(_sounding(fugue_lead, 2), key=lambda note: note.beat)
+    assert 2 <= len(fugue_line) <= 3
+    assert fugue_line[-1].midi % 12 in {2, 5, 7, 11}
+    fugue_inner = _sounding(fugue_support, 2)
+    assert fugue_inner and min(note.beat for note in fugue_inner) >= 1.5
+    assert all(note.midi % 12 in {2, 5, 7, 11} for note in fugue_inner)
     assert _sounding(fugue_low, 3)[0].midi % 12 == 0
     assert _sounding(fugue_low, 3)[0].velocity == 50
 
@@ -477,8 +489,16 @@ def test_bach_polyphonic_frames_expose_a_subject_and_a_picardy_third() -> None:
     assert _sounding(coda_lead, 0)[0].midi % 12 in {2, 5, 7, 11}
     assert _sounding(coda_low, 1)[0].midi % 12 == 0
     assert _sounding(coda_lead, 1)[0].midi % 12 in {0, 3, 7}
-    assert min(note.beat for note in _sounding(coda_lead, 2)) > 0
-    rolled = _sounding(coda_lead, 2) + _sounding(coda_support, 2) + _sounding(coda_low, 2)
+    roll_bass = _sounding(coda_low, 2)
+    assert len(roll_bass) == 1 and roll_bass[0].beat == 0.0 and roll_bass[0].duration_beats >= 3.5
+    assert roll_bass[0].midi % 12 == 0
+    roll_inner = sorted(_sounding(coda_support, 2), key=lambda note: note.beat)
+    assert [round(note.beat, 2) for note in roll_inner] == [0.5, 1.0]
+    assert roll_inner[0].midi < roll_inner[1].midi
+    roll_lead = sorted(_sounding(coda_lead, 2), key=lambda note: note.beat)
+    assert [round(note.beat, 2) for note in roll_lead] == [1.5, 2.5]
+    assert roll_lead[0].midi <= roll_lead[1].midi
+    rolled = roll_lead + roll_inner + roll_bass
     assert any(note.midi % 12 == 4 for note in rolled)
     final = _sounding(coda_lead, 3) + _sounding(coda_support, 3) + _sounding(coda_low, 3)
     assert any(note.midi % 12 == 4 for note in final)

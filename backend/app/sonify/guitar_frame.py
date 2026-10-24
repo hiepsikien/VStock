@@ -512,13 +512,13 @@ def _bach_intro_long(ctx, bar: int, role: int, dance: bool) -> list[tuple]:
             return _bach_tetrachord(ctx, bar, _P)
         if role == 2:
             return _bach_mordent(ctx, bar, _MP)
-        return _bach_upbeat_scale(ctx, bar, 4)
+        return _bach_upbeat_scale(ctx, bar, 3)
     if role == 0:
         return _bach_subject(ctx, bar, _P)
     if role == 1:
         return _bach_answer(ctx, bar, _P)
     if role == 2:
-        return _bach_block(ctx, bar, "V7", _MP)
+        return _bach_converge_dominant(ctx, bar, _MP)
     return _bach_block(ctx, bar, "I", _P)
 
 
@@ -546,7 +546,7 @@ def _bach_outro_long(ctx, bar: int, role: int, dance: bool) -> list[tuple]:
     if role == 1:
         return _bach_pedal_upper(ctx, bar, "I", _P)
     if role == 2:
-        return _roll(ctx, bar, "I+", _P, shift=0)
+        return _bach_arpeggiato(ctx, bar, "I+", _P)
     return _bach_picardy(ctx, bar, _PP)
 
 
@@ -597,7 +597,7 @@ def _bach_dominant_run(ctx, bar: int) -> list[tuple]:
 
 
 def _bach_staccato_pickup(ctx, bar: int) -> list[tuple]:
-    """A crisp tonic attack, then a short upbeat into the walking bass."""
+    """Bar 1 is only a staccato tonic. The rest of the bar stays a quiet bass."""
     epb = ctx.epb
     bass, inner, lead = _bach_root_voices(ctx, _function(ctx, bar, "I"))
     specs = [
@@ -606,7 +606,8 @@ def _bach_staccato_pickup(ctx, bar: int) -> list[tuple]:
     ]
     if inner is not None:
         specs.append((0, 1, inner, 2, _P, {"staccato": True}))
-    specs.extend(_bach_pickup(ctx, bar, 2, _P))
+    if epb > 1:
+        specs.append((1, epb - 1, bass, 3, _P, {}))
     return _clip_voice(specs, epb)
 
 
@@ -765,21 +766,103 @@ def _bach_pedal_arpeggio(ctx, bar: int, velocity: int) -> list[tuple]:
 
 
 def _bach_dominant_flourish(ctx, bar: int, velocity: int) -> list[tuple]:
-    """The ascending scale of `_ascending`, planted on the dominant root."""
-    from app.sonify.guitar_patterns import _playable
+    """V7 arpeggio climbing from low to high over the dominant root."""
+    epb = ctx.epb
+    pcs = _function(ctx, bar, "V7")
+    aim = _best_lead(ctx, pcs, [pcs[0]], high=False)
+    root = _bass_note(ctx, pcs[0], aim)
+    line = [
+        pitch
+        for pitch in _rising(ctx, pcs, epb, aim)
+        if pitch > root and pitch % 12 in pcs and _bach_pair(ctx, root, pitch)
+    ]
+    if len(line) < min(4, epb):
+        line = [
+            note
+            for note in range(_lead_lo(ctx), _lead_hi(ctx) + 1)
+            if note % 12 in pcs and note > root and _bach_pair(ctx, root, note)
+        ][:epb]
+    else:
+        line = line[:epb]
+    specs = [(0, epb, root, 3, velocity, {})]
+    for offset, pitch in enumerate(line):
+        specs.append((offset, 1, pitch, 1, min(_MF, velocity + offset), {}))
+    ceiling = min(line) if line else aim
+    inner = _between(ctx, pcs, root, ceiling)
+    if inner is not None:
+        specs.append((0, min(2, epb), inner, 2, velocity, {}))
+    return _clip_voice(specs, epb)
 
-    specs = _ascending(ctx, bar, "V7", velocity)
-    leads = [midi for _offset, _length, midi, voice, _vel, _flags in specs if voice == 1]
-    root = _bass_note(ctx, _function(ctx, bar, "V7")[0], min(leads) if leads else None)
-    kept = []
-    for offset, length, midi, voice, vel, flags in specs:
-        if voice == 3:
-            kept.append((offset, length, root, voice, vel, flags))
-            continue
-        if voice == 1 and (midi <= root or not _playable([root + ctx.semitones, midi + ctx.semitones])):
-            continue
-        kept.append((offset, length, midi, voice, vel, flags))
-    return _clip_voice(kept, ctx.epb)
+
+def _bach_converge_dominant(ctx, bar: int, velocity: int) -> list[tuple]:
+    """Two or three voices intertwine and compress onto V7."""
+    epb = ctx.epb
+    half = max(1, epb // 2)
+    pcs = _function(ctx, bar, "V7")
+    members = set(pcs)
+    resolution = _bach_chord_tone(ctx, bar, "V7", 71 - ctx.semitones)
+    root = _bass_note(ctx, pcs[0], resolution)
+    resolution = _bach_fit_lead(ctx, root, resolution)
+    if resolution % 12 not in members:
+        found = [
+            note
+            for note in range(_lead_lo(ctx), _lead_hi(ctx) + 1)
+            if note % 12 in members and _bach_pair(ctx, root, note)
+        ]
+        resolution = found[0] if found else resolution
+    suspension = _bach_neighbor(ctx, root, resolution)
+    if suspension == resolution or suspension % 12 in members or not _bach_pair(ctx, root, suspension):
+        stepped = _step(resolution, -1, ctx.mode, _lead_lo(ctx), _lead_hi(ctx))
+        if stepped != resolution and _bach_pair(ctx, root, stepped):
+            suspension = stepped
+    specs = [(0, half, root, 3, velocity, {})]
+    if suspension != resolution and _bach_pair(ctx, root, suspension):
+        specs.append((0, half, suspension, 1, velocity, {}))
+        specs.append((half, epb - half, resolution, 1, velocity, {}))
+        lead_tail = resolution
+    else:
+        specs.append((0, epb, resolution, 1, velocity, {}))
+        lead_tail = resolution
+    stepped = _step(root, -1, ctx.mode, ctx.bass_low, _bass_hi(ctx))
+    inner = _between(ctx, pcs, root, lead_tail)
+    second = root
+    if (
+        stepped != root
+        and inner is not None
+        and _bach_hand(ctx, [stepped], inner, lead_tail)
+        and _bach_pair(ctx, stepped, suspension if suspension != resolution else lead_tail)
+    ):
+        second = stepped
+    specs.append((half, epb - half, second, 3, velocity, {}))
+    if inner is not None and _bach_hand(ctx, [second], inner, lead_tail):
+        specs.append((half, epb - half, inner, 2, velocity, {}))
+    return _clip_voice(specs, epb)
+
+
+def _bach_arpeggiato(ctx, bar: int, name: str, velocity: int) -> list[tuple]:
+    """A slow roll: root, two inner tones, then the lead climbs the chord."""
+    epb = ctx.epb
+    pcs = _function(ctx, bar, name)
+    members = set(pcs)
+    highs = [note for note in range(_lead_lo(ctx), _lead_hi(ctx) + 1) if note % 12 in members]
+    first_lead = highs[0] if highs else _lead_lo(ctx)
+    root = _bass_note(ctx, pcs[0], first_lead)
+    if not _bach_pair(ctx, root, first_lead):
+        first_lead = _bach_fit_lead(ctx, root, first_lead)
+    inners = [
+        note
+        for note in range(_mid_lo(ctx), _mid_hi(ctx) + 1)
+        if note % 12 in members and root < note < first_lead
+    ]
+    specs = [(0, epb, root, 3, velocity, {})]
+    for offset, pitch in enumerate(inners[:2]):
+        specs.append((1 + offset, 1, pitch, 2, velocity, {}))
+    specs.append((min(3, epb - 1), 1, first_lead, 1, velocity, {}))
+    if epb >= 6:
+        higher = [note for note in highs if note > first_lead and _bach_pair(ctx, root, note)]
+        if higher:
+            specs.append((5, 1, higher[0], 1, velocity, {}))
+    return _clip_voice(specs, epb)
 
 
 def _bach_dominant_neighbor(ctx, bar: int, velocity: int, *, drive: bool) -> list[tuple]:
