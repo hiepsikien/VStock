@@ -2188,11 +2188,14 @@ def test_a_later_tremolo_bar_breathes_and_the_first_bar_stays_locked() -> None:
 
 
 def test_one_day_character_hears_a_hose_session() -> None:
-    """0.45% separates a rally from a selloff. A 1.35% range with no trend is volatile."""
+    """0.45% separates a rally from a selloff. A 1.35% range with a mid close is volatile."""
     assert movement_character([100.0, 100.4, 100.8], "1D") == "rally"
     assert movement_character([100.0, 99.6, 99.2], "1D") == "selloff"
-    # The close sits in the middle of a 1.8% range, so the day is not a trend.
-    assert movement_character([100.0, 101.8, 100.2], "1D") == "volatile"
+    # The close sits in the middle of a 1.8% range (low 99.2, high 101.0), so the day is volatile.
+    assert movement_character([100.0, 101.0, 99.2, 100.1], "1D") == "volatile"
+    # A wide range (>= 1.0%) that closes near the low (close_pos <= 0.28) or high (>= 0.72) is a trend.
+    assert movement_character([100.0, 101.8, 100.2], "1D") == "selloff"
+    assert movement_character([100.0, 98.8, 100.1], "1D") == "rally"
     assert movement_character([100.0, 100.1, 100.2], "1D") == "calm"
     # The old 1.2% cut called each of these calm. They are ordinary HOSE days.
     assert movement_character([100.0, 99.11], "1D") == "selloff"
@@ -2207,7 +2210,7 @@ def test_sor_galop_and_mozart_variations_and_the_op9_overture() -> None:
     assert all(note.staccato and abs(note.duration_beats - 1.0) < 1e-9 for note in bass)
     assert bass[0].accent
     inner = _pitched(galop.support, 2)
-    assert [round(note.beat, 2) for note in inner] == [0.5, 1.0, 2.5, 3.0]
+    assert [round(note.beat, 2) for note in inner] == [0.5, 1.5, 2.5, 3.5]
     assert all(note.staccato and note.accent for note in inner)
     assert len({note.midi for note in inner}) == 2
     lead = _pitched(galop.lead, 2)
@@ -2218,6 +2221,11 @@ def test_sor_galop_and_mozart_variations_and_the_op9_overture() -> None:
     assert _sixteenths(galop.lead, 2) == []
     assert_playable(galop, C_KEY, "study")
 
+    # A narrow rally (< 1.2% span) stays on study; an energetic rally (>= 1.2%) dances Galop.
+    narrow_bars = [Bar(close=100.0 + index * 0.015, volume=1000) for index in range(48)]
+    narrow_rally = render(narrow_bars, title="Guitar", variant="guitar", ensemble="classic", character="rally")
+    assert not any(note.staccato for note in _pitched(narrow_rally.low, 4))
+
     mozart = _frame_score("classic", 2, character="volatile")
     halves = _pitched(mozart.low, 2)
     assert [round(note.beat, 2) for note in halves] == [0.0, 2.0]
@@ -2227,6 +2235,23 @@ def test_sor_galop_and_mozart_variations_and_the_op9_overture() -> None:
     steps = [right.midi - left.midi for left, right in zip(counter, counter[1:]) if left.midi and right.midi]
     assert steps and all(0 < abs(step) <= 2 for step in steps)
     assert_playable(mozart, C_KEY, "study")
+
+    # When the melody leaps across the half-bar, Op. 9 fills the beat-2 gap with passing steps.
+    leaping = [64] * 8 + [64, 64, 64, 64, 72, 72, 72, 72]
+    bridged = _pattern_score(
+        leaping,
+        (_joined(0, [64] * 8), _joined(8, [64, 64, 64, 64, 72, 72, 72, 72])),
+        ensemble="classic",
+        bpm=88,
+        character="volatile",
+        kinds={0: "intro", 1: "phrase"},
+        sections=(FormSection(0, 1, "intro", 0), FormSection(1, 2, "phrase", 0)),
+    )
+    bridged_inner = _attacks(bridged.support, 1)
+    bridged_steps = [abs(right.midi - left.midi) for left, right in zip(bridged_inner, bridged_inner[1:]) if left.midi and right.midi]
+    assert any(abs(note.beat - 2.0) < 1e-6 for note in bridged_inner)
+    assert bridged_steps and max(bridged_steps) <= 2
+    assert_playable(bridged, C_KEY, "study")
 
     overture = galop
     tonic = _pitched(overture.lead, 0)
@@ -2757,15 +2782,21 @@ def test_sarabande_accents_beat_two_and_swarms_when_the_line_rises() -> None:
     assert max(steep_diffs) <= 2 and all(diff >= 1 for diff in steep_diffs)
     _assert_engraved(steep_score, "brouwer")
 
-    # Even a full-window drop in 6/8 or 4/4 keeps every swarm step <= 2 semitones and lands on the close.
-    cliff_68 = [79, 76, 74, 79, 69, 60]
-    cliff_score = _brouwer_pattern(cliff_68, character="selloff", meter=METER_68)
-    cliff_later = [note.midi for note in _attacks(cliff_score.lead, 0) if note.midi is not None and note.beat >= 1.5 - 1e-6]
-    cliff_diffs = [abs(right - left) for left, right in zip(cliff_later, cliff_later[1:])]
-    assert len(cliff_later) == 6
-    assert cliff_later[-1] == 60
-    assert max(cliff_diffs) <= 2 and all(diff >= 1 for diff in cliff_diffs)
-    _assert_engraved(cliff_score, "brouwer")
+    # Even a full-window drop in 6/8, 3/4, or 4/4 keeps every step across the ENTIRE bar <= 2 semitones,
+    # accents beat 2 (1.5 in 6/8, 1.0 in 3/4 and 4/4), and lands on the closing pitch.
+    for meter, accent_beat, line_notes in (
+        (METER_68, 1.5, [79, 76, 74, 79, 69, 60]),
+        (METER_34, 1.0, [76, 76, 76, 76, 68, 60]),
+        (METER_44, 1.0, [81, 80, 79, 79, 81, 74, 67, 59]),
+    ):
+        cliff_score = _brouwer_pattern(line_notes, character="selloff", meter=meter)
+        all_lead = [note.midi for note in _attacks(cliff_score.lead, 0) if note.midi is not None]
+        all_diffs = [abs(right - left) for left, right in zip(all_lead, all_lead[1:])]
+        assert all_lead[-1] == line_notes[-1]
+        assert max(all_diffs) <= 2 and all(diff >= 1 for diff in all_diffs)
+        for voice in (cliff_score.low, cliff_score.support, cliff_score.lead):
+            assert any(note.accent and abs(note.beat - accent_beat) < 1e-6 for note in _attacks(voice, 0))
+        _assert_engraved(cliff_score, "brouwer")
 
     slow = _brouwer_pattern([72] * 8, character="rally", bpm=72)
     assert any(note.accent and abs(note.beat - 1.0) < 1e-6 for note in _attacks(slow.low, 0))

@@ -97,7 +97,34 @@ Arpeggio là phương án còn lại: tempo nào cũng đứng được. Tremolo
 
 Điệu nhanh của Barrios đứng từ `bpm > 100`, ở 4/4 hoặc 6/8, khi giai điệu đang chạy và character khác `calm`. 3/4 không có điệu đó. Hành khúc chấm dôi của Sor là pattern `elegiaque` thuộc họ Thánh ca (bật ở chương chậm `bpm <= 72` và ở `1D` 88 BPM khi `selloff` ngay từ câu thân đầu; ở `bpm >= 90` thì bật từ câu thân thứ hai khi `selloff` hay `section.trio` ở thứ), không dùng cửa của choro.
 
-## 3. Bộ chọn
+## 3. Bộ chọn (Macro cho bài có khung & Cấp câu cho fixture không khung)
+
+Hệ thống có hai đường chọn pattern tùy theo `Score` có mang section khung (`intro`, `outro`, `warmup`, `cooldown`) hay không:
+
+### 3.0. Đường chạy bài thật có khung (`_framed(ctx) == True` → `_assign_macro`)
+
+Mọi bản nhạc do `render()` tạo (`1D`, `1W`, `1M`, `3M`, `1Y`) đều có khung mở/kết (`_PEDAL`), nên đi qua `_assign_macro`:
+- **Vùng khung (`intro`/`warmup` và `cooldown`/`outro`)**: được `_strip_pedal` xóa cao độ phẳng và `_paint_frames` (`guitar_frame.py`) vẽ lại thành kịch bản Mở đầu / Kết thúc 2 ô hoặc 4 ô riêng của từng tác gia.
+- **Thân bài**:
+  - **Bài ngắn `1D` ($\le 40$ ô, không có `trio`/`bridge`)**: Khóa **một pattern chủ đạo duy nhất** (`_dominant_pattern`) cho toàn bộ 30 ô thân bài.
+  - **Chương có đoạn tương phản (`section.trio` hoặc `section.bridge`)**: Đi theo cấu trúc **A – B – A** — phần A giữ `_dominant_pattern`, phần B chuyển sang `_contrast_pattern`, rồi quay lại A.
+  - **Bản tuần `1W` (5 phiên 32 ô, không có `trio`/`bridge`)**: Khóa một pattern cho mỗi `regime_slot` (mỗi phiên ngày).
+- **Khớp nối biên (`_smooth_boundaries`)**: Nửa ô cuối trước khi rời `tremolo` hoặc `dance` giảm tốc về móc đơn với lực giảm dần (`58 → 46`), và móc đơn cuối cùng trước biên đoạn đặt một nốt Bass pickup (`_plant_pickup`) thuộc gốc hoặc bậc 5 của hợp âm kế tiếp.
+
+Bảng chọn Macro (`_dominant_pattern` / `_contrast_pattern`) trên các bài có khung:
+
+| Khung / Chương | **Bach (`bach`)** | **Sor (`classic`)** | **Barrios (`barrios`)** | **Villa-Lobos (`villa`)** | **Brouwer (`brouwer`)** |
+|---|---|---|---|---|---|
+| **`1D` (4/4)**<br>`96 / 88 / 120 / 100 / 108 BPM` | • `calm`: `bach_gavotte`<br>• `rally`: `bach_bourree`<br>• `volatile`: `bach_fuga`<br>• `selloff`: `bach_chaconne` | • `calm`: `cantabile`<br>• `rally` (biên $\ge 1.2\%$): `galop`<br>• `rally` nhẹ: `study`<br>• `volatile`: `mozart_var`<br>• `selloff`: `elegiaque` | • `calm` hoặc `rally`/`selloff` biên $< 1.4\%$: `preludio` (*La Catedral* 16th)<br>• `rally`/`selloff` biên $\ge 1.4\%$: `tremolo`<br>• `volatile` chạy $\ge 35\%$: `choro` (ngược lại `tremolo`) | • `calm` hoặc đa số ô `p`: `chord_melody`<br>• Còn lại: `villa_pattern` | • `calm`: `noviembre`<br>• `rally`: `brouwer_etude`<br>• `volatile`: `elogio_pizz`<br>• `selloff`: `sarabande` |
+| **Chương 4/4 `90–100 BPM`**<br>(`1M` I & IV, `3M` I, `1W`, `1Y`) | Như `1D` theo `mood` của chương / phiên | Như `1D` theo `mood` của chương / phiên | • Mở đầu (`calm`/`rally`): `preludio` (*La Catedral*)<br>• Finale (pedal cuối $\ge 10$ ô) hoặc `selloff`/`volatile`: `tremolo` | Như `1D` theo `mood` của chương / phiên | Như `1D` theo `mood` của chương / phiên |
+| **Chương chậm 3/4 `60–72 BPM`**<br>(`1M` II, `3M` II, `1Y` giữa — có `bridge`) | • A: `bach_sarabande`<br>• B (`bridge`): `bach_chaconne` | • A: `elegiaque`<br>• B (`bridge`): `cantabile` | • A: `andante`<br>• B (`bridge`): `thumb_cantabile` | • A: `chord_melody`<br>• B (`bridge`): `thumb_cantabile` | • A: `sarabande`<br>• B (`bridge`): `brouwer_etude` |
+| **Chương Scherzo 6/8 `108–120 BPM`**<br>(`1M` III, `1Y` khép — có `trio`) | • `rally`/`calm`: `bach_gigue` $\leftrightarrow$ `bach_fuga`/`bach_bourree`<br>• `volatile`: `bach_fuga` $\leftrightarrow$ `bach_gavotte`<br>• `selloff`: `bach_chaconne` $\leftrightarrow$ `bach_gavotte` | • `selloff`/thứ: `elegiaque` $\leftrightarrow$ `cantabile`<br>• `calm`: `cantabile` $\leftrightarrow$ `study`<br>• `volatile`: `mozart_var` $\leftrightarrow$ `elegiaque`/`cantabile`<br>• `rally`: `galop`/`study` | • Khác `calm`: A là `polca` (đa số `f`: `hemiola`), B (`trio`) là `vals`<br>• `calm`: A là `preludio`, B (`trio`) là `thumb_cantabile` | • A: `chord_melody` (`calm`/`p`) hoặc `villa_pattern`<br>• B (`trio`): `thumb_cantabile` | • A: theo `mood` (`noviembre` / `brouwer_etude` / `elogio_pizz` / `sarabande`)<br>• B (`trio`): đối lập (`brouwer_etude` $\leftrightarrow$ `noviembre`) |
+
+---
+
+### 3.1. Đường chạy cấp câu (`_framed(ctx) == False` → `_select_body`)
+
+Khi gọi `render_guitar_score` trực tiếp trong unit test mà không truyền section `intro`/`outro`, bộ chọn chạy theo từng câu (`Phrase`) như hợp đồng 3 phase gốc:
 
 Mọi ô thuộc `_PEDAL` (`intro`, `outro`, `warmup`, `cooldown`) được tách riêng theo từng ô trước bộ chọn câu: bass gốc ngân cả ô, Trung nghỉ, Cao ngân theo dữ liệu, không tremolo, không thánh ca, không dance (ở Phase 3, riêng `intro` và `warmup` của Barrios được điểm thêm motif chuông Preludio trên bè Cao khi còn `bell_budget`).
 

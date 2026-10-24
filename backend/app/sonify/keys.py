@@ -165,12 +165,20 @@ def movement_character(closes: Sequence[float], span: str) -> MovementCharacter:
     trend, vol_th = _SPAN_THRESHOLD[span]
     if len(closes) < 2 or closes[0] == 0 or min(closes) <= 0:
         return "calm"
+    low = min(closes)
+    high = max(closes)
     return_pct = (closes[-1] - closes[0]) / closes[0]
-    volatility = (max(closes) - min(closes)) / min(closes)
+    volatility = (high - low) / low
     if return_pct >= trend:
         return "rally"
     if return_pct <= -trend:
         return "selloff"
+    if span == "1D" and volatility >= 0.010 and high > low:
+        close_pos = (closes[-1] - low) / (high - low)
+        if close_pos >= 0.72:
+            return "rally"
+        if close_pos <= 0.28:
+            return "selloff"
     if volatility >= vol_th:
         return "volatile"
     return "calm"

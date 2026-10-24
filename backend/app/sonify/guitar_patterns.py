@@ -949,11 +949,11 @@ def _classic_macro(ctx: _Ctx, mood: str | None, bars: list[int]) -> str:
     if mood == "volatile":
         return "mozart_var"
     if mood == "rally":
-        # `character is None` is the plain daily study. An explicit rally, a
-        # per-bar rally, or an energetic span is Galop Op. 32 No. 6.
+        # `character is None` or a narrow rally (< 1.2% span) stays on the
+        # classical study. An energetic major rally dances Galop Op. 32 No. 6.
         if ctx.character is None and not _region_marked(ctx, bars, "rally"):
             return "study"
-        if ctx.character == "rally" or _region_marked(ctx, bars, "rally") or ctx.rel_span >= 0.012:
+        if ctx.rel_span >= 0.012 and ctx.mode != "minor":
             return "galop"
         return "study"
     return "study"
@@ -1014,9 +1014,9 @@ def _dominant_pattern(ctx: _Ctx, phrases: list[Phrase], bars: list[int]) -> str:
     if mood == "calm":
         return "preludio"
     if _framed(ctx) and ctx.kind == "4/4" and 90 <= ctx.bpm <= 100:
-        # Opening moderato (1M/3M I, 1W, 1Y opener) is La Catedral. The finale
-        # pedal at the end of the suite is Ultimo Tremolo.
-        if _is_suite_finale(ctx):
+        # Opening moderato (1M/3M I, 1Y opener) is La Catedral on rally/calm.
+        # The finale pedal, or a selloff/volatile session, is Ultimo Tremolo.
+        if _is_suite_finale(ctx) or mood in {"selloff", "volatile"}:
             return "tremolo"
         return "preludio"
     if (
@@ -1075,7 +1075,7 @@ def _contrast_pattern(ctx: _Ctx, primary: str, phrases: list[Phrase], bars: list
     ):
         return "vals"
     running = sum(1 for phrase in phrases if _running(ctx.melody, phrase))
-    if ctx.kind == "6/8" and phrases and running * 2 >= len(phrases):
+    if ctx.kind == "6/8" and mood != "calm" and phrases and running * 2 >= len(phrases):
         return "preludio" if primary == "vals" else "vals"
     return "andante" if primary == "thumb_cantabile" else "thumb_cantabile"
 
@@ -1233,10 +1233,10 @@ def _galop_bass_points(ctx: _Ctx) -> tuple[int, ...]:
 
 def _galop_inner_offsets(ctx: _Ctx) -> tuple[int, ...]:
     if ctx.kind == "4/4":
-        return (1, 2, 5, 6)
+        return (1, 3, 5, 7)
     if ctx.kind == "6/8":
         return (1, 2, 4, 5)
-    return (1, 2, 5)
+    return (1, 3, 5)
 
 
 def _stamp(events: list[NoteEvent], **flags) -> list[NoteEvent]:
@@ -1406,7 +1406,15 @@ def _mozart_bass_plan(ctx: _Ctx, root: int, fifth: int) -> tuple[tuple[int, int,
     return ((0, 4, root), (4, 4, fifth))
 
 
-def _mozart_inner(ctx: _Ctx, chord: Chord, sung: int, bass: int, previous: int | None) -> int | None:
+def _mozart_inner(
+    ctx: _Ctx,
+    chord: Chord,
+    sung: int,
+    bass: int,
+    previous: int | None,
+    *,
+    follow_leap: bool = False,
+) -> int | None:
     """A stepwise third or sixth under the melody. Skips fall back to the nearest chord tone."""
     parallel = _parallel(sung, bass, ctx.mode, ctx.mid_low, ctx.mid_high, ctx.semitones, previous)
     pool = [
@@ -1421,12 +1429,45 @@ def _mozart_inner(ctx: _Ctx, chord: Chord, sung: int, bass: int, previous: int |
         if parallel is not None and parallel in pool:
             return parallel
         return parallel or pool[len(pool) // 2]
+    if follow_leap and parallel is not None and parallel in pool and abs(parallel - previous) >= 3:
+        # Reach for a third/sixth that can be bridged across the gap in 1–2 scale steps.
+        reachable = [
+            tone
+            for tone in pool
+            if 3 <= abs(tone - previous) <= 5
+            and len(_mozart_bridge_notes(ctx, previous, tone, sung, bass)) in {1, 2}
+        ]
+        if parallel in reachable:
+            return parallel
+        if reachable:
+            return min(reachable, key=lambda tone: abs(tone - parallel))
     stepped = [tone for tone in pool if 0 < abs(tone - previous) <= 2]
     if stepped:
         return min(stepped, key=lambda tone: (abs(tone - previous), tone))
     if parallel is not None:
         return parallel
     return min(pool, key=lambda tone: (abs(tone - previous), tone))
+
+
+def _mozart_bridge_notes(
+    ctx: _Ctx,
+    previous: int,
+    tone: int,
+    sung: int,
+    bass: int,
+) -> list[int]:
+    """Scale steps strictly between `previous` and `tone` that fit the hand."""
+    direction = 1 if tone > previous else -1
+    steps: list[int] = []
+    cursor = previous
+    for _ in range(6):
+        nxt = _walk(cursor, direction, ctx.mode, ctx.mid_low, ctx.mid_high)
+        if nxt == cursor or (direction > 0 and nxt >= tone) or (direction < 0 and nxt <= tone):
+            break
+        if bass < nxt < sung and _playable([bass + ctx.semitones, nxt + ctx.semitones, sung + ctx.semitones]):
+            steps.append(nxt)
+        cursor = nxt
+    return steps
 
 
 def _render_mozart_var_bar(
@@ -1445,33 +1486,42 @@ def _render_mozart_var_bar(
         low.extend(_eighth_event(start + offset, min(length, ctx.epb - offset), pitch, ctx.epb, 3, _BASS))
     support: list[NoteEvent] = []
     previous: int | None = None
+    previous_offset: int | None = None
+    previous_melody: int | None = None
     for offset in _mozart_offsets(ctx):
         if offset >= ctx.epb:
             continue
         melody = _melody_at(ctx, start + offset)
         bass = _sounding_midi(low, start + offset, ctx.epb) or root
-        tone = _mozart_inner(ctx, chord, melody, bass, previous)
+        leapt = (
+            previous_offset is not None
+            and offset - previous_offset >= 2
+            and previous_melody is not None
+            and abs(melody - previous_melody) >= 4
+        )
+        tone = _mozart_inner(ctx, chord, melody, bass, previous, follow_leap=leapt)
         if tone is None:
             continue
         if (
             previous is not None
+            and previous_offset is not None
             and abs(tone - previous) >= 3
             and support
-            and abs(support[-1].duration_beats - 0.5) < 1e-6
             and support[-1].midi is not None
         ):
-            direction = 1 if tone > previous else -1
-            passing = _walk(previous, direction, ctx.mode, ctx.mid_low, ctx.mid_high)
-            held_eighth = start + int(round(support[-1].beat * 2))
-            sung_then = _melody_at(ctx, held_eighth)
-            bass_then = _sounding_midi(low, held_eighth, ctx.epb) or bass
-            if (
-                bass_then < passing < sung_then
-                and passing not in {tone, previous}
-                and _playable(
-                    [bass_then + ctx.semitones, passing + ctx.semitones, sung_then + ctx.semitones]
-                )
-            ):
+            gap_offset = offset - 1
+            has_gap = offset - previous_offset >= 2
+            bridge_eighth = start + (gap_offset if has_gap else previous_offset)
+            sung_then = _melody_at(ctx, bridge_eighth)
+            bass_then = _sounding_midi(low, bridge_eighth, ctx.epb) or bass
+            bridge = _mozart_bridge_notes(ctx, previous, tone, sung_then, bass_then)
+            if has_gap and bridge:
+                if len(bridge) == 1:
+                    support.extend(_eighth_event(bridge_eighth, 1, bridge[0], ctx.epb, 2, _INNER))
+                else:
+                    support.extend(_spell16(bridge_eighth * 2, 1, bridge[0], ctx.epb, 2, _INNER))
+                    support.extend(_spell16(bridge_eighth * 2 + 1, 1, bridge[1], ctx.epb, 2, _INNER))
+            elif not has_gap and bridge and abs(support[-1].duration_beats - 0.5) < 1e-6:
                 held = support[-1]
                 support[-1] = replace(held, duration_beats=0.25)
                 support.append(
@@ -1479,13 +1529,24 @@ def _render_mozart_var_bar(
                         held,
                         beat=held.beat + 0.25,
                         duration_beats=0.25,
-                        midi=passing,
+                        midi=bridge[0],
                         tie_start=False,
                         tie_stop=False,
                     )
                 )
+                if len(bridge) >= 2 and bass < bridge[1] < melody and _playable(
+                    [bass + ctx.semitones, bridge[1] + ctx.semitones, melody + ctx.semitones]
+                ):
+                    support.extend(_spell16((start + offset) * 2, 1, bridge[1], ctx.epb, 2, _INNER))
+                    support.extend(_spell16((start + offset) * 2 + 1, 1, tone, ctx.epb, 2, _INNER))
+                    previous = tone
+                    previous_offset = offset
+                    previous_melody = melody
+                    continue
         support.extend(_eighth_event(start + offset, 1, tone, ctx.epb, 2, _INNER))
         previous = tone
+        previous_offset = offset
+        previous_melody = melody
     support, low = _shape_accompaniment(ctx, support, low)
     part_lead = _sustain(ctx.melody, start, start + ctx.epb, ctx.epb, apex, phrase=phrase)
     return part_lead, support, low
@@ -3284,7 +3345,7 @@ def _punch(
     """Accent one attack and lift it. A Bartók slap also shortens the note."""
     punched: list[NoteEvent] = []
     for event in events:
-        if event.midi is None or _start16(event, epb) // 2 != eighth:
+        if event.midi is None or _start16(event, epb) != eighth * 2:
             punched.append(event)
             continue
         velocity = min(88, (event.velocity or _MELODY) + amount)
@@ -3564,7 +3625,7 @@ def _render_elogio_bar(ctx: _Ctx, bar: int) -> tuple[list[NoteEvent], list[NoteE
 
 def _sarabande_points(ctx: _Ctx) -> tuple[int, int]:
     epb = ctx.epb
-    accent = 2 if ctx.kind == "6/8" else min(2, epb - 1)
+    accent = 3 if ctx.kind == "6/8" else min(2, epb - 1)
     figure = max(epb // 2, accent + 1)
     if figure > epb:
         figure = epb
@@ -3639,10 +3700,11 @@ def _modal_figure(
     bass_midi: int,
     phrase: Phrase | None,
 ) -> list[NoteEvent]:
-    """Ornamental swarm over the second half. Endpoints stay on the price."""
+    """Ornamental swarm over the second half. Every step, including the seam, is <= 2 semitones."""
     del phrase
     epb = ctx.epb
-    begin = bar * epb + figure_at
+    bar_start = bar * epb
+    begin = bar_start + figure_at
     end = (bar + 1) * epb
     if begin >= end:
         return []
@@ -3650,21 +3712,50 @@ def _modal_figure(
     hi = min(ctx.treble_top, ctx.ceiling)
     if lo > hi:
         lo = ctx.treble_floor
+    accent, _fig = _sarabande_points(ctx)
+    open_pitch = max(lo, min(hi, _melody_at(ctx, bar_start)))
+    accent_pitch = max(lo, min(hi, _melody_at(ctx, bar_start + accent)))
+    prev_pitch = max(lo, min(hi, _melody_at(ctx, begin - 1)))
     start_pitch = max(lo, min(hi, _melody_at(ctx, begin)))
     end_pitch = max(lo, min(hi, _melody_at(ctx, end - 1)))
-    bar_open = _melody_at(ctx, bar * epb)
-    direction = -1 if end_pitch < bar_open or end_pitch < start_pitch else 1
+    direction = -1 if end_pitch < open_pitch or end_pitch < start_pitch else 1
     count = end - begin
-    room = max(0, count - 1) * 2
-    gap = end_pitch - start_pitch
-    sixteenths = abs(gap) > room
-    total_notes = count * 2 if sixteenths else count
-    line = _swarm_line(start_pitch, end_pitch, total_notes - 1, lo, hi, direction)
+    first_half = [max(lo, min(hi, _melody_at(ctx, bar_start + offset))) for offset in range(figure_at)]
+    first_half_ok = all(abs(right - left) <= 2 for left, right in zip(first_half, first_half[1:]))
+    pre_accent = [max(lo, min(hi, _melody_at(ctx, bar_start + offset))) for offset in range(accent + 1)]
+    pre_accent_ok = all(abs(right - left) <= 2 for left, right in zip(pre_accent, pre_accent[1:]))
+    sixteenths = False
+    origin16 = begin * 2
+    if (
+        first_half_ok
+        and abs(start_pitch - prev_pitch) <= 2
+        and abs(end_pitch - start_pitch) <= max(0, count - 1) * 2
+    ):
+        line = _swarm_line(start_pitch, end_pitch, count - 1, lo, hi, direction)
+    elif (
+        first_half_ok
+        and abs(start_pitch - prev_pitch) <= 2
+        and abs(end_pitch - start_pitch) <= max(0, count * 2 - 1) * 2
+    ):
+        sixteenths = True
+        line = _swarm_line(start_pitch, end_pitch, count * 2 - 1, lo, hi, direction)
+    elif first_half_ok and abs(end_pitch - prev_pitch) <= count * 4:
+        sixteenths = True
+        line = _swarm_line(prev_pitch, end_pitch, count * 2, lo, hi, direction)[1:]
+    else:
+        sixteenths = True
+        after_accent = epb * 2 - (accent * 2 + 1)
+        if pre_accent_ok and after_accent > 0 and abs(end_pitch - accent_pitch) <= after_accent * 2:
+            origin16 = (bar_start + accent) * 2 + 1
+            line = _swarm_line(accent_pitch, end_pitch, after_accent, lo, hi, direction)[1:]
+        else:
+            origin16 = bar_start * 2
+            line = _swarm_line(open_pitch, end_pitch, epb * 2 - 1, lo, hi, direction)
     events: list[NoteEvent] = []
     level = _MELODY
     for offset, pitch in enumerate(line):
         if sixteenths:
-            events.extend(_spell16(begin * 2 + offset, 1, pitch, epb, 1, level))
+            events.extend(_spell16(origin16 + offset, 1, pitch, epb, 1, level))
         else:
             events.extend(_eighth_event(begin + offset, 1, pitch, epb, 1, level))
         level = max(48, level - 1) if direction < 0 else min(_MELODY_APEX, level + 1)
@@ -3681,24 +3772,37 @@ def _render_sarabande_bar(
     start = bar * ctx.epb
     epb = ctx.epb
     accent, figure = _sarabande_points(ctx)
-    figure_at = figure if _sarabande_swarms(ctx, bar, figure) and figure < epb else epb
+    swarms = _sarabande_swarms(ctx, bar, figure) and figure < epb
+    figure_at = figure if swarms else epb
     root = _bass_at(ctx, chord, 0, start)
+    figure_events = _modal_figure(ctx, bar, figure_at, root, phrase) if swarms else []
+    sung = _melody_at(ctx, start + accent)
+    if figure_events:
+        accent16 = (start + accent) * 2
+        end16 = (start + max(accent + 1, figure_at)) * 2
+        covered = [
+            event.midi
+            for event in figure_events
+            if event.midi is not None and accent16 <= _start16(event, epb) < end16
+        ]
+        if covered:
+            sung = min(covered)
     fifth = _bass_at(ctx, chord, 2, start + accent)
+    if fifth >= sung:
+        fifth = _choose_bass(chord, 0, sung, ctx.bass_low, ctx.bass_high, ctx.semitones)
     low: list[NoteEvent] = []
     if accent > 0:
         low.extend(_eighth_event(start, accent, root, epb, 3, _BASS))
     low.extend(_eighth_event(start + accent, max(1, figure_at - accent), fifth, epb, 3, _BASS))
     if figure_at < epb:
         low.extend(_eighth_event(start + figure_at, epb - figure_at, root, epb, 3, _BASS))
-    sung = _melody_at(ctx, start + accent)
     tone = _color_inner(ctx, chord, sung, fifth, 0, None)
     support: list[NoteEvent] = []
-    if tone is not None:
+    if tone is not None and fifth < tone < sung:
         support.extend(_eighth_event(start + accent, max(1, figure_at - accent), tone, epb, 2, _INNER))
     support, low = _shape_accompaniment(ctx, support, low)
     low = _punch(low, start + accent, epb, amount=8)
     support = _punch(support, start + accent, epb, amount=8)
-    figure_events = _modal_figure(ctx, bar, figure_at, root, phrase) if figure_at < epb else []
     return support, low, accent, figure_events
 
 
@@ -5049,10 +5153,9 @@ def render_patterned_voices(
             if figure:
                 cuts.add(_start16(figure[0], epb) // 2)
             part_lead = _sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex, cuts, phrase_here)
-            part_lead = _punch(part_lead, bar * epb + accent_at, epb, amount=8)
             if figure:
-                figure_eighth = _start16(figure[0], epb) // 2
-                part_lead = _splice(part_lead, figure_eighth * 2, (bar + 1) * epb * 2, figure, epb)
+                part_lead = _splice(part_lead, _start16(figure[0], epb), (bar + 1) * epb * 2, figure, epb)
+            part_lead = _punch(part_lead, bar * epb + accent_at, epb, amount=8)
             lead.extend(part_lead)
             support.extend(part_support)
             low.extend(part_low)
