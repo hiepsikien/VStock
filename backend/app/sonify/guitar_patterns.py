@@ -959,9 +959,27 @@ def _classic_macro(ctx: _Ctx, mood: str | None, bars: list[int]) -> str:
     return "study"
 
 
+def _melody_activity(ctx: _Ctx, bars: list[int]) -> float:
+    """Fraction of eighths whose placed melody pitch changes."""
+    if not bars or not ctx.melody:
+        return 0.0
+    changes = 0
+    total = 0
+    for bar in bars:
+        start = bar * ctx.epb
+        end = min(len(ctx.melody), (bar + 1) * ctx.epb)
+        for eighth in range(max(start, 1), end):
+            total += 1
+            if ctx.melody[eighth] != ctx.melody[eighth - 1]:
+                changes += 1
+    if total <= 0:
+        return 0.0
+    return changes / total
+
+
 def _daily_barrios_pattern(ctx: _Ctx, mood: str | None, phrases: list[Phrase], bars: list[int]) -> str:
     """1D at 120 BPM. Moderate days sing Preludio; a flat synthetic line still tremolos."""
-    activity = _raw_activity(ctx, bars)
+    activity = min(_raw_activity(ctx, bars), _melody_activity(ctx, bars))
     if mood == "volatile":
         return "choro" if activity >= 0.35 else "tremolo"
     if mood in {"rally", "selloff"}:
@@ -992,13 +1010,13 @@ def _dominant_pattern(ctx: _Ctx, phrases: list[Phrase], bars: list[int]) -> str:
             return "chord_melody"
         return "villa_pattern"
     if ctx.bpm < BARRIOS_TREMOLO_MIN_BPM:
-        return "preludio" if mood == "calm" else "andante"
+        return "andante"
     if mood == "calm":
         return "preludio"
     if _framed(ctx) and ctx.kind == "4/4" and 90 <= ctx.bpm <= 100:
         # Opening moderato (1M/3M I, 1W, 1Y opener) is La Catedral. The finale
-        # pedal, or a volatile wide span at the same tempo, is Ultimo Tremolo.
-        if _is_suite_finale(ctx) or (mood == "volatile" and ctx.rel_span >= 0.016):
+        # pedal at the end of the suite is Ultimo Tremolo.
+        if _is_suite_finale(ctx):
             return "tremolo"
         return "preludio"
     if (
@@ -3546,7 +3564,7 @@ def _render_elogio_bar(ctx: _Ctx, bar: int) -> tuple[list[NoteEvent], list[NoteE
 
 def _sarabande_points(ctx: _Ctx) -> tuple[int, int]:
     epb = ctx.epb
-    accent = 3 if ctx.kind == "6/8" else min(2, epb - 1)
+    accent = 2 if ctx.kind == "6/8" else min(2, epb - 1)
     figure = max(epb // 2, accent + 1)
     if figure > epb:
         figure = epb
@@ -3569,16 +3587,21 @@ def _sarabande_swarms(ctx: _Ctx, bar: int, figure_at: int) -> bool:
 
 
 def _swarm_line(start: int, arrival: int, steps: int, lo: int, hi: int, direction: int) -> list[int]:
-    """Stepwise pitches from `start` to `arrival`. Each move is 1 or 2 semitones."""
+    """Stepwise pitches into `arrival`. Every move is strictly 1 or 2 semitones."""
     if steps <= 0:
         return [arrival]
+    max_reach = steps * 2
+    if abs(arrival - start) > max_reach:
+        # Clamp the entry of the run within `max_reach` of `arrival` so no step
+        # ever exceeds 2 semitones, even across a wide 6/8 or 4/4 drop.
+        start = max(lo, min(hi, arrival - (max_reach if arrival > start else -max_reach)))
     line = [start]
     cursor = start
     for index in range(steps):
         left = steps - index
         remaining = arrival - cursor
         if left == 1:
-            step = remaining
+            step = max(-2, min(2, remaining))
         elif remaining == 0:
             nudge = direction if direction in (1, -1) else 1
             step = 0
@@ -3599,9 +3622,8 @@ def _swarm_line(start: int, arrival: int, steps: int, lo: int, hi: int, directio
                 step = toward
         else:
             toward = 1 if remaining > 0 else -1
-            max_step = max(2, (abs(remaining) + left - 1) // left)
-            min_needed = max(1, abs(remaining) - (left - 1) * max_step)
-            size = min(max_step, max(min_needed, 2 if abs(remaining) > left else 1))
+            min_needed = max(1, abs(remaining) - (left - 1) * 2)
+            size = min(2, max(min_needed, 2 if abs(remaining) > left else 1))
             step = toward * size
         nxt = max(lo, min(hi, cursor + step))
         line.append(nxt)

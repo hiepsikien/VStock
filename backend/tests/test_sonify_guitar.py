@@ -2757,6 +2757,16 @@ def test_sarabande_accents_beat_two_and_swarms_when_the_line_rises() -> None:
     assert max(steep_diffs) <= 2 and all(diff >= 1 for diff in steep_diffs)
     _assert_engraved(steep_score, "brouwer")
 
+    # Even a full-window drop in 6/8 or 4/4 keeps every swarm step <= 2 semitones and lands on the close.
+    cliff_68 = [79, 76, 74, 79, 69, 60]
+    cliff_score = _brouwer_pattern(cliff_68, character="selloff", meter=METER_68)
+    cliff_later = [note.midi for note in _attacks(cliff_score.lead, 0) if note.midi is not None and note.beat >= 1.5 - 1e-6]
+    cliff_diffs = [abs(right - left) for left, right in zip(cliff_later, cliff_later[1:])]
+    assert len(cliff_later) == 6
+    assert cliff_later[-1] == 60
+    assert max(cliff_diffs) <= 2 and all(diff >= 1 for diff in cliff_diffs)
+    _assert_engraved(cliff_score, "brouwer")
+
     slow = _brouwer_pattern([72] * 8, character="rally", bpm=72)
     assert any(note.accent and abs(note.beat - 1.0) < 1e-6 for note in _attacks(slow.low, 0))
     assert [round(note.beat, 2) for note in _attacks(slow.low, 0)] == [0.0, 1.0]

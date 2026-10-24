@@ -25,7 +25,7 @@ GUITAR_BPM = {"bach": 96, "classic": 88, "villa": 100, "barrios": 120, "brouwer"
 # Listening tests: a tremolo only reads as a sung line from 90 BPM up, sits
 # best around 120, and can run to 140. A Barrios movement under that floor
 # is not sped up and gets no tremolo at all: it keeps its slow tempo and
-# sings as arpeggio instead. The daily tempo is the 120 middle of the range.
+# sings Andante Religioso (with Julia Florida thumb_cantabile in the bridge).
 BARRIOS_TREMOLO_MIN_BPM = 90
 
 

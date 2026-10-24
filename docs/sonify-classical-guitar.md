@@ -1,31 +1,33 @@
-# Guitar cổ điển: một nhạc cụ, ba bè, năm họ pattern
+# Guitar cổ điển: một nhạc cụ, ba bè, năm đại sư
 
-> **Trạng thái** (2026-10-24): một tài liệu. Phần nền và dialect Villa đã chạy trong code. Ba phase bên dưới là phần còn lại. Mỗi phase nghe được một mình.
+> **Trạng thái** (2026-10-24): **Đã hoàn thành toàn bộ Phase 1–3, kiến trúc Macro "One-Pattern Flow" (`_assign_macro`), khung Intro/Outro riêng theo tác gia (`guitar_frame.py`), và mở rộng đủ 5 Đại Sư (`Bach | Sor | Barrios | Lobos | Brouwer`).**
 >
-> Pattern có cửa tempo riêng. Tremolo chỉ hợp lệ từ 90 đến 140 BPM, rõ nhất ở 100–120, và luôn là lưới đầy `p–a–m–i` trên từng nốt đen. Dưới 90, cách hát là thánh ca của nhà đó. Chương không tăng tempo để cứu một pattern.
+> - **Đường chạy thực tế (`_framed(ctx) == True` — mọi bài `1D`, `1W`, `1M`, `3M`, `1Y` do `render()` tạo)**:
+>   - Đi qua **bộ chọn Macro (`_assign_macro` / `_dominant_pattern` / `_contrast_pattern`)**: bản ngắn `1D` khóa **1 pattern chủ đạo xuyên suốt thân bài** (Monothematic); các chương dài có `trio`/`bridge` đi theo cấu trúc **A–B–A** (phần A giữ 1 pattern chính, phần B chuyển sang 1 pattern tương phản rồi quay về A); bản tuần `1W` khóa 1 pattern mỗi phiên.
+>   - Vùng `intro`/`warmup` và `cooldown`/`outro` được thay bằng **khung Intro/Outro 2 ô & 4 ô riêng của từng tác gia** (`guitar_frame.py`), nối vào thân bài bằng nốt Bass pickup và giảm tốc kết cấu nửa ô cuối (`_relax_texture` / `_smooth_boundaries`).
+>   - Với Barrios ở bài có khung (`_catedral_preludio(ctx)`), pattern `preludio` chạy đúng lưới **16 móc kép đan xen nguyên bản của *La Catedral — Preludio Saudade*** (mỗi khung 2 phách gồm 2 nốt giai điệu *canto* ở móc kép `0` và `6` đan với sóng chữ V 6 móc kép `1, 2, 3, 4, 5, 7` ở bè Trung, tắt chèn chuông/scale đè lên *canto*).
+> - **Đường chạy unit-test không khung (`_framed(ctx) == False` — các fixture truyền câu rời không có section `intro`/`outro`)**:
+>   - Giữ nguyên bộ chọn từng câu (`_select_body`), `_taper`, `_transitions` và bản `preludio` móc đơn có chuông của Phase 1–3 để bảo toàn toàn bộ các unit test cấp câu.
 >
-> **Liên kết**: [`docs/sonify-explain.md`](./sonify-explain.md), [`docs/sonify-instrument-sets.md`](./sonify-instrument-sets.md), [`docs/sonify-long-form.md`](./sonify-long-form.md).
+> **Liên kết**: [`docs/sonify-explain.md`](./sonify-explain.md), [`docs/sonify-instrument-sets.md`](./sonify-instrument-sets.md), [`docs/sonify-long-form.md`](./sonify-long-form.md), [`docs/sonify-guitar-improvement-plan.md`](./sonify-guitar-improvement-plan.md), [`docs/sonify-la-catedral-preludio.md`](./sonify-la-catedral-preludio.md), [`docs/sonify-guitar-bach-plan.md`](./sonify-guitar-bach-plan.md).
 
 ---
 
-## Đã xong
+## Đã hoàn thành trong code
 
-Khung nghe được hôm nay, trong `backend/app/sonify/guitar.py` và các đường đã nối.
+Khung đang chạy trong `backend/app/sonify/guitar.py`, `backend/app/sonify/guitar_patterns.py`, `backend/app/sonify/guitar_frame.py` và `backend/app/sonify/harmony.py`:
 
-- Variant `guitar`, một part nylon `Acoustic Nylon`, ba voice trên một khuông, `<backup>` giữa các voice, `octave-change -1` cùng `written_shift +12`. UI: **Sor**, **Barrios**, **Lobos**. Hàng guitar của minimalist là **Guitar thép**.
-- BPM bản ngày: Sor 88, Villa 100, Barrios 120. Bản dài giữ số ô và BPM của giao hưởng, hoán 6/8 với 3/4. Không swing, không rubato, không đổi nhịp giữa chương.
-- Nén đường giá vào cửa sổ bè Cao, dịch {+12, 0, −12, −24}, rồi lượng tử hóa lại. Biên viết guitar dịch cả hai chiều theo giọng nhà.
-- Dialect **Villa đã đăng ký**. Sor và Barrios còn `COMMON`. Vòng Viterbi gọi `transition` cho mọi cặp; `None` thì Markov cũ chạy; số dương không nhân 2.
-- Ba texture thô, **chưa có bộ chọn theo câu**:
-  - Sor, Villa, và Barrios dưới 90 BPM: arpeggio móc đơn. Villa cuộn dày hơn và được nhấn 3+3+2 tối đa hai ô `volatile` ở `mf`/`f`, meter 4/4.
-  - Barrios từ 90 BPM trở lên: **tremolo cả bài**, trừ ô pedal. Lưới đã khóa bởi test: mỗi nốt đen là một trùm bốn móc kép cùng cao độ; 6/8 có ba trùm trong ô (ngón cái ở đầu mỗi nốt đen, không gom theo phách chấm); mọi móc kép đều hát. Ngón cái 58 đánh gốc và quãng 5 cùng lúc, ngân hết nốt đen, không nhường phách cho bè Trung. Bè lặp `a m i a` = 52, 55, 54, 52. Ô đổi hợp âm: nốt màu Trung vào cùng đầu ô, ngón cái vẫn giữ gốc.
-  - Dưới 90: giữ nguyên BPM, `divisions = 2`, không tremolo. Hiện vẫn là arpeggio chung, chưa phải thánh ca.
-- Ép ngón tối đa 4% số lần đánh giai điệu, chỉ vào nốt nhấn sau câu mở, không ép trên móc tremolo.
-- Ô pedal: bass gốc ngân, không tremolo.
+- Variant `guitar`, một part nylon `Acoustic Nylon`, ba voice trên một khuông, `<backup>` giữa các voice, `octave-change -1` cùng `written_shift +12`.
+- **UI & 5 Đại Sư (`ENSEMBLE_ROWS.guitar`)**: **Bach** (`bach`, 96 BPM), **Sor** (`classic`, 88 BPM), **Barrios** (`barrios`, 120 BPM), **Lobos** (`villa`, 100 BPM), **Brouwer** (`brouwer`, 108 BPM). Hàng guitar của minimalist là **Guitar thép**.
+- **5 Dialect hòa âm riêng biệt (`harmony.py`)**:
+  - `BachDialect` (`bach`): Vòng quãng 5 liên hoàn Trưởng/Thứ, chuỗi Át phụ & Giảm bảy, mở cửa `Bb / Bb7 (bVII → III)` và `D7 (V7/V)` ở giọng Thứ.
+  - `SorDialect` (`classic` khi `variant="guitar"`): Hòa âm Cổ điển thuần khiết (hợp âm ba, `G7`, `Dm7`, Át phụ `D7, E7, A7, C7, F#dim7`; cấm `Cmaj7, Fmaj7, Am7, Em7, Cm7, Fm7, Ebmaj7, Abmaj7`).
+  - `BarriosDialect` (`barrios`): Vòng quãng 5 thứ (`Bb, Bb7, D7`), sext tăng Đức `Ab+6` một ô trước `G/G7`, và chuỗi Át trưởng `E7 → A7 → D7 → G7`.
+  - `VillaDialect` (`villa`): Hợp âm treo `sus2, sus4, 7sus4`, `add9 / madd9`, và trượt song song `Csus2 → Bbsus2`, `Fsus2 → Ebsus2`.
+  - `BrouwerDialect` (`brouwer`): Kết hợp trượt hợp âm treo `sus2/add9` (*Estudio No. 6*) với vòng modal Afro-Cuban `Cm ↔ Bb/Bb7 → Eb/Ebmaj7 → G7sus4 → Cm` (*Un Día de Noviembre*).
+- **Chương dưới 90 BPM của Barrios**: giữ nguyên BPM chậm (`60, 66, 72`), hát thánh ca **`andante`** (*Andante Religioso*) ở phần A và **`thumb_cantabile`** (*Julia Florida*) ở đoạn giữa `bridge` (không tremolo, không kéo nhanh tempo).
 
-Chỗ code còn lệch so với hợp đồng bên dưới: Barrios nhanh tremolo mọi câu, kể cả câu nốt chạy và câu mở. Chương chậm hát bằng arpeggio, chưa hát bằng thánh ca.
-
-## Sẽ làm
+## Lịch sử 3 Phase nền tảng (áp dụng trực tiếp cho bộ chọn cấp câu `_select_body`)
 
 ### Phase 1 — Bộ chọn, và hai cách hát
 
