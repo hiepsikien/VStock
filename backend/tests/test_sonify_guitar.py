@@ -2266,6 +2266,79 @@ def _attack_onsets(voice, bar: int) -> list[float]:
     )
 
 
+_CATEDRAL_SUPPORT_44 = [0.25, 0.5, 0.75, 1.0, 1.25, 1.75, 2.25, 2.5, 2.75, 3.0, 3.25, 3.75]
+_CATEDRAL_LEAD_44 = [(0.0, 1.5), (1.5, 0.5), (2.0, 1.5), (3.5, 0.5)]
+
+
+def _assert_catedral_wave(notes: list[NoteEvent]) -> None:
+    """V of three inner tones, or a two-tone line whose neighbours always change."""
+    pitches = [note.midi for note in notes if note.midi is not None]
+    assert len(pitches) == 6
+    if len(set(pitches[:5])) >= 3:
+        upper, mid, low, mid_again, upper_again, last = pitches
+        assert low < mid < upper
+        assert mid_again == mid and upper_again == upper
+        assert last in {upper, mid}
+    elif len(set(pitches)) >= 2:
+        assert all(left != right for left, right in zip(pitches, pitches[1:]))
+
+
+def _assert_catedral_44(score, bar: int, *, pitches: list[int] | None = None) -> None:
+    lead = _attacks(score.lead, bar)
+    assert [(round(note.beat, 2), round(note.duration_beats, 2)) for note in lead] == _CATEDRAL_LEAD_44
+    if pitches is not None:
+        assert [note.midi for note in lead] == pitches
+    support = _attacks(score.support, bar)
+    assert [round(note.beat, 2) for note in support] == _CATEDRAL_SUPPORT_44
+    assert all(abs(note.duration_beats - 0.25) < 1e-9 for note in support)
+    onsets = sorted({round(note.beat, 2) for note in (*lead, *support)})
+    assert onsets == [index * 0.25 for index in range(16)]
+    _assert_catedral_wave(support[:6])
+    _assert_catedral_wave(support[6:])
+    for beat in (0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75):
+        sung = _covering(score.lead, bar, beat)
+        inner = _covering(score.support, bar, beat)
+        bass = _covering(score.low, bar, beat)
+        assert sung is not None and inner is not None and bass is not None
+        assert sung.midi is not None and inner.midi is not None and bass.midi is not None
+        assert bass.midi < inner.midi < sung.midi
+    downbeats = [note for note in lead if round(note.beat, 2) in {0.0, 2.0}]
+    assert downbeats and all(note.tenuto for note in downbeats)
+    answers = [note for note in lead if round(note.beat, 2) in {1.5, 3.5}]
+    assert answers and all(not note.tenuto for note in answers)
+
+
+def _catedral_score(line: list[int], *, meter=METER_44, bpm: int = 96):
+    """Intro and outro around a calm Barrios body, so the body is framed Preludio."""
+    epb = meter.eighths_per_bar
+    frame = 2
+    body_bars = 4
+    phrases = (
+        _held(0, frame * epb, 67),
+        _from_notes(frame * epb, line * body_bars),
+        _held((frame + body_bars) * epb, frame * epb, 67),
+    )
+    total = frame + body_bars + frame
+    kinds = {
+        bar: ("intro" if bar < frame else "outro" if bar >= frame + body_bars else "phrase")
+        for bar in range(total)
+    }
+    sections = (
+        FormSection(0, frame, "intro", 0),
+        FormSection(frame, frame + body_bars, "phrase", 0),
+        FormSection(frame + body_bars, total, "outro", 0),
+    )
+    return _guitar(
+        phrases,
+        ensemble="barrios",
+        bpm=bpm,
+        meter=meter,
+        character="calm",
+        kinds=kinds,
+        sections=sections,
+    )
+
+
 def test_suite_movements_use_preludio_dances_tremolo_and_villa_chorale() -> None:
     opening = _suite(0, "barrios")
     assert opening.bpm == 96 and opening.divisions == 4
@@ -2276,6 +2349,8 @@ def test_suite_movements_use_preludio_dances_tremolo_and_villa_chorale() -> None
         and len(_attack_onsets(opening.support, bar)) >= 8
     ]
     assert len(ringing) >= 10
+    for bar in ringing:
+        _assert_catedral_44(opening, bar)
 
     moderate = [Bar(close=100 + (index % 9) * 0.1, volume=1000 + index) for index in range(48)]
     day = render(moderate, title="Guitar", variant="guitar", ensemble="barrios", character="rally")
@@ -2313,6 +2388,77 @@ def test_suite_movements_use_preludio_dances_tremolo_and_villa_chorale() -> None
     assert 0.0 in _attack_onsets(slow.lead, 12)
     assert 0.0 not in _attack_onsets(slow.lead, 48)
     assert _attack_onsets(slow.lead, 48) == _attack_onsets(slow.support, 48) == [1.0, 2.0]
+
+
+def test_la_catedral_preludio_interlocks_two_high_melody_notes_with_sixteenth_arpeggio() -> None:
+    # Strong beats stay chord tones so quantize leaves them. The other canto
+    # notes are the 4th eighth of each 2-beat cell (index 3 and index 7).
+    line = [72, 69, 67, 74, 76, 74, 72, 72]
+    score = _catedral_score(line)
+    assert score.divisions == 4
+    for bar in (2, 3, 4, 5):
+        _assert_catedral_44(score, bar, pitches=[72, 74, 76, 72])
+        support = _attacks(score.support, bar)
+        assert {note.midi % 12 for note in support if note.midi is not None} <= {0, 4, 7}
+        canto = _covering(score.lead, bar, 0.25)
+        inner = _covering(score.support, bar, 0.25)
+        assert canto is not None and inner is not None
+        assert canto.velocity is not None and inner.velocity is not None
+        assert canto.velocity > inner.velocity
+    # The pedal still rings for two bars. The last body bar keeps the wave
+    # under the pickup bass.
+    assert _onset_beats(score.low, 2) == [0.0]
+    assert all(note.tie_stop for note in score.low if note.bar == 3 and note.midi is not None)
+    assert 3.75 in _onsets(score.support, 5)
+    assert_playable(score, C_KEY, "barrios_preludio")
+    score_to_musicxml(score)
+
+    # 3/4 keeps the 8-sixteenth cell, then one descending group on beat 3.
+    three = _catedral_score([72, 69, 67, 74, 76, 74], meter=METER_34)
+    for bar in (2, 3):
+        lead = _attacks(three.lead, bar)
+        assert [(round(note.beat, 2), round(note.duration_beats, 2)) for note in lead] == [
+            (0.0, 1.5),
+            (1.5, 0.5),
+            (2.0, 1.0),
+        ]
+        assert [note.midi for note in lead] == [72, 74, 76]
+        support = _attacks(three.support, bar)
+        assert [round(note.beat, 2) for note in support] == [
+            0.25,
+            0.5,
+            0.75,
+            1.0,
+            1.25,
+            1.75,
+            2.25,
+            2.5,
+            2.75,
+        ]
+        assert all(abs(note.duration_beats - 0.25) < 1e-9 for note in support)
+        onsets = sorted({round(note.beat, 2) for note in (*lead, *support)})
+        assert onsets == [index * 0.25 for index in range(12)]
+        _assert_catedral_wave(support[:6])
+        tail = [note.midi for note in support[6:] if note.midi is not None]
+        assert tail[0] >= tail[1] >= tail[2]
+        if len(set(tail)) >= 3:
+            assert tail[0] > tail[1] > tail[2]
+    assert_playable(three, C_KEY, "barrios_preludio")
+    score_to_musicxml(three)
+
+    opening = _suite(0, "barrios")
+    assert opening.bpm == 96 and opening.divisions == 4
+    pure = list(range(8, 40))
+    for bar in pure:
+        _assert_catedral_44(opening, bar)
+    waved = sum(
+        1
+        for bar in pure
+        if len({note.midi for note in _attacks(opening.support, bar)[:5] if note.midi is not None}) >= 3
+    )
+    assert waved >= 1
+    assert_playable(opening, C_KEY, "barrios_preludio")
+    score_to_musicxml(opening)
 
 
 def _brouwer_pattern(melody: list[int], **kwargs):
