@@ -1366,8 +1366,7 @@ def _apply_campanella(
             if not bass < event.midi < sung:
                 updated.append(event)
                 continue
-            if _playable([bass + ctx.semitones, sung + ctx.semitones]):
-                pair = [bass + ctx.semitones, *pair]
+            pair = [bass + ctx.semitones, *pair]
         if event.midi == sung or not _playable(pair):
             updated.append(event)
             continue
@@ -1700,14 +1699,11 @@ def _step_playable_and_ordered(
     bass = [note.midi for note in low if note.midi is not None and _covers(note, step16, ctx.epb)]
     highs = [note.midi for note in lead if note.midi is not None and _covers(note, step16, ctx.epb)]
     if bass and max(bass) >= pitch:
-        if not (len(bass) > 1 and min(bass) < pitch and max(bass) + ctx.semitones <= 53):
-            return False
+        return False
     if highs and pitch >= min(highs):
         return False
-    outer = [note + ctx.semitones for note in (*bass, *highs)]
-    if not _playable(outer):
-        return True
-    return _playable([pitch + ctx.semitones, *outer])
+    sounding = [pitch, *bass, *highs]
+    return _playable([note + ctx.semitones for note in sounding])
 
 
 def _valid_prefix_dur(
@@ -1726,6 +1722,34 @@ def _valid_prefix_dur(
     if valid < dur and valid >= 2 and when % 2 == 0 and dur % 2 == 0:
         valid = (valid // 2) * 2
     return valid
+
+
+def _fallback_inner(
+    ctx: _Ctx,
+    chord: Chord,
+    sung: int,
+    bass: int,
+) -> int | None:
+    for step_idx in range(4):
+        cand = _choose_inner(chord, sung, bass, ctx.mid_low, ctx.mid_high, ctx.semitones, False, step_idx)
+        if cand is not None and bass < cand < sung and _playable(
+            [bass + ctx.semitones, cand + ctx.semitones, sung + ctx.semitones]
+        ):
+            return cand
+    for open_pitch in (64, 59, 55, 50):
+        written = open_pitch - ctx.semitones
+        if (
+            ctx.mid_low <= written <= ctx.mid_high
+            and bass < written < sung
+            and _playable([bass + ctx.semitones, written + ctx.semitones, sung + ctx.semitones])
+        ):
+            return written
+    for note in range(min(ctx.mid_high, sung - 1), max(ctx.mid_low, bass + 1) - 1, -1):
+        if _on_scale(note, ctx.mode) and _playable(
+            [bass + ctx.semitones, note + ctx.semitones, sung + ctx.semitones]
+        ):
+            return note
+    return None
 
 
 def _repair(ctx: _Ctx, lead: list[NoteEvent], support: list[NoteEvent], low: list[NoteEvent]) -> tuple[list, list, list]:
@@ -1747,7 +1771,9 @@ def _repair(ctx: _Ctx, lead: list[NoteEvent], support: list[NoteEvent], low: lis
             continue
         bass = _sounding_midi(low, when // 2, ctx.epb) or ctx.bass_low
         sung = _sounding_midi(lead, when // 2, ctx.epb) or ctx.treble_top
-        tone = _choose_inner(ctx.chord(event.bar), sung, bass, ctx.mid_low, ctx.mid_high, ctx.semitones, False, 0)
+        tone = _fallback_inner(ctx, ctx.chord(event.bar), sung, bass)
+        if tone is None:
+            tone = _choose_inner(ctx.chord(event.bar), sung, bass, ctx.mid_low, ctx.mid_high, ctx.semitones, False, 0)
         if ctx.ensemble == "bach":
             if tone is not None and _valid_prefix_dur(tone, when, dur, lead, low, ctx) == dur:
                 repaired.append(replace(event, midi=tone))
@@ -1761,6 +1787,14 @@ def _repair(ctx: _Ctx, lead: list[NoteEvent], support: list[NoteEvent], low: lis
                 continue
             if tone_dur > 0:
                 repaired.extend(_spell16(when, tone_dur, tone, ctx.epb, 2, event.velocity, event.accent))
+                continue
+            if (
+                tone != event.midi
+                and bass < tone < sung
+                and not _playable([bass + ctx.semitones, sung + ctx.semitones])
+                and _valid_prefix_dur(tone, when, dur, lead, [], ctx) == dur
+            ):
+                repaired.append(replace(event, midi=tone))
                 continue
         if valid_dur > 0:
             repaired.extend(_spell16(when, valid_dur, event.midi, ctx.epb, 2, event.velocity, event.accent))

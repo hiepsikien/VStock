@@ -3599,28 +3599,43 @@ def test_barrios_mozart_brouwer_and_villa_feedback_regressions() -> None:
         chords={0: C},
     )
     arch_attacks = [note for note in _attacks(arch_score.lead, 0) if note.midi is not None]
-    assert any(abs(note.beat - 0.5) < 1e-6 and note.midi == 72 for note in arch_attacks)
-    from_peak = [note.midi for note in arch_attacks if note.beat >= 0.5 - 1e-6 and note.midi is not None]
-    assert max(from_peak) == 72 and from_peak[-1] == 67
-    assert max(abs(right - left) for left, right in zip(from_peak, from_peak[1:])) <= 2
+    arch_midis = [note.midi for note in arch_attacks if note.midi is not None]
+    assert max(arch_midis) == 72
+    assert min(arch_midis) >= 60
+    assert arch_midis[-1] == 67
+    assert any(note.midi == 72 and note.beat < 2.0 - 1e-6 for note in arch_attacks)
+    assert max(abs(right - left) for left, right in zip(arch_midis, arch_midis[1:])) <= 2
+    assert all(1 <= abs(right - left) <= 2 for left, right in zip(arch_midis, arch_midis[1:]))
 
-    # 4. Villa-Lobos: campanella rings across the thumb's 5th at beat 2.0 (eighth 3 -> 4).
-    villa_line = [64, 65, 67, 69, 67, 65, 64, 62]
-    villa_etude = _pattern_score(
-        villa_line,
-        (_joined(0, villa_line),),
-        ensemble="villa",
-        bpm=100,
-        character="rally",
-        bands={0: "mf"},
-        chords={0: C},
-    )
-    campanella_notes = [
-        note for note in _attacks(villa_etude.support, 0) if note.duration_beats >= 1.0 - 1e-6
-    ]
-    assert len(campanella_notes) >= 1
-    assert any(abs(note.beat - 1.5) < 1e-6 for note in campanella_notes)
-    _assert_engraved(villa_etude, "villa_pattern")
+    # 4. Villa-Lobos: campanella rings across the thumb's 5th at beat 2.0 (eighth 3 -> 4),
+    # and all three voices at beat 2.0 fit one hand position (`_playable`) even on high melodies.
+    for villa_line in (
+        [64, 65, 67, 69, 67, 65, 64, 62],
+        [67, 69, 71, 72, 74, 72, 71, 69],
+    ):
+        villa_etude = _pattern_score(
+            villa_line,
+            (_joined(0, villa_line),),
+            ensemble="villa",
+            bpm=100,
+            character="rally",
+            bands={0: "mf"},
+            chords={0: C},
+        )
+        campanella_notes = [
+            note for note in _attacks(villa_etude.support, 0) if note.duration_beats >= 1.0 - 1e-6
+        ]
+        assert len(campanella_notes) >= 1
+        ringing_inner = next(note for note in campanella_notes if abs(note.beat - 1.5) < 1e-6)
+        bass_at_two = next(
+            note for note in _pitched(villa_etude.low, 0) if note.beat <= 2.0 < note.beat + note.duration_beats
+        )
+        lead_at_two = next(
+            note for note in _pitched(villa_etude.lead, 0) if note.beat <= 2.0 < note.beat + note.duration_beats
+        )
+        assert bass_at_two.midi is not None and ringing_inner.midi is not None and lead_at_two.midi is not None
+        assert bass_at_two.midi < ringing_inner.midi < lead_at_two.midi
+        _assert_engraved(villa_etude, "villa_pattern")
 
     # 5. Villa-Lobos: unframed `_select_body` and slow 72 BPM movements also sing `thumb_cantabile` on `selloff`.
     unframed_selloff = _pattern_score(

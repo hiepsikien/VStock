@@ -355,28 +355,27 @@ def _modal_figure(
     pre_accent = [max(lo, min(hi, _melody_at(ctx, bar_start + offset))) for offset in range(accent + 1)]
     pre_accent_ok = all(abs(right - left) <= 2 for left, right in zip(pre_accent, pre_accent[1:]))
     # If the first half opens with a leap onto an arch plateau (e.g. [60, 72, 72, 72] -> 67),
-    # keep the early peak at its original eighth (`beat = 0.5`) instead of dragging it to `figure_at`.
+    # reach the plateau pitch stepwise before continuing the swarm so every step across the bar is <= 2.
     plateau_after_open = len(first_half) >= 2 and all(
         abs(right - left) <= 2 for left, right in zip(first_half[1:], first_half[2:])
     )
     arch_reversal = (start_pitch - open_pitch) * (end_pitch - start_pitch) < 0
-    keep_first_half = first_half_ok or (plateau_after_open and arch_reversal)
     sixteenths = False
     origin16 = begin * 2
     if (
-        keep_first_half
+        first_half_ok
         and abs(start_pitch - prev_pitch) <= 2
         and abs(end_pitch - start_pitch) <= max(0, count - 1) * 2
     ):
         line = _swarm_line(start_pitch, end_pitch, count - 1, lo, hi, direction)
     elif (
-        keep_first_half
+        first_half_ok
         and abs(start_pitch - prev_pitch) <= 2
         and abs(end_pitch - start_pitch) <= max(0, count * 2 - 1) * 2
     ):
         sixteenths = True
         line = _swarm_line(start_pitch, end_pitch, count * 2 - 1, lo, hi, direction)
-    elif keep_first_half and abs(end_pitch - prev_pitch) <= count * 4:
+    elif first_half_ok and abs(end_pitch - prev_pitch) <= count * 4:
         sixteenths = True
         line = _swarm_line(prev_pitch, end_pitch, count * 2, lo, hi, direction)[1:]
     else:
@@ -385,6 +384,22 @@ def _modal_figure(
         if pre_accent_ok and after_accent > 0 and abs(end_pitch - accent_pitch) <= after_accent * 2:
             origin16 = (bar_start + accent) * 2 + 1
             line = _swarm_line(accent_pitch, end_pitch, after_accent, lo, hi, direction)[1:]
+        elif plateau_after_open and arch_reversal and figure_at > 0:
+            peak_steps = max(1, min(figure_at * 2, (abs(start_pitch - open_pitch) + 1) // 2))
+            rest_steps = max(1, (epb * 2 - 1) - peak_steps)
+            if (
+                abs(start_pitch - open_pitch) <= peak_steps * 2
+                and abs(end_pitch - start_pitch) <= rest_steps * 2
+            ):
+                origin16 = bar_start * 2
+                dir1 = 1 if start_pitch >= open_pitch else -1
+                dir2 = 1 if end_pitch >= start_pitch else -1
+                leg1 = _swarm_line(open_pitch, start_pitch, peak_steps, lo, hi, dir1)
+                leg2 = _swarm_line(start_pitch, end_pitch, rest_steps, lo, hi, dir2)
+                line = leg1[:-1] + leg2
+            else:
+                origin16 = bar_start * 2
+                line = _swarm_line(open_pitch, end_pitch, epb * 2 - 1, lo, hi, direction)
         else:
             origin16 = bar_start * 2
             line = _swarm_line(open_pitch, end_pitch, epb * 2 - 1, lo, hi, direction)

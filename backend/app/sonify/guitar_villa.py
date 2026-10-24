@@ -47,16 +47,12 @@ def _villa_wave(ctx: _Ctx, bar: int, low: list[NoteEvent], offsets: list[int]) -
                 )
                 if shared_tones:
                     tones = shared_tones
-            outer_ok = _playable([next_bass + ctx.semitones, next_sung + ctx.semitones])
             ring_able = [
                 tone
                 for tone in tones
                 if next_bass < tone < next_sung
                 and _strings_differ(tone, next_sung, ctx.semitones)
-                and _playable(
-                    ([next_bass + ctx.semitones] if outer_ok else [])
-                    + [tone + ctx.semitones, next_sung + ctx.semitones]
-                )
+                and _playable([next_bass + ctx.semitones, tone + ctx.semitones, next_sung + ctx.semitones])
             ]
             if ring_able:
                 tones = ring_able
@@ -76,7 +72,6 @@ def _villa_wave(ctx: _Ctx, bar: int, low: list[NoteEvent], offsets: list[int]) -
     return support
 
 
-
 def _villa_bass(ctx: _Ctx, bar: int) -> list[NoteEvent]:
     """Root and fifth on the strong beats, even when `character` is None.
 
@@ -88,21 +83,22 @@ def _villa_bass(ctx: _Ctx, bar: int) -> list[NoteEvent]:
     chord = ctx.chord(bar)
     start = bar * ctx.epb
     epb = ctx.epb
-    lead = _melody_at(ctx, start)
-    root = _choose_bass(chord, 0, lead, ctx.bass_low, ctx.bass_high, ctx.semitones)
-    fifth = _choose_bass(chord, 2, lead, ctx.bass_low, ctx.bass_high, ctx.semitones)
+    root = _bass_at(ctx, chord, 0, start)
     if band == "p":
         return _eighth_event(start, epb, root, epb, 3, _BASS)
     if ctx.kind == "4/4":
+        fifth = _bass_at(ctx, chord, 2, start + 4)
         return [
             *_eighth_event(start, 4, root, epb, 3, _BASS),
             *_eighth_event(start + 4, 4, fifth, epb, 3, _BASS),
         ]
     if ctx.kind == "6/8":
+        fifth = _bass_at(ctx, chord, 2, start + 3)
         return [
             *_eighth_event(start, 3, root, epb, 3, _BASS),
             *_eighth_event(start + 3, 3, fifth, epb, 3, _BASS),
         ]
+    fifth = _bass_at(ctx, chord, 2, start + 4)
     return [
         *_eighth_event(start, 4, root, epb, 3, _BASS),
         *_eighth_event(start + 4, max(1, epb - 4), fifth, epb, 3, _BASS),
@@ -325,6 +321,7 @@ from app.sonify.guitar_patterns import (  # noqa: E402
     _INNER,
     _MELODY,
     _MELODY_APEX,
+    _bass_at,
     _choose_bass,
     _choose_inner,
     _compress_monotone,
