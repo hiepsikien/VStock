@@ -3058,3 +3058,266 @@ def test_rendered_sor_scores_never_use_jazz_sevenths() -> None:
                 character=character,  # type: ignore[arg-type]
             )
             check(score, mode)
+
+
+def _bach(melody: list[int], **kwargs):
+    meter = kwargs.get("meter", METER_44)
+    bars = len(melody) // meter.eighths_per_bar
+    chords = kwargs.pop("chords", None) or {bar: C for bar in range(bars)}
+    return _pattern_score(
+        melody,
+        kwargs.pop("phrases", None) or (_joined(0, melody),),
+        ensemble="bach",
+        bpm=kwargs.pop("bpm", 96),
+        bands=kwargs.pop("bands", None) or {bar: "mf" for bar in range(bars)},
+        chords=chords,
+        character=kwargs.pop("character", "rally"),
+        rel_span=kwargs.pop("rel_span", 0.02),
+        **kwargs,
+    )
+
+
+def _signs(midis: list[int]) -> list[int]:
+    signs = [0]
+    for previous, current in zip(midis, midis[1:]):
+        if current > previous:
+            signs.append(1)
+        elif current < previous:
+            signs.append(-1)
+        else:
+            signs.append(0)
+    return signs
+
+
+def _chord_pcs(chord: Chord) -> set[int]:
+    return {pitch % 12 for pitch in chord.pitches[:3]}
+
+
+def test_bach_fuga_answers_two_bars_later_in_the_same_contour() -> None:
+    """Lag 2 keeps the subject's rhythm and direction, and strong beats sit on this chord."""
+    melody = [67, 69, 71, 72, 76, 74, 72, 71, 72, 71, 69, 67, 65, 67, 69, 71, 67, 69, 71, 72, 74, 72, 71, 69]
+    chords = {0: C, 1: F, 2: G}
+    score = _bach(melody, character="volatile", chords=chords)
+    assert score.bpm == 96
+    lead = [note.midi for note in _attacks(score.lead, 0)]
+    bass = [note.midi for note in _attacks(score.low, 2)]
+    assert [round(note.beat, 2) for note in _attacks(score.lead, 0)] == [
+        round(note.beat, 2) for note in _attacks(score.low, 2)
+    ]
+    assert [round(note.duration_beats, 2) for note in _attacks(score.lead, 0)] == [
+        round(note.duration_beats, 2) for note in _attacks(score.low, 2)
+    ]
+    assert _signs(bass) == _signs(lead)
+    for note in _attacks(score.low, 2):
+        if note.beat in {0.0, 2.0}:
+            assert note.midi is not None and note.midi % 12 in _chord_pcs(G)
+        else:
+            previous = _covering(score.low, 2, note.beat - 0.5)
+            assert previous is not None and note.midi is not None and previous.midi is not None
+            assert abs(note.midi - previous.midi) <= 2
+            assert note.midi % 12 in {0, 2, 4, 5, 7, 9, 11}
+    # The answer has not entered yet: beat 1 holds the root, then the subject walks.
+    opening = _attacks(score.low, 0)
+    assert opening[0].duration_beats >= 1.5
+    assert opening[0].midi is not None and opening[0].midi % 12 in _chord_pcs(C)
+    _assert_engraved(score, "bach")
+
+
+def test_bach_fuga_ornaments_a_flat_subject_and_the_bass_walks_it() -> None:
+    score = _bach([72] * 24, character="volatile", chords={0: C, 1: F, 2: G})
+    subject = _attacks(score.lead, 0)
+    assert [round(note.beat, 2) for note in subject[:3]] == [0.0, 0.5, 1.0]
+    assert subject[0].midi == subject[2].midi
+    assert subject[1].midi is not None and subject[0].midi is not None
+    assert subject[1].midi != subject[0].midi
+    # One stored note becomes the four-beat walking answer, still at 1:1, not augmented.
+    answer = _attacks(score.low, 2)
+    assert [round(note.beat, 2) for note in answer] == [0.0, 1.0, 2.0, 3.0]
+    assert [round(note.duration_beats, 2) for note in answer] == [1.0, 1.0, 1.0, 1.0]
+    assert all(note.midi is not None and note.midi % 12 in _chord_pcs(G) for note in answer if note.beat in {0.0, 2.0})
+    _assert_engraved(score, "bach")
+
+
+def test_bach_bourree_walks_under_a_hold_and_sits_under_a_running_treble() -> None:
+    held = [72] * 8
+    running = [67, 69, 71, 72, 74, 72, 71, 69]
+    score = _bach(held + running, character="rally", chords={0: C, 1: G})
+    # A held half-bar grows a pickup, and the bass walks every eighth into the next downbeat.
+    assert [round(note.beat, 2) for note in _attacks(score.lead, 0) if note.beat >= 3] == [3.0, 3.5]
+    bass = _attacks(score.low, 0)
+    assert [round(note.beat, 2) for note in bass] == [index * 0.5 for index in range(8)]
+    assert all(note.duration_beats == 0.5 for note in bass)
+    assert bass[2].staccato and bass[6].staccato
+    # Moving eighths keep a quarter on the downbeat and walk the upbeat.
+    moving = _attacks(score.low, 1)
+    assert [(round(note.beat, 2), round(note.duration_beats, 2)) for note in moving] == [
+        (0.0, 1.0),
+        (1.0, 0.5),
+        (1.5, 0.5),
+        (2.0, 1.0),
+        (3.0, 0.5),
+        (3.5, 0.5),
+    ]
+    assert moving[1].staccato and moving[4].staccato
+    assert moving[0].midi is not None and moving[0].midi % 12 in _chord_pcs(G)
+    assert _onset_beats(score.support, 1) == [0.0, 2.0]
+    _assert_engraved(score, "bach")
+
+
+def test_bach_gavotte_phrases_quarters_then_parallel_eighths() -> None:
+    score = _bach([72] * 16, character="calm", chords={0: C, 1: F}, rel_span=0.0)
+    lead = _attacks(score.lead, 0)
+    assert [(round(note.beat, 2), round(note.duration_beats, 2)) for note in lead] == [
+        (0.0, 1.0),
+        (1.0, 1.0),
+        (2.0, 0.5),
+        (2.5, 0.5),
+        (3.0, 0.5),
+        (3.5, 0.5),
+    ]
+    assert lead[1].staccato
+    bass = _attacks(score.low, 0)
+    assert [(round(note.beat, 2), round(note.duration_beats, 2)) for note in bass] == [
+        (0.0, 1.0),
+        (1.0, 1.0),
+        (2.0, 2.0),
+    ]
+    assert bass[1].staccato
+    assert bass[0].midi is not None and bass[0].midi % 12 == 0
+    pairs = []
+    for note in lead:
+        if note.beat < 2:
+            continue
+        inner = next(item for item in _attacks(score.support, 0) if abs(item.beat - note.beat) < 1e-6)
+        assert note.midi is not None and inner.midi is not None
+        pairs.append((note.midi - inner.midi) % 12)
+    assert pairs and set(pairs) <= {3, 4, 8, 9}
+    _assert_engraved(score, "bach")
+
+
+def test_bach_sarabande_weights_beat_two_and_passes_into_the_next_bar() -> None:
+    score = _bach([72] * 12, character="calm", meter=METER_34, rel_span=0.005, chords={0: C, 1: G})
+    assert score.divisions == 4
+    for voice in (score.lead, score.support, score.low):
+        accented = [note for note in _attacks(voice, 0) if abs(note.beat - 1.0) < 1e-6]
+        assert len(accented) == 1 and accented[0].accent
+    ornament = [note for note in _attacks(score.lead, 0) if 1.0 <= note.beat < 2.0]
+    assert [round(note.duration_beats, 2) for note in ornament] == [0.25, 0.25, 0.5]
+    assert ornament[0].midi == ornament[2].midi
+    assert ornament[1].midi != ornament[0].midi
+    passing = [note.midi for note in _attacks(score.lead, 0) if note.beat >= 2.0]
+    assert 2 <= len(passing) <= 4
+    assert passing[-1] == _attacks(score.lead, 1)[0].midi
+    assert all(abs(right - left) <= 2 for left, right in zip(passing, passing[1:]) if left and right)
+    _assert_engraved(score, "bach")
+
+
+def test_bach_gigue_breaks_the_chord_and_runs_when_the_line_rises() -> None:
+    still = _bach([72] * 12, character="rally", meter=METER_68, chords={0: C, 1: G})
+    assert [round(note.beat, 2) for note in _attacks(still.lead, 0)] == [0.0, 1.0, 1.5, 2.5]
+    assert all(note.accent for note in _attacks(still.lead, 0) if note.beat in {0.0, 1.5})
+    assert _onset_beats(still.support, 0) == [0.5, 1.0, 2.0, 2.5]
+    assert len({note.midi for note in _attacks(still.support, 0)}) >= 2
+    bass = _attacks(still.low, 0)
+    assert [(round(note.beat, 2), round(note.duration_beats, 2)) for note in bass] == [
+        (0.0, 1.5),
+        (1.5, 1.0),
+        (2.5, 0.5),
+    ]
+    assert bass[0].accent and bass[1].accent
+    _assert_engraved(still, "bach")
+
+    rising = [64, 65, 67, 69, 71, 72] * 2
+    driving = _bach(rising, character="rally", meter=METER_68, chords={0: C, 1: G})
+    assert driving.divisions == 4
+    scale = [note for note in _attacks(driving.lead, 0) if note.beat >= 1.5 - 1e-6]
+    assert len(scale) == 6
+    assert all(note.duration_beats == 0.25 for note in scale)
+    assert scale[-1].midi == _attacks(driving.lead, 1)[0].midi
+    assert any(abs(right.midi - left.midi) in {1, 2} for left, right in zip(scale, scale[1:]) if left.midi and right.midi)
+    _assert_engraved(driving, "bach")
+
+
+def test_bach_chaconne_waves_in_sixteenths_and_breaks_into_a_scale() -> None:
+    ground = _bach([72] * 16, character="selloff", chords={0: C, 1: C})
+    assert ground.divisions == 4
+    bass = _attacks(ground.low, 0)
+    assert [(round(note.beat, 2), round(note.duration_beats, 2)) for note in bass] == [(0.0, 2.0), (2.0, 2.0)]
+    assert bass[1].midi is not None and bass[0].midi is not None and bass[1].midi <= bass[0].midi
+    onsets = set(_onset_beats(ground.lead, 0)) | set(_onset_beats(ground.support, 0))
+    assert onsets == {index * 0.25 for index in range(16)}
+    assert {50, 55, 59} & {note.midi for note in _attacks(ground.support, 0)}
+    _assert_engraved(ground, "bach")
+
+    rising = [67, 69, 71, 72, 74, 76, 77, 79] * 2
+    breakout = _bach(rising, character="selloff", chords={0: C, 1: G}, bands={0: "f", 1: "f"})
+    assert breakout.divisions == 4
+    scale = [note for note in _attacks(breakout.lead, 0) if note.beat >= 2.0 - 1e-6]
+    assert len(scale) == 8
+    assert all(note.duration_beats == 0.25 for note in scale)
+    assert scale[-1].midi == _attacks(breakout.lead, 1)[0].midi
+    assert all(
+        left.midi is not None and right.midi is not None and abs(right.midi - left.midi) <= 2
+        for left, right in zip(scale, scale[1:])
+    )
+    _assert_engraved(breakout, "bach")
+
+
+def test_bach_trio_answers_the_bourree_with_the_fugue() -> None:
+    phrases = (_joined(0, [72] * 16), _joined(16, [72] * 16))
+    sections = (
+        FormSection(0, 2, "phrase", 0),
+        FormSection(2, 4, "phrase", 0, trio=True),
+    )
+    score = _bach(
+        [72] * 32,
+        character="rally",
+        phrases=phrases,
+        sections=sections,
+        chords={0: C, 1: F, 2: G, 3: C},
+    )
+    assert [round(note.duration_beats, 2) for note in _attacks(score.low, 0)] == [0.5] * 8
+    assert [round(note.beat, 2) for note in _attacks(score.low, 2)] == [0.0, 1.0, 2.0, 3.0]
+    _assert_engraved(score, "bach")
+
+
+def test_bach_voices_stay_playable_across_meters_and_keys() -> None:
+    from app.sonify.chords import DM7, G7
+
+    melodies = (
+        [67, 69, 71, 72, 74, 72, 71, 69],
+        [60, 62, 64, 65, 67, 65, 64, 62],
+        [76, 77, 79, 81, 79, 77, 76, 74],
+        [72] * 8,
+    )
+    plans = (
+        (METER_44, "volatile", 96, 0.02),
+        (METER_44, "rally", 96, 0.02),
+        (METER_44, "calm", 96, 0.0),
+        (METER_44, "selloff", 96, 0.02),
+        (METER_34, "calm", 90, 0.005),
+        (METER_34, "selloff", 80, 0.02),
+        (METER_68, "rally", 96, 0.02),
+        (METER_44, "calm", 66, 0.0),
+    )
+    for melody in melodies:
+        for meter, character, bpm, span in plans:
+            epb = meter.eighths_per_bar
+            pitches = (melody * 8)[: epb * 4]
+            chords = {bar: (C, G7, DM7, F)[bar % 4] for bar in range(4)}
+            score = _bach(
+                pitches,
+                meter=meter,
+                character=character,
+                bpm=bpm,
+                rel_span=span,
+                chords=chords,
+            )
+            _assert_engraved(score, "bach")
+            if meter is METER_68:
+                assert _onset_beats(score.low, 0)[0] == 0.0
+    with compose_register(D_KEY):
+        transposed = _bach([67, 69, 71, 72] * 4, character="volatile", chords={bar: C for bar in range(4)})
+    assert_playable(transposed, D_KEY, "bach")
+    score_to_musicxml(transposed)
+    assert all(40 <= (note.midi or 0) + D_KEY.semitones <= 55 for note in transposed.low if note.midi is not None)
