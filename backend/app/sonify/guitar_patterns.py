@@ -2111,12 +2111,15 @@ def render_patterned_voices(
             phrase = phrase_here
             # The short bass of the dotted group always steps down one scale degree.
             descend = True
-            part_support, part_low = _render_elegiaque_bar(ctx, bar, phrase, descend)
+            bar_ornaments = ornaments.get(owner) if owner is not None else None
+            part_support, part_low = _render_elegiaque_bar(
+                ctx, bar, phrase, descend, ornaments=bar_ornaments
+            )
             part_lead = _sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex, phrase=phrase)
-            if owner is not None and owner in ornaments and any(
-                bar * epb <= eighth < (bar + 1) * epb for eighth in ornaments[owner]
+            if bar_ornaments and any(
+                bar * epb <= eighth < (bar + 1) * epb for eighth in bar_ornaments
             ):
-                part_lead = _apply_appoggiatura(ctx, part_lead, ornaments[owner])
+                part_lead = _apply_appoggiatura(ctx, part_lead, bar_ornaments)
             lead.extend(part_lead)
             support.extend(part_support)
             low.extend(part_low)

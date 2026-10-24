@@ -761,7 +761,13 @@ def _elegiaque_bass_pitch(
     return preferred
 
 
-def _render_elegiaque_bar(ctx: _Ctx, bar: int, phrase: Phrase | None, descend: bool) -> tuple[list[NoteEvent], list[NoteEvent]]:
+def _render_elegiaque_bar(
+    ctx: _Ctx,
+    bar: int,
+    phrase: Phrase | None,
+    descend: bool,
+    ornaments: dict[int, tuple[int, bool]] | None = None,
+) -> tuple[list[NoteEvent], list[NoteEvent]]:
     del descend
     chord = ctx.chord(bar)
     start = bar * ctx.epb
@@ -778,8 +784,15 @@ def _render_elegiaque_bar(ctx: _Ctx, bar: int, phrase: Phrase | None, descend: b
     lament = bool(ctx.mode == "minor" and closes and bar >= max(start_bar, last_bar - 1))
     thinner = _SPARSER.get(ctx.band(bar), "mp")
     inner_locals = set(_inner_eighths(ctx.epb, set(ctx.strong), thinner))
+    orn_map = ornaments or {}
+
+    def sung_at(eighth: int) -> int:
+        if eighth in orn_map:
+            return orn_map[eighth][0]
+        return _melody_at(ctx, eighth)
+
     if sustain:
-        uppers = [_melody_at(ctx, start + step) for step in range(ctx.epb)]
+        uppers = [sung_at(start + step) for step in range(ctx.epb)]
         pitch = _elegiaque_bass_pitch(
             ctx, chord, root, "root", prev, uppers, need_inner=bool(inner_locals)
         )
@@ -796,7 +809,7 @@ def _render_elegiaque_bar(ctx: _Ctx, bar: int, phrase: Phrase | None, descend: b
             else:
                 preferred = root
             span_locals = [step for step in range(local, min(ctx.epb, local + length))]
-            uppers = [_melody_at(ctx, start + step) for step in span_locals]
+            uppers = [sung_at(start + step) for step in span_locals]
             has_inner = any(step in inner_locals for step in span_locals)
             pitch = _elegiaque_bass_pitch(
                 ctx, chord, preferred, role, prev, uppers, need_inner=has_inner
@@ -820,7 +833,7 @@ def _render_elegiaque_bar(ctx: _Ctx, bar: int, phrase: Phrase | None, descend: b
     rich_pcs = {(root_pc + interval) % 12 for interval in (3, 4, 8, 9, 10, 11)}
     for local in sorted(_inner_eighths(ctx.epb, set(ctx.strong), thinner)):
         eighth = start + local
-        sung = _melody_at(ctx, eighth)
+        sung = sung_at(eighth)
         bass = sounding.get(eighth, root)
         bass_delta = 0 if previous_bass is None else bass - previous_bass
         playable_now = [

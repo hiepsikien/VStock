@@ -1333,6 +1333,19 @@ def test_phase1_elegiaque_march_appoggiatura_and_lament() -> None:
     assert rising is not None and rising.midi == 62 and rising.accent
     assert rising_resolution is not None and rising_resolution.midi == 64
     assert sum(note.accent for note in ornament.lead if note.bar == 1) == 1
+    _assert_engraved(ornament, "elegiaque")
+
+    # Over F, an appoggiatura rising to 79 on beat 0 still selects a playable bass.
+    high_ornament = _guitar(
+        (_from_notes(0, [79, 77, 75, 74, 72, 70, 68, 67]),),
+        bpm=72,
+        ensemble="classic",
+        mode="minor",
+        chord=F,
+    )
+    high_first = _attack_at(high_ornament.lead, 0, 8)
+    assert high_first is not None and high_first.midi == 79 and high_first.accent
+    _assert_engraved(high_ornament, "elegiaque")
 
 
 def test_phase1_villa_chord_melody_follows_the_meter() -> None:
