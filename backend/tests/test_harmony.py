@@ -2364,4 +2364,207 @@ def test_barrios_edges_are_explicit_for_every_extra_pair() -> None:
     ) is True
 
 
+def _bach_chord(name: str):
+    from app.sonify.chords import BORROWED, CHORDS, MINOR_CATALOG
+
+    for chord in (*CHORDS, *BORROWED, *MINOR_CATALOG):
+        if chord.name == name:
+            return chord
+    raise KeyError(name)
+
+
+_BACH_MAJOR_EDGES = {
+    ("C", "F"): 0.46,
+    ("C", "Fmaj7"): 0.44,
+    ("F", "Bm7b5"): 0.46,
+    ("Fmaj7", "Bm7b5"): 0.48,
+    ("Bm7b5", "Em"): 0.48,
+    ("Bm7b5", "E7"): 0.52,
+    ("Em", "Am"): 0.50,
+    ("Em", "Am7"): 0.44,
+    ("E7", "Am"): 0.58,
+    ("E7", "Am7"): 0.46,
+    ("Am", "Dm"): 0.48,
+    ("Am", "Dm7"): 0.46,
+    ("Am7", "Dm"): 0.48,
+    ("Am7", "Dm7"): 0.50,
+    ("Am", "D7"): 0.44,
+    ("Dm", "G"): 0.50,
+    ("Dm", "G7"): 0.54,
+    ("Dm7", "G"): 0.50,
+    ("Dm7", "G7"): 0.56,
+    ("G", "C"): 0.58,
+    ("G7", "C"): 0.62,
+    ("G", "Am"): 0.42,
+    ("G7", "Am"): 0.42,
+    ("C", "C7"): 0.42,
+    ("C7", "F"): 0.58,
+    ("C", "A7"): 0.42,
+    ("Em", "A7"): 0.44,
+    ("A7", "Dm"): 0.56,
+    ("A7", "Dm7"): 0.48,
+    ("A7", "D7"): 0.44,
+    ("F", "D7"): 0.44,
+    ("Dm", "D7"): 0.44,
+    ("D7", "G"): 0.56,
+    ("D7", "G7"): 0.58,
+    ("F", "F#dim7"): 0.42,
+    ("Dm", "F#dim7"): 0.42,
+    ("F#dim7", "G"): 0.60,
+    ("F#dim7", "G7"): 0.56,
+    ("C", "E7"): 0.42,
+    ("G", "F"): 0.0,
+    ("G7", "F"): 0.0,
+    ("G", "Dm"): 0.0,
+    ("G7", "Dm"): 0.0,
+}
+_BACH_MINOR_EDGES = {
+    ("Cm", "Fm"): 0.48,
+    ("Cm", "Fm7"): 0.44,
+    ("Fm", "Bb"): 0.48,
+    ("Fm", "Bb7"): 0.52,
+    ("Fm7", "Bb"): 0.48,
+    ("Fm7", "Bb7"): 0.54,
+    ("Cm", "Bb"): 0.42,
+    ("Cm", "Bb7"): 0.42,
+    ("Bb", "Eb"): 0.54,
+    ("Bb7", "Eb"): 0.60,
+    ("Bb", "G"): 0.42,
+    ("Bb", "G7"): 0.44,
+    ("Bb", "Bb"): 0.42,
+    ("Bb7", "Bb7"): 0.42,
+    ("Bb", "Bb7"): 0.44,
+    ("Bb7", "Bb"): 0.42,
+    ("Eb", "Ab"): 0.50,
+    ("Eb", "Fm"): 0.44,
+    ("Eb", "Dm7b5"): 0.42,
+    ("Eb", "G7"): 0.42,
+    ("Ab", "Fm"): 0.48,
+    ("Ab", "Fm7"): 0.44,
+    ("Ab", "Dm7b5"): 0.50,
+    ("Ab", "F#dim7"): 0.46,
+    ("Ab", "D7"): 0.46,
+    ("Ab", "G"): 0.46,
+    ("Ab", "G7"): 0.48,
+    ("Fm", "Dm7b5"): 0.48,
+    ("Fm7", "Dm7b5"): 0.46,
+    ("Fm", "G"): 0.48,
+    ("Fm", "G7"): 0.52,
+    ("Fm7", "G"): 0.46,
+    ("Fm7", "G7"): 0.50,
+    ("Dm7b5", "G"): 0.52,
+    ("Dm7b5", "G7"): 0.56,
+    ("Dm7b5", "D7"): 0.46,
+    ("Fm", "D7"): 0.44,
+    ("Fm7", "D7"): 0.44,
+    ("Fm", "F#dim7"): 0.46,
+    ("Fm7", "F#dim7"): 0.44,
+    ("F#dim7", "G"): 0.60,
+    ("F#dim7", "G7"): 0.58,
+    ("D7", "G"): 0.54,
+    ("D7", "G7"): 0.58,
+    ("D7", "D7"): 0.42,
+    ("G", "Cm"): 0.58,
+    ("G7", "Cm"): 0.62,
+    ("G", "Ab"): 0.46,
+    ("G7", "Ab"): 0.46,
+    ("Cm", "G"): 0.46,
+    ("Cm", "G7"): 0.48,
+    ("Cm", "Ab"): 0.42,
+    ("Cm", "Dm7b5"): 0.44,
+}
+
+
+def test_bach_dialect_registers_the_baroque_circle() -> None:
+    """Bach owns the guitar ensemble. Sor stays on guitar classic."""
+    from app.sonify.harmony import BACH, COMMON, SOR, BachDialect, dialect_for
+
+    assert isinstance(dialect_for("bach"), BachDialect)
+    assert dialect_for("bach") is BACH
+    assert dialect_for("bach", "guitar") is BACH
+    assert dialect_for("classic", "guitar") is SOR
+    assert dialect_for("classic") is COMMON
+    assert BACH.name == "bach"
+    assert [chord.name for chord in BACH.extra("minor")] == ["Bb", "Bb7", "D7"]
+    assert BACH.extra("major") == ()
+    assert BACH.shares_root(_bach_chord("Bb"), _bach_chord("Bb7")) is False
+    assert BACH.color_credit(_bach_chord("D7"), frozenset({2}), _bach_chord("G")) == 0.0
+
+    for (left, right), weight in _BACH_MAJOR_EDGES.items():
+        found = BACH.transition(_bach_chord(left), _bach_chord(right), "major")
+        assert found == pytest.approx(weight), (left, right, found)
+    assert BACH.transition(_bach_chord("C"), _bach_chord("Am"), "major") is None
+    assert BACH.transition(_bach_chord("G"), _bach_chord("Dm7"), "major") is None
+
+    for (left, right), weight in _BACH_MINOR_EDGES.items():
+        found = BACH.transition(_bach_chord(left), _bach_chord(right), "minor")
+        assert found == pytest.approx(weight), (left, right, found)
+    assert BACH.transition(_bach_chord("Bb"), _bach_chord("Cm"), "minor") == 0.0
+    assert BACH.transition(_bach_chord("G"), _bach_chord("D7"), "minor") == 0.0
+    assert BACH.transition(_bach_chord("D7"), _bach_chord("Cm"), "minor") == 0.0
+    assert BACH.transition(_bach_chord("Fm"), _bach_chord("Cm"), "minor") is None
+    assert BACH.transition(_bach_chord("Eb"), _bach_chord("G"), "minor") is None
+
+
+def test_bach_allows_the_circle_and_refuses_modern_color() -> None:
+    from app.sonify.harmony import BACH, VILLA
+
+    for edges in (_BACH_MAJOR_EDGES, _BACH_MINOR_EDGES):
+        positive = [weight for weight in edges.values() if weight > 0.0]
+        assert positive
+        assert all(0.42 <= weight <= 0.62 for weight in positive)
+    assert _BACH_MINOR_EDGES[("Ab", "Fm")] == pytest.approx(0.48)
+    assert _BACH_MINOR_EDGES[("Fm", "Dm7b5")] == pytest.approx(0.48)
+
+    def allowed(name: str, *, mode: str, pedal: bool = False, downbeat: bool = False) -> bool:
+        return BACH.allowed(
+            _bach_chord(name),
+            pedal=pedal,
+            phrase_downbeat=downbeat,
+            character="rally",
+            mode=mode,
+        )
+
+    for name in ("C", "Dm", "Dm7", "Em", "F", "Fmaj7", "G", "G7", "Am", "Am7"):
+        assert allowed(name, mode="major", downbeat=True) is True, name
+    for name in ("D7", "E7", "A7", "C7", "F#dim7", "Bm7b5"):
+        assert allowed(name, mode="major", downbeat=False) is True, name
+        assert allowed(name, mode="major", downbeat=True) is False, name
+    for name in ("Cmaj7", "Em7", "Ab", "Eb", "Bb", "Bb7", "Gm", "Fm"):
+        assert allowed(name, mode="major") is False, name
+    assert allowed("C", mode="major", pedal=True) is True
+    assert allowed("G", mode="major", pedal=True) is False
+    assert allowed("G7", mode="major", pedal=True) is False
+    assert allowed("Cm", mode="minor", pedal=True) is True
+    assert allowed("Cm7", mode="minor", pedal=True) is False
+    assert allowed("G7", mode="minor", pedal=True) is False
+
+    for name in ("Cm", "Fm", "Fm7", "Eb", "Ab", "G", "G7"):
+        assert allowed(name, mode="minor", downbeat=True) is True, name
+    for name in ("Cm7", "Ebmaj7", "Abmaj7"):
+        assert allowed(name, mode="minor", downbeat=False) is False, name
+    for name in ("Bb", "Bb7", "D7", "F#dim7", "Dm7b5"):
+        assert allowed(name, mode="minor", downbeat=False) is True, name
+        assert allowed(name, mode="minor", downbeat=True) is False, name
+
+    for chord in (*VILLA.extra("major"), *VILLA.extra("minor")):
+        if chord.quality_group == "suspended" or chord.kind_text in {"sus2", "sus4", "7sus4", "add9", "madd9"}:
+            assert BACH.allowed(
+                chord, pedal=False, phrase_downbeat=False, character=None, mode="major"
+            ) is False
+            assert BACH.allowed(
+                chord, pedal=False, phrase_downbeat=False, character=None, mode="minor"
+            ) is False
+
+    for name in ("C", "F", "Fmaj7", "Dm", "Dm7", "G", "G7", "Am", "Am7", "Bm7b5", "D7", "E7", "A7", "F#dim7"):
+        assert BACH.bias(_bach_chord(name), "calm", "major") == pytest.approx(-0.06)
+        assert BACH.bias(_bach_chord(name), "volatile", "major") == pytest.approx(-0.06)
+    assert BACH.bias(_bach_chord("Em"), "rally", "major") == 0.0
+    assert BACH.bias(_bach_chord("C7"), "rally", "major") == 0.0
+    for name in ("Cm", "Fm", "Fm7", "Bb", "Bb7", "Eb", "Ab", "Dm7b5", "D7", "F#dim7", "G", "G7"):
+        assert BACH.bias(_bach_chord(name), "selloff", "minor") == pytest.approx(-0.06)
+    assert BACH.bias(_bach_chord("Cm7"), "selloff", "minor") == 0.0
+    assert BACH.bias(_bach_chord("Bb"), "rally", "major") == 0.0
+
+
 

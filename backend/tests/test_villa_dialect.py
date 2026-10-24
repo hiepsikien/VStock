@@ -275,3 +275,235 @@ def test_minor_add9_uses_the_parent_third() -> None:
     assert f"{fmadd9.root_step}{fmadd9.kind_text}" == "Fmadd9"
     assert color_pitch_classes(cmadd9) == frozenset({2})
     assert VILLA.bias(cmadd9, "calm", "minor", frozenset({2})) == -0.08
+
+
+def _bach_region(
+    length: int,
+    *,
+    character: str = "rally",
+    bpm: int = 96,
+    mode: str = "major",
+    closing: bool = False,
+):
+    from app.sonify.chords import C, CM
+    from app.sonify.guitar_frame import render_intro, render_outro
+    from app.sonify.guitar_patterns import _Ctx
+
+    chord = CM if mode == "minor" else C
+    epb = 8
+    total = length + 2
+    melody = [67] * (total * epb)
+    ctx = _Ctx(
+        melody=melody,
+        raw=list(melody),
+        chord_at={bar: chord for bar in range(total)},
+        kind_at={bar: "outro" if closing else "intro" for bar in range(total)},
+        band_at={bar: "mf" for bar in range(total)},
+        phrases=(),
+        bars=total,
+        bpm=bpm,
+        ensemble="bach",
+        mode=mode,
+        character=character,
+        character_at=None,
+        sections=(),
+        rel_span=1.0,
+        semitones=0,
+        bass_low=40,
+        bass_high=53,
+        mid_low=50,
+        mid_high=65,
+        treble_floor=59,
+        treble_top=81,
+        ceiling=83,
+        epb=epb,
+        kind="4/4",
+        strong=(0, 4),
+        bar_beats=4.0,
+    )
+    render = render_outro if closing else render_intro
+    return render(ctx, list(range(length)))
+
+
+def _sounding(events, bar: int):
+    return [note for note in events if note.bar == bar and note.midi is not None]
+
+
+def _pcs(events, bar: int) -> list[int]:
+    return [note.midi % 12 for note in _sounding(events, bar)]
+
+
+def _assert_bach_hand(lead, support, low) -> None:
+    from app.sonify.guitar_patterns import _playable
+
+    def spans(events):
+        found = []
+        for note in events:
+            if note.midi is None:
+                continue
+            start = note.bar * 16 + int(round(note.beat * 4))
+            length = max(1, int(round(note.duration_beats * 4)))
+            for step in range(length):
+                found.append((start + step, note.midi))
+        return found
+
+    times: dict[int, list[int]] = {}
+    for group in (lead, support, low):
+        for when, midi in spans(group):
+            times.setdefault(when, []).append(midi)
+    for when, notes in times.items():
+        assert _playable(notes), (when, notes)
+        assert len(notes) == len(set(notes))
+
+
+def _neighbor_figure(lead, bar: int) -> bool:
+    notes = sorted(_sounding(lead, bar), key=lambda note: note.beat)
+    pitches = [note.midi for note in notes]
+    return any(
+        pitches[index + 1] > pitches[index] and pitches[index + 2] == pitches[index]
+        for index in range(len(pitches) - 2)
+    )
+
+
+def test_bach_dance_frames_take_an_upbeat_into_an_authentic_cadence() -> None:
+    from app.sonify.ensemble import ensemble_for
+    from app.sonify.guitar import GUITAR_BPM
+    from app.sonify.harmony import BACH, BachDialect, dialect_for
+
+    assert ensemble_for("guitar", "bach") == "bach"
+    assert GUITAR_BPM["bach"] == 96
+    assert isinstance(dialect_for("bach"), BachDialect)
+    assert dialect_for("bach") is BACH
+
+    short_lead, short_support, short_low = _bach_region(2, character="rally", bpm=96)
+    _assert_bach_hand(short_lead, short_support, short_low)
+    bass = _sounding(short_low, 0)
+    assert bass and bass[0].beat == 0.0 and bass[0].midi % 12 == 0 and bass[0].velocity == 50
+    pickup = _sounding(short_lead, 0)
+    assert len(pickup) == 3
+    assert min(note.beat for note in pickup) >= 2.0
+    assert [note.midi for note in pickup] == sorted(note.midi for note in pickup)
+    dominant = _sounding(short_low, 1)
+    assert dominant and dominant[0].beat == 0.0 and dominant[0].midi % 12 == 7
+    assert dominant[0].velocity == 56
+    assert sum(1 for note in _sounding(short_lead, 1) if note.beat >= 2.0) >= 3
+
+    long_lead, long_support, long_low = _bach_region(4, character="calm", bpm=96)
+    _assert_bach_hand(long_lead, long_support, long_low)
+    attack = [note for note in (*_sounding(long_lead, 0), *_sounding(long_low, 0)) if note.beat == 0.0]
+    assert attack and all(note.staccato and note.velocity == 50 for note in attack)
+    assert _sounding(long_lead, 0) and all(note.beat == 0.0 for note in _sounding(long_lead, 0))
+    assert _pcs(long_low, 1) == [0, 11, 9, 7]
+    assert any(note.duration_beats >= 3 for note in _sounding(long_lead, 1))
+    assert _sounding(long_low, 2)[0].midi % 12 == 7
+    assert _neighbor_figure(long_lead, 2)
+    upbeat = sorted(_sounding(long_lead, 3), key=lambda note: note.beat)
+    assert [round(note.beat, 2) for note in upbeat] == [2.5, 3.0, 3.5]
+    assert [note.midi for note in upbeat] == sorted(note.midi for note in upbeat)
+
+    out_lead, out_support, out_low = _bach_region(2, character="rally", bpm=96, closing=True)
+    _assert_bach_hand(out_lead, out_support, out_low)
+    cadence = sorted(_sounding(out_low, 0), key=lambda note: note.beat)
+    assert [note.midi % 12 for note in cadence] == [5, 7]
+    assert cadence[0].beat == 0.0 and cadence[1].beat == 2.0
+    tonic = _sounding(out_low, 1)
+    assert tonic[0].beat == 0.0 and tonic[0].duration_beats >= 3.5 and tonic[0].velocity == 50
+    assert tonic[0].midi % 12 == 0
+    assert _sounding(out_lead, 1)[0].beat == 0.0
+
+    coda_lead, coda_support, coda_low = _bach_region(4, character="calm", bpm=88, closing=True)
+    _assert_bach_hand(coda_lead, coda_support, coda_low)
+    assert _pcs(coda_low, 0) == [0, 11, 9, 7]
+    assert _sounding(coda_low, 1)[0].midi % 12 == 7
+    flourish = _sounding(coda_lead, 1)
+    assert len(flourish) >= 4
+    assert [note.midi for note in flourish] == sorted(note.midi for note in flourish)
+    assert {note.midi % 12 for note in flourish} <= {2, 5, 7, 11}
+    inner = _sounding(coda_support, 1)
+    assert inner and inner[0].beat == 0.0
+    assert {note.midi % 12 for note in inner} <= {2, 5, 7, 11}
+    assert _neighbor_figure(coda_lead, 2)
+    final = _sounding(coda_low, 3)
+    assert final[0].midi % 12 == 0 and final[0].velocity == 50 and final[0].duration_beats >= 3.5
+
+    minor_low = _bach_region(4, character="rally", bpm=96, mode="minor")[2]
+    assert _pcs(minor_low, 1) == [0, 10, 8, 7]
+
+
+def test_bach_polyphonic_frames_expose_a_subject_and_a_picardy_third() -> None:
+    grave_lead, grave_support, grave_low = _bach_region(2, character="selloff", bpm=96, mode="minor")
+    _assert_bach_hand(grave_lead, grave_support, grave_low)
+    pedal = _sounding(grave_low, 0)
+    assert pedal[0].beat == 0.0 and pedal[0].duration_beats >= 3.5 and pedal[0].velocity == 50
+    assert pedal[0].midi % 12 == 0
+    assert min(note.beat for note in _sounding(grave_lead, 0)) > 0
+    assert _sounding(grave_support, 0)
+    assert _sounding(grave_low, 1)[0].midi % 12 == 7
+    assert _neighbor_figure(grave_lead, 1)
+
+    fugue_lead, fugue_support, fugue_low = _bach_region(4, character="volatile", bpm=120)
+    _assert_bach_hand(fugue_lead, fugue_support, fugue_low)
+    assert len(_sounding(fugue_lead, 0)) == 4
+    assert _sounding(fugue_low, 0) == []
+    assert _sounding(fugue_support, 0) == []
+    assert len(_sounding(fugue_low, 1)) == 4
+    assert len(_sounding(fugue_lead, 1)) == 4
+    assert _sounding(fugue_support, 1) == []
+    assert _sounding(fugue_low, 1)[0].midi % 12 == 7
+    assert max(note.midi for note in _sounding(fugue_low, 1)) <= 53
+    fugue_bass = sorted(_sounding(fugue_low, 2), key=lambda note: note.beat)
+    assert all(note.velocity == 56 for note in fugue_bass)
+    assert fugue_bass[0].beat == 0.0 and fugue_bass[0].midi % 12 == 7
+    assert len(fugue_bass) >= 2 and fugue_bass[1].beat >= 1.5
+    fugue_line = sorted(_sounding(fugue_lead, 2), key=lambda note: note.beat)
+    assert 2 <= len(fugue_line) <= 3
+    assert fugue_line[-1].midi % 12 in {2, 5, 7, 11}
+    fugue_inner = _sounding(fugue_support, 2)
+    assert fugue_inner and min(note.beat for note in fugue_inner) >= 1.5
+    assert all(note.midi % 12 in {2, 5, 7, 11} for note in fugue_inner)
+    assert _sounding(fugue_low, 3)[0].midi % 12 == 0
+    assert _sounding(fugue_low, 3)[0].velocity == 50
+
+    slow_lead, slow_support, slow_low = _bach_region(4, character="rally", bpm=72)
+    assert _sounding(slow_low, 0) == []
+    assert len(_sounding(slow_lead, 0)) == 4
+    _assert_bach_hand(slow_lead, slow_support, slow_low)
+
+    end_lead, end_support, end_low = _bach_region(
+        2, character="volatile", bpm=96, mode="minor", closing=True
+    )
+    _assert_bach_hand(end_lead, end_support, end_low)
+    assert _sounding(end_low, 0)[0].duration_beats >= 3.5
+    assert len(_sounding(end_lead, 0)) <= 4
+    picardy = _sounding(end_lead, 1) + _sounding(end_support, 1) + _sounding(end_low, 1)
+    assert any(note.midi % 12 == 4 for note in picardy)
+    assert all(note.velocity == 50 for note in picardy)
+    assert _sounding(end_low, 1)[0].midi % 12 == 0
+
+    coda_lead, coda_support, coda_low = _bach_region(
+        4, character="selloff", bpm=60, mode="minor", closing=True
+    )
+    _assert_bach_hand(coda_lead, coda_support, coda_low)
+    assert _sounding(coda_low, 0)[0].midi % 12 == 0
+    assert _sounding(coda_low, 0)[0].duration_beats >= 3.5
+    assert _sounding(coda_lead, 0)[0].midi % 12 in {2, 5, 7, 11}
+    assert _sounding(coda_low, 1)[0].midi % 12 == 0
+    assert _sounding(coda_lead, 1)[0].midi % 12 in {0, 3, 7}
+    roll_bass = _sounding(coda_low, 2)
+    assert len(roll_bass) == 1 and roll_bass[0].beat == 0.0 and roll_bass[0].duration_beats >= 3.5
+    assert roll_bass[0].midi % 12 == 0
+    roll_inner = sorted(_sounding(coda_support, 2), key=lambda note: note.beat)
+    assert [round(note.beat, 2) for note in roll_inner] == [0.5, 1.0]
+    assert roll_inner[0].midi < roll_inner[1].midi
+    roll_lead = sorted(_sounding(coda_lead, 2), key=lambda note: note.beat)
+    assert [round(note.beat, 2) for note in roll_lead] == [1.5, 2.5]
+    assert roll_lead[0].midi <= roll_lead[1].midi
+    rolled = roll_lead + roll_inner + roll_bass
+    assert any(note.midi % 12 == 4 for note in rolled)
+    final = _sounding(coda_lead, 3) + _sounding(coda_support, 3) + _sounding(coda_low, 3)
+    assert any(note.midi % 12 == 4 for note in final)
+    assert all(note.velocity == 46 for note in final)
+
+    one_lead, one_support, one_low = _bach_region(1, character="rally", bpm=96)
+    _assert_bach_hand(one_lead, one_support, one_low)
+    assert _sounding(one_lead, 0) or _sounding(one_low, 0)

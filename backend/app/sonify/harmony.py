@@ -1,8 +1,8 @@
 """Harmony dialects beside the tertian Markov catalog.
 
-`COMMON` is the symphony path. `villa`, `barrios`, `brouwer`, and `sor` register
-in `DIALECTS`. Guitar `classic` resolves to `sor`. An unknown ensemble stays
-on `COMMON`.
+`COMMON` is the symphony path. `bach`, `villa`, `barrios`, `brouwer`, and `sor`
+register in `DIALECTS`. Guitar `classic` resolves to `sor`. An unknown ensemble
+stays on `COMMON`.
 """
 
 from __future__ import annotations
@@ -846,12 +846,196 @@ class SorDialect(HarmonyDialect):
         return 0.0
 
 
+# Circle of fifths, secondary dominants, and the leading-tone diminished seventh.
+# Every positive weight sits in the Baroque band. G/G7 back to IV or ii is blocked.
+_BACH_MAJOR: dict[tuple[str, str], float] = {
+    ("C", "F"): 0.46,
+    ("C", "Fmaj7"): 0.44,
+    ("F", "Bm7b5"): 0.46,
+    ("Fmaj7", "Bm7b5"): 0.48,
+    ("Bm7b5", "Em"): 0.48,
+    ("Bm7b5", "E7"): 0.52,
+    ("Em", "Am"): 0.50,
+    ("Em", "Am7"): 0.44,
+    ("E7", "Am"): 0.58,
+    ("E7", "Am7"): 0.46,
+    ("Am", "Dm"): 0.48,
+    ("Am", "Dm7"): 0.46,
+    ("Am7", "Dm"): 0.48,
+    ("Am7", "Dm7"): 0.50,
+    ("Am", "D7"): 0.44,
+    ("Dm", "G"): 0.50,
+    ("Dm", "G7"): 0.54,
+    ("Dm7", "G"): 0.50,
+    ("Dm7", "G7"): 0.56,
+    ("G", "C"): 0.58,
+    ("G7", "C"): 0.62,
+    ("G", "Am"): 0.42,
+    ("G7", "Am"): 0.42,
+    ("C", "C7"): 0.42,
+    ("C7", "F"): 0.58,
+    ("C", "A7"): 0.42,
+    ("Em", "A7"): 0.44,
+    ("A7", "Dm"): 0.56,
+    ("A7", "Dm7"): 0.48,
+    ("A7", "D7"): 0.44,
+    ("F", "D7"): 0.44,
+    ("Dm", "D7"): 0.44,
+    ("D7", "G"): 0.56,
+    ("D7", "G7"): 0.58,
+    ("F", "F#dim7"): 0.42,
+    ("Dm", "F#dim7"): 0.42,
+    ("F#dim7", "G"): 0.60,
+    ("F#dim7", "G7"): 0.56,
+    ("C", "E7"): 0.42,
+    ("G", "F"): 0.0,
+    ("G7", "F"): 0.0,
+    ("G", "Dm"): 0.0,
+    ("G7", "Dm"): 0.0,
+}
+# Minor circle through bVII and III, plus the full Chaconne descent back to i.
+# Positive sequence weights stay inside the Baroque band. An unlisted pair that
+# touches Bb, Bb7, or D7 is illegal rather than letter-row ii.
+_BACH_MINOR: dict[tuple[str, str], float] = {
+    ("Cm", "Fm"): 0.48,
+    ("Cm", "Fm7"): 0.44,
+    ("Fm", "Bb"): 0.48,
+    ("Fm", "Bb7"): 0.52,
+    ("Fm7", "Bb"): 0.48,
+    ("Fm7", "Bb7"): 0.54,
+    ("Cm", "Bb"): 0.42,
+    ("Cm", "Bb7"): 0.42,
+    ("Bb", "Eb"): 0.54,
+    ("Bb7", "Eb"): 0.60,
+    ("Bb", "G"): 0.42,
+    ("Bb", "G7"): 0.44,
+    ("Bb", "Bb"): 0.42,
+    ("Bb7", "Bb7"): 0.42,
+    ("Bb", "Bb7"): 0.44,
+    ("Bb7", "Bb"): 0.42,
+    ("Eb", "Ab"): 0.50,
+    ("Eb", "Fm"): 0.44,
+    ("Eb", "Dm7b5"): 0.42,
+    ("Eb", "G7"): 0.42,
+    ("Ab", "Fm"): 0.48,
+    ("Ab", "Fm7"): 0.44,
+    ("Ab", "Dm7b5"): 0.50,
+    ("Ab", "F#dim7"): 0.46,
+    ("Ab", "D7"): 0.46,
+    ("Ab", "G"): 0.46,
+    ("Ab", "G7"): 0.48,
+    ("Fm", "Dm7b5"): 0.48,
+    ("Fm7", "Dm7b5"): 0.46,
+    ("Fm", "G"): 0.48,
+    ("Fm", "G7"): 0.52,
+    ("Fm7", "G"): 0.46,
+    ("Fm7", "G7"): 0.50,
+    ("Dm7b5", "G"): 0.52,
+    ("Dm7b5", "G7"): 0.56,
+    ("Dm7b5", "D7"): 0.46,
+    ("Fm", "D7"): 0.44,
+    ("Fm7", "D7"): 0.44,
+    ("Fm", "F#dim7"): 0.46,
+    ("Fm7", "F#dim7"): 0.44,
+    ("F#dim7", "G"): 0.60,
+    ("F#dim7", "G7"): 0.58,
+    ("D7", "G"): 0.54,
+    ("D7", "G7"): 0.58,
+    ("D7", "D7"): 0.42,
+    ("G", "Cm"): 0.58,
+    ("G7", "Cm"): 0.62,
+    ("G", "Ab"): 0.46,
+    ("G7", "Ab"): 0.46,
+    ("Cm", "G"): 0.46,
+    ("Cm", "G7"): 0.48,
+    ("Cm", "Ab"): 0.42,
+    ("Cm", "Dm7b5"): 0.44,
+}
+_BACH_MINOR_EXTRA_NAMES = frozenset({"Bb", "Bb7", "D7"})
+_BACH_SUSPENDED_TEXT = frozenset({"sus2", "sus4", "7sus4", "add9", "madd9"})
+_BACH_MAJOR_BANNED = frozenset({"Cmaj7", "Em7", "Ab", "Eb", "Bb", "Bb7", "Gm", "Fm"})
+_BACH_MAJOR_PASSING = frozenset({"D7", "E7", "A7", "C7", "F#dim7", "Bm7b5"})
+_BACH_MINOR_BANNED = frozenset({"Cm7", "Ebmaj7", "Abmaj7"})
+_BACH_MINOR_PASSING = frozenset({"Bb", "Bb7", "D7", "F#dim7", "Dm7b5"})
+_BACH_MAJOR_DRIVERS = frozenset({"C", "F", "Fmaj7", "Dm", "Dm7", "G", "G7", "Am", "Am7", "Bm7b5", "D7", "E7", "A7", "F#dim7"})
+_BACH_MINOR_DRIVERS = frozenset({
+    "Cm", "Fm", "Fm7", "Bb", "Bb7", "Eb", "Ab", "Dm7b5", "D7", "F#dim7", "G", "G7",
+})
+_BACH_PREFERENCE = -0.06
+
+
+class BachDialect(HarmonyDialect):
+    """Circle-of-fifths sequences, secondary dominants, and the minor bVII door.
+
+    Lute-suite and Chaconne harmony. No modern suspensions, and no seventh
+    chord on a pedal bar.
+    """
+
+    name = "bach"
+
+    def extra(self, mode: str) -> tuple[Chord, ...]:
+        if mode == "minor":
+            return (BF, BF7, D7)
+        return ()
+
+    def transition(self, prev: Chord, curr: Chord, mode: str) -> float | None:
+        if mode == "minor":
+            key = (prev.name, curr.name)
+            if key in _BACH_MINOR:
+                return _BACH_MINOR[key]
+            if prev.name in _BACH_MINOR_EXTRA_NAMES or curr.name in _BACH_MINOR_EXTRA_NAMES:
+                return 0.0
+            return None
+        return _BACH_MAJOR.get((prev.name, curr.name))
+
+    def allowed(
+        self,
+        chord: Chord,
+        *,
+        pedal: bool,
+        phrase_downbeat: bool,
+        character: MovementCharacter | None,
+        mode: str,
+    ) -> bool:
+        del character
+        if pedal:
+            return chord.name == ("Cm" if mode == "minor" else "C")
+        if chord.quality_group == "suspended" or chord.kind_text in _BACH_SUSPENDED_TEXT:
+            return False
+        if mode == "minor":
+            if chord.name in _BACH_MINOR_BANNED:
+                return False
+            if phrase_downbeat and chord.name in _BACH_MINOR_PASSING:
+                return False
+            return True
+        if chord.name in _BACH_MAJOR_BANNED:
+            return False
+        if phrase_downbeat and chord.name in _BACH_MAJOR_PASSING:
+            return False
+        return True
+
+    def bias(
+        self,
+        chord: Chord,
+        character: MovementCharacter | None,
+        mode: str,
+        strong_pitch_classes: frozenset[int] = frozenset(),
+    ) -> float:
+        del character, strong_pitch_classes
+        drivers = _BACH_MINOR_DRIVERS if mode == "minor" else _BACH_MAJOR_DRIVERS
+        if chord.name in drivers:
+            return _BACH_PREFERENCE
+        return 0.0
+
+
 COMMON = HarmonyDialect()
 VILLA = VillaDialect()
 BARRIOS = BarriosDialect()
 BROUWER = BrouwerDialect()
 SOR = SorDialect()
+BACH = BachDialect()
 DIALECTS: dict[str, HarmonyDialect] = {
+    "bach": BACH,
     "villa": VILLA,
     "barrios": BARRIOS,
     "brouwer": BROUWER,

@@ -4,9 +4,9 @@ Sor keeps a study texture: the price is the top voice, chord tones fill the
 weak eighths, and the root sits on the strong beats. Villa-Lobos rolls a
 chord-tone pattern under that line. Barrios repeats the melody as a tremolo
 and puts the thumb on the beat. Brouwer writes the modern row: a lyrical
-ballad, a Cuban tumbao, a staccato ostinato, or a sarabande accent. All four
-read the written guitar bounds from the active register, so a transposed key
-stays inside the same sounding range.
+ballad, a Cuban tumbao, a staccato ostinato, or a sarabande accent. Bach is
+the Baroque row at 96. Each row reads the written guitar bounds from the
+active register, so a transposed key stays inside the same sounding range.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score
 from app.sonify.phrasing import Phrase, quantize_strong_beats, written
 from app.sonify.quantize import C_MAJOR_PCS, C_NATURAL_MINOR_PCS, scale_from_classes
 
-GUITAR_BPM = {"classic": 88, "villa": 100, "barrios": 120, "brouwer": 108}
+GUITAR_BPM = {"bach": 96, "classic": 88, "villa": 100, "barrios": 120, "brouwer": 108}
 # Listening tests: a tremolo only reads as a sung line from 90 BPM up, sits
 # best around 120, and can run to 140. A Barrios movement under that floor
 # is not sped up and gets no tremolo at all: it keeps its slow tempo and
