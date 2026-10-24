@@ -3458,3 +3458,118 @@ def test_bach_voices_stay_playable_across_meters_and_keys() -> None:
     assert_playable(transposed, D_KEY, "bach")
     score_to_musicxml(transposed)
     assert all(40 <= (note.midi or 0) + D_KEY.semitones <= 55 for note in transposed.low if note.midi is not None)
+
+
+def test_villa_selloff_sings_thumb_cantabile_and_contrasts_with_chord_melody() -> None:
+    selloff_day = render(_bars(), title="Guitar", variant="guitar", ensemble="villa", character="selloff")
+    for bar in range(2, 31):
+        assert 0.0 not in _onset_beats(selloff_day.lead, bar)
+        assert {1.0, 3.0} <= set(_onset_beats(selloff_day.lead, bar))
+        assert all(48 <= (note.midi or 0) <= 64 for note in _pitched(selloff_day.low, bar))
+
+    epb = 8
+    regions = (
+        (0, 2, "intro", False),
+        (2, 6, "phrase", False),
+        (6, 10, "phrase", True),
+        (10, 14, "phrase", False),
+        (14, 16, "outro", False),
+    )
+    phrases = tuple(_held(start * epb, (end - start) * epb, 67) for start, end, _kind, _trio in regions)
+    sections = tuple(FormSection(start, end, kind, 0, trio=trio) for start, end, kind, trio in regions)
+    kinds = {bar: ("intro" if bar < 2 else "outro" if bar >= 14 else "phrase") for bar in range(16)}
+    ternary = _guitar(
+        phrases,
+        ensemble="villa",
+        bpm=100,
+        character="selloff",
+        kinds=kinds,
+        sections=sections,
+    )
+    assert 0.0 not in _onset_beats(ternary.lead, 3)
+    assert 0.0 in _onset_beats(ternary.lead, 7)
+    assert 0.5 not in _onset_beats(ternary.support, 7)
+
+
+def test_villa_live_tresillo_boosts_velocity_identically_in_mf_and_f_and_keeps_bass_without_mood() -> None:
+    for band in ("mf", "f"):
+        score = _pattern_score(
+            [72] * 24,
+            (_held(0, 24, 72),),
+            ensemble="villa",
+            bpm=100,
+            character="volatile",
+            bands={0: band, 1: band, 2: band},
+            chords={0: C, 1: C, 2: C},
+        )
+        for bar in (0, 1):
+            assert _onset_beats(score.low, bar)[:2] == [0.0, 2.0]
+            assert {0.5, 1.0, 1.5, 2.5, 3.0} <= set(_onset_beats(score.support, bar))
+            low_accents = {round(note.beat, 2): note.velocity for note in _pitched(score.low, bar) if note.accent}
+            inner_accents = {
+                round(note.beat, 2): note.velocity for note in _pitched(score.support, bar) if note.accent
+            }
+            expected_low = 70 if band == "f" else 68
+            expected_inner = 68 if band == "f" else 64
+            assert low_accents == {0.0: expected_low}
+            assert inner_accents == {1.5: expected_inner, 3.0: expected_inner}
+        assert not any(note.accent for note in _pitched(score.support, 2))
+
+    unmarked = _pattern_score(
+        [72] * 8,
+        (_held(0, 8, 72),),
+        ensemble="villa",
+        bpm=100,
+        character=None,
+        bands={0: "mf"},
+        chords={0: C},
+    )
+    assert _onset_beats(unmarked.low, 0) == [0.0, 2.0]
+
+
+def test_villa_preserves_forte_chromatic_approach_across_boundary_and_outro_reads_character_at() -> None:
+    epb = 8
+    regions = (
+        (0, 2, "intro", False),
+        (2, 6, "phrase", False),
+        (6, 10, "phrase", True),
+        (10, 14, "phrase", False),
+        (14, 16, "outro", False),
+    )
+    phrases = tuple(_held(start * epb, (end - start) * epb, 72) for start, end, _kind, _trio in regions)
+    sections = tuple(FormSection(start, end, kind, 0, trio=trio) for start, end, kind, trio in regions)
+    kinds = {bar: ("intro" if bar < 2 else "outro" if bar >= 14 else "phrase") for bar in range(16)}
+    bands = {bar: "f" for bar in range(16)}
+    chords = {bar: C for bar in range(16)}
+    score = _guitar(
+        phrases,
+        ensemble="villa",
+        bpm=100,
+        character="rally",
+        kinds=kinds,
+        sections=sections,
+        bands=bands,
+        chords=chords,
+    )
+    # Bar 5 is the last bar of section A (band="f") before Trio bar 6 on C.
+    # Its eighth 7 keeps the chromatic approach B (pitch class 11) into C.
+    approach = _attack_at(score.low, 5 * epb + 7, epb)
+    assert approach is not None and approach.midi is not None
+    assert approach.midi % 12 == 11
+
+    # Movement character is calm, but the ending bars in character_at turn volatile.
+    char_at = tuple(["calm"] * 12 + ["volatile"] * 4)
+    outro_score = _guitar(
+        phrases,
+        ensemble="villa",
+        bpm=100,
+        character="calm",
+        character_at=char_at,
+        kinds=kinds,
+        sections=sections,
+        bands=bands,
+        chords=chords,
+    )
+    assert 0.5 in _onset_beats(outro_score.lead, 15)
+    assert any(note.accent for note in _pitched(outro_score.lead, 15))
+

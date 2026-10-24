@@ -738,7 +738,7 @@ def _select_body(
     if ctx.ensemble == "villa":
         if trio or bridge:
             return "thumb_cantabile"
-        if ctx.bpm <= 72 or band == "p" or mood == "calm":
+        if ctx.bpm <= 72 or band == "p" or mood in {"calm", "selloff"}:
             return "chord_melody"
         return "villa_pattern"
     if (
@@ -1008,6 +1008,8 @@ def _dominant_pattern(ctx: _Ctx, phrases: list[Phrase], bars: list[int]) -> str:
         quiet = sum(1 for bar in bars if ctx.band(bar) == "p")
         if mood == "calm" or (bars and quiet * 2 > len(bars)):
             return "chord_melody"
+        if mood == "selloff":
+            return "thumb_cantabile"
         return "villa_pattern"
     if ctx.bpm < BARRIOS_TREMOLO_MIN_BPM:
         return "andante"
@@ -1679,19 +1681,51 @@ def _villa_wave(ctx: _Ctx, bar: int, low: list[NoteEvent], offsets: list[int]) -
     return support
 
 
-def _render_villa_bar(ctx: _Ctx, bar: int, approach: bool) -> tuple[list[NoteEvent], list[NoteEvent]]:
-    support, low = _render_study_bar(ctx, bar, level=1 if ctx.band(bar) in {"mf", "f"} else 0, color=True)
+def _villa_bass(ctx: _Ctx, bar: int) -> list[NoteEvent]:
+    """Root and fifth on the strong beats, even when `character` is None.
+
+    Keeping 4/4 `f` on two half-note thumb attacks (0 and 4) leaves eighth 6 to
+    the inner wave, so the 3+3+2 tresillo accents `{0, 3, 6}` always fall on
+    the thumb at 0 and the inner voice at 3 and 6 in both `mf` and `f`.
+    """
     band = ctx.band(bar)
     chord = ctx.chord(bar)
     start = bar * ctx.epb
     epb = ctx.epb
+    lead = _melody_at(ctx, start)
+    root = _choose_bass(chord, 0, lead, ctx.bass_low, ctx.bass_high, ctx.semitones)
+    fifth = _choose_bass(chord, 2, lead, ctx.bass_low, ctx.bass_high, ctx.semitones)
+    if band == "p":
+        return _eighth_event(start, epb, root, epb, 3, _BASS)
+    if ctx.kind == "4/4":
+        return [
+            *_eighth_event(start, 4, root, epb, 3, _BASS),
+            *_eighth_event(start + 4, 4, fifth, epb, 3, _BASS),
+        ]
+    if ctx.kind == "6/8":
+        return [
+            *_eighth_event(start, 3, root, epb, 3, _BASS),
+            *_eighth_event(start + 3, 3, fifth, epb, 3, _BASS),
+        ]
+    return [
+        *_eighth_event(start, 4, root, epb, 3, _BASS),
+        *_eighth_event(start + 4, max(1, epb - 4), fifth, epb, 3, _BASS),
+    ]
+
+
+def _render_villa_bar(ctx: _Ctx, bar: int, approach: bool) -> tuple[list[NoteEvent], list[NoteEvent]]:
+    band = ctx.band(bar)
+    chord = ctx.chord(bar)
+    start = bar * ctx.epb
+    epb = ctx.epb
+    low = _villa_bass(ctx, bar)
     if band in {"mf", "f"} and ctx.kind == "4/4":
         # Full roll on every eighth the thumb does not open. The bass eighths
         # stay empty so the previous inner note can ring across them (campanella).
         occupied = {(_start16(event, epb) // 2) - start for event in low if event.midi is not None}
         offsets = [offset for offset in range(epb) if offset not in occupied]
     else:
-        offsets = sorted({(_start16(event, epb) // 2) - start for event in support if event.midi is not None})
+        offsets = sorted(_support_eighths(ctx.kind, band, True, 1 if band in {"mf", "f"} else 0))
     support = _villa_wave(ctx, bar, low, offsets)
     if approach and band == "f":
         nxt = ctx.chord(bar + 1)
@@ -1721,7 +1755,8 @@ def _render_villa_bar(ctx: _Ctx, bar: int, approach: bool) -> tuple[list[NoteEve
 def _accent_at(event: NoteEvent, start: int, accents: set[int], epb: int) -> NoteEvent:
     eighth = _start16(event, epb) // 2 - start
     if eighth in accents and event.midi is not None:
-        return replace(event, accent=True)
+        velocity = None if event.velocity is None else min(78, event.velocity + 8)
+        return replace(event, accent=True, velocity=velocity)
     return event
 
 
@@ -5981,8 +6016,30 @@ def _relax_texture(ctx: _Ctx, lead, support, low, bar: int):
     return lead, support, low, set(range(start, end))
 
 
-def _plant_pickup(ctx: _Ctx, lead, support, low, bar: int, *, cover_eighth: bool = False):
+def _plant_pickup(
+    ctx: _Ctx,
+    lead,
+    support,
+    low,
+    bar: int,
+    *,
+    cover_eighth: bool = False,
+    keep_approach: bool = False,
+):
     eighth = (bar + 1) * ctx.epb - 1
+    if keep_approach and bar + 1 < ctx.bars:
+        nxt_root_pc = ctx.chord(bar + 1).pitches[0] % 12
+        upper = _eighth_pitches(ctx, [*support, *lead], eighth, cover_eighth=cover_eighth)
+        ceiling = min(upper) if upper else None
+        for event in low:
+            if (
+                event.midi is not None
+                and _start16(event, ctx.epb) == eighth * 2
+                and (event.midi + ctx.semitones) % 12 == (nxt_root_pc - 1) % 12
+                and (ceiling is None or event.midi < ceiling)
+                and _playable([event.midi + ctx.semitones, *(pitch + ctx.semitones for pitch in upper)])
+            ):
+                return lead, support, low
     low = _silence(low, eighth, ctx.epb)
     pitch = _safe_pickup(ctx, bar, support, lead, low, cover_eighth=cover_eighth)
     low.extend(_eighth_event(eighth, 1, pitch, ctx.epb, 3, 50))
@@ -5999,7 +6056,10 @@ def _smooth_boundaries(ctx: _Ctx, patterns, lead, support, low):
         # The last sixteenth of *La Catedral* is an inner note. The pickup bass
         # has to share a hand with that note, not only with the canto attack.
         cover = _catedral_preludio(ctx) and pattern == "preludio"
-        lead, support, low = _plant_pickup(ctx, lead, support, low, bar, cover_eighth=cover)
+        keep_approach = pattern == "villa_pattern" and ctx.band(bar) == "f"
+        lead, support, low = _plant_pickup(
+            ctx, lead, support, low, bar, cover_eighth=cover, keep_approach=keep_approach
+        )
     return lead, support, low, relaxed
 
 

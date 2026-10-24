@@ -142,8 +142,18 @@ def _barrios(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int)
     return _barrios_intro_long(ctx, bar, role, index)
 
 
+def _frame_mood(ctx, bar: int) -> str | None:
+    """Active mood at `bar`, falling back to the latest marked bar before `bar`."""
+    character_at = getattr(ctx, "character_at", None)
+    if character_at:
+        for earlier in range(min(bar, len(character_at) - 1), -1, -1):
+            if character_at[earlier] is not None:
+                return character_at[earlier]
+    return getattr(ctx, "character", None)
+
+
 def _villa(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int) -> list[tuple]:
-    bright = ctx.character in {"rally", "volatile"}
+    bright = _frame_mood(ctx, bar) in {"rally", "volatile"}
     if closing and steps == 2:
         return _villa_outro_short(ctx, bar, role, bright)
     if closing:
