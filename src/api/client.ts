@@ -416,6 +416,7 @@ export type RecapEnsemble =
   | 'guitar'
   | 'breath'
   | 'choir'
+  | 'bach'
   | 'villa'
   | 'barrios'
   | 'brouwer';
@@ -442,6 +443,7 @@ export const ENSEMBLE_ROWS: Record<RecapVariant, { id: RecapEnsemble; label: str
     { id: 'choir', label: 'Hợp xướng' },
   ],
   guitar: [
+    { id: 'bach', label: 'Bach' },
     { id: 'classic', label: 'Sor' },
     { id: 'barrios', label: 'Barrios' },
     { id: 'villa', label: 'Lobos' },
