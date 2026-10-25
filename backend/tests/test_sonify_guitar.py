@@ -3842,7 +3842,9 @@ def test_villa_etude1_and_etude11_follow_the_locked_cells() -> None:
     assert not any(note.accent for note in etude1.support if note.bar == 1)
     _assert_engraved(etude1, {0: "villa_pattern", 1: "villa_etude1"})
 
-    # A rising phrase opens at 60 and reaches 72 on the apex attack.
+    # Pitch and hairpin both come from the price eighth of the beat. On this
+    # rise the pluck at 1.75 falls inside the apex eighth (72), but the sung
+    # note is the eighth that opens beat 2.
     rising = [64, 65, 67, 72, 71, 69, 67, 65]
     peaked = _pattern_score(
         [64] * 8 + rising,
@@ -3852,8 +3854,13 @@ def test_villa_etude1_and_etude11_follow_the_locked_cells() -> None:
         character="rally",
         chords={0: C, 1: C},
     )
-    apex = next(note for note in _attacks(peaked.lead, 1) if abs(note.beat - 1.75) < 1e-6)
-    assert apex.velocity == 72
+    beat2 = next(note for note in _attacks(peaked.lead, 1) if abs(note.beat - 1.75) < 1e-6)
+    beat3 = next(note for note in _attacks(peaked.lead, 1) if abs(note.beat - 2.25) < 1e-6)
+    # Eighth +2 is still E4. Its swell is 2/3 of the way to the apex, so 68,
+    # not the 72 of the next eighth that merely contains the pluck.
+    assert beat2.midi == 67 and beat2.velocity == 68
+    # Strong-beat quantize lifts B4 to C5. The hairpin is that eighth's own swell.
+    assert beat3.midi == 72 and beat3.velocity == 70
 
     # Étude No. 11: the fifth when the chord has it, then the contour.
     flat = [64] * 8
@@ -3914,6 +3921,44 @@ def test_villa_etude1_and_etude11_follow_the_locked_cells() -> None:
         assert len(set(notes)) == 1
         ornaments.append(notes[0])
     assert ornaments == [57, 60, 57, 69]
+
+    # E minor contains neither a fifth nor a third under E, so the inner voice rests.
+    minor = _pattern_score(
+        [64] * 16,
+        (_held(0, 8, 64), _held(8, 8, 64)),
+        ensemble="villa",
+        bpm=100,
+        character="volatile",
+        chords={0: C, 1: EM},
+    )
+    assert not _attacks(minor.support, 1)
+    assert {note.midi for note in _attacks(minor.lead, 1)} == {64}
+
+    # A framed piece is the listening path. The four inner attacks stay flat
+    # at the locked 52, including under the quieter echo and on a forte bar.
+    def framed_etude11(band: str):
+        return _pattern_score(
+            [64] * 24,
+            (_held(0, 8, 64), _held(8, 8, 64), _held(16, 8, 64)),
+            ensemble="villa",
+            bpm=100,
+            character="volatile",
+            bands={bar: band for bar in range(3)},
+            kinds={0: "intro", 1: "phrase", 2: "outro"},
+            sections=(
+                FormSection(0, 1, "intro", 0),
+                FormSection(1, 2, "phrase", 0),
+                FormSection(2, 3, "outro", 0),
+            ),
+            chords={bar: AM for bar in range(3)},
+        )
+
+    for band in ("mf", "f"):
+        framed_cell = framed_etude11(band)
+        quarter = [note for note in _attacks(framed_cell.support, 1) if note.beat < 1.0]
+        assert [note.velocity for note in quarter] == [52, 52, 52, 52]
+        sung = [note for note in _attacks(framed_cell.lead, 1) if note.beat < 1.0]
+        assert [note.velocity for note in sung] == [60, 52]
 
     # The last sextuplet keeps melody and bass when the next phrase changes pattern.
     breath = _pattern_score(

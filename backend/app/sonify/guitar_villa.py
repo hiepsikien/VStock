@@ -415,17 +415,23 @@ def _render_etude1_bar(
     ceiling = min(sung_beat2, sung_beat3)
     bass = _etude_bass(ctx, ctx.chord(bar), ceiling)
     levels = _etude1_levels(ctx, ctx.chord(bar), bass, ceiling)
-    high_at = {7: sung_beat2, 9: sung_beat3}
+    # Pitch and hairpin both come from the price eighth at the start of the
+    # beat. The pluck sits a sixteenth later, inside the next eighth.
+    last = len(ctx.melody) - 1
+    high_at = {
+        7: (sung_beat2, min(start + 2, last)),
+        9: (sung_beat3, min(start + 4, last)),
+    }
     lead: list[NoteEvent] = []
     support: list[NoteEvent] = []
     for index in range(16):
         if breathe and index >= 12:
             continue
         beat = index / 4
-        eighth = start + int(math.floor(beat * 2 + 1e-9))
         if index in high_at:
+            midi, hairpin_eighth = high_at[index]
             lead.append(
-                _placed(bar, beat, high_at[index], 0.25, 1, _etude_hairpin(ctx, phrase, eighth))
+                _placed(bar, beat, midi, 0.25, 1, _etude_hairpin(ctx, phrase, hairpin_eighth))
             )
             continue
         degree = _ETUDE1_MIDDLE.get(index)
@@ -435,9 +441,7 @@ def _render_etude1_bar(
         if tone is None:
             continue
         support.append(_placed(bar, beat, tone, 0.25, 2, _ETUDE_MIDDLE))
-    sung_velocity = min(
-        (_etude_hairpin(ctx, phrase, start + 3), _etude_hairpin(ctx, phrase, start + 4)),
-    )
+    sung_velocity = min(_etude_hairpin(ctx, phrase, eighth) for _midi, eighth in high_at.values())
     low = [_placed(bar, 0.0, bass, 4.0, 3, max(44, sung_velocity - 4))]
     return lead, support, low
 
@@ -465,10 +469,8 @@ def _etude11_ornament(
     for third in (melody - 3, melody - 4):
         if valid(third) and third not in ordered:
             ordered.append(third)
-    if not ordered:
-        between = _chord_between(ctx, chord, bass, melody)
-        if between:
-            ordered = [between[-1]]
+    # No fifth and no third: the inner voice rests. A leftover chord tone
+    # would invent a fourth under a melody that sits on the root.
     if not ordered:
         return None
     if previous is not None and previous_melody == melody and valid(previous):

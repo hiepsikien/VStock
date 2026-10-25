@@ -2786,6 +2786,12 @@ def _shape_dynamics(ctx: _Ctx, lead, support, low, relaxed: set[int], patterns: 
             if eighth in relaxed:
                 shaped.append(event)
                 continue
+            if patterns is not None and _bar_pattern(ctx, event.bar, patterns) in {"etude1", "etude11"}:
+                # The cell already locks the hairpin, the echo, and a flat inner
+                # voice. Capping against the note that is sounding reads the echo
+                # and pulls the last two inner attacks down.
+                shaped.append(event)
+                continue
             extra = 0
             phrase = phrase_at(eighth)
             if phrase is not None:
@@ -2811,7 +2817,7 @@ def _shape_dynamics(ctx: _Ctx, lead, support, low, relaxed: set[int], patterns: 
                 and ctx.ensemble == "villa"
                 and (
                     patterns is None
-                    or _bar_pattern(ctx, event.bar, patterns) in {"villa_pattern", "etude1", "etude11"}
+                    or _bar_pattern(ctx, event.bar, patterns) == "villa_pattern"
                 )
             ):
                 lead_vel = sounding_lead_vel(eighth)
