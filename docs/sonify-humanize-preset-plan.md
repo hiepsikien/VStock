@@ -28,29 +28,32 @@ Bốn dòng kia đi trên `high`, `lead`, `support`, `comp`, `low`. Field nào c
 
 Nốt nghỉ và nốt `velocity is None` giữ nguyên.
 
-### Chỉ plateau mới nhích
+### Plateau được nhích khi bậc kề lớn hơn trần
 
-Một plateau là một chuỗi cú đánh liền nhau trong cùng một field, viết cùng một velocity. Đó là việc của filter. Cả ô study ở 56 là một plateau.
+Một plateau là một chuỗi cú đánh liền nhau trong cùng một field, viết cùng một velocity. `tie_stop` không phải một cú đánh trong chuỗi đó.
 
-Nốt đã có bước viết thì giữ nguyên. Ba chỗ vừa khóa nằm trong nhóm này:
+Plateau chỉ được nhích khi khoảng cách tới cú đánh khác velocity gần nhất, cả phía trước và phía sau trong cùng field, lớn hơn trần. Bước kề là 1 hoặc 2 thì cả đoạn đứng yên. Không có cú đánh khác velocity ở một phía thì phía đó không chặn.
 
-- Etude 11 nghiêng từng bước 1 (`_ETUDE11_TILT`). Với hairpin 60, band `mf`, bốn nốt trong ra khoảng 49, 50, 51, 51.
-- Vòm tremolo Barrios lấy biên trong ô là 8. Các phách cách nhau từ 6. Bước 2 đã bị bỏ vì không nghe được trên chương dài.
-- Đỉnh giai điệu 72 cạnh nền 64 là bước 8.
+Ô study toàn 56 vẫn nhích: trong field đó không có bậc kề 1 hoặc 2. Sau đó nó bị kẹp bởi bè trầm 60.
 
-Một độ lệch nghe được mà vẫn nhỏ hơn các bước đã soạn thì không đứng cùng một lúc với bước 1 của Etude 11. Vì vậy nốt đã có bước thì đứng yên. Filter không cố làm chúng "đỡ máy" thêm.
+Cùng một quy tắc giữ các bậc thang vừa khóa. Không cần một danh sách ngoại lệ:
+
+- Etude 11 (`_ETUDE11_TILT`), hairpin 60, band `mf`, ra khoảng 49, 50, 51, 51. Cặp 51, 51 là một plateau, và nó sát nốt 50 đúng một bậc, nên cả đoạn đứng yên.
+- Etude 1 (`_ETUDE1_ARC` cộng vào 52) là bậc thang bước 2: `50 50 50 | 52 52 | 54 54 54 | 52 52 | 50 50 50`. Mỗi bậc là một plateau. Trần ±2 xóa được bước giữa hai bậc, nên cả ô đứng yên.
+- Vòm tremolo Barrios các phách cách nhau từ 3 trở lên, và các nốt liền nhau không bằng nhau. Không có plateau nào để nhích, nên cả ô đứng yên.
+- Đỉnh giai điệu 72 cạnh nền 64 là bước 8. Nốt 64 chỉ nhích nếu plateau của nó cách cú đánh khác velocity hơn 2.
 
 ### Độ lệch trên plateau
 
-Mỗi cú đánh trên plateau được cộng một số trong `{-2, -1, +1, +2}`. Trần là 2. Số 0 được phép khi một số khác 0 sẽ phá một ràng buộc bên dưới. Chưa khóa bước 1 hay bước 2 cho đến khi nghe nylon.
+Mỗi cú đánh trên một plateau được phép nhích cộng một số trong `{-2, -1, 0, +1, +2}`. Trần là 2. Chưa khóa có dùng ±1, ±2, hay giữ 0, cho đến khi nghe nylon.
 
-Số đó cố định theo `(variant, ensemble, field, bar, beat, midi)`, không dùng `random` và không dùng `hash()` của Python. Cùng một bản ra cùng một file, vì cache tiếng khóa theo revision.
+Số đó cố định theo `(variant, ensemble, field, bar, beat)`, không có `midi`, không dùng `random`, và không dùng `hash()` của Python. Cùng một bản ra cùng một file, vì cache tiếng khóa theo revision.
 
-Hai nốt cùng phách, cùng field, cùng lực viết là một tiếng. Dyad ngón cái tremolo đang cùng lực phải nhận cùng một độ lệch. Chúng không bị tách như hai nốt của một hợp âm khối.
+Mọi nốt cùng phách, cùng field, cùng lực viết dùng chung một số. Gốc và quãng 5 của ngón cái khác `midi` nhưng cùng một cú, nên cùng một độ lệch. Hợp âm ba nốt cùng lực trên cùng phách, cùng field, cũng dùng chung số đó.
 
-Nốt ở hai field khác nhau, đang kêu cùng lúc, giữ thứ tự đã viết. Bè trầm study 60 và bè trung 56 cách nhau 4. ±2 mỗi bên có thể kéo về bằng nhau. Kết quả phải còn trầm lớn hơn trung. Trần villa cùng kiểu: trầm chỉ thấp hơn giai điệu 1, bè trung thấp hơn 2 hoặc 4. Một delta trên plateau không được đảo các khoảng đó.
+Nốt ở hai field khác nhau, đang kêu cùng lúc, giữ thứ tự đã viết. Khi offset đã chọn làm đảo thứ tự, hạ đúng offset đó về phía 0 theo tập `{-2, -1, 0, +1, +2}`. 0 là bậc cuối. Đổi dấu sẽ làm hai lần chạy cùng đầu vào ra hai kết quả. Bè trầm study 60 và bè trung 56 cách nhau 4. Trần villa cùng kiểu: trầm chỉ thấp hơn giai điệu 1, bè trung thấp hơn 2 hoặc 4.
 
-`tie_stop` lấy velocity đã humanize của cú đánh, không lấy số viết ban đầu. Bỏ qua `tie_stop` thì nốt nối giữ số cũ và lệch khỏi cú đánh đúng bằng offset.
+`tie_stop` không tham gia plateau. Nó nhận velocity đã humanize của cú đánh, không lấy số viết ban đầu.
 
 Cao độ, độ dài, cờ nhấn, và chữ động lực in trên giấy không đổi. Kẹp trong `1..127`.
 
@@ -62,9 +65,7 @@ Cao độ, độ dài, cờ nhấn, và chữ động lực in trên giấy khô
 - Nghe cả chữ in lẫn velocity từng nốt, trong số đã đo: glockenspiel, crotales, vibraphone. Trên glockenspiel, velocity 46 lên 96 tăng peak 7,3 dB, nên ±3 khoảng 0,4 dB và ±2 còn nhỏ hơn.
 - Marimba mới được đo peak để cân gain. Chưa đo xem nó có đọc `<note dynamics>` hay không.
 
-Nylon nghe được nếu thư viện đổi lớp mẫu trong khoảng đang xét. Sax, Rhodes, flute, piano, dây và kèn không đổi. Tối giản `classic` đi MS Basic, nên velocity MIDI có tiếng. Ambient gần như im, trừ celesta và chuông nếu chúng đọc velocity.
-
-Cache khóa theo revision. Cả năm dòng bị render lại khi tăng revision. Đo nylon ở 53, 56 và 59 trước khi khóa biên độ. Nếu ba mức đó không đổi tiếng nylon, filter plateau không đủ lý do để tăng revision một mình.
+Nylon nghe được nếu thư viện đổi lớp mẫu trong khoảng đang xét. Sax, Rhodes, flute, piano, dây và kèn không đổi. Tối giản `classic` đi MS Basic, nên velocity MIDI có tiếng, nhưng bước 2 trên thang mượt chỉ khoảng vài phần mười dB. Ambient gần như im, trừ celesta và chuông nếu chúng đọc velocity. Cửa quyết định có khóa ±2 hay không là nylon ở 53, 56 và 59, ghi ở mục 4.
 
 ---
 
@@ -78,9 +79,11 @@ Thứ tự, cả recap ngày và span, khớp cách `SessionRecap` chia thời g
 
 1. MuseScore viết WAV khô.
 2. FFmpeg tô màu ra một WAV thứ hai, theo `variant`.
-3. Cắt WAV đã tô về đúng độ dài WAV khô. `aecho` và reverb của FFmpeg nối thêm đuôi. Không cắt thì đuôi đó kéo dài đoạn chart đang đứng ở nốt cuối.
+3. Cắt WAV đã tô về đúng độ dài WAV khô. `aecho` và reverb của FFmpeg nối thêm đuôi ở cuối file. `mapDurationSec` lấy từ độ dài bản viết khi file dài hơn bản viết. Cắt giữ độ dài đoạn chart đứng ở nốt cuối.
 4. `waveform_peaks` đo trên WAV đã tô và đã cắt.
 5. Encode m4a từ WAV đó. Không gắn filter thêm ở bước encode.
+
+Chuỗi filter không có lookahead, để attack không trượt khỏi nốt.
 
 Không có FFmpeg thì phát WAV khô. Đỉnh không được nhô hơn bản khô: nếu saturation làm lớn, hạ lại trước khi đo peak. Hệ số dưới đây là điểm xuất phát, chỉnh sau khi nghe.
 
@@ -125,7 +128,7 @@ Sax, kèn, Rhodes, Hammond, vibraphone và bass điện nghe khô khi không có
 
 Mallet, guitar thép, piano đứng, hợp xướng và pulse cần lưới rõ. Khô quá thì nghe như file MIDI.
 
-Chọn phản xạ sớm vài chục ms, mức ướt thấp. Decay 0,4 giây phủ khoảng ba móc đơn ở 120 BPM, đủ để nhòe ostinato, nên không dùng. Nếu phản xạ sớm vẫn quá khô, nghe một phòng ngắn trên vòng nhanh nhất rồi chọn một trong hai, không cộng cả hai.
+Phản xạ sớm vài chục ms, mức ướt thấp. Đó là lựa chọn cho `wood`. Decay 0,4 giây phủ khoảng ba móc đơn ở 120 BPM, đủ để nhòe ostinato, nên không dùng.
 
 Không saturation, không nguồn nhiễu, không nới stereo. Cắt về độ dài WAV khô.
 
@@ -143,7 +146,7 @@ Drone, halo, kính và horn đã ngân dài và đã có diminuendo (`docs/sonif
 ## 3. Việc không làm trong đợt này
 
 - Không sửa pattern, dialect, chữ `p–f`, hay hairpin.
-- Không humanize nốt đã có bước viết.
+- Không humanize plateau khi bậc kề trong cùng field là 1 hoặc 2.
 - Không humanize bằng lệch thời gian.
 - Không một preset dùng chung cho năm dòng.
 - Không bật `_GUITAR_HALL`.
@@ -154,17 +157,18 @@ Drone, halo, kính và horn đã ngân dài và đã có diminuendo (`docs/sonif
 
 ## 4. Cache và test
 
-Đổi tiếng nghe thì tăng `RECAP_REVISION` và `SPAN_REVISION`. Hai số hiện tại là 62 và 48. File cũ không được phát lại. Chưa tăng trong lúc kế hoạch còn chờ lần nghe nylon.
+`RECAP_REVISION` đang là 62, `SPAN_REVISION` đang là 48. Chưa tăng.
+
+Cửa nghe nylon ở 53, 56 và 59 quyết định có khóa ±2 và có tăng revision vì humanize hay không. Nếu ba mức đó không khác nhau trên nylon, ±2 cũng không khác. Tối giản `classic` đi MS Basic, nhưng bước 2 trên thang velocity mượt chỉ khoảng vài phần mười dB. Cửa nylon đủ cho quyết định humanize. Preset có thể tăng revision sau, khi năm dòng đã được nghe. Hai lần tăng có thể tách nhau.
 
 `backend/tests/test_humanize.py`, khi đã code:
 
-- Một plateau cùng velocity được nhích, mỗi cú đánh lệch trong trần đã chọn, tối đa ±2.
-- Etude 11 (49, 50, 51, 51) và một vòm tremolo đã có bước thì đứng yên.
-- Dyad cùng phách, cùng field, cùng lực viết nhận một độ lệch.
-- Bè trầm 60 và bè trung 56 đang kêu cùng lúc vẫn còn trầm lớn hơn trung.
-- `tie_stop` bằng lực đã humanize của cú đánh.
+- Ô study toàn 56 được nhích, mỗi cú đánh trong `{-2, -1, 0, +1, +2}`, rồi vẫn thấp hơn bè trầm 60.
+- Etude 11 (49, 50, 51, 51) đứng yên vì bậc kề là 1. Etude 1 (`50 50 50 | 52 52 | 54 54 54 | 52 52 | 50 50 50`) đứng yên vì bậc kề là 2. Vòm tremolo đứng yên vì các nốt liền nhau không bằng nhau.
+- Gốc và quãng 5 cùng phách, cùng field, khác `midi`, nhận một độ lệch. Hợp âm ba nốt cùng lực cũng vậy. Khóa là `(variant, ensemble, field, bar, beat)`.
+- Offset làm đảo thứ tự liên bè thì hạ về phía 0. Cùng đầu vào thì cùng đầu ra.
+- `tie_stop` không nằm trong plateau, và bằng lực đã humanize của cú đánh.
 - Nốt nghỉ và `velocity is None` đứng yên.
-- Cùng đầu vào thì cùng đầu ra.
 
 Test velocity hiện có của guitar, jazz, tối giản và ambient giữ nguyên, vì `render()` không gọi humanize.
 
