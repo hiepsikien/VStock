@@ -50,7 +50,7 @@ Những ngón `p` sau cú 1 không phải bass mới. Chúng là bè trung. Bass
 
 Thang bè trung là các âm hợp âm thỏa `bass < nốt < giai điệu`, xếp từ thấp lên cao, lấy tối đa bốn mức. Thiếu mức thì dùng mức cao nhất đang có. Chỉ số trong bảng là chỉ số của thang đó: `0` thấp nhất, `3` sát giai điệu. Trên ô Mi thứ của bản, bốn mức là Si2, Mi3, Sol3, Si3, và hai nốt cao đều là Mi4.
 
-Giá đứng yên thì cú 8 và cú 10 cùng cao độ, đúng bản. Giá đổi thì cú 8 lấy nốt của phách 2, cú 10 lấy nốt của phách 3. Hairpin lấy cùng móc đó (móc đầu phách), không lấy móc đang chứa thời điểm gảy. Lực mở 60, đỉnh 72. Bass dưới hai nốt hát đó. Bè trung phẳng, khoảng 50–56. Bài có khung giữ nguyên các số này: `_shape_dynamics` không viết lại ô đã khóa.
+Giá đứng yên thì cú 8 và cú 10 cùng cao độ, đúng bản. Giá đổi thì cú 8 lấy nốt của phách 2, cú 10 lấy nốt của phách 3. Hairpin lấy cùng móc đó (móc đầu phách), không lấy móc đang chứa thời điểm gảy. Lực mở 60, đỉnh 72. Bass dưới hai nốt hát đó. Bè trung có một vòng cung nhỏ trong ô, độc lập với hairpin câu: 50 ở hai đầu, 52 ở hai vai, 54 ở cú 7, cú 9 và cú 11 quanh hai nốt cao. Bài có khung giữ nguyên các số này: `_shape_dynamics` không viết lại ô đã khóa.
 
 Bè trung nghỉ ở cú 1, 8 và 10. Bè cao nghỉ mọi cú còn lại. Khi câu `etude1` sang pattern khác, bốn móc kép cuối ô chỉ còn bass. Tổng thời gian của ô không đổi.
 

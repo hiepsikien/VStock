@@ -334,6 +334,23 @@ _ETUDE1_MIDDLE = {
     14: 0,
     15: 1,
 }
+# Fixed arch inside one bar, independent of the phrase hairpin. The peak is the
+# inner notes beside the two sung attacks (indexes 6, 8, and 10).
+_ETUDE1_ARC = {
+    1: -2,
+    2: -2,
+    3: -2,
+    4: 0,
+    5: 0,
+    6: 2,
+    8: 2,
+    10: 2,
+    11: 0,
+    12: 0,
+    13: -2,
+    14: -2,
+    15: -2,
+}
 
 
 def _etude_hairpin(ctx: _Ctx, phrase: Phrase | None, eighth: int) -> int:
@@ -440,7 +457,9 @@ def _render_etude1_bar(
         tone = _etude_level(levels, degree)
         if tone is None:
             continue
-        support.append(_placed(bar, beat, tone, 0.25, 2, _ETUDE_MIDDLE))
+        support.append(
+            _placed(bar, beat, tone, 0.25, 2, _ETUDE_MIDDLE + _ETUDE1_ARC[index])
+        )
     sung_velocity = min(_etude_hairpin(ctx, phrase, eighth) for _midi, eighth in high_at.values())
     low = [_placed(bar, 0.0, bass, 4.0, 3, max(44, sung_velocity - 4))]
     return lead, support, low

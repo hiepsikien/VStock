@@ -3813,6 +3813,10 @@ def test_villa_etude1_and_etude11_follow_the_locked_cells() -> None:
     assert any(
         note.beat == 0.0 and abs(note.duration_beats - 4.0) < 1e-6 for note in _pitched(framed.low, 1)
     )
+    framed_middle = {round(note.beat, 2): note.velocity for note in _attacks(framed.support, 1)}
+    # This body bar leaves for the outro, so the last beat is already silent.
+    assert framed_middle[0.25] == 50 and framed_middle[1.5] == 54
+    assert 3.75 not in framed_middle
 
     # Étude No. 1 on E minor: four inner levels, bass once, two melody sixteenths.
     etude1 = _pattern_score(
@@ -3837,7 +3841,12 @@ def test_villa_etude1_and_etude11_follow_the_locked_cells() -> None:
     assert len(bass) == 1 and bass[0].midi == 40 and bass[0].duration_beats == 4.0
     assert not bass[0].accent
     assert {note.velocity for note in _attacks(etude1.lead, 1)} == {60}
-    assert {note.velocity for note in _attacks(etude1.support, 1)} == {52}
+    middle_vel = {round(note.beat, 2): note.velocity for note in _attacks(etude1.support, 1)}
+    assert [middle_vel[beat] for beat in (0.25, 0.5, 0.75)] == [50, 50, 50]
+    assert [middle_vel[beat] for beat in (1.0, 1.25)] == [52, 52]
+    assert [middle_vel[beat] for beat in (1.5, 2.0, 2.5)] == [54, 54, 54]
+    assert [middle_vel[beat] for beat in (2.75, 3.0)] == [52, 52]
+    assert [middle_vel[beat] for beat in (3.25, 3.5, 3.75)] == [50, 50, 50]
     assert bass[0].velocity is not None and bass[0].velocity < 60
     assert not any(note.accent for note in etude1.support if note.bar == 1)
     _assert_engraved(etude1, {0: "villa_pattern", 1: "villa_etude1"})
