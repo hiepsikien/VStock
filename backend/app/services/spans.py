@@ -17,7 +17,14 @@ from app.services.sessions import (
     fetch_ohlc,
     payload_truncated,
 )
-from app.sonify.audio import SPAN_REVISION, SpanAsset, RecapCancelled, RecapUnavailable, recap_store
+from app.sonify.audio import (
+    SPAN_REVISION,
+    SpanAsset,
+    RecapCancelled,
+    RecapUnavailable,
+    layer_query,
+    recap_store,
+)
 from app.sonify.model import Ensemble, Variant
 from app.sonify.session import coarse_bars, samples_from_ohlc, session_bars, session_dates
 from app.sonify.span import (
@@ -50,9 +57,12 @@ def movement_audio_path(
     variant: Variant,
     movement: PreparedMovement,
     ensemble: Ensemble = "classic",
+    humanize: bool = True,
+    color: bool = True,
 ) -> str:
     fingerprint = movement.scale_fingerprint
     extra = "" if ensemble == "classic" else f"&ensemble={ensemble}"
+    extra += layer_query(humanize, color)
     return (
         f"/v1/stocks/{symbol}/span/audio.m4a"
         f"?range={span}&movement={index}&variant={variant}"
@@ -123,6 +133,8 @@ def ready_movement(
     variant: Variant,
     movement: PreparedMovement,
     ensemble: Ensemble = "classic",
+    humanize: bool = True,
+    color: bool = True,
 ) -> SpanAsset | None:
     return recap_store().get_movement(
         symbol.upper(),
@@ -132,6 +144,8 @@ def ready_movement(
         movement.candle_count,
         movement.scale_fingerprint,
         ensemble,
+        humanize,
+        color,
     )
 
 
@@ -142,6 +156,8 @@ async def load_movement_audio(
     variant: Variant,
     request: Request | None = None,
     ensemble: Ensemble = "classic",
+    humanize: bool = True,
+    color: bool = True,
 ) -> SpanAsset:
     movements = await plan_span(symbol, span, variant)
     if index < 0 or index >= len(movements):
@@ -169,6 +185,8 @@ async def load_movement_audio(
             movement,
             cancel,
             ensemble,
+            humanize,
+            color,
         )
     except (RecapUnavailable, RecapCancelled):
         raise

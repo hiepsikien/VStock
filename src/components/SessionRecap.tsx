@@ -24,6 +24,7 @@ import {
 } from '../api/client';
 import { formatPercent } from '../data/stocks';
 import { colors, spacing, typography } from '../theme';
+import { MixToggles } from './MixToggles';
 import { ambientDailyCandleIndexAt, playheadHoldsPoll } from '../utils/recapCursor';
 import { isMarketOpen, REFRESH } from '../utils/marketSession';
 
@@ -97,6 +98,8 @@ function pieceMatches(
   variant: RecapVariant,
   ensemble: RecapEnsemble,
   selected: string | null,
+  humanize: boolean,
+  colorOn: boolean,
 ): manifest is RecapManifest {
   return (
     manifest != null &&
@@ -106,6 +109,8 @@ function pieceMatches(
     series.date === selected &&
     manifest.variant === variant &&
     (manifest.ensemble ?? 'classic') === ensemble &&
+    (manifest.humanize ?? true) === humanize &&
+    (manifest.color ?? true) === colorOn &&
     manifest.barCount === series.prices.length
   );
 }
@@ -115,6 +120,8 @@ export function SessionRecap({ symbol, children }: Props) {
   const [selected, setSelected] = useState<string | null>(null);
   const [variant, setVariant] = useState<RecapVariant>('symphony');
   const [ensemble, setEnsemble] = useState<RecapEnsemble>('classic');
+  const [humanize, setHumanize] = useState(true);
+  const [colorOn, setColorOn] = useState(true);
   const [series, setSeries] = useState<SessionMinutes | null>(null);
   const [manifest, setManifest] = useState<RecapManifest | null>(null);
   const [composing, setComposing] = useState(false);
@@ -131,12 +138,16 @@ export function SessionRecap({ symbol, children }: Props) {
   const selectedRef = useRef<string | null>(null);
   const variantRef = useRef<RecapVariant>('symphony');
   const ensembleRef = useRef<RecapEnsemble>('classic');
+  const humanizeRef = useRef(true);
+  const colorRef = useRef(true);
   const seriesEpoch = useRef(0);
   seriesRef.current = series;
   manifestRef.current = manifest;
   selectedRef.current = selected;
   variantRef.current = variant;
   ensembleRef.current = ensemble;
+  humanizeRef.current = humanize;
+  colorRef.current = colorOn;
 
   const abortRecap = useCallback(() => {
     recapAbort.current?.abort();
@@ -225,7 +236,7 @@ export function SessionRecap({ symbol, children }: Props) {
     setListenError(null);
     setComposing(false);
     setAutoplay(false);
-  }, [abortRecap, clearPlayhead, ensemble, variant]);
+  }, [abortRecap, clearPlayhead, colorOn, ensemble, humanize, variant]);
 
   useEffect(() => {
     if (!selected) return;
@@ -243,7 +254,19 @@ export function SessionRecap({ symbol, children }: Props) {
           if (cancelled || cursorActive.current || detail.date !== selected) return;
           if (seriesEpoch.current !== epoch) return;
           setSeries(detail);
-          if (pieceMatches(manifestRef.current, detail, variantRef.current, ensembleRef.current, selected)) return;
+          if (
+            pieceMatches(
+              manifestRef.current,
+              detail,
+              variantRef.current,
+              ensembleRef.current,
+              selected,
+              humanizeRef.current,
+              colorRef.current,
+            )
+          ) {
+            return;
+          }
           clearPlayhead();
           setManifest(null);
         } catch (err) {
@@ -264,6 +287,8 @@ export function SessionRecap({ symbol, children }: Props) {
     const current = seriesRef.current;
     const chosen = variantRef.current;
     const band = ensembleRef.current;
+    const shaped = humanizeRef.current;
+    const tinted = colorRef.current;
     if (!day || !current || current.date !== day) return;
     abortRecap();
     const controller = new AbortController();
@@ -276,9 +301,14 @@ export function SessionRecap({ symbol, children }: Props) {
       !controller.signal.aborted &&
       selectedRef.current === day &&
       variantRef.current === chosen &&
-      ensembleRef.current === band;
+      ensembleRef.current === band &&
+      humanizeRef.current === shaped &&
+      colorRef.current === tinted;
     const composeOnce = async () => {
-      const recap = await fetchRecap(symbol, day, chosen, band, controller.signal);
+      const recap = await fetchRecap(symbol, day, chosen, band, controller.signal, {
+        humanize: shaped,
+        color: tinted,
+      });
       if (!stillHere()) return null;
       const detail = await fetchSessionMinutes(symbol, day, controller.signal);
       if (!stillHere()) return null;
@@ -295,6 +325,8 @@ export function SessionRecap({ symbol, children }: Props) {
           recap.date === detail.date &&
           recap.variant === chosen &&
           (recap.ensemble ?? 'classic') === band &&
+          (recap.humanize ?? true) === shaped &&
+          (recap.color ?? true) === tinted &&
           recap.barCount === detail.prices.length;
         if (!samePiece(pass.recap, pass.detail)) {
           pass = await composeOnce();
@@ -312,7 +344,13 @@ export function SessionRecap({ symbol, children }: Props) {
         setAutoplay(true);
       } catch (err) {
         if (controller.signal.aborted || isAbort(err)) return;
-        if (selectedRef.current === day && variantRef.current === chosen && ensembleRef.current === band) {
+        if (
+          selectedRef.current === day &&
+          variantRef.current === chosen &&
+          ensembleRef.current === band &&
+          humanizeRef.current === shaped &&
+          colorRef.current === tinted
+        ) {
           setListenError(recapErrorMessage(err));
         }
       } finally {
@@ -330,7 +368,7 @@ export function SessionRecap({ symbol, children }: Props) {
   };
 
   const ready = series != null && series.date === selected;
-  const playingPiece = pieceMatches(manifest, series, variant, ensemble, selected);
+  const playingPiece = pieceMatches(manifest, series, variant, ensemble, selected, humanize, colorOn);
   const dimUnplayed =
     composing || (playingPiece && (playbackActive || (autoplay && cursor == null)));
   const view: RecapView = loadError
@@ -438,6 +476,12 @@ export function SessionRecap({ symbol, children }: Props) {
               );
             })}
           </View>
+          <MixToggles
+            humanize={humanize}
+            colorOn={colorOn}
+            onHumanize={setHumanize}
+            onColor={setColorOn}
+          />
 
           {playingPiece && manifest ? (
             <RecapPlayer

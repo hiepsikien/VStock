@@ -397,11 +397,13 @@ async def get_recap(
     request: Request,
     variant: Variant = Query(default="symphony"),
     ensemble: str = Query(default="classic"),
+    humanize: bool = Query(default=True),
+    color: bool = Query(default=True),
 ) -> RecapResponse:
     sym = symbol.upper()
     chosen = _ensemble(variant, ensemble)
     try:
-        asset = await load_recap(sym, session_date, variant, request, chosen)
+        asset = await load_recap(sym, session_date, variant, request, chosen, humanize, color)
     except LookupError:
         raise HTTPException(
             status_code=404,
@@ -427,6 +429,8 @@ async def get_recap(
         character=asset.character,
         characterLabel=CHARACTER_LABEL.get(asset.character or "", ""),
         keyLabel=asset.key_label,
+        humanize=asset.humanize,
+        color=asset.color,
     )
 
 
@@ -436,6 +440,8 @@ async def get_span(
     range: str = Query(default="1W"),
     variant: Variant = Query(default="symphony"),
     ensemble: str = Query(default="classic"),
+    humanize: bool = Query(default=True),
+    color: bool = Query(default=True),
 ) -> SpanResponse:
     sym = symbol.upper()
     chosen = _ensemble(variant, ensemble)
@@ -449,7 +455,7 @@ async def get_span(
         raise HTTPException(status_code=502, detail=f"Span history unavailable: {exc}") from exc
     rows = []
     for index, movement in enumerate(movements):
-        cached = ready_movement(sym, range, index, variant, movement, chosen)
+        cached = ready_movement(sym, range, index, variant, movement, chosen, humanize, color)
         rows.append(
             SpanMovementResponse(
                 index=index,
@@ -458,7 +464,9 @@ async def get_span(
                 candleCount=movement.candle_count,
                 durationSec=round(movement_duration(movement), 3),
                 ready=cached is not None,
-                audioUrl=movement_audio_path(sym, range, index, variant, movement, chosen),
+                audioUrl=movement_audio_path(
+                    sym, range, index, variant, movement, chosen, humanize, color
+                ),
                 restAfterSec=movement.rest_after,
                 warmupSec=round(movement_frame(movement)[0], 3),
                 cooldownSec=round(movement_frame(movement)[1], 3),
@@ -470,7 +478,15 @@ async def get_span(
                 ],
             )
         )
-    return SpanResponse(symbol=sym, range=range, variant=variant, ensemble=chosen, movements=rows)
+    return SpanResponse(
+        symbol=sym,
+        range=range,
+        variant=variant,
+        ensemble=chosen,
+        movements=rows,
+        humanize=humanize,
+        color=color,
+    )
 
 
 @router.get("/stocks/{symbol}/span/audio.m4a")
@@ -481,13 +497,17 @@ async def get_span_audio(
     movement: int = Query(default=0, ge=0),
     variant: Variant = Query(default="symphony"),
     ensemble: str = Query(default="classic"),
+    humanize: bool = Query(default=True),
+    color: bool = Query(default=True),
 ) -> FileResponse:
     sym = symbol.upper()
     chosen = _ensemble(variant, ensemble)
     if range not in SPAN_RANGES:
         raise HTTPException(status_code=404, detail=f"No sonification for {range}")
     try:
-        asset = await load_movement_audio(sym, range, movement, variant, request, chosen)
+        asset = await load_movement_audio(
+            sym, range, movement, variant, request, chosen, humanize, color
+        )
     except LookupError:
         raise HTTPException(status_code=404, detail="That movement is not in this span") from None
     except RecapCancelled:
@@ -512,10 +532,14 @@ async def get_recap_audio(
     session_date: date,
     variant: Variant = Query(default="symphony"),
     ensemble: str = Query(default="classic"),
+    humanize: bool = Query(default=True),
+    color: bool = Query(default=True),
     v: int = Query(..., ge=1),
 ) -> FileResponse:
     sym = symbol.upper()
-    asset = ready_recap(sym, session_date, variant, v, _ensemble(variant, ensemble))
+    asset = ready_recap(
+        sym, session_date, variant, v, _ensemble(variant, ensemble), humanize, color
+    )
     if asset is None:
         raise HTTPException(status_code=404, detail="Recap audio is not ready")
     return FileResponse(
