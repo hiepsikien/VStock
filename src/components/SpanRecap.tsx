@@ -23,6 +23,7 @@ import {
   type PieceProgram,
 } from '../sonify/program';
 import { spanCandleIndexAt } from '../utils/recapCursor';
+import { MixToggles } from './MixToggles';
 import type { RecapView } from './SessionRecap';
 
 const VARIANTS: { id: RecapVariant; label: string }[] = [
@@ -60,6 +61,8 @@ const EMPTY_VIEW: RecapView = {
 export function SpanRecap({ symbol, range, children }: Props) {
   const [variant, setVariant] = useState<RecapVariant>('symphony');
   const [ensemble, setEnsemble] = useState<RecapEnsemble>('classic');
+  const [humanize, setHumanize] = useState(true);
+  const [colorOn, setColorOn] = useState(true);
   const [movements, setMovements] = useState<SpanMovement[] | null>(null);
   const [index, setIndex] = useState(0);
   const [playEpoch, setPlayEpoch] = useState(0);
@@ -107,7 +110,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
 
   useEffect(() => {
     reset();
-  }, [ensemble, range, symbol, variant, reset]);
+  }, [colorOn, ensemble, humanize, range, symbol, variant, reset]);
 
   useEffect(() => () => clearRest(), [clearRest]);
 
@@ -118,7 +121,10 @@ export function SpanRecap({ symbol, range, children }: Props) {
     setComposing(true);
     void (async () => {
       try {
-        const manifest = await fetchSpan(symbol, range, variant, ensemble, controller.signal);
+        const manifest = await fetchSpan(symbol, range, variant, ensemble, controller.signal, {
+          humanize,
+          color: colorOn,
+        });
         if (controller.signal.aborted) return;
         if (!manifest.movements.length) {
           setError('Chưa đủ phiên để soạn bản này.');
@@ -140,7 +146,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
         }
       }
     })();
-  }, [ensemble, range, reset, symbol, variant]);
+  }, [colorOn, ensemble, humanize, range, reset, symbol, variant]);
 
   const current = movements?.[index] ?? null;
   const playing = current != null && !finished;
@@ -227,7 +233,10 @@ export function SpanRecap({ symbol, range, children }: Props) {
     const signal = namesRequest.current.signal;
     void (async () => {
       try {
-        const manifest = await fetchSpan(symbol, range, variant, ensemble, signal);
+        const manifest = await fetchSpan(symbol, range, variant, ensemble, signal, {
+          humanize,
+          color: colorOn,
+        });
         if (signal.aborted) return;
         setMovements((existing) => {
           if (!existing) return existing;
@@ -244,7 +253,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
         // A missing dance stays blank. The title does not invent one.
       }
     })();
-  }, [current?.name, current?.ready, ensemble, range, symbol, variant]);
+  }, [colorOn, current?.name, current?.ready, ensemble, humanize, range, symbol, variant]);
 
   const replay = useCallback(() => {
     clearRest();
@@ -387,6 +396,12 @@ export function SpanRecap({ symbol, range, children }: Props) {
             );
           })}
         </View>
+        <MixToggles
+          humanize={humanize}
+          colorOn={colorOn}
+          onHumanize={setHumanize}
+          onColor={setColorOn}
+        />
         {playing && current ? (
           <MovementPlayer
             key={`${current.audioUrl}#${playEpoch}`}

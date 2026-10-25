@@ -466,6 +466,17 @@ export type SessionMinutes = {
   changePercent: number;
 };
 
+export type SonifyMix = {
+  humanize: boolean;
+  color: boolean;
+};
+
+export const MIX_ON: SonifyMix = { humanize: true, color: true };
+
+function mixQuery(mix: SonifyMix): string {
+  return `&humanize=${mix.humanize ? '1' : '0'}&color=${mix.color ? '1' : '0'}`;
+}
+
 export type RecapManifest = {
   symbol: string;
   date: string;
@@ -481,6 +492,8 @@ export type RecapManifest = {
   keyLabel?: string;
   /** Dance the guitar writer chose. Empty for the other variants. */
   movementName?: string;
+  humanize?: boolean;
+  color?: boolean;
 };
 
 export function absoluteApiUrl(path: string): string {
@@ -542,6 +555,8 @@ export type SpanManifest = {
   asOf?: string;
   /** Home key of the ticker. Minor only when every movement is minor. */
   keyLabel?: string;
+  humanize?: boolean;
+  color?: boolean;
 };
 
 export async function fetchSpan(
@@ -550,10 +565,11 @@ export async function fetchSpan(
   variant: RecapVariant,
   ensemble: RecapEnsemble = 'classic',
   signal?: AbortSignal,
+  mix: SonifyMix = MIX_ON,
 ): Promise<SpanManifest> {
   const sym = symbol.toUpperCase();
   return apiGet<SpanManifest>(
-    `/v1/stocks/${encodeURIComponent(sym)}/span?range=${range}&variant=${variant}&ensemble=${ensemble}`,
+    `/v1/stocks/${encodeURIComponent(sym)}/span?range=${range}&variant=${variant}&ensemble=${ensemble}${mixQuery(mix)}`,
     signal,
   );
 }
@@ -564,10 +580,11 @@ export async function fetchRecap(
   variant: RecapVariant,
   ensemble: RecapEnsemble = 'classic',
   signal?: AbortSignal,
+  mix: SonifyMix = MIX_ON,
 ): Promise<RecapManifest> {
   const sym = symbol.toUpperCase();
   return apiGet<RecapManifest>(
-    `/v1/stocks/${encodeURIComponent(sym)}/sessions/${encodeURIComponent(day)}/recap?variant=${variant}&ensemble=${ensemble}`,
+    `/v1/stocks/${encodeURIComponent(sym)}/sessions/${encodeURIComponent(day)}/recap?variant=${variant}&ensemble=${ensemble}${mixQuery(mix)}`,
     signal,
   );
 }

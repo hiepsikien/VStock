@@ -1937,6 +1937,42 @@ def _covers(event: NoteEvent, when: int, epb: int) -> bool:
     return begin <= when < begin + _dur16(event)
 
 
+def _tremolo_region_arch(bars: set[int], bar: int) -> int:
+    """Slow arch across one contiguous tremolo run. Both ends add 0."""
+    start = bar
+    while start - 1 in bars:
+        start -= 1
+    end = bar
+    while end + 1 in bars:
+        end += 1
+    count = end - start + 1
+    if count <= 1:
+        return 0
+    position = (bar - start) / (count - 1)
+    return round(6 * math.sin(math.pi * position))
+
+
+def _tremolo_shift(ctx: _Ctx, bars: set[int], bar: int, thumbs: list[NoteEvent]) -> int:
+    """Region arch plus band, clamped so every thumb in the bar stays in 44–72."""
+    shift = _tremolo_region_arch(bars, bar) + _TREMOLO_BAND.get(ctx.band(bar), 0)
+    levels = [event.velocity for event in thumbs if event.velocity is not None]
+    if not levels:
+        return shift
+    return min(max(shift, 44 - min(levels)), 72 - max(levels))
+
+
+def _shift_velocity(events: list[NoteEvent], amount: int) -> list[NoteEvent]:
+    if amount == 0:
+        return list(events)
+    shifted: list[NoteEvent] = []
+    for event in events:
+        if event.velocity is None:
+            shifted.append(event)
+        else:
+            shifted.append(replace(event, velocity=event.velocity + amount))
+    return shifted
+
+
 def _boost(events: list[NoteEvent], amount: int) -> list[NoteEvent]:
     if amount <= 0:
         return list(events)
@@ -2199,10 +2235,11 @@ def render_patterned_voices(
         allow_approach = _allow_approach(ctx, bar, patterns)
         phrase_here = phrases[owner] if owner is not None else _phrase_at(ctx, bar * epb)
         if pattern == "tremolo" and bar in tremolo_bars:
-            boost = _tremolo_boost(ctx, bar)
-            lead.extend(_boost([event for event in trem_lead if event.bar == bar and event.midi is not None], boost))
-            support.extend(_boost([event for event in trem_inner if event.bar == bar and event.midi is not None], boost))
-            low.extend(_boost([event for event in trem_bass if event.bar == bar and event.midi is not None], boost))
+            bar_low = [event for event in trem_bass if event.bar == bar and event.midi is not None]
+            shift = _tremolo_shift(ctx, tremolo_bars, bar, bar_low)
+            lead.extend(_shift_velocity([event for event in trem_lead if event.bar == bar and event.midi is not None], shift))
+            support.extend(_shift_velocity([event for event in trem_inner if event.bar == bar and event.midi is not None], shift))
+            low.extend(_shift_velocity(bar_low, shift))
         elif pattern == "pedal":
             # Framed movements replace this held close with a composer entrance.
             if not _framed(ctx):
@@ -2787,6 +2824,8 @@ def _smooth_boundaries(ctx: _Ctx, patterns, lead, support, low):
 
 
 _BAND_DELTA = {"p": -12, "mp": -6, "mf": 0, "f": 4}
+# Tremolo keeps a smaller band step so the quarter arch stays audible.
+_TREMOLO_BAND = {"p": -6, "mp": -3, "mf": 0, "f": 3}
 
 
 def _shape_dynamics(ctx: _Ctx, lead, support, low, relaxed: set[int], patterns: list[str] | None = None):
@@ -2830,10 +2869,10 @@ def _shape_dynamics(ctx: _Ctx, lead, support, low, relaxed: set[int], patterns: 
             if eighth in relaxed:
                 shaped.append(event)
                 continue
-            if patterns is not None and _bar_pattern(ctx, event.bar, patterns) in {"etude1", "etude11"}:
-                # The cell already locks the hairpin, the echo, and a flat inner
-                # voice. Capping against the note that is sounding reads the echo
-                # and pulls the last two inner attacks down.
+            if patterns is not None and _bar_pattern(ctx, event.bar, patterns) in {"etude1", "etude11", "tremolo"}:
+                # The cell already locks the hairpin. Tremolo owns its quarter
+                # arch, region arch, and band. The old band delta would add a
+                # second time and flatten the quarter walk back into one step.
                 shaped.append(event)
                 continue
             extra = 0
@@ -3219,7 +3258,6 @@ from app.sonify.guitar_barrios import (  # noqa: E402
     _render_vals_bar,
     _slot_dance,
     _tone_below,
-    _tremolo_boost,
 )
 from app.sonify.guitar_villa import (  # noqa: E402
     _accent_at,

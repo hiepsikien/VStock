@@ -123,6 +123,8 @@ class RecapResponse(BaseModel):
     characterLabel: str = ""
     keyLabel: str = ""
     movementName: str = ""
+    humanize: bool = True
+    color: bool = True
 
 
 class SpanMovementResponse(BaseModel):
@@ -168,6 +170,8 @@ class SpanResponse(BaseModel):
     movements: list[SpanMovementResponse]
     asOf: str = ""
     keyLabel: str = ""
+    humanize: bool = True
+    color: bool = True
 
 
 class HealthResponse(BaseModel):

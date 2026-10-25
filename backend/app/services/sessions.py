@@ -172,9 +172,11 @@ def ready_recap(
     variant: Variant,
     bar_count: int,
     ensemble: Ensemble = "classic",
+    humanize: bool = True,
+    color: bool = True,
 ) -> RecapAsset | None:
     """Return a file that was already composed. Never starts MuseScore."""
-    return recap_store().get(symbol.upper(), day, variant, bar_count, ensemble)
+    return recap_store().get(symbol.upper(), day, variant, bar_count, ensemble, humanize, color)
 
 
 async def load_recap(
@@ -183,6 +185,8 @@ async def load_recap(
     variant: Variant,
     request: Request | None = None,
     ensemble: Ensemble = "classic",
+    humanize: bool = True,
+    color: bool = True,
 ) -> RecapAsset:
     payload = await fetch_minute_payload(symbol)
     points = session_points(samples_from_ohlc(payload), day)
@@ -214,6 +218,8 @@ async def load_recap(
             bars,
             cancel,
             ensemble,
+            humanize,
+            color,
         )
         return replace(
             asset,
