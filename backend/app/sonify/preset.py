@@ -93,18 +93,25 @@ def apply_preset(dry_path: Path, colored_path: Path, variant: str) -> bool:
     return colored_path.is_file()
 
 
+def _unit_scale(samples: array) -> float:
+    """Float samples sit in [-1, 1]. MuseScore 3 writes 16-bit integers."""
+    return 32767.0 if samples.typecode == "h" else 1.0
+
+
 def _mix_noise(heard: array, dry: array, channels: int, amplitude: float, gate: bool) -> None:
     frames = len(heard) // channels
+    span = amplitude * _unit_scale(heard)
+    gate_at = _GUITAR_GATE * _unit_scale(dry)
     for frame in range(frames):
         base = frame * channels
         if gate:
             level = 0.0
             for channel in range(channels):
                 level = max(level, abs(float(dry[base + channel])))
-            if level < _GUITAR_GATE:
+            if level < gate_at:
                 continue
         for channel in range(channels):
-            sample = float(heard[base + channel]) + amplitude * _unit_noise(frame, channel)
+            sample = float(heard[base + channel]) + span * _unit_noise(frame, channel)
             if heard.typecode == "f":
                 heard[base + channel] = sample
             else:

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from app.sonify.humanize import chosen_offset, humanize
 from app.sonify.model import NoteEvent, Score
-from app.sonify.preset import apply_preset, preset_chain
+from app.sonify.preset import _mix_noise, apply_preset, preset_chain
 
 
 def _note(
@@ -161,11 +161,27 @@ def test_tie_stop_copies_the_humanized_attack() -> None:
 
     attack = _note(0.0, 56, midi=40, tie_start=True, duration_beats=1.0)
     other = _note(1.0, 56, midi=47)
-    tied = _note(1.0, 40, midi=40, tie_stop=True, duration_beats=1.0)
+    tied = _note(1.0, 56, midi=40, tie_stop=True, duration_beats=1.0)
     heard = humanize(_score(low=(attack, other, tied)), offset_at=lift).low
     assert heard[0].velocity == 57
     assert heard[2].velocity == 57
     assert heard[2].tie_stop
+
+
+def test_a_swell_peak_keeps_its_written_velocity() -> None:
+    def lift(variant: str, ensemble: str, field: str, bar: int, beat: float) -> int:
+        del variant, ensemble, field, bar, beat
+        return 1
+
+    for peak in (64, 80):
+        opening = _note(0.0, 49, midi=60, tie_start=True, duration_beats=1.0)
+        neighbor = _note(0.5, 49, midi=67)
+        crest = _note(1.0, peak, midi=60, tie_stop=True, duration_beats=1.0)
+        heard = humanize(_score(comp=(opening, neighbor, crest)), offset_at=lift).comp
+        assert heard[0].velocity == 50
+        assert heard[1].velocity == 50
+        assert heard[2].velocity == peak
+        assert heard[2].tie_stop
 
 
 def test_rests_and_unset_velocity_stay() -> None:
@@ -220,6 +236,34 @@ def test_colored_wav_keeps_the_dry_length_and_peak(tmp_path: Path) -> None:
     # The gated bed is quiet once the dry tone has been gone longer than the echo.
     assert _rms(guitar, start=0.75) < 1e-4
     assert _rms(symphony, start=0.75) > 2e-4
+
+
+def test_vintage_noise_uses_the_sample_scale() -> None:
+    rest = array("f", [0.0] * 64)
+    heard = array("f", rest)
+    _mix_noise(heard, rest, 1, 0.001, False)
+    assert 0 < max(abs(sample) for sample in heard) < 0.0015
+
+    quiet = array("f", [0.009] * 32)
+    gated = array("f", quiet)
+    _mix_noise(gated, quiet, 1, 0.0003, True)
+    assert list(gated) == list(quiet)
+
+    pcm = array("h", [0] * 128 + [1000] * 128)
+    mixed = array("h", pcm)
+    _mix_noise(mixed, pcm, 1, 0.001, False)
+    bed = max(abs(sample) for sample in mixed[:128])
+    assert 16 <= bed <= 33
+    assert max(abs(sample - 1000) for sample in mixed[128:]) >= 16
+
+    below_gate = array("h", [100] * 64)
+    held = array("h", below_gate)
+    _mix_noise(held, below_gate, 1, 0.0003, True)
+    assert list(held) == list(below_gate)
+    above_gate = array("h", [1000] * 64)
+    opened = array("h", above_gate)
+    _mix_noise(opened, above_gate, 1, 0.0003, True)
+    assert opened != above_gate
 
 
 def _tone_then_silence(path: Path) -> None:

@@ -4,7 +4,8 @@ A plateau is a run of attacks in one Score field that share a velocity.
 The run moves only when the nearest different attack on each side, if it
 exists, is more than CAP away. A step of 1 or 2 freezes the whole run, which
 keeps the Etude arches and any other landing whose neighbor is that close.
-`tie_stop` is not an attack. It copies the attack it continues.
+`tie_stop` is not an attack. It copies the attack it continues only when
+both were written at the same velocity. A swell peak keeps its own number.
 """
 
 from __future__ import annotations
@@ -231,9 +232,14 @@ def _apply(field: str, notes: tuple[NoteEvent, ...], offsets: dict[tuple[str, in
 
 
 def _copy_ties(original: tuple[NoteEvent, ...], heard: list[NoteEvent]) -> list[NoteEvent]:
-    """A tied continuation keeps the attack's heard velocity, not the written one."""
+    """Copy the heard attack only when the tie was written at that same velocity.
+
+    A swell opens at 49 and peaks at 64 or 80 on the tied half. That peak is a
+    written change, so it stays. A tie that repeats the attack's number takes
+    the humanized one.
+    """
     order = sorted(range(len(original)), key=lambda index: _attack_key(original[index]))
-    chain: dict[int, int] = {}
+    chain: dict[int, tuple[int, int]] = {}
     for index in order:
         note = original[index]
         if note.midi is None or note.velocity is None:
@@ -241,7 +247,7 @@ def _copy_ties(original: tuple[NoteEvent, ...], heard: list[NoteEvent]) -> list[
         if _is_attack(note):
             velocity = heard[index].velocity
             if note.tie_start and velocity is not None:
-                chain[note.midi] = velocity
+                chain[note.midi] = (note.velocity, velocity)
             else:
                 chain.pop(note.midi, None)
             continue
@@ -250,10 +256,9 @@ def _copy_ties(original: tuple[NoteEvent, ...], heard: list[NoteEvent]) -> list[
         source = chain.get(note.midi)
         if source is None:
             continue
-        if heard[index].velocity != source:
-            heard[index] = replace(heard[index], velocity=source)
-        if note.tie_start:
-            chain[note.midi] = source
-        else:
+        written, lifted = source
+        if note.velocity == written and heard[index].velocity != lifted:
+            heard[index] = replace(heard[index], velocity=lifted)
+        if not note.tie_start:
             chain.pop(note.midi, None)
     return heard

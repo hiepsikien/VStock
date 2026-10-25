@@ -1,6 +1,6 @@
 # Humanize và lớp màu sau bản nhạc
 
-> **Trạng thái**: đã code. Trần humanize là ±2, kể cả 0, chỉ trên plateau. `RECAP_REVISION` là 63, `SPAN_REVISION` là 49.
+> **Trạng thái**: đã code. Trần humanize là ±2, kể cả 0, chỉ trên plateau. `RECAP_REVISION` là 64, `SPAN_REVISION` là 50.
 >
 > Cửa nghe nylon ở velocity 53, 56 và 59 vẫn là chỗ quyết định có giữ trần này hay hạ xuống. ±1..±3 như bản đầu làm phẳng contour vừa viết và gần như không đổi tiếng trên phần lớn MuseSounds.
 
@@ -53,7 +53,7 @@ Mọi nốt cùng phách, cùng field, cùng lực viết dùng chung một số
 
 Nốt ở hai field khác nhau, đang kêu cùng lúc, giữ thứ tự đã viết. Khi offset đã chọn làm đảo thứ tự, hạ đúng offset đó về phía 0 theo tập `{-2, -1, 0, +1, +2}`. 0 là bậc cuối. Đổi dấu sẽ làm hai lần chạy cùng đầu vào ra hai kết quả. Bè trầm study 60 và bè trung 56 cách nhau 4. Trần villa cùng kiểu: trầm chỉ thấp hơn giai điệu 1, bè trung thấp hơn 2 hoặc 4.
 
-`tie_stop` không tham gia plateau. Nó nhận velocity đã humanize của cú đánh, không lấy số viết ban đầu.
+`tie_stop` không tham gia plateau. Nốt nối viết cùng lực với cú đánh nhận lực đã humanize của cú đó. Nốt nối viết lực khác, như đỉnh cung nở 64 hoặc 80 sau nốt mở 49, giữ lực viết của nó.
 
 Cao độ, độ dài, cờ nhấn, và chữ động lực in trên giấy không đổi. Kẹp trong `1..127`.
 
@@ -78,7 +78,7 @@ Lớp này chạy sau khi MuseScore đã viết WAV. Bản nhạc đã xong. S�
 Thứ tự, cả recap ngày và span, khớp cách `SessionRecap` chia thời gian: sóng và playhead theo độ dài file, nến theo `mapDurationSec`.
 
 1. MuseScore viết WAV khô.
-2. FFmpeg tô màu ra một WAV thứ hai, theo `variant`. Nền nhiễu trộn sau chuỗi đó, từ một bộ đếm cố định: `anoisesrc` không ra cùng một file giữa hai lần chạy.
+2. FFmpeg tô màu ra một WAV thứ hai, theo `variant`. Nền nhiễu trộn sau chuỗi đó, từ một bộ đếm cố định: `anoisesrc` không ra cùng một file giữa hai lần chạy. Biên độ `0.001` là thang `[-1, 1]`. WAV 16-bit của MuseScore 3 nhân biên độ và ngưỡng cổng guitar với `32767`.
 3. Cắt WAV đã tô về đúng độ dài WAV khô. `aecho` và reverb của FFmpeg nối thêm đuôi ở cuối file. `mapDurationSec` lấy từ độ dài bản viết khi file dài hơn bản viết. Cắt giữ độ dài đoạn chart đứng ở nốt cuối.
 4. `waveform_peaks` đo trên WAV đã tô và đã cắt.
 5. Encode m4a từ WAV đó. Không gắn filter thêm ở bước encode.
@@ -156,7 +156,7 @@ Drone, halo, kính và horn đã ngân dài và đã có diminuendo (`docs/sonif
 
 ## 4. Cache và test
 
-`RECAP_REVISION` là 63, `SPAN_REVISION` là 49. Cả humanize và preset đổi tiếng nghe, nên hai số tăng cùng một lần. File cũ không được phát lại.
+`RECAP_REVISION` là 64, `SPAN_REVISION` là 50. Cả humanize và preset đổi tiếng nghe, nên hai số tăng cùng một lần. File cũ không được phát lại. Revision 64 thay file 63 vì đỉnh cung nở ambient và nền nhiễu 16-bit chưa đúng ở 63.
 
 Cửa nghe nylon ở 53, 56 và 59 vẫn quyết định có giữ trần ±2 hay không. Nếu ba mức đó không khác nhau trên nylon, ±2 cũng không khác, và trần có thể hạ ở một revision sau. Tối giản `classic` đi MS Basic, nhưng bước 2 trên thang velocity mượt chỉ khoảng vài phần mười dB. Cửa nylon đủ cho quyết định đó.
 
@@ -166,7 +166,7 @@ Cửa nghe nylon ở 53, 56 và 59 vẫn quyết định có giữ trần ±2 ha
 - Etude 11 (49, 50, 51, 51) đứng yên vì bậc kề là 1. Etude 1 (`50 50 50 | 52 52 | 54 54 54 | 52 52 | 50 50 50`) đứng yên vì bậc kề là 2. Vòm tremolo đứng yên vì các nốt liền nhau không bằng nhau.
 - Gốc và quãng 5 cùng phách, cùng field, khác `midi`, nhận một độ lệch. Hợp âm ba nốt cùng lực cũng vậy. Khóa là `(variant, ensemble, field, bar, beat)`.
 - Offset làm đảo thứ tự liên bè thì hạ về phía 0. Cùng đầu vào thì cùng đầu ra.
-- `tie_stop` không nằm trong plateau, và bằng lực đã humanize của cú đánh.
+- `tie_stop` không nằm trong plateau. Cùng lực viết với cú đánh thì bằng lực đã humanize. Đỉnh cung viết lực khác thì giữ số đó.
 - Nốt nghỉ và `velocity is None` đứng yên.
 
 Test velocity hiện có của guitar, jazz, tối giản và ambient giữ nguyên, vì `render()` không gọi humanize.
