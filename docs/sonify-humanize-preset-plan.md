@@ -1,8 +1,8 @@
 # Humanize và lớp màu sau bản nhạc
 
-> **Trạng thái**: kế hoạch đã sửa sau review. Chưa code.
+> **Trạng thái**: đã code. Trần humanize là ±2, kể cả 0, chỉ trên plateau. `RECAP_REVISION` là 63, `SPAN_REVISION` là 49.
 >
-> Biên độ humanize chưa khóa. Trần đang xét là ±2, và chỉ trên plateau. Trước khi chọn số, nghe nylon ở velocity 53, 56 và 59. ±1..±3 như bản trước làm phẳng contour vừa viết và gần như không đổi tiếng trên phần lớn MuseSounds.
+> Cửa nghe nylon ở velocity 53, 56 và 59 vẫn là chỗ quyết định có giữ trần này hay hạ xuống. ±1..±3 như bản đầu làm phẳng contour vừa viết và gần như không đổi tiếng trên phần lớn MuseSounds.
 
 Hai lớp xếp sau khi bản đã soạn xong. Lớp 1 sửa velocity trên nốt. Lớp 2 tô màu file tiếng. Không lớp nào viết lại nốt, hợp âm, hay đường động lực đã có.
 
@@ -45,7 +45,7 @@ Cùng một quy tắc giữ các bậc thang vừa khóa. Không cần một dan
 
 ### Độ lệch trên plateau
 
-Mỗi cú đánh trên một plateau được phép nhích cộng một số trong `{-2, -1, 0, +1, +2}`. Trần là 2. Chưa khóa có dùng ±1, ±2, hay giữ 0, cho đến khi nghe nylon.
+Mỗi cú đánh trên một plateau được phép nhích cộng một số trong `{-2, -1, 0, +1, +2}`. Trần là 2. 0 nằm trong tập chọn, và cũng là bậc cuối khi offset làm đảo thứ tự.
 
 Số đó cố định theo `(variant, ensemble, field, bar, beat)`, không có `midi`, không dùng `random`, và không dùng `hash()` của Python. Cùng một bản ra cùng một file, vì cache tiếng khóa theo revision.
 
@@ -78,7 +78,7 @@ Lớp này chạy sau khi MuseScore đã viết WAV. Bản nhạc đã xong. S�
 Thứ tự, cả recap ngày và span, khớp cách `SessionRecap` chia thời gian: sóng và playhead theo độ dài file, nến theo `mapDurationSec`.
 
 1. MuseScore viết WAV khô.
-2. FFmpeg tô màu ra một WAV thứ hai, theo `variant`.
+2. FFmpeg tô màu ra một WAV thứ hai, theo `variant`. Nền nhiễu trộn sau chuỗi đó, từ một bộ đếm cố định: `anoisesrc` không ra cùng một file giữa hai lần chạy.
 3. Cắt WAV đã tô về đúng độ dài WAV khô. `aecho` và reverb của FFmpeg nối thêm đuôi ở cuối file. `mapDurationSec` lấy từ độ dài bản viết khi file dài hơn bản viết. Cắt giữ độ dài đoạn chart đứng ở nốt cuối.
 4. `waveform_peaks` đo trên WAV đã tô và đã cắt.
 5. Encode m4a từ WAV đó. Không gắn filter thêm ở bước encode.
@@ -151,17 +151,16 @@ Drone, halo, kính và horn đã ngân dài và đã có diminuendo (`docs/sonif
 - Không một preset dùng chung cho năm dòng.
 - Không bật `_GUITAR_HALL`.
 - Không đổi màu theo từng ensemble.
-- Không code biên độ trước khi nghe nylon ở 53, 56 và 59.
 
 ---
 
 ## 4. Cache và test
 
-`RECAP_REVISION` đang là 62, `SPAN_REVISION` đang là 48. Chưa tăng.
+`RECAP_REVISION` là 63, `SPAN_REVISION` là 49. Cả humanize và preset đổi tiếng nghe, nên hai số tăng cùng một lần. File cũ không được phát lại.
 
-Cửa nghe nylon ở 53, 56 và 59 quyết định có khóa ±2 và có tăng revision vì humanize hay không. Nếu ba mức đó không khác nhau trên nylon, ±2 cũng không khác. Tối giản `classic` đi MS Basic, nhưng bước 2 trên thang velocity mượt chỉ khoảng vài phần mười dB. Cửa nylon đủ cho quyết định humanize. Preset có thể tăng revision sau, khi năm dòng đã được nghe. Hai lần tăng có thể tách nhau.
+Cửa nghe nylon ở 53, 56 và 59 vẫn quyết định có giữ trần ±2 hay không. Nếu ba mức đó không khác nhau trên nylon, ±2 cũng không khác, và trần có thể hạ ở một revision sau. Tối giản `classic` đi MS Basic, nhưng bước 2 trên thang velocity mượt chỉ khoảng vài phần mười dB. Cửa nylon đủ cho quyết định đó.
 
-`backend/tests/test_humanize.py`, khi đã code:
+`backend/tests/test_humanize.py`:
 
 - Ô study toàn 56 được nhích, mỗi cú đánh trong `{-2, -1, 0, +1, +2}`, rồi vẫn thấp hơn bè trầm 60.
 - Etude 11 (49, 50, 51, 51) đứng yên vì bậc kề là 1. Etude 1 (`50 50 50 | 52 52 | 54 54 54 | 52 52 | 50 50 50`) đứng yên vì bậc kề là 2. Vòm tremolo đứng yên vì các nốt liền nhau không bằng nhau.
@@ -172,4 +171,4 @@ Cửa nghe nylon ở 53, 56 và 59 quyết định có khóa ±2 và có tăng r
 
 Test velocity hiện có của guitar, jazz, tối giản và ambient giữ nguyên, vì `render()` không gọi humanize.
 
-Preset: một test nhỏ khóa `variant` → chuỗi FFmpeg (`vintage` giao hưởng, `vintage` guitar, `club`, `wood`, `air`), và khóa rằng WAV đã tô bị cắt về số sample của WAV khô. Không khóa file WAV mẫu. Nghe tay năm dòng trước khi tăng revision.
+Preset: một test nhỏ khóa `variant` → chuỗi FFmpeg (`vintage` giao hưởng, `vintage` guitar, `club`, `wood`, `air`), và khóa rằng WAV đã tô bị cắt về số sample của WAV khô. Không khóa file WAV mẫu. Nghe tay năm dòng vẫn là chỗ chỉnh hệ số; lần nghe đó có thể tăng revision thêm một bậc.

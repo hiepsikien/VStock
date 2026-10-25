@@ -28,6 +28,7 @@ from typing import Callable, NamedTuple
 from xml.etree import ElementTree as ET
 
 from app.sonify.ensemble import Ensemble
+from app.sonify.humanize import humanize
 from app.sonify.model import ENSEMBLES, VARIANTS, Bar, Variant
 from app.sonify.musicxml import score_to_musicxml
 from app.sonify.playback import piece_seconds
@@ -37,9 +38,9 @@ from app.sonify.session import VN, is_session_closed
 logger = logging.getLogger(__name__)
 
 # Bump when the score or the sound changes, so old files are not replayed.
-RECAP_REVISION = "62"
+RECAP_REVISION = "63"
 # Long-form files live beside the daily recap and use their own revision.
-SPAN_REVISION = "48"
+SPAN_REVISION = "49"
 PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
@@ -940,6 +941,21 @@ def _transcode_m4a(wav_path: Path, m4a_path: Path, *, variant: str | None = None
     return _ffmpeg_aac(ffmpeg, wav_path, m4a_path, None)
 
 
+def _color_for_export(wav_path: Path, variant: str) -> Path:
+    """Color the dry export. The encode step adds no further filter.
+
+    `_GUITAR_HALL` stays unused: that chain is a glass dome, not one of the
+    five line presets.
+    """
+    from app.sonify.preset import apply_preset
+
+    colored = wav_path.with_name(wav_path.stem + ".preset.wav")
+    if apply_preset(wav_path, colored, variant):
+        return colored
+    colored.unlink(missing_ok=True)
+    return wav_path
+
+
 class RecapStore:
     def __init__(
         self,
@@ -1160,6 +1176,7 @@ class RecapStore:
             gap_leads=movement.gap_leads,
             ensemble=ensemble,
         )
+        score = humanize(score)
         work = self.root / "work"
         work.mkdir(parents=True, exist_ok=True)
         xml_path = work / f"{stem}.musicxml"
@@ -1177,17 +1194,21 @@ class RecapStore:
             self._exporter(xml_path, wav_path)
             if not wav_path.is_file() or wav_path.stat().st_size < 64:
                 raise RecapUnavailable("MuseScore wrote an empty movement")
-            duration, peaks = waveform_peaks(wav_path)
+            heard = _color_for_export(wav_path, variant)
+            duration, peaks = waveform_peaks(heard)
             if duration <= 0:
                 duration = musical
             map_duration = musical if 0 < musical <= duration else duration
-            joined_path = wav_path
             m4a_tmp = work / f"{stem}.m4a"
-            if _transcode_m4a(joined_path, m4a_tmp, variant=variant):
+            if _transcode_m4a(heard, m4a_tmp, variant=variant):
                 audio_path = self._publish(m4a_tmp, self._span_dir() / f"{stem}.m4a")
-                joined_path.unlink(missing_ok=True)
+                heard.unlink(missing_ok=True)
+                if heard != wav_path:
+                    wav_path.unlink(missing_ok=True)
             else:
-                audio_path = self._publish(joined_path, self._span_dir() / f"{stem}.wav")
+                audio_path = self._publish(heard, self._span_dir() / f"{stem}.wav")
+                if heard != wav_path:
+                    wav_path.unlink(missing_ok=True)
                 m4a_tmp.unlink(missing_ok=True)
             payload = {
                 "symbol": symbol,
@@ -1285,6 +1306,7 @@ class RecapStore:
             key=stock_home_key(symbol),
             character=movement_character([bar.close for bar in bars], "1D"),
         )
+        score = humanize(score)
         work = self.root / "work"
         work.mkdir(parents=True, exist_ok=True)
         xml_path = work / f"{key}.musicxml"
@@ -1295,7 +1317,8 @@ class RecapStore:
         try:
             _raise_if_cancelled_event(cancel)
             self._exporter(xml_path, wav_path)
-            duration, peaks = waveform_peaks(wav_path)
+            heard = _color_for_export(wav_path, variant)
+            duration, peaks = waveform_peaks(heard)
             musical = piece_seconds(score.bars, score.bpm, score.bar_beats)
             if duration <= 0:
                 duration = musical
@@ -1303,11 +1326,15 @@ class RecapStore:
             # follows the written piece, then rests on the close during that tail.
             map_duration = musical if 0 < musical <= duration else duration
             m4a_tmp = work / f"{key}.m4a"
-            if _transcode_m4a(wav_path, m4a_tmp, variant=variant):
+            if _transcode_m4a(heard, m4a_tmp, variant=variant):
                 audio_path = self._publish(m4a_tmp, self.root / f"{key}.m4a")
-                wav_path.unlink(missing_ok=True)
+                heard.unlink(missing_ok=True)
+                if heard != wav_path:
+                    wav_path.unlink(missing_ok=True)
             else:
-                audio_path = self._publish(wav_path, self.root / f"{key}.wav")
+                audio_path = self._publish(heard, self.root / f"{key}.wav")
+                if heard != wav_path:
+                    wav_path.unlink(missing_ok=True)
                 m4a_tmp.unlink(missing_ok=True)
             payload = {
                 "symbol": symbol,
