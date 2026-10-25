@@ -11,6 +11,8 @@ import {
 } from 'react-native';
 import type { ChartRange } from '../types';
 import { colors, spacing, typography } from '../theme';
+import { playingLines, type PieceProgram } from '../sonify/program';
+import { PieceTitle } from './PieceTitle';
 import { Sparkline } from './Sparkline';
 
 if (
@@ -31,6 +33,10 @@ type Props = {
   cursorIndex?: number | null;
   cursorLabel?: string | null;
   dimUnplayed?: boolean;
+  /** Inclusive index window into `prices`. Omit to show the whole series. */
+  focusStart?: number;
+  focusEnd?: number;
+  program?: PieceProgram | null;
 };
 
 export function PriceChart({
@@ -41,21 +47,34 @@ export function PriceChart({
   cursorIndex = null,
   cursorLabel = null,
   dimUnplayed = false,
+  focusStart,
+  focusEnd,
+  program = null,
 }: Props) {
   const { width: screenWidth } = useWindowDimensions();
   // Edge-to-edge feel — only small side inset for sparkline padding.
   const chartWidth = Math.max(300, screenWidth - 8);
 
+  const visible = useMemo(() => {
+    if (prices.length < 2) return { start: 0, end: 0, values: prices };
+    const start = focusStart ?? 0;
+    const end = focusEnd ?? prices.length - 1;
+    const i0 = Math.max(0, Math.floor(start));
+    const i1 = Math.min(prices.length - 1, Math.ceil(end));
+    return { start, end, values: prices.slice(i0, i1 + 1) };
+  }, [focusEnd, focusStart, prices]);
+
   const stats = useMemo(() => {
-    if (!prices.length) return { min: 0, max: 0 };
-    return { min: Math.min(...prices), max: Math.max(...prices) };
-  }, [prices]);
+    if (!visible.values.length) return { min: 0, max: 0 };
+    return { min: Math.min(...visible.values), max: Math.max(...visible.values) };
+  }, [visible.values]);
 
   const labelLeft = useMemo(() => {
     if (cursorIndex == null || prices.length < 2) return 8;
-    const x = (cursorIndex / (prices.length - 1)) * chartWidth;
+    const span = Math.max(visible.end - visible.start, 1e-6);
+    const x = ((cursorIndex - visible.start) / span) * chartWidth;
     return Math.min(chartWidth - 58, Math.max(8, x - 22));
-  }, [chartWidth, cursorIndex, prices.length]);
+  }, [chartWidth, cursorIndex, prices.length, visible.end, visible.start]);
 
   return (
     <View style={styles.wrap}>
@@ -70,11 +89,38 @@ export function PriceChart({
             showFill
             cursorIndex={cursorIndex}
             dimUnplayed={dimUnplayed}
+            focusStart={focusStart}
+            focusEnd={focusEnd}
           />
         ) : (
           <Text style={styles.emptyChart}>Chưa có dữ liệu chart</Text>
         )}
-        {cursorLabel && cursorIndex != null ? (
+        {program && program.phase !== 'playing' ? (
+          <PieceTitle
+            title={program.title}
+            instruments={program.instruments}
+            movement={program.movement}
+          />
+        ) : null}
+        {program?.phase === 'playing' ? (
+          <View pointerEvents="none" style={styles.nowPlaying}>
+            {playingLines(program.title, program.movement).map((line, lineIndex) => (
+              <Text
+                key={`${lineIndex}-${line}`}
+                style={styles.nowPlayingText}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+              >
+                {line}
+              </Text>
+            ))}
+          </View>
+        ) : null}
+        {cursorLabel &&
+        cursorIndex != null &&
+        cursorIndex >= visible.start - 0.01 &&
+        cursorIndex <= visible.end + 0.01 ? (
           <View pointerEvents="none" style={[styles.cursorLabel, { left: labelLeft }]}>
             <Text style={styles.cursorLabelText}>{cursorLabel}</Text>
           </View>
@@ -124,6 +170,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     height: CHART_HEIGHT + 12,
     position: 'relative',
+  },
+  nowPlaying: {
+    position: 'absolute',
+    left: 10,
+    right: 72,
+    bottom: 8,
+  },
+  nowPlayingText: {
+    ...typography.caption,
+    color: colors.text,
   },
   cursorLabel: {
     position: 'absolute',

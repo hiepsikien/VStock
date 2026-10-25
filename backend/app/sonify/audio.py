@@ -74,6 +74,8 @@ def layer_query(humanize: bool = True, color: bool = True) -> str:
     if not color:
         parts.append("color=0")
     return "" if not parts else "&" + "&".join(parts)
+
+
 _export_cancel = threading.local()
 _export_timeout = threading.local()
 _config_folder_support: dict[str, bool] = {}
@@ -99,6 +101,24 @@ MAC_MUSESCORE_APPS = (
 ExportFn = Callable[[Path, Path], None]
 
 
+def _compose(variant: str, ensemble: str, bars: list[Bar], **kwargs):
+    """Write the score, and keep the guitar dance chosen during that same pass."""
+    from app.sonify.guitar_patterns import _FORM, _HEADLINE
+    from app.sonify.program import _written_dance
+
+    found: list[str] = []
+    forms: list[list[str]] = []
+    token = _HEADLINE.set(found)
+    token_form = _FORM.set(forms)
+    try:
+        score = render(bars, variant=variant, ensemble=ensemble, **kwargs)  # type: ignore[arg-type]
+    finally:
+        _HEADLINE.reset(token)
+        _FORM.reset(token_form)
+    dance = _written_dance(found, forms, ensemble) if variant == "guitar" else ""
+    return score, dance
+
+
 class RecapUnavailable(RuntimeError):
     """MuseScore could not write an audio file."""
 
@@ -121,6 +141,7 @@ class RecapAsset:
     ensemble: Ensemble = "classic"
     character: str | None = None
     key_label: str = ""
+    movement_name: str = ""
     humanize: bool = True
     color: bool = True
 
@@ -147,6 +168,7 @@ class SpanAsset:
     bar_count: int
     media_type: str
     fingerprint: str
+    movement_name: str = ""
 
 
 def write_wav(path: Path, channels: int, rate: int, samples: array) -> None:
@@ -1218,10 +1240,11 @@ class RecapStore:
             humanize,
             color,
         )
-        score = render(
+        score, dance = _compose(
+            variant,
+            ensemble,
             movement.bars,
             title=f"{symbol} {span} {movement.label}",
-            variant=variant,
             form=movement.spec,
             source_groups=movement.groups,
             key=movement.key,
@@ -1232,7 +1255,6 @@ class RecapStore:
             home_pedal=movement.home_pedal,
             character_at=movement.bar_characters,
             gap_leads=movement.gap_leads,
-            ensemble=ensemble,
         )
         if humanize:
             score = humanize_score(score)
@@ -1280,6 +1302,7 @@ class RecapStore:
                 "peaks": peaks,
                 "audio": audio_path.name,
                 "fingerprint": movement.scale_fingerprint,
+                "movementName": dance,
                 "humanize": humanize,
                 "color": color,
             }
@@ -1337,6 +1360,7 @@ class RecapStore:
             bar_count=int(payload.get("barCount") or 0),
             media_type=_media_type(audio_path),
             fingerprint=fingerprint,
+            movement_name=str(payload.get("movementName") or ""),
         )
 
     def _prune_work(self, work: Path) -> None:
@@ -1367,11 +1391,11 @@ class RecapStore:
         key = self._stem(symbol, day, variant, len(bars), ensemble, humanize, color)
         from app.sonify.keys import movement_character, stock_home_key
 
-        score = render(
+        score, dance = _compose(
+            variant,
+            ensemble,
             bars,
             title=f"{symbol} {day.isoformat()}",
-            variant=variant,
-            ensemble=ensemble,
             key=stock_home_key(symbol),
             character=movement_character([bar.close for bar in bars], "1D"),
         )
@@ -1417,6 +1441,7 @@ class RecapStore:
                 "peaks": peaks,
                 "audio": audio_path.name,
                 "closed": self._is_closed(day),
+                "movementName": dance,
                 "humanize": humanize,
                 "color": color,
             }
@@ -1521,6 +1546,7 @@ class RecapStore:
             bar_count=int(payload.get("barCount") or 0),
             media_type=_media_type(audio_path),
             ensemble=payload.get("ensemble") or "classic",
+            movement_name=str(payload.get("movementName") or ""),
             humanize=humanize,
             color=color,
         )

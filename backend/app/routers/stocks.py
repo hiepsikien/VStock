@@ -39,7 +39,8 @@ from app.services.spans import (
 )
 from app.sonify.audio import RecapCancelled, RecapUnavailable
 from app.sonify.ensemble import Ensemble, ensemble_for
-from app.sonify.keys import CHARACTER_LABEL, key_label
+from app.sonify.keys import CHARACTER_LABEL, key_label, work_key_label
+from app.sonify.program import span_movement_name
 from app.sonify.model import Variant
 
 logger = logging.getLogger(__name__)
@@ -429,6 +430,7 @@ async def get_recap(
         character=asset.character,
         characterLabel=CHARACTER_LABEL.get(asset.character or "", ""),
         keyLabel=asset.key_label,
+        movementName=asset.movement_name,
         humanize=asset.humanize,
         color=asset.color,
     )
@@ -448,13 +450,13 @@ async def get_span(
     if range not in SPAN_RANGES:
         raise HTTPException(status_code=404, detail=f"No sonification for {range}")
     try:
-        movements = await plan_span(sym, range, variant)
+        plan = await plan_span(sym, range, variant)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Span history unavailable: {exc}") from exc
     rows = []
-    for index, movement in enumerate(movements):
+    for index, movement in enumerate(plan.movements):
         cached = ready_movement(sym, range, index, variant, movement, chosen, humanize, color)
         rows.append(
             SpanMovementResponse(
@@ -476,6 +478,16 @@ async def get_span(
                 sessionCharacters=[
                     CHARACTER_LABEL[item] for item in movement.session_characters
                 ],
+                bpm=movement.spec.bpm,
+                beats=movement.spec.meter.beats,
+                beatType=movement.spec.meter.beat_type,
+                name=span_movement_name(
+                    movement,
+                    variant=variant,
+                    span=range,
+                    index=index,
+                    stored=cached.movement_name if cached is not None else "",
+                ),
             )
         )
     return SpanResponse(
@@ -484,6 +496,8 @@ async def get_span(
         variant=variant,
         ensemble=chosen,
         movements=rows,
+        asOf=plan.as_of.isoformat(),
+        keyLabel=work_key_label(sym, [movement.mode for movement in plan.movements]),
         humanize=humanize,
         color=color,
     )

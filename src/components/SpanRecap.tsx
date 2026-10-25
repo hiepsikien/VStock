@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
@@ -12,8 +12,17 @@ import {
   type SpanRange,
 } from '../api/client';
 import { colors, spacing, typography } from '../theme';
+import {
+  chartFocus,
+  lerpFocus,
+  movementOffsets,
+  pieceCopy,
+  pieceKey,
+  type ChartFocus,
+  type PieceProgram,
+} from '../sonify/program';
+import { spanCandleIndexAt } from '../utils/recapCursor';
 import { MixToggles } from './MixToggles';
-import { listenWindow, spanCandleIndexAt } from '../utils/recapCursor';
 import type { RecapView } from './SessionRecap';
 
 const VARIANTS: { id: RecapVariant; label: string }[] = [
@@ -44,6 +53,8 @@ const EMPTY_VIEW: RecapView = {
   cursorIndex: null,
   cursorLabel: null,
   dimUnplayed: false,
+  program: null,
+  focus: null,
 };
 
 export function SpanRecap({ symbol, range, children }: Props) {
@@ -59,8 +70,16 @@ export function SpanRecap({ symbol, range, children }: Props) {
   const [finished, setFinished] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cursor, setCursor] = useState<number | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [audible, setAudible] = useState(false);
+  const [asOf, setAsOf] = useState('');
+  const [homeKey, setHomeKey] = useState('');
+  const [focus, setFocus] = useState<ChartFocus | null>(null);
+  const focusRef = useRef<ChartFocus | null>(null);
+  const zoomFrame = useRef(0);
   const restTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const request = useRef<AbortController | null>(null);
+  const namesRequest = useRef<AbortController | null>(null);
 
   const clearRest = useCallback(() => {
     if (restTimer.current) {
@@ -73,11 +92,19 @@ export function SpanRecap({ symbol, range, children }: Props) {
   const reset = useCallback(() => {
     request.current?.abort();
     request.current = null;
+    namesRequest.current?.abort();
+    namesRequest.current = null;
     clearRest();
     setMovements(null);
     setIndex(0);
     setFinished(false);
     setCursor(null);
+    setElapsed(0);
+    setAudible(false);
+    setAsOf('');
+    setHomeKey('');
+    setFocus(null);
+    focusRef.current = null;
     setError(null);
     setComposing(false);
   }, [clearRest]);
@@ -105,6 +132,8 @@ export function SpanRecap({ symbol, range, children }: Props) {
           return;
         }
         setMovements(manifest.movements);
+        setAsOf(manifest.asOf ?? '');
+        setHomeKey(manifest.keyLabel ?? '');
         setIndex(0);
         setPlayEpoch((epoch) => epoch + 1);
       } catch (err) {
@@ -121,9 +150,24 @@ export function SpanRecap({ symbol, range, children }: Props) {
   }, [colorOn, ensemble, humanize, range, reset, symbol, variant]);
 
   const current = movements?.[index] ?? null;
-  const upcoming = movements && index + 1 < movements.length ? movements[index + 1] : null;
   const playing = current != null && !finished;
-  const chartWindow = current ? listenWindow(current.prices, upcoming?.prices ?? null) : null;
+  const lengths = movements?.map((item) => item.prices.length) ?? [];
+  const offsets = movementOffsets(lengths);
+  const total = lengths.reduce((sum, length) => sum + length, 0);
+  const multi = (movements?.length ?? 0) > 1;
+  const shown = movements != null && current != null && (playing || resting || finished);
+  const targetFocus = shown
+    ? chartFocus({
+        total,
+        offsets,
+        lengths,
+        index,
+        elapsed,
+        resting: resting || finished,
+        audible,
+        multi,
+      })
+    : null;
 
   const placeCursor = useCallback((elapsed: number, holdAtEnd: boolean) => {
     if (!current) return;
@@ -138,6 +182,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
           current.cooldownSec,
         );
     setCursor(at);
+    setElapsed(elapsed);
   }, [current]);
 
   const onTime = useCallback(
@@ -157,6 +202,9 @@ export function SpanRecap({ symbol, range, children }: Props) {
     }
     const wait = current.restAfterSec * 1000;
     if (wait <= 0) {
+      setAudible(false);
+      setCursor(0);
+      setElapsed(0);
       setIndex(next);
       return;
     }
@@ -164,6 +212,9 @@ export function SpanRecap({ symbol, range, children }: Props) {
     restTimer.current = setTimeout(() => {
       restTimer.current = null;
       setResting(false);
+      setAudible(false);
+      setCursor(0);
+      setElapsed(0);
       setIndex(next);
     }, wait);
   }, [current, index, movements, placeCursor]);
@@ -179,21 +230,126 @@ export function SpanRecap({ symbol, range, children }: Props) {
     [clearRest],
   );
 
+  const refreshNames = useCallback((): Promise<void> => {
+    if (variant !== 'guitar') return Promise.resolve();
+    // A file already on disk reported its dance on the manifest. An empty name
+    // there stays empty; only a render that just finished can add one.
+    if (current?.name?.trim() || current?.ready) return Promise.resolve();
+    if (!namesRequest.current || namesRequest.current.signal.aborted) {
+      namesRequest.current = new AbortController();
+    }
+    const signal = namesRequest.current.signal;
+    return (async () => {
+      try {
+        const manifest = await fetchSpan(symbol, range, variant, ensemble, signal, {
+          humanize,
+          color: colorOn,
+        });
+        if (signal.aborted) return;
+        setMovements((existing) => {
+          if (!existing) return existing;
+          let changed = false;
+          const next = existing.map((item, itemIndex) => {
+            const incoming = manifest.movements[itemIndex]?.name?.trim() ?? '';
+            if (!incoming || item.name?.trim()) return item;
+            changed = true;
+            return { ...item, name: incoming };
+          });
+          return changed ? next : existing;
+        });
+      } catch {
+        // A missing dance stays blank. The title does not invent one.
+      }
+    })();
+  }, [colorOn, current?.name, current?.ready, ensemble, humanize, range, symbol, variant]);
+
+  const markAudible = useCallback(() => setAudible(true), []);
+
   const replay = useCallback(() => {
     clearRest();
     setFinished(false);
     setIndex(0);
     setCursor(null);
+    setElapsed(0);
+    setAudible(false);
     setError(null);
     setPlayEpoch((epoch) => epoch + 1);
   }, [clearRest]);
 
+  const focusStart = targetFocus?.start ?? null;
+  const focusEnd = targetFocus?.end ?? null;
+  useEffect(() => {
+    cancelAnimationFrame(zoomFrame.current);
+    if (focusStart == null || focusEnd == null) {
+      focusRef.current = null;
+      setFocus(null);
+      return;
+    }
+    const target = { start: focusStart, end: focusEnd };
+    const from = focusRef.current ?? target;
+    if (from.start === target.start && from.end === target.end) {
+      focusRef.current = target;
+      setFocus(target);
+      return;
+    }
+    const started = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - started) / 900);
+      const next = lerpFocus(from, target, t);
+      focusRef.current = next;
+      setFocus(next);
+      if (t < 1) zoomFrame.current = requestAnimationFrame(step);
+    };
+    zoomFrame.current = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(zoomFrame.current);
+  }, [focusEnd, focusStart]);
+
+  const length = Math.max(1, lengths[index] ?? 1);
+  const globalCursor =
+    shown && cursor != null ? (offsets[index] ?? 0) + Math.min(cursor, length - 1) : null;
+  const prices = useMemo(
+    () => (shown && movements ? movements.flatMap((item) => item.prices) : []),
+    [movements, shown],
+  );
+  const program: PieceProgram | null =
+    shown && movements && current && !finished
+      ? {
+          ...pieceCopy(
+            {
+              variant,
+              ensemble,
+              symbol,
+              date: asOf,
+              keyLabel: pieceKey(
+                homeKey,
+                movements.map((item) => item.keyLabel),
+              ),
+              span: range,
+              movements: movements.map((item) => ({
+                character: item.character ?? null,
+                keyLabel: item.keyLabel,
+                prices: item.prices,
+                label: item.label,
+                bpm: item.bpm,
+                beats: item.beats,
+                beatType: item.beatType,
+                name: item.name,
+              })),
+            },
+            index,
+          ),
+          phase: audible ? 'playing' : 'intro',
+        }
+      : null;
+
   const view: RecapView = {
     ...EMPTY_VIEW,
-    prices: chartWindow?.prices ?? [],
-    cursorIndex: cursor,
-    cursorLabel: current ? current.label : null,
-    dimUnplayed: Boolean(chartWindow) && !finished && (composing || current != null),
+    prices,
+    cursorIndex: globalCursor,
+    cursorLabel: shown && current ? current.label : null,
+    dimUnplayed: shown && !finished,
+    program,
+    focus: shown ? (focus ?? targetFocus) : null,
   };
 
   return (
@@ -264,6 +420,8 @@ export function SpanRecap({ symbol, range, children }: Props) {
             onTime={onTime}
             onEnded={onEnded}
             onError={failPlayback}
+            onLoaded={refreshNames}
+            onAudible={markAudible}
           />
         ) : finished ? (
           <Pressable
@@ -317,11 +475,15 @@ function MovementPlayer({
   onTime,
   onEnded,
   onError,
+  onLoaded,
+  onAudible,
 }: {
   movement: SpanMovement;
   onTime: (elapsed: number) => void;
   onEnded: () => void;
   onError: (message: string) => void;
+  onLoaded?: () => void | Promise<void>;
+  onAudible?: () => void;
 }) {
   const player = useAudioPlayer(absoluteApiUrl(movement.audioUrl), {
     updateInterval: 80,
@@ -330,6 +492,10 @@ function MovementPlayer({
   const status = useAudioPlayerStatus(player);
   const started = useRef(false);
   const finished = useRef(false);
+  const onLoadedRef = useRef(onLoaded);
+  const onAudibleRef = useRef(onAudible);
+  onLoadedRef.current = onLoaded;
+  onAudibleRef.current = onAudible;
 
   useEffect(() => {
     if (status.error) onError('Máy chủ chưa soạn được nhạc.');
@@ -338,10 +504,24 @@ function MovementPlayer({
   useEffect(() => {
     if (started.current || !status.isLoaded || status.error) return;
     let cancelled = false;
+    // The name already on the card needs no extra paint. A name that arrives
+    // from onLoaded must not restart this effect: the next run would see the
+    // name and skip the wait, so the intro card and the playing caption can
+    // land in one paint.
+    const hadName = Boolean(movement.name?.trim());
     void (async () => {
       await setAudioModeAsync({ playsInSilentMode: true });
       if (cancelled || started.current) return;
+      await onLoadedRef.current?.();
+      if (cancelled || started.current) return;
+      if (!hadName) {
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        });
+      }
+      if (cancelled || started.current) return;
       started.current = true;
+      onAudibleRef.current?.();
       player.play();
     })();
     return () => {

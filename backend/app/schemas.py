@@ -122,6 +122,7 @@ class RecapResponse(BaseModel):
     character: str | None = None
     characterLabel: str = ""
     keyLabel: str = ""
+    movementName: str = ""
     humanize: bool = True
     color: bool = True
 
@@ -141,6 +142,10 @@ class SpanMovementResponse(BaseModel):
     character: str | None = None
     characterLabel: str = ""
     sessionCharacters: list[str] = []
+    bpm: int = 0
+    beats: int = 4
+    beatType: int = 4
+    name: str = ""
 
 
 class SpanResponse(BaseModel):
@@ -163,6 +168,8 @@ class SpanResponse(BaseModel):
         "bach",
     ] = "classic"
     movements: list[SpanMovementResponse]
+    asOf: str = ""
+    keyLabel: str = ""
     humanize: bool = True
     color: bool = True
 

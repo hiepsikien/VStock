@@ -490,6 +490,8 @@ export type RecapManifest = {
   character?: string | null;
   characterLabel?: string;
   keyLabel?: string;
+  /** Dance the guitar writer chose. Empty for the other variants. */
+  movementName?: string;
   humanize?: boolean;
   color?: boolean;
 };
@@ -536,6 +538,11 @@ export type SpanMovement = {
   character?: string | null;
   characterLabel?: string;
   sessionCharacters?: string[];
+  bpm?: number;
+  beats?: number;
+  beatType?: number;
+  /** Dance or tempo composed for this movement. */
+  name?: string;
 };
 
 export type SpanManifest = {
@@ -544,6 +551,12 @@ export type SpanManifest = {
   variant: RecapVariant;
   ensemble: RecapEnsemble;
   movements: SpanMovement[];
+  /** Last session day covered by the span, `YYYY-MM-DD`. */
+  asOf?: string;
+  /** Home key of the ticker. Minor only when every movement is minor. */
+  keyLabel?: string;
+  humanize?: boolean;
+  color?: boolean;
 };
 
 export async function fetchSpan(

@@ -24,6 +24,7 @@ import {
 } from '../api/client';
 import { formatPercent } from '../data/stocks';
 import { colors, spacing, typography } from '../theme';
+import { pieceCopy, type ChartFocus, type PieceProgram } from '../sonify/program';
 import { MixToggles } from './MixToggles';
 import { ambientDailyCandleIndexAt, playheadHoldsPoll } from '../utils/recapCursor';
 import { isMarketOpen, REFRESH } from '../utils/marketSession';
@@ -45,6 +46,8 @@ export type RecapView = {
   cursorIndex: number | null;
   cursorLabel: string | null;
   dimUnplayed: boolean;
+  program: PieceProgram | null;
+  focus: ChartFocus | null;
 };
 
 type Props = {
@@ -59,6 +62,8 @@ const EMPTY_VIEW: RecapView = {
   cursorIndex: null,
   cursorLabel: null,
   dimUnplayed: false,
+  program: null,
+  focus: null,
 };
 
 function vnToday(): string {
@@ -130,6 +135,7 @@ export function SessionRecap({ symbol, children }: Props) {
   const [autoplay, setAutoplay] = useState(false);
   const [cursor, setCursor] = useState<{ index: number; label: string } | null>(null);
   const [playbackActive, setPlaybackActive] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
   const cursorActive = useRef(false);
   const recapAbort = useRef<AbortController | null>(null);
   const variantChanged = useRef(false);
@@ -154,16 +160,18 @@ export function SessionRecap({ symbol, children }: Props) {
     recapAbort.current = null;
   }, []);
 
-  const onCursor = useCallback((index: number | null, label: string | null, holdPoll = false) => {
+  const onCursor = useCallback((index: number | null, label: string | null, holdPoll = false, elapsedSec = 0) => {
     const active = holdPoll && index != null;
     cursorActive.current = active;
     setPlaybackActive(active);
+    setElapsed(elapsedSec);
     setCursor(index == null || label == null ? null : { index, label });
   }, []);
 
   const clearPlayhead = useCallback(() => {
     cursorActive.current = false;
     setPlaybackActive(false);
+    setElapsed(0);
     setCursor(null);
   }, []);
 
@@ -369,8 +377,31 @@ export function SessionRecap({ symbol, children }: Props) {
 
   const ready = series != null && series.date === selected;
   const playingPiece = pieceMatches(manifest, series, variant, ensemble, selected, humanize, colorOn);
-  const dimUnplayed =
-    composing || (playingPiece && (playbackActive || (autoplay && cursor == null)));
+  const listening = playbackActive || (autoplay && cursor == null);
+  const dimUnplayed = composing || (playingPiece && listening);
+  const program: PieceProgram | null =
+    playingPiece && manifest && series && listening
+      ? {
+          ...pieceCopy({
+            variant,
+            ensemble,
+            symbol,
+            date: manifest.date,
+            keyLabel: manifest.keyLabel ?? '',
+            span: '1D',
+            movements: [
+              {
+                character: manifest.character ?? null,
+                keyLabel: manifest.keyLabel ?? '',
+                prices: series.prices,
+                label: '',
+                name: manifest.movementName,
+              },
+            ],
+          }),
+          phase: playbackActive || elapsed > 0 ? 'playing' : 'intro',
+        }
+      : null;
   const view: RecapView = loadError
     ? { ...EMPTY_VIEW, status: 'error' }
     : ready && series
@@ -381,6 +412,8 @@ export function SessionRecap({ symbol, children }: Props) {
           cursorIndex: cursor?.index ?? null,
           cursorLabel: cursor?.label ?? null,
           dimUnplayed,
+          program,
+          focus: null,
         }
       : selected
         ? { ...EMPTY_VIEW, status: 'loading' }
@@ -526,7 +559,7 @@ function RecapPlayer({
   manifest: RecapManifest;
   times: string[];
   autoplay: boolean;
-  onCursor: (index: number | null, label: string | null, holdPoll?: boolean) => void;
+  onCursor: (index: number | null, label: string | null, holdPoll?: boolean, elapsedSec?: number) => void;
 }) {
   const player = useAudioPlayer(absoluteApiUrl(manifest.audioUrl), {
     updateInterval: 80,
@@ -595,7 +628,7 @@ function RecapPlayer({
     });
     if (!stillRunning) ended.current = true;
     if (status.playing && stillRunning) ended.current = false;
-    onCursor(index, times[index] ?? null, stillRunning && !ended.current);
+    onCursor(index, times[index] ?? null, stillRunning && !ended.current, effectiveTime);
   }, [
     manifest.durationSec,
     manifest.mapDurationSec,
@@ -638,7 +671,7 @@ function RecapPlayer({
         started: true,
       });
       ended.current = !holds;
-      onCursor(index, times[index] ?? null, holds);
+      onCursor(index, times[index] ?? null, holds, targetSec);
     }
     void player.seekTo(targetSec);
   };

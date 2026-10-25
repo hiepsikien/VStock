@@ -442,6 +442,7 @@ export function StockDetailScreen({ navigation, route }: Props) {
                     cursorIndex={view.cursorIndex}
                     cursorLabel={view.cursorLabel}
                     dimUnplayed={view.dimUnplayed}
+                    program={view.program}
                   />
                   {chartLoading ? (
                     <ActivityIndicator
@@ -473,6 +474,9 @@ export function StockDetailScreen({ navigation, route }: Props) {
                     cursorIndex={view.cursorIndex}
                     cursorLabel={view.cursorLabel}
                     dimUnplayed={view.dimUnplayed}
+                    focusStart={view.focus?.start}
+                    focusEnd={view.focus?.end}
+                    program={view.program}
                   />
                   {chartLoading ? (
                     <ActivityIndicator

@@ -196,6 +196,7 @@ async def load_recap(
 
     bars = [point.bar for point in points]
     character = movement_character([bar.close for bar in bars], "1D")
+    home = stock_home_key(symbol)
     cancel = threading.Event()
 
     async def watch_disconnect() -> None:
@@ -223,7 +224,8 @@ async def load_recap(
         return replace(
             asset,
             character=character,
-            key_label=key_label(stock_home_key(symbol), "major"),
+            key_label=key_label(home, "major"),
+            movement_name=asset.movement_name,
         )
     except (RecapUnavailable, RecapCancelled):
         raise
