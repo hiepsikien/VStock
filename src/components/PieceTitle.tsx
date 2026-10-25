@@ -7,13 +7,15 @@ type Props = {
   instruments: string;
   movement: string | null;
   docked: boolean;
+  /** Laid-out width after the dock scale. Zero while the title is still centered. */
+  onDockWidth?: (width: number) => void;
 };
 
 const SCALE = 0.7;
 /** The opening playhead and its time label keep this strip. The title docks beside it. */
 export const TITLE_DOCK_LEFT = 88;
 
-export function PieceTitle({ title, instruments, movement, docked }: Props) {
+export function PieceTitle({ title, instruments, movement, docked, onDockWidth }: Props) {
   const progress = useRef(new Animated.Value(docked ? 1 : 0)).current;
   const [frame, setFrame] = useState({ width: 0, height: 0 });
   const [box, setBox] = useState({ width: 0, height: 0 });
@@ -26,6 +28,10 @@ export function PieceTitle({ title, instruments, movement, docked }: Props) {
       useNativeDriver: false,
     }).start();
   }, [docked, progress]);
+
+  useEffect(() => {
+    onDockWidth?.(docked && box.width > 0 ? box.width * SCALE : 0);
+  }, [box.width, docked, onDockWidth]);
 
   const ready = frame.width > 0 && box.width > 0;
   const inset = (1 - SCALE) / 2;

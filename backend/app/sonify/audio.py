@@ -79,6 +79,21 @@ MAC_MUSESCORE_APPS = (
 ExportFn = Callable[[Path, Path], None]
 
 
+def _compose(variant: str, ensemble: str, bars: list[Bar], **kwargs):
+    """Write the score, and keep the guitar dance chosen during that same pass."""
+    from app.sonify.guitar_patterns import _HEADLINE
+    from app.sonify.program import pattern_title
+
+    found: list[str] = []
+    token = _HEADLINE.set(found)
+    try:
+        score = render(bars, variant=variant, ensemble=ensemble, **kwargs)  # type: ignore[arg-type]
+    finally:
+        _HEADLINE.reset(token)
+    dance = pattern_title(found[0], ensemble) if variant == "guitar" and found else ""
+    return score, dance
+
+
 class RecapUnavailable(RuntimeError):
     """MuseScore could not write an audio file."""
 
@@ -125,6 +140,7 @@ class SpanAsset:
     bar_count: int
     media_type: str
     fingerprint: str
+    movement_name: str = ""
 
 
 def write_wav(path: Path, channels: int, rate: int, samples: array) -> None:
@@ -1145,10 +1161,11 @@ class RecapStore:
             movement.scale_fingerprint,
             ensemble,
         )
-        score = render(
+        score, dance = _compose(
+            variant,
+            ensemble,
             movement.bars,
             title=f"{symbol} {span} {movement.label}",
-            variant=variant,
             form=movement.spec,
             source_groups=movement.groups,
             key=movement.key,
@@ -1159,7 +1176,6 @@ class RecapStore:
             home_pedal=movement.home_pedal,
             character_at=movement.bar_characters,
             gap_leads=movement.gap_leads,
-            ensemble=ensemble,
         )
         work = self.root / "work"
         work.mkdir(parents=True, exist_ok=True)
@@ -1201,6 +1217,7 @@ class RecapStore:
                 "peaks": peaks,
                 "audio": audio_path.name,
                 "fingerprint": movement.scale_fingerprint,
+                "movementName": dance,
             }
             meta_tmp = work / f"{stem}.json"
             meta_tmp.write_text(json.dumps(payload), encoding="utf-8")
@@ -1250,6 +1267,7 @@ class RecapStore:
             bar_count=int(payload.get("barCount") or 0),
             media_type=_media_type(audio_path),
             fingerprint=fingerprint,
+            movement_name=str(payload.get("movementName") or ""),
         )
 
     def _prune_work(self, work: Path) -> None:
@@ -1278,11 +1296,11 @@ class RecapStore:
         key = self._stem(symbol, day, variant, len(bars), ensemble)
         from app.sonify.keys import movement_character, stock_home_key
 
-        score = render(
+        score, dance = _compose(
+            variant,
+            ensemble,
             bars,
             title=f"{symbol} {day.isoformat()}",
-            variant=variant,
-            ensemble=ensemble,
             key=stock_home_key(symbol),
             character=movement_character([bar.close for bar in bars], "1D"),
         )
@@ -1321,6 +1339,7 @@ class RecapStore:
                 "peaks": peaks,
                 "audio": audio_path.name,
                 "closed": self._is_closed(day),
+                "movementName": dance,
             }
             meta_tmp = work / f"{key}.json"
             meta_tmp.write_text(json.dumps(payload), encoding="utf-8")
@@ -1400,6 +1419,7 @@ class RecapStore:
             bar_count=int(payload.get("barCount") or 0),
             media_type=_media_type(audio_path),
             ensemble=payload.get("ensemble") or "classic",
+            movement_name=str(payload.get("movementName") or ""),
         )
 
 

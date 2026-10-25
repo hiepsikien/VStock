@@ -1,16 +1,12 @@
-"""Names the chart prints. The dance is the pattern the guitar writer chose."""
+"""Names the chart prints. A guitar dance is stored with the audio file."""
 
 from __future__ import annotations
-
-import logging
 
 from app.sonify.guitar_patterns import _HEADLINE, _SKIP_VOICES
 from app.sonify.keys import KeySpec, MovementCharacter
 from app.sonify.model import Bar
 from app.sonify.render import render
 from app.sonify.span import FormSpec, PreparedMovement, movement_title
-
-logger = logging.getLogger(__name__)
 
 _PATTERN_TITLE = {
     "study": "Etude",
@@ -48,7 +44,7 @@ def pattern_title(pattern: str, ensemble: str) -> str:
     """English dance name. Villa's thumb line is Prélude No. 1, not a chorale."""
     if pattern == "thumb_cantabile" and ensemble == "villa":
         return "Prelude"
-    return _PATTERN_TITLE.get(pattern, "Etude")
+    return _PATTERN_TITLE.get(pattern, "")
 
 
 def guitar_movement_name(
@@ -66,7 +62,7 @@ def guitar_movement_name(
     outro_override=None,
     framed: bool = True,
 ) -> str:
-    """The dance `render` will write for these bars. Voice rendering is skipped."""
+    """The dance `render` will write. Tests use this; a request must not."""
     found: list[str] = []
     token_headline = _HEADLINE.set(found)
     token_skip = _SKIP_VOICES.set(True)
@@ -89,7 +85,9 @@ def guitar_movement_name(
     finally:
         _HEADLINE.reset(token_headline)
         _SKIP_VOICES.reset(token_skip)
-    return pattern_title(found[0] if found else "study", ensemble)
+    if not found:
+        return ""
+    return pattern_title(found[0], ensemble)
 
 
 def _label_month(label: str) -> int | None:
@@ -100,46 +98,20 @@ def _label_month(label: str) -> int | None:
     return month if 1 <= month <= 12 else None
 
 
-def span_movement_names(
-    movements: tuple[PreparedMovement, ...] | list[PreparedMovement],
-    *,
-    variant: str,
-    ensemble: str,
-    span: str,
-) -> list[str]:
-    return [
-        span_movement_name(movement, variant=variant, ensemble=ensemble, span=span, index=index)
-        for index, movement in enumerate(movements)
-    ]
-
-
 def span_movement_name(
     movement: PreparedMovement,
     *,
     variant: str,
-    ensemble: str,
     span: str,
     index: int,
+    stored: str = "",
 ) -> str:
-    """Name sent on the span manifest. Guitar asks the pattern picker."""
+    """Name sent on the span manifest.
+
+    A guitar dance is the name written beside the audio file. Reading the
+    manifest does not plan the score again, and a missing name stays blank.
+    """
     if variant == "guitar":
-        try:
-            return guitar_movement_name(
-                movement.bars,
-                ensemble=ensemble,
-                key=movement.key,
-                character=movement.character,
-                form=movement.spec,
-                source_groups=movement.groups,
-                mode=movement.mode,
-                home_pedal=movement.home_pedal,
-                character_at=movement.bar_characters,
-                gap_leads=movement.gap_leads,
-                outro_override=movement.outro_override,
-                framed=False,
-            )
-        except Exception:
-            logger.warning("guitar movement name failed for %s %s", span, movement.label, exc_info=True)
-            return "Etude"
+        return stored
     month = _label_month(movement.label) if span == "1Y" else None
     return movement_title(variant, span, index, movement.spec, month) or ""

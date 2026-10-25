@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import threading
 import time
 from dataclasses import replace
@@ -17,8 +16,6 @@ from app.services.http_utils import ENTRADE_HEADERS
 from app.sonify.audio import RecapAsset, RecapCancelled, RecapUnavailable, recap_store
 from app.sonify.model import Ensemble, Variant
 from app.sonify.session import samples_from_ohlc, session_dates, session_points
-
-logger = logging.getLogger(__name__)
 
 ENTRADE_OHLC = "https://services.entrade.com.vn/chart-api/v2/ohlcs/stock"
 # Calendar span that still covers seven sessions across a holiday week.
@@ -192,7 +189,6 @@ async def load_recap(
     if not points:
         raise LookupError(day.isoformat())
     from app.sonify.keys import key_label, movement_character, stock_home_key
-    from app.sonify.program import guitar_movement_name
 
     bars = [point.bar for point in points]
     character = movement_character([bar.close for bar in bars], "1D")
@@ -219,24 +215,11 @@ async def load_recap(
             cancel,
             ensemble,
         )
-        movement_name = ""
-        if variant == "guitar":
-            try:
-                movement_name = await asyncio.to_thread(
-                    guitar_movement_name,
-                    bars,
-                    ensemble=ensemble,
-                    key=home,
-                    character=character,
-                )
-            except Exception:
-                logger.warning("guitar recap name failed for %s", symbol, exc_info=True)
-                movement_name = "Etude"
         return replace(
             asset,
             character=character,
             key_label=key_label(home, "major"),
-            movement_name=movement_name,
+            movement_name=asset.movement_name,
         )
     except (RecapUnavailable, RecapCancelled):
         raise

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   LayoutAnimation,
   Platform,
@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import type { ChartRange } from '../types';
 import { colors, spacing, typography } from '../theme';
-import type { PieceProgram } from '../sonify/program';
+import { titleCoversCursor, type PieceProgram } from '../sonify/program';
 import { PieceTitle, TITLE_DOCK_LEFT } from './PieceTitle';
 import { Sparkline } from './Sparkline';
 
@@ -75,9 +75,18 @@ export function PriceChart({
     const x = ((cursorIndex - visible.start) / span) * chartWidth;
     return Math.min(chartWidth - 58, Math.max(8, x - 22));
   }, [chartWidth, cursorIndex, prices.length, visible.end, visible.start]);
-  const titleSpan = Math.min(260, Math.max(160, chartWidth - 48)) * 0.7;
-  const cursorUnderTitle =
-    !!program?.docked && labelLeft + 48 > TITLE_DOCK_LEFT && labelLeft < TITLE_DOCK_LEFT + titleSpan;
+  const [titleWidth, setTitleWidth] = useState(0);
+  const [labelWidth, setLabelWidth] = useState(0);
+  const onDockWidth = useCallback((width: number) => {
+    setTitleWidth((current) => (current === width ? current : width));
+  }, []);
+  const cursorUnderTitle = titleCoversCursor(
+    !!program?.docked,
+    titleWidth,
+    labelLeft,
+    labelWidth,
+    TITLE_DOCK_LEFT,
+  );
 
   return (
     <View style={styles.wrap}>
@@ -104,14 +113,23 @@ export function PriceChart({
             instruments={program.instruments}
             movement={program.movement}
             docked={program.docked}
+            onDockWidth={onDockWidth}
           />
         ) : null}
         {cursorLabel &&
-        !cursorUnderTitle &&
         cursorIndex != null &&
         cursorIndex >= visible.start - 0.01 &&
         cursorIndex <= visible.end + 0.01 ? (
-          <View pointerEvents="none" style={[styles.cursorLabel, { left: labelLeft }]}>
+          <View
+            pointerEvents="none"
+            accessibilityElementsHidden={cursorUnderTitle}
+            importantForAccessibility={cursorUnderTitle ? 'no-hide-descendants' : 'auto'}
+            onLayout={(event) => {
+              const width = event.nativeEvent.layout.width;
+              setLabelWidth((current) => (current === width ? current : width));
+            }}
+            style={[styles.cursorLabel, { left: labelLeft, opacity: cursorUnderTitle ? 0 : 1 }]}
+          >
             <Text style={styles.cursorLabelText}>{cursorLabel}</Text>
           </View>
         ) : null}

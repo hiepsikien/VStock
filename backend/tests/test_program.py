@@ -1,13 +1,16 @@
 """Chart names follow the pattern that is actually written."""
 
+import json
 from datetime import date
+from pathlib import Path
 
+from app.sonify.audio import RecapStore
 from app.sonify.guitar_patterns import _HEADLINE, _SKIP_VOICES
 from app.sonify.keys import work_key_label
 from app.sonify.model import Bar
-from app.sonify.program import guitar_movement_name, pattern_title
+from app.sonify.program import guitar_movement_name, pattern_title, span_movement_name
 from app.sonify.render import render
-from app.sonify.span import month_specs, movement_title, quarter_specs, year_as_of, year_specs
+from app.sonify.span import PreparedMovement, month_specs, movement_title, quarter_specs, year_as_of, year_specs
 
 
 def _bars(closes: list[float]) -> list[Bar]:
@@ -75,6 +78,94 @@ def test_bach_slow_selloff_with_a_contrast_stays_sarabande():
         guitar_movement_name(wide, ensemble="bach", character="selloff", form=slow, mode="minor", framed=False)
         == "Sarabande"
     )
+
+
+def test_an_unknown_pattern_is_not_titled_etude():
+    assert pattern_title("not-a-pattern", "classic") == ""
+    assert pattern_title("study", "classic") == "Etude"
+
+
+def test_span_manifest_reads_a_stored_dance_and_does_not_plan(monkeypatch):
+    def boom(*_args, **_kwargs):
+        raise AssertionError("render")
+
+    monkeypatch.setattr("app.sonify.program.render", boom)
+    movement = PreparedMovement(
+        label="2",
+        spec=month_specs("symphony")[1],
+        bars=_bars([10.0, 11.0]),
+        groups=None,
+        rest_after=0,
+    )
+    assert (
+        span_movement_name(movement, variant="guitar", span="1Y", index=1, stored="Gigue")
+        == "Gigue"
+    )
+    assert span_movement_name(movement, variant="guitar", span="1Y", index=1, stored="") == ""
+    assert span_movement_name(movement, variant="symphony", span="1M", index=1) == (
+        movement_title("symphony", "1M", 1, movement.spec) or ""
+    )
+
+
+def _write_audio(folder: Path, name: str, payload: dict) -> None:
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / name).write_bytes(b"m4a")
+    (folder / f"{Path(name).stem}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_cached_audio_returns_its_dance_without_rendering(tmp_path: Path):
+    def exporter(*_args, **_kwargs):
+        raise AssertionError("export")
+
+    store = RecapStore(tmp_path, exporter)
+    day = date(2026, 1, 20)
+    bars = [Bar(10.0), Bar(11.0)]
+    stem = store._stem("VIC", day, "guitar", len(bars), "barrios")
+    payload = {
+        "symbol": "VIC",
+        "date": day.isoformat(),
+        "variant": "guitar",
+        "ensemble": "barrios",
+        "durationSec": 1.0,
+        "mapDurationSec": 1.0,
+        "barCount": len(bars),
+        "peaks": [0.2],
+        "audio": f"{stem}.m4a",
+        "closed": True,
+        "movementName": "Tremolo",
+    }
+    _write_audio(tmp_path, f"{stem}.m4a", payload)
+    asset = store.ensure("VIC", day, "guitar", bars, None, "barrios")
+    assert asset.movement_name == "Tremolo"
+
+    payload["movementName"] = ""
+    _write_audio(tmp_path, f"{stem}.m4a", payload)
+    assert store.ensure("VIC", day, "guitar", bars, None, "barrios").movement_name == ""
+
+
+def test_cached_span_keeps_the_dance_written_beside_the_file(tmp_path: Path):
+    store = RecapStore(tmp_path, lambda *_args, **_kwargs: None)
+    fingerprint = "C-major-std-none-4-4-0-10.00-11.00-rhythm4--"
+    stem = store._span_stem("VIC", "1Y", 3, "guitar", 2, fingerprint, "barrios")
+    payload = {
+        "audio": f"{stem}.m4a",
+        "fingerprint": fingerprint,
+        "durationSec": 2,
+        "mapDurationSec": 2,
+        "barCount": 2,
+        "peaks": [],
+        "movementName": "Sarabande",
+    }
+    _write_audio(tmp_path / "spans", f"{stem}.m4a", payload)
+    asset = store.get_movement("VIC", "1Y", 3, "guitar", 2, fingerprint, "barrios")
+    assert asset is not None
+    assert asset.movement_name == "Sarabande"
+
+    payload.pop("movementName")
+    _write_audio(tmp_path / "spans", f"{stem}.m4a", payload)
+    missing = store.get_movement("VIC", "1Y", 3, "guitar", 2, fingerprint, "barrios")
+    assert missing is not None
+    assert missing.movement_name == ""
 
 
 def test_headline_matches_a_full_render():

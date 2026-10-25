@@ -40,6 +40,18 @@ export type PieceCopy = {
 
 export type PieceProgram = PieceCopy & { docked: boolean };
 
+/** The docked title hides the time label only where the drawn glyphs overlap it. */
+export function titleCoversCursor(
+  docked: boolean,
+  titleWidth: number,
+  labelLeft: number,
+  labelWidth: number,
+  dockLeft: number,
+): boolean {
+  if (!docked || titleWidth <= 0 || labelWidth <= 0) return false;
+  return labelLeft < dockLeft + titleWidth && labelLeft + labelWidth > dockLeft;
+}
+
 export type ChartFocus = { start: number; end: number };
 
 const GUITAR_BPM: Record<string, number> = {
@@ -291,8 +303,8 @@ function classicalName(variant: RecapVariant, span: SpanId, index: number, month
   return null;
 }
 
-function workForm(variant: RecapVariant, span: SpanId, dance: string | null, count: number): string {
-  if (variant === 'guitar') return count > 1 ? 'Suite' : (dance ?? 'Etude');
+function workForm(variant: RecapVariant, span: SpanId, dance: string | null, count: number): string | null {
+  if (variant === 'guitar') return count > 1 ? 'Suite' : dance;
   if (variant === 'jazz') return span === '1D' || span === '1W' ? 'Jazz' : 'Set';
   if (variant === 'minimalist') return span === '1D' || span === '1W' ? 'Etude' : 'Cycle';
   if (variant === 'ambient') return span === '1D' || span === '1W' ? 'Prelude' : 'Nocturne';
@@ -330,8 +342,9 @@ export function pieceCopy(input: PieceInput, movementIndex = 0): PieceCopy {
   const dated = when ? `${input.symbol} ${when}` : input.symbol;
   const movementName =
     supplied ?? (input.variant === 'guitar' ? null : classicalName(input.variant, input.span, index, month));
+  const key = englishKey(input.keyLabel);
   return {
-    title: `${form} ${dated} in ${englishKey(input.keyLabel)}`,
+    title: form ? `${form} ${dated} in ${key}` : `${dated} in ${key}`,
     instruments: instrumentLine(input.variant, input.ensemble),
     movement: count > 1 ? movementLine(index, movementName, pulseValue) : null,
   };

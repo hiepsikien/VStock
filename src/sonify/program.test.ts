@@ -6,6 +6,7 @@ import {
   movementPulse,
   pieceCopy,
   pieceKey,
+  titleCoversCursor,
   type MovementInput,
   type PieceInput,
 } from './program';
@@ -196,7 +197,7 @@ equal(
       movements: [movement({ character: 'volatile' })],
     }),
   ).title,
-  'Etude VIC 20/1 in E-flat',
+  'VIC 20/1 in E-flat',
 );
 equal(
   pieceCopy(
@@ -284,5 +285,14 @@ deepEqual(
   chartFocus({ total: 7, offsets: [0, 4], lengths, index: 1, elapsed: 1, resting: true, multi: true }),
   { start: 0, end: 6 },
 );
+
+const dock = 88;
+equal(titleCoversCursor(true, 40, dock + 40, 48, dock), false);
+equal(titleCoversCursor(true, 40, dock + 50, 40, dock), false);
+equal(titleCoversCursor(true, 40, dock + 10, 48, dock), true);
+equal(titleCoversCursor(true, 182, dock + 50, 40, dock), true);
+equal(titleCoversCursor(false, 200, dock, 40, dock), false);
+equal(titleCoversCursor(true, 0, dock, 40, dock), false);
+equal(titleCoversCursor(true, 40, dock, 0, dock), false);
 
 console.log('program tests passed');

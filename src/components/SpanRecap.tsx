@@ -76,6 +76,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
   const zoomFrame = useRef(0);
   const restTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const request = useRef<AbortController | null>(null);
+  const namesRequest = useRef<AbortController | null>(null);
 
   const clearRest = useCallback(() => {
     if (restTimer.current) {
@@ -88,6 +89,8 @@ export function SpanRecap({ symbol, range, children }: Props) {
   const reset = useCallback(() => {
     request.current?.abort();
     request.current = null;
+    namesRequest.current?.abort();
+    namesRequest.current = null;
     clearRest();
     setMovements(null);
     setIndex(0);
@@ -212,6 +215,36 @@ export function SpanRecap({ symbol, range, children }: Props) {
     },
     [clearRest],
   );
+
+  const refreshNames = useCallback(() => {
+    if (variant !== 'guitar') return;
+    // A file already on disk reported its dance on the manifest. An empty name
+    // there stays empty; only a render that just finished can add one.
+    if (current?.name?.trim() || current?.ready) return;
+    if (!namesRequest.current || namesRequest.current.signal.aborted) {
+      namesRequest.current = new AbortController();
+    }
+    const signal = namesRequest.current.signal;
+    void (async () => {
+      try {
+        const manifest = await fetchSpan(symbol, range, variant, ensemble, signal);
+        if (signal.aborted) return;
+        setMovements((existing) => {
+          if (!existing) return existing;
+          let changed = false;
+          const next = existing.map((item, itemIndex) => {
+            const incoming = manifest.movements[itemIndex]?.name?.trim() ?? '';
+            if (!incoming || item.name?.trim()) return item;
+            changed = true;
+            return { ...item, name: incoming };
+          });
+          return changed ? next : existing;
+        });
+      } catch {
+        // A missing dance stays blank. The title does not invent one.
+      }
+    })();
+  }, [current?.name, current?.ready, ensemble, range, symbol, variant]);
 
   const replay = useCallback(() => {
     clearRest();
@@ -361,6 +394,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
             onTime={onTime}
             onEnded={onEnded}
             onError={failPlayback}
+            onLoaded={refreshNames}
           />
         ) : finished ? (
           <Pressable
@@ -414,11 +448,13 @@ function MovementPlayer({
   onTime,
   onEnded,
   onError,
+  onLoaded,
 }: {
   movement: SpanMovement;
   onTime: (elapsed: number) => void;
   onEnded: () => void;
   onError: (message: string) => void;
+  onLoaded?: () => void;
 }) {
   const player = useAudioPlayer(absoluteApiUrl(movement.audioUrl), {
     updateInterval: 80,
@@ -427,10 +463,17 @@ function MovementPlayer({
   const status = useAudioPlayerStatus(player);
   const started = useRef(false);
   const finished = useRef(false);
+  const reported = useRef(false);
 
   useEffect(() => {
     if (status.error) onError('Máy chủ chưa soạn được nhạc.');
   }, [onError, status.error]);
+
+  useEffect(() => {
+    if (reported.current || !status.isLoaded || status.error) return;
+    reported.current = true;
+    onLoaded?.();
+  }, [onLoaded, status.error, status.isLoaded]);
 
   useEffect(() => {
     if (started.current || !status.isLoaded || status.error) return;
