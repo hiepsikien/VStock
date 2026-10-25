@@ -120,6 +120,31 @@ def _note_type(beats: float) -> tuple[str, int]:
         raise ValueError(f"unsupported duration: {beats} beats") from exc
 
 
+def _is_sixth(beats: float) -> bool:
+    """One note of a sextuplet: a sixteenth inside 6:4."""
+    return abs(beats * 6 - 1.0) < 1e-3
+
+
+def _sextuplet_roles(events: list[NoteEvent]) -> list[str | None]:
+    """Bracket each run of six sixths that fills one quarter."""
+    roles: list[str | None] = [None] * len(events)
+    index = 0
+    while index < len(events):
+        if not _is_sixth(events[index].duration_beats):
+            index += 1
+            continue
+        end = index
+        total = 0.0
+        while end < len(events) and _is_sixth(events[end].duration_beats) and total < 1.0 - 1e-3:
+            total += events[end].duration_beats
+            end += 1
+        if end - index == 6 and abs(total - 1.0) < 1e-3:
+            roles[index] = "start"
+            roles[end - 1] = "stop"
+        index = end
+    return roles
+
+
 def _add_note(
     parent: ET.Element,
     event: NoteEvent,
@@ -133,6 +158,7 @@ def _add_note(
     bar_beats: float | None = None,
     mode: str = "major",
     slur_number: str = "1",
+    tuplet: str | None = None,
 ) -> None:
     note = _add(parent, "note")
     if event.velocity is not None and event.midi is not None:
@@ -174,10 +200,16 @@ def _add_note(
     if event.tie_start:
         _add(note, "tie", type="start")
     _add(note, "voice", str(event.voice))
-    note_type, dots = _note_type(event.duration_beats)
+    sixth = _is_sixth(event.duration_beats)
+    note_type, dots = ("16th", 0) if sixth else _note_type(event.duration_beats)
     _add(note, "type", note_type)
     for _ in range(dots):
         _add(note, "dot")
+    if sixth:
+        modification = _add(note, "time-modification")
+        _add(modification, "actual-notes", "6")
+        _add(modification, "normal-notes", "4")
+        _add(modification, "normal-type", "16th")
     if staves > 1:
         _add(note, "staff", str(event.staff))
     marks = (
@@ -189,8 +221,10 @@ def _add_note(
         event.tenuto,
         event.staccato,
     )
-    if any(marks):
+    if tuplet or any(marks):
         notations = _add(note, "notations")
+        if tuplet:
+            _add(notations, "tuplet", type=tuplet, bracket="yes")
         if event.tie_stop:
             _add(notations, "tied", type="stop")
         if event.tie_start:
@@ -711,8 +745,10 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                 # and the bass) all sit around mp.
                 marking = ("mp", "mp", "mp")[voice_index]
                 _dynamic(measure, DynamicEvent(bar=0, marking=marking, sound=SOUND[marking]))
+            ordered = sorted(voice[bar], key=lambda note: note.beat)
+            roles = _sextuplet_roles(ordered)
             previous_beat: float | None = None
-            for event in sorted(voice[bar], key=lambda note: note.beat):
+            for event, role in zip(ordered, roles):
                 _add_note(
                     measure,
                     event,
@@ -728,6 +764,7 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                     bar_beats=score.bar_beats,
                     mode=score.mode,
                     slur_number=str(event.voice),
+                    tuplet=role,
                 )
                 previous_beat = event.beat
 

@@ -1,6 +1,6 @@
 # Kế hoạch hai pattern mới của Lobos: `etude1` và `etude11`
 
-> **Trạng thái**: đã chốt cả hai ô nhạc, chưa render.
+> **Trạng thái**: đã render `etude1` và `etude11`.
 >
 > `villa_pattern` giữ nguyên tiếng arpeggio móc đơn đã nghe (ngón cái ở phách 1 và phách 3, giai điệu ngân riêng). Tài liệu thôi gọi nó là *Étude No. 1*. `chord_melody` và `thumb_cantabile` không đổi hành vi. `chord_melody` thôi mang tên *Étude No. 11*.
 

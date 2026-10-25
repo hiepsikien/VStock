@@ -1,4 +1,4 @@
-"""Heitor Villa-Lobos Etude No. 1 arpeggio wave, Etude No. 11 block chords, and Prelude No. 1 thumb cantabile."""
+"""Villa-Lobos patterns: the eighth-note roll, the two etude cells, block chords, and thumb cantabile."""
 
 from __future__ import annotations
 
@@ -312,6 +312,210 @@ def _render_thumb(ctx: _Ctx, phrase: Phrase) -> tuple[list[NoteEvent], list[Note
                 lower_vel = upper_vel
             support.extend(_eighth_event(eighth, 1, lower, ctx.epb, 2, lower_vel))
             lead.extend(_eighth_event(eighth, 1, higher, ctx.epb, 1, upper_vel))
+    return lead, support, low
+
+
+_ETUDE_OPEN = 60
+_ETUDE_PEAK = 72
+_ETUDE_MIDDLE = 52
+# Sixteenth index → inner-scale degree. Attacks 0, 7, and 9 are not the middle voice.
+_ETUDE1_MIDDLE = {
+    1: 1,
+    2: 0,
+    3: 2,
+    4: 1,
+    5: 3,
+    6: 2,
+    8: 3,
+    10: 2,
+    11: 3,
+    12: 1,
+    13: 2,
+    14: 0,
+    15: 1,
+}
+
+
+def _etude_hairpin(ctx: _Ctx, phrase: Phrase | None, eighth: int) -> int:
+    if phrase is None or not _rises(phrase):
+        return _ETUDE_OPEN
+    amount = swell(phrase, min(max(eighth, phrase.start), phrase.end - 1))
+    return int(round(_ETUDE_OPEN + (_ETUDE_PEAK - _ETUDE_OPEN) * amount))
+
+
+def _etude_bass(ctx: _Ctx, chord: Chord, ceiling: int) -> int:
+    """Lowest chord root under the melody. Étude No. 1's open bass sits here."""
+    pc = chord.pitches[0] % 12
+    for note in range(ctx.bass_low, ctx.bass_high + 1):
+        if note % 12 != pc or note >= ceiling:
+            continue
+        if _playable([note + ctx.semitones, ceiling + ctx.semitones]):
+            return note
+    fallback = _choose_bass(chord, 0, ceiling, ctx.bass_low, ctx.bass_high, ctx.semitones)
+    if fallback >= ceiling and fallback - 12 >= ctx.bass_low:
+        return fallback - 12
+    return fallback
+
+
+def _chord_between(ctx: _Ctx, chord: Chord, bass: int, melody: int) -> list[int]:
+    pcs = set(_pool(chord))
+    found: list[int] = []
+    for note in range(bass + 1, melody):
+        if note % 12 not in pcs:
+            continue
+        if _playable([bass + ctx.semitones, note + ctx.semitones, melody + ctx.semitones]):
+            found.append(note)
+    return found
+
+
+def _etude1_levels(ctx: _Ctx, chord: Chord, bass: int, melody: int) -> list[int]:
+    tones = _chord_between(ctx, chord, bass, melody)
+    if len(tones) > 4:
+        return tones[-4:]
+    return tones
+
+
+def _etude_level(tones: list[int], index: int) -> int | None:
+    if not tones:
+        return None
+    return tones[min(index, len(tones) - 1)]
+
+
+def _placed(
+    bar: int,
+    beat: float,
+    midi: int,
+    duration: float,
+    voice: int,
+    velocity: int,
+    *,
+    accent: bool = False,
+) -> NoteEvent:
+    return NoteEvent(
+        bar=bar,
+        beat=beat,
+        midi=midi,
+        duration_beats=duration,
+        voice=voice,
+        velocity=velocity,
+        accent=accent,
+    )
+
+
+def _render_etude1_bar(
+    ctx: _Ctx,
+    bar: int,
+    phrase: Phrase | None,
+    breathe: bool,
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    """Étude No. 1: one 16-note right-hand cycle. The thumb plays the root once."""
+    start = bar * ctx.epb
+    sung_beat2 = ctx.melody[min(start + 2, len(ctx.melody) - 1)]
+    sung_beat3 = ctx.melody[min(start + 4, len(ctx.melody) - 1)]
+    ceiling = min(sung_beat2, sung_beat3)
+    bass = _etude_bass(ctx, ctx.chord(bar), ceiling)
+    levels = _etude1_levels(ctx, ctx.chord(bar), bass, ceiling)
+    high_at = {7: sung_beat2, 9: sung_beat3}
+    lead: list[NoteEvent] = []
+    support: list[NoteEvent] = []
+    for index in range(16):
+        if breathe and index >= 12:
+            continue
+        beat = index / 4
+        eighth = start + int(math.floor(beat * 2 + 1e-9))
+        if index in high_at:
+            lead.append(
+                _placed(bar, beat, high_at[index], 0.25, 1, _etude_hairpin(ctx, phrase, eighth))
+            )
+            continue
+        degree = _ETUDE1_MIDDLE.get(index)
+        if degree is None:
+            continue
+        tone = _etude_level(levels, degree)
+        if tone is None:
+            continue
+        support.append(_placed(bar, beat, tone, 0.25, 2, _ETUDE_MIDDLE))
+    sung_velocity = min(
+        (_etude_hairpin(ctx, phrase, start + 3), _etude_hairpin(ctx, phrase, start + 4)),
+    )
+    low = [_placed(bar, 0.0, bass, 4.0, 3, max(44, sung_velocity - 4))]
+    return lead, support, low
+
+
+def _etude11_ornament(
+    ctx: _Ctx,
+    chord: Chord,
+    bass: int,
+    melody: int,
+    previous: int | None,
+    previous_melody: int | None,
+) -> int | None:
+    pcs = set(_pool(chord))
+
+    def valid(note: int) -> bool:
+        return (
+            bass < note < melody
+            and note % 12 in pcs
+            and _playable([bass + ctx.semitones, note + ctx.semitones, melody + ctx.semitones])
+        )
+
+    ordered: list[int] = []
+    if valid(melody - 7):
+        ordered.append(melody - 7)
+    for third in (melody - 3, melody - 4):
+        if valid(third) and third not in ordered:
+            ordered.append(third)
+    if not ordered:
+        between = _chord_between(ctx, chord, bass, melody)
+        if between:
+            ordered = [between[-1]]
+    if not ordered:
+        return None
+    if previous is not None and previous_melody == melody and valid(previous):
+        return previous
+    if previous is not None and previous_melody is not None and melody != previous_melody:
+        if melody > previous_melody:
+            aimed = [note for note in ordered if note > previous]
+        else:
+            aimed = [note for note in ordered if note < previous]
+        if aimed:
+            return aimed[0]
+    return ordered[0]
+
+
+def _render_etude11_bar(
+    ctx: _Ctx,
+    bar: int,
+    phrase: Phrase | None,
+    breathe: bool,
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    """Étude No. 11, Animé: four sextuplet arches. The open-E pedal is not copied."""
+    start = bar * ctx.epb
+    chord = ctx.chord(bar)
+    lead: list[NoteEvent] = []
+    support: list[NoteEvent] = []
+    low: list[NoteEvent] = []
+    previous: int | None = None
+    previous_melody: int | None = None
+    for quarter in range(4):
+        eighth = min(start + quarter * 2, len(ctx.melody) - 1)
+        melody = ctx.melody[eighth]
+        hairpin = _etude_hairpin(ctx, phrase, eighth)
+        bass = _etude_bass(ctx, chord, melody)
+        ornament = _etude11_ornament(ctx, chord, bass, melody, previous, previous_melody)
+        lead.append(_placed(bar, float(quarter), melody, 0.5, 1, hairpin, accent=True))
+        lead.append(
+            _placed(bar, quarter + 0.5, melody, 0.5, 1, max(44, hairpin - 8))
+        )
+        low.append(_placed(bar, float(quarter), bass, 1.0, 3, max(44, hairpin - 4), accent=True))
+        drop_middle = breathe and quarter == 3
+        if not drop_middle and ornament is not None:
+            for slot in (1, 2, 4, 5):
+                support.append(
+                    _placed(bar, quarter + slot / 6.0, ornament, 1.0 / 6.0, 2, _ETUDE_MIDDLE)
+                )
+        previous = ornament
+        previous_melody = melody
     return lead, support, low
 
 
