@@ -28,7 +28,7 @@ from typing import Callable, NamedTuple
 from xml.etree import ElementTree as ET
 
 from app.sonify.ensemble import Ensemble
-from app.sonify.humanize import humanize
+from app.sonify.humanize import humanize as humanize_score
 from app.sonify.model import ENSEMBLES, VARIANTS, Bar, Variant
 from app.sonify.musicxml import score_to_musicxml
 from app.sonify.playback import piece_seconds
@@ -53,8 +53,27 @@ _STORED_NAME = re.compile(
     + "|".join(VARIANTS)
     + r")(?:-(?:"
     + "|".join(name for name in ENSEMBLES if name != "classic")
-    + r"))?_(?P<rev>[^_]+)_\d+\.(?:m4a|wav|json)$"
+    + r"))?_(?P<rev>[^_]+)_\d+(?:_nh)?(?:_nc)?\.(?:m4a|wav|json)$"
 )
+
+
+def layer_mark(humanize: bool = True, color: bool = True) -> str:
+    """Suffix when a post-compose layer is off. Both on keeps the current stem."""
+    parts: list[str] = []
+    if not humanize:
+        parts.append("nh")
+    if not color:
+        parts.append("nc")
+    return "" if not parts else "_" + "_".join(parts)
+
+
+def layer_query(humanize: bool = True, color: bool = True) -> str:
+    parts: list[str] = []
+    if not humanize:
+        parts.append("humanize=0")
+    if not color:
+        parts.append("color=0")
+    return "" if not parts else "&" + "&".join(parts)
 _export_cancel = threading.local()
 _export_timeout = threading.local()
 _config_folder_support: dict[str, bool] = {}
@@ -102,10 +121,13 @@ class RecapAsset:
     ensemble: Ensemble = "classic"
     character: str | None = None
     key_label: str = ""
+    humanize: bool = True
+    color: bool = True
 
     @property
     def audio_url(self) -> str:
         extra = "" if self.ensemble == "classic" else f"&ensemble={self.ensemble}"
+        extra += layer_query(self.humanize, self.color)
         return (
             f"/v1/stocks/{self.symbol}/sessions/{self.day.isoformat()}"
             f"/recap/audio.m4a?variant={self.variant}&v={self.bar_count}&r={RECAP_REVISION}{extra}"
@@ -996,8 +1018,13 @@ class RecapStore:
         variant: Variant,
         bar_count: int,
         ensemble: Ensemble = "classic",
+        humanize: bool = True,
+        color: bool = True,
     ) -> str:
-        return f"{self._piece(symbol, day, variant, ensemble)}_{RECAP_REVISION}_{bar_count}"
+        return (
+            f"{self._piece(symbol, day, variant, ensemble)}_{RECAP_REVISION}_{bar_count}"
+            f"{layer_mark(humanize, color)}"
+        )
 
     def _is_closed(self, day: date) -> bool:
         return is_session_closed(day, self._clock())
@@ -1009,10 +1036,19 @@ class RecapStore:
         variant: Variant,
         bar_count: int,
         ensemble: Ensemble = "classic",
+        humanize: bool = True,
+        color: bool = True,
     ) -> RecapAsset | None:
         """Serve one finished file. Does not compose."""
         self.prune()
-        return self._read(symbol, day, variant, self._stem(symbol, day, variant, bar_count, ensemble))
+        return self._read(
+            symbol,
+            day,
+            variant,
+            self._stem(symbol, day, variant, bar_count, ensemble, humanize, color),
+            humanize,
+            color,
+        )
 
     def ensure(
         self,
@@ -1022,23 +1058,25 @@ class RecapStore:
         bars: list[Bar],
         cancel: threading.Event | None = None,
         ensemble: Ensemble = "classic",
+        humanize: bool = True,
+        color: bool = True,
     ) -> RecapAsset:
         if not bars:
             raise ValueError("need at least one price bar")
         self.prune()
-        piece = self._piece(symbol, day, variant, ensemble)
+        piece = self._piece(symbol, day, variant, ensemble) + layer_mark(humanize, color)
         with self._lock(piece):
             _raise_if_cancelled_event(cancel)
-            cached = self._cached(symbol, day, variant, len(bars), ensemble)
+            cached = self._cached(symbol, day, variant, len(bars), ensemble, humanize, color)
             if cached is not None:
                 return cached
             _raise_if_cancelled_event(cancel)
             with self._slots:
                 _raise_if_cancelled_event(cancel)
-                cached = self._cached(symbol, day, variant, len(bars), ensemble)
+                cached = self._cached(symbol, day, variant, len(bars), ensemble, humanize, color)
                 if cached is not None:
                     return cached
-                return self._render(symbol, day, variant, bars, cancel, ensemble)
+                return self._render(symbol, day, variant, bars, cancel, ensemble, humanize, color)
 
     def prune(self) -> None:
         """Drop other score revisions, expired files, and leftover export temps."""
@@ -1093,10 +1131,15 @@ class RecapStore:
         candle_count: int,
         fingerprint: str,
         ensemble: Ensemble = "classic",
+        humanize: bool = True,
+        color: bool = True,
     ) -> str:
         token = fingerprint.replace(".", "p").replace("-", "_")
         marker = variant if ensemble == "classic" else f"{variant}_{ensemble}"
-        return f"{symbol}_{span}_{index}_{marker}_{SPAN_REVISION}_{candle_count}_{token}"
+        return (
+            f"{symbol}_{span}_{index}_{marker}_{SPAN_REVISION}_{candle_count}_{token}"
+            f"{layer_mark(humanize, color)}"
+        )
 
     def get_movement(
         self,
@@ -1107,10 +1150,14 @@ class RecapStore:
         candle_count: int,
         fingerprint: str,
         ensemble: Ensemble = "classic",
+        humanize: bool = True,
+        color: bool = True,
     ) -> SpanAsset | None:
         self.prune()
-        stem = self._span_stem(symbol, span, index, variant, candle_count, fingerprint, ensemble)
-        return self._read_span(symbol, span, index, variant, stem, fingerprint)
+        stem = self._span_stem(
+            symbol, span, index, variant, candle_count, fingerprint, ensemble, humanize, color
+        )
+        return self._read_span(symbol, span, index, variant, stem, fingerprint, humanize, color)
 
     def ensure_movement(
         self,
@@ -1121,25 +1168,32 @@ class RecapStore:
         movement,  # PreparedMovement; kept untyped to avoid an import cycle
         cancel: threading.Event | None = None,
         ensemble: Ensemble = "classic",
+        humanize: bool = True,
+        color: bool = True,
     ) -> SpanAsset:
         fingerprint = movement.scale_fingerprint
         candle_count = movement.candle_count
-        piece = f"span:{symbol}:{span}:{index}:{self._tag(variant, ensemble)}"
+        piece = (
+            f"span:{symbol}:{span}:{index}:{self._tag(variant, ensemble)}"
+            f"{layer_mark(humanize, color)}"
+        )
         with self._lock(piece):
             _raise_if_cancelled_event(cancel)
             cached = self.get_movement(
-                symbol, span, index, variant, candle_count, fingerprint, ensemble
+                symbol, span, index, variant, candle_count, fingerprint, ensemble, humanize, color
             )
             if cached is not None:
                 return cached
             with self._slots:
                 _raise_if_cancelled_event(cancel)
                 cached = self.get_movement(
-                    symbol, span, index, variant, candle_count, fingerprint, ensemble
+                    symbol, span, index, variant, candle_count, fingerprint, ensemble, humanize, color
                 )
                 if cached is not None:
                     return cached
-                return self._render_movement(symbol, span, index, variant, movement, cancel, ensemble)
+                return self._render_movement(
+                    symbol, span, index, variant, movement, cancel, ensemble, humanize, color
+                )
 
     def _render_movement(
         self,
@@ -1150,6 +1204,8 @@ class RecapStore:
         movement,
         cancel: threading.Event | None,
         ensemble: Ensemble = "classic",
+        humanize: bool = True,
+        color: bool = True,
     ) -> SpanAsset:
         stem = self._span_stem(
             symbol,
@@ -1159,6 +1215,8 @@ class RecapStore:
             movement.candle_count,
             movement.scale_fingerprint,
             ensemble,
+            humanize,
+            color,
         )
         score = render(
             movement.bars,
@@ -1176,7 +1234,8 @@ class RecapStore:
             gap_leads=movement.gap_leads,
             ensemble=ensemble,
         )
-        score = humanize(score)
+        if humanize:
+            score = humanize_score(score)
         work = self.root / "work"
         work.mkdir(parents=True, exist_ok=True)
         xml_path = work / f"{stem}.musicxml"
@@ -1194,7 +1253,7 @@ class RecapStore:
             self._exporter(xml_path, wav_path)
             if not wav_path.is_file() or wav_path.stat().st_size < 64:
                 raise RecapUnavailable("MuseScore wrote an empty movement")
-            heard = _color_for_export(wav_path, variant)
+            heard = _color_for_export(wav_path, variant) if color else wav_path
             duration, peaks = waveform_peaks(heard)
             if duration <= 0:
                 duration = musical
@@ -1221,11 +1280,15 @@ class RecapStore:
                 "peaks": peaks,
                 "audio": audio_path.name,
                 "fingerprint": movement.scale_fingerprint,
+                "humanize": humanize,
+                "color": color,
             }
             meta_tmp = work / f"{stem}.json"
             meta_tmp.write_text(json.dumps(payload), encoding="utf-8")
             self._publish(meta_tmp, self._span_dir() / f"{stem}.json")
-            asset = self._read_span(symbol, span, index, variant, stem, movement.scale_fingerprint)
+            asset = self._read_span(
+                symbol, span, index, variant, stem, movement.scale_fingerprint, humanize, color
+            )
             if asset is None:
                 raise RecapUnavailable("movement audio was not stored")
             return asset
@@ -1242,6 +1305,8 @@ class RecapStore:
         variant: Variant,
         stem: str,
         fingerprint: str,
+        humanize: bool = True,
+        color: bool = True,
     ) -> SpanAsset | None:
         folder = self.root / "spans"
         meta_path = folder / f"{stem}.json"
@@ -1256,6 +1321,8 @@ class RecapStore:
         if not name or audio_path.name != name or not audio_path.is_file():
             return None
         if str(payload.get("fingerprint") or "") != fingerprint:
+            return None
+        if bool(payload.get("humanize", True)) != humanize or bool(payload.get("color", True)) != color:
             return None
         peaks = payload.get("peaks") or []
         return SpanAsset(
@@ -1294,8 +1361,10 @@ class RecapStore:
         bars: list[Bar],
         cancel: threading.Event | None,
         ensemble: Ensemble = "classic",
+        humanize: bool = True,
+        color: bool = True,
     ) -> RecapAsset:
-        key = self._stem(symbol, day, variant, len(bars), ensemble)
+        key = self._stem(symbol, day, variant, len(bars), ensemble, humanize, color)
         from app.sonify.keys import movement_character, stock_home_key
 
         score = render(
@@ -1306,7 +1375,8 @@ class RecapStore:
             key=stock_home_key(symbol),
             character=movement_character([bar.close for bar in bars], "1D"),
         )
-        score = humanize(score)
+        if humanize:
+            score = humanize_score(score)
         work = self.root / "work"
         work.mkdir(parents=True, exist_ok=True)
         xml_path = work / f"{key}.musicxml"
@@ -1317,7 +1387,7 @@ class RecapStore:
         try:
             _raise_if_cancelled_event(cancel)
             self._exporter(xml_path, wav_path)
-            heard = _color_for_export(wav_path, variant)
+            heard = _color_for_export(wav_path, variant) if color else wav_path
             duration, peaks = waveform_peaks(heard)
             musical = piece_seconds(score.bars, score.bpm, score.bar_beats)
             if duration <= 0:
@@ -1347,13 +1417,15 @@ class RecapStore:
                 "peaks": peaks,
                 "audio": audio_path.name,
                 "closed": self._is_closed(day),
+                "humanize": humanize,
+                "color": color,
             }
             meta_tmp = work / f"{key}.json"
             meta_tmp.write_text(json.dumps(payload), encoding="utf-8")
             self._publish(meta_tmp, self.root / f"{key}.json")
             if self._is_closed(day):
                 self._drop_other_counts(symbol, day, variant, len(bars), ensemble)
-            return self._asset(symbol, day, variant, audio_path, payload)
+            return self._asset(symbol, day, variant, audio_path, payload, humanize, color)
         finally:
             _export_cancel.event = previous
             xml_path.unlink(missing_ok=True)
@@ -1370,8 +1442,17 @@ class RecapStore:
         variant: Variant,
         bar_count: int,
         ensemble: Ensemble = "classic",
+        humanize: bool = True,
+        color: bool = True,
     ) -> RecapAsset | None:
-        cached = self._read(symbol, day, variant, self._stem(symbol, day, variant, bar_count, ensemble))
+        cached = self._read(
+            symbol,
+            day,
+            variant,
+            self._stem(symbol, day, variant, bar_count, ensemble, humanize, color),
+            humanize,
+            color,
+        )
         if cached is not None and self._is_closed(day):
             self._drop_other_counts(symbol, day, variant, bar_count, ensemble)
         return cached
@@ -1385,12 +1466,22 @@ class RecapStore:
         ensemble: Ensemble = "classic",
     ) -> None:
         prefix = f"{self._piece(symbol, day, variant, ensemble)}_{RECAP_REVISION}_"
-        keep_stem = f"{prefix}{keep}"
         for path in list(self.root.iterdir()):
-            if path.stem.startswith(prefix) and path.stem != keep_stem:
+            if not path.stem.startswith(prefix):
+                continue
+            count_text = path.stem[len(prefix) :].split("_", 1)[0]
+            if count_text.isdigit() and int(count_text) != keep:
                 path.unlink(missing_ok=True)
 
-    def _read(self, symbol: str, day: date, variant: Variant, key: str) -> RecapAsset | None:
+    def _read(
+        self,
+        symbol: str,
+        day: date,
+        variant: Variant,
+        key: str,
+        humanize: bool = True,
+        color: bool = True,
+    ) -> RecapAsset | None:
         meta_path = self.root / f"{key}.json"
         if not meta_path.is_file():
             return None
@@ -1404,7 +1495,9 @@ class RecapStore:
         audio_path = self.root / name
         if not name or audio_path.name != name or not audio_path.is_file():
             return None
-        return self._asset(symbol, day, variant, audio_path, payload)
+        if bool(payload.get("humanize", True)) != humanize or bool(payload.get("color", True)) != color:
+            return None
+        return self._asset(symbol, day, variant, audio_path, payload, humanize, color)
 
     def _asset(
         self,
@@ -1413,6 +1506,8 @@ class RecapStore:
         variant: Variant,
         audio_path: Path,
         payload: dict,
+        humanize: bool = True,
+        color: bool = True,
     ) -> RecapAsset:
         peaks = payload.get("peaks") or []
         return RecapAsset(
@@ -1426,6 +1521,8 @@ class RecapStore:
             bar_count=int(payload.get("barCount") or 0),
             media_type=_media_type(audio_path),
             ensemble=payload.get("ensemble") or "classic",
+            humanize=humanize,
+            color=color,
         )
 
 

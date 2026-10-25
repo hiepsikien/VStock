@@ -8,7 +8,14 @@ from pathlib import Path
 
 import pytest
 
-from app.sonify.audio import RECAP_REVISION, SPAN_REVISION, RecapAsset, RecapStore, _STORED_NAME
+from app.sonify.audio import (
+    RECAP_REVISION,
+    SPAN_REVISION,
+    RecapAsset,
+    RecapStore,
+    _STORED_NAME,
+    layer_query,
+)
 from app.sonify.chords import C
 from app.sonify.ensemble import ensemble_for, fit_ensemble, tune_register
 from app.sonify.keys import A_KEY, BB_KEY, C_KEY, compose_register, register_for
@@ -220,6 +227,96 @@ def test_cache_names_keep_the_classic_stem(tmp_path: Path) -> None:
     assert _STORED_NAME.match(f"{wood}.json")
     span = store._span_stem("VNM", "1W", 0, "symphony", 5, "1.0")
     assert f"_symphony_{SPAN_REVISION}_" in span
+    assert not span.endswith("_nh") and not span.endswith("_nc")
     band = store._span_stem("VNM", "1W", 0, "symphony", 5, "1.0", "wood")
     assert f"_symphony_wood_{SPAN_REVISION}_" in band
     assert f"_symphony_{SPAN_REVISION}_" not in band
+    dry = store._span_stem("VNM", "1W", 0, "symphony", 5, "1.0", humanize=False, color=False)
+    assert dry == f"{span}_nh_nc"
+    assert _STORED_NAME.match(f"{classic}_nh.m4a")
+    assert _STORED_NAME.match(f"{classic}_nc.json")
+    assert _STORED_NAME.match(f"{classic}_nh_nc.wav")
+    assert _STORED_NAME.match(f"{wood}_nh_nc.m4a")
+    assert layer_query() == ""
+    assert layer_query(False, True) == "&humanize=0"
+    assert layer_query(True, False) == "&color=0"
+    assert layer_query(False, False) == "&humanize=0&color=0"
+
+
+def test_mix_flags_skip_a_layer_and_keep_the_sibling_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+    import wave
+    from datetime import datetime
+
+    from app.sonify.session import VN
+
+    shaped: list[int] = []
+    tinted: list[str] = []
+
+    def fake_humanize(score):
+        shaped.append(1)
+        return score
+
+    def fake_color(path: Path, variant: str) -> Path:
+        tinted.append(variant)
+        return path
+
+    def export(xml: Path, wav: Path) -> None:
+        assert xml.is_file() and xml.stat().st_size > 50
+        with wave.open(str(wav), "wb") as handle:
+            handle.setnchannels(1)
+            handle.setsampwidth(2)
+            handle.setframerate(8000)
+            handle.writeframes(b"\x00\x00" * 800)
+
+    monkeypatch.setattr("app.sonify.audio.humanize_score", fake_humanize)
+    monkeypatch.setattr("app.sonify.audio._color_for_export", fake_color)
+    closed = datetime(2026, 10, 16, 9, 0, tzinfo=VN)
+    store = RecapStore(tmp_path, exporter=export, clock=lambda: closed)
+    day = date(2026, 10, 14)
+    bars = [Bar(100.0, 1.0, 100.0)]
+
+    bare = store.ensure("FPT", day, "symphony", bars, humanize=False, color=False)
+    assert shaped == []
+    assert tinted == []
+    assert bare.audio_path.stem.endswith(f"_{RECAP_REVISION}_1_nh_nc")
+    assert "humanize=0" in bare.audio_url and "color=0" in bare.audio_url
+    assert _STORED_NAME.match(bare.audio_path.name)
+
+    lifted = store.ensure("VNM", day, "symphony", bars, humanize=False)
+    assert shaped == []
+    assert tinted == ["symphony"]
+    assert lifted.audio_path.stem.endswith(f"_{RECAP_REVISION}_1_nh")
+    assert "humanize=0" in lifted.audio_url
+    assert "color=" not in lifted.audio_url
+
+    full = store.ensure("FPT", day, "symphony", bars)
+    assert shaped == [1]
+    assert full.audio_path.stem.endswith(f"_{RECAP_REVISION}_1")
+    assert "humanize=" not in full.audio_url and "color=" not in full.audio_url
+    assert bare.audio_path.is_file()
+    assert full.audio_path.is_file()
+    assert store.get("FPT", day, "symphony", 1, humanize=False, color=False).audio_path == bare.audio_path
+    assert store.get("FPT", day, "symphony", 1).audio_path == full.audio_path
+
+    dry = store.ensure("HPG", day, "jazz", bars, color=False)
+    assert dry.audio_path.stem.endswith("_nc")
+    assert "color=0" in dry.audio_url
+    assert "humanize=" not in dry.audio_url
+    assert shaped == [1, 1]
+    assert tinted == ["symphony", "symphony"]
+
+    meta = tmp_path / f"{full.audio_path.stem}.json"
+    payload = json.loads(meta.read_text(encoding="utf-8"))
+    del payload["humanize"]
+    del payload["color"]
+    meta.write_text(json.dumps(payload), encoding="utf-8")
+    replayed = store.get("FPT", day, "symphony", 1)
+    assert replayed is not None
+    assert replayed.humanize is True and replayed.color is True
+
+    longer = store.ensure("FPT", day, "symphony", bars + [Bar(101.0, 1.0, 100.0)])
+    assert longer.bar_count == 2
+    assert not full.audio_path.exists()
+    assert not bare.audio_path.exists()
+    assert lifted.audio_path.is_file()
