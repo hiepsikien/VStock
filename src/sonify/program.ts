@@ -1,8 +1,5 @@
 import type { RecapEnsemble, RecapVariant } from '../api/client';
 
-/** Centered title stays up for this long, then docks. The chart matches it. */
-export const TITLE_HOLD_SEC = 2;
-
 export type SpanId = '1D' | '1W' | '1M' | '3M' | '1Y';
 export type Mode = 'major' | 'minor';
 
@@ -38,18 +35,14 @@ export type PieceCopy = {
   movement: string | null;
 };
 
-export type PieceProgram = PieceCopy & { docked: boolean };
+/** `intro` is the opening card. `movement` is the centered chapter line. `playing` is the bottom caption. */
+export type PiecePhase = 'intro' | 'movement' | 'playing';
 
-/** The docked title hides the time label only where the drawn glyphs overlap it. */
-export function titleCoversCursor(
-  docked: boolean,
-  titleWidth: number,
-  labelLeft: number,
-  labelWidth: number,
-  dockLeft: number,
-): boolean {
-  if (!docked || titleWidth <= 0 || labelWidth <= 0) return false;
-  return labelLeft < dockLeft + titleWidth && labelLeft + labelWidth > dockLeft;
+export type PieceProgram = PieceCopy & { phase: PiecePhase };
+
+/** One small line once the music is underway. Instruments stay off this line. */
+export function playingCaption(title: string, movement: string | null): string {
+  return movement ? `${title} / ${movement}` : title;
 }
 
 export type ChartFocus = { start: number; end: number };
@@ -168,11 +161,12 @@ export function chartFocus(input: {
   index: number;
   elapsed: number;
   resting: boolean;
+  /** False while the current movement's audio has not started. The span stays wide. */
+  audible: boolean;
   multi: boolean;
 }): ChartFocus {
   const full = fullFocus(input.total);
-  if (!input.multi || input.resting) return full;
-  if (input.index === 0 && input.elapsed < TITLE_HOLD_SEC) return full;
+  if (!input.multi || input.resting || !input.audible) return full;
   return movementFocus(input.offsets, input.lengths, input.index);
 }
 
@@ -338,7 +332,7 @@ export function pieceCopy(input: PieceInput, movementIndex = 0): PieceCopy {
   const supplied = current?.name?.trim() || null;
   const dance = input.variant === 'guitar' ? supplied : null;
   const form = workForm(input.variant, input.span, dance, count);
-  const when = englishDate(input.date);
+  const when = input.span === '1D' ? englishDate(input.date) : input.span;
   const dated = when ? `${input.symbol} ${when}` : input.symbol;
   const movementName =
     supplied ?? (input.variant === 'guitar' ? null : classicalName(input.variant, input.span, index, month));

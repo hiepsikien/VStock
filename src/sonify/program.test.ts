@@ -6,7 +6,7 @@ import {
   movementPulse,
   pieceCopy,
   pieceKey,
-  titleCoversCursor,
+  playingCaption,
   type MovementInput,
   type PieceInput,
 } from './program';
@@ -66,7 +66,7 @@ equal(
   'Bagatelle VIC 20/1 in E-flat minor',
 );
 
-equal(pieceCopy(piece({ variant: 'symphony', span: '1W' })).title, 'Fantasia VIC 20/1 in E-flat');
+equal(pieceCopy(piece({ variant: 'symphony', span: '1W' })).title, 'Fantasia VIC 1W in E-flat');
 equal(pieceCopy(piece({ variant: 'jazz', span: '1D' })).title, 'Jazz VIC 20/1 in E-flat');
 equal(pieceCopy(piece({ variant: 'minimalist', span: '1D' })).title, 'Etude VIC 20/1 in E-flat');
 equal(pieceCopy(piece({ variant: 'ambient', span: '1D' })).title, 'Prelude VIC 20/1 in E-flat');
@@ -83,7 +83,7 @@ equal(
 );
 equal(
   pieceCopy(piece({ variant: 'symphony', span: '1M', movements: month }), 0).title,
-  'Divertimento VIC 20/1 in E-flat',
+  'Divertimento VIC 1M in E-flat',
 );
 equal(
   pieceCopy(piece({ variant: 'symphony', span: '1M', movements: month }), 1).movement,
@@ -97,7 +97,7 @@ equal(
 );
 equal(
   pieceCopy(piece({ variant: 'symphony', span: '3M', movements: quarter })).title,
-  'Quintet VIC 20/1 in E-flat',
+  'Quintet VIC 3M in E-flat',
 );
 
 const year = [1, 2, 3, 12].map((item) => movement({ label: `${String(item).padStart(2, '0')}/26` }));
@@ -111,7 +111,7 @@ equal(
 );
 equal(
   pieceCopy(piece({ variant: 'symphony', span: '1Y', movements: year })).title,
-  'Serenade VIC 20/1 in E-flat',
+  'Serenade VIC 1Y in E-flat',
 );
 
 equal(
@@ -145,23 +145,23 @@ equal(
 );
 equal(
   pieceCopy(piece({ variant: 'jazz', span: '1M', movements: month })).title,
-  'Set VIC 20/1 in E-flat',
+  'Set VIC 1M in E-flat',
 );
 equal(
   pieceCopy(piece({ variant: 'jazz', span: '1W' })).title,
-  'Jazz VIC 20/1 in E-flat',
+  'Jazz VIC 1W in E-flat',
 );
 equal(
   pieceCopy(piece({ variant: 'minimalist', span: '3M', movements: quarter })).title,
-  'Cycle VIC 20/1 in E-flat',
+  'Cycle VIC 3M in E-flat',
 );
 equal(
   pieceCopy(piece({ variant: 'ambient', span: '1Y', movements: year })).title,
-  'Nocturne VIC 20/1 in E-flat',
+  'Nocturne VIC 1Y in E-flat',
 );
 equal(
   pieceCopy(piece({ variant: 'ambient', span: '1W' })).title,
-  'Prelude VIC 20/1 in E-flat',
+  'Prelude VIC 1W in E-flat',
 );
 equal(
   pieceKey('Mi♭', ['Mi♭ thứ', 'Mi♭']),
@@ -233,7 +233,7 @@ const guitarMonth = pieceCopy(
   }),
   1,
 );
-equal(guitarMonth.title, 'Suite VIC 20/1 in E-flat');
+equal(guitarMonth.title, 'Suite VIC 1M in E-flat');
 equal(guitarMonth.movement, 'Movement 2: Sarabande (72 BPM)');
 equal(
   pieceCopy(
@@ -263,36 +263,23 @@ deepEqual(movementPulse('guitar', 'bach', '1M', 2, null), { bpm: 120, beats: 6, 
 deepEqual(movementPulse('symphony', 'classic', '1D', 0, null), { bpm: 90, beats: 4, beatType: 4 });
 
 const lengths = [4, 3];
-const focus = chartFocus({
-  total: 7,
-  offsets: [0, 4],
-  lengths,
-  index: 0,
-  elapsed: 0.4,
-  resting: false,
-  multi: true,
-});
-deepEqual(focus, { start: 0, end: 6 });
+const waiting = { total: 7, offsets: [0, 4], lengths, elapsed: 0.4, resting: false, audible: false, multi: true };
+deepEqual(chartFocus({ ...waiting, index: 0 }), { start: 0, end: 6 });
+deepEqual(chartFocus({ ...waiting, index: 1 }), { start: 0, end: 6 });
 deepEqual(
-  chartFocus({ total: 7, offsets: [0, 4], lengths, index: 0, elapsed: 3, resting: false, multi: true }),
+  chartFocus({ total: 7, offsets: [0, 4], lengths, index: 0, elapsed: 3, resting: false, audible: true, multi: true }),
   { start: 0, end: 3 },
 );
 deepEqual(
-  chartFocus({ total: 7, offsets: [0, 4], lengths, index: 1, elapsed: 0.2, resting: false, multi: true }),
+  chartFocus({ total: 7, offsets: [0, 4], lengths, index: 1, elapsed: 0.2, resting: false, audible: true, multi: true }),
   { start: 4, end: 6 },
 );
 deepEqual(
-  chartFocus({ total: 7, offsets: [0, 4], lengths, index: 1, elapsed: 1, resting: true, multi: true }),
+  chartFocus({ total: 7, offsets: [0, 4], lengths, index: 1, elapsed: 1, resting: true, audible: true, multi: true }),
   { start: 0, end: 6 },
 );
 
-const dock = 88;
-equal(titleCoversCursor(true, 40, dock + 40, 48, dock), false);
-equal(titleCoversCursor(true, 40, dock + 50, 40, dock), false);
-equal(titleCoversCursor(true, 40, dock + 10, 48, dock), true);
-equal(titleCoversCursor(true, 182, dock + 50, 40, dock), true);
-equal(titleCoversCursor(false, 200, dock, 40, dock), false);
-equal(titleCoversCursor(true, 0, dock, 40, dock), false);
-equal(titleCoversCursor(true, 40, dock, 0, dock), false);
+equal(playingCaption('Suite VIC 1M in E-flat', 'Movement 2 (3/4, 72 BPM)'), 'Suite VIC 1M in E-flat / Movement 2 (3/4, 72 BPM)');
+equal(playingCaption('Bagatelle VIC 20/1 in E-flat', null), 'Bagatelle VIC 20/1 in E-flat');
 
 console.log('program tests passed');

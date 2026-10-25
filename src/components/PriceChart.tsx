@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import {
   LayoutAnimation,
   Platform,
@@ -11,8 +11,8 @@ import {
 } from 'react-native';
 import type { ChartRange } from '../types';
 import { colors, spacing, typography } from '../theme';
-import { titleCoversCursor, type PieceProgram } from '../sonify/program';
-import { PieceTitle, TITLE_DOCK_LEFT } from './PieceTitle';
+import { playingCaption, type PieceProgram } from '../sonify/program';
+import { PieceTitle } from './PieceTitle';
 import { Sparkline } from './Sparkline';
 
 if (
@@ -75,18 +75,6 @@ export function PriceChart({
     const x = ((cursorIndex - visible.start) / span) * chartWidth;
     return Math.min(chartWidth - 58, Math.max(8, x - 22));
   }, [chartWidth, cursorIndex, prices.length, visible.end, visible.start]);
-  const [titleWidth, setTitleWidth] = useState(0);
-  const [labelWidth, setLabelWidth] = useState(0);
-  const onDockWidth = useCallback((width: number) => {
-    setTitleWidth((current) => (current === width ? current : width));
-  }, []);
-  const cursorUnderTitle = titleCoversCursor(
-    !!program?.docked,
-    titleWidth,
-    labelLeft,
-    labelWidth,
-    TITLE_DOCK_LEFT,
-  );
 
   return (
     <View style={styles.wrap}>
@@ -107,29 +95,31 @@ export function PriceChart({
         ) : (
           <Text style={styles.emptyChart}>Chưa có dữ liệu chart</Text>
         )}
-        {program ? (
+        {program && program.phase !== 'playing' ? (
           <PieceTitle
             title={program.title}
             instruments={program.instruments}
             movement={program.movement}
-            docked={program.docked}
-            onDockWidth={onDockWidth}
+            phase={program.phase}
           />
+        ) : null}
+        {program?.phase === 'playing' ? (
+          <View pointerEvents="none" style={styles.nowPlaying}>
+            <Text
+              style={styles.nowPlayingText}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+            >
+              {playingCaption(program.title, program.movement)}
+            </Text>
+          </View>
         ) : null}
         {cursorLabel &&
         cursorIndex != null &&
         cursorIndex >= visible.start - 0.01 &&
         cursorIndex <= visible.end + 0.01 ? (
-          <View
-            pointerEvents="none"
-            accessibilityElementsHidden={cursorUnderTitle}
-            importantForAccessibility={cursorUnderTitle ? 'no-hide-descendants' : 'auto'}
-            onLayout={(event) => {
-              const width = event.nativeEvent.layout.width;
-              setLabelWidth((current) => (current === width ? current : width));
-            }}
-            style={[styles.cursorLabel, { left: labelLeft, opacity: cursorUnderTitle ? 0 : 1 }]}
-          >
+          <View pointerEvents="none" style={[styles.cursorLabel, { left: labelLeft }]}>
             <Text style={styles.cursorLabelText}>{cursorLabel}</Text>
           </View>
         ) : null}
@@ -178,6 +168,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     height: CHART_HEIGHT + 12,
     position: 'relative',
+  },
+  nowPlaying: {
+    position: 'absolute',
+    left: 10,
+    right: 72,
+    bottom: 8,
+  },
+  nowPlayingText: {
+    ...typography.caption,
+    color: colors.text,
   },
   cursorLabel: {
     position: 'absolute',

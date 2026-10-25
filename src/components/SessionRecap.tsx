@@ -24,7 +24,7 @@ import {
 } from '../api/client';
 import { formatPercent } from '../data/stocks';
 import { colors, spacing, typography } from '../theme';
-import { pieceCopy, TITLE_HOLD_SEC, type ChartFocus, type PieceProgram } from '../sonify/program';
+import { pieceCopy, type ChartFocus, type PieceProgram } from '../sonify/program';
 import { MixToggles } from './MixToggles';
 import { ambientDailyCandleIndexAt, playheadHoldsPoll } from '../utils/recapCursor';
 import { isMarketOpen, REFRESH } from '../utils/marketSession';
@@ -399,7 +399,7 @@ export function SessionRecap({ symbol, children }: Props) {
               },
             ],
           }),
-          docked: elapsed >= TITLE_HOLD_SEC,
+          phase: playbackActive || elapsed > 0 ? 'playing' : 'intro',
         }
       : null;
   const view: RecapView = loadError

@@ -18,8 +18,8 @@ import {
   movementOffsets,
   pieceCopy,
   pieceKey,
-  TITLE_HOLD_SEC,
   type ChartFocus,
+  type PiecePhase,
   type PieceProgram,
 } from '../sonify/program';
 import { spanCandleIndexAt } from '../utils/recapCursor';
@@ -72,6 +72,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [cursor, setCursor] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const [audible, setAudible] = useState(false);
   const [asOf, setAsOf] = useState('');
   const [homeKey, setHomeKey] = useState('');
   const [focus, setFocus] = useState<ChartFocus | null>(null);
@@ -100,6 +101,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
     setFinished(false);
     setCursor(null);
     setElapsed(0);
+    setAudible(false);
     setAsOf('');
     setHomeKey('');
     setFocus(null);
@@ -163,6 +165,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
         index,
         elapsed,
         resting: resting || finished,
+        audible,
         multi,
       })
     : null;
@@ -200,6 +203,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
     }
     const wait = current.restAfterSec * 1000;
     if (wait <= 0) {
+      setAudible(false);
       setIndex(next);
       return;
     }
@@ -207,6 +211,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
     restTimer.current = setTimeout(() => {
       restTimer.current = null;
       setResting(false);
+      setAudible(false);
       setIndex(next);
     }, wait);
   }, [current, index, movements, placeCursor]);
@@ -255,12 +260,15 @@ export function SpanRecap({ symbol, range, children }: Props) {
     })();
   }, [colorOn, current?.name, current?.ready, ensemble, humanize, range, symbol, variant]);
 
+  const markAudible = useCallback(() => setAudible(true), []);
+
   const replay = useCallback(() => {
     clearRest();
     setFinished(false);
     setIndex(0);
     setCursor(null);
     setElapsed(0);
+    setAudible(false);
     setError(null);
     setPlayEpoch((epoch) => epoch + 1);
   }, [clearRest]);
@@ -327,7 +335,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
             },
             index,
           ),
-          docked: index > 0 || resting || elapsed >= TITLE_HOLD_SEC,
+          phase: (audible ? 'playing' : index > 0 ? 'movement' : 'intro') as PiecePhase,
         }
       : null;
 
@@ -410,6 +418,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
             onEnded={onEnded}
             onError={failPlayback}
             onLoaded={refreshNames}
+            onAudible={markAudible}
           />
         ) : finished ? (
           <Pressable
@@ -464,12 +473,14 @@ function MovementPlayer({
   onEnded,
   onError,
   onLoaded,
+  onAudible,
 }: {
   movement: SpanMovement;
   onTime: (elapsed: number) => void;
   onEnded: () => void;
   onError: (message: string) => void;
   onLoaded?: () => void;
+  onAudible?: () => void;
 }) {
   const player = useAudioPlayer(absoluteApiUrl(movement.audioUrl), {
     updateInterval: 80,
@@ -497,12 +508,13 @@ function MovementPlayer({
       await setAudioModeAsync({ playsInSilentMode: true });
       if (cancelled || started.current) return;
       started.current = true;
+      onAudible?.();
       player.play();
     })();
     return () => {
       cancelled = true;
     };
-  }, [player, status.error, status.isLoaded]);
+  }, [onAudible, player, status.error, status.isLoaded]);
 
   useEffect(() => {
     if (!status.isLoaded) return;

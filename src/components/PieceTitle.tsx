@@ -1,77 +1,50 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import React, { useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import { colors, typography } from '../theme';
+import type { PiecePhase } from '../sonify/program';
 
 type Props = {
   title: string;
   instruments: string;
   movement: string | null;
-  docked: boolean;
-  /** Laid-out width after the dock scale. Zero while the title is still centered. */
-  onDockWidth?: (width: number) => void;
+  /** `playing` is drawn by the chart caption, not this card. */
+  phase: Exclude<PiecePhase, 'playing'>;
 };
 
-const SCALE = 0.7;
-/** The opening playhead and its time label keep this strip. The title docks beside it. */
-export const TITLE_DOCK_LEFT = 88;
-
-export function PieceTitle({ title, instruments, movement, docked, onDockWidth }: Props) {
-  const progress = useRef(new Animated.Value(docked ? 1 : 0)).current;
-  const [frame, setFrame] = useState({ width: 0, height: 0 });
-  const [box, setBox] = useState({ width: 0, height: 0 });
-
-  useEffect(() => {
-    Animated.timing(progress, {
-      toValue: docked ? 1 : 0,
-      duration: 520,
-      easing: Easing.inOut(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-  }, [docked, progress]);
-
-  useEffect(() => {
-    onDockWidth?.(docked && box.width > 0 ? box.width * SCALE : 0);
-  }, [box.width, docked, onDockWidth]);
-
-  const ready = frame.width > 0 && box.width > 0;
-  const inset = (1 - SCALE) / 2;
-  const centerLeft = Math.max(8, (frame.width - box.width) / 2);
-  const centerTop = Math.max(8, (frame.height - box.height) / 2);
-  const cornerLeft = TITLE_DOCK_LEFT - box.width * inset;
-  const cornerTop = Math.max(4, 8 - box.height * inset);
-  const left = progress.interpolate({ inputRange: [0, 1], outputRange: [centerLeft, cornerLeft] });
-  const top = progress.interpolate({ inputRange: [0, 1], outputRange: [centerTop, cornerTop] });
-  const scale = progress.interpolate({ inputRange: [0, 1], outputRange: [1, SCALE] });
+export function PieceTitle({ title, instruments, movement, phase }: Props) {
+  const [frameWidth, setFrameWidth] = useState(0);
+  const copyWidth = Math.max(0, frameWidth - 32);
 
   return (
     <View
       pointerEvents="none"
       style={styles.frame}
       onLayout={(event) => {
-        const { width, height } = event.nativeEvent.layout;
-        setFrame((current) => (current.width === width && current.height === height ? current : { width, height }));
+        const width = event.nativeEvent.layout.width;
+        setFrameWidth((current) => (current === width ? current : width));
       }}
     >
-      <Animated.View
-        style={[
-          styles.copy,
-          {
-            maxWidth: Math.min(260, Math.max(160, frame.width - 48)),
-            opacity: ready ? 1 : 0,
-            left,
-            top,
-            transform: [{ scale }],
-          },
-        ]}
-        onLayout={(event) => {
-          const { width, height } = event.nativeEvent.layout;
-          setBox((current) => (current.width === width && current.height === height ? current : { width, height }));
-        }}
-      >
-        <Text style={styles.title}>{title}</Text>
-        <Text style={styles.line}>{instruments}</Text>
-        {movement ? <Text style={styles.line}>{movement}</Text> : null}
-      </Animated.View>
+      <View style={[styles.copy, { width: copyWidth }]}>
+        {phase === 'movement' ? (
+          <Text style={styles.movement} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+            {movement}
+          </Text>
+        ) : (
+          <>
+            <Text style={styles.title} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+              {title}
+            </Text>
+            <Text style={styles.line} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+              {instruments}
+            </Text>
+            {movement ? (
+              <Text style={styles.line} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                {movement}
+              </Text>
+            ) : null}
+          </>
+        )}
+      </View>
     </View>
   );
 }
@@ -83,9 +56,10 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
     bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   copy: {
-    position: 'absolute',
     alignItems: 'center',
   },
   title: {
@@ -98,5 +72,10 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     marginTop: 2,
+  },
+  movement: {
+    ...typography.body,
+    color: colors.textSecondary,
+    textAlign: 'center',
   },
 });
