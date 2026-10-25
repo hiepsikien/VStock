@@ -435,9 +435,10 @@ def _render_etude1_bar(
     # Pitch and hairpin both come from the price eighth at the start of the
     # beat. The pluck sits a sixteenth later, inside the next eighth.
     last = len(ctx.melody) - 1
+    # The two sung notes ring: an eighth up to the next one, then through the bar.
     high_at = {
-        7: (sung_beat2, min(start + 2, last)),
-        9: (sung_beat3, min(start + 4, last)),
+        7: (sung_beat2, min(start + 2, last), 0.5),
+        9: (sung_beat3, min(start + 4, last), 1.75),
     }
     lead: list[NoteEvent] = []
     support: list[NoteEvent] = []
@@ -446,9 +447,9 @@ def _render_etude1_bar(
             continue
         beat = index / 4
         if index in high_at:
-            midi, hairpin_eighth = high_at[index]
+            midi, hairpin_eighth, duration = high_at[index]
             lead.append(
-                _placed(bar, beat, midi, 0.25, 1, _etude_hairpin(ctx, phrase, hairpin_eighth))
+                _placed(bar, beat, midi, duration, 1, _etude_hairpin(ctx, phrase, hairpin_eighth))
             )
             continue
         degree = _ETUDE1_MIDDLE.get(index)
@@ -460,7 +461,9 @@ def _render_etude1_bar(
         support.append(
             _placed(bar, beat, tone, 0.25, 2, _ETUDE_MIDDLE + _ETUDE1_ARC[index])
         )
-    sung_velocity = min(_etude_hairpin(ctx, phrase, eighth) for _midi, eighth in high_at.values())
+    sung_velocity = min(
+        _etude_hairpin(ctx, phrase, eighth) for _midi, eighth, _duration in high_at.values()
+    )
     low = [_placed(bar, 0.0, bass, 4.0, 3, max(44, sung_velocity - 4))]
     return lead, support, low
 

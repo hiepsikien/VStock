@@ -3835,8 +3835,18 @@ def test_villa_etude1_and_etude11_follow_the_locked_cells() -> None:
     assert by_beat[0.25] == 52
     assert by_beat[0.75] == 55
     assert by_beat[1.25] == 59
-    assert [round(note.beat, 2) for note in _attacks(etude1.lead, 1)] == [1.75, 2.25]
-    assert {note.midi for note in _attacks(etude1.lead, 1)} == {64}
+    sung_notes = _attacks(etude1.lead, 1)
+    assert [round(note.beat, 2) for note in sung_notes] == [1.75, 2.25]
+    assert {note.midi for note in sung_notes} == {64}
+    assert abs(sung_notes[0].duration_beats - 0.5) < 1e-6
+    # 1.75 beats is a dotted quarter tied to a sixteenth, ringing to the barline.
+    held = [
+        note
+        for note in etude1.lead
+        if note.bar == 1 and note.midi is not None and note.beat >= 2.25 - 1e-6
+    ]
+    assert abs(sum(note.duration_beats for note in held) - 1.75) < 1e-6
+    assert held[0].tie_start and held[-1].tie_stop
     bass = _attacks(etude1.low, 1)
     assert len(bass) == 1 and bass[0].midi == 40 and bass[0].duration_beats == 4.0
     assert not bass[0].accent
@@ -3997,4 +4007,10 @@ def test_villa_etude1_and_etude11_follow_the_locked_cells() -> None:
     assert 0.25 in _onset_beats(etude_breath.support, 1)
     assert not any(note.beat >= 3.0 - 1e-6 for note in _attacks(etude_breath.support, 1))
     assert any(abs(note.duration_beats - 4.0) < 1e-6 for note in _pitched(etude_breath.low, 1))
+    leaving = [
+        note
+        for note in etude_breath.lead
+        if note.bar == 1 and note.midi is not None and note.beat >= 2.25 - 1e-6
+    ]
+    assert abs(sum(note.duration_beats for note in leaving) - 1.75) < 1e-6
 

@@ -36,9 +36,9 @@ Một ô 4/4 là một vòng: bốn phách, mỗi phách bốn móc kép. Ở 10
 | 5 | 1.00 | p | Trung | Mức 1 | 1 móc kép |
 | 6 | 1.25 | m | Trung | Mức 3 | 1 móc kép |
 | 7 | 1.50 | i | Trung | Mức 2 | 1 móc kép |
-| 8 | 1.75 | a | Cao | Nốt giá đang ngân ở phách 2 | 1 móc kép |
+| 8 | 1.75 | a | Cao | Nốt giá đang ngân ở phách 2 | 1 nốt đơn, tới cú 10 |
 | 9 | 2.00 | m | Trung | Mức 3, sát dưới giai điệu | 1 móc kép |
-| 10 | 2.25 | a | Cao | Nốt giá đang ngân ở phách 3 | 1 móc kép |
+| 10 | 2.25 | a | Cao | Nốt giá đang ngân ở phách 3 | 1 nốt đen + 3/4, tới hết ô |
 | 11 | 2.50 | i | Trung | Mức 2 | 1 móc kép |
 | 12 | 2.75 | m | Trung | Mức 3 | 1 móc kép |
 | 13 | 3.00 | p | Trung | Mức 1 | 1 móc kép |
@@ -52,7 +52,7 @@ Thang bè trung là các âm hợp âm thỏa `bass < nốt < giai điệu`, x�
 
 Giá đứng yên thì cú 8 và cú 10 cùng cao độ, đúng bản. Giá đổi thì cú 8 lấy nốt của phách 2, cú 10 lấy nốt của phách 3. Hairpin lấy cùng móc đó (móc đầu phách), không lấy móc đang chứa thời điểm gảy. Lực mở 60, đỉnh 72. Bass dưới hai nốt hát đó. Bè trung có một vòng cung nhỏ trong ô, độc lập với hairpin câu: 50 ở hai đầu, 52 ở hai vai, 54 ở cú 7, cú 9 và cú 11 quanh hai nốt cao. Bài có khung giữ nguyên các số này: `_shape_dynamics` không viết lại ô đã khóa.
 
-Bè trung nghỉ ở cú 1, 8 và 10. Bè cao nghỉ mọi cú còn lại. Khi câu `etude1` sang pattern khác, bốn móc kép cuối ô chỉ còn bass. Tổng thời gian của ô không đổi.
+Bè trung nghỉ ở cú 1, 8 và 10. Bè hát chỉ gảy ở cú 8 và cú 10: cú 8 ngân một nốt đơn tới cú 10, cú 10 ngân tới hết ô. Khi câu `etude1` sang pattern khác, bốn móc kép cuối của bè trung nghỉ; nốt hát thứ hai và bass vẫn ngân hết ô. Tổng thời gian của ô không đổi.
 
 Không tresillo. Không đoạn scale *Étude No. 7*. Không đoạn slur và không họa âm ở cuối bài.
 
