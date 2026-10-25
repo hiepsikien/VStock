@@ -504,13 +504,16 @@ function MovementPlayer({
   useEffect(() => {
     if (started.current || !status.isLoaded || status.error) return;
     let cancelled = false;
+    // The name already on the card needs no extra paint. A name that arrives
+    // from onLoaded must not restart this effect: the next run would see the
+    // name and skip the wait, so the intro card and the playing caption can
+    // land in one paint.
+    const hadName = Boolean(movement.name?.trim());
     void (async () => {
       await setAudioModeAsync({ playsInSilentMode: true });
       if (cancelled || started.current) return;
-      const hadName = Boolean(movement.name?.trim());
       await onLoadedRef.current?.();
       if (cancelled || started.current) return;
-      // Let the card paint the movement name before playback replaces it.
       if (!hadName) {
         await new Promise<void>((resolve) => {
           requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
@@ -524,7 +527,7 @@ function MovementPlayer({
     return () => {
       cancelled = true;
     };
-  }, [movement.name, player, status.error, status.isLoaded]);
+  }, [player, status.error, status.isLoaded]);
 
   useEffect(() => {
     if (!status.isLoaded) return;
