@@ -468,13 +468,19 @@ def _render_etude1_bar(
     return lead, support, low
 
 
+# Extra step on the four inner plucks of each sextuplet, after the arch.
+# Slots 1, 2, 4, 5 are attacks 2, 3, 5, 6.
+_ETUDE11_TILT = {1: -1, 2: -1, 4: 0, 5: 1}
+
+
 def _etude11_middle_vel(hairpin: int, slot: int, band: str) -> int:
-    """Inner sextuplet arch: softer at 1 and 5, loudest at 2, tied to phrase hairpin."""
+    """Inner sextuplet arch, then a one-step rise toward the last pluck."""
     echo = max(44, hairpin - 8)
     ceiling = max(44, echo if band == "f" else echo - 1)
     arch = {1: -10, 2: -6, 4: -7, 5: -10}
     band_nudge = {"p": -2, "mp": -1, "mf": 0, "f": 2}.get(band, 0)
-    return min(ceiling, max(44, hairpin + arch[slot] + band_nudge))
+    shaped = min(ceiling, max(44, hairpin + arch[slot] + band_nudge))
+    return max(44, shaped + _ETUDE11_TILT[slot])
 
 
 def _etude11_ornament(

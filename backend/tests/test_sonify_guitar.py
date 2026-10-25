@@ -3896,7 +3896,7 @@ def test_villa_etude1_and_etude11_follow_the_locked_cells() -> None:
     assert len(group) == 4
     assert {note.midi for note in group} == {57}
     assert all(abs(note.duration_beats * 6 - 1) < 1e-3 for note in group)
-    assert [note.velocity for note in group] == [50, 51, 51, 50]
+    assert [note.velocity for note in group] == [49, 50, 51, 51]
     highs = [note for note in _attacks(fifth.lead, 1) if note.beat < 1.0]
     assert [round(note.beat, 2) for note in highs] == [0.0, 0.5]
     assert highs[0].midi == 64 and highs[0].accent and highs[0].velocity == 60
@@ -3974,7 +3974,7 @@ def test_villa_etude1_and_etude11_follow_the_locked_cells() -> None:
 
     mf_cell = framed_etude11("mf")
     mf_quarter = [note for note in _attacks(mf_cell.support, 1) if note.beat < 1.0]
-    assert [note.velocity for note in mf_quarter] == [50, 51, 51, 50]
+    assert [note.velocity for note in mf_quarter] == [49, 50, 51, 51]
     f_cell = framed_etude11("f")
     f_quarter = [note for note in _attacks(f_cell.support, 1) if note.beat < 1.0]
     assert f_quarter[1].velocity > mf_quarter[1].velocity
