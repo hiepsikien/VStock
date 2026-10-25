@@ -139,6 +139,9 @@ class SpanMovementResponse(BaseModel):
     character: str | None = None
     characterLabel: str = ""
     sessionCharacters: list[str] = []
+    bpm: int = 0
+    beats: int = 4
+    beatType: int = 4
 
 
 class SpanResponse(BaseModel):
@@ -161,6 +164,7 @@ class SpanResponse(BaseModel):
         "bach",
     ] = "classic"
     movements: list[SpanMovementResponse]
+    asOf: str = ""
 
 
 class HealthResponse(BaseModel):

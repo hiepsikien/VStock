@@ -523,6 +523,9 @@ export type SpanMovement = {
   character?: string | null;
   characterLabel?: string;
   sessionCharacters?: string[];
+  bpm?: number;
+  beats?: number;
+  beatType?: number;
 };
 
 export type SpanManifest = {
@@ -531,6 +534,8 @@ export type SpanManifest = {
   variant: RecapVariant;
   ensemble: RecapEnsemble;
   movements: SpanMovement[];
+  /** Last session day covered by the span, `YYYY-MM-DD`. */
+  asOf?: string;
 };
 
 export async function fetchSpan(

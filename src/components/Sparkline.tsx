@@ -22,10 +22,13 @@ type Props = {
   positive?: boolean;
   strokeWidth?: number;
   showFill?: boolean;
-  /** Candle the recap playhead is on. */
+  /** Candle the recap playhead is on, in the same index space as `data`. */
   cursorIndex?: number | null;
   /** Dim the unplayed portion of the chart while preparing or playing audio. */
   dimUnplayed?: boolean;
+  /** Inclusive index window. Omit both to draw the whole series. */
+  focusStart?: number;
+  focusEnd?: number;
 };
 
 export function Sparkline({
@@ -37,23 +40,38 @@ export function Sparkline({
   showFill = false,
   cursorIndex = null,
   dimUnplayed = false,
+  focusStart,
+  focusEnd,
 }: Props) {
   const { line, fill, cursor } = useMemo(() => {
     if (data.length < 2) {
       return { line: '', fill: '', cursor: null as { x: number; y: number } | null };
     }
 
-    const min = Math.min(...data);
-    const max = Math.max(...data);
+    const start = focusStart ?? 0;
+    const end = focusEnd ?? data.length - 1;
+    const span = Math.max(end - start, 1e-6);
+    const i0 = Math.max(0, Math.floor(start));
+    const i1 = Math.min(data.length - 1, Math.ceil(end));
+    let min = data[i0];
+    let max = data[i0];
+    for (let index = i0; index <= i1; index += 1) {
+      const value = data[index];
+      if (value < min) min = value;
+      if (value > max) max = value;
+    }
     const range = max - min || 1;
     const padY = 2;
     const usableH = height - padY * 2;
 
-    const points = data.map((value, index) => {
-      const x = (index / (data.length - 1)) * width;
-      const y = padY + usableH - ((value - min) / range) * usableH;
-      return { x, y };
-    });
+    const points: { x: number; y: number }[] = [];
+    for (let index = i0; index <= i1; index += 1) {
+      const value = data[index];
+      points.push({
+        x: ((index - start) / span) * width,
+        y: padY + usableH - ((value - min) / range) * usableH,
+      });
+    }
 
     const linePath = points
       .map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`)
@@ -63,20 +81,26 @@ export function Sparkline({
     const cursor =
       cursorIndex == null
         ? null
-        : points[Math.min(points.length - 1, Math.max(0, cursorIndex))] ?? null;
+        : {
+            x: ((cursorIndex - start) / span) * width,
+            y:
+              padY +
+              usableH -
+              ((data[Math.min(data.length - 1, Math.max(0, cursorIndex))] - min) / range) * usableH,
+          };
 
     return { line: linePath, fill: fillPath, cursor };
-  }, [cursorIndex, data, width, height]);
+  }, [cursorIndex, data, focusEnd, focusStart, width, height]);
 
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   const stroke = positive ? colors.positive : colors.negative;
   const gradId = `sparkGrad-${uid}`;
   const playedClipId = `sparkPlayed-${uid}`;
   const unplayedClipId = `sparkUnplayed-${uid}`;
-  const splitX = cursor ? cursor.x : 0;
+  const splitX = cursor ? Math.min(width, Math.max(0, cursor.x)) : 0;
 
   return (
-    <View style={{ width, height }}>
+    <View style={{ width, height, overflow: 'hidden' }}>
       <Svg width={width} height={height}>
         <Defs>
           {showFill && (
@@ -157,7 +181,7 @@ export function Sparkline({
           </G>
         )}
 
-        {cursor ? (
+        {cursor && cursor.x >= -2 && cursor.x <= width + 2 ? (
           <>
             <Line
               x1={cursor.x}

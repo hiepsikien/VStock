@@ -12,7 +12,16 @@ import {
   type SpanRange,
 } from '../api/client';
 import { colors, spacing, typography } from '../theme';
-import { listenWindow, spanCandleIndexAt } from '../utils/recapCursor';
+import {
+  chartFocus,
+  lerpFocus,
+  movementOffsets,
+  pieceCopy,
+  TITLE_HOLD_SEC,
+  type ChartFocus,
+  type PieceProgram,
+} from '../sonify/program';
+import { spanCandleIndexAt } from '../utils/recapCursor';
 import type { RecapView } from './SessionRecap';
 
 const VARIANTS: { id: RecapVariant; label: string }[] = [
@@ -43,6 +52,8 @@ const EMPTY_VIEW: RecapView = {
   cursorIndex: null,
   cursorLabel: null,
   dimUnplayed: false,
+  program: null,
+  focus: null,
 };
 
 export function SpanRecap({ symbol, range, children }: Props) {
@@ -56,6 +67,11 @@ export function SpanRecap({ symbol, range, children }: Props) {
   const [finished, setFinished] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cursor, setCursor] = useState<number | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [asOf, setAsOf] = useState('');
+  const [focus, setFocus] = useState<ChartFocus | null>(null);
+  const focusRef = useRef<ChartFocus | null>(null);
+  const zoomFrame = useRef(0);
   const restTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const request = useRef<AbortController | null>(null);
 
@@ -75,6 +91,10 @@ export function SpanRecap({ symbol, range, children }: Props) {
     setIndex(0);
     setFinished(false);
     setCursor(null);
+    setElapsed(0);
+    setAsOf('');
+    setFocus(null);
+    focusRef.current = null;
     setError(null);
     setComposing(false);
   }, [clearRest]);
@@ -99,6 +119,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
           return;
         }
         setMovements(manifest.movements);
+        setAsOf(manifest.asOf ?? '');
         setIndex(0);
         setPlayEpoch((epoch) => epoch + 1);
       } catch (err) {
@@ -115,9 +136,23 @@ export function SpanRecap({ symbol, range, children }: Props) {
   }, [ensemble, range, reset, symbol, variant]);
 
   const current = movements?.[index] ?? null;
-  const upcoming = movements && index + 1 < movements.length ? movements[index + 1] : null;
   const playing = current != null && !finished;
-  const chartWindow = current ? listenWindow(current.prices, upcoming?.prices ?? null) : null;
+  const lengths = movements?.map((item) => item.prices.length) ?? [];
+  const offsets = movementOffsets(lengths);
+  const total = lengths.reduce((sum, length) => sum + length, 0);
+  const multi = (movements?.length ?? 0) > 1;
+  const shown = movements != null && current != null && (playing || resting || finished);
+  const targetFocus = shown
+    ? chartFocus({
+        total,
+        offsets,
+        lengths,
+        index,
+        elapsed,
+        resting: resting || finished,
+        multi,
+      })
+    : null;
 
   const placeCursor = useCallback((elapsed: number, holdAtEnd: boolean) => {
     if (!current) return;
@@ -132,6 +167,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
           current.cooldownSec,
         );
     setCursor(at);
+    setElapsed(elapsed);
   }, [current]);
 
   const onTime = useCallback(
@@ -178,16 +214,77 @@ export function SpanRecap({ symbol, range, children }: Props) {
     setFinished(false);
     setIndex(0);
     setCursor(null);
+    setElapsed(0);
     setError(null);
     setPlayEpoch((epoch) => epoch + 1);
   }, [clearRest]);
 
+  const focusStart = targetFocus?.start ?? null;
+  const focusEnd = targetFocus?.end ?? null;
+  useEffect(() => {
+    cancelAnimationFrame(zoomFrame.current);
+    if (focusStart == null || focusEnd == null) {
+      focusRef.current = null;
+      setFocus(null);
+      return;
+    }
+    const target = { start: focusStart, end: focusEnd };
+    const from = focusRef.current ?? target;
+    if (from.start === target.start && from.end === target.end) {
+      focusRef.current = target;
+      setFocus(target);
+      return;
+    }
+    const started = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - started) / 900);
+      const next = lerpFocus(from, target, t);
+      focusRef.current = next;
+      setFocus(next);
+      if (t < 1) zoomFrame.current = requestAnimationFrame(step);
+    };
+    zoomFrame.current = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(zoomFrame.current);
+  }, [focusEnd, focusStart]);
+
+  const length = Math.max(1, lengths[index] ?? 1);
+  const globalCursor =
+    shown && cursor != null ? (offsets[index] ?? 0) + Math.min(cursor, length - 1) : null;
+  const program: PieceProgram | null =
+    shown && movements && current && !finished
+      ? {
+          ...pieceCopy(
+            {
+              variant,
+              ensemble,
+              symbol,
+              date: asOf,
+              keyLabel: movements[0]?.keyLabel ?? '',
+              span: range,
+              movements: movements.map((item) => ({
+                character: item.character ?? null,
+                keyLabel: item.keyLabel,
+                prices: item.prices,
+                label: item.label,
+                bpm: item.bpm,
+                beats: item.beats,
+                beatType: item.beatType,
+              })),
+            },
+            index,
+          ),
+          docked: index > 0 || resting || elapsed >= TITLE_HOLD_SEC,
+        }
+      : null;
+
   const view: RecapView = {
     ...EMPTY_VIEW,
-    prices: chartWindow?.prices ?? [],
-    cursorIndex: cursor,
-    cursorLabel: current ? current.label : null,
-    dimUnplayed: Boolean(chartWindow) && !finished && (composing || current != null),
+    prices: shown && movements ? movements.flatMap((item) => item.prices) : [],
+    cursorIndex: globalCursor,
+    cursorLabel: shown && current ? current.label : null,
+    dimUnplayed: shown && !finished,
+    program,
+    focus: shown ? (focus ?? targetFocus) : null,
   };
 
   return (

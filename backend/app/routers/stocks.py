@@ -442,13 +442,13 @@ async def get_span(
     if range not in SPAN_RANGES:
         raise HTTPException(status_code=404, detail=f"No sonification for {range}")
     try:
-        movements = await plan_span(sym, range, variant)
+        plan = await plan_span(sym, range, variant)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Span history unavailable: {exc}") from exc
     rows = []
-    for index, movement in enumerate(movements):
+    for index, movement in enumerate(plan.movements):
         cached = ready_movement(sym, range, index, variant, movement, chosen)
         rows.append(
             SpanMovementResponse(
@@ -468,9 +468,19 @@ async def get_span(
                 sessionCharacters=[
                     CHARACTER_LABEL[item] for item in movement.session_characters
                 ],
+                bpm=movement.spec.bpm,
+                beats=movement.spec.meter.beats,
+                beatType=movement.spec.meter.beat_type,
             )
         )
-    return SpanResponse(symbol=sym, range=range, variant=variant, ensemble=chosen, movements=rows)
+    return SpanResponse(
+        symbol=sym,
+        range=range,
+        variant=variant,
+        ensemble=chosen,
+        movements=rows,
+        asOf=plan.as_of.isoformat(),
+    )
 
 
 @router.get("/stocks/{symbol}/span/audio.m4a")
