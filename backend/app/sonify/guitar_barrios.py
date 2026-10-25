@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from dataclasses import replace
 import itertools
-import math
 
 from app.sonify.chords import Chord
 from app.sonify.model import NoteEvent, Phrase, Score
-from app.sonify.phrasing import MIN_RISE, swell
 
 # Default velocity constants evaluated at function definition time
 _MELODY = 64
@@ -601,21 +599,6 @@ def _apply_perpetual(ctx: _Ctx, lead, support, low, bars: list[int]) -> tuple[li
             for offset, pitch in enumerate(pitches):
                 lead.extend(_spell16(origin + offset, 1, pitch, ctx.epb, 1, _MELODY))
     return lead, support, low
-
-
-
-def _tremolo_boost(ctx: _Ctx, bar: int) -> int:
-    """Later bars of a rising tremolo breathe. The first bar stays locked."""
-    phrase = _phrase_at(ctx, bar * ctx.epb)
-    if phrase is None or not _rises(phrase) or phrase.end - phrase.start < ctx.epb * 2:
-        return 0
-    if bar <= phrase.start // ctx.epb:
-        return 0
-    eighth = min(phrase.end - 1, bar * ctx.epb + ctx.epb // 2)
-    amount = swell(phrase, eighth)
-    if amount < 0.5:
-        return 0
-    return 4 if amount >= 0.85 else 2
 
 
 

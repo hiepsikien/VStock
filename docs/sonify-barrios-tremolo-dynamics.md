@@ -1,8 +1,6 @@
 # Kế hoạch dynamics cho tremolo và intro của Barrios
 
-> **Trạng thái**: chưa sửa code. Tài liệu này ghi điều nghe được trên Barrios MWG 1M chương I, và cách sửa.
->
-> Nghe lại sau khi sửa cần bump `RECAP_REVISION` và `SPAN_REVISION` trong `backend/app/sonify/audio.py`. PR này chỉ là kế hoạch.
+> **Trạng thái**: đã render. Vòm tremolo và contour intro Barrios nằm trong code. `RECAP_REVISION` là 61, `SPAN_REVISION` là 47.
 
 Hai chỗ phẳng:
 

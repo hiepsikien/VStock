@@ -340,17 +340,39 @@ def _barrios_intro_short(ctx, bar: int, role: int) -> list[tuple]:
     """Harmonic bells, then the tonic bass wakes under a rising arpeggio."""
     if role == 0:
         return _bells(ctx, bar, _PP)
-    return _rising_over_bass(ctx, bar, "I", _P)
+    return _rising_over_bass(ctx, bar, "I", _P, contour=True)
 
 
 def _barrios_intro_long(ctx, bar: int, role: int, index: int) -> list[tuple]:
     if role == 0:
         return _bells(ctx, bar, _PP)
     if role == 1:
-        return _cantabile(ctx, bar, _P, index)
+        return _cantabile(ctx, bar, _P, index, contour=True)
     if role == 2:
-        return _rising_over_bass(ctx, bar, "ii", _P)
-    return _settled(ctx, bar, "I", _MP)
+        return _rising_over_bass(ctx, bar, "ii", _P, contour=True)
+    return _barrios_intro_cadence(ctx, bar)
+
+
+def _barrios_intro_cadence(ctx, bar: int) -> list[tuple]:
+    """Yield into the body. Velocities are written here, not in `_scale_into`."""
+    epb = ctx.epb
+    bass, _inner, lead = _stack(ctx, _function(ctx, bar, "I"))
+    cut = max(1, epb // 2)
+    rest = epb - cut
+    specs = [
+        (0, cut, bass, 3, 52, {}),
+        (cut, rest, bass, 3, 46, {}),
+    ]
+    opening = {1: (54,), 2: (54, 50), 3: (54, 56, 50), 4: (54, 56, 54, 50)}.get(cut)
+    if opening is None:
+        opening = tuple(_span(54, 50, cut))
+    for offset, level in enumerate(opening):
+        specs.append((offset, 1, lead, 1, level, {}))
+    scaled = _scale_into(ctx, bar, cut, rest, 48)
+    for spec, level in zip(scaled, _span(48, 60, len(scaled))):
+        offset, length, midi, voice, _old, flags = spec
+        specs.append((offset, length, midi, voice, level, flags))
+    return _clip_voice(specs, epb)
 
 
 def _barrios_outro_short(ctx, bar: int, role: int) -> list[tuple]:
@@ -1485,16 +1507,29 @@ def _compact(ctx, bar: int, name: str, velocity: int) -> list[tuple]:
     return specs
 
 
+_BELL_CONTOUR = {1: (44,), 2: (44, 50), 3: (44, 50, 46), 4: (44, 48, 52, 46)}
+
+
+def _span(start: int, end: int, count: int) -> list[int]:
+    """Even steps from `start` to `end`, inclusive, one value per note."""
+    if count <= 1:
+        return [start]
+    return [round(start + (end - start) * index / (count - 1)) for index in range(count)]
+
+
 def _bells(ctx, bar: int, velocity: int) -> list[tuple]:
+    del velocity  # The contour is by note index. Cursor % 3 was always 0 on 4/4.
     pcs = _function(ctx, bar, "I+")
     notes = _bell_pitches(ctx, pcs, 3)
     if not notes:
         notes = [_lead_hi(ctx)]
     lengths = _lengths(ctx.epb, len(notes))
+    levels = _BELL_CONTOUR.get(len(notes), _BELL_CONTOUR[4])
     specs = []
     cursor = 0
-    for pitch, length in zip(notes, lengths):
-        specs.append((cursor, length, pitch, 1, min(_P, velocity + (cursor % 3) * 2), {}))
+    for index, (pitch, length) in enumerate(zip(notes, lengths)):
+        level = levels[index] if index < len(levels) else levels[-1]
+        specs.append((cursor, length, pitch, 1, level, {}))
         cursor += length
     return specs
 
@@ -1559,17 +1594,30 @@ def _between(ctx, pcs: list[int], bass: int, lead: int) -> int | None:
     return None
 
 
-def _rising_over_bass(ctx, bar: int, name: str, velocity: int) -> list[tuple]:
+def _rising_over_bass(ctx, bar: int, name: str, velocity: int, *, contour: bool = False) -> list[tuple]:
     epb = ctx.epb
     pcs = _function(ctx, bar, name)
     bass, _inner, lead = _stack(ctx, pcs)
     line = _rising(ctx, pcs, epb, lead)
-    specs = [(0, epb, bass, 3, velocity, {})]
+    if not contour:
+        specs = [(0, epb, bass, 3, velocity, {})]
+        for offset, pitch in enumerate(line):
+            specs.append((offset, 1, pitch, 1, min(_MF, velocity + offset), {}))
+        inner = _between(ctx, pcs, bass, min(line) if line else lead)
+        if inner is not None and epb > 2:
+            specs.append((1, 1, inner, 2, velocity, {}))
+        return _clip_voice(specs, epb)
+    quarters = max(1, epb // 2)
+    step = max(1, epb // quarters)
+    specs = []
+    for index, level in enumerate(_span(44, 50, quarters)):
+        start = index * step
+        specs.append((start, min(step, epb - start), bass, 3, level, {}))
     for offset, pitch in enumerate(line):
-        specs.append((offset, 1, pitch, 1, min(_MF, velocity + offset), {}))
+        specs.append((offset, 1, pitch, 1, min(64, _span(46, 60, epb)[offset]), {}))
     inner = _between(ctx, pcs, bass, min(line) if line else lead)
     if inner is not None and epb > 2:
-        specs.append((1, 1, inner, 2, velocity, {}))
+        specs.append((1, 1, inner, 2, 46, {}))
     return _clip_voice(specs, epb)
 
 
@@ -1589,22 +1637,45 @@ def _rising(ctx, pcs: list[int], count: int, fallback: int) -> list[int]:
     return line
 
 
-def _cantabile(ctx, bar: int, velocity: int, index: int) -> list[tuple]:
+def _cantabile(ctx, bar: int, velocity: int, index: int, *, contour: bool = False) -> list[tuple]:
     """A slow inner line over a held tonic bass."""
     epb = ctx.epb
     pcs = _function(ctx, bar, "I")
     bass, inner, lead = _stack(ctx, pcs, high=True)
-    specs = [(0, epb, bass, 3, velocity, {}), (0, epb, lead, 1, velocity, {})]
+    cut = max(1, epb // 2)
+    if contour:
+        # Split the held notes. One attack cannot change velocity mid-note.
+        # Inner levels sit between the bass and lead of their own half.
+        specs = [
+            (0, cut, bass, 3, 46, {}),
+            (cut, epb - cut, bass, 3, 52, {}),
+            (0, cut, lead, 1, 54, {}),
+            (cut, epb - cut, lead, 1, 60, {}),
+        ]
+        # Two notes inside each half, so a note never crosses the split.
+        lengths = []
+        levels: list[int] = []
+        for span, pair in ((cut, (48, 50)), (epb - cut, (54, 56))):
+            if span <= 0:
+                continue
+            part = _lengths(span, min(2, span))
+            lengths.extend(part)
+            levels.extend(pair[: len(part)])
+        inner_levels = tuple(levels)
+    else:
+        specs = [(0, epb, bass, 3, velocity, {}), (0, epb, lead, 1, velocity, {})]
+        inner_levels = None
+        lengths = _lengths(epb, min(4, epb))
     if inner is None:
-        return specs
+        return _clip_voice(specs, epb)
     cursor = inner
-    lengths = _lengths(epb, min(4, epb))
     start = 0
-    for length in lengths:
+    for note_index, length in enumerate(lengths):
         pitch = cursor
         if not (bass < pitch < lead and _mid_lo(ctx) <= pitch <= _mid_hi(ctx)):
             pitch = inner
-        specs.append((start, length, pitch, 2, velocity, {}))
+        level = velocity if inner_levels is None else inner_levels[min(note_index, len(inner_levels) - 1)]
+        specs.append((start, length, pitch, 2, level, {}))
         cursor = _step(pitch, 1 if index % 2 == 0 else -1, ctx.mode, _mid_lo(ctx), _mid_hi(ctx))
         if not bass < cursor < lead:
             cursor = inner
