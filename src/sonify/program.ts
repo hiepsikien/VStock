@@ -35,8 +35,8 @@ export type PieceCopy = {
   movement: string | null;
 };
 
-/** `intro` is the opening card. `movement` is the centered chapter line. `playing` is the bottom caption. */
-export type PiecePhase = 'intro' | 'movement' | 'playing';
+/** `intro` is the centered card. `playing` is the bottom caption. */
+export type PiecePhase = 'intro' | 'playing';
 
 export type PieceProgram = PieceCopy & { phase: PiecePhase };
 
@@ -337,10 +337,13 @@ export function pieceCopy(input: PieceInput, movementIndex = 0): PieceCopy {
   const movementName =
     supplied ?? (input.variant === 'guitar' ? null : classicalName(input.variant, input.span, index, month));
   const key = englishKey(input.keyLabel);
+  // A guitar dance arrives with the audio file. Until then the card keeps the
+  // work title and the instruments, and the same rule applies to every movement.
+  const movementReady = count > 1 && (input.variant !== 'guitar' || !!supplied);
   return {
     title: form ? `${form} ${dated} in ${key}` : `${dated} in ${key}`,
     instruments: instrumentLine(input.variant, input.ensemble),
-    movement: count > 1 ? movementLine(index, movementName, pulseValue) : null,
+    movement: movementReady ? movementLine(index, movementName, pulseValue) : null,
   };
 }
 

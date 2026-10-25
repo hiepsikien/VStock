@@ -1,17 +1,13 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { colors, typography } from '../theme';
-import type { PiecePhase } from '../sonify/program';
-
 type Props = {
   title: string;
   instruments: string;
   movement: string | null;
-  /** `playing` is drawn by the chart caption, not this card. */
-  phase: Exclude<PiecePhase, 'playing'>;
 };
 
-export function PieceTitle({ title, instruments, movement, phase }: Props) {
+export function PieceTitle({ title, instruments, movement }: Props) {
   const [frameWidth, setFrameWidth] = useState(0);
   const copyWidth = Math.max(0, frameWidth - 32);
 
@@ -25,25 +21,17 @@ export function PieceTitle({ title, instruments, movement, phase }: Props) {
       }}
     >
       <View style={[styles.copy, { width: copyWidth }]}>
-        {phase === 'movement' ? (
-          <Text style={styles.movement} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+        <Text style={styles.title} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+          {title}
+        </Text>
+        <Text style={styles.line} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+          {instruments}
+        </Text>
+        {movement ? (
+          <Text style={styles.line} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
             {movement}
           </Text>
-        ) : (
-          <>
-            <Text style={styles.title} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
-              {title}
-            </Text>
-            <Text style={styles.line} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-              {instruments}
-            </Text>
-            {movement ? (
-              <Text style={styles.line} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-                {movement}
-              </Text>
-            ) : null}
-          </>
-        )}
+        ) : null}
       </View>
     </View>
   );
@@ -72,10 +60,5 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     marginTop: 2,
-  },
-  movement: {
-    ...typography.body,
-    color: colors.textSecondary,
-    textAlign: 'center',
   },
 });

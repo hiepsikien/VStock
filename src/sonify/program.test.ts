@@ -234,7 +234,15 @@ const guitarMonth = pieceCopy(
   1,
 );
 equal(guitarMonth.title, 'Suite VIC 1M in E-flat');
+equal(guitarMonth.instruments, 'Guitar (Solo)');
 equal(guitarMonth.movement, 'Movement 2: Sarabande (72 BPM)');
+const guitarBeforeName = pieceCopy(
+  piece({ variant: 'guitar', ensemble: 'bach', span: '1M', movements: month }),
+  0,
+);
+equal(guitarBeforeName.title, 'Suite VIC 1M in E-flat');
+equal(guitarBeforeName.instruments, 'Guitar (Solo)');
+equal(guitarBeforeName.movement, null);
 equal(
   pieceCopy(
     piece({

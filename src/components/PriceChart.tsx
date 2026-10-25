@@ -100,7 +100,6 @@ export function PriceChart({
             title={program.title}
             instruments={program.instruments}
             movement={program.movement}
-            phase={program.phase}
           />
         ) : null}
         {program?.phase === 'playing' ? (

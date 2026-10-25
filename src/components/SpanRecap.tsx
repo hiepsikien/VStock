@@ -19,7 +19,6 @@ import {
   pieceCopy,
   pieceKey,
   type ChartFocus,
-  type PiecePhase,
   type PieceProgram,
 } from '../sonify/program';
 import { spanCandleIndexAt } from '../utils/recapCursor';
@@ -204,6 +203,8 @@ export function SpanRecap({ symbol, range, children }: Props) {
     const wait = current.restAfterSec * 1000;
     if (wait <= 0) {
       setAudible(false);
+      setCursor(0);
+      setElapsed(0);
       setIndex(next);
       return;
     }
@@ -212,6 +213,8 @@ export function SpanRecap({ symbol, range, children }: Props) {
       restTimer.current = null;
       setResting(false);
       setAudible(false);
+      setCursor(0);
+      setElapsed(0);
       setIndex(next);
     }, wait);
   }, [current, index, movements, placeCursor]);
@@ -227,16 +230,16 @@ export function SpanRecap({ symbol, range, children }: Props) {
     [clearRest],
   );
 
-  const refreshNames = useCallback(() => {
-    if (variant !== 'guitar') return;
+  const refreshNames = useCallback((): Promise<void> => {
+    if (variant !== 'guitar') return Promise.resolve();
     // A file already on disk reported its dance on the manifest. An empty name
     // there stays empty; only a render that just finished can add one.
-    if (current?.name?.trim() || current?.ready) return;
+    if (current?.name?.trim() || current?.ready) return Promise.resolve();
     if (!namesRequest.current || namesRequest.current.signal.aborted) {
       namesRequest.current = new AbortController();
     }
     const signal = namesRequest.current.signal;
-    void (async () => {
+    return (async () => {
       try {
         const manifest = await fetchSpan(symbol, range, variant, ensemble, signal, {
           humanize,
@@ -335,7 +338,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
             },
             index,
           ),
-          phase: (audible ? 'playing' : index > 0 ? 'movement' : 'intro') as PiecePhase,
+          phase: audible ? 'playing' : 'intro',
         }
       : null;
 
@@ -479,7 +482,7 @@ function MovementPlayer({
   onTime: (elapsed: number) => void;
   onEnded: () => void;
   onError: (message: string) => void;
-  onLoaded?: () => void;
+  onLoaded?: () => void | Promise<void>;
   onAudible?: () => void;
 }) {
   const player = useAudioPlayer(absoluteApiUrl(movement.audioUrl), {
@@ -489,17 +492,14 @@ function MovementPlayer({
   const status = useAudioPlayerStatus(player);
   const started = useRef(false);
   const finished = useRef(false);
-  const reported = useRef(false);
+  const onLoadedRef = useRef(onLoaded);
+  const onAudibleRef = useRef(onAudible);
+  onLoadedRef.current = onLoaded;
+  onAudibleRef.current = onAudible;
 
   useEffect(() => {
     if (status.error) onError('Máy chủ chưa soạn được nhạc.');
   }, [onError, status.error]);
-
-  useEffect(() => {
-    if (reported.current || !status.isLoaded || status.error) return;
-    reported.current = true;
-    onLoaded?.();
-  }, [onLoaded, status.error, status.isLoaded]);
 
   useEffect(() => {
     if (started.current || !status.isLoaded || status.error) return;
@@ -507,14 +507,24 @@ function MovementPlayer({
     void (async () => {
       await setAudioModeAsync({ playsInSilentMode: true });
       if (cancelled || started.current) return;
+      const hadName = Boolean(movement.name?.trim());
+      await onLoadedRef.current?.();
+      if (cancelled || started.current) return;
+      // Let the card paint the movement name before playback replaces it.
+      if (!hadName) {
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        });
+      }
+      if (cancelled || started.current) return;
       started.current = true;
-      onAudible?.();
+      onAudibleRef.current?.();
       player.play();
     })();
     return () => {
       cancelled = true;
     };
-  }, [onAudible, player, status.error, status.isLoaded]);
+  }, [movement.name, player, status.error, status.isLoaded]);
 
   useEffect(() => {
     if (!status.isLoaded) return;
