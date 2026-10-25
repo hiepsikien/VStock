@@ -5,6 +5,7 @@ import {
   instrumentLine,
   movementPulse,
   pieceCopy,
+  pieceKey,
   type MovementInput,
   type PieceInput,
 } from './program';
@@ -137,52 +138,124 @@ equal(
   pieceCopy(piece({ variant: 'ambient', span: '3M', movements: quarter }), 2).movement,
   'Movement 3: Finale (108 BPM)',
 );
+equal(
+  pieceCopy(piece({ variant: 'minimalist', span: '3M', movements: quarter }), 2).movement,
+  'Movement 3 (7/8, 108 BPM)',
+);
+equal(
+  pieceCopy(piece({ variant: 'jazz', span: '1M', movements: month })).title,
+  'Set VIC 20/1 in E-flat',
+);
+equal(
+  pieceCopy(piece({ variant: 'jazz', span: '1W' })).title,
+  'Jazz VIC 20/1 in E-flat',
+);
+equal(
+  pieceCopy(piece({ variant: 'minimalist', span: '3M', movements: quarter })).title,
+  'Cycle VIC 20/1 in E-flat',
+);
+equal(
+  pieceCopy(piece({ variant: 'ambient', span: '1Y', movements: year })).title,
+  'Nocturne VIC 20/1 in E-flat',
+);
+equal(
+  pieceCopy(piece({ variant: 'ambient', span: '1W' })).title,
+  'Prelude VIC 20/1 in E-flat',
+);
+equal(
+  pieceKey('Mi♭', ['Mi♭ thứ', 'Mi♭']),
+  'Mi♭',
+);
+equal(
+  pieceKey('', ['Mi♭ thứ', 'Mi♭']),
+  'Mi♭',
+);
+equal(
+  pieceKey(undefined, ['Mi♭ thứ', 'Rê thứ']),
+  'Mi♭ thứ',
+);
 
 equal(instrumentLine('guitar', 'bach'), 'Guitar (Solo)');
 equal(
-  pieceCopy(piece({ variant: 'guitar', ensemble: 'bach', span: '1D', movements: [movement({ character: 'calm' })] })).title,
-  'Gavotte VIC 20/1 in E-flat',
-);
-equal(
-  pieceCopy(piece({ variant: 'guitar', ensemble: 'bach', span: '1D', movements: [movement({ character: 'volatile' })] })).title,
-  'Fugue VIC 20/1 in E-flat',
-);
-equal(
-  pieceCopy(piece({ variant: 'guitar', ensemble: 'bach', span: '1D', movements: [movement({ character: 'selloff' })] })).title,
-  'Chaconne VIC 20/1 in E-flat',
-);
-equal(
-  pieceCopy(piece({ variant: 'guitar', ensemble: 'bach', span: '1D', movements: [movement({ character: 'rally' })] })).title,
-  'Bourree VIC 20/1 in E-flat',
-);
-
-const wide = movement({ character: 'rally', prices: [100, 102], keyLabel: 'Mi♭' });
-equal(
-  pieceCopy(piece({ variant: 'guitar', ensemble: 'classic', span: '1D', movements: [wide] })).title,
-  'Galop VIC 20/1 in E-flat',
+  pieceCopy(
+    piece({
+      variant: 'guitar',
+      ensemble: 'barrios',
+      span: '1D',
+      movements: [movement({ character: 'volatile', name: 'Tremolo' })],
+    }),
+  ).title,
+  'Tremolo VIC 20/1 in E-flat',
 );
 equal(
   pieceCopy(
     piece({
       variant: 'guitar',
-      ensemble: 'classic',
+      ensemble: 'barrios',
       span: '1D',
-      keyLabel: 'Mi♭ thứ',
-      movements: [movement({ character: 'rally', prices: [100, 102] })],
+      movements: [movement({ character: 'volatile' })],
     }),
   ).title,
-  'Etude VIC 20/1 in E-flat minor',
+  'Etude VIC 20/1 in E-flat',
+);
+equal(
+  pieceCopy(
+    piece({
+      variant: 'guitar',
+      ensemble: 'villa',
+      span: '1D',
+      movements: [movement({ character: 'calm', name: 'Chord Melody' })],
+    }),
+  ).title,
+  'Chord Melody VIC 20/1 in E-flat',
+);
+equal(
+  pieceCopy(
+    piece({
+      variant: 'guitar',
+      ensemble: 'bach',
+      span: '1D',
+      movements: [movement({ character: 'selloff', name: 'Sarabande' })],
+    }),
+  ).title,
+  'Sarabande VIC 20/1 in E-flat',
 );
 
 const guitarMonth = pieceCopy(
-  piece({ variant: 'guitar', ensemble: 'bach', span: '1M', movements: month }),
+  piece({
+    variant: 'guitar',
+    ensemble: 'bach',
+    span: '1M',
+    movements: month.map((item, itemIndex) =>
+      itemIndex === 1 ? { ...item, name: 'Sarabande' } : itemIndex === 2 ? { ...item, name: 'Gigue' } : item,
+    ),
+  }),
   1,
 );
 equal(guitarMonth.title, 'Suite VIC 20/1 in E-flat');
 equal(guitarMonth.movement, 'Movement 2: Sarabande (72 BPM)');
 equal(
-  pieceCopy(piece({ variant: 'guitar', ensemble: 'bach', span: '1M', movements: month }), 2).movement,
+  pieceCopy(
+    piece({
+      variant: 'guitar',
+      ensemble: 'bach',
+      span: '1M',
+      movements: month.map((item, itemIndex) => (itemIndex === 2 ? { ...item, name: 'Gigue' } : item)),
+    }),
+    2,
+  ).movement,
   'Movement 3: Gigue (120 BPM)',
+);
+equal(
+  pieceCopy(
+    piece({
+      variant: 'minimalist',
+      span: '3M',
+      movements: quarter.map((item, itemIndex) => (itemIndex === 2 ? { ...item, name: 'Finale', beats: 7, beatType: 8, bpm: 108 } : item)),
+    }),
+    2,
+  ).movement,
+  'Movement 3 (7/8, 108 BPM)',
 );
 
 deepEqual(movementPulse('guitar', 'bach', '1M', 2, null), { bpm: 120, beats: 6, beatType: 8 });

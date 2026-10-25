@@ -39,7 +39,8 @@ from app.services.spans import (
 )
 from app.sonify.audio import RecapCancelled, RecapUnavailable
 from app.sonify.ensemble import Ensemble, ensemble_for
-from app.sonify.keys import CHARACTER_LABEL, key_label
+from app.sonify.keys import CHARACTER_LABEL, key_label, work_key_label
+from app.sonify.program import span_movement_names
 from app.sonify.model import Variant
 
 logger = logging.getLogger(__name__)
@@ -427,6 +428,7 @@ async def get_recap(
         character=asset.character,
         characterLabel=CHARACTER_LABEL.get(asset.character or "", ""),
         keyLabel=asset.key_label,
+        movementName=asset.movement_name,
     )
 
 
@@ -447,6 +449,13 @@ async def get_span(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Span history unavailable: {exc}") from exc
+    names = await asyncio.to_thread(
+        span_movement_names,
+        plan.movements,
+        variant=variant,
+        ensemble=chosen,
+        span=range,
+    )
     rows = []
     for index, movement in enumerate(plan.movements):
         cached = ready_movement(sym, range, index, variant, movement, chosen)
@@ -471,6 +480,7 @@ async def get_span(
                 bpm=movement.spec.bpm,
                 beats=movement.spec.meter.beats,
                 beatType=movement.spec.meter.beat_type,
+                name=names[index] if index < len(names) else "",
             )
         )
     return SpanResponse(
@@ -480,6 +490,7 @@ async def get_span(
         ensemble=chosen,
         movements=rows,
         asOf=plan.as_of.isoformat(),
+        keyLabel=work_key_label(sym, [movement.mode for movement in plan.movements]),
     )
 
 

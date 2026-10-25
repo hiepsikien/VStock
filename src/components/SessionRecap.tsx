@@ -357,6 +357,7 @@ export function SessionRecap({ symbol, children }: Props) {
                 keyLabel: manifest.keyLabel ?? '',
                 prices: series.prices,
                 label: '',
+                name: manifest.movementName,
               },
             ],
           }),

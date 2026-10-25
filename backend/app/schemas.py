@@ -122,6 +122,7 @@ class RecapResponse(BaseModel):
     character: str | None = None
     characterLabel: str = ""
     keyLabel: str = ""
+    movementName: str = ""
 
 
 class SpanMovementResponse(BaseModel):
@@ -142,6 +143,7 @@ class SpanMovementResponse(BaseModel):
     bpm: int = 0
     beats: int = 4
     beatType: int = 4
+    name: str = ""
 
 
 class SpanResponse(BaseModel):
@@ -165,6 +167,7 @@ class SpanResponse(BaseModel):
     ] = "classic"
     movements: list[SpanMovementResponse]
     asOf: str = ""
+    keyLabel: str = ""
 
 
 class HealthResponse(BaseModel):

@@ -864,6 +864,57 @@ def quarter_parts(stamped: list[tuple[date, Bar]]) -> list[list[Bar]]:
     return parts
 
 
+def movement_title(
+    variant: str,
+    span: str,
+    index: int,
+    spec: FormSpec,
+    month: int | None = None,
+) -> str | None:
+    """Chart name of one movement. None keeps the meter on the line.
+
+    Finale is a 4/4 close. A 7/8 closer is not a finale, so the line can still say 7/8.
+    Guitar dances are named by the pattern picker, not by this table.
+    """
+    if variant == "guitar" or span in ("1D", "1W"):
+        return None
+    finale = spec.meter.beats == 4 and spec.meter.beat_type == 4 and _closing_slot(span, index, month)
+    if finale:
+        return "Finale"
+    if variant == "minimalist":
+        return None
+    if span == "1Y":
+        slot = ((month or (index + 1)) - 1) % 3
+        if variant == "jazz":
+            return ("Swing", "Ballad", "Waltz")[slot]
+        if variant == "ambient":
+            return ("Allegretto", "Adagio", "Minuet")[slot]
+        return ("Allegretto", "Siciliana", "Minuet")[slot]
+    if span == "1M":
+        if variant == "jazz":
+            return ("Swing", "Ballad", "Waltz", "Finale")[min(index, 3)]
+        if variant == "ambient":
+            return ("Allegretto", "Adagio", "Minuet", "Finale")[min(index, 3)]
+        return ("Allegretto", "Siciliana", "Minuet", "Finale")[min(index, 3)]
+    if span == "3M":
+        if variant == "jazz":
+            return ("Swing", "Ballad", "Finale")[min(index, 2)]
+        if variant == "ambient":
+            return ("Allegretto", "Adagio", "Finale")[min(index, 2)]
+        return ("Allegretto", "Adagio", "Finale")[min(index, 2)]
+    return None
+
+
+def _closing_slot(span: str, index: int, month: int | None) -> bool:
+    if span == "1Y":
+        return month == 12
+    if span == "1M":
+        return index == 3
+    if span == "3M":
+        return index == 2
+    return False
+
+
 def year_groups(stamped: list[tuple[date, Bar]]) -> list[tuple[date, list[Bar]]]:
     """Chronological calendar months, keeping the latest twelve in the series."""
     groups: list[tuple[date, list[Bar]]] = []
@@ -875,6 +926,23 @@ def year_groups(stamped: list[tuple[date, Bar]]) -> list[tuple[date, list[Bar]]]
             key = stamp
         groups[-1][1].append(bar)
     return groups[-12:]
+
+
+def year_as_of(stamped: list[tuple[date, Bar]]) -> date:
+    """Last candle day that is actually played.
+
+    `prepare_year` drops a month under 30 candles. Early in a new month the
+    newest stamp is that thin month, and the piece stopped on the month before.
+    """
+    played = [(day, bars) for day, bars in year_groups(stamped) if len(bars) >= MIN_YEAR_CANDLES]
+    if not played:
+        raise ValueError("a year needs one month with enough candles")
+    last_month = played[-1][0]
+    last = last_month
+    for day, _bar in stamped:
+        if (day.year, day.month) == (last_month.year, last_month.month):
+            last = day
+    return last
 
 
 def _edges(parts: list[list[Bar]]):

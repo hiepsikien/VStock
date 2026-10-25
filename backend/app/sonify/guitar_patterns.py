@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import itertools
 import math
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 
 from app.sonify.chords import C, Chord
@@ -108,6 +109,12 @@ _PROFILE = {
 
 class Unplayable(ValueError):
     """A guitar score breaks a register, string, or profile rule."""
+
+
+# Set by the chart namer. The renderer appends the body pattern it actually chose.
+_HEADLINE: ContextVar[list[str] | None] = ContextVar("vstock_guitar_headline", default=None)
+# The namer skips the voice grid. Playback leaves this false.
+_SKIP_VOICES: ContextVar[bool] = ContextVar("vstock_guitar_skip_voices", default=False)
 
 
 @dataclass
@@ -2041,6 +2048,38 @@ def _toward_next(ctx: _Ctx, bar: int, origin: int, eighth: int) -> int | None:
     return None
 
 
+def headline_id(ctx: _Ctx, patterns: list[str]) -> str:
+    """The pattern a movement is named for: the main body, not its contrast."""
+    fallback = {"classic": "study", "villa": "villa_pattern", "brouwer": "brouwer_etude", "bach": "bach_bourree"}.get(
+        ctx.ensemble, "preludio"
+    )
+    if not patterns:
+        return fallback
+    if _has_contrast_section(ctx):
+        for index, pattern in enumerate(patterns):
+            if pattern == "pedal" or index >= len(ctx.phrases):
+                continue
+            bar = min(ctx.bars - 1, ctx.phrases[index].start // max(ctx.epb, 1))
+            section = ctx.section(bar)
+            if section is not None and (section.trio or section.bridge):
+                continue
+            return pattern
+    counts: dict[str, int] = {}
+    first: str | None = None
+    for bar in range(ctx.bars):
+        if ctx.kind_at.get(bar, "phrase") in _PEDAL:
+            continue
+        name = _bar_pattern(ctx, bar, patterns)
+        if name == "pedal":
+            continue
+        if first is None:
+            first = name
+        counts[name] = counts.get(name, 0) + 1
+    if not counts:
+        return first or fallback
+    return max(counts, key=lambda name: (counts[name], name == first))
+
+
 def render_patterned_voices(
     *,
     melody: list[int],
@@ -2098,6 +2137,11 @@ def render_patterned_voices(
         bar_beats=meter.quarter_beats,
     )
     patterns = _patterns(ctx) if phrases else []
+    headline = _HEADLINE.get()
+    if headline is not None:
+        headline.append(headline_id(ctx, patterns))
+    if _SKIP_VOICES.get():
+        return [], [], [], 2
     _fit_elegiaque_melody(ctx, patterns)
     levels = _grand_levels(ctx, patterns)
     plans, perpetual = _allocate_overlays(ctx, patterns, levels)

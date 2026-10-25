@@ -12,7 +12,7 @@ import {
 import type { ChartRange } from '../types';
 import { colors, spacing, typography } from '../theme';
 import type { PieceProgram } from '../sonify/program';
-import { PieceTitle } from './PieceTitle';
+import { PieceTitle, TITLE_DOCK_LEFT } from './PieceTitle';
 import { Sparkline } from './Sparkline';
 
 if (
@@ -75,6 +75,9 @@ export function PriceChart({
     const x = ((cursorIndex - visible.start) / span) * chartWidth;
     return Math.min(chartWidth - 58, Math.max(8, x - 22));
   }, [chartWidth, cursorIndex, prices.length, visible.end, visible.start]);
+  const titleSpan = Math.min(260, Math.max(160, chartWidth - 48)) * 0.7;
+  const cursorUnderTitle =
+    !!program?.docked && labelLeft + 48 > TITLE_DOCK_LEFT && labelLeft < TITLE_DOCK_LEFT + titleSpan;
 
   return (
     <View style={styles.wrap}>
@@ -103,7 +106,11 @@ export function PriceChart({
             docked={program.docked}
           />
         ) : null}
-        {cursorLabel && cursorIndex != null && cursorIndex >= visible.start - 0.01 && cursorIndex <= visible.end + 0.01 ? (
+        {cursorLabel &&
+        !cursorUnderTitle &&
+        cursorIndex != null &&
+        cursorIndex >= visible.start - 0.01 &&
+        cursorIndex <= visible.end + 0.01 ? (
           <View pointerEvents="none" style={[styles.cursorLabel, { left: labelLeft }]}>
             <Text style={styles.cursorLabelText}>{cursorLabel}</Text>
           </View>

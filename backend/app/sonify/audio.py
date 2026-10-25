@@ -101,6 +101,7 @@ class RecapAsset:
     ensemble: Ensemble = "classic"
     character: str | None = None
     key_label: str = ""
+    movement_name: str = ""
 
     @property
     def audio_url(self) -> str:

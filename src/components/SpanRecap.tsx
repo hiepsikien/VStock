@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
@@ -17,6 +17,7 @@ import {
   lerpFocus,
   movementOffsets,
   pieceCopy,
+  pieceKey,
   TITLE_HOLD_SEC,
   type ChartFocus,
   type PieceProgram,
@@ -69,6 +70,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
   const [cursor, setCursor] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [asOf, setAsOf] = useState('');
+  const [homeKey, setHomeKey] = useState('');
   const [focus, setFocus] = useState<ChartFocus | null>(null);
   const focusRef = useRef<ChartFocus | null>(null);
   const zoomFrame = useRef(0);
@@ -93,6 +95,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
     setCursor(null);
     setElapsed(0);
     setAsOf('');
+    setHomeKey('');
     setFocus(null);
     focusRef.current = null;
     setError(null);
@@ -120,6 +123,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
         }
         setMovements(manifest.movements);
         setAsOf(manifest.asOf ?? '');
+        setHomeKey(manifest.keyLabel ?? '');
         setIndex(0);
         setPlayEpoch((epoch) => epoch + 1);
       } catch (err) {
@@ -250,6 +254,10 @@ export function SpanRecap({ symbol, range, children }: Props) {
   const length = Math.max(1, lengths[index] ?? 1);
   const globalCursor =
     shown && cursor != null ? (offsets[index] ?? 0) + Math.min(cursor, length - 1) : null;
+  const prices = useMemo(
+    () => (shown && movements ? movements.flatMap((item) => item.prices) : []),
+    [movements, shown],
+  );
   const program: PieceProgram | null =
     shown && movements && current && !finished
       ? {
@@ -259,7 +267,10 @@ export function SpanRecap({ symbol, range, children }: Props) {
               ensemble,
               symbol,
               date: asOf,
-              keyLabel: movements[0]?.keyLabel ?? '',
+              keyLabel: pieceKey(
+                homeKey,
+                movements.map((item) => item.keyLabel),
+              ),
               span: range,
               movements: movements.map((item) => ({
                 character: item.character ?? null,
@@ -269,6 +280,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
                 bpm: item.bpm,
                 beats: item.beats,
                 beatType: item.beatType,
+                name: item.name,
               })),
             },
             index,
@@ -279,7 +291,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
 
   const view: RecapView = {
     ...EMPTY_VIEW,
-    prices: shown && movements ? movements.flatMap((item) => item.prices) : [],
+    prices,
     cursorIndex: globalCursor,
     cursorLabel: shown && current ? current.label : null,
     dimUnplayed: shown && !finished,

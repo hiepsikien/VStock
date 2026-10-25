@@ -10,6 +10,8 @@ type Props = {
 };
 
 const SCALE = 0.7;
+/** The opening playhead and its time label keep this strip. The title docks beside it. */
+export const TITLE_DOCK_LEFT = 88;
 
 export function PieceTitle({ title, instruments, movement, docked }: Props) {
   const progress = useRef(new Animated.Value(docked ? 1 : 0)).current;
@@ -29,7 +31,7 @@ export function PieceTitle({ title, instruments, movement, docked }: Props) {
   const inset = (1 - SCALE) / 2;
   const centerLeft = Math.max(8, (frame.width - box.width) / 2);
   const centerTop = Math.max(8, (frame.height - box.height) / 2);
-  const cornerLeft = 12 - box.width * inset;
+  const cornerLeft = TITLE_DOCK_LEFT - box.width * inset;
   const cornerTop = Math.max(4, 8 - box.height * inset);
   const left = progress.interpolate({ inputRange: [0, 1], outputRange: [centerLeft, cornerLeft] });
   const top = progress.interpolate({ inputRange: [0, 1], outputRange: [centerTop, cornerTop] });

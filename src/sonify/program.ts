@@ -4,7 +4,6 @@ import type { RecapEnsemble, RecapVariant } from '../api/client';
 export const TITLE_HOLD_SEC = 2;
 
 export type SpanId = '1D' | '1W' | '1M' | '3M' | '1Y';
-export type Character = 'rally' | 'selloff' | 'volatile' | 'calm';
 export type Mode = 'major' | 'minor';
 
 export type Pulse = { bpm: number; beats: number; beatType: number };
@@ -17,6 +16,8 @@ export type MovementInput = {
   bpm?: number;
   beats?: number;
   beatType?: number;
+  /** Dance or tempo the server composed. Empty means the client has no dance name. */
+  name?: string | null;
 };
 
 export type PieceInput = {
@@ -89,11 +90,6 @@ const TONIC: Record<string, string> = {
   La: 'A',
 };
 
-export function characterOf(value: string | null | undefined): Character | null {
-  if (value === 'rally' || value === 'selloff' || value === 'volatile' || value === 'calm') return value;
-  return null;
-}
-
 export function modeOf(keyLabel: string): Mode {
   return keyLabel.includes('thứ') ? 'minor' : 'major';
 }
@@ -105,22 +101,24 @@ export function englishKey(keyLabel: string): string {
   return minor ? `${name} minor` : name;
 }
 
+/**
+ * Work key. A span sends the ticker's home key, minor only when every movement is minor.
+ * Without that field, a selloff opening must not pull the whole piece into minor.
+ */
+export function pieceKey(home: string | null | undefined, movementKeys: string[]): string {
+  const given = home?.trim() ?? '';
+  if (given) return given;
+  const labels = movementKeys.map((label) => label.trim()).filter((label) => label.length > 0);
+  if (!labels.length) return '';
+  if (labels.every((label) => label.includes('thứ'))) return labels[0];
+  return labels[0].replace(/thứ/g, '').replace(/\s+/g, ' ').trim();
+}
+
 /** `2026-01-20` → `20/1`. Anything else yields an empty string. */
 export function englishDate(iso: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   if (!match) return '';
   return `${Number(match[3])}/${Number(match[2])}`;
-}
-
-export function relativeSpan(prices: number[]): number {
-  if (prices.length < 2) return 0;
-  let low = prices[0];
-  let high = prices[0];
-  for (const price of prices) {
-    if (price < low) low = price;
-    if (price > high) high = price;
-  }
-  return (high - low) / Math.max(Math.abs(low), 1e-9);
 }
 
 /** Year labels are `03/26`. Other spans use roman or weekday text. */
@@ -262,93 +260,14 @@ function meterLabel(pulseValue: Pulse): string {
   return `${pulseValue.beats}/${pulseValue.beatType}`;
 }
 
-function isTriple(pulseValue: Pulse): boolean {
-  return pulseValue.beats === 3 && pulseValue.beatType === 4;
-}
-
-function isSixEight(pulseValue: Pulse): boolean {
-  return pulseValue.beats === 6 && pulseValue.beatType === 8;
-}
-
-function bachName(pulseValue: Pulse, character: Character | null, relSpan: number): string {
-  if (isTriple(pulseValue) || pulseValue.bpm <= 72) {
-    if (character === 'selloff' && relSpan >= 0.016) return 'Chaconne';
-    return 'Sarabande';
-  }
-  if (character === 'volatile') return 'Fugue';
-  if (character === 'selloff') return 'Chaconne';
-  if (isSixEight(pulseValue)) return 'Gigue';
-  if (character === 'calm') return 'Gavotte';
-  return 'Bourree';
-}
-
-function sorName(pulseValue: Pulse, character: Character | null, relSpan: number, mode: Mode): string {
-  if (character === 'selloff' || pulseValue.bpm <= 72) return 'Elegy';
-  if (character === 'calm') return 'Cantabile';
-  if (character === 'volatile') return 'Variations';
-  if (character === 'rally' && relSpan >= 0.012 && mode === 'major') return 'Galop';
-  return 'Etude';
-}
-
-function brouwerName(pulseValue: Pulse, character: Character | null): string {
-  if (character === 'calm') return 'Ballade';
-  if (character === 'selloff' || pulseValue.bpm <= 72) return 'Sarabande';
-  if (character === 'volatile') return 'Dance';
-  return 'Etude';
-}
-
-function villaName(pulseValue: Pulse, character: Character | null): string {
-  if (character === 'selloff' || character === 'calm' || pulseValue.bpm <= 72) return 'Prelude';
-  return 'Etude';
-}
-
-function barriosName(
-  span: SpanId,
-  pulseValue: Pulse,
-  character: Character | null,
-  relSpan: number,
-  finale: boolean,
-): string {
-  if (pulseValue.bpm < 90) return 'Andante';
-  if (isTriple(pulseValue)) return 'Waltz';
-  if (span !== '1D' && pulseValue.beats === 4 && pulseValue.bpm >= 90 && pulseValue.bpm <= 100) {
-    if (finale || character === 'selloff' || character === 'volatile') return 'Tremolo';
-    return 'Prelude';
-  }
-  if (character === 'calm') return 'Prelude';
-  if (isSixEight(pulseValue) && pulseValue.bpm > 100) return 'Polka';
-  if (span === '1D') {
-    if (character === 'volatile') return 'Choro';
-    if ((character === 'rally' || character === 'selloff') && relSpan >= 0.014) return 'Tremolo';
-    return 'Prelude';
-  }
-  if (pulseValue.bpm > 100 && (character === 'rally' || character === 'volatile') && pulseValue.beats === 4) {
-    return 'Choro';
-  }
-  return 'Prelude';
-}
-
-function guitarDance(
-  ensemble: RecapEnsemble,
-  span: SpanId,
-  pulseValue: Pulse,
-  character: Character | null,
-  relSpan: number,
-  mode: Mode,
-  finale: boolean,
-): string {
-  if (ensemble === 'bach') return bachName(pulseValue, character, relSpan);
-  if (ensemble === 'villa') return villaName(pulseValue, character);
-  if (ensemble === 'barrios') return barriosName(span, pulseValue, character, relSpan, finale);
-  if (ensemble === 'brouwer') return brouwerName(pulseValue, character);
-  return sorName(pulseValue, character, relSpan, mode);
+function isCommonTime(pulseValue: Pulse): boolean {
+  return pulseValue.beats === 4 && pulseValue.beatType === 4;
 }
 
 function classicalName(variant: RecapVariant, span: SpanId, index: number, month: number | null): string | null {
   if (variant === 'minimalist') {
     if (span === '1Y' && month === 12) return 'Finale';
     if (span === '1M' && index === 3) return 'Finale';
-    if (span === '3M' && index === 2) return 'Finale';
     return null;
   }
   if (span === '1Y') {
@@ -374,9 +293,9 @@ function classicalName(variant: RecapVariant, span: SpanId, index: number, month
 
 function workForm(variant: RecapVariant, span: SpanId, dance: string | null, count: number): string {
   if (variant === 'guitar') return count > 1 ? 'Suite' : (dance ?? 'Etude');
-  if (variant === 'jazz') return span === '1D' || span === '1W' ? 'Jazz' : 'Suite';
-  if (variant === 'minimalist') return span === '1D' || span === '1W' ? 'Etude' : 'Suite';
-  if (variant === 'ambient') return span === '1D' || span === '1W' ? 'Prelude' : 'Suite';
+  if (variant === 'jazz') return span === '1D' || span === '1W' ? 'Jazz' : 'Set';
+  if (variant === 'minimalist') return span === '1D' || span === '1W' ? 'Etude' : 'Cycle';
+  if (variant === 'ambient') return span === '1D' || span === '1W' ? 'Prelude' : 'Nocturne';
   if (span === '1D') return 'Bagatelle';
   if (span === '1W') return 'Fantasia';
   if (span === '1M') return 'Divertimento';
@@ -386,15 +305,9 @@ function workForm(variant: RecapVariant, span: SpanId, dance: string | null, cou
 
 function movementLine(index: number, name: string | null, pulseValue: Pulse): string {
   const number = index + 1;
-  if (name === 'Finale') return `Movement ${number}: Finale (${pulseValue.bpm} BPM)`;
-  if (name) return `Movement ${number}: ${name} (${pulseValue.bpm} BPM)`;
+  if (name === 'Finale' && isCommonTime(pulseValue)) return `Movement ${number}: Finale (${pulseValue.bpm} BPM)`;
+  if (name && name !== 'Finale') return `Movement ${number}: ${name} (${pulseValue.bpm} BPM)`;
   return `Movement ${number} (${meterLabel(pulseValue)}, ${pulseValue.bpm} BPM)`;
-}
-
-function isFinale(span: SpanId, index: number, count: number, month: number | null): boolean {
-  if (count < 2) return false;
-  if (span === '1Y') return month === 12;
-  return index === count - 1;
 }
 
 export function instrumentLine(variant: RecapVariant, ensemble: RecapEnsemble): string {
@@ -410,26 +323,13 @@ export function pieceCopy(input: PieceInput, movementIndex = 0): PieceCopy {
   const pulseValue = current
     ? resolvePulse(current, input.variant, input.ensemble, input.span, index, month)
     : movementPulse(input.variant, input.ensemble, input.span, index, month);
-  const character = characterOf(current?.character);
-  const relSpan = relativeSpan(current?.prices ?? []);
-  const mode = modeOf(input.keyLabel);
-  const dance =
-    input.variant === 'guitar'
-      ? guitarDance(
-          input.ensemble,
-          input.span,
-          pulseValue,
-          character,
-          relSpan,
-          mode,
-          isFinale(input.span, index, count, month),
-        )
-      : null;
+  const supplied = current?.name?.trim() || null;
+  const dance = input.variant === 'guitar' ? supplied : null;
   const form = workForm(input.variant, input.span, dance, count);
   const when = englishDate(input.date);
   const dated = when ? `${input.symbol} ${when}` : input.symbol;
   const movementName =
-    input.variant === 'guitar' ? dance : classicalName(input.variant, input.span, index, month);
+    supplied ?? (input.variant === 'guitar' ? null : classicalName(input.variant, input.span, index, month));
   return {
     title: `${form} ${dated} in ${englishKey(input.keyLabel)}`,
     instruments: instrumentLine(input.variant, input.ensemble),

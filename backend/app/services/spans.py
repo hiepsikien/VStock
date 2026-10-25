@@ -28,6 +28,7 @@ from app.sonify.span import (
     prepare_quarter,
     prepare_week,
     prepare_year,
+    year_as_of,
 )
 
 SPAN_RANGES = ("1W", "1M", "3M", "1Y")
@@ -113,7 +114,7 @@ async def plan_span(symbol: str, span: str, variant: Variant = "symphony") -> Sp
     if span == "1Y":
         payload = await fetch_ohlc(symbol, YEAR_LOOKBACK_DAYS, "30")
         stamped = coarse_bars(samples_from_ohlc(payload))
-        return SpanPlan(prepare_year(stamped, symbol, variant=variant), stamped[-1][0])
+        return SpanPlan(prepare_year(stamped, symbol, variant=variant), year_as_of(stamped))
     raise ValueError(f"unsupported span: {span}")
 
 

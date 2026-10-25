@@ -218,6 +218,14 @@ def key_label(key: KeySpec, mode: Mode = "major") -> str:
     return key.label
 
 
+def work_key_label(symbol: str, modes: Sequence[Mode]) -> str:
+    """Home key of the ticker. Minor only when every movement stays in minor."""
+    home = stock_home_key(symbol)
+    if modes and all(mode == "minor" for mode in modes):
+        return key_label(home, "minor")
+    return key_label(home, "major")
+
+
 def spelling_key(key: KeySpec, mode: Mode) -> KeySpec:
     if mode == "major":
         return key
