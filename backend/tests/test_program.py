@@ -61,14 +61,20 @@ def test_barrios_day_names_the_pattern_the_writer_picks():
     assert guitar_movement_name(running, ensemble="barrios", character="volatile") == "Choro"
 
 
-def test_villa_slow_and_six_eight_are_not_prelude_and_etude():
+def test_villa_slow_and_six_eight_keep_their_body_and_show_the_contrast():
     slow = month_specs("guitar")[1]
     scherzo = month_specs("guitar")[2]
     assert (slow.meter.beats, slow.meter.beat_type, slow.bpm) == (3, 4, 72)
     assert (scherzo.meter.beats, scherzo.meter.beat_type, scherzo.bpm) == (6, 8, 120)
     flat = _bars([100.0] * 80)
-    assert guitar_movement_name(flat, ensemble="villa", character="calm", form=slow, framed=False) == "Chord Melody"
-    assert guitar_movement_name(flat, ensemble="villa", character="rally", form=scherzo, framed=False) == "Arpeggio"
+    assert (
+        guitar_movement_name(flat, ensemble="villa", character="calm", form=slow, framed=False)
+        == "Chord Melody — Prelude — Chord Melody"
+    )
+    assert (
+        guitar_movement_name(flat, ensemble="villa", character="rally", form=scherzo, framed=False)
+        == "Arpeggio — Prelude — Arpeggio"
+    )
 
 
 def test_bach_slow_selloff_with_a_contrast_stays_sarabande():
@@ -76,7 +82,7 @@ def test_bach_slow_selloff_with_a_contrast_stays_sarabande():
     wide = _bars([100 - index * 0.2 for index in range(80)])
     assert (
         guitar_movement_name(wide, ensemble="bach", character="selloff", form=slow, mode="minor", framed=False)
-        == "Sarabande"
+        == "Sarabande — Chaconne — Sarabande"
     )
 
 
@@ -174,3 +180,21 @@ def test_headline_matches_a_full_render():
     written = _pattern_id(bars, skip=False, ensemble="barrios", character="volatile")
     assert skipped == written == "tremolo"
     assert pattern_title(written, "barrios") == "Tremolo"
+
+
+def test_contrast_form_matches_a_full_render():
+    from app.sonify.audio import _compose
+
+    slow = month_specs("guitar")[1]
+    wide = _bars([100 - index * 0.2 for index in range(80)])
+    skipped = guitar_movement_name(wide, ensemble="bach", character="selloff", form=slow, mode="minor", framed=False)
+    _score, written = _compose(
+        "guitar",
+        "bach",
+        wide,
+        character="selloff",
+        form=slow,
+        mode="minor",
+        framed=False,
+    )
+    assert skipped == written == "Sarabande — Chaconne — Sarabande"

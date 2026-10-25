@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.sonify.guitar_patterns import _HEADLINE, _SKIP_VOICES
+from app.sonify.guitar_patterns import _FORM, _HEADLINE, _SKIP_VOICES
 from app.sonify.keys import KeySpec, MovementCharacter
 from app.sonify.model import Bar
 from app.sonify.render import render
@@ -47,6 +47,23 @@ def pattern_title(pattern: str, ensemble: str) -> str:
     return _PATTERN_TITLE.get(pattern, "")
 
 
+def pattern_form(ids: list[str], ensemble: str) -> str:
+    """One friendly name, or `Prelude — Sarabande — Prelude` when the contrast differs."""
+    names = [title for pattern in ids if (title := pattern_title(pattern, ensemble))]
+    if len(names) >= 3 and names[0] == names[2] and names[1] != names[0]:
+        return f"{names[0]} — {names[1]} — {names[2]}"
+    return names[0] if names else ""
+
+
+def _written_dance(found: list[str], forms: list[list[str]], ensemble: str) -> str:
+    titled = pattern_form(forms[0], ensemble) if forms else ""
+    if titled:
+        return titled
+    if found:
+        return pattern_title(found[0], ensemble)
+    return ""
+
+
 def guitar_movement_name(
     bars: list[Bar],
     *,
@@ -64,7 +81,9 @@ def guitar_movement_name(
 ) -> str:
     """The dance `render` will write. Tests use this; a request must not."""
     found: list[str] = []
+    forms: list[list[str]] = []
     token_headline = _HEADLINE.set(found)
+    token_form = _FORM.set(forms)
     token_skip = _SKIP_VOICES.set(True)
     try:
         render(
@@ -84,10 +103,9 @@ def guitar_movement_name(
         )
     finally:
         _HEADLINE.reset(token_headline)
+        _FORM.reset(token_form)
         _SKIP_VOICES.reset(token_skip)
-    if not found:
-        return ""
-    return pattern_title(found[0], ensemble)
+    return _written_dance(found, forms, ensemble)
 
 
 def _label_month(label: str) -> int | None:

@@ -40,10 +40,38 @@ export type PiecePhase = 'intro' | 'playing';
 
 export type PieceProgram = PieceCopy & { phase: PiecePhase };
 
-/** One small line once the music is underway. Instruments stay off this line. */
-export function playingCaption(title: string, movement: string | null): string {
-  return movement ? `${title} / ${movement}` : title;
+/** Title, then the movement line, once the music is underway. Instruments stay off. */
+export function playingLines(title: string, movement: string | null): string[] {
+  return movement ? [title, movement] : [title];
 }
+
+/** Friendly pattern names. A movement title in this set is the pattern, so it is not prefixed. */
+const PATTERN_NAMES = new Set([
+  'Etude',
+  'Galop',
+  'Variations',
+  'Elegy',
+  'Cantabile',
+  'Arpeggio',
+  'Etude 1',
+  'Etude 11',
+  'Chord Melody',
+  'Prelude',
+  'Tremolo',
+  'Andante',
+  'Choro',
+  'Polka',
+  'Hemiola',
+  'Waltz',
+  'Ballade',
+  'Dance',
+  'Sarabande',
+  'Fugue',
+  'Bourree',
+  'Gavotte',
+  'Gigue',
+  'Chaconne',
+]);
 
 export type ChartFocus = { start: number; end: number };
 
@@ -309,11 +337,34 @@ function workForm(variant: RecapVariant, span: SpanId, dance: string | null, cou
   return 'Serenade';
 }
 
-function movementLine(index: number, name: string | null, pulseValue: Pulse): string {
-  const number = index + 1;
-  if (name === 'Finale' && isCommonTime(pulseValue)) return `Movement ${number}: Finale (${pulseValue.bpm} BPM)`;
-  if (name && name !== 'Finale') return `Movement ${number}: ${name} (${pulseValue.bpm} BPM)`;
-  return `Movement ${number} (${meterLabel(pulseValue)}, ${pulseValue.bpm} BPM)`;
+function isPatternForm(label: string): boolean {
+  const parts = label
+    .split(' — ')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  return parts.length > 0 && parts.every((part) => PATTERN_NAMES.has(part));
+}
+
+function isClosingFinale(span: SpanId, index: number, month: number | null, pulseValue: Pulse): boolean {
+  if (!isCommonTime(pulseValue)) return false;
+  if (span === '1M') return index === 3;
+  if (span === '3M') return index === 2;
+  if (span === '1Y') return month === 12;
+  return false;
+}
+
+/**
+ * Meter, one pattern or the whole A–B–A, and a prefix such as Finale only when
+ * that word is not itself a pattern.
+ */
+function formatMovement(role: string | null, pattern: string | null, pulseValue: Pulse): string {
+  const meter = `(${meterLabel(pulseValue)}, ${pulseValue.bpm} BPM)`;
+  const prefix = role && !isPatternForm(role) ? role : null;
+  const body = pattern && isPatternForm(pattern) ? pattern : role && isPatternForm(role) ? role : null;
+  if (prefix && body) return `${prefix}: ${body} ${meter}`;
+  if (body) return `${body} ${meter}`;
+  if (prefix) return `${prefix} ${meter}`;
+  return meter;
 }
 
 export function instrumentLine(variant: RecapVariant, ensemble: RecapEnsemble): string {
@@ -334,8 +385,17 @@ export function pieceCopy(input: PieceInput, movementIndex = 0): PieceCopy {
   const form = workForm(input.variant, input.span, dance, count);
   const when = input.span === '1D' ? englishDate(input.date) : input.span;
   const dated = when ? `${input.symbol} ${when}` : input.symbol;
-  const movementName =
-    supplied ?? (input.variant === 'guitar' ? null : classicalName(input.variant, input.span, index, month));
+  const classical = input.variant === 'guitar' ? null : classicalName(input.variant, input.span, index, month);
+  let role = supplied ?? classical;
+  let pattern: string | null = null;
+  if (input.variant === 'guitar') {
+    pattern = supplied && isPatternForm(supplied) ? supplied : null;
+    role = isClosingFinale(input.span, index, month, pulseValue) ? 'Finale' : null;
+  } else if (role && isPatternForm(role)) {
+    pattern = role;
+    role = null;
+  }
+  if (role === 'Finale' && !isCommonTime(pulseValue)) role = null;
   const key = englishKey(input.keyLabel);
   // A guitar dance arrives with the audio file. Until then the card keeps the
   // work title and the instruments, and the same rule applies to every movement.
@@ -343,7 +403,7 @@ export function pieceCopy(input: PieceInput, movementIndex = 0): PieceCopy {
   return {
     title: form ? `${form} ${dated} in ${key}` : `${dated} in ${key}`,
     instruments: instrumentLine(input.variant, input.ensemble),
-    movement: movementReady ? movementLine(index, movementName, pulseValue) : null,
+    movement: movementReady ? formatMovement(role, pattern, pulseValue) : null,
   };
 }
 

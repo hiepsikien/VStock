@@ -113,6 +113,8 @@ class Unplayable(ValueError):
 
 # Set by the chart namer. The renderer appends the body pattern it actually chose.
 _HEADLINE: ContextVar[list[str] | None] = ContextVar("vstock_guitar_headline", default=None)
+# One id, or primary / contrast / primary when a trio or bridge uses another pattern.
+_FORM: ContextVar[list[list[str]] | None] = ContextVar("vstock_guitar_form", default=None)
 # The namer skips the voice grid. Playback leaves this false.
 _SKIP_VOICES: ContextVar[bool] = ContextVar("vstock_guitar_skip_voices", default=False)
 
@@ -2084,6 +2086,35 @@ def _toward_next(ctx: _Ctx, bar: int, origin: int, eighth: int) -> int | None:
     return None
 
 
+def contrast_id(ctx: _Ctx, patterns: list[str]) -> str:
+    """The pattern written in the trio or bridge. Empty when that section is absent."""
+    for index, pattern in enumerate(patterns):
+        if pattern == "pedal" or index >= len(ctx.phrases):
+            continue
+        bar = min(ctx.bars - 1, ctx.phrases[index].start // max(ctx.epb, 1))
+        section = ctx.section(bar)
+        if section is None or getattr(section, "kind", None) in _PEDAL:
+            continue
+        if getattr(section, "trio", False) or getattr(section, "bridge", False):
+            return pattern
+    return ""
+
+
+def form_pattern_ids(ctx: _Ctx, patterns: list[str]) -> list[str]:
+    """One written pattern, or primary, contrast, primary when the contrast differs."""
+    if not patterns:
+        return []
+    primary = headline_id(ctx, patterns)
+    if not primary or primary == "pedal":
+        return []
+    if not _has_contrast_section(ctx):
+        return [primary]
+    contrast = contrast_id(ctx, patterns)
+    if not contrast or contrast == primary or contrast == "pedal":
+        return [primary]
+    return [primary, contrast, primary]
+
+
 def headline_id(ctx: _Ctx, patterns: list[str]) -> str:
     """The pattern a movement is named for: the main body, not its contrast."""
     fallback = {"classic": "study", "villa": "villa_pattern", "brouwer": "brouwer_etude", "bach": "bach_bourree"}.get(
@@ -2176,6 +2207,9 @@ def render_patterned_voices(
     headline = _HEADLINE.get()
     if headline is not None:
         headline.append(headline_id(ctx, patterns))
+    form = _FORM.get()
+    if form is not None:
+        form.append(form_pattern_ids(ctx, patterns))
     if _SKIP_VOICES.get():
         return [], [], [], 2
     _fit_elegiaque_melody(ctx, patterns)

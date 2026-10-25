@@ -6,7 +6,7 @@ import {
   movementPulse,
   pieceCopy,
   pieceKey,
-  playingCaption,
+  playingLines,
   type MovementInput,
   type PieceInput,
 } from './program';
@@ -79,7 +79,7 @@ const month = [
 ];
 equal(
   pieceCopy(piece({ variant: 'symphony', span: '1M', movements: month }), 2).movement,
-  'Movement 3: Minuet (120 BPM)',
+  'Minuet (3/4, 120 BPM)',
 );
 equal(
   pieceCopy(piece({ variant: 'symphony', span: '1M', movements: month }), 0).title,
@@ -87,13 +87,13 @@ equal(
 );
 equal(
   pieceCopy(piece({ variant: 'symphony', span: '1M', movements: month }), 1).movement,
-  'Movement 2: Siciliana (72 BPM)',
+  'Siciliana (6/8, 72 BPM)',
 );
 
 const quarter = [movement({ label: 'I' }), movement({ label: 'II' }), movement({ label: 'III' })];
 equal(
   pieceCopy(piece({ variant: 'symphony', span: '3M', movements: quarter }), 2).movement,
-  'Movement 3: Finale (108 BPM)',
+  'Finale (4/4, 108 BPM)',
 );
 equal(
   pieceCopy(piece({ variant: 'symphony', span: '3M', movements: quarter })).title,
@@ -103,11 +103,11 @@ equal(
 const year = [1, 2, 3, 12].map((item) => movement({ label: `${String(item).padStart(2, '0')}/26` }));
 equal(
   pieceCopy(piece({ variant: 'symphony', span: '1Y', movements: year }), 2).movement,
-  'Movement 3: Minuet (108 BPM)',
+  'Minuet (3/4, 108 BPM)',
 );
 equal(
   pieceCopy(piece({ variant: 'symphony', span: '1Y', movements: year }), 3).movement,
-  'Movement 4: Finale (96 BPM)',
+  'Finale (4/4, 96 BPM)',
 );
 equal(
   pieceCopy(piece({ variant: 'symphony', span: '1Y', movements: year })).title,
@@ -116,32 +116,32 @@ equal(
 
 equal(
   pieceCopy(piece({ variant: 'jazz', span: '1M', movements: month }), 2).movement,
-  'Movement 3: Waltz (120 BPM)',
+  'Waltz (3/4, 120 BPM)',
 );
 equal(
   pieceCopy(piece({ variant: 'jazz', span: '1M', movements: month }), 1).movement,
-  'Movement 2: Ballad (72 BPM)',
+  'Ballad (12/8, 72 BPM)',
 );
 
 equal(
   pieceCopy(piece({ variant: 'minimalist', span: '1M', movements: month }), 0).movement,
-  'Movement 1 (5/4, 96 BPM)',
+  '(5/4, 96 BPM)',
 );
 equal(
   pieceCopy(piece({ variant: 'minimalist', span: '1M', movements: month }), 3).movement,
-  'Movement 4: Finale (96 BPM)',
+  'Finale (4/4, 96 BPM)',
 );
 equal(
   pieceCopy(piece({ variant: 'ambient', span: '1M', movements: month }), 2).movement,
-  'Movement 3: Minuet (120 BPM)',
+  'Minuet (3/4, 120 BPM)',
 );
 equal(
   pieceCopy(piece({ variant: 'ambient', span: '3M', movements: quarter }), 2).movement,
-  'Movement 3: Finale (108 BPM)',
+  'Finale (4/4, 108 BPM)',
 );
 equal(
   pieceCopy(piece({ variant: 'minimalist', span: '3M', movements: quarter }), 2).movement,
-  'Movement 3 (7/8, 108 BPM)',
+  '(7/8, 108 BPM)',
 );
 equal(
   pieceCopy(piece({ variant: 'jazz', span: '1M', movements: month })).title,
@@ -235,7 +235,7 @@ const guitarMonth = pieceCopy(
 );
 equal(guitarMonth.title, 'Suite VIC 1M in E-flat');
 equal(guitarMonth.instruments, 'Guitar (Solo)');
-equal(guitarMonth.movement, 'Movement 2: Sarabande (72 BPM)');
+equal(guitarMonth.movement, 'Sarabande (3/4, 72 BPM)');
 const guitarBeforeName = pieceCopy(
   piece({ variant: 'guitar', ensemble: 'bach', span: '1M', movements: month }),
   0,
@@ -253,7 +253,7 @@ equal(
     }),
     2,
   ).movement,
-  'Movement 3: Gigue (120 BPM)',
+  'Gigue (6/8, 120 BPM)',
 );
 equal(
   pieceCopy(
@@ -264,7 +264,7 @@ equal(
     }),
     2,
   ).movement,
-  'Movement 3 (7/8, 108 BPM)',
+  '(7/8, 108 BPM)',
 );
 
 deepEqual(movementPulse('guitar', 'bach', '1M', 2, null), { bpm: 120, beats: 6, beatType: 8 });
@@ -287,7 +287,38 @@ deepEqual(
   { start: 0, end: 6 },
 );
 
-equal(playingCaption('Suite VIC 1M in E-flat', 'Movement 2 (3/4, 72 BPM)'), 'Suite VIC 1M in E-flat / Movement 2 (3/4, 72 BPM)');
-equal(playingCaption('Bagatelle VIC 20/1 in E-flat', null), 'Bagatelle VIC 20/1 in E-flat');
+deepEqual(playingLines('Suite VIC 1M in E-flat', 'Sarabande (3/4, 72 BPM)'), [
+  'Suite VIC 1M in E-flat',
+  'Sarabande (3/4, 72 BPM)',
+]);
+deepEqual(playingLines('Bagatelle VIC 20/1 in E-flat', null), ['Bagatelle VIC 20/1 in E-flat']);
+equal(
+  pieceCopy(
+    piece({
+      variant: 'guitar',
+      ensemble: 'bach',
+      span: '1M',
+      movements: month.map((item, itemIndex) =>
+        itemIndex === 1 ? { ...item, name: 'Prelude — Sarabande — Prelude' } : item,
+      ),
+    }),
+    1,
+  ).movement,
+  'Prelude — Sarabande — Prelude (3/4, 72 BPM)',
+);
+equal(
+  pieceCopy(
+    piece({
+      variant: 'guitar',
+      ensemble: 'bach',
+      span: '1M',
+      movements: month.map((item, itemIndex) =>
+        itemIndex === 3 ? { ...item, name: 'Prelude — Sarabande — Prelude' } : item,
+      ),
+    }),
+    3,
+  ).movement,
+  'Finale: Prelude — Sarabande — Prelude (4/4, 96 BPM)',
+);
 
 console.log('program tests passed');

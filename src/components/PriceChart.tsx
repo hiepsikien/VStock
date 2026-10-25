@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import type { ChartRange } from '../types';
 import { colors, spacing, typography } from '../theme';
-import { playingCaption, type PieceProgram } from '../sonify/program';
+import { playingLines, type PieceProgram } from '../sonify/program';
 import { PieceTitle } from './PieceTitle';
 import { Sparkline } from './Sparkline';
 
@@ -104,14 +104,17 @@ export function PriceChart({
         ) : null}
         {program?.phase === 'playing' ? (
           <View pointerEvents="none" style={styles.nowPlaying}>
-            <Text
-              style={styles.nowPlayingText}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.7}
-            >
-              {playingCaption(program.title, program.movement)}
-            </Text>
+            {playingLines(program.title, program.movement).map((line, lineIndex) => (
+              <Text
+                key={`${lineIndex}-${line}`}
+                style={styles.nowPlayingText}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+              >
+                {line}
+              </Text>
+            ))}
           </View>
         ) : null}
         {cursorLabel &&

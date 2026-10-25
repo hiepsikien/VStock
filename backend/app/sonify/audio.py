@@ -103,16 +103,19 @@ ExportFn = Callable[[Path, Path], None]
 
 def _compose(variant: str, ensemble: str, bars: list[Bar], **kwargs):
     """Write the score, and keep the guitar dance chosen during that same pass."""
-    from app.sonify.guitar_patterns import _HEADLINE
-    from app.sonify.program import pattern_title
+    from app.sonify.guitar_patterns import _FORM, _HEADLINE
+    from app.sonify.program import _written_dance
 
     found: list[str] = []
+    forms: list[list[str]] = []
     token = _HEADLINE.set(found)
+    token_form = _FORM.set(forms)
     try:
         score = render(bars, variant=variant, ensemble=ensemble, **kwargs)  # type: ignore[arg-type]
     finally:
         _HEADLINE.reset(token)
-    dance = pattern_title(found[0], ensemble) if variant == "guitar" and found else ""
+        _FORM.reset(token_form)
+    dance = _written_dance(found, forms, ensemble) if variant == "guitar" else ""
     return score, dance
 
 
