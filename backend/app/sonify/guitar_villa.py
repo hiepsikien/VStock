@@ -465,6 +465,15 @@ def _render_etude1_bar(
     return lead, support, low
 
 
+def _etude11_middle_vel(hairpin: int, slot: int, band: str) -> int:
+    """Inner sextuplet arch: softer at 1 and 5, loudest at 2, tied to phrase hairpin."""
+    echo = max(44, hairpin - 8)
+    ceiling = max(44, echo if band == "f" else echo - 1)
+    arch = {1: -10, 2: -6, 4: -7, 5: -10}
+    band_nudge = {"p": -2, "mp": -1, "mf": 0, "f": 2}.get(band, 0)
+    return min(ceiling, max(44, hairpin + arch[slot] + band_nudge))
+
+
 def _etude11_ornament(
     ctx: _Ctx,
     chord: Chord,
@@ -530,10 +539,18 @@ def _render_etude11_bar(
         )
         low.append(_placed(bar, float(quarter), bass, 1.0, 3, max(44, hairpin - 4), accent=True))
         drop_middle = breathe and quarter == 3
+        band = ctx.band(bar)
         if not drop_middle and ornament is not None:
             for slot in (1, 2, 4, 5):
                 support.append(
-                    _placed(bar, quarter + slot / 6.0, ornament, 1.0 / 6.0, 2, _ETUDE_MIDDLE)
+                    _placed(
+                        bar,
+                        quarter + slot / 6.0,
+                        ornament,
+                        1.0 / 6.0,
+                        2,
+                        _etude11_middle_vel(hairpin, slot, band),
+                    )
                 )
         previous = ornament
         previous_melody = melody

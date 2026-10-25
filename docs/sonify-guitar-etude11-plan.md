@@ -100,7 +100,7 @@ Nốt trang trí, theo thứ tự:
 3. Không có quãng 5 và không có quãng 3 thì bè trung nghỉ. Không lấy âm hợp âm khác nằm giữa bass và giai điệu.
 4. Giai điệu giữ nguyên thì giữ nốt trang trí nếu nó còn hợp lệ. Giai điệu lên thì chọn ứng viên hợp lệ cao hơn nốt trước. Giai điệu xuống thì chọn ứng viên thấp hơn.
 
-Bốn cú trung cùng một lực trong khoảng 50–54, kể cả hai cú nằm dưới nốt nhắc. Bài có khung không kéo hai cú sau xuống theo nốt nhắc.
+Bốn cú trung theo vòm trong chùm (cú 2 mạnh hơn cú 1 và 5), bám hairpin câu và band, luôn dưới nốt nhắc. Bài có khung không để `_shape_dynamics` cap bè trung theo echo.
 
 Ở 100 BPM mật độ khoảng 10 cú mỗi giây.
 
