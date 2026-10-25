@@ -356,7 +356,7 @@ def _barrios_intro_long(ctx, bar: int, role: int, index: int) -> list[tuple]:
 def _barrios_intro_cadence(ctx, bar: int) -> list[tuple]:
     """Yield into the body. Velocities are written here, not in `_scale_into`."""
     epb = ctx.epb
-    bass, _inner, lead = _stack(ctx, _function(ctx, bar, "I"))
+    bass, inner, lead = _stack(ctx, _function(ctx, bar, "I"))
     cut = max(1, epb // 2)
     rest = epb - cut
     specs = [
@@ -368,6 +368,14 @@ def _barrios_intro_cadence(ctx, bar: int) -> list[tuple]:
         opening = tuple(_span(54, 50, cut))
     for offset, level in enumerate(opening):
         specs.append((offset, 1, lead, 1, level, {}))
+    # `_settled` kept one inner note on the opening of the first half.
+    # 53 sits between bass 52 and the lead notes that are still above it.
+    if inner is not None and bass < inner < lead:
+        span = 0
+        while span < min(2, len(opening)) and opening[span] > 53:
+            span += 1
+        if span:
+            specs.append((0, span, inner, 2, 53, {}))
     scaled = _scale_into(ctx, bar, cut, rest, 48)
     for spec, level in zip(scaled, _span(48, 60, len(scaled))):
         offset, length, midi, voice, _old, flags = spec

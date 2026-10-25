@@ -2299,6 +2299,10 @@ def test_barrios_month_intro_contours_the_high_voice_and_the_bass() -> None:
             assert bass.midi is not None and lead.midi is not None and bass.midi < lead.midi
     for bar in (6, 7):
         assert levels(score.low, bar, before=3.5) == [52, 46]
+        inner = _attacks(score.support, bar)
+        assert [note.velocity for note in inner] == [53]
+        assert inner[0].beat == 0.0
+        assert abs(inner[0].duration_beats - 1.0) < 1e-6
 
 
 def test_barrios_six_eight_intro_keeps_each_inner_note_inside_its_half() -> None:
@@ -2329,6 +2333,10 @@ def test_barrios_six_eight_intro_keeps_each_inner_note_inside_its_half() -> None
     for bar in (8, 9):
         bass = [note.velocity for note in _attacks(score.low, bar) if note.beat < 2.5]
         assert bass == [52, 46]
+        inner = _attacks(score.support, bar)
+        assert [note.velocity for note in inner] == [53]
+        assert inner[0].beat == 0.0
+        assert abs(inner[0].duration_beats - 1.0) < 1e-6
 
 
 def test_barrios_week_tremolo_bass_moves_inside_the_bar() -> None:

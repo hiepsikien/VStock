@@ -1,6 +1,6 @@
 # Kế hoạch dynamics cho tremolo và intro của Barrios
 
-> **Trạng thái**: đã render. Vòm tremolo và contour intro Barrios nằm trong code. `RECAP_REVISION` là 61, `SPAN_REVISION` là 47.
+> **Trạng thái**: đã render. Vòm tremolo và contour intro Barrios nằm trong code. `RECAP_REVISION` là 62, `SPAN_REVISION` là 48.
 
 Hai chỗ phẳng:
 
@@ -151,6 +151,7 @@ Cadence, viết tại cadence intro của Barrios, không sửa bước +2 của
 - Nửa đầu bè cao, bốn móc trên 4/4: 54, 56, 54, 50.
 - Nửa sau 4/4 là bốn móc đơn: 48, 52, 56, 60.
 - Nửa sau 3/4 và 6/8 là ba móc đơn: 48, 54, 60.
+- Bè trung giữ một nốt ở đầu nửa đầu, cùng chỗ `_settled` từng đặt, dài tối đa hai móc đơn. Chỉ phủ những móc mà bè cao còn trên 53. Velocity 53, giữa bè trầm 52 và bè cao 54.
 
 ### Test intro
 
@@ -159,7 +160,7 @@ Một test cho intro dài 4/4, form 1M chương I, bất kỳ character:
 - Hai ô chuông: ba velocity 44, 50, 46, không có bè trầm.
 - Hai ô cantabile: bè trầm 46 rồi 52, bè cao 54 rồi 60, bè trung 48, 50, 54, 56.
 - Hai ô arpeggio: bè cao là dãy nội suy 46 tới 60, bè trầm 44, 46, 48, 50, và nốt trầm mỗi phách vẫn dưới nốt cao cùng phách.
-- Ô cadence: hai cú nửa ô của bè trầm là 52 rồi 46. Pickup 50 ở móc cuối, nếu có, không tính vào hai nửa đó.
+- Ô cadence: hai cú nửa ô của bè trầm là 52 rồi 46. Pickup 50 ở móc cuối, nếu có, không tính vào hai nửa đó. Một nốt bè trung ở đầu nửa đầu, velocity 53.
 
 Một test outro Barrios ngắn: bè trầm và bè cao của ô harmonics cuối vẫn một mức. Một test intro Brouwer dài ở nhánh cantabile và settled vẫn một mức, để xác nhận contour không lọt sang hai caller kia.
 
@@ -172,4 +173,6 @@ Một test outro Barrios ngắn: bè trầm và bè cao của ô harmonics cuố
 - Không đổi `_cantabile`, `_settled`, và `_scale_into` khi Barrios intro không truyền contour.
 - Không đưa ô pedal trở lại `_shape_dynamics`.
 - Không in thêm chữ dynamics. Lực nghe được nằm ở velocity.
-- Bump revision cache chỉ khi commit code render, không bump trong PR tài liệu này.
+- Không đổi đường ra của ô tremolo cuối thân. Ô đó vẫn qua `_relax_texture`: nửa sau thành decrescendo 58 → 46, rồi `_plant_pickup` ghi 50. Vòm bốn phách giữ ở giữa thân.
+
+Commit render đã bump `RECAP_REVISION` lên 62 và `SPAN_REVISION` lên 48.
