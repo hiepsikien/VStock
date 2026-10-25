@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from app.sonify.chords import KIND_SUSPENDED_FOURTH, C, Chord, DM, EM, F, G
+from app.sonify.chords import KIND_SUSPENDED_FOURTH, AM, C, Chord, DM, EM, F, G
 from app.sonify.ensemble import ensemble_for
 from app.sonify.form import METER_34, METER_44, METER_68, ChordSlot, FormSection, compose_meter
 from app.sonify.guitar import (
@@ -449,6 +449,7 @@ def _pattern_score(
     kinds: dict[int, str] | None = None,
     sections: tuple[FormSection, ...] | None = None,
     character: str | None = "rally",
+    character_at: tuple | None = None,
     rel_span: float = 0.02,
     mode: str = "major",
 ):
@@ -477,6 +478,7 @@ def _pattern_score(
             harmonies=(),
             mode=mode,
             character=character,  # type: ignore[arg-type]
+            character_at=character_at,
             sections=sections,
             rel_span=rel_span,
         )
@@ -1849,7 +1851,7 @@ def test_composer_intro_and_outro_frames_for_two_and_four_bars() -> None:
     assert_playable(barrios_long, C_KEY, long_body)
 
     villa = _frame_score("villa", 2)
-    assert villa.divisions == 2
+    assert villa.divisions == 4
     assert 0.0 in _onset_beats(villa.low, 0)
     assert min(_onset_beats(villa.support, 0)) > 0
     assert min(_onset_beats(villa.lead, 0)) >= min(_onset_beats(villa.support, 0))
@@ -1890,7 +1892,8 @@ def test_a_daily_piece_keeps_one_pattern_across_the_body() -> None:
     assert len(matched) >= 20
 
     villa = render(_bars(), title="Guitar", variant="guitar", ensemble="villa", character="rally")
-    assert villa.divisions == 2
+    assert villa.divisions == 4
+    assert sum(1 for bar in range(2, 32) if 0.25 in _onset_beats(villa.support, bar)) == 30
     assert sum(1 for bar in range(2, 32) if 0.5 in _onset_beats(villa.support, bar)) == 30
     quiet = render(_bars(), title="Guitar", variant="guitar", ensemble="villa", character="calm")
     assert all(0.5 not in _onset_beats(quiet.support, bar) for bar in range(2, 32))
@@ -3708,7 +3711,7 @@ def test_villa_preserves_forte_chromatic_approach_across_boundary_and_outro_read
         phrases,
         ensemble="villa",
         bpm=100,
-        character="rally",
+        character=None,
         kinds=kinds,
         sections=sections,
         bands=bands,
@@ -3735,4 +3738,279 @@ def test_villa_preserves_forte_chromatic_approach_across_boundary_and_outro_read
     )
     assert 0.5 in _onset_beats(outro_score.lead, 15)
     assert any(note.accent for note in _pitched(outro_score.lead, 15))
+
+
+def _near(beats: list[float], target: float) -> bool:
+    return any(abs(beat - target) < 1e-3 for beat in beats)
+
+
+def test_villa_etude1_and_etude11_follow_the_locked_cells() -> None:
+    # Unframed: the opening phrase stays the eighth-note roll. Rally and volatile
+    # take the etudes from the second phrase. 6/8 and a slow movement do not.
+    roll = [64] * 8
+    opening = _pattern_score(
+        roll + roll,
+        (_joined(0, roll), _joined(8, roll)),
+        ensemble="villa",
+        bpm=100,
+        character="rally",
+        chords={0: C, 1: C},
+    )
+    assert _onset_beats(opening.low, 0) == [0.0, 2.0]
+    assert any(abs(note.duration_beats - 4.0) < 1e-6 for note in _pitched(opening.low, 1))
+    assert opening.divisions == 4
+
+    volatile = _pattern_score(
+        roll + roll,
+        (_joined(0, roll), _joined(8, roll)),
+        ensemble="villa",
+        bpm=100,
+        character="volatile",
+        bands={0: "f", 1: "f"},
+        chords={0: C, 1: C},
+    )
+    assert _onset_beats(volatile.low, 0)[:2] == [0.0, 2.0]
+    assert volatile.divisions == 12
+    assert any(abs(note.duration_beats * 6 - 1) < 1e-3 for note in volatile.support if note.bar == 1)
+
+    six = _pattern_score(
+        [64] * 12,
+        (_joined(0, [64] * 6), _joined(6, [64] * 6)),
+        ensemble="villa",
+        bpm=108,
+        meter=METER_68,
+        character="volatile",
+        chords={0: C, 1: C},
+    )
+    assert six.divisions != 12
+    assert not any(abs(note.duration_beats * 6 - 1) < 1e-3 for note in six.support)
+
+    slow = _pattern_score(
+        roll + roll,
+        (_joined(0, roll), _joined(8, roll)),
+        ensemble="villa",
+        bpm=72,
+        character="rally",
+        chords={0: C, 1: C},
+    )
+    assert 0.25 not in _onset_beats(slow.support, 1)
+
+    # A framed rally locks Étude No. 1 from the first body bar.
+    framed = _pattern_score(
+        [64] * 24,
+        (_held(0, 8, 64), _held(8, 8, 64), _held(16, 8, 64)),
+        ensemble="villa",
+        bpm=100,
+        character="rally",
+        kinds={0: "intro", 1: "phrase", 2: "outro"},
+        sections=(
+            FormSection(0, 1, "intro", 0),
+            FormSection(1, 2, "phrase", 0),
+            FormSection(2, 3, "outro", 0),
+        ),
+        chords={bar: C for bar in range(3)},
+    )
+    assert any(
+        note.beat == 0.0 and abs(note.duration_beats - 4.0) < 1e-6 for note in _pitched(framed.low, 1)
+    )
+    framed_middle = {round(note.beat, 2): note.velocity for note in _attacks(framed.support, 1)}
+    # This body bar leaves for the outro, so the last beat is already silent.
+    assert framed_middle[0.25] == 50 and framed_middle[1.5] == 54
+    assert 3.75 not in framed_middle
+
+    # Étude No. 1 on E minor: four inner levels, bass once, two melody sixteenths.
+    etude1 = _pattern_score(
+        [64] * 16,
+        (_held(0, 8, 64), _held(8, 8, 64)),
+        ensemble="villa",
+        bpm=100,
+        character="rally",
+        chords={0: C, 1: EM},
+    )
+    middles = [note.midi for note in _attacks(etude1.support, 1)]
+    assert middles
+    assert {47, 52, 55, 59} <= set(middles)
+    by_beat = {round(note.beat, 2): note.midi for note in _attacks(etude1.support, 1)}
+    assert by_beat[0.5] == 47
+    assert by_beat[0.25] == 52
+    assert by_beat[0.75] == 55
+    assert by_beat[1.25] == 59
+    sung_notes = _attacks(etude1.lead, 1)
+    assert [round(note.beat, 2) for note in sung_notes] == [1.75, 2.25]
+    assert {note.midi for note in sung_notes} == {64}
+    assert abs(sung_notes[0].duration_beats - 0.5) < 1e-6
+    # 1.75 beats is a dotted quarter tied to a sixteenth, ringing to the barline.
+    held = [
+        note
+        for note in etude1.lead
+        if note.bar == 1 and note.midi is not None and note.beat >= 2.25 - 1e-6
+    ]
+    assert abs(sum(note.duration_beats for note in held) - 1.75) < 1e-6
+    assert held[0].tie_start and held[-1].tie_stop
+    bass = _attacks(etude1.low, 1)
+    assert len(bass) == 1 and bass[0].midi == 40 and bass[0].duration_beats == 4.0
+    assert not bass[0].accent
+    assert {note.velocity for note in _attacks(etude1.lead, 1)} == {60}
+    middle_vel = {round(note.beat, 2): note.velocity for note in _attacks(etude1.support, 1)}
+    assert [middle_vel[beat] for beat in (0.25, 0.5, 0.75)] == [50, 50, 50]
+    assert [middle_vel[beat] for beat in (1.0, 1.25)] == [52, 52]
+    assert [middle_vel[beat] for beat in (1.5, 2.0, 2.5)] == [54, 54, 54]
+    assert [middle_vel[beat] for beat in (2.75, 3.0)] == [52, 52]
+    assert [middle_vel[beat] for beat in (3.25, 3.5, 3.75)] == [50, 50, 50]
+    assert bass[0].velocity is not None and bass[0].velocity < 60
+    assert not any(note.accent for note in etude1.support if note.bar == 1)
+    _assert_engraved(etude1, {0: "villa_pattern", 1: "villa_etude1"})
+
+    # Pitch and hairpin both come from the price eighth of the beat. On this
+    # rise the pluck at 1.75 falls inside the apex eighth (72), but the sung
+    # note is the eighth that opens beat 2.
+    rising = [64, 65, 67, 72, 71, 69, 67, 65]
+    peaked = _pattern_score(
+        [64] * 8 + rising,
+        (_joined(0, [64] * 8), _joined(8, rising)),
+        ensemble="villa",
+        bpm=100,
+        character="rally",
+        chords={0: C, 1: C},
+    )
+    beat2 = next(note for note in _attacks(peaked.lead, 1) if abs(note.beat - 1.75) < 1e-6)
+    beat3 = next(note for note in _attacks(peaked.lead, 1) if abs(note.beat - 2.25) < 1e-6)
+    # Eighth +2 is still E4. Its swell is 2/3 of the way to the apex, so 68,
+    # not the 72 of the next eighth that merely contains the pluck.
+    assert beat2.midi == 67 and beat2.velocity == 68
+    # Strong-beat quantize lifts B4 to C5. The hairpin is that eighth's own swell.
+    assert beat3.midi == 72 and beat3.velocity == 70
+
+    # Étude No. 11: the fifth when the chord has it, then the contour.
+    flat = [64] * 8
+    fifth = _pattern_score(
+        [64] * 8 + flat,
+        (_held(0, 8, 64), _held(8, 8, 64)),
+        ensemble="villa",
+        bpm=100,
+        character="volatile",
+        chords={0: C, 1: AM},
+    )
+    assert fifth.divisions == 12
+    group = [note for note in _attacks(fifth.support, 1) if note.beat < 1.0]
+    assert len(group) == 4
+    assert {note.midi for note in group} == {57}
+    assert all(abs(note.duration_beats * 6 - 1) < 1e-3 for note in group)
+    assert [note.velocity for note in group] == [49, 50, 51, 51]
+    highs = [note for note in _attacks(fifth.lead, 1) if note.beat < 1.0]
+    assert [round(note.beat, 2) for note in highs] == [0.0, 0.5]
+    assert highs[0].midi == 64 and highs[0].accent and highs[0].velocity == 60
+    assert highs[1].midi == 64 and not highs[1].accent and highs[1].velocity == 52
+    thumb = next(note for note in _attacks(fifth.low, 1) if note.beat == 0.0)
+    assert thumb.midi == 45 and thumb.duration_beats == 1.0 and thumb.accent
+    assert thumb.velocity is not None and thumb.velocity < 60
+    rests = [note for note in fifth.support if note.bar == 1 and note.midi is None]
+    assert rests and all(abs(note.duration_beats * 6 - 1) < 1e-3 for note in rests)
+    for voice in (fifth.lead, fifth.support, fifth.low):
+        sounded = [note for note in voice if note.bar == 1]
+        assert abs(sum(note.duration_beats for note in sounded) - 4.0) < 1e-6
+    assert not any(
+        abs(note.duration_beats - 0.25) < 1e-6 for note in fifth.lead if note.bar == 1 and note.midi is not None
+    )
+    assert not any(note.accent for note in fifth.support if note.bar == 1 and note.midi is not None)
+    _assert_engraved(fifth, {0: "villa_pattern", 1: "villa_etude11"})
+    xml = score_to_musicxml(fifth)
+    assert "<divisions>12</divisions>" in xml
+    assert "<actual-notes>6</actual-notes>" in xml
+    assert "<normal-notes>4</normal-notes>" in xml
+    assert '<tuplet type="start"' in xml
+    assert "<duration>2</duration>" in xml
+
+    contour_line = [64, 64, 67, 67, 64, 64, 72, 72]
+    contour = _pattern_score(
+        [64] * 8 + contour_line,
+        (_joined(0, [64] * 8), _joined(8, contour_line)),
+        ensemble="villa",
+        bpm=100,
+        character="volatile",
+        chords={0: C, 1: AM},
+    )
+    ornaments = []
+    for quarter in range(4):
+        notes = [
+            note.midi
+            for note in _attacks(contour.support, 1)
+            if quarter <= note.beat < quarter + 1
+        ]
+        assert len(set(notes)) == 1
+        ornaments.append(notes[0])
+    assert ornaments == [57, 60, 57, 69]
+
+    # E minor contains neither a fifth nor a third under E, so the inner voice rests.
+    minor = _pattern_score(
+        [64] * 16,
+        (_held(0, 8, 64), _held(8, 8, 64)),
+        ensemble="villa",
+        bpm=100,
+        character="volatile",
+        chords={0: C, 1: EM},
+    )
+    assert not _attacks(minor.support, 1)
+    assert {note.midi for note in _attacks(minor.lead, 1)} == {64}
+
+    # Framed listening: inner arch stays below the echo and does not get capped
+    # by _shape_dynamics; forte still lifts the arch a little.
+    def framed_etude11(band: str):
+        return _pattern_score(
+            [64] * 24,
+            (_held(0, 8, 64), _held(8, 8, 64), _held(16, 8, 64)),
+            ensemble="villa",
+            bpm=100,
+            character="volatile",
+            bands={bar: band for bar in range(3)},
+            kinds={0: "intro", 1: "phrase", 2: "outro"},
+            sections=(
+                FormSection(0, 1, "intro", 0),
+                FormSection(1, 2, "phrase", 0),
+                FormSection(2, 3, "outro", 0),
+            ),
+            chords={bar: AM for bar in range(3)},
+        )
+
+    mf_cell = framed_etude11("mf")
+    mf_quarter = [note for note in _attacks(mf_cell.support, 1) if note.beat < 1.0]
+    assert [note.velocity for note in mf_quarter] == [49, 50, 51, 51]
+    f_cell = framed_etude11("f")
+    f_quarter = [note for note in _attacks(f_cell.support, 1) if note.beat < 1.0]
+    assert f_quarter[1].velocity > mf_quarter[1].velocity
+    sung = [note for note in _attacks(mf_cell.lead, 1) if note.beat < 1.0]
+    assert [note.velocity for note in sung] == [60, 52]
+
+    # The last sextuplet keeps melody and bass when the next phrase changes pattern.
+    breath = _pattern_score(
+        flat + flat + flat,
+        (_joined(0, flat), _joined(8, flat), _joined(16, flat)),
+        ensemble="villa",
+        bpm=100,
+        character="volatile",
+        character_at=("rally", "volatile", "calm"),
+        chords={0: AM, 1: AM, 2: C},
+    )
+    assert not any(note.beat >= 3.0 - 1e-6 for note in _attacks(breath.support, 1))
+    assert _near(_onset_beats(breath.lead, 1), 3.0)
+    assert _near(_onset_beats(breath.lead, 1), 3.5)
+    assert _near(_onset_beats(breath.low, 1), 3.0)
+    etude_breath = _pattern_score(
+        flat + flat + flat,
+        (_joined(0, flat), _joined(8, flat), _joined(16, flat)),
+        ensemble="villa",
+        bpm=100,
+        character="rally",
+        character_at=("rally", "rally", "calm"),
+        chords={0: EM, 1: EM, 2: C},
+    )
+    assert 0.25 in _onset_beats(etude_breath.support, 1)
+    assert not any(note.beat >= 3.0 - 1e-6 for note in _attacks(etude_breath.support, 1))
+    assert any(abs(note.duration_beats - 4.0) < 1e-6 for note in _pitched(etude_breath.low, 1))
+    leaving = [
+        note
+        for note in etude_breath.lead
+        if note.bar == 1 and note.midi is not None and note.beat >= 2.25 - 1e-6
+    ]
+    assert abs(sum(note.duration_beats for note in leaving) - 1.75) < 1e-6
 

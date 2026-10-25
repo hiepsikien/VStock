@@ -47,6 +47,8 @@ _ARPEGGIO = frozenset({"study", "villa_pattern", "preludio", "galop", "mozart_va
 _FAMILY = {
     "study": "arpeggio",
     "villa_pattern": "arpeggio",
+    "etude1": "arpeggio",
+    "etude11": "arpeggio",
     "preludio": "arpeggio",
     "galop": "arpeggio",
     "mozart_var": "arpeggio",
@@ -80,6 +82,8 @@ _PROFILE = {
     "elegiaque": "elegiaque",
     "cantabile": "cantabile",
     "villa_pattern": "villa_pattern",
+    "etude1": "villa_etude1",
+    "etude11": "villa_etude11",
     "chord_melody": "villa_chord",
     "thumb_cantabile": "thumb_cantabile",
     "preludio": "barrios_preludio",
@@ -742,6 +746,13 @@ def _select_body(
             return "thumb_cantabile"
         if ctx.bpm <= 72 or band == "p" or mood == "calm":
             return "chord_melody"
+        # The opening body phrase stays the eighth-note roll. The etudes begin
+        # on the next phrase, and only in 4/4 above the slow-movement floor.
+        if not first_body and ctx.kind == "4/4" and ctx.bpm > 72:
+            if mood == "rally":
+                return "etude1"
+            if mood == "volatile":
+                return "etude11"
         return "villa_pattern"
     if (
         ctx.ensemble == "barrios"
@@ -911,15 +922,25 @@ def _dominant_pattern(ctx: _Ctx, phrases: list[Phrase], bars: list[int]) -> str:
     if ctx.ensemble == "classic":
         return _classic_macro(ctx, mood, bars)
     if ctx.ensemble == "villa":
-        # Selloff sings Prélude No. 1 on the thumb; a bridge/trio answers with Étude No. 11.
+        # Selloff sings Prélude No. 1 on the thumb. A bridge or trio still answers
+        # through `_contrast_pattern`, which is unchanged.
         if mood == "selloff":
             return "thumb_cantabile"
-        # Slow 3/4 movements and calm/quiet sessions sing Étude No. 11.
+        # Slow movements and calm or quiet sessions keep the block-chord pattern.
         if ctx.bpm <= 72:
             return "chord_melody"
         quiet = sum(1 for bar in bars if ctx.band(bar) == "p")
         if mood == "calm" or (bars and quiet * 2 > len(bars)):
             return "chord_melody"
+        # 6/8 stays the eighth-note roll for every mood. 4/4 rally and volatile
+        # lock the etudes across the whole body, including the opening phrase.
+        if ctx.kind == "6/8":
+            return "villa_pattern"
+        if ctx.kind == "4/4" and ctx.bpm > 72:
+            if mood == "rally":
+                return "etude1"
+            if mood == "volatile":
+                return "etude11"
         return "villa_pattern"
     if ctx.bpm < BARRIOS_TREMOLO_MIN_BPM:
         return "andante"
@@ -1547,6 +1568,9 @@ def _allocate_overlays(ctx: _Ctx, patterns: list[str], levels: dict[int, int]) -
         ranked: list[tuple[int, int, str]] = []
         for index in indexes:
             phrase = ctx.phrases[index]
+            # Étude No. 1 and Étude No. 11 do not take the Étude No. 7 scale.
+            if patterns[index] in {"etude1", "etude11"}:
+                continue
             if patterns[index] == "tremolo":
                 bars = _perpetual_bars(ctx, phrase, min(2, limit))
                 if bars:
@@ -1606,12 +1630,24 @@ def _allocate_overlays(ctx: _Ctx, patterns: list[str], levels: dict[int, int]) -
     return scale_plans, perpetual
 
 
+def _on_sixteenth_grid(event: NoteEvent) -> bool:
+    start = event.beat * 4
+    dur = event.duration_beats * 4
+    return abs(start - round(start)) <= 1e-6 and abs(dur - round(dur)) <= 1e-6
+
+
 def _resolve(events: list[NoteEvent], epb: int, voice: int) -> list[NoteEvent]:
     timed = []
+    odd: list[NoteEvent] = []
     for event in events:
         if event.midi is None:
             continue
-        timed.append((_start16(event, epb), _dur16(event), replace(event, voice=voice, slur_start=False, slur_stop=False)))
+        stamped = replace(event, voice=voice, slur_start=False, slur_stop=False)
+        # A sextuplet sixth is not an integer on the sixteenth playhead.
+        if not _on_sixteenth_grid(event):
+            odd.append(stamped)
+            continue
+        timed.append((_start16(event, epb), _dur16(event), stamped))
     timed.sort(key=lambda item: (item[0], -item[1]))
     groups: list[list[tuple[int, int, NoteEvent]]] = []
     for start, dur, event in timed:
@@ -1645,10 +1681,17 @@ def _resolve(events: list[NoteEvent], epb: int, voice: int) -> list[NoteEvent]:
                     tenuto=event.tenuto or spelled[0].tenuto,
                 )
             resolved.extend(spelled)
+    resolved.extend(odd)
     return resolved
 
 
 def _fill(events: list[NoteEvent], bars: int, epb: int, voice: int) -> list[NoteEvent]:
+    if any(not _on_sixteenth_grid(event) for event in events):
+        return _fill_twelfths(events, bars, epb, voice)
+    return _fill_sixteenths(events, bars, epb, voice)
+
+
+def _fill_sixteenths(events: list[NoteEvent], bars: int, epb: int, voice: int) -> list[NoteEvent]:
     total = bars * epb * 2
     timed = sorted(
         ((_start16(event, epb), _dur16(event), index, event) for index, event in enumerate(events)),
@@ -1676,6 +1719,83 @@ def _fill(events: list[NoteEvent], bars: int, epb: int, voice: int) -> list[Note
             output.extend(_spell16(cursor, nxt - cursor, None, epb, voice))
         cursor = nxt
     return output
+
+
+def _fill_twelfths(events: list[NoteEvent], bars: int, epb: int, voice: int) -> list[NoteEvent]:
+    """Fill a voice that contains sextuplet sixths.
+
+    A sixth is two units when a quarter is twelve. Rests of that length stay
+    one note. A gap that lands on the sixteenth grid still uses the old speller,
+    so an eighth or a quarter rest is not chopped into sixteenths either.
+    """
+    per_bar = epb * 6
+    total = bars * per_bar
+    timed = sorted(
+        (
+            (
+                event.bar * per_bar + int(round(event.beat * 12)),
+                max(1, int(round(event.duration_beats * 12))),
+                index,
+                event,
+            )
+            for index, event in enumerate(events)
+        ),
+        key=lambda item: (item[0], -item[1], item[2]),
+    )
+    output: list[NoteEvent] = []
+    cursor = 0
+    index = 0
+    while cursor < total:
+        if index < len(timed) and timed[index][0] < cursor:
+            index += 1
+            continue
+        if index < len(timed) and timed[index][0] == cursor:
+            start = timed[index][0]
+            group = []
+            while index < len(timed) and timed[index][0] == start:
+                group.append(timed[index])
+                index += 1
+            for _start, dur, _order, event in group:
+                output.append(event)
+            cursor = max(item[0] + item[1] for item in group)
+            continue
+        nxt = timed[index][0] if index < len(timed) else total
+        if nxt > cursor:
+            output.extend(_rest_twelfths(cursor, nxt - cursor, epb, voice))
+        cursor = nxt
+    return output
+
+
+def _rest_twelfths(start: int, length: int, epb: int, voice: int) -> list[NoteEvent]:
+    per_bar = epb * 6
+    events: list[NoteEvent] = []
+    cursor = start
+    left = length
+    while left > 0:
+        room = per_bar - (cursor % per_bar)
+        take = min(left, room)
+        if take >= 3 and cursor % 3 == 0 and take % 3 == 0:
+            events.extend(_spell16(cursor // 3, take // 3, None, epb, voice))
+            cursor += take
+            left -= take
+            continue
+        step = 2 if take >= 2 else take
+        if step <= 0:
+            break
+        bar = cursor // per_bar
+        beat = (cursor % per_bar) / 12.0
+        events.append(
+            NoteEvent(
+                bar=bar,
+                beat=beat,
+                midi=None,
+                duration_beats=step / 12.0,
+                voice=voice,
+            )
+        )
+        cursor += step
+        left -= step
+    return events
 
 
 def _needs_sixteenths(events: list[NoteEvent]) -> bool:
@@ -1759,6 +1879,9 @@ def _repair(ctx: _Ctx, lead: list[NoteEvent], support: list[NoteEvent], low: lis
     repaired: list[NoteEvent] = []
     for event in support:
         if event.midi is None:
+            continue
+        if not _on_sixteenth_grid(event):
+            repaired.append(event)
             continue
         when = _start16(event, ctx.epb)
         dur = max(1, _dur16(event))
@@ -2073,6 +2196,20 @@ def render_patterned_voices(
             lead.extend(_sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex, phrase=phrase_here))
             support.extend(part_support)
             low.extend(part_low)
+        elif pattern == "etude1":
+            part_lead, part_support, part_low = _render_etude1_bar(
+                ctx, bar, phrase_here, _leaving_pattern(ctx, bar, patterns)
+            )
+            lead.extend(part_lead)
+            support.extend(part_support)
+            low.extend(part_low)
+        elif pattern == "etude11":
+            part_lead, part_support, part_low = _render_etude11_bar(
+                ctx, bar, phrase_here, _leaving_pattern(ctx, bar, patterns)
+            )
+            lead.extend(part_lead)
+            support.extend(part_support)
+            low.extend(part_low)
         elif pattern == "andante":
             phrase = phrase_here
             points, spans = _andante_grid(ctx, bar, phrase)
@@ -2254,6 +2391,8 @@ def render_patterned_voices(
         bell_bars = set(ranked_bells[:2])
     lead, support = _insert_bells(ctx, lead, support, bell_bars)
     for index, (target, ascent, chromatic) in plans.items():
+        if index < len(patterns) and patterns[index] in {"etude1", "etude11"}:
+            continue
         # The canto is the Preludio. A scale run would cut the dotted quarters.
         if (
             _catedral_preludio(ctx)
@@ -2310,12 +2449,29 @@ def render_patterned_voices(
         and (ctx.character is not None or ctx.bars > 40)
     ):
         divisions = 4
+    # A movement with any Étude No. 11 phrase engraves on the twelfth grid.
+    # A sixteenth of Étude No. 1 is then three units, and a sextuplet sixth is two.
+    if "etude11" in patterns:
+        divisions = 12
     return (
         _fill(lead, musical_bars, epb, 1),
         _fill(support, musical_bars, epb, 2),
         _fill(low, musical_bars, epb, 3),
         divisions,
     )
+
+
+def _leaving_pattern(ctx: _Ctx, bar: int, patterns: list[str]) -> bool:
+    """The last bar of a phrase breathes when the next phrase is a different pattern."""
+    owner = _owner(ctx, bar)
+    if owner is None or owner >= len(patterns):
+        return False
+    phrase = ctx.phrases[owner]
+    if bar != (max(phrase.end - 1, phrase.start) // ctx.epb):
+        return False
+    for later in range(owner + 1, len(patterns)):
+        return patterns[later] != patterns[owner]
+    return False
 
 
 def _owner(ctx: _Ctx, bar: int) -> int | None:
@@ -2578,9 +2734,11 @@ def _smooth_boundaries(ctx: _Ctx, patterns, lead, support, low):
         # has to share a hand with that note, not only with the canto attack.
         cover = _catedral_preludio(ctx) and pattern == "preludio"
         keep_approach = pattern == "villa_pattern" and ctx.band(bar) == "f"
-        lead, support, low = _plant_pickup(
-            ctx, lead, support, low, bar, cover_eighth=cover, keep_approach=keep_approach
-        )
+        # The etudes already breathe on the last beat. A pickup would cut that bass.
+        if pattern not in {"etude1", "etude11"}:
+            lead, support, low = _plant_pickup(
+                ctx, lead, support, low, bar, cover_eighth=cover, keep_approach=keep_approach
+            )
     return lead, support, low, relaxed
 
 
@@ -2628,6 +2786,12 @@ def _shape_dynamics(ctx: _Ctx, lead, support, low, relaxed: set[int], patterns: 
             if eighth in relaxed:
                 shaped.append(event)
                 continue
+            if patterns is not None and _bar_pattern(ctx, event.bar, patterns) in {"etude1", "etude11"}:
+                # The cell already locks the hairpin, the echo, and a flat inner
+                # voice. Capping against the note that is sounding reads the echo
+                # and pulls the last two inner attacks down.
+                shaped.append(event)
+                continue
             extra = 0
             phrase = phrase_at(eighth)
             if phrase is not None:
@@ -2651,7 +2815,10 @@ def _shape_dynamics(ctx: _Ctx, lead, support, low, relaxed: set[int], patterns: 
             if (
                 voice in {"support", "low"}
                 and ctx.ensemble == "villa"
-                and (patterns is None or _bar_pattern(ctx, event.bar, patterns) == "villa_pattern")
+                and (
+                    patterns is None
+                    or _bar_pattern(ctx, event.bar, patterns) == "villa_pattern"
+                )
             ):
                 lead_vel = sounding_lead_vel(eighth)
                 cap = max(44, lead_vel - (1 if voice == "low" else 2))
@@ -2683,7 +2850,11 @@ def _transitions(ctx, patterns, levels, lead, support, low):
         held_ending = bool(runs) and runs[-1][1] >= 2
         running_ending = bool(runs) and all(length < 4 for _s, length, _m in runs)
         different_family = _FAMILY.get(patterns[left]) != _FAMILY.get(patterns[right])
-        if held_ending or (running_ending and different_family and phrase.end - phrase.start >= 4):
+        # The etudes breathe inside the bar: the last beat keeps its bass, and
+        # Étude No. 11 also keeps the melody of that last sextuplet.
+        if patterns[left] not in {"etude1", "etude11"} and (
+            held_ending or (running_ending and different_family and phrase.end - phrase.start >= 4)
+        ):
             lead = _silence(lead, eighth, ctx.epb)
             support = _silence(support, eighth, ctx.epb)
         high = patterns[right] in {"tremolo", *_DANCE} or (
@@ -2819,7 +2990,7 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
                 ceiling = 83 if profile == "barrios_preludio" else 81
                 if sounding > ceiling or sounding < 59:
                     raise Unplayable(f"lead {sounding} is outside profile {profile}")
-            if voice == 2 and sounding < 50:
+            if voice == 2 and sounding < 50 and profile not in {"villa_etude1", "villa_etude11"}:
                 raise Unplayable(f"inner voice {sounding} is below the middle register")
     times: set[int] = set()
     for events in voices.values():
@@ -2859,7 +3030,8 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
             if voice == 2 and pitch > 65:
                 high_block = bool(highs) and min(highs) >= 80 and pitch < min(highs)
                 thumb = profile == "thumb_cantabile" and (not lows or pitch > max(lows)) and (not highs or pitch < min(highs))
-                if not high_block and not thumb:
+                etude = profile in {"villa_etude1", "villa_etude11"}
+                if not high_block and not thumb and not etude:
                     raise Unplayable(f"inner voice {pitch} is above the middle register")
         if not _playable([pitch for _voice, pitch in sounding_notes]):
             raise Unplayable("no string assignment fits this sonority")
@@ -3009,6 +3181,8 @@ from app.sonify.guitar_villa import (  # noqa: E402
     _accent_at,
     _chord_grid,
     _place_thumb,
+    _render_etude1_bar,
+    _render_etude11_bar,
     _render_thumb,
     _render_villa_bar,
     _thumb_offsets,
