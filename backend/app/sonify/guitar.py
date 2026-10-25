@@ -55,16 +55,14 @@ _LARGE_LEAP = 9
 # Cap on melody attacks the nylon voice may play as a hammer-on. A hammer is
 # an exception for a stressed note, never a texture: keep it under 5%.
 _HAMMER_SHARE = 0.04
-# Inside one p-a-m-i cluster the fingers sit at a=52, m=55, i=54 (the fourth
-# sixteenth is a again), under the thumb at 58, the strongest attack.
-_TREMOLO_FILL_PATTERN = (52, 55, 54, 52)
-# The thumb strikes every cluster (root and fifth together) and rings the
-# whole quarter, so the bass line stays focused under the fill instead of
-# scattering between sparse, soft attacks.
+# Inside one p-a-m-i cluster the fingers sit 6, 3, 4, 6 under the quarter's
+# thumb. At thumb 58 that is a=52, m=55, i=54, a=52.
+_TREMOLO_FILL_OFFSETS = (-6, -3, -4, -6)
+_TREMOLO_FILL_PATTERN = tuple(58 + offset for offset in _TREMOLO_FILL_OFFSETS)
+# Reference thumb. The quarter arch in `_tremolo_quarter` moves around it.
 _TREMOLO_THUMB = 58
-# The fill repeats sing around mp, back at the written melody velocity.
-# The distribution inside the cluster stays as approved; only the level
-# moves.
+# Four quarters: 54, 58, 62, 59. Three quarters: 54, 62, 58.
+_TREMOLO_QUARTER_OFFSETS = {4: (-4, 0, 4, 1), 3: (-4, 4, 0)}
 # One tremolo cluster is one quarter note: four sixteenth repeats of a single
 # melody pitch, with the thumb ringing underneath for the whole quarter.
 _TREMOLO_CLUSTER = 4
@@ -400,6 +398,12 @@ def _arpeggio(
     return inner, bass
 
 
+def _tremolo_quarter(index: int, quarters: int) -> int:
+    """Thumb level for one quarter, before band and the region arch."""
+    offsets = _TREMOLO_QUARTER_OFFSETS.get(4 if quarters >= 4 else 3)
+    return _TREMOLO_THUMB + offsets[min(index, len(offsets) - 1)]
+
+
 def _tremolo(
     melody: list[int],
     chord_at: dict[int, Chord],
@@ -417,10 +421,12 @@ def _tremolo(
     At the score tempo (120 BPM for Barrios) each cluster lasts one quarter
     and carries one melody pitch through all four sixteenth repeats, so the
     clusters join into a sung melody line instead of changing pitch every
-    two sixteenths. The thumb is its own voice and the strongest attack at
-    58: it strikes the root and fifth together on each quarter and rings
-    through it, never yielding the downbeat of a chord change, so the bass
-    stays dark, full, and steady. Inside the fill, a=52, m=55, i=54.
+    two sixteenths. The thumb is its own voice. It strikes the root and fifth
+    together on each quarter and rings through it, never yielding the downbeat
+    of a chord change. Its level walks 54, 58, 62, 59 across a 4/4 bar, and
+    54, 62, 58 across three quarters. The fill sits 6, 3, 4, 6 under that
+    level, so the beat at 58 is still a=52, m=55, i=54. The colour on a chord
+    change uses the same level as the thumb of that beat.
     """
     meter = active_meter()
     epb = meter.eighths_per_bar
@@ -467,22 +473,25 @@ def _tremolo(
             )
             continue
         cluster_beats = _TREMOLO_CLUSTER * duration  # one quarter note
+        quarters = max(1, epb // 2)
         for cluster_index, cluster in enumerate(range(0, epb * grain, _TREMOLO_CLUSTER)):
             eighth = cluster // grain
             beat = cluster * duration
             sung = melody[bar * epb + eighth]
+            level = _tremolo_quarter(cluster_index, quarters)
             if cluster_index == 0 and changed:
                 # The colour joins the downbeat, but the thumb keeps the root:
                 # yielding it left chord-change bars with no bass at all.
+                # It takes this beat's level, or it would outsing a soft thumb.
                 color = _color_below(chord, sung, mid_low, mid_high, bass_low)
-                inner.append(_hit(bar, beat, cluster_beats, color, 2, _TREMOLO_THUMB))
+                inner.append(_hit(bar, beat, cluster_beats, color, 2, level))
             else:
                 inner.append(_hit(bar, beat, cluster_beats, None, 2, _INNER))
-            bass.append(_hit(bar, beat, cluster_beats, root, 3, _TREMOLO_THUMB))
+            bass.append(_hit(bar, beat, cluster_beats, root, 3, level))
             if len(chord.pitches) >= 3:
                 fifth = _clamp(chord.pitches[2], bass_low, bass_high)
                 if fifth != root:
-                    bass.append(_hit(bar, beat, cluster_beats, fifth, 3, _TREMOLO_THUMB))
+                    bass.append(_hit(bar, beat, cluster_beats, fifth, 3, level))
             for repeat in range(_TREMOLO_CLUSTER):
                 line.append(
                     _hit(
@@ -491,7 +500,7 @@ def _tremolo(
                         duration,
                         sung,
                         1,
-                        _TREMOLO_FILL_PATTERN[repeat],
+                        level + _TREMOLO_FILL_OFFSETS[repeat],
                     )
                 )
     return tuple(_slur(line, phrases)), tuple(inner), tuple(bass)

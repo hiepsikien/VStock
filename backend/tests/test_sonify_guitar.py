@@ -134,7 +134,7 @@ def test_barrios_opening_downbeat_of_g_is_not_silent() -> None:
         lead, inner, bass = _tremolo(melody, {0: G}, {0: "phrase"}, 1, 76, 40, 53, 50, 65, ())
     assert _sounding(inner, 0) == [0.0]
     assert inner[0].midi is not None and inner[0].midi < 59
-    assert inner[0].velocity == 58  # the middle voice is a thumb voice too
+    assert inner[0].velocity == 54  # colour takes the downbeat thumb, which opens at 54
     # The thumb keeps the root under the colour, and the fill starts with it.
     assert 0.0 in _sounding(bass, 0)
     assert 0.0 in _sounding(lead, 0)
@@ -171,11 +171,17 @@ def test_barrios_tremolo_thumb_is_strongest_and_m_leads_the_fill() -> None:
         (note for note in lead if note.bar == 1 and note.midi is not None),
         key=lambda note: note.beat,
     )
-    thumb = next(note for note in bass if note.bar == 1 and note.midi is not None)
-    # p-a-m-i: the thumb at 58 tops the cluster, then m 55, i 54, a 52.
-    assert [note.velocity for note in sung[:4]] == [52, 55, 54, 52]
-    assert thumb.velocity is not None and thumb.velocity == 58
-    assert all(thumb.velocity > (note.velocity or 0) for note in sung[:4])
+    def cluster(start: float) -> list[int]:
+        return [note.velocity for note in sung if start - 1e-6 <= note.beat < start + 1]
+
+    thumb = next(note for note in bass if note.bar == 1 and abs(note.beat - 1.0) < 1e-6 and note.midi is not None)
+    downbeat = next(note for note in bass if note.bar == 1 and abs(note.beat) < 1e-6 and note.midi is not None)
+    # The 58 cluster is beat 1. The downbeat opens softer, at 54.
+    assert cluster(0.0) == [48, 51, 50, 48]
+    assert downbeat.velocity == 54
+    assert cluster(1.0) == [52, 55, 54, 52]
+    assert thumb.velocity == 58
+    assert all(thumb.velocity > (note or 0) for note in cluster(1.0))
 
 
 def test_barrios_cluster_holds_one_pitch_for_a_quarter_and_the_thumb_rings() -> None:
@@ -1064,10 +1070,13 @@ def test_phase1_held_melody_tremolo_tapers_and_breathes() -> None:
         (note for note in full.lead if note.bar == 1 and note.midi is not None),
         key=lambda note: note.beat,
     )
-    assert [note.velocity for note in sung[:4]] == [52, 55, 54, 52]
+    at_one = [note.velocity for note in sung if 1.0 - 1e-6 <= note.beat < 2.0]
+    assert at_one == [52, 55, 54, 52]
     thumbs = [note for note in full.low if note.bar == 1 and note.midi is not None]
     assert sorted({round(note.beat, 2) for note in thumbs}) == [0.0, 1.0, 2.0, 3.0]
-    assert all(note.duration_beats == 1.0 and note.velocity == 58 for note in thumbs)
+    assert all(note.duration_beats == 1.0 for note in thumbs)
+    by_beat = {round(note.beat, 2): note.velocity for note in thumbs}
+    assert [by_beat[beat] for beat in (0.0, 1.0, 2.0, 3.0)] == [54, 58, 62, 59]
     assert len(thumbs) == 8  # root and fifth on every quarter
 
     # A closing 6/8 bar is only three quarter beats, so the tremolo is not cut.
@@ -1434,7 +1443,8 @@ def test_phase1_a_calm_scherzo_still_tremolos_a_held_line() -> None:
         (note for note in score.lead if note.bar == 1 and note.midi is not None),
         key=lambda note: note.beat,
     )
-    assert [note.velocity for note in sung[:4]] == [52, 55, 54, 52]
+    # Forte lifts the whole arch by 3. The downbeat fill is 48, 51, 50, 48 plus that.
+    assert [note.velocity for note in sung[:4]] == [51, 54, 53, 51]
 
 
 def test_phase1_rendered_guitar_voices_cover_every_measure() -> None:
@@ -2201,9 +2211,8 @@ def test_rising_phrases_swell_toward_the_apex_and_keep_the_voices_apart() -> Non
     _assert_engraved(thumb, {0: "villa_pattern", 1: "thumb_cantabile"})
 
 
-def test_a_later_tremolo_bar_breathes_and_the_first_bar_stays_locked() -> None:
-    # The opening bar is preludio. The next phrase holds, so it tremolos, and
-    # only the bar after the phrase has begun is allowed to swell.
+def test_a_two_bar_tremolo_region_matches_at_both_ends() -> None:
+    # Both ends of sin(pi t) add 0, so two tremolo bars share one quarter arch.
     opening = [60, 62, 64, 65, 67, 69, 71, 72]
     held = [67] * 8 + [72] * 8
     score = _pattern_score(
@@ -2216,15 +2225,163 @@ def test_a_later_tremolo_bar_breathes_and_the_first_bar_stays_locked() -> None:
     )
     first = [note.velocity for note in _attacks(score.lead, 1)[:4]]
     later = [note.velocity for note in _attacks(score.lead, 2)[:4]]
-    assert first == [52, 55, 54, 52]
-    assert later == [54, 57, 56, 54]
+    assert first == [48, 51, 50, 48]
+    assert later == first
     first_thumb = {note.velocity for note in score.low if note.bar == 1 and abs(note.beat) < 1e-6 and note.midi}
     later_thumb = {note.velocity for note in score.low if note.bar == 2 and abs(note.beat) < 1e-6 and note.midi}
-    assert first_thumb == {58}
-    assert later_thumb == {60}
-    # thumb > m > i > a still holds after the breath.
-    assert 60 > later[1] > later[2] > later[0]
+    assert first_thumb == {54}
+    assert later_thumb == first_thumb
+    at_one = [note.velocity for note in _attacks(score.lead, 1) if 1.0 - 1e-6 <= note.beat < 2.0]
+    assert at_one == [52, 55, 54, 52]
+    thumb = next(note.velocity for note in score.low if note.bar == 1 and abs(note.beat - 1.0) < 1e-6 and note.midi)
+    assert thumb == 58
+    assert thumb > at_one[1] > at_one[2] > at_one[0]
     _assert_engraved(score, {0: "barrios_preludio", 1: "barrios_tremolo", 2: "barrios_tremolo"})
+
+
+def test_a_three_bar_tremolo_peaks_in_the_middle() -> None:
+    opening = [60, 62, 64, 65, 67, 69, 71, 72]
+    held = [67] * 24
+    score = _pattern_score(
+        opening + held,
+        (_joined(0, opening), _joined(8, held)),
+        ensemble="barrios",
+        bpm=120,
+        character="rally",
+        rel_span=0.0,
+        chords={0: C, 1: C, 2: G, 3: G},
+    )
+    def peak(bar: int) -> int:
+        return next(
+            note.velocity
+            for note in score.low
+            if note.bar == bar and abs(note.beat - 2.0) < 1e-6 and note.midi is not None
+        )
+
+    assert peak(2) == peak(1) + 6
+    assert peak(3) == peak(1)
+    colour = next(note.velocity for note in score.support if note.bar == 2 and abs(note.beat) < 1e-6 and note.midi)
+    thumb = next(note.velocity for note in score.low if note.bar == 2 and abs(note.beat) < 1e-6 and note.midi)
+    assert colour == thumb
+
+
+def test_barrios_month_intro_contours_the_high_voice_and_the_bass() -> None:
+    import math
+
+    from app.sonify.span import plan_month
+
+    bars = [Bar(close=100 + 12 * math.sin(index / 6.0), volume=1000 + (index % 17) * 80) for index in range(80)]
+    spec = plan_month([20, 20, 20, 20], "guitar")[0].spec
+    score = render(bars, title="MWG", variant="guitar", ensemble="barrios", form=spec, character="rally")
+
+    def levels(voice, bar: int, *, before: float | None = None) -> list[int]:
+        found = []
+        for note in _attacks(voice, bar):
+            if before is not None and note.beat >= before - 1e-6:
+                continue
+            found.append(note.velocity)
+        return found
+
+    for bar in (0, 1):
+        assert levels(score.lead, bar) == [44, 50, 46]
+        assert levels(score.low, bar) == []
+    for bar in (2, 3):
+        assert levels(score.low, bar) == [46, 52]
+        assert levels(score.lead, bar) == [54, 60]
+        assert levels(score.support, bar) == [48, 50, 54, 56]
+    for bar in (4, 5):
+        assert levels(score.lead, bar) == [46, 48, 50, 52, 54, 56, 58, 60]
+        assert levels(score.low, bar) == [44, 46, 48, 50]
+        for beat in (0.0, 1.0, 2.0, 3.0):
+            bass = _covering(score.low, bar, beat)
+            lead = _covering(score.lead, bar, beat)
+            assert bass is not None and lead is not None
+            assert bass.midi is not None and lead.midi is not None and bass.midi < lead.midi
+    for bar in (6, 7):
+        assert levels(score.low, bar, before=3.5) == [52, 46]
+        inner = _attacks(score.support, bar)
+        assert [note.velocity for note in inner] == [53]
+        assert inner[0].beat == 0.0
+        assert abs(inner[0].duration_beats - 1.0) < 1e-6
+
+
+def test_barrios_six_eight_intro_keeps_each_inner_note_inside_its_half() -> None:
+    from app.sonify.span import plan_month
+
+    bars = [Bar(close=100 + 12 * math.sin(index / 6.0), volume=1000 + (index % 17) * 80) for index in range(80)]
+    spec = plan_month([20, 20, 20, 20], "guitar")[2].spec
+    score = render(bars, title="MWG", variant="guitar", ensemble="barrios", form=spec, character="rally")
+    for bar in (0, 1, 2):
+        assert [note.velocity for note in _attacks(score.lead, bar)] == [44, 50, 46]
+        assert _attacks(score.low, bar) == []
+    for bar in (3, 4):
+        assert [note.velocity for note in _attacks(score.low, bar)] == [46, 52]
+        assert [note.velocity for note in _attacks(score.lead, bar)] == [54, 60]
+        inner = _attacks(score.support, bar)
+        assert [note.velocity for note in inner] == [48, 50, 54, 56]
+        for note in inner:
+            end = note.beat + note.duration_beats
+            if note.beat < 1.5:
+                assert end <= 1.5 + 1e-6
+                assert 46 < (note.velocity or 0) < 54
+            else:
+                assert note.beat >= 1.5 - 1e-6
+                assert 52 < (note.velocity or 0) < 60
+    for bar in (5, 6, 7):
+        assert [note.velocity for note in _attacks(score.low, bar)] == [44, 47, 50]
+        assert [note.velocity for note in _attacks(score.lead, bar)] == [46, 49, 52, 54, 57, 60]
+    for bar in (8, 9):
+        bass = [note.velocity for note in _attacks(score.low, bar) if note.beat < 2.5]
+        assert bass == [52, 46]
+        inner = _attacks(score.support, bar)
+        assert [note.velocity for note in inner] == [53]
+        assert inner[0].beat == 0.0
+        assert abs(inner[0].duration_beats - 1.0) < 1e-6
+
+
+def test_barrios_week_tremolo_bass_moves_inside_the_bar() -> None:
+    import math
+
+    from app.sonify.span import plan_week
+
+    bars = [Bar(close=100 + 8 * math.sin(index / 5.0), volume=1500 + (index % 11) * 200) for index in range(40)]
+    spec = plan_week(5)[0].spec
+    score = render(bars, title="MWG", variant="guitar", ensemble="barrios", form=spec, character="selloff")
+    tremolo = [
+        bar
+        for bar in range(score.bars)
+        if sum(1 for note in score.lead if note.bar == bar and note.midi is not None and abs(note.duration_beats - 0.25) < 1e-6) >= 12
+    ]
+    assert len(tremolo) >= 3
+    bar = tremolo[len(tremolo) // 2]
+    by_beat: dict[float, int] = {}
+    for note in _attacks(score.low, bar):
+        by_beat.setdefault(round(note.beat, 2), note.velocity or 0)
+    levels = [by_beat[beat] for beat in sorted(by_beat)]
+    assert max(levels) - min(levels) >= 6
+    for beat, thumb in by_beat.items():
+        middle = next(
+            note.velocity
+            for note in score.lead
+            if note.bar == bar and note.midi is not None and abs(note.beat - (beat + 0.25)) < 1e-6
+        )
+        assert middle is not None and thumb >= middle + 3
+
+
+def test_barrios_outro_and_brouwer_intro_keep_a_flat_level() -> None:
+    barrios = _frame_score("barrios", 2)
+    final_lead = {note.velocity for note in _pitched(barrios.lead, barrios.bars - 1)}
+    final_bass = {note.velocity for note in _pitched(barrios.low, barrios.bars - 1)}
+    assert len(final_lead) == 1
+    assert len(final_bass) == 1
+
+    brouwer = _frame_score("brouwer", 4, character="calm")
+    assert len({note.velocity for note in _pitched(brouwer.lead, 1)}) == 1
+    assert len({note.velocity for note in _pitched(brouwer.low, 1)}) == 1
+    settled_bass = [note.velocity for note in _pitched(brouwer.low, 3) if note.beat < 3.5]
+    settled_lead = [note.velocity for note in _pitched(brouwer.lead, 3) if note.beat < 2.0]
+    assert len(set(settled_bass)) == 1
+    assert len(set(settled_lead)) == 1
 
 
 def test_one_day_character_hears_a_hose_session() -> None:
