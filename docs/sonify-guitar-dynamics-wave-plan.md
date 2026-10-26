@@ -1,6 +1,6 @@
 # Kế Hoạch Thiết Kế Filter Uốn Sóng Động Lực Học (Wave) & Mở Rộng Biên Độ ($ppp \to f$) Cho 5 Đại Sư Guitar
 
-> **Mục tiêu**: Đưa tiếng đàn guitar cổ điển thoát khỏi dải hẹp $mp - mf$ (`44..78`) hiện tại bằng cách **thay thế (rebase) vận tốc đã viết quanh `64/72` bằng con sóng Cường Độ Khớp Lệnh (Smoothed Per-Candle Market Volume Intensity) làm đường bao chủ đạo**, mở rộng chiều sâu về phía **thì thầm / gần gũi ($ppp - pp$, velocity `18..38`)**, giữ **100% các nốt sóng thường trong vùng dây nylon ấm (`<= 63` trước humanize, `<= 64` sau humanize)**, và cấp phát ngân sách **ép dây hiếm (`66..76`, tính theo từng section khi biên độ giá $\alpha_{\text{price}} \ge 0.25$)** chỉ cho đúng những cú nhấn thuộc các pattern thực sự cần lực tì dây.
+> **Mục tiêu**: Đưa tiếng đàn guitar cổ điển thoát khỏi dải hẹp $mp - mf$ (`44..78`) hiện tại bằng cách **thay thế (rebase) vận tốc đã viết quanh `64/72` bằng con sóng Cường Độ Khớp Lệnh (Smoothed Per-Candle Market Volume Intensity) làm đường bao trần trực tiếp**, mở rộng chiều sâu về phía **thì thầm / gần gũi ($ppp - pp$, velocity `18..38`)**, giữ **100% các nốt sóng thường trong vùng dây nylon ấm (`<= 63` trước humanize, `<= 64` sau humanize)**, và cấp phát ngân sách **ép dây hiếm (`66..76`, tính theo từng section khi biên độ giá $\alpha_{\text{price}} \ge 0.25$)** chỉ cho đúng những cú nhấn thuộc các pattern thực sự cần lực tì dây.
 >
 > **Liên kết**: [`docs/sonify-classical-guitar.md`](./sonify-classical-guitar.md), [`docs/sonify-barrios-tremolo-dynamics.md`](./sonify-barrios-tremolo-dynamics.md), [`docs/sonify-humanize-preset-plan.md`](./sonify-humanize-preset-plan.md).
 
@@ -29,7 +29,7 @@ Trên MS Basic, `NoteEvent.velocity` xuất ra MusicXML thành `<note dynamics="
 
 ---
 
-## 2. Mô Hình Toán Học: Sóng Cường Độ Volume Làm Đường Bao Chủ Đạo & Rebase Vận Tốc (`guitar_wave.py`)
+## 2. Mô Hình Toán Học: Sóng Cường Độ Volume Làm Trần Trực Tiếp & Rebase Vận Tốc (`guitar_wave.py`)
 
 ### 2.1. Vị trí trong Pipeline & Đại lượng Cường Độ Khớp Lệnh (`bar_volumes`)
 
@@ -57,7 +57,7 @@ render_patterned_voices()
 
 ---
 
-### 2.2. Quy Trình 4 Bước Làm Mượt Cường Độ Volume Thành Đường Bao $U_{\text{vol}}(t) \in [0.0, 1.0]$
+### 2.2. Quy Trình 4 Bước Làm Mượt Cường Độ Volume Thành Đường Bao Trần $U_{\text{vol}}(t) \in [0.0, 1.0]$
 
 Với mỗi `FormSection` thân bài `[sec_start, sec_end)`:
 
@@ -77,130 +77,117 @@ Với mỗi `FormSection` thân bài `[sec_start, sec_end)`:
   - **Trường hợp có biến thiên ($q_{95} > q_{05}$)**:
     Kéo dãn $\tilde{\ell}(b)$ theo $[q_{05}, q_{95}]$ rồi khóa chính xác $\min_b u(b) = 0.0$ và $\max_b u(b) = 1.0$:
     $$u_{\text{raw}}(b) = \text{clamp}\left(\frac{\tilde{\ell}(b) - q_{05}}{q_{95} - q_{05}},\; 0.0,\; 1.0\right), \qquad u(b) = \frac{u_{\text{raw}}(b) - \min u_{\text{raw}}}{\max u_{\text{raw}} - \min u_{\text{raw}}} \in [0.0, 1.0]$$
-- **Hệ quả quan trọng**: bước Range-Lock được thực hiện **ngay trên sóng Volume $u(b)$ (trước khi nhân mờ biên $T_{\text{edge}}$, hệ số $\kappa_{\text{sec}}$ và câu nhạc)**. Nhờ vậy:
-  1. Ô có thanh khoản cao nhất section luôn có $u(b^*) = 1.0$, và ô trũng thanh khoản nhất luôn có $u(b_*) = 0.0$.
-  2. Hệ số dịu $\kappa_{\text{sec}} = 0.65$ của `trio`/`bridge` và sàn mờ biên $T_{\text{edge}} \in [0.25, 1.0]$ áp dụng ở bước sau **được bảo toàn 100%, không bị chia mất**!
+- **Hệ quả**: Trong mọi section có biến thiên thanh khoản, ô nhịp có thanh khoản cao nhất $b^*$ (dù nằm ở đầu phiên mở cửa, giữa phiên, hay cuối phiên đóng cửa) luôn đạt **$u(b^*) = 1.0$**, và ô nhịp trũng thanh khoản nhất $b_*$ luôn đạt **$u(b_*) = 0.0$**.
 
 #### Bước D — Nội Suy Cosine Móc Đơn (`Sub-bar Cosine Interpolation`)
-- Tại móc đơn $t$ (nằm giữa tâm hai ô $b_0$ và $b_1$ với khoảng cách chuẩn hóa $\delta \in [0, 1]$):
-  $$U_{\text{vol}}(t) = u(b_0) + \frac{1 - \cos(\pi \cdot \delta)}{2} \cdot \big(u(b_1) - u(b_0)\big) \in [0.0, 1.0]$$
+- Tại móc đơn $t$ (với ô hiện tại $b = t // \text{epb}$):
+  - Tại tâm ô nhịp (hoặc trên cả ô đỉnh $b^*$ nơi $u(b^*) = 1.0$), $U_{\text{vol}}(t)$ đạt đúng $u(b)$.
+  - Giữa các ô nhịp liên tiếp, nối bằng cosine mượt để không nhảy bậc thang ở vạch nhịp:
+    $$U_{\text{vol}}(t) = u(b_0) + \frac{1 - \cos(\pi \cdot \delta)}{2} \cdot \big(u(b_1) - u(b_0)\big) \in [0.0, 1.0]$$
 
 ---
 
-### 2.3. Tách Bạch Vai Trò Của $\alpha_{\text{vol}}$ (Mở Sóng Ấm) Và $\alpha_{\text{price}}$ (Mở Cổng Snap)
-
-Một phiên giá đi ngang (`calm`) trên thị trường vẫn luôn có đường cong thanh khoản hình chữ U (đầu giờ sáng và cuối giờ chiều sôi động hơn giờ nghỉ trưa, nên tỷ số volume dễ đạt $2.5 - 3.5\times$).
-- Nếu trộn chung $\alpha_{\text{vol}}$ và $\alpha_{\text{price}}$ để mở Cổng Snap, phiên giá đi ngang sẽ bị bật tiếng ép dây (`66..76`) chỉ vì nhịp volume thường ngày.
-- Do đó, ta **tách riêng hai hệ số** trên mỗi `FormSection` `[sec_start, sec_end)`:
+### 2.3. Tách Bạch $\alpha_{\text{vol}}$ (Mở Sóng Ấm), $\alpha_{\text{price}}$ (Mở Cổng Snap) & Hệ Số Đoạn Nội Tâm $\kappa_{\text{sec}}$
 
 1. **Hệ số biến động giá $\alpha_{\text{price}} \in [0.0, 1.0]$ (Quyết định Cổng Snap & Mở trần kịch tính)**:
    Tính từ `_section_rel_span(bars, groups, sec_start, sec_end)`:
    $$\alpha_{\text{price}} = \text{clamp}\left(\frac{\text{rel\_span}_{\text{sec}} - 0.004}{0.024 - 0.004},\; 0.0,\; 1.0\right)$$
 
 2. **Hệ số tương phản dòng tiền $\alpha_{\text{vol}} \in [0.0, 1.0]$ (Đo trên chuỗi volume đã làm mượt $\tilde{v}(b) = \exp(\tilde{\ell}(b)) - 1$)**:
-   Đặt $\text{vol\_ratio}_{\text{sec}} = \frac{\text{percentile}(\tilde{v}, 0.90)}{\max(\text{percentile}(\tilde{v}, 0.10),\; 10^{-6})}$ (dùng chuỗi đã làm mượt $\tilde{v}$ để một cây nến lẻ không làm phồng tỷ số):
+   Đặt $\text{vol\_ratio}_{\text{sec}} = \frac{\text{percentile}(\tilde{v}, 0.90)}{\max(\text{percentile}(\tilde{v}, 0.10),\; 10^{-6})}$:
    $$\alpha_{\text{vol}} = \text{clamp}\left(\frac{\ln(\text{vol\_ratio}_{\text{sec}}) - \ln(1.35)}{\ln(3.50) - \ln(1.35)},\; 0.0,\; 1.0\right)$$
    *(Nếu fixture có volume hằng số $\text{vol\_ratio}_{\text{sec}} \le 1.01$, đặt $\alpha_{\text{vol}} = \alpha_{\text{price}}$).*
 
-3. **Ánh xạ vào Cửa sổ Ấm $[V_{\text{floor}}, V_{\text{ceil}}]$ và Trần Snap $V_{\text{snap}}$**:
-   - **Cửa sổ ấm $[V_{\text{floor}}, V_{\text{ceil}}]$** mở theo $\alpha_{\text{warm}} = \max(\alpha_{\text{price}},\; 0.75 \cdot \alpha_{\text{vol}})$:
+3. **Ánh xạ vào Cửa sổ Ấm $[V_{\text{floor}}, V_{\text{ceil}}]$ và Hệ số đoạn nội tâm (`trio` / `bridge`)**:
+   - Đặt $\alpha_{\text{warm}} = \max(\alpha_{\text{price}},\; 0.75 \cdot \alpha_{\text{vol}})$.
+   - Với section thường (`A` hoặc thân bài `1D`):
      $$\begin{aligned}
      V_{\text{floor}} &= \text{round}\big(P.\text{floor\_calm} + \alpha_{\text{warm}} \cdot (P.\text{floor\_wide} - P.\text{floor\_calm})\big) \\
      V_{\text{ceil}}  &= \text{round}\big(P.\text{ceil\_calm}  + \alpha_{\text{warm}} \cdot (P.\text{ceil\_wide}  - P.\text{ceil\_calm})\big) \le 63
      \end{aligned}$$
-     *(Nhờ vậy, phiên đi ngang mà có sóng thanh khoản lớn vẫn thở rộng rãi trong vùng ấm từ $ppp$ lên `~60`, nhưng hoàn toàn không vượt `63`).*
-   - **Cổng Snap và Trần $V_{\text{snap}}$ chỉ mở theo $\alpha_{\text{price}}$**:
-     - Khi **$\alpha_{\text{price}} < 0.25$** (biên độ giá của section `< 0.9%`): **Đóng hoàn toàn Cổng Snap ($K_{\text{sec}} = 0$)** trên mọi pattern (riêng cú slap cố định của `elogio_pizz` có quy tắc trần riêng ở Mục 2.5C).
-     - Khi **$\alpha_{\text{price}} \ge 0.25$**:
-       $$V_{\text{snap}}(\alpha_{\text{price}}) = \begin{cases}
-       \text{None}, & \text{nếu } P.\text{snap\_wide} \text{ là None} \\
-       \text{round}\big(P.\text{snap\_calm} + \alpha_{\text{price}} \cdot (P.\text{snap\_wide} - P.\text{snap\_calm})\big), & \text{ngược lại}
-       \end{cases}$$
+   - **Với đoạn giữa nội tâm (`section.trio` hoặc `section.bridge`)**:
+     Thay vì nhân $\kappa = 0.65$ vào $W(t)$ (làm $W(t) \le 0.65$ khiến đoạn `trio`/`bridge` không bao giờ chạm tới trần thiết kế của nó và không bao giờ qua được ngưỡng snap `0.70`), việc làm dịu đoạn nội tâm được thực hiện bằng cách **hạ $\alpha_{\text{warm}}$ của section đó đi nhân tử $\kappa_{\text{sec}} = 0.50$** (tức kéo $[V_{\text{floor}}, V_{\text{ceil}}]$ của đoạn `trio`/`bridge` về sát $[P.\text{floor\_calm}, P.\text{ceil\_calm}]$), trong khi sóng chuẩn hóa $U_{\text{vol}}(t)$ bên trong section đó **vẫn chạy đủ `[0.0, 1.0]`**!
+   - **Không nhân $T_{\text{edge}}$ lên thân bài**:
+     Mờ biên (emergence / morendo) **chỉ áp dụng cho vùng khung Pedal (`intro`/`warmup` và `cooldown`/`outro`, Mục 4)**. Toàn bộ các ô thuộc thân bài giữ nguyên $U_{\text{vol}}(t)$ để **đỉnh thanh khoản lúc mở cửa (ATO/đầu phiên) và đóng cửa (cuối phiên) ở hai đầu thân bài được giữ nguyên 100%, không bị dìm xuống `0.25`**!
 
 ---
 
-### 2.4. Ghép Sóng: Volume Làm Đường Bao Trần (Envelope), Câu Nhạc Dao Động Trong Headroom
+### 2.4. Đường Bao Trần `U_vol(t)` & Hơi Thở Nội Bộ Câu Nhạc (Đỉnh Thanh Khoản Luôn Là Đỉnh Tiếng)
 
-Nếu cộng tuyến tính $0.55 \cdot U_{\text{vol}} + 0.30 \cdot W_{\text{phrase}}$, một đỉnh câu nhạc ở nơi volume trung bình (`0.8`) sẽ có tổng (`0.55*0.8 + 0.30*1.0 = 0.74`) lớn hơn cả nơi đỉnh thanh khoản (`1.0`) rơi vào biên câu (`0.55*1.0 + 0.30*0.0 = 0.55`) — làm đỉnh âm lượng lệch khỏi đỉnh thanh khoản.
+Để đảm bảo hai tính chất toán học nghiêm ngặt:
+1. **Tại ô đỉnh thanh khoản ($u(b^*) = 1.0$), vận tốc giai điệu chắc chắn chạm đúng $V_{\text{ceil}}$** (không đòi hỏi đỉnh volume phải tình cờ trùng với đỉnh câu nhạc hay độ dốc giá).
+2. **Không một đỉnh câu nhạc nào ở ô có volume thấp hơn có thể vượt qua đường bao trần của ô có volume cao hơn**:
 
-Để **Đỉnh Thanh Khoản luôn là Đỉnh Đường Bao Âm Lượng**, đồng thời bảo toàn nguyên vẹn $\kappa_{\text{sec}}$ và $T_{\text{edge}}(t)$:
+Ta tách **Đường Bao Trần Тео Volume ($V_{\text{env}}(t)$)** và **Độ Nhấn Nhá Nội Bộ Câu Nhạc ($\Delta_{\text{phrase}}(t) \le 0$)**:
 
-1. **Hơi thở câu nhạc $W_{\text{phrase}}(t) \in [0, 1]$ và Độ dốc giá chuẩn hóa $W_{\text{slope}}(t) \in [0, 1]$**:
-   - **Hơi thở câu nhạc**:
-     $$C_{\text{phrase}}(t) = \frac{1 - \cos(\pi \cdot s(t))}{2}, \qquad W_{\text{phrase}}(t) = \begin{cases}
-     C_{\text{phrase}}(t), & \text{nếu } \text{phrase.rise} \ge \text{MIN\_RISE} \\
-     0.35 \cdot C_{\text{phrase}}(t), & \text{nếu } \text{phrase.rise} < \text{MIN\_RISE}
-     \end{cases}$$
-   - **Độ dốc giá chuẩn hóa theo nửa cung + tính cách ô (Đơn vị đồng nhất `[0, 1]`)**:
-     Đặt $\Delta m(t) = |\text{melody}[t] - \text{melody}[\max(0, t-1)]|$ (số nửa cung dịch chuyển trên một móc đơn, kẹp ở `4` nửa cung = quãng 3 trưởng):
-     $$S_{\text{step}}(t) = \min\left(1.0,\; \frac{\Delta m(t)}{4.0}\right) \in [0.0, 1.0]$$
-     $$M_{\text{mood}}(\text{bar}) = \big\{\text{"calm"}: 0.0,\; \text{None}: 0.25,\; \text{"selloff"}: 0.50,\; \text{"rally"}: 0.75,\; \text{"volatile"}: 1.0\big\}[\text{mood}(\text{bar})]$$
-     $$W_{\text{slope}}(t) = 0.60 \cdot S_{\text{step}}(t) + 0.40 \cdot M_{\text{mood}}(t // \text{epb}) \in [0.0, 1.0]$$
-   - ** Dao động nội bộ câu nhạc $A_{\text{local}}(t) \in [0, 1]$**:
-     $$A_{\text{local}}(t) = 0.75 \cdot W_{\text{phrase}}(t) + 0.25 \cdot W_{\text{slope}}(t) \in [0.0, 1.0]$$
+1. **Đường Bao Trần Theo Sóng Volume $V_{\text{env}}(t) \in [V_{\text{floor}}, V_{\text{ceil}}]$**:
+   Sóng volume $U_{\text{vol}}(t) \in [0.0, 1.0]$ sau khi uốn qua $E_{\text{vol}}(t) = \big(U_{\text{vol}}(t)\big)^{\gamma}$ xác định trực tiếp **Trần Đường Bao** tại thời điểm $t$:
+   $$V_{\text{env}}(t) = V_{\text{floor}} + E_{\text{vol}}(t) \cdot \big(V_{\text{ceil}} - V_{\text{floor}}\big)$$
+   - Tại ô trũng thanh khoản nhất ($U_{\text{vol}} = 0.0 \implies E_{\text{vol}} = 0.0$): $V_{\text{env}} = V_{\text{floor}}$.
+   - Tại ô đỉnh thanh khoản nhất ($U_{\text{vol}} = 1.0 \implies E_{\text{vol}} = 1.0$): **$V_{\text{env}} = V_{\text{ceil}}$** (luôn đạt đúng $V_{\text{ceil}}$ tại mọi ô có $u(b^*) = 1.0$, bất kể vị trí trong section!).
 
-2. **Ghép theo mô hình Đường Bao Điều Chế (Envelope Modulation — Đỉnh Volume khóa Trần, Câu nhạc thở trong `22%` Headroom)**:
-   Trước khi áp dụng mờ biên section:
-   $$W_{\text{core}}(t) = U_{\text{vol}}(t) \cdot \Big(0.78 + 0.22 \cdot A_{\text{local}}(t)\Big) \;+\; \big(1 - U_{\text{vol}}(t)\big) \cdot \Big(0.12 \cdot W_{\text{phrase}}(t)\Big)$$
-   - **Kiểm chứng toán học**:
-     - Khi thanh khoản ở **đáy trũng ($U_{\text{vol}} = 0.0$)**: $W_{\text{core}}(t) = 0.12 \cdot W_{\text{phrase}}(t) \in [0.0, 0.12]$. Ở đầu/cuối câu nhạc tại vùng trũng thanh khoản, $W_{\text{core}} = 0.0 \implies$ chạm đúng **$V_{\text{floor}}$ ($ppp - pp$)**; ở giữa câu nhạc vẫn có một nhịp thở nhẹ `12%` (`+3..4` velocity) để câu nhạc không bị chết cứng.
-     - Khi thanh khoản ở **đỉnh ($U_{\text{vol}} = 1.0$)**: $W_{\text{core}}(t) = 0.78 + 0.22 \cdot A_{\text{local}}(t) \in [0.78, 1.00]$. Toàn bộ vùng đỉnh thanh khoản luôn đứng ở mức cao nhất của bài (`>= 0.78`, lớn hơn bất kỳ điểm nào có $U_{\text{vol}} \le 0.75$), và đạt đúng `1.00` (chạm **$V_{\text{ceil}}$**) tại đỉnh câu trong vùng thanh khoản cao nhất!
+2. **Độ Thở Nội Bộ Câu Nhạc Nằm Bên Dưới Đường Bao ($\Delta_{\text{phrase}}(t) \in [-D_{\max}, 0]$)**:
+   - Trong mỗi câu nhạc `phrase`, đặt hàm thở chuẩn hóa $C_{\text{phrase}}(t) = \frac{1 - \cos(\pi \cdot s(t))}{2} \in [0.0, 1.0]$ (bằng `0.0` ở hai biên câu và bằng `1.0` tại đỉnh câu `phrase.apex`; nếu câu chỉ có 1 run phẳng thì $s(t)$ tính tới tâm câu để giữa câu vẫn bằng `1.0`).
+   - Thay vì cộng vượt lên trên $V_{\text{env}}(t)$, hai đầu câu nhạc **lùi nhẹ xuống dưới đường bao $V_{\text{env}}(t)$ một khoảng tối đa $D_{\max} = 3$ đơn vị** (hoặc $D_{\max} = 1$ khi câu phẳng), và tại đỉnh câu ($C_{\text{phrase}} = 1.0$) hoặc tại tâm của ô đỉnh thanh khoản ($u(b^*) = 1.0$), độ lùi bằng `0` (chạm đúng đường bao $V_{\text{env}}(t)$):
+     $$\Delta_{\text{phrase}}(t) = -D_{\max} \cdot \big(1 - C_{\text{phrase}}(t)\big) \cdot \big(1 - U_{\text{vol}}(t)^4\big) \in [-3.0,\; 0.0]$$
+   - Khi đó, đường vận tốc chuẩn của Bè Hát Chính là:
+     $$V_{\text{hat}}(t) = \text{clamp}\Big(\text{round}\big(V_{\text{env}}(t) + \Delta_{\text{phrase}}(t)\big),\; V_{\text{floor}},\; V_{\text{ceil}}\Big)$$
 
-3. **Áp dụng Mờ Biên Section $T_{\text{edge}}(t)$ và Hệ Số Dịu Trio/Bridge $\kappa_{\text{sec}}$ Ở Bước Cuối Cùng**:
-   $$W(t) = \kappa_{\text{sec}} \cdot T_{\text{edge}}(t) \cdot W_{\text{core}}(t) \in [0.0, 1.0]$$
-   - Với $T_{\text{edge}}(t) \in [0.25, 1.0]$ (độ dài đoạn mờ $R = \min(2 \cdot \text{epb},\; \lfloor L_{\text{sec}} / 2 \rfloor)$ ở đầu và cuối section; $T_{\text{edge}} = 1.0$ ở toàn bộ vùng giữa section) và $\kappa_{\text{sec}} = 0.65$ cho `trio`/`bridge` nội tâm (`1.0` cho các section khác).
-   - Vì không có phép Range-Lock nào chạy sau bước này, $\kappa_{\text{sec}} = 0.65$ và độ mờ biên `0.25` được giữ nguyên vẹn 100%!
+3. **Kiểm chứng toán học của công thức Đường Bao Trần**:
+   - **Tại đỉnh thanh khoản ($U_{\text{vol}}(t^*) = 1.0$)**: $\big(1 - U_{\text{vol}}(t^*)^4\big) = 0 \implies \Delta_{\text{phrase}}(t^*) = 0 \implies V_{\text{hat}}(t^*) = V_{\text{env}}(t^*) = V_{\text{ceil}}$ **trên toàn bộ ô đỉnh thanh khoản**, bất kể ô đó nằm ở mở cửa, giữa bài hay đóng cửa, và bất kể đang ở đầu câu hay đỉnh câu!
+   - **Tại đáy thanh khoản ($U_{\text{vol}}(t_*) = 0.0$)**: $V_{\text{env}}(t_*) = V_{\text{floor}}$, và do $\Delta_{\text{phrase}}(t_*) \le 0$ được kẹp ở $V_{\text{floor}}$, nên **$V_{\text{hat}}(t_*) = V_{\text{floor}}$** (chạm đúng đáy $ppp - pp$).
+   - **Ở các ô có volume thấp hơn ($U_{\text{vol}}(t) < 1.0$)**: Vì $\Delta_{\text{phrase}}(t) \le 0$, ta luôn có:
+     $$V_{\text{hat}}(t) \le V_{\text{env}}(t) < V_{\text{env}}(t^*) = V_{\text{ceil}}$$
+     Tức **không một đỉnh câu nhạc nào ở vùng volume thấp có thể vượt qua đường bao trần $V_{\text{env}}$ của vùng volume cao hơn**!
 
 ---
 
-### 2.5. Công Thức Rebase Vận Tốc, Bảo Toàn Vòm Vi Mô & Bất Biến Từng Pattern
-
-Với hệ số uốn $\gamma = P.\gamma$ của pattern đang chạy, năng lượng sau uốn là:
-
-$$E(t) = \big(W(t)\big)^{\gamma} \in [0.0, 1.0]$$
+### 2.5. Bảo Toàn Cấu Trúc Vi Mô, Cổng Snap & Bất Biến 3 Bè
 
 #### A. Ba đường cong cơ sở (`V_hat`, `V_bass_curve`, `V_sup_curve`)
 
 $$\begin{aligned}
-V_{\text{hat}}(t)        &= \text{round}\Big(V_{\text{floor}} + E(t) \cdot \big(V_{\text{ceil}} - V_{\text{floor}}\big)\Big) \in [V_{\text{floor}},\; V_{\text{ceil}} \le 63] \\
-V_{\text{bass\_curve}}(t) &= \text{round}\Big(P.\text{bass\_floor} + E(t)^{1.05} \cdot \big(P.\text{bass\_ceil} - P.\text{bass\_floor}\big)\Big) \\
-V_{\text{sup\_curve}}(t)  &= \text{round}\Big(P.\text{sup\_floor} + E(t)^{1.20} \cdot \big(P.\text{sup\_ceil} - P.\text{sup\_floor}\big)\Big)
+V_{\text{hat}}(t)        &= \text{clamp}\Big(\text{round}\big(V_{\text{env}}(t) + \Delta_{\text{phrase}}(t)\big),\; V_{\text{floor}},\; V_{\text{ceil}} \le 63\Big) \\
+V_{\text{bass\_curve}}(t) &= \text{round}\Big(P.\text{bass\_floor} + E_{\text{vol}}(t)^{1.05} \cdot \big(P.\text{bass\_ceil} - P.\text{bass\_floor}\big)\Big) \\
+V_{\text{sup\_curve}}(t)  &= \text{round}\Big(P.\text{sup\_floor} + E_{\text{vol}}(t)^{1.20} \cdot \big(P.\text{sup\_ceil} - P.\text{sup\_floor}\big)\Big)
 \end{aligned}$$
 
 #### B. Bảo toàn Tuyệt Đối Cấu Trúc Nội Bộ Cho 4 Pattern Đặc Thù (`tremolo`, `etude1`, `etude11`, `preludio`)
 
-> **Quy tắc quan trọng**: 4 pattern này có cấu trúc phân bè và bậc thang riêng biệt (ví dụ `tremolo` đặt ngón cái ở `low` lớn hơn fill `a-m-i` ở `lead`; `etude11` có nốt nhắc lại `lead` ở nửa sau phách thấp hơn `bass` đầu phách). Do đó, 4 pattern này **dùng trực tiếp quy tắc rebase riêng bên dưới và KHÔNG đi qua pass ép `lead > low > support` chung**!
+> **Quy tắc quan trọng**: 4 pattern này có cấu trúc phân bè và bậc thang riêng biệt (`tremolo` đặt ngón cái ở `low` lớn hơn fill `a-m-i` ở `lead`; `etude11` có nốt nhắc lại `lead` ở nửa sau phách thấp hơn `bass` đầu phách). Do đó, 4 pattern này **dùng trực tiếp quy tắc rebase riêng bên dưới và KHÔNG đi qua pass ép `lead > low > support` chung**!
 
 | Pattern | Công thức Rebase ở vùng ấm (khớp 100% với từng dòng code hiện tại) | Quy tắc khi Cú Mốc được Snap (`66..74`) |
 |---|---|---|
-| **`tremolo`**<br>(`guitar.py:64`:<br>`4/4: (-4, 0, +4, +1)`<br>`3/4 & 6/8: (-4, +4, 0)`) | • **Lấy một mốc chung cho cả ô nhịp `bar`**: Đặt $V_{\text{bar}} = V_{\text{hat}}(t_{\text{bar\_mid}})$ tại tâm ô nhịp, và dịch $V_{\text{bar}}$ vào đoạn $[P.\text{floor\_calm} + 4,\; 63 - 4] = [P.\text{floor\_calm} + 4,\; 59]$ trước khi cộng offset phách.<br>• Nhờ dùng **một mốc $V_{\text{bar}}$ duy nhất trong ô** và kẹp $V_{\text{bar}} \le 59$, cả 4 phách trong ô 4/4 nhận:<br>$V_{\text{thumb}}(q) = V_{\text{bar}} + (-4,\; 0,\; +4,\; +1)[q] \in [P.\text{floor\_calm},\; 63]$<br>*(và 3 phách ở 3/4, 6/8 nhận $V_{\text{bar}} + (-4,\; +4,\; 0)[q]$) — **bảo toàn chính xác tuyệt đối hiệu số `(-4, 0, +4, +1)` giữa các phách trong mọi ô ấm**!*<br>• Nốt màu đầu ô đổi hợp âm (`support`, ở `q = 0`) nhận đúng $V_{\text{thumb}}(0)$.<br>• 4 móc kép `a-m-i-a` (`lead`) của phách $q$ nhận đúng `_TREMOLO_FILL_OFFSETS = (-6, -3, -4, -6)`:<br>$V_{\text{fill}}(q, r) = \max\big(18,\; V_{\text{thumb}}(q) + (-6, -3, -4, -6)[r]\big) \le 60$<br>*(Ở đây `low = thumb > lead = fill`, không đi qua pass `lead > low`).* | Khi phách đỉnh $q^*$ (thường là $q^* = 2$, phách mạnh nhất của vòm ô) lọt Cổng Snap với lực $V_{\text{snapped}} \in [68, 72]$:<br>• Ngón cái `low` tại $q^*$ nhận $V_{\text{snapped}}$.<br>• Ngón `m` (`r == 1` trên `lead`) nhận $\min(V_{\text{snapped}} - 3,\; 69)$.<br>• Ba móc kép `a, i, a` (`r == 0, 2, 3` trên `lead`) và nốt màu `support` **bị kẹp cứng ở `<= 63`**: `i` nhận $\min(63,\; V_{\text{snapped}} - 4)$ và `a` nhận $\min(61,\; V_{\text{snapped}} - 6)$ (giữ nghiêm ngặt `thumb > m > i > a`). |
+| **`tremolo`**<br>(`guitar.py:64`:<br>`4/4: (-4, 0, +4, +1)`<br>`3/4 & 6/8: (-4, +4, 0)`) | • **Lấy một mốc chung cho cả ô nhịp `bar`**: Đặt $V_{\text{bar}} = \text{clamp}\big(V_{\text{hat}}(t_{\text{bar\_mid}}),\; P.\text{floor\_calm} + 4,\; 59\big)$ trước khi cộng offset phách.<br>• Nhờ dùng **một mốc $V_{\text{bar}}$ duy nhất trong ô** và kẹp $V_{\text{bar}} \le 59$, cả 4 phách trong ô 4/4 nhận:<br>$V_{\text{thumb}}(q) = V_{\text{bar}} + (-4,\; 0,\; +4,\; +1)[q] \in [P.\text{floor\_calm},\; 63]$<br>*(và 3 phách ở 3/4, 6/8 nhận $V_{\text{bar}} + (-4,\; +4,\; 0)[q]$) — **bảo toàn chính xác tuyệt đối hiệu số `(-4, 0, +4, +1)` giữa các phách trong mọi ô ấm**!*<br>• Nốt màu đầu ô đổi hợp âm (`support`, ở `q = 0`) nhận đúng $V_{\text{thumb}}(0)$.<br>• 4 móc kép `a-m-i-a` (`lead`) của phách $q$ nhận đúng `_TREMOLO_FILL_OFFSETS = (-6, -3, -4, -6)`:<br>$V_{\text{fill}}(q, r) = \max\big(18,\; V_{\text{thumb}}(q) + (-6, -3, -4, -6)[r]\big) \le 60$. | Khi phách đỉnh $q^*$ (phách mạnh nhất của ô đỉnh) lọt Cổng Snap với lực $V_{\text{snapped}} \in [68, 72]$:<br>• Ngón cái `low` tại $q^*$ nhận $V_{\text{snapped}}$.<br>• Ngón `m` (`r == 1` trên `lead`) nhận $\min(V_{\text{snapped}} - 3,\; 69)$.<br>• Ba móc kép `a, i, a` (`r == 0, 2, 3` trên `lead`) và nốt màu `support` **bị kẹp cứng ở `<= 63`**: `i` nhận $\min(63,\; V_{\text{snapped}} - 4)$ và `a` nhận $\min(61,\; V_{\text{snapped}} - 6)$ (giữ nghiêm ngặt `thumb > m > i > a`). |
 | **`etude1`**<br>(`guitar_villa.py:339`:<br>`_ETUDE1_ARC` `{-2, 0, +2}`) | • Hai nốt hát (`index 7, 9` trên `lead`) nhận $V_{\text{lead}}(7) = V_{\text{hat}}(t_7)$ và $V_{\text{lead}}(9) = V_{\text{hat}}(t_9) \in [V_{\text{floor}}, V_{\text{ceil}} \le 63]$.<br>• 13 móc kép bè trung (`support`) có tâm ô là $V_{\text{sup\_mid}} = \text{clamp}\big(V_{\text{sup\_curve}}(t_{\text{bar}}),\; P.\text{sup\_floor} + 2,\; \min(P.\text{sup\_ceil} - 2,\; \min(V_{\text{lead}}) - 8)\big)$. Nhờ tâm cách biên ít nhất `2`, từng móc kép thứ $i$ nhận:<br>$V_{\text{sup}}(i) = V_{\text{sup\_mid}} + \text{\_ETUDE1\_ARC}[i]$<br>*(Bảo toàn nguyên vẹn bậc thang `-2, 0, +2, 0, -2` không bị kẹp phẳng).*<br>• Bass đầu ô (`low`) nằm giữa đỉnh bè trung của ô đó và nốt hát:<br>$V_{\text{bass}} = \min\Big(61,\; \max\big(\max_{i} V_{\text{sup}}(i) + 2,\; \min(V_{\text{lead}}) - 4\big)\Big)$. | Khi câu chứa ô đỉnh lọt Cổng Snap với $V_{\text{snapped}} \in [68, 70]$:<br>• Chỉ **một nốt hát duy nhất trong ô đỉnh** (nốt `index 9` ngân dài 1.75 phách, hoặc nốt có cao độ cao hơn giữa `7` và `9`) nhận $V_{\text{snapped}}$, đúng quy tắc **1 cú tấn công mỗi đơn vị ngân sách**! Nốt hát còn lại trong ô giữ ở $\min(63,\; V_{\text{snapped}} - 5)$.<br>• Bass đầu ô giữ ở $\min(61,\; V_{\text{snapped}} - 6) \le 61$.<br>• 13 móc kép `support` giữ nguyên `<= 52`. |
-| **`etude11`**<br>(`guitar_villa.py:476`:<br>`_etude11_middle_vel`) | • Gỡ `accent=True` mặc định trên các phách thường (`quarter 0..3`).<br>• Cú 1 của phách (`lead` tại `beat = q`) nhận `hairpin` mới là $V_{\text{q}} = V_{\text{hat}}(t_q) \in [V_{\text{floor}}, V_{\text{ceil}} \le 63]$.<br>• Cú 4 nhắc lại (`lead` tại `beat = q + 0.5`) nhận $V_{\text{echo}} = \max(P.\text{sup\_floor} + 6,\; V_{\text{q}} - 8)$.<br>• Bass đầu phách (`low`, ngân cả phách `1.0` beat) nhận $V_{\text{bass}} = \max(V_{\text{echo}} + 2,\; V_{\text{q}} - 4) \le 59$ *(ở nửa sau phách `q + 0.5`, bass đang ngân từ đầu phách cao hơn nốt `echo` — đây là cấu trúc gốc của Étude 11, không áp pass `lead > low` lên nốt `echo`)*.<br>• 4 nốt sextuplet giữa (`slot in (1, 2, 4, 5)` trên `support`) **giữ nguyên thứ tự 2 bước kẹp rồi mới cộng `_ETUDE11_TILT` của hàm `_etude11_middle_vel(hairpin, slot, band)` đang chạy**:<br>1) `echo_floor = max(P.sup_floor, V_q - 8)`<br>2) `ceiling = max(P.sup_floor, echo_floor if band == "f" else echo_floor - 1)`<br>3) `shaped = min(ceiling, max(P.sup_floor, V_q + arch[slot] + band_nudge))`<br>4) `vel = max(P.sup_floor, shaped + _ETUDE11_TILT[slot])`<br>*(Nhờ kẹp `ceiling` trước rồi mới cộng `_ETUDE11_TILT = {1:-1, 2:-1, 4:0, 5:+1}`, ở $V_q = 60$ trên band `mf` sẽ cho ra đúng `49, 50, 51, 51` như code hiện tại!).* | Khi phách đỉnh $q^*$ lọt Cổng Snap với $V_{\text{snapped}} \in [70, 74]$:<br>• Chỉ **cú 1 của `lead`** tại $q^*$ nhận $V_{\text{snapped}}$ và `accent=True`.<br>• Bass tại $q^*$ nhận $\min(62,\; V_{\text{snapped}} - 6)$ (kèm `accent=True`).<br>• Cú 4 `echo` nhận $\min(60,\; V_{\text{snapped}} - 10)$.<br>• 4 nốt sextuplet `support` truyền `hairpin = min(63, V_q)` vào công thức 4 bước trên nên vẫn giữ nguyên hình bậc thang `49, 50, 51, 51` dưới `<= 52`. |
+| **`etude11`**<br>(`guitar_villa.py:476`:<br>`_etude11_middle_vel`) | • Gỡ `accent=True` mặc định trên các phách thường (`quarter 0..3`).<br>• Cú 1 của phách (`lead` tại `beat = q`) nhận `hairpin` mới là $V_{\text{q}} = V_{\text{hat}}(t_q) \in [V_{\text{floor}}, V_{\text{ceil}} \le 63]$.<br>• Cú 4 nhắc lại (`lead` tại `beat = q + 0.5`) nhận $V_{\text{echo}} = \max(P.\text{sup\_floor} + 6,\; V_{\text{q}} - 8)$.<br>• Bass đầu phách (`low`, ngân cả phách `1.0` beat) nhận $V_{\text{bass}} = \max(V_{\text{echo}} + 2,\; V_{\text{q}} - 4) \le 59$.<br>• 4 nốt sextuplet giữa (`slot in (1, 2, 4, 5)` trên `support`) **giữ nguyên 100% quy trình 4 bước của hàm `_etude11_middle_vel(hairpin, slot, band)` đang chạy**:<br>1) `echo = max(P.sup_floor, V_q - 8)`<br>2) `ceiling = max(P.sup_floor, echo if band == "f" else echo - 1)`<br>3) `shaped = min(ceiling, max(P.sup_floor, V_q + arch[slot] + band_nudge))`<br>4) `vel = max(P.sup_floor, shaped + _ETUDE11_TILT[slot])`<br>*(Ở `hairpin = 60` trên band `mf`, `echo = 52`, `ceiling = 51`, `shaped = [50, 51, 51, 50]`, cộng `_ETUDE11_TILT = {-1, -1, 0, +1}` ra đúng **`49, 50, 51, 51`** dưới trần `echo = 52`, và luôn `<= P.sup_ceil` là `55`).* | Khi phách đỉnh $q^*$ lọt Cổng Snap với $V_{\text{snapped}} \in [70, 74]$:<br>• Chỉ **cú 1 của `lead`** tại $q^*$ nhận $V_{\text{snapped}}$ và `accent=True`.<br>• Bass tại $q^*$ nhận $\min(62,\; V_{\text{snapped}} - 6)$ (kèm `accent=True`).<br>• Cú 4 `echo` nhận $\min(60,\; V_{\text{snapped}} - 10)$.<br>• 4 nốt sextuplet `support` truyền `hairpin = min(63, V_q)` vào công thức 4 bước trên nên vẫn nằm dưới trần `echo` (`<= 55`) và giữ nguyên hình bậc thang `49, 50, 51, 51`. |
 | **`preludio`**<br>(*La Catedral*) | • Nốt Canto 1 (`pitch_a`, móc kép `0`) nhận $V_{\text{canto1}} = V_{\text{hat}}(t) \in [V_{\text{floor}}, V_{\text{ceil}} \le 62]$.<br>• Nốt Canto 2 (`pitch_b`, móc kép `6`) nhận $V_{\text{canto2}} = \max(P.\text{floor\_calm} - 2,\; V_{\text{canto1}} - 2)$.<br>• 6 móc kép sóng chữ V (`support`) nhận mức miệng chữ V là $V_{\text{v\_top}} = \min\big(V_{\text{sup\_curve}}(t),\; V_{\text{canto2}} - 8\big) \in [20, 46]$, và đáy chữ V (`slot 3`) nhận $V_{\text{v\_top}} - 2 \ge 18$.<br>• Bass ngân 2 ô (`low`) nhận $\min(V_{\text{canto2}} - 4,\; \max(V_{\text{v\_top}} + 3,\; V_{\text{bass\_curve}}(t)))$. | Khi nốt Canto 1 tại đỉnh bài lọt Cổng Snap (`66..68`):<br>• Chỉ **Canto 1 (`pitch_a`)** nhận $V_{\text{snapped}} \in [66, 68]$.<br>• Canto 2 (`pitch_b`) giữ ở $\min(62,\; V_{\text{snapped}} - 4)$.<br>• Sóng chữ V `support` giữ nguyên `<= 46`. |
 
 #### C. Công Thức Cổng Ép Dây Hiếm (`Rare Snap Gate` — Theo Từng Section, Luôn Rơi Vào `[66, V_snap]`)
 
-1. **Điều kiện đủ để một cú gảy trở thành Ứng viên Snap (`Snap Candidate`)**:
-   Một cú gảy (hoặc cụm nhát nhấn) tại thời điểm $t$ trong `section` chỉ được đưa vào danh sách ứng viên khi thỏa **cả 4 điều kiện**:
+1. **Tín hiệu kích hoạt Snap $S_{\text{snap}}(t) \in [0.0, 1.0]$**:
+   Kết hợp sóng thanh khoản $U_{\text{vol}}(t)$ và hơi thở câu nhạc $C_{\text{phrase}}(t)$:
+   $$S_{\text{snap}}(t) = 0.70 \cdot U_{\text{vol}}(t) + 0.30 \cdot C_{\text{phrase}}(t) \in [0.0, 1.0]$$
+   Một cú gảy (hoặc cụm nhát nhấn) tại thời điểm $t$ trong `section` được đưa vào danh sách ứng viên khi thỏa **cả 4 điều kiện**:
    - Pattern tại ô đó có $P.\text{snap\_wide} \ne \text{None}$ (tức $V_{\text{snap}}(\alpha_{\text{price}}) \in [66, 76]$).
-   - Section chứa ô đó có **biên độ giá $\alpha_{\text{price}} \ge 0.25$** (riêng pattern `elogio_pizz` của Brouwer: nếu $\alpha_{\text{price}} < 0.25$, vẫn cho phép cú *Bartók slap* nhưng giới hạn trần $K_{\text{sec}} = 1$ cú duy nhất tại đỉnh $W(t)$ cao nhất của cả section với $V_{\text{snap}} = P.\text{snap\_calm} = 72$).
-   - Năng lượng sóng tại thời điểm đó thỏa **$W(t) \ge 0.70$**.
+   - Section chứa ô đó có **biên độ giá $\alpha_{\text{price}} \ge 0.25$** (riêng pattern `elogio_pizz` của Brouwer: nếu $\alpha_{\text{price}} < 0.25$, vẫn cho phép cú *Bartók slap* nhưng giới hạn trần $K_{\text{sec}} = 1$ cú duy nhất tại đỉnh $S_{\text{snap}}(t)$ cao nhất của cả section với $V_{\text{snap}} = P.\text{snap\_calm} = 72$).
+   - Tín hiệu tại thời điểm đó thỏa **$S_{\text{snap}}(t) \ge 0.70$** *(đảm bảo cả trên đoạn `trio`/`bridge` khi $\alpha_{\text{price}} \ge 0.25$, nơi $U_{\text{vol}}(t)$ và $C_{\text{phrase}}(t)$ vẫn chạy đủ `[0.0, 1.0]`, đỉnh của đoạn vẫn qua được ngưỡng `0.70`!)*.
    - Cú đó khớp với quy tắc `snap_targets` của pattern (xem Bảng Mục 3).
 
 2. **Đơn vị Ngân sách (`Snap Unit`) & Hạn mức trên từng Section ($K_{\text{sec}}$)**:
    - **Một Đơn vị Ngân sách (`1 Snap Unit`)**:
-     - Thông thường: là **1 cú tấn công đơn lẻ trên Bè Hát Chính** (kể cả trên `etude1`, chỉ lấy 1 nốt hát cao nhất trong ô đỉnh; hoặc 1 khối hợp âm Fanfare / Sarabande beat 2 / Slap).
+     - Thông thường: là **1 cú tấn công đơn lẻ trên Bè Hát Chính** (trên `etude1`, chỉ lấy 1 nốt hát cao nhất trong ô đỉnh; hoặc 1 khối hợp âm Fanfare / Sarabande beat 2 / Slap).
      - Với **`villa_pattern` (*Tresillo* `{0, 3, 6}`)**: cả bộ 3 nhát nhấn `{0, 3, 6}` trong cùng một ô `tresillo` được tính gộp là **1 đơn vị ngân sách (`1 Snap Unit`)**.
    - **Ngân sách của từng Section**:
      - Khi $\alpha_{\text{price}} < 0.25$: $K_{\text{sec}} = 1$ nếu `pattern == "elogio_pizz"`, ngược lại $K_{\text{sec}} = 0$.
      - Khi $\alpha_{\text{price}} \ge 0.25$: Đếm $N_{\text{mel, sec}}$ là số cú tấn công có cao độ của Bè Hát Chính **bên trong chính section đó** (`midi is not None and not tie_stop`; với `tremolo`, mỗi phách đen tính là 1 cú). Số đơn vị Snap tối đa của section đó là:
        $$K_{\text{sec}} = \min\Big(P.\text{max\_units\_per\_sec},\; \max\big(1,\; \lfloor 0.045 \cdot N_{\text{mel, sec}} \rfloor\big)\Big)$$
    - **Thứ tự lọc ứng viên trong mỗi Section**:
-     1. Trong mỗi `Phrase` thuộc section, giữ tối đa `P.max_units_per_phrase` đơn vị ứng viên (mặc định `1`) có $W(t)$ cao nhất.
-     2. Trên toàn section, xếp hạng các đơn vị ứng viên theo $W(t)$ giảm dần và giữ tối đa $K_{\text{sec}}$ đơn vị.
+     1. Trong mỗi `Phrase` thuộc section, giữ tối đa `P.max_units_per_phrase` đơn vị ứng viên (mặc định `1`) có $S_{\text{snap}}(t)$ cao nhất.
+     2. Trên toàn section, xếp hạng các đơn vị ứng viên theo $S_{\text{snap}}(t)$ giảm dần và giữ tối đa $K_{\text{sec}}$ đơn vị.
 
 3. **Công thức tính $V_{\text{snapped}}$ (Bảo đảm luôn thuộc `[66, V_snap]`)**:
-   $$V_{\text{snapped}}(t) = \text{round}\left(66 + \big(V_{\text{snap}}(\alpha_{\text{price}}) - 66\big) \cdot \frac{\text{clamp}(W(t), 0.70, 1.00) - 0.70}{0.30}\right) \in \big[66,\; V_{\text{snap}}(\alpha_{\text{price}})\big]$$
+   $$V_{\text{snapped}}(t) = \text{round}\left(66 + \big(V_{\text{snap}}(\alpha_{\text{price}}) - 66\big) \cdot \frac{\text{clamp}(S_{\text{snap}}(t), 0.70, 1.00) - 0.70}{0.30}\right) \in \big[66,\; V_{\text{snap}}(\alpha_{\text{price}})\big]$$
 
 #### D. Phạm Vi Áp Dụng Pass Xếp Tầng 3 Bè (`Simultaneous Voice Ordering`)
 
@@ -236,8 +223,8 @@ class PatternWaveProfile:
     bass_floor: int            # Sàn bè trầm (hoặc bè lead đệm ở thumb_cantabile)
     bass_ceil: int             # Trần ấm bè trầm (<= 60)
     sup_floor: int             # Sàn bè trung (>= 18)
-    sup_ceil: int              # Trần ấm bè trung (<= 52)
-    gamma: float               # Độ võng đường cong E(t) = W(t)^gamma
+    sup_ceil: int              # Trần ấm bè trung (<= 55)
+    gamma: float               # Độ võng đường cong E_vol(t) = U_vol(t)^gamma
     max_units_per_phrase: int  # Số đơn vị Snap tối đa trong 1 Phrase (0 hoặc 1)
     max_units_per_sec: int     # Trần tuyệt đối số đơn vị Snap trong 1 Section (0..4)
     snap_targets: str          # Quy tắc chọn cú được phép qua cổng Snap
@@ -270,7 +257,7 @@ class PatternWaveProfile:
 | `("villa", "thumb_cantabile")` | `28 .. 58` $\to$ `32 .. 63` *(trên `low`)* | `68 .. 70` *(trên `low`)* | `22 .. 46` *(trên `lead`)* | `20 .. 42` | `1.25` | `(1, 2)` | Đỉnh câu ngón cái `low` ở phiên biến động lớn. |
 | `("villa", "villa_pattern")` | `26 .. 58` $\to$ `30 .. 63` | `68 .. 72` | `24 .. 58` | `20 .. 50` | `1.20` | `(1, 3)` | Bộ 3 nhát *Tresillo* `{0, 3, 6}` (tính gộp là 1 đơn vị) hoặc `phrase.apex`. |
 | `("villa", "etude1")` | `28 .. 58` $\to$ `32 .. 63` | `68 .. 70` | `24 .. 58` | `22 .. 52` | `1.20` | `(1, 2)` | 1 nốt hát cao nhất (`index 9` hoặc `7`) tại đúng ô đỉnh cao trào của section. |
-| `("villa", "etude11")` | `28 .. 58` $\to$ `32 .. 63` | `70 .. 74` | `24 .. 58` | `22 .. 50` *(sextuplets)* | `1.20` | `(1, 3)` | Chỉ cú 1 `lead` tại phách `phrase.apex` (các phách khác gỡ `accent`). |
+| `("villa", "etude11")` | `28 .. 58` $\to$ `32 .. 63` | `70 .. 74` | `24 .. 58` | `22 .. 55` *(sextuplets)* | `1.20` | `(1, 3)` | Chỉ cú 1 `lead` tại phách `phrase.apex` (các phách khác gỡ `accent`; 4 nốt giữa dưới trần `echo <= 55`). |
 | `("brouwer", "noviembre")` | `22 .. 52` $\to$ `26 .. 58` | `None` *(0% snap)* | `20 .. 50` | `18 .. 42` | `1.45` | `(0, 0)` | Tuyệt đối 0% ép dây (`22 > 20 > 18` khớp sàn 3 bè). |
 | `("brouwer", "sarabande")` | `24 .. 56` $\to$ `28 .. 62` | `68 .. 72` | `22 .. 56` | `18 .. 48` | `1.35` | `(1, 2)` | Chỉ hợp âm nhấn phách 2 tại đỉnh cao trào; swarm giữ `<= 62`. |
 | `("brouwer", "brouwer_etude")` | `24 .. 58` $\to$ `28 .. 63` | `68 .. 72` | `22 .. 58` *(tumbao)* | `20 .. 50` | `1.15` | `(1, 3)` | Cú nhấn downbeat/tumbao (`accent=True`) ở các ô đỉnh sóng. |
@@ -283,10 +270,11 @@ class PatternWaveProfile:
 Trong code hiện tại, `guitar_frame.py` đặt `_PP = 46`, `_P = 50`, `_MP = 56`, `_MF = 64` (kể cả `_edge_stab` và `_stab_and_ring` của Brouwer cũng đang viết ở `_MF = 64`), và các ô `pedal` bị `_shape_dynamics` bỏ qua.
 
 Khi đưa vào `apply_guitar_wave()`:
-1. **Các ô `pedal` (`intro`, `warmup`, `outro`, `cooldown`) đi đường bao riêng (Frame Envelope), không đi qua Cổng Snap của thân bài**:
-   - Bảo toàn cấu trúc chênh lệch tương đối giữa các nốt bên trong từng cử chỉ của `guitar_frame.py` (ví dụ contour chuông `44, 50, 46` hay cantabile `46 -> 52` của Barrios).
-   - **Intro (`leading` bars)**: Ánh xạ từ mức khởi âm **$ppp - pp$ (`22..32` ở đầu ô 0)** tăng dần lên khớp với mức mở đầu thân bài ($V_{\text{hat}}(t_{\text{body\_start}}) \approx 34..48$). Không một nốt thường nào trong Intro vượt quá `56`.
-   - **Outro (`trailing` bars)**: Áp dụng hàm suy giảm mũ (**Morendo Curve**) từ mức cuối thân bài hạ dần về **`20..26` ($ppp$)** ở ô cuối cùng (hợp âm chuông / Picardy third tan dần).
+1. **Chỉ các ô `pedal` (`intro`, `warmup`, `outro`, `cooldown`) mới đi đường bao mờ biên (Frame Emergence / Morendo Envelope)**:
+   - Phần thân bài hoàn toàn không bị nhân mờ biên $T_{\text{edge}}$, giúp bảo toàn nguyên vẹn đỉnh thanh khoản lúc mở cửa (ATO/đầu phiên) và đóng cửa (cuối phiên).
+   - Trong vùng `pedal`, bảo toàn cấu trúc chênh lệch tương đối giữa các nốt bên trong từng cử chỉ của `guitar_frame.py` (ví dụ contour chuông `44, 50, 46` hay cantabile `46 -> 52` của Barrios).
+   - **Intro (`leading` pedal bars)**: Ánh xạ từ mức khởi âm **$ppp - pp$ (`22..32` ở đầu ô 0)** tăng dần lên khớp với mức mở đầu thân bài ($V_{\text{hat}}(t_{\text{body\_start}}) \approx 34..48$). Không một nốt thường nào trong Intro vượt quá `56`.
+   - **Outro (`trailing` pedal bars)**: Áp dụng hàm suy giảm mũ (**Morendo Curve**) từ mức cuối thân bài hạ dần về **`20..26` ($ppp$)** ở ô cuối cùng (hợp âm chuông / Picardy third tan dần).
 2. **Một bộ số thống nhất cho các cú Stab kịch tính trong Frame (`70 / 66 / 62`, thấp hơn Bartók slap `72..76` của thân bài)**:
    - Tại nhánh kịch tính `edge == True` của Brouwer (`_edge_stab` ở đầu Intro và `_stab_and_ring` ở cuối Outro) và nhánh `bright == True` (`_stabs` ở cuối Outro của Villa): các nốt mang đồng thời `staccato=True` và `accent=True` (hoặc thuộc `_stabs` cuối bài) được gán **một bộ số duy nhất**:
      - `lead`: **`70`**
@@ -302,16 +290,16 @@ Khi đưa vào `apply_guitar_wave()`:
    - Tính `bar_volumes: list[float]` theo từng ô nhịp trong `render.py` (`average_liquidity([_window_candles(bars, groups, b, 1) for b in range(musical_bars)])`) và truyền vào `render_guitar_score()` $\to$ `render_patterned_voices()` $\to$ `_Ctx` (fallback về `band_at` khi `bar_volumes is None`).
    - Khai báo đầy đủ 28 cặp `(ensemble, pattern)` của 5 đại sư với `floor_calm <= floor_wide`, `ceil_calm <= ceil_wide <= 63`, `snap_calm / snap_wide`, `max_units_per_phrase`, `max_units_per_sec`, `gamma`, và `snap_targets`.
    - Viết bộ làm mượt Volume 4 bước: $\ln(1+V)$ $\to$ 5-tap zero-phase filter `[1, 4, 6, 4, 1]/16` $\to$ **Range-Lock trực tiếp trên $u(b) \in [0.0, 1.0]$** $\to$ nội suy cosine từng móc đơn $U_{\text{vol}}(t)$.
-   - Ghép sóng theo mô hình **Đường bao điều chế** $W_{\text{core}}(t) = U_{\text{vol}}(t)\cdot(0.78 + 0.22 A_{\text{local}}(t)) + (1 - U_{\text{vol}}(t))\cdot(0.12 W_{\text{phrase}}(t))$, rồi nhân $\kappa_{\text{sec}} \cdot T_{\text{edge}}(t)$ ở bước cuối cùng để đỉnh thanh khoản luôn là đỉnh đường bao âm lượng và không làm mất $\kappa_{\text{sec}}$ hay $T_{\text{edge}}$.
+   - Đặt **Đường bao trần trực tiếp theo Volume** $V_{\text{env}}(t) = V_{\text{floor}} + U_{\text{vol}}(t)^\gamma \cdot (V_{\text{ceil}} - V_{\text{floor}})$, và chỉ cho câu nhạc thở lùi nhẹ bên dưới đường bao $\Delta_{\text{phrase}}(t) = -D_{\max} \cdot (1 - C_{\text{phrase}}(t)) \cdot (1 - U_{\text{vol}}(t)^4) \le 0$. Nhờ đó, tại mọi ô đỉnh thanh khoản ($u(b^*) = 1.0$, kể cả ở mở cửa hay đóng cửa), $V_{\text{hat}}(t^*)$ luôn chạm đúng $V_{\text{ceil}}$ và không một ô volume thấp hơn nào có thể vượt qua!
 
 2. **Bước 2 — Viết bộ Rebase `apply_guitar_wave()` thay thế `_shape_dynamics()` sau khi pattern đã sinh nốt**:
    - Xử lý riêng từng nhóm cấu trúc:
      - **`tremolo`**: lấy **một mốc $V_{\text{bar}} \in [P.\text{floor\_calm}+4, 59]$ chung cho cả ô**, cộng `_TREMOLO_QUARTER_OFFSETS` (`(-4, 0, +4, +1)` cho 4/4; `(-4, +4, 0)` cho 3/4 và 6/8) và `_TREMOLO_FILL_OFFSETS` (`(-6, -3, -4, -6)`).
      - **`etude1`**: giữ `_ETUDE1_ARC`, tính bass theo `min(61, max(max_sup_in_bar + 2, lead - 4))`, và khi snap chỉ lấy 1 nốt hát cao nhất trong ô đỉnh.
-     - **`etude11`**: giữ nguyên quy trình 4 bước của `_etude11_middle_vel` (**kẹp trần `echo` trước rồi mới cộng `_ETUDE11_TILT`**) để ở `hairpin = 60` vẫn ra đúng `49, 50, 51, 51`; gỡ `accent` ở các phách thường.
+     - **`etude11`**: giữ nguyên quy trình 4 bước của `_etude11_middle_vel` (**kẹp trần `echo` trước rồi mới cộng `_ETUDE11_TILT`**) để ở `hairpin = 60` vẫn ra đúng `49, 50, 51, 51` dưới trần `echo = 52` (`<= 55`); gỡ `accent` ở các phách thường.
      - **`preludio`**, **`thumb_cantabile`** và các pattern thường: rebase theo 3 đường cong và chạy pass xếp tầng 3 bè (bỏ qua `tremolo` và `etude11`).
      - **Khung `pedal` (`intro`/`outro`)**: chạy đường bao Emergence / Morendo riêng; gán bộ số thống nhất `70 / 66 / 62` cho các cú stab kịch tính.
-   - Chạy **Cổng Snap (`Rare Snap Gate`)** trên từng section khi $\alpha_{\text{price}} \ge 0.25$ (hoặc $K_{\text{sec}} = 1$ cho `elogio_pizz` khi $\alpha_{\text{price}} < 0.25$) và $W(t) \ge 0.70$, ánh xạ vào `[66, V_snap]`, tính *Tresillo* `{0, 3, 6}` là 1 đơn vị ngân sách, và kẹp cứng các nốt đệm đi kèm trong cụm ở `<= 63`.
+   - Chạy **Cổng Snap (`Rare Snap Gate`)** trên từng section khi $\alpha_{\text{price}} \ge 0.25$ (hoặc $K_{\text{sec}} = 1$ cho `elogio_pizz` khi $\alpha_{\text{price}} < 0.25$) và $S_{\text{snap}}(t) \ge 0.70$, ánh xạ vào `[66, V_snap]`, tính *Tresillo* `{0, 3, 6}` là 1 đơn vị ngân sách, và kẹp cứng các nốt đệm đi kèm trong cụm ở `<= 63`.
    - Đồng bộ toàn bộ các nốt nối dây (`tie_stop=True` nhận đúng velocity của cú `tie_start` mở chuỗi).
 
 3. **Bước 3 — Thêm chốt chặn hậu kiểm sau `humanize()` cho cả 2 vùng Ấm và Snap**:
@@ -322,14 +310,14 @@ Khi đưa vào `apply_guitar_wave()`:
 4. **Bước 4 — Viết `backend/tests/test_guitar_wave.py` và cập nhật `backend/tests/test_sonify_guitar.py`**:
    - Cập nhật các assertion số tuyệt đối cũ (`56, 60, 64, 72`) trong `test_sonify_guitar.py` sang kiểm tra khoảng động lực học mới và cấu trúc tương đối.
    - Trong `test_guitar_wave.py`, kiểm tra đủ 7 tiêu chí:
-     1. **Làm mượt Volume & Đỉnh Thanh Khoản là Đỉnh Đường Bao**: một chuỗi volume có vùng trũng giữa phiên và đỉnh ở giữa section tạo ra đường bao vận tốc có cực tiểu tại vùng trũng thanh khoản (chạm $V_{\text{floor}}$) và cực đại tại đúng vùng đỉnh thanh khoản (chạm $V_{\text{ceil}}$, cao hơn cả các đỉnh câu nằm ở vùng volume trung bình).
+     1. **Làm mượt Volume & Đỉnh Thanh Khoản là Đỉnh Tiếng (kể cả ở biên mở/đóng cửa)**: một chuỗi volume có vùng trũng giữa phiên và đỉnh ở đầu phiên, giữa phiên hoặc cuối phiên tạo ra vận tốc ấm có cực tiểu tại vùng trũng thanh khoản (chạm $V_{\text{floor}}$) và cực đại chạm đúng $V_{\text{ceil}}$ tại ô đỉnh thanh khoản (luôn lớn hơn mọi ô có volume thấp hơn dù ô đó đang ở đỉnh câu).
      2. **Phiên `calm` biên độ giá hẹp ($\alpha_{\text{price}} < 0.25$) nhưng có sóng Volume chữ U**: sóng ấm vẫn mở rộng từ $ppp - pp$ (`<= 34`) lên `56..63` theo $\alpha_{\text{warm}}$, nhưng **Cổng Snap đóng hoàn toàn (`0%` nốt vượt `64` sau `humanize`)** trên mọi pattern trừ tối đa `1` cú slap của `elogio_pizz`.
      3. **Phiên biến động giá rộng ($\alpha_{\text{price}} \ge 0.50$) kiểm tra theo `PatternWaveProfile`**:
         - Với các pattern có `snap_wide is None` (`cantabile`, `andante`, `chord_melody`, `noviembre`, `bach_sarabande`): **0% số nốt vượt `64`** kể cả trong phiên `rally` / `volatile`.
         - Với các pattern có `snap_wide is not None`: có ít nhất `1` đơn vị Snap rơi vào `[66, P.snap_wide]`, số đơn vị Snap không vượt quá `K_sec`, và không nốt nào sau `humanize` vượt quá `76` (hoặc `70` với Bach/Sor).
-     4. **Bảo toàn delta vi mô ở vùng ấm**: trong một ô `tremolo` ấm, 4 phách giữ **đúng hiệu số `(-4, 0, +4, +1)`** (hoặc `(-4, +4, 0)` ở 3/4, 6/8) và `thumb` lớn hơn `m` đúng `3`; trong `etude1`, bass luôn nằm giữa `support` và `lead` kể cả khi `lead` thì thầm ở `32`; trong `etude11`, 4 nốt sextuplet giữ nguyên hình bậc thang `arch + tilt` (như `49, 50, 51, 51` ở `hairpin = 60`) dưới `50`.
-     5. **Cụm Snap không kéo nốt đệm qua `65`**: tại phách `tremolo` hoặc `etude11` được snap (`68..74`), các móc kép `a, i` của tremolo và 4 nốt sextuplet giữa của `etude11` vẫn `<= 63` (và `<= 50`); trên `etude1`, chỉ 1 nốt hát trong ô đỉnh nhận snap.
-     6. **$\alpha_{\text{price}}$, $\alpha_{\text{vol}}$ và ngân sách Snap tách biệt theo từng section trên `1M`**: một chương `1M` có section đi ngang ($\alpha_{\text{price}} = 0$) và section biến động mạnh ($\alpha_{\text{price}} = 1$), cộng đoạn `trio`/`bridge` ($\kappa_{\text{sec}} = 0.65$), giữ đúng 0% snap ở section đi ngang và giữ đoạn `trio`/`bridge` dịu hơn phần A.
+     4. **Bảo toàn delta vi mô ở vùng ấm**: trong một ô `tremolo` ấm, 4 phách giữ **đúng hiệu số `(-4, 0, +4, +1)`** (hoặc `(-4, +4, 0)` ở 3/4, 6/8) và `thumb` lớn hơn `m` đúng `3`; trong `etude1`, bass luôn nằm giữa `support` và `lead` kể cả khi `lead` thì thầm ở `32`; trong `etude11`, 4 nốt sextuplet giữ nguyên hình bậc thang `arch + tilt` (như `49, 50, 51, 51` ở `hairpin = 60`, nằm dưới trần `echo = 52`).
+     5. **Cụm Snap không kéo nốt đệm qua `65`**: tại phách `tremolo` hoặc `etude11` được snap (`68..74`), các móc kép `a, i` của tremolo và 4 nốt sextuplet giữa của `etude11` vẫn `<= 63` (và dưới trần `echo <= 55`); trên `etude1`, chỉ 1 nốt hát trong ô đỉnh nhận snap.
+     6. **$\alpha_{\text{price}}$, $\alpha_{\text{vol}}$ và ngân sách Snap tách biệt theo từng section trên `1M`**: một chương `1M` có section đi ngang ($\alpha_{\text{price}} = 0$) và section biến động mạnh ($\alpha_{\text{price}} = 1$), cộng đoạn `trio`/`bridge` (nơi $\alpha_{\text{warm}}$ nhân `0.50` nhưng $U_{\text{vol}}$ vẫn chạy đủ `[0, 1]`), giữ đúng 0% snap ở section đi ngang và giữ cửa sổ ấm của `trio`/`bridge` dịu hơn phần A.
      7. **Bất biến thứ tự bè theo đúng phân loại pattern**: `lead > low > support` trên các pattern thường, `low (thumb) > lead (fill)` trên `tremolo`, `low > lead > support` trên `thumb_cantabile`, và cho phép `>=` trên các khối accent đồng thời / `bach_fuga`.
 
 5. **Bước 5 — Thực nghiệm nghe 3 mốc `24 / 64 / 74` trên MS Basic Nylon trước khi bump Revision**:
