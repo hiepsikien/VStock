@@ -60,7 +60,7 @@ Trong codebase hiện tại, một số pattern đã có sẵn các chùm chạy
    - **Quy tắc bảo vệ tuyệt đối**:
      - Giữ nguyên 100% các figuration nội tại trên của `bach_chaconne`, `bach_gigue`, `bach_sarabande` và Brouwer `sarabande`.
      - Bộ cấp phát `Overlay Scale` **không bao giờ cắt đè lên các ô của Nhóm 2** bằng một đoạn chạy xuyên ô làm mất phần *bariolage* đầu ô của `bach_chaconne`, mất nhịp hợp âm gãy đầu ô của `bach_gigue`, hay xóa mất trọng âm phách 2 của `bach_sarabande` / Brouwer `sarabande`.
-     - Nếu cần mở rộng cho các ô Nhóm B chưa tự kích hoạt scale nội tại (ví dụ khi có cú sụt giảm mạnh `downward plunge` mà điều kiện `_rises(phrase)` cũ của `bach_gigue`/`bach_chaconne` bỏ sót), chỉ kích hoạt ngay bên trong **cửa sổ nội tại của chính pattern đó** (`scale_at .. epb * 2` cho Chaconne/Gigue, hoặc sau phách 2 cho Sarabande), giữ nguyên nửa đầu ô nhịp của pattern.
+     - Nếu cần mở rộng cho các ô Nhóm 2 chưa tự kích hoạt scale nội tại (ví dụ khi có cú sụt giảm mạnh `downward plunge` mà điều kiện `_rises(phrase)` cũ của `bach_gigue`/`bach_chaconne` bỏ sót), chỉ kích hoạt ngay bên trong **cửa sổ nội tại của chính pattern đó** (`scale_at .. epb * 2` cho Chaconne/Gigue, hoặc sau phách 2 cho Sarabande), giữ nguyên nửa đầu ô nhịp của pattern.
 3. **Nhóm 3 — Các Pattern nhận Overlay Scale (`ScalePassage` từ Sub-bar đến 4 ô nhịp)**:
    - **Bach (`bach`)**: `bach_bourree`, `bach_gavotte`, `bach_fuga` *(riêng trên `bach_fuga`, khi bè Cao `Voice 1` chạy scale, bè Trầm `Voice 3` **giữ nguyên chủ đề đối âm trễ 2 ô `_fuga_motif`** thay vì bị thay bằng nốt bass nhịp đơn giản, đảm bảo mạch phức điệu 2 bè không bị đứt)*.
    - **Sor (`classic`)**: `study`, `galop`, `mozart_var`, `elegiaque`, `cantabile`.
@@ -211,13 +211,14 @@ Người nghe thực tế nghe đường giai điệu `melody` trên nền hợp
                                         ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                     2. render.py & guitar.py                                 │
-│  • `render.py` truyền `raw_pitches=raw_pitches` vào `render_guitar_score`.   │
-│  • `render_guitar_score` gọi `detect_price_impulses(raw_pitches, ...)`       │
-│    ĐÚNG 1 LẦN (nếu `raw_pitches is None` ở test cũ thì `impulses = ()`,      │
-│    tuyệt đối không dò lại trên `pitches` đã lượng tử hóa).                   │
+│  • `render.py` gọi `detect_price_impulses(raw_pitches, ...)` ĐÚNG 1 LẦN và   │
+│    truyền `raw_pitches` + `impulses` xuống `render_guitar_score`.            │
+│  • Nếu test cũ gọi trực tiếp `render_guitar_score` mà không truyền           │
+│    `raw_pitches`, đặt `impulses = ()` (tuyệt đối không dò lại trên `pitches` │
+│    đã lượng tử hóa).                                                         │
 │  • `_place_melody` dùng `impulses` để gộp chung phép đặt tầm cữ / nén        │
 │    (`_compress_monotone`) cho các `Phrase` bị cắt ngang giữa 1 `PriceImpulse`│
-│    dài, rồi truyền cả `raw_pitches` lẫn `impulses` vào `_Ctx`.               │
+│    dài, rồi gắn `impulses` lên `_Ctx` cho `render_patterned_voices`.         │
 └───────────────────────────────────────┬──────────────────────────────────────┘
                                         ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -254,12 +255,12 @@ Người nghe thực tế nghe đường giai điệu `melody` trên nền hợp
 
 ### 3.3. `backend/app/sonify/render.py` & `backend/app/sonify/guitar.py`
 1. **Trong `backend/app/sonify/render.py`**:
-   - Nhánh `if variant == "guitar":` truyền thêm `raw_pitches=raw_pitches` vào `render_guitar_score(...)`.
+   - Nhánh `if variant == "guitar":` gọi `impulses = detect_price_impulses(raw_pitches, ...)` **một lần duy nhất** trên `raw_pitches` gốc và truyền cả `raw_pitches=raw_pitches` lẫn `impulses=impulses` vào `render_guitar_score(...)`.
 2. **Trong `backend/app/sonify/guitar.py`**:
-   - `render_guitar_score` nhận `raw_pitches: list[int] | None = None`.
-   - Khi `raw_pitches is not None`, gọi `impulses = detect_price_impulses(raw_pitches, ...)` **một lần duy nhất**. Khi `raw_pitches is None` (các unit test cũ gọi trực tiếp không truyền `raw_pitches`), đặt `impulses = ()` để không bao giờ dò sóng trên `pitches` đã qua `quantize_strong_beats`.
+   - `render_guitar_score` nhận `raw_pitches: list[int] | None = None` và `impulses: tuple[PriceImpulse, ...] | None = None`.
+   - Khi `impulses is None`: nếu `raw_pitches is not None` thì gọi `detect_price_impulses(raw_pitches, ...)` một lần; nếu `raw_pitches is None` (các unit test cũ gọi trực tiếp không truyền `raw_pitches`) thì đặt `impulses = ()` để không bao giờ dò sóng lại trên `pitches` đã qua `quantize_strong_beats`.
    - Trong `_place_melody`: nếu một `PriceImpulse` trong `impulses` vắt qua biên giữa hai `Phrase` liên tiếp (do chạm trần `MAX_EIGHTHS = 32` hoặc nốt nghỉ), gộp chung dải `[p1.start, p2.end)` khi tính `shift` và `_compress_monotone` để cả hai `Phrase` dùng chung một ánh xạ bậc thang âm, không bị bẻ gãy độ dốc tại biên câu.
-   - Truyền `raw_pitches` và `impulses` xuống `render_patterned_voices` (lưu vào `_Ctx.impulses`).
+   - Gắn `raw_pitches` và `impulses` lên `_Ctx` trong `render_patterned_voices` (không gọi lại `detect_price_impulses` trong `guitar_patterns.py`).
 
 ### 3.4. `backend/app/sonify/guitar_patterns.py` & 5 Module Composer
 - Giữ nguyên các câu chạy nội tại của `bach_chaconne`, `bach_gigue`, `bach_sarabande` và Brouwer `sarabande`; thống kê số eighths scale nội tại của chúng (`intrinsic_scale_eighths`) để tính `overlay_budget = max(0, floor(0.30 * body_eighths) - intrinsic_scale_eighths)`.
