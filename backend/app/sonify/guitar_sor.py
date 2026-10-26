@@ -1152,6 +1152,12 @@ def _apply_appoggiatura(ctx: _Ctx, lead: list[NoteEvent], ornaments: dict[int, t
     return rewritten
 
 
+def classic_scale_step(ctx: _Ctx, pitch: int, direction: int) -> int:
+    """One classical diatonic step. Strong beats stay on the chord tone the passage anchors."""
+    high = min(ctx.treble_top, ctx.ceiling)
+    return _walk(pitch, 1 if direction >= 0 else -1, ctx.mode, ctx.treble_floor, high)
+
+
 from app.sonify.guitar_patterns import (  # noqa: E402
     BARRIOS_TREMOLO_MIN_BPM,
     C_MAJOR_PCS,

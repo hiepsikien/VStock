@@ -459,6 +459,54 @@ def _render_sarabande_bar(
     return support, low, accent, figure_events
 
 
+_DORIAN_PCS = frozenset({0, 2, 3, 5, 7, 9, 10})
+_PHRYGIAN_PCS = frozenset({0, 1, 3, 5, 7, 8, 10})
+
+
+def brouwer_scale_step(ctx: _Ctx, pitch: int, direction: int) -> int:
+    """A 1- or 2-semitone swarm step, preferring dorian / phrygian color and bVII."""
+    step = 1 if direction >= 0 else -1
+    modal = _DORIAN_PCS | _PHRYGIAN_PCS
+    low = ctx.treble_floor
+    high = min(ctx.treble_top, ctx.ceiling)
+    for size in (2, 1):
+        nxt = pitch + step * size
+        if low <= nxt <= high and nxt % 12 in modal:
+            return nxt
+    nxt = pitch + step
+    if low <= nxt <= high:
+        return nxt
+    return pitch
+
+
+def brouwer_group2_window(ctx: _Ctx, bar: int) -> tuple[int, int] | None:
+    """Inclusive eighths of the sarabande swarm window (`figure_at .. epb`)."""
+    _accent, figure = _sarabande_points(ctx)
+    epb = ctx.epb
+    if figure >= epb:
+        return None
+    start = bar * epb
+    return start + figure, start + epb - 1
+
+
+def brouwer_group2_intrinsic_eighths(ctx: _Ctx, bar: int) -> set[int]:
+    """Eighths the modal swarm already spends. Empty when the bar does not swarm."""
+    window = brouwer_group2_window(ctx, bar)
+    if window is None:
+        return set()
+    _accent, figure = _sarabande_points(ctx)
+    if not _sarabande_swarms(ctx, bar, figure):
+        return set()
+    lo, hi = window
+    eighths = set(range(lo, hi + 1))
+    events = _modal_figure(ctx, bar, figure, ctx.bass_low, None)
+    for event in events:
+        if event.midi is None:
+            continue
+        eighths.add(event.bar * ctx.epb + int(math.floor(event.beat * 2 + 1e-9)))
+    return eighths
+
+
 from app.sonify.guitar_patterns import (  # noqa: E402
     _BASS,
     _Ctx,

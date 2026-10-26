@@ -745,13 +745,8 @@ def test_scale_and_grand_solo_ornament_without_moving_the_strong_beats() -> None
     )
     assert [beat for beat, _midi in _on(score.support, 1)] == [1.0, 3.0]
     assert 1.5 in [beat for beat, _midi in _on(score.support, 2)]
-    sixteenths = [note for note in score.lead if note.duration_beats <= 0.25 and note.midi is not None]
-    assert sixteenths
-    assert {note.bar for note in sixteenths} == {3}
-    assert len({note.bar for note in sixteenths}) / score.bars <= 0.15
-    target = next(note for note in sixteenths if note.bar == 3 and abs(note.beat - 2.0) < 1e-6)
-    assert target.midi == 67
-    assert all(note.midi is not None and note.midi % 12 in _MAJOR for note in sixteenths)
+    # The one-way 4–6 note overlay is gone. A scale passage needs an impulse.
+    assert not any(note.duration_beats <= 0.25 and note.midi is not None for note in score.lead)
     assert all(note.midi is not None for note in (score.lead[0], score.support[0], score.low[0]))
     assert all(
         any(note.bar == 0 and abs(note.beat) < 1e-6 and note.midi is not None for note in voice)
@@ -793,12 +788,10 @@ def test_barrios_scale_may_lead_by_a_chromatic_and_a_hold_can_wave() -> None:
         character="rally",
         bands={bar: "mf" for bar in range(8)},
     )
-    run = [note for note in score.lead if note.bar == 1 and note.duration_beats <= 0.25 and note.midi is not None]
-    assert run
-    chromatic = [note for note in run if note.midi is not None and note.midi % 12 not in _MAJOR]
-    assert len(chromatic) <= 1
-    if chromatic:
-        assert abs(chromatic[0].midi - 72) == 1 or abs(chromatic[0].midi - 67) <= 1
+    # Without an impulse the retired one-way chromatic run is not written.
+    assert not any(
+        note.bar == 1 and note.duration_beats <= 0.25 and note.midi is not None for note in score.lead
+    )
     hold = [72] * 16
     rest = [64] * (8 * 13)
     wave_pitches = opening + hold + rest
@@ -811,18 +804,18 @@ def test_barrios_scale_may_lead_by_a_chromatic_and_a_hold_can_wave() -> None:
         character="volatile",
         bands={bar: "f" for bar in range(16)},
     )
-    for bar in (1, 2):
+    for bar, held in ((1, 72), (2, 72), (3, 64), (4, 64)):
         lead = [note for note in wave.lead if note.bar == bar and note.midi is not None]
         assert len(lead) == 16
         assert all(note.duration_beats == 0.25 for note in lead)
         assert {round(note.beat, 2) for note in wave.low if note.bar == bar and note.midi is not None} == {0.0, 2.0}
         assert not any(note.bar == bar and note.midi is not None for note in wave.support)
         anchors = [note.midi for note in lead if abs(note.beat - round(note.beat)) < 1e-6]
-        assert anchors == [72, 72, 72, 72]
+        assert anchors == [held, held, held, held]
         moving = [note.midi for note in lead if abs((note.beat * 4) % 4 - 2) < 1e-6]
-        assert moving and all(note != 72 for note in moving)
-    # The third bar of the hold is ordinary tremolo again: thumb on every quarter.
-    assert {round(note.beat, 2) for note in wave.low if note.bar == 3 and note.midi is not None} == {0.0, 1.0, 2.0, 3.0}
+        assert moving and all(note != held for note in moving)
+    # Each tremolo phrase waves for its first two held bars. The next bar is ordinary.
+    assert {round(note.beat, 2) for note in wave.low if note.bar == 5 and note.midi is not None} == {0.0, 1.0, 2.0, 3.0}
 
 
 def _bare(lead=(), support=(), low=(), slots=None, bars: int = 1, bar_beats: float = 4.0):
