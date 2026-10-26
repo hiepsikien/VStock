@@ -779,9 +779,6 @@ def _velocity_before(lead: list[NoteEvent], start: int, epb: int) -> int:
     return found if found is not None else _MELODY
 
 
-# Composer beds write bass at 56. `guitar._BASS` is 60 and is what a late import
-# binds in the composer modules; the hairpin floor follows the written 56.
-_PATTERN_BASS = 56
 _HAIRPIN_SHIFT = {"p": -8, "mp": -4, "mf": 0, "f": 4}
 _HAT_PATTERNS = frozenset(
     {
@@ -846,6 +843,15 @@ def _hairpin_open(
     if pattern in _LOUD_DOWN_PATTERNS and on_strong:
         return loud, soft
     return min(loud, max(prev + 8, _MELODY_APEX)), soft
+
+
+def _landing_floor(soft: int) -> int:
+    """A held arrival sits two above the bass velocity the passage actually writes.
+
+    Composer modules assign `_BASS = 56` and then rebind that name to
+    `guitar._BASS` (60). The scale bass uses the rebound value.
+    """
+    return max(soft, _BASS + 2)
 
 
 def _monotonic(values: list[int], ascending: bool) -> list[int]:
@@ -986,7 +992,7 @@ def hairpin_velocities(
             values = [open_v] * max(0, pre)
         else:
             values = _ramp_attacks(pre, open_v, soft, exponent, pull=False)
-        values.append(max(soft, _PATTERN_BASS + 2))
+        values.append(_landing_floor(soft))
     else:
         values = [soft] if count == 1 else _ramp_attacks(count, open_v, soft, exponent, pull=True)
     return _apply_retreat(values, flags, direction, soft, loud)

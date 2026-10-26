@@ -357,8 +357,8 @@ def _swarm_velocities(
 ) -> list[int]:
     """Hát hairpin over the whole swarm. The last note is the last ramp step."""
     from app.sonify.guitar_scale_passages import (
-        _PATTERN_BASS,
         _hairpin_open,
+        _landing_floor,
         _pattern_window,
         _ramp_attacks,
         _velocity_before,
@@ -391,7 +391,7 @@ def _swarm_velocities(
         on_strong,
     )
     if not going_up:
-        arrival = max(soft, _PATTERN_BASS + 2)
+        arrival = _landing_floor(soft)
     if len(line) < 2:
         return [arrival]
     # The figure never outlasts the bar, so the ramp stays linear.

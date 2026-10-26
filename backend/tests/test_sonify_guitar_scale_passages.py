@@ -17,6 +17,7 @@ from app.sonify.guitar_patterns import (
 from app.sonify.guitar_scale_passages import (
     SCALE_SIXTEENTH_MIN_BPM,
     ScalePassage,
+    _BASS,
     _Slot,
     _curve,
     _pattern_window,
@@ -697,7 +698,7 @@ def test_hairpin_windows_openings_and_the_long_curve() -> None:
             pillar=True,
         )
         assert opened[0] == loud
-        assert opened[-1] >= 58
+        assert opened[-1] == max(_pattern_window(pattern, "mf")[0], _BASS + 2)
         assert opened[-2] == _pattern_window(pattern, "mf")[0]
 
     long_up = hairpin_velocities(
@@ -764,7 +765,7 @@ def test_tier1_eighth_with_one_attack_does_not_divide() -> None:
     slots = [_Slot(3, 0, 2, False, False), _Slot(4, 0, 2, True, False)]
     ctx = _ctx(melody, (_phrase(0, melody),), bpm=80)
     velocities = _curve(ctx, ["study"], passage, slots, 60)
-    assert velocities == [72, max(46, 58)]
+    assert velocities == [72, max(46, _BASS + 2)]
 
     rising = ScalePassage(
         start=3,
@@ -801,11 +802,11 @@ def test_downward_pillar_is_not_under_the_bass_and_villa_does_not_cap_to_44() ->
     assert notes
     velocities = [event.velocity for event in notes if event.velocity is not None]
     assert velocities[0] == 90
-    assert velocities[-1] == 58
+    assert velocities[-1] == _BASS + 2
     assert velocities[-2] == _pattern_window("villa_pattern", "mf")[0]
     target = next(event for start, event in _ordered(score.lead, epb=6) if start == 12)
     assert target.midi == melody[6]
-    assert target.velocity == 58
+    assert target.velocity == _BASS + 2
     ringing = [
         note
         for note in score.low
@@ -816,6 +817,7 @@ def test_downward_pillar_is_not_under_the_bass_and_villa_does_not_cap_to_44() ->
     ]
     assert ringing
     assert all(note.velocity > 44 for note in ringing)
+    assert all(note.velocity < target.velocity for note in ringing)
 
 
 def test_modal_figure_ramps_the_hat_window_and_a_bar_opening_is_not_punched() -> None:
@@ -839,7 +841,7 @@ def test_modal_figure_ramps_the_hat_window_and_a_bar_opening_is_not_punched() ->
     falling = _modal_figure(falling_ctx, 0, figure, falling_ctx.bass_low, falling_phrase)
     falling_vel = [event.velocity for event in falling if event.midi is not None]
     assert falling_vel[0] == 80
-    assert falling_vel[-1] >= 58
+    assert falling_vel[-1] == _BASS + 2
     assert all(right <= left for left, right in zip(falling_vel, falling_vel[1:]))
 
     leap = [60, 72, 72, 72, 70, 68, 66, 64]
@@ -857,7 +859,7 @@ def test_modal_figure_ramps_the_hat_window_and_a_bar_opening_is_not_punched() ->
     assert all(not event.accent for event in accent)
     velocities = [event.velocity for _start, event in lead if event.velocity is not None]
     assert velocities[0] == 72
-    assert velocities[-1] >= 58
+    assert velocities[-1] == _BASS + 2
     assert all(right <= left for left, right in zip(velocities, velocities[1:]))
     bass_accent = [
         note
