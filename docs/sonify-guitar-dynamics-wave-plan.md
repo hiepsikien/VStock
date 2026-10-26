@@ -1,28 +1,36 @@
-# Kế Hoạch Thiết Kế Filter Uốn Sóng Động Lực Học (Wave) & Mở Rộng Biên Độ ($ppp \to ff$) Cho 5 Đại Sư Guitar
+# Kế Hoạch Thiết Kế Filter Uốn Sóng Động Lực Học (Wave) & Mở Rộng Biên Độ ($ppp \to f$) Cho 5 Đại Sư Guitar
 
-> **Mục tiêu**: Đưa tiếng đàn guitar cổ điển thoát khỏi dải hẹp $mp - mf$ (`44..78`) hiện tại, mở rộng chiều sâu về phía **thì thầm / gần gũi ($ppp - pp$, velocity `22..38`)** và mở trần có kiểm soát lên **$f - ff$ (`76..90`)** thông qua một **Dynamic Wave & Amplitude Expander Filter** tùy biến theo từng bản nhạc (`rel_span`, `character`, `band_at`) và phong cách của cả **5 Đại Sư (`Bach | Sor | Barrios | Lobos | Brouwer`)**.
+> **Mục tiêu**: Đưa tiếng đàn guitar cổ điển thoát khỏi dải hẹp $mp - mf$ (`44..78`) hiện tại bằng cách **mở rộng chiều sâu về phía thì thầm / gần gũi ($ppp - pp$, velocity `20..38`)**, giữ **90–95% thời lượng bản nhạc trong vùng dây nylon ấm (`<= 64`, dưới ngưỡng ép dây của MS Basic)**, và **kiểm soát chặt trần ép dây (`66..76`)** để tiếng ép dây (*apoyando / nail-snap*) trở nên **hiếm, đắt giá và chỉ xuất hiện ở đúng những thể loại thực sự cần lực tì mạnh**.
 >
 > **Liên kết**: [`docs/sonify-classical-guitar.md`](./sonify-classical-guitar.md), [`docs/sonify-barrios-tremolo-dynamics.md`](./sonify-barrios-tremolo-dynamics.md), [`docs/sonify-humanize-preset-plan.md`](./sonify-humanize-preset-plan.md).
 
 ---
 
-## 1. Chẩn Đoán Hiện Trạng: Vì Sao Guitar Đang Kẹt Ở Quãng $mp - mf$?
+## 1. Chẩn Đoán Hiện Trạng: Vì Sao Guitar Đang Kẹt Ở Quãng $mp - mf$ Và Dễ Bị Đanh Tiếng?
 
-Qua khảo sát toàn bộ pipeline guitar (`guitar.py`, `guitar_patterns.py`, `guitar_barrios.py`, `guitar_villa.py`, `guitar_frame.py`, `humanize.py`), lực gảy hiện tại đang bị nén trong một dải rất hẹp do **4 nguyên nhân kỹ thuật**:
+Qua khảo sát toàn bộ pipeline guitar (`guitar.py`, `guitar_patterns.py`, `guitar_barrios.py`, `guitar_villa.py`, `guitar_frame.py`, `humanize.py`), lực gảy hiện tại đang gặp **4 vấn đề kỹ thuật**:
 
 | Điểm nghẽn trong Code | Vị trí hiện tại | Hệ quả âm thanh |
 |---|---|---|
-| **1. Nền giai điệu & đệm đặt sẵn ở $mp - mf$** | • `_MELODY = 64`, `_MELODY_APEX = 72`<br>• `_SWELL_OPEN = 60`, `_SWELL_CLOSE = 62`<br>• `_BAND_SUPPORT = 50..60`, `_BAND_BASS = 54..64` | Ngay từ lúc sinh nốt, giai điệu chỉ dao động `60..72` và bè đệm chỉ dao động `46..64`. Không có nốt nào được viết ở $ppp$ (`~22`) hay $pp$ (`~34`). |
-| **2. Chốt chặn cứng `[44, 78]` và bỏ qua nốt đỉnh trong `_shape_dynamics`** | `guitar_patterns.py` dòng 2906–2931:<br>• `if event.velocity >= _MELODY_APEX: continue`<br>• `velocity = max(44, min(78, ...))`<br>• *La Catedral* khóa `lead` ở `54..64`, `support` ở `48..55` | • Sàn `44` chặn đứng toàn bộ dải $ppp - pp$ (`22..42`).<br>• Nốt đỉnh `72` bị bỏ qua không được cộng `delta` khi vào vùng `band == "f"`.<br>• `etude1` và `etude11` bị loại trừ hoàn toàn khỏi `_shape_dynamics`. |
-| **3. Thiếu sóng thở vĩ mô (Macro Wave)** | • `swell(phrase, onset)` là tam giác tuyến tính trong 1 câu ngắn (2–4 ô), chỉ cộng `round(4 * swell)` ($\pm 4$ velocity).<br>• Chỉ `tremolo` mới có `_tremolo_region_arch` ($\sin(\pi t)$, biên $+6$). | Các đoạn dài 30 ô (`1D`) hay 80–200 ô (`1W`, `1M`, `3M`, `1Y`) đi ngang một mức năng lượng phẳng lì từ đầu chí cuối, không có sóng cuộn (wave) qua các đoạn. |
-| **4. Nỗi sợ tầng sample móng gắt (`65+`) trên MS Basic** | Ghi chú tại `audio.py:780` và `guitar_barrios.py:880`: MS Basic chuyển sang tiếng móng sáng từ `velocity >= 65`. | Để tránh tiếng móng gắt kêu liên tục, code hiện tại chọn giải pháp ép trần xuống `63–72`, nhưng lại **quên mở sàn xuống `22–38`**, làm mất khoảng tương phản động lực học tự nhiên của đàn nylon. |
+| **1. Nền giai điệu & đệm đặt sẵn ngay sát ngưỡng ép dây (`65`)** | • `_MELODY = 64`, `_MELODY_APEX = 72`<br>• `_SWELL_OPEN = 60`, `_SWELL_CLOSE = 62`<br>• `_BAND_SUPPORT = 50..60`, `_BAND_BASS = 54..64` | Ngay từ lúc sinh nốt, giai điệu đã đứng ở `64` (chỉ cách ngưỡng gắt móng `65` đúng 1 đơn vị!). Chỉ cần cộng `extra` từ `swell` hoặc `band == "f"` là hàng loạt nốt giai điệu nhảy lên `66..72`, làm tiếng ép dây kêu liên tục. Trong khi đó, không có nốt nào được viết ở $ppp$ (`~20`) hay $pp$ (`~32`). |
+| **2. Chốt chặn cứng `[44, 78]` trong `_shape_dynamics`** | `guitar_patterns.py` dòng 2906–2931:<br>• `if event.velocity >= _MELODY_APEX: continue`<br>• `velocity = max(44, min(78, ...))`<br>• *La Catedral* khóa `lead` ở `54..64`, `support` ở `48..55` | • Sàn `44` chặn đứng toàn bộ dải $ppp - pp$ (`20..42`).<br>• Vì thiếu dải nhỏ `20..42`, bản nhạc buộc phải đẩy lên `60..78` mới có chút chênh lệch, dẫn tới vừa phẳng vừa nhiều tiếng ép dây.<br>• `etude1` và `etude11` bị loại trừ hoàn toàn khỏi `_shape_dynamics`. |
+| **3. Thiếu sóng thở vĩ mô (Macro Wave)** | • `swell(phrase, onset)` là tam giác tuyến tính trong 1 câu ngắn (2–4 ô), chỉ cộng `round(4 * swell)` ($\pm 4$ velocity).<br>• Chỉ `tremolo` mới có `_tremolo_region_arch` ($\sin(\pi t)$, biên $+6$). | Các đoạn dài 30 ô (`1D`) hay 80–200 ô (`1W`, `1M`, `3M`, `1Y`) đi ngang một mức năng lượng từ đầu chí cuối, không có sóng cuộn (wave) qua các đoạn. |
+| **4. Chưa tách bạch "Trần Sóng Thường" và "Ngân Sách Ép Dây Hiếm"** | Mọi pattern dùng chung một công thức cộng `delta + extra` và cùng một trần `78`. | Những bản cần ấm áp tuyệt đối (*Cantabile*, *La Catedral*, *Un Día de Noviembre*) và những bản cần điểm xuyết cú tì dây thật (*Bartók pizzicato*, *Choro*, *Tresillo*, *Chaconne*) chưa có trần riêng. |
 
-### Nguyên lý âm học trên MS Basic Nylon (`MuseScore_General.sf3`)
+### Nguyên lý âm học trên MS Basic Nylon (`MuseScore_General.sf3`) & Triết lý "Ép Dây Hiếm"
 
-Trên MS Basic, `NoteEvent.velocity` được xuất ra MusicXML thành `<note dynamics="V * 100 / 90">`:
-- **Vùng $ppp - pp$ (`velocity 20..38`, tương đương `22%..42%` forte)**: Dây nylon kêu cực kỳ mềm, tròn, ấm (giống ngón thịt vuốt ở *sul tasto* / *dolcissimo*). Đây chính là vùng tạo ra **sự gần gũi (intimacy)** đặc trưng của guitar.
-- **Vùng $p - mp$ (`velocity 40..63`, tương đương `44%..70%` forte)**: Tiếng gảy tự nhiên, rõ nét nhưng chưa gắt móng — vùng làm việc chủ đạo của giai điệu tự sự.
-- **Vùng $mf - ff$ (`velocity 65..90`, tương đương `72%..100%` forte)**: Tầng sample có tiếng móng rõ và sắc (*punta / metallico*). Nếu cả bài đánh ở vùng này sẽ bị đanh và mệt tai; nhưng nếu **chỉ xuất hiện ở đỉnh sóng (crest of the wave), nốt nhấn syncopation, Bartók pizzicato hoặc đỉnh cao trào**, nó lại tạo ra độ bùng nổ rất thật của đàn guitar.
+Trên MS Basic, `NoteEvent.velocity` xuất ra MusicXML thành `<note dynamics="V * 100 / 90">`, chia thành **3 vùng âm sắc**:
+
+1. **Vùng Thì Thầm / Intimate — $ppp$ đến $pp$ (`velocity 20..38`)**:
+   - Dây nylon kêu cực kỳ mềm, tròn, ấm (giống ngón thịt vuốt ở *sul tasto* / *dolcissimo*). Đây là vùng tạo ra chiều sâu nội tâm và khoảng lặng cho người nghe.
+2. **Vùng Tự Sự Ấm — $p$ đến $mp+$ (`velocity 40..64`, dưới ngưỡng `65`)**:
+   - Tiếng gảy rõ nét, tròn trịa nhưng **chưa kích hoạt lớp sample móng gắt**.
+   - **Nguyên tắc cốt lõi**: Khi đã mở đáy xuống `20..32`, chỉ cần sóng dâng từ `24` lên `64` là chúng ta đã có **biên độ động 40 đơn vị MIDI** (rộng gấp 3–4 lần hiện tại) mà tiếng đàn vẫn **ấm 100%, không hề bị ép dây**.
+3. **Vùng Ép Dây Có Kiểm Soát — $mf+$ đến $f$ (`velocity 65..76`, tuyệt đối không vượt `76`)**:
+   - Từ `65` trở lên, MS Basic pha tiếng móng/ép dây (*apoyando / punta*).
+   - Thay vì dùng tràn lan hay cắt cứng ở `70` cho mọi bài, vùng `65..76` được quản lý như một **"Ngân sách hiếm" (Rare Snap Budget — dưới 3–5% số nốt)**:
+     - **Các thể loại trữ tình / cổ điển thuần túy**: Trần tối đa chỉ chạm **`63..68`** ở đúng đỉnh cao nhất của cả bài.
+     - **Các thể loại cần lực tì dây thật** (*Bartók pizzicato* của Brouwer, *Tresillo / Animé* của Villa-Lobos, *Choro / Hemiola* hoặc đỉnh *Ultimo Tremolo* của Barrios, đỉnh *Chaconne* của Bach): Được phép vượt lên **`70..76`** tại đúng các nhát nhấn đặc trưng (syncopated accent / slap / climax apex), rồi lập tức lùi ngay về dưới `64`.
 
 ---
 
@@ -30,7 +38,7 @@ Trên MS Basic, `NoteEvent.velocity` được xuất ra MusicXML thành `<note d
 
 ### 2.1. Vị trí đặt Filter trong Pipeline
 
-Để không phá vỡ các unit test cấp pattern hiện có (nhiều test trong `test_sonify_guitar.py` gọi trực tiếp các hàm nội bộ hoặc `render(..., framed=False)` và kiểm tra các con số `56`, `60`, `64`, `72`), hay nhất là đặt Filter làm **bước hoàn thiện động lực học của Guitar**:
+Để không phá vỡ các unit test cấp pattern hiện có (nhiều test trong `test_sonify_guitar.py` gọi trực tiếp các hàm nội bộ hoặc `render(..., framed=False)` và kiểm tra các con số `56`, `60`, `64`, `72`), Filter được đặt làm **bước hoàn thiện động lực học của Guitar**:
 
 ```text
 render_patterned_voices()
@@ -40,9 +48,9 @@ render_patterned_voices()
   └── 4. humanize(score)    <-- Giữ nguyên ở audio.py: nhích ±2 trên các plateau còn lại
 ```
 
-> **Lưu ý kiến trúc**:
-> - Có thể tách thành module riêng `backend/app/sonify/guitar_dynamics.py` (hoặc `guitar_wave.py`) được gọi ở cuối `render_patterned_voices` khi `_framed(ctx) == True` (mọi bản nhạc thực tế `1D`, `1W`, `1M`, `3M`, `1Y`), hoặc mở cờ tham số `wave: bool = True`.
-> - Trong `humanize.py`: Hiện tại `_movable()` đóng băng mọi plateau nếu nốt kề lệch `<= 2`. Khi có Wave Filter uốn mượt từng ô/phách, các chuỗi nốt dài đã tự có độ nghiêng tự nhiên; những chỗ còn giữ plateau (như các nốt cùng phách hoặc câu phẳng) vẫn được `humanize` nhích nhẹ.
+> **Lưu ý với `humanize.py`**:
+> - Khi một nốt đang đứng ở `63–64` (ngay sát dưới ngưỡng ép dây `65`), nếu `humanize` cộng `+2` sẽ vô tình đẩy nốt đó sang `65–66` (bật tiếng ép dây ngoài ý muốn).
+> - Do đó, trên các nốt không được đánh dấu ép dây (`velocity <= 64`), đường sóng thường nên giữ trần ở `62–63` (để kể cả khi `humanize` nhích `+1..+2` cũng không vượt quá `64`), chỉ những nốt đỉnh thực sự mới bước qua `65`.
 
 ---
 
@@ -50,21 +58,23 @@ render_patterned_voices()
 
 Với mỗi nốt tại vị trí thời gian $t$ (tính bằng móc đơn `eighth` hoặc phách `beat`), Filter tính toán lực gảy qua **3 bước**:
 
-#### Bước 1: Tính Biên Độ Đích Của Bản Nhạc $[V_{\text{floor}}, V_{\text{ceil}}]$ (Piece-level Adaptive Span)
+#### Bước 1: Tính Biên Độ Sóng Thường $[V_{\text{floor}}, V_{\text{ceil}}]$ & Trần Ép Dây $V_{\text{snap}}$ Theo Bản Nhạc
 
-Biên độ tổng thể của bản nhạc không cố định mà co giãn theo **biên độ giá tương đối `rel_span = (high - low) / low`**, **tính cách phiên `character`** (`calm`, `rally`, `selloff`, `volatile`) và **Hồ sơ Tác gia (`ComposerDynamicProfile`)**:
+Mỗi bản nhạc có hai ngưỡng trần tách biệt dựa trên **biên độ giá tương đối `rel_span = (high - low) / low`**, **tính cách phiên `character`** (`calm`, `rally`, `selloff`, `volatile`) và **Hồ sơ Tác gia / Pattern (`PatternWaveProfile`)**:
 
 1. **Hệ số mở biên theo biến động dữ liệu $\alpha \in [0.0, 1.0]$**:
    $$\alpha = \text{clamp}\left(\frac{\text{rel\_span} - 0.004}{0.028 - 0.004},\; 0.0,\; 1.0\right)$$
-   - Khi phiên đi ngang hẹp ($\text{rel\_span} \le 0.4\%$ hoặc `character == "calm"`): $\alpha$ nhỏ ($\approx 0.0 - 0.25$). Bản nhạc nghiêng về **Intimate / Whisper mode**: sàn hạ sâu xuống $ppp - pp$, trần giữ ấm dưới ngưỡng móng gắt ($mp - mf$).
-   - Khi phiên biến động lớn ($\text{rel\_span} \ge 2.8\%$ hoặc `volatile` / `rally` mạnh): $\alpha \to 1.0$. Bản nhạc mở **Full Concert Span**: sàn vẫn lùi về $pp$ ở những vùng lặng, còn đỉnh sóng vươn tới $f - ff$.
+   - Khi phiên đi ngang hẹp ($\text{rel\_span} \le 0.4\%$ hoặc `character == "calm"`): $\alpha$ nhỏ ($\approx 0.0 - 0.25$). Bản nhạc ở chế độ **Intimate / Whisper**: sàn hạ sâu xuống $ppp - pp$ (`20..30`), trần giữ hoàn toàn dưới ngưỡng ép dây (`56..63`).
+   - Khi phiên biến động lớn ($\text{rel\_span} \ge 2.8\%$ hoặc `volatile` / `rally` mạnh): $\alpha \to 1.0$. Sàn vẫn giữ ở $pp$ (`24..32`) cho các đoạn lắng, trần sóng thường chạm `64..68`, và riêng các nốt nhấn đặc trưng được mở tới $V_{\text{snap}}$ (`70..76` tùy thể loại).
 
-2. **Cửa sổ biên độ $[V_{\text{floor}}, V_{\text{ceil}}]$ của Bè Hát Chính (Lead / Singing Thumb)**:
+2. **Cửa sổ Sóng Thường $[V_{\text{floor}}, V_{\text{ceil}}]$ và Trần Ép Dây $V_{\text{snap}}$**:
    $$\begin{aligned}
    V_{\text{floor}} &= \text{round}\big(P.\text{floor\_calm} - \alpha \cdot (P.\text{floor\_calm} - P.\text{floor\_wide})\big) \\
-   V_{\text{ceil}}  &= \text{round}\big(P.\text{ceil\_calm}  + \alpha \cdot (P.\text{ceil\_wide}  - P.\text{ceil\_calm})\big)
+   V_{\text{ceil}}  &= \text{round}\big(P.\text{ceil\_calm}  + \alpha \cdot (P.\text{ceil\_wide}  - P.\text{ceil\_calm})\big) \\
+   V_{\text{snap}}  &= \text{round}\big(P.\text{snap\_calm}  + \alpha \cdot (P.\text{snap\_wide}  - P.\text{snap\_calm})\big)
    \end{aligned}$$
-   *(Trong đó $P$ là profile của từng tác gia & pattern ở Mục 3).*
+   - Trong đó $V_{\text{ceil}}$ (trần cho 95% các nốt giai điệu) luôn nằm quanh **`58 .. 68`**.
+   - Còn $V_{\text{snap}}$ (`68 .. 76`) **chỉ cấp phát cho các nốt thỏa điều kiện Ép Dây Hiếm** (xem Bước 3).
 
 ---
 
@@ -82,197 +92,165 @@ Trong đó (với trọng số mặc định $w_{\text{macro}} = 0.45,\; w_{\tex
    - Ở đoạn giữa (`section.trio` hoặc `section.bridge`), nếu là pattern nội tâm (`cantabile`, `thumb_cantabile`, `noviembre`, `andante`), $W_{\text{macro}}(t)$ được nhân hệ số dịu xuống `0.65` để cả đoạn giữa lùi sâu vào không gian $pp$ trước khi phần tái hiện (Recapitulation A') mở rộng trở lại.
    - Ở vùng khung **Intro (`warmup`/`intro`)** và **Outro (`cooldown`/`outro`)**:
      - **Intro**: Uốn đường cong khởi âm (emergence curve) từ $ppp/pp$ (`W = 0.08`) nở dần vào khớp với mức đầu thân bài.
-     - **Outro**: Uốn đường cong tan dần (*morendo* / *al niente*) từ mức cuối thân bài lịm dần xuống $ppp$ (`W = 0.0 -> V = 22..28`) ở hợp âm/harmonics cuối cùng.
+     - **Outro**: Uốn đường cong tan dần (*morendo* / *al niente*) từ mức cuối thân bài lịm dần xuống $ppp$ (`W = 0.0 -> V = 20..26`) ở hợp âm/harmonics cuối cùng.
 
 2. **Sóng Câu Nhạc $W_{\text{phrase}}(t) \in [0, 1]$ (Raised-Cosine Phrase Wave)**:
    - Thay thế hàm tam giác tuyến tính gãy khúc hiện tại bằng **đường cong Raised-Cosine (Hann arch)** nối từ đầu câu `phrase.start` lên đỉnh `phrase.apex` rồi thu về cuối câu `phrase.end`:
      $$W_{\text{phrase}}(t) = \frac{1 - \cos(\pi \cdot s(t))}{2}$$
      *(với $s(t)$ là vị trí chuẩn hóa từ đầu câu tới đỉnh và từ đỉnh về cuối câu).*
-   - Ngay cả khi câu nhạc có cao độ đi ngang (`phrase.rise < MIN_RISE` — trường hợp mà code hiện tại đang gán phẳng `swell = 0`), người chơi guitar thật **vẫn luôn thở theo câu**: câu phẳng vẫn nhận một nhịp thở nhẹ `0.35 * W_phrase(t)` để nốt mở câu và nốt khép câu lắng xuống tự nhiên.
+   - Ngay cả khi câu nhạc có cao độ đi ngang (`phrase.rise < MIN_RISE` — trường hợp mà code hiện tại đang gán phẳng `swell = 0`), câu phẳng vẫn nhận một nhịp thở nhẹ `0.35 * W_phrase(t)` để nốt mở câu và nốt khép câu lắng xuống tự nhiên.
 
 3. **Sóng Thanh Khoản Làm Mượt $W_{\text{band}}(t) \in [0, 1]$ (Smoothed Liquidity Wave)**:
-   - Hiện tại `_BAND_DELTA` nhảy bậc thang đột ngột tại vạch nhịp khi đổi cửa sổ thanh khoản (`p: -12`, `mp: -6`, `mf: 0`, `f: +4`).
-   - Thay bằng nội suy mượt (cosine interpolation bán kính 1–2 ô nhịp quanh ranh giới cửa sổ thanh khoản) trên thang `{"p": 0.0, "mp": 0.33, "mf": 0.67, "f": 1.0}`.
+   - Thay bước nhảy bậc thang `_BAND_DELTA` tại vạch nhịp bằng nội suy mượt (cosine interpolation bán kính 1–2 ô nhịp quanh ranh giới cửa sổ thanh khoản) trên thang `{"p": 0.0, "mp": 0.33, "mf": 0.67, "f": 1.0}`.
 
 ---
 
-#### Bước 3: Ánh Xạ Phi Tuyến (S-Curve / Gamma) & Bảo Toàn Phân Tầng 3 Bè
+#### Bước 3: Đường Cong Gamma ($\gamma > 1$), Cổng Ép Dây Hiếm (Snap Gate) & Phân Tầng 3 Bè
 
-1. **Hệ số uốn Gamma ($\gamma$) tạo không gian Intimate**:
+1. **Hệ số uốn Gamma ($\gamma = 1.25 .. 1.50$) giữ 90–95% bài dưới ngưỡng `65`**:
    $$E(t) = \big(W(t)\big)^{\gamma}$$
-   - Khi $\gamma > 1.0$ (ví dụ $\gamma = 1.25 - 1.40$ cho các bài trữ tình): Đường cong võng xuống, giữ phần lớn thời gian của bản nhạc nằm ở vùng ấm áp $pp - mp$ (`30..58`), và chỉ khi cả 3 sóng (Macro + Phrase Apex + Band `f`) cùng hội tụ ($W(t) \to 1.0$), lực gảy mới vọt lên vùng móng sắc $f - ff$ (`76..88`).
-   - Khi $\gamma < 1.0$ (ví dụ $\gamma = 0.85$ cho các điệu nhảy dồn dập hoặc *Galop*): Đường cong đầy đặn, giàu năng lượng hơn.
+   - Vì $\gamma > 1.0$, đường cong năng lượng **võng sâu xuống vùng ấm**: ngay cả khi $W(t) = 0.70$, với $\gamma = 1.40$ thì $E(t) = 0.70^{1.40} \approx 0.60$. Nhờ đó, phần lớn thời lượng bản nhạc nằm gọn trong dải **`24 .. 60`** ($ppp \to mp$), tiếng đàn cực kỳ mềm và tự nhiên.
+   - Chỉ khi cả 3 sóng (Đỉnh Section + Đỉnh Phrase + Band `f`) hội tụ ($W(t) \ge 0.88$), $E(t)$ mới tiến gần `1.0` để chạm tới $V_{\text{ceil}}$ (`64..68`).
 
-2. **Bảo toàn cấu trúc vi mô của ngón đàn (Micro-pattern Offset Preservation)**:
-   - Nhiều pattern của guitar đã có cấu trúc lực vi mô rất tinh tế giữa các ngón trong cùng một phách/ô (ví dụ: cụm tremolo `p` mạnh hơn `m > i > a`; vòm 16 móc kép của `etude1`; vòm sextuplet nghiêng của `etude11`; sóng chữ V của `catedral preludio`).
-   - Filter **không ghi đè phẳng** lên các nốt đó, mà tách mỗi nốt thành:
+2. **Cổng Ép Dây Hiếm (Rare Snap Gate — Khi nào một nốt được vượt `68` lên `70..76`?)**:
+   Một nốt chỉ được phép nhận cộng thêm lực ép dây (tiến tới $V_{\text{snap}} \in [70, 76]$) khi thỏa **đồng thời**:
+   - Thuộc một **Pattern có kỹ thuật ép dây** (như *Bartók pizzicato / staccato stab* của Brouwer, *Tresillo / Etude 11 accent* của Villa-Lobos, *Syncopated Dance / Climax Tremolo* của Barrios, *Grand Solo Fanfare* của Sor, hoặc *Chaconne Breakout* của Bach).
+   - Nằm tại **đúng điểm nhấn cấu trúc**: có cờ `event.accent == True` (hoặc là nốt đỉnh `apex` của câu có `phrase.rise >= MIN_RISE`) **VÀ** nằm trong vùng năng lượng cao của sóng ($W(t) \ge 0.75$ hoặc `band == "f"`).
+   - **Giới hạn mật độ (Budget Cap)**: Tối đa không quá **3–5% tổng số nốt giai điệu** trong bài được vượt ngưỡng `65`. Nếu một đoạn có nhiều nốt `accent` liên tiếp (như `etude11` đánh `accent` mỗi phách đen), chỉ những phách nằm ngay tại **đỉnh câu (`phrase.apex`)** của các câu cao trào mới được chạm `70..73`, còn các phách `accent` khác trong câu giữ ở `46..64`.
+
+3. **Bảo toàn cấu trúc vi mô của ngón đàn (Micro-pattern Offset Preservation)**:
+   - Tách mỗi nốt trong các pattern có vòm nội bộ (`tremolo`, `etude1`, `etude11`, `catedral preludio`) thành:
      $$V_{\text{written}} = V_{\text{ref}}(\text{voice}, \text{bar}) + \Delta_{\text{micro}}$$
-   - Filter uốn đường chuẩn $V_{\text{ref}}$ theo sóng $E(t)$, đồng thời **co giãn nhẹ $\Delta_{\text{micro}}$** (scale factor `0.75..1.15` tùy theo độ mở của sóng) để ở vùng $pp$ các ngón rải nghe mượt như lụa, còn ở vùng $f$ độ nhấn phách sắc nét hơn.
+   - Filter uốn đường chuẩn $V_{\text{ref}}$ theo sóng $E(t)$, đồng thời giữ nguyên thứ tự tương đối $\Delta_{\text{micro}}$ giữa các ngón.
 
-3. **Bất biến Phân tầng 3 Bè (Three-Voice Balance Invariant)**:
-   Tại mọi thời điểm $t$, sau khi uốn sóng:
-   - **Với mọi pattern thông thường** (Bè `lead` hát giai điệu):
-     $$\begin{aligned}
-     V_{\text{lead}}(t)    &= V_{\text{floor}} + \big(V_{\text{ceil}} - V_{\text{floor}}\big) \cdot E(t) + \Delta_{\text{micro, lead}} \\
-     V_{\text{bass}}(t)    &= \min\Big(V_{\text{lead}}(t) - \text{gap}_{\text{bass}},\; V_{\text{bass\_floor}} + \big(V_{\text{bass\_ceil}} - V_{\text{bass\_floor}}\big) \cdot E(t)^{\gamma_{\text{bass}}}\Big) \\
-     V_{\text{support}}(t) &= \min\Big(V_{\text{bass}}(t) - \text{gap}_{\text{sup}},\; V_{\text{sup\_floor}} + \big(V_{\text{sup\_ceil}} - V_{\text{sup\_floor}}\big) \cdot E(t)^{\gamma_{\text{sup}}}\Big)
-     \end{aligned}$$
-     - Bè Trung (`support` — arpeggio/rải dây) luôn có trần thấp hơn và hệ số $\gamma_{\text{sup}} \ge 1.35$, giúp **bè rải lùi sâu xuống $ppp - pp$ (`22..34`) khi lắng và chỉ lên tối đa `56..62` khi cao trào** (không bao giờ vượt ngưỡng `65` gây đanh tiếng của MS Basic, trừ các cú chập staccato/pizzicato cố ý).
-   - **Với pattern đảo bè `thumb_cantabile`** (*Prélude No. 1* / *Julia Florida*):
-     - Ngón cái `low` (voice 3) nhận đường cong của **Bè Hát Chính** $[V_{\text{floor}}, V_{\text{ceil}}]$, trong khi hai bè chập phía trên (`lead` và `support`) nhận đường cong **Bè Đệm Thì Thầm** (`24..50`), giữ đúng khoảng cách `low >= max(lead, support) + 6`.
+4. **Bất biến Phân tầng 3 Bè (Three-Voice Balance Invariant)**:
+   - **Bè Trung (`support` — rải arpeggio)**: Luôn có trần cứng **`<= 56`** (tuyệt đối không bao giờ chạm ngưỡng ép dây `65`, trừ trường hợp duy nhất là cú chập hợp âm *Bartók slap / staccato stab* của Brouwer nơi cả khối hợp âm cùng bật lên `64..68`). Ở vùng lắng, bè Trung lùi sâu xuống **`18 .. 32` ($ppp$)**.
+   - **Bè Trầm (`low` — ngón cái `p`)**: Nằm ở **`22 .. 64`** (chỉ trong `thumb_cantabile`, `bach_fuga` climax hoặc cú slap mới chạm `66..70`), luôn thấp hơn Bè Hát Chính ít nhất `3–4` đơn vị và cao hơn Bè Trung ít nhất `2–4` đơn vị.
 
 ---
 
-## 3. Thiết Kế Chi Tiết Cho Từng Đại Sư Trong 5 Tác Gia
+## 3. Hồ Sơ Động Lực Học Chi Tiết Cho 5 Đại Sư (Đã Hiệu Chỉnh Trần Ép Dây)
 
-Mỗi tác gia có một thẩm mỹ âm thanh, kỹ thuật tay phải (*toque*) và biên độ động lực học hoàn toàn khác nhau:
+### Bảng Tổng Hợp Biên Độ 5 Đại Sư (MIDI Velocity: `ppp ≈ 20`, `pp ≈ 32`, `p ≈ 46`, `mp ≈ 58`, Ngưỡng ép dây `= 65`)
 
-### Tổng Quan Bảng Biên Độ 5 Đại Sư (MIDI Velocity trên thang `1..127`, với `ppp ≈ 20`, `pp ≈ 32`, `p ≈ 46`, `mp ≈ 60`, `mf ≈ 72`, `f ≈ 82`, `ff ≈ 90`)
-
-| Đại sư (`ensemble`) | Triết lý Động lực học & Màu âm | Bè Hát Chính<br>*(Phiên êm `calm` $\to$ Phiên sóng lớn)* | Bè Trầm (`low`) | Bè Trung Rải (`support`) | Độ uốn $\gamma$ & Đặc trưng Wave |
-|---|---|---|---|---|---|
-| **1. J.S. Bach (`bach`)** | **Kiến trúc đa âm & Bậc thang thở (Polyphonic Architecture)** — Rõ từng bè đối vị, cao trào xây theo tầng (chaconne/fugue), tránh sướt mướt nhưng có những đoạn nội tâm rất sâu ở Sarabande. | • Êm: `34 .. 64` ($pp \to mp+$)<br>• Sóng lớn: `30 .. 82` ($pp \to f$) | `28 .. 72`<br>*(Ở `bach_fuga`, khi Bass đang giữ Subject thì được nâng ngang tầm Soprano `- 2`)* | `24 .. 58` | $\gamma = 1.10$<br>Sóng vĩ mô rõ theo cấu trúc câu và chuỗi quãng 5; giữ độ rõ nét của bè Bass đối vị. |
-| **2. Fernando Sor (`classic`)** | **Cổ điển Châu Âu thanh lịch (Classical Chiaroscuro)** — Cân đối kiểu Mozart/Haydn, đối đáp sáng–tối (*forte / piano echo*), sắc thái từ tiếng thì thầm của *Cantabile / Élégiaque* đến rộn rã của *Galop / Grand Solo*. | • Êm: `30 .. 62` ($pp \to mp$)<br>• Sóng lớn: `28 .. 80` ($pp \to f$) | `26 .. 68` | `22 .. 56` | $\gamma = 1.15$<br>Nhấn rõ tương phản câu hỏi – câu trả lời và hiệu ứng *subito piano* sau fanfare. |
-| **3. Agustín Barrios (`barrios`)** | **Lãng mạn Thánh đường & Kịch tính Nam Mỹ (Romantic Cathedral)** — Biên độ rộng nhất: từ tiếng chuông/rải *ppp* mỏng như sương khói đến đỉnh *Ultimo Tremolo* và *Choro / Danza* bùng nổ *ff*. | • Êm: `26 .. 63` ($ppp+ \to mp$)<br>• Sóng lớn: `24 .. 86` ($ppp \to ff-$) | `24 .. 74` | `20 .. 58` | $\gamma = 1.30$<br>Độ võng sâu tạo *intimacy* tối đa; sóng tremolo và preludio cuộn dài nhiều ô nhịp. |
-| **4. Heitor Villa-Lobos (`villa`)** | **Hiện đại Brazil nồng nhiệt (Brazilian Modernist Surge)** — Tiếng ngón cái (`p`) dày như Cello, sóng arpeggio cuộn trào từ rì rào ($pp$) lên cao trào dồn dập ($ff$). | • Êm: `30 .. 64` ($pp \to mp+$)<br>• Sóng lớn: `28 .. 86` ($pp \to ff-$) | `28 .. 76`<br>*(Trong `thumb_cantabile`: `32 .. 82`)* | `22 .. 60` | $\gamma = 1.15$<br>Mở khóa `_shape_dynamics` cho cả `etude1` và `etude11` bằng cách dịch cả vòm theo sóng. |
-| **5. Leo Brouwer (`brouwer`)** | **Tương phản Cực đại Thế kỷ 20 (Cinematic & Avant-Garde)** — Đối lập gay gắt nhất giữa lời thì thầm điện ảnh (*Un Día de Noviembre*, $ppp$) và những cú vỗ nhịp Cuba / *Bartók pizzicato* (*Elogio de la Danza*, $ff$). | • Êm: `22 .. 58` ($ppp \to mp-$)<br>• Sóng lớn: `20 .. 90` ($ppp \to ff$) | `20 .. 78` | `18 .. 60`<br>*(Riêng cú slap/stab: tới `84`)* | $\gamma = 1.40$ (trữ tình) / $0.90$ (percussive)<br>Biên độ cực đại từ `18` ($ppp$) tới `90` ($ff$). |
+| Đại sư (`ensemble`) | Triết lý Động lực học & Mức độ Ép Dây | Sóng Thường Bè Hát<br>`[V_floor .. V_ceil]`<br>*(Phiên êm $\to$ Phiên sóng lớn)* | Trần Ép Dây Hiếm `V_snap`<br>*(Chỉ $\le 3-5\%$ nốt đỉnh/nhấn)* | Bè Trầm (`low`) | Bè Trung Rải (`support`) | Độ uốn $\gamma$ |
+|---|---|---|---|---|---|---|
+| **1. J.S. Bach (`bach`)** | **Đối vị Baroque điềm đạm** — Rõ nét từng bè, hầu như không ép dây; chỉ nhấn nhẹ ở đỉnh câu chạy *Chaconne* hoặc phách mạnh *Gigue*. | • Êm: `32 .. 60`<br>• Sóng lớn: `28 .. 65` | **`68 .. 70`**<br>*(Chỉ tại nốt đích scale *Chaconne* / đầu câu *Gigue* ở band `f`)* | `26 .. 62`<br>*(Fuga: `28 .. 63`)* | `22 .. 52` | $\gamma = 1.20$ |
+| **2. Fernando Sor (`classic`)** | **Cổ điển Châu Âu trong sáng** — Tiếng đàn tròn, thanh lịch, tránh tiếng móng gắt; chỉ nhói nhẹ ở hợp âm *Fanfare* của *Grand Solo* hoặc nốt tựa *Élégiaque*. | • Êm: `28 .. 58`<br>• Sóng lớn: `26 .. 64` | **`68 .. 70`**<br>*(Chỉ tại khối *Fanfare* mở đoạn `f`, đỉnh *Galop* hoặc *Appoggiatura* đỉnh)* | `24 .. 60` | `20 .. 50` | $\gamma = 1.25$ |
+| **3. Agustín Barrios (`barrios`)** | **Lãng mạn Thánh đường & Vũ khúc Nam Mỹ** — *Preludio* và *Julia Florida* ấm hoàn toàn; chỉ đỉnh cao trào *Tremolo* và cú giật *Choro / Hemiola* mới ép dây. | • Êm: `24 .. 60`<br>• Sóng lớn: `22 .. 66` | • *Preludio / Andante*: **`66..68`**<br>• *Tremolo climax*: **`70..72`**<br>• *Choro / Hemiola*: **`72..74`** | `22 .. 64` | `18 .. 52` | $\gamma = 1.35$ |
+| **4. Heitor Villa-Lobos (`villa`)** | **Hiện đại Brazil giàu sức sống** — Sóng arpeggio cuộn rộng từ rì rào ($ppp$) lên ấm đầy ($mp+$); cú nhấn *Tresillo* `3+3+2` và đỉnh *Étude 11* được tì dây thật. | • Êm: `28 .. 62`<br>• Sóng lớn: `26 .. 66` | • *Etude 1 / Thumb*: **`68..70`**<br>• *Tresillo / Etude 11 climax*: **`72..74`** | `26 .. 64`<br>*(Thumb: `30 .. 70`)* | `20 .. 54` | $\gamma = 1.25$ |
+| **5. Leo Brouwer (`brouwer`)** | **Cực đại Điện ảnh vs Avant-Garde** — *Noviembre* thì thầm tuyệt đối dưới `58`; ngược lại cú vỗ *Bartók pizzicato* trong *Elogio* được phép ép dây sắc lạnh. | • *Noviembre*: `20 .. 58`<br>• *Etude / Elogio*: `24 .. 65` | • *Noviembre*: **Không ép (`<= 60`)**<br>• *Sarabande / Etude*: **`70..72`**<br>• *Elogio Bartók slap*: **`74..76`** | `20 .. 64`<br>*(Slap: `70`)* | `18 .. 52`<br>*(Slap: `66`)* | $\gamma = 1.45$ (êm)<br>$\gamma = 1.10$ (nhịp) |
 
 ---
 
-### 3.1. J.S. Bach (`bach`) — Đối Vị Đa Âm & Sóng Kiến Trúc
+### 3.1. J.S. Bach (`bach`) — Trần Thường `60..65`, Đỉnh Hiếm `68..70`
 
-Hiện tại các pattern của Bach (`bach_fuga`, `bach_bourree`, `bach_gavotte`, `bach_sarabande`, `bach_gigue`, `bach_chaconne`) viết giai điệu ở `64/72`, bass ở `56`, inner ở `46`.
-Khi qua Wave Filter:
-- **`bach_sarabande`** (Nhịp 3/4 chậm hoặc `selloff` nhẹ):
-  - Mở đầu và phách 1 lắng ở $pp$ (`32..42`), **phách 2** (trọng âm Sarabande cùng nốt hoa mỹ *mordent*) nở ấm lên (`48..68` tùy vị trí trên Macro Wave), và câu lướt phách 3 vuốt nhẹ giảm dần hoặc dẫn đà sang ô kế tiếp.
+- **`bach_sarabande`** (Nhịp 3/4 chậm):
+  - Hoàn toàn không ép dây: phách 1 lắng ở $pp$ (`28..38`), **phách 2** (trọng âm Sarabande cùng nốt hoa mỹ *mordent*) nở ấm lên **`46..63`** (ngay dưới ngưỡng `65`), và câu lướt phách 3 vuốt nhẹ giảm dần (`34..52`).
 - **`bach_fuga`** (Phức điệu 2–3 bè):
-  - Đặc thù của Fugue là **bè Trầm (`low`) đóng vai Subject/Answer ngang hàng với Soprano (`lead`)**. Do đó, riêng ở `bach_fuga`, khoảng cách `gap_bass` được thu hẹp chỉ còn `2` đơn vị (thay vì `6–8`), để câu trả lời của bè Trầm ở `bar - 2` nổi rõ trong vùng `36..72`, trong khi bè Trung (`support`) lùi hẳn về `24..50`.
-- **`bach_chaconne`** (*Chaconne in D minor*):
-  - Sóng vĩ mô $W_{\text{macro}}(t)$ xây dựng theo từng chu kỳ biến tấu 4 ô nhịp: các ô đầu chu kỳ bariolage có thể lùi sâu về $pp$ (`lead 34`, `support 24..28`, `bass 30` — tạo tiếng rải bariolage mờ ảo), sau đó dâng dần lên $f$ (`lead 78..82`) ở câu chạy scale bứt phá cuối chu kỳ.
-- **`bach_bourree`, `bach_gavotte`, `bach_gigue`**:
-  - Giữ độ nảy nhịp điệu Baroque: các nốt lấy đà (*anacrusis* 2 móc đơn của Bourrée, 2 phách giữa ô của Gavotte) bước từ nhẹ lên mạnh ($\text{crescendo}$ ngắn $+6..+8$ velocity vào phách 1 của ô sau).
+  - Bè Soprano (`lead`) đi trong `30..64`, bè Trầm (`low` — giữ Subject/Answer ở `bar - 2`) bám sát ở `28..62` (khoảng cách `gap_bass = 2`), bè Trung (`support`) điểm nhẹ ở `22..48`. Cả ba bè đối vị rõ ràng mà không bè nào bị gắt móng.
+- **`bach_chaconne`, `bach_bourree`, `bach_gavotte`, `bach_gigue`**:
+  - Chu kỳ bariolage 4 ô của *Chaconne* khởi đầu từ $pp$ (`lead 32`, `support 22..26`, `bass 28`), cuộn dần lên `62..65`; chỉ duy nhất **nốt đích cuối cùng của câu chạy scale bứt phá** (hoặc phách nhấn đầu câu đỉnh của *Gigue*) mới được chạm **`68..70`**.
 
 ---
 
-### 3.2. Fernando Sor (`classic`) — Tinh Tế Cổ Điển & Hiệu Ứng Sáng–Tối (*Chiaroscuro*)
+### 3.2. Fernando Sor (`classic`) — Trần Thường `58..64`, Đỉnh Hiếm `68..70`
 
 - **`cantabile`** (*Op. 6 No. 10* — Song thanh quãng 3 / quãng 6 khi `calm`):
-  - Đây là pattern *intimate* nhất của Sor. Cả bài được kéo về vùng $ppp - mp$: bè Cao hát ở `28..58`, bè Trung đi bóng quãng 3/6 ngay sát dưới ở `22..50` (luôn mềm hơn bè Cao `6–8` đơn vị để nghe như hai ngón `m-i` vuốt nhẹ trên dây), và nốt Bass điểm rất khẽ ở `24..48`.
+  - Giữ thuần khiết 100% trong vùng dây ấm: bè Cao hát ở **`26..58`**, bè Trung đi bóng quãng 3/6 ngay sát dưới ở **`20..48`**, nốt Bass điểm khẽ ở **`22..46`**. Hoàn toàn không có tiếng ép dây.
 - **`elegiaque`** (*Fantaisie élégiaque* — Hành khúc tang chấm dôi):
-  - Những đoạn mở và kết câu đóng ở giọng Thứ chìm xuống $pp$ (`lead 30..44`, `bass 26..38`, `support 22..32`). Khi câu leo lên đỉnh bi tráng, sóng mở lên `lead 72..78`, tiếng bass chấm dôi trầm hùng ở `62..66`. Nốt tựa *appoggiatura* ở phách mạnh được nhấn nhói lên (`+6` so với nốt giải sau nó) rồi dịu xuống ngay ở móc đơn giải.
+  - Những đoạn mở và kết câu đóng ở giọng Thứ chìm xuống $pp$ (`lead 28..42`, `bass 24..36`, `support 20..30`). Khi câu leo lên đỉnh bi tráng, sóng mở lên `lead 60..65`; chỉ riêng **nốt tựa *appoggiatura* tại câu đỉnh** mới nhói lên **`68..70`** rồi dịu xuống ngay ở móc đơn giải (`58..62`).
 - **`study` & `Grand Solo`** (`level 0 -> 1 -> 2`):
-  - Gắn trực tiếp bậc figuration `level` của Grand Solo vào biên độ sóng:
-    - `level 0` (câu mở đầu): Trong trẻo ở $pp - mp$ (`32..60`).
-    - `level 1` (lần lặp biến tấu): Mở lên $p - mf$ (`40..70`).
-    - `level 2` (đỉnh tái hiện + scale + fanfare): Mở tới $mf - f$ (`48..80`). Ngay sau khe thở kịch tính `caesura`, câu đỉnh vươn lên cực đại.
-- **`mozart_var` & `galop`**:
-  - Trong `mozart_var`, bè đối vị liền bậc ở `support` uốn lượn theo đúng chiều lên/xuống của bước đi (`+1` mỗi bước đi lên, `-1` mỗi bước đi xuống trong khoảng `26..54`). Trong `galop`, các nốt nhảy quãng 3 *sparkle* staccato ở móc đơn thứ 2 nhẹ và nảy hơn nốt gốc phách mạnh (`-6` velocity) như tiếng chuông nhỏ.
+  - `level 0` (câu mở đầu): Trong trẻo ở $pp - mp-$ (`28..56`).
+  - `level 1` (lần lặp biến tấu): Mở lên $p - mp+$ (`36..62`).
+  - `level 2` (đỉnh tái hiện + scale + fanfare): Sóng thường lên `64`, và chỉ đúng **hợp âm khối Fanfare mở đầu section band `f`** hoặc **nốt đích của câu chạy scale sau `caesura`** mới chạm **`68..70`**.
 
 ---
 
-### 3.3. Agustín Barrios (`barrios`) — Chiều Sâu Thánh Đường & Sóng Tremolo Rộng
-
-Barrios là tác gia hưởng lợi nhiều nhất từ việc mở dải $ppp \to ff$:
+### 3.3. Agustín Barrios (`barrios`) — Thánh Đường Êm Ái (`<= 68`) & Vũ Khúc / Tremolo Có Đỉnh (`70..74`)
 
 1. **`preludio` (*La Catedral — Preludio Saudade*)**:
-   - **Gỡ bỏ cái kẹp cứng `54..64` (lead) và `48..55` (support)** hiện tại trong `guitar_barrios.py` và `_shape_dynamics`.
-   - Thay bằng **Sóng Thánh Đường (Cathedral Wave)**:
-     - **Bè Canto (`lead`)**: Mở bài và những đoạn lắng lùi về **$pp$ (`34..42`)**; khi câu nhạc dâng lên theo $W_{\text{macro}}(t)$ và $W_{\text{phrase}}(t)$, tiếng canto nở ấm áp qua $mp$ (`56..63`) và tại đỉnh cao trào lớn nhất của bài được phép chạm **`68..74`** ($mf+$) để tiếng dây 1 ngân vang đúng chỉ dẫn *Ben marcato il canto*.
-     - **Bè Trung sóng chữ V 6 móc kép (`support`)**: Luôn giữ vai trò "tiếng vọng dưới mái vòm", thấp hơn Canto ít nhất `10–14` đơn vị. Ở vùng $pp$, sóng chữ V rải ở **`22..30` ($ppp$)** (đáy chữ V ở móc kép thứ 3 chạm `20..22`); ở đỉnh sóng, sóng chữ V cũng chỉ lên tới **`46..54`** — tạo độ sâu không gian 3D tách bạch hoàn toàn khỏi tiếng Canto.
-     - **Bè Trầm ngân 2 ô (`low`)**: Đi từ `28` ($pp$) đến `60` ($mp+$).
+   - Bản Preludio mang tính chất trầm mặc, nội tâm nên **hạn chế tối đa tiếng ép dây**:
+   - **Bè Canto (`lead`)**: Mở bài và những đoạn lắng lùi sâu về **$pp$ (`32..40`)**; khi câu nhạc dâng lên theo $W_{\text{macro}}(t)$ và $W_{\text{phrase}}(t)$, tiếng canto nở ấm áp qua $mp$ (`52..63`), và chỉ tại **1–2 nốt đỉnh cao nhất của toàn bài** mới chạm nhẹ **`66..68`** (vừa đủ ngân vang *Ben marcato il canto* mà không bị đanh).
+   - **Bè Trung sóng chữ V 6 móc kép (`support`)**: Thấp hơn Canto `10–14` đơn vị, rải như tiếng vọng từ **`20..28` ($ppp$)** ở vùng lặng lên tối đa **`44..50`** ở vùng đỉnh.
+   - **Bè Trầm ngân 2 ô (`low`)**: Đi từ `26` ($pp$) đến `56` ($mp$).
 
-2. **`tremolo` (*Una Limosna por el Amor de Dios / El Último Tremolo*)**:
-   - Hiện tại `_tremolo` đang bị kẹp ngón cái trong `44..72` với vòm vùng chỉ cộng tối đa `+6` và độ lệch theo band chỉ `-6..+3`.
-   - **Mở rộng vòm Tremolo**:
-     - Giữ nguyên cấu trúc ngón trong từng phách: ngón cái `L`, và 4 móc kép `p-a-m-i` lệch `(-6, -3, -4, -6)` (hoặc thu hẹp độ lệch thành `(-4, -2, -3, -4)` khi ở vùng $ppp$ để nốt `a` không bị câm dưới `18`).
-     - Cho phép mức chuẩn `L` của ngón cái uốn theo $W_{\text{macro}}(t) + W_{\text{phrase}}(t)$ từ **`34` ($pp$, khi đó fill `a-m-i` thì thầm ở `28, 31, 30, 28`)** lên tới **`78` ($f+$, khi đó fill `a-m-i` ngân rực rỡ ở `72, 75, 74, 72`)** tại đỉnh cao trào của chương!
-     - Giữ nguyên quy tắc an toàn: trong mỗi cụm 1 phách, ngón cái luôn lớn hơn ngón `m` của chính cụm đó ít nhất `3` đơn vị.
+2. **`tremolo` (*El Último Tremolo*)**:
+   - Suốt 90% thời lượng bản nhạc, mức chuẩn `L` của ngón cái uốn mượt theo sóng từ **`34` ($pp$, fill `a-m-i` thì thầm ở `28, 31, 30, 28`)** đến **`64` ($mp+$, fill `a-m-i` ở `58, 61, 60, 58`)** — tức cả chuỗi lặp `a-m-i` nằm trọn dưới ngưỡng `65`, nghe liền như tiếng vĩ cầm mà không bị lạch cạch tiếng móng!
+   - Chỉ tại **đúng đỉnh vòm cao trào nhất của chương ($W(t) \ge 0.90$)**, ngón cái `L` mới vươn lên **`70..72`**, kéo ngón `m` của phách đỉnh chạm nhẹ **`67..69`** trong 1–2 ô nhịp rồi lùi lại về vùng ấm.
 
-3. **`andante`, `thumb_cantabile` (*Julia Florida*) và Điệu nhảy (`choro`, `polca`, `hemiola`, `vals`)**:
-   - Trong *Julia Florida* (`thumb_cantabile`), ngón cái hát ở `34..74`, còn hai nốt chập phách yếu phía trên lùi sâu xuống vùng `22..44` ($ppp - p$), xóa hẳn cảm giác hợp âm phụ gõ đều đều.
-   - Trong `choro`, `polca`, `vals`: mở biên độ giữa các phách thường (`34..56`) và các cú nhấn syncopation (`62..82`), giúp điệu nhảy có độ lắc (groove) rất rõ.
+3. **`thumb_cantabile` (*Julia Florida*) vs Điệu nhảy (`choro`, `polca`, `hemiola`, `vals`)**:
+   - *Julia Florida* (`thumb_cantabile`): Ngón cái hát ấm ở **`32..66`** (đỉnh hiếm `68`), hai nốt đệm chập phách yếu phía trên lùi sâu xuống **`20..42`** ($ppp - p$).
+   - *Điệu nhảy Nam Mỹ* (`choro`, `polca`, `hemiola`, `vals`): Đây là thể loại cần độ nảy dân gian thực sự. Các nốt giai điệu và đệm thường đi ở **`32..62`**, nhưng các **cú giật syncopation (`sync=True`) ở vùng cao trào** được phép bật lên **`70..74`** để tạo sức bật nhịp điệu.
 
 ---
 
-### 3.4. Heitor Villa-Lobos (`villa`) — Sóng Cuộn Arpeggio & Mở Khóa Hai Bản Étude
+### 3.4. Heitor Villa-Lobos (`villa`) — Sóng Arpeggio (`26..66`) & Nhát Nhấn Tresillo / Animé (`70..74`)
 
-Hiện tại `etude1` và `etude11` đang bị chặn không cho đi qua `_shape_dynamics` vì sợ làm hỏng bậc thang nội bộ của ô nhịp (`50, 52, 54` của `etude1` và vòm sextuplet của `etude11`).
+1. **`etude1` (*Étude No. 1*) — Dịch chuyển cả vòng 16 móc kép trong vùng ấm**:
+   - Cả guồng máy 16 móc kép lướt theo sóng $E(t)$:
+     - Ở những ô đầu bài hoặc vùng tích lũy ($pp$): lùi xuống rì rào ở **`24..30` (support)**, **`36..42` (lead)**, **`32..38` (bass)**.
+     - Khi sóng dâng lên đỉnh: cuộn lên **`46..54` (support)**, **`62..66` (lead)**, **`58..62` (bass)** — chỉ riêng 1–2 ô cực đỉnh của phiên `rally` mạnh thì hai nốt giai điệu mới chạm **`68..70`**. Toàn bộ 13 nốt bè trung giữ nguyên hình vòm `-2, 0, +2, 0, -2` dưới ngưỡng `54`, nên nghe rất mượt và dày.
 
-Cách giải quyết triệt để trong Filter mới:
-1. **`etude1` (*Étude No. 1*) — Dịch chuyển cả vòng 16 móc kép theo Sóng**:
-   - Bảo toàn 100% bậc thang tương đối bên trong ô nhịp: hai nốt giai điệu (`index 7` và `9`) đứng cao nhất, bass đứng dưới giai điệu `4` đơn vị, và 13 nốt bè trung giữ đúng hình vòm `-2, 0, +2, 0, -2`.
-   - Nhưng **tâm của cả ô nhịp** không còn đứng chết ở `52 / 60..72` suốt 30 ô nữa, mà lướt theo sóng $E(t)$:
-     - Ở những ô đầu bài hoặc vùng tích lũy ($pp$): cả guồng máy 16 móc kép lùi xuống rì rào ở **`26..32` (support)**, **`38..44` (lead)**, **`34..40` (bass)**.
-     - Khi sóng dâng lên đỉnh ($f$): cả guồng máy cuộn lên **`50..58` (support)**, **`74..84` (lead)**, **`68..74` (bass)**.
-   - Hiệu ứng nghe được đúng như cách các nghệ sĩ guitar chơi *Étude No. 1* ngoài đời: cả chuỗi arpeggio to dần rồi nhỏ dần như sóng biển.
-
-2. **`etude11` (*Étude No. 11 — Animé*)**:
-   - Tương tự `etude1`, giữ nguyên độ nghiêng `_ETUDE11_TILT = {1: -1, 2: -1, 4: 0, 5: +1}` và khoảng cách giữa nốt giai điệu phách mạnh, nốt nhắc lại (`-8`) và 4 nốt trang trí ở giữa, nhưng cho phép `hairpin` gốc của mỗi phách uốn rộng từ **`40` ($p-$) đến `84` ($f+$)** theo sóng của bản nhạc (với sàn của 4 nốt sextuplet giữa mở xuống `26` thay vì khóa cứng ở `44`).
-
-3. **`villa_pattern`, `chord_melody`, `thumb_cantabile`**:
-   - Với `villa_pattern`, các nốt ngân chồng *campanella* ở bè Trung được vuốt nhẹ ở `24..54`, trong khi các ô có nhấn *tresillo* `3+3+2` ở vùng `volatile` bật rõ 3 đỉnh `{0, 3, 6}` lên `68..82`.
+2. **`etude11` (*Étude No. 11 — Animé*) & `villa_pattern` (*Tresillo* `3+3+2`)**:
+   - Trong `etude11`, hiện tại mọi phách đen đều gắn `accent=True` với `hairpin` lên `72`, làm cả bài kêu tiếng ép dây liên tục.
+   - **Điều chỉnh lại**: Cho `hairpin` của các phách thường uốn trong **`38 .. 63`** (dưới ngưỡng ép dây `65`, với 4 nốt sextuplet giữa ở **`26 .. 50`**). Chỉ tại **phách chứa đỉnh câu (`phrase.apex`) khi sóng $W(t) \ge 0.80$**, cú bổ đầu chùm mới được ép dây thật ở **`70..74`** (giảm từ `84` xuống).
+   - Tương tự trong `villa_pattern`, chỉ đúng **3 nhát nhấn *tresillo* `{0, 3, 6}` ở các ô `volatile` band `f`** mới được bật lên **`70..73`**, còn sóng arpeggio xung quanh giữ ở `24..62`.
 
 ---
 
-### 3.5. Leo Brouwer (`brouwer`) — Tương Phản Điện Ảnh & Nhịp Điệu Thế Kỷ 20
+### 3.5. Leo Brouwer (`brouwer`) — Phân Cực Rõ Giữa Ballad Ấm (`<= 58`) Và Cú Slap Hiện Đại (`72..76`)
 
-Brouwer cần sự phân cực mạnh nhất giữa **Tĩnh ($ppp$)** và **Động ($ff$)**:
-
-1. **`noviembre` (*Un Día de Noviembre*)**:
-   - Thiết kế riêng đường cong **Intimate Ballad Curve** ($\gamma = 1.45$):
-   - Mở câu và kết câu ở **`22..32` ($ppp - pp$)**, bè Trung rải màu `add9 / maj7` mỏng nhẹ ở **`18..38`**, nốt Bass pickup cuối ô bước rất khẽ (`22..34`). Ngay cả ở đỉnh câu trong phiên `calm`, giai điệu cũng chỉ nở ấm áp tới `56..62` ($mp$), giữ trọn vẹn chất điện ảnh trầm mặc.
+1. **`noviembre` (*Un Día de Noviembre*) — 0% Ép Dây**:
+   - Đường cong **Intimate Ballad Curve** ($\gamma = 1.45$) khóa trần cứng ở **`58..60`**:
+   - Mở câu và kết câu ở **`20..30` ($ppp - pp$)**, bè Trung rải màu `add9 / maj7` mỏng nhẹ ở **`18..36`**, nốt Bass pickup cuối ô bước khẽ (`20..32`). Đỉnh câu chỉ nở ấm áp tới **`56..60`**, hoàn toàn không bao giờ chạm ngưỡng `65`.
 2. **`sarabande` (*El Decamerón Negro / Sarabanda*)**:
-   - Tương phản ngay trong từng ô nhịp: phách 1 vào thật khẽ (`26..38`, $pp$), **phách 2** (hợp âm màu sus2/add9) dậm sâu và ngân vang (`56..78`), sau đó câu lướt *modal swarm* (8 móc đơn hoặc 16 móc kép) ở nửa sau ô nhịp **uốn một đường sóng động lực học liên tục** (tăng dần khi swarm đi lên, hoặc giảm dần về $ppp$ `24` khi swarm đi xuống).
+   - Phách 1 vào thật khẽ (`24..36`, $pp$), **phách 2** (hợp âm màu sus2/add9) ngân sâu ở **`52..66`** (chỉ ở đỉnh cao trào của phiên `selloff` mới chạm **`70..72`**), sau đó câu lướt *modal swarm* ở nửa sau ô nhịp uốn mượt trong **`24..62`** (hoàn toàn không ép dây trên chuỗi móc kép chạy nhanh).
 3. **`brouwer_etude` (*Estudio Sencillo No. 6*) & `elogio_pizz` (*Elogio de la Danza*)**:
-   - Ở các ô ostinato bình thường, dải động có thể nén xuống $pp - p$ (`28..48`) như tiếng gõ nhịp ngầm; nhưng tại các nhát cắt syncopation hoặc **cú vỗ *Bartók pizzicato* (móc đơn thứ 3 của `elogio_pizz`)**, filter cho phép xuyên qua trần thường để vọt lên **`80..90` ($ff$)**, tạo cú giật mình (dynamic shock) đúng phong cách đương đại của Brouwer.
+   - Đây là nơi duy nhất trên guitar cần tiếng **ép dây / giật dây thật (*Bartók pizzicato / slap*)**:
+   - Các ô ostinato staccato bình thường được ghìm xuống **`26..56`** ($pp \to mp$) như tiếng nhịp ngầm căng thẳng.
+   - Nhưng tại **móc đơn thứ 3 (`slap`) của `elogio_pizz`** ở các ô biến động mạnh (hoặc cú stab cuối của `_stab_and_ring`), Filter cho phép vọt lên **`72..76`** (giảm từ `84..90` xuống `72..76` để tiếng bật đanh gọn mà không bị vỡ tiếng).
 
 ---
 
 ## 4. Khung Intro & Outro (`guitar_frame.py`): Khởi Âm Từ $ppp$ Và Tan Vào Im Lặng (*Morendo*)
 
-Hiện tại `guitar_frame.py` đang dùng 4 hằng số cố định `_PP = 46`, `_P = 50`, `_MP = 56`, `_MF = 64` và `_shape_dynamics` đang **bỏ qua toàn bộ các ô `pedal` (`intro`, `warmup`, `outro`, `cooldown`)**.
-
-Khi áp dụng Wave Filter:
-1. **Hạ chuẩn nền của `guitar_frame.py` hoặc cho phép Wave Envelope ôm trọn cả Intro và Outro**:
-   - **Intro (`leading` pedal bars)**:
-     - Ô 1 mở đầu từ vùng **$ppp - pp$ (`24..36`)** (ví dụ: tiếng chuông Harmonics đầu bài của Barrios hoặc nốt dây buông của Brouwer/Villa ngân lên từ `26–32` thay vì `44–50`).
-     - Qua các ô tiếp theo của Intro, đường bao tăng dần (dẫn hướng vào `V7` hoặc câu scale lấy đà) để khớp mượt với velocity đầu thân bài (`~38..52`).
-   - **Outro (`trailing` pedal bars)**:
-     - Áp dụng hàm suy giảm mũ (**Exponential Morendo Curve**) từ mức cuối thân bài xuống **`20..26` ($ppp$)** ở ô cuối cùng.
-     - Riêng trường hợp kết kịch tính của Brouwer (`_stab_and_ring` khi `volatile`/`selloff`) hoặc Villa (`bright` outro): giữ nguyên cú chập dứt khoát $mf - f$ (`68..78`) theo đúng ý đồ tác gia, không bị ép giảm về $ppp$.
+1. **Intro (`leading` pedal bars)**:
+   - Ô 1 mở đầu từ vùng **$ppp - pp$ (`22..34`)** (tiếng chuông Harmonics đầu bài của Barrios hoặc nốt dây buông của Brouwer/Villa ngân lên từ `24–30` thay vì `44–50`).
+   - Qua các ô tiếp theo của Intro, đường bao tăng dần để khớp mượt với velocity đầu thân bài (`~36..48`), không có nốt nào trong Intro vượt quá `58` (trừ intro `_edge_stab` kịch tính của Brouwer được phép chập 1 cú đầu ở `68..70`).
+2. **Outro (`trailing` pedal bars)**:
+   - Áp dụng hàm suy giảm mũ (**Exponential Morendo Curve**) từ mức cuối thân bài xuống **`18..24` ($ppp$)** ở ô cuối cùng.
+   - Riêng trường hợp kết kịch tính của Brouwer (`_stab_and_ring` khi `volatile`/`selloff`) hoặc Villa (`bright` outro): cú chập dứt khoát cuối bài dừng ở **`68..72`** (thay vì `78` như trước).
 
 ---
 
 ## 5. Bảo Toàn Bất Biến Kỹ Thuật & Tương Thích Hệ Thống
 
-Để đảm bảo việc mở rộng biên độ $ppp \to ff$ không gây lỗi phụ ở các tầng khác, Filter tuân thủ **5 quy tắc an toàn**:
-
-1. **Không làm câm nốt hay méo MIDI**:
-   - Sàn tuyệt đối sau mọi phép tính là `velocity >= 18` ($ppp$, tương đương `20%` trên `<note dynamics>`), trần tuyệt đối là `velocity <= 96` ($ff$).
+1. **Không làm câm nốt và không vượt trần ép dây**:
+   - Sàn tuyệt đối sau mọi phép tính là `velocity >= 18` ($ppp$), trần sóng thường là `<= 64..68`, và trần ép dây hiếm là `velocity <= 76`.
 2. **Bảo toàn 100% `assert_playable`**:
-   - Filter chỉ biến đổi `NoteEvent.velocity` (và không chạm vào `midi`, `beat`, `duration_beats`, `voice`, `tie_start`, `tie_stop`), nên mọi quy tắc thế tay, dây đàn và `assert_playable` đều giữ nguyên 100%.
+   - Filter chỉ biến đổi `NoteEvent.velocity` (không chạm vào `midi`, `beat`, `duration_beats`, `voice`, `tie_start`, `tie_stop`), nên mọi quy tắc thế tay, dây đàn và `assert_playable` giữ nguyên 100%.
 3. **Đồng bộ các nốt nối dây (`tie_start` / `tie_stop`)**:
-   - Trên guitar (nhạc cụ gảy tắt dần, không thổi hơi thêm giữa nốt như sáo hay kéo vĩ như violin), một nốt nối qua vạch nhịp (`tie_stop=True`) phải **mang cùng `velocity` với cú gảy đầu tiên (`tie_start=True`)** của chuỗi nối đó. Filter luôn gán velocity theo thời điểm phát âm đầu tiên (`attack onset`) và chép sang các mảnh `tie_stop`.
-4. **Tương thích với `humanize.py`**:
-   - `humanize` chạy sau cùng ở `audio.py` đã có cơ chế `_repair(hits, offsets, bar_beats)` đảm bảo không đảo thứ tự lớn/nhỏ giữa hai bè đang kêu cùng lúc (`lead > low > support`) và không đảo thứ tự của hai cú gảy liên tiếp trong cùng một bè.
+   - Một nốt nối qua vạch nhịp (`tie_stop=True`) luôn mang cùng `velocity` với cú gảy đầu tiên (`tie_start=True`) của chuỗi nối đó.
+4. **Tương thích với `humanize.py` (Chống trượt qua ngưỡng `65`)**:
+   - Với các nốt không thuộc diện ép dây (`velocity <= 64`), nếu `humanize` cộng `+1..+2` làm vượt `64` thì kẹp lại ở `64` để `humanize` không tự ý kích hoạt lớp sample móng gắt.
 5. **Tương thích với `preset.py` (Audio Gate & Noise Bed)**:
-   - Trong `preset.py`, `_GUITAR_GATE = 0.01` chỉ dùng để tắt lớp nhiễu nền analog rất nhỏ (`_GUITAR_NOISE = 0.0003`) khi đàn nghỉ, **không phải** là noise gate cắt tín hiệu âm thanh của đàn. Do đó, các nốt $ppp$ (`velocity 20..30`) vẫn ngân trọn vẹn, sạch sẽ và không bị cắt đuôi.
+   - `_GUITAR_GATE = 0.01` trong `preset.py` chỉ tắt lớp nhiễu nền analog (`_GUITAR_NOISE = 0.0003`) khi đàn nghỉ, không cắt tín hiệu của đàn, nên các nốt $ppp$ (`velocity 18..30`) vẫn ngân trọn vẹn.
 
 ---
 
 ## 6. Lộ Trình Triển Khai Đề Xuất (Khi Bắt Đầu Code)
 
 1. **Bước 1 — Tạo module `backend/app/sonify/guitar_wave.py` (hoặc nâng cấp `_shape_dynamics` trong `guitar_patterns.py`)**:
-   - Định nghĩa `ComposerWaveProfile` cho 5 đại sư (`bach`, `classic`, `barrios`, `villa`, `brouwer`) và các override theo pattern (`preludio`, `tremolo`, `etude1`, `etude11`, `cantabile`, `thumb_cantabile`, `noviembre`, `elogio_pizz`, `sarabande`).
-   - Cài đặt bộ tính sóng 3 tầng: `macro_wave`, `phrase_wave` (raised-cosine), `band_wave` (smoothed liquidity) và bộ ánh xạ theo `rel_span` + `character`.
+   - Định nghĩa `ComposerWaveProfile` cho 5 đại sư (`bach`, `classic`, `barrios`, `villa`, `brouwer`) với bộ 3 thông số `(V_floor, V_ceil, V_snap)` và cổng `Rare Snap Gate` (chỉ mở `68..76` cho $\le 3-5\%$ số nốt ở đúng các pattern cần ép dây).
+   - Cài đặt bộ tính sóng 3 tầng: `macro_wave`, `phrase_wave` (raised-cosine), `band_wave` (smoothed liquidity) với hệ số uốn $\gamma = 1.20 .. 1.45$.
 2. **Bước 2 — Mở khóa các chốt chặn cứng trong từng module tác gia**:
    - Gỡ bỏ `if event.velocity >= _MELODY_APEX: continue` và `max(44, min(78, ...))` trong `_shape_dynamics`.
-   - Đưa `etude1`, `etude11` và `tremolo` vào hệ thống dịch chuyển vòm (arch-preserving wave shift) thay vì bỏ qua hoặc chỉ cộng `[-6..+3]`.
-   - Mở rộng cửa sổ của *La Catedral Preludio* (`guitar_barrios.py`) và nối mượt đường cong Intro / Outro (`guitar_frame.py`).
+   - Đưa `etude1`, `etude11` và `tremolo` vào hệ thống dịch chuyển vòm (arch-preserving wave shift), đồng thời hạ các phách thường của `etude11` xuống dưới `64` (chỉ ép dây ở đỉnh câu).
+   - Mở rộng đáy của *La Catedral Preludio* (`guitar_barrios.py`) xuống $ppp - pp$ (`20..34`) trong khi giữ trần Canto êm ái (`<= 68`), và nối mượt đường cong Intro / Outro (`guitar_frame.py`).
 3. **Bước 3 — Cập nhật Test & Revision**:
-   - Giữ nguyên hành vi cho các unit test không khung (`framed=False`) nếu các test đó đang kiểm tra hằng số thô của từng pattern, hoặc cập nhật các assertion kiểm tra ngưỡng velocity của bài có khung (`framed=True`).
    - Thêm bộ test `backend/tests/test_guitar_wave.py` kiểm tra:
-     - Phiên `calm` biên độ hẹp có nốt xuống vùng $ppp - pp$ (`<= 36`) và không vượt quá vùng ấm (`<= 66`).
-     - Phiên `rally`/`volatile` biên độ rộng mở đủ dải từ $pp$ (`<= 38`) tới $f - ff$ (`>= 78`).
+     - Phiên `calm` biên độ hẹp có nốt xuống vùng $ppp - pp$ (`<= 34`) và **100% số nốt nằm dưới ngưỡng ép dây (`<= 64`)**.
+     - Phiên `rally`/`volatile` biên độ rộng mở sâu xuống $pp$ (`<= 34`), có sóng uốn qua các ô nhịp, **tỷ lệ nốt vượt ngưỡng `65` chiếm dưới 5%**, và không có nốt nào vượt quá `76` (hoặc `70` với Bach/Sor).
      - Bất biến thứ tự 3 bè (`lead > low > support`, và `low > lead >= support` cho `thumb_cantabile`) luôn đúng trên cả 5 đại sư.
-   - Tăng `RECAP_REVISION` và `SPAN_REVISION` trong `backend/app/sonify/audio.py` để render lại cache âm thanh mới.
+   - Tăng `RECAP_REVISION` và `SPAN_REVISION` trong `backend/app/sonify/audio.py`.
