@@ -10,6 +10,8 @@ Các hằng số dưới đây lấy từ `backend/app/sonify/` trên `main`: `q
 
 ## 1. Sản phẩm công bố
 
+Máy giai đoạn 1 là `measure_daily` trong `backend/app/sonify/meter.py`. Nó nhận nến và `Score` đã render, trả một `DailyRecord`.
+
 Mỗi bản cho ra ba khối:
 
 | Khối | Ý nghĩa |
