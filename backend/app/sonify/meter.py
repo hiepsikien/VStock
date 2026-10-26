@@ -117,7 +117,10 @@ class VolumeReversed:
 
 @dataclass(frozen=True)
 class RegimeShuffled:
-    f6: float
+    """`f6` is omitted when the shuffle does not change any bar's label."""
+
+    f6: float | None
+    labels_changed: bool
 
 
 @dataclass(frozen=True)
@@ -154,19 +157,25 @@ def measure_daily(
     planner_character: MovementCharacter | None = None,
     price_low: float | None = None,
     price_high: float | None = None,
+    source_groups: list[list[int]] | None = None,
 ) -> DailyRecord:
     """Score one rendered daily symphony against the candles it was built from.
 
-    `planner_character` is the value passed to `render`. The default `None`
-    matches `render`. F6 prices chords with that value. The stratum character
-    is `movement_character` of the closes, which the daily renderer does not read.
+    `planner_character`, `price_low`, `price_high`, and `source_groups` are the
+    values passed to `render`. None of them is stored on `Score`. The defaults
+    match `render(bars)`. F6 prices chords with `planner_character`, so a score
+    rendered with another character is mis-priced until that argument is repeated.
+    The stratum character is `movement_character` of the closes, which the daily
+    renderer does not read.
     """
     if score.variant != "symphony" or score.bars != PIECE_END or score.beats != 4:
         raise ValueError("phase 1 measures a 34-bar daily symphony in 4/4")
     if not bars:
         raise ValueError("need at least one price bar")
 
-    groups = assign_daily_ambient_bars(len(bars))
+    groups = source_groups if source_groups is not None else assign_daily_ambient_bars(len(bars))
+    if len(groups) != PIECE_END:
+        raise ValueError(f"expected {PIECE_END} source groups, got {len(groups)}")
     low, high = _price_bounds(bars, price_low, price_high)
     raw = _raw_degrees(bars, groups, low, high)
     line = _stitch(score, raw)
@@ -301,10 +310,7 @@ def _controls(
         _Eighth(step.index, step.bar, step.eighth, raw, step.midi, step.degree, step.owner)
         for step, raw in zip(line, reversed_raw)
     )
-    reversed_volumes = [
-        Bar(bar.close, bars[len(bars) - 1 - index].volume, bar.ma20, bar.auction)
-        for index, bar in enumerate(bars)
-    ]
+    reversed_volumes = _reversed_volumes(bars)
     volume_values = average_liquidity(
         [
             _window_candles(reversed_volumes, groups, start, length)
@@ -321,8 +327,7 @@ def _controls(
         for (start, length), marking in zip(windows, letters)
         if start >= BODY_START and start + length <= COOL_START
     ]
-    shuffled = list(regimes)
-    random.Random(0).shuffle(shuffled)
+    shuffled, labels_changed = _shuffle_regimes(regimes)
     permuted = _permute_pitches(line)
     return Controls(
         price_reversed=PriceReversed(
@@ -330,12 +335,36 @@ def _controls(
             f5=f5,
         ),
         volume_reversed=VolumeReversed(f5=_liquidity(body_volumes, body_letters)),
-        regime_shuffled=RegimeShuffled(f6=regime_lift(chords, shuffled, character)),
+        regime_shuffled=RegimeShuffled(
+            f6=regime_lift(chords, shuffled, character) if labels_changed else None,
+            labels_changed=labels_changed,
+        ),
         pitches_permuted=PitchesPermuted(
             f1=_direction(permuted) if distinct >= 3 else None,
             m1_lead_support=_chord_tone_rate(permuted, "body", by_bar),
         ),
     )
+
+
+def _reversed_volumes(bars: Sequence[Bar]) -> list[Bar]:
+    """Reverse volume and the auction flag together. The flag decides which print is dropped."""
+    last = len(bars) - 1
+    return [
+        Bar(bar.close, bars[last - index].volume, bar.ma20, bars[last - index].auction)
+        for index, bar in enumerate(bars)
+    ]
+
+
+def _shuffle_regimes(regimes: Sequence[Regime]) -> tuple[list[Regime], bool]:
+    """Permute labels. A one-regime body cannot be permuted, so the control is skipped."""
+    original = list(regimes)
+    if len(set(original)) < 2:
+        return original, False
+    shuffled = original.copy()
+    random.Random(0).shuffle(shuffled)
+    if shuffled == original:
+        shuffled = original[1:] + original[:1]
+    return shuffled, True
 
 
 def _permute_pitches(line: Sequence[_Eighth]) -> tuple[_Eighth, ...]:
@@ -560,10 +589,13 @@ def _parallel_fifths(score: Score, line: Sequence[_Eighth]) -> int:
         right_bass = bass.get(right.index)
         if left.midi is None or right.midi is None or left_bass is None or right_bass is None:
             continue
+        melody_step = right.midi - left.midi
+        bass_step = right_bass - left_bass
+        if melody_step == 0 or bass_step == 0 or (melody_step > 0) != (bass_step > 0):
+            continue
         if (left.midi - left_bass) % 12 != 7 or (right.midi - right_bass) % 12 != 7:
             continue
-        if left.midi != right.midi or left_bass != right_bass:
-            pairs += 1
+        pairs += 1
     return pairs
 
 

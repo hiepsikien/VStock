@@ -12,6 +12,8 @@ Các hằng số dưới đây lấy từ `backend/app/sonify/` trên `main`: `q
 
 Máy giai đoạn 1 là `measure_daily` trong `backend/app/sonify/meter.py`. Nó nhận nến và `Score` đã render, trả một `DailyRecord`.
 
+`planner_character`, `price_low`, `price_high` và `source_groups` không nằm trên `Score`. Máy chỉ khớp `render` khi các đối số đó được truyền lại đúng giá trị đã dùng lúc viết bản. Bỏ `planner_character` thì F6 chấm với `character=None`.
+
 Mỗi bản cho ra ba khối:
 
 | Khối | Ý nghĩa |
@@ -84,7 +86,7 @@ M1 và M2 đọc đường khâu và `score.low`, không đọc riêng violin. M
 | Mã | Đối tượng | Vai trò ở giai đoạn 1 |
 |---|---|---|
 | M1 âm hợp âm | Phách mạnh đang kêu trên đường khâu, pitch class thuộc hợp âm của ô | Lead và support là hợp đồng snap: một lần trượt là lỗi của lượng tử hóa, ghi trên bản. High là quãng phối khí, ghi riêng, không nhập vào tỷ lệ snap |
-| M2 dẫn giọng | Bước của `score.low` quá quãng 8. Bước của đường khâu quá quãng 8 không được bước ngược liền sau. Quãng 5 song song giữa đường khâu và bass trên phách mạnh | Số thô. Đây là chỉ số M duy nhất mục 8 có thể dùng, và cũng chỉ sau khi có rổ |
+| M2 dẫn giọng | Bước của `score.low` quá quãng 8. Bước của đường khâu quá quãng 8 không được bước ngược liền sau. Quãng 5 song song trên phách mạnh: cả hai quãng là quãng 5 đúng và cả hai bè cùng đi một hướng. Bước xiên và bước ngược chiều không tính | Số thô. Đây là chỉ số M duy nhất mục 8 có thể dùng, và cũng chỉ sau khi có rổ |
 | M3 âm chung | Khi đổi hợp âm, số pitch class giữ lại. Báo trung bình và tỷ lệ lần đổi không chung âm | Số thô. Chưa có ngưỡng |
 | M4 nhàm | Entropy bigram pitch-class của đường khâu, hợp âm dài nhất trên thân, số chữ `score.liquidity` khác nhau trong ô `2–31` | Số thô. Chưa có ngưỡng. Calm được phép hẹp chỉ sau khi ngưỡng lấy theo phân vị của cùng character |
 | M5 khung | Ô `0` mở `p`. Ô `33` tới `ppp`. Hai đầu khung đạp chủ âm của hợp âm ô đó | Cổng. `apply_daily_frame` đang viết đúng hợp đồng này cho giao hưởng |
@@ -114,11 +116,11 @@ F1 là tỷ lệ bước cùng dấu, từ `0` đến `1`. Gần `1` là bám h�
 | Phá, trên bản đã viết | Kỳ vọng |
 |---|---|
 | Dựng `r` từ chuỗi giá đảo. Giữ `m` | F1 tụt, xoay quanh `0,5`. F5 đứng |
-| Dựng volume cửa sổ từ chuỗi volume đảo. Giữ `score.liquidity` | F5 đổi dấu. Không nốt nào đổi. Đây là bằng chứng F5 đo hàm gán chữ |
-| Xáo nhãn regime, tính lại `chord_bias` trên cùng hợp âm | F6 lift về gần `0` nếu hợp âm đang mang regime |
+| Dựng volume cửa sổ từ chuỗi volume đảo. Cờ `auction` đi cùng volume của đúng cây nến. Giữ `score.liquidity` | F5 đổi dấu. Không nốt nào đổi. Đây là bằng chứng F5 đo hàm gán chữ. Cờ ở lại chỉ số cũ sẽ loại nhầm nến ATO/ATC |
+| Xáo nhãn regime, tính lại `chord_bias` trên cùng hợp âm | Khi thân có từ hai regime, F6 lift về gần `0` nếu hợp âm đang mang regime. Thân một regime thì xáo không đổi nhãn và F6 của đối chứng là `None` |
 | Hoán vị cao độ đường khâu, giữ nhịp và chỗ nghỉ | F1 và M1 của lead/support đổ |
 
-F6 đứng sau khi xáo regime nghĩa là hợp âm đã chọn không phân biệt regime, dù planner vẫn cộng chi phí.
+F6 đứng yên sau khi xáo chỉ được đọc là hợp âm không phân biệt regime khi nhãn thực sự bị đổi. Thân một regime không có nhãn khác để phá cặp. Đối chứng khi đó bị bỏ, `f6` là `None`, thay vì ghi một số bằng F6 gốc.
 
 ## 8. Luật nhận một thay đổi, chưa chạy
 
@@ -139,7 +141,7 @@ Trước lúc đó, giai đoạn 1 chỉ ghi, trên mỗi phiên, bản ghi sau.
 - F1–F6. F3 có hai số. F5 ghi rõ là kiểm tra chữ.
 - M1 tách lead/support và high. M2, M3, M4 là số thô. M5 là cổng.
 - Tầng: variant, span, character, số bậc thang phân biệt của `r`, số bậc của `m`, volume span ratio, số móc high.
-- Bốn đối chứng mục 7, tính trên cùng `Score`. Phép thứ tư hoán vị cao độ đường khâu. Thiếu phép đó thì không còn chỗ làm F1 và M1 của lead/support đổ.
+- Bốn đối chứng mục 7, tính trên cùng `Score`. Xáo regime ghi `labels_changed`. Khi nhãn không đổi, `f6` của đối chứng là `None`. Phép thứ tư hoán vị cao độ đường khâu. Thiếu phép đó thì không còn chỗ làm F1 và M1 của lead/support đổ.
 
 Chưa làm trong giai đoạn này: tổng có trọng số, guitar và jazz, nhịp khác `4/4`, bản `1W`–`1Y`, chấm WAV, và luật mục 8. Ô 32 của `1W`, khi tới lượt, ra khỏi F1. Ô đó cố ý lấy giá mở phiên sau.
 

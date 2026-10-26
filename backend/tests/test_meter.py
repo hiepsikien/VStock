@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from app.sonify.chords import AM, C
-from app.sonify.form import chord_bias, chords_for_spec
-from app.sonify.meter import _Eighth, _direction, _owner, measure_daily, regime_lift
+from app.sonify.dynamics import average_liquidity
+from app.sonify.form import DAILY_ENSEMBLE_SPEC, chord_bias, chords_for_spec, liquidity_windows_for
+from app.sonify.meter import (
+    _Eighth,
+    _direction,
+    _liquidity,
+    _owner,
+    _parallel_fifths,
+    _reversed_volumes,
+    measure_daily,
+    regime_lift,
+)
 from app.sonify.model import Bar, NoteEvent
 from app.sonify.quantize import c_major_scale
-from app.sonify.render import render
+from app.sonify.render import _window_candles, assign_daily_ambient_bars, render
 
 
 def _bars(closes: list[float], volumes: list[float] | None = None, ma: float | None = None) -> list[Bar]:
@@ -100,6 +112,119 @@ def test_rising_session_tracks_price_and_keeps_the_four_controls() -> None:
     assert permuted.f1 is not None and permuted.f1 < record.fidelity.f1
     assert permuted.m1_lead_support is not None
     assert permuted.m1_lead_support < record.legality.m1_lead_support
+    assert record.controls.regime_shuffled.labels_changed is False
+    assert record.controls.regime_shuffled.f6 is None
+
+
+def test_parallel_fifths_require_both_voices_to_move_the_same_way() -> None:
+    oblique = SimpleNamespace(
+        low=(NoteEvent(2, 0.0, 36, 2.0, 1), NoteEvent(2, 2.0, 48, 2.0, 1))
+    )
+    still = (
+        _Eighth(0, 2, 0, 0, 79, 0, "lead"),
+        _Eighth(4, 2, 4, 0, 79, 0, "lead"),
+    )
+    contrary = SimpleNamespace(
+        low=(NoteEvent(2, 0.0, 60, 2.0, 1), NoteEvent(2, 2.0, 53, 2.0, 1))
+    )
+    apart = (
+        _Eighth(0, 2, 0, 0, 67, 0, "lead"),
+        _Eighth(4, 2, 4, 0, 72, 0, "lead"),
+    )
+    parallel = SimpleNamespace(
+        low=(NoteEvent(2, 0.0, 60, 2.0, 1), NoteEvent(2, 2.0, 65, 2.0, 1))
+    )
+    together = (
+        _Eighth(0, 2, 0, 0, 67, 0, "lead"),
+        _Eighth(4, 2, 4, 0, 72, 0, "lead"),
+    )
+
+    assert _parallel_fifths(oblique, still) == 0
+    assert _parallel_fifths(contrary, apart) == 0
+    assert _parallel_fifths(parallel, together) == 1
+
+
+def test_one_regime_body_skips_the_shuffle_and_mixed_labels_move_f6() -> None:
+    closes = [100.0 + index * 0.4 for index in range(40)]
+    volumes = [1_000.0 * (index + 1) for index in range(len(closes))]
+    bars = _bars(closes, volumes)
+    single = measure_daily(bars, render(bars))
+    assert single.controls.regime_shuffled.labels_changed is False
+    assert single.controls.regime_shuffled.f6 is None
+
+    mixed = render(bars, regimes=("uptrend", "sideway", "downtrend"))
+    record = measure_daily(bars, mixed)
+    assert record.controls.regime_shuffled.labels_changed is True
+    assert record.controls.regime_shuffled.f6 is not None
+    assert record.controls.regime_shuffled.f6 != record.fidelity.f6
+
+
+def test_volume_reversal_carries_the_auction_flag() -> None:
+    closes = [100.0 + index * 0.3 for index in range(30)]
+    volumes = [1_000.0 * (index + 1) for index in range(30)]
+    volumes[0] = 1_000_000.0
+    bars = [
+        Bar(close, volume, close, auction=(index == 0))
+        for index, (close, volume) in enumerate(zip(closes, volumes))
+    ]
+    score = render(bars)
+    record = measure_daily(bars, score)
+    groups = assign_daily_ambient_bars(len(bars))
+    windows = liquidity_windows_for(DAILY_ENSEMBLE_SPEC)
+    letters = list(score.liquidity)
+
+    def body_f5(series: list[Bar]) -> float | None:
+        values = average_liquidity(
+            [_window_candles(series, groups, start, length) for start, length in windows]
+        )
+        body_volumes = [
+            volume
+            for (start, length), volume in zip(windows, values)
+            if start >= 2 and start + length <= 32
+        ]
+        body_letters = [
+            marking
+            for (start, length), marking in zip(windows, letters)
+            if start >= 2 and start + length <= 32
+        ]
+        return _liquidity(body_volumes, body_letters)
+
+    traveling = body_f5(_reversed_volumes(bars))
+    stuck = [
+        Bar(bar.close, bars[len(bars) - 1 - index].volume, bar.ma20, bar.auction)
+        for index, bar in enumerate(bars)
+    ]
+    assert record.controls.volume_reversed.f5 == traveling
+    assert body_f5(stuck) != traveling
+
+
+def test_f6_prices_the_planner_character_the_caller_repeats() -> None:
+    closes = [100.0 + index * 0.4 for index in range(40)]
+    volumes = [1_000.0 * (index + 1) for index in range(len(closes))]
+    bars = _bars(closes, volumes)
+    score = render(bars, character="selloff")
+    body = [
+        next(slot for slot in score.slots if slot.start <= bar < slot.start + slot.length)
+        for bar in range(2, 32)
+    ]
+    chords = [slot.chord for slot in body]
+    regimes = [slot.regime for slot in body]
+    omitted = measure_daily(bars, score)
+    told = measure_daily(bars, score, planner_character="selloff")
+
+    assert omitted.fidelity.f6 == regime_lift(chords, regimes, None)
+    assert told.fidelity.f6 == regime_lift(chords, regimes, "selloff")
+    assert omitted.fidelity.f6 != told.fidelity.f6
+
+
+def test_source_groups_rebuild_the_raw_contour() -> None:
+    bars = _bars([100.0 + index for index in range(10)])
+    score = render(bars)
+    piled: list[list[int]] = [[] for _ in range(34)]
+    piled[2] = list(range(10))
+    spread = measure_daily(bars, score)
+    piled_record = measure_daily(bars, score, source_groups=piled)
+    assert spread.fidelity.f1 != piled_record.fidelity.f1
 
 
 def test_peaked_session_reports_turn_recall() -> None:
