@@ -63,8 +63,8 @@ _TREMOLO_FILL_PATTERN = tuple(58 + offset for offset in _TREMOLO_FILL_OFFSETS)
 _TREMOLO_THUMB = 58
 # Four quarters: 54, 58, 62, 59. Three quarters: 54, 62, 58.
 _TREMOLO_QUARTER_OFFSETS = {4: (-4, 0, 4, 1), 3: (-4, 4, 0)}
-# One tremolo cluster is one quarter note: four sixteenth repeats of a single
-# melody pitch, with the thumb ringing underneath for the whole quarter.
+# One tremolo cluster is one quarter note. The thumb plays one root and rings
+# for that whole quarter. The last melody attack, i, rings for one eighth.
 _TREMOLO_CLUSTER = 4
 
 
@@ -416,17 +416,14 @@ def _tremolo(
     mid_high: int,
     phrases: tuple[Phrase, ...],
 ) -> tuple[tuple[NoteEvent, ...], tuple[NoteEvent, ...], tuple[NoteEvent, ...]]:
-    """One tremolo cluster per quarter note, filled with four sixteenths.
+    """One tremolo cluster per quarter note.
 
-    At the score tempo (120 BPM for Barrios) each cluster lasts one quarter
-    and carries one melody pitch through all four sixteenth repeats, so the
-    clusters join into a sung melody line instead of changing pitch every
-    two sixteenths. The thumb is its own voice. It strikes the root and fifth
-    together on each quarter and rings through it, never yielding the downbeat
-    of a chord change. Its level walks 54, 58, 62, 59 across a 4/4 bar, and
-    54, 62, 58 across three quarters. The fill sits 6, 3, 4, 6 under that
-    level, so the beat at 58 is still a=52, m=55, i=54. The colour on a chord
-    change uses the same level as the thumb of that beat.
+    The thumb plays a single root and rings for the whole quarter. A second
+    bass note, the fifth, used to sound with it; that low dyad is what boomed
+    and broke. Its level walks 54, 58, 62, 59 across a 4/4 bar, and 54, 62, 58
+    across three quarters. The melody is a, m, then i. At thumb 58 that is
+    52, 55, 54. The i rings for one eighth and ends as the next thumb begins.
+    The colour on a chord change uses the same level as the thumb of that beat.
     """
     meter = active_meter()
     epb = meter.eighths_per_bar
@@ -487,20 +484,19 @@ def _tremolo(
                 inner.append(_hit(bar, beat, cluster_beats, color, 2, level))
             else:
                 inner.append(_hit(bar, beat, cluster_beats, None, 2, _INNER))
+            # One root, ringing the whole quarter. The fifth is not played.
             bass.append(_hit(bar, beat, cluster_beats, root, 3, level))
-            if len(chord.pitches) >= 3:
-                fifth = _clamp(chord.pitches[2], bass_low, bass_high)
-                if fifth != root:
-                    bass.append(_hit(bar, beat, cluster_beats, fifth, 3, level))
-            for repeat in range(_TREMOLO_CLUSTER):
+            # a, m, then i. The last one rings for an eighth and meets the next
+            # thumb exactly, so the engraver does not cut it back to a sixteenth.
+            for offset, note_duration, finger in ((0.0, duration, 0), (duration, duration, 1), (0.5, 0.5, 2)):
                 line.append(
                     _hit(
                         bar,
-                        beat + repeat * duration,
-                        duration,
+                        beat + offset,
+                        note_duration,
                         sung,
                         1,
-                        level + _TREMOLO_FILL_OFFSETS[repeat],
+                        level + _TREMOLO_FILL_OFFSETS[finger],
                     )
                 )
     return tuple(_slur(line, phrases)), tuple(inner), tuple(bass)

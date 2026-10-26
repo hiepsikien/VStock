@@ -10,7 +10,15 @@ from app.sonify.keys import work_key_label
 from app.sonify.model import Bar
 from app.sonify.program import guitar_movement_name, pattern_title, span_movement_name
 from app.sonify.render import render
-from app.sonify.span import PreparedMovement, month_specs, movement_title, quarter_specs, year_as_of, year_specs
+from app.sonify.span import (
+    PreparedMovement,
+    month_specs,
+    movement_title,
+    quarter_specs,
+    week_spec,
+    year_as_of,
+    year_specs,
+)
 
 
 def _bars(closes: list[float]) -> list[Bar]:
@@ -59,6 +67,11 @@ def test_barrios_day_names_the_pattern_the_writer_picks():
     assert guitar_movement_name(held, ensemble="barrios", character="volatile") == "Tremolo"
     running = _bars([100 + (index % 7) * 2 for index in range(160)])
     assert guitar_movement_name(running, ensemble="barrios", character="volatile") == "Choro"
+    week = week_spec(5)
+    assert guitar_movement_name(running, ensemble="barrios", character="volatile", form=week) == "Choro"
+    assert guitar_movement_name(held, ensemble="barrios", character="volatile", form=week) == "Tremolo"
+    assert guitar_movement_name(running, ensemble="villa", character="volatile", form=week) == "Choros"
+    assert guitar_movement_name(held, ensemble="villa", character="volatile", form=week) == "Etude 11"
 
 
 def test_villa_slow_and_six_eight_keep_their_body_and_show_the_contrast():

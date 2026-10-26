@@ -30,8 +30,12 @@ def _catedral_preludio(ctx: _Ctx) -> bool:
 def _daily_barrios_pattern(ctx: _Ctx, mood: str | None, phrases: list[Phrase], bars: list[int]) -> str:
     """1D at 120 BPM. Any rally or selloff under 1.4% span sings Preludio."""
     activity = min(_raw_activity(ctx, bars), _melody_activity(ctx, bars))
+    # A still line stays tremolo. Ordinary motion is Choro da Saudade: the old
+    # 0.35 gate left a volatile day on Ultimo Tremolo.
     if mood == "volatile":
-        return "choro" if activity >= 0.35 else "tremolo"
+        return "tremolo" if activity < 0.12 else "choro"
+    if mood == "rally" and activity >= 0.2:
+        return "choro"
     if mood in {"rally", "selloff"}:
         if ctx.rel_span < 0.014:
             return "preludio"
