@@ -8,7 +8,7 @@ motion, then group-2 tier-1 descents.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 try:
     from app.sonify.guitar_scales import SCALE_SIXTEENTH_MIN_BPM
@@ -512,6 +512,41 @@ def _step_pitch(
     return nxt
 
 
+def _ornamental_neighbor(
+    ctx: _Ctx,
+    current: int,
+    end: int,
+    left_after: int,
+    impulse_direction: str,
+    approaching: bool,
+) -> int:
+    """One scale step off a flat price, on the weak half of the beat.
+
+    The next anchor is `end` and has to be reachable. If neither direction
+    fits, the pitch stays put rather than aborting the passage.
+    """
+    if left_after < 1:
+        return current
+    primary = 1 if impulse_direction == "up" else -1
+    for toward in (primary, -primary):
+        neighbor = _step_pitch(ctx, current, toward, impulse_direction, approaching)
+        moved = abs(neighbor - current)
+        if (neighbor - current) * toward <= 0 or not 1 <= moved <= 2:
+            continue
+        if abs(end - neighbor) > 2 * left_after:
+            continue
+        return neighbor
+    return current
+
+
+def _raw_held(ctx: _Ctx, start_eighth: int, end_eighth: int) -> bool:
+    """True when `raw` does not move from `start_eighth` through `end_eighth`."""
+    if end_eighth <= start_eighth or start_eighth < 0 or end_eighth >= len(ctx.raw):
+        return False
+    opening = ctx.raw[start_eighth]
+    return all(ctx.raw[eighth] == opening for eighth in range(start_eighth + 1, end_eighth + 1))
+
+
 def _monotone(
     start: int,
     end: int,
@@ -519,6 +554,7 @@ def _monotone(
     ctx: _Ctx,
     impulse_direction: str,
     approaching: bool,
+    ornament: bool = False,
 ) -> list[int] | None:
     """`count` pitches, the first equal to `start` and the last equal to `end`."""
     if count <= 0:
@@ -535,7 +571,14 @@ def _monotone(
         if abs(gap) > 2 * (left_after + 1):
             return None
         if gap == 0:
-            notes.append(current)
+            if ornament:
+                notes.append(
+                    _ornamental_neighbor(
+                        ctx, current, end, left_after, impulse_direction, approaching
+                    )
+                )
+            else:
+                notes.append(current)
             continue
         toward = 1 if gap > 0 else -1
         stepped = _step_pitch(ctx, current, toward, impulse_direction, approaching)
@@ -602,15 +645,18 @@ def _with_retreat(
     ctx: _Ctx,
     impulse_direction: str,
     approaching: bool,
+    ornament: bool = False,
 ) -> list[int] | None:
     """Weak beats follow the impulse, and reverse only on `retreat_at`.
 
     An up-retreat-up run rises into the retreat, dips there, then rises again.
     The last pitch is the melody anchor even when that last step changes direction.
+    `ornament` is a flat price between two equal melody anchors: the offbeat
+    may take one neighbor, then the next anchor returns to the melody.
     """
     interior = any(_retreat_flag(retreat_at, index) for index in range(1, count - 1))
     if not interior:
-        return _monotone(start, end, count, ctx, impulse_direction, approaching)
+        return _monotone(start, end, count, ctx, impulse_direction, approaching, ornament)
     toward = 1 if impulse_direction == "up" else -1
     against = -toward
     notes = [start]
@@ -671,7 +717,19 @@ def _assign(ctx: _Ctx, passage: ScalePassage, slots: list[_Slot]) -> list[int] |
         flags = [slots[left + offset].retreat for offset in range(count)]
         end_pitch = int(pitches[right])
         approaching = end_pitch % 12 == 0
-        line = _with_retreat(int(pitches[left]), end_pitch, count, flags, ctx, passage.direction, approaching)
+        flat = int(pitches[left]) == end_pitch and _raw_held(
+            ctx, slots[left].eighth, slots[right].eighth
+        )
+        line = _with_retreat(
+            int(pitches[left]),
+            end_pitch,
+            count,
+            flags,
+            ctx,
+            passage.direction,
+            approaching,
+            ornament=flat,
+        )
         if line is None:
             return None
         for offset, pitch in enumerate(line):
@@ -1060,13 +1118,34 @@ def _drop_region(
             continue
         finish = begin + _dur16(event)
         if finish <= lo or begin >= hi:
+            if begin >= hi and event.tie_stop and not _tie_opens_at(kept, begin, event.midi, epb):
+                event = replace(event, tie_stop=False)
             kept.append(event)
             continue
         if begin < lo:
             kept.extend(
-                _spell16(begin, lo - begin, event.midi, epb, event.voice, event.velocity or _BASS, event.accent)
+                _spell16(
+                    begin,
+                    lo - begin,
+                    event.midi,
+                    epb,
+                    event.voice,
+                    event.velocity or _BASS,
+                    event.accent,
+                    tie_in=event.tie_stop,
+                )
             )
     return kept
+
+
+def _tie_opens_at(events: list[NoteEvent], begin: int, midi: int, epb: int) -> bool:
+    """True when the last kept note ties into `begin` on `midi`."""
+    for event in reversed(events):
+        if event.midi is None:
+            continue
+        start = _start16(event, epb)
+        return event.tie_start and event.midi == midi and start + _dur16(event) == begin
+    return False
 
 
 def _install_lead(
@@ -1098,22 +1177,74 @@ def _install_lead(
 
 
 def _stamp_arrival(lead: list[NoteEvent], target: int, pitch: int, velocity: int, epb: int) -> list[NoteEvent]:
+    """Land on `pitch` at `target` without breaking a sustain that continues past it.
+
+    A melody note longer than one legal duration is already a tie. Rewriting only
+    the chunk that covers `target` used to drop `tie_start`, leaving the later
+    chunk with `tie_stop` and the old velocity.
+    """
     when = target * 2
     rewritten: list[NoteEvent] = []
+    index = 0
     stamped = False
-    for event in lead:
+    while index < len(lead):
+        event = lead[index]
         if event.midi is None:
             rewritten.append(event)
+            index += 1
             continue
         begin = _start16(event, epb)
         finish = begin + _dur16(event)
-        if not begin <= when < finish:
+        if stamped or not (begin <= when < finish):
             rewritten.append(event)
+            index += 1
             continue
         if begin < when:
-            rewritten.extend(_spell16(begin, when - begin, event.midi, epb, 1, event.velocity or _MELODY, event.accent))
-        rewritten.extend(_spell16(when, finish - when, pitch, epb, 1, velocity, event.accent))
+            rewritten.extend(
+                _spell16(
+                    begin,
+                    when - begin,
+                    event.midi,
+                    epb,
+                    1,
+                    event.velocity or _MELODY,
+                    event.accent,
+                    tie_in=event.tie_stop,
+                )
+            )
+        carry = bool(event.tie_start and event.midi == pitch)
+        rewritten.extend(
+            _spell16(
+                when,
+                finish - when,
+                pitch,
+                epb,
+                1,
+                velocity,
+                event.accent,
+                tie_out=carry,
+            )
+        )
         stamped = True
+        index += 1
+        if not event.tie_start:
+            continue
+        cursor = finish
+        while index < len(lead):
+            nxt = lead[index]
+            if nxt.midi is None:
+                break
+            nxt_begin = _start16(nxt, epb)
+            if nxt_begin != cursor or not nxt.tie_stop or nxt.midi != event.midi:
+                break
+            if carry:
+                rewritten.append(replace(nxt, velocity=velocity))
+            else:
+                rewritten.append(replace(nxt, tie_stop=False))
+            cursor = nxt_begin + _dur16(nxt)
+            index += 1
+            if not nxt.tie_start:
+                break
     if not stamped:
         rewritten.extend(_eighth_event(target, 1, pitch, epb, 1, velocity))
     return rewritten

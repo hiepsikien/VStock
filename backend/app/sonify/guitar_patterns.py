@@ -1550,9 +1550,29 @@ def _splice(events: list[NoteEvent], start: int, end: int, fresh: list[NoteEvent
             kept.append(event)
             continue
         if begin < start:
-            kept.extend(_spell16(begin, start - begin, event.midi, epb, event.voice, event.velocity))
+            kept.extend(
+                _spell16(
+                    begin,
+                    start - begin,
+                    event.midi,
+                    epb,
+                    event.voice,
+                    event.velocity,
+                    tie_in=event.tie_stop,
+                )
+            )
         if finish > end:
-            kept.extend(_spell16(end, finish - end, event.midi, epb, event.voice, event.velocity))
+            kept.extend(
+                _spell16(
+                    end,
+                    finish - end,
+                    event.midi,
+                    epb,
+                    event.voice,
+                    event.velocity,
+                    tie_out=event.tie_start,
+                )
+            )
     kept.extend(fresh)
     return kept
 

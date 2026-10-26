@@ -1,6 +1,6 @@
 """Allocation and realization of classical-guitar scale passages."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import math
 
@@ -11,6 +11,10 @@ from app.sonify.guitar_bach import _fuga_motif
 from app.sonify.guitar_patterns import (
     _BAND_DELTA,
     _Ctx,
+    _dur16,
+    _spell16,
+    _splice,
+    _start16,
     assert_playable,
     render_patterned_voices,
 )
@@ -19,8 +23,12 @@ from app.sonify.guitar_scale_passages import (
     ScalePassage,
     _BASS,
     _Slot,
+    _assign,
     _curve,
+    _monotone,
+    _slots,
     _pattern_window,
+    _stamp_arrival,
     hairpin_velocities,
     plan_scale_budget,
 )
@@ -950,3 +958,95 @@ def test_framed_swarm_eighths_skip_the_second_band_pass(monkeypatch) -> None:
     assert seen["kept"] is True
     assert seen["kinked_if_bare"] is True
     assert score.lead
+
+
+def _tied_pairs(events: list[NoteEvent], epb: int) -> None:
+    """Every `tie_stop` continues a `tie_start` on the same pitch."""
+    open_until = None
+    open_midi = None
+    for event in events:
+        if event.midi is None:
+            continue
+        begin = _start16(event, epb)
+        if event.tie_stop:
+            assert open_until == begin and open_midi == event.midi
+        if event.tie_start:
+            open_until = begin + _dur16(event)
+            open_midi = event.midi
+        else:
+            open_until = None
+            open_midi = None
+
+
+def test_flat_price_steps_to_a_neighbor_instead_of_repeating() -> None:
+    melody = [64] * 8
+    ctx = _ctx(melody, (_phrase(0, melody),), ensemble="sor")
+    assert _monotone(64, 64, 3, ctx, "up", False) == [64, 64, 64]
+    rising = _monotone(64, 64, 3, ctx, "up", False, ornament=True)
+    falling = _monotone(64, 64, 3, ctx, "down", False, ornament=True)
+    assert rising is not None and falling is not None
+    assert rising[0] == rising[-1] == 64
+    assert falling[0] == falling[-1] == 64
+    assert rising[1] > 64 and falling[1] < 64
+    assert 1 <= abs(rising[1] - 64) <= 2
+    assert 1 <= abs(falling[1] - 64) <= 2
+    moving = _monotone(64, 67, 4, ctx, "up", False)
+    assert moving is not None
+    assert moving[0] == 64 and moving[-1] == 67
+    assert all(right >= left for left, right in zip(moving, moving[1:]))
+    boxed = replace(ctx, treble_floor=64, treble_top=64, ceiling=64)
+    assert _monotone(64, 64, 3, boxed, "up", False) == [64, 64, 64]
+    raw = [10, 10, 10, 10, 14, 16, 18, 20]
+    held = [64, 64, 64, 64, 67, 69, 71, 72]
+    flat_ctx = _ctx(held, (_phrase(0, held),), ensemble="sor", bpm=96, raw=raw)
+    passage = ScalePassage(
+        start=0,
+        target=4,
+        direction="up",
+        net_span=4,
+        score=1.0,
+        retreat_spans=(),
+        sub_bar=True,
+        passage_eighths=4,
+        replaced_base_intrinsic_eighths=0,
+    )
+    slots = _slots(flat_ctx, ["study"], passage)
+    assigned = _assign(flat_ctx, passage, slots)
+    assert assigned is not None
+    offbeat = next(index for index, slot in enumerate(slots) if slot.eighth == 0 and slot.sub == 1)
+    assert assigned[offbeat] != 64
+    assert 1 <= abs(assigned[offbeat] - 64) <= 2
+    landing = next(index for index, slot in enumerate(slots) if slot.eighth == 1 and slot.sub == 0)
+    assert assigned[landing] == 64
+
+
+def test_stamp_arrival_keeps_the_tie_and_carries_the_landing_velocity() -> None:
+    epb = 8
+    # Five eighths is 10 sixteenths, so the sustain is already two tied events.
+    lead = _spell16(2, 10, 67, epb, 1, 64)
+    assert any(event.tie_start for event in lead) and any(event.tie_stop for event in lead)
+    stamped = _stamp_arrival(lead, 2, 67, 82, epb)
+    _tied_pairs(stamped, epb)
+    covered = [
+        event
+        for event in stamped
+        if event.midi is not None and _start16(event, epb) >= 4
+    ]
+    assert covered
+    assert all(event.velocity == 82 and event.midi == 67 for event in covered)
+    prefix = [
+        event
+        for event in stamped
+        if event.midi is not None and _start16(event, epb) < 4
+    ]
+    assert prefix and all(event.velocity == 64 for event in prefix)
+
+    cut = _splice(lead, 0, 4, [], epb)
+    landed = _stamp_arrival(cut, 2, 67, 90, epb)
+    _tied_pairs(landed, epb)
+    tail = [
+        event
+        for event in landed
+        if event.midi is not None and _start16(event, epb) >= 4
+    ]
+    assert tail and all(event.velocity == 90 and event.midi == 67 for event in tail)
