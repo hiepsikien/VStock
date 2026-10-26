@@ -44,6 +44,8 @@ def pattern_title(pattern: str, ensemble: str) -> str:
     """English dance name. Villa's thumb line is Prélude No. 1, not a chorale."""
     if pattern == "thumb_cantabile" and ensemble == "villa":
         return "Prelude"
+    if pattern == "choro" and ensemble == "villa":
+        return "Choros"
     return _PATTERN_TITLE.get(pattern, "")
 
 

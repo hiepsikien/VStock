@@ -949,15 +949,25 @@ def _dominant_pattern(ctx: _Ctx, phrases: list[Phrase], bars: list[int]) -> str:
             if mood == "rally":
                 return "etude1"
             if mood == "volatile":
-                return "etude11"
+                activity = min(_raw_activity(ctx, bars), _melody_activity(ctx, bars))
+                # A still volatile body stays Étude No. 11. A moving one is Choros.
+                return "etude11" if activity < 0.12 else "choro"
         return "villa_pattern"
     if ctx.bpm < BARRIOS_TREMOLO_MIN_BPM:
         return "andante"
     if _framed(ctx) and ctx.kind == "4/4" and 90 <= ctx.bpm <= 100:
         # Opening moderato (1M/3M I, 1Y opener) is La Catedral on rally/calm.
-        # The finale pedal, or a selloff/volatile session, is Ultimo Tremolo.
-        if _is_suite_finale(ctx) or mood in {"selloff", "volatile"}:
+        # A finale pedal or a selloff is Ultimo Tremolo. A volatile line that
+        # actually moves is Choro; a still one stays tremolo.
+        if _is_suite_finale(ctx) or mood == "selloff":
             return "tremolo"
+        if mood == "volatile":
+            activity = min(_raw_activity(ctx, bars), _melody_activity(ctx, bars))
+            return "tremolo" if activity < 0.12 else "choro"
+        if mood == "rally":
+            activity = min(_raw_activity(ctx, bars), _melody_activity(ctx, bars))
+            if activity >= 0.2:
+                return "choro"
         return "preludio"
     if mood == "calm":
         return "preludio"

@@ -60,6 +60,7 @@ const PATTERN_NAMES = new Set([
   'Tremolo',
   'Andante',
   'Choro',
+  'Choros',
   'Polka',
   'Hemiola',
   'Waltz',
