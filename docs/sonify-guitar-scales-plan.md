@@ -164,12 +164,12 @@ Người nghe thực tế nghe đường giai điệu `melody` trên nền hợp
   2. **Bước 2 — Tính `room` còn trống**:
      $$\text{room} = \max\left(0,\ \text{max\_scale\_eighths} - \text{base\_intrinsic\_eighths}\right)$$
      Nếu `room == 0` thì dừng ngay: **không giữ bất kỳ cửa sổ giảm Cấp 1 nào và không cấp phát bất kỳ `ScalePassage` hay `perpetual` nào**.
-  3. **Bước 3 — Chọn `ScalePassage` và `perpetual` trước theo `score`**:
-     - Duyệt các ứng viên `ScalePassage` (cả trên Nhóm 3 và đoạn nối `Major Bridge Impulse` trên Nhóm 2) cùng `perpetual` theo thứ tự `score` giảm dần.
-     - Với mỗi ứng viên, chi phí ròng chỉ trừ đi phần scale có sẵn (`base_intrinsic_eighths`) mà passage đó sẽ đè lên:
+  3. **Bước 3 — Chọn `ScalePassage` trước theo `score`, rồi mới đến `perpetual`**:
+     - Duyệt các ứng viên `ScalePassage` (cả trên Nhóm 3 và đoạn nối `Major Bridge Impulse` trên Nhóm 2) theo thứ tự `score` giảm dần; sau khi xét hết mọi `ScalePassage` mới xét các ô `perpetual` (vì `perpetual` là ô giữ giá phẳng không có `score`, mỗi ô `perpetual` tốn đúng `epb` eighths của nó với `replaced_base_intrinsic_eighths = 0`).
+     - Với mỗi ứng viên, chi phí ròng chỉ trừ đi phần scale có sẵn (`base_intrinsic_eighths`) mà ứng viên đó sẽ đè lên:
        $$\Delta\text{cost} = \text{passage\_eighths} - \text{replaced\_base\_intrinsic\_eighths}$$
        *(Các ứng viên cửa sổ giảm Cấp 1 mà passage đó sẽ thay thế chưa nằm trong `base_intrinsic_eighths` nên không trừ trong $\Delta\text{cost}$, mà tự động bị loại bỏ khi passage được chọn).*
-     - Nếu $\Delta\text{cost} \le \text{room}$ (và thỏa khoảng thở `Minimum Cooldown Gap` với các `ScalePassage` đã chọn), chấp nhận ứng viên đó và cập nhật $\text{room} \leftarrow \text{room} - \Delta\text{cost}$.
+     - Nếu $\Delta\text{cost} \le \text{room}$ (và với `ScalePassage` thì thỏa thêm khoảng thở `Minimum Cooldown Gap` với các `ScalePassage` đã chọn), chấp nhận ứng viên đó và cập nhật $\text{room} \leftarrow \text{room} - \Delta\text{cost}$.
   4. **Bước 4 — Giữ các cửa sổ giảm Cấp 1 trong phần `room` còn lại**:
      - Sau khi danh sách `ScalePassage` và `perpetual` đã chốt xong, duyệt các ứng viên cửa sổ giảm Cấp 1 trên Nhóm 2 **không bị bất kỳ `ScalePassage` nào thay thế**, theo thứ tự `score` giảm dần, và giữ lại chừng nào độ dài `tier1_eighths` của cửa sổ đó còn $\le \text{room}$ (cập nhật $\text{room} \leftarrow \text{room} - \text{tier1\_eighths}$).
 - **Khoảng thở tối thiểu chỉ tính giữa hai `ScalePassage` (`Minimum Cooldown Gap`)**:
@@ -234,9 +234,10 @@ Người nghe thực tế nghe đường giai điệu `melody` trên nền hợp
 │  • Nếu test cũ gọi trực tiếp `render_guitar_score` mà không truyền           │
 │    `raw_pitches`, đặt `impulses = ()` (tuyệt đối không dò lại trên `pitches` │
 │    đã lượng tử hóa).                                                         │
-│  • `_place_melody` đồng bộ `shift` trên đoạn sóng cắt qua vạch `P1|P2`       │
-│    nhưng kiểm tra biên nội bộ `impulse.start - 1 -> impulse.start` để không  │
-│    tạo bước nhảy >= 12 bán cung giữa câu, rồi gắn `impulses` lên `_Ctx`.     │
+│  • `_place_melody` chạy Bước A một lần cho cả `[impulse.start, target]`      │
+│    (kiểm tra biên vào ở câu đầu và biên ra ở câu cuối); nếu thất bại thì     │
+│    chạy Bước B lần lượt từng vạch câu theo chuẩn `seam_ok`, rồi gắn          │
+│    `impulses` lên `_Ctx`.                                                    │
 └───────────────────────────────────────┬──────────────────────────────────────┘
                                         ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -247,9 +248,9 @@ Người nghe thực tế nghe đường giai điệu `melody` trên nền hợp
 │    nhận diện của chính pattern đó): cho phép `ScalePassage` dài (1–4 ô nhịp) │
 │    làm đoạn nối ở giữa cả Nhóm 2 và Nhóm 3 trên nền Bass đặc trưng theo từng │
 │    ô nhịp.                                                                   │
-│  • Khi `intrinsic < 30%`, phần cấp phát thêm không vượt `30% body_eighths`;  │
-│    khi `intrinsic >= 30%`, `overlay_budget = 0`. Bảo vệ `[start, target]`    │
-│    trong `scale_eighths`.                                                    │
+│  • Ngân sách 4 bước từ `room = max(0, max_scale_eighths - base_intrinsic)`:  │
+│    chọn `ScalePassage` -> `perpetual` -> cửa sổ Cấp 1 trong `room` còn lại.  │
+│    Bảo vệ `[start, target]` trong `scale_eighths`.                           │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -280,23 +281,28 @@ Người nghe thực tế nghe đường giai điệu `melody` trên nền hợp
 2. **Trong `backend/app/sonify/guitar.py`**:
    - `render_guitar_score` nhận `raw_pitches: list[int] | None = None` và `impulses: tuple[PriceImpulse, ...] | None = None`.
    - Khi `impulses is None`: nếu `raw_pitches is not None` thì gọi `detect_price_impulses(raw_pitches, ...)` một lần; nếu `raw_pitches is None` (các unit test cũ gọi trực tiếp không truyền `raw_pitches`) thì đặt `impulses = ()` để không bao giờ dò sóng lại trên `pitches` đã qua `quantize_strong_beats`.
-   - Trong `_place_melody`: nếu một `PriceImpulse` trong `impulses` cắt qua một hoặc nhiều vạch câu $P_k | P_{k+1}$ (do sóng 4 ô nhịp có thể đi qua hơn một vạch câu hoặc chạm trần `MAX_EIGHTHS = 32`), thực hiện **cùng một phép thử hai biên** cho mỗi vạch câu $P_1 | P_2$ mà impulse cắt qua:
+   - Trong `_place_melody`: nếu một `PriceImpulse` trong `impulses` cắt qua một hoặc nhiều vạch câu $P_0 | P_1 | \dots | P_m$ (với $P_0$ là câu chứa `impulse.start` và $P_m$ là câu chứa `impulse.target`):
      - Gọi một cặp nối bất kỳ $(e, e+1)$ là **hợp lệ (`seam_ok`)** khi hướng đặt $(\text{placed}[e+1] - \text{placed}[e])$ giữ đúng dấu hướng của $(\text{raw}[e+1] - \text{raw}[e])$ và khoảng nhảy $\left|\text{placed}[e+1] - \text{placed}[e]\right| < 12$ bán cung.
-     - **Không gộp toàn bộ `[P1.start, P2.end)`** để không bẻ các nốt nằm ngoài con sóng.
-     - **Bước A (Thử `shift` chung trên đoạn sóng `[impulse.start, impulse.target]`)**: Kiểm tra đồng thời cả **biên vào** (`impulse.start - 1 -> impulse.start`, nếu `impulse.start > P1.start`) lẫn **biên ra** (`impulse.target -> impulse.target + 1`, nếu `impulse.target + 1 < P2.end`). Chỉ khi **cả biên vào lẫn biên ra đều đạt `seam_ok`** thì mới giữ mức `shift` chung đó.
-     - **Bước B (Bước lùi khi Bước A thất bại ở biên vào hoặc biên ra)**:
-       1. Câu trước $P_1$ giữ nguyên mức `shift` của $P_1$ đến hết câu (`P1.end - 1`).
-       2. Áp dụng mức `shift` của $P_1$ sang phần đoạn sóng nằm trong câu sau $P_2$ (`[P2.start, min(P2.end - 1, impulse.target)]`) để qua vạch `P1.end - 1 -> P2.start` liền mạch và các eighths sau `P2.start` không nhảy quãng tám, rồi kiểm tra **biên ra** (`impulse.target -> impulse.target + 1` với `shift` của $P_2$ khi `impulse.target + 1 < P2.end`).
-       3. Nếu biên ra `impulse.target -> impulse.target + 1` đạt `seam_ok`, giữ phương án Bước B.2.
-       4. Nếu biên ra không đạt `seam_ok`, lùi phần đoạn sóng trong $P_2$ về dùng nguyên mức `shift` của $P_2$, rồi **kiểm tra lại cặp biên câu `P1.end - 1 -> P2.start`**: nếu cặp `P1.end - 1 -> P2.start` đạt `seam_ok` thì giữ nguyên mức `shift` riêng của từng câu; nếu cặp `P1.end - 1 -> P2.start` cũng không đạt `seam_ok` (nhảy $\ge 12$ bán cung hoặc đảo hướng), **bỏ khóa `shift` của impulse này** — mỗi câu giữ đúng mức mà `_choose_shifts` (với `_boundary_cost` hiện có) đã chọn.
+     - **Không gộp toàn bộ `[P0.start, Pm.end)`** để không bẻ các nốt nằm ngoài con sóng.
+     - **Bước A (Chạy đúng 1 lần cho toàn bộ đoạn sóng `[impulse.start, impulse.target]`)**:
+       - Thử áp dụng một mức `shift` chung cho toàn bộ `[impulse.start, impulse.target]`.
+       - **Biên vào** chỉ kiểm tra tại cặp nốt $(\text{impulse.start} - 1,\ \text{impulse.start})$ nằm trong câu đầu $P_0$ (nếu `impulse.start > P0.start`).
+       - **Biên ra** chỉ kiểm tra tại cặp nốt $(\text{impulse.target},\ \text{impulse.target} + 1)$ nằm trong câu cuối $P_m$ (nếu `impulse.target + 1 < Pm.end`).
+       - Các vạch câu ở giữa ($P_0 | P_1, \dots, P_{m-1} | P_m$) nằm trọn trong cùng một mức `shift` chung nên không thử riêng. Chỉ khi **cả biên vào ở $P_0$ lẫn biên ra ở $P_m$ đều đạt `seam_ok`** thì mới giữ mức `shift` chung đó cho toàn đoạn sóng.
+     - **Bước B (Chỉ chạy khi Bước A thất bại, duyệt lần lượt từng vạch câu $P_{\text{left}} | P_{\text{right}}$ từ trái sang phải)**:
+       1. Câu bên trái $P_{\text{left}}$ giữ nguyên mức `shift` đang có ở cuối câu đó (`P_left.end - 1`).
+       2. Phần đoạn sóng nằm trong câu bên phải $P_{\text{right}}$ là `[P_right.start, seg_end]` với `seg_end = min(P_right.end - 1, impulse.target)`. **Biên ra của đoạn này** là cặp `(impulse.target, impulse.target + 1)` trong $P_{\text{right}}$ nếu đích nằm trong $P_{\text{right}}$ (`impulse.target < P_right.end - 1`), hoặc là vạch câu sang câu kế tiếp `(P_right.end - 1, P_next.start)` nếu đích nằm ở câu sau nữa (`impulse.target >= P_right.end`, so với mức `shift` mặc định của $P_{\text{next}}$; nếu `impulse.target == P_right.end - 1` thì biên ra cũng là `(P_right.end - 1, P_next.start)` khi còn câu sau).
+       3. **Phương án B.1 (Thử `shift` của câu trái $P_{\text{left}}$)**: Áp mức `shift` của $P_{\text{left}}$ lên đoạn `[P_right.start, seg_end]` (qua vạch `P_left.end - 1 -> P_right.start` tự động cùng `shift`) và kiểm tra biên ra của đoạn đó. Nếu biên ra đạt `seam_ok` thì chốt mức `shift` đó cho `[P_right.start, seg_end]` và sang vạch kế tiếp.
+       4. **Phương án B.2 (Thử `shift` của chính câu phải $P_{\text{right}}$)**: Nếu Phương án B.1 gãy `seam_ok` ở biên ra, thử dùng mức `shift` của chính $P_{\text{right}}$ cho `[P_right.start, seg_end]` và kiểm tra cả vạch vào `P_left.end - 1 -> P_right.start` lẫn biên ra của đoạn đó. Nếu cả hai đều đạt `seam_ok` thì chốt mức `shift` của $P_{\text{right}}$ và sang vạch kế tiếp.
+       5. **Hủy khóa từ vạch gãy trở đi**: Nếu cả Phương án B.1 lẫn B.2 đều gãy `seam_ok`, **bỏ khóa `shift` từ vạch $P_{\text{left}} | P_{\text{right}}$ đó trở đi** — câu $P_{\text{right}}$ và mọi câu phía sau trong impulse giữ nguyên mức `shift` mà `_choose_shifts` (với `_boundary_cost` hiện có) đã chọn.
    - Gắn `raw_pitches` và `impulses` lên `_Ctx` trong `render_patterned_voices` (không gọi lại `detect_price_impulses` trong `guitar_patterns.py`).
 
 ### 3.4. `backend/app/sonify/guitar_patterns.py` & 5 Module Composer
 - Loại trừ hoàn toàn Nhóm 1 (`tremolo`, `etude1`, `etude11`, `_catedral_preludio` `preludio`, `thumb_cantabile`): nếu `[passage.start, passage.target]` chạm bất kỳ ô Nhóm 1 nào thì **bỏ toàn bộ `ScalePassage` đó**.
 - Với Nhóm 2 (`bach_chaconne`, `bach_gigue`, `bach_sarabande`, Brouwer `sarabande`) và Nhóm 3, chạy đúng quy trình ngân sách 4 bước của Mục 2.4:
   - Bước 1–2: giữ nguyên 100% `base_intrinsic_eighths` có sẵn của Nhóm 2 (ở các ô không bị đoạn nối thay thế) và tính `room = max(0, max_scale_eighths - base_intrinsic_eighths)`.
-  - Bước 3: chọn các `ScalePassage` (bao gồm cả **Sóng Lớn `Major Bridge Impulse`**: $L \ge \text{epb}$ từ 1–4 ô nhịp, $\text{net\_span} \ge 6$ bán cung, bắt đầu sau khi chính pattern Nhóm 2 đó đã vang ít nhất 1 ô nhịp trọn vẹn, giữ Bass đặc trưng theo từng ô nhịp) và `perpetual` theo `score` khi $\Delta\text{cost} = \text{passage\_eighths} - \text{replaced\_base\_intrinsic\_eighths} \le \text{room}$.
-  - Bước 4: sau khi chốt xong `ScalePassage`, giữ các cửa sổ giảm Cấp 1 trên Nhóm 2 không bị `ScalePassage` nào thay thế theo `score` cho đến khi đầy phần `room` còn lại (cửa sổ Cấp 1 không tham gia khoảng thở).
+  - Bước 3: chọn các `ScalePassage` (bao gồm cả **Sóng Lớn `Major Bridge Impulse`**: $L \ge \text{epb}$ từ 1–4 ô nhịp, $\text{net\_span} \ge 6$ bán cung, bắt đầu sau khi chính pattern Nhóm 2 đó đã vang ít nhất 1 ô nhịp trọn vẹn, giữ Bass đặc trưng theo từng ô nhịp) theo `score` giảm dần trước, rồi mới xếp các ô `perpetual` sau mọi `ScalePassage` (mỗi ô `perpetual` có `replaced_base_intrinsic_eighths = 0`), khi $\Delta\text{cost} = \text{passage\_eighths} - \text{replaced\_base\_intrinsic\_eighths} \le \text{room}$.
+  - Bước 4: sau khi chốt xong `ScalePassage` và `perpetual`, giữ các cửa sổ giảm Cấp 1 trên Nhóm 2 không bị `ScalePassage` nào thay thế theo `score` cho đến khi đầy phần `room` còn lại (cửa sổ Cấp 1 không tham gia khoảng thở).
 - Khi áp dụng `ScalePassage` trên Nhóm 2 và Nhóm 3:
   - Loại các ô có `ScalePassage` khỏi `bell_bars`.
   - Đánh dấu toàn bộ khoảng đóng `[passage.start, passage.target]` (bao gồm cả eighth đích `passage.target`) vào tập `scale_eighths` để `_relax_texture` (trong `_smooth_boundaries`), `_shape_dynamics` và `_slur` không ghi đè hoặc làm mất đỉnh velocity `_MELODY_APEX` (`72`) tại `passage.target`.
