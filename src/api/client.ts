@@ -577,6 +577,7 @@ export async function fetchSpan(
 export type SonifyQaLine = {
   label: string;
   value: string;
+  hint: string;
 };
 
 export type SonifyQaBlock = {

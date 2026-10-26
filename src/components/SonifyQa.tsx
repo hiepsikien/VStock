@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   fetchRecapScore,
   type RecapEnsemble,
+  type SonifyQaLine,
   type SonifyQaReport,
 } from '../api/client';
 import { colors, spacing, typography } from '../theme';
@@ -20,16 +21,45 @@ function isAbort(error: unknown): boolean {
   return error instanceof Error && (error.name === 'AbortError' || /aborted/i.test(error.message));
 }
 
+function InfoButton({ line, open, onToggle }: { line: SonifyQaLine; open: boolean; onToggle: () => void }) {
+  return (
+    <View>
+      <View style={styles.line}>
+        <View style={styles.labelWrap}>
+          <Text style={styles.lineLabel}>{line.label}</Text>
+          <Pressable
+            onPress={() => {
+              void Haptics.selectionAsync();
+              onToggle();
+            }}
+            hitSlop={8}
+            style={[styles.info, open && styles.infoOpen]}
+            accessibilityRole="button"
+            accessibilityLabel={`Giải thích ${line.label}`}
+            accessibilityState={{ expanded: open }}
+          >
+            <Text style={[styles.infoMark, open && styles.infoMarkOpen]}>i</Text>
+          </Pressable>
+        </View>
+        <Text style={styles.lineValue}>{line.value}</Text>
+      </View>
+      {open ? <Text style={styles.hint}>{line.hint}</Text> : null}
+    </View>
+  );
+}
+
 export function SonifyQa({ symbol, day, ensemble, bars }: Props) {
   const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
   const [report, setReport] = useState<SonifyQaReport | null>(null);
   const [failed, setFailed] = useState(false);
+  const [openHint, setOpenHint] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
     setReport(null);
     setFailed(false);
+    setOpenHint(null);
     void fetchRecapScore(symbol, day, ensemble, controller.signal)
       .then((next) => {
         if (!controller.signal.aborted) setReport(next);
@@ -86,10 +116,12 @@ export function SonifyQa({ symbol, day, ensemble, bars }: Props) {
                     <View key={block.title} style={styles.block}>
                       <Text style={styles.blockTitle}>{block.title}</Text>
                       {block.lines.map((line) => (
-                        <View key={line.label} style={styles.line}>
-                          <Text style={styles.lineLabel}>{line.label}</Text>
-                          <Text style={styles.lineValue}>{line.value}</Text>
-                        </View>
+                        <InfoButton
+                          key={line.label}
+                          line={line}
+                          open={openHint === line.label}
+                          onToggle={() => setOpenHint((current) => (current === line.label ? null : line.label))}
+                        />
                       ))}
                     </View>
                   ))}
@@ -188,13 +220,46 @@ const styles = StyleSheet.create({
   line: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'baseline',
+    alignItems: 'center',
     gap: spacing.md,
+  },
+  labelWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   lineLabel: {
     ...typography.body,
     color: colors.textSecondary,
-    flex: 1,
+    flexShrink: 1,
+  },
+  info: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.textTertiary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  infoOpen: {
+    borderColor: colors.accent,
+  },
+  infoMark: {
+    fontSize: 11,
+    fontStyle: 'italic',
+    fontWeight: '600',
+    color: colors.textTertiary,
+    lineHeight: 13,
+  },
+  infoMarkOpen: {
+    color: colors.accent,
+  },
+  hint: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: 4,
   },
   lineValue: {
     ...typography.body,

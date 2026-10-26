@@ -260,6 +260,7 @@ class NewsResponse(BaseModel):
 class QaLine(BaseModel):
     label: str
     value: str
+    hint: str
 
 
 class QaBlock(BaseModel):

@@ -24,7 +24,7 @@ Mỗi bản cho ra ba khối:
 
 Điểm công bố là bộ ba này. Một tổng có trọng số chỉ xuất hiện sau khi có tập nghe đóng băng.
 
-App mobile hiện một chip `QA` trong khối nghe của giao hưởng ngày. Chip mở đúng bản ghi này: cổng, F, M, và bốn đối chứng. Jazz, guitar, ambient, tối giản, và span `1W`–`1Y` không có chip, vì giai đoạn 1 chưa chấm những bản đó. `humanize` không đổi số trên sheet.
+App mobile hiện một chip `QA` trong khối nghe của giao hưởng ngày. Chip mở đúng bản ghi này: cổng, F, M, và bốn đối chứng. Mỗi dòng có nút `i` mở câu giải thích của chỉ số đó. Jazz, guitar, ambient, tối giản, và span `1W`–`1Y` không có chip, vì giai đoạn 1 chưa chấm những bản đó. `humanize` không đổi số trên sheet.
 
 `bar_quantization_loss` trong `quantize.py` đứng ngoài vector. Đó là mục tiêu planner đang tối thiểu. `research/sonify/harmony_benchmark.py` so số nốt bị bẻ giữa Markov và vòng lặp cố định trên lưới 30 ô (`range(30)`, `assign_source_bars`), trong lúc `render()` mặc định đóng khung 34 ô. Script đó chẩn đoán planner. Nó không phải harness của giai đoạn 1. Bộ đo mới tự dựng lưới framed.
 
@@ -69,7 +69,7 @@ Móc không bè giai điệu nào kêu thì `m` khuyết. Không giữ nốt vio
 | F3 độ bẻ | Trung bình `\|m − r\|` trên phách mạnh, đơn vị bậc thang. Báo riêng lead/support và high | Luôn báo hai số khi có móc | Số lead/support là hóa đơn của snap. Số high gồm quãng 3 hoặc quãng 5 và các bước −7 bậc của lần hạ |
 | F4 điểm ngoặt | Recall cực trị của `r` nổi ít nhất 1 bậc thang, khớp cực trị của `m` cùng hướng trong ±1 ô. Cực trị của `m` lấy trên MIDI đã ghi, kể cả nốt đã hạ | Thân không có cực trị nổi | Không lấy lại cực trị của nốt snap. Không thấy bước ngược tại cực đại của `r` không có nghĩa là lần hạ bị bỏ |
 | F5 chữ liquidity | Spearman giữa volume cửa sổ (`average_liquidity`) và hạng `p < mp < mf < f` của `score.liquidity`, chỉ cửa sổ nằm trong ô `2–31` | Mọi cửa sổ ô `2–31` cùng một chữ. Span dưới `2×` chưa đủ để bỏ: cửa sổ volume `≤ 0` vẫn là `p` | Kiểm tra hồi quy của `marking_for_volume`. Không phải thanh khoản nghe được |
-| F6 regime | Trung bình `chord_bias` trên catalog planner đã xét, trừ trung bình cùng hàm của hợp âm đã chọn trên ô `2–31` | Ô `0–1` và `32–33` | Dương khi hợp âm đã chọn rẻ hơn catalog. Xáo regime kéo lift về `0` |
+| F6 regime | Trung bình `chord_bias` trên catalog planner đã xét, trừ trung bình cùng hàm của hợp âm đã chọn trên ô `2–31` | Ô `0–1` và `32–33` | Dương khi hợp âm đã chọn rẻ hơn catalog. Xáo làm lift đổi khi nhãn đổi. Về gần `0` chỉ khi lift gốc đang dương rõ |
 
 `score.liquidity` chính là `marking_for_volume` áp lên các cửa sổ `average_liquidity`. Spearman giữa một bậc thang đơn điệu và input của chính nó thì cao mỗi khi có nhiều hơn một chữ. Đảo volume mà giữ nguyên chữ thì F5 đổi dấu dù không có nốt nào được viết lại. Chữ piano (`piano_marking` gập còn `p` / `mp`), trần `mp` của bass, và groove `chamber` / `half` đứng ngoài F5. Sửa những chỗ đó thì F5 không đổi. Mục 8 không dùng “F5 tăng” để nhận một thay đổi động lực nghe được.
 
