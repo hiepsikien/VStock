@@ -1230,7 +1230,24 @@ def _compose(
             )
         if variant == "guitar":
             from app.sonify.guitar import GUITAR_BPM, render_guitar_score
+            from app.sonify.guitar_scales import detect_price_impulses
 
+            # Once, on the close-price series, before strong-beat quantization.
+            guitar_meter = active_meter()
+            guitar_epb = guitar_meter.eighths_per_bar
+            pedal_bars = frozenset(
+                bar
+                for slot in slots
+                for bar in slot.bars()
+                if slot.section in {"intro", "outro", "warmup", "cooldown"}
+            )
+            impulses = detect_price_impulses(
+                raw_pitches,
+                tuple(start * guitar_epb for start in section_starts),
+                epb=guitar_epb,
+                strong_eighths=tuple(guitar_meter.strong_eighths),
+                pedal_bars=pedal_bars,
+            )
             return _finish(
                 render_guitar_score(
                     title=title,
@@ -1252,6 +1269,8 @@ def _compose(
                     character_at=character_at,
                     sections=tuple(spec.sections) if spec is not None else None,
                     rel_span=rel_span,
+                    raw_pitches=raw_pitches,
+                    impulses=impulses,
                 )
             )
 

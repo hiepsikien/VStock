@@ -89,11 +89,33 @@ def render_guitar_score(
     character_at: tuple[MovementCharacter | None, ...] | list[MovementCharacter | None] | None = None,
     sections: tuple | None = None,
     rel_span: float = 1.0,
+    raw_pitches: list[int] | None = None,
+    impulses: tuple | None = None,
 ) -> Score:
     meter = active_meter()
     register = active_register()
     chord_at = {bar: slot.chord for slot in slots for bar in slot.bars()}
     kind_at = {bar: slot.section for slot in slots for bar in slot.bars()}
+    if impulses is None:
+        if raw_pitches is not None:
+            from app.sonify.guitar_scales import detect_price_impulses
+
+            epb = meter.eighths_per_bar
+            if sections:
+                section_eighths = tuple(int(section.start) * epb for section in sections)
+            else:
+                section_eighths = (0,)
+            pedal_bars = frozenset(bar for bar, kind in kind_at.items() if kind in _PEDAL)
+            impulses = detect_price_impulses(
+                raw_pitches,
+                section_eighths,
+                epb=epb,
+                strong_eighths=tuple(meter.strong_eighths),
+                pedal_bars=pedal_bars,
+            )
+        else:
+            # Direct unit tests omit raw_pitches. Never detect on quantized pitches.
+            impulses = ()
     melody = _place_melody(
         pitches,
         phrases,
@@ -101,12 +123,15 @@ def render_guitar_score(
         register.guitar_treble_top,
         chord_at,
         mode,
+        raw_pitches=raw_pitches,
+        impulses=impulses,
     )
     from app.sonify.guitar_patterns import render_patterned_voices
 
-    lead, support, low, divisions = render_patterned_voices(
+    forwarded_raw = list(raw_pitches) if raw_pitches is not None else list(pitches)
+    voice_kwargs = dict(
         melody=melody,
-        raw_pitches=list(pitches),
+        raw_pitches=forwarded_raw,
         phrases=phrases,
         chord_at=chord_at,
         kind_at=kind_at,
@@ -121,7 +146,16 @@ def render_guitar_score(
         sections=sections,
         rel_span=rel_span,
         register=register,
+        impulses=impulses,
     )
+    try:
+        lead, support, low, divisions = render_patterned_voices(**voice_kwargs)
+    except TypeError as exc:
+        # The impulses parameter lands with the pattern engine. Keep passing it.
+        if "impulses" not in str(exc) or "unexpected keyword" not in str(exc):
+            raise
+        voice_kwargs.pop("impulses")
+        lead, support, low, divisions = render_patterned_voices(**voice_kwargs)
     return Score(
         title=title,
         bpm=bpm,
@@ -165,12 +199,15 @@ def _place_melody(
     top: int,
     chord_at: dict[int, Chord],
     mode: str,
+    raw_pitches: list[int] | None = None,
+    impulses: tuple | None = None,
 ) -> list[int]:
     """Shift each phrase by octaves, then compress whatever still sticks out.
 
     Folding a leftover note by itself reverses the price. The compression maps
     scale degrees in order, so a rise stays a rise. A phrase already inside
-    the window stays put: shift 0 wins a tie with +12.
+    the window stays put: shift 0 wins a tie with +12. A non-empty impulse
+    list may then re-shift only `[impulse.start, impulse.target]`.
     """
     if mode == "minor":
         # The line arrives with its leading tone raised (B natural over the
@@ -185,14 +222,36 @@ def _place_melody(
     usable = [phrase for phrase in phrases if phrase.end > phrase.start]
     chosen = _choose_shifts(pitches, tuple(usable), floor, top, degree, scale)
     placed = list(pitches)
+    shift_at = [0] * len(placed)
+    base_shift: list[int] = []
     covered: set[int] = set()
-    for phrase, line in chosen:
+    for phrase, line, shift in chosen:
+        base_shift.append(shift)
         for offset, note in enumerate(line):
-            placed[phrase.start + offset] = note
-            covered.add(phrase.start + offset)
+            index = phrase.start + offset
+            if index >= len(placed):
+                break
+            placed[index] = note
+            shift_at[index] = shift
+            covered.add(index)
     for index, note in enumerate(placed):
         if index not in covered:
             placed[index] = _clamp(note, floor, top)
+    if impulses:
+        raw = list(raw_pitches) if raw_pitches is not None else list(pitches)
+        _lock_impulses(
+            placed,
+            pitches,
+            raw,
+            tuple(usable),
+            base_shift,
+            shift_at,
+            impulses,
+            floor,
+            top,
+            degree,
+            scale,
+        )
     window = tuple(note for note in scale if floor <= note <= top)
     if window and chord_at and placed:
         placed = quantize_strong_beats(placed, chord_at, window, mode)
@@ -243,7 +302,10 @@ def _choose_shifts(
     for index in range(len(phrases) - 1, -1, -1):
         pick[index] = cursor
         cursor = arrival[index][cursor][1]
-    return [(phrase, candidates[index][pick[index]][2]) for index, phrase in enumerate(phrases)]
+    return [
+        (phrase, candidates[index][pick[index]][2], candidates[index][pick[index]][1])
+        for index, phrase in enumerate(phrases)
+    ]
 
 
 def _phrase_candidates(
@@ -322,6 +384,204 @@ def _boundary_cost(raw_dir: int, placed_dir: int) -> int:
     if reversal:
         return _REVERSAL_COST
     return 0
+
+
+def _seam_ok(placed: list[int], raw: list[int], left: int, right: int) -> bool:
+    """Placed step matches the raw step's sign and stays inside one octave.
+
+    A missing outer note is a seam: the first eighth has no entry and the
+    last eighth has no exit. A raw step of 0 requires a placed step of 0.
+    """
+    if left < 0 or right < 0 or right >= len(placed) or left >= len(placed):
+        return True
+    if left >= len(raw) or right >= len(raw):
+        return True
+    raw_step = raw[right] - raw[left]
+    placed_step = placed[right] - placed[left]
+    if raw_step == 0:
+        return placed_step == 0
+    if placed_step == 0 or (placed_step > 0) != (raw_step > 0):
+        return False
+    return abs(placed_step) < 12
+
+
+def _line_for_shift(
+    notes: list[int],
+    shift: int,
+    floor: int,
+    top: int,
+    degree: dict[int, int],
+    scale: tuple[int, ...],
+) -> list[int] | None:
+    """Octave-shift one slice. Compress that slice alone when it overflows."""
+    shifted = [note + shift for note in notes]
+    if any(note not in degree for note in shifted):
+        return None
+    if _overflow(shifted, floor, top) == 0:
+        return shifted
+    return _compress_monotone(shifted, floor, top, degree, scale)
+
+
+def _phrase_index_at(phrases: tuple[Phrase, ...], eighth: int) -> int | None:
+    for index, phrase in enumerate(phrases):
+        if phrase.start <= eighth < phrase.end:
+            return index
+    return None
+
+
+def _entry_pair(phrases: tuple[Phrase, ...], p0_index: int, start: int) -> tuple[int, int] | None:
+    """Outer entry of an impulse, or None when that side has no note."""
+    p0 = phrases[p0_index]
+    if start > p0.start:
+        return (start - 1, start)
+    if start == p0.start and p0_index > 0:
+        previous = phrases[p0_index - 1]
+        return (previous.end - 1, p0.start)
+    return None
+
+
+def _exit_pair(
+    phrases: tuple[Phrase, ...], phrase_index: int, target: int, length: int
+) -> tuple[int, int] | None:
+    """Real exit inside the phrase that contains `target`, or None if it is open."""
+    phrase = phrases[phrase_index]
+    if target < phrase.end - 1:
+        if target + 1 >= length:
+            return None
+        return (target, target + 1)
+    if target == phrase.end - 1 and phrase_index + 1 < len(phrases):
+        return (phrase.end - 1, phrases[phrase_index + 1].start)
+    return None
+
+
+def _retarget_slice(
+    placed: list[int],
+    shift_at: list[int],
+    original: list[int],
+    start: int,
+    end: int,
+    shift: int,
+    floor: int,
+    top: int,
+    degree: dict[int, int],
+    scale: tuple[int, ...],
+) -> tuple[list[int], list[int]] | None:
+    if end < start or start < 0 or end >= len(original):
+        return None
+    line = _line_for_shift(original[start : end + 1], shift, floor, top, degree, scale)
+    if line is None:
+        return None
+    trial = list(placed)
+    trial_shift = list(shift_at)
+    for offset, note in enumerate(line):
+        trial[start + offset] = note
+        trial_shift[start + offset] = shift
+    return trial, trial_shift
+
+
+def _seams_hold(
+    trial: list[int],
+    raw: list[int],
+    cut: tuple[int, int] | None,
+    exit_pair: tuple[int, int] | None,
+) -> bool:
+    if cut is not None and not _seam_ok(trial, raw, *cut):
+        return False
+    if exit_pair is not None and not _seam_ok(trial, raw, *exit_pair):
+        return False
+    return True
+
+
+def _lock_impulses(
+    placed: list[int],
+    original: list[int],
+    raw: list[int],
+    phrases: tuple[Phrase, ...],
+    base_shift: list[int],
+    shift_at: list[int],
+    impulses: tuple,
+    floor: int,
+    top: int,
+    degree: dict[int, int],
+    scale: tuple[int, ...],
+) -> None:
+    """Re-shift only the eighths inside each impulse. An empty list changes nothing.
+
+    Step A tries the octave already chosen for the phrase that contains
+    `target`, once, across the whole `[start, target]`. It keeps that shared
+    shift only when the entry seam and the exit seam both hold. Middle cuts
+    sit on that one shift, so they are not separate tests.
+
+    Step B runs only after Step A fails, left to right across each cut the
+    impulse crosses. The left phrase keeps the shift on its last note. The
+    right slice is `[P_right.start, min(P_right.end - 1, target)]`. B.1 tries
+    the left shift and still measures the cut. B.2 tries the right phrase's
+    own shift and measures the same cut. The real exit is measured only in
+    the phrase that contains `target`. If both attempts fail, the lock drops
+    from that cut on and those phrases keep the shifts `_choose_shifts` chose.
+    """
+    for impulse in impulses:
+        start = int(impulse.start)
+        target = int(impulse.target)
+        if start > target or not phrases:
+            continue
+        p0 = _phrase_index_at(phrases, start)
+        pm = _phrase_index_at(phrases, target)
+        if p0 is None or pm is None or pm < p0:
+            continue
+        if 0 <= target < len(shift_at):
+            shared = shift_at[target]
+        else:
+            shared = base_shift[pm]
+        step_a = _retarget_slice(
+            placed, shift_at, original, start, target, shared, floor, top, degree, scale
+        )
+        if step_a is not None:
+            trial, trial_shift = step_a
+            entry = _entry_pair(phrases, p0, start)
+            exit_pair = _exit_pair(phrases, pm, target, len(placed))
+            if _seams_hold(trial, raw, entry, exit_pair):
+                placed[:] = trial
+                shift_at[:] = trial_shift
+                continue
+        for left in range(p0, pm):
+            right = left + 1
+            right_phrase = phrases[right]
+            if target < right_phrase.start:
+                break
+            if start >= right_phrase.start:
+                continue
+            seg_end = min(right_phrase.end - 1, target)
+            cut = (phrases[left].end - 1, right_phrase.start)
+            # The far side of a phrase the impulse still continues through is
+            # the next iteration's cut, not this phrase's exit.
+            exit_pair = _exit_pair(phrases, right, target, len(placed)) if target < right_phrase.end else None
+            left_end = phrases[left].end - 1
+            left_shift = shift_at[left_end] if 0 <= left_end < len(shift_at) else base_shift[left]
+            committed = None
+            for candidate in (left_shift, base_shift[right]):
+                attempt = _retarget_slice(
+                    placed,
+                    shift_at,
+                    original,
+                    right_phrase.start,
+                    seg_end,
+                    candidate,
+                    floor,
+                    top,
+                    degree,
+                    scale,
+                )
+                if attempt is None:
+                    continue
+                trial, trial_shift = attempt
+                if _seams_hold(trial, raw, cut, exit_pair):
+                    committed = (trial, trial_shift)
+                    break
+            if committed is None:
+                break
+            placed[:] = committed[0]
+            shift_at[:] = committed[1]
 
 
 def _melody_line(pitches: list[int], phrases: tuple[Phrase, ...], bars: int) -> list[NoteEvent]:
