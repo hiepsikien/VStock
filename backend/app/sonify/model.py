@@ -98,6 +98,24 @@ class Phrase:
 
 
 @dataclass(frozen=True)
+class PriceImpulse:
+    """A raw-price wave that can carry a guitar scale run.
+
+    `start` and `target` are eighth indexes. `retreat_spans` holds the
+    `(r_start, r_end)` ranges of retreats that survived the invariant table.
+    """
+
+    start: int
+    target: int
+    direction: Literal["up", "down"]
+    net_span: int
+    adjusted_efficiency: float
+    score: float
+    retreat_spans: tuple[tuple[int, int], ...] = ()
+    sub_bar: bool = False
+
+
+@dataclass(frozen=True)
 class NoteEvent:
     """A sounding note, or a rest when midi is None."""
 
