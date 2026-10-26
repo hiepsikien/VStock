@@ -89,6 +89,8 @@ def render_guitar_score(
     character_at: tuple[MovementCharacter | None, ...] | list[MovementCharacter | None] | None = None,
     sections: tuple | None = None,
     rel_span: float = 1.0,
+    bar_volumes: list[float] | None = None,
+    section_rel_spans: dict | None = None,
 ) -> Score:
     meter = active_meter()
     register = active_register()
@@ -121,6 +123,8 @@ def render_guitar_score(
         sections=sections,
         rel_span=rel_span,
         register=register,
+        bar_volumes=bar_volumes,
+        section_rel_spans=section_rel_spans,
     )
     return Score(
         title=title,

@@ -1231,6 +1231,13 @@ def _compose(
         if variant == "guitar":
             from app.sonify.guitar import GUITAR_BPM, render_guitar_score
 
+            bar_volumes = average_liquidity(
+                [_window_candles(bars, groups, bar, 1) for bar in range(musical_bars)]
+            )
+            section_rel_spans = {
+                section.start: _section_rel_span(bars, groups, section.start, section.end)
+                for section in (spec.sections if spec is not None else ())
+            }
             return _finish(
                 render_guitar_score(
                     title=title,
@@ -1252,6 +1259,8 @@ def _compose(
                     character_at=character_at,
                     sections=tuple(spec.sections) if spec is not None else None,
                     rel_span=rel_span,
+                    bar_volumes=bar_volumes,
+                    section_rel_spans=section_rel_spans,
                 )
             )
 

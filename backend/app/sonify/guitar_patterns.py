@@ -148,6 +148,8 @@ class _Ctx:
     strong: tuple[int, ...]
     bar_beats: float
     elegy_prev: dict = field(default_factory=dict)
+    bar_volumes: list[float] | None = None
+    section_rel_spans: dict | None = None
 
     def chord(self, bar: int) -> Chord:
         if bar in self.chord_at:
@@ -2165,6 +2167,8 @@ def render_patterned_voices(
     sections,
     rel_span: float,
     register,
+    bar_volumes: list[float] | None = None,
+    section_rel_spans: dict | None = None,
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent], int]:
     meter = active_meter()
     epb = meter.eighths_per_bar
@@ -2202,6 +2206,8 @@ def render_patterned_voices(
         kind=_meter_kind(meter),
         strong=tuple(meter.strong_eighths),
         bar_beats=meter.quarter_beats,
+        bar_volumes=None if bar_volumes is None else list(bar_volumes),
+        section_rel_spans=None if section_rel_spans is None else dict(section_rel_spans),
     )
     patterns = _patterns(ctx) if phrases else []
     headline = _HEADLINE.get()
@@ -2547,8 +2553,9 @@ def render_patterned_voices(
             if _bar_pattern(ctx, bar, patterns) == "preludio"
         }
     lead = _slur(lead, phrases, skip_bars=plucked)
-    if _framed(ctx):
-        lead, support, low = _shape_dynamics(ctx, lead, support, low, relaxed, patterns)
+    from app.sonify.guitar_wave import apply_guitar_wave
+
+    lead, support, low = apply_guitar_wave(ctx, lead, support, low, patterns, relaxed)
     divisions = 4 if _needs_sixteenths([*lead, *support, *low]) else 2
     # Bach's mordent, bariolage, and scale runs are sixteenth figures. When any
     # voice asks for that grid, the engraving stays at division 4.
