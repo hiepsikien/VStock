@@ -63,11 +63,11 @@ Móc không bè giai điệu nào kêu thì `m` khuyết. Không giữ nốt vio
 | F3 độ bẻ | Trung bình `\|m − r\|` trên phách mạnh, đơn vị bậc thang. Báo riêng lead/support và high | Luôn báo hai số khi có móc | Số lead/support là hóa đơn của snap. Số high gồm quãng 3 hoặc quãng 5 và các bước −7 bậc của lần hạ |
 | F4 điểm ngoặt | Recall cực trị của `r` nổi ít nhất 1 bậc thang, khớp cực trị của `m` cùng hướng trong ±1 ô. Cực trị của `m` lấy trên MIDI đã ghi, kể cả nốt đã hạ | Thân không có cực trị nổi | Không lấy lại cực trị của nốt snap. Không thấy bước ngược tại cực đại của `r` không có nghĩa là lần hạ bị bỏ |
 | F5 chữ liquidity | Spearman giữa volume cửa sổ (`average_liquidity`) và hạng `p < mp < mf < f` của `score.liquidity`, chỉ cửa sổ nằm trong ô `2–31` | Mọi cửa sổ ô `2–31` cùng một chữ. Span dưới `2×` chưa đủ để bỏ: cửa sổ volume `≤ 0` vẫn là `p` | Kiểm tra hồi quy của `marking_for_volume`. Không phải thanh khoản nghe được |
-| F6 regime | Trung bình `chord_bias(chord, regime, character)` của hợp âm trên ô `2–31`, trừ trung bình cùng hàm trên catalog planner đã xét | Ô `0–1` và `32–33` | Lift dương, và đối chứng xáo nhãn làm lift tụt, thì hợp âm còn mang regime |
+| F6 regime | Trung bình `chord_bias` trên catalog planner đã xét, trừ trung bình cùng hàm của hợp âm đã chọn trên ô `2–31` | Ô `0–1` và `32–33` | Dương khi hợp âm đã chọn rẻ hơn catalog. Xáo regime kéo lift về `0` |
 
 `score.liquidity` chính là `marking_for_volume` áp lên các cửa sổ `average_liquidity`. Spearman giữa một bậc thang đơn điệu và input của chính nó thì cao mỗi khi có nhiều hơn một chữ. Đảo volume mà giữ nguyên chữ thì F5 đổi dấu dù không có nốt nào được viết lại. Chữ piano (`piano_marking` gập còn `p` / `mp`), trần `mp` của bass, và groove `chamber` / `half` đứng ngoài F5. Sửa những chỗ đó thì F5 không đổi. Mục 8 không dùng “F5 tăng” để nhận một thay đổi động lực nghe được.
 
-`DAILY_ENSEMBLE_SPEC` bật `borrowed=True`. `REGIME_BIAS` chỉ có 12 hợp âm diatonic. Tra một hợp âm mượn thì thiếu khóa. Planner chấm những hợp âm đó bằng `chord_bias`: hợp âm trong `CHORDS` lấy `_ROOT_REGIME_BIAS` cộng delta character. Hợp âm ngoài bảng lấy sàn `0.08` cộng `_BORROWED_DELTA`. F6 gọi đúng hàm đó, với cùng `character` đã truyền vào planner. Catalog đem ra trừ là `chords_for_spec(True)`.
+`DAILY_ENSEMBLE_SPEC` bật `borrowed=True`. `REGIME_BIAS` chỉ có 12 hợp âm diatonic. Tra một hợp âm mượn thì thiếu khóa. Planner chấm những hợp âm đó bằng `chord_bias`: hợp âm trong `CHORDS` lấy `_ROOT_REGIME_BIAS` cộng delta character. Hợp âm ngoài bảng lấy sàn `0.08` cộng `_BORROWED_DELTA`. F6 gọi đúng hàm đó, với cùng `character` đã truyền vào planner. Catalog là `chords_for_spec(True)`. Lift bằng trung bình chi phí catalog trừ trung bình chi phí hợp âm đã chọn. Chi phí thấp là được ưu tiên, nên hợp âm đúng regime cho lift dương. Viết phép trừ ngược lại thì “F6 tăng” ở mục 8 nghĩa là hợp âm đắt hơn catalog.
 
 `_ROOT_REGIME_BIAS`: uptrend ưu tiên `C` (chi phí `0`), phạt `A` `0,35` và `E` `0,45`. Downtrend ưu tiên `A`, phạt `C` và `G` `0,35`. Sideway ưu tiên `C`. Đây là chi phí. Thấp là được ưu tiên.
 
@@ -107,11 +107,11 @@ Cổng đang khóa, vì renderer đang giữ:
 
 Đối chứng làm trên cặp (chuỗi đem so, bản `Score` đã viết). Không render lại.
 
-Đảo giá rồi chấm lại giai điệu cũ thì F1 phải đổi dấu. Render lại một hệ đang bám giá thì F1 đứng yên, và phép thử không còn nói gì về chỉ số.
+F1 là tỷ lệ bước cùng dấu, từ `0` đến `1`. Gần `1` là bám hướng, quanh `0,5` là mất contour, gần `0` là đi ngược. Tỷ lệ không có dấu âm. Đảo giá rồi chấm lại giai điệu cũ làm tỷ lệ tụt và xoay quanh `0,5`. Render lại một hệ đang bám giá thì F1 đứng yên, và phép thử không còn nói gì về chỉ số. Biên `0,02` ở mục 8 áp vào tỷ lệ này.
 
 | Phá, trên bản đã viết | Kỳ vọng |
 |---|---|
-| Dựng `r` từ chuỗi giá đảo. Giữ `m` | F1 đổi dấu hoặc tụt mạnh. F5 đứng |
+| Dựng `r` từ chuỗi giá đảo. Giữ `m` | F1 tụt, xoay quanh `0,5`. F5 đứng |
 | Dựng volume cửa sổ từ chuỗi volume đảo. Giữ `score.liquidity` | F5 đổi dấu. Không nốt nào đổi. Đây là bằng chứng F5 đo hàm gán chữ |
 | Xáo nhãn regime, tính lại `chord_bias` trên cùng hợp âm | F6 lift về gần `0` nếu hợp âm đang mang regime |
 | Hoán vị cao độ đường khâu, giữ nhịp và chỗ nghỉ | F1 và M1 của lead/support đổ |
@@ -125,8 +125,8 @@ Bốn file trong `research/sonify/out` là nến, không phải bản đã chấ
 Khi rổ đóng băng có khoảng vài chục phiên mỗi character, một thay đổi của renderer được nhận nếu cả bốn điều sau đúng, trên tầng `variant × span × character`:
 
 1. Mọi bản vẫn qua các cổng mục 6.
-2. Trung vị F1 không giảm quá biên đã đăng ký trước khi chạy. Biên `0,02` chỉ được giữ nếu cỡ mẫu làm dao động của trung vị nhỏ hơn biên đó.
-3. Ít nhất một trung vị khác cải thiện quá biên đã đăng ký: F3 của tập lead/support giảm, F6 tăng, hoặc M2 đỡ hơn. F5 không nằm trong danh sách này. M3 và M4 chỉ vào danh sách sau khi ngưỡng phần vị đã khóa.
+2. Trung vị F1 không giảm quá biên đã đăng ký trước khi chạy. F1 là tỷ lệ `0–1`. Biên `0,02` áp vào tỷ lệ đó, và chỉ được giữ nếu cỡ mẫu làm dao động của trung vị nhỏ hơn biên đó.
+3. Ít nhất một trung vị khác cải thiện quá biên đã đăng ký: F3 của tập lead/support giảm, F6 tăng (hợp âm đã chọn rẻ hơn catalog hơn), hoặc M2 đỡ hơn. F5 không nằm trong danh sách này. M3 và M4 chỉ vào danh sách sau khi ngưỡng phần vị đã khóa.
 4. Không có tầng nào đi ngược quá biên đó.
 
 Trước lúc đó, giai đoạn 1 chỉ ghi, trên mỗi phiên, bản ghi sau.
