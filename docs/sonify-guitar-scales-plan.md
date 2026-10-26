@@ -204,7 +204,7 @@ Người nghe thực tế nghe đường giai điệu `melody` trên nền hợp
 
 #### 3. Điểm Ra (Landing & Exit — Cho cả trường hợp `target` ở Phách Mạnh hoặc Phách Yếu)
 - **Hội tụ vào `ctx.melody[passage.target]` và khóa velocity đích của Mục 2.6**:
-  - Tại đúng mốc đích `passage.target` (dù `passage.target` rơi vào phách mạnh hay giữ nguyên ở phách yếu `raw_target` khi snap bị từ chối): cao độ của bè Cao (`lead`) luôn bằng `ctx.melody[passage.target]` (giữ nguyên độ ngân của nốt `melody` thuộc pattern phía sau từ `passage.target` trở đi). Velocity đích theo Mục 2.6.C: sóng lên đáp ở `loud`; sóng xuống lịm ở `soft` trên cú sát đích, còn nốt trụ `passage.target` không được nhỏ hơn bass khi nó là phách mạnh hoặc ngân dài. Eighth `passage.target` vẫn nằm trong `scale_eighths` để `_shape_dynamics` không kéo nốt đó về `_MELODY_APEX` (`72`).
+  - Tại đúng mốc đích `passage.target` (dù `passage.target` rơi vào phách mạnh hay giữ nguyên ở phách yếu `raw_target` khi snap bị từ chối): cao độ của bè Cao (`lead`) luôn bằng `ctx.melody[passage.target]` (giữ nguyên độ ngân của nốt `melody` thuộc pattern phía sau từ `passage.target` trở đi). Velocity đích theo Mục 2.6.C: sóng lên chỉ chạm `loud` tại đúng `passage.target` (`slots[-1]`); cú sát đích `slots[-2]` thấp hơn. Sóng xuống để cú sát đích về `soft` khi nốt đích là trụ, và nốt trụ đó không được nhỏ hơn bass. Eighth `passage.target` vẫn nằm trong `scale_eighths` để `_shape_dynamics` không kéo nốt đó về `_MELODY_APEX` (`72`).
 - **Tiếp quản Bè Trầm (`low`) và Bè Giữa (`support`) theo đúng lưới của Pattern sau**:
   - Bè Trầm (`low`) và Bè Giữa (`support`) của pattern phía sau từ `passage.target` trở đi **giữ nguyên lịch gảy theo lưới `ctx.strong` của chính pattern đó**: nếu `passage.target` trùng phách mạnh (`passage.target % epb in ctx.strong`) thì Bass của pattern sau đánh đồng thời với nốt đích của scale; nếu `passage.target` là phách yếu (do snap bị từ chối) thì Bass đang ngân từ phách mạnh trước đó tiếp tục ngân qua `passage.target` và không tự chèn thêm một cú Bass lệch phách, còn `support` tự động hoạt động trở lại từ `passage.target` theo đúng lịch của pattern.
 
@@ -253,26 +253,33 @@ Ví dụ sau kẹp, span gốc trong ngoặc:
 
 #### C. Điểm vào, đường cong, nhịp lùi, và nốt đậu
 
-Gọi `prev` là velocity của nốt `lead` đang ngân ngay trước `passage.start` (`_MELODY = 64` nếu đoạn mở đầu bài). `open` và `arrival` là hai đầu của ramp trên các cú đánh của bè Cao. Nốt đích có luật riêng ở cuối mục này.
+Gọi `prev` là velocity của nốt `lead` đang ngân ngay trước `passage.start` (`_MELODY = 64` nếu đoạn mở đầu bài). `open` và `arrival` là hai đầu của ramp. Sóng lên lấy `arrival = loud` và tính ramp trên cả nốt đích. Sóng xuống lấy `arrival = soft`; nốt đích chỉ đứng ngoài ramp khi nó là nốt trụ.
 
 - **Sóng lên — lấy đà (*subito piano*)**: `open = min(prev, soft)`, `arrival = loud`. Nếu `prev` đã nhỏ hơn `soft`, giữ `prev` để nốt đầu không bật to rồi mới crescendo. Nếu `prev` đang ở `72` hoặc cao hơn, nốt đầu **xuống** `soft` rồi chỉ đi lên. Bước xuống một cú ở vạch vào là cách lấy đà; ngoài các nhịp `retreat` ở dưới, bên trong đoạn không có chiều giảm.
 - **Sóng xuống — không *sforzando* trên câu hát**: mở thẳng tại `loud` chỉ khi pattern thuộc nhóm Động năng, `elogio_pizz`, hoặc `bach_chaconne`, **và** `passage.start` là phách mạnh (`passage.start % epb in ctx.strong`). Mọi trường hợp còn lại (nhóm Hát, Baroque vũ điệu `bach_bourree` / `bach_gavotte` / `bach_gigue`, và mọi pattern khi mở ở phách yếu) mở tại
   $$v_{\text{open}} = \min(\text{loud},\ \max(\text{prev} + 8,\ \text{\_MELODY\_APEX}))$$
   Câu trước đang ở `58…62` thì nốt đầu rơi quanh `72`, không nhảy lên `82` hay `90`. Nếu `prev` đã là một cao trào (`prev + 8` chạm `loud`), công thức này tự mở tại `loud`. `arrival` của ramp là `soft`.
 
-Ramp đi trên **thứ tự cú đánh** của bè Cao (mỗi móc kép là một bước). Gọi $t = i / (n - 1)$ với $i$ từ `0` đến `n - 1`, $n$ là số cú trước nốt đích.
+Ramp đi trên **thứ tự cú đánh** của bè Cao (mỗi móc kép là một bước), khớp `slots` đã có: `n = len(slots) - 1` là số cú trong `slots[:-1]`, trước `passage.target`. `N = n + 1` là toàn bộ cú, kể cả `slots[-1]` tại `passage.target`.
+
+- **Sóng lên**: ramp từ `open` lên `loud` trên cả `N` cú. $t = i / (N - 1)$ với $i$ từ `0` đến `N - 1`, và `arrival = loud`. Chỉ $i = N - 1$ bằng `loud`. Cú sát đích (`slots[-2]`) luôn thấp hơn `loud`, nên hai nốt cuối không bao giờ là (`loud`, `loud`): bước nhích cuối đi từ nốt dẫn vào nốt đích.
+- **Sóng xuống, nốt đích là phách yếu và ngân dưới `2` eighths**: ramp từ `open` về `soft` cũng trên cả `N` cú, cùng $t$, `arrival = soft`. Chỉ nốt đích chạm `soft`.
+- **Sóng xuống, nốt đích là trụ** (phách mạnh, hoặc `melody` giữ cùng cao độ ít nhất `2` eighths kể từ `target`): ramp từ `open` về `soft` chỉ trên `n` cú `slots[:-1]`. $t = i / (n - 1)$ với $i$ từ `0` đến `n - 1`. Nốt đích đứng ngoài ramp.
 
 - **$L \le \text{epb}$** (sub-bar hoặc một ô): tuyến tính, $v = \text{open} + (\text{arrival} - \text{open})\, t$.
-- **$L > \text{epb}$** (2–4 ô, kể cả câu mở móc đơn rồi chuyển móc kép): mũ `1.3`, $v = \text{open} + (\text{arrival} - \text{open})\, t^{1.3}$. Giữa câu mới đi khoảng `41%` quãng velocity, nên nửa đầu còn ở vùng ấm `52…68` (dưới ngưỡng móng nylon `65+`) và lực dồn vào nửa sau.
+- **$L > \text{epb}$** (2–4 ô, kể cả câu mở móc đơn rồi chuyển móc kép): mũ `1.3`, $v = \text{open} + (\text{arrival} - \text{open})\, t^{1.3}$. Giữa quãng ramp mới đi khoảng `41%` quãng velocity, nên nửa đầu còn ở vùng ấm `52…68` (dưới ngưỡng móng nylon `65+`) và lực dồn vào nửa sau. Với sóng xuống có nốt trụ, mũ này chỉ phủ `n` cú trước đích; nốt trụ là sàn riêng, không phải $t = 1$.
 
-Làm tròn số nguyên. Ép không giảm (sóng lên) hoặc không tăng (sóng xuống) **trước** khi đặt nhịp lùi. Cú sát đích của ramp đúng `arrival`.
+Khi mẫu số bằng `0` thì không chia. Đó là `N < 2` (sóng lên, hoặc sóng xuống trên phách yếu ngắn) và `n < 2` (sóng xuống có nốt trụ, kể cả cửa sổ giảm Cấp 1 đi móc đơn khi $\text{BPM} < 88$ và chỉ có một cú trước đích). Cú duy nhất trước đích, nếu có, lấy `open`. Nốt đích lấy đúng giá trị đậu ở dưới.
 
-**Nhịp `retreat`**: sau khi đã có đường hairpin, mỗi cú đánh mà eighth nằm trong `retreat_spans` chùng `3` bậc **ngược** chiều hairpin (sóng lên thì trừ `3`, sóng xuống thì cộng `3`), kẹp trong `[soft, loud]`. Cú kế tiếp không thuộc retreat trở lại đúng đường cong, nên đây là một gợn `tăng – lùi – bứt phá`, không phải một đỉnh mới. Nốt đích không bị chùng.
+Làm tròn số nguyên. Ép không giảm (sóng lên) hoặc không tăng (sóng xuống). Nếu sau bước đó còn cú nào **trước nốt cuối của ramp** đã chạm `arrival` (sóng lên chạm `loud`, sóng xuống ngắn chạm `soft`), kéo cả khúc đó ra `1` bậc (`loud - 1` hoặc `soft + 1`, vẫn nằm trong `[open, arrival]`) rồi ép đơn điệu lại. Chỉ nốt cuối của ramp giữ `arrival`. Sóng xuống có nốt trụ không áp bước này: cú sát đích được phép bằng `soft`. Làm các bước này **trước** nhịp lùi.
 
-**Nốt đậu tại `passage.target`**:
+**Nhịp `retreat`**: sau khi đã có đường hairpin, mỗi cú có `slot.retreat` (eighth nằm trong `retreat_spans`) chùng `3` bậc **ngược** chiều hairpin (sóng lên thì trừ `3`, sóng xuống thì cộng `3`), kẹp trong `[soft, loud]`. Cú kế tiếp không thuộc retreat trở lại đúng đường cong, nên đây là một gợn `tăng – lùi – bứt phá`, không phải một đỉnh mới. Nốt đích không bị chùng.
 
-- Sóng lên: velocity của nốt đích là `loud`.
-- Sóng xuống: cú sát đích đã ở `soft`. Nốt đích giữ `soft` khi nó là phách yếu và nốt `melody` tại đó ngân dưới `2` eighths. Khi `passage.target` là phách mạnh, hoặc `melody` giữ cùng cao độ ít nhất `2` eighths kể từ `target`, sàn của nốt đích là $\max(\text{soft},\ \text{\_BASS} + 2)$ với `_BASS = 56`, tức không dưới `58`. Sàn này ngang mức đóng câu `_SWELL_CLOSE` (`62`) về vai trò: giai điệu ngân không nhỏ hơn bass `10…16` bậc. Nó cũng chặn `_shape_dynamics` của `villa_pattern`, vì pass đó kẹp bass và bè giữa theo `sounding_lead_vel` (`lead_vel - 1` hoặc `- 2`, sàn `44`). Một nốt đích `40…46` ngân qua nửa ô sẽ kéo cả vòng arpeggio xuống sàn đó.
+**Nốt đậu tại `passage.target` (`slots[-1]`)**:
+
+- Sóng lên: velocity của nốt đích là `loud`. Cú sát đích nhỏ hơn `loud`.
+- Sóng xuống, phách yếu ngắn (`< 2` eighths): nốt đích là `soft`, và là bước duy nhất chạm `soft`.
+- Sóng xuống, nốt trụ: khi `n ≥ 2`, cú sát đích đã ở `soft`. Sàn của nốt đích là $\max(\text{soft},\ \text{\_BASS} + 2)$ với `_BASS = 56`, tức không dưới `58`. Khi `n < 2` không có cú nào để đưa về `soft`; cú trước đích (nếu có) giữ `open`, nốt đích vẫn lấy sàn này. Sàn ngang mức đóng câu `_SWELL_CLOSE` (`62`) về vai trò: giai điệu ngân không nhỏ hơn bass `10…16` bậc. Nó cũng chặn `_shape_dynamics` của `villa_pattern`, vì pass đó kẹp bass và bè giữa theo `sounding_lead_vel` (`lead_vel - 1` hoặc `- 2`, sàn `44`). Một nốt đích `40…46` ngân qua nửa ô sẽ kéo cả vòng arpeggio xuống sàn đó.
 
 Bass (`_BASS`) và bè giữa (`_INNER`) của đoạn scale giữ mức của pattern. Hairpin chỉ ở bè Cao.
 
@@ -281,7 +288,7 @@ Bass (`_BASS`) và bè giữa (`_INNER`) của đoạn scale giữ mức của p
 #### D. Phạm vi
 
 - Mọi `ScalePassage` và cửa sổ giảm Cấp 1 của engine mới dùng Mục 2.6.
-- Swarm nội tại của Brouwer `sarabande` (`_modal_figure`) dùng cùng cửa sổ Hát, theo chiều của swarm. Chương chậm `1M` nghe figuration này ở nửa sau các ô đang chuyển động, kể cả khi ngân sách không cấp `ScalePassage`.
+- Swarm nội tại của Brouwer `sarabande` (`_modal_figure`) dùng cùng cửa sổ Hát, theo chiều của swarm. Chương chậm `1M` nghe figuration này ở nửa sau các ô đang chuyển động, kể cả khi ngân sách không cấp `ScalePassage`. `line` nằm gọn trong ô (từ `figure_at` đến hết ô) và không có `passage.target` tách ở đầu ô sau, nên ramp phủ thẳng `len(line)` nốt, không tách `slots[:-1]` với `slots[-1]`. `prev` là velocity nốt `accent` ngay trước swarm (eighth `2` ở `3/4`, eighth `3` ở `6/8`). Mở theo luật sóng lên / sóng xuống của Mục 2.6.C. Figuration không dài hơn một ô, nên dùng nhánh tuyến tính. Nốt cuối `line` là bước cuối của ramp: sóng lên chạm `loud`; sóng xuống kết tại $\max(\text{soft},\ \text{\_BASS} + 2)$, không dùng nhánh phách yếu ngắn, vì nốt đó đóng ô và còn ngân dưới bass của sarabande.
 - Scale nội tại của Bach (`_fitting_scale` trên `bach_gigue`, `bach_chaconne`, `bach_sarabande`) **giữ** swell câu `60…72`. Đó là dấu nhận của điệu, không phải đoạn chạy impulse. Chỉ đoạn nối `ScalePassage` đè lên các ô đó mới dùng cửa sổ Baroque / Chaconne ở trên.
 
 ---
@@ -397,4 +404,4 @@ Bass (`_BASS`) và bè giữa (`_INNER`) của đoạn scale giữ mức của p
      - Kiểm tra toàn bộ 5 composer vượt qua `assert_playable` (bao gồm `_quarter_ok` trên mọi chùm 4 móc kép, đặc biệt khi Villa-Lobos fallback khỏi dây buông không hợp thế tay) trên cả 5 giọng (`C, D, Eb, A, Bb`).
   4. **Test Ngân sách `<= 30% body_eighths` (Quy trình 4 bước) & Mix Well**:
      - Kiểm tra quy trình 4 bước: `room = max(0, max_scale_eighths - base_intrinsic_eighths)`; khi `room == 0` thì không giữ cửa sổ Cấp 1 và không cấp `ScalePassage` / `perpetual`; khi `room > 0` thì ưu tiên chọn `ScalePassage` và `perpetual` trước, sau đó mới giữ các cửa sổ Cấp 1 không bị thay thế trong phần `room` còn lại sao cho tổng không bao giờ vượt `max_scale_eighths`.
-     - Kiểm tra hairpin Mục 2.6. Sóng lên lấy đà ở `soft` rồi chỉ tăng, trừ gợn `−3` trên `retreat_spans`. Sóng xuống của nhóm Hát, khi `prev` quanh `60` và mở ở phách yếu, mở quanh `_MELODY_APEX` (`72`) chứ không nhảy lên `loud`. Động năng hoặc Chaconne mở ở phách mạnh thì mở tại `loud`. Band `p` của Elogio kẹp thành `40…84`, không đẩy `loud` lên `88` để giữ span `48`. Câu $L > \text{epb}$ đi lên có velocity giữa câu thấp hơn đường tuyến tính. Nốt đích sóng xuống trên phách mạnh không dưới `58`, và trong lúc nốt đó ngân, bass của `villa_pattern` không bị kẹp xuống `44`. `_shape_dynamics` không ghi đè các eighth trong `scale_eighths`. Cao độ tại `passage.target` trùng `melody[target]`. Bass và bè giữa của pattern sau giữ lịch `ctx.strong`.
+     - Kiểm tra hairpin Mục 2.6. Sóng lên lấy đà ở `soft` rồi chỉ tăng, trừ gợn `−3` trên `slot.retreat`. Chỉ `passage.target` bằng `loud`; `slots[-2]` nhỏ hơn `loud`. Sóng xuống của nhóm Hát, khi `prev` quanh `60` và mở ở phách yếu, mở quanh `_MELODY_APEX` (`72`) chứ không nhảy lên `loud`. Động năng hoặc Chaconne mở ở phách mạnh thì mở tại `loud`. Band `p` của Elogio kẹp thành `40…84`, không đẩy `loud` lên `88` để giữ span `48`. Câu $L > \text{epb}$ đi lên có velocity giữa câu thấp hơn đường tuyến tính. Nốt đích sóng xuống trên phách mạnh không dưới `58`, và trong lúc nốt đó ngân, bass của `villa_pattern` không bị kẹp xuống `44`. Cửa sổ Cấp 1 đi móc đơn với đúng một cú trước đích (`n = 1`) không chia cho `0`: cú đó lấy `open`, nốt đích lấy `loud` hoặc sàn trụ. `_modal_figure` vuốt cả `len(line)` theo cửa sổ Hát, `prev` là nốt accent trước swarm, và nốt cuối của swarm đi xuống không dưới `58`. `_shape_dynamics` không ghi đè các eighth trong `scale_eighths`. Cao độ tại `passage.target` trùng `melody[target]`. Bass và bè giữa của pattern sau giữ lịch `ctx.strong`.
