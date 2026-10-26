@@ -779,29 +779,240 @@ def _velocity_before(lead: list[NoteEvent], start: int, epb: int) -> int:
     return found if found is not None else _MELODY
 
 
-def _velocity_curve(count: int, opening: int, arrival: int, ascending: bool) -> list[int]:
+# Composer beds write bass at 56. `guitar._BASS` is 60 and is what a late import
+# binds in the composer modules; the hairpin floor follows the written 56.
+_PATTERN_BASS = 56
+_HAIRPIN_SHIFT = {"p": -8, "mp": -4, "mf": 0, "f": 4}
+_HAT_PATTERNS = frozenset(
+    {
+        "bach_sarabande",
+        "sarabande",
+        "elegiaque",
+        "cantabile",
+        "andante",
+        "noviembre",
+        "chord_melody",
+        "preludio",
+        "bach_fuga",
+    }
+)
+_BAROQUE_PATTERNS = frozenset({"bach_bourree", "bach_gavotte", "bach_gigue"})
+_KINETIC_PATTERNS = frozenset(
+    {
+        "study",
+        "galop",
+        "mozart_var",
+        "villa_pattern",
+        "choro",
+        "polca",
+        "hemiola",
+        "vals",
+        "brouwer_etude",
+    }
+)
+_LOUD_DOWN_PATTERNS = _KINETIC_PATTERNS | frozenset({"elogio_pizz", "bach_chaconne"})
+
+
+def _base_window(pattern: str) -> tuple[int, int]:
+    """Soft/loud before the band shift. An unlisted pattern sings in the Hát window."""
+    windows = {
+        **{name: (52, 82) for name in _HAT_PATTERNS},
+        **{name: (54, 84) for name in _BAROQUE_PATTERNS},
+        **{name: (46, 90) for name in _KINETIC_PATTERNS},
+        "bach_chaconne": (52, 88),
+        "elogio_pizz": (44, 92),
+    }
+    return windows.get(pattern, (52, 82))
+
+
+def _pattern_window(pattern: str, band: str) -> tuple[int, int]:
+    """Section 2.6.A window, then the 2.6.B shift, clamped one end at a time."""
+    soft, loud = _base_window(pattern)
+    shift = _HAIRPIN_SHIFT.get(band, 0)
+    return max(40, soft + shift), min(96, loud + shift)
+
+
+def _hairpin_open(
+    direction: str,
+    prev: int,
+    soft: int,
+    loud: int,
+    pattern: str,
+    on_strong: bool,
+) -> tuple[int, int]:
+    """`(open, arrival)` for the ramp. A downward arrival is `soft` until a pillar floor replaces it."""
+    if direction == "up":
+        return min(prev, soft), loud
+    if pattern in _LOUD_DOWN_PATTERNS and on_strong:
+        return loud, soft
+    return min(loud, max(prev + 8, _MELODY_APEX)), soft
+
+
+def _monotonic(values: list[int], ascending: bool) -> list[int]:
+    if not values:
+        return []
+    shaped = [values[0]]
+    for value in values[1:]:
+        previous = shaped[-1]
+        shaped.append(max(previous, value) if ascending else min(previous, value))
+    return shaped
+
+
+def _ramp_attacks(
+    count: int,
+    open_v: int,
+    arrival: int,
+    exponent: float,
+    *,
+    pull: bool,
+) -> list[int]:
+    """One ramp. `count < 2` is the caller's zero-divisor case and is not divided here."""
     if count <= 0:
         return []
     if count == 1:
         return [arrival]
-    raw = [int(round(opening + (arrival - opening) * index / (count - 1))) for index in range(count)]
-    if not ascending:
-        return raw
-    shaped: list[int] = []
-    last = raw[0]
-    for value in raw:
-        last = max(last, value)
-        shaped.append(last)
+    span = arrival - open_v
+    ascending = span >= 0
+    raw: list[int] = []
+    for index in range(count):
+        t = index / (count - 1)
+        curved = t ** exponent
+        raw.append(int(round(open_v + span * curved)))
+    shaped = _monotonic(raw, ascending)
+    shaped[0] = open_v
     shaped[-1] = arrival
+    shaped = _monotonic(shaped, ascending)
+    shaped[-1] = arrival
+    if pull and any(value == arrival for value in shaped[:-1]):
+        lo, hi = (open_v, arrival) if open_v <= arrival else (arrival, open_v)
+        step = -1 if ascending else 1
+        pulled: list[int] = []
+        for value in shaped[:-1]:
+            if value == arrival:
+                pulled.append(min(hi, max(lo, arrival + step)))
+            else:
+                pulled.append(value)
+        pulled.append(arrival)
+        shaped = _monotonic(pulled, ascending)
+        shaped[-1] = arrival
     return shaped
 
 
-def _curve(passage: ScalePassage, count: int, previous: int) -> list[int]:
-    if passage.direction == "up":
-        opening = min(previous, _MELODY_APEX - 6)
-        return _velocity_curve(count, opening, _MELODY_APEX, True)
-    opening = min(max(previous, _MELODY), _MELODY_APEX)
-    return _velocity_curve(count, opening, _MELODY, False)
+def _apply_retreat(
+    values: list[int],
+    retreats: list[bool],
+    direction: str,
+    soft: int,
+    loud: int,
+) -> list[int]:
+    """Nudge retreat attacks against the hairpin. The target, the last value, stays put."""
+    if not values:
+        return []
+    out = list(values)
+    step = -3 if direction == "up" else 3
+    last = len(out) - 1
+    for index, flag in enumerate(retreats[:last]):
+        if not flag:
+            continue
+        out[index] = min(loud, max(soft, out[index] + step))
+    return out
+
+
+def _majority_pattern(ctx: _Ctx, patterns: list[str], passage: ScalePassage) -> str:
+    counts: dict[str, int] = {}
+    order: list[str] = []
+    for eighth in range(passage.start, passage.target):
+        name = _bar_pattern(ctx, eighth // ctx.epb, patterns)
+        if name not in counts:
+            order.append(name)
+            counts[name] = 0
+        counts[name] += 1
+    if not counts:
+        return _bar_pattern(ctx, max(0, passage.start) // ctx.epb, patterns)
+    best = max(counts.values())
+    winners = [name for name in order if counts[name] == best]
+    if len(winners) == 1:
+        return winners[0]
+    start_name = _bar_pattern(ctx, max(0, passage.start) // ctx.epb, patterns)
+    if start_name in winners:
+        return start_name
+    return winners[0]
+
+
+def _holds_pitch(melody: list[int], eighth: int) -> int:
+    """How many eighths `melody` keeps `melody[eighth]`, counting `eighth` itself."""
+    if eighth < 0 or eighth >= len(melody):
+        return 0
+    pitch = melody[eighth]
+    count = 0
+    while eighth + count < len(melody) and melody[eighth + count] == pitch:
+        count += 1
+    return count
+
+
+def _target_is_pillar(ctx: _Ctx, passage: ScalePassage) -> bool:
+    if passage.target % ctx.epb in ctx.strong:
+        return True
+    return _holds_pitch(ctx.melody, passage.target) >= 2
+
+
+def hairpin_velocities(
+    count: int,
+    *,
+    direction: str,
+    pattern: str,
+    band: str,
+    prev: int,
+    on_strong: bool,
+    length: int,
+    epb: int,
+    pillar: bool,
+    retreats: list[bool] | None = None,
+) -> list[int]:
+    """Section 2.6.C velocities for `count` lead attacks, the last of which is the target."""
+    if count <= 0:
+        return []
+    soft, loud = _pattern_window(pattern, band)
+    open_v, _arrival = _hairpin_open(direction, prev, soft, loud, pattern, on_strong)
+    exponent = 1.0 if length <= epb else 1.3
+    flags = list(retreats or [])
+    if len(flags) < count:
+        flags.extend([False] * (count - len(flags)))
+    if direction == "up":
+        values = [loud] if count == 1 else _ramp_attacks(count, open_v, loud, exponent, pull=True)
+    elif pillar:
+        pre = count - 1
+        if pre < 2:
+            values = [open_v] * max(0, pre)
+        else:
+            values = _ramp_attacks(pre, open_v, soft, exponent, pull=False)
+        values.append(max(soft, _PATTERN_BASS + 2))
+    else:
+        values = [soft] if count == 1 else _ramp_attacks(count, open_v, soft, exponent, pull=True)
+    return _apply_retreat(values, flags, direction, soft, loud)
+
+
+def _curve(
+    ctx: _Ctx,
+    patterns: list[str],
+    passage: ScalePassage,
+    slots: list[_Slot],
+    previous: int,
+) -> list[int]:
+    pattern = _majority_pattern(ctx, patterns, passage)
+    length = passage.passage_eighths or (passage.target - passage.start)
+    return hairpin_velocities(
+        len(slots),
+        direction=passage.direction,
+        pattern=pattern,
+        band=ctx.band(passage.start // ctx.epb) if ctx.bars else "mf",
+        prev=previous,
+        on_strong=passage.start % ctx.epb in ctx.strong,
+        length=length,
+        epb=ctx.epb,
+        pillar=passage.direction == "down" and _target_is_pillar(ctx, passage),
+        retreats=[slot.retreat for slot in slots],
+    )
 
 
 def _slap_eighths(ctx: _Ctx, patterns: list[str], passage: ScalePassage) -> set[int]:
@@ -1105,7 +1316,7 @@ def realize_scale_passage(
         return None
     slots, pitches = built
     previous = _velocity_before(lead, passage.start, ctx.epb)
-    velocities = _curve(passage, len(slots), previous)
+    velocities = _curve(ctx, patterns, passage, slots, previous)
     if len(velocities) != len(slots):
         return None
     lead = _install_lead(lead, slots, pitches, velocities, ctx.epb)
@@ -1137,6 +1348,20 @@ def apply_scale_passages(
             ctx, state["lead"], state["support"], state["low"], list(plan.perpetual_bars)
         )
     return state["lead"], state["support"], state["low"], plan
+
+
+def sounding_swarm_eighths(ctx: _Ctx, patterns: list[str], covered: set[int]) -> set[int]:
+    """Sarabande swarm eighths that a passage or tier-1 window did not replace.
+
+    Kept out of `ScalePlan.scale_eighths` so boundary pickups and caesuras still
+    see only passage eighths. Callers union this in after those two passes.
+    """
+    found: set[int] = set()
+    for bar in range(ctx.bars):
+        if _bar_pattern(ctx, bar, patterns) != "sarabande":
+            continue
+        found |= brouwer_group2_intrinsic_eighths(ctx, bar)
+    return found - set(covered)
 
 
 def clear_scale_slurs(events: list[NoteEvent], eighths: set[int], epb: int) -> list[NoteEvent]:

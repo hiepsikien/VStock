@@ -2,12 +2,27 @@
 
 from dataclasses import dataclass
 
+import math
+
 from app.sonify.form import METER_44, METER_68, ChordSlot, FormSection, compose_meter
 from app.sonify.chords import C
 from app.sonify.guitar import BARRIOS_TREMOLO_MIN_BPM
 from app.sonify.guitar_bach import _fuga_motif
-from app.sonify.guitar_patterns import _Ctx, assert_playable, render_patterned_voices
-from app.sonify.guitar_scale_passages import SCALE_SIXTEENTH_MIN_BPM, plan_scale_budget
+from app.sonify.guitar_patterns import (
+    _BAND_DELTA,
+    _Ctx,
+    assert_playable,
+    render_patterned_voices,
+)
+from app.sonify.guitar_scale_passages import (
+    SCALE_SIXTEENTH_MIN_BPM,
+    ScalePassage,
+    _Slot,
+    _curve,
+    _pattern_window,
+    hairpin_velocities,
+    plan_scale_budget,
+)
 from app.sonify.keys import A_KEY, BB_KEY, C_KEY, D_KEY, EB_KEY, compose_register, register_for
 from app.sonify.model import NoteEvent, Phrase, Run, Score
 
@@ -388,9 +403,27 @@ def test_ascending_entry_does_not_swell_downward_from_72() -> None:
     notes = [event for start, event in _ordered(score.lead) if 2 <= start <= 16]
     assert notes
     velocities = [event.velocity for event in notes]
-    assert velocities[0] == 66
-    assert velocities[-1] == 72
+    # Study is Động năng, mf, so the window is 46–90. The lead before the
+    # passage sits on the apex (72), and the first attack takes the soft breath.
+    assert velocities[0] == 46
+    assert velocities[-1] == 90
+    assert velocities[-2] < velocities[-1]
+    assert all(value < 90 for value in velocities[:-1])
     assert all(right >= left for left, right in zip(velocities, velocities[1:]))
+    target = next(event for start, event in _ordered(score.lead) if start == 16)
+    assert target.midi == melody[8]
+    bass_onsets = sorted(
+        {
+            int(round(note.beat * 2))
+            for note in score.low
+            if note.bar == 0 and note.midi is not None and not note.tie_stop
+        }
+    )
+    assert bass_onsets == [0, 4]
+    assert any(
+        note.bar == 1 and abs(note.beat) < 1e-6 and note.midi is not None and not note.tie_stop
+        for note in score.low
+    )
 
 
 def test_weak_target_does_not_attack_the_bass() -> None:
@@ -595,3 +628,323 @@ def test_playable_scale_passage_in_every_ensemble_and_key() -> None:
             ]
             assert sixteenths, (ensemble, key.name)
             assert_playable(score, key, profile)
+
+
+def test_hairpin_windows_openings_and_the_long_curve() -> None:
+    """Section 2.6.A–C, including the cases a full render does not isolate."""
+    assert _pattern_window("elogio_pizz", "p") == (40, 84)
+    assert _pattern_window("elogio_pizz", "f") == (48, 96)
+    assert _pattern_window("study", "p") == (40, 82)
+    assert _pattern_window("elegiaque", "p") == (44, 74)
+
+    elogio = hairpin_velocities(
+        5,
+        direction="up",
+        pattern="elogio_pizz",
+        band="p",
+        prev=64,
+        on_strong=False,
+        length=4,
+        epb=8,
+        pillar=False,
+    )
+    assert elogio[0] == 40
+    assert elogio[-1] == 84
+    assert elogio[-2] < 84
+    assert max(elogio) == 84
+
+    hat_down = hairpin_velocities(
+        5,
+        direction="down",
+        pattern="elegiaque",
+        band="mf",
+        prev=60,
+        on_strong=False,
+        length=4,
+        epb=8,
+        pillar=False,
+    )
+    assert hat_down[0] == 72
+    assert hat_down[0] != 82
+    assert hat_down[-1] == 52
+    assert all(value > 52 for value in hat_down[:-1])
+
+    # Baroque dances stay off the sforzando even on a strong beat.
+    bourree = hairpin_velocities(
+        4,
+        direction="down",
+        pattern="bach_bourree",
+        band="mf",
+        prev=60,
+        on_strong=True,
+        length=4,
+        epb=8,
+        pillar=False,
+    )
+    assert bourree[0] == 72
+    assert bourree[0] != 84
+
+    for pattern, loud in (("study", 90), ("bach_chaconne", 88)):
+        opened = hairpin_velocities(
+            4,
+            direction="down",
+            pattern=pattern,
+            band="mf",
+            prev=60,
+            on_strong=True,
+            length=4,
+            epb=8,
+            pillar=True,
+        )
+        assert opened[0] == loud
+        assert opened[-1] >= 58
+        assert opened[-2] == _pattern_window(pattern, "mf")[0]
+
+    long_up = hairpin_velocities(
+        9,
+        direction="up",
+        pattern="study",
+        band="mf",
+        prev=72,
+        on_strong=True,
+        length=16,
+        epb=8,
+        pillar=False,
+    )
+    linear_mid = int(round(46 + (90 - 46) * 0.5))
+    assert long_up[0] == 46
+    assert long_up[-1] == 90
+    assert long_up[4] < linear_mid
+    assert all(right >= left for left, right in zip(long_up, long_up[1:]))
+
+    plain = hairpin_velocities(
+        8,
+        direction="up",
+        pattern="study",
+        band="mf",
+        prev=72,
+        on_strong=True,
+        length=8,
+        epb=8,
+        pillar=False,
+        retreats=[False] * 8,
+    )
+    retreated = hairpin_velocities(
+        8,
+        direction="up",
+        pattern="study",
+        band="mf",
+        prev=72,
+        on_strong=True,
+        length=8,
+        epb=8,
+        pillar=False,
+        retreats=[False, False, True, False, False, False, False, True],
+    )
+    assert retreated[2] == plain[2] - 3
+    assert retreated[-1] == plain[-1] == 90
+    assert all(retreated[index] == plain[index] for index in range(8) if index != 2)
+    assert all(right >= left for left, right in zip(plain, plain[1:]))
+
+
+def test_tier1_eighth_with_one_attack_does_not_divide() -> None:
+    melody = [64, 64, 64, 67, 65, 65, 65, 65] + [65] * 8
+    passage = ScalePassage(
+        start=3,
+        target=4,
+        direction="down",
+        net_span=2,
+        score=1.0,
+        retreat_spans=(),
+        sub_bar=True,
+        passage_eighths=1,
+        replaced_base_intrinsic_eighths=0,
+        tier="tier1",
+    )
+    slots = [_Slot(3, 0, 2, False, False), _Slot(4, 0, 2, True, False)]
+    ctx = _ctx(melody, (_phrase(0, melody),), bpm=80)
+    velocities = _curve(ctx, ["study"], passage, slots, 60)
+    assert velocities == [72, max(46, 58)]
+
+    rising = ScalePassage(
+        start=3,
+        target=4,
+        direction="up",
+        net_span=2,
+        score=1.0,
+        retreat_spans=(),
+        sub_bar=True,
+        passage_eighths=1,
+        replaced_base_intrinsic_eighths=0,
+        tier="tier1",
+    )
+    up = _curve(ctx, ["study"], rising, slots, 60)
+    # n = 1 still has a divisor of 1 on an upward N-ramp: open, then loud.
+    assert up == [46, 90]
+
+
+def test_downward_pillar_is_not_under_the_bass_and_villa_does_not_cap_to_44() -> None:
+    # 6/8 keeps framed Villa on villa_pattern, so the bass cap in _shape_dynamics runs.
+    melody = [72, 71, 70, 69, 67, 66] + [64] * 24
+    score = _render(
+        melody,
+        (_phrase(0, melody),),
+        (_Impulse(0, 6, "down", 8, score=6),),
+        ensemble="villa",
+        bpm=96,
+        character="rally",
+        raw=list(range(80, 50, -1)),
+        sections=(FormSection(0, 1, "intro", 0), FormSection(1, 5, "phrase", 0)),
+        meter=METER_68,
+    )
+    notes = [event for start, event in _ordered(score.lead, epb=6) if start <= 12]
+    assert notes
+    velocities = [event.velocity for event in notes if event.velocity is not None]
+    assert velocities[0] == 90
+    assert velocities[-1] == 58
+    assert velocities[-2] == _pattern_window("villa_pattern", "mf")[0]
+    target = next(event for start, event in _ordered(score.lead, epb=6) if start == 12)
+    assert target.midi == melody[6]
+    assert target.velocity == 58
+    ringing = [
+        note
+        for note in score.low
+        if note.midi is not None
+        and note.velocity is not None
+        and note.bar == 1
+        and not note.tie_stop
+    ]
+    assert ringing
+    assert all(note.velocity > 44 for note in ringing)
+
+
+def test_modal_figure_ramps_the_hat_window_and_a_bar_opening_is_not_punched() -> None:
+    from app.sonify.guitar_brouwer import _modal_figure, _sarabande_points
+
+    flat = [64, 64, 64, 64, 65, 65, 66, 66]
+    phrase = _phrase(0, flat)
+    ctx = _ctx(flat, (phrase,), bpm=72, ensemble="brouwer", character="selloff")
+    _accent, figure = _sarabande_points(ctx)
+    rising = _modal_figure(ctx, 0, figure, ctx.bass_low, phrase)
+    rising_vel = [event.velocity for event in rising if event.midi is not None]
+    assert rising_vel[0] == 52
+    assert rising_vel[-1] == 82
+    assert rising_vel[-2] < 82
+    assert all(right >= left for left, right in zip(rising_vel, rising_vel[1:]))
+
+    falling_line = [64, 65, 64, 64, 66, 65, 64, 64]
+    falling_phrase = _phrase(0, falling_line)
+    falling_ctx = _ctx(falling_line, (falling_phrase,), bpm=72, ensemble="brouwer", character="selloff")
+    _accent, figure = _sarabande_points(falling_ctx)
+    falling = _modal_figure(falling_ctx, 0, figure, falling_ctx.bass_low, falling_phrase)
+    falling_vel = [event.velocity for event in falling if event.midi is not None]
+    assert falling_vel[0] == 80
+    assert falling_vel[-1] >= 58
+    assert all(right <= left for left, right in zip(falling_vel, falling_vel[1:]))
+
+    leap = [60, 72, 72, 72, 70, 68, 66, 64]
+    score = _render(
+        leap,
+        (_phrase(0, leap),),
+        (),
+        ensemble="brouwer",
+        bpm=108,
+        character="selloff",
+    )
+    lead = _ordered(score.lead)
+    accent = [event for start, event in lead if start == 4]
+    assert accent
+    assert all(not event.accent for event in accent)
+    velocities = [event.velocity for _start, event in lead if event.velocity is not None]
+    assert velocities[0] == 72
+    assert velocities[-1] >= 58
+    assert all(right <= left for left, right in zip(velocities, velocities[1:]))
+    bass_accent = [
+        note
+        for note in score.low
+        if note.midi is not None and note.bar == 0 and abs(note.beat - 1.0) < 1e-6
+    ]
+    assert bass_accent and all(note.accent for note in bass_accent)
+
+
+def test_framed_swarm_eighths_skip_the_second_band_pass(monkeypatch) -> None:
+    from app.sonify import guitar_patterns as patterns
+    from app.sonify import guitar_scale_passages as passages
+    from app.sonify.guitar_brouwer import brouwer_group2_window
+
+    melody = [64, 64, 64, 64, 66, 67, 69, 71] + [71] * 8
+    seen: dict[str, object] = {}
+    real_clear = passages.clear_scale_slurs
+    real_shape = patterns._shape_dynamics
+
+    def spy_clear(events, eighths, epb):
+        seen["slur"] = set(eighths)
+        return real_clear(events, eighths, epb)
+
+    def spy_shape(ctx, lead, support, low, relaxed, patterns_arg=None, scale_eighths=None):
+        protected = set(scale_eighths or ())
+        seen["shape"] = protected
+        before = [
+            (event.bar, round(event.beat, 3), event.velocity)
+            for event in lead
+            if event.midi is not None and event.velocity is not None and event.velocity < 72
+        ]
+        shaped = real_shape(ctx, lead, support, low, relaxed, patterns_arg, scale_eighths)
+        after = [
+            (event.bar, round(event.beat, 3), event.velocity)
+            for event in shaped[0]
+            if event.midi is not None and event.velocity is not None and event.velocity < 72
+        ]
+        # Compare the protected attacks only. An unprotected note under 72 moves.
+        def key(event):
+            eighth = event.bar * ctx.epb + int(math.floor(event.beat * 2 + 1e-9))
+            return eighth
+
+        kept = {
+            (key(event), event.velocity)
+            for event in lead
+            if event.midi is not None and event.velocity is not None and key(event) in protected
+        }
+        shaped_kept = {
+            (key(event), event.velocity)
+            for event in shaped[0]
+            if event.midi is not None and event.velocity is not None and key(event) in protected
+        }
+        seen["kept"] = kept == shaped_kept
+        seen["kinked_if_bare"] = any(
+            max(44, min(78, velocity + _BAND_DELTA["p"])) != velocity
+            for event in lead
+            if event.midi is not None
+            and event.velocity is not None
+            and key(event) in protected
+            and (velocity := event.velocity) < 72
+        )
+        seen["below"] = before
+        seen["after_below"] = after
+        return shaped
+
+    monkeypatch.setattr(passages, "clear_scale_slurs", spy_clear)
+    monkeypatch.setattr(patterns, "_shape_dynamics", spy_shape)
+    score = _render(
+        melody,
+        (_phrase(0, melody),),
+        (),
+        ensemble="brouwer",
+        bpm=72,
+        character="selloff",
+        bands={bar: "p" for bar in range(2)},
+        sections=(FormSection(0, 1, "intro", 0), FormSection(1, 2, "outro", 0)),
+    )
+    window = brouwer_group2_window(_ctx(melody, (_phrase(0, melody),), bpm=72), 0)
+    assert window is not None
+    swarm = set(range(window[0], window[1] + 1))
+    assert swarm <= set(seen["shape"])
+    assert swarm <= set(seen["slur"])
+    plan = plan_scale_budget(
+        _ctx(melody, (_phrase(0, melody),), bpm=72, ensemble="brouwer", character="selloff"),
+        ["sarabande", "sarabande"],
+    )
+    assert swarm.isdisjoint(plan.scale_eighths)
+    assert seen["kept"] is True
+    assert seen["kinked_if_bare"] is True
+    assert score.lead

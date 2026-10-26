@@ -2974,18 +2974,26 @@ def test_sarabande_accents_beat_two_and_swarms_when_the_line_rises() -> None:
 
     # Even a full-window drop in 6/8, 3/4, or 4/4 keeps every step across the ENTIRE bar <= 2 semitones,
     # accents beat 2 (1.5 in 6/8, 1.0 in 3/4 and 4/4), and lands on the closing pitch.
-    for meter, accent_beat, line_notes in (
-        (METER_68, 1.5, [79, 76, 74, 79, 69, 60]),
-        (METER_34, 1.0, [76, 76, 76, 76, 68, 60]),
-        (METER_44, 1.0, [81, 80, 79, 79, 81, 74, 67, 59]),
+    # 6/8 and 3/4 open the swarm at the start of the bar, so the accent eighth is a hairpin
+    # step and the lead is not punched. 4/4 starts the swarm one sixteenth after the accent,
+    # and that sustain attack is still punched. Bass and inner stay punched in every meter.
+    for meter, accent_beat, line_notes, lead_punched in (
+        (METER_68, 1.5, [79, 76, 74, 79, 69, 60], False),
+        (METER_34, 1.0, [76, 76, 76, 76, 68, 60], False),
+        (METER_44, 1.0, [81, 80, 79, 79, 81, 74, 67, 59], True),
     ):
         cliff_score = _brouwer_pattern(line_notes, character="selloff", meter=meter)
         all_lead = [note.midi for note in _attacks(cliff_score.lead, 0) if note.midi is not None]
         all_diffs = [abs(right - left) for left, right in zip(all_lead, all_lead[1:])]
         assert all_lead[-1] == line_notes[-1]
         assert max(all_diffs) <= 2 and all(diff >= 1 for diff in all_diffs)
-        for voice in (cliff_score.low, cliff_score.support, cliff_score.lead):
+        for voice in (cliff_score.low, cliff_score.support):
             assert any(note.accent and abs(note.beat - accent_beat) < 1e-6 for note in _attacks(voice, 0))
+        lead_at_accent = [
+            note for note in _attacks(cliff_score.lead, 0) if abs(note.beat - accent_beat) < 1e-6
+        ]
+        assert lead_at_accent
+        assert all(note.accent == lead_punched for note in lead_at_accent)
         _assert_engraved(cliff_score, "brouwer")
 
     slow = _brouwer_pattern([72] * 8, character="rally", bpm=72)

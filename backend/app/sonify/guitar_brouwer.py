@@ -323,15 +323,90 @@ def _swarm_line(start: int, arrival: int, steps: int, lo: int, hi: int, directio
 
 
 
+def _punched_accent_velocity(
+    ctx: _Ctx,
+    bar: int,
+    accent: int,
+    figure_eighth: int,
+    phrase: Phrase | None,
+) -> int:
+    """Velocity `_sustain` writes on the accent, before `_punch` adds 8."""
+    epb = ctx.epb
+    bar_start = bar * epb
+    accent_eighth = bar_start + accent
+    if accent_eighth < 0 or accent_eighth >= len(ctx.melody):
+        return _MELODY
+    bar_end = min(len(ctx.melody), bar_start + epb)
+    cuts = {accent_eighth, figure_eighth}
+    nxt = accent_eighth + 1
+    while nxt < bar_end and ctx.melody[nxt] == ctx.melody[accent_eighth] and nxt not in cuts:
+        nxt += 1
+    length = max(1, nxt - accent_eighth)
+    return _note_velocity(accent_eighth, length, _apex_eighths(ctx.phrases), phrase)
+
+
+def _swarm_velocities(
+    ctx: _Ctx,
+    bar: int,
+    line: list[int],
+    direction: int,
+    origin16: int,
+    accent: int,
+    phrase: Phrase | None,
+    prior_lead: list[NoteEvent] | None,
+) -> list[int]:
+    """Hát hairpin over the whole swarm. The last note is the last ramp step."""
+    from app.sonify.guitar_scale_passages import (
+        _PATTERN_BASS,
+        _hairpin_open,
+        _pattern_window,
+        _ramp_attacks,
+        _velocity_before,
+    )
+
+    if not line:
+        return []
+    epb = ctx.epb
+    bar_start = bar * epb
+    accent16 = (bar_start + accent) * 2
+    soft, loud = _pattern_window("sarabande", ctx.band(bar))
+    # A swarm that opens on the accent is itself the hairpin. `prev` is the
+    # lead already sounding, not the accent `_punch` will skip.
+    if origin16 <= accent16:
+        first_eighth = origin16 // 2
+        if first_eighth == bar_start:
+            prev = _velocity_before(prior_lead or [], bar_start, epb)
+        else:
+            prev = _MELODY
+    else:
+        prev = min(88, _punched_accent_velocity(ctx, bar, accent, origin16 // 2, phrase) + 8)
+    going_up = direction >= 0
+    on_strong = (origin16 // 2) % epb in ctx.strong
+    open_v, arrival = _hairpin_open(
+        "up" if going_up else "down",
+        prev,
+        soft,
+        loud,
+        "sarabande",
+        on_strong,
+    )
+    if not going_up:
+        arrival = max(soft, _PATTERN_BASS + 2)
+    if len(line) < 2:
+        return [arrival]
+    # The figure never outlasts the bar, so the ramp stays linear.
+    return _ramp_attacks(len(line), open_v, arrival, 1.0, pull=True)
+
+
 def _modal_figure(
     ctx: _Ctx,
     bar: int,
     figure_at: int,
     bass_midi: int,
     phrase: Phrase | None,
+    prior_lead: list[NoteEvent] | None = None,
 ) -> list[NoteEvent]:
     """Ornamental swarm over the second half. Every step, including the seam, is <= 2 semitones."""
-    del phrase
     epb = ctx.epb
     bar_start = bar * epb
     begin = bar_start + figure_at
@@ -404,13 +479,15 @@ def _modal_figure(
             origin16 = bar_start * 2
             line = _swarm_line(open_pitch, end_pitch, epb * 2 - 1, lo, hi, direction)
     events: list[NoteEvent] = []
-    level = _MELODY
+    velocities = _swarm_velocities(
+        ctx, bar, line, direction, origin16, accent, phrase, prior_lead
+    )
     for offset, pitch in enumerate(line):
+        level = velocities[offset] if offset < len(velocities) else _MELODY
         if sixteenths:
             events.extend(_spell16(origin16 + offset, 1, pitch, epb, 1, level))
         else:
             events.extend(_eighth_event(begin + offset, 1, pitch, epb, 1, level))
-        level = max(48, level - 1) if direction < 0 else min(_MELODY_APEX, level + 1)
     return events
 
 
@@ -419,6 +496,7 @@ def _render_sarabande_bar(
     ctx: _Ctx,
     bar: int,
     phrase: Phrase | None,
+    prior_lead: list[NoteEvent] | None = None,
 ) -> tuple[list[NoteEvent], list[NoteEvent], int, list[NoteEvent]]:
     """Beat 2 carries the heavy chord. A moving line then swarms over the price."""
     chord = ctx.chord(bar)
@@ -428,7 +506,9 @@ def _render_sarabande_bar(
     swarms = _sarabande_swarms(ctx, bar, figure) and figure < epb
     figure_at = figure if swarms else epb
     root = _bass_at(ctx, chord, 0, start)
-    figure_events = _modal_figure(ctx, bar, figure_at, root, phrase) if swarms else []
+    figure_events = (
+        _modal_figure(ctx, bar, figure_at, root, phrase, prior_lead) if swarms else []
+    )
     sung = _melody_at(ctx, start + accent)
     if figure_events:
         accent16 = (start + accent) * 2
@@ -512,7 +592,7 @@ from app.sonify.guitar_patterns import (  # noqa: E402
     _Ctx,
     _INNER,
     _MELODY,
-    _MELODY_APEX,
+    _apex_eighths,
     _bass_at,
     _choose_bass,
     _choose_inner,
@@ -521,6 +601,7 @@ from app.sonify.guitar_patterns import (  # noqa: E402
     _inner_choices,
     _mark,
     _melody_at,
+    _note_velocity,
     _ordered_pool,
     _playable,
     _punch,

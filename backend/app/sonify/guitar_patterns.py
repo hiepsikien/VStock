@@ -2415,14 +2415,20 @@ def render_patterned_voices(
             support.extend(part_support)
             low.extend(part_low)
         elif pattern == "sarabande":
-            part_support, part_low, accent_at, figure = _render_sarabande_bar(ctx, bar, phrase_here)
+            part_support, part_low, accent_at, figure = _render_sarabande_bar(
+                ctx, bar, phrase_here, lead
+            )
             cuts = {bar * epb + accent_at}
             if figure:
                 cuts.add(_start16(figure[0], epb) // 2)
             part_lead = _sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex, cuts, phrase_here)
             if figure:
                 part_lead = _splice(part_lead, _start16(figure[0], epb), (bar + 1) * epb * 2, figure, epb)
-            part_lead = _punch(part_lead, bar * epb + accent_at, epb, amount=8)
+            accent_eighth = bar * epb + accent_at
+            # A swarm attack on the accent is a hairpin step. Bass and inner
+            # punches stay inside `_render_sarabande_bar`.
+            if not figure or _start16(figure[0], epb) > accent_eighth * 2:
+                part_lead = _punch(part_lead, accent_eighth, epb, amount=8)
             lead.extend(part_lead)
             support.extend(part_support)
             low.extend(part_low)
@@ -2467,7 +2473,11 @@ def render_patterned_voices(
     }
     if ringing:
         support = _apply_campanella(ctx, support, lead, ringing, low)
-    from app.sonify.guitar_scale_passages import apply_scale_passages, clear_scale_slurs
+    from app.sonify.guitar_scale_passages import (
+        apply_scale_passages,
+        clear_scale_slurs,
+        sounding_swarm_eighths,
+    )
 
     lead, support, low, scale_plan = apply_scale_passages(ctx, patterns, lead, support, low)
     scale_eighths = set(scale_plan.scale_eighths)
@@ -2549,10 +2559,13 @@ def render_patterned_voices(
             if _bar_pattern(ctx, bar, patterns) == "preludio"
         }
     lead = _slur(lead, phrases, skip_bars=plucked)
-    lead = clear_scale_slurs(lead, scale_eighths, epb)
+    # Boundary pickups and caesuras already ran against passage eighths only.
+    # Swarm eighths join the slur and dynamics sets now, and stay out of bell_bars.
+    protected_eighths = set(scale_eighths) | sounding_swarm_eighths(ctx, patterns, scale_eighths)
+    lead = clear_scale_slurs(lead, protected_eighths, epb)
     if _framed(ctx):
         lead, support, low = _shape_dynamics(
-            ctx, lead, support, low, relaxed, patterns, scale_eighths
+            ctx, lead, support, low, relaxed, patterns, protected_eighths
         )
     divisions = 4 if _needs_sixteenths([*lead, *support, *low]) else 2
     # Bach's mordent, bariolage, and scale runs are sixteenth figures. When any
