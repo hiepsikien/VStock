@@ -59,18 +59,18 @@ Trong codebase hiện tại, một số pattern đã có sẵn các chùm chạy
      - `bach_sarabande` & Brouwer `sarabande`: Phách 1 và **trọng âm Phách 2 (`accent`)** (kèm mordent ở Bach) là dấu hiệu nhận diện sống còn của điệu Sarabande; phần đuôi ô nhịp sau phách 2 (`passing .. epb` ở Bach, `figure_at .. epb` ở Brouwer) là cửa sổ chạy passing scale / modal swarm.
    - **Cấp 1 — Khi biến động nhỏ / vừa ($L < \text{epb}$ hoặc $\text{net\_span} < 6$ bán cung)**:
      - **Không cắt đè `ScalePassage` ngắn lên đầu ô nhịp của Nhóm 2**: giữ nguyên 100% phần *bariolage* đầu ô của `bach_chaconne`, nhịp hợp âm gãy đầu ô của `bach_gigue`, và trọng âm phách 2 của `bach_sarabande` / Brouwer `sarabande`.
-     - Nếu ô Nhóm 2 có biến động giảm (`downward plunge`) trong phạm vi 1 ô mà điều kiện `_rises(phrase)` cũ bỏ sót, chỉ kích hoạt scale ngay bên trong **cửa sổ nội tại sẵn có ở nửa sau ô nhịp** (`scale_at .. epb * 2` cho Chaconne/Gigue, hoặc sau phách 2 cho Sarabande).
+     - Nếu ô Nhóm 2 có biến động giảm (`downward plunge`) trong phạm vi 1 ô mà điều kiện `_rises(phrase)` cũ bỏ sót, **không gọi `_fitting_scale`** (vì `_fitting_scale` chỉ xây đường đi lên) mà dùng `_realize_scale_passage` cắt đúng vào **cửa sổ nội tại sẵn có ở nửa sau ô nhịp** (`scale_at .. epb * 2` cho Chaconne/Gigue, hoặc `passing .. epb` / `figure_at .. epb` cho Sarabande).
    - **Cấp 2 — Khi biến động là Sóng Lớn (`Major Bridge Impulse`: $L \ge \text{epb}$ từ 1 đến 4 ô nhịp VÀ $\text{net\_span} \ge 6$ bán cung)**:
      - Đúng như truyền thống *Chaconne (BWV 1004)*, *Les Doubles* của Bach và *El Decamerón Negro* của Brouwer, một đợt sóng lớn ($L \ge \text{epb}, \text{net\_span} \ge 6$) **được phép mở thành một `ScalePassage` dài (1–4 ô nhịp) làm đoạn nối (connecting bridge / passaggio) ở giữa cho cả Nhóm 2 lẫn Nhóm 3** thay vì bị băm vụn từng nửa ô nhịp, với **3 quy tắc giữ bản sắc Pattern**:
-       1. **Thiết lập Pattern trước khi mở Đoạn nối (`Establish Pattern First`)**: Trên Nhóm 2, đoạn nối `ScalePassage` dài chỉ được phép bắt đầu **sau khi pattern của section đó đã vang lên ít nhất 1 ô nhịp trọn vẹn** (`passage.start >= section.start * epb + epb`) để tai người nghe đã nhận diện rõ *Chaconne*, *Gigue* hoặc *Sarabande*, và ngay khi đáp xuống `passage.target` thì pattern Nhóm 2 lập tức quay trở lại.
-       2. **Giữ "Nhịp mạch Bass đặc trưng" của Pattern bên dưới Đoạn nối (`Characteristic Bass Underpinning`)**: Trong lúc bè Cao (`Voice 1`) chạy đoạn nối scale xuyên 1–4 ô nhịp (bao gồm cả các nhịp `retreat` thật), bè Trầm (`Voice 3`) giữ nguyên hình thái nhịp đặc trưng của chính pattern Nhóm 2 đó (ground bass bước xuống ở `_chaconne_bass_slots` cho `bach_chaconne`; nhấn **phách 1 và trọng âm Phách 2 `accent`** cho `bach_sarabande` / Brouwer `sarabande`; nhịp chấm dôi + pickup cuối ô cho `bach_gigue`), tất cả đều lọc qua `_playable` với các nốt scale phía trên.
-       3. **Thay thế trực tiếp trong Ngân sách 30%**: Tại các ô nhịp Nhóm 2 mà đoạn nối `ScalePassage` đi qua, `ScalePassage` thay thế luôn câu scale nội tại nửa ô của những ô nhịp đó (chỉ tính số eighths của `ScalePassage` một lần vào ngân sách $\le 30\%\ \text{body\_eighths}$, không tính trùng).
+       1. **Thiết lập Pattern trước khi mở Đoạn nối (`Establish Pattern First`)**: Trên một vùng liên tiếp mang cùng một pattern Nhóm 2, đoạn nối `ScalePassage` dài chỉ được phép bắt đầu **sau khi chính pattern Nhóm 2 đó đã vang lên ít nhất 1 ô nhịp trọn vẹn** (tính từ ô đầu tiên mà pattern Nhóm 2 đó xuất hiện, không phải từ `section.start` nếu đầu section là pattern khác), và ngay khi đáp xuống `passage.target` thì pattern lập tức quay trở lại.
+       2. **Giữ "Nhịp mạch Bass đặc trưng" theo từng ô nhịp bên dưới Đoạn nối (`Per-Bar Characteristic Bass Underpinning`)**: Trong lúc bè Cao (`Voice 1`) chạy đoạn nối scale xuyên 1–4 ô nhịp (bao gồm cả các nhịp `retreat` thật), bè Trầm (`Voice 3`) được xác định **theo pattern của từng ô nhịp `bar`** mà đoạn nối đi qua: ô thuộc `bach_chaconne` giữ ground bass ở `_chaconne_bass_slots`; ô thuộc `bach_sarabande` / Brouwer `sarabande` nhấn **phách 1 và trọng âm Phách 2 `accent`**; ô thuộc `bach_gigue` giữ nhịp chấm dôi + pickup cuối ô; và nếu đoạn nối đi sang ô thuộc Nhóm 3 (như `bach_bourree`), ô đó lấy gốc hoặc bậc 5 trên `ctx.strong` (hoặc giữ `_fuga_motif` nếu ô đó là `bach_fuga`), tất cả đều lọc qua `_playable` với các nốt scale phía trên.
+       3. **Thay thế trực tiếp và Kiểm tra Ngân sách ròng**: Tại các ô nhịp Nhóm 2 mà đoạn nối `ScalePassage` đi qua, `ScalePassage` thay thế câu scale nội tại nửa ô bằng scale cả ô, làm tăng số eighths chạy scale thêm $\Delta\text{eighths} = \text{passage\_eighths} - \text{replaced\_intrinsic\_eighths}$. Nếu ngân sách `overlay_budget` còn lại không đủ cho phần tăng thêm $\Delta\text{eighths}$ này (hoặc khi `overlay_budget == 0`), đoạn nối đó cũng bị loại trên Nhóm 2.
 3. **Nhóm 3 — Các Pattern nhận Overlay Scale ở cả cấp độ Sub-bar ($2 \le L < \text{epb}$) và Multi-bar ($1–4$ ô nhịp)**:
    - **Bach (`bach`)**: `bach_bourree`, `bach_gavotte`, `bach_fuga` *(riêng trên `bach_fuga`, khi bè Cao `Voice 1` chạy scale, bè Trầm `Voice 3` **giữ nguyên chủ đề đối âm trễ 2 ô `_fuga_motif`** thay vì bị thay bằng nốt bass nhịp đơn giản, đảm bảo mạch phức điệu 2 bè không bị đứt)*.
    - **Sor (`classic`)**: `study`, `galop`, `mozart_var`, `elegiaque`, `cantabile`.
    - **Villa-Lobos (`villa`)**: `villa_pattern`, `chord_melody`.
    - **Barrios (`barrios`)**: `andante`, `choro`, `polca`, `hemiola`, `vals`, và `preludio` không khung.
-   - **Brouwer (`brouwer`)**: `noviembre`, `brouwer_etude`, `elogio_pizz` *(trên `elogio_pizz`, nếu ô nhịp có cú Bartók slap `staccato + accent` tại eighth 3 thì giữ nguyên cú slap đối với scale ngắn sub-bar, hoặc chỉ cho phép đoạn nối dài $\ge 1$ bar với $\text{net\_span} \ge 6$ đi xuyên qua)*.
+   - **Brouwer (`brouwer`)**: `noviembre`, `brouwer_etude`, `elogio_pizz` *(trên `elogio_pizz`: với đoạn nối dài $L \ge \text{epb}$, `ScalePassage` thay thế luôn nốt Bartók slap tại eighth 3 của ô đó; với đoạn chạy ngắn sub-bar $L < \text{epb}$, `ScalePassage` phải vòng tránh eighth 3 để giữ nguyên cú slap `staccato + accent`)*.
 
 ---
 
@@ -116,13 +116,13 @@ Hàm dò quét trên `raw_pitches` bên trong từng vùng thân bài `[sec_star
 3. **Bước 3 — Cắt tỉa biên phẳng, Chọn duy nhất 1 cửa sổ $\le 4$ ô nhịp & Kiểm tra Bảng Điều Kiện Bất Biến**:
    - Cắt bỏ các eighths phẳng ($\Delta p = 0$) ở đầu sóng trước khi giá nhúc nhích và ở đuôi sóng sau khi đã chạm cực trị.
    - Nếu một sóng gộp dài $> 4 \times \text{epb}$ eighths, trượt cửa sổ con hợp lệ độ dài $L \le 4 \times \text{epb}$ (bắt đầu tại điểm mở một impulse leg và kết thúc tại cực trị của một impulse leg) và **chỉ giữ lại tối đa 1 cửa sổ có `Score` cao nhất trên mỗi sóng gộp**.
-   - Khớp `target` vào phách mạnh (`target % epb in meter.strong_eighths`) nếu cực trị nằm tại phách mạnh hoặc giữ nguyên cao độ sang phách mạnh kế cận.
-   - Sau khi đã chốt cố định $L = \text{target} - \text{start}$, kiểm tra một lần duy nhất theo **Bảng Điều Kiện Bất Biến** (thống nhất một nghĩa cho mọi phân khúc $L$):
+   - **Khớp `target` vào phách mạnh có hậu kiểm (`Validated Strong-Beat Snap`)**: Nếu cực trị gốc `raw_target` chưa rơi vào phách mạnh nhưng giữ nguyên cao độ sang phách mạnh kế cận `snapped_target`, thử kéo sang `snapped_target` (lúc này $L' = \text{snapped\_target} - \text{start}$ có thể tăng và nhảy phân khúc, ví dụ ở nhịp `3/4` chỉ có phách mạnh tại eighth `0`). Kiểm tra lại `snapped_target` với Bảng Điều Kiện Bất Biến ở phân khúc $L'$ mới: nếu đạt thì dùng `snapped_target`; **nếu bản đã kéo không đạt điều kiện của phân khúc mới thì giữ nguyên cực trị gốc `raw_target`** dù không nằm trên phách mạnh.
+   - Sau khi đã chốt cố định $L = \text{target} - \text{start}$, kiểm tra một lần duy nhất theo **Bảng Điều Kiện Bất Biến** (với sub-bar, gộp chung độ dốc $\ge 1.0$ và biên độ $\ge 4$ thành một ngưỡng duy nhất $\text{net\_span} \ge \max(4, L)$):
 
-     | Phân khúc $L = \text{target} - \text{start}$ | Số Retreat tối đa | Độ dài tối đa 1 Retreat | Tổng eighths Retreat tối đa | Biên độ ròng $\text{net\_span}$ | Độ dốc & Hiệu suất đường đi $\text{efficiency} = \frac{\text{net\_span}}{\text{total\_path}}$ |
+     | Phân khúc $L = \text{target} - \text{start}$ | Số Retreat tối đa | Độ dài tối đa 1 Retreat | Tổng eighths Retreat tối đa | Biên độ ròng $\text{net\_span}$ | Hiệu suất đường đi $\text{efficiency} = \frac{\text{net\_span}}{\text{total\_path}}$ |
      |---|---|---|---|---|---|
-     | **Sub-bar ngắn**: $2 \le L \le 3$ | `0` | `0` | `0` | $\ge 4$ bán cung | $\frac{\text{net\_span}}{L} \ge 1.0$, $\text{efficiency} = 1.0$ |
-     | **Sub-bar vừa**: $4 \le L < \text{epb}$ | `1` | `1` eighth | `1` eighth | $\ge 4$ bán cung | $\frac{\text{net\_span}}{L} \ge 1.0$, $\text{efficiency} \ge 0.50$ |
+     | **Sub-bar ngắn**: $2 \le L \le 3$ | `0` | `0` | `0` | $\ge \max(4, L)$ bán cung | $\text{efficiency} = 1.0$ |
+     | **Sub-bar vừa**: $4 \le L < \text{epb}$ | `1` | `1` eighth | `1` eighth | $\ge \max(4, L)$ bán cung | $\text{efficiency} \ge 0.50$ |
      | **1–2 ô nhịp**: $\text{epb} \le L \le 2 \times \text{epb}$ | `1` | `2` eighths | $\lfloor 0.30 \times L \rfloor$ | $\ge 5$ bán cung | $\text{efficiency} \ge 0.45$ |
      | **>2–4 ô nhịp**: $2 \times \text{epb} < L \le 4 \times \text{epb}$ | `2` | `3` eighths | $\lfloor 0.30 \times L \rfloor$ | $\ge 6$ bán cung | $\text{efficiency} \ge 0.45$ |
 
@@ -158,13 +158,15 @@ Người nghe thực tế nghe đường giai điệu `melody` trên nền hợp
   - Trần thời lượng scale tối đa của toàn bài là:
     $$\text{max\_scale\_eighths} = \lfloor 0.30 \times \text{body\_eighths} \rfloor$$
 - **Quy tắc phân bổ giữa Figuration nội tại và Overlay (`ScalePassage` + `perpetual`)**:
-  1. Các figuration chạy ngón nhận dạng của bản thân pattern ở Nhóm 2 (nửa sau `bach_gigue`, breakout `bach_chaconne`, passing của `bach_sarabande`, modal swarm của Brouwer `sarabande`) tại các ô không có đoạn nối `Major Bridge Impulse` **luôn được giữ nguyên 100%**, kể cả khi tự thân chúng đã vượt quá `max_scale_eighths`.
-  2. Bộ điều phối đếm số eighths thực tế của các figuration nội tại trên những ô Nhóm 2 giữ nguyên (`intrinsic_scale_eighths`), và khi một ứng viên `ScalePassage` là **Sóng Lớn (`Major Bridge Impulse`: $L \ge \text{epb}, \text{net\_span} \ge 6$, nằm sau ô mở đầu section)** đi qua các ô Nhóm 2, chi phí ngân sách tăng thêm chỉ là phần chênh lệch `passage_eighths - replaced_intrinsic_eighths` trên các ô đó.
-  3. Ngân sách còn lại dành cho bộ allocate thêm (`ScalePassage` và `perpetual` của Barrios) đảm bảo tổng số eighths chạy scale toàn bài (cả `ScalePassage`, `perpetual` và `unreplaced_intrinsic_scale_eighths`) luôn $\le \text{max\_scale\_eighths}$. Nếu bản thân `intrinsic_scale_eighths` ban đầu đã $\ge \text{max\_scale\_eighths}$, `overlay_budget == 0` (không chèn thêm `ScalePassage` mới làm tăng tổng số eighths).
-- **Khoảng thở tối thiểu giữa hai đoạn chạy (`Minimum Cooldown Gap`)**:
-  - Hai đoạn `ScalePassage` được chọn $P_1$ (trước) và $P_2$ (sau) không được giao nhau và phải cách nhau ít nhất 1 ô nhịp tính từ điểm đáp của đoạn trước đến điểm mở của đoạn sau:
+  1. Các figuration chạy ngón nhận dạng của bản thân pattern ở Nhóm 2 (nửa sau `bach_gigue`, breakout `bach_chaconne`, passing của `bach_sarabande`, modal swarm của Brouwer `sarabande`) tại các ô không bị thay bởi đoạn nối `Major Bridge Impulse` **luôn được giữ nguyên 100%**, kể cả khi tự thân chúng đã vượt quá `max_scale_eighths`.
+  2. Gọi `intrinsic_scale_eighths` là tổng số eighths chạy scale nội tại ban đầu của các ô Nhóm 2 trong bài. Ngân sách dành cho phần cấp phát thêm là:
+     $$\text{overlay\_budget} = \max\left(0,\ \text{max\_scale\_eighths} - \text{intrinsic\_scale\_eighths}\right)$$
+  3. **Khi `intrinsic_scale_eighths >= max_scale_eighths`**: `overlay_budget == 0`, giữ nguyên các figuration nội tại đó và **không cấp phát bất kỳ `ScalePassage` hay `perpetual` nào** (kể cả đoạn nối trên Nhóm 2, vì thay scale nửa ô bằng scale cả ô sẽ làm tăng số eighths).
+  4. **Khi `intrinsic_scale_eighths < max_scale_eighths`**: Mỗi ứng viên (`ScalePassage` hoặc `perpetual`) tiêu tốn chi phí ngân sách ròng $\Delta\text{cost} = \text{passage\_eighths} - \text{replaced\_intrinsic\_eighths} > 0$; bộ allocate chỉ chọn các ứng viên có $\Delta\text{cost} \le \text{remaining\_overlay\_budget}$ để phần thêm vào không bao giờ đẩy tổng số eighths vượt qua `max_scale_eighths`.
+- **Khoảng thở tối thiểu chỉ tính giữa hai `ScalePassage` (`Minimum Cooldown Gap`)**:
+  - Khoảng thở chỉ kiểm tra giữa hai đoạn `ScalePassage` được bộ allocate chọn ($P_1$ trước, $P_2$ sau):
     $$P_2.\text{start} - P_1.\text{target} \ge \text{epb}$$
-  - Đồng thời, một `ScalePassage` cũng phải giữ khoảng cách $\ge \text{epb}$ eighths với bất kỳ ô nhịp Nhóm 2 nào có phát sinh scale nội tại nằm ngoài passage đó.
+  - **Không tính khoảng thở đối với các ô scale nội tại của Nhóm 2**: Ô nhận diện Nhóm 2 ngay trước đoạn nối (ví dụ ô đầu của `bach_gigue` có scale nội tại ở eighth `4..7` ngay trước khi đoạn nối bắt đầu tại eighth `8`) và các ô bị đoạn nối thay thế không bị tính vào khoảng thở để không khóa mất đoạn nối.
 
 ---
 
@@ -185,17 +187,20 @@ Người nghe thực tế nghe đường giai điệu `melody` trên nền hợp
     rồi mới vuốt tăng dần đều (`swell`) lên tới `_MELODY_APEX` (`72`) tại `target`.
   - Khi đi xuống, câu scale mở đầu tại $\min(\max(\text{prev\_velocity}, \text{\_MELODY}), \text{\_MELODY\_APEX})$ và vuốt mềm về mức nền của pattern kế tiếp.
 
-#### 2. Trong Khi Chạy Scale (Accompaniment & Texture — Theo đúng Pattern & `meter.strong_eighths`)
-- **Bè Trầm (`low` - Voice 3) duy trì nhịp mạch đặc trưng của Pattern**:
-  - Với `bach_fuga`: **giữ nguyên đường Bass đối âm trễ 2 ô (`_fuga_motif`)** của Fuga (chỉ kiểm tra `_bach_keep_bass_below` để không vượt lên trên các nốt scale).
-  - Với các đoạn nối `Major Bridge Impulse` ($L \ge \text{epb}, \text{net\_span} \ge 6$) chạy qua **Nhóm 2**: giữ nguyên nhịp mạch Bass đặc trưng của chính vũ điệu đó bên dưới câu scale (ground bass ở `_chaconne_bass_slots` cho `bach_chaconne`; nhấn **phách 1 và trọng âm Phách 2 `accent`** cho `bach_sarabande` & Brouwer `sarabande`; nhịp chấm dôi + pickup cuối ô cho `bach_gigue`), được kiểm tra qua `_playable` với các nốt scale phía trên.
-  - Với các pattern Nhóm 3 khác trên cả 5 composer: trên các mốc phách mạnh đọc trực tiếp từ `ctx.strong` (`meter.strong_eighths` — tức eighth `(0, 4)` ở `4/4`, eighth `(0, 3)` ở `6/8`, và eighth `(0,)` ở `3/4`), bè Bass gảy nốt Gốc (`Root`) hoặc Bậc 5 (`Fifth`) của `chord_at[bar]` thỏa mãn `_playable` với toàn bộ các nốt scale vang trong phách mạnh đó.
-- **Bè Giữa (`support` - Voice 2) nhường đường thông minh (Selective Thinning)**:
-  - Trong khoảng `[passage.start, passage.target)` khi bè Cao chạy móc kép, lược bỏ các nốt `support` trùng thời điểm (`_drop_overlap`) để giải phóng ngón `i-m-a`, chỉ giữ tối đa 1 nốt hợp âm bè Trung tại đúng điểm mở đầu `passage.start` nếu thuộc phách mạnh và thỏa `_playable`.
+#### 2. Trong Khi Chạy Scale (Accompaniment & Texture — Theo đúng Pattern từng ô & `meter.strong_eighths`)
+- **Bè Trầm (`low` - Voice 3) duy trì nhịp mạch đặc trưng theo từng ô nhịp (`bar`)**:
+  - Với mỗi ô nhịp `bar` mà đoạn scale đi qua, cách đặt Bass phụ thuộc vào `_bar_pattern(ctx, bar, patterns)` của chính ô nhịp đó:
+    - Nếu `bar` là `bach_fuga`: **giữ nguyên đường Bass đối âm trễ 2 ô (`_fuga_motif`)** của Fuga (chỉ kiểm tra `_bach_keep_bass_below` để không vượt lên trên các nốt scale).
+    - Nếu `bar` thuộc **Nhóm 2** (khi đoạn nối `Major Bridge Impulse` đi qua): giữ nguyên nhịp mạch Bass đặc trưng của chính vũ điệu đó tại `bar` (ground bass ở `_chaconne_bass_slots` cho `bach_chaconne`; nhấn **phách 1 và trọng âm Phách 2 `accent`** cho `bach_sarabande` & Brouwer `sarabande`; nhịp chấm dôi + pickup cuối ô cho `bach_gigue`), lọc qua `_playable` với các nốt scale phía trên.
+    - Nếu `bar` thuộc các pattern **Nhóm 3** còn lại: trên các mốc phách mạnh đọc trực tiếp từ `ctx.strong` (`meter.strong_eighths` — tức eighth `(0, 4)` ở `4/4`, eighth `(0, 3)` ở `6/8`, và eighth `(0,)` ở `3/4`), bè Bass gảy nốt Gốc (`Root`) hoặc Bậc 5 (`Fifth`) của `chord_at[bar]` thỏa mãn `_playable` với toàn bộ các nốt scale vang trong phách mạnh đó.
+- **Bè Giữa (`support` - Voice 2) nhường đường theo mật độ hạt nốt từng eighth**:
+  - Tại các eighths trong `[passage.start, passage.target)` mà bè Cao chạy **móc kép (`sixteenths`)**: lược bỏ các nốt `support` trùng thời điểm (`_drop_overlap`) để giải phóng ngón `i-m-a`, chỉ giữ tối đa 1 nốt hợp âm bè Trung tại đúng điểm mở đầu `passage.start` nếu thuộc phách mạnh và thỏa `_playable`.
+  - Tại các eighths trong `[passage.start, passage.target)` mà bè Cao đi bằng **móc đơn (`eighths`)** (ví dụ nửa đầu của đoạn scale dài 3–4 ô nhịp hoặc khi $\text{BPM} < 88$): lược bỏ `support` trên các móc đơn yếu, nhưng **giữ tối đa 1 nốt `support` trên mỗi phách mạnh (`eighth % epb in ctx.strong`)** nếu thỏa `_playable` với nốt Bass và nốt scale tại phách mạnh đó.
 
 #### 3. Điểm Ra (Landing & Exit — Từ Scale trở lại Pattern sau)
-- **Hội tụ vào Nốt Trụ tại `target` & Tiếp quản đồng bộ**:
-  - Khoảng ghi đè (`_splice` trên `lead` và `_drop_overlap` trên `support`) chỉ kéo dài trên nửa khoảng mở `[passage.start, passage.target)` đối với các nốt dẫn, và nốt đích tại đúng `passage.target` hòa nhập trực tiếp vào phách mạnh của pattern phía sau (bè Bass đánh phách mạnh tại `target` cùng lúc với nốt đích của scale, và bè Trung rải lại bình thường từ ngay móc đơn/móc kép kế tiếp).
+- **Hội tụ vào Nốt Trụ tại `target`, khóa `_MELODY_APEX` & Tiếp quản đồng bộ**:
+  - Tại đúng mốc đích `passage.target`: cao độ của bè Cao (`lead`) giữ nguyên `ctx.melody[passage.target]` (và giữ nguyên độ ngân của nốt `melody` thuộc pattern phía sau bắt đầu từ `passage.target`), nhưng **cập nhật `velocity` của nốt `lead` mở tại `passage.target` thành `_MELODY_APEX` (`72`)** (khi đi lên, hoặc velocity đích khi đi xuống) và **đưa cả eighth `passage.target` vào tập bảo vệ `scale_eighths`** để `_shape_dynamics` không ghi đè làm mất đỉnh crescendo.
+  - Bè Bass của pattern sau đánh phách mạnh tại `passage.target` cùng lúc với nốt đích của scale, và bè Trung (`support`) chỉ bị `_drop_overlap` trên nửa khoảng mở `[passage.start, passage.target)` nên tự động rải lại bình thường từ ngay `passage.target` trở đi.
 
 ---
 
@@ -219,21 +224,22 @@ Người nghe thực tế nghe đường giai điệu `melody` trên nền hợp
 │  • Nếu test cũ gọi trực tiếp `render_guitar_score` mà không truyền           │
 │    `raw_pitches`, đặt `impulses = ()` (tuyệt đối không dò lại trên `pitches` │
 │    đã lượng tử hóa).                                                         │
-│  • `_place_melody` dùng `impulses` để gộp chung phép đặt tầm cữ / nén        │
-│    (`_compress_monotone`) cho các `Phrase` bị cắt ngang giữa 1 `PriceImpulse`│
-│    dài, rồi gắn `impulses` lên `_Ctx` cho `render_patterned_voices`.         │
+│  • `_place_melody` chỉ khóa chung `shift` và `_compress_monotone` trên đúng  │
+│    phần giao `[impulse.start, impulse.target]` của 2 `Phrase` (giữ nguyên    │
+│    các nốt ngoài sóng), rồi gắn `impulses` lên `_Ctx`.                       │
 └───────────────────────────────────────┬──────────────────────────────────────┘
                                         ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                     3. guitar_patterns.py & 5 Module Composer                │
 │  • Với biến động nhỏ/vừa: giữ nguyên 100% figuration nội tại của Nhóm 2      │
 │    (`bach_chaconne`, `bach_gigue`, `bach_sarabande`, Brouwer `sarabande`).   │
-│  • Với sóng lớn (`Major Bridge Impulse`: L >= epb, net_span >= 6, sau ô mở   │
-│    đầu section): cho phép `ScalePassage` dài (1–4 ô nhịp) làm đoạn nối ở     │
-│    giữa cả Nhóm 2 và Nhóm 3 trên nền Bass đặc trưng của chính pattern đó.    │
-│  • Tổng thời lượng scale (cả nội tại lẫn đoạn nối/overlay) <= 30%            │
-│    `body_eighths`; bảo vệ `ScalePassage` trước `_insert_bells`,              │
-│    `_relax_texture`, `_shape_dynamics` và `_slur`.                           │
+│  • Với sóng lớn (`Major Bridge Impulse`: L >= epb, net_span >= 6, sau 1 ô    │
+│    nhận diện của chính pattern đó): cho phép `ScalePassage` dài (1–4 ô nhịp) │
+│    làm đoạn nối ở giữa cả Nhóm 2 và Nhóm 3 trên nền Bass đặc trưng theo từng │
+│    ô nhịp.                                                                   │
+│  • Khi `intrinsic < 30%`, phần cấp phát thêm không vượt `30% body_eighths`;  │
+│    khi `intrinsic >= 30%`, `overlay_budget = 0`. Bảo vệ `[start, target]`    │
+│    trong `scale_eighths`.                                                    │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -264,17 +270,17 @@ Người nghe thực tế nghe đường giai điệu `melody` trên nền hợp
 2. **Trong `backend/app/sonify/guitar.py`**:
    - `render_guitar_score` nhận `raw_pitches: list[int] | None = None` và `impulses: tuple[PriceImpulse, ...] | None = None`.
    - Khi `impulses is None`: nếu `raw_pitches is not None` thì gọi `detect_price_impulses(raw_pitches, ...)` một lần; nếu `raw_pitches is None` (các unit test cũ gọi trực tiếp không truyền `raw_pitches`) thì đặt `impulses = ()` để không bao giờ dò sóng lại trên `pitches` đã qua `quantize_strong_beats`.
-   - Trong `_place_melody`: nếu một `PriceImpulse` trong `impulses` vắt qua biên giữa hai `Phrase` liên tiếp (do chạm trần `MAX_EIGHTHS = 32` hoặc nốt nghỉ), gộp chung dải `[p1.start, p2.end)` khi tính `shift` và `_compress_monotone` để cả hai `Phrase` dùng chung một ánh xạ bậc thang âm, không bị bẻ gãy độ dốc tại biên câu.
+   - Trong `_place_melody`: nếu một `PriceImpulse` trong `impulses` cắt qua biên giữa hai `Phrase` liên tiếp $P_1, P_2$ (ví dụ tại trần `MAX_EIGHTHS = 32` trong khi impulse chỉ dài 8 eighths ở cuối $P_1$ sang đầu $P_2$), **không gộp toàn bộ `[p1.start, p2.end)`** (để không làm biến dạng các nốt nằm ngoài con sóng), mà chỉ khóa chung mức `shift` và ánh xạ `_compress_monotone` trên đúng **phần giao của $P_1 \cup P_2$ với đoạn sóng `[impulse.start, impulse.target]`**.
    - Gắn `raw_pitches` và `impulses` lên `_Ctx` trong `render_patterned_voices` (không gọi lại `detect_price_impulses` trong `guitar_patterns.py`).
 
 ### 3.4. `backend/app/sonify/guitar_patterns.py` & 5 Module Composer
 - Loại trừ hoàn toàn Nhóm 1 (`tremolo`, `etude1`, `etude11`, `_catedral_preludio` `preludio`, `thumb_cantabile`) khỏi `ScalePassage`.
 - Với Nhóm 2 (`bach_chaconne`, `bach_gigue`, `bach_sarabande`, Brouwer `sarabande`):
-  - Giữ nguyên 100% figuration nội tại ở các ô có biến động nhỏ/vừa ($L < \text{epb}$ hoặc $\text{net\_span} < 6$) và ở ô mở đầu mỗi section.
-  - Cho phép các **Sóng Lớn (`Major Bridge Impulse`: $L \ge \text{epb}$ từ 1–4 ô nhịp VÀ $\text{net\_span} \ge 6$ bán cung, bắt đầu sau ô mở đầu section)** tạo `ScalePassage` làm đoạn nối ở giữa cả Nhóm 2 lẫn Nhóm 3, giữ nguyên nhịp mạch Bass đặc trưng của pattern Nhóm 2 bên dưới câu scale và tính phần chênh lệch `passage_eighths - replaced_intrinsic_eighths` vào ngân sách `<= 30% body_eighths`.
+  - Giữ nguyên 100% figuration nội tại ở các ô có biến động nhỏ/vừa ($L < \text{epb}$ hoặc $\text{net\_span} < 6$) và ở ô mở đầu mỗi vùng pattern Nhóm 2.
+  - Cho phép các **Sóng Lớn (`Major Bridge Impulse`: $L \ge \text{epb}$ từ 1–4 ô nhịp VÀ $\text{net\_span} \ge 6$ bán cung, bắt đầu sau khi chính pattern Nhóm 2 đó đã vang ít nhất 1 ô nhịp trọn vẹn)** tạo `ScalePassage` làm đoạn nối ở giữa cả Nhóm 2 lẫn Nhóm 3, giữ nguyên nhịp mạch Bass theo pattern của từng ô nhịp bên dưới câu scale và kiểm tra chi phí ngân sách tăng thêm $\Delta\text{cost} = \text{passage\_eighths} - \text{replaced\_intrinsic\_eighths} \le \text{remaining\_overlay\_budget}$.
 - Khi áp dụng `ScalePassage` trên Nhóm 2 và Nhóm 3:
   - Loại các ô có `ScalePassage` khỏi `bell_bars`.
-  - Đánh dấu các eighths của `ScalePassage` vào tập `scale_eighths` để `_relax_texture` (trong `_smooth_boundaries`), `_shape_dynamics` và `_slur` không ghi đè hoặc làm biến dạng đường cong velocity và hạt nốt của đoạn scale.
+  - Đánh dấu toàn bộ khoảng đóng `[passage.start, passage.target]` (bao gồm cả eighth đích `passage.target`) vào tập `scale_eighths` để `_relax_texture` (trong `_smooth_boundaries`), `_shape_dynamics` và `_slur` không ghi đè hoặc làm mất đỉnh velocity `_MELODY_APEX` (`72`) tại `passage.target`.
 
 ### 3.5. `backend/tests/test_sonify_guitar.py`
 - Bổ sung và cập nhật bộ kiểm thử:
