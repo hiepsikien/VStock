@@ -144,6 +144,7 @@ Trước lúc đó, giai đoạn 1 chỉ ghi, trên mỗi phiên, bản ghi sau.
 - M1 tách lead/support và high. M2, M3, M4 là số thô. M5 là cổng.
 - Tầng: variant, span, character, số bậc thang phân biệt của `r`, số bậc của `m`, volume span ratio, số móc high.
 - Bốn đối chứng mục 7, tính trên cùng `Score`. Xáo regime ghi `labels_changed`. Khi nhãn không đổi, `f6` của đối chứng là `None`. Phép thứ tư hoán vị cao độ đường khâu. Thiếu phép đó thì không còn chỗ làm F1 và M1 của lead/support đổ.
+- Điểm tổng trên sheet, tính lúc mở sheet từ bốn tỷ lệ mục 1. Không ghi thêm một trường vào `DailyRecord`.
 
 Chưa làm trong giai đoạn này: tổng có trọng số, guitar và jazz, nhịp khác `4/4`, bản `1W`–`1Y`, chấm WAV, và luật mục 8. Ô 32 của `1W`, khi tới lượt, ra khỏi F1. Ô đó cố ý lấy giá mở phiên sau.
 
