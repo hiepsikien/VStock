@@ -154,9 +154,11 @@ def test_one_regime_body_skips_the_shuffle_and_mixed_labels_move_f6() -> None:
 
     mixed = render(bars, regimes=("uptrend", "sideway", "downtrend"))
     record = measure_daily(bars, mixed)
+    shuffled_f6 = record.controls.regime_shuffled.f6
     assert record.controls.regime_shuffled.labels_changed is True
-    assert record.controls.regime_shuffled.f6 is not None
-    assert record.controls.regime_shuffled.f6 != record.fidelity.f6
+    assert record.fidelity.f6 is not None and abs(record.fidelity.f6) < 0.02
+    assert shuffled_f6 is not None and shuffled_f6 < record.fidelity.f6
+    assert shuffled_f6 < 0
 
 
 def test_volume_reversal_carries_the_auction_flag() -> None:

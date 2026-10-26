@@ -117,10 +117,10 @@ F1 là tỷ lệ bước cùng dấu, từ `0` đến `1`. Gần `1` là bám h�
 |---|---|
 | Dựng `r` từ chuỗi giá đảo. Giữ `m` | F1 tụt, xoay quanh `0,5`. F5 đứng |
 | Dựng volume cửa sổ từ chuỗi volume đảo. Cờ `auction` đi cùng volume của đúng cây nến. Giữ `score.liquidity` | F5 đổi dấu. Không nốt nào đổi. Đây là bằng chứng F5 đo hàm gán chữ. Cờ ở lại chỉ số cũ sẽ loại nhầm nến ATO/ATC |
-| Xáo nhãn regime, tính lại `chord_bias` trên cùng hợp âm | Khi thân có từ hai regime, F6 lift về gần `0` nếu hợp âm đang mang regime. Thân một regime thì xáo không đổi nhãn và F6 của đối chứng là `None` |
+| Xáo nhãn regime, tính lại `chord_bias` trên cùng hợp âm | Khi nhãn đổi, F6 của đối chứng khác F6 gốc. Lift về gần `0` chỉ khi lift gốc đang dương rõ. Thân một regime thì xáo không đổi nhãn và F6 của đối chứng là `None` |
 | Hoán vị cao độ đường khâu, giữ nhịp và chỗ nghỉ | F1 và M1 của lead/support đổ |
 
-F6 đứng yên sau khi xáo chỉ được đọc là hợp âm không phân biệt regime khi nhãn thực sự bị đổi. Thân một regime không có nhãn khác để phá cặp. Đối chứng khi đó bị bỏ, `f6` là `None`, thay vì ghi một số bằng F6 gốc.
+Cách đọc dùng được là lift đổi khi nhãn thực sự đổi. Lift về gần `0` chỉ đúng khi lift gốc đang dương rõ. Trên thân ba regime, ba cụm có thể triệt tiêu nhau nên F6 gốc đã sát `0`. Xáo phá cặp, hợp âm đã chọn đắt hơn catalog, và lift âm hơn. F6 đứng yên sau khi xáo chỉ được đọc là hợp âm không phân biệt regime khi nhãn thực sự bị đổi. Thân một regime không có nhãn khác để phá cặp. Đối chứng khi đó bị bỏ, `f6` là `None`.
 
 ## 8. Luật nhận một thay đổi, chưa chạy
 
