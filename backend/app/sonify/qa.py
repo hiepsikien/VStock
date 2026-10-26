@@ -144,8 +144,9 @@ _RATIO_SLOTS = 4
 
 _HINTS = {
     "Điểm tổng": (
-        "Trung bình không trọng số của các tỷ lệ đã có thang 0–1: F1, F2 sau khi đưa Spearman về (ρ+1)/2, "
-        "F4 điểm ngoặt, và M1 lead/support. Thành phần thiếu được bỏ, không tính là 0. Mẫu số là 4. "
+        "Trung bình không trọng số của các tỷ lệ đang có, mỗi cái đã nằm trên 0–1: F1, F2 sau khi đưa Spearman về (ρ+1)/2, "
+        "F4 điểm ngoặt, và M1 lead/support. Trung bình chia cho số thành phần đang có. Thành phần thiếu được bỏ, không tính là 0. "
+        "Số 4 trong phần 3/4 ghi bên cạnh là số chỗ tối đa trong bốn tỷ lệ. "
         "Cổng, F3, F5, F6, M2, M3, M4 và các đối chứng đứng ngoài. Đây chưa phải tổng có trọng số của mục 8."
     ),
     "Nến trên thân": "Mọi nến nguồn phải nằm trên ô 2–31. Ô 0–1 và 32–33 là khung, không giữ nến.",

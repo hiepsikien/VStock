@@ -45,7 +45,11 @@ def test_daily_symphony_sheet_reports_gates_and_skips_one_regime() -> None:
     assert "cùng đi một hướng" in _hint(payload, "M2 quãng 5 song song")
     total = _line(payload, "Tổng", "Điểm tổng")
     assert total.endswith("/4")
-    assert "F5" in _hint(payload, "Điểm tổng")
+    hint = _hint(payload, "Điểm tổng")
+    assert "số thành phần đang có" in hint
+    assert "Mẫu số là 4" not in hint
+    assert "3/4" in hint
+    assert "F5" in hint
     assert payload["chip"] == "QA · đạt"
     assert "dương rõ" in _hint(payload, "Xáo regime F6")
 
