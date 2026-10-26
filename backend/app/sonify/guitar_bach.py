@@ -454,13 +454,14 @@ def _approach_eighths(ctx: _Ctx, target: int, count: int) -> list[int]:
 
 
 
-def _render_bach_fuga_bar(
-    ctx: _Ctx, bar: int, apex: set[int], phrase: Phrase | None
-) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
-    """Soprano sings the price now. The bass answers two bars later, 1:1, on this chord."""
+def _compose_fuga_bass(ctx: _Ctx, bar: int, lead: list[NoteEvent]) -> list[NoteEvent]:
+    """Voice 3 answers with the subject from two bars earlier, under `lead`.
+
+    The soprano may already be a scale. The bass still follows `_fuga_motif`
+    of the lagged bar, one step at a time, never retrograde.
+    """
     epb = ctx.epb
     start = bar * epb
-    lead = _sustain(ctx.melody, start, start + epb, epb, apex, phrase=phrase)
     src = _bach_lag_bar(ctx, bar)
     low: list[NoteEvent] = []
 
@@ -506,6 +507,26 @@ def _render_bach_fuga_bar(
                 continue
             nxt = motif[index + 1][0] if index + 1 < len(motif) else epb
             previous = sing(offset, min(length, nxt - offset), direction, previous)
+    return low
+
+
+def _fuga_bass_under_lead(ctx: _Ctx, bar: int, lead: list[NoteEvent]) -> list[NoteEvent]:
+    """Rebuild the lagged subject after a scale replaces the soprano of `bar`."""
+    low = _compose_fuga_bass(ctx, bar, lead)
+    _support, low = _shape_accompaniment(ctx, [], low)
+    if _bach_lag_bar(ctx, bar) == bar and low:
+        low = _soften_attack(low, bar * ctx.epb, ctx.epb, amount=8)
+    return low
+
+
+def _render_bach_fuga_bar(
+    ctx: _Ctx, bar: int, apex: set[int], phrase: Phrase | None
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    """Soprano sings the price now. The bass answers two bars later, 1:1, on this chord."""
+    epb = ctx.epb
+    start = bar * epb
+    lead = _sustain(ctx.melody, start, start + epb, epb, apex, phrase=phrase)
+    low = _compose_fuga_bass(ctx, bar, lead)
     support: list[NoteEvent] = []
     strong_offsets = (0, 4) if ctx.kind == "4/4" else tuple(offset for offset in ctx.strong if offset < epb)
     for offset in strong_offsets:
@@ -521,7 +542,7 @@ def _render_bach_fuga_bar(
             continue
         support.extend(_eighth_event(eighth, 1, tone, epb, 2, _INNER))
     support, low = _shape_accompaniment(ctx, support, low)
-    if src == bar and low:
+    if _bach_lag_bar(ctx, bar) == bar and low:
         low = _soften_attack(low, start, epb, amount=8)
     return lead, support, low
 

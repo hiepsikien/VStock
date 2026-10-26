@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from app.sonify.form import METER_44, ChordSlot, FormSection, compose_meter
 from app.sonify.chords import C
 from app.sonify.guitar import BARRIOS_TREMOLO_MIN_BPM
+from app.sonify.guitar_bach import _fuga_motif
 from app.sonify.guitar_patterns import _Ctx, assert_playable, render_patterned_voices
 from app.sonify.guitar_scale_passages import SCALE_SIXTEENTH_MIN_BPM, plan_scale_budget
 from app.sonify.keys import A_KEY, BB_KEY, C_KEY, D_KEY, EB_KEY, compose_register, register_for
@@ -246,7 +247,8 @@ def test_straight_raw_does_not_invent_a_retreat_and_a_real_one_lands() -> None:
     assert arrival == 72
     before = [event.midi for start, event in notes if start < 2]
     during = [event.midi for start, event in notes if 2 <= start < 4]
-    assert before and during
+    assert len(before) >= 2 and during
+    assert before[-1] > before[0]
     assert min(during) < before[-1]
 
 
@@ -434,6 +436,103 @@ def test_aborted_passage_leaves_the_pattern_and_the_next_candidate_spends_the_ro
     second = [event.midi for start, event in notes if 18 <= start <= 32]
     assert 60 not in second
     assert second[-1] == 72
+
+
+def _attacks(events, eighth: int, epb: int = 8) -> list[NoteEvent]:
+    found = []
+    for event in events:
+        if event.midi is None:
+            continue
+        start = event.bar * epb + int(round(event.beat * 2))
+        if start == eighth:
+            found.append(event)
+    return found
+
+
+def _bass_onsets(events, bar: int) -> list[int]:
+    by_eighth: dict[int, int] = {}
+    for event in events:
+        if event.midi is None or event.bar != bar or event.voice != 3:
+            continue
+        by_eighth.setdefault(int(round(event.beat * 2)), event.midi)
+    return [by_eighth[key] for key in sorted(by_eighth)]
+
+
+def _step_directions(pitches: list[int]) -> list[int]:
+    directions = []
+    for previous, midi in zip(pitches, pitches[1:]):
+        if midi > previous:
+            directions.append(1)
+        elif midi < previous:
+            directions.append(-1)
+        else:
+            directions.append(0)
+    return directions
+
+
+def test_fuga_passage_keeps_the_lagged_bass_motif() -> None:
+    bar0 = [64, 66, 64, 65, 67, 65, 67, 69]
+    bar1 = [69, 70, 70, 71, 71, 72, 72, 72]
+    bar2 = [72, 72, 74, 74, 76, 76, 77, 77]
+    bar3 = [79] * 8
+    melody = bar0 + bar1 + bar2 + bar3
+    raw = list(range(40, 40 + len(melody)))
+    phrases = (_phrase(0, melody),)
+    kwargs = {"ensemble": "bach", "bpm": 96, "character": "volatile", "raw": raw}
+    plain = _render(melody, phrases, (), **kwargs)
+    score = _render(melody, phrases, (_Impulse(16, 24, "up", 8, score=6),), **kwargs)
+    assert any(note.bar == 2 and note.duration_beats <= 0.25 and note.midi is not None for note in score.lead)
+    motif = _fuga_motif(_ctx(melody, phrases), 0)
+    plain_bass = _bass_onsets(plain.low, 2)
+    bass = _bass_onsets(score.low, 2)
+    assert len(bass) == len(motif) == len(plain_bass)
+    assert _step_directions(bass) == _step_directions(plain_bass)
+    assert any(direction != 0 for direction in _step_directions(bass))
+
+
+def test_subbar_elogio_keeps_the_bartok_slap() -> None:
+    melody = [64, 65, 66, 67, 69, 70, 71, 72] + [72] * 24
+    raw = list(range(48, 48 + len(melody)))
+    phrases = (_phrase(0, melody),)
+    kwargs = {"ensemble": "brouwer", "bpm": 108, "character": "volatile", "raw": raw}
+    plain = _render(melody, phrases, (), **kwargs)
+    short = _render(melody, phrases, (_Impulse(0, 6, "up", 6, score=6),), **kwargs)
+    assert any(note.bar == 0 and note.duration_beats <= 0.25 and note.midi is not None for note in short.lead)
+    for before, after in ((plain.low, short.low), (plain.support, short.support)):
+        original = _attacks(before, 3)
+        kept = _attacks(after, 3)
+        assert original and kept
+        assert [(event.midi, event.accent, event.staccato) for event in original] == [
+            (event.midi, event.accent, event.staccato) for event in kept
+        ]
+        assert all(event.accent and event.staccato for event in kept)
+    long = _render(melody, phrases, (_Impulse(0, 8, "up", 8, score=6),), **kwargs)
+    assert any(note.bar == 0 and note.duration_beats <= 0.25 and note.midi is not None for note in long.lead)
+    assert _attacks(long.low, 3) == []
+    assert _attacks(long.support, 3) == []
+
+
+def test_retreat_rises_before_it_falls() -> None:
+    melody = [64, 65, 66, 67, 69, 70, 71, 72] + [72] * 24
+    raw = list(range(48, 80))
+    score = _render(
+        melody,
+        (_phrase(0, melody),),
+        (_Impulse(0, 8, "up", 8, score=5, retreat_spans=((2, 3),)),),
+        ensemble="classic",
+        bpm=96,
+        raw=raw,
+    )
+    notes = _ordered(score.lead)
+    downbeat = next(event.midi for grid, event in notes if grid == 0)
+    before = [event.midi for grid, event in notes if 0 < grid < 4]
+    during = [event.midi for grid, event in notes if 4 <= grid < 8]
+    after = [event.midi for grid, event in notes if 8 <= grid < 16]
+    assert before and during and after
+    assert before[-1] > downbeat
+    assert min(during) < before[-1]
+    assert after[0] > min(during)
+    assert next(event.midi for grid, event in notes if grid == 16) == 72
 
 
 def test_playable_scale_passage_in_every_ensemble_and_key() -> None:

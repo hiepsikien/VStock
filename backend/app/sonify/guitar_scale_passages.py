@@ -18,6 +18,7 @@ except ImportError:  # the detector module lands separately
 from app.sonify.guitar_bach import (
     _bach_keep_bass_below,
     _chaconne_bass_slots,
+    _fuga_bass_under_lead,
     _gigue_plan,
     _quarter_ok,
     bach_group2_intrinsic_eighths,
@@ -561,6 +562,38 @@ def _monotone(
     return notes
 
 
+def _retreat_flag(retreat_at: list[int], index: int) -> bool:
+    return bool(retreat_at[index]) if 0 <= index < len(retreat_at) else False
+
+
+def _directed_step(
+    ctx: _Ctx,
+    current: int,
+    direction: int,
+    end: int,
+    left_after: int,
+    impulse_direction: str,
+    approaching: bool,
+) -> int | None:
+    """One step of `direction` that can still reach `end` in `left_after` steps."""
+    stepped = _step_pitch(ctx, current, direction, impulse_direction, approaching)
+    candidates = [stepped, current + direction]
+    legal: list[int] = []
+    high = min(ctx.treble_top, ctx.ceiling)
+    for candidate in candidates:
+        if (candidate - current) * direction <= 0 or abs(candidate - current) > 2:
+            continue
+        if candidate < ctx.treble_floor or candidate > high:
+            continue
+        if abs(end - candidate) > 2 * left_after:
+            continue
+        if candidate not in legal:
+            legal.append(candidate)
+    if not legal:
+        return None
+    return max(legal, key=lambda note: abs(note - current))
+
+
 def _with_retreat(
     start: int,
     end: int,
@@ -570,34 +603,41 @@ def _with_retreat(
     impulse_direction: str,
     approaching: bool,
 ) -> list[int] | None:
-    active = [index for index, flag in enumerate(retreat_at) if flag and index > 0]
-    if not active:
+    """Weak beats follow the impulse, and reverse only on `retreat_at`.
+
+    An up-retreat-up run rises into the retreat, dips there, then rises again.
+    The last pitch is the melody anchor even when that last step changes direction.
+    """
+    interior = any(_retreat_flag(retreat_at, index) for index in range(1, count - 1))
+    if not interior:
         return _monotone(start, end, count, ctx, impulse_direction, approaching)
-    last = max(active)
-    against = -1 if impulse_direction == "up" else 1
-    for depth in (4, 3, 2, 1):
-        dip = start
-        moved = 0
-        for _ in range(depth):
-            nxt = _step_pitch(ctx, dip, against, impulse_direction, approaching)
-            if nxt == dip or (nxt - dip) * against <= 0:
-                break
-            dip = nxt
-            moved += 1
-        if moved < 1:
-            continue
-        left = _monotone(start, dip, last + 1, ctx, impulse_direction, approaching)
-        right = None if left is None else _monotone(dip, end, count - last, ctx, impulse_direction, approaching)
-        if left is None or right is None:
-            continue
-        line = left[:-1] + right
-        if len(line) != count:
-            continue
-        first = min(active)
-        if (line[first] - line[first - 1]) * against <= 0:
-            continue
-        return line
-    return None
+    toward = 1 if impulse_direction == "up" else -1
+    against = -toward
+    notes = [start]
+    for index in range(1, count - 1):
+        direction = against if _retreat_flag(retreat_at, index) else toward
+        stepped = _directed_step(
+            ctx,
+            notes[-1],
+            direction,
+            end,
+            count - 1 - index,
+            impulse_direction,
+            approaching,
+        )
+        if stepped is None:
+            return None
+        notes.append(stepped)
+    if abs(end - notes[-1]) > 2:
+        return None
+    notes.append(end)
+    for index in range(1, count - 1):
+        direction = against if _retreat_flag(retreat_at, index) else toward
+        if (notes[index] - notes[index - 1]) * direction <= 0:
+            return None
+    if any(abs(right - left) > 2 for left, right in zip(notes, notes[1:])):
+        return None
+    return notes
 
 
 def _assign(ctx: _Ctx, passage: ScalePassage, slots: list[_Slot]) -> list[int] | None:
@@ -764,8 +804,32 @@ def _curve(passage: ScalePassage, count: int, previous: int) -> list[int]:
     return _velocity_curve(count, opening, _MELODY, False)
 
 
-def _drop_region(events: list[NoteEvent], start: int, end: int, epb: int) -> list[NoteEvent]:
-    """Remove sounding time in `[start, end)` without inventing an onset at `end`."""
+def _slap_eighths(ctx: _Ctx, patterns: list[str], passage: ScalePassage) -> set[int]:
+    """Eighth 3 of a sub-bar Elogio run. A long run is allowed to replace the slap."""
+    if passage.tier == "tier1" or passage.passage_eighths >= ctx.epb:
+        return set()
+    found: set[int] = set()
+    for eighth in range(passage.start, passage.target):
+        if eighth % ctx.epb != 3:
+            continue
+        if _bar_pattern(ctx, eighth // ctx.epb, patterns) == "elogio_pizz":
+            found.add(eighth)
+    return found
+
+
+def _drop_region(
+    events: list[NoteEvent],
+    start: int,
+    end: int,
+    epb: int,
+    preserve: set[int] | None = None,
+) -> list[NoteEvent]:
+    """Remove sounding time in `[start, end)` without inventing an onset at `end`.
+
+    `preserve` keeps the attack that starts on those eighths, so a Bartók slap
+    at eighth 3 survives a sub-bar scale.
+    """
+    keep_onsets = preserve or set()
     lo = start * 2
     hi = end * 2
     kept: list[NoteEvent] = []
@@ -774,6 +838,9 @@ def _drop_region(events: list[NoteEvent], start: int, end: int, epb: int) -> lis
             kept.append(event)
             continue
         begin = _start16(event, epb)
+        if begin // 2 in keep_onsets:
+            kept.append(event)
+            continue
         finish = begin + _dur16(event)
         if finish <= lo or begin >= hi:
             kept.append(event)
@@ -912,10 +979,15 @@ def _rewrite_bass(
     low: list[NoteEvent],
 ) -> list[NoteEvent]:
     start, target = passage.start, passage.target
-    low = _drop_region(low, start, target, ctx.epb)
+    low = _drop_region(low, start, target, ctx.epb, _slap_eighths(ctx, patterns, passage))
     leads = _leads_at(slots, pitches)
     first = start // ctx.epb
     last = max(first, (target - 1) // ctx.epb)
+    fuga_bars = [
+        bar
+        for bar in range(first, min(ctx.bars, last + 1))
+        if _bar_pattern(ctx, bar, patterns) == "bach_fuga"
+    ]
     for bar in range(first, min(ctx.bars, last + 1)):
         pattern = _bar_pattern(ctx, bar, patterns)
         if pattern == "bach_fuga":
@@ -958,7 +1030,11 @@ def _rewrite_bass(
                     accent=_bass_accent(ctx, pattern, eighth),
                 )
             )
-    if any(_bar_pattern(ctx, bar, patterns) == "bach_fuga" for bar in range(first, min(ctx.bars, last + 1))):
+    if fuga_bars:
+        covered = set(fuga_bars)
+        low = [event for event in low if event.midi is None or event.bar not in covered]
+        for bar in fuga_bars:
+            low.extend(_fuga_bass_under_lead(ctx, bar, lead))
         low = _bach_keep_bass_below(ctx, lead, low)
     return low
 
@@ -984,13 +1060,16 @@ def _support_tone(ctx: _Ctx, bar: int, lead_pitch: int, bass: int) -> int | None
 
 def _rewrite_support(
     ctx: _Ctx,
+    patterns: list[str],
     passage: ScalePassage,
     slots: list[_Slot],
     pitches: list[int],
     support: list[NoteEvent],
     low: list[NoteEvent],
 ) -> list[NoteEvent]:
-    support = _drop_region(support, passage.start, passage.target, ctx.epb)
+    support = _drop_region(
+        support, passage.start, passage.target, ctx.epb, _slap_eighths(ctx, patterns, passage)
+    )
     leads = _leads_at(slots, pitches)
     sixteenth = {slot.eighth for slot in slots if slot.dur16 == 1 and slot.eighth < passage.target}
     plain = {slot.eighth for slot in slots if slot.dur16 == 2 and slot.eighth < passage.target}
@@ -1030,7 +1109,7 @@ def realize_scale_passage(
         return None
     lead = _install_lead(lead, slots, pitches, velocities, ctx.epb)
     low = _rewrite_bass(ctx, patterns, passage, slots, pitches, lead, low)
-    support = _rewrite_support(ctx, passage, slots, pitches, support, low)
+    support = _rewrite_support(ctx, patterns, passage, slots, pitches, support, low)
     return lead, support, low
 
 
