@@ -40,6 +40,8 @@ def test_daily_symphony_sheet_reports_gates_and_skips_one_regime() -> None:
     assert any("đối chứng xáo bỏ qua" in note for note in payload["notes"])
     hints = [line["hint"] for block in payload["blocks"] for line in block["lines"]]
     assert hints and all(hints)
+    assert "lead và support" in _hint(payload, "F3 lead/support")
+    assert "đáy" in _hint(payload, "F4 điểm ngoặt")
     assert "cùng đi một hướng" in _hint(payload, "M2 quãng 5 song song")
     assert "dương rõ" in _hint(payload, "Xáo regime F6")
 
