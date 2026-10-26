@@ -574,6 +574,39 @@ export async function fetchSpan(
   );
 }
 
+export type SonifyQaLine = {
+  label: string;
+  value: string;
+};
+
+export type SonifyQaBlock = {
+  title: string;
+  lines: SonifyQaLine[];
+};
+
+export type SonifyQaReport = {
+  symbol: string;
+  date: string;
+  ensemble: string;
+  gatesPass: boolean;
+  chip: string;
+  blocks: SonifyQaBlock[];
+  notes: string[];
+};
+
+export async function fetchRecapScore(
+  symbol: string,
+  day: string,
+  ensemble: RecapEnsemble = 'classic',
+  signal?: AbortSignal,
+): Promise<SonifyQaReport> {
+  const sym = symbol.toUpperCase();
+  return apiGet<SonifyQaReport>(
+    `/v1/stocks/${encodeURIComponent(sym)}/sessions/${encodeURIComponent(day)}/recap/score?variant=symphony&ensemble=${ensemble}`,
+    signal,
+  );
+}
+
 export async function fetchRecap(
   symbol: string,
   day: string,

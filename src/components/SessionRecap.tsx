@@ -26,6 +26,7 @@ import { formatPercent } from '../data/stocks';
 import { colors, spacing, typography } from '../theme';
 import { pieceCopy, type ChartFocus, type PieceProgram } from '../sonify/program';
 import { MixToggles } from './MixToggles';
+import { SonifyQa } from './SonifyQa';
 import { ambientDailyCandleIndexAt, playheadHoldsPoll } from '../utils/recapCursor';
 import { isMarketOpen, REFRESH } from '../utils/marketSession';
 
@@ -515,6 +516,14 @@ export function SessionRecap({ symbol, children }: Props) {
             onHumanize={setHumanize}
             onColor={setColorOn}
           />
+          {variant === 'symphony' && selected ? (
+            <SonifyQa
+              symbol={symbol}
+              day={selected}
+              ensemble={ensemble}
+              bars={series.prices.length}
+            />
+          ) : null}
 
           {playingPiece && manifest ? (
             <RecapPlayer

@@ -24,6 +24,8 @@ Mỗi bản cho ra ba khối:
 
 Điểm công bố là bộ ba này. Một tổng có trọng số chỉ xuất hiện sau khi có tập nghe đóng băng.
 
+App mobile hiện một chip `QA` trong khối nghe của giao hưởng ngày. Chip mở đúng bản ghi này: cổng, F, M, và bốn đối chứng. Jazz, guitar, ambient, tối giản, và span `1W`–`1Y` không có chip, vì giai đoạn 1 chưa chấm những bản đó. `humanize` không đổi số trên sheet.
+
 `bar_quantization_loss` trong `quantize.py` đứng ngoài vector. Đó là mục tiêu planner đang tối thiểu. `research/sonify/harmony_benchmark.py` so số nốt bị bẻ giữa Markov và vòng lặp cố định trên lưới 30 ô (`range(30)`, `assign_source_bars`), trong lúc `render()` mặc định đóng khung 34 ô. Script đó chẩn đoán planner. Nó không phải harness của giai đoạn 1. Bộ đo mới tự dựng lưới framed.
 
 ## 2. Đồng hồ và chuỗi giá thô

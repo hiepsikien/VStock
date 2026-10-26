@@ -14,7 +14,7 @@ from fastapi import Request
 from app.services.cache import cache
 from app.services.http_utils import ENTRADE_HEADERS
 from app.sonify.audio import RecapAsset, RecapCancelled, RecapUnavailable, recap_store
-from app.sonify.model import Ensemble, Variant
+from app.sonify.model import Bar, Ensemble, Variant
 from app.sonify.session import samples_from_ohlc, session_dates, session_points
 
 ENTRADE_OHLC = "https://services.entrade.com.vn/chart-api/v2/ohlcs/stock"
@@ -159,6 +159,15 @@ def minute_series(payload: dict, day: date) -> dict | None:
 async def list_sessions(symbol: str, limit: int = 7) -> list[dict]:
     payload = await fetch_minute_payload(symbol)
     return summarize_sessions(payload, limit)
+
+
+async def load_session_bars(symbol: str, day: date) -> list[Bar] | None:
+    """Candles the 1D recap would compose. `None` when that session has no prints."""
+    payload = await fetch_minute_payload(symbol)
+    points = session_points(samples_from_ohlc(payload), day)
+    if not points:
+        return None
+    return [point.bar for point in points]
 
 
 async def load_session(symbol: str, day: date) -> dict | None:
