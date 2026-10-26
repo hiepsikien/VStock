@@ -294,7 +294,6 @@ Khi đưa vào `apply_guitar_wave()`:
    - Trong vùng `pedal`, bảo toàn cấu trúc chênh lệch tương đối giữa các nốt bên trong từng cử chỉ của `guitar_frame.py` (ví dụ contour chuông `44, 50, 46` hay cantabile `46 -> 52` của Barrios).
    - **Intro (`leading` pedal bars)**:
      - Đặt mục tiêu nối biên $V_{\text{join}} = V_{\text{hat}}(t_{\text{body\_start}}) \in [V_{\text{floor}}, V_{\text{ceil}} \le 63]$ là mức vận tốc của móc đơn đầu tiên trong thân bài (nếu ô đầu thân bài là đỉnh thanh khoản thì $V_{\text{join}} = V_{\text{ceil}}$ lên tới `63`).
-     - Các ô Intro đứng trước ô nối cuối cùng (`bar < last_intro_bar`, với `last_intro_bar = leading[-1]`) được dịch theo đường bao khởi âm từ **$ppp - pp$ (`22..32` ở đầu ô 0)** lên tối đa **`<= 56`** (giữ nguyên độ lệch tương đối bên trong từng cử chỉ như chuông `44, 50, 46` hay cantabile `46 -> 52`).
      - **Trên ô nối cuối cùng của Intro (`last_intro_bar = leading[-1]`) — Neo Đỉnh Cử Chỉ Tại $V_{\text{join}}$ Và Kẹp Độ Hở Vạch Nhịp Tối Đa `4` Bậc ($\text{CREST\_CAP} = 4$)**:
        Gọi $V_{\text{written\_last}}$ là velocity viết sẵn của nốt cuối cùng trên bè hát trong `last_intro_bar`, và $V_{\text{written\_max}} = \max(\text{written velocities trên bè hát trong } \text{last\_intro\_bar})$ là đỉnh của cử chỉ đó. Độ nhô viết sẵn phía trên nốt cuối là:
        $$\text{crest} = V_{\text{written\_max}} - V_{\text{written\_last}} \ge 0$$
@@ -303,13 +302,25 @@ Khi đưa vào `apply_guitar_wave()`:
        1.0, & \text{nếu } \text{crest} \le 4 \\
        \dfrac{4.0}{\text{crest}}, & \text{nếu } \text{crest} > 4
        \end{cases}$$
-       Công thức chung cho mọi nốt $e$ trên `last_intro_bar` là:
-       $$V_{\text{shaped}}(e) = \text{round}\Big(V_{\text{join}} - \big(V_{\text{written\_max}} - V_{\text{written}}(e)\big) \cdot s_{\text{comp}}\Big)$$
+       Công thức chung cho mọi nốt $e$ trên `last_intro_bar`, có sàn $ppp$ `20` (nốt cuối bè hát không chạm sàn này vì $V_{\text{join}} - \min(\text{crest}, 4) \ge 22$):
+       $$V_{\text{shaped}}(e) = \max\Big(20,\; \text{round}\Big(V_{\text{join}} - \big(V_{\text{written\_max}} - V_{\text{written}}(e)\big) \cdot s_{\text{comp}}\Big)\Big)$$
+       Với `_barrios_intro_cadence` và $V_{\text{join}} = 32$: nốt lead đầu ô (`54`) thành `26`, nốt cuối (`60`) thành `32`, bass viết `46` thành `max(20, 18) = 20`.
        Cụ thể trên 3 trường hợp:
        - **Trường hợp 1 ($\text{crest} == 0 \implies s_{\text{comp}} = 1.0$)**: Cử chỉ kết thúc ở đúng đỉnh của nó — bao gồm `_barrios_intro_cadence` (nửa đầu `54, 56, 54, 50`, nửa sau ghi đè mức `_old` bằng `_span(48, 60, rest)` thành `48, 52, 56, 60` trên 4/4, nên cả ô `lead` là `54, 56, 54, 50, 48, 52, 56, 60` có đỉnh và nốt cuối đều bằng `60`, $\text{crest} = 0$), các ô kết bằng `_scale_into` của Sor/Bach, hoặc cantabile `54 -> 60`. Cả ô dịch cứng theo $\Delta_{\text{join}} = V_{\text{join}} - V_{\text{written\_max}}$ (với `_barrios_intro_cadence` và $V_{\text{join}} = 63$, dịch `+3` để nốt cuối bằng đúng `63`).
        - **Trường hợp 2 ($0 < \text{crest} \le 4 \implies s_{\text{comp}} = 1.0$)**: Như chuông `_BELL_CONTOUR` `44, 50, 46` ($\text{crest} = 50 - 46 = 4$). Dịch nguyên cả ô theo $\Delta_{\text{join}} = V_{\text{join}} - V_{\text{written\_max}}$: với $V_{\text{join}} = 63$, dịch `+13` thành **`57, 63, 59`** (đỉnh chạm `63`, nốt cuối `59 = V_{\text{join}} - 4`, giữ nguyên 100% khoảng cách nội bộ).
        - **Trường hợp 3 ($\text{crest} > 4 \implies s_{\text{comp}} = 4.0 / \text{crest}$, như ô cuối của `_villa_intro_long` có `64 -> 50`, $\text{crest} = 14$)**:
          Phần $\text{crest}$ vượt quá `4` được nén tuyến tính vào bên trong ô nối. Trên ô cuối của `_villa_intro_long` (`64 -> 50`, $V_{\text{join}} = 63$): nốt `accent` đầu ô (`64`) vẫn chạm đúng **$V_{\text{join}} = 63$**, và nốt cuối ô (`50`) được nâng lên **`59` ($= V_{\text{join}} - 4$)** thay vì tụt xuống `49`, đảm bảo độ hở tại vạch nhịp vào thân bài **không bao giờ vượt quá `4` bậc**!
+     - **Các ô Intro đứng trước ô nối (`bar < last_intro_bar`) — Đích là mức mở đầu của ô nối, trần `56` chỉ chặn phía trên**:
+       Gọi $V_{\text{open}}$ là $V_{\text{shaped}}$ của nốt lead đầu tiên trên `last_intro_bar` (đã tính ở bước trên). Với cadence Barrios và $V_{\text{join}} = 32$, $V_{\text{open}} = 26$. Với chuông `44, 50, 46` và $V_{\text{join}} = 63$, $V_{\text{open}} = 57$.
+       Có $M$ ô trước ô nối, đánh số $i = 0 \dots M - 1$. Đỉnh lead của ô $i$ đi theo:
+       $$E(i) = \begin{cases}
+       \min(V_{\text{open}},\; 56), & \text{nếu } M = 1 \\
+       \text{round}\Big(27 + \big(\min(V_{\text{open}},\; 56) - 27\big) \cdot \dfrac{i}{M - 1}\Big), & \text{nếu } M \ge 2
+       \end{cases}$$
+       $E(0)$ nằm trong `22..32` khi $M \ge 2$ (neo `27`). $E(M - 1) = \min(V_{\text{open}},\; 56)$. Mỗi nốt $e$ trên ô $i$ dùng cùng phép dịch từ đỉnh lead viết sẵn $W_i$ của ô đó, rồi kẹp `[20, 56]`:
+       $$V_{\text{pre}}(e) = \text{clamp}\Big(\text{round}\big(E(i) - (W_i - V_{\text{written}}(e))\big),\; 20,\; 56\Big)$$
+       Khoảng cách trong cử chỉ giữ nguyên khi cả cử chỉ nằm trong `[20, 56]`. Sàn `20` hoặc trần `56` chỉ co những nốt bị kẹp.
+       Ví dụ $M = 2$, $V_{\text{open}} = 26$: $E = (27,\; 26)$. Ô áp chót đứng ở `26`, bằng nốt lead đầu của ô nối, không leo tới `56`. Ví dụ $V_{\text{open}} = 63$ (accent Villa): $E(M - 1) = 56$, ô nối vẫn được mở ở `63`. Bước `56 → 63` nằm trên cú accent, không phải trên một nốt thường.
    - **Outro (`trailing` pedal bars)**: Áp dụng hàm suy giảm mũ (**Morendo Curve**) bắt đầu từ đúng mức cuối thân bài $V_{\text{hat}}(t_{\text{body\_end}})$ hạ dần về **`20..26` ($ppp$)** ở ô cuối cùng (hợp âm chuông / Picardy third tan dần).
 2. **Một bộ số thống nhất cho các cú Stab kịch tính trong Frame (`70 / 66 / 62`, thấp hơn Bartók slap `72..76` của thân bài)**:
    - Tại nhánh kịch tính `edge == True` của Brouwer (`_edge_stab` ở đầu Intro và `_stab_and_ring` ở cuối Outro) và nhánh `bright == True` (`_stabs` ở cuối Outro của Villa): các nốt mang đồng thời `staccato=True` và `accent=True` (hoặc thuộc `_stabs` cuối bài) được gán **một bộ số duy nhất**:
