@@ -79,11 +79,14 @@ Với mỗi `FormSection` thân bài `[sec_start, sec_end)`:
     $$u_{\text{raw}}(b) = \text{clamp}\left(\frac{\tilde{\ell}(b) - q_{05}}{q_{95} - q_{05}},\; 0.0,\; 1.0\right), \qquad u(b) = \frac{u_{\text{raw}}(b) - \min u_{\text{raw}}}{\max u_{\text{raw}} - \min u_{\text{raw}}} \in [0.0, 1.0]$$
 - **Hệ quả**: Trong mọi section có biến thiên thanh khoản, ô nhịp có thanh khoản cao nhất $b^*$ (dù nằm ở đầu phiên mở cửa, giữa phiên, hay cuối phiên đóng cửa) luôn đạt **$u(b^*) = 1.0$**, và ô nhịp trũng thanh khoản nhất $b_*$ luôn đạt **$u(b_*) = 0.0$**.
 
-#### Bước D — Nội Suy Cosine Móc Đơn (`Sub-bar Cosine Interpolation`)
-- Tại móc đơn $t$ (với ô hiện tại $b = t // \text{epb}$):
-  - Tại tâm ô nhịp (hoặc trên cả ô đỉnh $b^*$ nơi $u(b^*) = 1.0$), $U_{\text{vol}}(t)$ đạt đúng $u(b)$.
-  - Giữa các ô nhịp liên tiếp, nối bằng cosine mượt để không nhảy bậc thang ở vạch nhịp:
-    $$U_{\text{vol}}(t) = u(b_0) + \frac{1 - \cos(\pi \cdot \delta)}{2} \cdot \big(u(b_1) - u(b_0)\big) \in [0.0, 1.0]$$
+#### Bước D — Nội Suy Cosine Từ Vạch Nhịp & Giữ Nguyên Đỉnh Ô `b*` (`Sub-bar Cosine Interpolation`)
+- Tại móc đơn $t$ thuộc ô nhịp $b = t // \text{epb}$ (với vị trí trong ô $r = (t \bmod \text{epb}) / \text{epb} \in [0, 1)$ và ô kế tiếp trong cùng section là $b_{\text{next}} = \min(\text{sec\_end} - 1,\; b + 1)$):
+  - **Trên ô đỉnh thanh khoản $b^*$ nơi $u(b^*) == 1.0$ (và ô đáy $b_*$ nơi $u(b_*) == 0.0$)**: Mọi móc đơn bên trong ô đó giữ nguyên giá trị cực trị của ô, và đường nối cosine sang ô kế tiếp chỉ bắt đầu từ vạch nhịp đầu ô $b + 1$:
+    $$U_{\text{vol}}(t) = \begin{cases}
+    u(b), & \text{nếu } u(b) \in \{0.0,\; 1.0\} \\
+    u(b) + \dfrac{1 - \cos(\pi \cdot r)}{2} \cdot \big(u(b_{\text{next}}) - u(b)\big), & \text{ngược lại}
+    \end{cases}$$
+  - Nhờ viết tường minh điều kiện $u(b) \in \{0.0, 1.0\}$ trong công thức, mọi móc đơn thuộc ô đỉnh $b^*$ đều có $U_{\text{vol}}(t) = 1.0$, và mọi móc đơn thuộc ô đáy $b_*$ đều có $U_{\text{vol}}(t) = 0.0$.
 
 ---
 
@@ -134,11 +137,9 @@ Ta tách **Đường Bao Trần Тео Volume ($V_{\text{env}}(t)$)** và **Đ�
      $$V_{\text{hat}}(t) = \text{clamp}\Big(\text{round}\big(V_{\text{env}}(t) + \Delta_{\text{phrase}}(t)\big),\; V_{\text{floor}},\; V_{\text{ceil}}\Big)$$
 
 3. **Kiểm chứng toán học của công thức Đường Bao Trần**:
-   - **Tại đỉnh thanh khoản ($U_{\text{vol}}(t^*) = 1.0$)**: $\big(1 - U_{\text{vol}}(t^*)^4\big) = 0 \implies \Delta_{\text{phrase}}(t^*) = 0 \implies V_{\text{hat}}(t^*) = V_{\text{env}}(t^*) = V_{\text{ceil}}$ **trên toàn bộ ô đỉnh thanh khoản**, bất kể ô đó nằm ở mở cửa, giữa bài hay đóng cửa, và bất kể đang ở đầu câu hay đỉnh câu!
-   - **Tại đáy thanh khoản ($U_{\text{vol}}(t_*) = 0.0$)**: $V_{\text{env}}(t_*) = V_{\text{floor}}$, và do $\Delta_{\text{phrase}}(t_*) \le 0$ được kẹp ở $V_{\text{floor}}$, nên **$V_{\text{hat}}(t_*) = V_{\text{floor}}$** (chạm đúng đáy $ppp - pp$).
-   - **Ở các ô có volume thấp hơn ($U_{\text{vol}}(t) < 1.0$)**: Vì $\Delta_{\text{phrase}}(t) \le 0$, ta luôn có:
-     $$V_{\text{hat}}(t) \le V_{\text{env}}(t) < V_{\text{env}}(t^*) = V_{\text{ceil}}$$
-     Tức **không một đỉnh câu nhạc nào ở vùng volume thấp có thể vượt qua đường bao trần $V_{\text{env}}$ của vùng volume cao hơn**!
+   - **Cực đại toàn Section luôn nằm tại ô đỉnh thanh khoản ($u(b^*) = 1.0$)**: Vì mọi móc đơn trong ô $b^*$ đều có $U_{\text{vol}}(t^*) = 1.0 \implies \big(1 - U_{\text{vol}}(t^*)^4\big) = 0 \implies \Delta_{\text{phrase}}(t^*) = 0 \implies V_{\text{hat}}(t^*) = V_{\text{env}}(t^*) = V_{\text{ceil}}$ **trên toàn bộ ô đỉnh thanh khoản**, bất kể ô đó nằm ở mở cửa, giữa bài hay đóng cửa, và bất kể đang ở đầu câu hay đỉnh câu!
+   - **Cực tiểu toàn Section luôn nằm tại ô đáy thanh khoản ($u(b_*) = 0.0$)**: $V_{\text{env}}(t_*) = V_{\text{floor}}$, và do $\Delta_{\text{phrase}}(t_*) \le 0$ được kẹp ở $V_{\text{floor}}$, nên **$V_{\text{hat}}(t_*) = V_{\text{floor}}$** (chạm đúng đáy $ppp - pp$).
+   - **Quan hệ giữa các ô trung gian ($0.0 < U_{\text{vol}}(t) < 1.0$)**: Tại mỗi thời điểm $t$, vận tốc thực tế luôn thỏa $V_{\text{hat}}(t) \le V_{\text{env}}(t) \le V_{\text{ceil}}$. Lưu ý: giữa hai ô trung gian có volume gần nhau, một ô có volume hơi thấp hơn nhưng đang ở đỉnh câu ($\Delta_{\text{phrase}} = 0$) có thể lớn hơn khoảng `1–2` đơn vị MIDI so với một ô có volume nhỉnh hơn nhưng đang ở biên câu ($\Delta_{\text{phrase}} \approx -3$); tuy nhiên **cực đại tuyệt đối của cả section luôn đạt tại ô $u(b^*) = 1.0$ ($V_{\text{ceil}}$) và không một ô nào có $u(b) < 1.0$ vượt qua được $V_{\text{ceil}}$**.
 
 ---
 
@@ -273,8 +274,11 @@ Khi đưa vào `apply_guitar_wave()`:
 1. **Chỉ các ô `pedal` (`intro`, `warmup`, `outro`, `cooldown`) mới đi đường bao mờ biên (Frame Emergence / Morendo Envelope)**:
    - Phần thân bài hoàn toàn không bị nhân mờ biên $T_{\text{edge}}$, giúp bảo toàn nguyên vẹn đỉnh thanh khoản lúc mở cửa (ATO/đầu phiên) và đóng cửa (cuối phiên).
    - Trong vùng `pedal`, bảo toàn cấu trúc chênh lệch tương đối giữa các nốt bên trong từng cử chỉ của `guitar_frame.py` (ví dụ contour chuông `44, 50, 46` hay cantabile `46 -> 52` của Barrios).
-   - **Intro (`leading` pedal bars)**: Ánh xạ từ mức khởi âm **$ppp - pp$ (`22..32` ở đầu ô 0)** tăng dần lên khớp với mức mở đầu thân bài ($V_{\text{hat}}(t_{\text{body\_start}}) \approx 34..48$). Không một nốt thường nào trong Intro vượt quá `56`.
-   - **Outro (`trailing` pedal bars)**: Áp dụng hàm suy giảm mũ (**Morendo Curve**) từ mức cuối thân bài hạ dần về **`20..26` ($ppp$)** ở ô cuối cùng (hợp âm chuông / Picardy third tan dần).
+   - **Intro (`leading` pedal bars)**:
+     - Đặt mục tiêu nối biên $V_{\text{join}} = V_{\text{hat}}(t_{\text{body\_start}}) \in [V_{\text{floor}}, V_{\text{ceil}} \le 63]$ là mức vận tốc của móc đơn đầu tiên trong thân bài (nếu ô đầu thân bài là đỉnh thanh khoản thì $V_{\text{join}} = V_{\text{ceil}}$ lên tới `63`).
+     - Ánh xạ các nốt của Intro từ mức khởi âm **$ppp - pp$ (`22..32` ở đầu ô 0)** tăng dần để **nốt cuối cùng của Intro (nốt dẫn/pickup sát vạch nhịp vào thân bài) bằng đúng $V_{\text{join}}$** (còn trên `low`/`support` thì khớp với mức đầu thân bài của bè đó).
+     - Trần `56` chỉ áp dụng cho các nốt của những ô Intro **trước ô nối cuối cùng** (hoặc các nốt trước câu dẫn pickup cuối Intro khi $V_{\text{join}} > 56$), để điểm nối từ cuối Intro sang đầu thân bài luôn liền mạch 100%, không bị khấc `56 -> 63`.
+   - **Outro (`trailing` pedal bars)**: Áp dụng hàm suy giảm mũ (**Morendo Curve**) bắt đầu từ đúng mức cuối thân bài $V_{\text{hat}}(t_{\text{body\_end}})$ hạ dần về **`20..26` ($ppp$)** ở ô cuối cùng (hợp âm chuông / Picardy third tan dần).
 2. **Một bộ số thống nhất cho các cú Stab kịch tính trong Frame (`70 / 66 / 62`, thấp hơn Bartók slap `72..76` của thân bài)**:
    - Tại nhánh kịch tính `edge == True` của Brouwer (`_edge_stab` ở đầu Intro và `_stab_and_ring` ở cuối Outro) và nhánh `bright == True` (`_stabs` ở cuối Outro của Villa): các nốt mang đồng thời `staccato=True` và `accent=True` (hoặc thuộc `_stabs` cuối bài) được gán **một bộ số duy nhất**:
      - `lead`: **`70`**
@@ -310,7 +314,7 @@ Khi đưa vào `apply_guitar_wave()`:
 4. **Bước 4 — Viết `backend/tests/test_guitar_wave.py` và cập nhật `backend/tests/test_sonify_guitar.py`**:
    - Cập nhật các assertion số tuyệt đối cũ (`56, 60, 64, 72`) trong `test_sonify_guitar.py` sang kiểm tra khoảng động lực học mới và cấu trúc tương đối.
    - Trong `test_guitar_wave.py`, kiểm tra đủ 7 tiêu chí:
-     1. **Làm mượt Volume & Đỉnh Thanh Khoản là Đỉnh Tiếng (kể cả ở biên mở/đóng cửa)**: một chuỗi volume có vùng trũng giữa phiên và đỉnh ở đầu phiên, giữa phiên hoặc cuối phiên tạo ra vận tốc ấm có cực tiểu tại vùng trũng thanh khoản (chạm $V_{\text{floor}}$) và cực đại chạm đúng $V_{\text{ceil}}$ tại ô đỉnh thanh khoản (luôn lớn hơn mọi ô có volume thấp hơn dù ô đó đang ở đỉnh câu).
+     1. **Làm mượt Volume & Cực Đại/Cực Tiểu Của Section (kể cả ở biên mở/đóng cửa)**: một chuỗi volume có vùng trũng ($u(b_*) = 0.0$) và đỉnh ($u(b^*) = 1.0$, đặt ở đầu phiên, giữa phiên hoặc cuối phiên) tạo ra vận tốc ấm trên section có **cực tiểu toàn section bằng đúng $V_{\text{floor}}$ tại ô $b_*$** và **cực đại toàn section bằng đúng $V_{\text{ceil}}$ tại ô $b^*$** (kiểm tra cực đại/cực tiểu của cả section, không đòi mọi cặp ô trung gian phải đơn điệu nghiêm ngặt theo volume khi một ô ở đỉnh câu và ô kia ở biên câu lệch `1–2` đơn vị do $D_{\max} = 3$).
      2. **Phiên `calm` biên độ giá hẹp ($\alpha_{\text{price}} < 0.25$) nhưng có sóng Volume chữ U**: sóng ấm vẫn mở rộng từ $ppp - pp$ (`<= 34`) lên `56..63` theo $\alpha_{\text{warm}}$, nhưng **Cổng Snap đóng hoàn toàn (`0%` nốt vượt `64` sau `humanize`)** trên mọi pattern trừ tối đa `1` cú slap của `elogio_pizz`.
      3. **Phiên biến động giá rộng ($\alpha_{\text{price}} \ge 0.50$) kiểm tra theo `PatternWaveProfile`**:
         - Với các pattern có `snap_wide is None` (`cantabile`, `andante`, `chord_melody`, `noviembre`, `bach_sarabande`): **0% số nốt vượt `64`** kể cả trong phiên `rally` / `volatile`.
