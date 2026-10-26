@@ -190,11 +190,7 @@ Người nghe thực tế nghe đường giai điệu `melody` trên nền hợp
   - Nốt mở đầu của đoạn scale bắt đầu ngay tại cao độ giai điệu đang ngân của pattern trước tại điểm cắt, hoặc cách $\le 2$ bán cung hướng về phía con sóng.
 - **Giữ nguyên phần mở đầu ô nhịp khi Scale vào ở giữa ô (Sub-bar Dovetail)**:
   - Nếu `passage.start` nằm sau phách mạnh đầu ô nhịp (`passage.start % epb != 0`), toàn bộ các nốt Bass (`low`) và nốt rải (`support`) của pattern trước ở đầu ô nhịp đó được giữ nguyên và ngân tiếp làm bàn đạp hòa âm.
-- **Vuốt lực gảy Điểm Vào (Entry Velocity Clamping)**:
-  - Khi đi lên (crescendo về `_MELODY_APEX = 72`), nếu pattern liền trước đã ở mức velocity $\ge 68$ (hoặc $\ge 72$), việc giữ nguyên mức đó sẽ làm câu scale mất đà tăng lực hoặc đi lùi. Do đó, velocity khởi đầu của câu scale đi lên được lấy bằng:
-    $$v_{\text{start}} = \min(\text{prev\_velocity},\ \text{\_MELODY\_APEX} - 6) = \min(\text{prev\_velocity},\ 66)$$
-    rồi mới vuốt tăng dần đều (`swell`) lên tới `_MELODY_APEX` (`72`) tại `target`.
-  - Khi đi xuống, câu scale mở đầu tại $\min(\max(\text{prev\_velocity}, \text{\_MELODY}), \text{\_MELODY\_APEX})$ và vuốt mềm về mức nền của pattern kế tiếp.
+- **Vuốt lực gảy**: bè Cao của đoạn scale đi một hairpin một chiều, biên rộng hơn mức nói của pattern (`60…72`). Cửa sổ `soft` / `loud`, cách lấy điểm vào và điểm ra, và pattern nào dùng cửa sổ nào nằm ở Mục 2.6. Bass và bè giữa không đi theo hairpin này.
 
 #### 2. Trong Khi Chạy Scale (Accompaniment & Texture — Theo đúng Pattern từng ô & `meter.strong_eighths`)
 - **Bè Trầm (`low` - Voice 3) duy trì nhịp mạch đặc trưng theo từng ô nhịp (`bar`)**:
@@ -207,10 +203,64 @@ Người nghe thực tế nghe đường giai điệu `melody` trên nền hợp
   - Tại các eighths trong `[passage.start, passage.target)` mà bè Cao đi bằng **móc đơn (`eighths`)** (ví dụ nửa đầu của đoạn scale dài 3–4 ô nhịp hoặc khi $\text{BPM} < 88$): lược bỏ `support` trên các móc đơn yếu, nhưng **giữ tối đa 1 nốt `support` trên mỗi phách mạnh (`eighth % epb in ctx.strong`)** nếu thỏa `_playable` với nốt Bass và nốt scale tại phách mạnh đó.
 
 #### 3. Điểm Ra (Landing & Exit — Cho cả trường hợp `target` ở Phách Mạnh hoặc Phách Yếu)
-- **Hội tụ vào `ctx.melody[passage.target]` và khóa `_MELODY_APEX`**:
-  - Tại đúng mốc đích `passage.target` (dù `passage.target` rơi vào phách mạnh hay giữ nguyên ở phách yếu `raw_target` khi snap bị từ chối): cao độ của bè Cao (`lead`) luôn bằng `ctx.melody[passage.target]` (giữ nguyên độ ngân của nốt `melody` thuộc pattern phía sau từ `passage.target` trở đi), đồng thời **cập nhật `velocity` của nốt `lead` tại `passage.target` thành `_MELODY_APEX` (`72`)** (khi đi lên, hoặc velocity đích khi đi xuống) và **đưa cả eighth `passage.target` vào tập bảo vệ `scale_eighths`** để `_shape_dynamics` không ghi đè.
+- **Hội tụ vào `ctx.melody[passage.target]` và khóa velocity đích của Mục 2.6**:
+  - Tại đúng mốc đích `passage.target` (dù `passage.target` rơi vào phách mạnh hay giữ nguyên ở phách yếu `raw_target` khi snap bị từ chối): cao độ của bè Cao (`lead`) luôn bằng `ctx.melody[passage.target]` (giữ nguyên độ ngân của nốt `melody` thuộc pattern phía sau từ `passage.target` trở đi). Velocity của nốt `lead` tại `passage.target` là đầu **to** của cửa sổ khi sóng đi lên, và đầu **nhỏ** khi sóng đi xuống. Eighth `passage.target` vẫn nằm trong `scale_eighths` để `_shape_dynamics` không kéo nốt đó về `_MELODY_APEX` (`72`).
 - **Tiếp quản Bè Trầm (`low`) và Bè Giữa (`support`) theo đúng lưới của Pattern sau**:
   - Bè Trầm (`low`) và Bè Giữa (`support`) của pattern phía sau từ `passage.target` trở đi **giữ nguyên lịch gảy theo lưới `ctx.strong` của chính pattern đó**: nếu `passage.target` trùng phách mạnh (`passage.target % epb in ctx.strong`) thì Bass của pattern sau đánh đồng thời với nốt đích của scale; nếu `passage.target` là phách yếu (do snap bị từ chối) thì Bass đang ngân từ phách mạnh trước đó tiếp tục ngân qua `passage.target` và không tự chèn thêm một cú Bass lệch phách, còn `support` tự động hoạt động trở lại từ `passage.target` theo đúng lịch của pattern.
+
+---
+
+### 2.6. Biên Độ Cường Độ Của Scale (Hairpin Theo Pattern)
+
+Câu giai điệu thường của guitar nằm trong khoảng nói `60` (mở) … `68` (giữa) … `72` (đỉnh `_MELODY_APEX`) … `62` (kết). Engine scale hiện vuốt trong khoảng `66…72` khi đi lên và `64…72` khi đi xuống, tức chỉ `6–8` bậc velocity. Nghe trên chương chậm của Brouwer (`1M`, `sarabande`, `72 BPM`, `3/4`) đoạn chạy gần như phẳng.
+
+Đoạn scale là một cử chỉ riêng: **một** chiều, **trơn**, và **rộng hơn** câu nói xung quanh, nhưng trần và sàn vẫn nằm trong giọng của pattern đó. Không dùng một cửa sổ chung cho cả 5 composer.
+
+#### A. Ba cửa sổ
+
+Velocity MIDI. `span = loud - soft`. Pattern lấy theo số eighth chiếm nhiều nhất trong `[passage.start, passage.target)`; hòa thì lấy pattern tại `passage.start`.
+
+| Giọng | `soft` | `loud` | Span | Pattern |
+|---|---:|---:|---:|---|
+| **Hát** | 52 | 82 | 30 | `bach_sarabande`, Brouwer `sarabande`, `elegiaque`, `cantabile`, `andante`, `noviembre`, `chord_melody`, `preludio`, `bach_fuga` |
+| **Baroque** | 54 | 84 | 30 | `bach_bourree`, `bach_gavotte`, `bach_gigue`; riêng `bach_chaconne` là `52…88` (span 36) vì breakout của Chaconne to hơn vũ điệu |
+| **Động năng** | 46 | 90 | 44 | `study`, `galop`, `mozart_var`, `villa_pattern`, `choro`, `polca`, `hemiola`, `vals`, `brouwer_etude`; riêng `elogio_pizz` là `44…92` (span 48) |
+
+`bach_fuga` ở nhóm Hát để chủ đề trầm còn nghe rõ dưới tirata. `elogio_pizz` tách khỏi nhóm Động năng vì cú slap và đoạn chạy thay slap cần đỉnh cao hơn etude.
+
+Chương `1M` của Brouwer rơi vào `sarabande` nên dùng cửa sổ Hát `52…82`: mở dưới mức nói `60`, đáp trên đỉnh pattern `72`, chưa chạm trần punch `88`.
+
+#### B. Dịch theo band của ô mở
+
+Band lấy tại ô của `passage.start`. Cộng cùng một lượng vào cả hai đầu để span không đổi:
+
+| Band | Dịch |
+|---|---:|
+| `p` | −8 |
+| `mp` | −4 |
+| `mf` | 0 |
+| `f` | +4 |
+
+Sau khi dịch, kẹp `soft ≥ 40` và `loud ≤ 96`. Nếu kẹp làm span ngắn hơn span gốc của cửa sổ, đẩy đầu còn lại vào trong để giữ đúng span (ví dụ Hát ở `f` thành `56…86`; Hát ở `p` thành `44…74`).
+
+#### C. Một chiều, tuyến tính trên từng cú đánh
+
+Gọi `prev` là velocity của nốt `lead` đang ngân ngay trước `passage.start` (`_MELODY = 64` nếu đoạn mở đầu bài).
+
+- **Sóng lên**: mở tại $\min(\text{prev},\ \text{soft})$, đáp tại `loud`. Nếu `prev` đã nhỏ hơn `soft`, giữ `prev` để nốt đầu không bật to rồi mới crescendo. Nếu `prev` đang ở `72` hoặc cao hơn, nốt đầu của scale **xuống** `soft` rồi chỉ đi lên. Bước xuống một cú ở vạch vào là cách lấy đà; bên trong đoạn không có chiều giảm.
+- **Sóng xuống**: mở tại $\max(\text{prev},\ \text{loud})$ nhưng không quá `96`, đáp tại `soft`. Nếu `prev` đang nhỏ hơn `loud`, nốt đầu **lên** `loud` rồi chỉ đi xuống.
+
+Ramp tuyến tính trên **thứ tự cú đánh** của bè Cao (mỗi móc kép là một bước, nốt đích tại `target` là bước cuối), làm tròn số nguyên. Sau khi làm tròn, ép không giảm (sóng lên) hoặc không tăng (sóng xuống), và gán đúng velocity đích cho cú cuối. Đoạn ít nốt vẫn đi hết cửa sổ: 8 cú trên span 30 là khoảng 4 bậc mỗi cú, đủ nghe là một lần tăng hoặc một lần giảm.
+
+Bass (`_BASS`) và bè giữa (`_INNER`) giữ mức của pattern. Hairpin chỉ ở bè Cao.
+
+`scale_eighths` tiếp tục chặn `_shape_dynamics`. Nếu không chặn, pass đó kẹp hầu hết nốt về `44…78` và kéo đỉnh `loud` về `_MELODY_APEX`.
+
+#### D. Phạm vi
+
+- Mọi `ScalePassage` và cửa sổ giảm Cấp 1 của engine mới dùng Mục 2.6.
+- Swarm nội tại của Brouwer `sarabande` (`_modal_figure`) dùng cùng cửa sổ Hát, theo chiều của swarm. Chương chậm `1M` nghe figuration này ở nửa sau các ô đang chuyển động, kể cả khi ngân sách không cấp `ScalePassage`.
+- Scale nội tại của Bach (`_fitting_scale` trên `bach_gigue`, `bach_chaconne`, `bach_sarabande`) **giữ** swell câu `60…72`. Đó là dấu nhận của điệu, không phải đoạn chạy impulse. Chỉ đoạn nối `ScalePassage` đè lên các ô đó mới dùng cửa sổ Baroque / Chaconne ở trên.
 
 ---
 
@@ -308,7 +358,7 @@ Người nghe thực tế nghe đường giai điệu `melody` trên nền hợp
   - Bước 4: sau khi chốt xong `ScalePassage` và `perpetual`, giữ các cửa sổ giảm Cấp 1 trên Nhóm 2 không bị `ScalePassage` nào thay thế theo `score` cho đến khi đầy phần `room` còn lại (cửa sổ Cấp 1 không tham gia khoảng thở).
 - Khi áp dụng `ScalePassage` trên Nhóm 2 và Nhóm 3:
   - Loại các ô có `ScalePassage` khỏi `bell_bars`.
-  - Đánh dấu toàn bộ khoảng đóng `[passage.start, passage.target]` (bao gồm cả eighth đích `passage.target`) vào tập `scale_eighths` để `_relax_texture` (trong `_smooth_boundaries`), `_shape_dynamics` và `_slur` không ghi đè hoặc làm mất đỉnh velocity `_MELODY_APEX` (`72`) tại `passage.target`.
+  - Đánh dấu toàn bộ khoảng đóng `[passage.start, passage.target]` (bao gồm cả eighth đích `passage.target`) vào tập `scale_eighths` để `_relax_texture` (trong `_smooth_boundaries`), `_shape_dynamics` và `_slur` không ghi đè hairpin Mục 2.6 và không kéo nốt đích về `_MELODY_APEX` (`72`).
 
 ### 3.5. `backend/tests/test_sonify_guitar.py`
 - Bổ sung và cập nhật bộ kiểm thử:
@@ -325,4 +375,4 @@ Người nghe thực tế nghe đường giai điệu `melody` trên nền hợp
      - Kiểm tra toàn bộ 5 composer vượt qua `assert_playable` (bao gồm `_quarter_ok` trên mọi chùm 4 móc kép, đặc biệt khi Villa-Lobos fallback khỏi dây buông không hợp thế tay) trên cả 5 giọng (`C, D, Eb, A, Bb`).
   4. **Test Ngân sách `<= 30% body_eighths` (Quy trình 4 bước) & Mix Well**:
      - Kiểm tra quy trình 4 bước: `room = max(0, max_scale_eighths - base_intrinsic_eighths)`; khi `room == 0` thì không giữ cửa sổ Cấp 1 và không cấp `ScalePassage` / `perpetual`; khi `room > 0` thì ưu tiên chọn `ScalePassage` và `perpetual` trước, sau đó mới giữ các cửa sổ Cấp 1 không bị thay thế trong phần `room` còn lại sao cho tổng không bao giờ vượt `max_scale_eighths`.
-     - Kiểm tra vận tốc Điểm Vào luôn crescendo lên `_MELODY_APEX` (`72`) mà không bị đi lùi khi pattern trước đang ở velocity cao; tại Điểm Ra `passage.target`, cao độ luôn trùng `melody[target]` với velocity đích được bảo vệ trong `scale_eighths`, và bè Bass/Trung của pattern sau giữ đúng lịch `ctx.strong` của pattern đó (dù `target` rơi vào phách mạnh hay giữ ở phách yếu khi snap bị từ chối).
+     - Kiểm tra hairpin Mục 2.6: sóng lên chỉ tăng, sóng xuống chỉ giảm, cú cuối đúng `loud` hoặc `soft` của cửa sổ pattern (sau khi dịch band); span không co về `66…72`. `sarabande` của Brouwer (cửa sổ Hát, đúng chương `1M`) rộng hơn `elogio_pizz` ở đáy và thấp hơn ở đỉnh. `_shape_dynamics` không ghi đè các eighth trong `scale_eighths`. Cao độ tại `passage.target` trùng `melody[target]`. Bass và bè giữa của pattern sau giữ lịch `ctx.strong` (dù `target` rơi vào phách mạnh hay giữ ở phách yếu khi snap bị từ chối).
