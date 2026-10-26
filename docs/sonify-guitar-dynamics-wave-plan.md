@@ -79,22 +79,31 @@ Với mỗi `FormSection` thân bài `[sec_start, sec_end)`:
     $$u_{\text{raw}}(b) = \text{clamp}\left(\frac{\tilde{\ell}(b) - q_{05}}{q_{95} - q_{05}},\; 0.0,\; 1.0\right), \qquad u(b) = \frac{u_{\text{raw}}(b) - \min u_{\text{raw}}}{\max u_{\text{raw}} - \min u_{\text{raw}}} \in [0.0, 1.0]$$
 - **Hệ quả**: Do kẹp theo phân vị $[q_{05}, q_{95}]$, trên section dài có thể có một **tập các ô cực đại** $\mathcal{B}_{\max} = \{b \mid u(b) == 1.0\}$ (khoảng $\le 5\%$ số ô) và một **tập các ô cực tiểu** $\mathcal{B}_{\min} = \{b \mid u(b) == 0.0\}$. Mọi ô $b^* \in \mathcal{B}_{\max}$ đều đạt $u(b^*) = 1.0$, và mọi ô $b_* \in \mathcal{B}_{\min}$ đều đạt $u(b_*) = 0.0$.
 
-#### Bước D — Nội Suy Cosine Liên Tục Qua Vạch Nhịp & Giữ Phẳng Ô Cực Trị (`Continuous Barline Interpolation`)
-- Để vừa giữ phẳng toàn bộ các móc đơn trong mọi ô cực trị $b \in \mathcal{B}_{\min} \cup \mathcal{B}_{\max}$, vừa **không bị đứt gãy tại vạch nhịp khi rời khỏi ô cực trị** (ví dụ ô `10` có $u(10) = 1.0$, sang ô `11` có $u(11) = 0.72$: nếu mở đầu ô `11` tại `0.72` thì vạch nhịp từ cuối ô `10` sang đầu ô `11` sẽ rơi thẳng từ `1.0` xuống `0.72`), mỗi ô không cực trị nội suy **từ mức đã chốt ở cuối ô trước ($u_{\text{start}}(b)$) tới mức mục tiêu của chính nó ($u(b)$) ở cuối ô**:
-  - Đặt mức mở đầu của ô $b \in [\text{sec\_start}, \text{sec\_end})$:
-    $$u_{\text{start}}(b) = \begin{cases}
+#### Bước D — Nội Suy Cosine Liên Tục Hai Chiều Qua Vạch Nhịp & Giữ Phẳng Ô Cực Trị (`Continuous Barline Interpolation`)
+- Để vừa giữ phẳng toàn bộ các móc đơn trong mọi ô cực trị $b \in \mathcal{B}_{\min} \cup \mathcal{B}_{\max}$, vừa **liên tục tuyệt đối ở cả hai chiều bước vào và bước ra khỏi ô cực trị** (không nhảy cóc từ `0.80 -> 1.0` khi vào đỉnh, và không lệch `0.989` ở móc đơn đầu khi rời đỉnh):
+  - Với mỗi ô $b \in [\text{sec\_start}, \text{sec\_end})$, xác định **điểm đầu ô $u_{\text{start}}(b)$** và **điểm cuối ô $u_{\text{end}}(b)$** bằng đệ quy từ trái sang phải:
+    $$\begin{aligned}
+    u_{\text{start}}(b) &= \begin{cases}
     u(b), & \text{nếu } b == \text{sec\_start} \text{ hoặc } u(b) \in \{0.0,\; 1.0\} \\
-    u(b - 1), & \text{ngược lại}
-    \end{cases}$$
-  - Tại móc đơn thứ $k \in \{0, 1, \dots, \text{epb} - 1\}$ bên trong ô $b$ (với $t = b \cdot \text{epb} + k$ và tiến độ đi tới cuối ô $r_{\text{end}} = \dfrac{k + 1}{\text{epb}} \in (0, 1]$):
-    $$U_{\text{vol}}(t) = \begin{cases}
+    u_{\text{end}}(b - 1), & \text{ngược lại}
+    \end{cases} \\
+    u_{\text{end}}(b) &= \begin{cases}
     u(b), & \text{nếu } u(b) \in \{0.0,\; 1.0\} \\
-    u_{\text{start}}(b) + \dfrac{1 - \cos(\pi \cdot r_{\text{end}})}{2} \cdot \big(u(b) - u_{\text{start}}(b)\big), & \text{ngược lại}
+    u(b + 1), & \text{nếu } b + 1 < \text{sec\_end} \text{ và } u(b + 1) \in \{0.0,\; 1.0\} \\
+    u(b), & \text{ngược lại}
+    \end{cases}
+    \end{aligned}$$
+  - Tại móc đơn thứ $k \in \{0, 1, \dots, \text{epb} - 1\}$ bên trong ô $b$ (với $t = b \cdot \text{epb} + k$), đặt tỉ lệ vị trí móc đơn trên đoạn $[0, 1]$ là:
+    $$r(k) = \begin{cases}
+    0.0, & \text{nếu } \text{epb} \le 1 \\
+    \dfrac{k}{\text{epb} - 1}, & \text{nếu } \text{epb} > 1 \quad \big(\text{tức } r(0) = 0.0 \text{ tại đầu ô và } r(\text{epb} - 1) = 1.0 \text{ tại cuối ô}\big)
     \end{cases}$$
-- **Kiểm chứng tính liên tục hai chiều tại vạch nhịp**:
-  - **Trên mọi ô cực trị ($u(b) \in \{0.0, 1.0\}$)**: Mọi móc đơn $k = 0 \dots \text{epb}-1$ đều giữ phẳng $U_{\text{vol}}(t) = u(b)$.
-  - **Rời ô cực trị sang ô thường ($u(10) = 1.0 \to u(11) = 0.72$)**: Ô `11` mở tại $u_{\text{start}}(11) = u(10) = 1.0$ và hạ dần theo cosine về đúng `0.72` ở móc đơn cuối ô `11` ($r_{\text{end}} = 1.0 \implies U_{\text{vol}} = 0.72$). Sang ô `12`, $u_{\text{start}}(12) = u(11) = 0.72$ khớp chính xác với điểm kết của ô `11`!
-  - **Vào ô cực trị từ ô thường ($u(9) = 0.80 \to u(10) = 1.0$)**: Cuối ô `9` đạt $u(9) = 0.80$ rồi bước lên cao nguyên đỉnh $u(10) = 1.0$.
+  - Giá trị sóng volume tại móc đơn $t$ là:
+    $$U_{\text{vol}}(t) = u_{\text{start}}(b) + \dfrac{1 - \cos\big(\pi \cdot r(k)\big)}{2} \cdot \big(u_{\text{end}}(b) - u_{\text{start}}(b)\big) \in [0.0, 1.0]$$
+- **Kiểm chứng tính liên tục tuyệt đối ở cả hai chiều**:
+  - **Trên mọi ô cực trị ($u(b) \in \{0.0, 1.0\}$)**: $u_{\text{start}}(b) = u_{\text{end}}(b) = u(b) \implies$ mọi móc đơn $k = 0 \dots \text{epb}-1$ đều giữ phẳng $U_{\text{vol}}(t) = u(b)$.
+  - **Chiều bước vào ô cực trị ($u(8) = 0.60 \to u(9) = 0.80 \to u(10) = 1.0$)**: Vì ô `9` đứng sát trước ô cực trị `10` ($u(10) = 1.0$), nên $u_{\text{start}}(9) = 0.60$ và **$u_{\text{end}}(9) = u(10) = 1.0$**. Móc đơn đầu ô `9` ($k = 0 \implies r = 0.0$) bằng đúng `0.60`, và móc đơn cuối ô `9` ($k = \text{epb} - 1 \implies r = 1.0$) chạm đúng **`1.0`**, nối liền mạch vào cao nguyên phẳng `1.0` của ô `10`! (Cùng quy tắc khi đi vào đáy $u = 0.0$: móc đơn cuối của ô đứng trước đáy chạm đúng `0.0`).
+  - **Chiều bước ra khỏi ô cực trị ($u(10) = 1.0 \to u(11) = 0.72 \to u(12) = 0.55$)**: Trên ô `11`, $u_{\text{start}}(11) = u_{\text{end}}(10) = 1.0$ và $u_{\text{end}}(11) = u(11) = 0.72$. Tại móc đơn đầu ô `11` ($k = 0 \implies r = 0.0$), $U_{\text{vol}}$ bằng **đúng `1.0`** (không bị hụt xuống `0.989`), và tại móc đơn cuối ô `11` ($k = \text{epb} - 1 \implies r = 1.0$), $U_{\text{vol}}$ hạ về **đúng `0.72`**, khớp với $u_{\text{start}}(12) = 0.72$!
 
 ---
 
@@ -284,8 +293,9 @@ Khi đưa vào `apply_guitar_wave()`:
    - Trong vùng `pedal`, bảo toàn cấu trúc chênh lệch tương đối giữa các nốt bên trong từng cử chỉ của `guitar_frame.py` (ví dụ contour chuông `44, 50, 46` hay cantabile `46 -> 52` của Barrios).
    - **Intro (`leading` pedal bars)**:
      - Đặt mục tiêu nối biên $V_{\text{join}} = V_{\text{hat}}(t_{\text{body\_start}}) \in [V_{\text{floor}}, V_{\text{ceil}} \le 63]$ là mức vận tốc của móc đơn đầu tiên trong thân bài (nếu ô đầu thân bài là đỉnh thanh khoản thì $V_{\text{join}} = V_{\text{ceil}}$ lên tới `63`).
-     - Ánh xạ các nốt của Intro từ mức khởi âm **$ppp - pp$ (`22..32` ở đầu ô 0)** tăng dần để **nốt cuối cùng của Intro (nốt dẫn/pickup sát vạch nhịp vào thân bài) bằng đúng $V_{\text{join}}$** (còn trên `low`/`support` thì khớp với mức đầu thân bài của bè đó).
-     - **Trần `56` dừng ở đầu ô nối cuối cùng của Intro (`last_intro_bar = leading[-1]`)**: Các ô Intro đứng trước `last_intro_bar` bị kẹp `<= 56`; riêng bên trong ô nối cuối cùng `last_intro_bar`, các móc đơn được nội suy mượt giữa mức đầu ô nối (`<= 56`) và $V_{\text{join}}$ để tiến tới đúng $V_{\text{join}}$ ở nốt cuối cùng (không bao giờ kẹp nốt áp chót ở `56` khi $V_{\text{join}} = 63$).
+     - Các ô Intro đứng trước ô nối cuối cùng (`bar < last_intro_bar`, với `last_intro_bar = leading[-1]`) được dịch theo đường bao khởi âm từ **$ppp - pp$ (`22..32` ở đầu ô 0)** lên tối đa **`<= 56`** (giữ nguyên độ lệch tương đối bên trong từng cử chỉ như chuông `44, 50, 46` hay cantabile `46 -> 52`).
+     - **Trên ô nối cuối cùng của Intro (`last_intro_bar = leading[-1]`) — Dịch nguyên cử chỉ để giữ khoảng cách nội bộ và neo nốt cuối bằng đúng $V_{\text{join}}$**:
+       Không nội suy phẳng làm mất hình dáng cử chỉ của `last_intro_bar`; thay vào đó, tính một độ dịch chung $\Delta_{\text{join}} = V_{\text{join}} - V_{\text{written\_last}}$ (với $V_{\text{written\_last}}$ là velocity viết sẵn của nốt cuối cùng trên bè hát trong `last_intro_bar`), rồi cộng $\Delta_{\text{join}}$ cho toàn bộ các nốt của cử chỉ trong `last_intro_bar` (kẹp sàn `>= 20` và kẹp trần `<= max(56, V_join)`). Nhờ đó, **nốt cuối cùng của Intro bằng đúng $V_{\text{join}}$** trong khi các nốt đứng trước trong cùng cử chỉ của `last_intro_bar` vẫn **giữ nguyên 100% khoảng cách tương đối** so với nốt cuối!
    - **Outro (`trailing` pedal bars)**: Áp dụng hàm suy giảm mũ (**Morendo Curve**) bắt đầu từ đúng mức cuối thân bài $V_{\text{hat}}(t_{\text{body\_end}})$ hạ dần về **`20..26` ($ppp$)** ở ô cuối cùng (hợp âm chuông / Picardy third tan dần).
 2. **Một bộ số thống nhất cho các cú Stab kịch tính trong Frame (`70 / 66 / 62`, thấp hơn Bartók slap `72..76` của thân bài)**:
    - Tại nhánh kịch tính `edge == True` của Brouwer (`_edge_stab` ở đầu Intro và `_stab_and_ring` ở cuối Outro) và nhánh `bright == True` (`_stabs` ở cuối Outro của Villa): các nốt mang đồng thời `staccato=True` và `accent=True` (hoặc thuộc `_stabs` cuối bài) được gán **một bộ số duy nhất**:
@@ -322,7 +332,7 @@ Khi đưa vào `apply_guitar_wave()`:
 4. **Bước 4 — Viết `backend/tests/test_guitar_wave.py` và cập nhật `backend/tests/test_sonify_guitar.py`**:
    - Cập nhật các assertion số tuyệt đối cũ (`56, 60, 64, 72`) trong `test_sonify_guitar.py` sang kiểm tra khoảng động lực học mới và cấu trúc tương đối.
    - Trong `test_guitar_wave.py`, kiểm tra đủ 7 tiêu chí:
-     1. **Làm mượt Volume & Cực Đại/Cực Tiểu Trên Tập Ô Cực Trị Của Section (kể cả ở biên mở/đóng cửa)**: một chuỗi volume trên section tạo ra tập ô đáy $\mathcal{B}_{\min} = \{b_* \mid u(b_*) == 0.0\}$ đều chạm đúng **$V_{\text{floor}}$** và tập ô đỉnh $\mathcal{B}_{\max} = \{b^* \mid u(b^*) == 1.0\}$ (đặt ở đầu phiên, giữa phiên hoặc cuối phiên) **tất cả đều bằng đúng $V_{\text{ceil}}$**; vạch nhịp rời khỏi ô đỉnh $b^*$ mở đầu tại `1.0` rồi hạ mượt về $u(b^* + 1)$ ở cuối ô kế tiếp; và giữa hai ô trung gian có volume sát nhau, độ lệch ngược chiều tối đa không vượt quá **`3` đơn vị MIDI (đúng bằng $D_{\max} = 3$)** khi một ô ở đỉnh câu ($\Delta = 0$) và ô kia ở biên câu ($\Delta = -3$).
+     1. **Làm mượt Volume & Cực Đại/Cực Tiểu Trên Tập Ô Cực Trị Của Section (kể cả ở biên mở/đóng cửa)**: một chuỗi volume trên section tạo ra tập ô đáy $\mathcal{B}_{\min} = \{b_* \mid u(b_*) == 0.0\}$ đều chạm đúng **$V_{\text{floor}}$** và tập ô đỉnh $\mathcal{B}_{\max} = \{b^* \mid u(b^*) == 1.0\}$ (đặt ở đầu phiên, giữa phiên hoặc cuối phiên) **tất cả đều bằng đúng $V_{\text{ceil}}$**; cả hai chiều bước vào (móc đơn cuối của ô đứng trước $b^*$ chạm đúng `1.0`) và bước ra (móc đơn đầu của ô đứng sau $b^*$ mở đúng tại `1.0` theo $r(k) = k / (\text{epb} - 1)$ rồi hạ về $u_{\text{end}}$ ở móc đơn cuối) đều liên tục qua vạch nhịp; và giữa hai ô trung gian có volume sát nhau, độ lệch ngược chiều tối đa không vượt quá **`3` đơn vị MIDI (đúng bằng $D_{\max} = 3$)** khi một ô ở đỉnh câu ($\Delta = 0$) và ô kia ở biên câu ($\Delta = -3$).
      2. **Phiên `calm` biên độ giá hẹp ($\alpha_{\text{price}} < 0.25$) nhưng có sóng Volume chữ U**: sóng ấm vẫn mở rộng từ $ppp - pp$ (`<= 34`) lên `56..63` theo $\alpha_{\text{warm}}$, nhưng **Cổng Snap đóng hoàn toàn (`0%` nốt vượt `64` sau `humanize`)** trên mọi pattern trừ tối đa `1` cú slap của `elogio_pizz`.
      3. **Phiên biến động giá rộng ($\alpha_{\text{price}} \ge 0.50$) kiểm tra theo `PatternWaveProfile`**:
         - Với các pattern có `snap_wide is None` (`cantabile`, `andante`, `chord_melody`, `noviembre`, `bach_sarabande`): **0% số nốt vượt `64`** kể cả trong phiên `rally` / `volatile`.
