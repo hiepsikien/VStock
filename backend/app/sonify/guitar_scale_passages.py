@@ -979,7 +979,8 @@ def _rewrite_bass(
     low: list[NoteEvent],
 ) -> list[NoteEvent]:
     start, target = passage.start, passage.target
-    low = _drop_region(low, start, target, ctx.epb, _slap_eighths(ctx, patterns, passage))
+    slap = _slap_eighths(ctx, patterns, passage)
+    low = _drop_region(low, start, target, ctx.epb, slap)
     leads = _leads_at(slots, pitches)
     first = start // ctx.epb
     last = max(first, (target - 1) // ctx.epb)
@@ -992,7 +993,7 @@ def _rewrite_bass(
         pattern = _bar_pattern(ctx, bar, patterns)
         if pattern == "bach_fuga":
             continue
-        onsets = _bass_onsets(ctx, pattern, bar, start, target)
+        onsets = [eighth for eighth in _bass_onsets(ctx, pattern, bar, start, target) if eighth not in slap]
         for index, eighth in enumerate(onsets):
             following = onsets[index + 1] if index + 1 < len(onsets) else None
             kept = _next_onset(low, eighth + 1, ctx.epb)

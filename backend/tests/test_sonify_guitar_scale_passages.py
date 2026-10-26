@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from app.sonify.form import METER_44, ChordSlot, FormSection, compose_meter
+from app.sonify.form import METER_44, METER_68, ChordSlot, FormSection, compose_meter
 from app.sonify.chords import C
 from app.sonify.guitar import BARRIOS_TREMOLO_MIN_BPM
 from app.sonify.guitar_bach import _fuga_motif
@@ -96,12 +96,13 @@ def _render(
     raw: list[int] | None = None,
     sections: tuple = (),
     rel_span: float = 0.0,
+    meter=METER_44,
 ) -> Score:
     register = register_for(key)
-    epb = METER_44.eighths_per_bar
+    epb = meter.eighths_per_bar
     bars = len(melody) // epb
     band_at = bands or {bar: "mf" for bar in range(bars)}
-    with compose_meter(METER_44), compose_register(key, register):
+    with compose_meter(meter), compose_register(key, register):
         lead, support, low, divisions = render_patterned_voices(
             melody=list(melody),
             raw_pitches=list(raw if raw is not None else melody),
@@ -145,7 +146,7 @@ def _render(
         ensemble=ensemble,
         divisions=divisions,
         key=key,
-        bar_beats=4.0,
+        bar_beats=meter.quarter_beats,
     )
 
 
@@ -510,6 +511,37 @@ def test_subbar_elogio_keeps_the_bartok_slap() -> None:
     assert any(note.bar == 0 and note.duration_beats <= 0.25 and note.midi is not None for note in long.lead)
     assert _attacks(long.low, 3) == []
     assert _attacks(long.support, 3) == []
+
+
+def test_subbar_elogio_in_six_eight_keeps_one_slap_on_the_strong_eighth() -> None:
+    bar = [64, 65, 66, 67, 69, 70]
+    melody = bar * 4
+    raw = list(range(48, 48 + len(melody)))
+    phrases = (_phrase(0, melody),)
+    kwargs = {
+        "ensemble": "brouwer",
+        "bpm": 108,
+        "character": "volatile",
+        "raw": raw,
+        "meter": METER_68,
+    }
+    plain = _render(melody, phrases, (), **kwargs)
+    short = _render(melody, phrases, (_Impulse(0, 4, "up", 6, score=6),), **kwargs)
+    assert any(note.bar == 0 and note.duration_beats <= 0.25 and note.midi is not None for note in short.lead)
+    plain_bass = [event for event in _attacks(plain.low, 3, epb=6) if event.voice == 3]
+    scaled_bass = [event for event in _attacks(short.low, 3, epb=6) if event.voice == 3]
+    assert len(plain_bass) == len(scaled_bass) == 1
+    assert (scaled_bass[0].midi, scaled_bass[0].accent, scaled_bass[0].staccato) == (
+        plain_bass[0].midi,
+        plain_bass[0].accent,
+        plain_bass[0].staccato,
+    )
+    assert scaled_bass[0].accent and scaled_bass[0].staccato
+    plain_inner = _attacks(plain.support, 3, epb=6)
+    scaled_inner = _attacks(short.support, 3, epb=6)
+    assert plain_inner and [(event.midi, event.accent, event.staccato) for event in plain_inner] == [
+        (event.midi, event.accent, event.staccato) for event in scaled_inner
+    ]
 
 
 def test_retreat_rises_before_it_falls() -> None:
