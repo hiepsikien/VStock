@@ -22,7 +22,7 @@ Mỗi bản cho ra ba khối:
 | Trung thực | Phần hình giá còn lại trên đường giai điệu đã khâu, và chữ liquidity như một kiểm tra hồi quy. |
 | Hợp lệ | Ngữ pháp đếm được: âm hợp âm, dẫn giọng, độ nhàm. Ngưỡng phần vị của M3 và M4 chưa khóa. |
 
-Điểm công bố là bộ ba này. Một tổng có trọng số chỉ xuất hiện sau khi có tập nghe đóng băng.
+Điểm công bố là bộ ba này. Sheet thêm một điểm tổng để đọc nhanh. Đó là trung bình không trọng số của những tỷ lệ đã nằm trên `[0, 1]`: F1, F2 sau khi Spearman được đưa về `(ρ+1)/2`, F4, và M1 của lead/support. Thành phần thiếu được bỏ, không tính là `0`. Giá trị ghi kèm số thành phần trên mẫu số `4`, ví dụ `0,74 · 3/4`. Cổng, F3, F5, F6, M2, M3, M4 và bốn đối chứng đứng ngoài, vì chúng chưa cùng thang hoặc mục 8 chưa dùng chúng làm điểm. Tổng có trọng số vẫn chờ rổ nghe. Chip `QA` vẫn chỉ là ba cổng.
 
 App mobile hiện một chip `QA` trong khối nghe của giao hưởng ngày. Chip mở đúng bản ghi này: cổng, F, M, và bốn đối chứng. Mỗi dòng có nút `i` mở câu giải thích của chỉ số đó. Jazz, guitar, ambient, tối giản, và span `1W`–`1Y` không có chip, vì giai đoạn 1 chưa chấm những bản đó. `humanize` không đổi số trên sheet.
 

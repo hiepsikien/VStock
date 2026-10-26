@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from app.routers.stocks import router
 from app.schemas import SonifyQaResponse
 from app.sonify.model import Bar
-from app.sonify.qa import score_daily_bars
+from app.sonify.qa import ratio_total, score_daily_bars
 
 
 def _line(payload: dict, block: str, label: str) -> str:
@@ -43,7 +43,27 @@ def test_daily_symphony_sheet_reports_gates_and_skips_one_regime() -> None:
     assert "lead và support" in _hint(payload, "F3 lead/support")
     assert "đáy" in _hint(payload, "F4 điểm ngoặt")
     assert "cùng đi một hướng" in _hint(payload, "M2 quãng 5 song song")
+    total = _line(payload, "Tổng", "Điểm tổng")
+    assert total.endswith("/4")
+    assert "F5" in _hint(payload, "Điểm tổng")
+    assert payload["chip"] == "QA · đạt"
     assert "dương rõ" in _hint(payload, "Xáo regime F6")
+
+
+def test_ratio_total_maps_spearman_and_skips_missing_parts() -> None:
+    assert ratio_total(1, 1, 1, 1) == (1, 4)
+    assert ratio_total(0, -1, 0, 0) == (0, 4)
+    mean, count = ratio_total(0.8, 0, None, 1)
+    assert count == 3
+    assert mean == (0.8 + 0.5 + 1) / 3
+    assert ratio_total(None, None, None, None) == (None, 0)
+
+
+def test_flat_session_omits_contour_from_the_total() -> None:
+    bars = [Bar(50.0, 1_000.0, 50.0) for _ in range(30)]
+    payload = score_daily_bars("VNM", bars, "classic")
+    assert _line(payload, "Trung thực", "F1 hướng") == "—"
+    assert _line(payload, "Tổng", "Điểm tổng").endswith("· 1/4")
 
 
 def test_recap_score_route_is_symphony_only(monkeypatch) -> None:

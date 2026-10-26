@@ -31,8 +31,34 @@ def score_daily_bars(symbol: str, bars: list[Bar], ensemble: Ensemble = "classic
     return present(record)
 
 
+def ratio_total(
+    f1: float | None,
+    f2: float | None,
+    f4: float | None,
+    m1: float | None,
+) -> tuple[float | None, int]:
+    """Unweighted mean of the measures that already sit on 0–1.
+
+    Spearman is mapped with `(rho + 1) / 2` before it enters. A missing
+    measure is left out. It is not scored as zero. F3, F5, F6, the raw M
+    counts, the gates, and the controls stay outside this mean.
+    """
+    parts: list[float] = []
+    if f1 is not None:
+        parts.append(f1)
+    if f2 is not None:
+        parts.append((f2 + 1) / 2)
+    if f4 is not None:
+        parts.append(f4)
+    if m1 is not None:
+        parts.append(m1)
+    if not parts:
+        return None, 0
+    return sum(parts) / len(parts), len(parts)
+
+
 def present(record: DailyRecord) -> dict[str, object]:
-    """Labels for the sheet. The chip stays a gate check, with no composite score."""
+    """Labels for the sheet. The chip stays the three gates. The total is the ratio mean."""
     passed = _gates_pass(record.gates)
     notes: list[str] = []
     if not record.observations.mode_wired:
@@ -53,6 +79,10 @@ def present(record: DailyRecord) -> dict[str, object]:
         "gatesPass": passed,
         "chip": "QA · đạt" if passed else "QA · trượt",
         "blocks": [
+            {
+                "title": "Tổng",
+                "lines": [_row("Điểm tổng", _total_value(record))],
+            },
             {
                 "title": "Cổng",
                 "lines": [
@@ -110,7 +140,14 @@ def present(record: DailyRecord) -> dict[str, object]:
     }
 
 
+_RATIO_SLOTS = 4
+
 _HINTS = {
+    "Điểm tổng": (
+        "Trung bình không trọng số của các tỷ lệ đã có thang 0–1: F1, F2 sau khi đưa Spearman về (ρ+1)/2, "
+        "F4 điểm ngoặt, và M1 lead/support. Thành phần thiếu được bỏ, không tính là 0. Mẫu số là 4. "
+        "Cổng, F3, F5, F6, M2, M3, M4 và các đối chứng đứng ngoài. Đây chưa phải tổng có trọng số của mục 8."
+    ),
     "Nến trên thân": "Mọi nến nguồn phải nằm trên ô 2–31. Ô 0–1 và 32–33 là khung, không giữ nến.",
     "Khung p → ppp": "Ô 0 mở p, ô 33 tới ppp. Hai đầu khung đạp chủ âm của hợp âm ô đó.",
     "Span hẹp toàn mf": "Span volume dưới 2 lần và mọi cửa sổ thân có volume dương thì mọi chữ là mf. Cửa sổ im vẫn là p, cổng này không áp.",
@@ -143,6 +180,18 @@ _HINTS = {
 
 def _row(label: str, value: str) -> dict[str, str]:
     return {"label": label, "value": value, "hint": _HINTS[label]}
+
+
+def _total_value(record: DailyRecord) -> str:
+    mean, count = ratio_total(
+        record.fidelity.f1,
+        record.fidelity.f2,
+        record.fidelity.f4,
+        record.legality.m1_lead_support,
+    )
+    if mean is None:
+        return "—"
+    return f"{_fmt(mean)} · {count}/{_RATIO_SLOTS}"
 
 
 def _gates_pass(gates: Gates) -> bool:
