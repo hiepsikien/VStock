@@ -46,9 +46,11 @@ Nốt sở hữu đổi sang chỉ số thang Đô. Không cộng `key.semitones
 
 Lead và support lưu đúng MIDI đã snap. High không lưu MIDI đó. `flute_harmony_pitch` viết quãng 3 hoặc quãng 5 đúng phía trên nốt snap (3, 4 hoặc 7 semitone), ưu tiên âm hợp âm. Vòng sau đó trong `_flute_and_violin_dovetail` hạ từng bát độ cho tới khi nốt không vượt `flute_ceiling`. Trần này là 88 với giọng Đô. `register_for` trừ thêm `key.semitones` khi giọng nằm phía thăng. Đỉnh giá của mọi phiên bị min–max kéo tới MIDI 96, cao hơn trần.
 
-Một bước: giai điệu từ Đô6 (84) lên Rê6 (86). Flute đang ở Mi6 (88). Nốt mới là Fa6 (89), vượt trần, bị hạ thành Fa5 (77). Giá đi lên một bậc thang. Đường khâu đi xuống sáu bậc. F1 ghi một bước ngược đúng chỗ phiên chạm đỉnh.
+Bước ngược có hệ thống nằm lúc vượt trần, giữa vùng cao, không nằm ở móc `r` đạt cực đại. Giai điệu từ Đô6 (84) lên Rê6 (86) là lúc nốt vượt `violin_ceiling` (84) và quãng 3 chạm `flute_ceiling`. Flute đang ở Mi6 (88). Nốt mới là Fa6 (89), vượt trần, bị hạ thành Fa5 (77). Giá đi lên một bậc thang. Đường khâu đi xuống sáu bậc.
 
-F1 và F4 đọc MIDI đã ghi trên high, kể cả nốt đã hạ. Bước ngược lúc giá chạm đỉnh là hệ quả của trần flute. Đó là tín hiệu trung thực của đường tai nghe, không phải lỗi của chỉ số, và không được sửa bằng cách lấy lại hướng của nốt snap. F2 chỉ dùng móc lead và support. F3 tách hai tập. Tập lead/support là độ bẻ của snap. Tập high gồm quãng 3 hoặc quãng 5, và gồm cả bước −7 bậc thang của mỗi lần hạ bát độ. Độ lệch hai hoặc bốn bậc trên high chưa phải toàn bộ hóa đơn của bè đó.
+Đỉnh phiên là MIDI 96. Với quãng 3, nốt flute ở đó là Mi7 (100), hạ một lần về Mi6 (88). Bước viết liền trước đi từ Si6, hạ về Rê7 rồi về 86. Hướng của bước đó vẫn đi lên, cùng chiều với giá.
+
+F1 giữ mọi bước MIDI đã ghi trên high, kể cả nốt đã hạ. Không đi tìm một bước ngược tại móc đỉnh để xác nhận chỉ số. Không thấy bước đó ở cực đại của `r` không có nghĩa là máy đo bỏ qua lần hạ bát độ. F4 cũng lấy cực trị trên MIDI đã ghi. Không lấy lại hướng của nốt snap. F2 chỉ dùng móc lead và support. F3 tách hai tập. Tập lead/support là độ bẻ của snap. Tập high gồm quãng 3 hoặc quãng 5, và gồm cả bước −7 bậc thang của mỗi lần hạ bát độ. Độ lệch hai hoặc bốn bậc trên high chưa phải toàn bộ hóa đơn của bè đó.
 
 Móc không bè giai điệu nào kêu thì `m` khuyết. Không giữ nốt violin vừa nghỉ nếu high hoặc support đang kêu. F1 bỏ một bước chỉ khi `m` khuyết ở một trong hai đầu, hoặc khi `Δr` bằng 0. Giữ nốt violin qua mọi chỗ nó nghỉ sẽ bỏ đúng những bước giá đi lúc dòng đã chuyển sang flute hoặc cello. F1 còn lại chỉ trả lời câu violin có nhúc nhích đúng hướng hay không.
 
@@ -56,11 +58,11 @@ Móc không bè giai điệu nào kêu thì `m` khuyết. Không giữ nốt vio
 
 | Mã | Cách tính | Bỏ qua khi | Cách đọc |
 |---|---|---|---|
-| F1 hướng | Tỷ lệ bước mà dấu `Δr` và dấu `Δm` trùng nhau, trên đường khâu. `m` là MIDI đã ghi, kể cả nốt flute đã hạ bát độ | Dưới 3 bậc thang khác nhau trong `r` | `1` bám hướng. Quanh `0,5` mất contour. Một bước ngược lúc `r` chạm đỉnh là trần flute, giữ nguyên trong tỷ lệ |
+| F1 hướng | Tỷ lệ bước mà dấu `Δr` và dấu `Δm` trùng nhau, trên đường khâu. `m` là MIDI đã ghi, kể cả nốt flute đã hạ bát độ | Dưới 3 bậc thang khác nhau trong `r` | `1` bám hướng. Quanh `0,5` mất contour. Bước ngược lúc vượt trần nằm giữa vùng cao và ở lại trong tỷ lệ. Không yêu cầu nó rơi đúng móc cực đại của `r` |
 | F2 mức | Spearman(`r`, `m`) trên phách mạnh thuộc lead hoặc support | Cùng điều kiện ít bậc thang. Móc high không vào phép này | Khớp thứ hạng trong phiên. Không đo phần trăm lợi suất |
 | F3 độ bẻ | Trung bình `\|m − r\|` trên phách mạnh, đơn vị bậc thang. Báo riêng lead/support và high | Luôn báo hai số khi có móc | Số lead/support là hóa đơn của snap. Số high gồm quãng 3 hoặc quãng 5 và các bước −7 bậc của lần hạ |
-| F4 điểm ngoặt | Recall cực trị của `r` nổi ít nhất 1 bậc thang, khớp cực trị của `m` cùng hướng trong ±1 ô. Cực trị của `m` lấy trên MIDI đã ghi, kể cả nốt đã hạ | Thân không có cực trị nổi | Đỉnh của `r` có thể đứng cạnh một đáy của đường flute đã hạ. Không lấy lại cực trị của nốt snap |
-| F5 chữ liquidity | Spearman giữa volume cửa sổ (`average_liquidity`) và hạng `p < mp < mf < f` của `score.liquidity`, chỉ cửa sổ nằm trong ô `2–31` | `high/low < MIN_SPAN_RATIO` (`2`). Khi đó mọi cửa sổ là `mf` và Spearman không xác định | Kiểm tra hồi quy của `marking_for_volume`. Không phải thanh khoản nghe được |
+| F4 điểm ngoặt | Recall cực trị của `r` nổi ít nhất 1 bậc thang, khớp cực trị của `m` cùng hướng trong ±1 ô. Cực trị của `m` lấy trên MIDI đã ghi, kể cả nốt đã hạ | Thân không có cực trị nổi | Không lấy lại cực trị của nốt snap. Không thấy bước ngược tại cực đại của `r` không có nghĩa là lần hạ bị bỏ |
+| F5 chữ liquidity | Spearman giữa volume cửa sổ (`average_liquidity`) và hạng `p < mp < mf < f` của `score.liquidity`, chỉ cửa sổ nằm trong ô `2–31` | Mọi cửa sổ ô `2–31` cùng một chữ. Span dưới `2×` chưa đủ để bỏ: cửa sổ volume `≤ 0` vẫn là `p` | Kiểm tra hồi quy của `marking_for_volume`. Không phải thanh khoản nghe được |
 | F6 regime | Trung bình `chord_bias(chord, regime, character)` của hợp âm trên ô `2–31`, trừ trung bình cùng hàm trên catalog planner đã xét | Ô `0–1` và `32–33` | Lift dương, và đối chứng xáo nhãn làm lift tụt, thì hợp âm còn mang regime |
 
 `score.liquidity` chính là `marking_for_volume` áp lên các cửa sổ `average_liquidity`. Spearman giữa một bậc thang đơn điệu và input của chính nó thì cao mỗi khi có nhiều hơn một chữ. Đảo volume mà giữ nguyên chữ thì F5 đổi dấu dù không có nốt nào được viết lại. Chữ piano (`piano_marking` gập còn `p` / `mp`), trần `mp` của bass, và groove `chamber` / `half` đứng ngoài F5. Sửa những chỗ đó thì F5 không đổi. Mục 8 không dùng “F5 tăng” để nhận một thay đổi động lực nghe được.
@@ -97,7 +99,7 @@ Bản ngày không gọi `movement_mode`. `render` truyền `character` và đ�
 
 Cổng đang khóa, vì renderer đang giữ:
 
-- Volume span dưới `2×`: `marking_for_volume` trả `mf` cho mọi cửa sổ liquidity.
+- Volume span dưới `2×` và mọi cửa sổ ô `2–31` có volume dương: `marking_for_volume` trả `mf` cho các cửa sổ đó. `volume ≤ 0` trả `p` trước khi xét `MIN_SPAN_RATIO`, nên một cửa sổ im trong phiên này vẫn là `p` và các cửa sổ dương vẫn là `mf`. Spearman của F5 khi đó vẫn xác định. Cổng “mọi cửa sổ là `mf`” không áp vào phiên có cửa sổ im.
 - M5, như bảng trên.
 - Mọi nến nguồn nằm trên ô `2–31`.
 
@@ -135,7 +137,7 @@ Trước lúc đó, giai đoạn 1 chỉ ghi, trên mỗi phiên, bản ghi sau.
 - F1–F6. F3 có hai số. F5 ghi rõ là kiểm tra chữ.
 - M1 tách lead/support và high. M2, M3, M4 là số thô. M5 là cổng.
 - Tầng: variant, span, character, số bậc thang phân biệt của `r`, số bậc của `m`, volume span ratio, số móc high.
-- Ba đối chứng mục 7, tính trên cùng `Score`.
+- Bốn đối chứng mục 7, tính trên cùng `Score`. Phép thứ tư hoán vị cao độ đường khâu. Thiếu phép đó thì không còn chỗ làm F1 và M1 của lead/support đổ.
 
 Chưa làm trong giai đoạn này: tổng có trọng số, guitar và jazz, nhịp khác `4/4`, bản `1W`–`1Y`, chấm WAV, và luật mục 8. Ô 32 của `1W`, khi tới lượt, ra khỏi F1. Ô đó cố ý lấy giá mở phiên sau.
 
