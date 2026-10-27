@@ -294,12 +294,19 @@ def _quarters(
     *,
     staccato_second: bool = True,
 ) -> list[tuple]:
+    """Two gavotte quarters. The inner voice is a third or a sixth under the lead."""
+    bass, _inner, lead = _stack_pitches(frame, ctx, pcs)
     specs: list[tuple] = []
     for index, offset in enumerate((start, start + 2)):
         if offset >= ctx.epb:
             continue
+        length = min(2, ctx.epb - offset)
         flags = {"staccato": True} if staccato_second and index == 1 else {}
-        specs.extend(_chord(frame, ctx, pcs, offset, min(2, ctx.epb - offset), velocity, flags))
+        tone = _under_lead(frame, ctx, lead, bass, None)
+        specs.append((offset, length, bass, 3, velocity, dict(flags)))
+        specs.append((offset, length, lead, 1, velocity, dict(flags)))
+        if tone is not None and (lead - tone) % 12 in {3, 4, 8, 9}:
+            specs.append((offset, length, tone, 2, velocity, dict(flags)))
     return specs
 
 
@@ -1749,8 +1756,7 @@ def _galop_hits(frame, ctx, bar: int, role: int, *, short: bool, closing: bool) 
             ctx,
             list(zip(offsets, names)),
             frame._MF,
-            accent_all=False,
-            accent_index=1,
+            accent_all=True,
         )
     points = [0]
     second = 4 if 4 < epb else (2 if 2 < epb else None)
