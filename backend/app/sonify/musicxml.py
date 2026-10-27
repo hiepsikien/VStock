@@ -280,13 +280,53 @@ def _attributes(
         _add(transpose, "octave-change", str(octave_change))
 
 
-def _metronome(parent: ET.Element, bpm: int, *, swing: bool = False) -> None:
+def _format_tempo(bpm: float) -> str:
+    rounded = round(float(bpm), 2)
+    if abs(rounded - round(rounded)) < 1e-9:
+        return str(int(round(rounded)))
+    return f"{rounded:.2f}"
+
+
+def _opening_tempo(score: Score) -> float | None:
+    for event in score.tempos:
+        if event.bar == 0 and event.beat <= 1e-6:
+            return event.bpm
+    return None
+
+
+def _hidden_tempo(parent: ET.Element, bpm: float, offset: int | None) -> None:
+    """Playback tempo without a second printed metronome mark."""
+    direction = _add(parent, "direction", placement="above")
+    direction_type = _add(direction, "direction-type")
+    words = _add(direction_type, "words", "a tempo")
+    words.set("print-object", "no")
+    if offset:
+        _add(direction, "offset", str(offset))
+    _add(direction, "sound", tempo=_format_tempo(bpm))
+
+
+def _write_tempo_directions(measure: ET.Element, score: Score, bar: int) -> None:
+    for event in score.tempos:
+        if event.bar != bar or (bar == 0 and event.beat <= 1e-6):
+            continue
+        offset = int(round(event.beat * score.divisions))
+        _hidden_tempo(measure, event.bpm, offset if offset else None)
+
+
+def _metronome(
+    parent: ET.Element,
+    bpm: int,
+    *,
+    swing: bool = False,
+    sound_bpm: float | None = None,
+) -> None:
     direction = _add(parent, "direction", placement="above")
     direction_type = _add(direction, "direction-type")
     metronome = _add(direction_type, "metronome")
     _add(metronome, "beat-unit", "quarter")
     _add(metronome, "per-minute", str(bpm))
-    _add(direction, "sound", tempo=str(bpm))
+    heard = float(bpm) if sound_bpm is None else float(sound_bpm)
+    _add(direction, "sound", tempo=_format_tempo(heard))
     if swing:
         swing_dir = _add(parent, "direction", placement="above")
         word_type = _add(swing_dir, "direction-type")
@@ -431,8 +471,10 @@ def _melody_part(
                 beat_type=score.beat_type,
             )
             if lead:
-                _metronome(measure, score.bpm, swing=score.swing)
+                _metronome(measure, score.bpm, swing=score.swing, sound_bpm=_opening_tempo(score))
             _dynamic(measure, opening_dynamic)
+        if lead:
+            _write_tempo_directions(measure, score, bar)
         pending: list[WedgeEvent | DynamicEvent] = sorted(
             [*edges[bar], *letters[bar]], key=_direction_order
         )
@@ -730,9 +772,10 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                 beats=score.beats,
                 beat_type=score.beat_type,
             )
-            _metronome(measure, score.bpm, swing=False)
+            _metronome(measure, score.bpm, swing=False, sound_bpm=_opening_tempo(score))
             if score.ensemble != "barrios":
                 _dynamic(measure, MELODY_DYNAMIC)
+        _write_tempo_directions(measure, score, bar)
         for event in symbols[bar]:
             _harmony(measure, event, score.key, score.mode)
         for voice_index, voice in enumerate(voices):

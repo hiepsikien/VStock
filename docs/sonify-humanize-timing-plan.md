@@ -1,6 +1,6 @@
 # Humanize: xung lực, sai số, và cửa MuseScore
 
-> **Trạng thái**: đề xuất, chưa code. Lớp đang chạy vẫn là ±2 trên plateau, ghi ở `docs/sonify-humanize-preset-plan.md`. `RECAP_REVISION` là 64, `SPAN_REVISION` là 50.
+> **Trạng thái**: đồng hồ tempo đã viết trong `humanize()`. Lớp velocity vẫn là ±2 trên plateau, ghi ở `docs/sonify-humanize-preset-plan.md`. Dấu lặng từng voice và nhấn +4 đến +6 chưa viết. `RECAP_REVISION` là 65, `SPAN_REVISION` là 51.
 >
 > ±2 là nhiễu lực dưới ngưỡng nghe. Đồng hồ chung khoảng ±1% BPM, cỡ 7 ms ở 88 BPM, MuseScore 4 phát được bằng `<sound tempo>`. Lệch từng voice là hạt khác: nốt 128, 1/32 phách, 21 ms ở 88 BPM và 16 ms ở 120 BPM. Writer chưa phát hình nốt còn lại sau khi trừ hạt đó.
 
@@ -98,7 +98,7 @@ Máy viết tài liệu này không có MuseScore, nên chưa đo WAV xác nhậ
 | Từng voice, cú trễ, khoảng sau ngắn lại | Cần tổng `<type>` trước cú sau giữ nguyên | Nốt 128, 21 ms. Chưa có `<type>` cho phần còn lại |
 | `<duration>` ngắn hơn `<type>` | Nốt nhả sớm. Cú sau vẫn theo `<type>` | Không dịch attack về phía trước |
 
-`<sound tempo>` đã là đường `_metronome` đang đặt BPM. Hàm đó nhận `bpm: int`. Đồng hồ ±1% cần một tempo thập phân trên cùng thuộc tính.
+`_metronome` in `per-minute` nguyên. `<sound tempo>` trên direction mở, và các direction sau trong câu, mang tempo thập phân. Chữ in không lặp lại mỗi phách.
 
 Cú sau đứng yên khi tổng `<type>` phía trước nó không đổi. Một dấu lặng thêm một `<type>`. Muốn cú sau giữ mốc đã viết, `<type>` của nốt trễ phải ngắn đi đúng lượng của dấu lặng đó. Rút riêng `<duration>`, rồi thêm dấu lặng, làm hai việc khác: nốt nhả sớm, và mọi cú sau trễ thêm đúng hạt của dấu lặng vì tổng `<type>` tăng.
 
@@ -150,7 +150,7 @@ Phách yếu cộng 21 ms vào ngón cái. Ngón tay vẫn trễ thêm một h�
 
 ## 6. Thứ tự khi viết
 
-1. Đồng hồ tempo trước. `<sound tempo>` đã là đường MuseScore đang phát. `_metronome` hiện nhận `bpm: int`, nên ±1% cần tempo thập phân trên thuộc tính đó. Cặp tempo đối xứng dài hơn khoảng 0,01%. Phần dư nằm trong đuôi nhả, `mapDurationSec` vẫn bám độ dài bản viết.
+1. Đồng hồ tempo. Đã viết trong `humanize()`: `score.tempos` là đường thở của câu, mọi bè đi cùng. MusicXML giữ `per-minute` là BPM nguyên và phát `<sound tempo>` thập phân. Liều: `symphony` và `guitar` ±1%, `jazz` ±0,25%, `minimalist` ±0,5%, `ambient` ±1% khi câu có nốt dài ít nhất hai phách đen. Câu ngắn hơn hai phách đen đứng yên. Nửa đầu câu nhanh, nửa sau chậm. Câu dài hơn bốn phách đen trải bước đó trên ba phách, mỗi khúc lấy tempo ở tâm khúc để độ lệch BPM trong câu về 0. Cặp ±1% dài hơn khoảng 0,01%. Phần dư nằm trong đuôi nhả, `mapDurationSec` vẫn bám độ dài bản viết.
 2. Chưa viết dấu lặng từng voice. Cửa MuseScore đòi phần nốt còn lại là một `<type>`, hoặc một chuỗi nốt nối từng khúc đã có trong `_NOTE_TYPES`. `divisions` 96 không thay việc đó. Đo WAV trên 4.7.5 làm sau khi chuỗi đó có thật: đỉnh nốt trước và sau hạt phải dịch đúng milli-giây, và cú kế tiếp phải giữ mốc.
 3. Bỏ velocity ±2 trên plateau cách bè kề dưới 8 bậc. Nhấn +4 đến +6 chỉ nơi còn khoảng trống, nơi sampler đọc note dynamics, và nơi trần nylon không nuốt. Trên guitar ấm, +4..+6 gần như bị `_clamp_guitar` nuốt về ≤ 64. Accent nghe được chủ yếu ở giọng đọc note dynamics và còn headroom. Fixture 56 cách 60 không thuộc chỗ đó. Nốt ấm không được qua 65. `_clamp_guitar` giữ nốt mà `humanize()` thấy ≤ 64 ở mức ≤ 64. Trần snap là của từng profile: `preludio` nội suy 66..68, đỉnh bảng là `elogio_pizz` 72..76. `_clamp_guitar` kéo nốt viết trên 64 về 66..70 trên `classic` / `bach`, hoặc 66..76 trên ensemble khác. Cửa nylon 53, 56, 59 vẫn quyết định phần velocity của guitar. Marimba đo note dynamics trước khi tính nó vào nhóm có đọc.
 4. Sai số velocity tương quan thêm sau lần nghe, không làm trước lệch thời gian.
