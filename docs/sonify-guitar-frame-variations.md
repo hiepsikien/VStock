@@ -63,7 +63,7 @@ Pattern: `noviembre`, `sarabande`, `brouwer_etude`, `elogio_pizz`.
 - **Edge** (`volatile`, `selloff`): intro là stab rồi chạy; bản dài là accent dây buông, bass ngập ngừng, stab song song, dồn. Outro là khối đảo phách rồi stab-và-ngân; bản dài thưa, đi lên, hợp âm rộng, một accent dây buông.
 - **Trữ tình**: intro là bass buông sâu rồi color roll; bản dài là một chuông, cantabile, color roll, I ổn định. Outro là I thưa rồi chuông Picardy; bản dài là roll mỏng, bước chủ, phách 2 treo, chuông Picardy.
 
-`brouwer_etude` ở rally đi cửa trữ tình. Cửa edge chỉ bật khi character cả chương là `volatile` hoặc `selloff`, tức là lúc thân bài đã là `elogio_pizz` hoặc `sarabande`.
+`brouwer_etude` ở rally đi cửa trữ tình. Cửa edge đọc `ctx.character` cả chương, không đọc pattern từng ô. Sarabande khi `bpm <= 72` mà character không phải `selloff` hay `volatile` vẫn đi cửa trữ tình. Chương `selloff` có trio thì thân bài của trio là `brouwer_etude`, vì `_brouwer_contrast` trả motor cho ballad, và cửa vẫn là edge.
 
 ### 1.5 Bach — hai cửa theo nhịp và character
 
@@ -78,26 +78,17 @@ Pattern: `bach_sarabande`, `bach_gavotte`, `bach_bourree`, `bach_fuga`, `bach_gi
 
 `_bar_pattern` trên một ô pedal trả về `"pedal"`. Intro phải đọc ô thân bài đầu, `leading[-1] + 1`. Outro phải đọc ô thân bài cuối, `trailing[0] - 1`. Hết thân bài thì lấy `headline_id`.
 
-Chương Barrios dài (`ctx.bars > 40`, từ hai vùng formal trở lên) đi `_barrios_region_patterns`:
+Form dài đi `_assign_macro`. Nhánh này không có `_barrios_palette` hay `_barrios_region_patterns`.
 
-- Vùng đầu là `palette[0]`, pattern mà `_dominant_pattern` chọn cho vùng mở. Intro nghe pattern đó.
-- Đúng hai vùng: vùng cuối là khách đầu tiên của hàng (`palette[1]`). Outro nghe khách đó.
-- Từ ba vùng trở lên: vùng cuối nhắc lại `palette[0]`. Outro nghe pattern mở, khách chỉ đứng ở giữa.
+- Có trio hoặc cầu: cả nhóm A một pattern từ `_dominant_pattern`, cả nhóm B một khách từ `_contrast_pattern`. Form guitar có khách là A–B–A (slot 0, slot 1, slot 2). Ô thân bài cuối là A.
+- Không có contrast và `bars > 40`: mỗi `regime_slot` tự gọi `_dominant_pattern`. Ô cuối không bị buộc nhắc lại pattern mở.
+- `bars <= 40` và không có contrast: cả thân bài một pattern.
 
-Hệ quả trên hàng hiện có:
-
-| Hàng | Khách đầu (outro của chương hai vùng) | `vals` / thumb Barrios có khép pedal không |
-|---|---|---|
-| chậm, bpm dưới 90: `andante`, `thumb_cantabile` | `thumb_cantabile` | Thumb khép chương hai vùng |
-| 6/8 nhanh, primary `hemiola` hoặc `polca` | `vals` | Vals khép chương hai vùng |
-| 6/8 nhanh, primary `preludio` | `thumb_cantabile` | Thumb khép chương hai vùng |
-| 4/4 nhanh | `choro`, `tremolo`, hoặc `preludio` | Thumb là khách sau, chỉ đứng giữa khi chương có từ ba vùng. Vals không nằm trên hàng 4/4 |
-
-Chương từ ba vùng trở lên khép bằng pattern mở, nên outro của `vals` và thumb Barrios im trên pedal cuối. Intro của hai pattern đó cũng im trên pedal đầu, vì vùng đầu luôn là pattern mở. Cửa của chúng vẫn nằm trong bảng: chương hai vùng dùng outro, và một pickup sau này vào vùng khách dùng intro.
+`_dominant_pattern` không trả `vals` hay `thumb_cantabile` của Barrios. Hai pattern đó chỉ ra từ `_contrast_pattern`, và chúng đứng giữa chương. `month_specs("guitar")`, `quarter_specs`, và `year_specs` không có chương hai vùng kết bằng khách. Intro và outro của hai cửa này im trên form đang chạy. Mục 7 không vẽ cửa ở biên A|B, nên hai kịch bản ở mục 6.3 chưa được phát. Chúng nằm trong catalog cho đợt sau, khi một form đặt chính pattern đó kề pedal.
 
 `thumb_cantabile` của Villa là pattern mở khi `selloff`. Cửa intro và outro của nó kêu trên chương đó.
 
-26 pattern còn lại đều có lúc đứng kề pedal đầu hoặc pedal cuối. Bộ chọn thân bài nằm ở `_dominant_pattern`, với nhánh trong `guitar_bach.py`, `guitar_sor.py`, `guitar_barrios.py`, `guitar_brouwer.py`, và hàng Barrios dài ở `_barrios_palette`.
+26 pattern còn lại đều có lúc đứng kề pedal đầu hoặc pedal cuối. Bộ chọn thân bài nằm ở `_dominant_pattern`, với nhánh trong `guitar_bach.py`, `guitar_sor.py`, `guitar_barrios.py`, và `guitar_brouwer.py`.
 
 ---
 
@@ -122,7 +113,7 @@ Cùng một tác gia, cùng một kịch bản, dù thân bài đã đổi chấ
 2. Khóa là `(ensemble, pattern)`, không chỉ `ensemble`. Ba cờ `_bach_dance`, edge cả chương, và mood sáng của mọi pattern Villa thôi không chọn cửa.
 3. Mỗi pattern có một kịch bản ngắn (bước 0–1) và một kịch bản dài (bước 0–3). `frame_roles` và `_compressed` giữ nguyên.
 4. Tám pattern dưới mục 5 giữ một phần cửa cũ. Hai mươi pattern còn lại viết cả intro lẫn outro. Study và Mozart chia đôi cặp Sor đang dính liền, nên đếm pattern giữ cửa cũ là tám.
-5. `vals` và thumb Barrios có cửa đầy đủ. Chúng kêu đúng lúc mục 1.6 nói.
+5. Kịch bản `vals` và thumb Barrios được viết ở mục 6.3. Đợt này không phát chúng. Xem mục 1.6.
 6. Công thức `fit_intro` / `fit_outro`, sàn, trần, và các số stab `70 / 66 / 62` giữ nguyên. Điều kiện bật stab Villa thì đổi, mục 4.5.
 
 Picardy chỉ giữ ở `preludio`, `noviembre`, `bach_fuga`. Galop, choro, vals, sarabande, chaconne, và elegiaque kết bằng hợp âm của điệu.
@@ -140,16 +131,20 @@ Picardy chỉ giữ ở `preludio`, `noviembre`, `bach_fuga`. Galop, choro, vals
 
 Rồi gọi `render_intro(ctx, leading, intro_pattern)` và `render_outro(ctx, trailing, outro_pattern)`. `_gesture` rẽ theo `(ctx.ensemble, pattern)`.
 
+Ô một nhịp đi `_gesture` với `length == 1`. Hàm đó gọi `_compressed`, rồi `_gesture_body`. `_gesture_body` không đi qua `_gesture` lần nữa. Cả `_gesture`, `_compressed`, và `_gesture_body` đều nhận pattern.
+
 ### 4.2 Velocity viết sẵn và tâm ô
 
 `apply_guitar_wave` cộng `round(C) - 64` cho cả ô. Hiệu `V_written - 64` bên trong ô còn nguyên. Khi `fit_intro` phải giữ phẳng vì đường thì thầm chui dưới `L`, cử chỉ chỉ còn nghe nếu các bước tự viết bậc thang.
 
-Cửa mới:
+Cửa mới, khi fit phải bẹt:
 
-- Intro: bước 0 ở `_PP`, bước 1 ở `_P`, bước 2 trong `50..56`, bước 3 trong `56..60`, hướng tới lead 64 / bass 56 / bè trong 46 của thân bài.
-- Outro: bước 0 đón thân bài ở `_MP` hoặc `_P`, các bước sau hạ về `_PP`.
+- Intro: bước 0 ở `_PP`, bước 1 ở `_P`, bước 2 trong `50..56`, bước 3 trong `56..60`, hướng tới lead 64 / bass 56 / bè trong 46 của thân bài. Bước 3 của galop và của hemiola ở `_MF` (64). Đó là pickup vào thân bài, không bị trần `56..60` kéo xuống.
+- Outro: bước 0 đón thân bài ở `_MP` hoặc `_P`. Các bước sau hạ dần. Cadence của Bourrée, Gavotte, Gigue, Study, và Mozart giữ `_P`. Câu velocity ở từng pattern thắng câu này.
 
-Galop, choro, polca, hemiola, và `elogio_pizz` khép bằng hợp âm staccato, bước cuối ở `_MF`, không tan về `_PP`.
+Galop, choro, polca, và `elogio_pizz` khép bằng hợp âm staccato, bước cuối ở `_MF`, không tan về `_PP`. Hemiola khép bằng block I rồi ngân, bước cuối ở `_P`. Mục 6.3 là câu được code.
+
+Mỗi cửa một độ nổi. Khi `fit_intro` hoặc `fit_outro` đã là một đường tâm, bậc thang viết sẵn không cộng thêm một crescendo hoặc decrescendo lên đường đó: các bước dùng một mức viết sẵn. Nhấn `_MF` trong ô, contour chuông, và chấm dôi vẫn giữ. Khi fit phải bẹt, bậc thang viết sẵn là độ nổi duy nhất.
 
 Chuông, chấm dôi Pháp, và Picardy giữ contour đã viết (`_BELL_CONTOUR`, `_overture_cells`, `_bach_picardy`). Không kéo các contour đó về bậc thang chung.
 
@@ -171,16 +166,34 @@ Móc kép, qua `_spell16`, chỉ khi thân bài đã khắc lưới đó: `prelu
 
 Tremolo ở biên là nốt lặp trên lưới móc kép, cùng một cao độ, ở nửa sau bước intro cuối và nửa đầu bước outro 0. Không gọi full `_tremolo` từ im lặng, và không thêm móc ba mươi hai vào khung.
 
-`thumb_cantabile` của Barrios và của Villa: voice 3 được lên tới `64 - ctx.semitones`, đúng trần `_place_thumb`. `_bass_hi` của mọi cửa khác giữ `53 - ctx.semitones`. Ô pedal của cửa thumb mang profile `thumb_cantabile` khi `assert_playable` chạy, vì profile `study` của hàng pedal từ chối bass melody trên 53. Các cửa khác giữ profile pedal hiện có.
+`thumb_cantabile` của Barrios và của Villa: voice 3 được lên tới `64 - ctx.semitones`, đúng trần `_place_thumb`. `_bass_hi` của mọi cửa khác giữ `53 - ctx.semitones`.
+
+`_PROFILE["pedal"]` đang là `study`. Profile đó từ chối bass trên 53, và từ chối cả lament lẫn approach nửa cung. Ô pedal lấy profile của cửa, không lấy hàng `"pedal"`:
+
+- Hai cửa thumb: `thumb_cantabile`.
+- `elegiaque`: `elegiaque`, để lament qua được. Approach nửa cung mà không phải lament vẫn bị profile này loại.
+- `choro`: `barrios_dance`, để approach nửa cung qua được.
+
+Cửa nào viết lament hoặc approach mà profile `study` loại thì cũng đổi profile theo pattern thân bài. Các cửa còn lại giữ profile pedal hiện có.
 
 ### 4.5 Stab sau sóng
 
 `_apply_stabs` có hai đường:
 
-- `staccato` và `accent` cùng lúc trên ô pedal: gán `70 / 66 / 62`. Galop, choro, polca, hemiola, và elogio đi đường này. Giữ nguyên.
+- `staccato` và `accent` cùng lúc trên ô pedal: gán `70 / 66 / 62`. Galop, choro, polca, và elogio đi đường này. Giữ nguyên. Hemiola khép bằng hợp âm ngân, không đi đường này.
 - `villa_stab`: hiện bật cho mọi accent Villa ở ô pedal cuối khi mood ô đó là `rally` hoặc `volatile`. `etude11` là volatile, nên một accent kết bài bị kéo thành stab của `villa_pattern`.
 
-Đổi điều kiện `villa_stab`: pattern ô thân bài kề outro là `villa_pattern`, và mood của ô thân bài đó là `rally`. Accent kết của `etude11` chỉ là nhấn trong velocity đã viết, không kèm `staccato`, và không đi qua `villa_stab`.
+Đổi điều kiện `villa_stab`: pattern ô thân bài kề outro là `villa_pattern`, và mood của ô thân bài đó là `rally`. `villa_pattern` ở mood `volatile` hôm nay có stab. Spec này bỏ stab đó. Accent kết của `etude11` chỉ là nhấn trong velocity đã viết, không kèm `staccato`, và không đi qua `villa_stab`.
+
+### 4.6 Bước lặp
+
+`frame_roles` lặp bước. Test khóa `frame_roles(6) == [0, 0, 1, 2, 2, 3]`. Bước lặp là cùng một ô. Bước nào cần đổi thì nói rõ và dùng `index`, như `_roll` của Villa.
+
+Bản ngày (`DAILY_ENSEMBLE_SPEC`) là 2 ô pedal. `frame_roles(2) == [0, 1]`, chỉ kịch bản ngắn. Tuần là intro và outro 4 ô, `frame_roles(4) == [0, 1, 2, 3]`, kịch bản dài mỗi bước một lần.
+
+`attach_frame` gắn warmup và cooldown cho 1M, 3M, và 1Y. Vùng cửa là warmup dính với intro thân bài, hoặc outro thân bài dính với cooldown, vì cả hai kind đều nằm trong `_PEDAL`. 1M 4/4 là 8 ô. `frame_roles(8)` là `[0, 0, 1, 1, 2, 2, 3, 3]`: mỗi bước hai lần, kể cả cadence.
+
+`frame_bars_for` của 1Y ở 3/4 và 6/8 trả 3, đó là riêng phần warmup. Intro thân bài vẫn còn 4 ô pedal, nên vùng cửa là 7 ô và `frame_roles(7)` là `[0, 0, 1, 1, 2, 2, 3]`. Bước 1 vẫn kêu. `frame_roles(3)` trả `[0, 2, 3]` và bỏ bước 1. Form guitar hiện không đưa cửa một vùng 3 ô. Answer của fuga và mô-típ rondeau của gavotte nằm ở bước 1. Trên form đang chạy hai câu đó có mặt. Một form sau này đúng 3 ô sẽ làm hai câu đó im, nên đừng để một cửa chỉ nói điều quan trọng ở bước 1.
 
 ---
 
@@ -193,15 +206,15 @@ Tremolo ở biên là nốt lặp trên lưới móc kép, cùng một cao độ
 | `preludio` | Intro ngắn/dài và outro ngắn/dài Barrios hiện có, kể cả chuông Picardy | Bảy pattern Barrios còn lại |
 | `villa_pattern` | Intro ngắn/dài Villa hiện có. Outro roll, pedal, đi lên. Stab sáng chỉ còn khi pattern này và mood `rally` | `chord_melody`, thumb Villa, `etude1`, `etude11` |
 | `noviembre` | Cửa trữ tình Brouwer: chuông, cantabile, color roll, I ổn; outro roll mỏng, bước chủ, phách 2, chuông | `sarabande`, `brouwer_etude` |
-| `elogio_pizz` | Cửa edge: stab, bass ngập ngừng, stab song song, dồn; outro khối đảo phách rồi stab | Không còn bật edge theo character cả chương |
+| `elogio_pizz` | Cửa edge: stab, bass ngập ngừng, stab song song, dồn; outro khối đảo phách rồi stab. Intro ngắn thêm một slap ở móc đơn 3. `_edge_stab` hiện chưa có nhát đó | Không còn bật edge theo character cả chương |
 | `bach_bourree` | Intro ngắn `_bach_tonic_anacrusis` rồi `_bach_dominant_run`. Outro ngắn `_bach_half_cadence` rồi `_bach_block` | Tetrachord của intro dài về `bach_chaconne`. Gavotte và Gigue viết cửa riêng |
-| `bach_fuga` | Intro dài: `_bach_subject`, `_bach_answer`, `_bach_converge_dominant`. Outro giữ Picardy | Pedal arpeggio của intro ngắn và `_bach_arpeggiato` của outro dài về `bach_chaconne` |
+| `bach_fuga` | Intro dài giữ `_bach_subject`, `_bach_answer`, `_bach_converge_dominant`. Outro ngắn và outro dài đều viết lại theo mục 6.1, và cả hai kết bằng `_bach_picardy` | Pedal arpeggio của intro ngắn và `_bach_arpeggiato` rời cửa này. Không giữ nguyên hàm outro phức điệu cũ |
 
 ---
 
 ## 6. Cửa theo pattern
 
-Bản một ô vẫn cắt đôi bản ngắn bằng `_compressed`. Bản ngắn là hai bước. Bản dài là bốn bước.
+Bản một ô vẫn cắt đôi bản ngắn bằng `_compressed`. Bản ngắn là hai bước. Bản dài là bốn bước. Bước nào `frame_roles` lặp thì ô giống hệt, trừ bước nói biến theo `index`. Xem mục 4.6.
 
 ### 6.1 Bach
 
@@ -250,7 +263,7 @@ Bản một ô vẫn cắt đôi bản ngắn bằng `_compressed`. Bản ngắn
 - Outro dài, bước 2: mordent ở phách 1, móc đơn 5 lấy đà trên V7, `_P`.
 - Outro dài, bước 3: block I ngân, `_P`.
 
-**`bach_fuga`** — volatile, hoặc các nhịp không rơi vào sarabande/gigue/chaconne theo `_bach_primary`. Thân bài: lead hát giá ngay, bass đáp motif cách hai ô, bè trong chỉ trên phách mạnh khi lead ngân.
+**`bach_fuga`** — `_bach_primary` chỉ trả pattern này khi mood là `volatile` và nhánh 3/4 hoặc `bpm <= 72` chưa chọn trước. 3/4 `volatile` vẫn là `bach_sarabande`. 3/4 `selloff`, biên độ từ 1,6%, không có contrast, là `bach_chaconne`. Thân bài: lead hát giá ngay, bass đáp motif cách hai ô, bè trong chỉ trên phách mạnh khi lead ngân.
 
 - Intro ngắn, bước 0: voice 1 xướng bốn nốt subject, bass vào pedal ở nửa sau, `_P`.
 - Intro ngắn, bước 1: `_bach_dominant_neighbor` với `drive=True`, treo rồi giải về V7, `_MP`.
@@ -445,13 +458,13 @@ Bản một ô vẫn cắt đôi bản ngắn bằng `_compressed`. Bản ngắn
 - Intro dài, bước 2: 0, 2, 4 trên V7, accent ở 2 và 4, `_MP`.
 - Intro dài, bước 3: hemiola trên V7 vào thân bài, `_MF`.
 - Outro ngắn, bước 0: 0, 2, 4 trên V7, `_MP`.
-- Outro ngắn, bước 1: block I ở móc đơn 0, và ở 3 nếu ô còn chỗ, rồi ngân.
+- Outro ngắn, bước 1: block I ở móc đơn 0, và ở 3 nếu ô còn chỗ, rồi ngân, `_P`.
 - Outro dài, bước 0: hemiola trên IV, `_MP`.
 - Outro dài, bước 1: hemiola trên V7, `_MP`.
 - Outro dài, bước 2: trở lại 0 và 3, I rồi V7, `_P`.
 - Outro dài, bước 3: block I ở phách 1, `_P`.
 
-**`vals`** — khách đầu của hàng 6/8 hemiola/polca. Outro kêu khi chương dài đúng hai vùng. Thân bài `_render_vals_bar`: bass root nửa phách ở beat 0, fifth ở beat 1.5, nốt đi qua có accent ở beat 2; bè trong ở móc đơn 1, 2, 4, 5.
+**`vals`** — chỉ ra từ `_contrast_pattern` khi primary là `polca` hoặc `hemiola` trên 6/8 nhanh có khung. Pattern đứng ở nhóm B. Đợt này không phát cửa này, mục 1.6. Kịch bản dưới đây chờ một form đặt `vals` kề pedal. Thân bài `_render_vals_bar`: bass root nửa phách ở beat 0, fifth ở beat 1.5, nốt đi qua có accent ở beat 2; bè trong ở móc đơn 1, 2, 4, 5.
 
 - Intro ngắn, bước 0: bass I ở móc đơn 0, hợp âm ở 2 và 4, `_P`.
 - Intro ngắn, bước 1: bass qua V7, lead một nét liền bậc, `_MP`.
@@ -466,7 +479,7 @@ Bản một ô vẫn cắt đôi bản ngắn bằng `_compressed`. Bản ngắn
 - Outro dài, bước 2: lead về chủ âm, nền thưa, `_PP`.
 - Outro dài, bước 3: bass I ở phách 1, hợp âm I ngân, `_PP`.
 
-**`thumb_cantabile` của Barrios** — khách của hàng chậm, hoặc khách đầu của hàng 6/8 preludio. Outro kêu trên chương dài đúng hai vùng của các hàng đó. Thân bài: giai điệu ở voice 3, cữ `48..64`; dyad ở `_thumb_offsets` (4/4 là 2 và 6, 6/8 là 2 và 5 hoặc 1, 2, 4, 5, 3/4 là 2 và 4), velocity khoảng `42..46`.
+**`thumb_cantabile` của Barrios** — chỉ ra từ `_contrast_pattern`, đứng ở nhóm B. Đợt này không phát cửa này, mục 1.6. Kịch bản dưới đây chờ một form đặt pattern này kề pedal. Thân bài: giai điệu ở voice 3, cữ `48..64`; dyad ở `_thumb_offsets` (4/4 là 2 và 6, 6/8 là 2 và 5 hoặc 1, 2, 4, 5, 3/4 là 2 và 4), velocity khoảng `42..46`.
 
 - Intro ngắn, bước 0: dyad ở phách yếu, `_PP`. Voice 3 một nốt ngân ở phách 1, trong cữ thumb, `_P`.
 - Intro ngắn, bước 1: voice 3 hai nốt `V7 → I`, velocity viết `52 → 56`, một dyad giữa ô, vào cao độ thumb của thân bài.
@@ -500,7 +513,7 @@ Bản một ô vẫn cắt đôi bản ngắn bằng `_compressed`. Bản ngắn
 - Intro ngắn, bước 1: hai khối qua V7, hoặc dịch một cung rồi về, lead liền bậc, `_MP`.
 - Intro dài, bước 0: một khối I cả ô, thế thấp, `_PP` lên `_P`.
 - Intro dài, bước 1: hai khối dịch song song trên `_chord_grid`, `_P`.
-- Intro dài, bước 2: bốn khối nốt đen `[0, 2, 4, 6]`, `_MP`.
+- Intro dài, bước 2: một khối mỗi nốt đen, vừa khít ô, `_MP`. Chương chậm guitar là 3/4, `epb = 6`, bpm 72: ba khối ở móc đơn 0, 2, 4. 4/4 mới có bốn khối ở 0, 2, 4, 6. Móc 6 không được viết trên 3/4.
 - Intro dài, bước 3: hai khối V7 rồi I, `_P`.
 - Outro ngắn, bước 0: hai khối chậm V7 rồi I, `_P`.
 - Outro ngắn, bước 1: ba bè đánh I ở phách 1. Voice 2 dừng sau nửa ô. Bass và lead ngân hết ô, `_PP`.
@@ -511,11 +524,11 @@ Bản một ô vẫn cắt đôi bản ngắn bằng `_compressed`. Bản ngắn
 
 **`thumb_cantabile` của Villa** — selloff. Pattern này mở được chương. Thân bài cùng lưới `_thumb_offsets`, voice 3 hát ở 64..72, dyad ở `42..46`.
 
-- Intro ngắn, bước 0: bass buông ở phách 1. Từ phách 2 voice 3 đi lên từng bậc, `_P` lên `_MP`. Một hợp âm ở móc đơn 6, `_PP`.
-- Intro ngắn, bước 1: voice 3 ngân, dyad ở 2 và 6, vào câu thumb của thân bài.
+- Intro ngắn, bước 0: bass buông ở phách 1. Từ phách 2 voice 3 đi lên từng bậc, `_P` lên `_MP`. Một hợp âm ở offset cuối của `_thumb_offsets`, `_PP`. Trên 3/4 offset đó là 4, không phải 6.
+- Intro ngắn, bước 1: voice 3 ngân, dyad ở `_thumb_offsets`, vào câu thumb của thân bài. `selloff` với bpm từ 72 trở xuống là 3/4, offset là 2 và 4.
 - Intro dài, bước 0: voice 3 ba nốt từ dây trầm đi lên, hai bè trên nghỉ, `_P` lên `_MP`.
 - Intro dài, bước 1: voice 3 ngân nốt đỉnh, dyad ở phách yếu, `_PP`.
-- Intro dài, bước 2: voice 3 qua iv rồi V7, đệm ở 2 và 6, `_MP`.
+- Intro dài, bước 2: voice 3 qua iv rồi V7, đệm ở `_thumb_offsets`, `_MP`.
 - Intro dài, bước 3: voice 3 vào đúng cao độ mở đầu thân bài, `_MP`.
 - Outro ngắn, bước 0: voice 3 kết trên I, dyad lần cuối ở móc đơn 2, `_P`.
 - Outro ngắn, bước 1: voice 3 giữ I cả ô, `_PP`.
@@ -622,15 +635,16 @@ Bản một ô vẫn cắt đôi bản ngắn bằng `_compressed`. Bản ngắn
 
 Đợt code đụng tới:
 
-- Chữ ký `render_intro` / `render_outro` và chỗ `_paint_frames` truyền pattern, mục 4.1.
+- Chữ ký `render_intro` / `render_outro`, và pattern đi qua `_gesture`, `_compressed`, `_gesture_body`. Mục 4.1.
 - Bỏ `_plant_pickup` trên ô pedal, mục 4.3.
-- Điều kiện `villa_stab`, mục 4.5.
-- Profile `thumb_cantabile` và trần voice 3 của hai cửa thumb, mục 4.4.
+- Điều kiện `villa_stab`, mục 4.5. `villa_pattern` ở mood `volatile` mất stab.
+- Profile ô pedal theo mục 4.4: `thumb_cantabile`, `elegiaque`, `barrios_dance` cho choro. Trần voice 3 của hai cửa thumb.
 - Lưới móc kép hoặc chùm 6 đúng các pattern đã nêu ở mục 4.4.
+- Test đang khóa cửa theo tác gia. `test_villa_dialect.py` có `test_bach_dance_frames_take_an_upbeat_into_an_authentic_cadence` và `test_bach_polyphonic_frames_expose_a_subject_and_a_picardy_third`. `test_sonify_guitar.py` có `test_composer_intro_and_outro_frames_for_two_and_four_bars` và `test_brouwer_frames_for_lyric_and_edge_modes`. Assertion `frame_roles(6) == [0, 0, 1, 2, 2, 3]` giữ nguyên.
 
 Để yên:
 
 - Không thêm pattern thân bài thứ 29. Pedal vẫn là đường khung, không phải một hàng trong `PROFILES`.
-- Không vẽ thêm một cửa ở biên giữa hai vùng. Vùng khách chỉ nghe cửa của nó khi chính vùng đó kề pedal, mục 1.6.
+- Không vẽ cửa ở biên A|B. Kịch bản `vals` và thumb Barrios không được gọi trong đợt này, mục 1.6.
 - Không đổi công thức `fit_intro` / `fit_outro`, sàn, trần, hay ba số stab.
 - Không tách bản ngắn và bản dài thành hai loại nhạc.
