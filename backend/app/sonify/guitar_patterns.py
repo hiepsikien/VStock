@@ -2214,10 +2214,16 @@ def contrast_id(ctx: _Ctx, patterns: list[str]) -> str:
 
 
 def form_pattern_ids(ctx: _Ctx, patterns: list[str]) -> list[str]:
-    """One written pattern, or the slot-by-slot row when a long Barrios movement changes texture."""
+    """One written pattern, or the slot row of a framed long Barrios movement.
+
+    `_assign_macro` writes that row only when the score has a frame. An
+    unframed movement longer than 40 bars still chose each phrase on its own,
+    so the title must not group those phrases. A row of one id falls back to
+    the headline instead of repeating that id.
+    """
     if not patterns:
         return []
-    if ctx.ensemble == "barrios" and ctx.bars > 40:
+    if ctx.ensemble == "barrios" and ctx.bars > 40 and _framed(ctx):
         successive = _region_pattern_ids(ctx, patterns)
         if len(successive) >= 2 and len(set(successive)) >= 2:
             return successive

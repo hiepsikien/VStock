@@ -5,9 +5,11 @@ from datetime import date
 from pathlib import Path
 
 from app.sonify.audio import RecapStore
-from app.sonify.guitar_patterns import _HEADLINE, _SKIP_VOICES, _barrios_region_patterns
+from app.sonify.chords import C
+from app.sonify.form import FormSection
+from app.sonify.guitar_patterns import _Ctx, _HEADLINE, _SKIP_VOICES, _barrios_region_patterns, form_pattern_ids
 from app.sonify.keys import work_key_label
-from app.sonify.model import Bar
+from app.sonify.model import Bar, Phrase, Run
 from app.sonify.program import guitar_movement_name, pattern_form, pattern_title, span_movement_name
 from app.sonify.render import render
 from app.sonify.span import (
@@ -94,6 +96,9 @@ def test_long_barrios_movements_walk_a_pattern_row():
     assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=week_spec(2)) == (
         "Prelude — Andante"
     )
+    assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=week_spec(4)) == (
+        "Prelude — Tremolo — Prelude"
+    )
     assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=week_spec(5)) == (
         "Prelude — Tremolo — Prelude"
     )
@@ -108,6 +113,76 @@ def test_barrios_region_row_reprises_from_the_third_part():
     # One guest repeats between the two openings. There is no second guest to walk.
     slow = ("andante", "thumb_cantabile")
     assert _barrios_region_patterns(slow, 6) == ["andante", *["thumb_cantabile"] * 4, "andante"]
+
+
+def _region_ids(ids: list[str], *, framed: bool) -> list[str]:
+    epb = 8
+    span = 16
+    phrases: list[Phrase] = []
+    sections: list[FormSection] = []
+    patterns: list[str] = []
+    kinds: dict[int, str] = {}
+    bar = 0
+    if framed:
+        sections.append(FormSection(0, 4, "warmup", 0))
+        phrases.append(Phrase(0, 4 * epb, (Run(0, 4 * epb, 60),)))
+        patterns.append("pedal")
+        kinds.update({index: "warmup" for index in range(4)})
+        bar = 4
+    for slot, pattern in enumerate(ids):
+        start, end = bar, bar + span
+        sections.append(FormSection(start, end, "phrase", slot))
+        phrases.append(Phrase(start * epb, end * epb, (Run(start * epb, span * epb, 60),)))
+        patterns.append(pattern)
+        kinds.update({index: "phrase" for index in range(start, end)})
+        bar = end
+    if framed:
+        sections.append(FormSection(bar, bar + 4, "cooldown", 0))
+        phrases.append(Phrase(bar * epb, (bar + 4) * epb, (Run(bar * epb, 4 * epb, 60),)))
+        patterns.append("pedal")
+        kinds.update({index: "cooldown" for index in range(bar, bar + 4)})
+        bar += 4
+    ctx = _Ctx(
+        melody=[60] * (bar * epb),
+        raw=[60] * (bar * epb),
+        chord_at={0: C},
+        kind_at=kinds,
+        band_at={index: "mf" for index in range(bar)},
+        phrases=tuple(phrases),
+        bars=bar,
+        bpm=96,
+        ensemble="barrios",
+        mode="major",
+        character="rally",
+        character_at=None,
+        sections=tuple(sections),
+        rel_span=0.0,
+        semitones=0,
+        bass_low=40,
+        bass_high=55,
+        mid_low=48,
+        mid_high=67,
+        treble_floor=60,
+        treble_top=84,
+        ceiling=88,
+        epb=epb,
+        kind="4/4",
+        strong=(0, 4),
+        bar_beats=4.0,
+    )
+    return form_pattern_ids(ctx, patterns)
+
+
+def test_a_uniform_barrios_row_names_the_headline_once():
+    # Three regions of one id must not come back as that id repeated.
+    assert _region_ids(["preludio", "preludio", "preludio"], framed=True) == ["preludio"]
+    # Two different ids still name the row. An unframed score does not.
+    assert _region_ids(["andante", "thumb_cantabile", "andante"], framed=True) == [
+        "andante",
+        "thumb_cantabile",
+        "andante",
+    ]
+    assert _region_ids(["preludio", "andante", "tremolo"], framed=False) == ["preludio"]
 
 
 def test_pattern_form_keeps_three_names_and_centers_a_longer_row():
