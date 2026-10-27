@@ -2,7 +2,7 @@
 
 > **Trạng thái**: đề xuất, chưa code. Lớp đang chạy vẫn là ±2 trên plateau, ghi ở `docs/sonify-humanize-preset-plan.md`. `RECAP_REVISION` là 64, `SPAN_REVISION` là 50.
 >
-> ±2 là nhiễu lực dưới ngưỡng nghe. Đồng hồ chung khoảng ±1% BPM thì MuseScore 4 phát được bằng `<sound tempo>`. Lệch từng voice khoảng 7 ms thì không có `<type>`. Hạt nghe được của melody lead là nốt 128, 1/32 phách: 21 ms ở 88 BPM, 16 ms ở 120 BPM. Writer chưa phát hình nốt còn lại sau khi trừ hạt đó.
+> ±2 là nhiễu lực dưới ngưỡng nghe. Đồng hồ chung khoảng ±1% BPM, cỡ 7 ms ở 88 BPM, MuseScore 4 phát được bằng `<sound tempo>`. Lệch từng voice là hạt khác: nốt 128, 1/32 phách, 21 ms ở 88 BPM và 16 ms ở 120 BPM. Writer chưa phát hình nốt còn lại sau khi trừ hạt đó.
 
 Mục đích của lớp này là nhạc nghe người hơn. Người chơi khác máy ở hai chỗ. Xung lực là việc cố ý: phách mạnh nặng hơn, một bè vào sau bè kia một hạt nhỏ, cuối câu nới ra. Sai số là phần còn lại, nhỏ, và có sửa: đánh trễ thì khoảng sau rút lại. Một tay dùng một đồng hồ. Máy theo công thức thì mọi tiếng cùng một phách rơi đúng cùng một mẫu, cùng một lực.
 
@@ -102,7 +102,7 @@ Máy viết tài liệu này không có MuseScore, nên chưa đo WAV xác nhậ
 
 Cú sau đứng yên khi tổng `<type>` phía trước nó không đổi. Một dấu lặng thêm một `<type>`. Muốn cú sau giữ mốc đã viết, `<type>` của nốt trễ phải ngắn đi đúng lượng của dấu lặng đó. Rút riêng `<duration>`, rồi thêm dấu lặng, làm hai việc khác: nốt nhả sớm, và mọi cú sau trễ thêm đúng hạt của dấu lặng vì tổng `<type>` tăng.
 
-`<duration>` thì `divisions` 32 viết được một nốt 128. `<type>` thì không. `_note_type` chỉ nhận các độ dài trong `_NOTE_TYPES`, và ném lỗi khi `type` lệch `duration`. Trừ 1/32 phách khỏi các độ dài writer đang phát:
+`<duration>` thì `divisions` 32 viết được một nốt 128. Writer lấy cả `<type>` lẫn `<duration>` từ cùng một `duration_beats`. `_note_type` chỉ nhận các độ dài trong `_NOTE_TYPES`, và ném `unsupported duration` khi độ dài không có trong bảng. Trừ 1/32 phách khỏi các độ dài writer đang phát:
 
 | Nốt đang viết | Còn lại | Hình nốt |
 |---|---|---|
@@ -152,7 +152,7 @@ Phách yếu cộng 21 ms vào ngón cái. Ngón tay vẫn trễ thêm một h�
 
 1. Đồng hồ tempo trước. `<sound tempo>` đã là đường MuseScore đang phát. `_metronome` hiện nhận `bpm: int`, nên ±1% cần tempo thập phân trên thuộc tính đó. Cặp tempo đối xứng dài hơn khoảng 0,01%. Phần dư nằm trong đuôi nhả, `mapDurationSec` vẫn bám độ dài bản viết.
 2. Chưa viết dấu lặng từng voice. Cửa MuseScore đòi phần nốt còn lại là một `<type>`, hoặc một chuỗi nốt nối từng khúc đã có trong `_NOTE_TYPES`. `divisions` 96 không thay việc đó. Đo WAV trên 4.7.5 làm sau khi chuỗi đó có thật: đỉnh nốt trước và sau hạt phải dịch đúng milli-giây, và cú kế tiếp phải giữ mốc.
-3. Bỏ velocity ±2 trên plateau cách bè kề dưới 8 bậc. Nhấn +4 đến +6 chỉ nơi còn khoảng trống, nơi sampler đọc note dynamics, và nơi trần nylon không nuốt. Fixture 56 cách 60 không thuộc chỗ đó. Nốt ấm không được qua 65. `_clamp_guitar` giữ nốt mà `humanize()` thấy ≤ 64 ở mức ≤ 64. Trần snap là của từng profile: `preludio` nội suy 66..68, đỉnh bảng là `elogio_pizz` 72..76. `_clamp_guitar` kéo nốt viết trên 64 về 66..70 trên `classic` / `bach`, hoặc 66..76 trên ensemble khác. Cửa nylon 53, 56, 59 vẫn quyết định phần velocity của guitar. Marimba đo note dynamics trước khi tính nó vào nhóm có đọc.
+3. Bỏ velocity ±2 trên plateau cách bè kề dưới 8 bậc. Nhấn +4 đến +6 chỉ nơi còn khoảng trống, nơi sampler đọc note dynamics, và nơi trần nylon không nuốt. Trên guitar ấm, +4..+6 gần như bị `_clamp_guitar` nuốt về ≤ 64. Accent nghe được chủ yếu ở giọng đọc note dynamics và còn headroom. Fixture 56 cách 60 không thuộc chỗ đó. Nốt ấm không được qua 65. `_clamp_guitar` giữ nốt mà `humanize()` thấy ≤ 64 ở mức ≤ 64. Trần snap là của từng profile: `preludio` nội suy 66..68, đỉnh bảng là `elogio_pizz` 72..76. `_clamp_guitar` kéo nốt viết trên 64 về 66..70 trên `classic` / `bach`, hoặc 66..76 trên ensemble khác. Cửa nylon 53, 56, 59 vẫn quyết định phần velocity của guitar. Marimba đo note dynamics trước khi tính nó vào nhóm có đọc.
 4. Sai số velocity tương quan thêm sau lần nghe, không làm trước lệch thời gian.
 5. Đổi tiếng thật thì tăng `RECAP_REVISION` và `SPAN_REVISION` một lần.
 
