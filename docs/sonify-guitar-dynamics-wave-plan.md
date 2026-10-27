@@ -65,9 +65,10 @@ render_patterned_voices()
   ├── 4. apply_guitar_wave()
   │      Một phép affine cho mọi nốt sounding trong ô:
   │      V_thô = round(C(b)) + (V_đã_viết - 64)
-  │      Thân bài, nốt không snap và không phải stab khung: kẹp [V_floor, V_ceil] ≤ 63.
-  │      Ô intro / outro: không kẹp sàn V_floor. Tâm trải thành một đường thẳng
-  │      để nốt nhỏ nhất ghi ở 22 khi đường nối còn chỗ, rồi kéo nốt vượt 63 về 63.
+  │      Thân bài, nốt không snap và không phải stab khung: chỉ kẹp trần V_ceil ≤ 63.
+  │      Nốt viết 48 chạm sàn nhờ C_lo. Chuông 44 ở đáy thấp hơn sàn 4 bậc.
+  │      Ô intro / outro: không kẹp từng nốt vào F. Tâm là một đường theo L ở mục 4,
+  │      rồi kéo nốt vượt 63 về 63.
   │      Rồi Cổng Snap nâng một vài cú đã chọn vào 66..76.
   └── 5. humanize()
          written <= 64  →  heard = min(64, heard)
@@ -182,13 +183,13 @@ $$\left\lceil \frac{C_{\text{hi}} - C_{\text{lo}}}{4} \right\rceil$$
 
 ô. Quãng `5` đến `8` cần khoảng cách `2` ô. Quãng `3` hoặc `4` đã nằm trong bước `4`, nên hai ô kề vẫn có thể là $U = 0$ và $U = 1$. Section có đỉnh và đáy sát hơn khoảng đó không có ô $U = 0$, và nốt viết `48` không chạm $V_{\text{floor}}$.
 
-Nốt thân bài viết ngoài khoảng đó vẫn cộng cùng $\mathrm{round}(C(b))$, rồi bị cửa sổ genre giữ lại. Sau phép cộng, mọi nốt thân bài không được Cổng Snap chọn và không phải stab khung (mục 4) kẹp vào
+Nốt thân bài viết ngoài khoảng đó vẫn cộng cùng $\mathrm{round}(C(b))$. Sau phép cộng, nốt thân bài không được Cổng Snap chọn và không phải stab khung (mục 4) chỉ kẹp trần
 
-$$[V_{\text{floor}},\; V_{\text{ceil}}], \qquad V_{\text{ceil}} \le 63$$
+$$V_{\text{ceil}} \le 63$$
 
-Sàn $V_{\text{floor}}$ dừng ở thân bài. Ô intro và outro không dùng sàn này, và không cộng một $K$ riêng mỗi ô. $K$ từng ô khử $\mathrm{round}(C)$: chuông `44, 50, 46` ra cùng một bộ số cho mọi tâm có nốt nhỏ nhất còn dưới ngưỡng, nên nhiều ô intro đứng yên.
+Nốt viết `48` chạm $V_{\text{floor}}$ nhờ $C_{\text{lo}} = V_{\text{floor}} + 16$, không nhờ kẹp sàn. Chuông viết `44` ở đáy giữ bước đó và thấp hơn sàn `4` bậc.
 
-Ngưỡng ghi là `22`. Humanize trừ tối đa `2` trên một dải từ hai nốt cùng vận tốc, nên nốt đó còn nghe ở `20`. Dưới `20` dây không cất tiếng. Đường tâm để đạt ngưỡng này nằm ở mục 4. Sau đường đó, nốt nào vượt `63` bị kéo về `63`. Hiệu trong ô giữ nguyên cho tới khi một nốt chạm trần.
+Ô intro và outro không kẹp từng nốt vào $F$, và không cộng một $K$ riêng mỗi ô. $K$ từng ô khử $\mathrm{round}(C)$: chuông `44, 50, 46` ra cùng một bộ số cho mọi tâm. Đường tâm dùng $L$ của mục 4. Sau đường đó, nốt nào vượt `63` bị kéo về `63`. Hiệu trong ô giữ nguyên cho tới khi một nốt chạm trần. Humanize trừ tối đa `2` trên một dải nốt cùng vận tốc. Chuông noviembre ở đáy ghi `20`, nên dải đó có thể xuống `18`.
 
 Trên ô đỉnh của ví dụ dưới, nốt viết `80` ra `52 + 16 = 68`, rồi kẹp về `60`. Humanize nhìn thấy `60`, đi nhánh `<= 64`, và dừng ở `<= 64`. Nó không bị kéo vào `66..76`. Trên ô trũng, `80` ra `48 + 16 = 64`, rồi kẹp về `60`. Đỉnh của nốt `72` vẫn là `60`, đúng trần cũ. Quãng thủy triều ngắn hơn nên nốt viết trên `72` chạm trần ở cả hai đầu; các nốt trong `48..72` vẫn giữ hiệu đã viết.
 
@@ -396,7 +397,7 @@ Nhánh `>= 65` chỉ đúng với nốt Cổng Snap đã ghi `66..76` và stab k
 1. **Sóng $U(b)$.** Trong `guitar_wave.py`, làm mượt bằng log → trung bình đối xứng $W$ điểm của profile → min–max trong section → chặn bước $\Delta_U = 4 / (C_{\text{hi}} - C_{\text{lo}})$ (mục 2.2). Band fallback khi volume phẳng. $C$ vẫn là một số cho cả ô.
 2. **Hằng số.** Giữ 28 profile ở mục 5, với sàn, trần và $W$ của bảng đó. Bỏ các trường đường cong bass / support / gamma khỏi công thức vận tốc. Với bảng này $M = 1$. Tính $C_{\text{lo}}$, $C_{\text{hi}}$ theo mục 2.3 cho từng section.
 3. **`_shape_dynamics`.** Giữ `extra` của câu. Bỏ `_BAND_DELTA` và bỏ kẹp `[44, 78]` trên đường đi vào bộ lọc, để band thô không cộng dồn với $C$.
-4. **`apply_guitar_wave`.** Một vòng trên mọi nốt sounding: $V_{\text{thô}} = \mathrm{round}(C(b)) + (V - 64)$. Thân bài kẹp nốt không snap vào $[V_{\text{floor}}, V_{\text{ceil}}] \le 63$. Intro và outro không cộng $K$ từng ô và không kẹp từng nốt vào $F$. $L(b) = \max(F, 22) - \min(V - 64)$, với $F$ là sàn cửa sổ của ô thân bài đang nối (mục 4). Giữ `fit_intro` / `fit_outro`, kể cả nhánh `return list(centers)`: nhánh đó giữ đường thì thầm từ `27` khi mọi ô đã trên $L$. Đổi mốc $L$, không xóa nhánh. Khi một ô còn dưới $L$: $C \ge L$ thì nâng đầu và trải tới $C$ thân bài, $C = L$ là mức phẳng, $C < L$ thì cả đoạn đứng ở $C$ thân bài. Rồi kéo nốt vượt `63` về `63`. Xóa `_assign_generic`, `_assign_tremolo`, `_assign_etude1`, `_assign_etude11`, `_assign_preludio` và pass xếp tầng ba bè. Intro một ô nhận $C(b_{\text{body}})$. Stab khung vẫn gán `70 / 66 / 62` sau bước kẹp.
+4. **`apply_guitar_wave`.** Một vòng trên mọi nốt sounding: $V_{\text{thô}} = \mathrm{round}(C(b)) + (V - 64)$. Thân bài chỉ kẹp trần $V_{\text{ceil}} \le 63$. Nốt viết `48` chạm $V_{\text{floor}}$ nhờ $C_{\text{lo}} = V_{\text{floor}} + 16$. Chuông `44` ở đáy giữ bước và thấp hơn sàn `4` bậc. Intro và outro không cộng $K$ từng ô và không kẹp từng nốt vào $F$. $L(b) = \max(F, 22) - \min(V - 64)$, với $F$ là sàn cửa sổ của ô thân bài đang nối (mục 4). Giữ `fit_intro` / `fit_outro`, kể cả nhánh `return list(centers)`: nhánh đó giữ đường thì thầm từ `27` khi mọi ô đã trên $L$. Đổi mốc $L$, không xóa nhánh. Khi một ô còn dưới $L$: $C \ge L$ thì nâng đầu và trải tới $C$ thân bài, $C = L$ là mức phẳng, $C < L$ thì cả đoạn đứng ở $C$ thân bài. Rồi kéo nốt vượt `63` về `63`. Xóa `_assign_generic`, `_assign_tremolo`, `_assign_etude1`, `_assign_etude11`, `_assign_preludio` và pass xếp tầng ba bè. Intro một ô nhận $C(b_{\text{body}})$. Stab khung vẫn gán `70 / 66 / 62` sau bước kẹp.
 5. **Snap.** Giữ ngân sách và $V_{\text{snapped}}$. Chỉ ghi đè cú được chọn, sau bước kẹp trần ấm.
 6. **Humanize.** Giữ chốt mục 6. Nhánh `>= 65` không nhận nốt affine.
 7. **Test.** Đổi `test_guitar_wave.py` sang các bất biến ở mục 8. Các assertion số tuyệt đối cũ trong `test_sonify_guitar.py` chuyển sang kiểm tra hiệu trong cùng một ô và cửa sổ genre.

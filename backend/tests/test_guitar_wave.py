@@ -6,7 +6,6 @@ that was already written on the note.
 
 from __future__ import annotations
 
-import inspect
 import math
 
 from app.sonify.chords import C
@@ -426,6 +425,12 @@ def test_the_smoothed_series_holds_the_peak_and_the_barline_step() -> None:
     bars = 7
     ell = (0, 0, 5, 4, 4, 4, 4)
     volumes = [math.exp(value) - 1 for value in ell]
+    for bad in (0, 4, -3):
+        try:
+            smooth_ell(volumes, 0, bars, bad)
+        except ValueError:
+            continue
+        raise AssertionError(bad)
     smoothed = smooth_ell(volumes, 0, bars, 5)
     assert abs(smoothed[2] - 2.6) < 1e-9
     assert abs(smoothed[4] - 4.2) < 1e-9
@@ -939,8 +944,6 @@ def test_intro_and_outro_shift_the_written_gesture() -> None:
 
 def test_the_line_fitter_still_returns_the_centers_it_was_given() -> None:
     """The whisper ramp and the decay to 23 stay when every bar already clears L."""
-    assert "return list(centers)" in inspect.getsource(fit_intro)
-    assert "return list(centers)" in inspect.getsource(fit_outro)
     whisper = intro_centers(8, 42.6)
     assert whisper[0] == 27
     assert fit_intro(whisper, [24.0] * 8) == whisper

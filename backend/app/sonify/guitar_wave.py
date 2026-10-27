@@ -140,10 +140,13 @@ def _reflect_index(index: int, length: int) -> int:
 
 
 def smooth_ell(volumes: list[float], start: int, end: int, width: int) -> list[float]:
-    """Equal-weight W-point mean of ln(1 + v) on [start, end). W is odd."""
+    """Equal-weight W-point mean of ln(1 + v) on [start, end). W is a positive odd integer."""
+    width = int(width)
+    if width < 1 or width % 2 == 0:
+        raise ValueError("smooth width must be a positive odd integer")
     if end <= start:
         return []
-    half = (int(width) - 1) // 2
+    half = (width - 1) // 2
     raw = [math.log1p(max(0.0, float(volumes[bar]))) for bar in range(start, end)]
     smoothed: list[float] = []
     length = len(raw)
@@ -332,12 +335,13 @@ def fit_intro(centers: list[float], floors: list[float | None]) -> list[float]:
 
 
 def fit_outro(centers: list[float], floors: list[float | None]) -> list[float]:
-    """Keep the seam. Ease the fall so later bars still speak.
+    """Keep the seam. Ease the fall so later bars stay on L.
 
-    Written 64 still reaches 23. A softer note raises the ending just enough
-    that the straight fall stays on its speech line, never steeper than 4.
-    If the body itself is below that line, every bar stays on the body center
-    instead of decaying toward 23.
+    The ideal ramp can reach 23. Every floor in the table is at least 24, so
+    written 64 has L = F and the end stops at F. A softer note raises the
+    ending just enough that the straight fall stays on its line, never
+    steeper than 4. If the body itself is below that line, every bar stays
+    on the body center.
     """
     count = len(centers)
     if count <= 1 or _clears(centers, floors):

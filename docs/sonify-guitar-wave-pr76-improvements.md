@@ -1,8 +1,8 @@
-# Phần còn lại để nghe thấy sóng — sàn, chu kỳ smooth
+# Sàn, chu kỳ smooth, và đường intro theo sàn thân bài
 
-[PR 76](https://github.com/hiepsikien/VStock/pull/76) đã nằm trên `main`. `fit_intro` / `fit_outro` và đường nói `22` đã chạy. Merge một PR chỉ có tài liệu không đổi tiếng đàn: `PROFILES` và `smooth_ell` trên `main` vẫn là sàn cũ và cửa sổ 5 ô.
+PR này sửa `backend/app/sonify/guitar_wave.py`. Sàn calm lên `2`, một số sàn wide lên `4`, trần giữ nguyên. `smooth_ell` dùng $W$ lẻ của từng profile. Intro và outro lấy $L$ từ sàn của ô thân bài đang nối. Thân bài chỉ kẹp trần.
 
-Việc sửa code, trên `main`, theo bảng mục 5 của plan:
+Số đã khóa trong code, theo bảng mục 5 của plan:
 
 - Andante wide: sàn `+4`, cửa sổ `32..60`. Trần giữ `60`.
 - Calm có trần từ `54`, cùng gavotte wide và cantabile wide: sàn `+2`. Trần giữ nguyên.
@@ -94,9 +94,9 @@ Cửa sổ dưới đây là bảng mục 5: `floor..ceil` calm, rồi wide. C�
 
 ## 3. Intro lấy sàn của thân bài
 
-Sàn `22` là sàn nốt còn kêu, dùng chung. Intro dài của gigue, galop, choro, polca, hemiola, bourrée, fuga, tremolo và etude đang mở ở `22`, thấp hơn sàn wide `36` của chính nó. Intro một hoặc hai ô, và thể loại ngân như andante hay noviembre, không lệch kiểu đó.
+Sàn `22` là sàn nốt còn kêu, dùng chung. Đường cũ mở intro dài của gigue, galop, choro, polca, hemiola, bourrée, fuga, tremolo và etude ở `22`, thấp hơn sàn wide `36` của chính nó. Intro một hoặc hai ô, và thể loại ngân như andante hay noviembre, không lệch kiểu đó.
 
-Nhánh `return list(centers)` không gây ra việc này. Nhánh đó giữ đường thì thầm từ `27` khi mọi ô đã trên $L$, và nhánh này ở lại. Chỗ lệch là nhánh kia: đường từ `27` chui dưới $L$, rồi đầu đoạn chỉ được nâng tới $L$ của sàn `22`.
+Nhánh `return list(centers)` không gây ra việc này. Nhánh đó giữ đường thì thầm từ `27` khi mọi ô đã trên $L$, và nhánh này ở lại. Chỗ lệch là nhánh kia: đường từ `27` chui dưới $L$ của sàn `22`.
 
 $F$ là sàn cửa sổ của ô thân bài đang nối. $L(b) = \max(F, 22) - \min(V - 64)$. Một lần kéo tâm cho cả ô. Nốt intro không kẹp vào $F$ sau phép cộng.
 
