@@ -135,16 +135,16 @@ Rồi gọi `render_intro(ctx, leading, intro_pattern)` và `render_outro(ctx, t
 
 ### 4.2 Velocity viết sẵn và tâm ô
 
-`apply_guitar_wave` cộng `round(C) - 64` cho cả ô. Hiệu `V_written - 64` bên trong ô còn nguyên. Khi `fit_intro` phải giữ phẳng vì đường thì thầm chui dưới `L`, cử chỉ chỉ còn nghe nếu các bước tự viết bậc thang.
+`render_intro` và `render_outro` chạy trước `apply_guitar_wave`. Lúc viết nốt chưa biết fit sẽ bẹt hay giữ đường, vì `L` phụ thuộc chính velocity vừa viết. Hai nhánh đó không cùng thành một hàm.
 
-Cửa mới, khi fit phải bẹt:
+Chốt: viết bậc thang của mục 6. `apply_guitar_wave` cộng `round(C) - 64` cho cả ô sau đó. Khi fit không bẹt, đường tâm dốc thêm lên bậc thang. Khi fit bẹt, bậc thang là độ nổi còn lại. Hiệu `V_written - 64` bên trong ô vẫn còn.
+
+Bậc thang của cửa mới:
 
 - Intro: bước 0 ở `_PP`, bước 1 ở `_P`, bước 2 trong `50..56`, bước 3 trong `56..60`, hướng tới lead 64 / bass 56 / bè trong 46 của thân bài. Bước 3 của galop và của hemiola ở `_MF` (64). Đó là pickup vào thân bài, không bị trần `56..60` kéo xuống.
 - Outro: bước 0 đón thân bài ở `_MP` hoặc `_P`. Các bước sau hạ dần. Cadence của Bourrée, Gavotte, Gigue, Study, và Mozart giữ `_P`. Câu velocity ở từng pattern thắng câu này.
 
-Galop, choro, polca, và `elogio_pizz` khép bằng hợp âm staccato, bước cuối ở `_MF`, không tan về `_PP`. Hemiola khép bằng block I rồi ngân, bước cuối ở `_P`. Mục 6.3 là câu được code.
-
-Mỗi cửa một độ nổi. Khi `fit_intro` hoặc `fit_outro` đã là một đường tâm, bậc thang viết sẵn không cộng thêm một crescendo hoặc decrescendo lên đường đó: các bước dùng một mức viết sẵn. Nhấn `_MF` trong ô, contour chuông, và chấm dôi vẫn giữ. Khi fit phải bẹt, bậc thang viết sẵn là độ nổi duy nhất.
+Galop, choro, polca, và `elogio_pizz` khép bằng hợp âm staccato, bước cuối ở `_MF`, không tan về `_PP`. Hemiola khép bằng block I rồi ngân, bước cuối ở `_P`. Mục 6 là câu được code.
 
 Chuông, chấm dôi Pháp, và Picardy giữ contour đã viết (`_BELL_CONTOUR`, `_overture_cells`, `_bach_picardy`). Không kéo các contour đó về bậc thang chung.
 
@@ -187,13 +187,25 @@ Cửa nào viết lament hoặc approach mà profile `study` loại thì cũng �
 
 ### 4.6 Bước lặp
 
-`frame_roles` lặp bước. Test khóa `frame_roles(6) == [0, 0, 1, 2, 2, 3]`. Bước lặp là cùng một ô. Bước nào cần đổi thì nói rõ và dùng `index`, như `_roll` của Villa.
+`frame_roles` lặp bước. Bước lặp là cùng một ô. Bước nào cần đổi thì nói rõ và dùng `index`, như `_roll` của Villa. Vùng cửa là warmup dính intro, hoặc outro dính cooldown, vì cả hai kind đều nằm trong `_PEDAL`. `attach_frame` chỉ gắn warmup và cooldown cho 1M, 3M, và 1Y.
 
-Bản ngày (`DAILY_ENSEMBLE_SPEC`) là 2 ô pedal. `frame_roles(2) == [0, 1]`, chỉ kịch bản ngắn. Tuần là intro và outro 4 ô, `frame_roles(4) == [0, 1, 2, 3]`, kịch bản dài mỗi bước một lần.
+| Form | Vùng mở | Vùng khép |
+|---|---|---|
+| Ngày | 2, kịch bản ngắn | 2 |
+| Tuần | 4, mỗi bước một lần | 4 |
+| 1M chương I và 3M chương I, 4/4 | 8, mỗi bước hai lần | 8 |
+| 1M finale và 3M finale, 4/4 | 8 | 12: outro thân 8 cộng cooldown 4 |
+| 1M chương chậm, guitar 3/4 | 10: warmup 6 cộng intro 4 | 6. Chương này không có outro trong thân, chỉ cooldown |
+| 3M chương chậm, guitar 3/4 | 10 | 10: outro thân 4 cộng cooldown 6 |
+| 1M scherzo, guitar 6/8 | 10 | 10: outro thân 4 cộng cooldown 6 |
+| 1Y 4/4 | 6: warmup 2 cộng intro 4 | 6 |
+| 1Y 3/4 | 7: warmup 3 cộng intro 4 | 7 |
+| 1Y closer, guitar 6/8 | 7 | 9: outro thân 6 cộng cooldown 3 |
+| 1Y finale, 4/4 | 6 | 10: outro thân 8 cộng cooldown 2 |
 
-`attach_frame` gắn warmup và cooldown cho 1M, 3M, và 1Y. Vùng cửa là warmup dính với intro thân bài, hoặc outro thân bài dính với cooldown, vì cả hai kind đều nằm trong `_PEDAL`. 1M 4/4 là 8 ô. `frame_roles(8)` là `[0, 0, 1, 1, 2, 2, 3, 3]`: mỗi bước hai lần, kể cả cadence.
+`frame_roles(6)` là `[0, 0, 1, 2, 2, 3]`. `frame_roles(7)` là `[0, 0, 1, 1, 2, 2, 3]`. `frame_roles(8)` là `[0, 0, 1, 1, 2, 2, 3, 3]`. `frame_roles(9)` là `[0, 0, 0, 1, 1, 2, 2, 3, 3]`. `frame_roles(10)` là `[0, 0, 0, 1, 1, 2, 2, 2, 3, 3]`. `frame_roles(12)` là `[0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3]`.
 
-`frame_bars_for` của 1Y ở 3/4 và 6/8 trả 3, đó là riêng phần warmup. Intro thân bài vẫn còn 4 ô pedal, nên vùng cửa là 7 ô và `frame_roles(7)` là `[0, 0, 1, 1, 2, 2, 3]`. Bước 1 vẫn kêu. `frame_roles(3)` trả `[0, 2, 3]` và bỏ bước 1. Form guitar hiện không đưa cửa một vùng 3 ô. Answer của fuga và mô-típ rondeau của gavotte nằm ở bước 1. Trên form đang chạy hai câu đó có mặt. Một form sau này đúng 3 ô sẽ làm hai câu đó im, nên đừng để một cửa chỉ nói điều quan trọng ở bước 1.
+Cadence của finale 1M và 3M là ba ô của bước 3. Closer 1Y là hai ô. Bước 3 không biến theo `index` thì các ô đó giống hệt, kể cả hợp âm kết. `frame_roles(3)` trả `[0, 2, 3]` và bỏ bước 1. Form guitar hiện không có vùng cửa đúng 3 ô, nên answer của fuga và mô-típ rondeau của gavotte vẫn kêu.
 
 ---
 
