@@ -62,7 +62,8 @@ render_patterned_voices()
   │      Một phép affine cho mọi nốt sounding trong ô:
   │      V_thô = round(C(b)) + (V_đã_viết - 64)
   │      Thân bài, nốt không snap và không phải stab khung: kẹp [V_floor, V_ceil] ≤ 63.
-  │      Ô intro / outro: không kẹp sàn V_floor; chỉ kéo nốt vượt 63 về 63.
+  │      Ô intro / outro: không kẹp sàn V_floor; cộng K để nốt nhỏ nhất bằng 20,
+  │      rồi kéo nốt vượt 63 về 63.
   │      Rồi Cổng Snap nâng một vài cú đã chọn vào 66..76.
   └── 5. humanize()
          written <= 64  →  heard = min(64, heard)
@@ -169,13 +170,21 @@ Hai nốt khác ô lệch thêm bậc thủy triều đã làm tròn:
 
 $$V_{\text{thô}}(e_1) - V_{\text{thô}}(e_2) = \big(V_{\text{đã viết}}(e_1) - V_{\text{đã viết}}(e_2)\big) + \big(\mathrm{round}\,C(b_1) - \mathrm{round}\,C(b_2)\big)$$
 
-Trên thân bài, nốt viết trong `[48, 72]` chạm đúng $V_{\text{floor}}$ ở ô $U = 0$ và đúng $V_{\text{ceil}}$ ở ô $U = 1$, vì $C_{\text{lo}}$ và $C_{\text{hi}}$ là số nguyên.
+Trên thân bài, nốt viết `72` chạm đúng $V_{\text{ceil}}$ ở ô $U = 1$. Nốt viết `48` chạm đúng $V_{\text{floor}}$ chỉ ở ô còn $U = 0$. Bước D nâng mọi ô trũng đứng gần đỉnh, nên ô $U = 0$ chỉ còn khi ô $\tilde{\ell}$ nhỏ nhất cách ô $\tilde{\ell}$ lớn nhất ít nhất
+
+$$\left\lceil \frac{C_{\text{hi}} - C_{\text{lo}}}{4} \right\rceil$$
+
+ô. Quãng thủy triều `15` cần khoảng cách `4` ô. Section có đỉnh và đáy sát hơn khoảng đó không có ô $U = 0$, và nốt viết `48` không chạm $V_{\text{floor}}$.
 
 Nốt thân bài viết ngoài khoảng đó vẫn cộng cùng $\mathrm{round}(C(b))$, rồi bị cửa sổ genre giữ lại. Sau phép cộng, mọi nốt thân bài không được Cổng Snap chọn và không phải stab khung (mục 4) kẹp vào
 
 $$[V_{\text{floor}},\; V_{\text{ceil}}], \qquad V_{\text{ceil}} \le 63$$
 
-Sàn $V_{\text{floor}}$ dừng ở thân bài. Ô intro và outro không dùng sàn này. Trên các ô đó, $V_{\text{thô}} = \mathrm{round}(C) + d$ cho đến khi một nốt vượt `63`; nốt đó bị kéo về `63`.
+Sàn $V_{\text{floor}}$ dừng ở thân bài. Ô intro và outro không dùng sàn này. Trên các ô đó, tính $\mathrm{round}(C) + d$, rồi cộng một hằng số $K$ của cả ô
+
+$$K = \max\big(0,\; 20 - \min(\mathrm{round}(C) + d)\big)$$
+
+để nốt sounding nhỏ nhất bằng `20` khi tổng đang thấp hơn `20`. Hiệu trong ô giữ nguyên. Sau $K$, nốt nào vượt `63` bị kéo về `63`. Humanize còn nhích tối đa `±2`; mức `20` là vận tốc ghi trước bước đó. Trên MS Basic, dưới `20` nốt guitar không còn cất tiếng, và sàn MIDI `1` không đưa vùng `7, 13, 9` lên được mức ấy.
 
 Trên ô đỉnh của ví dụ dưới, nốt viết `80` ra `55 + 16 = 71`, rồi kẹp về `63`. Humanize nhìn thấy `63`, đi nhánh `<= 64`, và dừng ở `<= 64`. Nó không bị kéo vào `66..76`. Nốt `72` trên cùng ô cũng ra `63`: phần viết trên `72` chỉ mất ở những ô đã chạm trần. Trên ô trũng, `80` ra `40 + 16 = 56`, còn dưới `63`, và vẫn cách nốt `72` đúng `8` bậc.
 
@@ -243,9 +252,9 @@ Nốt đi kèm trong cùng cụm (fill tremolo, echo etude, canto 2, sóng chữ
 
 ## 4. Intro và outro
 
-Các ô `pedal` (`intro`, `warmup`, `outro`, `cooldown`) dùng $V_{\text{thô}} = \mathrm{round}(C) + d$ trên vận tốc frame đã viết. Trong một ô, hiệu MIDI của cử chỉ giữ nguyên cho tới khi một nốt chạm trần `63`. Các ô này không kẹp sàn $V_{\text{floor}}$.
+Các ô `pedal` (`intro`, `warmup`, `outro`, `cooldown`) dùng $\mathrm{round}(C) + d$, rồi cộng $K$ của mục 2.4. Trong một ô, hiệu MIDI của cử chỉ giữ nguyên cho tới khi một nốt chạm trần `63`. Các ô này không kẹp sàn $V_{\text{floor}}$.
 
-Chuông viết `44, 50, 46` tại $C_{\text{whisper}} = 27$ ra `7, 13, 9`. Nếu kẹp sàn thân bài (khoảng `26`), cả ba nốt thành một mức. Sàn đó chỉ chạy trên thân bài, nên chuông giữ `7, 13, 9`.
+Chuông viết `44, 50, 46` tại $C = 27$ ra `7, 13, 9` trước $K$. Nốt nhỏ nhất là `7`, nên $K = 13$ và cả ô thành `20, 26, 22`. Chênh `6` và `2` đứng yên. Kẹp sàn thân bài (khoảng `26`) sẽ kéo cả ba nốt về một mức; sàn đó không chạy ở đây.
 
 - **Intro**: $C_{\text{whisper}}$ là mức làm nốt viết `64` rơi vào `27` (giữa `22..32`). $C(b_{\text{body}})$ là $C$ của ô thân bài đầu tiên. Có $M_{\text{lead}}$ ô pedal dẫn, chỉ số $i = 0 \dots M_{\text{lead}} - 1$.
 
@@ -256,7 +265,11 @@ $$C_{\text{intro}}(i) = C_{\text{whisper}} + \big(C(b_{\text{body}}) - C_{\text{
 
   Ô $i = M_{\text{lead}} - 1$ nhận đúng $C(b_{\text{body}})$. Vạch nhịp vào thân bài nối tiếp về $C$. Phần nhảy còn lại là nhảy của vận tốc đã viết. Các ô trước đó đi từ `27` lên mức mở của ô nối. Bước giữa hai ô intro kề cũng bị chặn `4` bậc, cùng quy tắc mục 2.2D: nếu $C(b_{\text{body}}) - C_{\text{whisper}} > 4 \cdot (M_{\text{lead}} - 1)$, các ô đầu được nâng để đường dốc không vượt `4` mỗi vạch, và ô cuối vẫn là $C(b_{\text{body}})$.
 
-- **Outro**: $C$ đi từ $C$ của ô thân bài cuối xuống tâm morendo, nơi nốt viết `64` rơi vào `23` (giữa `20..26`). Một ô outro duy nhất là ô sát thân bài, nhận $C$ của ô thân bài cuối. Morendo chỉ trải trên chuỗi có từ hai ô; ô cuối của chuỗi đó về `23`, và mỗi vạch cũng không nhảy quá `4` bậc.
+- **Outro**: giữ ô đầu, tức ô sát thân bài, ở $C$ của ô thân bài cuối. Bước D chỉ nâng chỗ trũng; nó không kéo một đầu đã cao xuống `23`. Có $N$ ô outro, chỉ số $i = 0 \dots N - 1$, mỗi vạch tối đa `4` bậc:
+
+$$C_{\text{outro}}(i) = \max\big(23,\; C(b_{\text{body}}) - 4 \cdot i\big)$$
+
+  $N = 1$: ô duy nhất nhận $C(b_{\text{body}})$. $N = 2$ chỉ có một vạch, nên từ $C = 55$ ô cuối là `51`, không phải `23`. Khoảng `55 → 23` là `32` bậc, cần `8` vạch, tức $N = 9$, thì ô cuối mới bằng `23`. Giữ ô cuối ở `23` sẽ làm ô đầu rời $C$ thân bài; thiết kế này không chọn đầu đó. Mức `23` là $C$ trước hằng số $K$. Nếu ô cuối có nốt mềm hơn `64`, $K$ nâng cả ô cho tới khi nốt nhỏ nhất bằng `20`, và nốt viết `64` đứng cao hơn `23` đúng bằng $K$.
 
 Cú stab kịch tính (`staccato` và `accent` ở `_edge_stab` / `_stab_and_ring` của Brouwer, và `_stabs` cuối outro Villa khi `bright`) gán sau bộ lọc, một bộ số:
 
@@ -343,7 +356,7 @@ Nhánh `>= 65` chỉ đúng với nốt Cổng Snap đã ghi `66..76` và stab k
 1. **Sóng $U(b)$.** Trong `guitar_wave.py`, thay bộ làm mượt hiện tại bằng log → trung bình đối xứng 5 điểm → min–max trong section → chặn bước $\Delta_U = 4 / (C_{\text{hi}} - C_{\text{lo}})$ (mục 2.2). Band fallback khi volume phẳng. $C$ vẫn là một số cho cả ô.
 2. **Hằng số.** Giữ 28 profile ở mục 5. Bỏ các trường đường cong bass / support / gamma khỏi công thức vận tốc. Với bảng này $M = 1$. Tính $C_{\text{lo}}$, $C_{\text{hi}}$ theo mục 2.3 cho từng section.
 3. **`_shape_dynamics`.** Giữ `extra` của câu. Bỏ `_BAND_DELTA` và bỏ kẹp `[44, 78]` trên đường đi vào bộ lọc, để band thô không cộng dồn với $C$.
-4. **`apply_guitar_wave`.** Một vòng trên mọi nốt sounding: $V_{\text{thô}} = \mathrm{round}(C(b)) + (V - 64)$. Thân bài kẹp nốt không snap vào $[V_{\text{floor}}, V_{\text{ceil}}] \le 63$. Intro và outro chỉ kéo nốt vượt `63` về `63`. Xóa `_assign_generic`, `_assign_tremolo`, `_assign_etude1`, `_assign_etude11`, `_assign_preludio` và pass xếp tầng ba bè. Intro một ô nhận $C(b_{\text{body}})$ (mục 4). Stab khung vẫn gán `70 / 66 / 62` sau bước kẹp.
+4. **`apply_guitar_wave`.** Một vòng trên mọi nốt sounding: $V_{\text{thô}} = \mathrm{round}(C(b)) + (V - 64)$. Thân bài kẹp nốt không snap vào $[V_{\text{floor}}, V_{\text{ceil}}] \le 63$. Intro và outro cộng $K$ để nốt nhỏ nhất trong ô bằng `20` khi tổng thấp hơn `20`, rồi kéo nốt vượt `63` về `63`. Xóa `_assign_generic`, `_assign_tremolo`, `_assign_etude1`, `_assign_etude11`, `_assign_preludio` và pass xếp tầng ba bè. Intro một ô nhận $C(b_{\text{body}})$. Outro giữ ô đầu ở $C$ thân bài; ô cuối là $\max(23,\; C_{\text{thân}} - 4(N-1))$ (mục 4). Stab khung vẫn gán `70 / 66 / 62` sau bước kẹp.
 5. **Snap.** Giữ ngân sách và $V_{\text{snapped}}$. Chỉ ghi đè cú được chọn, sau bước kẹp trần ấm.
 6. **Humanize.** Giữ chốt mục 6. Nhánh `>= 65` không nhận nốt affine.
 7. **Test.** Đổi `test_guitar_wave.py` sang các bất biến ở mục 8. Các assertion số tuyệt đối cũ trong `test_sonify_guitar.py` chuyển sang kiểm tra hiệu trong cùng một ô và cửa sổ genre.
@@ -353,10 +366,10 @@ Nhánh `>= 65` chỉ đúng với nốt Cổng Snap đã ghi `66..76` và stab k
 ## 8. Bất biến cần test
 
 1. **Hiệu trong cùng một ô.** $V_{\text{thô}} = \mathrm{round}(C(b)) + (V - 64)$. Mọi cặp nốt sounding cùng ô giữ đúng $V_i - V_j$ khi cả hai chưa chạm kẹp, kể cả lúc $C = 40.5$ (nốt viết `64` và `65` ra cách nhau `1`, không phải `2`), và kể cả tremolo, etude, preludio, pattern thường. Hai nốt khác ô lệch thêm $\mathrm{round}\,C(b_1) - \mathrm{round}\,C(b_2)$. Trên 28 profile, $M = 1$.
-2. **Khóa biên trên thân bài.** Nốt viết `48` tại ô $U = 0$ ra đúng $V_{\text{floor}}$. Nốt viết `72` tại ô $U = 1$ ra đúng $V_{\text{ceil}} \le 63$. Nốt viết `80` tại ô $U = 1$ ra `63` trước humanize và `<= 64` sau humanize.
+2. **Khóa biên trên thân bài.** Nốt viết `72` tại ô $U = 1$ ra đúng $V_{\text{ceil}} \le 63$. Nốt viết `48` ra đúng $V_{\text{floor}}$ chỉ khi ô $\tilde{\ell}$ nhỏ nhất cách ô $\tilde{\ell}$ lớn nhất ít nhất $\lceil (C_{\text{hi}} - C_{\text{lo}}) / 4 \rceil$ ô (với quãng `15`, là `4` ô). Section ngắn hơn khoảng đó không có ô $U = 0$, và nốt `48` không chạm $V_{\text{floor}}$. Nốt viết `80` tại ô $U = 1$ ra `63` trước humanize và `<= 64` sau humanize.
 3. **Đỉnh của chuỗi đã làm mượt, và bước vạch nhịp.** Ô có $\tilde{\ell}$ lớn nhất có $C$ bằng cực đại của section. Với $\ell = (0, 0, 5, 4, 4, 4, 4)$, cực đại nằm ở ô trung bình `4.2`, không ở ô thô `5`. $|\mathrm{round}(C(b)) - \mathrm{round}(C(b-1))| \le 4$. $C$ không đổi bên trong một ô.
 4. **Volume phẳng.** Cả section một mức volume thì mọi ô cùng một $C$ lấy từ band fallback. Hiệu trong ô giữ nguyên.
 5. **Band không cộng hai lần.** Một nốt viết `64` trên band `p` và trên band `f`, cùng $U$, ra cùng $V_{\text{ra}}$.
 6. **Snap hiếm.** Pattern `snap_wide is None`: không nốt nào vượt `64` sau humanize, kể cả nốt viết trên `72`. Pattern có snap, $\alpha_{\text{price}} \ge 0.50$: có ít nhất một unit trong `[66, snap_wide]`, không quá $K_{\text{sec}}$, không nốt nào sau humanize vượt `76`. Nốt không được chọn trong cùng ô giữ kết quả affine đã kẹp `<= 63`.
 7. **Theo section.** Chương nhiều section: section $\alpha_{\text{price}} = 0$ có $K_{\text{sec}} = 0$ (trừ tối đa một slap `elogio_pizz`). `trio` / `bridge` dùng $\alpha_{\text{warm}}$ đã nhân `0.50`, nên cửa sổ và quãng chạy của $C$ hẹp hơn phần A cùng profile. $M$ của đoạn đó vẫn là `1`.
-8. **Intro / outro.** Hiệu trong một cử chỉ của cùng một ô frame giữ nguyên khi chưa nốt nào chạm `63`. Chuông `44, 50, 46` tại $C = 27$ ra `7, 13, 9`, không bị kéo về $V_{\text{floor}}$. Intro một ô nhận $C$ của ô thân bài đầu, không nhận `27`. Intro từ hai ô: ô cuối nhận $C(b_{\text{body}})$. Outro một ô nhận $C$ của ô thân bài cuối. Stab khung ra `70 / 66 / 62`.
+8. **Intro / outro.** Hiệu trong một cử chỉ của cùng một ô frame giữ nguyên khi chưa nốt nào chạm `63`. Chuông `44, 50, 46` tại $C = 27$ thành `20, 26, 22` sau $K = 13$, không bị kéo về $V_{\text{floor}}$. Intro một ô nhận $C$ của ô thân bài đầu, không nhận `27`. Intro từ hai ô: ô cuối nhận $C(b_{\text{body}})$. Outro giữ ô đầu ở $C$ thân bài. Với $C_{\text{thân}} = 55$, outro hai ô có ô cuối `51`; outro chín ô có ô cuối `23` trước $K$. Stab khung ra `70 / 66 / 62`.
