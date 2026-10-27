@@ -6,19 +6,38 @@ exists, is more than CAP away. A step of 1 or 2 freezes the whole run, which
 keeps the Etude arches and any other landing whose neighbor is that close.
 `tie_stop` is not an attack. It copies the attack it continues only when
 both were written at the same velocity. A swell peak keeps its own number.
+
+The shared clock is a `<sound tempo>` curve on `score.tempos`. Each phrase
+starts slightly fast and ends slightly slow, so the beat-weighted BPM
+deviation inside the phrase is 0. Every step sits on the score's division
+grid: a division centered on a step takes the mean of the two sides.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
-from app.sonify.model import NoteEvent, Score
+from app.sonify.model import NoteEvent, Phrase, Score, TempoEvent
 
 CAP = 2
 _CHOICES = (-2, -1, 0, 1, 2)
 _FIELDS = ("high", "lead", "support", "comp", "low")
 _TICKS = 480
+# Fraction of the written BPM. Jazz stays small beside swing. Minimalist stays
+# under 1%. A phrase shorter than two quarters has no room for the pair.
+_TEMPO_DELTA = {
+    "symphony": 0.01,
+    "guitar": 0.01,
+    "jazz": 0.0025,
+    "minimalist": 0.005,
+    "ambient": 0.01,
+}
+_RAMP_BEATS = 3.0
+_MIN_PHRASE_BEATS = 2.0
+# Ambient breathes on a long note: two quarters, four eighths.
+_LONG_EIGHTHS = 4
 
 OffsetAt = Callable[[str, str, str, int, float], int]
 
@@ -65,7 +84,7 @@ def humanize(score: Score, *, offset_at: OffsetAt = chosen_offset) -> Score:
         if score.variant == "guitar":
             heard = _clamp_guitar(notes, heard, score.ensemble)
         updated[field] = tuple(_copy_ties(notes, heard))
-    return replace(score, **updated)
+    return replace(score, **updated, tempos=_tempo_clock(score))
 
 
 @dataclass(frozen=True)
@@ -286,3 +305,119 @@ def _copy_ties(original: tuple[NoteEvent, ...], heard: list[NoteEvent]) -> list[
         if not note.tie_start:
             chain.pop(note.midi, None)
     return heard
+
+
+def _tempo_clock(score: Score) -> tuple[TempoEvent, ...]:
+    """Phrase breath on one clock. The end yields the time the opening took."""
+    delta = _TEMPO_DELTA.get(score.variant, 0.01)
+    if delta <= 0 or not score.phrases:
+        return ()
+    bar_beats = float(score.bar_beats)
+    if bar_beats <= 0:
+        return ()
+    nominal = float(score.bpm)
+    piece_end = score.bars * bar_beats
+    divisions = score.divisions if score.divisions > 0 else 2
+    raw: list[tuple[float, float, int]] = []
+    order = 0
+    for phrase in score.phrases:
+        if score.variant == "ambient" and not _long_note(phrase):
+            continue
+        start = phrase.start / 2.0
+        end = min(phrase.end / 2.0, piece_end)
+        if end - start < _MIN_PHRASE_BEATS - 1e-9:
+            continue
+        for beat, bpm in _phrase_tempos(start, end, nominal, delta, divisions):
+            if 0 <= beat < piece_end - 1e-9:
+                raw.append((round(beat, 4), bpm, order))
+                order += 1
+        if end < piece_end - 1e-9:
+            raw.append((round(end, 4), nominal, order))
+            order += 1
+    raw.sort(key=lambda item: (item[0], item[2]))
+    collapsed: list[tuple[float, float]] = []
+    for beat, bpm, _order in raw:
+        if collapsed and abs(collapsed[-1][0] - beat) <= 1e-4:
+            collapsed[-1] = (beat, bpm)
+            continue
+        collapsed.append((beat, bpm))
+    emitted: list[tuple[float, float]] = []
+    for beat, bpm in collapsed:
+        if emitted and abs(emitted[-1][1] - bpm) < 0.001:
+            continue
+        emitted.append((beat, bpm))
+    tempos: list[TempoEvent] = []
+    for beat, bpm in emitted:
+        bar, local = _place(beat, bar_beats)
+        if bar < 0 or bar >= score.bars:
+            continue
+        tempos.append(TempoEvent(bar, local, bpm))
+    return tuple(tempos)
+
+
+def _long_note(phrase: Phrase) -> bool:
+    return any(run.length >= _LONG_EIGHTHS for run in phrase.runs)
+
+
+def _phrase_tempos(
+    start: float, end: float, nominal: float, delta: float, divisions: int
+):
+    """Fast hold, then a centered ramp, then the matching slow hold.
+
+    A phrase of four quarters or fewer is the pair itself: the midpoint is the
+    step. A longer phrase spreads that step across three quarters, and each
+    ramp segment uses the tempo at its own center so the deviations cancel.
+    The clock only moves on a division. Each division takes the tempo at its
+    center, and a division sitting on a step takes the mean of the two sides.
+    """
+    regions = _tempo_regions(start, end, delta)
+    start_units = int(round(start * divisions))
+    end_units = int(round(end * divisions))
+    previous: float | None = None
+    for unit in range(start_units, end_units):
+        factor = _tempo_factor((unit + 0.5) / divisions, regions)
+        bpm = round(nominal * factor, 2)
+        if previous is not None and abs(previous - bpm) < 0.001:
+            continue
+        yield round(unit / divisions, 4), bpm
+        previous = bpm
+
+
+def _tempo_regions(
+    start: float, end: float, delta: float
+) -> tuple[tuple[float, float, float], ...]:
+    """`(left, right, factor)` spans. The right edge of one span is the next step."""
+    mid = (start + end) / 2.0
+    if end - start <= 4.0 + 1e-9:
+        return (
+            (start, mid, 1.0 + delta),
+            (mid, end, 1.0 - delta),
+        )
+    ramp_start = mid - _RAMP_BEATS / 2.0
+    regions = [(start, ramp_start, 1.0 + delta)]
+    for index in range(int(_RAMP_BEATS)):
+        left = ramp_start + index
+        mix = ((left + 0.5) - ramp_start) / _RAMP_BEATS
+        factor = (1.0 + delta) * (1.0 - mix) + (1.0 - delta) * mix
+        regions.append((left, left + 1.0, factor))
+    regions.append((ramp_start + _RAMP_BEATS, end, 1.0 - delta))
+    return tuple(span for span in regions if span[1] - span[0] > 1e-9)
+
+
+def _tempo_factor(
+    beat: float, regions: tuple[tuple[float, float, float], ...]
+) -> float:
+    for index, (left, right, factor) in enumerate(regions):
+        if index and abs(beat - left) <= 1e-6:
+            return (regions[index - 1][2] + factor) / 2.0
+        if left - 1e-9 <= beat < right - 1e-9:
+            return factor
+    return regions[-1][2]
+
+
+def _place(beat: float, bar_beats: float) -> tuple[int, float]:
+    bar = int(math.floor((beat + 1e-9) / bar_beats))
+    local = round(beat - bar * bar_beats, 4)
+    if local >= bar_beats - 1e-4:
+        return bar + 1, 0.0
+    return bar, local

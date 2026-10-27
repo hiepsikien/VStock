@@ -8,7 +8,8 @@ from array import array
 from pathlib import Path
 
 from app.sonify.humanize import chosen_offset, humanize
-from app.sonify.model import NoteEvent, Score
+from app.sonify.model import NoteEvent, Phrase, Run, Score
+from app.sonify.musicxml import score_to_musicxml
 from app.sonify.preset import _mix_noise, apply_preset, preset_chain
 
 
@@ -199,6 +200,319 @@ def test_the_same_score_humanizes_the_same_way() -> None:
     notes = tuple(_note(beat, 56) for beat in (0.0, 0.5, 1.0, 1.5))
     score = _score(support=notes)
     assert humanize(score) == humanize(score)
+
+
+def _phrase(start: int, end: int, *, long: bool = True) -> Phrase:
+    length = 8 if long else 1
+    return Phrase(start, end, (Run(start, min(length, end - start), 60),))
+
+
+def _absolute(event, bar_beats: float) -> float:
+    return event.bar * bar_beats + event.beat
+
+
+def _mean_deviation(tempos, end: float, nominal: float, bar_beats: float) -> float:
+    points = [(_absolute(event, bar_beats), event.bpm) for event in tempos]
+    points = [(beat, bpm) for beat, bpm in points if beat < end - 1e-6]
+    total = 0.0
+    weight = 0.0
+    for (beat, bpm), nxt in zip(points, [item[0] for item in points[1:]] + [end]):
+        span = nxt - beat
+        total += (bpm - nominal) * span
+        weight += span
+    return total / weight
+
+
+def _time_ratio(tempos, end: float, nominal: float, bar_beats: float) -> float:
+    points = [(_absolute(event, bar_beats), event.bpm) for event in tempos if _absolute(event, bar_beats) < end - 1e-6]
+    sounded = 0.0
+    for (beat, bpm), nxt in zip(points, [item[0] for item in points[1:]] + [end]):
+        sounded += (nxt - beat) * nominal / bpm
+    return sounded / end
+
+
+def test_a_phrase_clock_returns_the_time_it_borrows() -> None:
+    phrase = _phrase(0, 32)
+    heard = humanize(_score(bars=4, phrases=(phrase,), variant="symphony", ensemble="classic", bpm=88))
+    tempos = heard.tempos
+    assert tempos[0].bar == 0 and tempos[0].beat == 0.0
+    assert tempos[0].bpm == 88.88
+    assert any(event.bpm == 87.12 for event in tempos)
+    assert abs(_mean_deviation(tempos, 16.0, 88.0, 4.0)) < 0.02
+    ratio = _time_ratio(tempos, 16.0, 88.0, 4.0)
+    assert 1.00005 < ratio < 1.0002
+    again = humanize(_score(bars=4, phrases=(phrase,), variant="symphony", bpm=88))
+    assert again.tempos == tempos
+
+
+def _eighths(bars: int) -> tuple[NoteEvent, ...]:
+    return tuple(
+        NoteEvent(bar=bar, beat=beat / 2.0, midi=67, duration_beats=0.5, voice=1, velocity=70)
+        for bar in range(bars)
+        for beat in range(8)
+    )
+
+
+def _part_tempos(xml: str, divisions: int, part_id: str) -> list[tuple[int, float, str]]:
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(xml)
+    part = next(node for node in root.findall("part") if node.get("id") == part_id)
+    sounded: list[tuple[int, float, str]] = []
+    for bar, measure in enumerate(part.findall("measure")):
+        for beat, tempo, _direction in _sounded_tempos(measure, divisions):
+            sounded.append((bar, round(beat, 4), tempo))
+    return sounded
+
+
+def test_even_phrases_keep_the_same_curve_on_an_eighth_grid() -> None:
+    phrase = _phrase(0, 32)
+    fine = humanize(_score(bars=4, bpm=88, variant="symphony", divisions=4, phrases=(phrase,)))
+    coarse = humanize(_score(bars=4, bpm=88, variant="symphony", divisions=2, phrases=(phrase,)))
+    assert [(event.bar, event.beat, event.bpm) for event in coarse.tempos] == [
+        (event.bar, event.beat, event.bpm) for event in fine.tempos
+    ]
+
+
+def test_an_odd_phrase_stays_on_the_eighth_grid_and_still_cancels() -> None:
+    phrase = _phrase(0, 9)
+    heard = humanize(
+        _score(
+            bars=2,
+            bpm=88,
+            variant="symphony",
+            divisions=2,
+            phrases=(phrase,),
+            lead=_eighths(2),
+        )
+    )
+    assert [(event.bar, event.beat, event.bpm) for event in heard.tempos] == [
+        (0, 0.0, 88.88),
+        (0, 0.5, 88.73),
+        (0, 1.0, 88.59),
+        (0, 1.5, 88.29),
+        (0, 2.0, 88.0),
+        (0, 2.5, 87.71),
+        (0, 3.0, 87.41),
+        (0, 3.5, 87.27),
+        (1, 0.0, 87.12),
+        (1, 0.5, 88.0),
+    ]
+    assert abs(_mean_deviation(heard.tempos, 4.5, 88.0, 4.0)) < 0.02
+    sounded = _part_tempos(score_to_musicxml(heard), heard.divisions, "P1")
+    assert [(event.bar, round(event.beat, 4)) for event in heard.tempos] == [
+        (bar, beat) for bar, beat, _tempo in sounded
+    ]
+
+
+def test_a_five_eighth_phrase_holds_the_written_tempo_across_the_midpoint() -> None:
+    heard = humanize(
+        _score(bars=1, bpm=88, variant="symphony", divisions=2, phrases=(_phrase(0, 5),))
+    )
+    assert [(event.bar, event.beat, event.bpm) for event in heard.tempos] == [
+        (0, 0.0, 88.88),
+        (0, 1.0, 88.0),
+        (0, 1.5, 87.12),
+        (0, 2.5, 88.0),
+    ]
+    assert _mean_deviation(heard.tempos, 2.5, 88.0, 4.0) == 0
+
+
+def test_a_sixteenth_grid_keeps_the_off_eighth_ramp() -> None:
+    heard = humanize(
+        _score(bars=2, bpm=88, variant="symphony", divisions=4, phrases=(_phrase(0, 9),))
+    )
+    assert [round(event.bar * 4 + event.beat, 4) for event in heard.tempos] == [
+        0.0,
+        0.75,
+        1.75,
+        2.75,
+        3.75,
+        4.5,
+    ]
+
+
+def test_short_phrases_and_quiet_ambient_lines_stay_on_the_written_tempo() -> None:
+    short = humanize(_score(phrases=(_phrase(0, 2),), bpm=100))
+    assert short.tempos == ()
+    air = humanize(
+        _score(
+            bars=4,
+            bpm=100,
+            variant="ambient",
+            phrases=(_phrase(0, 32, long=False),),
+        )
+    )
+    assert air.tempos == ()
+    sung = humanize(
+        _score(
+            bars=4,
+            bpm=100,
+            variant="ambient",
+            phrases=(_phrase(0, 32, long=True),),
+        )
+    )
+    assert sung.tempos[0].bpm == 101.0
+    assert any(event.bpm == 99.0 for event in sung.tempos)
+
+
+def test_jazz_and_minimalist_clocks_stay_under_one_percent() -> None:
+    phrase = _phrase(0, 32)
+    jazz = humanize(_score(bars=4, bpm=100, variant="jazz", ensemble="classic", swing=True, phrases=(phrase,)))
+    wood = humanize(_score(bars=4, bpm=100, variant="minimalist", phrases=(phrase,)))
+    assert jazz.tempos[0].bpm == 100.25
+    assert any(event.bpm == 99.75 for event in jazz.tempos)
+    assert wood.tempos[0].bpm == 100.5
+    assert any(event.bpm == 99.5 for event in wood.tempos)
+    assert max(abs(event.bpm - 100) for event in jazz.tempos) < 1
+    assert max(abs(event.bpm - 100) for event in wood.tempos) < 1
+
+
+def _quarters(bars: int) -> tuple[NoteEvent, ...]:
+    return tuple(
+        NoteEvent(bar=bar, beat=float(beat), midi=67, duration_beats=1.0, voice=1, velocity=70)
+        for bar in range(bars)
+        for beat in range(4)
+    )
+
+
+def _sounded_tempos(measure, divisions: int) -> list[tuple[float, str, object]]:
+    """Playback beat of each `<sound tempo>`, following the voice cursor.
+
+    An `<offset>` only moves playback when sound="yes". Chord notes and
+    backup/forward match the MusicXML cursor the importer will use.
+    """
+    cursor = 0
+    heard: list[tuple[float, str, object]] = []
+    for child in list(measure):
+        if child.tag == "backup":
+            cursor -= int(child.findtext("duration") or 0)
+            continue
+        if child.tag == "forward":
+            cursor += int(child.findtext("duration") or 0)
+            continue
+        if child.tag == "note":
+            if child.find("chord") is None:
+                cursor += int(child.findtext("duration") or 0)
+            continue
+        if child.tag != "direction":
+            continue
+        sound = child.find("sound")
+        tempo = sound.get("tempo") if sound is not None else None
+        if not tempo:
+            continue
+        offset = child.find("offset")
+        shift = 0
+        if offset is not None:
+            assert offset.get("sound") == "yes"
+            shift = int(offset.text or 0)
+        heard.append(((cursor + shift) / divisions, tempo, child))
+    return heard
+
+
+def test_printed_metronome_stays_integral_while_sound_tempo_breathes() -> None:
+    import xml.etree.ElementTree as ET
+
+    phrase = _phrase(0, 32)
+    heard = humanize(
+        _score(
+            bars=4,
+            bpm=88,
+            variant="guitar",
+            ensemble="classic",
+            divisions=4,
+            phrases=(phrase,),
+            lead=_quarters(4),
+        )
+    )
+    root = ET.fromstring(score_to_musicxml(heard))
+    measure = root.find("part/measure")
+    assert measure is not None
+    metronome = measure.find("direction/direction-type/metronome/per-minute")
+    assert metronome is not None and metronome.text == "88"
+    part = root.find("part")
+    assert part is not None
+    sounded: list[tuple[int, float, str]] = []
+    for bar, node in enumerate(part.findall("measure")):
+        for beat, tempo, direction in _sounded_tempos(node, heard.divisions):
+            sounded.append((bar, round(beat, 4), tempo))
+            words = direction.find("direction-type/words")
+            if words is not None:
+                assert words.get("print-object") == "no"
+                assert (words.text or "").strip() == ""
+    assert [(event.bar, round(event.beat, 4)) for event in heard.tempos] == [
+        (bar, beat) for bar, beat, _tempo in sounded
+    ]
+    assert [tempo for _bar, _beat, tempo in sounded][0] == "88.88"
+    assert "87.12" in [tempo for _bar, _beat, tempo in sounded]
+    assert len(sounded) == len(heard.tempos)
+
+
+def test_a_mid_beat_tempo_is_pulled_back_from_the_next_note() -> None:
+    import xml.etree.ElementTree as ET
+
+    heard = humanize(
+        _score(bars=4, bpm=88, phrases=(_phrase(0, 32),), lead=_quarters(4), divisions=4)
+    )
+    root = ET.fromstring(score_to_musicxml(heard))
+    part = root.find("part")
+    assert part is not None
+    measure = part.findall("measure")[2]
+    children = list(measure)
+    placed = [
+        direction
+        for beat, _tempo, direction in _sounded_tempos(measure, heard.divisions)
+        if abs(beat - 0.5) < 1e-6
+    ]
+    assert len(placed) == 1
+    direction = placed[0]
+    offset = direction.find("offset")
+    assert offset is not None and offset.get("sound") == "yes"
+    assert int(offset.text or 0) < 0
+    index = children.index(direction)
+    assert children[index - 1].tag == "note"
+    assert children[index + 1].tag == "note"
+
+
+def test_the_phrase_clock_is_written_once_on_the_lead_part() -> None:
+    import xml.etree.ElementTree as ET
+
+    heard = humanize(
+        _score(
+            bars=1,
+            bpm=88,
+            variant="symphony",
+            ensemble="classic",
+            phrases=(_phrase(0, 8),),
+            lead=_quarters(1),
+        )
+    )
+    root = ET.fromstring(score_to_musicxml(heard))
+    counts = {
+        part.get("id"): sum(len(_sounded_tempos(measure, heard.divisions)) for measure in part.findall("measure"))
+        for part in root.findall("part")
+    }
+    assert counts["P1"] == len(heard.tempos)
+    assert all(count == 0 for part_id, count in counts.items() if part_id != "P1")
+
+
+def test_a_tempo_on_a_note_sits_directly_before_that_note() -> None:
+    import xml.etree.ElementTree as ET
+
+    heard = humanize(_score(bars=1, bpm=88, phrases=(_phrase(0, 8),), lead=_quarters(1)))
+    root = ET.fromstring(score_to_musicxml(heard))
+    measure = root.find("part/measure")
+    assert measure is not None
+    children = list(measure)
+    placed = [
+        (beat, direction)
+        for beat, _tempo, direction in _sounded_tempos(measure, heard.divisions)
+        if abs(beat - 2.0) < 1e-6
+    ]
+    assert len(placed) == 1
+    _beat, direction = placed[0]
+    assert direction.find("offset") is None
+    assert children[children.index(direction) + 1].tag == "note"
 
 
 def test_preset_chains_match_the_five_lines() -> None:

@@ -21,7 +21,9 @@ Vibrato is left to the instrument: a `<wavy-line>` imports as a trill.
 A hairpin with no target letter moves playback one step and stays there, so
 `mp` is printed again wherever earlier hairpins did not cancel out.
 The lead part (`P1`) carries the opening tempo (plus `<swing>` when
-`score.swing` is enabled).
+`score.swing` is enabled) and the later phrase-tempo directions. Those
+directions sit on the lead voice's cursor; a change between attacks uses
+`<offset sound="yes">`.
 
 `P3` is a two-staff grand staff (comping + fills in `symphony` and `jazz`, or
 liquidity pulse + backbeat in `minimalist`), marked `p` once so it stays behind
@@ -43,7 +45,16 @@ from app.sonify.dynamics import COOLDOWN_MARKING, SOUND
 from app.sonify.form import BEATS_PER_BAR, MUSICAL_BARS
 from app.sonify.keys import KeySpec, midi_to_spelled_pitch, signature_fifths, transpose_chord
 from app.sonify.ensemble import parts_for, sounds_at_pitch
-from app.sonify.model import DynamicEvent, Ensemble, HarmonyEvent, NoteEvent, Score, Variant, WedgeEvent
+from app.sonify.model import (
+    DynamicEvent,
+    Ensemble,
+    HarmonyEvent,
+    NoteEvent,
+    Score,
+    TempoEvent,
+    Variant,
+    WedgeEvent,
+)
 
 DIVISIONS = 2  # default per quarter note, so an eighth note is 1
 FORTE_VELOCITY = 90  # MusicXML dynamics percentages are relative to this
@@ -280,13 +291,63 @@ def _attributes(
         _add(transpose, "octave-change", str(octave_change))
 
 
-def _metronome(parent: ET.Element, bpm: int, *, swing: bool = False) -> None:
+def _format_tempo(bpm: float) -> str:
+    rounded = round(float(bpm), 2)
+    if abs(rounded - round(rounded)) < 1e-9:
+        return str(int(round(rounded)))
+    return f"{rounded:.2f}"
+
+
+def _opening_tempo(score: Score) -> float | None:
+    for event in score.tempos:
+        if event.bar == 0 and event.beat <= 1e-6:
+            return event.bpm
+    return None
+
+
+def _bar_tempos(score: Score, bar: int) -> list[TempoEvent]:
+    """Tempo changes in this bar. The downbeat of bar 0 is the printed metronome."""
+    return sorted(
+        (
+            event
+            for event in score.tempos
+            if event.bar == bar and not (bar == 0 and event.beat <= 1e-6)
+        ),
+        key=lambda event: event.beat,
+    )
+
+
+def _playback_tempo(parent: ET.Element, bpm: float, offset: int | None) -> None:
+    """Sound a tempo at the cursor, or `offset` divisions away from it.
+
+    MusicXML 4.0 `<offset>` defaults to sound="no": it only moves the printed
+    mark, and playback still fires where the direction sits. A change that
+    falls between note attacks therefore needs sound="yes". The direction is
+    written on the lead voice, just before the note that reaches that beat.
+    """
+    direction = _add(parent, "direction", placement="above")
+    direction_type = _add(direction, "direction-type")
+    words = _add(direction_type, "words", " ")
+    words.set("print-object", "no")
+    if offset:
+        _add(direction, "offset", str(offset), sound="yes")
+    _add(direction, "sound", tempo=_format_tempo(bpm))
+
+
+def _metronome(
+    parent: ET.Element,
+    bpm: int,
+    *,
+    swing: bool = False,
+    sound_bpm: float | None = None,
+) -> None:
     direction = _add(parent, "direction", placement="above")
     direction_type = _add(direction, "direction-type")
     metronome = _add(direction_type, "metronome")
     _add(metronome, "beat-unit", "quarter")
     _add(metronome, "per-minute", str(bpm))
-    _add(direction, "sound", tempo=str(bpm))
+    heard = float(bpm) if sound_bpm is None else float(sound_bpm)
+    _add(direction, "sound", tempo=_format_tempo(heard))
     if swing:
         swing_dir = _add(parent, "direction", placement="above")
         word_type = _add(swing_dir, "direction-type")
@@ -431,7 +492,7 @@ def _melody_part(
                 beat_type=score.beat_type,
             )
             if lead:
-                _metronome(measure, score.bpm, swing=score.swing)
+                _metronome(measure, score.bpm, swing=score.swing, sound_bpm=_opening_tempo(score))
             _dynamic(measure, opening_dynamic)
         pending: list[WedgeEvent | DynamicEvent] = sorted(
             [*edges[bar], *letters[bar]], key=_direction_order
@@ -445,8 +506,19 @@ def _melody_part(
                 else:
                     _wedge(measure, direction)
 
+        tempos = _bar_tempos(score, bar) if lead else []
+        cursor = 0.0
+
+        def emit_tempo(until: float) -> None:
+            nonlocal cursor
+            while tempos and tempos[0].beat <= until + 1e-9:
+                event = tempos.pop(0)
+                delta = int(round((event.beat - cursor) * score.divisions))
+                _playback_tempo(measure, event.bpm, delta or None)
+
         previous_beat: float | None = None
         for event in sorted(melody[bar], key=lambda note: note.beat):
+            emit_tempo(event.beat)
             flush(event.beat)
             is_chord = event.beat == previous_beat and event.midi is not None
             _add_note(
@@ -459,7 +531,10 @@ def _melody_part(
                 bar_beats=score.bar_beats,
                 mode=score.mode,
             )
+            if not is_chord:
+                cursor = event.beat + event.duration_beats
             previous_beat = event.beat
+        emit_tempo(score.bar_beats)
         flush(score.bar_beats)
 
 
@@ -730,9 +805,19 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                 beats=score.beats,
                 beat_type=score.beat_type,
             )
-            _metronome(measure, score.bpm, swing=False)
+            _metronome(measure, score.bpm, swing=False, sound_bpm=_opening_tempo(score))
             if score.ensemble != "barrios":
                 _dynamic(measure, MELODY_DYNAMIC)
+        tempos = _bar_tempos(score, bar)
+        cursor = 0.0
+
+        def emit_tempo(until: float) -> None:
+            nonlocal cursor
+            while tempos and tempos[0].beat <= until + 1e-9:
+                event = tempos.pop(0)
+                delta = int(round((event.beat - cursor) * score.divisions))
+                _playback_tempo(measure, event.bpm, delta or None)
+
         for event in symbols[bar]:
             _harmony(measure, event, score.key, score.mode)
         for voice_index, voice in enumerate(voices):
@@ -749,6 +834,8 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
             roles = _sextuplet_roles(ordered)
             previous_beat: float | None = None
             for event, role in zip(ordered, roles):
+                if voice_index == 0:
+                    emit_tempo(event.beat)
                 _add_note(
                     measure,
                     event,
@@ -766,7 +853,11 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                     slur_number=str(event.voice),
                     tuplet=role,
                 )
+                if voice_index == 0 and not (event.beat == previous_beat and event.midi is not None):
+                    cursor = event.beat + event.duration_beats
                 previous_beat = event.beat
+            if voice_index == 0:
+                emit_tempo(score.bar_beats)
 
 
 def score_to_musicxml(score: Score) -> str:

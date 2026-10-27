@@ -1,8 +1,10 @@
 # Humanize và lớp màu sau bản nhạc
 
-> **Trạng thái**: đã code. Trần humanize là ±2, kể cả 0, chỉ trên plateau. `RECAP_REVISION` là 64, `SPAN_REVISION` là 50.
+> **Trạng thái**: đã code. Trần humanize là ±2, kể cả 0, chỉ trên plateau. `RECAP_REVISION` là 65, `SPAN_REVISION` là 51.
 >
 > Cửa nghe nylon ở velocity 53, 56 và 59 vẫn là chỗ quyết định có giữ trần này hay hạ xuống. ±1..±3 như bản đầu làm phẳng contour vừa viết và gần như không đổi tiếng trên phần lớn MuseSounds.
+>
+> Đề xuất lệch thời gian, và vì sao ±2 dưới ngưỡng nghe, nằm ở `docs/sonify-humanize-timing-plan.md`. Đồng hồ tempo của lớp đó đã viết. Dấu lặng từng voice chưa viết.
 
 Hai lớp xếp sau khi bản đã soạn xong. Lớp 1 sửa velocity trên nốt. Lớp 2 tô màu file tiếng. Không lớp nào viết lại nốt, hợp âm, hay đường động lực đã có.
 
@@ -156,7 +158,7 @@ Drone, halo, kính và horn đã ngân dài và đã có diminuendo (`docs/sonif
 
 ## 4. Cache và test
 
-`RECAP_REVISION` là 64, `SPAN_REVISION` là 50. Cả humanize và preset đổi tiếng nghe, nên hai số tăng cùng một lần. File cũ không được phát lại. Revision 64 thay file 63 vì đỉnh cung nở ambient và nền nhiễu 16-bit chưa đúng ở 63.
+`RECAP_REVISION` là 65, `SPAN_REVISION` là 51. Đồng hồ tempo trong câu đổi tiếng nghe, nên hai số tăng một lần nữa. File cũ không được phát lại. Revision 64 thay file 63 vì đỉnh cung nở ambient và nền nhiễu 16-bit chưa đúng ở 63.
 
 Cửa nghe nylon ở 53, 56 và 59 vẫn quyết định có giữ trần ±2 hay không. Nếu ba mức đó không khác nhau trên nylon, ±2 cũng không khác, và trần có thể hạ ở một revision sau. Tối giản `classic` đi MS Basic, nhưng bước 2 trên thang velocity mượt chỉ khoảng vài phần mười dB. Cửa nylon đủ cho quyết định đó.
 

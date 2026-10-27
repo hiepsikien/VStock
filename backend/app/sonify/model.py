@@ -135,6 +135,15 @@ class DynamicEvent:
 
 
 @dataclass(frozen=True)
+class TempoEvent:
+    """One playback tempo. The printed metronome stays the written integer BPM."""
+
+    bar: int
+    beat: float
+    bpm: float
+
+
+@dataclass(frozen=True)
 class HarmonyEvent:
     bar: int
     chord: Chord
@@ -183,6 +192,7 @@ class Score:
     high_dynamics: tuple[DynamicEvent, ...] = ()
     comp_wedges: tuple[WedgeEvent, ...] = ()
     comp_dynamics: tuple[DynamicEvent, ...] = ()
+    tempos: tuple[TempoEvent, ...] = ()
 
     # Backwards-compatible chamber part aliases
     @property
