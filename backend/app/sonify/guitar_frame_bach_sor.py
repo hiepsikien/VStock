@@ -535,8 +535,7 @@ def _galop_span(
             continue
         pitch = root if index % 2 == 0 else fifth
         level = velocity if level_rise is None or index == 0 else level_rise
-        flags = {"staccato": True, "accent": True} if offset == bass_points[0] else {"staccato": True}
-        specs.append((offset, length, pitch, 3, level, flags))
+        specs.append((offset, length, pitch, 3, level, {"staccato": True}))
         voiced_bass.append((offset, offset + length, pitch))
 
     def bass_ref(offset: int) -> int:
@@ -559,7 +558,7 @@ def _galop_span(
                 continue
             if not _playable_line(ctx, group if lead else [floor, inner]):
                 continue
-            specs.append((offset, 1, inner, 2, velocity, {"staccato": True, "accent": True}))
+            specs.append((offset, 1, inner, 2, velocity, {"staccato": True}))
     if lead and not sparkle:
         if start < end and melody > root and _playable_line(ctx, [root, melody]):
             specs.append((start, 1, melody, 1, velocity, {"staccato": True}))
@@ -1740,7 +1739,7 @@ def _galop_hits(frame, ctx, bar: int, role: int, *, short: bool, closing: bool) 
             ctx,
             [(offset, tonic) for offset in range(start, epb)],
             frame._MF,
-            accent_all=True,
+            accent_index=None,
         )
     if role == 0:
         specs = _galop_span(frame, ctx, tonic, frame._MP, start=0, end=half, lead=True, sparkle=True)
@@ -1756,7 +1755,7 @@ def _galop_hits(frame, ctx, bar: int, role: int, *, short: bool, closing: bool) 
             ctx,
             list(zip(offsets, names)),
             frame._MF,
-            accent_all=True,
+            accent_index=None,
         )
     points = [0]
     second = 4 if 4 < epb else (2 if 2 < epb else None)
