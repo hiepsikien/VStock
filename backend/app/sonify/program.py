@@ -48,11 +48,32 @@ def pattern_title(pattern: str, ensemble: str) -> str:
 
 
 def pattern_form(ids: list[str], ensemble: str) -> str:
-    """One friendly name, or `Prelude — Sarabande — Prelude` when the contrast differs."""
-    names = [title for pattern in ids if (title := pattern_title(pattern, ensemble))]
-    if len(names) >= 3 and names[0] == names[2] and names[1] != names[0]:
-        return f"{names[0]} — {names[1]} — {names[2]}"
-    return names[0] if names else ""
+    """Up to three names. A longer row keeps opening, center, and close.
+
+    Adjacent repeats collapse first. Three different names stay all three,
+    so Prelude — Andante — Tremolo is not shortened. Four or more keep the
+    opening, the center name, and the close: a week that hears Tremolo in
+    the middle is not titled for the second region only. Week 4 plays
+    Prelude, Andante, Tremolo, Prelude; the title is Prelude — Tremolo —
+    Prelude, so Andante is heard and not named. A row that does not end on
+    its opening, such as A–B–A–B, shortens to the two ends once the center
+    repeats the opening.
+    """
+    names: list[str] = []
+    for pattern in ids:
+        title = pattern_title(pattern, ensemble)
+        if not title or (names and names[-1] == title):
+            continue
+        names.append(title)
+    if len(names) > 3:
+        picked = [names[0], names[len(names) // 2], names[-1]]
+        names = []
+        for title in picked:
+            if not names or names[-1] != title:
+                names.append(title)
+    if len(names) <= 1:
+        return names[0] if names else ""
+    return " — ".join(names)
 
 
 def _written_dance(found: list[str], forms: list[list[str]], ensemble: str) -> str:

@@ -1,6 +1,7 @@
 """Classical guitar is one nylon part, and the long forms keep the symphony clock."""
 
 import math
+from dataclasses import replace
 
 import pytest
 
@@ -2804,19 +2805,56 @@ def test_la_catedral_preludio_interlocks_two_high_melody_notes_with_sixteenth_ar
     assert_playable(hush, C_KEY, "barrios_preludio")
     score_to_musicxml(hush)
 
+    from app.sonify.span import attach_frame, month_specs
+
+    form = attach_frame(month_specs("guitar")[0], "1M")
+    phrases = [section for section in form.sections if section.kind == "phrase"]
     opening = _suite(0, "barrios")
     assert opening.bpm == 96 and opening.divisions == 4
-    pure = list(range(8, 40))
-    for bar in pure:
+    assert len(phrases) >= 3
+    prelude_bars = range(phrases[0].start, phrases[0].end)
+    for bar in prelude_bars:
         _assert_catedral_44(opening, bar)
         _assert_catedral_shimmer(opening, bar)
     waved = sum(
         1
-        for bar in pure
+        for bar in prelude_bars
         if len({note.midi for note in _attacks(opening.support, bar)[:5] if note.midi is not None}) >= 3
     )
     assert waved >= 1
-    assert_playable(opening, C_KEY, "barrios_preludio")
+    prelude = replace(
+        opening,
+        lead=tuple(note for note in opening.lead if phrases[0].start <= note.bar < phrases[0].end),
+        support=tuple(note for note in opening.support if phrases[0].start <= note.bar < phrases[0].end),
+        low=tuple(note for note in opening.low if phrases[0].start <= note.bar < phrases[0].end),
+    )
+    assert_playable(prelude, C_KEY, "barrios_preludio")
+
+    def lead_grid(bar: int) -> list[tuple[float, float]]:
+        return [(round(note.beat, 2), round(note.duration_beats, 2)) for note in _attacks(opening.lead, bar)]
+
+    def slice_bars(start: int, end: int, skip: set[int] | None = None):
+        skip = skip or set()
+        return replace(
+            opening,
+            lead=tuple(note for note in opening.lead if start <= note.bar < end and note.bar not in skip),
+            support=tuple(note for note in opening.support if start <= note.bar < end and note.bar not in skip),
+            low=tuple(note for note in opening.low if start <= note.bar < end and note.bar not in skip),
+        )
+
+    middle_bars = range(phrases[1].start, phrases[1].end)
+    assert middle_bars
+    assert all(lead_grid(bar) != _CATEDRAL_LEAD_44 for bar in middle_bars)
+    # The scale that leaves one Andante phrase puts A5 over C3, which has no
+    # string assignment. The block-chord bars of the phrase do.
+    scale_bars = {bar for bar in middle_bars if any(duration <= 0.25 for _beat, duration in lead_grid(bar))}
+    assert scale_bars
+    assert_playable(slice_bars(phrases[1].start, phrases[1].end, scale_bars), C_KEY, "barrios_chorale")
+    reprise_bars = range(phrases[2].start, phrases[2].end)
+    for bar in reprise_bars:
+        _assert_catedral_44(opening, bar)
+        _assert_catedral_shimmer(opening, bar)
+    assert_playable(slice_bars(phrases[2].start, phrases[2].end), C_KEY, "barrios_preludio")
     score_to_musicxml(opening)
 
 
