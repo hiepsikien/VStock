@@ -2631,7 +2631,7 @@ def render_patterned_voices(
     relaxed: set[int] = set()
     if _framed(ctx):
         lead, support, low = _strip_pedal(ctx, lead, support, low)
-        lead, support, low = _paint_frames(ctx, lead, support, low)
+        lead, support, low = _paint_frames(ctx, patterns, lead, support, low)
         lead, support, low, relaxed = _smooth_boundaries(ctx, patterns, lead, support, low)
     else:
         lead, support, low = _transitions(ctx, patterns, levels, lead, support, low)
@@ -2748,17 +2748,56 @@ def _strip_pedal(ctx: _Ctx, lead, support, low):
     )
 
 
-def _paint_frames(ctx: _Ctx, lead, support, low):
+def _joined_body_pattern(ctx: _Ctx, bar: int, patterns: list[str]) -> tuple[str, int | None]:
+    """Pattern of the body bar joined to a pedal region, else the movement headline."""
+    if 0 <= bar < ctx.bars and ctx.kind_at.get(bar, "phrase") not in _PEDAL:
+        name = _bar_pattern(ctx, bar, patterns)
+        if name != "pedal":
+            return name, bar
+        return headline_id(ctx, patterns), bar
+    return headline_id(ctx, patterns), None
+
+
+_PEDAL_DOOR_PROFILE = {
+    "thumb_cantabile": "thumb_cantabile",
+    "elegiaque": "elegiaque",
+    "choro": "barrios_dance",
+}
+
+
+def profiles_for(ctx: _Ctx, patterns: list[str]) -> dict[int, str]:
+    """Playability profile of every bar. Pedal bars take the joined door, not `"pedal"`."""
+    leading, trailing = _pedal_regions(ctx)
+    intro_name = _joined_body_pattern(ctx, leading[-1] + 1, patterns)[0] if leading else "study"
+    outro_name = _joined_body_pattern(ctx, trailing[0] - 1, patterns)[0] if trailing else "study"
+    intro_profile = _PEDAL_DOOR_PROFILE.get(intro_name, "study")
+    outro_profile = _PEDAL_DOOR_PROFILE.get(outro_name, "study")
+    opening = set(leading)
+    closing = set(trailing)
+    found: dict[int, str] = {}
+    for bar in range(ctx.bars):
+        if bar in opening:
+            found[bar] = intro_profile
+        elif bar in closing:
+            found[bar] = outro_profile
+        else:
+            found[bar] = _PROFILE.get(_bar_pattern(ctx, bar, patterns), "study")
+    return found
+
+
+def _paint_frames(ctx: _Ctx, patterns, lead, support, low):
     from app.sonify.guitar_frame import render_intro, render_outro
 
     leading, trailing = _pedal_regions(ctx)
     if leading:
-        part_lead, part_support, part_low = render_intro(ctx, leading)
+        intro_pattern, _body = _joined_body_pattern(ctx, leading[-1] + 1, patterns)
+        part_lead, part_support, part_low = render_intro(ctx, leading, intro_pattern)
         lead.extend(part_lead)
         support.extend(part_support)
         low.extend(part_low)
     if trailing:
-        part_lead, part_support, part_low = render_outro(ctx, trailing)
+        outro_pattern, _body = _joined_body_pattern(ctx, trailing[0] - 1, patterns)
+        part_lead, part_support, part_low = render_outro(ctx, trailing, outro_pattern)
         lead.extend(part_lead)
         support.extend(part_support)
         low.extend(part_low)
@@ -2957,7 +2996,9 @@ def _smooth_boundaries(ctx: _Ctx, patterns, lead, support, low):
         cover = _catedral_preludio(ctx) and pattern == "preludio"
         keep_approach = pattern == "villa_pattern" and ctx.band(bar) == "f"
         # The etudes already breathe on the last beat. A pickup would cut that bass.
-        if pattern not in {"etude1", "etude11"}:
+        # Pedal bars keep the frame's own anacrusis. The last body bar before the
+        # outro still relaxes and takes the pickup.
+        if pattern not in {"etude1", "etude11"} and ctx.kind_at.get(bar, "phrase") not in _PEDAL:
             lead, support, low = _plant_pickup(
                 ctx, lead, support, low, bar, cover_eighth=cover, keep_approach=keep_approach
             )

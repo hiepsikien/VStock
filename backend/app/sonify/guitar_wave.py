@@ -845,13 +845,20 @@ def _apply_snaps(ctx, voices, patterns, waves) -> None:
             _put(events, index, velocity)
 
 
-def _bright(ctx, bar: int) -> bool:
-    mood = ctx.mood(bar)
-    return mood in {"rally", "volatile"}
+def _apply_stabs(ctx, voices, trailing: list[int], patterns: list[str] | None = None) -> None:
+    from app.sonify.guitar_patterns import _joined_body_pattern
 
-
-def _apply_stabs(ctx, voices, trailing: list[int]) -> None:
     last = trailing[-1] if trailing else None
+    joined = None
+    body = None
+    if trailing:
+        joined, body = _joined_body_pattern(ctx, trailing[0] - 1, list(patterns or []))
+    rally = (
+        joined == "villa_pattern"
+        and body is not None
+        and callable(getattr(ctx, "mood", None))
+        and ctx.mood(body) == "rally"
+    )
     for voice, events in voices.items():
         for index, event in enumerate(events):
             if event.midi is None or event.velocity is None:
@@ -864,7 +871,8 @@ def _apply_stabs(ctx, voices, trailing: list[int]) -> None:
                 and last is not None
                 and event.bar == last
                 and event.accent
-                and _bright(ctx, event.bar)
+                and joined == "villa_pattern"
+                and rally
             )
             if stabbed or villa_stab:
                 _put(events, index, _STAB[voice])
@@ -973,5 +981,5 @@ def apply_guitar_wave(ctx, lead, support, low, patterns: list[str] | None = None
     _fit_pedal_speech(voices, placed, leading, trailing)
     _apply_affine(ctx, voices, placed)
     _apply_snaps(ctx, voices, patterns, waves)
-    _apply_stabs(ctx, voices, trailing)
+    _apply_stabs(ctx, voices, trailing, patterns)
     return _sync_ties(voices["lead"]), _sync_ties(voices["support"]), _sync_ties(voices["low"])
