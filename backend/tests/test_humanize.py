@@ -245,6 +245,93 @@ def test_a_phrase_clock_returns_the_time_it_borrows() -> None:
     assert again.tempos == tempos
 
 
+def _eighths(bars: int) -> tuple[NoteEvent, ...]:
+    return tuple(
+        NoteEvent(bar=bar, beat=beat / 2.0, midi=67, duration_beats=0.5, voice=1, velocity=70)
+        for bar in range(bars)
+        for beat in range(8)
+    )
+
+
+def _part_tempos(xml: str, divisions: int, part_id: str) -> list[tuple[int, float, str]]:
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(xml)
+    part = next(node for node in root.findall("part") if node.get("id") == part_id)
+    sounded: list[tuple[int, float, str]] = []
+    for bar, measure in enumerate(part.findall("measure")):
+        for beat, tempo, _direction in _sounded_tempos(measure, divisions):
+            sounded.append((bar, round(beat, 4), tempo))
+    return sounded
+
+
+def test_even_phrases_keep_the_same_curve_on_an_eighth_grid() -> None:
+    phrase = _phrase(0, 32)
+    fine = humanize(_score(bars=4, bpm=88, variant="symphony", divisions=4, phrases=(phrase,)))
+    coarse = humanize(_score(bars=4, bpm=88, variant="symphony", divisions=2, phrases=(phrase,)))
+    assert [(event.bar, event.beat, event.bpm) for event in coarse.tempos] == [
+        (event.bar, event.beat, event.bpm) for event in fine.tempos
+    ]
+
+
+def test_an_odd_phrase_stays_on_the_eighth_grid_and_still_cancels() -> None:
+    phrase = _phrase(0, 9)
+    heard = humanize(
+        _score(
+            bars=2,
+            bpm=88,
+            variant="symphony",
+            divisions=2,
+            phrases=(phrase,),
+            lead=_eighths(2),
+        )
+    )
+    assert [(event.bar, event.beat, event.bpm) for event in heard.tempos] == [
+        (0, 0.0, 88.88),
+        (0, 0.5, 88.73),
+        (0, 1.0, 88.59),
+        (0, 1.5, 88.29),
+        (0, 2.0, 88.0),
+        (0, 2.5, 87.71),
+        (0, 3.0, 87.41),
+        (0, 3.5, 87.27),
+        (1, 0.0, 87.12),
+        (1, 0.5, 88.0),
+    ]
+    assert abs(_mean_deviation(heard.tempos, 4.5, 88.0, 4.0)) < 0.02
+    sounded = _part_tempos(score_to_musicxml(heard), heard.divisions, "P1")
+    assert [(event.bar, round(event.beat, 4)) for event in heard.tempos] == [
+        (bar, beat) for bar, beat, _tempo in sounded
+    ]
+
+
+def test_a_five_eighth_phrase_holds_the_written_tempo_across_the_midpoint() -> None:
+    heard = humanize(
+        _score(bars=1, bpm=88, variant="symphony", divisions=2, phrases=(_phrase(0, 5),))
+    )
+    assert [(event.bar, event.beat, event.bpm) for event in heard.tempos] == [
+        (0, 0.0, 88.88),
+        (0, 1.0, 88.0),
+        (0, 1.5, 87.12),
+        (0, 2.5, 88.0),
+    ]
+    assert _mean_deviation(heard.tempos, 2.5, 88.0, 4.0) == 0
+
+
+def test_a_sixteenth_grid_keeps_the_off_eighth_ramp() -> None:
+    heard = humanize(
+        _score(bars=2, bpm=88, variant="symphony", divisions=4, phrases=(_phrase(0, 9),))
+    )
+    assert [round(event.bar * 4 + event.beat, 4) for event in heard.tempos] == [
+        0.0,
+        0.75,
+        1.75,
+        2.75,
+        3.75,
+        4.5,
+    ]
+
+
 def test_short_phrases_and_quiet_ambient_lines_stay_on_the_written_tempo() -> None:
     short = humanize(_score(phrases=(_phrase(0, 2),), bpm=100))
     assert short.tempos == ()
