@@ -141,7 +141,7 @@ Chốt: viết bậc thang của mục 6. `apply_guitar_wave` cộng `round(C) -
 
 Bậc thang của cửa mới:
 
-- Intro: bước 0 ở `_PP`, bước 1 ở `_P`, bước 2 trong `50..56`, bước 3 trong `56..60`, hướng tới lead 64 / bass 56 / bè trong 46 của thân bài. Bước 3 của galop và của hemiola ở `_MF` (64). Đó là pickup vào thân bài, không bị trần `56..60` kéo xuống.
+- Intro: bước 0 ở `_PP`, bước 1 ở `_P`, bước 2 trong `50..56`, bước 3 trong `56..60`, hướng tới lead 64 / bass 56 / bè trong 46 của thân bài. Bước 3 của galop, choro, polca, và hemiola ở `_MF` (64). Đó là pickup vào thân bài, không bị trần `56..60` kéo xuống. `elogio_pizz` cũng lên `_MF` ở bước này.
 - Outro: bước 0 đón thân bài ở `_MP` hoặc `_P`. Các bước sau hạ dần. Cadence của Bourrée, Gavotte, Gigue, Study, và Mozart giữ `_P`. Câu velocity ở từng pattern thắng câu này.
 
 Galop, choro, polca, và `elogio_pizz` khép bằng hợp âm staccato, bước cuối ở `_MF`, không tan về `_PP`. Hemiola khép bằng block I rồi ngân, bước cuối ở `_P`. Mục 6 là câu được code.
