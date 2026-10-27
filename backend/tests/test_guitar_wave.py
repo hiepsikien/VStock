@@ -18,6 +18,8 @@ from app.sonify.guitar_wave import (
     alpha_price,
     alpha_volume,
     apply_guitar_wave,
+    fit_intro,
+    fit_outro,
     gain,
     profile_for,
     round_center,
@@ -615,6 +617,24 @@ def test_each_section_keeps_its_own_window() -> None:
     assert trio_high < wide_high
     assert wide_apex - wide_high == 8
     assert trio_apex - trio_high == 8
+
+
+def test_a_body_below_the_speech_line_holds_the_pedal_at_the_seam() -> None:
+    """A bell needs center 42. Body 40 cannot host that line, so the pedal stays at 40."""
+    intro = [27 + (40 - 27) * index / 7 for index in range(8)]
+    assert fit_intro(intro, [42.0] * 8) == [40.0] * 8
+    assert [round(40) + (written - 64) for written in (44, 50, 46)] == [20, 26, 22]
+
+    outro = [max(23.0, 40 - 4 * index) for index in range(6)]
+    assert fit_outro(outro, [42.0] * 6) == [40.0] * 6
+    assert round(40) + (44 - 64) == 20
+
+    loud = [27 + (44 - 27) * index / 7 for index in range(8)]
+    spread = fit_intro(loud, [42.0] * 8)
+    assert spread[0] == 42 and spread[-1] == 44 and spread[0] < spread[-1]
+
+    decay = [max(23.0, 55 - 4 * index) for index in range(9)]
+    assert fit_outro(decay, [22.0] * 9) == decay
 
 
 def test_intro_and_outro_shift_the_written_gesture() -> None:

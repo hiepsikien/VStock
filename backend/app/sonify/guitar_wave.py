@@ -295,7 +295,8 @@ def fit_intro(centers: list[float], floors: list[float | None]) -> list[float]:
     A per-bar lift cancels round(C) wherever the softest note is under SPEECH,
     so several intro bars share one chord. The line spreads that rise instead.
     The last bar stays on the body center. If the body itself is below the
-    speech line, the original ramp stands.
+    speech line, every bar stays on that center. The old whisper ramp would
+    keep falling through notes that no longer speak.
     """
     count = len(centers)
     if count <= 1 or _clears(centers, floors):
@@ -312,11 +313,13 @@ def fit_intro(centers: list[float], floors: list[float | None]) -> list[float]:
         start = max(start, (floor * span - end * index) / (span - index))
     start = max(start, end - STEP * span)
     if start > end + 1e-6:
-        return list(centers)
+        return [end] * count
     line = _line(start, end, count)
-    if not _clears(line, [*floors[:-1], None]):
-        return list(centers)
-    return line
+    if _clears(line, [*floors[:-1], None]):
+        return line
+    if any(floor is not None and floor > end + 1e-6 for floor in floors):
+        return [end] * count
+    return list(centers)
 
 
 def fit_outro(centers: list[float], floors: list[float | None]) -> list[float]:
@@ -324,6 +327,8 @@ def fit_outro(centers: list[float], floors: list[float | None]) -> list[float]:
 
     Written 64 still reaches 23. A softer note raises the ending just enough
     that the straight fall stays on its speech line, never steeper than 4.
+    If the body itself is below that line, every bar stays on the body center
+    instead of decaying toward 23.
     """
     count = len(centers)
     if count <= 1 or _clears(centers, floors):
@@ -337,9 +342,11 @@ def fit_outro(centers: list[float], floors: list[float | None]) -> list[float]:
         end = max(end, body + (floor - body) * span / index)
     end = min(body, max(end, body - STEP * span))
     line = _line(body, end, count)
-    if not _clears(line, floors):
-        return list(centers)
-    return line
+    if _clears(line, floors):
+        return line
+    if any(floor is not None and floor > body + 1e-6 for floor in floors):
+        return [body] * count
+    return list(centers)
 
 
 def _flat_phrase(phrase) -> bool:
