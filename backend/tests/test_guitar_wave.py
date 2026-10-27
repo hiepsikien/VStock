@@ -619,8 +619,8 @@ def test_each_section_keeps_its_own_window() -> None:
 
 def test_intro_and_outro_shift_the_written_gesture() -> None:
     """Invariant 8. Pedal bars keep the written shape, join the body, and stab after the clamp."""
-    # Eight leading bars keep the first center on the whisper. The bell's
-    # written 44/50/46 would be 7/13/9 before K and must not fall to the body floor.
+    # The bell needs center 42 to be stored at 22. A per-bar lift would pin the
+    # first six bars to one chord. The ramp spreads instead, and the seam stays.
     intro = 8
     total = intro + 1
     kinds = {bar: ("intro" if bar < intro else "phrase") for bar in range(total)}
@@ -635,10 +635,22 @@ def test_intro_and_outro_shift_the_written_gesture() -> None:
         spans={intro: 0.0},
         kinds=kinds,
     )
-    bell = [_note(0, index * 0.5, velocity, midi=76 + index) for index, velocity in enumerate((44, 50, 46))]
-    body = [_note(intro, 0.0, 64)]
-    heard, _support, _low = apply_guitar_wave(ctx, bell + body, [], [], ["pedal"] * intro + ["andante"])
-    assert [_at(heard, 0, beat) for beat in (0.0, 0.5, 1.0)] == [20, 26, 22]
+    bell = [
+        _note(bar, index * 0.5, velocity, midi=76 + index)
+        for bar in range(intro)
+        for index, velocity in enumerate((44, 50, 46))
+    ]
+    seam = [_note(intro - 1, 3.0, 64, midi=64), _note(intro, 0.0, 64)]
+    heard, _support, _low = apply_guitar_wave(ctx, bell + seam, [], [], ["pedal"] * intro + ["andante"])
+    assert [_at(heard, 0, beat) for beat in (0.0, 0.5, 1.0)] == [22, 28, 24]
+    soft = [_at(heard, bar, 0.0) for bar in range(intro)]
+    assert len(set(soft)) > 1
+    assert soft[-1] > soft[0]
+    assert all(level >= 22 for level in soft)
+    assert all(abs(soft[bar] - soft[bar - 1]) <= 4 for bar in range(1, intro))
+    assert _at(heard, intro - 1, 0.5) - soft[-1] == 6
+    assert _at(heard, intro - 1, 1.0) - soft[-1] == 2
+    assert _at(heard, intro - 1, 3.0) == _at(heard, intro, 0.0)
     assert _at(heard, intro, 0.0) != 27
 
     kinds = {0: "intro", 1: "phrase"}
@@ -720,6 +732,39 @@ def test_intro_and_outro_shift_the_written_gesture() -> None:
     nine = outro(9)
     assert nine[0] == 55
     assert nine[-1] == 23
+
+    total = body_bars + 9
+    volumes = [math.exp(value) - 1 for value in (0, 0, 0, 1, 2, 4, 6)] + [1.0] * 9
+    kinds = {bar: ("phrase" if bar < body_bars else "outro") for bar in range(total)}
+    phrase = Phrase(
+        0,
+        body_bars * _EPB,
+        tuple(Run(index, 1, 72 if index == (body_bars - 1) * _EPB else 60) for index in range(body_bars * _EPB)),
+    )
+    ctx = _ctx(
+        ensemble="barrios",
+        bars=total,
+        volumes=volumes,
+        phrases=(phrase,),
+        sections=(FormSection(0, body_bars, "phrase", 0), FormSection(body_bars, total, "outro", 0)),
+        rel_span=0.03,
+        spans={0: 0.03},
+        kinds=kinds,
+    )
+    notes = [_note(bar, 0.0, 64) for bar in range(body_bars)]
+    for bar in range(body_bars, total):
+        notes.append(_note(bar, 0.0, 64, midi=64))
+        notes.append(_note(bar, 1.0, 44, midi=57))
+    heard, _support, _low = apply_guitar_wave(ctx, notes, [], [], ["tremolo"] * body_bars + ["pedal"] * 9)
+    melody = [_at(heard, bar, 0.0) for bar in range(body_bars, total)]
+    quiet = [_at(heard, bar, 1.0) for bar in range(body_bars, total)]
+    assert melody[0] == 55
+    assert melody[-1] > 23
+    assert quiet[-1] >= 22
+    assert melody[-1] < melody[0]
+    assert len(set(melody)) > 1
+    assert all(abs(melody[index] - melody[index + 1]) <= 4 for index in range(len(melody) - 1))
+    assert all(quiet[index] - melody[index] == -20 for index in range(len(melody)))
 
     ctx = _ctx(
         ensemble="brouwer",

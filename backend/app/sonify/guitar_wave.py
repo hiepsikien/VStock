@@ -25,6 +25,7 @@ STEP = 4.0
 C_WHISPER = 27.0
 OUTRO_END = 23.0
 PEDAL_FLOOR = 20
+SPEECH = 22
 WARM_LIMIT = 63
 _STAB = {"lead": 70, "low": 66, "support": 62}
 
@@ -273,11 +274,72 @@ def outro_centers(count: int, body: float) -> list[float]:
     return values
 
 
-def pedal_lift(raws: list[int]) -> int:
-    """One constant per pedal bar, so the softest sounding note becomes 20."""
-    if not raws:
-        return 0
-    return max(0, PEDAL_FLOOR - min(raws))
+def _line(start: float, end: float, count: int) -> list[float]:
+    if count <= 1:
+        return [end] if count == 1 else []
+    return [start + (end - start) * index / (count - 1) for index in range(count)]
+
+
+def _speech_center(written: int) -> float:
+    """Lowest center that stores the softest note at SPEECH, before humanize."""
+    return float(SPEECH - (int(written) - WRITTEN_CENTER))
+
+
+def _clears(centers: list[float], floors: list[float | None]) -> bool:
+    return all(floor is None or center + 1e-6 >= floor for center, floor in zip(centers, floors))
+
+
+def fit_intro(centers: list[float], floors: list[float | None]) -> list[float]:
+    """Keep the seam. Raise a straight ramp so earlier bars still speak.
+
+    A per-bar lift cancels round(C) wherever the softest note is under SPEECH,
+    so several intro bars share one chord. The line spreads that rise instead.
+    The last bar stays on the body center. If the body itself is below the
+    speech line, the original ramp stands.
+    """
+    count = len(centers)
+    if count <= 1 or _clears(centers, floors):
+        return list(centers)
+    end = centers[-1]
+    start = centers[0]
+    span = count - 1
+    for index, floor in enumerate(floors[:-1]):
+        if floor is None:
+            continue
+        if index == 0:
+            start = max(start, floor)
+            continue
+        start = max(start, (floor * span - end * index) / (span - index))
+    start = max(start, end - STEP * span)
+    if start > end + 1e-6:
+        return list(centers)
+    line = _line(start, end, count)
+    if not _clears(line, [*floors[:-1], None]):
+        return list(centers)
+    return line
+
+
+def fit_outro(centers: list[float], floors: list[float | None]) -> list[float]:
+    """Keep the seam. Ease the fall so later bars still speak.
+
+    Written 64 still reaches 23. A softer note raises the ending just enough
+    that the straight fall stays on its speech line, never steeper than 4.
+    """
+    count = len(centers)
+    if count <= 1 or _clears(centers, floors):
+        return list(centers)
+    body = centers[0]
+    end = min(centers[-1], body)
+    span = count - 1
+    for index, floor in enumerate(floors):
+        if floor is None or index == 0:
+            continue
+        end = max(end, body + (floor - body) * span / index)
+    end = min(body, max(end, body - STEP * span))
+    line = _line(body, end, count)
+    if not _clears(line, floors):
+        return list(centers)
+    return line
 
 
 def _flat_phrase(phrase) -> bool:
@@ -526,16 +588,12 @@ def _apply_affine(ctx, voices: dict[str, list[NoteEvent]], placed: dict[int, _Pl
     for bar in range(ctx.bars):
         spot = placed[bar]
         raws: dict[tuple[str, int], int] = {}
-        values: list[int] = []
         for voice, events in voices.items():
             for index in _sounding(events, bar):
-                raw = spot.rounded + (int(events[index].velocity or 0) - WRITTEN_CENTER)
-                raws[(voice, index)] = raw
-                values.append(raw)
+                raws[(voice, index)] = spot.rounded + (int(events[index].velocity or 0) - WRITTEN_CENTER)
         if spot.pedal:
-            lift = pedal_lift(values)
             for (voice, index), raw in raws.items():
-                _put(voices[voice], index, min(WARM_LIMIT, raw + lift))
+                _put(voices[voice], index, min(WARM_LIMIT, raw))
             continue
         for (voice, index), raw in raws.items():
             _put(voices[voice], index, max(spot.v_floor, min(spot.v_ceil, raw)))
@@ -810,18 +868,59 @@ def _sync_ties(events: list[NoteEvent]) -> list[NoteEvent]:
     return updated
 
 
+def _bar_floors(voices: dict[str, list[NoteEvent]], bars: list[int]) -> list[float | None]:
+    floors: list[float | None] = []
+    for bar in bars:
+        written = [
+            int(event.velocity or 0)
+            for events in voices.values()
+            for event in events
+            if event.bar == bar and event.midi is not None and event.velocity is not None and not event.tie_stop
+        ]
+        floors.append(_speech_center(min(written)) if written else None)
+    return floors
+
+
+def _retarget(placed: dict[int, _Placed], bars: list[int], centers: list[float]) -> None:
+    for bar, center in zip(bars, centers):
+        spot = placed[bar]
+        placed[bar] = _Placed(float(center), round_center(center), True, spot.v_floor, spot.v_ceil, None)
+
+
+def _fit_pedal_speech(
+    voices: dict[str, list[NoteEvent]],
+    placed: dict[int, _Placed],
+    leading: list[int],
+    trailing: list[int],
+) -> None:
+    """One line per pedal region, so speech does not erase the tide or the seam."""
+    if len(leading) > 1:
+        _retarget(placed, leading, fit_intro([placed[bar].center for bar in leading], _bar_floors(voices, leading)))
+    if len(trailing) > 1:
+        _retarget(placed, trailing, fit_outro([placed[bar].center for bar in trailing], _bar_floors(voices, trailing)))
+    region = set(leading) | set(trailing)
+    for bar, spot in list(placed.items()):
+        if not spot.pedal or bar in region:
+            continue
+        floor = _bar_floors(voices, [bar])[0]
+        if floor is not None and spot.center < floor:
+            _retarget(placed, [bar], [floor])
+
+
 def apply_guitar_wave(ctx, lead, support, low, patterns: list[str] | None = None, relaxed: set[int] | None = None):
     """Shift written velocities by one rounded center per bar.
 
     Body notes that are not snapped land in [V_floor, V_ceil] with V_ceil <= 63.
-    Pedal bars skip that floor, add one K so the softest note is 20, then cap at 63.
+    Pedal bars skip that floor. Their centers are raised onto one line so the
+    softest note is stored at 22 when the seam still has room, then capped at 63.
     Snap and frame stabs run after that clamp and overwrite only their own attacks.
     """
     del relaxed
     patterns = list(patterns or [])
     voices = {"lead": list(lead), "support": list(support), "low": list(low)}
     volumes = resolve_bar_volumes(ctx)
-    placed, waves, _leading, trailing = _place_centers(ctx, patterns, volumes)
+    placed, waves, leading, trailing = _place_centers(ctx, patterns, volumes)
+    _fit_pedal_speech(voices, placed, leading, trailing)
     _apply_affine(ctx, voices, placed)
     _apply_snaps(ctx, voices, patterns, waves)
     _apply_stabs(ctx, voices, trailing)
