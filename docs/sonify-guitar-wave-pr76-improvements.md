@@ -8,7 +8,7 @@ Việc sửa code, trên `main`, theo bảng mục 5 của plan:
 - Calm có trần từ `54`, cùng gavotte wide và cantabile wide: sàn `+2`. Trần giữ nguyên.
 - Noviembre calm: sàn `+2`, cửa sổ `24..52`. Thủy triều `4`. Chuông ở đáy ghi `20`.
 - Thêm `smooth` và để `smooth_ell` dùng $W$ của profile, sau khi thủy triều những dòng đó còn nghe được.
-- Giữ nguyên `fit_intro` / `fit_outro`, kể cả nhánh `return list(centers)`.
+- Giữ `fit_intro` / `fit_outro`, kể cả nhánh `return list(centers)`. Đổi mốc $L$ sang sàn $F$ của ô thân bài đang nối: $L = \max(F, 22) - \min(V - 64)$. Không kẹp từng nốt intro vào $F$.
 
 Snap, humanize, phép affine `round(C) + (V − 64)`, và đầu nối thân bài giữ nguyên. Công thức đầy đủ nằm ở `docs/sonify-guitar-dynamics-wave-plan.md`.
 
@@ -92,8 +92,17 @@ Cửa sổ dưới đây là bảng mục 5: `floor..ceil` calm, rồi wide. C�
 
 ---
 
-## 3. Intro giữ nguyên thuật toán
+## 3. Intro lấy sàn của thân bài
 
-`fit_intro` / `fit_outro` trên `main` đã có đường nói `22`. Nhánh `return list(centers)` giữ đường đã tính sẵn khi mọi ô nằm trên $L$: intro thì thầm từ `27`, outro toàn nốt `64` vẫn xuống `23`. Nhánh này ở lại. Xóa nó rồi kéo mọi intro về đường nói đưa nốt viết `64` từ `27` xuống `22`.
+Sàn `22` là sàn nốt còn kêu, dùng chung. Intro dài của gigue, galop, choro, polca, hemiola, bourrée, fuga, tremolo và etude đang mở ở `22`, thấp hơn sàn wide `36` của chính nó. Intro một hoặc hai ô, và thể loại ngân như andante hay noviembre, không lệch kiểu đó.
 
-Với andante calm `26..54`, band `mf`, $C = 44.6$. Nốt `44` trên intro 8 ô đi `22, 22, 23, 23, 23, 24, 24, 25`. Dãy `22, 22, 23, 23, 24, 24, 25, 25` là số của sàn calm `+4`. Thuật toán không đổi. Công thức $\max(23,\; C - 4\cdot i)$ là đường tính trước bước fit. Gán thẳng công thức đó thì chuông `44` thành `22, 18, 14, 10, 6, 3`.
+Nhánh `return list(centers)` không gây ra việc này. Nhánh đó giữ đường thì thầm từ `27` khi mọi ô đã trên $L$, và nhánh này ở lại. Chỗ lệch là nhánh kia: đường từ `27` chui dưới $L$, rồi đầu đoạn chỉ được nâng tới $L$ của sàn `22`.
+
+$F$ là sàn cửa sổ của ô thân bài đang nối. $L(b) = \max(F, 22) - \min(V - 64)$. Một lần kéo tâm cho cả ô. Nốt intro không kẹp vào $F$ sau phép cộng.
+
+- Gigue `6/8` wide, sáu ô, nốt viết `50`: ô mở là `36`, rồi đi lên tâm thân bài `52..55`.
+- Choro wide, bốn ô, chuông `44, 50, 46`: $L = 56$, tâm thân bài `52..55` thấp hơn $L$, cả intro đứng ở tâm thân bài.
+- Andante calm, chuông, band `mf`, tâm `44.6`, $L = 46$: cả 8 ô đứng ở `44.6`, nốt `44` là `25`. Dãy `22, 22, 23, …, 25` không còn.
+- Outro dùng cùng $L$. Điệu sàn `36` không còn xuống `23`.
+
+Chuông viết `44` ở đáy thủy triều vẫn thấp hơn sàn `4` bậc. Gigue và galop viết `50` hết lệch ở intro. Stab `70 / 66 / 62` gán sau bộ lọc.
