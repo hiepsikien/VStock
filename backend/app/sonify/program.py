@@ -48,11 +48,11 @@ def pattern_title(pattern: str, ensemble: str) -> str:
 
 
 def pattern_form(ids: list[str], ensemble: str) -> str:
-    """One friendly name, or `Prelude — Sarabande — Prelude` when the contrast differs."""
+    """One friendly name, or the slot names joined when the movement changes texture."""
     names = [title for pattern in ids if (title := pattern_title(pattern, ensemble))]
-    if len(names) >= 3 and names[0] == names[2] and names[1] != names[0]:
-        return f"{names[0]} — {names[1]} — {names[2]}"
-    return names[0] if names else ""
+    if not names or all(name == names[0] for name in names):
+        return names[0] if names else ""
+    return " — ".join(names)
 
 
 def _written_dance(found: list[str], forms: list[list[str]], ensemble: str) -> str:

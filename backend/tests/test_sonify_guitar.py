@@ -1,6 +1,7 @@
 """Classical guitar is one nylon part, and the long forms keep the symphony clock."""
 
 import math
+from dataclasses import replace
 
 import pytest
 
@@ -2816,7 +2817,25 @@ def test_la_catedral_preludio_interlocks_two_high_melody_notes_with_sixteenth_ar
         if len({note.midi for note in _attacks(opening.support, bar)[:5] if note.midi is not None}) >= 3
     )
     assert waved >= 1
-    assert_playable(opening, C_KEY, "barrios_preludio")
+    prelude = replace(
+        opening,
+        lead=tuple(note for note in opening.lead if 8 <= note.bar < 44),
+        support=tuple(note for note in opening.support if 8 <= note.bar < 44),
+        low=tuple(note for note in opening.low if 8 <= note.bar < 44),
+    )
+    assert_playable(prelude, C_KEY, "barrios_preludio")
+    andante = [
+        bar
+        for bar in range(44, 68)
+        if any(note.duration_beats >= 1.5 for note in _pitched(opening.lead, bar))
+    ]
+    tremolo = [
+        bar
+        for bar in range(68, opening.bars)
+        if sum(1 for note in _pitched(opening.lead, bar) if abs(note.duration_beats - 0.25) < 1e-9) >= 12
+    ]
+    assert len(andante) >= 8
+    assert len(tremolo) >= 8
     score_to_musicxml(opening)
 
 

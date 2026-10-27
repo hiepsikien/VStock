@@ -993,6 +993,72 @@ def _dominant_pattern(ctx: _Ctx, phrases: list[Phrase], bars: list[int]) -> str:
     return "preludio"
 
 
+def _barrios_regions(ctx: _Ctx, body: list[int]) -> list[list[int]]:
+    """Body phrases grouped by formal slot, in score order."""
+    regions: list[list[int]] = []
+    previous: tuple[int, bool] | None = None
+    for index in body:
+        bar = min(ctx.bars - 1, ctx.phrases[index].start // ctx.epb)
+        section = ctx.section(bar)
+        slot = 0 if section is None else section.regime_slot
+        contrast = bool(section is not None and (section.trio or section.bridge))
+        key = (slot, contrast)
+        if key != previous:
+            regions.append([])
+            previous = key
+        regions[-1].append(index)
+    return regions
+
+
+def _barrios_palette(ctx: _Ctx, primary: str) -> tuple[str, ...]:
+    """Patterns that fit this meter, with the opening pattern first."""
+    if ctx.bpm < BARRIOS_TREMOLO_MIN_BPM:
+        row = ("andante", "thumb_cantabile")
+    elif ctx.kind == "6/8" and ctx.bpm > 100:
+        if primary == "hemiola":
+            row = ("hemiola", "vals", "polca", "tremolo")
+        elif primary == "preludio":
+            row = ("preludio", "thumb_cantabile", "vals")
+        else:
+            row = ("polca", "vals", "hemiola", "tremolo")
+    elif ctx.kind == "4/4" and ctx.bpm > 100:
+        if primary == "tremolo":
+            row = ("tremolo", "choro", "preludio", "thumb_cantabile")
+        elif primary == "choro":
+            row = ("choro", "tremolo", "preludio", "thumb_cantabile")
+        else:
+            row = ("preludio", "choro", "tremolo", "thumb_cantabile")
+    elif primary == "tremolo":
+        row = ("tremolo", "preludio", "andante")
+    else:
+        row = ("preludio", "andante", "tremolo")
+    if primary not in row:
+        return (primary, *[name for name in row if name != primary])
+    start = row.index(primary)
+    return row[start:] + row[:start]
+
+
+def _region_pattern_ids(ctx: _Ctx, patterns: list[str]) -> list[str]:
+    """One pattern per formal slot, including the return of an earlier pattern."""
+    ids: list[str] = []
+    previous: tuple[int, bool] | None = None
+    for index, pattern in enumerate(patterns):
+        if pattern == "pedal" or index >= len(ctx.phrases):
+            continue
+        bar = min(ctx.bars - 1, ctx.phrases[index].start // max(ctx.epb, 1))
+        if ctx.kind_at.get(bar, "phrase") in _PEDAL:
+            continue
+        section = ctx.section(bar)
+        slot = 0 if section is None else section.regime_slot
+        contrast = bool(section is not None and (section.trio or section.bridge))
+        key = (slot, contrast)
+        if key == previous:
+            continue
+        previous = key
+        ids.append(pattern)
+    return ids
+
+
 def _contrast_pattern(ctx: _Ctx, primary: str, phrases: list[Phrase], bars: list[int]) -> str:
     """The other formal area: one contrasting pattern, then the piece returns."""
     mood = _majority_mood(ctx, bars)
@@ -1025,9 +1091,27 @@ def _contrast_pattern(ctx: _Ctx, primary: str, phrases: list[Phrase], bars: list
 
 
 def _assign_macro(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
-    """Lock the body to one pattern, to A–B–A, or to one pattern per session."""
+    """Lock the body to one pattern, to A–B–A, or to one pattern per session.
+
+    A long Barrios movement walks its formal slots along the row that fits
+    the meter, so a prelude chapter does not stay on one texture.
+    """
     if not body:
         return chosen
+    if ctx.ensemble == "barrios" and ctx.bars > 40:
+        regions = _barrios_regions(ctx, body)
+        if len(regions) >= 2:
+            primary = _dominant_pattern(
+                ctx,
+                [ctx.phrases[index] for index in regions[0]],
+                _phrase_bars(ctx, regions[0]),
+            )
+            palette = _barrios_palette(ctx, primary)
+            for ordinal, indexes in enumerate(regions):
+                pattern = palette[ordinal % len(palette)]
+                for index in indexes:
+                    chosen[index] = pattern
+            return chosen
     if ctx.bars <= 40 and not _has_contrast_section(ctx):
         pattern = _dominant_pattern(ctx, [ctx.phrases[index] for index in body], _body_bars(ctx))
         for index in body:
@@ -2103,9 +2187,13 @@ def contrast_id(ctx: _Ctx, patterns: list[str]) -> str:
 
 
 def form_pattern_ids(ctx: _Ctx, patterns: list[str]) -> list[str]:
-    """One written pattern, or primary, contrast, primary when the contrast differs."""
+    """One written pattern, or the slot-by-slot row when a long Barrios movement changes texture."""
     if not patterns:
         return []
+    if ctx.ensemble == "barrios" and ctx.bars > 40:
+        successive = _region_pattern_ids(ctx, patterns)
+        if len(successive) >= 2 and len(set(successive)) >= 2:
+            return successive
     primary = headline_id(ctx, patterns)
     if not primary or primary == "pedal":
         return []
