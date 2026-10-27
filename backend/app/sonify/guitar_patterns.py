@@ -2675,13 +2675,12 @@ def render_patterned_voices(
     # A sixteenth of Étude No. 1 is then three units, and a sextuplet sixth is two.
     if "etude11" in patterns:
         divisions = 12
-    filled = (
+    return (
         _fill(lead, musical_bars, epb, 1),
         _fill(support, musical_bars, epb, 2),
         _fill(low, musical_bars, epb, 3),
+        divisions,
     )
-    _remember_render(ctx, patterns, *filled)
-    return (*filled, divisions)
 
 
 def _leaving_pattern(ctx: _Ctx, bar: int, patterns: list[str]) -> bool:
@@ -2764,55 +2763,6 @@ _PEDAL_DOOR_PROFILE = {
     "elegiaque": "elegiaque",
     "choro": "barrios_dance",
 }
-
-
-def _note_signature(events) -> tuple:
-    return tuple(
-        sorted(
-            (event.bar, event.beat, event.midi, event.duration_beats)
-            for event in events
-            if event.midi is not None
-        )
-    )
-
-
-# Voices just written, so a later assert_playable on that score can see the door profiles.
-_REMEMBERED: dict[tuple, tuple[_Ctx, list[str]]] = {}
-_REMEMBERED_LIMIT = 256
-
-
-def _remember_render(ctx: _Ctx, patterns: list[str], lead, support, low) -> None:
-    key = (_note_signature(lead), _note_signature(support), _note_signature(low))
-    _REMEMBERED.pop(key, None)
-    _REMEMBERED[key] = (ctx, list(patterns))
-    while len(_REMEMBERED) > _REMEMBERED_LIMIT:
-        del _REMEMBERED[next(iter(_REMEMBERED))]
-
-
-def _thread_profiles(score: Score, profiles):
-    """Pedal bars of a rendered score take the door profile inside `assert_playable`."""
-    found = _REMEMBERED.get(
-        (_note_signature(score.lead), _note_signature(score.support), _note_signature(score.low))
-    )
-    if found is None:
-        return profiles
-    ctx, patterns = found
-    door = profiles_for(ctx, patterns)
-    pedal = set(_pedal_regions(ctx)[0]) | set(_pedal_regions(ctx)[1])
-    if isinstance(profiles, str):
-        if profiles != "study":
-            return profiles
-        return {bar: door[bar] if bar in pedal else profiles for bar in range(score.bars)}
-    if isinstance(profiles, dict):
-        merged = {bar: profiles.get(bar, "study") for bar in range(score.bars)}
-    elif isinstance(profiles, (list, tuple)):
-        merged = {bar: profiles[bar] for bar in range(score.bars)}
-    else:
-        return profiles
-    for bar in pedal:
-        if merged.get(bar, "study") in {"study", "pedal"}:
-            merged[bar] = door[bar]
-    return merged
 
 
 def profiles_for(ctx: _Ctx, patterns: list[str]) -> dict[int, str]:
@@ -3219,7 +3169,7 @@ def _is_lament(event: NoteEvent, previous: NoteEvent | None) -> bool:
 def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | tuple | list = "study") -> None:
     """Raise `Unplayable` when a score breaks register, hand, or profile rules."""
     semitones = key.semitones
-    profile_at = _profile_at(score, _thread_profiles(score, profiles))
+    profile_at = _profile_at(score, profiles)
     epb = int(round(score.bar_beats * 2))
     chords = _chords(score)
     voices = {

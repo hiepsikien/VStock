@@ -735,24 +735,20 @@ def _study_span(ctx, bar: int, name: str, velocity: int, start: int, length: int
         and fifth_bass != root_bass
         and fifth_bass < lead
     )
+    fifth_at = start + 4
+    split = split and fifth_at < start + length
     specs: list[tuple] = []
     if split and fifth_bass is not None:
-        mid = start + length // 2
-        specs.append((start, mid - start, root_bass, 3, velocity, {}))
-        specs.append((mid, start + length - mid, fifth_bass, 3, velocity, {}))
+        specs.append((start, fifth_at - start, root_bass, 3, velocity, {}))
+        specs.append((fifth_at, start + length - fifth_at, fifth_bass, 3, velocity, {}))
     else:
         specs.append((start, length, root_bass, 3, velocity, {}))
         fifth_bass = root_bass
+        split = False
     specs.append((start, length, lead, 1, velocity, {}))
-    points = [start + min(2, length - 1)] if length > 2 else []
-    if not sparse and length >= 8:
-        second = start + 6
-        if second < start + length:
-            points.append(second)
+    points = [start + local for local in (2, 6) if local < length and not (sparse and local == 6)]
     for offset in points:
-        if not start <= offset < start + length:
-            continue
-        sounding = fifth_bass if split and offset >= start + length // 2 else root_bass
+        sounding = fifth_bass if split and offset >= fifth_at else root_bass
         if sounding is None or not sounding < lead:
             continue
         inner = _between(ctx, pcs, sounding, lead)
@@ -1002,6 +998,61 @@ def _pedal_iv_then_i(ctx, bar: int, velocity: int) -> list[tuple]:
     )
 
 
+def _bass_at(specs: list[tuple], offset: int) -> int | None:
+    for start, length, midi, voice, _velocity, _flags in specs:
+        if voice == 3 and start <= offset < start + length:
+            return midi
+    return None
+
+
+def _mozart_weak_inner(ctx, bar: int, specs: list[tuple], velocity: int) -> list[tuple]:
+    """Step the inner voice on the same weak eighths as a Mozart variation."""
+    from app.sonify.guitar_patterns import _playable
+    from app.sonify.guitar_sor import _mozart_offsets
+
+    del bar
+    kept = [spec for spec in specs if spec[3] != 2]
+    lead = next((midi for _offset, _length, midi, voice, _vel, _flags in kept if voice == 1), None)
+    if lead is None:
+        return specs
+    previous: int | None = None
+    direction = 1
+    extra: list[tuple] = []
+    for offset in _mozart_offsets(ctx):
+        if offset >= ctx.epb:
+            continue
+        bass = _bass_at(kept, offset)
+        if bass is None or not bass < lead:
+            continue
+        window = [
+            note
+            for note in range(max(_mid_lo(ctx), bass + 1), min(_mid_hi(ctx), lead - 1) + 1)
+            if _on_scale(note, ctx.mode)
+            and _playable([bass + ctx.semitones, note + ctx.semitones, lead + ctx.semitones])
+        ]
+        if not window:
+            continue
+        if previous is None:
+            pitch = min(window, key=lambda note: (abs(note - (bass + lead) // 2), note))
+        else:
+            choices = []
+            for way in (direction, -direction):
+                stepped = _step(previous, way, ctx.mode, ctx.bass_low, ctx.treble_top)
+                if stepped in window and 0 < abs(stepped - previous) <= 2:
+                    choices.append(stepped)
+            if not choices:
+                continue
+            pitch = choices[0]
+            direction = 1 if pitch > previous else -1
+            if pitch == window[-1]:
+                direction = -1
+            elif pitch == window[0]:
+                direction = 1
+        extra.append((offset, 1, pitch, 2, max(_PP, velocity - 4), {}))
+        previous = pitch
+    return _clip_voice([*kept, *extra], ctx.epb)
+
+
 def _mozart_var_door(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int) -> list[tuple]:
     if closing and steps == 2:
         if role == 0:
@@ -1009,12 +1060,12 @@ def _mozart_var_door(ctx, bar: int, role: int, *, steps: int, closing: bool, ind
         return _sor_outro_short(ctx, bar, 1)
     if closing:
         if role == 0:
-            return _sor_lyric_walk(ctx, bar, _P, index)
+            return _mozart_weak_inner(ctx, bar, _sor_lyric_walk(ctx, bar, _P, 0), _P)
         if role == 1:
-            return _dotted(ctx, bar, "V7", _MP, index)
+            return _dotted(ctx, bar, "V7", _MP, 0)
         if role == 2:
             return _turn(ctx, bar, "V7", _MP)
-        return _sor_outro_long(ctx, bar, 3, index)
+        return _sor_outro_long(ctx, bar, 3, 0)
     if steps == 2:
         return _sor_intro_short(ctx, bar, role)
     return _sor_intro_long(ctx, bar, role, index)
