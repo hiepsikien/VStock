@@ -2553,6 +2553,7 @@ def render_patterned_voices(
             if _bar_pattern(ctx, bar, patterns) == "preludio"
         }
     lead = _slur(lead, phrases, skip_bars=plucked)
+    lead, support, low = _shape_dynamics(ctx, lead, support, low, relaxed, patterns)
     from app.sonify.guitar_wave import apply_guitar_wave
 
     lead, support, low = apply_guitar_wave(ctx, lead, support, low, patterns, relaxed)
@@ -2864,23 +2865,20 @@ def _smooth_boundaries(ctx: _Ctx, patterns, lead, support, low):
     return lead, support, low, relaxed
 
 
-_BAND_DELTA = {"p": -12, "mp": -6, "mf": 0, "f": 4}
-# Tremolo keeps a smaller band step so the quarter arch stays audible.
+# Tremolo's quarter arch already includes one band step. Do not add another
+# on the way into the volume wave.
 _TREMOLO_BAND = {"p": -6, "mp": -3, "mf": 0, "f": 3}
 
 
 def _shape_dynamics(ctx: _Ctx, lead, support, low, relaxed: set[int], patterns: list[str] | None = None):
-    """Liquidity and the phrase swell move the dynamic inside a locked pattern.
+    """Add the phrase's extra (0..+4) and leave the written offsets in place.
 
-    *La Catedral* keeps the canto in the singing window and the inner wave in
-    a whisper. A `p` or `mp` band must not close that gap.
+    The printed band is not added here. The volume wave owns that tide, so a
+    `p` bar and an `f` bar with the same center produce the same shift.
+    Etude cells and tremolo already carry their own arch; a second extra or
+    band step would move those offsets before the affine reads them.
     """
     pedal = set(_pedal_regions(ctx)[0]) | set(_pedal_regions(ctx)[1])
-    preludio_bars: set[int] = set()
-    if patterns is not None and _catedral_preludio(ctx):
-        preludio_bars = {
-            bar for bar in range(ctx.bars) if _bar_pattern(ctx, bar, patterns) == "preludio"
-        }
 
     def phrase_at(eighth: int) -> Phrase | None:
         for phrase in ctx.phrases:
@@ -2888,19 +2886,7 @@ def _shape_dynamics(ctx: _Ctx, lead, support, low, relaxed: set[int], patterns: 
                 return phrase
         return None
 
-    shaped_lead: list[NoteEvent] = []
-
-    def sounding_lead_vel(eighth: int) -> int:
-        window = eighth * 2
-        for item in shaped_lead:
-            if item.midi is None or item.velocity is None:
-                continue
-            begin = _start16(item, ctx.epb)
-            if begin <= window < begin + _dur16(item):
-                return item.velocity
-        return _covering_melody_velocity(ctx, eighth)
-
-    def shape(events: list[NoteEvent], voice: str) -> list[NoteEvent]:
+    def shape(events: list[NoteEvent]) -> list[NoteEvent]:
         shaped: list[NoteEvent] = []
         for event in events:
             if event.midi is None or event.velocity is None or event.bar in pedal:
@@ -2911,50 +2897,20 @@ def _shape_dynamics(ctx: _Ctx, lead, support, low, relaxed: set[int], patterns: 
                 shaped.append(event)
                 continue
             if patterns is not None and _bar_pattern(ctx, event.bar, patterns) in {"etude1", "etude11", "tremolo"}:
-                # The cell already locks the hairpin. Tremolo owns its quarter
-                # arch, region arch, and band. The old band delta would add a
-                # second time and flatten the quarter walk back into one step.
                 shaped.append(event)
                 continue
-            extra = 0
             phrase = phrase_at(eighth)
-            if phrase is not None:
-                extra = round(4 * swell(phrase, min(max(eighth, phrase.start), phrase.end - 1)))
-            delta = _BAND_DELTA.get(ctx.band(event.bar), 0)
-            if event.bar in preludio_bars and voice == "lead":
-                # Keep canto in the warm nylon layer (54..64), under the harsh 65+ nail snap.
-                canto_delta = {"p": -3, "mp": -1, "mf": 1, "f": 2}.get(ctx.band(event.bar), 0)
-                velocity = max(54, min(64, event.velocity + canto_delta + (extra // 2)))
-                shaped.append(replace(event, velocity=velocity))
-                continue
-            if event.bar in preludio_bars and voice == "support":
-                sup_delta = {"p": -2, "mp": -1, "mf": 0, "f": 1}.get(ctx.band(event.bar), 0)
-                velocity = max(48, min(55, event.velocity + sup_delta + (extra // 3)))
-                shaped.append(replace(event, velocity=velocity))
-                continue
-            if event.velocity >= _MELODY_APEX:
+            if phrase is None:
                 shaped.append(event)
                 continue
-            velocity = max(44, min(78, event.velocity + delta + extra))
-            if (
-                voice in {"support", "low"}
-                and ctx.ensemble == "villa"
-                and (
-                    patterns is None
-                    or _bar_pattern(ctx, event.bar, patterns) == "villa_pattern"
-                )
-            ):
-                lead_vel = sounding_lead_vel(eighth)
-                cap = max(44, lead_vel - (1 if voice == "low" else 2))
-                if event.accent:
-                    velocity = min(velocity, cap)
-                else:
-                    velocity = min(velocity, cap - 2)
-            shaped.append(replace(event, velocity=velocity))
+            extra = round(4 * swell(phrase, min(max(eighth, phrase.start), phrase.end - 1)))
+            if extra == 0:
+                shaped.append(event)
+                continue
+            shaped.append(replace(event, velocity=event.velocity + extra))
         return shaped
 
-    shaped_lead = shape(lead, "lead")
-    return shaped_lead, shape(support, "support"), shape(low, "low")
+    return shape(lead), shape(support), shape(low)
 
 
 def _transitions(ctx, patterns, levels, lead, support, low):
