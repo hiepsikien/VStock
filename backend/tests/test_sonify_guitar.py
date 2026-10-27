@@ -2612,6 +2612,104 @@ def test_a_long_sor_rally_keeps_galop_in_the_middle_of_aba() -> None:
     assert not galop_bar(6)
 
 
+def _galop_ctx(phrases: tuple, sections: tuple, *, bars: int) -> object:
+    from app.sonify.guitar_patterns import _Ctx
+
+    return _Ctx(
+        melody=[67] * (bars * 8),
+        raw=[67] * (bars * 8),
+        chord_at={},
+        kind_at={bar: "phrase" for bar in range(bars)},
+        band_at={bar: "mf" for bar in range(bars)},
+        phrases=phrases,
+        bars=bars,
+        bpm=88,
+        ensemble="classic",
+        mode="major",
+        character="rally",
+        character_at=None,
+        sections=sections,
+        rel_span=0.02,
+        semitones=0,
+        bass_low=40,
+        bass_high=53,
+        mid_low=50,
+        mid_high=65,
+        treble_floor=59,
+        treble_top=81,
+        ceiling=83,
+        epb=8,
+        kind="4/4",
+        strong=(0, 4),
+        bar_beats=4.0,
+    )
+
+
+def test_a_mixed_sor_movement_keeps_the_patterns_beside_galop() -> None:
+    from app.sonify.guitar_patterns import _settle_galop
+
+    phrases = tuple(_held(bar * 8, 8, 67) for bar in range(3))
+    sections = (
+        FormSection(0, 1, "phrase", 0),
+        FormSection(1, 2, "phrase", 1),
+        FormSection(2, 3, "phrase", 2),
+    )
+    chosen = ["cantabile", "galop", "elegiaque"]
+    assert _settle_galop(_galop_ctx(phrases, sections, bars=3), chosen, [0, 1, 2]) == chosen
+
+
+def test_an_even_week_puts_galop_across_the_two_middle_sessions() -> None:
+    from app.sonify.guitar_patterns import _settle_galop
+
+    phrases = tuple(_held(bar * 8, 8, 67) for bar in range(8))
+    sections = tuple(FormSection(slot * 2, slot * 2 + 2, "phrase", slot) for slot in range(4))
+    chosen = ["galop"] * 8
+    settled = _settle_galop(_galop_ctx(phrases, sections, bars=8), chosen, list(range(8)))
+    assert settled == ["study", "study", "study", "galop", "galop", "study", "study", "study"]
+
+
+def test_a_galop_scherzo_moves_the_dance_into_the_trio() -> None:
+    from app.sonify.guitar_patterns import _settle_galop
+
+    phrases = tuple(_held(bar * 8, 8, 67) for bar in range(3))
+    sections = (
+        FormSection(0, 1, "phrase", 0),
+        FormSection(1, 2, "phrase", 1, trio=True),
+        FormSection(2, 3, "phrase", 2),
+    )
+    chosen = ["galop", "cantabile", "galop"]
+    settled = _settle_galop(_galop_ctx(phrases, sections, bars=3), chosen, [0, 1, 2])
+    assert settled == ["study", "galop", "study"]
+
+
+def test_two_galop_phrases_keep_the_dance_on_the_second() -> None:
+    epb = 8
+    phrases = tuple(_held(start * epb, 2 * epb, 67) for start in range(4))
+    sections = (
+        FormSection(0, 2, "intro", 0),
+        FormSection(2, 6, "phrase", 0),
+        FormSection(6, 8, "outro", 0),
+    )
+    kinds = {bar: ("intro" if bar < 2 else "outro" if bar >= 6 else "phrase") for bar in range(8)}
+    score = _pattern_score(
+        [67] * (8 * epb),
+        phrases,
+        ensemble="classic",
+        bpm=88,
+        character="rally",
+        rel_span=0.02,
+        kinds=kinds,
+        sections=sections,
+    )
+
+    def galop_bar(bar: int) -> bool:
+        bass = sorted(_pitched(score.low, bar), key=lambda note: note.beat)
+        return [round(note.beat, 2) for note in bass] == [0.0, 2.0] and all(note.staccato for note in bass)
+
+    assert not galop_bar(2)
+    assert galop_bar(4)
+
+
 def _suite(movement: int, ensemble: str, *, character: str = "rally"):
     from app.sonify.span import attach_frame, month_specs
 

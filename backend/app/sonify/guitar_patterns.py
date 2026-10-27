@@ -1096,12 +1096,21 @@ def _paint(chosen: list[str], indexes: list[int], pattern: str) -> None:
         chosen[index] = pattern
 
 
-def _settle_galop(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
-    """Galop fills a day. A longer movement keeps it as the middle of A–B–A.
+def _galop_centers(count: int) -> set[int]:
+    """The middle region, or both regions that share the midpoint when the count is even."""
+    if count % 2 == 1:
+        return {count // 2}
+    mid = count // 2
+    return {mid - 1, mid}
 
-    A one-phrase fixture still renders the dance, so the texture can be tested.
-    Anywhere else, a body that chose galop puts `study` on the outer sections
-    and galop in the middle. The movement is no longer a galop from start to end.
+
+def _settle_galop(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
+    """Galop fills a day. A longer movement that is only galop keeps the dance in the middle.
+
+    A one-phrase fixture still renders the dance. A body that already mixes
+    galop with other patterns is left alone: the dance is already one part.
+    A trio whose outer sections are galop becomes study–galop–study. An even
+    run of sessions puts the dance across the boundary of the two middle ones.
     """
     if ctx.ensemble != "classic" or not body:
         return chosen
@@ -1111,23 +1120,24 @@ def _settle_galop(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
         return chosen
     regions = _body_regions(ctx, body)
     if _has_contrast_section(ctx):
-        for contrast, indexes in regions:
-            if contrast:
-                _paint(chosen, indexes, "galop")
-            else:
-                for index in indexes:
-                    if chosen[index] == "galop":
-                        chosen[index] = "study"
+        outer = [index for contrast, indexes in regions if not contrast for index in indexes]
+        if outer and all(chosen[index] == "galop" for index in outer):
+            for contrast, indexes in regions:
+                _paint(chosen, indexes, "galop" if contrast else "study")
+        return chosen
+    if not all(chosen[index] == "galop" for index in body):
         return chosen
     if len(regions) >= 3:
-        center = (len(regions) - 1) // 2
-        for position, (_contrast, indexes) in enumerate(regions):
-            _paint(chosen, indexes, "galop" if position == center else "study")
+        centers = _galop_centers(len(regions))
+        if len(regions) % 2 == 0:
+            _paint_galop_across(chosen, regions, centers)
+        else:
+            for position, (_contrast, indexes) in enumerate(regions):
+                _paint(chosen, indexes, "galop" if position in centers else "study")
         return chosen
-    if len(body) < 3:
-        for index in body:
-            if chosen[index] == "galop":
-                chosen[index] = "study"
+    if len(body) == 2:
+        chosen[body[0]] = "study"
+        chosen[body[1]] = "galop"
         return chosen
     count = len(body)
     opening = max(1, count // 3)
@@ -1142,6 +1152,25 @@ def _settle_galop(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
     for offset, index in enumerate(body):
         chosen[index] = "galop" if opening <= offset < count - closing else "study"
     return chosen
+
+
+def _paint_galop_across(chosen: list[str], regions: list[tuple[bool, list[int]]], centers: set[int]) -> None:
+    """Galop straddles the two middle regions. Outer regions stay study."""
+    left, right = min(centers), max(centers)
+    for position, (_contrast, indexes) in enumerate(regions):
+        if position not in centers:
+            _paint(chosen, indexes, "study")
+            continue
+        if len(indexes) < 2:
+            _paint(chosen, indexes, "galop")
+            continue
+        cut = len(indexes) // 2
+        if position == left:
+            _paint(chosen, indexes[:cut], "study")
+            _paint(chosen, indexes[cut:], "galop")
+        elif position == right:
+            _paint(chosen, indexes[:cut], "galop")
+            _paint(chosen, indexes[cut:], "study")
 
 
 def _cap_accents(ctx: _Ctx, plans: dict, perpetual: dict, limit: int = 2) -> tuple[dict, dict]:
