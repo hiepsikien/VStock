@@ -1,6 +1,6 @@
 # Kế Hoạch Filter Sóng Volume (Affine) Cho Động Lực Học Guitar
 
-> **Mục tiêu**: Đưa tiếng đàn guitar cổ điển từ dải hẹp `44..78` vào cửa sổ âm sắc của từng genre, bằng một **bộ lọc affine** trên vận tốc đã viết. Sóng volume đã làm mượt chỉ dời cả khối nốt. Mọi chênh lệch vi mô đã có trong bản nhạc — swell trong câu, accent, offset trong ô, khoảng cách giữa các bè — được giữ nguyên tỉ lệ.
+> **Mục tiêu**: Đưa tiếng đàn guitar cổ điển từ dải hẹp `44..78` vào cửa sổ âm sắc của từng genre, bằng một **bộ lọc affine** trên vận tốc đã viết. Sóng volume đã làm mượt chỉ dời cả khối nốt. Trong một ô, `C` và `M` là một số, nên swell trong câu, accent, bậc tremolo, cung etude và khoảng cách giữa các bè giữ đúng hiệu MIDI đã viết.
 >
 > **Liên kết**: [`docs/sonify-classical-guitar.md`](./sonify-classical-guitar.md), [`docs/sonify-barrios-tremolo-dynamics.md`](./sonify-barrios-tremolo-dynamics.md), [`docs/sonify-humanize-preset-plan.md`](./sonify-humanize-preset-plan.md).
 
@@ -27,7 +27,7 @@ Pipeline guitar (`guitar.py`, `guitar_patterns.py`, `guitar_barrios.py`, `guitar
 
 ### Bản trên nhánh hiện tại
 
-`apply_guitar_wave()` đang **thay** `_shape_dynamics` và gán vận tốc mới từ đường bao $V_{\text{hat}}(t)$. `_assign_generic` bỏ `event.velocity`. Bốn pattern `tremolo`, `etude1`, `etude11`, `preludio` dựng lại một vài offset cứng từ bảng. Những hình đã viết mà không nằm trong bảng bị mất. Thiết kế dưới đây thay bước gán đó.
+`apply_guitar_wave()` trên nhánh này vẫn **thay** `_shape_dynamics` và gán vận tốc mới từ đường bao $V_{\text{hat}}(t)$. `_assign_generic` bỏ `event.velocity`. Bốn pattern `tremolo`, `etude1`, `etude11`, `preludio` dựng lại một vài offset cứng từ bảng. Bản nghe vì vậy chưa đổi. Thiết kế dưới đây thay bước gán đó; code `guitar_wave.py` vẫn là bản rebase cho đến khi mục 7 được thực hiện.
 
 ---
 
@@ -60,11 +60,13 @@ render_patterned_voices()
   │      không bị cộng một lần nữa.
   ├── 4. apply_guitar_wave()
   │      Một phép affine cho mọi nốt sounding trong ô:
-  │      V_ra = round(C(U) + M * (V_đã_viết - 64))
+  │      V_ra = round(C(b) + (V_đã_viết - 64))
+  │      Nốt không được snap, và không phải stab khung, kẹp vào [V_floor, V_ceil] ≤ 63.
   │      Rồi Cổng Snap nâng một vài cú đã chọn vào 66..76.
   └── 5. humanize()
          written <= 64  →  heard = min(64, heard)
          written >= 65  →  heard = max(66, min(76, heard))
+         Nhánh >= 65 chỉ còn nốt snap và stab khung, vì bước 4 đã kẹp mọi nốt khác xuống ≤ 63.
 ```
 
 `64` là `_MELODY`, tâm vận tốc đã viết. Mọi bè dùng cùng tâm này.
@@ -79,20 +81,26 @@ $$\ell(b) = \ln\big(1 + v(b)\big)$$
 
 Log nằm ở đây để một phiên gấp nhiều lần volume chỉ nhích $\ell$, không kéo $C$ văng khỏi cửa sổ genre.
 
-**Bước B — trung bình trượt của các ô gần nhất.** Cửa sổ $W = 5$, lấy lùi về phía các ô đã qua trong cùng section (ô hiện tại tính vào cửa sổ). Đầu section dùng số ô đang có:
+**Bước B — trung bình đối xứng 5 điểm.** Mỗi ô lấy chính nó và hai ô hai bên, phản xạ tại `sec_start` và `sec_end - 1` để cửa sổ luôn đủ 5 điểm:
 
-$$\tilde{\ell}(b) = \frac{1}{|W_b|} \sum_{j \in W_b} \ell(j), \qquad W_b = \{\,j \mid \max(\text{sec\_start},\; b - W + 1) \le j \le b\,\}$$
+$$\tilde{\ell}(b) = \frac{\ell(b-2) + \ell(b-1) + \ell(b) + \ell(b+1) + \ell(b+2)}{5}$$
 
-Một giá trị cho cả ô. Vi mô trong ô nằm ở $V_{\text{đã viết}}$, nên không nội suy $U$ theo từng móc đơn.
+Ô volume nóng đạt cực đại của $\tilde{\ell}$. Một ô nóng đứng một mình cho cao nguyên 5 ô cân quanh nó: hai ô trước, ô nóng, hai ô sau. Trung bình lùi 5 ô đặt cao nguyên đó từ ô nóng kéo sang bốn ô phía sau, nên tâm đỉnh nằm sau ô volume nóng. Một giá trị cho cả ô. Vi mô trong ô nằm ở $V_{\text{đã viết}}$.
 
 **Bước C — chuẩn hóa trong section.**
 
-- Nếu $\max \tilde{\ell} - \min \tilde{\ell} \le 10^{-6}$ (volume phẳng): $U(b)$ lấy theo band của ô, `{"p": 0.15, "mp": 0.40, "mf": 0.65, "f": 0.90}`. $C$ gần như đứng yên. Vi mô giữ nguyên.
-- Nếu có biến thiên:
+- Nếu $\max \tilde{\ell} - \min \tilde{\ell} \le 10^{-6}$ (volume phẳng): $U(b)$ lấy theo band của ô, `{"p": 0.15, "mp": 0.40, "mf": 0.65, "f": 0.90}`. $C$ đứng yên trong section.
+- Nếu có biến thiên, kéo $\tilde{\ell}$ về $[0, 1]$:
 
-$$U(b) = \frac{\tilde{\ell}(b) - \min \tilde{\ell}}{\max \tilde{\ell} - \min \tilde{\ell}} \in [0, 1]$$
+$$U_{\text{raw}}(b) = \frac{\tilde{\ell}(b) - \min \tilde{\ell}}{\max \tilde{\ell} - \min \tilde{\ell}} \in [0, 1]$$
 
-Ô thanh khoản đã làm mượt thấp nhất nhận $U = 0$. Ô cao nhất nhận $U = 1$.
+**Bước D — chặn bước giữa hai ô kề.** $C$ là một số trong cả ô, nên hai ô kề có $U$ cách xa thì cả khối nhảy đúng $C_{\text{hi}} - C_{\text{lo}}$ tại vạch nhịp. Với cửa sổ rộng, quãng đó khoảng `12..15` bậc. Chặn bước của $C$ ở `4` bậc MIDI:
+
+$$\Delta_U = \frac{4}{C_{\text{hi}} - C_{\text{lo}}}, \qquad U(b) = \max_{j \in \text{section}}\left(U_{\text{raw}}(j) - \Delta_U \cdot \lvert b - j \rvert\right)$$
+
+$C_{\text{lo}}$ và $C_{\text{hi}}$ lấy ở mục 2.3, tính trước bước này. $U$ là hàm Lipschitz nhỏ nhất nằm trên $U_{\text{raw}}$ với bước tối đa $\Delta_U$. Ô đang là đỉnh của $U_{\text{raw}}$ giữ nguyên $U = 1$. Ô trũng sát một vách đứng được nâng thành đường dốc `4` bậc mỗi ô, nên đỉnh không bị đẩy sang ô sau. Khi $U_{\text{raw}}$ đã thoải hơn mức này, $U = U_{\text{raw}}$. Hệ quả trên thủy triều:
+
+$$\lvert C(b) - C(b-1) \rvert \le 4$$
 
 ### 2.3. Cửa sổ genre và ba hằng số
 
@@ -113,61 +121,68 @@ V_{\text{ceil}} &= \mathrm{round}\big(P.\text{ceil\_calm} + \alpha_{\text{warm}}
 
 Đoạn `trio` / `bridge` nhân $\alpha_{\text{warm}}$ với $\kappa_{\text{sec}} = 0.50$ trước khi tính cửa sổ, nên cửa sổ co về phía calm. $U$ trong đoạn đó vẫn chạy đủ `[0, 1]`.
 
-Dải lệch đã viết dùng để khóa biên, mặc định chung cho mọi genre:
+Dải lệch đã viết dùng để khóa biên, chung cho mọi dòng trong bảng:
 
 $$d_{\text{lo}} = -16, \qquad d_{\text{hi}} = +8$$
 
-Tức nốt mềm nhất mà bộ lọc hứa giữ hết độ lệch là `48` ($64 - 16$), nốt mạnh nhất là `72` ($64 + 8$, `_MELODY_APEX`). Một profile có bè viết thấp hơn `48` khai báo `d_lo` thấp hơn trên chính dòng đó, để hệ số $M$ hấp thụ khoảng này.
+Nốt `48` ($64 - 16$) và nốt `72` ($64 + 8$, `_MELODY_APEX`) là hai đầu mà bộ lọc giữ hết độ lệch. Khoảng này dài `24` bậc.
 
-Ba hằng số của section, tính một lần từ cửa sổ và dải lệch:
+Ba hằng số của section:
 
 $$\begin{aligned}
-M &= \min\left(1,\; \frac{V_{\text{ceil}} - V_{\text{floor}}}{d_{\text{hi}} - d_{\text{lo}}}\right) \\
+M &= \min\left(1,\; \frac{V_{\text{ceil}} - V_{\text{floor}}}{24}\right) \\
 C_{\text{lo}} &= V_{\text{floor}} - M \cdot d_{\text{lo}} \\
 C_{\text{hi}} &= V_{\text{ceil}} - M \cdot d_{\text{hi}}
 \end{aligned}$$
 
-$M$ là hằng số của **cả section**. $C$ đổi theo từng ô:
+Mọi cửa sổ trong bảng mục 5, kể cả đầu calm, đầu wide, và đoạn `trio` / `bridge` (kéo về calm), đều có $V_{\text{ceil}} - V_{\text{floor}} \ge 30 > 24$. Vậy $M = 1$ trên mọi section của 28 profile. Hiệu MIDI trong một ô không bị co. Với $M = 1$:
 
-$$C(b) = C_{\text{lo}} + U(b) \cdot (C_{\text{hi}} - C_{\text{lo}})$$
+$$C_{\text{lo}} = V_{\text{floor}} + 16, \qquad C_{\text{hi}} = V_{\text{ceil}} - 8, \qquad C(b) = C_{\text{lo}} + U(b) \cdot (C_{\text{hi}} - C_{\text{lo}})$$
+
+Quãng thủy triều $C_{\text{hi}} - C_{\text{lo}} = (V_{\text{ceil}} - V_{\text{floor}}) - 24$ nằm trong khoảng `6..15` bậc. $C$ đổi theo ô, và là một số cho mọi nốt trong ô đó.
 
 ### 2.4. Phép lọc
 
 Với mọi nốt sounding (có `midi`, có `velocity`, không phải `tie_stop`) trong ô $b$:
 
-$$d = V_{\text{đã viết}} - 64$$
+$$d = V_{\text{đã viết}} - 64, \qquad V_{\text{thô}} = \mathrm{round}\big(C(b) + d\big)$$
 
-$$V_{\text{ra}} = \mathrm{round}\big(C(b) + M \cdot d\big)$$
+Cùng một $C(b)$ cho lead, low và support. Vì $d$ nguyên và $M = 1$, hai nốt **trong cùng một ô** giữ đúng hiệu đã viết:
 
-Cùng một $C(b)$ và cùng một $M$ cho lead, low và support. Hiệu giữa hai nốt trong section là hiệu đã viết nhân $M$:
+$$V_{\text{thô}}(e_1) - V_{\text{thô}}(e_2) = V_{\text{đã viết}}(e_1) - V_{\text{đã viết}}(e_2)$$
 
-$$V_{\text{ra}}(e_1) - V_{\text{ra}}(e_2) = \mathrm{round}(C + M d_1) - \mathrm{round}(C + M d_2)$$
+Hai nốt **khác ô** lệch thêm phần thủy triều:
 
-Khi $M = 1$, hiệu MIDI giữ nguyên ở ô trũng và ở ô đỉnh. Khi cửa sổ genre hẹp hơn dải đã viết, $M < 1$: mọi lệch co cùng một tỉ lệ, thứ tự và dấu giữ nguyên.
+$$V_{\text{thô}}(e_1) - V_{\text{thô}}(e_2) = \big(V_{\text{đã viết}}(e_1) - V_{\text{đã viết}}(e_2)\big) + \big(\mathrm{round}\,C(b_1) - \mathrm{round}\,C(b_2)\big)$$
 
-Nốt nằm trong $[64 + d_{\text{lo}},\; 64 + d_{\text{hi}}]$ chạm đúng $V_{\text{floor}}$ ở ô $U = 0$ và đúng $V_{\text{ceil}}$ ở ô $U = 1$. Kẹp từng nốt không tham gia vào hình động lực. Kẹp `[1, 127]` chỉ là lan can cho nốt viết ngoài dải đã khai báo.
+Nốt viết trong `[48, 72]` chạm đúng $V_{\text{floor}}$ ở ô $U = 0$ và đúng $V_{\text{ceil}}$ ở ô $U = 1$.
 
-**Ví dụ.** Cửa sổ `[24, 63]`, $d_{\text{lo}} = -16$, $d_{\text{hi}} = +8$:
+Nốt viết ngoài khoảng đó vẫn cộng cùng $C(b)$, rồi bị trần ấm giữ lại. Sau phép cộng, mọi nốt không được Cổng Snap chọn và không phải stab khung (mục 4) kẹp vào
 
-$$M = \min(1,\; 39 / 24) = 1, \quad C_{\text{lo}} = 40, \quad C_{\text{hi}} = 55$$
+$$[V_{\text{floor}},\; V_{\text{ceil}}], \qquad V_{\text{ceil}} \le 63$$
+
+Trên ô đỉnh của ví dụ dưới, nốt viết `80` ra $\mathrm{round}(55 + 16) = 71$, rồi kẹp về `63`. Humanize nhìn thấy `63`, đi nhánh `<= 64`, và dừng ở `<= 64`. Nó không bị kéo vào `66..76`. Nốt `72` trên cùng ô cũng ra `63`: phần viết trên `72` chỉ mất ở những ô đã chạm trần. Trên ô trũng, `80` ra `40 + 16 = 56`, còn dưới `63`, và vẫn cách nốt `72` đúng `8` bậc.
+
+**Ví dụ.** Cửa sổ `[24, 63]`:
+
+$$M = 1, \quad C_{\text{lo}} = 40, \quad C_{\text{hi}} = 55$$
 
 | Nốt đã viết | $d$ | Ô trũng $C = 40$ | Ô đỉnh $C = 55$ |
 |---|---|---|---|
 | Giai điệu 64 | 0 | 40 | 55 |
 | Đỉnh 72 | +8 | 48 | 63 |
 | Bè trong 48 | −16 | 24 | 39 |
+| Viết 80, trước kẹp | +16 | 56 | 71 → kẹp `63` |
 
-Chênh `72 − 64 = 8` và `64 − 48 = 16` đứng yên. Sóng chỉ dời khối từ `40` lên `55`.
-
-**Ví dụ $M < 1$.** Cửa sổ rộng `20` đơn vị, cùng dải lệch `24`: $M = 20 / 24$. Một lệch đã viết `+8` thành `+6.67` ở mọi ô của section.
+Trong từng ô, chênh `72 − 64 = 8` và `64 − 48 = 16` đứng yên. Giữa ô trũng và ô đỉnh, cùng một nốt `64` lệch thêm `55 − 40 = 15`. Bước D giữ mỗi vạch nhịp trong mức `4` bậc, nên quãng `15` này trải ít nhất bốn vạch.
 
 ### 2.5. Những gì bộ lọc giữ nguyên
 
 - Offset trong ô đã viết: tremolo `(-4, 0, +4, +1)` và fill `(-6, -3, -4, -6)`, cung Etude 1, sextuplet Etude 11, sóng chữ V của Preludio, accent, `extra` của câu.
-- Khoảng cách giữa các bè, vì cả ba bè nhận cùng $C$ và cùng $M$.
+- Khoảng cách giữa các bè trong cùng một ô, vì cả ba bè nhận cùng $C$.
 - Hình intro / outro đã viết trong `guitar_frame.py`. Khung chỉ trượt $C$ (mục 4).
 
-Bộ lọc không dựng lại các offset từ bảng, và không chạy một pass viết lại vận tốc để ép `lead > low > support`. Thứ tự bè sau lọc là thứ tự đã viết, nhân $M$.
+Bộ lọc không dựng lại các offset từ bảng, và không chạy một pass viết lại vận tốc để ép `lead > low > support`. Thứ tự bè trong một ô sau lọc là thứ tự đã viết.
 
 ---
 
@@ -204,7 +219,7 @@ $$V_{\text{snapped}} = \mathrm{round}\left(66 + \big(V_{\text{snap}}(\alpha_{\te
 
 $V_{\text{snap}}(\alpha_{\text{price}})$ nội suy `snap_calm .. snap_wide`. Kết quả luôn nằm trong `[66,\; V_{\text{snap}}]`.
 
-Nốt đi kèm trong cùng cụm (fill tremolo, echo etude, canto 2, sóng chữ V) **giữ** $V_{\text{ra}}$ của phép affine. Nếu giá trị đó vượt `63`, kẹp về `63` để cụm snap không kéo nốt đệm qua tiếng móng. Kẹp này chỉ chạm nốt đã vượt trần ấm.
+Nốt đi kèm trong cùng cụm (fill tremolo, echo etude, canto 2, sóng chữ V) giữ kết quả affine đã kẹp ở mục 2.4, nên dừng ở $\le 63$.
 
 `tie_stop` nhận vận tốc của `tie_start` sau khi affine và snap đã xong.
 
@@ -212,15 +227,18 @@ Nốt đi kèm trong cùng cụm (fill tremolo, echo etude, canto 2, sóng chữ
 
 ## 4. Intro và outro
 
-Các ô `pedal` (`intro`, `warmup`, `outro`, `cooldown`) dùng cùng phép $C + M \cdot d$ trên vận tốc frame đã viết. $M$ lấy của thân bài kế bên, để một cử chỉ bước qua vạch nhịp không đổi tỉ lệ.
+Các ô `pedal` (`intro`, `warmup`, `outro`, `cooldown`) dùng cùng phép $C + d$ trên vận tốc frame đã viết. Trong một ô, hiệu MIDI của cử chỉ giữ nguyên.
 
-- **Intro**: có $M_{\text{lead}}$ ô pedal dẫn, chỉ số $i = 0 \dots M_{\text{lead}} - 1$. $C$ đi từ một tâm thì thầm tới $C$ của ô thân bài đầu tiên:
+- **Intro**: $C_{\text{whisper}}$ là mức làm nốt viết `64` rơi vào `27` (giữa `22..32`). $C(b_{\text{body}})$ là $C$ của ô thân bài đầu tiên. Có $M_{\text{lead}}$ ô pedal dẫn, chỉ số $i = 0 \dots M_{\text{lead}} - 1$.
 
-$$C_{\text{intro}}(i) = C_{\text{whisper}} + \big(C(b_{\text{body}}) - C_{\text{whisper}}\big) \cdot \frac{i}{\max(1,\; M_{\text{lead}} - 1)}$$
+  - $M_{\text{lead}} = 1$: ô đó chính là ô pedal cuối, nhận $C(b_{\text{body}})$. Công thức $i / (M_{\text{lead}} - 1)$ không dùng cho trường hợp này, vì mẫu số bằng 0 và giá trị thay thế $C_{\text{whisper}}$ sẽ để ô nối đứng ở `27`.
+  - $M_{\text{lead}} \ge 2$:
 
-  $C_{\text{whisper}}$ chọn sao cho nốt viết `64` rơi vào `27` (giữa `22..32`). Ô pedal cuối dùng đúng $C(b_{\text{body}})$, nên vạch nhịp nối tiếp về $C$, và phần nhảy còn lại là nhảy của vận tốc đã viết.
+$$C_{\text{intro}}(i) = C_{\text{whisper}} + \big(C(b_{\text{body}}) - C_{\text{whisper}}\big) \cdot \frac{i}{M_{\text{lead}} - 1}$$
 
-- **Outro**: $C$ đi từ $C$ của ô thân bài cuối xuống một tâm morendo, nơi nốt viết `64` rơi vào `23` (giữa `20..26` ở ô pedal cuối).
+  Ô $i = M_{\text{lead}} - 1$ nhận đúng $C(b_{\text{body}})$. Vạch nhịp vào thân bài nối tiếp về $C$. Phần nhảy còn lại là nhảy của vận tốc đã viết. Các ô trước đó đi từ `27` lên mức mở của ô nối. Bước giữa hai ô intro kề cũng bị chặn `4` bậc, cùng quy tắc mục 2.2D: nếu $C(b_{\text{body}}) - C_{\text{whisper}} > 4 \cdot (M_{\text{lead}} - 1)$, các ô đầu được nâng để đường dốc không vượt `4` mỗi vạch, và ô cuối vẫn là $C(b_{\text{body}})$.
+
+- **Outro**: $C$ đi từ $C$ của ô thân bài cuối xuống tâm morendo, nơi nốt viết `64` rơi vào `23` (giữa `20..26`). Một ô outro duy nhất là ô sát thân bài, nhận $C$ của ô thân bài cuối. Morendo chỉ trải trên chuỗi có từ hai ô; ô cuối của chuỗi đó về `23`, và mỗi vạch cũng không nhảy quá `4` bậc.
 
 Cú stab kịch tính (`staccato` và `accent` ở `_edge_stab` / `_stab_and_ring` của Brouwer, và `_stabs` cuối outro Villa khi `bright`) gán sau bộ lọc, một bộ số:
 
@@ -238,7 +256,7 @@ Bộ này đứng dưới Bartók slap của `elogio_pizz` (`72..76` / `68..70` 
 
 Khóa là `(ensemble, pattern)`. Mọi dòng thỏa `floor_calm <= floor_wide` và `ceil_calm <= ceil_wide <= 63`.
 
-`floor_*` và `ceil_*` là cửa sổ đầu ra của **cả khối nốt**, không phải ba đường cong thay thế lead / bass / support. $M$, $C_{\text{lo}}$, $C_{\text{hi}}$ suy ra theo mục 2.3. Dải lệch mặc định $d_{\text{lo}} = -16$, $d_{\text{hi}} = +8$.
+`floor_*` và `ceil_*` là cửa sổ đầu ra của **cả khối nốt**, không phải ba đường cong thay thế lead / bass / support. Với $d_{\text{lo}} = -16$, $d_{\text{hi}} = +8$, mọi dòng dưới đây có $V_{\text{ceil}} - V_{\text{floor}} \ge 30$, nên $M = 1$. $C_{\text{lo}}$ và $C_{\text{hi}}$ suy ra theo mục 2.3.
 
 ```python
 @dataclass(frozen=True)
@@ -298,27 +316,29 @@ Trên `score.variant == "guitar"`:
 
 Nốt ấm không trượt sang `65`. Cụm snap không vượt `76`.
 
+Nhánh `>= 65` chỉ đúng với nốt Cổng Snap đã ghi `66..76` và stab khung `70` / `66`. Mọi nốt còn lại rời `apply_guitar_wave` ở $\le 63$, kể cả nốt pattern viết trên `72`. Một nốt viết `80` trên ô đỉnh không còn đường vào `66..76` khi cổng snap không chọn nó.
+
 ---
 
 ## 7. Thứ tự sửa code
 
-1. **Sóng $U(b)$.** Trong `guitar_wave.py`, thay bộ làm mượt hiện tại bằng log → trung bình trượt $W = 5$ → min–max trong section (band fallback khi phẳng). Bỏ nội suy cosine theo móc đơn.
-2. **Hằng số.** Giữ 28 profile ở mục 5. Bỏ các trường đường cong bass / support / gamma khỏi công thức vận tốc. Tính $M$, $C_{\text{lo}}$, $C_{\text{hi}}$ theo mục 2.3 cho từng section.
+1. **Sóng $U(b)$.** Trong `guitar_wave.py`, thay bộ làm mượt hiện tại bằng log → trung bình đối xứng 5 điểm → min–max trong section → chặn bước $\Delta_U = 4 / (C_{\text{hi}} - C_{\text{lo}})$ (mục 2.2). Band fallback khi volume phẳng. $C$ vẫn là một số cho cả ô.
+2. **Hằng số.** Giữ 28 profile ở mục 5. Bỏ các trường đường cong bass / support / gamma khỏi công thức vận tốc. Với bảng này $M = 1$. Tính $C_{\text{lo}}$, $C_{\text{hi}}$ theo mục 2.3 cho từng section.
 3. **`_shape_dynamics`.** Giữ `extra` của câu. Bỏ `_BAND_DELTA` và bỏ kẹp `[44, 78]` trên đường đi vào bộ lọc, để band thô không cộng dồn với $C$.
-4. **`apply_guitar_wave`.** Một vòng trên mọi nốt sounding: $V_{\text{ra}} = \mathrm{round}(C(b) + M \cdot (V - 64))$. Xóa `_assign_generic`, `_assign_tremolo`, `_assign_etude1`, `_assign_etude11`, `_assign_preludio` và pass xếp tầng ba bè. Intro / outro chỉ trượt $C$ (mục 4). Stab khung vẫn gán `70 / 66 / 62`.
-5. **Snap.** Giữ ngân sách và $V_{\text{snapped}}$. Chỉ ghi đè cú được chọn. Nốt đi kèm giữ $V_{\text{ra}}$, kẹp `63` khi vượt trần ấm.
-6. **Humanize.** Giữ chốt mục 6.
-7. **Test.** Đổi `test_guitar_wave.py` sang các bất biến ở mục 8. Các assertion số tuyệt đối cũ trong `test_sonify_guitar.py` chuyển sang kiểm tra hiệu vận tốc và cửa sổ genre.
+4. **`apply_guitar_wave`.** Một vòng trên mọi nốt sounding: $V_{\text{thô}} = \mathrm{round}(C(b) + (V - 64))$, rồi kẹp nốt không snap vào $[V_{\text{floor}}, V_{\text{ceil}}] \le 63$. Xóa `_assign_generic`, `_assign_tremolo`, `_assign_etude1`, `_assign_etude11`, `_assign_preludio` và pass xếp tầng ba bè. Intro một ô nhận $C(b_{\text{body}})$ (mục 4). Stab khung vẫn gán `70 / 66 / 62` sau bước kẹp.
+5. **Snap.** Giữ ngân sách và $V_{\text{snapped}}$. Chỉ ghi đè cú được chọn, sau bước kẹp trần ấm.
+6. **Humanize.** Giữ chốt mục 6. Nhánh `>= 65` không nhận nốt affine.
+7. **Test.** Đổi `test_guitar_wave.py` sang các bất biến ở mục 8. Các assertion số tuyệt đối cũ trong `test_sonify_guitar.py` chuyển sang kiểm tra hiệu trong cùng một ô và cửa sổ genre.
 
 ---
 
 ## 8. Bất biến cần test
 
-1. **Cùng một hiệu ở ô trũng và ô đỉnh.** Với $M = 1$, mọi cặp nốt sounding trong một section giữ đúng $V_i - V_j$ sau lọc, kể cả tremolo, etude, preludio và các pattern thường. Với $M < 1$, hiệu mới bằng hiệu cũ nhân $M$ (sai số làm tròn 1 bậc).
-2. **Khóa biên.** Nốt viết $64 + d_{\text{lo}}$ tại ô $U = 0$ ra đúng $V_{\text{floor}}$. Nốt viết $64 + d_{\text{hi}}$ tại ô $U = 1$ ra đúng $V_{\text{ceil}} \le 63$.
-3. **$C$ đi theo $U$.** Ô $\tilde{\ell}$ nhỏ nhất có $C = C_{\text{lo}}$. Ô $\tilde{\ell}$ lớn nhất có $C = C_{\text{hi}}$. Các ô ở giữa nội suy tuyến tính theo $U$. $C$ không đổi bên trong một ô.
-4. **Volume phẳng.** Cả section một mức volume thì mọi ô cùng một $C$ lấy từ band fallback. Hiệu vi mô giữ nguyên.
+1. **Hiệu trong cùng một ô.** Mọi cặp nốt sounding cùng ô giữ đúng $V_i - V_j$ sau lọc khi cả hai còn trong $[V_{\text{floor}}, V_{\text{ceil}}]$, kể cả tremolo, etude, preludio và các pattern thường. Hai nốt khác ô lệch thêm $\mathrm{round}\,C(b_1) - \mathrm{round}\,C(b_2)$. Trên 28 profile, $M = 1$.
+2. **Khóa biên.** Nốt viết `48` tại ô $U = 0$ ra đúng $V_{\text{floor}}$. Nốt viết `72` tại ô $U = 1$ ra đúng $V_{\text{ceil}} \le 63$. Nốt viết `80` tại ô $U = 1$ ra `63` trước humanize và `<= 64` sau humanize.
+3. **Đỉnh và bước vạch nhịp.** Ô volume nóng (đỉnh của $\ell$ trước khi làm mượt) có $C$ bằng cực đại của section. $|C(b) - C(b-1)| \le 4$. $C$ không đổi bên trong một ô.
+4. **Volume phẳng.** Cả section một mức volume thì mọi ô cùng một $C$ lấy từ band fallback. Hiệu trong ô giữ nguyên.
 5. **Band không cộng hai lần.** Một nốt viết `64` trên band `p` và trên band `f`, cùng $U$, ra cùng $V_{\text{ra}}$.
-6. **Snap hiếm.** Pattern `snap_wide is None`: không nốt nào vượt `64` sau humanize. Pattern có snap, $\alpha_{\text{price}} \ge 0.50$: có ít nhất một unit trong `[66, snap_wide]`, không quá $K_{\text{sec}}$, không nốt nào sau humanize vượt `76`. Nốt không được chọn trong cùng ô giữ đúng kết quả affine.
-7. **Theo section.** Chương nhiều section: section $\alpha_{\text{price}} = 0$ có $K_{\text{sec}} = 0$ (trừ tối đa một slap `elogio_pizz`). `trio` / `bridge` dùng $\alpha_{\text{warm}}$ đã nhân `0.50`, nên cửa sổ và quãng chạy của $C$ hẹp hơn phần A cùng profile.
-8. **Intro / outro.** Hiệu trong một cử chỉ frame giữ theo $M$ của thân bài. Ô pedal cuối của intro dùng cùng $C$ với ô thân bài đầu. Stab khung ra `70 / 66 / 62`.
+6. **Snap hiếm.** Pattern `snap_wide is None`: không nốt nào vượt `64` sau humanize, kể cả nốt viết trên `72`. Pattern có snap, $\alpha_{\text{price}} \ge 0.50$: có ít nhất một unit trong `[66, snap_wide]`, không quá $K_{\text{sec}}$, không nốt nào sau humanize vượt `76`. Nốt không được chọn trong cùng ô giữ kết quả affine đã kẹp `<= 63`.
+7. **Theo section.** Chương nhiều section: section $\alpha_{\text{price}} = 0$ có $K_{\text{sec}} = 0$ (trừ tối đa một slap `elogio_pizz`). `trio` / `bridge` dùng $\alpha_{\text{warm}}$ đã nhân `0.50`, nên cửa sổ và quãng chạy của $C$ hẹp hơn phần A cùng profile. $M$ của đoạn đó vẫn là `1`.
+8. **Intro / outro.** Hiệu trong một cử chỉ của cùng một ô frame giữ nguyên. Intro một ô nhận $C$ của ô thân bài đầu, không nhận `27`. Intro từ hai ô: ô cuối nhận $C(b_{\text{body}})$. Outro một ô nhận $C$ của ô thân bài cuối. Stab khung ra `70 / 66 / 62`.
