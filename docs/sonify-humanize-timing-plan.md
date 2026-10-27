@@ -98,7 +98,7 @@ Máy viết tài liệu này không có MuseScore, nên chưa đo WAV xác nhậ
 | Từng voice, cú trễ, khoảng sau ngắn lại | Cần tổng `<type>` trước cú sau giữ nguyên | Nốt 128, 21 ms. Chưa có `<type>` cho phần còn lại |
 | `<duration>` ngắn hơn `<type>` | Nốt nhả sớm. Cú sau vẫn theo `<type>` | Không dịch attack về phía trước |
 
-`_metronome` in `per-minute` nguyên. `<sound tempo>` trên direction mở, và các direction sau trong câu, mang tempo thập phân. Chữ in không lặp lại mỗi phách.
+`_metronome` in `per-minute` nguyên. `<sound tempo>` trên direction mở, và các direction sau trong câu, mang tempo thập phân. Chữ in không lặp lại mỗi phách. Direction của đồng hồ đứng trên bè dẫn, ngay trước nốt chạm tới phách đó. Mốc rơi giữa hai cú đánh dùng `<offset sound="yes">` tính từ cursor; offset mặc định `sound="no"` chỉ đẩy chỗ in, nên không dùng.
 
 Cú sau đứng yên khi tổng `<type>` phía trước nó không đổi. Một dấu lặng thêm một `<type>`. Muốn cú sau giữ mốc đã viết, `<type>` của nốt trễ phải ngắn đi đúng lượng của dấu lặng đó. Rút riêng `<duration>`, rồi thêm dấu lặng, làm hai việc khác: nốt nhả sớm, và mọi cú sau trễ thêm đúng hạt của dấu lặng vì tổng `<type>` tăng.
 

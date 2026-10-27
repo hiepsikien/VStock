@@ -281,33 +281,151 @@ def test_jazz_and_minimalist_clocks_stay_under_one_percent() -> None:
     assert max(abs(event.bpm - 100) for event in wood.tempos) < 1
 
 
+def _quarters(bars: int) -> tuple[NoteEvent, ...]:
+    return tuple(
+        NoteEvent(bar=bar, beat=float(beat), midi=67, duration_beats=1.0, voice=1, velocity=70)
+        for bar in range(bars)
+        for beat in range(4)
+    )
+
+
+def _sounded_tempos(measure, divisions: int) -> list[tuple[float, str, object]]:
+    """Playback beat of each `<sound tempo>`, following the voice cursor.
+
+    An `<offset>` only moves playback when sound="yes". Chord notes and
+    backup/forward match the MusicXML cursor the importer will use.
+    """
+    cursor = 0
+    heard: list[tuple[float, str, object]] = []
+    for child in list(measure):
+        if child.tag == "backup":
+            cursor -= int(child.findtext("duration") or 0)
+            continue
+        if child.tag == "forward":
+            cursor += int(child.findtext("duration") or 0)
+            continue
+        if child.tag == "note":
+            if child.find("chord") is None:
+                cursor += int(child.findtext("duration") or 0)
+            continue
+        if child.tag != "direction":
+            continue
+        sound = child.find("sound")
+        tempo = sound.get("tempo") if sound is not None else None
+        if not tempo:
+            continue
+        offset = child.find("offset")
+        shift = 0
+        if offset is not None:
+            assert offset.get("sound") == "yes"
+            shift = int(offset.text or 0)
+        heard.append(((cursor + shift) / divisions, tempo, child))
+    return heard
+
+
 def test_printed_metronome_stays_integral_while_sound_tempo_breathes() -> None:
     import xml.etree.ElementTree as ET
 
     phrase = _phrase(0, 32)
-    lead = tuple(_note(float(beat), 70, midi=67, voice=1, duration_beats=1.0) for beat in range(4))
     heard = humanize(
-        _score(bars=4, bpm=88, variant="guitar", ensemble="classic", divisions=4, phrases=(phrase,), lead=lead)
+        _score(
+            bars=4,
+            bpm=88,
+            variant="guitar",
+            ensemble="classic",
+            divisions=4,
+            phrases=(phrase,),
+            lead=_quarters(4),
+        )
     )
     root = ET.fromstring(score_to_musicxml(heard))
     measure = root.find("part/measure")
     assert measure is not None
     metronome = measure.find("direction/direction-type/metronome/per-minute")
     assert metronome is not None and metronome.text == "88"
-    tempos = [
-        sound.get("tempo")
-        for direction in root.findall("part/measure/direction")
-        if (sound := direction.find("sound")) is not None and sound.get("tempo")
+    part = root.find("part")
+    assert part is not None
+    sounded: list[tuple[int, float, str]] = []
+    for bar, node in enumerate(part.findall("measure")):
+        for beat, tempo, direction in _sounded_tempos(node, heard.divisions):
+            sounded.append((bar, round(beat, 4), tempo))
+            words = direction.find("direction-type/words")
+            if words is not None:
+                assert words.get("print-object") == "no"
+                assert (words.text or "").strip() == ""
+    assert [(event.bar, round(event.beat, 4)) for event in heard.tempos] == [
+        (bar, beat) for bar, beat, _tempo in sounded
     ]
-    assert tempos[0] == "88.88"
-    assert "87.12" in tempos
-    hidden = [
-        direction.find("direction-type/words")
-        for direction in root.findall("part/measure/direction")
-        if direction.find("direction-type/words") is not None
+    assert [tempo for _bar, _beat, tempo in sounded][0] == "88.88"
+    assert "87.12" in [tempo for _bar, _beat, tempo in sounded]
+    assert len(sounded) == len(heard.tempos)
+
+
+def test_a_mid_beat_tempo_is_pulled_back_from_the_next_note() -> None:
+    import xml.etree.ElementTree as ET
+
+    heard = humanize(
+        _score(bars=4, bpm=88, phrases=(_phrase(0, 32),), lead=_quarters(4), divisions=4)
+    )
+    root = ET.fromstring(score_to_musicxml(heard))
+    part = root.find("part")
+    assert part is not None
+    measure = part.findall("measure")[2]
+    children = list(measure)
+    placed = [
+        direction
+        for beat, _tempo, direction in _sounded_tempos(measure, heard.divisions)
+        if abs(beat - 0.5) < 1e-6
     ]
-    assert hidden
-    assert all(words.get("print-object") == "no" for words in hidden)
+    assert len(placed) == 1
+    direction = placed[0]
+    offset = direction.find("offset")
+    assert offset is not None and offset.get("sound") == "yes"
+    assert int(offset.text or 0) < 0
+    index = children.index(direction)
+    assert children[index - 1].tag == "note"
+    assert children[index + 1].tag == "note"
+
+
+def test_the_phrase_clock_is_written_once_on_the_lead_part() -> None:
+    import xml.etree.ElementTree as ET
+
+    heard = humanize(
+        _score(
+            bars=1,
+            bpm=88,
+            variant="symphony",
+            ensemble="classic",
+            phrases=(_phrase(0, 8),),
+            lead=_quarters(1),
+        )
+    )
+    root = ET.fromstring(score_to_musicxml(heard))
+    counts = {
+        part.get("id"): sum(len(_sounded_tempos(measure, heard.divisions)) for measure in part.findall("measure"))
+        for part in root.findall("part")
+    }
+    assert counts["P1"] == len(heard.tempos)
+    assert all(count == 0 for part_id, count in counts.items() if part_id != "P1")
+
+
+def test_a_tempo_on_a_note_sits_directly_before_that_note() -> None:
+    import xml.etree.ElementTree as ET
+
+    heard = humanize(_score(bars=1, bpm=88, phrases=(_phrase(0, 8),), lead=_quarters(1)))
+    root = ET.fromstring(score_to_musicxml(heard))
+    measure = root.find("part/measure")
+    assert measure is not None
+    children = list(measure)
+    placed = [
+        (beat, direction)
+        for beat, _tempo, direction in _sounded_tempos(measure, heard.divisions)
+        if abs(beat - 2.0) < 1e-6
+    ]
+    assert len(placed) == 1
+    _beat, direction = placed[0]
+    assert direction.find("offset") is None
+    assert children[children.index(direction) + 1].tag == "note"
 
 
 def test_preset_chains_match_the_five_lines() -> None:
