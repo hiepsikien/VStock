@@ -20,6 +20,8 @@ Chỉ một plateau được nhích: từ hai cú đánh liền nhau trong cùng
 
 Ô study guitar `classic`, bar 0, bốn cú, ra số thật. Bè trung 56 nhận `+1, +1, +2, +1`, thành 57, 57, 58, 57. Phách 3 là `+2`, 56 thành 58. Bè trầm 60 nhận `−2, −1, +1, +2`, thành 58, 59, 61, 62. Thứ tự 60 trên 56 vẫn còn.
 
+Với `variant == "guitar"`, `humanize()` gọi `_clamp_guitar` sau khi cộng offset, trước khi chép `tie_stop`. Nốt viết ≤ 64 bị kéo về ≤ 64. Snap bị kéo về 66..70 với `classic` / `bach`, hoặc 66..76 với ensemble khác.
+
 ---
 
 ## 2. Vì sao ±2 không làm nhạc nghe người
@@ -35,7 +37,7 @@ Chỉ một plateau được nhích: từ hai cú đánh liền nhau trong cùng
 | Nylon, MS Basic | Chưa đo ở 53, 56, 59 | Cửa quyết định của trần velocity |
 | Ambient celesta, chuông | Chưa khóa | Chỉ đáng xét nếu mẫu đổi lớp |
 
-Nylon đi MS Basic vì MuseSounds nylon bỏ qua velocity từng nốt. Lớp móng gắt của MS Basic bắt đầu ở 65. Canto `preludio` bị `_shape_dynamics` kẹp trong 54..64 để ở dưới ngưỡng đó.
+Nylon đi MS Basic vì MuseSounds nylon bỏ qua velocity từng nốt. Luật nghe vẫn là nốt ấm không qua 65. Cơ chế trên đường render không còn là `_shape_dynamics`. `render_patterned_voices` gọi `apply_guitar_wave` trong `guitar_wave.py`. Docstring của hàm đó ghi là thay `_shape_dynamics`. Nốt ấm của sóng bị kẹp `min(63, …)`. Snap, khi pattern có, nằm ở 66..76. Canto `preludio` trên sóng có trần 62. Snap của chính pattern đó vẫn nâng nốt canto dài lên `min(68, velocity)`, tức 66..68. Không còn cửa 54..64. Nhánh `velocity >= _MELODY_APEX` chỉ còn trong `_shape_dynamics`. Nó không giữ đỉnh 72 sau sóng, và không ràng buộc một nhấn đặt trong `humanize()`.
 
 Trần ±2 còn bị kẹp bởi khoảng cách đã viết. Ô study 56 dưới 60 chỉ cách 4 bậc. Nhấn +4 ở bè trung chạm bè trầm và bị luật giữ thứ tự kéo về. Trần đó là hệ quả của khoảng cách, không phải liều tai nghe được.
 
@@ -60,7 +62,7 @@ Tầng một là xung lực. Tầng hai là sai số. Cả hai cố định theo
 
 Cặp tempo ±1% rồi ∓1% dài hơn khoảng 0,01%, vì thời gian đi theo nghịch đảo tempo. Tổng độ lệch BPM bằng 0 không phải tổng thời gian bằng 0. Phần dư đó nhỏ hơn đuôi nhả của MuseScore, nên `mapDurationSec` vẫn bám độ dài bản viết.
 
-Nhấn +4 đến +6 chạy sau `render()`, nên nó không đi qua `_shape_dynamics`. Nốt ấm đã viết ≤ 64, như canto `preludio`, ngồi dưới nail-snap 65. Một nhấn đẩy nốt đó qua 65 thì đổi lớp móng trước khi sampler đọc một bậc lực mới. 56 cách 60 bốn bậc thì không thuộc chỗ +4. Plateau 72 trên nền 64 có khoảng trống 8 trên giấy, nhưng nền 64 sát ngưỡng 65: +4 thành 68, qua nail-snap, trong khi đỉnh 72 được giữ vì `>= _MELODY_APEX`. Trần guitar có thể nuốt phần nhấn đó.
+Nhấn +4 đến +6 nằm trong `humanize()`, trước `_clamp_guitar`. Nốt ấm viết ≤ 64 bị kéo về ≤ 64, nên +4 trên nền 64 dừng ở 64. Snap viết 68 trên `classic` bị trần 70 nuốt một phần. 56 cách 60 bốn bậc thì không thuộc chỗ +4. Đỉnh 72 sau sóng không đi qua nhánh `_MELODY_APEX`. `_clamp_guitar` xét nốt viết trên 64 như snap. Luật nghe vẫn là nốt ấm không qua 65. Cơ chế giữ luật đó là `_clamp_guitar` và cửa snap của `apply_guitar_wave`.
 
 ### Xung lực thời gian từng voice, chưa viết được
 
@@ -126,7 +128,7 @@ Divisions mặc định là 2: một bậc lưới là một móc đơn, 341 ms 
 | Dòng | Nên thêm, khi cửa đã mở | Giữ nhỏ |
 |---|---|---|
 | `symphony` | Đồng hồ tempo. Đệm trễ một nốt 128 so với giai điệu | Velocity, trừ glockenspiel và vibraphone. Marimba vẫn chưa đo |
-| `guitar` | Ngón tay trễ một nốt 128 so với ngón cái, trừ `thumb_cantabile` | Velocity cho đến khi đo nylon 53, 56, 59. Nốt ấm ≤ 64 không bị đẩy qua nail-snap 65 |
+| `guitar` | Ngón tay trễ một nốt 128 so với ngón cái, trừ `thumb_cantabile` | Velocity cho đến khi đo nylon 53, 56, 59. Nốt ấm ≤ 64 do `_clamp_guitar` giữ ≤ 64 |
 | `jazz` | Đồng hồ tempo rất nhỏ quanh swing 2:1 đã có | Nốt 128 chồng lên móc đơn swing |
 | `minimalist` | Đồng hồ tempo dưới 1% | Nốt 128, vì lưới là chất của dòng |
 | `ambient` | Tempo thở theo câu, trên nốt dài | Nốt 128 trên từng cú vào |
@@ -150,7 +152,7 @@ Velocity trên ô này giữ số đã viết. 56 dưới 60 bốn bậc, không
 
 1. Đồng hồ tempo trước. `<sound tempo>` đã là đường MuseScore đang phát. Cặp tempo đối xứng dài hơn khoảng 0,01%. Phần dư nằm trong đuôi nhả, `mapDurationSec` vẫn bám độ dài bản viết.
 2. Chưa viết dấu lặng từng voice. Cửa MuseScore đòi phần nốt còn lại là một `<type>`, hoặc một chuỗi nốt nối từng khúc đã có trong `_NOTE_TYPES`. `divisions` 96 không thay việc đó. Đo WAV trên 4.7.5 làm sau khi chuỗi đó có thật: đỉnh nốt trước và sau hạt phải dịch đúng milli-giây, và cú kế tiếp phải giữ mốc.
-3. Bỏ velocity ±2 trên plateau cách bè kề dưới 8 bậc. Nhấn +4 đến +6 chỉ nơi còn khoảng trống, nơi sampler đọc note dynamics, và nơi trần nylon không nuốt. 56 cách 60 không thuộc chỗ đó. Nốt ấm ≤ 64 không được qua nail-snap 65. Cửa nylon 53, 56, 59 vẫn quyết định phần velocity của guitar. Marimba đo note dynamics trước khi tính nó vào nhóm có đọc.
+3. Bỏ velocity ±2 trên plateau cách bè kề dưới 8 bậc. Nhấn +4 đến +6 chỉ nơi còn khoảng trống, nơi sampler đọc note dynamics, và nơi trần nylon không nuốt. 56 cách 60 không thuộc chỗ đó. Nốt ấm không được qua 65. `_clamp_guitar` giữ nốt viết ≤ 64 ở mức ≤ 64. Cửa snap của `apply_guitar_wave` nằm ở 66..76, rồi `_clamp_guitar` kéo về 66..70 trên `classic` / `bach`, hoặc 66..76 trên ensemble khác. Cửa nylon 53, 56, 59 vẫn quyết định phần velocity của guitar. Marimba đo note dynamics trước khi tính nó vào nhóm có đọc.
 4. Sai số velocity tương quan thêm sau lần nghe, không làm trước lệch thời gian.
 5. Đổi tiếng thật thì tăng `RECAP_REVISION` và `SPAN_REVISION` một lần.
 
