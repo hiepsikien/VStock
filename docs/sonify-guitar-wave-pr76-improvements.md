@@ -1,18 +1,26 @@
-# Cải PR 76 — nâng cường độ, chu kỳ smooth, intro nhỏ
+# Phần còn lại để nghe thấy sóng — sàn, chu kỳ smooth
 
-Ba việc còn lại trên [PR 76](https://github.com/hiepsikien/VStock/pull/76) (`cursor/affine-guitar-volume-wave-754a`, `ad89a89`), sau khi nghe Barrios. Công thức đầy đủ nằm ở `docs/sonify-guitar-dynamics-wave-plan.md`. File này chỉ khóa phần code của PR còn lệch spec đó.
+[PR 76](https://github.com/hiepsikien/VStock/pull/76) đã nằm trên `main`. `fit_intro` / `fit_outro` và đường nói `22` đã chạy. Merge một PR chỉ có tài liệu không đổi tiếng đàn: `PROFILES` và `smooth_ell` trên `main` vẫn là sàn cũ và cửa sổ 5 ô.
 
-PR đang có sàn thấp hơn `4` bậc, trần đúng mức cần giữ, `smooth_ell` cố định `5` điểm, và `fit_intro` / `fit_outro` còn nhánh `return list(centers)`. Nhánh đó trả lại đường đã tính sẵn: intro thì thầm `27 → C` và outro `max(23, C − 4·i)`.
+Việc sửa code, trên `main`:
 
-Snap, humanize, phép affine `round(C) + (V − 64)`, và đầu nối thân bài giữ nguyên.
+- Mỗi `floor_calm` / `floor_wide` cộng `4` ở những cửa sổ còn nghe được sóng. Trần giữ nguyên.
+- Thêm `smooth` và để `smooth_ell` dùng $W$ của profile.
+- Giữ nguyên `fit_intro` / `fit_outro`, kể cả nhánh `return list(centers)`.
+
+Snap, humanize, phép affine `round(C) + (V − 64)`, và đầu nối thân bài giữ nguyên. Công thức đầy đủ nằm ở `docs/sonify-guitar-dynamics-wave-plan.md`.
 
 ---
 
 ## 1. Nâng đáy, giữ đỉnh
 
-Sàn nghe thấy thấp, và quãng thủy triều rộng hơn mức muốn. Mỗi `floor_calm` và `floor_wide` cộng `4`. Mỗi `ceil_calm` và `ceil_wide` giữ nguyên, nên $C_{\text{hi}}$ đứng yên. Quãng tâm ngắn đi đúng `4` bậc.
+Sàn nghe thấy thấp, và quãng thủy triều rộng hơn mức muốn. Trần giữ nguyên, nên $C_{\text{hi}}$ đứng yên. Sàn `+4` rút thủy triều đúng `4` bậc.
 
-`M` vẫn là `1`: mọi cửa sổ mới có `V_ceil − V_floor ≥ 26 > 24`. Quãng tâm `C_hi − C_lo` nằm trong `2..7`.
+Andante wide từ `8` còn `4` là mức còn nghe sóng, đỉnh giữ `52`. Cùng nhát cắt đó để nhiều calm, cùng gavotte wide và cantabile wide, ở thủy triều `2`. Humanize nhích `±2`, nên sóng `2` bậc hòa vào nhiễu. Mở `alpha_warm` trên hai dòng wide đó chỉ kéo cả khối lên, không nới sóng.
+
+Các dòng còn `2` chưa khóa. Nghe một calm (andante hoặc noviembre) và một điệu $W = 3$ trước. Nếu calm mất sóng, hạ nhát cắt ở những dòng đó cho thủy triều còn ít nhất `4`, và vẫn giữ đỉnh. $W = 9$ và $W = 3$ chỉ nghe khác nhau khi thủy triều còn khoảng `4` trở lên, tức chủ yếu ở wide. Thủy triều `≤ 4` thì chặn bước `4` không còn việc để làm: hai ô kề có thể là đáy và đỉnh. Điệu $W = 3$ khi đó vừa nhỏ vừa gắt. $W = 9$ san một ô nóng thành cao nguyên 9 ô và có thể đặt đỉnh $C$ lên vai sau ô nóng. Mức đỉnh giữ nguyên. Vị trí đỉnh trễ và dài hơn cửa sổ 5.
+
+`M` vẫn là `1` khi cửa sổ còn rộng ít nhất `26`. Quãng tâm sau sàn `+4` nằm trong `2..7`.
 
 $$C_{\text{lo}} = V_{\text{floor}} + 16, \qquad C_{\text{hi}} = V_{\text{ceil}} - 8$$
 
@@ -27,7 +35,7 @@ Andante Barrios, cửa sổ wide. PR đang `[28, 60]`, tâm nốt `64` đi `44 �
 
 Nốt trong `48..72` giữ hiệu đã viết. Đỉnh nốt `72` vẫn là `60`. Nốt `80` chạm trần `60` ở cả hai đầu.
 
-Cửa sổ dưới đây là `floor..ceil` calm, rồi `floor..ceil` wide. Cột PR là số đang nằm trong `PROFILES`.
+Cửa sổ dưới đây là ứng viên sàn `+4`, trần giữ nguyên: `floor..ceil` calm, rồi wide. Cột đầu là số đang nằm trong `PROFILES` trên `main`. Dòng nào sau cắt còn thủy triều `2` thì chưa khóa.
 
 | Khóa | PR 76 | Cửa sổ mới | $W$ |
 |---|---|---|---|
@@ -78,29 +86,8 @@ Cửa sổ dưới đây là `floor..ceil` calm, rồi `floor..ceil` wide. Cột
 
 ---
 
-## 3. Intro nhỏ
+## 3. Intro giữ nguyên thuật toán
 
-Ô pedal (`intro`, `warmup`, `outro`, `cooldown`) dùng `round(C) + (V − 64)`, rồi kéo nốt vượt `63` về `63`. Các ô này không kẹp `V_floor` và không cộng `K` từng ô.
+`fit_intro` / `fit_outro` trên `main` đã có đường nói `22`. Nhánh `return list(centers)` giữ đường đã tính sẵn khi mọi ô nằm trên $L$: intro thì thầm từ `27`, outro toàn nốt `64` vẫn xuống `23`. Nhánh này ở lại. Xóa nó rồi kéo mọi intro về đường nói đưa nốt viết `64` từ `27` xuống `22`.
 
-Ngưỡng ghi là `22`, để một dải humanize `−2` còn nghe ở `20`. Với mỗi ô, `L(b) = 22 − min(V − 64)` trên các nốt sounding. Chuông `44, 50, 46` có `d_min = −20`, nên `L = 42`, và tại tâm đó chuông là `22, 28, 24`.
-
-So sánh `C` thân bài với `L`, kể cả mốc bằng:
-
-- `C ≥ L`: một đường thẳng, đầu nối giữ `C` thân bài, mỗi vạch tối đa `4` bậc. `C = L` thì đường đó là một mức phẳng tại `C`.
-- `C < L`: cả đoạn pedal đứng ở `C` thân bài. Vạch nối không đổi.
-
-Đường thì thầm từ `27` và đường outro xuống `23` chỉ còn khi mọi ô đã nằm trên `L`. Nhánh `return list(centers)` trong `fit_intro` và `fit_outro` đang trả lại hai đường đó. Nhánh này bỏ đi.
-
-Đáy thấp nhất của bảng mới là noviembre calm, `C_lo = 42`, đúng bằng `L` của chuông `44`. Mốc `40` nằm dưới mọi `C_lo`, nên chuông `44` không đi vào nhánh `C < L`. Nhánh đó còn khi một ô viết mềm hơn `44`.
-
-**Intro 8 ô, chuông, nối vào đáy `C = 42`.** Cả 8 ô đứng ở `42`. Chuông là `22, 28, 24` suốt đoạn. Nốt viết `64` trên ô intro cuối bằng nốt viết `64` trên ô thân bài. Dãy tâm `27, 29, 32, 34, 37, 39, 42` không còn.
-
-**Intro 8 ô, chuông, nối vào andante phẳng calm, band `mf`.** $C_{\text{lo}} = 44$, $C_{\text{hi}} = 46$, $U = 0.65$, nên $C = 45.3$. Quãng tâm nghe được là `42 → 45.3`. Ô đầu là `22, 28, 24`. Sau làm tròn, nốt `44` đi `22, 22, 23, 23, 24, 24, 25, 25`. Nốt viết `64` trên ô cuối bằng thân bài.
-
-**Outro rời đáy `42`.** Cả outro đứng ở `42`. Nốt `44` là `22`. Chuông là `22, 28, 24`. Dãy `42, 38, 34, 30, 26, 23` và dãy nốt `44` thành `22, 18, 14, 10, 6, 3` không còn.
-
-**Outro toàn nốt `64`.** `L = 22`. Từ `C = 55`, hai ô kết ở `51`. Chín ô kết ở `23`. Ô đầu vẫn là `55`.
-
-**Outro có nốt `44` rời đỉnh `55`.** Đường giảm đều tới `42`. Nốt `44` kết ở `22`.
-
-Intro một ô nhận `C` của ô thân bài đầu. Intro từ hai ô giữ ô cuối ở `C` thân bài.
+Dãy intro `22, 22, 23, 23, 24, 24, 25, 25` chỉ xuất hiện sau khi sàn mới đẩy $C$ andante calm `mf` lên `45.3`. Thuật toán không đổi. Công thức $\max(23,\; C - 4\cdot i)$ là đường tính trước bước fit. Gán thẳng công thức đó thì chuông `44` thành `22, 18, 14, 10, 6, 3`.
