@@ -48,10 +48,25 @@ def pattern_title(pattern: str, ensemble: str) -> str:
 
 
 def pattern_form(ids: list[str], ensemble: str) -> str:
-    """One friendly name, or the slot names joined when the movement changes texture."""
-    names = [title for pattern in ids if (title := pattern_title(pattern, ensemble))]
-    if not names or all(name == names[0] for name in names):
-        return names[0] if names else ""
+    """One name, or opening — first change — close.
+
+    Adjacent repeats collapse. A longer row keeps those three names so the
+    movement title stays a single A–B–A line.
+    """
+    names: list[str] = []
+    for pattern in ids:
+        title = pattern_title(pattern, ensemble)
+        if not title or (names and names[-1] == title):
+            continue
+        names.append(title)
+    if not names:
+        return ""
+    if len(names) > 3:
+        names = [names[0], names[1], names[-1]]
+        if names[-1] == names[1]:
+            names = names[:2]
+    if len(names) == 1:
+        return names[0]
     return " — ".join(names)
 
 

@@ -76,20 +76,22 @@ def test_long_barrios_movements_walk_a_pattern_row():
     slow = attach_frame(month_specs("guitar")[1], "1M")
     scherzo = attach_frame(month_specs("guitar")[2], "1M")
     finale = attach_frame(month_specs("guitar")[3], "1M")
+    # The last part reprises the opening. A week plays Andante and Tremolo
+    # between the two Preludes; the title keeps the A–B–A line.
     assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=opening) == (
-        "Prelude — Andante — Tremolo"
+        "Prelude — Andante — Prelude"
     )
     assert guitar_movement_name(flat, ensemble="barrios", character="calm", form=slow) == (
         "Andante — Cantabile — Andante"
     )
     assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=scherzo) == (
-        "Polka — Waltz — Hemiola"
+        "Polka — Waltz — Polka"
     )
     assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=finale) == (
-        "Tremolo — Prelude — Andante"
+        "Tremolo — Prelude — Tremolo"
     )
     assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=week_spec(5)) == (
-        "Prelude — Andante — Tremolo — Prelude — Andante"
+        "Prelude — Andante — Prelude"
     )
 
 

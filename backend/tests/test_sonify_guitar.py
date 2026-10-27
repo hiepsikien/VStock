@@ -2805,37 +2805,37 @@ def test_la_catedral_preludio_interlocks_two_high_melody_notes_with_sixteenth_ar
     assert_playable(hush, C_KEY, "barrios_preludio")
     score_to_musicxml(hush)
 
+    from app.sonify.span import attach_frame, month_specs
+
+    form = attach_frame(month_specs("guitar")[0], "1M")
+    phrases = [section for section in form.sections if section.kind == "phrase"]
     opening = _suite(0, "barrios")
     assert opening.bpm == 96 and opening.divisions == 4
-    pure = list(range(8, 40))
-    for bar in pure:
+    assert len(phrases) >= 3
+    prelude_bars = range(phrases[0].start, phrases[0].end)
+    for bar in prelude_bars:
         _assert_catedral_44(opening, bar)
         _assert_catedral_shimmer(opening, bar)
     waved = sum(
         1
-        for bar in pure
+        for bar in prelude_bars
         if len({note.midi for note in _attacks(opening.support, bar)[:5] if note.midi is not None}) >= 3
     )
     assert waved >= 1
     prelude = replace(
         opening,
-        lead=tuple(note for note in opening.lead if 8 <= note.bar < 44),
-        support=tuple(note for note in opening.support if 8 <= note.bar < 44),
-        low=tuple(note for note in opening.low if 8 <= note.bar < 44),
+        lead=tuple(note for note in opening.lead if phrases[0].start <= note.bar < phrases[0].end),
+        support=tuple(note for note in opening.support if phrases[0].start <= note.bar < phrases[0].end),
+        low=tuple(note for note in opening.low if phrases[0].start <= note.bar < phrases[0].end),
     )
     assert_playable(prelude, C_KEY, "barrios_preludio")
-    andante = [
-        bar
-        for bar in range(44, 68)
-        if any(note.duration_beats >= 1.5 for note in _pitched(opening.lead, bar))
-    ]
-    tremolo = [
-        bar
-        for bar in range(68, opening.bars)
-        if sum(1 for note in _pitched(opening.lead, bar) if abs(note.duration_beats - 0.25) < 1e-9) >= 12
-    ]
-    assert len(andante) >= 8
-    assert len(tremolo) >= 8
+    # The middle phrase leaves La Catedral. The final phrase reprises it.
+    middle = phrases[1].start
+    assert [(round(note.beat, 2), round(note.duration_beats, 2)) for note in _attacks(opening.lead, middle)] != (
+        _CATEDRAL_LEAD_44
+    )
+    for bar in range(phrases[2].start, phrases[2].end):
+        _assert_catedral_44(opening, bar)
     score_to_musicxml(opening)
 
 
