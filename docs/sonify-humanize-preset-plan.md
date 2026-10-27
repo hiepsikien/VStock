@@ -4,7 +4,7 @@
 >
 > Cửa nghe nylon ở velocity 53, 56 và 59 vẫn là chỗ quyết định có giữ trần này hay hạ xuống. ±1..±3 như bản đầu làm phẳng contour vừa viết và gần như không đổi tiếng trên phần lớn MuseSounds.
 >
-> Đề xuất lệch thời gian, và vì sao ±2 dưới ngưỡng nghe, nằm ở `docs/sonify-humanize-timing-plan.md`. Lớp đó chưa code.
+> Đề xuất lệch thời gian, và vì sao ±2 dưới ngưỡng nghe, nằm ở `docs/sonify-humanize-timing-plan.md`. Đồng hồ tempo của lớp đó đã viết. Dấu lặng từng voice chưa viết.
 
 Hai lớp xếp sau khi bản đã soạn xong. Lớp 1 sửa velocity trên nốt. Lớp 2 tô màu file tiếng. Không lớp nào viết lại nốt, hợp âm, hay đường động lực đã có.
 
