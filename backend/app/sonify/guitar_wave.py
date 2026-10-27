@@ -41,6 +41,7 @@ class PatternWaveProfile:
     max_units_per_phrase: int
     max_units_per_sec: int
     snap_targets: str
+    smooth: int
     d_lo: int = D_LO
     d_hi: int = D_HI
 
@@ -55,6 +56,7 @@ def _profile(
     per_phrase: int,
     per_sec: int,
     targets: str,
+    smooth: int,
 ) -> PatternWaveProfile:
     return PatternWaveProfile(
         floor_calm,
@@ -66,39 +68,41 @@ def _profile(
         per_phrase,
         per_sec,
         targets,
+        smooth,
     )
 
 
 # Exactly the 28 (ensemble, pattern) rows. Pedal is a frame path, not a 29th row.
+# Ceilings stay put. Floors are the raised windows, and `smooth` is the odd W.
 PROFILES: dict[tuple[str, str], PatternWaveProfile] = {
-    ("bach", "bach_sarabande"): _profile(26, 30, 56, 62, None, None, 0, 0, "none"),
-    ("bach", "bach_gavotte"): _profile(28, 32, 58, 62, 66, 68, 1, 2, "gavotte"),
-    ("bach", "bach_bourree"): _profile(28, 32, 58, 63, 66, 68, 1, 3, "bourree"),
-    ("bach", "bach_fuga"): _profile(28, 32, 58, 63, 66, 68, 1, 2, "fuga"),
-    ("bach", "bach_gigue"): _profile(28, 32, 58, 63, 68, 70, 1, 3, "gigue"),
-    ("bach", "bach_chaconne"): _profile(26, 30, 58, 63, 68, 70, 1, 3, "chaconne"),
-    ("classic", "cantabile"): _profile(24, 28, 54, 58, None, None, 0, 0, "none"),
-    ("classic", "elegiaque"): _profile(24, 28, 56, 62, 66, 68, 1, 2, "appoggiatura"),
-    ("classic", "study"): _profile(26, 30, 56, 63, 68, 70, 1, 2, "study"),
-    ("classic", "mozart_var"): _profile(26, 30, 56, 62, 66, 68, 1, 2, "apex_rise"),
-    ("classic", "galop"): _profile(28, 32, 58, 63, 68, 70, 1, 3, "galop"),
-    ("barrios", "preludio"): _profile(26, 30, 56, 62, 66, 68, 1, 2, "canto"),
-    ("barrios", "andante"): _profile(24, 28, 54, 60, None, None, 0, 0, "none"),
-    ("barrios", "thumb_cantabile"): _profile(26, 30, 56, 62, 66, 68, 1, 2, "thumb"),
-    ("barrios", "tremolo"): _profile(28, 32, 58, 63, 68, 72, 1, 2, "tremolo"),
-    ("barrios", "choro"): _profile(28, 32, 58, 63, 70, 74, 1, 4, "offbeat"),
-    ("barrios", "polca"): _profile(28, 32, 58, 63, 70, 72, 1, 3, "offbeat"),
-    ("barrios", "hemiola"): _profile(28, 32, 58, 63, 70, 74, 1, 4, "hemiola"),
-    ("barrios", "vals"): _profile(26, 30, 58, 62, 68, 72, 1, 3, "vals"),
-    ("villa", "chord_melody"): _profile(24, 28, 54, 60, None, None, 0, 0, "none"),
-    ("villa", "thumb_cantabile"): _profile(28, 32, 58, 63, 68, 70, 1, 2, "thumb"),
-    ("villa", "villa_pattern"): _profile(26, 30, 58, 63, 68, 72, 1, 3, "tresillo"),
-    ("villa", "etude1"): _profile(28, 32, 58, 63, 68, 70, 1, 2, "etude1"),
-    ("villa", "etude11"): _profile(28, 32, 58, 63, 70, 74, 1, 3, "etude11"),
-    ("brouwer", "noviembre"): _profile(22, 26, 52, 58, None, None, 0, 0, "none"),
-    ("brouwer", "sarabande"): _profile(24, 28, 56, 62, 68, 72, 1, 2, "sarabande"),
-    ("brouwer", "brouwer_etude"): _profile(24, 28, 58, 63, 68, 72, 1, 3, "tumbao"),
-    ("brouwer", "elogio_pizz"): _profile(24, 28, 56, 62, 72, 76, 1, 4, "slap"),
+    ("bach", "bach_sarabande"): _profile(28, 34, 56, 62, None, None, 0, 0, "none", 9),
+    ("bach", "bach_gavotte"): _profile(30, 34, 58, 62, 66, 68, 1, 2, "gavotte", 5),
+    ("bach", "bach_bourree"): _profile(30, 36, 58, 63, 66, 68, 1, 3, "bourree", 5),
+    ("bach", "bach_fuga"): _profile(30, 36, 58, 63, 66, 68, 1, 2, "fuga", 9),
+    ("bach", "bach_gigue"): _profile(30, 36, 58, 63, 68, 70, 1, 3, "gigue", 3),
+    ("bach", "bach_chaconne"): _profile(28, 34, 58, 63, 68, 70, 1, 3, "chaconne", 9),
+    ("classic", "cantabile"): _profile(26, 30, 54, 58, None, None, 0, 0, "none", 9),
+    ("classic", "elegiaque"): _profile(26, 32, 56, 62, 66, 68, 1, 2, "appoggiatura", 9),
+    ("classic", "study"): _profile(28, 34, 56, 63, 68, 70, 1, 2, "study", 5),
+    ("classic", "mozart_var"): _profile(28, 34, 56, 62, 66, 68, 1, 2, "apex_rise", 5),
+    ("classic", "galop"): _profile(30, 36, 58, 63, 68, 70, 1, 3, "galop", 3),
+    ("barrios", "preludio"): _profile(28, 34, 56, 62, 66, 68, 1, 2, "canto", 5),
+    ("barrios", "andante"): _profile(26, 32, 54, 60, None, None, 0, 0, "none", 9),
+    ("barrios", "thumb_cantabile"): _profile(28, 34, 56, 62, 66, 68, 1, 2, "thumb", 9),
+    ("barrios", "tremolo"): _profile(30, 36, 58, 63, 68, 72, 1, 2, "tremolo", 9),
+    ("barrios", "choro"): _profile(30, 36, 58, 63, 70, 74, 1, 4, "offbeat", 3),
+    ("barrios", "polca"): _profile(30, 36, 58, 63, 70, 72, 1, 3, "offbeat", 3),
+    ("barrios", "hemiola"): _profile(30, 36, 58, 63, 70, 74, 1, 4, "hemiola", 3),
+    ("barrios", "vals"): _profile(28, 34, 58, 62, 68, 72, 1, 3, "vals", 3),
+    ("villa", "chord_melody"): _profile(26, 32, 54, 60, None, None, 0, 0, "none", 9),
+    ("villa", "thumb_cantabile"): _profile(30, 36, 58, 63, 68, 70, 1, 2, "thumb", 9),
+    ("villa", "villa_pattern"): _profile(28, 34, 58, 63, 68, 72, 1, 3, "tresillo", 3),
+    ("villa", "etude1"): _profile(30, 36, 58, 63, 68, 70, 1, 2, "etude1", 5),
+    ("villa", "etude11"): _profile(30, 36, 58, 63, 70, 74, 1, 3, "etude11", 5),
+    ("brouwer", "noviembre"): _profile(24, 30, 52, 58, None, None, 0, 0, "none", 9),
+    ("brouwer", "sarabande"): _profile(26, 32, 56, 62, 68, 72, 1, 2, "sarabande", 9),
+    ("brouwer", "brouwer_etude"): _profile(26, 32, 58, 63, 68, 72, 1, 3, "tumbao", 3),
+    ("brouwer", "elogio_pizz"): _profile(26, 32, 56, 62, 72, 76, 1, 4, "slap", 3),
 }
 
 
@@ -119,7 +123,7 @@ def resolve_bar_volumes(ctx) -> list[float]:
 
 
 def _reflect_index(index: int, length: int) -> int:
-    """Reflect across the first and last samples so a window always has 5 taps."""
+    """Reflect across the first and last samples so a window always has W taps."""
     if length <= 1:
         return 0
     guard = 0
@@ -135,18 +139,22 @@ def _reflect_index(index: int, length: int) -> int:
     return index
 
 
-def smooth_ell(volumes: list[float], start: int, end: int) -> list[float]:
-    """Equal-weight 5-point mean of ln(1 + v) on [start, end)."""
+def smooth_ell(volumes: list[float], start: int, end: int, width: int) -> list[float]:
+    """Equal-weight W-point mean of ln(1 + v) on [start, end). W is a positive odd integer."""
+    width = int(width)
+    if width < 1 or width % 2 == 0:
+        raise ValueError("smooth width must be a positive odd integer")
     if end <= start:
         return []
+    half = (width - 1) // 2
     raw = [math.log1p(max(0.0, float(volumes[bar]))) for bar in range(start, end)]
     smoothed: list[float] = []
     length = len(raw)
     for index in range(length):
         total = 0.0
-        for offset in range(-2, 3):
+        for offset in range(-half, half + 1):
             total += raw[_reflect_index(index + offset, length)]
-        smoothed.append(total / 5.0)
+        smoothed.append(total / float(width))
     return smoothed
 
 
@@ -211,7 +219,7 @@ def window_for(profile: PatternWaveProfile, opened: float) -> tuple[int, int]:
 
 
 def gain(v_floor: int, v_ceil: int) -> float:
-    """M = 1 on every locked window, because each one is at least 30 wide."""
+    """M = 1 on every locked window, because each one is at least 27 wide."""
     span = v_ceil - v_floor
     if span <= 0:
         return 0.0
@@ -280,9 +288,13 @@ def _line(start: float, end: float, count: int) -> list[float]:
     return [start + (end - start) * index / (count - 1) for index in range(count)]
 
 
-def _speech_center(written: int) -> float:
-    """Lowest center that stores the softest note at SPEECH, before humanize."""
-    return float(SPEECH - (int(written) - WRITTEN_CENTER))
+def _speech_center(written: int, floor: int) -> float:
+    """L = max(F, 22) - (V_written - 64) for the softest note in the bar.
+
+    F is the body window floor. 22 is the shared speech floor. One center
+    serves the whole bar; the notes themselves are not clamped to F.
+    """
+    return float(max(int(floor), SPEECH) - (int(written) - WRITTEN_CENTER))
 
 
 def _clears(centers: list[float], floors: list[float | None]) -> bool:
@@ -323,12 +335,13 @@ def fit_intro(centers: list[float], floors: list[float | None]) -> list[float]:
 
 
 def fit_outro(centers: list[float], floors: list[float | None]) -> list[float]:
-    """Keep the seam. Ease the fall so later bars still speak.
+    """Keep the seam. Ease the fall so later bars stay on L.
 
-    Written 64 still reaches 23. A softer note raises the ending just enough
-    that the straight fall stays on its speech line, never steeper than 4.
-    If the body itself is below that line, every bar stays on the body center
-    instead of decaying toward 23.
+    The ideal ramp can reach 23. Every floor in the table is at least 24, so
+    written 64 has L = F and the end stops at F. A softer note raises the
+    ending just enough that the straight fall stays on its line, never
+    steeper than 4. If the body itself is below that line, every bar stays
+    on the body center.
     """
     count = len(centers)
     if count <= 1 or _clears(centers, floors):
@@ -511,7 +524,7 @@ def _build_waves(ctx, volumes: list[float], patterns: list[str], pedal: set[int]
         profile = profile_for(ctx.ensemble, pattern)
         if profile is None:
             continue
-        smoothed = smooth_ell(volumes, start, end)
+        smoothed = smooth_ell(volumes, start, end, profile.smooth)
         bands = [ctx.band(bar) for bar in range(start, end)]
         raw = u_raw_from(smoothed, bands)
         price = alpha_price(_rel_span(ctx, section))
@@ -603,7 +616,11 @@ def _apply_affine(ctx, voices: dict[str, list[NoteEvent]], placed: dict[int, _Pl
                 _put(voices[voice], index, min(WARM_LIMIT, raw))
             continue
         for (voice, index), raw in raws.items():
-            _put(voices[voice], index, max(spot.v_floor, min(spot.v_ceil, raw)))
+            # The ceiling is the hard clamp. Written 48 meets V_floor at the
+            # trough by the tide constants, and a softer note keeps that step,
+            # so a bell written 44 sits four under the floor instead of being
+            # lifted onto it.
+            _put(voices[voice], index, min(spot.v_ceil, raw))
 
 
 def _at_apex(phrase, onset: float) -> bool:
@@ -875,7 +892,8 @@ def _sync_ties(events: list[NoteEvent]) -> list[NoteEvent]:
     return updated
 
 
-def _bar_floors(voices: dict[str, list[NoteEvent]], bars: list[int]) -> list[float | None]:
+def _bar_floors(voices: dict[str, list[NoteEvent]], bars: list[int], floor: int) -> list[float | None]:
+    """Per-bar speech line. F is one body-window floor for the whole region."""
     floors: list[float | None] = []
     for bar in bars:
         written = [
@@ -884,8 +902,25 @@ def _bar_floors(voices: dict[str, list[NoteEvent]], bars: list[int]) -> list[flo
             for event in events
             if event.bar == bar and event.midi is not None and event.velocity is not None and not event.tie_stop
         ]
-        floors.append(_speech_center(min(written)) if written else None)
+        floors.append(_speech_center(min(written), floor) if written else None)
     return floors
+
+
+def _joined_floor(placed: dict[int, _Placed], bar: int) -> int | None:
+    """Window floor of a body bar that has a wave. None when that bar has no wave."""
+    spot = placed.get(bar)
+    if spot is None or spot.wave is None:
+        return None
+    return spot.v_floor
+
+
+def _nearest_body_floor(placed: dict[int, _Placed], bar: int) -> int:
+    """F from the nearest body bar that has a wave, or 22 when the piece has none."""
+    candidates = [other for other, spot in placed.items() if spot.wave is not None]
+    if not candidates:
+        return SPEECH
+    nearest = min(candidates, key=lambda other: (abs(other - bar), other))
+    return int(placed[nearest].v_floor)
 
 
 def _retarget(placed: dict[int, _Placed], bars: list[int], centers: list[float]) -> None:
@@ -900,16 +935,22 @@ def _fit_pedal_speech(
     leading: list[int],
     trailing: list[int],
 ) -> None:
-    """One line per pedal region, so speech does not erase the tide or the seam."""
+    """One line per pedal region. L uses the joined body's window floor."""
     if len(leading) > 1:
-        _retarget(placed, leading, fit_intro([placed[bar].center for bar in leading], _bar_floors(voices, leading)))
+        join = leading[-1] + 1
+        floor = _joined_floor(placed, join)
+        speech = _bar_floors(voices, leading, SPEECH if floor is None else floor)
+        _retarget(placed, leading, fit_intro([placed[bar].center for bar in leading], speech))
     if len(trailing) > 1:
-        _retarget(placed, trailing, fit_outro([placed[bar].center for bar in trailing], _bar_floors(voices, trailing)))
+        join = trailing[0] - 1
+        floor = _joined_floor(placed, join) if join >= 0 else None
+        speech = _bar_floors(voices, trailing, SPEECH if floor is None else floor)
+        _retarget(placed, trailing, fit_outro([placed[bar].center for bar in trailing], speech))
     region = set(leading) | set(trailing)
     for bar, spot in list(placed.items()):
         if not spot.pedal or bar in region:
             continue
-        floor = _bar_floors(voices, [bar])[0]
+        floor = _bar_floors(voices, [bar], _nearest_body_floor(placed, bar))[0]
         if floor is not None and spot.center < floor:
             _retarget(placed, [bar], [floor])
 
@@ -917,10 +958,12 @@ def _fit_pedal_speech(
 def apply_guitar_wave(ctx, lead, support, low, patterns: list[str] | None = None, relaxed: set[int] | None = None):
     """Shift written velocities by one rounded center per bar.
 
-    Body notes that are not snapped land in [V_floor, V_ceil] with V_ceil <= 63.
-    Pedal bars skip that floor. Their centers are raised onto one line so the
-    softest note is stored at 22 when the seam still has room, then capped at 63.
-    Snap and frame stabs run after that clamp and overwrite only their own attacks.
+    Body notes that are not snapped clamp at V_ceil (<= 63). Written 48 meets
+    V_floor at a real trough, and a softer written note keeps its step under
+    that floor. Pedal bars are not clamped to F. Their centers are one
+    line whose speech mark is L = max(F, 22) - min(V - 64), with F the window
+    floor of the body bar being joined. Snap and frame stabs run after that
+    and overwrite only their own attacks.
     """
     del relaxed
     patterns = list(patterns or [])
