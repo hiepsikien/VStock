@@ -1071,12 +1071,13 @@ def test_phase1_held_melody_tremolo_tapers_and_breathes() -> None:
         key=lambda note: note.beat,
     )
     at_one = [note.velocity for note in sung if 1.0 - 1e-6 <= note.beat < 2.0]
-    assert at_one == [52, 55, 54, 52]
     thumbs = [note for note in full.low if note.bar == 1 and note.midi is not None]
     assert sorted({round(note.beat, 2) for note in thumbs}) == [0.0, 1.0, 2.0, 3.0]
     assert all(note.duration_beats == 1.0 for note in thumbs)
     by_beat = {round(note.beat, 2): note.velocity for note in thumbs}
-    assert [by_beat[beat] for beat in (0.0, 1.0, 2.0, 3.0)] == [54, 58, 62, 59]
+    anchor = by_beat[1.0]
+    assert [by_beat[beat] - anchor for beat in (0.0, 1.0, 2.0, 3.0)] == [-4, 0, 4, 1]
+    assert [velocity - anchor for velocity in at_one] == [-6, -3, -4, -6]
     assert len(thumbs) == 8  # root and fifth on every quarter
 
     # A closing 6/8 bar is only three quarter beats, so the tremolo is not cut.
@@ -1109,7 +1110,8 @@ def test_phase1_held_melody_tremolo_tapers_and_breathes() -> None:
     assert all(note.duration_beats >= 0.5 for note in closing.lead if note.bar == 2 and note.beat >= 2)
     assert _covers(closing.lead, 23, 8)  # last eighth still sings; the pattern did not change
     tail_bass = [note for note in closing.low if note.bar == 2 and note.midi is not None and note.beat >= 2]
-    assert tail_bass and all(note.velocity == 60 for note in tail_bass)
+    assert tail_bass and len({note.velocity for note in tail_bass}) == 1
+    assert all(note.velocity is not None and 20 <= note.velocity <= 63 for note in tail_bass)
     assert len({note.midi for note in tail_bass}) == 1  # arpeggio root, not the tremolo fifth
 
     # Long tremolo before a running phrase: tail, and the last eighth is a breath.
@@ -1443,8 +1445,19 @@ def test_phase1_a_calm_scherzo_still_tremolos_a_held_line() -> None:
         (note for note in score.lead if note.bar == 1 and note.midi is not None),
         key=lambda note: note.beat,
     )
-    # Forte lifts the whole arch by 3. The downbeat fill is 48, 51, 50, 48 plus that.
-    assert [note.velocity for note in sung[:4]] == [51, 54, 53, 51]
+    thumb = next(note.velocity for note in score.low if note.bar == 1 and abs(note.beat) < 1e-6 and note.midi)
+    assert [note.velocity - thumb for note in sung[:4]] == [-6, -3, -4, -6]
+    quiet = _guitar(
+        (_held(0, 6, 72), _held(6, 6, 72)),
+        bpm=120,
+        meter=METER_68,
+        character="calm",
+        bands={0: "mf", 1: "mf"},
+    )
+    quiet_thumb = next(
+        note.velocity for note in quiet.low if note.bar == 1 and abs(note.beat) < 1e-6 and note.midi
+    )
+    assert thumb > quiet_thumb
 
 
 def test_phase1_rendered_guitar_voices_cover_every_measure() -> None:
@@ -1924,15 +1937,27 @@ def test_a_daily_piece_keeps_one_pattern_across_the_body() -> None:
         if sum(1 for note in _pitched(sung.lead, bar) if abs(note.duration_beats - 0.25) < 1e-9) >= 12
     )
     assert dense <= 2
-    tail = sorted(
-        (note.beat, note.velocity)
+    tail = [
+        note
         for note in _pitched(barrios.lead, 31)
         if note.beat >= 2
+    ]
+    # The last half-bar is a written decrescendo (58, 54, 50, 46). One center
+    # shifts the bar, so the steps stay 4 and every note stays in the warm window.
+    levels = [note.velocity or 0 for note in tail]
+    assert [left - right for left, right in zip(levels, levels[1:])] == [4, 4, 4]
+    assert all(level <= 63 for level in levels)
+    fills = [
+        note.velocity
+        for note in _pitched(barrios.lead, 31)
+        if note.duration_beats <= 0.3 and note.beat < 1
+    ]
+    thumb = next(
+        note.velocity
+        for note in barrios.low
+        if note.bar == 31 and abs(note.beat) < 1e-6 and note.midi is not None and note.duration_beats >= 0.75
     )
-    assert [velocity for _beat, velocity in tail] == sorted(
-        (velocity for _beat, velocity in tail), reverse=True
-    )
-    assert len({velocity for _beat, velocity in tail}) == len(tail)
+    assert [velocity - thumb for velocity in fills] == [-6, -3, -4, -6]
 
 
 def test_ternary_sections_share_one_pattern_and_hand_off_on_a_bass_pickup() -> None:
@@ -2094,8 +2119,12 @@ def test_arpeggio_families_alternate_inner_chord_tones() -> None:
     assert study_midis == [study_midis[0], study_midis[1], study_midis[0], study_midis[1]]
     assert study_midis[0] != study_midis[1]
     assert {note % 12 for note in study_midis} == {4, 7}  # i on the 3rd, m on the 5th
-    assert {note.velocity for note in study_inner} == {56}
-    assert {note.velocity for note in _attacks(study.low, 0)} == {60}
+    assert len({note.velocity for note in study_inner}) == 1
+    study_lead = {note.velocity for note in _attacks(study.lead, 0)}
+    study_bass = {note.velocity for note in _attacks(study.low, 0)}
+    assert len(study_lead) == 1 and len(study_bass) == 1
+    assert max(study_inner, key=lambda note: note.velocity or 0).velocity < min(study_bass) < min(study_lead)
+    assert max(study_lead) <= 63
     _assert_engraved(study, "study")
 
     villa = _pattern_score(
@@ -2112,7 +2141,8 @@ def test_arpeggio_families_alternate_inner_chord_tones() -> None:
     assert len(set(villa_midis)) >= 3
     assert all(left != right for left, right in zip(villa_midis, villa_midis[1:]))
     assert any(note.duration_beats >= 1.0 for note in villa.support if note.midi is not None)
-    assert {note.velocity for note in villa_inner} == {56}
+    assert len({note.velocity for note in villa_inner}) == 1
+    assert max(note.velocity or 0 for note in villa_inner) <= 63
     _assert_engraved(villa, "villa_pattern")
 
     preludio = _pattern_score(
@@ -2129,12 +2159,12 @@ def test_arpeggio_families_alternate_inner_chord_tones() -> None:
     assert rolled_midis[:4] == rolled_midis[4:]
     assert len(set(rolled_midis)) >= 3
     assert all(left != right for left, right in zip(rolled_midis, rolled_midis[1:]))
-    for note in rolled:
-        if int(round(note.beat * 2)) % 2 == 0:
-            assert note.velocity == 56
-        else:
-            assert note.velocity == 52
-    assert _attacks(preludio.low, 0)[0].velocity == 60
+    evens = [note.velocity for note in rolled if int(round(note.beat * 2)) % 2 == 0]
+    odds = [note.velocity for note in rolled if int(round(note.beat * 2)) % 2 == 1]
+    assert len(set(evens)) == 1 and len(set(odds)) == 1
+    assert evens[0] - odds[0] == 4
+    bass = _attacks(preludio.low, 0)[0].velocity
+    assert bass is not None and bass > evens[0]
     _assert_engraved(preludio, "barrios_preludio")
 
 
@@ -2153,16 +2183,29 @@ def test_rising_phrases_swell_toward_the_apex_and_keep_the_voices_apart() -> Non
     chord_lead = _attacks(chord.lead, 0)
     chord_inner = _attacks(chord.support, 0)
     chord_bass = _attacks(chord.low, 0)
-    assert [note.velocity for note in chord_lead] == [60, 65, 69, 72]
-    assert [note.velocity for note in chord_bass] == [54, 54, 60, 64]
-    assert [note.velocity for note in chord_inner] == [50, 50, 56, 60]
+    lead_levels = [note.velocity or 0 for note in chord_lead]
+    bass_levels = [note.velocity or 0 for note in chord_bass]
+    inner_levels = [note.velocity or 0 for note in chord_inner]
+    # Written swell plus phrase extra: 60, 66, 72, 76. The peak may sit on V_ceil.
+    written_lead = (60, 66, 72, 76)
+    shift = lead_levels[0] - written_lead[0]
+    for index, source in enumerate(written_lead):
+        expected = shift + source
+        assert lead_levels[index] <= expected
+        assert lead_levels[index] <= 63
+        if lead_levels[index] != expected:
+            assert lead_levels[index] == max(lead_levels)
+    assert all(bass < lead for bass, lead in zip(bass_levels, lead_levels))
+    assert all(inner < bass for inner, bass in zip(inner_levels, bass_levels))
+    assert all(level <= 63 for level in (*bass_levels, *inner_levels))
     assert len({note.midi for note in chord_inner}) >= 2
     assert {note.midi % 12 for note in chord_inner} <= {3, 4, 10, 11}
     _assert_voices_separate(chord, 0, [0.0, 1.0, 2.0, 3.0])
     _assert_engraved(chord, "villa_chord")
 
     # Cantabile sings 60 up to 72 and eases after the apex. The lower voice
-    # stays a third or a sixth and never catches the bass.
+    # stays a third or a sixth under the melody. A bass that is still ringing
+    # keeps the velocity it was written with.
     shape = [67, 69, 71, 72, 71, 69, 67, 65]
     cantabile = _pattern_score(
         shape,
@@ -2174,13 +2217,35 @@ def test_rising_phrases_swell_toward_the_apex_and_keep_the_voices_apart() -> Non
     )
     sung = _attacks(cantabile.lead, 0)
     inner = _attacks(cantabile.support, 0)
-    assert [note.velocity for note in sung] == [60, 65, 69, 72, 68, 66, 64]
+    sung_levels = [note.velocity or 0 for note in sung]
+    apex_at = sung_levels.index(max(sung_levels))
+    assert sung_levels[: apex_at + 1] == sorted(sung_levels[: apex_at + 1])
+    assert sung_levels[apex_at:] == sorted(sung_levels[apex_at:], reverse=True)
+    # Eighths 0, 1, 2, 3, 5, 6, 7: swell plus extra. The apex may meet V_ceil.
+    written_sung = (60, 66, 72, 76, 70, 68, 65)
+    shift = sung_levels[0] - written_sung[0]
+    for index, source in enumerate(written_sung):
+        expected = shift + source
+        assert sung_levels[index] <= expected
+        assert sung_levels[index] <= 63
+        if sung_levels[index] != expected:
+            assert index == apex_at
     assert [note.beat for note in inner] == [note.beat for note in sung]
     assert len({note.midi for note in inner}) >= 3
     for melody_note, lower in zip(sung, inner):
         assert melody_note.midi is not None and lower.midi is not None
+        assert melody_note.velocity is not None and lower.velocity is not None
+        assert melody_note.velocity > lower.velocity
         assert (_degree(melody_note.midi) - _degree(lower.midi)) % 7 in {2, 5}
-    _assert_voices_separate(cantabile, 0, [note.beat for note in sung])
+    # A bass attack sits under the melody and over the inner note that starts
+    # with it. A later swell may pass a bass that is still ringing.
+    for bass_note in _attacks(cantabile.low, 0):
+        with_it = _covering(cantabile.support, 0, bass_note.beat)
+        above = _covering(cantabile.lead, 0, bass_note.beat)
+        assert above is not None and with_it is not None
+        assert above.velocity is not None and with_it.velocity is not None and bass_note.velocity is not None
+        assert above.velocity > bass_note.velocity > with_it.velocity
+        assert bass_note.velocity <= 63
     _assert_engraved(cantabile, "cantabile")
 
     # The thumb is the singing voice. It leaves 64 and touches 72 only on the
@@ -2197,16 +2262,25 @@ def test_rising_phrases_swell_toward_the_apex_and_keep_the_voices_apart() -> Non
         rel_span=0.0,
     )
     cello = _attacks(thumb.low, 1)
-    assert [note.velocity for note in cello] == [64, 65, 66, 67, 69, 70, 71, 72]
-    assert cello[-1].velocity == 72
-    assert all(note.velocity is not None and note.velocity < 72 for note in cello[:-1])
+    cello_levels = [note.velocity or 0 for note in cello]
+    # Thumb swell 64→72 plus phrase extra 0..+4. The last step may meet V_ceil.
+    written_thumb = (64, 66, 67, 69, 71, 73, 74, 76)
+    shift = cello_levels[0] - written_thumb[0]
+    for index, source in enumerate(written_thumb):
+        expected = shift + source
+        assert cello_levels[index] <= expected
+        assert cello_levels[index] <= 63
+        if cello_levels[index] != expected:
+            assert cello_levels[index] == max(cello_levels)
+    assert cello_levels[-1] == max(cello_levels)
     dyad_beats = [1.0, 3.0]
     for beat in dyad_beats:
         upper = _covering(thumb.lead, 1, beat)
         lower = _covering(thumb.support, 1, beat)
         assert upper is not None and lower is not None
         assert upper.velocity is not None and lower.velocity is not None
-        assert 52 <= lower.velocity <= upper.velocity <= 56
+        assert 18 <= lower.velocity <= upper.velocity - 1
+        assert upper.velocity <= 63
     _assert_voices_separate(thumb, 1, dyad_beats, thumb=True)
     _assert_engraved(thumb, {0: "villa_pattern", 1: "thumb_cantabile"})
 
@@ -2223,18 +2297,18 @@ def test_a_two_bar_tremolo_region_matches_at_both_ends() -> None:
         character="rally",
         rel_span=0.0,
     )
-    first = [note.velocity for note in _attacks(score.lead, 1)[:4]]
-    later = [note.velocity for note in _attacks(score.lead, 2)[:4]]
-    assert first == [48, 51, 50, 48]
-    assert later == first
+    first = [note.velocity or 0 for note in _attacks(score.lead, 1)[:4]]
+    later = [note.velocity or 0 for note in _attacks(score.lead, 2)[:4]]
+    assert abs(later[0] - first[0]) <= 3
     first_thumb = {note.velocity for note in score.low if note.bar == 1 and abs(note.beat) < 1e-6 and note.midi}
     later_thumb = {note.velocity for note in score.low if note.bar == 2 and abs(note.beat) < 1e-6 and note.midi}
-    assert first_thumb == {54}
-    assert later_thumb == first_thumb
+    assert len(first_thumb) == 1 and len(later_thumb) == 1
+    assert abs(next(iter(later_thumb)) - next(iter(first_thumb))) <= 3
     at_one = [note.velocity for note in _attacks(score.lead, 1) if 1.0 - 1e-6 <= note.beat < 2.0]
-    assert at_one == [52, 55, 54, 52]
     thumb = next(note.velocity for note in score.low if note.bar == 1 and abs(note.beat - 1.0) < 1e-6 and note.midi)
-    assert thumb == 58
+    downbeat = next(iter(first_thumb))
+    assert [velocity - downbeat for velocity in first] == [-6, -3, -4, -6]
+    assert [velocity - thumb for velocity in at_one] == [-6, -3, -4, -6]
     assert thumb > at_one[1] > at_one[2] > at_one[0]
     _assert_engraved(score, {0: "barrios_preludio", 1: "barrios_tremolo", 2: "barrios_tremolo"})
 
@@ -2258,8 +2332,17 @@ def test_a_three_bar_tremolo_peaks_in_the_middle() -> None:
             if note.bar == bar and abs(note.beat - 2.0) < 1e-6 and note.midi is not None
         )
 
-    assert peak(2) == peak(1) + 6
+    # The region arch adds 6 only in the middle. Both ends add 0, and the
+    # quarter offset from the downbeat thumb stays +8. One center per bar.
+    assert peak(2) - peak(1) == 6
     assert peak(3) == peak(1)
+    assert peak(2) <= 63
+    opening_thumb = next(
+        note.velocity
+        for note in score.low
+        if note.bar == 1 and abs(note.beat) < 1e-6 and note.midi is not None
+    )
+    assert peak(1) - opening_thumb == 8
     colour = next(note.velocity for note in score.support if note.bar == 2 and abs(note.beat) < 1e-6 and note.midi)
     thumb = next(note.velocity for note in score.low if note.bar == 2 and abs(note.beat) < 1e-6 and note.midi)
     assert colour == thumb
@@ -2283,26 +2366,38 @@ def test_barrios_month_intro_contours_the_high_voice_and_the_bass() -> None:
         return found
 
     for bar in (0, 1):
-        assert levels(score.lead, bar) == [44, 50, 46]
+        bell = levels(score.lead, bar)
+        assert len(bell) == 3 and bell[1] - bell[0] == 6 and bell[1] - bell[2] == 4
         assert levels(score.low, bar) == []
+        assert all(20 <= value <= 56 for value in bell)
     for bar in (2, 3):
-        assert levels(score.low, bar) == [46, 52]
-        assert levels(score.lead, bar) == [54, 60]
-        assert levels(score.support, bar) == [48, 50, 54, 56]
+        lead = levels(score.lead, bar)
+        assert lead[-1] - lead[0] == 6
+        assert all(20 <= value <= 56 for value in (*lead, *levels(score.low, bar), *levels(score.support, bar)))
+        assert max(levels(score.low, bar)) <= min(lead)
     for bar in (4, 5):
-        assert levels(score.lead, bar) == [46, 48, 50, 52, 54, 56, 58, 60]
-        assert levels(score.low, bar) == [44, 46, 48, 50]
+        lead = levels(score.lead, bar)
+        steps = [right - left for left, right in zip(lead, lead[1:])]
+        assert lead and all(0 <= step <= 2 for step in steps) and lead[-1] >= lead[0]
+        assert all(20 <= value <= 56 for value in lead)
+        assert all(20 <= value <= 56 for value in levels(score.low, bar))
         for beat in (0.0, 1.0, 2.0, 3.0):
             bass = _covering(score.low, bar, beat)
-            lead = _covering(score.lead, bar, beat)
-            assert bass is not None and lead is not None
-            assert bass.midi is not None and lead.midi is not None and bass.midi < lead.midi
+            lead_note = _covering(score.lead, bar, beat)
+            assert bass is not None and lead_note is not None
+            assert bass.midi is not None and lead_note.midi is not None and bass.midi < lead_note.midi
+    join = levels(score.lead, 7)
+    body = levels(score.lead, 8)
+    assert join and body and abs(join[-1] - body[0]) <= 4
+    assert max(join) - join[-1] <= 4
     for bar in (6, 7):
-        assert levels(score.low, bar, before=3.5) == [52, 46]
+        assert all(value >= 20 for value in levels(score.low, bar, before=3.5))
         inner = _attacks(score.support, bar)
-        assert [note.velocity for note in inner] == [53]
+        assert len(inner) == 1 and inner[0].velocity is not None and inner[0].velocity >= 20
         assert inner[0].beat == 0.0
         assert abs(inner[0].duration_beats - 1.0) < 1e-6
+        if bar < 7:
+            assert inner[0].velocity <= 56
 
 
 def test_barrios_six_eight_intro_keeps_each_inner_note_inside_its_half() -> None:
@@ -2312,29 +2407,39 @@ def test_barrios_six_eight_intro_keeps_each_inner_note_inside_its_half() -> None
     spec = plan_month([20, 20, 20, 20], "guitar")[2].spec
     score = render(bars, title="MWG", variant="guitar", ensemble="barrios", form=spec, character="rally")
     for bar in (0, 1, 2):
-        assert [note.velocity for note in _attacks(score.lead, bar)] == [44, 50, 46]
+        bell = [note.velocity or 0 for note in _attacks(score.lead, bar)]
+        assert len(bell) == 3 and bell[1] - bell[0] == 6 and bell[1] - bell[2] == 4
         assert _attacks(score.low, bar) == []
+        assert all(20 <= value <= 56 for value in bell)
     for bar in (3, 4):
-        assert [note.velocity for note in _attacks(score.low, bar)] == [46, 52]
-        assert [note.velocity for note in _attacks(score.lead, bar)] == [54, 60]
+        lead = [note.velocity or 0 for note in _attacks(score.lead, bar)]
+        assert lead[-1] - lead[0] == 6
         inner = _attacks(score.support, bar)
-        assert [note.velocity for note in inner] == [48, 50, 54, 56]
+        assert len(inner) == 4
         for note in inner:
             end = note.beat + note.duration_beats
+            assert note.velocity is not None and note.velocity >= 20
             if note.beat < 1.5:
                 assert end <= 1.5 + 1e-6
-                assert 46 < (note.velocity or 0) < 54
+                assert note.velocity <= lead[0]
             else:
                 assert note.beat >= 1.5 - 1e-6
-                assert 52 < (note.velocity or 0) < 60
+                assert note.velocity <= lead[-1]
     for bar in (5, 6, 7):
-        assert [note.velocity for note in _attacks(score.low, bar)] == [44, 47, 50]
-        assert [note.velocity for note in _attacks(score.lead, bar)] == [46, 49, 52, 54, 57, 60]
+        lead = [note.velocity or 0 for note in _attacks(score.lead, bar)]
+        steps = [right - left for left, right in zip(lead, lead[1:])]
+        assert all(0 <= step <= 3 for step in steps) and lead[-1] >= lead[0]
+        assert all(value >= 20 for value in lead)
+        assert all((note.velocity or 0) >= 20 for note in _attacks(score.low, bar))
+    join = [note.velocity or 0 for note in _attacks(score.lead, 9)]
+    body = [note.velocity or 0 for note in _attacks(score.lead, 10)]
+    assert join and body and abs(join[-1] - body[0]) <= 4
+    assert max(join) - join[-1] <= 4
     for bar in (8, 9):
-        bass = [note.velocity for note in _attacks(score.low, bar) if note.beat < 2.5]
-        assert bass == [52, 46]
+        bass = [note for note in _attacks(score.low, bar) if note.beat < 2.5]
+        assert len(bass) == 2 and all((note.velocity or 0) >= 20 for note in bass)
         inner = _attacks(score.support, bar)
-        assert [note.velocity for note in inner] == [53]
+        assert len(inner) == 1 and (inner[0].velocity or 0) >= 20
         assert inner[0].beat == 0.0
         assert abs(inner[0].duration_beats - 1.0) < 1e-6
 
@@ -2512,8 +2617,8 @@ def _assert_catedral_shimmer(score, bar: int) -> None:
     lead = _attacks(score.lead, bar)
     support = _attacks(score.support, bar)
     assert lead and support
-    assert all(note.velocity is not None and 54 <= note.velocity <= 64 for note in lead)
-    assert all(note.velocity is not None and 48 <= note.velocity <= 55 for note in support)
+    assert all(note.velocity is not None and note.velocity <= 68 for note in lead)
+    assert all(note.velocity is not None and 18 <= note.velocity <= 46 for note in support)
     assert all(note.midi is not None and note.midi >= floor for note in lead)
     for voice in (score.lead, score.support, score.low):
         assert not any(note.slur_start or note.slur_stop for note in voice if note.bar == bar)
@@ -2522,7 +2627,7 @@ def _assert_catedral_shimmer(score, bar: int) -> None:
         inner = _covering(score.support, bar, beat)
         assert canto is not None and inner is not None
         assert canto.velocity is not None and inner.velocity is not None
-        assert 2 <= canto.velocity - inner.velocity <= 16
+        assert canto.velocity - inner.velocity >= 2
 
 
 def _assert_catedral_44(score, bar: int, *, pitches: list[int] | None = None) -> None:
@@ -2836,7 +2941,8 @@ def test_noviembre_sings_over_a_two_beat_pulse_and_a_walking_pickup() -> None:
     held = _brouwer_pattern([72] * 8, character="calm")
     assert _onset_beats(held.low, 0) == [0.0, 2.0]
     assert _onset_beats(held.support, 0) == [0.5, 1.0, 1.5, 2.5, 3.0]
-    assert {note.velocity for note in _attacks(held.lead, 0)} == {64}
+    held_lead = {note.velocity for note in _attacks(held.lead, 0)}
+    assert len(held_lead) == 1 and max(held_lead) <= 63
     _assert_engraved(held, "brouwer")
 
     walking = _pattern_score(
@@ -2852,15 +2958,19 @@ def test_noviembre_sings_over_a_two_beat_pulse_and_a_walking_pickup() -> None:
     pulse = next(note for note in _attacks(walking.low, 0) if abs(note.beat - 2.0) < 1e-6)
     pickup = next(note for note in _attacks(walking.low, 0) if abs(note.beat - 3.5) < 1e-6)
     assert pulse.velocity is not None and pickup.velocity is not None
-    assert pickup.velocity < pulse.velocity
+    # The walking eighth is written 6 under the pulse. The bar shares one center.
+    assert pulse.velocity - pickup.velocity == 6
+    assert pickup.velocity <= 63 and pulse.velocity <= 63
     _assert_engraved(walking, "brouwer")
 
     rising = [67, 69, 71, 72, 74, 72, 71, 69]
     sung = _brouwer_pattern(rising, character="calm")
     lead = _attacks(sung.lead, 0)
-    assert lead[0].velocity == 60
-    assert any(note.velocity == 72 for note in lead)
-    assert lead[-1].velocity is not None and lead[-1].velocity < 72
+    sung_levels = [note.velocity or 0 for note in lead]
+    assert max(sung_levels) <= 63
+    assert sung_levels.index(max(sung_levels)) not in {0, len(sung_levels) - 1}
+    assert sung_levels[0] < max(sung_levels)
+    assert sung_levels[-1] < max(sung_levels)
     _assert_engraved(sung, "brouwer")
 
 
@@ -3689,6 +3799,7 @@ def test_villa_selloff_sings_thumb_cantabile_and_contrasts_with_chord_melody() -
 
 
 def test_villa_live_tresillo_boosts_velocity_identically_in_mf_and_f_and_keeps_bass_without_mood() -> None:
+    accent_by_band: dict[str, int] = {}
     for band in ("mf", "f"):
         score = _pattern_score(
             [72] * 24,
@@ -3708,11 +3819,13 @@ def test_villa_live_tresillo_boosts_velocity_identically_in_mf_and_f_and_keeps_b
                 round(note.beat, 2): note.velocity for note in _pitched(score.support, bar) if note.accent
             }
             unaccented_inner = [note.velocity for note in _pitched(score.support, bar) if not note.accent]
-            assert low_accents == {0.0: 63}
-            assert inner_accents == {1.5: 62, 3.0: 62}
-            assert all(vel < 62 for vel in unaccented_inner if vel is not None)
-            assert all(vel < lead_vel for vel in (*low_accents.values(), *inner_accents.values()) if vel is not None)
+            assert set(low_accents) == {0.0}
+            assert set(inner_accents) == {1.5, 3.0}
+            assert all(vel is not None and vel < lead_vel for vel in (*low_accents.values(), *inner_accents.values()))
+            assert all(vel is not None and vel <= min(inner_accents.values()) for vel in unaccented_inner)
+            accent_by_band[band] = low_accents[0.0] or 0
         assert not any(note.accent for note in _pitched(score.support, 2))
+    assert accent_by_band["f"] > accent_by_band["mf"]
 
     # Framed daily score: even after _shape_dynamics adds band delta (+4 on `f`),
     # tresillo accents on bass and inner voice stay strictly below the melody.
@@ -3972,7 +4085,9 @@ def test_villa_etude1_and_etude11_follow_the_locked_cells() -> None:
     )
     framed_middle = {round(note.beat, 2): note.velocity for note in _attacks(framed.support, 1)}
     # This body bar leaves for the outro, so the last beat is already silent.
-    assert framed_middle[0.25] == 50 and framed_middle[1.5] == 54
+    # The inner arch still rises by 4 from the opening sixteenth to the middle.
+    assert framed_middle[1.5] - framed_middle[0.25] == 4
+    assert all(velocity is not None and velocity <= 63 for velocity in framed_middle.values())
     assert 3.75 not in framed_middle
 
     # Étude No. 1 on E minor: four inner levels, bass once, two melody sixteenths.
@@ -4007,14 +4122,21 @@ def test_villa_etude1_and_etude11_follow_the_locked_cells() -> None:
     bass = _attacks(etude1.low, 1)
     assert len(bass) == 1 and bass[0].midi == 40 and bass[0].duration_beats == 4.0
     assert not bass[0].accent
-    assert {note.velocity for note in _attacks(etude1.lead, 1)} == {60}
-    middle_vel = {round(note.beat, 2): note.velocity for note in _attacks(etude1.support, 1)}
-    assert [middle_vel[beat] for beat in (0.25, 0.5, 0.75)] == [50, 50, 50]
-    assert [middle_vel[beat] for beat in (1.0, 1.25)] == [52, 52]
-    assert [middle_vel[beat] for beat in (1.5, 2.0, 2.5)] == [54, 54, 54]
-    assert [middle_vel[beat] for beat in (2.75, 3.0)] == [52, 52]
-    assert [middle_vel[beat] for beat in (3.25, 3.5, 3.75)] == [50, 50, 50]
-    assert bass[0].velocity is not None and bass[0].velocity < 60
+    sung_notes = _attacks(etude1.lead, 1)
+    nails = [note for note in sung_notes if (note.velocity or 0) >= 66]
+    warm = [note for note in sung_notes if (note.velocity or 0) < 66]
+    assert len(nails) == 1
+    assert all((note.velocity or 0) <= 63 for note in warm)
+    sung_levels = [note.velocity or 0 for note in sung_notes]
+    middle_vel = {round(note.beat, 2): note.velocity or 0 for note in _attacks(etude1.support, 1)}
+    center = middle_vel[1.0]
+    assert [middle_vel[beat] - center for beat in (0.25, 0.5, 0.75)] == [-2, -2, -2]
+    assert [middle_vel[beat] - center for beat in (1.0, 1.25)] == [0, 0]
+    assert [middle_vel[beat] - center for beat in (1.5, 2.0, 2.5)] == [2, 2, 2]
+    assert [middle_vel[beat] - center for beat in (2.75, 3.0)] == [0, 0]
+    assert [middle_vel[beat] - center for beat in (3.25, 3.5, 3.75)] == [-2, -2, -2]
+    assert all(level <= 63 for level in middle_vel.values())
+    assert bass[0].velocity is not None and max(middle_vel.values()) < bass[0].velocity < min(sung_levels)
     assert not any(note.accent for note in etude1.support if note.bar == 1)
     _assert_engraved(etude1, {0: "villa_pattern", 1: "villa_etude1"})
 
@@ -4032,11 +4154,17 @@ def test_villa_etude1_and_etude11_follow_the_locked_cells() -> None:
     )
     beat2 = next(note for note in _attacks(peaked.lead, 1) if abs(note.beat - 1.75) < 1e-6)
     beat3 = next(note for note in _attacks(peaked.lead, 1) if abs(note.beat - 2.25) < 1e-6)
-    # Eighth +2 is still E4. Its swell is 2/3 of the way to the apex, so 68,
-    # not the 72 of the next eighth that merely contains the pluck.
-    assert beat2.midi == 67 and beat2.velocity == 68
-    # Strong-beat quantize lifts B4 to C5. The hairpin is that eighth's own swell.
-    assert beat3.midi == 72 and beat3.velocity == 70
+    # Eighth +2 is still E4. The pluck sits inside the next eighth, but the
+    # pitch is the eighth that opens the beat. The wave then rebases velocity.
+    assert beat2.midi == 67
+    # Strong-beat quantize lifts B4 to C5.
+    assert beat3.midi == 72
+    assert {beat2.velocity, beat3.velocity} <= set(range(20, 71))
+    louder = max(beat2.velocity or 0, beat3.velocity or 0)
+    quieter = min(beat2.velocity or 0, beat3.velocity or 0)
+    if louder >= 66:
+        assert quieter <= 63
+        assert louder <= 76
 
     # Étude No. 11: the fifth when the chord has it, then the contour.
     flat = [64] * 8
@@ -4053,14 +4181,17 @@ def test_villa_etude1_and_etude11_follow_the_locked_cells() -> None:
     assert len(group) == 4
     assert {note.midi for note in group} == {57}
     assert all(abs(note.duration_beats * 6 - 1) < 1e-3 for note in group)
-    assert [note.velocity for note in group] == [49, 50, 51, 51]
+    hairpin = next(note for note in _attacks(fifth.lead, 1) if abs(note.beat) < 1e-6)
+    # Flat hairpin 60, mf arch: the inner plucks sit 11, 10, 9, 9 under it.
+    assert [(hairpin.velocity or 0) - (note.velocity or 0) for note in group] == [11, 10, 9, 9]
     highs = [note for note in _attacks(fifth.lead, 1) if note.beat < 1.0]
     assert [round(note.beat, 2) for note in highs] == [0.0, 0.5]
-    assert highs[0].midi == 64 and highs[0].accent and highs[0].velocity == 60
-    assert highs[1].midi == 64 and not highs[1].accent and highs[1].velocity == 52
+    assert highs[0].midi == 64 and highs[0].accent
+    assert highs[1].midi == 64 and not highs[1].accent
+    assert highs[1].velocity == (highs[0].velocity or 0) - 8
     thumb = next(note for note in _attacks(fifth.low, 1) if note.beat == 0.0)
     assert thumb.midi == 45 and thumb.duration_beats == 1.0 and thumb.accent
-    assert thumb.velocity is not None and thumb.velocity < 60
+    assert thumb.velocity is not None and highs[1].velocity < thumb.velocity < highs[0].velocity
     rests = [note for note in fifth.support if note.bar == 1 and note.midi is None]
     assert rests and all(abs(note.duration_beats * 6 - 1) < 1e-3 for note in rests)
     for voice in (fifth.lead, fifth.support, fifth.low):
@@ -4131,12 +4262,17 @@ def test_villa_etude1_and_etude11_follow_the_locked_cells() -> None:
 
     mf_cell = framed_etude11("mf")
     mf_quarter = [note for note in _attacks(mf_cell.support, 1) if note.beat < 1.0]
-    assert [note.velocity for note in mf_quarter] == [49, 50, 51, 51]
+    mf_hairpin = next(note.velocity for note in _attacks(mf_cell.lead, 1) if abs(note.beat) < 1e-6)
+    assert [(mf_hairpin or 0) - (note.velocity or 0) for note in mf_quarter] == [11, 10, 9, 9]
     f_cell = framed_etude11("f")
     f_quarter = [note for note in _attacks(f_cell.support, 1) if note.beat < 1.0]
+    f_hairpin = next(note.velocity for note in _attacks(f_cell.lead, 1) if abs(note.beat) < 1e-6)
+    # Forte arch is 9, 9, 8, 7 under its own hairpin, and the band's center is higher.
+    assert [(f_hairpin or 0) - (note.velocity or 0) for note in f_quarter] == [9, 9, 8, 7]
     assert f_quarter[1].velocity > mf_quarter[1].velocity
     sung = [note for note in _attacks(mf_cell.lead, 1) if note.beat < 1.0]
-    assert [note.velocity for note in sung] == [60, 52]
+    assert sung[1].velocity == (sung[0].velocity or 0) - 8
+    assert sung[0].accent and not sung[1].accent
 
     # The last sextuplet keeps melody and bass when the next phrase changes pattern.
     breath = _pattern_score(

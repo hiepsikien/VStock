@@ -62,6 +62,8 @@ def humanize(score: Score, *, offset_at: OffsetAt = chosen_offset) -> Score:
     for field in _FIELDS:
         notes = getattr(score, field)
         heard = _apply(field, notes, offsets)
+        if score.variant == "guitar":
+            heard = _clamp_guitar(notes, heard, score.ensemble)
         updated[field] = tuple(_copy_ties(notes, heard))
     return replace(score, **updated)
 
@@ -217,6 +219,28 @@ def _shrink_choice(
     if not options:
         return None
     return max(options, key=lambda key: (abs(offsets.get(key, 0)), key))
+
+
+def _clamp_guitar(original: tuple[NoteEvent, ...], heard: list[NoteEvent], ensemble: str) -> list[NoteEvent]:
+    """Warm notes stay nylon. A written snap stays inside the nail layer.
+
+    Bach and Sor never enter the 72..76 Bartók layer, even when a plateau
+    of snaps is nudged upward.
+    """
+    ceiling = 70 if ensemble in {"bach", "classic"} else 76
+    clamped: list[NoteEvent] = []
+    for note, heard_note in zip(original, heard):
+        written = note.velocity
+        current = heard_note.velocity
+        if written is None or current is None or not _is_attack(note):
+            clamped.append(heard_note)
+            continue
+        if written <= 64:
+            velocity = min(64, current)
+        else:
+            velocity = max(66, min(ceiling, current))
+        clamped.append(heard_note if velocity == current else replace(heard_note, velocity=velocity))
+    return clamped
 
 
 def _apply(field: str, notes: tuple[NoteEvent, ...], offsets: dict[tuple[str, int, int, int], int]) -> list[NoteEvent]:
