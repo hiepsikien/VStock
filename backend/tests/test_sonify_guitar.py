@@ -2578,6 +2578,40 @@ def test_sor_galop_and_mozart_variations_and_the_op9_overture() -> None:
     assert len(flourish) >= 3 and flourish == sorted(flourish)
 
 
+def test_a_long_sor_rally_keeps_galop_in_the_middle_of_aba() -> None:
+    epb = 8
+    phrases = tuple(_held(start * epb, 2 * epb, 67) for start in range(5))
+    sections = (
+        FormSection(0, 2, "intro", 0),
+        FormSection(2, 4, "phrase", 0),
+        FormSection(4, 6, "phrase", 1),
+        FormSection(6, 8, "phrase", 2),
+        FormSection(8, 10, "outro", 2),
+    )
+    kinds = {bar: ("intro" if bar < 2 else "outro" if bar >= 8 else "phrase") for bar in range(10)}
+    score = _pattern_score(
+        [67] * (10 * epb),
+        phrases,
+        ensemble="classic",
+        bpm=88,
+        character="rally",
+        rel_span=0.02,
+        kinds=kinds,
+        sections=sections,
+    )
+
+    def galop_bar(bar: int) -> bool:
+        bass = sorted(_pitched(score.low, bar), key=lambda note: note.beat)
+        return (
+            [round(note.beat, 2) for note in bass] == [0.0, 2.0]
+            and all(note.staccato for note in bass)
+        )
+
+    assert not galop_bar(2)
+    assert galop_bar(4)
+    assert not galop_bar(6)
+
+
 def _suite(movement: int, ensemble: str, *, character: str = "rally"):
     from app.sonify.span import attach_frame, month_specs
 

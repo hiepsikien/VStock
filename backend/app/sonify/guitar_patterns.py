@@ -1032,7 +1032,7 @@ def _assign_macro(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
         pattern = _dominant_pattern(ctx, [ctx.phrases[index] for index in body], _body_bars(ctx))
         for index in body:
             chosen[index] = pattern
-        return chosen
+        return _settle_galop(ctx, chosen, body)
     if _has_contrast_section(ctx):
         groups: dict[str, list[int]] = {"A": [], "B": []}
         for index in body:
@@ -1056,7 +1056,7 @@ def _assign_macro(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
             chosen[index] = primary
         for index in groups["B"]:
             chosen[index] = contrast
-        return chosen
+        return _settle_galop(ctx, chosen, body)
     buckets: dict[int, list[int]] = {}
     for index in body:
         bar = min(ctx.bars - 1, ctx.phrases[index].start // ctx.epb)
@@ -1071,6 +1071,76 @@ def _assign_macro(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
         )
         for index in indexes:
             chosen[index] = pattern
+    return _settle_galop(ctx, chosen, body)
+
+
+def _body_regions(ctx: _Ctx, body: list[int]) -> list[tuple[bool, list[int]]]:
+    """Body phrases in score order, split when the formal slot or the contrast flag changes."""
+    regions: list[tuple[bool, list[int]]] = []
+    previous: tuple[int, bool] | None = None
+    for index in body:
+        bar = min(ctx.bars - 1, ctx.phrases[index].start // max(ctx.epb, 1))
+        section = ctx.section(bar)
+        slot = 0 if section is None else section.regime_slot
+        contrast = section is not None and bool(section.trio or section.bridge)
+        key = (slot, contrast)
+        if key != previous:
+            regions.append((contrast, []))
+            previous = key
+        regions[-1][1].append(index)
+    return regions
+
+
+def _paint(chosen: list[str], indexes: list[int], pattern: str) -> None:
+    for index in indexes:
+        chosen[index] = pattern
+
+
+def _settle_galop(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
+    """Galop fills a day. A longer movement keeps it as the middle of A–B–A.
+
+    A one-phrase fixture still renders the dance, so the texture can be tested.
+    Anywhere else, a body that chose galop puts `study` on the outer sections
+    and galop in the middle. The movement is no longer a galop from start to end.
+    """
+    if ctx.ensemble != "classic" or not body:
+        return chosen
+    if not any(chosen[index] == "galop" for index in body):
+        return chosen
+    if ctx.bars == 34 or len(body) == 1:
+        return chosen
+    regions = _body_regions(ctx, body)
+    if _has_contrast_section(ctx):
+        for contrast, indexes in regions:
+            if contrast:
+                _paint(chosen, indexes, "galop")
+            else:
+                for index in indexes:
+                    if chosen[index] == "galop":
+                        chosen[index] = "study"
+        return chosen
+    if len(regions) >= 3:
+        center = (len(regions) - 1) // 2
+        for position, (_contrast, indexes) in enumerate(regions):
+            _paint(chosen, indexes, "galop" if position == center else "study")
+        return chosen
+    if len(body) < 3:
+        for index in body:
+            if chosen[index] == "galop":
+                chosen[index] = "study"
+        return chosen
+    count = len(body)
+    opening = max(1, count // 3)
+    closing = max(1, count // 3)
+    while opening + closing >= count:
+        if opening >= closing and opening > 1:
+            opening -= 1
+        elif closing > 1:
+            closing -= 1
+        else:
+            break
+    for offset, index in enumerate(body):
+        chosen[index] = "galop" if opening <= offset < count - closing else "study"
     return chosen
 
 

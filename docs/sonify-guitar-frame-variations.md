@@ -141,7 +141,7 @@ Chốt: viết bậc thang của mục 6. `apply_guitar_wave` cộng `round(C) -
 
 Bậc thang của cửa mới:
 
-- Intro: bước 0 ở `_PP`, bước 1 ở `_P`, bước 2 trong `50..56`, bước 3 trong `56..60`, hướng tới lead 64 / bass 56 / bè trong 46 của thân bài. Bước 3 của galop, choro, polca, và hemiola ở `_MF` (64). Đó là pickup vào thân bài, không bị trần `56..60` kéo xuống. `elogio_pizz` cũng lên `_MF` ở bước này.
+- Intro: bước 0 ở `_PP`, bước 1 ở `_P`, bước 2 trong `50..56`, bước 3 trong `56..60`, hướng tới lead 64 / bass 56 / bè trong 46 của thân bài. Bước 3 của galop, choro, và hemiola đứng ở `_MF` (64). Polca và `elogio_pizz` đi `_MP` lên `_MF` trong cùng bước đó. Cả năm pattern được miễn trần `56..60`.
 - Outro: bước 0 đón thân bài ở `_MP` hoặc `_P`. Các bước sau hạ dần. Cadence của Bourrée, Gavotte, Gigue, Study, và Mozart giữ `_P`. Câu velocity ở từng pattern thắng câu này.
 
 Galop, choro, polca, và `elogio_pizz` khép bằng hợp âm staccato, bước cuối ở `_MF`, không tan về `_PP`. Hemiola khép bằng block I rồi ngân, bước cuối ở `_P`. Mục 6 là câu được code.
@@ -377,7 +377,7 @@ Bản một ô vẫn cắt đôi bản ngắn bằng `_compressed`. Bản ngắn
 - Outro dài, bước 2: chấm dôi trên i, `_PP`.
 - Outro dài, bước 3: dây buông trầm ngân, `_PP`.
 
-**`galop`** — rally rộng, trưởng, biên độ từ 1,2%. Thân bài: bass staccato ở `_galop_bass_points` (4/4 là 0 và 4, 6/8 là 0 và 3), root rồi fifth; bè trong staccato có accent ở `_galop_inner_offsets`; lead nhảy quãng 3 ở `_galop_sparkle`.
+**`galop`** — rally rộng, trưởng, biên độ từ 1,2%. Trên 1D pattern này chiếm cả thân bài. Ngoài 1D nó chỉ đứng giữa một chương A–B–A: hai đầu là `study`, đoạn giữa là `galop`. Thân bài: bass staccato ở `_galop_bass_points` (4/4 là 0 và 4, 6/8 là 0 và 3), root rồi fifth; bè trong staccato có accent ở `_galop_inner_offsets`; lead nhảy quãng 3 ở `_galop_sparkle`.
 
 - Intro ngắn, bước 0: bass staccato root/fifth trên hai điểm galop, bè trong staccato ở phách yếu, lead nghỉ hoặc một nốt ở phách 1, `_P` lên `_MP`.
 - Intro ngắn, bước 1: nửa đầu galop trên V7, nửa sau lead nhảy quãng 3 staccato, `_MP`.
