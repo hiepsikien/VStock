@@ -615,43 +615,44 @@ def _two_sustains(frame, ctx, bar, name: str, velocity: int) -> list[tuple]:
 def _choro_bar(frame, ctx, bar, role, steps, closing) -> list[tuple]:
     role = _role(steps, role)
     if not closing and steps <= 2 and role == 0:
-        return _finish(frame, ctx, _choro_bed(frame, ctx, bar, "I6", frame._P, frame._MP, full=False))
+        return _finish(frame, ctx, _choro_bed(frame, ctx, bar, "I6", frame._P, frame._MP))
     if not closing and steps <= 2:
-        specs = _choro_bed(frame, ctx, bar, "V7", frame._MP, frame._MP, full=True, limit=ctx.epb / 2)
+        specs = _choro_bed(frame, ctx, bar, "V7", frame._MP, frame._MP, limit=ctx.epb / 2)
         specs.extend(_choro_run(frame, ctx, bar, frame._MP, approach=True))
         return _finish(frame, ctx, specs)
     if not closing and role == 0:
-        return _finish(frame, ctx, _choro_bed(frame, ctx, bar, "I6", frame._P, frame._P, full=False))
+        return _finish(frame, ctx, _choro_bed(frame, ctx, bar, "I6", frame._P, frame._P))
     if not closing and role == 1:
         return _finish(frame, ctx, _choro_offbeat_lead(frame, ctx, bar, ("I", "ii"), frame._MP))
     if not closing and role == 2:
-        return _finish(frame, ctx, _choro_bed(frame, ctx, bar, "V7", frame._MP, frame._MP, full=True, accent=True))
+        return _finish(frame, ctx, _choro_bed(frame, ctx, bar, "V7", frame._MP, frame._MP))
     if not closing:
-        specs = [item for item in _choro_bed(frame, ctx, bar, "V7", frame._MF, frame._MF, full=False) if item[3] != 2]
-        specs = _clear_tail(specs, ctx.epb - 1)
-        specs.extend(frame._scale_into(ctx, bar, 0, max(1, ctx.epb - 1), frame._MF))
-        specs.extend(_approach(frame, ctx, bar, frame._MF))
+        landing = _approach(frame, ctx, bar, frame._MF)
+        specs = [item for item in _choro_bed(frame, ctx, bar, "V7", frame._MF, frame._MF) if item[3] != 2]
+        if landing:
+            specs = _clear_tail(specs, ctx.epb - 1)
+        specs.extend(frame._scale_into(ctx, bar, 0, max(1, ctx.epb - (1 if landing else 0)), frame._MF))
+        specs.extend(landing)
         return _finish(frame, ctx, specs)
     if steps <= 2 and role == 0:
-        return _finish(frame, ctx, _choro_bed(frame, ctx, bar, "V7", frame._MP, frame._MP, full=True))
+        return _finish(frame, ctx, _choro_bed(frame, ctx, bar, "V7", frame._MP, frame._MP))
     if steps <= 2:
         return _finish(frame, ctx, _choro_close(frame, ctx, bar, frame._MF))
     if role == 0:
         return _finish(frame, ctx, _choro_halves(frame, ctx, bar, ("I", "ii"), frame._MP))
     if role == 1:
-        return _finish(frame, ctx, _choro_bed(frame, ctx, bar, "V7", frame._MP, frame._MP, full=True))
+        return _finish(frame, ctx, _choro_bed(frame, ctx, bar, "V7", frame._MP, frame._MP))
     if role == 2:
         return _finish(frame, ctx, _choro_down(frame, ctx, bar))
     return _finish(frame, ctx, _choro_close(frame, ctx, bar, frame._MF))
 
 
-def _choro_points(epb: int, *, full: bool) -> list[float]:
-    """Inner sixteenths. The full cell is 3, 6, 7 and 11, 14, 15."""
-    slots = (3, 6, 7, 11, 14, 15) if full else (3, 7, 11, 15)
-    return [slot / 2 for slot in slots if slot / 2 < epb]
+def _choro_points(epb: int) -> list[float]:
+    """Inner sixteenths: slots 3, 6, 7 and 11, 14, 15."""
+    return [slot / 2 for slot in (3, 6, 7, 11, 14, 15) if slot / 2 < epb]
 
 
-def _choro_bed(frame, ctx, bar, name, v0, v1, *, full: bool, accent: bool = False, limit: float | None = None) -> list[tuple]:
+def _choro_bed(frame, ctx, bar, name, v0, v1, *, limit: float | None = None) -> list[tuple]:
     epb = ctx.epb
     bass, inner, lead = _voicing(frame, ctx, bar, name)
     root = _harmony(frame, ctx, bar, name)[0]
@@ -668,36 +669,41 @@ def _choro_bed(frame, ctx, bar, name, v0, v1, *, full: bool, accent: bool = Fals
         pitch = root_bass if index % 2 == 0 else fifth_bass
         length = max(1, nxt - offset)
         specs.append((offset, length, pitch, 3, _lerp(v0, v1, max(1, len(attacks)), index), {}))
-    points = [point for point in _choro_points(epb, full=full) if limit is None or point < limit]
+    points = [point for point in _choro_points(epb) if limit is None or point < limit]
     for index, offset in enumerate(points):
         if inner is None or not (max(root_bass, fifth_bass) < inner < lead):
             break
         slot = int(round(offset * 2))
-        flags = {"accent": True} if accent and slot in {6, 7, 14, 15} else {}
+        flags = {"accent": True} if slot in {6, 7, 14, 15} else {}
         specs.append((offset, 0.5, inner, 2, _lerp(v0, v1, max(1, len(points)), index), flags))
     return specs
+
+
+def _fifth_lower(ctx, bar: int) -> bool:
+    """The next root is a perfect fifth under this bar's root."""
+    if bar + 1 >= getattr(ctx, "bars", 0):
+        return False
+    current = ctx.chord(bar).pitches[0] % 12
+    nxt = ctx.chord(bar + 1).pitches[0] % 12
+    return (current - nxt) % 12 == 7
 
 
 def _choro_run(frame, ctx, bar, velocity: int, *, approach: bool) -> list[tuple]:
     epb = ctx.epb
     start = max(1, epb // 2)
-    count = max(1, epb - start - (1 if approach else 0))
+    landing = _approach(frame, ctx, bar, velocity) if approach else []
+    count = max(1, epb - start - (1 if landing else 0))
     specs = list(frame._scale_into(ctx, bar, start, count, velocity))
-    if approach:
-        specs.extend(_approach(frame, ctx, bar, velocity))
+    specs.extend(landing)
     return specs
 
 
 def _approach(frame, ctx, bar, velocity: int) -> list[tuple]:
-    """Chromatic bass a semitone under the next root. At most half a beat."""
+    """Voice 3, a semitone under the next root, only when that root is a fifth lower."""
     epb = ctx.epb
-    if epb < 2:
+    if epb < 2 or not _fifth_lower(ctx, bar):
         return []
-    nxt = bar + 1
-    if nxt < getattr(ctx, "bars", 0):
-        root = ctx.chord(nxt).pitches[0] % 12
-    else:
-        root = ctx.chord(bar).pitches[0] % 12
+    root = ctx.chord(bar + 1).pitches[0] % 12
     pitch = frame._bass_note(ctx, (root - 1) % 12, frame._lead_lo(ctx))
     return [(epb - 1, 1, pitch, 3, velocity, {})]
 
@@ -731,8 +737,8 @@ def _clear_tail(specs: list[tuple], cut: int) -> list[tuple]:
 def _choro_halves(frame, ctx, bar, names: tuple[str, str], velocity: int) -> list[tuple]:
     epb = ctx.epb
     cut = max(1, epb // 2)
-    first = [item for item in _choro_bed(frame, ctx, bar, names[0], velocity, velocity, full=True) if item[0] < cut]
-    second = _choro_bed(frame, ctx, bar, names[1], velocity, velocity, full=True, limit=None)
+    first = [item for item in _choro_bed(frame, ctx, bar, names[0], velocity, velocity) if item[0] < cut]
+    second = _choro_bed(frame, ctx, bar, names[1], velocity, velocity)
     # Rebuild the second half in place by keeping only attacks at or after the cut.
     kept = []
     for offset, length, midi, voice, level, flags in second:
@@ -758,10 +764,18 @@ def _choro_down(frame, ctx, bar) -> list[tuple]:
         walked = frame._step(cursor, -1, ctx.mode, ctx.bass_low, frame._bass_hi(ctx))
         if walked < lead:
             cursor = walked
-    sync = 5.5 if epb > 6 else max(0, epb - 1.5)
-    if sync < epb and inner is not None and bass < inner < lead:
-        specs.append((sync, 0.5, inner, 2, frame._MP, {"accent": True}))
-        specs.append((sync, 0.5, lead, 1, frame._MP, {"accent": True}))
+    offbeats = [slot / 2 for slot in (6, 7, 14, 15) if slot / 2 < epb]
+    sync = offbeats[-1] if offbeats else None
+    if sync is not None and inner is not None and inner < lead:
+        cover = [
+            midi
+            for offset, length, midi, voice, _level, _flags in specs
+            if voice == 3 and offset <= sync < offset + length
+        ]
+        floor = max(cover) if cover else bass
+        if floor < inner and _playable(ctx, [floor, inner, lead]):
+            specs.append((sync, 0.5, inner, 2, frame._MP, {"accent": True}))
+            specs.append((sync, 0.5, lead, 1, frame._MP, {"accent": True}))
     return specs
 
 
