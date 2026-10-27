@@ -1054,6 +1054,7 @@ def _mozart_weak_inner(ctx, bar: int, specs: list[tuple], velocity: int) -> list
 
 
 def _mozart_var_door(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int) -> list[tuple]:
+    del index
     if closing and steps == 2:
         if role == 0:
             return _turn(ctx, bar, "V7", _MP)
@@ -1068,7 +1069,7 @@ def _mozart_var_door(ctx, bar: int, role: int, *, steps: int, closing: bool, ind
         return _sor_outro_long(ctx, bar, 3, 0)
     if steps == 2:
         return _sor_intro_short(ctx, bar, role)
-    return _sor_intro_long(ctx, bar, role, index)
+    return _sor_intro_long(ctx, bar, role, 0)
 
 
 def _study_door(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int) -> list[tuple]:
@@ -2456,14 +2457,30 @@ def _clip_voice(specs: list[tuple], epb: int) -> list[tuple]:
 
 def _realize(ctx, bar: int, specs: list[tuple]) -> tuple[list, list, list]:
     from app.sonify.guitar_patterns import _eighth_event
+    from app.sonify.model import NoteEvent
 
     voices: dict[int, list] = {1: [], 2: [], 3: []}
     origin = bar * ctx.epb
     for offset, length, midi, voice, velocity, flags in specs:
-        events = _eighth_event(origin + offset, length, midi, ctx.epb, voice, int(velocity))
-        if flags and events:
-            events = [replace(events[0], **flags), *events[1:]]
-        voices[voice].extend(events)
+        if midi is None or length <= 0 or offset < 0 or offset >= ctx.epb:
+            continue
+        if length * 2 >= 1:
+            events = _eighth_event(origin + offset, length, midi, ctx.epb, voice, int(velocity))
+            if flags and events:
+                events = [replace(events[0], **flags), *events[1:]]
+            voices[voice].extend(events)
+            continue
+        event = NoteEvent(
+            bar=bar,
+            beat=offset / 2,
+            midi=midi,
+            duration_beats=length / 2,
+            voice=voice,
+            velocity=int(velocity),
+        )
+        if flags:
+            event = replace(event, **flags)
+        voices[voice].append(event)
     return voices[1], voices[2], voices[3]
 
 
