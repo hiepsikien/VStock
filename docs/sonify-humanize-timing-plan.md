@@ -1,10 +1,12 @@
 # Humanize: xung lực, sai số, và cửa MuseScore
 
-> **Trạng thái**: đề xuất, chưa code. Lớp đang chạy vẫn là ±2 trên plateau, ghi ở `docs/sonify-humanize-preset-plan.md`.
+> **Trạng thái**: đề xuất, chưa code. Lớp đang chạy vẫn là ±2 trên plateau, ghi ở `docs/sonify-humanize-preset-plan.md`. `RECAP_REVISION` là 64, `SPAN_REVISION` là 50.
 >
-> ±2 là nhiễu lực dưới ngưỡng nghe. Đồng hồ chung khoảng 1% phách thì MuseScore 4 phát được bằng `<sound tempo>`. Lệch từng tay khoảng 7 ms thì không: cú đánh bám thẻ `type`, bậc nhỏ nhất engine chịu đặt là một móc kép, 21 ms ở 88 BPM.
+> ±2 là nhiễu lực dưới ngưỡng nghe. Đồng hồ chung khoảng ±1% BPM thì MuseScore 4 phát được bằng `<sound tempo>`. Lệch từng voice khoảng 7 ms thì không có `<type>`. Hạt nghe được của melody lead là nốt 128, 1/32 phách: 21 ms ở 88 BPM, 16 ms ở 120 BPM. Writer chưa phát hình nốt còn lại sau khi trừ hạt đó.
 
-Mục đích của lớp này là nhạc nghe người hơn. Người chơi khác máy ở hai chỗ. Xung lực là việc cố ý: phách mạnh nặng và dài hơn, giai điệu vào trước đệm, ngón cái đúng phách còn ngón tay trễ một chút, cuối câu nới ra. Sai số là phần còn lại, nhỏ, và có sửa: đánh trễ thì khoảng sau rút lại. Một tay dùng một đồng hồ. Máy theo công thức thì mọi tiếng cùng một phách rơi đúng cùng một mẫu, cùng một lực.
+Mục đích của lớp này là nhạc nghe người hơn. Người chơi khác máy ở hai chỗ. Xung lực là việc cố ý: phách mạnh nặng hơn, một bè vào sau bè kia một hạt nhỏ, cuối câu nới ra. Sai số là phần còn lại, nhỏ, và có sửa: đánh trễ thì khoảng sau rút lại. Một tay dùng một đồng hồ. Máy theo công thức thì mọi tiếng cùng một phách rơi đúng cùng một mẫu, cùng một lực.
+
+Trong repo, một phách đen là hai móc đơn hoặc bốn móc kép. Móc đơn là 0,5 phách, nốt `eighth`. Móc kép là 0,25 phách, nốt `16th`. Ở 88 BPM móc kép dài 170 ms. `etude1` đã viết vòng 16 móc kép với `divisions = 4`, và `_NOTE_TYPES` đã có `0.25: ("16th", 0)`. Nốt 128 là 1/32 phách. Tài liệu này giữ hai tên đó tách nhau.
 
 ---
 
@@ -16,7 +18,7 @@ Số cộng vào không phải `random`. FNV-1a của `variant`, `ensemble`, fie
 
 Chỉ một plateau được nhích: từ hai cú đánh liền nhau trong cùng field, cùng velocity, và cú đánh khác lực gần nhất mỗi phía phải cách hơn 2. Không có cú khác lực ở một phía thì phía đó không chặn. Bậc thang 1 hoặc 2 đứng yên, nên Etude 1 và Etude 11 không bị làm phẳng. Nốt cùng phách, cùng field, cùng lực viết dùng chung một số. Hợp âm không bị xé. Nếu độ lệch làm đảo thứ tự lực giữa hai bè đang chồng, hoặc xóa một bước 3–4 giữa hai plateau liền nhau, offset bị kéo về 0 từng bậc, giữ nguyên dấu. `tie_stop` không nằm trong plateau. Nốt nối viết cùng lực với cú đánh thì nhận lực đã nhích. Đỉnh cung viết lực khác, như 64 hoặc 80 sau nốt mở 49, giữ số đã viết.
 
-Ô study guitar `classic`, bar 0, ra số thật. Bè trung 56 nhận `+1, +1, +2, +1`, thành 57, 57, 58, 57. Bè trầm 60 nhận `−2, −1, +1, +2`, thành 58, 59, 61, 62. Thứ tự 60 trên 56 vẫn còn. Phần thay đổi trên bè trung là 1 bậc velocity.
+Ô study guitar `classic`, bar 0, bốn cú, ra số thật. Bè trung 56 nhận `+1, +1, +2, +1`, thành 57, 57, 58, 57. Phách 3 là `+2`, 56 thành 58. Bè trầm 60 nhận `−2, −1, +1, +2`, thành 58, 59, 61, 62. Thứ tự 60 trên 56 vẫn còn.
 
 ---
 
@@ -28,9 +30,12 @@ Chỉ một plateau được nhích: từ hai cú đánh liền nhau trong cùng
 |---|---|---|
 | Hơi, dây, đồng, hợp xướng, piano, harp | Bỏ qua | WAV không đổi |
 | Glockenspiel, crotales, vibraphone | Có đọc | Khoảng 0,3 dB |
+| Marimba | Chưa đo | Plan cũ chỉ đo peak để cân gain |
 | Tối giản `classic`, MS Basic | MIDI velocity có tiếng | Vài phần mười dB |
-| Nylon | Chưa đo ở 53, 56, 59 | Cửa quyết định của trần velocity |
+| Nylon, MS Basic | Chưa đo ở 53, 56, 59 | Cửa quyết định của trần velocity |
 | Ambient celesta, chuông | Chưa khóa | Chỉ đáng xét nếu mẫu đổi lớp |
+
+Nylon đi MS Basic vì MuseSounds nylon bỏ qua velocity từng nốt. Lớp móng gắt của MS Basic bắt đầu ở 65. Canto `preludio` bị `_shape_dynamics` kẹp trong 54..64 để ở dưới ngưỡng đó.
 
 Trần ±2 còn bị kẹp bởi khoảng cách đã viết. Ô study 56 dưới 60 chỉ cách 4 bậc. Nhấn +4 ở bè trung chạm bè trầm và bị luật giữ thứ tự kéo về. Trần đó là hệ quả của khoảng cách, không phải liều tai nghe được.
 
@@ -44,27 +49,36 @@ Jazz đã có xung lực thời gian riêng: swing móc đơn 2:1, ghi trong Mus
 
 Giữ chỗ đứng sau `render()` và trước MusicXML. Giữ tính tất định, khóa thứ tự lực, một cú đánh một độ lệch, bậc thang 1–2 đứng yên, `tie_stop` đi theo cú đánh khi cùng lực viết, chữ in và hairpin đứng ngoài.
 
-Tầng một là xung lực. Tầng hai là sai số. Cả hai cố định theo bản. Tổng tick mỗi ô, và tổng thời gian bài, giữ nguyên để `mapDurationSec` không trượt khỏi nốt. `mapDurationSec` bám độ dài bản viết khi file WAV dài hơn vì đuôi nhả.
+Tầng một là xung lực. Tầng hai là sai số. Cả hai cố định theo bản. `mapDurationSec` bám độ dài bản viết khi file WAV dài hơn vì đuôi nhả.
 
-### Xung lực
+### Xung lực đã có cửa phát
 
 | Cử chỉ | Điểm xuất phát | Áp vào |
 |---|---|---|
-| Ngón cái đúng phách, ngón tay trễ một móc kép | 21 ms ở 88 BPM, 16 ms ở 120 BPM | Guitar, voice ngón tay |
-| Giai điệu vào trước đệm một móc kép | Cùng bậc. Đệm trễ, giai điệu giữ lưới | `lead` hoặc `high` so với `comp` và `low` |
-| Phách mạnh dài hơn | Một móc kép, lấy từ nốt yếu kế tiếp | Mọi dòng trừ lưới tối giản và móc đã swing |
-| Cuối câu hơi nới, thân câu trả lại | `<sound tempo>` trong câu, tổng bằng 0 | Câu đã có trong `score.phrases` |
-| Phách mạnh của plateau còn chỗ trống | +4 đến +6 velocity | Chỉ khi cách bè kề ít nhất 8 bậc, và sampler đọc note dynamics |
+| Cuối câu hơi nới, thân câu trả lại | `<sound tempo>` đối xứng trong câu | Câu đã có trong `score.phrases` |
+| Phách mạnh của plateau còn chỗ trống | +4 đến +6 velocity | Chỉ khi cách bè kề ít nhất 8 bậc, sampler đọc note dynamics, và trần nylon không nuốt |
 
-Plateau cách bè khác từ 8 bậc trở lên, như giai điệu 72 trên nền 56, mới đủ chỗ cho một nhấn velocity mà thứ tự vẫn còn. Ô study 56/60 không thuộc chỗ đó. Trên ô đó xung lực đáng làm là thời gian.
+Cặp tempo ±1% rồi ∓1% dài hơn khoảng 0,01%, vì thời gian đi theo nghịch đảo tempo. Tổng độ lệch BPM bằng 0 không phải tổng thời gian bằng 0. Phần dư đó nhỏ hơn đuôi nhả của MuseScore, nên `mapDurationSec` vẫn bám độ dài bản viết.
+
+Nhấn +4 đến +6 chạy sau `render()`, nên nó không đi qua `_shape_dynamics`. Nốt ấm đã viết ≤ 64, như canto `preludio`, ngồi dưới nail-snap 65. Một nhấn đẩy nốt đó qua 65 thì đổi lớp móng trước khi sampler đọc một bậc lực mới. 56 cách 60 bốn bậc thì không thuộc chỗ +4. Plateau 72 trên nền 64 có khoảng trống 8 trên giấy, nhưng nền 64 sát ngưỡng 65: +4 thành 68, qua nail-snap, trong khi đỉnh 72 được giữ vì `>= _MELODY_APEX`. Trần guitar có thể nuốt phần nhấn đó.
+
+### Xung lực thời gian từng voice, chưa viết được
+
+Hạt nghe được của melody lead 20–30 ms là một nốt 128: 21 ms ở 88 BPM (`60/88/32` giây), 16 ms ở 120 BPM. Đó là lượng hóa, chưa phải một `<type>` writer phát được. Mục 4 ghi vì sao dấu lặng ẩn cộng rút `<duration>` không giữ được cú sau.
+
+Trên guitar, luật tay là một luật, không cộng thêm luật “giai điệu trước, đệm sau”. Pattern nào ngón cái là nền thì ngón tay (`lead` và `support`, cùng bàn tay phải) trễ một hạt so với ngón cái, và hai voice ngón tay chung một chuỗi. `thumb_cantabile` đặt giai điệu lên ngón cái (`low`), bè trên chỉ chập hợp âm ở phách yếu. Ở pattern đó hạt trễ thuộc hợp âm, ngón cái giữ phách. Áp cả hai luật lên cùng một nốt thì nốt đó vừa phải vào trước vừa phải vào sau.
+
+Ở giao hưởng, giai điệu (`lead` hoặc `high`) giữ lưới và đệm (`comp`, `low`) trễ một hạt. Luật đó không áp cho guitar.
+
+“Phách mạnh dài hơn, lấy một hạt từ nốt yếu sau” đụng cùng cửa `<type>` ở mục 4. Chưa xếp vào thứ tự viết.
 
 ### Sai số
 
-Đồng hồ chung viết bằng `<sound tempo>`. Dao động khoảng ±1% BPM, trơn trên 2–4 phách, trung bình bằng 0 trong câu. Mọi bè đi cùng. Đó là nhịp thở chung.
+Đồng hồ chung viết bằng `<sound tempo>`. Dao động khoảng ±1% BPM, trơn trên 2–4 phách, trung bình độ lệch BPM bằng 0 trong câu. Mọi bè đi cùng. Đó là nhịp thở chung. Phần dài thêm 0,01% nằm trong đuôi nhả.
 
-Mỗi tay thêm tối đa một móc kép. Trên guitar, `lead` và `support` chung một chuỗi vì cùng bàn tay phải. `low` của ngón cái là chuỗi kia. Phách mạnh để 0. Phách yếu mới được một bậc. Cú trễ làm khoảng sau ngắn lại vì nốt trễ bị rút đúng số tick của dấu lặng đứng trước nó, còn cú sau giữ mốc đã viết.
+Sai số từng tay, phách mạnh ít lệch hơn phách yếu, và cú trễ làm khoảng sau ngắn lại, cần cùng một hạt nốt 128. Cửa đó chưa mở. Mục 4.
 
-Velocity dư, độ lệch chuẩn khoảng 2–3 và cùng dấu với cú đang nhấn, chỉ cộng vào giọng thực sự đọc note dynamics, và chỉ khi khoảng cách tới bè kề còn chỗ. Trên phần lớn MuseSounds, phần này vẫn dưới ngưỡng. Nó không thay được lệch thời gian.
+Velocity dư, độ lệch chuẩn khoảng 2–3 và cùng dấu với cú đang nhấn, chỉ cộng vào giọng thực sự đọc note dynamics, sau khi khoảng cách tới bè kề và trần nylon còn chỗ. Trên phần lớn MuseSounds, phần này vẫn dưới ngưỡng. Nó không thay được lệch thời gian.
 
 Khung này khớp mô hình hai quá trình của Wing và Kristofferson (1973): đồng hồ trung tâm cộng nhiễu vận động, tương quan âm giữa hai khoảng kề. Dao động 1/f của nhịp người chơi được đo lại ở Rankin, Large và Fink (2009). Melody lead khoảng 20–30 ms là kết quả lặp lại của Palmer và Goebl. Cử chỉ câu, nốt dài và phách mạnh là họ luật KTH (Friberg, Bresin, Sundberg). Hệ số trên là điểm xuất phát để đo WAV, cùng cách dự án đã khóa ±2.
 
@@ -72,39 +86,54 @@ Khung này khớp mô hình hai quá trình của Wing và Kristofferson (1973):
 
 ## 4. Cửa MuseScore 4
 
-Engine phát cú đánh theo hình nốt. Từ MuseScore 4.0, importer đặt nốt kế tiếp theo thẻ `type`, không theo một `duration` lệch vài tick. Thay đổi đó vào ở PR 8429, bản sửa 4.0.0. `duration` ngắn hơn `type` được ghi vào off-time: nốt nhả sớm, cú sau đứng yên. Cơ chế lệch `ontime` của piano roll MuseScore 3 không còn đổi playback ở MuseScore 4.
+Engine phát cú đánh theo hình nốt. Từ MuseScore 4.0, importer lấy độ dài và chỗ cú sau từ `<type>`, cộng chấm và `time-modification`. Thay đổi đó vào ở PR 8429, bản sửa 4.0.0. `<duration>` ngắn hơn `<type>` chỉ vào off-time: nốt nhả sớm. Cơ chế lệch `ontime` của piano roll MuseScore 3 không còn đổi playback ở MuseScore 4.
 
-Máy viết tài liệu này không có MuseScore, nên chưa đo WAV xác nhận lại trên 4.7.5. Hợp đồng import từ 4.0 là căn cứ của bảng dưới.
+Máy viết tài liệu này không có MuseScore, nên chưa đo WAV xác nhận lại trên 4.7.5. Hợp đồng import từ 4.0 là căn cứ của bảng dưới. Bước đo WAV nằm ở mục 6, sau khi đã có một chuỗi `<type>` đúng.
 
 | Phần sai số | Cách engine phát | Bậc ở 88 BPM |
 |---|---|---|
-| Đồng hồ chung, ±1% phách, trung bình 0 trong câu | `<sound tempo>`, mọi bè cùng lệch | Khoảng 7 ms. Tempo thập phân là đủ |
-| Từng tay, cú trễ làm khoảng sau ngắn lại | Dấu lặng thật trong voice đó, nốt đó ngắn lại cùng số tick | Một móc kép, 21 ms. Ở 120 BPM là 16 ms |
-| `duration` lệch vài tick, `type` giữ nguyên | Cú đánh đứng yên, đuôi nốt ngắn hơn | Không dịch attack |
+| Đồng hồ chung, độ lệch BPM trung bình 0 trong câu | `<sound tempo>`, mọi bè cùng lệch | Khoảng 7 ms. Tempo thập phân là đủ. Bài dài thêm khoảng 0,01% |
+| Từng voice, cú trễ, khoảng sau ngắn lại | Cần tổng `<type>` trước cú sau giữ nguyên | Nốt 128, 21 ms. Chưa có `<type>` cho phần còn lại |
+| `<duration>` ngắn hơn `<type>` | Nốt nhả sớm. Cú sau vẫn theo `<type>` | Không dịch attack về phía trước |
 
-`<sound tempo>` đã là đường `_metronome` đang đặt BPM. Cặp tempo đối xứng, hai phách nhanh 1% rồi hai phách chậm 1%, chỉ kéo dài bài thêm khoảng 0,01%. Nến giữ nguyên.
+`<sound tempo>` đã là đường `_metronome` đang đặt BPM.
 
-Lệch từng voice là một dấu lặng `print-object="no"` đứng trước cú đánh, dài một móc kép, rồi rút đúng từng ấy tick khỏi nốt đó. Ô vẫn đủ tick. Hợp âm cùng phách đi chung, vì dấu lặng đứng trước cả cú. `tie_stop` không nhận dấu lặng riêng. Dấu lặng không chen vào giữa một tie.
+Cú sau đứng yên khi tổng `<type>` phía trước nó không đổi. Một dấu lặng thêm một `<type>`. Muốn cú sau giữ mốc đã viết, `<type>` của nốt trễ phải ngắn đi đúng lượng của dấu lặng đó. Rút riêng `<duration>`, rồi thêm dấu lặng, làm hai việc khác: nốt nhả sớm, và mọi cú sau trễ thêm đúng hạt của dấu lặng vì tổng `<type>` tăng.
 
-Writer hiện chưa có bậc này. `_NOTE_TYPES` trong `musicxml.py` dừng ở móc đơn, 0,25 phách, tức 170 ms ở 88 BPM. `type` phải khớp `duration`, nếu không `_note_type` ném lỗi. Divisions mặc định là 2: một bậc lưới dài 341 ms ở 88 BPM và 250 ms ở 120 BPM. Guitar có lúc lên 4 hoặc 12, tức 170 ms hoặc 57 ms ở 88 BPM. Divisions cần ít nhất 32 để có móc kép, hoặc 96 để vừa móc kép vừa sextuplet guitar (96 chia hết cho 12 và cho 32).
+`<duration>` thì `divisions` 32 viết được một nốt 128. `<type>` thì không. `_note_type` chỉ nhận các độ dài trong `_NOTE_TYPES`, và ném lỗi khi `type` lệch `duration`. Trừ 1/32 phách khỏi các độ dài writer đang phát:
 
-Một móc kép là lượng hóa của melody lead 20–30 ms, không phải của đồng hồ 1% phách. Phần 7 ms nằm dưới bậc engine chịu đặt, nên nó đi bằng tempo, không đi bằng nốt.
+| Nốt đang viết | Còn lại | Hình nốt |
+|---|---|---|
+| Móc kép 0,25 | 7/32 | 32nd hai chấm |
+| Móc đơn 0,5 | 15/32 | Không phải một hình nốt, kể cả hai chấm |
+| Nốt đen 1 | 31/32 | Không phải một hình nốt |
+| Sextuplet 1/6 | 13/96 | Không phải một hình nốt |
 
-Jazz để yên móc đã swing. MuseScore kéo móc thứ hai lúc phát theo tỷ lệ 2:1. Thêm một móc kép lên đúng móc đó sẽ chồng hai lần trễ.
+Writer chưa phát chấm đôi, chưa có `32nd`, `64th`, `128th`. `divisions` 96 chia hết cho 32 và cho 12, nên vừa nốt 128 vừa sextuplet guitar trên trục `<duration>`. Nó không tạo ra `<type>` còn lại. Bước lệch từng voice chỉ viết được khi nói rõ một chuỗi nốt nối mà từng khúc là một `<type>` đã có, hoặc khi chọn một hạt mà phép trừ ra đúng một `<type>` có sẵn.
+
+Hợp âm cùng phách vẫn đi chung, vì dấu lặng đứng trước cả cú. `tie_stop` không nhận dấu lặng riêng. Dấu lặng không chen vào giữa một tie. Hai ràng buộc đó đứng sau cửa `<type>`.
+
+Nốt 128 là lượng hóa của melody lead 20–30 ms. Đồng hồ 1% phách, khoảng 7 ms ở 88 BPM, nhỏ hơn hạt đó, nên nó đi bằng tempo.
+
+Jazz để yên móc đơn đã swing. MuseScore kéo móc thứ hai lúc phát theo tỷ lệ 2:1. Thêm một nốt 128 lên đúng móc đó sẽ chồng hai lần trễ.
+
+Divisions mặc định là 2: một bậc lưới là một móc đơn, 341 ms ở 88 BPM, 250 ms ở 120 BPM. Guitar có lúc lên 4, một bậc là một móc kép, 170 ms ở 88 BPM, hoặc lên 12, một bậc 57 ms ở 88 BPM.
 
 ---
 
 ## 5. Liều theo dòng
 
-| Dòng | Nên thêm | Giữ nhỏ |
+| Dòng | Nên thêm, khi cửa đã mở | Giữ nhỏ |
 |---|---|---|
-| `symphony` | Đồng hồ tempo. Đệm trễ một móc kép so với giai điệu | Velocity, trừ glockenspiel và vibraphone |
-| `guitar` | Ngón tay trễ một móc kép so với ngón cái | Velocity cho đến khi đo nylon 53, 56, 59 |
-| `jazz` | Đồng hồ tempo rất nhỏ quanh swing 2:1 đã có | Móc kép chồng lên móc swing |
-| `minimalist` | Đồng hồ tempo dưới 1% | Móc kép, vì lưới là chất của dòng |
-| `ambient` | Tempo thở theo câu, trên nốt dài | Móc kép trên từng cú vào |
+| `symphony` | Đồng hồ tempo. Đệm trễ một nốt 128 so với giai điệu | Velocity, trừ glockenspiel và vibraphone. Marimba vẫn chưa đo |
+| `guitar` | Ngón tay trễ một nốt 128 so với ngón cái, trừ `thumb_cantabile` | Velocity cho đến khi đo nylon 53, 56, 59. Nốt ấm ≤ 64 không bị đẩy qua nail-snap 65 |
+| `jazz` | Đồng hồ tempo rất nhỏ quanh swing 2:1 đã có | Nốt 128 chồng lên móc đơn swing |
+| `minimalist` | Đồng hồ tempo dưới 1% | Nốt 128, vì lưới là chất của dòng |
+| `ambient` | Tempo thở theo câu, trên nốt dài | Nốt 128 trên từng cú vào |
 
-Ô study guitar ở 88 BPM, nếu viết trên bậc engine phát được:
+`thumb_cantabile` hát giai điệu bằng ngón cái. Hạt trễ ở pattern đó là hợp âm phách yếu, không phải ngón cái.
+
+Ô study guitar ở 88 BPM, nếu một ngày viết được hạt nốt 128 mà cú sau vẫn giữ mốc. Đây là liều nghe, chưa phải chuỗi `<type>`:
 
 | Phách | Bè trung viết | Bè trầm viết | Ngón cái | Ngón tay |
 |---|---|---|---|---|
@@ -113,17 +142,18 @@ Jazz để yên móc đã swing. MuseScore kéo móc thứ hai lúc phát theo t
 | 3 | 56 | 60 | 0 | +21 ms |
 | 4 | 56 | 60 | +21 ms | +21 ms |
 
-Velocity trên ô này giữ số đã viết. Thời gian là phần nghe được.
+Velocity trên ô này giữ số đã viết. 56 dưới 60 bốn bậc, không đủ chỗ cho nhấn +4.
 
 ---
 
 ## 6. Thứ tự khi viết
 
-1. Đồng hồ tempo trước. `<sound tempo>` đã là đường MuseScore đang phát. Khóa tổng thời gian câu bằng 0 trước khi nghe.
-2. Một WAV đo đỉnh nốt trước và sau một dấu lặng ẩn dài một móc kép, trên MuseScore 4.7.5. Cửa đó xác nhận attack có dịch đúng milli-giây. Writer cần `type` cho móc kép và divisions 96 ở bản có sextuplet.
-3. Móc kép từng voice sau khi cửa đó mở. Tổng tick mỗi ô vẫn khớp. Phách mạnh để 0.
-4. Bỏ velocity ±2 trên plateau cách bè kề dưới 8 bậc. Nhấn +4 đến +6 chỉ nơi còn khoảng trống và nơi sampler đọc note dynamics. Cửa nylon 53, 56, 59 vẫn quyết định phần velocity của guitar.
-5. Sai số velocity tương quan thêm sau lần nghe, không làm trước lệch thời gian.
-6. Đổi tiếng thật thì tăng `RECAP_REVISION` và `SPAN_REVISION` một lần.
+1. Đồng hồ tempo trước. `<sound tempo>` đã là đường MuseScore đang phát. Cặp tempo đối xứng dài hơn khoảng 0,01%. Phần dư nằm trong đuôi nhả, `mapDurationSec` vẫn bám độ dài bản viết.
+2. Chưa viết dấu lặng từng voice. Cửa MuseScore đòi phần nốt còn lại là một `<type>`, hoặc một chuỗi nốt nối từng khúc đã có trong `_NOTE_TYPES`. `divisions` 96 không thay việc đó. Đo WAV trên 4.7.5 làm sau khi chuỗi đó có thật: đỉnh nốt trước và sau hạt phải dịch đúng milli-giây, và cú kế tiếp phải giữ mốc.
+3. Bỏ velocity ±2 trên plateau cách bè kề dưới 8 bậc. Nhấn +4 đến +6 chỉ nơi còn khoảng trống, nơi sampler đọc note dynamics, và nơi trần nylon không nuốt. 56 cách 60 không thuộc chỗ đó. Nốt ấm ≤ 64 không được qua nail-snap 65. Cửa nylon 53, 56, 59 vẫn quyết định phần velocity của guitar. Marimba đo note dynamics trước khi tính nó vào nhóm có đọc.
+4. Sai số velocity tương quan thêm sau lần nghe, không làm trước lệch thời gian.
+5. Đổi tiếng thật thì tăng `RECAP_REVISION` và `SPAN_REVISION` một lần.
+
+“Phách mạnh dài hơn một hạt” xếp cùng bước 2. Nó rút `<type>` của nốt yếu sau, cùng cửa chưa mở.
 
 Phần giữ nguyên từ lớp đang chạy: vị trí sau `render()`, tính tất định, khóa thứ tự lực, một cú một độ lệch, bậc thang 1 và 2 đứng yên, `tie_stop` cùng lực viết thì đi theo cú đánh, chữ in và hairpin đứng ngoài.
