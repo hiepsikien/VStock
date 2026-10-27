@@ -852,8 +852,7 @@ def _majority_mood(ctx: _Ctx, bars: list[int]) -> str | None:
 
 def _has_contrast_section(ctx: _Ctx) -> bool:
     return any(
-        (getattr(section, "trio", False) or getattr(section, "bridge", False))
-        and getattr(section, "kind", None) not in _PEDAL
+        _slot_contrast(section)[1] and getattr(section, "kind", None) not in _PEDAL
         for section in ctx.sections
     )
 
@@ -1000,13 +999,16 @@ def _slot_contrast(section) -> tuple[int, bool]:
     return section.regime_slot, bool(section.trio or section.bridge)
 
 
-def _barrios_regions(ctx: _Ctx, body: list[int]) -> list[tuple[list[int], bool]]:
-    """Body phrases grouped by formal slot, in score order."""
+def _phrase_bar(ctx: _Ctx, index: int) -> int:
+    return min(ctx.bars - 1, ctx.phrases[index].start // max(ctx.epb, 1))
+
+
+def _group_slots(ctx: _Ctx, indexes: list[int]) -> list[tuple[list[int], bool]]:
+    """Body phrases grouped by `(regime slot, trio-or-bridge)`, in score order."""
     regions: list[tuple[list[int], bool]] = []
     previous: tuple[int, bool] | None = None
-    for index in body:
-        bar = min(ctx.bars - 1, ctx.phrases[index].start // ctx.epb)
-        key = _slot_contrast(ctx.section(bar))
+    for index in indexes:
+        key = _slot_contrast(ctx.section(_phrase_bar(ctx, index)))
         if key != previous:
             regions.append(([], key[1]))
             previous = key
@@ -1018,8 +1020,9 @@ def _barrios_palette(ctx: _Ctx, primary: str) -> tuple[str, ...]:
     """Meter row. The opening pattern is the only mood decision.
 
     `_dominant_pattern` reads the first region's character and passes it as
-    `primary`. Later slots do not read mood again. They take the rest of this
-    row, and the final slot reprises `primary` when the movement has a return.
+    `primary`. Later slots do not read mood again. They walk the guests in
+    this row. A movement of two parts ends on the first guest. From three
+    parts on, the last part reprises `primary`.
     """
     if ctx.bpm < BARRIOS_TREMOLO_MIN_BPM:
         row = ("andante", "thumb_cantabile")
@@ -1049,40 +1052,34 @@ def _barrios_palette(ctx: _Ctx, primary: str) -> tuple[str, ...]:
 
 def _region_pattern_ids(ctx: _Ctx, patterns: list[str]) -> list[str]:
     """One pattern per formal slot, including the reprise of the opening."""
-    ids: list[str] = []
-    previous: tuple[int, bool] | None = None
+    indexes: list[int] = []
     for index, pattern in enumerate(patterns):
-        if pattern == "pedal" or index >= len(ctx.phrases):
+        if pattern == "pedal" or index >= len(ctx.phrases) or ctx.phrases[index].end <= ctx.phrases[index].start:
             continue
-        bar = min(ctx.bars - 1, ctx.phrases[index].start // max(ctx.epb, 1))
-        if ctx.kind_at.get(bar, "phrase") in _PEDAL:
+        if ctx.kind_at.get(_phrase_bar(ctx, index), "phrase") in _PEDAL:
             continue
-        key = _slot_contrast(ctx.section(bar))
-        if key == previous:
-            continue
-        previous = key
-        ids.append(pattern)
-    return ids
+        indexes.append(index)
+    return [patterns[group[0]] for group, _contrast in _group_slots(ctx, indexes)]
 
 
-def _barrios_region_patterns(palette: tuple[str, ...], contrasts: list[bool]) -> list[str]:
-    """Opening, the episodes between, and a reprise when a third part exists.
+def _barrios_region_patterns(palette: tuple[str, ...], count: int) -> list[str]:
+    """Opening, one guest per middle part, and a reprise from the third part.
 
-    A trio or bridge takes the first pattern after the opening. The last part
-    returns to the opening once the movement has somewhere to return from, so
-    the return is not the next unused pattern in the row.
+    A trio or bridge is just another middle part: it takes the next guest
+    instead of restarting the guest row. The last part returns to the opening
+    once there are at least three parts, even when that part is marked as a
+    trio, so it does not repeat the guest in front of it. Two parts have
+    nowhere to return to, and stay opening then guest. A row with a single
+    guest repeats that guest in every middle part.
     """
+    if count <= 0:
+        return []
     guests = palette[1:] or palette[:1]
     chosen: list[str] = []
     episode = 0
-    last = len(contrasts) - 1
-    for index, is_contrast in enumerate(contrasts):
-        reprise = last >= 2 and index == last and not is_contrast
-        if index == 0 or reprise:
+    for index in range(count):
+        if index == 0 or (count >= 3 and index == count - 1):
             chosen.append(palette[0])
-            continue
-        if is_contrast:
-            chosen.append(guests[0])
             continue
         chosen.append(guests[episode % len(guests)])
         episode += 1
@@ -1124,12 +1121,14 @@ def _assign_macro(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
     """Lock the body to one pattern, to A–B–A, or to one pattern per session.
 
     A long Barrios movement leaves the opening texture for the row that fits
-    the meter, then the last part reprises the opening.
+    the meter. Two parts end on the first guest. Three or more reprise the
+    opening. `bars` includes warm-up and cool-down, so a short body can still
+    take this path once the frame is attached.
     """
     if not body:
         return chosen
     if ctx.ensemble == "barrios" and ctx.bars > 40:
-        regions = _barrios_regions(ctx, body)
+        regions = _group_slots(ctx, body)
         if len(regions) >= 2:
             opening = regions[0][0]
             primary = _dominant_pattern(
@@ -1138,7 +1137,7 @@ def _assign_macro(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
                 _phrase_bars(ctx, opening),
             )
             palette = _barrios_palette(ctx, primary)
-            row = _barrios_region_patterns(palette, [contrast for _indexes, contrast in regions])
+            row = _barrios_region_patterns(palette, len(regions))
             for (indexes, _contrast), pattern in zip(regions, row):
                 for index in indexes:
                     chosen[index] = pattern
@@ -1151,10 +1150,8 @@ def _assign_macro(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
     if _has_contrast_section(ctx):
         groups: dict[str, list[int]] = {"A": [], "B": []}
         for index in body:
-            bar = min(ctx.bars - 1, ctx.phrases[index].start // ctx.epb)
-            section = ctx.section(bar)
-            key = "B" if section is not None and (section.trio or section.bridge) else "A"
-            groups[key].append(index)
+            _slot, contrast = _slot_contrast(ctx.section(_phrase_bar(ctx, index)))
+            groups["B" if contrast else "A"].append(index)
         primary_bars = _phrase_bars(ctx, groups["A"]) or _body_bars(ctx)
         primary = _dominant_pattern(
             ctx,
@@ -1174,9 +1171,7 @@ def _assign_macro(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
         return chosen
     buckets: dict[int, list[int]] = {}
     for index in body:
-        bar = min(ctx.bars - 1, ctx.phrases[index].start // ctx.epb)
-        section = ctx.section(bar)
-        slot = 0 if section is None else section.regime_slot
+        slot, _contrast = _slot_contrast(ctx.section(_phrase_bar(ctx, index)))
         buckets.setdefault(slot, []).append(index)
     for indexes in buckets.values():
         pattern = _dominant_pattern(
@@ -2248,9 +2243,8 @@ def headline_id(ctx: _Ctx, patterns: list[str]) -> str:
         for index, pattern in enumerate(patterns):
             if pattern == "pedal" or index >= len(ctx.phrases):
                 continue
-            bar = min(ctx.bars - 1, ctx.phrases[index].start // max(ctx.epb, 1))
-            section = ctx.section(bar)
-            if section is not None and (section.trio or section.bridge):
+            _slot, contrast = _slot_contrast(ctx.section(_phrase_bar(ctx, index)))
+            if contrast:
                 continue
             return pattern
     counts: dict[str, int] = {}

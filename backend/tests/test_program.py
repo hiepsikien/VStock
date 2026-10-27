@@ -5,10 +5,10 @@ from datetime import date
 from pathlib import Path
 
 from app.sonify.audio import RecapStore
-from app.sonify.guitar_patterns import _HEADLINE, _SKIP_VOICES
+from app.sonify.guitar_patterns import _HEADLINE, _SKIP_VOICES, _barrios_region_patterns
 from app.sonify.keys import work_key_label
 from app.sonify.model import Bar
-from app.sonify.program import guitar_movement_name, pattern_title, span_movement_name
+from app.sonify.program import guitar_movement_name, pattern_form, pattern_title, span_movement_name
 from app.sonify.render import render
 from app.sonify.span import (
     PreparedMovement,
@@ -76,8 +76,9 @@ def test_long_barrios_movements_walk_a_pattern_row():
     slow = attach_frame(month_specs("guitar")[1], "1M")
     scherzo = attach_frame(month_specs("guitar")[2], "1M")
     finale = attach_frame(month_specs("guitar")[3], "1M")
-    # The last part reprises the opening. A week plays Andante and Tremolo
-    # between the two Preludes; the title keeps the A–B–A line.
+    # Three parts reprise. Two parts end on the guest. A week of five hears
+    # Tremolo in the center, and the title names that center rather than the
+    # second region.
     assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=opening) == (
         "Prelude — Andante — Prelude"
     )
@@ -90,9 +91,33 @@ def test_long_barrios_movements_walk_a_pattern_row():
     assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=finale) == (
         "Tremolo — Prelude — Tremolo"
     )
-    assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=week_spec(5)) == (
-        "Prelude — Andante — Prelude"
+    assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=week_spec(2)) == (
+        "Prelude — Andante"
     )
+    assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=week_spec(5)) == (
+        "Prelude — Tremolo — Prelude"
+    )
+
+
+def test_barrios_region_row_reprises_from_the_third_part():
+    row = ("preludio", "andante", "tremolo")
+    assert _barrios_region_patterns(row, 2) == ["preludio", "andante"]
+    assert _barrios_region_patterns(row, 3) == ["preludio", "andante", "preludio"]
+    assert _barrios_region_patterns(row, 4) == ["preludio", "andante", "tremolo", "preludio"]
+    assert _barrios_region_patterns(row, 5) == ["preludio", "andante", "tremolo", "andante", "preludio"]
+    # One guest repeats between the two openings. There is no second guest to walk.
+    slow = ("andante", "thumb_cantabile")
+    assert _barrios_region_patterns(slow, 6) == ["andante", *["thumb_cantabile"] * 4, "andante"]
+
+
+def test_pattern_form_keeps_three_names_and_centers_a_longer_row():
+    assert pattern_form(["preludio", "andante", "tremolo"], "barrios") == "Prelude — Andante — Tremolo"
+    assert pattern_form(["preludio", "andante", "andante"], "barrios") == "Prelude — Andante"
+    assert pattern_form(["preludio", "andante", "tremolo", "andante", "preludio"], "barrios") == (
+        "Prelude — Tremolo — Prelude"
+    )
+    # The row ends on Andante, so the short title does not pretend it reprises.
+    assert pattern_form(["preludio", "andante", "preludio", "andante"], "barrios") == "Prelude — Andante"
 
 
 def test_villa_slow_and_six_eight_keep_their_body_and_show_the_contrast():
