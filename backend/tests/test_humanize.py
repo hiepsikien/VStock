@@ -116,7 +116,9 @@ def test_same_beat_notes_share_one_offset() -> None:
     assert heard_dyad[0].velocity == heard_dyad[1].velocity == 58 + chosen_offset("guitar", "classic", "low", 0, 0.0)
     assert heard_dyad[2].velocity == heard_dyad[3].velocity
     assert len({note.velocity for note in heard_chord[:3]}) == 1
-    assert heard_chord[0].velocity == 64 + chosen_offset("guitar", "classic", "support", 0, 0.0)
+    # A written 64 is still warm. The guitar clamp keeps the shared offset from crossing into the nail.
+    offset = chosen_offset("guitar", "classic", "support", 0, 0.0)
+    assert heard_chord[0].velocity == min(64, 64 + offset)
 
 
 def test_an_inverting_offset_shrinks_toward_zero() -> None:
