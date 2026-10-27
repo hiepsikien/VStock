@@ -100,9 +100,9 @@ Nhánh `return list(centers)` không gây ra việc này. Nhánh đó giữ đư
 
 $F$ là sàn cửa sổ của ô thân bài đang nối. $L(b) = \max(F, 22) - \min(V - 64)$. Một lần kéo tâm cho cả ô. Nốt intro không kẹp vào $F$ sau phép cộng.
 
-- Gigue `6/8` wide, sáu ô, nốt viết `50`: ô mở là `36`, rồi đi lên tâm thân bài `52..55`.
-- Choro wide, bốn ô, chuông `44, 50, 46`: $L = 56$, tâm thân bài `52..55` thấp hơn $L$, cả intro đứng ở tâm thân bài.
-- Andante calm, chuông, band `mf`, tâm `44.6`, $L = 46$: cả 8 ô đứng ở `44.6`, nốt `44` là `25`. Dãy `22, 22, 23, …, 25` không còn.
+- Gigue `6/8` wide, sáu ô, nốt viết `50`, $F = 36$: $L = 50$. Tâm thân bài `52..55` cao hơn $L$. Ô mở đứng ở tâm `50`. Nốt `50` nghe được là `36`, rồi đường tâm đi lên tâm thân bài.
+- Choro wide, bốn ô, chuông `44, 50, 46`: $L = 56$, tâm thân bài `52..55` thấp hơn $L$, cả intro đứng ở tâm thân bài. Ở tâm `52`, chuông nghe được là `32, 38, 34`. Nốt `44` vẫn thấp hơn sàn `4` bậc.
+- Andante calm, chuông, band `mf`, tâm `44.6`, $L = 46$: cả 8 ô đứng ở `44.6`. `round(44.6) = 45`, nốt `44` là `25` trên mọi ô. Dãy `22, 22, 23, …, 25` không còn.
 - Outro dùng cùng $L$. Điệu sàn `36` không còn xuống `23`.
 
-Chuông viết `44` ở đáy thủy triều vẫn thấp hơn sàn `4` bậc. Gigue và galop viết `50` hết lệch ở intro. Stab `70 / 66 / 62` gán sau bộ lọc.
+Chuông viết `44` ở đáy thủy triều vẫn thấp hơn sàn `4` bậc. Ô toàn nốt viết `50` hết lệch: tâm mở `50`, nốt nghe `36`. Intro Sor của galop có nốt `_PP` = `46` trong cùng ô. Wide thì $L = 54$. Tâm thân bài `52` hoặc `53` thấp hơn $L$, cả intro đứng ở tâm đó, và nốt `46` nghe được là `34` hoặc `35`, vẫn dưới sàn `36`. Stab `70 / 66 / 62` gán sau bộ lọc.
