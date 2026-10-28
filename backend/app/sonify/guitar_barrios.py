@@ -1114,8 +1114,9 @@ def _catedral_schedule(
     note 7. Note 5 and note 8 do not reach the next cell, so the next note 1
     is not a ceiling. Chord tones are filtered to the fifth around each
     voice's opening note before spacing is ranked. The previous pair is the
-    old fallback and must sit in that same fifth. A voice with no playable
-    chord tone there keeps its opening pitch, or rests.
+    old fallback only when both pitches are still chord tones of this harmony
+    and sit inside that same fifth. Count 4 may still leave the chord. A voice
+    with no playable chord tone there keeps its opening pitch, or rests.
     """
     open_lower, open_upper = opening or (None, None)
     floor = 50 - ctx.semitones
@@ -1147,11 +1148,15 @@ def _catedral_schedule(
             best = (lower, note4, upper)
     if best is not None:
         return best
-    # The previous cell is only a fallback, and only inside the same fifth.
+    # The previous cell is only a fallback. Both pitches must still be chord
+    # tones of this harmony, and they must sit inside the same fifth.
     if previous is not None:
         lower, upper = previous
+        pcs = chord.pitch_classes
         if (
-            _catedral_within(lower, open_lower)
+            lower % 12 in pcs
+            and upper % 12 in pcs
+            and _catedral_within(lower, open_lower)
             and _catedral_within(upper, open_upper)
             and bass < lower < lower_ceiling
             and lower >= floor

@@ -3672,27 +3672,48 @@ def test_preludio_inners_stay_within_a_fifth_of_their_opening_notes() -> None:
             if origin - 1e-6 <= note.beat < origin + 2
         ]
 
+    def chord_pcs(bar: int) -> set[int]:
+        for slot in score.slots:
+            if bar in slot.bars():
+                return set(slot.chord.pitch_classes)
+        raise AssertionError(f"no chord for bar {bar}")
+
     opening_lower = opening_upper = None
     later_lower: list[int] = []
     later_upper: list[int] = []
     later_lifts: list[int] = []
     for bar in region:
+        pcs = chord_pcs(bar)
         for origin in (0.0, 2.0):
             lows = cell_notes(bar, 2, origin)
             ups = cell_notes(bar, 4, origin)
+            # A voice with no current chord tone inside the fifth rests.
+            if lows:
+                assert len(lows) == 4
+                pedal = lows[0].midi
+                assert pedal is not None and pedal % 12 in pcs
+                assert lows[2].midi == lows[3].midi == pedal
+                lift = lows[1].midi
+                assert lift is not None
+                steps = _diatonic_steps(pedal, lift)
+                assert steps in {0, 1, 2}
+                if lift % 12 not in pcs:
+                    assert steps == 1
+            if ups:
+                assert len(ups) == 2 and ups[0].midi == ups[1].midi
+                assert ups[0].midi is not None and ups[0].midi % 12 in pcs
             if opening_lower is None and lows:
-                # Counts 2, 6, and 8. Count 4 is the lift.
                 opening_lower = lows[0].midi
-                if len(lows) > 1 and lows[1].midi is not None:
+                if lows[1].midi is not None:
                     later_lifts.append(lows[1].midi)
             elif lows and opening_lower is not None:
-                later_lower.extend(note.midi for note in (lows[0], *lows[2:]))
-                if len(lows) > 1 and lows[1].midi is not None:
+                later_lower.extend(note.midi for note in (lows[0], lows[2], lows[3]) if note.midi is not None)
+                if lows[1].midi is not None:
                     later_lifts.append(lows[1].midi)
             if opening_upper is None and ups:
                 opening_upper = ups[0].midi
             elif ups and opening_upper is not None:
-                later_upper.extend(note.midi for note in ups)
+                later_upper.extend(note.midi for note in ups if note.midi is not None)
     assert opening_lower is not None and opening_upper is not None
     assert later_lower and later_upper and later_lifts
     assert all(abs(pitch - opening_lower) <= 7 for pitch in (*later_lower, *later_lifts))
