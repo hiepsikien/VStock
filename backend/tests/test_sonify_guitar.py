@@ -893,6 +893,55 @@ def test_assert_playable_rejects_a_profile_that_does_not_own_the_bass() -> None:
     assert_playable(opens, C_KEY, "study")
 
 
+def test_barrios_preludio_accepts_four_stacked_voices_above_65() -> None:
+    """Bass, lower, upper, and high. The inner ceiling opens only under the melody."""
+    # C3, D4, G4, C5. G4 is above 65 and still under C5. Frets span five.
+    stack = _bare(
+        lead=(NoteEvent(bar=0, beat=0.0, midi=72, duration_beats=1.5, voice=1),),
+        support=(
+            NoteEvent(bar=0, beat=0.25, midi=62, duration_beats=0.5, voice=2),
+            NoteEvent(bar=0, beat=0.5, midi=67, duration_beats=0.5, voice=4),
+        ),
+        low=(NoteEvent(bar=0, beat=0.0, midi=48, duration_beats=2.0, voice=3),),
+    )
+    assert_playable(stack, C_KEY, "barrios_preludio")
+    with pytest.raises(ValueError):
+        assert_playable(stack, C_KEY, "study")
+
+    collapsed = _bare(
+        lead=(NoteEvent(bar=0, beat=0.0, midi=72, duration_beats=1.5, voice=1),),
+        support=(
+            NoteEvent(bar=0, beat=0.25, midi=62, duration_beats=0.5, voice=2),
+            NoteEvent(bar=0, beat=0.5, midi=67, duration_beats=0.5, voice=2),
+        ),
+        low=(NoteEvent(bar=0, beat=0.0, midi=48, duration_beats=2.0, voice=3),),
+    )
+    with pytest.raises(ValueError):
+        assert_playable(collapsed, C_KEY, "barrios_preludio")
+
+    below_floor = _bare(
+        lead=(NoteEvent(bar=0, beat=0.0, midi=72, duration_beats=1.5, voice=1),),
+        support=(
+            NoteEvent(bar=0, beat=0.25, midi=49, duration_beats=0.5, voice=2),
+            NoteEvent(bar=0, beat=0.5, midi=55, duration_beats=0.5, voice=4),
+        ),
+        low=(NoteEvent(bar=0, beat=0.0, midi=40, duration_beats=2.0, voice=3),),
+    )
+    with pytest.raises(ValueError):
+        assert_playable(below_floor, C_KEY, "barrios_preludio")
+
+    crossed = _bare(
+        lead=(NoteEvent(bar=0, beat=0.0, midi=72, duration_beats=1.5, voice=1),),
+        support=(
+            NoteEvent(bar=0, beat=0.25, midi=67, duration_beats=0.5, voice=2),
+            NoteEvent(bar=0, beat=0.5, midi=64, duration_beats=0.5, voice=4),
+        ),
+        low=(NoteEvent(bar=0, beat=0.0, midi=48, duration_beats=2.0, voice=3),),
+    )
+    with pytest.raises(ValueError):
+        assert_playable(crossed, C_KEY, "barrios_preludio")
+
+
 CSUS4 = Chord("Csus4", "C", KIND_SUSPENDED_FOURTH, "sus4", (60, 65, 67))
 
 
@@ -942,10 +991,42 @@ def _assert_voice_covers(events: tuple[NoteEvent, ...], total_eighths: int, epb:
     assert cursor == total, f"voice ends at sixteenth {cursor}, score has {total}"
 
 
+def _assert_bar_covered(events: tuple[NoteEvent, ...], epb: int) -> None:
+    """Each bar this voice enters is filled once. A shared onset is a chord."""
+    spb = epb * 2
+    by_bar: dict[int, list[NoteEvent]] = {}
+    for event in events:
+        by_bar.setdefault(event.bar, []).append(event)
+    for bar, group in by_bar.items():
+        cursor = bar * spb
+        end = cursor + spb
+        chord_starts: set[int] = set()
+        for event in sorted(group, key=lambda item: (_start16(item, spb), -_dur16(item))):
+            dur = _dur16(event)
+            start = _start16(event, spb)
+            assert dur > 0
+            assert start >= cursor or start in chord_starts, f"overlap at sixteenth {start}"
+            assert start <= cursor, f"gap before sixteenth {start}"
+            chord_starts.add(start)
+            cursor = max(cursor, start + dur)
+        assert cursor == end, f"voice ends at sixteenth {cursor}, bar {bar} ends at {end}"
+
+
 def _assert_score_covers(score, epb: int) -> None:
     total = score.bars * epb
-    for voice in (score.lead, score.support, score.low):
-        _assert_voice_covers(voice, total, epb)
+    _assert_voice_covers(score.lead, total, epb)
+    _assert_voice_covers(score.low, total, epb)
+    by_voice: dict[int, list[NoteEvent]] = {}
+    for event in score.support:
+        by_voice.setdefault(event.voice, []).append(event)
+    if not by_voice:
+        _assert_voice_covers(score.support, total, epb)
+    else:
+        _assert_voice_covers(tuple(by_voice.get(2, ())), total, epb)
+        for voice, events in by_voice.items():
+            if voice == 2:
+                continue
+            _assert_bar_covered(tuple(events), epb)
     score_to_musicxml(score)
 
 
@@ -3162,41 +3243,82 @@ def _attack_onsets(voice, bar: int) -> list[float]:
     )
 
 
-_CATEDRAL_SUPPORT_44 = [0.25, 0.5, 0.75, 1.0, 1.25, 1.75, 2.25, 2.5, 2.75, 3.0, 3.25, 3.75]
+# Lower middle: rest, eighth, eighth, eighth, sixteenth, twice in the bar.
+_CATEDRAL_LOWER_44 = [
+    (0.25, 0.5),
+    (0.75, 0.5),
+    (1.25, 0.5),
+    (1.75, 0.25),
+    (2.25, 0.5),
+    (2.75, 0.5),
+    (3.25, 0.5),
+    (3.75, 0.25),
+]
+# Upper middle: rest, eighth, eighth, rest, twice. Count 5 stops before count 7.
+_CATEDRAL_UPPER_44 = [(0.5, 0.5), (1.0, 0.5), (2.5, 0.5), (3.0, 0.5)]
 _CATEDRAL_LEAD_44 = [(0.0, 1.5), (1.5, 0.5), (2.0, 1.5), (3.5, 0.5)]
 
 
-def _assert_catedral_wave(notes: list[NoteEvent]) -> None:
-    """V of three inner tones, or a two-tone line whose neighbours always change."""
-    pitches = [note.midi for note in notes if note.midi is not None]
-    assert len(pitches) == 6
-    if len(set(pitches[:5])) >= 3:
-        upper, mid, low, mid_again, upper_again, last = pitches
-        assert low < mid < upper
-        assert mid_again == mid and upper_again == upper
-        assert last in {upper, mid}
-    elif len(set(pitches)) >= 2:
-        assert all(left != right for left, right in zip(pitches, pitches[1:]))
+def _diatonic_steps(origin: int, target: int) -> int:
+    if target == origin:
+        return 0
+    if target < origin:
+        return -_diatonic_steps(target, origin)
+    cursor = origin
+    steps = 0
+    while cursor < target and steps <= 8:
+        cursor += 1
+        while cursor % 12 not in _MAJOR:
+            cursor += 1
+        steps += 1
+    if cursor != target:
+        return -1
+    return steps
+
+
+def _support_voice(score, bar: int, voice: int) -> list[NoteEvent]:
+    return sorted(
+        (
+            note
+            for note in score.support
+            if note.bar == bar and note.voice == voice and note.midi is not None and not note.tie_stop
+        ),
+        key=lambda note: note.beat,
+    )
+
+
+def _voice_span(events, bar: int, voice: int) -> float:
+    return sum(note.duration_beats for note in events if note.bar == bar and note.voice == voice)
 
 
 def _assert_catedral_shimmer(score, bar: int) -> None:
-    """Canto stays in the warm nylon layer (54..64) right above the soft inner wave (48..55)."""
+    """The high voice stays loudest. Each singing voice moves a few velocity steps."""
     semitones = score.key.semitones
     floor = 59 - semitones
     lead = _attacks(score.lead, bar)
-    support = _attacks(score.support, bar)
-    assert lead and support
-    assert all(note.velocity is not None and note.velocity <= 68 for note in lead)
-    assert all(note.velocity is not None and 18 <= note.velocity <= 46 for note in support)
+    lower = _support_voice(score, bar, 2)
+    upper = _support_voice(score, bar, 4)
+    assert lead and lower and upper
+    assert len({note.velocity for note in lead}) > 1
+    assert len({note.velocity for note in lower}) > 1
+    assert len({note.velocity for note in upper}) > 1
     assert all(note.midi is not None and note.midi >= floor for note in lead)
     for voice in (score.lead, score.support, score.low):
         assert not any(note.slur_start or note.slur_stop for note in voice if note.bar == bar)
-    for beat in {round(note.beat, 2) for note in support}:
+        assert not any(
+            (note.tie_start or note.tie_stop) and note.bar == bar for note in voice if voice is not score.low
+        )
+    for beat in {round(note.beat, 2) for note in (*lower, *upper)}:
         canto = _covering(score.lead, bar, beat)
-        inner = _covering(score.support, bar, beat)
-        assert canto is not None and inner is not None
-        assert canto.velocity is not None and inner.velocity is not None
-        assert canto.velocity - inner.velocity >= 2
+        sounding = [
+            note
+            for note in (*score.support, *score.low)
+            if note.bar == bar
+            and note.midi is not None
+            and note.beat <= beat + 1e-6 < note.beat + note.duration_beats
+        ]
+        assert canto is not None and canto.velocity is not None and sounding
+        assert all(note.velocity is not None and canto.velocity > note.velocity for note in sounding)
 
 
 def _assert_catedral_44(score, bar: int, *, pitches: list[int] | None = None) -> None:
@@ -3204,20 +3326,51 @@ def _assert_catedral_44(score, bar: int, *, pitches: list[int] | None = None) ->
     assert [(round(note.beat, 2), round(note.duration_beats, 2)) for note in lead] == _CATEDRAL_LEAD_44
     if pitches is not None:
         assert [note.midi for note in lead] == pitches
-    support = _attacks(score.support, bar)
-    assert [round(note.beat, 2) for note in support] == _CATEDRAL_SUPPORT_44
-    assert all(abs(note.duration_beats - 0.25) < 1e-9 for note in support)
-    onsets = sorted({round(note.beat, 2) for note in (*lead, *support)})
-    assert onsets == [index * 0.25 for index in range(16)]
-    _assert_catedral_wave(support[:6])
-    _assert_catedral_wave(support[6:])
-    for beat in (0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75):
+    lower = _support_voice(score, bar, 2)
+    upper = _support_voice(score, bar, 4)
+    assert [(round(note.beat, 2), round(note.duration_beats, 2)) for note in lower] == _CATEDRAL_LOWER_44
+    assert [(round(note.beat, 2), round(note.duration_beats, 2)) for note in upper] == _CATEDRAL_UPPER_44
+    assert abs(_voice_span(score.support, bar, 2) - score.bar_beats) < 1e-6
+    assert abs(_voice_span(score.support, bar, 4) - score.bar_beats) < 1e-6
+    assert not any(note.tie_start or note.tie_stop for note in score.lead if note.bar == bar)
+    assert not any(note.tie_start or note.tie_stop for note in score.support if note.bar == bar)
+    for cell in (0, 1):
+        origin = cell * 2.0
+        lows = [note for note in lower if origin - 1e-6 <= note.beat < origin + 2]
+        ups = [note for note in upper if origin - 1e-6 <= note.beat < origin + 2]
+        assert len(lows) == 4 and len(ups) == 2
+        assert lows[0].midi == lows[2].midi == lows[3].midi
+        assert ups[0].midi == ups[1].midi
+        assert lows[0].midi is not None and lows[1].midi is not None and ups[0].midi is not None
+        # One or two diatonic steps. The pedal itself when that lift would leave
+        # the fifth around the opening note, or would miss the hand.
+        assert _diatonic_steps(lows[0].midi, lows[1].midi) in {0, 1, 2}
+        assert lows[0].midi <= lows[1].midi < ups[0].midi
+        # Count 5 lasts an eighth and stops before count 7. Count 8 dies on the boundary.
+        assert abs((ups[1].beat + ups[1].duration_beats) - (origin + 1.5)) < 1e-6
+        assert abs((lows[3].beat + lows[3].duration_beats) - (origin + 2.0)) < 1e-6
+    if bar + 1 < score.bars:
+        opening = [
+            note
+            for note in score.support
+            if note.bar == bar + 1 and note.midi is not None and note.beat < 1e-6
+        ]
+        assert not any(note.tie_stop for note in opening)
+        assert not any(note.voice == 4 for note in opening)
+    for beat in (0.5, 0.75, 1.0, 1.25, 2.5, 2.75, 3.0, 3.25):
         sung = _covering(score.lead, bar, beat)
-        inner = _covering(score.support, bar, beat)
         bass = _covering(score.low, bar, beat)
-        assert sung is not None and inner is not None and bass is not None
-        assert sung.midi is not None and inner.midi is not None and bass.midi is not None
-        assert bass.midi < inner.midi < sung.midi
+        mids = {
+            note.voice: note
+            for note in score.support
+            if note.bar == bar
+            and note.midi is not None
+            and note.beat <= beat + 1e-6 < note.beat + note.duration_beats
+        }
+        assert sung is not None and bass is not None and 2 in mids and 4 in mids
+        assert bass.midi is not None and sung.midi is not None
+        assert bass.midi < mids[2].midi < mids[4].midi < sung.midi
+        assert len({bass.midi, mids[2].midi, mids[4].midi, sung.midi}) == 4
     assert all(not note.tenuto and not note.accent for note in lead)
 
 
@@ -3315,20 +3468,27 @@ def test_la_catedral_preludio_interlocks_two_high_melody_notes_with_sixteenth_ar
     for bar in (2, 3, 4, 5):
         _assert_catedral_44(score, bar, pitches=[72, 74, 76, 72])
         support = _attacks(score.support, bar)
-        assert {note.midi % 12 for note in support if note.midi is not None} <= {0, 4, 7}
+        # Counts 2, 6, 8, 3, and 5 are chord tones. Count 4 may leave the chord.
+        for note in support:
+            beat = round(note.beat, 2)
+            if note.voice == 2 and beat in {0.75, 2.75}:
+                continue
+            assert note.midi is not None and note.midi % 12 in {0, 4, 7}
         canto = _covering(score.lead, bar, 0.25)
         inner = _covering(score.support, bar, 0.25)
         assert canto is not None and inner is not None
         assert canto.velocity is not None and inner.velocity is not None
         assert canto.velocity > inner.velocity
         _assert_catedral_shimmer(score, bar)
-    # The pedal still rings for two bars. The last body bar keeps the wave
-    # under the pickup bass.
+    # The pedal still rings for two bars. Count 8 of the last cell is the
+    # sixteenth under the pickup bass, and it stops at the barline.
     assert _onset_beats(score.low, 2) == [0.0]
     assert all(note.tie_stop for note in score.low if note.bar == 3 and note.midi is not None)
     assert 3.75 in _onsets(score.support, 5)
     assert_playable(score, C_KEY, "barrios_preludio")
-    score_to_musicxml(score)
+    xml = score_to_musicxml(score)
+    assert "<voice>4</voice>" in xml
+    assert not any(note.tie_start or note.tie_stop for note in score.support if 2 <= note.bar <= 5)
 
     # 3/4 keeps the 8-sixteenth cell, then one descending group on beat 3.
     three = _catedral_score([72, 69, 67, 74, 76, 74], meter=METER_34)
@@ -3340,26 +3500,35 @@ def test_la_catedral_preludio_interlocks_two_high_melody_notes_with_sixteenth_ar
             (2.0, 1.0),
         ]
         assert [note.midi for note in lead] == [72, 74, 76]
-        support = _attacks(three.support, bar)
-        assert [round(note.beat, 2) for note in support] == [
-            0.25,
-            0.5,
-            0.75,
-            1.0,
-            1.25,
-            1.75,
-            2.25,
-            2.5,
-            2.75,
+        lower = _support_voice(three, bar, 2)
+        upper = _support_voice(three, bar, 4)
+        cell_lower = [note for note in lower if note.beat < 2]
+        tail = [note for note in lower if note.beat >= 2]
+        assert [(round(note.beat, 2), round(note.duration_beats, 2)) for note in cell_lower] == [
+            (0.25, 0.5),
+            (0.75, 0.5),
+            (1.25, 0.5),
+            (1.75, 0.25),
         ]
-        assert all(abs(note.duration_beats - 0.25) < 1e-9 for note in support)
-        onsets = sorted({round(note.beat, 2) for note in (*lead, *support)})
-        assert onsets == [index * 0.25 for index in range(12)]
-        _assert_catedral_wave(support[:6])
-        tail = [note.midi for note in support[6:] if note.midi is not None]
-        assert tail[0] >= tail[1] >= tail[2]
-        if len(set(tail)) >= 3:
-            assert tail[0] > tail[1] > tail[2]
+        assert [(round(note.beat, 2), round(note.duration_beats, 2)) for note in upper] == [
+            (0.5, 0.5),
+            (1.0, 0.5),
+        ]
+        assert cell_lower[0].midi == cell_lower[2].midi == cell_lower[3].midi
+        assert upper[0].midi == upper[1].midi
+        assert _diatonic_steps(cell_lower[0].midi, cell_lower[1].midi) in {0, 1, 2}
+        assert cell_lower[0].midi <= cell_lower[1].midi < upper[0].midi
+        # Count 5 has already ended at beat 1.5. Count 8 ends exactly at beat 2.0.
+        assert abs(upper[1].beat + upper[1].duration_beats - 1.5) < 1e-6
+        assert abs(cell_lower[3].beat + cell_lower[3].duration_beats - 2.0) < 1e-6
+        assert [round(note.beat, 2) for note in tail] == [2.25, 2.5, 2.75]
+        assert all(abs(note.duration_beats - 0.25) < 1e-9 for note in tail)
+        assert all(note.beat + note.duration_beats <= 3.0 + 1e-6 for note in (*cell_lower, *upper))
+        pitches = [note.midi for note in tail if note.midi is not None]
+        assert pitches[0] >= pitches[1] >= pitches[2]
+        if len(set(pitches)) >= 3:
+            assert pitches[0] > pitches[1] > pitches[2]
+        assert not any(note.tie_start or note.tie_stop for note in three.support if note.bar == bar)
         _assert_catedral_shimmer(three, bar)
     assert_playable(three, C_KEY, "barrios_preludio")
     score_to_musicxml(three)
@@ -3383,15 +3552,37 @@ def test_la_catedral_preludio_interlocks_two_high_melody_notes_with_sixteenth_ar
     assert opening.bpm == 96 and opening.divisions == 4
     assert len(phrases) >= 3
     prelude_bars = range(phrases[0].start, phrases[0].end)
-    for bar in prelude_bars:
-        _assert_catedral_44(opening, bar)
-        _assert_catedral_shimmer(opening, bar)
-    waved = sum(
-        1
-        for bar in prelude_bars
-        if len({note.midi for note in _attacks(opening.support, bar)[:5] if note.midi is not None}) >= 3
-    )
-    assert waved >= 1
+
+    def _cell_or_rest(bars) -> None:
+        singing = []
+        for bar in bars:
+            pitched = [
+                note
+                for note in opening.support
+                if note.bar == bar and note.midi is not None
+            ]
+            if not pitched:
+                # Both middle voices rest: no chord tone inside the fifth is playable.
+                assert [
+                    (round(note.beat, 2), round(note.duration_beats, 2))
+                    for note in _attacks(opening.lead, bar)
+                ] == _CATEDRAL_LEAD_44
+                assert not any(
+                    (note.tie_start or note.tie_stop) and note.bar == bar for note in opening.support
+                )
+                continue
+            singing.append(bar)
+            _assert_catedral_44(opening, bar)
+            _assert_catedral_shimmer(opening, bar)
+        assert singing
+        lifted = sum(
+            1
+            for bar in singing
+            if any(note.voice == 4 and note.midi is not None for note in opening.support if note.bar == bar)
+        )
+        assert lifted == len(singing)
+
+    _cell_or_rest(prelude_bars)
     prelude = replace(
         opening,
         lead=tuple(note for note in opening.lead if phrases[0].start <= note.bar < phrases[0].end),
@@ -3421,11 +3612,113 @@ def test_la_catedral_preludio_interlocks_two_high_melody_notes_with_sixteenth_ar
     scale_bars = {bar for bar in middle_bars if any(duration <= 0.25 for _beat, duration in lead_grid(bar))}
     assert_playable(slice_bars(phrases[1].start, phrases[1].end, scale_bars), C_KEY, "barrios_chorale")
     reprise_bars = range(phrases[2].start, phrases[2].end)
-    for bar in reprise_bars:
-        _assert_catedral_44(opening, bar)
-        _assert_catedral_shimmer(opening, bar)
+    _cell_or_rest(reprise_bars)
     assert_playable(slice_bars(phrases[2].start, phrases[2].end), C_KEY, "barrios_preludio")
     score_to_musicxml(opening)
+
+
+def test_preludio_inners_stay_within_a_fifth_of_their_opening_notes() -> None:
+    """A climb of more than an octave does not drag the middle voices along."""
+    epb = METER_44.eighths_per_bar
+    frame = 2
+    body_bars = 4
+    # Strong eighths (0 and 4) are already chord tones, so the climb survives
+    # quantize. The top of the line is more than an octave above the start.
+    body = [
+        64, 65, 67, 67, 67, 69, 69, 71,
+        69, 70, 72, 72, 72, 74, 74, 76,
+        74, 76, 77, 79, 79, 79, 81, 81,
+        79, 81, 81, 83, 79, 81, 83, 81,
+    ]
+    phrases = (
+        _held(0, frame * epb, 67),
+        _from_notes(frame * epb, body),
+        _held((frame + body_bars) * epb, frame * epb, 67),
+    )
+    total = frame + body_bars + frame
+    kinds = {
+        bar: ("intro" if bar < frame else "outro" if bar >= frame + body_bars else "phrase")
+        for bar in range(total)
+    }
+    sections = (
+        FormSection(0, frame, "intro", 0),
+        FormSection(frame, frame + body_bars, "phrase", 0),
+        FormSection(frame + body_bars, total, "outro", 0),
+    )
+    chords = {2: C, 3: F, 4: G, 5: C}
+    score = _guitar(
+        phrases,
+        ensemble="barrios",
+        bpm=96,
+        meter=METER_44,
+        character="calm",
+        kinds=kinds,
+        sections=sections,
+        chords=chords,
+    )
+    sung = [
+        note.midi
+        for bar in range(frame, frame + body_bars)
+        for note in _attacks(score.lead, bar)
+        if note.midi is not None
+    ]
+    assert sung and max(sung) - min(sung) > 12
+    region = range(frame, frame + body_bars)
+
+    def cell_notes(bar: int, voice: int, origin: float) -> list[NoteEvent]:
+        return [
+            note
+            for note in _support_voice(score, bar, voice)
+            if origin - 1e-6 <= note.beat < origin + 2
+        ]
+
+    def chord_pcs(bar: int) -> set[int]:
+        for slot in score.slots:
+            if bar in slot.bars():
+                return set(slot.chord.pitch_classes)
+        raise AssertionError(f"no chord for bar {bar}")
+
+    opening_lower = opening_upper = None
+    later_lower: list[int] = []
+    later_upper: list[int] = []
+    later_lifts: list[int] = []
+    for bar in region:
+        pcs = chord_pcs(bar)
+        for origin in (0.0, 2.0):
+            lows = cell_notes(bar, 2, origin)
+            ups = cell_notes(bar, 4, origin)
+            # A voice with no current chord tone inside the fifth rests.
+            if lows:
+                assert len(lows) == 4
+                pedal = lows[0].midi
+                assert pedal is not None and pedal % 12 in pcs
+                assert lows[2].midi == lows[3].midi == pedal
+                lift = lows[1].midi
+                assert lift is not None
+                steps = _diatonic_steps(pedal, lift)
+                assert steps in {0, 1, 2}
+                if lift % 12 not in pcs:
+                    assert steps == 1
+            if ups:
+                assert len(ups) == 2 and ups[0].midi == ups[1].midi
+                assert ups[0].midi is not None and ups[0].midi % 12 in pcs
+            if opening_lower is None and lows:
+                opening_lower = lows[0].midi
+                if lows[1].midi is not None:
+                    later_lifts.append(lows[1].midi)
+            elif lows and opening_lower is not None:
+                later_lower.extend(note.midi for note in (lows[0], lows[2], lows[3]) if note.midi is not None)
+                if lows[1].midi is not None:
+                    later_lifts.append(lows[1].midi)
+            if opening_upper is None and ups:
+                opening_upper = ups[0].midi
+            elif ups and opening_upper is not None:
+                later_upper.extend(note.midi for note in ups if note.midi is not None)
+    assert opening_lower is not None and opening_upper is not None
+    assert later_lower and later_upper and later_lifts
+    assert all(abs(pitch - opening_lower) <= 7 for pitch in (*later_lower, *later_lifts))
+    assert all(abs(pitch - opening_upper) <= 7 for pitch in later_upper)
+    assert not any(note.tie_start or note.tie_stop for note in score.support if note.bar in region)
 
 
 def _brouwer_pattern(melody: list[int], **kwargs):

@@ -169,7 +169,8 @@ def render_guitar_score(
         slots=slots,
         high=(),
         lead=_voice(lead, 1),
-        support=_voice(support, 2),
+        # Preludio keeps the upper middle on voice 4. Every other support note stays on 2.
+        support=tuple(note if note.voice == 4 else replace(note, voice=2) for note in support),
         comp=(),
         low=_voice(low, 3),
         dynamics=dynamics,
