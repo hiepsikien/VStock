@@ -2,7 +2,8 @@
 
 > **Phạm vi**: thân bài `bach_gavotte` trong `backend/app/sonify/guitar_bach.py`, thân bài `galop` trong `backend/app/sonify/guitar_sor.py`, cửa `galop` trong `backend/app/sonify/guitar_frame_bach_sor.py`.
 > **Bản đối chiếu**: Fernando Sor, *Galop*, Op. 32 No. 6, trong *Six petites pièces* (Paris, 1828). Bản Tecla, *New Complete Works for Guitar*, tập 4, trang 78. Ảnh đính kèm là câu sau chữ *Fine* của chính bài này, Tecla đánh số 17–24.
-> **Mục tiêu**: ghi vì sao Gavotte không phản ánh price action, vì sao Galop nghe chưa ra bài của Sor, và cách dùng câu đối đáp trong ảnh (Galop 2) xen với câu phi. Chưa đổi code phát nhạc.
+> **Mục tiêu**: ghi vì sao Gavotte không phản ánh price action, vì sao Galop nghe chưa ra bài của Sor, và cách dùng câu đối đáp trong ảnh (Galop 2) xen với câu phi. Code phát nhạc đã theo kế hoạch này.
+> **Mốc code**: đối chiếu với `main` `7d856b3`. Merge scale không sửa `guitar_bach.py`, `guitar_sor.py`, hay `guitar_frame_bach_sor.py`. Sóng vẫn là `affine_raw`: `round(C) + (V - 64)`.
 
 Mốc móc đơn là chỉ số eighth `0 .. epb - 1`. Ô 4/4 dùng `epb = 8`. Một ô 4/4 của sonify bằng hai ô 2/4 của Sor, tức 8 ô 2/4 bằng **bốn** ô 4/4. Velocity thân bài: lead `_MELODY = 64`, bass `_BASS = 56`, bè trong `_INNER = 46`.
 
@@ -46,13 +47,15 @@ Scherzo 6/8 không hát Gavotte. `_bach_contrast` gặp `ctx.kind == "6/8"` thì
 
 ### 1.1. Cách hát để còn là Gavotte và còn là giá
 
-Giữ nhịp: nốt đen, nốt đen staccato, bốn móc đơn. Cao độ của sáu cú đánh lấy từ `ctx.melody` tại móc 0, 2, 4, 5, 6, 7. Quãng 3/6 ở lại bè trong, dưới những móc đơn đó.
+Giữ nhịp: nốt đen, nốt đen staccato, bốn móc đơn. Quãng 3/6 ở lại bè trong, dưới những móc đơn đó.
 
 Bass nửa đầu giữ đúng code hiện tại: gốc ở móc 0, quãng 5 ở móc 2, nốt ở móc 2 staccato. Nửa sau vẫn một nốt hợp âm ngân.
 
-Thang dẫn vào ô sau rút còn hai nốt, và chỉ khi `ctx.melody` đang đi về nốt đầu ô sau. Ô đứng yên thì bốn móc đơn nhắc lại nốt giá, hoặc một nốt lân bậc. Chúng không bịa một quãng 6.
+Sáu cú lấy giá, trừ hai móc cuối khi ô đang đi tới một nốt khác. Móc 0, 2, 4 và 5 là `ctx.melody` tại đúng móc đó. Móc 6 và 7 cũng là `ctx.melody` khi nốt đầu ô sau bằng `ctx.melody` tại móc 4. Khi hai nốt đó khác nhau, móc 6 và 7 là `_approach_eighths(ctx, target, 2)` vào nốt đầu ô sau. Thang bốn nốt cũ bỏ. Không chèn lân bậc. Không bịa một quãng 6.
 
 Kế hoạch Bach ghi anacrusis Gavotte là nửa ô. Nửa ô đó đang là chỗ máy viết giai điệu. Khi bốn móc đơn mang giá, nửa ô hát của điệu trùng với đường giá.
+
+Không đổi `_bach_contrast`. Bảng scherzo trong `docs/sonify-classical-guitar.md` vẫn ghi contrast Gavotte. Code return sớm ở `6/8`. Đợt này không sửa hàm cho khớp bảng đó.
 
 ---
 
@@ -134,7 +137,11 @@ Không đổi cả `_galop_hits`, và không gán “bước mở là Galop 1, b
 
 8 ô 2/4 bằng bốn ô 4/4. Xen **bốn** ô Galop 1 rồi **bốn** ô Galop 2, rồi lặp. “Hai ô rồi hai ô” chỉ mới là 4+4 ô 2/4, ngắn một nửa so với câu của Sor.
 
+Chu kỳ đếm các ô thân có id `galop`, theo thứ tự trong bài, từng cụm liền nhau. Ô cửa intro và outro không vào đếm. Cụm đứt khi gặp ô không phải `galop`. Ô thứ 1–4 của cụm là Galop 1. Ô thứ 5–8 là Galop 2, rồi lặp. Cụm ngắn hơn năm ô thì toàn Galop 1.
+
 Hai câu là hai cách dệt trong `_render_galop_bar`. Bộ chọn vẫn trả id `"galop"`. `_settle_galop` sơn danh sách id đó trước lúc render. Xen Galop 2 bên trong một ô đã mang id `galop` không làm form sơn lại thành study. Study vẫn đứng hai đầu khi cả chương là galop. Tầng form đó giữ nguyên.
+
+`galop` vẫn nằm trong `_KINETIC_PATTERNS`. `bach_gavotte` vẫn nằm trong `_BAROQUE_PATTERNS`. Passage scale vẫn phủ hai pattern này: `_install_lead` thay lead trên eighth của passage, `_rewrite_bass` trồng bass trên `ctx.strong`. Lưới mới là phần ô không nằm trong passage. Không đổi `select_scale_plan`. Không đưa hai pattern này vào `_HOST`. Số passage của Sor, Bach và Brouwer trên cùng snapshot giữ nguyên.
 
 `_classic_macro` giữ cửa `character is None` như mục 2.
 
@@ -142,7 +149,7 @@ Hai câu là hai cách dệt trong `_render_galop_bar`. Bộ chọn vẫn trả 
 
 Tế bào lặp đứng hai lần trong một ô 4/4, mở ở móc đơn 0 và móc đơn 4. Không phải một tế bào mỗi phách. Móc đơn cộng hai móc kép đã hết một phách. Phách còn lại của ô 2/4, trên lưới lặp, là một móc đơn rồi hai móc kép.
 
-Chỉ số móc kép trong nửa ô, `0 .. 7`. Tế bào mở tại móc đơn `origin`, `origin` là 0 hoặc 4. Bảng là lưới lặp. Biến của ô 2, không phải mọi nửa ô: nửa sau của ô đó là hai móc đơn lấy `ctx.melody` tại `origin+2` và `origin+3`.
+Chỉ số móc kép trong nửa ô, `0 .. 7`. Tế bào mở tại móc đơn `origin`, `origin` là 0 hoặc 4. Bảng là lưới lặp. Biến Tecla ô 2 chỉ là nửa sau của ô Galop 1 đầu tiên trong cụm: `origin = 4` của ô đó, hai móc đơn lấy `ctx.melody` tại `origin+2` và `origin+3`. Các nửa ô Galop 1 còn lại hát lưới lặp.
 
 | Móc kép | Giai điệu | Bass |
 |---|---|---|
@@ -157,7 +164,7 @@ Dấu chấm ở mục 3 nằm trên hai móc đơn của câu phi: giai điệu
 
 Ô 1 Tecla hát đúng lưới nhịp đó. Phách đầu: Re dưới khuông, móc đơn có chấm, rồi Re trên dòng thứ tư và Si trên dòng giữa, hai móc kép. Phách sau: Sol trên dòng thứ hai, móc đơn có chấm, rồi Sol trên khuông và Re trên dòng thứ tư, hai móc kép. Móc kép đầu của mỗi cặp là quãng tám trên móc đơn vừa đánh, không giữ nguyên nốt đó. Móc kép sau đi xuống: Si dưới Re một quãng 3, Re dưới Sol một quãng 4, cả hai là nốt hợp âm. Phách 1 của ô này chỉ có một đầu nốt Re, không có đầu nốt bass thứ hai cùng phách. Ô 2 phách đầu cùng lưới: Si móc đơn, rồi Si quãng tám và Sol hai móc kép. Phách sau của ô 2 là biến của ô đó, không phải mọi nửa ô: hai móc đơn, Re rồi Si, `ctx.melody` tại `origin+2` và `origin+3`.
 
-`here == open` không mô tả ô 1, và cũng không mô tả nửa sau của chính ô đó. Móc kép 2 không giữ nốt mở. Móc kép 3 không phải nốt hợp âm kế trên trong vòng một quãng 5. Cặp nốt là quãng tám lên, rồi một nốt hợp âm xuống từ nốt cao đó.
+`here == open` không mô tả ô 1, và cũng không mô tả nửa sau của chính ô đó. Móc kép 2 không giữ nốt mở. Móc kép 3 không phải nốt hợp âm kế trên trong vòng một quãng 5. Cặp nốt là quãng tám lên, rồi nốt hợp âm gần nhất nằm dưới nốt cao đó và cách không quá 7 nửa cung. Không có nốt hợp âm nào trong cửa đó, hoặc quãng tám không `_playable` cùng bass, thì hai móc kép nghỉ và móc đơn giá vẫn giữ.
 
 Bỏ bè trong chặt phách yếu.
 
@@ -189,18 +196,13 @@ Nốt trên kêu ở móc kép 2, trong chỗ nghỉ của giai điệu, nên kh
 
 Ô 24 khép câu 17–24. Hợp âm khối là Fa, Sol, La. Cú bass cuối là một móc đơn Mi ở khoảng trống dưới dòng phụ thứ ba, rồi nghỉ.
 
-Ô 25–28 là hai ô 4/4 giai điệu móc kép liên tục, bass thưa. Trong một nhóm Galop 2, nếu giá của nhóm có nhiều cao độ khác nhau thì hai ô cuối của nhóm hát chuỗi này. Giá chỉ vài bước thì giữ bảng đối đáp.
+Ô 25–28 của Tecla là câu chạy móc kép, bass thưa. Đầu nốt của câu đó không có trong tài liệu này. Đợt này không bịa chuỗi đó. Cả bốn ô Galop 2 hát lưới đối đáp ở trên. Dạng thưa chỉ khi quãng 12 không đặt được.
 
 ### 4.3. Test phải đổi khi lead có móc kép và cửa đổi tế bào
 
 `_settle_galop` không đọc bass. `test_an_even_week_puts_galop_across_the_two_middle_sessions` và `test_a_galop_scherzo_moves_the_dance_into_the_trio` gọi thẳng hàm đó trên danh sách id. Hai test đó giữ nguyên.
 
-Chỉ hai test render nhận galop bằng bass staccato tại `0.0` và `2.0`:
-
-- `test_a_long_sor_rally_keeps_galop_in_the_middle_of_aba`
-- `test_two_galop_phrases_keep_the_dance_on_the_second`
-
-Dấu nhận phải đọc tế bào mới. Galop 2 trong cùng id `galop` không được làm hai test này tưởng ô đó đã thành study.
+`test_a_long_sor_rally_keeps_galop_in_the_middle_of_aba` và `test_two_galop_phrases_keep_the_dance_on_the_second` chỉ có một cụm galop ngắn ở giữa, nên các ô đó là Galop 1. Bass Galop 1 vẫn là hai nốt staccato tại `0.0` và `2.0`. Hai hàm `galop_bar` giữ dấu nhận đó. Không đổi hai ô đó thành Galop 2.
 
 Cùng `test_sor_galop_and_mozart_variations_and_the_op9_overture`, hai assert thân bài đổi khi lead có móc kép:
 
@@ -211,8 +213,8 @@ Bốn khóa cửa của `_frame_score("classic", 4)` trong test đó giữ nguy�
 
 Assert bè trong thân bài ở `0.5, 1.5, 2.5, 3.5` cũng đổi, vì bè trong đó rời thân bài. Assert bass nốt đen ở `0.0` và `2.0` đổi theo mục 4.1: bass Galop 1 là một móc đơn ở móc 0 và móc 4.
 
-`test_composer_intro_and_outro_frames_for_two_and_four_bars` khóa bè trong của cửa ngắn tại `0.5, 1.5, 2.5, 3.5`. Assert đó đổi vì cửa cũng bỏ bè trong. Onset bass `[0.0, 2.0]` giữ: `_onset_beats` không khóa độ dài nốt, và mỗi nửa ô vẫn một móc đơn bass ở đầu. Lead ô 1 từ phách 2 là `_lead_leaps`, giữ.
+`test_composer_intro_and_outro_frames_for_two_and_four_bars` khóa bè trong của cửa ngắn tại `0.5, 1.5, 2.5, 3.5`. Assert đó đổi vì cửa cũng bỏ bè trong. Onset bass `[0.0, 2.0]` giữ, vì `_onset_beats` không khóa độ dài. Trên `main`, nửa đầu cửa ngắn role 0 là nốt đen: span kết thúc ở nửa ô, và `_short_last_bass` chỉ chạy khi `end >= epb`. Nửa sau đã là móc đơn, đo được duration `1.0` rồi `0.5`. Sau tế bào 4.1, nửa đầu `lead=True` lấy bass móc đơn của Galop 1. Nửa sau `lead=False` vẫn một móc đơn. Lead ô 1 từ phách 2 là `_lead_leaps`, giữ.
 
 Cùng test có `assert classic.divisions == 2` trên `_frame_score("classic", 2)`. Thân bốn ô là Galop 1. Nửa đầu intro ngắn role 0 là `lead=True`, nên lead cửa cũng có móc kép. `_needs_sixteenths` thấy móc kép thì `divisions` thành 4. Assert đó đổi thành 4.
 
-Bass ô 0 của cửa ngắn giữ mức cửa: nửa đầu `_P = 50`, nửa sau `_MP = 56`, không lấy `_BASS = 56` của thân bài. Sau sóng `round(C) + (V - 64)`, mức nghe là 36 rồi 42. Khóa `velocity <= 52` còn đúng.
+Bass ô 0 của cửa ngắn giữ mức cửa: nửa đầu `_P = 50`, nửa sau `_MP = 56`, không lấy `_BASS = 56` của thân bài. Sau `affine_raw`, mức nghe trên `main` là 36 rồi 42. Khóa `velocity <= 52` còn đúng.

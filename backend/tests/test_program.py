@@ -64,9 +64,10 @@ def test_minimalist_quarter_closer_is_not_a_finale():
 
 def test_barrios_day_names_the_pattern_the_writer_picks():
     held = _bars([100.0] * 80)
-    # A calm day is Preludio even when every phrase holds. A volatile day with
-    # almost no melody motion is Ultimo Tremolo, not Choro.
-    assert guitar_movement_name(held, ensemble="barrios", character="calm") == "Prelude"
+    # A calm 1D no longer locks Preludio. The opening phrase is still Preludio,
+    # and the holds after it are tremolo, so the headline is Tremolo.
+    # A volatile day with almost no melody motion stays Ultimo Tremolo, not Choro.
+    assert guitar_movement_name(held, ensemble="barrios", character="calm") == "Tremolo"
     assert guitar_movement_name(held, ensemble="barrios", character="volatile") == "Tremolo"
     running = _bars([100 + (index % 7) * 2 for index in range(160)])
     assert guitar_movement_name(running, ensemble="barrios", character="volatile") == "Choro"
@@ -78,9 +79,9 @@ def test_long_barrios_movements_walk_a_pattern_row():
     slow = attach_frame(month_specs("guitar")[1], "1M")
     scherzo = attach_frame(month_specs("guitar")[2], "1M")
     finale = attach_frame(month_specs("guitar")[3], "1M")
-    # Three parts reprise. Two parts end on the guest. A week of five hears
-    # Tremolo in the center, and the title names that center rather than the
-    # second region.
+    # Three parts reprise. Two parts end on the guest. A rally week at 90 opens
+    # on Preludio, so the row is Preludio then Andante and the last part returns
+    # to Preludio. Tremolo is not in that row.
     assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=opening) == (
         "Prelude — Andante — Prelude"
     )
@@ -91,16 +92,16 @@ def test_long_barrios_movements_walk_a_pattern_row():
         "Polka — Waltz — Polka"
     )
     assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=finale) == (
-        "Tremolo — Prelude — Tremolo"
+        "Tremolo — Andante — Tremolo"
     )
     assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=week_spec(2)) == (
         "Prelude — Andante"
     )
     assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=week_spec(4)) == (
-        "Prelude — Tremolo — Prelude"
+        "Prelude — Andante — Prelude"
     )
     assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=week_spec(5)) == (
-        "Prelude — Tremolo — Prelude"
+        "Prelude — Andante — Prelude"
     )
 
 

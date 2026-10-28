@@ -52,10 +52,10 @@ def pattern_form(ids: list[str], ensemble: str) -> str:
 
     Adjacent repeats collapse first. Three different names stay all three,
     so Prelude — Andante — Tremolo is not shortened. Four or more keep the
-    opening, the center name, and the close: a week that hears Tremolo in
-    the middle is not titled for the second region only. Week 4 plays
-    Prelude, Andante, Tremolo, Prelude; the title is Prelude — Tremolo —
-    Prelude, so Andante is heard and not named. A row that does not end on
+    opening, the center name, and the close: a week that hears Andante in
+    the middle is not titled for the second region only. A rally week of
+    four sessions plays Prelude, Andante, Andante, Prelude; adjacent Andante
+    collapses and the title is Prelude — Andante — Prelude. A row that does not end on
     its opening, such as A–B–A–B, shortens to the two ends once the center
     repeats the opening.
     """

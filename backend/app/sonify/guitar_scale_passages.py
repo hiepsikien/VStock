@@ -29,6 +29,7 @@ from app.sonify.guitar_barrios import (
     _apply_perpetual,
     _catedral_preludio,
     _perpetual_bars,
+    _preludio_anchor,
     barrios_chromatic_approach,
     barrios_scale_step,
 )
@@ -59,7 +60,8 @@ from app.sonify.guitar_sor import classic_scale_step
 from app.sonify.guitar_villa import villa_open_candidates, villa_scale_step
 from app.sonify.model import NoteEvent
 
-_GROUP1 = frozenset({"tremolo", "etude1", "etude11", "thumb_cantabile"})
+_GROUP1 = frozenset({"tremolo"})
+_HOST = frozenset({"etude1", "etude11", "thumb_cantabile", "preludio"})
 _BACH_GROUP2 = frozenset({"bach_chaconne", "bach_gigue", "bach_sarabande"})
 
 
@@ -176,23 +178,16 @@ def _normalize(raw: object, epb: int) -> _Impulse | None:
     )
 
 
-def _touched_bars(start: int, target: int, epb: int) -> range:
-    return range(start // epb, target // epb + 1)
+def _occupied_bars(start: int, target: int, epb: int) -> range:
+    """Bars with an eighth in `[start, target)`.
 
-
-def _touches_excluded(ctx: _Ctx, patterns: list[str], start: int, target: int) -> bool:
-    framed_preludio = _catedral_preludio(ctx)
-    for bar in _touched_bars(start, target, ctx.epb):
-        if bar < 0 or bar >= ctx.bars:
-            return True
-        if ctx.kind_at.get(bar, "phrase") in _PEDAL:
-            return True
-        pattern = _bar_pattern(ctx, bar, patterns)
-        if pattern in _GROUP1:
-            return True
-        if pattern == "preludio" and framed_preludio:
-            return True
-    return False
+    A target on a barline is only the arrival eighth, so the next bar is not
+    occupied. `_touched_bars` (`range(start // epb, target // epb + 1)`) would
+    swallow that bar while snapping host stretches to whole bars.
+    """
+    if start >= target or epb <= 0:
+        return range(0)
+    return range(start // epb, (target - 1) // epb + 1)
 
 
 def _major_bridge(impulse: _Impulse, epb: int) -> bool:
@@ -225,15 +220,282 @@ def _overlaps_group2(ctx: _Ctx, patterns: list[str], start: int, target: int) ->
     return any(_is_group2(_bar_pattern(ctx, bar, patterns)) for bar in range(first, last + 1))
 
 
-def _passage_allowed(ctx: _Ctx, patterns: list[str], impulse: _Impulse) -> bool:
-    if _touches_excluded(ctx, patterns, impulse.start, impulse.target):
+def _grids_yield(impulse: _Impulse, epb: int) -> bool:
+    """Whether tremolo and the four hosts may give bars to this impulse.
+
+    The two numbers are `_major_bridge`, measured on the original impulse
+    before any clip. Failing them peels those grids off the ends and keeps a
+    group-3 remainder. A failed grid strictly inside the span drops the passage.
+    """
+    return _major_bridge(impulse, epb)
+
+
+def _framed_host(ctx: _Ctx, pattern: str) -> bool:
+    if pattern not in _HOST:
         return False
-    if _overlaps_group2(ctx, patterns, impulse.start, impulse.target):
+    return pattern != "preludio" or _catedral_preludio(ctx)
+
+
+def _edge_blocked(ctx: _Ctx, patterns: list[str], bar: int, *, yield_grids: bool) -> bool:
+    """Pedal is always cut. Tremolo and hosts are cut only when the gate failed."""
+    if bar < 0 or bar >= ctx.bars:
+        return True
+    if ctx.kind_at.get(bar, "phrase") in _PEDAL:
+        return True
+    if yield_grids:
+        return False
+    pattern = _bar_pattern(ctx, bar, patterns)
+    if pattern in _GROUP1:
+        return True
+    return _framed_host(ctx, pattern)
+
+
+def _host_pattern(ctx: _Ctx, patterns: list[str], bar: int) -> str | None:
+    """A grid that yields whole bars to a real scale line. Unframed preludio does not."""
+    if bar < 0 or bar >= ctx.bars:
+        return None
+    if ctx.kind_at.get(bar, "phrase") in _PEDAL:
+        return None
+    pattern = _bar_pattern(ctx, bar, patterns)
+    if pattern not in _HOST:
+        return None
+    if pattern == "preludio" and not _catedral_preludio(ctx):
+        return None
+    return pattern
+
+
+def _yielding_pattern(ctx: _Ctx, patterns: list[str], bar: int, *, yield_grids: bool) -> str | None:
+    """A bar that may leave its grid once the original impulse cleared the gate.
+
+    Tremolo joins the four hosts only on that path. Unframed preludio never
+    yields. The span is not grown past the impulse.
+    """
+    if not yield_grids or bar < 0 or bar >= ctx.bars:
+        return None
+    if ctx.kind_at.get(bar, "phrase") in _PEDAL:
+        return None
+    pattern = _bar_pattern(ctx, bar, patterns)
+    if pattern in _GROUP1 or _framed_host(ctx, pattern):
+        return pattern
+    return None
+
+
+def _region_origin(
+    ctx: _Ctx,
+    patterns: list[str],
+    bar: int,
+    pattern: str,
+    *,
+    yield_grids: bool,
+) -> int:
+    origin = bar
+    while origin > 0 and _yielding_pattern(ctx, patterns, origin - 1, yield_grids=yield_grids) == pattern:
+        origin -= 1
+    return origin
+
+
+def _clip_blocked_ends(
+    ctx: _Ctx,
+    patterns: list[str],
+    start: int,
+    target: int,
+    *,
+    yield_grids: bool,
+) -> tuple[int, int]:
+    """Step 1. Peel pedal, and peel tremolo or hosts when the gate failed."""
+    epb = ctx.epb
+    while start < target:
+        moved = False
+        if _edge_blocked(ctx, patterns, start // epb, yield_grids=yield_grids):
+            start = (start // epb + 1) * epb
+            moved = True
+        if start < target and _edge_blocked(ctx, patterns, (target - 1) // epb, yield_grids=yield_grids):
+            target = ((target - 1) // epb) * epb
+            moved = True
+        if not moved:
+            break
+    return start, target
+
+
+def _snap_host_edges(
+    ctx: _Ctx,
+    patterns: list[str],
+    start: int,
+    target: int,
+    *,
+    yield_grids: bool,
+) -> tuple[int, int]:
+    """Step 3. Drop a yielded fragment shorter than one bar at either end.
+
+    Snapping inward never pulls the next bar in, and it never opens a hole in
+    a sixteenth cycle, a sextuplet group, or a canto frame.
+    """
+    epb = ctx.epb
+    if start >= target:
+        return start, target
+    if start % epb != 0 and _yielding_pattern(ctx, patterns, start // epb, yield_grids=yield_grids):
+        start = (start // epb + 1) * epb
+    if start < target and target % epb != 0 and _yielding_pattern(
+        ctx, patterns, (target - 1) // epb, yield_grids=yield_grids
+    ):
+        target = ((target - 1) // epb) * epb
+    return start, target
+
+
+def _opening_inside(
+    ctx: _Ctx,
+    patterns: list[str],
+    start: int,
+    target: int,
+    *,
+    yield_grids: bool,
+) -> int | None:
+    for bar in _occupied_bars(start, target, ctx.epb):
+        if bar < 0 or bar >= ctx.bars:
+            continue
+        pattern = _yielding_pattern(ctx, patterns, bar, yield_grids=yield_grids)
+        if pattern is None:
+            continue
+        if _region_origin(ctx, patterns, bar, pattern, yield_grids=yield_grids) == bar:
+            return bar
+    return None
+
+
+def _exclude_opening(
+    ctx: _Ctx,
+    patterns: list[str],
+    start: int,
+    target: int,
+    *,
+    yield_grids: bool,
+) -> tuple[int, int] | None:
+    """Step 4. The first bar of a host region stays outside this passage.
+
+    An opening in the middle keeps the front when it has two eighths, otherwise
+    the back. An opening on an edge only shrinks that edge. Group 2 is not
+    handled here.
+    """
+    bar = _opening_inside(ctx, patterns, start, target, yield_grids=yield_grids)
+    if bar is None:
+        return start, target
+    epb = ctx.epb
+    bar_lo = bar * epb
+    bar_hi = bar_lo + epb
+    if start < bar_lo and bar_hi < target:
+        front = bar_lo - start
+        back = target - bar_hi
+        if front >= 2:
+            return start, bar_lo
+        if back >= 2:
+            return bar_hi, target
+        return None
+    if start < bar_lo:
+        return start, bar_lo
+    return bar_hi, target
+
+
+def _blocked_inside(
+    ctx: _Ctx,
+    patterns: list[str],
+    start: int,
+    target: int,
+    *,
+    yield_grids: bool,
+) -> bool:
+    """Step 5. A blocked bar strictly between the end bars drops the passage.
+
+    A tremolo bar yielded after its region opening is not blocked, so it does
+    not cancel the passage. Pedal still does.
+    """
+    bars = [bar for bar in _occupied_bars(start, target, ctx.epb) if 0 <= bar < ctx.bars]
+    if len(bars) < 3:
+        return False
+    return any(_edge_blocked(ctx, patterns, bar, yield_grids=yield_grids) for bar in bars[1:-1])
+
+
+def _clip_span(
+    ctx: _Ctx,
+    patterns: list[str],
+    start: int,
+    target: int,
+    *,
+    yield_grids: bool,
+) -> tuple[int, int] | None:
+    """Clip `[start, target)` before a passage is built, gapped, or budgeted."""
+    start, target = _clip_blocked_ends(ctx, patterns, start, target, yield_grids=yield_grids)
+    if target <= start:
+        return None
+    start, target = _snap_host_edges(ctx, patterns, start, target, yield_grids=yield_grids)
+    if target <= start:
+        return None
+    seen: set[tuple[int, int]] = set()
+    while True:
+        state = (start, target)
+        if state in seen:
+            return None
+        seen.add(state)
+        opened = _exclude_opening(ctx, patterns, start, target, yield_grids=yield_grids)
+        if opened is None:
+            return None
+        start, target = opened
+        if target <= start:
+            return None
+        start, target = _clip_blocked_ends(ctx, patterns, start, target, yield_grids=yield_grids)
+        if target <= start:
+            return None
+        if _blocked_inside(ctx, patterns, start, target, yield_grids=yield_grids):
+            return None
+        if (start, target) == state:
+            break
+    if target - start < 2:
+        return None
+    return start, target
+
+
+def _clip_retreats(
+    spans: tuple[tuple[int, int], ...],
+    start: int,
+    target: int,
+) -> tuple[tuple[int, int], ...]:
+    clipped: list[tuple[int, int]] = []
+    for lo, hi in spans:
+        left = max(int(lo), start)
+        right = min(int(hi), target)
+        if right > left:
+            clipped.append((left, right))
+    return tuple(clipped)
+
+
+def _prepare_impulse(ctx: _Ctx, patterns: list[str], impulse: _Impulse) -> _Impulse | None:
+    """Clip first. A group-2 opening still rejects the whole remaining span.
+
+    A major bridge is judged on the original impulse, before this clip.
+    """
+    clipped = _clip_span(
+        ctx,
+        patterns,
+        impulse.start,
+        impulse.target,
+        yield_grids=_grids_yield(impulse, ctx.epb),
+    )
+    if clipped is None:
+        return None
+    start, target = clipped
+    if _overlaps_group2(ctx, patterns, start, target):
         if not _major_bridge(impulse, ctx.epb):
-            return False
-        if _covers_group2_opening(ctx, patterns, impulse.start, impulse.target):
-            return False
-    return True
+            return None
+        if _covers_group2_opening(ctx, patterns, start, target):
+            return None
+    return _Impulse(
+        start=start,
+        target=target,
+        direction=impulse.direction,
+        net_span=impulse.net_span,
+        adjusted_efficiency=impulse.adjusted_efficiency,
+        score=impulse.score,
+        retreat_spans=_clip_retreats(impulse.retreat_spans, start, target),
+        sub_bar=(target - start) < ctx.epb,
+    )
 
 
 def _gap_ok(start: int, target: int, accepted: list[ScalePassage], epb: int) -> bool:
@@ -336,9 +598,10 @@ def select_scale_plan(
     raw_impulses.sort(key=lambda item: (-item.score, item.start, item.target))
     accepted: list[ScalePassage] = []
     for impulse in raw_impulses:
-        if not _passage_allowed(ctx, patterns, impulse):
+        prepared = _prepare_impulse(ctx, patterns, impulse)
+        if prepared is None:
             continue
-        passage = _as_passage(impulse, intrinsic, "passage")
+        passage = _as_passage(prepared, intrinsic, "passage")
         delta = passage.passage_eighths - passage.replaced_base_intrinsic_eighths
         if delta > room or not _gap_ok(passage.start, passage.target, accepted, ctx.epb):
             continue
@@ -762,10 +1025,12 @@ def _color_line(ctx: _Ctx, passage: ScalePassage, slots: list[_Slot], pitches: l
             if approach > 0 and abs(chromatic - colored[approach - 1]) > 2:
                 continue
             colored[approach] = chromatic
-    if ctx.ensemble == "villa":
+    if ctx.ensemble == "villa" and ctx.bpm >= SCALE_SIXTEENTH_MIN_BPM:
         stopped = list(colored)
         for index, slot in enumerate(slots):
-            if slot.anchor or index == 0 or index + 1 >= len(colored):
+            # Eighth-note body slots are invisible to _groups_ok, so an open
+            # string tried there would stick. Only a sixteenth slot may take one.
+            if slot.dur16 != 1 or slot.anchor or index == 0 or index + 1 >= len(colored):
                 continue
             toward = 1 if colored[index + 1] >= colored[index - 1] else -1
             for open_pitch in villa_open_candidates(ctx, colored[index - 1], toward):
@@ -849,6 +1114,7 @@ _HAT_PATTERNS = frozenset(
         "chord_melody",
         "preludio",
         "bach_fuga",
+        "thumb_cantabile",
     }
 )
 _BAROQUE_PATTERNS = frozenset({"bach_bourree", "bach_gavotte", "bach_gigue"})
@@ -863,6 +1129,8 @@ _KINETIC_PATTERNS = frozenset(
         "hemiola",
         "vals",
         "brouwer_etude",
+        "etude1",
+        "etude11",
     }
 )
 _LOUD_DOWN_PATTERNS = _KINETIC_PATTERNS | frozenset({"elogio_pizz", "bach_chaconne"})
@@ -1259,20 +1527,40 @@ def _next_onset(events: list[NoteEvent], eighth: int, epb: int) -> int | None:
     return min(found) if found else None
 
 
-def _bass_under_slices(ctx: _Ctx, bar: int, slices: list[list[int]]) -> int | None:
-    """A root or fifth that stays playable under each eighth, not under their union."""
+def _bass_under_slices(
+    ctx: _Ctx,
+    bar: int,
+    slices: list[list[int]],
+    *,
+    sounding_low: int | None = None,
+    sounding_high: int | None = None,
+) -> int | None:
+    """A root or fifth that stays playable under each eighth, not under their union.
+
+    `sounding_low` and `sounding_high` bound the sounding pitch. Thumb roots
+    use 48..64. The ordinary bass ceiling sounds at 53, so a thumb search
+    continues up to the written pitch of that window. A guitar-floor note at
+    40..47 can still be playable and is not a thumb root.
+    """
     if not slices:
         return None
     chord = ctx.chord(bar)
     root = chord.pitches[0] % 12
     fifth = chord.pitches[2] % 12 if len(chord.pitches) > 2 else (root + 7) % 12
+    high = ctx.bass_high
+    if sounding_high is not None:
+        high = max(high, sounding_high - ctx.semitones)
     for pc in (root, fifth):
-        for note in range(ctx.bass_high, ctx.bass_low - 1, -1):
+        for note in range(high, ctx.bass_low - 1, -1):
             if note % 12 != pc:
+                continue
+            sounding_bass = note + ctx.semitones
+            if sounding_low is not None and sounding_bass < sounding_low:
+                continue
+            if sounding_high is not None and sounding_bass > sounding_high:
                 continue
             if any(note >= lead for group in slices for lead in group):
                 continue
-            sounding_bass = note + ctx.semitones
             if all(
                 _playable([sounding_bass, *(lead + ctx.semitones for lead in group)])
                 for group in slices
@@ -1317,6 +1605,171 @@ def _leads_at(slots: list[_Slot], pitches: list[int]) -> dict[int, list[int]]:
     return found
 
 
+def _bar_covered(bar: int, start: int, target: int, epb: int) -> bool:
+    lo = bar * epb
+    return start <= lo and lo + epb <= target
+
+
+def _preludio_pair(ctx: _Ctx, patterns: list[str], bar: int) -> tuple[int, int | None]:
+    anchor = _preludio_anchor(ctx, bar, patterns)
+    partner = anchor + 1
+    if (
+        partner < ctx.bars
+        and _bar_pattern(ctx, partner, patterns) == "preludio"
+        and _preludio_anchor(ctx, partner, patterns) == anchor
+    ):
+        return anchor, partner
+    return anchor, None
+
+
+def _slices_between(
+    leads: dict[int, list[int]],
+    eighth: int,
+    stop: int,
+    fallback: int,
+) -> list[list[int]]:
+    slices: list[list[int]] = []
+    for cursor in range(eighth, stop):
+        group = leads.get(cursor)
+        if group:
+            slices.append(group)
+    if not slices:
+        slices = [[fallback]]
+    return slices
+
+
+def _host_attacks(ctx: _Ctx, pattern: str, bar: int, start: int, target: int) -> list[tuple[int, int]]:
+    """`(eighth, stop)` bass attacks for one yielded host bar."""
+    epb = ctx.epb
+    origin = bar * epb
+    if pattern == "etude11":
+        found: list[tuple[int, int]] = []
+        for offset in (0, 2, 4, 6):
+            if offset >= epb:
+                break
+            eighth = origin + offset
+            if start <= eighth < target:
+                found.append((eighth, eighth + 2))
+        return found
+    if pattern in {"etude1", "thumb_cantabile"} and start <= origin < target:
+        return [(origin, origin + epb)]
+    return []
+
+
+def _plant_attacks(
+    ctx: _Ctx,
+    pattern: str,
+    bar: int,
+    attacks: list[tuple[int, int]],
+    leads: dict[int, list[int]],
+    *,
+    sounding_low: int | None = None,
+    sounding_high: int | None = None,
+) -> list[NoteEvent] | None:
+    """Plant every attack. One missing root or fifth rejects the passage."""
+    if not attacks:
+        return None
+    events: list[NoteEvent] = []
+    for eighth, stop in attacks:
+        if stop <= eighth:
+            return None
+        slices = _slices_between(leads, eighth, stop, _melody_pitch(ctx, eighth))
+        pitch = _bass_under_slices(
+            ctx,
+            bar,
+            slices,
+            sounding_low=sounding_low,
+            sounding_high=sounding_high,
+        )
+        if pitch is None:
+            return None
+        events.extend(
+            _eighth_event(
+                eighth,
+                stop - eighth,
+                pitch,
+                ctx.epb,
+                3,
+                _BASS,
+                accent=_bass_accent(ctx, pattern, eighth),
+            )
+        )
+    return events
+
+
+def _release_split_ties(
+    ctx: _Ctx,
+    patterns: list[str],
+    start: int,
+    target: int,
+    low: list[NoteEvent],
+) -> list[NoteEvent]:
+    """A split preludio pair keeps the outside half, without a tie into the scale bar."""
+    epb = ctx.epb
+    released: list[NoteEvent] = []
+    for event in low:
+        if event.midi is None or not (event.tie_start or event.tie_stop):
+            released.append(event)
+            continue
+        begin = _start16(event, epb)
+        finish = begin + _dur16(event)
+        bar = (begin // 2) // epb
+        if _host_pattern(ctx, patterns, bar) != "preludio":
+            released.append(event)
+            continue
+        anchor, partner = _preludio_pair(ctx, patterns, bar)
+        if partner is None:
+            released.append(event)
+            continue
+        anchor_in = _bar_covered(anchor, start, target, epb)
+        partner_in = _bar_covered(partner, start, target, epb)
+        if anchor_in == partner_in:
+            released.append(event)
+            continue
+        if event.tie_start and finish <= start * 2:
+            event = replace(event, tie_start=False)
+        if event.tie_stop and begin >= target * 2:
+            event = replace(event, tie_stop=False)
+        released.append(event)
+    return released
+
+
+def _plant_preludio(
+    ctx: _Ctx,
+    patterns: list[str],
+    bar: int,
+    start: int,
+    target: int,
+    leads: dict[int, list[int]],
+    done: set[int],
+) -> list[NoteEvent] | None:
+    """Bass for one framed-preludio bar. An empty list means the pair was already planted."""
+    anchor, partner = _preludio_pair(ctx, patterns, bar)
+    epb = ctx.epb
+    both = partner is not None and _bar_covered(anchor, start, target, epb) and _bar_covered(partner, start, target, epb)
+    if both:
+        if anchor in done:
+            return []
+        done.add(anchor)
+        origin = anchor * epb
+        stop = origin + 2 * epb
+        slices = _slices_between(leads, origin, stop, _melody_pitch(ctx, origin))
+        pitch = _bass_under_slices(ctx, anchor, slices)
+        if pitch is None:
+            return None
+        return _eighth_event(origin, 2 * epb, pitch, epb, 3, _BASS, accent=True)
+    origin = bar * epb
+    strong = [offset for offset in ctx.strong if offset < epb]
+    attacks: list[tuple[int, int]] = []
+    for index, offset in enumerate(strong):
+        eighth = origin + offset
+        if not start <= eighth < target:
+            continue
+        nxt = origin + strong[index + 1] if index + 1 < len(strong) else origin + epb
+        attacks.append((eighth, min(nxt, origin + epb)))
+    return _plant_attacks(ctx, "preludio", bar, attacks, leads)
+
+
 def _rewrite_bass(
     ctx: _Ctx,
     patterns: list[str],
@@ -1325,10 +1778,11 @@ def _rewrite_bass(
     pitches: list[int],
     lead: list[NoteEvent],
     low: list[NoteEvent],
-) -> list[NoteEvent]:
+) -> list[NoteEvent] | None:
     start, target = passage.start, passage.target
     slap = _slap_eighths(ctx, patterns, passage)
     low = _drop_region(low, start, target, ctx.epb, slap)
+    low = _release_split_ties(ctx, patterns, start, target, low)
     leads = _leads_at(slots, pitches)
     first = start // ctx.epb
     last = max(first, (target - 1) // ctx.epb)
@@ -1337,9 +1791,32 @@ def _rewrite_bass(
         for bar in range(first, min(ctx.bars, last + 1))
         if _bar_pattern(ctx, bar, patterns) == "bach_fuga"
     ]
+    done_pairs: set[int] = set()
     for bar in range(first, min(ctx.bars, last + 1)):
         pattern = _bar_pattern(ctx, bar, patterns)
         if pattern == "bach_fuga":
+            continue
+        host = _host_pattern(ctx, patterns, bar)
+        if host == "preludio":
+            planted = _plant_preludio(ctx, patterns, bar, start, target, leads, done_pairs)
+            if planted is None:
+                return None
+            low.extend(planted)
+            continue
+        if host in {"etude1", "etude11", "thumb_cantabile"}:
+            window = (48, 64) if host == "thumb_cantabile" else (None, None)
+            planted = _plant_attacks(
+                ctx,
+                host,
+                bar,
+                _host_attacks(ctx, host, bar, start, target),
+                leads,
+                sounding_low=window[0],
+                sounding_high=window[1],
+            )
+            if planted is None:
+                return None
+            low.extend(planted)
             continue
         onsets = [eighth for eighth in _bass_onsets(ctx, pattern, bar, start, target) if eighth not in slap]
         for index, eighth in enumerate(onsets):
@@ -1427,6 +1904,10 @@ def _rewrite_support(
         wanted.append(passage.start)
     wanted.extend(eighth for eighth in sorted(plain) if _is_strong(ctx, eighth))
     for eighth in wanted:
+        # Host grids leave the inner voice empty, including below 88 BPM,
+        # where an eighth-note run would otherwise keep one strong-beat note.
+        if _host_pattern(ctx, patterns, eighth // ctx.epb):
+            continue
         group = leads.get(eighth) or [_melody_pitch(ctx, eighth)]
         lead_pitch = min(group)
         bass = _sounding_midi(low, eighth, ctx.epb)
@@ -1457,7 +1938,10 @@ def realize_scale_passage(
     if len(velocities) != len(slots):
         return None
     lead = _install_lead(lead, slots, pitches, velocities, ctx.epb)
-    low = _rewrite_bass(ctx, patterns, passage, slots, pitches, lead, low)
+    rewritten = _rewrite_bass(ctx, patterns, passage, slots, pitches, lead, low)
+    if rewritten is None:
+        return None
+    low = rewritten
     support = _rewrite_support(ctx, patterns, passage, slots, pitches, support, low)
     return lead, support, low
 

@@ -156,10 +156,315 @@ def _galop_sparkle(
 
 
 
-def _render_galop_bar(
-    ctx: _Ctx, bar: int, apex: set[int], phrase: Phrase | None
+def _galop_body_index(ctx: _Ctx, bar: int, patterns: list[str]) -> int:
+    """Index of `bar` inside its run of consecutive body bars whose id is galop.
+
+    Intro and outro doors are not counted. A study bar, or any other id, ends
+    the run. The first bar of a run is 0.
+    """
+    index = 0
+    cursor = bar - 1
+    while cursor >= 0:
+        if ctx.kind_at.get(cursor, "phrase") in _PEDAL:
+            break
+        if _bar_pattern(ctx, cursor, patterns) != "galop":
+            break
+        index += 1
+        cursor -= 1
+    return index
+
+
+def _lead_cap(ctx: _Ctx) -> int:
+    return min(ctx.treble_top, ctx.ceiling, 81 - ctx.semitones)
+
+
+def _chord_tone_under(pcs, upper: int, span: int = 7) -> int | None:
+    """Nearest chord tone strictly below `upper`, at most `span` semitones down."""
+    classes = {pc % 12 for pc in pcs}
+    for note in range(upper - 1, upper - span - 1, -1):
+        if note % 12 in classes:
+            return note
+    return None
+
+
+def _octave_pair_ok(ctx: _Ctx, upper: int, under: int | None, bass: int | None) -> bool:
+    """Rest the pair when no chord tone fits, or a bass still sounding will not share the octave.
+
+    The staccato root is an eighth and has ended before these sixteenths, so the
+    cell bass is not in this sonority. `bass` is reserved for a note that is
+    still covering the attack.
+    """
+    del bass
+    if under is None:
+        return False
+    cap = _lead_cap(ctx)
+    if not ctx.treble_floor <= upper <= cap or not ctx.treble_floor <= under <= cap:
+        return False
+    return _playable([upper + ctx.semitones]) and _playable([under + ctx.semitones])
+
+
+def _pickup_blocks_pair(
+    ctx: _Ctx,
+    bar: int,
+    eighth: int,
+    upper: int,
+    under: int,
+    patterns: list[str] | None,
+) -> bool:
+    """The body-to-outro pickup is an eighth bass on the last eighth of a boundary bar.
+
+    It sounds through both sixteenths. When that bass cannot share a hand with
+    the octave or the chord tone, the pair rests and the price eighth remains.
+    """
+    if patterns is None or eighth % ctx.epb != ctx.epb - 1:
+        return False
+    if ctx.kind_at.get(bar, "phrase") in _PEDAL:
+        return False
+    from app.sonify.guitar_patterns import _boundary_bars, _safe_pickup
+
+    if bar not in _boundary_bars(ctx, patterns):
+        return False
+    attack = NoteEvent(
+        bar=bar,
+        beat=(eighth % ctx.epb) / 2,
+        midi=upper,
+        duration_beats=0.25,
+        voice=1,
+    )
+    pitch = _safe_pickup(ctx, bar, [], [attack], [])
+    sounding = pitch + ctx.semitones
+    return not (
+        _playable([sounding, upper + ctx.semitones])
+        and _playable([sounding, under + ctx.semitones])
+    )
+
+
+def _add_octave_pair(
+    notes: list[tuple],
+    ctx: _Ctx,
+    eighth: int,
+    price: int,
+    bass: int | None,
+    pcs,
+    *,
+    bar: int | None = None,
+    patterns: list[str] | None = None,
+) -> None:
+    upper = price + 12
+    under = _chord_tone_under(pcs, upper)
+    if not _octave_pair_ok(ctx, upper, under, bass):
+        return
+    if (
+        bar is not None
+        and under is not None
+        and _pickup_blocks_pair(ctx, bar, eighth, upper, under, patterns)
+    ):
+        return
+    notes.append((float(eighth), 0.5, upper, 1, {}))
+    notes.append((float(eighth) + 0.5, 0.5, under, 1, {}))
+
+
+def _galop1_cell(
+    ctx: _Ctx,
+    origin: int,
+    melody_at,
+    bass: int,
+    pcs,
+    *,
+    variant: bool,
+    accent: bool,
+    bar: int | None = None,
+    patterns: list[str] | None = None,
+) -> list[tuple]:
+    """One 2/4 gallop cell. Offsets are eighths inside the 4/4 bar and may be halves."""
+    price0 = melody_at(origin)
+    bass_flags = {"staccato": True}
+    if accent:
+        bass_flags["accent"] = True
+    notes: list[tuple] = [
+        (float(origin), 1.0, price0, 1, {"staccato": True}),
+        (float(origin), 1.0, bass, 3, bass_flags),
+    ]
+    _add_octave_pair(
+        notes, ctx, origin + 1, price0, bass, pcs, bar=bar, patterns=patterns
+    )
+    if variant:
+        notes.append((float(origin + 2), 1.0, melody_at(origin + 2), 1, {"staccato": True}))
+        notes.append((float(origin + 3), 1.0, melody_at(origin + 3), 1, {}))
+    else:
+        price2 = melody_at(origin + 2)
+        notes.append((float(origin + 2), 1.0, price2, 1, {"staccato": True}))
+        _add_octave_pair(
+            notes, ctx, origin + 3, price2, bass, pcs, bar=bar, patterns=patterns
+        )
+    return notes
+
+
+def _galop2_twelfth(ctx: _Ctx, root: int, left: int, right: int) -> tuple[int, int] | None:
+    """Low root and the major twelfth above it, or nothing when the leap will not sit.
+
+    Drop the root by octaves, never the upper note, and never below `guitar_floor`.
+    The upper note stays voice 3 and is not folded through the bass window.
+    """
+    floor = ctx.bass_low
+    cursor = root
+    while cursor >= floor:
+        upper = cursor + 19
+        under_melody = upper < left and upper < right
+        root_ok = cursor < left and _playable([cursor + ctx.semitones, left + ctx.semitones])
+        upper_ok = _playable([upper + ctx.semitones])
+        if under_melody and root_ok and upper_ok:
+            return cursor, upper
+        nxt = cursor - 12
+        if nxt < floor:
+            break
+        cursor = nxt
+    return None
+
+
+def _galop2_cell(ctx: _Ctx, origin: int, melody_at, chord: Chord) -> list[tuple]:
+    """Answer cell: price eighth, twelfth in the rest, price eighth, rest.
+
+    When the twelfth cannot sit under the melody, the half keeps one root eighth.
+    """
+    price0 = melody_at(origin)
+    price2 = melody_at(origin + 2)
+    root = _choose_bass(chord, 0, price0, ctx.bass_low, ctx.bass_high, ctx.semitones)
+    notes: list[tuple] = [
+        (float(origin), 1.0, price0, 1, {}),
+        (float(origin + 2), 1.0, price2, 1, {}),
+    ]
+    leap = _galop2_twelfth(ctx, root, price0, price2)
+    if leap is None:
+        notes.append((float(origin), 1.0, root, 3, {}))
+    else:
+        low, upper = leap
+        notes.append((float(origin), 1.0, low, 3, {"slur_start": True}))
+        notes.append((float(origin + 1), 1.0, upper, 3, {"slur_stop": True}))
+    return notes
+
+
+def _emit_galop(
+    ctx: _Ctx,
+    bar: int,
+    figures: list[tuple],
+    apex: set[int],
+    phrase: Phrase | None,
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
-    """Galop Op. 32 No. 6: bouncing root/fifth, off-beat chords, a sparkling melody."""
+    epb = ctx.epb
+    voices: dict[int, list[NoteEvent]] = {1: [], 2: [], 3: []}
+    for offset, length, midi, voice, flags in sorted(figures, key=lambda item: (item[3], item[0])):
+        if midi is None or length <= 0:
+            continue
+        start16 = int(round((bar * epb + offset) * 2))
+        dur16 = int(round(length * 2))
+        if dur16 <= 0:
+            continue
+        slot = bar * epb + int(math.floor(offset + 1e-9))
+        if voice == 3:
+            velocity = _BASS
+        else:
+            velocity = _note_velocity(slot, 1 if length < 1 else int(round(length)), apex, phrase)
+        events = _spell16(
+            start16,
+            dur16,
+            midi,
+            epb,
+            voice,
+            velocity,
+            accent=bool(flags.get("accent")),
+        )
+        if flags.get("staccato") and events:
+            events[0] = replace(events[0], staccato=True)
+        if events and (flags.get("slur_start") or flags.get("slur_stop")):
+            events[0] = replace(
+                events[0],
+                slur_start=bool(flags.get("slur_start")),
+                slur_stop=bool(flags.get("slur_stop")),
+            )
+        voices[voice].extend(events)
+    return voices[1], voices[2], voices[3]
+
+
+def _render_galop_dance(
+    ctx: _Ctx,
+    bar: int,
+    apex: set[int],
+    phrase: Phrase | None,
+    patterns: list[str],
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    """Four bars of the gallop cell, then four of the answer, counted inside the run."""
+    index = _galop_body_index(ctx, bar, patterns)
+    chord = ctx.chord(bar)
+    pcs = list(chord.pitch_classes)
+
+    def melody_at(offset: int) -> int:
+        return _melody_at(ctx, bar * ctx.epb + offset)
+
+    figures: list[tuple] = []
+    if index % 8 >= 4:
+        for origin in (0, 4):
+            figures.extend(_galop2_cell(ctx, origin, melody_at, chord))
+    else:
+        for origin in (0, 4):
+            sung = melody_at(origin)
+            bass = _choose_bass(chord, 0, sung, ctx.bass_low, ctx.bass_high, ctx.semitones)
+            figures.extend(
+                _galop1_cell(
+                    ctx,
+                    origin,
+                    melody_at,
+                    bass,
+                    pcs,
+                    variant=index == 0 and origin == 4,
+                    accent=origin == 0,
+                    bar=bar,
+                    patterns=patterns,
+                )
+            )
+    part_lead, support, low = _emit_galop(ctx, bar, figures, apex, phrase)
+    support, low = _shape_accompaniment(ctx, support, low)
+    if index % 8 >= 4:
+        low = _slur_galop2_bass(low)
+    return part_lead, support, low
+
+
+def _slur_galop2_bass(low: list[NoteEvent]) -> list[NoteEvent]:
+    """One slur over the root eighth and the twelfth. The thin root has none.
+
+    `_shape_accompaniment` may replace a note to change its velocity. The slur
+    is written on the events that leave that pass, so the flags stay.
+    """
+    by_beat = {
+        round(event.beat, 2): index
+        for index, event in enumerate(low)
+        if event.midi is not None
+    }
+    updated = list(low)
+    for origin in (0.0, 2.0):
+        root_at = by_beat.get(origin)
+        upper_at = by_beat.get(round(origin + 0.5, 2))
+        if root_at is None or upper_at is None:
+            continue
+        root = updated[root_at]
+        upper = updated[upper_at]
+        if root.midi is None or upper.midi is None or upper.midi - root.midi != 19:
+            continue
+        updated[root_at] = replace(root, slur_start=True, slur_stop=False)
+        updated[upper_at] = replace(upper, slur_start=False, slur_stop=True)
+    return updated
+
+
+def _render_galop_bar(
+    ctx: _Ctx,
+    bar: int,
+    apex: set[int],
+    phrase: Phrase | None,
+    patterns: list[str] | None = None,
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    """Galop Op. 32 No. 6. 4/4 alternates the gallop cell with the answer cell."""
+    if ctx.kind == "4/4" and ctx.epb >= 8:
+        return _render_galop_dance(ctx, bar, apex, phrase, patterns or [])
     chord = ctx.chord(bar)
     start = bar * ctx.epb
     sung = _melody_at(ctx, start)
@@ -1186,6 +1491,7 @@ from app.sonify.guitar_patterns import (  # noqa: E402
     _melody_at,
     _melody_scale,
     _nearest,
+    _note_velocity,
     _on_scale,
     _owner,
     _parallel,

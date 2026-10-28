@@ -1828,10 +1828,10 @@ def test_composer_intro_and_outro_frames_for_two_and_four_bars() -> None:
 
     # A wide rally is galop, so both frames are the galop door.
     classic = _frame_score("classic", 2)
-    assert classic.divisions == 2
+    assert classic.divisions == 4
     assert _onset_beats(classic.low, 0) == [0.0, 2.0]
     assert all(note.staccato and note.velocity is not None and note.velocity <= 52 for note in _pitched(classic.low, 0))
-    assert [round(note.beat, 2) for note in _pitched(classic.support, 0)] == [0.5, 1.5, 2.5, 3.5]
+    assert _pitched(classic.support, 0) == []
     leaps = [note for note in _pitched(classic.lead, 1) if note.beat >= 2]
     assert len(leaps) >= 3 and all(note.staccato for note in leaps)
     close = _pitched(classic.low, classic.bars - 1)
@@ -1928,21 +1928,27 @@ def test_a_daily_piece_keeps_one_pattern_across_the_body() -> None:
     assert all(0.5 not in _onset_beats(quiet.support, bar) for bar in range(2, 32))
 
     barrios = render(_bars(), title="Guitar", variant="guitar", ensemble="barrios")
-    assert _sixteenths(barrios.lead, 2) == [index * 0.25 for index in range(16)]
+    # 120/34/4/4 chooses each phrase. Bar 2 is framed Preludio. A later hold is tremolo.
+    _assert_catedral_44(barrios, 2)
+    assert _sixteenths(barrios.lead, 2) == []
     assert _sixteenths(barrios.lead, 4) == [index * 0.25 for index in range(16)]
     tremolo_bars = sum(
         1
         for bar in range(2, 32)
         if sum(1 for note in _pitched(barrios.lead, bar) if abs(note.duration_beats - 0.25) < 1e-9) >= 8
     )
-    assert tremolo_bars >= 20
-    sung = render(_bars(), title="Guitar", variant="guitar", ensemble="barrios", character="calm")
-    dense = sum(
+    assert tremolo_bars >= 10
+    andante_bars = sum(
         1
         for bar in range(2, 32)
-        if sum(1 for note in _pitched(sung.lead, bar) if abs(note.duration_beats - 0.25) < 1e-9) >= 12
+        if _onset_beats(barrios.low, bar) == [0.0, 2.0]
+        and _sixteenths(barrios.lead, bar) == []
+        and len(_attack_onsets(barrios.support, bar)) <= 2
     )
-    assert dense <= 2
+    assert andante_bars >= 1
+    sung = render(_bars(), title="Guitar", variant="guitar", ensemble="barrios", character="calm")
+    _assert_catedral_44(sung, 2)
+    assert _sixteenths(sung.lead, 4) == [index * 0.25 for index in range(16)]
     tail = [
         note
         for note in _pitched(barrios.lead, 31)
@@ -1964,6 +1970,302 @@ def test_a_daily_piece_keeps_one_pattern_across_the_body() -> None:
         if note.bar == 31 and abs(note.beat) < 1e-6 and note.midi is not None and note.duration_beats >= 0.75
     )
     assert [velocity - thumb for velocity in fills] == [-6, -3, -4, -6]
+
+
+def _barrios_ctx(
+    phrases: tuple[Phrase, ...],
+    sections: tuple,
+    kinds: dict[int, str],
+    *,
+    bpm: int,
+    bars: int,
+    character: str,
+    kind: str = "4/4",
+    epb: int = 8,
+    rel_span: float = 0.02,
+    character_at: tuple | None = None,
+    melody: list[int] | None = None,
+):
+    from app.sonify.guitar_patterns import _Ctx
+
+    total = bars * epb
+    pitches = list(melody) if melody is not None else [67] * total
+    if len(pitches) < total:
+        pitches.extend([pitches[-1]] * (total - len(pitches)))
+    return _Ctx(
+        melody=pitches[:total],
+        raw=pitches[:total],
+        chord_at={bar: C for bar in range(bars)},
+        kind_at=kinds,
+        band_at={bar: "mf" for bar in range(bars)},
+        phrases=phrases,
+        bars=bars,
+        bpm=bpm,
+        ensemble="barrios",
+        mode="major",
+        character=character,
+        character_at=character_at,
+        sections=sections,
+        rel_span=rel_span,
+        semitones=0,
+        bass_low=40,
+        bass_high=55,
+        mid_low=48,
+        mid_high=67,
+        treble_floor=60,
+        treble_top=84,
+        ceiling=88,
+        epb=epb,
+        kind=kind,
+        strong=(0, 4) if kind == "4/4" else (0, 3),
+        bar_beats=epb / 2,
+    )
+
+
+def _body_pattern_row(ctx, patterns: list[str]) -> list[str]:
+    row: list[str] = []
+    for index, phrase in enumerate(ctx.phrases):
+        bar = min(ctx.bars - 1, phrase.start // ctx.epb)
+        if ctx.kind_at.get(bar, "phrase") in {"intro", "outro", "warmup", "cooldown"}:
+            continue
+        section = ctx.section(bar)
+        slot = 0 if section is None else section.regime_slot
+        if not row or row[-1][0] != slot:
+            row.append([slot, patterns[index]])
+        else:
+            assert patterns[index] == row[-1][1]
+    return [pattern for _slot, pattern in row]
+
+
+def test_framed_barrios_day_chooses_each_body_phrase() -> None:
+    """120 / 34 / 4/4 selloff. The old day lock would have been tremolo throughout."""
+    from app.sonify.guitar_patterns import _patterns
+    from app.sonify.guitar_scale_passages import plan_scale_budget
+
+    epb = 8
+    bars = 34
+    run = [60, 64, 67, 72, 76, 79, 67, 64]
+    pitches = [67] * (bars * epb)
+    pitches[40:56] = run * 2
+    phrases = (
+        _held(0, 2 * epb, 67),
+        _held(2 * epb, epb, 67),
+        _held(3 * epb, 4, 67),
+        _held(3 * epb + 4, 4, 67),
+        _held(4 * epb, epb, 67),
+        _running(5 * epb, run * 2),
+        _held(7 * epb, 25 * epb, 67),
+        _held(32 * epb, 2 * epb, 67),
+    )
+    kinds = {
+        bar: ("intro" if bar < 2 else "outro" if bar >= 32 else "phrase") for bar in range(bars)
+    }
+    sections = (
+        FormSection(0, 2, "intro", 0),
+        FormSection(2, 32, "phrase", 0),
+        FormSection(32, 34, "outro", 0),
+    )
+    ctx = _barrios_ctx(
+        phrases,
+        sections,
+        kinds,
+        bpm=120,
+        bars=bars,
+        character="selloff",
+        rel_span=0.014,
+        melody=pitches,
+    )
+    chosen = _patterns(ctx)
+    assert chosen == [
+        "pedal",
+        "preludio",
+        "tremolo",
+        "tremolo",
+        "andante",
+        "choro",
+        "tremolo",
+        "pedal",
+    ]
+    score = _pattern_score(
+        pitches,
+        phrases,
+        ensemble="barrios",
+        bpm=120,
+        character="selloff",
+        rel_span=0.014,
+        kinds=kinds,
+        sections=sections,
+    )
+    assert score.bpm == 120 and score.bars == 34 and score.beats == 4 and score.beat_type == 4
+    _assert_catedral_44(score, 2)
+    assert _sixteenths(score.lead, 3) == [index * 0.25 for index in range(16)]
+    assert _sixteenths(score.lead, 4) == []
+    for voice in (score.lead, score.support, score.low):
+        assert _onset_beats(voice, 4) == [0.0, 2.0]
+    assert _onsets(score.low, 5) == [0.0, 1.0, 2.0, 3.0]
+    assert [note.midi % 12 for note in _notes_at(score.low, 5, 0.0)] == [0]
+    assert _onsets(score.lead, 5) == [index * 0.5 for index in range(8)]
+    short = replace(ctx, impulses=(type("_Impulse", (), {
+        "start": 40,
+        "target": 43,
+        "direction": "up",
+        "net_span": 2,
+        "score": 3.0,
+        "adjusted_efficiency": 1.0,
+        "retreat_spans": (),
+        "sub_bar": True,
+    })(),))
+    kept = plan_scale_budget(short, chosen)
+    assert [(item.start, item.target) for item in kept.passages] == [(40, 43)]
+
+
+def test_one_session_week_stays_one_pattern_and_longer_weeks_use_the_guest_row() -> None:
+    from app.sonify.guitar_patterns import _barrios_palette, _patterns
+    from app.sonify.span import week_spec
+
+    def from_spec(spec, character: str, *, running: bool = False) -> list[str]:
+        epb = spec.meter.eighths_per_bar
+        phrases = []
+        kinds: dict[int, str] = {}
+        melody: list[int] = []
+        for section in spec.sections:
+            start = section.start * epb
+            length = (section.end - section.start) * epb
+            if running and section.kind == "phrase":
+                notes = [60 + (offset % 5) for offset in range(length)]
+                phrases.append(_running(start, notes))
+                melody.extend(notes)
+            else:
+                phrases.append(_held(start, length, 67))
+                melody.extend([67] * length)
+            for bar in range(section.start, section.end):
+                kinds[bar] = section.kind
+        ctx = _barrios_ctx(
+            tuple(phrases),
+            spec.sections,
+            kinds,
+            bpm=spec.bpm,
+            bars=spec.bars,
+            character=character,
+            kind="4/4" if spec.meter.beats == 4 else "6/8",
+            epb=epb,
+            melody=melody,
+        )
+        patterns = _patterns(ctx)
+        if spec.bars <= 40:
+            body = [
+                patterns[index]
+                for index, phrase in enumerate(ctx.phrases)
+                if kinds[min(ctx.bars - 1, phrase.start // epb)] not in {"intro", "outro", "warmup", "cooldown"}
+            ]
+            assert len(set(body)) == 1
+            return body
+        return _body_pattern_row(ctx, patterns)
+
+    one = from_spec(week_spec(1), "selloff")
+    assert len(set(one)) == 1
+    assert from_spec(week_spec(2), "selloff") == ["tremolo", "andante"]
+    assert from_spec(week_spec(2), "volatile") == ["tremolo", "andante"]
+    assert from_spec(week_spec(2), "rally") == ["preludio", "andante"]
+    assert from_spec(week_spec(2), "calm") == ["preludio", "andante"]
+
+    # 32 bars and two slots still take the short lock. The branch does not walk slots.
+    epb = 8
+    phrases = (
+        _held(0, 2 * epb, 67),
+        _held(2 * epb, 18 * epb, 67),
+        _held(20 * epb, 10 * epb, 67),
+        _held(30 * epb, 2 * epb, 67),
+    )
+    kinds = {bar: ("intro" if bar < 2 else "outro" if bar >= 30 else "phrase") for bar in range(32)}
+    sections = (
+        FormSection(0, 2, "intro", 0),
+        FormSection(2, 20, "phrase", 0),
+        FormSection(20, 30, "phrase", 1),
+        FormSection(30, 32, "outro", 1),
+    )
+    character_at = tuple("selloff" if bar < 20 else "rally" for bar in range(32))
+    locked = _barrios_ctx(
+        phrases,
+        sections,
+        kinds,
+        bpm=90,
+        bars=32,
+        character="rally",
+        rel_span=0.02,
+        character_at=character_at,
+    )
+    body = [
+        pattern
+        for pattern, phrase in zip(_patterns(locked), phrases)
+        if kinds[phrase.start // epb] == "phrase"
+    ]
+    assert body == ["tremolo", "tremolo"]
+
+    def movement(character: str, slots: int, *, outro: int = 4, bpm: int = 96, running: bool = False) -> list[str]:
+        body_bars = 18
+        parts = [FormSection(0, 4, "intro", 0)]
+        cursor = 4
+        for slot in range(slots):
+            parts.append(FormSection(cursor, cursor + body_bars, "phrase", slot))
+            cursor += body_bars
+        parts.append(FormSection(cursor, cursor + outro, "outro", slots - 1))
+        total = cursor + outro
+        phrases = []
+        kinds = {}
+        melody: list[int] = []
+        for section in parts:
+            start = section.start * epb
+            length = (section.end - section.start) * epb
+            if running and section.kind == "phrase" and section.regime_slot == 0:
+                notes = [60 + (offset % 5) for offset in range(length)]
+                phrases.append(_running(start, notes))
+                melody.extend(notes)
+            else:
+                phrases.append(_held(start, length, 67))
+                melody.extend([67] * length)
+            for bar in range(section.start, section.end):
+                kinds[bar] = section.kind
+        ctx = _barrios_ctx(
+            tuple(phrases),
+            tuple(parts),
+            kinds,
+            bpm=bpm,
+            bars=total,
+            character=character,
+            melody=melody,
+        )
+        return _body_pattern_row(ctx, _patterns(ctx))
+
+    assert movement("selloff", 2) == ["tremolo", "andante"]
+    assert movement("volatile", 2) == ["tremolo", "andante"]
+    assert movement("rally", 2, outro=12) == ["tremolo", "andante"]
+    assert movement("selloff", 3) == ["tremolo", "andante", "tremolo"]
+    assert movement("rally", 2) == ["preludio", "andante"]
+    assert "tremolo" not in movement("calm", 3)
+    fast = movement("rally", 4, bpm=120, running=True)
+    assert fast == ["choro", "thumb_cantabile", "andante", "choro"]
+    assert "tremolo" not in fast and "preludio" not in fast
+    opened = _barrios_ctx(phrases, sections, kinds, bpm=108, bars=32, character="rally")
+    assert _barrios_palette(replace(opened, bpm=108, bars=64, kind="4/4"), "tremolo") == (
+        "tremolo",
+        "choro",
+        "thumb_cantabile",
+    )
+    assert _barrios_palette(replace(opened, bpm=108, kind="4/4"), "preludio") == (
+        "preludio",
+        "choro",
+        "andante",
+    )
+    assert _barrios_palette(replace(opened, bpm=108, kind="4/4"), "choro") == (
+        "choro",
+        "thumb_cantabile",
+        "andante",
+    )
+    dance = replace(opened, bpm=120, kind="6/8")
+    assert _barrios_palette(dance, "hemiola") == ("hemiola", "vals", "polca", "tremolo")
+    assert _barrios_palette(dance, "preludio") == ("preludio", "thumb_cantabile", "vals")
+    assert _barrios_palette(dance, "polca") == ("polca", "vals", "hemiola", "tremolo")
 
 
 def test_ternary_sections_share_one_pattern_and_hand_off_on_a_bass_pickup() -> None:
@@ -2510,18 +2812,21 @@ def test_sor_galop_and_mozart_variations_and_the_op9_overture() -> None:
     galop = _frame_score("classic", 2)
     bass = _pitched(galop.low, 2)
     assert [round(note.beat, 2) for note in bass] == [0.0, 2.0]
-    assert all(note.staccato and abs(note.duration_beats - 1.0) < 1e-9 for note in bass)
+    assert all(note.staccato and abs(note.duration_beats - 0.5) < 1e-9 for note in bass)
     assert bass[0].accent
-    inner = _pitched(galop.support, 2)
-    assert [round(note.beat, 2) for note in inner] == [0.5, 1.5, 2.5, 3.5]
-    assert all(note.staccato and note.accent for note in inner)
-    assert len({note.midi for note in inner}) == 2
+    assert _pitched(galop.support, 2) == []
     lead = _pitched(galop.lead, 2)
     downbeat = next(note for note in lead if note.beat == 0.0)
-    sparkle = next(note for note in lead if abs(note.beat - 0.5) < 1e-9)
-    assert sparkle.staccato and sparkle.midi is not None and downbeat.midi is not None
-    assert sparkle.midi > downbeat.midi
-    assert _sixteenths(galop.lead, 2) == []
+    upper = next(note for note in lead if abs(note.beat - 0.5) < 1e-9)
+    under = next(note for note in lead if abs(note.beat - 0.75) < 1e-9)
+    assert downbeat.staccato and abs(downbeat.duration_beats - 0.5) < 1e-9
+    assert not upper.staccato and abs(upper.duration_beats - 0.25) < 1e-9
+    assert downbeat.midi is not None and upper.midi is not None and under.midi is not None
+    assert upper.midi == downbeat.midi + 12
+    assert 0 < upper.midi - under.midi <= 7
+    assert under.midi % 12 in {0, 4, 7}
+    # First galop bar of the run: the repeating grid, then the Tecla bar-2 eighths.
+    assert _sixteenths(galop.lead, 2) == [0.5, 0.75, 1.5, 1.75, 2.5, 2.75]
     assert_playable(galop, C_KEY, "study")
 
     # A narrow rally (< 1.2% span) stays on study; an energetic rally (>= 1.2%) dances Galop.
@@ -2709,6 +3014,40 @@ def test_two_galop_phrases_keep_the_dance_on_the_second() -> None:
     assert galop_bar(4)
 
 
+def test_galop_2_slurs_the_twelfth_and_galop_1_does_not() -> None:
+    epb = 8
+    phrases = (
+        _held(0, 2 * epb, 72),
+        _held(2 * epb, 6 * epb, 72),
+        _held(8 * epb, 2 * epb, 72),
+    )
+    sections = (
+        FormSection(0, 2, "intro", 0),
+        FormSection(2, 8, "phrase", 0),
+        FormSection(8, 10, "outro", 0),
+    )
+    kinds = {bar: ("intro" if bar < 2 else "outro" if bar >= 8 else "phrase") for bar in range(10)}
+    score = _pattern_score(
+        [72] * (10 * epb),
+        phrases,
+        ensemble="classic",
+        bpm=88,
+        character="rally",
+        rel_span=0.02,
+        kinds=kinds,
+        sections=sections,
+    )
+    # Body bar 2 is the first of the run (Galop 1). Body bar 6 is the fifth (Galop 2).
+    assert not any(note.slur_start or note.slur_stop for note in _pitched(score.low, 2))
+    bass = sorted(_pitched(score.low, 6), key=lambda note: note.beat)
+    roots = [note for note in bass if note.slur_start]
+    assert [round(note.beat, 2) for note in roots] == [0.0, 2.0]
+    for root in roots:
+        upper = next(note for note in bass if abs(note.beat - (root.beat + 0.5)) < 1e-6)
+        assert upper.slur_stop and not upper.slur_start and not root.slur_stop
+        assert root.midi is not None and upper.midi == root.midi + 19
+
+
 def _suite(movement: int, ensemble: str, *, character: str = "rally"):
     from app.sonify.span import attach_frame, month_specs
 
@@ -2831,8 +3170,10 @@ def test_suite_movements_use_preludio_dances_tremolo_and_villa_chorale() -> None
     moderate = [Bar(close=100 + (index % 9) * 0.1, volume=1000 + index) for index in range(48)]
     day = render(moderate, title="Guitar", variant="guitar", ensemble="barrios", character="rally")
     assert day.bpm == 120 and day.bars == 34
-    assert any(note.duration_beats >= 3.5 for note in _pitched(day.low, 4))
-    assert len(_attack_onsets(day.support, 4)) >= 8
+    # A quiet rally no longer locks Preludio across the body. Bar 2 is the grid.
+    # The next hold is tremolo.
+    _assert_catedral_44(day, 2)
+    assert _sixteenths(day.lead, 4) == [index * 0.25 for index in range(16)]
 
     choppy = [Bar(close=100.0 if index % 2 == 0 else 100.5, volume=1000 + index) for index in range(240)]
     dance = render(choppy, title="Guitar", variant="guitar", ensemble="barrios", character="volatile")
@@ -3809,6 +4150,14 @@ def test_bach_gavotte_phrases_quarters_then_parallel_eighths() -> None:
     _assert_engraved(score, "bach")
 
 
+def test_the_last_gavotte_bar_keeps_the_price_on_eighths_six_and_seven() -> None:
+    """No next downbeat, so the last two eighths stay the price instead of walking back into this bar."""
+    melody = [72] * 24 + [64, 65, 67, 69, 71, 72, 74, 76]
+    score = _bach(melody, character="calm", rel_span=0.0)
+    tail = [note.midi for note in _attacks(score.lead, 3) if note.beat >= 3.0 - 1e-6]
+    assert tail == [74, 76]
+
+
 def test_bach_sarabande_weights_beat_two_and_passes_into_the_next_bar() -> None:
     score = _bach([72] * 12, character="calm", meter=METER_34, rel_span=0.005, chords={0: C, 1: G})
     assert score.divisions == 4
@@ -4047,10 +4396,13 @@ def test_barrios_mozart_brouwer_and_villa_feedback_regressions() -> None:
     )
     assert tremolo_bars >= 20
 
-    # Barrios 1D: flat/zero-activity rally or selloff under 1.4% span still sings Preludio.
+    # Barrios 1D: a flat rally opens on framed Preludio. A later hold is tremolo.
     flat_day = [Bar(close=100.0, volume=1000 + index) for index in range(48)]
     preludio_day = render(flat_day, title="Guitar", variant="guitar", ensemble="barrios", character="rally")
-    assert any(note.duration_beats >= 3.5 for note in _pitched(preludio_day.low, 4))
+    _assert_catedral_44(preludio_day, 2)
+    assert sum(
+        1 for note in _pitched(preludio_day.lead, 4) if abs(note.duration_beats - 0.25) < 1e-9
+    ) >= 12
 
     # 2. Sor Op. 9 (`mozart_var`): held 76, arch, zig-zag leaps, and drops stay stepwise after `_repair`.
     for line in (
