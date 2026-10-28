@@ -91,7 +91,7 @@ Mốc vẫn là `ctx.melody` trên phách mạnh, trên đích, và trên chỗ 
 Một vòng neighbor là hai bước: đi ra một bậc, rồi về. Dư đúng một bước thì không đủ một vòng.
 
 - Bach, Barrios, Brouwer: bước lẻ đó được dùng nếu có một nốt nửa cung hợp lệ nằm giữa hai đầu và cách mỗi đầu không quá hai bán cung.
-- Sor: không có nốt đó trong thang thì nhắc lại một cao độ. `C4 → D4` trong hai bước chỉ còn `[60, 60, 62]` hoặc `[60, 62, 62]`.
+- Sor: không có nốt đó trong thang thì nhắc lại mốc cuối. `C4 → D4` trong hai bước là `[60, 62, 62]`. Bước còn lại sau vòng neighbor cũng ngồi trên mốc cuối, ngay trước cadence. Không nhân đôi nốt đầu.
 
 `_step_pitch` chỉ ép `±1` hoặc `±2` ra ngoài tập khi không còn bước nào trong tập về được mốc. Retreat vẫn đảo chiều đúng `retreat_spans`. Hoa mỹ khi giá đứng yên vẫn là một bậc trong tập, rồi về mốc. Câu đó đã có trong `ornament=True`; `ornament=False` trên giá đứng vẫn được nhắc cao độ.
 
@@ -103,7 +103,7 @@ Một vòng neighbor là hai bước: đi ra một bậc, rồi về. Dư đúng
 
 **Barrios.** Thân câu diatonic như Sor, nhưng slot `anchor - 1` dành cho `barrios_chromatic_approach(end, ascending)` (`end - 1` khi đi lên, `end + 1` khi đi xuống). Khi `count >= 3`, `_monotone` nhắm thẳng `anchor - 2` về một bậc diatonic cách nốt nửa cung đó `1..2` bán cung (và bản thân `anchor - 2` không phải nửa cung ngoại lai thứ hai) trước khi đặt `chromatic` tại `anchor - 1`. Nhờ vậy `_color_line` không ghi đè mất neighbor của Sor và không làm rơi nửa cung của Barrios vì quá bước hai bán cung.
 
-**Villa.** Trong `_monotone`, bước thừa và bước thường ưu tiên âm màu `{2, 5, 10}` trước bậc diatonic thường, khi bước đó còn về kịp mốc. Dây buông không chọn ở đây. `_color_line` mới thử dây buông, và chỉ trên slot `dur16 == 1` khi `bpm >= 88`, đúng như `test_villa_open_strings_wait_for_sixteenth_runs`. Trong `_groups_ok`, thế tay của chùm bốn móc kép chỉ kiểm tra trên cao độ vang `sounding` (qua `_quarter_ok`), bỏ phép kiểm `_position_ok(ordered)` thừa trên `written` chưa cộng `semitones` để các giọng dịch (`D, Eb, A, Bb`) nhận đúng dây buông thật. Chùm móc kép trượt `_groups_ok` thì trả lại đường nốt bấm. Không hủy `ScalePassage`.
+**Villa.** Trong `_monotone`, bước thừa và bước thường ưu tiên âm màu `{2, 5, 10}` trước bậc diatonic thường, khi bước đó còn về kịp mốc. Dây buông không chọn ở đây. `_color_line` mới thử dây buông, và chỉ trên slot `dur16 == 1` khi `bpm >= 88`, đúng như `test_villa_open_strings_wait_for_sixteenth_runs`. Trong `_groups_ok`, thế tay của chùm bốn móc kép chỉ kiểm tra trên cao độ vang `sounding` (qua `_quarter_ok`), bỏ phép kiểm `_position_ok(ordered)` thừa trên `written` chưa cộng `semitones` để các giọng dịch (`D, Eb, A, Bb`) nhận đúng dây buông thật. `_assert_scale_positions` cũng đưa `event.midi + semitones` vào `_position_ok`, cùng cách `_playable` và `_quarter_ok`. Chùm móc kép trượt `_groups_ok` thì trả lại đường nốt bấm. Không hủy `ScalePassage`.
 
 **Brouwer.** Nốt giữa (`1 .. count - 2`) không được chạm `end` rồi đứng lại trước khi câu hết nếu còn bước khác trong tập về kịp đích. Khi cả bước một bán cung và bước hai bán cung trong tập Dorian ∪ Phrygian đều về kịp, ưu tiên (1) bước hai bán cung trước bước một bán cung, và (2) bậc màu modal nằm ngoài ba âm của hợp âm mốc (`chord.pitch_classes`) trước âm hợp âm. Bậc `0, 3, 5, 7` vẫn được đi lướt qua (passing) khi đó là nốt duy nhất nối được quãng trong giới hạn hai bán cung. Cấm tuyệt đối chúng thì câu dài hơn quãng ba sẽ gãy, vì tập không có `4`, `6`, `11`.
 

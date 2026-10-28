@@ -10,6 +10,7 @@ from app.sonify.guitar import BARRIOS_TREMOLO_MIN_BPM
 from app.sonify.guitar_bach import _fuga_motif
 from app.sonify.guitar_patterns import (
     _Ctx,
+    _assert_scale_positions,
     _dur16,
     _eighth_event,
     _playable,
@@ -18,6 +19,7 @@ from app.sonify.guitar_patterns import (
     _start16,
     assert_playable,
     render_patterned_voices,
+    Unplayable,
 )
 from app.sonify.guitar_scale_passages import (
     SCALE_SIXTEENTH_MIN_BPM,
@@ -33,6 +35,7 @@ from app.sonify.guitar_scale_passages import (
     _scale_need,
     _majority_pattern,
     _monotone,
+    _fast_line,
     _slots,
     _pattern_window,
     _stamp_arrival,
@@ -1039,7 +1042,7 @@ def test_flat_price_steps_to_a_neighbor_instead_of_repeating() -> None:
     assert 1 <= abs(rising[1] - 64) <= 2
     assert 1 <= abs(falling[1] - 64) <= 2
     moving = _monotone(64, 67, 4, ctx, "up", False)
-    assert moving == [64, 64, 65, 67]
+    assert moving == [64, 65, 67, 67]
     boxed = replace(ctx, treble_floor=64, treble_top=64, ceiling=64)
     assert _monotone(64, 64, 3, boxed, "up", False) == [64, 64, 64]
     raw = [10, 10, 10, 10, 14, 16, 18, 20]
@@ -1095,8 +1098,18 @@ def test_scale_need_and_the_composer_endings() -> None:
     assert sor_e == [60, 62, 64, 65, 64]
 
     # One leftover step is not a turn. Sor repeats. Bach may take the leading tone.
-    assert _monotone(60, 62, 3, sor, "up", False) == [60, 60, 62]
+    assert _monotone(60, 62, 3, sor, "up", False) == [60, 62, 62]
     assert _monotone(60, 62, 3, bach, "up", False) == [60, 61, 62]
+
+    # Spare steps after the walk hold the closing anchor. The opening note is not repeated.
+    held = _monotone(60, 62, 8, sor, "up", False)
+    assert held is not None and held[0] == 60 and held[-1] == 62
+    assert held.count(60) == 1 and held.count(62) > 1
+    assert held[-3:] == [62, 64, 62]
+    # A shortened walk does not sit on the anchor before the last note.
+    brouwer_fast = _fast_line(brouwer, 60, 65, 7, "up", False, low, high)
+    assert brouwer_fast is not None and brouwer_fast[-1] == 65
+    assert 65 not in brouwer_fast[:-1]
 
     # Barrios keeps the chromatic approach on the last weak note, aimed from a diatonic degree.
     barrios_line = _monotone(60, 64, 5, barrios, "up", False)
@@ -1126,6 +1139,24 @@ def test_groups_ok_uses_sounding_pitches() -> None:
     slots = [_Slot(0, sub, 1, False, False) for sub in range(4)]
     # D major: written 38, 43 sound as the open E and A strings.
     assert _groups_ok(slots, [38, 43, 38, 43], 2)
+
+
+def test_scale_positions_use_sounding_pitches() -> None:
+    """The score-level hand check adds the key, the same way the group check does.
+
+    A whole step stays inside the four-semitone gate. Written 38 has no string
+    until D major makes it the open E.
+    """
+    sixteenths = [
+        NoteEvent(bar=0, beat=0.0, midi=38, duration_beats=0.25, voice=1),
+        NoteEvent(bar=0, beat=0.25, midi=40, duration_beats=0.25, voice=1),
+    ]
+    _assert_scale_positions(sixteenths, 8, D_KEY.semitones)
+    try:
+        _assert_scale_positions(sixteenths, 8, 0)
+    except Unplayable:
+        return
+    raise AssertionError("written 38 is not an open string until the key is added")
 
 
 def test_stamp_arrival_keeps_the_tie_and_carries_the_landing_velocity() -> None:

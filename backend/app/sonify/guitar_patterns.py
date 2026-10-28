@@ -3600,15 +3600,20 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
                     raise Unplayable(f"inner voice {pitch} is above the middle register")
         if not _playable([pitch for _voice, pitch in sounding_notes]):
             raise Unplayable("no string assignment fits this sonority")
-    _assert_scale_positions(voices[1], epb)
+    _assert_scale_positions(voices[1], epb, semitones)
 
 
-def _assert_scale_positions(lead: list[NoteEvent], epb: int) -> None:
+def _assert_scale_positions(lead: list[NoteEvent], epb: int, semitones: int) -> None:
+    """Hand position of a sixteenth group, on sounding pitches.
+
+    ``event.midi`` is written. Open strings are absolute sounding pitches, so a
+    transposed key has to add ``semitones`` before ``_position_ok``.
+    """
     grouped: dict[int, list[int]] = {}
     for event in lead:
         if event.midi is None or event.duration_beats > 0.25 + 1e-6:
             continue
-        grouped.setdefault(_start16(event, epb) // 4, []).append(event.midi)
+        grouped.setdefault(_start16(event, epb) // 4, []).append(event.midi + semitones)
     for pitches in grouped.values():
         ordered = sorted(set(pitches))
         if len(ordered) < 2:

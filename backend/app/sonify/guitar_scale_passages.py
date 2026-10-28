@@ -934,10 +934,9 @@ def _fast_line(
     current = start
     for index in range(1, count - 1):
         steps_after = count - 1 - index
-        if current == end:
-            notes.append(current)
-            continue
         toward = 1 if end > current else -1
+        if toward == 0:
+            return None
         need = max(1, abs(end - current) - 2 * steps_after)
         if need > 2:
             return None
@@ -946,6 +945,10 @@ def _fast_line(
             if size < need or size > 2:
                 continue
             nxt = current + toward * size
+            # The anchor is the last note. An earlier arrival would repeat it
+            # through the notes that are still left.
+            if steps_after > 0 and nxt == end:
+                continue
             if (end - nxt) * toward < 0:
                 continue
             if not low <= nxt <= high or abs(nxt - current) > 2 or (nxt - current) * toward <= 0:
@@ -957,8 +960,13 @@ def _fast_line(
             chosen = nxt
             break
         if chosen is None:
+            if current != end and abs(end - current) <= 2 * steps_after:
+                notes.append(current)
+                continue
             size = min(2, need)
             nxt = current + toward * size
+            if steps_after > 0 and nxt == end:
+                return None
             if (end - nxt) * toward < 0 or abs(nxt - current) > 2 or not low <= nxt <= high:
                 return None
             if abs(end - nxt) > 2 * steps_after:
@@ -975,13 +983,22 @@ def _fast_line(
 
 
 def _insert_repeat(notes: list[int]) -> list[int]:
-    """Repeat a pitch that is not the final anchor, so the line does not sit on `end`."""
+    """Hold the closing anchor. A cadence already on the end stays the last figure.
+
+    One neighbor costs two steps. Further spare steps sit on ``end``, just
+    before that cadence, instead of doubling the first pitch.
+    """
+    if not notes:
+        return notes
     end = notes[-1]
-    for index, note in enumerate(notes[:-1]):
-        if note == end:
-            continue
-        return notes[:index] + [note] + notes[index:]
-    return [notes[0], *notes]
+    if (
+        len(notes) >= 3
+        and notes[-3] == end
+        and notes[-2] != end
+        and abs(notes[-2] - end) <= 2
+    ):
+        return notes[:-3] + [end, *notes[-3:]]
+    return notes[:-1] + [end, notes[-1]]
 
 
 def _start_neighbor(
