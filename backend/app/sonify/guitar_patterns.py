@@ -1911,6 +1911,42 @@ def _on_sixteenth_grid(event: NoteEvent) -> bool:
     return abs(start - round(start)) <= 1e-6 and abs(dur - round(dur)) <= 1e-6
 
 
+def _events_by_voice(events: list[NoteEvent]) -> dict[int, list[NoteEvent]]:
+    groups: dict[int, list[NoteEvent]] = {}
+    for event in events:
+        groups.setdefault(event.voice, []).append(event)
+    return groups
+
+
+def _resolve_voices(events: list[NoteEvent], epb: int, default: int) -> list[NoteEvent]:
+    """Resolve each support voice on its own grid. Voice 4 is not stamped as 2."""
+    groups = _events_by_voice(events)
+    if not groups:
+        return _resolve(events, epb, default)
+    resolved: list[NoteEvent] = []
+    for voice in sorted(groups):
+        resolved.extend(_resolve(groups[voice], epb, voice))
+    return resolved
+
+
+def _fill_voices(events: list[NoteEvent], bars: int, epb: int, default: int) -> list[NoteEvent]:
+    """Fill each voice. A voice other than `default` is filled only in bars it plays."""
+    groups = _events_by_voice(events)
+    if not groups:
+        return _fill(events, bars, epb, default)
+    if set(groups) == {default}:
+        return _fill(groups[default], bars, epb, default)
+    filled: list[NoteEvent] = []
+    for voice in sorted(groups):
+        voiced = _fill(groups[voice], bars, epb, voice)
+        if voice == default:
+            filled.extend(voiced)
+            continue
+        active = {event.bar for event in groups[voice] if event.midi is not None}
+        filled.extend(event for event in voiced if event.bar in active)
+    return filled
+
+
 def _resolve(events: list[NoteEvent], epb: int, voice: int) -> list[NoteEvent]:
     timed = []
     odd: list[NoteEvent] = []
@@ -2169,7 +2205,7 @@ def _repair(ctx: _Ctx, lead: list[NoteEvent], support: list[NoteEvent], low: lis
             repaired.append(event)
             continue
         if valid_dur >= 2:
-            repaired.extend(_spell16(when, valid_dur, event.midi, ctx.epb, 2, event.velocity, event.accent))
+            repaired.extend(_spell16(when, valid_dur, event.midi, ctx.epb, event.voice, event.velocity, event.accent))
             continue
         bass = _sounding_midi(low, when // 2, ctx.epb) or ctx.bass_low
         sung = _sounding_midi(lead, when // 2, ctx.epb) or ctx.treble_top
@@ -2178,7 +2214,7 @@ def _repair(ctx: _Ctx, lead: list[NoteEvent], support: list[NoteEvent], low: lis
             if tone is not None and _valid_prefix_dur(tone, when, dur, lead, low, ctx) == dur:
                 repaired.append(replace(event, midi=tone))
             elif valid_dur > 0:
-                repaired.extend(_spell16(when, valid_dur, event.midi, ctx.epb, 2, event.velocity, event.accent))
+                repaired.extend(_spell16(when, valid_dur, event.midi, ctx.epb, event.voice, event.velocity, event.accent))
             continue
         if tone is not None:
             tone_dur = _valid_prefix_dur(tone, when, dur, lead, low, ctx)
@@ -2186,10 +2222,10 @@ def _repair(ctx: _Ctx, lead: list[NoteEvent], support: list[NoteEvent], low: lis
                 repaired.append(replace(event, midi=tone))
                 continue
             if tone_dur > 0:
-                repaired.extend(_spell16(when, tone_dur, tone, ctx.epb, 2, event.velocity, event.accent))
+                repaired.extend(_spell16(when, tone_dur, tone, ctx.epb, event.voice, event.velocity, event.accent))
                 continue
         if valid_dur > 0:
-            repaired.extend(_spell16(when, valid_dur, event.midi, ctx.epb, 2, event.velocity, event.accent))
+            repaired.extend(_spell16(when, valid_dur, event.midi, ctx.epb, event.voice, event.velocity, event.accent))
     return lead, repaired, low
 
 
@@ -2833,7 +2869,7 @@ def render_patterned_voices(
         low = _silence(low, eighth, epb)
     lead, support, low = _repair(ctx, lead, support, low)
     lead = _resolve(lead, epb, 1)
-    support = _resolve(support, epb, 2)
+    support = _resolve_voices(support, epb, 2)
     low = _resolve(low, epb, 3)
     # A guitar slur is a left-hand hammer. On Preludio it clips the canto attack.
     plucked = None
@@ -2880,7 +2916,7 @@ def render_patterned_voices(
         divisions = 12
     return (
         _fill(lead, musical_bars, epb, 1),
-        _fill(support, musical_bars, epb, 2),
+        _fill_voices(support, musical_bars, epb, 2),
         _fill(low, musical_bars, epb, 3),
         divisions,
     )
@@ -3108,7 +3144,7 @@ def _eighth_pitches(ctx: _Ctx, events, eighth: int, *, cover_eighth: bool) -> li
         if event.midi is None:
             continue
         begin = _start16(event, ctx.epb)
-        if begin < end and begin + _dur16(event) > start:
+        if begin < end and begin + _dur16(event) > start and event.midi not in found:
             found.append(event.midi)
     return found
 
@@ -3427,11 +3463,15 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
     profile_at = _profile_at(score, profiles)
     epb = int(round(score.bar_beats * 2))
     chords = _chords(score)
-    voices = {
+    voices: dict[int, list[NoteEvent]] = {
         1: [replace(event, voice=1) for event in score.lead],
-        2: [replace(event, voice=2) for event in score.support],
         3: [replace(event, voice=3) for event in score.low],
     }
+    for event in score.support:
+        # Voice 4 is the Preludio upper middle. Collapsing it onto 2 hides the stack.
+        voice = event.voice if event.voice in {2, 4} else 2
+        voices.setdefault(voice, []).append(replace(event, voice=voice))
+    voices.setdefault(2, [])
     previous_bass: NoteEvent | None = None
     bass_events = sorted(
         (event for event in voices[3] if event.midi is not None),
@@ -3465,7 +3505,7 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
                 ceiling = 83 if profile == "barrios_preludio" else 81
                 if sounding > ceiling or sounding < 59:
                     raise Unplayable(f"lead {sounding} is outside profile {profile}")
-            if voice == 2 and sounding < 50 and profile not in {"villa_etude1", "villa_etude11"}:
+            if voice in {2, 4} and sounding < 50 and profile not in {"villa_etude1", "villa_etude11"}:
                 raise Unplayable(f"inner voice {sounding} is below the middle register")
     times: set[int] = set()
     for events in voices.values():
@@ -3484,15 +3524,21 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
             continue
         lows = [pitch for voice, pitch in sounding_notes if voice == 3]
         mids = [pitch for voice, pitch in sounding_notes if voice == 2]
+        uppers = [pitch for voice, pitch in sounding_notes if voice == 4]
         highs = [pitch for voice, pitch in sounding_notes if voice == 1]
         if len(highs) > 1:
             raise Unplayable("two notes in the high voice")
-        if len(mids) > 1:
+        if len(mids) > 1 or len(uppers) > 1:
             raise Unplayable("too many notes in one voice")
         if len(lows) > 1 and profile != "barrios_tremolo":
             raise Unplayable("two bass notes are the tremolo exception")
-        if len(sounding_notes) > 4 or (len(sounding_notes) > 3 and profile != "barrios_tremolo"):
+        four_voices = profile in {"barrios_tremolo", "barrios_preludio"}
+        if len(sounding_notes) > 4 or (len(sounding_notes) > 3 and not four_voices):
             raise Unplayable("too many simultaneous pitches")
+        if profile == "barrios_preludio" and len(sounding_notes) > 3:
+            # Exactly bass, lower middle, upper middle, and the high voice.
+            if {voice for voice, _pitch in sounding_notes} != {1, 2, 3, 4}:
+                raise Unplayable("too many simultaneous pitches")
         if lows and mids and max(lows) >= min(mids):
             tremolo_ok = profile == "barrios_tremolo" and min(lows) < min(mids) and max(lows) <= 53
             if not tremolo_ok:
@@ -3501,12 +3547,20 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
             raise Unplayable("inner voice is not below the melody")
         if lows and highs and not mids and max(lows) >= min(highs):
             raise Unplayable("bass is not below the melody")
+        if uppers and mids and max(mids) >= min(uppers):
+            raise Unplayable("lower middle is not below the upper middle")
+        if uppers and highs and max(uppers) >= min(highs):
+            raise Unplayable("upper middle is not below the melody")
+        if uppers and lows and max(lows) >= min(uppers):
+            raise Unplayable("bass is not below the upper middle")
         for voice, pitch in sounding_notes:
-            if voice == 2 and pitch > 65:
+            if voice in {2, 4} and pitch > 65:
                 high_block = bool(highs) and min(highs) >= 80 and pitch < min(highs)
                 thumb = profile == "thumb_cantabile" and (not lows or pitch > max(lows)) and (not highs or pitch < min(highs))
                 etude = profile in {"villa_etude1", "villa_etude11"}
-                if not high_block and not thumb and not etude:
+                # The 65 ceiling opens only while the inner note stays under the high voice.
+                preludio = profile == "barrios_preludio" and bool(highs) and pitch < min(highs)
+                if not high_block and not thumb and not etude and not preludio:
                     raise Unplayable(f"inner voice {pitch} is above the middle register")
         if not _playable([pitch for _voice, pitch in sounding_notes]):
             raise Unplayable("no string assignment fits this sonority")

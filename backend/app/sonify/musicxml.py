@@ -836,6 +836,13 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
         for event in symbols[bar]:
             _harmony(measure, event, score.key, score.mode)
         for voice_index, voice in enumerate(voices):
+            ordered = sorted(voice[bar], key=lambda note: note.beat)
+            # A voice with no events in this bar is not a stream here. A backup
+            # with nothing after it would shorten the measure. Voice 2 still
+            # fills every bar, so a score whose support is only voice 2 keeps
+            # the same backup count.
+            if voice_index and not ordered:
+                continue
             if voice_index:
                 backup = _add(measure, "backup")
                 _add(backup, "duration", bar_units)
@@ -845,7 +852,6 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                 # and the bass) all sit around mp.
                 marking = markings[voice_index]
                 _dynamic(measure, DynamicEvent(bar=0, marking=marking, sound=SOUND[marking]))
-            ordered = sorted(voice[bar], key=lambda note: note.beat)
             roles = _sextuplet_roles(ordered)
             previous_beat: float | None = None
             for event, role in zip(ordered, roles):
