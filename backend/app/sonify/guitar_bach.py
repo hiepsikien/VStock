@@ -9,6 +9,7 @@ import math
 from app.sonify.chords import Chord
 from app.sonify.model import NoteEvent, Phrase, Score
 from app.sonify.phrasing import MIN_RISE, swell
+from app.sonify.quantize import C_MAJOR_PCS, C_NATURAL_MINOR_PCS
 
 # Default velocity constants evaluated at function definition time
 _MELODY = 64
@@ -453,13 +454,14 @@ def _approach_eighths(ctx: _Ctx, target: int, count: int) -> list[int]:
 
 
 
-def _render_bach_fuga_bar(
-    ctx: _Ctx, bar: int, apex: set[int], phrase: Phrase | None
-) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
-    """Soprano sings the price now. The bass answers two bars later, 1:1, on this chord."""
+def _compose_fuga_bass(ctx: _Ctx, bar: int, lead: list[NoteEvent]) -> list[NoteEvent]:
+    """Voice 3 answers with the subject from two bars earlier, under `lead`.
+
+    The soprano may already be a scale. The bass still follows `_fuga_motif`
+    of the lagged bar, one step at a time, never retrograde.
+    """
     epb = ctx.epb
     start = bar * epb
-    lead = _sustain(ctx.melody, start, start + epb, epb, apex, phrase=phrase)
     src = _bach_lag_bar(ctx, bar)
     low: list[NoteEvent] = []
 
@@ -505,6 +507,26 @@ def _render_bach_fuga_bar(
                 continue
             nxt = motif[index + 1][0] if index + 1 < len(motif) else epb
             previous = sing(offset, min(length, nxt - offset), direction, previous)
+    return low
+
+
+def _fuga_bass_under_lead(ctx: _Ctx, bar: int, lead: list[NoteEvent]) -> list[NoteEvent]:
+    """Rebuild the lagged subject after a scale replaces the soprano of `bar`."""
+    low = _compose_fuga_bass(ctx, bar, lead)
+    _support, low = _shape_accompaniment(ctx, [], low)
+    if _bach_lag_bar(ctx, bar) == bar and low:
+        low = _soften_attack(low, bar * ctx.epb, ctx.epb, amount=8)
+    return low
+
+
+def _render_bach_fuga_bar(
+    ctx: _Ctx, bar: int, apex: set[int], phrase: Phrase | None
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    """Soprano sings the price now. The bass answers two bars later, 1:1, on this chord."""
+    epb = ctx.epb
+    start = bar * epb
+    lead = _sustain(ctx.melody, start, start + epb, epb, apex, phrase=phrase)
+    low = _compose_fuga_bass(ctx, bar, lead)
     support: list[NoteEvent] = []
     strong_offsets = (0, 4) if ctx.kind == "4/4" else tuple(offset for offset in ctx.strong if offset < epb)
     for offset in strong_offsets:
@@ -520,7 +542,7 @@ def _render_bach_fuga_bar(
             continue
         support.extend(_eighth_event(eighth, 1, tone, epb, 2, _INNER))
     support, low = _shape_accompaniment(ctx, support, low)
-    if src == bar and low:
+    if _bach_lag_bar(ctx, bar) == bar and low:
         low = _soften_attack(low, start, epb, amount=8)
     return lead, support, low
 
@@ -1184,6 +1206,102 @@ def _render_bach_chaconne_bar(
         )
     support, low = _shape_accompaniment(ctx, support, low)
     return lead, support, low
+
+
+_MELODIC_MINOR_PCS = frozenset({0, 2, 3, 5, 7, 9, 11})
+
+
+def bach_scale_classes(ctx: _Ctx, impulse_direction: str, approaching_tonic: bool) -> frozenset[int]:
+    """Diatonic tirata. Minor follows the wave, not each one-eighth retreat.
+
+    An upward wave stays on melodic minor (raised 6 and 7), including a short
+    retreat. A downward wave stays on natural minor, and raises 6 and 7 only
+    while the line is approaching the tonic.
+    """
+    if ctx.mode != "minor":
+        return frozenset(C_MAJOR_PCS)
+    if impulse_direction == "up" or approaching_tonic:
+        return _MELODIC_MINOR_PCS
+    return frozenset(C_NATURAL_MINOR_PCS)
+
+
+def _bach_step_in(pitch: int, direction: int, classes: frozenset[int], low: int, high: int) -> int:
+    step = 1 if direction >= 0 else -1
+    cursor = pitch
+    for _ in range(12):
+        cursor += step
+        if cursor < low or cursor > high:
+            return pitch
+        if cursor % 12 in classes:
+            return cursor
+    return pitch
+
+
+def bach_scale_step(
+    ctx: _Ctx,
+    pitch: int,
+    direction: int,
+    *,
+    impulse_direction: str = "up",
+    approaching_tonic: bool = False,
+) -> int:
+    """One diatonic step of a Bach tirata, inside the treble window."""
+    high = min(ctx.treble_top, ctx.ceiling)
+    classes = bach_scale_classes(ctx, impulse_direction, approaching_tonic)
+    return _bach_step_in(pitch, direction, classes, ctx.treble_floor, high)
+
+
+def _bach_phrase_at(ctx: _Ctx, bar: int) -> Phrase | None:
+    eighth = bar * ctx.epb
+    for phrase in ctx.phrases:
+        if phrase.start <= eighth < phrase.end:
+            return phrase
+    return None
+
+
+def _bach_passing_offset(ctx: _Ctx) -> int:
+    epb = ctx.epb
+    accent = 3 if ctx.kind == "6/8" else 2
+    passing = 6 if ctx.kind == "4/4" else (5 if ctx.kind == "6/8" else 4)
+    accent = min(accent, epb - 1)
+    return min(max(passing, accent + 2), epb)
+
+
+def bach_group2_window(ctx: _Ctx, bar: int, pattern: str) -> tuple[int, int] | None:
+    """Inclusive eighths of the group-2 second-half window, whether or not it is drawn."""
+    if pattern not in {"bach_gigue", "bach_chaconne", "bach_sarabande"}:
+        return None
+    epb = ctx.epb
+    start = bar * epb
+    if pattern == "bach_gigue":
+        lo = _gigue_plan(ctx)["scale_at"] // 2
+    elif pattern == "bach_chaconne":
+        lo = (8 if epb >= 8 else 4) // 2
+    else:
+        lo = _bach_passing_offset(ctx)
+    if lo >= epb:
+        return None
+    return start + lo, start + epb - 1
+
+
+def bach_group2_intrinsic_eighths(ctx: _Ctx, bar: int, pattern: str) -> set[int]:
+    """Eighths of the scale figuration this bar already draws. Empty when it draws none."""
+    window = bach_group2_window(ctx, bar, pattern)
+    if window is None:
+        return set()
+    phrase = _bach_phrase_at(ctx, bar)
+    if pattern == "bach_gigue":
+        drawn = _rises(phrase)
+    elif pattern == "bach_chaconne":
+        epb = ctx.epb
+        scale_at = 8 if epb >= 8 else 4
+        drawn = bool(_rises(phrase) and ctx.band(bar) in {"mf", "f"} and epb * 2 - scale_at >= 4)
+    else:
+        drawn = _sarabande_passes(ctx, bar, bar * ctx.epb, ctx.epb)
+    if not drawn:
+        return set()
+    lo, hi = window
+    return set(range(lo, hi + 1))
 
 
 from app.sonify.guitar_patterns import (  # noqa: E402

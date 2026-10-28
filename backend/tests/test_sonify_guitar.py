@@ -746,13 +746,8 @@ def test_scale_and_grand_solo_ornament_without_moving_the_strong_beats() -> None
     )
     assert [beat for beat, _midi in _on(score.support, 1)] == [1.0, 3.0]
     assert 1.5 in [beat for beat, _midi in _on(score.support, 2)]
-    sixteenths = [note for note in score.lead if note.duration_beats <= 0.25 and note.midi is not None]
-    assert sixteenths
-    assert {note.bar for note in sixteenths} == {3}
-    assert len({note.bar for note in sixteenths}) / score.bars <= 0.15
-    target = next(note for note in sixteenths if note.bar == 3 and abs(note.beat - 2.0) < 1e-6)
-    assert target.midi == 67
-    assert all(note.midi is not None and note.midi % 12 in _MAJOR for note in sixteenths)
+    # The one-way 4–6 note overlay is gone. A scale passage needs an impulse.
+    assert not any(note.duration_beats <= 0.25 and note.midi is not None for note in score.lead)
     assert all(note.midi is not None for note in (score.lead[0], score.support[0], score.low[0]))
     assert all(
         any(note.bar == 0 and abs(note.beat) < 1e-6 and note.midi is not None for note in voice)
@@ -794,12 +789,10 @@ def test_barrios_scale_may_lead_by_a_chromatic_and_a_hold_can_wave() -> None:
         character="rally",
         bands={bar: "mf" for bar in range(8)},
     )
-    run = [note for note in score.lead if note.bar == 1 and note.duration_beats <= 0.25 and note.midi is not None]
-    assert run
-    chromatic = [note for note in run if note.midi is not None and note.midi % 12 not in _MAJOR]
-    assert len(chromatic) <= 1
-    if chromatic:
-        assert abs(chromatic[0].midi - 72) == 1 or abs(chromatic[0].midi - 67) <= 1
+    # Without an impulse the retired one-way chromatic run is not written.
+    assert not any(
+        note.bar == 1 and note.duration_beats <= 0.25 and note.midi is not None for note in score.lead
+    )
     hold = [72] * 16
     rest = [64] * (8 * 13)
     wave_pitches = opening + hold + rest
@@ -812,18 +805,18 @@ def test_barrios_scale_may_lead_by_a_chromatic_and_a_hold_can_wave() -> None:
         character="volatile",
         bands={bar: "f" for bar in range(16)},
     )
-    for bar in (1, 2):
+    for bar, held in ((1, 72), (2, 72), (3, 64), (4, 64)):
         lead = [note for note in wave.lead if note.bar == bar and note.midi is not None]
         assert len(lead) == 16
         assert all(note.duration_beats == 0.25 for note in lead)
         assert {round(note.beat, 2) for note in wave.low if note.bar == bar and note.midi is not None} == {0.0, 2.0}
         assert not any(note.bar == bar and note.midi is not None for note in wave.support)
         anchors = [note.midi for note in lead if abs(note.beat - round(note.beat)) < 1e-6]
-        assert anchors == [72, 72, 72, 72]
+        assert anchors == [held, held, held, held]
         moving = [note.midi for note in lead if abs((note.beat * 4) % 4 - 2) < 1e-6]
-        assert moving and all(note != 72 for note in moving)
-    # The third bar of the hold is ordinary tremolo again: thumb on every quarter.
-    assert {round(note.beat, 2) for note in wave.low if note.bar == 3 and note.midi is not None} == {0.0, 1.0, 2.0, 3.0}
+        assert moving and all(note != held for note in moving)
+    # Each tremolo phrase waves for its first two held bars. The next bar is ordinary.
+    assert {round(note.beat, 2) for note in wave.low if note.bar == 5 and note.midi is not None} == {0.0, 1.0, 2.0, 3.0}
 
 
 def _bare(lead=(), support=(), low=(), slots=None, bars: int = 1, bar_beats: float = 4.0):
@@ -2982,10 +2975,10 @@ def test_la_catedral_preludio_interlocks_two_high_melody_notes_with_sixteenth_ar
     middle_bars = range(phrases[1].start, phrases[1].end)
     assert middle_bars
     assert all(lead_grid(bar) != _CATEDRAL_LEAD_44 for bar in middle_bars)
-    # The scale that leaves one Andante phrase puts A5 over C3, which has no
-    # string assignment. The block-chord bars of the phrase do.
+    # An impulse scale on this Andante phrase would put A5 over C3, which has
+    # no string assignment. The 15% overlay used to plant that run. Block-chord
+    # bars of the phrase still have to be playable.
     scale_bars = {bar for bar in middle_bars if any(duration <= 0.25 for _beat, duration in lead_grid(bar))}
-    assert scale_bars
     assert_playable(slice_bars(phrases[1].start, phrases[1].end, scale_bars), C_KEY, "barrios_chorale")
     reprise_bars = range(phrases[2].start, phrases[2].end)
     for bar in reprise_bars:
@@ -3266,18 +3259,26 @@ def test_sarabande_accents_beat_two_and_swarms_when_the_line_rises() -> None:
 
     # Even a full-window drop in 6/8, 3/4, or 4/4 keeps every step across the ENTIRE bar <= 2 semitones,
     # accents beat 2 (1.5 in 6/8, 1.0 in 3/4 and 4/4), and lands on the closing pitch.
-    for meter, accent_beat, line_notes in (
-        (METER_68, 1.5, [79, 76, 74, 79, 69, 60]),
-        (METER_34, 1.0, [76, 76, 76, 76, 68, 60]),
-        (METER_44, 1.0, [81, 80, 79, 79, 81, 74, 67, 59]),
+    # 6/8 and 3/4 open the swarm at the start of the bar, so the accent eighth is a hairpin
+    # step and the lead is not punched. 4/4 starts the swarm one sixteenth after the accent,
+    # and that sustain attack is still punched. Bass and inner stay punched in every meter.
+    for meter, accent_beat, line_notes, lead_punched in (
+        (METER_68, 1.5, [79, 76, 74, 79, 69, 60], False),
+        (METER_34, 1.0, [76, 76, 76, 76, 68, 60], False),
+        (METER_44, 1.0, [81, 80, 79, 79, 81, 74, 67, 59], True),
     ):
         cliff_score = _brouwer_pattern(line_notes, character="selloff", meter=meter)
         all_lead = [note.midi for note in _attacks(cliff_score.lead, 0) if note.midi is not None]
         all_diffs = [abs(right - left) for left, right in zip(all_lead, all_lead[1:])]
         assert all_lead[-1] == line_notes[-1]
         assert max(all_diffs) <= 2 and all(diff >= 1 for diff in all_diffs)
-        for voice in (cliff_score.low, cliff_score.support, cliff_score.lead):
+        for voice in (cliff_score.low, cliff_score.support):
             assert any(note.accent and abs(note.beat - accent_beat) < 1e-6 for note in _attacks(voice, 0))
+        lead_at_accent = [
+            note for note in _attacks(cliff_score.lead, 0) if abs(note.beat - accent_beat) < 1e-6
+        ]
+        assert lead_at_accent
+        assert all(note.accent == lead_punched for note in lead_at_accent)
         _assert_engraved(cliff_score, "brouwer")
 
     slow = _brouwer_pattern([72] * 8, character="rally", bpm=72)

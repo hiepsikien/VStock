@@ -1016,6 +1016,17 @@ def _preludio_bass(ctx: _Ctx, patterns: list[str]) -> list[NoteEvent]:
     return events
 
 
+def barrios_scale_step(ctx: _Ctx, pitch: int, direction: int) -> int:
+    """One diatonic step. The chromatic approach sits on the note before a strong beat."""
+    high = min(ctx.treble_top, ctx.ceiling)
+    return _walk(pitch, 1 if direction >= 0 else -1, ctx.mode, ctx.treble_floor, high)
+
+
+def barrios_chromatic_approach(target: int, ascending: bool) -> int:
+    """Semitone neighbor into a strong note or the passage target."""
+    return target - 1 if ascending else target + 1
+
+
 from app.sonify.guitar_patterns import (  # noqa: E402
     BARRIOS_TREMOLO_MIN_BPM,
     _BASS,

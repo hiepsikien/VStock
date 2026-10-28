@@ -150,6 +150,7 @@ class _Ctx:
     elegy_prev: dict = field(default_factory=dict)
     bar_volumes: list[float] | None = None
     section_rel_spans: dict | None = None
+    impulses: tuple = ()
 
     def chord(self, bar: int) -> Chord:
         if bar in self.chord_at:
@@ -1764,9 +1765,29 @@ def _splice(events: list[NoteEvent], start: int, end: int, fresh: list[NoteEvent
             kept.append(event)
             continue
         if begin < start:
-            kept.extend(_spell16(begin, start - begin, event.midi, epb, event.voice, event.velocity))
+            kept.extend(
+                _spell16(
+                    begin,
+                    start - begin,
+                    event.midi,
+                    epb,
+                    event.voice,
+                    event.velocity,
+                    tie_in=event.tie_stop,
+                )
+            )
         if finish > end:
-            kept.extend(_spell16(end, finish - end, event.midi, epb, event.voice, event.velocity))
+            kept.extend(
+                _spell16(
+                    end,
+                    finish - end,
+                    event.midi,
+                    epb,
+                    event.voice,
+                    event.velocity,
+                    tie_out=event.tie_start,
+                )
+            )
     kept.extend(fresh)
     return kept
 
@@ -2392,6 +2413,7 @@ def render_patterned_voices(
     register,
     bar_volumes: list[float] | None = None,
     section_rel_spans: dict | None = None,
+    impulses: tuple = (),
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent], int]:
     meter = active_meter()
     epb = meter.eighths_per_bar
@@ -2431,6 +2453,7 @@ def render_patterned_voices(
         bar_beats=meter.quarter_beats,
         bar_volumes=None if bar_volumes is None else list(bar_volumes),
         section_rel_spans=None if section_rel_spans is None else dict(section_rel_spans),
+        impulses=tuple(impulses or ()),
     )
     patterns = _patterns(ctx) if phrases else []
     headline = _HEADLINE.get()
@@ -2443,9 +2466,6 @@ def render_patterned_voices(
         return [], [], [], 2
     _fit_elegiaque_melody(ctx, patterns)
     levels = _grand_levels(ctx, patterns)
-    plans, perpetual = _allocate_overlays(ctx, patterns, levels)
-    if _framed(ctx) and ctx.bars <= 40:
-        plans, perpetual = _cap_accents(ctx, plans, perpetual)
     lead: list[NoteEvent] = []
     support: list[NoteEvent] = []
     low: list[NoteEvent] = []
@@ -2644,14 +2664,20 @@ def render_patterned_voices(
             support.extend(part_support)
             low.extend(part_low)
         elif pattern == "sarabande":
-            part_support, part_low, accent_at, figure = _render_sarabande_bar(ctx, bar, phrase_here)
+            part_support, part_low, accent_at, figure = _render_sarabande_bar(
+                ctx, bar, phrase_here, lead
+            )
             cuts = {bar * epb + accent_at}
             if figure:
                 cuts.add(_start16(figure[0], epb) // 2)
             part_lead = _sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex, cuts, phrase_here)
             if figure:
                 part_lead = _splice(part_lead, _start16(figure[0], epb), (bar + 1) * epb * 2, figure, epb)
-            part_lead = _punch(part_lead, bar * epb + accent_at, epb, amount=8)
+            accent_eighth = bar * epb + accent_at
+            # A swarm attack on the accent is a hairpin step. Bass and inner
+            # punches stay inside `_render_sarabande_bar`.
+            if not figure or _start16(figure[0], epb) > accent_eighth * 2:
+                part_lead = _punch(part_lead, accent_eighth, epb, amount=8)
             lead.extend(part_lead)
             support.extend(part_support)
             low.extend(part_low)
@@ -2696,6 +2722,23 @@ def render_patterned_voices(
     }
     if ringing:
         support = _apply_campanella(ctx, support, lead, ringing, low)
+    from app.sonify.guitar_scale_passages import (
+        apply_scale_passages,
+        clear_scale_slurs,
+        sounding_swarm_eighths,
+    )
+
+    lead, support, low, scale_plan = apply_scale_passages(ctx, patterns, lead, support, low)
+    scale_eighths = set(scale_plan.scale_eighths)
+    perpetual_bars = set(scale_plan.perpetual_bars)
+    perpetual_indexes: set[int] = set()
+    for index, phrase in enumerate(phrases):
+        if phrase.end <= phrase.start:
+            continue
+        first_bar = phrase.start // epb
+        last_bar = max(phrase.end - 1, phrase.start) // epb
+        if any(bar in perpetual_bars for bar in range(first_bar, last_bar + 1)):
+            perpetual_indexes.add(index)
     if not _framed(ctx):
         for index, phrase in enumerate(phrases):
             following = None
@@ -2707,7 +2750,7 @@ def render_patterned_voices(
                 break
             if (
                 patterns[index] == "tremolo"
-                and index not in perpetual
+                and index not in perpetual_indexes
                 and phrase.end - phrase.start >= 8
                 and following is not None
                 and (phrase.closes or following != "tremolo")
@@ -2733,33 +2776,22 @@ def render_patterned_voices(
             reverse=True,
         )
         bell_bars = set(ranked_bells[:2])
+    bell_bars -= {eighth // epb for eighth in scale_eighths}
     lead, support = _insert_bells(ctx, lead, support, bell_bars)
-    for index, (target, ascent, chromatic) in plans.items():
-        if index < len(patterns) and patterns[index] in {"etude1", "etude11"}:
-            continue
-        # The canto is the Preludio. A scale run would cut the dotted quarters.
-        if (
-            _catedral_preludio(ctx)
-            and _framed(ctx)
-            and index < len(patterns)
-            and patterns[index] == "preludio"
-        ):
-            continue
-        lead, support, low, _bars = _apply_scale_run(
-            ctx, lead, support, low, phrases[index], target, ascent, chromatic
-        )
-    for index, bars in perpetual.items():
-        lead, support, low = _apply_perpetual(ctx, lead, support, low, bars)
     for bar in _fanfare_bars(ctx, levels):
         lead, support, low = _apply_fanfare(ctx, lead, support, low, bar)
     relaxed: set[int] = set()
     if _framed(ctx):
         lead, support, low = _strip_pedal(ctx, lead, support, low)
         lead, support, low = _paint_frames(ctx, patterns, lead, support, low)
-        lead, support, low, relaxed = _smooth_boundaries(ctx, patterns, lead, support, low)
+        lead, support, low, relaxed = _smooth_boundaries(
+            ctx, patterns, lead, support, low, scale_eighths
+        )
     else:
-        lead, support, low = _transitions(ctx, patterns, levels, lead, support, low)
+        lead, support, low = _transitions(ctx, patterns, levels, lead, support, low, scale_eighths)
     for eighth in _caesura_eighths(ctx, levels):
+        if eighth in scale_eighths:
+            continue
         lead = _silence(lead, eighth, epb)
         support = _silence(support, eighth, epb)
         low = _silence(low, eighth, epb)
@@ -2776,10 +2808,21 @@ def render_patterned_voices(
             if _bar_pattern(ctx, bar, patterns) == "preludio"
         }
     lead = _slur(lead, phrases, skip_bars=plucked)
-    lead, support, low = _shape_dynamics(ctx, lead, support, low, relaxed, patterns)
+    # Boundary pickups and caesuras already ran against passage eighths only.
+    # Swarm eighths join the slur and dynamics sets now, and stay out of bell_bars.
+    protected_eighths = set(scale_eighths) | sounding_swarm_eighths(ctx, patterns, scale_eighths)
+    lead = clear_scale_slurs(lead, protected_eighths, epb)
+    lead, support, low = _shape_dynamics(
+        ctx, lead, support, low, relaxed, patterns, protected_eighths
+    )
+    written_lead = list(lead)
     from app.sonify.guitar_wave import apply_guitar_wave
 
     lead, support, low = apply_guitar_wave(ctx, lead, support, low, patterns, relaxed)
+    from app.sonify.guitar_scale_passages import restamp_passage_hairpins
+
+    lead = _restamp_swarm_hairpins(ctx, patterns, lead, written_lead)
+    lead = restamp_passage_hairpins(ctx, patterns, scale_plan, lead, written_lead)
     divisions = 4 if _needs_sixteenths([*lead, *support, *low]) else 2
     # Bach's mordent, bariolage, and scale runs are sixteenth figures. When any
     # voice asks for that grid, the engraving stays at division 4.
@@ -2907,6 +2950,24 @@ def profiles_for(ctx: _Ctx, patterns: list[str]) -> dict[int, str]:
         else:
             found[bar] = _PROFILE.get(_bar_pattern(ctx, bar, patterns), "study")
     return found
+
+
+def _restamp_swarm_hairpins(ctx: _Ctx, patterns, lead, written_lead):
+    """Reprint each sarabande swarm after the volume wave.
+
+    The curve is taken from the pre-wave lead, so a hat that opened at 72
+    is not left on the sarabande ceiling.
+    """
+    for bar in range(ctx.bars):
+        if _bar_pattern(ctx, bar, patterns) != "sarabande":
+            continue
+        owner = _owner(ctx, bar)
+        phrase = ctx.phrases[owner] if owner is not None else None
+        _support, _low, _accent, figure = _render_sarabande_bar(ctx, bar, phrase, written_lead)
+        if not figure:
+            continue
+        lead = _splice(lead, _start16(figure[0], ctx.epb), (bar + 1) * ctx.epb * 2, figure, ctx.epb)
+    return lead
 
 
 def _paint_frames(ctx: _Ctx, patterns, lead, support, low):
@@ -3108,21 +3169,33 @@ def _plant_pickup(
     return lead, support, low
 
 
-def _smooth_boundaries(ctx: _Ctx, patterns, lead, support, low):
+def _smooth_boundaries(ctx: _Ctx, patterns, lead, support, low, scale_eighths: set[int] | None = None):
     relaxed: set[int] = set()
+    protected = scale_eighths or set()
     for bar in _boundary_bars(ctx, patterns):
         pattern = _bar_pattern(ctx, bar, patterns)
-        if ctx.kind_at.get(bar, "phrase") not in _PEDAL and (pattern == "tremolo" or pattern in _DANCE):
-            lead, support, low, window = _relax_texture(ctx, lead, support, low, bar)
-            relaxed.update(window)
+        half = max(1, ctx.epb // 2)
+        window = range((bar + 1) * ctx.epb - half, (bar + 1) * ctx.epb)
+        if (
+            ctx.kind_at.get(bar, "phrase") not in _PEDAL
+            and (pattern == "tremolo" or pattern in _DANCE)
+            and not protected.intersection(window)
+        ):
+            lead, support, low, eased = _relax_texture(ctx, lead, support, low, bar)
+            relaxed.update(eased)
         # The last sixteenth of *La Catedral* is an inner note. The pickup bass
         # has to share a hand with that note, not only with the canto attack.
         cover = _catedral_preludio(ctx) and pattern == "preludio"
         keep_approach = pattern == "villa_pattern" and ctx.band(bar) == "f"
         # The etudes already breathe on the last beat. A pickup would cut that bass.
-        # Pedal bars keep the frame's own anacrusis. The last body bar before the
-        # outro still relaxes and takes the pickup.
-        if pattern not in {"etude1", "etude11"} and ctx.kind_at.get(bar, "phrase") not in _PEDAL:
+        # Pedal bars keep the frame's own anacrusis. A scale arrival on the last
+        # eighth keeps its own bass. The last body bar before the outro still
+        # relaxes and takes the pickup.
+        if (
+            pattern not in {"etude1", "etude11"}
+            and ctx.kind_at.get(bar, "phrase") not in _PEDAL
+            and (bar + 1) * ctx.epb - 1 not in protected
+        ):
             lead, support, low = _plant_pickup(
                 ctx, lead, support, low, bar, cover_eighth=cover, keep_approach=keep_approach
             )
@@ -3134,14 +3207,24 @@ def _smooth_boundaries(ctx: _Ctx, patterns, lead, support, low):
 _TREMOLO_BAND = {"p": -6, "mp": -3, "mf": 0, "f": 3}
 
 
-def _shape_dynamics(ctx: _Ctx, lead, support, low, relaxed: set[int], patterns: list[str] | None = None):
+def _shape_dynamics(
+    ctx: _Ctx,
+    lead,
+    support,
+    low,
+    relaxed: set[int],
+    patterns: list[str] | None = None,
+    scale_eighths: set[int] | None = None,
+):
     """Add the phrase's extra (0..+4) and leave the written offsets in place.
 
     The printed band is not added here. The volume wave owns that tide, so a
     `p` bar and an `f` bar with the same center produce the same shift.
     Etude cells and tremolo already carry their own arch; a second extra or
     band step would move those offsets before the affine reads them.
+    Lead attacks on a scale passage or a sarabande swarm keep the hairpin.
     """
+    protected = scale_eighths or set()
     pedal = set(_pedal_regions(ctx)[0]) | set(_pedal_regions(ctx)[1])
 
     def phrase_at(eighth: int) -> Phrase | None:
@@ -3150,13 +3233,16 @@ def _shape_dynamics(ctx: _Ctx, lead, support, low, relaxed: set[int], patterns: 
                 return phrase
         return None
 
-    def shape(events: list[NoteEvent]) -> list[NoteEvent]:
+    def shape(events: list[NoteEvent], voice: str) -> list[NoteEvent]:
         shaped: list[NoteEvent] = []
         for event in events:
             if event.midi is None or event.velocity is None or event.bar in pedal:
                 shaped.append(event)
                 continue
             eighth = event.bar * ctx.epb + int(math.floor(event.beat * 2 + 1e-9))
+            if voice == "lead" and eighth in protected:
+                shaped.append(event)
+                continue
             if eighth in relaxed:
                 shaped.append(event)
                 continue
@@ -3174,10 +3260,11 @@ def _shape_dynamics(ctx: _Ctx, lead, support, low, relaxed: set[int], patterns: 
             shaped.append(replace(event, velocity=event.velocity + extra))
         return shaped
 
-    return shape(lead), shape(support), shape(low)
+    return shape(lead, "lead"), shape(support, "support"), shape(low, "low")
 
 
-def _transitions(ctx, patterns, levels, lead, support, low):
+def _transitions(ctx, patterns, levels, lead, support, low, scale_eighths: set[int] | None = None):
+    protected = scale_eighths or set()
     body = [
         index
         for index, phrase in enumerate(ctx.phrases)
@@ -3196,15 +3283,22 @@ def _transitions(ctx, patterns, levels, lead, support, low):
         different_family = _FAMILY.get(patterns[left]) != _FAMILY.get(patterns[right])
         # The etudes breathe inside the bar: the last beat keeps its bass, and
         # Étude No. 11 also keeps the melody of that last sextuplet.
-        if patterns[left] not in {"etude1", "etude11"} and (
-            held_ending or (running_ending and different_family and phrase.end - phrase.start >= 4)
+        if (
+            eighth not in protected
+            and patterns[left] not in {"etude1", "etude11"}
+            and (held_ending or (running_ending and different_family and phrase.end - phrase.start >= 4))
         ):
             lead = _silence(lead, eighth, ctx.epb)
             support = _silence(support, eighth, ctx.epb)
         high = patterns[right] in {"tremolo", *_DANCE} or (
             patterns[right] == "study" and right in levels
         )
-        if patterns[left] in _CHORALE and high and eighth not in _caesura_eighths(ctx, levels):
+        if (
+            eighth not in protected
+            and patterns[left] in _CHORALE
+            and high
+            and eighth not in _caesura_eighths(ctx, levels)
+        ):
             low = _silence(low, eighth, ctx.epb)
             target = ctx.chord(ctx.phrases[right].start // ctx.epb)
             root = _choose_bass(target, 0, _melody_at(ctx, ctx.phrases[right].start), ctx.bass_low, ctx.bass_high, ctx.semitones)

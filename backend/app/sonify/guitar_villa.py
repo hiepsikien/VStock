@@ -566,14 +566,56 @@ def _render_etude11_bar(
     return lead, support, low
 
 
+_VILLA_COLOR_PCS = frozenset({2, 5, 10})
+
+
+def _villa_step_in(pitch: int, direction: int, classes: set[int], low: int, high: int) -> int:
+    step = 1 if direction >= 0 else -1
+    cursor = pitch
+    for _ in range(12):
+        cursor += step
+        if cursor < low or cursor > high:
+            return pitch
+        if cursor % 12 in classes:
+            return cursor
+    return pitch
+
+
+def villa_scale_step(ctx: _Ctx, pitch: int, direction: int) -> int:
+    """Stopped modal step (diatonic plus sus2 / add9 / 7sus4 color).
+
+    Open strings are offered separately and kept only when the sixteenth
+    group still passes the position check.
+    """
+    high = min(ctx.treble_top, ctx.ceiling)
+    classes = set(_classes(ctx.mode)) | set(_VILLA_COLOR_PCS)
+    return _villa_step_in(pitch, direction, classes, ctx.treble_floor, high)
+
+
+def villa_open_candidates(ctx: _Ctx, pitch: int, direction: int) -> list[int]:
+    """Written open-string pitches one or two semitones in `direction`."""
+    step = 1 if direction >= 0 else -1
+    found: list[int] = []
+    for sounding in _OPENS:
+        written = sounding - ctx.semitones
+        delta = written - pitch
+        if step > 0 and 1 <= delta <= 2 and written not in found:
+            found.append(written)
+        elif step < 0 and -2 <= delta <= -1 and written not in found:
+            found.append(written)
+    return found
+
+
 from app.sonify.guitar_patterns import (  # noqa: E402
     _BASS,
     _Ctx,
     _INNER,
     _MELODY,
     _MELODY_APEX,
+    _OPENS,
     _bass_at,
     _choose_bass,
+    _classes,
     _choose_inner,
     _compress_monotone,
     _covering_melody_velocity,
