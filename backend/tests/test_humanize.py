@@ -67,6 +67,19 @@ def _velocities(notes: tuple[NoteEvent, ...]) -> list[int | None]:
     return [note.velocity for note in notes]
 
 
+def test_a_reprinted_hairpin_keeps_its_velocity_through_the_snap_window() -> None:
+    """Bach and Sor fold an unmarked 82 into 70. A passage or swarm lead does not."""
+    peak = _note(0.0, 82, midi=76, voice=1, hairpin=True)
+    step = _note(0.5, 72, midi=74, voice=1, hairpin=True)
+    snap = _note(1.0, 82, midi=72, voice=1)
+    for ensemble, ceiling in (("bach", 70), ("classic", 70), ("brouwer", 76), ("barrios", 76)):
+        heard = humanize(
+            _score(lead=(peak, step, snap), ensemble=ensemble),
+            offset_at=lambda *_args: 2,
+        )
+        assert [note.velocity for note in heard.lead] == [82, 72, ceiling]
+
+
 def test_a_flat_study_bar_moves_and_the_bass_stays_louder() -> None:
     support = tuple(_note(beat, 56, midi=67) for beat in (0.0, 1.0, 2.0, 3.0))
     low = tuple(_note(beat, 60, midi=48, voice=3) for beat in (0.0, 1.0, 2.0, 3.0))

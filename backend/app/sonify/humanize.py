@@ -254,7 +254,11 @@ def _clamp_guitar(original: tuple[NoteEvent, ...], heard: list[NoteEvent], ensem
         if written is None or current is None or not _is_attack(note):
             clamped.append(heard_note)
             continue
-        if written <= 64:
+        if note.hairpin:
+            # A reprinted scale or swarm hairpin already has its velocity.
+            # The snap window would fold every step above 64 onto one ceiling.
+            velocity = written
+        elif written <= 64:
             velocity = min(64, current)
         else:
             velocity = max(66, min(ceiling, current))

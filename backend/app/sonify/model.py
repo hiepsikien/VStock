@@ -133,6 +133,7 @@ class NoteEvent:
     velocity: int | None = None
     tenuto: bool = False
     staccato: bool = False
+    hairpin: bool = False
 
 
 @dataclass(frozen=True)

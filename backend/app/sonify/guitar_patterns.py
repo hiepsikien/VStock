@@ -2966,6 +2966,7 @@ def _restamp_swarm_hairpins(ctx: _Ctx, patterns, lead, written_lead):
         _support, _low, _accent, figure = _render_sarabande_bar(ctx, bar, phrase, written_lead)
         if not figure:
             continue
+        figure = [replace(event, hairpin=True) if event.midi is not None else event for event in figure]
         lead = _splice(lead, _start16(figure[0], ctx.epb), (bar + 1) * ctx.epb * 2, figure, ctx.epb)
     return lead
 

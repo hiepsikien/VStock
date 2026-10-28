@@ -418,6 +418,13 @@ def test_ascending_entry_does_not_swell_downward_from_72() -> None:
     assert velocities[-2] < velocities[-1]
     assert all(value < 90 for value in velocities[:-1])
     assert all(right >= left for left, right in zip(velocities, velocities[1:]))
+    from app.sonify.humanize import humanize
+
+    heard = humanize(score, offset_at=lambda *_args: 2)
+    heard_notes = [event for start, event in _ordered(heard.lead) if 2 <= start <= 16]
+    heard_velocities = [event.velocity for event in heard_notes]
+    assert heard_velocities == velocities
+    assert all(event.hairpin for event in heard_notes)
     target = next(event for start, event in _ordered(score.lead) if start == 16)
     assert target.midi == melody[8]
     bass_onsets = sorted(
@@ -868,6 +875,14 @@ def test_modal_figure_ramps_the_hat_window_and_a_bar_opening_is_not_punched() ->
     assert velocities[0] == 72
     assert velocities[-1] == _BASS + 2
     assert all(right <= left for left, right in zip(velocities, velocities[1:]))
+    assert any(event.hairpin for _start, event in lead)
+    from app.sonify.humanize import humanize
+
+    # Sor's snap ceiling is 70. The same reprinted hat has to stay 72.
+    heard = humanize(replace(score, ensemble="classic"), offset_at=lambda *_args: 2)
+    heard_lead = [event.velocity for _start, event in _ordered(heard.lead) if event.velocity is not None]
+    assert heard_lead[0] == 72
+    assert heard_lead == velocities
     bass_accent = [
         note
         for note in score.low

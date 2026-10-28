@@ -1503,6 +1503,13 @@ def restamp_passage_hairpins(ctx: _Ctx, patterns: list[str], plan: ScalePlan, le
         if len(velocities) != len(slots):
             continue
         lead = _install_lead(lead, slots, pitches, velocities, ctx.epb)
+        starts = {slot.eighth * 2 + slot.sub for slot in slots}
+        lead = [
+            replace(event, hairpin=True)
+            if event.midi is not None and _start16(event, ctx.epb) in starts
+            else event
+            for event in lead
+        ]
     return lead
 
 

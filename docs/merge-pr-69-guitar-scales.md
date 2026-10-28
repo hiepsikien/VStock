@@ -50,6 +50,8 @@ if (
 
 Cache: hai nhánh đều ở `RECAP_REVISION = "65"` và `SPAN_REVISION = "51"`, nên auto-merge của `audio.py` giữ số của `main`. Sau khi hairpin và sóng volume cùng nằm trên score, tăng thành `"66"` và `"52"`.
 
+`humanize` bật mặc định trên đường Listen. `_clamp_guitar` kéo nốt viết trên 64 vào `66..70` với Bach và Sor, hoặc `66..76` với ensemble còn lại, nên đỉnh hairpin bị phẳng dù pytest của score vẫn xanh. Nốt lead của passage và swarm được đánh dấu `hairpin` lúc in lại, và `_clamp_guitar` giữ đúng velocity đó. Cache nghe thành `"67"` và `"53"`.
+
 ## Kiểm tra
 
 Chạy năm file:
