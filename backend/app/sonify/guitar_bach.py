@@ -1833,7 +1833,8 @@ def _render_bach_courante_bar(
 
     3/4 is the three-beat bar of BWV 1007. 6/8 is two dotted beats, so the tirata
     sits on eighths 3–4. 4/4 keeps the leap and the tirata and does not hemiola.
-    Bass notes meet the next bass attack and do not overlap it.
+    The bass at eighth 4 lasts two eighths, so eighth 6 is the staccato lead and
+    eighth 7 is the pickup. Bass notes do not overlap the next bass attack.
     """
     epb = ctx.epb
     start = bar * epb
@@ -1937,7 +1938,7 @@ def _render_bach_courante_bar(
         if not _sounding_ok(ctx, [fifth, arrival]):
             arrival = _nearest_lead_over(ctx, arrival, fifth)
         scale = _tirata_line(ctx, 4 * 2, arrival, 4, fifth)
-        add_bass(4, 3, fifth)
+        add_bass(4, 2, fifth)
         add_tirata(4, scale)
         add_lead(6, 1, scale[-1], staccato=True)
         tail = _anacrusis_pitch(ctx, scale[-1], next_lead, tail_bass)

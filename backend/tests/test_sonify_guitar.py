@@ -5035,6 +5035,13 @@ def test_bach_courante_leaps_on_beat_one_and_runs_sixteenths_on_the_middle_beat(
             assert not any(abs(note.beat - 2.0) < 1e-6 for note in ordered)
             second = next(note for note in ordered if abs(note.beat - 1.0) < 1e-6)
             assert abs((second.beat + second.duration_beats) - 2.0) < 1e-6
+        elif meter is METER_44:
+            # Eighth 6 is the staccato lead. The bass from eighth 4 stops there.
+            fifth = next(note for note in ordered if abs(note.beat - 2.0) < 1e-6)
+            assert abs(fifth.duration_beats - 1.0) < 1e-6
+            assert abs((fifth.beat + fifth.duration_beats) - 3.0) < 1e-6
+            assert not any(abs(note.beat - 3.0) < 1e-6 for note in ordered)
+            assert any(abs(note.beat - 3.5) < 1e-6 for note in ordered)
         else:
             for left, right in zip(ordered, ordered[1:]):
                 assert abs((left.beat + left.duration_beats) - right.beat) < 1e-6
