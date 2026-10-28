@@ -2000,6 +2000,22 @@ def _resolve(events: list[NoteEvent], epb: int, voice: int) -> list[NoteEvent]:
     return resolved
 
 
+class _ScaleLead(list):
+    """Filled lead events, plus the eighths a scale passage rewrote.
+
+    A built-in list cannot carry those sets, and the renderer still unpacks
+    this object as the lead voice.
+    """
+
+    scale_eighths: tuple[int, ...]
+    long_scale_eighths: tuple[int, ...]
+
+    def __init__(self, events: list[NoteEvent]):
+        super().__init__(events)
+        self.scale_eighths = ()
+        self.long_scale_eighths = ()
+
+
 def _fill(events: list[NoteEvent], bars: int, epb: int, voice: int) -> list[NoteEvent]:
     if any(not _on_sixteenth_grid(event) for event in events):
         return _fill_twelfths(events, bars, epb, voice)
@@ -2920,9 +2936,9 @@ def render_patterned_voices(
     # A sixteenth of Étude No. 1 is then three units, and a sextuplet sixth is two.
     if "etude11" in patterns:
         divisions = 12
-    filled_lead = _fill(lead, musical_bars, epb, 1)
-    filled_lead.scale_eighths = tuple(sorted(scale_eighths))  # type: ignore[attr-defined]
-    filled_lead.long_scale_eighths = tuple(sorted(long_scale_eighths))  # type: ignore[attr-defined]
+    filled_lead = _ScaleLead(_fill(lead, musical_bars, epb, 1))
+    filled_lead.scale_eighths = tuple(sorted(scale_eighths))
+    filled_lead.long_scale_eighths = tuple(sorted(long_scale_eighths))
     return (
         filled_lead,
         _fill_voices(support, musical_bars, epb, 2),

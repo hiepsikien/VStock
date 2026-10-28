@@ -1419,7 +1419,8 @@ def _monotone(
     if abs(end - start) > 2 * (count - 1):
         return None
     if start == end:
-        if not ornament:
+        # Two anchors with nothing between them have no weak note to ornament.
+        if not ornament or count < 3:
             return [start] * count
         notes = [start]
         neighbor = _ornamental_neighbor(
