@@ -120,7 +120,7 @@ Không đổi cả `_galop_hits`, và không gán “bước mở là Galop 1, b
 |---|---|---|
 | Galop 1 | 1–8, lặp | Câu phi. Tế bào lặp là một ô 2/4: móc đơn, hai móc kép, móc đơn, rồi hai móc kép. Ô 1, phách 1 chỉ có một đầu nốt. Ô cuối câu là cadence, hợp âm rồi nghỉ. |
 | Galop 2, dạng thưa | 9–16, *Fine*, lặp về đầu | Cùng câu đối đáp. Bass một móc đơn, không cú nhảy quãng 12. |
-| Galop 2, dạng trong ảnh | 17–24 | Câu đối đáp đầy. Bass hai móc đơn dưới một thanh nối, nốt trầm rồi nốt cao hơn một quãng 12. Một ô trong câu là bốn móc kép liền. Ô cuối khép bằng hợp âm khối. |
+| Galop 2, dạng trong ảnh | 17–24 | Câu đối đáp đầy. Bass hai móc đơn dưới một thanh nối, nốt trầm rồi nốt cao hơn một quãng 12. Một ô trong câu là bốn móc kép liền. Ô 24 có hợp âm khối Fa–Sol–La, rồi một móc đơn Mi trầm. |
 | Câu chạy | 25–28 | Giai điệu móc kép liên tục, mức *f*. Bass thưa. |
 | Đối đáp nhắc lại | 29–32 | Cùng dạng đối đáp, rồi *D.C. al Fine*. |
 
@@ -155,7 +155,7 @@ Chỉ số móc kép trong nửa ô, `0 .. 7`. Tế bào mở tại móc đơn `
 
 Dấu chấm ở mục 3 nằm trên hai móc đơn của câu phi: giai điệu ở 0–1 và 4–5, và bass ở 0–1. Bốn móc kép không mang dấu chấm. Chúng là nhịp phi nối thanh, không staccato.
 
-Ô 1 Tecla hát đúng lưới nhịp đó. Phách đầu: Re dưới khuông, móc đơn có chấm, rồi Re trên dòng thứ tư và Si trên dòng giữa, hai móc kép. Phách sau: Sol trên dòng thứ hai, móc đơn có chấm, rồi Sol trên khuông và Re trên dòng thứ tư, hai móc kép. Móc kép đầu của mỗi cặp là quãng tám trên móc đơn vừa đánh, không giữ nguyên nốt đó. Móc kép sau đi xuống: Si dưới Re một quãng 3, Re dưới Sol một quãng 4, cả hai là nốt hợp âm. Phách 1 của ô này chỉ có một đầu nốt Re, không có đầu nốt bass thứ hai cùng phách.
+Ô 1 Tecla hát đúng lưới nhịp đó. Phách đầu: Re dưới khuông, móc đơn có chấm, rồi Re trên dòng thứ tư và Si trên dòng giữa, hai móc kép. Phách sau: Sol trên dòng thứ hai, móc đơn có chấm, rồi Sol trên khuông và Re trên dòng thứ tư, hai móc kép. Móc kép đầu của mỗi cặp là quãng tám trên móc đơn vừa đánh, không giữ nguyên nốt đó. Móc kép sau đi xuống: Si dưới Re một quãng 3, Re dưới Sol một quãng 4, cả hai là nốt hợp âm. Phách 1 của ô này chỉ có một đầu nốt Re, không có đầu nốt bass thứ hai cùng phách. Ô 2 phách đầu cùng lưới: Si móc đơn, rồi Si quãng tám và Sol hai móc kép. Phách sau của ô 2 là hai móc đơn, Re rồi Si.
 
 `here == open` không mô tả ô 1, và cũng không mô tả nửa sau của chính ô đó. Móc kép 2 không giữ nốt mở. Móc kép 3 không phải nốt hợp âm kế trên trong vòng một quãng 5. Cặp nốt là quãng tám lên, rồi một nốt hợp âm xuống từ nốt cao đó.
 
@@ -180,10 +180,14 @@ Quãng 12 là 19 nửa cung. Nốt bass viết nằm trong `guitar_floor .. guit
 
 Nốt trên kêu ở móc kép 2, trong chỗ nghỉ của giai điệu, nên không kêu cùng móc đơn trước. Ở ô 17 nốt trên là Si, dưới Mi vừa nghỉ và dưới Sol sắp vào. Gốc đã hết ở cuối móc 1. Gốc bắt đầu trong cửa sổ bass. Nếu `gốc + 19` không còn dưới giai điệu quanh đó, hoặc `_playable` không nhận các nốt đang kêu sau khi cộng `ctx.semitones`, hạ gốc một quãng tám rồi tính lại nốt trên. Không hạ nốt trên. Gốc không xuống dưới `guitar_floor`. Hết quãng tám mà quãng 12 vẫn không nằm dưới giai điệu hoặc không qua `_playable` thì nửa ô đó hát bass dạng thưa: một móc đơn gốc, không cú nhảy.
 
-Hai biến trong cùng câu, mỗi biến một ô 2/4, không thay lưới trên cho cả bốn ô:
+Ô 19 đổi giai điệu. Dấu thăng bass là một nốt, không phải một biến giai điệu:
 
 - **Nốt vòng.** Ô bốn móc kép trong câu 17–24 là ô 19. Bốn nốt là La, Sol, Fa thăng bởi khóa, Mi, đi xuống từng quãng 2. Hai slur chụm La–Sol và Fa–Mi, không có dấu hóa thêm. Không phải bậc trên, nốt giá, bậc dưới, rồi lại nốt giá.
-- **Nốt chromatic.** Ô 19 không có lân nửa cung. Dấu thăng đọc được trong câu này đứng ở bass: ô 20 và ô 23, nốt Re ngay dưới khuông thành Re thăng. Không phải lân giai điệu ở móc kép 3 slur lên móc đơn giải. Ô khép câu vẫn có thể đổi cú bass cuối thành hợp âm khối.
+- **Nốt chromatic.** Ô 20 và ô 23, dấu thăng ở bass: Re ngay dưới khuông thành Re thăng. Tế bào sonify viết một nốt bass đó, cao hơn nốt bậc một nửa cung, voice 3, đặt thẳng. Không đưa nốt qua `_choose_bass`.
+
+Ô 22 có dấu thăng ngang tầm La trên khuông, slur dưới, và một móc đơn Si. Đầu nốt móc kép dính vào dấu thăng, không tách được. Không ghi cao độ lân giai điệu cho ô đó.
+
+Ô 24 khép câu 17–24. Hợp âm khối là Fa, Sol, La. Cú bass cuối là một móc đơn Mi ở khoảng trống dưới dòng phụ thứ ba, rồi nghỉ.
 
 Ô 25–28 là hai ô 4/4 giai điệu móc kép liên tục, bass thưa. Trong một nhóm Galop 2, nếu giá của nhóm có nhiều cao độ khác nhau thì hai ô cuối của nhóm hát chuỗi này. Giá chỉ vài bước thì giữ bảng đối đáp.
 
