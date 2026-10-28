@@ -212,6 +212,9 @@ class Score:
     comp_wedges: tuple[WedgeEvent, ...] = ()
     comp_dynamics: tuple[DynamicEvent, ...] = ()
     tempos: tuple[TempoEvent, ...] = ()
+    # Eighths of realized scale passages. Long ones are at least one bar.
+    scale_eighths: tuple[int, ...] = ()
+    long_scale_eighths: tuple[int, ...] = ()
 
     # Backwards-compatible chamber part aliases
     @property

@@ -10,6 +10,7 @@ from app.sonify.guitar import BARRIOS_TREMOLO_MIN_BPM
 from app.sonify.guitar_bach import _fuga_motif
 from app.sonify.guitar_patterns import (
     _Ctx,
+    _assert_scale_positions,
     _dur16,
     _eighth_event,
     _playable,
@@ -18,6 +19,7 @@ from app.sonify.guitar_patterns import (
     _start16,
     assert_playable,
     render_patterned_voices,
+    Unplayable,
 )
 from app.sonify.guitar_scale_passages import (
     SCALE_SIXTEENTH_MIN_BPM,
@@ -27,10 +29,14 @@ from app.sonify.guitar_scale_passages import (
     _Slot,
     _assign,
     _color_line,
+    _compass,
     _curve,
+    _groups_ok,
+    _scale_need,
     _majority_pattern,
     _monotone,
     _rewrite_bass,
+    _fast_line,
     _slots,
     _pattern_window,
     _stamp_arrival,
@@ -179,6 +185,8 @@ def _render(
         divisions=divisions,
         key=key,
         bar_beats=meter.quarter_beats,
+        scale_eighths=tuple(getattr(lead, "scale_eighths", ())),
+        long_scale_eighths=tuple(getattr(lead, "long_scale_eighths", ())),
     )
 
 
@@ -275,8 +283,17 @@ def test_straight_raw_does_not_invent_a_retreat_and_a_real_one_lands() -> None:
     pitches = [event.midi for _start, event in _ordered(straight.lead) if _start <= 16]
     assert pitches
     assert 60 not in pitches
-    assert all(right >= left for left, right in zip(pitches, pitches[1:]))
     assert pitches[-1] == 72
+    assert all(abs(right - left) <= 2 for left, right in zip(pitches, pitches[1:]))
+    # A neighbor turn is two deliberate steps. It is not a retreat, so a fall
+    # stands alone: the step before it did not fall, and the step after it does not.
+    falls = [index for index, (left, right) in enumerate(zip(pitches, pitches[1:])) if right < left]
+    assert falls
+    for index in falls:
+        if index > 0:
+            assert pitches[index] >= pitches[index - 1]
+        if index + 2 < len(pitches):
+            assert pitches[index + 2] >= pitches[index + 1]
 
     retreated = _render(
         [64, 65, 66, 67, 69, 70, 71, 72] + [72] * 24,
@@ -1027,9 +1044,7 @@ def test_flat_price_steps_to_a_neighbor_instead_of_repeating() -> None:
     assert 1 <= abs(rising[1] - 64) <= 2
     assert 1 <= abs(falling[1] - 64) <= 2
     moving = _monotone(64, 67, 4, ctx, "up", False)
-    assert moving is not None
-    assert moving[0] == 64 and moving[-1] == 67
-    assert all(right >= left for left, right in zip(moving, moving[1:]))
+    assert moving == [64, 65, 67, 67]
     boxed = replace(ctx, treble_floor=64, treble_top=64, ceiling=64)
     assert _monotone(64, 64, 3, boxed, "up", False) == [64, 64, 64]
     raw = [10, 10, 10, 10, 14, 16, 18, 20]
@@ -1054,6 +1069,96 @@ def test_flat_price_steps_to_a_neighbor_instead_of_repeating() -> None:
     assert 1 <= abs(assigned[offbeat] - 64) <= 2
     landing = next(index for index, slot in enumerate(slots) if slot.eighth == 1 and slot.sub == 0)
     assert assigned[landing] == 64
+
+
+def test_scale_need_and_the_composer_endings() -> None:
+    """Section 2. E–C needs five in-set steps. Bach and Sor do not share a cadence."""
+    melody = [60] * 8
+    low, high = _compass(_ctx(melody, (_phrase(0, melody),), ensemble="bach"), None)
+    bach = _ctx(melody, (_phrase(0, melody),), ensemble="bach")
+    sor = _ctx(melody, (_phrase(0, melody),), ensemble="sor")
+    barrios = _ctx(melody, (_phrase(0, melody),), ensemble="barrios")
+    villa = _ctx(melody, (_phrase(0, melody),), ensemble="villa")
+    brouwer = _ctx(melody, (_phrase(0, melody),), ensemble="brouwer")
+    assert _scale_need(bach, 64, 72, "up", False, low, high) == 5
+    assert math.ceil(abs(72 - 64) / 2) == 4
+    for house in (bach, sor, barrios, villa, brouwer):
+        assert _scale_need(house, 64, 72, "up", False, low, high) == 5
+
+    # Two spare steps into C. Bach falls to B. Sor steps up to D.
+    bach_line = _monotone(64, 72, 8, bach, "up", True)
+    sor_line = _monotone(64, 72, 8, sor, "up", False)
+    assert bach_line is not None and sor_line is not None
+    assert bach_line[-3:] == [72, 71, 72]
+    assert sor_line[-3:] == [72, 74, 72]
+    assert bach_line[-2:] != sor_line[-2:]
+
+    # The same split when the leading tone is outside the major set (D# before E).
+    bach_e = _monotone(60, 64, 5, bach, "up", False)
+    sor_e = _monotone(60, 64, 5, sor, "up", False)
+    assert bach_e == [60, 62, 64, 63, 64]
+    assert sor_e == [60, 62, 64, 65, 64]
+
+    # One leftover step is not a turn. Sor repeats. Bach may take the leading tone.
+    assert _monotone(60, 62, 3, sor, "up", False) == [60, 62, 62]
+    assert _monotone(60, 62, 3, bach, "up", False) == [60, 61, 62]
+
+    # Spare steps after the walk hold the closing anchor. The opening note is not repeated.
+    held = _monotone(60, 62, 8, sor, "up", False)
+    assert held is not None and held[0] == 60 and held[-1] == 62
+    assert held.count(60) == 1 and held.count(62) > 1
+    assert held[-3:] == [62, 64, 62]
+    # A shortened walk does not sit on the anchor before the last note.
+    brouwer_fast = _fast_line(brouwer, 60, 65, 7, "up", False, low, high)
+    assert brouwer_fast is not None and brouwer_fast[-1] == 65
+    assert 65 not in brouwer_fast[:-1]
+
+    # Barrios keeps the chromatic approach on the last weak note, aimed from a diatonic degree.
+    barrios_line = _monotone(60, 64, 5, barrios, "up", False)
+    assert barrios_line == [60, 62, 64, 63, 64]
+    assert barrios_line[-3] % 12 in {0, 2, 4, 5, 7, 9, 11}
+    descending = _monotone(72, 67, 6, barrios, "down", False)
+    assert descending is not None and descending[-2] == 68 and descending[-1] == 67
+
+    # Villa prefers Bb under C when that whole step still reaches, and does not open a string here.
+    villa_down = _monotone(72, 67, 6, villa, "down", False)
+    assert villa_down is not None
+    assert 70 in villa_down
+    assert not any(pitch in {40, 45, 50, 55, 59, 64} for pitch in villa_down)
+
+    long = ScalePassage(0, 8, "up", 8, 1.0, (), False, 8, 0)
+    short = ScalePassage(0, 4, "up", 4, 1.0, (), True, 4, 0)
+    assert _compass(bach, long) == (52, 83)
+    assert _compass(sor, long) == (52, 83)
+    assert _compass(barrios, long) == (52, 83)
+    assert _compass(villa, long) == (40, 83)
+    assert _compass(brouwer, long) == (40, 83)
+    assert _compass(bach, short) == (57, 83)
+
+
+def test_groups_ok_uses_sounding_pitches() -> None:
+    """A written pitch below the nut can still be an open string after the key shift."""
+    slots = [_Slot(0, sub, 1, False, False) for sub in range(4)]
+    # D major: written 38, 43 sound as the open E and A strings.
+    assert _groups_ok(slots, [38, 43, 38, 43], 2)
+
+
+def test_scale_positions_use_sounding_pitches() -> None:
+    """The score-level hand check adds the key, the same way the group check does.
+
+    A whole step stays inside the four-semitone gate. Written 38 has no string
+    until D major makes it the open E.
+    """
+    sixteenths = [
+        NoteEvent(bar=0, beat=0.0, midi=38, duration_beats=0.25, voice=1),
+        NoteEvent(bar=0, beat=0.25, midi=40, duration_beats=0.25, voice=1),
+    ]
+    _assert_scale_positions(sixteenths, 8, D_KEY.semitones)
+    try:
+        _assert_scale_positions(sixteenths, 8, 0)
+    except Unplayable:
+        return
+    raise AssertionError("written 38 is not an open string until the key is added")
 
 
 def test_stamp_arrival_keeps_the_tie_and_carries_the_landing_velocity() -> None:
@@ -1380,13 +1485,13 @@ def test_barrios_thumb_steps_with_barrios_scale_step(monkeypatch) -> None:
     real_barrios = passages.barrios_scale_step
     real_villa = passages.villa_scale_step
 
-    def barrios(ctx, pitch, direction):
+    def barrios(ctx, pitch, direction, **kwargs):
         calls["barrios"] += 1
-        return real_barrios(ctx, pitch, direction)
+        return real_barrios(ctx, pitch, direction, **kwargs)
 
-    def villa(ctx, pitch, direction):
+    def villa(ctx, pitch, direction, **kwargs):
         calls["villa"] += 1
-        return real_villa(ctx, pitch, direction)
+        return real_villa(ctx, pitch, direction, **kwargs)
 
     monkeypatch.setattr(passages, "barrios_scale_step", barrios)
     monkeypatch.setattr(passages, "villa_scale_step", villa)

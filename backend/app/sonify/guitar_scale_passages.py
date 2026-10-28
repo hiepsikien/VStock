@@ -25,6 +25,7 @@ from app.sonify.guitar_bach import (
     _quarter_ok,
     bach_group2_intrinsic_eighths,
     bach_group2_window,
+    bach_scale_classes,
     bach_scale_step,
 )
 from app.sonify.guitar_barrios import (
@@ -51,8 +52,8 @@ from app.sonify.guitar_patterns import (
     _choose_inner,
     _dur16,
     _eighth_event,
+    _classes,
     _playable,
-    _position_ok,
     _sounding_midi,
     _spell16,
     _splice,
@@ -846,39 +847,596 @@ def _melody_pitch(ctx: _Ctx, eighth: int) -> int:
     return ctx.melody[-1] if ctx.melody else 64
 
 
+_VILLA_COLOR = frozenset({2, 5, 10})
+_BROUWER_PCS = frozenset({0, 1, 2, 3, 5, 7, 8, 9, 10})
+
+
+def _compass(ctx: _Ctx, passage: ScalePassage | None) -> tuple[int, int]:
+    """Written `[floor, ceiling]` for section 2.3.
+
+    A short passage may leave sounding 59..81 by one neighbor step (57..83).
+    A passage of at least one bar opens to 52..83, or 40..83 for Villa and Brouwer.
+    """
+    semi = ctx.semitones
+    top = min(83 - semi, ctx.ceiling)
+    standard_floor = 59 - semi
+    long = passage is not None and passage.passage_eighths >= ctx.epb
+    if long and ctx.ensemble in {"villa", "brouwer"}:
+        floor = 40 - semi
+    elif long:
+        floor = 52 - semi
+    else:
+        floor = 57 - semi
+    if ctx.treble_floor > standard_floor:
+        floor = max(floor, ctx.treble_floor)
+    if floor > top:
+        floor = top
+    return floor, top
+
+
+def _resolve_limits(ctx: _Ctx, low: int | None, high: int | None) -> tuple[int, int]:
+    floor, top = _compass(ctx, None)
+    return floor if low is None else low, top if high is None else high
+
+
+def _pitch_classes(ctx: _Ctx, impulse_direction: str, approaching: bool) -> frozenset[int]:
+    if ctx.ensemble == "bach":
+        return bach_scale_classes(ctx, impulse_direction, approaching)
+    if ctx.ensemble == "brouwer":
+        return _BROUWER_PCS
+    if ctx.ensemble == "villa":
+        return frozenset(_classes(ctx.mode)) | _VILLA_COLOR
+    return frozenset(_classes(ctx.mode))
+
+
+def _composer_step(
+    ctx: _Ctx,
+    pitch: int,
+    toward: int,
+    impulse_direction: str,
+    approaching: bool,
+    low: int,
+    high: int,
+) -> int:
+    if toward == 0:
+        return pitch
+    if ctx.ensemble == "bach":
+        return bach_scale_step(
+            ctx,
+            pitch,
+            toward,
+            impulse_direction=impulse_direction,
+            approaching_tonic=approaching,
+            low=low,
+            high=high,
+        )
+    if ctx.ensemble == "villa":
+        return villa_scale_step(ctx, pitch, toward, low=low, high=high)
+    if ctx.ensemble == "barrios":
+        return barrios_scale_step(ctx, pitch, toward, low=low, high=high)
+    if ctx.ensemble == "brouwer":
+        return brouwer_scale_step(ctx, pitch, toward, low=low, high=high)
+    return classic_scale_step(ctx, pitch, toward, low=low, high=high)
+
+
+def _scale_need(
+    ctx: _Ctx,
+    cursor: int,
+    end: int,
+    impulse_direction: str,
+    approaching: bool,
+    low: int,
+    high: int,
+) -> int:
+    """In-set steps from `cursor` to `end`.
+
+    Each step is the composer's next scale degree, at most 2 semitones, without
+    passing `end`. E4 to C5 in C major is 8 semitones (`room_steps` 4) and 5
+    degrees, because E–F and B–C are semitones and cannot be skipped.
+    """
+    if cursor == end:
+        return 0
+    path = _trace_scale(ctx, cursor, end, impulse_direction, approaching, low, high, color=False)
+    if path is None:
+        return math.ceil(abs(end - cursor) / 2)
+    return max(0, len(path) - 1)
+
+
+def _villa_efficient_step(ctx: _Ctx, current: int, toward: int, end: int, low: int, high: int) -> int | None:
+    """Largest Villa step that stays in the set and does not pass `end`.
+
+    The nearest color tone can sit between two degrees (A–Bb–B). Skipping it
+    is what `scale_need` counts. The color walk takes it when the bar still fits.
+    """
+    classes = _pitch_classes(ctx, "up", False)
+    for size in (2, 1):
+        nxt = current + toward * size
+        if not low <= nxt <= high or (nxt - current) * toward <= 0:
+            continue
+        if (end - nxt) * toward < 0:
+            continue
+        if nxt != end and nxt % 12 not in classes:
+            continue
+        return nxt
+    return None
+
+
+def _villa_color_step(ctx: _Ctx, current: int, toward: int, end: int, low: int, high: int) -> int | None:
+    """Nearest color tone `{2, 5, 10}` within 2 semitones that does not pass `end`."""
+    classes = _pitch_classes(ctx, "up", False)
+    for size in (1, 2):
+        nxt = current + toward * size
+        if not low <= nxt <= high:
+            continue
+        if (end - nxt) * toward < 0:
+            continue
+        if nxt != end and nxt % 12 not in classes:
+            continue
+        if nxt % 12 in _VILLA_COLOR:
+            return nxt
+    return None
+
+
+def _trace_scale(
+    ctx: _Ctx,
+    start: int,
+    end: int,
+    impulse_direction: str,
+    approaching: bool,
+    low: int,
+    high: int,
+    *,
+    color: bool = False,
+) -> list[int] | None:
+    """Walk in-set degrees from `start` to `end`. Villa may prefer a color tone."""
+    if start < low or start > high or end < low or end > high:
+        return None
+    notes = [start]
+    current = start
+    for _ in range(64):
+        if current == end:
+            return notes
+        toward = 1 if end > current else -1
+        nxt = _composer_step(ctx, current, toward, impulse_direction, approaching, low, high)
+        if ctx.ensemble == "villa":
+            if color:
+                alt = _villa_color_step(ctx, current, toward, end, low, high)
+            else:
+                alt = _villa_efficient_step(ctx, current, toward, end, low, high)
+            if alt is not None:
+                nxt = alt
+        moved = nxt != current and (nxt - current) * toward > 0 and abs(nxt - current) <= 2
+        if not moved or (end - nxt) * toward < 0 or not low <= nxt <= high:
+            if 0 < (end - current) * toward <= 2 and low <= end <= high:
+                notes.append(end)
+                return notes
+            return None
+        notes.append(nxt)
+        current = nxt
+    return None if current != end else notes
+
+
+def _fast_line(
+    ctx: _Ctx,
+    start: int,
+    end: int,
+    count: int,
+    impulse_direction: str,
+    approaching: bool,
+    low: int,
+    high: int,
+) -> list[int] | None:
+    """Arrive in `count` notes when the scale itself needs more degrees than remain.
+
+    An out-of-set ±1 or ±2 is used only when no in-set step can still reach `end`.
+    """
+    steps = count - 1
+    if steps < 1 or abs(end - start) > 2 * steps:
+        return None
+    if start < low or start > high or end < low or end > high:
+        return None
+    classes = _pitch_classes(ctx, impulse_direction, approaching)
+    notes = [start]
+    current = start
+    for index in range(1, count - 1):
+        steps_after = count - 1 - index
+        toward = 1 if end > current else -1
+        if toward == 0:
+            return None
+        need = max(1, abs(end - current) - 2 * steps_after)
+        if need > 2:
+            return None
+        chosen = None
+        for size in (need, 2, 1):
+            if size < need or size > 2:
+                continue
+            nxt = current + toward * size
+            # The anchor is the last note. An earlier arrival would repeat it
+            # through the notes that are still left.
+            if steps_after > 0 and nxt == end:
+                continue
+            if (end - nxt) * toward < 0:
+                continue
+            if not low <= nxt <= high or abs(nxt - current) > 2 or (nxt - current) * toward <= 0:
+                continue
+            if nxt != end and nxt % 12 not in classes:
+                continue
+            if abs(end - nxt) > 2 * steps_after:
+                continue
+            chosen = nxt
+            break
+        if chosen is None:
+            if current != end and abs(end - current) <= 2 * steps_after:
+                notes.append(current)
+                continue
+            size = min(2, need)
+            nxt = current + toward * size
+            if steps_after > 0 and nxt == end:
+                return None
+            if (end - nxt) * toward < 0 or abs(nxt - current) > 2 or not low <= nxt <= high:
+                return None
+            if abs(end - nxt) > 2 * steps_after:
+                return None
+            chosen = nxt
+        notes.append(chosen)
+        current = chosen
+    if abs(end - notes[-1]) > 2:
+        return None
+    notes.append(end)
+    if any(abs(right - left) > 2 for left, right in zip(notes, notes[1:])):
+        return None
+    return notes
+
+
+def _insert_repeat(notes: list[int]) -> list[int]:
+    """Hold the closing anchor. A cadence already on the end stays the last figure.
+
+    One neighbor costs two steps. Further spare steps sit on ``end``, just
+    before that cadence, instead of doubling the first pitch.
+    """
+    if not notes:
+        return notes
+    end = notes[-1]
+    if (
+        len(notes) >= 3
+        and notes[-3] == end
+        and notes[-2] != end
+        and abs(notes[-2] - end) <= 2
+    ):
+        return notes[:-3] + [end, *notes[-3:]]
+    return notes[:-1] + [end, notes[-1]]
+
+
+def _start_neighbor(
+    notes: list[int],
+    ctx: _Ctx,
+    impulse_direction: str,
+    approaching: bool,
+    low: int,
+    high: int,
+) -> list[int] | None:
+    start, end = notes[0], notes[-1]
+    order = (-1, 1) if end < start else (1, -1)
+    for toward in order:
+        if ctx.ensemble == "villa":
+            color = _villa_color_step(ctx, start, toward, start + toward * 2, low, high)
+            if (
+                color is not None
+                and (color - start) * toward > 0
+                and abs(color - start) <= 2
+                and low <= color <= high
+            ):
+                return [start, color, start, *notes[1:]]
+        nxt = _composer_step(ctx, start, toward, impulse_direction, approaching, low, high)
+        if nxt == start or (nxt - start) * toward <= 0:
+            continue
+        if abs(nxt - start) > 2 or not low <= nxt <= high:
+            continue
+        return [start, nxt, start, *notes[1:]]
+    return None
+
+
+def _upper_neighbor(
+    ctx: _Ctx,
+    end: int,
+    impulse_direction: str,
+    approaching: bool,
+    low: int,
+    high: int,
+) -> int | None:
+    if ctx.ensemble == "villa":
+        color = _villa_color_step(ctx, end, 1, end + 2, low, high)
+        if color is not None and color != end and abs(color - end) <= 2:
+            return color
+    nxt = _composer_step(ctx, end, 1, impulse_direction, approaching, low, high)
+    if nxt == end or abs(nxt - end) > 2 or not low <= nxt <= high:
+        return None
+    if ctx.ensemble in {"classic", "sor"} and nxt == end - 1:
+        return None
+    return nxt
+
+
+def _spare_turn(
+    notes: list[int],
+    ctx: _Ctx,
+    impulse_direction: str,
+    approaching: bool,
+    low: int,
+    high: int,
+    chord_pcs: frozenset[int] | None,
+) -> list[int] | None:
+    """Spend two spare steps on the composer's neighbor, then land on `end`."""
+    start, end = notes[0], notes[-1]
+    ascending = end > start
+    if ctx.ensemble == "bach" and ascending:
+        lead = end - 1
+        # prev is the arrival itself: the descent into the leading tone is a semitone.
+        if low <= lead <= high and abs(end - lead) <= 2 and (end - lead) != 3:
+            return notes + [lead, end]
+        return _start_neighbor(notes, ctx, impulse_direction, approaching, low, high)
+    if ctx.ensemble == "bach":
+        upper = bach_scale_step(
+            ctx,
+            end,
+            1,
+            impulse_direction=impulse_direction,
+            approaching_tonic=approaching,
+            low=low,
+            high=high,
+        )
+        if upper != end and abs(upper - end) <= 2 and low <= upper <= high:
+            return notes + [upper, end]
+        return _start_neighbor(notes, ctx, impulse_direction, approaching, low, high)
+    if ctx.ensemble == "brouwer":
+        classes = _BROUWER_PCS
+        options: list[int] = []
+        for toward in (1, -1):
+            for size in (2, 1):
+                nxt = end + toward * size
+                if low <= nxt <= high and nxt % 12 in classes:
+                    options.append(nxt)
+        if not options:
+            return _start_neighbor(notes, ctx, impulse_direction, approaching, low, high)
+        avoid = chord_pcs or frozenset()
+
+        def rank(note: int) -> tuple[int, int, int]:
+            outside = 0 if avoid and note % 12 not in avoid else 1
+            return (0 if abs(note - end) == 2 else 1, outside, 0 if note > end else 1)
+
+        return notes + [min(options, key=rank), end]
+    if ascending:
+        upper = _upper_neighbor(ctx, end, impulse_direction, approaching, low, high)
+        if upper is not None:
+            return notes + [upper, end]
+    return _start_neighbor(notes, ctx, impulse_direction, approaching, low, high)
+
+
+def _fit_bach_leading(notes: list[int], extra: int, low: int, high: int) -> tuple[list[int], int]:
+    """Put the leading tone on the last weak note when the previous pitch allows it."""
+    if extra < 0 or len(notes) < 2 or notes[-1] <= notes[0]:
+        return notes, extra
+    end = notes[-1]
+    lead = end - 1
+    if not low <= lead <= high or notes[-2] == lead:
+        return notes, extra
+    prev = notes[-2]
+    if extra >= 1 and abs(prev - lead) <= 2 and (prev - lead) != 3:
+        return notes[:-1] + [lead, end], extra - 1
+    if extra == 0 and len(notes) >= 3:
+        earlier = notes[-3]
+        if abs(earlier - lead) <= 2 and (earlier - lead) != 3:
+            return notes[:-2] + [lead, end], extra
+    return notes, extra
+
+
+def _insert_legal_semitone(
+    notes: list[int],
+    classes: frozenset[int],
+    low: int,
+    high: int,
+    ensemble: str,
+) -> list[int] | None:
+    """One leftover step: a semitone between the endpoints, within 2 of each."""
+    start, end = notes[0], notes[-1]
+    if len(notes) < 2 or abs(end - start) < 2 or abs(end - start) > 4:
+        return None
+    lo, hi = min(start, end), max(start, end)
+    prev = notes[-2]
+    chosen = None
+    for pitch in range(lo + 1, hi):
+        if abs(pitch - start) > 2 or abs(pitch - end) > 2 or not low <= pitch <= high:
+            continue
+        if abs(pitch - prev) > 2 or min(abs(pitch - start), abs(pitch - end)) != 1:
+            continue
+        in_set = pitch % 12 in classes
+        if ensemble == "brouwer" and not in_set:
+            continue
+        if ensemble == "bach" and not in_set and pitch != (end - 1 if end > start else end + 1):
+            continue
+        if ensemble in {"classic", "sor"} and not in_set:
+            continue
+        chosen = pitch
+        if ensemble == "bach" and end > start and pitch == end - 1:
+            break
+    if chosen is None:
+        return None
+    return notes[:-1] + [chosen, end]
+
+
+def _connector_ok(note: int, chromatic: int, classes: frozenset[int], low: int, high: int) -> bool:
+    return (
+        low <= note <= high
+        and note != chromatic
+        and note % 12 in classes
+        and abs(note - chromatic) in {1, 2}
+    )
+
+
+def _barrios_tail(
+    notes: list[int],
+    extra: int,
+    classes: frozenset[int],
+    low: int,
+    high: int,
+) -> tuple[list[int], int]:
+    """Aim `anchor - 2` at a diatonic degree 1 or 2 semitones from the chromatic approach."""
+    if len(notes) < 2 or extra < 0:
+        return notes, 0
+    end = notes[-1]
+    ascending = end >= notes[0]
+    chromatic = end - 1 if ascending else end + 1
+    if not low <= chromatic <= high:
+        return notes, 0
+    if extra >= 2 and _connector_ok(end, chromatic, classes, low, high):
+        return notes + [chromatic, end], 2
+    if len(notes) < 3:
+        # One leftover step can still be the chromatic approach when it sits
+        # between the endpoints and within 2 semitones of each.
+        if (
+            extra >= 1
+            and min(notes[-2], end) < chromatic < max(notes[-2], end)
+            and abs(chromatic - notes[-2]) <= 2
+            and abs(chromatic - end) == 1
+        ):
+            return notes[:-1] + [chromatic, end], 1
+        return notes, 0
+    anchor2 = len(notes) - 3
+
+    def place(connector: int) -> list[int] | None:
+        updated = list(notes)
+        updated[anchor2] = connector
+        updated[-2] = chromatic
+        if any(abs(right - left) > 2 for left, right in zip(updated, updated[1:])):
+            return None
+        return updated
+
+    if _connector_ok(notes[anchor2], chromatic, classes, low, high):
+        placed = place(notes[anchor2])
+        if placed is not None:
+            return placed, 0
+    if anchor2 == 0:
+        return notes, 0
+    prev = notes[anchor2 - 1]
+    side = -1 if ascending else 1
+    found: list[tuple[tuple[int, int], int]] = []
+    for dist in (1, 2):
+        for sign in (side, -side):
+            note = chromatic + sign * dist
+            if _connector_ok(note, chromatic, classes, low, high) and abs(note - prev) <= 2:
+                found.append(((0 if sign == side else 1, dist), note))
+    for _rank, note in sorted(found):
+        placed = place(note)
+        if placed is not None:
+            return placed, 0
+    if extra >= 1:
+        for _rank, note in sorted(found):
+            updated = notes[:anchor2] + [notes[anchor2], note, chromatic, end]
+            if all(abs(right - left) <= 2 for left, right in zip(updated, updated[1:])):
+                return updated, 1
+    return notes, 0
+
+
+def _embellish(
+    path: list[int],
+    count: int,
+    ctx: _Ctx,
+    impulse_direction: str,
+    approaching: bool,
+    low: int,
+    high: int,
+    chord_pcs: frozenset[int] | None,
+) -> list[int] | None:
+    if len(path) > count:
+        return None
+    notes = list(path)
+    classes = _pitch_classes(ctx, impulse_direction, approaching)
+    if ctx.ensemble == "barrios" and notes[0] != notes[-1]:
+        updated, _spent = _barrios_tail(notes, count - len(notes), classes, low, high)
+        if len(updated) <= count:
+            notes = updated
+        while len(notes) + 2 <= count:
+            turned = _start_neighbor(notes, ctx, impulse_direction, approaching, low, high)
+            if turned is None or len(turned) > count:
+                break
+            notes = turned
+    elif len(notes) + 2 <= count and notes[0] != notes[-1]:
+        turned = _spare_turn(notes, ctx, impulse_direction, approaching, low, high, chord_pcs)
+        if turned is not None and len(turned) <= count:
+            notes = turned
+    extra = count - len(notes)
+    if ctx.ensemble == "bach" and notes[-1] > notes[0] and (len(notes) < 2 or notes[-2] != notes[-1] - 1):
+        fitted, _extra = _fit_bach_leading(notes, extra, low, high)
+        if len(fitted) <= count:
+            notes = fitted
+            extra = count - len(notes)
+    if (
+        extra == 1
+        and ctx.ensemble in {"bach", "brouwer"}
+        and len(notes) + 1 <= count
+        and (ctx.ensemble != "bach" or notes[-2] != notes[-1] - 1)
+    ):
+        inserted = _insert_legal_semitone(notes, classes, low, high, ctx.ensemble)
+        if inserted is not None and len(inserted) <= count:
+            notes = inserted
+    while len(notes) < count:
+        grown = _insert_repeat(notes)
+        if len(grown) <= len(notes):
+            return None
+        notes = grown
+    if len(notes) != count or notes[0] != path[0] or notes[-1] != path[-1]:
+        return None
+    if any(note < low or note > high for note in notes):
+        return None
+    if any(abs(right - left) > 2 for left, right in zip(notes, notes[1:])):
+        return None
+    return notes
+
+
 def _step_pitch(
     ctx: _Ctx,
     pitch: int,
     toward: int,
     impulse_direction: str,
     approaching: bool,
+    *,
+    low: int | None = None,
+    high: int | None = None,
+    end: int | None = None,
+    steps_after: int | None = None,
 ) -> int:
+    """One step toward `toward`. Leave the set only when no in-set step can still arrive."""
     if toward == 0:
         return pitch
-    if ctx.ensemble == "bach":
-        nxt = bach_scale_step(
-            ctx,
-            pitch,
-            toward,
-            impulse_direction=impulse_direction,
-            approaching_tonic=approaching,
-        )
-    elif ctx.ensemble == "villa":
-        nxt = villa_scale_step(ctx, pitch, toward)
-    elif ctx.ensemble == "barrios":
-        nxt = barrios_scale_step(ctx, pitch, toward)
-    elif ctx.ensemble == "brouwer":
-        nxt = brouwer_scale_step(ctx, pitch, toward)
+    low, high = _resolve_limits(ctx, low, high)
+    classes = _pitch_classes(ctx, impulse_direction, approaching)
+    nxt = _composer_step(ctx, pitch, toward, impulse_direction, approaching, low, high)
+
+    def legal(note: int, *, in_set: bool) -> bool:
+        if note == pitch or (note - pitch) * toward <= 0:
+            return False
+        if abs(note - pitch) > 2 or not low <= note <= high:
+            return False
+        if end is not None and steps_after is not None and abs(end - note) > 2 * steps_after:
+            return False
+        if in_set and note != end and note % 12 not in classes:
+            return False
+        return True
+
+    if legal(nxt, in_set=True):
+        return nxt
+    if end is None or steps_after is None:
+        forced_size = 1
     else:
-        nxt = classic_scale_step(ctx, pitch, toward)
-    if nxt == pitch or (nxt - pitch) * toward <= 0:
-        nxt = pitch + toward
-    if abs(nxt - pitch) > 2:
-        nxt = pitch + (2 if toward > 0 else -2)
-    high = min(ctx.treble_top, ctx.ceiling)
-    if nxt < ctx.treble_floor or nxt > high:
-        return pitch
-    return nxt
+        forced_size = min(2, max(1, abs(end - pitch) - 2 * max(steps_after, 0)))
+    forced = pitch + toward * forced_size
+    if end is not None and (forced - end) * toward > 0:
+        forced = end
+    if legal(forced, in_set=False):
+        return forced
+    smaller = pitch + toward
+    if legal(smaller, in_set=False):
+        return smaller
+    return pitch
 
 
 def _ornamental_neighbor(
@@ -888,6 +1446,9 @@ def _ornamental_neighbor(
     left_after: int,
     impulse_direction: str,
     approaching: bool,
+    *,
+    low: int | None = None,
+    high: int | None = None,
 ) -> int:
     """One scale step off a flat price, on the weak half of the beat.
 
@@ -898,7 +1459,17 @@ def _ornamental_neighbor(
         return current
     primary = 1 if impulse_direction == "up" else -1
     for toward in (primary, -primary):
-        neighbor = _step_pitch(ctx, current, toward, impulse_direction, approaching)
+        neighbor = _step_pitch(
+            ctx,
+            current,
+            toward,
+            impulse_direction,
+            approaching,
+            low=low,
+            high=high,
+            end=end,
+            steps_after=left_after,
+        )
         moved = abs(neighbor - current)
         if (neighbor - current) * toward <= 0 or not 1 <= moved <= 2:
             continue
@@ -916,6 +1487,34 @@ def _raw_held(ctx: _Ctx, start_eighth: int, end_eighth: int) -> bool:
     return all(ctx.raw[eighth] == opening for eighth in range(start_eighth + 1, end_eighth + 1))
 
 
+def _moving_line(
+    start: int,
+    end: int,
+    count: int,
+    ctx: _Ctx,
+    impulse_direction: str,
+    approaching: bool,
+    low: int,
+    high: int,
+    chord_pcs: frozenset[int] | None,
+) -> list[int] | None:
+    room_steps = math.ceil(abs(end - start) / 2)
+    if count - 1 < room_steps:
+        return None
+    # Villa may replace the diatonic walk with color tones when that walk still
+    # fits. A neighbor turn is added later, and only when two steps remain.
+    path = _trace_scale(ctx, start, end, impulse_direction, approaching, low, high, color=False)
+    if path is None:
+        return _fast_line(ctx, start, end, count, impulse_direction, approaching, low, high)
+    if ctx.ensemble == "villa":
+        colored = _trace_scale(ctx, start, end, impulse_direction, approaching, low, high, color=True)
+        if colored is not None and len(colored) <= count:
+            path = colored
+    if len(path) > count:
+        return _fast_line(ctx, start, end, count, impulse_direction, approaching, low, high)
+    return _embellish(path, count, ctx, impulse_direction, approaching, low, high, chord_pcs)
+
+
 def _monotone(
     start: int,
     end: int,
@@ -924,54 +1523,67 @@ def _monotone(
     impulse_direction: str,
     approaching: bool,
     ornament: bool = False,
+    *,
+    low: int | None = None,
+    high: int | None = None,
+    chord_pcs: frozenset[int] | None = None,
 ) -> list[int] | None:
-    """`count` pitches, the first equal to `start` and the last equal to `end`."""
+    """`count` pitches. The first is `start`, the last is `end`, and only the interior moves.
+
+    `room_steps` is the hard bound (no step wider than 2). Spare in-set steps,
+    when `left_after > scale_need`, may pass the anchor by one degree or open a
+    neighbor turn. The line still lands on `end`.
+    """
     if count <= 0:
         return None
+    low, high = _resolve_limits(ctx, low, high)
     if count == 1:
         return [start] if start == end else None
     if abs(end - start) > 2 * (count - 1):
         return None
-    notes = [start]
-    for index in range(1, count - 1):
-        left_after = count - 1 - index
-        current = notes[-1]
-        gap = end - current
-        if abs(gap) > 2 * (left_after + 1):
-            return None
-        if gap == 0:
-            if ornament:
-                notes.append(
-                    _ornamental_neighbor(
-                        ctx, current, end, left_after, impulse_direction, approaching
-                    )
-                )
-            else:
-                notes.append(current)
-            continue
-        toward = 1 if gap > 0 else -1
-        stepped = _step_pitch(ctx, current, toward, impulse_direction, approaching)
-        if toward > 0:
-            stepped = min(stepped, end)
-        else:
-            stepped = max(stepped, end)
-        if abs(end - stepped) > 2 * left_after or abs(stepped - current) > 2:
-            need = max(1, abs(gap) - 2 * left_after)
-            forced = current + toward * min(2, need)
-            if toward > 0:
-                forced = min(forced, end)
-            else:
-                forced = max(forced, end)
-            if abs(forced - current) > 2 or abs(end - forced) > 2 * left_after:
-                forced = current
-            stepped = forced
-        notes.append(stepped)
-    if abs(end - notes[-1]) > 2:
-        return None
-    notes.append(end)
-    if any(abs(right - left) > 2 for left, right in zip(notes, notes[1:])):
-        return None
-    return notes
+    if start == end:
+        # Two anchors with nothing between them have no weak note to ornament.
+        if not ornament or count < 3:
+            return [start] * count
+        notes = [start]
+        neighbor = _ornamental_neighbor(
+            ctx,
+            start,
+            end,
+            max(1, count - 2),
+            impulse_direction,
+            approaching,
+            low=low,
+            high=high,
+        )
+        notes.append(neighbor)
+        current = neighbor
+        toward = 1 if end > current else -1 if end < current else 0
+        for index in range(2, count - 1):
+            if current == end or toward == 0:
+                notes.append(end)
+                current = end
+                continue
+            stepped = _step_pitch(
+                ctx,
+                current,
+                toward,
+                impulse_direction,
+                approaching,
+                low=low,
+                high=high,
+                end=end,
+                steps_after=count - 1 - index,
+            )
+            if abs(stepped - current) > 2:
+                stepped = current
+            notes.append(stepped)
+            current = stepped
+        notes.append(end)
+        if any(abs(right - left) > 2 for left, right in zip(notes, notes[1:])):
+            return [start] * count
+        return notes
+    return _moving_line(start, end, count, ctx, impulse_direction, approaching, low, high, chord_pcs)
 
 
 def _retreat_flag(retreat_at: list[int], index: int) -> bool:
@@ -986,24 +1598,30 @@ def _directed_step(
     left_after: int,
     impulse_direction: str,
     approaching: bool,
+    *,
+    low: int | None = None,
+    high: int | None = None,
 ) -> int | None:
     """One step of `direction` that can still reach `end` in `left_after` steps."""
-    stepped = _step_pitch(ctx, current, direction, impulse_direction, approaching)
-    candidates = [stepped, current + direction]
-    legal: list[int] = []
-    high = min(ctx.treble_top, ctx.ceiling)
-    for candidate in candidates:
-        if (candidate - current) * direction <= 0 or abs(candidate - current) > 2:
-            continue
-        if candidate < ctx.treble_floor or candidate > high:
-            continue
-        if abs(end - candidate) > 2 * left_after:
-            continue
-        if candidate not in legal:
-            legal.append(candidate)
-    if not legal:
+    low, high = _resolve_limits(ctx, low, high)
+    stepped = _step_pitch(
+        ctx,
+        current,
+        direction,
+        impulse_direction,
+        approaching,
+        low=low,
+        high=high,
+        end=end,
+        steps_after=left_after,
+    )
+    if (stepped - current) * direction <= 0 or abs(stepped - current) > 2:
         return None
-    return max(legal, key=lambda note: abs(note - current))
+    if stepped < low or stepped > high:
+        return None
+    if abs(end - stepped) > 2 * left_after:
+        return None
+    return stepped
 
 
 def _with_retreat(
@@ -1015,6 +1633,10 @@ def _with_retreat(
     impulse_direction: str,
     approaching: bool,
     ornament: bool = False,
+    *,
+    low: int | None = None,
+    high: int | None = None,
+    chord_pcs: frozenset[int] | None = None,
 ) -> list[int] | None:
     """Weak beats follow the impulse, and reverse only on `retreat_at`.
 
@@ -1023,9 +1645,21 @@ def _with_retreat(
     `ornament` is a flat price between two equal melody anchors: the offbeat
     may take one neighbor, then the next anchor returns to the melody.
     """
+    low, high = _resolve_limits(ctx, low, high)
     interior = any(_retreat_flag(retreat_at, index) for index in range(1, count - 1))
     if not interior:
-        return _monotone(start, end, count, ctx, impulse_direction, approaching, ornament)
+        return _monotone(
+            start,
+            end,
+            count,
+            ctx,
+            impulse_direction,
+            approaching,
+            ornament,
+            low=low,
+            high=high,
+            chord_pcs=chord_pcs,
+        )
     toward = 1 if impulse_direction == "up" else -1
     against = -toward
     notes = [start]
@@ -1039,6 +1673,8 @@ def _with_retreat(
             count - 1 - index,
             impulse_direction,
             approaching,
+            low=low,
+            high=high,
         )
         if stepped is None:
             return None
@@ -1052,12 +1688,15 @@ def _with_retreat(
             return None
     if any(abs(right - left) > 2 for left, right in zip(notes, notes[1:])):
         return None
+    if any(note < low or note > high for note in notes):
+        return None
     return notes
 
 
 def _assign(ctx: _Ctx, passage: ScalePassage, slots: list[_Slot]) -> list[int] | None:
     if len(slots) < 2:
         return None
+    low, high = _compass(ctx, passage)
     pitches: list[int | None] = [None] * len(slots)
     for index, slot in enumerate(slots):
         if slot.anchor:
@@ -1074,7 +1713,19 @@ def _assign(ctx: _Ctx, passage: ScalePassage, slots: list[_Slot]) -> list[int] |
         count = anchors[0] + 2
         flags = [False, *(slots[index].retreat for index in range(anchors[0] + 1))]
         approaching = end_pitch % 12 == 0
-        line = _with_retreat(int(previous), end_pitch, count, flags, ctx, passage.direction, approaching)
+        pcs = ctx.chord(slots[anchors[0]].eighth // ctx.epb).pitch_classes
+        line = _with_retreat(
+            int(previous),
+            end_pitch,
+            count,
+            flags,
+            ctx,
+            passage.direction,
+            approaching,
+            low=low,
+            high=high,
+            chord_pcs=pcs,
+        )
         if line is None:
             return None
         for offset, pitch in enumerate(line[1:]):
@@ -1089,6 +1740,7 @@ def _assign(ctx: _Ctx, passage: ScalePassage, slots: list[_Slot]) -> list[int] |
         flat = int(pitches[left]) == end_pitch and _raw_held(
             ctx, slots[left].eighth, slots[right].eighth
         )
+        pcs = ctx.chord(slots[right].eighth // ctx.epb).pitch_classes
         line = _with_retreat(
             int(pitches[left]),
             end_pitch,
@@ -1098,6 +1750,9 @@ def _assign(ctx: _Ctx, passage: ScalePassage, slots: list[_Slot]) -> list[int] |
             passage.direction,
             approaching,
             ornament=flat,
+            low=low,
+            high=high,
+            chord_pcs=pcs,
         )
         if line is None:
             return None
@@ -1113,9 +1768,19 @@ def _assign(ctx: _Ctx, passage: ScalePassage, slots: list[_Slot]) -> list[int] |
     return concrete
 
 
+def _ascending_into(pitches: list[int], anchor: int, passage: ScalePassage) -> bool:
+    target = pitches[anchor]
+    for index in range(anchor - 1, -1, -1):
+        if pitches[index] != target:
+            return target > pitches[index]
+    return passage.direction != "down"
+
+
 def _color_line(ctx: _Ctx, passage: ScalePassage, slots: list[_Slot], pitches: list[int]) -> list[int]:
     colored = list(pitches)
+    low, high = _compass(ctx, passage)
     if ctx.ensemble == "barrios":
+        classes = frozenset(_classes(ctx.mode))
         anchors = [index for index, slot in enumerate(slots) if slot.anchor]
         for anchor in anchors:
             if anchor <= 0:
@@ -1123,14 +1788,36 @@ def _color_line(ctx: _Ctx, passage: ScalePassage, slots: list[_Slot], pitches: l
             approach = anchor - 1
             if slots[approach].anchor:
                 continue
-            before = colored[approach - 1] if approach > 0 else colored[approach]
-            ascending = colored[anchor] >= before
-            chromatic = barrios_chromatic_approach(colored[anchor], ascending)
-            if abs(chromatic - colored[anchor]) != 1:
+            chromatic = barrios_chromatic_approach(colored[anchor], _ascending_into(colored, anchor, passage))
+            if abs(chromatic - colored[anchor]) != 1 or not low <= chromatic <= high:
                 continue
             if approach > 0 and abs(chromatic - colored[approach - 1]) > 2:
+                index = approach - 1
+                if index == 0 or slots[index].anchor:
+                    continue
+                prev = colored[index - 1]
+                replacement = None
+                for dist in (1, 2):
+                    for sign in (-1, 1):
+                        note = chromatic + sign * dist
+                        if (
+                            low <= note <= high
+                            and note % 12 in classes
+                            and abs(note - prev) <= 2
+                            and abs(note - chromatic) in {1, 2}
+                        ):
+                            replacement = note
+                            break
+                    if replacement is not None:
+                        break
+                if replacement is None:
+                    continue
+                colored[index] = replacement
+            trial = list(colored)
+            trial[approach] = chromatic
+            if any(abs(right - left) > 2 for left, right in zip(trial, trial[1:])):
                 continue
-            colored[approach] = chromatic
+            colored = trial
     if ctx.ensemble == "villa" and ctx.bpm >= SCALE_SIXTEENTH_MIN_BPM:
         stopped = list(colored)
         for index, slot in enumerate(slots):
@@ -1153,30 +1840,29 @@ def _color_line(ctx: _Ctx, passage: ScalePassage, slots: list[_Slot], pitches: l
 
 
 def _groups_ok(slots: list[_Slot], pitches: list[int], semitones: int) -> bool:
+    """Hand position of a four-sixteenth group, on sounding pitches.
+
+    Written pitches have not had `semitones` added, so a position check there
+    rejects real open strings in D, Eb, A, and Bb.
+    """
     sounding: dict[int, list[int]] = {}
-    written: dict[int, list[int]] = {}
     for slot, pitch in zip(slots, pitches):
         if slot.dur16 != 1:
             continue
         key = (slot.eighth * 2 + slot.sub) // 4
         sounding.setdefault(key, []).append(pitch + semitones)
-        written.setdefault(key, []).append(pitch)
-    for key, group in sounding.items():
-        if not _quarter_ok(group):
-            return False
-        ordered = sorted(set(written[key]))
-        if len(ordered) >= 2 and all(abs(right - left) <= 4 for left, right in zip(ordered, ordered[1:])):
-            if not _position_ok(ordered):
-                return False
-    return True
+    return all(_quarter_ok(group) for group in sounding.values())
 
 
-def _lead_ok(ctx: _Ctx, pitches: list[int]) -> bool:
-    for pitch in pitches:
-        sounding = pitch + ctx.semitones
-        if sounding < 59 or sounding > 81:
-            return False
-    return True
+def _lead_ok(
+    ctx: _Ctx,
+    pitches: list[int],
+    *,
+    low: int | None = None,
+    high: int | None = None,
+) -> bool:
+    low, high = _resolve_limits(ctx, low, high)
+    return all(low <= pitch <= high for pitch in pitches)
 
 
 def _line(ctx: _Ctx, patterns: list[str], passage: ScalePassage) -> tuple[list[_Slot], list[int]] | None:
@@ -1187,9 +1873,11 @@ def _line(ctx: _Ctx, patterns: list[str], passage: ScalePassage) -> tuple[list[_
     pitches = _color_line(ctx, passage, slots, pitches)
     if any(abs(right - left) > 2 for left, right in zip(pitches, pitches[1:])):
         return None
-    if not _groups_ok(slots, pitches, ctx.semitones) or not _lead_ok(ctx, pitches):
+    low, high = _compass(ctx, passage)
+    if not _groups_ok(slots, pitches, ctx.semitones) or not _lead_ok(ctx, pitches, low=low, high=high):
         return None
     return slots, pitches
+
 
 
 def _velocity_before(lead: list[NoteEvent], start: int, epb: int) -> int:
@@ -1771,6 +2459,12 @@ def _host_attacks(ctx: _Ctx, pattern: str, bar: int, start: int, target: int) ->
     return []
 
 
+def _low_scale_lead(ctx: _Ctx, slices: list[list[int]]) -> bool:
+    """True when the scale is already in the register below the treble window."""
+    sounding = [lead + ctx.semitones for group in slices for lead in group]
+    return bool(sounding) and min(sounding) < 59
+
+
 def _plant_attacks(
     ctx: _Ctx,
     pattern: str,
@@ -1780,8 +2474,13 @@ def _plant_attacks(
     *,
     sounding_low: int | None = None,
     sounding_high: int | None = None,
+    allow_rest: bool = False,
 ) -> list[NoteEvent] | None:
-    """Plant every attack. One missing root or fifth rejects the passage."""
+    """Plant every attack. One missing root or fifth rejects the passage.
+
+    `allow_rest` lets a long Villa or Brouwer scale keep the low string when
+    no chord root or fifth fits under the lead. An empty list is that rest.
+    """
     if not attacks:
         return None
     events: list[NoteEvent] = []
@@ -1797,6 +2496,8 @@ def _plant_attacks(
             sounding_high=sounding_high,
         )
         if pitch is None:
+            if allow_rest and _low_scale_lead(ctx, slices):
+                continue
             return None
         events.extend(
             _eighth_event(
@@ -1920,6 +2621,9 @@ def _rewrite_bass(
             continue
         if host in {"etude1", "etude11", "thumb_cantabile"}:
             window = (48, 64) if host == "thumb_cantabile" else (None, None)
+            # A long Villa or Brouwer run may take the low E string. Bach, Sor,
+            # and Barrios stop at 52 and still need a bass under the line.
+            allow_rest = passage.passage_eighths >= ctx.epb and ctx.ensemble in {"villa", "brouwer"}
             planted = _plant_attacks(
                 ctx,
                 host,
@@ -1928,6 +2632,7 @@ def _rewrite_bass(
                 leads,
                 sounding_low=window[0],
                 sounding_high=window[1],
+                allow_rest=allow_rest,
             )
             if planted is None:
                 return None

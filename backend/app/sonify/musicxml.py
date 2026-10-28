@@ -782,14 +782,29 @@ def _ambient_swell_part(root: ET.Element, score: Score) -> None:
             _wedge(measure, WedgeEvent(bar=bar, beat=score.bar_beats, kind="stop"))
 
 
+def _guitar_voices(score: Score) -> list[list[list[NoteEvent]]]:
+    """Lead, then each support voice, then bass.
+
+    Support keeps ``event.voice``. The Preludio puts the lower middle on 2 and
+    the upper middle on 4; one shared stream would overlap those durations.
+    """
+    streams = [_group(score.lead, score.bars)]
+    by_voice: dict[int, list[NoteEvent]] = {}
+    for event in score.support:
+        by_voice.setdefault(event.voice, []).append(event)
+    if not by_voice:
+        by_voice[2] = []
+    for voice in sorted(by_voice):
+        streams.append(_group(tuple(by_voice[voice]), score.bars))
+    streams.append(_group(score.low, score.bars))
+    return streams
+
+
 def _guitar_part(root: ET.Element, score: Score) -> None:
-    """One nylon part. Three voices share the measure and meet again through backup."""
+    """One nylon part. The lead, each support voice, and the bass share the measure."""
     part = _add(root, "part", id="P1")
-    voices = (
-        _group(score.lead, score.bars),
-        _group(score.support, score.bars),
-        _group(score.low, score.bars),
-    )
+    voices = _guitar_voices(score)
+    markings = ("mp",) * len(voices)
     symbols = _group(score.harmonies, score.bars)
     bar_units = str(int(round(score.bar_beats * score.divisions)))
     for bar in range(score.bars):
@@ -821,6 +836,13 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
         for event in symbols[bar]:
             _harmony(measure, event, score.key, score.mode)
         for voice_index, voice in enumerate(voices):
+            ordered = sorted(voice[bar], key=lambda note: note.beat)
+            # A voice with no events in this bar is not a stream here. A backup
+            # with nothing after it would shorten the measure. Voice 2 still
+            # fills every bar, so a score whose support is only voice 2 keeps
+            # the same backup count.
+            if voice_index and not ordered:
+                continue
             if voice_index:
                 backup = _add(measure, "backup")
                 _add(backup, "duration", bar_units)
@@ -828,9 +850,8 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                 # One letter per voice, printed inside that voice's own stream:
                 # the tremolo fill and both thumb voices (the middle colour
                 # and the bass) all sit around mp.
-                marking = ("mp", "mp", "mp")[voice_index]
+                marking = markings[voice_index]
                 _dynamic(measure, DynamicEvent(bar=0, marking=marking, sound=SOUND[marking]))
-            ordered = sorted(voice[bar], key=lambda note: note.beat)
             roles = _sextuplet_roles(ordered)
             previous_beat: float | None = None
             for event, role in zip(ordered, roles):

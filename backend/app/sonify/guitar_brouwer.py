@@ -543,19 +543,27 @@ _DORIAN_PCS = frozenset({0, 2, 3, 5, 7, 9, 10})
 _PHRYGIAN_PCS = frozenset({0, 1, 3, 5, 7, 8, 10})
 
 
-def brouwer_scale_step(ctx: _Ctx, pitch: int, direction: int) -> int:
-    """A 1- or 2-semitone swarm step, preferring dorian / phrygian color and bVII."""
+def brouwer_scale_step(
+    ctx: _Ctx,
+    pitch: int,
+    direction: int,
+    *,
+    low: int | None = None,
+    high: int | None = None,
+) -> int:
+    """A 1- or 2-semitone swarm step, preferring the whole step inside Dorian ∪ Phrygian.
+
+    A semitone outside that set is not a scale step. The line may force one
+    only when no in-set step can still reach the anchor.
+    """
     step = 1 if direction >= 0 else -1
     modal = _DORIAN_PCS | _PHRYGIAN_PCS
-    low = ctx.treble_floor
-    high = min(ctx.treble_top, ctx.ceiling)
+    floor = ctx.treble_floor if low is None else low
+    top = min(ctx.treble_top, ctx.ceiling) if high is None else high
     for size in (2, 1):
         nxt = pitch + step * size
-        if low <= nxt <= high and nxt % 12 in modal:
+        if floor <= nxt <= top and nxt % 12 in modal:
             return nxt
-    nxt = pitch + step
-    if low <= nxt <= high:
-        return nxt
     return pitch
 
 

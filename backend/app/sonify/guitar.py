@@ -160,6 +160,8 @@ def render_guitar_score(
             raise
         voice_kwargs.pop("impulses")
         lead, support, low, divisions = render_patterned_voices(**voice_kwargs)
+    scale_eighths = tuple(getattr(lead, "scale_eighths", ()))
+    long_scale_eighths = tuple(getattr(lead, "long_scale_eighths", ()))
     return Score(
         title=title,
         bpm=bpm,
@@ -169,7 +171,8 @@ def render_guitar_score(
         slots=slots,
         high=(),
         lead=_voice(lead, 1),
-        support=_voice(support, 2),
+        # Preludio keeps the upper middle on voice 4. Every other support note stays on 2.
+        support=tuple(note if note.voice == 4 else replace(note, voice=2) for note in support),
         comp=(),
         low=_voice(low, 3),
         dynamics=dynamics,
@@ -186,6 +189,8 @@ def render_guitar_score(
         beats=meter.beats,
         beat_type=meter.beat_type,
         bar_beats=meter.quarter_beats,
+        scale_eighths=scale_eighths,
+        long_scale_eighths=long_scale_eighths,
     )
 
 

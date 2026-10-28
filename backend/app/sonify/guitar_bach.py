@@ -828,10 +828,20 @@ def _render_bach_bourree_bar(
 
 
 
+def _gavotte_sung(ctx: _Ctx, eighth: int) -> int:
+    return max(ctx.treble_floor, min(_bach_lead_high(ctx), _melody_at(ctx, eighth)))
+
+
 def _render_bach_gavotte_bar(
     ctx: _Ctx, bar: int, apex: set[int], phrase: Phrase | None
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
-    """Gavotte: quarter-quarter, then four eighths in parallel thirds or sixths."""
+    """Gavotte: quarter, staccato quarter, then four eighths in parallel thirds or sixths.
+
+    In 4/4 the four eighths are the price at hooks 4 and 5. Hooks 6 and 7 stay
+    the price when this is the last bar, or when the next downbeat matches hook
+    4. They step into the next downbeat only when that bar exists and differs.
+    The old four-note scale is not used.
+    """
     epb = ctx.epb
     start = bar * epb
     if ctx.kind == "4/4":
@@ -871,8 +881,21 @@ def _render_bach_gavotte_bar(
         tone = _choose_inner(ctx.chord(bar), sung, bass, ctx.mid_low, ctx.mid_high, ctx.semitones, False)
         if tone is not None:
             support.extend(_eighth_event(start + offset, length, tone, epb, 2, _INNER))
-    target = _melody_at(ctx, min(len(ctx.melody) - 1, (bar + 1) * epb if bar + 1 < ctx.bars else start))
-    line = _approach_eighths(ctx, target, tail_len)
+    if ctx.kind == "4/4":
+        line = [_gavotte_sung(ctx, start + 4), _gavotte_sung(ctx, start + 5)]
+        if bar + 1 < ctx.bars:
+            target = _melody_at(ctx, min(len(ctx.melody) - 1, (bar + 1) * epb))
+            if target == _melody_at(ctx, start + 4):
+                line.extend((_gavotte_sung(ctx, start + 6), _gavotte_sung(ctx, start + 7)))
+            else:
+                line.extend(_approach_eighths(ctx, target, 2))
+        else:
+            line.extend((_gavotte_sung(ctx, start + 6), _gavotte_sung(ctx, start + 7)))
+    else:
+        target = _melody_at(
+            ctx, min(len(ctx.melody) - 1, (bar + 1) * epb if bar + 1 < ctx.bars else start)
+        )
+        line = _approach_eighths(ctx, target, tail_len)
     long_bass = _gavotte_tail_bass(ctx, ctx.chord(bar), line)
     low.extend(_eighth_event(start + tail, tail_len, long_bass, epb, 3, _BASS))
     previous_inner: int | None = None
@@ -1390,11 +1413,14 @@ def bach_scale_step(
     *,
     impulse_direction: str = "up",
     approaching_tonic: bool = False,
+    low: int | None = None,
+    high: int | None = None,
 ) -> int:
-    """One diatonic step of a Bach tirata, inside the treble window."""
-    high = min(ctx.treble_top, ctx.ceiling)
+    """One diatonic step of a Bach tirata, inside the compass passed by the scale line."""
+    floor = ctx.treble_floor if low is None else low
+    top = min(ctx.treble_top, ctx.ceiling) if high is None else high
     classes = bach_scale_classes(ctx, impulse_direction, approaching_tonic)
-    return _bach_step_in(pitch, direction, classes, ctx.treble_floor, high)
+    return _bach_step_in(pitch, direction, classes, floor, top)
 
 
 def _bach_phrase_at(ctx: _Ctx, bar: int) -> Phrase | None:

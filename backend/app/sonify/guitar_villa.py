@@ -581,15 +581,23 @@ def _villa_step_in(pitch: int, direction: int, classes: set[int], low: int, high
     return pitch
 
 
-def villa_scale_step(ctx: _Ctx, pitch: int, direction: int) -> int:
+def villa_scale_step(
+    ctx: _Ctx,
+    pitch: int,
+    direction: int,
+    *,
+    low: int | None = None,
+    high: int | None = None,
+) -> int:
     """Stopped modal step (diatonic plus sus2 / add9 / 7sus4 color).
 
     Open strings are offered separately and kept only when the sixteenth
     group still passes the position check.
     """
-    high = min(ctx.treble_top, ctx.ceiling)
+    floor = ctx.treble_floor if low is None else low
+    top = min(ctx.treble_top, ctx.ceiling) if high is None else high
     classes = set(_classes(ctx.mode)) | set(_VILLA_COLOR_PCS)
-    return _villa_step_in(pitch, direction, classes, ctx.treble_floor, high)
+    return _villa_step_in(pitch, direction, classes, floor, top)
 
 
 def villa_open_candidates(ctx: _Ctx, pitch: int, direction: int) -> list[int]:
