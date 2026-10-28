@@ -41,8 +41,9 @@ Bè cao của cả vùng preludio được chốt trước (sau `quantize_strong
 3. Chọn hai âm khác nhau. Âm cao dành cho nốt `3` và `5` (`voice 4`). Âm thấp dành cho nốt `2`, `6`, `8` (`voice 2`). Trong khung, `3 = 5` và `2 = 6 = 8`.
 4. Mức nền của khoảng cách: âm cao cách âm thấp một quãng ba (`3` hoặc `4` bán cung). Nốt bè cao thấp nhất đang kêu cùng âm cao cách âm cao đó nửa octave (`6` bán cung) hoặc một quãng năm (`7` bán cung). Hết đúng khoảng đó thì nới hoặc rút một bước, vừa đủ để còn âm hợp âm, còn `_playable` trên cả tổ hợp bốn nốt `[bass, âm thấp / nốt 4, âm cao, bè cao]`, và còn `bass < âm thấp < nốt 4 < âm cao < bè cao`. Nốt `4` nâng hai bậc khi nốt đó còn là âm hợp âm, còn thấp hơn âm cao, và còn `_playable` cùng `[bass, âm cao, nốt 1]`; không thì nâng một bậc. Một bậc cũng chạm âm cao, chạm bè cao, hoặc trượt `_playable` thì nốt `4` giữ đúng âm thấp.
 5. Hết hai âm trong cửa sổ thì giữ cặp của khung trước, nếu cả hai còn nằm giữa bass và trần và còn `_playable`. Nếu giữa bass và trần chỉ còn đúng một âm hợp âm thì bè trung cao (`voice 4`) nghỉ trong khung đó, chỉ giữ bè trung thấp (`voice 2`). Không thêm âm ngoài hợp âm. Ngoại lệ duy nhất là nốt `4` khi nó nâng một bậc.
+6. Khi bè cao chạy, hai bè trung vẫn đổi âm theo hợp âm đang ngân, nhưng mỗi bè đứng yên quanh nốt mở đầu của chính nó. Nốt mở đầu của trung thấp là âm thấp của khung đầu tiên trong vùng mà bè đó hát. Nốt mở đầu của trung cao là âm cao của khung đó. Âm thấp các khung sau, và nốt `4`, cách nốt mở đầu trung thấp không quá một quãng năm (`7` bán cung). Âm cao các khung sau cách nốt mở đầu trung cao không quá một quãng năm. Hết âm hợp âm trong cửa đó thì giữ nốt mở đầu nếu nó vẫn là âm của hợp âm đang ngân, vẫn dưới trần, và vẫn `_playable`. Không thì bè đó nghỉ khung này. Không nhảy octave để đuổi bè cao. Hết vùng preludio thì quên hai nốt mở đầu.
 
-Nốt `4` nâng theo thang của mode. Hai bậc chỉ khi nốt đích còn là âm hợp âm và còn thấp hơn âm cao. Một bậc là bước thang liền trên âm thấp, kể cả khi bước đó rời hợp âm.
+Nốt `4` nâng theo thang của mode. Hai bậc chỉ khi nốt đích còn là âm hợp âm và còn thấp hơn âm cao. Một bậc là bước thang liền trên âm thấp, kể cả khi bước đó rời hợp âm. Bước nâng cũng phải nằm trong cửa quãng năm của nốt mở đầu trung thấp.
 
 Mỗi khung, kể cả khung sau vạch ô, đều mở như khung đầu vùng. Bè trung thấp nghỉ một móc kép ở vị trí `1`, rồi gảy nốt `2`. Bè trung cao nghỉ hai móc kép đầu, rồi gảy nốt `3`. Đầu ô mới không có nốt ghép của nốt `5` hay nốt `8` khung trước.
 
@@ -123,7 +124,7 @@ Mọi thời điểm có nốt bass đang ngân vẫn phải giữ `bass < lead`
 
 ## 3. Chỗ sửa và chỗ giữ
 
-Sửa `_catedral_cell`, `_catedral_wave`, và `_catedral_schedule` theo Mục 1. Bè trung thấp (`voice 2`) và bè trung cao (`voice 4`) cùng nằm trong `support`. `_resolve`, `_fill`, `_repair`, `_guitar_part`, `guitar.py` (`_voice`), và `assert_playable` tách và bảo toàn `event.voice`. Bỏ tie và chữ V. Mở cửa bốn nốt (`bass < voice 2 < voice 4 < lead`) và bỏ trần `65` đúng như đoạn đầu, chỉ profile `barrios_preludio`. Nốt `5` dài một móc đơn, nốt `8` dài một móc kép, và đầu ô sau không có nốt ghép của hai nốt đó. Trước `_catedral_tail`, nốt `5` đã tắt tại `beat 1.5` và nốt `8` tắt đúng `beat 2.0`.
+Sửa `_catedral_cell`, `_catedral_wave`, và `_catedral_schedule` theo Mục 1. Bè trung thấp (`voice 2`) và bè trung cao (`voice 4`) cùng nằm trong `support`. `_resolve`, `_fill`, `_repair`, `_guitar_part`, `guitar.py` (`_voice`), và `assert_playable` tách và bảo toàn `event.voice`. Bỏ tie và chữ V. Mở cửa bốn nốt (`bass < voice 2 < voice 4 < lead`) và bỏ trần `65` đúng như đoạn đầu, chỉ profile `barrios_preludio`. Nốt `5` dài một móc đơn, nốt `8` dài một móc kép, và đầu ô sau không có nốt ghép của hai nốt đó. Trước `_catedral_tail`, nốt `5` đã tắt tại `beat 1.5` và nốt `8` tắt đúng `beat 2.0`. Trong một vùng, âm thấp, nốt `4`, và âm cao không cách nốt mở đầu của bè mình quá một quãng năm.
 
 Sửa `_monotone`, cửa ép của `_step_pitch`, và phép kiểm `_groups_ok` (chỉ kiểm thế tay trên cao độ vang `sounding`). Truyền tầm `[floor, top]` của Mục 2.3 xuống `_step_pitch`, `_directed_step`, `*_scale_step`, `_lead_ok`, và `assert_playable`. `bach_scale_step`, `classic_scale_step`, `barrios_scale_step`, `villa_scale_step`, `brouwer_scale_step` giữ tập nốt. Dây buông Villa vẫn nằm trong `_color_line`.
 
@@ -143,7 +144,8 @@ Cửa nghe sau khi sửa:
 - Hai bè trung chỉ dùng âm của hợp âm đang ngân, trừ nốt `4` khi nó nâng một bậc.
 - Bốn nốt xếp `bass < trung thấp < trung cao < bè cao`. `assert_playable` chấp nhận đúng thế của profile `barrios_preludio`, kể cả khi bè trung vượt `65` mà vẫn thấp hơn bè cao.
 - Nốt `5` dài một móc đơn và tắt ở đầu vị trí `7`. Nốt `8` dài một móc kép và tắt ở cuối khung. Đầu ô sau không có nốt ghép của hai nốt đó. Trước `_catedral_tail`, nốt `5` tắt tại `beat 1.5` và nốt `8` tắt đúng `beat 2.0`.
-- Quãng ba và quãng năm, cùng bốn mức velocity, là mức nền. Pipeline được phép nới một bước cho khung chơi được. Cùng một bè, các cú gảy không cùng một velocity.
+- Quãng ba và quãng năm giữa các bè, cùng bốn mức velocity, là mức nền. Pipeline được phép nới một bước cho khung chơi được. Cùng một bè, các cú gảy không cùng một velocity.
+- Trong một vùng preludio, âm thấp, nốt `4`, và âm cao không cách nốt mở đầu của bè mình quá một quãng năm. Bè cao đi xa thì hai bè trung không nhảy octave để đuổi theo.
 - Bach trưởng vào `C` kết bằng `B–C`. Sor trưởng vào `C` kết bằng `D–C` hoặc neighbor ở đầu câu.
 - Câu Villa dưới 88 BPM, và các móc đơn đầu câu dài, không gọi `villa_open_candidates`.
 - Câu dài của Villa hoặc Brouwer có thể chạm Mi trầm buông. Câu của Bach, Sor, Barrios không xuống dưới `52`.
