@@ -1828,10 +1828,10 @@ def test_composer_intro_and_outro_frames_for_two_and_four_bars() -> None:
 
     # A wide rally is galop, so both frames are the galop door.
     classic = _frame_score("classic", 2)
-    assert classic.divisions == 2
+    assert classic.divisions == 4
     assert _onset_beats(classic.low, 0) == [0.0, 2.0]
     assert all(note.staccato and note.velocity is not None and note.velocity <= 52 for note in _pitched(classic.low, 0))
-    assert [round(note.beat, 2) for note in _pitched(classic.support, 0)] == [0.5, 1.5, 2.5, 3.5]
+    assert _pitched(classic.support, 0) == []
     leaps = [note for note in _pitched(classic.lead, 1) if note.beat >= 2]
     assert len(leaps) >= 3 and all(note.staccato for note in leaps)
     close = _pitched(classic.low, classic.bars - 1)
@@ -2812,18 +2812,21 @@ def test_sor_galop_and_mozart_variations_and_the_op9_overture() -> None:
     galop = _frame_score("classic", 2)
     bass = _pitched(galop.low, 2)
     assert [round(note.beat, 2) for note in bass] == [0.0, 2.0]
-    assert all(note.staccato and abs(note.duration_beats - 1.0) < 1e-9 for note in bass)
+    assert all(note.staccato and abs(note.duration_beats - 0.5) < 1e-9 for note in bass)
     assert bass[0].accent
-    inner = _pitched(galop.support, 2)
-    assert [round(note.beat, 2) for note in inner] == [0.5, 1.5, 2.5, 3.5]
-    assert all(note.staccato and note.accent for note in inner)
-    assert len({note.midi for note in inner}) == 2
+    assert _pitched(galop.support, 2) == []
     lead = _pitched(galop.lead, 2)
     downbeat = next(note for note in lead if note.beat == 0.0)
-    sparkle = next(note for note in lead if abs(note.beat - 0.5) < 1e-9)
-    assert sparkle.staccato and sparkle.midi is not None and downbeat.midi is not None
-    assert sparkle.midi > downbeat.midi
-    assert _sixteenths(galop.lead, 2) == []
+    upper = next(note for note in lead if abs(note.beat - 0.5) < 1e-9)
+    under = next(note for note in lead if abs(note.beat - 0.75) < 1e-9)
+    assert downbeat.staccato and abs(downbeat.duration_beats - 0.5) < 1e-9
+    assert not upper.staccato and abs(upper.duration_beats - 0.25) < 1e-9
+    assert downbeat.midi is not None and upper.midi is not None and under.midi is not None
+    assert upper.midi == downbeat.midi + 12
+    assert 0 < upper.midi - under.midi <= 7
+    assert under.midi % 12 in {0, 4, 7}
+    # First galop bar of the run: the repeating grid, then the Tecla bar-2 eighths.
+    assert _sixteenths(galop.lead, 2) == [0.5, 0.75, 1.5, 1.75, 2.5, 2.75]
     assert_playable(galop, C_KEY, "study")
 
     # A narrow rally (< 1.2% span) stays on study; an energetic rally (>= 1.2%) dances Galop.

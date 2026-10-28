@@ -2576,7 +2576,9 @@ def render_patterned_voices(
             support.extend(part_support)
             low.extend(part_low)
         elif pattern == "galop":
-            part_lead, part_support, part_low = _render_galop_bar(ctx, bar, apex, phrase_here)
+            part_lead, part_support, part_low = _render_galop_bar(
+                ctx, bar, apex, phrase_here, patterns
+            )
             lead.extend(part_lead)
             support.extend(part_support)
             low.extend(part_low)

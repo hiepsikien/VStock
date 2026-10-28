@@ -2,7 +2,7 @@
 
 > **Phạm vi**: thân bài `bach_gavotte` trong `backend/app/sonify/guitar_bach.py`, thân bài `galop` trong `backend/app/sonify/guitar_sor.py`, cửa `galop` trong `backend/app/sonify/guitar_frame_bach_sor.py`.
 > **Bản đối chiếu**: Fernando Sor, *Galop*, Op. 32 No. 6, trong *Six petites pièces* (Paris, 1828). Bản Tecla, *New Complete Works for Guitar*, tập 4, trang 78. Ảnh đính kèm là câu sau chữ *Fine* của chính bài này, Tecla đánh số 17–24.
-> **Mục tiêu**: ghi vì sao Gavotte không phản ánh price action, vì sao Galop nghe chưa ra bài của Sor, và cách dùng câu đối đáp trong ảnh (Galop 2) xen với câu phi. Chưa đổi code phát nhạc.
+> **Mục tiêu**: ghi vì sao Gavotte không phản ánh price action, vì sao Galop nghe chưa ra bài của Sor, và cách dùng câu đối đáp trong ảnh (Galop 2) xen với câu phi. Code phát nhạc đã theo kế hoạch này.
 > **Mốc code**: đối chiếu với `main` `7d856b3`. Merge scale không sửa `guitar_bach.py`, `guitar_sor.py`, hay `guitar_frame_bach_sor.py`. Sóng vẫn là `affine_raw`: `round(C) + (V - 64)`.
 
 Mốc móc đơn là chỉ số eighth `0 .. epb - 1`. Ô 4/4 dùng `epb = 8`. Một ô 4/4 của sonify bằng hai ô 2/4 của Sor, tức 8 ô 2/4 bằng **bốn** ô 4/4. Velocity thân bài: lead `_MELODY = 64`, bass `_BASS = 56`, bè trong `_INNER = 46`.
