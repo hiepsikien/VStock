@@ -339,8 +339,8 @@ def _galop2_cell(ctx: _Ctx, origin: int, melody_at, chord: Chord) -> list[tuple]
         notes.append((float(origin), 1.0, root, 3, {}))
     else:
         low, upper = leap
-        notes.append((float(origin), 1.0, low, 3, {}))
-        notes.append((float(origin + 1), 1.0, upper, 3, {}))
+        notes.append((float(origin), 1.0, low, 3, {"slur_start": True}))
+        notes.append((float(origin + 1), 1.0, upper, 3, {"slur_stop": True}))
     return notes
 
 
@@ -376,6 +376,12 @@ def _emit_galop(
         )
         if flags.get("staccato") and events:
             events[0] = replace(events[0], staccato=True)
+        if events and (flags.get("slur_start") or flags.get("slur_stop")):
+            events[0] = replace(
+                events[0],
+                slur_start=bool(flags.get("slur_start")),
+                slur_stop=bool(flags.get("slur_stop")),
+            )
         voices[voice].extend(events)
     return voices[1], voices[2], voices[3]
 
@@ -418,7 +424,35 @@ def _render_galop_dance(
             )
     part_lead, support, low = _emit_galop(ctx, bar, figures, apex, phrase)
     support, low = _shape_accompaniment(ctx, support, low)
+    if index % 8 >= 4:
+        low = _slur_galop2_bass(low)
     return part_lead, support, low
+
+
+def _slur_galop2_bass(low: list[NoteEvent]) -> list[NoteEvent]:
+    """One slur over the root eighth and the twelfth. The thin root has none.
+
+    `_shape_accompaniment` may replace a note to change its velocity. The slur
+    is written on the events that leave that pass, so the flags stay.
+    """
+    by_beat = {
+        round(event.beat, 2): index
+        for index, event in enumerate(low)
+        if event.midi is not None
+    }
+    updated = list(low)
+    for origin in (0.0, 2.0):
+        root_at = by_beat.get(origin)
+        upper_at = by_beat.get(round(origin + 0.5, 2))
+        if root_at is None or upper_at is None:
+            continue
+        root = updated[root_at]
+        upper = updated[upper_at]
+        if root.midi is None or upper.midi is None or upper.midi - root.midi != 19:
+            continue
+        updated[root_at] = replace(root, slur_start=True, slur_stop=False)
+        updated[upper_at] = replace(upper, slur_start=False, slur_stop=True)
+    return updated
 
 
 def _render_galop_bar(

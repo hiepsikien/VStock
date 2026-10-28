@@ -3014,6 +3014,40 @@ def test_two_galop_phrases_keep_the_dance_on_the_second() -> None:
     assert galop_bar(4)
 
 
+def test_galop_2_slurs_the_twelfth_and_galop_1_does_not() -> None:
+    epb = 8
+    phrases = (
+        _held(0, 2 * epb, 72),
+        _held(2 * epb, 6 * epb, 72),
+        _held(8 * epb, 2 * epb, 72),
+    )
+    sections = (
+        FormSection(0, 2, "intro", 0),
+        FormSection(2, 8, "phrase", 0),
+        FormSection(8, 10, "outro", 0),
+    )
+    kinds = {bar: ("intro" if bar < 2 else "outro" if bar >= 8 else "phrase") for bar in range(10)}
+    score = _pattern_score(
+        [72] * (10 * epb),
+        phrases,
+        ensemble="classic",
+        bpm=88,
+        character="rally",
+        rel_span=0.02,
+        kinds=kinds,
+        sections=sections,
+    )
+    # Body bar 2 is the first of the run (Galop 1). Body bar 6 is the fifth (Galop 2).
+    assert not any(note.slur_start or note.slur_stop for note in _pitched(score.low, 2))
+    bass = sorted(_pitched(score.low, 6), key=lambda note: note.beat)
+    roots = [note for note in bass if note.slur_start]
+    assert [round(note.beat, 2) for note in roots] == [0.0, 2.0]
+    for root in roots:
+        upper = next(note for note in bass if abs(note.beat - (root.beat + 0.5)) < 1e-6)
+        assert upper.slur_stop and not upper.slur_start and not root.slur_stop
+        assert root.midi is not None and upper.midi == root.midi + 19
+
+
 def _suite(movement: int, ensemble: str, *, character: str = "rally"):
     from app.sonify.span import attach_frame, month_specs
 
@@ -4114,6 +4148,14 @@ def test_bach_gavotte_phrases_quarters_then_parallel_eighths() -> None:
         pairs.append((note.midi - inner.midi) % 12)
     assert pairs and set(pairs) <= {3, 4, 8, 9}
     _assert_engraved(score, "bach")
+
+
+def test_the_last_gavotte_bar_keeps_the_price_on_eighths_six_and_seven() -> None:
+    """No next downbeat, so the last two eighths stay the price instead of walking back into this bar."""
+    melody = [72] * 24 + [64, 65, 67, 69, 71, 72, 74, 76]
+    score = _bach(melody, character="calm", rel_span=0.0)
+    tail = [note.midi for note in _attacks(score.lead, 3) if note.beat >= 3.0 - 1e-6]
+    assert tail == [74, 76]
 
 
 def test_bach_sarabande_weights_beat_two_and_passes_into_the_next_bar() -> None:

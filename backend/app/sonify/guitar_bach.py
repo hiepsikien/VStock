@@ -691,9 +691,10 @@ def _render_bach_gavotte_bar(
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
     """Gavotte: quarter, staccato quarter, then four eighths in parallel thirds or sixths.
 
-    In 4/4 the four eighths are the price at hooks 4 and 5, and at 6 and 7 when
-    the next downbeat is the same pitch as hook 4. Otherwise the last two eighths
-    step into that downbeat. The old four-note scale is not used.
+    In 4/4 the four eighths are the price at hooks 4 and 5. Hooks 6 and 7 stay
+    the price when this is the last bar, or when the next downbeat matches hook
+    4. They step into the next downbeat only when that bar exists and differs.
+    The old four-note scale is not used.
     """
     epb = ctx.epb
     start = bar * epb
@@ -734,15 +735,20 @@ def _render_bach_gavotte_bar(
         tone = _choose_inner(ctx.chord(bar), sung, bass, ctx.mid_low, ctx.mid_high, ctx.semitones, False)
         if tone is not None:
             support.extend(_eighth_event(start + offset, length, tone, epb, 2, _INNER))
-    target_at = (bar + 1) * epb if bar + 1 < ctx.bars else start
-    target = _melody_at(ctx, min(len(ctx.melody) - 1, target_at))
     if ctx.kind == "4/4":
         line = [_gavotte_sung(ctx, start + 4), _gavotte_sung(ctx, start + 5)]
-        if target == _melody_at(ctx, start + 4):
-            line.extend((_gavotte_sung(ctx, start + 6), _gavotte_sung(ctx, start + 7)))
+        if bar + 1 < ctx.bars:
+            target = _melody_at(ctx, min(len(ctx.melody) - 1, (bar + 1) * epb))
+            if target == _melody_at(ctx, start + 4):
+                line.extend((_gavotte_sung(ctx, start + 6), _gavotte_sung(ctx, start + 7)))
+            else:
+                line.extend(_approach_eighths(ctx, target, 2))
         else:
-            line.extend(_approach_eighths(ctx, target, 2))
+            line.extend((_gavotte_sung(ctx, start + 6), _gavotte_sung(ctx, start + 7)))
     else:
+        target = _melody_at(
+            ctx, min(len(ctx.melody) - 1, (bar + 1) * epb if bar + 1 < ctx.bars else start)
+        )
         line = _approach_eighths(ctx, target, tail_len)
     long_bass = _gavotte_tail_bass(ctx, ctx.chord(bar), line)
     low.extend(_eighth_event(start + tail, tail_len, long_bass, epb, 3, _BASS))
