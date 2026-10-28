@@ -1917,7 +1917,7 @@ def _resolve(events: list[NoteEvent], epb: int, voice: int) -> list[NoteEvent]:
     for event in events:
         if event.midi is None:
             continue
-        stamped = replace(event, voice=voice, slur_start=False, slur_stop=False)
+        stamped = replace(event, voice=voice)
         # A sextuplet sixth is not an integer on the sixteenth playhead.
         if not _on_sixteenth_grid(event):
             odd.append(stamped)
@@ -1949,12 +1949,16 @@ def _resolve(events: list[NoteEvent], epb: int, voice: int) -> list[NoteEvent]:
                 tie_in=event.tie_stop,
                 tie_out=event.tie_start,
             )
-            if spelled and (event.staccato or event.tenuto):
+            if spelled and (event.staccato or event.tenuto or event.slur_start or event.slur_stop):
                 spelled[0] = replace(
                     spelled[0],
                     staccato=event.staccato or spelled[0].staccato,
                     tenuto=event.tenuto or spelled[0].tenuto,
+                    slur_start=event.slur_start or spelled[0].slur_start,
+                    slur_stop=event.slur_stop if len(spelled) == 1 else spelled[0].slur_stop,
                 )
+                if len(spelled) > 1 and event.slur_stop:
+                    spelled[-1] = replace(spelled[-1], slur_stop=True)
             resolved.extend(spelled)
     resolved.extend(odd)
     return resolved
@@ -2576,7 +2580,9 @@ def render_patterned_voices(
             support.extend(part_support)
             low.extend(part_low)
         elif pattern == "galop":
-            part_lead, part_support, part_low = _render_galop_bar(ctx, bar, apex, phrase_here)
+            part_lead, part_support, part_low = _render_galop_bar(
+                ctx, bar, apex, phrase_here, patterns
+            )
             lead.extend(part_lead)
             support.extend(part_support)
             low.extend(part_low)

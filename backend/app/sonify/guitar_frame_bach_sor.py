@@ -4,9 +4,9 @@ Each door writes one bar of the short script (``steps == 2``) or the long script
 (``steps == 4``). Repeated roles ignore ``index``. Helpers are imported inside
 the doors so this module can load beside ``guitar_frame`` without a cycle.
 
-Sixteenth ornaments (Bach mordents written here, and chaconne bariolage) use
-half-eighth offsets and length ``0.5``. Every other attack stays on the eighth
-grid. Nothing in this module writes a 32nd.
+Sixteenth ornaments (Bach mordents written here, chaconne bariolage, and the
+galop cell) use half-eighth offsets and length ``0.5``. Every other attack
+stays on the eighth grid. Nothing in this module writes a 32nd.
 """
 
 from __future__ import annotations
@@ -501,6 +501,68 @@ def _galop_points(ctx) -> tuple[tuple[int, ...], tuple[int, ...]]:
     )
 
 
+def _frame_melody(ctx, bar: int, offset: int) -> int:
+    melody = getattr(ctx, "melody", None) or []
+    if not melody:
+        return 67
+    eighth = bar * ctx.epb + int(offset)
+    if eighth < 0:
+        return melody[0]
+    if eighth >= len(melody):
+        return melody[-1]
+    return melody[eighth]
+
+
+def _galop_cell_applies(ctx, start: int, end: int) -> bool:
+    epb = getattr(ctx, "epb", 0)
+    if getattr(ctx, "kind", None) != "4/4" or epb < 8:
+        return False
+    if start < 0 or end > epb or start >= end:
+        return False
+    return start % 4 == 0 and end % 4 == 0
+
+
+def _galop_cell_span(
+    frame,
+    ctx,
+    pcs: list[int],
+    velocity: int,
+    *,
+    start: int,
+    end: int,
+    lead: bool,
+    bar: int,
+) -> list[tuple]:
+    """Galop 1 on a door span. `lead=False` keeps only the staccato root eighths."""
+    from app.sonify.guitar_sor import _galop1_cell
+
+    specs: list[tuple] = []
+    root_pc = pcs[0] % 12 if pcs else 0
+    for origin in range(int(start), int(end), 4):
+
+        def melody_at(offset: int, _bar: int = bar) -> int:
+            return _frame_melody(ctx, _bar, offset)
+
+        sung = melody_at(origin)
+        root = frame._bass_note(ctx, root_pc, sung)
+        if not lead:
+            specs.append((origin, 1, root, 3, velocity, {"staccato": True}))
+            continue
+        for offset, length, midi, voice, flags in _galop1_cell(
+            ctx,
+            origin,
+            melody_at,
+            root,
+            pcs,
+            variant=False,
+            accent=False,
+        ):
+            specs.append((offset, length, midi, voice, velocity, dict(flags)))
+    if end >= ctx.epb:
+        specs = _short_last_bass(specs)
+    return specs
+
+
 def _galop_span(
     frame,
     ctx,
@@ -511,8 +573,13 @@ def _galop_span(
     end: int,
     lead: bool,
     sparkle: bool,
+    bar: int = 0,
 ) -> list[tuple]:
-    """Staccato root/fifth, off-beat inner chords, and an optional third-leap."""
+    """Staccato galop cell, or the older oom-pah when the span is not a 4/4 half."""
+    if _galop_cell_applies(ctx, start, end):
+        return _galop_cell_span(
+            frame, ctx, pcs, velocity, start=start, end=end, lead=lead, bar=bar
+        )
     epb = ctx.epb
     end = min(end, epb)
     if start >= end:
@@ -1721,18 +1788,18 @@ def _galop_hits(frame, ctx, bar: int, role: int, *, short: bool, closing: bool) 
             # First half stays at _P, including the downbeat lead. The fifth and
             # the later off-beats answer at _MP.
             opening = _galop_span(
-                frame, ctx, tonic, frame._P, start=0, end=half, lead=True, sparkle=False
+                frame, ctx, tonic, frame._P, start=0, end=half, lead=True, sparkle=False, bar=bar
             )
             answer = _galop_span(
-                frame, ctx, tonic, frame._MP, start=half, end=epb, lead=False, sparkle=False
+                frame, ctx, tonic, frame._MP, start=half, end=epb, lead=False, sparkle=False, bar=bar
             )
             return opening + answer
-        specs = _galop_span(frame, ctx, dominant, frame._MP, start=0, end=half, lead=False, sparkle=False)
+        specs = _galop_span(frame, ctx, dominant, frame._MP, start=0, end=half, lead=False, sparkle=False, bar=bar)
         specs.extend(_lead_leaps(frame, ctx, dominant, half, epb, frame._MP))
         return specs
     if short and closing:
         if role == 0:
-            return _galop_span(frame, ctx, dominant, frame._MP, start=0, end=epb, lead=True, sparkle=True)
+            return _galop_span(frame, ctx, dominant, frame._MP, start=0, end=epb, lead=True, sparkle=True, bar=bar)
         points = [0]
         second = 2 if epb > 2 else None
         if second is None or second >= epb:
@@ -1748,13 +1815,13 @@ def _galop_hits(frame, ctx, bar: int, role: int, *, short: bool, closing: bool) 
         )
     if not closing:
         if role == 0:
-            return _galop_span(frame, ctx, tonic, frame._P, start=0, end=epb, lead=False, sparkle=False)
+            return _galop_span(frame, ctx, tonic, frame._P, start=0, end=epb, lead=False, sparkle=False, bar=bar)
         if role == 1:
-            specs = _galop_span(frame, ctx, tonic, frame._MP, start=0, end=half, lead=True, sparkle=True)
-            specs.extend(_galop_span(frame, ctx, sub, frame._MP, start=half, end=epb, lead=True, sparkle=True))
+            specs = _galop_span(frame, ctx, tonic, frame._MP, start=0, end=half, lead=True, sparkle=True, bar=bar)
+            specs.extend(_galop_span(frame, ctx, sub, frame._MP, start=half, end=epb, lead=True, sparkle=True, bar=bar))
             return specs
         if role == 2:
-            return _galop_span(frame, ctx, dominant, frame._MP, start=0, end=epb, lead=True, sparkle=True)
+            return _galop_span(frame, ctx, dominant, frame._MP, start=0, end=epb, lead=True, sparkle=True, bar=bar)
         # Galop through the first half, one eighth of rest at the midpoint,
         # then three tonic eighths that throw the dance into the body.
         start = max(0, epb - 3)
@@ -1763,7 +1830,7 @@ def _galop_hits(frame, ctx, bar: int, role: int, *, short: bool, closing: bool) 
         if rest > 0:
             specs.extend(
                 _galop_span(
-                    frame, ctx, tonic, frame._MF, start=0, end=rest, lead=False, sparkle=False
+                    frame, ctx, tonic, frame._MF, start=0, end=rest, lead=False, sparkle=False, bar=bar
                 )
             )
         specs.extend(
@@ -1777,11 +1844,11 @@ def _galop_hits(frame, ctx, bar: int, role: int, *, short: bool, closing: bool) 
         )
         return specs
     if role == 0:
-        specs = _galop_span(frame, ctx, tonic, frame._MP, start=0, end=half, lead=True, sparkle=True)
-        specs.extend(_galop_span(frame, ctx, sub, frame._MP, start=half, end=epb, lead=True, sparkle=True))
+        specs = _galop_span(frame, ctx, tonic, frame._MP, start=0, end=half, lead=True, sparkle=True, bar=bar)
+        specs.extend(_galop_span(frame, ctx, sub, frame._MP, start=half, end=epb, lead=True, sparkle=True, bar=bar))
         return specs
     if role == 1:
-        return _galop_span(frame, ctx, dominant, frame._MP, start=0, end=epb, lead=True, sparkle=True)
+        return _galop_span(frame, ctx, dominant, frame._MP, start=0, end=epb, lead=True, sparkle=True, bar=bar)
     if role == 2:
         offsets = [offset for offset in (0, 2, 4) if offset < epb]
         names = [dominant, tonic, dominant]

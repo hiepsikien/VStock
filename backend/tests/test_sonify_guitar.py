@@ -1828,10 +1828,19 @@ def test_composer_intro_and_outro_frames_for_two_and_four_bars() -> None:
 
     # A wide rally is galop, so both frames are the galop door.
     classic = _frame_score("classic", 2)
-    assert classic.divisions == 2
+    assert classic.divisions == 4
     assert _onset_beats(classic.low, 0) == [0.0, 2.0]
     assert all(note.staccato and note.velocity is not None and note.velocity <= 52 for note in _pitched(classic.low, 0))
-    assert [round(note.beat, 2) for note in _pitched(classic.support, 0)] == [0.5, 1.5, 2.5, 3.5]
+    assert _pitched(classic.support, 0) == []
+    door = _pitched(classic.lead, 0)
+    assert _sixteenths(classic.lead, 0) == [0.5, 0.75, 1.5, 1.75]
+    door_down = next(note for note in door if note.beat == 0.0)
+    door_upper = next(note for note in door if abs(note.beat - 0.5) < 1e-9)
+    door_under = next(note for note in door if abs(note.beat - 0.75) < 1e-9)
+    assert door_down.midi is not None and door_upper.midi is not None and door_under.midi is not None
+    assert door_upper.midi == door_down.midi + 12
+    assert 0 < door_upper.midi - door_under.midi <= 7
+    assert all(note.beat < 2 for note in door)
     leaps = [note for note in _pitched(classic.lead, 1) if note.beat >= 2]
     assert len(leaps) >= 3 and all(note.staccato for note in leaps)
     close = _pitched(classic.low, classic.bars - 1)
@@ -2812,18 +2821,26 @@ def test_sor_galop_and_mozart_variations_and_the_op9_overture() -> None:
     galop = _frame_score("classic", 2)
     bass = _pitched(galop.low, 2)
     assert [round(note.beat, 2) for note in bass] == [0.0, 2.0]
-    assert all(note.staccato and abs(note.duration_beats - 1.0) < 1e-9 for note in bass)
+    assert all(note.staccato and abs(note.duration_beats - 0.5) < 1e-9 for note in bass)
     assert bass[0].accent
-    inner = _pitched(galop.support, 2)
-    assert [round(note.beat, 2) for note in inner] == [0.5, 1.5, 2.5, 3.5]
-    assert all(note.staccato and note.accent for note in inner)
-    assert len({note.midi for note in inner}) == 2
+    assert _pitched(galop.support, 2) == []
     lead = _pitched(galop.lead, 2)
     downbeat = next(note for note in lead if note.beat == 0.0)
-    sparkle = next(note for note in lead if abs(note.beat - 0.5) < 1e-9)
-    assert sparkle.staccato and sparkle.midi is not None and downbeat.midi is not None
-    assert sparkle.midi > downbeat.midi
-    assert _sixteenths(galop.lead, 2) == []
+    upper = next(note for note in lead if abs(note.beat - 0.5) < 1e-9)
+    under = next(note for note in lead if abs(note.beat - 0.75) < 1e-9)
+    assert downbeat.staccato and abs(downbeat.duration_beats - 0.5) < 1e-9
+    assert not upper.staccato and abs(upper.duration_beats - 0.25) < 1e-9
+    assert downbeat.midi is not None and upper.midi is not None and under.midi is not None
+    assert upper.midi == downbeat.midi + 12
+    assert 0 < upper.midi - under.midi <= 7
+    assert under.midi % 12 in {0, 4, 7}
+    # First galop bar of the run: the repeating grid, then the Tecla bar-2 eighths.
+    assert _sixteenths(galop.lead, 2) == [0.5, 0.75, 1.5, 1.75, 2.5, 2.75]
+    second = next(note for note in lead if abs(note.beat - 3.0) < 1e-9)
+    third = next(note for note in lead if abs(note.beat - 3.5) < 1e-9)
+    assert second.staccato and abs(second.duration_beats - 0.5) < 1e-9
+    assert not third.staccato and abs(third.duration_beats - 0.5) < 1e-9
+    assert second.midi == third.midi == downbeat.midi
     assert_playable(galop, C_KEY, "study")
 
     # A narrow rally (< 1.2% span) stays on study; an energetic rally (>= 1.2%) dances Galop.
@@ -2877,6 +2894,91 @@ def test_sor_galop_and_mozart_variations_and_the_op9_overture() -> None:
     assert all(note.staccato for note in _pitched(long.low, 0))
     assert [round(note.beat, 2) for note in _pitched(long.lead, 3)] == [2.5, 3.0, 3.5]
     assert all(note.staccato and note.accent for note in _pitched(long.low, long.bars - 1))
+
+
+def test_galop_bar_two_variant_reads_the_melody_at_those_eighths() -> None:
+    """The Tecla bar-2 eighths are the price at origin+2 and origin+3, not the downbeat.
+
+    A held line makes both notes the same pitch, so rhythm alone cannot show the read.
+    """
+    frame, body, epb = 2, 4, 8
+    first = [67, 67, 67, 67, 67, 67, 72, 74]
+    phrases = (
+        _held(0, frame * epb, 67),
+        _joined(frame * epb, first + [67] * ((body - 1) * epb)),
+        _held((frame + body) * epb, frame * epb, 67),
+    )
+    total = frame + body + frame
+    kinds = {
+        bar: ("intro" if bar < frame else "outro" if bar >= frame + body else "phrase")
+        for bar in range(total)
+    }
+    sections = (
+        FormSection(0, frame, "intro", 0),
+        FormSection(frame, frame + body, "phrase", 0),
+        FormSection(frame + body, total, "outro", 0),
+    )
+    score = _guitar(
+        phrases,
+        ensemble="classic",
+        bpm=88,
+        character="rally",
+        kinds=kinds,
+        sections=sections,
+    )
+    lead = _pitched(score.lead, frame)
+    downbeat = next(note for note in lead if note.beat == 0.0)
+    second = next(note for note in lead if abs(note.beat - 3.0) < 1e-9)
+    third = next(note for note in lead if abs(note.beat - 3.5) < 1e-9)
+    assert downbeat.midi == 67
+    assert second.staccato and abs(second.duration_beats - 0.5) < 1e-9 and second.midi == 72
+    assert not third.staccato and abs(third.duration_beats - 0.5) < 1e-9 and third.midi == 74
+    assert _sixteenths(score.lead, frame) == [0.5, 0.75, 1.5, 1.75, 2.5, 2.75]
+    # The next bar of the run is the repeating grid, so the variant does not stick.
+    assert 3.5 in _sixteenths(score.lead, frame + 1)
+
+
+def test_boundary_galop_keeps_the_sixteenth_pair_the_real_pickup_can_play() -> None:
+    """The last pair stays when the pickup chosen with the galop root in the bass can share it.
+
+    Predicting that pickup from an empty bass line falls back to the next chord's
+    root, which cannot share this octave, and the pair would rest.
+    """
+    from app.sonify.chords import KIND_MAJOR
+
+    frame, body = 2, 4
+    epb = 8
+    total = frame + body + frame
+    d_major = Chord("D", "D", KIND_MAJOR, "", (62, 66, 69))
+    phrases = (
+        _held(0, frame * epb, 69),
+        _held(frame * epb, body * epb, 69),
+        _held((frame + body) * epb, frame * epb, 69),
+    )
+    kinds = {
+        bar: ("intro" if bar < frame else "outro" if bar >= frame + body else "phrase")
+        for bar in range(total)
+    }
+    sections = (
+        FormSection(0, frame, "intro", 0),
+        FormSection(frame, frame + body, "phrase", 0),
+        FormSection(frame + body, total, "outro", 0),
+    )
+    score = _guitar(
+        phrases,
+        ensemble="classic",
+        bpm=88,
+        character="rally",
+        kinds=kinds,
+        sections=sections,
+        chords={bar: d_major if bar == frame + body - 1 else C for bar in range(total)},
+    )
+    bar = frame + body - 1
+    assert _sixteenths(score.lead, bar) == [0.5, 0.75, 1.5, 1.75, 2.5, 2.75, 3.5, 3.75]
+    upper = next(note for note in _pitched(score.lead, bar) if abs(note.beat - 3.5) < 1e-9)
+    under = next(note for note in _pitched(score.lead, bar) if abs(note.beat - 3.75) < 1e-9)
+    pickup = next(note for note in _pitched(score.low, bar) if abs(note.beat - 3.5) < 1e-9)
+    assert upper.midi == 81 and under.midi == 78 and pickup.midi == 50
 
 
 def test_a_long_sor_rally_keeps_galop_in_the_middle_of_aba() -> None:
@@ -3009,6 +3111,40 @@ def test_two_galop_phrases_keep_the_dance_on_the_second() -> None:
 
     assert not galop_bar(2)
     assert galop_bar(4)
+
+
+def test_galop_2_slurs_the_twelfth_and_galop_1_does_not() -> None:
+    epb = 8
+    phrases = (
+        _held(0, 2 * epb, 72),
+        _held(2 * epb, 6 * epb, 72),
+        _held(8 * epb, 2 * epb, 72),
+    )
+    sections = (
+        FormSection(0, 2, "intro", 0),
+        FormSection(2, 8, "phrase", 0),
+        FormSection(8, 10, "outro", 0),
+    )
+    kinds = {bar: ("intro" if bar < 2 else "outro" if bar >= 8 else "phrase") for bar in range(10)}
+    score = _pattern_score(
+        [72] * (10 * epb),
+        phrases,
+        ensemble="classic",
+        bpm=88,
+        character="rally",
+        rel_span=0.02,
+        kinds=kinds,
+        sections=sections,
+    )
+    # Body bar 2 is the first of the run (Galop 1). Body bar 6 is the fifth (Galop 2).
+    assert not any(note.slur_start or note.slur_stop for note in _pitched(score.low, 2))
+    bass = sorted(_pitched(score.low, 6), key=lambda note: note.beat)
+    roots = [note for note in bass if note.slur_start]
+    assert [round(note.beat, 2) for note in roots] == [0.0, 2.0]
+    for root in roots:
+        upper = next(note for note in bass if abs(note.beat - (root.beat + 0.5)) < 1e-6)
+        assert upper.slur_stop and not upper.slur_start and not root.slur_stop
+        assert root.midi is not None and upper.midi == root.midi + 19
 
 
 def _suite(movement: int, ensemble: str, *, character: str = "rally"):
@@ -4111,6 +4247,32 @@ def test_bach_gavotte_phrases_quarters_then_parallel_eighths() -> None:
         pairs.append((note.midi - inner.midi) % 12)
     assert pairs and set(pairs) <= {3, 4, 8, 9}
     _assert_engraved(score, "bach")
+
+
+def test_the_last_gavotte_bar_keeps_the_price_on_eighths_six_and_seven() -> None:
+    """No next downbeat, so the last two eighths stay the price instead of walking back into this bar."""
+    melody = [72] * 24 + [64, 65, 67, 69, 71, 72, 74, 76]
+    score = _bach(melody, character="calm", rel_span=0.0)
+    tail = [note.midi for note in _attacks(score.lead, 3) if note.beat >= 3.0 - 1e-6]
+    assert tail == [74, 76]
+
+
+def test_gavotte_tail_follows_the_price_until_the_next_downbeat_changes() -> None:
+    """Eighths 4–5 stay the price. Eighths 6–7 walk only when the next downbeat is a different note."""
+    moving = [
+        67, 69, 71, 72, 74, 72, 71, 69,
+        69, 71, 72, 74, 76, 74, 72, 71,
+        72, 71, 69, 67, 65, 67, 69, 71,
+        64, 65, 67, 69, 71, 72, 74, 76,
+    ]
+    walked = _bach(moving, character="calm", bpm=96, rel_span=0.0, chords={0: C, 1: G, 2: F, 3: C})
+    opening = [(round(note.beat, 2), note.midi) for note in _attacks(walked.lead, 0)]
+    assert opening == [(0.0, 67), (1.0, 71), (2.0, 76), (2.5, 72), (3.0, 64), (3.5, 65)]
+
+    held_into_same = [72, 72, 72, 72, 72, 72, 60, 62] + [72] * 8
+    stayed = _bach(held_into_same, character="calm", bpm=96, rel_span=0.0, chords={0: C, 1: C})
+    tail = [(round(note.beat, 2), note.midi) for note in _attacks(stayed.lead, 0)]
+    assert tail == [(0.0, 72), (1.0, 72), (2.0, 72), (2.5, 72), (3.0, 60), (3.5, 62)]
 
 
 def test_bach_sarabande_weights_beat_two_and_passes_into_the_next_bar() -> None:
