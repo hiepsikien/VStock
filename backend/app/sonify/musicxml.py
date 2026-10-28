@@ -785,11 +785,15 @@ def _ambient_swell_part(root: ET.Element, score: Score) -> None:
 def _guitar_part(root: ET.Element, score: Score) -> None:
     """One nylon part. Three voices share the measure and meet again through backup."""
     part = _add(root, "part", id="P1")
-    voices = (
+    voices = [
         _group(score.lead, score.bars),
         _group(score.support, score.bars),
         _group(score.low, score.bars),
-    )
+    ]
+    # Guitar scores leave comp empty. A listening sketch can put a fourth
+    # inner voice there; an empty stream would insert a blank backup.
+    if score.comp:
+        voices.append(_group(score.comp, score.bars))
     symbols = _group(score.harmonies, score.bars)
     bar_units = str(int(round(score.bar_beats * score.divisions)))
     for bar in range(score.bars):
@@ -828,7 +832,7 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                 # One letter per voice, printed inside that voice's own stream:
                 # the tremolo fill and both thumb voices (the middle colour
                 # and the bass) all sit around mp.
-                marking = ("mp", "mp", "mp")[voice_index]
+                marking = ("mp", "mp", "mp", "mp")[voice_index]
                 _dynamic(measure, DynamicEvent(bar=0, marking=marking, sound=SOUND[marking]))
             ordered = sorted(voice[bar], key=lambda note: note.beat)
             roles = _sextuplet_roles(ordered)
