@@ -89,7 +89,7 @@ Cửa `_galop_hits` không phải ô oom-pah suốt. `docs/sonify-guitar-frame-v
 | Intro ngắn | 0 | `_galop_span`, lead chỉ nửa đầu |
 | Intro ngắn | 1 | nửa đầu `_galop_span` trên V7, nửa sau `_lead_leaps` |
 | Outro ngắn | 0 | `_galop_span` cả ô, có sparkle |
-| Outro ngắn | 1 | `_staccato_hits` ở móc 0 và móc 2 hoặc 4, accent |
+| Outro ngắn | 1 | `_staccato_hits` ở móc 0 và móc 2, accent |
 | Intro dài | 0 | `_galop_span`, không lead |
 | Intro dài | 1 | `_galop_span` trên I rồi IV, có sparkle |
 | Intro dài | 2 | `_galop_span` trên V7, có sparkle |
@@ -118,9 +118,9 @@ Không đổi cả `_galop_hits`, và không gán “bước mở là Galop 1, b
 
 | Câu | Ô Tecla | Vai |
 |---|---|---|
-| Galop 1 | 1–8, lặp | Câu phi. Tế bào lặp là một ô 2/4: móc đơn, hai móc kép, rồi hai móc đơn. Bass một móc đơn đúng phách 1. Ô cuối câu là cadence, hợp âm rồi nghỉ. |
-| Galop 2, dạng thưa | 9–16, *Fine*, lặp về đầu | Cùng câu đối đáp. Bass một móc đơn, không cú nhảy quãng 10. |
-| Galop 2, dạng trong ảnh | 17–24 | Câu đối đáp đầy. Bass móc kép trầm nối móc đơn cao hơn một quãng 10. Một ô trong câu là bốn móc kép liền. Ô cuối khép bằng hợp âm khối. |
+| Galop 1 | 1–8, lặp | Câu phi. Tế bào lặp là một ô 2/4: móc đơn, hai móc kép, móc đơn, rồi hai móc kép. Ô 1, phách 1 chỉ có một đầu nốt. Ô cuối câu là cadence, hợp âm rồi nghỉ. |
+| Galop 2, dạng thưa | 9–16, *Fine*, lặp về đầu | Cùng câu đối đáp. Bass một móc đơn, không cú nhảy quãng 12. |
+| Galop 2, dạng trong ảnh | 17–24 | Câu đối đáp đầy. Bass hai móc đơn dưới một thanh nối, nốt trầm rồi nốt cao hơn một quãng 12. Một ô trong câu là bốn móc kép liền. Ô cuối khép bằng hợp âm khối. |
 | Câu chạy | 25–28 | Giai điệu móc kép liên tục, mức *f*. Bass thưa. |
 | Đối đáp nhắc lại | 29–32 | Cùng dạng đối đáp, rồi *D.C. al Fine*. |
 
@@ -140,24 +140,24 @@ Hai câu là hai cách dệt trong `_render_galop_bar`. Bộ chọn vẫn trả 
 
 ### 4.1. Galop 1 — một ô 2/4, tức nửa ô 4/4
 
-Tế bào này đứng hai lần trong một ô 4/4, mở ở móc đơn 0 và móc đơn 4. Không phải một tế bào mỗi phách. Móc đơn cộng hai móc kép đã hết một phách. Phách còn lại của ô 2/4 là hai móc đơn.
+Tế bào này đứng hai lần trong một ô 4/4, mở ở móc đơn 0 và móc đơn 4. Không phải một tế bào mỗi phách. Móc đơn cộng hai móc kép đã hết một phách. Phách còn lại của ô 2/4 là một móc đơn rồi hai móc kép.
 
 Chỉ số móc kép trong nửa ô, `0 .. 7`. Tế bào mở tại móc đơn `origin`, `origin` là 0 hoặc 4:
 
 | Móc kép | Giai điệu | Bass |
 |---|---|---|
 | 0–1 | móc đơn, staccato, `ctx.melody` tại `origin` | móc đơn, staccato, gốc, cùng phách |
-| 2 | móc kép, không staccato. Chung một cao độ đầu vào với móc 3 | nghỉ |
-| 3 | móc kép, không staccato. Chung cao độ đầu vào với móc 2 | nghỉ |
+| 2 | móc kép, không staccato. Quãng tám trên nốt ở móc 0–1 | nghỉ |
+| 3 | móc kép, không staccato. Nốt hợp âm dưới móc 2, trong một quãng 5 | nghỉ |
 | 4–5 | móc đơn, staccato, `ctx.melody` tại `origin + 2` | nghỉ |
-| 6–7 | móc đơn, staccato, `ctx.melody` tại `origin + 3` | nghỉ |
+| 6 | móc kép, không staccato. Quãng tám trên nốt ở móc 4–5 | nghỉ |
+| 7 | móc kép, không staccato. Nốt hợp âm dưới móc 6, trong một quãng 5 | nghỉ |
 
-Dấu chấm ở mục 3 nằm trên các móc đơn của câu phi: giai điệu ở 0–1, 4–5, 6–7, và bass ở 0–1. Hai móc kép không mang dấu chấm. Chúng là nhịp phi nối thanh, không staccato.
+Dấu chấm ở mục 3 nằm trên hai móc đơn của câu phi: giai điệu ở 0–1 và 4–5, và bass ở 0–1. Bốn móc kép không mang dấu chấm. Chúng là nhịp phi nối thanh, không staccato.
 
-Hai móc kép 2 và 3 chiếm một móc đơn của cột Giá, móc `origin + 1`. Chỉ có một cao độ đầu vào, `here = ctx.melody` tại móc đó. Cao độ móc mở là `open`.
+Ô 1 Tecla hát đúng lưới nhịp đó. Phách đầu: Re dưới khuông, móc đơn có chấm, rồi Re trên dòng thứ tư và Si trên dòng giữa, hai móc kép. Phách sau: Sol trên dòng thứ hai, móc đơn có chấm, rồi Sol trên khuông và Re trên dòng thứ tư, hai móc kép. Móc kép đầu của mỗi cặp là quãng tám trên móc đơn vừa đánh, không giữ nguyên nốt đó. Móc kép sau đi xuống: Si dưới Re một quãng 3, Re dưới Sol một quãng 4, cả hai là nốt hợp âm. Phách 1 của ô này chỉ có một đầu nốt Re, không có đầu nốt bass thứ hai cùng phách.
 
-- `here == open`: không có mẫu giá thứ hai. Móc kép 2 là `open`, cùng bậc với móc mở. Móc kép 3 là nốt hợp âm kế trên `open`, và bước đó không quá một quãng 5: gốc lên quãng 5, quãng 3 lên quãng 5, quãng 5 lên gốc ở quãng 4 trên. Không có nốt hợp âm trong vòng đó thì móc kép 3 cũng là `open`.
-- `here != open`: móc kép 3 là `here`. Móc kép 2 là một bậc thang từ `open` về phía `here`. Nếu bậc đó đã là `here`, móc kép 2 giữ `open`, và cặp nốt là bước `open` rồi `here`.
+`here == open` không mô tả ô 1, và cũng không mô tả nửa sau của chính ô đó. Móc kép 2 không giữ nốt mở. Móc kép 3 không phải nốt hợp âm kế trên trong vòng một quãng 5. Cặp nốt là quãng tám lên, rồi một nốt hợp âm xuống từ nốt cao đó.
 
 Bỏ bè trong chặt phách yếu.
 
@@ -167,23 +167,23 @@ Cũng tính trên một ô 2/4. Ô 4/4 chứa hai lần. Đây là tế bào đ�
 
 | Móc kép | Giai điệu | Bass |
 |---|---|---|
-| 0 | móc đơn bắt đầu, giá. Nốt này ngân qua móc 1 | móc kép, nốt trầm, gốc |
-| 1 | đuôi móc đơn trên | móc đơn bắt đầu, cao hơn nốt trầm một quãng 10. Nốt này ngân qua móc 2 |
-| 2 | nghỉ | đuôi móc đơn bass |
-| 3 | nghỉ | nghỉ |
+| 0 | móc đơn bắt đầu, giá. Nốt này ngân qua móc 1 | móc đơn, nốt trầm, gốc. Nốt này ngân qua móc 1 |
+| 1 | đuôi móc đơn trên | đuôi móc đơn trầm |
+| 2 | nghỉ | móc đơn, cao hơn nốt trầm một quãng 12. Nốt này ngân qua móc 3 |
+| 3 | nghỉ | đuôi móc đơn cao |
 | 4–5 | móc đơn, giá | nghỉ |
 | 6–7 | nghỉ | nghỉ |
 
-Ô 17 của Tecla là mẫu: giai điệu móc đơn, nghỉ, móc đơn, nghỉ. Bass là nốt G ở hai dòng phụ, móc kép, nối nốt Si trên dòng giữa khuông, móc đơn, rồi nghỉ. G dưới Si đó một quãng 10.
+Ô 17 của Tecla là mẫu: giai điệu móc đơn, nghỉ, móc đơn, nghỉ. Hai móc đơn đó là Mi rồi Sol, có đuôi cờ. Bass là Mi ở khoảng trống dưới dòng phụ thứ ba, móc đơn, nối Si trên dòng giữa khuông, móc đơn, một thanh nối, rồi nghỉ. Không phải Sol trên hai dòng phụ, và không phải móc kép nối móc đơn. Mi dưới Si đó 19 nửa cung, một quãng 12 đúng.
 
-Quãng 10 là 16 nửa cung. Nốt bass viết nằm trong `guitar_floor .. guitar_bass_top`, mặc định `40 .. 53` (`Register` trong `keys.py`; `register_for` trừ `key.semitones`). Từ một nốt trong `40 .. 53`, quãng 10 rơi vào `56 .. 69`, trên `guitar_bass_top`. `_choose_bass` gọi `_stored_bass`, và `_stored_bass` gọi `_clamp` vào `[low, high]` với `high` là `bass_high`. Thân bài đặt `bass_high = guitar_bass_top`. `_bass_note` và `_bass_match` cũng chặn tại `_bass_hi`. `_clamp` trừ 12 cho đến khi nốt vào cửa sổ, và quãng 10 mất. Nốt trên của cú nhảy vẫn là bè bass, voice 3, và được đứng trên `53`. Không đưa nốt đó qua `_choose_bass`, `_stored_bass`, `_bass_note`, hay `_bass_match`.
+Quãng 12 là 19 nửa cung. Nốt bass viết nằm trong `guitar_floor .. guitar_bass_top`, mặc định `40 .. 53` (`Register` trong `keys.py`; `register_for` trừ `key.semitones`). Từ một nốt trong `40 .. 53`, quãng 12 rơi vào `59 .. 72`, trên `guitar_bass_top`. `_choose_bass` gọi `_stored_bass`, và `_stored_bass` gọi `_clamp` vào `[low, high]` với `high` là `bass_high`. Thân bài đặt `bass_high = guitar_bass_top`. `_bass_note` và `_bass_match` cũng chặn tại `_bass_hi`. `_clamp` trừ 12 cho đến khi nốt vào cửa sổ, và quãng 12 mất. Nốt trên của cú nhảy vẫn là bè bass, voice 3, và được đứng trên `53`. Không đưa nốt đó qua `_choose_bass`, `_stored_bass`, `_bass_note`, hay `_bass_match`.
 
-Nốt trên kêu ở móc kép 1, cùng đuôi móc đơn giai điệu. Nốt trên đứng dưới nốt giá đó. `_playable` nhận hai nốt đang kêu, nốt trên và nốt giá, sau khi cộng `ctx.semitones`. Gốc móc kép đã nghỉ. Gốc bắt đầu trong cửa sổ bass. Nếu `gốc + 16` chạm hoặc vượt nốt giá, hoặc `_playable` không nhận, hạ gốc một quãng tám rồi tính lại nốt trên. Không hạ nốt trên. Gốc không xuống dưới `guitar_floor`. Hết quãng tám mà quãng 10 vẫn không nằm dưới giai điệu hoặc không qua `_playable` thì nửa ô đó hát bass dạng thưa: một móc đơn gốc, không cú nhảy.
+Nốt trên kêu ở móc kép 2, trong chỗ nghỉ của giai điệu, nên không kêu cùng móc đơn trước. Ở ô 17 nốt trên là Si, dưới Mi vừa nghỉ và dưới Sol sắp vào. Gốc đã hết ở cuối móc 1. Gốc bắt đầu trong cửa sổ bass. Nếu `gốc + 19` không còn dưới giai điệu quanh đó, hoặc `_playable` không nhận các nốt đang kêu sau khi cộng `ctx.semitones`, hạ gốc một quãng tám rồi tính lại nốt trên. Không hạ nốt trên. Gốc không xuống dưới `guitar_floor`. Hết quãng tám mà quãng 12 vẫn không nằm dưới giai điệu hoặc không qua `_playable` thì nửa ô đó hát bass dạng thưa: một móc đơn gốc, không cú nhảy.
 
 Hai biến trong cùng câu, mỗi biến một ô 2/4, không thay lưới trên cho cả bốn ô:
 
-- **Nốt vòng.** Một ô 2/4 trong câu. Nốt giá của ô là `ctx.melody` tại `origin`. Móc kép 0–3 là bốn móc kép giai điệu, legato: một bậc thang trên nốt giá, chính nốt giá, một bậc thang dưới nốt giá, rồi lại nốt giá. Bass là một móc đơn gốc trong cửa sổ bass, đúng móc kép 0, rồi nghỉ. Không có nốt trên, nên không có quãng 10. Móc kép 4–7 giữ lưới đối đáp.
-- **Nốt chromatic.** Một ô 2/4 trong câu. Móc kép 3, đang nghỉ trong bảng trên, thành lân dưới: một nửa cung dưới nốt giải, legato lên móc đơn giải ở móc kép 4–5. Móc đơn giải vẫn là giá và vẫn dài hai móc kép. Móc 6–7 vẫn nghỉ. Lân bậc không đứng ở móc kép 4: móc 4–5 đã hết chỗ của móc đơn đó. Không rút móc đơn giải thành một móc kép, vì bản viết là móc kép nối vào móc đơn. Bass vẫn là cú nhảy của bảng trên. Ô khép câu đổi cú bass cuối thành hợp âm khối.
+- **Nốt vòng.** Ô bốn móc kép trong câu 17–24 là ô 19. Bốn nốt là La, Sol, Fa thăng bởi khóa, Mi, đi xuống từng quãng 2. Hai slur chụm La–Sol và Fa–Mi, không có dấu hóa thêm. Không phải bậc trên, nốt giá, bậc dưới, rồi lại nốt giá.
+- **Nốt chromatic.** Ô 19 không có lân nửa cung. Dấu thăng đọc được trong câu này đứng ở bass: ô 20 và ô 23, nốt Re ngay dưới khuông thành Re thăng. Không phải lân giai điệu ở móc kép 3 slur lên móc đơn giải. Ô khép câu vẫn có thể đổi cú bass cuối thành hợp âm khối.
 
 Ô 25–28 là hai ô 4/4 giai điệu móc kép liên tục, bass thưa. Trong một nhóm Galop 2, nếu giá của nhóm có nhiều cao độ khác nhau thì hai ô cuối của nhóm hát chuỗi này. Giá chỉ vài bước thì giữ bảng đối đáp.
 
@@ -203,7 +203,7 @@ Cùng `test_sor_galop_and_mozart_variations_and_the_op9_overture`, hai assert th
 - `assert _sixteenths(galop.lead, 2) == []`
 - sparkle: nốt ở phách 0.5 cao hơn nốt phách 0 và staccato
 
-Bốn khóa cửa của `_frame_score("classic", 4)` trong test đó giữ nguyên: lead ô 0 rỗng, bass ô 0 toàn staccato, lead ô 3 chỉ ở `2.5, 3.0, 3.5`, bass ô cuối staccato có accent. Ô 0 là intro dài role 0, `lead=False`. Ô 3 giữ móc nghỉ rồi ba hợp âm. Bass ô cuối là outro dài role 3, `_staccato_hits`. Bass ô 0 đổi từ nốt đen thành móc đơn, nhưng assert chỉ khóa `staccato`.
+Bốn khóa cửa của `_frame_score("classic", 4)` trong test đó giữ nguyên: lead ô 0 rỗng, bass ô 0 toàn staccato, lead ô 3 chỉ ở `2.5, 3.0, 3.5`, bass ô cuối staccato có accent. Ô 0 là intro dài role 0, `lead=False`. Ô 3 giữ móc nghỉ rồi ba hợp âm. Bass ô cuối là outro dài role 3, `_staccato_hits`. Bass ô 0, nốt ở móc 0 đang là nốt đen. Nốt ở móc 4 đã là móc đơn: `_short_last_bass` rút bass cuối khi span chạm hết ô. Assert chỉ khóa `staccato`.
 
 Assert bè trong thân bài ở `0.5, 1.5, 2.5, 3.5` cũng đổi, vì bè trong đó rời thân bài. Assert bass nốt đen ở `0.0` và `2.0` đổi theo mục 4.1: bass Galop 1 là một móc đơn ở móc 0 và móc 4.
 
