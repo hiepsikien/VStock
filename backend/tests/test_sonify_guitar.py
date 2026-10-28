@@ -5029,7 +5029,15 @@ def test_bach_courante_leaps_on_beat_one_and_runs_sixteenths_on_the_middle_beat(
         assert any(abs(note.beat - end) < 1e-6 for note in _attacks(score.low, 0))
         ordered = _attacks(score.low, 0)
         for left, right in zip(ordered, ordered[1:]):
-            assert abs((left.beat + left.duration_beats) - right.beat) < 1e-6
+            assert left.beat + left.duration_beats <= right.beat + 1e-6
+        if meter is METER_34:
+            # Eighth 4 is the staccato arrival. The bass that began on eighth 2 has ended.
+            assert not any(abs(note.beat - 2.0) < 1e-6 for note in ordered)
+            second = next(note for note in ordered if abs(note.beat - 1.0) < 1e-6)
+            assert abs((second.beat + second.duration_beats) - 2.0) < 1e-6
+        else:
+            for left, right in zip(ordered, ordered[1:]):
+                assert abs((left.beat + left.duration_beats) - right.beat) < 1e-6
 
     three = render(METER_34, closes=True)
     assert _sixteenths(three.lead, 0) == [1.0, 1.25, 1.5, 1.75]
@@ -5084,8 +5092,8 @@ def _spec_ctx(spec, *, character: str, rel_span: float, motion: str = "held", bp
     )
 
 
-def _body_row(ctx) -> list[str]:
-    """One id per body phrase. Consecutive repeats are one formal region."""
+def _body_ids(ctx) -> list[str]:
+    """One written id per body phrase, including repeats inside one region."""
     from app.sonify.guitar_patterns import _PEDAL, _patterns
 
     chosen = _patterns(ctx)
@@ -5094,7 +5102,14 @@ def _body_row(ctx) -> list[str]:
         bar = min(ctx.bars - 1, phrase.start // max(ctx.epb, 1))
         if ctx.kind_at.get(bar, "phrase") in _PEDAL:
             continue
-        pattern = chosen[index]
+        row.append(chosen[index])
+    return row
+
+
+def _body_row(ctx) -> list[str]:
+    """Formal regions. Adjacent phrases that share a pattern are one region."""
+    row: list[str] = []
+    for pattern in _body_ids(ctx):
         if not row or row[-1] != pattern:
             row.append(pattern)
     return row
@@ -5117,9 +5132,10 @@ def test_bach_1d_stays_one_pattern_and_longer_spans_walk_suite_rows() -> None:
     }
     for (character, span, motion), pattern in daily.items():
         ctx = _spec_ctx(DAILY_ENSEMBLE_SPEC, character=character, rel_span=span, motion=motion, bpm=96)
-        row = _body_row(ctx)
-        assert len(row) >= 3
-        assert set(row) == {pattern}
+        ids = _body_ids(ctx)
+        assert len(ids) >= 3
+        assert set(ids) == {pattern}
+        assert _body_row(ctx) == [pattern]
 
     # The same wide rally without a frame stays Bourrée, and its trio stays the Fugue.
     bare = _dance_ctx(
