@@ -1830,6 +1830,74 @@ def _beside_bass(midi: int, bass: int, leading: int | None) -> bool:
     return leading is not None and midi % 12 == leading and abs(midi - bass) <= 2
 
 
+def _scale_beside(ctx, note: int, members: set[int]) -> bool:
+    """A scale degree one step from a chord tone."""
+    from app.sonify.guitar_patterns import _on_scale, _walk
+
+    if note % 12 in members or not _on_scale(note, ctx.mode):
+        return False
+    for step in (1, -1):
+        neighbor = _walk(note, step, ctx.mode, ctx.bass_low, 81)
+        if neighbor != note and neighbor % 12 in members:
+            return True
+    return False
+
+
+def _inner_third(
+    frame,
+    ctx,
+    bass: int,
+    lead: int,
+    members: set[int],
+    leading: int | None,
+    *,
+    color: bool,
+) -> tuple[int, int] | None:
+    """`low_mid < upper_mid` at least a minor third apart, under `lead`."""
+    from app.sonify.guitar_patterns import _on_scale
+
+    floor = max(frame._mid_lo(ctx), bass + 1)
+    ceiling = min(frame._mid_hi(ctx), lead - 1)
+    if ceiling - floor < 3:
+        return None
+
+    def allowed(note: int) -> bool:
+        if note % 12 in members:
+            return True
+        if not color:
+            return False
+        return _scale_beside(ctx, note, members) or _on_scale(note, ctx.mode)
+
+    def distance(note: int) -> int:
+        if note % 12 in members:
+            return 0
+        if _scale_beside(ctx, note, members):
+            return 1
+        return 2
+
+    best: tuple[tuple[int, int, int, int], int, int] | None = None
+    for low_mid in range(floor, ceiling - 2):
+        if _beside_bass(low_mid, bass, leading) or not allowed(low_mid):
+            continue
+        for upper_mid in range(low_mid + 3, ceiling + 1):
+            if _beside_bass(upper_mid, bass, leading) or not allowed(upper_mid):
+                continue
+            if not _playable_line(ctx, [bass, low_mid, upper_mid, lead]):
+                continue
+            gap = upper_mid - low_mid
+            rank = (
+                distance(low_mid) + distance(upper_mid),
+                0 if gap in {3, 4} else 1,
+                gap,
+                low_mid,
+            )
+            if best is None or rank < best[0]:
+                best = (rank, low_mid, upper_mid)
+    if best is None:
+        return None
+    return best[1], best[2]
+
+
 def _roll_voices(
     frame,
     ctx,
@@ -1842,58 +1910,77 @@ def _roll_voices(
     A tonic pedal is used only when some stack passes ``_playable_line``.
     Otherwise the bass is the chord root, and the inner voices are chosen
     against that root. The leading tone of V7 never sits within two semitones
-    of whichever bass is kept.
+    of whichever bass is kept. ``upper_mid - low_mid`` is at least a minor third.
     """
     members = {pc % 12 for pc in pcs}
     leading = _leading_pc(pcs)
-    root = pcs[0] % 12
-    mids = _register_pool(frame._mid_lo(ctx), frame._mid_hi(ctx), members)
+    root = pcs[0] % 12 if pcs else 0
     leads = _register_pool(frame._lead_lo(ctx), frame._lead_hi(ctx), members)
     aim = 67 - ctx.semitones
     leads.sort(key=lambda midi: (abs(midi - aim), midi))
     root_basses = _open_first(frame, ctx, _register_pool(ctx.bass_low, frame._bass_hi(ctx), {root}))
+    pedal = []
+    if pedal_pc is not None:
+        pedal = _open_first(frame, ctx, _register_pool(ctx.bass_low, frame._bass_hi(ctx), {pedal_pc % 12}))
 
-    def stack_for(bass: int) -> tuple[int, int, int, int] | None:
-        uppers = [midi for midi in mids if bass < midi and not _beside_bass(midi, bass, leading)]
+    def stack_for(bass: int, *, color: bool) -> tuple[int, int, int, int] | None:
         high = [midi for midi in leads if bass < midi and not _beside_bass(midi, bass, leading)]
+        if not high and color:
+            high = [
+                midi
+                for midi in range(frame._lead_lo(ctx), frame._lead_hi(ctx) + 1)
+                if bass + 4 < midi and not _beside_bass(midi, bass, leading)
+            ]
+            high.sort(key=lambda midi: (midi % 12 not in members, abs(midi - aim), midi))
         for lead in high:
-            for low_mid in uppers:
-                if not bass < low_mid < lead:
-                    continue
-                for upper_mid in uppers:
-                    if not low_mid < upper_mid < lead:
-                        continue
-                    if _playable_line(ctx, [bass, low_mid, upper_mid, lead]):
-                        return bass, low_mid, upper_mid, lead
+            found = _inner_third(frame, ctx, bass, lead, members, leading, color=color)
+            if found is not None:
+                return bass, found[0], found[1], lead
         return None
 
     def against_root(bass: int) -> tuple[int, int, int, int]:
-        uppers = [midi for midi in mids if bass < midi and not _beside_bass(midi, bass, leading)]
-        high = [midi for midi in leads if bass < midi and not _beside_bass(midi, bass, leading)]
-        lead = next((midi for midi in high if _playable_line(ctx, [bass, midi])), None)
-        if lead is None:
-            lead = high[0] if high else frame._lead_lo(ctx)
-        between = [midi for midi in uppers if midi < lead and _playable_line(ctx, [bass, midi, lead])]
-        if not between:
-            between = [midi for midi in uppers if midi < lead]
-        low_mid = between[0] if between else lead
-        upper_mid = next((midi for midi in between if midi > low_mid), low_mid)
-        return bass, low_mid, upper_mid, lead
-
-    if pedal_pc is not None:
-        pedal = _open_first(frame, ctx, _register_pool(ctx.bass_low, frame._bass_hi(ctx), {pedal_pc % 12}))
-        for bass in pedal:
-            found = stack_for(bass)
+        """Never returns ``upper_mid == low_mid``. Lowers the bass's company, not the gap."""
+        for color in (False, True):
+            found = stack_for(bass, color=color)
             if found is not None:
                 return found
-    for bass in root_basses:
-        found = stack_for(bass)
-        if found is not None:
-            return found
+        lowered = [
+            note
+            for note in range(bass - 1, ctx.bass_low - 1, -1)
+            if stack_for(note, color=True) is not None
+        ]
+        for note in lowered:
+            found = stack_for(note, color=True)
+            if found is not None:
+                return found
+        lead = next((midi for midi in leads if midi > bass + 4), frame._lead_lo(ctx))
+        upper = min(frame._mid_hi(ctx), lead - 1)
+        low = upper - 3
+        if low <= bass:
+            low = bass + 1
+            upper = low + 3
+        if upper >= lead:
+            lead = upper + 1
+        return bass, low, upper, lead
+
+    ordered: list[int] = []
+    for bass in [*pedal, *root_basses]:
+        if bass not in ordered:
+            ordered.append(bass)
     if root_basses:
-        return against_root(root_basses[0])
-    stacked, _inner, _lead = _stack_pitches(frame, ctx, pcs)
-    return against_root(stacked)
+        for bass in range(root_basses[0] - 1, ctx.bass_low - 1, -1):
+            if bass not in ordered:
+                ordered.append(bass)
+    for color in (False, True):
+        for bass in ordered:
+            found = stack_for(bass, color=color)
+            if found is not None:
+                return found
+    anchor = root_basses[0] if root_basses else None
+    if anchor is None:
+        stacked, _inner, _lead = _stack_pitches(frame, ctx, pcs)
+        anchor = stacked
+    return against_root(anchor)
 
 
 def _next_melody(frame, ctx, bar: int) -> int | None:
@@ -1942,6 +2029,52 @@ def _aimed_lead(
     if not _playable_line(ctx, [bass, *company, stepped]):
         return current
     return stepped
+
+
+def _door_prelude_micro(specs: list[tuple], epb: int) -> list[tuple]:
+    """Same 8-point gaps as the body: upper_mid over low_mid, and the two basses."""
+    half = max(1, epb // 2)
+    indexed = list(specs)
+    groups: dict[int, list[int]] = {}
+    basses: list[int] = []
+    for index, item in enumerate(indexed):
+        offset, _length, _midi, voice = item[0], item[1], item[2], item[3]
+        if voice == 2:
+            groups.setdefault(int(offset // half), []).append(index)
+        elif voice == 3:
+            basses.append(index)
+    for indexes in groups.values():
+        pitches = [indexed[index][2] for index in indexes]
+        distinct = set(pitches)
+        if len(distinct) < 2:
+            continue
+        low_pitch = min(distinct)
+        high_pitch = max(distinct)
+        base = indexed[next(index for index in indexes if indexed[index][2] == low_pitch)][4]
+        for index in indexes:
+            offset, length, midi, voice, _velocity, flags = indexed[index]
+            if midi == low_pitch:
+                indexed[index] = (offset, length, midi, voice, base, flags)
+            elif midi == high_pitch:
+                indexed[index] = (offset, length, midi, voice, base + 8, flags)
+    basses.sort(key=lambda index: indexed[index][0])
+    if len(basses) >= 2:
+        first, second = basses[0], basses[1]
+        offset, length, midi, voice, velocity, flags = indexed[second]
+        left = indexed[first][2]
+        base = indexed[first][4]
+        if midi > left:
+            velocity = base + 8
+        elif midi < left:
+            velocity = base - 8
+        else:
+            velocity = base
+        indexed[second] = (offset, length, midi, voice, velocity, flags)
+    return indexed
+
+
+def _prelude_guard(frame, ctx, specs: list[tuple]) -> list[tuple]:
+    return _door_prelude_micro(_guard_bass(frame, ctx, specs), ctx.epb)
 
 
 def _prelude_roll(
@@ -2383,23 +2516,23 @@ def _prelude_specs(frame, ctx, bar: int, role: int, *, short: bool, closing: boo
                     frame, ctx, bar, dominant, half, ctx.epb - half, 58, lead_aim=True, pedal_pc=root
                 )
             )
-        return _guard_bass(frame, ctx, specs)
+        return _prelude_guard(frame, ctx, specs)
     if short:
         if role == 0:
             specs = _prelude_roll(frame, ctx, bar, dominant, 0, half, frame._MP)
             specs.extend(
                 _prelude_roll(frame, ctx, bar, dominant, half, ctx.epb - half, frame._P, eighth_grid=True)
             )
-            return _guard_bass(frame, ctx, specs)
+            return _prelude_guard(frame, ctx, specs)
         return frame._bach_block(ctx, bar, "I", frame._P)
     if role == 0:
         specs = _prelude_roll(frame, ctx, bar, sub, 0, half, frame._MP)
         specs.extend(_prelude_roll(frame, ctx, bar, sub, half, ctx.epb - half, frame._MP))
-        return _guard_bass(frame, ctx, specs)
+        return _prelude_guard(frame, ctx, specs)
     if role == 1:
         specs = _prelude_roll(frame, ctx, bar, dominant, 0, half, frame._P)
         specs.extend(_prelude_roll(frame, ctx, bar, dominant, half, ctx.epb - half, frame._P, eighth_grid=True))
-        return _guard_bass(frame, ctx, specs)
+        return _prelude_guard(frame, ctx, specs)
     if role == 2:
         return frame._bach_arpeggiato(ctx, bar, "I", frame._P)
     return frame._bach_block(ctx, bar, "I", frame._PP)
