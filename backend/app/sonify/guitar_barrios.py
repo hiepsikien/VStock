@@ -654,16 +654,19 @@ def _catedral_span_sings(
     bars: list[int],
     bass: int,
     previous: tuple[int, int] | None,
+    opening: tuple[int | None, int | None],
     *,
     require_all: bool,
-) -> tuple[bool, tuple[int, int] | None]:
+) -> tuple[bool, tuple[int, int] | None, tuple[int | None, int | None]]:
     """Walk the span the way the bar renderer will.
 
     `require_all` is the octave search: every cell must find a pair. The
-    fallback walk still keeps the last pair a cell actually sang, so the next
-    span sees the same memory the renderer keeps.
+    fallback walk still keeps the last pair a cell actually sang, and the
+    opening notes, so the next span sees the same memory the renderer keeps.
+    A lower bass is not a way to leave the fifth around those opening notes.
     """
     carried = previous
+    remembered = opening
     for bar in bars:
         eighth = bar * ctx.epb
         end = eighth + ctx.epb
@@ -673,17 +676,17 @@ def _catedral_span_sings(
             note7 = _melody_at(ctx, eighth + 3)
             if bass >= min(note1, note7):
                 if require_all:
-                    return False, carried
+                    return False, carried, remembered
                 eighth += 4
                 continue
-            chosen = _catedral_schedule(ctx, chord, bass, note1, note7, carried)
+            chosen = _catedral_schedule(ctx, chord, bass, note1, note7, carried, remembered)
             if chosen is None:
                 if require_all:
-                    return False, carried
+                    return False, carried, remembered
             else:
-                carried = (chosen[0], chosen[2])
+                carried, remembered = _catedral_remember(carried, remembered, chosen)
             eighth += 4
-    return True, carried
+    return True, carried, remembered
 
 
 def _catedral_pedals(ctx: _Ctx, patterns: list[str]) -> dict[int, int]:
@@ -699,10 +702,12 @@ def _catedral_pedals(ctx: _Ctx, patterns: list[str]) -> dict[int, int]:
         return cached
     pedals: dict[int, int] = {}
     previous: tuple[int, int] | None = None
+    opening: tuple[int | None, int | None] = (None, None)
     bar = 0
     while bar < ctx.bars:
         if _bar_pattern(ctx, bar, patterns) != "preludio":
             previous = None
+            opening = (None, None)
             bar += 1
             continue
         anchor = _preludio_anchor(ctx, bar, patterns)
@@ -716,18 +721,24 @@ def _catedral_pedals(ctx: _Ctx, patterns: list[str]) -> dict[int, int]:
             ctx.semitones,
         )
         chosen = root
-        _ok, carried = _catedral_span_sings(ctx, span, root, previous, require_all=False)
+        _ok, carried, remembered = _catedral_span_sings(
+            ctx, span, root, previous, opening, require_all=False
+        )
         candidate = root
         while candidate + ctx.semitones >= 40:
-            ok, sung = _catedral_span_sings(ctx, span, candidate, previous, require_all=True)
+            ok, sung, sung_opening = _catedral_span_sings(
+                ctx, span, candidate, previous, opening, require_all=True
+            )
             if ok:
                 chosen = candidate
                 carried = sung
+                remembered = sung_opening
                 break
             candidate -= 12
         for spanned in span:
             pedals[spanned] = chosen
         previous = carried
+        opening = remembered
         bar = span[-1] + 1
     ctx._catedral_pedal_map = pedals
     return pedals
@@ -887,29 +898,40 @@ def _catedral_stacked(ctx: _Ctx, pitches: list[int]) -> bool:
     return _playable([pitch + ctx.semitones for pitch in pitches])
 
 
+def _catedral_within(pitch: int, anchor: int | None) -> bool:
+    """A perfect fifth around the pitch this voice sang first. The limit is hard."""
+    return anchor is None or abs(pitch - anchor) <= 7
+
+
 def _catedral_note4(
     ctx: _Ctx,
     chord: Chord,
     bass: int,
     lower: int,
-    upper: int,
+    upper: int | None,
     high: int,
+    anchor: int | None = None,
 ) -> int | None:
     """Two diatonic steps when that pitch is still a chord tone under the upper voice.
 
     One step may leave the chord. If that step meets the upper or the high
-    voice, the attack stays on the lower pedal.
+    voice, or leaves the fifth around the opening lower note, the attack stays
+    on the lower pedal.
     """
     pcs = {pitch % 12 for pitch in chord.pitches}
     step2 = _catedral_raise(lower, 2, ctx.mode)
     step1 = _catedral_raise(lower, 1, ctx.mode)
 
     def fits(pitch: int) -> bool:
-        return _catedral_stacked(ctx, [bass, pitch, upper, high])
+        if not _catedral_within(pitch, anchor) or pitch >= high:
+            return False
+        if upper is None:
+            return _catedral_stacked(ctx, [bass, pitch, high])
+        return pitch < upper and _catedral_stacked(ctx, [bass, pitch, upper, high])
 
-    if step2 > lower and step2 % 12 in pcs and step2 < upper and fits(step2):
+    if step2 > lower and step2 % 12 in pcs and (upper is None or step2 < upper) and fits(step2):
         return step2
-    if step1 > lower and step1 < upper and step1 < high and fits(step1):
+    if step1 > lower and (upper is None or step1 < upper) and fits(step1):
         return step1
     if fits(lower):
         return lower
@@ -1001,6 +1023,82 @@ def _catedral_descend(ctx: _Ctx, tones: list[int], count: int, lead: int) -> lis
 
 
 
+def _catedral_remember(
+    previous: tuple[int, int] | None,
+    opening: tuple[int | None, int | None],
+    chosen: tuple[int | None, int | None, int | None],
+) -> tuple[tuple[int, int] | None, tuple[int | None, int | None]]:
+    """Remember the last complete pair, and the first pitch each voice sang.
+
+    The opening pair is filled once. A later cell does not replace it.
+    """
+    lower, _note4, upper = chosen
+    if lower is not None and upper is not None:
+        previous = (lower, upper)
+    open_lower, open_upper = opening
+    if lower is not None and open_lower is None:
+        open_lower = lower
+    if upper is not None and open_upper is None:
+        open_upper = upper
+    return previous, (open_lower, open_upper)
+
+
+def _catedral_hold_opening(
+    ctx: _Ctx,
+    chord: Chord,
+    bass: int,
+    note1: int,
+    note7: int,
+    opening: tuple[int | None, int | None],
+) -> tuple[int | None, int | None, int | None] | None:
+    """Keep the pitch this voice sang first, or rest that voice for the cell.
+
+    Used when the fifth around the opening note holds no playable chord tone.
+    The kept pitch must still be a chord tone, still under the ceiling, and
+    still playable. An octave leap is not a substitute.
+    """
+    open_lower, open_upper = opening
+    if open_lower is None and open_upper is None:
+        return None
+    floor = 50 - ctx.semitones
+    lower_ceiling = min(note1, note7)
+    pcs = {pitch % 12 for pitch in chord.pitches}
+
+    def legal(pitch: int | None, ceiling: int, anchor: int | None) -> bool:
+        return (
+            pitch is not None
+            and bass < pitch < ceiling
+            and pitch >= floor
+            and pitch % 12 in pcs
+            and _catedral_within(pitch, anchor)
+        )
+
+    lower = open_lower if legal(open_lower, lower_ceiling, open_lower) else None
+    upper = open_upper if legal(open_upper, note1, open_upper) else None
+    if lower is not None and upper is not None and lower < upper and lower < note7:
+        note4 = _catedral_note4(ctx, chord, bass, lower, upper, note1, open_lower)
+        stacks = (
+            [bass, lower, note1],
+            [bass, lower, upper, note1],
+            [bass, note4, upper, note1] if note4 is not None else None,
+            [bass, lower, note7],
+        )
+        if note4 is not None and all(stack is not None and _catedral_stacked(ctx, stack) for stack in stacks):
+            return lower, note4, upper
+    if lower is not None and lower < note7:
+        note4 = _catedral_note4(ctx, chord, bass, lower, None, note1, open_lower)
+        if (
+            note4 is not None
+            and _catedral_stacked(ctx, [bass, lower, note1])
+            and _catedral_stacked(ctx, [bass, note4, note1])
+            and _catedral_stacked(ctx, [bass, lower, note7])
+        ):
+            return lower, note4, None
+    if upper is not None and _catedral_stacked(ctx, [bass, upper, note1]):
+        return None, None, upper
+    return None
+
+
 def _catedral_schedule(
     ctx: _Ctx,
     chord: Chord,
@@ -1008,24 +1106,31 @@ def _catedral_schedule(
     note1: int,
     note7: int,
     previous: tuple[int, int] | None,
-) -> tuple[int, int, int] | None:
+    opening: tuple[int | None, int | None] | None = None,
+) -> tuple[int | None, int | None, int | None] | None:
     """Lower pedal, note 4, and upper middle for this cell.
 
     The upper ceiling is note 1. The lower ceiling is the lower of note 1 and
     note 7. Note 5 and note 8 do not reach the next cell, so the next note 1
-    is not a ceiling. Fewer than two chord tones reuses the previous pair when
-    both still sit in that window.
+    is not a ceiling. Chord tones are filtered to the fifth around each
+    voice's opening note before spacing is ranked. The previous pair is the
+    old fallback and must sit in that same fifth. A voice with no playable
+    chord tone there keeps its opening pitch, or rests.
     """
+    open_lower, open_upper = opening or (None, None)
     floor = 50 - ctx.semitones
     lower_ceiling = min(note1, note7)
     lower_pool = _catedral_window(ctx, chord, bass, lower_ceiling)
     upper_pool = _catedral_window(ctx, chord, bass, note1)
+    # The fifth is a hard window. Spacing is ranked only inside it.
+    near_lower = [pitch for pitch in lower_pool if _catedral_within(pitch, open_lower)]
+    near_upper = [pitch for pitch in upper_pool if _catedral_within(pitch, open_upper)]
     best: tuple[int, int, int] | None = None
     best_key: tuple[int, ...] | None = None
-    for cost, lower, upper in _catedral_wave(lower_pool, upper_pool, note1):
+    for cost, lower, upper in _catedral_wave(near_lower, near_upper, note1):
         if not lower < note7:
             continue
-        note4 = _catedral_note4(ctx, chord, bass, lower, upper, note1)
+        note4 = _catedral_note4(ctx, chord, bass, lower, upper, note1, open_lower)
         if note4 is None:
             continue
         stacks = (
@@ -1042,29 +1147,30 @@ def _catedral_schedule(
             best = (lower, note4, upper)
     if best is not None:
         return best
-    if previous is None:
-        return None
-    lower, upper = previous
-    if not (
-        bass < lower < lower_ceiling
-        and lower >= floor
-        and bass < upper < note1
-        and upper >= floor
-        and lower < upper
-    ):
-        return None
-    note4 = _catedral_note4(ctx, chord, bass, lower, upper, note1)
-    if note4 is None:
-        return None
-    stacks = (
-        [bass, lower, note1],
-        [bass, lower, upper, note1],
-        [bass, note4, upper, note1],
-        [bass, lower, note7],
-    )
-    if not all(_catedral_stacked(ctx, stack) for stack in stacks):
-        return None
-    return lower, note4, upper
+    # The previous cell is only a fallback, and only inside the same fifth.
+    if previous is not None:
+        lower, upper = previous
+        if (
+            _catedral_within(lower, open_lower)
+            and _catedral_within(upper, open_upper)
+            and bass < lower < lower_ceiling
+            and lower >= floor
+            and bass < upper < note1
+            and upper >= floor
+            and lower < upper
+        ):
+            note4 = _catedral_note4(ctx, chord, bass, lower, upper, note1, open_lower)
+            stacks = (
+                [bass, lower, note1],
+                [bass, lower, upper, note1],
+                [bass, note4, upper, note1] if note4 is not None else None,
+                [bass, lower, note7],
+            )
+            if note4 is not None and all(
+                stack is not None and _catedral_stacked(ctx, stack) for stack in stacks
+            ):
+                return lower, note4, upper
+    return _catedral_hold_opening(ctx, chord, bass, note1, note7, (open_lower, open_upper))
 
 
 
@@ -1113,6 +1219,7 @@ def _catedral_cell(
     vel_b = _catedral_level(60, raw_b, -3 + parity)
     lead.extend(_catedral_lead_note(start16, 6, pitch_a, ctx.epb, vel_a, tenuto=False))
     lead.extend(_catedral_lead_note(start16 + 6, 2, pitch_b, ctx.epb, vel_b, tenuto=False))
+    opening = getattr(ctx, "_catedral_opening", None) or (None, None)
     chosen = _catedral_schedule(
         ctx,
         ctx.chord(bar),
@@ -1120,30 +1227,37 @@ def _catedral_cell(
         pitch_a,
         pitch_b,
         getattr(ctx, "_catedral_pair", None),
+        opening,
     )
     if chosen is None:
         return
     lower, note4, upper = chosen
-    ctx._catedral_pair = (lower, upper)
+    ctx._catedral_pair, ctx._catedral_opening = _catedral_remember(
+        getattr(ctx, "_catedral_pair", None),
+        opening,
+        chosen,
+    )
     # Offsets are sixteenths from the cell start. Lengths stay inside the cell,
     # so `_spell16` is never asked to cross a bar.
-    lower_plan = (
-        (1, 2, lower, 2, vel_a),
-        (3, 2, note4, -2, vel_a),
-        (5, 2, lower, -4, min(vel_a, vel_b)),
-        (7, 1, lower, 1, vel_b),
-    )
-    for offset, length, pitch, nudge, canto in lower_plan:
-        attack = eighth + offset // 2
-        raw = _note_velocity(attack, 1, apex, phrase)
-        level = _catedral_under(_catedral_level(50, raw, nudge + parity), canto)
-        support.extend(_spell16(start16 + offset, length, pitch, ctx.epb, 2, level))
-    upper_plan = ((2, 3, vel_a), (4, -3, vel_a))
-    for offset, nudge, canto in upper_plan:
-        attack = eighth + offset // 2
-        raw = _note_velocity(attack, 1, apex, phrase)
-        level = _catedral_under(_catedral_level(40, raw, nudge + parity), canto)
-        support.extend(_spell16(start16 + offset, 2, upper, ctx.epb, 4, level))
+    if lower is not None and note4 is not None:
+        lower_plan = (
+            (1, 2, lower, 2, vel_a),
+            (3, 2, note4, -2, vel_a),
+            (5, 2, lower, -4, min(vel_a, vel_b)),
+            (7, 1, lower, 1, vel_b),
+        )
+        for offset, length, pitch, nudge, canto in lower_plan:
+            attack = eighth + offset // 2
+            raw = _note_velocity(attack, 1, apex, phrase)
+            level = _catedral_under(_catedral_level(50, raw, nudge + parity), canto)
+            support.extend(_spell16(start16 + offset, length, pitch, ctx.epb, 2, level))
+    if upper is not None:
+        upper_plan = ((2, 3, vel_a), (4, -3, vel_a))
+        for offset, nudge, canto in upper_plan:
+            attack = eighth + offset // 2
+            raw = _note_velocity(attack, 1, apex, phrase)
+            level = _catedral_under(_catedral_level(40, raw, nudge + parity), canto)
+            support.extend(_spell16(start16 + offset, 2, upper, ctx.epb, 4, level))
 
 
 
@@ -1194,6 +1308,7 @@ def _render_catedral_preludio_bar(
     support: list[NoteEvent] = []
     if bar == 0 or _bar_pattern(ctx, bar - 1, patterns) != "preludio":
         ctx._catedral_pair = None
+        ctx._catedral_opening = None
     bass = _catedral_bass(ctx, bar, patterns)
     eighth = bar * ctx.epb
     end = eighth + ctx.epb
