@@ -377,7 +377,7 @@ Bản một ô vẫn cắt đôi bản ngắn bằng `_compressed`. Bản ngắn
 - Outro dài, bước 2: chấm dôi trên i, `_PP`.
 - Outro dài, bước 3: dây buông trầm ngân, `_PP`.
 
-**`galop`** — rally rộng, trưởng, biên độ từ 1,2%. Trên 1D pattern này chiếm cả thân bài. Pedal ngày là 2 ô, nên chỉ kịch bản ngắn phát. Chương dài mà cả thân bài là galop thì điệu đứng giữa và cửa kề pedal là `study`. Tuần, hoặc chương dài mà chỉ slot đầu hay slot cuối là galop, phát kịch bản dài ở cửa đó. Thân bài: bass staccato ở `_galop_bass_points` (4/4 là 0 và 4, 6/8 là 0 và 3), root rồi fifth; bè trong staccato có accent ở `_galop_inner_offsets`; lead nhảy quãng 3 ở `_galop_sparkle`.
+**`galop`** — rally rộng, trưởng, biên độ từ 1,2%. Trên 1D pattern này chiếm cả thân bài. Pedal ngày là 2 ô, nên chỉ kịch bản ngắn phát. Tuần mà thân bài toàn galop thì hai đầu là study, nên cửa 4 ô là cửa study. Chương dài mà cả thân bài là galop thì điệu đứng giữa và cửa kề pedal cũng là `study`. Kịch bản galop dài chỉ kêu khi câu kề pedal vẫn là galop. Thân bài: bass staccato ở `_galop_bass_points` (4/4 là 0 và 4, 6/8 là 0 và 3), root rồi fifth; bè trong staccato có accent ở `_galop_inner_offsets`; lead nhảy quãng 3 ở `_galop_sparkle`.
 
 - Intro ngắn, bước 0: bass staccato root/fifth trên hai điểm galop, bè trong staccato ở phách yếu, lead nghỉ hoặc một nốt ở phách 1. Nửa đầu `_P`, nửa sau `_MP`.
 - Intro ngắn, bước 1: nửa đầu galop trên V7, nửa sau lead nhảy quãng 3 staccato, `_MP`.
