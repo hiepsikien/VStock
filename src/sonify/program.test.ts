@@ -321,4 +321,19 @@ equal(
   'Finale: Prelude — Sarabande — Prelude (4/4, 96 BPM)',
 );
 
+equal(
+  pieceCopy(
+    piece({
+      variant: 'guitar',
+      ensemble: 'bach',
+      span: '1M',
+      movements: month.map((item, itemIndex) =>
+        itemIndex === 0 ? { ...item, name: 'Allemande — Courante — Allemande' } : item,
+      ),
+    }),
+    0,
+  ).movement,
+  'Allemande — Courante — Allemande (4/4, 96 BPM)',
+);
+
 console.log('program tests passed');

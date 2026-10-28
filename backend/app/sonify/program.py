@@ -36,6 +36,9 @@ _PATTERN_TITLE = {
     "bach_sarabande": "Sarabande",
     "bach_gigue": "Gigue",
     "bach_chaconne": "Chaconne",
+    "bach_prelude": "Prelude",
+    "bach_allemande": "Allemande",
+    "bach_courante": "Courante",
     "pedal": "Pedal",
 }
 
