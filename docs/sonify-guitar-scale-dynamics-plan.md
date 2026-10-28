@@ -1,6 +1,6 @@
 # Điều Chỉnh Biên Độ Scale Theo Thể Loại
 
-> **Trạng thái**: đã viết vào engine.
+> **Trạng thái**: Mục 2–5 đã viết vào engine. Mục 6 là đề xuất ngân sách, chưa viết vào engine.
 > **Tài liệu liên kết**: [`docs/sonify-guitar-scales-plan.md`](./sonify-guitar-scales-plan.md) Mục 2.6, [`docs/sonify-guitar-bach-suite-plan.md`](./sonify-guitar-bach-suite-plan.md).
 > **Mục tiêu**: câu scale vẫn là một hairpin một chiều. Brouwer giữ Mục 2.6.C. Các hàng thu hẹp đo từ velocity bè cao sau sóng volume, với bước vào, biên độ và trần khóa theo id pattern.
 
@@ -85,7 +85,7 @@ Nốt lead ô 26 đang nghe là `56` thì ô 27 mở tại `58` và về `52`. N
 
 ## 5. Phần không đổi và test phải viết lại
 
-Đường cao độ, ngân sách 30%, cửa sổ tirata, và chỗ bass nghỉ của Courante và Allemande giữ nguyên. Hairpin vẫn chỉ ở bè cao. Bass và bè giữa giữ mức của pattern.
+Đường cao độ, cửa sổ tirata, và chỗ bass nghỉ của Courante và Allemande giữ nguyên. Hairpin vẫn chỉ ở bè cao. Bass và bè giữa giữ mức của pattern. Ngân sách scale hôm nay vẫn là một trần `30%` cho cả thân bài. Mục 6 đề xuất trần mới, chưa viết vào engine.
 
 `hairpin_velocities` nhận `prev` trực tiếp. Sửa riêng `restamp_passage_hairpins` không đổi các test gọi hàm đó với `prev` cũ. Prelude hôm nay là cửa `54…84`, không phải `52…84`.
 
@@ -96,3 +96,26 @@ Khi viết engine, các khóa sau đổi theo bảng Mục 3:
 - Render `villa_pattern` mở tại `90` và nốt trụ tại `_BASS + 2`.
 - `elegiaque` mở tại `72`.
 - Swarm Brouwer `sarabande` vẫn mở từ `written_lead`.
+
+## 6. Ngân sách scale theo composer và thể loại
+
+Hôm nay `select_scale_plan` lấy một trần `(30 * body) // 100`, trừ eighth nội tại, rồi một phòng chung cho passage, perpetual và tier-1. Trần `30%` của các hàng rộng hạ còn `25%`. Hát và vũ điệu giữ `18%`. Prelude giữ `12%`.
+
+Mỗi pattern một phòng. Eighth thân bài của pattern đó, không tính ô pedal, nhân phần trăm rồi chia nguyên `100`. Eighth nội tại nằm trên pattern đó trừ vào phòng của chính nó. Phòng không xuống dưới `0`, và không cho pattern khác mượn.
+
+Passage và tier-1 trừ vào pattern chiếm nhiều eighth nhất trong `[start, target)`, hòa thì lấy pattern tại `start`, cùng luật Mục 2.6.A. Ô perpetual là `tremolo`, trừ vào phòng `18%` của pattern đó. Ứng viên đắt hơn phần phòng còn lại thì bỏ, không cắt ngắn.
+
+| Composer | Thể loại | Pattern | Trần |
+|---|---|---|---:|
+| Brouwer | giữ nguyên | `sarabande`, `noviembre`, `brouwer_etude`, `elogio_pizz` | 25% |
+| Villa | chạy | `villa_pattern`, `etude1`, `etude11` | 25% |
+| Villa | hát | `chord_melody`, `thumb_cantabile` | 18% |
+| Barrios | điệu | `choro`, `vals`, `polca`, `hemiola` | 25% |
+| Barrios | hát | `preludio`, `andante`, `tremolo` | 18% |
+| Sor | chạy | `study`, `galop`, `mozart_var` | 25% |
+| Sor | hát | `cantabile`, `elegiaque` | 18% |
+| Bach | vũ điệu và hát | `bach_sarabande`, `bach_fuga`, `bach_allemande`, `bach_courante`, `bach_bourree`, `bach_gavotte`, `bach_gigue` | 18% |
+| Bach | hùng biện | `bach_chaconne` | 25% |
+| Bach | prelude | `bach_prelude` | 12% |
+
+`thumb_cantabile` một id, dùng chung Villa và Barrios, nên một trần: hàng hát `18%`. `villa_pattern` là câu chạy arpeggio, cùng trần `25%` với hai étude Villa.
