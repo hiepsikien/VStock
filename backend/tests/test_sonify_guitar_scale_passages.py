@@ -915,7 +915,7 @@ def test_modal_figure_ramps_the_hat_window_and_a_bar_opening_is_not_punched() ->
     assert any(event.hairpin for _start, event in lead)
     from app.sonify.humanize import humanize
 
-    # Sor's snap ceiling is 70. The same reprinted hat has to stay 72.
+    # Sor's snap ceiling is 73. The reprinted hat stays at the velocity it wrote.
     heard = humanize(replace(score, ensemble="classic"), offset_at=lambda *_args: 2)
     heard_lead = [event.velocity for _start, event in _ordered(heard.lead) if event.velocity is not None]
     assert heard_lead[0] == 72

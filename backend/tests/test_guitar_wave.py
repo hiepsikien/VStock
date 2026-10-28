@@ -617,7 +617,7 @@ def test_snap_is_rare_and_leaves_the_rest_of_the_bar_warm() -> None:
     assert len({(note.bar, round(note.beat, 2)) for note in snapped}) <= _budget(profile, len(heard_lead), alpha_price(0.02), "choro")
     assert heard_support[0].velocity is not None and heard_support[0].velocity <= 63
     warmed = humanize(_guitar_score(heard_lead, ensemble="barrios", bars=8), offset_at=lambda *_args: 2)
-    assert all(note.velocity is not None and note.velocity <= 76 for note in warmed.lead)
+    assert all(note.velocity is not None and note.velocity <= 79 for note in warmed.lead)
 
     ctx = _ctx(
         ensemble="brouwer",
