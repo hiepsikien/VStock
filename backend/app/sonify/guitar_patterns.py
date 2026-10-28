@@ -2818,7 +2818,7 @@ def render_patterned_voices(
     written_lead = list(lead)
     from app.sonify.guitar_wave import apply_guitar_wave
 
-    lead, support, low = apply_guitar_wave(ctx, lead, support, low, patterns, relaxed)
+    lead, support, low = apply_guitar_wave(ctx, lead, support, low, patterns, relaxed, scale_eighths)
     from app.sonify.guitar_scale_passages import restamp_passage_hairpins
 
     lead = _restamp_swarm_hairpins(ctx, patterns, lead, written_lead)

@@ -604,7 +604,40 @@ def _put(events: list[NoteEvent], index: int, velocity: int) -> None:
     events[index] = replace(events[index], velocity=int(velocity))
 
 
-def _apply_affine(ctx, voices: dict[str, list[NoteEvent]], placed: dict[int, _Placed]) -> None:
+def _scale_occupied_bar(bar: int, scale_eighths: set[int] | None, epb: int) -> bool:
+    """True when the passage occupies this bar, not merely lands on its downbeat.
+
+    `scale_eighths` includes the arrival eighth. A target on the next barline
+    puts only that downbeat in the set, and the bar keeps its own singing voice.
+    """
+    if not scale_eighths or epb <= 0:
+        return False
+    lo = bar * epb
+    hits = [eighth for eighth in range(lo, lo + epb) if eighth in scale_eighths]
+    if not hits:
+        return False
+    if hits == [lo] and lo > 0 and (lo - 1) in scale_eighths:
+        return False
+    return True
+
+
+def _thumb_root_locked(ctx, patterns: list[str], scale_eighths: set[int] | None, voice: str, event: NoteEvent) -> bool:
+    """The held root on a yielded thumb bar keeps the velocity the passage wrote."""
+    if voice != "low" or event.midi is None:
+        return False
+    if _pattern_at(ctx, event.bar, patterns) != "thumb_cantabile":
+        return False
+    return _scale_occupied_bar(event.bar, scale_eighths, ctx.epb)
+
+
+def _apply_affine(
+    ctx,
+    voices: dict[str, list[NoteEvent]],
+    placed: dict[int, _Placed],
+    patterns: list[str] | None = None,
+    scale_eighths: set[int] | None = None,
+) -> None:
+    patterns = list(patterns or [])
     for bar in range(ctx.bars):
         spot = placed[bar]
         raws: dict[tuple[str, int], int] = {}
@@ -613,6 +646,8 @@ def _apply_affine(ctx, voices: dict[str, list[NoteEvent]], placed: dict[int, _Pl
                 raws[(voice, index)] = spot.rounded + (int(events[index].velocity or 0) - WRITTEN_CENTER)
         if spot.pedal:
             for (voice, index), raw in raws.items():
+                if _thumb_root_locked(ctx, patterns, scale_eighths, voice, voices[voice][index]):
+                    continue
                 _put(voices[voice], index, min(WARM_LIMIT, raw))
             continue
         for (voice, index), raw in raws.items():
@@ -620,6 +655,8 @@ def _apply_affine(ctx, voices: dict[str, list[NoteEvent]], placed: dict[int, _Pl
             # trough by the tide constants, and a softer note keeps that step,
             # so a bell written 44 sits four under the floor instead of being
             # lifted onto it.
+            if _thumb_root_locked(ctx, patterns, scale_eighths, voice, voices[voice][index]):
+                continue
             _put(voices[voice], index, min(spot.v_ceil, raw))
 
 
@@ -627,7 +664,16 @@ def _at_apex(phrase, onset: float) -> bool:
     return phrase is not None and phrase.apex.start <= onset < phrase.apex.end
 
 
-def _is_target(ctx, pattern: str, event: NoteEvent, voice: str, phrase, onset: float, level: float) -> bool:
+def _is_target(
+    ctx,
+    pattern: str,
+    event: NoteEvent,
+    voice: str,
+    phrase,
+    onset: float,
+    level: float,
+    scale_eighths: set[int] | None = None,
+) -> bool:
     profile = profile_for(ctx.ensemble, pattern)
     if profile is None or profile.snap_wide is None:
         return False
@@ -657,6 +703,8 @@ def _is_target(ctx, pattern: str, event: NoteEvent, voice: str, phrase, onset: f
     if pattern == "preludio":
         return voice == "lead" and (event.duration_beats >= 0.9 or int(round(beat * 4)) % 8 == 0) and level >= 0.85
     if pattern == "thumb_cantabile":
+        if _scale_occupied_bar(event.bar, scale_eighths, ctx.epb):
+            return False
         return voice == "low" and apex and rise > 0
     if pattern == "tremolo":
         return voice == "low" and event.duration_beats >= 0.75 and level >= 0.999
@@ -717,7 +765,7 @@ def _u_at(wave: _Wave, bar: int) -> float:
     return wave.levels[index]
 
 
-def _collect_units(ctx, voices: dict[str, list[NoteEvent]], patterns, waves) -> list[_Unit]:
+def _collect_units(ctx, voices: dict[str, list[NoteEvent]], patterns, waves, scale_eighths=None) -> list[_Unit]:
     units: list[_Unit] = []
     tresillo: dict[int, _Unit] = {}
     for voice, events in voices.items():
@@ -738,7 +786,7 @@ def _collect_units(ctx, voices: dict[str, list[NoteEvent]], patterns, waves) -> 
             onset = _onset(event, ctx.epb)
             phrase = _phrase_at(ctx, onset)
             level = _u_at(wave, event.bar)
-            if not _is_target(ctx, pattern, event, voice, phrase, onset, level):
+            if not _is_target(ctx, pattern, event, voice, phrase, onset, level, scale_eighths):
                 continue
             breath = phrase_curve(phrase, onset)
             score = 0.70 * level + 0.30 * breath
@@ -787,7 +835,7 @@ def _collect_units(ctx, voices: dict[str, list[NoteEvent]], patterns, waves) -> 
     return kept
 
 
-def _budget(ctx, pattern: str, wave: _Wave, voices, start: int, end: int) -> int:
+def _budget(ctx, pattern: str, wave: _Wave, voices, start: int, end: int, scale_eighths=None) -> int:
     profile = profile_for(ctx.ensemble, pattern)
     if profile is None or profile.snap_wide is None:
         return 0
@@ -804,11 +852,17 @@ def _budget(ctx, pattern: str, wave: _Wave, voices, start: int, end: int) -> int
             }
         )
     else:
-        count = sum(1 for event in events if start <= event.bar < end and event.midi is not None and not event.tie_stop)
+        count = 0
+        for event in events:
+            if not (start <= event.bar < end and event.midi is not None and not event.tie_stop):
+                continue
+            if pattern == "thumb_cantabile" and _scale_occupied_bar(event.bar, scale_eighths, ctx.epb):
+                continue
+            count += 1
     return min(profile.max_units_per_sec, max(1, int(math.floor(0.045 * count))))
 
 
-def _select_units(ctx, units: list[_Unit], waves, voices) -> list[_Unit]:
+def _select_units(ctx, units: list[_Unit], waves, voices, scale_eighths=None) -> list[_Unit]:
     by_section: dict[tuple[int, int, str], list[_Unit]] = {}
     for unit in units:
         wave = waves.get(unit.bar)
@@ -828,16 +882,16 @@ def _select_units(ctx, units: list[_Unit], waves, voices) -> list[_Unit]:
         for phrase_units in per_phrase.values():
             phrase_units.sort(key=lambda item: (-item.score, item.bar, item.indexes[0]))
             limited.extend(phrase_units[: max(0, profile.max_units_per_phrase)])
-        limit = _budget(ctx, pattern, wave, voices, start, end)
+        limit = _budget(ctx, pattern, wave, voices, start, end, scale_eighths)
         limited.sort(key=lambda item: (-item.score, item.bar, item.indexes[0]))
         chosen.extend(limited[:limit])
     return chosen
 
 
-def _apply_snaps(ctx, voices, patterns, waves) -> None:
+def _apply_snaps(ctx, voices, patterns, waves, scale_eighths=None) -> None:
     """Overwrite only the chosen attacks. Companions stay on the clamped affine value."""
-    units = _collect_units(ctx, voices, patterns, waves)
-    for unit in _select_units(ctx, units, waves, voices):
+    units = _collect_units(ctx, voices, patterns, waves, scale_eighths)
+    for unit in _select_units(ctx, units, waves, voices, scale_eighths):
         velocity = _snapped_velocity(unit.score, unit.ceiling)
         velocity = max(66, min(unit.ceiling, velocity))
         events = voices[unit.voice]
@@ -963,7 +1017,15 @@ def _fit_pedal_speech(
             _retarget(placed, [bar], [floor])
 
 
-def apply_guitar_wave(ctx, lead, support, low, patterns: list[str] | None = None, relaxed: set[int] | None = None):
+def apply_guitar_wave(
+    ctx,
+    lead,
+    support,
+    low,
+    patterns: list[str] | None = None,
+    relaxed: set[int] | None = None,
+    scale_eighths: set[int] | None = None,
+):
     """Shift written velocities by one rounded center per bar.
 
     Body notes that are not snapped clamp at V_ceil (<= 63). Written 48 meets
@@ -979,7 +1041,8 @@ def apply_guitar_wave(ctx, lead, support, low, patterns: list[str] | None = None
     volumes = resolve_bar_volumes(ctx)
     placed, waves, leading, trailing = _place_centers(ctx, patterns, volumes)
     _fit_pedal_speech(voices, placed, leading, trailing)
-    _apply_affine(ctx, voices, placed)
-    _apply_snaps(ctx, voices, patterns, waves)
+    covered = set(scale_eighths or ())
+    _apply_affine(ctx, voices, placed, patterns, covered)
+    _apply_snaps(ctx, voices, patterns, waves, covered)
     _apply_stabs(ctx, voices, trailing, patterns)
     return _sync_ties(voices["lead"]), _sync_ties(voices["support"]), _sync_ties(voices["low"])
