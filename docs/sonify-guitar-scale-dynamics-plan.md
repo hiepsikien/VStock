@@ -26,7 +26,7 @@ open = min(loud, max(prev + 8, 72))
 
 Brouwer đang nghe ổn, nên passage và swarm của Brouwer vẫn đọc nốt lead trước sóng. `_restamp_swarm_hairpins` tiếp tục nhận `written_lead`. Sóng lên của Brouwer giữ subito piano ở Mục 2.6.C: `open = min(prev, soft)`, và rơi xuống `soft` khi `prev ≥ 72`. Elogio giữ cùng mục đó, kể cả mở tại trần khi đi xuống trên phách mạnh.
 
-Các hàng thu hẹp đọc nốt lead **sau** `apply_guitar_wave`. Gọi mức đó là `heard`. Sóng volume đã mang band của ô, nên các hàng này không cộng `_HAIRPIN_SHIFT` thêm một lần. Band `f` là `+4`. Cộng vào trần prelude `72` thành `76`. Band `p` là `−8`. Trừ lần nữa trên `heard` là trừ piano hai lần.
+Các hàng thu hẹp đọc nốt lead **sau** `apply_guitar_wave`, trên `lead` đang bị ghi đè. `restamp_passage_hairpins` đi `plan.passages` rồi `plan.tier1`. Câu sau thấy hairpin vừa in của câu trước, không đọc lại `written_lead`. Gọi mức đó là `heard`. Sóng volume đã mang band của ô, nên các hàng này không cộng `_HAIRPIN_SHIFT` thêm một lần. Band `f` là `+4`. Cộng vào trần prelude `72` thành `76`. Band `p` là `−8`. Trừ lần nữa trên `heard` là trừ piano hai lần.
 
 ## 3. Mức theo composer và pattern
 
@@ -41,18 +41,24 @@ Cửa sổ khóa theo id pattern, không theo ensemble. `thumb_cantabile` dùng 
 | Composer | Pattern | Cửa hiện tại | Sóng xuống trên phách mạnh |
 |---|---|---|---|
 | Brouwer | `sarabande`, `noviembre` | Hát `52…82`, span 30 | `open = min(loud, max(prev + 8, 72))` |
-| Brouwer | `brouwer_etude` | Động năng `46…90`, span 44 | mở tại `90` |
-| Brouwer | `elogio_pizz` | `44…92`, span 48 | mở tại `92` |
+| Brouwer | `brouwer_etude` | Động năng `46…90`, span 44 | mở tại trần |
+| Brouwer | `elogio_pizz` | `44…92`, span 48 | mở tại trần |
+
+Trần ở đây là `loud` sau `_HAIRPIN_SHIFT`. Band `mf` mở étude tại `90` và Elogio tại `92`. Band `p` dịch `loud` xuống `8`, nên hai cửa đó mở tại `82` và `84`.
 
 ### Hàng thu hẹp
 
-`heard` là velocity lead sau sóng. Sàn tuyệt đối là `40`, cùng kẹp `soft = max(40, …)` của Mục 2.6.B.
+`heard` là velocity lead đang bị ghi đè. Sàn tuyệt đối là `40`, cùng kẹp `soft = max(40, …)` của Mục 2.6.B. Affine của sóng volume không kéo nốt mềm lên sàn cửa sổ. Prelude có sàn `28…34`, nên `heard` có thể ở khoảng `30`. Hai đầu của một câu đi xuống không dưới `40`, và đích không cao hơn `open`.
 
-- Xuống: `open = min(trần, heard + bước vào)`. Đích ramp = `max(40, open − biên độ)`.
-- Lên: `open = heard`. Không rơi xuống `soft`. Đích = `min(trần, heard + biên độ)`.
+- Xuống: `open = min(trần, max(40, heard + bước vào))`. Đích = `min(open, max(40, open − biên độ))`.
+- Lên: `open = min(trần, heard)`. Không rơi xuống `soft`. Đích = `min(trần, open + biên độ)`.
 - Nốt trụ là đích của ramp. Không kéo lên `_BASS + 2`.
 
-`heard = 40` và prelude đi xuống: `open = 42`, đích = `40`. Không về `34`.
+`heard = 30` và prelude đi xuống thì đứng yên tại `40`. `heard = 40` vẫn là `42 → 40`. `heard = 56` vẫn là `58 → 52`.
+
+`v_ceil` của affine không quá `63`. Bước vào không quá `+6`, nên một câu đi xuống đứng riêng sau sóng mở tối đa `69`, thấp hơn trần thấp nhất `72`. Trần bắt đầu có việc khi nốt liền trước là snap (`choro`, `hemiola`, `etude11` tới `74`) hoặc là đích của passage vừa in trong cùng vòng `restamp`. Ô 27 nhỏ lại nhờ `+2` và biên độ `6`.
+
+Sóng lên cũng kẹp điểm mở. Passage Chaconne có thể kết tại `80`. Passage prelude ngay sau đọc đúng nốt đó: `open = min(72, 80) = 72`, đích = `min(72, 78) = 72`. Không mở tại `80` rồi đi xuống `72`.
 
 | Composer | Pattern | Bước vào khi đi xuống | Biên độ | Trần |
 |---|---|---:|---:|---:|
@@ -71,7 +77,7 @@ Cửa sổ khóa theo id pattern, không theo ensemble. `thumb_cantabile` dùng 
 
 ## 4. Ô 27 sau khi chỉnh
 
-Công thức prelude: `open = min(72, heard + 2)`, đích = `max(40, open − 6)`.
+Công thức prelude đi xuống: `open = min(72, max(40, heard + 2))`, đích = `min(open, max(40, open − 6))`.
 
 Nốt lead ô 26 đang nghe là `56` thì ô 27 mở tại `58` và về `52`. Nốt đó là `45` thì mở tại `47` và về `41`. Cả hai đều ở cùng vùng với ô đứng trước. Không còn đỉnh `84` và không còn nốt trụ `62`.
 
