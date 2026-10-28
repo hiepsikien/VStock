@@ -1,7 +1,7 @@
 # Scale thật trên pattern đang bị cấm
 
 > Tham chiếu: [`docs/sonify-guitar-scales-plan.md`](./sonify-guitar-scales-plan.md) Mục 2.1.B và 2.6, [`docs/sonify-classical-guitar.md`](./sonify-classical-guitar.md)
-> Phạm vi: Villa-Lobos (`etude1`, `etude11`, `thumb_cantabile`) và Barrios (`preludio` khi `_catedral_preludio` đúng). `tremolo` giữ cửa cấm. Bach, Brouwer và Sor không đổi luật riêng. Preludio không khung giữ overlay Nhóm 3.
+> Phạm vi: Villa-Lobos (`etude1`, `etude11`, `thumb_cantabile`) và Barrios (`thumb_cantabile`, `preludio` khi `_catedral_preludio` đúng). Cùng tên `thumb_cantabile` dùng bước của `ctx.ensemble`: Villa là `villa_scale_step`, Barrios là `barrios_scale_step`. `tremolo` giữ cửa cấm. Bach, Brouwer và Sor không đổi luật riêng. Preludio không khung giữ overlay Nhóm 3.
 
 ## Việc cần nghe được
 
@@ -23,25 +23,25 @@ Tremolo đã là câu chạy của Barrios. Mỗi phách lặp một cao độ g
 
 Thứ tự, trên `[start, target]` của xung:
 
-1. Cắt các ô `tremolo` và các ô pedal (`intro`, `outro`, `warmup`, `cooldown`) ở hai đầu. Pedal ở rìa hiện chưa có luật cắt. Bỏ qua bước này thì scale rơi vào ô cửa.
-2. Với mỗi đoạn pattern chủ (`etude1`, `etude11`, `thumb_cantabile`, preludio có khung) nằm trong khoảng còn lại, kéo đoạn đó vào các ô trọn. Mảnh pattern chủ không đủ một ô thì bỏ riêng mảnh đó. Vòng 16 móc kép, chùm sextuplet và khung canto không bị khoét giữa ô.
-3. Ô đầu của một vùng pattern chủ liên tiếp không nằm trong passage, kể cả khi passage đã mở từ Nhóm 3 ở phía trước. Cùng luật với `_covers_group2_opening`. Ô đó bị lấy ra. Nếu nó ở biên, khoảng co lại. Nếu hai bên nó đều còn eighth, cả passage bị hủy vì có lỗ giữa.
-4. `tremolo` hoặc pedal còn nằm giữa khoảng thì hủy cả passage.
-5. Sau các bước trên, khoảng liền còn lại ngắn hơn 2 eighth thì hủy. Khoảng Nhóm 3 còn lại giữ luật overlay hiện có, kể cả khi ngắn hơn một ô, miễn cả passage còn ít nhất 2 eighth.
+1. Cắt các ô `tremolo` và các ô pedal (`_PEDAL`: `intro`, `outro`, `warmup`, `cooldown`) ở hai đầu. Bỏ qua bước này thì scale rơi vào ô cửa.
+2. Ô bị nhường chỉ tính trên `[start, target)`. Eighth đích đứng ngoài khoảng chiếm. `passage_eighths` là `target - start`, còn `scale_eighths` vẫn gồm eighth đích (`range(start, target + 1)`). `_touched_bars` lấy `range(start // epb, target // epb + 1)`. Khi `target` rơi đúng vạch ô, ô sau nằm trong range đó dù passage chỉ chạm eighth đích. Bước kéo ô trọn không dùng range đó. Ô sau giữ lưới pattern. `target` giữ nguyên. Nốt đích là `ctx.melody[target]`.
+3. Với mỗi đoạn pattern chủ (`etude1`, `etude11`, `thumb_cantabile`, preludio có khung) có eighth trong `[start, target)`, kéo đoạn đó vào các ô trọn. Mảnh pattern chủ không đủ một ô thì bỏ riêng mảnh đó. Vòng 16 móc kép, chùm sextuplet và khung canto không bị khoét giữa ô.
+4. Ô đầu của một vùng pattern chủ liên tiếp không nằm trong passage, kể cả khi passage đã mở từ Nhóm 3 ở phía trước. Ô đó ở biên thì co biên. Ô đó ở giữa thì cắt `target` về đầu ô đó và giữ phía trước. Phần pattern chủ phía sau ô đầu không thuộc passage này. Đây là biên để co, không phải lỗ. `_covers_group2_opening` là luật khác: hàm trả về đúng khi ô đầu vùng Nhóm 2 nằm trong khoảng, rồi `_passage_allowed` hủy cả passage, kể cả khi ô đó nằm ở biên. Ô đầu Nhóm 2 giữ đúng hàm đó. Chỉ pattern chủ được co.
+5. `tremolo` hoặc pedal còn nằm giữa khoảng thì hủy cả passage.
+6. Sau các bước trên, khoảng liền còn lại ngắn hơn 2 eighth thì hủy. Khoảng Nhóm 3 còn lại giữ luật overlay hiện có, kể cả khi ngắn hơn một ô, miễn cả passage còn ít nhất 2 eighth.
 
 `passage_eighths` là `target - start` của khoảng đã cắt. `retreat_spans` được cắt theo cùng khoảng. Khoảng thở một ô đo trên khoảng này. `score` giữ nguyên score của xung giá.
 
-Một vùng étude đã có một ô lưới, xung phủ ô trọn kế tiếp, thì ô đó được nhận. Xung chỉ ngắn hơn một ô trên chính pattern chủ thì không có passage từ mảnh đó. Câu Nhóm 3 phía trước vẫn còn nếu còn ít nhất 2 eighth.
+Một vùng étude đã có một ô lưới, xung phủ ô trọn kế tiếp, thì ô đó được nhận. Xung chỉ ngắn hơn một ô trên chính pattern chủ thì không có passage từ mảnh đó. Câu Nhóm 3 phía trước vẫn còn nếu còn ít nhất 2 eighth. Xung Sor phủ trọn ô đầu étude rồi sang ô étude sau thì `target` về đầu ô étude đó. Đoạn Sor còn. Ô étude sau không bị nuốt.
 
 ## Pattern chủ nhường cả ô
 
 Trong các ô passage chiếm, bè Cao là câu scale. Bè Trung để trống: `_rewrite_support` không trồng nốt trên bốn pattern này. Chuông đã bị gỡ bởi `bell_bars -= scale_eighths`. Đáp xuống `target` thì lưới pattern trở lại ở ô sau. Nốt đích là `ctx.melody` tại eighth đó.
 
-`realize_scale_passage` hôm nay viết lại cả ba bè. `_rewrite_bass` xóa bass trong `[start, target)` rồi trồng gốc hoặc bậc 5 trên `ctx.strong`. `4/4` có `strong_eighths = (0, 4)`, nên đường đó đánh bass hai lần một ô và bỏ phách 2, phách 4. Bốn pattern chủ cần số lần gảy riêng. Cao độ vẫn tìm như `_bass_under_slices`: gốc hoặc bậc 5, chơi được với câu scale. Lối thoát này áp cho cả bốn pattern, không chỉ Preludio.
+`realize_scale_passage` hôm nay viết lại cả ba bè. `_rewrite_bass` xóa bass trong `[start, target)` rồi trồng gốc hoặc bậc 5 trên `ctx.strong`. `4/4` có `strong_eighths = (0, 4)`, nên đường đó đánh bass hai lần một ô và bỏ phách 2, phách 4. Bốn pattern chủ cần số lần gảy riêng. Cao độ vẫn tìm gốc hoặc bậc 5, chơi được với câu scale. Không còn gốc hoặc bậc 5 nào `_playable` thì `realize_scale_passage` trả `None` và passage không được nhận. `_rewrite_bass` hôm nay bỏ qua nốt đó rồi vẫn nhận passage, nên ô thumb hoặc étude có thể mất bass.
 
-- `etude1`: một nốt, tấn công ở đầu ô, ngân hết `epb`.
-- `etude11`: một nốt mỗi phách đen (eighth `0, 2, 4, 6` ở `4/4`), mỗi nốt ngân một phách. Vòng sextuplet nghỉ.
-- `thumb_cantabile`: câu hát đang nằm ở voice 3. Giữ bass theo `_rewrite_bass` là giữ nguyên câu ngón cái. Nốt gốc thay câu đó: một nốt, tấn công ở đầu ô, ngân hết ô, cao độ vang trong cửa sổ `_place_thumb` (sàn 48, trần 64). Hai nốt chập phách yếu nghỉ. Câu scale hát ở bè Cao.
+- `etude1` và `etude11` chỉ được chọn ở `4/4`. `etude1`: một nốt, tấn công ở đầu ô, ngân hết `epb`. `etude11`: một nốt ở mỗi eighth `0, 2, 4, 6`, mỗi nốt ngân một phách. Lịch đó đủ cho `4/4`. Vòng sextuplet nghỉ.
+- `thumb_cantabile`, cả Villa và Barrios: câu hát đang nằm ở voice 3. Giữ bass theo `_rewrite_bass` là giữ nguyên câu ngón cái. Nốt gốc thay câu đó: một nốt, tấn công ở đầu ô, ngân hết ô. Cửa sổ là cao độ vang `48…64`, tức cao độ viết `48 - semitones` … `64 - semitones` trong `_place_thumb`. Hai nốt chập phách yếu nghỉ. Câu scale hát ở bè Cao.
 - Preludio có khung: bass hai ô là một nốt dài `2 * epb`, ghép từng cặp trong `_preludio_bass`. Giữ nốt đó khi cả hai ô của cặp thuộc passage và nốt còn `_playable` với câu scale. Passage chiếm một ô của cặp thì cắt nốt tại biên ô: ô trong passage lấy gốc trên phách mạnh (`ctx.strong`), ô ngoài passage giữ bass của pattern.
 
 ## Câu scale nghe ra tác giả
@@ -68,7 +68,7 @@ Thumb và Preludio là Hát. Sóng xuống mở tại `min(loud, max(prev + 8, _
 
 Bốn pattern chủ không có scale nội tại Nhóm 2, nên không cộng vào `base_intrinsic_eighths` ở bước 1. `replaced_base_intrinsic_eighths = 0`. Chi phí ở bước chọn passage là đủ `passage_eighths`. Trần 30% vẫn áp. Một chương 84 ô `etude1` có room khoảng một phần ba thân bài. Trần đó là cố ý.
 
-Xung vừa chạm Nhóm 2 vừa chạm pattern chủ phải là cầu nối dài trên chính xung giá: `target - start ≥ epb` và `net_span ≥ 6`, đo trước khi cắt. Thiếu một trong hai thì hủy cả passage. Ô Nhóm 2 giữ bass đặc trưng của Mục 2.1.B. Ô chủ lấy bass mới ở trên. Ô đầu mỗi vùng, Nhóm 2 và pattern chủ, không nằm trong passage.
+Xung vừa chạm Nhóm 2 vừa chạm pattern chủ phải là cầu nối dài trên chính xung giá: `target - start ≥ epb` và `net_span ≥ 6`, đo trước khi cắt. Thiếu một trong hai thì hủy cả passage. Ô Nhóm 2 giữ bass đặc trưng của Mục 2.1.B. Ô chủ lấy bass mới ở trên. Ô đầu vùng Nhóm 2 vẫn hủy cả passage qua `_covers_group2_opening`, kể cả khi ô đó ở biên. Co biên chỉ áp cho ô đầu pattern chủ.
 
 ## Sửa trong code
 
@@ -76,7 +76,7 @@ Xung vừa chạm Nhóm 2 vừa chạm pattern chủ phải là cầu nối dài
 
 - `_GROUP1` chỉ còn `tremolo`.
 - Cắt khoảng theo mục «Cắt khoảng» trước khi tạo `ScalePassage`, trước `_gap_ok`, và trước khi trừ `room`.
-- `_rewrite_bass` có nhánh số lần gảy cho bốn pattern chủ, gồm lối gốc hoặc bậc 5 khi nốt đầu không `_playable`.
+- `_rewrite_bass` có nhánh số lần gảy cho bốn pattern chủ. Không còn gốc hoặc bậc 5 nào `_playable` thì `realize_scale_passage` trả `None`.
 - `_rewrite_support` trả support đã xóa vùng, không trồng thêm, khi ô thuộc bốn pattern chủ.
 - `_color_line` bỏ qua `villa_open_candidates` khi `ctx.bpm < SCALE_SIXTEENTH_MIN_BPM`.
 - `etude1` và `etude11` vào `_KINETIC_PATTERNS`. `thumb_cantabile` vào `_HAT_PATTERNS`.
@@ -102,7 +102,11 @@ Giữ: tremolo trọn ô thì passage rỗng. Preludio không khung giữ overla
 Thêm:
 
 - Vùng pattern chủ đã có một ô lưới. Xung phủ ô trọn kế tiếp thì có passage trên ô đó. Xung ngắn hơn một ô trên chính vùng đó thì không.
-- Passage Nhóm 3 chỉ chạm vài eighth étude hoặc tremolo ở rìa thì còn phần Nhóm 3, dài ít nhất 2 eighth. Tremolo hoặc pedal ở giữa thì mất cả passage. Pedal ở rìa bị cắt, scale không rơi vào ô cửa.
+- Passage Nhóm 3 chỉ chạm vài eighth étude hoặc tremolo ở rìa thì còn phần Nhóm 3, dài ít nhất 2 eighth. Xung Sor phủ trọn ô đầu étude và ô étude sau thì `target` là đầu ô étude đó, đoạn Sor còn. Tremolo hoặc pedal ở giữa thì mất cả passage. Pedal ở rìa bị cắt, scale không rơi vào ô cửa.
+- `target` rơi đúng vạch ô thì ô sau không bị nhường. Nốt đích là `ctx.melody[target]`.
+- Ô đầu vùng Nhóm 2 nằm trong khoảng thì cả passage bị hủy, kể cả khi ô đó ở biên. Co biên không áp cho Bach hay Brouwer.
+- `thumb_cantabile` của Barrios nhận passage và bước bằng `barrios_scale_step`.
+- Ô chủ không còn gốc hoặc bậc 5 nào `_playable` thì `realize_scale_passage` trả `None` và passage không được nhận.
 - Ô chủ đã nhường: bè giữa trống. Bass đúng số lần gảy — một nốt cả ô (`etude1`, thumb), một nốt mỗi phách (`etude11`), hoặc một nốt dài hai ô khi cả cặp Preludio thuộc passage. Cặp Preludio bị chiếm một ô thì ô trong passage có bass trên phách mạnh và ô ngoài giữ bass pattern.
 - Nốt gốc thumb có cao độ vang trong `48…64`.
 - Sóng xuống trên thumb hoặc Preludio không mở tại `loud` khi `prev` quanh `60`, và nốt đích không bằng `soft`.

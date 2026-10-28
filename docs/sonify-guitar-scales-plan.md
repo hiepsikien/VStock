@@ -49,7 +49,7 @@ Trong codebase hiện tại, một số pattern đã có sẵn các chùm chạy
 
 1. **`tremolo` vẫn loại trừ. Bốn pattern khóa lưới nhận scale theo ô trọn** — chi tiết cắt khoảng, bass, và cửa sổ lực nằm ở [`docs/sonify-guitar-group1-scales-plan.md`](./sonify-guitar-group1-scales-plan.md):
    - **`tremolo` (Barrios)**: lưỡi `p–a–m–i` đã là câu chạy theo giá. `tremolo` ở lại trong `_GROUP1`. Ô phẳng `f` / `volatile` chỉ nhận `perpetual`. `tremolo` hoặc pedal nằm giữa khoảng thì hủy cả passage. Hai thứ đó ở rìa thì bị cắt, phần còn lại giữ nếu còn ít nhất 2 eighth.
-   - **`etude1`, `etude11`, `thumb_cantabile`, và `preludio` khi `_catedral_preludio` đúng**: nhận `ScalePassage` thật trên các ô trọn, sau khi ô đầu vùng đã vang. Bè Cao là câu scale. Bè Trung trống. Bass giữ đúng số lần gảy của pattern, không đi qua `ctx.strong` của `_rewrite_bass`.
+   - **`etude1`, `etude11`, `thumb_cantabile` (Villa và Barrios), và `preludio` khi `_catedral_preludio` đúng**: nhận `ScalePassage` thật trên các ô trọn, sau khi ô đầu vùng đã vang. Bè Cao là câu scale. Bè Trung trống. `etude1` là một nốt ngân hết ô. `etude11` đánh eighth `0, 2, 4, 6`. Hai étude chỉ được chọn ở `4/4`, nên lịch đó đủ. Cặp Preludio bị chiếm một ô vẫn lấy gốc trên `ctx.strong`.
    - **Preludio không khung** vẫn là Nhóm 3.
 2. **Nhóm 2 — Các Pattern có Cửa Sổ Scale Nội Tại (`bach_chaconne`, `bach_gigue`, `bach_sarabande`, Brouwer `sarabande`) — Cơ chế Phân Tầng 2 Cấp (`Two-Tier Threshold`)**:
    - Ở 4 pattern này, câu chạy scale đã là **một thành phần cấu trúc nằm trong chính ô nhịp của pattern**:
