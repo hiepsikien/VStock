@@ -47,12 +47,10 @@ Hiện tại, cơ chế phát hiện chuyển động giá và chạy scale tron
 #### B. Phân loại 3 nhóm Pattern để không phá vỡ kết cấu và Scale nội tại (`Intrinsic Scales`)
 Trong codebase hiện tại, một số pattern đã có sẵn các chùm chạy scale/swarm nội tại (như `bach_gigue`, `bach_chaconne`, `bach_sarabande`, Brouwer `sarabande`) hoặc có lưới ngón tay phải cố định. Để cơ chế scale mới **không bao giờ phá hỏng cấu trúc nhận diện của pattern đang chạy**, toàn bộ các pattern được chia thành **3 nhóm rõ ràng**:
 
-1. **Nhóm 1 — Các Pattern khóa lưới hoặc đảo vai bè (Loại trừ hoàn toàn khỏi Overlay Scale)**:
-   - **`tremolo` (Barrios)**: Ghép scale vào `tremolo` sẽ cắt đứt lưỡi lặp `p-a-m-i` liên tục. Do đó `tremolo` nằm trong danh sách loại trừ cùng với `etude1`, `etude11` và `preludio` có khung (`_catedral_preludio(ctx)`). (`tremolo` chỉ nhận `perpetual` trên các ô giữ giá phẳng ở `band == "f"`, `mood == "volatile"`).
-   - **`etude1` & `etude11` (Villa-Lobos)**: Khóa chặt vòng 16 móc kép (*Étude No. 1*) và 4 chùm sextuplet (*Étude No. 11*).
-   - **`preludio` khi `_catedral_preludio(ctx) == True` (Barrios)**: Khóa chặt giai điệu canto chấm dôi đan với sóng chữ V ở bè Trung.
-   - **`thumb_cantabile` (Villa-Lobos / Barrios)**: Giai điệu chính nằm ở bè Trầm (`Voice 3`, ngón cái `p` hát ở vùng Cello `48..64`) trong khi `Voice 1` và `Voice 2` chỉ chập hợp âm phách yếu; không chèn scale ở `Voice 1` đè lên câu hát của ngón cái.
-   - **Quy tắc toàn vẹn Passage**: Nếu khoảng `[passage.start, passage.target]` chạm vào bất kỳ ô nhịp nào thuộc Nhóm 1, **loại bỏ toàn bộ `ScalePassage` đó** (tuyệt đối không khoét rỗng riêng ô Nhóm 1 làm đứt đôi câu chạy).
+1. **`tremolo` vẫn loại trừ. Bốn pattern khóa lưới nhận scale theo ô trọn** — chi tiết cắt khoảng, bass, và cửa sổ lực nằm ở [`docs/sonify-guitar-group1-scales-plan.md`](./sonify-guitar-group1-scales-plan.md):
+   - **`tremolo` (Barrios)**: lưỡi `p–a–m–i` đã là câu chạy theo giá. `tremolo` ở lại trong `_GROUP1`. Ô phẳng `f` / `volatile` chỉ nhận `perpetual`. `tremolo` hoặc pedal nằm giữa khoảng thì hủy cả passage. Hai thứ đó ở rìa thì bị cắt, phần còn lại giữ nếu còn ít nhất 2 eighth.
+   - **`etude1`, `etude11`, `thumb_cantabile`, và `preludio` khi `_catedral_preludio` đúng**: nhận `ScalePassage` thật trên các ô trọn, sau khi ô đầu vùng đã vang. Bè Cao là câu scale. Bè Trung trống. Bass giữ đúng số lần gảy của pattern, không đi qua `ctx.strong` của `_rewrite_bass`.
+   - **Preludio không khung** vẫn là Nhóm 3.
 2. **Nhóm 2 — Các Pattern có Cửa Sổ Scale Nội Tại (`bach_chaconne`, `bach_gigue`, `bach_sarabande`, Brouwer `sarabande`) — Cơ chế Phân Tầng 2 Cấp (`Two-Tier Threshold`)**:
    - Ở 4 pattern này, câu chạy scale đã là **một thành phần cấu trúc nằm trong chính ô nhịp của pattern**:
      - `bach_chaconne`: Nửa đầu ô nhịp (`0 .. scale_at`, tức 2 phách đầu ở `4/4` hoặc 1 phách đầu ở `3/4`) là hợp âm trụ + móc kép *bariolage* đan dây; nửa sau (`scale_at .. epb * 2`) là cửa sổ chạy `_fitting_scale` khi `breakout`.
@@ -222,11 +220,11 @@ Velocity MIDI. `span = loud - soft`. Pattern lấy theo số eighth chiếm nhi�
 
 | Giọng | `soft` | `loud` | Span | Pattern |
 |---|---:|---:|---:|---|
-| **Hát** | 52 | 82 | 30 | `bach_sarabande`, Brouwer `sarabande`, `elegiaque`, `cantabile`, `andante`, `noviembre`, `chord_melody`, `preludio`, `bach_fuga` |
+| **Hát** | 52 | 82 | 30 | `bach_sarabande`, Brouwer `sarabande`, `elegiaque`, `cantabile`, `andante`, `noviembre`, `chord_melody`, `preludio`, `bach_fuga`, `thumb_cantabile` |
 | **Baroque** | 54 | 84 | 30 | `bach_bourree`, `bach_gavotte`, `bach_gigue`; riêng `bach_chaconne` là `52…88` (span 36) vì breakout của Chaconne to hơn vũ điệu |
-| **Động năng** | 46 | 90 | 44 | `study`, `galop`, `mozart_var`, `villa_pattern`, `choro`, `polca`, `hemiola`, `vals`, `brouwer_etude`; riêng `elogio_pizz` là `44…92` (span 48) |
+| **Động năng** | 46 | 90 | 44 | `study`, `galop`, `mozart_var`, `villa_pattern`, `choro`, `polca`, `hemiola`, `vals`, `brouwer_etude`, `etude1`, `etude11`; riêng `elogio_pizz` là `44…92` (span 48) |
 
-`bach_fuga` ở nhóm Hát để chủ đề trầm còn nghe rõ dưới tirata. `elogio_pizz` tách khỏi nhóm Động năng vì cú slap và đoạn chạy thay slap cần đỉnh cao hơn etude.
+`bach_fuga` ở nhóm Hát để chủ đề trầm còn nghe rõ dưới tirata. `elogio_pizz` tách khỏi nhóm Động năng vì cú slap và đoạn chạy thay slap cần đỉnh cao hơn etude. `thumb_cantabile` ghi trong `_HAT_PATTERNS` để khỏi phụ thuộc cửa sổ mặc định. `etude1` và `etude11` vào `_KINETIC_PATTERNS`, nên cũng vào `_LOUD_DOWN_PATTERNS`. Cửa sổ vẫn theo pattern chiếm nhiều eighth nhất: một ô étude trong passage Sor dài vẫn là Hát.
 
 Chương `1M` của Brouwer rơi vào `sarabande` nên dùng cửa sổ Hát `52…82`: mở dưới mức nói `60`, đáp trên đỉnh pattern `72`, chưa chạm trần punch `88`.
 
@@ -382,7 +380,7 @@ Bass (`_BASS`) và bè giữa (`_INNER`) của đoạn scale giữ mức của p
    - Gắn `raw_pitches` và `impulses` lên `_Ctx` trong `render_patterned_voices` (không gọi lại `detect_price_impulses` trong `guitar_patterns.py`).
 
 ### 3.4. `backend/app/sonify/guitar_patterns.py` & 5 Module Composer
-- Loại trừ hoàn toàn Nhóm 1 (`tremolo`, `etude1`, `etude11`, `_catedral_preludio` `preludio`, `thumb_cantabile`): nếu `[passage.start, passage.target]` chạm bất kỳ ô Nhóm 1 nào thì **bỏ toàn bộ `ScalePassage` đó**.
+- `tremolo` vẫn loại. `etude1`, `etude11`, `thumb_cantabile` và preludio có khung nhận scale theo [`docs/sonify-guitar-group1-scales-plan.md`](./sonify-guitar-group1-scales-plan.md): cắt rìa trước `_gap_ok`, ô trọn, bass đúng số lần gảy, bè giữa trống.
 - Với Nhóm 2 (`bach_chaconne`, `bach_gigue`, `bach_sarabande`, Brouwer `sarabande`) và Nhóm 3, chạy đúng quy trình ngân sách 4 bước của Mục 2.4:
   - Bước 1–2: giữ nguyên 100% `base_intrinsic_eighths` có sẵn của Nhóm 2 (ở các ô không bị đoạn nối thay thế) và tính `room = max(0, max_scale_eighths - base_intrinsic_eighths)`.
   - Bước 3: chọn các `ScalePassage` (bao gồm cả **Sóng Lớn `Major Bridge Impulse`**: $L \ge \text{epb}$ từ 1–4 ô nhịp, $\text{net\_span} \ge 6$ bán cung, bắt đầu sau khi chính pattern Nhóm 2 đó đã vang ít nhất 1 ô nhịp trọn vẹn, giữ Bass đặc trưng theo từng ô nhịp) theo `score` giảm dần trước, rồi mới xếp các ô `perpetual` sau mọi `ScalePassage` (mỗi ô `perpetual` có `replaced_base_intrinsic_eighths = 0`), khi $\Delta\text{cost} = \text{passage\_eighths} - \text{replaced\_base\_intrinsic\_eighths} \le \text{room}$.
@@ -398,7 +396,7 @@ Bass (`_BASS`) và bè giữa (`_INNER`) của đoạn scale giữ mức của p
      - Kiểm tra sóng có `retreat` thật (`Up – Retreat – Up` và `Down – Retreat – Down`) được nhận diện đúng và đạt `Score` cao nhờ `adjusted_efficiency`, trong khi vùng sideway răng cưa (`efficiency < 0.45`) hoặc thoái lui sâu ($> 50\%$) bị loại bỏ.
      - Kiểm tra mỗi sóng gộp dài $> 4 \times \text{epb}$ chỉ phát ra tối đa 1 cửa sổ $\le 4 \times \text{epb}$, và khoảng thở giữa hai `ScalePassage` luôn thỏa $P_2.\text{start} - P_1.\text{target} \ge \text{epb}$.
   2. **Test Bảo toàn Pattern, Scale Nội Tại & Đoạn Nối Sóng Lớn (`Major Bridge Impulse`)**:
-     - Kiểm tra bất kỳ `ScalePassage` nào chạm vào một ô Nhóm 1 (`tremolo`, `etude1`, `etude11`, `_catedral_preludio` và `thumb_cantabile`) đều bị loại bỏ trọn vẹn (không khoét lẻ ô làm đứt câu chạy).
+     - Kiểm tra `tremolo` trọn khoảng thì passage rỗng, và `tremolo` hoặc pedal ở giữa thì hủy cả passage. `etude1`, `etude11`, `thumb_cantabile` và preludio có khung theo các ca trong [`docs/sonify-guitar-group1-scales-plan.md`](./sonify-guitar-group1-scales-plan.md). Xung Nhóm 3 chỉ chạm rìa thì phần Nhóm 3 còn lại được giữ.
      - Kiểm tra Nhóm 2 (`bach_chaconne`, `bach_gigue`, `bach_sarabande` và Brouwer `sarabande`) giữ nguyên phần mở đầu ô nhịp (bariolage / hợp âm gãy / trọng âm phách 2) ở **ô đầu của vùng pattern Nhóm 2 đó** và trước các biến động nhỏ ($L < \text{epb}$ hoặc $\text{net\_span} < 6$), nhưng cho phép **Sóng Lớn ($L \ge \text{epb}, \text{net\_span} \ge 6$)** bắt đầu **sau ô đầu của vùng pattern Nhóm 2** chạy `ScalePassage` dài (1–4 ô nhịp, có `retreat`) làm đoạn nối ở giữa (kể cả ngay sau ô nhận diện có scale nội tại hoặc cửa sổ giảm Cấp 1) trên nền Bass đặc trưng theo từng ô nhịp rồi đáp về lại pattern tại `target`.
      - Kiểm tra `bach_fuga` giữ nguyên chủ đề đối âm trễ 2 ô ở bè Trầm (`low`) bên dưới câu scale của bè Cao.
   3. **Test 5 Composer, Sor `1D` (`88 BPM`) & `assert_playable`**:
