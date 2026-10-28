@@ -156,6 +156,48 @@ def test_minor_doors_do_not_write_a_major_tonic() -> None:
                         assert 3 in final, (pattern, meter, length)
 
 
+def _covers(note: NoteEvent, slot: int) -> bool:
+    start = int(round(note.beat * 4))
+    span = max(1, int(round(note.duration_beats * 4)))
+    return start <= slot < start + span
+
+
+def test_v7_keeps_the_leading_tone_away_from_the_bass() -> None:
+    """A V7 bar may use the leading tone, but not within two semitones of the bass."""
+    leading = 11
+    bars_for = {
+        ("bach_prelude", False, 2): (1,),
+        ("bach_prelude", False, 4): (2, 3),
+        ("bach_prelude", True, 2): (0,),
+        ("bach_prelude", True, 4): (1,),
+        ("bach_allemande", False, 2): (1,),
+        ("bach_allemande", False, 4): (2, 3),
+        ("bach_allemande", True, 2): (0,),
+        ("bach_allemande", True, 4): (1,),
+        ("bach_courante", False, 2): (1,),
+        ("bach_courante", False, 4): (2, 3),
+        ("bach_courante", True, 2): (0,),
+        ("bach_courante", True, 4): (1, 2),
+    }
+    for (pattern, closing, length), bars in bars_for.items():
+        for meter, grid in _METERS.items():
+            for mode in ("major", "minor"):
+                _ctx, lead, support, low = _region(pattern, length, meter, mode=mode, closing=closing)
+                for bar in bars:
+                    basses = _sounding(low, bar)
+                    uppers = [*_sounding(lead, bar), *_sounding(support, bar)]
+                    for slot in range(grid["epb"] * 2):
+                        bass_now = [note.midi for note in basses if note.midi is not None and _covers(note, slot)]
+                        upper_now = [
+                            note.midi
+                            for note in uppers
+                            if note.midi is not None and note.midi % 12 == leading and _covers(note, slot)
+                        ]
+                        for bass in bass_now:
+                            for upper in upper_now:
+                                assert abs(upper - bass) > 2, (pattern, meter, mode, length, bar, bass, upper)
+
+
 def test_courante_4_4_outro_has_no_hemiola() -> None:
     for length in (2, 4):
         _ctx, lead, support, low = _region("bach_courante", length, "4/4", closing=True)

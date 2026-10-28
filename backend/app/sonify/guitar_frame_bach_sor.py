@@ -1837,23 +1837,23 @@ def _roll_voices(
     *,
     pedal_pc: int | None = None,
 ) -> tuple[int, int, int, int]:
-    """Bass, low mid, upper mid, and lead. A tonic pedal wins only when the hand still fits."""
+    """Bass, low mid, upper mid, and lead.
+
+    A tonic pedal is used only when some stack passes ``_playable_line``.
+    Otherwise the bass is the chord root, and the inner voices are chosen
+    against that root. The leading tone of V7 never sits within two semitones
+    of whichever bass is kept.
+    """
     members = {pc % 12 for pc in pcs}
     leading = _leading_pc(pcs)
     root = pcs[0] % 12
-    basses = _open_first(frame, ctx, _register_pool(ctx.bass_low, frame._bass_hi(ctx), {root}))
-    if pedal_pc is not None:
-        pedal = _open_first(frame, ctx, _register_pool(ctx.bass_low, frame._bass_hi(ctx), {pedal_pc % 12}))
-        basses = pedal + [midi for midi in basses if midi not in pedal]
-    if not basses:
-        stacked, inner, lead = _stack_pitches(frame, ctx, pcs)
-        mid = inner if inner is not None and stacked < inner < lead else lead
-        return stacked, mid, mid, lead
     mids = _register_pool(frame._mid_lo(ctx), frame._mid_hi(ctx), members)
     leads = _register_pool(frame._lead_lo(ctx), frame._lead_hi(ctx), members)
     aim = 67 - ctx.semitones
     leads.sort(key=lambda midi: (abs(midi - aim), midi))
-    for bass in basses:
+    root_basses = _open_first(frame, ctx, _register_pool(ctx.bass_low, frame._bass_hi(ctx), {root}))
+
+    def stack_for(bass: int) -> tuple[int, int, int, int] | None:
         uppers = [midi for midi in mids if bass < midi and not _beside_bass(midi, bass, leading)]
         high = [midi for midi in leads if bass < midi and not _beside_bass(midi, bass, leading)]
         for lead in high:
@@ -1865,15 +1865,51 @@ def _roll_voices(
                         continue
                     if _playable_line(ctx, [bass, low_mid, upper_mid, lead]):
                         return bass, low_mid, upper_mid, lead
-    bass = basses[0]
-    _stacked, inner, lead = _stack_pitches(frame, ctx, pcs)
-    if not bass < lead:
-        bass, inner, lead = _stacked, inner, lead
-    low_mid = inner if inner is not None and bass < inner < lead else None
-    if low_mid is None:
-        between = [midi for midi in mids if bass < midi < lead and _playable_line(ctx, [bass, midi, lead])]
-        low_mid = between[0] if between else min(lead, bass + 3)
-    return bass, low_mid, low_mid, lead
+        return None
+
+    def against_root(bass: int) -> tuple[int, int, int, int]:
+        uppers = [midi for midi in mids if bass < midi and not _beside_bass(midi, bass, leading)]
+        high = [midi for midi in leads if bass < midi and not _beside_bass(midi, bass, leading)]
+        lead = next((midi for midi in high if _playable_line(ctx, [bass, midi])), None)
+        if lead is None:
+            lead = high[0] if high else frame._lead_lo(ctx)
+        between = [midi for midi in uppers if midi < lead and _playable_line(ctx, [bass, midi, lead])]
+        if not between:
+            between = [midi for midi in uppers if midi < lead]
+        low_mid = between[0] if between else lead
+        upper_mid = next((midi for midi in between if midi > low_mid), low_mid)
+        return bass, low_mid, upper_mid, lead
+
+    if pedal_pc is not None:
+        pedal = _open_first(frame, ctx, _register_pool(ctx.bass_low, frame._bass_hi(ctx), {pedal_pc % 12}))
+        for bass in pedal:
+            found = stack_for(bass)
+            if found is not None:
+                return found
+    for bass in root_basses:
+        found = stack_for(bass)
+        if found is not None:
+            return found
+    if root_basses:
+        return against_root(root_basses[0])
+    stacked, _inner, _lead = _stack_pitches(frame, ctx, pcs)
+    return against_root(stacked)
+
+
+def _next_melody(frame, ctx, bar: int) -> int | None:
+    """The next bar's melody, folded into the lead the same way ``_scale_into`` does."""
+    nxt = bar + 1
+    if nxt >= getattr(ctx, "bars", 0) or nxt * ctx.epb >= len(ctx.melody):
+        return None
+    pitch = ctx.melody[nxt * ctx.epb]
+    lo, hi = frame._lead_lo(ctx), frame._lead_hi(ctx)
+    while pitch < lo and pitch + 12 <= hi:
+        pitch += 12
+    while pitch > hi and pitch - 12 >= lo:
+        pitch -= 12
+    if lo <= pitch <= hi:
+        return pitch
+    return None
 
 
 def _aimed_lead(
@@ -1884,20 +1920,28 @@ def _aimed_lead(
     bass: int,
     company: list[int],
 ) -> int:
-    """One step before the next bar's melody, when that pitch still fits the hand."""
+    """One diatonic step from ``current`` toward ``_approach_pitch``.
+
+    The approach pitch is already one step before the next melody. A step that
+    leaves the lead, meets the bass or ``company``, or is the next melody stays
+    on ``current``. This does not leap to the approach pitch.
+    """
     target = _approach_pitch(frame, ctx, bar)
+    if target == current:
+        return current
     lo, hi = frame._lead_lo(ctx), frame._lead_hi(ctx)
     direction = 1 if target > current else -1
-    stepped = frame._step(current, direction, ctx.mode, lo, hi) if target != current else current
-    for candidate in (target, stepped, current):
-        if not lo <= candidate <= hi or candidate <= bass:
-            continue
-        if any(candidate <= other for other in company):
-            continue
-        group = [bass, *company, candidate]
-        if _playable_line(ctx, group):
-            return candidate
-    return current
+    stepped = frame._step(current, direction, ctx.mode, lo, hi)
+    if stepped == current or not lo <= stepped <= hi or stepped <= bass:
+        return current
+    melody = _next_melody(frame, ctx, bar)
+    if melody is not None and stepped % 12 == melody % 12:
+        return current
+    if any(stepped <= other for other in company):
+        return current
+    if not _playable_line(ctx, [bass, *company, stepped]):
+        return current
+    return stepped
 
 
 def _prelude_roll(
@@ -2086,7 +2130,7 @@ def _brise_cell(
     if span <= 0 or start >= ctx.epb:
         return []
     span = min(span, ctx.epb - start)
-    _root, inner, lead = _stack_pitches(frame, ctx, pcs)
+    _root, _inner, lead = _stack_pitches(frame, ctx, pcs)
     bass = _bass_degree(frame, ctx, pcs[0], lead, previous_bass)
     if bass is None or not bass < lead:
         bass = _root
@@ -2097,10 +2141,16 @@ def _brise_cell(
     ]
     support_length = min(2, span - 1 - (2 if pickup_into and span >= 3 else 0))
     if support_length > 0:
-        tone = inner if inner is not None and bass < inner < lead else None
+        tone = _under_lead(frame, ctx, lead, bass, None)
         if tone is None or not _playable_line(ctx, [bass, tone, lead]):
-            tone = _under_lead(frame, ctx, lead, bass, None)
-        if tone is not None and bass < tone < lead:
+            members = {pc % 12 for pc in pcs}
+            between = [
+                midi
+                for midi in range(max(bass + 1, frame._mid_lo(ctx)), min(lead, frame._mid_hi(ctx) + 1))
+                if midi % 12 in members and _playable_line(ctx, [bass, midi, lead])
+            ]
+            tone = between[0] if between else None
+        if tone is not None and bass < tone < lead and _playable_line(ctx, [bass, tone, lead]):
             specs.append(_note(start + 1, support_length, tone, 2, velocity))
     if pickup_into and span >= 3:
         tail = start + span - 2
