@@ -71,6 +71,8 @@ const PATTERN_NAMES = new Set([
   'Gavotte',
   'Gigue',
   'Chaconne',
+  'Allemande',
+  'Courante',
 ]);
 
 export type ChartFocus = { start: number; end: number };

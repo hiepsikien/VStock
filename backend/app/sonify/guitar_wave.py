@@ -72,7 +72,7 @@ def _profile(
     )
 
 
-# Exactly the 28 (ensemble, pattern) rows. Pedal is a frame path, not a 29th row.
+# Exactly the 31 (ensemble, pattern) rows. Pedal is a frame path, not a 32nd row.
 # Ceilings stay put. Floors are the raised windows, and `smooth` is the odd W.
 PROFILES: dict[tuple[str, str], PatternWaveProfile] = {
     ("bach", "bach_sarabande"): _profile(28, 34, 56, 62, None, None, 0, 0, "none", 9),
@@ -81,6 +81,9 @@ PROFILES: dict[tuple[str, str], PatternWaveProfile] = {
     ("bach", "bach_fuga"): _profile(30, 36, 58, 63, 66, 68, 1, 2, "fuga", 9),
     ("bach", "bach_gigue"): _profile(30, 36, 58, 63, 68, 70, 1, 3, "gigue", 3),
     ("bach", "bach_chaconne"): _profile(28, 34, 58, 63, 68, 70, 1, 3, "chaconne", 9),
+    ("bach", "bach_prelude"): _profile(28, 34, 56, 62, 66, 68, 1, 2, "prelude", 5),
+    ("bach", "bach_allemande"): _profile(28, 34, 56, 62, 66, 68, 1, 2, "allemande", 9),
+    ("bach", "bach_courante"): _profile(30, 36, 58, 63, 68, 70, 1, 3, "courante", 3),
     ("classic", "cantabile"): _profile(26, 30, 54, 58, None, None, 0, 0, "none", 9),
     ("classic", "elegiaque"): _profile(26, 32, 56, 62, 66, 68, 1, 2, "appoggiatura", 9),
     ("classic", "study"): _profile(28, 34, 56, 63, 68, 70, 1, 2, "study", 5),
@@ -691,6 +694,20 @@ def _is_target(
         return voice == "lead" and ((apex and (event.accent or abs(beat) < 1e-6)) or (event.accent and rise >= 3))
     if pattern == "bach_chaconne":
         return voice == "lead" and event.accent and (apex or (phrase is not None and onset >= phrase.end - 1))
+    if pattern == "bach_prelude":
+        # The lead does not attack at eighth 0. The arch top is sixteenth slot 3 of each half.
+        if voice != "lead" or not apex or rise < 3:
+            return False
+        slot = int(round(beat * 4))
+        kind = getattr(ctx, "kind", "")
+        if kind == "4/4" or (kind not in {"3/4", "6/8"} and ctx.epb >= 8):
+            return slot in {3, 11}
+        return slot in {3, 9}
+    if pattern == "bach_allemande":
+        return voice == "lead" and rise >= 3 and apex
+    if pattern == "bach_courante":
+        opening = event.accent and abs(beat) < 1e-6 and voice in {"lead", "low"}
+        return opening or (voice == "lead" and apex and rise >= 3)
     if pattern == "elegiaque":
         return voice == "lead" and event.accent
     if pattern == "study":

@@ -1,4 +1,4 @@
-"""Intro and outro doors for Bach gavotte, gigue, sarabande, chaconne, and Sor cantabile, elegiaque, galop.
+"""Intro and outro doors for Bach gavotte, gigue, sarabande, chaconne, prelude, allemande, courante, and Sor cantabile, elegiaque, galop.
 
 Each door writes one bar of the short script (``steps == 2``) or the long script
 (``steps == 4``). Repeated roles ignore ``index``. Helpers are imported inside
@@ -1805,6 +1805,674 @@ def _galop_hits(frame, ctx, bar: int, role: int, *, short: bool, closing: bool) 
     )
 
 
+def _note(offset, length, midi, voice, velocity, flags=None) -> tuple:
+    return (offset, length, midi, voice, velocity, dict(flags or {}))
+
+
+def _register_pool(low: int, high: int, pcs: set[int]) -> list[int]:
+    if high < low:
+        return []
+    return [midi for midi in range(low, high + 1) if midi % 12 in pcs]
+
+
+def _open_first(frame, ctx, notes: list[int]) -> list[int]:
+    return sorted(notes, key=lambda midi: (not frame._is_open(ctx, midi), midi))
+
+
+def _leading_pc(pcs: list[int]) -> int | None:
+    """The third of V7 is the leading tone. Triads have no seventh to keep away from the bass."""
+    if len(pcs) >= 4:
+        return pcs[1] % 12
+    return None
+
+
+def _beside_bass(midi: int, bass: int, leading: int | None) -> bool:
+    return leading is not None and midi % 12 == leading and abs(midi - bass) <= 2
+
+
+def _roll_voices(
+    frame,
+    ctx,
+    pcs: list[int],
+    *,
+    pedal_pc: int | None = None,
+) -> tuple[int, int, int, int]:
+    """Bass, low mid, upper mid, and lead. A tonic pedal wins only when the hand still fits."""
+    members = {pc % 12 for pc in pcs}
+    leading = _leading_pc(pcs)
+    root = pcs[0] % 12
+    basses = _open_first(frame, ctx, _register_pool(ctx.bass_low, frame._bass_hi(ctx), {root}))
+    if pedal_pc is not None:
+        pedal = _open_first(frame, ctx, _register_pool(ctx.bass_low, frame._bass_hi(ctx), {pedal_pc % 12}))
+        basses = pedal + [midi for midi in basses if midi not in pedal]
+    if not basses:
+        stacked, inner, lead = _stack_pitches(frame, ctx, pcs)
+        mid = inner if inner is not None and stacked < inner < lead else lead
+        return stacked, mid, mid, lead
+    mids = _register_pool(frame._mid_lo(ctx), frame._mid_hi(ctx), members)
+    leads = _register_pool(frame._lead_lo(ctx), frame._lead_hi(ctx), members)
+    aim = 67 - ctx.semitones
+    leads.sort(key=lambda midi: (abs(midi - aim), midi))
+    for bass in basses:
+        uppers = [midi for midi in mids if bass < midi and not _beside_bass(midi, bass, leading)]
+        high = [midi for midi in leads if bass < midi and not _beside_bass(midi, bass, leading)]
+        for lead in high:
+            for low_mid in uppers:
+                if not bass < low_mid < lead:
+                    continue
+                for upper_mid in uppers:
+                    if not low_mid < upper_mid < lead:
+                        continue
+                    if _playable_line(ctx, [bass, low_mid, upper_mid, lead]):
+                        return bass, low_mid, upper_mid, lead
+    bass = basses[0]
+    _stacked, inner, lead = _stack_pitches(frame, ctx, pcs)
+    if not bass < lead:
+        bass, inner, lead = _stacked, inner, lead
+    low_mid = inner if inner is not None and bass < inner < lead else None
+    if low_mid is None:
+        between = [midi for midi in mids if bass < midi < lead and _playable_line(ctx, [bass, midi, lead])]
+        low_mid = between[0] if between else min(lead, bass + 3)
+    return bass, low_mid, low_mid, lead
+
+
+def _aimed_lead(
+    frame,
+    ctx,
+    bar: int,
+    current: int,
+    bass: int,
+    company: list[int],
+) -> int:
+    """One step before the next bar's melody, when that pitch still fits the hand."""
+    target = _approach_pitch(frame, ctx, bar)
+    lo, hi = frame._lead_lo(ctx), frame._lead_hi(ctx)
+    direction = 1 if target > current else -1
+    stepped = frame._step(current, direction, ctx.mode, lo, hi) if target != current else current
+    for candidate in (target, stepped, current):
+        if not lo <= candidate <= hi or candidate <= bass:
+            continue
+        if any(candidate <= other for other in company):
+            continue
+        group = [bass, *company, candidate]
+        if _playable_line(ctx, group):
+            return candidate
+    return current
+
+
+def _prelude_roll(
+    frame,
+    ctx,
+    bar: int,
+    pcs: list[int],
+    start: int,
+    span: int,
+    velocity: int,
+    *,
+    lead_aim: bool = False,
+    eighth_grid: bool = False,
+    pedal_pc: int | None = None,
+) -> list[tuple]:
+    """Half-bar roll. Slot 0 is bass. The lead at sixteenth 3 rings across the next slot."""
+    if span <= 0 or start >= ctx.epb:
+        return []
+    span = min(span, ctx.epb - start)
+    bass, low_mid, upper_mid, lead = _roll_voices(frame, ctx, pcs, pedal_pc=pedal_pc)
+    if eighth_grid:
+        # One attack per eighth of this half. A 3-eighth half stops before a fifth note.
+        order = [(bass, 3), (low_mid, 2), (upper_mid, 2), (lead, 1), (low_mid, 2)]
+        specs = []
+        for index in range(span):
+            pitch, voice = order[index] if index < len(order) else (low_mid, 2)
+            if voice == 1 and lead_aim:
+                pitch = _aimed_lead(frame, ctx, bar, pitch, bass, [])
+            specs.append(_note(start + index, 1, pitch, voice, velocity))
+        return specs
+    if span >= 4:
+        arch = [
+            (low_mid, 2),
+            (upper_mid, 2),
+            (lead, 1),
+            (low_mid, 2),
+            (upper_mid, 2),
+            (lead, 1),
+            (upper_mid, 2),
+        ]
+    else:
+        arch = [
+            (low_mid, 2),
+            (upper_mid, 2),
+            (lead, 1),
+            (low_mid, 2),
+            (upper_mid, 2),
+        ]
+    lead_at = [index for index, (_pitch, voice) in enumerate(arch) if voice == 1]
+    last_lead = lead_at[-1] if lead_at else None
+    specs = [_note(start, span, bass, 3, velocity)]
+    for index, (pitch, voice) in enumerate(arch):
+        at = start + 0.5 * (index + 1)
+        if at >= start + span:
+            break
+        # Sixteenth 3 of the half (arch index 2) sustains across the next slot.
+        length = 1.0 if index == 2 and voice == 1 else 0.5
+        if voice == 1 and index == last_lead and lead_aim:
+            company = []
+            if index == 2 and index + 1 < len(arch):
+                company = [arch[index + 1][0]]
+            pitch = _aimed_lead(frame, ctx, bar, pitch, bass, company)
+        voice_here = 2 if index == 3 else voice
+        specs.append(_note(at, length, pitch, voice_here, velocity))
+    return specs
+
+
+def _scale_run(frame, ctx, bar: int, count: int) -> list[int]:
+    """``count`` rising scale steps in the lead, the last one step before the next melody."""
+    from app.sonify.guitar_patterns import _position_ok
+
+    if count <= 0:
+        return []
+    lo, hi = frame._lead_lo(ctx), frame._lead_hi(ctx)
+    target = lo + 5
+    nxt = bar + 1
+    if nxt < ctx.bars and nxt * ctx.epb < len(ctx.melody):
+        target = ctx.melody[nxt * ctx.epb]
+    found: list[list[int]] = []
+    for shift in (0, 12, -12, 24, -24):
+        aimed = target + shift
+        cursor = aimed
+        walked: list[int] = []
+        for _ in range(count):
+            step = frame._step(cursor, -1, ctx.mode, lo, hi)
+            if step == cursor or step >= cursor:
+                break
+            walked.append(step)
+            cursor = step
+        if len(walked) != count:
+            continue
+        walked.reverse()
+        if walked[-1] >= aimed:
+            continue
+        if not all(lo <= pitch <= hi for pitch in walked):
+            continue
+        if not _position_ok([pitch + ctx.semitones for pitch in walked]):
+            continue
+        found.append(walked)
+    if not found:
+        return []
+    return min(found, key=lambda line: (abs(line[-1] - (target - 2)), abs(line[0] - 60)))
+
+
+def _stepwise_line(frame, ctx, bass: int, count: int) -> list[int]:
+    """A rising scale in the lead that sits over ``bass`` in one hand position."""
+    from app.sonify.guitar_patterns import _position_ok
+
+    lo, hi = frame._lead_lo(ctx), frame._lead_hi(ctx)
+    best: tuple[int, list[int]] | None = None
+    for start in range(lo, hi + 1):
+        if start <= bass or not _playable_line(ctx, [bass, start]):
+            continue
+        line = [start]
+        cursor = start
+        for _ in range(count - 1):
+            step = frame._step(cursor, 1, ctx.mode, lo, hi)
+            if step == cursor or step <= cursor or not _playable_line(ctx, [bass, step]):
+                break
+            line.append(step)
+            cursor = step
+        if len(line) != count:
+            continue
+        if not _position_ok([pitch + ctx.semitones for pitch in line]):
+            continue
+        rank = abs(line[len(line) // 2] - (67 - ctx.semitones))
+        if best is None or rank < best[0]:
+            best = (rank, line)
+    return [] if best is None else best[1]
+
+
+def _bass_degree(frame, ctx, pc: int, ceiling: int | None, previous: int | None) -> int | None:
+    high = frame._bass_hi(ctx)
+    if ceiling is not None:
+        high = min(high, ceiling - 1)
+    found = _open_first(frame, ctx, _register_pool(ctx.bass_low, high, {pc % 12}))
+    playable = []
+    for midi in found:
+        if previous is not None and previous - midi in {1, 2}:
+            continue
+        if ceiling is not None and not _playable_line(ctx, [midi, ceiling]):
+            continue
+        playable.append(midi)
+    if playable:
+        return playable[0]
+    if found and previous is None:
+        return found[0]
+    return None
+
+
+def _guard_bass(frame, ctx, specs: list[tuple]) -> list[tuple]:
+    """A short bass may rise or leap. A step down after a long bass is a lament."""
+    others = [item for item in specs if item[3] != 3]
+    bass = sorted((item for item in specs if item[3] == 3), key=lambda item: (item[0], -item[1]))
+    fixed = []
+    previous = None
+    for offset, length, midi, voice, velocity, flags in bass:
+        if previous is not None:
+            prev_len, prev_midi = previous
+            if length <= 1 + _EPS and prev_len >= 2 - _EPS and prev_midi - midi in {1, 2}:
+                uppers = [
+                    item[2]
+                    for item in others
+                    if item[0] <= offset < item[0] + item[1] - _EPS
+                ]
+                ceiling = min(uppers) if uppers else None
+                midi = _safe_bass_pitch(frame, ctx, prev_midi, None, ceiling, prev_midi)
+        fixed.append(_note(offset, length, midi, voice, velocity, flags))
+        previous = (length, midi)
+    return others + fixed
+
+
+def _brise_cell(
+    frame,
+    ctx,
+    bar: int,
+    pcs: list[int],
+    start: int,
+    span: int,
+    velocity: int,
+    *,
+    pickup_into: bool = False,
+    previous_bass: int | None = None,
+) -> list[tuple]:
+    """Legato style brisé. Support enters one eighth later. A pickup is four sixteenths."""
+    if span <= 0 or start >= ctx.epb:
+        return []
+    span = min(span, ctx.epb - start)
+    _root, inner, lead = _stack_pitches(frame, ctx, pcs)
+    bass = _bass_degree(frame, ctx, pcs[0], lead, previous_bass)
+    if bass is None or not bass < lead:
+        bass = _root
+    held = max(1, span - (2 if pickup_into and span >= 3 else 0))
+    specs = [
+        _note(start, held, bass, 3, velocity),
+        _note(start, held, lead, 1, velocity),
+    ]
+    support_length = min(2, span - 1 - (2 if pickup_into and span >= 3 else 0))
+    if support_length > 0:
+        tone = inner if inner is not None and bass < inner < lead else None
+        if tone is None or not _playable_line(ctx, [bass, tone, lead]):
+            tone = _under_lead(frame, ctx, lead, bass, None)
+        if tone is not None and bass < tone < lead:
+            specs.append(_note(start + 1, support_length, tone, 2, velocity))
+    if pickup_into and span >= 3:
+        tail = start + span - 2
+        line = _scale_run(frame, ctx, bar, 4)
+        for index, pitch in enumerate(line):
+            specs.append(_note(tail + 0.5 * index, 0.5, pitch, 1, velocity))
+    return specs
+
+
+def _leap_pair(frame, ctx, pcs: list[int], bass: int, lead: int) -> tuple[int, int]:
+    """A diatonic third. The lower note is the accent; the upper note is the staccato."""
+    lo, hi = frame._lead_lo(ctx), frame._lead_hi(ctx)
+    pairs: list[tuple[int, int]] = []
+    anchors = _register_pool(lo, hi, {pc % 12 for pc in pcs}) or [lead]
+    for anchor in anchors:
+        above = _scale_steps(frame, anchor, 2, ctx.mode, lo, hi)
+        below = _scale_steps(frame, anchor, -2, ctx.mode, lo, hi)
+        if abs(above - anchor) in {3, 4} and bass < anchor < above <= hi:
+            pairs.append((anchor, above))
+        if abs(anchor - below) in {3, 4} and lo <= below < anchor and bass < below:
+            pairs.append((below, anchor))
+    if lead > bass:
+        above = _scale_steps(frame, lead, 2, ctx.mode, lo, hi)
+        below = _scale_steps(frame, lead, -2, ctx.mode, lo, hi)
+        if abs(above - lead) in {3, 4} and bass < lead < above:
+            pairs.insert(0, (lead, above))
+        if abs(lead - below) in {3, 4} and bass < below < lead:
+            pairs.insert(0, (below, lead))
+    for low_lead, leap_lead in pairs:
+        if _playable_line(ctx, [bass, low_lead, leap_lead]):
+            return low_lead, leap_lead
+        if _playable_line(ctx, [bass, low_lead]) and _playable_line(ctx, [bass, leap_lead]):
+            return low_lead, leap_lead
+    if bass < lead:
+        return lead, lead
+    return lead, lead
+
+
+def _courante_leap_cell(frame, ctx, pcs: list[int], velocity: int) -> list[tuple]:
+    """Eighth 0 accent, eighth 1 staccato. On 6/8 the bass lasts through eighth 2."""
+    kind = getattr(ctx, "kind", None)
+    stacked, inner, lead = _stack_pitches(frame, ctx, pcs)
+    low_lead, leap_lead = _leap_pair(frame, ctx, pcs, stacked, lead)
+    bass_length = 3 if kind == "6/8" else 2
+    specs = [
+        _note(0, bass_length, stacked, 3, velocity, {"accent": True}),
+        _note(0, 1, low_lead, 1, velocity, {"accent": True}),
+        _note(1, 1, leap_lead, 1, velocity, {"staccato": True}),
+    ]
+    support = inner if inner is not None and stacked < inner < leap_lead else None
+    if support is None or not _playable_line(ctx, [stacked, support, leap_lead]):
+        support = _under_lead(frame, ctx, leap_lead, stacked, None)
+    if support is not None and stacked < support < leap_lead and _playable_line(ctx, [stacked, support, leap_lead]):
+        specs.append(_note(1, 1, support, 2, velocity))
+    if kind == "6/8":
+        specs.append(_note(2, 1, leap_lead, 1, velocity))
+        if support is not None and stacked < support < leap_lead:
+            specs.append(_note(2, 1, support, 2, velocity))
+    return specs
+
+
+def _courante_hold(
+    frame,
+    ctx,
+    pcs: list[int],
+    velocity: int,
+    leap: list[tuple],
+) -> list[tuple]:
+    """Eighths after the leap bass, still on the same chord. No tirata."""
+    del frame, pcs
+    basses = [item for item in leap if item[3] == 3]
+    leads = [item for item in leap if item[3] == 1]
+    if not basses or not leads:
+        return []
+    bass = basses[0][2]
+    cut = int(basses[0][0] + basses[0][1])
+    pitch = leads[-1][2]
+    if cut >= ctx.epb:
+        return []
+    specs = [_note(cut, ctx.epb - cut, bass, 3, velocity)]
+    for offset in range(cut, ctx.epb):
+        specs.append(_note(offset, 1, pitch, 1, velocity))
+    return specs
+
+
+def _fifth_bass(frame, ctx, pcs: list[int], previous: int | None) -> tuple[int, list[int]]:
+    fifth = pcs[2] % 12 if len(pcs) > 2 else pcs[-1] % 12
+    found = _open_first(frame, ctx, _register_pool(ctx.bass_low, frame._bass_hi(ctx), {fifth}))
+    ordered = sorted(found, key=lambda midi: (previous is not None and previous - midi in {1, 2}, midi))
+    for bass in ordered:
+        if previous is not None and previous - bass in {1, 2}:
+            continue
+        line = _stepwise_line(frame, ctx, bass, 4)
+        if line:
+            return bass, line
+    for bass in ordered:
+        line = _stepwise_line(frame, ctx, bass, 4)
+        if line:
+            return bass, line
+    fallback = ordered[0] if ordered else _stack_pitches(frame, ctx, pcs)[0]
+    line = _stepwise_line(frame, ctx, fallback, 4)
+    return fallback, line
+
+
+def _pickup_bass(frame, ctx, pcs: list[int], previous: int, ceiling: int) -> int:
+    root = _bass_degree(frame, ctx, pcs[0], ceiling, previous)
+    if root is not None:
+        return root
+    same = _safe_bass_pitch(frame, ctx, previous, None, ceiling, previous)
+    return same
+
+
+def _courante_tirata_cell(
+    frame,
+    ctx,
+    bar: int,
+    pcs: list[int],
+    velocity: int,
+    *,
+    into_body: bool = False,
+    leap: list[tuple] | None = None,
+) -> list[tuple]:
+    """The middle sixteenths and the final eighth. Eighths the leap already holds stay untouched."""
+    kind = getattr(ctx, "kind", None)
+    leap = leap or []
+    previous = None
+    leap_basses = [item for item in leap if item[3] == 3]
+    if leap_basses:
+        previous = leap_basses[-1][2]
+    leap_lead = None
+    leap_leads = [item for item in leap if item[3] == 1]
+    if leap_leads:
+        leap_lead = leap_leads[-1][2]
+    fifth, line = _fifth_bass(frame, ctx, pcs, previous)
+    specs: list[tuple] = []
+    if kind == "6/8":
+        tirata_at = 3
+        specs.append(_note(tirata_at, 2, fifth, 3, velocity, {"accent": True}))
+        tail_lead = 5
+        tail_bass = 5
+    elif kind == "3/4":
+        tirata_at = 2
+        specs.append(_note(tirata_at, 2, fifth, 3, velocity))
+        tail_lead = 4
+        tail_bass = 5
+    else:
+        tirata_at = 4
+        held = leap_lead if leap_lead is not None else (line[0] if line else fifth + 12)
+        if held <= fifth:
+            held = line[0] if line else held
+        specs.append(_note(2, 2, previous if previous is not None else fifth, 3, velocity))
+        specs.append(_note(2, 2, held, 1, velocity))
+        support = _under_lead(frame, ctx, held, previous if previous is not None else fifth, None)
+        if support is not None:
+            specs.append(_note(3, 1, support, 2, velocity))
+        specs.append(_note(tirata_at, 2, fifth, 3, velocity))
+        tail_lead = 6
+        tail_bass = 7
+    for index, pitch in enumerate(line):
+        specs.append(_note(tirata_at + 0.5 * index, 0.5, pitch, 1, velocity))
+    staccato = line[-1] if line else leap_lead
+    if staccato is not None and kind != "6/8":
+        specs.append(_note(tail_lead, 1, staccato, 1, velocity, {"staccato": True}))
+        support_bass = fifth
+        tone = _under_lead(frame, ctx, staccato, support_bass, None)
+        if tone is not None and tone < staccato:
+            specs.append(_note(tail_lead, 1, tone, 2, velocity))
+    pickup_lead = staccato if staccato is not None else (line[-1] if line else None)
+    if into_body and pickup_lead is not None:
+        pickup_lead = _aimed_lead(frame, ctx, bar, pickup_lead, fifth, [])
+    elif pickup_lead is None and line:
+        pickup_lead = line[-1]
+    if pickup_lead is not None:
+        bass = _pickup_bass(frame, ctx, pcs, fifth, pickup_lead)
+        if bass >= pickup_lead:
+            bass = fifth if fifth < pickup_lead else bass
+        specs.append(_note(tail_bass, 1, pickup_lead, 1, velocity))
+        specs.append(_note(tail_bass, 1, bass, 3, velocity))
+    return specs
+
+
+def _courante_hemiola_bar(frame, ctx, pcs: list[int], velocity: int) -> list[tuple]:
+    """One chord. 4/4 has no hemiola. Eighth 5 stays free for the pickup."""
+    kind = getattr(ctx, "kind", None)
+    if kind not in {"3/4", "6/8"}:
+        return []
+    bass, inner, lead = _stack_pitches(frame, ctx, pcs)
+    if kind == "3/4":
+        attacks = [(0, 3, True), (3, 2, True), (5, 1, False)]
+    else:
+        attacks = [(0, 2, True), (2, 2, True), (4, 1, True), (5, 1, False)]
+    specs: list[tuple] = []
+    for offset, length, accent in attacks:
+        flags = {"accent": True} if accent else {}
+        specs.append(_note(offset, length, bass, 3, velocity, flags))
+        specs.append(_note(offset, length, lead, 1, velocity, flags))
+        if inner is not None and bass < inner < lead and _playable_line(ctx, [bass, inner, lead]):
+            specs.append(_note(offset, length, inner, 2, velocity, flags))
+    return specs
+
+
+def _prelude_specs(frame, ctx, bar: int, role: int, *, short: bool, closing: bool) -> list[tuple]:
+    role = min(role, 1 if short else 3)
+    half = _half(ctx.epb)
+    tonic = _harmony(frame, ctx, bar, "I")
+    sub = _harmony(frame, ctx, bar, "IV")
+    dominant = _harmony(frame, ctx, bar, "V7")
+    root = ctx.chord(bar).pitches[0] % 12
+    if not closing:
+        if role == 0:
+            specs = _prelude_roll(frame, ctx, bar, tonic, 0, half, frame._PP)
+            specs.extend(_prelude_roll(frame, ctx, bar, tonic, half, ctx.epb - half, frame._P))
+        elif role == 1 and short:
+            specs = _prelude_roll(frame, ctx, bar, dominant, 0, half, frame._P, pedal_pc=root)
+            specs.extend(
+                _prelude_roll(
+                    frame, ctx, bar, dominant, half, ctx.epb - half, frame._MP, lead_aim=True, pedal_pc=root
+                )
+            )
+        elif role == 1:
+            specs = _prelude_roll(frame, ctx, bar, sub, 0, half, frame._P, pedal_pc=root)
+            specs.extend(_prelude_roll(frame, ctx, bar, sub, half, ctx.epb - half, frame._P, pedal_pc=root))
+        elif role == 2:
+            specs = _prelude_roll(frame, ctx, bar, dominant, 0, half, frame._MP, pedal_pc=root)
+            specs.extend(_prelude_roll(frame, ctx, bar, dominant, half, ctx.epb - half, frame._MP, pedal_pc=root))
+        else:
+            specs = _prelude_roll(frame, ctx, bar, dominant, 0, half, frame._MP, pedal_pc=root)
+            specs.extend(
+                _prelude_roll(
+                    frame, ctx, bar, dominant, half, ctx.epb - half, 58, lead_aim=True, pedal_pc=root
+                )
+            )
+        return _guard_bass(frame, ctx, specs)
+    if short:
+        if role == 0:
+            specs = _prelude_roll(frame, ctx, bar, dominant, 0, half, frame._MP)
+            specs.extend(
+                _prelude_roll(frame, ctx, bar, dominant, half, ctx.epb - half, frame._P, eighth_grid=True)
+            )
+            return _guard_bass(frame, ctx, specs)
+        return frame._bach_block(ctx, bar, "I", frame._P)
+    if role == 0:
+        specs = _prelude_roll(frame, ctx, bar, sub, 0, half, frame._MP)
+        specs.extend(_prelude_roll(frame, ctx, bar, sub, half, ctx.epb - half, frame._MP))
+        return _guard_bass(frame, ctx, specs)
+    if role == 1:
+        specs = _prelude_roll(frame, ctx, bar, dominant, 0, half, frame._P)
+        specs.extend(_prelude_roll(frame, ctx, bar, dominant, half, ctx.epb - half, frame._P, eighth_grid=True))
+        return _guard_bass(frame, ctx, specs)
+    if role == 2:
+        return frame._bach_arpeggiato(ctx, bar, "I", frame._P)
+    return frame._bach_block(ctx, bar, "I", frame._PP)
+
+
+def _allemande_specs(frame, ctx, bar: int, role: int, *, short: bool, closing: bool) -> list[tuple]:
+    role = min(role, 1 if short else 3)
+    half = _half(ctx.epb)
+    tonic = _harmony(frame, ctx, bar, "I")
+    sub = _harmony(frame, ctx, bar, "IV")
+    dominant = _harmony(frame, ctx, bar, "V7")
+    if not closing:
+        if role == 0 and short:
+            specs = _brise_cell(frame, ctx, bar, tonic, 0, half, frame._P)
+            previous = next(item[2] for item in reversed(specs) if item[3] == 3)
+            specs.extend(_brise_cell(frame, ctx, bar, tonic, half, ctx.epb - half, frame._P, pickup_into=True, previous_bass=previous))
+        elif role == 0:
+            bass, _inner, _lead = _stack_pitches(frame, ctx, tonic)
+            specs = [_note(0, half, bass, 3, frame._PP)]
+            for index, pitch in enumerate(_scale_run(frame, ctx, bar, 4)):
+                specs.append(_note(ctx.epb - 2 + 0.5 * index, 0.5, pitch, 1, frame._P))
+        elif role == 1 and short:
+            specs = _brise_cell(frame, ctx, bar, sub, 0, half, frame._P)
+            previous = next(item[2] for item in reversed(specs) if item[3] == 3)
+            specs.extend(
+                _brise_cell(
+                    frame, ctx, bar, dominant, half, ctx.epb - half, frame._MP, pickup_into=True, previous_bass=previous
+                )
+            )
+        elif role == 1:
+            specs = _brise_cell(frame, ctx, bar, tonic, 0, half, frame._P)
+            previous = next(item[2] for item in reversed(specs) if item[3] == 3)
+            specs.extend(_brise_cell(frame, ctx, bar, sub, half, ctx.epb - half, frame._P, previous_bass=previous))
+        elif role == 2:
+            specs = _brise_cell(frame, ctx, bar, dominant, 0, half, frame._MP)
+            bass, inner, lead = _stack_pitches(frame, ctx, dominant)
+            first = next(item[2] for item in specs if item[3] == 3)
+            specs.append(_note(half, ctx.epb - half, first, 3, frame._MP))
+            tone = inner if inner is not None and first < inner < lead else None
+            specs.extend(_mordent(frame, ctx, half, lead, first, tone, frame._MP, sustain_to=ctx.epb))
+        else:
+            specs = _brise_cell(frame, ctx, bar, tonic, 0, half, frame._MP)
+            previous = next(item[2] for item in reversed(specs) if item[3] == 3)
+            specs.extend(
+                _brise_cell(
+                    frame, ctx, bar, dominant, half, ctx.epb - half, frame._MP, pickup_into=True, previous_bass=previous
+                )
+            )
+        return _guard_bass(frame, ctx, specs)
+    if short:
+        if role == 0:
+            specs = _brise_cell(frame, ctx, bar, sub, 0, half, frame._MP)
+            previous = next(item[2] for item in reversed(specs) if item[3] == 3)
+            specs.extend(_brise_cell(frame, ctx, bar, dominant, half, ctx.epb - half, frame._MP, previous_bass=previous))
+            return _guard_bass(frame, ctx, specs)
+        return frame._bach_block(ctx, bar, "I", frame._P)
+    if role == 0:
+        specs = _brise_cell(frame, ctx, bar, sub, 0, half, frame._P)
+        previous = next(item[2] for item in reversed(specs) if item[3] == 3)
+        specs.extend(_brise_cell(frame, ctx, bar, tonic, half, ctx.epb - half, frame._P, previous_bass=previous))
+        return _guard_bass(frame, ctx, specs)
+    if role == 1:
+        specs = _brise_cell(frame, ctx, bar, dominant, 0, half, frame._MP)
+        bass, inner, lead = _stack_pitches(frame, ctx, dominant)
+        first = next(item[2] for item in specs if item[3] == 3)
+        specs.append(_note(half, ctx.epb - half, first, 3, frame._MP))
+        tone = inner if inner is not None and first < inner < lead else None
+        specs.extend(_mordent(frame, ctx, half, lead, first, tone, frame._MP, sustain_to=ctx.epb))
+        return _guard_bass(frame, ctx, specs)
+    if role == 2:
+        return _suspension(frame, ctx, bar, frame._P)
+    return frame._bach_block(ctx, bar, "I", frame._PP)
+
+
+def _courante_specs(frame, ctx, bar: int, role: int, *, short: bool, closing: bool) -> list[tuple]:
+    role = min(role, 1 if short else 3)
+    kind = getattr(ctx, "kind", None)
+    tonic = _harmony(frame, ctx, bar, "I")
+    sub = _harmony(frame, ctx, bar, "IV")
+    dominant = _harmony(frame, ctx, bar, "V7")
+    if not closing:
+        if role == 0:
+            leap = _courante_leap_cell(frame, ctx, tonic, frame._P)
+            specs = [*leap, *_courante_hold(frame, ctx, tonic, frame._P, leap)]
+        elif role == 1 and short:
+            leap = _courante_leap_cell(frame, ctx, dominant, frame._MP)
+            specs = [*leap, *_courante_tirata_cell(frame, ctx, bar, dominant, frame._MP, into_body=True, leap=leap)]
+        elif role == 1:
+            leap = _courante_leap_cell(frame, ctx, sub, frame._P)
+            specs = [*leap, *_courante_tirata_cell(frame, ctx, bar, sub, frame._P, leap=leap)]
+        elif role == 2:
+            leap = _courante_leap_cell(frame, ctx, dominant, frame._MP)
+            specs = [*leap, *_courante_tirata_cell(frame, ctx, bar, dominant, frame._MP, leap=leap)]
+        else:
+            leap = _courante_leap_cell(frame, ctx, dominant, frame._MP)
+            specs = [*leap, *_courante_tirata_cell(frame, ctx, bar, dominant, 58, into_body=True, leap=leap)]
+        return _guard_bass(frame, ctx, specs)
+    if short:
+        if role == 0:
+            if kind in {"3/4", "6/8"}:
+                specs = _courante_hemiola_bar(frame, ctx, dominant, frame._MP)
+            else:
+                leap = _courante_leap_cell(frame, ctx, dominant, frame._MP)
+                specs = [*leap, *_courante_tirata_cell(frame, ctx, bar, dominant, frame._MP, leap=leap)]
+            return _guard_bass(frame, ctx, specs)
+        return _chord(frame, ctx, tonic, 0, ctx.epb, frame._P, {"accent": True})
+    if role == 0:
+        leap = _courante_leap_cell(frame, ctx, sub, frame._MP)
+        specs = [*leap, *_courante_tirata_cell(frame, ctx, bar, sub, frame._MP, leap=leap)]
+    elif role == 1:
+        leap = _courante_leap_cell(frame, ctx, dominant, frame._MP)
+        specs = [*leap, *_courante_tirata_cell(frame, ctx, bar, dominant, frame._MP, leap=leap)]
+    elif role == 2:
+        if kind in {"3/4", "6/8"}:
+            specs = _courante_hemiola_bar(frame, ctx, dominant, frame._P)
+        else:
+            leap = _courante_leap_cell(frame, ctx, dominant, frame._P)
+            specs = [*leap, *_courante_tirata_cell(frame, ctx, bar, dominant, frame._P, leap=leap)]
+    else:
+        return frame._bach_block(ctx, bar, "I", frame._P)
+    return _guard_bass(frame, ctx, specs)
+
+
 def _run(builder, ctx, bar, role, *, steps, closing, index):
     del index
     frame = _frame()
@@ -1834,6 +2502,21 @@ def bach_chaconne(ctx, bar, role, *, steps: int, closing: bool, index: int):
     return _run(_chaconne_specs, ctx, bar, role, steps=steps, closing=closing, index=index)
 
 
+def bach_prelude(ctx, bar, role, *, steps: int, closing: bool, index: int):
+    """Half-bar sixteenth rolls. The last bar stays on V7 and aims into the body."""
+    return _run(_prelude_specs, ctx, bar, role, steps=steps, closing=closing, index=index)
+
+
+def bach_allemande(ctx, bar, role, *, steps: int, closing: bool, index: int):
+    """Legato style brisé, a four-sixteenth pickup, then a 4–3 suspension."""
+    return _run(_allemande_specs, ctx, bar, role, steps=steps, closing=closing, index=index)
+
+
+def bach_courante(ctx, bar, role, *, steps: int, closing: bool, index: int):
+    """Opening leap, tirata, and a hemiola only in 3/4 and 6/8."""
+    return _run(_courante_specs, ctx, bar, role, steps=steps, closing=closing, index=index)
+
+
 def cantabile(ctx, bar, role, *, steps: int, closing: bool, index: int):
     """Parallel thirds and sixths. No dotted overture rhythm."""
     return _run(_cantabile_specs, ctx, bar, role, steps=steps, closing=closing, index=index)
@@ -1854,6 +2537,9 @@ DOORS: dict[tuple[str, str], Callable] = {
     ("bach", "bach_gigue"): bach_gigue,
     ("bach", "bach_sarabande"): bach_sarabande,
     ("bach", "bach_chaconne"): bach_chaconne,
+    ("bach", "bach_prelude"): bach_prelude,
+    ("bach", "bach_allemande"): bach_allemande,
+    ("bach", "bach_courante"): bach_courante,
     ("classic", "cantabile"): cantabile,
     ("classic", "elegiaque"): elegiaque,
     ("classic", "galop"): galop,
