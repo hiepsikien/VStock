@@ -99,7 +99,16 @@ Cửa `_galop_hits` không phải ô oom-pah suốt. `docs/sonify-guitar-frame-v
 | Outro dài | 2 | `_staccato_hits` V7, I, V7 |
 | Outro dài | 3 | hai `_staccato_hits` trên I, có accent |
 
-Role `_galop_span` lấy tế bào Galop 1 ở mục 4. Role `_staccato_hits` giữ hợp âm. Intro dài role 3 giữ móc nghỉ và ba hợp âm. Không đổi cả `_galop_hits`, và không gán “bước mở là Galop 1, bước khép là Galop 2” cho mọi role. Galop 2 ở thân bài.
+Role `_galop_span` với `lead=True` lấy cả tế bào Galop 1 ở mục 4.1. Role `_staccato_hits` giữ hợp âm. Intro ngắn role 1, nửa sau, là `_lead_leaps`: không phải `_galop_span`, không phải `_staccato_hits`, và nửa ô đó giữ nguyên. Intro dài role 3 giữ móc nghỉ và ba hợp âm.
+
+Tế bào 4.1 có giai điệu suốt nửa ô. Span gọi `_galop_span` với `lead=False` thì giai điệu của tế bào nghỉ, chỉ lấy bass: một móc đơn staccato ở đầu mỗi nửa ô mà span phủ. Span cả ô, như intro dài role 0, có hai móc đó, ở móc 0 và móc 4. Gán cả tế bào sẽ thêm lead vào chỗ cửa đang nghỉ. Các span đó là:
+
+- Intro ngắn role 0, nửa sau.
+- Intro ngắn role 1, nửa đầu.
+- Intro dài role 0, cả ô.
+- Intro dài role 3, đoạn span trước móc nghỉ.
+
+Không đổi cả `_galop_hits`, và không gán “bước mở là Galop 1, bước khép là Galop 2” cho mọi role. Galop 2 ở thân bài.
 
 ---
 
@@ -133,17 +142,24 @@ Hai câu là hai cách dệt trong `_render_galop_bar`. Bộ chọn vẫn trả 
 
 Tế bào này đứng hai lần trong một ô 4/4, mở ở móc đơn 0 và móc đơn 4. Không phải một tế bào mỗi phách. Móc đơn cộng hai móc kép đã hết một phách. Phách còn lại của ô 2/4 là hai móc đơn.
 
-Chỉ số móc kép trong nửa ô, `0 .. 7`:
+Chỉ số móc kép trong nửa ô, `0 .. 7`. Tế bào mở tại móc đơn `origin`, `origin` là 0 hoặc 4:
 
 | Móc kép | Giai điệu | Bass |
 |---|---|---|
-| 0–1 | móc đơn, cao độ giá tại móc đơn mở | móc đơn, gốc, cùng phách |
-| 2 | móc kép, bước giá hoặc nốt hợp âm khi giá đứng | nghỉ |
-| 3 | móc kép, tiếp bước đó | nghỉ |
-| 4–5 | móc đơn, giá | nghỉ |
-| 6–7 | móc đơn, giá | nghỉ |
+| 0–1 | móc đơn, staccato, `ctx.melody` tại `origin` | móc đơn, staccato, gốc, cùng phách |
+| 2 | móc kép, không staccato. Chung một cao độ đầu vào với móc 3 | nghỉ |
+| 3 | móc kép, không staccato. Chung cao độ đầu vào với móc 2 | nghỉ |
+| 4–5 | móc đơn, staccato, `ctx.melody` tại `origin + 2` | nghỉ |
+| 6–7 | móc đơn, staccato, `ctx.melody` tại `origin + 3` | nghỉ |
 
-Bỏ bè trong chặt phách yếu. Giá đứng thì hai móc kép nhắc nốt hợp âm, điệu vẫn phi.
+Dấu chấm ở mục 3 nằm trên các móc đơn của câu phi: giai điệu ở 0–1, 4–5, 6–7, và bass ở 0–1. Hai móc kép không mang dấu chấm. Chúng là nhịp phi nối thanh, không staccato.
+
+Hai móc kép 2 và 3 chiếm một móc đơn của cột Giá, móc `origin + 1`. Chỉ có một cao độ đầu vào, `here = ctx.melody` tại móc đó. Cao độ móc mở là `open`.
+
+- `here == open`: cả hai móc kép là nốt hợp âm. Không có mẫu giá thứ hai.
+- `here != open`: móc kép 3 là `here`. Móc kép 2 là một bậc thang từ `open` về phía `here`. Nếu bậc đó đã là `here`, móc kép 2 giữ `open`, và cặp nốt là bước `open` rồi `here`.
+
+Bỏ bè trong chặt phách yếu.
 
 ### 4.2. Galop 2 — lưới của ô 17–24
 
@@ -160,10 +176,12 @@ Cũng tính trên một ô 2/4. Ô 4/4 chứa hai lần. Đây là tế bào đ�
 
 Ô 17 của Tecla là mẫu: giai điệu móc đơn, nghỉ, móc đơn, nghỉ. Bass là nốt G ở hai dòng phụ, móc kép, nối nốt Si trên dòng giữa khuông, móc đơn, rồi nghỉ. G dưới Si đó một quãng 10.
 
+Quãng 10 là 16 nửa cung. Nốt bass viết nằm trong `guitar_floor .. guitar_bass_top`, mặc định `40 .. 53` (`Register` trong `keys.py`; `register_for` trừ `key.semitones`). Từ một nốt trong `40 .. 53`, quãng 10 rơi vào `56 .. 69`, trên `guitar_bass_top`. `_choose_bass` gọi `_stored_bass`, và `_stored_bass` gọi `_clamp` vào `[low, high]` với `high` là `bass_high`. Thân bài đặt `bass_high = guitar_bass_top`. `_bass_note` và `_bass_match` cũng chặn tại `_bass_hi`. `_clamp` trừ 12 cho đến khi nốt vào cửa sổ, và quãng 10 mất. Nốt trên của cú nhảy vẫn là bè bass, voice 3, và được đứng trên `53`. Không đưa nốt đó qua `_choose_bass`, `_stored_bass`, `_bass_note`, hay `_bass_match`. Nốt móc kép trầm vẫn là gốc trong cửa sổ bass.
+
 Hai biến trong cùng câu, mỗi biến một ô 2/4, không thay lưới trên cho cả bốn ô:
 
 - **Nốt vòng.** Một ô 2/4 trong câu. Móc kép 0–3 là bốn móc kép giai điệu, legato, vòng quanh nốt giá. Bass không nhảy quãng 10 ở phách đó.
-- **Nốt chromatic.** Ở cú giai điệu móc kép 4, một móc kép lân bậc nối legato vào móc đơn giải. Bass vẫn là cú nhảy của bảng trên. Ô khép câu đổi cú bass cuối thành hợp âm khối.
+- **Nốt chromatic.** Một ô 2/4 trong câu. Móc kép 3, đang nghỉ trong bảng trên, thành móc kép lân bậc, legato vào móc đơn giải ở móc kép 4–5. Móc đơn giải vẫn là giá và vẫn dài hai móc kép. Móc 6–7 vẫn nghỉ. Lân bậc không đứng ở móc kép 4: móc 4–5 đã hết chỗ của móc đơn đó. Không rút móc đơn giải thành một móc kép, vì bản viết là móc kép nối vào móc đơn. Bass vẫn là cú nhảy của bảng trên. Ô khép câu đổi cú bass cuối thành hợp âm khối.
 
 Ô 25–28 là hai ô 4/4 giai điệu móc kép liên tục, bass thưa. Trong một nhóm Galop 2, nếu giá của nhóm có nhiều cao độ khác nhau thì hai ô cuối của nhóm hát chuỗi này. Giá chỉ vài bước thì giữ bảng đối đáp.
 
@@ -178,10 +196,13 @@ Chỉ hai test render nhận galop bằng bass staccato tại `0.0` và `2.0`:
 
 Dấu nhận phải đọc tế bào mới. Galop 2 trong cùng id `galop` không được làm hai test này tưởng ô đó đã thành study.
 
-Cùng `test_sor_galop_and_mozart_variations_and_the_op9_overture` còn ba assert nữa, đổi khi lead có móc kép và cửa đổi tế bào:
+Cùng `test_sor_galop_and_mozart_variations_and_the_op9_overture`, hai assert thân bài đổi khi lead có móc kép:
 
 - `assert _sixteenths(galop.lead, 2) == []`
 - sparkle: nốt ở phách 0.5 cao hơn nốt phách 0 và staccato
-- cửa của `_frame_score("classic", 4)`: lead ô 0 rỗng, bass ô 0 toàn staccato, lead ô 3 chỉ ở `2.5, 3.0, 3.5`, bass ô cuối staccato có accent
+
+Bốn khóa cửa của `_frame_score("classic", 4)` trong test đó giữ nguyên: lead ô 0 rỗng, bass ô 0 toàn staccato, lead ô 3 chỉ ở `2.5, 3.0, 3.5`, bass ô cuối staccato có accent. Ô 0 là intro dài role 0, `lead=False`. Ô 3 giữ móc nghỉ rồi ba hợp âm. Bass ô cuối là outro dài role 3, `_staccato_hits`. Bass ô 0 đổi từ nốt đen thành móc đơn, nhưng assert chỉ khóa `staccato`.
 
 Assert bè trong thân bài ở `0.5, 1.5, 2.5, 3.5` cũng đổi, vì bè trong đó rời thân bài. Assert bass nốt đen ở `0.0` và `2.0` đổi theo mục 4.1: bass Galop 1 là một móc đơn ở móc 0 và móc 4.
+
+`test_composer_intro_and_outro_frames_for_two_and_four_bars` khóa bè trong của cửa ngắn tại `0.5, 1.5, 2.5, 3.5`. Assert đó đổi vì cửa cũng bỏ bè trong. Onset bass `[0.0, 2.0]` giữ: mỗi nửa ô vẫn một móc đơn bass ở đầu. Lead ô 1 từ phách 2 là `_lead_leaps`, giữ.
