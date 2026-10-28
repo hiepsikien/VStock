@@ -232,9 +232,13 @@ def _spell16(
     tie_out: bool = False,
 ) -> list[NoteEvent]:
     events: list[NoteEvent] = []
-    cursor = start
-    left = length
-    first = start
+    # A door may aim at a sixteenth with a half-eighth offset. Floor division of
+    # a float would store the bar as 0.0, which cannot index a measure list.
+    cursor = int(round(start))
+    left = int(round(length))
+    if left <= 0:
+        return events
+    first = cursor
     while left > 0:
         bar_len = epb * 2
         room = bar_len - (cursor % bar_len)
@@ -1146,7 +1150,7 @@ def _assign_macro(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
         pattern = _dominant_pattern(ctx, [ctx.phrases[index] for index in body], _body_bars(ctx))
         for index in body:
             chosen[index] = pattern
-        return chosen
+        return _settle_galop(ctx, chosen, body)
     if _has_contrast_section(ctx):
         groups: dict[str, list[int]] = {"A": [], "B": []}
         for index in body:
@@ -1168,7 +1172,7 @@ def _assign_macro(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
             chosen[index] = primary
         for index in groups["B"]:
             chosen[index] = contrast
-        return chosen
+        return _settle_galop(ctx, chosen, body)
     buckets: dict[int, list[int]] = {}
     for index in body:
         slot, _contrast = _slot_contrast(ctx.section(_phrase_bar(ctx, index)))
@@ -1181,7 +1185,106 @@ def _assign_macro(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
         )
         for index in indexes:
             chosen[index] = pattern
+    return _settle_galop(ctx, chosen, body)
+
+
+def _body_regions(ctx: _Ctx, body: list[int]) -> list[tuple[bool, list[int]]]:
+    """Body phrases in score order, split when the formal slot or the contrast flag changes."""
+    regions: list[tuple[bool, list[int]]] = []
+    previous: tuple[int, bool] | None = None
+    for index in body:
+        bar = min(ctx.bars - 1, ctx.phrases[index].start // max(ctx.epb, 1))
+        section = ctx.section(bar)
+        slot = 0 if section is None else section.regime_slot
+        contrast = section is not None and bool(section.trio or section.bridge)
+        key = (slot, contrast)
+        if key != previous:
+            regions.append((contrast, []))
+            previous = key
+        regions[-1][1].append(index)
+    return regions
+
+
+def _paint(chosen: list[str], indexes: list[int], pattern: str) -> None:
+    for index in indexes:
+        chosen[index] = pattern
+
+
+def _galop_centers(count: int) -> set[int]:
+    """The middle region, or both regions that share the midpoint when the count is even."""
+    if count % 2 == 1:
+        return {count // 2}
+    mid = count // 2
+    return {mid - 1, mid}
+
+
+def _settle_galop(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
+    """Galop fills a day. A longer movement that is only galop keeps the dance in the middle.
+
+    A one-phrase fixture still renders the dance. A body that already mixes
+    galop with other patterns is left alone: the dance is already one part.
+    A trio whose outer sections are galop becomes study–galop–study. An even
+    run of sessions puts the dance across the boundary of the two middle ones.
+    """
+    if ctx.ensemble != "classic" or not body:
+        return chosen
+    if not any(chosen[index] == "galop" for index in body):
+        return chosen
+    if ctx.bars == 34 or len(body) == 1:
+        return chosen
+    regions = _body_regions(ctx, body)
+    if _has_contrast_section(ctx):
+        outer = [index for contrast, indexes in regions if not contrast for index in indexes]
+        if outer and all(chosen[index] == "galop" for index in outer):
+            for contrast, indexes in regions:
+                _paint(chosen, indexes, "galop" if contrast else "study")
+        return chosen
+    if not all(chosen[index] == "galop" for index in body):
+        return chosen
+    if len(regions) >= 3:
+        centers = _galop_centers(len(regions))
+        if len(regions) % 2 == 0:
+            _paint_galop_across(chosen, regions, centers)
+        else:
+            for position, (_contrast, indexes) in enumerate(regions):
+                _paint(chosen, indexes, "galop" if position in centers else "study")
+        return chosen
+    if len(body) == 2:
+        chosen[body[0]] = "study"
+        chosen[body[1]] = "galop"
+        return chosen
+    count = len(body)
+    opening = max(1, count // 3)
+    closing = max(1, count // 3)
+    while opening + closing >= count:
+        if opening >= closing and opening > 1:
+            opening -= 1
+        elif closing > 1:
+            closing -= 1
+        else:
+            break
+    for offset, index in enumerate(body):
+        chosen[index] = "galop" if opening <= offset < count - closing else "study"
     return chosen
+
+
+def _paint_galop_across(chosen: list[str], regions: list[tuple[bool, list[int]]], centers: set[int]) -> None:
+    """Galop straddles the two middle regions. Outer regions stay study."""
+    left, right = min(centers), max(centers)
+    for position, (_contrast, indexes) in enumerate(regions):
+        if position not in centers:
+            _paint(chosen, indexes, "study")
+            continue
+        if len(indexes) < 2:
+            _paint(chosen, indexes, "galop")
+            continue
+        cut = len(indexes) // 2
+        if position == left:
+            _paint(chosen, indexes[:cut], "study")
+            _paint(chosen, indexes[cut:], "galop")
+        elif position == right:
+            _paint(chosen, indexes[:cut], "galop")
+            _paint(chosen, indexes[cut:], "study")
 
 
 def _cap_accents(ctx: _Ctx, plans: dict, perpetual: dict, limit: int = 2) -> tuple[dict, dict]:
@@ -2652,7 +2755,7 @@ def render_patterned_voices(
     relaxed: set[int] = set()
     if _framed(ctx):
         lead, support, low = _strip_pedal(ctx, lead, support, low)
-        lead, support, low = _paint_frames(ctx, lead, support, low)
+        lead, support, low = _paint_frames(ctx, patterns, lead, support, low)
         lead, support, low, relaxed = _smooth_boundaries(ctx, patterns, lead, support, low)
     else:
         lead, support, low = _transitions(ctx, patterns, levels, lead, support, low)
@@ -2769,17 +2872,56 @@ def _strip_pedal(ctx: _Ctx, lead, support, low):
     )
 
 
-def _paint_frames(ctx: _Ctx, lead, support, low):
+def _joined_body_pattern(ctx: _Ctx, bar: int, patterns: list[str]) -> tuple[str, int | None]:
+    """Pattern of the body bar joined to a pedal region, else the movement headline."""
+    if 0 <= bar < ctx.bars and ctx.kind_at.get(bar, "phrase") not in _PEDAL:
+        name = _bar_pattern(ctx, bar, patterns)
+        if name != "pedal":
+            return name, bar
+        return headline_id(ctx, patterns), bar
+    return headline_id(ctx, patterns), None
+
+
+_PEDAL_DOOR_PROFILE = {
+    "thumb_cantabile": "thumb_cantabile",
+    "elegiaque": "elegiaque",
+    "choro": "barrios_dance",
+}
+
+
+def profiles_for(ctx: _Ctx, patterns: list[str]) -> dict[int, str]:
+    """Playability profile of every bar. Pedal bars take the joined door, not `"pedal"`."""
+    leading, trailing = _pedal_regions(ctx)
+    intro_name = _joined_body_pattern(ctx, leading[-1] + 1, patterns)[0] if leading else "study"
+    outro_name = _joined_body_pattern(ctx, trailing[0] - 1, patterns)[0] if trailing else "study"
+    intro_profile = _PEDAL_DOOR_PROFILE.get(intro_name, "study")
+    outro_profile = _PEDAL_DOOR_PROFILE.get(outro_name, "study")
+    opening = set(leading)
+    closing = set(trailing)
+    found: dict[int, str] = {}
+    for bar in range(ctx.bars):
+        if bar in opening:
+            found[bar] = intro_profile
+        elif bar in closing:
+            found[bar] = outro_profile
+        else:
+            found[bar] = _PROFILE.get(_bar_pattern(ctx, bar, patterns), "study")
+    return found
+
+
+def _paint_frames(ctx: _Ctx, patterns, lead, support, low):
     from app.sonify.guitar_frame import render_intro, render_outro
 
     leading, trailing = _pedal_regions(ctx)
     if leading:
-        part_lead, part_support, part_low = render_intro(ctx, leading)
+        intro_pattern, _body = _joined_body_pattern(ctx, leading[-1] + 1, patterns)
+        part_lead, part_support, part_low = render_intro(ctx, leading, intro_pattern)
         lead.extend(part_lead)
         support.extend(part_support)
         low.extend(part_low)
     if trailing:
-        part_lead, part_support, part_low = render_outro(ctx, trailing)
+        outro_pattern, _body = _joined_body_pattern(ctx, trailing[0] - 1, patterns)
+        part_lead, part_support, part_low = render_outro(ctx, trailing, outro_pattern)
         lead.extend(part_lead)
         support.extend(part_support)
         low.extend(part_low)
@@ -2978,7 +3120,9 @@ def _smooth_boundaries(ctx: _Ctx, patterns, lead, support, low):
         cover = _catedral_preludio(ctx) and pattern == "preludio"
         keep_approach = pattern == "villa_pattern" and ctx.band(bar) == "f"
         # The etudes already breathe on the last beat. A pickup would cut that bass.
-        if pattern not in {"etude1", "etude11"}:
+        # Pedal bars keep the frame's own anacrusis. The last body bar before the
+        # outro still relaxes and takes the pickup.
+        if pattern not in {"etude1", "etude11"} and ctx.kind_at.get(bar, "phrase") not in _PEDAL:
             lead, support, low = _plant_pickup(
                 ctx, lead, support, low, bar, cover_eighth=cover, keep_approach=keep_approach
             )

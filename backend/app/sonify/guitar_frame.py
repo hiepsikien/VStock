@@ -46,17 +46,17 @@ def frame_roles(length: int) -> list[int]:
     return roles
 
 
-def render_intro(ctx, bars: list[int]) -> tuple[list, list, list]:
+def render_intro(ctx, bars: list[int], pattern=None) -> tuple[list, list, list]:
     """Musical entrance for the contiguous opening pedal bars."""
-    return _render_region(ctx, bars, closing=False)
+    return _render_region(ctx, bars, closing=False, pattern=pattern)
 
 
-def render_outro(ctx, bars: list[int]) -> tuple[list, list, list]:
+def render_outro(ctx, bars: list[int], pattern=None) -> tuple[list, list, list]:
     """Musical cadence for the contiguous closing pedal bars."""
-    return _render_region(ctx, bars, closing=True)
+    return _render_region(ctx, bars, closing=True, pattern=pattern)
 
 
-def _render_region(ctx, bars: list[int], *, closing: bool) -> tuple[list, list, list]:
+def _render_region(ctx, bars: list[int], *, closing: bool, pattern=None) -> tuple[list, list, list]:
     roles = frame_roles(len(bars))
     steps = 2 if len(bars) <= 2 else 4
     lead: list = []
@@ -71,6 +71,7 @@ def _render_region(ctx, bars: list[int], *, closing: bool) -> tuple[list, list, 
             closing=closing,
             index=index,
             length=len(bars),
+            pattern=pattern,
         )
         bar_lead, bar_support, bar_low = _realize(ctx, bar, gesture)
         bar_lead, bar_support, bar_low = _sanitize(ctx, bar_lead, bar_support, bar_low)
@@ -90,19 +91,28 @@ def _frame_composer(ctx):
     }.get(ctx.ensemble, _sor)
 
 
-def _gesture(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int, length: int) -> list[tuple]:
+def _gesture(
+    ctx,
+    bar: int,
+    role: int,
+    *,
+    steps: int,
+    closing: bool,
+    index: int,
+    length: int,
+    pattern=None,
+) -> list[tuple]:
     if length == 1:
-        return _compressed(ctx, bar, closing)
-    composer = _frame_composer(ctx)
-    return composer(ctx, bar, role, steps=steps, closing=closing, index=index)
+        return _compressed(ctx, bar, closing, pattern=pattern)
+    return _dispatch(ctx, bar, role, steps=steps, closing=closing, index=index, pattern=pattern)
 
 
-def _compressed(ctx, bar: int, closing: bool) -> list[tuple]:
+def _compressed(ctx, bar: int, closing: bool, pattern=None) -> list[tuple]:
     """One bar has to both enter and leave. The second half is the cadence."""
     epb = ctx.epb
     cut = max(1, epb // 2)
-    first = _gesture_body(ctx, bar, 0, closing=closing)
-    second = _gesture_body(ctx, bar, 1, closing=closing)
+    first = _gesture_body(ctx, bar, 0, closing=closing, pattern=pattern)
+    second = _gesture_body(ctx, bar, 1, closing=closing, pattern=pattern)
     specs: list[tuple] = []
     for offset, length, midi, voice, velocity, flags in first:
         if offset >= cut:
@@ -117,9 +127,18 @@ def _compressed(ctx, bar: int, closing: bool) -> list[tuple]:
     return _clip_voice(specs, epb)
 
 
-def _gesture_body(ctx, bar: int, role: int, *, closing: bool) -> list[tuple]:
+def _gesture_body(ctx, bar: int, role: int, *, closing: bool, pattern=None) -> list[tuple]:
+    return _dispatch(ctx, bar, role, steps=2, closing=closing, index=role, pattern=pattern)
+
+
+def _dispatch(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int, pattern=None) -> list[tuple]:
+    """A named pattern uses its door. Callers that omit the pattern keep the composer."""
+    if pattern:
+        door = _extra_doors().get((ctx.ensemble, pattern))
+        if door is not None:
+            return door(ctx, bar, role, steps=steps, closing=closing, index=index)
     composer = _frame_composer(ctx)
-    return composer(ctx, bar, role, steps=2, closing=closing, index=role)
+    return composer(ctx, bar, role, steps=steps, closing=closing, index=index)
 
 
 def _sor(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int) -> list[tuple]:
@@ -588,6 +607,625 @@ def _bach_outro_long(ctx, bar: int, role: int, dance: bool) -> list[tuple]:
     if role == 2:
         return _bach_arpeggiato(ctx, bar, "I+", _P)
     return _bach_picardy(ctx, bar, _PP)
+
+
+def _extra_doors():
+    doors = {}
+    try:
+        from app.sonify.guitar_frame_bach_sor import DOORS as bach_sor
+
+        doors.update(bach_sor)
+    except ImportError:
+        pass
+    try:
+        from app.sonify.guitar_frame_rest import DOORS as rest
+
+        doors.update(rest)
+    except ImportError:
+        pass
+    doors.update(_RETAINED_DOORS)  # yours win on overlap
+    return doors
+
+
+def _window(specs: list[tuple], start: int, end: int) -> list[tuple]:
+    kept = []
+    for offset, length, midi, voice, velocity, flags in specs:
+        left = max(offset, start)
+        right = min(offset + length, end)
+        if right <= left:
+            continue
+        kept.append((left, right - left, midi, voice, velocity, flags))
+    return kept
+
+
+def _shift(specs: list[tuple], amount: int) -> list[tuple]:
+    return [
+        (offset + amount, length, midi, voice, velocity, flags)
+        for offset, length, midi, voice, velocity, flags in specs
+    ]
+
+
+def _join_spans(ctx, left: list[tuple], right: list[tuple], cut: int) -> list[tuple]:
+    epb = ctx.epb
+    specs = _window(left, 0, cut)
+    specs.extend(_shift(_window(right, 0, max(0, epb - cut)), cut))
+    return _clip_voice(specs, epb)
+
+
+def _degree_pcs(ctx, bar: int, degrees: tuple[int, ...]) -> list[int]:
+    root = ctx.chord(bar).pitches[0] % 12
+    scale = _classes(ctx.mode)
+    return [(root + scale[degree - 1]) % 12 for degree in degrees]
+
+
+def _line_on(ctx, pcs: list[int], low: int, high: int, bass: int, anchor: int) -> list[int] | None:
+    from app.sonify.guitar_patterns import _playable
+
+    cursor = anchor
+    line: list[int] = []
+    for pc in pcs:
+        options = [
+            note
+            for note in range(low, high + 1)
+            if note % 12 == pc and note > bass and _playable([bass + ctx.semitones, note + ctx.semitones])
+        ]
+        if not options:
+            return None
+        choice = min(options, key=lambda note: (abs(note - cursor) > 5, abs(note - cursor), note))
+        line.append(choice)
+        cursor = choice
+    return line
+
+
+def _turn(ctx, bar: int, name: str, velocity: int) -> list[tuple]:
+    """Scale degrees 2–3–1–7 over a sustained chord, in the lead or the inner voice."""
+    from app.sonify.guitar_patterns import _playable
+
+    epb = ctx.epb
+    pcs = _function(ctx, bar, name)
+    stacked, inner, lead = _stack(ctx, pcs)
+    root_bass = _bass_match(ctx, pcs[0], lead)
+    bass = root_bass if root_bass is not None and root_bass < lead else stacked
+    degrees = _degree_pcs(ctx, bar, (2, 3, 1, 7))
+    line = _line_on(ctx, degrees, _lead_lo(ctx), _lead_hi(ctx), bass, lead)
+    voice = 1
+    if line is None and bass != stacked:
+        bass = stacked
+        line = _line_on(ctx, degrees, _lead_lo(ctx), _lead_hi(ctx), bass, lead)
+    if line is None:
+        line = _line_on(ctx, degrees, _mid_lo(ctx), _mid_hi(ctx), bass, (bass + lead) // 2)
+        voice = 2
+    if not line:
+        return _compact(ctx, bar, name, velocity)
+    count = min(len(line), epb)
+    notes = line[:count]
+    specs: list[tuple] = [(0, epb, bass, 3, velocity, {})]
+    for offset, pitch in enumerate(notes):
+        specs.append((offset, 1, pitch, voice, velocity, {}))
+    if voice == 1 and inner is not None and all(bass < inner < pitch for pitch in notes):
+        sounding = [bass + ctx.semitones, inner + ctx.semitones, *(pitch + ctx.semitones for pitch in notes)]
+        if _playable(sounding[:3]) and all(
+            _playable([bass + ctx.semitones, inner + ctx.semitones, pitch + ctx.semitones]) for pitch in notes
+        ):
+            specs.append((0, epb, inner, 2, max(_PP, velocity - 4), {}))
+    elif voice == 2 and all(pitch < lead for pitch in notes) and all(
+        _playable([bass + ctx.semitones, pitch + ctx.semitones, lead + ctx.semitones]) for pitch in notes
+    ):
+        specs.append((0, epb, lead, 1, velocity, {}))
+    return _clip_voice(specs, epb)
+
+
+def _study_span(ctx, bar: int, name: str, velocity: int, start: int, length: int, *, sparse: bool) -> list[tuple]:
+    """Study grid on one span: root, then the fifth, with the inner voice on the weak eighths."""
+    if length <= 0:
+        return []
+    pcs = _function(ctx, bar, name)
+    root = pcs[0]
+    fifth = pcs[2] if len(pcs) > 2 else pcs[-1]
+    third = pcs[1] if len(pcs) > 1 else root
+    lead = _best_lead(ctx, [third, fifth], [root, fifth], high=False)
+    root_bass = _bass_match(ctx, root, lead)
+    fifth_bass = _bass_match(ctx, fifth, lead)
+    if root_bass is None or not root_bass < lead:
+        root_bass, _inner, lead = _stack(ctx, pcs)
+        fifth_bass = _bass_match(ctx, fifth, lead)
+    split = (
+        length >= 4
+        and fifth_bass is not None
+        and fifth_bass != root_bass
+        and fifth_bass < lead
+    )
+    fifth_at = start + 4
+    split = split and fifth_at < start + length
+    specs: list[tuple] = []
+    if split and fifth_bass is not None:
+        specs.append((start, fifth_at - start, root_bass, 3, velocity, {}))
+        specs.append((fifth_at, start + length - fifth_at, fifth_bass, 3, velocity, {}))
+    else:
+        specs.append((start, length, root_bass, 3, velocity, {}))
+        fifth_bass = root_bass
+        split = False
+    specs.append((start, length, lead, 1, velocity, {}))
+    points = [start + local for local in (2, 6) if local < length and not (sparse and local == 6)]
+    for offset in points:
+        sounding = fifth_bass if split and offset >= fifth_at else root_bass
+        if sounding is None or not sounding < lead:
+            continue
+        inner = _between(ctx, pcs, sounding, lead)
+        if inner is not None:
+            specs.append((offset, 1, inner, 2, max(_PP, velocity - 4), {}))
+    return specs
+
+
+def _six_four_span(ctx, bar: int, velocity: int, start: int, length: int) -> list[tuple]:
+    """I6/4: the fifth is the bass, and the upper voices keep the root and the third."""
+    if length <= 0:
+        return []
+    pcs = _function(ctx, bar, "I")
+    root, third, fifth = pcs[0], pcs[1], pcs[2]
+    lead = _best_lead(ctx, [root, third], [fifth], high=False)
+    bass = _bass_match(ctx, fifth, lead)
+    if bass is None or not bass < lead:
+        return _study_span(ctx, bar, "I", velocity, start, length, sparse=True)
+    specs = [
+        (start, length, bass, 3, velocity, {}),
+        (start, length, lead, 1, velocity, {}),
+    ]
+    inner = _between(ctx, [root], bass, lead) or _between(ctx, [third, root], bass, lead)
+    if inner is not None:
+        specs.append((start, min(2, length), inner, 2, max(_PP, velocity - 4), {}))
+    return specs
+
+
+def _toward(ctx, origin: int, target_pc: int) -> int:
+    low, high = ctx.bass_low, _bass_hi(ctx)
+
+    def distance(note: int) -> int:
+        return min((note - target_pc) % 12, (target_pc - note) % 12)
+
+    up = _step(origin, 1, ctx.mode, low, high)
+    down = _step(origin, -1, ctx.mode, low, high)
+    origin_distance = distance(origin)
+    choices = [note for note in (up, down) if note != origin and distance(note) <= origin_distance]
+    if not choices:
+        return origin
+    return min(choices, key=lambda note: (distance(note), abs(note - origin), note))
+
+
+def _quarter_walk(ctx, bar: int, names: tuple[str, ...], velocity: int) -> list[tuple]:
+    """Bourrée walk: a quarter, two pickup eighths, and the next harmony. Shorter bars use `_bass_walk`."""
+    from app.sonify.guitar_patterns import _playable
+
+    if ctx.epb != 8 or len(names) < 2:
+        return _bass_walk(ctx, bar, names, velocity, 0)
+    pillars = [_function(ctx, bar, name)[0] for name in names]
+    if len(pillars) >= 3:
+        slots = [
+            (0, 2, pillars[0]),
+            (2, 1, None),
+            (3, 1, pillars[1]),
+            (4, 2, pillars[1]),
+            (6, 1, None),
+            (7, 1, pillars[2]),
+        ]
+    else:
+        second = pillars[1]
+        slots = [
+            (0, 2, pillars[0]),
+            (2, 1, None),
+            (3, 1, second),
+            (4, 2, second),
+            (6, 1, None),
+            (7, 1, second),
+        ]
+    drafted: list[tuple[int, int, int, int | None]] = []
+    previous = _fit(pillars[0], ctx.bass_low, _bass_hi(ctx))
+    for offset, length, pc in slots:
+        if pc is None:
+            target = next(item[2] for item in slots if item[0] > offset and item[2] is not None)
+            pitch = _toward(ctx, previous, target)
+        else:
+            pitch = _fit(pc, ctx.bass_low, _bass_hi(ctx))
+        drafted.append((offset, length, pitch, pc))
+        previous = pitch
+    chord_pcs = []
+    for name in names:
+        for pc in _function(ctx, bar, name):
+            if pc not in chord_pcs:
+                chord_pcs.append(pc)
+    lead = _best_lead(ctx, chord_pcs, [pitch % 12 for _offset, _length, pitch, _pc in drafted], high=False)
+    basses: list[tuple[int, int, int]] = []
+    previous_bass = None
+    for offset, length, pitch, pc in drafted:
+        if pc is not None:
+            bass = _bass_note(ctx, pc, lead)
+        else:
+            bass = pitch
+        if not (bass < lead and _playable([bass + ctx.semitones, lead + ctx.semitones])):
+            bass = previous_bass if previous_bass is not None else _bass_note(ctx, pillars[0], lead)
+        basses.append((offset, length, bass))
+        previous_bass = bass
+    specs: list[tuple] = []
+    if all(bass < lead and _playable([bass + ctx.semitones, lead + ctx.semitones]) for _offset, _length, bass in basses):
+        specs.append((0, ctx.epb, lead, 1, velocity, {}))
+    for offset, length, bass in basses:
+        specs.append((offset, length, bass, 3, velocity, {}))
+    return _clip_voice(specs, ctx.epb)
+
+
+def _body_before_region(ctx, bar: int) -> int | None:
+    from app.sonify.guitar import _PEDAL
+
+    kinds = getattr(ctx, "kind_at", None) or {}
+    cursor = bar
+    while cursor > 0 and kinds.get(cursor - 1, "phrase") in _PEDAL:
+        cursor -= 1
+    body = cursor - 1
+    if body >= 0 and kinds.get(body, "phrase") not in _PEDAL:
+        return body
+    return None
+
+
+def _villa_rally(ctx, bar: int) -> bool:
+    """Outro stabs read the joined body bar. Only rally is bright."""
+    body = _body_before_region(ctx, bar)
+    if body is not None and callable(getattr(ctx, "mood", None)):
+        return ctx.mood(body) == "rally"
+    return _frame_mood(ctx, bar) == "rally"
+
+
+def _edge_stab_with_slap(ctx, bar: int) -> list[tuple]:
+    """`_edge_stab`, plus one staccato accent at eighth 3 when that eighth exists."""
+    epb = ctx.epb
+    specs: list[tuple] = []
+    for offset, length, midi, voice, velocity, flags in _edge_stab(ctx, bar):
+        if epb > 3 and voice == 3 and offset < 3 < offset + length:
+            length = 3 - offset
+        if length > 0:
+            specs.append((offset, length, midi, voice, velocity, flags))
+    if epb > 3:
+        bass, inner, lead = _stack(ctx, _sus2(ctx, bar))
+        specs.append((3, 1, bass, 3, _MF, {"staccato": True, "accent": True}))
+        specs.append((3, 1, lead, 1, _MF, {"staccato": True, "accent": True}))
+        if inner is not None:
+            specs.append((3, 1, inner, 2, _MP, {"staccato": True, "accent": True}))
+        if epb > 4:
+            specs.append((4, epb - 4, _deep_open(ctx), 3, _P, {}))
+    return _clip_voice(specs, epb)
+
+
+def _fuga_entry(ctx, bar: int) -> list[tuple]:
+    """Four subject notes in the lead. The bass pedal enters only on the second half."""
+    from app.sonify.guitar_patterns import _playable
+
+    subject = _bach_subject(ctx, bar, _P)
+    epb = ctx.epb
+    cut = max(1, epb // 2)
+    overlapping = [
+        midi
+        for offset, length, midi, voice, _velocity, _flags in subject
+        if voice == 1 and offset + length > cut
+    ]
+    pcs = _function(ctx, bar, "I")
+    bass = None
+    ceiling = min(overlapping) if overlapping else None
+    for pc in pcs:
+        candidate = _bass_match(ctx, pc, ceiling) if ceiling is not None else _bass_note(ctx, pc, None)
+        if candidate is None:
+            continue
+        if overlapping and not all(
+            candidate < note and _playable([candidate + ctx.semitones, note + ctx.semitones]) for note in overlapping
+        ):
+            continue
+        bass = candidate
+        break
+    specs = list(subject)
+    if bass is not None and cut < epb:
+        specs.append((cut, epb - cut, bass, 3, _P, {}))
+    return _clip_voice(specs, epb)
+
+
+def _fuga_into_body(ctx, bar: int) -> list[tuple]:
+    """Tonic block on the first half, then one voice into the next melody note."""
+    epb = ctx.epb
+    cut = max(1, epb // 2)
+    specs = _window(_bach_block(ctx, bar, "I", _P), 0, cut)
+    specs.extend(_scale_into(ctx, bar, cut, epb - cut, _MP))
+    return _clip_voice(specs, epb)
+
+
+def _stretto(ctx, bar: int, velocity: int, *, to_tonic: bool) -> list[tuple]:
+    """Bass and lead enter two eighths apart. The resolving stretto lands on I."""
+    from app.sonify.guitar_patterns import _playable
+
+    epb = ctx.epb
+    gap = 2 if epb > 3 else 1
+    lead_start = _bach_chord_tone(ctx, bar, "V7", 67 - ctx.semitones)
+    lead_line = _bach_steps(ctx, lead_start, (1, 1, -1), _lead_lo(ctx), _lead_hi(ctx))
+    bass_start = _fit(_function(ctx, bar, "V7")[0], ctx.bass_low, _bass_hi(ctx))
+    bass_line = _bach_steps(ctx, bass_start, (1, 1, -1), ctx.bass_low, _bass_hi(ctx))
+    if to_tonic:
+        goal = _bach_chord_tone(ctx, bar, "I", lead_line[-1])
+        root = _bass_note(ctx, _function(ctx, bar, "I")[0], goal)
+        lead_line[-1] = _bach_fit_lead(ctx, root, goal)
+        bass_line[-1] = root
+    specs: list[tuple] = []
+    bass_at: dict[int, int] = {}
+    for index, pitch in enumerate(bass_line):
+        if index >= epb:
+            break
+        specs.append((index, 1, pitch, 3, velocity, {}))
+        bass_at[index] = pitch
+    last_lead_at = None
+    last_lead = None
+    for index, pitch in enumerate(lead_line):
+        offset = index + gap
+        if offset >= epb:
+            break
+        under = bass_at.get(offset)
+        if under is None:
+            fitted = min(_lead_hi(ctx), max(_lead_lo(ctx), pitch))
+        else:
+            fitted = pitch
+            if not (under < fitted and _playable([under + ctx.semitones, fitted + ctx.semitones])):
+                fitted = _bach_fit_lead(ctx, under, pitch)
+            if not (under < fitted and _playable([under + ctx.semitones, fitted + ctx.semitones])):
+                continue
+        specs.append((offset, 1, fitted, 1, velocity, {}))
+        last_lead_at = offset
+        last_lead = fitted
+    if (
+        to_tonic
+        and last_lead_at is not None
+        and last_lead is not None
+        and last_lead_at not in bass_at
+    ):
+        root = _bass_note(ctx, _function(ctx, bar, "I")[0], last_lead)
+        if root < last_lead and _playable([root + ctx.semitones, last_lead + ctx.semitones]):
+            specs.append((last_lead_at, 1, root, 3, velocity, {}))
+    return _clip_voice(specs, epb)
+
+
+def _pedal_iv_then_i(ctx, bar: int, velocity: int) -> list[tuple]:
+    """Tonic pedal. The upper voices hold IV, then I."""
+    epb = ctx.epb
+    cut = max(1, epb // 2)
+    return _join_spans(
+        ctx,
+        _bach_pedal_upper(ctx, bar, "IV", velocity),
+        _bach_pedal_upper(ctx, bar, "I", velocity),
+        cut,
+    )
+
+
+def _bass_at(specs: list[tuple], offset: int) -> int | None:
+    for start, length, midi, voice, _velocity, _flags in specs:
+        if voice == 3 and start <= offset < start + length:
+            return midi
+    return None
+
+
+def _mozart_weak_inner(ctx, bar: int, specs: list[tuple], velocity: int) -> list[tuple]:
+    """Step the inner voice on the same weak eighths as a Mozart variation."""
+    from app.sonify.guitar_patterns import _playable
+    from app.sonify.guitar_sor import _mozart_offsets
+
+    del bar
+    kept = [spec for spec in specs if spec[3] != 2]
+    lead = next((midi for _offset, _length, midi, voice, _vel, _flags in kept if voice == 1), None)
+    if lead is None:
+        return specs
+    previous: int | None = None
+    direction = 1
+    extra: list[tuple] = []
+    for offset in _mozart_offsets(ctx):
+        if offset >= ctx.epb:
+            continue
+        bass = _bass_at(kept, offset)
+        if bass is None or not bass < lead:
+            continue
+        window = [
+            note
+            for note in range(max(_mid_lo(ctx), bass + 1), min(_mid_hi(ctx), lead - 1) + 1)
+            if _on_scale(note, ctx.mode)
+            and _playable([bass + ctx.semitones, note + ctx.semitones, lead + ctx.semitones])
+        ]
+        if not window:
+            continue
+        if previous is None:
+            pitch = min(window, key=lambda note: (abs(note - (bass + lead) // 2), note))
+        else:
+            choices = []
+            for way in (direction, -direction):
+                stepped = _step(previous, way, ctx.mode, ctx.bass_low, ctx.treble_top)
+                if stepped in window and 0 < abs(stepped - previous) <= 2:
+                    choices.append(stepped)
+            if not choices:
+                continue
+            pitch = choices[0]
+            direction = 1 if pitch > previous else -1
+            if pitch == window[-1]:
+                direction = -1
+            elif pitch == window[0]:
+                direction = 1
+        extra.append((offset, 1, pitch, 2, max(_PP, velocity - 4), {}))
+        previous = pitch
+    return _clip_voice([*kept, *extra], ctx.epb)
+
+
+def _mozart_var_door(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int) -> list[tuple]:
+    del index
+    if closing and steps == 2:
+        if role == 0:
+            return _turn(ctx, bar, "V7", _MP)
+        return _sor_outro_short(ctx, bar, 1)
+    if closing:
+        if role == 0:
+            return _mozart_weak_inner(ctx, bar, _sor_lyric_walk(ctx, bar, _P, 0), _P)
+        if role == 1:
+            return _dotted(ctx, bar, "V7", _MP, 0)
+        if role == 2:
+            return _turn(ctx, bar, "V7", _MP)
+        return _sor_outro_long(ctx, bar, 3, 0)
+    if steps == 2:
+        return _sor_intro_short(ctx, bar, role)
+    return _sor_intro_long(ctx, bar, role, 0)
+
+
+def _study_door(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int) -> list[tuple]:
+    del index
+    epb = ctx.epb
+    cut = max(1, epb // 2)
+    if closing and steps == 2:
+        return _sor_outro_short(ctx, bar, role)
+    if closing:
+        if role == 0:
+            return _clip_voice(
+                [
+                    *_study_span(ctx, bar, "I", _P, 0, cut, sparse=False),
+                    *_study_span(ctx, bar, "IV", _P, cut, epb - cut, sparse=False),
+                ],
+                epb,
+            )
+        if role == 1:
+            return _clip_voice(
+                [
+                    *_six_four_span(ctx, bar, _MP, 0, cut),
+                    *_study_span(ctx, bar, "V7", _MP, cut, epb - cut, sparse=False),
+                ],
+                epb,
+            )
+        if role == 2:
+            return _clip_voice(_study_span(ctx, bar, "I", _P, 0, epb, sparse=True), epb)
+        return _sor_outro_short(ctx, bar, 1)
+    if steps == 2:
+        if role == 0:
+            return _clip_voice(_study_span(ctx, bar, "I", _P, 0, epb, sparse=False), epb)
+        return _clip_voice(
+            [
+                *_study_span(ctx, bar, "V7", _MP, 0, cut, sparse=False),
+                *_scale_into(ctx, bar, cut, epb - cut, _MP),
+            ],
+            epb,
+        )
+    if role == 0:
+        return _clip_voice(_study_span(ctx, bar, "I", _P, 0, epb, sparse=True), epb)
+    if role == 1:
+        return _clip_voice(_study_span(ctx, bar, "IV", _P, 0, epb, sparse=False), epb)
+    if role == 2:
+        return _clip_voice(_study_span(ctx, bar, "V7", _MP, 0, epb, sparse=False), epb)
+    return _clip_voice(
+        [
+            *_study_span(ctx, bar, "I", _MP, 0, cut, sparse=False),
+            *_scale_into(ctx, bar, cut, epb - cut, _MP),
+        ],
+        epb,
+    )
+
+
+def _preludio_door(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int) -> list[tuple]:
+    return _barrios(ctx, bar, role, steps=steps, closing=closing, index=index)
+
+
+def _villa_pattern_door(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int) -> list[tuple]:
+    if closing:
+        bright = _villa_rally(ctx, bar)
+        if steps == 2:
+            return _villa_outro_short(ctx, bar, role, bright)
+        return _villa_outro_long(ctx, bar, role, index, bright)
+    if steps == 2:
+        return _villa_intro_short(ctx, bar, role)
+    return _villa_intro_long(ctx, bar, role, index)
+
+
+def _noviembre_door(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int) -> list[tuple]:
+    del index
+    if closing and steps == 2:
+        return _brouwer_outro_short(ctx, bar, role, False)
+    if closing:
+        return _brouwer_outro_long(ctx, bar, role, False)
+    if steps == 2:
+        return _brouwer_intro_short(ctx, bar, role, False)
+    return _brouwer_intro_long(ctx, bar, role, False)
+
+
+def _elogio_door(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int) -> list[tuple]:
+    del index
+    if not closing and steps == 2 and role == 0:
+        return _edge_stab_with_slap(ctx, bar)
+    if closing and steps == 2:
+        return _brouwer_outro_short(ctx, bar, role, True)
+    if closing:
+        return _brouwer_outro_long(ctx, bar, role, True)
+    if steps == 2:
+        return _brouwer_intro_short(ctx, bar, role, True)
+    return _brouwer_intro_long(ctx, bar, role, True)
+
+
+def _bourree_door(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int) -> list[tuple]:
+    del index
+    if closing and steps == 2:
+        if role == 0:
+            return _bach_half_cadence(ctx, bar, _MP)
+        return _bach_block(ctx, bar, "I", _P)
+    if closing:
+        if role == 0:
+            return _quarter_walk(ctx, bar, ("I", "IV"), _P)
+        if role == 1:
+            return _bach_half_cadence(ctx, bar, _MP)
+        if role == 2:
+            return _bach_mordent(ctx, bar, _MP)
+        return _bach_block(ctx, bar, "I", _P)
+    if steps == 2:
+        if role == 0:
+            return _bach_tonic_anacrusis(ctx, bar)
+        return _bach_dominant_run(ctx, bar)
+    if role == 0:
+        return _bach_staccato_pickup(ctx, bar)
+    if role == 1:
+        return _quarter_walk(ctx, bar, ("I", "IV", "V"), _P)
+    if role == 2:
+        return _bach_mordent(ctx, bar, _MP)
+    return _bach_upbeat_scale(ctx, bar, 3)
+
+
+def _fuga_door(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int) -> list[tuple]:
+    del index
+    if closing and steps == 2:
+        if role == 0:
+            return _stretto(ctx, bar, _MP, to_tonic=False)
+        return _bach_picardy(ctx, bar, _P)
+    if closing:
+        if role == 0:
+            return _bach_pedal_upper(ctx, bar, "V7", _MP)
+        if role == 1:
+            return _stretto(ctx, bar, _P, to_tonic=True)
+        if role == 2:
+            return _pedal_iv_then_i(ctx, bar, _P)
+        return _bach_picardy(ctx, bar, _PP)
+    if steps == 2:
+        if role == 0:
+            return _fuga_entry(ctx, bar)
+        return _bach_dominant_neighbor(ctx, bar, _MP, drive=True)
+    if role == 0:
+        return _bach_subject(ctx, bar, _P)
+    if role == 1:
+        return _bach_answer(ctx, bar, _P)
+    if role == 2:
+        return _bach_converge_dominant(ctx, bar, _MP)
+    return _fuga_into_body(ctx, bar)
+
+
+_RETAINED_DOORS = {
+    ("classic", "mozart_var"): _mozart_var_door,
+    ("classic", "study"): _study_door,
+    ("barrios", "preludio"): _preludio_door,
+    ("villa", "villa_pattern"): _villa_pattern_door,
+    ("brouwer", "noviembre"): _noviembre_door,
+    ("brouwer", "elogio_pizz"): _elogio_door,
+    ("bach", "bach_bourree"): _bourree_door,
+    ("bach", "bach_fuga"): _fuga_door,
+}
 
 
 def _bach_root_voices(ctx, pcs: list[int]) -> tuple[int, int | None, int]:
@@ -1819,14 +2457,30 @@ def _clip_voice(specs: list[tuple], epb: int) -> list[tuple]:
 
 def _realize(ctx, bar: int, specs: list[tuple]) -> tuple[list, list, list]:
     from app.sonify.guitar_patterns import _eighth_event
+    from app.sonify.model import NoteEvent
 
     voices: dict[int, list] = {1: [], 2: [], 3: []}
     origin = bar * ctx.epb
     for offset, length, midi, voice, velocity, flags in specs:
-        events = _eighth_event(origin + offset, length, midi, ctx.epb, voice, int(velocity))
-        if flags and events:
-            events = [replace(events[0], **flags), *events[1:]]
-        voices[voice].extend(events)
+        if midi is None or length <= 0 or offset < 0 or offset >= ctx.epb:
+            continue
+        if length * 2 >= 1:
+            events = _eighth_event(origin + offset, length, midi, ctx.epb, voice, int(velocity))
+            if flags and events:
+                events = [replace(events[0], **flags), *events[1:]]
+            voices[voice].extend(events)
+            continue
+        event = NoteEvent(
+            bar=bar,
+            beat=offset / 2,
+            midi=midi,
+            duration_beats=length / 2,
+            voice=voice,
+            velocity=int(velocity),
+        )
+        if flags:
+            event = replace(event, **flags)
+        voices[voice].append(event)
     return voices[1], voices[2], voices[3]
 
 
