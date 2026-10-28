@@ -134,7 +134,17 @@ def _bach_primary(ctx: _Ctx, phrases: list[Phrase], bars: list[int], mood: str |
 
 
 def _bach_contrast(ctx: _Ctx, primary: str, mood: str | None) -> str:
-    """Trio and bridge: the other Baroque texture, then the dance returns."""
+    """Trio and bridge: the palette guest, then the dance returns.
+
+    Prelude, Allemande, and Courante take their own guest. The 6/8 branch
+    below would otherwise send a calm Courante to Bourrée.
+    """
+    if primary == "bach_prelude":
+        return "bach_allemande"
+    if primary == "bach_allemande":
+        return "bach_courante"
+    if primary == "bach_courante":
+        return "bach_gigue"
     if ctx.kind == "6/8" or primary == "bach_gigue":
         return "bach_bourree" if mood == "calm" else "bach_fuga"
     if ctx.kind == "3/4" or primary == "bach_sarabande":
@@ -149,15 +159,16 @@ def _bach_contrast(ctx: _Ctx, primary: str, mood: str | None) -> str:
 def _bach_palette(ctx: _Ctx, primary: str, mood: str | None) -> tuple[str, ...]:
     """Framed suite row. `palette[2]` is heard only from the fourth region on.
 
-    The opening pattern is already chosen. Later regions walk this row with
-    the same reprise rules as Barrios, including movements that have a bridge
-    or a trio. Unframed scores never call this.
+    The opening pattern is already chosen. Later regions walk this row,
+    including movements that have a bridge or a trio. A Prelude opening does
+    not reprise itself at the close. The finale never invites Prelude, so the
+    last movement of a suite is another dance. Unframed scores never call this.
     """
     if _is_suite_finale(ctx) and ctx.kind == "4/4":
         rows = {
             "bach_gavotte": ("bach_gavotte", "bach_bourree"),
             "bach_bourree": ("bach_bourree", "bach_fuga"),
-            "bach_fuga": ("bach_fuga", "bach_prelude"),
+            "bach_fuga": ("bach_fuga", "bach_allemande"),
             "bach_chaconne": ("bach_chaconne", "bach_fuga"),
         }
         return rows.get(primary, ("bach_bourree", "bach_fuga"))

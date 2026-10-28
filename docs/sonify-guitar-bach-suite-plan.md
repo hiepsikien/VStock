@@ -7,9 +7,9 @@
 > - **`bach_courante`** lấy cú nhảy mở ô, bốn móc kép giữa ô và hemiola từ Courante BWV 1007 (nhịp `3/4`). Scheduler vẫn có thể đặt Courante vào chương `4/4` hoặc `6/8`. Lưới `4/4` ở Mục 2.3 là lưới của scheduler, không phải nhịp của tổng phổ.
 > **Mục tiêu**:
 > 1. Bổ sung **3 pattern** còn thiếu ở đầu tổ khúc: **`bach_prelude`**, **`bach_allemande`**, **`bach_courante`**. Bach đi từ 6 pattern lên **9 pattern**.
-> 2. Mỗi pattern có một nhà. `1D` chỉ nghe 7 pattern vì ngày luôn là `4/4`: Sarabande và Gigue ở các chương `3/4` và `6/8`. Một chương dài nghe 2 pattern khi có 2 hoặc 3 vùng, và nghe phần tử thứ ba của palette khi có từ 4 vùng (`1W` 4–5 phiên). Form `A–B–A` lặp pattern mở. Một `character` không đi hết 9 pattern trong một lần phát.
+> 2. Mỗi pattern có một nhà. `1D` chỉ nghe 7 pattern vì ngày luôn là `4/4`: Sarabande và Gigue ở các chương `3/4` và `6/8`. Một chương dài nghe 2 pattern khi có 2 hoặc 3 vùng, và nghe phần tử thứ ba của palette khi có từ 4 vùng (`1W` 4–5 phiên). Form `A–B–A` lặp pattern mở, trừ Prelude: hàng từ 3 vùng không khép bằng Prelude. Một `character` không đi hết 9 pattern trong một lần phát.
 > 3. **`1D` (34 ô, `4/4`, 96 BPM, có khung)**: một pattern cho cả thân bài (30 ô).
-> 4. **Chương có khung và `ctx.bars > 40`**: một hàng tổ khúc, kể cả chương đã có `bridge` hoặc `trio`. Ví dụ tên chương: `Prelude — Allemande — Prelude`, `Allemande — Courante — Allemande`, `Gigue — Courante — Gigue`, `Bourree — Fugue — Bourree`, `Sarabande — Chaconne — Sarabande`.
+> 4. **Chương có khung và `ctx.bars > 40`**: một hàng tổ khúc, kể cả chương đã có `bridge` hoặc `trio`. Ví dụ tên chương: `Prelude — Allemande`, `Allemande — Courante — Allemande`, `Gigue — Courante — Gigue`, `Bourree — Fugue — Bourree`, `Sarabande — Chaconne — Sarabande`. Hàng từ 3 vùng không khép bằng Prelude.
 
 ---
 
@@ -132,14 +132,14 @@ Primary đọc mood của vùng đầu. Rally của chương dài chỉ tách b�
 
 | Chương | Primary | Palette | Tên khi 3 vùng | Tên khi 2 vùng |
 |---|---|---|---|---|
-| `4/4` mở (`1W`, `1M` I, `3M` I, `1Y` tháng 1, 4, 7, 10) | calm hẹp hoặc nhiều nốt ngân: `bach_prelude`. Calm còn lại: `bach_allemande`. Rally không `wide`: `bach_allemande`. Rally `wide`: `bach_bourree`. Volatile: `bach_fuga`. Selloff: `bach_chaconne` | prelude: `(prelude, allemande, bourree)`. Allemande: `(allemande, courante, gavotte)`. Bourrée: `(bourree, gavotte, fuga)`. Fugue: `(fuga, allemande, bourree)`. Chaconne: `(chaconne, sarabande, fuga)` | `Prelude — Allemande — Prelude`, `Allemande — Courante — Allemande`, `Bourree — Gavotte — Bourree`, `Fugue — Allemande — Fugue`, `Chaconne — Sarabande — Chaconne` | bỏ tên thứ ba, vì vùng 2 là `palette[1]` và không có tái hiện |
+| `4/4` mở (`1W`, `1M` I, `3M` I, `1Y` tháng 1, 4, 7, 10) | calm hẹp hoặc nhiều nốt ngân: `bach_prelude`. Calm còn lại: `bach_allemande`. Rally không `wide`: `bach_allemande`. Rally `wide`: `bach_bourree`. Volatile: `bach_fuga`. Selloff: `bach_chaconne` | prelude: `(prelude, allemande, bourree)`. Allemande: `(allemande, courante, gavotte)`. Bourrée: `(bourree, gavotte, fuga)`. Fugue: `(fuga, allemande, bourree)`. Chaconne: `(chaconne, sarabande, fuga)` | Prelude 3 vùng gộp thành `Prelude — Allemande`, vì vùng cuối lặp Allemande. Các hàng khác: `Allemande — Courante — Allemande`, `Bourree — Gavotte — Bourree`, `Fugue — Allemande — Fugue`, `Chaconne — Sarabande — Chaconne` | bỏ tên thứ ba, vì vùng 2 là `palette[1]` và không có tái hiện |
 | `3/4` chậm, có bridge (`1M` II 72 BPM, `3M` II 60 BPM, `1Y` tháng 2, 5, 8, 11 ở 66 BPM) | `bach_sarabande` với mọi mood, kể cả selloff | calm hoặc rally: `(sarabande, prelude)`. Volatile: `(sarabande, courante)`. Selloff: `(sarabande, chaconne)` | `Sarabande — Prelude — Sarabande`, `Sarabande — Courante — Sarabande`, `Sarabande — Chaconne — Sarabande` | cùng cặp, không lặp |
 | `6/8` scherzo, có trio (`1M` III 120 BPM, `1Y` tháng 3, 6, 9 ở 108 BPM) | rally: `bach_gigue`. Calm: `bach_courante`. Volatile: `bach_fuga`. Selloff: `bach_chaconne` | gigue: `(gigue, courante)`. Courante: `(courante, gigue)`. Fugue: `(fuga, courante)`. Chaconne: `(chaconne, gavotte)` | `Gigue — Courante — Gigue`, `Courante — Gigue — Courante`, `Fugue — Courante — Fugue`, `Chaconne — Gavotte — Chaconne` | cùng cặp |
-| `4/4` finale | calm: `bach_gavotte`. Rally, kể cả rally `wide`: `bach_bourree`. Volatile: `bach_fuga`. Selloff: `bach_chaconne` | gavotte: `(gavotte, bourree)`. Bourrée: `(bourree, fuga)`. Fugue: `(fuga, prelude)`. Chaconne: `(chaconne, fuga)` | `Gavotte — Bourree — Gavotte`, `Bourree — Fugue — Bourree`, `Fugue — Prelude — Fugue`, `Chaconne — Fugue — Chaconne` | cùng cặp |
+| `4/4` finale | calm: `bach_gavotte`. Rally, kể cả rally `wide`: `bach_bourree`. Volatile: `bach_fuga`. Selloff: `bach_chaconne` | gavotte: `(gavotte, bourree)`. Bourrée: `(bourree, fuga)`. Fugue: `(fuga, allemande)`. Chaconne: `(chaconne, fuga)` | `Gavotte — Bourree — Gavotte`, `Bourree — Fugue — Bourree`, `Fugue — Allemande — Fugue`, `Chaconne — Fugue — Chaconne` | cùng cặp |
 
 Calm `6/8` có khung mở bằng Courante, khách là Gigue. Hôm nay `_bach_contrast` của Gigue calm là Bourrée. Không còn hàng `(gigue, bourree)` cho calm, vì primary calm không còn là Gigue. Bản không khung vẫn đi contrast cũ.
 
-`palette[2]` chỉ kêu ở `1W` 4 hoặc 5 phiên. `pattern_form` với hơn 3 tên giữ tên đầu, tên giữa và tên cuối. Tuần 5 phiên mở Prelude nghe Prelude, Allemande, Bourrée, Allemande, Prelude, còn tiêu đề là `Prelude — Bourree — Prelude`. Allemande có trong nhạc và vắng trên tiêu đề. Đó là luật `pattern_form` hiện có.
+`palette[2]` chỉ kêu ở `1W` 4 hoặc 5 phiên. Hàng từ 3 vùng không khép bằng Prelude: vùng cuối lặp điệu đang đứng ngay trước nó. Tuần 5 phiên mở Prelude nghe Prelude, Allemande, Bourrée, Allemande, Allemande. `pattern_form` giữ tên đầu, tên giữa và tên cuối, nên tiêu đề là `Prelude — Bourree — Allemande`. Chương chậm 2 vùng vẫn được khép bằng Prelude khi khách của Sarabande là Prelude, vì hàng 2 vùng không có chỗ tái hiện.
 
 Sarabande là khách của hàng Chaconne `4/4`. Renderer Sarabande giữ trọng âm riêng của nó trên lưới `4/4` sẵn có. Chương không bị đổi sang `3/4`.
 
@@ -154,22 +154,22 @@ Các số dưới đây là một chương hoặc cả span cùng một mood. V�
 | `1D`, mọi mood trong Mục 3.2 | đúng 1 pattern trong 7 pattern của bảng `1D` | Sarabande, Gigue |
 | `1W`, 1 phiên | 1 pattern của menu mở `4/4` | Courante không làm primary. Gavotte, Sarabande, Gigue không làm primary |
 | `1W`, 2–3 phiên | 2 pattern, `palette[0]` và `palette[1]` | `palette[2]` |
-| `1W`, 4–5 phiên | 3 pattern của palette, vùng cuối lặp pattern mở | pattern ngoài hàng đó |
+| `1W`, 4–5 phiên | 3 pattern của palette. Vùng cuối lặp pattern mở, trừ khi pattern mở là Prelude: vùng đó lặp điệu ngay trước nó | pattern ngoài hàng đó |
 | `1M` calm | Prelude, Allemande, Sarabande, Courante, Gigue, Gavotte, Bourrée | Fugue, Chaconne |
 | `1M` rally không `wide` | Allemande, Courante, Sarabande, Prelude, Gigue, Bourrée, Fugue | Gavotte, Chaconne |
 | `1M` rally `wide` | Bourrée, Gavotte, Sarabande, Prelude, Gigue, Courante, Fugue | Allemande, Chaconne |
-| `1M` volatile | Fugue, Allemande, Sarabande, Courante, Prelude | Bourrée, Gavotte, Gigue, Chaconne |
+| `1M` volatile | Fugue, Allemande, Sarabande, Courante | Bourrée, Gavotte, Gigue, Chaconne, Prelude. Finale không mời Prelude |
 | `1M` selloff | Chaconne, Sarabande, Gavotte, Fugue | Prelude, Allemande, Courante, Bourrée, Gigue |
 | `3M` calm hẹp hoặc nhiều nốt ngân | Prelude, Allemande, Sarabande, Gavotte, Bourrée | Courante, Gigue, Fugue, Chaconne. `3M` không có scherzo `6/8`, nên Courante không được mời từ Gigue |
 | `3M` calm còn lại | Allemande, Courante, Sarabande, Prelude, Gavotte, Bourrée | Gigue, Fugue, Chaconne. Gavotte của hàng Allemande là `palette[2]`, không kêu; Gavotte kêu vì là primary của finale |
 | `3M` rally không `wide` | Allemande, Courante, Sarabande, Prelude, Bourrée, Fugue | Gavotte, Gigue, Chaconne |
 | `3M` rally `wide` | Bourrée, Gavotte, Sarabande, Prelude, Fugue | Allemande, Courante, Gigue, Chaconne |
-| `3M` volatile | Fugue, Allemande, Sarabande, Courante, Prelude | Bourrée, Gavotte, Gigue, Chaconne |
+| `3M` volatile | Fugue, Allemande, Sarabande, Courante | Bourrée, Gavotte, Gigue, Chaconne, Prelude. Finale không mời Prelude |
 | `3M` selloff | Chaconne, Sarabande, Fugue | Prelude, Allemande, Courante, Bourrée, Gavotte, Gigue. Gavotte của `1M` selloff đến từ scherzo, mà `3M` không có scherzo |
 | `1Y` calm | 7 pattern, cùng tập với `1M` calm | Fugue, Chaconne |
 | `1Y` mà các tháng `6/8` là volatile hoặc selloff | Gigue vắng, vì hai mood đó không mở Gigue và không mời Gigue | Gigue |
 
-Đủ 9 pattern chỉ khi các chương trong cùng một span mang các mood bù lỗ cho nhau. Form `A–B–A` cố ý lặp pattern mở.
+Đủ 9 pattern chỉ khi các chương trong cùng một span mang các mood bù lỗ cho nhau. Form `A–B–A` cố ý lặp pattern mở, trừ hàng mở bằng Prelude.
 
 ---
 
@@ -219,7 +219,7 @@ Ba cửa mới nằm trong `DOORS` của `backend/app/sonify/guitar_frame_bach_s
 
 - **Pattern kề pedal quyết định cửa**:
   - `intro_pattern` đọc ô thân bài đầu (`leading[-1] + 1`); `outro_pattern` đọc ô thân bài cuối (`trailing[0] - 1`).
-  - Ở chương 3 vùng (`A – B – A`) hoặc 4–5 vùng (`A – B – C – A` / `A – B – C – B – A`), vùng cuối tái hiện `primary`, nên intro và outro cùng mở/khép bằng cửa của `primary`.
+  - Ở chương 3 vùng (`A – B – A`) hoặc 4–5 vùng (`A – B – C – A` / `A – B – C – B – A`), vùng cuối tái hiện `primary`, nên intro và outro cùng mở/khép bằng cửa của `primary`. Ngoại lệ: `primary` là Prelude thì vùng cuối lặp điệu ngay trước nó. Intro vẫn là cửa Prelude. Outro là cửa của vùng cuối, không phải cửa Prelude.
   - Ở chương 2 vùng (`1Y` tháng mở `4/4`, hoặc `1W` 2 phiên) đi `A – B` không tái hiện: intro mở bằng cửa của `palette[0]` (ví dụ `bach_prelude` hoặc `bach_allemande`), còn outro khép bằng cửa của `palette[1]` (ví dụ `bach_allemande` hoặc `bach_courante`).
   - Khi `bach_prelude` hoặc `bach_courante` chỉ làm khách giữa chương 3 vùng (như `Sarabande — Prelude — Sarabande` hay `Sarabande — Courante — Sarabande`), biên `A | B` ở giữa thân bài không đi qua `render_intro` / `render_outro`; cửa riêng của Prelude và Courante phát khi chúng đứng ở `1D` hoặc ở vùng đầu / vùng cuối của chương dài.
 - **Độ dài kịch bản (`steps` và `frame_roles`)**:
@@ -295,6 +295,8 @@ Ba cửa mới nằm trong `DOORS` của `backend/app/sonify/guitar_frame_bach_s
 
 #### 3. `("bach", "bach_courante"): bach_courante` (`_courante_specs`)
 
+Cửa là kịch bản khung, không phải lưới thân bài ở Mục 2.3. Thân bài hát giá rồi chạy nửa nhịp, bass một nốt cả ô, và bỏ bè giữa khi ô không kết. Cửa vẫn mang cú nhảy, tirata và hemiola để mở và khép chương.
+
 - **Đặc trưng**: Cửa mang đúng 3 dấu ấn của *Courante BWV 1007*: cú nhảy mở ô (`eighth 0` `accent=True` rồi `eighth 1` `staccato=True`), chùm 4 móc kép *tirata* theo meter, và hemiola ở bước áp cuối của outro khi meter là `3/4` hoặc `6/8`. `4/4` khép bằng tirata trên `V7`, rồi hợp âm chủ.
 - **Ba helper nội bộ theo đúng meter (`ctx.kind`)**:
   - **`_courante_leap_cell(frame, ctx, pcs, velocity)`** (phách mở ô, `eighth 0..1` ở `3/4` & `4/4`, `eighth 0..2` ở `6/8`):
@@ -337,9 +339,9 @@ Ba cửa mới nằm trong `DOORS` của `backend/app/sonify/guitar_frame_bach_s
   - `3/4`: `(bar * epb + 2, bar * epb + 3)`.
   - `6/8`: `(bar * epb + 3, bar * epb + 4)`.
   - `4/4`: `(bar * epb + 4, bar * epb + 5)`.
-  - Ô không `phrase.closes` viết tirata sẵn, nên các eighth đó là intrinsic. Ô `phrase.closes` ở `6/8` bỏ tirata, intrinsic của ô đó là rỗng. Eighth `0` và `1` luôn ngoài cửa sổ, nên biến động nhỏ không đè cú nhảy mở ô.
+  - Ô không `phrase.closes` viết tirata sẵn, nên các eighth đó là intrinsic. Ô `phrase.closes` bỏ móc kép ở thân bài. Intrinsic của ô `6/8` kết là rỗng. `3/4` và `4/4` vẫn đánh dấu cửa sổ đó là intrinsic để scale không đè eighth của câu kết. Eighth `0` và `1` luôn ngoài cửa sổ, nên biến động nhỏ không đè nốt giá mở ô.
   - Sóng lớn (`L >= epb` và `net_span >= 6`) chỉ mở sau một ô Courante trọn của vùng, cùng luật *establish pattern first*.
-  - Bass dưới passage: eighth `0` vẫn là gốc hợp âm, `accent=True`. Ô `phrase.closes` ở `3/4` vẫn có Bass ở eighth `3`. Ô `phrase.closes` ở `6/8` giữ Bass ở eighth `0`, `2` và `4`. Không thay bằng Bass gốc/bậc 5 chung của Nhóm 3.
+  - Bass dưới passage: một attack ở eighth `0`, `accent=True`, ngân hết ô, kể cả ô `phrase.closes`. Không có bass ở eighth `2`, `3` hoặc `4`. Không thay bằng Bass gốc/bậc 5 chung của Nhóm 3.
 - **`bach_allemande` không vào `_BACH_GROUP2`**. Allemande là Nhóm 3, nên nhận scale sub-bar và multi-bar. Hairpin nằm trong `_HAT_PATTERNS`, cửa `52..82`. Bass dưới passage giữ offset Mục 2.2, không staccato, đi bộ khi Lead ngân. Không rút Bass thành nốt ngắn trên `ctx.strong`.
 - **`bach_prelude` không vào `_BACH_GROUP2`**. Prelude cũng là Nhóm 3. `_BAROQUE_PATTERNS` chỉ đặt cửa hairpin `54..84`. Set đó không cấp và không cấm scale. Bass dưới passage giữ pedal nửa ô: attack ở eighth `0` và `4` khi `4/4`, eighth `0` và `3` khi `3/4` hoặc `6/8`, ngân hết nửa ô. Không đổi pedal này thành gốc ngắn trên phách mạnh.
 
@@ -374,16 +376,16 @@ Thiếu một map thì dispatcher rơi về Bourrée hoặc bỏ qua cửa sóng
 ## 5. Danh Mục Kiểm Thử
 
 1. **`backend/tests/test_sonify_guitar.py`**:
-   - `test_bach_prelude_rolls_sixteenth_arpeggio_across_three_voices`: `divisions == 4`. Mỗi móc kép có đúng một attack mới ở Lead hoặc Support, trừ móc kép đầu mỗi nửa ô chỉ có attack Bass. Bass ngân hết nửa ô. Lead không attack cùng móc kép với Bass. `assert_playable(..., "bach")` trên tập nốt đang ngân.
-   - `test_bach_allemande_weaves_style_brise_and_sixteenth_pickup`: Support vào sau Bass, Bass đi bộ khi Lead ngân, không `staccato`, đúng 4 móc kép ở hai eighth cuối khi `_allemande_passes`.
-   - `test_bach_courante_leaps_on_beat_one_and_runs_sixteenths_on_the_middle_beat`: `accent` ở eighth `0`, `staccato` ở eighth `1`, lấy đà cuối ô. Tirata ở eighth `2, 3` khi `3/4`, eighth `3, 4` khi `6/8`, eighth `4, 5` khi `4/4`. Hemiola `phrase.closes`: `3/4` thêm Bass eighth `3` và bỏ Bass eighth `2`; `6/8` bỏ tirata và nhấn eighth `0`, `2`, `4`.
+   - `test_bach_prelude_pairs_each_price_with_one_neighbor`: `divisions == 4`. Mỗi móc đơn là một móc kép đúng giá và một móc kép bậc phụ trên Voice 1. Bass chỉ ở đầu mỗi nửa ô và ngân hết nửa ô. Support tối đa một nốt ngân trong nửa ô, và rỗng khi hợp âm đã có bậc 3.
+   - `test_bach_allemande_weaves_style_brise_and_sixteenth_pickup`: Support chỉ khi Lead ngân từ 2 móc đơn. Lead chạy từng móc đơn thì Support rỗng và Bass không đi bộ. Không `staccato`. Đúng 4 móc kép ở hai eighth cuối khi `_allemande_passes`.
+   - `test_bach_courante_sings_the_price_then_runs_toward_it`: eighth `0` và `1` hát giá. Hai nốt trùng thì eighth `1` nhảy quãng 3 và `staccato`. Giá xuống thì eighth `1` thấp hơn. Tirata ở nửa nhịp khi ô không kết. Bass một nốt đầu ô, ngân hết ô. Support của ô không kết là rỗng. `phrase.closes` bỏ móc kép. `3/4` nhấn eighth `0` và `3`. `6/8` nhấn eighth `0`, `2` và `4`. `4/4` không hemiola.
    - `test_bach_1d_stays_one_pattern_and_longer_spans_walk_suite_rows`: `1D` có khung một pattern suốt 30 ô thân bài. `1W` một phiên một pattern. `1W` từ 2 phiên, `1M`, `3M`, `1Y` đi đúng hàng Mục 3.3. Chương 3 vùng không chơi `palette[2]`.
    - Scherzo `6/8` calm có khung mở Courante và khách Gigue.
    - `test_bach_prelude_allemande_courante_doors_frame_short_and_long_pedals`: kiểm tra `render_intro` và `render_outro` cho `bach_prelude`, `bach_allemande`, `bach_courante` ở cả kịch bản ngắn (`2` ô) và dài (`4` ô) trên `4/4`, `3/4`, `6/8`; chương 2 vùng (`A – B`) mở bằng cửa `palette[0]` và khép bằng cửa `palette[1]`; mọi ô pedal vượt qua `assert_playable(..., "study")` và không dùng Picardy ở điệu thứ.
    - Giữ nguyên nửa không khung của `test_bach_trio_answers_the_bourree_with_the_fugue`. Ô 12 của finale rally có khung vẫn Bourrée, không móc kép. Assert `divisions` của finale theo Mục 4.1.
 2. **`backend/tests/test_program.py` và `src/sonify/program.test.ts`**:
    - `pattern_title` của Prelude, Allemande, Courante.
-   - Tên `Prelude — Allemande — Prelude`, `Allemande — Courante — Allemande`, `Gigue — Courante — Gigue`, `Bourree — Fugue — Bourree`.
+   - Tên `Prelude — Allemande`, `Prelude — Bourree — Allemande` cho tuần 5 phiên, `Allemande — Courante — Allemande`, `Gigue — Courante — Gigue`, `Bourree — Fugue — Bourree`. Không có tên khép bằng Prelude khi hàng có từ 3 vùng.
    - `test_bach_slow_selloff_with_a_contrast_stays_sarabande` vẫn `Sarabande — Chaconne — Sarabande` khi `framed=False`.
 3. **`backend/tests/test_guitar_wave.py`**:
    - Tập `PROFILES` đủ 31 khóa, comment “28 dòng” sửa theo, và dict `windows` trong `test_same_bar_differences_follow_one_rounded_center` thêm ba tuple Mục 4.2. Courante nằm trong bộ khóa `ceiling - floor == 27`. Bất biến `gain == 1` vẫn đúng.

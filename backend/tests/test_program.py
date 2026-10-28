@@ -254,7 +254,7 @@ def test_bach_suite_rows_name_prelude_allemande_and_courante():
     assert _written_form(flat, ensemble="bach", character="calm", form=opening) == [
         "bach_prelude",
         "bach_allemande",
-        "bach_prelude",
+        "bach_allemande",
     ]
     assert _written_form(flat, ensemble="bach", character="rally", form=opening) == [
         "bach_allemande",
@@ -291,7 +291,14 @@ def test_bach_suite_rows_name_prelude_allemande_and_courante():
         "bach_prelude",
         "bach_allemande",
         "bach_bourree",
+        "bach_bourree",
+    ]
+    assert _written_form(flat, ensemble="bach", character="calm", form=week_spec(5)) == [
         "bach_prelude",
+        "bach_allemande",
+        "bach_bourree",
+        "bach_allemande",
+        "bach_allemande",
     ]
     assert (
         guitar_movement_name(wide, ensemble="bach", character="rally", form=finale)
@@ -310,7 +317,10 @@ def test_bach_suite_rows_name_prelude_allemande_and_courante():
     assert pattern_title("bach_allemande", "bach") == "Allemande"
     assert pattern_title("bach_courante", "bach") == "Courante"
     assert guitar_movement_name(flat, ensemble="bach", character="calm", form=opening) == (
-        "Prelude — Allemande — Prelude"
+        "Prelude — Allemande"
+    )
+    assert guitar_movement_name(flat, ensemble="bach", character="calm", form=week_spec(5)) == (
+        "Prelude — Bourree — Allemande"
     )
     assert guitar_movement_name(flat, ensemble="bach", character="rally", form=opening) == (
         "Allemande — Courante — Allemande"

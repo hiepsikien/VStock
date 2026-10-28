@@ -1102,6 +1102,25 @@ def _barrios_region_patterns(palette: tuple[str, ...], count: int) -> list[str]:
     return chosen
 
 
+def _bach_region_patterns(palette: tuple[str, ...], count: int) -> list[str]:
+    """Opening, guests, and a reprise that does not close on Prelude.
+
+    Barrios still returns to its opening. Bach does too, except when that
+    return would put Prelude last in a row that already has another dance.
+    The close then repeats the dance already playing in front of it. A
+    two-part row has no reprise, so Sarabande — Prelude stays.
+    """
+    row = _barrios_region_patterns(palette, count)
+    if (
+        count >= 3
+        and row
+        and row[-1] == "bach_prelude"
+        and any(item != "bach_prelude" for item in row[:-1])
+    ):
+        row[-1] = row[-2]
+    return row
+
+
 def _contrast_pattern(ctx: _Ctx, primary: str, phrases: list[Phrase], bars: list[int]) -> str:
     """The other formal area: one contrasting pattern, then the piece returns."""
     mood = _majority_mood(ctx, bars)
@@ -1172,7 +1191,7 @@ def _assign_macro(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
                 opening_bars,
             )
             palette = _bach_palette(ctx, primary, _majority_mood(ctx, opening_bars))
-            row = _barrios_region_patterns(palette, len(regions))
+            row = _bach_region_patterns(palette, len(regions))
             for (indexes, _contrast), pattern in zip(regions, row):
                 for index in indexes:
                     chosen[index] = pattern

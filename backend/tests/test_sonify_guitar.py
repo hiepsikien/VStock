@@ -5206,15 +5206,34 @@ def test_bach_1d_stays_one_pattern_and_longer_spans_walk_suite_rows() -> None:
     assert _body_row(week) == ["bach_bourree"]
 
     calm_week = _spec_ctx(week_spec(3), character="calm", rel_span=0.0)
-    assert _body_row(calm_week) == ["bach_prelude", "bach_allemande", "bach_prelude"]
-    assert "bach_bourree" not in _body_row(calm_week)
+    calm_ids = form_pattern_ids(calm_week, _patterns_of(calm_week))
+    assert calm_ids == ["bach_prelude", "bach_allemande", "bach_allemande"]
+    assert "bach_bourree" not in calm_ids
+    assert calm_ids[-1] != "bach_prelude"
     four = _spec_ctx(week_spec(4), character="calm", rel_span=0.0)
-    assert _body_row(four) == ["bach_prelude", "bach_allemande", "bach_bourree", "bach_prelude"]
+    assert form_pattern_ids(four, _patterns_of(four)) == [
+        "bach_prelude",
+        "bach_allemande",
+        "bach_bourree",
+        "bach_bourree",
+    ]
+    five = _spec_ctx(week_spec(5), character="calm", rel_span=0.0)
+    assert form_pattern_ids(five, _patterns_of(five)) == [
+        "bach_prelude",
+        "bach_allemande",
+        "bach_bourree",
+        "bach_allemande",
+        "bach_allemande",
+    ]
     wide_four = _spec_ctx(week_spec(4), character="rally", rel_span=0.02)
     assert _body_row(wide_four) == ["bach_bourree", "bach_gavotte", "bach_fuga", "bach_bourree"]
 
     opening = _spec_ctx(attach_frame(month_specs("guitar")[0], "1M"), character="calm", rel_span=0.0)
-    assert _body_row(opening) == ["bach_prelude", "bach_allemande", "bach_prelude"]
+    assert form_pattern_ids(opening, _patterns_of(opening)) == [
+        "bach_prelude",
+        "bach_allemande",
+        "bach_allemande",
+    ]
     lively = _spec_ctx(
         attach_frame(month_specs("guitar")[0], "1M"),
         character="rally",
@@ -5229,6 +5248,13 @@ def test_bach_1d_stays_one_pattern_and_longer_spans_walk_suite_rows() -> None:
     finale = _spec_ctx(attach_frame(month_specs("guitar")[3], "1M"), character="rally", rel_span=0.02)
     assert _body_row(finale) == ["bach_bourree", "bach_fuga", "bach_bourree"]
     assert "bach_gavotte" not in _body_row(finale)
+    volatile_finale = _spec_ctx(
+        attach_frame(month_specs("guitar")[3], "1M"),
+        character="volatile",
+        rel_span=0.02,
+    )
+    assert _body_row(volatile_finale) == ["bach_fuga", "bach_allemande", "bach_fuga"]
+    assert "bach_prelude" not in _body_row(volatile_finale)
 
     slow = _spec_ctx(
         attach_frame(quarter_specs("guitar")[1], "3M"),
@@ -5247,6 +5273,17 @@ def test_bach_1d_stays_one_pattern_and_longer_spans_walk_suite_rows() -> None:
     palette = _bach_palette(opening, "bach_prelude", "calm")
     assert palette[2] == "bach_bourree"
     assert palette[2] not in _body_row(opening)
+
+
+def test_bach_contrast_keeps_the_new_dances_off_bourree() -> None:
+    """A short framed trio uses the palette guest, not the Bourrée fallback."""
+    from app.sonify.guitar_bach import _bach_contrast
+
+    four = _dance_ctx(METER_44, [72] * 16, character="calm", rel_span=0.0)
+    assert _bach_contrast(four, "bach_prelude", "calm") == "bach_allemande"
+    assert _bach_contrast(four, "bach_allemande", "calm") == "bach_courante"
+    six = _dance_ctx(METER_68, [72] * 12, character="calm", rel_span=0.0)
+    assert _bach_contrast(six, "bach_courante", "calm") == "bach_gigue"
 
 
 def _patterns_of(ctx) -> list[str]:
