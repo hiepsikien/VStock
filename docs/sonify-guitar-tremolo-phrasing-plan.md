@@ -1,7 +1,7 @@
 # Tremolo theo câu, và scale chỉ trên đoạn dài đã gấp
 
 > Tham chiếu: [`docs/sonify-guitar-group1-scales-plan.md`](./sonify-guitar-group1-scales-plan.md), [`docs/sonify-classical-guitar.md`](./sonify-classical-guitar.md) mục 3.0, [`docs/sonify-guitar-scales-plan.md`](./sonify-guitar-scales-plan.md) Mục 2.1.B
-> Phạm vi: thân Barrios đúng vân tay `1D`, hàng khách của chương dài, và cửa scale trên `tremolo` cùng bốn pattern chủ. Bach, Brouwer và Sor không đổi luật riêng. Villa vẫn khóa pattern cả thân theo mood. Chưa sửa code.
+> Phạm vi: thân Barrios đúng vân tay `1D`, hàng khách của chương dài, và cửa scale trên `tremolo` cùng bốn pattern chủ. Bach, Brouwer và Sor không đổi luật riêng. Villa vẫn khóa pattern cả thân theo mood. Code đã theo plan này.
 
 ## Việc cần nghe được
 

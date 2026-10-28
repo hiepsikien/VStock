@@ -220,13 +220,33 @@ def _overlaps_group2(ctx: _Ctx, patterns: list[str], start: int, target: int) ->
     return any(_is_group2(_bar_pattern(ctx, bar, patterns)) for bar in range(first, last + 1))
 
 
-def _edge_blocked(ctx: _Ctx, patterns: list[str], bar: int) -> bool:
-    """Tremolo and pedal bars are cut off the ends and forbidden in the middle."""
+def _grids_yield(impulse: _Impulse, epb: int) -> bool:
+    """Whether tremolo and the four hosts may give bars to this impulse.
+
+    The two numbers are `_major_bridge`, measured on the original impulse
+    before any clip. Failing them does not reject a group-3 remainder.
+    """
+    return _major_bridge(impulse, epb)
+
+
+def _framed_host(ctx: _Ctx, pattern: str) -> bool:
+    if pattern not in _HOST:
+        return False
+    return pattern != "preludio" or _catedral_preludio(ctx)
+
+
+def _edge_blocked(ctx: _Ctx, patterns: list[str], bar: int, *, yield_grids: bool) -> bool:
+    """Pedal is always cut. Tremolo and hosts are cut only when the gate failed."""
     if bar < 0 or bar >= ctx.bars:
         return True
     if ctx.kind_at.get(bar, "phrase") in _PEDAL:
         return True
-    return _bar_pattern(ctx, bar, patterns) in _GROUP1
+    if yield_grids:
+        return False
+    pattern = _bar_pattern(ctx, bar, patterns)
+    if pattern in _GROUP1:
+        return True
+    return _framed_host(ctx, pattern)
 
 
 def _host_pattern(ctx: _Ctx, patterns: list[str], bar: int) -> str | None:
@@ -243,22 +263,52 @@ def _host_pattern(ctx: _Ctx, patterns: list[str], bar: int) -> str | None:
     return pattern
 
 
-def _region_origin(ctx: _Ctx, patterns: list[str], bar: int, pattern: str) -> int:
+def _yielding_pattern(ctx: _Ctx, patterns: list[str], bar: int, *, yield_grids: bool) -> str | None:
+    """A bar that may leave its grid once the original impulse cleared the gate.
+
+    Tremolo joins the four hosts only on that path. Unframed preludio never
+    yields. The span is not grown past the impulse.
+    """
+    if not yield_grids or bar < 0 or bar >= ctx.bars:
+        return None
+    if ctx.kind_at.get(bar, "phrase") in _PEDAL:
+        return None
+    pattern = _bar_pattern(ctx, bar, patterns)
+    if pattern in _GROUP1 or _framed_host(ctx, pattern):
+        return pattern
+    return None
+
+
+def _region_origin(
+    ctx: _Ctx,
+    patterns: list[str],
+    bar: int,
+    pattern: str,
+    *,
+    yield_grids: bool,
+) -> int:
     origin = bar
-    while origin > 0 and _host_pattern(ctx, patterns, origin - 1) == pattern:
+    while origin > 0 and _yielding_pattern(ctx, patterns, origin - 1, yield_grids=yield_grids) == pattern:
         origin -= 1
     return origin
 
 
-def _clip_blocked_ends(ctx: _Ctx, patterns: list[str], start: int, target: int) -> tuple[int, int]:
-    """Step 1. Peel tremolo and pedal bars off both ends."""
+def _clip_blocked_ends(
+    ctx: _Ctx,
+    patterns: list[str],
+    start: int,
+    target: int,
+    *,
+    yield_grids: bool,
+) -> tuple[int, int]:
+    """Step 1. Peel pedal, and peel tremolo or hosts when the gate failed."""
     epb = ctx.epb
     while start < target:
         moved = False
-        if _edge_blocked(ctx, patterns, start // epb):
+        if _edge_blocked(ctx, patterns, start // epb, yield_grids=yield_grids):
             start = (start // epb + 1) * epb
             moved = True
-        if start < target and _edge_blocked(ctx, patterns, (target - 1) // epb):
+        if start < target and _edge_blocked(ctx, patterns, (target - 1) // epb, yield_grids=yield_grids):
             target = ((target - 1) // epb) * epb
             moved = True
         if not moved:
@@ -266,8 +316,15 @@ def _clip_blocked_ends(ctx: _Ctx, patterns: list[str], start: int, target: int) 
     return start, target
 
 
-def _snap_host_edges(ctx: _Ctx, patterns: list[str], start: int, target: int) -> tuple[int, int]:
-    """Step 3. Drop a host fragment shorter than one bar at either end.
+def _snap_host_edges(
+    ctx: _Ctx,
+    patterns: list[str],
+    start: int,
+    target: int,
+    *,
+    yield_grids: bool,
+) -> tuple[int, int]:
+    """Step 3. Drop a yielded fragment shorter than one bar at either end.
 
     Snapping inward never pulls the next bar in, and it never opens a hole in
     a sixteenth cycle, a sextuplet group, or a canto frame.
@@ -275,21 +332,30 @@ def _snap_host_edges(ctx: _Ctx, patterns: list[str], start: int, target: int) ->
     epb = ctx.epb
     if start >= target:
         return start, target
-    if start % epb != 0 and _host_pattern(ctx, patterns, start // epb):
+    if start % epb != 0 and _yielding_pattern(ctx, patterns, start // epb, yield_grids=yield_grids):
         start = (start // epb + 1) * epb
-    if start < target and target % epb != 0 and _host_pattern(ctx, patterns, (target - 1) // epb):
+    if start < target and target % epb != 0 and _yielding_pattern(
+        ctx, patterns, (target - 1) // epb, yield_grids=yield_grids
+    ):
         target = ((target - 1) // epb) * epb
     return start, target
 
 
-def _opening_inside(ctx: _Ctx, patterns: list[str], start: int, target: int) -> int | None:
+def _opening_inside(
+    ctx: _Ctx,
+    patterns: list[str],
+    start: int,
+    target: int,
+    *,
+    yield_grids: bool,
+) -> int | None:
     for bar in _occupied_bars(start, target, ctx.epb):
         if bar < 0 or bar >= ctx.bars:
             continue
-        pattern = _host_pattern(ctx, patterns, bar)
+        pattern = _yielding_pattern(ctx, patterns, bar, yield_grids=yield_grids)
         if pattern is None:
             continue
-        if _region_origin(ctx, patterns, bar, pattern) == bar:
+        if _region_origin(ctx, patterns, bar, pattern, yield_grids=yield_grids) == bar:
             return bar
     return None
 
@@ -299,6 +365,8 @@ def _exclude_opening(
     patterns: list[str],
     start: int,
     target: int,
+    *,
+    yield_grids: bool,
 ) -> tuple[int, int] | None:
     """Step 4. The first bar of a host region stays outside this passage.
 
@@ -306,7 +374,7 @@ def _exclude_opening(
     the back. An opening on an edge only shrinks that edge. Group 2 is not
     handled here.
     """
-    bar = _opening_inside(ctx, patterns, start, target)
+    bar = _opening_inside(ctx, patterns, start, target, yield_grids=yield_grids)
     if bar is None:
         return start, target
     epb = ctx.epb
@@ -325,20 +393,38 @@ def _exclude_opening(
     return bar_hi, target
 
 
-def _blocked_inside(ctx: _Ctx, patterns: list[str], start: int, target: int) -> bool:
-    """Step 5. Tremolo or pedal strictly between the end bars drops the passage."""
+def _blocked_inside(
+    ctx: _Ctx,
+    patterns: list[str],
+    start: int,
+    target: int,
+    *,
+    yield_grids: bool,
+) -> bool:
+    """Step 5. A blocked bar strictly between the end bars drops the passage.
+
+    A tremolo bar yielded after its region opening is not blocked, so it does
+    not cancel the passage. Pedal still does.
+    """
     bars = [bar for bar in _occupied_bars(start, target, ctx.epb) if 0 <= bar < ctx.bars]
     if len(bars) < 3:
         return False
-    return any(_edge_blocked(ctx, patterns, bar) for bar in bars[1:-1])
+    return any(_edge_blocked(ctx, patterns, bar, yield_grids=yield_grids) for bar in bars[1:-1])
 
 
-def _clip_span(ctx: _Ctx, patterns: list[str], start: int, target: int) -> tuple[int, int] | None:
+def _clip_span(
+    ctx: _Ctx,
+    patterns: list[str],
+    start: int,
+    target: int,
+    *,
+    yield_grids: bool,
+) -> tuple[int, int] | None:
     """Clip `[start, target)` before a passage is built, gapped, or budgeted."""
-    start, target = _clip_blocked_ends(ctx, patterns, start, target)
+    start, target = _clip_blocked_ends(ctx, patterns, start, target, yield_grids=yield_grids)
     if target <= start:
         return None
-    start, target = _snap_host_edges(ctx, patterns, start, target)
+    start, target = _snap_host_edges(ctx, patterns, start, target, yield_grids=yield_grids)
     if target <= start:
         return None
     seen: set[tuple[int, int]] = set()
@@ -347,16 +433,16 @@ def _clip_span(ctx: _Ctx, patterns: list[str], start: int, target: int) -> tuple
         if state in seen:
             return None
         seen.add(state)
-        opened = _exclude_opening(ctx, patterns, start, target)
+        opened = _exclude_opening(ctx, patterns, start, target, yield_grids=yield_grids)
         if opened is None:
             return None
         start, target = opened
         if target <= start:
             return None
-        start, target = _clip_blocked_ends(ctx, patterns, start, target)
+        start, target = _clip_blocked_ends(ctx, patterns, start, target, yield_grids=yield_grids)
         if target <= start:
             return None
-        if _blocked_inside(ctx, patterns, start, target):
+        if _blocked_inside(ctx, patterns, start, target, yield_grids=yield_grids):
             return None
         if (start, target) == state:
             break
@@ -384,7 +470,13 @@ def _prepare_impulse(ctx: _Ctx, patterns: list[str], impulse: _Impulse) -> _Impu
 
     A major bridge is judged on the original impulse, before this clip.
     """
-    clipped = _clip_span(ctx, patterns, impulse.start, impulse.target)
+    clipped = _clip_span(
+        ctx,
+        patterns,
+        impulse.start,
+        impulse.target,
+        yield_grids=_grids_yield(impulse, ctx.epb),
+    )
     if clipped is None:
         return None
     start, target = clipped

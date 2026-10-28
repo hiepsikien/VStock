@@ -1,7 +1,7 @@
 # Scale thật trên pattern đang bị cấm
 
 > Tham chiếu: [`docs/sonify-guitar-scales-plan.md`](./sonify-guitar-scales-plan.md) Mục 2.1.B và 2.6, [`docs/sonify-classical-guitar.md`](./sonify-classical-guitar.md)
-> Phạm vi: Villa-Lobos (`etude1`, `etude11`, `thumb_cantabile`) và Barrios (`thumb_cantabile`, `preludio` khi `_catedral_preludio` đúng). Cùng tên `thumb_cantabile` dùng bước của `ctx.ensemble`: Villa là `villa_scale_step`, Barrios là `barrios_scale_step`. `tremolo` giữ cửa cấm. Bach, Brouwer và Sor không đổi luật riêng. Preludio không khung giữ overlay Nhóm 3.
+> Phạm vi: Villa-Lobos (`etude1`, `etude11`, `thumb_cantabile`) và Barrios (`thumb_cantabile`, `preludio` khi `_catedral_preludio` đúng), cộng `tremolo` khi xung gốc qua cửa ở [`docs/sonify-guitar-tremolo-phrasing-plan.md`](./sonify-guitar-tremolo-phrasing-plan.md). Cùng tên `thumb_cantabile` dùng bước của `ctx.ensemble`: Villa là `villa_scale_step`, Barrios là `barrios_scale_step`. Bach, Brouwer và Sor không đổi luật riêng. Preludio không khung giữ overlay Nhóm 3.
 
 ## Việc cần nghe được
 
@@ -13,9 +13,9 @@
 
 Cửa `_touches_excluded` xóa cả passage khi `[start, target]` chạm một ô `tremolo`, `etude1`, `etude11`, `thumb_cantabile`, hoặc preludio có khung. Trên MWG ngày 28/10/2026, phiên selloff có 17 xung. Sor hát `elegiaque` và nhận 9 đoạn. Villa khóa `thumb_cantabile` và nhận 0. Barrios khóa `tremolo` và nhận 0. Chương IV của tháng: Villa là `etude1` suốt 84 ô, Barrios là `tremolo` cộng preludio, cả hai nhận 0 trong khi Sor nhận 28 đoạn.
 
-## `tremolo` đứng ngoài
+## `tremolo` chỉ ra khỏi `_GROUP1` khi đã qua cửa
 
-Tremolo đã là câu chạy của Barrios. Mỗi phách lặp một cao độ giá qua `p–a–m–i`. Giá đổi thì cao độ cụm đổi. `tremolo` ở lại trong `_GROUP1`. Ô phẳng `f` và `volatile` vẫn chỉ nhận `perpetual` như hiện tại. Xung nằm trọn trên tremolo không sinh passage.
+Tremolo vẫn là câu chạy của Barrios: mỗi phách lặp một cao độ giá qua `p–a–m–i`. `tremolo` ra khỏi `_GROUP1` chỉ khi xung gốc, đo trước khi cắt, đã qua cửa một ô và `net_span >= 6` (`target - start >= epb` và `net_span >= 6`, cùng hai số với `_major_bridge`). Cửa đó không hủy cả passage: trượt cửa thì tremolo vẫn bị gọt như `_GROUP1`. Tremolo ở rìa bị cắt và phần Nhóm 3 còn. Tremolo nằm giữa thì mất cả passage. Qua cửa thì tremolo đi cùng vòng nhường ô với bốn pattern chủ. Ô đầu vùng đứng ngoài. Ô tremolo sau ô đầu, đã được nhường, không làm `_blocked_inside` hủy passage. Pedal nằm giữa vẫn hủy. Ô phẳng `f` và `volatile` vẫn chỉ nhận `perpetual`. Xung 2–7 eighth trên tremolo không thành passage.
 
 ## Cắt khoảng, rồi mới xét ngân sách
 
@@ -23,11 +23,11 @@ Tremolo đã là câu chạy của Barrios. Mỗi phách lặp một cao độ g
 
 Thứ tự, trên `[start, target]` của xung:
 
-1. Cắt các ô `tremolo` và các ô pedal (`_PEDAL`: `intro`, `outro`, `warmup`, `cooldown`) ở hai đầu. Bỏ qua bước này thì scale rơi vào ô cửa.
+1. Cắt các ô pedal (`_PEDAL`: `intro`, `outro`, `warmup`, `cooldown`) ở hai đầu. `tremolo`, và bốn pattern chủ, chỉ bị cắt ở hai đầu khi xung gốc trượt cửa một ô và `net_span >= 6`. Qua cửa thì bước này không gọt tremolo. Bỏ qua bước này thì scale rơi vào ô cửa.
 2. Ô bị nhường chỉ tính trên `[start, target)`. Eighth đích đứng ngoài khoảng chiếm. `passage_eighths` là `target - start`, còn `scale_eighths` vẫn gồm eighth đích (`range(start, target + 1)`). `_touched_bars` lấy `range(start // epb, target // epb + 1)`. Khi `target` rơi đúng vạch ô, ô sau nằm trong range đó dù passage chỉ chạm eighth đích. Bước kéo ô trọn không dùng range đó và không nuốt ô chỉ chứa eighth đích. Câu này chỉ khóa ô của eighth đích lúc kéo ô trọn. Bước 4 vẫn dời `target`. Nốt đích là `ctx.melody` tại `target` sau khi khoảng đã ổn định.
-3. Với mỗi đoạn pattern chủ (`etude1`, `etude11`, `thumb_cantabile`, preludio có khung) có eighth trong `[start, target)`, kéo đoạn đó vào các ô trọn. Mảnh pattern chủ không đủ một ô thì bỏ riêng mảnh đó. Vòng 16 móc kép, chùm sextuplet và khung canto không bị khoét giữa ô.
-4. Ô đầu của một vùng pattern chủ liên tiếp không nằm trong passage, kể cả khi passage đã mở từ Nhóm 3 ở phía trước. Ô đó ở biên thì co biên. Ô đó ở giữa thì tách hai phía tại đầu ô đó. Phía trước còn ít nhất 2 eighth thì cắt `target` về đầu ô đó và giữ phía trước. Phía sau không thuộc passage này. Phía trước ngắn hơn 2 eighth thì bỏ phía trước và đưa `start` lên eighth đầu tiên sau ô đầu vùng. Ô đầu vẫn không thuộc passage. Phía sau còn ít nhất 2 eighth thì giữ. Cả hai phía đều ngắn hơn 2 eighth thì hủy. Co biên xong, và sau cả hai nhánh khi ô đầu nằm giữa, đều lặp bước 4, rồi bước 1, rồi bước 5, đến khi `start` và `target` không đổi. Bước 5 trong vòng lặp thấy tremolo hoặc pedal ở giữa thì hủy passage và dừng. Đây là biên để co, không phải lỗ. `_covers_group2_opening` là luật khác: hàm trả về đúng khi ô đầu vùng Nhóm 2 nằm trong khoảng, rồi `_passage_allowed` hủy cả passage, kể cả khi ô đó nằm ở biên. Ô đầu Nhóm 2 giữ đúng hàm đó. Chỉ pattern chủ được co.
-5. `tremolo` hoặc pedal còn nằm giữa khoảng thì hủy cả passage. Tremolo hoặc pedal vừa bị đẩy ra rìa bởi bước 4 thì do bước 1 trong vòng lặp cắt, không do bước 5 hủy.
+3. Bốn pattern chủ (`etude1`, `etude11`, `thumb_cantabile`, preludio có khung), và `tremolo` khi xung đã qua cửa, chỉ được kéo vào ô trọn. Cùng cửa một ô và `net_span >= 6` quyết định cả năm có được nhường hay không, kể cả khi xung không đụng Nhóm 2. Cửa trượt thì ô chủ ở lại pattern: không nhường, và không phủ scale giữa vòng 16 móc kép, sextuplet, hay canto. Mảnh không đủ một ô thì bỏ riêng mảnh đó. Không nới span ra ngoài xung. Vòng 16 móc kép, chùm sextuplet và khung canto không bị khoét giữa ô.
+4. Ô đầu của một vùng pattern chủ liên tiếp, và ô đầu của một vùng tremolo khi xung đã qua cửa, không nằm trong passage, kể cả khi passage đã mở từ Nhóm 3 ở phía trước. Ô đó ở biên thì co biên. Ô đó ở giữa thì tách hai phía tại đầu ô đó. Phía trước còn ít nhất 2 eighth thì cắt `target` về đầu ô đó và giữ phía trước. Phía sau không thuộc passage này. Phía trước ngắn hơn 2 eighth thì bỏ phía trước và đưa `start` lên eighth đầu tiên sau ô đầu vùng. Ô đầu vẫn không thuộc passage. Phía sau còn ít nhất 2 eighth thì giữ. Cả hai phía đều ngắn hơn 2 eighth thì hủy. Co biên xong, và sau cả hai nhánh khi ô đầu nằm giữa, đều lặp bước 4, rồi bước 1, rồi bước 5, đến khi `start` và `target` không đổi. Bước 5 trong vòng lặp thấy tremolo hoặc pedal ở giữa thì hủy passage và dừng. Đây là biên để co, không phải lỗ. `_covers_group2_opening` là luật khác: hàm trả về đúng khi ô đầu vùng Nhóm 2 nằm trong khoảng, rồi `_passage_allowed` hủy cả passage, kể cả khi ô đó nằm ở biên. Ô đầu Nhóm 2 giữ đúng hàm đó. Chỉ pattern chủ được co.
+5. Pedal còn nằm giữa khoảng thì hủy cả passage. `tremolo` nằm giữa chỉ hủy passage khi xung trượt cửa. Ô tremolo sau ô đầu vùng, đã được nhường, không làm `_blocked_inside` hủy. Tremolo hoặc pedal vừa bị đẩy ra rìa bởi bước 4 thì do bước 1 trong vòng lặp cắt, không do bước 5 hủy.
 6. Sau khi vòng lặp đã đứng, khoảng liền còn lại ngắn hơn 2 eighth thì hủy. Bước 6 đo khoảng sau vòng lặp, không đo phía đã bỏ ở bước 4. Khoảng Nhóm 3 còn lại giữ luật overlay hiện có, kể cả khi ngắn hơn một ô, miễn cả passage còn ít nhất 2 eighth.
 
 `passage_eighths` là `target - start` của khoảng đã cắt. `retreat_spans` được cắt theo cùng khoảng. Khoảng thở một ô đo trên khoảng này. `score` giữ nguyên score của xung giá.
@@ -82,7 +82,7 @@ Xung vừa chạm Nhóm 2 vừa chạm pattern chủ phải là cầu nối dài
 
 `guitar_scale_passages.py`
 
-- `_GROUP1` chỉ còn `tremolo`.
+- `_GROUP1` chỉ còn `tremolo`. Tremolo ra khỏi tập đó chỉ khi xung gốc qua cửa một ô và `net_span >= 6`. Bốn pattern chủ cũng chỉ nhường khi cùng cửa đó đúng. Cửa trượt thì ô chủ ở lại pattern.
 - Cắt khoảng theo mục «Cắt khoảng» trước khi tạo `ScalePassage`, trước `_gap_ok`, và trước khi trừ `room`.
 - `_rewrite_bass` có nhánh số lần gảy cho bốn pattern chủ. `etude1`, `etude11` và Preludio trả `None` khi không còn gốc hoặc bậc 5 nào `_playable`. Thumb trả `None` khi không còn nốt vừa `_playable` vừa vang trong `48…64`.
 - `_rewrite_support` trả support đã xóa vùng, không trồng thêm, khi ô thuộc bốn pattern chủ. Bốn pattern này đứng ngoài câu Mục 2.5 giữ một nốt bè giữa trên mỗi phách mạnh khi câu đi móc đơn.
@@ -106,7 +106,7 @@ Xung vừa chạm Nhóm 2 vừa chạm pattern chủ phải là cầu nối dài
 
 `test_group1_drops_the_whole_passage` hôm nay vừa đòi passage rỗng trên étude, thumb và preludio có khung, vừa khẳng định xung cắt qua tremolo không bị rút ngắn. Mệnh đề thứ hai đổi thành: phần Nhóm 3 còn lại được giữ. Xung `(0, 8)` trên preludio có khung có thể vẫn rỗng vì nó đè ô đầu vùng. Test xanh ở ca đó không chứng minh scale đã được mở.
 
-Giữ: tremolo trọn ô thì passage rỗng. Preludio không khung giữ overlay cũ, xung `(0, 8)` vẫn có passage từ 0 đến 8. Bach và Brouwer đứng ngoài đợt này.
+Giữ: Preludio không khung giữ overlay cũ, xung `(0, 8)` vẫn có passage từ 0 đến 8. Bach và Brouwer đứng ngoài đợt này. Tremolo trọn ô chỉ còn passage rỗng khi xung trượt cửa (`target - start < epb` hoặc `net_span < 6`). Qua cửa thì các ô sau ô đầu vùng được nhường.
 
 Thêm:
 

@@ -36,6 +36,7 @@ from app.sonify.guitar_scale_passages import (
     hairpin_velocities,
     plan_scale_budget,
     realize_scale_passage,
+    select_scale_plan,
 )
 from app.sonify.keys import A_KEY, BB_KEY, C_KEY, D_KEY, EB_KEY, compose_register, register_for
 from app.sonify.model import NoteEvent, Phrase, Run, Score
@@ -204,7 +205,8 @@ def test_group1_drops_the_whole_passage() -> None:
         _ctx(melody, (_phrase(0, melody),), impulses=(_Impulse(0, 16, "up", 8, score=4),)),
         ["tremolo"],
     )
-    assert whole.passages == ()
+    # The gate is open, so the bar after the tremolo region's opening is a scale.
+    assert [(item.start, item.target) for item in whole.passages] == [(8, 16)]
     # The tremolo-touching run is shortened. The group-3 remainder is kept.
     for patterns in (
         ["study", "tremolo"],
@@ -1162,8 +1164,11 @@ def test_host_grid_yields_whole_bars_and_group3_keeps_a_short_remainder() -> Non
     assert _spans(_pad([("study", 2), ("etude1", 2)], 6), _Impulse(14, 20, up, 6)) == [(14, 16)]
     # Sor covers the etude opening and the bar after it. The front stays; target is the opening.
     assert _spans(_pad([("study", 2), ("etude1", 2)], 6), _Impulse(8, 32, up, 8)) == [(8, 16)]
-    # Tremolo or pedal strictly inside drops the whole passage. An edge pedal is clipped.
-    assert _spans(_pad([("study", 1), ("tremolo", 1), ("study", 1)], 6), _Impulse(0, 24, up, 8)) == []
+    # A one-bar tremolo in the middle is that region's opening. The gate is open,
+    # so the front stays and the back is not part of this passage. Pedal inside
+    # still drops the passage. An edge pedal is clipped.
+    assert _spans(_pad([("study", 1), ("tremolo", 1), ("study", 1)], 6), _Impulse(0, 24, up, 8)) == [(0, 8)]
+    assert _spans(_pad([("study", 1), ("tremolo", 1), ("study", 1)], 6), _Impulse(0, 24, up, 5)) == []
     assert _spans(_pad([("study", 3)], 6), _Impulse(0, 24, up, 8), kinds={1: "intro"}) == []
     assert _spans(_pad([("study", 3)], 8), _Impulse(2, 16, up, 6), kinds={0: "warmup"}) == [(8, 16)]
     assert _spans(_pad([("study", 3)], 9), _Impulse(0, 18, up, 6), kinds={2: "cooldown"}) == [(0, 16)]
@@ -1561,3 +1566,148 @@ def test_thumb_root_on_a_yielded_bar_keeps_the_bass_velocity() -> None:
     assert locked[0].velocity == 60
     assert locked[1].velocity == plain[1].velocity
     assert locked[1].velocity != 60
+
+
+_HOSTS = ("etude1", "etude11", "thumb_cantabile", "preludio")
+
+
+def _framed_sections(bars: int) -> tuple[FormSection, ...]:
+    return (FormSection(0, bars, "phrase", 0),)
+
+
+def test_short_impulses_on_tremolo_or_a_host_are_not_passages() -> None:
+    """Three eighths miss the one-bar gate. The span is not stretched to a bar."""
+    up = "up"
+    for pattern in ("tremolo", "thumb_cantabile"):
+        assert _spans([(pattern, 4)], _Impulse(18, 21, up, 8)) == [], pattern
+        assert _spans([(pattern, 4)], _Impulse(18, 21, up, 3)) == [], pattern
+
+
+def test_a_host_bar_below_the_gate_stays_on_the_pattern() -> None:
+    """epb 8, [8, 24), net_span 5, etude1 opens at 0. No passage and no scale in the cycle."""
+    impulse = _Impulse(8, 24, "up", 5, score=4)
+    assert _spans([("etude1", 4)], impulse) == []
+    melody = [64, 65, 67, 69, 71, 72, 74, 76] * 4
+    score = _render(
+        melody,
+        (_phrase(0, melody),),
+        (impulse,),
+        ensemble="villa",
+        bpm=96,
+        character="rally",
+        sections=(FormSection(0, 1, "warmup", 0),),
+    )
+    for bar in (1, 2):
+        lead_sixteenths = [
+            note
+            for note in score.lead
+            if note.bar == bar and note.midi is not None and abs(note.duration_beats - 0.25) < 1e-9
+        ]
+        cycle = [
+            note
+            for note in score.support
+            if note.bar == bar and note.midi is not None and abs(note.duration_beats - 0.25) < 1e-9
+        ]
+        assert len(lead_sixteenths) < 8, bar
+        assert len(cycle) >= 8, bar
+
+
+def test_tremolo_that_misses_the_gate_keeps_an_edge_and_drops_the_middle() -> None:
+    up = "up"
+    # Seven bars leave room for the 16-eighth remainder. Six bars cap it at 14.
+    assert _spans(
+        _pad([("study", 2), ("tremolo", 1)], 7),
+        _Impulse(0, 24, up, 5),
+    ) == [(0, 16)]
+    assert _spans(
+        _pad([("study", 1), ("tremolo", 1), ("study", 1)], 7),
+        _Impulse(0, 24, up, 5),
+    ) == []
+
+
+def test_a_tremolo_region_yields_the_bars_after_its_opening() -> None:
+    """epb 8, [8, 40), net_span >= 6, tremolo opens at eighth 8. Passage is [16, 40)."""
+    assert _spans(
+        _pad([("study", 1), ("tremolo", 4)], 10),
+        _Impulse(8, 40, "up", 8),
+    ) == [(16, 40)]
+
+
+def test_an_inward_snap_on_a_yielded_grid_does_not_grow_the_span() -> None:
+    """[12, 22) clears the gate but no whole bar survives. Choro keeps the overlay."""
+    up = "up"
+    impulse = _Impulse(12, 22, up, 7)
+    framed = _framed_sections(4)
+    for pattern in ("tremolo", *_HOSTS):
+        kwargs = {"sections": framed} if pattern == "preludio" else {}
+        assert _spans([(pattern, 4)], impulse, **kwargs) == [], pattern
+    # Five bars so the 10-eighth overlay fits under the 30% cap. Four bars leave room 9.
+    assert _spans(_pad([("choro", 4)], 5), impulse) == [(12, 22)]
+    assert _spans(_pad([("andante", 4)], 5), impulse) == [(12, 22)]
+    assert _spans(_pad([("preludio", 4)], 5), impulse) == [(12, 22)]
+
+
+def test_a_three_eighth_choro_impulse_keeps_a_group3_passage() -> None:
+    assert _spans([("choro", 2)], _Impulse(0, 3, "up", 2)) == [(0, 3)]
+    for pattern in ("study", "andante", "villa_pattern", "chord_melody"):
+        assert _spans([(pattern, 2)], _Impulse(1, 4, "up", 3)) == [(1, 4)], pattern
+
+
+def test_one_tremolo_bar_in_the_middle_of_a_sor_impulse_keeps_only_the_front() -> None:
+    """epb 8, [0, 32), net_span >= 6, tremolo exactly [16, 24). Passage is [0, 16)."""
+    assert _spans(
+        _pad([("study", 2), ("tremolo", 1), ("study", 2)], 7),
+        _Impulse(0, 32, "up", 8),
+    ) == [(0, 16)]
+
+
+def test_tremolo_after_the_region_opening_stays_inside_the_passage() -> None:
+    """Opens at 0. [8, 24) is still tremolo and [24, 32) is Sor. Passage is [8, 32)."""
+    assert _spans(
+        _pad([("tremolo", 3), ("study", 1)], 10),
+        _Impulse(8, 32, "up", 8),
+    ) == [(8, 32)]
+
+
+def test_a_stepwise_run_on_tremolo_or_a_host_uses_the_bars_after_the_opening() -> None:
+    up = "up"
+    melody = [60, 62, 64, 65, 67, 69, 71, 72] * 8
+    framed = _framed_sections(8)
+    for pattern in ("tremolo", "etude1", "etude11", "thumb_cantabile"):
+        assert _spans(
+            _pad([(pattern, 4)], 7),
+            _Impulse(8, 24, up, 8),
+            melody=melody,
+        ) == [(8, 24)], pattern
+    assert _spans(
+        _pad([("preludio", 4)], 7),
+        _Impulse(8, 24, up, 8),
+        melody=melody,
+        sections=framed,
+        ensemble="barrios",
+    ) == [(8, 24)]
+
+
+def test_a_leap_the_line_cannot_draw_does_not_spend_room() -> None:
+    melody = [64, 71, 71, 71, 71, 71, 71, 71, 71] + [71] * 23
+    raw = [64] * len(melody)
+    impulse = _Impulse(0, 8, "up", 7, score=5)
+    ctx = _ctx(
+        melody,
+        (_phrase(0, melody),),
+        impulses=(impulse,),
+        ensemble="classic",
+        bpm=96,
+        raw=raw,
+    )
+    passage = ScalePassage(0, 8, "up", 7, 5.0, (), False, 8, 0, "passage")
+    lead = _eighth_event(0, len(melody), melody[0], 8, 1, 72)
+    assert realize_scale_passage(ctx, passage, ["study"], lead, [], []) is None
+
+    def accept(item: ScalePassage) -> bool:
+        return realize_scale_passage(ctx, item, ["study"], lead, [], []) is not None
+
+    plan = select_scale_plan(ctx, ["study"], accept_passage=accept, accept_tier1=lambda _item: False)
+    assert plan.passages == ()
+    assert plan.room_after == plan.room
+    assert plan.room > 8

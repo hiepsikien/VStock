@@ -1027,7 +1027,9 @@ def _barrios_palette(ctx: _Ctx, primary: str) -> tuple[str, ...]:
     `_dominant_pattern` reads the first region's character and passes it as
     `primary`. Later slots do not read mood again. They walk the guests in
     this row. A movement of two parts ends on the first guest. From three
-    parts on, the last part reprises `primary`.
+    parts on, the last part reprises `primary`. Tremolo and framed Preludio
+    never share a 4/4 row: reprise would put the other singing pattern back
+    in the last part, so that pattern is left out of the row.
     """
     if ctx.bpm < BARRIOS_TREMOLO_MIN_BPM:
         row = ("andante", "thumb_cantabile")
@@ -1039,16 +1041,19 @@ def _barrios_palette(ctx: _Ctx, primary: str) -> tuple[str, ...]:
         else:
             row = ("polca", "vals", "hemiola", "tremolo")
     elif ctx.kind == "4/4" and ctx.bpm > 100:
+        # Reprise brings the opening pattern back, so the other singing
+        # pattern is absent from the row, not merely seated one place away.
         if primary == "tremolo":
-            row = ("tremolo", "choro", "preludio", "thumb_cantabile")
-        elif primary == "choro":
-            row = ("choro", "tremolo", "preludio", "thumb_cantabile")
+            row = ("tremolo", "choro", "thumb_cantabile")
+        elif primary == "preludio":
+            row = ("preludio", "choro", "andante")
         else:
-            row = ("preludio", "choro", "tremolo", "thumb_cantabile")
+            row = ("choro", "thumb_cantabile", "andante")
     elif primary == "tremolo":
-        row = ("tremolo", "preludio", "andante")
+        # 4/4 at 90–100, and only when the opening region is tremolo.
+        row = ("tremolo", "andante")
     else:
-        row = ("preludio", "andante", "tremolo")
+        row = ("preludio", "andante")
     if primary not in row:
         return (primary, *[name for name in row if name != primary])
     start = row.index(primary)
@@ -1128,7 +1133,8 @@ def _assign_macro(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
     A long Barrios movement leaves the opening texture for the row that fits
     the meter. Two parts end on the first guest. Three or more reprise the
     opening. `bars` includes warm-up and cool-down, so a short body can still
-    take this path once the frame is attached.
+    take this path once the frame is attached. The 120/34/4/4 Barrios day is
+    the one short body that chooses each phrase instead of locking one pattern.
     """
     if not body:
         return chosen
@@ -1147,6 +1153,30 @@ def _assign_macro(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
                 for index in indexes:
                     chosen[index] = pattern
             return chosen
+    # 1D Barrios is 34 bars at 120 in 4/4. `_Ctx` has no span field, so that
+    # fingerprint is the whole test. Each body phrase uses `_select_body`.
+    # The `bars <= 40` branch below still locks every other short piece,
+    # including a one-session week of 32 bars at 90, and does not walk slots.
+    if (
+        ctx.ensemble == "barrios"
+        and ctx.bpm == 120
+        and ctx.bars == 34
+        and ctx.kind == "4/4"
+    ):
+        previous: list[str] = []
+        for ordinal, index in enumerate(body):
+            phrase = ctx.phrases[index]
+            bar = min(ctx.bars - 1, phrase.start // ctx.epb)
+            pattern = _select_body(
+                ctx,
+                phrase,
+                first_body=ordinal == 0,
+                previous=previous,
+                section=ctx.section(bar),
+            )
+            chosen[index] = pattern
+            previous.append(pattern)
+        return chosen
     if ctx.bars <= 40 and not _has_contrast_section(ctx):
         pattern = _dominant_pattern(ctx, [ctx.phrases[index] for index in body], _body_bars(ctx))
         for index in body:
