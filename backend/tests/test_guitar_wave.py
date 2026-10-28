@@ -17,6 +17,7 @@ from app.sonify.guitar_wave import (
     affine_raw,
     alpha_price,
     alpha_volume,
+    _is_target,
     apply_guitar_wave,
     fit_intro,
     fit_outro,
@@ -41,6 +42,9 @@ _EXPECTED = {
     ("bach", "bach_fuga"),
     ("bach", "bach_gigue"),
     ("bach", "bach_chaconne"),
+    ("bach", "bach_prelude"),
+    ("bach", "bach_allemande"),
+    ("bach", "bach_courante"),
     ("classic", "cantabile"),
     ("classic", "elegiaque"),
     ("classic", "study"),
@@ -190,7 +194,7 @@ def _guitar_score(lead: list[NoteEvent], *, ensemble: str = "classic", bars: int
 
 
 def test_same_bar_differences_follow_one_rounded_center() -> None:
-    """Invariant 1. round(C) once, then the written offset. M is 1 on all 28 rows."""
+    """Invariant 1. round(C) once, then the written offset. M is 1 on all 31 rows."""
     assert set(PROFILES) == _EXPECTED
     for profile in PROFILES.values():
         assert profile.floor_calm <= profile.floor_wide
@@ -222,6 +226,9 @@ def test_same_bar_differences_follow_one_rounded_center() -> None:
         ("bach", "bach_fuga"): (30, 58, 36, 63, 9),
         ("bach", "bach_gigue"): (30, 58, 36, 63, 3),
         ("bach", "bach_chaconne"): (28, 58, 34, 63, 9),
+        ("bach", "bach_prelude"): (28, 56, 34, 62, 5),
+        ("bach", "bach_allemande"): (28, 56, 34, 62, 9),
+        ("bach", "bach_courante"): (30, 58, 36, 63, 3),
         ("classic", "cantabile"): (26, 54, 30, 58, 9),
         ("classic", "elegiaque"): (26, 56, 32, 62, 9),
         ("classic", "study"): (28, 56, 34, 63, 5),
@@ -258,12 +265,13 @@ def test_same_bar_differences_follow_one_rounded_center() -> None:
     assert min(profile.floor_calm for profile in PROFILES.values()) == 24
     assert max(profile.ceil_calm for profile in PROFILES.values()) == 58
     assert max(profile.ceil_wide for profile in PROFILES.values()) == 63
-    # The eleven wide rows left at tide 3. A floor of +4 would have left tide 3;
+    # The twelve wide rows left at tide 3. A floor of +4 would have left tide 3;
     # these stay on that tide, with the ceiling untouched.
     for key in (
         ("bach", "bach_bourree"),
         ("bach", "bach_fuga"),
         ("bach", "bach_gigue"),
+        ("bach", "bach_courante"),
         ("classic", "galop"),
         ("barrios", "tremolo"),
         ("barrios", "choro"),
@@ -1137,3 +1145,57 @@ def test_the_raised_floor_still_prints_the_bell_at_the_trough() -> None:
     )
     assert (_at(heard, 0, 0.0), _at(heard, 0, 1.0), _at(heard, 0, 2.0), _at(heard, 0, 3.0)) == (48, 56, 32, 60)
     assert (_at(heard, 12, 0.0), _at(heard, 12, 1.0), _at(heard, 12, 2.0), _at(heard, 12, 3.0)) == (52, 60, 36, 60)
+
+
+def test_suite_snaps_follow_the_written_attack() -> None:
+    """Prelude snaps the even sixteenth of each price pair. Courante snaps the staccato third."""
+    from dataclasses import replace
+
+    phrase = Phrase(0, 8, (Run(0, 4, 60), Run(4, 4, 72)))
+    assert phrase.rise >= 3
+    ctx = _ctx(
+        ensemble="bach",
+        bars=1,
+        volumes=None,
+        phrases=(phrase,),
+        sections=(FormSection(0, 1, "phrase", 0),),
+    )
+    onset = phrase.apex.start
+
+    def hit(
+        pattern: str,
+        beat: float,
+        voice: str,
+        *,
+        accent: bool = False,
+        staccato: bool = False,
+        meter: str = "4/4",
+    ) -> bool:
+        local = ctx
+        if meter != "4/4":
+            local = replace(ctx, kind=meter, epb=6, bar_beats=3.0)
+        event = _note(0, beat, 64, voice=1 if voice == "lead" else 3, accent=accent, staccato=staccato)
+        return _is_target(local, pattern, event, voice, phrase, onset, 0.0)
+
+    assert hit("bach_prelude", 0.0, "lead")
+    assert hit("bach_prelude", 0.5, "lead")
+    assert not hit("bach_prelude", 0.25, "lead")
+    assert not hit("bach_prelude", 0.75, "lead")
+    assert not hit("bach_prelude", 2.75, "lead")
+    assert not hit("bach_prelude", 0.0, "low")
+    assert hit("bach_prelude", 0.0, "lead", meter="3/4")
+    assert hit("bach_prelude", 1.5, "lead", meter="3/4")
+    assert not hit("bach_prelude", 0.75, "lead", meter="3/4")
+    assert hit("bach_prelude", 1.0, "lead", meter="6/8")
+    assert not hit("bach_prelude", 2.25, "lead", meter="6/8")
+    assert not hit("bach_prelude", 2.75, "lead", meter="3/4")
+    assert hit("bach_allemande", 1.0, "lead")
+    assert not hit("bach_allemande", 1.0, "low")
+    flat = Phrase(0, 8, (Run(0, 8, 64),))
+    assert not _is_target(ctx, "bach_allemande", _note(0, 1.0, 64), "lead", flat, flat.apex.start, 0.0)
+    assert not _is_target(ctx, "bach_prelude", _note(0, 0.0, 64), "lead", flat, flat.apex.start, 0.0)
+    assert hit("bach_courante", 0.5, "lead", staccato=True)
+    assert not hit("bach_courante", 0.0, "low", accent=True)
+    assert _is_target(ctx, "bach_courante", _note(0, 0.5, 64, staccato=True), "lead", flat, 0.0, 0.0)
+    assert not _is_target(ctx, "bach_courante", _note(0, 0.0, 64, accent=True), "lead", flat, 0.0, 0.0)
+    assert not _is_target(ctx, "bach_courante", _note(0, 0.5, 64, accent=True), "lead", phrase, 0.0, 0.0)

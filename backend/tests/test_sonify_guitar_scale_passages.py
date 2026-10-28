@@ -35,10 +35,12 @@ from app.sonify.guitar_scale_passages import (
     _scale_need,
     _majority_pattern,
     _monotone,
+    _rewrite_bass,
     _fast_line,
     _slots,
     _pattern_window,
     _stamp_arrival,
+    _tier1_clips,
     hairpin_velocities,
     plan_scale_budget,
     realize_scale_passage,
@@ -1824,3 +1826,69 @@ def test_a_leap_the_line_cannot_draw_does_not_spend_room() -> None:
     assert plan.passages == ()
     assert plan.room_after == plan.room
     assert plan.room > 8
+
+
+def _bass_rows(events) -> list[tuple[float, float]]:
+    return [
+        (round(note.beat, 2), round(note.duration_beats, 2))
+        for note in events
+        if note.midi is not None
+    ]
+
+
+def _cover_passage(epb: int) -> tuple[ScalePassage, list[_Slot], list[int]]:
+    passage = ScalePassage(0, epb, "down", 4, 1.0, (), False, epb, 0, "passage")
+    slots = [_Slot(eighth, 0, 2, True, False) for eighth in range(epb)]
+    return passage, slots, [67] * epb
+
+
+def test_scale_bass_keeps_the_courante_and_allemande_rests() -> None:
+    """A passage stops each bass at the length the renderer wrote."""
+    four = _ctx([67] * 8, (_phrase(0, [67] * 8),), epb=8, kind="4/4", strong=(0, 4))
+    passage, slots, pitches = _cover_passage(8)
+    courante = _rewrite_bass(four, ["bach_courante"], passage, slots, pitches, [], [])
+    assert courante is not None
+    assert _bass_rows(courante) == [(0.0, 4.0)]
+
+    three = _ctx(
+        [72, 74, 76, 77, 79, 81],
+        (_phrase(0, [72, 74, 76, 77, 79, 81]),),
+        epb=6,
+        kind="3/4",
+        strong=(0,),
+    )
+    passage, slots, pitches = _cover_passage(6)
+    open_courante = _rewrite_bass(three, ["bach_courante"], passage, slots, pitches, [], [])
+    assert open_courante is not None
+    assert _bass_rows(open_courante) == [(0.0, 3.0)]
+
+    closing = _phrase(0, [67] * 6)
+    assert closing.closes
+    hemiola_ctx = _ctx([67] * 6, (closing,), epb=6, kind="3/4", strong=(0,))
+    hemiola = _rewrite_bass(hemiola_ctx, ["bach_courante"], passage, slots, pitches, [], [])
+    assert hemiola is not None
+    assert _bass_rows(hemiola) == [(0.0, 3.0)]
+
+    allemande = _rewrite_bass(four, ["bach_allemande"], passage, slots, pitches, [], [])
+    assert allemande is not None
+    assert _bass_rows(allemande) == [(0.0, 2.0), (2.0, 1.0)]
+
+    prelude = _rewrite_bass(four, ["bach_prelude"], passage, slots, pitches, [], [])
+    assert prelude is not None
+    assert _bass_rows(prelude) == [(0.0, 2.0), (2.0, 2.0)]
+
+
+def test_courante_tier1_includes_both_tirata_eighths() -> None:
+    windows = {"4/4": (8, (0, 4), (4, 6)), "3/4": (6, (0,), (2, 4)), "6/8": (6, (0, 3), (3, 5))}
+    for kind, (epb, strong, expected) in windows.items():
+        melody = list(range(72, 72 - epb, -1))
+        ctx = _ctx(
+            melody,
+            (_phrase(0, melody),),
+            impulses=(_Impulse(0, epb, "down", 3),),
+            epb=epb,
+            kind=kind,
+            strong=strong,
+        )
+        clips = _tier1_clips(ctx, ["bach_courante"], list(ctx.impulses))
+        assert [(clip.start, clip.target) for clip in clips] == [expected]

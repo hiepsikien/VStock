@@ -16,6 +16,8 @@ except ImportError:  # the detector module lands separately
     SCALE_SIXTEENTH_MIN_BPM = 88
 
 from app.sonify.guitar_bach import (
+    _allemande_bass_plan,
+    _allemande_passes,
     _bach_keep_bass_below,
     _chaconne_bass_slots,
     _fuga_bass_under_lead,
@@ -63,7 +65,101 @@ from app.sonify.model import NoteEvent
 
 _GROUP1 = frozenset({"tremolo"})
 _HOST = frozenset({"etude1", "etude11", "thumb_cantabile", "preludio"})
-_BACH_GROUP2 = frozenset({"bach_chaconne", "bach_gigue", "bach_sarabande"})
+_BACH_GROUP2 = frozenset({"bach_chaconne", "bach_gigue", "bach_sarabande", "bach_courante"})
+
+
+def _phrase_covering(ctx: _Ctx, bar: int):
+    eighth = bar * ctx.epb
+    for phrase in ctx.phrases:
+        if phrase.start <= eighth < phrase.end:
+            return phrase
+    return None
+
+
+def _courante_closes(ctx: _Ctx, bar: int) -> bool:
+    """The cadence bar of a phrase that closes. 3/4 and 6/8 share ``epb``."""
+    phrase = _phrase_covering(ctx, bar)
+    if phrase is None or not phrase.closes:
+        return False
+    return bar == (phrase.end - 1) // ctx.epb
+
+
+def _courante_pair(ctx: _Ctx) -> tuple[int, int] | None:
+    kind = getattr(ctx, "kind", None)
+    if kind == "3/4":
+        return 2, 3
+    if kind == "6/8":
+        return 3, 4
+    if kind == "4/4":
+        return 4, 5
+    return None
+
+
+def _courante_window(ctx: _Ctx, bar: int) -> tuple[int, int] | None:
+    """Inclusive tirata eighths. Keyed on ``ctx.kind`` because 3/4 and 6/8 share ``epb``."""
+    pair = _courante_pair(ctx)
+    if pair is None:
+        return None
+    lo, hi = pair
+    if hi >= ctx.epb:
+        return None
+    origin = bar * ctx.epb
+    return origin + lo, origin + hi
+
+
+def _courante_intrinsic_eighths(ctx: _Ctx, bar: int) -> set[int]:
+    """Tirata eighths this bar already draws. Empty when a 6/8 cadence omits the run."""
+    if getattr(ctx, "kind", None) == "6/8" and _courante_closes(ctx, bar):
+        return set()
+    window = _courante_window(ctx, bar)
+    if window is None:
+        return set()
+    lo, hi = window
+    return set(range(lo, hi + 1))
+
+
+def _courante_bass_spans(ctx: _Ctx, bar: int) -> tuple[tuple[int, int], ...]:
+    """One bass at eighth 0 rings for the whole bar. No mid-bar attack."""
+    del bar
+    if ctx.epb <= 0:
+        return ()
+    return ((0, ctx.epb),)
+
+
+def _courante_bass_offsets(ctx: _Ctx, bar: int) -> tuple[int, ...]:
+    """Body bass attacks. Not the group-3 strong-beat roots."""
+    return tuple(offset for offset, _duration in _courante_bass_spans(ctx, bar))
+
+
+def _written_bass_spans(ctx: _Ctx, pattern: str, bar: int) -> tuple[tuple[int, int], ...] | None:
+    """`(offset, eighths)` when the dance stops before the next bass attack.
+
+    Prelude keeps the half-bar pedal, so it stays on the next-onset rule.
+    """
+    if pattern == "bach_courante":
+        return _courante_bass_spans(ctx, bar)
+    if pattern == "bach_allemande":
+        origin = bar * ctx.epb
+        passes = _allemande_passes(ctx, bar, origin, ctx.epb)
+        return tuple(
+            (offset, duration) for offset, _degree, duration in _allemande_bass_plan(ctx, passes)
+        )
+    return None
+
+
+def _half_bar_bass_offsets(ctx: _Ctx, pattern: str) -> tuple[int, ...]:
+    """Prelude pedal halves, or the allemande root and second bass, not ``ctx.strong``."""
+    epb = ctx.epb
+    kind = getattr(ctx, "kind", None)
+    if pattern == "bach_allemande" or pattern == "allemande":
+        second = 3 if kind == "6/8" else 4
+    else:
+        second = 3 if kind in {"3/4", "6/8"} else max(1, epb // 2)
+    return tuple(offset for offset in (0, second) if offset < epb)
+
+
+def _courante_bass_accent(ctx: _Ctx, eighth: int) -> bool:
+    return eighth % ctx.epb == 0
 
 
 @dataclass(frozen=True)
@@ -140,7 +236,9 @@ def _intrinsic_eighths(ctx: _Ctx, patterns: list[str]) -> set[int]:
         if ctx.kind_at.get(bar, "phrase") in _PEDAL:
             continue
         pattern = _bar_pattern(ctx, bar, patterns)
-        if pattern in _BACH_GROUP2:
+        if pattern == "bach_courante":
+            found |= _courante_intrinsic_eighths(ctx, bar)
+        elif pattern in _BACH_GROUP2:
             found |= bach_group2_intrinsic_eighths(ctx, bar, pattern)
         elif pattern == "sarabande":
             found |= brouwer_group2_intrinsic_eighths(ctx, bar)
@@ -148,6 +246,8 @@ def _intrinsic_eighths(ctx: _Ctx, patterns: list[str]) -> set[int]:
 
 
 def _clip_window(ctx: _Ctx, bar: int, pattern: str) -> tuple[int, int] | None:
+    if pattern == "bach_courante":
+        return _courante_window(ctx, bar)
     if pattern in _BACH_GROUP2:
         return bach_group2_window(ctx, bar, pattern)
     if pattern == "sarabande":
@@ -540,8 +640,14 @@ def _tier1_clips(ctx: _Ctx, patterns: list[str], impulses: list[_Impulse]) -> li
             if window is None:
                 continue
             lo, hi = window
+            # Windows are inclusive. Longer group-2 windows still have two
+            # eighths after the last one is left out, and that last eighth is
+            # what keeps the clip off the next passage. Courante's tirata is
+            # only `(4, 5)` on 4/4, so the exclusive end has to be `hi + 1`
+            # or every clip is shorter than two eighths.
+            exclusive = hi + 1 if pattern == "bach_courante" else hi
             start = max(impulse.start, lo)
-            target = min(impulse.target, hi)
+            target = min(impulse.target, exclusive)
             if target - start < 2:
                 continue
             key = (start, target)
@@ -1803,9 +1909,10 @@ _HAT_PATTERNS = frozenset(
         "preludio",
         "bach_fuga",
         "thumb_cantabile",
+        "bach_allemande",
     }
 )
-_BAROQUE_PATTERNS = frozenset({"bach_bourree", "bach_gavotte", "bach_gigue"})
+_BAROQUE_PATTERNS = frozenset({"bach_bourree", "bach_gavotte", "bach_gigue", "bach_prelude"})
 _KINETIC_PATTERNS = frozenset(
     {
         "study",
@@ -2273,11 +2380,19 @@ def _bass_onsets(ctx: _Ctx, pattern: str, bar: int, start: int, target: int) -> 
         return [eighth for eighth in (origin, origin + accent) if inside(eighth)]
     if pattern == "bach_gigue":
         return [origin + offset for offset, _length in _gigue_plan(ctx)["bass"] if inside(origin + offset)]
+    if pattern == "bach_courante":
+        return [origin + offset for offset in _courante_bass_offsets(ctx, bar) if inside(origin + offset)]
+    if pattern == "bach_prelude":
+        return [origin + offset for offset in _half_bar_bass_offsets(ctx, "prelude") if inside(origin + offset)]
+    if pattern == "bach_allemande":
+        return [origin + offset for offset in _half_bar_bass_offsets(ctx, "allemande") if inside(origin + offset)]
     return [origin + offset for offset in ctx.strong if inside(origin + offset)]
 
 
 def _bass_accent(ctx: _Ctx, pattern: str, eighth: int) -> bool:
     local = eighth % ctx.epb
+    if pattern == "bach_courante":
+        return _courante_bass_accent(ctx, eighth)
     if pattern == "bach_gigue":
         return local in _gigue_plan(ctx)["down"]
     if pattern in {"bach_sarabande", "sarabande"}:
@@ -2523,23 +2638,36 @@ def _rewrite_bass(
                 return None
             low.extend(planted)
             continue
-        onsets = [eighth for eighth in _bass_onsets(ctx, pattern, bar, start, target) if eighth not in slap]
-        for index, eighth in enumerate(onsets):
-            following = onsets[index + 1] if index + 1 < len(onsets) else None
-            kept = _next_onset(low, eighth + 1, ctx.epb)
-            stops = [item for item in (following, kept) if item is not None]
-            if following is None:
-                ring = target
-                if target % ctx.epb not in ctx.strong:
-                    cursor = target + 1
-                    limit = min(len(ctx.melody), (bar + 2) * ctx.epb)
-                    while cursor < limit and cursor % ctx.epb not in ctx.strong:
-                        cursor += 1
-                    ring = cursor
-                stops.append(ring)
-            stop = min(stops) if stops else eighth + 1
-            if stop <= eighth:
-                continue
+        written = _written_bass_spans(ctx, pattern, bar)
+        if written is not None:
+            origin = bar * ctx.epb
+            attacks = []
+            for offset, duration in written:
+                eighth = origin + offset
+                stop = min(eighth + duration, origin + ctx.epb, target)
+                if eighth in slap or not start <= eighth < target or stop <= eighth:
+                    continue
+                attacks.append((eighth, stop))
+        else:
+            onsets = [eighth for eighth in _bass_onsets(ctx, pattern, bar, start, target) if eighth not in slap]
+            attacks = []
+            for index, eighth in enumerate(onsets):
+                following = onsets[index + 1] if index + 1 < len(onsets) else None
+                kept = _next_onset(low, eighth + 1, ctx.epb)
+                stops = [item for item in (following, kept) if item is not None]
+                if following is None:
+                    ring = target
+                    if target % ctx.epb not in ctx.strong:
+                        cursor = target + 1
+                        limit = min(len(ctx.melody), (bar + 2) * ctx.epb)
+                        while cursor < limit and cursor % ctx.epb not in ctx.strong:
+                            cursor += 1
+                        ring = cursor
+                    stops.append(ring)
+                stop = min(stops) if stops else eighth + 1
+                if stop > eighth:
+                    attacks.append((eighth, stop))
+        for eighth, stop in attacks:
             slices: list[list[int]] = []
             for cursor in range(eighth, min(stop, target + 1)):
                 group = leads.get(cursor)
