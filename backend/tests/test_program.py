@@ -7,7 +7,14 @@ from pathlib import Path
 from app.sonify.audio import RecapStore
 from app.sonify.chords import C
 from app.sonify.form import FormSection
-from app.sonify.guitar_patterns import _Ctx, _HEADLINE, _SKIP_VOICES, _barrios_region_patterns, form_pattern_ids
+from app.sonify.guitar_patterns import (
+    _Ctx,
+    _FORM,
+    _HEADLINE,
+    _SKIP_VOICES,
+    _barrios_region_patterns,
+    form_pattern_ids,
+)
 from app.sonify.keys import work_key_label
 from app.sonify.model import Bar, Phrase, Run
 from app.sonify.program import guitar_movement_name, pattern_form, pattern_title, span_movement_name
@@ -212,6 +219,21 @@ def test_villa_slow_and_six_eight_keep_their_body_and_show_the_contrast():
     )
 
 
+def _written_form(bars: list[Bar], **kwargs) -> list[str]:
+    forms: list[list[str]] = []
+    token_form = _FORM.set(forms)
+    token_headline = _HEADLINE.set([])
+    token_skip = _SKIP_VOICES.set(True)
+    try:
+        render(bars, variant="guitar", **kwargs)
+    finally:
+        _FORM.reset(token_form)
+        _HEADLINE.reset(token_headline)
+        _SKIP_VOICES.reset(token_skip)
+    assert forms
+    return forms[0]
+
+
 def test_bach_slow_selloff_with_a_contrast_stays_sarabande():
     slow = month_specs("guitar")[1]
     wide = _bars([100 - index * 0.2 for index in range(80)])
@@ -219,6 +241,93 @@ def test_bach_slow_selloff_with_a_contrast_stays_sarabande():
         guitar_movement_name(wide, ensemble="bach", character="selloff", form=slow, mode="minor", framed=False)
         == "Sarabande — Chaconne — Sarabande"
     )
+
+
+def test_bach_suite_rows_keep_form_ids_until_the_new_titles_exist():
+    """Prelude, Allemande, and Courante titles live in program.py.
+
+    That module is owned by the door work. Until `pattern_title` returns the
+    English name, the assertion is the form-id row `form_pattern_ids` stores.
+    """
+    flat = _bars([100.0] * 80)
+    wide = _bars([100 + index * 0.2 for index in range(80)])
+    opening = attach_frame(month_specs("guitar")[0], "1M")
+    scherzo = attach_frame(month_specs("guitar")[2], "1M")
+    finale = attach_frame(month_specs("guitar")[3], "1M")
+    slow = attach_frame(quarter_specs("guitar")[1], "3M")
+    assert _written_form(flat, ensemble="bach", character="calm", form=opening) == [
+        "bach_prelude",
+        "bach_allemande",
+        "bach_prelude",
+    ]
+    assert _written_form(flat, ensemble="bach", character="rally", form=opening) == [
+        "bach_allemande",
+        "bach_courante",
+        "bach_allemande",
+    ]
+    assert _written_form(wide, ensemble="bach", character="rally", form=opening) == [
+        "bach_bourree",
+        "bach_gavotte",
+        "bach_bourree",
+    ]
+    assert _written_form(flat, ensemble="bach", character="calm", form=scherzo) == [
+        "bach_courante",
+        "bach_gigue",
+        "bach_courante",
+    ]
+    assert _written_form(wide, ensemble="bach", character="rally", form=scherzo) == [
+        "bach_gigue",
+        "bach_courante",
+        "bach_gigue",
+    ]
+    assert _written_form(wide, ensemble="bach", character="rally", form=finale) == [
+        "bach_bourree",
+        "bach_fuga",
+        "bach_bourree",
+    ]
+    assert _written_form(wide, ensemble="bach", character="selloff", form=slow, mode="minor") == [
+        "bach_sarabande",
+        "bach_chaconne",
+        "bach_sarabande",
+    ]
+    assert _written_form(wide, ensemble="bach", character="rally", form=week_spec(1)) == ["bach_bourree"]
+    assert _written_form(flat, ensemble="bach", character="calm", form=week_spec(4)) == [
+        "bach_prelude",
+        "bach_allemande",
+        "bach_bourree",
+        "bach_prelude",
+    ]
+    assert (
+        guitar_movement_name(wide, ensemble="bach", character="rally", form=finale)
+        == "Bourree — Fugue — Bourree"
+    )
+    assert (
+        guitar_movement_name(wide, ensemble="bach", character="rally", form=opening)
+        == "Bourree — Gavotte — Bourree"
+    )
+    assert guitar_movement_name(wide, ensemble="bach", character="rally", form=week_spec(1)) == "Bourree"
+    assert (
+        guitar_movement_name(wide, ensemble="bach", character="selloff", form=slow, mode="minor")
+        == "Sarabande — Chaconne — Sarabande"
+    )
+    prelude = pattern_title("bach_prelude", "bach")
+    allemande = pattern_title("bach_allemande", "bach")
+    courante = pattern_title("bach_courante", "bach")
+    if prelude == "Prelude" and allemande == "Allemande" and courante == "Courante":
+        assert guitar_movement_name(flat, ensemble="bach", character="calm", form=opening) == (
+            "Prelude — Allemande — Prelude"
+        )
+        assert guitar_movement_name(flat, ensemble="bach", character="rally", form=opening) == (
+            "Allemande — Courante — Allemande"
+        )
+        assert guitar_movement_name(flat, ensemble="bach", character="calm", form=scherzo) == (
+            "Courante — Gigue — Courante"
+        )
+        assert guitar_movement_name(wide, ensemble="bach", character="rally", form=scherzo) == (
+            "Gigue — Courante — Gigue"
+        )
+    else:
+        assert prelude == "" and allemande == "" and courante == ""
 
 
 def test_an_unknown_pattern_is_not_titled_etude():

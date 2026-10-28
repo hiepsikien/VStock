@@ -4801,3 +4801,412 @@ def test_villa_etude1_and_etude11_follow_the_locked_cells() -> None:
     ]
     assert abs(sum(note.duration_beats for note in leaving) - 1.75) < 1e-6
 
+
+def _dance_ctx(
+    meter,
+    melody: list[int],
+    *,
+    bpm: int = 96,
+    character: str = "rally",
+    rel_span: float = 0.02,
+    chords: dict | None = None,
+    sections: tuple = (),
+    phrases: tuple | None = None,
+    raw: list[int] | None = None,
+):
+    """A Bach context for one renderer call or one scheduler decision."""
+    from app.sonify.guitar_patterns import _Ctx
+
+    epb = meter.eighths_per_bar
+    bars = len(melody) // epb
+    kinds = {bar: "phrase" for bar in range(bars)}
+    for section in sections:
+        for bar in range(section.start, min(section.end, bars)):
+            kinds[bar] = section.kind
+    return _Ctx(
+        melody=list(melody),
+        raw=list(raw if raw is not None else melody),
+        chord_at=chords or {bar: C for bar in range(bars)},
+        kind_at=kinds,
+        band_at={bar: "mf" for bar in range(bars)},
+        phrases=phrases if phrases is not None else (_joined(0, melody),),
+        bars=bars,
+        bpm=bpm,
+        ensemble="bach",
+        mode="major",
+        character=character,
+        character_at=None,
+        sections=sections,
+        rel_span=rel_span,
+        semitones=0,
+        bass_low=40,
+        bass_high=53,
+        mid_low=50,
+        mid_high=65,
+        treble_floor=59,
+        treble_top=81,
+        ceiling=83,
+        epb=epb,
+        kind={8: "4/4", 6: "3/4"}.get(epb, "4/4") if meter.beat_type == 4 else "6/8",
+        strong=tuple(meter.strong_eighths),
+        bar_beats=meter.quarter_beats,
+    )
+
+
+def _voice_score(lead, support, low, meter, phrases: tuple = ()) -> Score:
+    from app.sonify.guitar_patterns import _needs_sixteenths
+
+    last = 0
+    for note in (*lead, *support, *low):
+        if note.midi is not None:
+            last = max(last, note.bar)
+    bars = last + 1
+    divisions = 4 if any(_needs_sixteenths(list(voice)) for voice in (lead, support, low)) else 2
+    return Score(
+        title="Guitar",
+        bpm=96,
+        bars=bars,
+        regimes=("sideway", "sideway", "sideway"),
+        regime_samples=None,
+        slots=tuple(ChordSlot(bar, 1, C, "sideway", "phrase") for bar in range(bars)),
+        high=(),
+        lead=tuple(lead),
+        support=tuple(support),
+        comp=(),
+        low=tuple(low),
+        dynamics=(),
+        harmonies=(),
+        liquidity=tuple("mf" for _ in range(bars)),
+        phrases=phrases,
+        lead_wedges=(),
+        support_wedges=(),
+        lead_dynamics=(),
+        support_dynamics=(),
+        variant="guitar",
+        ensemble="bach",
+        divisions=divisions,
+        beats=meter.beats,
+        beat_type=meter.beat_type,
+        bar_beats=meter.quarter_beats,
+    )
+
+
+def _slot_attacks(score, bar: int = 0) -> dict[int, list[tuple[str, NoteEvent]]]:
+    found: dict[int, list[tuple[str, NoteEvent]]] = {}
+    for name, voice in (("lead", score.lead), ("support", score.support), ("low", score.low)):
+        for note in _attacks(voice, bar):
+            found.setdefault(int(round(note.beat * 4)), []).append((name, note))
+    return found
+
+
+def test_bach_prelude_rolls_sixteenth_arpeggio_across_three_voices() -> None:
+    """One new attack per sixteenth. Bass owns the first slot of each half bar."""
+    for meter in (METER_44, METER_34, METER_68):
+        epb = meter.eighths_per_bar
+        melody = [72] * epb
+        ctx = _dance_ctx(meter, melody, character="calm", rel_span=0.0)
+        from app.sonify.guitar_bach import _render_bach_prelude_bar
+
+        lead, support, low = _render_bach_prelude_bar(ctx, 0, set(), ctx.phrases[0])
+        score = _voice_score(lead, support, low, meter, ctx.phrases)
+        assert score.divisions == 4
+        assert_playable(score, profiles="bach")
+        slots = epb * 2
+        half = slots // 2
+        attacks = _slot_attacks(score)
+        assert set(attacks) == set(range(slots))
+        for slot in range(slots):
+            assert len(attacks[slot]) == 1
+            name, note = attacks[slot][0]
+            if slot % half == 0:
+                assert name == "low"
+                assert abs(note.duration_beats - (half / 4)) < 1e-6
+            else:
+                assert name in {"lead", "support"}
+        for origin in (0, half):
+            name, note = attacks[origin + 3][0]
+            assert name == "lead" and abs(note.duration_beats - 0.5) < 1e-6
+            assert attacks[origin + 4][0][0] == "support"
+            assert attacks[origin + 5][0][0] == "support"
+        bass_beats = [round(note.beat, 2) for note in _attacks(score.low, 0)]
+        assert bass_beats == [0.0, 2.0] if epb >= 8 else [0.0, 1.5]
+
+
+def test_bach_allemande_weaves_style_brise_and_sixteenth_pickup() -> None:
+    """Support follows the bass, a held lead walks, and the pickup is four sixteenths."""
+    from app.sonify.chords import G
+    from app.sonify.guitar_bach import _render_bach_allemande_bar
+
+    def render(meter, melody: list[int]):
+        epb = meter.eighths_per_bar
+        bars = len(melody) // epb
+        phrases = tuple(_joined(bar * epb, melody[bar * epb : (bar + 1) * epb]) for bar in range(bars))
+        ctx = _dance_ctx(
+            meter,
+            melody,
+            phrases=phrases,
+            chords={0: C, 1: G} if bars > 1 else {0: C},
+        )
+        lead, support, low = _render_bach_allemande_bar(ctx, 0, set(), phrases[0])
+        score = _voice_score(lead, support, low, meter, phrases)
+        assert_playable(score, profiles="bach")
+        return score
+
+    held = render(METER_44, [72] * 16)
+    running = render(METER_44, [67, 69, 71, 72, 74, 72, 71, 69] * 2)
+    for score in (held, running):
+        for voice in (score.lead, score.support, score.low):
+            assert not any(note.staccato for note in voice if note.midi is not None)
+        assert _sixteenths(score.lead, 0) == [3.0, 3.25, 3.5, 3.75]
+        assert _covering(score.low, 0, 3.0) is None
+        assert min(_onset_beats(score.support, 0)) > min(_onset_beats(score.low, 0))
+        support = _attacks(score.support, 0)
+        assert [round(note.beat, 2) for note in support] == [0.5, 2.5]
+        assert abs(support[0].duration_beats - 1.0) < 1e-6
+        assert abs(support[1].duration_beats - 0.5) < 1e-6
+    held_bass = _attacks(held.low, 0)
+    assert 0.5 in {round(note.beat, 2) for note in held_bass}
+    assert held_bass[0].midi != held_bass[1].midi
+    running_bass = _attacks(running.low, 0)
+    assert [round(note.beat, 2) for note in running_bass] == [0.0, 2.0]
+    assert abs(running_bass[0].duration_beats - 2.0) < 1e-6
+    assert abs(running_bass[1].duration_beats - 1.0) < 1e-6
+
+    three = render(METER_34, [72] * 12)
+    assert _sixteenths(three.lead, 0) == [2.0, 2.25, 2.5, 2.75]
+    three_bass = _attacks(three.low, 0)
+    assert [round(note.beat, 2) for note in three_bass] == [0.0]
+    assert abs(three_bass[0].duration_beats - 1.0) < 1e-6
+    assert [round(note.beat, 2) for note in _attacks(three.support, 0)] == [0.5]
+    assert _covering(three.low, 0, 2.0) is None
+    assert not any(note.staccato for note in (*three.lead, *three.support, *three.low))
+
+    six = render(METER_68, [72] * 12)
+    assert _sixteenths(six.lead, 0) == [2.0, 2.25, 2.5, 2.75]
+    six_bass = _attacks(six.low, 0)
+    assert [round(note.beat, 2) for note in six_bass][:1] == [0.0]
+    assert any(abs(note.beat - 1.5) < 1e-6 and abs(note.duration_beats - 0.5) < 1e-6 for note in six_bass)
+    assert [round(note.beat, 2) for note in _attacks(six.support, 0)] == [0.5]
+    assert _covering(six.low, 0, 2.0) is None
+    assert not any(note.staccato for note in (*six.lead, *six.support, *six.low))
+
+
+def test_bach_courante_leaps_on_beat_one_and_runs_sixteenths_on_the_middle_beat() -> None:
+    """Leap, tirata, and anacrusis. Hemiola belongs to the closing bar of 3/4 and 6/8."""
+    from app.sonify.guitar_bach import _render_bach_courante_bar
+
+    def render(meter, *, closes: bool):
+        epb = meter.eighths_per_bar
+        melody = [72] * epb + [74] * epb
+        phrase = _joined(0, melody[:epb], held=not closes)
+        ctx = _dance_ctx(meter, melody, phrases=(phrase,), character="rally", rel_span=0.02)
+        lead, support, low = _render_bach_courante_bar(ctx, 0, set(), phrase)
+        score = _voice_score(lead, support, low, meter, (phrase,))
+        assert_playable(score, profiles="bach")
+        return score
+
+    def bass_rows(score) -> list[tuple[float, float, bool]]:
+        return [
+            (round(note.beat, 2), round(note.duration_beats, 2), note.accent)
+            for note in _attacks(score.low, 0)
+        ]
+
+    for meter, tirata in (
+        (METER_34, [1.0, 1.25, 1.5, 1.75]),
+        (METER_68, [1.5, 1.75, 2.0, 2.25]),
+        (METER_44, [2.0, 2.25, 2.5, 2.75]),
+    ):
+        score = render(meter, closes=False)
+        assert score.divisions == 4
+        lead = _attacks(score.lead, 0)
+        assert lead[0].accent and abs(lead[0].beat) < 1e-6
+        leap = next(note for note in lead if abs(note.beat - 0.5) < 1e-6)
+        assert leap.staccato and leap.midi is not None and lead[0].midi is not None
+        assert leap.midi > lead[0].midi
+        assert _sixteenths(score.lead, 0) == tirata
+        end = meter.eighths_per_bar / 2 - 0.5
+        assert any(abs(note.beat - end) < 1e-6 for note in _attacks(score.lead, 0))
+        assert any(abs(note.beat - end) < 1e-6 for note in _attacks(score.low, 0))
+        ordered = _attacks(score.low, 0)
+        for left, right in zip(ordered, ordered[1:]):
+            assert left.beat + left.duration_beats <= right.beat + 1e-6
+        if meter is METER_34:
+            # Eighth 4 is the staccato arrival. The bass that began on eighth 2 has ended.
+            assert not any(abs(note.beat - 2.0) < 1e-6 for note in ordered)
+            second = next(note for note in ordered if abs(note.beat - 1.0) < 1e-6)
+            assert abs((second.beat + second.duration_beats) - 2.0) < 1e-6
+        elif meter is METER_44:
+            # Eighth 6 is the staccato lead. The bass from eighth 4 stops there.
+            fifth = next(note for note in ordered if abs(note.beat - 2.0) < 1e-6)
+            assert abs(fifth.duration_beats - 1.0) < 1e-6
+            assert abs((fifth.beat + fifth.duration_beats) - 3.0) < 1e-6
+            assert not any(abs(note.beat - 3.0) < 1e-6 for note in ordered)
+            assert any(abs(note.beat - 3.5) < 1e-6 for note in ordered)
+        else:
+            for left, right in zip(ordered, ordered[1:]):
+                assert abs((left.beat + left.duration_beats) - right.beat) < 1e-6
+
+    three = render(METER_34, closes=True)
+    assert _sixteenths(three.lead, 0) == [1.0, 1.25, 1.5, 1.75]
+    assert bass_rows(three)[0] == (0.0, 1.0, True)
+    assert (1.5, 0.5, True) in bass_rows(three)
+    assert not any(abs(note.beat - 1.0) < 1e-6 for note in _attacks(three.low, 0))
+
+    six = render(METER_68, closes=True)
+    assert _sixteenths(six.lead, 0) == []
+    assert _sixteenths(six.support, 0) == []
+    assert _sixteenths(six.low, 0) == []
+    assert bass_rows(six)[:3] == [(0.0, 1.0, True), (1.0, 1.0, True), (2.0, 0.5, True)]
+    accents = {round(note.beat, 2) for note in _attacks(six.lead, 0) if note.accent}
+    assert {0.0, 1.0, 2.0} <= accents
+
+    four = render(METER_44, closes=True)
+    assert _sixteenths(four.lead, 0) == [2.0, 2.25, 2.5, 2.75]
+    assert [beat for beat, _dur, _accent in bass_rows(four)] == [0.0, 1.0, 2.0, 3.5]
+    assert not any(abs(note.beat - 1.5) < 1e-6 for note in _attacks(four.low, 0))
+
+
+def _spec_ctx(spec, *, character: str, rel_span: float, motion: str = "held", bpm: int | None = None):
+    """One phrase per form section, so the region row is the section row."""
+    meter = spec.meter
+    epb = meter.eighths_per_bar
+    total = spec.bars * epb
+    if motion == "running":
+        cycle = [67, 69, 71, 72, 74, 72, 71, 69]
+        melody = [cycle[index % len(cycle)] for index in range(total)]
+    elif motion == "lively":
+        melody = [67 + (index % 5) for index in range(total)]
+    else:
+        melody = [72] * total
+    raw = [60 + ((index * 3) % 7) for index in range(total)] if motion == "lively" else list(melody)
+    phrases = tuple(
+        Phrase(
+            section.start * epb,
+            section.end * epb,
+            (Run(section.start * epb, (section.end - section.start) * epb, 72),),
+        )
+        for section in spec.sections
+    )
+    return _dance_ctx(
+        meter,
+        melody,
+        bpm=spec.bpm if bpm is None else bpm,
+        character=character,
+        rel_span=rel_span,
+        sections=spec.sections,
+        phrases=phrases,
+        raw=raw,
+    )
+
+
+def _body_ids(ctx) -> list[str]:
+    """One written id per body phrase, including repeats inside one region."""
+    from app.sonify.guitar_patterns import _PEDAL, _patterns
+
+    chosen = _patterns(ctx)
+    row: list[str] = []
+    for index, phrase in enumerate(ctx.phrases):
+        bar = min(ctx.bars - 1, phrase.start // max(ctx.epb, 1))
+        if ctx.kind_at.get(bar, "phrase") in _PEDAL:
+            continue
+        row.append(chosen[index])
+    return row
+
+
+def _body_row(ctx) -> list[str]:
+    """Formal regions. Adjacent phrases that share a pattern are one region."""
+    row: list[str] = []
+    for pattern in _body_ids(ctx):
+        if not row or row[-1] != pattern:
+            row.append(pattern)
+    return row
+
+
+def test_bach_1d_stays_one_pattern_and_longer_spans_walk_suite_rows() -> None:
+    """1D is one dance. Longer framed movements walk section 3.3, and three regions skip palette[2]."""
+    from app.sonify.form import DAILY_ENSEMBLE_SPEC
+    from app.sonify.guitar_patterns import _bach_palette, form_pattern_ids
+    from app.sonify.span import attach_frame, month_specs, quarter_specs, week_spec, year_specs
+
+    daily = {
+        ("calm", 0.0, "held"): "bach_prelude",
+        ("calm", 0.01, "running"): "bach_allemande",
+        ("rally", 0.01, "held"): "bach_bourree",
+        ("rally", 0.02, "held"): "bach_gavotte",
+        ("rally", 0.02, "lively"): "bach_courante",
+        ("volatile", 0.02, "held"): "bach_fuga",
+        ("selloff", 0.02, "held"): "bach_chaconne",
+    }
+    for (character, span, motion), pattern in daily.items():
+        ctx = _spec_ctx(DAILY_ENSEMBLE_SPEC, character=character, rel_span=span, motion=motion, bpm=96)
+        ids = _body_ids(ctx)
+        assert len(ids) >= 3
+        assert set(ids) == {pattern}
+        assert _body_row(ctx) == [pattern]
+
+    # The same wide rally without a frame stays Bourrée, and its trio stays the Fugue.
+    bare = _dance_ctx(
+        METER_44,
+        [72] * 32,
+        character="rally",
+        rel_span=0.02,
+        sections=(
+            FormSection(0, 2, "phrase", 0),
+            FormSection(2, 4, "phrase", 0, trio=True),
+        ),
+        phrases=(_joined(0, [72] * 16), _joined(16, [72] * 16)),
+    )
+    assert _body_row(bare) == ["bach_bourree", "bach_fuga"]
+
+    week = _spec_ctx(week_spec(1), character="rally", rel_span=0.02, motion="lively")
+    assert _body_row(week) == ["bach_bourree"]
+
+    calm_week = _spec_ctx(week_spec(3), character="calm", rel_span=0.0)
+    assert _body_row(calm_week) == ["bach_prelude", "bach_allemande", "bach_prelude"]
+    assert "bach_bourree" not in _body_row(calm_week)
+    four = _spec_ctx(week_spec(4), character="calm", rel_span=0.0)
+    assert _body_row(four) == ["bach_prelude", "bach_allemande", "bach_bourree", "bach_prelude"]
+    wide_four = _spec_ctx(week_spec(4), character="rally", rel_span=0.02)
+    assert _body_row(wide_four) == ["bach_bourree", "bach_gavotte", "bach_fuga", "bach_bourree"]
+
+    opening = _spec_ctx(attach_frame(month_specs("guitar")[0], "1M"), character="calm", rel_span=0.0)
+    assert _body_row(opening) == ["bach_prelude", "bach_allemande", "bach_prelude"]
+    lively = _spec_ctx(
+        attach_frame(month_specs("guitar")[0], "1M"),
+        character="rally",
+        rel_span=0.02,
+        motion="lively",
+    )
+    assert _body_row(lively) == ["bach_bourree", "bach_gavotte", "bach_bourree"]
+    assert form_pattern_ids(lively, _patterns_of(lively)) == _body_row(lively)
+
+    scherzo = _spec_ctx(attach_frame(month_specs("guitar")[2], "1M"), character="calm", rel_span=0.0)
+    assert _body_row(scherzo) == ["bach_courante", "bach_gigue", "bach_courante"]
+    finale = _spec_ctx(attach_frame(month_specs("guitar")[3], "1M"), character="rally", rel_span=0.02)
+    assert _body_row(finale) == ["bach_bourree", "bach_fuga", "bach_bourree"]
+    assert "bach_gavotte" not in _body_row(finale)
+
+    slow = _spec_ctx(
+        attach_frame(quarter_specs("guitar")[1], "3M"),
+        character="selloff",
+        rel_span=0.02,
+    )
+    assert _body_row(slow) == ["bach_sarabande", "bach_chaconne", "bach_sarabande"]
+    quarter = _spec_ctx(attach_frame(quarter_specs("guitar")[0], "3M"), character="rally", rel_span=0.02)
+    assert _body_row(quarter) == ["bach_bourree", "bach_gavotte", "bach_bourree"]
+    year_open = _spec_ctx(attach_frame(year_specs("guitar")[0], "1Y"), character="calm", rel_span=0.0)
+    assert _body_row(year_open) == ["bach_prelude", "bach_allemande"]
+    year_end = _spec_ctx(attach_frame(year_specs("guitar")[11], "1Y"), character="rally", rel_span=0.02)
+    assert _body_row(year_end) == ["bach_bourree", "bach_fuga", "bach_bourree"]
+
+    # Two regions hear A then B. palette[2] waits for a fourth region.
+    palette = _bach_palette(opening, "bach_prelude", "calm")
+    assert palette[2] == "bach_bourree"
+    assert palette[2] not in _body_row(opening)
+
+
+def _patterns_of(ctx) -> list[str]:
+    from app.sonify.guitar_patterns import _patterns
+
+    return _patterns(ctx)
+

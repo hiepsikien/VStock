@@ -74,6 +74,9 @@ _FAMILY = {
     "bach_sarabande": "bach",
     "bach_gigue": "bach",
     "bach_chaconne": "bach",
+    "bach_prelude": "bach",
+    "bach_allemande": "bach",
+    "bach_courante": "bach",
 }
 _PROFILE = {
     "study": "study",
@@ -104,6 +107,9 @@ _PROFILE = {
     "bach_sarabande": "bach",
     "bach_gigue": "bach",
     "bach_chaconne": "bach",
+    "bach_prelude": "bach",
+    "bach_allemande": "bach",
+    "bach_courante": "bach",
 }
 
 
@@ -1148,6 +1154,24 @@ def _assign_macro(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
                 _phrase_bars(ctx, opening),
             )
             palette = _barrios_palette(ctx, primary)
+            row = _barrios_region_patterns(palette, len(regions))
+            for (indexes, _contrast), pattern in zip(regions, row):
+                for index in indexes:
+                    chosen[index] = pattern
+            return chosen
+    # Framed Bach longer than 40 bars walks the suite row before any trio,
+    # bridge, or per-slot choice. Two or three regions never reach palette[2].
+    if ctx.ensemble == "bach" and _framed(ctx) and ctx.bars > 40:
+        regions = _group_slots(ctx, body)
+        if len(regions) >= 2:
+            opening = regions[0][0]
+            opening_bars = _phrase_bars(ctx, opening)
+            primary = _dominant_pattern(
+                ctx,
+                [ctx.phrases[index] for index in opening],
+                opening_bars,
+            )
+            palette = _bach_palette(ctx, primary, _majority_mood(ctx, opening_bars))
             row = _barrios_region_patterns(palette, len(regions))
             for (indexes, _contrast), pattern in zip(regions, row):
                 for index in indexes:
@@ -2368,16 +2392,16 @@ def contrast_id(ctx: _Ctx, patterns: list[str]) -> str:
 
 
 def form_pattern_ids(ctx: _Ctx, patterns: list[str]) -> list[str]:
-    """One written pattern, or the slot row of a framed long Barrios movement.
+    """One written pattern, or the slot row of a framed long Barrios or Bach movement.
 
-    `_assign_macro` writes that row only when the score has a frame. An
-    unframed movement longer than 40 bars still chose each phrase on its own,
-    so the title must not group those phrases. A row of one id falls back to
-    the headline instead of repeating that id.
+    `_assign_macro` writes that row only when the score has a frame and more
+    than 40 bars. An unframed movement, including a long Bach movement, still
+    chose each phrase on its own, so the title must not group those phrases.
+    A row of one id falls back to the headline instead of repeating that id.
     """
     if not patterns:
         return []
-    if ctx.ensemble == "barrios" and ctx.bars > 40 and _framed(ctx):
+    if ctx.ensemble in {"barrios", "bach"} and ctx.bars > 40 and _framed(ctx):
         successive = _region_pattern_ids(ctx, patterns)
         if len(successive) >= 2 and len(set(successive)) >= 2:
             return successive
@@ -2738,6 +2762,21 @@ def render_patterned_voices(
             low.extend(part_low)
         elif pattern == "bach_chaconne":
             part_lead, part_support, part_low = _render_bach_chaconne_bar(ctx, bar, apex, phrase_here)
+            lead.extend(part_lead)
+            support.extend(part_support)
+            low.extend(part_low)
+        elif pattern == "bach_prelude":
+            part_lead, part_support, part_low = _render_bach_prelude_bar(ctx, bar, apex, phrase_here)
+            lead.extend(part_lead)
+            support.extend(part_support)
+            low.extend(part_low)
+        elif pattern == "bach_allemande":
+            part_lead, part_support, part_low = _render_bach_allemande_bar(ctx, bar, apex, phrase_here)
+            lead.extend(part_lead)
+            support.extend(part_support)
+            low.extend(part_low)
+        elif pattern == "bach_courante":
+            part_lead, part_support, part_low = _render_bach_courante_bar(ctx, bar, apex, phrase_here)
             lead.extend(part_lead)
             support.extend(part_support)
             low.extend(part_low)
@@ -3529,6 +3568,7 @@ from app.sonify.guitar_bach import (  # noqa: E402
     _bach_bass,
     _bach_bass_high,
     _bach_contrast,
+    _bach_palette,
     _bach_keep_bass_below,
     _bach_lag_bar,
     _bach_lead_high,
@@ -3550,8 +3590,11 @@ from app.sonify.guitar_bach import (  # noqa: E402
     _mordent_events,
     _ornament_neighbor,
     _quarter_ok,
+    _render_bach_allemande_bar,
     _render_bach_bourree_bar,
     _render_bach_chaconne_bar,
+    _render_bach_courante_bar,
+    _render_bach_prelude_bar,
     _render_bach_fuga_bar,
     _render_bach_gavotte_bar,
     _render_bach_gigue_bar,
