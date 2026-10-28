@@ -243,12 +243,8 @@ def test_bach_slow_selloff_with_a_contrast_stays_sarabande():
     )
 
 
-def test_bach_suite_rows_keep_form_ids_until_the_new_titles_exist():
-    """Prelude, Allemande, and Courante titles live in program.py.
-
-    That module is owned by the door work. Until `pattern_title` returns the
-    English name, the assertion is the form-id row `form_pattern_ids` stores.
-    """
+def test_bach_suite_rows_name_prelude_allemande_and_courante():
+    """Framed suite rows use the titles registered for the three new dances."""
     flat = _bars([100.0] * 80)
     wide = _bars([100 + index * 0.2 for index in range(80)])
     opening = attach_frame(month_specs("guitar")[0], "1M")
@@ -310,24 +306,21 @@ def test_bach_suite_rows_keep_form_ids_until_the_new_titles_exist():
         guitar_movement_name(wide, ensemble="bach", character="selloff", form=slow, mode="minor")
         == "Sarabande — Chaconne — Sarabande"
     )
-    prelude = pattern_title("bach_prelude", "bach")
-    allemande = pattern_title("bach_allemande", "bach")
-    courante = pattern_title("bach_courante", "bach")
-    if prelude == "Prelude" and allemande == "Allemande" and courante == "Courante":
-        assert guitar_movement_name(flat, ensemble="bach", character="calm", form=opening) == (
-            "Prelude — Allemande — Prelude"
-        )
-        assert guitar_movement_name(flat, ensemble="bach", character="rally", form=opening) == (
-            "Allemande — Courante — Allemande"
-        )
-        assert guitar_movement_name(flat, ensemble="bach", character="calm", form=scherzo) == (
-            "Courante — Gigue — Courante"
-        )
-        assert guitar_movement_name(wide, ensemble="bach", character="rally", form=scherzo) == (
-            "Gigue — Courante — Gigue"
-        )
-    else:
-        assert prelude == "" and allemande == "" and courante == ""
+    assert pattern_title("bach_prelude", "bach") == "Prelude"
+    assert pattern_title("bach_allemande", "bach") == "Allemande"
+    assert pattern_title("bach_courante", "bach") == "Courante"
+    assert guitar_movement_name(flat, ensemble="bach", character="calm", form=opening) == (
+        "Prelude — Allemande — Prelude"
+    )
+    assert guitar_movement_name(flat, ensemble="bach", character="rally", form=opening) == (
+        "Allemande — Courante — Allemande"
+    )
+    assert guitar_movement_name(flat, ensemble="bach", character="calm", form=scherzo) == (
+        "Courante — Gigue — Courante"
+    )
+    assert guitar_movement_name(wide, ensemble="bach", character="rally", form=scherzo) == (
+        "Gigue — Courante — Gigue"
+    )
 
 
 def test_an_unknown_pattern_is_not_titled_etude():
