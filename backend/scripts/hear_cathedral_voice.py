@@ -5,10 +5,12 @@ Each cell is eight sixteenths. Nothing is tied. Every attack is plucked again.
 
 - High, counts 1 and 7. Count 1 lasts six sixteenths; count 7 lasts two.
 - Lower middle, voice 2, counts 2, 4, 6, and 8. Counts 2, 6, and 8 are one
-  chord tone. Count 4 is two scale steps higher. Each lasts two sixteenths.
+  chord tone. Count 4 is one or two scale steps higher. Counts 2, 4, and 6
+  last two sixteenths. Count 8 lasts one.
 - Upper middle, voice 4, counts 3 and 5, the same chord tone. Count 3 lasts
-  two sixteenths. Count 5 lasts until the next count 3. Where that reach
-  crosses a barline, the remainder is a new note, not a tie.
+  two sixteenths. Count 5 lasts one eighth and stops before count 7.
+- Count 8 lasts one sixteenth and stops at the end of the cell. The next
+  cell does not open with a continuation of count 5 or count 8.
 
 Velocities stay in 40–70 and move a little around the centers:
 high about 60, lower middle about 50, bass about 45, upper middle about 40.
@@ -69,18 +71,19 @@ class Cell:
     up5: int
 
 
-# Two cells per bar. Inside a cell, 2 = 6 = 8 and 3 = 5. Count 4 is two
-# scale steps higher, and that step is still a chord tone under the upper voice.
+# Two cells per bar. 2 = 6 = 8 and 3 = 5. The upper middle sits a third
+# above the lower middle. The lowest high note sits a fifth above the upper
+# middle. Count 4 rises one scale step, under the upper voice.
 # Bars 0, 1, 3 are D. Bar 2 is A. Sounding pitches, before the D-key shift.
 CELLS = (
-    Cell(FS5, E5, D4, FS4, D4, D4, A4, A4),
-    Cell(D5, CS5, D4, FS4, D4, D4, A4, A4),
-    Cell(FS5, E5, D4, FS4, D4, D4, A4, A4),
-    Cell(D5, CS5, D4, FS4, D4, D4, A4, A4),
-    Cell(E5, B4, A3, CS4, A3, A3, E4, E4),
-    Cell(E5, D5, A3, CS4, A3, A3, E4, E4),
-    Cell(FS5, E5, D4, FS4, D4, D4, A4, A4),
-    Cell(FS5, E5, D4, FS4, D4, D4, A4, A4),
+    Cell(D5, CS5, D4, E4, D4, D4, FS4, FS4),
+    Cell(D5, E5, D4, E4, D4, D4, FS4, FS4),
+    Cell(D5, CS5, D4, E4, D4, D4, FS4, FS4),
+    Cell(D5, E5, D4, E4, D4, D4, FS4, FS4),
+    Cell(CS5, B4, CS4, D4, CS4, CS4, E4, E4),
+    Cell(CS5, D5, CS4, D4, CS4, CS4, E4, E4),
+    Cell(D5, CS5, D4, E4, D4, D4, FS4, FS4),
+    Cell(D5, E5, D4, E4, D4, D4, FS4, FS4),
 )
 BASS_NOTES = (D3, D3, A2, D3, D3)
 
@@ -143,44 +146,30 @@ def _lead() -> list[NoteEvent]:
 
 
 def _lower() -> list[NoteEvent]:
-    """Counts 2, 4, 6, and 8. Each is two sixteenths, and none is tied."""
+    """Counts 2, 4, and 6 last an eighth. Count 8 lasts one sixteenth."""
     events: list[NoteEvent] = []
     for index, cell in enumerate(CELLS):
         bar = index // 2
         origin = 0.0 if index % 2 == 0 else 2.0
-        prev = CELLS[index - 1] if index else None
-        pitches = (cell.low2, cell.low4, cell.low6, cell.low8)
-        if prev is None:
-            events.append(_note(bar, origin, None, 0.25, 2, None))
-        elif index % 2 == 0:
-            events.append(_note(bar, origin, prev.low8, 0.25, 2, _lower_velocity(index - 1, 3)))
-        for slot, beat in enumerate((0.25, 0.75, 1.25)):
-            events.append(
-                _note(bar, origin + beat, pitches[slot], 0.5, 2, _lower_velocity(index, slot))
-            )
-        if index % 2 == 0:
-            events.append(_note(bar, origin + 1.75, cell.low8, 0.5, 2, _lower_velocity(index, 3)))
-        else:
-            events.append(_note(bar, origin + 1.75, cell.low8, 0.25, 2, _lower_velocity(index, 3)))
+        events.append(_note(bar, origin, None, 0.25, 2, None))
+        events.append(_note(bar, origin + 0.25, cell.low2, 0.5, 2, _lower_velocity(index, 0)))
+        events.append(_note(bar, origin + 0.75, cell.low4, 0.5, 2, _lower_velocity(index, 1)))
+        events.append(_note(bar, origin + 1.25, cell.low6, 0.5, 2, _lower_velocity(index, 2)))
+        events.append(_note(bar, origin + 1.75, cell.low8, 0.25, 2, _lower_velocity(index, 3)))
     events.append(_note(4, 0.0, CELLS[-1].low8, 4.0, 2, _lower_velocity(7, 3)))
     return events
 
 
 def _upper() -> list[NoteEvent]:
+    """Count 3 lasts an eighth. Count 5 lasts an eighth, then the voice rests."""
     events: list[NoteEvent] = []
     for index, cell in enumerate(CELLS):
         bar = index // 2
         origin = 0.0 if index % 2 == 0 else 2.0
-        prev = CELLS[index - 1] if index else None
-        if prev is None:
-            events.append(_note(bar, origin, None, 0.50, 4, None))
-        elif index % 2 == 0:
-            events.append(_note(bar, origin, prev.up5, 0.50, 4, _upper_velocity(index - 1, 1)))
+        events.append(_note(bar, origin, None, 0.50, 4, None))
         events.append(_note(bar, origin + 0.50, cell.up3, 0.50, 4, _upper_velocity(index, 0)))
-        if index + 1 < len(CELLS) and index % 2 == 0:
-            events.append(_note(bar, origin + 1.00, cell.up5, 1.50, 4, _upper_velocity(index, 1)))
-        else:
-            events.append(_note(bar, origin + 1.00, cell.up5, 1.00, 4, _upper_velocity(index, 1)))
+        events.append(_note(bar, origin + 1.00, cell.up5, 0.50, 4, _upper_velocity(index, 1)))
+        events.append(_note(bar, origin + 1.50, None, 0.50, 4, None))
     events.append(_note(4, 0.0, CELLS[-1].up5, 4.0, 4, _upper_velocity(7, 1)))
     return events
 
@@ -225,9 +214,7 @@ def _check_cells() -> None:
     for index, cell in enumerate(CELLS):
         chord = A_CHORD if index in {4, 5} else D_CHORD
         bass = BASS_NOTES[index // 2]
-        ceiling = min(cell.canto_a, cell.canto_b)
-        if index + 1 < len(CELLS):
-            ceiling = min(ceiling, CELLS[index + 1].canto_a)
+        ceiling = cell.canto_a
         if cell.low2 != cell.low6 or cell.low2 != cell.low8 or cell.up3 != cell.up5:
             raise SystemExit(f"cell {index} does not hold 2=6=8 and 3=5")
         lifted = _steps_above(cell.low2, cell.low4)
@@ -237,6 +224,10 @@ def _check_cells() -> None:
             raise SystemExit(f"cell {index} lifts count 4 off the chord")
         if not bass < cell.low2 < cell.low4 < cell.up3 < ceiling:
             raise SystemExit(f"cell {index} does not stack under {ceiling}")
+        if cell.up3 - cell.low2 not in {3, 4}:
+            raise SystemExit(f"cell {index} middle voices are not a third apart")
+        if ceiling - cell.up3 not in {6, 7, 8, 9}:
+            raise SystemExit(f"cell {index} high voice is not near a fifth above the upper middle")
         if cell.low2 % 12 not in chord or cell.up3 % 12 not in chord:
             raise SystemExit(f"cell {index} leaves the chord")
         if cell.canto_a % 12 not in chord or cell.canto_b % 12 not in D_SCALE:
@@ -310,7 +301,8 @@ def main() -> None:
     print(engine)
     print(xml_path)
     print(wav_path)
-    print("Không có tie. Trong mỗi khung, 2 = 6 = 8 và 3 = 5. Nốt 4 cao hơn hai bậc.")
+    print("Không có tie. Trong mỗi khung, 2 = 6 = 8 và 3 = 5. Nốt 4 cao hơn một bậc.")
+    print("Nốt 5 là móc đơn, nốt 8 là móc kép. Đầu ô sau không có nốt nối.")
     print("Giọng Rê. Ô 1, 2, 4 là hợp âm Rê. Ô 3 là hợp âm La.")
 
 

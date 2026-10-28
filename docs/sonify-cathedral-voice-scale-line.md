@@ -9,7 +9,7 @@ Khung có ba bè giai điệu, cộng bè trầm. Bè cao là đường giá, v�
 
 `_resolve` cắt nốt nào dài hơn khoảng cách tới onset kế tiếp trong cùng voice. Hai bè trung ngân chồng nhau, nên chúng là hai voice trong `support`: `event.voice == 2` là trung thấp, `event.voice == 4` là trung cao. Không đưa trung cao vào `comp`, vì `ensemble.py` map `comp` như viola. `_resolve` và `_fill_sixteenths` chạy từng voice, không đóng dấu mọi nốt support thành `2`. `_guitar_part` tách `support` theo `event.voice`, mỗi voice một `<backup>`. `guitar.py` không ép nốt `4` về `2`.
 
-MusicXML mỗi voice có một `<backup>` đầu ô; nốt của một voice đặt sát nhau cho đủ ô, không viết `<tie>`. Nốt nào vượt vạch ô bên trong vùng preludio thì phần còn lại là một nốt mới, cùng cao độ, ở đầu ô sau. `_spell16` tự gắn tie khi một lần gọi cắt qua vạch ô. Hai mảnh đó phải là hai lần gọi, mỗi lần nằm trọn trong ô của nó, `tie_in` và `tie_out` đều sai.
+MusicXML mỗi voice có một `<backup>` đầu ô. Mỗi voice đi hết ô bằng nốt và dấu lặng của chính khung đó. Không viết `<tie>`. Không thêm nốt ở đầu ô sau để nối nốt `5` hoặc nốt `8`. `_spell16` tự gắn tie khi một lần gọi cắt qua vạch ô, nên đừng gọi nó cho một nốt vượt ô.
 
 `assert_playable` hiện từ chối bốn nốt đồng thời khi profile không phải `barrios_tremolo`, và từ chối bè trung có cao độ vang trên `65`. Trong khung này có lúc đủ bốn nốt: bass, trung thấp, trung cao, bè cao. Profile `barrios_preludio` cần một cửa hẹp: đúng bốn nốt đó, xếp `bass < trung thấp < trung cao < bè cao`, các cao độ khác nhau, và `_playable` vẫn phải đúng. Cửa đó cũng bỏ trần `65` khi nốt trung vẫn thấp hơn bè cao. Sàn `50` giữ. Cặp âm hợp âm dưới bè cao của Preludio không nằm nổi dưới `65`.
 
@@ -21,44 +21,47 @@ MusicXML mỗi voice có một `<backup>` đầu ô; nốt của một voice đ�
 | `2` | Trung thấp | Hai móc kép | Một âm hợp âm, gọi là âm thấp |
 | `3` | Trung cao | Hai móc kép, phủ `3` và `4` | Một âm hợp âm khác, gọi là âm cao |
 | `4` | Trung thấp | Hai móc kép, phủ `4` và `5` | Âm thấp nâng một bậc hoặc hai bậc |
-| `5` | Trung cao | Ngân tới nốt `3` của khung sau | Đúng cao độ nốt `3` |
+| `5` | Trung cao | Một móc đơn, phủ `5` và `6`, rồi tắt | Đúng cao độ nốt `3` |
 | `6` | Trung thấp | Hai móc kép | Đúng cao độ nốt `2` |
-| `7` | Cao. Đường giá, trên giai âm | Hai móc kép, tới nốt `1` của khung sau | `ctx.melody` tại nốt `7`. Trong ô `4/4` đây là phách yếu, giữ bậc giai âm |
-| `8` | Trung thấp | Hai móc kép, phủ `8` và vị trí `1` của khung sau | Đúng cao độ nốt `2` |
+| `7` | Cao. Đường giá, trên giai âm | Hai móc kép, hết đúng cuối khung | `ctx.melody` tại nốt `7`. Trong ô `4/4` đây là phách yếu, giữ bậc giai âm |
+| `8` | Trung thấp | Một móc kép, chỉ vị trí `8`, rồi tắt | Đúng cao độ nốt `2` |
 
 `_CATEDRAL_LEAD_44` đã là đen chấm dôi rồi móc đơn, hai lần trong ô `4/4`. Lịch bè cao giữ nguyên. Code hiện gảy sáu móc kép ở `2, 3, 4, 5, 6, 8`, mỗi nốt dài `0.25`, và dựng lại chữ V mỗi khung. `_CATEDRAL_SUPPORT_44` khóa lịch đó và sẽ đổi.
 
-Âm lượng nằm trong `40..70`. Mức giữa: bè cao `60`, trung thấp `50`, bass `45`, trung cao `40`. Mỗi bè được nhích quanh mức của mình, vẫn trong khoảng đó. Bè cao là bè lớn nhất.
+Âm lượng và khoảng cách bè ở dưới là mức nền, không phải số cứng. Pipeline đang có — cửa register, `_playable`, hợp âm còn âm nào, và đường velocity của câu — được phép dịch mức đó một bước nhỏ để khung chơi được. Trong một bè, các cú gảy lệch nhau vài bậc velocity, để nốt lặp không phẳng. Bè cao vẫn là bè lớn nhất.
+
+Mức nền velocity, trong `40..70`: bè cao `60`, trung thấp `50`, bass `45`, trung cao `40`.
 
 ### 1.1. Chọn hai âm hợp âm
 
 Bè cao của cả vùng preludio được chốt trước, vì trần của bè trang trí phụ thuộc nốt giá. Cao độ đó là `ctx.melody` sau `quantize_strong_beats`, không phải cao độ thô của giá và cũng không phải cặp âm trang trí của khung. Tại khung `k`:
 
-1. Trần là nốt bè cao thấp nhất trong ba nốt đang kêu cùng bè trang trí: nốt `1` của khung, nốt `7` của khung, và nốt `1` của khung sau. Nốt `5` còn ngân dưới cả ba. Khung cuối vùng không có nốt `1` sau thì trần là nốt thấp hơn trong cặp `1` và `7`.
+1. Trần của âm cao là nốt `1` của khung này. Nốt `3` và nốt `5` chỉ kêu dưới nốt `1`. Trần của âm thấp là nốt thấp hơn trong cặp nốt `1` và nốt `7`, vì nốt `6` và nốt `8` còn kêu dưới nốt `7`. Nốt `5` và nốt `8` không kêu sang khung sau, nên không lấy nốt `1` của khung sau làm trần.
 2. Lấy các âm của hợp âm đang ngân, nằm nghiêm giữa bass và trần, và không dưới sàn `50`.
 3. Chọn hai âm khác nhau. Âm cao dành cho nốt `3` và `5`. Âm thấp dành cho nốt `2`, `6`, `8`. Trong khung, `3 = 5` và `2 = 6 = 8`.
-4. Cặp ưu tiên là cặp gần nhau nhất mà nốt `4` vẫn nâng được hai bậc và còn thấp hơn âm cao. Không có cặp đó thì lấy cặp gần nhau nhất, và nốt `4` nâng một bậc. Một bậc cũng chạm âm cao hoặc bè cao thì nốt `4` giữ đúng âm thấp.
+4. Mức nền của khoảng cách: âm cao cách âm thấp một quãng ba (`3` hoặc `4` bán cung). Nốt bè cao thấp nhất đang kêu cùng âm cao cách âm cao đó nửa octave (`6` bán cung) hoặc một quãng năm (`7` bán cung). Hết đúng khoảng đó thì nới hoặc rút một bước, vừa đủ để còn âm hợp âm, còn `_playable`, và còn `bass < âm thấp < nốt 4 < âm cao < bè cao`. Nốt `4` nâng hai bậc khi nốt đó còn là âm hợp âm và còn thấp hơn âm cao; không thì nâng một bậc. Một bậc cũng chạm âm cao hoặc bè cao thì nốt `4` giữ đúng âm thấp.
 5. Hết hai âm trong cửa sổ thì giữ cặp của khung trước, nếu cả hai còn nằm giữa bass và trần. Không thêm âm ngoài hợp âm. Ngoại lệ duy nhất là nốt `4` khi nó nâng một bậc.
 
 Nốt `4` nâng theo thang của mode. Hai bậc chỉ khi nốt đích còn là âm hợp âm và còn thấp hơn âm cao. Một bậc là bước thang liền trên âm thấp, kể cả khi bước đó rời hợp âm.
 
-Khung đầu vùng không có nốt `8` phía trước. Bè trung thấp nghỉ một móc kép ở vị trí `1`, rồi gảy nốt `2`. Bè trung cao nghỉ hai móc kép đầu, rồi gảy nốt `3`.
+Mỗi khung, kể cả khung sau vạch ô, đều mở như khung đầu vùng. Bè trung thấp nghỉ một móc kép ở vị trí `1`, rồi gảy nốt `2`. Bè trung cao nghỉ hai móc kép đầu, rồi gảy nốt `3`. Đầu ô mới không có nốt ghép của nốt `5` hay nốt `8` khung trước.
 
 ### 1.2. Viết độ dài, không tie
 
-Trong một voice, các nốt đặt sát nhau. Không có `<tie>`.
+Trong một voice, nốt và dấu lặng đặt sát nhau cho đủ ô. Không có `<tie>`.
 
-- Nốt `8` của khung đầu trong ô dài hai móc kép và hết đúng lúc nốt `2` của khung sau được gảy.
-- Nốt `8` của khung cuối ô bị vạch ô cắt: một móc kép cuối ô, và một móc kép đầu ô sau. Hai nốt rời, cùng cao độ.
-- Nốt `5` của khung đầu trong ô dài sáu móc kép và hết đúng lúc nốt `3` của khung sau được gảy.
-- Nốt `5` của khung cuối ô dài tới vạch ô. Phần còn lại, tới nốt `3` của khung sau, là một nốt mới ở đầu ô sau, chỉ khi ô sau vẫn là preludio.
-- Khung cuối của cả vùng dừng tại vạch ô. Nốt `5` của khung đó dài `1.0` phách, nốt `8` dài `0.25` phách. Không tràn sang pattern kế tiếp.
+Trong một khung, gốc thời gian là đầu khung:
 
-`_render_catedral_preludio_bar` hiện làm từng ô một. Trần ở bước 1 cần nốt `1` của khung sau, kể cả khi khung đó sang ô mới, nên đường bè cao của cả vùng phải có trước khi chọn âm trang trí.
+- Nốt `5` bắt đầu ở vị trí `5`, dài một móc đơn (`0.5` phách), tắt ở đầu vị trí `7`. Hai móc kép còn lại của bè trung cao là dấu lặng.
+- Nốt `8` bắt đầu ở vị trí `8`, dài một móc kép (`0.25` phách), tắt đúng cuối khung. Vị trí `1` của khung sau là dấu lặng của bè trung thấp, không phải phần nối của nốt `8`.
+
+Khung cuối vùng và khung trước một pattern khác cũng vậy. Không có nốt tràn sang ô kế.
+
+`_render_catedral_preludio_bar` hiện làm từng ô một. Trần của âm thấp cần nốt `7` cùng khung, nên đường bè cao của khung đó có trước khi chọn âm trang trí.
 
 ### 1.3. Ô `3/4` và `6/8`
 
-Hai phách đầu vẫn là khung tám móc kép của Mục 1. Phách thừa vẫn là nhóm đi xuống của `_catedral_tail`, bắt đầu tại `beat 2.0`. Nốt `5` và nốt `8` của khung dừng tại `beat 2.0`: nốt `5` dài `1.0` phách, nốt `8` dài `0.25` phách. Chúng không đè lên nhóm đi xuống, và không viết tie sang nhóm đó.
+Hai phách đầu vẫn là khung tám móc kép của Mục 1. Phách thừa vẫn là nhóm đi xuống của `_catedral_tail`, bắt đầu tại `beat 2.0`. Nốt `5` đã tắt tại `beat 1.5`. Nốt `8` tắt đúng `beat 2.0`. Không bè nào của khung đè lên nhóm đi xuống, và không viết nốt nối sang nhóm đó.
 
 ## 2. Scale: tập nốt giữ, cách đi giữa hai mốc đổi
 
@@ -122,11 +125,11 @@ Câu ngắn hơn một ô giữ cửa `59..81`, cộng đúng một bậc neighb
 
 ## 3. Chỗ sửa và chỗ giữ
 
-Sửa `_catedral_cell`, `_catedral_wave`, và `_catedral_schedule` theo Mục 1. Bè trung thấp (`voice 2`) và bè trung cao (`voice 4`) cùng nằm trong `support`. `_resolve`, `_fill_sixteenths`, `_guitar_part`, `guitar.py`, và `assert_playable` tách theo `event.voice`. Bỏ tie và chữ V. Mở cửa bốn nốt và bỏ trần `65` đúng như đoạn đầu, chỉ profile `barrios_preludio`. Đường bè cao của cả vùng preludio được đọc trước khi chọn âm trang trí. Nốt `5` và nốt `8` không vượt biên vùng, và dừng tại `beat 2.0` trước `_catedral_tail`.
+Sửa `_catedral_cell`, `_catedral_wave`, và `_catedral_schedule` theo Mục 1. Bè trung thấp (`voice 2`) và bè trung cao (`voice 4`) cùng nằm trong `support`. `_resolve`, `_fill_sixteenths`, `_guitar_part`, `guitar.py`, và `assert_playable` tách theo `event.voice`. Bỏ tie và chữ V. Mở cửa bốn nốt và bỏ trần `65` đúng như đoạn đầu, chỉ profile `barrios_preludio`. Nốt `5` dài một móc đơn, nốt `8` dài một móc kép, và đầu ô sau không có nốt ghép của hai nốt đó. Trước `_catedral_tail`, nốt `5` đã tắt tại `beat 1.5` và nốt `8` tắt đúng `beat 2.0`.
 
 Sửa `_monotone` và cửa ép của `_step_pitch`. Nới `_lead_ok` theo Mục 2.3. `bach_scale_step`, `classic_scale_step`, `barrios_scale_step`, `villa_scale_step`, `brouwer_scale_step` giữ tập nốt. Dây buông Villa vẫn nằm trong `_color_line`.
 
-Giữ lịch bè cao của `_CATEDRAL_LEAD_44`, bass pedal, cửa scale, ngân sách, và hairpin. Mức velocity của khung là bè cao `60`, trung thấp `50`, bass `45`, trung cao `40`.
+Giữ lịch bè cao của `_CATEDRAL_LEAD_44`, bass pedal, cửa scale, ngân sách, và hairpin. Mức nền velocity là bè cao `60`, trung thấp `50`, bass `45`, trung cao `40`. Pipeline được phép dịch mức nền. Trong một bè, các cú gảy lệch nhau vài bậc velocity.
 
 Hai test đang khóa đường tới-rồi-nhắc-lại, và sẽ đổi kỳ vọng khi có bước quay:
 
@@ -138,10 +141,11 @@ Retreat thật vẫn phải đi xuống trong `retreat_spans`. Quay đầu của
 Cửa nghe sau khi sửa:
 
 - Một ô `4/4` có hai khung. Bè cao ở `1` và `7`. Trung thấp ở `2`, `4`, `6`, `8`. Trung cao ở `3` và `5`. Không có `<tie>`.
-- Trong một khung, `2 = 6 = 8` và `3 = 5`. Nốt `4` cao hơn `2` một bậc hoặc hai bậc.
+- Trong một khung, `2 = 6 = 8` và `3 = 5`. Nốt `4` cao hơn `2` một bậc hoặc hai bậc. Trung cao cách trung thấp một quãng ba. Nốt thấp nhất của bè cao cách trung cao nửa octave hoặc một quãng năm.
 - Hai bè trung chỉ dùng âm của hợp âm đang ngân, trừ nốt `4` khi nó nâng một bậc.
 - Bốn nốt xếp `bass < trung thấp < trung cao < bè cao`. `assert_playable` chấp nhận đúng thế của profile `barrios_preludio`, kể cả khi bè trung vượt `65` mà vẫn thấp hơn bè cao.
-- Nốt `5` và nốt `8` dừng ở vạch ô cuối vùng, và dừng ở `beat 2.0` trước `_catedral_tail`.
+- Nốt `5` dài một móc đơn và tắt ở đầu vị trí `7`. Nốt `8` dài một móc kép và tắt ở cuối khung. Đầu ô sau không có nốt ghép của hai nốt đó. Trước `_catedral_tail`, nốt `5` tắt tại `beat 1.5` và nốt `8` tắt đúng `beat 2.0`.
+- Quãng ba và quãng năm, cùng bốn mức velocity, là mức nền. Pipeline được phép nới một bước cho khung chơi được. Cùng một bè, các cú gảy không cùng một velocity.
 - Bach trưởng vào `C` kết bằng `B–C`. Sor trưởng vào `C` kết bằng `D–C` hoặc neighbor ở đầu câu.
 - Câu Villa dưới 88 BPM, và các móc đơn đầu câu dài, không gọi `villa_open_candidates`.
 - Câu dài của Villa hoặc Brouwer có thể chạm Mi trầm buông. Câu của Bach, Sor, Barrios không xuống dưới `52`.
