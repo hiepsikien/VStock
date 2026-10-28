@@ -118,7 +118,7 @@ Không đổi cả `_galop_hits`, và không gán “bước mở là Galop 1, b
 
 | Câu | Ô Tecla | Vai |
 |---|---|---|
-| Galop 1 | 1–8, lặp | Câu phi. Tế bào lặp là một ô 2/4: móc đơn, hai móc kép, móc đơn, rồi hai móc kép. Ô 1, phách 1 chỉ có một đầu nốt. Ô cuối câu là cadence, hợp âm rồi nghỉ. |
+| Galop 1 | 1–8, lặp | Câu phi. Tế bào lặp là một ô 2/4: móc đơn, hai móc kép, móc đơn, rồi hai móc kép. Biến của ô 2, không phải mọi nửa ô: nửa sau là hai móc đơn. Ô 1, phách 1 chỉ có một đầu nốt. Ô cuối câu là cadence, hợp âm rồi nghỉ. |
 | Galop 2, dạng thưa | 9–16, *Fine*, lặp về đầu | Cùng câu đối đáp. Bass một móc đơn, không cú nhảy quãng 12. |
 | Galop 2, dạng trong ảnh | 17–24 | Câu đối đáp đầy. Bass hai móc đơn dưới một thanh nối, nốt trầm rồi nốt cao hơn một quãng 12. Một ô trong câu là bốn móc kép liền. Ô 24 có hợp âm khối Fa–Sol–La, rồi một móc đơn Mi trầm. |
 | Câu chạy | 25–28 | Giai điệu móc kép liên tục, mức *f*. Bass thưa. |
@@ -140,22 +140,22 @@ Hai câu là hai cách dệt trong `_render_galop_bar`. Bộ chọn vẫn trả 
 
 ### 4.1. Galop 1 — một ô 2/4, tức nửa ô 4/4
 
-Tế bào này đứng hai lần trong một ô 4/4, mở ở móc đơn 0 và móc đơn 4. Không phải một tế bào mỗi phách. Móc đơn cộng hai móc kép đã hết một phách. Phách còn lại của ô 2/4 là một móc đơn rồi hai móc kép.
+Tế bào lặp đứng hai lần trong một ô 4/4, mở ở móc đơn 0 và móc đơn 4. Không phải một tế bào mỗi phách. Móc đơn cộng hai móc kép đã hết một phách. Phách còn lại của ô 2/4, trên lưới lặp, là một móc đơn rồi hai móc kép.
 
-Chỉ số móc kép trong nửa ô, `0 .. 7`. Tế bào mở tại móc đơn `origin`, `origin` là 0 hoặc 4:
+Chỉ số móc kép trong nửa ô, `0 .. 7`. Tế bào mở tại móc đơn `origin`, `origin` là 0 hoặc 4. Bảng là lưới lặp. Biến của ô 2, không phải mọi nửa ô: nửa sau của ô đó là hai móc đơn lấy `ctx.melody` tại `origin+2` và `origin+3`.
 
 | Móc kép | Giai điệu | Bass |
 |---|---|---|
 | 0–1 | móc đơn, staccato, `ctx.melody` tại `origin` | móc đơn, staccato, gốc, cùng phách |
 | 2 | móc kép, không staccato. Quãng tám trên nốt ở móc 0–1 | nghỉ |
 | 3 | móc kép, không staccato. Nốt hợp âm dưới móc 2, trong một quãng 5 | nghỉ |
-| 4–5 | móc đơn, staccato, `ctx.melody` tại `origin + 2` | nghỉ |
-| 6 | móc kép, không staccato. Quãng tám trên nốt ở móc 4–5 | nghỉ |
-| 7 | móc kép, không staccato. Nốt hợp âm dưới móc 6, trong một quãng 5 | nghỉ |
+| 4–5 | móc đơn, staccato, `ctx.melody` tại `origin + 2`. Trên biến ô 2, đây là móc đơn đầu của nửa sau | nghỉ |
+| 6 | lưới lặp: móc kép, không staccato, quãng tám trên nốt ở móc 4–5. Biến ô 2 không có móc kép này | nghỉ |
+| 7 | lưới lặp: móc kép, không staccato, nốt hợp âm dưới móc 6, trong một quãng 5. Biến ô 2: móc 6–7 là một móc đơn, `ctx.melody` tại `origin + 3` | nghỉ |
 
-Dấu chấm ở mục 3 nằm trên hai móc đơn của câu phi: giai điệu ở 0–1 và 4–5, và bass ở 0–1. Bốn móc kép không mang dấu chấm. Chúng là nhịp phi nối thanh, không staccato.
+Dấu chấm ở mục 3 nằm trên hai móc đơn của câu phi: giai điệu ở 0–1 và 4–5, và bass ở 0–1. Bốn móc kép của lưới lặp không mang dấu chấm. Chúng là nhịp phi nối thanh, không staccato.
 
-Ô 1 Tecla hát đúng lưới nhịp đó. Phách đầu: Re dưới khuông, móc đơn có chấm, rồi Re trên dòng thứ tư và Si trên dòng giữa, hai móc kép. Phách sau: Sol trên dòng thứ hai, móc đơn có chấm, rồi Sol trên khuông và Re trên dòng thứ tư, hai móc kép. Móc kép đầu của mỗi cặp là quãng tám trên móc đơn vừa đánh, không giữ nguyên nốt đó. Móc kép sau đi xuống: Si dưới Re một quãng 3, Re dưới Sol một quãng 4, cả hai là nốt hợp âm. Phách 1 của ô này chỉ có một đầu nốt Re, không có đầu nốt bass thứ hai cùng phách. Ô 2 phách đầu cùng lưới: Si móc đơn, rồi Si quãng tám và Sol hai móc kép. Phách sau của ô 2 là hai móc đơn, Re rồi Si.
+Ô 1 Tecla hát đúng lưới nhịp đó. Phách đầu: Re dưới khuông, móc đơn có chấm, rồi Re trên dòng thứ tư và Si trên dòng giữa, hai móc kép. Phách sau: Sol trên dòng thứ hai, móc đơn có chấm, rồi Sol trên khuông và Re trên dòng thứ tư, hai móc kép. Móc kép đầu của mỗi cặp là quãng tám trên móc đơn vừa đánh, không giữ nguyên nốt đó. Móc kép sau đi xuống: Si dưới Re một quãng 3, Re dưới Sol một quãng 4, cả hai là nốt hợp âm. Phách 1 của ô này chỉ có một đầu nốt Re, không có đầu nốt bass thứ hai cùng phách. Ô 2 phách đầu cùng lưới: Si móc đơn, rồi Si quãng tám và Sol hai móc kép. Phách sau của ô 2 là biến của ô đó, không phải mọi nửa ô: hai móc đơn, Re rồi Si, `ctx.melody` tại `origin+2` và `origin+3`.
 
 `here == open` không mô tả ô 1, và cũng không mô tả nửa sau của chính ô đó. Móc kép 2 không giữ nốt mở. Móc kép 3 không phải nốt hợp âm kế trên trong vòng một quãng 5. Cặp nốt là quãng tám lên, rồi một nốt hợp âm xuống từ nốt cao đó.
 
@@ -183,7 +183,7 @@ Nốt trên kêu ở móc kép 2, trong chỗ nghỉ của giai điệu, nên kh
 Ô 19 đổi giai điệu. Dấu thăng bass là một nốt, không phải một biến giai điệu:
 
 - **Nốt vòng.** Ô bốn móc kép trong câu 17–24 là ô 19. Bốn nốt là La, Sol, Fa thăng bởi khóa, Mi, đi xuống từng quãng 2. Hai slur chụm La–Sol và Fa–Mi, không có dấu hóa thêm. Không phải bậc trên, nốt giá, bậc dưới, rồi lại nốt giá.
-- **Nốt chromatic.** Ô 20 và ô 23, dấu thăng ở bass: Re ngay dưới khuông thành Re thăng. Tế bào sonify viết một nốt bass đó, cao hơn nốt bậc một nửa cung, voice 3, đặt thẳng. Không đưa nốt qua `_choose_bass`.
+- **Nốt chromatic.** Ô 20 và ô 23, Re thăng thay nốt bass trầm của nửa ô đó, một nửa cung trên bậc diatonic, voice 3, không qua `_choose_bass`.
 
 Ô 22 có dấu thăng ngang tầm La trên khuông, slur dưới, và một móc đơn Si. Đầu nốt móc kép dính vào dấu thăng, không tách được. Không ghi cao độ lân giai điệu cho ô đó.
 
