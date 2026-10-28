@@ -210,11 +210,15 @@ def _pickup_blocks_pair(
     upper: int,
     under: int,
     patterns: list[str] | None,
+    bass: int | None,
 ) -> bool:
     """The body-to-outro pickup is an eighth bass on the last eighth of a boundary bar.
 
     It sounds through both sixteenths. When that bass cannot share a hand with
     the octave or the chord tone, the pair rests and the price eighth remains.
+    The cell root is already in the bass voice, so the prediction has to see
+    it. An empty bass line makes `_safe_pickup` fall back to a different pitch
+    and can rest a pair the real pickup can still play.
     """
     if patterns is None or eighth % ctx.epb != ctx.epb - 1:
         return False
@@ -231,7 +235,20 @@ def _pickup_blocks_pair(
         duration_beats=0.25,
         voice=1,
     )
-    pitch = _safe_pickup(ctx, bar, [], [attack], [])
+    low: list[NoteEvent] = []
+    if bass is not None:
+        root_eighth = (eighth // 4) * 4
+        low.append(
+            NoteEvent(
+                bar=bar,
+                beat=root_eighth / 2,
+                midi=bass,
+                duration_beats=0.5,
+                voice=3,
+                staccato=True,
+            )
+        )
+    pitch = _safe_pickup(ctx, bar, [], [attack], low)
     sounding = pitch + ctx.semitones
     return not (
         _playable([sounding, upper + ctx.semitones])
@@ -257,7 +274,7 @@ def _add_octave_pair(
     if (
         bar is not None
         and under is not None
-        and _pickup_blocks_pair(ctx, bar, eighth, upper, under, patterns)
+        and _pickup_blocks_pair(ctx, bar, eighth, upper, under, patterns, bass)
     ):
         return
     notes.append((float(eighth), 0.5, upper, 1, {}))
