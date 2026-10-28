@@ -243,12 +243,12 @@ Ba cửa mới nằm trong `DOORS` của `backend/app/sonify/guitar_frame_bach_s
   - Ở chương 2 vùng (`1Y` tháng mở `4/4`, hoặc `1W` 2 phiên) đi `A – B` không tái hiện: intro mở bằng cửa của `palette[0]` (ví dụ `bach_prelude` hoặc `bach_allemande`), còn outro khép bằng cửa của `palette[1]` (ví dụ `bach_allemande` hoặc `bach_courante`).
   - Khi `bach_prelude` hoặc `bach_courante` chỉ làm khách giữa chương 3 vùng (như `Sarabande — Prelude — Sarabande` hay `Sarabande — Courante — Sarabande`), biên `A | B` ở giữa thân bài không đi qua `render_intro` / `render_outro`; cửa riêng của Prelude và Courante phát khi chúng đứng ở `1D` hoặc ở vùng đầu / vùng cuối của chương dài.
 - **Độ dài kịch bản (`steps` và `frame_roles`)**:
-  - 1 ô: `_compressed` cắt đôi kịch bản ngắn (`steps == 2`), nửa đầu ô là `role = 0`, nửa sau là `role = 1`.
-  - 2 ô (`1D`): kịch bản ngắn (`steps == 2`), `role = 0, 1`.
+  - Mỗi `role` của kịch bản ngắn là **cả một ô**. `1D` có 2 ô cửa, nên `role = 0` rồi `role = 1`.
+  - 1 ô: `_compressed` không phải một kịch bản thứ ba. Nó giữ phần `offset < epb // 2` của `role = 0`, và dựng phần đầu của `role = 1` vào nửa sau. Pickup đi vào thân bài phải nằm ở `role = 1`, với `offset >= epb // 2`, để bản 2 ô giữ được nó. Bản 1 ô bỏ nửa sau của `role = 0`.
   - Từ 4 ô trở lên (`1W`, `1M`, `3M`, `1Y`): kịch bản dài (`steps == 4`), kéo giãn qua `frame_roles` (`role in {0, 1, 2, 3}`, ô cuối luôn là `role = 3`).
 - **Hòa âm & Kết điệu**:
-  - Dùng `_harmony(frame, ctx, bar, name)` với `"I"` (thứ giữ `"i"`), `"IV"` (thứ dùng `"iv"`), `"V"`, `"V7"`.
-  - **Không dùng Picardy (`I+`)** cho cả `bach_prelude`, `bach_allemande` và `bach_courante` (Picardy của Bach chỉ giữ riêng ở `bach_fuga`). Điệu thứ kết bằng hợp âm thứ của điệu.
+  - Hợp âm đi qua `_harmony`. `"I"` và `"IV"` đã hạ bậc 3 khi `ctx.mode == "minor"` ở cả `_harmony` lẫn `frame._function`. `_bach_block` và `_bach_arpeggiato` nhận `"I"`, không nhận `"i"`: tên lạ trong `_function` rơi về hợp âm trưởng.
+  - **Không dùng Picardy (`I+`)** cho cả `bach_prelude`, `bach_allemande` và `bach_courante` (Picardy của Bach chỉ giữ riêng ở `bach_fuga`).
 - **Lưới móc kép & Kiểm tra `study` trên vùng pedal**:
   - Móc kép trong cửa viết bằng offset nửa móc đơn (`at = eighth + 0.5`, `length = 0.5`), khớp với `_bariolage` và `_mordent` trong `guitar_frame_bach_sor.py`. Không viết móc ba mươi hai.
   - `profiles_for` gán ô warmup/intro và outro/cooldown theo `_PEDAL_DOOR_PROFILE` (mặc định `"study"`). Profile `study` giữ trần bass `53 - ctx.semitones` và từ chối cả bass tiếp cận nửa cung (`_is_approach`) lẫn bass lament (`_is_lament`). Mọi spec trả về từ `_prelude_specs`, `_allemande_specs`, `_courante_specs` đều đi qua `_finish(..., allow_lament=False)` để `_fix_bass` và `_drop_crossed` lọc cữ tay và tự sửa mọi bước bass vi phạm trước khi kiểm `assert_playable`.
@@ -263,18 +263,19 @@ Ba cửa mới nằm trong `DOORS` của `backend/app/sonify/guitar_frame_bach_s
   - Lấy `(bass, inner, lead) = _stack_pitches(frame, ctx, pcs)` và thêm âm hợp âm thứ hai trong `[frame._mid_lo(ctx), frame._mid_hi(ctx)]` để có `low_mid <= upper_mid` thỏa `_playable_line(ctx, [bass, low_mid, upper_mid, lead])`.
   - Khi `eighth_grid == False` (rải móc kép chuẩn):
     - Tại `start` (`slot 0`): chỉ Voice 3 (`bass`, `length = span`, `velocity`), không đặt attack của Voice 1 hay Voice 2 trùng `start`.
-    - Các slot móc kép kế tiếp (`at = start + 0.5 * k`, `length = 0.5`): đi vòm `low_mid -> upper_mid -> lead -> low_mid -> upper_mid -> lead -> upper_mid` (ở `span == 4`, 8 móc kép) hoặc `low_mid -> upper_mid -> lead -> low_mid -> upper_mid` (ở `span == 3`, 6 móc kép). Nốt `lead` tại `slot 3` ngân `1.0` eighth (`length = 1.0`) qua `slot 4` trong khi Voice 2 vẫn gảy `low_mid` ở `slot 4`.
-    - Nếu truyền `lead_aim` (bước cuối intro dẫn vào thân bài), nốt `lead` cuối chu kỳ bước liền bậc tới sát `_approach_pitch(frame, ctx, bar)` mà vẫn giữ `_position_ok`.
-  - Khi `eighth_grid == True` (rải giãn về móc đơn ở outro): cùng thứ tự bè `bass -> low_mid -> upper_mid -> lead -> low_mid` nhưng mỗi bước dài `1` eighth (`length = 1`), làm dòng moto perpetuo lắng chậm lại trước hợp âm kết.
+    - Các slot móc kép kế tiếp (`at = start + 0.5 * k`, `length = 0.5`): đi vòm `low_mid -> upper_mid -> lead -> low_mid -> upper_mid -> lead -> upper_mid` (ở `span == 4`, 8 móc kép) hoặc `low_mid -> upper_mid -> lead -> low_mid -> upper_mid` (ở `span == 3`, 6 móc kép).
+    - Lead ở slot 3 ngân `1.0` eighth và phủ slot kế tiếp. Attack mới tại slot đó là Support. Không gảy lại Lead.
+    - `lead_aim` chỉ đặt trên Voice 1 của nốt lead cuối. Cao độ là bước liền bậc về phía `_approach_pitch` (một bậc trước giai điệu ô sau, cùng đích với `_scale_into`). Không đưa cao độ đó xuống Voice 3: profile `study` từ chối bass tiếp cận nửa cung.
+  - Khi `eighth_grid == True` (rải giãn ở outro): mỗi eighth một attack, dài `1`, và dừng khi hết đúng nửa ô đang viết. Nửa ô `4/4` có 4 eighth, nửa ô `3/4` và `6/8` có 3 eighth. Thứ tự là bass, `low_mid`, `upper_mid`, lead, rồi lặp `low_mid` nếu còn eighth. Không viết chuỗi 5 nốt vào một nửa ô 3 hoặc 4 eighth.
 - **Kịch bản 4 chế độ**:
   - **Intro ngắn (`steps == 2, closing == False`)**:
     - `role == 0`: Hai chu kỳ `_prelude_roll` trên `I` (`0..half` và `half..epb`), nửa đầu ở `_PP`, nửa sau lên `_P`.
-    - `role == 1`: Nửa đầu (`0..half`) `_prelude_roll` trên `V7` trên nền Bass chủ (*Tonic Pedal*: giữ `bass` là bậc `1` của `I` nếu `_playable_line`, ngược lại dùng gốc `V`) ở `_P`; nửa sau (`half..epb`) `_prelude_roll` trên `V7` ở `_MP` với `lead_aim = _approach_pitch(frame, ctx, bar)` nối liền vào ô thân bài đầu.
+    - `role == 1`: Cả hai nửa là hợp âm `V7`. Nửa đầu ở `_P`, nửa sau ở `_MP` và có `lead_aim`. Bass là bậc 1 của `I` chỉ khi mọi nốt `V7` đang kêu cùng bass đó vẫn qua `_playable_line`. Không thì bass là gốc của `V`. Nốt dẫn của `V7` không đặt sát bass.
   - **Intro dài (`steps == 4, closing == False`)**:
     - `role == 0`: `_prelude_roll` hai nửa ô trên `I` ở `_PP` → `_P`.
-    - `role == 1`: `_prelude_roll` hai nửa ô trên `IV` (hoặc `iv` khi thứ), Bass giữ pedal chủ hoặc bước lên bậc `4`, ở `_P`.
-    - `role == 2`: `_prelude_roll` trên `V7` trên nền Bass pedal ở `_MP`.
-    - `role == 3`: Nửa đầu `_prelude_roll` trên `V7` ở `_MP`; nửa sau `_prelude_roll` giải về `I` (hoặc giữ `V7` hướng `lead_aim` vào nốt đầu thân bài) ở `58` (`_MP + 2`), trao thẳng mạch móc kép cho thân bài.
+    - `role == 1`: `_prelude_roll` hai nửa ô trên `IV` ở `_P`. Bass giữ bậc 1 chỉ khi chồng với `IV` vẫn `_playable_line`; không thì bass là gốc của `IV`.
+    - `role == 2`: `_prelude_roll` hai nửa ô trên `V7` ở `_MP`, cùng luật bass với intro ngắn `role == 1`.
+    - `role == 3`: Cả ô ở trên `V7`. Nửa đầu `_MP`. Nửa sau velocity viết `58`, trong bậc `56..60` của bước intro cuối ở tài liệu cửa. `lead_aim` hướng vào ô thân bài. Không giải về `I` trong ô này: thân bài tự mở hợp âm của nó. `apply_guitar_wave` cộng `round(C) - 64` sau đó.
   - **Outro ngắn (`steps == 2, closing == True`)**:
     - `role == 0`: Nửa đầu `_prelude_roll` móc kép trên `V7` ở `_MP`; nửa sau chuyển sang `eighth_grid = True` (rải móc đơn giãn nhịp trên `V7`) ở `_P`.
     - `role == 1`: `frame._bach_block(ctx, bar, "I", frame._P)` — hợp âm `I` ba bè ngân trọn ô (thứ giữ `i`).
@@ -293,16 +294,17 @@ Ba cửa mới nằm trong `DOORS` của `backend/app/sonify/guitar_frame_bach_s
   - Lấy `(bass, inner, lead) = _stack_pitches(frame, ctx, pcs)`; tìm âm quãng 3 hoặc 6 dưới `lead` qua `_under_lead(frame, ctx, lead, bass, None)`.
   - Voice 3 (`bass`): đánh tại `start`, `length = max(1, span - (2 if pickup_into else 0))`, `velocity`, `flags = {}` (không `staccato`).
   - Voice 1 (`lead`): đánh tại `start`, `length = max(1, span - (2 if pickup_into else 0))`, `velocity`.
-  - Voice 2 (`support` — *style brisé*): vào trễ tại `start + 1` (khi `span >= 2` và không bị chùm pickup chiếm), `length = min(2, span - 1 - (2 if pickup_into else 0))`, tạo âm thanh đan chồng.
-  - Khi `pickup_into == True` và `span >= 3`: hai eighth cuối của cell (` tail = start + span - 2`) nhường cho Voice 1 chạy **4 móc kép liền bậc (`length = 0.5`)** từ `_scaled(frame, ctx, bar, tail, 2, velocity)` (mỗi eighth tách làm 2 móc kép bậc thang đi qua `_position_ok`) dẫn vào đầu phách kế tiếp; Support và Bass cắt ngắn trước `tail` để không ngân đè lên 4 móc kép.
+  - Voice 2 vào tại `start + 1`. Trường độ là `min(2, span - 1 - (2 if pickup_into else 0))`. Nếu trường độ đó `<= 0`, bỏ Support. Nửa ô `3/4` và `6/8` dài 3 eighth và pickup chiếm 2 eighth cuối, nên nửa ô đó không còn chỗ cho Support.
+  - Khi `pickup_into == True` và `span >= 3`: hai eighth cuối (`tail = start + span - 2`) là 4 móc kép của Voice 1, mỗi nốt `length = 0.5`. Cửa tự viết 4 offset đó. `_scaled` và `_scale_into` trả về nốt móc đơn `length = 1`, không phải 4 móc kép. Cao độ là 4 bước liền bậc hướng tới giai điệu ô sau, nốt cuối dừng trước đích một bậc, và 4 nốt liền nhau qua `_position_ok`. Bass và Support kết thúc đúng tại `tail`.
+  - Bass không bước xuống 1 hoặc 2 nửa cung sau một nốt bass dài từ 2 eighth. `_finish(..., allow_lament=False)` gặp bước đó thì gọi `_retime_bass`, và hình đi bộ đã viết không còn. Bước bass của cửa đi lên, hoặc nhảy từ quãng 3.
 - **Kịch bản 4 chế độ**:
   - **Intro ngắn (`steps == 2, closing == False`)**:
     - `role == 0`: Nửa đầu (`0..half`) `_brise_cell` trên `I` ở `_P` (`pickup_into = False`); nửa sau (`half..epb`) `_brise_cell` trên `I` ở `_P` có `pickup_into = True` (4 móc kép cuối ô dẫn sang bước 1).
     - `role == 1`: Nửa đầu (`0..half`) `_brise_cell` trên `IV` ở `_P`; nửa sau (`half..epb`) `_brise_cell` trên `V7` ở `_MP` có `pickup_into = True` (4 móc kép lấy đà cuối ô dẫn thẳng vào phách 1 của thân bài).
   - **Intro dài (`steps == 4, closing == False`)**:
     - `role == 0`: Nửa đầu chỉ Bass `I` ngân ở `_PP`, nửa sau 4 móc kép pickup của Voice 1 ở `_P` dẫn vào hợp âm `I` của bước 1.
-    - `role == 1`: Hai nửa ô `_brise_cell` đi `I -> IV` (hoặc `i -> iv`) ở `_P`, Bass đi bộ bậc thang thuận thang của hợp âm (không viết lament hay chromatic approach).
-    - `role == 2`: Nửa đầu `_brise_cell` trên `V7` ở `_MP`; nửa sau `_mordent` trên `V7` ở `_MP` (`sustain_to = epb`).
+    - `role == 1`: Nửa đầu `_brise_cell` trên `I` ở `_P`. Nửa sau `_brise_cell` trên `IV` ở `_P`. Bass nửa sau không bước xuống 1–2 nửa cung từ bass nửa đầu.
+    - `role == 2`: Nửa đầu `_brise_cell` trên `V7` ở `_MP`. Mordent bắt đầu tại `half`, không tại eighth `0`, nếu không nó đè nửa đầu. Gọi `_mordent(..., eighth=half, sustain_to=epb)`.
     - `role == 3`: Nửa đầu `_brise_cell` trên `I` ở `_MP`; nửa sau `_brise_cell` trên `V7` ở `_MP` với `pickup_into = True` (4 móc kép cuối ô trao đà cho ô thân bài đầu).
   - **Outro ngắn (`steps == 2, closing == True`)**:
     - `role == 0`: Hai nửa ô `_brise_cell` nửa kết `IV -> V7` ở `_MP` (`pickup_into = False`, giữ lưới móc đơn legato).
@@ -317,7 +319,7 @@ Ba cửa mới nằm trong `DOORS` của `backend/app/sonify/guitar_frame_bach_s
 
 #### 3. `("bach", "bach_courante"): bach_courante` (`_courante_specs`)
 
-- **Đặc trưng**: Cửa mang đúng 3 dấu ấn của *Courante BWV 1007*: cú nhảy mở ô (`eighth 0` `accent=True` -> `eighth 1` `staccato=True`), chùm 4 móc kép *tirata* ở phách giữa theo đúng meter (`3/4`, `6/8`, `4/4`), và nhịp *hemiola* ở bước áp cuối của outro trước khi đóng hợp âm chủ.
+- **Đặc trưng**: Cửa mang đúng 3 dấu ấn của *Courante BWV 1007*: cú nhảy mở ô (`eighth 0` `accent=True` rồi `eighth 1` `staccato=True`), chùm 4 móc kép *tirata* theo meter, và hemiola ở bước áp cuối của outro khi meter là `3/4` hoặc `6/8`. `4/4` khép bằng tirata trên `V7`, rồi hợp âm chủ.
 - **Ba helper nội bộ theo đúng meter (`ctx.kind`)**:
   - **`_courante_leap_cell(frame, ctx, pcs, velocity)`** (phách mở ô, `eighth 0..1` ở `3/4` & `4/4`, `eighth 0..2` ở `6/8`):
     - Lấy `(bass, inner, lead) = _stack_pitches(frame, ctx, pcs)`. Tìm nốt nhảy `leap_lead` cao hơn `lead` một quãng 3 thuận thang qua `frame._step` (hoặc giữ `lead` ở `eighth 1` và đặt `low_lead` thấp hơn một quãng 3 ở `eighth 0` sao cho `bass < low_lead < leap_lead` và `_playable_line`).
@@ -329,28 +331,27 @@ Ba cửa mới nằm trong `DOORS` của `backend/app/sonify/guitar_frame_bach_s
       - `3/4`: `tirata_at = 2` (`eighth 2, 3`), Bass đánh bậc 5 ở `eighth 2` (`length = 2`); `eighth 4` Lead `staccato=True` kèm Support, `eighth 5` Lead và Bass đánh móc đơn lấy đà (`into_body` thì hướng về `_approach_pitch`).
       - `6/8`: `tirata_at = 3` (`eighth 3, 4`), Bass đánh bậc 5 ở `eighth 3` (`length = 2`, `{"accent": True}`); `eighth 5` Lead và Bass đánh móc đơn lấy đà.
       - `4/4`: `eighth 2, 3` Lead giữ nốt (`length = 2`), Bass ở `2`, Support ở `3`; `tirata_at = 4` (`eighth 4, 5`), Bass bậc 5 ở `4` (`length = 2`); `eighth 6` Lead `staccato=True`, `eighth 7` Lead và Bass lấy đà.
-    - Chùm 4 móc kép ở `tirata_at` lấy từ bước liền bậc thuận thang trong âm vực Lead, kiểm `_position_ok`.
-  - **`_courante_hemiola_bar(frame, ctx, bar, velocity)`** (dùng cho bước áp cuối của outro):
-    - `3/4` (`epb == 6`): Nhóm `6/8` đè lên `3/4` — đặt 2 trọng âm hợp âm (`Bass + Support + Lead`, `{"accent": True}`) tại `eighth 0` (trên `I` hoặc `V7`, `length = 3`) và `eighth 3` (trên `V7`, `length = 2`), rồi `eighth 5` đánh móc đơn lấy đà về hợp âm chủ.
-    - `6/8` (`epb == 6`): Nhóm `3/4` đè lên `6/8` — bỏ tirata, đặt 3 trọng âm hợp âm (`{"accent": True}`, `length = 2`) tại `eighth 0`, `eighth 2`, `eighth 4` đi `I -> IV -> V7` (hoặc trên `V7`), mỗi phách 2 eighth.
-    - `4/4` (`epb == 8`): Đặt trọng âm đảo phách `3 + 3 + 2` tại `eighth 0` (`length = 3`, `accent`), `eighth 3` (`length = 3`, `accent`), và `eighth 6` (`length = 2`, trên `V7`) dẫn về ô kết.
+    - Chùm 4 móc kép ở `tirata_at` là bước liền bậc trong âm vực Lead, qua `_position_ok`. Helper này không viết eighth mà `_courante_leap_cell` đã giữ. Trên `6/8`, leap giữ bass suốt eighth `0..2`; tirata bắt đầu tại eighth `3`.
+  - **`_courante_hemiola_bar(frame, ctx, pcs, velocity)`** chỉ cho `3/4` và `6/8`. Một lần gọi là một hợp âm `pcs`. `4/4` không có hemiola, kể cả trong cửa: thân bài `4/4` đã chốt điều đó, và nhóm `3+3+2` là nhịp của Villa.
+    - `3/4`: accent tại eighth `0` (`length = 3`, hết đúng lúc eighth `3`) và eighth `3` (`length = 2`). Eighth `5` là móc đơn lấy đà. Hai nốt bass chạm nhau, không phủ nhau.
+    - `6/8`: bỏ tirata. Accent tại eighth `0` và `2`, mỗi nốt `length = 2`. Accent tại eighth `4` chỉ dài `1`. Eighth `5` là móc đơn lấy đà. Ba accent `length = 2` sẽ phủ kín ô và nuốt eighth `5`.
 - **Kịch bản 4 chế độ**:
   - **Intro ngắn (`steps == 2, closing == False`)**:
-    - `role == 0`: `_courante_leap_cell` trên `I` ở `_P`, nối nửa sau bằng móc đơn giữ nhịp trên `I` ở `_P`.
+    - `role == 0`: `_courante_leap_cell` trên `I` ở `_P`. Phần ô sau khi bass của cú nhảy hết (`eighth 2` trên `3/4` và `4/4`, `eighth 3` trên `6/8`) giữ nốt móc đơn trên `I`. Không gọi tirata ở role này.
     - `role == 1`: `_courante_leap_cell` + `_courante_tirata_cell(..., into_body=True)` trên `V7` ở `_MP`, tuôn 4 móc kép ở phách giữa và móc đơn lấy đà cuối ô vào thân bài.
   - **Intro dài (`steps == 4, closing == False`)**:
     - `role == 0`: `_courante_leap_cell` trên `I` ở `_P`, phần còn lại của ô giữ nốt ngân nhẹ trên `I` (`_P`).
     - `role == 1`: `_courante_leap_cell` + `_courante_tirata_cell` trên `IV` (hoặc `iv`) ở `_P`.
     - `role == 2`: `_courante_leap_cell` + `_courante_tirata_cell` trên `V7` ở `_MP`.
-    - `role == 3`: Trên `V7`, mở bằng cú nhảy ở `_MP`, chạy 4 móc kép `tirata` và lấy đà cuối ô (`into_body=True`) ở `58` (`_MP + 2`) đẩy thẳng vào cú nhảy đầu tiên của thân bài.
+    - `role == 3`: Trên `V7`, cú nhảy ở `_MP`, tirata và lấy đà `into_body=True` ở velocity viết `58` (bậc `56..60` của bước intro cuối).
   - **Outro ngắn (`steps == 2, closing == True`)**:
-    - `role == 0`: `_courante_hemiola_bar(frame, ctx, bar, frame._MP)` trên `V7`.
-    - `role == 1`: `_chord(frame, ctx, tonic, 0, ctx.epb, frame._P, {"accent": True})` — hợp âm `I` nhấn phách 1 rồi ngân hết ô ở `_P`.
+    - `role == 0`: `3/4` và `6/8` dùng `_courante_hemiola_bar` trên `V7` ở `_MP`. `4/4` dùng cú nhảy cộng tirata trên `V7` ở `_MP`, không hemiola.
+    - `role == 1`: `_chord` trên `I` suốt ô, phách 1 có `accent`, velocity `_P`. `_function("I")` giữ hợp âm thứ khi điệu thứ.
   - **Outro dài (`steps == 4, closing == True`)**:
-    - `role == 0`: `_courante_leap_cell` + `_courante_tirata_cell` trên `IV` (hoặc `iv`) ở `_MP`.
-    - `role == 1`: `_courante_leap_cell` + `_courante_tirata_cell` trên `V7` ở `_MP`.
-    - `role == 2`: `_courante_hemiola_bar(frame, ctx, bar, frame._P)` (`I -> V7` ở `_P`).
-    - `role == 3`: `frame._bach_block(ctx, bar, "I", frame._P)` — hợp âm chủ ngân hết ô ở `_P`.
+    - `role == 0`: cú nhảy cộng tirata trên `IV` ở `_MP`.
+    - `role == 1`: cú nhảy cộng tirata trên `V7` ở `_MP`.
+    - `role == 2`: `3/4` và `6/8` là hemiola trên `V7` ở `_P`. `4/4` lặp tirata trên `V7` ở `_P`. Một ô, một hợp âm.
+    - `role == 3`: `frame._bach_block(ctx, bar, "I", frame._P)`.
 
 ### 4.4. Scale Engine (`backend/app/sonify/guitar_scale_passages.py`)
 
