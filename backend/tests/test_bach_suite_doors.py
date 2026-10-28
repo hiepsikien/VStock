@@ -107,12 +107,22 @@ def _sounding(events, bar: int) -> list[NoteEvent]:
     return [note for note in events if note.bar == bar and note.midi is not None]
 
 
-def _eighth(note: NoteEvent) -> int:
-    return int(round(note.beat * 2))
+def _slot(note: NoteEvent) -> int:
+    """Sixteenth index inside the bar. Eighth n starts at slot 2n."""
+    return int(round(note.beat * 4))
+
+
+def _eighth(note: NoteEvent) -> int | None:
+    """Eighth index when the attack is on the eighth grid. Sixteenths return None."""
+    doubled = note.beat * 2
+    nearest = round(doubled)
+    if abs(doubled - nearest) > 1e-6:
+        return None
+    return int(nearest)
 
 
 def _onsets(events, bar: int) -> set[int]:
-    return {_eighth(note) for note in _sounding(events, bar)}
+    return {eighth for note in _sounding(events, bar) if (eighth := _eighth(note)) is not None}
 
 
 def test_doors_render_short_and_long_on_every_meter() -> None:
@@ -183,14 +193,14 @@ def test_prelude_half_opens_on_bass_and_outro_grid_matches_the_half() -> None:
                     assert not any(_eighth(note) == boundary for note in voices["support"])
         for length, bar in ((2, 0), (4, 1)):
             _ctx, lead, support, low = _region("bach_prelude", length, meter, closing=True)
-            second = [
-                note
-                for note in (*_sounding(lead, bar), *_sounding(support, bar), *_sounding(low, bar))
-                if _eighth(note) >= half
-            ]
+            second = []
+            for note in (*_sounding(lead, bar), *_sounding(support, bar), *_sounding(low, bar)):
+                eighth = _eighth(note)
+                if eighth is not None and eighth >= half:
+                    second.append((eighth, note))
             counts: dict[int, int] = {}
-            for note in second:
-                counts[_eighth(note)] = counts.get(_eighth(note), 0) + 1
+            for eighth, _note in second:
+                counts[eighth] = counts.get(eighth, 0) + 1
             assert set(counts) == set(range(half, grid["epb"]))
             assert all(count == 1 for count in counts.values())
 
@@ -213,11 +223,11 @@ def test_allemande_pickup_is_four_sixteenths_and_never_staccato() -> None:
             pickup = [
                 note
                 for note in _sounding(lead, length - 1)
-                if note.duration_beats <= 0.3 and _eighth(note) >= tail
+                if note.duration_beats <= 0.3 and _slot(note) >= tail * 2
             ]
             assert len(pickup) == 4, (meter, length, [(note.beat, note.midi) for note in pickup])
-            bass_tail = [note for note in _sounding(low, length - 1) if _eighth(note) >= tail]
-            support_tail = [note for note in _sounding(support, length - 1) if _eighth(note) >= tail]
+            bass_tail = [note for note in _sounding(low, length - 1) if _slot(note) >= tail * 2]
+            support_tail = [note for note in _sounding(support, length - 1) if _slot(note) >= tail * 2]
             assert bass_tail == []
             assert support_tail == []
         _ctx, lead, _support, _low = _region("bach_allemande", 4, meter)
@@ -226,7 +236,7 @@ def test_allemande_pickup_is_four_sixteenths_and_never_staccato() -> None:
         ]
         half = grid["epb"] // 2
         assert sixteenths
-        assert all(_eighth(note) >= half for note in sixteenths)
+        assert all(_slot(note) >= half * 2 for note in sixteenths)
 
 
 def test_courante_leap_and_tirata_follow_the_meter() -> None:
@@ -246,7 +256,7 @@ def test_courante_leap_and_tirata_follow_the_meter() -> None:
         tirata = [
             note
             for note in _sounding(lead, 1)
-            if note.duration_beats <= 0.3 and lo <= int(round(note.beat * 4)) <= hi
+            if note.duration_beats <= 0.3 and lo <= _slot(note) <= hi
         ]
         assert len(tirata) == 4, (meter, [(note.beat, note.duration_beats) for note in _sounding(lead, 1)])
         del bar0
