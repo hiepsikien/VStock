@@ -4,10 +4,11 @@
 Each cell is eight sixteenths. Nothing is tied. Every attack is plucked again.
 
 - High, counts 1 and 7. Count 1 lasts six sixteenths; count 7 lasts two.
-- Lower middle, voice 2, counts 2, 4, 6, and 8. Each lasts two sixteenths.
-- Upper middle, counts 3 and 5. Count 3 lasts two sixteenths. Count 5 lasts
-  until the next count 3. Where that reach crosses a barline, the remainder
-  is a new note, not a tie.
+- Lower middle, voice 2, counts 2, 4, 6, and 8. Counts 2, 6, and 8 are one
+  chord tone. Count 4 is two scale steps higher. Each lasts two sixteenths.
+- Upper middle, voice 4, counts 3 and 5, the same chord tone. Count 3 lasts
+  two sixteenths. Count 5 lasts until the next count 3. Where that reach
+  crosses a barline, the remainder is a new note, not a tie.
 
 Velocities stay in 40–70 and move a little around the centers:
 high about 60, lower middle about 50, bass about 45, upper middle about 40.
@@ -27,8 +28,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.sonify.chords import C
+from app.sonify.chords import C, G
 from app.sonify.form import ChordSlot
+from app.sonify.keys import D_KEY
 from app.sonify.model import NoteEvent, Score
 from app.sonify.musicxml import score_to_musicxml
 
@@ -36,16 +38,23 @@ OUT = Path(__file__).resolve().parent / "out"
 BPM = 48
 BARS = 5
 
-G4 = 67
+# Sounding MIDI. Note events are stored in C space; D_KEY sounds them a step higher.
+A3 = 57
+CS4 = 61
+D4 = 62
+E4 = 64
+FS4 = 66
 A4 = 69
 B4 = 71
-C5 = 72
 CS5 = 73
 D5 = 74
 E5 = 76
 FS5 = 78
 D3 = 50
 A2 = 45
+D_CHORD = frozenset({2, 6, 9})
+A_CHORD = frozenset({9, 1, 4})
+D_SCALE = frozenset({1, 2, 4, 6, 7, 9, 11})
 
 
 @dataclass(frozen=True)
@@ -60,17 +69,20 @@ class Cell:
     up5: int
 
 
-# Two cells per bar. The inner lines step; they do not sit on one pitch.
+# Two cells per bar. Inside a cell, 2 = 6 = 8 and 3 = 5. Count 4 is two
+# scale steps higher, and that step is still a chord tone under the upper voice.
+# Bars 0, 1, 3 are D. Bar 2 is A. Sounding pitches, before the D-key shift.
 CELLS = (
-    Cell(FS5, FS5, B4, C5, B4, A4, D5, E5),
-    Cell(FS5, E5, B4, A4, G4, A4, D5, CS5),
-    Cell(E5, D5, B4, A4, B4, A4, CS5, C5),
-    Cell(D5, CS5, B4, A4, B4, A4, CS5, C5),
-    Cell(E5, E5, G4, A4, B4, A4, CS5, D5),
-    Cell(E5, D5, B4, A4, G4, A4, CS5, C5),
-    Cell(FS5, E5, B4, C5, B4, A4, D5, CS5),
-    Cell(FS5, FS5, B4, A4, B4, C5, D5, E5),
+    Cell(FS5, E5, D4, FS4, D4, D4, A4, A4),
+    Cell(D5, CS5, D4, FS4, D4, D4, A4, A4),
+    Cell(FS5, E5, D4, FS4, D4, D4, A4, A4),
+    Cell(D5, CS5, D4, FS4, D4, D4, A4, A4),
+    Cell(E5, B4, A3, CS4, A3, A3, E4, E4),
+    Cell(E5, D5, A3, CS4, A3, A3, E4, E4),
+    Cell(FS5, E5, D4, FS4, D4, D4, A4, A4),
+    Cell(FS5, E5, D4, FS4, D4, D4, A4, A4),
 )
+BASS_NOTES = (D3, D3, A2, D3, D3)
 
 
 def _clamp(velocity: int) -> int:
@@ -95,6 +107,12 @@ def _upper_velocity(index: int, slot: int) -> int:
     return _clamp(40 + arch + inner)
 
 
+def _stored(midi: int | None) -> int | None:
+    if midi is None:
+        return None
+    return midi - D_KEY.semitones
+
+
 def _note(
     bar: int,
     beat: float,
@@ -106,7 +124,7 @@ def _note(
     return NoteEvent(
         bar=bar,
         beat=round(beat, 2),
-        midi=midi,
+        midi=_stored(midi),
         duration_beats=duration,
         voice=voice,
         velocity=velocity,
@@ -169,8 +187,7 @@ def _upper() -> list[NoteEvent]:
 
 def _bass() -> list[NoteEvent]:
     velocities = (46, 44, 48, 46, 42)
-    pitches = (D3, D3, A2, D3, D3)
-    return [_note(bar, 0.0, pitches[bar], 4.0, 3, velocities[bar]) for bar in range(BARS)]
+    return [_note(bar, 0.0, BASS_NOTES[bar], 4.0, 3, velocities[bar]) for bar in range(BARS)]
 
 
 def _span(events: list[NoteEvent], voice: int) -> None:
@@ -190,7 +207,46 @@ def _span(events: list[NoteEvent], voice: int) -> None:
             raise SystemExit(f"voice {voice} bar {bar} lasts {total} beats, not 4")
 
 
+def _steps_above(origin: int, target: int) -> int | None:
+    if target <= origin:
+        return None
+    steps = 0
+    note = origin
+    while note < target:
+        note += 1
+        if note % 12 in D_SCALE:
+            steps += 1
+            if note == target:
+                return steps
+    return None
+
+
+def _check_cells() -> None:
+    for index, cell in enumerate(CELLS):
+        chord = A_CHORD if index in {4, 5} else D_CHORD
+        bass = BASS_NOTES[index // 2]
+        ceiling = min(cell.canto_a, cell.canto_b)
+        if index + 1 < len(CELLS):
+            ceiling = min(ceiling, CELLS[index + 1].canto_a)
+        if cell.low2 != cell.low6 or cell.low2 != cell.low8 or cell.up3 != cell.up5:
+            raise SystemExit(f"cell {index} does not hold 2=6=8 and 3=5")
+        lifted = _steps_above(cell.low2, cell.low4)
+        if lifted not in {1, 2}:
+            raise SystemExit(f"cell {index} lifts count 4 by {lifted} steps")
+        if lifted == 2 and cell.low4 % 12 not in chord:
+            raise SystemExit(f"cell {index} lifts count 4 off the chord")
+        if not bass < cell.low2 < cell.low4 < cell.up3 < ceiling:
+            raise SystemExit(f"cell {index} does not stack under {ceiling}")
+        if cell.low2 % 12 not in chord or cell.up3 % 12 not in chord:
+            raise SystemExit(f"cell {index} leaves the chord")
+        if cell.canto_a % 12 not in chord or cell.canto_b % 12 not in D_SCALE:
+            raise SystemExit(f"cell {index} high voice leaves the scale")
+    if CELLS[-1].low8 % 12 not in D_CHORD or CELLS[-1].up5 % 12 not in D_CHORD:
+        raise SystemExit("the final chord leaves D")
+
+
 def _score() -> Score:
+    _check_cells()
     lead = _lead()
     lower = _lower()
     upper = _upper()
@@ -203,12 +259,17 @@ def _score() -> Score:
         bars=BARS,
         regimes=("sideway", "sideway", "sideway"),
         regime_samples=None,
-        slots=(ChordSlot(0, BARS, C, "sideway", "phrase"),),
+        slots=(
+            ChordSlot(0, 2, C, "sideway", "phrase"),
+            ChordSlot(2, 1, G, "sideway", "phrase"),
+            ChordSlot(3, 2, C, "sideway", "phrase"),
+        ),
         high=(),
         lead=tuple(lead),
-        support=tuple(lower),
-        comp=tuple(upper),
+        support=tuple(lower) + tuple(upper),
+        comp=(),
         low=tuple(low),
+        key=D_KEY,
         dynamics=(),
         harmonies=(),
         liquidity=(),
@@ -249,8 +310,8 @@ def main() -> None:
     print(engine)
     print(xml_path)
     print(wav_path)
-    print("Không có tie. Voice 2 gảy nốt 2, 4, 6, 8, mỗi nốt dài hai móc kép.")
-    print("Bè trong đi bậc. Velocity vẫn quanh 60, 50, 45, 40 và nhích theo câu.")
+    print("Không có tie. Trong mỗi khung, 2 = 6 = 8 và 3 = 5. Nốt 4 cao hơn hai bậc.")
+    print("Giọng Rê. Ô 1, 2, 4 là hợp âm Rê. Ô 3 là hợp âm La.")
 
 
 if __name__ == "__main__":
