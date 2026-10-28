@@ -48,13 +48,15 @@ Trần ở đây là `loud` sau `_HAIRPIN_SHIFT`. Band `mf` mở étude tại `9
 
 ### Hàng thu hẹp
 
-`heard` là velocity lead đang bị ghi đè. Sàn tuyệt đối là `40`, cùng kẹp `soft = max(40, …)` của Mục 2.6.B. Affine của sóng volume không kéo nốt mềm lên sàn cửa sổ. Prelude có sàn `28…34`, nên `heard` có thể ở khoảng `30`. Hai đầu của một câu đi xuống không dưới `40`, và đích không cao hơn `open`.
+`heard` là velocity lead đang bị ghi đè. Affine của sóng volume không kéo nốt mềm lên sàn cửa sổ. Prelude có sàn `28…34`, nên `heard` có thể ở khoảng `30`.
 
-- Xuống: `open = min(trần, max(40, heard + bước vào))`. Đích = `min(open, max(40, open − biên độ))`.
-- Lên: `open = min(trần, heard)`. Không rơi xuống `soft`. Đích = `min(trần, open + biên độ)`.
+- Xuống: `open = min(trần, max(40, heard + bước vào))`. Đích = `min(open, max(40, open − biên độ))`. Sàn `40` khóa hai đầu của câu đi xuống. Đích không cao hơn `open`.
+- Lên: `open = min(trần, heard)`. Không rơi xuống `soft`. Đích = `min(trần, open + biên độ)`. Sàn `40` không kéo điểm mở của câu đi lên.
 - Nốt trụ là đích của ramp. Không kéo lên `_BASS + 2`.
 
-`heard = 30` và prelude đi xuống thì đứng yên tại `40`. `heard = 40` vẫn là `42 → 40`. `heard = 56` vẫn là `58 → 52`.
+`heard = 30` và prelude đi xuống thì đứng yên tại `40`. Cùng nốt đó đi lên thì mở tại `30` và lên `36`. `heard = 40` đi xuống vẫn là `42 → 40`. `heard = 56` đi xuống vẫn là `58 → 52`.
+
+Nhịp `retreat` của Mục 2.6.C vẫn chùng `3` bậc ngược chiều hairpin. Brouwer và Elogio kẹp trong `[soft, loud]`. Hàng thu hẹp không còn cặp đó. Kẹp trong khoảng hai đầu ramp, sau khi đã áp sàn và trần: từ `min(open, đích)` tới `max(open, đích)`. Kẹp theo `[40, trần]` thì prelude `58 → 52` gặp `+3` thành `61`, vượt biên độ `6`.
 
 `v_ceil` của affine không quá `63`. Bước vào không quá `+6`, nên một câu đi xuống đứng riêng sau sóng mở tối đa `69`, thấp hơn trần thấp nhất `72`. Trần bắt đầu có việc khi nốt liền trước là snap (`choro`, `hemiola`, `etude11` tới `74`) hoặc là đích của passage vừa in trong cùng vòng `restamp`. Ô 27 nhỏ lại nhờ `+2` và biên độ `6`.
 
