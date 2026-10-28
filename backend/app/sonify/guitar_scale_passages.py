@@ -224,7 +224,8 @@ def _grids_yield(impulse: _Impulse, epb: int) -> bool:
     """Whether tremolo and the four hosts may give bars to this impulse.
 
     The two numbers are `_major_bridge`, measured on the original impulse
-    before any clip. Failing them does not reject a group-3 remainder.
+    before any clip. Failing them peels those grids off the ends and keeps a
+    group-3 remainder. A failed grid strictly inside the span drops the passage.
     """
     return _major_bridge(impulse, epb)
 

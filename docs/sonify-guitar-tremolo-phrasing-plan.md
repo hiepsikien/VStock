@@ -11,17 +11,17 @@ Một đoạn giá đã dài ít nhất một ô và `net_span >= 6` được ng
 
 Trên chính phiên MWG này, scale mới nghe được là overlay Nhóm 3 trên câu `choro` và câu `andante`. Cửa nhường ô có thể vẫn không mở passage nào trên ngày đó.
 
-## Vì sao bản hiện tại nghe vậy
+## Vì sao bản trước đợt này nghe vậy
 
-`_assign_macro` khóa một pattern khi `ctx.bars <= 40` và không có `trio` hay `bridge`. `1D` là 34 ô, 120 BPM, `4/4`, nên `_dominant_pattern` gọi `_daily_barrios_pattern`. `rally` và `selloff` với `rel_span >= 0.014` thành tremolo cả thân. `_select_body` đã có luật theo câu. Macro ghi đè luật đó trên mọi bản `render()` có khung.
+Trước đợt này, `_assign_macro` khóa một pattern khi `ctx.bars <= 40` và không có `trio` hay `bridge`. `1D` là 34 ô, 120 BPM, `4/4`, nên `_dominant_pattern` gọi `_daily_barrios_pattern`. `rally` và `selloff` với `rel_span >= 0.014` thành tremolo cả thân. `_select_body` đã có luật theo câu. Macro ghi đè luật đó trên mọi bản `render()` có khung. Code hiện trả về ở nhánh vân tay `120 / 34 / 4/4` trước nhánh `bars <= 40`. Thân `1D` không còn đi qua `_daily_barrios_pattern`.
 
 `_Ctx` không có trường span. Vân tay của lời gọi đó là `bpm == 120`, `bars == 34`, `kind == "4/4"`.
 
 `DAILY_ENSEMBLE_SPEC` là 34 ô: warmup 2, thân 30, cooldown 2. Eighth `224–232` là ô 28, nằm trong thân 30 ô. Đo chiều 28/10/2026 từng ghi Barrios `1D` là 15 ô tremolo và 2 ô pedal. Doc dynamics ghi 29 ô tremolo trên `1D` selloff. Hai số không cùng một bài. «2 ô pedal» chỉ là pedal đầu. Cooldown thêm 2 ô. Chưa đo lại trên cùng snapshot thì chưa biến một số ô thành fixture.
 
-Cùng snapshot chiều đó, 225 phút, đóng cửa 75,8 → 76,0, 21 xung. Villa khóa `thumb_cantabile`. 20 xung dài 2–7 eighth rơi ở bước kéo ô trọn. Một xung đúng một ô, `net_span` 19, span `224–232`, sống qua cửa cắt rồi `_assign` không vẽ được câu liền bậc trên giai điệu `74 71 65 65 67 67 65 60` rồi đích `57`. Tỷ lệ scale `1D` của cả Villa và Barrios là 0%. Snapshot đó không chứng minh scale đã mở.
+Cùng snapshot chiều đó, 225 phút, đóng cửa 75,8 → 76,0, 21 xung. Villa khóa `thumb_cantabile`. 20 xung dài 2–7 eighth rơi ở bước kéo ô trọn. Một xung đúng một ô, `net_span` 19, span `224–232`, sống qua cửa cắt rồi `_assign` không vẽ được câu liền bậc trên giai điệu `74 71 65 65 67 67 65 60` rồi đích `57`. Tỷ lệ scale `1D` của cả Villa và Barrios khi đó là 0%. Snapshot đó không chứng minh scale đã mở.
 
-Chương dài hơn 40 ô, từ hai vùng, đi `_barrios_palette` rồi `_barrios_region_patterns`. Hai phần kết ở guest đầu. Từ ba phần, phần cuối trở về pattern mở. Hàng 4/4 từ 90 đến 100 BPM, pattern mở tremolo, hiện là `tremolo`, `preludio`, `andante`. Chương I và IV của tháng MWG hôm đó là volatile 96 BPM, hai phần: tremolo rồi Preludio.
+Chương dài hơn 40 ô, từ hai vùng, đi `_barrios_palette` rồi `_barrios_region_patterns`. Hai phần kết ở guest đầu. Từ ba phần, phần cuối trở về pattern mở. Hàng 4/4 từ 90 đến 100 BPM, pattern mở tremolo, trước đợt này là `tremolo`, `preludio`, `andante`. Chương I và IV của tháng MWG hôm đó là volatile 96 BPM, hai phần: tremolo rồi Preludio. Hàng đó trong code giờ là `tremolo`, `andante`.
 
 ## `1D` chọn theo câu
 
@@ -51,7 +51,7 @@ Muốn nhường tremolo thì vùng đã mở trước xung, và ô tremolo tron
 Xung trượt cửa:
 
 - `tremolo` vẫn bị gọt như `_GROUP1`. Tremolo ở rìa bị cắt và phần Nhóm 3 còn. Tremolo nằm giữa thì mất cả passage.
-- `etude1`, `etude11`, `thumb_cantabile`, và Preludio có khung không được nhường khi ô đó không phải ô đầu vùng, và không được phủ scale lên giữa vòng 16 móc kép, sextuplet, hay khung canto. Cửa này chỉ lộ trên ô chủ đã nằm sau ô đầu. Ô đầu vùng hôm nay đã bị bước loại ô đầu cắt ra, nên một test đè đúng ô đầu sẽ xanh trước khi luật `net_span` chạy.
+- `etude1`, `etude11`, `thumb_cantabile`, và Preludio có khung bị gọt như tremolo. Ô đó ở rìa thì bị cắt và phần Nhóm 3 còn. Ô đó nằm giữa các ô khác thì `_blocked_inside` hủy cả passage, kể cả hai phía Nhóm 3. Ca `[8, 24)`, `net_span` 5, vùng mở ở eighth 0, nằm trọn trên étude: gọt hai đầu là hết passage, không đi qua nhánh giữa. Ca giữa là xung `[0, 32)`, `net_span` 5, ô 2 là `etude1`, các ô còn lại là `study`: passage rỗng. Thumb và Preludio có khung đi cùng `_edge_blocked`.
 
 Xung 2–7 eighth trên tremolo hoặc trên pattern chủ không thành passage. Bước kéo ô trọn đã chặn cú ngắn hơn một ô. Ca `net_span < 6` mà xung vẫn dài ít nhất một ô là ca cửa thứ hai phải chứng minh riêng.
 
@@ -64,7 +64,8 @@ Nhóm 3 giữ overlay từ 2 eighth trên Sor, `andante`, `choro`, `villa_patter
 Với `epb = 8`:
 
 - Xung `[18, 21)` trên tremolo hoặc `thumb_cantabile`: dài 3 eighth. Không qua cửa độ dài. Không có passage. Ca này không chứng minh cửa `net_span`.
-- Xung `[8, 24)`, `net_span` 5, vùng `etude1` mở ở eighth 0: ô étude trong xung không phải ô đầu. Hôm nay passage là `[8, 24)`. Sau plan thì không còn passage, và không có scale giữa vòng 16 móc kép. Xung `[0, 24)` với ô étude mở ở eighth 16 đã thành `[0, 16)` bởi bước loại ô đầu, nên không chứng minh cửa này.
+- Xung `[8, 24)`, `net_span` 5, vùng `etude1` mở ở eighth 0: ô étude trong xung không phải ô đầu. Trước đợt này passage là `[8, 24)`. Code hiện không còn passage, và không có scale giữa vòng 16 móc kép. Xung `[0, 24)` với ô étude mở ở eighth 16 đã thành `[0, 16)` bởi bước loại ô đầu, nên không chứng minh cửa này.
+- Xung `[0, 32)`, `net_span` 5, ô 2 là `etude1`, các ô còn lại là `study`: passage rỗng. Hai phía `study` không còn.
 - Tremolo `net_span` 5 chỉ chiếm rìa `[16, 24)` của xung `[0, 24)`: gọt rìa như `_GROUP1`. Passage còn `[0, 16)`. Tremolo nằm giữa `[8, 16)` thì mất cả passage.
 - Xung `[8, 40)`, `net_span` 8, vùng tremolo mở ở eighth 8: qua cửa. Ô đầu vùng là `[8, 16)`, đứng ngoài. Passage là `[16, 40)`. Nếu tremolo vẫn là `_GROUP1`, cả xung này bị gọt hết.
 - Xung `[12, 22)`, `net_span` 7, cả khoảng là tremolo hoặc pattern chủ: dài hơn một ô và đã gấp, nhưng sau khi kéo ô trọn không còn một ô nguyên. Bỏ. Không kéo thành `[8, 24)`. Cùng xung trên `choro` hoặc `andante` vẫn là overlay Nhóm 3.
@@ -95,7 +96,7 @@ Trên `1D`, câu thân đầu vẫn Preludio có khung rồi câu ngân kế là
 - Preludio không khung vẫn overlay Nhóm 3.
 - Tuần Barrios một phiên, 32 ô, 90 BPM, giữ một pattern cho cả thân. Tuần hai đến năm phiên đi hàng 90–100 ở mục chương dài, theo pattern mở của vùng đầu.
 
-## Sửa trong code
+## Đã nằm trong code
 
 `guitar_patterns.py`
 
@@ -106,7 +107,7 @@ Trên `1D`, câu thân đầu vẫn Preludio có khung rồi câu ngân kế là
 `guitar_scale_passages.py`
 
 - Cửa `target - start >= epb` và `net_span >= 6` trên xung gốc quyết định ô `tremolo` và bốn pattern chủ có được nhường hay không, kể cả khi xung không đụng Nhóm 2. Tremolo trượt cửa ở rìa thì phần Nhóm 3 dài ít nhất 2 eighth còn. Tremolo trượt cửa ở giữa thì mất cả passage.
-- Xung trượt cửa trên ô chủ không phải ô đầu: `etude1`, `etude11`, `thumb_cantabile`, và Preludio có khung không nhường, và không phủ scale giữa vòng của pattern. Vùng `etude1` mở ở eighth 0, xung `[8, 24)`, `net_span` 5, hết passage.
+- Xung trượt cửa trên ô chủ không phải ô đầu: `etude1`, `etude11`, `thumb_cantabile`, và Preludio có khung không nhường, và không phủ scale giữa vòng của pattern. Vùng `etude1` mở ở eighth 0, xung `[8, 24)`, `net_span` 5, hết passage vì gọt hai đầu. Ô chủ đó nằm giữa Nhóm 3 thì mất cả passage. Xung `[0, 32)`, `net_span` 5, ô 2 là `etude1`, các ô còn lại là `study`: passage rỗng.
 - Xung qua cửa: `tremolo` đi cùng vòng nhường ô với pattern chủ. Ô đầu vùng đứng ngoài. Ô đầu nằm giữa thì passage là phía trước, đúng tới đầu ô đó. Ô tremolo sau ô đầu, nằm trong cùng xung, được nhường, và `_blocked_inside` không hủy passage. Không nới span ra ngoài xung.
 
 `docs/sonify-classical-guitar.md` mục 3.0
@@ -117,7 +118,7 @@ Trên `1D`, câu thân đầu vẫn Preludio có khung rồi câu ngân kế là
 `docs/sonify-guitar-group1-scales-plan.md`
 
 - `tremolo` ra khỏi `_GROUP1` chỉ khi xung gốc đã qua cửa một ô và `net_span >= 6`. Ô tremolo sau ô đầu, đã được nhường, không còn làm `_blocked_inside` hủy passage.
-- Bốn pattern chủ cũng chỉ nhường ô khi xung đó qua cùng cửa. Cửa trượt thì ô chủ ở lại pattern.
+- Bốn pattern chủ cũng chỉ nhường ô khi xung đó qua cùng cửa. Cửa trượt thì ô chủ ở lại pattern. Ô chủ nằm giữa Nhóm 3 thì hủy cả passage.
 
 ## Kiểm tra
 
@@ -125,6 +126,7 @@ Trên `1D`, câu thân đầu vẫn Preludio có khung rồi câu ngân kế là
 - Tuần Barrios một phiên, 32 ô, 90 BPM: một pattern cho cả thân. Tuần từ hai phiên, 90 BPM, `4/4`, vùng đầu `selloff`, `volatile`, hoặc finale: cùng hàng `tremolo`, `andante` với chương I và IV. Tuần `calm` hoặc `rally`, hai phần: Preludio, `andante`.
 - Xung 3 eighth trên tremolo hoặc trên `thumb_cantabile` không có passage.
 - Xung `[8, 24)`, `epb = 8`, `net_span` 5, vùng `etude1` mở ở eighth 0: không còn passage, không có scale giữa vòng 16 móc kép.
+- Xung `[0, 32)`, `epb = 8`, `net_span` 5, ô 2 là `etude1`, các ô còn lại là `study`: passage rỗng.
 - Xung dài ít nhất một ô, `net_span < 6`, tremolo ở rìa: rìa bị gọt, phần Nhóm 3 còn. Tremolo ở giữa: không còn passage.
 - Xung `[8, 40)`, `epb = 8`, `net_span >= 6`, vùng tremolo mở ở eighth 8: passage là `[16, 40)`.
 - Xung `[12, 22)`, `net_span >= 6`, trên tremolo hoặc pattern chủ: không có passage và span không bị nới. Cùng xung trên `choro`: passage Nhóm 3 còn.

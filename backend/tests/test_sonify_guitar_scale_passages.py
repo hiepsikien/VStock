@@ -1612,6 +1612,14 @@ def test_a_host_bar_below_the_gate_stays_on_the_pattern() -> None:
         assert len(cycle) >= 8, bar
 
 
+def test_a_host_bar_inside_group3_below_the_gate_drops_the_passage() -> None:
+    """epb 8, [0, 32), net_span 5. Bar 2 is etude1. The other bars are study."""
+    assert _spans(
+        _pad([("study", 2), ("etude1", 1), ("study", 1)], 7),
+        _Impulse(0, 32, "up", 5),
+    ) == []
+
+
 def test_tremolo_that_misses_the_gate_keeps_an_edge_and_drops_the_middle() -> None:
     up = "up"
     # Seven bars leave room for the 16-eighth remainder. Six bars cap it at 14.
