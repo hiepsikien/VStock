@@ -615,7 +615,9 @@ def _two_sustains(frame, ctx, bar, name: str, velocity: int) -> list[tuple]:
 def _choro_bar(frame, ctx, bar, role, steps, closing) -> list[tuple]:
     role = _role(steps, role)
     if not closing and steps <= 2 and role == 0:
-        return _finish(frame, ctx, _choro_bed(frame, ctx, bar, "I6", frame._P, frame._MP))
+        return _finish(
+            frame, ctx, _choro_bed(frame, ctx, bar, "I6", frame._P, frame._MP, anticipations=True)
+        )
     if not closing and steps <= 2:
         specs = _choro_bed(frame, ctx, bar, "V7", frame._MP, frame._MP, limit=ctx.epb / 2)
         specs.extend(_choro_run(frame, ctx, bar, frame._MP, approach=True))
@@ -652,7 +654,9 @@ def _choro_points(epb: int) -> list[float]:
     return [slot / 2 for slot in (3, 6, 7, 11, 14, 15) if slot / 2 < epb]
 
 
-def _choro_bed(frame, ctx, bar, name, v0, v1, *, limit: float | None = None) -> list[tuple]:
+def _choro_bed(
+    frame, ctx, bar, name, v0, v1, *, limit: float | None = None, anticipations: bool = False
+) -> list[tuple]:
     epb = ctx.epb
     bass, inner, lead = _voicing(frame, ctx, bar, name)
     root = _harmony(frame, ctx, bar, name)[0]
@@ -669,12 +673,18 @@ def _choro_bed(frame, ctx, bar, name, v0, v1, *, limit: float | None = None) -> 
         pitch = root_bass if index % 2 == 0 else fifth_bass
         length = max(1, nxt - offset)
         specs.append((offset, length, pitch, 3, _lerp(v0, v1, max(1, len(attacks)), index), {}))
-    points = [point for point in _choro_points(epb) if limit is None or point < limit]
+    if anticipations:
+        # The sixteenth before each beat. The accented off-beats arrive with the full cell.
+        points = [slot / 2 for slot in (3, 7, 11, 15) if slot / 2 < epb and (limit is None or slot / 2 < limit)]
+        accent_slots: set[int] = set()
+    else:
+        points = [point for point in _choro_points(epb) if limit is None or point < limit]
+        accent_slots = {6, 7, 14, 15}
     for index, offset in enumerate(points):
         if inner is None or not (max(root_bass, fifth_bass) < inner < lead):
             break
         slot = int(round(offset * 2))
-        flags = {"accent": True} if slot in {6, 7, 14, 15} else {}
+        flags = {"accent": True} if slot in accent_slots else {}
         specs.append((offset, 0.5, inner, 2, _lerp(v0, v1, max(1, len(points)), index), flags))
     return specs
 
@@ -903,7 +913,7 @@ def _hemiola_bar(frame, ctx, bar, role, steps, closing) -> list[tuple]:
     if not closing and steps <= 2:
         return _finish(frame, ctx, _hemiola_grid(frame, ctx, bar, "V7", frame._MP, frame._MF, accent=True))
     if not closing and role == 0:
-        return _finish(frame, ctx, _straight(frame, ctx, bar, "I", frame._PP, frame._P))
+        return _finish(frame, ctx, _straight(frame, ctx, bar, "I", frame._P, frame._P))
     if not closing and role == 1:
         return _finish(frame, ctx, _hemiola_grid(frame, ctx, bar, "IV", frame._MP, frame._MP, accent=False))
     if not closing and role == 2:

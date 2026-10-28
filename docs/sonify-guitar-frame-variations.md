@@ -377,14 +377,14 @@ Bản một ô vẫn cắt đôi bản ngắn bằng `_compressed`. Bản ngắn
 - Outro dài, bước 2: chấm dôi trên i, `_PP`.
 - Outro dài, bước 3: dây buông trầm ngân, `_PP`.
 
-**`galop`** — rally rộng, trưởng, biên độ từ 1,2%. Trên 1D pattern này chiếm cả thân bài, nên cửa intro và outro kêu ở pedal ngày. Bản ngày là 2 ô, chỉ kịch bản ngắn phát. Ngoài 1D galop đứng giữa chương và không kề pedal, nên kịch bản dài không phát trên form đang chạy. Kịch bản dài chờ một form đặt galop kề pedal. Thân bài: bass staccato ở `_galop_bass_points` (4/4 là 0 và 4, 6/8 là 0 và 3), root rồi fifth; bè trong staccato có accent ở `_galop_inner_offsets`; lead nhảy quãng 3 ở `_galop_sparkle`.
+**`galop`** — rally rộng, trưởng, biên độ từ 1,2%. Trên 1D pattern này chiếm cả thân bài. Pedal ngày là 2 ô, nên chỉ kịch bản ngắn phát. Chương dài mà cả thân bài là galop thì điệu đứng giữa và cửa kề pedal là `study`. Tuần, hoặc chương dài mà chỉ slot đầu hay slot cuối là galop, phát kịch bản dài ở cửa đó. Thân bài: bass staccato ở `_galop_bass_points` (4/4 là 0 và 4, 6/8 là 0 và 3), root rồi fifth; bè trong staccato có accent ở `_galop_inner_offsets`; lead nhảy quãng 3 ở `_galop_sparkle`.
 
-- Intro ngắn, bước 0: bass staccato root/fifth trên hai điểm galop, bè trong staccato ở phách yếu, lead nghỉ hoặc một nốt ở phách 1, `_P` lên `_MP`.
+- Intro ngắn, bước 0: bass staccato root/fifth trên hai điểm galop, bè trong staccato ở phách yếu, lead nghỉ hoặc một nốt ở phách 1. Nửa đầu `_P`, nửa sau `_MP`.
 - Intro ngắn, bước 1: nửa đầu galop trên V7, nửa sau lead nhảy quãng 3 staccato, `_MP`.
 - Intro dài, bước 0: bass và bè trong staccato trên I, `_P`.
 - Intro dài, bước 1: sparkle trên I rồi IV, `_MP`.
 - Intro dài, bước 2: galop trên V7, `_MP`.
-- Intro dài, bước 3: nghỉ ngắn giữa ô, ba móc đơn staccato, `_MF`.
+- Intro dài, bước 3: nửa đầu galop staccato trên I, một móc đơn nghỉ đúng giữa ô, rồi ba hợp âm I staccato, `_MF`. Không accent, để nhát này không bị kéo lên 70/66/62.
 - Outro ngắn, bước 0: galop trên V7, `_MP`.
 - Outro ngắn, bước 1: hợp âm staccato ở móc đơn 0 và ở móc đơn 2 hoặc 4, `accent` trên nhát I, rồi nghỉ. Không block ngân.
 - Outro dài, bước 0: galop và sparkle trên I–IV, `_MP`.
@@ -433,7 +433,7 @@ Bản một ô vẫn cắt đôi bản ngắn bằng `_compressed`. Bản ngắn
 
 **`choro`** — 4/4 nhanh, rally hoặc volatile, giai điệu chạy. Thân bài `_slot_dance` loại choro: bass root/fifth ở đầu mỗi nửa ô, bè trong ở móc kép 3, 6, 7 và 11, 14, 15, có accent ở nhát đảo. Approach nửa cung ở móc kép cuối khi root sau thấp hơn một quãng 5.
 
-- Intro ngắn, bước 0: bass root/fifth ở móc đơn 0, 2, 4, 6. Bè trong trên móc kép ngay trước phách, `_P` lên `_MP`.
+- Intro ngắn, bước 0: bass root/fifth ở móc đơn 0, 2, 4, 6. Bè trong chỉ ở móc kép ngay trước phách, slot 3, 7, 11, 15, không accent. Cell đầy và accent đảo phách để lại cho thân bài. `_P` lên `_MP`.
 - Intro ngắn, bước 1: nửa đầu cell trên V7. Nửa sau bass approach hoặc một câu ngắn vào phách 1, `_MP`.
 - Intro dài, bước 0: bass 0, 2, 4, 6, hợp âm có bậc 7 hoặc 6, `_P`.
 - Intro dài, bước 1: lead đảo phách trên I rồi ii, `_MP`.
@@ -465,7 +465,7 @@ Bản một ô vẫn cắt đôi bản ngắn bằng `_compressed`. Bản ngắn
 
 - Intro ngắn, bước 0: bass và bè trong ở 0, 2, 4 trên I, accent ở 2 và 4. Lead giữ 0 và 3, `_MP`.
 - Intro ngắn, bước 1: cùng lưới trên V7, `_MP` lên `_MF`.
-- Intro dài, bước 0: 6/8 thuận, bass ở 0 và 3, trên I, `_P`.
+- Intro dài, bước 0: 6/8 thuận trên I. Bass root ở móc đơn 0, fifth ở móc đơn 3, lead ngân cả ô, một nốt trong. Cả ô `_P`, không mở bằng `_PP`.
 - Intro dài, bước 1: bẻ sang 0, 2, 4 trên IV, `_MP`.
 - Intro dài, bước 2: 0, 2, 4 trên V7, accent ở 2 và 4, `_MP`.
 - Intro dài, bước 3: hemiola trên V7 vào thân bài, `_MF`.

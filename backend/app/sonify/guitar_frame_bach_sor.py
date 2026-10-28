@@ -511,7 +511,6 @@ def _galop_span(
     end: int,
     lead: bool,
     sparkle: bool,
-    level_rise: int | None = None,
 ) -> list[tuple]:
     """Staccato root/fifth, off-beat inner chords, and an optional third-leap."""
     epb = ctx.epb
@@ -534,8 +533,7 @@ def _galop_span(
         if length <= 0:
             continue
         pitch = root if index % 2 == 0 else fifth
-        level = velocity if level_rise is None or index == 0 else level_rise
-        specs.append((offset, length, pitch, 3, level, {"staccato": True}))
+        specs.append((offset, length, pitch, 3, velocity, {"staccato": True}))
         voiced_bass.append((offset, offset + length, pitch))
 
     def bass_ref(offset: int) -> int:
@@ -1720,9 +1718,15 @@ def _galop_hits(frame, ctx, bar: int, role: int, *, short: bool, closing: bool) 
     half = _half(epb)
     if short and not closing:
         if role == 0:
-            return _galop_span(
-                frame, ctx, tonic, frame._P, start=0, end=epb, lead=True, sparkle=False, level_rise=frame._MP
+            # First half stays at _P, including the downbeat lead. The fifth and
+            # the later off-beats answer at _MP.
+            opening = _galop_span(
+                frame, ctx, tonic, frame._P, start=0, end=half, lead=True, sparkle=False
             )
+            answer = _galop_span(
+                frame, ctx, tonic, frame._MP, start=half, end=epb, lead=False, sparkle=False
+            )
+            return opening + answer
         specs = _galop_span(frame, ctx, dominant, frame._MP, start=0, end=half, lead=False, sparkle=False)
         specs.extend(_lead_leaps(frame, ctx, dominant, half, epb, frame._MP))
         return specs
@@ -1751,14 +1755,27 @@ def _galop_hits(frame, ctx, bar: int, role: int, *, short: bool, closing: bool) 
             return specs
         if role == 2:
             return _galop_span(frame, ctx, dominant, frame._MP, start=0, end=epb, lead=True, sparkle=True)
+        # Galop through the first half, one eighth of rest at the midpoint,
+        # then three tonic eighths that throw the dance into the body.
         start = max(0, epb - 3)
-        return _staccato_hits(
-            frame,
-            ctx,
-            [(offset, tonic) for offset in range(start, epb)],
-            frame._MF,
-            accent_index=None,
+        rest = start - 1
+        specs: list[tuple] = []
+        if rest > 0:
+            specs.extend(
+                _galop_span(
+                    frame, ctx, tonic, frame._MF, start=0, end=rest, lead=False, sparkle=False
+                )
+            )
+        specs.extend(
+            _staccato_hits(
+                frame,
+                ctx,
+                [(offset, tonic) for offset in range(start, epb)],
+                frame._MF,
+                accent_index=None,
+            )
         )
+        return specs
     if role == 0:
         specs = _galop_span(frame, ctx, tonic, frame._MP, start=0, end=half, lead=True, sparkle=True)
         specs.extend(_galop_span(frame, ctx, sub, frame._MP, start=half, end=epb, lead=True, sparkle=True))
