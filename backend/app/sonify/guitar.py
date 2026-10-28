@@ -160,6 +160,8 @@ def render_guitar_score(
             raise
         voice_kwargs.pop("impulses")
         lead, support, low, divisions = render_patterned_voices(**voice_kwargs)
+    scale_eighths = tuple(getattr(lead, "scale_eighths", ()))
+    long_scale_eighths = tuple(getattr(lead, "long_scale_eighths", ()))
     return Score(
         title=title,
         bpm=bpm,
@@ -187,6 +189,8 @@ def render_guitar_score(
         beats=meter.beats,
         beat_type=meter.beat_type,
         bar_beats=meter.quarter_beats,
+        scale_eighths=scale_eighths,
+        long_scale_eighths=long_scale_eighths,
     )
 
 

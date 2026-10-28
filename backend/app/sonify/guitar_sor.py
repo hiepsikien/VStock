@@ -1474,10 +1474,18 @@ def _apply_appoggiatura(ctx: _Ctx, lead: list[NoteEvent], ornaments: dict[int, t
     return rewritten
 
 
-def classic_scale_step(ctx: _Ctx, pitch: int, direction: int) -> int:
+def classic_scale_step(
+    ctx: _Ctx,
+    pitch: int,
+    direction: int,
+    *,
+    low: int | None = None,
+    high: int | None = None,
+) -> int:
     """One classical diatonic step. Strong beats stay on the chord tone the passage anchors."""
-    high = min(ctx.treble_top, ctx.ceiling)
-    return _walk(pitch, 1 if direction >= 0 else -1, ctx.mode, ctx.treble_floor, high)
+    floor = ctx.treble_floor if low is None else low
+    top = min(ctx.treble_top, ctx.ceiling) if high is None else high
+    return _walk(pitch, 1 if direction >= 0 else -1, ctx.mode, floor, top)
 
 
 from app.sonify.guitar_patterns import (  # noqa: E402

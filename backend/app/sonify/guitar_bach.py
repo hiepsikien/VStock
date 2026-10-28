@@ -1267,11 +1267,14 @@ def bach_scale_step(
     *,
     impulse_direction: str = "up",
     approaching_tonic: bool = False,
+    low: int | None = None,
+    high: int | None = None,
 ) -> int:
-    """One diatonic step of a Bach tirata, inside the treble window."""
-    high = min(ctx.treble_top, ctx.ceiling)
+    """One diatonic step of a Bach tirata, inside the compass passed by the scale line."""
+    floor = ctx.treble_floor if low is None else low
+    top = min(ctx.treble_top, ctx.ceiling) if high is None else high
     classes = bach_scale_classes(ctx, impulse_direction, approaching_tonic)
-    return _bach_step_in(pitch, direction, classes, ctx.treble_floor, high)
+    return _bach_step_in(pitch, direction, classes, floor, top)
 
 
 def _bach_phrase_at(ctx: _Ctx, bar: int) -> Phrase | None:

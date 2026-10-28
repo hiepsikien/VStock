@@ -1408,10 +1408,18 @@ def _preludio_bass(ctx: _Ctx, patterns: list[str]) -> list[NoteEvent]:
     return events
 
 
-def barrios_scale_step(ctx: _Ctx, pitch: int, direction: int) -> int:
+def barrios_scale_step(
+    ctx: _Ctx,
+    pitch: int,
+    direction: int,
+    *,
+    low: int | None = None,
+    high: int | None = None,
+) -> int:
     """One diatonic step. The chromatic approach sits on the note before a strong beat."""
-    high = min(ctx.treble_top, ctx.ceiling)
-    return _walk(pitch, 1 if direction >= 0 else -1, ctx.mode, ctx.treble_floor, high)
+    floor = ctx.treble_floor if low is None else low
+    top = min(ctx.treble_top, ctx.ceiling) if high is None else high
+    return _walk(pitch, 1 if direction >= 0 else -1, ctx.mode, floor, top)
 
 
 def barrios_chromatic_approach(target: int, ascending: bool) -> int:

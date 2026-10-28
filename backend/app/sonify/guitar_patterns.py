@@ -2802,6 +2802,12 @@ def render_patterned_voices(
 
     lead, support, low, scale_plan = apply_scale_passages(ctx, patterns, lead, support, low)
     scale_eighths = set(scale_plan.scale_eighths)
+    long_scale_eighths = {
+        eighth
+        for passage in (*scale_plan.passages, *scale_plan.tier1)
+        if passage.passage_eighths >= epb
+        for eighth in range(passage.start, passage.target + 1)
+    }
     perpetual_bars = set(scale_plan.perpetual_bars)
     perpetual_indexes: set[int] = set()
     for index, phrase in enumerate(phrases):
@@ -2914,8 +2920,11 @@ def render_patterned_voices(
     # A sixteenth of Étude No. 1 is then three units, and a sextuplet sixth is two.
     if "etude11" in patterns:
         divisions = 12
+    filled_lead = _fill(lead, musical_bars, epb, 1)
+    filled_lead.scale_eighths = tuple(sorted(scale_eighths))  # type: ignore[attr-defined]
+    filled_lead.long_scale_eighths = tuple(sorted(long_scale_eighths))  # type: ignore[attr-defined]
     return (
-        _fill(lead, musical_bars, epb, 1),
+        filled_lead,
         _fill_voices(support, musical_bars, epb, 2),
         _fill(low, musical_bars, epb, 3),
         divisions,
@@ -3502,8 +3511,19 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
             profile = profile_at.get(event.bar, "study")
             sounding = event.midi + semitones
             if voice == 1:
-                ceiling = 83 if profile == "barrios_preludio" else 81
-                if sounding > ceiling or sounding < 59:
+                eighth = event.bar * epb + int(math.floor(event.beat * 2 + 1e-9))
+                long_scale = eighth in score.long_scale_eighths
+                in_scale = eighth in score.scale_eighths
+                if long_scale:
+                    # Section 2.3. Only the eighths of a long scale passage open up.
+                    floor = 40 if score.ensemble in {"villa", "brouwer"} else 52
+                    ceiling = 83
+                elif in_scale:
+                    floor, ceiling = 57, 83
+                else:
+                    floor = 59
+                    ceiling = 83 if profile == "barrios_preludio" else 81
+                if sounding > ceiling or sounding < floor:
                     raise Unplayable(f"lead {sounding} is outside profile {profile}")
             if voice in {2, 4} and sounding < 50 and profile not in {"villa_etude1", "villa_etude11"}:
                 raise Unplayable(f"inner voice {sounding} is below the middle register")
