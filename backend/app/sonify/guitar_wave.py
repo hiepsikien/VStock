@@ -1034,6 +1034,109 @@ def _fit_pedal_speech(
             _retarget(placed, [bar], [floor])
 
 
+def _preserve_prelude_gaps(ctx, voices, patterns, placed, leading, trailing) -> None:
+    """The phrase wave may clamp, but it may not close the prelude's 8-point gaps.
+
+    Within each half, upper_mid stays 8 above low_mid. The two bass attacks stay
+    8 apart in the direction of their interval. A clamp lowers both notes together.
+    """
+    from app.sonify.guitar_patterns import _joined_body_pattern
+
+    prelude = {
+        bar
+        for bar in range(getattr(ctx, "bars", 0))
+        if _pattern_at(ctx, bar, patterns) == "bach_prelude"
+    }
+    if leading:
+        name, _bar = _joined_body_pattern(ctx, leading[-1] + 1, list(patterns))
+        if name == "bach_prelude":
+            prelude.update(leading)
+    if trailing:
+        name, _bar = _joined_body_pattern(ctx, trailing[0] - 1, list(patterns))
+        if name == "bach_prelude":
+            prelude.update(trailing)
+    if not prelude:
+        return
+    epb = max(1, getattr(ctx, "epb", 8))
+    half_beats = (epb // 2) * 0.5
+    gap = 8
+
+    def ceil_of(bar: int) -> int:
+        spot = placed.get(bar)
+        if spot is None:
+            return 127
+        return int(spot.v_ceil)
+
+    def half_of(beat: float) -> int:
+        return 0 if beat < half_beats - 1e-9 else 1
+
+    support = voices["support"]
+    groups: dict[tuple[int, int], list[int]] = {}
+    for index, event in enumerate(support):
+        if event.bar not in prelude or event.midi is None or event.velocity is None or event.tie_stop:
+            continue
+        groups.setdefault((event.bar, half_of(event.beat)), []).append(index)
+    for (bar, _half), indexes in groups.items():
+        pitches = {support[index].midi for index in indexes}
+        if len(pitches) < 2:
+            continue
+        low_pitch = min(pitches)
+        high_pitch = max(pitches)
+        base = int(support[next(index for index in indexes if support[index].midi == low_pitch)].velocity or 0)
+        ceiling = ceil_of(bar)
+        loud = base + gap
+        soft = base
+        if loud > ceiling:
+            loud = ceiling
+            soft = max(1, ceiling - gap)
+        for index in indexes:
+            event = support[index]
+            if event.midi == low_pitch:
+                velocity = soft
+            elif event.midi == high_pitch:
+                velocity = loud
+            else:
+                continue
+            if event.velocity != velocity:
+                _put(support, index, velocity)
+
+    low = voices["low"]
+    by_bar: dict[int, list[int]] = {}
+    for index, event in enumerate(low):
+        if event.bar not in prelude or event.midi is None or event.velocity is None or event.tie_stop:
+            continue
+        by_bar.setdefault(event.bar, []).append(index)
+    for bar, indexes in by_bar.items():
+        indexes.sort(key=lambda index: low[index].beat)
+        if len(indexes) < 2:
+            continue
+        first, second = indexes[0], indexes[1]
+        left, right = low[first], low[second]
+        if left.midi is None or right.midi is None:
+            continue
+        base = int(left.velocity or 0)
+        ceiling = ceil_of(bar)
+        if right.midi > left.midi:
+            loud = base + gap
+            soft = base
+            if loud > ceiling:
+                loud = ceiling
+                soft = max(1, ceiling - gap)
+            pair = (soft, loud)
+        elif right.midi < left.midi:
+            soft = base - gap
+            if soft < 1:
+                pair = (gap + 1, 1)
+            else:
+                pair = (base, soft)
+        else:
+            pair = (base, base)
+        if left.velocity != pair[0]:
+            _put(low, first, pair[0])
+        if right.velocity != pair[1]:
+            _put(low, second, pair[1])
+
+
 def apply_guitar_wave(
     ctx,
     lead,
@@ -1062,4 +1165,5 @@ def apply_guitar_wave(
     _apply_affine(ctx, voices, placed, patterns, covered)
     _apply_snaps(ctx, voices, patterns, waves, covered)
     _apply_stabs(ctx, voices, trailing, patterns)
+    _preserve_prelude_gaps(ctx, voices, patterns, placed, leading, trailing)
     return _sync_ties(voices["lead"]), _sync_ties(voices["support"]), _sync_ties(voices["low"])

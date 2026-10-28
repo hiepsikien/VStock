@@ -247,6 +247,50 @@ def test_prelude_half_opens_on_bass_and_outro_grid_matches_the_half() -> None:
             assert all(count == 1 for count in counts.values())
 
 
+def test_prelude_roll_keeps_a_third_and_the_final_block() -> None:
+    """Section 2.4: the door's inner voices are a third, and the last bar stays a chord."""
+    from app.sonify.guitar_frame_bach_sor import _roll_voices
+    from app.sonify import guitar_frame as frame
+
+    for meter, grid in _METERS.items():
+        half = grid["epb"] // 2
+        _ctx, _lead, support, low = _region("bach_prelude", 2, meter)
+        for bar in range(2):
+            for boundary in (0, 1):
+                inners = [
+                    note
+                    for note in _sounding(support, bar)
+                    if note.midi is not None and (0 if note.beat < half * 0.5 - 1e-9 else 1) == boundary
+                ]
+                pitches = {note.midi for note in inners}
+                assert len(pitches) >= 2, (meter, bar, boundary, pitches)
+                low_pitch, high_pitch = min(pitches), max(pitches)
+                assert high_pitch - low_pitch >= 3
+                low_vel = {note.velocity for note in inners if note.midi == low_pitch}
+                high_vel = {note.velocity for note in inners if note.midi == high_pitch}
+                assert next(iter(high_vel)) - next(iter(low_vel)) == 8
+            basses = sorted(_sounding(low, bar), key=lambda note: note.beat)
+            assert len(basses) >= 2
+            left, right = basses[0], basses[1]
+            if right.midi == left.midi:
+                assert right.velocity == left.velocity
+            elif right.midi > left.midi:
+                assert right.velocity - left.velocity == 8
+            else:
+                assert left.velocity - right.velocity == 8
+        _ctx, lead, support, low = _region("bach_prelude", 4, meter, closing=True)
+        final = [note for note in (*lead, *support, *low) if note.bar == 3 and note.midi is not None]
+        assert final
+        assert all(note.duration_beats >= 1.0 - 1e-6 for note in final)
+        assert not any(abs(note.duration_beats - 0.25) < 1e-6 for note in final)
+
+    ctx, _lead, _support, _low = _region("bach_prelude", 2, "4/4")
+    bass, low_mid, upper_mid, lead_pitch = _roll_voices(frame, ctx, [0])
+    assert bass < low_mid < upper_mid < lead_pitch
+    assert upper_mid - low_mid >= 3
+    assert upper_mid != low_mid
+
+
 def test_prelude_and_courante_long_intro_writes_velocity_58() -> None:
     for pattern in ("bach_prelude", "bach_courante"):
         for meter in _METERS:

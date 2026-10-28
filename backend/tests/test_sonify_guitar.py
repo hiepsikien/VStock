@@ -5066,6 +5066,143 @@ def test_bach_courante_leaps_on_beat_one_and_runs_sixteenths_on_the_middle_beat(
     assert not any(abs(note.beat - 1.5) < 1e-6 for note in _attacks(four.low, 0))
 
 
+def _half_of(beat: float, epb: int) -> int:
+    return 0 if beat < (epb // 2) * 0.5 - 1e-9 else 1
+
+
+def test_bach_prelude_dyad_follows_the_price_and_keeps_eight_velocity() -> None:
+    """Section 2.1: a real third, distinct leads, and an 8-point gap after shaping."""
+    from app.sonify.guitar_bach import _render_bach_prelude_bar
+    from app.sonify.guitar_wave import apply_guitar_wave
+
+    for meter in (METER_44, METER_34, METER_68):
+        epb = meter.eighths_per_bar
+        ctx = _dance_ctx(meter, [72] * epb, character="calm", rel_span=0.0)
+        lead, support, low = _render_bach_prelude_bar(ctx, 0, set(), ctx.phrases[0])
+        score = _voice_score(lead, support, low, meter, ctx.phrases)
+        assert_playable(score, profiles="bach")
+        for half in (0, 1):
+            inners = [
+                note
+                for note in _attacks(score.support, 0)
+                if note.midi is not None and _half_of(note.beat, epb) == half
+            ]
+            pitches = {note.midi for note in inners}
+            assert len(pitches) >= 2
+            assert max(pitches) - min(pitches) >= 3
+            low_pitch, high_pitch = min(pitches), max(pitches)
+            low_vel = {note.velocity for note in inners if note.midi == low_pitch}
+            high_vel = {note.velocity for note in inners if note.midi == high_pitch}
+            assert low_vel and high_vel
+            assert next(iter(high_vel)) - next(iter(low_vel)) == 8
+        if epb >= 8:
+            for origin in (0, 8):
+                first = next(note for note in _attacks(score.lead, 0) if abs(note.beat * 4 - (origin + 3)) < 1e-6)
+                second = next(note for note in _attacks(score.lead, 0) if abs(note.beat * 4 - (origin + 6)) < 1e-6)
+                assert first.midi != second.midi
+        basses = _attacks(score.low, 0)
+        assert len(basses) == 2 and basses[0].midi is not None and basses[1].midi is not None
+        gap = (basses[1].velocity or 0) - (basses[0].velocity or 0)
+        if basses[1].midi == basses[0].midi:
+            assert gap == 0
+        elif basses[1].midi > basses[0].midi:
+            assert gap == 8
+        else:
+            assert gap == -8
+        waved_lead, waved_support, waved_low = apply_guitar_wave(
+            ctx, lead, support, low, ["bach_prelude"]
+        )
+        waved = _voice_score(waved_lead, waved_support, waved_low, meter, ctx.phrases)
+        for half in (0, 1):
+            inners = [
+                note
+                for note in _attacks(waved.support, 0)
+                if note.midi is not None and _half_of(note.beat, epb) == half
+            ]
+            low_pitch, high_pitch = min(note.midi for note in inners), max(note.midi for note in inners)
+            low_vel = next(note.velocity for note in inners if note.midi == low_pitch)
+            high_vel = next(note.velocity for note in inners if note.midi == high_pitch)
+            assert high_vel - low_vel == 8
+        heard = _attacks(waved.low, 0)
+        heard_gap = (heard[1].velocity or 0) - (heard[0].velocity or 0)
+        if heard[1].midi == heard[0].midi:
+            assert heard_gap == 0
+        elif heard[1].midi > heard[0].midi:
+            assert heard_gap == 8
+        else:
+            assert heard_gap == -8
+
+    split = [72, 76, 74, 71, 70, 69, 71, 67]
+    ctx = _dance_ctx(METER_44, split, character="calm", rel_span=0.0)
+    lead, support, low = _render_bach_prelude_bar(ctx, 0, set(), ctx.phrases[0])
+    score = _voice_score(lead, support, low, METER_44, ctx.phrases)
+    assert_playable(score, profiles="bach")
+    expected = {3: 76, 6: 71, 11: 69, 14: 67}
+    for slot, pitch in expected.items():
+        name, note = _slot_attacks(score)[slot][0]
+        assert name == "lead" and note.midi == pitch
+
+
+def test_bach_courante_lead_follows_the_price_contour() -> None:
+    """Section 2.3: the leap keeps the price's direction, and the tirata does too."""
+    from app.sonify.guitar_bach import _render_bach_courante_bar
+
+    def render(meter, melody: list[int], *, closes: bool = False):
+        epb = meter.eighths_per_bar
+        phrase = _joined(0, melody[:epb], held=not closes)
+        ctx = _dance_ctx(meter, melody, phrases=(phrase,), character="rally", rel_span=0.02)
+        lead, support, low = _render_bach_courante_bar(ctx, 0, set(), phrase)
+        score = _voice_score(lead, support, low, meter, (phrase,))
+        assert_playable(score, profiles="bach")
+        return score
+
+    for meter in (METER_34, METER_44, METER_68):
+        epb = meter.eighths_per_bar
+        falling = render(meter, [74, 71] + [71] * (epb - 2) + [72] * epb)
+        lead = _attacks(falling.lead, 0)
+        assert lead[0].midi == 74
+        leap = next(note for note in lead if abs(note.beat - 0.5) < 1e-6)
+        assert leap.staccato and leap.midi == 71 and leap.midi < lead[0].midi
+
+        rising = render(meter, [67, 72] + [72] * (epb - 2) + [74] * epb)
+        lead = _attacks(rising.lead, 0)
+        leap = next(note for note in lead if abs(note.beat - 0.5) < 1e-6)
+        assert leap.midi == 72 and leap.midi > lead[0].midi
+
+    epb = 8
+    split = render(METER_44, [72, 72, 74, 71, 67, 69, 76, 74, 79])
+    at_two = [note for note in _attacks(split.lead, 0) if abs(note.beat - 1.0) < 1e-6]
+    at_three = [note for note in _attacks(split.lead, 0) if abs(note.beat - 1.5) < 1e-6]
+    assert len(at_two) == 1 and len(at_three) == 1
+    assert at_two[0].midi == 74 and abs(at_two[0].duration_beats - 0.5) < 1e-6
+    assert at_three[0].midi == 71 and abs(at_three[0].duration_beats - 0.5) < 1e-6
+    tied = render(METER_44, [72, 72, 74, 74, 67, 69, 76, 74, 79])
+    at_two = [note for note in _attacks(tied.lead, 0) if abs(note.beat - 1.0) < 1e-6]
+    at_three = [note for note in _attacks(tied.lead, 0) if abs(note.beat - 1.5) < 1e-6]
+    assert len(at_two) == 1 and at_three == []
+    assert at_two[0].midi == 74 and abs(at_two[0].duration_beats - 1.0) < 1e-6
+
+    six = render(METER_68, [72, 76, 67, 71, 71, 71, 74])
+    eighth_two = next(note for note in _attacks(six.lead, 0) if abs(note.beat - 1.0) < 1e-6)
+    assert eighth_two.midi == 67
+
+    courante = render(METER_34, [72, 72, 67, 69, 74, 72, 76])
+    tirata = [note for note in _attacks(courante.lead, 0) if 1.0 - 1e-6 <= note.beat <= 1.75 + 1e-6]
+    tirata.sort(key=lambda note: note.beat)
+    assert [round(note.beat, 2) for note in tirata] == [1.0, 1.25, 1.5, 1.75]
+    assert tirata[-1].midi == 74
+    assert tirata[0].midi == 67
+    assert all((right.midi or 0) >= (left.midi or 0) for left, right in zip(tirata, tirata[1:]))
+
+    flat = render(METER_34, [72] * 6 + [74] * 6)
+    same = [note for note in _attacks(flat.lead, 0) if 1.0 - 1e-6 <= note.beat <= 1.75 + 1e-6]
+    same.sort(key=lambda note: note.beat)
+    assert len(same) == 4
+    assert len({note.midi for note in same}) > 1
+    assert same[1].midi != same[-1].midi and same[2].midi != same[-1].midi
+    assert same[-1].midi == same[0].midi
+
+
 def _spec_ctx(spec, *, character: str, rel_span: float, motion: str = "held", bpm: int | None = None):
     """One phrase per form section, so the region row is the section row."""
     meter = spec.meter
