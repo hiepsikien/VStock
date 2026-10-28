@@ -635,8 +635,109 @@ def _preludio_anchor(ctx: _Ctx, bar: int, patterns: list[str]) -> int:
 
 
 
+def _catedral_span(ctx: _Ctx, anchor: int, patterns: list[str]) -> list[int]:
+    """Bars that share one pedal attack with `anchor`."""
+    if _bar_pattern(ctx, anchor, patterns) != "preludio":
+        return [anchor]
+    nxt = anchor + 1
+    if (
+        nxt < ctx.bars
+        and _bar_pattern(ctx, nxt, patterns) == "preludio"
+        and _preludio_anchor(ctx, nxt, patterns) == anchor
+    ):
+        return [anchor, nxt]
+    return [anchor]
+
+
+def _catedral_span_sings(
+    ctx: _Ctx,
+    bars: list[int],
+    bass: int,
+    previous: tuple[int, int] | None,
+    *,
+    require_all: bool,
+) -> tuple[bool, tuple[int, int] | None]:
+    """Walk the span the way the bar renderer will.
+
+    `require_all` is the octave search: every cell must find a pair. The
+    fallback walk still keeps the last pair a cell actually sang, so the next
+    span sees the same memory the renderer keeps.
+    """
+    carried = previous
+    for bar in bars:
+        eighth = bar * ctx.epb
+        end = eighth + ctx.epb
+        chord = ctx.chord(bar)
+        while eighth + 4 <= end:
+            note1 = _melody_at(ctx, eighth)
+            note7 = _melody_at(ctx, eighth + 3)
+            if bass >= min(note1, note7):
+                if require_all:
+                    return False, carried
+                eighth += 4
+                continue
+            chosen = _catedral_schedule(ctx, chord, bass, note1, note7, carried)
+            if chosen is None:
+                if require_all:
+                    return False, carried
+            else:
+                carried = (chosen[0], chosen[2])
+            eighth += 4
+    return True, carried
+
+
+def _catedral_pedals(ctx: _Ctx, patterns: list[str]) -> dict[int, int]:
+    """One pedal pitch per preludio bar.
+
+    The written octave stays when two chord tones already fit under the canto.
+    A root that sits against the melody, so the window holds one chord tone,
+    drops an octave. The pitch class is still the chord root, and the sounding
+    pitch stays at or above 40.
+    """
+    cached = getattr(ctx, "_catedral_pedal_map", None)
+    if cached is not None:
+        return cached
+    pedals: dict[int, int] = {}
+    previous: tuple[int, int] | None = None
+    bar = 0
+    while bar < ctx.bars:
+        if _bar_pattern(ctx, bar, patterns) != "preludio":
+            previous = None
+            bar += 1
+            continue
+        anchor = _preludio_anchor(ctx, bar, patterns)
+        span = _catedral_span(ctx, anchor, patterns)
+        root = _choose_bass(
+            ctx.chord(anchor),
+            0,
+            _melody_at(ctx, anchor * ctx.epb),
+            ctx.bass_low,
+            ctx.bass_high,
+            ctx.semitones,
+        )
+        chosen = root
+        _ok, carried = _catedral_span_sings(ctx, span, root, previous, require_all=False)
+        candidate = root
+        while candidate + ctx.semitones >= 40:
+            ok, sung = _catedral_span_sings(ctx, span, candidate, previous, require_all=True)
+            if ok:
+                chosen = candidate
+                carried = sung
+                break
+            candidate -= 12
+        for spanned in span:
+            pedals[spanned] = chosen
+        previous = carried
+        bar = span[-1] + 1
+    ctx._catedral_pedal_map = pedals
+    return pedals
+
+
 def _catedral_bass(ctx: _Ctx, bar: int, patterns: list[str]) -> int:
     """The pedal pitch `_preludio_bass` will hold under this bar."""
+    pedals = _catedral_pedals(ctx, patterns)
+    if bar in pedals:
+        return pedals[bar]
     anchor = _preludio_anchor(ctx, bar, patterns)
     return _choose_bass(
         ctx.chord(anchor),
@@ -1155,7 +1256,17 @@ def _preludio_bass(ctx: _Ctx, patterns: list[str]) -> list[NoteEvent]:
             if len(run) == 1:
                 span = 1
             bar = run[cursor]
-            root = _choose_bass(ctx.chord(bar), 0, _melody_at(ctx, bar * ctx.epb), ctx.bass_low, ctx.bass_high, ctx.semitones)
+            if _catedral_preludio(ctx):
+                root = _catedral_bass(ctx, bar, patterns)
+            else:
+                root = _choose_bass(
+                    ctx.chord(bar),
+                    0,
+                    _melody_at(ctx, bar * ctx.epb),
+                    ctx.bass_low,
+                    ctx.bass_high,
+                    ctx.semitones,
+                )
             _support_vel, bass_vel = _under_lead(_covering_melody_velocity(ctx, bar * ctx.epb), ctx.band(bar))
             if _catedral_preludio(ctx):
                 raw = _covering_melody_velocity(ctx, bar * ctx.epb)
