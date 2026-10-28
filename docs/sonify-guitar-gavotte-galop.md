@@ -209,7 +209,7 @@ Nốt trên kêu ở móc kép 2, trong chỗ nghỉ của giai điệu, nên kh
 
 - Móc kép lead là `[0.5, 0.75, 1.5, 1.75, 2.5, 2.75]`.
 - Phách 0.5 cao hơn phách 0 đúng một quãng tám, không staccato. Nốt hợp âm kế dưới nằm trong 7 nửa cung.
-- Phách 3.0 và 3.5 là hai móc đơn của biến ô 2: 3.0 staccato, 3.5 không staccato, cả hai là giá. Không có móc kép tại 3.5 và 3.75.
+- Phách 3.0 và 3.5 là hai móc đơn của biến ô 2: 3.0 staccato, 3.5 không staccato, cả hai trùng nốt đầu vì giai điệu giữ nguyên. Không có móc kép tại 3.5 và 3.75. `test_galop_bar_two_variant_reads_the_melody_at_those_eighths` khóa cao độ khi hai móc đó khác nốt đầu: chúng là `ctx.melody` tại `origin+2` và `origin+3`.
 - Bass là hai móc đơn staccato tại `0.0` và `2.0`. Bè trong rỗng.
 
 `_frame_score("classic", 4)` trong test đó: lead ô 0 rỗng, bass ô 0 toàn staccato, lead ô 3 chỉ ở `2.5, 3.0, 3.5`, bass ô cuối staccato có accent. Ô 0 là intro dài role 0, `lead=False`. Ô 3 giữ móc nghỉ rồi ba hợp âm. Bass ô cuối là outro dài role 3, `_staccato_hits`.

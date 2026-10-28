@@ -318,7 +318,7 @@ def _galop1_cell(
 
 
 def _galop2_twelfth(ctx: _Ctx, root: int, left: int, right: int) -> tuple[int, int] | None:
-    """Low root and the major twelfth above it, or nothing when the leap will not sit.
+    """Low root and the perfect twelfth above it, or nothing when the leap will not sit.
 
     Drop the root by octaves, never the upper note, and never below `guitar_floor`.
     The upper note stays voice 3 and is not folded through the bass window.

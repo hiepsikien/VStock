@@ -2896,6 +2896,48 @@ def test_sor_galop_and_mozart_variations_and_the_op9_overture() -> None:
     assert all(note.staccato and note.accent for note in _pitched(long.low, long.bars - 1))
 
 
+def test_galop_bar_two_variant_reads_the_melody_at_those_eighths() -> None:
+    """The Tecla bar-2 eighths are the price at origin+2 and origin+3, not the downbeat.
+
+    A held line makes both notes the same pitch, so rhythm alone cannot show the read.
+    """
+    frame, body, epb = 2, 4, 8
+    first = [67, 67, 67, 67, 67, 67, 72, 74]
+    phrases = (
+        _held(0, frame * epb, 67),
+        _joined(frame * epb, first + [67] * ((body - 1) * epb)),
+        _held((frame + body) * epb, frame * epb, 67),
+    )
+    total = frame + body + frame
+    kinds = {
+        bar: ("intro" if bar < frame else "outro" if bar >= frame + body else "phrase")
+        for bar in range(total)
+    }
+    sections = (
+        FormSection(0, frame, "intro", 0),
+        FormSection(frame, frame + body, "phrase", 0),
+        FormSection(frame + body, total, "outro", 0),
+    )
+    score = _guitar(
+        phrases,
+        ensemble="classic",
+        bpm=88,
+        character="rally",
+        kinds=kinds,
+        sections=sections,
+    )
+    lead = _pitched(score.lead, frame)
+    downbeat = next(note for note in lead if note.beat == 0.0)
+    second = next(note for note in lead if abs(note.beat - 3.0) < 1e-9)
+    third = next(note for note in lead if abs(note.beat - 3.5) < 1e-9)
+    assert downbeat.midi == 67
+    assert second.staccato and abs(second.duration_beats - 0.5) < 1e-9 and second.midi == 72
+    assert not third.staccato and abs(third.duration_beats - 0.5) < 1e-9 and third.midi == 74
+    assert _sixteenths(score.lead, frame) == [0.5, 0.75, 1.5, 1.75, 2.5, 2.75]
+    # The next bar of the run is the repeating grid, so the variant does not stick.
+    assert 3.5 in _sixteenths(score.lead, frame + 1)
+
+
 def test_boundary_galop_keeps_the_sixteenth_pair_the_real_pickup_can_play() -> None:
     """The last pair stays when the pickup chosen with the galop root in the bass can share it.
 
