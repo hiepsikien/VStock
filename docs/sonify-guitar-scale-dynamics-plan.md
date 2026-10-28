@@ -1,6 +1,6 @@
 # Điều Chỉnh Biên Độ Scale Theo Thể Loại
 
-> **Trạng thái**: đề xuất, chưa viết vào engine.
+> **Trạng thái**: đã viết vào engine.
 > **Tài liệu liên kết**: [`docs/sonify-guitar-scales-plan.md`](./sonify-guitar-scales-plan.md) Mục 2.6, [`docs/sonify-guitar-bach-suite-plan.md`](./sonify-guitar-bach-suite-plan.md).
 > **Mục tiêu**: câu scale vẫn là một hairpin một chiều. Brouwer giữ Mục 2.6.C. Các hàng thu hẹp đo từ velocity bè cao sau sóng volume, với bước vào, biên độ và trần khóa theo id pattern.
 

@@ -448,12 +448,11 @@ def test_ascending_entry_does_not_swell_downward_from_72() -> None:
     notes = [event for start, event in _ordered(score.lead) if 2 <= start <= 16]
     assert notes
     velocities = [event.velocity for event in notes]
-    # Study is Động năng, mf, so the window is 46–90. The lead before the
-    # passage sits on the apex (72), and the first attack takes the soft breath.
-    assert velocities[0] == 46
-    assert velocities[-1] == 90
+    # Study reads the post-wave note. Heard 56 opens there and climbs one Sor span to 72.
+    assert velocities[0] == 56
+    assert velocities[-1] == 72
     assert velocities[-2] < velocities[-1]
-    assert all(value < 90 for value in velocities[:-1])
+    assert all(value < 72 for value in velocities[:-1])
     assert all(right >= left for left, right in zip(velocities, velocities[1:]))
     from app.sonify.humanize import humanize
 
@@ -683,11 +682,11 @@ def test_playable_scale_passage_in_every_ensemble_and_key() -> None:
 
 
 def test_hairpin_windows_openings_and_the_long_curve() -> None:
-    """Section 2.6.A–C, including the cases a full render does not isolate."""
+    """Brouwer keeps 2.6.C. Narrowed rows ride the heard note."""
     assert _pattern_window("elogio_pizz", "p") == (40, 84)
     assert _pattern_window("elogio_pizz", "f") == (48, 96)
-    assert _pattern_window("study", "p") == (40, 82)
-    assert _pattern_window("elegiaque", "p") == (44, 74)
+    assert _pattern_window("brouwer_etude", "p") == (40, 82)
+    assert _pattern_window("brouwer_etude", "mf") == (46, 90)
 
     elogio = hairpin_velocities(
         5,
@@ -705,7 +704,7 @@ def test_hairpin_windows_openings_and_the_long_curve() -> None:
     assert elogio[-2] < 84
     assert max(elogio) == 84
 
-    hat_down = hairpin_velocities(
+    sor_down = hairpin_velocities(
         5,
         direction="down",
         pattern="elegiaque",
@@ -716,12 +715,9 @@ def test_hairpin_windows_openings_and_the_long_curve() -> None:
         epb=8,
         pillar=False,
     )
-    assert hat_down[0] == 72
-    assert hat_down[0] != 82
-    assert hat_down[-1] == 52
-    assert all(value > 52 for value in hat_down[:-1])
+    assert sor_down[0] == 64
+    assert sor_down[-1] == 48
 
-    # Baroque dances stay off the sforzando even on a strong beat.
     bourree = hairpin_velocities(
         4,
         direction="down",
@@ -733,24 +729,34 @@ def test_hairpin_windows_openings_and_the_long_curve() -> None:
         epb=8,
         pillar=False,
     )
-    assert bourree[0] == 72
-    assert bourree[0] != 84
+    assert bourree == [64, 60, 56, 52]
 
-    for pattern, loud in (("study", 90), ("bach_chaconne", 88)):
-        opened = hairpin_velocities(
-            4,
-            direction="down",
-            pattern=pattern,
-            band="mf",
-            prev=60,
-            on_strong=True,
-            length=4,
-            epb=8,
-            pillar=True,
-        )
-        assert opened[0] == loud
-        assert opened[-1] == max(_pattern_window(pattern, "mf")[0], _BASS + 2)
-        assert opened[-2] == _pattern_window(pattern, "mf")[0]
+    study = hairpin_velocities(
+        4,
+        direction="down",
+        pattern="study",
+        band="mf",
+        prev=60,
+        on_strong=True,
+        length=4,
+        epb=8,
+        pillar=True,
+    )
+    chaconne = hairpin_velocities(
+        4,
+        direction="down",
+        pattern="bach_chaconne",
+        band="mf",
+        prev=60,
+        on_strong=True,
+        length=4,
+        epb=8,
+        pillar=True,
+    )
+    assert study[0] == 64 and study[-1] == 48
+    assert chaconne[0] == 66 and chaconne[-1] == 48
+    assert study[-1] != _BASS + 2
+    assert chaconne[-1] != _BASS + 2
 
     long_up = hairpin_velocities(
         9,
@@ -763,10 +769,8 @@ def test_hairpin_windows_openings_and_the_long_curve() -> None:
         epb=8,
         pillar=False,
     )
-    linear_mid = int(round(46 + (90 - 46) * 0.5))
-    assert long_up[0] == 46
-    assert long_up[-1] == 90
-    assert long_up[4] < linear_mid
+    assert long_up[0] == 72
+    assert long_up[-1] == 76
     assert all(right >= left for left, right in zip(long_up, long_up[1:]))
 
     plain = hairpin_velocities(
@@ -793,10 +797,45 @@ def test_hairpin_windows_openings_and_the_long_curve() -> None:
         pillar=False,
         retreats=[False, False, True, False, False, False, False, True],
     )
-    assert retreated[2] == plain[2] - 3
-    assert retreated[-1] == plain[-1] == 90
+    assert plain[2] - 3 < 72
+    assert retreated[2] == 72
+    assert retreated[-1] == plain[-1] == 76
     assert all(retreated[index] == plain[index] for index in range(8) if index != 2)
     assert all(right >= left for left, right in zip(plain, plain[1:]))
+
+    prelude_soft = hairpin_velocities(
+        4, direction="down", pattern="bach_prelude", band="mf", prev=30, on_strong=True, length=4, epb=8, pillar=True
+    )
+    assert prelude_soft == [40, 40, 40, 40]
+    prelude_mid = hairpin_velocities(
+        4, direction="down", pattern="bach_prelude", band="mf", prev=56, on_strong=True, length=4, epb=8, pillar=True
+    )
+    assert prelude_mid[0] == 58 and prelude_mid[-1] == 52
+    nudged = hairpin_velocities(
+        4,
+        direction="down",
+        pattern="bach_prelude",
+        band="mf",
+        prev=56,
+        on_strong=True,
+        length=4,
+        epb=8,
+        pillar=True,
+        retreats=[True, False, False, False],
+    )
+    assert nudged[0] == 58
+    prelude_low = hairpin_velocities(
+        4, direction="down", pattern="bach_prelude", band="mf", prev=45, on_strong=False, length=4, epb=8, pillar=False
+    )
+    assert prelude_low[0] == 47 and prelude_low[-1] == 41
+    prelude_up = hairpin_velocities(
+        4, direction="up", pattern="bach_prelude", band="mf", prev=30, on_strong=False, length=4, epb=8, pillar=False
+    )
+    assert prelude_up[0] == 30 and prelude_up[-1] == 36
+    capped = hairpin_velocities(
+        4, direction="up", pattern="bach_prelude", band="mf", prev=80, on_strong=False, length=4, epb=8, pillar=False
+    )
+    assert capped == [72, 72, 72, 72]
 
 
 def test_tier1_eighth_with_one_attack_does_not_divide() -> None:
@@ -816,7 +855,7 @@ def test_tier1_eighth_with_one_attack_does_not_divide() -> None:
     slots = [_Slot(3, 0, 2, False, False), _Slot(4, 0, 2, True, False)]
     ctx = _ctx(melody, (_phrase(0, melody),), bpm=80)
     velocities = _curve(ctx, ["study"], passage, slots, 60)
-    assert velocities == [72, max(46, _BASS + 2)]
+    assert velocities == [64, 48]
 
     rising = ScalePassage(
         start=3,
@@ -831,8 +870,7 @@ def test_tier1_eighth_with_one_attack_does_not_divide() -> None:
         tier="tier1",
     )
     up = _curve(ctx, ["study"], rising, slots, 60)
-    # n = 1 still has a divisor of 1 on an upward N-ramp: open, then loud.
-    assert up == [46, 90]
+    assert up == [60, 76]
 
 
 def test_downward_pillar_is_not_under_the_bass_and_villa_does_not_cap_to_44() -> None:
@@ -852,12 +890,13 @@ def test_downward_pillar_is_not_under_the_bass_and_villa_does_not_cap_to_44() ->
     notes = [event for start, event in _ordered(score.lead, epb=6) if start <= 12]
     assert notes
     velocities = [event.velocity for event in notes if event.velocity is not None]
-    assert velocities[0] == 90
-    assert velocities[-1] == _BASS + 2
-    assert velocities[-2] == _pattern_window("villa_pattern", "mf")[0]
+    # Heard 64 plus the Villa step opens at 70 and falls the span of 24. No bass floor.
+    assert velocities[0] == 70
+    assert velocities[-1] == 46
+    assert velocities[-2] == 48
     target = next(event for start, event in _ordered(score.lead, epb=6) if start == 12)
     assert target.midi == melody[6]
-    assert target.velocity == _BASS + 2
+    assert target.velocity == 46
     ringing = [
         note
         for note in score.low
@@ -868,7 +907,6 @@ def test_downward_pillar_is_not_under_the_bass_and_villa_does_not_cap_to_44() ->
     ]
     assert ringing
     assert all(note.velocity > 44 for note in ringing)
-    assert all(note.velocity < target.velocity for note in ringing)
 
 
 def test_modal_figure_ramps_the_hat_window_and_a_bar_opening_is_not_punched() -> None:
@@ -1568,11 +1606,9 @@ def test_etude_and_thumb_hairpin_windows_follow_the_majority_pattern() -> None:
         epb=8,
         pillar=True,
     )
-    for curve in (thumb, preludio):
-        assert curve[0] == 72
-        assert curve[0] != 82
-        assert curve[-1] == max(52, _BASS + 2)
-        assert curve[-1] != 52
+    assert thumb[0] == 66 and thumb[-1] == 42
+    assert preludio[0] == 64 and preludio[-1] == 46
+    assert thumb[-1] != _BASS + 2 and preludio[-1] != _BASS + 2
     etude = hairpin_velocities(
         5,
         direction="down",
@@ -1584,8 +1620,8 @@ def test_etude_and_thumb_hairpin_windows_follow_the_majority_pattern() -> None:
         epb=8,
         pillar=True,
     )
-    assert etude[0] == 90
-    assert etude[-1] == max(46, _BASS + 2)
+    assert etude[0] == 66
+    assert etude[-1] == 42
     melody = [64] * 40
     phrases = (_phrase(0, melody[:32]), _phrase(32, melody[32:]))
     ctx = _ctx(melody, phrases, ensemble="classic")
@@ -1610,8 +1646,8 @@ def test_etude1_hairpin_survives_humanize() -> None:
     notes = [event for start, event in _ordered(score.lead) if 48 <= start <= 64]
     assert notes
     velocities = [event.velocity for event in notes]
-    assert velocities[0] == 46
-    assert velocities[-1] == 90
+    assert velocities[0] == 47
+    assert velocities[-1] == 71
     assert all(event.hairpin for event in notes)
     assert not any(
         event.midi is not None and event.bar == 3 for event in score.support
