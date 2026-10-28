@@ -231,27 +231,126 @@ Cả ba thỏa `ceil - floor >= 27`, nên `gain == 1`. Courante wide là `63 - 3
 
 `test_same_bar_differences_follow_one_rounded_center` có dict `windows` và `assert set(windows) == set(PROFILES)`. Thêm ba tuple `(floor_calm, ceil_calm, floor_wide, ceil_wide, smooth)`: Prelude `(28, 56, 34, 62, 5)`, Allemande `(28, 56, 34, 62, 9)`, Courante `(30, 58, 36, 63, 3)`. Chỉ sửa `_EXPECTED` thì assert này vẫn đỏ.
 
-### 4.3. Cửa Intro / Outro
+### 4.3. Cửa Intro / Outro (`backend/app/sonify/guitar_frame_bach_sor.py` & [`docs/sonify-guitar-frame-variations.md`](./sonify-guitar-frame-variations.md))
 
-Ba cửa mới nằm trong `DOORS` của `backend/app/sonify/guitar_frame_bach_sor.py`. `_extra_doors` trong `guitar_frame.py` đã merge dict đó. Bourrée và Fugue tiếp tục ở `_RETAINED_DOORS`. Không thêm Prelude, Allemande, Courante vào `_RETAINED_DOORS`.
+Ba cửa mới nằm trong `DOORS` của `backend/app/sonify/guitar_frame_bach_sor.py` và đi qua `_run(builder, ctx, bar, role, steps=steps, closing=closing, index=index)`. `_extra_doors` trong `guitar_frame.py` đã merge dict đó. Bourrée và Fugue tiếp tục ở `_RETAINED_DOORS`. Không thêm Prelude, Allemande, Courante vào `_RETAINED_DOORS`.
 
-1. **`("bach", "bach_prelude"): bach_prelude`**:
-   - **Intro ngắn (2 bước)**: Bước 0, Bass `I` ngân dưới vòng rải móc kép ở `_P`. Bước 1, rải móc kép trên `V7`, Bass chủ giữ `_MP`.
-   - **Intro dài (4 bước)**: `I` ở `_P`, `IV` ở `_P`, `V7` trên pedal ở `_MP`, rồi rải `V7 -> I` ở `_MP` nối vào thân bài.
-   - **Outro ngắn (2 bước)**: rải giãn thành móc đơn trên `V7` ở `_MP`, rồi hợp âm `I` ngân ở `_P`.
-   - **Outro dài (4 bước)**: `IV` ở `_MP`, `V7` ở `_P`, `_bach_arpeggiato` trên `I` ở `_P`, block `I` ở `_PP`.
-2. **`("bach", "bach_allemande"): bach_allemande`**:
-   - **Intro ngắn**: pickup móc kép vào `I` kiểu *style brisé* ở `_P`, rồi đi bộ qua `V7` với 4 móc kép cuối ô ở `_MP`.
-   - **Intro dài**: pickup vào `I` ở `_P`, *style brisé* `I -> IV` ở `_P`, `_bach_mordent` trên `V7` ở `_MP`, bốn móc kép từ `V7` vào thân bài ở `_MP`.
-   - **Outro ngắn**: *style brisé* `IV -> V7` ở `_MP`, block `I` ở `_P`.
-   - **Outro dài**: `IV` ở `_P`, `V7` kèm mordent ở `_MP`, treo `I` ở `_P`, block `I` ở `_PP`.
-3. **`("bach", "bach_courante"): bach_courante`**:
-   - **Intro ngắn**: cú nhảy trên `I` (phách 1 `accent`, móc đơn 2 `staccato`) ở `_P`, rồi bốn móc kép trên `V7` và hai móc đơn lấy đà ở `_MP`.
-   - **Intro dài**: nhảy trên `I` ở `_P`, nhảy và lướt trên `IV` ở `_P`, bốn móc kép trên `V7` ở `_MP`, lấy đà vào thân bài ở `_MP`.
-   - **Outro ngắn**: hemiola theo meter của chương. `3/4` nhấn eighth `0` và `3` trên `V7` ở `_MP`. `6/8` nhấn eighth `0`, `2` và `4`. Rồi hợp âm `I` ở phách 1 ngân hết ô ở `_P`.
-   - **Outro dài**: Courante trên `IV` ở `_MP`, bốn móc kép trên `V7` ở `_MP`, hemiola cùng chiều với outro ngắn trên `I -> V7` ở `_P`, block `I` ở `_P`.
+#### Quy tắc gắn cửa, bậc thang lực và thế tay tại biên
 
-`profiles_for` gán ô warmup và cooldown theo `_PEDAL_DOOR_PROFILE`. Dict đó hiện chỉ có `thumb_cantabile`, `elegiaque`, `choro`. Ba cửa mới không thêm vào dict, nên các ô này bị kiểm bằng profile `study`. Profile `study` từ chối bass tiếp cận nửa cung và bass lament. Bước đi của Allemande và mordent trong cửa phải ở trong luật đó: bass cửa đi bậc thang của hợp âm, không viết lament. Thân bài vẫn dùng profile `bach` qua `_PROFILE`.
+- **Pattern kề pedal quyết định cửa**:
+  - `intro_pattern` đọc ô thân bài đầu (`leading[-1] + 1`); `outro_pattern` đọc ô thân bài cuối (`trailing[0] - 1`).
+  - Ở chương 3 vùng (`A – B – A`) hoặc 4–5 vùng (`A – B – C – A` / `A – B – C – B – A`), vùng cuối tái hiện `primary`, nên intro và outro cùng mở/khép bằng cửa của `primary`.
+  - Ở chương 2 vùng (`1Y` tháng mở `4/4`, hoặc `1W` 2 phiên) đi `A – B` không tái hiện: intro mở bằng cửa của `palette[0]` (ví dụ `bach_prelude` hoặc `bach_allemande`), còn outro khép bằng cửa của `palette[1]` (ví dụ `bach_allemande` hoặc `bach_courante`).
+  - Khi `bach_prelude` hoặc `bach_courante` chỉ làm khách giữa chương 3 vùng (như `Sarabande — Prelude — Sarabande` hay `Sarabande — Courante — Sarabande`), biên `A | B` ở giữa thân bài không đi qua `render_intro` / `render_outro`; cửa riêng của Prelude và Courante phát khi chúng đứng ở `1D` hoặc ở vùng đầu / vùng cuối của chương dài.
+- **Độ dài kịch bản (`steps` và `frame_roles`)**:
+  - 1 ô: `_compressed` cắt đôi kịch bản ngắn (`steps == 2`), nửa đầu ô là `role = 0`, nửa sau là `role = 1`.
+  - 2 ô (`1D`): kịch bản ngắn (`steps == 2`), `role = 0, 1`.
+  - Từ 4 ô trở lên (`1W`, `1M`, `3M`, `1Y`): kịch bản dài (`steps == 4`), kéo giãn qua `frame_roles` (`role in {0, 1, 2, 3}`, ô cuối luôn là `role = 3`).
+- **Hòa âm & Kết điệu**:
+  - Dùng `_harmony(frame, ctx, bar, name)` với `"I"` (thứ giữ `"i"`), `"IV"` (thứ dùng `"iv"`), `"V"`, `"V7"`.
+  - **Không dùng Picardy (`I+`)** cho cả `bach_prelude`, `bach_allemande` và `bach_courante` (Picardy của Bach chỉ giữ riêng ở `bach_fuga`). Điệu thứ kết bằng hợp âm thứ của điệu.
+- **Lưới móc kép & Kiểm tra `study` trên vùng pedal**:
+  - Móc kép trong cửa viết bằng offset nửa móc đơn (`at = eighth + 0.5`, `length = 0.5`), khớp với `_bariolage` và `_mordent` trong `guitar_frame_bach_sor.py`. Không viết móc ba mươi hai.
+  - `profiles_for` gán ô warmup/intro và outro/cooldown theo `_PEDAL_DOOR_PROFILE` (mặc định `"study"`). Profile `study` giữ trần bass `53 - ctx.semitones` và từ chối cả bass tiếp cận nửa cung (`_is_approach`) lẫn bass lament (`_is_lament`). Mọi spec trả về từ `_prelude_specs`, `_allemande_specs`, `_courante_specs` đều đi qua `_finish(..., allow_lament=False)` để `_fix_bass` và `_drop_crossed` lọc cữ tay và tự sửa mọi bước bass vi phạm trước khi kiểm `assert_playable`.
+  - Ô pedal không đi qua `_plant_pickup` của `_smooth_boundaries`; móc đơn/móc kép cuối của bước intro cuối thuộc trọn về cửa để dẫn vào ô thân bài đầu.
+
+---
+
+#### 1. `("bach", "bach_prelude"): bach_prelude` (`_prelude_specs`)
+
+- **Đặc trưng**: Mở và khép bằng chính sóng rải móc kép *harpeggiato* một-attack-mỗi-móc-kép trên nền Bass pedal nửa ô (`half = _half(ctx.epb)`: `4` ở `4/4`, `3` ở `3/4` và `6/8`), không mượn hợp âm chấm dôi hay mordent của vũ điệu.
+- **Helper nội bộ `_prelude_roll(frame, ctx, pcs, start, span, velocity, *, lead_aim=None, eighth_grid=False)`**:
+  - Lấy `(bass, inner, lead) = _stack_pitches(frame, ctx, pcs)` và thêm âm hợp âm thứ hai trong `[frame._mid_lo(ctx), frame._mid_hi(ctx)]` để có `low_mid <= upper_mid` thỏa `_playable_line(ctx, [bass, low_mid, upper_mid, lead])`.
+  - Khi `eighth_grid == False` (rải móc kép chuẩn):
+    - Tại `start` (`slot 0`): chỉ Voice 3 (`bass`, `length = span`, `velocity`), không đặt attack của Voice 1 hay Voice 2 trùng `start`.
+    - Các slot móc kép kế tiếp (`at = start + 0.5 * k`, `length = 0.5`): đi vòm `low_mid -> upper_mid -> lead -> low_mid -> upper_mid -> lead -> upper_mid` (ở `span == 4`, 8 móc kép) hoặc `low_mid -> upper_mid -> lead -> low_mid -> upper_mid` (ở `span == 3`, 6 móc kép). Nốt `lead` tại `slot 3` ngân `1.0` eighth (`length = 1.0`) qua `slot 4` trong khi Voice 2 vẫn gảy `low_mid` ở `slot 4`.
+    - Nếu truyền `lead_aim` (bước cuối intro dẫn vào thân bài), nốt `lead` cuối chu kỳ bước liền bậc tới sát `_approach_pitch(frame, ctx, bar)` mà vẫn giữ `_position_ok`.
+  - Khi `eighth_grid == True` (rải giãn về móc đơn ở outro): cùng thứ tự bè `bass -> low_mid -> upper_mid -> lead -> low_mid` nhưng mỗi bước dài `1` eighth (`length = 1`), làm dòng moto perpetuo lắng chậm lại trước hợp âm kết.
+- **Kịch bản 4 chế độ**:
+  - **Intro ngắn (`steps == 2, closing == False`)**:
+    - `role == 0`: Hai chu kỳ `_prelude_roll` trên `I` (`0..half` và `half..epb`), nửa đầu ở `_PP`, nửa sau lên `_P`.
+    - `role == 1`: Nửa đầu (`0..half`) `_prelude_roll` trên `V7` trên nền Bass chủ (*Tonic Pedal*: giữ `bass` là bậc `1` của `I` nếu `_playable_line`, ngược lại dùng gốc `V`) ở `_P`; nửa sau (`half..epb`) `_prelude_roll` trên `V7` ở `_MP` với `lead_aim = _approach_pitch(frame, ctx, bar)` nối liền vào ô thân bài đầu.
+  - **Intro dài (`steps == 4, closing == False`)**:
+    - `role == 0`: `_prelude_roll` hai nửa ô trên `I` ở `_PP` → `_P`.
+    - `role == 1`: `_prelude_roll` hai nửa ô trên `IV` (hoặc `iv` khi thứ), Bass giữ pedal chủ hoặc bước lên bậc `4`, ở `_P`.
+    - `role == 2`: `_prelude_roll` trên `V7` trên nền Bass pedal ở `_MP`.
+    - `role == 3`: Nửa đầu `_prelude_roll` trên `V7` ở `_MP`; nửa sau `_prelude_roll` giải về `I` (hoặc giữ `V7` hướng `lead_aim` vào nốt đầu thân bài) ở `58` (`_MP + 2`), trao thẳng mạch móc kép cho thân bài.
+  - **Outro ngắn (`steps == 2, closing == True`)**:
+    - `role == 0`: Nửa đầu `_prelude_roll` móc kép trên `V7` ở `_MP`; nửa sau chuyển sang `eighth_grid = True` (rải móc đơn giãn nhịp trên `V7`) ở `_P`.
+    - `role == 1`: `frame._bach_block(ctx, bar, "I", frame._P)` — hợp âm `I` ba bè ngân trọn ô (thứ giữ `i`).
+  - **Outro dài (`steps == 4, closing == True`)**:
+    - `role == 0`: `_prelude_roll` móc kép hai nửa ô trên `IV` (hoặc `iv`) ở `_MP`, đón dòng móc kép từ ô thân bài cuối.
+    - `role == 1`: Nửa đầu `_prelude_roll` móc kép trên `V7` ở `_P`, nửa sau giãn sang `eighth_grid = True` trên `V7` ở `_P`.
+    - `role == 2`: `frame._bach_arpeggiato(ctx, bar, "I", frame._P)` — rải chậm từ trầm lên cao trên `I`.
+    - `role == 3`: `frame._bach_block(ctx, bar, "I", frame._PP)` — hợp âm chủ ngân tĩnh ở `_PP`.
+
+---
+
+#### 2. `("bach", "bach_allemande"): bach_allemande` (`_allemande_specs`)
+
+- **Đặc trưng**: Mở bằng chùm móc kép lấy đà (*anacrusis*) rồi đan *style brisé* legato (Bass ở đầu nửa ô, Support vào trễ 1 móc đơn và ngân chồng, hoàn toàn không có `staccato`); khép bằng *style brisé* nửa kết, treo `4–3` (*suspension*) và hợp âm chủ trầm ấm.
+- **Helper nội bộ `_brise_cell(frame, ctx, bar, pcs, start, span, velocity, *, pickup_into=False)`**:
+  - Lấy `(bass, inner, lead) = _stack_pitches(frame, ctx, pcs)`; tìm âm quãng 3 hoặc 6 dưới `lead` qua `_under_lead(frame, ctx, lead, bass, None)`.
+  - Voice 3 (`bass`): đánh tại `start`, `length = max(1, span - (2 if pickup_into else 0))`, `velocity`, `flags = {}` (không `staccato`).
+  - Voice 1 (`lead`): đánh tại `start`, `length = max(1, span - (2 if pickup_into else 0))`, `velocity`.
+  - Voice 2 (`support` — *style brisé*): vào trễ tại `start + 1` (khi `span >= 2` và không bị chùm pickup chiếm), `length = min(2, span - 1 - (2 if pickup_into else 0))`, tạo âm thanh đan chồng.
+  - Khi `pickup_into == True` và `span >= 3`: hai eighth cuối của cell (` tail = start + span - 2`) nhường cho Voice 1 chạy **4 móc kép liền bậc (`length = 0.5`)** từ `_scaled(frame, ctx, bar, tail, 2, velocity)` (mỗi eighth tách làm 2 móc kép bậc thang đi qua `_position_ok`) dẫn vào đầu phách kế tiếp; Support và Bass cắt ngắn trước `tail` để không ngân đè lên 4 móc kép.
+- **Kịch bản 4 chế độ**:
+  - **Intro ngắn (`steps == 2, closing == False`)**:
+    - `role == 0`: Nửa đầu (`0..half`) `_brise_cell` trên `I` ở `_P` (`pickup_into = False`); nửa sau (`half..epb`) `_brise_cell` trên `I` ở `_P` có `pickup_into = True` (4 móc kép cuối ô dẫn sang bước 1).
+    - `role == 1`: Nửa đầu (`0..half`) `_brise_cell` trên `IV` ở `_P`; nửa sau (`half..epb`) `_brise_cell` trên `V7` ở `_MP` có `pickup_into = True` (4 móc kép lấy đà cuối ô dẫn thẳng vào phách 1 của thân bài).
+  - **Intro dài (`steps == 4, closing == False`)**:
+    - `role == 0`: Nửa đầu chỉ Bass `I` ngân ở `_PP`, nửa sau 4 móc kép pickup của Voice 1 ở `_P` dẫn vào hợp âm `I` của bước 1.
+    - `role == 1`: Hai nửa ô `_brise_cell` đi `I -> IV` (hoặc `i -> iv`) ở `_P`, Bass đi bộ bậc thang thuận thang của hợp âm (không viết lament hay chromatic approach).
+    - `role == 2`: Nửa đầu `_brise_cell` trên `V7` ở `_MP`; nửa sau `_mordent` trên `V7` ở `_MP` (`sustain_to = epb`).
+    - `role == 3`: Nửa đầu `_brise_cell` trên `I` ở `_MP`; nửa sau `_brise_cell` trên `V7` ở `_MP` với `pickup_into = True` (4 móc kép cuối ô trao đà cho ô thân bài đầu).
+  - **Outro ngắn (`steps == 2, closing == True`)**:
+    - `role == 0`: Hai nửa ô `_brise_cell` nửa kết `IV -> V7` ở `_MP` (`pickup_into = False`, giữ lưới móc đơn legato).
+    - `role == 1`: `frame._bach_block(ctx, bar, "I", frame._P)` — hợp âm `I` ngân đầy (thứ giữ `i`).
+  - **Outro dài (`steps == 4, closing == True`)**:
+    - `role == 0`: Hai nửa ô `_brise_cell` trên `IV` rồi `I` ở `_P`.
+    - `role == 1`: Nửa đầu `_brise_cell` trên `V7` ở `_MP`, nửa sau `_mordent` trên `V7` ở `_MP`.
+    - `role == 2`: `_suspension(frame, ctx, bar, frame._P)` — Bass giữ chủ âm `I`, Lead treo bậc 4 giải xuống bậc 3 kèm Support quãng 3/6 bên dưới ở `_P`.
+    - `role == 3`: `frame._bach_block(ctx, bar, "I", frame._PP)` — hợp âm chủ ngân êm ở `_PP`.
+
+---
+
+#### 3. `("bach", "bach_courante"): bach_courante` (`_courante_specs`)
+
+- **Đặc trưng**: Cửa mang đúng 3 dấu ấn của *Courante BWV 1007*: cú nhảy mở ô (`eighth 0` `accent=True` -> `eighth 1` `staccato=True`), chùm 4 móc kép *tirata* ở phách giữa theo đúng meter (`3/4`, `6/8`, `4/4`), và nhịp *hemiola* ở bước áp cuối của outro trước khi đóng hợp âm chủ.
+- **Ba helper nội bộ theo đúng meter (`ctx.kind`)**:
+  - **`_courante_leap_cell(frame, ctx, pcs, velocity)`** (phách mở ô, `eighth 0..1` ở `3/4` & `4/4`, `eighth 0..2` ở `6/8`):
+    - Lấy `(bass, inner, lead) = _stack_pitches(frame, ctx, pcs)`. Tìm nốt nhảy `leap_lead` cao hơn `lead` một quãng 3 thuận thang qua `frame._step` (hoặc giữ `lead` ở `eighth 1` và đặt `low_lead` thấp hơn một quãng 3 ở `eighth 0` sao cho `bass < low_lead < leap_lead` và `_playable_line`).
+    - `eighth 0`: Voice 3 (`bass`, `length = 3` khi `6/8`, `2` khi `3/4` hoặc `4/4`, `velocity`, `{"accent": True}`); Voice 1 (`low_lead`, `length = 1`, `velocity`, `{"accent": True}`).
+    - `eighth 1`: Voice 1 bật lên `leap_lead` (`length = 1`, `velocity`, `{"staccato": True}`); Voice 2 điểm `inner` (`length = 1`, `velocity`).
+    - Riêng ở `6/8` (`epb == 6`), `eighth 2` giữ `leap_lead` (`length = 1`) và Support điểm nhẹ để trọn phách chấm đầu (`0..2`).
+  - **`_courante_tirata_cell(frame, ctx, bar, pcs, velocity, *, into_body=False)`** (phách giữa + lấy đà cuối ô):
+    - Vị trí chùm 4 móc kép (`tirata_at`, dài `2` eighths = 4 móc kép `length = 0.5`):
+      - `3/4`: `tirata_at = 2` (`eighth 2, 3`), Bass đánh bậc 5 ở `eighth 2` (`length = 2`); `eighth 4` Lead `staccato=True` kèm Support, `eighth 5` Lead và Bass đánh móc đơn lấy đà (`into_body` thì hướng về `_approach_pitch`).
+      - `6/8`: `tirata_at = 3` (`eighth 3, 4`), Bass đánh bậc 5 ở `eighth 3` (`length = 2`, `{"accent": True}`); `eighth 5` Lead và Bass đánh móc đơn lấy đà.
+      - `4/4`: `eighth 2, 3` Lead giữ nốt (`length = 2`), Bass ở `2`, Support ở `3`; `tirata_at = 4` (`eighth 4, 5`), Bass bậc 5 ở `4` (`length = 2`); `eighth 6` Lead `staccato=True`, `eighth 7` Lead và Bass lấy đà.
+    - Chùm 4 móc kép ở `tirata_at` lấy từ bước liền bậc thuận thang trong âm vực Lead, kiểm `_position_ok`.
+  - **`_courante_hemiola_bar(frame, ctx, bar, velocity)`** (dùng cho bước áp cuối của outro):
+    - `3/4` (`epb == 6`): Nhóm `6/8` đè lên `3/4` — đặt 2 trọng âm hợp âm (`Bass + Support + Lead`, `{"accent": True}`) tại `eighth 0` (trên `I` hoặc `V7`, `length = 3`) và `eighth 3` (trên `V7`, `length = 2`), rồi `eighth 5` đánh móc đơn lấy đà về hợp âm chủ.
+    - `6/8` (`epb == 6`): Nhóm `3/4` đè lên `6/8` — bỏ tirata, đặt 3 trọng âm hợp âm (`{"accent": True}`, `length = 2`) tại `eighth 0`, `eighth 2`, `eighth 4` đi `I -> IV -> V7` (hoặc trên `V7`), mỗi phách 2 eighth.
+    - `4/4` (`epb == 8`): Đặt trọng âm đảo phách `3 + 3 + 2` tại `eighth 0` (`length = 3`, `accent`), `eighth 3` (`length = 3`, `accent`), và `eighth 6` (`length = 2`, trên `V7`) dẫn về ô kết.
+- **Kịch bản 4 chế độ**:
+  - **Intro ngắn (`steps == 2, closing == False`)**:
+    - `role == 0`: `_courante_leap_cell` trên `I` ở `_P`, nối nửa sau bằng móc đơn giữ nhịp trên `I` ở `_P`.
+    - `role == 1`: `_courante_leap_cell` + `_courante_tirata_cell(..., into_body=True)` trên `V7` ở `_MP`, tuôn 4 móc kép ở phách giữa và móc đơn lấy đà cuối ô vào thân bài.
+  - **Intro dài (`steps == 4, closing == False`)**:
+    - `role == 0`: `_courante_leap_cell` trên `I` ở `_P`, phần còn lại của ô giữ nốt ngân nhẹ trên `I` (`_P`).
+    - `role == 1`: `_courante_leap_cell` + `_courante_tirata_cell` trên `IV` (hoặc `iv`) ở `_P`.
+    - `role == 2`: `_courante_leap_cell` + `_courante_tirata_cell` trên `V7` ở `_MP`.
+    - `role == 3`: Trên `V7`, mở bằng cú nhảy ở `_MP`, chạy 4 móc kép `tirata` và lấy đà cuối ô (`into_body=True`) ở `58` (`_MP + 2`) đẩy thẳng vào cú nhảy đầu tiên của thân bài.
+  - **Outro ngắn (`steps == 2, closing == True`)**:
+    - `role == 0`: `_courante_hemiola_bar(frame, ctx, bar, frame._MP)` trên `V7`.
+    - `role == 1`: `_chord(frame, ctx, tonic, 0, ctx.epb, frame._P, {"accent": True})` — hợp âm `I` nhấn phách 1 rồi ngân hết ô ở `_P`.
+  - **Outro dài (`steps == 4, closing == True`)**:
+    - `role == 0`: `_courante_leap_cell` + `_courante_tirata_cell` trên `IV` (hoặc `iv`) ở `_MP`.
+    - `role == 1`: `_courante_leap_cell` + `_courante_tirata_cell` trên `V7` ở `_MP`.
+    - `role == 2`: `_courante_hemiola_bar(frame, ctx, bar, frame._P)` (`I -> V7` ở `_P`).
+    - `role == 3`: `frame._bach_block(ctx, bar, "I", frame._P)` — hợp âm chủ ngân hết ô ở `_P`.
 
 ### 4.4. Scale Engine (`backend/app/sonify/guitar_scale_passages.py`)
 
@@ -303,6 +402,7 @@ Thiếu một map thì dispatcher rơi về Bourrée hoặc bỏ qua cửa sóng
    - `test_bach_courante_leaps_on_beat_one_and_runs_sixteenths_on_the_middle_beat`: `accent` ở eighth `0`, `staccato` ở eighth `1`, lấy đà cuối ô. Tirata ở eighth `2, 3` khi `3/4`, eighth `3, 4` khi `6/8`, eighth `4, 5` khi `4/4`. Hemiola `phrase.closes`: `3/4` thêm Bass eighth `3` và bỏ Bass eighth `2`; `6/8` bỏ tirata và nhấn eighth `0`, `2`, `4`.
    - `test_bach_1d_stays_one_pattern_and_longer_spans_walk_suite_rows`: `1D` có khung một pattern suốt 30 ô thân bài. `1W` một phiên một pattern. `1W` từ 2 phiên, `1M`, `3M`, `1Y` đi đúng hàng Mục 3.3. Chương 3 vùng không chơi `palette[2]`.
    - Scherzo `6/8` calm có khung mở Courante và khách Gigue.
+   - `test_bach_prelude_allemande_courante_doors_frame_short_and_long_pedals`: kiểm tra `render_intro` và `render_outro` cho `bach_prelude`, `bach_allemande`, `bach_courante` ở cả kịch bản ngắn (`2` ô) và dài (`4` ô) trên `4/4`, `3/4`, `6/8`; chương 2 vùng (`A – B`) mở bằng cửa `palette[0]` và khép bằng cửa `palette[1]`; mọi ô pedal vượt qua `assert_playable(..., "study")` và không dùng Picardy ở điệu thứ.
    - Giữ nguyên nửa không khung của `test_bach_trio_answers_the_bourree_with_the_fugue`. Ô 12 của finale rally có khung vẫn Bourrée, không móc kép. Assert `divisions` của finale theo Mục 4.1.
 2. **`backend/tests/test_program.py` và `src/sonify/program.test.ts`**:
    - `pattern_title` của Prelude, Allemande, Courante.
