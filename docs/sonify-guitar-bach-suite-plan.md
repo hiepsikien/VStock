@@ -46,12 +46,13 @@ Trong `backend/app/sonify/guitar_bach.py` và `backend/app/sonify/guitar_pattern
   - `slot 4, 5`: Voice 2 attack `low_mid` rồi `upper_mid` trong lúc Lead còn ngân.
   - `slot 6`: Voice 1 attack `_melody_at(ctx, eighth + 3)`.
   - `slot 7`: Voice 2 khép bằng `upper_mid` hoặc `low_mid`.
-- **Nhịp `3/4` và `6/8` (`epb = 6`, 12 móc kép)**: hai chu kỳ 6 móc kép.
+- **Nhịp `3/4` và `6/8` (`epb = 6`, 12 móc kép)**: cùng hai chu kỳ 6 móc kép, vì cả hai meter đều dài 6 móc đơn. Nửa ô là eighth `0` và eighth `3`.
   - `slot 0`: chỉ Voice 3, ngân 6 móc kép (`1.5` phách).
   - `slot 1, 2`: Voice 2, `low_mid` rồi `upper_mid`.
   - `slot 3`: Voice 1 hát nốt giá.
   - `slot 4`: Voice 2 `low_mid`.
   - `slot 5`: Voice 2 `upper_mid`. Một attack, không chọn Lead hay Support tùy lúc.
+  - Trên `6/8`, eighth `0` và `3` là hai phách chấm. Trên `3/4`, trọng phụ của điệu là eighth `4`. Prelude vẫn chia đôi ô và giữ Bass ở eighth `3`, không dời sang eighth `4`.
 - **Thế tay**: tại mỗi móc kép, tập nốt đang kêu (attack mới và nốt ngân) đi qua `_playable`, với `bass < low_mid <= upper_mid < lead`.
 
 ### 2.2. `bach_allemande` — *Style Brisé & Sixteenth Anacrusis* (BWV 996 / BWV 995)
@@ -61,29 +62,48 @@ Trong `backend/app/sonify/guitar_bach.py` và `backend/app/sonify/guitar_pattern
   - Hai dấu hiệu:
     1. **Đối vị bù nhịp**: Lead ngân dài thì Bass và Support đi liền bậc. Lead đi móc đơn thì Bass giữ và Support vào lệch phách.
     2. **Bốn móc kép lấy đà**: ở hai móc đơn cuối của ô mở (`bar == 0`) hoặc ô mà hợp âm/phrase đổi ở `bar + 1`, Lead chạy đúng 4 móc kép liền bậc.
+- **Scheduler chỉ đặt Allemande trên `4/4`**. Lưới `3/4` và `6/8` vẫn có, để một id bị gọi ép vẫn chơi được. Không chép offset của `3/4` sang `6/8`.
 - **Lưới `_render_bach_allemande_bar`**:
-  - **Voice 1**: `_sustain` trên lưới móc đơn. Khi `_allemande_passes(ctx, bar, start, epb)` đúng (`bar == 0` hoặc câu/hợp âm đổi ở ô sau), đoạn `epb - 2` chạy `_fitting_scale` 4 móc kép vào nốt đầu của `bar + 1`.
-  - **Voice 3**: gốc ở `offset 0`, bậc 5 hoặc bậc 3 ở phách giữa (`offset 4` khi `4/4`, `offset 3` khi `6/8`, `offset 4` khi `3/4`). Không `staccato`. Nếu `_hold_at(lead, ...) >= 2` tại phách đó, nửa sau phách đi bộ `_walk`.
-  - **Voice 2**: vào móc đơn ngay sau Bass (`offset 1` và `offset 5` ở `4/4`; `offset 1` và `offset 4` ở `3/4` và `6/8`), quãng 3 hoặc 6 (`_parallel`, rồi `_choose_inner`), ngân `1.0` phách.
+  - **Voice 1**: `_sustain` trên lưới móc đơn. Khi `_allemande_passes(ctx, bar, start, epb)` đúng (`bar == 0` hoặc câu/hợp âm đổi ở ô sau), hai eighth cuối (`epb - 2` và `epb - 1`) chạy đúng 4 móc kép `_fitting_scale` vào nốt đầu của `bar + 1`.
+  - **Voice 3**, không `staccato`. Nếu `_hold_at(lead, ...) >= 2` tại phách đó, nửa sau phách đi bộ `_walk`:
+    - `4/4`: gốc ở eighth `0`, bậc 5 hoặc bậc 3 ở eighth `4`.
+    - `3/4`: gốc ở eighth `0`, bậc 5 hoặc bậc 3 ở eighth `4` (trọng phụ).
+    - `6/8`: gốc ở eighth `0`, bậc 5 hoặc bậc 3 ở eighth `3` (phách chấm thứ hai).
+  - **Voice 2**: quãng 3 hoặc 6 (`_parallel`, rồi `_choose_inner`), vào móc đơn ngay sau Bass và ngân tới trước attack Bass kế:
+    - `4/4`: eighth `1` và eighth `5`, mỗi nốt `1.0` phách.
+    - `3/4`: eighth `1` (ngân 2 eighth) và eighth `5` (một eighth, hết ô). Eighth `4` là Bass, Support không đứng cùng eighth đó.
+    - `6/8`: eighth `1` và eighth `4`, mỗi nốt ngân hết phách chấm (2 eighth).
+  - Khi `_allemande_passes`, Lead chiếm hai eighth cuối. Support và Bass không ngân vào chùm đó:
+    - `4/4`: Support ở eighth `5` rút còn 1 eighth. Nốt `1.0` phách cũ sẽ phủ eighth `6`, đúng chỗ pickup bắt đầu. Bass ở eighth `4` ngân 2 eighth và hết đúng lúc eighth `6`.
+    - `3/4`: bỏ Bass eighth `4` và Support eighth `5`, vì pickup chính là eighth `4` và `5`. Bass eighth `0` vẫn ngân 2 eighth.
+    - `6/8`: bỏ Support eighth `4`. Bass eighth `3` rút còn 1 eighth. Pickup là eighth `4` và `5`.
 
 ### 2.3. `bach_courante` — *Compound Leap, Running Sixteenths & Hemiola* (mẫu BWV 1007)
 
 - **Thẩm mỹ**: Courante cello suite số 1, đối lập Sarabande. Ba dấu ấn của BWV 1007:
   1. **Cú nhảy mở ô**: `eighth 0` có Bass gốc `accent=True` và Lead chạm nốt giá. Đây là hai attack cùng móc đơn, khác luật một attack của Prelude. `eighth 1` là Lead bật lên, `staccato=True` (mô-típ `G2 -> G3`). Nếu nốt `eighth 1` trùng nốt `eighth 0`, Lead bước một quãng 3 thuận thang qua `_treble_step(ctx, sung, 2)`.
-  2. **Bốn móc kép ở phách giữa**: phách 2 khi `epb = 6`, phách 3 khi `epb = 8`.
-  3. **Lấy đà cuối ô**. Hemiola (Bass ở eighth `0` và `3`) chỉ khi `phrase.closes` và nhịp là `3/4` hoặc `6/8`.
+  2. **Bốn móc kép ở phách giữa của nhịp đang chơi**, không phải “phách 2 của mọi meter có `epb = 6`”.
+  3. **Lấy đà cuối ô**, và hemiola chỉ ở ô `phrase.closes`. Chiều hemiola đổi theo meter.
 - **Lưới `_render_bach_courante_bar`, `divisions = 4`**:
-  - **`3/4` và `6/8` (`epb = 6`)**:
-    - `eighth 0`: Bass `duration = 2` eighths, `accent=True`; Lead `duration = 1` eighth, `accent=True`.
+  - **`3/4` (`epb = 6`)**, đúng ô ba phách của BWV 1007:
+    - `eighth 0`: Bass `duration = 2` eighths, `accent=True`. Nốt này hết đúng lúc attack sau bắt đầu, không phủ eighth `2`. Lead `duration = 1` eighth, `accent=True`.
     - `eighth 1`: Lead staccato; Support điểm âm ở giữa.
-    - `eighth 2, 3` (móc kép `4..7`): Lead chạy `_fitting_scale` 4 nốt tới cao độ phách 3. Bass bậc 5 hoặc bước liền bậc ở `eighth 2`, `duration = 2` eighths. Khi `phrase.closes`, Bass bỏ `eighth 2` và đánh `eighth 3`.
+    - `eighth 2, 3` (móc kép `4..7`): Lead chạy `_fitting_scale` 4 nốt tới cao độ eighth `4`. Bass bậc 5 hoặc bước liền bậc ở `eighth 2`, `duration = 2` eighths, hết đúng lúc eighth `4`.
     - `eighth 4`: Lead `staccato=True`; Support quãng 3 hoặc 6 bên dưới. `eighth 5`: Lead và Bass lấy đà sang `bar + 1`.
+    - `phrase.closes`: Bass bỏ eighth `2` và đánh eighth `3`, `duration = 1` eighth, `accent=True`, để eighth `4` và `5` vẫn là lấy đà. Lead vẫn chạy 4 móc kép ở eighth `2, 3`. Đây là nhóm `6/8` (accent `0` và `3`) đè lên `3/4`.
+  - **`6/8` (`epb = 6`)**, hai phách chấm, mạnh ở eighth `0` và `3`. Không dùng lưới ba phách ở trên:
+    - `eighth 0`: Bass ngân hết phách chấm (`duration = 3` eighths), `accent=True`. Lead `duration = 1` eighth, `accent=True`.
+    - `eighth 1`: Lead staccato; Support điểm âm ở giữa.
+    - `eighth 2`: Lead giữ nốt, Support có thể điểm nốt thứ hai của phách chấm. Không có tirata ở eighth `2`.
+    - `eighth 3, 4` (móc kép `6..9`): Lead chạy `_fitting_scale` 4 nốt. Bass bậc 5 hoặc bước liền bậc ở `eighth 3`, `accent=True`, `duration = 2` eighths, hết đúng lúc eighth `5`.
+    - `eighth 5`: Lead và Bass lấy đà sang `bar + 1`.
+    - `phrase.closes`: bỏ tirata. Accent chuyển sang eighth `0`, `2` và `4` (nhóm `3/4` đè lên `6/8`). Bass ở eighth `0` và `2` ngân 2 eighth, hết đúng lúc attack sau. Bass ở eighth `4` ngân 1 eighth. Lead đi móc đơn. Eighth `5` vẫn là nốt lấy đà.
   - **`4/4` (`epb = 8`)**, dùng khi Courante là khách của một chương `4/4`:
     - `eighth 0, 1`: cùng cú nhảy mở ô, Support ở `eighth 1`.
     - `eighth 2, 3`: Lead giữ nốt giá `duration = 2` eighths; Bass đi ở `eighth 2`; Support ở `eighth 3`.
     - `eighth 4, 5` (móc kép `8..11`): Lead chạy 4 móc kép; Bass bậc 5 ở `eighth 4`.
     - `eighth 6, 7`: Lead `eighth 6` staccato, `eighth 7` lấy đà cùng Bass và Support.
-  - Trên `4/4` không có hemiola eighth `0` và `3`.
+    - `4/4` không có hemiola.
 
 ---
 
@@ -160,9 +180,12 @@ Các số dưới đây là một chương hoặc cả span cùng một mood. V�
 | `1M` rally `wide` | Bourrée, Gavotte, Sarabande, Prelude, Gigue, Courante, Fugue | Allemande, Chaconne |
 | `1M` volatile | Fugue, Allemande, Sarabande, Courante, Prelude | Bourrée, Gavotte, Gigue, Chaconne |
 | `1M` selloff | Chaconne, Sarabande, Gavotte, Fugue | Prelude, Allemande, Courante, Bourrée, Gigue |
-| `3M` calm | Prelude, Allemande, Sarabande, Gavotte, Bourrée | Courante, Gigue, Fugue, Chaconne |
+| `3M` calm hẹp hoặc nhiều nốt ngân | Prelude, Allemande, Sarabande, Gavotte, Bourrée | Courante, Gigue, Fugue, Chaconne. `3M` không có scherzo `6/8`, nên Courante không được mời từ Gigue |
+| `3M` calm còn lại | Allemande, Courante, Sarabande, Prelude, Gavotte, Bourrée | Gigue, Fugue, Chaconne. Gavotte của hàng Allemande là `palette[2]`, không kêu; Gavotte kêu vì là primary của finale |
 | `3M` rally không `wide` | Allemande, Courante, Sarabande, Prelude, Bourrée, Fugue | Gavotte, Gigue, Chaconne |
 | `3M` rally `wide` | Bourrée, Gavotte, Sarabande, Prelude, Fugue | Allemande, Courante, Gigue, Chaconne |
+| `3M` volatile | Fugue, Allemande, Sarabande, Courante, Prelude | Bourrée, Gavotte, Gigue, Chaconne |
+| `3M` selloff | Chaconne, Sarabande, Fugue | Prelude, Allemande, Courante, Bourrée, Gavotte, Gigue. Gavotte của `1M` selloff đến từ scherzo, mà `3M` không có scherzo |
 | `1Y` calm | 7 pattern, cùng tập với `1M` calm | Fugue, Chaconne |
 | `1Y` mà các tháng `6/8` là volatile hoặc selloff | Gigue vắng, vì hai mood đó không mở Gigue và không mời Gigue | Gigue |
 
@@ -183,26 +206,30 @@ Không khung:
 - `_bach_contrast` của `bach_bourree` vẫn `bach_fuga`.
 - Nửa đầu `test_bach_trio_answers_the_bourree_with_the_fugue` là hai section `phrase`, `trio=True`, không pedal. Nửa đó vẫn Bourrée rồi Fugue, Bass ô 2 là nốt tròn.
 
-Có khung, `finale = _suite(3, "bach", character="rally")` trong cùng test, assertion ở dòng 4376–4378:
+Có khung, `finale = _suite(3, "bach", character="rally")` trong cùng test:
 
 - Score này đã `attach_frame`, `bars > 40`, nên đi palette mới.
-- Hàng rally finale là `("bach_bourree", "bach_fuga")`. Không đổi khách thành Gavotte.
-- Ô 12 nằm trong phrase slot 0, tức vùng A. Lead và Support ô 12 không có móc kép vì Bourrée đi lưới móc đơn.
-- `finale.divisions == 2` chỉ còn đúng nếu cả chương, kể cả vùng Fugue, không viết móc kép nào. Fugue tự thân dùng `_sustain`. Scale Nhóm 3 có thể thêm móc kép và kéo `divisions` của cả score lên 4, vì `divisions` nhìn mọi voice. Nếu fixture này sinh móc kép ngoài ô 12, giữ hai assert `_sixteenths(..., 12)` và sửa assert `divisions` theo nốt thực viết. Không đổi hàng palette để ép `divisions == 2`.
+- Khách duy nhất của rally finale là Fugue: `("bach_bourree", "bach_fuga")`. Không có hàng Gavotte song song.
+- Ô 12 là ô đầu của phrase slot 0 sau warmup 4 ô và intro 8 ô, vẫn thuộc vùng Bourrée. Hai assert `_sixteenths(finale.lead, 12)` và `_sixteenths(finale.support, 12)` giữ `[]`.
+- `_render_bach_fuga_bar` đi `_sustain`, lưới móc đơn, cùng họ với Bourrée và cửa Bourrée. `divisions` của cả score lên 4 khi bất kỳ voice nào, kể cả passage Nhóm 3 trong vùng Fugue, viết một móc kép. Fixture này dùng `_bars()` 48 nến. Khi triển khai, chạy đúng score đó: nếu không có móc kép thì giữ `finale.divisions == 2`; nếu có thì đổi mỗi assert đó thành `== 4`. Không đổi palette để giữ số 2.
 
 `test_a_mixed_sor_movement_keeps_the_patterns_beside_galop` chỉ gọi `_settle_galop` trên Sor. Test đó không khóa hàng Bach.
 
 ### 4.2. Sóng Volume Affine & Cổng Snap (`backend/app/sonify/guitar_wave.py`)
 
-Thêm 3 dòng vào `PROFILES`. File đang có 28 dòng. Sau khi thêm là **31 dòng**. Mỗi dòng cần một mã snap mới trong bộ phân loại `_is_target`: `prelude`, `allemande`, `courante`.
+Thêm 3 dòng vào `PROFILES`. Comment trong `guitar_wave.py` đang ghi đúng 28 dòng. Sau khi thêm là **31 dòng**, và comment đó sửa theo. Mỗi dòng cần một nhánh mới trong `_is_target`.
+
+`_is_target` hiện lấy `eighth = int(round(beat * 2))`. Lead Prelude không attack ở eighth `0`: móc kép đầu nửa ô là Bass. Đỉnh vòm là slot 3 của mỗi chu kỳ. Nhánh Prelude phải so chỉ số móc kép `int(round(beat * 4))`, không so tập eighth `{0, 4}`.
 
 | Khóa `(ensemble, pattern)` | Cửa sổ calm → wide | $W$ | Snap | Hạn mức `(phrase, sec)` | Cú được snap |
 |---|---|---|---|---|---|
-| `("bach", "bach_prelude")` | `28..56` → `34..62` | `5` | `66..68` | `(1, 2)` | Lead mở chu kỳ rải (`eighth in {0, 4}` ở `4/4`, `eighth in {0, 3}` ở `3/4` và `6/8`) khi nốt đó thuộc `phrase.apex` và `rise >= 3`. |
+| `("bach", "bach_prelude")` | `28..56` → `34..62` | `5` | `66..68` | `(1, 2)` | Lead slot 3 của mỗi chu kỳ, khi nốt đó thuộc `phrase.apex` và `rise >= 3`. `4/4`: móc kép `3` và `11` (beat `0.75`, `2.75`). `3/4` và `6/8`: móc kép `3` và `9` (beat `0.75`, `2.25`). |
 | `("bach", "bach_allemande")` | `28..56` → `34..62` | `9` | `66..68` | `(1, 2)` | Lead tại `phrase.apex` khi `rise >= 3`. |
 | `("bach", "bach_courante")` | `30..58` → `36..63` | `3` | `68..70` | `(1, 3)` | Attack `accent=True` của cú nhảy mở ô, hoặc Lead tại `phrase.apex` khi `rise >= 3`. |
 
-Cả ba thỏa `ceil - floor >= 27`, nên `gain == 1`. Courante wide là `63 - 36 = 27`.
+Cả ba thỏa `ceil - floor >= 27`, nên `gain == 1`. Courante wide là `63 - 36 = 27`, nên Courante gia nhập bộ khóa đang assert `ceiling - floor == 27` ở thủy triều mở `1.0` trong `test_guitar_wave.py`.
+
+`test_same_bar_differences_follow_one_rounded_center` có dict `windows` và `assert set(windows) == set(PROFILES)`. Thêm ba tuple `(floor_calm, ceil_calm, floor_wide, ceil_wide, smooth)`: Prelude `(28, 56, 34, 62, 5)`, Allemande `(28, 56, 34, 62, 9)`, Courante `(30, 58, 36, 63, 3)`. Chỉ sửa `_EXPECTED` thì assert này vẫn đỏ.
 
 ### 4.3. Cửa Intro / Outro
 
@@ -221,20 +248,23 @@ Ba cửa mới nằm trong `DOORS` của `backend/app/sonify/guitar_frame_bach_s
 3. **`("bach", "bach_courante"): bach_courante`**:
    - **Intro ngắn**: cú nhảy trên `I` (phách 1 `accent`, móc đơn 2 `staccato`) ở `_P`, rồi bốn móc kép trên `V7` và hai móc đơn lấy đà ở `_MP`.
    - **Intro dài**: nhảy trên `I` ở `_P`, nhảy và lướt trên `IV` ở `_P`, bốn móc kép trên `V7` ở `_MP`, lấy đà vào thân bài ở `_MP`.
-   - **Outro ngắn**: hemiola eighth `0` và `3` trên `V7` ở `_MP`, hợp âm `I` ở phách 1 ngân hết ô ở `_P`.
-   - **Outro dài**: Courante trên `IV` ở `_MP`, bốn móc kép trên `V7` ở `_MP`, hemiola `I -> V7` ở `_P`, block `I` ở `_P`.
+   - **Outro ngắn**: hemiola theo meter của chương. `3/4` nhấn eighth `0` và `3` trên `V7` ở `_MP`. `6/8` nhấn eighth `0`, `2` và `4`. Rồi hợp âm `I` ở phách 1 ngân hết ô ở `_P`.
+   - **Outro dài**: Courante trên `IV` ở `_MP`, bốn móc kép trên `V7` ở `_MP`, hemiola cùng chiều với outro ngắn trên `I -> V7` ở `_P`, block `I` ở `_P`.
+
+`profiles_for` gán ô warmup và cooldown theo `_PEDAL_DOOR_PROFILE`. Dict đó hiện chỉ có `thumb_cantabile`, `elegiaque`, `choro`. Ba cửa mới không thêm vào dict, nên các ô này bị kiểm bằng profile `study`. Profile `study` từ chối bass tiếp cận nửa cung và bass lament. Bước đi của Allemande và mordent trong cửa phải ở trong luật đó: bass cửa đi bậc thang của hợp âm, không viết lament. Thân bài vẫn dùng profile `bach` qua `_PROFILE`.
 
 ### 4.4. Scale Engine (`backend/app/sonify/guitar_scale_passages.py`)
 
 `bach_group2_window` và `bach_group2_intrinsic_eighths` hiện trả `None` khi pattern không thuộc `{bach_gigue, bach_chaconne, bach_sarabande}`. Thêm Courante vào frozenset `_BACH_GROUP2` mà không sửa hai hàm đó thì Courante không có cửa sổ nội tại.
 
-- **`bach_courante` thuộc Nhóm 2**. Cửa sổ eighth bao của bốn móc kép giữa ô, inclusive:
-  - `epb == 6`: `(bar * epb + 2, bar * epb + 3)`.
-  - `epb == 8`: `(bar * epb + 4, bar * epb + 5)`.
-  - Các eighth đó là intrinsic vì lưới Courante luôn viết tirata, khác Gigue chỉ viết scale khi `_rises`. Eighth `0` và `1` nằm ngoài cửa sổ, nên biến động nhỏ không đè cú nhảy mở ô.
+- **`bach_courante` thuộc Nhóm 2**. `bach_group2_window` phân theo `ctx.kind`, không theo `epb`, vì `3/4` và `6/8` cùng `epb == 6` mà tirata không đứng cùng eighth. Cửa sổ inclusive:
+  - `3/4`: `(bar * epb + 2, bar * epb + 3)`.
+  - `6/8`: `(bar * epb + 3, bar * epb + 4)`.
+  - `4/4`: `(bar * epb + 4, bar * epb + 5)`.
+  - Ô không `phrase.closes` viết tirata sẵn, nên các eighth đó là intrinsic. Ô `phrase.closes` ở `6/8` bỏ tirata, intrinsic của ô đó là rỗng. Eighth `0` và `1` luôn ngoài cửa sổ, nên biến động nhỏ không đè cú nhảy mở ô.
   - Sóng lớn (`L >= epb` và `net_span >= 6`) chỉ mở sau một ô Courante trọn của vùng, cùng luật *establish pattern first*.
-  - Bass dưới passage: eighth `0` vẫn là gốc hợp âm, `accent=True`. Ô `phrase.closes` ở `3/4` hoặc `6/8` vẫn có Bass ở eighth `3`. Không thay bằng Bass gốc/bậc 5 chung của Nhóm 3.
-- **`bach_allemande` không vào `_BACH_GROUP2`**. Allemande là Nhóm 3, nên nhận scale sub-bar và multi-bar. Hairpin nằm trong `_HAT_PATTERNS`, cửa `52..82`. Bass dưới passage giữ Bass Allemande: gốc ở offset `0`, bậc 5 hoặc 3 ở phách giữa, không staccato, đi bộ khi Lead ngân. Không rút Bass thành nốt ngắn trên `ctx.strong`.
+  - Bass dưới passage: eighth `0` vẫn là gốc hợp âm, `accent=True`. Ô `phrase.closes` ở `3/4` vẫn có Bass ở eighth `3`. Ô `phrase.closes` ở `6/8` giữ Bass ở eighth `0`, `2` và `4`. Không thay bằng Bass gốc/bậc 5 chung của Nhóm 3.
+- **`bach_allemande` không vào `_BACH_GROUP2`**. Allemande là Nhóm 3, nên nhận scale sub-bar và multi-bar. Hairpin nằm trong `_HAT_PATTERNS`, cửa `52..82`. Bass dưới passage giữ offset Mục 2.2, không staccato, đi bộ khi Lead ngân. Không rút Bass thành nốt ngắn trên `ctx.strong`.
 - **`bach_prelude` không vào `_BACH_GROUP2`**. Prelude cũng là Nhóm 3. `_BAROQUE_PATTERNS` chỉ đặt cửa hairpin `54..84`. Set đó không cấp và không cấm scale. Bass dưới passage giữ pedal nửa ô: attack ở eighth `0` và `4` khi `4/4`, eighth `0` và `3` khi `3/4` hoặc `6/8`, ngân hết nửa ô. Không đổi pedal này thành gốc ngắn trên phách mạnh.
 
 ### 4.5. Tên chương (`backend/app/sonify/program.py` và `src/sonify/program.ts`)
@@ -254,7 +284,7 @@ Ba cửa mới nằm trong `DOORS` của `backend/app/sonify/guitar_frame_bach_s
 
 Mỗi id `bach_prelude`, `bach_allemande`, `bach_courante` cần có mặt ở:
 
-- `_FAMILY` và `_PROFILE` trong `backend/app/sonify/guitar_patterns.py`.
+- `_FAMILY` và `_PROFILE` trong `backend/app/sonify/guitar_patterns.py`. Cả ba id map tới `"bach"`. Thiếu `_PROFILE` thì `profiles_for` kiểm thân bài bằng `study`.
 - Nhánh render cạnh `bach_fuga` / `bach_bourree` trong cùng file, qua ba hàm `_render_bach_*_bar` import từ `guitar_bach.py` như sáu pattern Bach hiện có.
 - `DOORS` ở Mục 4.3.
 - `PROFILES` ở Mục 4.2.
@@ -270,7 +300,7 @@ Thiếu một map thì dispatcher rơi về Bourrée hoặc bỏ qua cửa sóng
 1. **`backend/tests/test_sonify_guitar.py`**:
    - `test_bach_prelude_rolls_sixteenth_arpeggio_across_three_voices`: `divisions == 4`. Mỗi móc kép có đúng một attack mới ở Lead hoặc Support, trừ móc kép đầu mỗi nửa ô chỉ có attack Bass. Bass ngân hết nửa ô. Lead không attack cùng móc kép với Bass. `assert_playable(..., "bach")` trên tập nốt đang ngân.
    - `test_bach_allemande_weaves_style_brise_and_sixteenth_pickup`: Support vào sau Bass, Bass đi bộ khi Lead ngân, không `staccato`, đúng 4 móc kép ở hai eighth cuối khi `_allemande_passes`.
-   - `test_bach_courante_leaps_on_beat_one_and_runs_sixteenths_on_the_middle_beat`: `accent` ở eighth `0`, `staccato` ở eighth `1`, 4 móc kép ở phách giữa, lấy đà cuối ô. Hemiola eighth `3` chỉ khi `phrase.closes` trên `3/4` hoặc `6/8`.
+   - `test_bach_courante_leaps_on_beat_one_and_runs_sixteenths_on_the_middle_beat`: `accent` ở eighth `0`, `staccato` ở eighth `1`, lấy đà cuối ô. Tirata ở eighth `2, 3` khi `3/4`, eighth `3, 4` khi `6/8`, eighth `4, 5` khi `4/4`. Hemiola `phrase.closes`: `3/4` thêm Bass eighth `3` và bỏ Bass eighth `2`; `6/8` bỏ tirata và nhấn eighth `0`, `2`, `4`.
    - `test_bach_1d_stays_one_pattern_and_longer_spans_walk_suite_rows`: `1D` có khung một pattern suốt 30 ô thân bài. `1W` một phiên một pattern. `1W` từ 2 phiên, `1M`, `3M`, `1Y` đi đúng hàng Mục 3.3. Chương 3 vùng không chơi `palette[2]`.
    - Scherzo `6/8` calm có khung mở Courante và khách Gigue.
    - Giữ nguyên nửa không khung của `test_bach_trio_answers_the_bourree_with_the_fugue`. Ô 12 của finale rally có khung vẫn Bourrée, không móc kép. Assert `divisions` của finale theo Mục 4.1.
@@ -279,4 +309,4 @@ Thiếu một map thì dispatcher rơi về Bourrée hoặc bỏ qua cửa sóng
    - Tên `Prelude — Allemande — Prelude`, `Allemande — Courante — Allemande`, `Gigue — Courante — Gigue`, `Bourree — Fugue — Bourree`.
    - `test_bach_slow_selloff_with_a_contrast_stays_sarabande` vẫn `Sarabande — Chaconne — Sarabande` khi `framed=False`.
 3. **`backend/tests/test_guitar_wave.py`**:
-   - Tập `PROFILES` đủ 31 khóa, thêm ba pattern Bach. Bất biến `ceil - floor >= 27` và `gain == 1` vẫn đúng.
+   - Tập `PROFILES` đủ 31 khóa, comment “28 dòng” sửa theo, và dict `windows` trong `test_same_bar_differences_follow_one_rounded_center` thêm ba tuple Mục 4.2. Courante nằm trong bộ khóa `ceiling - floor == 27`. Bất biến `gain == 1` vẫn đúng.
