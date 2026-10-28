@@ -156,7 +156,7 @@ Dấu chấm ở mục 3 nằm trên các móc đơn của câu phi: giai điệ
 
 Hai móc kép 2 và 3 chiếm một móc đơn của cột Giá, móc `origin + 1`. Chỉ có một cao độ đầu vào, `here = ctx.melody` tại móc đó. Cao độ móc mở là `open`.
 
-- `here == open`: cả hai móc kép là nốt hợp âm. Không có mẫu giá thứ hai.
+- `here == open`: không có mẫu giá thứ hai. Móc kép 2 là `open`, cùng bậc với móc mở. Móc kép 3 là nốt hợp âm kế trên `open`, và bước đó không quá một quãng 5: gốc lên quãng 5, quãng 3 lên quãng 5, quãng 5 lên gốc ở quãng 4 trên. Không có nốt hợp âm trong vòng đó thì móc kép 3 cũng là `open`.
 - `here != open`: móc kép 3 là `here`. Móc kép 2 là một bậc thang từ `open` về phía `here`. Nếu bậc đó đã là `here`, móc kép 2 giữ `open`, và cặp nốt là bước `open` rồi `here`.
 
 Bỏ bè trong chặt phách yếu.
@@ -176,12 +176,14 @@ Cũng tính trên một ô 2/4. Ô 4/4 chứa hai lần. Đây là tế bào đ�
 
 Ô 17 của Tecla là mẫu: giai điệu móc đơn, nghỉ, móc đơn, nghỉ. Bass là nốt G ở hai dòng phụ, móc kép, nối nốt Si trên dòng giữa khuông, móc đơn, rồi nghỉ. G dưới Si đó một quãng 10.
 
-Quãng 10 là 16 nửa cung. Nốt bass viết nằm trong `guitar_floor .. guitar_bass_top`, mặc định `40 .. 53` (`Register` trong `keys.py`; `register_for` trừ `key.semitones`). Từ một nốt trong `40 .. 53`, quãng 10 rơi vào `56 .. 69`, trên `guitar_bass_top`. `_choose_bass` gọi `_stored_bass`, và `_stored_bass` gọi `_clamp` vào `[low, high]` với `high` là `bass_high`. Thân bài đặt `bass_high = guitar_bass_top`. `_bass_note` và `_bass_match` cũng chặn tại `_bass_hi`. `_clamp` trừ 12 cho đến khi nốt vào cửa sổ, và quãng 10 mất. Nốt trên của cú nhảy vẫn là bè bass, voice 3, và được đứng trên `53`. Không đưa nốt đó qua `_choose_bass`, `_stored_bass`, `_bass_note`, hay `_bass_match`. Nốt móc kép trầm vẫn là gốc trong cửa sổ bass.
+Quãng 10 là 16 nửa cung. Nốt bass viết nằm trong `guitar_floor .. guitar_bass_top`, mặc định `40 .. 53` (`Register` trong `keys.py`; `register_for` trừ `key.semitones`). Từ một nốt trong `40 .. 53`, quãng 10 rơi vào `56 .. 69`, trên `guitar_bass_top`. `_choose_bass` gọi `_stored_bass`, và `_stored_bass` gọi `_clamp` vào `[low, high]` với `high` là `bass_high`. Thân bài đặt `bass_high = guitar_bass_top`. `_bass_note` và `_bass_match` cũng chặn tại `_bass_hi`. `_clamp` trừ 12 cho đến khi nốt vào cửa sổ, và quãng 10 mất. Nốt trên của cú nhảy vẫn là bè bass, voice 3, và được đứng trên `53`. Không đưa nốt đó qua `_choose_bass`, `_stored_bass`, `_bass_note`, hay `_bass_match`.
+
+Nốt trên kêu ở móc kép 1, cùng đuôi móc đơn giai điệu. Nốt trên đứng dưới nốt giá đó. `_playable` nhận hai nốt đang kêu, nốt trên và nốt giá, sau khi cộng `ctx.semitones`. Gốc móc kép đã nghỉ. Gốc bắt đầu trong cửa sổ bass. Nếu `gốc + 16` chạm hoặc vượt nốt giá, hoặc `_playable` không nhận, hạ gốc một quãng tám rồi tính lại nốt trên. Không hạ nốt trên. Gốc không xuống dưới `guitar_floor`. Hết quãng tám mà quãng 10 vẫn không nằm dưới giai điệu hoặc không qua `_playable` thì nửa ô đó hát bass dạng thưa: một móc đơn gốc, không cú nhảy.
 
 Hai biến trong cùng câu, mỗi biến một ô 2/4, không thay lưới trên cho cả bốn ô:
 
-- **Nốt vòng.** Một ô 2/4 trong câu. Móc kép 0–3 là bốn móc kép giai điệu, legato, vòng quanh nốt giá. Bass không nhảy quãng 10 ở phách đó.
-- **Nốt chromatic.** Một ô 2/4 trong câu. Móc kép 3, đang nghỉ trong bảng trên, thành móc kép lân bậc, legato vào móc đơn giải ở móc kép 4–5. Móc đơn giải vẫn là giá và vẫn dài hai móc kép. Móc 6–7 vẫn nghỉ. Lân bậc không đứng ở móc kép 4: móc 4–5 đã hết chỗ của móc đơn đó. Không rút móc đơn giải thành một móc kép, vì bản viết là móc kép nối vào móc đơn. Bass vẫn là cú nhảy của bảng trên. Ô khép câu đổi cú bass cuối thành hợp âm khối.
+- **Nốt vòng.** Một ô 2/4 trong câu. Nốt giá của ô là `ctx.melody` tại `origin`. Móc kép 0–3 là bốn móc kép giai điệu, legato: một bậc thang trên nốt giá, chính nốt giá, một bậc thang dưới nốt giá, rồi lại nốt giá. Bass là một móc đơn gốc trong cửa sổ bass, đúng móc kép 0, rồi nghỉ. Không có nốt trên, nên không có quãng 10. Móc kép 4–7 giữ lưới đối đáp.
+- **Nốt chromatic.** Một ô 2/4 trong câu. Móc kép 3, đang nghỉ trong bảng trên, thành lân dưới: một nửa cung dưới nốt giải, legato lên móc đơn giải ở móc kép 4–5. Móc đơn giải vẫn là giá và vẫn dài hai móc kép. Móc 6–7 vẫn nghỉ. Lân bậc không đứng ở móc kép 4: móc 4–5 đã hết chỗ của móc đơn đó. Không rút móc đơn giải thành một móc kép, vì bản viết là móc kép nối vào móc đơn. Bass vẫn là cú nhảy của bảng trên. Ô khép câu đổi cú bass cuối thành hợp âm khối.
 
 Ô 25–28 là hai ô 4/4 giai điệu móc kép liên tục, bass thưa. Trong một nhóm Galop 2, nếu giá của nhóm có nhiều cao độ khác nhau thì hai ô cuối của nhóm hát chuỗi này. Giá chỉ vài bước thì giữ bảng đối đáp.
 
@@ -205,4 +207,8 @@ Bốn khóa cửa của `_frame_score("classic", 4)` trong test đó giữ nguy�
 
 Assert bè trong thân bài ở `0.5, 1.5, 2.5, 3.5` cũng đổi, vì bè trong đó rời thân bài. Assert bass nốt đen ở `0.0` và `2.0` đổi theo mục 4.1: bass Galop 1 là một móc đơn ở móc 0 và móc 4.
 
-`test_composer_intro_and_outro_frames_for_two_and_four_bars` khóa bè trong của cửa ngắn tại `0.5, 1.5, 2.5, 3.5`. Assert đó đổi vì cửa cũng bỏ bè trong. Onset bass `[0.0, 2.0]` giữ: mỗi nửa ô vẫn một móc đơn bass ở đầu. Lead ô 1 từ phách 2 là `_lead_leaps`, giữ.
+`test_composer_intro_and_outro_frames_for_two_and_four_bars` khóa bè trong của cửa ngắn tại `0.5, 1.5, 2.5, 3.5`. Assert đó đổi vì cửa cũng bỏ bè trong. Onset bass `[0.0, 2.0]` giữ: `_onset_beats` không khóa độ dài nốt, và mỗi nửa ô vẫn một móc đơn bass ở đầu. Lead ô 1 từ phách 2 là `_lead_leaps`, giữ.
+
+Cùng test có `assert classic.divisions == 2` trên `_frame_score("classic", 2)`. Thân bốn ô là Galop 1. Nửa đầu intro ngắn role 0 là `lead=True`, nên lead cửa cũng có móc kép. `_needs_sixteenths` thấy móc kép thì `divisions` thành 4. Assert đó đổi thành 4.
+
+Bass ô 0 của cửa ngắn giữ mức cửa: nửa đầu `_P = 50`, nửa sau `_MP = 56`, không lấy `_BASS = 56` của thân bài. Sau sóng `round(C) + (V - 64)`, mức nghe là 36 rồi 42. Khóa `velocity <= 52` còn đúng.
