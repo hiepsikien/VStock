@@ -86,7 +86,8 @@ Xung vừa chạm Nhóm 2 vừa chạm pattern chủ phải là cầu nối dài
 - Cắt khoảng theo mục «Cắt khoảng» trước khi tạo `ScalePassage`, trước `_gap_ok`, và trước khi trừ `room`.
 - `_rewrite_bass` có nhánh số lần gảy cho bốn pattern chủ. `etude1`, `etude11` và Preludio trả `None` khi không còn gốc hoặc bậc 5 nào `_playable`. Thumb trả `None` khi không còn nốt vừa `_playable` vừa vang trong `48…64`.
 - `_rewrite_support` trả support đã xóa vùng, không trồng thêm, khi ô thuộc bốn pattern chủ. Bốn pattern này đứng ngoài câu Mục 2.5 giữ một nốt bè giữa trên mỗi phách mạnh khi câu đi móc đơn.
-- `_color_line` bỏ qua `villa_open_candidates` khi `ctx.bpm < SCALE_SIXTEENTH_MIN_BPM`.
+- `_rewrite_bass` của thumb quét tới cao độ viết `64 - semitones`. Trần bass vang 53 không cắt cửa `48…64`.
+- `_color_line` chỉ gọi `villa_open_candidates` khi `ctx.bpm >= SCALE_SIXTEENTH_MIN_BPM` và slot có `dur16 == 1`. Móc đơn trong thân câu dài hơn hai ô không được thử.
 - `etude1` và `etude11` vào `_KINETIC_PATTERNS`. `thumb_cantabile` vào `_HAT_PATTERNS`.
 
 `guitar_wave.py`
@@ -123,7 +124,8 @@ Thêm:
 - Nốt gốc thumb có cao độ vang trong `48…64`.
 - Sóng xuống trên thumb hoặc Preludio không mở tại `loud` khi `prev` quanh `60`, và nốt đích không bằng `soft`.
 - Sau `humanize(..., offset_at=lambda *_: 2)`, velocity bè Cao của étude giữ nguyên và còn cờ `hairpin`. Ca này đã có trên `study`. Lặp cho `etude1`.
-- Dưới 88 BPM, câu Villa không chứa dây buông.
+- Dưới 88 BPM, câu Villa không chứa dây buông. Từ 88, dây buông chỉ vào slot móc kép. Passage étude 3 ô ở 96 BPM giữ nguyên các nốt móc đơn của 16 eighth đầu.
+- Đô trưởng, hợp âm Si, `bass_high` 53: nốt gốc thumb vang 59. Rê trưởng, La thứ viết (vang thành Si thứ): nốt gốc thumb vang 59. Nốt vang `40…47` vẫn không được nhận.
 - Tổng eighth scale của thân bài vẫn trong 30%. Chương toàn `etude1` có room bằng `floor(0.30 * body_eighths)`.
 
 ## Ngoài đợt này

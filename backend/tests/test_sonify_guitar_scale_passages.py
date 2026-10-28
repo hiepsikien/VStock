@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 import math
 
 from app.sonify.form import METER_44, METER_68, ChordSlot, FormSection, compose_meter
-from app.sonify.chords import C
+from app.sonify.chords import AM, C, KIND_MAJOR, Chord
 from app.sonify.guitar import BARRIOS_TREMOLO_MIN_BPM
 from app.sonify.guitar_bach import _fuga_motif
 from app.sonify.guitar_patterns import (
@@ -26,6 +26,7 @@ from app.sonify.guitar_scale_passages import (
     _MELODY_APEX,
     _Slot,
     _assign,
+    _color_line,
     _curve,
     _majority_pattern,
     _monotone,
@@ -1222,11 +1223,15 @@ def _host_realized(pattern: str, start: int, target: int, **kwargs):
     bass_high = kwargs.get("bass_high", 53)
     sections = kwargs.get("sections", ())
     melody = kwargs.get("melody", _climb() + [72] * 16)
+    chord = kwargs.get("chord")
     ctx = replace(
         _ctx(melody, (_phrase(0, melody),), bpm=bpm, ensemble=ensemble, sections=sections),
         bass_low=bass_low,
         bass_high=bass_high,
+        semitones=kwargs.get("semitones", 0),
     )
+    if chord is not None:
+        ctx = replace(ctx, chord_at={bar: chord for bar in range(ctx.bars)})
     passage = ScalePassage(
         start, target, "up", 8, 5.0, (), (target - start) < 8, target - start, 0, "passage"
     )
@@ -1285,10 +1290,31 @@ def test_yielded_host_bars_use_the_pattern_bass_and_an_empty_inner_voice() -> No
     slow = _line_pitches("thumb_cantabile", bpm=80, ensemble="villa")
     assert slow is not None
     assert all(_playable([43, pitch]) for pitch in slow)
-    assert _host_realized("thumb_cantabile", 8, 16, bpm=80, bass_high=47)[2] is None
     accepted = _host_realized("thumb_cantabile", 8, 16, bpm=80, bass_high=53)[2]
     assert accepted is not None
     assert all(48 <= midi <= 64 for _eighth, midi, _duration, _velocity in _bass_attacks(accepted[2], 8, 16))
+
+    # The ordinary bass ceiling sounds at 53. B and written A minor only have a
+    # root from sounding 54 up, so the thumb window has to search that high.
+    b_major = Chord("B", "B", KIND_MAJOR, "", (71, 75, 78))
+    b_ctx, _b_passage, b_thumb = _host_realized(
+        "thumb_cantabile", 8, 16, bpm=80, bass_high=53, chord=b_major
+    )
+    assert b_thumb is not None
+    assert [midi + b_ctx.semitones for _eighth, midi, _duration, _velocity in _bass_attacks(b_thumb[2], 8, 16)] == [59]
+    d_register = register_for(D_KEY)
+    am_ctx, _am_passage, am_thumb = _host_realized(
+        "thumb_cantabile",
+        8,
+        16,
+        bpm=80,
+        chord=AM,
+        semitones=D_KEY.semitones,
+        bass_low=d_register.guitar_floor,
+        bass_high=d_register.guitar_bass_top,
+    )
+    assert am_thumb is not None
+    assert [midi + am_ctx.semitones for _eighth, midi, _duration, _velocity in _bass_attacks(am_thumb[2], 8, 16)] == [59]
 
     for pattern in ("etude1", "etude11"):
         assert _host_realized(pattern, 8, 16, bass_low=44, bass_high=46)[2] is None
@@ -1379,6 +1405,31 @@ def test_villa_open_strings_wait_for_sixteenth_runs(monkeypatch) -> None:
     assert calls["open"] == 0
     calls["open"] = 0
     assert _host_realized("etude1", 8, 16, bpm=96, ensemble="villa")[2] is not None
+    assert calls["open"] > 0
+
+    # A run longer than two bars stays on eighths until its last bar.
+    # Those eighths must not take an open string even though the BPM allows sixteenths.
+    melody = []
+    cursor = 60
+    for index in range(40):
+        melody.append(min(76, cursor))
+        if index % 2 == 0:
+            cursor += 1
+    ctx = _ctx(melody, (_phrase(0, melody),), bpm=96, ensemble="villa")
+    passage = ScalePassage(0, 24, "up", 8, 5.0, (), False, 24, 0, "passage")
+    slots = _slots(ctx, ["etude1"], passage)
+    assigned = _assign(ctx, passage, slots)
+    assert assigned is not None
+    assert any(slot.dur16 == 2 and slot.eighth < 16 for slot in slots)
+    assert any(slot.dur16 == 1 and slot.eighth >= 16 for slot in slots)
+    monkeypatch.setattr(passages, "villa_open_candidates", lambda *_args, **_kwargs: [])
+    plain = _color_line(ctx, passage, slots, list(assigned))
+    calls["open"] = 0
+    monkeypatch.setattr(passages, "villa_open_candidates", wrapped)
+    colored = _color_line(ctx, passage, slots, list(assigned))
+    for slot, left, right in zip(slots, plain, colored):
+        if slot.dur16 != 1:
+            assert left == right
     assert calls["open"] > 0
 
 

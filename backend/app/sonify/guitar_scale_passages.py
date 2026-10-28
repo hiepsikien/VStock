@@ -935,7 +935,9 @@ def _color_line(ctx: _Ctx, passage: ScalePassage, slots: list[_Slot], pitches: l
     if ctx.ensemble == "villa" and ctx.bpm >= SCALE_SIXTEENTH_MIN_BPM:
         stopped = list(colored)
         for index, slot in enumerate(slots):
-            if slot.anchor or index == 0 or index + 1 >= len(colored):
+            # Eighth-note body slots are invisible to _groups_ok, so an open
+            # string tried there would stick. Only a sixteenth slot may take one.
+            if slot.dur16 != 1 or slot.anchor or index == 0 or index + 1 >= len(colored):
                 continue
             toward = 1 if colored[index + 1] >= colored[index - 1] else -1
             for open_pitch in villa_open_candidates(ctx, colored[index - 1], toward):
@@ -1443,16 +1445,20 @@ def _bass_under_slices(
     """A root or fifth that stays playable under each eighth, not under their union.
 
     `sounding_low` and `sounding_high` bound the sounding pitch. Thumb roots
-    use 48..64; a guitar-floor note at 40..47 can still be playable and is
-    not a thumb root.
+    use 48..64. The ordinary bass ceiling sounds at 53, so a thumb search
+    continues up to the written pitch of that window. A guitar-floor note at
+    40..47 can still be playable and is not a thumb root.
     """
     if not slices:
         return None
     chord = ctx.chord(bar)
     root = chord.pitches[0] % 12
     fifth = chord.pitches[2] % 12 if len(chord.pitches) > 2 else (root + 7) % 12
+    high = ctx.bass_high
+    if sounding_high is not None:
+        high = max(high, sounding_high - ctx.semitones)
     for pc in (root, fifth):
-        for note in range(ctx.bass_high, ctx.bass_low - 1, -1):
+        for note in range(high, ctx.bass_low - 1, -1):
             if note % 12 != pc:
                 continue
             sounding_bass = note + ctx.semitones
