@@ -45,7 +45,7 @@ Trong `backend/app/sonify/guitar_bach.py` và `backend/app/sonify/guitar_pattern
   - `slot 3`: Voice 1 (`lead`) attack `_melody_at(ctx, eighth + 1)`, `duration_beats = 0.5`, ngân qua `slot 4`.
   - `slot 4, 5`: Voice 2 attack `low_mid` rồi `upper_mid` trong lúc Lead còn ngân.
   - `slot 6`: Voice 1 attack `_melody_at(ctx, eighth + 3)`.
-  - `slot 7`: Voice 2 khép bằng `upper_mid` hoặc `low_mid`.
+  - `slot 7`: Voice 2 khép bằng `upper_mid`.
 - **Nhịp `3/4` và `6/8` (`epb = 6`, 12 móc kép)**: cùng hai chu kỳ 6 móc kép, vì cả hai meter đều dài 6 móc đơn. Nửa ô là eighth `0` và eighth `3`.
   - `slot 0`: chỉ Voice 3, ngân 6 móc kép (`1.5` phách).
   - `slot 1, 2`: Voice 2, `low_mid` rồi `upper_mid`.
@@ -53,7 +53,12 @@ Trong `backend/app/sonify/guitar_bach.py` và `backend/app/sonify/guitar_pattern
   - `slot 4`: Voice 2 `low_mid`.
   - `slot 5`: Voice 2 `upper_mid`. Một attack, không chọn Lead hay Support tùy lúc.
   - Trên `6/8`, eighth `0` và `3` là hai phách chấm. Trên `3/4`, trọng phụ của điệu là eighth `4`. Prelude vẫn chia đôi ô và giữ Bass ở eighth `3`, không dời sang eighth `4`.
-- **Thế tay**: tại mỗi móc kép, tập nốt đang kêu (attack mới và nốt ngân) đi qua `_playable`, với `bass < low_mid <= upper_mid < lead`.
+- **Thế tay**: tại mỗi móc kép, tập nốt đang kêu (attack mới và nốt ngân) đi qua `_playable`, với `bass < low_mid < upper_mid < lead`. `upper_mid - low_mid >= 3` nửa cung. Không còn `low_mid == upper_mid`.
+- **Cao độ bè cao là nốt giá.** Slot 3 giữ `_melody_at(ctx, eighth + 1)`. Slot 6 giữ `_melody_at(ctx, eighth + 3)`. `_prelude_stack` giữ hai nốt đó. Hết chỗ trong tay thì hạ bass và hai nốt đệm, không kéo hai nốt giá lên cùng một cao độ. Khi hai nốt giá trong cùng nửa ô trùng nhau, slot 6 bước một bậc thuận thang (`_treble_step` một bậc) về phía nốt giá của nửa ô sau.
+- **Hai nốt đệm là một quãng 3.** `_prelude_mids` từ chối mọi cặp gần hơn 3 nửa cung. Hết âm hợp âm thì lấy một bậc thang cạnh hợp âm, hoặc hạ bass. Nhánh `pair = (mid, mid)` trong `_prelude_stack` bỏ đi. `_roll_voices` và `against_root` trong `guitar_frame_bach_sor.py` cùng luật: `against_root` không được trả `upper_mid == low_mid`.
+- **Lực vi mô, tách khỏi sóng câu.** Trong mỗi nửa ô, velocity của `upper_mid` cao hơn `low_mid` đúng 8 bậc. Hai attack bass của ô lệch đúng 8 bậc theo hướng quãng: bass sau cao hơn thì mạnh hơn 8, thấp hơn thì nhẹ hơn 8, cùng cao độ thì cùng lực. Sóng câu chỉ cộng một độ lệch chậm lên các bậc này. `apply_guitar_wave` và `_shape_accompaniment` không được san bằng khoảng cách 8 bậc.
+- **Cửa intro/outro** dùng cùng quãng 3 và cùng bậc lực khi đi `_prelude_roll`. Ô outro cuối viết `_bach_block` vẫn là hợp âm chủ ngân hết ô. Không đổi ô đó thành vòng rải.
+- **Dấu nghe của BWV 1007** là cặp nốt cao luân phiên trên bass ngân. Vòng `low_mid, upper_mid, lead, low_mid, upper_mid, lead, upper_mid` phải nghe ra cặp đó, không phải một nốt đệm gõ đều.
 
 ### 2.2. `bach_allemande` — *Style Brisé & Sixteenth Anacrusis* (BWV 996 / BWV 995)
 
@@ -81,29 +86,42 @@ Trong `backend/app/sonify/guitar_bach.py` và `backend/app/sonify/guitar_pattern
 ### 2.3. `bach_courante` — *Compound Leap, Running Sixteenths & Hemiola* (mẫu BWV 1007)
 
 - **Thẩm mỹ**: Courante cello suite số 1, đối lập Sarabande. Ba dấu ấn của BWV 1007:
-  1. **Cú nhảy mở ô**: `eighth 0` có Bass gốc `accent=True` và Lead chạm nốt giá. Đây là hai attack cùng móc đơn, khác luật một attack của Prelude. `eighth 1` là Lead bật lên, `staccato=True` (mô-típ `G2 -> G3`). Nếu nốt `eighth 1` trùng nốt `eighth 0`, Lead bước một quãng 3 thuận thang qua `_treble_step(ctx, sung, 2)`.
+  1. **Cú mở ô theo giá**: `eighth 0` có Bass gốc `accent=True` và Lead là nốt giá tại eighth `0`. `eighth 1` là nốt giá tại eighth `1`, `staccato=True`. Giá lên thì nốt lên, giá xuống thì nốt xuống. Chỉ khi hai nốt giá trùng nhau, Lead bước một quãng 3 thuận thang qua `_treble_step(ctx, sung, 2)`. Một nốt giá đi xuống không thành cú nhảy lên.
   2. **Bốn móc kép ở phách giữa của nhịp đang chơi**, không phải “phách 2 của mọi meter có `epb = 6`”.
   3. **Lấy đà cuối ô**, và hemiola chỉ ở ô `phrase.closes`. Chiều hemiola đổi theo meter.
 - **Lưới `_render_bach_courante_bar`, `divisions = 4`**:
   - **`3/4` (`epb = 6`)**, đúng ô ba phách của BWV 1007:
     - `eighth 0`: Bass `duration = 2` eighths, `accent=True`. Nốt này hết đúng lúc attack sau bắt đầu, không phủ eighth `2`. Lead `duration = 1` eighth, `accent=True`.
     - `eighth 1`: Lead staccato; Support điểm âm ở giữa.
-    - `eighth 2, 3` (móc kép `4..7`): Lead chạy `_fitting_scale` 4 nốt tới cao độ eighth `4`. Bass bậc 5 hoặc bước liền bậc ở `eighth 2`, `duration = 2` eighths, hết đúng lúc eighth `4`.
-    - `eighth 4`: Lead `staccato=True`; Support quãng 3 hoặc 6 bên dưới. `eighth 5`: Lead và Bass lấy đà sang `bar + 1`.
+    - `eighth 2, 3` (móc kép `4..7`): bốn móc kép nối nốt giá ở eighth đầu cửa sổ tới nốt giá eighth `4`, cùng chiều với quãng đó. Nốt cuối là nốt tới. Khi hai đầu bằng nhau, móc kép thứ hai và thứ ba của nhóm bốn đi một bậc phụ, không viết bốn lần cùng một cao độ. `_tirata_line` không còn fallback `[arrival] * count`. Bass bậc 5 hoặc bước liền bậc ở `eighth 2`, `duration = 2` eighths, hết đúng lúc eighth `4`.
+    - `eighth 4`: Lead `staccato=True`, là nốt tới của nhóm bốn. Support quãng 3 hoặc 6 bên dưới. `eighth 5`: Lead bước một bậc thuận thang về phía nốt giá đầu `bar + 1`, chiều bậc là chiều quãng sang ô sau. Bass lấy đà cùng móc đơn đó.
     - `phrase.closes`: Bass bỏ eighth `2` và đánh eighth `3`, `duration = 1` eighth, `accent=True`, để eighth `4` và `5` vẫn là lấy đà. Lead vẫn chạy 4 móc kép ở eighth `2, 3`. Đây là nhóm `6/8` (accent `0` và `3`) đè lên `3/4`.
   - **`6/8` (`epb = 6`)**, hai phách chấm, mạnh ở eighth `0` và `3`. Không dùng lưới ba phách ở trên:
     - `eighth 0`: Bass ngân hết phách chấm (`duration = 3` eighths), `accent=True`. Lead `duration = 1` eighth, `accent=True`.
     - `eighth 1`: Lead staccato; Support điểm âm ở giữa.
-    - `eighth 2`: Lead giữ nốt, Support có thể điểm nốt thứ hai của phách chấm. Không có tirata ở eighth `2`.
-    - `eighth 3, 4` (móc kép `6..9`): Lead chạy `_fitting_scale` 4 nốt. Bass bậc 5 hoặc bước liền bậc ở `eighth 3`, `accent=True`, `duration = 2` eighths, hết đúng lúc eighth `5`.
-    - `eighth 5`: Lead và Bass lấy đà sang `bar + 1`.
+    - `eighth 2`: Lead là nốt giá tại eighth `2`, không giữ lại nốt của eighth `1`. Support có thể điểm nốt thứ hai của phách chấm. Không có tirata ở eighth `2`.
+    - `eighth 3, 4` (móc kép `6..9`): bốn móc kép nối nốt giá ở eighth `3` tới nốt lấy đà, cùng chiều với quãng đó. Nốt cuối là nốt tới. Khi hai đầu bằng nhau, móc kép thứ hai và thứ ba đi một bậc phụ. Bass bậc 5 hoặc bước liền bậc ở `eighth 3`, `accent=True`, `duration = 2` eighths, hết đúng lúc eighth `5`.
+    - `eighth 5`: Lead bước một bậc thuận thang về phía nốt giá đầu `bar + 1`. Chiều bậc là chiều của quãng sang ô sau. Bass lấy đà cùng móc đơn đó.
     - `phrase.closes`: bỏ tirata. Accent chuyển sang eighth `0`, `2` và `4` (nhóm `3/4` đè lên `6/8`). Bass ở eighth `0` và `2` ngân 2 eighth, hết đúng lúc attack sau. Bass ở eighth `4` ngân 1 eighth. Lead đi móc đơn. Eighth `5` vẫn là nốt lấy đà.
   - **`4/4` (`epb = 8`)**, dùng khi Courante là khách của một chương `4/4`:
-    - `eighth 0, 1`: cùng cú nhảy mở ô, Support ở `eighth 1`.
-    - `eighth 2, 3`: Lead giữ nốt giá `duration = 2` eighths; Bass đi ở `eighth 2`; Support ở `eighth 3`.
-    - `eighth 4, 5` (móc kép `8..11`): Lead chạy 4 móc kép; Bass bậc 5 ở `eighth 4`.
-    - `eighth 6, 7`: Lead `eighth 6` staccato, `eighth 7` lấy đà cùng Bass và Support.
+    - `eighth 0, 1`: cùng luật cú mở ô theo giá ở dấu ấn 1. Support ở `eighth 1`.
+    - `eighth 2, 3`: hai nốt giá nếu chúng khác nhau, mỗi nốt một móc đơn. Chỉ ngân một nốt `duration = 2` eighths khi hai nốt giá trùng nhau. Bass đi ở `eighth 2`; Support ở `eighth 3`.
+    - `eighth 4, 5` (móc kép `8..11`): bốn móc kép nối nốt giá ở eighth `4` tới nốt giá eighth `6`, cùng chiều với quãng đó. Nốt cuối là nốt tới. Khi hai đầu bằng nhau, móc kép thứ hai và thứ ba đi một bậc phụ. Bass bậc 5 ở `eighth 4`.
+    - `eighth 6, 7`: Lead `eighth 6` là nốt tới của nhóm bốn, `staccato=True`. `eighth 7` bước một bậc thuận thang về phía nốt giá đầu `bar + 1`, chiều bậc là chiều quãng sang ô sau, cùng Bass và Support.
     - `4/4` không có hemiola.
+
+### 2.4. Kiểm tra cao độ Prelude và Courante
+
+Lưới attack, lịch chọn điệu, Allemande, và ô outro cuối `_bach_block` giữ nguyên. Sửa test cũ nào đang khóa `low_mid == upper_mid` hoặc đang bắt một nốt giá đi xuống phải nhảy lên.
+
+- Prelude, giai điệu bằng: `upper_mid - low_mid >= 3`. Hai lead trong một nửa ô không trùng nhau. Hai bass của ô lệch velocity đúng 8 khi cao độ khác nhau. `upper_mid` cao hơn `low_mid` đúng 8 bậc velocity.
+- Prelude, hai nốt giá trong nửa ô khác nhau: slot 3 và slot 6 giữ đúng hai nốt đó, không bị kéo lên cùng một cao độ.
+- Courante, giai điệu bằng trong ô: eighth `1` vẫn cao hơn eighth `0` một quãng 3 thuận thang. Test `leap.midi > lead[0].midi` trên fixture bằng phẳng giữ nguyên.
+- Courante, giá giảm từ eighth `0` sang eighth `1`: lead eighth `1` thấp hơn eighth `0`.
+- Courante, giá tăng: lead eighth `1` là nốt giá, không thay bằng một quãng 3 khác.
+- Courante `4/4`, eighth `2` và `3` khác nhau: hai attack lead. Trùng nhau: một nốt ngân 2 eighth.
+- Tirata hai đầu khác nhau: nốt cuối là nốt tới, và chiều của nhóm bốn cùng chiều với quãng. Hai đầu bằng nhau: móc kép thứ hai và thứ ba không trùng nốt tới, và không có bốn nốt giống hệt nhau.
+- Cửa `_prelude_roll`: `low_mid` và `upper_mid` cách nhau ít nhất một quãng 3.
 
 ---
 
@@ -260,7 +278,7 @@ Ba cửa mới nằm trong `DOORS` của `backend/app/sonify/guitar_frame_bach_s
 
 - **Đặc trưng**: Mở và khép bằng chính sóng rải móc kép *harpeggiato* một-attack-mỗi-móc-kép trên nền Bass pedal nửa ô (`half = _half(ctx.epb)`: `4` ở `4/4`, `3` ở `3/4` và `6/8`), không mượn hợp âm chấm dôi hay mordent của vũ điệu.
 - **Helper nội bộ `_prelude_roll(frame, ctx, pcs, start, span, velocity, *, lead_aim=None, eighth_grid=False)`**:
-  - Lấy `(bass, inner, lead) = _stack_pitches(frame, ctx, pcs)` và thêm âm hợp âm thứ hai trong `[frame._mid_lo(ctx), frame._mid_hi(ctx)]` để có `low_mid <= upper_mid` thỏa `_playable_line(ctx, [bass, low_mid, upper_mid, lead])`.
+  - Lấy bass, hai nốt đệm và lead sao cho `bass < low_mid < upper_mid < lead` và `upper_mid - low_mid >= 3`. `_roll_voices` cùng `against_root` không trả `low_mid == upper_mid`. Hết âm hợp âm thì lấy bậc thang cạnh hoặc hạ bass. Mỗi attack `upper_mid` trong vòng cao hơn `low_mid` đúng 8 bậc velocity, và hai bass của ô lệch 8 bậc theo hướng quãng, cùng luật với thân bài.
   - Khi `eighth_grid == False` (rải móc kép chuẩn):
     - Tại `start` (`slot 0`): chỉ Voice 3 (`bass`, `length = span`, `velocity`), không đặt attack của Voice 1 hay Voice 2 trùng `start`.
     - Các slot móc kép kế tiếp (`at = start + 0.5 * k`, `length = 0.5`): đi vòm `low_mid -> upper_mid -> lead -> low_mid -> upper_mid -> lead -> upper_mid` (ở `span == 4`, 8 móc kép) hoặc `low_mid -> upper_mid -> lead -> low_mid -> upper_mid` (ở `span == 3`, 6 móc kép).
