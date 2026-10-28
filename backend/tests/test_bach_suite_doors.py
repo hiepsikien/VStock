@@ -345,7 +345,7 @@ def _scale_ctx(meter: str, phrases: tuple[Phrase, ...], bars: int) -> _Ctx:
     )
 
 
-def test_courante_scale_window_follows_kind_and_a_6_8_close_is_empty() -> None:
+def test_courante_scale_window_matches_the_tirata_and_a_close_is_empty() -> None:
     assert "bach_courante" in _BACH_GROUP2
     assert "bach_allemande" not in _BACH_GROUP2
     assert "bach_prelude" not in _BACH_GROUP2
@@ -354,21 +354,23 @@ def test_courante_scale_window_follows_kind_and_a_6_8_close_is_empty() -> None:
     assert _base_window("bach_allemande") == (52, 82)
     assert _base_window("bach_prelude") == (54, 84)
 
-    expected = {"3/4": (2, 3), "6/8": (3, 4), "4/4": (4, 5)}
+    expected = {"3/4": (3, 4), "6/8": (3, 4), "4/4": (4, 6)}
     for meter, pair in expected.items():
         epb = _METERS[meter]["epb"]
         phrase = Phrase(0, epb * 2, (Run(0, epb * 2 - 4, 60), Run(epb * 2 - 4, 4, 72)))
         ctx = _scale_ctx(meter, (phrase,), 2)
         window = _courante_window(ctx, 0)
         assert window == (pair[0], pair[1])
-        assert 0 not in range(window[0], window[1] + 1)
-        assert 1 not in range(window[0], window[1] + 1)
-        assert _courante_intrinsic_eighths(ctx, 0) == set(range(pair[0], pair[1] + 1))
-        if meter == "6/8":
-            assert phrase.closes
-            assert _courante_intrinsic_eighths(ctx, 1) == set()
-            assert [onset - epb for onset in _bass_onsets(ctx, "bach_courante", 1, epb, epb * 2)] == [0]
-        elif meter == "3/4":
-            assert [onset - epb for onset in _bass_onsets(ctx, "bach_courante", 1, epb, epb * 2)] == [0]
-        else:
+        covered = range(window[0], window[1] + 1)
+        assert 0 not in covered and 1 not in covered
+        assert epb - 1 not in covered
+        if meter == "3/4":
+            assert 2 not in covered
+        assert _courante_intrinsic_eighths(ctx, 0) == set(covered)
+        assert phrase.closes
+        assert _courante_window(ctx, 1) is None
+        assert _courante_intrinsic_eighths(ctx, 1) == set()
+        if meter == "4/4":
             assert _bass_onsets(ctx, "bach_courante", 0, 0, epb) == [0]
+        else:
+            assert [onset - epb for onset in _bass_onsets(ctx, "bach_courante", 1, epb, epb * 2)] == [0]

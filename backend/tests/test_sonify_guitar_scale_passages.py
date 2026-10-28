@@ -30,6 +30,8 @@ from app.sonify.guitar_scale_passages import (
     _assign,
     _color_line,
     _compass,
+    _courante_intrinsic_eighths,
+    _courante_window,
     _curve,
     _groups_ok,
     _scale_need,
@@ -1914,8 +1916,8 @@ def test_scale_bass_keeps_the_courante_and_allemande_rests() -> None:
     assert _bass_rows(prelude) == [(0.0, 2.0), (2.0, 2.0)]
 
 
-def test_courante_tier1_includes_both_tirata_eighths() -> None:
-    windows = {"4/4": (8, (0, 4), (4, 6)), "3/4": (6, (0,), (2, 4)), "6/8": (6, (0, 3), (3, 5))}
+def test_courante_tier1_covers_the_tirata_through_the_arrival() -> None:
+    windows = {"4/4": (8, (0, 4), (4, 7)), "3/4": (6, (0,), (3, 5)), "6/8": (6, (0, 3), (3, 5))}
     for kind, (epb, strong, expected) in windows.items():
         melody = list(range(72, 72 - epb, -1))
         ctx = _ctx(
@@ -1928,3 +1930,28 @@ def test_courante_tier1_includes_both_tirata_eighths() -> None:
         )
         clips = _tier1_clips(ctx, ["bach_courante"], list(ctx.impulses))
         assert [(clip.start, clip.target) for clip in clips] == [expected]
+
+
+def test_courante_close_keeps_the_sung_prices() -> None:
+    """A short fall does not paint sixteenths over a cadence that sings the price."""
+    for kind, epb, strong, open_clip in (
+        ("4/4", 8, (0, 4), (4, 7)),
+        ("3/4", 6, (0,), (3, 5)),
+        ("6/8", 6, (0, 3), (3, 5)),
+    ):
+        melody = list(range(80, 80 - (epb * 2 - 4), -1)) + [60] * 4
+        phrase = _phrase(0, melody)
+        assert phrase.closes
+        assert (phrase.end - 1) // epb == 1
+        ctx = _ctx(
+            melody,
+            (phrase,),
+            impulses=(_Impulse(0, epb * 2, "down", 3),),
+            epb=epb,
+            kind=kind,
+            strong=strong,
+        )
+        clips = _tier1_clips(ctx, ["bach_courante"], list(ctx.impulses))
+        assert [(clip.start, clip.target) for clip in clips] == [open_clip]
+        assert _courante_window(ctx, 1) is None
+        assert _courante_intrinsic_eighths(ctx, 1) == set()

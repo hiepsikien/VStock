@@ -5540,6 +5540,20 @@ def test_bach_courante_sings_the_price_then_runs_toward_it() -> None:
     assert rhythm[0].midi == 67 and rhythm[-1].midi == 64
     assert all(right.midi is not None and left.midi is not None and right.midi <= left.midi for left, right in zip(rhythm, rhythm[1:]))
 
+    def sixteenths_of(melody: list[int]) -> list[int]:
+        _ctx, score = render(METER_44, melody, closes=False)
+        notes = [note for note in _attacks(score.lead, 0) if abs(note.duration_beats - 0.25) < 1e-6]
+        return [note.midi for note in notes if note.midi is not None]
+
+    rising_step = sixteenths_of([72, 74, 76, 77, 79, 81, 81, 77, 74])
+    assert rising_step[0] == 79 and rising_step[-1] == 81
+    assert rising_step[1] == rising_step[2] == _treble_step(ctx, 79, -1)
+    assert rising_step.count(79) < 4
+    falling_step = sixteenths_of([76, 74, 72, 71, 69, 67, 67, 65, 64])
+    assert falling_step[0] == 69 and falling_step[-1] == 67
+    assert falling_step[1] == falling_step[2] == _treble_step(ctx, 69, 1)
+    assert falling_step.count(69) < 4
+
     three_ctx, three = render(METER_34, [72] * 6 + [74] * 6, closes=True)
     assert _sixteenths(three.lead, 0) == []
     assert bass_rows(three) == [(0.0, 3.0, True)]

@@ -85,7 +85,7 @@ Nốt lead ô 26 đang nghe là `56` thì ô 27 mở tại `58` và về `52`. N
 
 ## 5. Phần không đổi và test phải viết lại
 
-Đường cao độ, cửa sổ tirata, và chỗ bass nghỉ của Courante và Allemande giữ nguyên. Hairpin vẫn chỉ ở bè cao. Bass và bè giữa giữ mức của pattern. Ngân sách scale hôm nay vẫn là một trần `30%` cho cả thân bài. Mục 6 đề xuất trần mới, chưa viết vào engine.
+Đường cao độ và chỗ bass nghỉ của Courante và Allemande giữ nguyên. Cửa sổ eighth của tirata Courante theo thân bài, ghi ở kế hoạch Bach Mục 4.4. Hairpin vẫn chỉ ở bè cao. Bass và bè giữa giữ mức của pattern. Ngân sách scale hôm nay vẫn là một trần `30%` cho cả thân bài. Mục 6 đề xuất trần mới, chưa viết vào engine.
 
 `hairpin_velocities` nhận `prev` trực tiếp. Sửa riêng `restamp_passage_hairpins` không đổi các test gọi hàm đó với `prev` cũ. Prelude hôm nay là cửa `54…84`, không phải `52…84`.
 
@@ -99,11 +99,25 @@ Khi viết engine, các khóa sau đổi theo bảng Mục 3:
 
 ## 6. Ngân sách scale theo composer và thể loại
 
-Hôm nay `select_scale_plan` lấy một trần `(30 * body) // 100`, trừ eighth nội tại, rồi một phòng chung cho passage, perpetual và tier-1. Trần `30%` của các hàng rộng hạ còn `25%`. Hát và vũ điệu giữ `18%`. Prelude giữ `12%`.
+Hôm nay `select_scale_plan` lấy một trần `(30 * body) // 100`, trừ eighth nội tại, rồi một phòng chung cho passage, perpetual và tier-1. Trần `30%` của các hàng rộng hạ còn `25%`. Hát và vũ điệu giữ `18%`. Prelude giữ `12%`. Mục này chưa viết vào engine.
 
-Mỗi pattern một phòng. Eighth thân bài của pattern đó, không tính ô pedal, nhân phần trăm rồi chia nguyên `100`. Eighth nội tại nằm trên pattern đó trừ vào phòng của chính nó. Phòng không xuống dưới `0`, và không cho pattern khác mượn.
+Mỗi pattern một phòng. Eighth thân bài của pattern đó, không tính ô pedal, nhân phần trăm rồi chia nguyên `100`. Phòng không xuống dưới `0`. Phòng thừa không sang pattern khác.
 
-Passage và tier-1 trừ vào pattern chiếm nhiều eighth nhất trong `[start, target)`, hòa thì lấy pattern tại `start`, cùng luật Mục 2.6.A. Ô perpetual là `tremolo`, trừ vào phòng `18%` của pattern đó. Ứng viên đắt hơn phần phòng còn lại thì bỏ, không cắt ngắn.
+Figuration đã viết của Nhóm 2 và của swarm Brouwer nằm ngoài phòng. Đó là câu điệu đang hát giá, hoặc đang chạy đúng kiểu của nó. Trừ các eighth đó vào phòng `18%` hoặc `25%` thì phòng về `0` ngay khi điệu hát đúng kiểu.
+
+- Courante, mọi meter: tirata của thân bài. `4/4` là eighth `4…6`, tức `3/8`. `3/4` và `6/8` là eighth `3…4`, tức `2/6`. Trần Courante vẫn `18%`. Tirata không ăn phòng đó. Ô `phrase.closes` không viết tirata, nên cũng không có eighth nội tại.
+- Gigue khi đi lên: nửa sau ô, `50%`, trần `18%`.
+- Chaconne khi vẽ scale (`mf`/`f` và đi lên): nửa sau ô, `50%`, trần `25%`.
+- Sarabande Bach khi `_sarabande_passes`: hai eighth cuối. `4/4` là `25%`, `3/4` là `33%`, trần `18%`.
+- Sarabande Brouwer khi swarm: từ `epb // 2` đến hết ô, `50%`, trần `25%`.
+
+Prelude không có figuration nội tại kiểu này. Trần `12%` là phần scale thêm. Trên vân tay `1D` phòng còn khoảng bốn ô. Vùng prelude hai ô còn một eighth, dưới độ dài passage tối thiểu là `2`, nên vùng đó không thêm scale. Mỗi móc đơn của Prelude vẫn là nốt giá và một bậc phụ.
+
+Passage trả `passage_eighths` trừ eighth nội tại nằm trong `[start, target)`. Tier-1 trả cùng cách. Clip Courante nằm trọn trên cửa sổ tirata trả `0`: các eighth đó đã là câu chạy của thân bài. Eighth nào của clip không thuộc intrinsic thì trả đủ eighth đó.
+
+Một lượt duyệt theo điểm, cùng thứ tự `select_scale_plan`. Chi phí của ứng viên trừ vào pattern chiếm nhiều eighth nhất trong `[start, target)`. Hòa thì lấy pattern tại `start`, cùng `_majority_pattern`. Eighth của pattern thiểu số vẫn thành scale, và không trừ phòng của pattern đó. Một lượt duyệt từng pattern sẽ đổi thứ tự nhận.
+
+Ô perpetual chỉ có `tremolo`, giá một ô là `epb`. Trần `18%` cần ít nhất `6` ô tremolo cho một ô perpetual, và `12` ô cho hai. Câu ngắn hơn thì ứng viên đắt hơn phòng, nên bỏ nguyên, không cắt.
 
 | Composer | Thể loại | Pattern | Trần |
 |---|---|---|---:|

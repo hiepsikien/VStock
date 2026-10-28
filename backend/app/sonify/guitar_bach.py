@@ -1994,6 +1994,28 @@ def _tirata_neighbor(ctx: _Ctx, pitch: int) -> int:
     return below
 
 
+def _one_step_ornament(
+    ctx: _Ctx, origin: int, arrival: int, count: int, start_slot: int
+) -> list[int] | None:
+    """A neighbor on sixteenths 2 and 3 when one step would repeat the opening pitch.
+
+    The same-direction step is the arrival itself, so the neighbor is the other
+    way. The first and last notes stay on the two prices.
+    """
+    if count < 5 or origin == arrival:
+        return None
+    for neighbor in (_treble_step(ctx, origin, 1), _treble_step(ctx, origin, -1)):
+        if neighbor == origin or neighbor == arrival:
+            continue
+        line = [origin] * count
+        line[1] = neighbor
+        line[2] = neighbor
+        line[-1] = arrival
+        if _line_quarters_ok(line, start_slot):
+            return line
+    return None
+
+
 def _tirata_line(ctx: _Ctx, start_slot: int, origin: int, arrival: int, count: int) -> list[int]:
     """Sixteenths from `origin` to `arrival`. Equal ends neighbor on slots 2 and 3.
 
@@ -2029,6 +2051,10 @@ def _tirata_line(ctx: _Ctx, start_slot: int, origin: int, arrival: int, count: i
     line = _fit_directed(path, count)
     line[0] = origin
     line[-1] = arrival
+    if len(path) == 2 and line.count(origin) >= 4:
+        ornament = _one_step_ornament(ctx, origin, arrival, count, start_slot)
+        if ornament is not None:
+            line = ornament
     if line == [arrival] * count:
         line[0] = origin
     if not _line_quarters_ok(line, start_slot):

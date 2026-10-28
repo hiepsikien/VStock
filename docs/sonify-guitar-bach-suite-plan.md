@@ -68,7 +68,7 @@ Trong `backend/app/sonify/guitar_bach.py` và `backend/app/sonify/guitar_pattern
 
 - **Thẩm mỹ**: một giai điệu cello viết cho guitar. Bè cao mang cả ô. Nửa đầu ô là giai điệu. Nửa sau là nhịp. Bass một nốt đầu ô, ngân hết ô. Thân ô không có bè giữa.
 - **Nửa giai điệu** (`4/4`: eighth `0..3`; `3/4` và `6/8`: eighth `0..2`). Mỗi móc đơn là `_melody_at` của móc đó, `duration = 1` eighth. Hai nốt đầu trùng cao độ thì eighth `1` nhảy một quãng 3 thuận thang `_treble_step(ctx, sung, 2)`, `staccato=True`. Hai nốt đã khác nhau thì hát đúng giá, kể cả khi giá xuống.
-- **Nửa nhịp** (`4/4`: eighth `4..7`; `3/4` và `6/8`: eighth `3..5`). Nốt mở nửa này là giá tại eighth đầu. Nốt tới là giá tại eighth áp chót của nửa ô (`4/4`: eighth `6`; `3/4` và `6/8`: eighth `4`). Các móc kép ở giữa nối hai nốt đó cùng chiều quãng. Không viết bốn lần cùng một cao độ: hai đầu bằng nhau thì móc kép thứ hai và thứ ba là một bậc phụ. Eighth cuối của ô (`4/4`: eighth `7`; `3/4` và `6/8`: eighth `5`) bước một bậc thuận thang về phía nốt giá đầu `bar + 1`, chiều bậc là chiều quãng sang ô sau.
+- **Nửa nhịp** (`4/4`: eighth `4..7`; `3/4` và `6/8`: eighth `3..5`). Nốt mở nửa này là giá tại eighth đầu. Nốt tới là giá tại eighth áp chót của nửa ô (`4/4`: eighth `6`; `3/4` và `6/8`: eighth `4`). Các móc kép ở giữa nối hai nốt đó cùng chiều quãng. Không viết bốn lần cùng một cao độ. Hai đầu bằng nhau thì móc kép thứ hai và thứ ba là một bậc phụ. Hai đầu cách một bậc, khi `4/4` cần sáu móc kép, cũng vậy: bậc cùng chiều chính là nốt tới, nên móc kép thứ hai và thứ ba đi về phía ngược lại. Nốt đầu và nốt cuối giữ đúng hai giá. Eighth cuối của ô (`4/4`: eighth `7`; `3/4` và `6/8`: eighth `5`) bước một bậc thuận thang về phía nốt giá đầu `bar + 1`, chiều bậc là chiều quãng sang ô sau.
 - **Bass**: một attack ở eighth `0`, `accent=True`, `duration` hết ô. Không thêm bass giữa ô.
 - **`phrase.closes`**: nửa nhịp bỏ móc kép, hát nốt giá bằng móc đơn. `3/4` nhấn eighth `0` và `3`. `6/8` nhấn eighth `0`, `2` và `4`. `4/4` không hemiola. Trên ô kết, một nốt Voice 2 ngân cùng bass khi hợp âm còn thiếu bậc 3. Thân các ô không kết không có Voice 2.
 - **`_tirata_line` không còn fallback `[arrival] * count`.**
@@ -335,11 +335,11 @@ Cửa là kịch bản khung, không phải lưới thân bài ở Mục 2.3. Th
 
 `bach_group2_window` và `bach_group2_intrinsic_eighths` hiện trả `None` khi pattern không thuộc `{bach_gigue, bach_chaconne, bach_sarabande}`. Thêm Courante vào frozenset `_BACH_GROUP2` mà không sửa hai hàm đó thì Courante không có cửa sổ nội tại.
 
-- **`bach_courante` thuộc Nhóm 2**. `bach_group2_window` phân theo `ctx.kind`, không theo `epb`, vì `3/4` và `6/8` cùng `epb == 6` mà tirata không đứng cùng eighth. Cửa sổ inclusive:
-  - `3/4`: `(bar * epb + 2, bar * epb + 3)`.
-  - `6/8`: `(bar * epb + 3, bar * epb + 4)`.
-  - `4/4`: `(bar * epb + 4, bar * epb + 5)`.
-  - Ô không `phrase.closes` viết tirata sẵn, nên các eighth đó là intrinsic. Ô `phrase.closes` bỏ móc kép ở thân bài. Intrinsic của ô `6/8` kết là rỗng. `3/4` và `4/4` vẫn đánh dấu cửa sổ đó là intrinsic để scale không đè eighth của câu kết. Eighth `0` và `1` luôn ngoài cửa sổ, nên biến động nhỏ không đè nốt giá mở ô.
+- **`bach_courante` thuộc Nhóm 2**. `_courante_window` phân theo `ctx.kind`, không theo `epb`, vì `3/4` và `6/8` cùng `epb == 6`. Cửa sổ inclusive là tirata của thân bài, từ nốt mở nửa nhịp tới nốt giá áp chót. Eighth bước sang ô sau nằm ngoài cửa sổ:
+  - `4/4`: `(bar * epb + 4, bar * epb + 6)`. Tirata là eighth `4`, `5`, `6`. Eighth `7` là bước sang ô sau.
+  - `3/4`: `(bar * epb + 3, bar * epb + 4)`. Eighth `2` vẫn là giai điệu nửa đầu. Eighth `5` là bước sang ô sau.
+  - `6/8`: `(bar * epb + 3, bar * epb + 4)`. Eighth `5` là bước sang ô sau.
+  - Ô không `phrase.closes` viết tirata sẵn, nên các eighth đó là intrinsic. Ô `phrase.closes` hát giá bằng móc đơn. Cửa sổ và intrinsic của ô kết là rỗng ở mọi meter, nên tier-1 không vẽ scale lên chỗ câu kết đang hát. Nửa giai điệu luôn ngoài cửa sổ. Sóng lớn vẫn mở sau một ô Courante trọn.
   - Sóng lớn (`L >= epb` và `net_span >= 6`) chỉ mở sau một ô Courante trọn của vùng, cùng luật *establish pattern first*.
   - Bass dưới passage: một attack ở eighth `0`, `accent=True`, ngân hết ô, kể cả ô `phrase.closes`. Không có bass ở eighth `2`, `3` hoặc `4`. Không thay bằng Bass gốc/bậc 5 chung của Nhóm 3.
 - **`bach_allemande` không vào `_BACH_GROUP2`**. Allemande là Nhóm 3, nên nhận scale sub-bar và multi-bar. Hairpin nằm trong `_HAT_PATTERNS`, cửa `52..82`. Bass dưới passage giữ offset Mục 2.2, không staccato, đi bộ khi Lead ngân. Không rút Bass thành nốt ngắn trên `ctx.strong`.

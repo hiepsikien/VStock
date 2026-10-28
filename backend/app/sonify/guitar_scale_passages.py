@@ -85,18 +85,22 @@ def _courante_closes(ctx: _Ctx, bar: int) -> bool:
 
 
 def _courante_pair(ctx: _Ctx) -> tuple[int, int] | None:
+    """Inclusive tirata eighths: the rhythm half through its penultimate price.
+
+    The last eighth of the bar steps toward the next bar, so it stays outside.
+    """
     kind = getattr(ctx, "kind", None)
-    if kind == "3/4":
-        return 2, 3
-    if kind == "6/8":
+    if kind in {"3/4", "6/8"}:
         return 3, 4
     if kind == "4/4":
-        return 4, 5
+        return 4, 6
     return None
 
 
 def _courante_window(ctx: _Ctx, bar: int) -> tuple[int, int] | None:
-    """Inclusive tirata eighths. Keyed on ``ctx.kind`` because 3/4 and 6/8 share ``epb``."""
+    """Inclusive tirata eighths. A closing bar sings those prices as eighths."""
+    if _courante_closes(ctx, bar):
+        return None
     pair = _courante_pair(ctx)
     if pair is None:
         return None
@@ -108,9 +112,7 @@ def _courante_window(ctx: _Ctx, bar: int) -> tuple[int, int] | None:
 
 
 def _courante_intrinsic_eighths(ctx: _Ctx, bar: int) -> set[int]:
-    """Tirata eighths this bar already draws. Empty when a 6/8 cadence omits the run."""
-    if getattr(ctx, "kind", None) == "6/8" and _courante_closes(ctx, bar):
-        return set()
+    """Tirata eighths this bar already draws. Empty when the cadence sings eighths."""
     window = _courante_window(ctx, bar)
     if window is None:
         return set()
@@ -640,11 +642,10 @@ def _tier1_clips(ctx: _Ctx, patterns: list[str], impulses: list[_Impulse]) -> li
             if window is None:
                 continue
             lo, hi = window
-            # Windows are inclusive. Longer group-2 windows still have two
-            # eighths after the last one is left out, and that last eighth is
-            # what keeps the clip off the next passage. Courante's tirata is
-            # only `(4, 5)` on 4/4, so the exclusive end has to be `hi + 1`
-            # or every clip is shorter than two eighths.
+            # Group-2 windows are inclusive, and the clip stops before `hi`
+            # so the last eighth stays off the next passage. Courante's pair
+            # already ends on the arrival eighth. The step into the next bar
+            # is the eighth after `hi`, so the clip runs through `hi`.
             exclusive = hi + 1 if pattern == "bach_courante" else hi
             start = max(impulse.start, lo)
             target = min(impulse.target, exclusive)
