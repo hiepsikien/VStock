@@ -232,9 +232,13 @@ def _spell16(
     tie_out: bool = False,
 ) -> list[NoteEvent]:
     events: list[NoteEvent] = []
-    cursor = start
-    left = length
-    first = start
+    # A door may aim at a sixteenth with a half-eighth offset. Floor division of
+    # a float would store the bar as 0.0, which cannot index a measure list.
+    cursor = int(round(start))
+    left = int(round(length))
+    if left <= 0:
+        return events
+    first = cursor
     while left > 0:
         bar_len = epb * 2
         room = bar_len - (cursor % bar_len)

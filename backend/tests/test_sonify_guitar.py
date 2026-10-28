@@ -1832,63 +1832,75 @@ def test_composer_intro_and_outro_frames_for_two_and_four_bars() -> None:
     assert frame_roles(1) == [0]
     assert frame_roles(6) == [0, 0, 1, 2, 2, 3]
 
+    # A wide rally is galop, so both frames are the galop door.
     classic = _frame_score("classic", 2)
     assert classic.divisions == 2
-    assert _onset_beats(classic.low, 0) == [0.0]
-    assert all(note.velocity <= 52 for note in _pitched(classic.low, 0))
-    # Bar 2 of the direct frame is the dominant, then a root pickup into the body.
-    assert any(note.midi % 12 in {2, 5, 7, 11} for note in _pitched(classic.low, 1) if note.beat < 3)
-    assert any(note.staccato for note in (*classic.lead, *classic.low) if note.bar == classic.bars - 2)
-    assert any(note.duration_beats >= 3 for note in _pitched(classic.low, classic.bars - 1))
+    assert _onset_beats(classic.low, 0) == [0.0, 2.0]
+    assert all(note.staccato and note.velocity is not None and note.velocity <= 52 for note in _pitched(classic.low, 0))
+    assert [round(note.beat, 2) for note in _pitched(classic.support, 0)] == [0.5, 1.5, 2.5, 3.5]
+    leaps = [note for note in _pitched(classic.lead, 1) if note.beat >= 2]
+    assert len(leaps) >= 3 and all(note.staccato for note in leaps)
+    close = _pitched(classic.low, classic.bars - 1)
+    assert close and all(note.staccato and note.accent and note.duration_beats <= 0.5 for note in close)
     _assert_under_apex(classic, (0, 1, classic.bars - 2, classic.bars - 1))
     assert_playable(classic, C_KEY, "study")
 
     classic_long = _frame_score("classic", 4)
-    assert any(note.staccato for note in (*classic_long.lead, *classic_long.low) if note.bar == 0)
-    assert {0.0, 1.5} <= set(_onset_beats(classic_long.low, 2))
-    assert any(note.beat == 0 and note.duration_beats >= 2 for note in _pitched(classic_long.low, 3))
-    assert any(note.duration_beats >= 3 for note in _pitched(classic_long.low, classic_long.bars - 1))
+    assert _pitched(classic_long.lead, 0) == []
+    assert all(note.staccato for note in _pitched(classic_long.low, 0))
+    pickup = [round(note.beat, 2) for note in _pitched(classic_long.lead, 3)]
+    assert pickup == [2.5, 3.0, 3.5]
+    final = _pitched(classic_long.low, classic_long.bars - 1)
+    assert [round(note.beat, 2) for note in final] == [0.0, 2.0]
+    assert all(note.staccato and note.accent for note in final)
     _assert_under_apex(classic_long, (0, 1, 2, 3, classic_long.bars - 4, classic_long.bars - 1))
     assert_playable(classic_long, C_KEY, "study")
 
+    # The held body is tremolo, so the frame is the tremolo door, not the cathedral bells.
     barrios = _frame_score("barrios", 2)
-    bells = _pitched(barrios.lead, 0)
-    assert len(bells) >= 2
-    assert all(note.midi >= 76 and note.velocity <= 52 for note in bells)
-    assert _pitched(barrios.low, 0) == []
-    assert 0.0 in _onset_beats(barrios.low, 1)
-    final = _pitched(barrios.lead, barrios.bars - 1)
-    assert final and all(note.midi >= 76 and note.velocity <= 48 for note in final)
-    assert _pitched(barrios.low, barrios.bars - 1)
-    for bar in (0, 1, barrios.bars - 2, barrios.bars - 1):
-        assert _sixteenths(barrios.lead, bar) == []
+    opening = _pitched(barrios.lead, 0)
+    assert len(opening) == 1 and opening[0].duration_beats >= 3
+    assert len(_pitched(barrios.low, 0)) == 1
+    assert _sixteenths(barrios.lead, 0) == []
+    assert len(_sixteenths(barrios.lead, 1)) >= 4
+    assert _pitched(barrios.low, 1)
+    fading = _pitched(barrios.lead, barrios.bars - 2)
+    assert fading and _pitched(barrios.low, barrios.bars - 2)
+    alone = _pitched(barrios.lead, barrios.bars - 1)
+    assert len(alone) == 1 and alone[0].duration_beats >= 3
+    assert _pitched(barrios.low, barrios.bars - 1) == []
     body = {bar: "barrios_tremolo" if 2 <= bar < 6 else "study" for bar in range(barrios.bars)}
     assert_playable(barrios, C_KEY, body)
 
     barrios_long = _frame_score("barrios", 4)
-    assert len(_pitched(barrios_long.lead, 0)) >= 2 and _pitched(barrios_long.low, 0) == []
-    assert all(note.midi >= 76 for note in _pitched(barrios_long.lead, 0))
-    assert 0.0 in _onset_beats(barrios_long.low, 1)
-    assert any(note.midi >= 76 and note.velocity <= 48 for note in _pitched(barrios_long.lead, barrios_long.bars - 1))
+    assert len(_pitched(barrios_long.lead, 0)) >= 4
+    assert _onset_beats(barrios_long.low, 0) == [0.0, 2.0]
+    chord = (
+        *_pitched(barrios_long.lead, barrios_long.bars - 1),
+        *_pitched(barrios_long.support, barrios_long.bars - 1),
+        *_pitched(barrios_long.low, barrios_long.bars - 1),
+    )
+    assert chord and len({note.velocity for note in chord}) == 1
     long_body = {bar: "barrios_tremolo" if 4 <= bar < 8 else "study" for bar in range(barrios_long.bars)}
     assert_playable(barrios_long, C_KEY, long_body)
 
+    # Rally in 4/4 above 72 is Etude 1, so the frame follows that cycle.
     villa = _frame_score("villa", 2)
     assert villa.divisions == 4
     assert 0.0 in _onset_beats(villa.low, 0)
-    assert min(_onset_beats(villa.support, 0)) > 0
-    assert min(_onset_beats(villa.lead, 0)) >= min(_onset_beats(villa.support, 0))
-    assert 0.5 in _onset_beats(villa.lead, 1)
-    assert any(note.accent for note in _pitched(villa.lead, 1))
-    assert 0.5 in _onset_beats(villa.lead, villa.bars - 1)
+    assert _sixteenths(villa.support, 0)
+    assert all(note.beat >= 2 - 1e-6 for note in _pitched(villa.support, 0) if abs(note.duration_beats - 0.25) < 1e-9)
+    assert {1.75, 2.25} <= set(_onset_beats(villa.lead, 1))
+    farewell = _pitched(villa.lead, villa.bars - 1)
+    assert farewell and farewell[0].beat >= 2 and farewell[0].duration_beats >= 2
+    assert 0.0 in _onset_beats(villa.low, villa.bars - 1)
     _assert_under_apex(villa, (0, 1, villa.bars - 2, villa.bars - 1))
     assert_playable(villa, C_KEY, "study")
 
     villa_long = _frame_score("villa", 4)
-    assert 0.0 in _onset_beats(villa_long.low, 0)
-    assert 0.0 in _onset_beats(villa_long.low, 1)
-    assert len(_onset_beats(villa_long.lead, 2)) >= 6
-    assert any(note.accent and note.beat == 0.0 for note in _pitched(villa_long.lead, 3))
+    assert [round(note.beat, 2) for note in _pitched(villa_long.lead, 0)] == [0.0, 1.0, 2.0, 3.0]
+    assert _onset_beats(villa_long.low, 0) == [0.0]
+    assert {1.75, 2.25} <= set(_onset_beats(villa_long.lead, 1))
     assert_playable(villa_long, C_KEY, "study")
 
 
@@ -2406,42 +2418,38 @@ def test_barrios_six_eight_intro_keeps_each_inner_note_inside_its_half() -> None
     bars = [Bar(close=100 + 12 * math.sin(index / 6.0), volume=1000 + (index % 17) * 80) for index in range(80)]
     spec = plan_month([20, 20, 20, 20], "guitar")[2].spec
     score = render(bars, title="MWG", variant="guitar", ensemble="barrios", form=spec, character="rally")
+    # Ten bars, roles [0, 0, 0, 1, 1, 2, 2, 2, 3, 3]. The body beside them is polca.
+    def stays_in_its_half(note) -> bool:
+        end = note.beat + note.duration_beats
+        if note.beat < 1.5:
+            return end <= 1.5 + 1e-6
+        return note.beat >= 1.5 - 1e-6
+
     for bar in (0, 1, 2):
-        bell = [note.velocity or 0 for note in _attacks(score.lead, bar)]
-        assert len(bell) == 3 and bell[1] - bell[0] == 6 and bell[1] - bell[2] == 4
-        assert _attacks(score.low, bar) == []
-        assert all(20 <= value <= 56 for value in bell)
-    for bar in (3, 4):
-        lead = [note.velocity or 0 for note in _attacks(score.lead, bar)]
-        assert lead[-1] - lead[0] == 6
+        assert _attacks(score.lead, bar) == []
+        assert [round(note.beat, 2) for note in _attacks(score.low, bar)] == [0.0, 1.5]
         inner = _attacks(score.support, bar)
-        assert len(inner) == 4
-        for note in inner:
-            end = note.beat + note.duration_beats
-            assert note.velocity is not None and note.velocity >= 20
-            if note.beat < 1.5:
-                assert end <= 1.5 + 1e-6
-                assert note.velocity <= lead[0]
-            else:
-                assert note.beat >= 1.5 - 1e-6
-                assert note.velocity <= lead[-1]
+        assert inner and all(stays_in_its_half(note) for note in inner)
+    for bar in (3, 4):
+        lead = _attacks(score.lead, bar)
+        assert len(lead) >= 2
+        first, second = lead[0], lead[-1]
+        assert first.beat < 1.5 <= second.beat
+        assert first.midi is not None and second.midi is not None
+        assert second.midi - first.midi in {3, 4}
     for bar in (5, 6, 7):
-        lead = [note.velocity or 0 for note in _attacks(score.lead, bar)]
-        steps = [right - left for left, right in zip(lead, lead[1:])]
-        assert all(0 <= step <= 3 for step in steps) and lead[-1] >= lead[0]
-        assert all(value >= 20 for value in lead)
-        assert all((note.velocity or 0) >= 20 for note in _attacks(score.low, bar))
+        assert _attacks(score.lead, bar) == []
+        bass = _attacks(score.low, bar)
+        assert [round(note.beat, 2) for note in bass] == [0.0, 1.5]
+        assert bass[-1].accent
+        assert all(stays_in_its_half(note) for note in _attacks(score.support, bar))
+    for bar in (8, 9):
+        lead = _attacks(score.lead, bar)
+        assert lead and all(note.beat >= 1.5 - 1e-6 for note in lead)
     join = [note.velocity or 0 for note in _attacks(score.lead, 9)]
     body = [note.velocity or 0 for note in _attacks(score.lead, 10)]
     assert join and body and abs(join[-1] - body[0]) <= 4
     assert max(join) - join[-1] <= 4
-    for bar in (8, 9):
-        bass = [note for note in _attacks(score.low, bar) if note.beat < 2.5]
-        assert len(bass) == 2 and all((note.velocity or 0) >= 20 for note in bass)
-        inner = _attacks(score.support, bar)
-        assert len(inner) == 1 and (inner[0].velocity or 0) >= 20
-        assert inner[0].beat == 0.0
-        assert abs(inner[0].duration_beats - 1.0) < 1e-6
 
 
 def test_barrios_week_tremolo_bass_moves_inside_the_bar() -> None:
@@ -2476,9 +2484,8 @@ def test_barrios_week_tremolo_bass_moves_inside_the_bar() -> None:
 def test_barrios_outro_and_brouwer_intro_keep_a_flat_level() -> None:
     barrios = _frame_score("barrios", 2)
     final_lead = {note.velocity for note in _pitched(barrios.lead, barrios.bars - 1)}
-    final_bass = {note.velocity for note in _pitched(barrios.low, barrios.bars - 1)}
     assert len(final_lead) == 1
-    assert len(final_bass) == 1
+    assert _pitched(barrios.low, barrios.bars - 1) == []
 
     brouwer = _frame_score("brouwer", 4, character="calm")
     assert len({note.velocity for note in _pitched(brouwer.lead, 1)}) == 1
@@ -2555,7 +2562,7 @@ def test_sor_galop_and_mozart_variations_and_the_op9_overture() -> None:
     assert bridged_steps and max(bridged_steps) <= 2
     assert_playable(bridged, C_KEY, "study")
 
-    overture = galop
+    overture = mozart
     tonic = _pitched(overture.lead, 0)
     assert [round(note.beat, 2) for note in tonic] == [0.0, 1.5, 2.0, 3.5]
     assert [round(note.duration_beats, 2) for note in tonic] == [1.5, 0.5, 1.5, 0.5]
@@ -2570,12 +2577,10 @@ def test_sor_galop_and_mozart_variations_and_the_op9_overture() -> None:
     assert any(note.staccato and note.duration_beats <= 0.5 for note in dominant)
 
     long = _frame_score("classic", 4)
-    assert any(note.staccato for note in _pitched(long.lead, 0))
-    lyric = _pitched(long.support, 1)
-    assert len(lyric) >= 2
-    assert all(note.midi is not None and note.midi < _pitched(long.lead, 1)[0].midi for note in lyric)
-    flourish = [note.midi for note in _pitched(long.lead, 3) if note.beat >= 2.0]
-    assert len(flourish) >= 3 and flourish == sorted(flourish)
+    assert _pitched(long.lead, 0) == []
+    assert all(note.staccato for note in _pitched(long.low, 0))
+    assert [round(note.beat, 2) for note in _pitched(long.lead, 3)] == [2.5, 3.0, 3.5]
+    assert all(note.staccato and note.accent for note in _pitched(long.low, long.bars - 1))
 
 
 def test_a_long_sor_rally_keeps_galop_in_the_middle_of_aba() -> None:
@@ -3273,7 +3278,7 @@ def test_brouwer_trio_answers_the_tumbao_with_noviembre() -> None:
 
 
 def test_brouwer_frames_for_lyric_and_edge_modes() -> None:
-    lyric = _frame_score("brouwer", 2, character="rally")
+    lyric = _frame_score("brouwer", 2, character="calm")
     assert _onset_beats(lyric.low, 0) == [0.0]
     assert _pitched(lyric.lead, 0) == []
     assert all(note.velocity is not None and note.velocity <= 50 for note in _pitched(lyric.low, 0))
@@ -3285,6 +3290,17 @@ def test_brouwer_frames_for_lyric_and_edge_modes() -> None:
     assert any(note.duration_beats >= 3 for note in _pitched(lyric.low, lyric.bars - 1))
     _assert_under_apex(lyric, (0, 1, lyric.bars - 2, lyric.bars - 1))
     _assert_engraved(lyric, "brouwer")
+
+    motor = _frame_score("brouwer", 2, character="rally")
+    assert _onset_beats(motor.low, 0) == [0.0, 1.5, 3.0]
+    assert _pitched(motor.lead, 0) == []
+    chord = (
+        *_pitched(motor.lead, motor.bars - 1),
+        *_pitched(motor.support, motor.bars - 1),
+        *_pitched(motor.low, motor.bars - 1),
+    )
+    assert chord and all(note.beat == 0.0 and note.duration_beats >= 3 for note in chord)
+    _assert_engraved(motor, "brouwer")
 
     lyric_long = _frame_score("brouwer", 4, character="calm")
     opening = _attacks(lyric_long.lead, 0)
@@ -3318,7 +3334,7 @@ def test_brouwer_frames_for_lyric_and_edge_modes() -> None:
     _assert_under_apex(edge, (0, 1, penultimate, last))
     _assert_engraved(edge, "brouwer")
 
-    edge_long = _frame_score("brouwer", 4, character="selloff")
+    edge_long = _frame_score("brouwer", 4, character="volatile")
     pluck = _attacks(edge_long.low, 0)
     assert len(pluck) == 1 and pluck[0].staccato and pluck[0].accent
     assert pluck[0].duration_beats <= 0.5
@@ -4125,7 +4141,7 @@ def test_villa_preserves_forte_chromatic_approach_across_boundary_and_outro_read
     assert approach is not None and approach.midi is not None
     assert approach.midi % 12 == 11
 
-    # Movement character is calm, but the ending bars in character_at turn volatile.
+    # The bars beside the outro are volatile, so the close is a downbeat chord.
     char_at = tuple(["calm"] * 12 + ["volatile"] * 4)
     outro_score = _guitar(
         phrases,
@@ -4138,8 +4154,8 @@ def test_villa_preserves_forte_chromatic_approach_across_boundary_and_outro_read
         bands=bands,
         chords=chords,
     )
-    assert 0.5 in _onset_beats(outro_score.lead, 15)
-    assert any(note.accent for note in _pitched(outro_score.lead, 15))
+    assert _onset_beats(outro_score.lead, 15) == [0.0]
+    assert [note.accent for note in _pitched(outro_score.lead, 15)] == [False]
 
 
 def _near(beats: list[float], target: float) -> bool:

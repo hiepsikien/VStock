@@ -592,6 +592,8 @@ def _galop_span(
             if inner_now is not None and not (inner_now < leap and _playable_line(ctx, [floor, inner_now, leap])):
                 specs = [item for item in specs if not (item[0] == offset + 1 and item[3] == 2)]
             specs.append((offset + 1, 1, leap, 1, velocity, leap_flags))
+    if end >= epb:
+        specs = _short_last_bass(specs)
     return specs
 
 
@@ -1691,6 +1693,22 @@ def _appoggiatura_halves(frame, ctx, bar: int, velocity: int) -> list[tuple]:
 
 
 # --- Galop -------------------------------------------------------------------
+
+
+def _short_last_bass(specs: list[tuple]) -> list[tuple]:
+    """Leave the last bass as one eighth so a following step down is not a lament."""
+    last = None
+    for index, item in enumerate(specs):
+        if item[3] == 3:
+            last = index
+    if last is None:
+        return specs
+    offset, length, midi, voice, velocity, flags = specs[last]
+    if length <= 1:
+        return specs
+    shortened = list(specs)
+    shortened[last] = (offset, 1, midi, voice, velocity, flags)
+    return shortened
 
 
 def _galop_hits(frame, ctx, bar: int, role: int, *, short: bool, closing: bool) -> list[tuple]:
