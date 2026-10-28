@@ -695,19 +695,15 @@ def _is_target(
     if pattern == "bach_chaconne":
         return voice == "lead" and event.accent and (apex or (phrase is not None and onset >= phrase.end - 1))
     if pattern == "bach_prelude":
-        # The lead does not attack at eighth 0. The arch top is sixteenth slot 3 of each half.
+        # Strong (even) sixteenth of each price pair, while that note sits in the apex.
         if voice != "lead" or not apex or rise < 3:
             return False
-        slot = int(round(beat * 4))
-        kind = getattr(ctx, "kind", "")
-        if kind == "4/4" or (kind not in {"3/4", "6/8"} and ctx.epb >= 8):
-            return slot in {3, 11}
-        return slot in {3, 9}
+        return int(round(beat * 4)) % 2 == 0
     if pattern == "bach_allemande":
         return voice == "lead" and rise >= 3 and apex
     if pattern == "bach_courante":
-        opening = event.accent and abs(beat) < 1e-6 and voice in {"lead", "low"}
-        return opening or (voice == "lead" and apex and rise >= 3)
+        leap = voice == "lead" and event.staccato and abs(beat - 0.5) < 1e-6
+        return leap or (voice == "lead" and apex and rise >= 3)
     if pattern == "elegiaque":
         return voice == "lead" and event.accent
     if pattern == "study":

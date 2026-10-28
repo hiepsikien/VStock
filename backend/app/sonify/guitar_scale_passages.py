@@ -118,27 +118,11 @@ def _courante_intrinsic_eighths(ctx: _Ctx, bar: int) -> set[int]:
 
 
 def _courante_bass_spans(ctx: _Ctx, bar: int) -> tuple[tuple[int, int], ...]:
-    """`(offset, eighths)` copied from the Courante renderer, including its rests.
-
-    The next attack is not the end of the note. On 4/4 the fifth lasts two
-    eighths and eighth 6 stays empty. On an open 3/4 bar the bass at eighth 2
-    also lasts two eighths, so eighth 4 stays empty.
-    """
-    kind = getattr(ctx, "kind", None)
-    closes = _courante_closes(ctx, bar)
-    if kind == "3/4":
-        spans = ((0, 2), (3, 1), (5, 1)) if closes else ((0, 2), (2, 2), (5, 1))
-    elif kind == "6/8":
-        spans = ((0, 2), (2, 2), (4, 1), (5, 1)) if closes else ((0, 3), (3, 2), (5, 1))
-    elif kind == "4/4":
-        spans = ((0, 2), (2, 2), (4, 2), (7, 1))
-    else:
-        spans = tuple((offset, 1) for offset in ctx.strong if offset < ctx.epb)
-    return tuple(
-        (offset, duration)
-        for offset, duration in spans
-        if offset < ctx.epb and duration > 0 and offset + duration <= ctx.epb
-    )
+    """One bass at eighth 0 rings for the whole bar. No mid-bar attack."""
+    del bar
+    if ctx.epb <= 0:
+        return ()
+    return ((0, ctx.epb),)
 
 
 def _courante_bass_offsets(ctx: _Ctx, bar: int) -> tuple[int, ...]:
@@ -174,17 +158,7 @@ def _half_bar_bass_offsets(ctx: _Ctx, pattern: str) -> tuple[int, ...]:
 
 
 def _courante_bass_accent(ctx: _Ctx, eighth: int) -> bool:
-    local = eighth % ctx.epb
-    bar = eighth // ctx.epb
-    kind = getattr(ctx, "kind", None)
-    if _courante_closes(ctx, bar):
-        if kind == "3/4":
-            return local in {0, 3}
-        if kind == "6/8":
-            return local in {0, 2, 4}
-    if kind == "6/8":
-        return local in {0, 3}
-    return local == 0
+    return eighth % ctx.epb == 0
 
 
 @dataclass(frozen=True)

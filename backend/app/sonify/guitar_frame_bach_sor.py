@@ -1835,65 +1835,68 @@ def _roll_voices(
     ctx,
     pcs: list[int],
     *,
+    count: int,
     pedal_pc: int | None = None,
-) -> tuple[int, int, int, int]:
-    """Bass, low mid, upper mid, and lead.
+) -> tuple[int, list[int]]:
+    """Ringing bass and `count` chord tones for Voice 1. No inner voice.
 
-    A tonic pedal is used only when some stack passes ``_playable_line``.
-    Otherwise the bass is the chord root, and the inner voices are chosen
-    against that root. The leading tone of V7 never sits within two semitones
-    of whichever bass is kept.
+    A tonic pedal is used only when a lead line passes ``_playable_line``.
+    Otherwise the bass is the chord root. The leading tone of V7 never sits
+    within two semitones of whichever bass is kept.
     """
     members = {pc % 12 for pc in pcs}
     leading = _leading_pc(pcs)
     root = pcs[0] % 12
-    mids = _register_pool(frame._mid_lo(ctx), frame._mid_hi(ctx), members)
-    leads = _register_pool(frame._lead_lo(ctx), frame._lead_hi(ctx), members)
+    lo, hi = frame._lead_lo(ctx), frame._lead_hi(ctx)
     aim = 67 - ctx.semitones
-    leads.sort(key=lambda midi: (abs(midi - aim), midi))
     root_basses = _open_first(frame, ctx, _register_pool(ctx.bass_low, frame._bass_hi(ctx), {root}))
 
-    def stack_for(bass: int) -> tuple[int, int, int, int] | None:
-        uppers = [midi for midi in mids if bass < midi and not _beside_bass(midi, bass, leading)]
-        high = [midi for midi in leads if bass < midi and not _beside_bass(midi, bass, leading)]
-        for lead in high:
-            for low_mid in uppers:
-                if not bass < low_mid < lead:
-                    continue
-                for upper_mid in uppers:
-                    if not low_mid < upper_mid < lead:
-                        continue
-                    if _playable_line(ctx, [bass, low_mid, upper_mid, lead]):
-                        return bass, low_mid, upper_mid, lead
-        return None
+    def line_for(bass: int) -> list[int] | None:
+        if count <= 0:
+            return []
+        pool = [
+            midi
+            for midi in range(max(lo, bass + 1), hi + 1)
+            if midi % 12 in members
+            and not _beside_bass(midi, bass, leading)
+            and _playable_line(ctx, [bass, midi])
+        ]
+        if not pool:
+            return None
+        ordered = sorted(pool, key=lambda midi: (abs(midi - aim), midi))
+        arch: list[int] = []
+        for midi in ordered:
+            if midi not in arch:
+                arch.append(midi)
+            if len(arch) == min(3, len(pool)):
+                break
+        arch.sort()
+        return [arch[index % len(arch)] for index in range(count)]
 
-    def against_root(bass: int) -> tuple[int, int, int, int]:
-        uppers = [midi for midi in mids if bass < midi and not _beside_bass(midi, bass, leading)]
-        high = [midi for midi in leads if bass < midi and not _beside_bass(midi, bass, leading)]
-        lead = next((midi for midi in high if _playable_line(ctx, [bass, midi])), None)
-        if lead is None:
-            lead = high[0] if high else frame._lead_lo(ctx)
-        between = [midi for midi in uppers if midi < lead and _playable_line(ctx, [bass, midi, lead])]
-        if not between:
-            between = [midi for midi in uppers if midi < lead]
-        low_mid = between[0] if between else lead
-        upper_mid = next((midi for midi in between if midi > low_mid), low_mid)
-        return bass, low_mid, upper_mid, lead
+    def search(basses: list[int]) -> tuple[int, list[int]] | None:
+        for bass in basses:
+            line = line_for(bass)
+            if line is not None:
+                return bass, line
+        return None
 
     if pedal_pc is not None:
         pedal = _open_first(frame, ctx, _register_pool(ctx.bass_low, frame._bass_hi(ctx), {pedal_pc % 12}))
-        for bass in pedal:
-            found = stack_for(bass)
-            if found is not None:
-                return found
-    for bass in root_basses:
-        found = stack_for(bass)
+        found = search(pedal)
         if found is not None:
             return found
-    if root_basses:
-        return against_root(root_basses[0])
-    stacked, _inner, _lead = _stack_pitches(frame, ctx, pcs)
-    return against_root(stacked)
+    found = search(root_basses)
+    if found is not None:
+        return found
+    bass = root_basses[0] if root_basses else ctx.bass_low
+    fallback = [
+        midi
+        for midi in range(max(lo, bass + 1), hi + 1)
+        if not _beside_bass(midi, bass, leading) and _playable_line(ctx, [bass, midi])
+    ]
+    if not fallback:
+        fallback = [min(hi, max(lo, bass + 1))]
+    return bass, [fallback[index % len(fallback)] for index in range(max(0, count))]
 
 
 def _next_melody(frame, ctx, bar: int) -> int | None:
@@ -1957,55 +1960,35 @@ def _prelude_roll(
     eighth_grid: bool = False,
     pedal_pc: int | None = None,
 ) -> list[tuple]:
-    """Half-bar roll. Slot 0 is bass. The lead at sixteenth 3 rings across the next slot."""
+    """Half-bar roll. Slot 0 is the ringing bass. Every later attack is Voice 1."""
     if span <= 0 or start >= ctx.epb:
         return []
     span = min(span, ctx.epb - start)
-    bass, low_mid, upper_mid, lead = _roll_voices(frame, ctx, pcs, pedal_pc=pedal_pc)
-    if eighth_grid:
-        # One attack per eighth of this half. A 3-eighth half stops before a fifth note.
-        order = [(bass, 3), (low_mid, 2), (upper_mid, 2), (lead, 1), (low_mid, 2)]
-        specs = []
-        for index in range(span):
-            pitch, voice = order[index] if index < len(order) else (low_mid, 2)
-            if voice == 1 and lead_aim:
-                pitch = _aimed_lead(frame, ctx, bar, pitch, bass, [])
-            specs.append(_note(start + index, 1, pitch, voice, velocity))
-        return specs
-    if span >= 4:
-        arch = [
-            (low_mid, 2),
-            (upper_mid, 2),
-            (lead, 1),
-            (low_mid, 2),
-            (upper_mid, 2),
-            (lead, 1),
-            (upper_mid, 2),
-        ]
-    else:
-        arch = [
-            (low_mid, 2),
-            (upper_mid, 2),
-            (lead, 1),
-            (low_mid, 2),
-            (upper_mid, 2),
-        ]
-    lead_at = [index for index, (_pitch, voice) in enumerate(arch) if voice == 1]
-    last_lead = lead_at[-1] if lead_at else None
+    count = max(0, span - 1) if eighth_grid else max(0, span * 2 - 1)
+    bass, line = _roll_voices(frame, ctx, pcs, count=count, pedal_pc=pedal_pc)
+    leading = _leading_pc(pcs)
     specs = [_note(start, span, bass, 3, velocity)]
-    for index, (pitch, voice) in enumerate(arch):
+
+    def aimed(index: int, pitch: int) -> int:
+        if not (lead_aim and index == count - 1):
+            return pitch
+        stepped = _aimed_lead(frame, ctx, bar, pitch, bass, [])
+        if _beside_bass(stepped, bass, leading):
+            return pitch
+        return stepped
+
+    if eighth_grid:
+        for index in range(count):
+            at = start + 1 + index
+            if at >= start + span:
+                break
+            specs.append(_note(at, 1, aimed(index, line[index]), 1, velocity))
+        return specs
+    for index in range(count):
         at = start + 0.5 * (index + 1)
-        if at >= start + span:
+        if at >= start + span - 1e-9:
             break
-        # Sixteenth 3 of the half (arch index 2) sustains across the next slot.
-        length = 1.0 if index == 2 and voice == 1 else 0.5
-        if voice == 1 and index == last_lead and lead_aim:
-            company = []
-            if index == 2 and index + 1 < len(arch):
-                company = [arch[index + 1][0]]
-            pitch = _aimed_lead(frame, ctx, bar, pitch, bass, company)
-        voice_here = 2 if index == 3 else voice
-        specs.append(_note(at, length, pitch, voice_here, velocity))
+        specs.append(_note(at, 0.5, aimed(index, line[index]), 1, velocity))
     return specs
 
 

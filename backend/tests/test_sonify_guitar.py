@@ -4899,37 +4899,72 @@ def _slot_attacks(score, bar: int = 0) -> dict[int, list[tuple[str, NoteEvent]]]
     return found
 
 
-def test_bach_prelude_rolls_sixteenth_arpeggio_across_three_voices() -> None:
-    """One new attack per sixteenth. Bass owns the first slot of each half bar."""
+def _lead_at_slot(score, slot: int) -> NoteEvent:
+    found = [note for name, note in _slot_attacks(score).get(slot, []) if name == "lead"]
+    assert found, slot
+    return found[0]
+
+
+def test_bach_prelude_pairs_each_price_with_one_neighbor() -> None:
+    """Bass rings each half. Every price eighth is the price plus one neighbor."""
+    from app.sonify.guitar_bach import _render_bach_prelude_bar, _treble_step
+
     for meter in (METER_44, METER_34, METER_68):
         epb = meter.eighths_per_bar
-        melody = [72] * epb
+        melody = [72, 76, 74, 74, 71, 69][:epb]
+        if len(melody) < epb:
+            melody = (melody * epb)[:epb]
         ctx = _dance_ctx(meter, melody, character="calm", rel_span=0.0)
-        from app.sonify.guitar_bach import _render_bach_prelude_bar
-
         lead, support, low = _render_bach_prelude_bar(ctx, 0, set(), ctx.phrases[0])
         score = _voice_score(lead, support, low, meter, ctx.phrases)
         assert score.divisions == 4
         assert_playable(score, profiles="bach")
-        slots = epb * 2
-        half = slots // 2
-        attacks = _slot_attacks(score)
-        assert set(attacks) == set(range(slots))
-        for slot in range(slots):
-            assert len(attacks[slot]) == 1
-            name, note = attacks[slot][0]
-            if slot % half == 0:
-                assert name == "low"
-                assert abs(note.duration_beats - (half / 4)) < 1e-6
+        half = epb // 2
+        bass = _attacks(score.low, 0)
+        assert [round(note.beat, 2) for note in bass] == [0.0, half / 2]
+        assert all(abs(note.duration_beats - (half / 2)) < 1e-6 for note in bass)
+        for eighth, price in enumerate(melody):
+            strong = _lead_at_slot(score, eighth * 2)
+            neighbor = _lead_at_slot(score, eighth * 2 + 1)
+            assert strong.midi == price
+            assert abs(strong.duration_beats - 0.25) < 1e-6
+            assert abs(neighbor.duration_beats - 0.25) < 1e-6
+            nxt = melody[eighth + 1] if eighth + 1 < epb else melody[-1]
+            if nxt < price:
+                assert neighbor.midi is not None and neighbor.midi <= price
+            elif nxt > price:
+                assert neighbor.midi is not None and price <= neighbor.midi <= nxt
             else:
-                assert name in {"lead", "support"}
+                assert neighbor.midi == _treble_step(ctx, price, 1)
+        # The bass sixteenth still carries the price.
+        assert any(name == "low" for name, _note in _slot_attacks(score)[0])
+        assert _lead_at_slot(score, 0).midi == melody[0]
         for origin in (0, half):
-            name, note = attacks[origin + 3][0]
-            assert name == "lead" and abs(note.duration_beats - 0.5) < 1e-6
-            assert attacks[origin + 4][0][0] == "support"
-            assert attacks[origin + 5][0][0] == "support"
-        bass_beats = [round(note.beat, 2) for note in _attacks(score.low, 0)]
-        assert bass_beats == [0.0, 2.0] if epb >= 8 else [0.0, 1.5]
+            in_half = [
+                note
+                for note in _attacks(score.support, 0)
+                if origin / 2 - 1e-6 <= note.beat < (origin + half) / 2 - 1e-6
+            ]
+            assert len(in_half) <= 1
+            if in_half:
+                assert abs((in_half[0].beat + in_half[0].duration_beats) - ((origin + half) / 2)) < 1e-6
+                heard = _covering(score.lead, 0, in_half[0].beat)
+                assert heard is not None and heard.velocity is not None and in_half[0].velocity is not None
+                assert in_half[0].velocity < heard.velocity
+
+    falling = _dance_ctx(METER_44, [76, 72, 71, 69, 67, 65, 64, 62], character="calm", rel_span=0.0)
+    lead, support, low = _render_bach_prelude_bar(falling, 0, set(), falling.phrases[0])
+    fallen = _voice_score(lead, support, low, METER_44, falling.phrases)
+    assert_playable(fallen, profiles="bach")
+    assert _lead_at_slot(fallen, 0).midi == 76
+    assert _lead_at_slot(fallen, 2).midi == 72
+    assert _lead_at_slot(fallen, 1).midi is not None and _lead_at_slot(fallen, 1).midi <= 76
+
+    third = _dance_ctx(METER_44, [64] * 8, character="calm", rel_span=0.0)
+    lead, support, low = _render_bach_prelude_bar(third, 0, set(), third.phrases[0])
+    voiced = _voice_score(lead, support, low, METER_44, third.phrases)
+    assert_playable(voiced, profiles="bach")
+    assert _attacks(voiced.support, 0) == []
 
 
 def test_bach_allemande_weaves_style_brise_and_sixteenth_pickup() -> None:
@@ -4959,18 +4994,21 @@ def test_bach_allemande_weaves_style_brise_and_sixteenth_pickup() -> None:
             assert not any(note.staccato for note in voice if note.midi is not None)
         assert _sixteenths(score.lead, 0) == [3.0, 3.25, 3.5, 3.75]
         assert _covering(score.low, 0, 3.0) is None
-        assert min(_onset_beats(score.support, 0)) > min(_onset_beats(score.low, 0))
-        support = _attacks(score.support, 0)
-        assert [round(note.beat, 2) for note in support] == [0.5, 2.5]
-        assert abs(support[0].duration_beats - 1.0) < 1e-6
-        assert abs(support[1].duration_beats - 0.5) < 1e-6
+        assert _covering(score.support, 0, 3.0) is None
+    held_support = _attacks(held.support, 0)
+    assert min(_onset_beats(held.support, 0)) > min(_onset_beats(held.low, 0))
+    assert [round(note.beat, 2) for note in held_support] == [0.5, 2.5]
+    assert abs(held_support[0].duration_beats - 1.0) < 1e-6
+    assert abs(held_support[1].duration_beats - 0.5) < 1e-6
     held_bass = _attacks(held.low, 0)
     assert 0.5 in {round(note.beat, 2) for note in held_bass}
     assert held_bass[0].midi != held_bass[1].midi
+    assert _attacks(running.support, 0) == []
     running_bass = _attacks(running.low, 0)
     assert [round(note.beat, 2) for note in running_bass] == [0.0, 2.0]
     assert abs(running_bass[0].duration_beats - 2.0) < 1e-6
     assert abs(running_bass[1].duration_beats - 1.0) < 1e-6
+    assert 0.5 not in {round(note.beat, 2) for note in running_bass}
 
     three = render(METER_34, [72] * 12)
     assert _sixteenths(three.lead, 0) == [2.0, 2.25, 2.5, 2.75]
@@ -4991,19 +5029,18 @@ def test_bach_allemande_weaves_style_brise_and_sixteenth_pickup() -> None:
     assert not any(note.staccato for note in (*six.lead, *six.support, *six.low))
 
 
-def test_bach_courante_leaps_on_beat_one_and_runs_sixteenths_on_the_middle_beat() -> None:
-    """Leap, tirata, and anacrusis. Hemiola belongs to the closing bar of 3/4 and 6/8."""
-    from app.sonify.guitar_bach import _render_bach_courante_bar
+def test_bach_courante_sings_the_price_then_runs_toward_it() -> None:
+    """A flat opening leaps a third. The bass is one note. A close has no sixteenths."""
+    from app.sonify.guitar_bach import _render_bach_courante_bar, _treble_step
 
-    def render(meter, *, closes: bool):
+    def render(meter, melody: list[int], *, closes: bool):
         epb = meter.eighths_per_bar
-        melody = [72] * epb + [74] * epb
         phrase = _joined(0, melody[:epb], held=not closes)
         ctx = _dance_ctx(meter, melody, phrases=(phrase,), character="rally", rel_span=0.02)
         lead, support, low = _render_bach_courante_bar(ctx, 0, set(), phrase)
         score = _voice_score(lead, support, low, meter, (phrase,))
         assert_playable(score, profiles="bach")
-        return score
+        return ctx, score
 
     def bass_rows(score) -> list[tuple[float, float, bool]]:
         return [
@@ -5012,58 +5049,65 @@ def test_bach_courante_leaps_on_beat_one_and_runs_sixteenths_on_the_middle_beat(
         ]
 
     for meter, tirata in (
-        (METER_34, [1.0, 1.25, 1.5, 1.75]),
+        (METER_34, [1.5, 1.75, 2.0, 2.25]),
         (METER_68, [1.5, 1.75, 2.0, 2.25]),
-        (METER_44, [2.0, 2.25, 2.5, 2.75]),
+        (METER_44, [2.0, 2.25, 2.5, 2.75, 3.0, 3.25]),
     ):
-        score = render(meter, closes=False)
+        epb = meter.eighths_per_bar
+        ctx, score = render(meter, [72] * epb + [74] * epb, closes=False)
         assert score.divisions == 4
         lead = _attacks(score.lead, 0)
-        assert lead[0].accent and abs(lead[0].beat) < 1e-6
+        assert lead[0].midi == 72
         leap = next(note for note in lead if abs(note.beat - 0.5) < 1e-6)
-        assert leap.staccato and leap.midi is not None and lead[0].midi is not None
-        assert leap.midi > lead[0].midi
+        assert leap.staccato and leap.accent
+        assert leap.midi == _treble_step(ctx, 72, 2)
+        assert leap.midi is not None and leap.midi > 72
         assert _sixteenths(score.lead, 0) == tirata
-        end = meter.eighths_per_bar / 2 - 0.5
-        assert any(abs(note.beat - end) < 1e-6 for note in _attacks(score.lead, 0))
-        assert any(abs(note.beat - end) < 1e-6 for note in _attacks(score.low, 0))
-        ordered = _attacks(score.low, 0)
-        for left, right in zip(ordered, ordered[1:]):
-            assert left.beat + left.duration_beats <= right.beat + 1e-6
-        if meter is METER_34:
-            # Eighth 4 is the staccato arrival. The bass that began on eighth 2 has ended.
-            assert not any(abs(note.beat - 2.0) < 1e-6 for note in ordered)
-            second = next(note for note in ordered if abs(note.beat - 1.0) < 1e-6)
-            assert abs((second.beat + second.duration_beats) - 2.0) < 1e-6
-        elif meter is METER_44:
-            # Eighth 6 is the staccato lead. The bass from eighth 4 stops there.
-            fifth = next(note for note in ordered if abs(note.beat - 2.0) < 1e-6)
-            assert abs(fifth.duration_beats - 1.0) < 1e-6
-            assert abs((fifth.beat + fifth.duration_beats) - 3.0) < 1e-6
-            assert not any(abs(note.beat - 3.0) < 1e-6 for note in ordered)
-            assert any(abs(note.beat - 3.5) < 1e-6 for note in ordered)
-        else:
-            for left, right in zip(ordered, ordered[1:]):
-                assert abs((left.beat + left.duration_beats) - right.beat) < 1e-6
+        sixteenths = [note for note in lead if abs(note.duration_beats - 0.25) < 1e-6]
+        assert sixteenths[0].midi == 72
+        assert sixteenths[-1].midi == 72
+        assert sixteenths[1].midi != 72 and sixteenths[2].midi != 72
+        tail = next(note for note in lead if abs(note.beat - (epb / 2 - 0.5)) < 1e-6)
+        assert abs(tail.duration_beats - 0.5) < 1e-6
+        assert tail.midi == _treble_step(ctx, 72, 1)
+        assert bass_rows(score) == [(0.0, epb / 2, True)]
+        assert _attacks(score.support, 0) == []
 
-    three = render(METER_34, closes=True)
-    assert _sixteenths(three.lead, 0) == [1.0, 1.25, 1.5, 1.75]
-    assert bass_rows(three)[0] == (0.0, 1.0, True)
-    assert (1.5, 0.5, True) in bass_rows(three)
-    assert not any(abs(note.beat - 1.0) < 1e-6 for note in _attacks(three.low, 0))
+    ctx, rising = render(METER_44, [72, 74, 76, 77, 79, 81, 79, 77, 74], closes=False)
+    rise_lead = _attacks(rising.lead, 0)
+    second = next(note for note in rise_lead if abs(note.beat - 0.5) < 1e-6)
+    assert second.midi == 74 and not second.staccato
+    ctx, falling = render(METER_44, [76, 72, 71, 69, 67, 65, 64, 62, 60], closes=False)
+    fall_lead = _attacks(falling.lead, 0)
+    dropped = next(note for note in fall_lead if abs(note.beat - 0.5) < 1e-6)
+    assert dropped.midi == 72 and dropped.midi < fall_lead[0].midi and not dropped.staccato
+    rhythm = [note for note in fall_lead if abs(note.duration_beats - 0.25) < 1e-6]
+    assert rhythm[0].midi == 67 and rhythm[-1].midi == 64
+    assert all(right.midi is not None and left.midi is not None and right.midi <= left.midi for left, right in zip(rhythm, rhythm[1:]))
 
-    six = render(METER_68, closes=True)
+    three_ctx, three = render(METER_34, [72] * 6 + [74] * 6, closes=True)
+    assert _sixteenths(three.lead, 0) == []
+    assert bass_rows(three) == [(0.0, 3.0, True)]
+    accents = {round(note.beat, 2) for note in _attacks(three.lead, 0) if note.accent}
+    assert {0.0, 1.5} <= accents
+    leap = next(note for note in _attacks(three.lead, 0) if abs(note.beat - 0.5) < 1e-6)
+    assert leap.staccato and leap.midi == _treble_step(three_ctx, 72, 2)
+
+    six_ctx, six = render(METER_68, [72] * 6 + [74] * 6, closes=True)
+    del six_ctx
     assert _sixteenths(six.lead, 0) == []
     assert _sixteenths(six.support, 0) == []
     assert _sixteenths(six.low, 0) == []
-    assert bass_rows(six)[:3] == [(0.0, 1.0, True), (1.0, 1.0, True), (2.0, 0.5, True)]
+    assert bass_rows(six) == [(0.0, 3.0, True)]
     accents = {round(note.beat, 2) for note in _attacks(six.lead, 0) if note.accent}
     assert {0.0, 1.0, 2.0} <= accents
 
-    four = render(METER_44, closes=True)
-    assert _sixteenths(four.lead, 0) == [2.0, 2.25, 2.5, 2.75]
-    assert [beat for beat, _dur, _accent in bass_rows(four)] == [0.0, 1.0, 2.0, 3.5]
-    assert not any(abs(note.beat - 1.5) < 1e-6 for note in _attacks(four.low, 0))
+    four_ctx, four = render(METER_44, [72] * 8 + [74] * 8, closes=True)
+    del four_ctx
+    assert _sixteenths(four.lead, 0) == []
+    assert bass_rows(four) == [(0.0, 4.0, True)]
+    assert not any(note.accent and abs(note.beat - 1.5) < 1e-6 for note in _attacks(four.lead, 0))
+    assert _attacks(four.support, 0) == []
 
 
 def _spec_ctx(spec, *, character: str, rel_span: float, motion: str = "held", bpm: int | None = None):

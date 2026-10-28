@@ -1454,23 +1454,6 @@ def _lead_at(ctx: _Ctx, eighth: int) -> int:
     return _clamp_lead_pitch(ctx, _melody_at(ctx, eighth))
 
 
-def _nearest_lead_over(ctx: _Ctx, pitch: int, bass: int) -> int:
-    """A treble note above `bass` that shares a hand with it."""
-    high = _bach_lead_high(ctx)
-    floor = max(ctx.treble_floor, bass + 1)
-    best: int | None = None
-    for note in range(floor, high + 1):
-        if not _sounding_ok(ctx, [bass, note]):
-            continue
-        if best is None or abs(note - pitch) < abs(best - pitch) or (
-            abs(note - pitch) == abs(best - pitch) and note < best
-        ):
-            best = note
-    if best is not None:
-        return best
-    return _clamp_lead_pitch(ctx, max(pitch, floor))
-
-
 def _inner_between(
     ctx: _Ctx,
     chord: Chord,
@@ -1531,111 +1514,210 @@ def _bass_under_leads(ctx: _Ctx, chord: Chord, leads: list[int], degree: int) ->
     return found[0]
 
 
-def _prelude_mids(ctx: _Ctx, chord: Chord, bass: int, leads: list[int]) -> tuple[int, int] | None:
-    """`bass < low_mid <= upper_mid < lead`, and every real overlap fits one hand."""
-    if not leads:
+def _chord_third(chord: Chord) -> int | None:
+    if len(chord.pitches) < 2:
         return None
-    top = min(leads)
-    floor = max(ctx.mid_low, bass + 1)
-    ceiling = min(ctx.mid_high, 65, top - 1)
+    return chord.pitches[1] % 12
+
+
+def _prelude_neighbor(ctx: _Ctx, current: int, nxt: int) -> int:
+    """One diatonic step. A moving price keeps the neighbor inside the interval."""
+    if nxt == current:
+        step = _treble_step(ctx, current, 1)
+        if step == current:
+            step = _treble_step(ctx, current, -1)
+        return step
+    direction = 1 if nxt > current else -1
+    step = _treble_step(ctx, current, direction)
+    if direction > 0 and current < step <= nxt:
+        return step
+    if direction < 0 and nxt <= step < current:
+        return step
+    if direction > 0 and current < nxt < step:
+        return nxt
+    if direction < 0 and step < nxt < current:
+        return nxt
+    if (step - current) * direction > 0:
+        return step
+    return nxt
+
+
+def _fits_bass(ctx: _Ctx, bass: int, leads: list[int]) -> bool:
+    if any(bass >= lead for lead in leads):
+        return False
+    return all(_sounding_ok(ctx, [bass, lead]) for lead in leads)
+
+
+def _ordered_basses(ctx: _Ctx, chord: Chord, degrees: tuple[int, ...], ceiling: int) -> list[int]:
+    """Preferred degrees from high to low, then any lower pitch that can still fit."""
+    high = min(_bach_bass_high(ctx), ceiling - 1)
+    if high < ctx.bass_low:
+        return []
+    ordered: list[int] = []
+    seen: set[int] = set()
+    for degree in degrees:
+        if degree >= len(chord.pitches):
+            continue
+        pc = chord.pitches[degree] % 12
+        for note in range(high, ctx.bass_low - 1, -1):
+            if note % 12 == pc and note not in seen:
+                seen.add(note)
+                ordered.append(note)
+    for note in range(high, ctx.bass_low - 1, -1):
+        if note not in seen:
+            ordered.append(note)
+    return ordered
+
+
+def _place_third(ctx: _Ctx, chord: Chord, bass: int, leads: list[int]) -> int | None:
+    """One chord third under every lead, or nothing when the hand cannot hold it."""
+    third = _chord_third(chord)
+    if third is None or not leads:
+        return None
+    floor = max(ctx.mid_low, bass + 1, 50)
+    ceiling = min(ctx.mid_high, 65, min(leads) - 1)
     if floor > ceiling:
         return None
-    pcs = {pitch % 12 for pitch in chord.pitches}
-    candidates = list(range(floor, ceiling + 1))
-    candidates.sort(key=lambda note: (note % 12 not in pcs, note))
-    anchor = leads[0]
-    for low_mid in candidates:
-        for upper_mid in candidates:
-            if upper_mid < low_mid or not bass < low_mid <= upper_mid < top:
-                continue
-            groups = [
-                [bass, low_mid],
-                [bass, upper_mid],
-                [bass, low_mid, anchor],
-                *([bass, lead] for lead in leads),
-            ]
-            if all(_sounding_ok(ctx, group) for group in groups):
-                return low_mid, upper_mid
+    for note in range(ceiling, floor - 1, -1):
+        if note % 12 != third:
+            continue
+        if all(_sounding_ok(ctx, [bass, note, lead]) for lead in leads):
+            return note
     return None
 
 
-def _prelude_stack(ctx: _Ctx, chord: Chord, leads: list[int], degree: int) -> tuple[int, int, int, list[int]]:
-    """Bass, low mid, upper mid, and leads raised until the arch is playable."""
-    current = list(leads)
-    bass = _bass_under_leads(ctx, chord, current, degree)
-    pair = _prelude_mids(ctx, chord, bass, current)
-    for _ in range(8):
-        if pair is not None and all(pitch > pair[1] for pitch in current):
-            return bass, pair[0], pair[1], current
-        raised: list[int] = []
-        for pitch in current:
-            nxt = _treble_step(ctx, pitch, 1)
-            raised.append(pitch if nxt <= pitch else min(_bach_lead_high(ctx), nxt))
-        if raised == current:
-            break
-        current = raised
-        bass = _bass_under_leads(ctx, chord, current, degree)
-        pair = _prelude_mids(ctx, chord, bass, current)
-    if pair is None:
-        anchor = current[0]
-        mid = min(max(ctx.mid_low, bass + 1), 65, anchor - 1)
-        if mid <= bass:
-            mid = bass + 1
-        pair = (mid, mid)
-    return bass, pair[0], pair[1], current
+def _degree_notes(ctx: _Ctx, chord: Chord, degree: int, ceiling: int) -> list[int]:
+    if degree >= len(chord.pitches):
+        return []
+    high = min(_bach_bass_high(ctx), ceiling - 1)
+    if high < ctx.bass_low:
+        return []
+    pc = chord.pitches[degree] % 12
+    return [note for note in range(high, ctx.bass_low - 1, -1) if note % 12 == pc]
+
+
+def _third_already(chord: Chord, bass: int, prices: list[int]) -> bool:
+    third = _chord_third(chord)
+    return third is None or third in {bass % 12, *(pitch % 12 for pitch in prices)}
+
+
+def _select_bass(
+    ctx: _Ctx,
+    chord: Chord,
+    degrees: tuple[int, ...],
+    prices: list[int],
+    sounding: list[int],
+    *,
+    want_third: bool,
+) -> tuple[int, int | None]:
+    """Keep the on-beat prices. Lower the bass until the hand fits.
+
+    Degrees are tried in order. A later degree is used only when no note of an
+    earlier degree fits under the lead. Within one degree the bass drops until
+    the chord third can sit between it and the lead.
+    """
+    ceiling = min(sounding) if sounding else _bach_lead_high(ctx)
+    seen: set[int] = set()
+    for degree in degrees:
+        notes = _degree_notes(ctx, chord, degree, ceiling)
+        seen.update(notes)
+        fallback: int | None = None
+        for bass in notes:
+            if not _fits_bass(ctx, bass, sounding):
+                continue
+            if fallback is None:
+                fallback = bass
+            if not want_third or _third_already(chord, bass, prices):
+                return bass, None
+            tone = _place_third(ctx, chord, bass, sounding)
+            if tone is not None:
+                return bass, tone
+        if fallback is not None:
+            return fallback, None
+    for bass in _ordered_basses(ctx, chord, (), ceiling):
+        if bass in seen or not _fits_bass(ctx, bass, sounding):
+            continue
+        if not want_third or _third_already(chord, bass, prices):
+            return bass, None
+        tone = _place_third(ctx, chord, bass, sounding)
+        if tone is not None:
+            return bass, tone
+        return bass, None
+    return ctx.bass_low, None
+
+
+def _softer_than_price(
+    support: list[NoteEvent], lead: list[NoteEvent], epb: int
+) -> list[NoteEvent]:
+    """The inner note stays under the price that sounds with it."""
+    softened: list[NoteEvent] = []
+    for event in support:
+        if event.midi is None or event.velocity is None:
+            softened.append(event)
+            continue
+        when = _start16(event, epb)
+        heard = [
+            note.velocity
+            for note in lead
+            if note.midi is not None
+            and note.velocity is not None
+            and _start16(note, epb) <= when < _start16(note, epb) + _dur16(note)
+        ]
+        if heard and event.velocity >= min(heard):
+            event = replace(event, velocity=max(40, min(heard) - 1))
+        softened.append(event)
+    return softened
+
+
+def _prelude_halves(ctx: _Ctx) -> list[tuple[int, int]]:
+    """`(origin, eighths)` for each half bar. 3/4 and 6/8 keep the second bass on eighth 3."""
+    epb = ctx.epb
+    if ctx.kind in {"3/4", "6/8"} or (ctx.kind != "4/4" and epb < 8):
+        mid = min(3, epb)
+    else:
+        mid = min(4, epb)
+    halves = [(0, mid)] if mid > 0 else []
+    if mid < epb:
+        halves.append((mid, epb - mid))
+    return halves
 
 
 def _render_bach_prelude_bar(
     ctx: _Ctx, bar: int, apex: set[int], phrase: Phrase | None
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
-    """One new attack per sixteenth. Bass owns slot 0 of each half bar and rings through it.
+    """Two voices. Each price eighth is the price plus one diatonic neighbor.
 
-    3/4 and 6/8 still split the bar in half, so the second bass stays on eighth 3.
-    The lead attack on slot 3 lasts two sixteenths; slot 4 is a support attack.
+    The bass attacks once per half bar and rings through it. Voice 1 may attack
+    on that same sixteenth. Voice 2 is at most one sustained note, and only when
+    the bass and the prices of that half do not already include the chord third.
     """
     epb = ctx.epb
     start = bar * epb
-    if epb >= 8:
-        origins = [origin for origin in (0, 4) if origin < epb]
-        slots = 8
-    else:
-        origins = [origin for origin in (0, 3) if origin < epb]
-        slots = 6
     lead: list[NoteEvent] = []
     support: list[NoteEvent] = []
     low: list[NoteEvent] = []
     chord = ctx.chord(bar)
-    for index, origin in enumerate(origins):
-        eighth = start + origin
-        degree = 0 if index == 0 else 2
-        lead_a = _lead_at(ctx, eighth + 1)
-        leads = [lead_a]
-        if slots == 8:
-            leads.append(_lead_at(ctx, eighth + 3))
-        bass, low_mid, upper_mid, fitted = _prelude_stack(ctx, chord, leads, degree)
-        lead_a = fitted[0]
-        lead_b = fitted[1] if slots == 8 else lead_a
-        origin16 = eighth * 2
-        low.extend(_eighth_event(eighth, slots // 2, bass, epb, 3, _BASS))
-
-        def add_support(slot: int, pitch: int) -> None:
-            support.extend(_spell16(origin16 + slot, 1, pitch, epb, 2, _INNER))
-
-        def add_lead(slot: int, pitch: int, length: int) -> None:
-            velocity = _note_velocity(eighth + slot // 2, max(1, length // 2), apex, phrase)
-            lead.extend(_spell16(origin16 + slot, length, pitch, epb, 1, velocity))
-
-        add_support(1, low_mid)
-        add_support(2, upper_mid)
-        add_lead(3, lead_a, 2)
-        add_support(4, low_mid)
-        if slots == 8:
-            add_support(5, upper_mid)
-            add_lead(6, lead_b, 1)
-            add_support(7, upper_mid)
-        else:
-            add_support(5, upper_mid)
+    for index, (origin, span) in enumerate(_prelude_halves(ctx)):
+        prices: list[int] = []
+        neighbors: list[int] = []
+        for step in range(span):
+            eighth = start + origin + step
+            price = _melody_at(ctx, eighth)
+            neighbor = _prelude_neighbor(ctx, price, _melody_at(ctx, eighth + 1))
+            prices.append(price)
+            neighbors.append(neighbor)
+            velocity = _note_velocity(eighth, 1, apex, phrase)
+            slot = eighth * 2
+            lead.extend(_spell16(slot, 1, price, epb, 1, velocity))
+            lead.extend(_spell16(slot + 1, 1, neighbor, epb, 1, velocity))
+        sounding = [*prices, *neighbors]
+        degrees = (0,) if index == 0 else (2, 1)
+        bass, tone = _select_bass(ctx, chord, degrees, prices, sounding, want_third=True)
+        low.extend(_eighth_event(start + origin, span, bass, epb, 3, _BASS))
+        if tone is not None:
+            support.extend(_eighth_event(start + origin, span, tone, epb, 2, _INNER))
     support, low = _shape_accompaniment(ctx, support, low)
+    support = _softer_than_price(support, lead, epb)
     return lead, support, low
 
 
@@ -1771,9 +1853,23 @@ def _render_bach_allemande_bar(
         low.extend(_eighth_event(eighth + 1, duration - 1, walk, epb, 3, _BASS))
     support: list[NoteEvent] = []
     previous_inner: int | None = None
+    pickup_at = epb - 2 if passes else None
     for offset, duration in _allemande_support_plan(ctx, passes):
         eighth = start + offset
+        # A running lead leaves this beat empty. One third or sixth only while it holds.
+        if _hold_at(lead, eighth, epb) < 2:
+            continue
         sung = _sounding_midi(lead, eighth, epb) or _lead_at(ctx, eighth)
+        remaining = 0
+        while remaining < epb and _sounding_midi(lead, eighth + remaining, epb) == sung:
+            remaining += 1
+        duration = min(duration, remaining)
+        if pickup_at is not None:
+            if offset >= pickup_at:
+                continue
+            duration = min(duration, pickup_at - offset)
+        if duration <= 0:
+            continue
         bass_now = _sounding_midi(low, eighth, epb)
         if bass_now is None or not bass_now < sung:
             continue
@@ -1800,187 +1896,211 @@ def _line_quarters_ok(line: list[int], start_slot: int) -> bool:
     return all(_quarter_ok(group) for group in groups.values())
 
 
-def _tirata_line(ctx: _Ctx, start_slot: int, target: int, count: int, bass: int) -> list[int]:
-    """Four sixteenths into `target` that stay above `bass` and inside one position."""
-    arrival = target if target > bass and _sounding_ok(ctx, [bass, target]) else _nearest_lead_over(ctx, target, bass)
-    line = _fitting_scale(ctx, start_slot, arrival, count)
-    if (
-        len(line) == count
-        and all(pitch > bass and _sounding_ok(ctx, [bass, pitch]) for pitch in line)
-        and _line_quarters_ok(line, start_slot)
-    ):
-        line[-1] = arrival
+def _scale_path(ctx: _Ctx, origin: int, arrival: int) -> list[int]:
+    """Diatonic pitches from `origin` to `arrival`, inclusive, without turning back."""
+    if origin == arrival:
+        return [origin]
+    direction = 1 if arrival > origin else -1
+    path = [origin]
+    cursor = origin
+    for _ in range(48):
+        if cursor == arrival:
+            break
+        nxt = _treble_step(ctx, cursor, direction)
+        if nxt == cursor:
+            break
+        if direction > 0 and nxt > arrival:
+            break
+        if direction < 0 and nxt < arrival:
+            break
+        path.append(nxt)
+        cursor = nxt
+    if path[-1] != arrival:
+        path.append(arrival)
+    return path
+
+
+def _fit_directed(path: list[int], count: int) -> list[int]:
+    """`count` notes along `path`. The ends stay put. Extra slots repeat; they do not turn back."""
+    if count <= 0:
+        return []
+    if count == 1:
+        return [path[-1]]
+    if len(path) == 1:
+        return [path[0]] * count
+    direction = 1 if path[-1] > path[0] else -1
+    if len(path) > count:
+        chosen = [path[0]]
+        for index in range(1, count - 1):
+            pos = round(index * (len(path) - 1) / (count - 1))
+            pitch = path[min(max(pos, 0), len(path) - 1)]
+            if direction > 0:
+                pitch = max(chosen[-1], min(pitch, path[-1]))
+            else:
+                pitch = min(chosen[-1], max(pitch, path[-1]))
+            chosen.append(pitch)
+        chosen.append(path[-1])
+        return chosen
+    line = [path[0]]
+    extras = count - len(path)
+    line.extend([path[0]] * extras)
+    line.extend(path[1:])
+    return line[:count]
+
+
+def _tirata_neighbor(ctx: _Ctx, pitch: int) -> int:
+    """A diatonic neighbor. The upper step is first; a ceiling uses the lower step."""
+    above = _treble_step(ctx, pitch, 1)
+    if above != pitch:
+        return above
+    below = _treble_step(ctx, pitch, -1)
+    return below
+
+
+def _tirata_line(ctx: _Ctx, start_slot: int, origin: int, arrival: int, count: int) -> list[int]:
+    """Sixteenths from `origin` to `arrival`. Equal ends neighbor on slots 2 and 3.
+
+    This never falls back to `[arrival] * count`.
+    """
+    if count <= 0:
+        return []
+    if count == 1:
+        return [arrival]
+    if origin == arrival:
+        neighbor = _tirata_neighbor(ctx, arrival)
+        line = [arrival] * count
+        if neighbor != arrival:
+            line[1] = neighbor
+            if count > 2:
+                line[2] = neighbor
+        else:
+            forced = arrival + 1
+            line[1] = forced
+            if count > 2:
+                line[2] = forced
+        if not _line_quarters_ok(line, start_slot) and neighbor != arrival:
+            other = _treble_step(ctx, arrival, -1 if neighbor > arrival else 1)
+            if other != arrival and other != neighbor:
+                swapped = [arrival] * count
+                swapped[1] = other
+                if count > 2:
+                    swapped[2] = other
+                if _line_quarters_ok(swapped, start_slot):
+                    return swapped
         return line
-    return [arrival] * count
+    path = _scale_path(ctx, origin, arrival)
+    line = _fit_directed(path, count)
+    line[0] = origin
+    line[-1] = arrival
+    if line == [arrival] * count:
+        line[0] = origin
+    if not _line_quarters_ok(line, start_slot):
+        compact = [origin] * (count - 1) + [arrival]
+        compact[0] = origin
+        compact[-1] = arrival
+        if _line_quarters_ok(compact, start_slot):
+            line = compact
+    return line
 
 
-def _anacrusis_pitch(ctx: _Ctx, origin: int, target: int, bass: int) -> int:
-    origin = _clamp_lead_pitch(ctx, origin)
-    target = _clamp_lead_pitch(ctx, target)
+def _step_toward(ctx: _Ctx, origin: int, target: int) -> int:
+    """One diatonic step from `origin` toward `target`. A unison takes the upper step."""
     if target == origin:
         step = _treble_step(ctx, origin, 1)
-    else:
-        step = _treble_step(ctx, origin, 1 if target > origin else -1)
-    if step > bass and _sounding_ok(ctx, [bass, step]):
+        if step == origin:
+            step = _treble_step(ctx, origin, -1)
         return step
-    return _nearest_lead_over(ctx, step, bass)
+    return _treble_step(ctx, origin, 1 if target > origin else -1)
+
+
+def _courante_span(ctx: _Ctx) -> tuple[int, int, int]:
+    """Melody ends at `open_off`. The arrival is the penultimate eighth of the rhythm half."""
+    epb = ctx.epb
+    if ctx.kind == "4/4" or (ctx.kind not in {"3/4", "6/8"} and epb >= 8):
+        return min(4, epb), min(6, epb - 1), epb - 1
+    return min(3, epb), min(4, epb - 1), epb - 1
 
 
 def _render_bach_courante_bar(
     ctx: _Ctx, bar: int, apex: set[int], phrase: Phrase | None
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
-    """Opening leap, a four-sixteenth tirata on the meter's middle beat, and a final anacrusis.
+    """Melody eighths, then a price-directed rhythm. One bass rings the whole bar.
 
-    3/4 is the three-beat bar of BWV 1007. 6/8 is two dotted beats, so the tirata
-    sits on eighths 3–4. 4/4 keeps the leap and the tirata and does not hemiola.
-    The bass at eighth 4 lasts two eighths, so eighth 6 is the staccato lead and
-    eighth 7 is the pickup. Bass notes do not overlap the next bass attack.
+    Equal prices on eighth 0 and 1 leap a diatonic third and turn staccato.
+    A differing pair sings the price, including a fall. The rhythm half runs in
+    sixteenths from the price that opens it to the price on the penultimate
+    eighth. The last eighth steps toward the next bar. A closing bar sings the
+    rhythm half as eighths and may hold one inner note with the bass.
     """
     epb = ctx.epb
     start = bar * epb
-    closes = ctx.kind != "4/4" and _courante_closes(bar, phrase, epb)
+    closes = _courante_closes(bar, phrase, epb)
     chord = ctx.chord(bar)
-    sung0 = _lead_at(ctx, start)
-    raw1 = _lead_at(ctx, start + 1)
-    leap = raw1 if raw1 > sung0 else _treble_step(ctx, sung0, 2)
-    if leap <= sung0:
-        leap = _treble_step(ctx, sung0, 1)
-    opening = _bass_under_leads(ctx, chord, [sung0, leap], 0)
-    if not _sounding_ok(ctx, [opening, sung0]):
-        opening = _bass_under_leads(ctx, chord, [sung0], 0)
-        sung0 = _nearest_lead_over(ctx, sung0, opening)
-    if not _sounding_ok(ctx, [opening, leap]):
-        leap = _nearest_lead_over(ctx, max(leap, sung0 + 1), opening)
-    next_eighth = (bar + 1) * epb if bar + 1 < ctx.bars else start
-    next_lead = _lead_at(ctx, min(len(ctx.melody) - 1, next_eighth))
+    melody_end, arrival_off, last_off = _courante_span(ctx)
+    open_off = melody_end
+    prices = [_melody_at(ctx, start + offset) for offset in range(epb)]
+    sung0 = prices[0]
+    same_open = epb > 1 and prices[0] == prices[1]
+    leap = _treble_step(ctx, sung0, 2) if same_open else prices[1]
+    next_price = _melody_at(ctx, (bar + 1) * epb if bar + 1 < ctx.bars else start + epb)
+    arrival = prices[arrival_off] if arrival_off < epb else prices[-1]
+    opener = prices[open_off] if open_off < epb else prices[-1]
+    step = _step_toward(ctx, arrival, next_price)
+    count = max(0, (arrival_off - open_off + 1) * 2)
+    rhythm = [] if closes or count < 2 or open_off > arrival_off else _tirata_line(ctx, open_off * 2, opener, arrival, count)
+
     lead: list[NoteEvent] = []
-    support: list[NoteEvent] = []
-    low: list[NoteEvent] = []
+    sounding: list[int] = []
 
     def add_lead(offset: int, eighths: int, pitch: int, *, accent: bool = False, staccato: bool = False) -> None:
-        events = _eighth_event(start + offset, eighths, pitch, epb, 1, _note_velocity(start + offset, eighths, apex, phrase), accent)
+        if offset >= epb or eighths <= 0:
+            return
+        events = _eighth_event(
+            start + offset,
+            eighths,
+            pitch,
+            epb,
+            1,
+            _note_velocity(start + offset, eighths, apex, phrase),
+            accent,
+        )
         if staccato:
             events = _stamp(events, staccato=True)
         lead.extend(events)
+        sounding.append(pitch)
 
-    def add_bass(offset: int, eighths: int, pitch: int, *, accent: bool = False) -> None:
-        low.extend(_eighth_event(start + offset, eighths, pitch, epb, 3, _BASS, accent))
+    def hemiola(offset: int) -> bool:
+        if not closes:
+            return False
+        if ctx.kind == "3/4":
+            return offset in {0, 3}
+        if ctx.kind == "6/8":
+            return offset in {0, 2, 4}
+        return False
 
-    def add_support(offset: int, eighths: int, pitch: int) -> None:
-        support.extend(_eighth_event(start + offset, eighths, pitch, epb, 2, _INNER))
-
-    def add_tirata(offset: int, pitches: list[int]) -> None:
-        origin = (start + offset) * 2
-        for index, pitch in enumerate(pitches):
-            lead.extend(_spell16(origin + index, 1, pitch, epb, 1, _MELODY))
-
-    add_lead(0, 1, sung0, accent=True)
-    add_lead(1, 1, leap, staccato=True)
-    inner = _inner_between(ctx, chord, leap, opening)
-    if inner is not None:
-        add_support(1, 1, inner)
-
-    if ctx.kind == "6/8" and closes:
-        add_bass(0, 2, opening, accent=True)
-        second = _bass_under_leads(ctx, chord, [_lead_at(ctx, start + 2)], 2)
-        third_lead = _lead_at(ctx, start + 4)
-        third = _bass_under_leads(ctx, chord, [third_lead], 2)
-        add_bass(2, 2, second, accent=True)
-        add_bass(4, 1, third, accent=True)
-        tail_bass = _bass_under_leads(ctx, chord, [next_lead], 0)
-        tail = _anacrusis_pitch(ctx, _lead_at(ctx, start + 4), next_lead, tail_bass)
-        add_bass(5, 1, tail_bass)
-        held = _lead_at(ctx, start + 2)
-        if not _sounding_ok(ctx, [second, held]):
-            held = _nearest_lead_over(ctx, held, second)
-        fourth = third_lead if _sounding_ok(ctx, [third, third_lead]) else _nearest_lead_over(ctx, third_lead, third)
-        add_lead(2, 1, held, accent=True)
-        add_lead(3, 1, _nearest_lead_over(ctx, _lead_at(ctx, start + 3), second))
-        add_lead(4, 1, fourth, accent=True)
-        add_lead(5, 1, tail)
-        support, low = _shape_accompaniment(ctx, support, low)
-        return lead, support, low
-
-    if ctx.kind == "6/8":
-        add_bass(0, 3, opening, accent=True)
-        held = leap if _sounding_ok(ctx, [opening, leap]) else _nearest_lead_over(ctx, leap, opening)
-        add_lead(2, 1, held)
-        touch = _inner_between(ctx, chord, held, opening, inner)
-        if touch is not None:
-            add_support(2, 1, touch)
-        tail_bass = _bass_under_leads(ctx, chord, [next_lead], 0)
-        tail = _anacrusis_pitch(ctx, held, next_lead, tail_bass)
-        fifth = _bass_under_leads(ctx, chord, [tail], 2)
-        if not _sounding_ok(ctx, [fifth, tail]):
-            tail = _nearest_lead_over(ctx, tail, fifth)
-        scale = _tirata_line(ctx, 3 * 2, tail, 4, fifth)
-        add_bass(3, 2, fifth, accent=True)
-        add_tirata(3, scale)
-        add_bass(5, 1, tail_bass)
-        add_lead(5, 1, tail)
-        support, low = _shape_accompaniment(ctx, support, low)
-        return lead, support, low
-
-    if ctx.kind == "4/4":
-        add_bass(0, 2, opening, accent=True)
-        held = _lead_at(ctx, start + 2)
-        middle = _bass_under_leads(ctx, chord, [held], 2)
-        if not _sounding_ok(ctx, [middle, held]):
-            held = _nearest_lead_over(ctx, held, middle)
-        add_bass(2, 2, middle)
-        add_lead(2, 2, held)
-        touch = _inner_between(ctx, chord, held, middle, inner)
-        if touch is not None:
-            add_support(3, 1, touch)
-        tail_bass = _bass_under_leads(ctx, chord, [next_lead], 0)
-        arrival = _lead_at(ctx, start + 6)
-        fifth = _bass_under_leads(ctx, chord, [arrival, next_lead], 2)
-        if not _sounding_ok(ctx, [fifth, arrival]):
-            arrival = _nearest_lead_over(ctx, arrival, fifth)
-        scale = _tirata_line(ctx, 4 * 2, arrival, 4, fifth)
-        add_bass(4, 2, fifth)
-        add_tirata(4, scale)
-        add_lead(6, 1, scale[-1], staccato=True)
-        tail = _anacrusis_pitch(ctx, scale[-1], next_lead, tail_bass)
-        add_bass(7, 1, tail_bass)
-        add_lead(7, 1, tail)
-        cadence = _inner_between(ctx, chord, tail, tail_bass, touch)
-        if cadence is not None:
-            add_support(7, 1, cadence)
-        support, low = _shape_accompaniment(ctx, support, low)
-        return lead, support, low
-
-    # 3/4, the BWV 1007 bar. Eighth 4 is the arrival; eighth 5 is the anacrusis.
-    add_bass(0, 2, opening, accent=True)
-    arrival = _lead_at(ctx, start + 4)
+    for offset in range(melody_end):
+        if offset == 1 and same_open:
+            add_lead(1, 1, leap, accent=True, staccato=True)
+            continue
+        add_lead(offset, 1, prices[offset], accent=hemiola(offset))
     if closes:
-        late = _bass_under_leads(ctx, chord, [arrival], 2)
-        if not _sounding_ok(ctx, [late, arrival]):
-            arrival = _nearest_lead_over(ctx, arrival, late)
-        scale = _tirata_line(ctx, 2 * 2, arrival, 4, late)
-        add_tirata(2, scale)
-        add_bass(3, 1, late, accent=True)
+        for offset in range(open_off, epb):
+            add_lead(offset, 1, prices[offset], accent=hemiola(offset))
     else:
-        fifth = _bass_under_leads(ctx, chord, [arrival], 2)
-        if not _sounding_ok(ctx, [fifth, arrival]):
-            arrival = _nearest_lead_over(ctx, arrival, fifth)
-        scale = _tirata_line(ctx, 2 * 2, arrival, 4, fifth)
-        add_bass(2, 2, fifth)
-        add_tirata(2, scale)
-    arrival = scale[-1]
-    add_lead(4, 1, arrival, staccato=True)
-    under = _inner_between(ctx, chord, arrival, opening, inner)
-    # Eighth 4 has no bass on a normal bar (the previous bass ended) and none on
-    # a hemiola (that bass lasted one eighth). The inner voice only needs the lead.
-    if under is None:
-        under = _inner_between(ctx, chord, arrival, min(opening, arrival - 1), inner)
-    if under is not None and under < arrival:
-        add_support(4, 1, under)
-    tail_bass = _bass_under_leads(ctx, chord, [next_lead], 0)
-    tail = _anacrusis_pitch(ctx, arrival, next_lead, tail_bass)
-    add_bass(5, 1, tail_bass)
-    add_lead(5, 1, tail)
+        origin = (start + open_off) * 2
+        for index, pitch in enumerate(rhythm):
+            lead.extend(_spell16(origin + index, 1, pitch, epb, 1, _note_velocity(start + open_off + index // 2, 1, apex, phrase)))
+            sounding.append(pitch)
+        if last_off >= open_off and (not rhythm or last_off > arrival_off):
+            add_lead(last_off, 1, step, accent=hemiola(last_off))
+
+    bass, tone = _select_bass(ctx, chord, (0,), sounding, sounding, want_third=closes)
+    low = _eighth_event(start, epb, bass, epb, 3, _BASS, accent=True)
+    support: list[NoteEvent] = []
+    if closes and tone is not None:
+        support.extend(_eighth_event(start, epb, tone, epb, 2, _INNER))
     support, low = _shape_accompaniment(ctx, support, low)
+    support = _softer_than_price(support, lead, epb)
     return lead, support, low
 
 

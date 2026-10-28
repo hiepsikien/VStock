@@ -1743,7 +1743,7 @@ def test_scale_bass_keeps_the_courante_and_allemande_rests() -> None:
     passage, slots, pitches = _cover_passage(8)
     courante = _rewrite_bass(four, ["bach_courante"], passage, slots, pitches, [], [])
     assert courante is not None
-    assert _bass_rows(courante) == [(0.0, 1.0), (1.0, 1.0), (2.0, 1.0), (3.5, 0.5)]
+    assert _bass_rows(courante) == [(0.0, 4.0)]
 
     three = _ctx(
         [72, 74, 76, 77, 79, 81],
@@ -1755,14 +1755,14 @@ def test_scale_bass_keeps_the_courante_and_allemande_rests() -> None:
     passage, slots, pitches = _cover_passage(6)
     open_courante = _rewrite_bass(three, ["bach_courante"], passage, slots, pitches, [], [])
     assert open_courante is not None
-    assert _bass_rows(open_courante) == [(0.0, 1.0), (1.0, 1.0), (2.5, 0.5)]
+    assert _bass_rows(open_courante) == [(0.0, 3.0)]
 
     closing = _phrase(0, [67] * 6)
     assert closing.closes
     hemiola_ctx = _ctx([67] * 6, (closing,), epb=6, kind="3/4", strong=(0,))
     hemiola = _rewrite_bass(hemiola_ctx, ["bach_courante"], passage, slots, pitches, [], [])
     assert hemiola is not None
-    assert _bass_rows(hemiola) == [(0.0, 1.0), (1.5, 0.5), (2.5, 0.5)]
+    assert _bass_rows(hemiola) == [(0.0, 3.0)]
 
     allemande = _rewrite_bass(four, ["bach_allemande"], passage, slots, pitches, [], [])
     assert allemande is not None

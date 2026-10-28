@@ -224,6 +224,7 @@ def test_prelude_half_opens_on_bass_and_outro_grid_matches_the_half() -> None:
         for length in (2, 4):
             _ctx, lead, support, low = _region("bach_prelude", length, meter)
             for bar in range(length):
+                assert not _sounding(support, bar)
                 for boundary in (0, half):
                     voices = {
                         "lead": _sounding(lead, bar),
@@ -235,6 +236,7 @@ def test_prelude_half_opens_on_bass_and_outro_grid_matches_the_half() -> None:
                     assert not any(_eighth(note) == boundary for note in voices["support"])
         for length, bar in ((2, 0), (4, 1)):
             _ctx, lead, support, low = _region("bach_prelude", length, meter, closing=True)
+            assert not _sounding(support, bar)
             second = []
             for note in (*_sounding(lead, bar), *_sounding(support, bar), *_sounding(low, bar)):
                 eighth = _eighth(note)
@@ -365,8 +367,8 @@ def test_courante_scale_window_follows_kind_and_a_6_8_close_is_empty() -> None:
         if meter == "6/8":
             assert phrase.closes
             assert _courante_intrinsic_eighths(ctx, 1) == set()
-            assert [onset - epb for onset in _bass_onsets(ctx, "bach_courante", 1, epb, epb * 2)] == [0, 2, 4, 5]
+            assert [onset - epb for onset in _bass_onsets(ctx, "bach_courante", 1, epb, epb * 2)] == [0]
         elif meter == "3/4":
-            assert [onset - epb for onset in _bass_onsets(ctx, "bach_courante", 1, epb, epb * 2)] == [0, 3, 5]
+            assert [onset - epb for onset in _bass_onsets(ctx, "bach_courante", 1, epb, epb * 2)] == [0]
         else:
-            assert _bass_onsets(ctx, "bach_courante", 0, 0, epb) == [0, 2, 4, 7]
+            assert _bass_onsets(ctx, "bach_courante", 0, 0, epb) == [0]

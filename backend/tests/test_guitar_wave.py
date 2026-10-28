@@ -1148,7 +1148,7 @@ def test_the_raised_floor_still_prints_the_bell_at_the_trough() -> None:
 
 
 def test_suite_snaps_follow_the_written_attack() -> None:
-    """Prelude snaps sixteenth 3 of each half. Courante also snaps the opening accent."""
+    """Prelude snaps the even sixteenth of each price pair. Courante snaps the staccato third."""
     from dataclasses import replace
 
     phrase = Phrase(0, 8, (Run(0, 4, 60), Run(4, 4, 72)))
@@ -1162,24 +1162,40 @@ def test_suite_snaps_follow_the_written_attack() -> None:
     )
     onset = phrase.apex.start
 
-    def hit(pattern: str, beat: float, voice: str, *, accent: bool = False, meter: str = "4/4") -> bool:
+    def hit(
+        pattern: str,
+        beat: float,
+        voice: str,
+        *,
+        accent: bool = False,
+        staccato: bool = False,
+        meter: str = "4/4",
+    ) -> bool:
         local = ctx
         if meter != "4/4":
             local = replace(ctx, kind=meter, epb=6, bar_beats=3.0)
-        event = _note(0, beat, 64, voice=1 if voice == "lead" else 3, accent=accent)
+        event = _note(0, beat, 64, voice=1 if voice == "lead" else 3, accent=accent, staccato=staccato)
         return _is_target(local, pattern, event, voice, phrase, onset, 0.0)
 
-    assert hit("bach_prelude", 0.75, "lead")
-    assert hit("bach_prelude", 2.75, "lead")
-    assert not hit("bach_prelude", 0.0, "lead")
-    assert hit("bach_prelude", 0.75, "lead", meter="3/4")
-    assert hit("bach_prelude", 2.25, "lead", meter="6/8")
+    assert hit("bach_prelude", 0.0, "lead")
+    assert hit("bach_prelude", 0.5, "lead")
+    assert not hit("bach_prelude", 0.25, "lead")
+    assert not hit("bach_prelude", 0.75, "lead")
+    assert not hit("bach_prelude", 2.75, "lead")
+    assert not hit("bach_prelude", 0.0, "low")
+    assert hit("bach_prelude", 0.0, "lead", meter="3/4")
+    assert hit("bach_prelude", 1.5, "lead", meter="3/4")
+    assert not hit("bach_prelude", 0.75, "lead", meter="3/4")
+    assert hit("bach_prelude", 1.0, "lead", meter="6/8")
+    assert not hit("bach_prelude", 2.25, "lead", meter="6/8")
     assert not hit("bach_prelude", 2.75, "lead", meter="3/4")
     assert hit("bach_allemande", 1.0, "lead")
     assert not hit("bach_allemande", 1.0, "low")
     flat = Phrase(0, 8, (Run(0, 8, 64),))
     assert not _is_target(ctx, "bach_allemande", _note(0, 1.0, 64), "lead", flat, flat.apex.start, 0.0)
-    assert hit("bach_courante", 0.0, "lead", accent=True)
-    assert hit("bach_courante", 0.0, "low", accent=True)
-    assert _is_target(ctx, "bach_courante", _note(0, 0.0, 64, accent=True), "lead", flat, 0.0, 0.0)
+    assert not _is_target(ctx, "bach_prelude", _note(0, 0.0, 64), "lead", flat, flat.apex.start, 0.0)
+    assert hit("bach_courante", 0.5, "lead", staccato=True)
+    assert not hit("bach_courante", 0.0, "low", accent=True)
+    assert _is_target(ctx, "bach_courante", _note(0, 0.5, 64, staccato=True), "lead", flat, 0.0, 0.0)
+    assert not _is_target(ctx, "bach_courante", _note(0, 0.0, 64, accent=True), "lead", flat, 0.0, 0.0)
     assert not _is_target(ctx, "bach_courante", _note(0, 0.5, 64, accent=True), "lead", phrase, 0.0, 0.0)
