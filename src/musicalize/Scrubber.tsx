@@ -57,23 +57,25 @@ export function PeakScrubber({
         accessibilityRole="adjustable"
         accessibilityLabel="Thanh thời gian phiên"
       >
-        <Svg width={Math.max(width, 1)} height={46}>
-          {bars.map((peak, index) => {
-            const slot = Math.max(width, 1) / bars.length;
-            const height = Math.max(2, Math.min(1, peak) * 40);
-            const played = (index + 0.5) / bars.length <= progress;
-            return (
-              <Rect
-                key={index}
-                x={index * slot + slot * 0.15}
-                y={(46 - height) / 2}
-                width={Math.max(1, slot * 0.7)}
-                height={height}
-                fill={played ? palette.sound : palette.track}
-              />
-            );
-          })}
-        </Svg>
+        <View pointerEvents="none">
+          <Svg width={Math.max(width, 1)} height={46}>
+            {bars.map((peak, index) => {
+              const slot = Math.max(width, 1) / bars.length;
+              const height = Math.max(2, Math.min(1, peak) * 40);
+              const played = (index + 0.5) / bars.length <= progress;
+              return (
+                <Rect
+                  key={index}
+                  x={index * slot + slot * 0.15}
+                  y={(46 - height) / 2}
+                  width={Math.max(1, slot * 0.7)}
+                  height={height}
+                  fill={played ? palette.sound : palette.track}
+                />
+              );
+            })}
+          </Svg>
+        </View>
       </View>
     </View>
   );
@@ -107,7 +109,7 @@ export function FlatScrubber({
         accessibilityRole="adjustable"
         accessibilityLabel={label}
       >
-        <View style={styles.flatTrack}>
+        <View pointerEvents="none" style={styles.flatTrack}>
           <View style={[styles.flatFill, { width: `${played * 100}%` }]} />
           <View style={[styles.knob, { left: `${played * 100}%` }]} />
         </View>

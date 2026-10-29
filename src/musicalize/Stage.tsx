@@ -73,23 +73,25 @@ export function Stage({
         onResponderMove={(event) => seekAt(event.nativeEvent.locationX)}
       >
         {prices.length > 1 && width > 0 ? (
-          <Sparkline
-            data={prices}
-            width={chartWidth}
-            height={CHART_HEIGHT}
-            positive
-            strokeWidth={2.25}
-            showFill
-            flatFill="rgba(62, 224, 224, 0.16)"
-            strokeColor={palette.data}
-            playheadColor={palette.playhead}
-            wave={wave}
-            waveColor={palette.sound}
-            cursorIndex={cursorIndex}
-            dimUnplayed={dimUnplayed}
-            focusStart={focusStart}
-            focusEnd={focusEnd}
-          />
+          <View pointerEvents="none">
+            <Sparkline
+              data={prices}
+              width={chartWidth}
+              height={CHART_HEIGHT}
+              positive
+              strokeWidth={2.25}
+              showFill
+              flatFill="rgba(62, 224, 224, 0.16)"
+              strokeColor={palette.data}
+              playheadColor={palette.playhead}
+              wave={wave}
+              waveColor={palette.sound}
+              cursorIndex={cursorIndex}
+              dimUnplayed={dimUnplayed}
+              focusStart={focusStart}
+              focusEnd={focusEnd}
+            />
+          </View>
         ) : (
           <Text style={styles.empty}>{banner ? '' : 'Sân khấu'}</Text>
         )}
