@@ -36,10 +36,9 @@ Giữ nguyên:
 - Trước khi nghe: tên bài, nhạc cụ, chương nằm giữa sân khấu.
 - Khi đang phát: tên bài và chương ở góc dưới sân khấu.
 - Trục giá là cao nhất và thấp nhất, chữ phụ bên phải.
-- Khung `1D`, `1W`, `1M`, `3M`, `1Y`. Chương dài phóng đúng đoạn đang nghe.
+- Khung `1D`, `1W`, `1M`, `3M`, `1Y` trên màn mã nằm trong `PriceChart` (`RANGES`, kèm `5Y`). Trên Musicalize, chọn khung và chọn ngày của bảy phiên `1D` nằm ở cột trái, cùng dòng mã. Sân khấu không vẽ thanh `RANGES`, nên `5Y` không xuất hiện. Đang phát không có khung ngày. Sân khấu lúc đó là `Sparkline` và trục giá.
+- Chương dài vẫn phóng đúng đoạn đang nghe (`chartFocus` khi `audible`).
 - Luồng bấm Nghe, backend soạn file, playhead dùng `mapDurationSec` và `ambientDailyCandleIndexAt`.
-
-`5Y` trên thanh khung là của chart giá, chưa có bản nhạc.
 
 Đài live hôm nay là `backend/app/sonify/player.html`, một canvas riêng với ô giá lớn. Trên Musicalize, băng crypto gắn vào cùng `Sparkline`: đường giá, playhead, trục min/max. Mã cặp nằm trên dòng đài.
 
@@ -67,8 +66,8 @@ Hai cột từ khoảng 960px. Cột trái hẹp, để chọn. Cột phải r�
 | Phần | V1 | Để dành cùng chỗ |
 |---|---|---|
 | Cột trái, chọn đối tượng nghe | Công tắc trên cùng cột: Nghe lại hoặc Đang phát. Nghe lại liệt kê mã chứng khoán, mỗi dòng kèm ngày hoặc khung. Đang phát liệt kê top 10 mã crypto. Đổi công tắc thì đổi danh sách và đổi cụm điều khiển bên dưới sân khấu | Loại chuỗi Price / Volume / Biometrics / Weather. Hôm nay engine chỉ đọc giá đóng và khối lượng của nến. Volume đã thành lực tiếng, chưa phải một chuỗi người nghe chọn. Biometrics và thời tiết chưa có cổng |
-| Cột phải, hàng trên, sân khấu | Đường giá và playhead của `PriceChart`. Sóng `peaks` vẽ vào cùng khung, magenta, chạy đến đâu thì hòa vào đường cyan đến đó. Kéo playhead trên khung này | Nến là một cách vẽ sau, trên cùng playhead. Hôm nay sân khấu là line |
-| Cột phải, hàng dưới, cụm điều khiển | Theo công tắc bên trái. Nghe lại: thể loại, nhạc cụ, nghệ sĩ, Nghe, Tạm dừng, Nghe lại và thanh kéo. Đang phát: bốn thể loại, Nghe và Tạm dừng. Chip đang chọn dùng magenta | Pan sân khấu và xuất widget. Cyberpunk như một thể loại. Bach đã là nghệ sĩ Baroque của Guitar, chưa phải một lăng kính riêng tên Baroque |
+| Cột phải, hàng trên, sân khấu | Đường giá và playhead. Với phiên `1D`, `RecapManifest.peaks` vẽ magenta trong cùng khung, hòa vào đường cyan. Bài `1W`–`1Y` chưa có `peaks` trên `SpanMovement`, nên sân khấu chỉ có đường giá cho đến khi API trả sóng. Kéo playhead trên sân khấu chỉ tua trong đoạn đang nhìn thấy | Nến là một cách vẽ sau, trên cùng playhead. Thêm `peaks` cho span là việc sau, để sóng cũng hiện trên bài dài |
+| Cột phải, hàng dưới, cụm điều khiển | Theo công tắc bên trái. Nghe lại: thể loại, nhạc cụ, nghệ sĩ, Nghe, Tạm dừng, Nghe lại, và thanh thời gian của cả tác phẩm. Đang phát: bốn thể loại, Nghe và Tạm dừng. Chip đang chọn dùng magenta | Pan sân khấu và xuất widget. Cyberpunk như một thể loại. Bach đã là nghệ sĩ Baroque của Guitar, chưa phải một lăng kính riêng tên Baroque |
 
 Đèn tập tai, khi làm, dùng đúng ba màu này: amber trên playhead giai điệu, magenta trên vùng tô thanh khoản, cyan trên chấm breakout và đoạn scale.
 
@@ -80,7 +79,7 @@ Mặt nghe ở trong repo này, chạy Expo web. Sân khấu, `expo-audio` và `
 |---|---|---|
 | Web | Expo SDK 58, React Native 0.88, lệnh `npm run web` đã có | `app.config.ts` đã khai `web`. `PriceChart` dùng `react-native-svg`. Bảng màu Musicalize truyền vào chart, `theme.ts` của terminal giữ nguyên |
 | Gói cần thêm khi làm lát A | `react-dom`, `react-native-web` | Expo web cần hai gói. Hiện chúng chỉ là peer tùy chọn trong lockfile |
-| Màn | Nhóm `src/musicalize/`, ngoài `RootNavigator` của terminal | Terminal giữ watchlist, giá, tin. Entry web trỏ vào phòng nghe |
+| Màn | `App.web.tsx` cạnh `App.tsx`, rồi nhóm `src/musicalize/` | `index.ts` import `./App`. Metro chọn `App.web.tsx` khi bundle web và giữ `App.tsx` cho iOS và Android. Terminal không vào bundle web |
 | Logic dùng chung | `src/sonify/program.ts`, `src/utils/recapCursor.ts`, `ENSEMBLE_ROWS` | Tên bài, playhead và nhãn nhạc đã khóa bằng test |
 | API | FastAPI hiện tại | `recap`, `span`, WebSocket `/v1/sonify/ws`. Không thêm service |
 | Replay | File m4a qua `expo-audio`, `seekTo` | Native đã seek trên sóng peaks. Lát A xác nhận `seekTo` trên web trước khi khóa transport |
@@ -105,9 +104,14 @@ Hiện trên app:
 - Phiên `1D` có sóng peaks bấm để nhảy giây (`RecapPlayer.seek`). Nút chỉ ghi Nghe hoặc Tạm dừng. Playhead trên chart là vạch hiển thị, chưa kéo được.
 - Bài `1W`–`1Y` khi đang phát chỉ có Tạm dừng và Tiếp tục (`MovementPlayer`). Nghe lại hiện khi cả bài đã chạy xong, và `replay()` luôn về chương đầu. Trong chương không seek.
 
-Trên Musicalize, Nghe lại và thanh kéo nằm cạnh nút nghe, cho cả phiên lẫn chương. Kéo playhead trên sân khấu là cùng một lệnh seek với sóng peaks. Sóng peaks giữ làm thanh thời gian, có vạch để thấy chỗ đang đứng.
+Sóng `peaks` và thanh kéo là hai việc. `peaks` của phiên `1D` vẽ trên sân khấu, magenta, hòa vào đường giá. Thanh kéo nằm trong cụm điều khiển. Phiên `1D` dùng cùng mảng `peaks` cho thanh đó. Bài `1W`–`1Y` chưa có `peaks` trong `SpanMovement`, nên thanh của chương là thanh phẳng theo `durationSec`. Một thanh nữa phủ cả tác phẩm, cộng `restAfterSec` giữa chương. Thanh này là chỗ tua sang chương khác. Lát B không chờ API thêm `peaks`.
 
-Seek một phiên dùng `player.seekTo`. Playhead vẫn đi qua `ambientDailyCandleIndexAt`. Bài dài seek trong file của chương đang mở. Kéo sang vùng chương khác thì chuyển chương rồi đặt offset trong file đó. Nghỉ giữa chương tua qua được.
+Kéo thanh audio ra một giây, rồi playhead lấy nến từ `ambientDailyCandleIndexAt` (phiên `1D`) hoặc `spanCandleIndexAt` (bài dài). Kéo vạch trên sân khấu thì ngược lại. Tỷ lệ `r` nằm trên các nến giá đang hiện, không nằm trên ô warm-up và cool-down. Hai đầu khung gộp nhiều ô vào nến đầu và nến cuối, nên seek theo `r * durationSec` sẽ kẹt playhead ở hai đầu. Giây đích là phần thân giá:
+
+- Phiên `1D`, khung 34 ô: `introEnd = durationSec * 2 / 34`, `outroStart = durationSec * 32 / 34`, đích là `introEnd + r * (outroStart - introEnd)`.
+- Bài dài: đích là `warmupSec + r * (durationSec - warmupSec - cooldownSec)`. Tuần `1W` có `warmupSec` và `cooldownSec` bằng 0, nên `r` phủ cả file chương.
+
+Khi chương đang nghe, `chartFocus` phóng `Sparkline` vào đoạn chương đó. Chương bên cạnh nằm ngoài khung, nên kéo playhead trên sân khấu chỉ tua trong chương đang hiện. Sang chương khác, hoặc đi qua nghỉ giữa chương, dùng thanh cả tác phẩm ở cụm điều khiển. Chart không zoom ra khi bắt đầu kéo.
 
 ## Nghe lại và đang phát
 
@@ -126,8 +130,8 @@ Mỗi lát dùng API đã có. Không thêm biến thể và không thêm nguồ
 | Lát | Xong khi |
 |---|---|
 | A. Một bài | Hai cột. Trái: công tắc Nghe lại, rồi một mã và một ngày. Phải: sân khấu trên, cụm điều khiển dưới. Đường cyan, sóng magenta trong cùng khung, playhead amber. Nghe, dừng, nghe lại, kéo tới một phút bất kỳ |
-| B. Chương | Nghe lại về đầu chương, rồi về đầu tác phẩm. Kéo playhead trong chương và sang chương bên cạnh. Chart phóng đúng đoạn. `1Y` vẫn chọn được trên điện thoại |
-| C. Đài | Bốn thể loại live trên cùng sân khấu. Mã cặp trên dòng đài, giá trên trục. Không tua |
+| B. Chương | Nghe lại về đầu chương, rồi về đầu tác phẩm. Kéo playhead trên sân khấu tua trong chương đang phóng. Thanh cả tác phẩm ở cụm điều khiển sang được chương bên cạnh và qua được khoảng nghỉ. Chart không zoom ra khi kéo. `1Y` vẫn chọn được trên điện thoại |
+| C. Đài | Công tắc Đang phát. Bốn thể loại, `Sparkline` và trục giá, không thanh khung `1D`–`5Y`. Mã cặp trên cột trái. Không tua |
 | D. Cửa | Kệ thể loại, nhạc cụ, nghệ sĩ dẫn tới một bài replay với đủ transport |
 
 ## Sẽ làm: đèn trên sân khấu để tập tai
@@ -138,7 +142,7 @@ Người nghe học bốn dấu, không học từng nốt. Mỗi dấu là mộ
 
 ### Bốn dấu lấy từ engine
 
-**Giai điệu.** Violin, sax, bè hát của guitar, và sáo alto của Ambient đi theo giá. Playhead phát sáng nhẹ suốt lúc tiếng đó đang ngân. Đây là đèn nền. Các dấu kia chồng lên, không thay nó.
+**Giai điệu.** Violin, sax, bè hát của guitar, sáo alto của Ambient, và arpeggio synth của Tối giản (P1) đi theo giá. Playhead phát sáng nhẹ suốt lúc tiếng đó đang ngân. Đây là đèn nền. Các dấu kia chồng lên, không thay nó.
 
 **Thanh khoản.** Bass giao hưởng đánh dày theo băng `p`–`f` trong `BASS_PATTERNS` (`render.py`): `p` là một nốt gốc giữ cả ô, `mp` là hai nốt trắng, `mf` là bốn nốt đen, `f` là chuỗi móc đơn gốc–quãng tám–quãng năm. Tối giản làm cùng việc bằng bè Pulse (`minimalist.py`): `p` thưa, `f` là móc kép và nhấn phách 2 với phách 4. Vùng tô dưới đường giá thở theo mật độ đó. `p` sáng một lần mỗi ô. `f` bước theo phách. Không nhấp theo từng cú trống.
 
@@ -154,9 +158,19 @@ Tremolo của Barrios là cách hát một câu ngân, cửa theo tempo, không 
 
 ### Dữ liệu đèn cần có
 
-Manifest hôm nay có `peaks`, thời lượng và playhead theo nến. Không có danh sách sự kiện. Bản đã soạn cần một cue track cạnh file audio: `startSec`, `endSec`, `candleStart`, `candleEnd`, `cue` (`melody`, `liquidity`, `breakout`, `scale`), và `band` khi dấu là thanh khoản. `render()` ghi track một lần, cùng lúc viết nốt. Client không đoán nhạc cụ từ sóng peaks.
+Manifest hôm nay có `peaks`, thời lượng và playhead theo nến. Không có danh sách sự kiện. Bản đã soạn cần một cue track cạnh file audio: `startSec`, `endSec`, `cue` (`melody`, `liquidity`, `breakout`, `scale`), và `band` khi dấu là thanh khoản. `render()` ghi track một lần, cùng lúc viết nốt. Client không đoán nhạc cụ từ sóng peaks, và không lưu thêm `candleStart`. Vị trí trên chart tính từ giây, bằng cùng hàm playhead.
 
-`Sparkline` nhận cue đang hoạt động từ cùng đồng hồ với `cursorIndex`. Seek và Nghe lại dịch đồng hồ đó. Đài live không có file. Vai trong payload nốt (`glass`, `swell`, và các vai giai điệu) map sang ba dấu `melody`, `liquidity`, `breakout`. Đài không có scale guitar.
+`ambientDailyCandleIndexAt` và `spanCandleIndexAt` đang trả chỉ số nến đã làm tròn xuống. Với `1D`, một nến phút gần một móc thân bài. Với `1M` và `1Y`, vài chục nến ngày được nội suy thành nhiều ô, nên một nốt breakout vài móc nằm giữa hai nến. Khi vẽ đèn, client lấy phân số `(elapsed - đầu thân) / thân` nhân với độ dài `prices`, không làm tròn, để chấm đứng giữa hai nến. Playhead của bài hát vẫn dùng chỉ số đã làm tròn như hôm nay.
+
+`Sparkline` nhận cue đang hoạt động từ cùng đồng hồ với `cursorIndex`. Seek và Nghe lại dịch đồng hồ đó. Đài live không có file và không có scale guitar. Vai trong payload nốt của `voices.py` map như sau:
+
+| Dấu | Vai trên đài |
+|---|---|
+| Giai điệu | `violin`, `sax`, `glass`, `arp` |
+| Thanh khoản | `bass`, `pulse`, `stab`, `swell`, `sub` |
+| Breakout | `flute`, `vibe`, `shimmer`, `bell`, khi `allow_high` bật |
+
+`drone`, `halo`, `pad`, `rhodes`, `piano`, `cello` và `fill` không bật đèn.
 
 ### Thứ tự khi làm
 
