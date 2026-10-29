@@ -243,10 +243,10 @@ def _shrink_choice(
 def _clamp_guitar(original: tuple[NoteEvent, ...], heard: list[NoteEvent], ensemble: str) -> list[NoteEvent]:
     """Warm notes stay nylon. A written snap stays inside the nail layer.
 
-    Bach and Sor never enter the 72..76 Bartók layer, even when a plateau
-    of snaps is nudged upward.
+    A written note at or under 64 stays at or under 64. Snaps sit in 69..73
+    for Bach and Sor, and 69..79 for the other guitar ensembles.
     """
-    ceiling = 70 if ensemble in {"bach", "classic"} else 76
+    ceiling = 73 if ensemble in {"bach", "classic"} else 79
     clamped: list[NoteEvent] = []
     for note, heard_note in zip(original, heard):
         written = note.velocity
@@ -261,7 +261,7 @@ def _clamp_guitar(original: tuple[NoteEvent, ...], heard: list[NoteEvent], ensem
         elif written <= 64:
             velocity = min(64, current)
         else:
-            velocity = max(66, min(ceiling, current))
+            velocity = max(69, min(ceiling, current))
         clamped.append(heard_note if velocity == current else replace(heard_note, velocity=velocity))
     return clamped
 

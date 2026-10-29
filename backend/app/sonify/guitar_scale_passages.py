@@ -85,18 +85,22 @@ def _courante_closes(ctx: _Ctx, bar: int) -> bool:
 
 
 def _courante_pair(ctx: _Ctx) -> tuple[int, int] | None:
+    """Inclusive tirata eighths: the rhythm half through its penultimate price.
+
+    The last eighth of the bar steps toward the next bar, so it stays outside.
+    """
     kind = getattr(ctx, "kind", None)
-    if kind == "3/4":
-        return 2, 3
-    if kind == "6/8":
+    if kind in {"3/4", "6/8"}:
         return 3, 4
     if kind == "4/4":
-        return 4, 5
+        return 4, 6
     return None
 
 
 def _courante_window(ctx: _Ctx, bar: int) -> tuple[int, int] | None:
-    """Inclusive tirata eighths. Keyed on ``ctx.kind`` because 3/4 and 6/8 share ``epb``."""
+    """Inclusive tirata eighths. A closing bar sings those prices as eighths."""
+    if _courante_closes(ctx, bar):
+        return None
     pair = _courante_pair(ctx)
     if pair is None:
         return None
@@ -108,9 +112,7 @@ def _courante_window(ctx: _Ctx, bar: int) -> tuple[int, int] | None:
 
 
 def _courante_intrinsic_eighths(ctx: _Ctx, bar: int) -> set[int]:
-    """Tirata eighths this bar already draws. Empty when a 6/8 cadence omits the run."""
-    if getattr(ctx, "kind", None) == "6/8" and _courante_closes(ctx, bar):
-        return set()
+    """Tirata eighths this bar already draws. Empty when the cadence sings eighths."""
     window = _courante_window(ctx, bar)
     if window is None:
         return set()
@@ -640,11 +642,10 @@ def _tier1_clips(ctx: _Ctx, patterns: list[str], impulses: list[_Impulse]) -> li
             if window is None:
                 continue
             lo, hi = window
-            # Windows are inclusive. Longer group-2 windows still have two
-            # eighths after the last one is left out, and that last eighth is
-            # what keeps the clip off the next passage. Courante's tirata is
-            # only `(4, 5)` on 4/4, so the exclusive end has to be `hi + 1`
-            # or every clip is shorter than two eighths.
+            # Group-2 windows are inclusive, and the clip stops before `hi`
+            # so the last eighth stays off the next passage. Courante's pair
+            # already ends on the arrival eighth. The step into the next bar
+            # is the eighth after `hi`, so the clip runs through `hi`.
             exclusive = hi + 1 if pattern == "bach_courante" else hi
             start = max(impulse.start, lo)
             target = min(impulse.target, exclusive)
@@ -1929,6 +1930,28 @@ _KINETIC_PATTERNS = frozenset(
     }
 )
 _LOUD_DOWN_PATTERNS = _KINETIC_PATTERNS | frozenset({"elogio_pizz", "bach_chaconne"})
+# Brouwer keeps the absolute window. Every other listed id is a narrowed row:
+# (entry step on a descent, span, ceiling). The key is the pattern id.
+_NARROW_ROWS: dict[str, tuple[int, int, int]] = {
+    **{name: (6, 24, 80) for name in ("villa_pattern", "etude1", "etude11", "chord_melody", "thumb_cantabile")},
+    **{name: (4, 18, 76) for name in ("preludio", "andante", "tremolo", "choro", "vals", "polca", "hemiola")},
+    **{name: (4, 16, 76) for name in ("study", "galop", "mozart_var", "cantabile", "elegiaque")},
+    **{
+        name: (4, 12, 74)
+        for name in (
+            "bach_sarabande",
+            "bach_fuga",
+            "bach_allemande",
+            "bach_courante",
+            "bach_bourree",
+            "bach_gavotte",
+            "bach_gigue",
+        )
+    },
+    "bach_chaconne": (6, 18, 80),
+    "bach_prelude": (2, 6, 72),
+}
+_NARROW_FLOOR = 40
 
 
 def _base_window(pattern: str) -> tuple[int, int]:
@@ -2025,12 +2048,22 @@ def _ramp_attacks(
     return shaped
 
 
+def _narrow_ends(direction: str, heard: int, pattern: str) -> tuple[int, int]:
+    """`(open, dest)` for a narrowed row. The floor of 40 binds a descent only."""
+    step, span, ceiling = _NARROW_ROWS[pattern]
+    if direction == "up":
+        open_v = min(ceiling, heard)
+        return open_v, min(ceiling, open_v + span)
+    open_v = min(ceiling, max(_NARROW_FLOOR, heard + step))
+    return open_v, min(open_v, max(_NARROW_FLOOR, open_v - span))
+
+
 def _apply_retreat(
     values: list[int],
     retreats: list[bool],
     direction: str,
-    soft: int,
-    loud: int,
+    low: int,
+    high: int,
 ) -> list[int]:
     """Nudge retreat attacks against the hairpin. The target, the last value, stays put."""
     if not values:
@@ -2041,7 +2074,7 @@ def _apply_retreat(
     for index, flag in enumerate(retreats[:last]):
         if not flag:
             continue
-        out[index] = min(loud, max(soft, out[index] + step))
+        out[index] = min(high, max(low, out[index] + step))
     return out
 
 
@@ -2096,15 +2129,24 @@ def hairpin_velocities(
     pillar: bool,
     retreats: list[bool] | None = None,
 ) -> list[int]:
-    """Section 2.6.C velocities for `count` lead attacks, the last of which is the target."""
+    """Velocities for `count` lead attacks, the last of which is the target.
+
+    Brouwer and Elogio keep section 2.6.C. A narrowed pattern treats `prev`
+    as the post-wave note and clamps a retreat inside the ramp.
+    """
     if count <= 0:
         return []
-    soft, loud = _pattern_window(pattern, band)
-    open_v, _arrival = _hairpin_open(direction, prev, soft, loud, pattern, on_strong)
-    exponent = 1.0 if length <= epb else 1.3
     flags = list(retreats or [])
     if len(flags) < count:
         flags.extend([False] * (count - len(flags)))
+    exponent = 1.0 if length <= epb else 1.3
+    if pattern in _NARROW_ROWS:
+        open_v, dest = _narrow_ends(direction, prev, pattern)
+        values = [dest] if count == 1 else _ramp_attacks(count, open_v, dest, exponent, pull=True)
+        low, high = (open_v, dest) if open_v <= dest else (dest, open_v)
+        return _apply_retreat(values, flags, direction, low, high)
+    soft, loud = _pattern_window(pattern, band)
+    open_v, _arrival = _hairpin_open(direction, prev, soft, loud, pattern, on_strong)
     if direction == "up":
         values = [loud] if count == 1 else _ramp_attacks(count, open_v, loud, exponent, pull=True)
     elif pillar:
@@ -2807,15 +2849,18 @@ def apply_scale_passages(
 def restamp_passage_hairpins(ctx: _Ctx, patterns: list[str], plan: ScalePlan, lead, written_lead):
     """Reprint passage and tier-1 hairpins onto the lead after the volume wave.
 
-    `written_lead` is the line before the wave, so the opening step still
-    reads the velocity the first pass used.
+    Brouwer and Elogio still read `written_lead`, the line before the wave.
+    A narrowed row reads the lead being overwritten, so a later passage sees
+    the hairpin the previous one just printed. `plan.passages` run first.
     """
     for passage in (*plan.passages, *plan.tier1):
         built = _line(ctx, patterns, passage)
         if built is None:
             continue
         slots, pitches = built
-        previous = _velocity_before(written_lead, passage.start, ctx.epb)
+        pattern = _majority_pattern(ctx, patterns, passage)
+        source = written_lead if pattern not in _NARROW_ROWS else lead
+        previous = _velocity_before(source, passage.start, ctx.epb)
         velocities = _curve(ctx, patterns, passage, slots, previous)
         if len(velocities) != len(slots):
             continue

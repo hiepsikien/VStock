@@ -68,11 +68,11 @@ def _velocities(notes: tuple[NoteEvent, ...]) -> list[int | None]:
 
 
 def test_a_reprinted_hairpin_keeps_its_velocity_through_the_snap_window() -> None:
-    """Bach and Sor fold an unmarked 82 into 70. A passage or swarm lead does not."""
+    """Bach and Sor fold an unmarked 82 into 73. A passage or swarm lead does not."""
     peak = _note(0.0, 82, midi=76, voice=1, hairpin=True)
     step = _note(0.5, 72, midi=74, voice=1, hairpin=True)
     snap = _note(1.0, 82, midi=72, voice=1)
-    for ensemble, ceiling in (("bach", 70), ("classic", 70), ("brouwer", 76), ("barrios", 76)):
+    for ensemble, ceiling in (("bach", 73), ("classic", 73), ("brouwer", 79), ("barrios", 79)):
         heard = humanize(
             _score(lead=(peak, step, snap), ensemble=ensemble),
             offset_at=lambda *_args: 2,
@@ -130,7 +130,7 @@ def test_same_beat_notes_share_one_offset() -> None:
     assert heard_dyad[0].velocity == heard_dyad[1].velocity == 58 + chosen_offset("guitar", "classic", "low", 0, 0.0)
     assert heard_dyad[2].velocity == heard_dyad[3].velocity
     assert len({note.velocity for note in heard_chord[:3]}) == 1
-    # A written 64 is still warm. The guitar clamp keeps the shared offset from crossing into the nail.
+    # A written 64 is still warm. The guitar clamp keeps the shared offset from crossing 64.
     offset = chosen_offset("guitar", "classic", "support", 0, 0.0)
     assert heard_chord[0].velocity == min(64, 64 + offset)
 
