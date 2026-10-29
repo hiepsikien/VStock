@@ -97,9 +97,43 @@ Mỗi lát dùng API đã có. Không thêm biến thể, không thêm nguồn d
 | C. Đài | Bốn thể loại live trên cùng sân khấu. Mã cặp trên dòng đài, giá trên trục. Không tua |
 | D. Cửa | Kệ thể loại, nhạc cụ, nghệ sĩ dẫn tới một bài replay với đủ transport |
 
+## Sẽ làm: đèn trên sân khấu để tập tai
+
+V1 không gắn đèn. Sân khấu vẫn là `PriceChart` và `Sparkline` hiện có. Phần này chỉ thêm độ sáng lên đường giá và vùng tô, cùng đồng hồ với playhead. Kéo thanh thời gian hoặc bấm Nghe lại thì đèn đi theo giây đó.
+
+Người nghe học bốn dấu, không học từng nốt. Mỗi dấu là một sự kiện đã có nghĩa trong bản nhạc. Đèn không cháy theo mọi tiếng piano hay violin.
+
+### Bốn dấu lấy từ engine
+
+**Giai điệu.** Violin, sax, bè hát của guitar, và sáo alto của Ambient đi theo giá. Playhead phát sáng nhẹ suốt lúc tiếng đó đang ngân. Đây là đèn nền. Các dấu kia chồng lên, không thay nó.
+
+**Thanh khoản.** Bass giao hưởng đánh dày theo băng `p`–`f` trong `BASS_PATTERNS` (`render.py`): `p` là một nốt gốc giữ cả ô, `mp` là hai nốt trắng, `mf` là bốn nốt đen, `f` là chuỗi móc đơn gốc–quãng tám–quãng năm. Tối giản làm cùng việc bằng bè Pulse (`minimalist.py`): `p` thưa, `f` là móc kép và nhấn phách 2 với phách 4. Vùng tô dưới đường giá thở theo mật độ đó. `p` sáng một lần mỗi ô. `f` bước theo phách. Không nhấp theo từng cú trống.
+
+Kèn cor đơn của Ambient là dấu thanh khoản thứ hai, không phải một đèn riêng. `French Horn` (`Horn in F`, bè P3) nở ở ô thứ hai của cửa sổ `mf` hoặc `f` trong đoạn `phrase`, cách lần nở trước ít nhất 4 ô, dài 1–2 ô (`docs/sonify-ambient.md`). Băng `f` nở tới velocity 80, băng `mf` tới 64. Vùng tô giữ sáng suốt tiếng nở, đậm hơn khi băng là `f`. `French Horns a6` của bộ Đồng giao hưởng là dàn đệm người nghe đã chọn. Dàn đó không có nghĩa khối lượng.
+
+Trên đài live, tiếng `swell` trong `voices.py` nở khi velocity từ 82, khác cửa sổ `mf`/`f` của bản đã soạn. Đài map vai `swell` sang cùng đèn vùng tô. Không dùng chung một ngưỡng với kèn cor của bản đóng.
+
+**Breakout.** `techniques()` trong `phrasing.py` đánh dấu nốt ngân đầu tiên trong câu vượt mọi nốt của bốn ô trước (`BREAKOUT_LOOKBACK = 32` móc đơn). Flute giao hưởng vào ở đỉnh từ Sol5 hoặc ở breakout. Vibraphone jazz nhấn breakout và đỉnh câu. Celesta của Ambient điểm đỉnh cao và breakout khi biên độ đoạn vượt 0,5%. Chuông tối giản chỉ kêu ở đỉnh và breakout. Một chấm sáng trên đỉnh giá của nến đó. Bản nhạc không có vibrato. Điểm nhấn này của jazz là vibraphone.
+
+**Scale guitar.** `PriceImpulse` là một sóng giá có hướng, thoái lui nông, rồi phá đỉnh hoặc đáy. `guitar_scale_passages.py` tiêu ngân sách khoảng 30% thân bài để chạy scale trên sóng đó. Đoạn đường giá từ `impulse.start` tới `impulse.target` đậm lên đúng lúc scale đang chạy. Scale nội tại của điệu Bach, như móc chạy của Gigue hay nốt đi qua của Sarabande, là ngữ pháp điệu. Những nốt đó không bật đèn scale.
+
+Tremolo của Barrios là cách hát một câu ngân, cửa theo tempo, không theo khối lượng. Humanize, echo của preset, và việc người nghe chọn bộ Dây hay bộ Đồng không phải sự kiện thị trường. Những thứ đó không có đèn.
+
+### Dữ liệu đèn cần có
+
+Manifest hôm nay có `peaks`, thời lượng và playhead theo nến. Không có danh sách sự kiện. Bản đã soạn cần một cue track cạnh file audio: `startSec`, `endSec`, `candleStart`, `candleEnd`, `cue` (`melody`, `liquidity`, `breakout`, `scale`), và `band` khi dấu là thanh khoản. `render()` ghi track một lần, cùng lúc viết nốt. Client không đoán nhạc cụ từ sóng peaks.
+
+`Sparkline` nhận cue đang hoạt động từ cùng đồng hồ với `cursorIndex`. Seek và Nghe lại dịch đồng hồ đó. Đài live không có file. Vai trong payload nốt (`glass`, `swell`, và các vai giai điệu) map sang ba dấu `melody`, `liquidity`, `breakout`. Đài không có scale guitar.
+
+### Thứ tự khi làm
+
+1. Khóa bốn tên cue và vị từ đúng hàm ở trên, bằng fixture một phiên giao hưởng, một phiên Ambient, và một bản guitar có `PriceImpulse`.
+2. Kiểm tra nến của cue trùng ô bass, ô nở kèn, nốt breakout, và đoạn scale đã viết.
+3. Sau đó mới thêm sáng lên `Sparkline`: playhead, vùng tô, một chấm, một đoạn đường. Hình sân khấu và trục giá giữ nguyên.
+
 ## Việc để sau
 
-Những mục này có trong concept VNSoni và chưa khớp engine. V1 không làm chúng xuất hiện sớm hơn.
+Những mục này có trong concept VNSoni và chưa khớp engine. V1 không làm chúng xuất hiện sớm hơn. Đèn tập tai ở mục trên đã có kế hoạch riêng. Nó vẫn đứng sau bốn lát của v1.
 
 | Việc | Trong hệ thống hiện tại |
 |---|---|
