@@ -2,7 +2,7 @@
 
 Web app nghe nhạc trên engine sonify và API đang có. App Expo giữ vai trò terminal cổ phiếu. Musicalize là mặt nghe mới. Tên sản phẩm là Musicalize. Module trong repo vẫn là `sonify` và `vstock`.
 
-Tài liệu này chốt sản phẩm v1. Kiến trúc tách dịch vụ, hàng đợi MuseScore và cache audio viết sau, khi phạm vi lớn hơn hai phòng nghe.
+Tài liệu này chốt sản phẩm v1, phong cách, và tech stack của mặt nghe. Tách dịch vụ, hàng đợi MuseScore và cache audio vẫn viết sau, khi phạm vi lớn hơn hai phòng.
 
 ## Màn nghe
 
@@ -57,6 +57,35 @@ Màn mã hiện mở bằng giá lớn và phần trăm, rồi mới tới chart
 | Sân khấu | Chart, playhead, tên bài, trục | Nguyên khối, thêm kéo playhead |
 
 Máy rộng: cột trái là thể loại, nhạc cụ, nghệ sĩ và tủ bài. Mỗi dòng bài có tên, mã, ngày. Giữa là sân khấu. Máy hẹp: ba bước chọn nhạc phía trên, sân khấu ở giữa, ngày và transport ở dưới.
+
+## Phong cách
+
+Phòng nghe tối, cùng hệ với màn đã tinh chỉnh trong `src/theme.ts`. Nền `#000000`, mặt `#1C1C1E`, mặt nổi `#2C2C2E`, chữ trắng, chữ phụ `#8E8E93`, chữ trục `#636366`, điểm nhấn `#0A84FF`. Một màu nhấn. Thể loại không mỗi loại một màu.
+
+Sân khấu giữ nét xanh lá `#30D158` hoặc đỏ `#FF453A` và vùng tô nhạt đang có. Hai màu đó chỉ ở trên đường giá. Chrome quanh sân khấu không dùng chúng, vì phần trăm và giá lớn đã rời màn.
+
+Chữ lấy thang đang dùng. Tên bài là `title` (22, semibold), nằm giữa sân khấu như `PieceTitle`. Thể loại là `body` (15). Mã, ngày và số trên trục là `caption` (13), số theo `tabular-nums`. Không dùng `largeTitle` 34 và không dùng `heroPrice` 40. `player.html` đang dùng serif và vàng `#E6FF4D`. Musicalize không mang hai thứ đó sang.
+
+Hình phẳng, không đổ bóng, không gradient, không đĩa than. Chip thể loại là pill bo tròn, nền accent khi đang chọn, chữ trắng. Chip nhạc cụ và nghệ sĩ cùng dạng pill, nền `surface` khi tắt và `surfaceElevated` khi bật. Nút Nghe bo 12, nền accent, một nút trên màn. Khoảng cách lấy `spacing` trong `theme.ts`. Chart vẫn sát mép như `PriceChart` (rộng màn trừ 8). Từ khoảng 960px, cột chọn nhạc và tủ bài ngồi hai bên sân khấu. Dưới mức đó, chúng xếp dọc.
+
+Đèn tập tai, khi làm, chỉ đổi độ đục của playhead, vùng tô và một đoạn nét. Không thêm lớp màu mới.
+
+## Tech stack
+
+Mặt nghe ở trong repo này, chạy Expo web. Sân khấu, `expo-audio` và `recapCursor` đã là React Native. Một app Vite riêng sẽ phải vẽ lại `Sparkline`.
+
+| Tầng | Chọn | Lý do |
+|---|---|---|
+| Web | Expo SDK 58, React Native 0.88, lệnh `npm run web` đã có | `app.config.ts` đã khai `web`. `PriceChart` dùng `react-native-svg` |
+| Gói cần thêm khi làm lát A | `react-dom`, `react-native-web` | Expo web cần hai gói. Hiện chúng chỉ là peer tùy chọn trong lockfile |
+| Màn | Nhóm `src/musicalize/`, ngoài `RootNavigator` của terminal | Terminal giữ watchlist, giá, tin. Entry web trỏ vào phòng nghe |
+| Logic dùng chung | `src/sonify/program.ts`, `src/utils/recapCursor.ts`, `ENSEMBLE_ROWS` | Tên bài, playhead và nhãn nhạc đã khóa bằng test |
+| API | FastAPI hiện tại | `recap`, `span`, WebSocket `/v1/sonify/ws`. Không thêm service |
+| Replay | File m4a qua `expo-audio`, `seekTo` | Native đã seek trên sóng peaks. Lát A xác nhận `seekTo` trên web trước khi khóa transport |
+| Live | Web Audio, tách khỏi `player.html` | Bucket 250 ms không đi qua MuseScore. Chart của đài vẫn là `Sparkline` |
+| Chỗ đứng | Cùng origin với API | `sonify.py` đóng socket khi `Origin` khác host |
+
+Backend giữ MuseScore, ffmpeg và SQLite trên GCE. Export web là file tĩnh phục vụ cùng host API. Auth, Postgres, Next và việc tách sonify khỏi API không thuộc v1.
 
 ## Nghe lại và nghe từ một chỗ
 
