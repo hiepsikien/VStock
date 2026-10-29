@@ -56,19 +56,21 @@ Màn mã hiện mở bằng giá lớn và phần trăm, rồi mới tới chart
 | Humanize, Màu | Ngang hàng với chọn nhạc | Trong mục tùy chọn nghe |
 | Sân khấu | Chart, playhead, tên bài, trục | Nguyên khối, thêm kéo playhead |
 
-Máy rộng: cột trái là thể loại, nhạc cụ, nghệ sĩ và tủ bài. Mỗi dòng bài có tên, mã, ngày. Giữa là sân khấu. Máy hẹp: ba bước chọn nhạc phía trên, sân khấu ở giữa, ngày và transport ở dưới.
-
 ## Phong cách
 
-Phòng nghe tối, cùng hệ với màn đã tinh chỉnh trong `src/theme.ts`. Nền `#000000`, mặt `#1C1C1E`, mặt nổi `#2C2C2E`, chữ trắng, chữ phụ `#8E8E93`, chữ trục `#636366`, điểm nhấn `#0A84FF`. Một màu nhấn. Thể loại không mỗi loại một màu.
+Phòng thu tối, hướng Cyberpunk-Fintech. Nền `#0D0F12`. Ba điểm nhấn, mỗi màu một việc: cyan `#3EE0E0` là dữ liệu, magenta `#E040A0` là tiếng, amber `#F5B942` là chỗ đang nghe. Chữ chính `#F4F1EA`, chữ phụ `#9AA3AD`. Mặt cột `#14181E`. Terminal cổ phiếu giữ `src/theme.ts`. Musicalize có bảng màu riêng, phẳng, không gradient, không đổ bóng, không đĩa than.
 
-Sân khấu giữ nét xanh lá `#30D158` hoặc đỏ `#FF453A` và vùng tô nhạt đang có. Hai màu đó chỉ ở trên đường giá. Chrome quanh sân khấu không dùng chúng, vì phần trăm và giá lớn đã rời màn.
+Chữ sans. Tên bài 22 semibold giữa sân khấu, như `PieceTitle`. Thể loại 15. Mã, ngày và số trên trục 13, `tabular-nums`. Giá lớn 40 và phần trăm không có trên vỏ.
 
-Chữ lấy thang đang dùng. Tên bài là `title` (22, semibold), nằm giữa sân khấu như `PieceTitle`. Thể loại là `body` (15). Mã, ngày và số trên trục là `caption` (13), số theo `tabular-nums`. Không dùng `largeTitle` 34 và không dùng `heroPrice` 40. `player.html` đang dùng serif và vàng `#E6FF4D`. Musicalize không mang hai thứ đó sang.
+Ba vòm từ khoảng 960px. Dưới mức đó, vòm xếp dọc: nguồn và tủ bài, rồi sân khấu, rồi bàn nhạc.
 
-Hình phẳng, không đổ bóng, không gradient, không đĩa than. Chip thể loại là pill bo tròn, nền accent khi đang chọn, chữ trắng. Chip nhạc cụ và nghệ sĩ cùng dạng pill, nền `surface` khi tắt và `surfaceElevated` khi bật. Nút Nghe bo 12, nền accent, một nút trên màn. Khoảng cách lấy `spacing` trong `theme.ts`. Chart vẫn sát mép như `PriceChart` (rộng màn trừ 8). Từ khoảng 960px, cột chọn nhạc và tủ bài ngồi hai bên sân khấu. Dưới mức đó, chúng xếp dọc.
+| Vòm | V1 | Để dành trên cùng vòm |
+|---|---|---|
+| Trái, nguồn dữ liệu | Hai nguồn: Chứng khoán và Crypto. Dưới đó là tủ bài: tên bài, mã, ngày. Giá chỉ trên trục sân khấu | Loại chuỗi Price / Volume / Biometrics / Weather. Hôm nay engine chỉ đọc giá đóng và khối lượng của nến. Volume đã thành lực tiếng, chưa phải một chuỗi người nghe chọn. Biometrics và thời tiết chưa có cổng |
+| Giữa, sân khấu | Đường giá và playhead của `PriceChart`. Sóng `peaks` vẽ vào cùng khung, magenta, chạy đến đâu thì hòa vào đường cyan đến đó. Kéo playhead trên khung này | Nến là một cách vẽ sau, trên cùng playhead. Hôm nay sân khấu là line |
+| Phải, bàn nhạc | Thể loại, nhạc cụ, nghệ sĩ, rồi Nghe, Tạm dừng, Nghe lại. Chip đang chọn dùng magenta | Pan sân khấu và xuất widget. Cyberpunk như một thể loại. Bach đã là nghệ sĩ Baroque của Guitar, chưa phải một lăng kính riêng tên Baroque |
 
-Đèn tập tai, khi làm, chỉ đổi độ đục của playhead, vùng tô và một đoạn nét. Không thêm lớp màu mới.
+Đèn tập tai, khi làm, dùng đúng ba màu này: amber trên playhead giai điệu, magenta trên vùng tô thanh khoản, cyan trên chấm breakout và đoạn scale.
 
 ## Tech stack
 
@@ -76,7 +78,7 @@ Mặt nghe ở trong repo này, chạy Expo web. Sân khấu, `expo-audio` và `
 
 | Tầng | Chọn | Lý do |
 |---|---|---|
-| Web | Expo SDK 58, React Native 0.88, lệnh `npm run web` đã có | `app.config.ts` đã khai `web`. `PriceChart` dùng `react-native-svg` |
+| Web | Expo SDK 58, React Native 0.88, lệnh `npm run web` đã có | `app.config.ts` đã khai `web`. `PriceChart` dùng `react-native-svg`. Bảng màu Musicalize truyền vào chart, `theme.ts` của terminal giữ nguyên |
 | Gói cần thêm khi làm lát A | `react-dom`, `react-native-web` | Expo web cần hai gói. Hiện chúng chỉ là peer tùy chọn trong lockfile |
 | Màn | Nhóm `src/musicalize/`, ngoài `RootNavigator` của terminal | Terminal giữ watchlist, giá, tin. Entry web trỏ vào phòng nghe |
 | Logic dùng chung | `src/sonify/program.ts`, `src/utils/recapCursor.ts`, `ENSEMBLE_ROWS` | Tên bài, playhead và nhãn nhạc đã khóa bằng test |
@@ -117,18 +119,18 @@ Cả hai phòng mở bằng thể loại và nhạc cụ.
 
 ## Bốn lát
 
-Mỗi lát dùng API đã có. Không thêm biến thể, không thêm nguồn dữ liệu, không đổi hình sân khấu.
+Mỗi lát dùng API đã có. Không thêm biến thể và không thêm nguồn dữ liệu. Hành vi playhead giữ nguyên. Vỏ sân khấu theo bảng màu và sóng hòa vào đường giá ở mục phong cách.
 
 | Lát | Xong khi |
 |---|---|
-| A. Một bài | Sân khấu chạy như app. Chọn thể loại, nhạc cụ, nghệ sĩ nếu là Guitar, rồi một ngày. Nghe, dừng, nghe lại từ đầu, kéo tới một phút bất kỳ. Mã và ngày đọc được. Phần trăm và giá lớn không còn trên vỏ |
+| A. Một bài | Ba vòm trên máy rộng. Đường cyan, sóng magenta trong cùng khung, playhead amber. Nghe, dừng, nghe lại, kéo tới một phút bất kỳ. Mã và ngày đọc được trên tủ bài |
 | B. Chương | Nghe lại về đầu chương, rồi về đầu tác phẩm. Kéo playhead trong chương và sang chương bên cạnh. Chart phóng đúng đoạn. `1Y` vẫn chọn được trên điện thoại |
 | C. Đài | Bốn thể loại live trên cùng sân khấu. Mã cặp trên dòng đài, giá trên trục. Không tua |
 | D. Cửa | Kệ thể loại, nhạc cụ, nghệ sĩ dẫn tới một bài replay với đủ transport |
 
 ## Sẽ làm: đèn trên sân khấu để tập tai
 
-V1 không gắn đèn. Sân khấu vẫn là `PriceChart` và `Sparkline` hiện có. Phần này chỉ thêm độ sáng lên đường giá và vùng tô, cùng đồng hồ với playhead. Kéo thanh thời gian hoặc bấm Nghe lại thì đèn đi theo giây đó.
+V1 không gắn đèn. Sân khấu vẫn là `PriceChart` và `Sparkline`, với bảng màu của phòng thu. Phần này thêm độ sáng lên đường giá và vùng tô, cùng đồng hồ với playhead. Kéo thanh thời gian hoặc bấm Nghe lại thì đèn đi theo giây đó.
 
 Người nghe học bốn dấu, không học từng nốt. Mỗi dấu là một sự kiện đã có nghĩa trong bản nhạc. Đèn không cháy theo mọi tiếng piano hay violin.
 
