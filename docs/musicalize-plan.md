@@ -108,10 +108,10 @@ Sóng `peaks` và thanh kéo là hai việc. `peaks` của phiên `1D` vẽ trê
 
 Kéo thanh audio ra một giây, rồi playhead lấy nến từ `ambientDailyCandleIndexAt` (phiên `1D`) hoặc `spanCandleIndexAt` (bài dài). Kéo vạch trên sân khấu thì ngược lại. Tỷ lệ `r` nằm trên các nến giá đang hiện, không nằm trên ô warm-up và cool-down. Hai đầu khung gộp nhiều ô vào nến đầu và nến cuối, nên seek theo `r * durationSec` sẽ kẹt playhead ở hai đầu. Giây đích là phần thân giá:
 
-- Phiên `1D`, khung 34 ô: `introEnd = durationSec * 2 / 34`, `outroStart = durationSec * 32 / 34`, đích là `introEnd + r * (outroStart - introEnd)`.
-- Bài dài: đích là `warmupSec + r * (durationSec - warmupSec - cooldownSec)`. Tuần `1W` có `warmupSec` và `cooldownSec` bằng 0, nên `r` phủ cả file chương.
+- Phiên `1D`, khung 34 ô: `introEnd = mapDurationSec * 2 / 34`, `outroStart = mapDurationSec * 32 / 34`, đích là `introEnd + r * (outroStart - introEnd)`. Đồng hồ này là `mapDurationSec`, cùng đồng hồ `ambientDailyCandleIndexAt` đang dùng. File (`durationSec`) dài hơn khi MuseScore chừa đuôi tiếng; kéo theo file sẽ lệch nến dưới ngón tay. Chỉ khi bản đồ bằng 0 thì dùng độ dài file.
+- Bài dài: đích là `warmupSec + r * (durationSec - warmupSec - cooldownSec)`. `durationSec` ở đây là độ dài nhạc của chương (`movement_duration`), cùng đồng hồ `spanCandleIndexAt`. Tuần `1W` có `warmupSec` và `cooldownSec` bằng 0, nên `r` phủ cả chương.
 
-Khi chương đang nghe, `chartFocus` phóng `Sparkline` vào đoạn chương đó. Chương bên cạnh nằm ngoài khung, nên kéo playhead trên sân khấu chỉ tua trong chương đang hiện. Sang chương khác, hoặc đi qua nghỉ giữa chương, dùng thanh cả tác phẩm ở cụm điều khiển. Chart không zoom ra khi bắt đầu kéo.
+Khi chương đang nghe, `chartFocus` phóng `Sparkline` vào đoạn chương đó. Chương bên cạnh nằm ngoài khung, nên kéo playhead trên sân khấu chỉ tua trong chương đang hiện, và chỉ khi phóng đã đậu đúng chương đó. Trong lúc chart đang phóng vào, sân khấu chưa nhận kéo. Sang chương khác, hoặc đi qua nghỉ giữa chương, dùng thanh cả tác phẩm ở cụm điều khiển. Chart không zoom ra khi bắt đầu kéo.
 
 ## Nghe lại và đang phát
 

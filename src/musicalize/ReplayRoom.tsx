@@ -28,7 +28,17 @@ import { Controls } from './Controls';
 import type { ListenSpan } from './labels';
 import { RoomFrame } from './RoomFrame';
 import { ReplayPlayer, type SeekCommand } from './ReplayPlayer';
-import { dailyStageSeek, placeOnWork, replayAction, scrubberSeek, spanStageSeek, workDuration, workSecondsAt } from './seek';
+import {
+  dailyMapClock,
+  dailyStageSeek,
+  movementFrameSettled,
+  placeOnWork,
+  replayAction,
+  scrubberSeek,
+  spanStageSeek,
+  workDuration,
+  workSecondsAt,
+} from './seek';
 import { Stage } from './Stage';
 import { SymbolColumn, type SymbolChoice } from './SymbolColumn';
 import { ambientDailyCandleIndexAt, spanCandleIndexAt } from '../utils/recapCursor';
@@ -250,7 +260,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
     if (seekTarget.current != null && Math.abs(seconds - seekTarget.current) > 0.6) return;
     seekTarget.current = null;
     setMovementTime(seconds);
-    if (seconds > 0.2) setParked(false);
+    // Playback must not clear `parked`. The next Nghe lại, after the press
+    // that returned to this movement, still goes to the start of the work.
   }, []);
 
   const onEnded = useCallback(() => {
@@ -480,7 +491,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
     (ratio: number) => {
       if (span === '1D') {
         if (!manifest) return;
-        const clock = manifest.durationSec > 0 ? manifest.durationSec : mediaDuration;
+        const clock = dailyMapClock(manifest.mapDurationSec, manifest.durationSec, mediaDuration);
         if (clock <= 0) return;
         const target = dailyStageSeek(clock, ratio);
         setFinished(false);
@@ -490,9 +501,17 @@ export function ReplayRoom({ wide, onMode }: Props) {
         return;
       }
       if (!movements || resting || finished) return;
-      if (movements.length > 1 && !audible) return;
       const movement = movements[index];
       if (!movement) return;
+      const frameStart = movements
+        .slice(0, index)
+        .reduce((sum, item) => sum + item.prices.length, 0);
+      if (
+        movements.length > 1 &&
+        (!audible || !movementFrameSettled(focusRef.current, frameStart, movement.prices.length))
+      ) {
+        return;
+      }
       const target = spanStageSeek(movement.durationSec, movement.warmupSec, movement.cooldownSec, ratio);
       setParked(false);
       jumpToMovement(index, target, playingRef.current);
@@ -628,11 +647,10 @@ export function ReplayRoom({ wide, onMode }: Props) {
     if (span === '1D') {
       if (!manifest || !series || series.prices.length < 1) return { index: null as number | null, label: null as string | null };
       if (!audible && movementTime <= 0 && !finished) return { index: null, label: null };
-      const clock = manifest.durationSec > 0 ? manifest.durationSec : mediaDuration;
-      const map = manifest.mapDurationSec > 0 ? manifest.mapDurationSec : clock;
+      const map = dailyMapClock(manifest.mapDurationSec, manifest.durationSec, mediaDuration);
       const at = finished
         ? series.prices.length - 1
-        : ambientDailyCandleIndexAt(movementTime, series.prices.length, map || clock);
+        : ambientDailyCandleIndexAt(movementTime, series.prices.length, map);
       return { index: at, label: series.times[at] ?? null };
     }
     if (!current || !movements) return { index: null, label: null };
@@ -738,7 +756,13 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const stageSeekable =
     span === '1D'
       ? manifest != null
-      : movements != null && !resting && !finished && (movements.length <= 1 || audible);
+      : movements != null &&
+        !resting &&
+        !finished &&
+        (movements.length <= 1 ||
+          (audible &&
+            current != null &&
+            movementFrameSettled(focus, offsets[index] ?? 0, current.prices.length)));
 
   const fileClock = manifest ? (mediaDuration > 0 ? mediaDuration : manifest.durationSec) : 0;
   const movementClock = current?.durationSec ?? 0;

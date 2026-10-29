@@ -7,8 +7,25 @@ export function clamp01(ratio: number): number {
 }
 
 /**
+ * Clock shared by the 1D playhead and a stage drag.
+ * MuseScore leaves a release after the last note, so the file is longer than
+ * the written piece. The chart follows `mapDurationSec`. The file length is
+ * only a fallback when the map is missing.
+ */
+export function dailyMapClock(
+  mapDurationSec: number,
+  fileDurationSec: number,
+  mediaDurationSec = 0,
+): number {
+  const file = fileDurationSec > 0 ? fileDurationSec : Math.max(0, mediaDurationSec);
+  if (mapDurationSec > 0) return mapDurationSec;
+  return file;
+}
+
+/**
  * Stage drag on a 1D session. `ratio` runs across the visible price candles,
  * and the target sits in the body of the 34-bar frame, not the intro or outro.
+ * Pass `dailyMapClock`, the same duration `ambientDailyCandleIndexAt` uses.
  */
 export function dailyStageSeek(durationSec: number, ratio: number): number {
   const r = clamp01(ratio);
@@ -145,6 +162,17 @@ export function workSecondsAt(
     return Math.min(rest.end, rest.start + Math.max(0, restOffsetSec));
   }
   return audio.start + Math.min(audio.durationSec, Math.max(0, offsetSec));
+}
+
+/** The zoom has landed on this movement, so a stage ratio matches its candles. */
+export function movementFrameSettled(
+  focus: { start: number; end: number } | null,
+  movementStart: number,
+  movementLength: number,
+): boolean {
+  if (!focus || movementLength < 1) return false;
+  const end = movementStart + Math.max(movementLength - 1, 0);
+  return Math.abs(focus.start - movementStart) < 0.05 && Math.abs(focus.end - end) < 0.05;
 }
 
 const MOVEMENT_START_SEC = 0.2;

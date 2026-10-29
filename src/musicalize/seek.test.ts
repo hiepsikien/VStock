@@ -3,7 +3,9 @@ import { whenFor } from './liveSynth';
 import { liveListRows } from './liveRows';
 import {
   dailyCandleForSecond,
+  dailyMapClock,
   dailyStageSeek,
+  movementFrameSettled,
   placeOnWork,
   replayAction,
   scrubberSeek,
@@ -51,6 +53,23 @@ const midCandle = dailyCandleForSecond(mid, count, duration);
 if (midCandle < 40 || midCandle > 80) {
   throw new Error(`mid candle ${midCandle} is not near the middle of ${count}`);
 }
+
+const fileTail = 374;
+const written = 340;
+const tailCandles = 200;
+equal(dailyMapClock(written, fileTail, 380), written, 'stage clock is the written map');
+equal(dailyMapClock(0, fileTail, 380), fileTail, 'missing map falls back to the file');
+equal(dailyMapClock(0, 0, 380), 380, 'missing file falls back to the element');
+const onMap = dailyCandleForSecond(dailyStageSeek(dailyMapClock(written, fileTail), 0.5), tailCandles, written);
+const onFile = dailyCandleForSecond(dailyStageSeek(fileTail, 0.5), tailCandles, written);
+equal(onMap, 100, 'map clock lands on the candle under the finger');
+if (onFile === onMap) {
+  throw new Error('seeking with the file length must miss the playhead clock when a tail is present');
+}
+
+equal(movementFrameSettled({ start: 10, end: 24 }, 10, 15), true, 'settled movement');
+equal(movementFrameSettled({ start: 0, end: 40 }, 10, 15), false, 'zoom still open');
+equal(movementFrameSettled(null, 0, 15), false, 'no focus yet');
 
 equal(spanStageSeek(90, 0, 0, 0), 0, 'week r=0');
 equal(spanStageSeek(90, 0, 0, 1), 90, 'week r=1');
@@ -155,6 +174,18 @@ deepEqual(
   }),
   { kind: 'work-start' },
   'second replay returns to the work',
+);
+deepEqual(
+  replayAction({
+    span: '1M',
+    movementCount: 4,
+    movementIndex: 2,
+    movementTimeSec: 40,
+    finished: false,
+    parkedOnMovement: true,
+  }),
+  { kind: 'work-start' },
+  'second replay still returns home after playback continues',
 );
 deepEqual(
   replayAction({
