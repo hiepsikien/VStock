@@ -66,9 +66,9 @@ Hai cột từ khoảng 960px. Cột trái hẹp, để chọn. Cột phải r�
 
 | Phần | V1 | Để dành cùng chỗ |
 |---|---|---|
-| Cột trái, chọn đối tượng nghe | Hai loại: Chứng khoán và Crypto. Trong loại đang chọn là danh sách mã. Dòng mã kèm ngày phiên hoặc khung. Giá chỉ trên trục sân khấu | Loại chuỗi Price / Volume / Biometrics / Weather. Hôm nay engine chỉ đọc giá đóng và khối lượng của nến. Volume đã thành lực tiếng, chưa phải một chuỗi người nghe chọn. Biometrics và thời tiết chưa có cổng |
+| Cột trái, chọn đối tượng nghe | Công tắc trên cùng cột: Nghe lại hoặc Đang phát. Nghe lại liệt kê mã chứng khoán, mỗi dòng kèm ngày hoặc khung. Đang phát liệt kê top 10 mã crypto. Đổi công tắc thì đổi danh sách và đổi cụm điều khiển bên dưới sân khấu | Loại chuỗi Price / Volume / Biometrics / Weather. Hôm nay engine chỉ đọc giá đóng và khối lượng của nến. Volume đã thành lực tiếng, chưa phải một chuỗi người nghe chọn. Biometrics và thời tiết chưa có cổng |
 | Cột phải, hàng trên, sân khấu | Đường giá và playhead của `PriceChart`. Sóng `peaks` vẽ vào cùng khung, magenta, chạy đến đâu thì hòa vào đường cyan đến đó. Kéo playhead trên khung này | Nến là một cách vẽ sau, trên cùng playhead. Hôm nay sân khấu là line |
-| Cột phải, hàng dưới, cụm điều khiển | Thể loại, nhạc cụ, nghệ sĩ, rồi Nghe, Tạm dừng, Nghe lại và thanh kéo. Chip đang chọn dùng magenta | Pan sân khấu và xuất widget. Cyberpunk như một thể loại. Bach đã là nghệ sĩ Baroque của Guitar, chưa phải một lăng kính riêng tên Baroque |
+| Cột phải, hàng dưới, cụm điều khiển | Theo công tắc bên trái. Nghe lại: thể loại, nhạc cụ, nghệ sĩ, Nghe, Tạm dừng, Nghe lại và thanh kéo. Đang phát: bốn thể loại, Nghe và Tạm dừng. Chip đang chọn dùng magenta | Pan sân khấu và xuất widget. Cyberpunk như một thể loại. Bach đã là nghệ sĩ Baroque của Guitar, chưa phải một lăng kính riêng tên Baroque |
 
 Đèn tập tai, khi làm, dùng đúng ba màu này: amber trên playhead giai điệu, magenta trên vùng tô thanh khoản, cyan trên chấm breakout và đoạn scale.
 
@@ -109,13 +109,15 @@ Trên Musicalize, Nghe lại và thanh kéo nằm cạnh nút nghe, cho cả phi
 
 Seek một phiên dùng `player.seekTo`. Playhead vẫn đi qua `ambientDailyCandleIndexAt`. Bài dài seek trong file của chương đang mở. Kéo sang vùng chương khác thì chuyển chương rồi đặt offset trong file đó. Nghỉ giữa chương tua qua được.
 
-## Hai phòng
+## Nghe lại và đang phát
 
-Cả hai phòng mở bằng thể loại và nhạc cụ.
+Công tắc nằm trên cùng cột trái, hai vế: **Nghe lại** và **Đang phát**. Đây là cách chọn loại đối tượng nghe. Nó đứng trước danh sách mã vì đổi vế là đổi cả danh sách lẫn cụm điều khiển. Cụm dưới sân khấu giữ việc chọn nhạc và vận chuyển, không kiêm thêm công tắc này.
 
-**Replay** là tủ nhạc đã soạn, từ chứng khoán Việt Nam, khung một phiên đến một năm. Năm thể loại, đủ nhạc cụ, năm nghệ sĩ guitar. File nghe là bản MuseScore đã render. Hợp đồng sẵn: `sessions`, `recap`, `recap/audio`, `span`, `span/audio`.
+**Nghe lại** liệt kê mã chứng khoán. Dòng mã kèm ngày phiên hoặc khung `1W`–`1Y`. Sân khấu phát file đã soạn. Cụm điều khiển có đủ năm thể loại, nhạc cụ, nghệ sĩ guitar, Nghe, Tạm dừng, Nghe lại và thanh kéo. Một mã chứng khoán không có nút đang phát, vì chưa có băng theo từng lệnh.
 
-**Live** là đài crypto. Bốn thể loại: Giao hưởng, Jazz, Tối giản, Ambient. Guitar và năm nghệ sĩ không có trên đài. Top 10 cặp USDT theo khối lượng 24 giờ, loại stablecoin và token đòn bẩy. Lịch sử băng chỉ BTCUSDT, khoảng 90 giây. Trần 8 socket live giữ nguyên. Hợp đồng sẵn: `/v1/sonify`, `/v1/sonify/symbols`, WebSocket `/v1/sonify/ws`.
+**Đang phát** liệt kê top 10 mã crypto. Sân khấu đi theo WebSocket. Cụm điều khiển còn bốn thể loại, Nghe và Tạm dừng. Không có Guitar, không có thanh kéo. Đoạn lịch sử khoảng 90 giây của BTCUSDT nằm trong vế này, một dòng dưới mã BTC, vì nó vẫn là băng stream chứ không phải file đã soạn. Trần 8 người nghe giữ nguyên. Khi đủ chỗ, sân khấu nói đã đủ người, danh sách mã vẫn ở lại.
+
+Hai vế dùng chung sân khấu. Đổi vế thì đường giá và playhead nhận nguồn mới, cụm điều khiển đổi theo vế đang bật. Nghe lại gọi `recap` và `span`. Đang phát gọi `/v1/sonify/symbols` và WebSocket `/v1/sonify/ws`.
 
 ## Bốn lát
 
@@ -123,7 +125,7 @@ Mỗi lát dùng API đã có. Không thêm biến thể và không thêm nguồ
 
 | Lát | Xong khi |
 |---|---|
-| A. Một bài | Hai cột. Trái chọn Chứng khoán hoặc Crypto rồi chọn mã. Phải: sân khấu trên, cụm điều khiển dưới. Đường cyan, sóng magenta trong cùng khung, playhead amber. Nghe, dừng, nghe lại, kéo tới một phút bất kỳ |
+| A. Một bài | Hai cột. Trái: công tắc Nghe lại, rồi một mã và một ngày. Phải: sân khấu trên, cụm điều khiển dưới. Đường cyan, sóng magenta trong cùng khung, playhead amber. Nghe, dừng, nghe lại, kéo tới một phút bất kỳ |
 | B. Chương | Nghe lại về đầu chương, rồi về đầu tác phẩm. Kéo playhead trong chương và sang chương bên cạnh. Chart phóng đúng đoạn. `1Y` vẫn chọn được trên điện thoại |
 | C. Đài | Bốn thể loại live trên cùng sân khấu. Mã cặp trên dòng đài, giá trên trục. Không tua |
 | D. Cửa | Kệ thể loại, nhạc cụ, nghệ sĩ dẫn tới một bài replay với đủ transport |
