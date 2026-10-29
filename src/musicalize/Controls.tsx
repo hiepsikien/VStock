@@ -22,6 +22,8 @@ type ReplayProps = {
   humanize: boolean;
   colorOn: boolean;
   playing: boolean;
+  /** The work has ended. Nghe lại restarts it; Nghe stays quiet. */
+  finished?: boolean;
   composing: boolean;
   fileScrub: (Scrub & { peaks: number[] }) | null;
   movementScrub: Scrub | null;
@@ -64,6 +66,7 @@ function ReplayControls({
   humanize,
   colorOn,
   playing,
+  finished = false,
   composing,
   fileScrub,
   movementScrub,
@@ -95,7 +98,12 @@ function ReplayControls({
         onSelect={(id) => onEnsemble(id as RecapEnsemble)}
       />
       <View style={styles.transport}>
-        <TransportButton label="Nghe" active={!playing} disabled={composing} onPress={onPlay} />
+        <TransportButton
+          label="Nghe"
+          active={!playing && !finished}
+          disabled={composing || finished}
+          onPress={onPlay}
+        />
         <TransportButton label="Tạm dừng" active={playing} disabled={!playing && !composing} onPress={onPause} />
         <TransportButton label="Nghe lại" onPress={onReplay} />
       </View>

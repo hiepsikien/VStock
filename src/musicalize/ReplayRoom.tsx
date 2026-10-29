@@ -77,6 +77,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const [series, setSeries] = useState<SessionMinutes | null>(null);
   const [manifest, setManifest] = useState<RecapManifest | null>(null);
   const [movements, setMovements] = useState<SpanMovement[] | null>(null);
+  const [spanLine, setSpanLine] = useState<{ key: string; prices: number[] } | null>(null);
   const [asOf, setAsOf] = useState('');
   const [homeKey, setHomeKey] = useState('');
   const [index, setIndex] = useState(0);
@@ -219,6 +220,32 @@ export function ReplayRoom({ wide, onMode }: Props) {
     };
   }, [date, span, symbol]);
 
+  const spanKey = `${symbol}|${span}|${variant}|${ensemble}|${humanize ? 1 : 0}|${colorOn ? 1 : 0}`;
+  useEffect(() => {
+    if (span === '1D') return;
+    const controller = new AbortController();
+    let cancelled = false;
+    const key = spanKey;
+    void (async () => {
+      try {
+        const plan = await fetchSpan(symbol, span, variant, ensemble, controller.signal, {
+          humanize,
+          color: colorOn,
+        });
+        if (cancelled) return;
+        const prices = plan.movements.flatMap((item) => item.prices);
+        setSpanLine(prices.length > 1 ? { key, prices } : null);
+      } catch (err) {
+        if (cancelled || isAbort(err)) return;
+        setSpanLine(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [colorOn, ensemble, humanize, span, spanKey, symbol, variant]);
+
   const seekTarget = useRef<number | null>(null);
 
   const issueSeek = useCallback((seconds: number) => {
@@ -268,7 +295,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
     if (span === '1D') {
       setPlaying(false);
       setFinished(true);
-      if (manifest) setMovementTime(manifest.durationSec);
+      const end = mediaDuration > 0 ? mediaDuration : manifest?.durationSec ?? 0;
+      if (end > 0) setMovementTime(end);
       return;
     }
     const currentMovements = movementsRef.current;
@@ -292,7 +320,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
       return;
     }
     beginRest(currentIndex, movement.restAfterSec, 0);
-  }, [beginRest, manifest, span]);
+  }, [beginRest, manifest, mediaDuration, span]);
 
   const listen = useCallback(() => {
     request.current?.abort();
@@ -397,6 +425,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
       setMovementTime(target);
       setPlaying(autoplay);
       if (nextIndex !== indexRef.current) {
+        setAudible(false);
         setIndex(nextIndex);
         setStartSec(target);
         setSeek(null);
@@ -494,13 +523,14 @@ export function ReplayRoom({ wide, onMode }: Props) {
         const clock = dailyMapClock(manifest.mapDurationSec, manifest.durationSec, mediaDuration);
         if (clock <= 0) return;
         const target = dailyStageSeek(clock, ratio);
+        if (finished) setPlaying(true);
         setFinished(false);
         setParked(false);
         setMovementTime(target);
         issueSeek(target);
         return;
       }
-      if (!movements || resting || finished) return;
+      if (!movements || resting) return;
       const movement = movements[index];
       if (!movement) return;
       const frameStart = movements
@@ -508,13 +538,13 @@ export function ReplayRoom({ wide, onMode }: Props) {
         .reduce((sum, item) => sum + item.prices.length, 0);
       if (
         movements.length > 1 &&
-        (!audible || !movementFrameSettled(focusRef.current, frameStart, movement.prices.length))
+        (finished || !audible || !movementFrameSettled(focusRef.current, frameStart, movement.prices.length))
       ) {
         return;
       }
       const target = spanStageSeek(movement.durationSec, movement.warmupSec, movement.cooldownSec, ratio);
       setParked(false);
-      jumpToMovement(index, target, playingRef.current);
+      jumpToMovement(index, target, playingRef.current || finished);
     },
     [audible, finished, index, issueSeek, jumpToMovement, manifest, mediaDuration, movements, resting, span],
   );
@@ -524,12 +554,13 @@ export function ReplayRoom({ wide, onMode }: Props) {
       if (!manifest) return;
       const clock = mediaDuration > 0 ? mediaDuration : manifest.durationSec;
       const target = scrubberSeek(clock, ratio);
+      if (finished) setPlaying(true);
       setFinished(false);
       setParked(false);
       setMovementTime(target);
       issueSeek(target);
     },
-    [issueSeek, manifest, mediaDuration],
+    [finished, issueSeek, manifest, mediaDuration],
   );
 
   const onMovementScrub = useCallback(
@@ -537,9 +568,9 @@ export function ReplayRoom({ wide, onMode }: Props) {
       const movement = movements?.[index];
       if (!movement) return;
       const target = scrubberSeek(movement.durationSec, ratio);
-      jumpToMovement(index, target, playingRef.current);
+      jumpToMovement(index, target, playingRef.current || finished);
     },
-    [index, jumpToMovement, movements],
+    [finished, index, jumpToMovement, movements],
   );
 
   const onWorkScrub = useCallback(
@@ -547,20 +578,21 @@ export function ReplayRoom({ wide, onMode }: Props) {
       if (!movements) return;
       const total = workDuration(movements);
       const place = placeOnWork(movements, scrubberSeek(total, ratio));
+      const resume = playingRef.current || finished;
       if (place.kind === 'rest') {
-        setPlaying(playingRef.current);
+        setPlaying(resume);
         setFinished(false);
         setParked(false);
         setAudible(false);
         const movement = movements[place.afterIndex];
         setMovementTime(movement?.durationSec ?? 0);
         beginRest(place.afterIndex, movement?.restAfterSec ?? 0, place.offset);
-        if (!playingRef.current) clearRest();
+        if (!resume) clearRest();
         return;
       }
-      jumpToMovement(place.index, place.offset, playingRef.current);
+      jumpToMovement(place.index, place.offset, resume);
     },
-    [beginRest, clearRest, jumpToMovement, movements],
+    [beginRest, clearRest, finished, jumpToMovement, movements],
   );
 
   useEffect(() => {
@@ -640,8 +672,9 @@ export function ReplayRoom({ wide, onMode }: Props) {
 
   const prices = useMemo(() => {
     if (span !== '1D' && movements) return movements.flatMap((item) => item.prices);
+    if (span !== '1D' && spanLine?.key === spanKey && spanLine.prices.length > 1) return spanLine.prices;
     return series?.prices ?? [];
-  }, [movements, series, span]);
+  }, [movements, series, span, spanKey, spanLine]);
 
   const cursor = useMemo(() => {
     if (span === '1D') {
@@ -758,9 +791,9 @@ export function ReplayRoom({ wide, onMode }: Props) {
       ? manifest != null
       : movements != null &&
         !resting &&
-        !finished &&
         (movements.length <= 1 ||
-          (audible &&
+          (!finished &&
+            audible &&
             current != null &&
             movementFrameSettled(focus, offsets[index] ?? 0, current.prices.length)));
 
@@ -820,6 +853,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
           humanize={humanize}
           colorOn={colorOn}
           playing={playing}
+          finished={finished}
           composing={composing}
           fileScrub={
             span === '1D' && manifest
