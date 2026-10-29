@@ -88,7 +88,7 @@ PROFILES: dict[tuple[str, str], PatternWaveProfile] = {
     ("classic", "elegiaque"): _profile(26, 32, 56, 62, 66, 68, 1, 2, "appoggiatura", 9),
     ("classic", "study"): _profile(28, 34, 56, 63, 68, 70, 1, 2, "study", 5),
     ("classic", "mozart_var"): _profile(28, 34, 56, 62, 66, 68, 1, 2, "apex_rise", 5),
-    ("classic", "galop"): _profile(30, 36, 58, 63, 68, 70, 1, 3, "galop", 3),
+    ("classic", "galop"): _profile(30, 36, 58, 63, None, None, 0, 0, "none", 3),
     ("barrios", "preludio"): _profile(28, 34, 56, 62, 66, 68, 1, 2, "canto", 5),
     ("barrios", "andante"): _profile(26, 32, 54, 60, None, None, 0, 0, "none", 9),
     ("barrios", "thumb_cantabile"): _profile(28, 34, 56, 62, 66, 68, 1, 2, "thumb", 9),
@@ -712,7 +712,9 @@ def _is_target(
     if pattern == "mozart_var":
         return voice == "lead" and rise >= 3 and apex
     if pattern == "galop":
-        return voice == "lead" and ctx.mood(event.bar) == "rally" and abs(beat) < 1e-6 and rise >= 1
+        # The hoof opens under the bar's peak. A downbeat snap would nail that
+        # bottom note and leave the bass, which was matched before the wave, behind.
+        return False
     if pattern == "preludio":
         return voice == "lead" and (event.duration_beats >= 0.9 or int(round(beat * 4)) % 8 == 0) and level >= 0.85
     if pattern == "thumb_cantabile":

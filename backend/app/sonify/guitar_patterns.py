@@ -3409,7 +3409,12 @@ def _shape_dynamics(
             if phrase is None:
                 shaped.append(event)
                 continue
-            extra = round(4 * swell(phrase, min(max(eighth, phrase.start), phrase.end - 1)))
+            # Galop already carries a beat contour. One extra for the whole bar
+            # keeps that contour; a per-eighth extra cancels the two-step gaps.
+            anchor = eighth
+            if patterns is not None and _bar_pattern(ctx, event.bar, patterns) == "galop":
+                anchor = event.bar * ctx.epb
+            extra = round(4 * swell(phrase, min(max(anchor, phrase.start), phrase.end - 1)))
             if extra == 0:
                 shaped.append(event)
                 continue

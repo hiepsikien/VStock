@@ -216,7 +216,15 @@ Nốt trên kêu ở móc kép 2, trong chỗ nghỉ của giai điệu, nên kh
 
 `test_composer_intro_and_outro_frames_for_two_and_four_bars` trên `_frame_score("classic", 2)`: `divisions == 4`, bè trong ô 0 rỗng, onset bass `[0.0, 2.0]`, `velocity <= 52`. Lead ô 0 là nửa đầu `lead=True`: móc kép tại `0.5, 0.75, 1.5, 1.75`, quãng tám trên nốt phách 0, nốt hợp âm trong 7 nửa cung, không có lead từ phách 2. Nửa sau `lead=False` chỉ còn bass móc đơn. Lead ô 1 từ phách 2 là `_lead_leaps`.
 
-Bass ô 0 của cửa ngắn giữ mức cửa: nửa đầu `_P = 50`, nửa sau `_MP = 56`. Sau `affine_raw`, mức nghe là 36 rồi 42.
+Cửa ngắn bước 0 hát contour của mục 4.4. So với móc đơn phách 0, hai móc kép là −4 và −8, móc đơn phách 1 là +8, hai móc kép của phách đó là +4 và 0. Bass phách 0 bằng móc đơn đó. Bass phách 2, móng đáp `_MP`, bằng móc đơn phách 1. Span nửa sau chỉ có một móng, nên peak của span là chính phách đó và nốt không bị trừ `rise_step`.
+
+### 4.4. Velocity
+
+Thân bài đo cả ô từ một mức V, mức lead viết cao nhất trong ô. Mỗi bậc là `_GALOP_STEP` = 2. Sóng phrase cộng một extra cho cả ô, lấy ở phách đầu, nên bậc trong ô không bị san. Snap của Galop không còn: phách 0 là đáy câu phi, không phải cú nhấn.
+
+Galop 1. Móc đơn tại 0.0, 1.0, 2.0, 3.0 nằm ở V−6, V−4, V−2, V. Trong một phách, móc kép đầu thấp hơn móc đơn 2, móc kép sau thấp hơn 4. Bass tại 0.0 và 2.0 bằng móc đơn cùng phách. Biến ô đầu, phách 3.5 là móc đơn nối, thấp hơn móc 3.0 đúng 2.
+
+Galop 2. Nửa đầu: móc mạnh V−8, quãng 12 V−4, móc đáp V−12. Nửa sau: móc mạnh V−4, quãng 12 V, móc đáp V−8. Quãng 12 nửa sau là đỉnh ô. Khi quãng 12 không đặt được, nửa sau vẫn cao hơn nửa đầu 4.
 
 `test_the_last_gavotte_bar_keeps_the_price_on_eighths_six_and_seven` khóa móc 6–7 của ô cuối. `test_gavotte_tail_follows_the_price_until_the_next_downbeat_changes` khóa hai nhánh còn lại của ô 4/4: móc 4–5 là giá, móc 6–7 là `_approach_eighths` khi nốt đầu ô sau khác móc 4, và móc 6–7 vẫn là giá khi hai nốt đó bằng nhau.
 

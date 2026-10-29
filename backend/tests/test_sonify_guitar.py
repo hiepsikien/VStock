@@ -1922,6 +1922,12 @@ def test_composer_intro_and_outro_frames_for_two_and_four_bars() -> None:
     assert door_upper.midi == door_down.midi + 12
     assert 0 < door_upper.midi - door_under.midi <= 7
     assert all(note.beat < 2 for note in door)
+    door_levels = {round(note.beat, 2): note.velocity for note in door}
+    down = door_levels[0.0]
+    assert [door_levels[beat] - down for beat in (0.5, 0.75, 1.0, 1.5, 1.75)] == [-4, -8, 8, 4, 0]
+    bass_door = {round(note.beat, 2): note.velocity for note in _pitched(classic.low, 0)}
+    assert bass_door[0.0] == down
+    assert bass_door[2.0] == door_levels[1.0]
     leaps = [note for note in _pitched(classic.lead, 1) if note.beat >= 2]
     assert len(leaps) >= 3 and all(note.staccato for note in leaps)
     close = _pitched(classic.low, classic.bars - 1)
@@ -3226,6 +3232,105 @@ def test_galop_2_slurs_the_twelfth_and_galop_1_does_not() -> None:
         upper = next(note for note in bass if abs(note.beat - (root.beat + 0.5)) < 1e-6)
         assert upper.slur_stop and not upper.slur_start and not root.slur_stop
         assert root.midi is not None and upper.midi == root.midi + 19
+
+
+def test_galop_beats_keep_a_micro_velocity_contour() -> None:
+    """Galop 1 rises across the bar. Galop 2 rises into its second cell from one written peak."""
+    epb = 8
+    phrases = (
+        _held(0, 2 * epb, 67),
+        _held(2 * epb, 6 * epb, 67),
+        _held(8 * epb, 2 * epb, 67),
+    )
+    sections = (
+        FormSection(0, 2, "intro", 0),
+        FormSection(2, 8, "phrase", 0),
+        FormSection(8, 10, "outro", 0),
+    )
+    kinds = {bar: ("intro" if bar < 2 else "outro" if bar >= 8 else "phrase") for bar in range(10)}
+    score = _pattern_score(
+        [67] * (10 * epb),
+        phrases,
+        ensemble="classic",
+        bpm=88,
+        character="rally",
+        rel_span=0.02,
+        kinds=kinds,
+        sections=sections,
+    )
+
+    def levels(voice, bar: int) -> dict[float, int]:
+        return {
+            round(note.beat, 2): note.velocity
+            for note in _pitched(voice, bar)
+            if note.velocity is not None
+        }
+
+    grid = levels(score.lead, 3)
+    down = grid[0.0]
+    assert [grid[beat] - down for beat in (0.5, 0.75, 1.0, 1.5, 1.75)] == [-2, -4, 2, 0, -2]
+    assert grid[2.0] - down == 4
+    assert [grid[beat] - down for beat in (2.5, 2.75, 3.0, 3.5, 3.75)] == [2, 0, 6, 4, 2]
+    bass = levels(score.low, 3)
+    assert bass[0.0] == down and bass[2.0] == down + 4
+
+    variant = levels(score.lead, 2)
+    assert variant[3.0] - variant[0.0] == 6
+    assert variant[3.5] - variant[0.0] == 4
+    assert 3.75 not in variant
+
+    # The twelfth needs room under the melody. 67 leaves none; 72 does.
+    high = _pattern_score(
+        [72] * (10 * epb),
+        (
+            _held(0, 2 * epb, 72),
+            _held(2 * epb, 6 * epb, 72),
+            _held(8 * epb, 2 * epb, 72),
+        ),
+        ensemble="classic",
+        bpm=88,
+        character="rally",
+        rel_span=0.02,
+        kinds=kinds,
+        sections=sections,
+    )
+    answer = levels(high.lead, 6)
+    low = levels(high.low, 6)
+    statement = answer[0.0]
+    assert low[0.0] == statement
+    assert low[0.5] - statement == 4
+    assert answer[1.0] - statement == -4
+    assert answer[2.0] - statement == 4
+    assert low[2.0] == answer[2.0]
+    assert low[2.5] - statement == 8
+    assert answer[3.0] == statement
+
+    # A rising phrase used to cancel the two-step gaps and snap the downbeat.
+    scale = (60, 62, 64, 65, 67)
+    climb = [scale[min(len(scale) - 1, (index * (len(scale) - 1)) // (6 * epb - 1))] for index in range(6 * epb)]
+    rising = _pattern_score(
+        [60] * (2 * epb) + climb + [65] * (2 * epb),
+        (
+            _held(0, 2 * epb, 60),
+            _from_notes(2 * epb, climb),
+            _held(8 * epb, 2 * epb, 65),
+        ),
+        ensemble="classic",
+        bpm=88,
+        character="rally",
+        rel_span=0.02,
+        kinds=kinds,
+        sections=sections,
+    )
+    assert _from_notes(2 * epb, climb).rise >= 5
+    risen = levels(rising.lead, 3)
+    foot = risen[0.0]
+    assert [risen[beat] - foot for beat in (0.5, 0.75, 1.0, 1.5, 1.75)] == [-2, -4, 2, 0, -2]
+    assert risen[2.0] - foot == 4
+    assert [risen[beat] - foot for beat in (2.5, 2.75, 3.0, 3.5, 3.75)] == [2, 0, 6, 4, 2]
+    risen_bass = levels(rising.low, 3)
+    assert risen_bass[0.0] == foot and risen_bass[2.0] == foot + 4
+    assert all((note.velocity or 0) < 66 for note in _pitched(rising.lead, 3))
 
 
 def _suite(movement: int, ensemble: str, *, character: str = "rally"):

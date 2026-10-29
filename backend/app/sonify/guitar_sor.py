@@ -16,6 +16,13 @@ _MELODY_APEX = 72
 _BASS = 56
 _INNER = 46
 _MORDENT_SPAN = 4
+# One micro step inside a galop beat. Four of these equal one dynamic degree.
+_GALOP_STEP = 2
+_GALOP_FLOOR = 40
+# Intro hoof only. The sixteenths stay two and four under their eighth.
+# The second beat of that half-bar sits a full degree above the first.
+_GALOP_INTRO_INNER = 4
+_GALOP_INTRO_RISE = 8
 BARRIOS_TREMOLO_MIN_BPM = 90
 
 def _classic_macro(ctx: _Ctx, mood: str | None, bars: list[int]) -> str:
@@ -443,7 +450,137 @@ def _render_galop_dance(
     support, low = _shape_accompaniment(ctx, support, low)
     if index % 8 >= 4:
         low = _slur_galop2_bass(low)
+        part_lead, low = _contour_galop2(part_lead, low)
+    else:
+        part_lead, low = _contour_galop1(part_lead, low)
     return part_lead, support, low
+
+
+def _local_beat(beat: float) -> float:
+    """Position inside one packed 2/4 bar. Beat 2.0 of the 4/4 bar is 0."""
+    local = round(beat % 2.0, 2)
+    if local >= 2.0:
+        return 0.0
+    return local
+
+
+def _galop1_parts(beat: float, duration: float = 0.25, *, peak_quarter: int = 3) -> tuple[int, int]:
+    """Sixteenth steps inside the beat, then how many quarters sit under the peak."""
+    quarter = int(math.floor(beat + 1e-9))
+    quarter = min(max(quarter, 0), peak_quarter)
+    local = round(beat - quarter, 2)
+    if local <= 0.0:
+        inner = 0
+    elif duration >= 0.49:
+        inner = 1
+    elif local < 0.7:
+        inner = 1
+    else:
+        inner = 2
+    return inner, peak_quarter - quarter
+
+
+def _galop1_steps(beat: float, duration: float = 0.25, *, peak_quarter: int = 3) -> int:
+    """Steps below the written level. The bar rises toward `peak_quarter`.
+
+    Inside one beat the eighth is the weight and the two sixteenths fall away.
+    Each later beat sits one step higher, so the hoof grows louder.
+    """
+    inner, below = _galop1_parts(beat, duration, peak_quarter=peak_quarter)
+    return inner + below
+
+
+def _galop1_heard(
+    velocity: int,
+    beat: float,
+    duration: float,
+    *,
+    peak_quarter: int = 3,
+    inner_step: int = _GALOP_STEP,
+    rise_step: int = _GALOP_STEP,
+) -> int:
+    """Drop each note from the written level. Lift the peak only to clear the floor.
+
+    The softest note is the second sixteenth of the first quarter. A quiet door
+    cannot hold a wide rise by dropping alone, so the peak moves up by the
+    missing room and the earlier notes keep their places under it.
+    """
+    inner, below = _galop1_parts(beat, duration, peak_quarter=peak_quarter)
+    deepest = peak_quarter * rise_step + 2 * inner_step
+    lift = max(0, deepest - (velocity - _GALOP_FLOOR))
+    drop = inner * inner_step + below * rise_step
+    return max(_GALOP_FLOOR, velocity + lift - drop)
+
+
+def _contour_galop1(
+    lead: list[NoteEvent], low: list[NoteEvent]
+) -> tuple[list[NoteEvent], list[NoteEvent]]:
+    """One written peak for the bar. The last eighth sits on it, and each earlier beat is quieter.
+
+    Measuring from each note's own velocity lets a rising phrase cancel the
+    two-step gap inside a beat. The peak is the loudest lead already written.
+    """
+    written = [
+        event.velocity
+        for event in lead
+        if event.midi is not None and event.velocity is not None
+    ]
+    if not written:
+        return lead, low
+    peak = max(written)
+
+    def place(event: NoteEvent) -> NoteEvent:
+        if event.midi is None or event.velocity is None:
+            return event
+        velocity = max(_GALOP_FLOOR, peak - _galop1_steps(event.beat, event.duration_beats) * _GALOP_STEP)
+        if velocity == event.velocity:
+            return event
+        return replace(event, velocity=velocity)
+
+    return [place(event) for event in lead], [place(event) for event in low]
+
+
+def _galop2_steps(beat: float) -> int:
+    """Steps under the bar's written peak.
+
+    The second cell is the arrival, two steps above the first. Inside a cell
+    the twelfth sits two steps above the statement and the answering eighth
+    sits two steps under that statement.
+    """
+    second = beat >= 1.99
+    local = _local_beat(beat)
+    cell = 0 if second else 2
+    if local <= 0.0:
+        inner = 2
+    elif local < 1.0:
+        inner = 0
+    else:
+        inner = 4
+    return inner + cell
+
+
+def _contour_galop2(
+    lead: list[NoteEvent], low: list[NoteEvent]
+) -> tuple[list[NoteEvent], list[NoteEvent]]:
+    """One written peak for the bar. The second twelfth sits on it, and the first cell is quieter."""
+    written = [
+        event.velocity
+        for event in lead
+        if event.midi is not None and event.velocity is not None
+    ]
+    if not written:
+        return lead, low
+    peak = max(written)
+
+    def place(event: NoteEvent) -> NoteEvent:
+        if event.midi is None or event.velocity is None:
+            return event
+        velocity = max(_GALOP_FLOOR, peak - _galop2_steps(event.beat) * _GALOP_STEP)
+        if velocity == event.velocity:
+            return event
+        return replace(event, velocity=velocity)
+
+    return [place(event) for event in lead], [place(event) for event in low]
 
 
 def _slur_galop2_bass(low: list[NoteEvent]) -> list[NoteEvent]:
