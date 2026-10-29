@@ -532,12 +532,18 @@ def _galop_cell_span(
     end: int,
     lead: bool,
     bar: int,
+    inner_step: int | None = None,
+    rise_step: int | None = None,
 ) -> list[tuple]:
     """Galop 1 on a door span. `lead=False` keeps only the staccato root eighths."""
-    from app.sonify.guitar_sor import _galop1_cell
+    from app.sonify.guitar_sor import _GALOP_STEP, _galop1_cell, _galop1_heard
+
+    inner_step = _GALOP_STEP if inner_step is None else inner_step
+    rise_step = _GALOP_STEP if rise_step is None else rise_step
 
     specs: list[tuple] = []
     root_pc = pcs[0] % 12 if pcs else 0
+    peak = max(0, (int(end) - 1) // 2)
     for origin in range(int(start), int(end), 4):
 
         def melody_at(offset: int, _bar: int = bar) -> int:
@@ -546,7 +552,23 @@ def _galop_cell_span(
         sung = melody_at(origin)
         root = frame._bass_note(ctx, root_pc, sung)
         if not lead:
-            specs.append((origin, 1, root, 3, velocity, {"staccato": True}))
+            specs.append(
+                (
+                    origin,
+                    1,
+                    root,
+                    3,
+                    _galop1_heard(
+                        velocity,
+                        origin / 2,
+                        0.5,
+                        peak_quarter=peak,
+                        inner_step=inner_step,
+                        rise_step=rise_step,
+                    ),
+                    {"staccato": True},
+                )
+            )
             continue
         for offset, length, midi, voice, flags in _galop1_cell(
             ctx,
@@ -557,7 +579,15 @@ def _galop_cell_span(
             variant=False,
             accent=False,
         ):
-            specs.append((offset, length, midi, voice, velocity, dict(flags)))
+            heard = _galop1_heard(
+                velocity,
+                offset / 2,
+                length / 2,
+                peak_quarter=peak,
+                inner_step=inner_step,
+                rise_step=rise_step,
+            )
+            specs.append((offset, length, midi, voice, heard, dict(flags)))
     if end >= ctx.epb:
         specs = _short_last_bass(specs)
     return specs
@@ -574,11 +604,22 @@ def _galop_span(
     lead: bool,
     sparkle: bool,
     bar: int = 0,
+    inner_step: int | None = None,
+    rise_step: int | None = None,
 ) -> list[tuple]:
     """Staccato galop cell, or the older oom-pah when the span is not a 4/4 half."""
     if _galop_cell_applies(ctx, start, end):
         return _galop_cell_span(
-            frame, ctx, pcs, velocity, start=start, end=end, lead=lead, bar=bar
+            frame,
+            ctx,
+            pcs,
+            velocity,
+            start=start,
+            end=end,
+            lead=lead,
+            bar=bar,
+            inner_step=inner_step,
+            rise_step=rise_step,
         )
     epb = ctx.epb
     end = min(end, epb)
@@ -1785,10 +1826,22 @@ def _galop_hits(frame, ctx, bar: int, role: int, *, short: bool, closing: bool) 
     half = _half(epb)
     if short and not closing:
         if role == 0:
-            # First half stays at _P, including the downbeat lead. The fifth and
-            # the later off-beats answer at _MP.
+            # First half stays on the tonic hoof. The sixteenths sit further
+            # under each eighth, and the second beat is a full degree louder.
+            from app.sonify.guitar_sor import _GALOP_INTRO_INNER, _GALOP_INTRO_RISE
+
             opening = _galop_span(
-                frame, ctx, tonic, frame._P, start=0, end=half, lead=True, sparkle=False, bar=bar
+                frame,
+                ctx,
+                tonic,
+                frame._P,
+                start=0,
+                end=half,
+                lead=True,
+                sparkle=False,
+                bar=bar,
+                inner_step=_GALOP_INTRO_INNER,
+                rise_step=_GALOP_INTRO_RISE,
             )
             answer = _galop_span(
                 frame, ctx, tonic, frame._MP, start=half, end=epb, lead=False, sparkle=False, bar=bar
