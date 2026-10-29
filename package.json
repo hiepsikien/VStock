@@ -20,12 +20,14 @@
     "expo-task-manager": "~58.0.12",
     "expo-web-browser": "~58.0.6",
     "react": "19.3.0",
+    "react-dom": "19.3.0",
     "react-native": "0.88.0",
     "react-native-gesture-handler": "~3.3.0",
     "react-native-reanimated": "4.7.1",
     "react-native-safe-area-context": "~5.10.1",
     "react-native-screens": "~4.30.0",
     "react-native-svg": "15.16.0",
+    "react-native-web": "~0.21.4",
     "react-native-worklets": "0.13.0"
   },
   "devDependencies": {
@@ -46,6 +48,7 @@
     "web": "expo start --web",
     "test:alerts": "npx --yes tsx src/utils/priceAlertLogic.test.ts",
     "test:program": "npx --yes tsx src/sonify/program.test.ts",
+    "test:musicalize": "npx --yes tsx src/musicalize/seek.test.ts",
     "build:ios:dev": "eas build --platform ios --profile development",
     "build:ios:sim": "eas build --platform ios --profile development-simulator",
     "build:ios:testflight": "eas build --platform ios --profile production --auto-submit",

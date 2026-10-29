@@ -574,6 +574,19 @@ export async function fetchSpan(
   );
 }
 
+export type SonifyTapeSymbol = {
+  symbol: string;
+  base: string;
+  quote_volume: number;
+  last_price: number;
+};
+
+/** Top crypto pairs for the live tape. Volume stays off the listening screen. */
+export async function fetchSonifySymbols(signal?: AbortSignal): Promise<SonifyTapeSymbol[]> {
+  const data = await apiGet<{ symbols: SonifyTapeSymbol[] }>('/v1/sonify/symbols', signal);
+  return data.symbols ?? [];
+}
+
 export async function fetchRecap(
   symbol: string,
   day: string,
