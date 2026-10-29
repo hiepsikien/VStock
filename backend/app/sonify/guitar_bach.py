@@ -1994,6 +1994,42 @@ def _tirata_neighbor(ctx: _Ctx, pitch: int) -> int:
     return below
 
 
+def _has_four_in_a_row(line: list[int]) -> bool:
+    run = 1
+    for previous, pitch in zip(line, line[1:]):
+        run = run + 1 if pitch == previous else 1
+        if run >= 4:
+            return True
+    return False
+
+
+def _spread_directed(path: list[int], count: int) -> list[int]:
+    """`count` notes along `path`. No pitch is repeated four times. The ends stay put."""
+    if count <= 0 or not path:
+        return []
+    if len(path) == 1 or len(path) >= count:
+        return _fit_directed(path, count)
+    slots = [1] * len(path)
+    extras = count - len(path)
+    while extras:
+        placed = False
+        for index in range(len(path) - 1, -1, -1):
+            if slots[index] < 3:
+                slots[index] += 1
+                extras -= 1
+                placed = True
+                break
+        if not placed:
+            slots[-1] += 1
+            extras -= 1
+    line: list[int] = []
+    for pitch, times in zip(path, slots):
+        line.extend([pitch] * times)
+    line[0] = path[0]
+    line[-1] = path[-1]
+    return line[:count]
+
+
 def _one_step_ornament(
     ctx: _Ctx, origin: int, arrival: int, count: int, start_slot: int
 ) -> list[int] | None:
@@ -2055,6 +2091,10 @@ def _tirata_line(ctx: _Ctx, start_slot: int, origin: int, arrival: int, count: i
         ornament = _one_step_ornament(ctx, origin, arrival, count, start_slot)
         if ornament is not None:
             line = ornament
+    if _has_four_in_a_row(line):
+        spread = _spread_directed(path, count)
+        if _line_quarters_ok(spread, start_slot):
+            line = spread
     if line == [arrival] * count:
         line[0] = origin
     if not _line_quarters_ok(line, start_slot):

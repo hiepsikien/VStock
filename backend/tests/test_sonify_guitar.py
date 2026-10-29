@@ -5537,7 +5537,7 @@ def test_bach_courante_sings_the_price_then_runs_toward_it() -> None:
     dropped = next(note for note in fall_lead if abs(note.beat - 0.5) < 1e-6)
     assert dropped.midi == 72 and dropped.midi < fall_lead[0].midi and not dropped.staccato
     rhythm = [note for note in fall_lead if abs(note.duration_beats - 0.25) < 1e-6]
-    assert rhythm[0].midi == 67 and rhythm[-1].midi == 64
+    assert [note.midi for note in rhythm] == [67, 65, 65, 64, 64, 64]
     assert all(right.midi is not None and left.midi is not None and right.midi <= left.midi for left, right in zip(rhythm, rhythm[1:]))
 
     def sixteenths_of(melody: list[int]) -> list[int]:
@@ -5553,6 +5553,18 @@ def test_bach_courante_sings_the_price_then_runs_toward_it() -> None:
     assert falling_step[0] == 69 and falling_step[-1] == 67
     assert falling_step[1] == falling_step[2] == _treble_step(ctx, 69, 1)
     assert falling_step.count(69) < 4
+    two_steps = sixteenths_of([60, 62, 64, 65, 72, 74, 76, 77, 79])
+    assert two_steps == [72, 74, 74, 76, 76, 76]
+
+    from app.sonify.guitar_bach import _tirata_line
+
+    capped = render(METER_44, [72] * 16, closes=False)[0]
+    at_ceiling = _tirata_line(capped, 8, 81, 79, 6)
+    assert at_ceiling == [81, 81, 81, 79, 79, 79]
+    at_floor = _tirata_line(capped, 8, capped.treble_floor, _treble_step(capped, capped.treble_floor, 1), 6)
+    assert at_floor[0] == capped.treble_floor
+    assert at_floor[-1] != capped.treble_floor
+    assert max(at_floor.count(pitch) for pitch in set(at_floor)) < 4
 
     three_ctx, three = render(METER_34, [72] * 6 + [74] * 6, closes=True)
     assert _sixteenths(three.lead, 0) == []

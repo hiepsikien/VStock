@@ -106,14 +106,16 @@ Mỗi pattern một phòng. Eighth thân bài của pattern đó, không tính �
 Figuration đã viết của Nhóm 2 và của swarm Brouwer nằm ngoài phòng. Đó là câu điệu đang hát giá, hoặc đang chạy đúng kiểu của nó. Trừ các eighth đó vào phòng `18%` hoặc `25%` thì phòng về `0` ngay khi điệu hát đúng kiểu.
 
 - Courante, mọi meter: tirata của thân bài. `4/4` là eighth `4…6`, tức `3/8`. `3/4` và `6/8` là eighth `3…4`, tức `2/6`. Trần Courante vẫn `18%`. Tirata không ăn phòng đó. Ô `phrase.closes` không viết tirata, nên cũng không có eighth nội tại.
-- Gigue khi đi lên: nửa sau ô, `50%`, trần `18%`.
-- Chaconne khi vẽ scale (`mf`/`f` và đi lên): nửa sau ô, `50%`, trần `25%`.
-- Sarabande Bach khi `_sarabande_passes`: hai eighth cuối. `4/4` là `25%`, `3/4` là `33%`, trần `18%`.
-- Sarabande Brouwer khi swarm: từ `epb // 2` đến hết ô, `50%`, trần `25%`.
+- Gigue khi đi lên: nửa sau ô. `4/4` từ eighth `4` (`4/8`). `3/4` và `6/8` từ eighth `3` (`3/6`). Trần `18%`.
+- Chaconne khi vẽ scale (`mf`/`f` và đi lên): `4/4` từ eighth `4` (`4/8`). `3/4` và `6/8` từ eighth `2` (`4/6`). Trần `25%`.
+- Sarabande Bach khi `_sarabande_passes`: `4/4` eighth `6…7` (`2/8`). `3/4` eighth `4…5` (`2/6`). `6/8` chỉ eighth `5` (`1/6`). Trần `18%`.
+- Sarabande Brouwer khi swarm: `4/4` từ eighth `4` (`4/8`). `3/4` từ eighth `3` (`3/6`). `6/8` từ eighth `4` (`2/6`). Trần `25%`.
 
 Prelude không có figuration nội tại kiểu này. Trần `12%` là phần scale thêm. Trên vân tay `1D` phòng còn khoảng bốn ô. Vùng prelude hai ô còn một eighth, dưới độ dài passage tối thiểu là `2`, nên vùng đó không thêm scale. Mỗi móc đơn của Prelude vẫn là nốt giá và một bậc phụ.
 
-Passage trả `passage_eighths` trừ eighth nội tại nằm trong `[start, target)`. Tier-1 trả cùng cách. Clip Courante nằm trọn trên cửa sổ tirata trả `0`: các eighth đó đã là câu chạy của thân bài. Eighth nào của clip không thuộc intrinsic thì trả đủ eighth đó.
+Trần trong bảng là eighth scale thêm, ngoài figuration đã viết. Courante `4/4` đã nghe tirata `3/8` từ thân bài. Phòng `18%` chỉ mua eighth mới ở ngoài cửa sổ đó.
+
+Passage trả `passage_eighths` trừ eighth nội tại nằm trong `[start, target)`. Tier-1 trả các eighth của clip không thuộc intrinsic. Chi phí `0` thì bỏ ứng viên. Clip nằm trọn trên figuration đã viết không viết lại câu đó, kể cả Courante, Gigue, Chaconne và Sarabande. Hôm nay `select_scale_plan` cho chi phí `0` đi qua, vì chỉ bỏ khi chi phí lớn hơn phòng. Mục này chặn đúng chỗ đó. Eighth nào của clip nằm ngoài intrinsic thì trả đủ eighth đó.
 
 Một lượt duyệt theo điểm, cùng thứ tự `select_scale_plan`. Chi phí của ứng viên trừ vào pattern chiếm nhiều eighth nhất trong `[start, target)`. Hòa thì lấy pattern tại `start`, cùng `_majority_pattern`. Eighth của pattern thiểu số vẫn thành scale, và không trừ phòng của pattern đó. Một lượt duyệt từng pattern sẽ đổi thứ tự nhận.
 
