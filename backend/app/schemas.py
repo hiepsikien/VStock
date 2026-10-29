@@ -257,6 +257,29 @@ class NewsResponse(BaseModel):
     items: list[NewsItem]
 
 
+class QaLine(BaseModel):
+    label: str
+    value: str
+    hint: str
+
+
+class QaBlock(BaseModel):
+    title: str
+    lines: list[QaLine]
+
+
+class SonifyQaResponse(BaseModel):
+    """Phase-1 daily symphony meter, laid out for the mobile QA sheet."""
+
+    symbol: str
+    date: str
+    ensemble: str
+    gatesPass: bool
+    chip: str
+    blocks: list[QaBlock]
+    notes: list[str] = Field(default_factory=list)
+
+
 class IndexQuote(BaseModel):
     symbol: str
     name: str

@@ -12,6 +12,7 @@ from app.schemas import (
     ChartRange,
     HistoryResponse,
     RecapResponse,
+    SonifyQaResponse,
     SpanMovementResponse,
     SpanResponse,
     SessionDetailResponse,
@@ -27,7 +28,7 @@ from app.schemas import (
     WatchlistItem,
 )
 from app.services import fundamentals, history, indices, market_session, quotes, symbols as symbols_service
-from app.services.sessions import list_sessions, load_recap, load_session, ready_recap
+from app.services.sessions import list_sessions, load_recap, load_session, load_session_bars, ready_recap
 from app.services.spans import (
     SPAN_RANGES,
     load_movement_audio,
@@ -38,6 +39,7 @@ from app.services.spans import (
     ready_movement,
 )
 from app.sonify.audio import RecapCancelled, RecapUnavailable
+from app.sonify.qa import score_daily_bars
 from app.sonify.ensemble import Ensemble, ensemble_for
 from app.sonify.keys import CHARACTER_LABEL, key_label, work_key_label
 from app.sonify.program import span_movement_name
@@ -433,6 +435,42 @@ async def get_recap(
         movementName=asset.movement_name,
         humanize=asset.humanize,
         color=asset.color,
+    )
+
+
+@router.get(
+    "/stocks/{symbol}/sessions/{session_date}/recap/score",
+    response_model=SonifyQaResponse,
+)
+async def get_recap_score(
+    symbol: str,
+    session_date: date,
+    variant: Variant = Query(default="symphony"),
+    ensemble: str = Query(default="classic"),
+) -> SonifyQaResponse:
+    """Phase-1 meter for the daily symphony. Other variants have no sheet yet."""
+    if variant != "symphony":
+        raise HTTPException(status_code=404, detail="Máy đo giai đoạn 1 chỉ chấm giao hưởng ngày.")
+    sym = symbol.upper()
+    chosen = _ensemble("symphony", ensemble)
+    try:
+        bars = await load_session_bars(sym, session_date)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Minute history unavailable: {exc}") from exc
+    if not bars:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No 1-minute session for {sym} on {session_date}",
+        )
+    try:
+        measured = await asyncio.to_thread(score_daily_bars, sym, bars, chosen)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return SonifyQaResponse(
+        symbol=sym,
+        date=session_date.isoformat(),
+        ensemble=chosen,
+        **measured,
     )
 
 
