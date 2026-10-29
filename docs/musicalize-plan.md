@@ -62,13 +62,13 @@ Phòng thu tối, hướng Cyberpunk-Fintech. Nền `#0D0F12`. Ba điểm nhấn
 
 Chữ sans. Tên bài 22 semibold giữa sân khấu, như `PieceTitle`. Thể loại 15. Mã, ngày và số trên trục 13, `tabular-nums`. Giá lớn 40 và phần trăm không có trên vỏ.
 
-Ba vòm từ khoảng 960px. Dưới mức đó, vòm xếp dọc: nguồn và tủ bài, rồi sân khấu, rồi bàn nhạc.
+Hai cột từ khoảng 960px. Cột trái hẹp, để chọn. Cột phải rộng và chia hai hàng: sân khấu phía trên, cụm điều khiển phía dưới. Sân khấu lấy hết bề ngang của cột phải, nên không bị một cột console làm hẹp ở giữa. Dưới mức đó, ba phần xếp dọc theo thứ tự trái rồi phải: chọn mã, sân khấu, cụm điều khiển.
 
-| Vòm | V1 | Để dành trên cùng vòm |
+| Phần | V1 | Để dành cùng chỗ |
 |---|---|---|
-| Trái, nguồn dữ liệu | Hai nguồn: Chứng khoán và Crypto. Dưới đó là tủ bài: tên bài, mã, ngày. Giá chỉ trên trục sân khấu | Loại chuỗi Price / Volume / Biometrics / Weather. Hôm nay engine chỉ đọc giá đóng và khối lượng của nến. Volume đã thành lực tiếng, chưa phải một chuỗi người nghe chọn. Biometrics và thời tiết chưa có cổng |
-| Giữa, sân khấu | Đường giá và playhead của `PriceChart`. Sóng `peaks` vẽ vào cùng khung, magenta, chạy đến đâu thì hòa vào đường cyan đến đó. Kéo playhead trên khung này | Nến là một cách vẽ sau, trên cùng playhead. Hôm nay sân khấu là line |
-| Phải, bàn nhạc | Thể loại, nhạc cụ, nghệ sĩ, rồi Nghe, Tạm dừng, Nghe lại. Chip đang chọn dùng magenta | Pan sân khấu và xuất widget. Cyberpunk như một thể loại. Bach đã là nghệ sĩ Baroque của Guitar, chưa phải một lăng kính riêng tên Baroque |
+| Cột trái, chọn đối tượng nghe | Hai loại: Chứng khoán và Crypto. Trong loại đang chọn là danh sách mã. Dòng mã kèm ngày phiên hoặc khung. Giá chỉ trên trục sân khấu | Loại chuỗi Price / Volume / Biometrics / Weather. Hôm nay engine chỉ đọc giá đóng và khối lượng của nến. Volume đã thành lực tiếng, chưa phải một chuỗi người nghe chọn. Biometrics và thời tiết chưa có cổng |
+| Cột phải, hàng trên, sân khấu | Đường giá và playhead của `PriceChart`. Sóng `peaks` vẽ vào cùng khung, magenta, chạy đến đâu thì hòa vào đường cyan đến đó. Kéo playhead trên khung này | Nến là một cách vẽ sau, trên cùng playhead. Hôm nay sân khấu là line |
+| Cột phải, hàng dưới, cụm điều khiển | Thể loại, nhạc cụ, nghệ sĩ, rồi Nghe, Tạm dừng, Nghe lại và thanh kéo. Chip đang chọn dùng magenta | Pan sân khấu và xuất widget. Cyberpunk như một thể loại. Bach đã là nghệ sĩ Baroque của Guitar, chưa phải một lăng kính riêng tên Baroque |
 
 Đèn tập tai, khi làm, dùng đúng ba màu này: amber trên playhead giai điệu, magenta trên vùng tô thanh khoản, cyan trên chấm breakout và đoạn scale.
 
@@ -123,7 +123,7 @@ Mỗi lát dùng API đã có. Không thêm biến thể và không thêm nguồ
 
 | Lát | Xong khi |
 |---|---|
-| A. Một bài | Ba vòm trên máy rộng. Đường cyan, sóng magenta trong cùng khung, playhead amber. Nghe, dừng, nghe lại, kéo tới một phút bất kỳ. Mã và ngày đọc được trên tủ bài |
+| A. Một bài | Hai cột. Trái chọn Chứng khoán hoặc Crypto rồi chọn mã. Phải: sân khấu trên, cụm điều khiển dưới. Đường cyan, sóng magenta trong cùng khung, playhead amber. Nghe, dừng, nghe lại, kéo tới một phút bất kỳ |
 | B. Chương | Nghe lại về đầu chương, rồi về đầu tác phẩm. Kéo playhead trong chương và sang chương bên cạnh. Chart phóng đúng đoạn. `1Y` vẫn chọn được trên điện thoại |
 | C. Đài | Bốn thể loại live trên cùng sân khấu. Mã cặp trên dòng đài, giá trên trục. Không tua |
 | D. Cửa | Kệ thể loại, nhạc cụ, nghệ sĩ dẫn tới một bài replay với đủ transport |
