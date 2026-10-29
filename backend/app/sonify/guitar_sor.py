@@ -515,31 +515,29 @@ def _galop1_heard(
 def _contour_galop1(
     lead: list[NoteEvent], low: list[NoteEvent]
 ) -> tuple[list[NoteEvent], list[NoteEvent]]:
-    """Each beat keeps the eighth above its sixteenths, and the bar crescendos."""
-    shaped: list[NoteEvent] = []
-    for event in lead:
+    """One written peak for the bar. The last eighth sits on it, and each earlier beat is quieter.
+
+    Measuring from each note's own velocity lets a rising phrase cancel the
+    two-step gap inside a beat. The peak is the loudest lead already written.
+    """
+    written = [
+        event.velocity
+        for event in lead
+        if event.midi is not None and event.velocity is not None
+    ]
+    if not written:
+        return lead, low
+    peak = max(written)
+
+    def place(event: NoteEvent) -> NoteEvent:
         if event.midi is None or event.velocity is None:
-            shaped.append(event)
-            continue
-        heard = _galop1_heard(event.velocity, event.beat, event.duration_beats)
-        shaped.append(event if heard == event.velocity else replace(event, velocity=heard))
-    weight = {
-        round(event.beat, 2): event.velocity
-        for event in shaped
-        if event.midi is not None and event.velocity is not None and event.duration_beats >= 0.49
-    }
-    bass: list[NoteEvent] = []
-    for event in low:
-        if event.midi is None or event.velocity is None:
-            bass.append(event)
-            continue
-        beat = round(event.beat, 2)
-        partner = weight.get(beat) if beat in (0.0, 2.0) else None
-        if partner is None or partner == event.velocity:
-            bass.append(event)
-            continue
-        bass.append(replace(event, velocity=partner))
-    return shaped, bass
+            return event
+        velocity = max(_GALOP_FLOOR, peak - _galop1_steps(event.beat, event.duration_beats) * _GALOP_STEP)
+        if velocity == event.velocity:
+            return event
+        return replace(event, velocity=velocity)
+
+    return [place(event) for event in lead], [place(event) for event in low]
 
 
 def _galop2_steps(beat: float) -> int:

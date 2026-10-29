@@ -513,6 +513,20 @@ def _frame_melody(ctx, bar: int, offset: int) -> int:
     return melody[eighth]
 
 
+def _galop_span_peak(start: int, end: int, *, lead: bool) -> int:
+    """Last quarter this span actually plays.
+
+    A lead cell sounds through its second beat. A bass-only cell sounds on the
+    cell downbeat, so a half-bar answer is not dropped toward a later rest.
+    """
+    last = int(start)
+    for origin in range(int(start), int(end), 4):
+        last = origin
+    if lead:
+        return max(0, last // 2 + 1)
+    return max(0, last // 2)
+
+
 def _galop_cell_applies(ctx, start: int, end: int) -> bool:
     epb = getattr(ctx, "epb", 0)
     if getattr(ctx, "kind", None) != "4/4" or epb < 8:
@@ -543,7 +557,7 @@ def _galop_cell_span(
 
     specs: list[tuple] = []
     root_pc = pcs[0] % 12 if pcs else 0
-    peak = max(0, (int(end) - 1) // 2)
+    peak = _galop_span_peak(start, end, lead=lead)
     for origin in range(int(start), int(end), 4):
 
         def melody_at(offset: int, _bar: int = bar) -> int:

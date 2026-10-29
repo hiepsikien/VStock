@@ -1199,3 +1199,5 @@ def test_suite_snaps_follow_the_written_attack() -> None:
     assert _is_target(ctx, "bach_courante", _note(0, 0.5, 64, staccato=True), "lead", flat, 0.0, 0.0)
     assert not _is_target(ctx, "bach_courante", _note(0, 0.0, 64, accent=True), "lead", flat, 0.0, 0.0)
     assert not _is_target(ctx, "bach_courante", _note(0, 0.5, 64, accent=True), "lead", phrase, 0.0, 0.0)
+    assert not hit("galop", 0.0, "lead")
+    assert not hit("galop", 3.0, "lead")

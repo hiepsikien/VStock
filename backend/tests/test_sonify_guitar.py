@@ -1925,7 +1925,9 @@ def test_composer_intro_and_outro_frames_for_two_and_four_bars() -> None:
     door_levels = {round(note.beat, 2): note.velocity for note in door}
     down = door_levels[0.0]
     assert [door_levels[beat] - down for beat in (0.5, 0.75, 1.0, 1.5, 1.75)] == [-4, -8, 8, 4, 0]
-    assert next(note.velocity for note in _pitched(classic.low, 0) if note.beat == 0.0) == down
+    bass_door = {round(note.beat, 2): note.velocity for note in _pitched(classic.low, 0)}
+    assert bass_door[0.0] == down
+    assert bass_door[2.0] == door_levels[1.0]
     leaps = [note for note in _pitched(classic.lead, 1) if note.beat >= 2]
     assert len(leaps) >= 3 and all(note.staccato for note in leaps)
     close = _pitched(classic.low, classic.bars - 1)
@@ -3302,6 +3304,33 @@ def test_galop_beats_keep_a_micro_velocity_contour() -> None:
     assert low[2.0] == answer[2.0]
     assert low[2.5] - statement == 8
     assert answer[3.0] == statement
+
+    # A rising phrase used to cancel the two-step gaps and snap the downbeat.
+    scale = (60, 62, 64, 65, 67)
+    climb = [scale[min(len(scale) - 1, (index * (len(scale) - 1)) // (6 * epb - 1))] for index in range(6 * epb)]
+    rising = _pattern_score(
+        [60] * (2 * epb) + climb + [65] * (2 * epb),
+        (
+            _held(0, 2 * epb, 60),
+            _from_notes(2 * epb, climb),
+            _held(8 * epb, 2 * epb, 65),
+        ),
+        ensemble="classic",
+        bpm=88,
+        character="rally",
+        rel_span=0.02,
+        kinds=kinds,
+        sections=sections,
+    )
+    assert _from_notes(2 * epb, climb).rise >= 5
+    risen = levels(rising.lead, 3)
+    foot = risen[0.0]
+    assert [risen[beat] - foot for beat in (0.5, 0.75, 1.0, 1.5, 1.75)] == [-2, -4, 2, 0, -2]
+    assert risen[2.0] - foot == 4
+    assert [risen[beat] - foot for beat in (2.5, 2.75, 3.0, 3.5, 3.75)] == [2, 0, 6, 4, 2]
+    risen_bass = levels(rising.low, 3)
+    assert risen_bass[0.0] == foot and risen_bass[2.0] == foot + 4
+    assert all((note.velocity or 0) < 66 for note in _pitched(rising.lead, 3))
 
 
 def _suite(movement: int, ensemble: str, *, character: str = "rally"):

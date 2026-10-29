@@ -358,7 +358,7 @@ class PatternWaveProfile:
 | `("classic", "elegiaque")` | `26..56` → `32..62` | 9 | `66..68` | `(1, 2)` | Appoggiatura (`accent=True`) ở câu đỉnh. |
 | `("classic", "study")` | `28..56` → `34..63` | 5 | `68..70` | `(1, 2)` | Fanfare mở đoạn `f`, hoặc đích Grand Solo, hoặc `phrase.apex` khi rally. |
 | `("classic", "mozart_var")` | `28..56` → `34..62` | 5 | `66..68` | `(1, 2)` | `phrase.apex` khi `rise >= 3`. |
-| `("classic", "galop")` | `30..58` → `36..63` | 3 | `68..70` | `(1, 3)` | Phách mạnh mở câu đỉnh ở phiên rally. |
+| `("classic", "galop")` | `30..58` → `36..63` | 3 | không | `(0, 0)` | Câu phi tự dâng trong ô. Phách 0 là đáy, không snap. |
 | `("barrios", "preludio")` | `28..56` → `34..62` | 5 | `66..68` | `(1, 2)` | Tối đa 2 nốt Canto 1 tại đỉnh section. |
 | `("barrios", "andante")` | `26..54` → `32..60` | 9 | không | `(0, 0)` | Không ép dây. |
 | `("barrios", "thumb_cantabile")` | `28..56` → `34..62` | 9 | `66..68` | `(1, 2)` | 1–2 nốt ngón cái `low` tại đỉnh câu. |
