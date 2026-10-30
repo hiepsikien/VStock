@@ -99,6 +99,11 @@ function resolveApiUrl(): string {
     if (Platform.OS === 'ios' && !Device.isDevice) {
       return configured;
     }
+    // Browser tab on the same Mac. `expo-device` reports isDevice=true on web,
+    // so the phone fallback must not rewrite localhost → GCE here.
+    if (Platform.OS === 'web') {
+      return configured;
+    }
     // Physical device: cloud URL wins over Metro LAN rewrite, unless this
     // Metro session was started to talk to uvicorn on the same Mac.
     const preferLocalApi = process.env.EXPO_PUBLIC_LOCAL_API === '1';
