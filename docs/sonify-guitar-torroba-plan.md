@@ -78,9 +78,9 @@ Vận tốc viết nằm trong band nylon hiện có: giai điệu `_MELODY` 64 
 - `backend/app/sonify/harmony.py`: đăng ký `TorrobaDialect` trong `DIALECTS`. Guitar `classic` vẫn là Sor.
 - `backend/app/sonify/program.py`: `_PATTERN_TITLE` cho bốn pattern ở mục 5.
 - `backend/app/sonify/guitar_patterns.py`: bốn pattern vào `_FAMILY`. `_PROFILE` của cả bốn là `"torroba"`, để một cửa trần 65 phủ hết. Bốn dict fallback thêm `"torroba": "sonatina"`. Hôm nay ensemble lạ rơi về `"preludio"`. Bốn chỗ là cuối `_select_body`, cuối `_owning_pattern`, cuối `_fallback_body_pattern`, và đầu `headline_id`.
-- `backend/app/sonify/guitar_wave.py`: bốn khóa `("torroba", pattern)` trong `PROFILES`. Thiếu khóa thì `profile_for` trả `None` và sóng động lực bị phẳng. `backend/tests/test_guitar_wave.py` so `set(PROFILES)` với `_EXPECTED`. Bốn khóa mới phải có trong tập đó.
+- `backend/app/sonify/guitar_wave.py`: bốn khóa `("torroba", pattern)` trong `PROFILES`, và nhánh `_is_target` ở mục 5. Thiếu khóa thì `profile_for` trả `None` và sóng động lực bị phẳng. `backend/tests/test_guitar_wave.py` so `set(PROFILES)` với `_EXPECTED`. Bốn khóa mới phải có trong tập đó.
 - `backend/app/sonify/guitar_scale_passages.py`: xem mục 6.
-- `backend/app/sonify/humanize.py`: `_clamp_guitar` để `torroba` cùng nhóm trần 73 với `bach` và `classic`. Nốt viết từ 64 trở xuống giữ từ 64 trở xuống. Nốt viết trên 64 có thể bị đưa vào khoảng 69–73. Nhóm còn lại mở tới 79.
+- `backend/app/sonify/humanize.py`: `_clamp_guitar` để `torroba` cùng nhóm trần 73 với `bach` và `classic`. Hàm này chạy trong `audio.py`, sau `apply_guitar_wave`. Nốt nó đọc đã là vận tốc sau sóng. Nốt còn từ 64 trở xuống giữ từ 64 trở xuống. Nốt đã được snap lên trên 64 thì vào 69–73. Nhóm còn lại mở tới 79.
 
 Nhãn trên nút là tên nhà, **Torroba**.
 
@@ -155,9 +155,31 @@ Rasgueado là hợp âm ba tiếng ở các móc hợp âm phía trên. Staccato
 
 ### Vận tốc trong ô
 
-Số dưới đây là vận tốc viết, trước humanize và trước sóng từng ô của `guitar_wave`. Sóng cộng một tâm vào cả ô. Nó không thay bậc mạnh nhẹ đã viết trên nốt. Thứ tự giữ `lead > bass > inner` qua `_under_lead`. Sàn 40. Không nốt nào viết trên `_MELODY_APEX` (72).
+Số trong bảng là vận tốc pattern viết ra, trước `_shape_dynamics` và trước `apply_guitar_wave`. Thứ tự giữ `lead > bass > inner` qua `_under_lead`. Sàn 40. Không nốt nào viết trên `_MELODY_APEX` (72).
 
-Humanize của Torroba để nốt viết từ 64 trở xuống ở từ 64 trở xuống, và đưa nốt viết trên 64 vào 69–73. Phách mạnh của điệu vũ phải viết trên 64 thì lớp móng mới nghe thấy. Câu phẳng của `sonatina` và `castillo` giữ 64 ở giai điệu. Chỗ mạnh hơn ở hai pattern đó là bè trong nhỏ hơn, cộng `accent=True` trên attack phách mạnh.
+Thứ tự sau đó:
+
+1. Pattern ghi `64`, `68`, `72`.
+2. `_shape_dynamics` cộng `extra = round(4 * swell)` (`0..+4`) cho câu có `phrase.rise > 0`. Mặc định mỗi móc một mức. `galop` lấy một mức cho cả ô (`anchor = event.bar * ctx.epb`) để giữ đường viền phách.
+3. `apply_guitar_wave` dịch cả ô bằng `round(C) + (viết - 64)`, rồi kẹp ở `min(v_ceil, raw)` với `v_ceil <= 63` (`WARM_LIMIT`). Cửa sổ đã khóa rộng từ 27 nên tâm ô không quá `v_ceil - 8`. Viết `68` thành tâm `+4`, viết `64` thành tâm `+0`. Cả hai vẫn từ 63 trở xuống. Độ chênh `+4` còn. Lớp móng chưa mở.
+4. `_apply_snaps` ghi đè một số attack đã chọn bằng `_snapped_velocity`, từ 66 tới `snap_wide`. Nốt không được chọn ở lại mức affine.
+5. `humanize` đọc vận tốc sau sóng. Nốt từ 64 trở xuống giữ nguyên. Nốt snap trên 64 vào 69–73.
+
+Viết `max(_note_velocity, 68)` cho phách mạnh của điệu vũ tạo độ nảy `+4` sau affine. Nó không tự đưa nốt vào lớp móng. Lớp móng chỉ có khi `PROFILES` có snap và `_is_target` chọn đúng attack. `alpha_price < 0.25` thì ngân sách snap bằng 0, trừ `elogio_pizz`. Phiên phẳng của Torroba nghe độ nảy, không nghe móng.
+
+`castillo` không snap, cùng kiểu `cantabile` và `noviembre`: `snap_calm` và `snap_wide` là `None`, `per_phrase` 0, `per_sec` 0, target `"none"`. `accent=True` trên phách mạnh chỉ là dấu nhấn. Chỗ nghe mạnh hơn là bè trong nhỏ hơn.
+
+`sonatina`, `fandanguillo` và `danza` có snap. `_is_target` trả về đúng khi `voice == "lead"` và `event.accent`. Không lấy mọi nốt đỉnh, vì nốt đáp ở đỉnh câu sẽ chiếm chỗ móng của phách mạnh.
+
+| Pattern | `snap_calm` / `snap_wide` | Mỗi câu / mỗi đoạn | Nghe sau humanize |
+|---|---|---|---|
+| `castillo` | không snap | 0 / 0 | toàn ô ở lại từ 63 trở xuống |
+| `sonatina` | 66 / 68 | 1 / 2 | nốt được chọn nghe ở 69. Trần snap 68 không còn dải bên trên 69 |
+| `fandanguillo`, `danza` | 68 / 70 | 1 / 3 | nốt được chọn nghe ở 69 hoặc 70. Các phách mạnh không được chọn giữ độ nảy `+4` trong vùng ấm |
+
+Mỗi câu chỉ một nốt móng, và cả đoạn không quá ngân sách. Test không đòi mọi phách mạnh đều vào 69–73.
+
+`danza` và `fandanguillo` dùng chung anchor cả ô trong `_shape_dynamics`, cùng cửa của `galop`. Một `extra` cho mọi móc trong ô. Nếu để mỗi móc một mức, câu đang lên có thể cộng `+1` vào hợp âm đầu ô (`68 → 69`) và `+4` vào nốt đáp (`64 → 68`), rồi affine giữ đúng khoảng đã bị rút đó. Bass và bè trung của cùng ô nhận cùng một `extra`, nên khoảng cách ba bè không đổi.
 
 | Việc | Vận tốc viết |
 |---|---|
@@ -238,7 +260,7 @@ Các ý sau dừng ở bản phác thảo, không vào engine:
 
 1. **Dialect và La♭.** `extra("minor") = (BF,)`, hai bảng cấm, cạnh Andalucia trả trọng số, cặp lạ chạm `Bb` trả `0.0`. Loss của `G` / `G7` nghe pitch class 8. Cross-bar không phạt La♭ giữ sang hai hợp âm đó. Cả hai lần `quantize_strong_beats` giữ La♭ khi nốt đang xét vẫn là pitch class 8, kể cả nhánh giao pitch class khi run giữ qua `Cm` và `G`. Picardy đứng sau `_place_melody` trong `render_guitar_score`. Pattern tạm vẫn là arpeggio thường. Test: giọng thứ đi được `Cm → Bb → Ab → G → Cm` trong khi phách mạnh là La♭. `Cm` không được loss 0 trên La♭. Ensemble khác vẫn lượng tử hóa như cũ.
 2. **`sonatina`.** Phách mạnh là close, vận tốc theo bảng mục 5. Slur liền bậc gán trong renderer, và ô Torroba nằm trong `skip_bars` của `_slur()`. Nốt lấy đà là móc kép trước phách mạnh. Profile `"torroba"` cho phép bè trung vượt 65 khi còn dưới bè cao. Đây là pattern của rally và selloff ở 4/4.
-3. **`danza` và `fandanguillo`.** Đủ lưới 4/4, 6/8 và 3/4 ở mục 5. Hợp âm tối đa ba tiếng, nốt trên là giá của móc đó, viết ít nhất 68. Cùng profile `"torroba"`.
-4. **`castillo`, ô thở, harmonics đúng cao độ, khung intro/outro, bốn hàng `PROFILES`, humanize trần 73.**
+3. **`danza` và `fandanguillo`.** Đủ lưới 4/4, 6/8 và 3/4 ở mục 5. Hợp âm tối đa ba tiếng, nốt trên là giá của móc đó, viết ít nhất 68. Cùng profile `"torroba"`. `_shape_dynamics` lấy một `extra` cho cả ô. Snap 68/70, `_is_target` là bè cao có accent.
+4. **`castillo`, ô thở, harmonics đúng cao độ, khung intro/outro, bốn hàng `PROFILES`.** `castillo` không snap. `sonatina` snap 66/68. Humanize trần 73 đọc vận tốc sau sóng.
 
 Bước 1 và 2 đủ cho một ngày `1D`. Hai điệu vũ và *Castillos* là lớp sau, khi dialect đã đứng.
