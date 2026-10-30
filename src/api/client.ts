@@ -99,6 +99,20 @@ function resolveApiUrl(): string {
     if (Platform.OS === 'ios' && !Device.isDevice) {
       return configured;
     }
+    // Browser. `expo-device` reports isDevice=true on web, so the phone
+    // fallback must not rewrite localhost → GCE. A phone that opened Metro on
+    // the LAN still needs the API on that same host, not 127.0.0.1.
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined') {
+        const host = window.location.hostname;
+        if (host && isLanHostname(host)) {
+          const port = url.port || '8000';
+          const local = `http://${host}:${port}`;
+          if (isUsableApiBase(local)) return local;
+        }
+      }
+      return configured;
+    }
     // Physical device: cloud URL wins over Metro LAN rewrite, unless this
     // Metro session was started to talk to uvicorn on the same Mac.
     const preferLocalApi = process.env.EXPO_PUBLIC_LOCAL_API === '1';
@@ -572,6 +586,19 @@ export async function fetchSpan(
     `/v1/stocks/${encodeURIComponent(sym)}/span?range=${range}&variant=${variant}&ensemble=${ensemble}${mixQuery(mix)}`,
     signal,
   );
+}
+
+export type SonifyTapeSymbol = {
+  symbol: string;
+  base: string;
+  quote_volume: number;
+  last_price: number;
+};
+
+/** Top crypto pairs for the live tape. Volume stays off the listening screen. */
+export async function fetchSonifySymbols(signal?: AbortSignal): Promise<SonifyTapeSymbol[]> {
+  const data = await apiGet<{ symbols: SonifyTapeSymbol[] }>('/v1/sonify/symbols', signal);
+  return data.symbols ?? [];
 }
 
 export async function fetchRecap(

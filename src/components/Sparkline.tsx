@@ -15,6 +15,39 @@ import { colors } from '../theme';
 
 const UNPLAYED_OPACITY = 0.28;
 
+function WaveBars({
+  peaks,
+  width,
+  height,
+  color,
+}: {
+  peaks: number[];
+  width: number;
+  height: number;
+  color: string;
+}) {
+  if (peaks.length < 2 || width <= 0 || height <= 0) return null;
+  return (
+    <>
+      {peaks.map((peak, index) => {
+        const slot = width / peaks.length;
+        const bar = Math.max(2, Math.min(1, Math.max(0, peak)) * height * 0.72);
+        return (
+          <Rect
+            key={index}
+            x={index * slot + slot * 0.18}
+            y={(height - bar) / 2}
+            width={Math.max(1, slot * 0.64)}
+            height={bar}
+            fill={color}
+            opacity={0.8}
+          />
+        );
+      })}
+    </>
+  );
+}
+
 type Props = {
   data: number[];
   width?: number;
@@ -29,6 +62,15 @@ type Props = {
   /** Inclusive index window. Omit both to draw the whole series. */
   focusStart?: number;
   focusEnd?: number;
+  /** Overrides the green/red stroke. Omit to keep the terminal palette. */
+  strokeColor?: string;
+  /** Flat fill. Omit to keep the theme gradient when `showFill` is set. */
+  flatFill?: string;
+  /** Playhead stroke and dot. Omit to keep the terminal accent. */
+  playheadColor?: string;
+  /** Peak amplitudes in 0..1, drawn across the same frame as the price line. */
+  wave?: number[] | null;
+  waveColor?: string;
 };
 
 export function Sparkline({
@@ -42,6 +84,11 @@ export function Sparkline({
   dimUnplayed = false,
   focusStart,
   focusEnd,
+  strokeColor,
+  flatFill,
+  playheadColor,
+  wave = null,
+  waveColor = '#E040A0',
 }: Props) {
   const { line, fill, cursor } = useMemo(() => {
     if (data.length < 2) {
@@ -93,17 +140,23 @@ export function Sparkline({
   }, [cursorIndex, data, focusEnd, focusStart, width, height]);
 
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
-  const stroke = positive ? colors.positive : colors.negative;
+  const stroke = strokeColor ?? (positive ? colors.positive : colors.negative);
+  const playhead = playheadColor ?? colors.accent;
   const gradId = `sparkGrad-${uid}`;
   const playedClipId = `sparkPlayed-${uid}`;
   const unplayedClipId = `sparkUnplayed-${uid}`;
   const splitX = cursor ? Math.min(width, Math.max(0, cursor.x)) : 0;
+  const fillPaint = flatFill ?? `url(#${gradId})`;
+  const waveBars =
+    wave && wave.length > 1 ? (
+      <WaveBars peaks={wave} width={width} height={height} color={waveColor} />
+    ) : null;
 
   return (
     <View style={{ width, height, overflow: 'hidden' }}>
       <Svg width={width} height={height}>
         <Defs>
-          {showFill && (
+          {showFill && !flatFill ? (
             <LinearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
               <Stop
                 offset="0%"
@@ -112,7 +165,7 @@ export function Sparkline({
               />
               <Stop offset="100%" stopColor={stroke} stopOpacity={0} />
             </LinearGradient>
-          )}
+          ) : null}
           {dimUnplayed && cursor && (
             <>
               <ClipPath id={playedClipId}>
@@ -133,9 +186,8 @@ export function Sparkline({
         {dimUnplayed && cursor ? (
           <>
             <G clipPath={`url(#${unplayedClipId})`} opacity={UNPLAYED_OPACITY}>
-              {showFill && fill ? (
-                <Path d={fill} fill={`url(#${gradId})`} />
-              ) : null}
+              {waveBars}
+              {showFill && fill ? <Path d={fill} fill={fillPaint} /> : null}
               {line ? (
                 <Path
                   d={line}
@@ -148,9 +200,8 @@ export function Sparkline({
               ) : null}
             </G>
             <G clipPath={`url(#${playedClipId})`}>
-              {showFill && fill ? (
-                <Path d={fill} fill={`url(#${gradId})`} />
-              ) : null}
+              {waveBars}
+              {showFill && fill ? <Path d={fill} fill={fillPaint} /> : null}
               {line ? (
                 <Path
                   d={line}
@@ -165,9 +216,8 @@ export function Sparkline({
           </>
         ) : (
           <G opacity={dimUnplayed ? UNPLAYED_OPACITY : 1}>
-            {showFill && fill ? (
-              <Path d={fill} fill={`url(#${gradId})`} />
-            ) : null}
+            {waveBars}
+            {showFill && fill ? <Path d={fill} fill={fillPaint} /> : null}
             {line ? (
               <Path
                 d={line}
@@ -188,10 +238,10 @@ export function Sparkline({
               y1={0}
               x2={cursor.x}
               y2={height}
-              stroke={colors.accent}
+              stroke={playhead}
               strokeWidth={1.5}
             />
-            <Circle cx={cursor.x} cy={cursor.y} r={4.5} fill={colors.accent} />
+            <Circle cx={cursor.x} cy={cursor.y} r={4.5} fill={playhead} />
           </>
         ) : null}
       </Svg>
