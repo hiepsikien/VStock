@@ -2,6 +2,8 @@
 
 Tên in trên chart là chuỗi trong `backend/app/sonify/program.py` (`_PATTERN_TITLE`) và `src/sonify/program.ts` (`PATTERN_NAMES`). Id trong code giữ nguyên. Tên lấy từ tác phẩm, viết hoa chữ đầu, không dấu. Một tên đã thuộc nhà khác thì pattern mới không dùng lại tên đó.
 
+Tên chương không cần một vùng riêng trên màn hình. Ghi cạnh title đang có, hoặc ngay dưới title đó. Title đang có là tên tác phẩm, ví dụ `Sonatina HVN 23/10 in D`. Dòng chương là pattern của câu đang hát, cùng cỡ chữ nhỏ hơn title.
+
 ---
 
 ## 1. Barrios: Prelude thành Cathedral
@@ -18,7 +20,7 @@ Hai Prelude khác giữ nguyên:
 | Bach | `bach_prelude` | Prelude |
 | Villa, *Prélude* No. 1 | `thumb_cantabile` khi ensemble là `villa` | Prelude |
 
-Dòng chương đổi theo. Ví dụ trong `backend/tests/test_program.py`:
+Chuỗi dòng chương đổi theo. Ví dụ trong `backend/tests/test_program.py`:
 
 | Trước | Sau |
 |---|---|
@@ -55,7 +57,7 @@ Chuỗi hiện có trong `_PATTERN_TITLE` và `PATTERN_NAMES` đã đúng bốn 
 
 ## 3. Torroba: tám kiểu mới
 
-Tám kiểu trong mục 4 của [`docs/sonify-guitar-torroba-phrase-plan.md`](./sonify-guitar-torroba-phrase-plan.md) là cách đánh bên trong pattern đã khóa. Chúng không thêm id vào `_FAMILY`, và không vào `_PATTERN_TITLE`. Dòng chương vẫn in pattern cha (Castillo, Sonatina, Fandanguillo, Danza).
+Tám kiểu trong mục 4 của [`docs/sonify-guitar-torroba-phrase-plan.md`](./sonify-guitar-torroba-phrase-plan.md) là cách đánh bên trong pattern đã khóa. Chúng không thêm id vào `_FAMILY`, và không vào `_PATTERN_TITLE`. Dòng cạnh hoặc dưới title chỉ ghi pattern cha (Castillo, Sonatina, Fandanguillo, Danza). Tám kiểu không ghi lên dòng đó.
 
 Tên dưới đây thay cho “Kiểu 1” … “Kiểu 8” trong code và trong kế hoạch. Mỗi tên một hoặc hai từ, cùng kiểu với catalog.
 
