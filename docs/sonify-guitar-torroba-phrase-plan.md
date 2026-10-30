@@ -11,13 +11,17 @@ Ba việc. Câu thở theo `Phrase` trên mọi span. Vòng thứ được phép
 
 `_breath` trong `guitar_torroba.py` trả về `bar % 4 == 3`. Ô đó làm mỏng bè trong. Bè cao vẫn ngân. Lưới này không đọc câu.
 
-`plan_phrases` cắt câu từ đường giá trên mọi span. `Phrase.closes` đúng khi nốt cuối dài ít nhất `PERIOD` (4 móc đơn) và câu không `held_over`. Ô cuối câu là `(phrase.end - 1) // epb`. Hàm thở mới nhận `ctx` và `bar`, tìm câu chứa móc đầu ô, và chỉ thở khi ô đó là ô cuối của một câu `closes`.
+`plan_phrases` cắt câu từ đường giá trên mọi span. `Phrase.closes` đúng khi nốt cuối dài ít nhất `PERIOD` (4 móc đơn) và câu không `held_over`. Ô cuối câu là `(phrase.end - 1) // epb`.
 
-Không có nhánh `span == "1D"`. `_Ctx` không có trường span. Một vị từ trên `ctx.phrases` phủ `1D`, `1W`, `1M`, `3M` và `1Y`. Khóa theo `PHRASE_STARTS = (2, 10, 18)` chỉ đúng lưới bài ngày, và vẫn sai bên trong câu ngày vì `plan_phrases` cắt tiếp theo nốt.
+Hơi thở không phải một cờ cho cả ô. `_owner` và `_bar_pattern` chỉ nhìn câu chứa `bar * epb`. Câu mở sau móc đầu ô thì cờ đó không thấy. Hàm mới nhận `ctx` và `bar`, trả về tập offset trong ô mà eighth nằm trong một câu `closes` và nằm trong ô cuối của câu đó. Chỗ cắt là `phrase.end`, không phải giữa ô.
 
-Ô pedal không thở: `intro`, `outro`, `warmup`, `cooldown`. Khung intro/outro đã có texture riêng. Câu `held_over` không thở, vì nốt cuối còn ngân sang câu sau cùng section.
+Không có nhánh `span == "1D"`. `_Ctx` không có trường span. Tập offset này phủ `1D`, `1W`, `1M`, `3M` và `1Y`. Khóa theo `PHRASE_STARTS = (2, 10, 18)` chỉ đúng lưới bài ngày, và vẫn sai bên trong câu ngày vì `plan_phrases` cắt tiếp theo nốt.
 
-Câu có thể kết giữa ô. Chỉ bỏ bè trong có eighth nằm trong câu đóng và trong ô cuối của câu đó. Móc thuộc câu sau, cùng ô, giữ nguyên. Bè cao của câu đóng vẫn là close. `_thin` vẫn bỏ khoảng nửa số nốt trong của phần đó.
+Ô pedal cho tập rỗng: `intro`, `outro`, `warmup`, `cooldown`. Khung intro/outro đã có texture riêng. Câu `held_over` không vào tập, vì nốt cuối còn ngân sang câu sau cùng section.
+
+Chỉ bỏ bè trong có offset nằm trong tập đó. Móc của câu sau, cùng ô, giữ nguyên. Bè cao của câu đóng vẫn là close. Đuôi câu có từ hai móc trong thì giữ `_thin` kiểu `[::2]`. Đuôi chỉ có một móc thì bỏ móc đó. Castillo 4/4 chỉ đặt bè trong ở móc 2 và 6. Câu đóng kết ở eighth 4 thì phần đóng chỉ còn móc 2. Cửa `len < 2` hiện tại trong `_thin` sẽ giữ móc đó. Đuôi một móc không đi qua cửa đó.
+
+`band = "p"` đang gắn cả ô ở năm chỗ: `_render_castillo_bar`, `_render_sonatina_bar`, `_block`, `_render_fandanguillo_bar`, `_render_danza_bar`. Bed `p` chỉ áp cho móc có eighth nằm trong tập đóng. Câu đóng không phủ tới hết ô thì bed của ô giữ `ctx.band(bar)`. Castillo ngân một nốt giá cả ô từ móc đầu. Nốt đó giữ bed của ô. Các móc trong thuộc tập đóng vẫn bị bỏ.
 
 ### Vì sao lưới `bar % 4` vỡ trên từng span
 
@@ -34,17 +38,21 @@ Câu có thể kết giữa ô. Chỉ bỏ bè trong có eighth nằm trong câu
 
 `1M` chương I là 4/4, khoảng 96 ô thân, câu form 32 rồi 24 rồi 24. Một vòng hòa âm không phải một câu của cả section đó. Câu nghe vẫn là `Phrase`.
 
-### Nốt lấy đà dừng ở biên câu
+### Nốt lấy đà của sonatina
 
-`apply_sonatina_downbeats` slur vào phách mạnh của mọi ô `sonatina` từ ô 1 trở đi. Biên câu cũng bị dính.
+`apply_sonatina_downbeats` slur vào phách mạnh của mọi ô `sonatina` từ ô 1 trở đi. `_render_sonatina_bar` cũng nối các phách mạnh trong cùng một ô. Hàm đó nhận `phrase_here` của câu sở hữu móc đầu ô, rồi vòng `for offset in strong` slur từ offset 0 sang offset 4 mà không gọi `_phrase_at`.
 
-Cửa mới dùng câu của phách mạnh đích và câu của phách mạnh ngay trước. Hai câu khác nhau thì không trồng nốt lấy đà, không slur. `_same_phrase` đã có trong `guitar_patterns.py`. Điệu Barrios từ chối nốt lấy đà khi sang câu khác qua `_allow_approach`. Sonatina đi cùng cửa đó. Castillo, fandanguillo và danza vốn không trồng pickup.
+Cửa mới so câu của hai phách mạnh, cả qua vạch ô lẫn trong ô. Chặn slur và nốt lấy đà khi cả hai phách đều là `sonatina` và câu của phách trước `closes`. `_phrase_at` đã có trong `guitar_torroba.py`.
+
+Nhánh castillo ngân sang phách mạnh sonatina giữ nguyên. `apply_sonatina_downbeats` đọc nốt đang ngân của ô trước, không đọc close ở eighth 4. Ba fixture `held`, `held_step`, `held_leap` trong `test_sonatina_downbeat_leap_step_run_and_castillo_hold` mỗi bên một `Phrase`, `held=False`, nốt dài 8 móc nên `closes` đúng, mood `calm` rồi `rally` ra `castillo` rồi `sonatina`. Chúng khóa grace ở phách 3.75. Cấm mọi biên câu sẽ làm ba assert đó fail, và nhánh đọc nốt ngân castillo không còn chỗ chạy. `held_over` không phải cửa giữ chúng, vì ba fixture không `held_over`.
+
+`leap`, `step` và `running` trong cùng test là một `Phrase` phủ hai ô. Chúng vẫn lấy đà. Castillo, fandanguillo và danza vốn không trồng pickup.
 
 Cửa này không đọc span. Fixture một câu và fixture nhiều câu trên lưới 4/4, 3/4, 6/8 đều đi qua cùng hàm.
 
 ### Test
 
-`test_breath_harmonics_and_fandanguillo_grids` đang khóa ô 3 mỏng hơn ô 0 vì `3 % 4 == 3`. Viết lại. Ô cuối một câu `closes` mà chỉ số ô không chia hết kiểu `n % 4 == 3` vẫn mỏng. Ô giữa câu có `bar % 4 == 3` vẫn đầy. Câu `held_over` không mỏng. Ô `intro` / `warmup` không mỏng. Nốt lấy đà sonatina không vượt biên câu. Không thêm đối số span vào renderer.
+`test_breath_harmonics_and_fandanguillo_grids` đang khóa ô 3 mỏng hơn ô 0 vì `3 % 4 == 3`. Viết lại. Offset cuối một câu `closes` mà chỉ số ô không chia hết kiểu `n % 4 == 3` vẫn mỏng. Offset giữa câu có `bar % 4 == 3` vẫn đầy. Câu kết giữa ô chỉ mỏng đúng phần của câu đó. Đuôi một móc trong thì móc đó mất. Câu `held_over` không mỏng. Ô `intro` / `warmup` không mỏng. Sonatina không slur qua hai phách mạnh của hai câu khi câu trước `closes`. Ba fixture castillo sang sonatina vẫn có grace ở phách 3.75. Không thêm đối số span vào renderer.
 
 ---
 
@@ -60,13 +68,17 @@ Ba cạnh dưới đây đang trả `0.0`, vì cặp không có trong `_TORROBA_
 | `Ab → Bb` | ♭VI–♭VII–i | `0.36` |
 | `Fm → Bb` | iv–♭VII | `0.34` |
 
-`Bb → Ab` đang là `0.62`. Cạnh quay đầu thấp hơn, nên khi cả hai hợp lệ thì đường đi xuống của vòng vẫn được chọn. `G7` vẫn chỉ về `Cm`. Các lối ra khác của `G7` vẫn `0.0`.
+`Bb → Ab` đang là `0.62`, `Ab → G` là `0.66`. `Bb → Cm` (`0.40`) và `Ab → Bb` (`0.36`) thấp hơn hai cạnh đi xuống đó. Khi cả hai hợp lệ, đường Andalucia vẫn được chọn.
+
+`Fm → Bb` ở `0.34` cao hơn mọi lối ra hiện có của Fa thứ: `Fm → G` là `0.30`, `Fm → Ab` và `Fm → G7` là `0.28`, `Fm → Cm` và `Fm → Eb` là `0.20`. Loss bằng nhau thì Viterbi rời `Fm` sang `Bb`. Đó là lối `iv → ♭VII`, không phải cạnh của vòng bốn bước. Vòng `Cm → Bb → Ab → G → Cm` giữ nguyên trọng số.
+
+`G7` vẫn chỉ về `Cm`. Các lối ra khác của `G7` vẫn `0.0`.
 
 Giọng trưởng không thêm `Ab` hay `Eb`. Khung `C → Bb → F → C` và màu `Fm` giữ nguyên. Không thêm maj7, sus, add9, hay hợp âm Rê♭. Nốt Phrygian vẫn là La♭ ngân trên Sol.
 
 Dialect không biết span. Ba cạnh có mặt trên `1D`, `1W`, `1M`, `3M` và `1Y`.
 
-Test: `Bb → Cm`, `Ab → Bb`, `Fm → Bb` trả đúng số. `Bb → Ab` vẫn cao hơn `Bb → Cm`. `G7 → Fm` vẫn `0.0`. Một đường năm ô `Cm → Bb → Cm` đi được khi phách mạnh hợp với chủ. Đường `Cm → Bb → Ab → G → Cm` cũ vẫn đi được.
+Test: `Bb → Cm`, `Ab → Bb`, `Fm → Bb` trả đúng số. `Bb → Ab` vẫn cao hơn `Bb → Cm`. `Fm → Bb` cao hơn `Fm → G`. `G7 → Fm` vẫn `0.0`. Đường ba ô `Cm → Bb → Cm` đi được khi phách mạnh hợp với chủ. Đường năm ô `Cm → Bb → Ab → G → Cm` cũ vẫn đi được.
 
 ---
 
@@ -89,7 +101,7 @@ Test hiệu trong ô, câu có `rise` trên `MIN_RISE`, band `mf`. Trên một �
 
 ## 4. Thứ tự làm
 
-1. **Câu.** Đổi `_breath` sang câu `closes`, mọi span, bỏ móc trong đúng phạm vi câu. Chặn nốt lấy đà sonatina ở biên câu. Viết lại test ô 3.
+1. **Câu.** Tập offset của câu `closes` trên mọi span. Bed `p` chỉ trên các móc đó. Chặn slur sonatina khi câu trước `closes` và cả hai phách là sonatina. Giữ grace castillo sang sonatina. Viết lại test ô 3.
 2. **Ba cạnh thứ.** `0.40`, `0.36`, `0.34`. Vòng bốn bước và La♭ trên Sol không đổi.
 3. **Extra cả ô.** `castillo` và `sonatina` vào `_WHOLE_BAR_EXTRA`.
 
