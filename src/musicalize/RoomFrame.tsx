@@ -72,6 +72,6 @@ const styles = StyleSheet.create({
     backgroundColor: palette.surface,
   },
   narrowStage: {
-    height: 280,
+    minHeight: 280,
   },
 });

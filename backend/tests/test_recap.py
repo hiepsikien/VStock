@@ -58,6 +58,8 @@ def test_summary_keeps_seven_sessions_and_drops_lunch() -> None:
     detail = minute_series(_payload(), NEXT)
     assert detail is not None
     assert detail["changePercent"] == sessions[1]["changePercent"]
+    assert len(detail["volumes"]) == len(detail["prices"])
+    assert detail["volumes"] == [1000.0] * len(detail["prices"])
 
 
 def test_session_points_follow_the_chosen_day() -> None:

@@ -1,22 +1,22 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { PieceTitle } from '../components/PieceTitle';
-import { Sparkline } from '../components/Sparkline';
-import { playingLines, type PieceProgram } from '../sonify/program';
+import { Sparkline, VOLUME_STRIP } from '../components/Sparkline';
+import type { PieceProgram } from '../sonify/program';
 import { palette } from './palette';
 import { clamp01 } from './seek';
 
 const CHART_HEIGHT = 248;
+const VOLUME_COLOR = 'rgba(62, 224, 224, 0.45)';
 
 type Props = {
   prices: number[];
+  volumes?: number[] | null;
   cursorIndex?: number | null;
   cursorLabel?: string | null;
   dimUnplayed?: boolean;
   focusStart?: number;
   focusEnd?: number;
   program?: PieceProgram | null;
-  wave?: number[] | null;
   identity?: string | null;
   banner?: string | null;
   seekable?: boolean;
@@ -25,13 +25,13 @@ type Props = {
 
 export function Stage({
   prices,
+  volumes = null,
   cursorIndex = null,
   cursorLabel = null,
   dimUnplayed = false,
   focusStart,
   focusEnd,
   program = null,
-  wave = null,
   identity = null,
   banner = null,
   seekable = false,
@@ -39,6 +39,7 @@ export function Stage({
 }: Props) {
   const [width, setWidth] = useState(0);
   const chartWidth = Math.max(1, width);
+  const volumeSeries = volumes && volumes.length > 0 && volumes.length === prices.length ? volumes : null;
   const visible = visibleBounds(prices, focusStart, focusEnd);
   const labelLeft =
     cursorIndex == null || prices.length < 2
@@ -60,6 +61,29 @@ export function Stage({
 
   return (
     <View style={styles.wrap}>
+      {program ? (
+        <View pointerEvents="none" style={styles.program}>
+          <Text style={styles.programTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+            {program.title}
+          </Text>
+          {program.movement ? (
+            <Text style={styles.programLine} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+              {program.movement}
+            </Text>
+          ) : null}
+          {program.phase !== 'playing' && program.instruments ? (
+            <Text style={styles.programLine} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+              {program.instruments}
+            </Text>
+          ) : null}
+        </View>
+      ) : prices.length > 1 && identity ? (
+        <View pointerEvents="none" style={styles.program}>
+          <Text style={styles.programTitle} numberOfLines={2}>
+            {identity}
+          </Text>
+        </View>
+      ) : null}
       <View
         style={styles.chartArea}
         onLayout={(event) => {
@@ -72,71 +96,58 @@ export function Stage({
         onResponderGrant={(event) => seekAt(event.nativeEvent.locationX)}
         onResponderMove={(event) => seekAt(event.nativeEvent.locationX)}
       >
-        {prices.length > 1 && width > 0 ? (
-          <View pointerEvents="none">
-            <Sparkline
-              data={prices}
-              width={chartWidth}
-              height={CHART_HEIGHT}
-              positive
-              strokeWidth={2.25}
-              showFill
-              flatFill="rgba(62, 224, 224, 0.16)"
-              strokeColor={palette.data}
-              playheadColor={palette.playhead}
-              wave={wave}
-              waveColor={palette.sound}
-              cursorIndex={cursorIndex}
-              dimUnplayed={dimUnplayed}
-              focusStart={focusStart}
-              focusEnd={focusEnd}
-            />
-          </View>
-        ) : (
-          <Text style={styles.empty}>{banner ? '' : 'Sân khấu'}</Text>
-        )}
-        {program && program.phase !== 'playing' ? (
-          <PieceTitle
-            title={program.title}
-            instruments={program.instruments}
-            movement={program.movement}
-            titleColor={palette.text}
-            lineColor={palette.textMuted}
-          />
-        ) : null}
-        {!program && identity ? (
+        <View style={styles.chartFrame}>
+          {prices.length > 1 && width > 0 ? (
+            <View pointerEvents="none">
+              <Sparkline
+                data={prices}
+                width={chartWidth}
+                height={CHART_HEIGHT}
+                positive
+                strokeWidth={2.25}
+                showFill
+                flatFill="rgba(62, 224, 224, 0.16)"
+                strokeColor={palette.data}
+                playheadColor={palette.playhead}
+                cursorIndex={cursorIndex}
+                dimUnplayed={dimUnplayed}
+                focusStart={focusStart}
+                focusEnd={focusEnd}
+                volumes={volumeSeries}
+                volumeColor={VOLUME_COLOR}
+              />
+            </View>
+          ) : (
+            <Text style={styles.empty}>{banner ? '' : 'Sân khấu'}</Text>
+          )}
+          {showCursor ? (
+            <View pointerEvents="none" style={[styles.cursorLabel, { left: labelLeft }]}>
+              <Text style={styles.cursorLabelText}>{cursorLabel}</Text>
+            </View>
+          ) : null}
+          {banner ? (
+            <View pointerEvents="none" style={styles.banner}>
+              <Text style={styles.bannerText}>{banner}</Text>
+            </View>
+          ) : null}
+          {prices.length > 1 ? (
+            <View
+              style={[styles.axis, volumeSeries ? { bottom: VOLUME_STRIP + 4 } : null]}
+              pointerEvents="none"
+            >
+              <Text style={styles.axisText}>{visible.max.toFixed(2)}</Text>
+              <Text style={styles.axisText}>{visible.min.toFixed(2)}</Text>
+            </View>
+          ) : null}
+        </View>
+        {!program && identity && prices.length <= 1 ? (
           <View pointerEvents="none" style={styles.identity}>
             <Text style={styles.identityText} numberOfLines={2}>
               {identity}
             </Text>
           </View>
         ) : null}
-        {program?.phase === 'playing' ? (
-          <View pointerEvents="none" style={styles.nowPlaying}>
-            {playingLines(program.title, program.movement).map((line, lineIndex) => (
-              <Text key={`${lineIndex}-${line}`} style={styles.nowPlayingText} numberOfLines={1}>
-                {line}
-              </Text>
-            ))}
-          </View>
-        ) : null}
-        {showCursor ? (
-          <View pointerEvents="none" style={[styles.cursorLabel, { left: labelLeft }]}>
-            <Text style={styles.cursorLabelText}>{cursorLabel}</Text>
-          </View>
-        ) : null}
-        {banner ? (
-          <View pointerEvents="none" style={styles.banner}>
-            <Text style={styles.bannerText}>{banner}</Text>
-          </View>
-        ) : null}
       </View>
-      {prices.length > 1 ? (
-        <View style={styles.axis} pointerEvents="none">
-          <Text style={styles.axisText}>{visible.max.toFixed(2)}</Text>
-          <Text style={styles.axisText}>{visible.min.toFixed(2)}</Text>
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -163,9 +174,36 @@ const styles = StyleSheet.create({
     minHeight: CHART_HEIGHT + 28,
     position: 'relative',
   },
+  program: {
+    paddingHorizontal: 16,
+    paddingTop: 2,
+    paddingBottom: 8,
+    alignItems: 'center',
+  },
+  programTitle: {
+    color: palette.text,
+    fontSize: 22,
+    fontWeight: '600',
+    textAlign: 'center',
+    width: '100%',
+  },
+  programLine: {
+    color: palette.textMuted,
+    fontSize: 15,
+    textAlign: 'center',
+    marginTop: 2,
+    width: '100%',
+  },
   chartArea: {
     flex: 1,
     minHeight: CHART_HEIGHT,
+    justifyContent: 'flex-start',
+    position: 'relative',
+  },
+  chartFrame: {
+    height: CHART_HEIGHT,
+    width: '100%',
+    position: 'relative',
     justifyContent: 'center',
   },
   empty: {
@@ -187,16 +225,6 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '600',
     textAlign: 'center',
-  },
-  nowPlaying: {
-    position: 'absolute',
-    left: 10,
-    right: 72,
-    bottom: 8,
-  },
-  nowPlayingText: {
-    color: palette.text,
-    fontSize: 13,
   },
   cursorLabel: {
     position: 'absolute',

@@ -478,6 +478,7 @@ export type SessionMinutes = {
   symbol: string;
   date: string;
   prices: number[];
+  volumes?: number[];
   times: string[];
   changePercent: number;
 };
@@ -551,6 +552,7 @@ export type SpanMovement = {
   warmupSec: number;
   cooldownSec: number;
   prices: number[];
+  volumes?: number[];
   character?: string | null;
   characterLabel?: string;
   sessionCharacters?: string[];

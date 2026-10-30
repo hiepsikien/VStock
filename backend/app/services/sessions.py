@@ -151,6 +151,7 @@ def minute_series(payload: dict, day: date) -> dict | None:
     return {
         "date": day.isoformat(),
         "prices": [round(point.bar.close, 2) for point in points],
+        "volumes": [round(float(point.bar.volume), 4) for point in points],
         "times": [point.moment.strftime("%H:%M") for point in points],
         "changePercent": session_change_percent(_reference_close(closes, day, first), last),
     }

@@ -91,6 +91,7 @@ class SessionDetailResponse(BaseModel):
     symbol: str
     date: str
     prices: list[float]
+    volumes: list[float]
     times: list[str]
     changePercent: float
 
@@ -140,6 +141,7 @@ class SpanMovementResponse(BaseModel):
     warmupSec: float
     cooldownSec: float
     prices: list[float]
+    volumes: list[float]
     character: str | None = None
     characterLabel: str = ""
     sessionCharacters: list[str] = []
