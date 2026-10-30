@@ -9,6 +9,7 @@ import {
   placeOnWork,
   replayAction,
   scrubberSeek,
+  shouldArmFinish,
   shouldResumePlay,
   sonifySocketUrl,
   spanCandleForSecond,
@@ -255,6 +256,27 @@ equal(
   shouldResumePlay({ wantPlay: false, playing: false, didJustFinish: false, ended: false }),
   false,
   'paused stays paused',
+);
+
+equal(
+  shouldArmFinish({ didJustFinish: false, currentTime: 12, durationSec: 100 }),
+  true,
+  'mid-file seek re-arms when finish clears',
+);
+equal(
+  shouldArmFinish({ didJustFinish: true, currentTime: 12, durationSec: 100 }),
+  false,
+  'spurious finish mid-file stays disarmed',
+);
+equal(
+  shouldArmFinish({ didJustFinish: true, currentTime: 99.8, durationSec: 100 }),
+  true,
+  'seek to the end re-arms so onEnded can run',
+);
+equal(
+  shouldArmFinish({ didJustFinish: true, currentTime: 100, durationSec: 100 }),
+  true,
+  'exact end re-arms',
 );
 
 console.log('musicalize seek tests passed');

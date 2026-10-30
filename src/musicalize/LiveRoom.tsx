@@ -213,6 +213,7 @@ export function LiveRoom({ wide, onMode }: Props) {
             session.current += 1;
             stop();
             setPlaying(false);
+            setStatus(null);
           }}
           status={playing ? status : null}
         />

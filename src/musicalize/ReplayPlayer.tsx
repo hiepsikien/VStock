@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
-import { shouldResumePlay } from './seek';
+import { shouldArmFinish, shouldResumePlay } from './seek';
 
 export type SeekCommand = { id: number; seconds: number };
 
@@ -120,7 +120,15 @@ export function ReplayPlayer({
     }
     const shown = pending.current != null ? pending.current : status.currentTime;
     onTimeRef.current(shown);
-    if (!status.didJustFinish) armFinish.current = true;
+    if (
+      shouldArmFinish({
+        didJustFinish: status.didJustFinish,
+        currentTime: status.currentTime,
+        durationSec: duration,
+      })
+    ) {
+      armFinish.current = true;
+    }
     const guarding = pending.current != null;
     if (status.didJustFinish && armFinish.current && !ended.current && !guarding) {
       ended.current = true;

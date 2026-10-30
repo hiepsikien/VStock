@@ -218,6 +218,20 @@ export function shouldResumePlay(input: {
   return input.wantPlay && !input.playing && !input.didJustFinish && !input.ended;
 }
 
+/**
+ * Seek disarms the finish latch so a mid-file seek's spurious `didJustFinish`
+ * is ignored. On web, seek-to-end leaves `didJustFinish` stuck true, so the
+ * latch must re-arm when the playhead is already at the file end.
+ */
+export function shouldArmFinish(input: {
+  didJustFinish: boolean;
+  currentTime: number;
+  durationSec: number;
+}): boolean {
+  if (!input.didJustFinish) return true;
+  return input.durationSec > 0 && input.currentTime >= input.durationSec - 0.4;
+}
+
 /** WebSocket on the API host. The server rejects a page whose Origin is a different host. */
 export function sonifySocketUrl(
   apiBase: string,
