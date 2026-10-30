@@ -46,7 +46,9 @@ from app.sonify.guitar_patterns import (
     Unplayable,
     _Ctx,
     _MICRO,
+    _apex_eighths,
     _fallback_body_pattern,
+    _note_velocity,
     _owning_pattern,
     _select_body,
     _shape_dynamics,
@@ -1665,6 +1667,30 @@ def test_harmonic_48_skips_the_whole_bar_extra() -> None:
     shaped, _support, _low = _shape_dynamics(ctx, [node, ordinary], [], [], set(), ["sonatina", "sonatina"])
     assert shaped[0].velocity == 48
     assert shaped[1].velocity == 64 + 4
+
+
+def test_weak_lead_follows_the_swell_above_64() -> None:
+    """A rising type 4 tail uses `_note_velocity` of that eighth, then one micro step."""
+    pitches = [60] * 5 + [72] * 27
+    phrase = _joined(0, pitches, held=True)
+    assert phrase.rise >= MIN_RISE
+    ctx = _many((phrase,), melody=pitches)
+    with compose_meter(METER_44):
+        lead, _support, _low = render_torroba_figure(
+            ctx, 0, phrase, "sonatina", 4, index=0, count=2
+        )
+    eighth = 5
+    written = _note_velocity(eighth, 1, _apex_eighths(ctx.phrases), phrase)
+    assert written > 64
+    attack = [note for note in lead if note.midi is not None and note.beat == pytest.approx(eighth * 0.5)]
+    assert len(attack) == 1
+    assert attack[0].velocity == written - _MICRO
+    assert attack[0].velocity > 64 - _MICRO
+    own = _note_velocity(4, 1, _apex_eighths(ctx.phrases), phrase)
+    downbeat = _note_velocity(0, 1, _apex_eighths(ctx.phrases), phrase)
+    assert own != downbeat
+    strong = [note for note in lead if note.midi is not None and note.beat == pytest.approx(2.0)]
+    assert len(strong) == 1 and strong[0].velocity == own
 
 
 def test_figure_bars_keep_their_own_slur_and_grow_no_pickup() -> None:

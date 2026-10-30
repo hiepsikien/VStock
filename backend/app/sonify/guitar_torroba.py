@@ -985,7 +985,7 @@ class _Pen:
             return max(ordinary, 68), True
         if strong:
             return ordinary, eighth in self.strong
-        return 64, False
+        return ordinary, False
 
     def dance_written(self, eighth: int) -> int:
         """Strong-beat level of a dance, including an off-beat note the figure writes at 68."""
@@ -1292,41 +1292,50 @@ def _type4_call(pen: _Pen):
     pen.add(0.0, low, 0.5, 3, bass_level, 0)
     pen.add(0.0, inner, 0.5, 2, support_level, 0)
     repeated = pen.mel(1)
-    pen.add(0.5, repeated, 0.25, 1, 64, 1)
-    pen.add(0.75, repeated, 0.25, 1, 64, 1)
-    pen.add(1.0, pen.mel(2), 0.5, 1, 64, 1)
+    motif, _mark = pen.lead_level(1, strong=False)
+    pen.add(0.5, repeated, 0.25, 1, motif, 1)
+    pen.add(0.75, repeated, 0.25, 1, motif, 1)
+    eighth_two, _mark = pen.lead_level(2, strong=False)
+    pen.add(1.0, pen.mel(2), 0.5, 1, eighth_two, 1)
     principal = pen.mel(2)
     neighbor = pen.grace(principal, [])
     strong_resolution = pen.ctx.kind == "6/8"
+    ornament, _mark = pen.lead_level(3, strong=False)
+    resolution, resolve_mark = pen.lead_level(3, strong=strong_resolution)
     if neighbor is None:
-        pen.add(1.5, principal, 0.5, 1, written if strong_resolution else 64, 0 if strong_resolution else 1)
+        pen.add(
+            1.5,
+            principal,
+            0.5,
+            1,
+            resolution,
+            0 if strong_resolution else 1,
+            accent=strong_resolution and resolve_mark,
+        )
     else:
         upper, body = neighbor
-        pen.add(1.5, upper, 0.25, 1, 64, 1, slur_start=True)
+        pen.add(1.5, upper, 0.25, 1, ornament, 1, slur_start=True)
         pen.add(
             1.75,
             body,
             0.25,
             1,
-            written if strong_resolution else 64,
+            resolution,
             0 if strong_resolution else 1,
             slur_stop=True,
-            accent=strong_resolution,
+            accent=strong_resolution and resolve_mark,
         )
     tail = range(4, pen.epb)
     for eighth in tail:
         sung = pen.mel(eighth)
-        strong = eighth in pen.strong
-        level, mark = pen.lead_level(eighth, strong=strong)
-        lead_steps = 0 if strong or pen.ctx.kind != "4/4" else 1
         # 3/4 and 6/8 keep the weak lead at step 0. 4/4 drops eighths 5–7.
+        # Eighth 4 of 4/4 reads its own eighth, not the downbeat captured above.
         if pen.ctx.kind == "4/4":
             lead_steps = 0 if eighth == 4 else 1
-            level = written if eighth == 4 else 64
-            mark = eighth == 4
+            level, mark = pen.lead_level(eighth, strong=(eighth == 4))
         else:
             lead_steps = 0
-            level = 64
+            level, _mark = pen.lead_level(eighth, strong=False)
             mark = False
         low_here = low if (pen.ctx.kind == "4/4" and eighth in {4, 7}) or (pen.ctx.kind != "4/4" and eighth == pen.epb - 1) else None
         weak = low_here is not None and not (pen.ctx.kind == "4/4" and eighth == 4)
