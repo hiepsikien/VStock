@@ -945,6 +945,7 @@ def quantize_strong_beats(
     chord_at: dict[int, Chord],
     scale: tuple[int, ...],
     mode: str = "major",
+    ensemble: str = "",
 ) -> list[int]:
     """Snap runs that land on or hold through beats 1 and 3 to the active chord.
 
@@ -976,11 +977,17 @@ def quantize_strong_beats(
             frozenset.intersection(*(chord.pitch_classes for chord in strong_chords)),
             scale,
         )
+        keep_ab = (
+            ensemble == "torroba"
+            and mode == "minor"
+            and run.midi % 12 == 8
+            and any(chord.name in ("G", "G7") for chord in strong_chords)
+        )
         if common and not (
             mode == "minor"
             and run.midi % 12 == 10
             and any(chord.name in ("G", "G7") for chord in strong_chords)
-        ):
+        ) and not keep_ab:
             snapped = quantize_chord_tone(run.midi, common, scale, previous, step)
             if abs(scale.index(snapped) - scale.index(run.midi)) <= 1:
                 for eighth in range(run.start, run.end):
@@ -998,14 +1005,22 @@ def quantize_strong_beats(
                 continue
             next_bar = (beat_eighth // epb + 1) * epb
             stop = run.end if index == len(strong) - 1 else min(run.end, next_bar)
-            target = run.midi
-            snap_scale = scale
-            if mode == "minor" and chord.name in ("G", "G7") and run.midi % 12 == 10:
-                target = sing_leading(run.midi)
-                snap_scale = leading_scale(scale)
-            snapped = quantize_chord_tone(
-                target, chord.pitch_classes, snap_scale, previous, step
-            )
+            if (
+                ensemble == "torroba"
+                and mode == "minor"
+                and run.midi % 12 == 8
+                and chord.name in ("G", "G7")
+            ):
+                snapped = run.midi
+            else:
+                target = run.midi
+                snap_scale = scale
+                if mode == "minor" and chord.name in ("G", "G7") and run.midi % 12 == 10:
+                    target = sing_leading(run.midi)
+                    snap_scale = leading_scale(scale)
+                snapped = quantize_chord_tone(
+                    target, chord.pitch_classes, snap_scale, previous, step
+                )
             for eighth in range(cursor, stop):
                 pitches[eighth] = snapped
             previous = snapped

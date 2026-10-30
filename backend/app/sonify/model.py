@@ -28,6 +28,7 @@ Ensemble = Literal[
     "barrios",
     "brouwer",
     "bach",
+    "torroba",
 ]
 ENSEMBLES: tuple[Ensemble, ...] = (
     "classic",
@@ -43,6 +44,7 @@ ENSEMBLES: tuple[Ensemble, ...] = (
     "barrios",
     "brouwer",
     "bach",
+    "torroba",
 )
 
 StreamVariant = Literal["symphony", "jazz", "minimalist", "ambient"]

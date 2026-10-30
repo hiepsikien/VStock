@@ -77,6 +77,10 @@ _FAMILY = {
     "bach_prelude": "bach",
     "bach_allemande": "bach",
     "bach_courante": "bach",
+    "castillo": "torroba",
+    "sonatina": "torroba",
+    "fandanguillo": "torroba",
+    "danza": "torroba",
 }
 _PROFILE = {
     "study": "study",
@@ -110,6 +114,10 @@ _PROFILE = {
     "bach_prelude": "bach",
     "bach_allemande": "bach",
     "bach_courante": "bach",
+    "castillo": "torroba",
+    "sonatina": "torroba",
+    "fandanguillo": "torroba",
+    "danza": "torroba",
 }
 
 
@@ -157,6 +165,7 @@ class _Ctx:
     bar_volumes: list[float] | None = None
     section_rel_spans: dict | None = None
     impulses: tuple = ()
+    regime_at: dict = field(default_factory=dict)
 
     def chord(self, bar: int) -> Chord:
         if bar in self.chord_at:
@@ -791,6 +800,11 @@ def _select_body(
         if trio or bridge:
             return _bach_contrast(ctx, primary, mood)
         return primary
+    if ctx.ensemble == "torroba":
+        primary = _torroba_primary(ctx, mood)
+        if trio or bridge:
+            return _torroba_contrast(ctx, primary)
+        return primary
     if ctx.bpm >= BARRIOS_TREMOLO_MIN_BPM and first_body:
         return {"classic": "study", "villa": "villa_pattern"}.get(ctx.ensemble, "preludio")
     if (
@@ -839,7 +853,7 @@ def _select_body(
         if trio:
             return "vals"
         return "hemiola" if band == "f" else "polca"
-    return {"classic": "study", "villa": "villa_pattern", "brouwer": "brouwer_etude", "bach": "bach_bourree"}.get(
+    return {"classic": "study", "villa": "villa_pattern", "brouwer": "brouwer_etude", "bach": "bach_bourree", "torroba": "sonatina"}.get(
         ctx.ensemble, "preludio"
     )
 
@@ -990,6 +1004,8 @@ def _dominant_pattern(ctx: _Ctx, phrases: list[Phrase], bars: list[int]) -> str:
         return _brouwer_primary(ctx, mood)
     if ctx.ensemble == "bach":
         return _bach_primary(ctx, phrases, bars, mood)
+    if ctx.ensemble == "torroba":
+        return _torroba_primary(ctx, mood, framed_macro=True)
     if ctx.ensemble == "classic":
         return _classic_macro(ctx, mood, bars)
     if ctx.ensemble == "villa":
@@ -1178,6 +1194,8 @@ def _contrast_pattern(ctx: _Ctx, primary: str, phrases: list[Phrase], bars: list
         return _brouwer_contrast(primary)
     if ctx.ensemble == "bach":
         return _bach_contrast(ctx, primary, mood)
+    if ctx.ensemble == "torroba":
+        return _torroba_contrast(ctx, primary)
     if ctx.ensemble == "classic":
         choice = "elegiaque" if ctx.mode == "minor" or mood == "selloff" else "cantabile"
         if choice != primary:
@@ -1449,7 +1467,7 @@ def _owning_pattern(ctx: _Ctx, bar: int, patterns: list[str]) -> str:
     for index, phrase in enumerate(ctx.phrases):
         if phrase.start < (bar + 1) * ctx.epb and phrase.end > eighth:
             return patterns[index] if index < len(patterns) else "pedal"
-    return {"classic": "study", "villa": "villa_pattern", "brouwer": "brouwer_etude", "bach": "bach_bourree"}.get(
+    return {"classic": "study", "villa": "villa_pattern", "brouwer": "brouwer_etude", "bach": "bach_bourree", "torroba": "sonatina"}.get(
         ctx.ensemble, "preludio"
     )
 
@@ -1463,7 +1481,7 @@ def _fallback_body_pattern(ctx: _Ctx, bar: int, patterns: list[str]) -> str:
     for pattern in reversed(patterns):
         if pattern != "pedal":
             return pattern
-    return {"classic": "study", "villa": "villa_pattern", "brouwer": "brouwer_etude", "bach": "bach_bourree"}.get(
+    return {"classic": "study", "villa": "villa_pattern", "brouwer": "brouwer_etude", "bach": "bach_bourree", "torroba": "sonatina"}.get(
         ctx.ensemble, "preludio"
     )
 
@@ -2543,7 +2561,7 @@ def form_pattern_ids(ctx: _Ctx, patterns: list[str]) -> list[str]:
 
 def headline_id(ctx: _Ctx, patterns: list[str]) -> str:
     """The pattern a movement is named for: the main body, not its contrast."""
-    fallback = {"classic": "study", "villa": "villa_pattern", "brouwer": "brouwer_etude", "bach": "bach_bourree"}.get(
+    fallback = {"classic": "study", "villa": "villa_pattern", "brouwer": "brouwer_etude", "bach": "bach_bourree", "torroba": "sonatina"}.get(
         ctx.ensemble, "preludio"
     )
     if not patterns:
@@ -2593,6 +2611,7 @@ def render_patterned_voices(
     bar_volumes: list[float] | None = None,
     section_rel_spans: dict | None = None,
     impulses: tuple = (),
+    regime_at: dict | None = None,
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent], int]:
     meter = active_meter()
     epb = meter.eighths_per_bar
@@ -2633,6 +2652,7 @@ def render_patterned_voices(
         bar_volumes=None if bar_volumes is None else list(bar_volumes),
         section_rel_spans=None if section_rel_spans is None else dict(section_rel_spans),
         impulses=tuple(impulses or ()),
+        regime_at=dict(regime_at or {}),
     )
     patterns = _patterns(ctx) if phrases else []
     headline = _HEADLINE.get()
@@ -2907,6 +2927,11 @@ def render_patterned_voices(
             lead.extend(part_lead)
             support.extend(part_support)
             low.extend(part_low)
+        elif pattern in {"castillo", "sonatina", "fandanguillo", "danza"}:
+            part_lead, part_support, part_low = _render_torroba_bar(ctx, bar, phrase_here, pattern)
+            lead.extend(part_lead)
+            support.extend(part_support)
+            low.extend(part_low)
         else:
             lead.extend(_sustain(ctx.melody, bar * epb, (bar + 1) * epb, epb, apex, phrase=phrase_here))
     # Preludio bass rings for two bars, counted from each contiguous region.
@@ -2998,6 +3023,11 @@ def render_patterned_voices(
         support = _silence(support, eighth, epb)
         low = _silence(low, eighth, epb)
     lead, support, low = _repair(ctx, lead, support, low)
+    # Downbeat pickups belong to the previous bar. Frames have already replaced
+    # a pedal hold; `_resolve` shortens whatever lead note still covers them.
+    from app.sonify.guitar_torroba import apply_sonatina_downbeats
+
+    lead, support = apply_sonatina_downbeats(ctx, lead, support, patterns)
     lead = _resolve(lead, epb, 1)
     support = _resolve_voices(support, epb, 2)
     low = _resolve(low, epb, 3)
@@ -3009,6 +3039,13 @@ def render_patterned_voices(
             for bar in range(musical_bars)
             if _bar_pattern(ctx, bar, patterns) == "preludio"
         }
+    torroba_bars = {
+        bar
+        for bar in range(musical_bars)
+        if _bar_pattern(ctx, bar, patterns) in {"castillo", "sonatina", "fandanguillo", "danza"}
+    }
+    if torroba_bars:
+        plucked = (plucked or set()) | torroba_bars
     lead = _slur(lead, phrases, skip_bars=plucked)
     # Boundary pickups and caesuras already ran against passage eighths only.
     # Swarm eighths join the slur and dynamics sets now, and stay out of bell_bars.
@@ -3134,6 +3171,10 @@ _PEDAL_DOOR_PROFILE = {
     "thumb_cantabile": "thumb_cantabile",
     "elegiaque": "elegiaque",
     "choro": "barrios_dance",
+    "castillo": "torroba",
+    "sonatina": "torroba",
+    "fandanguillo": "torroba",
+    "danza": "torroba",
 }
 
 
@@ -3733,7 +3774,8 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
                 etude = profile in {"villa_etude1", "villa_etude11"}
                 # The 65 ceiling opens only while the inner note stays under the high voice.
                 preludio = profile == "barrios_preludio" and bool(highs) and pitch < min(highs)
-                if not high_block and not thumb and not etude and not preludio:
+                torroba = profile == "torroba" and bool(highs) and pitch < min(highs)
+                if not high_block and not thumb and not etude and not preludio and not torroba:
                     raise Unplayable(f"inner voice {pitch} is above the middle register")
         if not _playable([pitch for _voice, pitch in sounding_notes]):
             raise Unplayable("no string assignment fits this sonority")
@@ -3916,4 +3958,9 @@ from app.sonify.guitar_brouwer import (  # noqa: E402
     _sarabande_points,
     _sarabande_swarms,
     _swarm_line,
+)
+from app.sonify.guitar_torroba import (  # noqa: E402
+    _render_torroba_bar,
+    _torroba_contrast,
+    _torroba_primary,
 )

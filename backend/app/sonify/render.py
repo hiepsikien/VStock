@@ -1083,7 +1083,7 @@ def _compose(
         )
 
         chord_at = {bar: slot.chord for slot in slots for bar in slot.bars()}
-        pitches = quantize_strong_beats(raw_pitches, chord_at, scale, mode)
+        pitches = quantize_strong_beats(raw_pitches, chord_at, scale, mode, ensemble)
         section_starts = SECTION_STARTS if spec is None else spec.section_starts
         raw_phrases = plan_phrases(
             raw_pitches, tuple(start * active_meter().eighths_per_bar for start in section_starts)

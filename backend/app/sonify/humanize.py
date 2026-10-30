@@ -244,9 +244,9 @@ def _clamp_guitar(original: tuple[NoteEvent, ...], heard: list[NoteEvent], ensem
     """Warm notes stay nylon. A written snap stays inside the nail layer.
 
     A written note at or under 64 stays at or under 64. Snaps sit in 69..73
-    for Bach and Sor, and 69..79 for the other guitar ensembles.
+    for Bach, Sor, and Torroba, and 69..79 for the other guitar ensembles.
     """
-    ceiling = 73 if ensemble in {"bach", "classic"} else 79
+    ceiling = 73 if ensemble in {"bach", "classic", "torroba"} else 79
     clamped: list[NoteEvent] = []
     for note, heard_note in zip(original, heard):
         written = note.velocity

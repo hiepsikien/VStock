@@ -885,6 +885,8 @@ def _pitch_classes(ctx: _Ctx, impulse_direction: str, approaching: bool) -> froz
         return bach_scale_classes(ctx, impulse_direction, approaching)
     if ctx.ensemble == "brouwer":
         return _BROUWER_PCS
+    if ctx.ensemble == "torroba":
+        return frozenset(_classes(ctx.mode))
     if ctx.ensemble == "villa":
         return frozenset(_classes(ctx.mode)) | _VILLA_COLOR
     return frozenset(_classes(ctx.mode))
@@ -917,6 +919,10 @@ def _composer_step(
         return barrios_scale_step(ctx, pitch, toward, low=low, high=high)
     if ctx.ensemble == "brouwer":
         return brouwer_scale_step(ctx, pitch, toward, low=low, high=high)
+    if ctx.ensemble == "torroba":
+        from app.sonify.guitar_torroba import torroba_scale_step
+
+        return torroba_scale_step(ctx, pitch, toward, low=low, high=high)
     return classic_scale_step(ctx, pitch, toward, low=low, high=high)
 
 
@@ -1911,6 +1917,8 @@ _HAT_PATTERNS = frozenset(
         "bach_fuga",
         "thumb_cantabile",
         "bach_allemande",
+        "castillo",
+        "sonatina",
     }
 )
 _BAROQUE_PATTERNS = frozenset({"bach_bourree", "bach_gavotte", "bach_gigue", "bach_prelude"})
@@ -1927,6 +1935,8 @@ _KINETIC_PATTERNS = frozenset(
         "brouwer_etude",
         "etude1",
         "etude11",
+        "fandanguillo",
+        "danza",
     }
 )
 _LOUD_DOWN_PATTERNS = _KINETIC_PATTERNS | frozenset({"elogio_pizz", "bach_chaconne"})
@@ -1934,8 +1944,8 @@ _LOUD_DOWN_PATTERNS = _KINETIC_PATTERNS | frozenset({"elogio_pizz", "bach_chacon
 # (entry step on a descent, span, ceiling). The key is the pattern id.
 _NARROW_ROWS: dict[str, tuple[int, int, int]] = {
     **{name: (6, 24, 80) for name in ("villa_pattern", "etude1", "etude11", "chord_melody", "thumb_cantabile")},
-    **{name: (4, 18, 76) for name in ("preludio", "andante", "tremolo", "choro", "vals", "polca", "hemiola")},
-    **{name: (4, 16, 76) for name in ("study", "galop", "mozart_var", "cantabile", "elegiaque")},
+    **{name: (4, 18, 76) for name in ("preludio", "andante", "tremolo", "choro", "vals", "polca", "hemiola", "fandanguillo", "danza")},
+    **{name: (4, 16, 76) for name in ("study", "galop", "mozart_var", "cantabile", "elegiaque", "castillo", "sonatina")},
     **{
         name: (4, 12, 74)
         for name in (

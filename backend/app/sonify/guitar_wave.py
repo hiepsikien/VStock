@@ -72,7 +72,7 @@ def _profile(
     )
 
 
-# Exactly the 31 (ensemble, pattern) rows. Pedal is a frame path, not a 32nd row.
+# Exactly the 35 (ensemble, pattern) rows. Pedal is a frame path, not another row.
 # Ceilings stay put. Floors are the raised windows, and `smooth` is the odd W.
 PROFILES: dict[tuple[str, str], PatternWaveProfile] = {
     ("bach", "bach_sarabande"): _profile(28, 34, 56, 62, None, None, 0, 0, "none", 9),
@@ -106,6 +106,10 @@ PROFILES: dict[tuple[str, str], PatternWaveProfile] = {
     ("brouwer", "sarabande"): _profile(26, 32, 56, 62, 68, 72, 1, 2, "sarabande", 9),
     ("brouwer", "brouwer_etude"): _profile(26, 32, 58, 63, 68, 72, 1, 3, "tumbao", 3),
     ("brouwer", "elogio_pizz"): _profile(26, 32, 56, 62, 72, 76, 1, 4, "slap", 3),
+    ("torroba", "castillo"): _profile(26, 30, 54, 58, None, None, 0, 0, "none", 9),
+    ("torroba", "sonatina"): _profile(30, 34, 58, 62, 66, 68, 1, 2, "accent", 5),
+    ("torroba", "fandanguillo"): _profile(30, 36, 58, 63, 68, 70, 1, 3, "accent", 3),
+    ("torroba", "danza"): _profile(30, 36, 58, 63, 68, 70, 1, 3, "accent", 3),
 }
 
 
@@ -742,6 +746,8 @@ def _is_target(
         return voice == "lead" and event.accent
     if pattern == "elogio_pizz":
         return voice == "lead" and event.accent and event.staccato
+    if pattern in {"sonatina", "fandanguillo", "danza"}:
+        return voice == "lead" and event.accent
     return False
 
 

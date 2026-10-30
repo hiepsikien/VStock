@@ -14,14 +14,14 @@ from __future__ import annotations
 import math
 from dataclasses import replace
 
-from app.sonify.chords import Chord
+from app.sonify.chords import C, Chord
 from app.sonify.form import active_meter
 from app.sonify.keys import C_KEY, MovementCharacter, active_register
 from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score
 from app.sonify.phrasing import Phrase, quantize_strong_beats, written
 from app.sonify.quantize import C_MAJOR_PCS, C_NATURAL_MINOR_PCS, scale_from_classes
 
-GUITAR_BPM = {"bach": 96, "classic": 88, "villa": 100, "barrios": 120, "brouwer": 108}
+GUITAR_BPM = {"bach": 96, "classic": 88, "villa": 100, "barrios": 120, "brouwer": 108, "torroba": 96}
 # Listening tests: a tremolo only reads as a sung line from 90 BPM up, sits
 # best around 120, and can run to 140. A Barrios movement under that floor
 # is not sped up and gets no tremolo at all: it keeps its slow tempo and
@@ -127,6 +127,10 @@ def render_guitar_score(
         mode,
         raw_pitches=raw_pitches,
         impulses=impulses,
+        ensemble=ensemble,
+    )
+    melody, slots, chord_at, harmonies = _picardy_close(
+        melody, slots, phrases, chord_at, kind_at, harmonies, mode, ensemble
     )
     from app.sonify.guitar_patterns import render_patterned_voices
 
@@ -151,6 +155,7 @@ def render_guitar_score(
         bar_volumes=bar_volumes,
         section_rel_spans=section_rel_spans,
         impulses=impulses,
+        regime_at={bar: slot.regime for slot in slots for bar in slot.bars()},
     )
     try:
         lead, support, low, divisions = render_patterned_voices(**voice_kwargs)
@@ -168,7 +173,7 @@ def render_guitar_score(
         bars=musical_bars,
         regimes=chosen,  # type: ignore[arg-type]
         regime_samples=sample_indexes if sample_indexes is None else tuple(sample_indexes[:3]),  # type: ignore[arg-type]
-        slots=slots,
+        slots=tuple(slots),
         high=(),
         lead=_voice(lead, 1),
         # Preludio keeps the upper middle on voice 4. Every other support note stays on 2.
@@ -201,6 +206,54 @@ def assert_playable(score: Score, key=C_KEY, profiles: str | dict | tuple | list
     return _assert_playable(score, key=key, profiles=profiles)
 
 
+def _picardy_close(melody, slots, phrases, chord_at, kind_at, harmonies, mode, ensemble):
+    """Swap only the last bar of a closing minor phrase from Cm to C.
+
+    Placement has already run. The accompaniment reads the new chord. The
+    melody is not quantized again, so a bar that never sang E stays as placed.
+    """
+    if ensemble != "torroba" or mode != "minor":
+        return melody, slots, chord_at, harmonies
+    epb = active_meter().eighths_per_bar
+    swap: set[int] = set()
+    for phrase in phrases:
+        if not phrase.closes or phrase.end <= phrase.start:
+            continue
+        last = (phrase.end - 1) // epb
+        if kind_at.get(last) in _PEDAL:
+            continue
+        chord = chord_at.get(last)
+        if chord is None or chord.name != "Cm":
+            continue
+        window = melody[last * epb : min(len(melody), (last + 1) * epb)]
+        if any(note % 12 == 3 for note in window):
+            continue
+        swap.add(last)
+    if not swap:
+        return melody, slots, chord_at, harmonies
+    rebuilt = []
+    for slot in slots:
+        cursor = slot.start
+        stop = slot.start + slot.length
+        while cursor < stop:
+            use_major = cursor in swap
+            end = cursor + 1
+            while end < stop and ((end in swap) == use_major):
+                end += 1
+            rebuilt.append(
+                replace(slot, start=cursor, length=end - cursor, chord=C if use_major else slot.chord)
+            )
+            cursor = end
+    slots = tuple(rebuilt)
+    chord_at = {bar: slot.chord for slot in slots for bar in slot.bars()}
+    harmonies = tuple(
+        HarmonyEvent(slot.start, slot.chord)
+        for index, slot in enumerate(slots)
+        if index == 0 or slot.chord != slots[index - 1].chord
+    )
+    return melody, slots, chord_at, harmonies
+
+
 def _place_melody(
     pitches: list[int],
     phrases: tuple[Phrase, ...],
@@ -210,6 +263,7 @@ def _place_melody(
     mode: str,
     raw_pitches: list[int] | None = None,
     impulses: tuple | None = None,
+    ensemble: str = "",
 ) -> list[int]:
     """Shift each phrase by octaves, then compress whatever still sticks out.
 
@@ -263,7 +317,8 @@ def _place_melody(
         )
     window = tuple(note for note in scale if floor <= note <= top)
     if window and chord_at and placed:
-        placed = quantize_strong_beats(placed, chord_at, window, mode)
+        # Keep Ab only when the compressed pitch is still pc 8. Do not copy it back from raw_pitches.
+        placed = quantize_strong_beats(placed, chord_at, window, mode, ensemble)
     return placed
 
 

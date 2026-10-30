@@ -390,6 +390,7 @@ def _breaks_held_note_across_barline(
     scale: tuple[int, ...],
     index_of: dict[int, int],
     mode: str = "major",
+    dialect=None,
 ) -> bool:
     """Whether changing from prev_chord to curr_chord forces a held note to split pitches.
 
@@ -402,6 +403,14 @@ def _breaks_held_note_across_barline(
     different notes.
     """
     if prev_chord == curr_chord:
+        return False
+    if (
+        dialect is not None
+        and getattr(dialect, "name", None) == "torroba"
+        and mode == "minor"
+        and boundary_pitch % 12 == 8
+        and curr_chord.name in ("G", "G7")
+    ):
         return False
     if mode == "minor" and boundary_pitch % 12 == 10:
         prev_sung = sing_leading(boundary_pitch) if prev_chord.name in ("G", "G7") else boundary_pitch
@@ -626,6 +635,7 @@ def plan_markov_chords(
                 extra_weights=meter.extra_weights,
                 mode=mode,
                 chord_name=chord.name,
+                ensemble=active_dialect.name,
                 previous_pitch=extra.get("previous_pitch"),
                 previous_snapped=extra.get("previous_snapped"),
             )
@@ -863,7 +873,7 @@ def plan_markov_chords(
                         trans_cost += SAME_ROOT_QUALITY_CHANGE_PENALTY
 
                     if held_across and _breaks_held_note_across_barline(
-                        boundary_pitch, prev_chord, chord, active_scale, index_of, mode
+                        boundary_pitch, prev_chord, chord, active_scale, index_of, mode, active_dialect
                     ):
                         trans_cost += CROSS_BAR_BREAK_PENALTY
 
