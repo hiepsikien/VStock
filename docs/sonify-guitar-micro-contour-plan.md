@@ -1,6 +1,6 @@
 # Vi mô trong ô: móc đơn, móc kép, phách mạnh
 
-> **Trạng thái**: kế hoạch. Chưa sửa renderer.
+> **Trạng thái**: đã hát. Renderer của mục 5 đã có vi mô.
 > **Mốc đã hát**: Galop 1 và Galop 2 trong `backend/app/sonify/guitar_sor.py`, khóa ở mục 4.4 của [`docs/sonify-guitar-gavotte-galop.md`](./sonify-guitar-gavotte-galop.md).
 > **Phạm vi đợt sau**: thân bài Sor, Bach, Villa-Lobos, Barrios, Brouwer. Cửa intro/outro, profile sóng, cổng snap, và `select_scale_plan` đứng ngoài.
 

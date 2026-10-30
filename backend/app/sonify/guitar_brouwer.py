@@ -120,6 +120,18 @@ def _brouwer_wave(ctx: _Ctx, bar: int, low: list[NoteEvent], offsets: list[int])
 
 
 
+def _contour_noviembre_pulse(ctx: _Ctx, low: list[NoteEvent], eighth: int) -> list[NoteEvent]:
+    """Raise the first pulse one step. The later pulse and the pickup stay, so their gap of 6 holds."""
+    lead_vel = _covering_melody_velocity(ctx, eighth)
+    updated: list[NoteEvent] = []
+    for event in low:
+        if event.midi is not None and abs(event.beat) < 1e-6:
+            updated.append(_micro_raise(event, 1, lead_vel - _MICRO))
+        else:
+            updated.append(event)
+    return updated
+
+
 def _render_noviembre_bar(ctx: _Ctx, bar: int) -> tuple[list[NoteEvent], list[NoteEvent]]:
     """Two-beat ballad pulse, a walking pickup, and a color arpeggio."""
     chord = ctx.chord(bar)
@@ -148,6 +160,8 @@ def _render_noviembre_bar(ctx: _Ctx, bar: int) -> tuple[list[NoteEvent], list[No
     support, low = _shape_accompaniment(ctx, support, low)
     if pickup is not None:
         low = _soften_attack(low, start + last, epb)
+    if pulses:
+        low = _contour_noviembre_pulse(ctx, low, start)
     return support, low
 
 
@@ -176,6 +190,37 @@ def _etude_cells(ctx: _Ctx) -> list[tuple[int, int, int, bool]]:
 
 
 
+def _contour_tumbao(
+    low: list[NoteEvent], support: list[NoteEvent], ctx: _Ctx
+) -> list[NoteEvent]:
+    """The middle thumb falls one step after the downbeat punch. The anticipation stays."""
+    if ctx.kind == "6/8":
+        middle = 2
+    elif ctx.kind == "3/4":
+        middle = 3
+    elif ctx.epb >= 8:
+        middle = 3
+    else:
+        return low
+    updated: list[NoteEvent] = []
+    for event in low:
+        if event.midi is None or event.velocity is None or int(math.floor(event.beat * 2 + 1e-9)) != middle:
+            updated.append(event)
+            continue
+        under = [
+            note.velocity
+            for note in support
+            if note.midi is not None
+            and note.velocity is not None
+            and note.beat < event.beat + event.duration_beats - 1e-9
+            and event.beat < note.beat + note.duration_beats - 1e-9
+        ]
+        support_vel = max(under) if under else None
+        steps = _micro_fits(event.velocity, support_vel, None, 1)
+        updated.append(_micro_drop(event, steps))
+    return updated
+
+
 def _render_etude_bar(ctx: _Ctx, bar: int) -> tuple[list[NoteEvent], list[NoteEvent]]:
     """Afro-Cuban tumbao: 3+3+2 in 4/4, with the inner voice on the off-eighths."""
     chord = ctx.chord(bar)
@@ -197,6 +242,7 @@ def _render_etude_bar(ctx: _Ctx, bar: int) -> tuple[list[NoteEvent], list[NoteEv
     support = _brouwer_wave(ctx, bar, low, [offset for offset in range(epb) if offset not in occupied])
     support, low = _shape_accompaniment(ctx, support, low)
     low = _punch(low, start, epb, amount=4)
+    low = _contour_tumbao(low, support, ctx)
     return support, low
 
 
@@ -604,8 +650,13 @@ from app.sonify.guitar_patterns import (  # noqa: E402
     _bass_at,
     _choose_bass,
     _choose_inner,
+    _MICRO,
     _color_note,
+    _covering_melody_velocity,
     _eighth_event,
+    _micro_drop,
+    _micro_fits,
+    _micro_raise,
     _inner_choices,
     _mark,
     _melody_at,

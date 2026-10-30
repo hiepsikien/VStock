@@ -723,7 +723,57 @@ def test_vals_interlocks_six_eight_with_three_four() -> None:
     assert any(note.bar == 1 and note.duration_beats == 0.25 for note in held.lead if note.midi is not None)
 
 
-def test_scale_and_grand_solo_ornament_without_moving_the_strong_beats() -> None:
+def test_vals_eases_the_fifth_and_keeps_the_sync() -> None:
+    """The fifth at beat 1.5 falls one step. The sync at beat 2 keeps its accent."""
+    from app.sonify.guitar_barrios import _render_vals_bar
+
+    ctx = _dance_ctx(METER_68, [72] * 12, character="volatile", rel_span=0.0, bpm=120)
+    _lead, support, low = _render_vals_bar(ctx, 0, ["vals"], set())
+    bass = {round(note.beat, 2): note for note in low if note.midi is not None}
+    assert bass[1.5].velocity is not None and bass[0.0].velocity is not None
+    assert bass[1.5].velocity - bass[0.0].velocity == -2
+    assert bass[2.0].accent and not bass[1.5].accent
+    assert bass[2.0].velocity == bass[0.0].velocity
+    inners = [
+        note
+        for note in support
+        if note.midi is not None and round(note.beat, 2) in {0.5, 1.0, 2.0, 2.5}
+    ]
+    assert inners
+    assert len({note.velocity for note in inners}) == 1
+
+
+def test_mozart_drops_only_the_connecting_sixteenths() -> None:
+    """Structural eighths stay even. Connecting sixteenths fall one step, including a two-note bridge.
+
+    A flat line has no diminution. A leap that needs two passing notes drops both
+    gap sixteenths, and when the previous eighth is split the structural tone on
+    the destination's second sixteenth stays with the eighths.
+    """
+    from app.sonify.guitar_sor import _render_mozart_var_bar
+
+    flat = _dance_ctx(METER_44, [72] * 8, character="volatile", rel_span=0.0)
+    _lead, support, _low = _render_mozart_var_bar(flat, 0, set(), flat.phrases[0])
+    assert support
+    assert all(abs(note.duration_beats - 0.5) < 1e-6 for note in support if note.midi is not None)
+    assert len({note.velocity for note in support if note.midi is not None}) == 1
+
+    leap = _dance_ctx(METER_44, [68, 68, 68, 68, 60, 60, 60, 60], character="volatile", rel_span=0.0)
+    _lead, bridged, _low = _render_mozart_var_bar(leap, 0, set(), leap.phrases[0])
+    by_beat = {
+        round(note.beat, 2): note
+        for note in bridged
+        if note.midi is not None
+    }
+    structural = [note for note in bridged if note.midi is not None and abs(note.duration_beats - 0.5) < 1e-6]
+    assert structural
+    level = structural[0].velocity
+    assert level is not None
+    assert all(note.velocity == level for note in structural)
+    assert by_beat[1.25].duration_beats == 0.25 and by_beat[1.25].velocity == level - 2
+    assert by_beat[1.5].duration_beats == 0.25 and by_beat[1.5].velocity == level - 2
+    assert by_beat[1.0].duration_beats == 0.25 and by_beat[1.0].velocity == level
+    assert by_beat[1.75].duration_beats == 0.25 and by_beat[1.75].velocity == level
     opening = [60, 62, 64, 65, 67, 65, 64, 62]
     level0 = [60, 62, 64, 65, 67, 65, 64, 62]
     level1 = [60, 62, 64, 67, 67, 67, 67, 67]
@@ -1305,6 +1355,14 @@ def test_phase1_elegiaque_march_appoggiatura_and_lament() -> None:
         (2.0, 1.5, 43),
         (3.5, 0.5, 41),
     ]
+    slow_bass = {round(note.beat, 2): note.velocity for note in slow.low if note.midi and note.bar == 0}
+    assert slow_bass[2.0] - slow_bass[0.0] == -2
+    assert slow_bass[1.5] - slow_bass[0.0] == -4
+    assert slow_bass[3.5] - slow_bass[0.0] == -4
+    slow_inner = {round(note.beat, 2): note.velocity for note in slow.support if note.midi and note.bar == 0}
+    assert slow_inner[1.5] - slow_inner[0.5] == -2
+    assert slow_inner[3.0] - slow_inner[0.5] == 0
+    assert slow_bass[1.5] - slow_inner[1.5] == 2
     assert _onset_beats(slow.support, 0) == [0.5, 1.5, 3.0]
     assert [note.midi for note in _pitched(slow.lead, 0)] == [64]
     _assert_engraved(slow, "elegiaque")
@@ -3234,6 +3292,23 @@ def test_galop_2_slurs_the_twelfth_and_galop_1_does_not() -> None:
         assert root.midi is not None and upper.midi == root.midi + 19
 
 
+def test_micro_step_keeps_a_gap_and_stops_at_the_floor() -> None:
+    """One step on 64 is 62. The floor blocks. A bass gap of 2 cancels a lead drop."""
+    from app.sonify.guitar_patterns import _micro_drop, _micro_fits, _micro_raise, _under_lead
+
+    event = NoteEvent(bar=0, beat=0.0, midi=60, duration_beats=0.5, voice=1, velocity=64)
+    assert _micro_drop(event, 1).velocity == 62
+    assert _micro_drop(event, 0).velocity == 64
+    assert _micro_drop(replace(event, velocity=40), 1).velocity == 40
+    assert _micro_fits(64, 62, 56, 1) == 0
+    assert _micro_fits(64, 60, 56, 1) == 1
+    assert _micro_fits(64, 60, 56, 2) == 1
+    support, bass = _under_lead(64, "mf")
+    assert (support, bass) == (56, 60)
+    assert _micro_raise(replace(event, velocity=60), 1, 62).velocity == 62
+    assert _micro_raise(replace(event, velocity=62), 1, 62).velocity == 62
+
+
 def test_galop_beats_keep_a_micro_velocity_contour() -> None:
     """Galop 1 rises across the bar. Galop 2 rises into its second cell from one written peak."""
     epb = 8
@@ -3964,10 +4039,23 @@ def test_noviembre_sings_over_a_two_beat_pulse_and_a_walking_pickup() -> None:
     pulse = next(note for note in _attacks(walking.low, 0) if abs(note.beat - 2.0) < 1e-6)
     pickup = next(note for note in _attacks(walking.low, 0) if abs(note.beat - 3.5) < 1e-6)
     assert pulse.velocity is not None and pickup.velocity is not None
-    # The walking eighth is written 6 under the pulse. The bar shares one center.
+    first = next(note for note in _attacks(walking.low, 0) if abs(note.beat) < 1e-6)
+    assert first.velocity is not None
+    # The first pulse is one step above the later pulse. The pickup stays 6 under that later pulse.
+    assert first.velocity - pulse.velocity == 2
     assert pulse.velocity - pickup.velocity == 6
     assert pickup.velocity <= 63 and pulse.velocity <= 63
+    assert len({note.velocity for note in _attacks(held.support, 0)}) == 1
     _assert_engraved(walking, "brouwer")
+
+    six = _brouwer_pattern([72] * 12, character="calm", meter=METER_68)
+    six_pulse = next(note for note in _attacks(six.low, 0) if abs(note.beat - 1.5) < 1e-6)
+    six_first = next(note for note in _attacks(six.low, 0) if abs(note.beat) < 1e-6)
+    assert six_first.velocity is not None and six_pulse.velocity is not None
+    assert six_first.velocity - six_pulse.velocity == 2
+    six_pickup = [note for note in _attacks(six.low, 0) if abs(note.beat - 2.5) < 1e-6]
+    if six_pickup and six_pickup[0].velocity is not None:
+        assert six_pulse.velocity - six_pickup[0].velocity == 6
 
     rising = [67, 69, 71, 72, 74, 72, 71, 69]
     sung = _brouwer_pattern(rising, character="calm")
@@ -3986,6 +4074,10 @@ def test_brouwer_etude_plays_the_cuban_tumbao() -> None:
     assert [round(note.beat, 2) for note in bass] == [0.0, 1.5, 3.0]
     assert [round(note.duration_beats, 2) for note in bass] == [1.5, 1.5, 1.0]
     assert bass[0].accent
+    assert not bass[1].accent and not bass[2].accent
+    assert bass[0].velocity - bass[2].velocity == 4
+    assert bass[1].velocity - bass[2].velocity == -2
+    assert len({note.velocity for note in _attacks(score.support, 0)}) == 1
     for beat in (0.5, 1.0, 2.0, 2.5, 3.5):
         assert beat in _onset_beats(score.support, 0)
     assert any(note.duration_beats >= 1.0 for note in score.support if note.midi is not None)
@@ -3995,6 +4087,9 @@ def test_brouwer_etude_plays_the_cuban_tumbao() -> None:
     six_bass = _attacks(six.low, 0)
     assert [round(note.beat, 2) for note in six_bass] == [0.0, 1.0, 2.5]
     assert [round(note.duration_beats, 2) for note in six_bass] == [1.0, 1.5, 0.5]
+    six_vel = {round(note.beat, 2): note.velocity for note in six_bass}
+    assert six_vel[0.0] - six_vel[2.5] == 4
+    assert six_vel[1.0] - six_vel[2.5] == -2
     _assert_engraved(six, "brouwer")
     opens = {note.midi for note in score.support if note.midi is not None} & {50, 55, 59}
     assert opens
@@ -4015,6 +4110,7 @@ def test_brouwer_etude_plays_the_cuban_tumbao() -> None:
     three_bass = _attacks(three.low, 0)
     assert [round(note.beat, 2) for note in three_bass] == [0.0, 1.5]
     assert [round(note.duration_beats, 2) for note in three_bass] == [1.5, 1.5]
+    assert three_bass[0].velocity - three_bass[1].velocity == 6
     _assert_engraved(three, "brouwer")
 
 
@@ -4603,6 +4699,11 @@ def test_bach_bourree_walks_under_a_hold_and_sits_under_a_running_treble() -> No
         (3.5, 0.5),
     ]
     assert bass[1].staccato and bass[4].staccato
+    # Held bar: the staccato eighth is two steps under the quarter, the pickup one step.
+    assert bass[1].velocity - bass[0].velocity == -4
+    assert bass[2].velocity - bass[0].velocity == -2
+    assert bass[4].velocity - bass[3].velocity == -4
+    assert bass[5].velocity - bass[3].velocity == -2
     moving = _attacks(score.low, 1)
     assert [(round(note.beat, 2), round(note.duration_beats, 2)) for note in moving] == [
         (0.0, 1.0),
@@ -4614,6 +4715,36 @@ def test_bach_bourree_walks_under_a_hold_and_sits_under_a_running_treble() -> No
     assert moving[0].midi is not None and moving[0].midi % 12 in _chord_pcs(G)
     assert _onset_beats(score.support, 1) == [0.0, 2.0]
     _assert_engraved(score, "bach")
+
+
+def test_bach_bourree_eases_a_running_answer_and_an_eighth_half() -> None:
+    """A flat running treble eases the answering quarter. An eighth half eases only the later staccato notes."""
+    from app.sonify.guitar_bach import _render_bach_bourree_bar
+
+    running = [72, 71, 72, 71, 72, 71, 72, 71]
+    assert _joined(0, running).rise < MIN_RISE
+    score = _bach(running, character="rally")
+    bass = _attacks(score.low, 0)
+    assert [(round(note.beat, 2), round(note.duration_beats, 2)) for note in bass] == [
+        (0.0, 1.0),
+        (1.0, 1.0),
+        (2.0, 1.0),
+        (3.0, 1.0),
+    ]
+    assert bass[1].staccato and bass[3].staccato
+    assert bass[1].velocity - bass[0].velocity == -2
+    assert bass[3].velocity - bass[2].velocity == -2
+
+    ctx = _dance_ctx(METER_68, [72] * 6, character="rally", rel_span=0.0)
+    _lead, _support, low = _render_bach_bourree_bar(ctx, 0, set(), ctx.phrases[0])
+    eighths = sorted((note for note in low if note.midi is not None), key=lambda note: note.beat)
+    assert [round(note.beat, 2) for note in eighths] == [0.0, 0.5, 1.0, 1.5, 2.0, 2.5]
+    assert eighths[0].duration_beats == 0.5 and not eighths[0].staccato
+    assert eighths[1].staccato and eighths[2].staccato
+    assert eighths[1].velocity - eighths[0].velocity == -2
+    assert eighths[2].velocity - eighths[0].velocity == -2
+    assert eighths[4].velocity - eighths[3].velocity == -2
+    assert eighths[5].velocity - eighths[3].velocity == -2
 
 
 def test_bach_gavotte_phrases_quarters_then_parallel_eighths() -> None:
@@ -4644,6 +4775,19 @@ def test_bach_gavotte_phrases_quarters_then_parallel_eighths() -> None:
         assert note.midi is not None and inner.midi is not None
         pairs.append((note.midi - inner.midi) % 12)
     assert pairs and set(pairs) <= {3, 4, 8, 9}
+    lead_vel = {round(note.beat, 2): note.velocity for note in lead}
+    bass_vel = {round(note.beat, 2): note.velocity for note in bass}
+    assert lead_vel[1.0] - lead_vel[0.0] == -2
+    assert lead_vel[2.5] - lead_vel[2.0] == -2
+    assert lead_vel[3.5] - lead_vel[2.0] == -2
+    assert lead_vel[3.0] - lead_vel[2.0] == 0
+    assert bass_vel[1.0] - bass_vel[0.0] == -2
+    assert len([note for note in bass if note.beat >= 2.0 - 1e-6]) == 1
+    support_vel = {round(note.beat, 2): note.velocity for note in _attacks(score.support, 0)}
+    assert support_vel[1.0] - support_vel[0.0] == -2
+    assert support_vel[2.5] - support_vel[2.0] == -2
+    assert support_vel[3.5] - support_vel[2.0] == -2
+    assert support_vel[3.0] - support_vel[2.0] == 0
     _assert_engraved(score, "bach")
 
 
@@ -4685,7 +4829,12 @@ def test_bach_sarabande_weights_beat_two_and_passes_into_the_next_bar() -> None:
     assert [round(note.duration_beats, 2) for note in ornament] == [0.25, 0.25, 0.5]
     assert ornament[0].midi == ornament[2].midi
     assert ornament[1].midi != ornament[0].midi
-    passing = [note.midi for note in _attacks(score.lead, 0) if note.beat >= 2.0]
+    assert ornament[0].velocity - ornament[1].velocity == 12
+    assert ornament[0].velocity - ornament[2].velocity == 10
+    passing_notes = [note for note in _attacks(score.lead, 0) if note.beat >= 2.0]
+    passing = [note.midi for note in passing_notes]
+    if len(passing_notes) >= 2 and all(note.duration_beats <= 0.3 for note in passing_notes):
+        assert all(note.velocity - passing_notes[-1].velocity == -2 for note in passing_notes[:-1])
     assert 2 <= len(passing) <= 4
     assert passing[-1] == _attacks(score.lead, 1)[0].midi
     assert all(abs(right - left) <= 2 for left, right in zip(passing, passing[1:]) if left and right)
@@ -4705,6 +4854,10 @@ def test_bach_gigue_breaks_the_chord_and_runs_when_the_line_rises() -> None:
         (2.5, 0.5),
     ]
     assert bass[0].accent and bass[1].accent
+    gigue = {round(note.beat, 2): note.velocity for note in _attacks(still.lead, 0)}
+    assert gigue[0.0] - gigue[1.0] == 8
+    assert gigue[1.5] - gigue[2.5] == 8
+    assert len({note.velocity for note in _attacks(still.support, 0)}) == 1
     _assert_engraved(still, "bach")
 
     rising = [64, 65, 67, 69, 71, 72] * 2
@@ -4727,6 +4880,11 @@ def test_bach_chaconne_waves_in_sixteenths_and_breaks_into_a_scale() -> None:
     onsets = set(_onset_beats(ground.lead, 0)) | set(_onset_beats(ground.support, 0))
     assert onsets == {index * 0.25 for index in range(16)}
     assert {50, 55, 59} & {note.midi for note in _attacks(ground.support, 0)}
+    ground_lead = {round(note.beat, 2): note for note in _attacks(ground.lead, 0)}
+    for on_beat, off_beat in ((0.0, 0.75), (1.0, 1.5), (2.0, 2.75), (3.0, 3.5)):
+        assert ground_lead[off_beat].velocity - ground_lead[on_beat].velocity == -2
+    assert len({note.velocity for note in bass}) == 1
+    assert len({note.velocity for note in _attacks(ground.support, 0)}) == 1
     _assert_engraved(ground, "bach")
 
     rising = [67, 69, 71, 72, 74, 76, 77, 79] * 2
@@ -5496,6 +5654,12 @@ def test_bach_prelude_pairs_each_price_with_one_neighbor() -> None:
                 assert neighbor.midi is not None and price <= neighbor.midi <= nxt
             else:
                 assert neighbor.midi == _treble_step(ctx, price, 1)
+            if (
+                strong.velocity is not None
+                and neighbor.velocity is not None
+                and strong.velocity - 2 >= 40
+            ):
+                assert neighbor.velocity == strong.velocity - 2
         # The bass sixteenth still carries the price.
         assert any(name == "low" for name, _note in _slot_attacks(score)[0])
         assert _lead_at_slot(score, 0).midi == melody[0]
@@ -5563,6 +5727,16 @@ def test_bach_allemande_weaves_style_brise_and_sixteenth_pickup() -> None:
     held_bass = _attacks(held.low, 0)
     assert 0.5 in {round(note.beat, 2) for note in held_bass}
     assert held_bass[0].midi != held_bass[1].midi
+    walk = next(note for note in held_bass if abs(note.beat - 0.5) < 1e-6)
+    root = next(note for note in held_bass if abs(note.beat) < 1e-6)
+    assert walk.velocity is not None and root.velocity is not None
+    assert walk.velocity - root.velocity == -2
+    held_inner = next(note for note in held_support if abs(note.beat - 0.5) < 1e-6)
+    assert held_inner.velocity is not None and walk.velocity - held_inner.velocity >= 2
+    pickups = [note for note in _attacks(held.lead, 0) if abs(note.duration_beats - 0.25) < 1e-6]
+    last = pickups[-1].velocity
+    assert last is not None
+    assert [last - (note.velocity or 0) for note in pickups] == [6, 4, 2, 0]
     assert _attacks(running.support, 0) == []
     running_bass = _attacks(running.low, 0)
     assert [round(note.beat, 2) for note in running_bass] == [0.0, 2.0]
@@ -5578,6 +5752,10 @@ def test_bach_allemande_weaves_style_brise_and_sixteenth_pickup() -> None:
     assert [round(note.beat, 2) for note in _attacks(three.support, 0)] == [0.5]
     assert _covering(three.low, 0, 2.0) is None
     assert not any(note.staccato for note in (*three.lead, *three.support, *three.low))
+    three_pickups = [note for note in _attacks(three.lead, 0) if abs(note.duration_beats - 0.25) < 1e-6]
+    three_last = three_pickups[-1].velocity
+    assert three_last is not None
+    assert [three_last - (note.velocity or 0) for note in three_pickups] == [6, 4, 2, 0]
 
     six = render(METER_68, [72] * 12)
     assert _sixteenths(six.lead, 0) == [2.0, 2.25, 2.5, 2.75]
@@ -5587,6 +5765,14 @@ def test_bach_allemande_weaves_style_brise_and_sixteenth_pickup() -> None:
     assert [round(note.beat, 2) for note in _attacks(six.support, 0)] == [0.5]
     assert _covering(six.low, 0, 2.0) is None
     assert not any(note.staccato for note in (*six.lead, *six.support, *six.low))
+    six_pickups = [note for note in _attacks(six.lead, 0) if abs(note.duration_beats - 0.25) < 1e-6]
+    six_last = six_pickups[-1].velocity
+    assert six_last is not None
+    assert [six_last - (note.velocity or 0) for note in six_pickups] == [6, 4, 2, 0]
+    six_walk = next(note for note in six_bass if abs(note.beat - 0.5) < 1e-6)
+    six_root = next(note for note in six_bass if abs(note.beat) < 1e-6)
+    assert six_walk.velocity is not None and six_root.velocity is not None
+    assert six_walk.velocity - six_root.velocity == -2
 
 
 def test_bach_courante_sings_the_price_then_runs_toward_it() -> None:
@@ -5627,6 +5813,9 @@ def test_bach_courante_sings_the_price_then_runs_toward_it() -> None:
         assert sixteenths[0].midi == 72
         assert sixteenths[-1].midi == 72
         assert sixteenths[1].midi != 72 and sixteenths[2].midi != 72
+        lead_vel = {round(note.beat, 2): note.velocity for note in lead if abs(note.duration_beats - 0.5) < 1e-6}
+        assert lead_vel[0.5] - lead_vel[0.0] == -2
+        assert all(note.velocity - sixteenths[-1].velocity == -2 for note in sixteenths[:-1])
         tail = next(note for note in lead if abs(note.beat - (epb / 2 - 0.5)) < 1e-6)
         assert abs(tail.duration_beats - 0.5) < 1e-6
         assert tail.midi == _treble_step(ctx, 72, 1)
@@ -5678,6 +5867,10 @@ def test_bach_courante_sings_the_price_then_runs_toward_it() -> None:
     assert {0.0, 1.5} <= accents
     leap = next(note for note in _attacks(three.lead, 0) if abs(note.beat - 0.5) < 1e-6)
     assert leap.staccato and leap.midi == _treble_step(three_ctx, 72, 2)
+    three_lead = {round(note.beat, 2): note.velocity for note in _attacks(three.lead, 0)}
+    for beat in (0.5, 1.0, 2.0, 2.5):
+        assert three_lead[beat] - three_lead[0.0] == -2
+    assert three_lead[1.5] - three_lead[0.0] == 0
 
     six_ctx, six = render(METER_68, [72] * 6 + [74] * 6, closes=True)
     del six_ctx
@@ -5687,6 +5880,11 @@ def test_bach_courante_sings_the_price_then_runs_toward_it() -> None:
     assert bass_rows(six) == [(0.0, 3.0, True)]
     accents = {round(note.beat, 2) for note in _attacks(six.lead, 0) if note.accent}
     assert {0.0, 1.0, 2.0} <= accents
+    six_lead = {round(note.beat, 2): note.velocity for note in _attacks(six.lead, 0)}
+    for beat in (1.0, 2.0):
+        assert six_lead[beat] - six_lead[0.0] == 0
+    for beat in (0.5, 1.5, 2.5):
+        assert six_lead[beat] - six_lead[0.0] == -2
 
     four_ctx, four = render(METER_44, [72] * 8 + [74] * 8, closes=True)
     del four_ctx
@@ -5694,6 +5892,13 @@ def test_bach_courante_sings_the_price_then_runs_toward_it() -> None:
     assert bass_rows(four) == [(0.0, 4.0, True)]
     assert not any(note.accent and abs(note.beat - 1.5) < 1e-6 for note in _attacks(four.lead, 0))
     assert _attacks(four.support, 0) == []
+    four_lead = {
+        round(note.beat, 2): note.velocity
+        for note in _attacks(four.lead, 0)
+        if abs(note.duration_beats - 0.5) < 1e-6
+    }
+    assert four_lead[0.5] - four_lead[0.0] == -2
+    assert all(velocity == four_lead[0.0] for beat, velocity in four_lead.items() if abs(beat - 0.5) > 1e-6)
 
 
 def _spec_ctx(spec, *, character: str, rel_span: float, motion: str = "held", bpm: int | None = None):
