@@ -1,9 +1,11 @@
 # Kế hoạch: câu Torroba, vòng quay đầu, extra cả ô
 
-> **Trạng thái**: đã hát. Dialect, bốn pattern, và extra cả ô của `danza` / `fandanguillo` đã hát trên `main`.
+> **Trạng thái**: mục 1–3 đã hát trên `main`. Mục 4 đã chốt, chờ code.
 > **Khung đang chạy**: [`docs/sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md), mục 4, 5 và 6. Vi mô trong ô: [`docs/sonify-guitar-micro-contour-plan.md`](./sonify-guitar-micro-contour-plan.md).
 
-Ba việc. Câu thở theo `Phrase` trên mọi span. Vòng thứ được phép quay về chủ. `castillo` và `sonatina` nhận một extra cho cả ô, cùng cửa PR97 đã mở cho hai điệu vũ.
+Ba việc đã hát. Câu thở theo `Phrase` trên mọi span. Vòng thứ được phép quay về chủ. `castillo` và `sonatina` nhận một extra cho cả ô, cùng cửa PR97 đã mở cho hai điệu vũ.
+
+Mục 4 là tám kiểu từ *Sonatina* chương I và *Suite Castellana* chương I, II, III, cùng luật phối chúng với bốn pattern nền.
 
 ---
 
@@ -99,210 +101,334 @@ Test hiệu trong ô, câu có `rise` trên `MIN_RISE`, band `mf`. Trên một �
 
 ---
 
-## 4. Bổ sung 6 kiểu kết cấu và tổ hợp câu từ *Sonatina* và *Suite Castellana*
+## 4. Tám kiểu kết cấu từ *Sonatina* và *Suite Castellana*
 
-> **Trạng thái**: thiết kế đã xác nhận, chờ triển khai code.
-> **Nguyên tắc chung**:
-> - **Giữ và kết hợp (Compound Phrase 2–4 ô nhịp)**: Giữ 4 pattern nền hiện có (`castillo`, `sonatina`, `fandanguillo`, `danza`) và ghép 4 kiểu mới thành các tổ hợp câu theo mood / `Phrase`.
-> - **Co giãn trên cả 3 nhịp (`4/4`, `3/4`, `6/8`)**: Giữ nguyên lưới 6 móc đơn ở `3/4` và `6/8`; mở rộng tự nhiên lên 8 móc đơn ở `4/4` (`1D`, `1W`, chương 4/4 của `1M`/`3M`/`1Y`).
-> - **Phân bổ đúng 3 bè của engine**: `Voice 1` (`lead`: Price Action + móc kép giai điệu/ornament), `Voice 2` (`support`: bè trung rải / khối hợp âm / nhại tiết tấu), `Voice 3` (`low`: Bass hợp âm / bass nối qua vạch ô). Tại mọi thời điểm mỗi voice phát tối đa 1 nốt, tổng số tiếng đồng thời $\le 3$ (`lead > support > low`), và mọi nhóm móc kép ở `Voice 1` thỏa `_assert_scale_positions` trong `assert_playable`.
-> - **Quy tắc cao độ**: Trừ chùm 4 nốt móc kép lặp cùng cao độ ở Kiểu 2, tất cả các nốt giai điệu và nốt di chuyển khác đều lấy từ **Price Action (`_melody_at`) sau khi đã chuyển đổi về nốt trong hòa âm / thang âm**.
+> **Trạng thái**: đã chốt, chờ code trong `guitar_torroba.py`.
+> Tám kiểu là cách đánh bên trong pattern đã khóa. Chúng không thêm id vào `_FAMILY`, và `_bar_pattern` không đổi.
 
----
+### 4.0. Phối với bốn pattern nền
 
-### 4.1. Kiểu 1 — Arpeggio 6 nốt móc kép, nốt thứ 4 là bè trầm nối qua vạch ô (Syncopated Tied-Bass 6-Note Arpeggio)
+Mood vẫn khóa pattern theo mục 7 của [`docs/sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md). Một câu có một pattern. Kiểu chỉ được gọi từ pattern của câu đó.
 
-#### Phân tích bản gốc (*Sonatina* I, đoạn chặn `VIII` $\rightarrow$ `VI`, nhịp 3 móc đơn/ô)
-Mỗi chùm 6 nốt móc kép ($s_0, s_1, s_2, s_3, s_4, s_5$) tạo thành một đường rải hình chữ **V đối xứng**:
-$$\text{Cao } (s_0) \searrow \text{Trung cao } (s_1) \searrow \text{Trung thấp } (s_2) \searrow \mathbf{\text{BASS } (s_3)} \nearrow \text{Trung thấp } (s_4) \nearrow \text{Trung cao } (s_5)$$
+| Pattern | Kiểu được gọi | Lưới khi câu không nhận kiểu |
+|---|---|---|
+| `castillo`, `ctx.bpm <= 72` | 7 hoặc 8, xoay theo `k % 2` | Một nốt giá ngân cả ô |
+| `castillo`, `ctx.bpm > 72` | không gọi kiểu nào | Một nốt giá ngân cả ô |
+| `sonatina` | 4, 2, 1 trên câu chưa đóng. 3 trên câu `closes` | Rải móc đơn, giai điệu ở phách mạnh |
+| `fandanguillo` | 5 hoặc 2, mỗi câu chỉ một trong hai | Hợp âm ở móc đơn 0, giai điệu ở các phách mạnh còn lại |
+| `danza` trên 3/4 và 6/8 | 6 | Hợp âm staccato đầu mỗi nhóm ba móc, rồi nốt đáp |
+| `danza` trên 4/4 | không có lưới | Pattern này không được chọn ở chương 4/4 |
 
-- **$s_0$ (Móc kép 1, có dấu nhấn `>`):** Nốt giai điệu cao nhất ở bè trên (ví dụ trên bản gốc: $C_6 \rightarrow B\flat_5 \rightarrow C_6 \rightarrow B\flat_5 \rightarrow A_5 \rightarrow G\flat_5 \rightarrow A_5 \rightarrow B\flat_5 \rightarrow A_5$).
-- **$s_1, s_2$ (Móc kép 2 & 3):** 2 nốt hợp âm ở bè trung rải đi xuống ($s_1 > s_2$, ví dụ $F_5 \rightarrow D_5$ hoặc $E\flat_5 \rightarrow C_5$).
-- **$s_3$ (Móc kép 4 — phách đảo giữa ô):** Nốt **Trầm (Bass)** có dấu nhấn `>` và **dấu nối (Tie `⏝`) ngân qua vạch ô sang phách 1 của ô nhịp kế tiếp**. Nhờ vậy, ở đầu ô sau, bè trầm không đánh lại mà vẫn ngân từ giữa ô trước.
-- **$s_4, s_5$ (Móc kép 5 & 6):** 2 nốt bè trung rải ngược trở lên ($s_4 = s_2, s_5 = s_1$).
+`castillo` trên 72 BPM giữ một nốt ngân mỗi ô. Đó là `calm` của chương 4/4. Kiểu 7 và kiểu 8 chỉ vào `castillo` khi `ctx.bpm <= 72`, tức chương chậm và `selloff` chậm. Kiểu 1 không vào `castillo`.
 
-#### Quy tắc ánh xạ vào Engine
-- **Phân bổ 3 bè & Cao độ:**
-  - `Voice 1 (lead)` tại $s_0$: Nốt **Price Action** (`_melody_at`) đã quy về hòa âm, `accent=True`.
-  - `Voice 2 (support)` tại $s_1, s_2$ và $s_4, s_5$: Chọn 2 nốt thuộc `ctx.chord(bar)` nằm dưới `lead` và trên `bass` ($s_1 > s_2$). Lượt lên lấy $s_4 = s_2, s_5 = s_1$ (hoặc bám theo price action nửa sau ô nếu dịch chuyển).
-  - `Voice 3 (low)` tại $s_3$: Nốt `_torroba_bass(ctx, chord, bar, lead)`, đặt ở vị trí thứ 4 của chùm 6 và kéo độ dài ngân qua phách đầu của ô tiếp theo (hoặc nửa sau ô trong 4/4).
-- **Lưới nhịp (`3/4`, `6/8`, `4/4`):**
-  - Ở `6/8` và `3/4` (6 móc đơn / 12 móc kép): Mỗi nửa ô (3 móc đơn = 6 móc kép) hoặc cả ô 6 móc đơn chạy đúng 1 chu kỳ chữ V $[s_0, s_1, s_2, s_3(\text{bass}), s_4, s_5]$, trong đó bass ở vị trí thứ 4 ngân qua đầu chu kỳ kế tiếp.
-  - Ở `4/4` (8 móc đơn): Chạy chu kỳ 6 móc $[0..5]$ (bass đặt ở móc thứ 4 ngân qua cuối ô sang đầu ô sau) + 2 móc cuối $[6..7]$ rải bè trung dẫn vào phách mạnh ô kế tiếp.
+Cửa chọn chạy một lần cho mỗi câu thân, sau khi pattern của câu đã khóa. `intro`, `outro`, `warmup`, `cooldown` không nhận kiểu. `n` đếm câu thân của cùng pattern trong section, bắt đầu từ 0. Câu `sonatina` có `closes` không lấy số `n`: câu đó đi kiểu 3, và các câu sau không bị dịch thứ tự. `k` đếm riêng các câu `n` chẵn, cũng từ 0. Câu `fandanguillo`, `danza` và `castillo` có `closes` vẫn lấy số `n`. Với `fandanguillo` và `danza`, ô cuối của câu `closes` không nằm trong span của kiểu. Với `castillo`, nốt ngân của ô cuối kiểu 7, hoặc nửa sau ô 2 của kiểu 8 khi câu dài đúng 2 ô, là chỗ đóng.
 
----
+1. Câu `sonatina` có `closes`: cả câu dành cho kiểu 3. Không cộng thêm kiểu 4, 2 hay 1.
+2. Câu có `n` lẻ, kể cả câu `fandanguillo`, `danza` hoặc `castillo` đang `closes`: cả câu là lưới nền.
+3. Câu `sonatina` chưa đóng, `n` chẵn:
+   - `k % 3 == 0` và câu dài ít nhất 4 ô: kiểu 4 trên hai ô đầu. Các ô sau là lưới nền.
+   - `k % 3 == 1`, `phrase.rise >= MIN_RISE` (`3`), câu dài ít nhất 2 ô: kiểu 2 trên hai ô bắt đầu tại chỉ số `length // 2 - 1` (không âm).
+   - `k % 3 == 2` và câu dài ít nhất 3 ô: kiểu 1 trên đúng một ô, chỉ số 1. Ô đầu và ô cuối giữ lưới nền.
+4. Câu `fandanguillo` có `n` chẵn:
+   - `k % 2 == 0`, `rise >= 3`, và còn ít nhất 4 ô không phải ô cuối của câu `closes`: kiểu 5 trên 4 ô đầu của phần đó. Ô cuối của câu `closes` ở lại lưới nền để mục 1 thở.
+   - `k % 2 == 1`, `rise >= 3`, còn ít nhất 2 ô không phải ô đóng: kiểu 2 trên hai ô đó, cùng chỗ đặt của bước 3.
+   - Không đủ chỗ thì câu về lưới nền. Không đổi kiểu 5 thành kiểu 2, cũng không đổi ngược lại.
+5. Câu `danza` trên 3/4 hoặc 6/8, `n` chẵn, dài đúng 4 ô, và câu không `closes`: cả câu là kiểu 6. Câu `closes`, câu khác độ dài, và mọi chương 4/4: lưới nền. Kiểu 6 không có lưới 4/4.
+6. Câu `castillo`, `n` chẵn:
+   - `ctx.bpm > 72`: lưới nền.
+   - `ctx.bpm <= 72` và `k % 2 == 0`: câu dài ít nhất 5 ô thì kiểu 7 trên năm ô đầu, các ô sau ngân một nốt. Câu dài 2, 3 hoặc 4 ô thì kiểu 8 trên hai ô đầu, để không cắt đứt 5 ô của câu đầu *Arada*. Câu dài 1 ô: lưới nền.
+   - `ctx.bpm <= 72` và `k % 2 == 1`: câu dài ít nhất 2 ô thì kiểu 8 trên hai ô đầu, các ô sau ngân một nốt. Câu dài 1 ô: lưới nền.
+7. Câu liền trước trong section đã dùng đúng kiểu vừa chọn: câu này về lưới nền.
 
-### 4.2. Kiểu 2 — Rasgueado + 4 móc kép lặp $\rightarrow$ Nốt trầm + 4 móc kép lặp $\rightarrow$ Chùm Chord móc đơn
+Một câu chỉ có một kiểu. Ô không thuộc span của kiểu hát renderer nền của pattern. Trong một pattern, câu `n` lẻ là lưới nền. Câu đóng `sonatina` có thể đứng cạnh một câu đang hát kiểu khác, vì kiểu 3 không lấy số `n`. Bước 7 chặn hai câu sát nhau khi chúng chọn cùng một số kiểu, kể cả khi hai câu thuộc hai pattern. `castillo` trên 72 BPM, và mọi câu `castillo` có `n` lẻ, vẫn ngân một nốt, nên đoạn chậm vẫn có các câu ngân của *Castillos* xen giữa kiểu 7 và kiểu 8. Hai đỉnh `volatile` không ở chung một câu: kiểu 2 là cụm ngắn, kiểu 5 là vòm bốn ô, và cửa trên không gọi cả hai.
 
-#### Phân tích bản gốc (*Sonatina* I, đoạn cao trào `ff` chặn `V` & `II` $\rightarrow$ hạ về `p`)
-Tổ hợp câu 3 ô nhịp liên tiếp (trên lưới gốc 3 móc đơn/ô):
-1. **Ô A (Rasgueado + 4 móc kép lặp):**
-   - Móc đơn đầu: Hợp âm quạt/rải dọc (`ff`, trên bản gốc là hợp âm $E$ mở rộng và hợp âm $A$ trưởng với đỉnh giai điệu là $A_4$).
-   - 2 móc đơn sau (4 móc kép): **Chùm 4 nốt móc kép có cùng 1 cao độ lặp lại liên tiếp** ($E_4 - E_4 - E_4 - E_4$).
-2. **Ô B (Nốt trầm + 4 móc kép lặp):**
-   - Móc đơn đầu: **1 nốt trầm/trung trầm đơn độc** ($A_3$) đáp lại khối hợp âm của Ô A.
-   - 2 móc đơn sau (4 móc kép): Lặp lại **chùm 4 nốt móc kép cùng cao độ** ($E_4 - E_4 - E_4 - E_4$ trên dây buông `⓪`).
-3. **Ô C (Chùm Chord móc đơn đi theo giai điệu):**
-   - Đánh liên tiếp các **khối hợp âm móc đơn (Block Chords)**, trong đó bè dưới giữ thế tay hợp âm còn **nốt trên cùng di chuyển theo giai điệu** (trên bản gốc: $F\#_4 \rightarrow E_4 \rightarrow D\#_4$ trên nền $[A_2, F\#_3, B_3]$, hoặc $F\#_4 \rightarrow D_4 \rightarrow B_3$ trên nền $[F_2, D_3, A_3]$), rồi giải về hợp âm chủ (`p`).
+Ví dụ một đoạn `sonatina`. Câu 6 là câu đóng.
 
-#### Quy tắc ánh xạ vào Engine
-- **Chùm 4 nốt móc kép lặp (`Voice 1` / `Voice 2`):**
-  - Lấy **4 nốt móc kép giống hệt nhau** $(p, p, p, p)$ với `duration_beats = 0.25`, ưu tiên nốt bậc V hoặc bậc I của hợp âm trong vùng trung-cao (hoặc dây buông hợp lệ `64` / nốt neo của hợp âm).
-- **Các nốt còn lại lấy theo Price Action sau khi quy về hòa âm:**
-  - **Đầu Ô A (Rasgueado):** Khối 3 tiếng (`low` + `support` + `lead`), trong đó `lead` là `_melody_at` tại móc đầu, `accent=True`, vận tốc $\ge 68$.
-  - **Đầu Ô B (Nốt trầm đáp):** `low` (hoặc `support` trầm) đánh nốt hợp âm tương ứng với chuyển động Price Action, không đánh `lead` ở móc đầu để tạo độ tương phản trầm – cao trước khi chùm 4 móc kép lặp vang lên.
-  - **Ô C (Chùm Chord móc đơn):** Mỗi móc đơn là một khối hợp âm 3 bè (`low` + `support` + `lead`), trong đó `lead` tại từng móc đơn lấy trực tiếp từ `_melody_at(ctx, origin + offset)` đã quy về nốt trong hòa âm/thang âm.
-- **Lưới nhịp (`3/4`, `6/8`, `4/4`):**
-  - Ở `3/4` và `6/8`: Mỗi nửa ô (3 móc đơn) hoặc mỗi ô giữ nguyên cấu trúc `[1 móc đơn + 4 móc kép lặp]` cho A & B, và `[3 hợp âm móc đơn]` cho C.
-  - Ở `4/4` (8 móc đơn): Nửa đầu ô (móc $0..2$) là **Ô A** `[Rasgueado móc 0 + 4 móc kép lặp ở móc 1..2]`, móc 3 nghỉ/ngân lấy hơi; nửa sau ô (móc $4..6$) là **Ô B** `[Nốt trầm móc 4 + 4 móc kép lặp ở móc 5..6]`, móc 7 dẫn sang ô tiếp theo là **Ô C** với chuỗi Chord móc đơn theo Price Action.
-
----
-
-### 4.3. Kiểu 3 — Rasgueado móc đơn + Câu tiết tấu móc kép/móc đơn + Scale móc đơn (`pizz.`) kết bằng Harmonics (`Arm.`)
-
-#### Phân tích bản gốc (*Sonatina* I, đoạn `pizz.` – chặn `V` – `Arm.` – `con gracia`)
-Tổ hợp câu gồm 3 mảng kết cấu nối tiếp nhau:
-1. **Mảng 1 — Rasgueado móc đơn mở câu + Mô-típ tiết tấu câu (Dòng 1, Ô 3 & Ô 4):**
-   - **Móc đơn 0:** Hợp âm rải/rasgueado (ở ô đầu câu) hoặc 1 nốt móc đơn lấy đà (ở ô lặp lại).
-   - **Móc đơn 1 & 2:** **2 nốt móc kép lặp + 1 nốt móc đơn** ($E_4 - E_4 \rightarrow E_4$, tạo thành chùm 3 tiếng gõ nhanh dồn vào phách 2).
-   - **Móc đơn 3:** **2 nốt móc kép lướt có dấu nối (slur)** ($F\#_4 - E_4$).
-   - **Móc đơn 4 & 5:** **2 nốt móc đơn** ($D_4 \rightarrow E_4$).
-2. **Mảng 2 — Đoạn Scale / Arpeggio móc đơn `pizz.` đi lên (Dòng 1 Ô 1–2, Dòng 2 Ô 5–6):**
-   - Sau phách đầu, chuỗi **5–6 nốt móc đơn đánh ngắt `pizz.` (ký hiệu `x`)** leo dần qua các nốt hòa âm và thang âm hướng lên đỉnh câu (ví dụ $F\#_3 \rightarrow A_3 \rightarrow D_4 \rightarrow F\#_4 \rightarrow A_4$ hoặc $E_5 \rightarrow B_4 \rightarrow C\#_5 \rightarrow E_5 \rightarrow G\#_5 \rightarrow A_5$).
-3. **Mảng 3 — Kết câu bằng Harmonics ngân dài (`Arm.`, Dòng 2 Ô 7):**
-   - Khi chuỗi móc đơn `pizz.` chạm đỉnh, ô nhịp tiếp theo dừng toàn bộ phần đệm và thả **1 nốt Harmonics (`Arm.`) ngân dài trọn ô** ở dải cao.
-
-#### Quy tắc ánh xạ vào Engine
-- **Ô Rasgueado + Nhịp câu móc kép/móc đơn:**
-  - Móc 0: Khối hợp âm 3 tiếng (`low` + `support` + `lead` = `_melody_at`).
-  - Các móc tiếp theo trên `Voice 1 (lead)`: Chạy mô-típ tiết tấu `[2 móc kép + 1 móc đơn] + [2 móc kép slur] + [2 móc đơn]`, với cao độ lấy từ Price Action đã quy về hòa âm/thang âm (`_walk` / `_melody_at`), đảm bảo nằm gọn trong 1 thế tay (`_assert_scale_positions`). Ở `4/4`, thêm 1 phách kết (2 móc đơn ở móc $6..7$) hoàn tất câu.
-- **Ô Scale móc đơn (`staccato=True` / `pizz.`):**
-  - Chạy chuỗi móc đơn (`staccato=True`) đi từ vùng trung/trầm (`support` $\rightarrow$ `lead`) bám theo các nốt hợp âm/thang âm tiến thẳng về nốt Price Action của đỉnh câu.
-- **Ô kết Harmonics (`Arm.`):**
-  - `Voice 1 (lead)` ngân trọn ô tại nốt Price Action với `velocity = 48` (màu chuông/harmonics, `support` nghỉ hoàn toàn, `low` điểm nhẹ bass dây buông ở đầu ô).
-
----
-
-### 4.4. Kiểu 4 — Pattern mở đầu của *Sonatina* Chương I (*Allegretto*)
-
-#### Phân tích bản gốc (*Sonatina* I, Ô 1–4 mở đầu *Allegretto*, nhịp $3/4$, `mf`)
-Cặp ô nhịp **Đối đáp 2 ô (Call & Response)** kinh điển của Torroba:
-1. **Ô Lẻ (Ô 1 & Ô 3 — "Call": Hợp âm mở + Giai điệu móc kép/móc đơn + 2 Chord móc đơn cuối ô):**
-   - **Móc đơn 0 (Phách 1a):** Bè trầm/trung đánh hợp âm nền (hoặc nốt Bass dây buông $A_2$), trong khi bè cao nghỉ nửa phách đầu (`𝄾`).
-   - **Móc đơn 1 (Phách 1b):** `Voice 1 (lead)` vào bằng **2 nốt móc kép** ở dải cao ($C\#_5 - C\#_5$).
-   - **Móc đơn 2 (Phách 2a):** **1 nốt móc đơn** ($C\#_5$).
-   - **Móc đơn 3 (Phách 2b):** **2 nốt móc kép lướt có slur** ($D_5 - C\#_5$, thêu bậc trên quay về).
-   - **Móc đơn 4 & 5 (Phách 3):** **2 khối hợp âm móc đơn** đi theo giai điệu ($B_4 \rightarrow E_4$ hoặc $B_4 \rightarrow G\#_4$) kèm **nốt Bass dây buông móc đơn ở móc 5** làm đà sang ô sau.
-2. **Ô Chẵn (Ô 2 & Ô 4 — "Response": Giai điệu ngân dài + Bè trung nhại lại tiết tấu):**
-   - **Bè cao (`Voice 1`):** Giữ **1 nốt giai điệu ngân dài suốt cả ô** ($A_4$ ở ô 2, $B_4$ ở ô 4).
-   - **Bè trầm (`Voice 3`):** Đánh Bass ở móc 0 và **1 nốt Bass móc đơn ở cuối ô (móc 5)**.
-   - **Bè trung (`Voice 2`):** Trong lúc bè cao ngân dài, bè trung ở dải ấm ($\le 65$) **nhại lại chính xác hình tiết tấu của bè cao ở ô trước** bằng chuyển động thêu liền bậc có slur:
-     - Nghỉ móc 0 $\rightarrow$ **2 móc kép** (móc 1, có slur) $\rightarrow$ **1 móc đơn** (móc 2) $\rightarrow$ **2 móc kép** (móc 3, có slur) $\rightarrow$ **1 nốt đơn/đen** (móc 4).
-
-#### Quy tắc ánh xạ vào Engine
-- **Ô Call (Ô mở câu):**
-  - Móc 0: `Voice 3 (low)` (+ `Voice 2 (support)`) đánh nền hợp âm; `Voice 1` nghỉ nửa phách đầu.
-  - Móc $1..3$: `Voice 1 (lead)` hát mô-típ `[2 móc kép (móc 1) + 1 móc đơn (móc 2) + 2 móc kép có slur (móc 3)]` bám theo Price Action đã quy về hòa âm (`_melody_at` và nốt bậc thang liền kề).
-  - Móc cuối ô (móc $4..5$ ở `3/4` & `6/8`; móc $4..7$ ở `4/4`): Đánh các khối hợp âm móc đơn (`lead` + `support`, với `lead` là Price Action tại từng móc) và đặt **nốt Bass móc đơn (`low`) ở móc cuối cùng của ô** làm cầu nối sang ô Response.
-- **Ô Response (Ô đáp câu):**
-  - `Voice 1 (lead)`: Ngân dài nốt Price Action từ đầu ô (`origin`) xuyên suốt ô.
-  - `Voice 2 (support)`: Nhại lại mô-típ `[2 móc kép slur (móc 1) + 1 móc đơn (móc 2) + 2 móc kép slur (móc 3) + nốt đơn/đen (móc 4)]` trên 2 nốt liền bậc trong hòa âm/thang âm ở vùng trung ($\le 65$, dưới `lead` và trên `low`).
-  - `Voice 3 (low)`: Đánh Bass ở móc 0 và 1 nốt Bass móc đơn ở cuối ô.
-
----
-
-### 4.5. Kiểu 5 — Rasgueado, Price Action chạy ở bè trầm rồi chuyển giao lên bè cao (1 chùm 4 nốt đơn $\rightarrow$ 6 nốt đen hợp âm)
-
-> Nguồn: *Suite Castellana*, chương I *Fandanguillo*, đoạn `ff/fff` chặn `V`/`II`/`VII`.
-
-#### Phân tích bản gốc (nhịp $3/4$, giọng Mi trưởng)
-Ba pha nối nhau thành một vòm kịch tính:
-
-1. **Pha 1 — Rasgueado mở câu (`ff`) + 4 nốt móc đơn staccato ở bè trầm:**
-   - Phách 1: hợp âm quạt 6 dây, đỉnh là nốt giai điệu (`$G\#_5$` trên bản gốc).
-   - Phách 2–3: bè cao tắt, bè trầm đánh chùm 4 nốt móc đơn ngắt lặp và tiến bậc (`$B_2 - B_2 - B_2 - C\#_3$`, dấu chấm staccato).
-2. **Pha 2 — Price Action độc tấu ở bè trầm.** Câu chạy nằm hẳn ở dây 5 và dây 6, xen kẽ hai hình:
-   - 3 nốt đen đi bậc (`$D\#_3 - D\#_3 - E_3$`, rồi dịch xuống từng bậc `$E_3 - D\#_3 - C\#_3$`, `$D\#_3 - C\#_3 - B_2$`).
-   - Mô-típ lướt: **2 móc kép slur + 1 móc đơn + 1 móc đơn + 1 nốt đen** (`$E_3\text{-}F\#_3 \rightarrow E_3 \rightarrow D\#_3 \rightarrow C\#_3$`), kết bằng nốt trầm ngân dài nối sang ô sau.
-3. **Pha 3 — Chuyển giao lên bè cao: 1 chùm 4 nốt móc đơn, rồi 6 nốt đen hợp âm (`cresc.`):**
-   - Ô chuyển giao: phách 1 giữ nốt bass ngân, phách 2–3 bè cao cất tiếng bằng chùm 4 nốt móc đơn (`$B_3 - B_3 - B_3 - C\#_4$`).
-   - Hai ô tiếp theo: 6 phách nốt đen hợp âm liên tiếp trên bass pedal, nốt trên cùng leo dần (`$D\#_4 \rightarrow D\#_4 \rightarrow E_4$`, rồi `$A_4 \rightarrow G\#_4 \rightarrow F\#_4$`).
-
-#### Quy tắc ánh xạ vào Engine
-- **Pha 1:** móc 0 là khối 3 tiếng (`low` + `support` + `lead` = `_melody_at`), phách sau nhường cho bè trầm chạy chùm 4 nốt móc đơn `staccato` bám price action dịch xuống quãng 8.
-- **Pha 2:** `Voice 3 (low)` (hoặc `Voice 2` ở dải trầm) hát price action qua nốt đen và mô-típ lướt 2 móc kép slur. `lead` nghỉ.
-- **Pha 3:** phách đầu giữ bass ngân; `Voice 1 (lead)` vào bằng chùm 4 nốt móc đơn, rồi **6 phách nốt đen hợp âm** (`duration_beats = 1.0`), mỗi phách đủ 3 bè, nốt trên cùng là `_melody_at` đã quy về hòa âm.
-
-#### Phách mạnh, phách nhẹ và vi mô vận tốc
-Đơn vị là `_MICRO = 2` của [`docs/sonify-guitar-micro-contour-plan.md`](./sonify-guitar-micro-contour-plan.md). Mức viết lấy theo bảng mục 5 của [`docs/sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md): phách mạnh `max(_note_velocity, 68)`, phách yếu 64, bè đệm theo `_under_lead`. Bậc dưới đây hạ khỏi mức đó, sau `_shape_accompaniment`, qua `_micro_fits` để giữ `lead > bass > support` ít nhất 2. Câu phẳng band `mf` thì lead 64, bass 60, bè trong 56.
-
-| Chỗ | Phách | Bậc | Ghi chú |
+| Câu | Dài | `rise` | Kết quả |
 |---|---|---|---|
-| Rasgueado mở câu, cả 3 bè | mạnh (`accent=True`) | 0 | Đỉnh của pha. `volatile` viết 68 |
-| 4 nốt móc đơn staccato ở bè trầm | yếu | −2, −2, −2, −1 | Ba nốt lặp chìm, nốt thứ 4 bước bậc nhích lên để dẫn |
-| Nốt đen bè trầm rơi đầu ô | mạnh | 0 | Trụ của câu chạy trầm |
-| Nốt đen bè trầm giữa và cuối ô | nhẹ | −1 | Cùng kiểu nốt dài nửa sau của *Élégiaque* |
-| 2 móc kép slur trong mô-típ lướt | nhẹ | −2, −1 | Dâng vào móc đơn sau, móc kép đầu mở slur |
-| Móc đơn sau slur, và nốt đen chốt mô-típ | mạnh tương đối | −1, rồi 0 | Nốt đen chốt giữ mức viết |
-| Chùm 4 nốt móc đơn lúc chuyển giao | yếu $\rightarrow$ mạnh | −2, −2, −1, 0 | Dâng vào phách hợp âm đầu tiên |
-| 6 nốt đen hợp âm | mạnh đều | 0 | Không khía trong phách. `cresc.` là extra cả ô của `_shape_dynamics`, không phải bậc vi mô |
+| 1 | 6 | 1 | `k = 0`. Kiểu 4 trên hai ô đầu. Bốn ô sau là `sonatina` |
+| 2 | 4 | 5 | `n` lẻ. Cả câu lưới nền |
+| 3 | 4 | 5 | `k = 1`. Kiểu 2 trên hai ô giữa. Hai ô rìa là lưới nền |
+| 4 | 5 | 0 | `n` lẻ. Lưới nền |
+| 5 | 4 | 4 | `k = 2`. Kiểu 1 ở ô thứ hai. Ba ô kia là lưới nền |
+| 6, `closes` | 4 | 2 | Kiểu 3 trên ba ô cuối. Ô đầu là lưới nền |
+
+Đoạn `fandanguillo` dài 6, 4, 5 ô, `rise` đều trên 3: câu 1 kiểu 5 trên bốn ô đầu, câu 2 lưới nền, câu 3 kiểu 2. Đoạn `danza` 6/8 toàn câu dài 4 và chưa đóng: câu `n` chẵn là kiểu 6, câu `n` lẻ là lưới `danza`. Đoạn `castillo` ở 66 BPM, các câu dài 6, 4 và 4: câu 1 (`k = 0`) là 5 ô kiểu 7 rồi 1 ô ngân, câu 2 (`n = 1`) ngân một nốt, câu 3 (`k = 1`) là 2 ô kiểu 8 rồi 2 ô ngân. Câu đầu mà chỉ dài 3 ô thì nhận 2 ô kiểu 8 thay vì cắt kiểu 7. Cùng đoạn đó ở 96 BPM thì cả ba câu ngân một nốt.
+
+#### Việc mọi kiểu cùng tuân
+
+Phách mạnh của meter: 4/4 là móc đơn 0 và 4. 6/8 là móc đơn 0 và 3. 3/4 là móc đơn 0. Móc đơn 4 của 3/4 là phách yếu. Engine không có nhịp 3/8. Một ô 3/4 hoặc 6/8 là 6 móc đơn. Một ô 4/4 là 8 móc đơn. Một chu kỳ 6 móc kép bằng 3 móc đơn.
+
+Mỗi voice tối đa một nốt. Tối đa ba tiếng cùng vang. Lực là `lead > bass > support`, mỗi cặp cách ít nhất 2. Cao độ khi `lead` đang hát: `lead` cao nhất, `support` nằm giữa, `bass` thấp nhất. Khi `lead` nghỉ, `support` vẫn ở trên `bass`.
+
+Bậc vi mô là số lần `_MICRO = 2`, hạ sau vận tốc viết và sau extra cả ô, cùng chỗ contour của Galop. Bậc của `lead` đi qua `_micro_fits`. Hết chỗ thì bậc rút lại, không chọc qua bass. Các nốt lặp trong một chùm lấy cùng một bậc, bằng bậc ngắn nhất còn sống. Trên câu phẳng band `mf`, `_under_lead(64)` ra bass 60, support 56. `sonatina` viết lead 64, nên lead chỉ hạ được 1 bậc khi bass 60 còn vang (`62 >= 60 + 2`). `fandanguillo` và `danza` viết phách mạnh `max(_note_velocity, 68)`, nên lead hạ được 3 bậc (`62 >= 60 + 2`) khi bass đó còn vang. Lead hát một mình thì hạ đúng bậc trong bảng, sàn 40.
+
+Bass của hợp âm mở là một móc đơn (`duration_beats = 0.5`), trừ pedal được nêu tên ở kiểu 1, kiểu 5, kiểu 6 và ô 3 của kiểu 7. Pedal thả ở vạch ô khi ô sau đánh voice 3 ngay móc đơn 0, và thả ở vạch ô khi `ctx.chord` đổi. Không khóa Viterbi để giữ một hợp âm nhiều ô. Ô sau là kiểu 1 thì bass kiểu 1 được ngân tiếp tới `s3` của chu kỳ sau, vì chu kỳ đó không đánh bass ở móc đơn 0. Ô sau là lưới nền, kiểu 2, kiểu 4, kiểu 5 ô 1, kiểu 6, hoặc kiểu 7 thì cắt ở vạch ô: các lưới đó đều đánh bass ở móc đầu.
+
+Extra cả ô của pattern vẫn một mức cho cả ô, kể cả ô thuộc kiểu. Nốt nào `_harmonic_velocity` trả 48 thì nốt đó không cộng extra. Ô thuộc kiểu nằm trong `skip_bars` của `_slur()`, và `apply_sonatina_downbeats` không trồng nốt lấy đà lên các ô đó. Kiểu tự viết slur của nó. Ô lưới nền `sonatina` giữ cửa slur của mục 1.
+
+Mục 1 vẫn làm mỏng `support` trên offset đóng của ô lưới nền, và bed `p` chỉ trên tiếng đệm của các offset đó. Mục 1 không xóa `lead` của một kiểu, và không viết lại vận tốc `lead` mà kiểu đã đặt. Kiểu 3 vốn đã nghỉ `support`.
+
+Cao độ:
+
+- `lead` di chuyển đọc `_melody_at` của móc đó, sau khi đã về hòa âm.
+- `support` và `bass` là nốt của `ctx.chord(bar)`, trừ các ô 1–3 của kiểu 5 và ô 5 của kiểu 7, nơi voice 3 hát câu trầm trong vùng MIDI 40–52.
+- Lặp cao độ do kiểu bịa ra chỉ ở các chỗ trong bảng dưới. `_melody_at` trả cùng một cao độ hai lần thì cứ đánh, vì đó là giá.
+- Nốt thêu là `_walk` một bậc thang, slur về đúng `_melody_at` nó thêu. Cả nhóm phải qua `_assert_scale_positions`. Không vừa thế tay thì cặp slur thành hai tiếng của chính `_melody_at` đó.
+
+| Chỗ được lặp cao độ | Tiếng |
+|---|---|
+| Kiểu 2, mỗi chùm 4 móc kép | Một nốt hợp âm, chọn một lần cho ô |
+| Kiểu 3, nhịp gõ ở móc đơn 1–2 | Ba tiếng, cao độ `_melody_at` của móc đơn 1 |
+| Kiểu 4, hai móc kép của móc đơn 1 | `_melody_at` của móc đơn 1, hai lần |
+| Kiểu 5 ô 1, ba móc đơn trầm đầu của chùm bốn | Cùng cao độ đã hạ quãng 8. Móc thứ tư bước |
+| Kiểu 5 ô 3, ba móc đơn `lead` đầu của chùm bốn | `_melody_at` của móc đầu chùm. Móc thứ tư bước |
+| Kiểu 6, chùm 3 móc đơn đầu tiên | `_melody_at` của móc đầu, ba lần |
+| Kiểu 7 ô 3, các cặp móc đơn đánh đôi | Hai tiếng trong một cặp lấy `_melody_at` của móc chẵn. Đuôi móc kép lướt là một bậc trên |
+| Kiểu 8 ô 2, hai móc đơn đầu của chùm ba (`base + 1` và `base + 2`) | `_melody_at` của `base + 1`, đánh hai lần trước khi slur sang `base + 3` |
+
+`s4 = s2` của kiểu 1 là nốt hợp âm của `support` nhắc lại, không phải một đường giá thứ hai.
+
+### 4.1. Kiểu 1 — Rải 6 móc kép, bass thứ tư ngân tới chu kỳ sau
+
+Nguồn: *Sonatina* I, đoạn chặn `VIII` sang `VI`. Mỗi chùm 6 móc kép đi hình chữ V. `s0` là đỉnh, có nhấn. `s1` rồi `s2` là hai nốt hợp âm đi xuống. `s3` là bass, có nhấn, nối sang đầu chu kỳ sau. `s4 = s2`, `s5 = s1`.
+
+Một chu kỳ là 6 móc kép, tức 3 móc đơn. 3/4 và 6/8 chạy hai chu kỳ: móc đơn 0–2, rồi móc đơn 3–5. 4/4 chạy hai chu kỳ đó trên móc đơn 0–2 và 3–5. Móc đơn 6 và 7 là hai nốt `support`, mỗi móc một tiếng, nốt hợp âm dưới vùng `lead`. Không có `lead` và không có bass mới ở hai móc đó.
+
+- `s0`, voice 1: `_melody_at` của móc đơn chứa nó, `accent=True`, bậc 0. Mỗi `s0` đều nhấn, kể cả `s0` thứ hai trong ô. Trên 3/4, `s0` đó không rơi vào phách mạnh của meter.
+- `s1`, `s2`, voice 2: hai nốt hợp âm nằm dưới `lead` và trên bass, `s1` cao hơn `s2`. Thiếu nốt thì móc đó nghỉ.
+- `s3`, voice 3: `_torroba_bass`, bậc 0 trên mức bass. Ngân tới `s3` sau, hoặc tới vạch ô khi ô sau đánh bass ở móc đơn 0.
+- `s4`, `s5`: nhắc `s2`, `s1`.
+
+| Tiếng | Bậc |
+|---|---|
+| `s0` lead | 0, có `accent` |
+| `s1` support, rồi `s2` | −1, rồi −2 |
+| `s3` bass | 0 trên mức bass |
+| `s4` support, rồi `s5` | −2, rồi −1 |
+| 4/4, support ở móc đơn 6 và 7 | −1, −1 |
+
+Support bậc −2 từ 56 còn 52, dưới bass 60 và trên sàn 40.
+
+### 4.2. Kiểu 2 — Rasgueado, bốn móc kép lặp, bass đáp, rồi hợp âm móc đơn
+
+Nguồn: *Sonatina* I, đoạn `ff` chặn `V` và `II`, rồi hạ về `p`. Ba ô gốc, mỗi ô 3 móc đơn: ô A là hợp âm quạt rồi bốn móc kép cùng cao độ, ô B là một nốt trầm rồi bốn móc kép đó, ô C là hợp âm móc đơn theo giai điệu.
+
+Engine gom thành hai ô trên mọi meter.
+
+Ô 1 trên 3/4 và 6/8:
+
+- Móc đơn 0: ba tiếng, `lead` là `_melody_at`, `accent=True`, bậc 0. Bass và support dài một móc đơn.
+- Móc đơn 1–2: bốn móc kép, chỉ voice 1, một cao độ, mỗi nốt bậc −1.
+- Móc đơn 3: chỉ voice 3, `_torroba_bass`, bậc 0 trên mức bass. Không có `lead`.
+- Móc đơn 4–5: bốn móc kép, cùng cao độ với chùm trước, bậc −1.
+
+Ô 1 trên 4/4 dùng cùng hai cụm, và có hai móc nghỉ vì 8 không chia hết cho hai nhóm 3. Móc đơn 0 là hợp âm. Móc đơn 1–2 là bốn móc kép. Móc đơn 3 nghỉ. Móc đơn 4 là bass. Móc đơn 5–6 là bốn móc kép. Móc đơn 7 nghỉ.
+
+Ô 2, mọi meter: mỗi móc đơn một hợp âm ba tiếng, `duration_beats = 0.5`, `lead` là `_melody_at` của móc đó. Móc đơn trúng phách mạnh của meter giữ bậc 0. Móc đơn khác bậc −1.
+
+Cao độ của chùm lặp chọn một lần cho ô 1: nốt hợp âm cao nhất còn thấp hơn `lead` của rasgueado. Không còn nốt nào thì dùng chính cao độ `lead` đó. Mi4 buông (dây 1, MIDI 64) chỉ được chọn khi nó là nốt hợp âm đó. MIDI 64 ở đây là cao độ, không phải vận tốc 64.
+
+Vận tốc rasgueado là mức phách mạnh của pattern đang hát. `sonatina` câu phẳng viết 64. `fandanguillo` viết ít nhất 68. Không có sàn cứng 68 cho riêng kiểu này. Bốn móc kép hát sau khi bass của hợp âm đã hết, nên lead đứng một mình: bậc −1 từ 64 ra 62, từ 68 ra 66, và bốn nốt bằng nhau.
+
+### 4.3. Kiểu 3 — Mô-típ, scale `pizz.`, rồi nốt ngân ở câu đóng
+
+Nguồn: *Sonatina* I, đoạn `pizz.`, chặn `V`, `Arm.`, `con gracia`. Trên bản gốc, scale `pizz.` đứng trước mô-típ. Engine đảo lại để câu đi tới chỗ đóng: mô-típ, rồi scale, rồi nốt ngân.
+
+Kiểu này là hậu tố của câu `sonatina` có `closes`.
+
+- Câu dài ít nhất 3 ô: ba ô cuối là mô-típ, scale, ngân. Các ô trước là lưới nền.
+- Câu dài 2 ô: scale, rồi ngân.
+- Câu dài 1 ô: một ô ngân.
+
+Ô mô-típ, móc đơn 0–5, thêm móc đơn 6–7 khi ô là 4/4:
+
+- Móc đơn 0: hợp âm ba tiếng, `lead` là `_melody_at`, bậc 0, `accent=True`. Bass dài một móc đơn.
+- Móc đơn 1–2: hai móc kép rồi một móc đơn, cả ba cùng `_melody_at` của móc đơn 1. Hai móc kép bậc −2, móc đơn sau chúng bậc −1. Bass đã hết, lead đứng một mình, nên bậc −2 từ 64 còn 60.
+- Móc đơn 3: hai móc kép slur, nốt thêu trên rồi `_melody_at`. Bậc −2, rồi −1.
+- Móc đơn 4–5, và trên 4/4 là móc đơn 6–7: mỗi móc một tiếng `lead` đọc `_melody_at`. Móc trúng phách mạnh bậc 0. Móc khác bậc −1. Trên 4/4, móc đơn 4 là phách mạnh.
+
+Ô scale: chỉ voice 1, `staccato=True`, một móc đơn mỗi móc. Cao độ đi từ một nốt hợp âm hoặc nốt thang ở dưới nốt đích, lên đúng `_melody_at` của móc cuối. Móc cuối là nốt giá. `support` và `bass` nghỉ. Mọi móc trừ móc cuối bậc −1. Móc cuối bậc 0. Một bậc, không dâng thêm 2 cho từng nốt: run dài làm vậy sẽ thành một chữ mới và nuốt nốt tới, cùng lý do tirata của Courante.
+
+Ô ngân: voice 1 giữ `_melody_at` của móc đơn 0 suốt ô, `duration_beats = epb * 0.5`, không đánh lại. Vận tốc là `_harmonic_velocity`. Hàm đó trả 48 chỉ khi cao độ vang nằm trong `{52, 57, 62, 67, 71, 76, 79}` và nốt dài ít nhất hai phách đen. Cả ô luôn đủ dài. Không trùng nút thì giữ vận tốc `sonatina` thường và vẫn nhận extra cả ô. Nốt 48 không cộng extra, bậc 0, không hạ thêm. `support` nghỉ. `bass` là `_torroba_bass` một móc đơn ở móc 0, bậc −1 trên mức bass. Không thêm một dây buông ngoài nốt bass đó.
+
+### 4.4. Kiểu 4 — Đối đáp hai ô mở đầu *Sonatina* I
+
+Nguồn: *Sonatina* I, ô 1–4, *Allegretto*, 3/4, `mf`. Ô lẻ là câu gọi: nửa phách đầu bè cao nghỉ, rồi mô-típ móc kép, rồi hai hợp âm cuối ô. Ô chẵn là câu đáp: bè cao ngân một nốt, bè trung nhại tiết tấu, bass ở móc đầu và móc cuối.
+
+Hai ô này là hai ô đầu của câu `sonatina` chưa đóng dài ít nhất 4 ô. Các ô sau là lưới nền. `apply_sonatina_downbeats` không chạy trên hai ô này. `lead` không hát móc đơn 0. Đó là ngoại lệ của luật “mỗi phách mạnh là `_melody_at`”, và chỉ hai ô này.
+
+Ô gọi trên 3/4 và 6/8:
+
+- Móc đơn 0: `bass` và `support`, `lead` nghỉ. Cả hai bậc 0. Bass dài một móc đơn.
+- Móc đơn 1: hai móc kép cùng `_melody_at` của móc đó, bậc −1 và −1.
+- Móc đơn 2: một móc đơn, `_melody_at`, bậc −1.
+- Móc đơn 3: hai móc kép slur, nốt thêu trên rồi về `_melody_at` của móc đơn 2. Trên 3/4 cả hai bậc −1. Trên 6/8 móc đơn 3 là phách mạnh: nốt thêu bậc −1, nốt giải bậc 0.
+- Móc đơn 4 và 5: hợp âm, `lead` là `_melody_at` của móc, `support` là nốt hợp âm. Bass chỉ đánh ở móc đơn 5. `lead` viết mức phách yếu 64, bậc 0 trên mức yếu đó. Bass móc 5 lấy mức bass phách yếu đã thấp hơn bass phách mạnh đúng 4, không hạ thêm một bậc vi mô.
+
+Ô gọi trên 4/4: móc đơn 0–3 giống trên, cặp slur ở móc đơn 3 bậc −1 và −1 vì móc đó yếu. Móc đơn 4–7 mỗi móc một hợp âm. Bass ở móc đơn 4, bậc 0, và ở móc đơn 7, mức bass yếu. `lead` móc đơn 4 bậc 0. `lead` móc đơn 5, 6, 7 bậc −1.
+
+Ô đáp, mọi meter:
+
+- `lead`: một nốt, `_melody_at` của móc đơn 0, dài cả ô, bậc 0, không đánh lại.
+- `support` nhại trên móc đơn 1, 2, 3, rồi một nốt đen ở móc đơn 4 (`duration_beats = 1.0`, phủ móc đơn 4–5). Nhịp là hai móc kép slur, một móc đơn, hai móc kép slur, một nốt đen. Cao độ là hai nốt thang liền bậc, dưới `lead`, không quá 65, trên bass. Bậc −1 trên mức support. Trên 4/4, móc đơn 6 và 7 `support` nghỉ.
+- `bass`: móc đơn 0, bậc 0, dài một móc đơn. Móc đơn cuối ô, mức bass yếu, không hạ thêm.
+
+### 4.5. Kiểu 5 — Rasgueado, giá ở bè trầm, rồi giao lên bè cao
+
+Nguồn: *Suite Castellana* I, *Fandanguillo*, đoạn `ff` / `fff` chặn `V`, `II`, `VII`, nhịp 3/4. Ba pha của bản gốc là hợp âm quạt với bốn móc đơn staccato ở trầm, rồi giá chạy trên dây trầm, rồi bốn móc đơn giao lên cao và sáu nốt đen hợp âm.
+
+Chỉ `fandanguillo`. Bốn ô, trên cả 4/4, 3/4 và 6/8. Bản gốc có hai hình cho pha trầm: nốt đen đi bậc, và mô-típ lướt. Engine giữ mô-típ lướt cho một ô, vì nốt cuối của nó là pedal sang ô giao. Sáu nốt đen của bản gốc là hai ô 3/4. Engine để một ô hợp âm, để cụm còn bốn ô.
+
+Giá khi hát ở voice 3: lấy `_melody_at`, trừ 12 cho tới khi cao độ không quá 52. Tụt dưới 40 thì dùng `_torroba_bass`. Sau đó kéo về nốt hợp âm gần nhất trong 40–52. Hai nốt cách đều thì lấy nốt thấp hơn. Hợp âm không có nốt trong vùng thì `_torroba_bass`.
+
+Ô 1:
+
+- Móc đơn 0: hợp âm ba tiếng, `lead` là `_melody_at`, viết `max(_note_velocity, 68)`, `accent=True`, bậc 0. Bass và support dài một móc đơn.
+- Bốn móc đơn tiếp: chỉ voice 3, `staccato=True`, giá đã hạ vùng. Bậc −2, −2, −2, −1 trên mức bass 60, ra 56, 56, 56, 58. Ba nốt đầu cùng cao độ. Nốt thứ tư là giá của móc đó, đã hạ vùng.
+- Móc đơn còn lại của ô: voice 3 ngân nốt thứ tư, không đánh lại, và thả ở vạch ô vì ô 2 đánh bass.
+
+Ô 2, chỉ voice 3. `lead` và `support` nghỉ.
+
+- 3/4 và 6/8: móc đơn 0 là một móc đơn bass, bậc 0. Móc đơn 1 là hai móc kép slur, bậc −2 rồi −1. Móc đơn 2 và 3 là hai móc đơn, mỗi nốt bậc −1. Móc đơn 4–5 là một nốt đen, bậc −1 trên mức bass, ra 58. Nốt đen này là pedal.
+- 4/4: cùng hình trên móc đơn 0–5. Nốt đen kéo dài hết móc đơn 7.
+
+Pedal viết 58 để ô 3 còn chỗ. Lead 64 vẫn cao hơn 58 đúng 6.
+
+Ô 3: pedal tiếp tục, không đánh bass mới, `support` nghỉ. Bốn móc đơn `lead` viết 68 kể cả khi không rơi phách mạnh, bậc −2, −2, −1, 0, ra 64, 64, 66, 68. Ba nốt đầu cùng `_melody_at` của móc đầu chùm. Nốt thứ tư đọc `_melody_at` của móc nó. Trên 3/4 và 6/8, bốn nốt nằm ở móc đơn 2–5. Móc đơn 0–1 chỉ có pedal. Trên 4/4 cũng vậy, và móc đơn 6–7 chỉ có pedal.
+
+Ô 4: hợp âm ba tiếng trên từng phách của meter, nốt trên là `_melody_at`, viết `max(_note_velocity, 68)`, mọi phách bậc 0. Không khía trong phách. `cresc.` là extra cả ô. Câu phẳng có extra 0, nên các phách bằng nhau.
+
+- 4/4: bốn nốt đen, `duration_beats = 1.0`, tại móc đơn 0, 2, 4, 6.
+- 3/4: ba nốt đen tại móc đơn 0, 2, 4.
+- 6/8: hai nốt chấm dôi, `duration_beats = 1.5`, tại móc đơn 0 và 3.
+
+### 4.6. Kiểu 6 — Chùm ba trên hợp âm ngân, rồi bè trung đệm
+
+Nguồn: *Suite Castellana* III, *Danza*, từ thế `VII` đầu đến trước thế `VII` sau. Bản gốc là 3/8, tám ô. Nửa A là bốn phách chấm, hợp âm ngân, bè cao chạy chùm ba. Nửa B là hợp âm đầu phách, ba móc kép đổ vào một nốt ngân, rồi bè trung và bè trầm đi.
+
+Chỉ `danza`, chỉ 3/4 và 6/8, và chỉ khi mục 4.0 chọn câu đó: `n` chẵn, dài đúng 4 ô, chưa `closes`. Không viết lưới 4/4: `danza` không được chọn ở chương 4/4, và bốn chùm ba móc đơn không vừa một ô 8 móc. Trên 3/4 và 6/8, một chùm ba móc đơn là nửa ô. Nửa A là hai ô đầu, bốn chùm. Nửa B là hai ô sau.
+
+Nửa A. Móc đơn 0 của ô đầu: `bass` bậc 0 và `support` bậc 0, `accent=True`, ngân suốt nửa A (`duration_beats = 6`). `lead` của móc đó là tiếng trên, viết 68, bậc 0, ra 68. Hai móc đơn sau của chùm đầu nhắc cùng cao độ, bậc −2, ra 64. Cả hai vẫn trên bass 60. Ba nốt này là chỗ lặp của kiểu. `ctx.chord` đổi ở ô thứ hai của nửa A thì cắt pedal ở vạch ô và đánh lại bass với support của hợp âm mới, cùng bậc.
+
+Ba chùm sau: mỗi móc đơn là `_melody_at` của móc đó. Không bịa thêm nốt lặp. Móc đơn đầu của chùm bậc −1, ra 66. Hai móc sau bậc −2, ra 64. Chùm thứ ba của bốn chùm: móc giữa tách thành hai móc kép slur, nốt thêu trên rồi `_melody_at`, cả hai bậc −2. Chùm vẫn dài ba móc đơn.
+
+Nửa B, tính móc đơn trong hai ô:
+
+- Móc kép đầu của ô: `bass` và `support`, staccato, dài một móc kép, bậc 0. `lead` chưa vào.
+- Ba móc kép `lead` chiếm nốt phần còn lại của móc đơn 0 và cả móc đơn 1. Chúng hát sau hợp âm, không đè lên bass. Viết 68, bậc −2, −2, −1, ra 64, 64, 66. Ba móc kép đi bậc xuống vào nốt đích. Không vừa thế tay thì cả ba đọc `_melody_at`.
+- Nốt đích bắt đầu ở móc đơn 2, là `_melody_at` của móc đó, viết 68, bậc 0, ngân đến hết nửa B, không đánh lại. Móc kép cuối của chùm lướt vẫn dưới mức viết. Nốt đích mới là nốt ở mức viết. Allemande để mức viết trên móc kép thứ tư vì móc đó là nốt tới. Ở đây nốt tới là nốt ngân.
+- Trong lúc `lead` ngân, đệm là nốt hợp âm, support không quá 65 và ở dưới `lead`:
+  - Ô đầu của nửa B, móc đơn 2, 3, 4: support bậc −1, bass bậc −2, support bậc −1.
+  - Móc đơn 5 của ô đó: nghỉ.
+  - Ô sau, móc đơn 0: bass bậc −2. Móc đơn 1: nghỉ. Móc đơn 2: support bậc −1. Móc đơn 3–4: nghỉ.
+  - Móc đơn 5 của ô sau: bass staccato, bậc −2, `support` nghỉ.
+
+Bass bậc −2 từ 60 còn 56. Support bậc −1 từ 56 còn 54. Lead đang ngân ở 68. Thứ tự 68, rồi 56, rồi 54.
+
+### 4.7. Kiểu 7 — Câu đầu *Arada* (*Suite Castellana* II, *Lento*, đủ 5 ô)
+
+Nguồn: câu mở đầu chương II, 4/4, *Lento*, `p` rồi `mf` rồi `f`. Năm ô của bản gốc đi liền một vòm, kết ở dấu nhắc lại:
+
+1. **Ô 1 (`p`, chặn `II`):** Nốt hát đen chấm dôi (`$A_4$` kèm bè trong `$A_3$`), bè dưới rải hai móc đơn (`$A_2 \rightarrow E_3 \rightarrow C\#_4$`). Nửa sau phách 2 là **chùm ba móc kép mordent có slur** (`$G\#_4\text{-}A_4\text{-}G\#_4$`) đổ vào phách 3 (`$[G\#_3, E_4]$`), rồi lại rải bass (`$A_2 \rightarrow E_3 \rightarrow B_3$`).
+2. **Ô 2 (chặn `V`, `cresc.`):** Mở bằng hợp âm chặn `V` chấm dôi, bass dây 6 ngân, bè trung rải lên rồi lại **chùm ba móc kép mordent** (`$A_4\text{-}B_4\text{-}A_4$`) đổ về phách 3 (`$F\#_4$`). Cuối ô rải từ dây 5 buông (`$A_2 \rightarrow F\natural_3 \rightarrow A_3$`) đẩy lên nốt cao (`$A_4$`) ở móc đơn 7.
+3. **Ô 3 (`mf`, quãng đôi trên bass ngân):** Bè trầm giữ dây 5 buông ngân cả ô. Bè trên đánh 4 cặp móc đơn song song với bè trong (quãng 6 / quãng 3), trong đó **móc chẵn của cặp 1 và cặp 3 có nốt láy trên (acciaccatura) kéo xuống** (`$D_5 \rightarrow E_5\text{p}D_5 \rightarrow C_5$`, rồi `$B_4 \rightarrow B_4 \rightarrow C_5\text{p}B_4 \rightarrow A_4$`).
+4. **Ô 4 (hai hợp âm chấm dôi + bass đáp + láy rơi):** Hai nửa ô đối xứng. Mỗi nửa mở bằng một hợp âm đen chấm dôi (3 móc đơn), bè trầm nghỉ móc đầu rồi đáp hai móc đơn đi xuống (`$B_2 \rightarrow E_2$`), và ở móc đơn thứ tư bè cao đánh một móc đơn có **nốt láy từ bậc trên slur xuống** (`$B_4\text{p}A_4$`).
+5. **Ô 5 (`f`, hợp âm phách 1 + 6 móc đơn chạy trầm kết câu):** Móc đơn 0 là hợp âm sắc trên cao, bè cao ngân giữ trên đầu, bè trầm nghỉ móc 0 rồi từ móc đơn 1 chạy liền **6 nốt móc đơn đi bậc ở dây 5** (`$F\natural_3 \rightarrow E_3 \rightarrow E\flat_3 \rightarrow D_3 \rightarrow C_3 \rightarrow B_2$`) giải về móc đơn cuối (`$E_3$`).
+
+#### Quy tắc ánh xạ vào Engine (đủ 5 ô)
+Chỉ `castillo`, chỉ khi `ctx.bpm <= 72`, và câu dài ít nhất 5 ô. Bè cao cấu trúc đọc `_melody_at`. Bóng bè trung ở ô 3 dùng `_torroba_inner(..., allow_high=True)` để đi song song dưới `lead`. Một ô có chùm ba móc kép (`duration_beats = 1/6`) thì cả bài khắc `divisions = 12` (một móc đơn là 6 đơn vị, một móc trong chùm ba là 2 đơn vị, một móc kép thường là 3 đơn vị).
+
+- **Ô 1 (Canto + mordent chùm 3 + giải về phách sau):**
+  - **4/4 (8 móc đơn):**
+    - Móc 0: `lead` là `_melody_at`, nốt đen chấm dôi (`duration_beats = 1.5`, phủ móc 0–2), `accent=True`, bậc 0. `support` một móc đơn ở móc 0, bậc 0.
+    - Móc 0–2 ở dưới: `bass` tại móc 0 (bậc 0), rồi `bass` bước lên ở móc 1 (bậc −1) và `support` ở móc 2 (bậc −1), tạo đúng dòng rải 3 móc đơn dưới nốt chấm dôi.
+    - Móc 3 (nửa sau phách 2): **chùm 3 móc kép** (`duration_beats = 1/6` mỗi nốt), chỉ `lead`, có slur: `[thêu, chính, thêu]` quanh `_melody_at`, bậc `−2, −1, −1`. Không vừa thế tay thì giữ một móc đơn `_melody_at` bậc −1.
+    - Móc 4 (phách 3): `lead` là `_melody_at`, nốt trắng (`duration_beats = 2.0`), bậc 0, kèm `support` móc 4 (bậc 0). Dưới đó `bass` đánh móc 4 (bậc −1), bước ở móc 5 (bậc −2), và `support` ở móc 6 (bậc −1).
+  - **3/4 và 6/8 (6 móc đơn):** Móc 0–2 là nốt đen chấm dôi của `lead` + rải `bass`/`support` ở móc 0, 1, 2; móc 3 là chùm 3 móc kép mordent; móc 4–5 là nốt đen kết của `lead` (`_melody_at`) kèm `bass` móc 4 và `support` móc 5.
+- **Ô 2 (Chặn hợp âm + mordent chùm 3 + rải đón sang Ô 3):**
+  - **4/4:** Móc 0–3 cùng khung Ô 1 (móc 0 hợp âm 3 tiếng chấm dôi, rải móc 1–2, chùm 3 móc kép ở móc 3). Móc 4: `lead` là `_melody_at` dài 1.5 phách (móc 4–6), bậc −1. Dưới đó `bass` đánh móc 4 (bậc −1), bước ở móc 5 và 6 (bậc −1). Móc 7: `lead` đọc `_melody_at` một móc đơn, bậc 0, đón vào Ô 3.
+  - **3/4 và 6/8:** Móc 0–2 hợp âm chấm dôi + rải; móc 3 chùm 3 móc kép; móc 4 `lead` một móc đơn (bậc −1) kèm `bass`; móc 5 `lead` một móc đơn (`_melody_at`, bậc 0) đón vào Ô 3.
+- **Ô 3 (Cặp móc đơn song song + đuôi láy + bass pedal):**
+  - `bass`: một nốt `_torroba_bass` ở móc 0, ngân trọn ô (`duration_beats = epb * 0.5`), bậc 0.
+  - **4/4:** Bốn cặp móc đơn `(0,1), (2,3), (4,5), (6,7)`. Trong mỗi cặp `(2m, 2m+1)`:
+    - Móc `2m`: `lead` lấy `p = _melody_at(origin + 2m)`, kèm `support` là quãng 3/6 ngay dưới `p`. Móc 0 và 4 bậc 0 (`accent=True`), móc 2 và 6 bậc −1.
+    - Móc `2m+1` của cặp 0 và cặp 2 (tức móc 1 và móc 5): tách thành **2 móc kép slur** (`duration_beats = 0.25`) trên `lead`: nốt láy bậc trên `_walk(p, +1)` rồi kéo về `p`, bậc `−1, −1`, trong khi `support` giữ 1 móc đơn dưới `p`. Không vừa thế tay thì `lead` giữ 1 móc đơn `p`.
+    - Móc `2m+1` của cặp 1 và cặp 3 (móc 3 và móc 7): 1 móc đơn `_melody_at`, bậc −1, kèm `support`.
+  - **3/4 và 6/8:** Ba cặp `(0,1), (2,3), (4,5)`. Cặp 0 và cặp 2 có 2 móc kép láy slur ở móc 1 và móc 5; cặp 1 giữ móc đơn.
+- **Ô 4 (Hợp âm chấm dôi + 2 bass đi xuống + móc đơn có láy):**
+  - **4/4:** Hai nửa ô giống nhau tại `base = 0` và `base = 4`:
+    - `base`: hợp âm (`lead` = `_melody_at` chấm dôi `duration_beats = 1.5` phủ `base..base+2`, `support` chấm dôi `1.5`), bậc 0 tại `0` (`accent=True`) và bậc −1 tại `4`. `bass` nghỉ ở `base`.
+    - `base + 1` và `base + 2`: `bass` đánh 2 móc đơn đi xuống (`bass_high -> bass_low` trong hợp âm, vùng 40–52), bậc `−1, −2`.
+    - `base + 3` (móc 3 và móc 7): `lead` đánh **2 móc kép slur** (`0.25 + 0.25`): nốt láy trên `_walk(target, +1)` rơi xuống `target = _melody_at(origin + base + 3)`, bậc `−2, −1`. Không vừa thế tay thì đánh 1 móc đơn `target` bậc −1.
+  - **3/4 và 6/8:** Móc 0–3 chạy đúng một chu kỳ `[hợp âm chấm dôi móc 0..2 + 2 bass ở móc 1..2 + 2 móc kép láy ở móc 3]`. Móc 4 là hợp âm `lead` + `support` một phách đen (`1.0`, bậc −1), `bass` đáp ở móc 5 (bậc −2).
+- **Ô 5 (Hợp âm phách đầu + dòng móc đơn chạy ở bè trầm):**
+  - Móc 0: hợp âm (`lead` = `_melody_at` ngân suốt phần còn lại của ô, `accent=True`, bậc 0; `support` một móc đơn bậc 0). `bass` nghỉ nửa phách đầu.
+  - Từ móc 1 đến hết ô (**7 móc đơn ở 4/4, 5 móc đơn ở 3/4 và 6/8**): chỉ `voice 3 (low)` chạy chuỗi móc đơn đi bậc liền kề trong vùng MIDI 40–52 hướng về nốt gốc của hợp âm ở móc cuối. Các móc giữa bậc −1 (58), hai móc áp cuối hạ bậc −2 (56), móc cuối giải về bậc −1 (58). `lead` vẫn ngân trên đầu nên giữ đúng `lead (64) > bass (58/56)`.
+
+| Chỗ trong Kiểu 7 | Bậc vi mô (`_MICRO = 2`) | Ghi chú |
+|---|---|---|
+| Nốt chấm dôi đầu Ô 1, Ô 2 (`lead`, `support`, `bass` móc 0) | 0 (`accent=True`) | Trụ mở câu *Lento* |
+| Hai móc rải đệm dưới nốt chấm dôi (móc 1, 2) | −1 | Đệm rải nhẹ dưới nốt hát |
+| Chùm 3 móc kép mordent (móc 3 của Ô 1, Ô 2) | −2, −1, −1 | Lướt nhẹ rồi đẩy vào phách 3 |
+| Phách 3 của Ô 1 (nốt giải) và móc 7 của Ô 2 (nốt đón) | 0 | Giữ mức viết để nối câu |
+| Phách 3 của Ô 2 (nốt dài trước khi rải lên) | −1 | Hạ nhẹ tạo đà |
+| Ô 3: cặp móc đơn ở móc 0, 4 | 0 (`accent=True`) | Phách mạnh trên bass pedal |
+| Ô 3: móc lẻ và hai móc kép láy | −1 | Còn 62, đứng trên bass pedal 60 |
+| Ô 4: hợp âm chấm dôi đầu ô / giữa ô | 0 (móc 0), −1 (móc 4) | Hai trụ hợp âm |
+| Ô 4: hai móc đơn bass đáp đi xuống | −1, rồi −2 | Chìm dần (`58 -> 56`) |
+| Ô 4: hai móc kép láy ở móc 3 và móc 7 | −2, −1 | Láy nhẹ rơi vào nốt giá |
+| Ô 5: hợp âm móc 0 (`lead` ngân cả ô) | 0 (`accent=True`) | Đỉnh câu trước dòng chạy trầm |
+| Ô 5: chuỗi móc đơn chạy trầm từ móc 1 | −1 (giữa), −2 (áp cuối), −1 (cuối) | Đi theo hairpin kết câu trên bản gốc |
 
 ---
 
-### 4.6. Kiểu 6 — Chùm 3 hợp thành nốt đen, beat đầu là chord, bè cao ngân rồi chuyển qua bè trung đệm
+### 4.8. Kiểu 8 — Hợp âm chấm dôi + `Arm. 8` + câu hát bồng bềnh sang ô kế tiếp (*Arada* câu 2)
 
-> Nguồn: *Suite Castellana*, chương III *Danza*, từ thế `VII` đầu tiên đến trước thế `VII` thứ hai. Nhịp $3/8$, mỗi ô là một phách chấm dôi.
+Nguồn: *Suite Castellana* II (*Arada*), đoạn `Arm. 8` (Ảnh 1, lấy từ ô thứ 3 — đầu dòng dưới — sang ô kế tiếp):
+1. **Ô 1 (Hợp âm chấm dôi + 2 tiếng `Arm. 8` ở trầm + 5 móc đơn bè cao):**
+   - Móc 0: hợp âm 4 tiếng chấm dôi (`duration_beats = 1.5`), giữ ở bè trên.
+   - Móc 1 và 2 (dưới hợp âm đang ngân): 2 tiếng bồi âm tám (`Arm. 8`) ở bè trầm đi xuống, gồm 1 móc đơn ở dây 5 ngăn 12 (`$A_3$`) và 1 nốt đen ở dây 6 ngăn 20 (`$C_4$` / bồi âm trầm).
+   - Móc 3 (nửa sau phách 2): bè cao vào bằng 1 móc đơn ở dải cao (`$F_5$`, ngón 4).
+   - Móc 4–7 (phách 3 và 4): bè cao hát 4 móc đơn lượn bậc trên cao (`$E_5 \rightarrow F_5 \rightarrow E\flat_5 \rightarrow F_5$`), bè dưới nghỉ hoàn toàn.
+2. **Ô 2 (Quãng đôi ngân + mô-típ móc đơn có slur lặp ở 2 nửa ô):**
+   - Mỗi nửa ô mở bằng một **nốt đen chấm dôi / nốt trắng** ở bè trên đi kèm bass dây 5 ngân dài (`duration_beats = 2.0`, giảm dần về `mf`).
+   - Ngay từ móc đơn 1 của nửa ô (khi nốt đầu vẫn ngân trên đầu), dòng móc đơn đi liền 3 tiếng có slur ở cặp sau (`$C_4 \rightarrow C_4\text{—}B\flat_3$` ở nửa đầu, rồi nhắc lại ở quãng trên `$A_4 \rightarrow A_4\text{—}G_4$` ở nửa sau).
 
-#### Phân tích bản gốc (giọng Mi trưởng)
-Đoạn dài 8 ô, chia đôi đối xứng:
+#### Quy tắc ánh xạ vào Engine (2 ô)
+Chỉ `castillo`, khi `ctx.bpm <= 72`, xoay luân phiên với Kiểu 7 (hoặc dùng khi câu chậm dài 2–4 ô chưa đủ 5 ô cho Kiểu 7).
 
-1. **Nửa A — 4 ô từ thế `VII` đầu (`f`): hợp âm nền ngân xuyên suốt, bè cao chạy chùm 3 nốt móc đơn.**
-   - Đầu ô 1 của nửa A: khối hợp âm nền (`$B_7$`: $[B_2, A_3, D\#_4]$) nối dây ngân suốt 4 ô.
-   - Bè cao, mỗi ô một chùm 3 nốt móc đơn:
-     - Ô 1: **3 nốt giống nhau** (`$C\#_5 - C\#_5 - C\#_5$`, dấu tenuto).
-     - Ô 2–4: bè cao đi theo giai điệu (`$B_4 - C\#_5 - D\#_5$`, `$E\natural_5 - D\#_5 - D\#_5$` có nốt lướt, `$C\#_5 - D\#_5 - B_4$`).
-2. **Nửa B — 4 ô thế `IV` ngay trước thế `VII` thứ hai: chùm 3 hợp thành nốt đen, rồi bè trung đệm.**
-   - Beat đầu: khối chord, bè cao lướt chùm 3 móc kép (`$A_4 - G\#_4 - F\#_4$`) đổ vào nốt đích (`$G\#_4$`).
-   - Nốt đích đó nối dây ngân suốt 2 ô sau. Bè cao đứng yên.
-   - Bè trung và bè trầm nhận phần vận động: `$C\#_4 \rightarrow F\#_3 \rightarrow C\#_4$`, rồi `$F\#_3 \rightarrow$ nghỉ $\rightarrow B_3$`, kết bằng một nốt điểm nhẹ giữa ô để lấy hơi.
+- **Ô 1 (Hợp âm chấm dôi + 2 tiếng màu `Arm. 8` + câu móc đơn `_melody_at` trên cao):**
+  - **4/4 (8 móc đơn):**
+    - Móc 0: `lead` là `_melody_at(origin)` chấm dôi (`duration_beats = 1.5`, phủ móc 0–2), `accent=True`, bậc 0; `support` là nốt hợp âm chấm dôi (`1.5`), bậc 0. `bass` nghỉ móc 0 để nhường tiếng chuông ở móc 1.
+    - Móc 1 và 2 (`voice 3` — màu `Arm. 8`): 1 móc đơn tại móc 1 (`0.5`) và 1 nốt đen tại móc 2 (`1.0`, ngân qua móc 3), chọn 2 nốt thuộc hợp âm/dây buông ở vùng trung-trầm (`bass_high -> bass_low`), viết vận tốc chuông `48` (không cộng extra), gợi đúng hai tiếng `Arm. 8` dưới hợp âm.
+    - Móc 3..7 (5 móc đơn cuối ô): chỉ `voice 1 (lead)` hát 5 móc đơn liên tiếp đọc `_melody_at(origin + offset)`. `support` và `bass` nghỉ. Móc 3 bậc −1 (nốt lấy đà trên cao); móc 4 bậc 0 (`accent=True`); móc 5, 6, 7 bậc `−1, −2, −1` (lượn nhẹ rồi dẫn sang Ô 2).
+  - **3/4 và 6/8 (6 móc đơn):** Móc 0 là hợp âm chấm dôi (`lead` + `support`, `1.5`); móc 1 và 2 là 2 tiếng `voice 3` vận tốc `48` (`0.5` mỗi tiếng); móc 3, 4, 5 là 3 móc đơn `lead` đọc `_melody_at` (bậc `0, −1, −1`), phần đệm nghỉ.
+- **Ô 2 (Nốt chấm dôi sang ô kế + 3 móc đơn có slur):**
+  - **4/4 (hai nửa ô tại `base = 0` và `base = 4`):**
+    - Tại `base`: `bass` đánh `_torroba_bass` một nốt trắng (`duration_beats = 2.0`), bậc 0 ở `0` và bậc −1 ở `4`. `support` đánh một nốt hợp âm chấm dôi (`duration_beats = 1.5`), bậc 0 ở `0` và bậc −1 ở `4`. `lead` đánh `_melody_at(origin + base)` một móc đơn ở `base` (bậc 0 tại `0` có `accent=True`, bậc −1 tại `4`).
+    - Tại `base + 1, base + 2, base + 3`: `lead` hát 3 móc đơn (`_melody_at` tại `base + 1`, lặp lại tại `base + 2` với `slur_start=True`, và bước về `_melody_at(origin + base + 3)` với `slur_stop=True`), bậc `−1, −1, −2` (nhỏ dần theo hairpin về `mf`).
+    - Nếu câu chỉ dài đúng 2 ô và `phrase.closes` đúng: nửa sau Ô 2 (`base = 4`) giữ `lead` là một nốt trắng `_melody_at(origin + 4)` ngân hết ô (`duration_beats = 2.0`, bậc −1) để câu đóng trọn.
+  - **3/4 và 6/8 (6 móc đơn):** Móc 0 là `bass` ngân cả ô (`3.0`), `support` chấm dôi (`1.5`), `lead` móc đơn `_melody_at(origin)` (`accent=True`, bậc 0). Móc 1, 2, 3 là 3 móc đơn `lead` với slur ở móc 2–3 (bậc `−1, −1, −2`). Móc 4–5 là một nốt đen `lead` (`_melody_at(origin + 4)`, bậc −1) kèm `support` móc 4, khép câu.
 
-Đoạn này lặp lại đúng hình ở thế `IX` ngay trước đó, trên hợp âm $E$ trưởng.
-
-#### Quy tắc ánh xạ vào Engine
-- **Nửa A:** `low` + `support` đánh một lần ở đầu cụm và ngân dài. `Voice 1 (lead)` hát chùm 3 nốt móc đơn mỗi ô: **chùm đầu tiên giữ 3 nốt cùng cao độ** lấy từ `_melody_at`; các chùm sau đi theo price action đã quy về hòa âm, chùm thứ ba có một móc kép lướt.
-- **Nửa B:** beat đầu là khối chord, `lead` lướt chùm móc kép vào nốt đích rồi ngân dài qua 2 ô. Trong lúc `lead` ngân, `support` và `low` đệm mô-típ `trung $\rightarrow$ trầm $\rightarrow$ trung`, rồi `trầm $\rightarrow$ nghỉ $\rightarrow$ trung`.
-
-#### Phách mạnh, phách nhẹ và vi mô vận tốc
-Trong $3/8$, mỗi ô là một phách. Ô đầu của mỗi nửa là phách mạnh của cụm; ô 2 và ô 4 nhẹ, ô 3 là phách mạnh phụ. Trên lưới `3/4` và `6/8` của engine, một chùm 3 nốt móc đơn chiếm một phách chấm. Trên `4/4`, cụm co lại còn 2 ô: nửa đầu là nửa A, nửa sau là nửa B.
-
-| Chỗ | Phách | Bậc | Ghi chú |
-|---|---|---|---|
-| Chord đầu nửa A, cả 3 bè | mạnh (`accent=True`) | 0 | `danza` viết 68. Hợp âm này ngân, không đánh lại |
-| 3 nốt móc đơn giống nhau đầu tiên | mạnh | −1, −2, −2 | Nốt rơi phách giữ gần mức viết, hai nốt sau là tiếng vang |
-| Chùm 3 móc đơn đi theo price action, nốt đầu chùm | mạnh phụ | −1 | Nốt rơi đúng phách của chùm |
-| Hai nốt sau trong chùm đó | nhẹ | −2 | Nốt lệch phách, cùng luật Quantz một bậc |
-| Móc kép lướt trong chùm thứ ba | nhẹ | −2 | Dưới nốt nó đổ vào |
-| Chord đầu nửa B | mạnh (`accent=True`) | 0 | Beat đầu của nửa sau |
-| 3 móc kép lướt vào nốt ngân | nhẹ, dâng dần | −3, −2, −1 | Cùng hướng lấy đà của allemande: móc cuối chạm mức viết |
-| Nốt đích `lead` ngân dài | mạnh | 0 | Giữ mức viết suốt hai ô, không đánh lại |
-| Bè trung đệm khi `lead` đang ngân | nhẹ | −1 | Dưới nốt ngân ít nhất 4, theo `_under_lead` |
-| Bè trầm đệm trong mô-típ | nhẹ | −2 so với bass phách mạnh | Bass phách mạnh của nửa B là mốc |
-| Nốt điểm lấy hơi cuối nửa B | nhẹ nhất | −2, và `staccato` | Câu nghỉ trước chu kỳ sau |
-
-Ba nốt móc đơn đầu giống nhau là chỗ duy nhất trong kiểu này được phép lặp cao độ. Mọi nốt `lead` còn lại đọc `_melody_at` sau khi đã về nốt của hòa âm.
+| Chỗ trong Kiểu 8 | Bậc vi mô (`_MICRO = 2`) | Ghi chú |
+|---|---|---|
+| Hợp âm chấm dôi móc 0 của Ô 1 (`lead`, `support`) | 0 (`accent=True`) | Mở câu, ngân trên đầu hai tiếng `Arm. 8` |
+| Hai tiếng `Arm. 8` ở `voice 3` (móc 1 và 2 của Ô 1) | viết `48` (cố định) | Màu chuông bồi âm, không cộng extra |
+| Móc đơn 3 của Ô 1 (`lead` vào trên cao) | −1 | Lấy đà vào phách 3 |
+| Móc đơn 4..7 của Ô 1 (`lead` một mình) | 0, −1, −2, −1 | Móc 4 giữ mức viết, các móc sau lượn nhẹ |
+| Đầu mỗi nửa Ô 2 (`base = 0`, `base = 4`) | 0 ở `0`, −1 ở `4` | Hai trụ đáp xuống, giảm dần về `mf` |
+| Ba móc đơn có slur ở `base + 1..3` của Ô 2 | −1, −1, −2 | Hai tiếng đầu đều, tiếng sau slur êm |
 
 ---
 
-### 4.7. Bảng tổng hợp ghép tổ hợp câu (Compound Phrase Integration)
+### 4.9. Test
 
-| Tổ hợp / Kiểu | Vai trò trong Phrase & Mood | Cấu trúc ô nhịp trong câu | Phân bổ 3 Voice (`lead` / `support` / `low`) | Phách mạnh / vi mô |
-|---|---|---|---|---|
-| **Kiểu 4 (*Sonatina* Opening)** | Mở câu `sonatina` (`rally`, `calm` vừa) | Cặp 2 ô: **Ô Call** (giai điệu móc kép/đơn + chord cuối ô) $\rightarrow$ **Ô Response** (lead ngân + bè trung nhại tiết tấu) | `lead`: mô-típ Call rồi ngân ở Response; `support`: chord cuối ô Call + nhại tiết tấu ở Response; `low`: bass đầu ô và móc cuối ô | Phách 1 mạnh, giữ mức viết. Móc kép slur trong mô-típ hạ 1 bậc. Bè trung nhại ở ô Response hạ 1 bậc so với `lead` đang ngân |
-| **Kiểu 1 (6-Note Tied-Bass Arpeggio)** | Giữ dòng chảy giữa câu (`sonatina` / `castillo` chuyển động) | Chuỗi rải 6 nốt hình chữ V, nốt thứ 4 là Bass nối qua vạch ô | `lead`: $s_0$ (`accent`); `support`: $s_1, s_2$ đi xuống và $s_4, s_5$ đi lên; `low`: $s_3$ ngân qua phách 1 ô sau | $s_0$ giữ mức viết, có `accent`. $s_1, s_2$ hạ 1 rồi 2 bậc. Bass $s_3$ giữ mức bass phách mạnh dù rơi giữa ô. $s_4, s_5$ hạ 2 rồi 1 bậc, dâng về chu kỳ sau |
-| **Kiểu 2 (Rasgueado + 4x16th + Block Chords)** | Cao trào / `volatile` / đỉnh `rally` (`fandanguillo` / `sonatina` kịch tính) | Cụm 2–3 ô: **[Rasgueado + 4 móc kép lặp]** $\rightarrow$ **[Bass + 4 móc kép lặp]** $\rightarrow$ **[Chùm Chord móc đơn theo Price]** | Chùm 4 móc kép giữ 1 cao độ $(p, p, p, p)$; Rasgueado và chùm Chord móc đơn lấy `lead` theo Price Action đã quy về hòa âm | Rasgueado và nốt trầm đáp là phách mạnh, giữ mức viết. 4 móc kép lặp hạ 1 bậc và đều nhau, vì tiếng lặp lệch sẽ vỡ. Chord móc đơn: phách đầu giữ, các phách sau hạ 1 bậc |
-| **Kiểu 3 (Rasgueado + Motif + Scale `pizz.` + `Arm.`)** | Nửa cuối câu tiến về chỗ đóng câu (`phrase.closes`) | **[Rasgueado + câu 16th/8th]** $\rightarrow$ **[Scale móc đơn `pizz.` leo dốc]** $\rightarrow$ **[Ô kết Harmonics `Arm.`]** | `lead` + `support` chạy mô-típ và scale móc đơn `staccato`; ô đóng câu ngân Harmonics (`velocity = 48`, `support` nghỉ) | Rasgueado mạnh, giữ mức viết. 2 móc kép lặp hạ 2 bậc, móc đơn sau chúng hạ 1. Scale `pizz.` dâng từng bậc 2 về nốt cuối, nốt cuối giữ mức viết. Harmonics viết 48, không cộng extra |
-| **Kiểu 5 (*Fandanguillo*: trầm rồi giao lên cao)** | Cao trào có hướng (`volatile`, đỉnh `rally`) | **[Rasgueado + 4 móc đơn trầm]** $\rightarrow$ **[Price Action ở bè trầm]** $\rightarrow$ **[4 móc đơn chuyển giao + 6 nốt đen hợp âm]** | Pha trầm: `low` hát price action, `lead` nghỉ. Pha giao: `lead` hát chùm 4 rồi 6 hợp âm nốt đen, `low` là pedal | Rasgueado và nốt đen đầu câu trầm giữ mức viết. 4 móc đơn trầm hạ 2 bậc, nốt cuối của chùm hạ 1. 6 hợp âm nốt đen đều mức viết. `cresc.` là extra cả ô |
-| **Kiểu 6 (*Danza*: chùm 3 và bè trung đệm)** | Câu nhịp vũ (`danza`, `calm` trong scherzo) | **[4 phách chùm 3 móc đơn trên hợp âm ngân]** $\rightarrow$ **[Beat đầu là chord, lead ngân, bè trung đệm]** | Nửa A: `low` + `support` ngân, `lead` hát chùm 3. Nửa B: `lead` ngân, `support` và `low` đệm | Chord đầu mỗi nửa giữ mức viết, có `accent`. 3 nốt đầu giống nhau hạ 1, 2, 2 bậc. Chùm đi theo price action hạ 1 bậc ở nốt rơi phách và 2 bậc ở hai nốt lệch. 3 móc kép lướt dâng −3, −2, −1 vào nốt ngân |
+Fixture gọi thẳng renderer của kiểu, câu phẳng `rise` 0, band `mf`, để extra cả ô bằng 0. Mỗi tiếng bằng mức viết trừ bậc còn sống nhân `_MICRO`. Câu `sonatina` và `castillo` khóa theo 64 / 60 / 56. Câu `fandanguillo` và `danza` khóa phách mạnh theo 68 / 60 / 56. Riêng cửa `rise` thì một test khác: kiểu 2 và kiểu 5 không xuất hiện khi `rise` dưới 3.
+
+Khóa thêm cửa chọn. `castillo` ở 96 BPM không có ô kiểu. `castillo` ở 72 BPM: câu `n = 0` (`k = 0`) dài 5 ô hát đủ 5 ô Kiểu 7; câu `n = 1` ngân một nốt; câu `n = 2` (`k = 1`) dài 4 ô hát 2 ô Kiểu 8 rồi 2 ô ngân; câu `k = 0` chỉ dài 3 ô thì chuyển sang 2 ô Kiểu 8 thay vì cắt Kiểu 7. Câu `sonatina` đóng dài 4 ô có kiểu 3 trên ba ô cuối và không có kiểu 4. Câu `fandanguillo` không có cả kiểu 2 lẫn kiểu 5. Câu liền trước đã dùng một kiểu thì câu sau về lưới nền. `danza` trên 4/4 không gọi kiểu 6.
+
+Bass kiểu 1 cắt ở vạch ô khi ô sau là lưới nền, và ngân qua vạch ô khi ô sau cũng là kiểu 1. Ô ngân của kiểu 3 chỉ ra vận tốc 48 khi cao độ vang nằm trong tập nút. Kiểu 7 có chùm 3 móc kép (`duration_beats = 1/6`) thì `divisions` của bài là 12, đủ 5 ô có mặt dòng chạy trầm ở ô 5. Kiểu 8 ở ô 1 có 2 tiếng `voice 3` vận tốc 48 tại móc 1–2 và câu móc đơn `_melody_at` ở nửa sau ô, sang ô 2 có cặp móc đơn slur. `assert_playable` đi qua từng kiểu trên 4/4, 3/4 và 6/8, trừ kiểu 6 không có mặt 4/4.
 
 ---
 
@@ -311,4 +437,4 @@ Ba nốt móc đơn đầu giống nhau là chỗ duy nhất trong kiểu này �
 1. **Câu (đã hát).** Tập offset của câu `closes` trên mọi span. Bed `p` chỉ trên các móc đó. Chặn slur sonatina khi câu trước `closes` và cả hai phách là sonatina. Giữ grace castillo sang sonatina.
 2. **Ba cạnh thứ (đã hát).** `0.40`, `0.36`, `0.34`. Vòng bốn bước và La♭ trên Sol không đổi.
 3. **Extra cả ô (đã hát).** `castillo` và `sonatina` vào `_WHOLE_BAR_EXTRA`.
-4. **Sáu kiểu kết hợp vào câu (tiếp theo).** Bốn kiểu *Sonatina* (mục 4.1–4.4) cộng hai kiểu *Suite Castellana* (mục 4.5 và 4.6) trong `guitar_torroba.py`. Co giãn trên `4/4`, `3/4`, `6/8`. Mỗi kiểu khóa bậc vi mô của bảng phách mạnh/nhẹ bằng hiệu trong ô, band `mf`, câu phẳng, cùng cách `test_galop_beats_keep_a_micro_velocity_contour`. Kiểm chứng `assert_playable`.
+4. **Tám kiểu (tiếp theo).** Dựng trong `guitar_torroba.py` theo mục 4.0–4.8. Pattern id không đổi. Mỗi kiểu khóa bậc vi mô bằng hiệu trong ô, cùng cách `test_galop_beats_keep_a_micro_velocity_contour`, trên fixture của mục 4.9. Kiểm chứng `assert_playable`.

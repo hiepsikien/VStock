@@ -1,6 +1,6 @@
 # Kế hoạch: Federico Moreno Torroba (`ensemble = "torroba"`)
 
-> **Trạng thái**: nền tảng (dialect, 4 pattern cơ sở, La♭ trên Sol, Picardy) đã hát trên `main`. Mở rộng câu, vòng quay đầu và 4 kiểu kết cấu *Sonatina* tổ hợp câu nằm ở [`docs/sonify-guitar-torroba-phrase-plan.md`](./sonify-guitar-torroba-phrase-plan.md).
+> **Trạng thái**: nền tảng (dialect, 4 pattern cơ sở, La♭ trên Sol, Picardy) đã hát trên `main`. Tám kiểu kết cấu và luật phối với bốn pattern nằm ở mục 4 của [`docs/sonify-guitar-torroba-phrase-plan.md`](./sonify-guitar-torroba-phrase-plan.md).
 > **Nguồn phác thảo**: [`docs/torroba.txt`](./torroba.txt).
 > **Khung đang chạy**: [`docs/sonify-classical-guitar.md`](./sonify-classical-guitar.md). Một nhà là một dialect hòa âm cộng một palette pattern. Thân bài khóa một pattern theo mood. Bè cao là đường giá, đọc bằng `_melody_at`.
 
@@ -253,6 +253,8 @@ Các ý sau dừng ở bản phác thảo, không vào engine:
 - Form A–BCB–A mới. `bridge` và `trio` đang có sẵn.
 - Viết lại let-ring, tách vận tốc ba bè, và wedge dàn dây. Guitar đã có ngân chồng và band vận tốc. Wedge violin thuộc ensemble khác.
 - Thẻ `<grace/>` và thẻ `<harmonic/>`. Nốt lấy đà là móc kép có slur. Kim cương là cao độ giá ngân theo kiểu chuông.
+
+Tám kiểu ở mục 4 của kế hoạch câu không mở lại các ý trên. Chúng không thêm pattern id, không đổi form, và không biến rasgueado thành pattern của một cú volume. Hợp âm quạt trong một kiểu vẫn là ba tiếng. Ô scale kết bằng `_melody_at`. Ô ngân cuối câu vẫn là nốt giá. Kim cương chỉ khi cao độ trùng nút harmonic của mục 5.
 
 ---
 
