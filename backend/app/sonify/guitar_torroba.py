@@ -53,8 +53,59 @@ def _torroba_contrast(ctx, primary: str) -> str:
     return "castillo"
 
 
-def _breath(bar: int) -> bool:
-    return bar % 4 == 3
+_PEDAL_BARS = frozenset({"intro", "outro", "warmup", "cooldown"})
+
+
+def _breath_tails(ctx, bar: int) -> list[set[int]]:
+    """In-bar offsets of each phrase that closes in this bar, cut at `phrase.end`.
+
+    `_owner` only sees the phrase that contains the downbeat. A phrase that
+    starts later in the bar is still a tail, so this scans `ctx.phrases`.
+    Pedal bars and a `held_over` phrase (which does not `close`) contribute
+    nothing. The same scan covers every span: `_Ctx` has no span field.
+    """
+    if ctx.kind_at.get(bar, "phrase") in _PEDAL_BARS:
+        return []
+    epb = ctx.epb
+    origin = bar * epb
+    tails: list[set[int]] = []
+    for phrase in ctx.phrases:
+        if phrase.end <= phrase.start or not phrase.closes:
+            continue
+        if (phrase.end - 1) // epb != bar:
+            continue
+        start = max(phrase.start, origin)
+        stop = min(phrase.end, origin + epb)
+        if stop <= start:
+            continue
+        tails.append({eighth - origin for eighth in range(start, stop)})
+    return tails
+
+
+def _closing_offsets(ctx, bar: int) -> set[int]:
+    """Eighths in this bar that sit inside a closing phrase's last bar."""
+    found: set[int] = set()
+    for tail in _breath_tails(ctx, bar):
+        found.update(tail)
+    return found
+
+
+def _attack_band(ctx, bar: int, offset: int, closing: set[int]) -> str:
+    """`p` only on an attack whose eighth is inside the close."""
+    if offset in closing:
+        return "p"
+    return ctx.band(bar)
+
+
+def _bar_band(ctx, bar: int, closing: set[int]) -> str:
+    """Bed for a note that sounds from the downbeat through the whole bar.
+
+    `p` only when the close covers every eighth. A phrase that stops early
+    leaves that bed on `ctx.band`, so the held Castillo price is not rewritten.
+    """
+    if all(offset in closing for offset in range(ctx.epb)):
+        return "p"
+    return ctx.band(bar)
 
 
 def _open_bass_tone(ctx, written: int) -> bool:
@@ -187,10 +238,24 @@ def _gap_inner(ctx, chord: Chord, bar: int) -> int | None:
     return max(playable or found)
 
 
-def _thin(eighths: list[int], bar: int) -> list[int]:
-    if not _breath(bar) or len(eighths) < 2:
-        return eighths
-    return eighths[::2]
+def _thin(eighths: list[int], ctx, bar: int) -> list[int]:
+    """Keep inner offsets outside a close. Thin each closing tail on its own.
+
+    Two or more inner offsets in one tail keep every other attack. A tail with
+    exactly one inner offset drops that offset: the old `len < 2` guard would
+    have preserved it. Castillo in 4/4 only plants inners at 2 and 6, so a
+    phrase that ends at eighth 4 leaves offset 2 alone.
+    """
+    drop: set[int] = set()
+    kept: set[int] = set()
+    for tail in _breath_tails(ctx, bar):
+        chosen = [offset for offset in eighths if offset in tail]
+        if len(chosen) >= 2:
+            drop.update(chosen)
+            kept.update(chosen[::2])
+        elif len(chosen) == 1:
+            drop.add(chosen[0])
+    return [offset for offset in eighths if offset not in drop or offset in kept]
 
 
 def _lead_velocity(ctx, eighth: int, phrase, *, dance: bool) -> tuple[int, bool]:
@@ -234,8 +299,10 @@ def _render_castillo_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[N
     ordinary, _accent = _lead_velocity(ctx, origin, phrase, dance=False)
     velocity = _harmonic_velocity(ctx, midi, beats, ordinary)
     lead = written(origin, epb, midi, accent=True, velocity=velocity)
-    band = "p" if _breath(bar) else ctx.band(bar)
-    _inner_vel, bass_vel = _bed(velocity, band)
+    closing = _closing_offsets(ctx, bar)
+    # The price is one note from the downbeat. Its bass is the bar bed, not `p`,
+    # unless the close itself runs through the last eighth.
+    _inner_vel, bass_vel = _bed(velocity, _bar_band(ctx, bar, closing))
     bass = _torroba_bass(ctx, ctx.chord(bar), bar, midi)
     low = []
     if bass is not None:
@@ -245,7 +312,7 @@ def _render_castillo_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[N
     if velocity == 48:
         return lead, support, low
     offsets = {2, 6} if ctx.kind == "4/4" else {2, 5} if ctx.kind == "6/8" else {2, 4}
-    kept = _thin(sorted(offset for offset in offsets if offset < epb), bar)
+    kept = _thin(sorted(offset for offset in offsets if offset < epb), ctx, bar)
     prev = None
     for offset in kept:
         sung = _melody_at(ctx, origin + offset)
@@ -255,6 +322,7 @@ def _render_castillo_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[N
         prev = sung
         if inner is None:
             continue
+        band = _attack_band(ctx, bar, offset, closing)
         support.append(_support_event(origin + offset, inner, epb, _bed(velocity, band)[0]))
     return lead, support, low
 
@@ -364,12 +432,21 @@ def _render_sonatina_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[N
     low: list[NoteEvent] = []
     prev_midi = None
     prev_at: int | None = None
+    prev_offset: int | None = None
     for offset in strong:
         eighth = origin + offset
         midi = _melody_at(ctx, eighth)
         velocity, accent = _lead_velocity(ctx, eighth, phrase, dance=False)
         event = _attack(eighth, midi, epb, velocity, accent=accent)
-        if prev_midi is not None and offset > 0:
+        # Both beats of this bar are sonatina. Block the slur only when the
+        # earlier beat's phrase closes before this beat; one phrase may still join them.
+        blocked = (
+            prev_offset is not None
+            and prev_midi is not None
+            and offset > 0
+            and _sonatina_slur_blocked(ctx, origin + prev_offset, eighth)
+        )
+        if prev_midi is not None and offset > 0 and not blocked:
             gap = abs(midi - prev_midi)
             at_apex = (
                 phrase is not None
@@ -389,18 +466,21 @@ def _render_sonatina_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[N
         prev_at = len(lead)
         lead.append(event)
         prev_midi = midi
-    band = "p" if _breath(bar) else ctx.band(bar)
+        prev_offset = offset
+    closing = _closing_offsets(ctx, bar)
     chord = ctx.chord(bar)
     for offset in strong:
         eighth = origin + offset
         midi = _melody_at(ctx, eighth)
         velocity = next(event.velocity or 64 for event in lead if event.voice == 1 and abs(event.beat - offset * 0.5) < 1e-6 and event.duration_beats >= 0.5)
+        band = _attack_band(ctx, bar, offset, closing)
         _inner_vel, bass_vel = _bed(velocity, band)
         bass = _torroba_bass(ctx, chord, bar, midi)
         if bass is not None:
             low.append(_bass_event(eighth, bass, epb, bass_vel))
     inners = _thin(
         [offset for offset in range(epb) if offset not in set(ctx.strong)],
+        ctx,
         bar,
     )
     prev = None
@@ -413,6 +493,7 @@ def _render_sonatina_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[N
         prev = sung
         if inner is None:
             continue
+        band = _attack_band(ctx, bar, offset, closing)
         support.append(_support_event(origin + offset, inner, epb, _bed(64, band)[0]))
     sixteenths = [event for event in lead if abs((event.duration_beats or 0) - 0.25) < 1e-6]
     if sixteenths:
@@ -458,7 +539,7 @@ def _block(
     ordinary = _note_velocity(eighth, 1, _apex_eighths(ctx.phrases), phrase)
     velocity = max(ordinary, 68) if dance_strong else 64
     accent = dance_strong
-    band = "p" if _breath(bar) else ctx.band(bar)
+    band = _attack_band(ctx, bar, offset, _closing_offsets(ctx, bar))
     inner_vel, bass_vel = _bed(velocity, band)
     bass = _torroba_bass(ctx, ctx.chord(bar), bar, midi)
     lead = [_attack(eighth, midi, epb, velocity, accent=accent)]
@@ -495,11 +576,12 @@ def _render_fandanguillo_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], li
         for offset in range(ctx.epb)
         if offset != 0 and offset not in _fandanguillo_melody(ctx.kind)
     ]
-    for offset in _thin(gaps, bar):
+    closing = _closing_offsets(ctx, bar)
+    for offset in _thin(gaps, ctx, bar):
         inner = _gap_inner(ctx, ctx.chord(bar), bar)
         if inner is None:
             continue
-        band = "p" if _breath(bar) else ctx.band(bar)
+        band = _attack_band(ctx, bar, offset, closing)
         support.append(_support_event(bar * ctx.epb + offset, inner, ctx.epb, _bed(64, band)[0]))
     return lead, support, low
 
@@ -520,11 +602,12 @@ def _render_danza_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[Note
         if offset < ctx.epb:
             lead.append(_answer(ctx, bar, offset, phrase))
     gaps = [offset for offset in range(ctx.epb) if offset not in _danza_chords(ctx.kind) and offset not in melody]
-    for offset in _thin(gaps, bar):
+    closing = _closing_offsets(ctx, bar)
+    for offset in _thin(gaps, ctx, bar):
         inner = _gap_inner(ctx, ctx.chord(bar), bar)
         if inner is None:
             continue
-        band = "p" if _breath(bar) else ctx.band(bar)
+        band = _attack_band(ctx, bar, offset, closing)
         support.append(_support_event(bar * ctx.epb + offset, inner, ctx.epb, _bed(64, band)[0]))
     return lead, support, low
 
@@ -542,6 +625,18 @@ def _phrase_at(ctx, eighth: int):
         if phrase.start <= eighth < phrase.end and phrase.runs:
             return phrase
     return None
+
+
+def _sonatina_slur_blocked(ctx, earlier: int, later: int) -> bool:
+    """True when the earlier strong beat's phrase closes before `later`.
+
+    The caller has already required both beats to be sonatina. One phrase that
+    still contains the later beat may slur and pick up, even when that phrase
+    `closes` at its own end. `held_over` is not the gate: `closes` is already
+    false for it, and a castillo hold into sonatina is a different pattern.
+    """
+    phrase = _phrase_at(ctx, earlier)
+    return phrase is not None and phrase.closes and later >= phrase.end
 
 
 def _price_note(lead: list[NoteEvent], eighth: int, epb: int) -> int | None:
@@ -600,6 +695,12 @@ def apply_sonatina_downbeats(ctx, lead, support, patterns):
         eighth = bar * epb
         previous = _previous_strong(ctx, eighth)
         if previous is None:
+            continue
+        # A castillo hold is not sonatina, so the sounding note can still grace
+        # into this downbeat. The unsung close at eighth 4 is not consulted.
+        if _bar_pattern(ctx, previous // epb, patterns) == "sonatina" and _sonatina_slur_blocked(
+            ctx, previous, eighth
+        ):
             continue
         target = _melody_at(ctx, eighth)
         # Castillo and a calm frame hold the downbeat price. Eighth 4's close
