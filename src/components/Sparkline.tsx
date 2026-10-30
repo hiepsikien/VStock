@@ -17,24 +17,21 @@ const UNPLAYED_OPACITY = 0.28;
 
 export const VOLUME_STRIP = 30;
 
-function VolumeColumns({
-  volumes,
-  width,
-  height,
-  strip,
-  focusStart,
-  focusEnd,
-  color,
-}: {
-  volumes: number[];
-  width: number;
-  height: number;
-  strip: number;
-  focusStart?: number;
-  focusEnd?: number;
-  color: string;
-}) {
-  if (volumes.length < 1 || width <= 0 || height <= 0 || strip <= 0) return null;
+export function volumeStripFor(plotHeight: number, enabled: boolean): number {
+  if (!enabled || plotHeight <= 0) return 0;
+  return Math.min(VOLUME_STRIP, Math.max(0, plotHeight - 24));
+}
+
+/** One filled outline for the visible window. The baseline is the bottom of the plot. */
+function volumeOutline(
+  volumes: number[],
+  width: number,
+  height: number,
+  strip: number,
+  focusStart?: number,
+  focusEnd?: number,
+): string {
+  if (volumes.length < 1 || width <= 0 || height <= 0 || strip <= 0) return '';
   const start = focusStart ?? 0;
   const end = focusEnd ?? volumes.length - 1;
   const span = Math.max(end - start, 1e-6);
@@ -42,28 +39,42 @@ function VolumeColumns({
   const i1 = Math.min(volumes.length - 1, Math.ceil(end));
   let peak = 0;
   for (let index = i0; index <= i1; index += 1) {
-    const value = volumes[index];
+    const value = volumes[index] ?? 0;
     if (value > peak) peak = value;
   }
+  if (peak <= 0) return '';
+  const yAt = (value: number) => height - (Math.max(0, value) / peak) * strip;
+  const samples: { x: number; y: number }[] = [];
   const slot = width / span;
-  const barWidth = Math.max(1, slot * 0.62);
-  const bars: React.ReactElement[] = [];
-  for (let index = i0; index <= i1; index += 1) {
-    const value = Math.max(0, volumes[index] ?? 0);
-    const bar = peak > 0 ? (value / peak) * strip : 0;
-    if (bar <= 0) continue;
-    bars.push(
-      <Rect
-        key={index}
-        x={((index - start) / span) * width - barWidth / 2}
-        y={height - bar}
-        width={barWidth}
-        height={bar}
-        fill={color}
-      />,
-    );
+  if (slot >= 1.6) {
+    for (let index = i0; index <= i1; index += 1) {
+      samples.push({ x: ((index - start) / span) * width, y: yAt(volumes[index] ?? 0) });
+    }
+  } else {
+    const columns = Math.max(1, Math.ceil(width));
+    const bins = new Array<number>(columns).fill(0);
+    const seen = new Array<boolean>(columns).fill(false);
+    for (let index = i0; index <= i1; index += 1) {
+      const x = ((index - start) / span) * width;
+      const bin = Math.min(columns - 1, Math.max(0, Math.floor(x)));
+      const value = Math.max(0, volumes[index] ?? 0);
+      if (!seen[bin] || value > bins[bin]) bins[bin] = value;
+      seen[bin] = true;
+    }
+    for (let bin = 0; bin < columns; bin += 1) {
+      if (!seen[bin]) continue;
+      samples.push({ x: bin, y: yAt(bins[bin]) });
+    }
   }
-  return <>{bars}</>;
+  if (samples.length === 0) return '';
+  const first = samples[0];
+  const last = samples[samples.length - 1];
+  let path = `M${first.x.toFixed(2)},${height.toFixed(2)}`;
+  for (const sample of samples) {
+    path += `L${sample.x.toFixed(2)},${sample.y.toFixed(2)}`;
+  }
+  path += `L${last.x.toFixed(2)},${height.toFixed(2)}Z`;
+  return path;
 }
 
 function WaveBars({
@@ -146,10 +157,14 @@ export function Sparkline({
   volumes = null,
   volumeColor = 'rgba(62, 224, 224, 0.45)',
 }: Props) {
-  const volumeStrip = volumes && volumes.length > 0 && volumes.length === data.length ? VOLUME_STRIP : 0;
-  const { line, fill, cursor } = useMemo(() => {
+  const volumeStrip = volumeStripFor(height, Boolean(volumes && volumes.length > 0 && volumes.length === data.length));
+  const { line, fill, cursor, volume } = useMemo(() => {
+    const outline =
+      volumeStrip > 0 && volumes
+        ? volumeOutline(volumes, width, height, volumeStrip, focusStart, focusEnd)
+        : '';
     if (data.length < 2) {
-      return { line: '', fill: '', cursor: null as { x: number; y: number } | null };
+      return { line: '', fill: '', cursor: null as { x: number; y: number } | null, volume: outline };
     }
 
     const start = focusStart ?? 0;
@@ -194,8 +209,8 @@ export function Sparkline({
               ((data[Math.min(data.length - 1, Math.max(0, cursorIndex))] - min) / range) * usableH,
           };
 
-    return { line: linePath, fill: fillPath, cursor };
-  }, [cursorIndex, data, focusEnd, focusStart, width, height, volumeStrip]);
+    return { line: linePath, fill: fillPath, cursor, volume: outline };
+  }, [cursorIndex, data, focusEnd, focusStart, height, volumeStrip, volumes, width]);
 
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   const stroke = strokeColor ?? (positive ? colors.positive : colors.negative);
@@ -209,18 +224,7 @@ export function Sparkline({
     wave && wave.length > 1 ? (
       <WaveBars peaks={wave} width={width} height={height} color={waveColor} />
     ) : null;
-  const volumeBars =
-    volumeStrip > 0 && volumes ? (
-      <VolumeColumns
-        volumes={volumes}
-        width={width}
-        height={height}
-        strip={volumeStrip}
-        focusStart={focusStart}
-        focusEnd={focusEnd}
-        color={volumeColor}
-      />
-    ) : null;
+  const volumeShape = volume ? <Path d={volume} fill={volumeColor} /> : null;
 
   return (
     <View style={{ width, height, overflow: 'hidden' }}>
@@ -253,11 +257,10 @@ export function Sparkline({
           )}
         </Defs>
 
-        {volumeBars}
-
         {dimUnplayed && cursor ? (
           <>
             <G clipPath={`url(#${unplayedClipId})`} opacity={UNPLAYED_OPACITY}>
+              {volumeShape}
               {waveBars}
               {showFill && fill ? <Path d={fill} fill={fillPaint} /> : null}
               {line ? (
@@ -272,6 +275,7 @@ export function Sparkline({
               ) : null}
             </G>
             <G clipPath={`url(#${playedClipId})`}>
+              {volumeShape}
               {waveBars}
               {showFill && fill ? <Path d={fill} fill={fillPaint} /> : null}
               {line ? (
@@ -288,6 +292,7 @@ export function Sparkline({
           </>
         ) : (
           <G opacity={dimUnplayed ? UNPLAYED_OPACITY : 1}>
+            {volumeShape}
             {waveBars}
             {showFill && fill ? <Path d={fill} fill={fillPaint} /> : null}
             {line ? (

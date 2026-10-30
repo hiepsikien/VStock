@@ -164,7 +164,7 @@ function LiveList({ rows, selectedKey, onRow }: LiveColumn) {
   );
 }
 
-const SESSION_CHIP_HEIGHT = 8 + 16 + 18 + 8;
+const SESSION_CHIP_HEIGHT = 8 + 16 + 18 + 8 + 4;
 
 function SwitchButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
@@ -270,11 +270,13 @@ const styles = StyleSheet.create({
     color: palette.textMuted,
     fontSize: 12,
     lineHeight: 16,
+    includeFontPadding: false,
   },
   sessionDay: {
     color: palette.text,
     fontSize: 13,
     lineHeight: 18,
+    includeFontPadding: false,
     fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },

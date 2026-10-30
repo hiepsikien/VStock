@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { Sparkline, VOLUME_STRIP } from '../components/Sparkline';
+import { Sparkline, volumeStripFor } from '../components/Sparkline';
 import type { PieceProgram } from '../sonify/program';
 import { palette } from './palette';
 import { clamp01 } from './seek';
 
-const CHART_HEIGHT = 248;
 const VOLUME_COLOR = 'rgba(62, 224, 224, 0.45)';
 
 type Props = {
@@ -37,8 +36,9 @@ export function Stage({
   seekable = false,
   onSeekRatio,
 }: Props) {
-  const [width, setWidth] = useState(0);
-  const chartWidth = Math.max(1, width);
+  const [plot, setPlot] = useState({ width: 0, height: 0 });
+  const chartWidth = Math.max(1, plot.width);
+  const plotHeight = Math.max(1, plot.height);
   const volumeSeries = volumes && volumes.length > 0 && volumes.length === prices.length ? volumes : null;
   const visible = visibleBounds(prices, focusStart, focusEnd);
   const labelLeft =
@@ -84,25 +84,29 @@ export function Stage({
           </Text>
         </View>
       ) : null}
-      <View
-        style={styles.chartArea}
-        onLayout={(event) => {
-          const next = event.nativeEvent.layout.width;
-          setWidth((current) => (current === next ? current : next));
-        }}
-        onStartShouldSetResponder={() => seekable}
-        onMoveShouldSetResponder={() => seekable}
-        onResponderTerminationRequest={() => false}
-        onResponderGrant={(event) => seekAt(event.nativeEvent.locationX)}
-        onResponderMove={(event) => seekAt(event.nativeEvent.locationX)}
-      >
-        <View style={styles.chartFrame}>
-          {prices.length > 1 && width > 0 ? (
+      <View style={styles.chartArea}>
+        <View
+          style={styles.chartFrame}
+          onLayout={(event) => {
+            const next = event.nativeEvent.layout;
+            setPlot((current) =>
+              current.width === next.width && current.height === next.height
+                ? current
+                : { width: next.width, height: next.height },
+            );
+          }}
+          onStartShouldSetResponder={() => seekable}
+          onMoveShouldSetResponder={() => seekable}
+          onResponderTerminationRequest={() => false}
+          onResponderGrant={(event) => seekAt(event.nativeEvent.locationX)}
+          onResponderMove={(event) => seekAt(event.nativeEvent.locationX)}
+        >
+          {prices.length > 1 && plot.width > 0 && plot.height > 0 ? (
             <View pointerEvents="none">
               <Sparkline
                 data={prices}
-                width={chartWidth}
-                height={CHART_HEIGHT}
+                width={plot.width}
+                height={plot.height}
                 positive
                 strokeWidth={2.25}
                 showFill
@@ -117,9 +121,9 @@ export function Stage({
                 volumeColor={VOLUME_COLOR}
               />
             </View>
-          ) : (
+          ) : prices.length <= 1 ? (
             <Text style={styles.empty}>{banner ? '' : 'Sân khấu'}</Text>
-          )}
+          ) : null}
           {showCursor ? (
             <View pointerEvents="none" style={[styles.cursorLabel, { left: labelLeft }]}>
               <Text style={styles.cursorLabelText}>{cursorLabel}</Text>
@@ -132,7 +136,7 @@ export function Stage({
           ) : null}
           {prices.length > 1 ? (
             <View
-              style={[styles.axis, volumeSeries ? { bottom: VOLUME_STRIP + 4 } : null]}
+              style={[styles.axis, volumeSeries ? { bottom: volumeStripFor(plotHeight, true) + 4 } : null]}
               pointerEvents="none"
             >
               <Text style={styles.axisText}>{visible.max.toFixed(2)}</Text>
@@ -171,10 +175,10 @@ function visibleBounds(prices: number[], focusStart?: number, focusEnd?: number)
 const styles = StyleSheet.create({
   wrap: {
     flex: 1,
-    minHeight: CHART_HEIGHT + 28,
-    position: 'relative',
+    minHeight: 0,
   },
   program: {
+    flexShrink: 0,
     paddingHorizontal: 16,
     paddingTop: 2,
     paddingBottom: 8,
@@ -196,15 +200,13 @@ const styles = StyleSheet.create({
   },
   chartArea: {
     flex: 1,
-    minHeight: CHART_HEIGHT,
-    justifyContent: 'flex-start',
-    position: 'relative',
+    minHeight: 0,
   },
   chartFrame: {
-    height: CHART_HEIGHT,
+    flex: 1,
+    minHeight: 0,
     width: '100%',
     position: 'relative',
-    justifyContent: 'center',
   },
   empty: {
     color: palette.textMuted,

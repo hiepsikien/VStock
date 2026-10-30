@@ -50,12 +50,14 @@ const styles = StyleSheet.create({
   },
   right: {
     flex: 1,
+    minHeight: 0,
     backgroundColor: palette.background,
   },
   stage: {
     flex: 1,
-    minHeight: 280,
+    minHeight: 0,
     paddingTop: 8,
+    overflow: 'hidden',
   },
   controls: {
     maxHeight: '46%',
@@ -72,6 +74,6 @@ const styles = StyleSheet.create({
     backgroundColor: palette.surface,
   },
   narrowStage: {
-    minHeight: 280,
+    height: 420,
   },
 });
