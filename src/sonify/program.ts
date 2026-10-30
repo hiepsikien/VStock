@@ -57,6 +57,7 @@ const PATTERN_NAMES = new Set([
   'Etude 11',
   'Chord Melody',
   'Prelude',
+  'Cathedral',
   'Tremolo',
   'Andante',
   'Choro',
