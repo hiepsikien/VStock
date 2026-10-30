@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import { shouldResumePlay } from './seek';
 
 export type SeekCommand = { id: number; seconds: number };
 
@@ -97,9 +98,18 @@ export function ReplayPlayer({
 
   useEffect(() => {
     if (!booted.current || !status.isLoaded) return;
-    if (wantPlay && !status.playing) player.play();
+    if (
+      shouldResumePlay({
+        wantPlay,
+        playing: status.playing,
+        didJustFinish: status.didJustFinish,
+        ended: ended.current,
+      })
+    ) {
+      player.play();
+    }
     if (!wantPlay && status.playing) player.pause();
-  }, [player, status.isLoaded, status.playing, wantPlay]);
+  }, [player, status.didJustFinish, status.isLoaded, status.playing, wantPlay]);
 
   useEffect(() => {
     if (!status.isLoaded) return;

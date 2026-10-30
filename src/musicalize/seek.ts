@@ -204,6 +204,20 @@ export function replayAction(input: {
   return { kind: 'movement-start', index: input.movementIndex };
 }
 
+/**
+ * After a file ends, `wantPlay` can still be true for one tick while `playing`
+ * is already false. Calling `play()` then restarts the media from 0:00 on web.
+ * Stay quiet until the listener presses Nghe or seeks (which clears `ended`).
+ */
+export function shouldResumePlay(input: {
+  wantPlay: boolean;
+  playing: boolean;
+  didJustFinish: boolean;
+  ended: boolean;
+}): boolean {
+  return input.wantPlay && !input.playing && !input.didJustFinish && !input.ended;
+}
+
 /** WebSocket on the API host. The server rejects a page whose Origin is a different host. */
 export function sonifySocketUrl(
   apiBase: string,

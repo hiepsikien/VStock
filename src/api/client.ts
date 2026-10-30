@@ -99,9 +99,18 @@ function resolveApiUrl(): string {
     if (Platform.OS === 'ios' && !Device.isDevice) {
       return configured;
     }
-    // Browser tab on the same Mac. `expo-device` reports isDevice=true on web,
-    // so the phone fallback must not rewrite localhost → GCE here.
+    // Browser. `expo-device` reports isDevice=true on web, so the phone
+    // fallback must not rewrite localhost → GCE. A phone that opened Metro on
+    // the LAN still needs the API on that same host, not 127.0.0.1.
     if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined') {
+        const host = window.location.hostname;
+        if (host && isLanHostname(host)) {
+          const port = url.port || '8000';
+          const local = `http://${host}:${port}`;
+          if (isUsableApiBase(local)) return local;
+        }
+      }
       return configured;
     }
     // Physical device: cloud URL wins over Metro LAN rewrite, unless this

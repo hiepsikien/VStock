@@ -3,7 +3,7 @@ import { fetchSonifySymbols, getApiBaseUrl, type SonifyTapeSymbol } from '../api
 import { Controls } from './Controls';
 import type { StreamVariant } from './labels';
 import { LiveSynth, liveStageMessage, type LiveSocketMessage } from './liveSynth';
-import { liveListRows, type LiveListRow } from './liveRows';
+import { liveListRows, pickLiveRow, type LiveListRow } from './liveRows';
 import { RoomFrame } from './RoomFrame';
 import { sonifySocketUrl } from './seek';
 import { Stage } from './Stage';
@@ -36,7 +36,9 @@ export function LiveRoom({ wide, onMode }: Props) {
   const socket = useRef<SocketLike | null>(null);
   const synth = useRef<LiveSynth | null>(null);
   const playingRef = useRef(false);
+  const selectedKeyRef = useRef(selectedKey);
   playingRef.current = playing;
+  selectedKeyRef.current = selectedKey;
 
   const stop = useCallback(() => {
     socket.current?.close();
@@ -57,8 +59,12 @@ export function LiveRoom({ wide, onMode }: Props) {
         const symbols = await fetchSonifySymbols();
         if (cancelled || !symbols.length) return;
         const next = liveListRows(symbols.map(toTape));
+        const row = pickLiveRow(next, selectedKeyRef.current);
         setRows(next);
-        setSelectedKey((current) => (next.some((row) => row.key === current) ? current : next[0].key));
+        if (!row) return;
+        setSelectedKey(row.key);
+        setSymbol(row.symbol);
+        setSource(row.source);
       } catch {
         if (!cancelled) setBanner('Không tải được danh sách đài.');
       }
@@ -146,8 +152,14 @@ export function LiveRoom({ wide, onMode }: Props) {
       opened.onclose = (event) => {
         if (mine !== session.current) return;
         setPlaying(false);
-        if (!announced && event.code === 1008) {
+        if (announced) return;
+        setStatus(null);
+        if (event.code === 1008) {
           setBanner('Đài cần trang và API cùng một host.');
+          return;
+        }
+        if (event.code !== 1000) {
+          setBanner('Đài đã ngắt kết nối.');
         }
       };
     },
@@ -186,7 +198,7 @@ export function LiveRoom({ wide, onMode }: Props) {
           identity={
             prices.length > 1 ? null : source === 'history' ? `${symbol} · đoạn ~90s` : symbol
           }
-          banner={banner ?? (!playing && prices.length < 2 ? status : null)}
+          banner={banner ?? (!playing ? status : null)}
           seekable={false}
         />
       }

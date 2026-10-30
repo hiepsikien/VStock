@@ -1,6 +1,6 @@
 import { ambientDailyCandleIndexAt, spanCandleIndexAt } from '../utils/recapCursor';
 import { whenFor } from './liveSynth';
-import { liveListRows } from './liveRows';
+import { liveListRows, pickLiveRow } from './liveRows';
 import {
   dailyCandleForSecond,
   dailyMapClock,
@@ -9,6 +9,7 @@ import {
   placeOnWork,
   replayAction,
   scrubberSeek,
+  shouldResumePlay,
   sonifySocketUrl,
   spanCandleForSecond,
   spanStageSeek,
@@ -229,5 +230,31 @@ equal(rows[2]?.key, 'history:BTCUSDT', 'history tape sits under BTC');
 equal(rows[2]?.source, 'history', 'history row is still a stream');
 equal(rows.filter((row) => row.source === 'history').length, 1, 'one history tape');
 equal(liveListRows([{ symbol: 'ETHUSDT', base: 'ETH' }]).at(-1)?.symbol, 'BTCUSDT', 'history tape without BTC in the top list');
+
+const withoutBtc = liveListRows([{ symbol: 'ETHUSDT', base: 'ETH' }]);
+equal(pickLiveRow(withoutBtc, 'live:BTCUSDT')?.key, 'live:ETHUSDT', 'missing highlight falls to the first row');
+equal(pickLiveRow(withoutBtc, 'live:BTCUSDT')?.source, 'live', 'fallback keeps the live source');
+equal(pickLiveRow(withoutBtc, 'history:BTCUSDT')?.key, 'history:BTCUSDT', 'history highlight survives without BTC live');
+
+equal(
+  shouldResumePlay({ wantPlay: true, playing: false, didJustFinish: true, ended: false }),
+  false,
+  'do not restart on the finish tick',
+);
+equal(
+  shouldResumePlay({ wantPlay: true, playing: false, didJustFinish: false, ended: true }),
+  false,
+  'do not restart after onEnded',
+);
+equal(
+  shouldResumePlay({ wantPlay: true, playing: false, didJustFinish: false, ended: false }),
+  true,
+  'resume after a seek or Nghe',
+);
+equal(
+  shouldResumePlay({ wantPlay: false, playing: false, didJustFinish: false, ended: false }),
+  false,
+  'paused stays paused',
+);
 
 console.log('musicalize seek tests passed');

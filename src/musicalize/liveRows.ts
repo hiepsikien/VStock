@@ -29,6 +29,12 @@ export function liveListRows(symbols: TapeSymbol[]): LiveListRow[] {
   return rows;
 }
 
+/** Keep the highlight and the transport on the same row after the list refreshes. */
+export function pickLiveRow(rows: LiveListRow[], selectedKey: string): LiveListRow | null {
+  if (!rows.length) return null;
+  return rows.find((row) => row.key === selectedKey) ?? rows[0];
+}
+
 function historyRow(): LiveListRow {
   return {
     key: 'history:BTCUSDT',
