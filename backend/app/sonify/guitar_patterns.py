@@ -3429,6 +3429,10 @@ _WHOLE_BAR_EXTRA = frozenset({
     "vals",
     "noviembre",
     "brouwer_etude",
+    # Torroba dances write a strong-beat gap of 4. One extra keeps that gap
+    # when this branch meets the Torroba patterns.
+    "danza",
+    "fandanguillo",
 })
 
 
