@@ -857,3 +857,35 @@ def test_sonatina_downbeat_leap_step_run_and_castillo_hold() -> None:
 
     dance = _two_bars([72] * 16, (_joined(0, [72] * 16),), {0: C, 1: C}, character="volatile")
     assert not any(note.midi is not None and note.duration_beats == 0.25 for note in dance.lead)
+
+    # Castillo holds the downbeat. The unsung close at eighth 4 must not decide the ornament.
+    step_line = [72] * 4 + [60] * 4 + [71] * 8
+    held_step = _two_bars(
+        step_line,
+        (_joined(0, step_line[:8]), _joined(8, step_line[8:])),
+        {0: C, 1: G},
+        character="calm",
+        character_at=("calm", "rally"),
+    )
+    held_price = [note for note in held_step.lead if note.bar == 0 and abs(note.beat) < 1e-6 and note.midi is not None]
+    assert len(held_price) == 1 and held_price[0].midi == step_line[0] == 72
+    assert held_price[0].slur_start
+    assert not any(note.midi is not None and note.duration_beats == 0.25 for note in held_step.lead)
+    step_arrival = [note for note in held_step.lead if note.bar == 1 and abs(note.beat) < 1e-6 and note.duration_beats >= 0.5]
+    assert len(step_arrival) == 1 and step_arrival[0].midi == 71 and step_arrival[0].slur_stop
+
+    leap_line = [60] * 4 + [71] * 4 + [72] * 8
+    held_leap = _two_bars(
+        leap_line,
+        (_joined(0, leap_line[:8]), _joined(8, leap_line[8:])),
+        {0: CMAJ7, 1: C},
+        character="calm",
+        character_at=("calm", "rally"),
+    )
+    sounded = [note for note in held_leap.lead if note.bar == 0 and abs(note.beat) < 1e-6 and note.midi is not None]
+    assert len(sounded) == 1 and sounded[0].midi == leap_line[0] == 60
+    leap_pickup = [note for note in held_leap.lead if note.midi is not None and note.duration_beats == 0.25]
+    assert [(note.bar, round(note.beat, 2)) for note in leap_pickup] == [(0, 3.75)]
+    assert leap_pickup[0].slur_start
+    leap_arrival = [note for note in held_leap.lead if note.bar == 1 and abs(note.beat) < 1e-6 and note.duration_beats >= 0.5]
+    assert len(leap_arrival) == 1 and leap_arrival[0].midi == 72 and leap_arrival[0].slur_stop

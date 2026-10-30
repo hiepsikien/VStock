@@ -580,7 +580,13 @@ def apply_sonatina_downbeats(ctx, lead, support, patterns):
         if previous is None:
             continue
         target = _melody_at(ctx, eighth)
-        prev_pitch = _melody_at(ctx, previous)
+        # Castillo and a calm frame hold the downbeat price. Eighth 4's close
+        # is not sounding, so the interval is the held note, not `_melody_at`.
+        prev_index = _price_note(lead, previous, epb)
+        if prev_index is not None:
+            prev_pitch = lead[prev_index].midi
+        else:
+            prev_pitch = _melody_at(ctx, previous)
         gap = abs(target - prev_pitch)
         phrase = _phrase_at(ctx, eighth)
         at_apex = (
@@ -602,7 +608,6 @@ def apply_sonatina_downbeats(ctx, lead, support, patterns):
             support = _clear_support(support, start, end, epb)
             continue
         if gap <= 2:
-            prev_index = _price_note(lead, previous, epb)
             arrival = _price_note(lead, eighth, epb)
             if prev_index is not None:
                 lead[prev_index] = replace(lead[prev_index], slur_start=True)
