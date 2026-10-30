@@ -90,7 +90,7 @@ def test_long_barrios_movements_walk_a_pattern_row():
     # on Preludio, so the row is Preludio then Andante and the last part returns
     # to Preludio. Tremolo is not in that row.
     assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=opening) == (
-        "Prelude — Andante — Prelude"
+        "Cathedral — Andante — Cathedral"
     )
     assert guitar_movement_name(flat, ensemble="barrios", character="calm", form=slow) == (
         "Andante — Cantabile — Andante"
@@ -102,13 +102,13 @@ def test_long_barrios_movements_walk_a_pattern_row():
         "Tremolo — Andante — Tremolo"
     )
     assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=week_spec(2)) == (
-        "Prelude — Andante"
+        "Cathedral — Andante"
     )
     assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=week_spec(4)) == (
-        "Prelude — Andante — Prelude"
+        "Cathedral — Andante — Cathedral"
     )
     assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=week_spec(5)) == (
-        "Prelude — Andante — Prelude"
+        "Cathedral — Andante — Cathedral"
     )
 
 
@@ -194,13 +194,13 @@ def test_a_uniform_barrios_row_names_the_headline_once():
 
 
 def test_pattern_form_keeps_three_names_and_centers_a_longer_row():
-    assert pattern_form(["preludio", "andante", "tremolo"], "barrios") == "Prelude — Andante — Tremolo"
-    assert pattern_form(["preludio", "andante", "andante"], "barrios") == "Prelude — Andante"
+    assert pattern_form(["preludio", "andante", "tremolo"], "barrios") == "Cathedral — Andante — Tremolo"
+    assert pattern_form(["preludio", "andante", "andante"], "barrios") == "Cathedral — Andante"
     assert pattern_form(["preludio", "andante", "tremolo", "andante", "preludio"], "barrios") == (
-        "Prelude — Tremolo — Prelude"
+        "Cathedral — Tremolo — Cathedral"
     )
     # The row ends on Andante, so the short title does not pretend it reprises.
-    assert pattern_form(["preludio", "andante", "preludio", "andante"], "barrios") == "Prelude — Andante"
+    assert pattern_form(["preludio", "andante", "preludio", "andante"], "barrios") == "Cathedral — Andante"
 
 
 def test_villa_slow_and_six_eight_keep_their_body_and_show_the_contrast():

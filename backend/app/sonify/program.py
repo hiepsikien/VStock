@@ -19,7 +19,7 @@ _PATTERN_TITLE = {
     "etude11": "Etude 11",
     "chord_melody": "Chord Melody",
     "thumb_cantabile": "Cantabile",
-    "preludio": "Prelude",
+    "preludio": "Cathedral",
     "tremolo": "Tremolo",
     "andante": "Andante",
     "choro": "Choro",
@@ -58,11 +58,11 @@ def pattern_form(ids: list[str], ensemble: str) -> str:
     """Up to three names. A longer row keeps opening, center, and close.
 
     Adjacent repeats collapse first. Three different names stay all three,
-    so Prelude — Andante — Tremolo is not shortened. Four or more keep the
+    so Cathedral — Andante — Tremolo is not shortened. Four or more keep the
     opening, the center name, and the close: a week that hears Andante in
     the middle is not titled for the second region only. A rally week of
-    four sessions plays Prelude, Andante, Andante, Prelude; adjacent Andante
-    collapses and the title is Prelude — Andante — Prelude. A row that does not end on
+    four sessions plays Cathedral, Andante, Andante, Cathedral; adjacent Andante
+    collapses and the title is Cathedral — Andante — Cathedral. A row that does not end on
     its opening, such as A–B–A–B, shortens to the two ends once the center
     repeats the opening.
     """
