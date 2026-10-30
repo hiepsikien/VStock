@@ -3470,10 +3470,13 @@ _WHOLE_BAR_EXTRA = frozenset({
     "vals",
     "noviembre",
     "brouwer_etude",
-    # Torroba dances write a strong-beat gap of 4. One extra keeps that gap
-    # when this branch meets the Torroba patterns.
+    # Torroba dances write a strong-beat gap of 4. Castillo holds one price
+    # for the bar and sonatina runs 56, 60, 64. One extra, taken at the
+    # downbeat, keeps those steps the way Galop keeps its own.
     "danza",
     "fandanguillo",
+    "castillo",
+    "sonatina",
 })
 
 

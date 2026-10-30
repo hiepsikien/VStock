@@ -1,6 +1,6 @@
 # Kế hoạch: câu Torroba, vòng quay đầu, extra cả ô
 
-> **Trạng thái**: chưa triển khai. Dialect, bốn pattern, và extra cả ô của `danza` / `fandanguillo` đã hát trên `main`.
+> **Trạng thái**: đã hát. Dialect, bốn pattern, và extra cả ô của `danza` / `fandanguillo` đã hát trên `main`.
 > **Khung đang chạy**: [`docs/sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md), mục 4, 5 và 6. Vi mô trong ô: [`docs/sonify-guitar-micro-contour-plan.md`](./sonify-guitar-micro-contour-plan.md).
 
 Ba việc. Câu thở theo `Phrase` trên mọi span. Vòng thứ được phép quay về chủ. `castillo` và `sonatina` nhận một extra cho cả ô, cùng cửa PR97 đã mở cho hai điệu vũ.
