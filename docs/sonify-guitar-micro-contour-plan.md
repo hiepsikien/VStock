@@ -22,6 +22,12 @@ Passage scale thay lead trên eighth của passage và trồng lại bass trên 
 
 Test khóa **hiệu trong ô**, cùng kiểu `test_galop_beats_keep_a_micro_velocity_contour`. Sóng dời cả ô bằng một số. Khóa số tuyệt đối sẽ gãy khi tâm ô đổi.
 
+Hình lệch nằm trong pattern, cùng chỗ với lưới nốt và cờ staccato. Bourrée, Gavotte, tumbao, allemande và Galop mỗi điệu một hình. Pattern khai báo nốt nào lệch mấy bậc, và gọi contour ở cuối renderer của chính nó.
+
+Chỉ cơ học đi vào `guitar_patterns.py`: `_MICRO`, sàn, `_micro_drop`, `_micro_fits`, `_micro_raise`. Đổi hạt nghe, hoặc siết khoảng lead–bass, sửa một chỗ. Galop giữ `_contour_galop1` và `_contour_galop2`. Hai hàm đó đo từ một đỉnh viết. Hạ theo vận tốc từng nốt sẽ để câu đang lên xóa khoảng trong phách.
+
+Một pass cuối trong `render_patterned_voices` đứng xa nhịp nó mô tả, và chạy sai thứ tự. `_shape_accompaniment` ghi đè bass và bè trong, nên bậc của hai bè đó chỉ sống sau lần ghi đè. Mordent hạ nốt láy trước `_punch`, vì punch chỉ cộng vào móc kép đầu. Tumbao hạ cú giữa sau punch, để cú đầu vẫn là accent. Noviembre chạy sau `_soften_attack` và không đụng xung sau: test khóa xung đó cao hơn nốt lấy đà đúng 6.
+
 ---
 
 ## 2. Trường phái
@@ -228,7 +234,7 @@ Bè trong trên các móc trống giữ đều. Nếu bass giữa sau khi hạ k
 
 ## 6. Chỗ gắn trong code
 
-Một helper trong `guitar_patterns.py`. Galop giữ hàm riêng. Đợt này không đổ Galop qua helper mới.
+Hình lệch ở mục 1 nằm trong từng renderer. Helper dưới đây chỉ là cơ học. Galop giữ hàm riêng. Đợt này không đổ Galop qua helper mới.
 
 ```python
 _MICRO = 2
