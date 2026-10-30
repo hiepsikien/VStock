@@ -2,7 +2,16 @@
 
 Tên in trên chart là chuỗi trong `backend/app/sonify/program.py` (`_PATTERN_TITLE`) và `src/sonify/program.ts` (`PATTERN_NAMES`). Id trong code giữ nguyên. Tên lấy từ tác phẩm, viết hoa chữ đầu, không dấu. Một tên đã thuộc nhà khác thì pattern mới không dùng lại tên đó.
 
-Tên chương không cần một vùng riêng trên màn hình. Ghi cạnh title đang có, hoặc ngay dưới title đó. Title đang có là tên tác phẩm, ví dụ `Sonatina HVN 23/10 in D`. Dòng chương là pattern của câu đang hát, cùng cỡ chữ nhỏ hơn title.
+Không thêm vùng riêng cho tên chương. Chuỗi đó là tên của cả chương, tức `pattern_form` đã ghi cùng file audio. Nó không đổi theo từng `Phrase`. `formatMovement` trong `src/sonify/program.ts` giữ hậu tố nhịp và BPM, ví dụ `Cathedral — Andante — Tremolo (4/4, 96 BPM)`, hoặc `Finale: …` khi có tiền tố Finale.
+
+Guitar một chương: `pieceCopy` đặt tên pattern vào title (`Cathedral HVN 23/10 in D`) và để `movement` là `null`. Không có dòng thứ hai.
+
+Guitar nhiều chương, dòng đó là `movement` của `pieceCopy`:
+
+- Lúc intro, `PieceTitle` đặt dòng dưới title, cỡ body, dòng nhạc cụ ở giữa.
+- Lúc đang phát, `playingLines` xếp title và dòng đó cùng một style, ở góc dưới chart.
+
+Đợt đổi Cathedral không sửa `pieceCopy`, `playingLines`, hay `PieceTitle`. Chỉ đổi chuỗi của `preludio`.
 
 ---
 
@@ -20,21 +29,26 @@ Hai Prelude khác giữ nguyên:
 | Bach | `bach_prelude` | Prelude |
 | Villa, *Prélude* No. 1 | `thumb_cantabile` khi ensemble là `villa` | Prelude |
 
-Chuỗi dòng chương đổi theo. Ví dụ trong `backend/tests/test_program.py`:
+Chuỗi `preludio` của Barrios đổi theo. Tám assert trong `backend/tests/test_program.py` sẽ gãy. Ba assert còn lại trong `test_long_barrios_movements_walk_a_pattern_row` không chứa Prelude của Barrios, giữ nguyên: `Andante — Cantabile — Andante`, `Polka — Waltz — Polka`, `Tremolo — Andante — Tremolo`.
 
-| Trước | Sau |
-|---|---|
-| Prelude — Andante — Tremolo | Cathedral — Andante — Tremolo |
-| Prelude — Andante | Cathedral — Andante |
-| Prelude — Tremolo — Prelude | Cathedral — Tremolo — Cathedral |
+| Trước | Sau | Chỗ |
+|---|---|---|
+| Prelude — Andante — Tremolo | Cathedral — Andante — Tremolo | `pattern_form` |
+| Prelude — Andante | Cathedral — Andante | `pattern_form` (hai assert) và `guitar_movement_name` tuần 2 |
+| Prelude — Tremolo — Prelude | Cathedral — Tremolo — Cathedral | `pattern_form` |
+| Prelude — Andante — Prelude | Cathedral — Andante — Cathedral | `guitar_movement_name`: chương mở, tuần 4, tuần 5 |
 
-`PATTERN_NAMES` thêm `Cathedral`. `Prelude` ở lại cho Bach và Villa.
+Bốn assert `pattern_form` nằm trong `test_pattern_form_keeps_three_names_and_centers_a_longer_row`. Bốn assert ghi vào file audio rồi in lên chart nằm trong `test_long_barrios_movements_walk_a_pattern_row`, các lời gọi `guitar_movement_name` với `opening`, `week_spec(2)`, `week_spec(4)` và `week_spec(5)`.
+
+`PATTERN_NAMES` thêm `Cathedral`. `Prelude` ở lại, vì `isPatternForm` tách bằng ` — `. Thiếu `Cathedral` thì suite Barrios mất tên điệu và chỉ còn nhịp hoặc `Finale`.
+
+Bach (`bach_prelude`) và Villa (`thumb_cantabile` khi ensemble là `villa`) giữ `Prelude`. Hai assert Villa (`Chord Melody — Prelude — Chord Melody`, `Arpeggio — Prelude — Arpeggio`) và mọi assert Bach không nằm trong đợt này.
 
 Chỗ sửa khi thực hiện:
 
-- `backend/app/sonify/program.py`: `"preludio": "Cathedral"`, và câu ví dụ Prelude — Andante — Tremolo trong `pattern_form`.
-- `backend/tests/test_program.py`: bốn assert của `pattern_form` với ensemble `barrios`.
-- `src/sonify/program.ts`: thêm `Cathedral` vào `PATTERN_NAMES`.
+- `backend/app/sonify/program.py`: `"preludio": "Cathedral"`. Docstring của `pattern_form` có ba chỗ ví dụ Barrios: `Prelude — Andante — Tremolo`, câu “plays Prelude, Andante, Andante, Prelude”, và `Prelude — Andante — Prelude`. Cả ba thành Cathedral.
+- `backend/tests/test_program.py`: bốn assert `pattern_form` và bốn assert `guitar_movement_name` ở trên.
+- `src/sonify/program.ts`: thêm `Cathedral` vào `PATTERN_NAMES`. Giữ `Prelude`.
 
 ---
 
@@ -57,9 +71,9 @@ Chuỗi hiện có trong `_PATTERN_TITLE` và `PATTERN_NAMES` đã đúng bốn 
 
 ## 3. Torroba: tám kiểu mới
 
-Tám kiểu trong mục 4 của [`docs/sonify-guitar-torroba-phrase-plan.md`](./sonify-guitar-torroba-phrase-plan.md) là cách đánh bên trong pattern đã khóa. Chúng không thêm id vào `_FAMILY`, và không vào `_PATTERN_TITLE`. Dòng cạnh hoặc dưới title chỉ ghi pattern cha (Castillo, Sonatina, Fandanguillo, Danza). Tám kiểu không ghi lên dòng đó.
+Tám kiểu trong mục 4 của [`docs/sonify-guitar-torroba-phrase-plan.md`](./sonify-guitar-torroba-phrase-plan.md) là cách đánh bên trong pattern đã khóa. Chúng không thêm id vào `_FAMILY`, và không vào `_PATTERN_TITLE`, nên không xuất hiện trên dòng chương. Dòng chương của Torroba thường là một pattern cha cộng nhịp, ví dụ `Sonatina (4/4, 96 BPM)`, vì một chương khóa một pattern. Khi chương là một hàng pattern, dòng vẫn là cả `pattern_form`, không rút còn một tên.
 
-Tên dưới đây thay cho “Kiểu 1” … “Kiểu 8” trong code và trong kế hoạch. Mỗi tên một hoặc hai từ, cùng kiểu với catalog.
+Tên dưới đây là nhãn cho code. File kế hoạch vẫn đánh số Kiểu 1 … Kiểu 8 cho đến khi kế hoạch đó được sửa. Mỗi tên một hoặc hai từ.
 
 | Số cũ | Tên | Pattern cha | Nguồn |
 |---|---|---|---|
@@ -69,11 +83,18 @@ Tên dưới đây thay cho “Kiểu 1” … “Kiểu 8” trong code và tro
 | 4 | Dialogue | `sonatina` | *Sonatina* I, hai ô mở đầu, câu gọi và câu đáp |
 | 5 | Arch | `fandanguillo` | *Suite Castellana* I, vòm bốn ô: quạt, giá ở bè trầm, rồi giao lên bè cao |
 | 6 | Bounce | `danza` | *Suite Castellana* III, chùm ba trên hợp âm ngân |
-| 7 | Arada | `castillo` | *Suite Castellana* II, câu đầu *Arada*, năm ô |
-| 8 | Harmonics | `castillo` | *Arada* câu 2, hợp âm chấm dôi và `Arm. 8` |
+| 7 | Arada | `castillo`, BPM ≤ 72 | *Suite Castellana* II, câu đầu *Arada*, năm ô |
+| 8 | Float | `castillo`, BPM ≤ 72 | *Arada* câu 2: hợp âm chấm dôi, hai tiếng `Arm. 8`, câu hát sang ô kế |
 
 Arpeggio ở đây là nhãn kiểu của Sonatina. Villa đã in **Arpeggio** trên chart (`villa_pattern`), nên tên này không đưa vào `PATTERN_NAMES`.
 
 Kiểu 2 và kiểu 5 đều có rasgueado. Kiểu 2 giữ tên **Rasgueado** vì đó là cả hình. Kiểu 5 là vòm bốn ô của Fandanguillo, tên **Arch**.
 
-Kiểu 7 và kiểu 8 đều từ *Arada*. Kiểu 7 là cả câu năm ô, tên **Arada**. Kiểu 8 là câu harmonics ngay sau, tên **Harmonics**.
+Kiểu 7 và kiểu 8 đều lấy nét từ *Arada*, và chỉ vào `castillo` khi `ctx.bpm <= 72`. Cửa chọn không phải “kiểu 8 đứng ngay sau kiểu 7”:
+
+- `k` chẵn và câu dài ít nhất 5 ô: kiểu 7 trên năm ô đầu.
+- `k` chẵn và câu dài 2, 3 hoặc 4 ô: kiểu 8 trên hai ô đầu, để khỏi cắt năm ô của câu đầu *Arada*.
+- `k` lẻ và câu dài ít nhất 2 ô: kiểu 8 trên hai ô đầu, dù câu trước không phải kiểu 7.
+- Câu dài 1 ô, hoặc `ctx.bpm > 72`: lưới nền.
+
+Tên kiểu 8 là **Float**, câu hát bồng bềnh sang ô kế. Không gọi **Harmonics**. Plan đã có cửa vận tốc 48 khi nốt ngân trùng nút harmonic. Hai tiếng `Arm. 8` của kiểu 8 ngắn hơn hai phách, nên câu phẳng ra 58, không ra 48. Hàm và comment sau này không được đọc tên kiểu thành cửa vận tốc đó.
