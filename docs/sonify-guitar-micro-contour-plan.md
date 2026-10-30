@@ -271,14 +271,14 @@ def _micro_raise(event: NoteEvent, steps: int, ceiling: int) -> NoteEvent:
 | `_contour_noviembre_pulse` | `_render_noviembre_bar`, sau `_soften_attack`, chỉ xung bass đầu |
 | `_contour_tumbao` | `_render_etude_bar`, sau `_punch`, chỉ bass của tế bào giữa |
 | `_contour_courante` | `_render_bach_courante_bar`, sau shape và `_softer_than_price` |
+| `_contour_sarabande_passant` | `_render_bach_sarabande_bar`, sau shape và punch, mọi móc kép passant trừ móc cuối, qua `_micro_fits` |
+| `_contour_gigue_pickups` | `_render_bach_gigue_bar`, sau shape và trước punch, pickup không nằm trong `down`, qua `_micro_fits` |
 
-Sửa tại chỗ, vì nốt sinh ra đã là lead và punch diễn ra ngay sau:
+Sửa tại chỗ, vì nốt sinh ra đã mang mức của nốt đúng phách, hoặc punch diễn ra ngay sau:
 
 | Chỗ | Sửa |
 |---|---|
 | `_mordent_events` | láy −2 bậc, trở về −1 bậc, trước `_punch` |
-| passant sarabande | mọi `_spell16` trừ nốt cuối, −1 bậc trên `_MELODY` |
-| gigue, nhánh `offset in plan["pickup"]` | `_note_velocity − _MICRO` trước punch |
 | prelude, `_spell16` của neighbor | `velocity − _MICRO` |
 | chaconne, móc kép lệch trong nhóm | mức móc đúng phách trừ `_MICRO` |
 
