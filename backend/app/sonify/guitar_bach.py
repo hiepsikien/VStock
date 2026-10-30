@@ -694,6 +694,40 @@ def _render_bach_fuga_bar(
 
 
 
+def _covering_velocity(events: list[NoteEvent], beat: float) -> int | None:
+    """The quietest voice already sounding at `beat`. A lead drop has to clear it."""
+    levels = [
+        event.velocity
+        for event in events
+        if event.midi is not None
+        and event.velocity is not None
+        and event.beat <= beat + 1e-6 < event.beat + event.duration_beats
+    ]
+    if not levels:
+        return None
+    return min(levels)
+
+
+def _eighth_of(event: NoteEvent) -> int:
+    return int(math.floor(event.beat * 2 + 1e-9))
+
+
+def _attacks_at(events: list[NoteEvent], beat: float) -> list[int]:
+    return [
+        index
+        for index, event in enumerate(events)
+        if event.midi is not None and abs(event.beat - beat) < 1e-6
+    ]
+
+
+def _shared_steps(levels: list[int], steps: int) -> int:
+    """Steps every note can take without the floor collapsing the figure."""
+    count = steps
+    while count > 0 and any(level - count * _MICRO < _MICRO_FLOOR for level in levels):
+        count -= 1
+    return max(0, count)
+
+
 def _bourree_cells(ctx: _Ctx) -> list[tuple[int, int]]:
     if ctx.kind == "6/8":
         return [(0, 3), (3, 3)]
@@ -701,6 +735,44 @@ def _bourree_cells(ctx: _Ctx) -> list[tuple[int, int]]:
         return [(0, 4), (4, 4)]
     return [(0, ctx.epb)]
 
+
+
+def _contour_bourree_bass(low: list[NoteEvent], ctx: _Ctx) -> list[NoteEvent]:
+    """A quarter-led half eases the answering pair. An all-eighth half eases later staccato notes.
+
+    The note that opens the half tells the two shapes apart. Lead is not touched.
+    """
+    steps_at: dict[int, int] = {}
+    for origin, span in _bourree_cells(ctx):
+        start_beat = origin / 2.0
+        end_beat = (origin + span) / 2.0
+        group = [
+            event
+            for event in low
+            if event.midi is not None and start_beat - 1e-6 <= event.beat < end_beat - 1e-6
+        ]
+        group.sort(key=lambda event: event.beat)
+        if not group:
+            continue
+        opener = group[0]
+        quarter = abs(opener.duration_beats - 1.0) < 1e-6
+        for event in group:
+            if event is opener:
+                continue
+            if quarter:
+                if event.staccato and abs(event.duration_beats - 0.5) < 1e-6:
+                    steps = 2
+                elif event.staccato or abs(event.duration_beats - 0.5) < 1e-6:
+                    steps = 1
+                else:
+                    steps = 0
+            else:
+                steps = 1 if event.staccato else 0
+            if steps:
+                steps_at[id(event)] = steps
+    if not steps_at:
+        return low
+    return [_micro_drop(event, steps_at[id(event)]) if id(event) in steps_at else event for event in low]
 
 
 def _render_bach_bourree_bar(
@@ -824,12 +896,65 @@ def _render_bach_bourree_bar(
         if tone is not None:
             support.extend(_eighth_event(eighth, 1, tone, epb, 2, _INNER))
     support, low = _shape_accompaniment(ctx, support, low)
+    low = _contour_bourree_bass(low, ctx)
     return lead, support, low
 
 
 
 def _gavotte_sung(ctx: _Ctx, eighth: int) -> int:
     return max(ctx.treble_floor, min(_bach_lead_high(ctx), _melody_at(ctx, eighth)))
+
+
+def _contour_gavotte(
+    lead: list[NoteEvent],
+    support: list[NoteEvent],
+    low: list[NoteEvent],
+    *,
+    weak_eighths: bool,
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    """Quantz: the staccato quarter falls in all three voices. Weak eighths fall in the lead and inner.
+
+    The long bass from eighth 4 is one note and stays put. Weak eighths drop only
+    while the new lead still clears that bass.
+    """
+    lead = list(lead)
+    support = list(support)
+    low = list(low)
+    groups = (
+        (lead, _attacks_at(lead, 1.0)),
+        (low, _attacks_at(low, 1.0)),
+        (support, _attacks_at(support, 1.0)),
+    )
+    levels = [
+        events[index].velocity
+        for events, indexes in groups
+        for index in indexes
+        if events[index].velocity is not None
+    ]
+    count = _shared_steps([level for level in levels if level is not None], 1)
+    if count:
+        for events, indexes in groups:
+            for index in indexes:
+                events[index] = _micro_drop(events[index], count)
+    if not weak_eighths:
+        return lead, support, low
+    for beat in (2.5, 3.5):
+        lead_at = _attacks_at(lead, beat)
+        if not lead_at:
+            continue
+        lead_vel = lead[lead_at[0]].velocity
+        if lead_vel is None:
+            continue
+        inner_at = _attacks_at(support, beat)
+        inner_vel = support[inner_at[0]].velocity if inner_at and support[inner_at[0]].velocity is not None else None
+        steps = _micro_fits(lead_vel, _covering_velocity(low, beat), inner_vel, 1)
+        if not steps:
+            continue
+        for index in lead_at:
+            lead[index] = _micro_drop(lead[index], steps)
+        for index in inner_at:
+            support[index] = _micro_drop(support[index], steps)
+    return lead, support, low
 
 
 def _render_bach_gavotte_bar(
@@ -908,6 +1033,7 @@ def _render_bach_gavotte_bar(
             previous_inner = tone
             support.extend(_eighth_event(eighth, 1, tone, epb, 2, _INNER))
     support, low = _shape_accompaniment(ctx, support, low)
+    lead, support, low = _contour_gavotte(lead, support, low, weak_eighths=ctx.kind == "4/4")
     return lead, support, low
 
 
@@ -962,12 +1088,13 @@ def _gavotte_tail_bass(ctx: _Ctx, chord: Chord, line: list[int]) -> int:
 
 
 def _mordent_events(ctx: _Ctx, eighth: int, principal: int, epb: int, velocity: int) -> list[NoteEvent]:
+    """The neighbor and the return sit under the principal before punch lifts only the principal."""
     neighbor = _ornament_neighbor(ctx, principal)
     base = eighth * 2
     events: list[NoteEvent] = []
     events.extend(_spell16(base, 1, principal, epb, 1, velocity, accent=True))
-    events.extend(_spell16(base + 1, 1, neighbor, epb, 1, velocity))
-    events.extend(_spell16(base + 2, 2, principal, epb, 1, velocity))
+    events.extend(_micro_drop(event, 2) for event in _spell16(base + 1, 1, neighbor, epb, 1, velocity))
+    events.extend(_micro_drop(event, 1) for event in _spell16(base + 2, 2, principal, epb, 1, velocity))
     return events
 
 
@@ -997,6 +1124,43 @@ def _sarabande_passes(ctx: _Ctx, bar: int, start: int, epb: int) -> bool:
         return True
     return (start + epb) in {item.start for item in ctx.phrases}
 
+
+
+def _contour_sarabande_passant(
+    lead: list[NoteEvent],
+    support: list[NoteEvent],
+    low: list[NoteEvent],
+    passing_offset: int,
+) -> list[NoteEvent]:
+    """Passing sixteenths stay on `_MELODY`. Every one except the last falls one step."""
+    passing_beat = passing_offset / 2.0
+    sixteenths = [
+        event
+        for event in lead
+        if event.midi is not None and event.duration_beats <= 0.3 and event.beat >= passing_beat - 1e-6
+    ]
+    if len(sixteenths) < 2:
+        return lead
+    last = max(event.beat for event in sixteenths)
+    updated: list[NoteEvent] = []
+    for event in lead:
+        if (
+            event.midi is None
+            or event.velocity is None
+            or event.duration_beats > 0.3
+            or event.beat < passing_beat - 1e-6
+            or event.beat >= last - 1e-6
+        ):
+            updated.append(event)
+            continue
+        steps = _micro_fits(
+            event.velocity,
+            _covering_velocity(low, event.beat),
+            _covering_velocity(support, event.beat),
+            1,
+        )
+        updated.append(_micro_drop(event, steps))
+    return updated
 
 
 def _render_bach_sarabande_bar(
@@ -1109,6 +1273,8 @@ def _render_bach_sarabande_bar(
     low = _punch(low, start + accent, epb, amount=8)
     support = _punch(support, start + accent, epb, amount=8)
     lead = _punch(lead, start + accent, epb, amount=8)
+    if scale:
+        lead = _contour_sarabande_passant(lead, support, low, passing)
     return lead, support, low
 
 
@@ -1132,6 +1298,34 @@ def _gigue_plan(ctx: _Ctx) -> dict:
         "scale_count": 8,
     }
 
+
+
+def _contour_gigue_pickups(
+    lead: list[NoteEvent],
+    support: list[NoteEvent],
+    low: list[NoteEvent],
+    plan: dict,
+) -> list[NoteEvent]:
+    """Pickup eighths fall one step before punch. Downbeats and the scale stay written."""
+    pickups = {offset for offset in plan["pickup"] if offset not in plan["down"]}
+    updated: list[NoteEvent] = []
+    for event in lead:
+        if (
+            event.midi is None
+            or event.velocity is None
+            or _eighth_of(event) not in pickups
+            or abs(event.duration_beats - 0.5) > 1e-6
+        ):
+            updated.append(event)
+            continue
+        steps = _micro_fits(
+            event.velocity,
+            _covering_velocity(low, event.beat),
+            _covering_velocity(support, event.beat),
+            1,
+        )
+        updated.append(_micro_drop(event, steps))
+    return updated
 
 
 def _render_bach_gigue_bar(
@@ -1211,6 +1405,7 @@ def _render_bach_gigue_bar(
             _spell16(start * 2 + slot, 1, pitch, epb, 1, _MELODY_APEX if index == 0 else _MELODY, accent=index == 0)
         )
     support, low = _shape_accompaniment(ctx, support, low)
+    lead = _contour_gigue_pickups(lead, support, low, plan)
     for offset in plan["down"]:
         lead = _punch(lead, start + offset, epb, amount=6)
         low = _punch(low, start + offset, epb, amount=6)
@@ -1339,7 +1534,8 @@ def _render_bach_chaconne_bar(
         lower, upper = _bariolage_pair(ctx, ctx.chord(bar), bass, beat_melody)
         base = start * 2 + quarter
         if quarter in slots:
-            lead.extend(_spell16(base, 2, beat_melody, epb, 1, _note_velocity(start + quarter // 2, 1, apex, phrase)))
+            on_vel = _note_velocity(start + quarter // 2, 1, apex, phrase)
+            lead.extend(_spell16(base, 2, beat_melody, epb, 1, on_vel))
             if lower is not None:
                 support.extend(_spell16(base + 1, 1, lower, epb, 2, _INNER))
             if upper is not None:
@@ -1347,7 +1543,7 @@ def _render_bach_chaconne_bar(
             top = beat_second if _quarter_ok([beat_melody, beat_second]) else beat_melody
             if not _playable([bass + ctx.semitones, top + ctx.semitones]):
                 top = beat_melody
-            lead.extend(_spell16(base + 3, 1, top, epb, 1, _MELODY))
+            lead.extend(_micro_drop(event, 1) for event in _spell16(base + 3, 1, top, epb, 1, on_vel))
         else:
             first = beat_melody
             second = beat_second if _quarter_ok([beat_melody, beat_second]) else beat_melody
@@ -1356,7 +1552,7 @@ def _render_bach_chaconne_bar(
             if not _playable([bass + ctx.semitones, second + ctx.semitones]):
                 second = first
             lead.extend(_spell16(base, 1, first, epb, 1, _MELODY))
-            lead.extend(_spell16(base + 2, 1, second, epb, 1, _MELODY))
+            lead.extend(_micro_drop(event, 1) for event in _spell16(base + 2, 1, second, epb, 1, _MELODY))
             if upper is not None:
                 support.extend(_spell16(base + 1, 1, upper, epb, 2, _INNER))
             if lower is not None:
@@ -1746,7 +1942,7 @@ def _render_bach_prelude_bar(
             velocity = _note_velocity(eighth, 1, apex, phrase)
             slot = eighth * 2
             lead.extend(_spell16(slot, 1, price, epb, 1, velocity))
-            lead.extend(_spell16(slot + 1, 1, neighbor, epb, 1, velocity))
+            lead.extend(_micro_drop(event, 1) for event in _spell16(slot + 1, 1, neighbor, epb, 1, velocity))
         sounding = [*prices, *neighbors]
         degrees = (0,) if index == 0 else (2, 1)
         bass, tone = _select_bass(ctx, chord, degrees, prices, sounding, want_third=True)
@@ -1853,6 +2049,50 @@ def _walk_bass(ctx: _Ctx, previous: int, ceiling: int) -> int | None:
     return None
 
 
+def _contour_allemande(
+    lead: list[NoteEvent],
+    support: list[NoteEvent],
+    low: list[NoteEvent],
+    epb: int,
+    walk_beats: list[float],
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    """The walking bass falls one step. Four pickup sixteenths rise into the next bar."""
+    low = list(low)
+    support = list(support)
+    bass_at: dict[float, int] = {}
+    for index, event in enumerate(low):
+        if event.midi is None or event.velocity is None:
+            continue
+        if not any(abs(event.beat - beat) < 1e-6 for beat in walk_beats):
+            continue
+        dropped = _micro_drop(event, 1)
+        low[index] = dropped
+        if dropped.velocity is not None:
+            bass_at[round(event.beat, 2)] = dropped.velocity
+    for index, event in enumerate(support):
+        if event.midi is None or event.velocity is None:
+            continue
+        for beat, bass_vel in bass_at.items():
+            if event.beat <= beat + 1e-6 < event.beat + event.duration_beats and bass_vel < event.velocity + _MICRO:
+                support[index] = replace(event, velocity=max(_MICRO_FLOOR, bass_vel - _MICRO))
+                break
+    pickup_beats = (3.0, 3.25, 3.5, 3.75) if epb >= 8 else (2.0, 2.25, 2.5, 2.75)
+    steps_for = {round(beat, 2): steps for beat, steps in zip(pickup_beats, (3, 2, 1, 0))}
+    shaped: list[NoteEvent] = []
+    for event in lead:
+        steps = steps_for.get(round(event.beat, 2))
+        if (
+            steps
+            and event.midi is not None
+            and event.velocity is not None
+            and abs(event.duration_beats - 0.25) < 1e-6
+        ):
+            shaped.append(_micro_drop(event, steps))
+        else:
+            shaped.append(event)
+    return shaped, support, low
+
+
 def _render_bach_allemande_bar(
     ctx: _Ctx, bar: int, apex: set[int], phrase: Phrase | None
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
@@ -1875,6 +2115,7 @@ def _render_bach_allemande_bar(
             lead.extend(_spell16(pickup * 2 + index, 1, pitch, epb, 1, _MELODY))
     chord = ctx.chord(bar)
     low: list[NoteEvent] = []
+    walk_beats: list[float] = []
     for offset, degree, duration in _allemande_bass_plan(ctx, passes):
         eighth = start + offset
         sung = _lead_during(lead, eighth, duration, epb) or [_lead_at(ctx, eighth)]
@@ -1888,6 +2129,7 @@ def _render_bach_allemande_bar(
             continue
         low.extend(_eighth_event(eighth, 1, bass, epb, 3, _BASS))
         low.extend(_eighth_event(eighth + 1, duration - 1, walk, epb, 3, _BASS))
+        walk_beats.append((offset + 1) / 2.0)
     support: list[NoteEvent] = []
     previous_inner: int | None = None
     pickup_at = epb - 2 if passes else None
@@ -1916,6 +2158,7 @@ def _render_bach_allemande_bar(
         previous_inner = tone
         support.extend(_eighth_event(eighth, duration, tone, epb, 2, _INNER))
     support, low = _shape_accompaniment(ctx, support, low)
+    lead, support, low = _contour_allemande(lead, support, low, epb, walk_beats)
     return lead, support, low
 
 
@@ -2124,6 +2367,61 @@ def _courante_span(ctx: _Ctx) -> tuple[int, int, int]:
     return min(3, epb), min(4, epb - 1), epb - 1
 
 
+def _contour_courante(
+    ctx: _Ctx,
+    lead: list[NoteEvent],
+    support: list[NoteEvent],
+    low: list[NoteEvent],
+    *,
+    closes: bool,
+) -> list[NoteEvent]:
+    """Hemiola eighths stay written. Weak eighths, the opening leap, and a tirata fall one step.
+
+    The whole-bar bass is not split. The drop is measured after the bass exists,
+    so a flat mf lead falls to 62 and still clears the bass.
+    """
+
+    def hemiola(eighth: int) -> bool:
+        if not closes:
+            return False
+        if ctx.kind == "3/4":
+            return eighth in {0, 3}
+        if ctx.kind == "6/8":
+            return eighth in {0, 2, 4}
+        return False
+
+    sixteenths = [
+        event for event in lead if event.midi is not None and event.duration_beats <= 0.3
+    ]
+    last_tirata = max((event.beat for event in sixteenths), default=None)
+    updated: list[NoteEvent] = []
+    for event in lead:
+        if event.midi is None or event.velocity is None:
+            updated.append(event)
+            continue
+        steps = 0
+        if event.duration_beats <= 0.3:
+            if last_tirata is not None and event.beat < last_tirata - 1e-6:
+                steps = 1
+        else:
+            eighth = _eighth_of(event)
+            weak_close = closes and ctx.kind in {"3/4", "6/8"} and not hemiola(eighth)
+            opening_leap = event.staccato and eighth == 1
+            if weak_close or opening_leap:
+                steps = 1
+        if not steps:
+            updated.append(event)
+            continue
+        allowed = _micro_fits(
+            event.velocity,
+            _covering_velocity(low, event.beat),
+            _covering_velocity(support, event.beat),
+            steps,
+        )
+        updated.append(_micro_drop(event, allowed))
+    return updated
+
+
 def _render_bach_courante_bar(
     ctx: _Ctx, bar: int, apex: set[int], phrase: Phrase | None
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
@@ -2204,6 +2502,7 @@ def _render_bach_courante_bar(
         support.extend(_eighth_event(start, epb, tone, epb, 2, _INNER))
     support, low = _shape_accompaniment(ctx, support, low)
     support = _softer_than_price(support, lead, epb)
+    lead = _contour_courante(ctx, lead, support, low, closes=closes)
     return lead, support, low
 
 
@@ -2221,6 +2520,10 @@ from app.sonify.guitar_patterns import (  # noqa: E402
     _inner_choices,
     _melody_at,
     _nearest,
+    _MICRO,
+    _MICRO_FLOOR,
+    _micro_drop,
+    _micro_fits,
     _note_velocity,
     _on_scale,
     _parallel,

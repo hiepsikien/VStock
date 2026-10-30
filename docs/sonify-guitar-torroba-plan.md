@@ -77,7 +77,7 @@ Vận tốc viết nằm trong band nylon hiện có: giai điệu `_MELODY` 64 
 - `backend/app/schemas.py`: hai `Literal` ensemble (recap và span).
 - `backend/app/sonify/harmony.py`: đăng ký `TorrobaDialect` trong `DIALECTS`. Guitar `classic` vẫn là Sor.
 - `backend/app/sonify/program.py`: `_PATTERN_TITLE` cho bốn pattern ở mục 5.
-- `backend/app/sonify/guitar_patterns.py`: bốn pattern vào `_FAMILY`. `_PROFILE` của cả bốn là `"torroba"`, để một cửa trần 65 phủ hết. Bốn dict fallback thêm `"torroba": "sonatina"`. Hôm nay ensemble lạ rơi về `"preludio"`. Bốn chỗ là cuối `_select_body`, cuối `_owning_pattern`, cuối `_fallback_body_pattern`, và đầu `headline_id`.
+- `backend/app/sonify/guitar_patterns.py`: bốn pattern vào `_FAMILY`. `_PROFILE` của cả bốn là `"torroba"`, để một cửa trần 65 phủ hết. Bốn dict fallback thêm `"torroba": "sonatina"`. Hôm nay ensemble lạ rơi về `"preludio"`. Bốn chỗ là cuối `_select_body`, cuối `_owning_pattern`, cuối `_fallback_body_pattern`, và đầu `headline_id`. Bốn dict đó không đủ. Tempo ngày là 96, còn `BARRIOS_TREMOLO_MIN_BPM` là 90. Trong `_select_body`, nhánh `ctx.bpm >= BARRIOS_TREMOLO_MIN_BPM and first_body` trả `"preludio"` trước khi tới dict cuối. `_dominant_pattern` và `_contrast_pattern` không có dict cuối: sau villa, chúng đi vào luật Barrios. Ba nhánh `ctx.ensemble == "torroba"` đứng cùng chỗ Bach và Brouwer, trước cửa BPM đó. Bảng mood của ba nhánh là mục 7.
 - `backend/app/sonify/guitar_wave.py`: bốn khóa `("torroba", pattern)` trong `PROFILES`, và nhánh `_is_target` ở mục 5. Thiếu khóa thì `profile_for` trả `None` và sóng động lực bị phẳng. `backend/tests/test_guitar_wave.py` so `set(PROFILES)` với `_EXPECTED`. Bốn khóa mới phải có trong tập đó.
 - `backend/app/sonify/guitar_scale_passages.py`: xem mục 6.
 - `backend/app/sonify/humanize.py`: `_clamp_guitar` để `torroba` cùng nhóm trần 73 với `bach` và `classic`. Hàm này chạy trong `audio.py`, sau `apply_guitar_wave`. Nốt nó đọc đã là vận tốc sau sóng. Nốt còn từ 64 trở xuống giữ từ 64 trở xuống. Nốt đã được snap lên trên 64 thì vào 69–73. Nhóm còn lại mở tới 79.
@@ -230,7 +230,7 @@ Hàng 4/4 áp cho mọi chương 4/4, không riêng `1D`: `1D` (96 BPM của Tor
 | Chương chậm 3/4, 60–72 BPM | `castillo` | `bridge` → `sonatina` |
 | Scherzo 6/8 | `calm` → `danza`. `rally` / `volatile` → `fandanguillo`. `selloff` → `castillo` | `trio` → `castillo` khi A là điệu. A đã là `castillo` thì B là `sonatina` |
 
-Fixture không khung (`_framed(ctx) == False`) đi `_select_body`. Torroba dùng cùng bảng mood theo từng câu: `calm` là `castillo`, `rally` và `selloff` là `sonatina`, `volatile` là `fandanguillo`, chương chậm là `castillo` với `bridge` là `sonatina`. Không có vân tay riêng kiểu Barrios `1D`.
+Fixture không khung (`_framed(ctx) == False`) đi `_select_body`. Torroba dùng cùng bảng mood theo từng câu: `calm` là `castillo`, `rally` và `selloff` là `sonatina`, `volatile` là `fandanguillo`, chương chậm là `castillo` với `bridge` là `sonatina`. Không có vân tay riêng kiểu Barrios `1D`. Nhánh `torroba` trong `_select_body` đứng trước `ctx.bpm >= BARRIOS_TREMOLO_MIN_BPM`. Nhánh trong `_dominant_pattern` và `_contrast_pattern` đứng trước `ctx.bpm < BARRIOS_TREMOLO_MIN_BPM`. Dict `"sonatina"` chỉ là lưới khi không còn câu để chọn.
 
 Intro và outro đi qua `guitar_frame.py`, cùng kiểu khung 2 ô và 4 ô của các nhà kia:
 

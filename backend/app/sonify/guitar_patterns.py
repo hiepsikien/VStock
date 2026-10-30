@@ -476,6 +476,56 @@ def _under_lead(lead_vel: int, band: str) -> tuple[int, int]:
     return support, bass
 
 
+# One heard step inside a bar. Four of these equal one dynamic degree.
+# The floor matches the accompaniment bed. A step that would land on the
+# voice below is refused rather than played through it.
+_MICRO = 2
+_MICRO_FLOOR = 40
+
+
+def _micro_drop(event: NoteEvent, steps: int) -> NoteEvent:
+    """Lower one attack by `steps` micro degrees. The written level stays put at steps 0."""
+    if steps <= 0 or event.midi is None or event.velocity is None:
+        return event
+    velocity = max(_MICRO_FLOOR, event.velocity - steps * _MICRO)
+    if velocity == event.velocity:
+        return event
+    return replace(event, velocity=velocity)
+
+
+def _micro_fits(lead: int, bass: int | None, support: int | None, steps: int) -> int:
+    """Largest step count that keeps lead > bass > support by at least `_MICRO`.
+
+    `steps` is how far the lead may fall. Bass and support stay where they are.
+    A missing voice is not a constraint. No room returns 0.
+    """
+    if steps <= 0:
+        return 0
+    for count in range(steps, -1, -1):
+        heard = lead - count * _MICRO
+        if heard < _MICRO_FLOOR:
+            continue
+        if bass is not None and heard < bass + _MICRO:
+            continue
+        if support is not None and bass is not None and bass < support + _MICRO:
+            continue
+        if support is not None and bass is None and heard < support + _MICRO:
+            continue
+        return count
+    return 0
+
+
+def _micro_raise(event: NoteEvent, steps: int, ceiling: int) -> NoteEvent:
+    """Noviembre only. Raise the first pulse, and stop at `min(64, ceiling)`."""
+    if steps <= 0 or event.midi is None or event.velocity is None:
+        return event
+    cap = min(64, ceiling)
+    velocity = min(cap, event.velocity + steps * _MICRO)
+    if velocity <= event.velocity:
+        return event
+    return replace(event, velocity=velocity)
+
+
 def _covering_melody_velocity(ctx: _Ctx, eighth: int, breaks: set[int] | None = None) -> int:
     """Velocity of the melody note that is already sounding at this eighth."""
     phrase = _phrase_at(ctx, eighth)
@@ -3403,6 +3453,29 @@ def _smooth_boundaries(ctx: _Ctx, patterns, lead, support, low, scale_eighths: s
 # on the way into the volume wave.
 _TREMOLO_BAND = {"p": -6, "mp": -3, "mf": 0, "f": 3}
 
+# Patterns whose bar already carries a micro contour. One phrase extra for the
+# whole bar keeps those gaps; a per-eighth extra cancels them.
+_WHOLE_BAR_EXTRA = frozenset({
+    "galop",
+    "bach_bourree",
+    "bach_gavotte",
+    "bach_sarabande",
+    "bach_gigue",
+    "bach_prelude",
+    "bach_allemande",
+    "bach_courante",
+    "bach_chaconne",
+    "elegiaque",
+    "mozart_var",
+    "vals",
+    "noviembre",
+    "brouwer_etude",
+    # Torroba dances write a strong-beat gap of 4. One extra keeps that gap
+    # when this branch meets the Torroba patterns.
+    "danza",
+    "fandanguillo",
+})
+
 
 def _shape_dynamics(
     ctx: _Ctx,
@@ -3450,14 +3523,11 @@ def _shape_dynamics(
             if phrase is None:
                 shaped.append(event)
                 continue
-            # Galop already carries a beat contour. One extra for the whole bar
-            # keeps that contour; a per-eighth extra cancels the two-step gaps.
+            # Galop already carries a beat contour. Every pattern that receives
+            # a section-5 contour does too. One extra for the whole bar keeps
+            # that contour; a per-eighth extra cancels the two-step gaps.
             anchor = eighth
-            if patterns is not None and _bar_pattern(ctx, event.bar, patterns) in {
-                "galop",
-                "danza",
-                "fandanguillo",
-            }:
+            if patterns is not None and _bar_pattern(ctx, event.bar, patterns) in _WHOLE_BAR_EXTRA:
                 anchor = event.bar * ctx.epb
             extra = round(4 * swell(phrase, min(max(anchor, phrase.start), phrase.end - 1)))
             if extra == 0:
