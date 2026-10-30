@@ -236,6 +236,17 @@ def _dance_velocity(ctx: _Ctx, eighth: int, role: str, *, sync: bool) -> int:
 
 
 
+def _contour_vals_bass(low: list[NoteEvent]) -> list[NoteEvent]:
+    """The fifth at beat 1.5 falls one step. The sync at beat 2 keeps its accent and its lift."""
+    updated: list[NoteEvent] = []
+    for event in low:
+        if event.midi is not None and not event.accent and abs(event.beat - 1.5) < 1e-6:
+            updated.append(_micro_drop(event, 1))
+        else:
+            updated.append(event)
+    return updated
+
+
 def _render_vals_bar(
     ctx: _Ctx, bar: int, patterns: list[str], apex: set[int]
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
@@ -295,6 +306,7 @@ def _render_vals_bar(
         if breath is not None and bar * ctx.epb <= breath < (bar + 1) * ctx.epb:
             local = (breath - bar * ctx.epb) * 0.5
             support = [event for event in support if not local <= event.beat < local + 0.5]
+    low = _contour_vals_bass(low)
     return lead, support, low
 
 
@@ -1451,6 +1463,7 @@ from app.sonify.guitar_patterns import (  # noqa: E402
     _inner_choices,
     _melody_activity,
     _melody_at,
+    _micro_drop,
     _note_velocity,
     _on_scale,
     _owner,

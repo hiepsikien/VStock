@@ -874,6 +874,24 @@ def _mozart_inner(
 
 
 
+def _contour_mozart_diminution(support: list[NoteEvent], beats: set[float]) -> list[NoteEvent]:
+    """Connecting sixteenths fall one step. Structural eighths stay even."""
+    if not beats:
+        return support
+    updated: list[NoteEvent] = []
+    for event in support:
+        if (
+            event.midi is not None
+            and event.velocity is not None
+            and abs(event.duration_beats - 0.25) < 1e-6
+            and round(event.beat, 2) in beats
+        ):
+            updated.append(_micro_drop(event, 1))
+        else:
+            updated.append(event)
+    return updated
+
+
 def _render_mozart_var_bar(
     ctx: _Ctx, bar: int, apex: set[int], phrase: Phrase | None
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
@@ -929,6 +947,7 @@ def _render_mozart_var_bar(
         if filtered:
             pools[idx] = filtered
     support: list[NoteEvent] = []
+    diminutions: set[float] = set()
     previous: int | None = None
     previous_offset: int | None = None
     previous_melody: int | None = None
@@ -986,6 +1005,9 @@ def _render_mozart_var_bar(
                 if len(bridge) == 1:
                     support.extend(_eighth_event(bridge_eighth, 1, bridge[0], ctx.epb, 2, _INNER))
                 else:
+                    gap_beat = (bridge_eighth - start) / 2.0
+                    diminutions.add(round(gap_beat, 2))
+                    diminutions.add(round(gap_beat + 0.25, 2))
                     support.extend(_spell16(bridge_eighth * 2, 1, bridge[0], ctx.epb, 2, _INNER))
                     support.extend(_spell16(bridge_eighth * 2 + 1, 1, bridge[1], ctx.epb, 2, _INNER))
             else:
@@ -1001,7 +1023,10 @@ def _render_mozart_var_bar(
                         tie_stop=False,
                     )
                 )
+                diminutions.add(round(held.beat + 0.25, 2))
                 if len(bridge) >= 2:
+                    dest = offset / 2.0
+                    diminutions.add(round(dest, 2))
                     support.extend(_spell16((start + offset) * 2, 1, bridge[1], ctx.epb, 2, _INNER))
                     support.extend(_spell16((start + offset) * 2 + 1, 1, tone, ctx.epb, 2, _INNER))
                     previous = tone
@@ -1013,6 +1038,7 @@ def _render_mozart_var_bar(
         previous_offset = offset
         previous_melody = melody
     support, low = _shape_accompaniment(ctx, support, low)
+    support = _contour_mozart_diminution(support, diminutions)
     part_lead = _sustain(ctx.melody, start, start + ctx.epb, ctx.epb, apex, phrase=phrase)
     return part_lead, support, low
 
@@ -1220,6 +1246,37 @@ def _elegiaque_bass_pitch(
     return preferred
 
 
+def _contour_elegiaque_march(
+    support: list[NoteEvent], low: list[NoteEvent]
+) -> tuple[list[NoteEvent], list[NoteEvent]]:
+    """Long notes at the half are heavier than the short eighths. A colliding inner note yields."""
+    low = list(low)
+    support = list(support)
+    for index, event in enumerate(low):
+        if event.midi is None or event.velocity is None:
+            continue
+        if abs(event.duration_beats - 0.5) < 1e-6:
+            steps = 2
+        elif abs(event.beat) < 1e-6:
+            steps = 0
+        else:
+            steps = 1
+        low[index] = _micro_drop(event, steps)
+    for index, event in enumerate(support):
+        if event.midi is None or event.velocity is None:
+            continue
+        bass_vel: int | None = None
+        for bass in low:
+            if bass.midi is None or bass.velocity is None:
+                continue
+            if bass.beat <= event.beat + 1e-6 < bass.beat + bass.duration_beats:
+                bass_vel = bass.velocity
+                break
+        if bass_vel is not None and bass_vel < event.velocity + _MICRO:
+            support[index] = replace(event, velocity=max(_MICRO_FLOOR, bass_vel - _MICRO))
+    return support, low
+
+
 def _render_elegiaque_bar(
     ctx: _Ctx,
     bar: int,
@@ -1323,7 +1380,10 @@ def _render_elegiaque_bar(
         previous_inner = tone
         previous_bass = bass
         support.extend(_eighth_event(eighth, 1, tone, ctx.epb, 2, _INNER))
-    return _shape_accompaniment(ctx, support, low)
+    support, low = _shape_accompaniment(ctx, support, low)
+    if not sustain:
+        support, low = _contour_elegiaque_march(support, low)
+    return support, low
 
 
 
@@ -1650,8 +1710,11 @@ from app.sonify.guitar_patterns import (  # noqa: E402
     _fit,
     _inner_choices,
     _inner_eighths,
+    _MICRO,
+    _MICRO_FLOOR,
     _melody_at,
     _melody_scale,
+    _micro_drop,
     _nearest,
     _note_velocity,
     _on_scale,
