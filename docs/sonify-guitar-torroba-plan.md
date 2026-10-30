@@ -1,6 +1,6 @@
 # Kế hoạch: Federico Moreno Torroba (`ensemble = "torroba"`)
 
-> **Trạng thái**: chưa triển khai. Tài liệu này là thiết kế, chưa có dialect hay pattern trong code.
+> **Trạng thái**: nền tảng (dialect, 4 pattern cơ sở, La♭ trên Sol, Picardy) đã hát trên `main`. Mở rộng câu, vòng quay đầu và 4 kiểu kết cấu *Sonatina* tổ hợp câu nằm ở [`docs/sonify-guitar-torroba-phrase-plan.md`](./sonify-guitar-torroba-phrase-plan.md).
 > **Nguồn phác thảo**: [`docs/torroba.txt`](./torroba.txt).
 > **Khung đang chạy**: [`docs/sonify-classical-guitar.md`](./sonify-classical-guitar.md). Một nhà là một dialect hòa âm cộng một palette pattern. Thân bài khóa một pattern theo mood. Bè cao là đường giá, đọc bằng `_melody_at`.
 
