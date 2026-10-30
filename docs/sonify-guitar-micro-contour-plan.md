@@ -16,9 +16,11 @@ Câu phi dâng về cuối ô là của *Galop* Op. 32 No. 6. Điệu khác gi�
 
 Hạ nốt yếu. Giữ nốt mạnh ở mức đã viết. Nốt viết trên 64 đi vào cửa móng. Nâng phách mạnh sẽ biến một nốt ấm thành snap.
 
-Sàn là 40. Sau khi hạ, thứ tự trong một tiếng vẫn là lead > bass > bè trong, mỗi cặp cách ít nhất 2. Ở `mf` khoảng lead–bass khoảng 8, bậc 2 và bậc 4 còn chỗ. Ở `f`, bass đã là `lead − 2`. Hết chỗ thì bỏ bậc của riêng lead, hoặc hạ cả ba bè cùng một số khi cả ba là một hình nốt. Câu hát đã viết 4 đến 8 vẫn lớn hơn bậc vi mô: nốt đỉnh câu giữ đỉnh.
+Sàn là 40. Sau khi hạ, thứ tự trong một tiếng vẫn là lead > bass > bè trong, mỗi cặp cách ít nhất 2. Đầu `guitar_bach.py`, `guitar_sor.py` và `guitar_brouwer.py` gán `_BASS = 56`, `_INNER = 46`, rồi import đè từ `guitar_patterns`. Hằng số sống là của `guitar.py`: `_BASS = 60`, `_INNER = 56`. `_under_lead(64, "mf")` ra bass 60, bè trong 56. Khoảng lead–bass ở `mf` là 4. Bậc 2 còn chỗ. Bậc 4 chạm bè dưới. Ở `f`, bass đã là `lead − 2`. Hết chỗ thì bỏ bậc của riêng lead, hoặc hạ cả ba bè cùng một số khi cả ba là một hình nốt. Câu hát đã viết 4 đến 8 vẫn lớn hơn bậc vi mô: nốt đỉnh câu giữ đỉnh.
 
-Passage scale thay lead trên eighth của passage và trồng lại bass trên `ctx.strong`. Bậc vi mô là phần ô passage không đè. Không đổi `select_scale_plan`.
+`_shape_dynamics` chạy sau renderer, trước sóng. Extra của câu đang lên cộng theo từng móc, và extra đó xóa bậc trong ô. Mọi pattern nhận contour ở mục 5 đi cùng nhánh Galop: một extra cho cả ô, lấy ở móc đầu.
+
+Passage scale thay lead trên eighth của passage và trồng lại bass trên `ctx.strong`. Bậc vi mô là phần ô passage không đè. Không đổi `select_scale_plan`. `_smooth_boundaries` và `_transitions` không san lực trong thân ô. Chúng có thể thay móc cuối ô biên bằng pickup sau khi renderer trả về.
 
 Test khóa **hiệu trong ô**, cùng kiểu `test_galop_beats_keep_a_micro_velocity_contour`. Sóng dời cả ô bằng một số. Khóa số tuyệt đối sẽ gãy khi tâm ô đổi.
 
@@ -97,7 +99,11 @@ Hình đang có trong `test_bach_bourree_walks_under_a_hold_and_sits_under_a_run
 
 Bè trong chỉ đánh ở đầu nửa ô, đúng nốt không bị hạ. Lead không đụng.
 
-Ô giá giữ, bass `mf`: móc `1.0` thấp hơn nốt đen `0.0` đúng 4, móc `1.5` thấp hơn nốt đen đúng 2. Nửa sau `2.0 / 3.0 / 3.5` lặp cùng hiệu. Ô giá chạy: nốt đen `1.0` và `3.0` thấp hơn nốt đen `0.0` đúng 2.
+`_contour_bourree_bass` không nhìn mỗi cặp `(duration 0.5, staccato)`. Cặp sau nốt đen hạ móc staccato 2 bậc và móc sau 1 bậc. Nửa ô toàn móc đơn giữ nốt đầu, rồi hạ các móc staccato sau 1 bậc. Nốt mở nửa ô phân biệt hai hình: nốt đen là cặp, móc đơn là nửa ô móc đơn.
+
+Ô 0 của `test_bach_bourree_walks_under_a_hold_and_sits_under_a_running_treble` là câu phẳng `[72] * 8`. Bass `mf` là 60. Móc `1.0` thấp hơn nốt đen `0.0` đúng 4, móc `1.5` thấp hơn đúng 2. Nửa sau `2.0 / 3.0 / 3.5` lặp cùng hiệu.
+
+Ô 1 của test đó là câu chạy, `rise` 7, trên `MIN_RISE`. `_under_lead` ở móc 0 ra bass 58, các móc sau ra 60. Trên ô đó nốt đen `1.0` không thấp hơn `0.0` đúng 2. Fixture lực của hình giá chạy là một câu có `rise < MIN_RISE`, để mọi móc cùng một mức lead. Câu lên thật giữ bậc nhờ extra cả ô ở mục 1.
 
 ### 5.2. Bach, Gavotte — nốt tốt và nốt xấu
 
@@ -111,7 +117,7 @@ Bè trong chỉ đánh ở đầu nửa ô, đúng nốt không bị hạ. Lead 
 | Móc đơn 5 và 7 | −1 | lead và bè song song |
 | Bass dài từ móc 4 | 0 | Một nốt ngân cả bốn móc, không tách |
 
-Hạ cả ba bè ở móc 2 để khoảng `lead > bass > bè trong` giữ nguyên. Ở bốn móc đơn, bass là một nốt. Hạ lead móc 5 và 7 chỉ khi mức mới còn cao hơn bass ít nhất 2. `mf` thì 64 xuống 62, bass khoảng 56, bậc còn. `f` thì bass đã sát lead, bỏ bậc lead đó.
+Hạ cả ba bè ở móc 2 để khoảng `lead > bass > bè trong` giữ nguyên. Ở bốn móc đơn, bass là một nốt. Hạ lead móc 5 và 7 chỉ khi mức mới còn cao hơn bass ít nhất 2. `mf` thì 64 xuống 62, bass là 60, còn đúng 2. `f` thì bass đã sát lead, bỏ bậc lead đó.
 
 Test trên `_bach([72] * 16, character="calm")`, band mặc định `mf`. Lead: `1.0` thấp hơn `0.0` đúng 2. `2.5` và `3.5` thấp hơn `2.0` đúng 2. `3.0` bằng `2.0`. Bass `1.0` thấp hơn bass `0.0` đúng 2. Bass từ `2.0` không tách.
 
@@ -155,19 +161,19 @@ Bốn móc kép cuối ô, đang viết `_MELODY` đều, trở thành nốt l�
 
 ### 5.7. Bach, Courante — tirata và hemiola
 
-Tirata đang gán mọi móc kép bằng `_note_velocity` của móc đơn chứa nó, nên hai móc kép trong một phách bằng nhau. Hạ mọi móc kép của run đúng 1, trừ móc cuối. Móc cuối là nốt tới, giữ mức viết. Không làm thang 2 từng nốt: run dài sẽ thành một chữ mới và nuốt nốt tới.
+Tirata đang gán mọi móc kép bằng `_note_velocity` của móc đơn chứa nó, nên hai móc kép trong một phách bằng nhau. Hạ mọi móc kép của run đúng 1, trừ móc cuối, sau shape. Móc cuối là nốt tới, giữ mức viết. Không làm thang 2 từng nốt: run dài sẽ thành một chữ mới và nuốt nốt tới.
 
 Ô đóng, `_courante_closes`, và meter là 3/4 hoặc 6/8. `hemiola()` đã gắn `accent` nhưng lực vẫn bằng nốt bên cạnh. 4/4 không có hemiola, hàm này đã trả false.
 
-Giữ nốt hemiola ở mức viết. Hạ móc đơn không thuộc hemiola đúng 2 bậc (lực −4), khi còn trên bass ít nhất 2.
+Giữ nốt hemiola ở mức viết. Bass courante là một nốt ngân cả ô, không tách theo móc. Ở `mf` câu phẳng, lead 64 cách bass 60 đúng 4. Hạ 2 bậc xuống 60 thì chạm bass. `_micro_fits` cho 1 bậc, lead yếu thành 62. Hạ sau `_shape_accompaniment` và `_softer_than_price`. `add_lead` chạy trước shape và chưa thấy bass, nên không tự trừ ở đó. Cờ `accent` của hemiola vẫn gắn trong `add_lead`.
 
-| Meter | Giữ | Hạ 2 bậc |
+| Meter | Giữ | Hạ 1 bậc |
 |---|---|---|
 | 3/4 | móc 0 và 3 | các móc đơn còn lại của ô đóng |
 | 6/8 | móc 0, 2, 4 | móc 1, 3, 5 |
 | 4/4 | cả ô | không hemiola |
 
-Cặp mở đầu cùng cao độ, nốt nhảy staccato ở móc 1: hạ 1. Nốt móc 0 giữ.
+Tirata vẫn hạ 1 bậc trừ nốt cuối, cũng sau shape, cùng `_micro_fits`. Cặp mở đầu cùng cao độ, nốt nhảy staccato ở móc 1, hạ 1 bậc cùng lúc. Nốt móc 0 giữ.
 
 ### 5.8. Bach, Chaconne — móc kép lệch trong phách
 
@@ -185,9 +191,11 @@ Nhánh có bass ở đầu nhóm: móc `base` giữ `_note_velocity`, móc `base
 |---|---|
 | Nốt dài ở móc 0 | 0 |
 | Nốt dài ở nửa sau: móc 4 của 4/4, móc 3 của 6/8, móc 4 của 3/4 | −1 |
-| Nốt ngắn, dài nửa móc đơn trở xuống | −2 |
+| Nốt ngắn, một móc đơn (`duration_beats` 0.5) | −2 |
 
-4/4, đúng test phase 1: phách `0.0` là mốc, `2.0` thấp hơn 2, `1.5` và `3.5` thấp hơn 4. Bè trong giữ. Nếu nốt ngắn sắp chạm bè trong, rút bậc để bass còn cao hơn bè trong ít nhất 2.
+4/4, `mf`, câu phẳng: bass phách `0.0` là 60, phách `2.0` là 58, phách `1.5` và `3.5` là 56.
+
+`thinner` của `mf` là `mp`. `_inner_eighths` đặt bè trong 56 tại móc 1, 3 và 6, tức phách `0.5`, `1.5`, `3.0`. Phách `1.5` là nốt ngắn và có bè trong cùng tiếng. Hạ bass 2 bậc xuống 56 thì chạm bè trong. Hạ bè trong ở đúng móc đó thêm 1 bậc, xuống 54, để nốt ngắn giữ −2 và còn cao hơn bè trong đúng 2. Phách `3.0` nằm trên nốt dài đã hạ 1, bass 58 vẫn cao hơn bè trong 56. Phách `3.5` không có bè trong.
 
 ### 5.10. Sor, biến tấu Op. 9 — nốt láy
 
@@ -210,7 +218,7 @@ Bass gốc ở `0.0` là mốc. Bass quãng 5 ở `1.5`, không sync, hạ 1. B�
 
 `_render_noviembre_bar`. Hai xung bass, 4/4 ở `0.0` và `2.0`, đang cùng mức sau `_shape_accompaniment`. Nốt lấy đà cuối ô đã `_soften_attack` trừ 6. Test khóa `pulse ở 2.0 − pickup == 6`. Hạ xung `2.0` sẽ phá hiệu đó.
 
-Vì vậy nâng xung đầu, `0.0`, đúng 1 bậc. Xung `2.0` và pickup đứng yên. Nâng chỉ khi bass mới còn dưới lead ít nhất 2 và không quá 64. Hết chỗ thì bỏ. `mf`, lead 64, bass 56: xung đầu thành 58, xung sau 56, pickup 50. Quầng bè trong giữ một mức.
+Vì vậy nâng xung đầu, `0.0`, đúng 1 bậc. Xung `2.0` và pickup đứng yên. Nâng chỉ khi bass mới còn dưới lead ít nhất 2 và không quá 64. Hết chỗ thì bỏ. `mf`, lead 64, bass 60: xung đầu thành 62, xung sau 60, pickup 54. `62` còn dưới lead đúng 2. Hiệu pickup giữ 6. Quầng bè trong giữ một mức.
 
 6/8 dùng xung `0` và `3`. Cùng luật: xung đầu +1 bậc, xung sau và pickup giữ.
 
@@ -262,6 +270,7 @@ def _micro_raise(event: NoteEvent, steps: int, ceiling: int) -> NoteEvent:
 | `_contour_vals_bass` | `_render_vals_bar`, trên nốt `beat == 1.5` không accent |
 | `_contour_noviembre_pulse` | `_render_noviembre_bar`, sau `_soften_attack`, chỉ xung bass đầu |
 | `_contour_tumbao` | `_render_etude_bar`, sau `_punch`, chỉ bass của tế bào giữa |
+| `_contour_courante` | `_render_bach_courante_bar`, sau shape và `_softer_than_price` |
 
 Sửa tại chỗ, vì nốt sinh ra đã là lead và punch diễn ra ngay sau:
 
@@ -271,9 +280,6 @@ Sửa tại chỗ, vì nốt sinh ra đã là lead và punch diễn ra ngay sau:
 | passant sarabande | mọi `_spell16` trừ nốt cuối, −1 bậc trên `_MELODY` |
 | gigue, nhánh `offset in plan["pickup"]` | `_note_velocity − _MICRO` trước punch |
 | prelude, `_spell16` của neighbor | `velocity − _MICRO` |
-| courante, vòng `rhythm` | mọi index trừ index cuối, −1 bậc |
-| courante, `add_lead` khi `hemiola` sai trên ô đóng | −2 bậc |
-| courante, `add_lead(..., staccato=True)` của cú nhảy | −1 bậc |
 | chaconne, móc kép lệch trong nhóm | mức móc đúng phách trừ `_MICRO` |
 
 Không thêm cờ `NoteEvent`. Set beat của biến tấu là biến cục trong `_render_mozart_var_bar`.
@@ -282,7 +288,7 @@ Không thêm cờ `NoteEvent`. Set beat của biến tấu là biến cục tron
 
 ## 7. Thứ tự làm
 
-1. Helper và `_micro_fits`. Chưa gắn pattern. Test đơn vị: bậc 1 trên 64 ra 62, sàn 40 chặn, khoảng bass 2 thì bậc lead bị rút về 0.
+1. Helper và `_micro_fits`. Chưa gắn pattern. Test đơn vị: bậc 1 trên 64 ra 62, sàn 40 chặn, khoảng bass 2 thì bậc lead bị rút về 0. `_under_lead(64, "mf")` là bass 60, bè trong 56. Nhánh extra cả ô trong `_shape_dynamics` nhận thêm các pattern của mục 5.
 2. Bourrée, Gavotte, Gigue. Ba điệu này chỉ là nhịp, dễ nghe lệch nếu gắn sai bè.
 3. Mordent, passant, prelude, allemande, courante, chaconne.
 4. Élégiaque và biến tấu Op. 9.
