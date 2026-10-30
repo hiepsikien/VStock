@@ -46,10 +46,8 @@ def _torroba_contrast(ctx, primary: str) -> str:
     """The other formal area. Slow writing answers with the sonatina."""
     if ctx.bpm <= 72:
         return "sonatina"
-    if ctx.kind == "6/8" and ctx.bpm > 72:
-        if primary in {"danza", "fandanguillo"}:
-            return "castillo"
-        return "sonatina"
+    if ctx.kind == "6/8" and ctx.bpm > 72 and primary in {"danza", "fandanguillo"}:
+        return "castillo"
     if primary == "castillo":
         return "sonatina"
     return "castillo"
@@ -334,6 +332,29 @@ def _into_strong(ctx, target: int, eighth: int, phrase, *, run: bool) -> list[No
     return events
 
 
+def _slur_leave(event: NoteEvent) -> NoteEvent:
+    """The slur starts here, or keeps going if this note was its end."""
+    if event.slur_stop:
+        return replace(event, slur_stop=False)
+    if event.slur_start:
+        return event
+    return replace(event, slur_start=True)
+
+
+def _slur_arrive(event: NoteEvent) -> NoteEvent:
+    """The slur ends here, unless this note already opens a later one.
+
+    A note never carries both flags. `musicxml.py` writes `start` before `stop`
+    on one slur number, so both flags on the middle note close an empty slur
+    and leave the earlier one open.
+    """
+    if event.slur_start:
+        return replace(event, slur_start=False)
+    if event.slur_stop:
+        return event
+    return replace(event, slur_stop=True)
+
+
 def _render_sonatina_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
     epb = ctx.epb
     origin = bar * epb
@@ -341,7 +362,6 @@ def _render_sonatina_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[N
     lead: list[NoteEvent] = []
     support: list[NoteEvent] = []
     low: list[NoteEvent] = []
-    blocked: set[int] = set()
     prev_midi = None
     prev_at: int | None = None
     for offset in strong:
@@ -362,13 +382,10 @@ def _render_sonatina_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[N
                 approaches = _into_strong(ctx, midi, eighth, phrase, run=run)
                 if approaches:
                     lead.extend(approaches)
-                    event = replace(event, slur_stop=True)
-                    blocked.add(offset - 1)
-                    if run and offset >= 2:
-                        blocked.add(offset - 2)
-            elif gap <= 2 and prev_at is not None:
-                lead[prev_at] = replace(lead[prev_at], slur_start=True)
-                event = replace(event, slur_stop=True)
+                    event = _slur_arrive(event)
+            elif 1 <= gap <= 2 and prev_at is not None:
+                lead[prev_at] = _slur_leave(lead[prev_at])
+                event = _slur_arrive(event)
         prev_at = len(lead)
         lead.append(event)
         prev_midi = midi
@@ -383,7 +400,7 @@ def _render_sonatina_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[N
         if bass is not None:
             low.append(_bass_event(eighth, bass, epb, bass_vel))
     inners = _thin(
-        [offset for offset in range(epb) if offset not in set(ctx.strong) and offset not in blocked],
+        [offset for offset in range(epb) if offset not in set(ctx.strong)],
         bar,
     )
     prev = None
@@ -397,6 +414,11 @@ def _render_sonatina_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[N
         if inner is None:
             continue
         support.append(_support_event(origin + offset, inner, epb, _bed(64, band)[0]))
+    sixteenths = [event for event in lead if abs((event.duration_beats or 0) - 0.25) < 1e-6]
+    if sixteenths:
+        window_start = min(_start16(event, epb) for event in sixteenths)
+        window_end = max(_start16(event, epb) + 1 for event in sixteenths)
+        support = _clear_support(support, window_start, window_end, epb)
     lead.sort(key=lambda event: (event.beat, event.duration_beats))
     return lead, support, low
 
@@ -602,17 +624,17 @@ def apply_sonatina_downbeats(ctx, lead, support, patterns):
             arrival = _price_note(lead, eighth, epb)
             lead.extend(approaches)
             if arrival is not None:
-                lead[arrival] = replace(lead[arrival], slur_stop=True)
+                lead[arrival] = _slur_arrive(lead[arrival])
             start = min(_start16(event, epb) for event in approaches)
             end = max(_start16(event, epb) + 1 for event in approaches)
             support = _clear_support(support, start, end, epb)
             continue
-        if gap <= 2:
+        if 1 <= gap <= 2:
             arrival = _price_note(lead, eighth, epb)
             if prev_index is not None:
-                lead[prev_index] = replace(lead[prev_index], slur_start=True)
+                lead[prev_index] = _slur_leave(lead[prev_index])
             if arrival is not None:
-                lead[arrival] = replace(lead[arrival], slur_stop=True)
+                lead[arrival] = _slur_arrive(lead[arrival])
     return lead, support
 
 

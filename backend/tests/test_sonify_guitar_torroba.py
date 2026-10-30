@@ -413,6 +413,20 @@ def test_four_fallbacks_and_the_mood_map() -> None:
     assert _torroba_primary(four, "volatile", framed_macro=True) == "fandanguillo"
     assert "danza" != _torroba_primary(four, "calm", framed_macro=True)
     assert _torroba_contrast(scherzo, "danza") == "castillo"
+    assert _torroba_contrast(scherzo, "sonatina") == "castillo"
+    assert _torroba_contrast(scherzo, "castillo") == "sonatina"
+    bridge = FormSection(0, 1, "phrase", 0, bridge=True)
+    unframed = _ctx(
+        melody=[64] * 6,
+        phrase=_joined(0, [64] * 6),
+        kind="6/8",
+        epb=6,
+        strong=(0, 3),
+        character="rally",
+        bar_beats=3,
+    )
+    assert _select_body(unframed, unframed.phrases[0], first_body=True, previous=[], section=None) == "sonatina"
+    assert _select_body(unframed, unframed.phrases[0], first_body=True, previous=[], section=bridge) == "castillo"
     assert _torroba_contrast(four, "castillo") == "sonatina"
     assert _torroba_contrast(slow, "castillo") == "sonatina"
 
@@ -889,3 +903,90 @@ def test_sonatina_downbeat_leap_step_run_and_castillo_hold() -> None:
     assert leap_pickup[0].slur_start
     leap_arrival = [note for note in held_leap.lead if note.bar == 1 and abs(note.beat) < 1e-6 and note.duration_beats >= 0.5]
     assert len(leap_arrival) == 1 and leap_arrival[0].midi == 72 and leap_arrival[0].slur_stop
+
+
+def _strong(score_or_notes, bar: int, beat: float):
+    notes = score_or_notes.lead if hasattr(score_or_notes, "lead") else score_or_notes
+    found = [
+        note
+        for note in notes
+        if note.bar == bar and abs(note.beat - beat) < 1e-6 and (note.duration_beats or 0) >= 0.5 and note.midi is not None
+    ]
+    assert len(found) == 1
+    return found[0]
+
+
+def test_sonatina_slur_is_one_arch_and_skips_a_repeated_note() -> None:
+    # G hears Ab, so these strong beats stay a semitone apart after quantization.
+    line = [67] * 4 + [68] * 4 + [67] * 4 + [68] * 4
+    score = _render(
+        line,
+        (_joined(0, line),),
+        chords={0: G, 1: G},
+        kinds={0: "phrase", 1: "phrase"},
+        mode="minor",
+        character="rally",
+    )
+    assert not any(note.slur_start and note.slur_stop for note in score.lead)
+    assert _strong(score, 0, 0.0).slur_start and not _strong(score, 0, 0.0).slur_stop
+    assert not _strong(score, 0, 2.0).slur_start and not _strong(score, 0, 2.0).slur_stop
+    assert not _strong(score, 1, 0.0).slur_start and not _strong(score, 1, 0.0).slur_stop
+    assert _strong(score, 1, 2.0).slur_stop and not _strong(score, 1, 2.0).slur_start
+    xml = score_to_musicxml(score)
+    slurs = [mark for mark in xml.split("<slur ") if mark.startswith("type=")]
+    assert [mark.split('"', 2)[1] for mark in slurs] == ["start", "stop"]
+
+    same = _two_bars([72] * 16, (_joined(0, [72] * 16),), {0: C, 1: C}, character="rally")
+    assert not any(note.slur_start or note.slur_stop for note in same.lead if note.midi is not None)
+
+    stepped = [72] * 8 + [68] * 4 + [67] * 4
+    joined = _render(
+        stepped,
+        (_joined(0, stepped),),
+        chords={0: C, 1: G},
+        kinds={0: "phrase", 1: "phrase"},
+        mode="minor",
+        character="rally",
+    )
+    pickup = [note for note in joined.lead if note.duration_beats == 0.25 and note.midi is not None]
+    assert len(pickup) == 1 and pickup[0].slur_start and not pickup[0].slur_stop
+    assert not _strong(joined, 1, 0.0).slur_start and not _strong(joined, 1, 0.0).slur_stop
+    assert _strong(joined, 1, 2.0).slur_stop and not _strong(joined, 1, 2.0).slur_start
+    assert not any(note.slur_start and note.slur_stop for note in joined.lead)
+
+
+def test_sonatina_pickup_rests_only_its_sixteenth() -> None:
+    leap = [74] * 4 + [67] * 4
+    phrase = _joined(0, leap)
+    ctx = _ctx(melody=leap, phrase=phrase, character="rally", chord=G)
+    with compose_meter(METER_44):
+        _lead, support, _low = _render_torroba_bar(ctx, 0, phrase, "sonatina")
+    assert any(abs(note.beat - 1.5) < 1e-6 and abs((note.duration_beats or 0) - 0.25) < 1e-6 for note in support)
+    assert not any(_covers_beat(note, 0, 1.75, 0.25) for note in support)
+
+
+def test_framed_scherzo_renders_danza() -> None:
+    pitches = [72] * 24
+    sections = (
+        FormSection(0, 1, "intro", 0),
+        FormSection(1, 3, "phrase", 0),
+        FormSection(3, 4, "outro", 0),
+    )
+    score = _render(
+        pitches,
+        (
+            _joined(0, pitches[:6], held=True),
+            _joined(6, pitches[6:18]),
+            _joined(18, pitches[18:]),
+        ),
+        chords={bar: C for bar in range(4)},
+        kinds={0: "intro", 1: "phrase", 2: "phrase", 3: "outro"},
+        mode="major",
+        character="calm",
+        bpm=96,
+        meter=METER_68,
+        sections=sections,
+    )
+    body = [note for note in score.lead if note.bar == 1 and note.staccato and note.midi is not None]
+    assert {round(note.beat, 2) for note in body} == {0.0, 1.5}
+    assert_playable(score, profiles="torroba")
