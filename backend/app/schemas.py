@@ -113,6 +113,7 @@ class RecapResponse(BaseModel):
         "barrios",
         "brouwer",
         "bach",
+        "torroba",
     ] = "classic"
     durationSec: float
     mapDurationSec: float
@@ -166,6 +167,7 @@ class SpanResponse(BaseModel):
         "barrios",
         "brouwer",
         "bach",
+        "torroba",
     ] = "classic"
     movements: list[SpanMovementResponse]
     asOf: str = ""

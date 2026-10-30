@@ -1,8 +1,8 @@
 """Harmony dialects beside the tertian Markov catalog.
 
-`COMMON` is the symphony path. `bach`, `villa`, `barrios`, `brouwer`, and `sor`
-register in `DIALECTS`. Guitar `classic` resolves to `sor`. An unknown ensemble
-stays on `COMMON`.
+`COMMON` is the symphony path. `bach`, `villa`, `barrios`, `brouwer`, `sor`, and
+`torroba` register in `DIALECTS`. Guitar `classic` resolves to `sor`. An unknown
+ensemble stays on `COMMON`.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from app.sonify.chords import (
     CHORDS,
     D7,
     EF,
+    FM,
     KIND_OTHER,
     KIND_SUSPENDED_FOURTH,
     KIND_SUSPENDED_SECOND,
@@ -1083,18 +1084,137 @@ class BachDialect(HarmonyDialect):
         return 0.0
 
 
+# Andalucian loop. G→Cm is the strongest cadence. Pairs that touch Bb (minor)
+# or Bb/Fm (major) and are absent here are illegal, not a fallthrough to the
+# shared root table. Bb has no row in that table.
+_TORROBA_MINOR: dict[tuple[str, str], float] = {
+    ("Cm", "Bb"): 0.56,
+    ("Bb", "Ab"): 0.62,
+    ("Ab", "G"): 0.66,
+    ("Ab", "G7"): 0.60,
+    ("G", "Cm"): 0.74,
+    ("G7", "Cm"): 0.70,
+    ("Cm", "Fm"): 0.22,
+    ("Fm", "Cm"): 0.20,
+    ("Cm", "Eb"): 0.18,
+    ("Eb", "Cm"): 0.18,
+    ("Eb", "Ab"): 0.30,
+    ("Ab", "Eb"): 0.22,
+    ("Fm", "Ab"): 0.28,
+    ("Ab", "Fm"): 0.24,
+    ("Fm", "Eb"): 0.20,
+    ("Eb", "Fm"): 0.22,
+    ("Fm", "G"): 0.30,
+    ("G", "Fm"): 0.18,
+    ("Fm", "G7"): 0.28,
+    ("Eb", "G"): 0.24,
+    ("G", "Eb"): 0.16,
+    ("Eb", "G7"): 0.22,
+    ("G", "Ab"): 0.20,
+    ("Ab", "Cm"): 0.28,
+    ("Cm", "Ab"): 0.16,
+    ("Cm", "G"): 0.12,
+    ("Cm", "G7"): 0.10,
+}
+_TORROBA_MAJOR: dict[tuple[str, str], float] = {
+    ("C", "Bb"): 0.48,
+    ("Bb", "F"): 0.52,
+    ("F", "C"): 0.56,
+    ("C", "Fm"): 0.34,
+    ("Fm", "C"): 0.36,
+    ("Fm", "Bb"): 0.32,
+    ("Bb", "Fm"): 0.30,
+    ("F", "Fm"): 0.28,
+    ("Fm", "F"): 0.30,
+    ("Fm", "G"): 0.26,
+    ("G", "Fm"): 0.24,
+    ("Bb", "C"): 0.22,
+    ("F", "Bb"): 0.20,
+}
+_TORROBA_MINOR_TOUCH = frozenset({"Bb", "Bb7"})
+_TORROBA_MAJOR_TOUCH = frozenset({"Bb", "Bb7", "Fm", "Fm7"})
+_TORROBA_MINOR_BANNED = frozenset({"Cm7", "Fm7", "Ebmaj7", "Abmaj7", "Dm7b5", "F#dim7"})
+_TORROBA_MAJOR_BANNED = frozenset({
+    "Cmaj7", "Fmaj7", "Am7", "Dm7", "Em7", "Ab", "Eb", "Bb7", "Gm", "Bm7b5",
+})
+_TORROBA_DESCEND = frozenset({"Bb", "Ab", "G"})
+_TORROBA_LOOP = frozenset({"Cm", "Bb", "Ab", "G"})
+
+
+class TorrobaDialect(HarmonyDialect):
+    """Andalucian triads. No maj7, sus, or add9, and no Picardy C inside the phrase."""
+
+    name = "torroba"
+
+    def extra(self, mode: str) -> tuple[Chord, ...]:
+        if mode == "minor":
+            return (BF,)
+        return (BF, FM)
+
+    def transition(self, prev: Chord, curr: Chord, mode: str) -> float | None:
+        if mode == "minor":
+            key = (prev.name, curr.name)
+            if key in _TORROBA_MINOR:
+                return _TORROBA_MINOR[key]
+            # G7 stands only on the way into the cadence. Every other exit is closed,
+            # including exits that the shared minor table would otherwise allow.
+            if prev.name == "G7":
+                return 0.0
+            if prev.name in _TORROBA_MINOR_TOUCH or curr.name in _TORROBA_MINOR_TOUCH:
+                return 0.0
+            return None
+        key = (prev.name, curr.name)
+        if key in _TORROBA_MAJOR:
+            return _TORROBA_MAJOR[key]
+        if prev.name in _TORROBA_MAJOR_TOUCH or curr.name in _TORROBA_MAJOR_TOUCH:
+            return 0.0
+        return None
+
+    def allowed(
+        self,
+        chord: Chord,
+        *,
+        pedal: bool,
+        phrase_downbeat: bool,
+        character: MovementCharacter | None,
+        mode: str,
+    ) -> bool:
+        del phrase_downbeat, character
+        if pedal:
+            return chord.name == ("Cm" if mode == "minor" else "C")
+        if mode == "minor":
+            return chord.name not in _TORROBA_MINOR_BANNED
+        return chord.name not in _TORROBA_MAJOR_BANNED
+
+    def bias(
+        self,
+        chord: Chord,
+        character: MovementCharacter | None,
+        mode: str,
+        strong_pitch_classes: frozenset[int] = frozenset(),
+    ) -> float:
+        del strong_pitch_classes
+        if mode == "minor" and character == "selloff" and chord.name in _TORROBA_DESCEND:
+            return -0.04
+        if mode == "minor" and character == "rally" and chord.name in _TORROBA_LOOP:
+            return -0.02
+        return 0.0
+
+
 COMMON = HarmonyDialect()
 VILLA = VillaDialect()
 BARRIOS = BarriosDialect()
 BROUWER = BrouwerDialect()
 SOR = SorDialect()
 BACH = BachDialect()
+TORROBA = TorrobaDialect()
 DIALECTS: dict[str, HarmonyDialect] = {
     "bach": BACH,
     "villa": VILLA,
     "barrios": BARRIOS,
     "brouwer": BROUWER,
     "sor": SOR,
+    "torroba": TORROBA,
 }
 
 

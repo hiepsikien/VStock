@@ -73,6 +73,10 @@ const PATTERN_NAMES = new Set([
   'Chaconne',
   'Allemande',
   'Courante',
+  'Castillo',
+  'Sonatina',
+  'Fandanguillo',
+  'Danza',
 ]);
 
 export type ChartFocus = { start: number; end: number };
@@ -83,6 +87,7 @@ const GUITAR_BPM: Record<string, number> = {
   villa: 100,
   barrios: 120,
   brouwer: 108,
+  torroba: 96,
 };
 
 const METER_44 = { beats: 4, beatType: 4 };

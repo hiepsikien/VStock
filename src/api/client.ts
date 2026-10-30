@@ -433,7 +433,8 @@ export type RecapEnsemble =
   | 'bach'
   | 'villa'
   | 'barrios'
-  | 'brouwer';
+  | 'brouwer'
+  | 'torroba';
 
 export const ENSEMBLE_ROWS: Record<RecapVariant, { id: RecapEnsemble; label: string }[]> = {
   symphony: [
@@ -462,6 +463,7 @@ export const ENSEMBLE_ROWS: Record<RecapVariant, { id: RecapEnsemble; label: str
     { id: 'barrios', label: 'Barrios' },
     { id: 'villa', label: 'Lobos' },
     { id: 'brouwer', label: 'Brouwer' },
+    { id: 'torroba', label: 'Torroba' },
   ],
 };
 

@@ -113,6 +113,7 @@ def bar_quantization_loss(
     extra_weights: tuple[tuple[int, float], ...] = (),
     mode: str = "major",
     chord_name: str | None = None,
+    ensemble: str = "",
 ) -> float:
     """Weighted scale-step quantization loss for one 8-eighth bar under a candidate chord.
 
@@ -168,7 +169,13 @@ def bar_quantization_loss(
         while end < n and bar_pitches[end] == note:
             end += 1
         touches_strong = any(e in strong_run_eighths for e in range(cursor, end))
-        if note % 12 in pitch_classes:
+        heard = note % 12 in pitch_classes or (
+            ensemble == "torroba"
+            and mode == "minor"
+            and chord_name in ("G", "G7")
+            and note % 12 == 8
+        )
+        if heard:
             snapped = note
         else:
             step = 0 if prev_raw is None else note - prev_raw

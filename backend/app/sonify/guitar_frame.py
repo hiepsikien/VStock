@@ -88,6 +88,7 @@ def _frame_composer(ctx):
         "villa": _villa,
         "barrios": _barrios,
         "brouwer": _brouwer,
+        "torroba": _torroba,
     }.get(ctx.ensemble, _sor)
 
 
@@ -463,6 +464,16 @@ def _villa_outro_long(ctx, bar: int, role: int, index: int, bright: bool) -> lis
     if bright:
         return _stabs(ctx, bar, "I", _MF, release=True)
     return _bell_chord(ctx, bar, _P, picardy=False)
+
+
+def _torroba(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int) -> list[tuple]:
+    """Open bass and one sung price, or one strum into the body pattern."""
+    del index
+    if closing and ctx.mode == "minor" and role == steps - 1:
+        return _bell_chord(ctx, bar, _P, picardy=True)
+    from app.sonify.guitar_torroba import torroba_frame
+
+    return torroba_frame(ctx, bar)
 
 
 def _brouwer(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int) -> list[tuple]:
