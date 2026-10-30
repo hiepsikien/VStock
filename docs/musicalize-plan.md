@@ -4,16 +4,35 @@ Web app nghe nhạc trên engine sonify và API đang có. App Expo giữ vai tr
 
 Tài liệu này chốt sản phẩm v1, phong cách, và tech stack của mặt nghe. Tách dịch vụ, hàng đợi MuseScore và cache audio vẫn viết sau, khi phạm vi lớn hơn hai phòng.
 
+## Mặt nghe, đợt sửa
+
+Năm việc dưới đây khóa đợt sửa mặt nghe. Câu cũ hơn trong tài liệu này, nếu khác, làm theo mục này.
+
+1. **Tiêu đề tab.** Cột trái đã ghi Musicalize. Tab trình duyệt vẫn lấy tên app Expo từ `app.config.ts`: `VStock`, bản dev là `VStock (Dev)`. Repo không có chuỗi `VNext`. Trang nghe trên web đặt tiêu đề tài liệu là `Musicalize`. Tên app trên điện thoại giữ `VStock`. Không đổi `name` trong `app.config.ts`. Đặt tiêu đề từ entry web (`App.web.tsx` hoặc `MusicalizeApp`), không lấy từ app native.
+
+2. **Sóng hồng, chỉ trên `1D`, và chỉ trên thanh Phiên.** Sóng đang vẽ hai lần. Cả hai lần đều là `RecapManifest.peaks` của file đang phát. `ReplayRoom` truyền mảng đó vào `Stage` qua `wave` khi `span === '1D'`. `Sparkline` tô suốt chiều cao chart, căn giữa, phía sau đường giá. Cùng mảng đó vẽ lại trên thanh **Phiên** dưới cụm điều khiển (`Scrubber`). `1W` và dài hơn không truyền `wave`. Bỏ sóng khỏi chart giá. Giữ sóng trên thanh Phiên. Đợt này không thêm `peaks` cho span dài hơn.
+
+3. **Chip ngày của cột trái.** Hàng ngày `1D` trong `SymbolColumn` (Thứ 5 22/10, Thứ 6 23/10, …) là `ScrollView` ngang, không khóa chiều cao. Trên web ô ngày bị kéo thành cột cao, ô đang chọn thành một thanh hồng đặc. Làm chip thấp, chiều cao cố định, `alignSelf: 'flex-start'`, và khung nội dung ngang không kéo giãn các con. Khớp chip ngày thấp trong `SessionRecap` (`dayChip`), không phải cột đầy chiều cao. Chỉ cột trái Musicalize. Không đổi kiểu terminal cổ phiếu.
+
+4. **Tên chương ngoài đường.** VStock phủ tên bài và dòng chương lên chart (`PieceTitle` căn giữa, `playingLines` ở đáy `PriceChart`). Musicalize đang chép lớp đó trong `Stage`. Không làm vậy. Dòng chương ngồi dưới hoặc cạnh tên bài, ngoài `Sparkline`. Sân khấu chart là đường giá, playhead, trục, cursor, và dải khối lượng ở việc 5. Không vẽ tên và không vẽ chương đè lên đường. `pieceCopy` đã ghép chuỗi. Bài guitar một chương đưa điệu vào tên (`Sonatina HVN 23/10 in D` hoặc `Cathedral …`) và đặt `movement` là null. Không thêm dòng chương thứ hai cho `1D`. Bài nhiều chương đã có `movement`, ví dụ `Prelude — Sarabande — Prelude (3/4, 72 BPM)`, kèm nhịp và BPM, và có `Finale:` khi bản ghi vậy. Hiện dòng đó dưới hoặc cạnh tên, kể cả lúc đang phát. Nhạc cụ ở trạng thái intro và ẩn khi đang phát. Khối nhạc cụ cũng ngoài `Sparkline`. Không đổi `PriceChart` hay `SessionRecap`. Không đổi luật `pieceCopy`: một chương thì `movement === null`.
+
+5. **Dải khối lượng dưới đường giá.** Dưới đường giá chưa có khối lượng giao dịch. Cột hồng hôm nay là `peaks` của audio, không phải khối lượng khớp. `minute_series` trong `backend/app/services/sessions.py` trả `prices` và bỏ `bar.volume`. `get_span` gửi `prices=[round(bar.close, 2) for bar in movement.bars]` và bỏ khối lượng. `Bar.volume` có trên `backend/app/sonify/model.py`. Trong engine, khối lượng vẫn là lực tiếng. Dải này là hình của cùng số đó, không phải loại chuỗi người nghe chọn. Thêm mảng `volumes`, cùng độ dài và cùng thứ tự với `prices`:
+
+   - `SessionDetailResponse` và `minute_series`, cho `1D`.
+   - `SpanMovementResponse`, cho `1W` và dài hơn. Một giá trị mỗi nến. Client nối các chương cùng cách đang nối `prices`.
+
+   Vẽ dải cột cao khoảng 30px, sát đáy chart, màu trầm, không magenta. Cột thẳng chỉ số nến và cùng cửa sổ focus với đường giá. Cột không che đường: đường giữ khoảng phía trên dải. Thiếu `volumes` thì không vẽ dải. Crypto đang phát không có chuỗi khối lượng: không truyền, không vẽ dải. Không in số khối lượng, phần trăm, hay vốn hóa trên trang. Câu ở mục màn nghe, rằng phần trăm, khối lượng và vốn hóa không đặt lên màn này, vẫn đúng cho các số đọc đó. Dải 30px là ngoại lệ.
+
 ## Màn nghe
 
-Người nghe chọn nhạc trước. Mã và ngày giao dịch vẫn hiện, vì đó là dữ liệu đã sinh ra bài. Giá chỉ là thang trên trục dọc của chart. Phần trăm, khối lượng, vốn hóa, mở/cao/thấp và kết quả kinh doanh không đặt lên màn này.
+Người nghe chọn nhạc trước. Mã và ngày giao dịch vẫn hiện, vì đó là dữ liệu đã sinh ra bài. Giá chỉ là thang trên trục dọc của đường giá. Phần trăm, khối lượng, vốn hóa, mở/cao/thấp và kết quả kinh doanh không đặt lên màn này. Các số đọc đó vẫn không hiện. Ngoại lệ là dải cột khoảng 30px ở mục Mặt nghe, đợt sửa. Dải đó không in số.
 
 Thứ tự trên màn:
 
 1. **Thể loại, nhạc cụ, nghệ sĩ.** Đây là điều khiển chính.
 2. **Tên bài, chương, giọng, nhịp.** `pieceCopy` trong `src/sonify/program.ts` đã ghép các tên này.
 3. **Mã và ngày**, cùng dòng danh tính của bài. Bài dài hiện khung `1W`, `1M`, `3M`, `1Y`.
-4. **Sân khấu.** Đường dữ liệu và playhead để tai và mắt đi cùng một nhịp.
+4. **Sân khấu.** Đường giá, playhead, trục, cursor, và dải khối lượng khi có `volumes`. Tên bài không phủ lên đường.
 
 Nhãn thể loại và nhạc cụ lấy từ `ENSEMBLE_ROWS` trong `src/api/client.ts`:
 
@@ -27,20 +46,20 @@ Tên bài đã có: Bagatelle, Fantasia, Divertimento, Quintet, Serenade, Jazz, 
 
 ## Sân khấu giữ nguyên
 
-`PriceChart`, `Sparkline`, `PieceTitle` và playhead của `SessionRecap` / `SpanRecap` là sân khấu. Musicalize nhúng khối này, không vẽ chart mới.
+`Sparkline` và playhead vẫn là đường trên sân khấu. `PriceChart`, `PieceTitle` và `SessionRecap` của terminal giữ nguyên. Musicalize không nhúng tên bài vào `Stage`, và không vẽ chart mới thay `Sparkline`.
 
 Giữ nguyên:
 
 - Đường giá, vùng tô, nét chưa phát mờ đi khi đang nghe.
 - Vạch playhead theo thời gian audio, nhãn giờ trên đầu vạch.
-- Trước khi nghe: tên bài, nhạc cụ, chương nằm giữa sân khấu.
-- Khi đang phát: tên bài và chương ở góc dưới sân khấu.
+- Trước khi nghe: tên bài và nhạc cụ nằm ngoài `Sparkline`, dưới hoặc cạnh nhau. Dòng chương chỉ khi `movement` khác null. Nhạc cụ chỉ ở trạng thái này.
+- Khi đang phát: tên bài và dòng chương, khi có, vẫn ngoài `Sparkline`, cùng chỗ đó. Nhạc cụ ẩn. Không đưa tên về góc dưới chart.
 - Trục giá là cao nhất và thấp nhất, chữ phụ bên phải.
-- Khung `1D`, `1W`, `1M`, `3M`, `1Y` trên màn mã nằm trong `PriceChart` (`RANGES`, kèm `5Y`). Trên Musicalize, chọn khung và chọn ngày của bảy phiên `1D` nằm ở cột trái, cùng dòng mã. Sân khấu không vẽ thanh `RANGES`, nên `5Y` không xuất hiện. Đang phát không có khung ngày. Sân khấu lúc đó là `Sparkline` và trục giá.
+- Khung `1D`, `1W`, `1M`, `3M`, `1Y` trên màn mã nằm trong `PriceChart` (`RANGES`, kèm `5Y`). Trên Musicalize, chọn khung và chọn ngày của bảy phiên `1D` nằm ở cột trái, cùng dòng mã. Sân khấu không vẽ thanh `RANGES`, nên `5Y` không xuất hiện. Đang phát không có khung ngày. Sân khấu lúc đó là `Sparkline`, trục giá, và dải khối lượng khi có `volumes`.
 - Chương dài vẫn phóng đúng đoạn đang nghe (`chartFocus` khi `audible`).
 - Luồng bấm Nghe, backend soạn file, playhead dùng `mapDurationSec` và `ambientDailyCandleIndexAt`.
 
-Đài live hôm nay là `backend/app/sonify/player.html`, một canvas riêng với ô giá lớn. Trên Musicalize, băng crypto gắn vào cùng `Sparkline`: đường giá, playhead, trục min/max. Mã cặp nằm trên dòng đài.
+Đài live hôm nay là `backend/app/sonify/player.html`, một canvas riêng với ô giá lớn. Trên Musicalize, băng crypto gắn vào cùng `Sparkline`: đường giá, playhead, trục min/max. Crypto không có chuỗi khối lượng, nên không vẽ dải. Mã cặp nằm trên dòng đài.
 
 ## UI quanh sân khấu
 
@@ -53,20 +72,20 @@ Màn mã hiện mở bằng giá lớn và phần trăm, rồi mới tới chart
 | Chọn ngày | Thứ, ngày, và phần trăm phiên | Thứ và ngày |
 | Nút nghe | Nghe · giọng · Tăng giá | Nghe, Tạm dừng, Nghe lại, thanh kéo |
 | Humanize, Màu | Ngang hàng với chọn nhạc | Trong mục tùy chọn nghe |
-| Sân khấu | Chart, playhead, tên bài, trục | Nguyên khối, thêm kéo playhead |
+| Sân khấu | Chart, playhead, tên bài trên chart, trục | Đường giá, playhead, trục, cursor, dải khối lượng khi có `volumes`. Tên bài và chương ngoài `Sparkline`. Kéo playhead |
 
 ## Phong cách
 
 Phòng thu tối, hướng Cyberpunk-Fintech. Nền `#0D0F12`. Ba điểm nhấn, mỗi màu một việc: cyan `#3EE0E0` là dữ liệu, magenta `#E040A0` là tiếng, amber `#F5B942` là chỗ đang nghe. Chữ chính `#F4F1EA`, chữ phụ `#9AA3AD`. Mặt cột `#14181E`. Terminal cổ phiếu giữ `src/theme.ts`. Musicalize có bảng màu riêng, phẳng, không gradient, không đổ bóng, không đĩa than.
 
-Chữ sans. Tên bài 22 semibold giữa sân khấu, như `PieceTitle`. Thể loại 15. Mã, ngày và số trên trục 13, `tabular-nums`. Giá lớn 40 và phần trăm không có trên vỏ.
+Chữ sans. Tên bài 22 semibold, ngoài `Sparkline`, không căn giữa sân khấu như `PieceTitle`. Thể loại 15. Mã, ngày và số trên trục 13, `tabular-nums`. Giá lớn 40 và phần trăm không có trên vỏ.
 
 Hai cột từ khoảng 960px. Cột trái hẹp, để chọn. Cột phải rộng và chia hai hàng: sân khấu phía trên, cụm điều khiển phía dưới. Sân khấu lấy hết bề ngang của cột phải, nên không bị một cột console làm hẹp ở giữa. Dưới mức đó, ba phần xếp dọc theo thứ tự trái rồi phải: chọn mã, sân khấu, cụm điều khiển.
 
 | Phần | V1 | Để dành cùng chỗ |
 |---|---|---|
 | Cột trái, chọn đối tượng nghe | Công tắc trên cùng cột: Nghe lại hoặc Đang phát. Nghe lại liệt kê mã chứng khoán, mỗi dòng kèm ngày hoặc khung. Đang phát liệt kê top 10 mã crypto. Đổi công tắc thì đổi danh sách và đổi cụm điều khiển bên dưới sân khấu | Loại chuỗi Price / Volume / Biometrics / Weather. Hôm nay engine chỉ đọc giá đóng và khối lượng của nến. Volume đã thành lực tiếng, chưa phải một chuỗi người nghe chọn. Biometrics và thời tiết chưa có cổng |
-| Cột phải, hàng trên, sân khấu | Đường giá và playhead. Với phiên `1D`, `RecapManifest.peaks` vẽ magenta trong cùng khung, hòa vào đường cyan. Bài `1W`–`1Y` chưa có `peaks` trên `SpanMovement`, nên sân khấu chỉ có đường giá cho đến khi API trả sóng. Kéo playhead trên sân khấu chỉ tua trong đoạn đang nhìn thấy | Nến là một cách vẽ sau, trên cùng playhead. Thêm `peaks` cho span là việc sau, để sóng cũng hiện trên bài dài |
+| Cột phải, hàng trên, sân khấu | Đường giá, playhead, trục và cursor. Dải khối lượng khoảng 30px sát đáy khi có `volumes`. Không vẽ `RecapManifest.peaks` trong cùng khung với đường cyan. Sóng `peaks` của phiên `1D` chỉ trên thanh Phiên. `1W` trở đi không truyền `wave`, và đợt này không thêm `peaks`. Kéo playhead trên sân khấu chỉ tua trong đoạn đang nhìn thấy | Nến là một cách vẽ sau, trên cùng playhead. Thêm `peaks` cho span dài là việc sau, để thanh chương có sóng. Sóng không vào chart giá |
 | Cột phải, hàng dưới, cụm điều khiển | Theo công tắc bên trái. Nghe lại: thể loại, nhạc cụ, nghệ sĩ, Nghe, Tạm dừng, Nghe lại, và thanh thời gian của cả tác phẩm. Đang phát: bốn thể loại, Nghe và Tạm dừng. Chip đang chọn dùng magenta | Pan sân khấu và xuất widget. Cyberpunk như một thể loại. Bach đã là nghệ sĩ Baroque của Guitar, chưa phải một lăng kính riêng tên Baroque |
 
 Đèn tập tai, khi làm, dùng đúng ba màu này: amber trên playhead giai điệu, magenta trên vùng tô thanh khoản, cyan trên chấm breakout và đoạn scale.
@@ -104,7 +123,7 @@ Hiện trên app:
 - Phiên `1D` có sóng peaks bấm để nhảy giây (`RecapPlayer.seek`). Nút chỉ ghi Nghe hoặc Tạm dừng. Playhead trên chart là vạch hiển thị, chưa kéo được.
 - Bài `1W`–`1Y` khi đang phát chỉ có Tạm dừng và Tiếp tục (`MovementPlayer`). Nghe lại hiện khi cả bài đã chạy xong, và `replay()` luôn về chương đầu. Trong chương không seek.
 
-Sóng `peaks` và thanh kéo là hai việc. `peaks` của phiên `1D` vẽ trên sân khấu, magenta, hòa vào đường giá. Thanh kéo nằm trong cụm điều khiển. Phiên `1D` dùng cùng mảng `peaks` cho thanh đó. Bài `1W`–`1Y` chưa có `peaks` trong `SpanMovement`, nên thanh của chương là thanh phẳng theo `durationSec`. Một thanh nữa phủ cả tác phẩm, cộng `restAfterSec` giữa chương. Thanh này là chỗ tua sang chương khác. Lát B không chờ API thêm `peaks`.
+Sóng `peaks` và thanh kéo là hai việc. `peaks` của phiên `1D` không vẽ trên chart, và không hòa vào đường giá. Thanh Phiên trong cụm điều khiển dùng cùng mảng `peaks` đó. Bài `1W`–`1Y` chưa có `peaks` trong `SpanMovement`, nên thanh của chương là thanh phẳng theo `durationSec`. Một thanh nữa phủ cả tác phẩm, cộng `restAfterSec` giữa chương. Thanh này là chỗ tua sang chương khác. Lát B không chờ API thêm `peaks`. Đợt này cũng không thêm `peaks` cho span dài.
 
 Kéo thanh audio ra một giây, rồi playhead lấy nến từ `ambientDailyCandleIndexAt` (phiên `1D`) hoặc `spanCandleIndexAt` (bài dài). Kéo vạch trên sân khấu thì ngược lại. Tỷ lệ `r` nằm trên các nến giá đang hiện, không nằm trên ô warm-up và cool-down. Hai đầu khung gộp nhiều ô vào nến đầu và nến cuối, nên seek theo `r * durationSec` sẽ kẹt playhead ở hai đầu. Giây đích là phần thân giá:
 
@@ -125,18 +144,18 @@ Hai vế dùng chung sân khấu. Đổi vế thì đường giá và playhead n
 
 ## Bốn lát
 
-Mỗi lát dùng API đã có. Không thêm biến thể và không thêm nguồn dữ liệu. Hành vi playhead giữ nguyên. Vỏ sân khấu theo bảng màu và sóng hòa vào đường giá ở mục phong cách.
+Mỗi lát dùng API đang có, cộng mảng `volumes` lấy từ `Bar.volume` đã có trên nến. Không thêm biến thể và không thêm nguồn mới. Hành vi playhead giữ nguyên. Vỏ sân khấu theo bảng màu ở mục phong cách. Sóng không hòa vào đường giá. `peaks` của phiên `1D` chỉ trên thanh Phiên.
 
 | Lát | Xong khi |
 |---|---|
-| A. Một bài | Hai cột. Trái: công tắc Nghe lại, rồi một mã và một ngày. Phải: sân khấu trên, cụm điều khiển dưới. Đường cyan, sóng magenta trong cùng khung, playhead amber. Nghe, dừng, nghe lại, kéo tới một phút bất kỳ |
+| A. Một bài | Hai cột. Trái: công tắc Nghe lại, rồi một mã và một ngày. Phải: sân khấu trên, cụm điều khiển dưới. Đường cyan, playhead amber. Sóng magenta chỉ trên thanh Phiên, không trong khung chart. Nghe, dừng, nghe lại, kéo tới một phút bất kỳ |
 | B. Chương | Nghe lại về đầu chương, rồi về đầu tác phẩm. Kéo playhead trên sân khấu tua trong chương đang phóng. Thanh cả tác phẩm ở cụm điều khiển sang được chương bên cạnh và qua được khoảng nghỉ. Chart không zoom ra khi kéo. `1Y` vẫn chọn được trên điện thoại |
 | C. Đài | Công tắc Đang phát. Bốn thể loại, `Sparkline` và trục giá, không thanh khung `1D`–`5Y`. Mã cặp trên cột trái. Không tua |
 | D. Cửa | Kệ thể loại, nhạc cụ, nghệ sĩ dẫn tới một bài replay với đủ transport |
 
 ## Sẽ làm: đèn trên sân khấu để tập tai
 
-V1 không gắn đèn. Sân khấu vẫn là `PriceChart` và `Sparkline`, với bảng màu của phòng thu. Phần này thêm độ sáng lên đường giá và vùng tô, cùng đồng hồ với playhead. Kéo thanh thời gian hoặc bấm Nghe lại thì đèn đi theo giây đó.
+V1 không gắn đèn. Sân khấu Musicalize là `Sparkline` trong `Stage`, với bảng màu của phòng thu. `PriceChart` của terminal không đổi. Phần này thêm độ sáng lên đường giá và vùng tô, cùng đồng hồ với playhead. Kéo thanh thời gian hoặc bấm Nghe lại thì đèn đi theo giây đó.
 
 Người nghe học bốn dấu, không học từng nốt. Mỗi dấu là một sự kiện đã có nghĩa trong bản nhạc. Đèn không cháy theo mọi tiếng piano hay violin.
 
@@ -144,7 +163,7 @@ Người nghe học bốn dấu, không học từng nốt. Mỗi dấu là mộ
 
 **Giai điệu.** Violin, sax, bè hát của guitar, sáo alto của Ambient, và arpeggio synth của Tối giản (P1) đi theo giá. Playhead phát sáng nhẹ suốt lúc tiếng đó đang ngân. Đây là đèn nền. Các dấu kia chồng lên, không thay nó.
 
-**Thanh khoản.** Bass giao hưởng đánh dày theo băng `p`–`f` trong `BASS_PATTERNS` (`render.py`): `p` là một nốt gốc giữ cả ô, `mp` là hai nốt trắng, `mf` là bốn nốt đen, `f` là chuỗi móc đơn gốc–quãng tám–quãng năm. Tối giản làm cùng việc bằng bè Pulse (`minimalist.py`): `p` thưa, `f` là móc kép và nhấn phách 2 với phách 4. Vùng tô dưới đường giá thở theo mật độ đó. `p` sáng một lần mỗi ô. `f` bước theo phách. Không nhấp theo từng cú trống.
+**Thanh khoản.** Bass giao hưởng đánh dày theo băng `p`–`f` trong `BASS_PATTERNS` (`render.py`): `p` là một nốt gốc giữ cả ô, `mp` là hai nốt trắng, `mf` là bốn nốt đen, `f` là chuỗi móc đơn gốc–quãng tám–quãng năm. Tối giản làm cùng việc bằng bè Pulse (`minimalist.py`): `p` thưa, `f` là móc kép và nhấn phách 2 với phách 4. Vùng tô dưới đường giá, phía trên dải khối lượng, thở theo mật độ đó. Dải cột `volumes` không phải đèn này, và không chuyển sang magenta. `p` sáng một lần mỗi ô. `f` bước theo phách. Không nhấp theo từng cú trống.
 
 Kèn cor đơn của Ambient là dấu thanh khoản thứ hai, không phải một đèn riêng. `French Horn` (`Horn in F`, bè P3) nở ở ô thứ hai của cửa sổ `mf` hoặc `f` trong đoạn `phrase`, cách lần nở trước ít nhất 4 ô, dài 1–2 ô (`docs/sonify-ambient.md`). Băng `f` nở tới velocity 80, băng `mf` tới 64. Vùng tô giữ sáng suốt tiếng nở, đậm hơn khi băng là `f`. `French Horns a6` của bộ Đồng giao hưởng là dàn đệm người nghe đã chọn. Dàn đó không có nghĩa khối lượng.
 
