@@ -1,6 +1,6 @@
 # Tên pattern: Cathedral và Torroba
 
-Tên in trên chart là chuỗi trong `backend/app/sonify/program.py` (`_PATTERN_TITLE`) và `src/sonify/program.ts` (`PATTERN_NAMES`). Id trong code giữ nguyên. Tên lấy từ tác phẩm, viết hoa chữ đầu, không dấu. Một tên đã thuộc nhà khác thì pattern mới không dùng lại tên đó.
+Chuỗi ghi vào file audio ra từ `_PATTERN_TITLE` trong `backend/app/sonify/program.py`, qua `pattern_title`. Ngoại lệ duy nhất: `thumb_cantabile` khi ensemble là `villa` thành Prelude, không lấy mục Cantabile trong bảng. `PATTERN_NAMES` trong `src/sonify/program.ts` là tập để client nhận ra chuỗi đó. Id trong code giữ nguyên. Tên lấy từ tác phẩm, viết hoa chữ đầu, không dấu. Một tên đã thuộc nhà khác thì pattern mới không dùng lại tên đó.
 
 Không thêm vùng riêng cho tên chương. Chuỗi đó là tên của cả chương, tức `pattern_form` đã ghi cùng file audio. Nó không đổi theo từng `Phrase`. `formatMovement` trong `src/sonify/program.ts` giữ hậu tố nhịp và BPM, ví dụ `Cathedral — Andante — Tremolo (4/4, 96 BPM)`, hoặc `Finale: …` khi có tiền tố Finale.
 
@@ -34,9 +34,9 @@ Chuỗi `preludio` của Barrios đổi theo. Tám assert trong `backend/tests/t
 | Trước | Sau | Chỗ |
 |---|---|---|
 | Prelude — Andante — Tremolo | Cathedral — Andante — Tremolo | `pattern_form` |
-| Prelude — Andante | Cathedral — Andante | `pattern_form` (hai assert) và `guitar_movement_name` tuần 2 |
+| Prelude — Andante | Cathedral — Andante | `pattern_form` (hai assert) và `guitar_movement_name` với `week_spec(2)`, chương tuần gồm 2 phiên |
 | Prelude — Tremolo — Prelude | Cathedral — Tremolo — Cathedral | `pattern_form` |
-| Prelude — Andante — Prelude | Cathedral — Andante — Cathedral | `guitar_movement_name`: chương mở, tuần 4, tuần 5 |
+| Prelude — Andante — Prelude | Cathedral — Andante — Cathedral | `guitar_movement_name` với `opening`, `week_spec(4)` và `week_spec(5)`: chương mở, chương tuần 4 phiên và 5 phiên |
 
 Bốn assert `pattern_form` nằm trong `test_pattern_form_keeps_three_names_and_centers_a_longer_row`. Bốn assert ghi vào file audio rồi in lên chart nằm trong `test_long_barrios_movements_walk_a_pattern_row`, các lời gọi `guitar_movement_name` với `opening`, `week_spec(2)`, `week_spec(4)` và `week_spec(5)`.
 
