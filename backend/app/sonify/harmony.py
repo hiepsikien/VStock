@@ -1090,8 +1090,10 @@ class BachDialect(HarmonyDialect):
 _TORROBA_MINOR: dict[tuple[str, str], float] = {
     ("Cm", "Bb"): 0.56,
     ("Bb", "Ab"): 0.62,
+    ("Bb", "Cm"): 0.40,
     ("Ab", "G"): 0.66,
     ("Ab", "G7"): 0.60,
+    ("Ab", "Bb"): 0.36,
     ("G", "Cm"): 0.74,
     ("G7", "Cm"): 0.70,
     ("Cm", "Fm"): 0.22,
@@ -1105,6 +1107,7 @@ _TORROBA_MINOR: dict[tuple[str, str], float] = {
     ("Fm", "Eb"): 0.20,
     ("Eb", "Fm"): 0.22,
     ("Fm", "G"): 0.30,
+    ("Fm", "Bb"): 0.34,
     ("G", "Fm"): 0.18,
     ("Fm", "G7"): 0.28,
     ("Eb", "G"): 0.24,
