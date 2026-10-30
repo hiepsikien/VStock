@@ -768,3 +768,92 @@ def test_breath_harmonics_and_fandanguillo_grids() -> None:
     assert beats[0.0].velocity >= 68 and beats[0.0].accent
     assert beats[1.0].velocity == 64 and not beats[1.0].accent
     assert beats[2.0].velocity == 64 and not beats[2.0].accent
+
+
+def _covers_beat(note: NoteEvent, bar: int, beat: float, length: float) -> bool:
+    if note.bar != bar or note.midi is None:
+        return False
+    start = note.beat
+    end = note.beat + note.duration_beats
+    return start < beat + length - 1e-9 and end > beat + 1e-9
+
+
+def _two_bars(pitches, phrases, chords, *, character="rally", character_at=None):
+    bars = len(pitches) // 8
+    slots = tuple(ChordSlot(bar, 1, chords[bar], "sideway", "phrase") for bar in range(bars))
+    with compose_meter(METER_44):
+        return render_guitar_score(
+            title="Torroba",
+            chosen=(),
+            sample_indexes=None,
+            slots=slots,
+            pitches=list(pitches),
+            phrases=phrases,
+            dynamics=(),
+            bands=["mf"] * bars,
+            band_at={bar: "mf" for bar in range(bars)},
+            musical_bars=bars,
+            total_eighths=len(pitches),
+            bpm=96,
+            ensemble="torroba",
+            harmonies=tuple(HarmonyEvent(bar, chords[bar]) for bar in range(bars)),
+            mode="major",
+            character=character,
+            character_at=character_at,
+            rel_span=0.0,
+        )
+
+
+def test_sonatina_downbeat_leap_step_run_and_castillo_hold() -> None:
+    leap = _two_bars([74] * 8 + [67] * 8, (_joined(0, [74] * 8 + [67] * 8),), {0: G, 1: G})
+    pickup = [note for note in leap.lead if note.midi is not None and note.duration_beats == 0.25]
+    assert [(note.bar, round(note.beat, 2)) for note in pickup] == [(0, 3.75)]
+    assert pickup[0].slur_start and pickup[0].voice == 1 and (pickup[0].velocity or 0) <= 64
+    arrival = [note for note in leap.lead if note.bar == 1 and abs(note.beat) < 1e-6 and note.duration_beats >= 0.5]
+    assert len(arrival) == 1 and arrival[0].midi == 67 and arrival[0].slur_stop
+    assert not any(_covers_beat(note, 0, 3.75, 0.25) for note in leap.support)
+    assert all(note.bar >= 0 for note in leap.lead)
+    assert_playable(leap, profiles="torroba")
+
+    step = _two_bars([71] * 8 + [72] * 8, (_joined(0, [71] * 8 + [72] * 8),), {0: G, 1: C})
+    assert not any(note.midi is not None and note.duration_beats == 0.25 for note in step.lead)
+    previous = [note for note in step.lead if note.bar == 0 and abs(note.beat - 2.0) < 1e-6 and note.duration_beats >= 0.5]
+    arrived = [note for note in step.lead if note.bar == 1 and abs(note.beat) < 1e-6 and note.duration_beats >= 0.5]
+    assert len(previous) == 1 and previous[0].midi == 71 and previous[0].slur_start
+    assert len(arrived) == 1 and arrived[0].midi == 72 and arrived[0].slur_stop
+
+    running = _two_bars([67] * 8 + [74] * 8, (_joined(0, [67] * 8 + [74] * 8),), {0: G, 1: G})
+    run = sorted(
+        (note for note in running.lead if note.midi is not None and note.bar == 0 and note.duration_beats == 0.25),
+        key=lambda note: note.beat,
+    )
+    assert [round(note.beat, 2) for note in run] == [3.25, 3.5, 3.75]
+    assert all((note.velocity or 0) <= 64 for note in run)
+    assert run[0].slur_start and not any(note.slur_start for note in run[1:])
+    apex = [note for note in running.lead if note.bar == 1 and abs(note.beat) < 1e-6 and note.duration_beats >= 0.5]
+    assert len(apex) == 1 and apex[0].midi == 74 and apex[0].slur_stop
+    assert running.scale_eighths == ()
+    for beat in (3.25, 3.5, 3.75):
+        assert not any(_covers_beat(note, 0, beat, 0.25) for note in running.support)
+    assert_playable(running, profiles="torroba")
+
+    held = _two_bars(
+        [72] * 8 + [64] * 8,
+        (_joined(0, [72] * 8), _joined(8, [64] * 8)),
+        {0: C, 1: C},
+        character="calm",
+        character_at=("calm", "rally"),
+    )
+    grace = [note for note in held.lead if note.midi is not None and note.duration_beats == 0.25]
+    assert [(note.bar, round(note.beat, 2)) for note in grace] == [(0, 3.75)]
+    assert grace[0].slur_start
+    sung = [note for note in held.lead if note.bar == 1 and abs(note.beat) < 1e-6 and note.duration_beats >= 0.5]
+    assert len(sung) == 1 and sung[0].midi == 64 and sung[0].slur_stop
+    for note in held.lead:
+        if note.bar != 0 or note.duration_beats == 0.25 or note.midi is None:
+            continue
+        assert note.beat + note.duration_beats <= 3.75 + 1e-6
+    assert_playable(held, profiles="torroba")
+
+    dance = _two_bars([72] * 16, (_joined(0, [72] * 16),), {0: C, 1: C}, character="volatile")
+    assert not any(note.midi is not None and note.duration_beats == 0.25 for note in dance.lead)

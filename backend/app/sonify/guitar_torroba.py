@@ -284,12 +284,22 @@ def _sixteenth(
     *,
     slur_start: bool,
 ) -> NoteEvent | None:
-    """`slots_before` sixteenths end on the strong beat. `index` counts from the first."""
+    """`slots_before` sixteenths end on the strong beat. `index` counts from the first.
+
+    A downbeat's last sixteenth belongs to the previous bar. Beat 0 in 4/4
+    puts that note at 3.75, and a three-note run starts at 3.25. Bar 0 has
+    nowhere to put it.
+    """
+    bar = bar_eighth // epb
     beat = (bar_eighth % epb) * 0.5 - 0.25 * (slots_before - index)
-    if beat < -1e-9:
+    bar_beats = epb * 0.5
+    while beat < -1e-9:
+        bar -= 1
+        beat += bar_beats
+    if bar < 0:
         return None
     return NoteEvent(
-        bar=bar_eighth // epb,
+        bar=bar,
         beat=beat,
         midi=midi,
         duration_beats=0.25,
@@ -300,8 +310,6 @@ def _sixteenth(
 
 
 def _into_strong(ctx, target: int, eighth: int, phrase, *, run: bool) -> list[NoteEvent]:
-    if eighth % ctx.epb <= 0:
-        return []
     count = 3 if run else 1
     pitches = _approaches(ctx, target, count)
     if not pitches:
@@ -499,6 +507,110 @@ def _render_danza_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[Note
     return lead, support, low
 
 
+def _previous_strong(ctx, eighth: int) -> int | None:
+    strong = {offset for offset in ctx.strong if offset < ctx.epb}
+    for cursor in range(eighth - 1, -1, -1):
+        if cursor % ctx.epb in strong:
+            return cursor
+    return None
+
+
+def _phrase_at(ctx, eighth: int):
+    for phrase in ctx.phrases:
+        if phrase.start <= eighth < phrase.end and phrase.runs:
+            return phrase
+    return None
+
+
+def _price_note(lead: list[NoteEvent], eighth: int, epb: int) -> int | None:
+    """The strong-beat price, or the held note still sounding there."""
+    when = eighth * 2
+    attack = None
+    cover = None
+    cover_at = -1
+    for index, event in enumerate(lead):
+        if event.midi is None or event.duration_beats + 1e-9 < 0.5:
+            continue
+        begin = _start16(event, epb)
+        if begin == when:
+            attack = index
+            continue
+        if begin <= when < begin + _dur16(event) and begin >= cover_at:
+            cover = index
+            cover_at = begin
+    return attack if attack is not None else cover
+
+
+def _clear_support(support: list[NoteEvent], start: int, end: int, epb: int) -> list[NoteEvent]:
+    """Drop or shorten an inner note that would sound under a pickup. Bass stays."""
+    kept: list[NoteEvent] = []
+    for event in support:
+        if event.midi is None:
+            kept.append(event)
+            continue
+        begin = _start16(event, epb)
+        finish = begin + _dur16(event)
+        if finish <= start or begin >= end:
+            kept.append(event)
+            continue
+        if begin < start:
+            kept.extend(
+                _spell16(begin, start - begin, event.midi, epb, event.voice, event.velocity, event.accent)
+            )
+    return kept
+
+
+def apply_sonatina_downbeats(ctx, lead, support, patterns):
+    """Leap, run, and step into a sonatina downbeat, written after frames.
+
+    The sixteenth before offset 0 lives in the previous bar. `_resolve` then
+    shortens a castillo or frame hold that would otherwise share the high voice.
+    Castillo, fandanguillo, and danza do not grow a pickup.
+    """
+    from app.sonify.guitar_patterns import _bar_pattern
+
+    epb = ctx.epb
+    if 0 not in {offset for offset in ctx.strong if offset < epb}:
+        return lead, support
+    for bar in range(1, ctx.bars):
+        if _bar_pattern(ctx, bar, patterns) != "sonatina":
+            continue
+        eighth = bar * epb
+        previous = _previous_strong(ctx, eighth)
+        if previous is None:
+            continue
+        target = _melody_at(ctx, eighth)
+        prev_pitch = _melody_at(ctx, previous)
+        gap = abs(target - prev_pitch)
+        phrase = _phrase_at(ctx, eighth)
+        at_apex = (
+            phrase is not None
+            and phrase.apex.start <= eighth < phrase.apex.end
+        )
+        run = gap > 2 and phrase is not None and phrase.rise >= MIN_RISE and at_apex
+        leap = gap > 2 and not run
+        if run or leap:
+            approaches = _into_strong(ctx, target, eighth, phrase, run=run)
+            if not approaches:
+                continue
+            arrival = _price_note(lead, eighth, epb)
+            lead.extend(approaches)
+            if arrival is not None:
+                lead[arrival] = replace(lead[arrival], slur_stop=True)
+            start = min(_start16(event, epb) for event in approaches)
+            end = max(_start16(event, epb) + 1 for event in approaches)
+            support = _clear_support(support, start, end, epb)
+            continue
+        if gap <= 2:
+            prev_index = _price_note(lead, previous, epb)
+            arrival = _price_note(lead, eighth, epb)
+            if prev_index is not None:
+                lead[prev_index] = replace(lead[prev_index], slur_start=True)
+            if arrival is not None:
+                lead[arrival] = replace(lead[arrival], slur_stop=True)
+    return lead, support
+
+
 def _render_torroba_bar(ctx, bar: int, phrase, pattern: str):
     if pattern == "castillo":
         return _render_castillo_bar(ctx, bar, phrase)
@@ -576,11 +688,14 @@ def _edge_frame(ctx, bar: int, price: int, mood: str | None) -> list[tuple]:
 from app.sonify.guitar_patterns import (  # noqa: E402
     _INNER,
     _apex_eighths,
+    _dur16,
     _eighth_event,
     _melody_at,
     _note_velocity,
     _on_scale,
     _playable,
+    _spell16,
+    _start16,
     _under_lead,
     _walk,
     written,

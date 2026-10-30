@@ -2973,6 +2973,11 @@ def render_patterned_voices(
         support = _silence(support, eighth, epb)
         low = _silence(low, eighth, epb)
     lead, support, low = _repair(ctx, lead, support, low)
+    # Downbeat pickups belong to the previous bar. Frames have already replaced
+    # a pedal hold; `_resolve` shortens whatever lead note still covers them.
+    from app.sonify.guitar_torroba import apply_sonatina_downbeats
+
+    lead, support = apply_sonatina_downbeats(ctx, lead, support, patterns)
     lead = _resolve(lead, epb, 1)
     support = _resolve_voices(support, epb, 2)
     low = _resolve(low, epb, 3)
