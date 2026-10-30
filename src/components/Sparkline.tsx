@@ -15,6 +15,57 @@ import { colors } from '../theme';
 
 const UNPLAYED_OPACITY = 0.28;
 
+export const VOLUME_STRIP = 30;
+
+function VolumeColumns({
+  volumes,
+  width,
+  height,
+  strip,
+  focusStart,
+  focusEnd,
+  color,
+}: {
+  volumes: number[];
+  width: number;
+  height: number;
+  strip: number;
+  focusStart?: number;
+  focusEnd?: number;
+  color: string;
+}) {
+  if (volumes.length < 1 || width <= 0 || height <= 0 || strip <= 0) return null;
+  const start = focusStart ?? 0;
+  const end = focusEnd ?? volumes.length - 1;
+  const span = Math.max(end - start, 1e-6);
+  const i0 = Math.max(0, Math.floor(start));
+  const i1 = Math.min(volumes.length - 1, Math.ceil(end));
+  let peak = 0;
+  for (let index = i0; index <= i1; index += 1) {
+    const value = volumes[index];
+    if (value > peak) peak = value;
+  }
+  const slot = width / span;
+  const barWidth = Math.max(1, slot * 0.62);
+  const bars: React.ReactElement[] = [];
+  for (let index = i0; index <= i1; index += 1) {
+    const value = Math.max(0, volumes[index] ?? 0);
+    const bar = peak > 0 ? (value / peak) * strip : 0;
+    if (bar <= 0) continue;
+    bars.push(
+      <Rect
+        key={index}
+        x={((index - start) / span) * width - barWidth / 2}
+        y={height - bar}
+        width={barWidth}
+        height={bar}
+        fill={color}
+      />,
+    );
+  }
+  return <>{bars}</>;
+}
+
 function WaveBars({
   peaks,
   width,
@@ -71,6 +122,9 @@ type Props = {
   /** Peak amplitudes in 0..1, drawn across the same frame as the price line. */
   wave?: number[] | null;
   waveColor?: string;
+  /** Traded volume, one value per price, drawn as a strip under the line. */
+  volumes?: number[] | null;
+  volumeColor?: string;
 };
 
 export function Sparkline({
@@ -89,7 +143,10 @@ export function Sparkline({
   playheadColor,
   wave = null,
   waveColor = '#E040A0',
+  volumes = null,
+  volumeColor = 'rgba(62, 224, 224, 0.45)',
 }: Props) {
+  const volumeStrip = volumes && volumes.length > 0 && volumes.length === data.length ? VOLUME_STRIP : 0;
   const { line, fill, cursor } = useMemo(() => {
     if (data.length < 2) {
       return { line: '', fill: '', cursor: null as { x: number; y: number } | null };
@@ -109,7 +166,7 @@ export function Sparkline({
     }
     const range = max - min || 1;
     const padY = 2;
-    const usableH = height - padY * 2;
+    const usableH = Math.max(1, height - padY * 2 - volumeStrip);
 
     const points: { x: number; y: number }[] = [];
     for (let index = i0; index <= i1; index += 1) {
@@ -124,7 +181,8 @@ export function Sparkline({
       .map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`)
       .join(' ');
 
-    const fillPath = `${linePath} L${width},${height} L0,${height} Z`;
+    const priceBottom = height - volumeStrip;
+    const fillPath = `${linePath} L${width},${priceBottom} L0,${priceBottom} Z`;
     const cursor =
       cursorIndex == null
         ? null
@@ -137,7 +195,7 @@ export function Sparkline({
           };
 
     return { line: linePath, fill: fillPath, cursor };
-  }, [cursorIndex, data, focusEnd, focusStart, width, height]);
+  }, [cursorIndex, data, focusEnd, focusStart, width, height, volumeStrip]);
 
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   const stroke = strokeColor ?? (positive ? colors.positive : colors.negative);
@@ -150,6 +208,18 @@ export function Sparkline({
   const waveBars =
     wave && wave.length > 1 ? (
       <WaveBars peaks={wave} width={width} height={height} color={waveColor} />
+    ) : null;
+  const volumeBars =
+    volumeStrip > 0 && volumes ? (
+      <VolumeColumns
+        volumes={volumes}
+        width={width}
+        height={height}
+        strip={volumeStrip}
+        focusStart={focusStart}
+        focusEnd={focusEnd}
+        color={volumeColor}
+      />
     ) : null;
 
   return (
@@ -182,6 +252,8 @@ export function Sparkline({
             </>
           )}
         </Defs>
+
+        {volumeBars}
 
         {dimUnplayed && cursor ? (
           <>

@@ -26,6 +26,7 @@ from app.sonify.span import (
     month_parts,
     month_specs,
     plan_month,
+    prepare_month,
     prepare_week,
     prepare_year,
     plan_week,
@@ -247,6 +248,33 @@ def test_join_keeps_float_samples_audible():
     )
     assert joined.typecode == "f"
     assert max(joined) > 0.2
+
+
+def test_span_response_volumes_match_each_movement(monkeypatch) -> None:
+    import asyncio
+
+    from app.routers.stocks import get_span
+    from app.services.spans import SpanPlan
+
+    sessions = [
+        (date(2026, 1, 5), [Bar(10.0, 100.0), Bar(10.4, 0.0)]),
+        (date(2026, 1, 6), [Bar(11.0, 40.0)]),
+        (date(2026, 1, 7), [Bar(11.5)]),
+        (date(2026, 1, 8), [Bar(12.0, 5.0), Bar(12.2, 8.0)]),
+    ]
+    movements = prepare_month(sessions, "VNM")
+
+    async def fake_plan(*_args, **_kwargs):
+        return SpanPlan(movements, date(2026, 1, 8))
+
+    monkeypatch.setattr("app.routers.stocks.plan_span", fake_plan)
+    monkeypatch.setattr("app.routers.stocks.ready_movement", lambda *_args, **_kwargs: None)
+    response = asyncio.run(get_span("vnm", "1M", "symphony", "classic", True, True))
+    assert len(response.movements) == len(movements)
+    for row, movement in zip(response.movements, movements, strict=True):
+        assert len(row.volumes) == len(row.prices)
+        assert row.prices == [round(bar.close, 2) for bar in movement.bars]
+        assert row.volumes == [round(float(bar.volume), 4) for bar in movement.bars]
 
 
 def test_join_trims_the_tail_of_every_chunk_but_the_last():

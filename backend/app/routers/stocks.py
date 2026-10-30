@@ -473,6 +473,7 @@ async def get_span(
                 warmupSec=round(movement_frame(movement)[0], 3),
                 cooldownSec=round(movement_frame(movement)[1], 3),
                 prices=[round(bar.close, 2) for bar in movement.bars],
+                volumes=[round(float(bar.volume), 4) for bar in movement.bars],
                 character=movement.character,
                 characterLabel=CHARACTER_LABEL.get(movement.character or "", ""),
                 sessionCharacters=[
