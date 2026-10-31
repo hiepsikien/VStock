@@ -133,8 +133,8 @@ def _note_type(beats: float) -> tuple[str, int]:
     for known, spelled in _NOTE_TYPES.items():
         if _near(beats, known):
             return spelled
-    # Leading rests that `_fill_twelfths` writes ahead of a rasgueado attack.
-    # 1/12 is a 32nd triplet and 2/12 is a 16th triplet. Neither is a sextuplet.
+    # A twelfth that is still written as a note. Roll gaps are `<forward>`
+    # instead, so these spellings are only a fallback.
     units = beats * 12.0
     if _near(units, 1.0):
         return ("32nd", 0)
@@ -173,46 +173,43 @@ def _roll_gap_rest(event: NoteEvent) -> bool:
 
 
 def _roll_time_modification(
-    nominal: float, beat: float
+    nominal: float, duration_beats: float, divisions: int, note_type: str
 ) -> tuple[str, str, str] | None:
-    """Shared tuplet ratio for the leading rest and the rolled attack after it.
+    """Ratio that makes MuseScore advance this note by its sounding length.
 
-    MuseScore groups consecutive `<time-modification>` notes into one tuplet.
-    The rest has `<type>32nd</type>` (1/12 beat) or `<type>16th</type>` (2/12
-    beat) — one written base unit — and the rolled note has `<type>` of
-    `nominal` (`nominal * 8` thirty-seconds or `nominal * 4` sixteenths).
-    Together they write `normal + 1` base units inside `normal` base units:
-    `3:2` in 16ths for a 4-unit eighth, `5:4` in 32nds for a 5-unit eighth,
-    `17:16` / `13:12` in 16ths (or `33:32` / `25:24` in 32nds) for a bar-long hold.
+    MuseScore scales the written `<type>` by `normal / actual` and ignores
+    `<duration>` once a time modification is present. A 4-unit eighth shares
+    a 3:2 sixteenth tuplet with the rest in front of it; a lone 3:2 on the
+    eighth is ignored and the bar overruns. A bar-long lead uses the reduced
+    ratio of its own type, and the gap before it is a `<forward>`: a whole of
+    46 units is `24:23`. Five-unit eighths are not spelled here.
     """
-    if _near(beat, 1.0 / 12.0):
-        normal = int(round(nominal * 8))
-        base = "32nd"
-    elif _near(beat, 2.0 / 12.0):
-        normal = int(round(nominal * 4))
-        base = "16th"
-    else:
+    written = int(round(nominal * divisions))
+    sounding = int(round(duration_beats * divisions))
+    if written < 1 or sounding < 1 or written == sounding:
         return None
-    if normal < 1:
-        return None
-    return str(normal + 1), str(normal), base
+    # An eighth of 4 units is a 3:2 sixteenth tuplet, shared with the rest
+    # in front of it. A lone 3:2 on the eighth is ignored, and the bar overruns.
+    if written == 6 and sounding == 4:
+        return "3", "2", "16th"
+    factor = math.gcd(written, sounding)
+    return str(written // factor), str(sounding // factor), note_type
 
 
-def _gap_spelling(
-    event: NoteEvent, following: NoteEvent | None = None
-) -> tuple[str, tuple[str, str, str]]:
-    """Spelling of a roll's leading rest, paired with the rolled note that follows."""
-    units = event.duration_beats * 12.0
-    note_type = "32nd" if _near(units, 1.0) else "16th"
-    if following is not None:
-        nominal = _nominal_duration(following)
-        if nominal is not None:
-            paired = _roll_time_modification(nominal, following.beat)
-            if paired is not None:
-                return note_type, paired
-    if _near(units, 1.0):
-        return "32nd", ("5", "4", "32nd")
-    return "16th", ("3", "2", "16th")
+def _eighth_roll_units(event: NoteEvent, divisions: int) -> int | None:
+    """Sounding units of a rolled eighth, or None when this is not one.
+
+    At `divisions = 12` the lead eighth is 4 and the support eighth is 5.
+    """
+    if divisions != 12 or event.midi is None:
+        return None
+    nominal = _nominal_duration(event)
+    if nominal is None or not _near(nominal, 0.5):
+        return None
+    units = int(round(event.duration_beats * divisions))
+    if units not in (4, 5):
+        return None
+    return units
 
 
 def _is_sixth(beats: float) -> bool:
@@ -263,7 +260,6 @@ def _add_note(
     mode: str = "major",
     slur_number: str = "1",
     tuplet: str | None = None,
-    following: NoteEvent | None = None,
 ) -> None:
     note = _add(parent, "note")
     if event.velocity is not None and event.midi is not None:
@@ -307,9 +303,8 @@ def _add_note(
     _add(note, "voice", str(event.voice))
     nominal = _nominal_duration(event)
     # A 2/12 rest is also a sixth long. It is a sextuplet only when the
-    # bracket actually claimed it. A lone rest ahead of a roll is a triplet.
-    gap = tuplet is None and _roll_gap_rest(event)
-    gap_mod: tuple[str, str, str] | None = None
+    # bracket actually claimed it. A roll gap is emitted as `<forward>`
+    # before this function runs.
     roll_mod: tuple[str, str, str] | None = None
     if nominal is not None:
         note_type, dots = _note_type(nominal)
@@ -317,11 +312,7 @@ def _add_note(
         # `<duration>` is already the shortened unit count. The ratio tells
         # MuseScore to move the cursor by that count, so the later voices
         # still start on the beat after `<backup>`.
-        roll_mod = _roll_time_modification(nominal, event.beat)
-    elif gap:
-        note_type, gap_mod = _gap_spelling(event, following)
-        dots = 0
-        sixth = False
+        roll_mod = _roll_time_modification(nominal, event.duration_beats, divisions, note_type)
     else:
         sixth = _is_sixth(event.duration_beats)
         note_type, dots = ("16th", 0) if sixth else _note_type(event.duration_beats)
@@ -333,11 +324,6 @@ def _add_note(
         _add(modification, "actual-notes", roll_mod[0])
         _add(modification, "normal-notes", roll_mod[1])
         _add(modification, "normal-type", roll_mod[2])
-    elif gap_mod is not None:
-        modification = _add(note, "time-modification")
-        _add(modification, "actual-notes", gap_mod[0])
-        _add(modification, "normal-notes", gap_mod[1])
-        _add(modification, "normal-type", gap_mod[2])
     elif sixth:
         modification = _add(note, "time-modification")
         _add(modification, "actual-notes", "6")
@@ -374,6 +360,86 @@ def _add_note(
                 _add(articulations, "tenuto")
             if event.staccato:
                 _add(articulations, "staccato")
+
+
+def _spelled_pitch(
+    event: NoteEvent,
+    *,
+    written_shift: int,
+    harmony: Chord | None,
+    key: KeySpec | None,
+    mode: str,
+) -> tuple[str, int, int]:
+    sounding = event.midi + written_shift
+    if key is None:
+        return midi_to_pitch(sounding, harmony)
+    return midi_to_spelled_pitch(sounding + key.semitones, key, harmony, mode)
+
+
+def _add_triplet_rest(parent: ET.Element, event: NoteEvent, divisions: int) -> None:
+    """The 2/12 rest that shares the lead eighth's 3:2 sixteenth tuplet."""
+    note = _add(parent, "note")
+    _add(note, "rest")
+    _add(note, "duration", str(_duration(event.duration_beats, divisions)))
+    _add(note, "voice", str(event.voice))
+    _add(note, "type", "16th")
+    modification = _add(note, "time-modification")
+    _add(modification, "actual-notes", "3")
+    _add(modification, "normal-notes", "2")
+    _add(modification, "normal-type", "16th")
+
+
+def _add_tied_fifth(
+    parent: ET.Element,
+    event: NoteEvent,
+    *,
+    written_shift: int,
+    harmony: Chord | None,
+    key: KeySpec | None,
+    mode: str,
+    divisions: int,
+) -> None:
+    """A 5-unit eighth: a 32nd tied to an eighth, each a 3:2 thirty-second.
+
+    One eighth under 6:5 is exact only while rests follow it. A sounding note
+    in the same voice makes MuseScore reject the bar. Five thirty-seconds of
+    a 3:2 tuplet are a 32nd plus an eighth, and that tie stays one attack.
+    """
+    step, alter, octave = _spelled_pitch(
+        event, written_shift=written_shift, harmony=harmony, key=key, mode=mode
+    )
+    for units, note_type, tie in ((1, "32nd", "start"), (4, "eighth", "stop")):
+        note = _add(parent, "note")
+        if tie == "start" and event.velocity is not None:
+            note.set("dynamics", f"{event.velocity * 100 / FORTE_VELOCITY:.2f}")
+        pitch = _add(note, "pitch")
+        _add(pitch, "step", step)
+        if alter:
+            _add(pitch, "alter", str(alter))
+        _add(pitch, "octave", str(octave))
+        _add(note, "duration", str(units if divisions == 12 else _duration(units / 12.0, divisions)))
+        _add(note, "tie", type=tie)
+        _add(note, "voice", str(event.voice))
+        _add(note, "type", note_type)
+        modification = _add(note, "time-modification")
+        _add(modification, "actual-notes", "3")
+        _add(modification, "normal-notes", "2")
+        _add(modification, "normal-type", "32nd")
+        notations = _add(note, "notations")
+        _add(notations, "tied", type=tie)
+        if tie == "start" and (event.accent or event.tenuto or event.staccato or event.slur_start):
+            if event.slur_start:
+                _add(notations, "slur", type="start", number=str(event.voice))
+            if event.accent or event.tenuto or event.staccato:
+                articulations = _add(notations, "articulations")
+                if event.accent:
+                    _add(articulations, "accent")
+                if event.tenuto:
+                    _add(articulations, "tenuto")
+                if event.staccato:
+                    _add(articulations, "staccato")
+        elif tie == "stop" and event.slur_stop:
+            _add(notations, "slur", type="stop", number=str(event.voice))
 
 
 TREBLE = ("G", "2")
@@ -976,28 +1042,47 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                 _dynamic(measure, DynamicEvent(bar=0, marking=marking, sound=SOUND[marking]))
             roles = _sextuplet_roles(ordered)
             previous_beat: float | None = None
-            for note_index, (event, role) in enumerate(zip(ordered, roles)):
+            for index, (event, role) in enumerate(zip(ordered, roles)):
                 if voice_index == 0:
                     emit_tempo(event.beat)
-                nxt = ordered[note_index + 1] if note_index + 1 < len(ordered) else None
-                _add_note(
-                    measure,
-                    event,
-                    chord=event.beat == previous_beat and event.midi is not None,
-                    written_shift=12,
-                    divisions=score.divisions,
-                    harmony=_chord_on(
-                        score,
-                        bar - 1 if event.tie_stop and event.beat == 0.0 and bar > 0 else bar,
+                nxt = ordered[index + 1] if index + 1 < len(ordered) else None
+                harmony = _chord_on(
+                    score,
+                    bar - 1 if event.tie_stop and event.beat == 0.0 and bar > 0 else bar,
+                ) or _chord_on(score, bar)
+                if _eighth_roll_units(event, score.divisions) == 5:
+                    # Five units will not survive as one 6:5 eighth once a
+                    # later note shares the voice. A tied 32nd plus eighth does.
+                    _add_tied_fifth(
+                        measure,
+                        event,
+                        written_shift=12,
+                        harmony=harmony,
+                        key=score.key,
+                        mode=score.mode,
+                        divisions=score.divisions,
                     )
-                    or _chord_on(score, bar),
-                    key=score.key,
-                    bar_beats=score.bar_beats,
-                    mode=score.mode,
-                    slur_number=str(event.voice),
-                    tuplet=role,
-                    following=nxt,
-                )
+                elif role is None and _roll_gap_rest(event) and _eighth_roll_units(nxt, score.divisions) == 4:
+                    _add_triplet_rest(measure, event, score.divisions)
+                elif role is None and _roll_gap_rest(event):
+                    # A rest with its own ratio joins the note's tuplet and
+                    # speaks a 1/12 attack at 0.10. <forward> moves by duration.
+                    forward = _add(measure, "forward")
+                    _add(forward, "duration", str(_duration(event.duration_beats, score.divisions)))
+                else:
+                    _add_note(
+                        measure,
+                        event,
+                        chord=event.beat == previous_beat and event.midi is not None,
+                        written_shift=12,
+                        divisions=score.divisions,
+                        harmony=harmony,
+                        key=score.key,
+                        bar_beats=score.bar_beats,
+                        mode=score.mode,
+                        slur_number=str(event.voice),
+                        tuplet=role,
+                    )
                 if voice_index == 0 and not (event.beat == previous_beat and event.midi is not None):
                     cursor = event.beat + event.duration_beats
                 previous_beat = event.beat
