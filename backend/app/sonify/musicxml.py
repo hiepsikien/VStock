@@ -173,34 +173,45 @@ def _roll_gap_rest(event: NoteEvent) -> bool:
 
 
 def _roll_time_modification(
-    nominal: float, duration_beats: float, divisions: int
+    nominal: float, beat: float
 ) -> tuple[str, str, str] | None:
-    """Ratio that makes MuseScore advance by `<duration>`, not by `<type>`.
+    """Shared tuplet ratio for the leading rest and the rolled attack after it.
 
-    An eighth written as 4 units is `3:2` in sixteenths. An odd remainder
-    (`5`, or `47` under a whole note) is a 32nd ratio. The rest use 16ths.
+    MuseScore groups consecutive `<time-modification>` notes into one tuplet.
+    The rest has `<type>32nd</type>` (1/12 beat) or `<type>16th</type>` (2/12
+    beat) — one written base unit — and the rolled note has `<type>` of
+    `nominal` (`nominal * 8` thirty-seconds or `nominal * 4` sixteenths).
+    Together they write `normal + 1` base units inside `normal` base units:
+    `3:2` in 16ths for a 4-unit eighth, `5:4` in 32nds for a 5-unit eighth,
+    `17:16` / `13:12` in 16ths (or `33:32` / `25:24` in 32nds) for a bar-long hold.
     """
-    nominal_units = int(round(nominal * divisions))
-    actual_units = int(round(duration_beats * divisions))
-    if nominal_units < 1 or actual_units < 1 or nominal_units == actual_units:
-        return None
-    divisor = math.gcd(nominal_units, actual_units)
-    reduced_nominal = nominal_units // divisor
-    reduced_actual = actual_units // divisor
-    if (reduced_nominal, reduced_actual) == (3, 2):
-        normal_type = "16th"
-    elif actual_units % 2 == 1:
-        normal_type = "32nd"
+    if _near(beat, 1.0 / 12.0):
+        normal = int(round(nominal * 8))
+        base = "32nd"
+    elif _near(beat, 2.0 / 12.0):
+        normal = int(round(nominal * 4))
+        base = "16th"
     else:
-        normal_type = "16th"
-    return str(reduced_nominal), str(reduced_actual), normal_type
+        return None
+    if normal < 1:
+        return None
+    return str(normal + 1), str(normal), base
 
 
-def _gap_spelling(event: NoteEvent) -> tuple[str, tuple[str, str, str]]:
-    """Triplet spelling of a roll's leading rest. A lone 2/12 rest is not 6:4."""
+def _gap_spelling(
+    event: NoteEvent, following: NoteEvent | None = None
+) -> tuple[str, tuple[str, str, str]]:
+    """Spelling of a roll's leading rest, paired with the rolled note that follows."""
     units = event.duration_beats * 12.0
+    note_type = "32nd" if _near(units, 1.0) else "16th"
+    if following is not None:
+        nominal = _nominal_duration(following)
+        if nominal is not None:
+            paired = _roll_time_modification(nominal, following.beat)
+            if paired is not None:
+                return note_type, paired
     if _near(units, 1.0):
-        return "32nd", ("3", "2", "32nd")
+        return "32nd", ("5", "4", "32nd")
     return "16th", ("3", "2", "16th")
 
 
@@ -252,6 +263,7 @@ def _add_note(
     mode: str = "major",
     slur_number: str = "1",
     tuplet: str | None = None,
+    following: NoteEvent | None = None,
 ) -> None:
     note = _add(parent, "note")
     if event.velocity is not None and event.midi is not None:
@@ -305,9 +317,9 @@ def _add_note(
         # `<duration>` is already the shortened unit count. The ratio tells
         # MuseScore to move the cursor by that count, so the later voices
         # still start on the beat after `<backup>`.
-        roll_mod = _roll_time_modification(nominal, event.duration_beats, divisions)
+        roll_mod = _roll_time_modification(nominal, event.beat)
     elif gap:
-        note_type, gap_mod = _gap_spelling(event)
+        note_type, gap_mod = _gap_spelling(event, following)
         dots = 0
         sixth = False
     else:
@@ -964,9 +976,10 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                 _dynamic(measure, DynamicEvent(bar=0, marking=marking, sound=SOUND[marking]))
             roles = _sextuplet_roles(ordered)
             previous_beat: float | None = None
-            for event, role in zip(ordered, roles):
+            for note_index, (event, role) in enumerate(zip(ordered, roles)):
                 if voice_index == 0:
                     emit_tempo(event.beat)
+                nxt = ordered[note_index + 1] if note_index + 1 < len(ordered) else None
                 _add_note(
                     measure,
                     event,
@@ -983,6 +996,7 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                     mode=score.mode,
                     slur_number=str(event.voice),
                     tuplet=role,
+                    following=nxt,
                 )
                 if voice_index == 0 and not (event.beat == previous_beat and event.midi is not None):
                     cursor = event.beat + event.duration_beats

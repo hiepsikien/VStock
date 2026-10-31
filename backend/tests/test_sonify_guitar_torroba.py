@@ -1971,18 +1971,16 @@ def _assert_eighth_xml(measure: ET.Element) -> None:
     for note in (bass_note, support_note, lead_note):
         assert note.find("dot") is None
     assert bass_note.find("time-modification") is None
-    assert _time_modification(support_note) == ("6", "5", "32nd")
+    assert _time_modification(support_note) == ("5", "4", "32nd")
     assert _time_modification(lead_note) == ("3", "2", "16th")
     assert lead[0].find("rest") is not None
     assert lead[0].find("duration").text == "2"
     assert lead[0].find("type").text == "16th"
-    assert lead[0].find("time-modification/actual-notes").text == "3"
-    assert lead[0].find("time-modification/normal-type").text == "16th"
+    assert _time_modification(lead[0]) == ("3", "2", "16th")
     assert support[0].find("rest") is not None
     assert support[0].find("duration").text == "1"
     assert support[0].find("type").text == "32nd"
-    assert support[0].find("time-modification/actual-notes").text == "3"
-    assert support[0].find("time-modification/normal-type").text == "32nd"
+    assert _time_modification(support[0]) == ("5", "4", "32nd")
     assert bass[0].find("rest") is None
     shortened = {support_note, lead_note}
     for note in measure.iter("note"):
@@ -2002,7 +2000,8 @@ def _time_modification(note: ET.Element) -> tuple[str, str, str]:
 
 
 def _assert_held_lead_xml(measure: ET.Element, units: int, kind: str) -> None:
-    lead = _first_attack(_streams(measure)[0])
+    lead_stream = _streams(measure)[0]
+    lead = _first_attack(lead_stream)
     assert lead.find("duration").text == str(units)
     if kind == "4/4":
         assert lead.find("type").text == "whole"
@@ -2012,13 +2011,14 @@ def _assert_held_lead_xml(measure: ET.Element, units: int, kind: str) -> None:
         assert lead.find("type").text == "half"
         assert lead.find("dot") is not None
         nominal_units = 36
-    divisor = math.gcd(nominal_units, units)
-    normal_type = "32nd" if units % 2 == 1 else "16th"
-    assert _time_modification(lead) == (
-        str(nominal_units // divisor),
-        str(units // divisor),
-        normal_type,
-    )
+    if units % 2 == 1:
+        normal = nominal_units * 2 // 3
+        expected = (str(normal + 1), str(normal), "32nd")
+    else:
+        normal = nominal_units // 3
+        expected = (str(normal + 1), str(normal), "16th")
+    assert _time_modification(lead) == expected
+    assert _time_modification(lead_stream[0]) == expected
 
 
 @pytest.mark.parametrize("kind", ["4/4", "3/4", "6/8"])
@@ -2199,7 +2199,7 @@ def test_rolled_chord_scores_engrave_on_division_12(kind: str) -> None:
     assert (support_note.find("duration").text, support_note.find("type").text) == ("5", "eighth")
     assert bass_note.find("dot") is None and support_note.find("dot") is None
     assert bass_note.find("time-modification") is None
-    assert _time_modification(support_note) == ("6", "5", "32nd")
+    assert _time_modification(support_note) == ("5", "4", "32nd")
 
     _ctx2, _phrase2, pair_parts = _flat_figure(kind, 2, midi=59, chord=_UNISON)
     pair_score = _engrave(_ctx2, pair_parts)
@@ -2210,7 +2210,7 @@ def test_rolled_chord_scores_engrave_on_division_12(kind: str) -> None:
     pair_bass = _first_attack(_streams(pair_bar)[-1])
     assert pair_lead.find("duration").text == "5"
     assert pair_lead.find("type").text == "eighth" and pair_lead.find("dot") is None
-    assert _time_modification(pair_lead) == ("6", "5", "32nd")
+    assert _time_modification(pair_lead) == ("5", "4", "32nd")
     assert pair_bass.find("duration").text == "6"
     assert pair_bass.find("time-modification") is None
     assert _streams(pair_bar)[0][0].find("duration").text == "1"
