@@ -521,17 +521,42 @@ def _olite_onsets(ctx) -> list[int]:
     return [eighth for eighth in (0, 4) if eighth < ctx.epb]
 
 
-def _olite_chords(ctx, bar: int, name: str, velocity: int, *, accents: str) -> list[tuple]:
+def _olite_chords(
+    ctx,
+    bar: int,
+    name: str,
+    velocity: int,
+    *,
+    accents: str,
+    index: int,
+    steps: int,
+    closing: bool,
+) -> list[tuple]:
+    """Quarter-note chords. Only the last onset of the final outro bar is a staccato eighth."""
     onsets = _olite_onsets(ctx)
     specs: list[tuple] = []
-    for index, onset in enumerate(onsets):
+    final_bar = closing and index == steps - 1
+    last = len(onsets) - 1
+    for onset_index, onset in enumerate(onsets):
         if accents == "both":
             accent = True
         elif accents == "later":
-            accent = index == len(onsets) - 1 and len(onsets) > 1
+            accent = onset_index == last and len(onsets) > 1
         else:
             accent = False
-        specs.extend(_chord_specs(ctx, bar, name, onset, velocity, accent=accent, staccato=True))
+        final_stroke = final_bar and onset_index == last
+        specs.extend(
+            _chord_specs(
+                ctx,
+                bar,
+                name,
+                onset,
+                velocity,
+                length=1 if final_stroke else 2,
+                accent=accent,
+                staccato=final_stroke,
+            )
+        )
     return specs
 
 
@@ -870,37 +895,49 @@ def _alcaniz(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int)
 
 
 def _olite(ctx, bar: int, role: int, *, steps: int, closing: bool, index: int) -> list[tuple]:
-    del index
     into = _into_body(ctx, bar, closing)
+
+    def chords(name: str, velocity: int, accents: str) -> list[tuple]:
+        return _olite_chords(
+            ctx,
+            bar,
+            name,
+            velocity,
+            accents=accents,
+            index=index,
+            steps=steps,
+            closing=closing,
+        )
+
     if closing and steps == 2:
         if role == 0:
-            specs = _olite_chords(ctx, bar, "V7", _MP, accents="none")
+            specs = chords("V7", _MP, "none")
         else:
-            specs = _olite_chords(ctx, bar, "I", _MF, accents="later")
+            specs = chords("I", _MF, "later")
     elif closing:
         if role == 0:
-            specs = _olite_chords(ctx, bar, "IV", _MP, accents="none")
+            specs = chords("IV", _MP, "none")
         elif role == 1:
-            specs = _olite_chords(ctx, bar, "V7", _MP, accents="none")
+            specs = chords("V7", _MP, "none")
         elif role == 2:
             specs = _olite_breath(ctx, bar)
         else:
-            specs = _olite_chords(ctx, bar, "I", _MF, accents="later")
+            specs = chords("I", _MF, "later")
     elif steps == 2:
         if role == 0:
-            specs = _olite_chords(ctx, bar, "I", _P, accents="both")
+            specs = chords("I", _P, "both")
         else:
-            specs = _olite_chords(ctx, bar, "V7", _MP, accents="both")
+            specs = chords("V7", _MP, "both")
             if into:
                 specs.extend(_lead_in_scale(ctx, bar, _MP))
     elif role == 0:
-        specs = _olite_chords(ctx, bar, "I", _P, accents="both")
+        specs = chords("I", _P, "both")
     elif role == 1:
-        specs = _olite_chords(ctx, bar, "I", _P, accents="both")
+        specs = chords("I", _P, "both")
     elif role == 2:
-        specs = _olite_chords(ctx, bar, "IV", _MP, accents="none")
+        specs = chords("IV", _MP, "none")
     else:
-        specs = _olite_chords(ctx, bar, "V7", _MF, accents="both")
+        specs = chords("V7", _MF, "both")
         if into:
             specs.extend(_lead_in_scale(ctx, bar, _MF))
     return _finish(ctx, role, specs)
