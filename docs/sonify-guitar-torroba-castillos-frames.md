@@ -192,7 +192,7 @@ Cửa đọc pattern, không đọc mood. Picardy chỉ còn ở outro của `ca
 
 Cửa hát hợp âm chức năng `I`, `iv`/`IV`, `V7` qua `_function`, cùng cách cửa Bach và Sor. Giọng thứ giữ bậc 3 thứ, trừ ô outro cuối của `castillo`.
 
-Bước nào `frame_roles` lặp thì ô giống hệt. `_compressed` giữ nửa đầu bước 0 và dựng bước 1 vào nửa sau. Nửa sau vẫn mở bằng đúng nhịp của pattern, để bản 1 ô không mất phách đó. Nốt dẫn chỉ thuộc ô intro cuối, và nằm sau nhịp ấy: Juglar từ móc 5, Alcaniz là cao độ của lead móc 3, Olite ở móc 6 và móc 7.
+Bước nào `frame_roles` lặp thì ô giống hệt. `_compressed` giữ nửa đầu bước 0 và dựng bước 1 vào nửa sau. Nửa sau vẫn mở bằng đúng nhịp của pattern, để bản 1 ô không mất phách đó. Nốt dẫn chỉ thuộc ô intro cuối, và nằm sau nhịp ấy: Juglar từ móc 5, Alcaniz là cao độ của lead móc 3, Olite ở móc 6 và móc 7. `_scale_into` ghi mỗi nốt dài một móc đơn. Juglar và Olite để trống đúng các móc đó, nên gọi hàm khớp. Alcaniz chỉ lấy cao độ của một nốt từ hàm, rồi ngân nốt ấy `duration_beats = 1.5`. Gọi nguyên hàm sẽ cắt nhóm sau thành một móc đơn ngay trên ô chạm thân bài.
 
 Profile ô pedal của cả bảy cửa là `"torroba"`. `_PEDAL_DOOR_PROFILE` đã có bốn khóa đang hát. Ba khóa `torroba_tremolo`, `alcaniz` và `olite` thêm cùng profile đó, cùng trần bass 53. Cửa bè trung trên 65, khi còn dưới bè cao, giữ nguyên. Ô pedal không đi qua `_plant_pickup`.
 
@@ -300,14 +300,14 @@ Hình của mọi ô cửa trên 3/4, trừ ô ngân kết: lead là bậc 3 ho�
 
 Nguồn cửa: động cơ 3/8 của *Alcañiz*, viết trên 6/8. Mỗi nhóm là hai tiếng: một lead và một bass. Lead ở móc 0 và móc 3, bass đáp ở móc 1 và móc 4, móc 2 và móc 5 không có nốt mới. Lead là bậc 3 hoặc bậc 5 của hợp âm chức năng. Không hợp âm khối, không staccato trên các ô trước ô cuối, không quạt. Scheduler chỉ chọn pattern này trên 6/8. Lời gọi ép trên 4/4 đặt lead ở móc 0 và móc 4, bass ở móc kế. Trên 3/4 chỉ móc 0 có lead, bass ở móc 1.
 
-Trong suốt intro, và trong mọi bước outro trước ô cuối, mỗi lead ngân `duration_beats = 1.5`. Ô outro cuối cắt mỗi lead còn một móc đơn, để dừng tiếng. Nhát ở móc 3 của ô đó có accent, `_MF`. Các ô trước không ghi staccato.
+Trong suốt intro, và trong mọi bước outro trước ô cuối, mỗi lead ngân `duration_beats = 1.5`. Lead móc 3 của ô intro cuối cũng ngân 1,5 phách. Cao độ của nốt đó là một bước của `_scale_into`, dừng trước nốt giá đầu thân. Bass đáp ở móc 4 trong lúc lead còn ngân. Ô outro cuối cắt mỗi lead còn một móc đơn, để dừng tiếng. Nhát ở móc 3 của ô đó có accent, `_MF`. Các ô trước không ghi staccato.
 
 - Intro ngắn, bước 0: đủ hai nhóm trên `I`, `_P`, accent ở móc 0.
-- Intro ngắn, bước 1: đủ hai nhóm trên `V7`, `_MP`. Lead móc 3 là một bước `_scale_into` về nốt giá đầu thân bài, dừng trước nốt đó. Bass vẫn đáp ở móc 4. Móc 5 nghỉ.
+- Intro ngắn, bước 1: đủ hai nhóm trên `V7`, `_MP`. Lead móc 3 lấy cao độ một nốt của `_scale_into`, rồi ngân 1,5 phách. Bass đáp ở móc 4. Móc 5 không có nốt mới.
 - Intro dài, bước 0: một lead và một bass của nhóm đầu trên `I`, `_P`. Nhóm sau nghỉ.
 - Intro dài, bước 1: đủ hai nhóm trên `I`, `_P`, accent ở móc 0.
 - Intro dài, bước 2: đủ hai nhóm trên `V7`, `_MP`.
-- Intro dài, bước 3: lead móc 0 trên `V7`, ngân 1,5 phách, `_MP`. Lead móc 3 là một bước `_scale_into`, dừng trước nốt giá đầu thân. Bass đáp ở móc 4. Móc 5 nghỉ.
+- Intro dài, bước 3: lead móc 0 trên `V7`, ngân 1,5 phách, `_MP`. Lead móc 3 lấy cao độ một nốt của `_scale_into`, rồi ngân 1,5 phách. Bass đáp ở móc 4. Móc 5 không có nốt mới.
 - Outro ngắn, bước 0: đủ hai nhóm trên `V7`, lead ngân 1,5 phách, `_MP`.
 - Outro ngắn, bước 1: lead `I` ở móc 0 và móc 3, mỗi lead một móc đơn. Bass ở móc 1 và móc 4. Nhát móc 3 có accent, `_MF`.
 - Outro dài, bước 0: đủ hai nhóm trên `iv` hoặc `IV`, lead ngân 1,5 phách, `_MP`.
