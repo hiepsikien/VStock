@@ -156,7 +156,7 @@ Lead của Castillo vẫn ngân cả ô. Kiểu 7 và kiểu 8 chỉ mở khi BP
 
 Chuỗi vẫn là `pattern_form`: `Castillo — Juglar — Castillo (3/4, 72 BPM)`. 1D để tên pattern trên title và `movement` là null, như hiện tại.
 
-`ReplayRoom` chỉ gọi lại span khi `audible` chuyển true, rồi bỏ qua chương đã có tên. Effect thêm index chương. Lần lấy đó điền mọi tên đang trống, không chỉ chương vừa vào. Tên vẫn trống nếu file soạn xong trong lúc đang đứng ở chương đó. Dòng hiện khi sang chương sau.
+`ReplayRoom` hỏi lại span khi tiếng đã phát và chương đang nghe còn trống tên. Mỗi lần hỏi điền mọi tên đang trống. Hỏi lại cho đến khi chương đó có tên, hoặc server báo file đã soạn mà tên vẫn trống. Đứng yên ở chương đang nghe vẫn thấy dòng tên.
 
 `SPAN_REVISION` tăng một nấc. File audio soạn trước đợt này hết hạn, vì hàng pattern và độ dài bass đổi. Tên in ra từ lần soạn mới.
 
