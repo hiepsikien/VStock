@@ -985,6 +985,28 @@ def _villa_color_step(ctx: _Ctx, current: int, toward: int, end: int, low: int, 
     return None
 
 
+def _trace_ab(ctx: _Ctx, notes: list[int], end: int, low: int, high: int, chord) -> list[int]:
+    """Ab immediately before `end` when that destination is G. Other landings stay diatonic."""
+    if ctx.ensemble != "torroba" or not notes or notes[-1] != end:
+        return notes
+    from app.sonify.guitar_torroba import torroba_ab_approach
+
+    ab = torroba_ab_approach(ctx, end, chord)
+    if ab is None or not low <= ab <= high:
+        return notes
+    if len(notes) >= 2 and notes[-2] % 12 == 8 and abs(notes[-2] - end) == 1:
+        return notes
+    if len(notes) == 2:
+        # Keep the opening pitch and put Ab in the slot immediately before the destination.
+        start = notes[0]
+        if start == ab:
+            return notes
+        return [start, ab, end]
+    updated = list(notes)
+    updated[-2] = ab
+    return updated
+
+
 def _trace_scale(
     ctx: _Ctx,
     start: int,
@@ -995,6 +1017,7 @@ def _trace_scale(
     high: int,
     *,
     color: bool = False,
+    chord=None,
 ) -> list[int] | None:
     """Walk in-set degrees from `start` to `end`. Villa may prefer a color tone."""
     if start < low or start > high or end < low or end > high:
@@ -1003,7 +1026,7 @@ def _trace_scale(
     current = start
     for _ in range(64):
         if current == end:
-            return notes
+            return _trace_ab(ctx, notes, end, low, high, chord)
         toward = 1 if end > current else -1
         nxt = _composer_step(ctx, current, toward, impulse_direction, approaching, low, high)
         if ctx.ensemble == "villa":
@@ -1017,11 +1040,11 @@ def _trace_scale(
         if not moved or (end - nxt) * toward < 0 or not low <= nxt <= high:
             if 0 < (end - current) * toward <= 2 and low <= end <= high:
                 notes.append(end)
-                return notes
+                return _trace_ab(ctx, notes, end, low, high, chord)
             return None
         notes.append(nxt)
         current = nxt
-    return None if current != end else notes
+    return None if current != end else _trace_ab(ctx, notes, end, low, high, chord)
 
 
 def _fast_line(
@@ -1511,7 +1534,7 @@ def _moving_line(
         return None
     # Villa may replace the diatonic walk with color tones when that walk still
     # fits. A neighbor turn is added later, and only when two steps remain.
-    path = _trace_scale(ctx, start, end, impulse_direction, approaching, low, high, color=False)
+    path = _trace_scale(ctx, start, end, impulse_direction, approaching, low, high, color=False, chord=chord_pcs)
     if path is None:
         return _fast_line(ctx, start, end, count, impulse_direction, approaching, low, high)
     if ctx.ensemble == "villa":

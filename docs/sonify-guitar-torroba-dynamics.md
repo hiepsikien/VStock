@@ -1,6 +1,6 @@
 # Torroba: hai hàng sóng, cung câu hát, và La♭ áp Sol
 
-> **Trạng thái**: chưa vào code.
+> **Trạng thái**: đã vào code.
 > **Đọc cùng**: [`docs/sonify-guitar-dynamics-wave-plan.md`](./sonify-guitar-dynamics-wave-plan.md) mục 2 và 5, [`docs/sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md) mục vận tốc trong ô và mục scale chung.
 > **Giữ**: Trần ấm `63`. Một tâm `C` cho cả ô. Bass không vào lớp móng. Không thêm id pattern. Passage giữ tập nốt thứ tự nhiên. Không thêm Rê♭, không thêm Si. `_shape_dynamics` của ensemble khác không đổi.
 
