@@ -2651,16 +2651,29 @@ def test_a_new_sentence_inside_a_figure_bar_opens_at_its_own_swell() -> None:
     assert following.rise >= MIN_RISE and following.apex.start > 4
     ctx = _many((opening, following), melody=[72] * 4 + [60, 62, 64, 67, 69, 71, 72, 74])
     with compose_meter(METER_44):
-        lead, _support, _low = render_torroba_figure(
+        lead, support, low = render_torroba_figure(
             ctx, 0, opening, "sonatina", 4, index=0, count=2
         )
+        grid_lead, _grid_support, grid_low = _render_torroba_bar(ctx, 0, opening, "sonatina")
     attack = [note for note in lead if note.midi is not None and note.beat == pytest.approx(2.0)]
-    assert len(attack) == 1
+    bass = [note for note in low if note.midi is not None and note.beat == pytest.approx(2.0)]
+    inner = [note for note in support if note.midi is not None and note.beat == pytest.approx(2.0)]
+    grid_attack = [
+        note
+        for note in grid_lead
+        if note.midi is not None and note.beat == pytest.approx(2.0) and note.duration_beats >= 0.5
+    ]
+    grid_bass = [note for note in grid_low if note.midi is not None and note.beat == pytest.approx(2.0)]
+    assert len(attack) == 1 and len(bass) == 1 and len(inner) == 1
+    assert len(grid_attack) == 1 and len(grid_bass) == 1
     apex = _apex_eighths(ctx.phrases)
     local = _note_velocity(4, 1, apex, following)
     borrowed = _note_velocity(4, 1, apex, opening)
     assert local == 60 and borrowed == 64
     assert attack[0].velocity == local
+    assert attack[0].velocity > bass[0].velocity > inner[0].velocity
+    assert grid_attack[0].velocity == local
+    assert grid_attack[0].velocity > grid_bass[0].velocity
 
 
 def test_a_closing_figure_thins_the_inner_voice_and_drops_it_to_p() -> None:
@@ -2685,3 +2698,15 @@ def test_a_closing_figure_thins_the_inner_voice_and_drops_it_to_p() -> None:
     assert any(int(note.beat * 2 + 1e-9) % 2 == 1 for note in sustained)
     assert {note.velocity for note in breathed} == {50, 48}
     assert {note.velocity for note in sustained} == {56, 54}
+
+    # A 1-eighth closing tail on a rolled downbeat keeps the rolled support strings.
+    one_tail = _joined(0, [72] * 9)
+    rest_phrase = _joined(9, [72] * 7, held=True)
+    assert one_tail.closes
+    roll_ctx = _many((one_tail, rest_phrase), melody=[72] * 16, bpm=72)
+    with compose_meter(METER_44):
+        roll_lead, roll_support, roll_low = render_torroba_figure(
+            roll_ctx, 1, one_tail, "castillo", 7, index=4, count=5
+        )
+    _assert_type7_roll(roll_lead, roll_support, roll_low, 4.0)
+    assert {note.velocity for note in roll_support if note.midi is not None} == {50 - _MICRO}
