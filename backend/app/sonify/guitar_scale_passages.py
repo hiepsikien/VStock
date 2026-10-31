@@ -53,6 +53,7 @@ from app.sonify.guitar_patterns import (
     _dur16,
     _eighth_event,
     _classes,
+    _on_sixteenth_grid,
     _playable,
     _sounding_midi,
     _spell16,
@@ -2327,6 +2328,11 @@ def _stamp_arrival(lead: list[NoteEvent], target: int, pitch: int, velocity: int
                     tie_in=event.tie_stop,
                 )
             )
+        if begin == when and not _on_sixteenth_grid(event):
+            rewritten.append(replace(event, midi=pitch, velocity=max(velocity, event.velocity or 0)))
+            stamped = True
+            index += 1
+            continue
         carry = bool(event.tie_start and event.midi == pitch)
         rewritten.extend(
             _spell16(

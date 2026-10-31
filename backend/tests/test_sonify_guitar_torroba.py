@@ -2023,6 +2023,7 @@ def _assert_tied_fifth(stream: list[ET.Element]) -> None:
         assert head.find("type").text == "32nd"
         assert head.find("tie").get("type") == "start"
         assert (head.find("chord") is not None) is (place > 0)
+        assert head.get("dynamics") is not None
         assert head.find("dot") is None
         assert _time_modification(head) == ("3", "2", "32nd")
     for place, tail in enumerate(tails):

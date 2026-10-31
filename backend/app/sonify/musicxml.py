@@ -428,7 +428,7 @@ def _add_tied_fifth(
     def emit(units: int, note_type: str, ties: tuple[str, ...]) -> None:
         for index, event in enumerate(events):
             note = _add(parent, "note")
-            if index == 0 and ties == ("start",) and event.velocity is not None:
+            if ties == ("start",) and event.velocity is not None:
                 note.set("dynamics", f"{event.velocity * 100 / FORTE_VELOCITY:.2f}")
             if index:
                 _add(note, "chord")

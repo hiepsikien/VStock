@@ -604,6 +604,8 @@ def _rasgueado_partition(
             continue
         if any(pitch > 53 for pitch in bass):
             continue
+        if len(bass) == 2 and (bass[1] - bass[0]) not in {5, 7, 12}:
+            continue
         if any(pitch < 50 or pitch >= lead_s for pitch in support):
             continue
         if bass and support and max(bass) >= min(support):
@@ -663,6 +665,7 @@ def _rasgueado_voicing(
                 lowest % 12 == root or (preferred is not None and lowest == preferred)
             )
             key = (
+                int(all(right - left >= 3 for left, right in zip(pitches, pitches[1:]))),
                 len(chosen),
                 int(bool(bass) and bool(support)),
                 rootish,
@@ -766,25 +769,42 @@ def _stamp_rasgueado(
     return lead, support, low
 
 
+def _fandanguillo_rolls_bar(ctx, bar: int, phrase) -> bool:
+    """Roll the opening of a multi-bar phrase (or a single-bar fixture).
+
+    One-bar phrases in a long movement stay block chords so consecutive bars do
+    not fire a 6-string rasgueado on every downbeat.
+    """
+    if phrase is None:
+        return True
+    bars = _bars_of(ctx, phrase)
+    if not bars or bar != bars[0]:
+        return False
+    return len(bars) >= 2 or len(ctx.phrases) <= 1 or ctx.bars <= 4
+
+
 def _render_fandanguillo_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
-    eighth = bar * ctx.epb
-    midi = _melody_at(ctx, eighth)
-    ordinary = _note_velocity(eighth, 1, _apex_eighths(ctx.phrases), phrase)
-    velocity = max(ordinary, 68)
-    band = _attack_band(ctx, bar, 0, _closing_offsets(ctx, bar))
-    support_level, bass_level = _bed(velocity, band)
-    bass_notes, support_notes, sung = _rasgueado_voicing(ctx, bar, midi, 6)
-    lead, support, low = _stamp_rasgueado(
-        bar,
-        bass_notes,
-        support_notes,
-        sung,
-        bass_level=bass_level,
-        support_level=support_level,
-        lead_level=velocity,
-        lead_release=0.5,
-        accent=True,
-    )
+    if _fandanguillo_rolls_bar(ctx, bar, phrase):
+        eighth = bar * ctx.epb
+        midi = _melody_at(ctx, eighth)
+        ordinary = _note_velocity(eighth, 1, _apex_eighths(ctx.phrases), phrase)
+        velocity = max(ordinary, 68)
+        band = _attack_band(ctx, bar, 0, _closing_offsets(ctx, bar))
+        support_level, bass_level = _bed(velocity, band)
+        bass_notes, support_notes, sung = _rasgueado_voicing(ctx, bar, midi, 6)
+        lead, support, low = _stamp_rasgueado(
+            bar,
+            bass_notes,
+            support_notes,
+            sung,
+            bass_level=bass_level,
+            support_level=support_level,
+            lead_level=velocity,
+            lead_release=0.5,
+            accent=True,
+        )
+    else:
+        lead, support, low = _block(ctx, bar, 0, phrase, staccato=False)
     for offset in _fandanguillo_melody(ctx.kind):
         if offset < ctx.epb:
             lead.append(_answer(ctx, bar, offset, phrase))
