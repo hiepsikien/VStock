@@ -2329,7 +2329,7 @@ def _stamp_arrival(lead: list[NoteEvent], target: int, pitch: int, velocity: int
                 )
             )
         if begin == when and not _on_sixteenth_grid(event):
-            rewritten.append(replace(event, midi=pitch, velocity=max(velocity, event.velocity or 0)))
+            rewritten.append(replace(event, midi=pitch))
             stamped = True
             index += 1
             continue

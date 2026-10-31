@@ -2023,13 +2023,14 @@ def _assert_tied_fifth(stream: list[ET.Element]) -> None:
         assert head.find("type").text == "32nd"
         assert head.find("tie").get("type") == "start"
         assert (head.find("chord") is not None) is (place > 0)
-        assert head.get("dynamics") is not None
+        assert head.get("dynamics") == heads[0].get("dynamics") and head.get("dynamics") is not None
         assert head.find("dot") is None
         assert _time_modification(head) == ("3", "2", "32nd")
     for place, tail in enumerate(tails):
         assert tail.find("type").text == "eighth"
         assert [tie.get("type") for tie in tail.findall("tie")] == ["stop"]
         assert (tail.find("chord") is not None) is (place > 0)
+        assert tail.get("dynamics") == heads[0].get("dynamics")
         assert tail.find("dot") is None
         assert _time_modification(tail) == ("3", "2", "32nd")
 
@@ -2520,3 +2521,68 @@ def test_block_drops_a_bass_the_melody_cannot_fret() -> None:
             assert [note.voice for note in opening] == [3, 2, 1]
             assert [note.beat for note in opening] == pytest.approx([0.0, 1 / 12, 2 / 12])
         assert_playable(_figure_score(ctx, [(lead, support, low)], 2), profiles="torroba")
+
+
+def test_fandanguillo_phrase_gate_bass_intervals_chord_dynamics_and_scale_arrival() -> None:
+    """Lock the four BKC 1M rasgueado cleanups."""
+    from app.sonify.guitar_scale_passages import _stamp_arrival
+    from app.sonify.guitar_torroba import _rasgueado_voicing
+
+    # 1. Multi-bar phrase rolls bar 0 and keeps bar 1 a block chord; 1-bar phrases
+    # in a multi-phrase score (even when total bars <= 4) stay block chords.
+    long_phrase = _joined(0, [72] * 16, held=True)
+    long_ctx = _with_phrases(
+        _ctx(melody=[72] * 16, phrase=long_phrase, character="volatile", bars=2, chord=C),
+        (long_phrase,),
+    )
+    with compose_meter(METER_44):
+        bar0 = _render_torroba_bar(long_ctx, 0, long_phrase, "fandanguillo")
+        bar1 = _render_torroba_bar(long_ctx, 1, long_phrase, "fandanguillo")
+    _assert_eighth_roll(*bar0, lead_velocity=68, accent=True)
+    _assert_block(*bar1)
+
+    short_phrases = tuple(_joined(bar * 8, [72] * 8, held=True) for bar in range(4))
+    short_ctx = _with_phrases(
+        _ctx(melody=[72] * 32, phrase=short_phrases[0], character="volatile", bars=4, chord=C),
+        short_phrases,
+    )
+    with compose_meter(METER_44):
+        for bar, phrase in enumerate(short_phrases):
+            _assert_block(*_render_torroba_bar(short_ctx, bar, phrase, "fandanguillo"))
+
+    # 2. Two bass notes are only 4th, 5th, or octave; adjacent strings stay >= 3 semitones apart.
+    for chord in (C, CM, G, G7, FM, AF, BF, F, AM, EM, DM, DM7):
+        chk_ctx = _ctx(melody=[72] * 8, phrase=_joined(0, [72] * 8), chord=chord)
+        bass, support, lead = _rasgueado_voicing(chk_ctx, 0, 72, 6)
+        if len(bass) == 2:
+            assert (bass[1] - bass[0]) in {5, 7, 12}
+        full = [*bass, *support, lead]
+        assert all(right - left >= 3 for left, right in zip(full, full[1:]))
+    c_bass, c_sup, c_lead = _rasgueado_voicing(
+        _ctx(melody=[72] * 8, phrase=_joined(0, [72] * 8), chord=C), 0, 72, 6
+    )
+    assert [*c_bass, *c_sup, c_lead] == [40, 52, 55, 60, 67, 72]
+
+    # 3. Every head and tail note of `_add_tied_fifth` carries the exact dynamics string (56 -> "62.22").
+    flat_score = _engrave(long_ctx, [bar0, bar1])
+    measure0 = ET.fromstring(score_to_musicxml(flat_score)).find("part").findall("measure")[0]
+    support_stream = _streams(measure0)[1]
+    tied_notes = [
+        item for item in support_stream if item.tag == "note" and item.find("rest") is None and int(item.find("duration").text) in {1, 4}
+    ]
+    assert len(tied_notes) == 6
+    assert all(note.get("dynamics") == "62.22" for note in tied_notes)
+
+    # 4. `_stamp_arrival` on a rolled downbeat keeps the 2/12 offset, 4/12 duration, and roll velocity.
+    rolled_lead = [
+        NoteEvent(bar=1, beat=2 / 12, midi=72, duration_beats=4 / 12, voice=1, velocity=68, accent=True),
+        NoteEvent(bar=1, beat=1.0, midi=72, duration_beats=0.5, voice=1, velocity=64),
+    ]
+    for arrival_vel in (46, 74):
+        stamped = _stamp_arrival(rolled_lead, 8, 74, arrival_vel, 8)
+        assert stamped[0].beat == pytest.approx(2 / 12)
+        assert stamped[0].duration_beats == pytest.approx(4 / 12)
+        assert stamped[0].midi == 74
+        assert stamped[0].velocity == 68
+        assert stamped[0].accent is True
+

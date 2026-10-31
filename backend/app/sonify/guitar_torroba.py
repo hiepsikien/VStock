@@ -770,17 +770,17 @@ def _stamp_rasgueado(
 
 
 def _fandanguillo_rolls_bar(ctx, bar: int, phrase) -> bool:
-    """Roll the opening of a multi-bar phrase (or a single-bar fixture).
+    """Roll the opening of a multi-bar phrase (or a single-phrase fixture).
 
-    One-bar phrases in a long movement stay block chords so consecutive bars do
-    not fire a 6-string rasgueado on every downbeat.
+    One-bar phrases in a multi-phrase movement stay block chords so consecutive
+    bars do not fire a 6-string rasgueado on every downbeat.
     """
     if phrase is None:
         return True
     bars = _bars_of(ctx, phrase)
     if not bars or bar != bars[0]:
         return False
-    return len(bars) >= 2 or len(ctx.phrases) <= 1 or ctx.bars <= 4
+    return len(bars) >= 2 or len(ctx.phrases) <= 1
 
 
 def _render_fandanguillo_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
