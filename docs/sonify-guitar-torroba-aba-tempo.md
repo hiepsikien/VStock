@@ -19,7 +19,17 @@ ACB 1M, Guitar, Torroba, giọng nhà Si♭. Bốn chương:
 | III | 6/8, 120 | selloff | trống, chưa soạn | Sẽ là Castillo — Sonatina — Castillo |
 | IV | 4/4, 96 | rally | trống, chưa soạn | Cả chương Sonatina nếu mọi slot cùng rally |
 
-Chương II tại 2:50 đang ở ô 68, năm giây cuối của Juglar. Giá chương này chỉ chạy 21.00–21.45. Juglar lưới thưa đánh lại cùng dây buông mỗi phách. Castillo hai bên ngân cả nốt hát và bass suốt ô, 2,5 giây, rồi ô sau búng lại.
+Chương II tại 2:50 đang ở ô 68, năm giây cuối của Juglar. Giá chương này chỉ chạy 21.00–21.45. Castillo hai bên ngân cả nốt hát và bass suốt ô, 2,5 giây, rồi ô sau búng lại.
+
+Juglar có ba texture, chọn trong `_grid_state`. Chỉ một texture là tremolo có accent.
+
+| Texture | Cửa | Nghe |
+|---|---|---|
+| `full` | `rise >= 3`, câu chưa đóng | Bộ ba 3:2 mỗi phách. Accent chỉ cú đầu của móc 0. Đây là tremolo *Simancas* |
+| `pushed` | `rise < 3`, và câu Juglar ngay trước cũng thưa vì `rise < 3` | Vẫn đủ ba cú, không accent. Hai cú sau thấp hơn một nấc `_under_lead` |
+| `thin` | Câu đóng, hoặc `rise < 3` khi câu trước không thưa | Một nốt ngân hết phách. Cú 2 và cú 3 nghỉ. Không có tremolo |
+
+Chương II là tích lũy, biên giá hẹp, nên hầu hết câu có `rise < 3`. Những câu đó lần lượt `thin` rồi `pushed`. Câu đóng luôn `thin`. Ô 68 nằm cuối vùng B, đúng câu đóng. Lưới đang hát là một nốt đen mỗi phách và bass dây buông cũng dài một phách, búng lại ở phách 0, 1 và 2. Bộ ba không được viết. Cửa intro/outro của Juglar cũng không có bộ ba. Tremolo có accent chỉ xuất hiện khi một câu trong vùng B vươn từ 3 trở lên và chưa đóng. Bản này gần như không có câu đó.
 
 Chart chỉ in `Suite ACB 1M in B-flat`. File chương II đã có `movementName`. Phòng nghe lấy manifest một lần lúc tiếng bắt đầu; lúc đó chương II chưa ghi tên, và lượt làm mới không chạy lại.
 
@@ -33,7 +43,7 @@ Mọi thân Torroba còn lại chia ba vùng ô bằng nhau, tính trên ô thâ
 
 Ít hơn ba câu thân: câu đầu A, câu giữa B, câu cuối A. Một câu thân duy nhất vẫn là một pattern. Tuần và các chương tháng đều dài hơn cửa đó.
 
-`form_pattern_ids` đọc cùng cách chia. Dòng chương là `A — B — A` khi hai tên khác nhau. Hai đầu trùng nhau vẫn in đủ ba chỗ, ví dụ `Sonatina — Olite — Sonatina`.
+`form_pattern_ids` đọc cùng cách chia. Dòng chương là `A — B — A` khi hai tên khác nhau. Hai đầu trùng nhau vẫn in đủ ba chỗ, ví dụ `Castillo — Juglar — Castillo`.
 
 Pedal không đổi pattern.
 
@@ -45,27 +55,34 @@ Ba bảng dưới là primary. Contrast lấy ở mục 4. Cửa `bpm <= 72 → 
 
 Chỉ đứng pattern có lưới của nhịp đó.
 
-| 4/4, 90–108 BPM | Pattern | Vì sao |
+Sonatina chỉ còn một ô trong cả bảy pattern: B của 4/4 khi A là Olite. Rally, selloff, chương 3/4 và scherzo không giao cả vùng A cho Sonatina.
+
+Juglar chỉ đứng trên 3/4. Trên 4/4 và 6/8, `_render_juglar_bar` rơi `_downbeat_only`: một nốt, không bộ ba. Danza đã có lưới 3/4 (hợp âm staccato ở móc 0, đáp ở móc 1, 2 và 4) và lưới 6/8 (hợp âm ở móc 0 và 3). Danza không vào 4/4.
+
+| 4/4, 90–108 BPM | A | Vì sao |
 |---|---|---|
-| calm | Castillo | Nốt hát dài, sau khi bass rút còn một phách |
-| rally | Sonatina | Rải móc đơn, bass một móc |
-| selloff | Sonatina | Cùng lưới, vòng hợp âm đi xuống |
+| calm | Castillo | Nốt hát dài, bass một phách |
+| rally | Olite | Nét chạy 4/4, không trải Sonatina cả vùng |
+| selloff | Castillo | Nốt dài. Vòng hợp âm đi xuống vẫn ở dialect |
 | volatile | Olite | Lưới 4/4 của chương nhanh |
 
-Fandanguillo và Danza không vào 4/4. 1W là 90. 1M I, 1M IV, 3M I, tháng mở 1Y (100) và tháng 12 (96) là 4/4. 3M III là 108, vẫn bảng này.
+1W là 90. 1M I, 1M IV, 3M I, tháng mở 1Y (100) và tháng 12 (96) là 4/4. 3M III là 108, vẫn bảng này.
 
-| 3/4, 60–72 BPM | Pattern | Vì sao |
+| 3/4, 60–72 BPM | A | Vì sao |
 |---|---|---|
-| mọi mood | Castillo | Đây là tempo của nốt ngân |
+| calm | Castillo | Tempo của nốt ngân |
+| rally | Juglar | Bộ ba tremolo trên 3/4 |
+| selloff | Castillo | Nốt dài |
+| volatile | Danza | Hợp âm staccato đã có lưới 3/4 |
 
-1M II là 72. 3M II là 60. Chương giữa 1Y là 66. Juglar không còn là cả vùng B. Một vùng Juglar dài một phút, nốt lặp trên giá đi ngang, là đoạn monotone ở chương II.
+1M II là 72. 3M II là 60. Chương giữa 1Y là 66.
 
-| 6/8, 108–120 BPM | Pattern | Vì sao |
+| 6/8, 108–120 BPM | A | Vì sao |
 |---|---|---|
 | calm | Danza | Hợp âm staccato, đúng tempo scherzo |
 | rally | Alcaniz | Điệu 6/8 |
 | volatile | Fandanguillo | Quạt, lưới 6/8 |
-| selloff | Sonatina | Vẫn chạy móc. Castillo ngân cả ô không đứng ở 120 |
+| selloff | Fandanguillo | Vẫn là điệu. Castillo ngân cả ô không đứng ở 120 |
 
 1M III là 120. Scherzo 1Y (closer, sau khi guitar đổi 3/4 sang 6/8) là 108.
 
@@ -77,23 +94,25 @@ B khác A. Cùng họ nhịp.
 
 | A | B trên 4/4 | B trên 3/4 | B trên 6/8 |
 |---|---|---|---|
-| Castillo | Sonatina | Sonatina | — |
-| Sonatina | Olite khi vùng A là rally. Castillo khi vùng A là selloff hoặc calm | Castillo | Fandanguillo |
+| Castillo | Olite | Juglar khi vùng A là calm. Danza khi vùng A là selloff | — |
 | Olite | Sonatina | — | — |
-| Danza | — | — | Sonatina |
+| Juglar | — | Danza | — |
+| Danza | — | Juglar | Alcaniz |
 | Alcaniz | — | — | Danza |
-| Fandanguillo | — | — | Alcaniz |
+| Fandanguillo | — | — | Danza |
 
-3/4 không có hàng Danza hay Fandanguillo. Hai điệu đó ở 60–72 nghe đặc hơn Sonatina, và Sonatina đã có bass một móc.
+Sonatina không có hàng A. Nó chỉ là B của Olite trên 4/4, tức chương 4/4 `volatile`, và chương 4/4 `rally` vì rally chọn Olite làm A.
+
+Vùng Juglar hát tremolo suốt thân. `_grid_state` bỏ nhánh `thin` cho câu `rise < 3`. Câu đó hát bộ ba, accent ở móc 0, cùng `full`. `pushed` bỏ. `thin` chỉ còn câu `closes`, một nốt hết phách, để câu đóng thở. Giá đi ngang vẫn ra bộ ba, vì cao độ lặp là tremolo của *Simancas*, không phải lý do để tắt bộ ba.
 
 ACB 1M sau bảng này:
 
 | Chương | Hôm nay | Sau |
 |---|---|---|
-| I, selloff, 4/4 96 | Sonatina | Sonatina — Castillo — Sonatina |
-| II, calm, 3/4 72 | Castillo — Juglar — Castillo | Castillo — Sonatina — Castillo |
-| III, selloff, 6/8 120 | Castillo — Sonatina — Castillo | Sonatina — Fandanguillo — Sonatina |
-| IV, rally, 4/4 96 | Sonatina | Sonatina — Olite — Sonatina |
+| I, selloff, 4/4 96 | Sonatina | Castillo — Olite — Castillo |
+| II, calm, 3/4 72 | Castillo — Juglar — Castillo, Juglar đang thưa | Castillo — Juglar — Castillo, thân Juglar là bộ ba |
+| III, selloff, 6/8 120 | Castillo — Sonatina — Castillo | Fandanguillo — Danza — Fandanguillo |
+| IV, rally, 4/4 96 | Sonatina | Olite — Sonatina — Olite |
 
 ---
 
@@ -111,16 +130,15 @@ Thân bài, mọi pattern Torroba:
 Chỗ sửa:
 
 - `_render_castillo_bar`: bass đang là `written(origin, epb, …)`, cả ô. 3/4 ở 72 BPM là 2,5 giây. Đổi thành một phách ở móc 0.
-- `_render_juglar_bar` lưới thưa: bass đang là một phách trên mỗi phách 0, 1 và 2. Giữ một cú ở phách 0, dài một móc đơn.
+- `_render_juglar_bar` lưới bộ ba: bass đang búng mỗi phách, dài một bộ ba, và lưới thưa búng mỗi phách dài một phách. Giữ một cú ở phách 0, dài một móc đơn. Hai phách sau không có bass.
 - Cửa intro/outro trong `guitar_torroba_doors.py` đang `bass_length=ctx.epb`. Cửa pedal rút còn một phách ở ô đầu, các ô cửa sau nghỉ bass nếu cùng cao độ.
-
-Juglar còn trong `_PATTERN_TITLE` và trong cửa 3/4. Scheduler không giao cả vùng B cho nó.
+- `_grid_state`: câu Juglar `rise < 3` thành `full`. `thin` chỉ câu `closes`.
 
 ---
 
 ## 6. Dòng tên trên chart
 
-Chuỗi vẫn là `pattern_form`: `Sonatina — Castillo — Sonatina (4/4, 96 BPM)`. 1D để tên pattern trên title và `movement` là null, như hiện tại.
+Chuỗi vẫn là `pattern_form`: `Castillo — Juglar — Castillo (3/4, 72 BPM)`. 1D để tên pattern trên title và `movement` là null, như hiện tại.
 
 `ReplayRoom` chỉ gọi lại span khi `audible` chuyển true, rồi chỉ điền tên còn trống. Chương soạn xong sau lượt đó đứng trống suốt bài. Sửa: mỗi lần sang chương, nếu `name` của chương đó trống thì lấy lại span và ghi tên mới. Chương đã có tên giữ nguyên.
 
@@ -130,7 +148,7 @@ Chuỗi vẫn là `pattern_form`: `Sonatina — Castillo — Sonatina (4/4, 96 B
 
 ## 7. Chỗ sửa khi thực hiện
 
-- `backend/app/sonify/guitar_torroba.py`: `_torroba_primary`, `_torroba_contrast`, `_render_castillo_bar`, `_render_juglar_bar`.
+- `backend/app/sonify/guitar_torroba.py`: `_torroba_primary`, `_torroba_contrast`, `_grid_state`, `_render_castillo_bar`, `_render_juglar_bar`.
 - `backend/app/sonify/guitar_patterns.py`: nhánh Torroba trong `_assign_macro` và `form_pattern_ids`.
 - `backend/app/sonify/guitar_torroba_doors.py`: `bass_length` của cửa Castillo và Juglar.
 - `backend/app/sonify/audio.py`: `SPAN_REVISION`.
