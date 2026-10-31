@@ -2700,6 +2700,9 @@ def render_patterned_voices(
             support.extend(part_support)
             low.extend(part_low)
             rendered.update(range(phrase.start // epb, (phrase.end - 1) // epb + 1))
+    from app.sonify.guitar_torroba import render_torroba_figure, torroba_figure_plan
+
+    figure_at = torroba_figure_plan(ctx, patterns) if ctx.ensemble == "torroba" else {}
     attacks_by_phrase = {
         index: _lead_attacks(ctx.melody, phrase.start, phrase.end) for index, phrase in enumerate(phrases)
     }
@@ -2928,7 +2931,24 @@ def render_patterned_voices(
             support.extend(part_support)
             low.extend(part_low)
         elif pattern in {"castillo", "sonatina", "fandanguillo", "danza"}:
-            part_lead, part_support, part_low = _render_torroba_bar(ctx, bar, phrase_here, pattern)
+            placed = figure_at.get(bar)
+            if placed is None:
+                part_lead, part_support, part_low = _render_torroba_bar(
+                    ctx, bar, phrase_here, pattern
+                )
+            else:
+                figure, index, count = placed
+                following = figure_at.get(bar + 1)
+                part_lead, part_support, part_low = render_torroba_figure(
+                    ctx,
+                    bar,
+                    phrase_here,
+                    pattern,
+                    figure,
+                    index=index,
+                    count=count,
+                    next_figure=following[0] if following is not None else None,
+                )
             lead.extend(part_lead)
             support.extend(part_support)
             low.extend(part_low)
@@ -3046,6 +3066,11 @@ def render_patterned_voices(
     }
     if torroba_bars:
         plucked = (plucked or set()) | torroba_bars
+    # Figure bars already sit inside the four Torroba pattern ids. Name them
+    # again so a later change to that set cannot let `_slur` rewrite a figure.
+    figure_bars = set(figure_at)
+    if figure_bars:
+        plucked = (plucked or set()) | figure_bars
     lead = _slur(lead, phrases, skip_bars=plucked)
     # Boundary pickups and caesuras already ran against passage eighths only.
     # Swarm eighths join the slur and dynamics sets now, and stay out of bell_bars.
@@ -3497,6 +3522,8 @@ def _shape_dynamics(
     band step would move those offsets before the affine reads them.
     Lead attacks on a scale passage or a sarabande swarm keep the hairpin.
     """
+    from app.sonify.guitar_torroba import skips_bar_extra
+
     protected = scale_eighths or set()
     pedal = set(_pedal_regions(ctx)[0]) | set(_pedal_regions(ctx)[1])
 
@@ -3520,6 +3547,11 @@ def _shape_dynamics(
                 shaped.append(event)
                 continue
             if patterns is not None and _bar_pattern(ctx, event.bar, patterns) in {"etude1", "etude11", "tremolo"}:
+                shaped.append(event)
+                continue
+            # A harmonic node already at 48 stays at 48. Type 8's short bass
+            # colors are the bass bed, so the extra still lands on them.
+            if skips_bar_extra(ctx, event):
                 shaped.append(event)
                 continue
             phrase = phrase_at(eighth)
