@@ -2328,15 +2328,51 @@ def _fallback_inner(
     return None
 
 
+def _downbeat_sounding(lead: list[NoteEvent], support: list[NoteEvent], low: list[NoteEvent], bar: int, semitones: int) -> list[int]:
+    """Every attack inside the opening eighth, as a sounding pitch."""
+    found: list[int] = []
+    for events in (low, support, lead):
+        for event in events:
+            if event.bar == bar and event.midi is not None and event.beat < 0.25:
+                found.append(event.midi + semitones)
+    return found
+
+
 def _repair(ctx: _Ctx, lead: list[NoteEvent], support: list[NoteEvent], low: list[NoteEvent]) -> tuple[list, list, list]:
     """Shift, trim, or drop an inner note that cannot share a hand position with bass and melody."""
     if ctx.ensemble == "bach":
         low = _bach_keep_bass_below(ctx, lead, low)
+    roll_bars = {
+        event.bar
+        for events in (lead, support, low)
+        for event in events
+        if event.midi is not None and not _on_sixteenth_grid(event)
+    }
+    crowded: set[int] = set()
+    for events in (support, low):
+        counts: dict[int, int] = {}
+        for event in events:
+            if event.midi is None or event.beat >= 0.25:
+                continue
+            counts[event.bar] = counts.get(event.bar, 0) + 1
+        for bar, count in counts.items():
+            if count > 1:
+                crowded.add(bar)
     repaired: list[NoteEvent] = []
     for event in support:
         if event.midi is None:
             continue
         if not _on_sixteenth_grid(event):
+            repaired.append(event)
+            continue
+        # A 2-voice roll parks every support note on the beat. Keep the chord
+        # when the whole downbeat sonority frets, instead of trimming one note.
+        if (
+            ctx.ensemble == "torroba"
+            and event.beat < 0.25
+            and (event.bar in roll_bars or event.bar in crowded)
+            and _playable(_downbeat_sounding(lead, support, low, event.bar, ctx.semitones))
+        ):
             repaired.append(event)
             continue
         when = _start16(event, ctx.epb)
@@ -3796,13 +3832,18 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
             if voice in {2, 4} and sounding < 50 and profile not in {"villa_etude1", "villa_etude11"}:
                 raise Unplayable(f"inner voice {sounding} is below the middle register")
     times: set[int] = set()
+    roll_bars: set[int] = set()
     for events in voices.values():
         for event in events:
-            if event.midi is not None:
-                times.add(_start16(event, epb))
+            if event.midi is None:
+                continue
+            times.add(_start16(event, epb))
+            if not _on_sixteenth_grid(event):
+                roll_bars.add(event.bar)
     for when in sorted(times):
         bar = when // (epb * 2)
         profile = profile_at.get(bar, "study")
+        roll_window = profile == "torroba" and (when % (epb * 2)) < 2 and bar in roll_bars
         sounding_notes: list[tuple[int, int]] = []
         for voice, events in voices.items():
             for event in events:
@@ -3814,27 +3855,45 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
         mids = [pitch for voice, pitch in sounding_notes if voice == 2]
         uppers = [pitch for voice, pitch in sounding_notes if voice == 4]
         highs = [pitch for voice, pitch in sounding_notes if voice == 1]
-        if len(highs) > 1:
-            raise Unplayable("two notes in the high voice")
-        if len(mids) > 1 or len(uppers) > 1:
-            raise Unplayable("too many notes in one voice")
-        if len(lows) > 1 and profile != "barrios_tremolo":
-            raise Unplayable("two bass notes are the tremolo exception")
-        four_voices = profile in {"barrios_tremolo", "barrios_preludio"}
-        if len(sounding_notes) > 4 or (len(sounding_notes) > 3 and not four_voices):
-            raise Unplayable("too many simultaneous pitches")
-        if profile == "barrios_preludio" and len(sounding_notes) > 3:
-            # Exactly bass, lower middle, upper middle, and the high voice.
-            if {voice for voice, _pitch in sounding_notes} != {1, 2, 3, 4}:
+        if roll_window:
+            if len(highs) > 1:
+                raise Unplayable("two notes in the high voice")
+            if len(mids) > 3 or len(uppers) > 1:
+                raise Unplayable("too many notes in one voice")
+            if len(lows) > 2:
+                raise Unplayable("too many bass notes in a rasgueado")
+            if len(sounding_notes) > 6:
                 raise Unplayable("too many simultaneous pitches")
-        if lows and mids and max(lows) >= min(mids):
-            tremolo_ok = profile == "barrios_tremolo" and min(lows) < min(mids) and max(lows) <= 53
-            if not tremolo_ok:
+            if len(set(lows)) != len(lows) or len(set(mids)) != len(mids):
+                raise Unplayable("a rasgueado voice repeats a pitch")
+            if lows and mids and max(lows) >= min(mids):
                 raise Unplayable("bass is not below the inner voice")
-        if mids and highs and max(mids) >= min(highs):
-            raise Unplayable("inner voice is not below the melody")
-        if lows and highs and not mids and max(lows) >= min(highs):
-            raise Unplayable("bass is not below the melody")
+            if mids and highs and max(mids) >= min(highs):
+                raise Unplayable("inner voice is not below the melody")
+            if lows and highs and not mids and max(lows) >= min(highs):
+                raise Unplayable("bass is not below the melody")
+        else:
+            if len(highs) > 1:
+                raise Unplayable("two notes in the high voice")
+            if len(mids) > 1 or len(uppers) > 1:
+                raise Unplayable("too many notes in one voice")
+            if len(lows) > 1 and profile != "barrios_tremolo":
+                raise Unplayable("two bass notes are the tremolo exception")
+            four_voices = profile in {"barrios_tremolo", "barrios_preludio"}
+            if len(sounding_notes) > 4 or (len(sounding_notes) > 3 and not four_voices):
+                raise Unplayable("too many simultaneous pitches")
+            if profile == "barrios_preludio" and len(sounding_notes) > 3:
+                # Exactly bass, lower middle, upper middle, and the high voice.
+                if {voice for voice, _pitch in sounding_notes} != {1, 2, 3, 4}:
+                    raise Unplayable("too many simultaneous pitches")
+            if lows and mids and max(lows) >= min(mids):
+                tremolo_ok = profile == "barrios_tremolo" and min(lows) < min(mids) and max(lows) <= 53
+                if not tremolo_ok:
+                    raise Unplayable("bass is not below the inner voice")
+            if mids and highs and max(mids) >= min(highs):
+                raise Unplayable("inner voice is not below the melody")
+            if lows and highs and not mids and max(lows) >= min(highs):
+                raise Unplayable("bass is not below the melody")
         if uppers and mids and max(mids) >= min(uppers):
             raise Unplayable("lower middle is not below the upper middle")
         if uppers and highs and max(uppers) >= min(highs):

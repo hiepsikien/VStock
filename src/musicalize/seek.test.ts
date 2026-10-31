@@ -13,6 +13,7 @@ import {
   shouldResumePlay,
   sonifySocketUrl,
   spanCandleForSecond,
+  spanMapClock,
   spanStageSeek,
   workDuration,
   workSecondsAt,
@@ -72,6 +73,12 @@ if (onFile === onMap) {
 equal(movementFrameSettled({ start: 10, end: 24 }, 10, 15), true, 'settled movement');
 equal(movementFrameSettled({ start: 0, end: 40 }, 10, 15), false, 'zoom still open');
 equal(movementFrameSettled(null, 0, 15), false, 'no focus yet');
+
+equal(spanMapClock(260, 263), 260, 'span chart follows the written map');
+equal(spanMapClock(0, 263), 263, 'span map falls back to the file');
+equal(spanCandleForSecond(130, 20, spanMapClock(260, 263), 0, 0), 10, 'span midpoint candle');
+equal(spanCandleForSecond(263, 20, spanMapClock(260, 263), 0, 0), 19, 'span tail rests on the last candle');
+equal(spanStageSeek(spanMapClock(260, 263), 0, 0, 1), 260, 'span stage ends on the map');
 
 equal(spanStageSeek(90, 0, 0, 0), 0, 'week r=0');
 equal(spanStageSeek(90, 0, 0, 1), 90, 'week r=1');

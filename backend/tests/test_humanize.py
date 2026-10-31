@@ -461,7 +461,7 @@ def test_printed_metronome_stays_integral_while_sound_tempo_breathes() -> None:
     assert len(sounded) == len(heard.tempos)
 
 
-def test_a_mid_beat_tempo_is_pulled_back_from_the_next_note() -> None:
+def test_a_mid_beat_tempo_is_sounded_without_a_negative_offset() -> None:
     import xml.etree.ElementTree as ET
 
     heard = humanize(
@@ -479,12 +479,10 @@ def test_a_mid_beat_tempo_is_pulled_back_from_the_next_note() -> None:
     ]
     assert len(placed) == 1
     direction = placed[0]
-    offset = direction.find("offset")
-    assert offset is not None and offset.get("sound") == "yes"
-    assert int(offset.text or 0) < 0
+    assert direction.find("offset") is None
     index = children.index(direction)
-    assert children[index - 1].tag == "note"
-    assert children[index + 1].tag == "note"
+    assert children[index - 1].tag == "forward"
+    assert any(child.tag == "backup" for child in children[:index])
 
 
 def test_the_phrase_clock_is_written_once_on_the_lead_part() -> None:

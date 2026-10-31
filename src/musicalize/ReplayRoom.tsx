@@ -35,6 +35,7 @@ import {
   placeOnWork,
   replayAction,
   scrubberSeek,
+  spanMapClock,
   spanStageSeek,
   workDuration,
   workSecondsAt,
@@ -311,7 +312,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
     const movement = currentMovements?.[currentIndex];
     if (!movement || !currentMovements) return;
     const next = currentIndex + 1;
-    setMovementTime(movement.durationSec);
+    const end = mediaDuration > 0 ? mediaDuration : movement.durationSec;
+    setMovementTime(end);
     if (next >= currentMovements.length) {
       setPlaying(false);
       setFinished(true);
@@ -423,7 +425,9 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const jumpToMovement = useCallback(
     (nextIndex: number, seconds: number, autoplay: boolean) => {
       const current = movementsRef.current?.[nextIndex];
-      const duration = current?.durationSec ?? seconds;
+      const written = current?.durationSec ?? seconds;
+      const file = nextIndex === indexRef.current && mediaDuration > 0 ? mediaDuration : 0;
+      const duration = Math.max(written, file);
       const target = Math.min(Math.max(0, seconds), Math.max(0, duration));
       clearRest();
       setResting(false);
@@ -442,7 +446,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
       setStartSec(target);
       issueSeek(target);
     },
-    [clearRest, issueSeek],
+    [clearRest, issueSeek, mediaDuration],
   );
 
   const onPlay = useCallback(() => {
@@ -549,7 +553,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
       ) {
         return;
       }
-      const target = spanStageSeek(movement.durationSec, movement.warmupSec, movement.cooldownSec, ratio);
+      const map = spanMapClock(movement.mapDurationSec ?? 0, movement.durationSec);
+      const target = spanStageSeek(map, movement.warmupSec, movement.cooldownSec, ratio);
       setParked(false);
       jumpToMovement(index, target, playingRef.current || finished);
     },
@@ -574,10 +579,11 @@ export function ReplayRoom({ wide, onMode }: Props) {
     (ratio: number) => {
       const movement = movements?.[index];
       if (!movement) return;
-      const target = scrubberSeek(movement.durationSec, ratio);
+      const clock = mediaDuration > 0 ? mediaDuration : movement.durationSec;
+      const target = scrubberSeek(clock, ratio);
       jumpToMovement(index, target, playingRef.current || finished);
     },
-    [finished, index, jumpToMovement, movements],
+    [finished, index, jumpToMovement, mediaDuration, movements],
   );
 
   const onWorkScrub = useCallback(
@@ -705,7 +711,13 @@ export function ReplayRoom({ wide, onMode }: Props) {
     const count = Math.max(1, current.prices.length);
     const at = resting || finished
       ? count - 1
-      : spanCandleIndexAt(movementTime, count, current.durationSec, current.warmupSec, current.cooldownSec);
+      : spanCandleIndexAt(
+          movementTime,
+          count,
+          spanMapClock(current.mapDurationSec ?? 0, current.durationSec),
+          current.warmupSec,
+          current.cooldownSec,
+        );
     const global = (offsets[index] ?? 0) + Math.min(at, count - 1);
     return { index: audible || resting || finished || movementTime > 0 ? global : null, label: current.label };
   }, [
@@ -801,6 +813,10 @@ export function ReplayRoom({ wide, onMode }: Props) {
         ? absoluteApiUrl(current.audioUrl)
         : null;
 
+  useEffect(() => {
+    setMediaDuration(0);
+  }, [audioUrl]);
+
   const stageSeekable =
     span === '1D'
       ? manifest != null
@@ -813,7 +829,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
             movementFrameSettled(focus, offsets[index] ?? 0, current.prices.length)));
 
   const fileClock = manifest ? (mediaDuration > 0 ? mediaDuration : manifest.durationSec) : 0;
-  const movementClock = current?.durationSec ?? 0;
+  const movementClock = mediaDuration > 0 ? mediaDuration : (current?.durationSec ?? 0);
   const workClock = movements ? workDuration(movements) : 0;
   const workTime = movements
     ? workSecondsAt(movements, index, movementTime, resting, restOffset)

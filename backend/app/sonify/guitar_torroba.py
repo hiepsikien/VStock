@@ -585,28 +585,206 @@ def _rasgueado_onsets(voices: list[int]) -> dict[int, float]:
     return {voice: index / 12.0 for index, voice in enumerate(ordered)}
 
 
-def _spread_rasgueado(
-    lead: list[NoteEvent],
-    support: list[NoteEvent],
-    low: list[NoteEvent],
-    *,
-    lead_release: float = 0.5,
-    chord_release: float = 0.5,
-) -> None:
-    """Turn a simultaneous downbeat chord into a bass-to-lead roll."""
-    buckets = ((3, low, chord_release), (2, support, chord_release), (1, lead, lead_release))
-    present = [voice for voice, notes, _release in buckets if notes and notes[0].midi is not None]
-    onsets = _rasgueado_onsets(present)
-    for voice, notes, release in buckets:
-        if voice not in onsets:
+def _rasgueado_partition(
+    lower: list[int],
+    lead_s: int,
+    bass_cap: int,
+    support_cap: int,
+) -> list[tuple[list[int], list[int]]]:
+    """Split sounding pitches below the lead into bass then support.
+
+    Pitches increase, so the cut is a single index. Bass stays at or below 53
+    and support stays at or above 50, with every bass note under every support.
+    """
+    found: list[tuple[list[int], list[int]]] = []
+    for cut in range(len(lower) + 1):
+        bass = lower[:cut]
+        support = lower[cut:]
+        if len(bass) > bass_cap or len(support) > support_cap:
             continue
-        beat = onsets[voice]
-        notes[0] = replace(notes[0], beat=beat, duration_beats=release - beat)
+        if any(pitch > 53 for pitch in bass):
+            continue
+        if any(pitch < 50 or pitch >= lead_s for pitch in support):
+            continue
+        if bass and support and max(bass) >= min(support):
+            continue
+        found.append((bass, support))
+    return found
+
+
+def _rasgueado_voicing(
+    ctx,
+    bar: int,
+    lead: int,
+    max_notes: int,
+) -> tuple[list[int], list[int], int]:
+    """Written `(bass, support, lead)` for one rolled chord.
+
+    Type 1 passes `max_notes=6` and keeps 5–6 strings when the hand allows.
+    Type 2 passes `max_notes=4` and keeps 3–4. A unison or an unplayable bass
+    falls back to two voices, or to the lead alone.
+    """
+    from app.sonify.guitar_patterns import _MAX_FRET, _OPENS, _playable
+
+    semi = ctx.semitones
+    lead_s = lead + semi
+    chord = ctx.chord(bar)
+    pcs = chord.pitch_classes
+    root = chord.pitches[0] % 12
+    raw_bass = _torroba_bass(ctx, chord, bar, lead)
+    preferred = None if raw_bass is None else raw_bass + semi
+    bass_cap = 2 if max_notes == 6 else 1
+    support_cap = 3 if max_notes == 6 else 2
+    lead_strings = [
+        (string, lead_s - open_pitch)
+        for string, open_pitch in enumerate(_OPENS)
+        if 0 <= lead_s - open_pitch <= _MAX_FRET[string]
+    ]
+    best_key: tuple | None = None
+    best: tuple[list[int], list[int]] | None = None
+
+    def consider(chosen: list[tuple[int, int, int]]) -> None:
+        nonlocal best_key, best
+        pitches = [pitch for _string, pitch, _fret in chosen]
+        frets = [fret for _string, _pitch, fret in chosen if fret > 0]
+        if frets and max(frets) - min(frets) > 5:
+            return
+        if not _playable(pitches):
+            return
+        lower = pitches[:-1]
+        partitions = _rasgueado_partition(lower, lead_s, bass_cap, support_cap)
+        if lower and not partitions:
+            return
+        if not partitions:
+            partitions = [([], [])]
+        for bass, support in partitions:
+            lowest = pitches[0]
+            rootish = int(
+                lowest % 12 == root or (preferred is not None and lowest == preferred)
+            )
+            key = (
+                len(chosen),
+                int(bool(bass) and bool(support)),
+                rootish,
+                -(max(frets) if frets else 0),
+                sum(pitches),
+                tuple(pitches),
+            )
+            if best_key is None or key > best_key:
+                best_key = key
+                best = (bass, support)
+
+    def search(start: int, chosen: list[tuple[int, int, int]], lead_string: int, lead_fret: int) -> None:
+        if len(chosen) + 1 <= max_notes and (not chosen or chosen[-1][1] < lead_s):
+            consider([*chosen, (lead_string, lead_s, lead_fret)])
+        if max_notes - 1 - len(chosen) <= 0:
+            return
+        for string in range(start, lead_string):
+            open_pitch = _OPENS[string]
+            for fret in range(_MAX_FRET[string] + 1):
+                pitch = open_pitch + fret
+                if pitch >= lead_s:
+                    break
+                if pitch % 12 not in pcs:
+                    continue
+                if chosen and pitch <= chosen[-1][1]:
+                    continue
+                trial = [note[2] for note in chosen if note[2] > 0]
+                if fret > 0:
+                    trial.append(fret)
+                if lead_fret > 0:
+                    trial.append(lead_fret)
+                if trial and max(trial) - min(trial) > 5:
+                    continue
+                chosen.append((string, pitch, fret))
+                search(string + 1, chosen, lead_string, lead_fret)
+                chosen.pop()
+
+    for lead_string, lead_fret in lead_strings:
+        search(0, [], lead_string, lead_fret)
+    if best is None:
+        return [], [], lead
+    bass, support = best
+    return [pitch - semi for pitch in bass], [pitch - semi for pitch in support], lead
+
+
+def _stamp_rasgueado(
+    bar: int,
+    bass_notes: list[int],
+    support_notes: list[int],
+    lead_midi: int,
+    *,
+    bass_level: int,
+    support_level: int,
+    lead_level: int,
+    lead_release: float,
+    accent: bool,
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    """Place a rolled chord. Two voices close the gap. A lone lead stays on the beat."""
+    voices = [voice for voice, notes in ((3, bass_notes), (2, support_notes), (1, [lead_midi])) if notes]
+    onsets = _rasgueado_onsets(voices)
+    releases = {3: 0.5, 2: 0.5, 1: lead_release}
+    lead: list[NoteEvent] = []
+    support: list[NoteEvent] = []
+    low: list[NoteEvent] = []
+    for midi in bass_notes:
+        beat = onsets[3]
+        low.append(
+            NoteEvent(
+                bar=bar,
+                beat=beat,
+                midi=midi,
+                duration_beats=releases[3] - beat,
+                voice=3,
+                velocity=bass_level,
+            )
+        )
+    for midi in support_notes:
+        beat = onsets[2]
+        support.append(
+            NoteEvent(
+                bar=bar,
+                beat=beat,
+                midi=midi,
+                duration_beats=releases[2] - beat,
+                voice=2,
+                velocity=support_level,
+            )
+        )
+    beat = onsets[1]
+    lead.append(
+        NoteEvent(
+            bar=bar,
+            beat=beat,
+            midi=lead_midi,
+            duration_beats=releases[1] - beat,
+            voice=1,
+            velocity=lead_level,
+            accent=accent,
+        )
+    )
+    return lead, support, low
 
 
 def _render_fandanguillo_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
-    lead, support, low = _block(ctx, bar, 0, phrase, staccato=False)
-    _spread_rasgueado(lead, support, low)
+    eighth = bar * ctx.epb
+    midi = _melody_at(ctx, eighth)
+    ordinary = _note_velocity(eighth, 1, _apex_eighths(ctx.phrases), phrase)
+    velocity = max(ordinary, 68)
+    band = _attack_band(ctx, bar, 0, _closing_offsets(ctx, bar))
+    support_level, bass_level = _bed(velocity, band)
+    bass_notes, support_notes, sung = _rasgueado_voicing(ctx, bar, midi, 6)
+    lead, support, low = _stamp_rasgueado(
+        bar,
+        bass_notes,
+        support_notes,
+        sung,
+        bass_level=bass_level,
+        support_level=support_level,
+        lead_level=velocity,
+        lead_release=0.5,
+        accent=True,
+    )
     for offset in _fandanguillo_melody(ctx.kind):
         if offset < ctx.epb:
             lead.append(_answer(ctx, bar, offset, phrase))
@@ -1128,33 +1306,35 @@ class _Pen:
         return self.ctx.chord(self.bar) == self.ctx.chord(self.bar + 1)
 
 
-def _sonority_ok(pen: _Pen, pitches: list[int | None]) -> bool:
-    semi = pen.ctx.semitones
-    return _playable([pitch + semi for pitch in pitches if pitch is not None])
+def _open_rasgueado(
+    pen: _Pen,
+    written: int,
+    *,
+    lead_release: float,
+    max_notes: int,
+    accent: bool,
+    bed_steps: int,
+) -> None:
+    """Roll eighth 0 from bass up to lead.
 
-
-def _open_rasgueado(pen: _Pen, written: int, *, lead_release: float) -> None:
-    """Roll eighth 0 from bass up to lead. Each voice cuts at its own `T_v`.
-
-    Two sounding voices stand at `0` and `1/12`. A lone lead stays on the beat.
-    Bass is kept only when it frets with the lead and the inner voice.
+    `max_notes=6` is the strong fan (5–6 strings, beds at step 0). `max_notes=4`
+    is the soft fan (3–4 strings). Two sounding voices stand at `0` and `1/12`.
+    A lone lead stays on the beat.
     """
     sung = pen.mel(0)
     support_level, bass_level, _weak = pen.beds(written)
-    low = pen.bass_of(sung)
-    inner = pen.support_of(sung, low, capped=False) if low is not None else None
-    if low is not None and not _sonority_ok(pen, [low, inner, sung]):
-        low = None
-    if inner is not None and not _sonority_ok(pen, [low, inner, sung]):
-        inner = None
-    pen.rasgueado(
-        [
-            (3, low, bass_level, 0, {}),
-            (2, inner, support_level, 0, {}),
-            (1, sung, written, 0, {"accent": True}),
-        ],
-        {3: 0.5, 2: 0.5, 1: lead_release},
-    )
+    bass_notes, support_notes, lead_midi = _rasgueado_voicing(pen.ctx, pen.bar, sung, max_notes)
+    voices = [voice for voice, notes in ((3, bass_notes), (2, support_notes), (1, [lead_midi])) if notes]
+    onsets = _rasgueado_onsets(voices)
+    releases = {3: 0.5, 2: 0.5, 1: lead_release}
+    for midi in bass_notes:
+        beat = onsets[3]
+        pen.add(beat, midi, releases[3] - beat, 3, bass_level, bed_steps)
+    for midi in support_notes:
+        beat = onsets[2]
+        pen.add(beat, midi, releases[2] - beat, 2, support_level, bed_steps)
+    beat = onsets[1]
+    pen.add(beat, lead_midi, releases[1] - beat, 1, written, 0, accent=accent)
 
 
 def _render_type1(pen: _Pen):
@@ -1219,7 +1399,14 @@ def _render_type2(pen: _Pen):
     bass_level = pen.beds(strong_written)[1]
     if pen.index == 0:
         low = pen.bass_of(anchor)
-        _open_rasgueado(pen, strong_written, lead_release=0.5)
+        if pen.pattern == "fandanguillo":
+            _open_rasgueado(
+                pen, strong_written, lead_release=0.5, max_notes=6, accent=True, bed_steps=0
+            )
+        else:
+            _open_rasgueado(
+                pen, strong_written, lead_release=0.5, max_notes=4, accent=False, bed_steps=1
+            )
         repeated = _rasgueado_pitch(pen, anchor)
         bundle = pen.group()
         if pen.ctx.kind == "4/4":
@@ -1267,7 +1454,7 @@ def _render_type3(pen: _Pen):
 
 def _type3_motif(pen: _Pen):
     written, _accent = pen.lead_level(0, strong=True)
-    _open_rasgueado(pen, written, lead_release=0.5)
+    _open_rasgueado(pen, written, lead_release=0.5, max_notes=4, accent=False, bed_steps=1)
     repeated = pen.mel(1)
     bundle = pen.group()
     pen.add(0.5, repeated, 0.25, 1, written, 2, group=bundle)
@@ -1465,7 +1652,7 @@ def _render_type5(pen: _Pen):
 def _type5_fan(pen: _Pen):
     written = pen.dance_written(0)
     bass_level = pen.beds(written)[1]
-    _open_rasgueado(pen, written, lead_release=0.5)
+    _open_rasgueado(pen, written, lead_release=0.5, max_notes=6, accent=True, bed_steps=0)
     held = pen.low_price(1)
     bundle = pen.group()
     for offset, steps in enumerate((2, 2, 2)):
@@ -1878,7 +2065,9 @@ def _type7_bar5(pen: _Pen):
     written, _accent = pen.lead_level(0, strong=True)
     bass_level = pen.beds(written)[1]
     # Bass covers 2/12, so `_micro_fits` sees it. The lead step is 0 and stays 0.
-    _open_rasgueado(pen, written, lead_release=pen.beats)
+    _open_rasgueado(
+        pen, written, lead_release=pen.beats, max_notes=4, accent=True, bed_steps=1
+    )
     if pen.ctx.kind == "4/4":
         steps = (1, 1, 1, 1, 2, 2, 1)
     else:

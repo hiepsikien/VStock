@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import xml.etree.ElementTree as ET
 from dataclasses import replace
 from types import SimpleNamespace
@@ -1051,9 +1050,15 @@ def test_breath_harmonics_and_fandanguillo_grids() -> None:
         (note for note in (*lead, *support, *low) if note.midi is not None and note.beat < 0.25),
         key=lambda note: note.beat,
     )
-    assert [note.beat for note in opening] == pytest.approx([0.0, 1 / 12, 2 / 12])
-    assert [note.voice for note in opening] == [3, 2, 1]
-    assert opening[-1].midi == 72
+    bass = [note for note in opening if note.voice == 3]
+    mids = [note for note in opening if note.voice == 2]
+    highs = [note for note in opening if note.voice == 1]
+    assert 1 <= len(bass) <= 2 and 2 <= len(mids) <= 3 and len(highs) == 1
+    assert 5 <= len(opening) <= 6
+    assert all(note.beat == pytest.approx(0.0) for note in bass)
+    assert all(note.beat == pytest.approx(1 / 12) for note in mids)
+    assert highs[0].beat == pytest.approx(2 / 12) and highs[0].midi == 72
+    assert all(note.beat + note.duration_beats == pytest.approx(0.5) for note in opening)
 
     three = _ctx(
         melody=[72] * 6,
@@ -1616,7 +1621,7 @@ def test_type_7_mordent_and_bar_5_bass_keep_the_written_steps() -> None:
         assert len(chord_bass) == 1
         assert chord_bass[0].beat == pytest.approx(0.0)
         assert chord_bass[0].duration_beats == pytest.approx(0.5)
-        assert chord_bass[0].velocity == 60
+        assert chord_bass[0].velocity == 58
         assert [note.velocity for note in running] == velocities
         assert all(note.duration_beats == pytest.approx(0.5) for note in running)
         assert running[-1].midi % 12 == C.pitches[0] % 12
@@ -1862,33 +1867,60 @@ def _opening(lead, support, low, *, limit: float = 0.25) -> list[NoteEvent]:
     return sorted(notes, key=lambda note: (note.beat, -note.voice))
 
 
-def _assert_eighth_roll(lead, support, low, *, lead_velocity: int | None = None) -> None:
+def _assert_eighth_roll(
+    lead,
+    support,
+    low,
+    *,
+    lead_velocity: int | None = None,
+    bass_velocity: int | None = None,
+    support_velocity: int | None = None,
+    accent: bool = True,
+    min_strings: int = 5,
+    max_strings: int = 6,
+) -> None:
     opening = _opening(lead, support, low)
-    assert [note.voice for note in opening] == [3, 2, 1]
-    assert [note.beat for note in opening] == pytest.approx([0.0, 1 / 12, 2 / 12])
-    assert [note.duration_beats for note in opening] == pytest.approx([0.5, 5 / 12, 4 / 12])
+    bass = [note for note in opening if note.voice == 3]
+    mids = [note for note in opening if note.voice == 2]
+    highs = [note for note in opening if note.voice == 1]
+    assert bass and mids and len(highs) == 1
+    assert min_strings <= len(opening) <= max_strings
+    assert all(note.beat == pytest.approx(0.0) and note.duration_beats == pytest.approx(0.5) for note in bass)
+    assert all(
+        note.beat == pytest.approx(1 / 12) and note.duration_beats == pytest.approx(5 / 12) for note in mids
+    )
+    assert highs[0].beat == pytest.approx(2 / 12)
+    assert highs[0].duration_beats == pytest.approx(4 / 12)
     assert all(note.beat + note.duration_beats == pytest.approx(0.5) for note in opening)
-    assert opening[2].accent
+    assert highs[0].accent is accent
     # The volume wave moves a finished score. Written levels are the figure's.
     if lead_velocity is not None:
-        assert opening[2].velocity == lead_velocity
-        assert opening[1].velocity == 56
-        assert opening[0].velocity == 60
+        assert highs[0].velocity == lead_velocity
+    if bass_velocity is not None:
+        assert {note.velocity for note in bass} == {bass_velocity}
+    if support_velocity is not None:
+        assert {note.velocity for note in mids} == {support_velocity}
 
 
 def _assert_type7_roll(lead, support, low, bar_beats: float, *, written: bool = False) -> None:
     opening = _opening(lead, support, low)
-    assert [note.voice for note in opening] == [3, 2, 1]
-    assert [note.beat for note in opening] == pytest.approx([0.0, 1 / 12, 2 / 12])
-    assert [note.duration_beats for note in opening] == pytest.approx([0.5, 5 / 12, bar_beats - 2 / 12])
-    assert opening[0].beat + opening[0].duration_beats == pytest.approx(0.5)
-    assert opening[1].beat + opening[1].duration_beats == pytest.approx(0.5)
-    assert opening[2].beat + opening[2].duration_beats == pytest.approx(bar_beats)
-    assert opening[2].accent
+    bass = [note for note in opening if note.voice == 3]
+    mids = [note for note in opening if note.voice == 2]
+    highs = [note for note in opening if note.voice == 1]
+    assert len(bass) == 1 and 1 <= len(mids) <= 2 and len(highs) == 1
+    assert 3 <= len(opening) <= 4
+    assert bass[0].beat == pytest.approx(0.0) and bass[0].duration_beats == pytest.approx(0.5)
+    assert all(
+        note.beat == pytest.approx(1 / 12) and note.duration_beats == pytest.approx(5 / 12) for note in mids
+    )
+    assert highs[0].beat == pytest.approx(2 / 12)
+    assert highs[0].duration_beats == pytest.approx(bar_beats - 2 / 12)
+    assert highs[0].beat + highs[0].duration_beats == pytest.approx(bar_beats)
+    assert highs[0].accent
     if written:
-        assert opening[2].velocity == 64
-        assert opening[1].velocity == 56
-        assert opening[0].velocity == 60
+        assert highs[0].velocity == 64
+        assert {note.velocity for note in mids} == {54}
+        assert bass[0].velocity == 58
 
 
 def _assert_block(lead, support, low) -> None:
@@ -1962,37 +1994,65 @@ def _assert_measures_sum(score: Score) -> None:
 
 
 def _assert_tied_fifth(stream: list[ET.Element]) -> None:
-    """A 5-unit eighth is a 32nd tied to an eighth, after a 1-unit forward."""
-    assert stream[0].tag == "forward" and stream[0].find("duration").text == "1"
-    head, tail = stream[1], stream[2]
-    assert (head.find("duration").text, head.find("type").text) == ("1", "32nd")
-    assert head.find("tie").get("type") == "start"
-    assert (tail.find("duration").text, tail.find("type").text) == ("4", "eighth")
-    assert tail.find("tie").get("type") == "stop"
-    assert head.find("dot") is None and tail.find("dot") is None
-    assert _time_modification(head) == ("3", "2", "32nd")
-    assert _time_modification(tail) == ("3", "2", "32nd")
+    """A 5-unit chord is a 32nd triplet rest, then tied 32nds, then tied eighths."""
+    rest = stream[0]
+    assert rest.tag == "note" and rest.find("rest") is not None
+    assert rest.find("duration").text == "1"
+    assert rest.find("type").text == "32nd"
+    assert _time_modification(rest) == ("3", "2", "32nd")
+    index = 1
+    heads: list[ET.Element] = []
+    while (
+        index < len(stream)
+        and stream[index].tag == "note"
+        and stream[index].find("rest") is None
+        and stream[index].find("duration").text == "1"
+    ):
+        heads.append(stream[index])
+        index += 1
+    tails: list[ET.Element] = []
+    while (
+        index < len(stream)
+        and stream[index].tag == "note"
+        and stream[index].find("duration").text == "4"
+    ):
+        tails.append(stream[index])
+        index += 1
+    assert heads and len(heads) == len(tails)
+    for place, head in enumerate(heads):
+        assert head.find("type").text == "32nd"
+        assert head.find("tie").get("type") == "start"
+        assert (head.find("chord") is not None) is (place > 0)
+        assert head.find("dot") is None
+        assert _time_modification(head) == ("3", "2", "32nd")
+    for place, tail in enumerate(tails):
+        assert tail.find("type").text == "eighth"
+        assert [tie.get("type") for tie in tail.findall("tie")] == ["stop"]
+        assert (tail.find("chord") is not None) is (place > 0)
+        assert tail.find("dot") is None
+        assert _time_modification(tail) == ("3", "2", "32nd")
 
 
 def _assert_eighth_xml(measure: ET.Element) -> None:
     lead, support, bass = _streams(measure)[0], _streams(measure)[1], _streams(measure)[-1]
-    bass_note, lead_note = _first_attack(bass), _first_attack(lead)
-    assert (bass_note.find("duration").text, bass_note.find("type").text) == ("6", "eighth")
+    assert bass[0].tag == "note" and bass[0].find("rest") is None
+    assert (bass[0].find("duration").text, bass[0].find("type").text) == ("6", "eighth")
+    assert bass[0].find("dot") is None and bass[0].find("time-modification") is None
+    place = 1
+    while place < len(bass) and bass[place].find("chord") is not None:
+        assert bass[place].find("duration").text == "6"
+        assert bass[place].find("time-modification") is None
+        place += 1
+    lead_note = _first_attack(lead)
     assert (lead_note.find("duration").text, lead_note.find("type").text) == ("4", "eighth")
-    assert bass_note.find("dot") is None and lead_note.find("dot") is None
-    assert bass_note.find("time-modification") is None
+    assert lead_note.find("dot") is None
     assert _time_modification(lead_note) == ("3", "2", "16th")
     assert lead[0].find("rest") is not None
     assert lead[0].find("duration").text == "2"
     assert lead[0].find("type").text == "16th"
     assert _time_modification(lead[0]) == ("3", "2", "16th")
     _assert_tied_fifth(support)
-    assert bass[0].tag == "note" and bass[0].find("rest") is None
-    shortened = {lead_note, support[1], support[2]}
-    for note in measure.iter("note"):
-        if note.find("rest") is not None or note in shortened:
-            continue
-        assert note.find("time-modification") is None
+    _assert_complete_tuplets(measure)
 
 
 def _time_modification(note: ET.Element) -> tuple[str, str, str]:
@@ -2005,24 +2065,65 @@ def _time_modification(note: ET.Element) -> tuple[str, str, str]:
     )
 
 
+def _assert_plain_tail(notes: list[ET.Element], kind: str) -> None:
+    if kind == "4/4":
+        expect = (("36", "half", True), ("6", "eighth", False))
+    else:
+        expect = (("24", "half", False), ("6", "eighth", False))
+    assert len(notes) == len(expect)
+    for note, (duration, note_type, dotted) in zip(notes, expect):
+        assert note.find("duration").text == duration
+        assert note.find("type").text == note_type
+        assert (note.find("dot") is not None) is dotted
+        assert note.find("time-modification") is None
+        assert note.find("chord") is None
+    assert [tie.get("type") for tie in notes[0].findall("tie")] == ["stop", "start"]
+    assert [tie.get("type") for tie in notes[-1].findall("tie")] == ["stop"]
+
+
+def _assert_complete_tuplets(measure: ET.Element) -> None:
+    """A rasgueado eighth is a finished 3:2. No forward, and no 24:23 hold."""
+    assert not any(child.tag == "forward" for child in measure.iter())
+    for note in measure.iter("note"):
+        modification = note.find("time-modification")
+        if modification is None:
+            continue
+        assert modification.find("actual-notes").text in {"3", "6"}
+        if modification.find("actual-notes").text == "3":
+            assert modification.find("normal-notes").text == "2"
+
+
 def _assert_held_lead_xml(measure: ET.Element, units: int, kind: str) -> None:
     lead_stream = _streams(measure)[0]
-    lead = _first_attack(lead_stream)
-    assert lead.find("duration").text == str(units)
-    if kind == "4/4":
-        assert lead.find("type").text == "whole"
-        assert lead.find("dot") is None
-        nominal_units = 48
+    assert all(item.tag != "forward" for item in lead_stream)
+    bar_units = 48 if kind == "4/4" else 36
+    if units == bar_units - 2:
+        rest, head = lead_stream[0], lead_stream[1]
+        assert rest.find("rest") is not None
+        assert rest.find("duration").text == "2"
+        assert rest.find("type").text == "16th"
+        assert _time_modification(rest) == ("3", "2", "16th")
+        assert head.find("rest") is None
+        assert (head.find("duration").text, head.find("type").text) == ("4", "eighth")
+        assert [tie.get("type") for tie in head.findall("tie")] == ["start"]
+        assert _time_modification(head) == ("3", "2", "16th")
+        _assert_plain_tail(lead_stream[2:], kind)
+    elif units == bar_units - 1:
+        rest, head, eighth = lead_stream[0], lead_stream[1], lead_stream[2]
+        assert rest.find("rest") is not None
+        assert rest.find("duration").text == "1"
+        assert rest.find("type").text == "32nd"
+        assert _time_modification(rest) == ("3", "2", "32nd")
+        assert (head.find("duration").text, head.find("type").text) == ("1", "32nd")
+        assert [tie.get("type") for tie in head.findall("tie")] == ["start"]
+        assert _time_modification(head) == ("3", "2", "32nd")
+        assert (eighth.find("duration").text, eighth.find("type").text) == ("4", "eighth")
+        assert [tie.get("type") for tie in eighth.findall("tie")] == ["stop", "start"]
+        assert _time_modification(eighth) == ("3", "2", "32nd")
+        _assert_plain_tail(lead_stream[3:], kind)
     else:
-        assert lead.find("type").text == "half"
-        assert lead.find("dot") is not None
-        nominal_units = 36
-    factor = math.gcd(nominal_units, units)
-    normal_type = "whole" if kind == "4/4" else "half"
-    expected = (str(nominal_units // factor), str(units // factor), normal_type)
-    assert _time_modification(lead) == expected
-    assert lead_stream[0].tag == "forward"
-    assert lead_stream[0].find("duration").text == str(nominal_units - units)
+        raise AssertionError(units)
+    _assert_complete_tuplets(measure)
 
 
 @pytest.mark.parametrize("kind", ["4/4", "3/4", "6/8"])
@@ -2035,14 +2136,50 @@ def test_rolled_rasgueado_onsets_releases_and_block_chords(kind: str) -> None:
     _meter, _epb, _strong, bar_beats = _FIGURE_METERS[kind]
 
     _ctx2, _phrase2, type2 = _flat_figure(kind, 2)
-    _assert_eighth_roll(*type2[0], lead_velocity=64)
+    _assert_eighth_roll(
+        *type2[0],
+        lead_velocity=64,
+        bass_velocity=58,
+        support_velocity=54,
+        accent=False,
+        min_strings=3,
+        max_strings=4,
+    )
     _assert_block(*type2[1])
+    meter, epb, _strong, _beats = _FIGURE_METERS[kind]
+    dance_phrase = _joined(0, [72] * (_FIGURE_BARS[2] * epb), held=True)
+    dance_ctx = _many(
+        (dance_phrase,),
+        kind=kind,
+        bpm=72,
+        chord=C,
+        melody=[72] * (_FIGURE_BARS[2] * epb),
+    )
+    with compose_meter(meter):
+        danced = render_torroba_figure(
+            dance_ctx, 0, dance_phrase, "fandanguillo", 2, index=0, count=2, next_figure=2
+        )
+    _assert_eighth_roll(
+        *danced,
+        lead_velocity=68,
+        bass_velocity=60,
+        support_velocity=56,
+        accent=True,
+    )
 
     _ctx3, _phrase3, type3 = _flat_figure(kind, 3)
-    _assert_eighth_roll(*type3[0], lead_velocity=64)
+    _assert_eighth_roll(
+        *type3[0],
+        lead_velocity=64,
+        bass_velocity=58,
+        support_velocity=54,
+        accent=False,
+        min_strings=3,
+        max_strings=4,
+    )
 
     _ctx5, _phrase5, type5 = _flat_figure(kind, 5)
-    _assert_eighth_roll(*type5[0], lead_velocity=68)
+    _assert_eighth_roll(*type5[0], lead_velocity=68, bass_velocity=60, support_velocity=56)
     _assert_block(*type5[3])
 
     _ctx7, _phrase7, type7 = _flat_figure(kind, 7)
@@ -2068,7 +2205,7 @@ def test_rolled_rasgueado_onsets_releases_and_block_chords(kind: str) -> None:
         assert [note.voice for note in opened] == [3, 2]
         assert all(note.duration_beats == pytest.approx(0.25) for note in opened)
 
-    meter, epb, strong, _beats = _FIGURE_METERS[kind]
+    _meter, epb, strong, _beats = _FIGURE_METERS[kind]
     # Held, so the downbeat is not a close and the beds stay 68 / 60 / 56.
     phrase = _joined(0, [72] * epb, held=True)
     grid = _ctx(
@@ -2083,7 +2220,7 @@ def test_rolled_rasgueado_onsets_releases_and_block_chords(kind: str) -> None:
     )
     with compose_meter(meter):
         dance = _render_torroba_bar(grid, 0, phrase, "fandanguillo")
-    _assert_eighth_roll(*dance, lead_velocity=68)
+    _assert_eighth_roll(*dance, lead_velocity=68, bass_velocity=60, support_velocity=56)
     assert_playable(_figure_score(grid, [dance], 1), profiles="torroba")
 
     if kind != "4/4":
@@ -2219,8 +2356,10 @@ def test_rolled_chord_scores_engrave_on_division_12(kind: str) -> None:
     held_bar = ET.fromstring(score_to_musicxml(held_score)).find("part").findall("measure")[4]
     _assert_held_lead_xml(held_bar, epb * 6 - 1, kind)
     assert _first_attack(_streams(held_bar)[-1]).find("duration").text == "6"
-    assert _streams(held_bar)[0][0].tag == "forward"
-    assert _streams(held_bar)[0][0].find("duration").text == "1"
+    opening_rest = _streams(held_bar)[0][0]
+    assert opening_rest.find("rest") is not None
+    assert opening_rest.find("duration").text == "1"
+    assert opening_rest.find("type").text == "32nd"
 
     quiet = _pattern_score(kind, "castillo", character="calm", bpm=96)
     assert quiet.divisions != 12
@@ -2350,7 +2489,7 @@ def test_type_7_bar_5_keeps_the_roll_across_a_boundary_and_a_pattern_change() ->
 
 
 def test_block_drops_a_bass_the_melody_cannot_fret() -> None:
-    """F2 under a high price does not fit. The chord keeps the lead alone."""
+    """F2 under a high price does not fit a block chord. A fan may still fret higher Fs."""
     only_f = Chord("F", "F", "major", "", (65,))
     cases = (
         ("fandanguillo", "4/4", METER_44, 8, (0, 4), 4.0),
@@ -2370,8 +2509,13 @@ def test_block_drops_a_bass_the_melody_cannot_fret() -> None:
         )
         with compose_meter(meter):
             lead, support, low = _render_torroba_bar(ctx, 0, phrase, pattern)
-        assert low == []
         opening = _opening(lead, support, low)
-        assert len(opening) == 1 and opening[0].voice == 1
-        assert opening[0].beat == pytest.approx(0.0)
+        if pattern == "danza":
+            assert low == []
+            assert len(opening) == 1 and opening[0].voice == 1
+            assert opening[0].beat == pytest.approx(0.0)
+        else:
+            assert sorted(note.midi for note in opening) == [53, 65, 76]
+            assert [note.voice for note in opening] == [3, 2, 1]
+            assert [note.beat for note in opening] == pytest.approx([0.0, 1 / 12, 2 / 12])
         assert_playable(_figure_score(ctx, [(lead, support, low)], 2), profiles="torroba")

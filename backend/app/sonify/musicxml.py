@@ -21,9 +21,10 @@ Vibrato is left to the instrument: a `<wavy-line>` imports as a trill.
 A hairpin with no target letter moves playback one step and stays there, so
 `mp` is printed again wherever earlier hairpins did not cancel out.
 The lead part (`P1`) carries the opening tempo (plus `<swing>` when
-`score.swing` is enabled) and the later phrase-tempo directions. Those
-directions sit on the lead voice's cursor; a change between attacks uses
-`<offset sound="yes">`.
+`score.swing` is enabled) and the later phrase-tempo directions. On a
+melody staff a change between attacks uses `<offset sound="yes">`. The
+guitar part does not: MuseScore drops a negative offset at the end of a
+measure, so an interior tempo is reached with `<backup>` and `<forward>`.
 
 `P3` is a two-staff grand staff (comping + fills in `symphony` and `jazz`, or
 liquidity pulse + backbeat in `minimalist`), marked `p` once so it stays behind
@@ -39,6 +40,7 @@ from __future__ import annotations
 
 import math
 import xml.etree.ElementTree as ET
+from dataclasses import replace
 from typing import TypeVar
 
 from app.sonify.chords import Chord
@@ -180,9 +182,9 @@ def _roll_time_modification(
     MuseScore scales the written `<type>` by `normal / actual` and ignores
     `<duration>` once a time modification is present. A 4-unit eighth shares
     a 3:2 sixteenth tuplet with the rest in front of it; a lone 3:2 on the
-    eighth is ignored and the bar overruns. A bar-long lead uses the reduced
-    ratio of its own type, and the gap before it is a `<forward>`: a whole of
-    46 units is `24:23`. Five-unit eighths are not spelled here.
+    eighth is ignored and the bar overruns. A bar-long lead is not spelled
+    here: the guitar part ties that same 3:2 eighth into ordinary notes.
+    Five-unit eighths are not spelled here either.
     """
     written = int(round(nominal * divisions))
     sounding = int(round(duration_beats * divisions))
@@ -389,57 +391,169 @@ def _add_triplet_rest(parent: ET.Element, event: NoteEvent, divisions: int) -> N
     _add(modification, "normal-type", "16th")
 
 
+def _add_32nd_triplet_rest(parent: ET.Element, event: NoteEvent, divisions: int) -> None:
+    """The 1/12 rest that opens a complete 3:2 thirty-second tuplet."""
+    note = _add(parent, "note")
+    _add(note, "rest")
+    _add(note, "duration", str(_duration(event.duration_beats, divisions)))
+    _add(note, "voice", str(event.voice))
+    _add(note, "type", "32nd")
+    modification = _add(note, "time-modification")
+    _add(modification, "actual-notes", "3")
+    _add(modification, "normal-notes", "2")
+    _add(modification, "normal-type", "32nd")
+
+
 def _add_tied_fifth(
     parent: ET.Element,
-    event: NoteEvent,
+    events: list[NoteEvent],
     *,
     written_shift: int,
     harmony: Chord | None,
     key: KeySpec | None,
     mode: str,
     divisions: int,
+    continue_after: bool = False,
 ) -> None:
     """A 5-unit eighth: a 32nd tied to an eighth, each a 3:2 thirty-second.
 
-    One eighth under 6:5 is exact only while rests follow it. A sounding note
-    in the same voice makes MuseScore reject the bar. Five thirty-seconds of
-    a 3:2 tuplet are a 32nd plus an eighth, and that tie stays one attack.
+    Simultaneous support notes are one chord. The 32nd heads are written
+    together, then the eighth tails. A `<chord/>` note does not move the
+    cursor, so the voice still advances by 5. `continue_after` keeps the
+    eighth tied into the rest of a bar-long lead.
     """
-    step, alter, octave = _spelled_pitch(
-        event, written_shift=written_shift, harmony=harmony, key=key, mode=mode
-    )
-    for units, note_type, tie in ((1, "32nd", "start"), (4, "eighth", "stop")):
-        note = _add(parent, "note")
-        if tie == "start" and event.velocity is not None:
-            note.set("dynamics", f"{event.velocity * 100 / FORTE_VELOCITY:.2f}")
-        pitch = _add(note, "pitch")
-        _add(pitch, "step", step)
-        if alter:
-            _add(pitch, "alter", str(alter))
-        _add(pitch, "octave", str(octave))
-        _add(note, "duration", str(units if divisions == 12 else _duration(units / 12.0, divisions)))
-        _add(note, "tie", type=tie)
-        _add(note, "voice", str(event.voice))
-        _add(note, "type", note_type)
-        modification = _add(note, "time-modification")
-        _add(modification, "actual-notes", "3")
-        _add(modification, "normal-notes", "2")
-        _add(modification, "normal-type", "32nd")
-        notations = _add(note, "notations")
-        _add(notations, "tied", type=tie)
-        if tie == "start" and (event.accent or event.tenuto or event.staccato or event.slur_start):
-            if event.slur_start:
-                _add(notations, "slur", type="start", number=str(event.voice))
-            if event.accent or event.tenuto or event.staccato:
-                articulations = _add(notations, "articulations")
-                if event.accent:
-                    _add(articulations, "accent")
-                if event.tenuto:
-                    _add(articulations, "tenuto")
-                if event.staccato:
-                    _add(articulations, "staccato")
-        elif tie == "stop" and event.slur_stop:
-            _add(notations, "slur", type="stop", number=str(event.voice))
+    if not events:
+        return
+
+    def emit(units: int, note_type: str, ties: tuple[str, ...]) -> None:
+        for index, event in enumerate(events):
+            note = _add(parent, "note")
+            if index == 0 and ties == ("start",) and event.velocity is not None:
+                note.set("dynamics", f"{event.velocity * 100 / FORTE_VELOCITY:.2f}")
+            if index:
+                _add(note, "chord")
+            step, alter, octave = _spelled_pitch(
+                event, written_shift=written_shift, harmony=harmony, key=key, mode=mode
+            )
+            pitch = _add(note, "pitch")
+            _add(pitch, "step", step)
+            if alter:
+                _add(pitch, "alter", str(alter))
+            _add(pitch, "octave", str(octave))
+            _add(note, "duration", str(units if divisions == 12 else _duration(units / 12.0, divisions)))
+            for tie in ties:
+                _add(note, "tie", type=tie)
+            _add(note, "voice", str(event.voice))
+            _add(note, "type", note_type)
+            modification = _add(note, "time-modification")
+            _add(modification, "actual-notes", "3")
+            _add(modification, "normal-notes", "2")
+            _add(modification, "normal-type", "32nd")
+            notations = _add(note, "notations")
+            for tie in ties:
+                _add(notations, "tied", type=tie)
+            if index == 0 and ties == ("start",):
+                if event.slur_start:
+                    _add(notations, "slur", type="start", number=str(event.voice))
+                if event.accent or event.tenuto or event.staccato:
+                    articulations = _add(notations, "articulations")
+                    if event.accent:
+                        _add(articulations, "accent")
+                    if event.tenuto:
+                        _add(articulations, "tenuto")
+                    if event.staccato:
+                        _add(articulations, "staccato")
+            elif index == 0 and event.slur_stop and "start" not in ties:
+                _add(notations, "slur", type="stop", number=str(event.voice))
+
+    emit(1, "32nd", ("start",))
+    emit(4, "eighth", ("stop", "start") if continue_after else ("stop",))
+
+
+def _plain_tail(units: int) -> list[int]:
+    """Untupled durations that sum to `units` at `divisions = 12`.
+
+    A 4/4 hold leaves 42 (dotted half + eighth). A 3/4 or 6/8 hold leaves 30
+    (half + eighth). Anything else is still a chain of plain values.
+    """
+    if units == 42:
+        return [36, 6]
+    if units == 30:
+        return [24, 6]
+    chunks: list[int] = []
+    left = units
+    for size in (36, 24, 18, 12, 9, 6, 3):
+        while left >= size:
+            chunks.append(size)
+            left -= size
+    chunks.extend([1] * left)
+    return chunks
+
+
+def _add_plain_tail(
+    parent: ET.Element,
+    events: list[NoteEvent],
+    remaining: int,
+    *,
+    written_shift: int,
+    harmony: Chord | None,
+    key: KeySpec | None,
+    mode: str,
+    divisions: int,
+    bar_beats: float | None,
+) -> None:
+    """Tie the rolled eighth into ordinary notes for the rest of the bar."""
+    pieces = _plain_tail(remaining)
+    for piece_index, units in enumerate(pieces):
+        last = piece_index == len(pieces) - 1
+        for index, event in enumerate(events):
+            # Beat 1 is outside the roll, so `<type>` is the plain duration.
+            tail = replace(
+                event,
+                beat=1.0,
+                duration_beats=units / float(divisions),
+                tie_stop=True,
+                tie_start=not last,
+                accent=False,
+                tenuto=False,
+                staccato=False,
+                slur_start=False,
+                slur_stop=bool(event.slur_stop and last and index == 0),
+            )
+            _add_note(
+                parent,
+                tail,
+                chord=index > 0,
+                written_shift=written_shift,
+                divisions=divisions,
+                harmony=harmony,
+                key=key,
+                bar_beats=bar_beats,
+                mode=mode,
+                slur_number=str(event.voice),
+            )
+
+
+def _rasgueado_kind(event: NoteEvent, divisions: int, bar_beats: float) -> str | None:
+    """How a sounding attack inside the first eighth is spelled.
+
+    `eighth` is the 4-unit lead. `fifth` is the 5-unit support. `held-eighth`
+    and `held-fifth` are the same tuplets tied across the rest of the bar.
+    """
+    if divisions != 12 or event.midi is None or event.beat >= 0.25:
+        return None
+    beat_units = int(round(event.beat * divisions))
+    duration_units = int(round(event.duration_beats * divisions))
+    bar_units = int(round(bar_beats * divisions))
+    if beat_units == 2 and duration_units == 4:
+        return "eighth"
+    if beat_units == 2 and duration_units == bar_units - 2:
+        return "held-eighth"
+    if beat_units == 1 and duration_units == 5:
+        return "fifth"
+    if beat_units == 1 and duration_units == bar_units - 1:
+        return "held-fifth"
+    return None
 
 
 TREBLE = ("G", "2")
@@ -1012,14 +1126,28 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
             if score.ensemble != "barrios":
                 _dynamic(measure, MELODY_DYNAMIC)
         tempos = _bar_tempos(score, bar)
-        cursor = 0.0
+        bar_units_int = int(bar_units)
 
-        def emit_tempo(until: float) -> None:
-            nonlocal cursor
-            while tempos and tempos[0].beat <= until + 1e-9:
-                event = tempos.pop(0)
-                delta = int(round((event.beat - cursor) * score.divisions))
-                _playback_tempo(measure, event.bpm, delta or None)
+        def emit_on_cursor(beat: float) -> None:
+            """Sound tempos that land on this attack. Leave the rest for the walk."""
+            kept: list[TempoEvent] = []
+            for change in tempos:
+                if abs(change.beat - beat) <= 1e-6:
+                    _playback_tempo(measure, change.bpm, None)
+                else:
+                    kept.append(change)
+            tempos[:] = kept
+
+        def note_kwargs(event: NoteEvent, harmony: Chord | None) -> dict:
+            return {
+                "written_shift": 12,
+                "divisions": score.divisions,
+                "harmony": harmony,
+                "key": score.key,
+                "bar_beats": score.bar_beats,
+                "mode": score.mode,
+                "slur_number": str(event.voice),
+            }
 
         for event in symbols[bar]:
             _harmony(measure, event, score.key, score.mode)
@@ -1041,29 +1169,109 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                 marking = markings[voice_index]
                 _dynamic(measure, DynamicEvent(bar=0, marking=marking, sound=SOUND[marking]))
             roles = _sextuplet_roles(ordered)
-            previous_beat: float | None = None
-            for index, (event, role) in enumerate(zip(ordered, roles)):
-                if voice_index == 0:
-                    emit_tempo(event.beat)
-                nxt = ordered[index + 1] if index + 1 < len(ordered) else None
+            index = 0
+            while index < len(ordered):
+                event = ordered[index]
+                role = roles[index]
                 harmony = _chord_on(
                     score,
                     bar - 1 if event.tie_stop and event.beat == 0.0 and bar > 0 else bar,
                 ) or _chord_on(score, bar)
-                if _eighth_roll_units(event, score.divisions) == 5:
-                    # Five units will not survive as one 6:5 eighth once a
-                    # later note shares the voice. A tied 32nd plus eighth does.
-                    _add_tied_fifth(
-                        measure,
-                        event,
-                        written_shift=12,
-                        harmony=harmony,
-                        key=score.key,
-                        mode=score.mode,
-                        divisions=score.divisions,
-                    )
-                elif role is None and _roll_gap_rest(event) and _eighth_roll_units(nxt, score.divisions) == 4:
+                if event.midi is not None:
+                    group = [event]
+                    group_roles = [role]
+                    nxt_index = index + 1
+                    while (
+                        nxt_index < len(ordered)
+                        and ordered[nxt_index].midi is not None
+                        and abs(ordered[nxt_index].beat - event.beat) <= 1e-6
+                    ):
+                        group.append(ordered[nxt_index])
+                        group_roles.append(roles[nxt_index])
+                        nxt_index += 1
+                    if voice_index == 0:
+                        emit_on_cursor(event.beat)
+                    kind = _rasgueado_kind(event, score.divisions, score.bar_beats)
+                    if kind in {"fifth", "held-fifth"}:
+                        _add_tied_fifth(
+                            measure,
+                            group,
+                            written_shift=12,
+                            harmony=harmony,
+                            key=score.key,
+                            mode=score.mode,
+                            divisions=score.divisions,
+                            continue_after=kind == "held-fifth",
+                        )
+                        if kind == "held-fifth":
+                            _add_plain_tail(
+                                measure,
+                                group,
+                                bar_units_int - 6,
+                                written_shift=12,
+                                harmony=harmony,
+                                key=score.key,
+                                mode=score.mode,
+                                divisions=score.divisions,
+                                bar_beats=score.bar_beats,
+                            )
+                    elif kind == "held-eighth":
+                        for note_index, note in enumerate(group):
+                            head = replace(
+                                note,
+                                duration_beats=4.0 / 12.0,
+                                tie_start=True,
+                                tie_stop=False,
+                            )
+                            _add_note(
+                                measure,
+                                head,
+                                chord=note_index > 0,
+                                tuplet=group_roles[note_index],
+                                **note_kwargs(note, harmony),
+                            )
+                        _add_plain_tail(
+                            measure,
+                            group,
+                            bar_units_int - 6,
+                            written_shift=12,
+                            harmony=harmony,
+                            key=score.key,
+                            mode=score.mode,
+                            divisions=score.divisions,
+                            bar_beats=score.bar_beats,
+                        )
+                    else:
+                        for note_index, note in enumerate(group):
+                            _add_note(
+                                measure,
+                                note,
+                                chord=note_index > 0,
+                                tuplet=group_roles[note_index],
+                                **note_kwargs(note, harmony),
+                            )
+                    index = nxt_index
+                    continue
+                if voice_index == 0:
+                    emit_on_cursor(event.beat)
+                nxt = ordered[index + 1] if index + 1 < len(ordered) else None
+                nxt_kind = (
+                    _rasgueado_kind(nxt, score.divisions, score.bar_beats) if nxt is not None else None
+                )
+                if (
+                    role is None
+                    and _roll_gap_rest(event)
+                    and nxt_kind in {"eighth", "held-eighth"}
+                    and _near(event.duration_beats * 12.0, 2.0)
+                ):
                     _add_triplet_rest(measure, event, score.divisions)
+                elif (
+                    role is None
+                    and _roll_gap_rest(event)
+                    and nxt_kind in {"fifth", "held-fifth"}
+                    and _near(event.duration_beats * 12.0, 1.0)
+                ):
+                    _add_32nd_triplet_rest(measure, event, score.divisions)
                 elif role is None and _roll_gap_rest(event):
                     # A rest with its own ratio joins the note's tuplet and
                     # speaks a 1/12 attack at 0.10. <forward> moves by duration.
@@ -1073,21 +1281,28 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                     _add_note(
                         measure,
                         event,
-                        chord=event.beat == previous_beat and event.midi is not None,
-                        written_shift=12,
-                        divisions=score.divisions,
-                        harmony=harmony,
-                        key=score.key,
-                        bar_beats=score.bar_beats,
-                        mode=score.mode,
-                        slur_number=str(event.voice),
                         tuplet=role,
+                        **note_kwargs(event, harmony),
                     )
-                if voice_index == 0 and not (event.beat == previous_beat and event.midi is not None):
-                    cursor = event.beat + event.duration_beats
-                previous_beat = event.beat
-            if voice_index == 0:
-                emit_tempo(score.bar_beats)
+                index += 1
+            if voice_index == 0 and tempos:
+                # MuseScore ignores a negative <offset> at the end of a measure
+                # and drops the tempos after it. Walk back to each one instead.
+                backup = _add(measure, "backup")
+                _add(backup, "duration", bar_units)
+                tempo_cursor = 0
+                for change in tempos:
+                    at = int(round(change.beat * score.divisions))
+                    at = max(0, min(bar_units_int, at))
+                    if at > tempo_cursor:
+                        forward = _add(measure, "forward")
+                        _add(forward, "duration", str(at - tempo_cursor))
+                        tempo_cursor = at
+                    _playback_tempo(measure, change.bpm, None)
+                if tempo_cursor < bar_units_int:
+                    forward = _add(measure, "forward")
+                    _add(forward, "duration", str(bar_units_int - tempo_cursor))
+                tempos.clear()
 
 
 def score_to_musicxml(score: Score) -> str:
