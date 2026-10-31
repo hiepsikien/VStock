@@ -2,7 +2,7 @@
 
 > **Trạng thái**: đề xuất. Chưa vào code.
 > **Thay cho**: hàng “một pattern cả chương” trong [`docs/sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md) mục 2, và hàng `BPM ≤ 72 → castillo` trong [`docs/sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md) mục 7.
-> **Giữ**: 1D một pattern. Texture (Arada, Float, Rasgueado, …) vẫn không lên dòng chương. Không thêm id pattern mới. Không sửa cờ `bridge` / `trio` trong `span.py`, vì các nhà khác đọc cùng form đó.
+> **Giữ**: 1D một pattern, id lấy bảng 4/4 mới. Texture (Arada, Float, Rasgueado, …) vẫn không lên dòng chương. Không thêm id pattern mới. Không sửa cờ `bridge` / `trio` trong `span.py`, vì các nhà khác đọc cùng form đó.
 
 Ba việc cùng một đợt: mọi chương ngoài 1D hát ít nhất hai pattern theo A–B–A, pattern khớp nhịp và BPM, bass dây buông không ngân chồng. Dòng tên trên chart in đúng hàng đó.
 
@@ -35,15 +35,29 @@ Chart chỉ in `Suite ACB 1M in B-flat`. File chương II đã có `movementName
 
 ---
 
-## 2. A–B–A cho mọi chương ngoài 1D
+## 2. A–B–A theo slot đã có
 
-1D là ngày 34 ô, 4/4. `_Ctx` không có field span. Cửa giữ một pattern là `bars == 34 and kind == "4/4"`. Tuần một phiên là 32 ô, không lọt cửa này.
+1D là ngày 34 ô, 4/4. Cửa `bars == 34 and kind == "4/4"` giữ một pattern. Id lấy bảng 4/4 ở mục 3. Rally của ngày đó là Olite, selloff là Castillo. Nhánh này không giữ bảng cũ, nơi cả hai mood đều là Sonatina. Test “vẫn một tên” cũng khóa id.
 
-Mọi thân Torroba còn lại chia ba vùng ô bằng nhau, tính trên ô thân, bỏ warmup, cooldown, intro, outro. Vùng 0 và vùng 2 hát primary. Vùng 1 hát contrast. Câu lấy pattern của ô thân đầu tiên của câu. Chương đã có `bridge` hoặc `trio` giữ nguyên vùng B đó, không chia ba thêm một lần nữa.
+Chương đã có từ ba slot phrase, và không có `bridge` hay `trio`, không cắt theo số ô. Chương I guitar sau `_retarget_pedal(intro=4, outro=4)` là khoảng 36, 24 và 28 ô trên `regime_slot` 0, 1, 2, `bridge=False`. Chương IV cùng kiểu. `_assign_macro` hôm nay, khi không có contrast, gọi `_torroba_primary` từng slot. Cả chương selloff nên cả ba slot ra Sonatina.
 
-Ít hơn ba câu thân: câu đầu A, câu giữa B, câu cuối A. Một câu thân duy nhất vẫn là một pattern. Tuần và các chương tháng đều dài hơn cửa đó.
+Slot 0 và slot cuối hát một primary. Mọi slot nằm giữa hát một contrast. Không chia những slot đó thành ba phần ô. 88 ô thân không chia hết cho 3, và câu lấy pattern của ô đầu sẽ đẩy vùng B thêm một lần nữa.
 
-`form_pattern_ids` đọc cùng cách chia. Dòng chương là `A — B — A` khi hai tên khác nhau. Hai đầu trùng nhau vẫn in đủ ba chỗ, ví dụ `Castillo — Juglar — Castillo`.
+Chương đã có `bridge` hoặc `trio` giữ vùng B đó. Không chia thêm.
+
+Một slot phrase, và không phải ngày 34 ô: tuần một phiên là 32 ô. Chia ô thân của slot đó làm ba phần. Ô dư về phần cuối, cùng `split_into`. Câu lấy pattern của ô đầu tiên trong slot.
+
+Hai slot phrase và không có bridge, như tháng mở 1Y và tuần hai phiên: slot 0 là primary. Slot 1 chia đôi theo ô. Nửa đầu là contrast. Nửa sau chép primary. Ô lẻ của nửa đó về phía trở lại.
+
+Tuần từ ba phiên trở lên giữ biên phiên. Mỗi phiên đã là một slot. Phiên đầu và phiên cuối hát primary. Mọi phiên ở giữa hát cùng một contrast. Hàng này thay “mỗi phiên một pattern”. Nó không cắt ngang một phiên. Tuần năm phiên là một hàng A–B–A, không phải năm lần chọn riêng.
+
+Primary chọn một lần, từ mood của vùng mở: `_majority_mood` trên slot 0, hoặc trên các ô A của chương có bridge. Vùng cuối chép đúng id đó. Không gọi `_torroba_primary` lần nữa. Hai đầu tự đọc mood của mình thì dòng không còn A–B–A, và `pattern_form` gộp hai tên kề nhau thành một.
+
+Contrast là hàng mục 4 của primary đó. Hàng Castillo trên 3/4 đọc mood của vùng mở: calm thì Juglar, selloff thì Danza. `_contrast_pattern` hôm nay truyền mood của vùng giữa vào `_torroba_contrast`. Kế hoạch này không truyền mood đó.
+
+`form_pattern_ids` hôm nay trả một tên khi không có bridge, dù hàng đã là ba id. Chương I và IV vẫn in một tên nếu hàm này chưa đọc cách chia trên. Hàm trả `[primary, contrast, primary]`. `pattern_form` chỉ gộp tên kề nhau. Castillo — Olite — Castillo vẫn là ba tên, vì hai Castillo không kề nhau.
+
+Câu không khung đi `_select_body` rồi `_torroba_primary`. Mỗi câu một pattern, không ép A–B–A. Id lấy bảng mới. Cửa `bpm <= 72 → castillo` cũng bỏ trên đường này.
 
 Pedal không đổi pattern.
 
@@ -51,7 +65,7 @@ Pedal không đổi pattern.
 
 ## 3. Pattern theo nhịp và BPM
 
-Ba bảng dưới là primary. Contrast lấy ở mục 4. Cửa `bpm <= 72 → castillo` bỏ. Mood đọc trên các ô của đúng vùng, cùng `_majority_mood`.
+Ba bảng dưới là primary của vùng mở. Vùng cuối chép id đó. Contrast lấy ở mục 4, từ primary và từ mood của vùng mở. Cửa `bpm <= 72 → castillo` bỏ.
 
 Chỉ đứng pattern có lưới của nhịp đó.
 
@@ -103,7 +117,9 @@ B khác A. Cùng họ nhịp.
 
 Sonatina không có hàng A. Nó chỉ là B của Olite trên 4/4, tức chương 4/4 `volatile`, và chương 4/4 `rally` vì rally chọn Olite làm A.
 
-Vùng Juglar hát tremolo suốt thân. `_grid_state` bỏ nhánh `thin` cho câu `rise < 3`. Câu đó hát bộ ba, accent ở móc 0, cùng `full`. `pushed` bỏ. `thin` chỉ còn câu `closes`, một nốt hết phách, để câu đóng thở. Giá đi ngang vẫn ra bộ ba, vì cao độ lặp là tremolo của *Simancas*, không phải lý do để tắt bộ ba.
+Vùng Juglar hát bộ ba trên mọi câu của vùng, kể cả câu `closes`. Ô 68 là câu đóng cuối vùng B. `thin` phủ cả câu đóng thì 2:50 vẫn là một nốt mỗi phách. `thin` của Juglar chỉ là ô cuối của vùng. Vùng B hết ở ô 70, nên ô 68 là ô áp chót và 2:50 là bộ ba. Ô cuối vùng hát một nốt hết phách, đó là chỗ thở.
+
+`_grid_state` dùng chung cho Juglar, Alcaniz và Olite. Nhánh `rise < 3` thành `full` chỉ khi pattern là `torroba_tremolo`. Alcaniz giữ ô mềm. Olite giữ ô thưa. `pushed` của hai pattern đó giữ. Juglar không dùng `pushed`: câu `rise < 3` là `full`, có accent ở móc 0. Giá đi ngang vẫn ra bộ ba, vì cao độ lặp là tremolo của *Simancas*.
 
 ACB 1M sau bảng này:
 
@@ -118,21 +134,17 @@ ACB 1M sau bảng này:
 
 ## 5. Bass dây buông
 
-Ù đến từ búng lại cùng dây Mi, La hoặc Rê trong khi tiếng trước còn ngân.
+Ù hết khi bass Castillo không còn ngân cả ô, và bass Juglar không còn búng mỗi phách.
 
-Thân bài, mọi pattern Torroba:
+Luật độ dài chỉ cho thân Castillo, thân Juglar, và ô cửa đang ngân cả ô:
 
-- Bass dài tối đa một phách đen.
-- Trước cú bass sau có ít nhất một móc đơn nghỉ, kể cả khi sang ô.
-- Cùng cao độ với cú bass ngay trước thì bỏ cú mới, để lỗ nghỉ. Không buộc dây.
-- Lead của Castillo vẫn ngân cả ô. Thứ bị cắt là bass.
+- Một cú ở móc 0, dài một phách.
+- Cú sau cách ít nhất một móc đơn. Với một cú mỗi ô, cú sau đã nằm ở ô kế.
+- Không bỏ cú mới chỉ vì cùng cao độ. Luật đó tắt pedal Castillo khi hợp âm đứng yên, và xóa hai cú dây buông trong ô của Danza 6/8, Alcaniz và Olite.
 
-Chỗ sửa:
+Lead của Castillo vẫn ngân cả ô. Kiểu 7 và kiểu 8 chỉ mở khi BPM ≤ 72, nên Castillo của chương I ở 96 BPM vẫn là nốt hát ngân, bass một phách.
 
-- `_render_castillo_bar`: bass đang là `written(origin, epb, …)`, cả ô. 3/4 ở 72 BPM là 2,5 giây. Đổi thành một phách ở móc 0.
-- `_render_juglar_bar` lưới bộ ba: bass đang búng mỗi phách, dài một bộ ba, và lưới thưa búng mỗi phách dài một phách. Giữ một cú ở phách 0, dài một móc đơn. Hai phách sau không có bass.
-- Cửa intro/outro trong `guitar_torroba_doors.py` đang `bass_length=ctx.epb`. Cửa pedal rút còn một phách ở ô đầu, các ô cửa sau nghỉ bass nếu cùng cao độ.
-- `_grid_state`: câu Juglar `rise < 3` thành `full`. `thin` chỉ câu `closes`.
+`_juglar_motor` đã là bass dài một móc ở phách 0. Chỉ `_juglar_hold` đang `bass_length=ctx.epb`. Cửa Castillo đang `bass_length=ctx.epb` rút còn một phách ở móc 0. Cửa còn lại giữ cú điệu.
 
 ---
 
@@ -140,7 +152,7 @@ Chỗ sửa:
 
 Chuỗi vẫn là `pattern_form`: `Castillo — Juglar — Castillo (3/4, 72 BPM)`. 1D để tên pattern trên title và `movement` là null, như hiện tại.
 
-`ReplayRoom` chỉ gọi lại span khi `audible` chuyển true, rồi chỉ điền tên còn trống. Chương soạn xong sau lượt đó đứng trống suốt bài. Sửa: mỗi lần sang chương, nếu `name` của chương đó trống thì lấy lại span và ghi tên mới. Chương đã có tên giữ nguyên.
+`ReplayRoom` chỉ gọi lại span khi `audible` chuyển true, rồi bỏ qua chương đã có tên. Effect thêm index chương. Lần lấy đó điền mọi tên đang trống, không chỉ chương vừa vào. Tên vẫn trống nếu file soạn xong trong lúc đang đứng ở chương đó. Dòng hiện khi sang chương sau.
 
 `SPAN_REVISION` tăng một nấc. File audio soạn trước đợt này hết hạn, vì hàng pattern và độ dài bass đổi. Tên in ra từ lần soạn mới.
 
@@ -148,13 +160,14 @@ Chuỗi vẫn là `pattern_form`: `Castillo — Juglar — Castillo (3/4, 72 BPM
 
 ## 7. Chỗ sửa khi thực hiện
 
-- `backend/app/sonify/guitar_torroba.py`: `_torroba_primary`, `_torroba_contrast`, `_grid_state`, `_render_castillo_bar`, `_render_juglar_bar`.
-- `backend/app/sonify/guitar_patterns.py`: nhánh Torroba trong `_assign_macro` và `form_pattern_ids`.
-- `backend/app/sonify/guitar_torroba_doors.py`: `bass_length` của cửa Castillo và Juglar.
+- `backend/app/sonify/guitar_torroba.py`: `_torroba_primary`, `_torroba_contrast`, `_grid_state` chỉ nhánh Juglar, `_render_castillo_bar`, `_render_juglar_bar`. `_select_body` đi cùng bảng mới, vẫn một pattern mỗi câu.
+- `backend/app/sonify/guitar_patterns.py`: nhánh Torroba trong `_assign_macro` và `form_pattern_ids`. Hàm tên đọc cách chia mục 2, kể cả chương không có bridge.
+- `backend/app/sonify/guitar_torroba_doors.py`: `bass_length` của cửa Castillo và của `_juglar_hold`. `_juglar_motor` giữ nguyên.
 - `backend/app/sonify/audio.py`: `SPAN_REVISION`.
-- `src/musicalize/ReplayRoom.tsx`: lấy lại tên khi vào chương còn trống.
-- `backend/tests/test_program.py`: tên A–B–A của chương 4/4 không bridge, và 1D vẫn một tên.
-- `backend/tests/test_sonify_guitar_torroba.py`: bảng mục 3 và mục 4, bass thân không dài quá một phách, hai cú bass cùng cao độ không chồng.
-- `docs/sonify-guitar-torroba-castillos-frames.md` mục 2: thay bảng “một pattern cả chương” bằng bảng mục 3 và mục 4 của file này.
+- `src/musicalize/ReplayRoom.tsx`: effect phụ thuộc index chương và điền mọi tên đang trống.
+- `backend/tests/test_program.py`: chương I và IV in ba tên. Ngày 34 ô vẫn một tên, selloff là Castillo, rally là Olite.
+- `backend/tests/test_sonify_guitar_torroba.py`: bảng mục 3 và mục 4, ô 68 của vùng Juglar là bộ ba, ô cuối vùng là nốt đen, bass Castillo và Juglar không dài quá một phách, Alcaniz và Olite vẫn còn `thin` và `pushed`.
+- `backend/tests/test_sonify_guitar_torroba_doors.py`: cửa Castillo và `_juglar_hold` đổi độ dài bass. `_juglar_motor` không đổi.
+- `docs/sonify-guitar-torroba-castillos-frames.md` mục 2 và `docs/sonify-guitar-torroba-plan.md` mục 7: thay hàng một pattern và hàng `BPM ≤ 72 → castillo` bằng bảng mục 3 và mục 4 của file này.
 
 Không đụng `span.py`.
