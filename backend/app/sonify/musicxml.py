@@ -256,6 +256,10 @@ def _tuplet_roles(events: list[NoteEvent]) -> list[str | None]:
     for index, role in enumerate(_triplet_eighth_roles(events)):
         if role is not None:
             roles[index] = role
+    for index, role in enumerate(_triplet_sixteenth_roles(events)):
+        # A sextuplet start/stop already owns this attack. Leave it alone.
+        if role is not None and roles[index] is None:
+            roles[index] = role
     return roles
 
 
@@ -293,6 +297,47 @@ def _sextuplet_roles(events: list[NoteEvent]) -> list[str | None]:
     return roles
 
 
+def _triplet_sixteenth_roles(events: list[NoteEvent]) -> list[str | None]:
+    """Bracket three sixths that fill one eighth and start on an eighth.
+
+    The events are already one voice. A sextuplet keeps its own start and
+    stop, so this scan skips any trio that run already claimed. ``_is_sixth``
+    rejects a ``4/12`` rasgueado note.
+    """
+    roles: list[str | None] = [None] * len(events)
+    claimed = _sextuplet_roles(events)
+    index = 0
+    while index + 2 < len(events):
+        group = events[index : index + 3]
+        if not all(_is_sixth(event.duration_beats) for event in group):
+            index += 1
+            continue
+        total = sum(event.duration_beats for event in group)
+        origin = events[index].beat
+        on_eighth = abs(origin * 2 - round(origin * 2)) < 1e-3
+        owned = any(claimed[index + offset] in {"start", "stop"} for offset in range(3))
+        if abs(total - 0.5) < 1e-3 and on_eighth and not owned:
+            roles[index] = "start"
+            roles[index + 2] = "stop"
+            index += 3
+            continue
+        index += 1
+    return roles
+
+
+def _triplet_sixteenth_members(events: list[NoteEvent]) -> list[bool]:
+    """Notes inside a sixteenth triplet, including the unmarked middle."""
+    roles = _triplet_sixteenth_roles(events)
+    members = [False] * len(events)
+    for index, role in enumerate(roles):
+        if role != "start":
+            continue
+        for offset in range(3):
+            if index + offset < len(members):
+                members[index + offset] = True
+    return members
+
+
 def _add_note(
     parent: ET.Element,
     event: NoteEvent,
@@ -307,6 +352,7 @@ def _add_note(
     mode: str = "major",
     slur_number: str = "1",
     tuplet: str | None = None,
+    triplet_sixteenth: bool = False,
 ) -> None:
     note = _add(parent, "note")
     if event.velocity is not None and event.midi is not None:
@@ -384,9 +430,16 @@ def _add_note(
         _add(modification, "normal-type", "eighth")
     elif sixth:
         modification = _add(note, "time-modification")
-        _add(modification, "actual-notes", "6")
-        _add(modification, "normal-notes", "4")
-        _add(modification, "normal-type", "16th")
+        if triplet_sixteenth:
+            # Three sixteenths in the time of two. A lone sixth, and a
+            # six-note sextuplet, keep the 6:4 ratio below.
+            _add(modification, "actual-notes", "3")
+            _add(modification, "normal-notes", "2")
+            _add(modification, "normal-type", "16th")
+        else:
+            _add(modification, "actual-notes", "6")
+            _add(modification, "normal-notes", "4")
+            _add(modification, "normal-type", "16th")
     if staves > 1:
         _add(note, "staff", str(event.staff))
     marks = (
@@ -1225,6 +1278,7 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                 marking = markings[voice_index]
                 _dynamic(measure, DynamicEvent(bar=0, marking=marking, sound=SOUND[marking]))
             roles = _tuplet_roles(ordered)
+            sixteenth = _triplet_sixteenth_members(ordered)
             index = 0
             while index < len(ordered):
                 event = ordered[index]
@@ -1236,6 +1290,7 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                 if event.midi is not None:
                     group = [event]
                     group_roles = [role]
+                    group_sixteenth = [sixteenth[index]]
                     nxt_index = index + 1
                     while (
                         nxt_index < len(ordered)
@@ -1244,6 +1299,7 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                     ):
                         group.append(ordered[nxt_index])
                         group_roles.append(roles[nxt_index])
+                        group_sixteenth.append(sixteenth[nxt_index])
                         nxt_index += 1
                     if voice_index == 0:
                         emit_on_cursor(event.beat)
@@ -1304,6 +1360,7 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                                 note,
                                 chord=note_index > 0,
                                 tuplet=group_roles[note_index],
+                                triplet_sixteenth=group_sixteenth[note_index],
                                 **note_kwargs(note, harmony),
                             )
                     index = nxt_index
@@ -1338,6 +1395,7 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                         measure,
                         event,
                         tuplet=role,
+                        triplet_sixteenth=sixteenth[index],
                         **note_kwargs(event, harmony),
                     )
                 index += 1

@@ -2591,6 +2591,25 @@ def _covers(event: NoteEvent, when: int, epb: int) -> bool:
     return begin <= when < begin + _dur16(event)
 
 
+def _start12(event: NoteEvent, epb: int) -> int:
+    """Start index on the twelfth-of-a-beat grid.
+
+    ``assert_playable`` samples this grid. A sixteenth grid floors ``beat * 4``,
+    so three ``1/6`` notes inside one eighth share a slot and look simultaneous.
+    """
+    return event.bar * epb * 6 + int(round(event.beat * 12))
+
+
+def _dur12(event: NoteEvent) -> int:
+    return max(1, int(round(event.duration_beats * 12)))
+
+
+def _covers12(event: NoteEvent, when: int, epb: int) -> bool:
+    """True when ``when`` lies in ``[start, start + duration)`` on the twelfth grid."""
+    begin = _start12(event, epb)
+    return begin <= when < begin + _dur12(event)
+
+
 def _tremolo_region_arch(bars: set[int], bar: int) -> int:
     """Slow arch across one contiguous tremolo run. Both ends add 0."""
     start = bar
@@ -4054,17 +4073,19 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
         for event in events:
             if event.midi is None:
                 continue
-            times.add(_start16(event, epb))
+            times.add(_start12(event, epb))
             if not _on_sixteenth_grid(event):
                 roll_bars.add(event.bar)
     for when in sorted(times):
-        bar = when // (epb * 2)
+        bar = when // (epb * 6)
         profile = profile_at.get(bar, "study")
-        roll_window = profile == "torroba" and (when % (epb * 2)) < 2 and bar in roll_bars
+        # First half-beat: the old window was two sixteenth slots. On this
+        # grid that is six twelfths. Three would cut the fandanguillo roll.
+        roll_window = profile == "torroba" and (when % (epb * 6)) < 6 and bar in roll_bars
         sounding_notes: list[tuple[int, int]] = []
         for voice, events in voices.items():
             for event in events:
-                if event.midi is not None and _covers(event, when, epb):
+                if event.midi is not None and _covers12(event, when, epb):
                     sounding_notes.append((voice, event.midi + semitones))
         if not sounding_notes:
             continue
@@ -4117,6 +4138,17 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
             raise Unplayable("upper middle is not below the melody")
         if uppers and lows and max(lows) >= min(uppers):
             raise Unplayable("bass is not below the upper middle")
+        # A roll speaks the inner voice a twelfth or two before the melody,
+        # inside one sixteenth. Those attacks share a start on the old grid,
+        # so the ceiling still hears that melody.
+        slot_highs = highs
+        if profile == "torroba" and not slot_highs:
+            slot = when // 3
+            slot_highs = [
+                event.midi + semitones
+                for event in voices[1]
+                if event.midi is not None and _start16(event, epb) == slot
+            ]
         for voice, pitch in sounding_notes:
             if voice in {2, 4} and pitch > 65:
                 high_block = bool(highs) and min(highs) >= 80 and pitch < min(highs)
@@ -4124,7 +4156,7 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
                 etude = profile in {"villa_etude1", "villa_etude11"}
                 # The 65 ceiling opens only while the inner note stays under the high voice.
                 preludio = profile == "barrios_preludio" and bool(highs) and pitch < min(highs)
-                torroba = profile == "torroba" and bool(highs) and pitch < min(highs)
+                torroba = profile == "torroba" and bool(slot_highs) and pitch < min(slot_highs)
                 if not high_block and not thumb and not etude and not preludio and not torroba:
                     raise Unplayable(f"inner voice {pitch} is above the middle register")
         if not _playable([pitch for _voice, pitch in sounding_notes]):
