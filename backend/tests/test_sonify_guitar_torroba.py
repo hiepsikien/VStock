@@ -2676,6 +2676,43 @@ def test_a_new_sentence_inside_a_figure_bar_opens_at_its_own_swell() -> None:
     assert grid_attack[0].velocity > grid_bass[0].velocity
 
 
+def test_type_4_weak_eighth_keeps_lead_above_bass_above_support() -> None:
+    """A sentence that opens on the last eighth still leaves one micro step between voices.
+
+    Lead 60 holds the strong bass at 58. The weak bass is 4 under that, and the
+    inner voice takes one more step, so the two would meet at 54. The weak bass
+    stays one step above the inner voice. In 4/4 the lead then drops to 58.
+    In 3/4 and 6/8 the weak lead has no step and stays at 60.
+    """
+    rise = [60, 62, 64, 67, 69, 71, 72, 74]
+    cases = (
+        ("4/4", 7, 3.5, 60 - _MICRO),
+        ("3/4", 5, 2.5, 60),
+        ("6/8", 5, 2.5, 60),
+    )
+    for kind, eighth, beat, heard_lead in cases:
+        meter, _epb, _strong, _beats = _FIGURE_METERS[kind]
+        opening = _joined(0, [72] * eighth, held=True)
+        following = _joined(eighth, rise)
+        assert following.rise >= MIN_RISE and following.apex.start > eighth
+        melody = [72] * eighth + rise
+        ctx = _many((opening, following), kind=kind, melody=melody)
+        with compose_meter(meter):
+            lead, support, low = render_torroba_figure(
+                ctx, 0, opening, "sonatina", 4, index=0, count=2
+            )
+        apex = _apex_eighths(ctx.phrases)
+        assert _note_velocity(eighth, 1, apex, following) == 60
+        sung = [note for note in lead if note.midi is not None and note.beat == pytest.approx(beat)]
+        bass = [note for note in low if note.midi is not None and note.beat == pytest.approx(beat)]
+        inner = [note for note in support if note.midi is not None and note.beat == pytest.approx(beat)]
+        assert len(sung) == 1 and len(bass) == 1 and len(inner) == 1
+        assert sung[0].velocity == heard_lead
+        assert bass[0].velocity == 56
+        assert inner[0].velocity == 54
+        assert sung[0].velocity > bass[0].velocity > inner[0].velocity
+
+
 def test_a_closing_figure_thins_the_inner_voice_and_drops_it_to_p() -> None:
     pitches = [72] * 24
     closing = _joined(0, pitches)
@@ -2710,3 +2747,35 @@ def test_a_closing_figure_thins_the_inner_voice_and_drops_it_to_p() -> None:
         )
     _assert_type7_roll(roll_lead, roll_support, roll_low, 4.0)
     assert {note.velocity for note in roll_support if note.midi is not None} == {50 - _MICRO}
+
+
+def test_a_headless_roll_keeps_its_inner_strings_on_a_one_eighth_close() -> None:
+    """No bass pulls the rolled inner strings onto beat 0. The close still keeps them.
+
+    A block chord on the same one-eighth tail has no fan, so its inner voice
+    on the downbeat still drops out.
+    """
+    only_g = Chord("G", "G", "major", "", (55,))
+    one_tail = _joined(0, [73] * 9)
+    rest_phrase = _joined(9, [73] * 7, held=True)
+    assert one_tail.closes
+    roll_ctx = _many((one_tail, rest_phrase), melody=[73] * 16, bpm=72, chord=only_g)
+    block_phrase = _joined(0, [72] * 9)
+    block_rest = _joined(9, [72] * 7, held=True)
+    block_ctx = _many((block_phrase, block_rest), melody=[72] * 16, bpm=72, chord=C)
+    with compose_meter(METER_44):
+        lead, support, low = render_torroba_figure(
+            roll_ctx, 1, one_tail, "castillo", 7, index=4, count=5
+        )
+        _block_lead, block_support, _block_low = render_torroba_figure(
+            block_ctx, 1, block_phrase, "castillo", 7, index=1, count=5
+        )
+    opening = _opening(lead, support, low)
+    mids = [note for note in opening if note.voice == 2]
+    highs = [note for note in opening if note.voice == 1]
+    assert mids and len(highs) == 1
+    assert not any(note.voice == 3 for note in opening)
+    assert all(note.beat == pytest.approx(0.0) for note in mids)
+    assert highs[0].beat == pytest.approx(1 / 12)
+    assert {note.velocity for note in mids} == {50 - _MICRO}
+    assert not any(note.midi is not None and note.beat <= 1e-9 for note in block_support)

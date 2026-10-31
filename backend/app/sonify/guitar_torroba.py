@@ -1286,10 +1286,10 @@ class _Pen:
         if band == self.ctx.band(self.bar):
             return written
         leads = (
-            self.lead_level(0, strong=0 in self.strong)[0],
-            self.dance_written(0),
             self.lead_level(eighth, strong=eighth in self.strong)[0],
             self.dance_written(eighth),
+            self.lead_level(0, strong=0 in self.strong)[0],
+            self.dance_written(0),
             64,
             68,
         )
@@ -1337,7 +1337,8 @@ class _Pen:
 
         The lead still sings the cadence. The inner voice breathes, the same
         way Castillo and the dances leave a closing tail thinner than the bar.
-        Rolled rasgueado strings on the downbeat stay with their chord.
+        A rolled chord keeps every string of the fan. With no bass the middle
+        strings land on the beat, and that beat is still the chord.
         """
         drop: set[int] = set()
         for tail in _breath_tails(self.ctx, self.bar):
@@ -1348,10 +1349,15 @@ class _Pen:
                 drop.add(chosen[0])
         if not drop:
             return support
+        # Only a fan spaces a voice inside the first eighth. A block chord
+        # stacks every voice on the beat, so its inner note still breathes.
+        rolled = any(0.0 < attack.beat < 0.25 for attack in self.attacks)
         return [
             note
             for note in support
-            if 0 < note.beat < 0.25 or self._eighth_at(note.beat) not in drop
+            if self._eighth_at(note.beat) not in drop
+            or 0.0 < note.beat < 0.25
+            or (rolled and note.beat <= 1e-9)
         ]
 
     def finish(self):
@@ -1713,6 +1719,13 @@ def _type4_call(pen: _Pen):
         low_here = low if (pen.ctx.kind == "4/4" and eighth in {4, 7}) or (pen.ctx.kind != "4/4" and eighth == pen.epb - 1) else None
         weak = low_here is not None and not (pen.ctx.kind == "4/4" and eighth == 4)
         tail_support, tail_bass, tail_weak = pen.beds(level)
+        # Weak bass is 4 under the strong bass, and this eighth's inner voice
+        # takes one micro step. A sentence that opens at 60 already holds the
+        # strong bass at 58, so 58 - 4 meets the stepped inner voice. Keep the
+        # weak bass one step above that voice: lead can then take its own step.
+        if weak:
+            stepped_support = max(40, tail_support - _MICRO)
+            tail_weak = max(tail_weak, min(tail_bass, stepped_support + _MICRO))
         inner_here = pen.support_of(sung, low or sung - 5, capped=False)
         pen.add(eighth * 0.5, sung, 0.5, 1, level, lead_steps, accent=mark and lead_steps == 0)
         if inner_here is not None:
