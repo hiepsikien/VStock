@@ -1,10 +1,10 @@
-# Torroba: thủy triều volume và bass nghe được
+# Torroba: thủy triều volume, bass, và La♭ áp Sol
 
 > **Trạng thái**: chưa vào code.
-> **Đọc cùng**: [`docs/sonify-guitar-dynamics-wave-plan.md`](./sonify-guitar-dynamics-wave-plan.md) mục 2 và 5, [`docs/sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md) mục vận tốc trong ô.
-> **Giữ**: `_shape_dynamics` vẫn chỉ cộng extra của câu. Trần ấm `63`. Một tâm `C` cho cả ô. Bass không vào lớp móng. Không thêm id pattern.
+> **Đọc cùng**: [`docs/sonify-guitar-dynamics-wave-plan.md`](./sonify-guitar-dynamics-wave-plan.md) mục 2 và 5, [`docs/sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md) mục vận tốc trong ô và mục scale chung.
+> **Giữ**: `_shape_dynamics` vẫn chỉ cộng extra của câu. Trần ấm `63`. Một tâm `C` cho cả ô. Bass không vào lớp móng. Không thêm id pattern. Passage giữ tập nốt thứ tự nhiên. Không thêm Rê♭, không thêm Si.
 
-Torroba là hàng điệu, độ động cao. Sóng volume hiện xếp Castillo vào câu ngân và Sonatina vào câu chạy, rồi để tâm ô chỉ đi được 3–4 bậc. Bass một phách viết quanh `60` nên nghe trong khoảng `38–51`. Plan này đưa cả bảy hàng về chu kỳ `W = 3`, nới thủy triều bằng dự trữ riêng của Torroba, và chốt range vận tốc nghe được.
+Torroba là hàng điệu, độ động cao. Sóng volume hiện xếp Castillo vào câu ngân và Sonatina vào câu chạy, rồi để tâm ô chỉ đi được 3–4 bậc. Bass một phách viết quanh `60` nên nghe trong khoảng `38–51`. Plan này đưa cả bảy hàng về chu kỳ `W = 3`, nới thủy triều bằng dự trữ riêng của Torroba, và chốt range vận tốc nghe được. Phần scale giữ thang hiện có. Việc còn lại là La♭ chỉ áp khi đích là Sol, và nét chạy ngắn của Castillo, Sonatina đi cùng bước đó.
 
 ---
 
@@ -105,3 +105,25 @@ Móng vẫn chỉ là lead có `accent`, sau bước kẹp trần ấm, một n�
 - `SPAN_REVISION` tăng một bậc khi sóng đổi, để file nghe cũ không bị phát lại.
 
 `_shape_dynamics`, `_under_lead`, độ dài bass một phách, và `WARM_LIMIT` không sửa trong đợt này.
+
+---
+
+## 6. La♭ áp Sol
+
+Passage Torroba đã chạy trong pipeline chung. `detect_price_impulses` và `apply_scale_passages` không loại ensemble này. Bảy pattern đã có hàng hairpin: Castillo, Sonatina, Juglar ở nhóm Hát, cùng Cantabile, hàng `(4, 16, 76)`, cửa sổ `52–82`. Fandanguillo, Danza, Alcaniz, Olite ở nhóm động, cùng Polca, hàng `(4, 18, 76)`, cửa sổ `46–90`. Chúng không thuộc `_HOST`, nên không nhường cả ô. Dòng scale chỉ viết đè bè cao trên móc impulse đã chọn.
+
+Tập nốt là thứ tự nhiên của Đô: `Đô Rê Mi♭ Fa Sol La♭ Si♭`. Đó cũng là Phrygian của Sol. La♭ là bậc 2 hạ của Sol. Không đổi sang Phrygian của Đô, vì Rê♭ lệch Rê trong hợp âm Si♭ và Sol. Không đổi sang Phrygian dominant, vì Si là cảm âm dẫn và scale step đang chặn Si♭ nâng thành Si. Si đã có trong hợp âm Sol. Vòng `Cm → Si♭ → La♭ → Sol` tiếp tục mang màu Andalucia. Passage không thêm một thang riêng.
+
+`torroba_scale_step` đang đọc đối số thứ ba như một cao độ đích: hướng là `1` khi `toward > pitch`. `_trace_scale` truyền `+1` hoặc `-1`, cùng quy ước của `classic_scale_step`. Trên dây đàn, `+1` nhỏ hơn cao độ đang đứng, nên mọi nét passage đi lên bị bước xuống. `_trace_scale` bỏ bước đó và không dựng nét. Nét đi xuống vẫn chạy, vì `-1` tình cờ cùng hướng. `_scale_steps` của Olite và `_scale_away` của Alcaniz truyền cao độ thật, nên hai chỗ đó đi được cả hai chiều.
+
+Cửa La♭ hiện không đọc đích của nét. Đang ở La, nửa cung kế là La♭ và nửa cung sau là Sol thì hàm trả La♭, kể cả khi nét còn đi tiếp qua Sol. Hợp âm ô đích không được hỏi.
+
+`_approaches` vẫn gọi `_walk`. `_into_strong` dùng hàm đó cho nét 1 hoặc 3 nốt của `_render_sonatina_bar` và `apply_sonatina_downbeats`. Castillo và Sonatina vì vậy không có La♭ áp. Alcaniz và Olite đã gọi `torroba_scale_step`.
+
+Việc cần làm:
+
+1. `torroba_scale_step` đọc hướng như `classic_scale_step`: `toward >= 0` là đi lên, `toward < 0` là đi xuống. Giữ cửa không nâng Si♭ thành Si. `_scale_steps` và `_scale_away` truyền `1` hoặc `-1`, không truyền cao độ đích.
+2. La♭ chỉ là nốt ngay trước đích. Đích của nét có pitch class 7, hoặc hợp âm ô đích là `G` hoặc `G7`, thì nốt áp được là La♭ khi nốt đó còn trong vùng chơi. Nét đi ngang La rồi xuống tiếp không chèn La♭. Chỗ biết đích là `_trace_scale` (`end`) và `_approaches` (`target`). Hợp âm là `ctx.chord` của ô đích.
+3. `_approaches` bước bằng `torroba_scale_step`, rồi áp cửa La♭ ở trên. Một nốt và ba nốt của Castillo, Sonatina dùng chung cửa với passage.
+
+`test_scale_step_may_be_ab_and_does_not_raise_bb` đang gọi `torroba_scale_step(ctx, 69, 67)`. Đổi lời gọi sang hướng. Khóa thêm: từ Sol, hướng `+1` trả một nốt cao hơn Sol. Nét có đích Sol vẫn áp La♭. Nét có đích khác Sol, đi ngang La, không áp. Si♭ không thành Si.
