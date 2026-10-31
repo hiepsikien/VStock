@@ -1618,22 +1618,24 @@ def _type7_opening(pen: _Pen, *, resolution: str) -> None:
     pen.add(0.0, low, 0.5, 3, bass_level, 0)
     pen.add(0.5, low, 0.5, 3, bass_level, 1)
     pen.add(1.0, higher, 0.5, 2, support_level, 1)
+    mordent_written = pen.lead_level(3, strong=False)[0]
     principal = pen.mel(4)
     neighbor = pen.grace(principal, [])
     if neighbor is None:
-        pen.add(1.5, principal, 0.5, 1, written, 1)
+        pen.add(1.5, principal, 0.5, 1, mordent_written, 1)
     else:
         upper, body = neighbor
-        pen.add(1.5, upper, 0.25, 1, written, 2, slur_start=True)
-        pen.add(1.75, body, 0.25, 1, written, 1, slur_stop=True)
+        pen.add(1.5, upper, 0.25, 1, mordent_written, 2, slur_start=True)
+        pen.add(1.75, body, 0.25, 1, mordent_written, 1, slur_stop=True)
+    resolved = pen.lead_level(4, strong=False)[0]
     if resolution == "half":
-        pen.add(2.0, pen.mel(4), 2.0, 1, written, 0)
+        pen.add(2.0, pen.mel(4), 2.0, 1, resolved, 0)
         pen.add(2.0, higher, 0.5, 2, support_level, 0)
         pen.add(2.0, low, 0.5, 3, bass_level, 1)
         pen.add(2.5, low, 0.5, 3, bass_level, 2)
         pen.add(3.0, higher, 0.5, 2, support_level, 1)
     elif resolution == "quarter":
-        pen.add(2.0, pen.mel(4), 1.0, 1, written, 0)
+        pen.add(2.0, pen.mel(4), 1.0, 1, resolved, 0)
         pen.add(2.0, low, 0.5, 3, bass_level, 1)
         pen.add(2.5, higher, 0.5, 2, support_level, 1)
 
@@ -1666,15 +1668,16 @@ def _type7_bar2(pen: _Pen):
         upper, body = neighbor
         pen.add(1.5, upper, 0.25, 1, mordent_written, 2, slur_start=True)
         pen.add(1.75, body, 0.25, 1, mordent_written, 1, slur_stop=True)
+    held = pen.lead_level(4, strong=False)[0]
     if pen.ctx.kind == "4/4":
-        pen.add(2.0, pen.mel(4), 1.5, 1, written, 1)
+        pen.add(2.0, pen.mel(4), 1.5, 1, held, 1)
         pen.add(2.0, low, 0.5, 3, bass_level, 1)
         pen.add(2.5, low, 0.5, 3, bass_level, 1)
         pen.add(3.0, low, 0.5, 3, bass_level, 1)
         pickup = pen.lead_level(7, strong=False)[0]
         pen.add(3.5, pen.mel(7), 0.5, 1, pickup, 0, accent=True)
     else:
-        pen.add(2.0, pen.mel(4), 0.5, 1, written, 1)
+        pen.add(2.0, pen.mel(4), 0.5, 1, held, 1)
         pen.add(2.0, low, 0.5, 3, bass_level, 1)
         pickup = pen.lead_level(5, strong=False)[0]
         pen.add(2.5, pen.mel(5), 0.5, 1, pickup, 0, accent=True)

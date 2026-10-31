@@ -1622,13 +1622,33 @@ def test_type_7_odd_eighth_and_pickup_follow_their_own_swell() -> None:
     ctx = _many((phrase,), bpm=72, melody=pitches)
     apex = _apex_eighths(ctx.phrases)
     with compose_meter(METER_44):
+        first, _support, _low = render_torroba_figure(
+            ctx, 0, phrase, "castillo", 7, index=0, count=5
+        )
         second, _support, _low = render_torroba_figure(
             ctx, 1, phrase, "castillo", 7, index=1, count=5
         )
         third, _support, _low = render_torroba_figure(
             ctx, 2, phrase, "castillo", 7, index=2, count=5
         )
+    opening = _note_velocity(0, 1, apex, phrase)
+    first_mordent_written = _note_velocity(3, 1, apex, phrase)
+    resolved = _note_velocity(4, 1, apex, phrase)
+    assert first_mordent_written != opening and resolved != opening
+    first_mordent = sorted((note for note in first if 1.5 <= note.beat < 2.0), key=lambda note: note.beat)
+    assert [note.velocity for note in first_mordent] == [
+        first_mordent_written - 2 * _MICRO,
+        first_mordent_written - _MICRO,
+    ]
+    half = [note for note in first if note.beat == pytest.approx(2.0)]
+    assert len(half) == 1 and half[0].duration_beats == pytest.approx(2.0)
+    assert half[0].velocity == resolved
     downbeat = _note_velocity(8, 1, apex, phrase)
+    held_written = _note_velocity(12, 1, apex, phrase)
+    assert held_written != downbeat
+    held = [note for note in second if note.beat == pytest.approx(2.0)]
+    assert len(held) == 1 and held[0].duration_beats == pytest.approx(1.5)
+    assert held[0].velocity == held_written - _MICRO
     pickup_written = _note_velocity(15, 1, apex, phrase)
     assert pickup_written != downbeat
     pickup = [note for note in second if note.beat == pytest.approx(3.5)]
