@@ -192,11 +192,16 @@ Cửa đọc pattern, không đọc mood. Picardy chỉ còn ở outro của `ca
 
 Cửa hát hợp âm chức năng `I`, `iv`/`IV`, `V7` qua `_function`, cùng cách cửa Bach và Sor. Giọng thứ giữ bậc 3 thứ, trừ ô outro cuối của `castillo`.
 
-Bước nào `frame_roles` lặp thì ô giống hệt. `_compressed` giữ nửa đầu bước 0 và dựng bước 1 vào nửa sau. Nốt dẫn vào thân bài nằm ở bước 1, từ móc `epb // 2` trở đi, để bản 1 ô không nuốt nó.
+Bước nào `frame_roles` lặp thì ô giống hệt. `_compressed` giữ nửa đầu bước 0 và dựng bước 1 vào nửa sau. Nửa sau vẫn mở bằng đúng nhịp của pattern, để bản 1 ô không mất phách đó. Nốt dẫn chỉ thuộc ô intro cuối, và nằm sau nhịp ấy: Juglar từ móc 5, Alcaniz là cao độ của lead móc 3, Olite ở móc 6 và móc 7.
 
-Profile ô pedal của cả bốn cửa là `"torroba"`. `_PEDAL_DOOR_PROFILE` đã có bốn khóa này. Trần bass 53 và cửa bè trung trên 65, khi còn dưới bè cao, giữ nguyên. Ô pedal không đi qua `_plant_pickup`.
+Profile ô pedal của cả bảy cửa là `"torroba"`. `_PEDAL_DOOR_PROFILE` đã có bốn khóa đang hát. Ba khóa `torroba_tremolo`, `alcaniz` và `olite` thêm cùng profile đó, cùng trần bass 53. Cửa bè trung trên 65, khi còn dưới bè cao, giữ nguyên. Ô pedal không đi qua `_plant_pickup`.
 
-Vận tốc viết theo bậc thang của [`docs/sonify-guitar-frame-variations.md`](./sonify-guitar-frame-variations.md) mục 4.2. Lưới chung: intro bước 0 ở `_PP` (46), bước 1 ở `_P` (50), bước 2 trong `50..56`, bước 3 trong `56..60`. Outro bước 0 ở `_P` hoặc `_MP`, các bước sau hạ dần, bước cuối của `castillo` ở `_PP`. Bước nào của một cửa ghi mức riêng thì mức đó thắng lưới chung. Intro Fandanguillo bước 0 là hợp âm staccato `_MF` (64), có accent. Fandanguillo và Danza khép ở `_MF`, staccato, không tan về `_PP`. `apply_guitar_wave` vẫn cộng `round(C) - 64` sau đó. Hiệu trong ô giữ nguyên.
+Vận tốc viết theo bậc thang của [`docs/sonify-guitar-frame-variations.md`](./sonify-guitar-frame-variations.md) mục 4.2. Lưới chung: intro bước 0 ở `_PP` (46), bước 1 ở `_P` (50), bước 2 trong `50..56`, bước 3 trong `56..60`. Outro bước 0 ở `_P` hoặc `_MP`, các bước sau hạ dần, bước cuối của `castillo` ở `_PP`. Bước nào của một cửa ghi mức riêng thì mức đó thắng lưới chung. Intro Fandanguillo bước 0 là hợp âm staccato `_MF` (64), có accent. Fandanguillo, Danza, Alcaniz và Olite khép ở `_MF`, không tan về `_PP`. Fandanguillo và Danza khép staccato. Alcaniz cắt ngắn lead của ô cuối. Olite khép bằng hai hợp âm staccato. `apply_guitar_wave` cộng `round(C) - 64` cho cả ô sau khi nốt đã viết.
+
+Độ nổi của cửa nằm ở hai lớp, cả hai viết ra trước khi sóng chạy.
+
+- Qua các bước, cửa hát đi lên hoặc cắt. Castillo, Sonatina và Juglar mở ở mức thấp của bước đó rồi lên dần tới thân bài. Outro của ba cửa này hạ về nốt ngân `_PP`. Fandanguillo, Danza, Alcaniz và Olite khép bằng nhát `_MF` rồi nghỉ. Seam sau nhát đó gặp intro Castillo ở `_PP`: điệu cắt, chương chậm thở.
+- Trong một ô, khoảng đã viết còn nguyên vì sóng cộng cùng một lượng cho cả ô. Juglar: lead móc 0 ở mức của bước, móc 2 và móc 4 cùng cao độ và thấp hơn một nấc `_under_lead`. Alcaniz: lead ngân `duration_beats = 1.5` trên bass móc đơn, chỉ ô outro cuối cắt ngắn. Olite: hai hợp âm staccato ở mức của bước, hai móc dẫn sau hợp âm thứ hai không thành hợp âm thứ ba. Cửa không lấy sàn 68, không snap, không `extra` cả ô. Ba thứ đó thuộc thân bài.
 
 Móc kép trong cửa viết `duration_beats = 0.25`, cùng cách nốt lấy đà của sonatina. Không có thẻ `<grace/>`. Không có quạt 5–6 dây ở cửa. Rasgueado nhiều dây ở lại thân bài.
 
@@ -217,7 +222,7 @@ Nguồn cửa: các ô ngân của *Castillos* và *Sonatina* Andante. Một n�
 - Outro dài, bước 2: bass `I`, lead nghỉ đến giữa ô rồi vào một nốt, `_PP`.
 - Outro dài, bước 3: cùng hợp âm kết của outro ngắn bước 1, `_PP`.
 
-`castillo` là cửa duy nhất của Torroba còn Picardy. Ba cửa kia không gọi `_bell_chord`.
+`castillo` là cửa duy nhất của Torroba còn Picardy. Sáu cửa còn lại không gọi `_bell_chord`.
 
 ### 4.2 `sonatina`
 
@@ -272,68 +277,70 @@ Nguồn cửa: *Suite Castellana* III. Hợp âm staccato đầu nhóm ba, rồi
 
 ### 4.5 `torroba_tremolo`
 
-Nguồn cửa: nốt lặp của *Simancas*, thu về một nốt trên phách. Cửa không viết bộ ba 3:2. Bộ ba nằm ở thân bài và mới cần `divisions = 12`. Ô pedal giữ lưới móc đơn. Scheduler chỉ chọn pattern này trên 3/4. Lời gọi ép trên 4/4 hoặc 6/8 hát một nốt lead ở móc 0 và một bass ở móc 0, các móc khác nghỉ.
+Nguồn cửa: nốt lặp của *Simancas*, thu về một cú trên mỗi đầu phách. Cửa không viết bộ ba 3:2. Bộ ba nằm ở thân bài và mới cần `divisions = 12`. Ô pedal giữ lưới móc đơn. Scheduler chỉ chọn pattern này trên 3/4. Lời gọi ép trên 4/4 hoặc 6/8 hát một nốt lead ở móc 0 và một bass ở móc 0, các móc khác nghỉ.
 
-Trên 3/4, lead và bass chỉ mở ở móc 0. Móc 2 và móc 4 có thể nhắc cùng một bậc, không accent. Nốt đó là bậc 3 hoặc bậc 5 của hợp âm chức năng.
+Hình của mọi ô cửa trên 3/4, trừ ô ngân kết: lead là bậc 3 hoặc bậc 5 của hợp âm chức năng. Móc 0 hát bậc đó, dài một phách, bass `_torroba_bass` cùng móc. Móc 2 và móc 4 nhắc cùng cao độ, dài một phách, không accent, vận tốc thấp hơn lead móc 0 một nấc `_under_lead`. Không có accent trên cửa này.
 
-- Intro ngắn, bước 0: bass `_torroba_bass` của `I` ngân cả ô, `_PP`. Lead nghỉ.
-- Intro ngắn, bước 1: bass `I` ở móc 0, `_P`. Lead một bậc của `I` ở móc 0, dài một phách. Từ móc 3, lead bước một bậc vào nốt giá đầu thân bài và dừng trước nốt đó, cùng `_scale_into`.
-- Intro dài, bước 0: bass `I` một mình, `_PP`.
-- Intro dài, bước 1: bass và lead của `I` ở móc 0, lead dài một phách, `_P`. Móc 2 và móc 4 nhắc cùng bậc, không accent, một bậc thấp hơn lead móc 0.
-- Intro dài, bước 2: cùng hình trên `iv` hoặc `IV`, `_MP`.
-- Intro dài, bước 3: bass `V7` ở móc 0, lead một phách, `_MP`. Từ móc 3, `_scale_into`.
-- Outro ngắn, bước 0: lead một phách trên `V7` ở móc 0, bass cùng móc, `_P`. Móc 2 và móc 4 nhắc cùng bậc, không accent.
+`_scale_into` chỉ thuộc ô intro cuối, và chỉ từ móc 5. Móc 0, móc 2 và móc 4 của ô đó vẫn là ba cú một nốt. Cú ở móc 4 dài một móc đơn, để móc 5 trống. Móc 5 bước một bậc về nốt giá đầu thân bài và dừng trước nốt đó. Bản 1 ô giữ cú móc 0 và cú móc 2 của bước 0, rồi lấy cú móc 4 cùng nốt dẫn móc 5 của bước 1.
+
+- Intro ngắn, bước 0: hình ba cú trên `I`. Lead móc 0 ở `_PP`.
+- Intro ngắn, bước 1: hình ba cú trên `V7`. Lead móc 0 ở `_P`. Móc 5 là `_scale_into`.
+- Intro dài, bước 0: hình ba cú trên `I`. Lead móc 0 ở `_PP`.
+- Intro dài, bước 1: hình ba cú trên `I`. Lead móc 0 ở `_P`. Chưa có `_scale_into`.
+- Intro dài, bước 2: hình ba cú trên `iv` hoặc `IV`. Lead móc 0 ở `_MP`.
+- Intro dài, bước 3: hình ba cú trên `V7`. Lead móc 0 ở `_MP`. Móc 5 là `_scale_into`.
+- Outro ngắn, bước 0: hình ba cú trên `V7`. Lead móc 0 ở `_P`.
 - Outro ngắn, bước 1: lead và bass của `I` ngân cả ô, `_PP`. Không Picardy.
-- Outro dài, bước 0: hình một phách trên `iv` hoặc `IV`, `_P`.
-- Outro dài, bước 1: hình một phách trên `V7`, `_P`.
-- Outro dài, bước 2: bass `I`, lead vào ở móc 0 và ngân đến hết ô, `_PP`.
-- Outro dài, bước 3: cùng nốt ngân của outro ngắn bước 1, `_PP`.
+- Outro dài, bước 0: hình ba cú trên `iv` hoặc `IV`. Lead móc 0 ở `_P`.
+- Outro dài, bước 1: hình ba cú trên `V7`. Lead móc 0 ở `_P`.
+- Outro dài, bước 2: lead và bass của `I` ngân cả ô, `_PP`.
+- Outro dài, bước 3: cùng nốt ngân của bước 2. Hai ô cuối giống nhau là một cái kết. Không thêm hợp âm.
 
 ### 4.6 `alcaniz`
 
-Nguồn cửa: động cơ 3/8 của *Alcañiz*, viết trên 6/8. Lead ở móc 0 và móc 3, bass đáp ở móc 1 và móc 4, móc 2 và móc 5 nghỉ. Lead là bậc 3 hoặc bậc 5 của hợp âm chức năng. Không quạt. Scheduler chỉ chọn pattern này trên 6/8. Lời gọi ép trên 4/4 đặt lead ở móc 0 và móc 4, bass ở móc kế. Trên 3/4 chỉ móc 0 có lead, bass ở móc 1.
+Nguồn cửa: động cơ 3/8 của *Alcañiz*, viết trên 6/8. Mỗi nhóm là hai tiếng: một lead và một bass. Lead ở móc 0 và móc 3, bass đáp ở móc 1 và móc 4, móc 2 và móc 5 không có nốt mới. Lead là bậc 3 hoặc bậc 5 của hợp âm chức năng. Không hợp âm khối, không staccato trên các ô trước ô cuối, không quạt. Scheduler chỉ chọn pattern này trên 6/8. Lời gọi ép trên 4/4 đặt lead ở móc 0 và móc 4, bass ở móc kế. Trên 3/4 chỉ móc 0 có lead, bass ở móc 1.
 
-Mức ghi ở từng bước thắng lưới `_PP`. Nhát khép của điệu là `_MF`.
+Trong suốt intro, và trong mọi bước outro trước ô cuối, mỗi lead ngân `duration_beats = 1.5`. Ô outro cuối cắt mỗi lead còn một móc đơn, để dừng tiếng. Nhát ở móc 3 của ô đó có accent, `_MF`. Các ô trước không ghi staccato.
 
-- Intro ngắn, bước 0: lead `I` ở móc 0 và móc 3, `_P`, accent ở móc 0. Bass đáp ở móc 1 và móc 4.
-- Intro ngắn, bước 1: cùng nhịp trên `V7`, `_MP`. Lead móc 3 bước một bậc về nốt giá đầu thân bài và dừng trước nốt đó.
-- Intro dài, bước 0: chỉ lead và bass của nhóm đầu, hợp âm `I`, `_P`. Nhóm sau nghỉ.
+- Intro ngắn, bước 0: đủ hai nhóm trên `I`, `_P`, accent ở móc 0.
+- Intro ngắn, bước 1: đủ hai nhóm trên `V7`, `_MP`. Lead móc 3 là một bước `_scale_into` về nốt giá đầu thân bài, dừng trước nốt đó. Bass vẫn đáp ở móc 4. Móc 5 nghỉ.
+- Intro dài, bước 0: một lead và một bass của nhóm đầu trên `I`, `_P`. Nhóm sau nghỉ.
 - Intro dài, bước 1: đủ hai nhóm trên `I`, `_P`, accent ở móc 0.
 - Intro dài, bước 2: đủ hai nhóm trên `V7`, `_MP`.
-- Intro dài, bước 3: lead `V7` ở móc 0, `_MF`, có accent. Từ móc 3, lead từng móc đơn vào thân bài.
-- Outro ngắn, bước 0: đủ hai nhóm trên `V7`, `_MP`.
-- Outro ngắn, bước 1: lead `I` ở móc 0 và móc 3, staccato, nhát sau có accent, `_MF`, rồi nghỉ.
-- Outro dài, bước 0: đủ hai nhóm trên `iv` hoặc `IV`, `_MP`.
-- Outro dài, bước 1: đủ hai nhóm trên `V7`, `_MP`.
-- Outro dài, bước 2: một lead trên `I` ở móc 0, bass ở móc 1, `_P`.
-- Outro dài, bước 3: hai lead `I` ở móc 0 và móc 3, staccato, `_MF`, nhát sau có accent, rồi nghỉ.
+- Intro dài, bước 3: lead móc 0 trên `V7`, ngân 1,5 phách, `_MP`. Lead móc 3 là một bước `_scale_into`, dừng trước nốt giá đầu thân. Bass đáp ở móc 4. Móc 5 nghỉ.
+- Outro ngắn, bước 0: đủ hai nhóm trên `V7`, lead ngân 1,5 phách, `_MP`.
+- Outro ngắn, bước 1: lead `I` ở móc 0 và móc 3, mỗi lead một móc đơn. Bass ở móc 1 và móc 4. Nhát móc 3 có accent, `_MF`.
+- Outro dài, bước 0: đủ hai nhóm trên `iv` hoặc `IV`, lead ngân 1,5 phách, `_MP`.
+- Outro dài, bước 1: đủ hai nhóm trên `V7`, lead ngân 1,5 phách, `_MP`.
+- Outro dài, bước 2: đủ hai nhóm trên `I`, lead ngân 1,5 phách, `_P`.
+- Outro dài, bước 3: cùng ô cắt của outro ngắn bước 1.
 
 ### 4.7 `olite`
 
-Nguồn cửa: hai hợp âm của *Olite* trên hai phách mạnh. Trên 4/4, hợp âm khối ba tiếng ở móc 0 và móc 4. Nốt trên là bậc 3 hoặc bậc 5 của hợp âm chức năng. Móc yếu nghỉ. Không có nét chạy, vì ô pedal không có đường giá để bước tới. Không quạt. Scheduler chỉ chọn pattern này trên 4/4. Lời gọi ép trên 6/8 đặt hợp âm ở móc 0 và móc 3. Trên 3/4 chỉ móc 0.
+Nguồn cửa: hai hợp âm của *Olite* trên hai phách mạnh. Trên 4/4, hợp âm khối ba tiếng, staccato, ở móc 0 và móc 4. Nốt trên là bậc 3 hoặc bậc 5 của hợp âm chức năng. Móc yếu nghỉ. Hợp âm ngân sẽ lấp chỗ trống đó thành một ô hòa thanh. Nét chạy để ở thân bài. Không quạt. Scheduler chỉ chọn pattern này trên 4/4. Lời gọi ép trên 6/8 đặt hợp âm ở móc 0 và móc 3. Trên 3/4 chỉ móc 0.
 
-Mức ghi ở từng bước thắng lưới `_PP`. Nhát khép là `_MF`.
+Mọi ô intro còn chỗ cho móc 4 thì móc đó là hợp âm thứ hai, kể cả ô chạm thân bài. Nốt dẫn nằm ở móc 6 và móc 7 của ô intro cuối, đi về nốt giá đầu thân bằng `_scale_into`, hướng theo nốt đó. Hợp âm móc 4 đứng đúng đầu nửa sau, nên bản 1 ô vẫn giữ phách này. 1D và 1W đi kịch bản ngắn, nên bước 0 của intro ngắn đã có cả hai hợp âm.
 
-- Intro ngắn, bước 0: hợp âm `I` ở móc 0, staccato, accent, `_P`. Móc 4 nghỉ.
-- Intro ngắn, bước 1: hợp âm `V7` ở móc 0, `_MP`, có accent. Từ móc 4, hai hoặc ba móc đơn lead đi lên vào nốt giá đầu thân bài.
-- Intro dài, bước 0: hợp âm `I` ở móc 0, `_P`.
-- Intro dài, bước 1: hợp âm `I` ở móc 0 và móc 4, accent cả hai, `_P`.
-- Intro dài, bước 2: hợp âm `iv` hoặc `IV` ở móc 0 và móc 4, `_MP`.
-- Intro dài, bước 3: hợp âm `V7` ở móc 0, `_MF`, có accent. Từ móc 4, móc đơn lead vào thân bài.
-- Outro ngắn, bước 0: hợp âm `V7` ở móc 0 và móc 4, `_MP`.
+- Intro ngắn, bước 0: hợp âm `I` ở móc 0 và móc 4, staccato, accent cả hai, `_P`.
+- Intro ngắn, bước 1: hợp âm `V7` ở móc 0 và móc 4, staccato, accent cả hai, `_MP`. Móc 6 và móc 7 là `_scale_into`.
+- Intro dài, bước 0: hợp âm `I` ở móc 0 và móc 4, staccato, accent cả hai, `_P`.
+- Intro dài, bước 1: hợp âm `I` ở móc 0 và móc 4, staccato, accent cả hai, `_P`.
+- Intro dài, bước 2: hợp âm `iv` hoặc `IV` ở móc 0 và móc 4, staccato, `_MP`.
+- Intro dài, bước 3: hợp âm `V7` ở móc 0 và móc 4, staccato, accent cả hai, `_MF`. Móc 6 và móc 7 là `_scale_into`.
+- Outro ngắn, bước 0: hợp âm `V7` ở móc 0 và móc 4, staccato, `_MP`.
 - Outro ngắn, bước 1: hợp âm `I` ở móc 0 và móc 4, staccato, nhát sau có accent, `_MF`, rồi nghỉ.
-- Outro dài, bước 0: hợp âm `iv` hoặc `IV` ở móc 0 và móc 4, `_MP`.
-- Outro dài, bước 1: hợp âm `V7` ở móc 0 và móc 4, `_MP`.
-- Outro dài, bước 2: một nốt lead trên `I` ở móc 0, `_P`.
+- Outro dài, bước 0: hợp âm `iv` hoặc `IV` ở móc 0 và móc 4, staccato, `_MP`.
+- Outro dài, bước 1: hợp âm `V7` ở móc 0 và móc 4, staccato, `_MP`.
+- Outro dài, bước 2: một nốt lead trên `I` ở móc 0, dài một phách, `_P`, rồi nghỉ. Không có hợp âm ở móc 4. Đây là ô thở trước hai hợp âm kết.
 - Outro dài, bước 3: hai hợp âm `I` ở móc 0 và móc 4, staccato, `_MF`, nhát sau có accent, rồi nghỉ.
 
 ---
 
 ## 5. Chỗ code, sau khi bảng mục 2 được giữ
 
-Cửa của bốn pattern đang hát:
+Cửa của bảy pattern:
 
-- Bốn hàm cửa trong `guitar_torroba.py`, trả `list[tuple]` cùng dạng spec của `guitar_frame.py`.
+- Bảy hàm cửa trong `guitar_torroba.py`, trả `list[tuple]` cùng dạng spec của `guitar_frame.py`.
 - Khóa `("torroba", "castillo")`, `("torroba", "sonatina")`, `("torroba", "fandanguillo")`, `("torroba", "danza")`, `("torroba", "torroba_tremolo")`, `("torroba", "alcaniz")`, `("torroba", "olite")` trong `DOORS` hoặc `_RETAINED_DOORS`. Khóa giữ lại thắng khóa import.
 - Cửa `torroba_tremolo` không có onset `1/12`. Cửa `alcaniz` và `olite` không có quạt.
 - `_torroba` giữ làm lưới khi `render_intro` được gọi không có pattern.
