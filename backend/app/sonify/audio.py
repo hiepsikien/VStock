@@ -38,9 +38,9 @@ from app.sonify.session import VN, is_session_closed
 logger = logging.getLogger(__name__)
 
 # Bump when the score or the sound changes, so old files are not replayed.
-RECAP_REVISION = "68"
+RECAP_REVISION = "70"
 # Long-form files live beside the daily recap and use their own revision.
-SPAN_REVISION = "54"
+SPAN_REVISION = "56"
 PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
@@ -937,7 +937,20 @@ def musescore_export(xml_path: Path, wav_path: Path) -> None:
                 source = xml_path
                 command = [binary, "-o", str(wav_path), str(source)]
         try:
-            _run_musescore(command, env)
+            try:
+                _run_musescore(command, env)
+            except RecapUnavailable as exc:
+                # MuseScore saves a rasgueado tuplet a few ticks longer than the
+                # bar, then refuses to play that score back. The MusicXML it
+                # imported plays, with the attacks on the twelfth.
+                if source == xml_path:
+                    raise
+                logger.warning(
+                    "Prepared score could not be played back; exporting the MusicXML: %s",
+                    exc,
+                )
+                command = [binary, "-o", str(wav_path), str(xml_path)]
+                _run_musescore(command, env)
         finally:
             if config is not None:
                 shutil.rmtree(config, ignore_errors=True)

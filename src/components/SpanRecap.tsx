@@ -21,6 +21,7 @@ import {
   type ChartFocus,
   type PieceProgram,
 } from '../sonify/program';
+import { spanMapClock } from '../musicalize/seek';
 import { spanCandleIndexAt } from '../utils/recapCursor';
 import { MixToggles } from './MixToggles';
 import type { RecapView } from './SessionRecap';
@@ -177,7 +178,7 @@ export function SpanRecap({ symbol, range, children }: Props) {
       : spanCandleIndexAt(
           elapsed,
           count,
-          current.durationSec,
+          spanMapClock(current.mapDurationSec ?? 0, current.durationSec),
           current.warmupSec,
           current.cooldownSec,
         );
@@ -531,13 +532,12 @@ function MovementPlayer({
 
   useEffect(() => {
     if (!status.isLoaded) return;
-    const duration = movement.durationSec > 0 ? movement.durationSec : status.duration;
-    onTime(Math.min(status.currentTime, duration));
+    onTime(status.currentTime);
     if (status.didJustFinish && !finished.current) {
       finished.current = true;
       onEnded();
     }
-  }, [movement.durationSec, onEnded, onTime, status.currentTime, status.didJustFinish, status.duration, status.isLoaded]);
+  }, [onEnded, onTime, status.currentTime, status.didJustFinish, status.isLoaded]);
 
   if (!status.isLoaded) {
     return (

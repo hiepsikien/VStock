@@ -135,6 +135,7 @@ class SpanMovementResponse(BaseModel):
     keyLabel: str
     candleCount: int
     durationSec: float
+    mapDurationSec: float = 0
     ready: bool
     audioUrl: str
     restAfterSec: float

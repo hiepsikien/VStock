@@ -88,7 +88,7 @@ Tên dưới đây là nhãn cho code. File kế hoạch vẫn đánh số Kiể
 
 Arpeggio ở đây là nhãn kiểu của Sonatina. Villa đã in **Arpeggio** trên chart (`villa_pattern`), nên tên này không đưa vào `PATTERN_NAMES`.
 
-Kiểu 2 và kiểu 5 đều có rasgueado. Kiểu 2 giữ tên **Rasgueado** vì đó là cả hình. Kiểu 5 là vòm bốn ô của Fandanguillo, tên **Arch**.
+Kiểu 2, Kiểu 3 (ô mô-típ), Kiểu 5 (ô 1), Kiểu 7 (ô 5) và móc 0 của lưới `fandanguillo` đều mở bằng hợp âm dải rasgueado (`bass → support → lead` lệch `1/12` phách). Kiểu 2 giữ tên **Rasgueado** vì đó là cả hình của nó. Kiểu 5 là vòm bốn ô của Fandanguillo, tên **Arch**.
 
 Kiểu 7 và kiểu 8 đều lấy nét từ *Arada*, và chỉ vào `castillo` khi `ctx.bpm <= 72`. Bốn bullet dưới chỉ nhắc cách chia độ dài. Cửa chọn đầy đủ là bước 6 và bước 7 của mục 4.0 trong [`docs/sonify-guitar-torroba-phrase-plan.md`](./sonify-guitar-torroba-phrase-plan.md): câu `n` lẻ là lưới nền, `k` chỉ đếm các câu `n` chẵn, và câu liền trước đã chọn cùng số kiểu thì câu này về lưới nền.
 

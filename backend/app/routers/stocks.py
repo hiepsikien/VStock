@@ -458,13 +458,22 @@ async def get_span(
     rows = []
     for index, movement in enumerate(plan.movements):
         cached = ready_movement(sym, range, index, variant, movement, chosen, humanize, color)
+        written = round(movement_duration(movement), 3)
+        mapped = written
+        heard = written
+        if cached is not None:
+            if cached.map_duration_sec > 0:
+                mapped = round(cached.map_duration_sec, 3)
+            if cached.duration_sec > 0:
+                heard = round(cached.duration_sec, 3)
         rows.append(
             SpanMovementResponse(
                 index=index,
                 label=movement.label,
                 keyLabel=key_label(movement.key, movement.mode),
                 candleCount=movement.candle_count,
-                durationSec=round(movement_duration(movement), 3),
+                durationSec=heard,
+                mapDurationSec=mapped,
                 ready=cached is not None,
                 audioUrl=movement_audio_path(
                     sym, range, index, variant, movement, chosen, humanize, color

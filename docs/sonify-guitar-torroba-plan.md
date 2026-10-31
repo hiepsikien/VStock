@@ -128,30 +128,30 @@ Mỗi pattern khóa cả một mood, cùng cách `_dominant_pattern` đang làm 
 
 Guitar không có nhịp 3/8. `form.py` có `METER_44` (8 móc đơn, phách mạnh 0 và 4), `METER_34` (6 móc đơn, phách mạnh 0, móc 4 được cộng trọng số), và `METER_68` (6 móc đơn, phách mạnh 0 và 3). Một ô 6/8 là hai nhóm ba móc.
 
-Hợp âm phách đầu của `fandanguillo` và `danza` có tối đa ba tiếng cùng vang: voice 3, voice 2, voice 1. `assert_playable` từ chối bốn tiếng. Chỉ `barrios_tremolo` và `barrios_preludio` được mở trần đó. Nốt trên cùng của khối là `_melody_at` của móc đó.
+Hợp âm phách đầu của `fandanguillo` và `danza` có tối đa ba tiếng: voice 3, voice 2, voice 1. `assert_playable` từ chối bốn tiếng. Chỉ `barrios_tremolo` và `barrios_preludio` được mở trần đó. Ở `fandanguillo` đó là hợp âm dải rasgueado (`bass → support → lead` lệch `1/12` phách); ở `danza` đó là hợp âm khối `staccato`. Nốt trên cùng của hợp âm luôn là `_melody_at` của móc đó.
 
 | Pattern | Nguồn | Tay phải | Mood | Bè cao |
 |---|---|---|---|---|
 | `castillo` | *Castillos de España*, *Sonatina* Andante | Rải thưa, bass buông, một nốt hát dài mỗi ô | `calm`. `selloff` khi BPM ≤ 72 | Đúng nốt giá, ngân cả ô |
 | `sonatina` | *Sonatina* chương I và III | Rải móc đơn. Giai điệu ở phách mạnh. Bè trung đi các móc còn lại | `rally`. `selloff` ở 4/4 | Mỗi phách mạnh là `_melody_at`. Liền bậc thì slur trong renderer. Nhảy thì nốt lấy đà |
-| `fandanguillo` | *Suite Castellana* I, *Piezas características* | Một hợp âm ở móc 0, giai điệu đáp ở các móc sau. Lưới theo meter bên dưới | `volatile`. Scherzo khi giá chạy | Nốt trên của hợp âm móc 0 là giá. Mỗi phách mạnh còn lại cũng là `_melody_at` |
-| `danza` | *Suite Castellana* III | Hợp âm staccato đầu mỗi nhóm ba móc, rồi nốt đáp | Scherzo đi ngang, biên hẹp, `calm` | Mỗi hợp âm lấy nốt giá của móc đó làm tiếng trên. Nốt đáp tiếp đường giá, hoặc một nốt láng giềng quay về. Không bịa thêm một close |
+| `fandanguillo` | *Suite Castellana* I, *Piezas características* | Một hợp âm dải rasgueado ở móc 0, giai điệu đáp ở các móc sau. Lưới theo meter bên dưới | `volatile`. Scherzo khi giá chạy | Nốt trên của hợp âm dải móc 0 là giá. Mỗi phách mạnh còn lại cũng là `_melody_at` |
+| `danza` | *Suite Castellana* III | Hợp âm khối staccato đầu mỗi nhóm ba móc, rồi nốt đáp | Scherzo đi ngang, biên hẹp, `calm` | Mỗi hợp âm lấy nốt giá của móc đó làm tiếng trên. Nốt đáp tiếp đường giá, hoặc một nốt láng giềng quay về. Không bịa thêm một close |
 
 Lưới `fandanguillo`:
 
-- **4/4**: hợp âm ở móc 0. Giai điệu ở móc 2, 4 và 6. Móc 4 là phách mạnh thứ hai. Móc lẻ là bè trung hoặc nghỉ.
-- **6/8**: hợp âm ở móc 0. Giai điệu ở móc 2 và 3. Móc 3 là phách mạnh thứ hai. Móc 1, 4, 5 là bè trung hoặc nghỉ.
-- **3/4**: hợp âm ở móc 0. Giai điệu ở móc 2 và 4. Móc 4 là móc được cộng trọng số của meter.
+- **4/4**: hợp âm dải rasgueado ở móc 0. Giai điệu ở móc 2, 4 và 6. Móc 4 là phách mạnh thứ hai. Móc lẻ là bè trung hoặc nghỉ.
+- **6/8**: hợp âm dải rasgueado ở móc 0. Giai điệu ở móc 2 và 3. Móc 3 là phách mạnh thứ hai. Móc 1, 4, 5 là bè trung hoặc nghỉ.
+- **3/4**: hợp âm dải rasgueado ở móc 0. Giai điệu ở móc 2 và 4. Móc 4 là móc được cộng trọng số của meter.
 
 Lưới `danza`:
 
-- **6/8**: hai nhóm. Hợp âm staccato ở móc 0 và móc 3. Đáp ở móc 1–2 và 4–5.
-- **3/4**: một hợp âm ở móc 0. Đáp ở móc 1–2. Móc 4 là nốt giai điệu, không phải hợp âm thứ hai.
+- **6/8**: hai nhóm. Hợp âm khối staccato ở móc 0 và móc 3. Đáp ở móc 1–2 và 4–5.
+- **3/4**: một hợp âm khối staccato ở móc 0. Đáp ở móc 1–2. Móc 4 là nốt giai điệu, không phải hợp âm thứ hai.
 - **4/4**: `danza` không đứng ở chương 4/4. `volatile` của 4/4 là `fandanguillo`.
 
 `selloff` không có pattern bi ca. Sor đã có `elegiaque`. Cùng `sonatina`, vòng rơi xuống Sol trưởng và bè cao được phép hát La♭. Chương chậm thì `selloff` về `castillo`.
 
-Rasgueado là hợp âm ba tiếng ở các móc hợp âm phía trên. Staccato là cách ngắt, không phải một bậc vận tốc riêng. Không có pattern id riêng.
+Rasgueado là hợp âm dải ba tiếng từ trầm lên cao (`bass → support → lead`, lệch `1/12` phách trên lưới `divisions = 12`, các bè khác im trong lúc quạt) ở móc 0 của `fandanguillo` và ở phách mở của Kiểu 2 (ô 1), Kiểu 3 (ô mô-típ), Kiểu 5 (ô 1), Kiểu 7 (ô 5). Hợp âm đầu nhóm của `danza` là hợp âm khối `staccato`. Staccato là cách ngắt, không phải một bậc vận tốc riêng. Không có pattern id riêng.
 
 ### Vận tốc trong ô
 
@@ -254,7 +254,7 @@ Các ý sau dừng ở bản phác thảo, không vào engine:
 - Viết lại let-ring, tách vận tốc ba bè, và wedge dàn dây. Guitar đã có ngân chồng và band vận tốc. Wedge violin thuộc ensemble khác.
 - Thẻ `<grace/>` và thẻ `<harmonic/>`. Nốt lấy đà là móc kép có slur. Kim cương là cao độ giá ngân theo kiểu chuông.
 
-Tám kiểu ở mục 4 của kế hoạch câu không mở lại các ý trên. Chúng không thêm pattern id, không đổi form, và không biến rasgueado thành pattern của một cú volume. Hợp âm quạt trong một kiểu vẫn là ba tiếng. Ô scale kết bằng `_melody_at`. Ô ngân cuối câu vẫn là nốt giá. Kim cương chỉ khi cao độ trùng nút harmonic của mục 5.
+Tám kiểu ở mục 4 của kế hoạch câu không mở lại các ý trên. Chúng không thêm pattern id, không đổi form, và không biến rasgueado thành pattern của một cú volume. Hợp âm quạt trong một kiểu vẫn là ba tiếng, dải từ trầm lên cao (`bass → support → lead` lệch `1/12` phách). Ô scale kết bằng `_melody_at`. Ô ngân cuối câu vẫn là nốt giá. Kim cương chỉ khi cao độ trùng nút harmonic của mục 5.
 
 ---
 

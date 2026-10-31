@@ -271,10 +271,25 @@ def test_span_response_volumes_match_each_movement(monkeypatch) -> None:
     monkeypatch.setattr("app.routers.stocks.ready_movement", lambda *_args, **_kwargs: None)
     response = asyncio.run(get_span("vnm", "1M", "symphony", "classic", True, True))
     assert len(response.movements) == len(movements)
+    from app.services.spans import movement_duration
+
     for row, movement in zip(response.movements, movements, strict=True):
+        written = round(movement_duration(movement), 3)
         assert len(row.volumes) == len(row.prices)
         assert row.prices == [round(bar.close, 2) for bar in movement.bars]
         assert row.volumes == [round(float(bar.volume), 4) for bar in movement.bars]
+        assert row.durationSec == written
+        assert row.mapDurationSec == written
+
+    class Cached:
+        duration_sec = 263.0
+        map_duration_sec = 260.0
+        movement_name = ""
+
+    monkeypatch.setattr("app.routers.stocks.ready_movement", lambda *_args, **_kwargs: Cached())
+    cached = asyncio.run(get_span("vnm", "1M", "symphony", "classic", True, True))
+    assert cached.movements[0].durationSec == 263.0
+    assert cached.movements[0].mapDurationSec == 260.0
 
 
 def test_join_trims_the_tail_of_every_chunk_but_the_last():

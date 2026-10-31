@@ -23,6 +23,15 @@ export function dailyMapClock(
 }
 
 /**
+ * Clock shared by a 1W–1Y playhead and a stage drag.
+ * The file keeps MuseScore's release tail. Candles follow the written map.
+ */
+export function spanMapClock(mapDurationSec: number, fileDurationSec: number): number {
+  if (mapDurationSec > 0) return mapDurationSec;
+  return Math.max(0, fileDurationSec);
+}
+
+/**
  * Stage drag on a 1D session. `ratio` runs across the visible price candles,
  * and the target sits in the body of the 34-bar frame, not the intro or outro.
  * Pass `dailyMapClock`, the same duration `ambientDailyCandleIndexAt` uses.

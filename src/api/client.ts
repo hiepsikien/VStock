@@ -546,6 +546,8 @@ export type SpanMovement = {
   keyLabel: string;
   candleCount: number;
   durationSec: number;
+  /** Written musical length. The file in `durationSec` may add a release tail. */
+  mapDurationSec?: number;
   ready: boolean;
   audioUrl: string;
   restAfterSec: number;

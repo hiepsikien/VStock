@@ -2251,6 +2251,20 @@ def _needs_sixteenths(events: list[NoteEvent]) -> bool:
     return False
 
 
+def _needs_twelfths(events: list[NoteEvent]) -> bool:
+    """True when a beat or a duration leaves the sixteenth grid.
+
+    A rasgueado roll puts support on `1/12` and lead on `2/12`, and shortens
+    those notes to `5/12` and `4/12`. That asks for `divisions = 12`.
+    """
+    for event in events:
+        for value in (event.beat, event.duration_beats):
+            scaled = value * 4
+            if abs(scaled - round(scaled)) > 1e-6:
+                return True
+    return False
+
+
 def _step_playable_and_ordered(
     pitch: int,
     step16: int,
@@ -2314,15 +2328,51 @@ def _fallback_inner(
     return None
 
 
+def _downbeat_sounding(lead: list[NoteEvent], support: list[NoteEvent], low: list[NoteEvent], bar: int, semitones: int) -> list[int]:
+    """Every attack inside the opening eighth, as a sounding pitch."""
+    found: list[int] = []
+    for events in (low, support, lead):
+        for event in events:
+            if event.bar == bar and event.midi is not None and event.beat < 0.25:
+                found.append(event.midi + semitones)
+    return found
+
+
 def _repair(ctx: _Ctx, lead: list[NoteEvent], support: list[NoteEvent], low: list[NoteEvent]) -> tuple[list, list, list]:
     """Shift, trim, or drop an inner note that cannot share a hand position with bass and melody."""
     if ctx.ensemble == "bach":
         low = _bach_keep_bass_below(ctx, lead, low)
+    roll_bars = {
+        event.bar
+        for events in (lead, support, low)
+        for event in events
+        if event.midi is not None and not _on_sixteenth_grid(event)
+    }
+    crowded: set[int] = set()
+    for events in (support, low):
+        counts: dict[int, int] = {}
+        for event in events:
+            if event.midi is None or event.beat >= 0.25:
+                continue
+            counts[event.bar] = counts.get(event.bar, 0) + 1
+        for bar, count in counts.items():
+            if count > 1:
+                crowded.add(bar)
     repaired: list[NoteEvent] = []
     for event in support:
         if event.midi is None:
             continue
         if not _on_sixteenth_grid(event):
+            repaired.append(event)
+            continue
+        # A 2-voice roll parks every support note on the beat. Keep the chord
+        # when the whole downbeat sonority frets, instead of trimming one note.
+        if (
+            ctx.ensemble == "torroba"
+            and event.beat < 0.25
+            and (event.bar in roll_bars or event.bar in crowded)
+            and _playable(_downbeat_sounding(lead, support, low, event.bar, ctx.semitones))
+        ):
             repaired.append(event)
             continue
         when = _start16(event, ctx.epb)
@@ -3032,10 +3082,12 @@ def render_patterned_voices(
         lead, support, low = _strip_pedal(ctx, lead, support, low)
         lead, support, low = _paint_frames(ctx, patterns, lead, support, low)
         lead, support, low, relaxed = _smooth_boundaries(
-            ctx, patterns, lead, support, low, scale_eighths
+            ctx, patterns, lead, support, low, scale_eighths, figure_bars=set(figure_at)
         )
     else:
-        lead, support, low = _transitions(ctx, patterns, levels, lead, support, low, scale_eighths)
+        lead, support, low = _transitions(
+            ctx, patterns, levels, lead, support, low, scale_eighths, figure_bars=set(figure_at)
+        )
     for eighth in _caesura_eighths(ctx, levels):
         if eighth in scale_eighths:
             continue
@@ -3102,9 +3154,11 @@ def render_patterned_voices(
         and (ctx.character is not None or ctx.bars > 40)
     ):
         divisions = 4
-    # A movement with any Étude No. 11 phrase engraves on the twelfth grid.
-    # A sixteenth of Étude No. 1 is then three units, and a sextuplet sixth is two.
-    if "etude11" in patterns:
+    # Étude No. 11 and a rasgueado roll both engrave on the twelfth grid.
+    # A sixteenth is then three units, a sextuplet sixth is two, and the roll's
+    # `1/12` offset is one. This assignment stays after the sixteenth gate so
+    # `divisions = 4` cannot overwrite 12.
+    if "etude11" in patterns or _needs_twelfths([*lead, *support, *low]):
         divisions = 12
     filled_lead = _ScaleLead(_fill(lead, musical_bars, epb, 1))
     filled_lead.scale_eighths = tuple(sorted(scale_eighths))
@@ -3441,10 +3495,23 @@ def _plant_pickup(
     return lead, support, low
 
 
-def _smooth_boundaries(ctx: _Ctx, patterns, lead, support, low, scale_eighths: set[int] | None = None):
+def _smooth_boundaries(
+    ctx: _Ctx,
+    patterns,
+    lead,
+    support,
+    low,
+    scale_eighths: set[int] | None = None,
+    figure_bars: set[int] | None = None,
+):
     relaxed: set[int] = set()
     protected = scale_eighths or set()
+    owned = figure_bars or set()
     for bar in _boundary_bars(ctx, patterns):
+        # A Torroba figure owns its bass line and its rolled lead. A boundary
+        # pickup would replace the last eighth and spell the roll back to beat 0.
+        if bar in owned:
+            continue
         pattern = _bar_pattern(ctx, bar, patterns)
         half = max(1, ctx.epb // 2)
         window = range((bar + 1) * ctx.epb - half, (bar + 1) * ctx.epb)
@@ -3574,8 +3641,12 @@ def _shape_dynamics(
     return shape(lead, "lead"), shape(support, "support"), shape(low, "low")
 
 
-def _transitions(ctx, patterns, levels, lead, support, low, scale_eighths: set[int] | None = None):
+def _transitions(
+    ctx, patterns, levels, lead, support, low, scale_eighths: set[int] | None = None,
+    figure_bars: set[int] | None = None,
+):
     protected = scale_eighths or set()
+    owned = figure_bars or set()
     body = [
         index
         for index, phrase in enumerate(ctx.phrases)
@@ -3588,6 +3659,10 @@ def _transitions(ctx, patterns, levels, lead, support, low, scale_eighths: set[i
         if phrase.end - phrase.start < 1:
             continue
         eighth = phrase.end - 1
+        # The last eighth of a figure bar is part of the figure. Silencing it
+        # cuts the rolled lead back to the downbeat and drops the final bass.
+        if eighth // ctx.epb in owned:
+            continue
         runs = _runs(ctx.melody, phrase.start, phrase.end)
         held_ending = bool(runs) and runs[-1][1] >= 2
         running_ending = bool(runs) and all(length < 4 for _s, length, _m in runs)
@@ -3757,13 +3832,18 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
             if voice in {2, 4} and sounding < 50 and profile not in {"villa_etude1", "villa_etude11"}:
                 raise Unplayable(f"inner voice {sounding} is below the middle register")
     times: set[int] = set()
+    roll_bars: set[int] = set()
     for events in voices.values():
         for event in events:
-            if event.midi is not None:
-                times.add(_start16(event, epb))
+            if event.midi is None:
+                continue
+            times.add(_start16(event, epb))
+            if not _on_sixteenth_grid(event):
+                roll_bars.add(event.bar)
     for when in sorted(times):
         bar = when // (epb * 2)
         profile = profile_at.get(bar, "study")
+        roll_window = profile == "torroba" and (when % (epb * 2)) < 2 and bar in roll_bars
         sounding_notes: list[tuple[int, int]] = []
         for voice, events in voices.items():
             for event in events:
@@ -3775,27 +3855,45 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
         mids = [pitch for voice, pitch in sounding_notes if voice == 2]
         uppers = [pitch for voice, pitch in sounding_notes if voice == 4]
         highs = [pitch for voice, pitch in sounding_notes if voice == 1]
-        if len(highs) > 1:
-            raise Unplayable("two notes in the high voice")
-        if len(mids) > 1 or len(uppers) > 1:
-            raise Unplayable("too many notes in one voice")
-        if len(lows) > 1 and profile != "barrios_tremolo":
-            raise Unplayable("two bass notes are the tremolo exception")
-        four_voices = profile in {"barrios_tremolo", "barrios_preludio"}
-        if len(sounding_notes) > 4 or (len(sounding_notes) > 3 and not four_voices):
-            raise Unplayable("too many simultaneous pitches")
-        if profile == "barrios_preludio" and len(sounding_notes) > 3:
-            # Exactly bass, lower middle, upper middle, and the high voice.
-            if {voice for voice, _pitch in sounding_notes} != {1, 2, 3, 4}:
+        if roll_window:
+            if len(highs) > 1:
+                raise Unplayable("two notes in the high voice")
+            if len(mids) > 3 or len(uppers) > 1:
+                raise Unplayable("too many notes in one voice")
+            if len(lows) > 2:
+                raise Unplayable("too many bass notes in a rasgueado")
+            if len(sounding_notes) > 6:
                 raise Unplayable("too many simultaneous pitches")
-        if lows and mids and max(lows) >= min(mids):
-            tremolo_ok = profile == "barrios_tremolo" and min(lows) < min(mids) and max(lows) <= 53
-            if not tremolo_ok:
+            if len(set(lows)) != len(lows) or len(set(mids)) != len(mids):
+                raise Unplayable("a rasgueado voice repeats a pitch")
+            if lows and mids and max(lows) >= min(mids):
                 raise Unplayable("bass is not below the inner voice")
-        if mids and highs and max(mids) >= min(highs):
-            raise Unplayable("inner voice is not below the melody")
-        if lows and highs and not mids and max(lows) >= min(highs):
-            raise Unplayable("bass is not below the melody")
+            if mids and highs and max(mids) >= min(highs):
+                raise Unplayable("inner voice is not below the melody")
+            if lows and highs and not mids and max(lows) >= min(highs):
+                raise Unplayable("bass is not below the melody")
+        else:
+            if len(highs) > 1:
+                raise Unplayable("two notes in the high voice")
+            if len(mids) > 1 or len(uppers) > 1:
+                raise Unplayable("too many notes in one voice")
+            if len(lows) > 1 and profile != "barrios_tremolo":
+                raise Unplayable("two bass notes are the tremolo exception")
+            four_voices = profile in {"barrios_tremolo", "barrios_preludio"}
+            if len(sounding_notes) > 4 or (len(sounding_notes) > 3 and not four_voices):
+                raise Unplayable("too many simultaneous pitches")
+            if profile == "barrios_preludio" and len(sounding_notes) > 3:
+                # Exactly bass, lower middle, upper middle, and the high voice.
+                if {voice for voice, _pitch in sounding_notes} != {1, 2, 3, 4}:
+                    raise Unplayable("too many simultaneous pitches")
+            if lows and mids and max(lows) >= min(mids):
+                tremolo_ok = profile == "barrios_tremolo" and min(lows) < min(mids) and max(lows) <= 53
+                if not tremolo_ok:
+                    raise Unplayable("bass is not below the inner voice")
+            if mids and highs and max(mids) >= min(highs):
+                raise Unplayable("inner voice is not below the melody")
+            if lows and highs and not mids and max(lows) >= min(highs):
+                raise Unplayable("bass is not below the melody")
         if uppers and mids and max(mids) >= min(uppers):
             raise Unplayable("lower middle is not below the upper middle")
         if uppers and highs and max(uppers) >= min(highs):
