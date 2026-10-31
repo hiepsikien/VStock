@@ -151,7 +151,7 @@ Lưới `danza`:
 
 `selloff` không có pattern bi ca. Sor đã có `elegiaque`. Cùng `sonatina`, vòng rơi xuống Sol trưởng và bè cao được phép hát La♭. Chương chậm thì `selloff` về `castillo`.
 
-Rasgueado là hợp âm ba tiếng ở các móc hợp âm phía trên. Staccato là cách ngắt, không phải một bậc vận tốc riêng. Không có pattern id riêng.
+Rasgueado là hợp âm dải ba tiếng từ trầm lên cao (`bass → support → lead`, lệch `1/12` phách trên lưới `divisions = 12`, các bè khác im trong lúc quạt) ở móc 0 của `fandanguillo` và ở phách mở của Kiểu 2 (ô 1), Kiểu 3 (ô mô-típ), Kiểu 5 (ô 1), Kiểu 7 (ô 5). Hợp âm đầu nhóm của `danza` là hợp âm khối `staccato`. Staccato là cách ngắt, không phải một bậc vận tốc riêng. Không có pattern id riêng.
 
 ### Vận tốc trong ô
 
@@ -254,7 +254,7 @@ Các ý sau dừng ở bản phác thảo, không vào engine:
 - Viết lại let-ring, tách vận tốc ba bè, và wedge dàn dây. Guitar đã có ngân chồng và band vận tốc. Wedge violin thuộc ensemble khác.
 - Thẻ `<grace/>` và thẻ `<harmonic/>`. Nốt lấy đà là móc kép có slur. Kim cương là cao độ giá ngân theo kiểu chuông.
 
-Tám kiểu ở mục 4 của kế hoạch câu không mở lại các ý trên. Chúng không thêm pattern id, không đổi form, và không biến rasgueado thành pattern của một cú volume. Hợp âm quạt trong một kiểu vẫn là ba tiếng. Ô scale kết bằng `_melody_at`. Ô ngân cuối câu vẫn là nốt giá. Kim cương chỉ khi cao độ trùng nút harmonic của mục 5.
+Tám kiểu ở mục 4 của kế hoạch câu không mở lại các ý trên. Chúng không thêm pattern id, không đổi form, và không biến rasgueado thành pattern của một cú volume. Hợp âm quạt trong một kiểu vẫn là ba tiếng, dải từ trầm lên cao (`bass → support → lead` lệch `1/12` phách). Ô scale kết bằng `_melody_at`. Ô ngân cuối câu vẫn là nốt giá. Kim cương chỉ khi cao độ trùng nút harmonic của mục 5.
 
 ---
 
