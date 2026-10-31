@@ -23,7 +23,7 @@ Bốn pattern đang hát:
 
 **Texture** là cách đánh bên trong pattern đã khóa. Tám texture đang hát: Arpeggio, Rasgueado, Pizzicato, Dialogue, Arch, Bounce, Arada, Float. Mỗi texture thuộc một pattern cha, theo bảng ở [`docs/sonify-pattern-names.md`](./sonify-pattern-names.md) mục 3. Texture không có id trong `_FAMILY`, không vào `_PATTERN_TITLE`, không lên dòng chương. Ô pedal không nhận texture, vì ô pedal không có đường giá.
 
-Một câu giữ một texture. Tám texture đang hát giữ bước 7 của mục 4.0 trong kế hoạch câu: câu `n` lẻ là lưới nền, hai câu sát nhau không lặp cùng một số texture. Ba pattern mới thêm một cửa đứng trước bước đó, ghi ở mục 3: câu `rise < 3` hoặc `closes` hát lưới thưa của pattern, kể cả khi `n` lẻ. Câu thưa sát câu thưa thì câu sau về lưới nền.
+Một câu giữ một texture. Tám texture đang hát giữ bước 7 của mục 4.0 trong kế hoạch câu: câu `n` lẻ là lưới nền, hai câu sát nhau không lặp cùng một số texture. Ba pattern mới dùng thứ tự ở đầu mục 3. Câu `closes` luôn thưa. Cửa “đừng lặp câu thưa” chỉ áp cho câu `rise < 3` chưa đóng.
 
 **Cửa** là kịch bản intro và outro của pattern. Cửa đọc hợp âm chức năng, không đọc `_melody_at`. Cửa không phải texture.
 
@@ -67,7 +67,7 @@ Bảng trên là code đang chạy. Bảng dưới là đề xuất. 1D, 1W và 
 | Scherzo 6/8 | `volatile` | Fandanguillo | Castillo |
 | Scherzo 6/8 | `selloff` | Castillo | Sonatina |
 
-Mood của đoạn giữa đọc trên các câu của vùng B, cùng cách `_dominant_pattern` đọc một nhóm câu. `rally` và `selloff` của 4/4 vẫn cùng Sonatina. `rally` và `volatile` của scherzo tách thành Alcaniz và Fandanguillo.
+Mood của đoạn giữa đọc trên các câu của vùng B, cùng cách `_dominant_pattern` đọc một nhóm câu. `rally` và `selloff` của 4/4 vẫn cùng Sonatina. Hướng của giá trên 4/4 nằm ở texture sẵn có của Sonatina. `rally` và `volatile` của scherzo tách thành Alcaniz và Fandanguillo.
 
 ---
 
@@ -75,7 +75,13 @@ Mood của đoạn giữa đọc trên các câu của vùng B, cùng cách `_do
 
 Nốt hát là `_melody_at`. Nốt trên của hợp âm là `_melody_at` của móc đó. Fret trong tab là hình: slur, song thanh, hợp âm hay nốt đơn. Bass buông giữ khi `_torroba_bass` trả dây Mi, La hoặc Rê. Harmonic vận tốc 48 chỉ khi cao độ vang trùng nút và nốt dài ít nhất hai phách, cửa đang có. Nốt còn lại là nốt hợp âm hoặc nốt thang.
 
-`phrase.rise` và `closes` chọn mật độ. `MIN_RISE` là 3, cùng cửa vòm của Fandanguillo. Câu `rise < 3` hoặc `closes` hát lưới thưa, kể cả `n` lẻ. Câu `rise >= 3` và chưa đóng: `n` lẻ là lưới nền, `n` chẵn được gọi texture dày khi mục dưới cho phép. Hai câu thưa sát nhau: câu sau về lưới nền.
+`phrase.rise` và `closes` chọn mật độ. `MIN_RISE` là 3, cùng cửa vòm của Fandanguillo. Thứ tự một câu:
+
+1. Câu `closes` hát lưới thưa. Cửa sát nhau không đụng câu này.
+2. Câu `rise < 3` và chưa đóng hát lưới thưa, trừ khi câu liền trước cũng thưa vì `rise < 3`. Câu đó hát hình nốt của lưới nền, không accent, không sàn 68.
+3. Câu `rise >= 3` và chưa đóng hát lưới nền, với accent và sàn của pattern đó.
+
+Juglar và Olite không có texture dày nào khác lưới nền. Alcaniz chỉ có texture mở đầu ở câu `n = 0`, hai ô đầu. Mọi câu `n` chẵn còn lại của Alcaniz hát lưới nền. Không thêm một kiểu nữa để lấp các câu chẵn.
 
 Ô điệu dùng một `extra` cho cả ô, cùng anchor của `danza` và `fandanguillo`, để khoảng đã viết sống sót qua `apply_guitar_wave`. Phách mạnh của ô điệu viết `max(_note_velocity, 68)` và `accent=True`. Profile sóng của ô điệu cùng hàng `danza`: snap 68/70, một nốt móng mỗi câu, ba nốt mỗi đoạn, target `accent`. Ô thưa và ô tremolo không lấy sàn 68.
 
@@ -85,17 +91,19 @@ Cửa intro/outro của ba pattern này viết sau. Cửa không thay lưới th
 
 Chữ **Tremolo** trên chart thuộc Barrios. Tên in là **Juglar**. Id `tremolo` và hàng bốn móc kép của Barrios giữ cho Barrios.
 
-Lưới nền là tremolo của *Simancas*: từ ô 5 của tab, giai điệu lặp một nốt, bass đúng phách. Một phách của engine là hai móc đơn. Ba cú không rơi lên lưới móc đơn. Chúng là bộ ba móc đơn trong thời gian của một phách, tỉ lệ 3:2. `divisions = 12` đã có vì quạt: một phách là 12 tick, ba cú ở tick 0, 4 và 8. Onset `1/12` và `2/12` của quạt không dùng cho tremolo.
+Lưới nền là tremolo của *Simancas*: từ ô 5 của tab, giai điệu lặp một nốt, bass đúng đầu phách. Một phách của engine là hai móc đơn. Ba cú không rơi lên lưới móc đơn. Chúng là bộ ba móc đơn trong thời gian của một phách, tỉ lệ 3:2. `divisions = 12` đã có vì quạt: một phách là 12 tick, ba cú ở tick 0, 4 và 8. Onset `1/12` và `2/12` của quạt không dùng cho tremolo. Juglar chỉ hát trên 3/4 của chương chậm. Ô 3/4 có ba phách, mở ở móc 0, móc 2 và móc 4. Chỉ móc 0 là phách mạnh của meter.
+
+Cả bộ ba của một phách lấy một cao độ: `_melody_at` của móc chẵn mở phách đó. Móc lẻ không đổi nốt giữa chừng bộ ba.
 
 | Cú | Tick trong phách | Vai |
 |---|---|---|
-| 1 | 0 | Lead là `_melody_at` của móc mạnh. Có accent. Vận tốc là `_note_velocity` của móc đó, không sàn 68. Bass `_torroba_bass` chỉ ở cú này |
-| 2 | 4 | Cùng cao độ lead. Không accent. Viết thấp hơn cú 1 đúng một bậc `_under_lead` |
-| 3 | 8 | Cùng cao độ lead. Không accent. Cùng bậc cú 2. Bass nghỉ |
+| 1 | 0 | Lead là `_melody_at` của móc mở phách. Bass `_torroba_bass` chỉ ở cú này. Accent và lớp móng chỉ khi phách mở bằng móc 0 và câu đang hát lưới nền đầy. Vận tốc là `_note_velocity`, không sàn 68 |
+| 2 | 4 | Cùng cao độ. Không accent. Viết thấp hơn cú 1 đúng một bậc `_under_lead` |
+| 3 | 8 | Cùng cao độ. Không accent. Cùng bậc cú 2. Bass nghỉ |
 
-Bè trong nghỉ suốt bộ ba. Profile sóng của ô này cùng hàng `sonatina`: snap 66/68, một nốt mỗi câu, hai nốt mỗi đoạn. Chỉ cú 1 có accent, nên chỉ cú 1 vào lớp móng. Ô tremolo vẫn lấy một `extra` cho cả ô, để bậc giữa cú 1 và hai cú sau sống sót qua sóng.
+Phách mở ở móc 2 và móc 4 vẫn đủ ba cú, cùng bảng, không accent, không sàn 68. Bè trong nghỉ suốt bộ ba. Profile sóng cùng hàng `sonatina`: snap 66/68, một nốt mỗi câu, hai nốt mỗi đoạn. Ô tremolo lấy một `extra` cho cả ô, để bậc giữa cú 1 và hai cú sau sống sót qua sóng.
 
-Lưới thưa, khi `rise < 3` hoặc `closes`: chỉ cú 1, trường độ hết phách (`duration_beats = 1.0`). Cú 2 và cú 3 nghỉ.
+Lưới thưa, theo thứ tự đầu mục 3: chỉ cú 1 của mỗi phách, trường độ hết phách (`duration_beats = 1.0`). Cú 2 và cú 3 nghỉ. Không accent. Câu bị đẩy về hình lưới nền vì cửa sát nhau vẫn đủ ba cú, và cũng không accent.
 
 Chỗ trong bảng mục 2: B của chương chậm khi đoạn giữa là `calm`. A là Castillo. Dòng chương là `Castillo — Juglar — Castillo`. Đoạn giữa `rally`, `selloff` hoặc `volatile` giữ B là Sonatina. *Zafra* là Allegretto vivace, nốt đen = 110. *Redaba* là Allegretto. Hai điệu đó không hát ở BPM ≤ 72. PDF của *Redaba* chưa đủ nốt để chốt lưới móc. Hai điệu chưa vào `_FIGURES` và chưa có ô trong bảng mood.
 
@@ -124,7 +132,7 @@ Texture mở đầu chỉ câu `n = 0` của vùng, khi `rise >= 3` và câu ch�
 | 3 | Lead `_melody_at`, accent, sàn 68 |
 | 4, 5 | Bè trong đi song thanh quãng 3 hoặc quãng 6 dưới lead, nốt hợp âm hoặc nốt thang. Lead hát `_melody_at` của móc đó |
 
-Texture mềm khi `rise < 3` hoặc `closes`, kể cả `n` lẻ. Đây là đoạn sau ending 2 của bản: nốt dài, slur, pedal.
+Texture mềm là lưới thưa, theo thứ tự đầu mục 3. Đây là đoạn sau ending 2 của bản: nốt dài, slur, pedal. Câu bị đẩy về hình điệu vì cửa sát nhau giữ các móc của bảng điệu, bỏ accent và bỏ sàn 68.
 
 | Móc 6/8 | Vai |
 |---|---|
@@ -141,28 +149,34 @@ Texture mềm khi `rise < 3` hoặc `closes`, kể cả `n` lẻ. Đây là đo�
 
 Olite là pattern. Fandanguillo là điệu 3/4–6/8. Danza là điệu nhóm ba của scherzo `calm`. Olite là điệu đôi, nhận `volatile` của mọi chương 4/4, kể cả 1D. `calm` 4/4 vẫn là Castillo. `rally` và `selloff` 4/4 vẫn là Sonatina. Fandanguillo giữ scherzo `volatile`.
 
-Engine không có nhịp 2/4. Hai ô 2/4 thành một ô 4/4. Hợp âm rơi vào móc 0 và móc 4, hai phách mạnh. Nét bảy nốt trên bản (`5-5-4-2-3-2-0`) không nằm trong một phách và không chia hết cho tám móc. Nét đó là đường giữa hai hợp âm, viết trên các móc yếu, mỗi móc một nốt, cao độ là bước thang tới `_melody_at` của phách mạnh kế. Móc yếu còn thừa thì nghỉ. Không có cú thứ bảy trong một phách.
+Engine không có nhịp 2/4. Hai ô 2/4 thành một ô 4/4. Hợp âm rơi vào móc 0 và móc 4, hai phách mạnh. Nét bảy nốt trên bản (`5-5-4-2-3-2-0`) không nằm trong một phách và không chia hết cho tám móc. Nốt giá ở móc 0 và móc 4 giữ nguyên: đó là `_melody_at` của chính móc đó.
 
-Lưới nền, câu `rise >= 3` và chưa `closes`:
+Mỗi nhóm móc yếu đi về nốt giá kế. Nhóm móc 1, 2, 3 đi về `_melody_at` của móc 4. Nhóm móc 5, 6, 7 đi về `_melody_at` của móc 0 ô sau. Trong một nhóm:
 
-| Móc 4/4 | Vai |
-|---|---|
-| 0 | Hợp âm, nốt trên `_melody_at`, accent, sàn 68. Bass buông khi `_torroba_bass` trả dây buông |
-| 1, 2, 3 | Lead đơn, bước thang. Không hợp âm |
-| 4 | Hợp âm, nốt trên `_melody_at` của móc 4, accent, sàn 68 |
-| 5, 6, 7 | Lead đơn, bước thang, hoặc nghỉ |
+- Giá đứng yên: cả nhóm nghỉ.
+- Số bậc thang nhỏ hơn số móc của nhóm: đi từng bậc, rồi lặp nốt vừa tới cho hết nhóm.
+- Số bậc thang lớn hơn số móc: các móc đầu đi từng bậc, móc cuối của nhóm nhảy một lần tới nốt giá kế.
 
-Profile sóng cùng hàng `danza`. Một `extra` cho cả ô.
-
-Texture thưa lấy từ Lento, khi `rise < 3` hoặc `closes`, kể cả `n` lẻ. 1D không có vùng B. Câu thưa là chỗ ngày `volatile` đổi mật độ.
+Lưới nền, câu `rise >= 3` và chưa `closes`, và câu bị đẩy về hình này vì cửa sát nhau. Câu bị đẩy bỏ accent và bỏ sàn 68. Câu lưới nền đầy giữ cả hai.
 
 | Móc 4/4 | Vai |
 |---|---|
-| 0 và 4 | Một nốt lead `_melody_at`. Không hợp âm, không sàn 68, không accent, trừ khi móc là đỉnh câu |
+| 0 | Hợp âm, nốt trên `_melody_at`. Accent và sàn 68 khi câu là lưới nền đầy. Bass buông khi `_torroba_bass` trả dây buông |
+| 1, 2, 3 | Lead đơn theo luật nhóm ở trên, hoặc nghỉ. Không hợp âm |
+| 4 | Hợp âm, nốt trên `_melody_at` của móc 4. Accent và sàn 68 khi câu là lưới nền đầy |
+| 5, 6, 7 | Lead đơn theo luật nhóm ở trên, hoặc nghỉ |
+
+Profile sóng của câu đầy cùng hàng `danza`. Một `extra` cho cả ô. Câu bị đẩy dùng profile `castillo`, không snap.
+
+Texture thưa lấy từ Lento, theo thứ tự đầu mục 3. 1D không có vùng B. Câu `closes` luôn thưa, nên ngày `volatile` vẫn có câu đổi mật độ.
+
+| Móc 4/4 | Vai |
+|---|---|
+| 0 và 4 | Một nốt lead `_melody_at`. Không hợp âm, không sàn 68, không accent |
 | 1, 2, 3, 5, 6, 7 | Nghỉ |
 | Bass | Một nốt ở móc 0 |
 
-Ô thưa dùng profile `castillo`, không snap. Hai câu thưa sát nhau: câu sau về lưới Vivace.
+Ô thưa dùng profile `castillo`, không snap.
 
 ---
 
