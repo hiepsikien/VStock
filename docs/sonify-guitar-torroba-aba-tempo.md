@@ -47,7 +47,7 @@ Chương đã có `bridge` hoặc `trio` giữ nguyên vùng B đó. Chương II
 
 Một slot phrase, và không phải ngày 34 ô: tuần một phiên là 32 ô. `split_into(32, 3)` ra 10, 11, 11. Phần dư nằm trên hai phần cuối, mỗi phần thêm một ô. Không phải 10, 10, 12. Câu lấy pattern của ô đầu tiên trong slot.
 
-Hai slot phrase và không có bridge, như tháng mở 1Y và tuần hai phiên: slot 0 là primary. Slot 1 chia đôi theo ô. Nửa đầu là contrast. Nửa sau chép primary. Ô lẻ của nửa đó về phía trở lại.
+Hai slot phrase và không có bridge, như tháng mở 1Y và tuần hai phiên: slot 0 là primary. Slot 1 chia đôi theo ô. Nửa đầu là contrast. Nửa sau chép primary. Ô lẻ của nửa đó về phía trở lại. Vùng chỉ toàn warmup, intro, outro hoặc cooldown không phải một slot. Outro của tháng mở đứng slot 2, nên tháng đó vẫn là hai slot phrase. Slot 1 dài 36 ô, nửa contrast là 18 ô.
 
 Tuần từ ba phiên trở lên không giao contrast cho mọi phiên giữa. Tuần năm phiên theo luật đó thì B chiếm ba phiên. Contrast là 8 ô phrase nằm giữa phiên giữa. Đếm từ 0, phiên giữa là `count // 2`. Ba phiên thì phiên 1. Năm phiên thì phiên 2. Bốn phiên thì phiên 2, phiên bắt đầu đúng điểm giữa bài. 32 ô phrase của phiên giữa ra 12, 8, 12. Hai đầu phiên đó và mọi phiên khác hát primary. Hàng này không cắt ngang một phiên.
 

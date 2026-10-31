@@ -1194,7 +1194,12 @@ def _bach_region_patterns(palette: tuple[str, ...], count: int) -> list[str]:
 
 
 def _torroba_regions(ctx: _Ctx) -> list[tuple[int, int, bool]]:
-    """Contiguous `(start, end, contrast)` runs. A bridge stays its own run."""
+    """Contiguous `(start, end, contrast)` runs. A bridge stays its own run.
+
+    A run of only warmup, intro, outro, or cooldown is not a phrase slot.
+    The year opener's outro sits on its own slot, so it must not become the
+    third region that would shrink the contrast to eight bars.
+    """
     regions: list[tuple[int, int, bool]] = []
     for section in ctx.sections:
         contrast = bool(section.trio or section.bridge)
@@ -1208,7 +1213,11 @@ def _torroba_regions(ctx: _Ctx) -> list[tuple[int, int, bool]]:
             regions[-1] = (regions[-1][0], section.end, contrast)
             continue
         regions.append((section.start, section.end, contrast))
-    return regions
+    kept: list[tuple[int, int, bool]] = []
+    for start, end, contrast in regions:
+        if any(ctx.kind_at.get(bar, "phrase") not in _PEDAL for bar in range(start, end)):
+            kept.append((start, end, contrast))
+    return kept
 
 
 def _torroba_opening_mood(ctx: _Ctx) -> str | None:

@@ -3531,6 +3531,26 @@ def test_slot_splits_follow_the_aba_windows() -> None:
         assert _body_pattern(one, painted, bar) == pattern
     assert form_pattern_ids(one, painted) == ["castillo", "olite", "castillo"]
 
+    # The year opener's outro is its own slot. It is not a third phrase region.
+    opener = _slot_score([36, 36])
+    opener = replace(
+        opener,
+        bars=opener.bars + 4,
+        sections=opener.sections + (FormSection(opener.bars, opener.bars + 4, "outro", 2),),
+        kind_at={**opener.kind_at, **{bar: "outro" for bar in range(opener.bars, opener.bars + 4)}},
+        phrases=_one_bar_phrases(opener.bars + 4, epb),
+        chord_at={bar: C for bar in range(opener.bars + 4)},
+        band_at={bar: "mf" for bar in range(opener.bars + 4)},
+        melody=[60] * ((opener.bars + 4) * epb),
+    )
+    painted = _patterns(opener)
+    second = 4 + 36
+    for bar in range(4, second):
+        assert _body_pattern(opener, painted, bar) == "castillo"
+    for bar in range(second, second + 36):
+        pattern = "olite" if bar < second + 18 else "castillo"
+        assert _body_pattern(opener, painted, bar) == pattern
+
     two = _slot_score([16, 11])
     painted = _patterns(two)
     # Slot 1 starts after the intro and the 16-bar opening.

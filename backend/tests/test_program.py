@@ -498,6 +498,29 @@ def test_torroba_day_week_and_chapters_follow_the_aba_tables(monkeypatch):
     name, _saved = _capture_torroba(monkeypatch, flat, character="selloff", form=scherzo)
     assert name == "Fandanguillo — Danza — Fandanguillo"
 
+    year = attach_frame(year_specs("guitar")[0], "1Y")
+    name, saved = _capture_torroba(monkeypatch, _bars([100.0] * 120), character="selloff", form=year)
+    assert name == "Castillo — Olite — Castillo"
+    second = next(
+        section
+        for section in saved["ctx"].sections
+        if section.kind == "phrase" and section.regime_slot == 1 and not section.bridge
+    )
+    assert second.end - second.start == 36
+    cut = second.start + 18
+    ctx = saved["ctx"]
+    pedal = {"intro", "outro", "warmup", "cooldown"}
+    for index, phrase in enumerate(ctx.phrases):
+        bar = phrase.start // ctx.epb
+        if ctx.kind_at.get(bar, "phrase") in pedal:
+            continue
+        if not second.start <= bar < second.end:
+            continue
+        expect = "olite" if bar < cut else "castillo"
+        assert saved["patterns"][index] == expect
+    olite = _contrast_body_bars(ctx, saved["patterns"], "olite")
+    assert olite[0] == second.start and len(olite) > 8
+
     week = week_spec(1)
     name, saved = _capture_torroba(monkeypatch, flat, character="selloff", form=week)
     assert name == "Castillo — Olite — Castillo"
