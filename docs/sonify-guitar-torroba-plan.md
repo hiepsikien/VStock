@@ -220,17 +220,41 @@ Không phải pattern mới. Đặt sau khi pattern của câu đã khóa.
 
 ## 7. Bộ chọn macro
 
-Đi cùng bảng ở mục 3.0 của [`docs/sonify-classical-guitar.md`](./sonify-classical-guitar.md). Bài có khung khóa một pattern cho cả thân khi không có `trio` / `bridge`. Có đoạn tương phản thì A–B–A: A là `_dominant_pattern`, B là `_contrast_pattern`.
+Đi cùng cách chia ở [`docs/sonify-guitar-torroba-aba-tempo.md`](./sonify-guitar-torroba-aba-tempo.md). Ngày 34 ô trong 4/4 giữ một pattern. Chương không có `bridge` / `trio` không khóa một pattern cho cả thân: từ ba slot thì contrast là 8 ô giữa slot `count // 2`, hai slot thì nửa đầu slot sau, một slot thì `split_into` ba phần. Chương đã có bridge hoặc trio giữ cả vùng B. Primary lấy mood của slot 0. Vùng cuối chép id đó. Cửa `bpm <= 72 → castillo` bỏ, cả trên câu không khung.
 
-Hàng 4/4 áp cho mọi chương 4/4, không riêng `1D`: `1D` (96 BPM của Torroba), `1W` (90), `1M` I và IV (96), `3M` I (96), `3M` III (108), tháng mở `1Y` (100), tháng 12 của `1Y` (96).
+Hàng 4/4 áp cho mọi chương 4/4: `1D` (96 BPM của Torroba), `1W` (90), `1M` I và IV (96), `3M` I (96), `3M` III (108), tháng mở `1Y` (100), tháng 12 của `1Y` (96).
 
-| Khung | A | B |
-|---|---|---|
-| Mọi chương 4/4, 90–108 BPM | `calm` → `castillo`. `rally` → `sonatina`. `volatile` → `fandanguillo`. `selloff` → `sonatina` | Không có `trio` / `bridge` trên `1D` và `1W`. Chương có đoạn giữa thì theo hàng chậm hoặc scherzo của span đó |
-| Chương chậm 3/4, 60–72 BPM | `castillo` | `bridge` → `sonatina` |
-| Scherzo 6/8 | `calm` → `danza`. `rally` / `volatile` → `fandanguillo`. `selloff` → `castillo` | `trio` → `castillo` khi A là điệu. A đã là `castillo` thì B là `sonatina` |
+| 4/4, 90–108 BPM | A |
+|---|---|
+| calm | `castillo` |
+| rally | `olite` |
+| selloff | `castillo` |
+| volatile | `olite` |
 
-Fixture không khung (`_framed(ctx) == False`) đi `_select_body`. Torroba dùng cùng bảng mood theo từng câu: `calm` là `castillo`, `rally` và `selloff` là `sonatina`, `volatile` là `fandanguillo`, chương chậm là `castillo` với `bridge` là `sonatina`. Không có vân tay riêng kiểu Barrios `1D`. Nhánh `torroba` trong `_select_body` đứng trước `ctx.bpm >= BARRIOS_TREMOLO_MIN_BPM`. Nhánh trong `_dominant_pattern` và `_contrast_pattern` đứng trước `ctx.bpm < BARRIOS_TREMOLO_MIN_BPM`. Dict `"sonatina"` chỉ là lưới khi không còn câu để chọn.
+| 3/4, 60–72 BPM | A |
+|---|---|
+| calm | `castillo` |
+| rally | `torroba_tremolo` |
+| selloff | `castillo` |
+| volatile | `danza` |
+
+| 6/8, 108–120 BPM | A |
+|---|---|
+| calm | `danza` |
+| rally | `alcaniz` |
+| volatile | `fandanguillo` |
+| selloff | `fandanguillo` |
+
+| A | B trên 4/4 | B trên 3/4 | B trên 6/8 |
+|---|---|---|---|
+| `castillo` | `olite` | `torroba_tremolo` khi slot 0 là calm. `danza` khi slot 0 là selloff | — |
+| `olite` | `sonatina` | — | — |
+| `torroba_tremolo` | — | `danza` | — |
+| `danza` | — | `torroba_tremolo` | `alcaniz` |
+| `alcaniz` | — | — | `danza` |
+| `fandanguillo` | — | — | `danza` |
+
+Fixture không khung (`_framed(ctx) == False`) đi `_select_body` rồi `_torroba_primary`. Mỗi câu một pattern, cùng bảng, không ép A–B–A. Câu nằm trong `bridge` hoặc `trio` lấy hàng contrast của primary đó. Không có vân tay riêng kiểu Barrios `1D`. Nhánh `torroba` trong `_select_body` đứng trước `ctx.bpm >= BARRIOS_TREMOLO_MIN_BPM`. Nhánh trong `_contrast_pattern` đứng trước `ctx.bpm < BARRIOS_TREMOLO_MIN_BPM` và truyền mood của slot 0, không truyền mood vùng giữa. Dict `"sonatina"` chỉ là lưới khi không còn câu để chọn. Sonatina không có hàng A.
 
 Intro và outro đi qua `guitar_frame.py`, cùng kiểu khung 2 ô và 4 ô của các nhà kia:
 

@@ -318,6 +318,39 @@ def test_olite_keeps_both_chords_and_the_breath_has_no_second_chord() -> None:
     assert sung[0].velocity == 50
 
 
+def test_castillo_doors_and_juglar_hold_shorten_the_bass() -> None:
+    _lead, _support, low, frame = _region("castillo", 4, "4/4")
+    # Role 0 is still a whole-bar pedal. Roles 1 and 2 were `bass_length=ctx.epb`.
+    assert _sounding(low, frame[0])
+    assert all(note.duration_beats == 4.0 for note in _sounding(low, frame[0]))
+    for bar in frame[1:3]:
+        basses = _sounding(low, bar)
+        assert basses
+        assert {_eighth(note) for note in basses} == {0}
+        assert all(note.duration_beats == 1.0 for note in basses)
+    outro_lead, _outro_support, outro_low, outro_frame = _region("castillo", 4, "4/4", closing=True)
+    for bar in outro_frame[:3]:
+        basses = _sounding(outro_low, bar)
+        assert basses
+        assert {_eighth(note) for note in basses} == {0}
+        assert all(note.duration_beats == 1.0 for note in basses)
+    assert any(note.duration_beats > 1.0 for note in _sounding(outro_lead, outro_frame[0]))
+
+    hold_lead, _hold_support, hold_low, hold_frame = _region("torroba_tremolo", 4, "3/4", closing=True)
+    for bar in hold_frame[2:]:
+        basses = _sounding(hold_low, bar)
+        assert basses
+        assert {_eighth(note) for note in basses} == {0}
+        assert all(note.duration_beats == 1.0 for note in basses)
+        assert any(note.duration_beats == 3.0 for note in _sounding(hold_lead, bar))
+    short_lead, _short_support, short_low, short_frame = _region("torroba_tremolo", 2, "3/4", closing=True)
+    held = _sounding(short_low, short_frame[1])
+    assert held and all(note.duration_beats == 1.0 for note in held)
+    motor = _sounding(short_low, short_frame[0])
+    assert motor and all(note.duration_beats == 0.5 for note in motor)
+    assert any(note.duration_beats == 1.0 for note in _sounding(short_lead, short_frame[0]))
+
+
 def test_danza_four_four_fallback_is_not_empty() -> None:
     lead, support, low, frame = _region("danza", 2, "4/4")
     assert _all_notes(lead, support, low)

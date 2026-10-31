@@ -1193,6 +1193,33 @@ def _bach_region_patterns(palette: tuple[str, ...], count: int) -> list[str]:
     return row
 
 
+def _torroba_regions(ctx: _Ctx) -> list[tuple[int, int, bool]]:
+    """Contiguous `(start, end, contrast)` runs. A bridge stays its own run."""
+    regions: list[tuple[int, int, bool]] = []
+    for section in ctx.sections:
+        contrast = bool(section.trio or section.bridge)
+        if (
+            regions
+            and regions[-1][1] == section.start
+            and regions[-1][2] == contrast
+            and ctx.section(regions[-1][0]) is not None
+            and ctx.section(regions[-1][0]).regime_slot == section.regime_slot
+        ):
+            regions[-1] = (regions[-1][0], section.end, contrast)
+            continue
+        regions.append((section.start, section.end, contrast))
+    return regions
+
+
+def _torroba_opening_mood(ctx: _Ctx) -> str | None:
+    """Mood of the first region that is not the bridge or the trio."""
+    for start, end, contrast in _torroba_regions(ctx):
+        if contrast:
+            continue
+        return _majority_mood(ctx, list(range(start, end)))
+    return ctx.character
+
+
 def _contrast_pattern(ctx: _Ctx, primary: str, phrases: list[Phrase], bars: list[int]) -> str:
     """The other formal area: one contrasting pattern, then the piece returns."""
     mood = _majority_mood(ctx, bars)
@@ -1201,7 +1228,7 @@ def _contrast_pattern(ctx: _Ctx, primary: str, phrases: list[Phrase], bars: list
     if ctx.ensemble == "bach":
         return _bach_contrast(ctx, primary, mood)
     if ctx.ensemble == "torroba":
-        return _torroba_contrast(ctx, primary, mood)
+        return _torroba_contrast(ctx, primary, _torroba_opening_mood(ctx))
     if ctx.ensemble == "classic":
         choice = "elegiaque" if ctx.mode == "minor" or mood == "selloff" else "cantabile"
         if choice != primary:
@@ -1226,6 +1253,131 @@ def _contrast_pattern(ctx: _Ctx, primary: str, phrases: list[Phrase], bars: list
     return "andante" if primary == "thumb_cantabile" else "thumb_cantabile"
 
 
+def _paint_phrases(chosen: list[str], indexes: list[int], pattern: str) -> None:
+    for index in indexes:
+        chosen[index] = pattern
+
+
+def _phrases_in(ctx: _Ctx, body: list[int], start: int, end: int) -> list[int]:
+    return [index for index in body if start <= _phrase_bar(ctx, index) < end]
+
+
+def _paint_bar_slices(
+    ctx: _Ctx,
+    chosen: list[str],
+    body: list[int],
+    start: int,
+    sizes: list[int],
+    patterns: list[str],
+) -> None:
+    """A phrase takes the pattern of the slice that holds its first bar."""
+    bounds: list[tuple[int, int, str]] = []
+    cursor = start
+    for size, pattern in zip(sizes, patterns):
+        if size <= 0:
+            continue
+        bounds.append((cursor, cursor + size, pattern))
+        cursor += size
+    for index in _phrases_in(ctx, body, start, cursor):
+        bar = _phrase_bar(ctx, index)
+        for lo, hi, pattern in bounds:
+            if lo <= bar < hi:
+                chosen[index] = pattern
+                break
+
+
+def _centered_contrast(count: int) -> tuple[int, int, int]:
+    """Primary, eight contrast bars, primary. The odd remainder ends the slot.
+
+    A slot of 24 bars is 8, 8, 8. A slot of 32 is 12, 8, 12. Fewer than eight
+    bars are all contrast. One leftover bar sits on the return side.
+    """
+    from app.sonify.span import split_into
+
+    if count <= 8:
+        return 0, count, 0
+    left, right = split_into(count - 8, 2) if count - 8 >= 2 else (0, count - 8)
+    return left, 8, right
+
+
+def _assign_torroba(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
+    """A–B–A for Torroba. The 34-bar day in 4/4 stays one pattern.
+
+    Primary is the mood of the opening region only. The close copies that id.
+    A bridge or trio keeps its whole B region. Three or more slots put eight
+    contrast bars in the middle of slot `count // 2`. Two slots split the
+    second in half, odd bar on the return. One slot uses `split_into`.
+    """
+    from app.sonify.span import split_into
+
+    regions = _torroba_regions(ctx)
+    if ctx.bars == 34 and ctx.kind == "4/4":
+        mood = _torroba_opening_mood(ctx) if regions else _majority_mood(ctx, _phrase_bars(ctx, body))
+        _paint_phrases(chosen, body, _torroba_primary(ctx, mood, framed_macro=True))
+        return chosen
+    if not regions:
+        mood = _majority_mood(ctx, _phrase_bars(ctx, body))
+        _paint_phrases(chosen, body, _torroba_primary(ctx, mood, framed_macro=True))
+        return chosen
+    mood = _torroba_opening_mood(ctx)
+    primary = _torroba_primary(ctx, mood, framed_macro=True)
+    contrast = _torroba_contrast(ctx, primary, mood)
+    if any(contrast_flag for _start, _end, contrast_flag in regions):
+        for start, end, contrast_flag in regions:
+            _paint_phrases(
+                chosen,
+                _phrases_in(ctx, body, start, end),
+                contrast if contrast_flag else primary,
+            )
+        return chosen
+    count = len(regions)
+    if count == 1:
+        start, end, _contrast_flag = regions[0]
+        width = end - start
+        if width < 3:
+            _paint_phrases(chosen, _phrases_in(ctx, body, start, end), primary)
+            return chosen
+        _paint_bar_slices(
+            ctx,
+            chosen,
+            body,
+            start,
+            split_into(width, 3),
+            [primary, contrast, primary],
+        )
+        return chosen
+    if count == 2:
+        start, end, _contrast_flag = regions[0]
+        _paint_phrases(chosen, _phrases_in(ctx, body, start, end), primary)
+        start, end, _contrast_flag = regions[1]
+        width = end - start
+        left = width // 2
+        _paint_bar_slices(
+            ctx,
+            chosen,
+            body,
+            start,
+            [left, width - left],
+            [contrast, primary],
+        )
+        return chosen
+    middle = count // 2
+    for index, (start, end, _contrast_flag) in enumerate(regions):
+        if index != middle:
+            _paint_phrases(chosen, _phrases_in(ctx, body, start, end), primary)
+            continue
+        left, span, right = _centered_contrast(end - start)
+        _paint_bar_slices(
+            ctx,
+            chosen,
+            body,
+            start,
+            [left, span, right],
+            [primary, contrast, primary],
+        )
+    return chosen
+
+
 def _assign_macro(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
     """Lock the body to one pattern, to A–B–A, or to one pattern per session.
 
@@ -1237,6 +1389,8 @@ def _assign_macro(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
     """
     if not body:
         return chosen
+    if ctx.ensemble == "torroba":
+        return _assign_torroba(ctx, chosen, body)
     if ctx.ensemble == "barrios" and ctx.bars > 40:
         regions = _group_slots(ctx, body)
         if len(regions) >= 2:
@@ -2590,6 +2744,20 @@ def contrast_id(ctx: _Ctx, patterns: list[str]) -> str:
     return ""
 
 
+def _successive_body_patterns(ctx: _Ctx, patterns: list[str]) -> list[str]:
+    """Body-bar patterns with adjacent repeats collapsed."""
+    found: list[str] = []
+    for bar in range(ctx.bars):
+        if ctx.kind_at.get(bar, "phrase") in _PEDAL:
+            continue
+        name = _bar_pattern(ctx, bar, patterns)
+        if not name or name == "pedal":
+            continue
+        if not found or found[-1] != name:
+            found.append(name)
+    return found
+
+
 def form_pattern_ids(ctx: _Ctx, patterns: list[str]) -> list[str]:
     """One written pattern, or the slot row of a framed long Barrios or Bach movement.
 
@@ -2603,6 +2771,15 @@ def form_pattern_ids(ctx: _Ctx, patterns: list[str]) -> list[str]:
     if ctx.ensemble in {"barrios", "bach"} and ctx.bars > 40 and _framed(ctx):
         successive = _region_pattern_ids(ctx, patterns)
         if len(successive) >= 2 and len(set(successive)) >= 2:
+            return successive
+    if (
+        ctx.ensemble == "torroba"
+        and _framed(ctx)
+        and not _has_contrast_section(ctx)
+        and not (ctx.bars == 34 and ctx.kind == "4/4")
+    ):
+        successive = _successive_body_patterns(ctx, patterns)
+        if len(successive) >= 2:
             return successive
     primary = headline_id(ctx, patterns)
     if not primary or primary == "pedal":

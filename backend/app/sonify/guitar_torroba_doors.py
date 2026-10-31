@@ -454,7 +454,7 @@ def _juglar_hold(ctx, bar: int, name: str, velocity: int) -> list[tuple]:
     _support, bass_velocity = _beds(velocity)
     return [
         (0, ctx.epb, lead, 1, velocity, {}),
-        (0, ctx.epb, bass, 3, bass_velocity, {}),
+        (0, 2, bass, 3, bass_velocity, {}),
     ]
 
 
@@ -635,16 +635,16 @@ def _castillo_intro_short(ctx, bar: int, role: int) -> list[tuple]:
         return _bass_alone(ctx, bar, "I", _PP)
     raw = _marked_pitch(ctx, bar, earlier=False)
     below = _fit_lead(ctx, raw) if raw is not None else None
-    return _sung(ctx, bar, "I", _P, lead_from=_cut(ctx), bass_length=ctx.epb, below=below)
+    return _sung(ctx, bar, "I", _P, lead_from=_cut(ctx), bass_length=2, below=below)
 
 
 def _castillo_intro_long(ctx, bar: int, role: int) -> list[tuple]:
     if role == 0:
         return _bass_alone(ctx, bar, "I", _PP)
     if role == 1:
-        return _sung(ctx, bar, "I", _P, lead_from=_cut(ctx), bass_length=ctx.epb)
+        return _sung(ctx, bar, "I", _P, lead_from=_cut(ctx), bass_length=2)
     if role == 2:
-        return _sung(ctx, bar, "IV", _MP, lead_from=_cut(ctx), bass_length=ctx.epb)
+        return _sung(ctx, bar, "IV", _MP, lead_from=_cut(ctx), bass_length=2)
     specs = _bass_alone(ctx, bar, "V7", _MP, _cut(ctx))
     if _into_body(ctx, bar, False):
         specs.extend(_scale_into(ctx, bar, _cut(ctx), 1, _MP))
@@ -660,11 +660,11 @@ def _castillo_outro_short(ctx, bar: int, role: int) -> list[tuple]:
 
 def _castillo_outro_long(ctx, bar: int, role: int) -> list[tuple]:
     if role == 0:
-        return _sung(ctx, bar, "IV", _P, lead_from=0, bass_length=ctx.epb)
+        return _sung(ctx, bar, "IV", _P, lead_from=0, bass_length=2)
     if role == 1:
-        return _sung(ctx, bar, "V7", _P, lead_from=0, bass_length=ctx.epb)
+        return _sung(ctx, bar, "V7", _P, lead_from=0, bass_length=2)
     if role == 2:
-        return _sung(ctx, bar, "I", _PP, lead_from=_cut(ctx), bass_length=ctx.epb)
+        return _sung(ctx, bar, "I", _PP, lead_from=_cut(ctx), bass_length=2)
     return _bell_chord(ctx, bar, _PP, picardy=ctx.mode == "minor")
 
 

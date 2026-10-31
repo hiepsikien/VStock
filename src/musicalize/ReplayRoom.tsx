@@ -634,7 +634,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
       }
     })();
     return () => controller.abort();
-  }, [audible, colorOn, ensemble, humanize, span, symbol, variant]);
+  }, [audible, colorOn, ensemble, humanize, index, span, symbol, variant]);
 
   const lengths = movements?.map((item) => item.prices.length) ?? [];
   const offsets = movementOffsets(lengths);

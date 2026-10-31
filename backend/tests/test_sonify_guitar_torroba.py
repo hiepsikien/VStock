@@ -59,12 +59,14 @@ from app.sonify.guitar_patterns import (
     assert_playable,
     _FAMILY,
     _patterns,
+    form_pattern_ids,
     headline_id,
 )
 from app.sonify.guitar_torroba import (
     _FIGURES,
     _HARMONICS,
     _Pen,
+    _grid_state,
     _rasgueado_onsets,
     _render_torroba_bar,
     _torroba_bass,
@@ -311,6 +313,17 @@ def test_held_ab_into_g_is_not_a_break() -> None:
     assert _breaks_held_note_across_barline(68, AF, G, scale, index, "minor", None) is True
 
 
+def _bridge(bars: int) -> tuple[FormSection, ...]:
+    return (FormSection(0, bars, "phrase", 1, bridge=True),)
+
+
+def _castillo_then_sonatina() -> tuple[FormSection, ...]:
+    return (
+        FormSection(0, 1, "phrase", 0),
+        FormSection(1, 2, "phrase", 1, bridge=True),
+    )
+
+
 def _render(pitches, phrases, *, chords, kinds, mode="minor", character="calm", bpm=96, meter=METER_44, sections=None):
     epb = meter.eighths_per_bar
     bars = len(pitches) // epb
@@ -453,7 +466,7 @@ def test_four_fallbacks_and_the_mood_map() -> None:
     assert _fallback_body_pattern(empty, 0, []) == "sonatina"
     phrase = _joined(0, [64] * 8)
     rally = _ctx(melody=[64] * 8, phrase=phrase, character="rally")
-    assert _select_body(rally, phrase, first_body=True, previous=[], section=None) == "sonatina"
+    assert _select_body(rally, phrase, first_body=True, previous=[], section=None) == "olite"
     calm = _ctx(melody=[64] * 8, phrase=phrase, character="calm")
     assert _select_body(calm, phrase, first_body=True, previous=[], section=None) == "castillo"
     volatile = _ctx(melody=[64] * 8, phrase=phrase, character="volatile")
@@ -461,16 +474,16 @@ def test_four_fallbacks_and_the_mood_map() -> None:
     slow = _ctx(melody=[64] * 8, phrase=phrase, character="selloff", bpm=72)
     assert _select_body(slow, phrase, first_body=True, previous=[], section=None) == "castillo"
     selloff = _ctx(melody=[64] * 8, phrase=phrase, character="selloff", bpm=96)
-    assert _select_body(selloff, phrase, first_body=True, previous=[], section=None) == "sonatina"
+    assert _select_body(selloff, phrase, first_body=True, previous=[], section=None) == "castillo"
     scherzo = _ctx(melody=[64] * 6, phrase=_joined(0, [64] * 6), kind="6/8", epb=6, strong=(0, 3), character="calm", bar_beats=3)
     assert _torroba_primary(scherzo, "calm", framed_macro=True) == "danza"
-    assert _torroba_primary(scherzo, "calm", framed_macro=False) == "castillo"
+    assert _torroba_primary(scherzo, "calm", framed_macro=False) == "danza"
     four = _ctx(melody=[64] * 8, phrase=phrase, kind="4/4", character="volatile", bpm=108)
     assert _torroba_primary(four, "volatile", framed_macro=True) == "olite"
     assert "danza" != _torroba_primary(four, "calm", framed_macro=True)
-    assert _torroba_contrast(scherzo, "danza") == "castillo"
-    assert _torroba_contrast(scherzo, "sonatina") == "castillo"
-    assert _torroba_contrast(scherzo, "castillo") == "sonatina"
+    assert _torroba_contrast(scherzo, "danza") == "alcaniz"
+    assert _torroba_contrast(scherzo, "sonatina") == "sonatina"
+    assert _torroba_contrast(scherzo, "castillo") == "castillo"
     bridge = FormSection(0, 1, "phrase", 0, bridge=True)
     unframed = _ctx(
         melody=[64] * 6,
@@ -481,10 +494,10 @@ def test_four_fallbacks_and_the_mood_map() -> None:
         character="rally",
         bar_beats=3,
     )
-    assert _select_body(unframed, unframed.phrases[0], first_body=True, previous=[], section=None) == "sonatina"
-    assert _select_body(unframed, unframed.phrases[0], first_body=True, previous=[], section=bridge) == "castillo"
-    assert _torroba_contrast(four, "castillo") == "sonatina"
-    assert _torroba_contrast(slow, "castillo") == "sonatina"
+    assert _select_body(unframed, unframed.phrases[0], first_body=True, previous=[], section=None) == "alcaniz"
+    assert _select_body(unframed, unframed.phrases[0], first_body=True, previous=[], section=bridge) == "danza"
+    assert _torroba_contrast(four, "castillo") == "olite"
+    assert _torroba_contrast(slow, "castillo") == "olite"
 
 
 def test_dance_writes_a_four_step_gap_and_one_extra_per_bar() -> None:
@@ -663,6 +676,7 @@ def test_sonatina_slur_leap_and_run_stay_out_of_scale_eighths() -> None:
         mode="major",
         character="rally",
         bpm=96,
+        sections=_bridge(1),
     )
     run = [note for note in score.lead if note.duration_beats == 0.25]
     assert 2 <= len(run) <= 4
@@ -998,6 +1012,7 @@ def test_breath_harmonics_and_fandanguillo_grids() -> None:
             chords,
             character="calm",
             character_at=("calm", "rally"),
+            sections=_castillo_then_sonatina(),
         )
         grace = [note for note in graced.lead if note.midi is not None and note.duration_beats == 0.25]
         assert [(note.bar, round(note.beat, 2)) for note in grace] == [(0, 3.75)]
@@ -1007,6 +1022,7 @@ def test_breath_harmonics_and_fandanguillo_grids() -> None:
         {0: C, 1: G},
         character="calm",
         character_at=("calm", "rally"),
+        sections=_castillo_then_sonatina(),
     )
     assert not any(note.midi is not None and note.duration_beats == 0.25 for note in held_step.lead)
     assert _strong(held_step, 0, 0.0).slur_start
@@ -1095,7 +1111,7 @@ def _covers_beat(note: NoteEvent, bar: int, beat: float, length: float) -> bool:
     return start < beat + length - 1e-9 and end > beat + 1e-9
 
 
-def _two_bars(pitches, phrases, chords, *, character="rally", character_at=None):
+def _two_bars(pitches, phrases, chords, *, character="rally", character_at=None, sections=None):
     bars = len(pitches) // 8
     slots = tuple(ChordSlot(bar, 1, chords[bar], "sideway", "phrase") for bar in range(bars))
     with compose_meter(METER_44):
@@ -1117,12 +1133,18 @@ def _two_bars(pitches, phrases, chords, *, character="rally", character_at=None)
             mode="major",
             character=character,
             character_at=character_at,
+            sections=sections,
             rel_span=0.0,
         )
 
 
 def test_sonatina_downbeat_leap_step_run_and_castillo_hold() -> None:
-    leap = _two_bars([74] * 8 + [67] * 8, (_joined(0, [74] * 8 + [67] * 8, held=True),), {0: G, 1: G})
+    leap = _two_bars(
+        [74] * 8 + [67] * 8,
+        (_joined(0, [74] * 8 + [67] * 8, held=True),),
+        {0: G, 1: G},
+        sections=_bridge(2),
+    )
     pickup = [note for note in leap.lead if note.midi is not None and note.duration_beats == 0.25]
     assert [(note.bar, round(note.beat, 2)) for note in pickup] == [(0, 3.75)]
     assert pickup[0].slur_start and pickup[0].voice == 1 and (pickup[0].velocity or 0) <= 64
@@ -1132,14 +1154,24 @@ def test_sonatina_downbeat_leap_step_run_and_castillo_hold() -> None:
     assert all(note.bar >= 0 for note in leap.lead)
     assert_playable(leap, profiles="torroba")
 
-    step = _two_bars([71] * 8 + [72] * 8, (_joined(0, [71] * 8 + [72] * 8, held=True),), {0: G, 1: C})
+    step = _two_bars(
+        [71] * 8 + [72] * 8,
+        (_joined(0, [71] * 8 + [72] * 8, held=True),),
+        {0: G, 1: C},
+        sections=_bridge(2),
+    )
     assert not any(note.midi is not None and note.duration_beats == 0.25 for note in step.lead)
     previous = [note for note in step.lead if note.bar == 0 and abs(note.beat - 2.0) < 1e-6 and note.duration_beats >= 0.5]
     arrived = [note for note in step.lead if note.bar == 1 and abs(note.beat) < 1e-6 and note.duration_beats >= 0.5]
     assert len(previous) == 1 and previous[0].midi == 71 and previous[0].slur_start
     assert len(arrived) == 1 and arrived[0].midi == 72 and arrived[0].slur_stop
 
-    running = _two_bars([67] * 8 + [74] * 8, (_joined(0, [67] * 8 + [74] * 8, held=True),), {0: G, 1: G})
+    running = _two_bars(
+        [67] * 8 + [74] * 8,
+        (_joined(0, [67] * 8 + [74] * 8, held=True),),
+        {0: G, 1: G},
+        sections=_bridge(2),
+    )
     run = sorted(
         (note for note in running.lead if note.midi is not None and note.bar == 0 and note.duration_beats == 0.25),
         key=lambda note: note.beat,
@@ -1160,6 +1192,7 @@ def test_sonatina_downbeat_leap_step_run_and_castillo_hold() -> None:
         {0: C, 1: C},
         character="calm",
         character_at=("calm", "rally"),
+        sections=_castillo_then_sonatina(),
     )
     grace = [note for note in held.lead if note.midi is not None and note.duration_beats == 0.25]
     assert [(note.bar, round(note.beat, 2)) for note in grace] == [(0, 3.75)]
@@ -1183,6 +1216,7 @@ def test_sonatina_downbeat_leap_step_run_and_castillo_hold() -> None:
         {0: C, 1: G},
         character="calm",
         character_at=("calm", "rally"),
+        sections=_castillo_then_sonatina(),
     )
     held_price = [note for note in held_step.lead if note.bar == 0 and abs(note.beat) < 1e-6 and note.midi is not None]
     assert len(held_price) == 1 and held_price[0].midi == step_line[0] == 72
@@ -1198,6 +1232,7 @@ def test_sonatina_downbeat_leap_step_run_and_castillo_hold() -> None:
         {0: CMAJ7, 1: C},
         character="calm",
         character_at=("calm", "rally"),
+        sections=_castillo_then_sonatina(),
     )
     sounded = [note for note in held_leap.lead if note.bar == 0 and abs(note.beat) < 1e-6 and note.midi is not None]
     assert len(sounded) == 1 and sounded[0].midi == leap_line[0] == 60
@@ -1229,6 +1264,7 @@ def test_sonatina_slur_is_one_arch_and_skips_a_repeated_note() -> None:
         kinds={0: "phrase", 1: "phrase"},
         mode="minor",
         character="rally",
+        sections=_bridge(2),
     )
     assert not any(note.slur_start and note.slur_stop for note in score.lead)
     assert _strong(score, 0, 0.0).slur_start and not _strong(score, 0, 0.0).slur_stop
@@ -1239,7 +1275,13 @@ def test_sonatina_slur_is_one_arch_and_skips_a_repeated_note() -> None:
     slurs = [mark for mark in xml.split("<slur ") if mark.startswith("type=")]
     assert [mark.split('"', 2)[1] for mark in slurs] == ["start", "stop"]
 
-    same = _two_bars([72] * 16, (_joined(0, [72] * 16, held=True),), {0: C, 1: C}, character="rally")
+    same = _two_bars(
+        [72] * 16,
+        (_joined(0, [72] * 16, held=True),),
+        {0: C, 1: C},
+        character="rally",
+        sections=_bridge(2),
+    )
     assert not any(note.slur_start or note.slur_stop for note in same.lead if note.midi is not None)
 
     stepped = [72] * 8 + [68] * 4 + [67] * 4
@@ -1250,6 +1292,7 @@ def test_sonatina_slur_is_one_arch_and_skips_a_repeated_note() -> None:
         kinds={0: "phrase", 1: "phrase"},
         mode="minor",
         character="rally",
+        sections=_bridge(2),
     )
     pickup = [note for note in joined.lead if note.duration_beats == 0.25 and note.midi is not None]
     assert len(pickup) == 1 and pickup[0].slur_start and not pickup[0].slur_stop
@@ -1269,21 +1312,23 @@ def test_sonatina_pickup_rests_only_its_sixteenth() -> None:
 
 
 def test_framed_scherzo_renders_danza() -> None:
-    pitches = [72] * 24
+    pitches = [72] * 30
     sections = (
         FormSection(0, 1, "intro", 0),
         FormSection(1, 3, "phrase", 0),
-        FormSection(3, 4, "outro", 0),
+        FormSection(3, 4, "phrase", 1),
+        FormSection(4, 5, "outro", 1),
     )
     score = _render(
         pitches,
         (
             _joined(0, pitches[:6], held=True),
             _joined(6, pitches[6:18]),
-            _joined(18, pitches[18:]),
+            _joined(18, pitches[18:24]),
+            _joined(24, pitches[24:], held=True),
         ),
-        chords={bar: C for bar in range(4)},
-        kinds={0: "intro", 1: "phrase", 2: "phrase", 3: "outro"},
+        chords={bar: C for bar in range(5)},
+        kinds={0: "intro", 1: "phrase", 2: "phrase", 3: "phrase", 4: "outro"},
         mode="major",
         character="calm",
         bpm=96,
@@ -1853,6 +1898,7 @@ def test_figure_bars_keep_their_own_slur_and_grow_no_pickup() -> None:
         mode="major",
         character="rally",
         bpm=96,
+        sections=_bridge(4),
     )
     call = [note for note in score.lead if note.bar == 0 and note.midi is not None]
     assert not any(note.beat == pytest.approx(0.0) for note in call)
@@ -2312,13 +2358,7 @@ def test_type_1_bass_cuts_at_the_barline_before_a_rolled_successor() -> None:
 @pytest.mark.parametrize("kind", ["4/4", "3/4", "6/8"])
 def test_rolled_chord_scores_engrave_on_division_12(kind: str) -> None:
     meter, epb, _strong, bar_beats = _FIGURE_METERS[kind]
-    if kind == "4/4":
-        # 4/4 volatile is Olite. The roll that asks for division 12 is the
-        # Castillo figure below, and Fandanguillo on 3/4 and 6/8.
-        olite = _pattern_score(kind, "olite", character="volatile", bpm=96)
-        assert olite.divisions != 12
-        assert_playable(olite, profiles="torroba")
-    else:
+    if kind == "6/8":
         dance = _pattern_score(kind, "fandanguillo", character="volatile", bpm=96)
         assert dance.divisions == 12
         _assert_eighth_roll(
@@ -2330,31 +2370,40 @@ def test_rolled_chord_scores_engrave_on_division_12(kind: str) -> None:
         _assert_measures_sum(dance)
         root = ET.fromstring(score_to_musicxml(dance))
         _assert_eighth_xml(root.find("part").findall("measure")[0])
+    else:
+        other = _pattern_score(kind, "olite", character="volatile", bpm=96)
+        assert other.divisions != 12
+        assert_playable(other, profiles="torroba")
 
-    slow = _pattern_score(kind, "castillo", character="calm", bpm=72, bars=5)
-    assert slow.divisions == 12
-    for bar in range(4):
-        _assert_block(
-            [note for note in slow.lead if note.bar == bar],
-            [note for note in slow.support if note.bar == bar],
-            [note for note in slow.low if note.bar == bar],
+    if kind == "6/8":
+        calm = _pattern_score(kind, "danza", character="calm", bpm=72, bars=5)
+        assert calm.divisions != 12
+        assert_playable(calm, profiles="torroba")
+    else:
+        slow = _pattern_score(kind, "castillo", character="calm", bpm=72, bars=5)
+        assert slow.divisions == 12
+        for bar in range(4):
+            _assert_block(
+                [note for note in slow.lead if note.bar == bar],
+                [note for note in slow.support if note.bar == bar],
+                [note for note in slow.low if note.bar == bar],
+            )
+        _assert_type7_roll(
+            [note for note in slow.lead if note.bar == 4],
+            [note for note in slow.support if note.bar == 4],
+            [note for note in slow.low if note.bar == 4],
+            bar_beats,
         )
-    _assert_type7_roll(
-        [note for note in slow.lead if note.bar == 4],
-        [note for note in slow.support if note.bar == 4],
-        [note for note in slow.low if note.bar == 4],
-        bar_beats,
-    )
-    assert_playable(slow, profiles="torroba")
-    _assert_measures_sum(slow)
-    slow_root = ET.fromstring(score_to_musicxml(slow))
-    bar5 = slow_root.find("part").findall("measure")[4]
-    _assert_held_lead_xml(bar5, epb * 6 - 2, kind)
-    bass_note = _first_attack(_streams(bar5)[-1])
-    assert (bass_note.find("duration").text, bass_note.find("type").text) == ("6", "eighth")
-    assert bass_note.find("dot") is None
-    assert bass_note.find("time-modification") is None
-    _assert_tied_fifth(_streams(bar5)[1])
+        assert_playable(slow, profiles="torroba")
+        _assert_measures_sum(slow)
+        slow_root = ET.fromstring(score_to_musicxml(slow))
+        bar5 = slow_root.find("part").findall("measure")[4]
+        _assert_held_lead_xml(bar5, epb * 6 - 2, kind)
+        bass_note = _first_attack(_streams(bar5)[-1])
+        assert (bass_note.find("duration").text, bass_note.find("type").text) == ("6", "eighth")
+        assert bass_note.find("dot") is None
+        assert bass_note.find("time-modification") is None
+        _assert_tied_fifth(_streams(bar5)[1])
 
     _ctx2, _phrase2, pair_parts = _flat_figure(kind, 2, midi=59, chord=_UNISON)
     pair_score = _engrave(_ctx2, pair_parts)
@@ -2383,27 +2432,33 @@ def test_rolled_chord_scores_engrave_on_division_12(kind: str) -> None:
     assert meter.eighths_per_bar == epb
 
 
-def test_intro_and_danza_stay_block_chords_when_a_roll_sets_division_12() -> None:
-    # Scherzo volatile is still Fandanguillo, so the body roll sets division 12.
-    # 4/4 volatile is Olite and does not roll.
-    pitches = [72] * 24
-    framed = _render(
+def _framed_scherzo(character: str):
+    pitches = [72] * 48
+    return _render(
         pitches,
-        (_joined(0, pitches[:6], held=True), _joined(6, pitches[6:18]), _joined(18, pitches[18:])),
-        chords={bar: C for bar in range(4)},
-        kinds={0: "intro", 1: "phrase", 2: "phrase", 3: "outro"},
+        (
+            _joined(0, pitches[:6], held=True),
+            _joined(6, pitches[6:42]),
+            _joined(42, pitches[42:], held=True),
+        ),
+        chords={bar: C for bar in range(8)},
+        kinds={0: "intro", 7: "outro", **{bar: "phrase" for bar in range(1, 7)}},
         mode="major",
-        character="volatile",
+        character=character,
         bpm=96,
         meter=METER_68,
         sections=(
             FormSection(0, 1, "intro", 0),
-            FormSection(1, 3, "phrase", 0),
-            FormSection(3, 4, "outro", 0),
+            FormSection(1, 7, "phrase", 0),
+            FormSection(7, 8, "outro", 0),
         ),
     )
+
+
+def test_intro_and_danza_stay_block_chords_when_a_roll_sets_division_12() -> None:
+    framed = _framed_scherzo("volatile")
     assert framed.divisions == 12
-    for bar in (0, 3):
+    for bar in (0, 7):
         _assert_block(
             [note for note in framed.lead if note.bar == bar],
             [note for note in framed.support if note.bar == bar],
@@ -2417,25 +2472,7 @@ def test_intro_and_danza_stay_block_chords_when_a_roll_sets_division_12() -> Non
     assert_playable(framed, profiles="torroba")
     _assert_measures_sum(framed)
 
-    danza = _render(
-        [72] * 24,
-        (
-            _joined(0, [72] * 6, held=True),
-            _joined(6, [72] * 12),
-            _joined(18, [72] * 6),
-        ),
-        chords={bar: C for bar in range(4)},
-        kinds={0: "intro", 1: "phrase", 2: "phrase", 3: "outro"},
-        mode="major",
-        character="calm",
-        bpm=96,
-        meter=METER_68,
-        sections=(
-            FormSection(0, 1, "intro", 0),
-            FormSection(1, 3, "phrase", 0),
-            FormSection(3, 4, "outro", 0),
-        ),
-    )
+    danza = _framed_scherzo("calm")
     assert danza.divisions != 12
     body = _opening(
         [note for note in danza.lead if note.bar == 1],
@@ -2625,9 +2662,21 @@ def test_castillos_mood_table_and_printed_names() -> None:
         assert _torroba_primary(four, mood, framed_macro=True) != "danza"
         assert _torroba_primary(four, mood, framed_macro=False) != "danza"
     assert _torroba_primary(four, "calm", framed_macro=True) == "castillo"
-    assert _torroba_primary(four, "rally", framed_macro=True) == "sonatina"
-    assert _torroba_primary(four, "selloff", framed_macro=True) == "sonatina"
+    assert _torroba_primary(four, "rally", framed_macro=True) == "olite"
+    assert _torroba_primary(four, "selloff", framed_macro=True) == "castillo"
     assert _torroba_primary(four, "volatile", framed_macro=True) == "olite"
+    assert _torroba_primary(four, "rally", framed_macro=False) == "olite"
+    assert _torroba_contrast(four, "castillo") == "olite"
+    assert _torroba_contrast(four, "olite") == "sonatina"
+    waltz = _ctx(melody=[64] * 6, phrase=_joined(0, [64] * 6), kind="3/4", epb=6, strong=(0,), bpm=72, bar_beats=3)
+    assert _torroba_primary(waltz, "calm") == "castillo"
+    assert _torroba_primary(waltz, "rally") == "torroba_tremolo"
+    assert _torroba_primary(waltz, "selloff") == "castillo"
+    assert _torroba_primary(waltz, "volatile") == "danza"
+    assert _torroba_contrast(replace(waltz, character="calm"), "castillo", "calm") == "torroba_tremolo"
+    assert _torroba_contrast(replace(waltz, character="selloff"), "castillo", "selloff") == "danza"
+    assert _torroba_contrast(waltz, "torroba_tremolo") == "danza"
+    assert _torroba_contrast(waltz, "danza") == "torroba_tremolo"
 
     scherzo = _ctx(
         melody=[64] * 6,
@@ -2641,12 +2690,12 @@ def test_castillos_mood_table_and_printed_names() -> None:
     assert _torroba_primary(scherzo, "calm", framed_macro=True) == "danza"
     assert _torroba_primary(scherzo, "rally", framed_macro=True) == "alcaniz"
     assert _torroba_primary(scherzo, "volatile", framed_macro=True) == "fandanguillo"
-    assert _torroba_primary(scherzo, "selloff", framed_macro=True) == "castillo"
-    assert _torroba_primary(scherzo, "rally", framed_macro=False) == "sonatina"
-    assert _torroba_contrast(scherzo, "alcaniz") == "castillo"
-    assert _torroba_contrast(scherzo, "fandanguillo") == "castillo"
-    assert _torroba_contrast(scherzo, "danza") == "castillo"
-    assert _torroba_contrast(scherzo, "castillo") == "sonatina"
+    assert _torroba_primary(scherzo, "selloff", framed_macro=True) == "fandanguillo"
+    assert _torroba_primary(scherzo, "rally", framed_macro=False) == "alcaniz"
+    assert _torroba_contrast(scherzo, "alcaniz") == "danza"
+    assert _torroba_contrast(scherzo, "fandanguillo") == "danza"
+    assert _torroba_contrast(scherzo, "danza") == "alcaniz"
+    assert _torroba_contrast(scherzo, "castillo") == "castillo"
 
     juglar = profile_for("torroba", "torroba_tremolo")
     sonatina = profile_for("torroba", "sonatina")
@@ -2732,21 +2781,21 @@ def test_framed_castillos_follow_the_middle_mood() -> None:
     )
     assert _patterns(one_day) == ["pedal", "olite", "pedal"]
 
-    calm = _macro("6/8", 6, (0, 3), 96, "calm", bridge=False, trio=True, moods=None, bar_beats=3.0)
-    assert _patterns(calm) == ["pedal", "danza", "castillo", "danza", "pedal"]
-    rally = _macro("6/8", 6, (0, 3), 96, "rally", bridge=False, trio=True, moods=None, bar_beats=3.0)
-    assert _patterns(rally) == ["pedal", "alcaniz", "castillo", "alcaniz", "pedal"]
-    volatile = _macro("6/8", 6, (0, 3), 96, "volatile", bridge=False, trio=True, moods=None, bar_beats=3.0)
-    assert _patterns(volatile) == ["pedal", "fandanguillo", "castillo", "fandanguillo", "pedal"]
-    selloff = _macro("6/8", 6, (0, 3), 96, "selloff", bridge=False, trio=True, moods=None, bar_beats=3.0)
-    assert _patterns(selloff) == ["pedal", "castillo", "sonatina", "castillo", "pedal"]
+    calm = _macro("6/8", 6, (0, 3), 120, "calm", bridge=False, trio=True, moods=None, bar_beats=3.0)
+    assert _patterns(calm) == ["pedal", "danza", "alcaniz", "danza", "pedal"]
+    rally = _macro("6/8", 6, (0, 3), 120, "rally", bridge=False, trio=True, moods=None, bar_beats=3.0)
+    assert _patterns(rally) == ["pedal", "alcaniz", "danza", "alcaniz", "pedal"]
+    volatile = _macro("6/8", 6, (0, 3), 120, "volatile", bridge=False, trio=True, moods=None, bar_beats=3.0)
+    assert _patterns(volatile) == ["pedal", "fandanguillo", "danza", "fandanguillo", "pedal"]
+    selloff = _macro("6/8", 6, (0, 3), 120, "selloff", bridge=False, trio=True, moods=None, bar_beats=3.0)
+    assert _patterns(selloff) == ["pedal", "fandanguillo", "danza", "fandanguillo", "pedal"]
 
     slow_calm = ["calm"] * 8
     juglar = _macro("3/4", 6, (0,), 72, "rally", bridge=True, trio=False, moods=slow_calm, bar_beats=3.0)
     assert _patterns(juglar) == ["pedal", "castillo", "torroba_tremolo", "castillo", "pedal"]
     slow_hot = ["rally"] * 8
-    sonatina = _macro("3/4", 6, (0,), 72, "calm", bridge=True, trio=False, moods=slow_hot, bar_beats=3.0)
-    assert _patterns(sonatina) == ["pedal", "castillo", "sonatina", "castillo", "pedal"]
+    danced = _macro("3/4", 6, (0,), 72, "calm", bridge=True, trio=False, moods=slow_hot, bar_beats=3.0)
+    assert _patterns(danced) == ["pedal", "torroba_tremolo", "danza", "torroba_tremolo", "pedal"]
 
 
 def test_juglar_triplets_accent_only_the_downbeat() -> None:
@@ -2766,7 +2815,8 @@ def test_juglar_triplets_accent_only_the_downbeat() -> None:
     with compose_meter(METER_34):
         lead, support, low = _render_torroba_bar(ctx, 0, phrase, "torroba_tremolo")
     assert support == []
-    assert [round(note.beat * 12) for note in low] == [0, 12, 24]
+    assert [round(note.beat * 12) for note in low] == [0]
+    assert low[0].duration_beats == pytest.approx(1.0)
     assert all(note.midi == 40 for note in low)
     for quarter, eighth in enumerate((0, 2, 4)):
         attacks = [note for note in lead if quarter - 1e-9 <= note.beat < quarter + 1 - 1e-9]
@@ -2789,10 +2839,12 @@ def test_juglar_triplets_accent_only_the_downbeat() -> None:
     thin_phrase = Phrase(0, 6, (Run(0, 6, 67),))
     thin_ctx = replace(ctx, melody=[67] * 6, phrases=(thin_phrase,))
     with compose_meter(METER_34):
-        thin_lead, thin_support, _thin_low = _render_torroba_bar(thin_ctx, 0, thin_phrase, "torroba_tremolo")
+        thin_lead, thin_support, thin_low = _render_torroba_bar(thin_ctx, 0, thin_phrase, "torroba_tremolo")
     assert thin_support == []
-    assert len(thin_lead) == 3
-    assert all(note.duration_beats == pytest.approx(1.0) and not note.accent for note in thin_lead)
+    assert len(thin_lead) == 9
+    assert thin_lead[0].accent and not any(note.accent for note in thin_lead[1:])
+    assert all(abs(note.duration_beats - 4 / 12) < 1e-9 for note in thin_lead)
+    assert len(thin_low) == 1 and thin_low[0].duration_beats == pytest.approx(1.0)
 
     first = Phrase(0, 6, (Run(0, 3, 67), Run(3, 3, 69)))
     second = Phrase(6, 12, (Run(6, 3, 67), Run(9, 3, 69)))
@@ -2808,15 +2860,15 @@ def test_juglar_triplets_accent_only_the_downbeat() -> None:
     with compose_meter(METER_34):
         pushed, _support, _low = _render_torroba_bar(pushed_ctx, 1, second, "torroba_tremolo")
     assert len(pushed) == 9
-    assert all(not note.accent for note in pushed)
     downbeat = next(note for note in pushed if note.beat == pytest.approx(0.0))
-    assert downbeat.velocity == 64 and downbeat.velocity < 68
+    assert downbeat.accent and downbeat.velocity < 68
     closing = Phrase(6, 12, (Run(6, 6, 67),))
     closing_ctx = replace(pushed_ctx, phrases=(first, closing))
     with compose_meter(METER_34):
         closed, _support, _low = _render_torroba_bar(closing_ctx, 1, closing, "torroba_tremolo")
-    assert len(closed) == 3
-    assert all(note.duration_beats == pytest.approx(1.0) and not note.accent for note in closed)
+    assert len(closed) == 9
+    assert closed[0].accent
+    assert all(abs(note.duration_beats - 4 / 12) < 1e-9 for note in closed)
 
     rising = phrase
     gap = [
@@ -3102,7 +3154,7 @@ def test_castillos_second_half_uses_the_sentence_that_opens_there() -> None:
     apex = _apex_eighths(juglar.phrases)
     downbeat = next(note for note in juglar_lead if note.beat == pytest.approx(0.0))
     last = next(note for note in juglar_lead if note.beat == pytest.approx(2.0))
-    assert last.midi == melody[4] and last.duration_beats == pytest.approx(1.0)
+    assert last.midi == melody[4] and last.duration_beats == pytest.approx(4 / 12)
     assert last.velocity == _note_velocity(4, 1, apex, juglar_next)
     assert downbeat.velocity == _note_velocity(0, 1, apex, juglar_open)
     assert last.velocity != downbeat.velocity
@@ -3300,3 +3352,228 @@ def test_a_headless_roll_keeps_its_inner_strings_on_a_one_eighth_close() -> None
     assert highs[0].beat == pytest.approx(1 / 12)
     assert {note.velocity for note in mids} == {50 - _MICRO}
     assert not any(note.midi is not None and note.beat <= 1e-9 for note in block_support)
+
+
+def test_juglar_bar_before_the_return_stays_triplets() -> None:
+    """Bar 68 is the second-to-last bar of the Juglar region. Bar 69 is the last."""
+    epb = 6
+    start = 68 * epb
+    closing = Phrase(start, 70 * epb, (Run(start, 2 * epb, 67),))
+    returned = Phrase(70 * epb, 71 * epb, (Run(70 * epb, epb, 72),))
+    bars = 71
+    melody = [67] * (70 * epb) + [72] * epb
+    ctx = _ctx(
+        melody=melody,
+        phrase=closing,
+        kind="3/4",
+        epb=epb,
+        strong=(0,),
+        bpm=72,
+        character="calm",
+        bars=bars,
+        bar_beats=3,
+        chord=C,
+    )
+    ctx = replace(
+        ctx,
+        phrases=(closing, returned),
+        chord_at={bar: C for bar in range(bars)},
+        kind_at={bar: "phrase" for bar in range(bars)},
+        band_at={bar: "mf" for bar in range(bars)},
+    )
+    patterns = ["torroba_tremolo", "castillo"]
+    assert closing.closes and closing.rise < MIN_RISE
+    with compose_meter(METER_34):
+        earlier, _support, earlier_low = _render_torroba_bar(ctx, 68, closing, "torroba_tremolo", patterns)
+        last, _support, last_low = _render_torroba_bar(ctx, 69, closing, "torroba_tremolo", patterns)
+        plan = torroba_figure_plan(ctx, patterns)
+    assert len(earlier) == 9
+    assert all(abs(note.duration_beats - 4 / 12) < 1e-9 for note in earlier)
+    assert earlier[0].accent
+    assert [round(note.beat, 2) for note in last] == [0.0, 1.0, 2.0]
+    assert all(note.duration_beats == pytest.approx(1.0) for note in last)
+    assert all(not note.accent for note in last)
+    assert len(earlier_low) == 1 and earlier_low[0].duration_beats == pytest.approx(1.0)
+    assert len(last_low) == 1 and last_low[0].duration_beats == pytest.approx(1.0)
+    assert 68 not in plan
+    assert plan[69][0] == 9
+
+
+def test_castillo_bass_is_one_beat_and_the_lead_holds_the_bar() -> None:
+    phrase = _joined(0, [72] * 8)
+    ctx = _ctx(melody=[72] * 8, phrase=phrase, character="calm", chord=C)
+    with compose_meter(METER_44):
+        lead, _support, low = _render_torroba_bar(ctx, 0, phrase, "castillo")
+    assert len(low) == 1
+    assert low[0].beat == pytest.approx(0.0)
+    assert low[0].duration_beats == pytest.approx(1.0)
+    assert lead and lead[0].duration_beats == pytest.approx(4.0)
+
+
+def test_alcaniz_and_olite_keep_thin_then_pushed() -> None:
+    first = Phrase(0, 6, (Run(0, 3, 67), Run(3, 3, 69)))
+    second = Phrase(6, 12, (Run(6, 3, 67), Run(9, 3, 69)))
+    ctx = _ctx(
+        melody=[67, 67, 67, 69, 69, 69, 67, 67, 67, 69, 69, 69],
+        phrase=first,
+        kind="6/8",
+        epb=6,
+        strong=(0, 3),
+        bpm=120,
+        character="rally",
+        bars=2,
+        bar_beats=3,
+        chord=C,
+    )
+    ctx = replace(
+        ctx,
+        phrases=(first, second),
+        chord_at={0: C, 1: C},
+        kind_at={0: "phrase", 1: "phrase"},
+        band_at={0: "mf", 1: "mf"},
+    )
+    assert first.rise < MIN_RISE and not first.closes
+    assert _grid_state(ctx, ["alcaniz", "alcaniz"]) == {0: "thin", 1: "pushed"}
+    assert _grid_state(ctx, ["olite", "olite"]) == {0: "thin", 1: "pushed"}
+    assert _grid_state(ctx, ["torroba_tremolo", "torroba_tremolo"]) == {0: "full", 1: "full"}
+
+
+def _one_bar_phrases(bars: int, epb: int) -> tuple[Phrase, ...]:
+    return tuple(
+        Phrase(bar * epb, (bar + 1) * epb, (Run(bar * epb, epb, 60),))
+        for bar in range(bars)
+    )
+
+
+def _slot_score(
+    widths: list[int],
+    *,
+    kind: str = "4/4",
+    character: str = "selloff",
+    bridge_at: int | None = None,
+    moods: list[str] | None = None,
+) -> _Ctx:
+    epb = 8 if kind == "4/4" else 6
+    strong = (0, 4) if kind == "4/4" else ((0,) if kind == "3/4" else (0, 3))
+    intro = 4
+    cursor = intro
+    sections = [FormSection(0, intro, "intro", 0)]
+    kinds = {bar: "intro" for bar in range(intro)}
+    for slot, width in enumerate(widths):
+        start, end = cursor, cursor + width
+        sections.append(
+            FormSection(start, end, "phrase", slot, bridge=bridge_at == slot, trio=False)
+        )
+        kinds.update({bar: "phrase" for bar in range(start, end)})
+        cursor = end
+    bars = cursor
+    ctx = _ctx(
+        melody=[60] * (bars * epb),
+        phrase=_one_bar_phrases(1, epb)[0],
+        kind=kind,
+        epb=epb,
+        strong=strong,
+        bpm=96 if kind == "4/4" else 72,
+        character=character,
+        bars=bars,
+        bar_beats=4.0 if kind == "4/4" else 3.0,
+        sections=tuple(sections),
+    )
+    return replace(
+        ctx,
+        phrases=_one_bar_phrases(bars, epb),
+        kind_at=kinds,
+        character_at=moods,
+        chord_at={bar: C for bar in range(bars)},
+        band_at={bar: "mf" for bar in range(bars)},
+    )
+
+
+def _body_pattern(ctx: _Ctx, patterns: list[str], bar: int) -> str:
+    from app.sonify.guitar_patterns import _bar_pattern
+
+    return _bar_pattern(ctx, bar, patterns)
+
+
+def test_slot_splits_follow_the_aba_windows() -> None:
+    from app.sonify.span import split_into
+
+    epb = 8
+    one = _ctx(
+        melody=[60] * (32 * epb),
+        phrase=_one_bar_phrases(1, epb)[0],
+        kind="4/4",
+        bpm=90,
+        character="selloff",
+        bars=32,
+        sections=(
+            FormSection(0, 4, "intro", 0),
+            FormSection(4, 28, "phrase", 0),
+            FormSection(28, 32, "outro", 0),
+        ),
+    )
+    kinds = {bar: "phrase" for bar in range(32)}
+    kinds.update({bar: "intro" for bar in range(4)})
+    kinds.update({bar: "outro" for bar in range(28, 32)})
+    one = replace(
+        one,
+        phrases=_one_bar_phrases(32, epb),
+        kind_at=kinds,
+        chord_at={bar: C for bar in range(32)},
+        band_at={bar: "mf" for bar in range(32)},
+    )
+    painted = _patterns(one)
+    assert split_into(32, 3) == [10, 11, 11]
+    expected = ["castillo"] * 10 + ["olite"] * 11 + ["castillo"] * 11
+    for bar, pattern in enumerate(expected):
+        if one.kind_at[bar] in {"intro", "outro"}:
+            continue
+        assert _body_pattern(one, painted, bar) == pattern
+    assert form_pattern_ids(one, painted) == ["castillo", "olite", "castillo"]
+
+    two = _slot_score([16, 11])
+    painted = _patterns(two)
+    # Slot 1 starts after the intro and the 16-bar opening.
+    start = 4 + 16
+    left = 11 // 2
+    for bar in range(start, start + 11):
+        pattern = "olite" if bar < start + left else "castillo"
+        assert _body_pattern(two, painted, bar) == pattern
+
+    three = _slot_score([32, 32, 32])
+    painted = _patterns(three)
+    middle = 4 + 32
+    for offset, pattern in enumerate(["castillo"] * 12 + ["olite"] * 8 + ["castillo"] * 12):
+        assert _body_pattern(three, painted, middle + offset) == pattern
+    for bar in range(4, 4 + 32):
+        assert _body_pattern(three, painted, bar) == "castillo"
+    for bar in range(4 + 64, 4 + 96):
+        assert _body_pattern(three, painted, bar) == "castillo"
+
+    four = _slot_score([32, 32, 32, 32])
+    painted = _patterns(four)
+    # Four sessions: the middle session is index 2, the one that starts at the midpoint.
+    middle = 4 + 64
+    for offset, pattern in enumerate(["castillo"] * 12 + ["olite"] * 8 + ["castillo"] * 12):
+        assert _body_pattern(four, painted, middle + offset) == pattern
+    for bar in range(4 + 32, 4 + 64):
+        assert _body_pattern(four, painted, bar) == "castillo"
+
+    five = _slot_score([8, 8, 8, 8, 8])
+    painted = _patterns(five)
+    middle = 4 + 16
+    assert [_body_pattern(five, painted, middle + offset) for offset in range(8)] == ["olite"] * 8
+
+    bridged = _slot_score([16, 24, 16], bridge_at=1)
+    painted = _patterns(bridged)
+    bridge = 4 + 16
+    for bar in range(bridge, bridge + 24):
+        assert _body_pattern(bridged, painted, bar) == "olite"
+    for bar in list(range(4, bridge)) + list(range(bridge + 24, bridge + 24 + 16)):
+        assert _body_pattern(bridged, painted, bar) == "castillo"
+    assert form_pattern_ids(bridged, painted) == ["castillo", "olite", "castillo"]
+
+    calm = ["calm"] * 12 + ["selloff"] * 12
+    waltz = _slot_score([8, 8], kind="3/4", character="selloff", bridge_at=1, moods=calm)
+    painted = _patterns(waltz)
+    assert form_pattern_ids(waltz, painted) == ["castillo", "torroba_tremolo", "castillo"]

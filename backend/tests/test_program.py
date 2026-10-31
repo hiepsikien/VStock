@@ -421,6 +421,101 @@ def test_cached_span_keeps_the_dance_written_beside_the_file(tmp_path: Path):
     assert missing.movement_name == ""
 
 
+def _capture_torroba(monkeypatch, bars, **kwargs):
+    from app.sonify import guitar_patterns as patterns
+
+    saved: dict = {}
+    real = patterns.form_pattern_ids
+
+    def spy(ctx, row):
+        saved["ctx"] = ctx
+        saved["patterns"] = list(row)
+        return real(ctx, row)
+
+    monkeypatch.setattr(patterns, "form_pattern_ids", spy)
+    name = guitar_movement_name(bars, ensemble="torroba", **kwargs)
+    return name, saved
+
+
+def _contrast_body_bars(ctx, patterns, token: str) -> list[int]:
+    from app.sonify.guitar_patterns import _bar_pattern
+
+    pedal = {"intro", "outro", "warmup", "cooldown"}
+    found = []
+    for bar in range(ctx.bars):
+        if ctx.kind_at.get(bar, "phrase") in pedal:
+            continue
+        if _bar_pattern(ctx, bar, patterns) == token:
+            found.append(bar)
+    return found
+
+
+def test_torroba_day_week_and_chapters_follow_the_aba_tables(monkeypatch):
+    from app.sonify.guitar_patterns import _bar_pattern
+    from app.sonify.span import split_into
+
+    flat = _bars([100.0] * 80)
+    selloff, _saved = _capture_torroba(monkeypatch, flat, character="selloff")
+    rally, _saved = _capture_torroba(monkeypatch, flat, character="rally")
+    assert selloff == "Castillo"
+    assert rally == "Olite"
+
+    opening = attach_frame(month_specs("guitar")[0], "1M")
+    name, saved = _capture_torroba(monkeypatch, flat, character="selloff", form=opening)
+    assert name == "Castillo — Olite — Castillo"
+    middle = next(
+        section
+        for section in saved["ctx"].sections
+        if section.kind == "phrase" and section.regime_slot == 1 and not section.bridge
+    )
+    assert middle.end - middle.start == 24
+    left, _right = split_into(24 - 8, 2)
+    window = list(range(middle.start + left, middle.start + left + 8))
+    assert _contrast_body_bars(saved["ctx"], saved["patterns"], "olite") == window
+
+    finale = attach_frame(month_specs("guitar")[3], "1M")
+    name, saved = _capture_torroba(monkeypatch, flat, character="rally", form=finale)
+    assert name == "Olite — Sonatina — Olite"
+    middle = next(
+        section
+        for section in saved["ctx"].sections
+        if section.kind == "phrase" and section.regime_slot == 1 and not section.bridge
+    )
+    assert middle.end - middle.start == 24
+    left, _right = split_into(24 - 8, 2)
+    window = list(range(middle.start + left, middle.start + left + 8))
+    assert _contrast_body_bars(saved["ctx"], saved["patterns"], "sonatina") == window
+
+    slow = attach_frame(month_specs("guitar")[1], "1M")
+    name, saved = _capture_torroba(monkeypatch, flat, character="calm", form=slow)
+    assert name == "Castillo — Juglar — Castillo"
+    bridge = next(section for section in saved["ctx"].sections if section.bridge)
+    juglar = _contrast_body_bars(saved["ctx"], saved["patterns"], "torroba_tremolo")
+    assert len(juglar) > 8
+    assert juglar[0] == bridge.start and juglar[-1] == bridge.end - 1
+
+    scherzo = attach_frame(month_specs("guitar")[2], "1M")
+    name, _saved = _capture_torroba(monkeypatch, flat, character="selloff", form=scherzo)
+    assert name == "Fandanguillo — Danza — Fandanguillo"
+
+    week = week_spec(1)
+    name, saved = _capture_torroba(monkeypatch, flat, character="selloff", form=week)
+    assert name == "Castillo — Olite — Castillo"
+    assert saved["ctx"].bars == 32
+    assert split_into(32, 3) == [10, 11, 11]
+    bounds = [(0, 10, "castillo"), (10, 21, "olite"), (21, 32, "castillo")]
+    pedal = {"intro", "outro", "warmup", "cooldown"}
+    ctx = saved["ctx"]
+    for index, phrase in enumerate(ctx.phrases):
+        bar = phrase.start // ctx.epb
+        if ctx.kind_at.get(bar, "phrase") in pedal:
+            assert saved["patterns"][index] == "pedal"
+            continue
+        pattern = next(token for lo, hi, token in bounds if lo <= bar < hi)
+        assert saved["patterns"][index] == pattern
+        assert _bar_pattern(ctx, bar, saved["patterns"]) == pattern
+
+
 def test_headline_matches_a_full_render():
     bars = _bars([100.0] * 40)
     skipped = _pattern_id(bars, skip=True, ensemble="barrios", character="volatile")

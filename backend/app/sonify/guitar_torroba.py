@@ -30,44 +30,70 @@ _TRIPLET = 4.0 / 12.0
 
 
 def _torroba_primary(ctx, mood: str | None, *, framed_macro: bool = False) -> str:
-    """One Torroba pattern for a phrase or, when framed, a whole section.
+    """One Torroba pattern for this meter and mood.
 
-    A framed scherzo in 6/8 is the only place `danza` or `alcaniz` is chosen.
-    `danza` never stands in 4/4. Olite is the 4/4 volatile pattern, including 1D.
+    `framed_macro` is ignored. The same table names a phrase and a section.
+    Sonatina is never an A. A meter outside these three uses the 4/4 row.
+    A mood outside the row uses that row's calm cell.
     """
-    if ctx.bpm <= 72:
-        return "castillo"
-    if framed_macro and ctx.kind == "6/8":
-        if mood == "rally":
-            return "alcaniz"
-        if mood == "volatile":
-            return "fandanguillo"
-        if mood == "selloff":
-            return "castillo"
-        return "danza"
-    if mood == "volatile":
-        return "olite" if ctx.kind == "4/4" else "fandanguillo"
-    if mood in {"rally", "selloff"}:
-        return "sonatina"
-    return "castillo"
+    del framed_macro
+    table = {
+        "4/4": {
+            "calm": "castillo",
+            "rally": "olite",
+            "selloff": "castillo",
+            "volatile": "olite",
+        },
+        "3/4": {
+            "calm": "castillo",
+            "rally": "torroba_tremolo",
+            "selloff": "castillo",
+            "volatile": "danza",
+        },
+        "6/8": {
+            "calm": "danza",
+            "rally": "alcaniz",
+            "volatile": "fandanguillo",
+            "selloff": "fandanguillo",
+        },
+    }
+    row = table.get(ctx.kind, table["4/4"])
+    if mood in row:
+        return row[mood]
+    return row["calm"]
 
 
 def _torroba_contrast(ctx, primary: str, mood: str | None = None) -> str:
-    """The other formal area.
+    """The other pattern in the same meter.
 
-    `mood` is the middle section, read the way `_dominant_pattern` reads a
-    phrase group. A slow 3/4 bridge answers with Juglar only when that mood
-    is calm. A scherzo dance, including Alcaniz, answers with Castillo.
+    `mood` is the opening section. Castillo in 3/4 answers with Juglar only
+    when that mood is calm, and with Danza only when it is selloff. A cell
+    with no row returns `primary`.
     """
     if mood is None:
         mood = ctx.character
-    if ctx.bpm <= 72 and ctx.kind == "3/4":
-        return "torroba_tremolo" if mood == "calm" else "sonatina"
-    if ctx.kind == "6/8" and ctx.bpm > 72 and primary in {"danza", "fandanguillo", "alcaniz"}:
-        return "castillo"
-    if primary == "castillo":
+    kind = ctx.kind
+    if primary == "castillo" and kind == "4/4":
+        return "olite"
+    if primary == "castillo" and kind == "3/4":
+        if mood == "calm":
+            return "torroba_tremolo"
+        if mood == "selloff":
+            return "danza"
+        return primary
+    if primary == "olite" and kind == "4/4":
         return "sonatina"
-    return "castillo"
+    if primary == "torroba_tremolo" and kind == "3/4":
+        return "danza"
+    if primary == "danza" and kind == "3/4":
+        return "torroba_tremolo"
+    if primary == "danza" and kind == "6/8":
+        return "alcaniz"
+    if primary == "alcaniz" and kind == "6/8":
+        return "danza"
+    if primary == "fandanguillo" and kind == "6/8":
+        return "danza"
+    return primary
 
 
 _PEDAL_BARS = frozenset({"intro", "outro", "warmup", "cooldown"})
@@ -335,7 +361,7 @@ def _render_castillo_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[N
     bass = _torroba_bass(ctx, ctx.chord(bar), bar, midi)
     low = []
     if bass is not None:
-        low = written(origin, epb, bass, velocity=bass_vel)
+        low = written(origin, 2, bass, velocity=bass_vel)
         low = [replace(event, voice=3, accent=False) for event in low]
     support: list[NoteEvent] = []
     if velocity == 48:
@@ -2453,10 +2479,13 @@ def _pattern_row(patterns, count: int, pattern: str) -> list[str]:
 def _grid_state(ctx, patterns: list[str]) -> dict[int, str]:
     """Body phrase index → `thin`, `pushed`, or `full`.
 
-    A closing phrase is always thin. A `rise < 3` phrase is thin unless the
-    previous body phrase of this pattern was thin for the same reason: that
-    phrase sings the base-grid notes with no accent and no floor. The flag
-    clears after a push, a full phrase, a close, another pattern, or a new section.
+    Juglar is always `full`. A flat phrase and a close still sing triplets;
+    the last bar of the region is chosen later, in `_render_juglar_bar`.
+    Alcaniz and Olite keep the older grid. A closing phrase is thin. A
+    `rise < 3` phrase is thin unless the previous body phrase of this pattern
+    was thin for the same reason: that phrase sings the base-grid notes with
+    no accent and no floor. The flag clears after a push, a full phrase, a
+    close, another pattern, or a new section.
     """
     sections: dict[object, list[int]] = {}
     order: list[object] = []
@@ -2482,6 +2511,10 @@ def _grid_state(ctx, patterns: list[str]) -> dict[int, str]:
             if pattern != previous_pattern:
                 previous_thin = False
             previous_pattern = pattern
+            if pattern == "torroba_tremolo":
+                state[index] = "full"
+                previous_thin = False
+                continue
             if phrase.closes:
                 state[index] = "thin"
                 previous_thin = False
@@ -2585,9 +2618,13 @@ def _castillos_figure_plan(ctx, patterns: list[str]) -> dict[int, tuple[int, int
         bars = _bars_of(ctx, phrase)
         slots: list[int] = []
         figure: int | None = None
-        if pattern == "torroba_tremolo" and mode == "thin":
-            figure = JUGLAR_THIN
-            slots = list(range(len(bars)))
+        if pattern == "torroba_tremolo":
+            slots = [
+                local
+                for local, bar_no in enumerate(bars)
+                if _juglar_region_last(ctx, bar_no, row)
+            ]
+            figure = JUGLAR_THIN if slots else None
         elif pattern == "alcaniz" and mode == "thin":
             figure = ALCANIZ_SOFT
             slots = list(range(len(bars)))
@@ -2657,32 +2694,54 @@ def _downbeat_only(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[NoteEve
     return lead, [], low
 
 
-def _render_juglar_bar(ctx, bar: int, phrase, mode: str):
-    """Eighth-note triplets in 3/4. Only attack 1 of eighth 0 can carry an accent."""
+def _juglar_region_last(ctx, bar: int, patterns) -> bool:
+    """True when the next bar is no longer Juglar.
+
+    `patterns` is omitted by a one-bar grid test. That bar follows `mode`
+    instead of becoming the region's last bar.
+    """
+    if not patterns:
+        return False
+    nxt = bar + 1
+    if nxt >= ctx.bars:
+        return True
+    if ctx.kind_at.get(nxt, "phrase") in _PEDAL_BARS:
+        return True
+    from app.sonify.guitar_patterns import _bar_pattern
+
+    return _bar_pattern(ctx, nxt, patterns) != "torroba_tremolo"
+
+
+def _render_juglar_bar(ctx, bar: int, phrase, mode: str, patterns=None):
+    """Eighth-note triplets in 3/4. Only attack 1 of eighth 0 can carry an accent.
+
+    The last bar of a Juglar region is one note per beat. Every earlier bar
+    is triplets, including a closing phrase. The bass is one beat at eighth 0.
+    """
     if ctx.kind != "3/4":
         return _downbeat_only(ctx, bar, phrase)
     lead: list[NoteEvent] = []
     low: list[NoteEvent] = []
     band = ctx.band(bar)
+    quarter_notes = mode == "thin" or _juglar_region_last(ctx, bar, patterns)
     for quarter, eighth in enumerate((0, 2, 4)):
         origin = bar * ctx.epb + eighth
         midi = _melody_at(ctx, origin)
         velocity = _lead_vel(ctx, origin, phrase)
         beat = float(quarter)
-        accent = mode == "full" and eighth == 0
-        if mode == "thin":
+        accent = mode == "full" and eighth == 0 and not quarter_notes
+        if quarter_notes:
             lead.append(_heard(bar, beat, midi, 1.0, 1, velocity))
-            bass_duration = 1.0
         else:
             dropped = _one_under(velocity, band)
             lead.append(_heard(bar, beat, midi, _TRIPLET, 1, velocity, accent=accent))
             lead.append(_heard(bar, beat + _TRIPLET, midi, _TRIPLET, 1, dropped))
             lead.append(_heard(bar, beat + 2 * _TRIPLET, midi, _TRIPLET, 1, dropped))
-            bass_duration = _TRIPLET
-        bass = _sounding_bass(ctx, bar, midi)
-        if bass is not None:
-            _inner, bass_vel = _bed(velocity, band)
-            low.append(_heard(bar, beat, bass, bass_duration, 3, bass_vel))
+    sung = _melody_at(ctx, bar * ctx.epb)
+    bass = _sounding_bass(ctx, bar, sung)
+    if bass is not None:
+        _inner, bass_vel = _bed(_lead_vel(ctx, bar * ctx.epb, phrase), band)
+        low.append(_heard(bar, 0.0, bass, 1.0, 3, bass_vel))
     return lead, [], low
 
 
@@ -2973,7 +3032,7 @@ _FIGURES[OLITE_THIN] = _pen_olite_thin
 def _render_torroba_bar(ctx, bar: int, phrase, pattern: str, patterns=None):
     if pattern == "torroba_tremolo":
         mode, _n, _opening = _castillos_bar_mode(ctx, bar, phrase, pattern, patterns)
-        return _render_juglar_bar(ctx, bar, phrase, mode)
+        return _render_juglar_bar(ctx, bar, phrase, mode, patterns)
     if pattern == "alcaniz":
         mode, _n, opening = _castillos_bar_mode(ctx, bar, phrase, pattern, patterns)
         return _render_alcaniz_bar(ctx, bar, phrase, mode, opening=opening)

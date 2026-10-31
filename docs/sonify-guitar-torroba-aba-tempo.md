@@ -1,6 +1,6 @@
 # Torroba: A–B–A, tempo, và bass ngắn
 
-> **Trạng thái**: đề xuất. Chưa vào code.
+> **Trạng thái**: đã vào code.
 > **Thay cho**: hàng “một pattern cả chương” trong [`docs/sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md) mục 2, và hàng `BPM ≤ 72 → castillo` trong [`docs/sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md) mục 7.
 > **Giữ**: 1D một pattern, id lấy bảng 4/4 mới. Texture (Arada, Float, Rasgueado, …) vẫn không lên dòng chương. Không thêm id pattern mới. Không sửa cờ `bridge` / `trio` trong `span.py`, vì các nhà khác đọc cùng form đó.
 
