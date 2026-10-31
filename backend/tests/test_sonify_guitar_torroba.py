@@ -2586,3 +2586,102 @@ def test_fandanguillo_phrase_gate_bass_intervals_chord_dynamics_and_scale_arriva
         assert stamped[0].velocity == 68
         assert stamped[0].accent is True
 
+
+def test_type3_scale_follows_each_eighth_of_the_sentence() -> None:
+    """A scale cell is a sentence, not one velocity copied from its last note."""
+    pitches = [60] * 8 + list(range(62, 70)) + [74] * 8
+    phrase = _joined(0, pitches, held=True)
+    assert phrase.rise >= MIN_RISE and phrase.apex.start == 16
+    ctx = _many((phrase,), melody=pitches)
+    with compose_meter(METER_44):
+        lead, _support, _low = render_torroba_figure(
+            ctx, 1, phrase, "sonatina", 3, index=1, count=3
+        )
+    heard = sorted((note for note in lead if note.midi is not None), key=lambda note: note.beat)
+    assert len(heard) == 8
+    apex = _apex_eighths(ctx.phrases)
+    expected = []
+    for eighth in range(8):
+        local = _note_velocity(8 + eighth, 1, apex, phrase)
+        step = 0 if eighth == 7 else 1
+        expected.append(local - step * _MICRO)
+    assert [note.velocity for note in heard] == expected
+    assert expected[0] < expected[-1]
+    stamped = [
+        _note_velocity(15, 1, apex, phrase) - (0 if eighth == 7 else _MICRO) for eighth in range(8)
+    ]
+    assert expected != stamped
+    shaped, _shaped_support, _shaped_low = _shape_dynamics(
+        ctx, list(heard), [], [], set(), ["sonatina", "sonatina", "sonatina"]
+    )
+    gap = expected[-1] - expected[0]
+    assert shaped[-1].velocity - shaped[0].velocity == gap
+
+
+def test_rasgueado_clusters_keep_a_local_sentence() -> None:
+    """Two strums in one bar do not share the downbeat. The later strum has risen."""
+    pitches = [60, 61, 62, 64, 65, 67, 72, 72] + [70] * 8
+    phrase = _joined(0, pitches, held=True)
+    assert phrase.rise >= MIN_RISE and phrase.apex.start == 6
+    ctx = _many((phrase,), melody=pitches)
+    with compose_meter(METER_44):
+        lead, _support, _low = render_torroba_figure(
+            ctx, 0, phrase, "fandanguillo", 2, index=0, count=2
+        )
+    apex = _apex_eighths(ctx.phrases)
+
+    def cluster(beat: float) -> list[NoteEvent]:
+        return sorted(
+            (note for note in lead if note.midi is not None and beat <= note.beat < beat + 1),
+            key=lambda note: note.beat,
+        )
+
+    opening = cluster(0.5)
+    later = cluster(2.5)
+    assert len(opening) == 4 and len(later) == 4
+    # Eighth 1 is still under the dance floor. Eighth 5 has risen past it.
+    assert opening[0].velocity == max(_note_velocity(1, 1, apex, phrase), 68) - _MICRO
+    assert later[0].velocity == max(_note_velocity(5, 1, apex, phrase), 68) - _MICRO
+    assert later[0].velocity > opening[0].velocity
+
+
+def test_a_new_sentence_inside_a_figure_bar_opens_at_its_own_swell() -> None:
+    opening = _joined(0, [72] * 4, held=True)
+    following = _joined(4, [60, 62, 64, 67, 69, 71, 72, 74])
+    assert following.rise >= MIN_RISE and following.apex.start > 4
+    ctx = _many((opening, following), melody=[72] * 4 + [60, 62, 64, 67, 69, 71, 72, 74])
+    with compose_meter(METER_44):
+        lead, _support, _low = render_torroba_figure(
+            ctx, 0, opening, "sonatina", 4, index=0, count=2
+        )
+    attack = [note for note in lead if note.midi is not None and note.beat == pytest.approx(2.0)]
+    assert len(attack) == 1
+    apex = _apex_eighths(ctx.phrases)
+    local = _note_velocity(4, 1, apex, following)
+    borrowed = _note_velocity(4, 1, apex, opening)
+    assert local == 60 and borrowed == 64
+    assert attack[0].velocity == local
+
+
+def test_a_closing_figure_thins_the_inner_voice_and_drops_it_to_p() -> None:
+    pitches = [72] * 24
+    closing = _joined(0, pitches)
+    assert closing.closes
+    held = _joined(0, pitches, held=True)
+    assert not held.closes
+
+    def support_at(phrase: Phrase) -> list[NoteEvent]:
+        ctx = _many((phrase,), melody=pitches, bpm=72)
+        with compose_meter(METER_44):
+            _lead, support, _low = render_torroba_figure(
+                ctx, 2, phrase, "castillo", 7, index=2, count=3
+            )
+        return [note for note in support if note.midi is not None]
+
+    breathed = support_at(closing)
+    sustained = support_at(held)
+    assert breathed and sustained
+    assert all(int(note.beat * 2 + 1e-9) % 2 == 0 for note in breathed)
+    assert any(int(note.beat * 2 + 1e-9) % 2 == 1 for note in sustained)
+    assert {note.velocity for note in breathed} == {50, 48}
+    assert {note.velocity for note in sustained} == {56, 54}
