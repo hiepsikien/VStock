@@ -608,33 +608,52 @@ export function ReplayRoom({ wide, onMode }: Props) {
     [beginRest, clearRest, finished, jumpToMovement, movements],
   );
 
+  const heardName = movements?.[index]?.name?.trim() ?? '';
+  const heardReady = Boolean(movements?.[index]?.ready);
   useEffect(() => {
-    if (variant !== 'guitar' || !audible || span === '1D') return;
-    const controller = new AbortController();
-    void (async () => {
+    if (variant !== 'guitar' || span === '1D' || !audible || heardName || heardReady) return;
+    let stopped = false;
+    let pending = false;
+    const pull = async () => {
+      if (stopped || pending) return;
+      pending = true;
       try {
-        const plan = await fetchSpan(symbol, span, variant, ensemble, controller.signal, {
+        const plan = await fetchSpan(symbol, span, variant, ensemble, undefined, {
           humanize,
           color: colorOn,
         });
-        if (controller.signal.aborted) return;
+        if (stopped) return;
         setMovements((existing) => {
           if (!existing) return existing;
           let changed = false;
           const next = existing.map((item, itemIndex) => {
-            const name = plan.movements[itemIndex]?.name?.trim() ?? '';
-            if (!name || item.name?.trim()) return item;
+            const incoming = plan.movements[itemIndex];
+            if (!incoming) return item;
+            const name = incoming.name?.trim() ?? '';
+            if (item.name?.trim()) {
+              if (item.ready === incoming.ready) return item;
+              changed = true;
+              return { ...item, ready: incoming.ready };
+            }
+            if (!name && item.ready === incoming.ready) return item;
             changed = true;
-            return { ...item, name };
+            return { ...item, ready: incoming.ready, ...(name ? { name } : {}) };
           });
           return changed ? next : existing;
         });
       } catch {
-        // A missing dance stays blank.
+        // The score may still be writing. The next tick asks again.
+      } finally {
+        pending = false;
       }
-    })();
-    return () => controller.abort();
-  }, [audible, colorOn, ensemble, humanize, span, symbol, variant]);
+    };
+    void pull();
+    const timer = setInterval(() => void pull(), 1500);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [audible, colorOn, ensemble, heardName, heardReady, humanize, span, symbol, variant]);
 
   const lengths = movements?.map((item) => item.prices.length) ?? [];
   const offsets = movementOffsets(lengths);

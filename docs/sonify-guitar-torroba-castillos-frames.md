@@ -33,41 +33,53 @@ Dòng chương in pattern. Chương một pattern in một tên, ví dụ `Sonat
 
 ## 2. Form các chương không phải 1D
 
-Form giữ như các nhà kia, và như mục 7 của [`docs/sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md). `bridge` và `trio` đang có trong `span.py` là hai vùng giữa. Không thêm hình A–BCB–A.
+Form giữ như các nhà kia. `bridge` và `trio` trong `span.py` là hai vùng giữa. Không thêm hình A–BCB–A, và không cắt vùng B đã có xuống 8 ô. Bach và Barrios vẫn đi hàng palette của nhà đó. Torroba không mở hàng đó.
 
-`_assign_macro` trong `guitar_patterns.py` đã làm đúng việc này với Torroba:
+`_assign_macro` nhánh Torroba:
 
-- **1D** (34 ô, 4/4, không trio, không bridge): cả thân một pattern, theo bảng mood 4/4. Texture xoay bên trong pattern đó. 1D đứng ngoài A–B–A.
-- **1W một phiên** (32 ô, không contrast): cả thân một pattern, cùng cửa `bars <= 40`.
-- **Chương có bridge hoặc trio**: A–B–A. A là `_torroba_primary`. B là `_torroba_contrast`. A trở lại. Pedal không đổi pattern.
+- **1D** (34 ô, 4/4): cả thân một pattern. Id lấy bảng 4/4 dưới đây. Rally là Olite. Selloff là Castillo.
+- **Một slot, không phải ngày 34 ô.** Tuần một phiên là 32 ô. `split_into(32, 3)` ra 10, 11, 11. Câu lấy pattern của ô đầu.
+- **Hai slot, không bridge.** Slot 0 là primary. Slot 1 chia đôi theo ô. Nửa đầu là contrast. Nửa sau chép primary. Ô lẻ về phía trở lại.
+- **Từ ba slot, không bridge và không trio.** Slot 0 và slot cuối hát một primary. Contrast là 8 ô nằm giữa slot `count // 2`. 24 ô thì 8, 8, 8. 32 ô thì 12, 8, 12.
+- **Đã có bridge hoặc trio.** Cả vùng B là contrast. Chương II và scherzo giữ vùng đó.
 
-Guitar lấy form symphony rồi đổi nhịp: chương chậm thành 3/4, scherzo thành 6/8. Chỗ contrast đang gắn:
+Primary chọn một lần, `_majority_mood` trên slot 0. Vùng cuối chép đúng id đó. Contrast đọc mood của slot 0, không đọc mood vùng giữa. Câu không khung đi `_select_body` rồi cùng bảng, một pattern mỗi câu. Cửa `bpm <= 72 → castillo` bỏ. Pedal không đổi pattern.
 
-| Chương | Vùng giữa | A–B–A của Torroba hôm nay |
-|---|---|---|
-| 1M II, 3M II, chương giữa của 1Y | `bridge`, 3/4, BPM ≤ 72 | Castillo — Sonatina — Castillo |
-| 1M III, scherzo của 1Y | `trio`, 6/8 | A là Danza hoặc Fandanguillo theo mood. B là Castillo khi A là điệu. A đã là Castillo thì B là Sonatina |
-| 1M I, 1M IV, 3M I, 3M III, tháng mở và tháng cuối của 1Y | không gắn bridge, không gắn trio | Mỗi slot chọn một pattern theo mood của slot đó, cùng Sor, Villa và Brouwer. Slot đầu và slot cuối trùng pattern khi mood trùng |
-| 1W nhiều phiên | không contrast, dài hơn 40 ô | Mỗi phiên một pattern theo mood của phiên |
+Primary của slot 0. Vùng cuối chép id đó.
 
-Bach và Barrios, khi bài dài hơn 40 ô, đi một hàng palette trước trio. Torroba không mở hàng đó.
+| 4/4, 90–108 BPM | A |
+|---|---|
+| calm | Castillo |
+| rally | Olite |
+| selloff | Castillo |
+| volatile | Olite |
 
-Bảng trên là code đang chạy. Bảng dưới là đề xuất. 1D, 1W và chương 4/4 không có bridge không có vùng B: mỗi khung một pattern theo mood. Chương có bridge hoặc trio mới có cột B.
+| 3/4, 60–72 BPM | A |
+|---|---|
+| calm | Castillo |
+| rally | Juglar |
+| selloff | Castillo |
+| volatile | Danza |
 
-| Khung | Mood | A | B |
+| 6/8, 108–120 BPM | A |
+|---|---|
+| calm | Danza |
+| rally | Alcaniz |
+| volatile | Fandanguillo |
+| selloff | Fandanguillo |
+
+6/8 không có Castillo, không có Sonatina, không có Juglar. Sonatina không bao giờ là A.
+
+| A | B trên 4/4 | B trên 3/4 | B trên 6/8 |
 |---|---|---|---|
-| 4/4, kể cả 1D và 1W | `calm` | Castillo | — |
-| 4/4 | `rally` | Sonatina | — |
-| 4/4 | `selloff` | Sonatina | — |
-| 4/4 | `volatile` | Olite | — |
-| 3/4, BPM ≤ 72, có bridge | `calm` của đoạn giữa | Castillo | Juglar |
-| 3/4, BPM ≤ 72, có bridge | `rally`, `selloff`, `volatile` của đoạn giữa | Castillo | Sonatina |
-| Scherzo 6/8, có trio | `calm` | Danza | Castillo |
-| Scherzo 6/8 | `rally` | Alcaniz | Castillo |
-| Scherzo 6/8 | `volatile` | Fandanguillo | Castillo |
-| Scherzo 6/8 | `selloff` | Castillo | Sonatina |
+| Castillo | Olite | Juglar khi slot 0 là calm. Danza khi slot 0 là selloff | — |
+| Olite | Sonatina | — | — |
+| Juglar | — | Danza | — |
+| Danza | — | Juglar | Alcaniz |
+| Alcaniz | — | — | Danza |
+| Fandanguillo | — | — | Danza |
 
-Mood của đoạn giữa đọc trên các câu của vùng B, cùng cách `_dominant_pattern` đọc một nhóm câu. `rally` và `selloff` của 4/4 vẫn cùng Sonatina. Hướng của giá trên 4/4 nằm ở texture sẵn có của Sonatina. `rally` và `volatile` của scherzo tách thành Alcaniz và Fandanguillo.
+Ô không có hàng trả lại primary. Sonatina chỉ là B của Olite trên 4/4.
 
 ---
 
@@ -105,13 +117,13 @@ Phách mở ở móc 2 và móc 4 vẫn đủ ba cú, cùng bảng, không accen
 
 Lưới thưa, theo thứ tự đầu mục 3: chỉ cú 1 của mỗi phách, trường độ hết phách (`duration_beats = 1.0`). Cú 2 và cú 3 nghỉ. Không accent. Câu bị đẩy về hình lưới nền vì cửa sát nhau vẫn đủ ba cú, và cũng không accent.
 
-Chỗ trong bảng mục 2: B của chương chậm khi đoạn giữa là `calm`. A là Castillo. Dòng chương là `Castillo — Juglar — Castillo`. Đoạn giữa `rally`, `selloff` hoặc `volatile` giữ B là Sonatina. *Zafra* là Allegretto vivace, nốt đen = 110. *Redaba* là Allegretto. Hai điệu đó không hát ở BPM ≤ 72. PDF của *Redaba* chưa đủ nốt để chốt lưới móc. Hai điệu chưa vào `_FIGURES` và chưa có ô trong bảng mood.
+Chỗ trong bảng mục 2: A của 3/4 `rally`, và B của Castillo khi slot 0 là `calm`. Contrast của Juglar là Danza. Dòng `Castillo — Juglar — Castillo` là chương chậm `calm`. *Zafra* là Allegretto vivace, nốt đen = 110. *Redaba* là Allegretto. Hai điệu đó không hát ở BPM ≤ 72. PDF của *Redaba* chưa đủ nốt để chốt lưới móc. Hai điệu chưa vào `_FIGURES` và chưa có ô trong bảng mood.
 
 ### 3.2 Alcaniz — id `alcaniz`, tên in **Alcaniz**
 
 *Alcañiz (Festiva)*, bản Segovia. Allegro, móc đơn = 168, nhịp 3/8, giọng La trưởng. Engine không có nhịp 3/8. Scherzo 6/8 có phách mạnh ở móc 0 và móc 3, đúng hai đầu nhóm 3/8. Chương 3/4 chỉ móc 0 là phách mạnh. Alcaniz không gán vào chương 3/4.
 
-*Festiva* là Allegro. Scherzo `calm` giữ Danza, điệu biên hẹp đang hát. Alcaniz nhận scherzo `rally`, chỗ giá chạy. B là Castillo vì A là điệu. Dòng chương là `Alcaniz — Castillo — Alcaniz`.
+*Festiva* là Allegro. Scherzo `calm` giữ Danza. Alcaniz nhận scherzo `rally`. B của Alcaniz là Danza. Dòng chương là `Alcaniz — Danza — Alcaniz`.
 
 Lưới nền là điệu. Trong mỗi nhóm ba móc, đầu nhóm là giai điệu, móc kế là bass đáp.
 
@@ -147,7 +159,7 @@ Texture mềm là lưới thưa, theo thứ tự đầu mục 3. Đây là đo�
 
 *Olite*, phụ đề *Fiesta del Rey Noble*. Vivace, nốt đen = 95, nhịp 2/4, giọng La trưởng, 109 ô. Thân Vivace đến khoảng ô 63, *Tempo 1* từ ô 90. Ô 69–89 là Lento, nốt đen = 60.
 
-Olite là pattern. Fandanguillo là điệu 3/4–6/8. Danza là điệu nhóm ba của scherzo `calm`. Olite là điệu đôi, nhận `volatile` của mọi chương 4/4, kể cả 1D. `calm` 4/4 vẫn là Castillo. `rally` và `selloff` 4/4 vẫn là Sonatina. Fandanguillo giữ scherzo `volatile`.
+Olite là pattern. Fandanguillo là điệu 3/4–6/8. Danza là điệu nhóm ba của scherzo `calm`. Olite là A của 4/4 `rally` và `volatile`, kể cả 1D. `calm` và `selloff` của 4/4 là Castillo. B của Olite trên 4/4 là Sonatina. Fandanguillo là A của scherzo `volatile` và `selloff`.
 
 Engine không có nhịp 2/4. Hai ô 2/4 thành một ô 4/4. Hợp âm rơi vào móc 0 và móc 4, hai phách mạnh. Nét bảy nốt trên bản (`5-5-4-2-3-2-0`) không nằm trong một phách và không chia hết cho tám móc. Nốt giá ở móc 0 và móc 4 giữ nguyên: đó là `_melody_at` của chính móc đó.
 
@@ -348,15 +360,15 @@ Cửa của bảy pattern:
 
 Ba pattern mới:
 
-- `torroba_tremolo`, tên in **Juglar**, vào `_FAMILY`, `_PATTERN_TITLE`, `PATTERN_NAMES`, `PROFILES`, `_PEDAL_DOOR_PROFILE`, và tập extra cả ô. Profile sóng cùng hàng `sonatina`. `_torroba_contrast` của chương chậm trả id này khi mood đoạn giữa là `calm`.
+- `torroba_tremolo`, tên in **Juglar**, vào `_FAMILY`, `_PATTERN_TITLE`, `PATTERN_NAMES`, `PROFILES`, `_PEDAL_DOOR_PROFILE`, và tập extra cả ô. Profile sóng cùng hàng `sonatina`. `_torroba_contrast` trả id này khi A là Castillo và slot 0 là `calm`.
 - `alcaniz`, tên in **Alcaniz**, vào cùng các bảng. Profile ô điệu và ô mở đầu cùng hàng `danza`. Ô mềm cùng hàng `castillo`. Scherzo `rally` trả id này. Chỉ render trên 6/8.
-- `olite`, tên in **Olite**, vào cùng các bảng. Profile ô Vivace cùng hàng `danza`. Ô thưa cùng hàng `castillo`. Chương 4/4 mood `volatile` trả id này.
+- `olite`, tên in **Olite**, vào cùng các bảng. Profile ô Vivace cùng hàng `danza`. Ô thưa cùng hàng `castillo`. Chương 4/4 mood `rally` và `volatile` trả id này.
 - Texture thưa của Juglar, texture mở đầu và texture mềm của Alcaniz, texture thưa của Olite đăng ký trong `_FIGURES`. Điệu Zafra và điệu Redaba không đăng ký.
 
 Giữ nguyên:
 
 - Danza trên scherzo `calm`, và Bounce.
-- `calm`, `rally`, `selloff` của 4/4. Fandanguillo trên scherzo `volatile`. B = Sonatina khi scherzo chọn Castillo, và khi đoạn giữa của chương chậm không phải `calm`.
+- Bảng mục 2. Sonatina chỉ là B của Olite trên 4/4. Fandanguillo là A của scherzo `volatile` và `selloff`.
 - Tám texture hiện có, kể cả cửa tempo và cửa `k` của Arada và Float.
 - Rasgueado 5–6 dây và 3–4 dây của thân bài.
 - `fit_intro` / `fit_outro`, sàn, trần, số stab.
