@@ -4,7 +4,7 @@
 > **Khung đang chạy**: [`docs/sonify-guitar-frame-variations.md`](./sonify-guitar-frame-variations.md) mục 4. Bốn pattern và tám texture: [`docs/sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md), [`docs/sonify-guitar-torroba-phrase-plan.md`](./sonify-guitar-torroba-phrase-plan.md). Tên in: [`docs/sonify-pattern-names.md`](./sonify-pattern-names.md).
 > **Nguồn đã đọc**: *Simancas* (tab E. Ceja), *Zafra* (bản classclef, Allegretto vivace, nốt đen = 110), *Redaba* (bản Cadencia 1973, Allegretto, 3/4, Mi trưởng, 54 ô), *Alcañiz* (bản Segovia, tab ohdan, Allegro, móc đơn = 168, 3/8, La trưởng), *Olite* (bản Cadencia, phụ đề *Fiesta del Rey Noble*, Vivace, nốt đen = 95, 2/4, La trưởng, 109 ô). *Suite Castellana* đã có Fandanguillo, Danza, Arada và Float.
 
-Mục 1 khóa pattern, texture và cửa. Mục 2 là một bảng mood. Mục 3 là hợp đồng giá và lưới móc của Juglar, Alcaniz, Olite. Mục 4 là cửa của bốn pattern đang hát.
+Mục 1 khóa pattern, texture và cửa. Mục 2 là một bảng mood. Mục 3 là hợp đồng giá và lưới móc của Juglar, Alcaniz, Olite. Mục 4 là cửa của bốn pattern đang hát và của ba pattern mới.
 
 ---
 
@@ -85,7 +85,7 @@ Juglar và Olite không có texture dày nào khác lưới nền. Alcaniz chỉ
 
 Ô điệu dùng một `extra` cho cả ô, cùng anchor của `danza` và `fandanguillo`, để khoảng đã viết sống sót qua `apply_guitar_wave`. Phách mạnh của ô điệu viết `max(_note_velocity, 68)` và `accent=True`. Profile sóng của ô điệu cùng hàng `danza`: snap 68/70, một nốt móng mỗi câu, ba nốt mỗi đoạn, target `accent`. Ô thưa và ô tremolo không lấy sàn 68.
 
-Cửa intro/outro của ba pattern này viết sau. Cửa không thay lưới thân bài ở dưới.
+Cửa intro/outro của ba pattern này nằm ở mục 4.5, 4.6 và 4.7. Cửa hát bậc của hợp âm chức năng, không hát bộ ba tremolo và không hát nét chạy của thân bài.
 
 ### 3.1 Juglar — id `torroba_tremolo`
 
@@ -182,13 +182,13 @@ Texture thưa lấy từ Lento, theo thứ tự đầu mục 3. 1D không có v�
 
 ## 4. Cửa theo pattern
 
-Bốn pattern đang hát sẽ mở và khép bằng cửa riêng. Hôm nay cả bốn đi `torroba_frame`: `calm` và `rally` hát một nốt giá trên bass buông, `volatile` và `selloff` đánh một hợp âm khối ở móc 0, ô outro cuối giọng thứ là Picardy.
+Bảy pattern có kịch bản cửa ở dưới. Hôm nay bốn id đang hát vẫn đi `torroba_frame`: `calm` và `rally` hát một nốt giá trên bass buông, `volatile` và `selloff` đánh một hợp âm khối ở móc 0, ô outro cuối giọng thứ là Picardy. Ba id mới chưa có trong code.
 
 `render_intro` / `render_outro` rẽ theo `(ensemble, pattern)` khi pattern có cửa trong `DOORS`. Bốn id chưa có cửa, nên mọi chương đi `_torroba` trong `guitar_frame.py`.
 
 Mỗi pattern có một kịch bản ngắn (bước 0–1) và một kịch bản dài (bước 0–3). `frame_roles` và `_compressed` giữ nguyên. Bản 1 ô vẫn cắt đôi bản ngắn.
 
-Cửa đọc pattern, không đọc mood. Picardy chỉ còn ở outro của `castillo`. Fandanguillo, Danza và Sonatina khép bằng hợp âm của điệu.
+Cửa đọc pattern, không đọc mood. Picardy chỉ còn ở outro của `castillo`. Fandanguillo, Danza, Alcaniz và Olite khép bằng hợp âm của điệu. Juglar khép bằng một nốt ngân.
 
 Cửa hát hợp âm chức năng `I`, `iv`/`IV`, `V7` qua `_function`, cùng cách cửa Bach và Sor. Giọng thứ giữ bậc 3 thứ, trừ ô outro cuối của `castillo`.
 
@@ -270,6 +270,63 @@ Nguồn cửa: *Suite Castellana* III. Hợp âm staccato đầu nhóm ba, rồi
 - Outro dài, bước 2: một nốt đáp trên `I`, `_P`.
 - Outro dài, bước 3: hai hợp âm `I` staccato, `_MF`, rồi nghỉ.
 
+### 4.5 `torroba_tremolo`
+
+Nguồn cửa: nốt lặp của *Simancas*, thu về một nốt trên phách. Cửa không viết bộ ba 3:2. Bộ ba nằm ở thân bài và mới cần `divisions = 12`. Ô pedal giữ lưới móc đơn. Scheduler chỉ chọn pattern này trên 3/4. Lời gọi ép trên 4/4 hoặc 6/8 hát một nốt lead ở móc 0 và một bass ở móc 0, các móc khác nghỉ.
+
+Trên 3/4, lead và bass chỉ mở ở móc 0. Móc 2 và móc 4 có thể nhắc cùng một bậc, không accent. Nốt đó là bậc 3 hoặc bậc 5 của hợp âm chức năng.
+
+- Intro ngắn, bước 0: bass `_torroba_bass` của `I` ngân cả ô, `_PP`. Lead nghỉ.
+- Intro ngắn, bước 1: bass `I` ở móc 0, `_P`. Lead một bậc của `I` ở móc 0, dài một phách. Từ móc 3, lead bước một bậc vào nốt giá đầu thân bài và dừng trước nốt đó, cùng `_scale_into`.
+- Intro dài, bước 0: bass `I` một mình, `_PP`.
+- Intro dài, bước 1: bass và lead của `I` ở móc 0, lead dài một phách, `_P`. Móc 2 và móc 4 nhắc cùng bậc, không accent, một bậc thấp hơn lead móc 0.
+- Intro dài, bước 2: cùng hình trên `iv` hoặc `IV`, `_MP`.
+- Intro dài, bước 3: bass `V7` ở móc 0, lead một phách, `_MP`. Từ móc 3, `_scale_into`.
+- Outro ngắn, bước 0: lead một phách trên `V7` ở móc 0, bass cùng móc, `_P`. Móc 2 và móc 4 nhắc cùng bậc, không accent.
+- Outro ngắn, bước 1: lead và bass của `I` ngân cả ô, `_PP`. Không Picardy.
+- Outro dài, bước 0: hình một phách trên `iv` hoặc `IV`, `_P`.
+- Outro dài, bước 1: hình một phách trên `V7`, `_P`.
+- Outro dài, bước 2: bass `I`, lead vào ở móc 0 và ngân đến hết ô, `_PP`.
+- Outro dài, bước 3: cùng nốt ngân của outro ngắn bước 1, `_PP`.
+
+### 4.6 `alcaniz`
+
+Nguồn cửa: động cơ 3/8 của *Alcañiz*, viết trên 6/8. Lead ở móc 0 và móc 3, bass đáp ở móc 1 và móc 4, móc 2 và móc 5 nghỉ. Lead là bậc 3 hoặc bậc 5 của hợp âm chức năng. Không quạt. Scheduler chỉ chọn pattern này trên 6/8. Lời gọi ép trên 4/4 đặt lead ở móc 0 và móc 4, bass ở móc kế. Trên 3/4 chỉ móc 0 có lead, bass ở móc 1.
+
+Mức ghi ở từng bước thắng lưới `_PP`. Nhát khép của điệu là `_MF`.
+
+- Intro ngắn, bước 0: lead `I` ở móc 0 và móc 3, `_P`, accent ở móc 0. Bass đáp ở móc 1 và móc 4.
+- Intro ngắn, bước 1: cùng nhịp trên `V7`, `_MP`. Lead móc 3 bước một bậc về nốt giá đầu thân bài và dừng trước nốt đó.
+- Intro dài, bước 0: chỉ lead và bass của nhóm đầu, hợp âm `I`, `_P`. Nhóm sau nghỉ.
+- Intro dài, bước 1: đủ hai nhóm trên `I`, `_P`, accent ở móc 0.
+- Intro dài, bước 2: đủ hai nhóm trên `V7`, `_MP`.
+- Intro dài, bước 3: lead `V7` ở móc 0, `_MF`, có accent. Từ móc 3, lead từng móc đơn vào thân bài.
+- Outro ngắn, bước 0: đủ hai nhóm trên `V7`, `_MP`.
+- Outro ngắn, bước 1: lead `I` ở móc 0 và móc 3, staccato, nhát sau có accent, `_MF`, rồi nghỉ.
+- Outro dài, bước 0: đủ hai nhóm trên `iv` hoặc `IV`, `_MP`.
+- Outro dài, bước 1: đủ hai nhóm trên `V7`, `_MP`.
+- Outro dài, bước 2: một lead trên `I` ở móc 0, bass ở móc 1, `_P`.
+- Outro dài, bước 3: hai lead `I` ở móc 0 và móc 3, staccato, `_MF`, nhát sau có accent, rồi nghỉ.
+
+### 4.7 `olite`
+
+Nguồn cửa: hai hợp âm của *Olite* trên hai phách mạnh. Trên 4/4, hợp âm khối ba tiếng ở móc 0 và móc 4. Nốt trên là bậc 3 hoặc bậc 5 của hợp âm chức năng. Móc yếu nghỉ. Không có nét chạy, vì ô pedal không có đường giá để bước tới. Không quạt. Scheduler chỉ chọn pattern này trên 4/4. Lời gọi ép trên 6/8 đặt hợp âm ở móc 0 và móc 3. Trên 3/4 chỉ móc 0.
+
+Mức ghi ở từng bước thắng lưới `_PP`. Nhát khép là `_MF`.
+
+- Intro ngắn, bước 0: hợp âm `I` ở móc 0, staccato, accent, `_P`. Móc 4 nghỉ.
+- Intro ngắn, bước 1: hợp âm `V7` ở móc 0, `_MP`, có accent. Từ móc 4, hai hoặc ba móc đơn lead đi lên vào nốt giá đầu thân bài.
+- Intro dài, bước 0: hợp âm `I` ở móc 0, `_P`.
+- Intro dài, bước 1: hợp âm `I` ở móc 0 và móc 4, accent cả hai, `_P`.
+- Intro dài, bước 2: hợp âm `iv` hoặc `IV` ở móc 0 và móc 4, `_MP`.
+- Intro dài, bước 3: hợp âm `V7` ở móc 0, `_MF`, có accent. Từ móc 4, móc đơn lead vào thân bài.
+- Outro ngắn, bước 0: hợp âm `V7` ở móc 0 và móc 4, `_MP`.
+- Outro ngắn, bước 1: hợp âm `I` ở móc 0 và móc 4, staccato, nhát sau có accent, `_MF`, rồi nghỉ.
+- Outro dài, bước 0: hợp âm `iv` hoặc `IV` ở móc 0 và móc 4, `_MP`.
+- Outro dài, bước 1: hợp âm `V7` ở móc 0 và móc 4, `_MP`.
+- Outro dài, bước 2: một nốt lead trên `I` ở móc 0, `_P`.
+- Outro dài, bước 3: hai hợp âm `I` ở móc 0 và móc 4, staccato, `_MF`, nhát sau có accent, rồi nghỉ.
+
 ---
 
 ## 5. Chỗ code, sau khi bảng mục 2 được giữ
@@ -277,7 +334,8 @@ Nguồn cửa: *Suite Castellana* III. Hợp âm staccato đầu nhóm ba, rồi
 Cửa của bốn pattern đang hát:
 
 - Bốn hàm cửa trong `guitar_torroba.py`, trả `list[tuple]` cùng dạng spec của `guitar_frame.py`.
-- Khóa `("torroba", "castillo")`, `("torroba", "sonatina")`, `("torroba", "fandanguillo")`, `("torroba", "danza")` trong `DOORS` hoặc `_RETAINED_DOORS`. Khóa giữ lại thắng khóa import.
+- Khóa `("torroba", "castillo")`, `("torroba", "sonatina")`, `("torroba", "fandanguillo")`, `("torroba", "danza")`, `("torroba", "torroba_tremolo")`, `("torroba", "alcaniz")`, `("torroba", "olite")` trong `DOORS` hoặc `_RETAINED_DOORS`. Khóa giữ lại thắng khóa import.
+- Cửa `torroba_tremolo` không có onset `1/12`. Cửa `alcaniz` và `olite` không có quạt.
 - `_torroba` giữ làm lưới khi `render_intro` được gọi không có pattern.
 - Cửa `danza` vẫn có bước 4/4 cho lời gọi ép. Scheduler không chọn `danza` ở 4/4.
 
