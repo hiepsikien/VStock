@@ -634,6 +634,9 @@ def _extra_doors():
         doors.update(rest)
     except ImportError:
         pass
+    from app.sonify.guitar_torroba_doors import DOORS as torroba_doors
+
+    _RETAINED_DOORS.update(torroba_doors)
     doors.update(_RETAINED_DOORS)  # yours win on overlap
     return doors
 
