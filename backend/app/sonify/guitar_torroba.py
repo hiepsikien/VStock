@@ -182,10 +182,10 @@ def _harmonic_velocity(ctx, midi: int, duration_beats: float, ordinary: int) -> 
 
 
 def skips_bar_extra(ctx, event: NoteEvent) -> bool:
-    """A note `_harmonic_velocity` painted 48 does not take the whole-bar extra.
+    """A note already painted 48 on a natural node does not take the whole-bar extra.
 
-    Type 8's eighth and quarter are shorter than two beats. They still arrive
-    here at 48 when the sounding pitch is a node, and that 48 skips the extra.
+    Type 8's eighth and quarter are shorter than two beats, so they stay on the
+    bass bed. That bed still takes the extra.
     """
     if event.midi is None or event.velocity != 48:
         return False
@@ -711,10 +711,15 @@ def _drop_level(written: int, steps: int) -> int:
 
 
 def _bars_of(ctx, phrase) -> list[int]:
+    """Bars whose downbeat this phrase holds. A shared bar stays with that phrase."""
     if phrase.end <= phrase.start:
         return []
-    first = phrase.start // ctx.epb
+    first = (phrase.start + ctx.epb - 1) // ctx.epb
+    if phrase.end <= first * ctx.epb:
+        return []
     last = (phrase.end - 1) // ctx.epb
+    if last < first:
+        return []
     return list(range(first, last + 1))
 
 
@@ -1430,8 +1435,9 @@ def _type5_bass(pen: _Pen):
     bass_level = pen.beds(pen.dance_written(0))[1]
     pen.add(0.0, pen.low_price(0), 0.5, 3, bass_level, 0)
     principal = pen.low_price(1)
-    upper = principal + 1 if principal + 1 <= 52 else principal
-    if upper != principal and _on_scale(upper, pen.ctx.mode):
+    upper = _walk(principal, 1, pen.ctx.mode, 40, 52)
+    pair = [upper + pen.ctx.semitones, principal + pen.ctx.semitones]
+    if upper != principal and abs(upper - principal) <= 4 and _position_ok(pair):
         pen.add(0.5, upper, 0.25, 3, bass_level, 2, slur_start=True)
         pen.add(0.75, principal, 0.25, 3, bass_level, 1, slur_stop=True)
     else:
@@ -1651,24 +1657,27 @@ def _type7_bar2(pen: _Pen):
     pen.add(0.0, low, 0.5, 3, bass_level, 0)
     pen.add(0.5, low, 0.5, 3, bass_level, 1)
     pen.add(1.0, higher, 0.5, 2, support_level, 1)
+    mordent_written = pen.lead_level(3, strong=False)[0]
     principal = pen.mel(4)
     neighbor = pen.grace(principal, [])
     if neighbor is None:
-        pen.add(1.5, principal, 0.5, 1, written, 1)
+        pen.add(1.5, principal, 0.5, 1, mordent_written, 1)
     else:
         upper, body = neighbor
-        pen.add(1.5, upper, 0.25, 1, written, 2, slur_start=True)
-        pen.add(1.75, body, 0.25, 1, written, 1, slur_stop=True)
+        pen.add(1.5, upper, 0.25, 1, mordent_written, 2, slur_start=True)
+        pen.add(1.75, body, 0.25, 1, mordent_written, 1, slur_stop=True)
     if pen.ctx.kind == "4/4":
         pen.add(2.0, pen.mel(4), 1.5, 1, written, 1)
         pen.add(2.0, low, 0.5, 3, bass_level, 1)
         pen.add(2.5, low, 0.5, 3, bass_level, 1)
         pen.add(3.0, low, 0.5, 3, bass_level, 1)
-        pen.add(3.5, pen.mel(7), 0.5, 1, written, 0, accent=True)
+        pickup = pen.lead_level(7, strong=False)[0]
+        pen.add(3.5, pen.mel(7), 0.5, 1, pickup, 0, accent=True)
     else:
         pen.add(2.0, pen.mel(4), 0.5, 1, written, 1)
         pen.add(2.0, low, 0.5, 3, bass_level, 1)
-        pen.add(2.5, pen.mel(5), 0.5, 1, written, 0, accent=True)
+        pickup = pen.lead_level(5, strong=False)[0]
+        pen.add(2.5, pen.mel(5), 0.5, 1, pickup, 0, accent=True)
     return pen.finish()
 
 
@@ -1690,20 +1699,22 @@ def _type7_bar3(pen: _Pen):
         pen.add(even * 0.5, sung, 0.5, 1, level, steps, accent=mark and steps == 0)
         pen.add(even * 0.5, inner, 0.5, 2, support_level, steps)
         odd_pitch = pen.mel(odd)
+        odd_written = pen.lead_level(odd, strong=False)[0]
         if grace_pair:
             others = [note for note in (low, inner) if note is not None]
             neighbor = pen.grace(sung, others)
             if neighbor is None:
-                pen.add(odd * 0.5, odd_pitch, 0.5, 1, written, 1)
+                # The odd eighth keeps `p`, the even eighth's price.
+                pen.add(odd * 0.5, sung, 0.5, 1, odd_written, 1)
             else:
                 upper, body = neighbor
                 # The upper neighbor ornaments `p`, the even eighth's price, then returns to it.
-                pen.add(odd * 0.5, upper, 0.25, 1, written, 1, slur_start=True)
-                pen.add(odd * 0.5 + 0.25, body, 0.25, 1, written, 1, slur_stop=True)
+                pen.add(odd * 0.5, upper, 0.25, 1, odd_written, 1, slur_start=True)
+                pen.add(odd * 0.5 + 0.25, body, 0.25, 1, odd_written, 1, slur_stop=True)
             pen.add(odd * 0.5, inner if inner is not None else pen.support_of(sung, low, capped=True), 0.5, 2, support_level, 1)
         else:
             odd_inner = pen.support_of(odd_pitch, low, capped=True)
-            pen.add(odd * 0.5, odd_pitch, 0.5, 1, written, 1)
+            pen.add(odd * 0.5, odd_pitch, 0.5, 1, odd_written, 1)
             pen.add(odd * 0.5, odd_inner, 0.5, 2, support_level, 1)
     return pen.finish()
 

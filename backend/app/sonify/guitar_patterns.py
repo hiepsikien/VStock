@@ -3549,8 +3549,8 @@ def _shape_dynamics(
             if patterns is not None and _bar_pattern(ctx, event.bar, patterns) in {"etude1", "etude11", "tremolo"}:
                 shaped.append(event)
                 continue
-            # A harmonic node painted 48 stays at 48. The whole-bar extra does
-            # not land on it, including type 8's eighth and quarter.
+            # A harmonic node already at 48 stays at 48. Type 8's short bass
+            # colors are the bass bed, so the extra still lands on them.
             if skips_bar_extra(ctx, event):
                 shaped.append(event)
                 continue

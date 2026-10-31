@@ -1326,8 +1326,13 @@ def _many(
 
 
 def _used(plan: dict, phrase: Phrase, epb: int) -> dict[int, int]:
-    first = phrase.start // epb
+    """Figure ids on bars whose downbeat this phrase holds."""
+    first = (phrase.start + epb - 1) // epb
+    if phrase.end <= first * epb:
+        return {}
     last = (phrase.end - 1) // epb
+    if last < first:
+        return {}
     return {bar: plan[bar][0] for bar in range(first, last + 1) if bar in plan}
 
 
@@ -1449,6 +1454,17 @@ def test_castillo_figure_gate_follows_tempo_and_length() -> None:
 
     fast = torroba_figure_plan(_many(slow, bpm=96), ["castillo", "castillo", "castillo"])
     assert fast == {}
+
+
+def test_a_shared_bar_stays_with_the_phrase_that_holds_its_downbeat() -> None:
+    """A cut inside a bar does not give that bar to the phrase that starts there."""
+    opening = _span(0, 10, 60, 72, tail=4)
+    following = _span(10, 38, 72, 72, tail=8)
+    assert opening.closes and following.end == 48
+    plan = torroba_figure_plan(_many((opening, following), bpm=72), ["sonatina", "castillo"])
+    assert _used(plan, opening, 8) == {0: 3, 1: 3}
+    assert _used(plan, following, 8) == {2: 8, 3: 8}
+    assert 7 not in {figure for figure, _index, _count in plan.values()}
 
 
 def test_sonatina_close_is_type_3_and_not_type_4() -> None:
@@ -1582,6 +1598,51 @@ def test_type_7_mordent_and_bar_5_bass_keep_the_written_steps() -> None:
         assert len(support) == 1 and support[0].duration_beats == pytest.approx(0.5)
 
 
+def test_type_7_keeps_p_when_the_grace_does_not_fit() -> None:
+    melody = [72] * 40
+    melody[16] = 81
+    melody[17] = 64
+    phrase = _joined(0, melody, held=True)
+    ctx = _many((phrase,), bpm=72, melody=melody)
+    with compose_meter(METER_44):
+        lead, _support, _low = render_torroba_figure(
+            ctx, 2, phrase, "castillo", 7, index=2, count=5
+        )
+    odd = [note for note in lead if note.beat == pytest.approx(0.5)]
+    assert len(odd) == 1
+    assert odd[0].midi == 81
+    assert odd[0].duration_beats == pytest.approx(0.5)
+    assert not odd[0].slur_start
+
+
+def test_type_7_odd_eighth_and_pickup_follow_their_own_swell() -> None:
+    pitches = [60] * 30 + [72] * 10
+    phrase = _joined(0, pitches, held=True)
+    assert phrase.rise >= MIN_RISE and phrase.apex.start == 30
+    ctx = _many((phrase,), bpm=72, melody=pitches)
+    apex = _apex_eighths(ctx.phrases)
+    with compose_meter(METER_44):
+        second, _support, _low = render_torroba_figure(
+            ctx, 1, phrase, "castillo", 7, index=1, count=5
+        )
+        third, _support, _low = render_torroba_figure(
+            ctx, 2, phrase, "castillo", 7, index=2, count=5
+        )
+    downbeat = _note_velocity(8, 1, apex, phrase)
+    pickup_written = _note_velocity(15, 1, apex, phrase)
+    assert pickup_written != downbeat
+    pickup = [note for note in second if note.beat == pytest.approx(3.5)]
+    assert len(pickup) == 1 and pickup[0].velocity == pickup_written
+    mordent_written = _note_velocity(11, 1, apex, phrase)
+    mordent = sorted((note for note in second if 1.5 <= note.beat < 2.0), key=lambda note: note.beat)
+    assert [note.velocity for note in mordent] == [mordent_written - 2 * _MICRO, mordent_written - _MICRO]
+    odd_written = _note_velocity(17, 1, apex, phrase)
+    assert odd_written != _note_velocity(16, 1, apex, phrase)
+    grace = sorted((note for note in third if 0.5 <= note.beat < 1.0), key=lambda note: note.beat)
+    assert grace and all(note.velocity == odd_written - _MICRO for note in grace)
+    assert grace[-1].midi == 60
+
+
 def test_type_8_bass_color_stays_under_the_ceiling_and_keeps_a_single_eighth() -> None:
     ctx, _phrase, parts = _flat_figure("4/4", 8, chord=C)
     color = [note for note in parts[0][2] if note.midi is not None]
@@ -1675,6 +1736,14 @@ def test_type_4_and_type_5_keep_the_locked_levels() -> None:
     assert fan[0][1][0].velocity == 56
     handoff = [note.velocity for note in fan[2][0]]
     assert handoff == [68 - 2 * _MICRO, 68 - 2 * _MICRO, 68 - _MICRO, 68]
+    slur = sorted(
+        (note for note in fan[1][2] if 0.5 <= note.beat < 1.0),
+        key=lambda note: note.beat,
+    )
+    assert [note.midi for note in slur] == [50, 48]
+    assert [note.duration_beats for note in slur] == [pytest.approx(0.25), pytest.approx(0.25)]
+    assert slur[0].slur_start and slur[1].slur_stop
+    assert [note.velocity for note in slur] == [60 - 2 * _MICRO, 60 - _MICRO]
 
 
 def test_harmonic_48_skips_the_whole_bar_extra() -> None:
