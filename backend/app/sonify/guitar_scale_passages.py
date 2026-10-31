@@ -985,6 +985,19 @@ def _villa_color_step(ctx: _Ctx, current: int, toward: int, end: int, low: int, 
     return None
 
 
+def _trace_ab(ctx: _Ctx, notes: list[int], end: int, low: int, high: int, chord) -> list[int]:
+    """Ab immediately before `end` when that destination is G.
+
+    The note before Ab steps onto Ab. A leap declines the approach. Two
+    pitches that already sit beside Ab become opening–Ab–G.
+    """
+    if ctx.ensemble != "torroba" or not notes or notes[-1] != end or len(notes) < 2:
+        return notes
+    from app.sonify.guitar_torroba import rewrite_torroba_approach
+
+    return rewrite_torroba_approach(ctx, notes, chord, low=low, high=high)
+
+
 def _trace_scale(
     ctx: _Ctx,
     start: int,
@@ -995,6 +1008,7 @@ def _trace_scale(
     high: int,
     *,
     color: bool = False,
+    chord=None,
 ) -> list[int] | None:
     """Walk in-set degrees from `start` to `end`. Villa may prefer a color tone."""
     if start < low or start > high or end < low or end > high:
@@ -1003,7 +1017,7 @@ def _trace_scale(
     current = start
     for _ in range(64):
         if current == end:
-            return notes
+            return _trace_ab(ctx, notes, end, low, high, chord)
         toward = 1 if end > current else -1
         nxt = _composer_step(ctx, current, toward, impulse_direction, approaching, low, high)
         if ctx.ensemble == "villa":
@@ -1017,11 +1031,11 @@ def _trace_scale(
         if not moved or (end - nxt) * toward < 0 or not low <= nxt <= high:
             if 0 < (end - current) * toward <= 2 and low <= end <= high:
                 notes.append(end)
-                return notes
+                return _trace_ab(ctx, notes, end, low, high, chord)
             return None
         notes.append(nxt)
         current = nxt
-    return None if current != end else notes
+    return None if current != end else _trace_ab(ctx, notes, end, low, high, chord)
 
 
 def _fast_line(
@@ -1393,6 +1407,10 @@ def _embellish(
         notes = grown
     if len(notes) != count or notes[0] != path[0] or notes[-1] != path[-1]:
         return None
+    if ctx.ensemble == "torroba" and len(notes) >= 2:
+        from app.sonify.guitar_torroba import rewrite_torroba_approach
+
+        notes = rewrite_torroba_approach(ctx, notes, chord_pcs, low=low, high=high)
     if any(note < low or note > high for note in notes):
         return None
     if any(abs(right - left) > 2 for left, right in zip(notes, notes[1:])):
@@ -1511,7 +1529,7 @@ def _moving_line(
         return None
     # Villa may replace the diatonic walk with color tones when that walk still
     # fits. A neighbor turn is added later, and only when two steps remain.
-    path = _trace_scale(ctx, start, end, impulse_direction, approaching, low, high, color=False)
+    path = _trace_scale(ctx, start, end, impulse_direction, approaching, low, high, color=False, chord=chord_pcs)
     if path is None:
         return _fast_line(ctx, start, end, count, impulse_direction, approaching, low, high)
     if ctx.ensemble == "villa":
@@ -1698,7 +1716,18 @@ def _with_retreat(
         return None
     if any(note < low or note > high for note in notes):
         return None
-    return notes
+    from app.sonify.guitar_torroba import rewrite_torroba_approach
+
+    rewritten = rewrite_torroba_approach(ctx, notes, chord_pcs, low=low, high=high)
+    if rewritten == notes:
+        return notes
+    for index in range(1, count - 1):
+        direction = against if _retreat_flag(retreat_at, index) else toward
+        if (rewritten[index] - rewritten[index - 1]) * direction <= 0:
+            return notes
+    if any(abs(right - left) > 2 for left, right in zip(rewritten, rewritten[1:])):
+        return notes
+    return rewritten
 
 
 def _assign(ctx: _Ctx, passage: ScalePassage, slots: list[_Slot]) -> list[int] | None:

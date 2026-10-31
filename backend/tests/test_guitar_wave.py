@@ -203,11 +203,26 @@ def _guitar_score(lead: list[NoteEvent], *, ensemble: str = "classic", bars: int
 def test_same_bar_differences_follow_one_rounded_center() -> None:
     """Invariant 1. round(C) once, then the written offset. M is 1 on all 38 rows."""
     assert set(PROFILES) == _EXPECTED
-    for profile in PROFILES.values():
+    sung_rows = {"castillo", "sonatina", "torroba_tremolo"}
+    for key, profile in PROFILES.items():
         assert profile.floor_calm <= profile.floor_wide
         assert profile.ceil_calm <= profile.ceil_wide <= 63
-        assert profile.d_lo == -16 and profile.d_hi == 8
         assert profile.smooth % 2 == 1 and profile.smooth in {3, 5, 9}
+        if key[0] == "torroba":
+            assert profile.d_lo == -8 and profile.d_hi == 8
+            assert profile.floor_calm == profile.floor_wide
+            assert profile.ceil_calm == profile.ceil_wide
+            floor, ceiling = window_for(profile, 1.0)
+            if key[1] in sung_rows:
+                assert (floor, ceiling, profile.smooth) == (34, 58, 5)
+                assert gain(floor, ceiling) == 1.0
+                assert profile.snap_wide is None and profile.max_units_per_phrase == 0
+            else:
+                assert (floor, ceiling, profile.smooth) == (40, 63, 3)
+                assert abs(gain(floor, ceiling) - (23 / 24)) < 1e-12
+                assert (profile.snap_calm, profile.snap_wide) == (70, 73)
+            continue
+        assert profile.d_lo == -16 and profile.d_hi == 8
         for opened in (0.0, 0.25, 0.5, 0.75, 1.0):
             floor, ceiling = window_for(profile, opened)
             assert ceiling - floor >= 27
@@ -258,13 +273,13 @@ def test_same_bar_differences_follow_one_rounded_center() -> None:
         ("brouwer", "sarabande"): (26, 56, 32, 62, 9),
         ("brouwer", "brouwer_etude"): (26, 58, 32, 63, 3),
         ("brouwer", "elogio_pizz"): (26, 56, 32, 62, 3),
-        ("torroba", "castillo"): (26, 54, 30, 58, 9),
-        ("torroba", "sonatina"): (30, 58, 34, 62, 5),
-        ("torroba", "fandanguillo"): (30, 58, 36, 63, 3),
-        ("torroba", "danza"): (30, 58, 36, 63, 3),
-        ("torroba", "torroba_tremolo"): (30, 58, 34, 62, 5),
-        ("torroba", "alcaniz"): (30, 58, 36, 63, 3),
-        ("torroba", "olite"): (30, 58, 36, 63, 3),
+        ("torroba", "castillo"): (34, 58, 34, 58, 5),
+        ("torroba", "sonatina"): (34, 58, 34, 58, 5),
+        ("torroba", "fandanguillo"): (40, 63, 40, 63, 3),
+        ("torroba", "danza"): (40, 63, 40, 63, 3),
+        ("torroba", "torroba_tremolo"): (34, 58, 34, 58, 5),
+        ("torroba", "alcaniz"): (40, 63, 40, 63, 3),
+        ("torroba", "olite"): (40, 63, 40, 63, 3),
     }
     assert set(windows) == set(PROFILES)
     for key, expected in windows.items():
@@ -277,7 +292,8 @@ def test_same_bar_differences_follow_one_rounded_center() -> None:
             profile.smooth,
         ) == expected
     assert min(profile.floor_calm for profile in PROFILES.values()) == 24
-    assert max(profile.ceil_calm for profile in PROFILES.values()) == 58
+    assert max(profile.ceil_calm for key, profile in PROFILES.items() if key[0] != "torroba") == 58
+    assert max(profile.ceil_calm for profile in PROFILES.values()) == 63
     assert max(profile.ceil_wide for profile in PROFILES.values()) == 63
     # The twelve wide rows left at tide 3. A floor of +4 would have left tide 3;
     # these stay on that tide, with the ceiling untouched.
@@ -1215,3 +1231,58 @@ def test_suite_snaps_follow_the_written_attack() -> None:
     assert not _is_target(ctx, "bach_courante", _note(0, 0.5, 64, accent=True), "lead", phrase, 0.0, 0.0)
     assert not hit("galop", 0.0, "lead")
     assert not hit("galop", 3.0, "lead")
+
+
+def test_torroba_sung_and_dance_tides_keep_an_eight_degree_lead() -> None:
+    """Sung centers are 42 and 50. Dance rounds to 48 and 55, and 72 still clears by 8."""
+    bars = 9
+    ell = (0, 0, 0, 0, 6, 0, 0, 0, 0)
+    volumes = [math.exp(value) - 1 for value in ell]
+    phrase = Phrase(0, bars * _EPB, tuple(Run(index, 1, 64) for index in range(bars * _EPB)))
+    ctx = _ctx(
+        ensemble="torroba",
+        bars=bars,
+        volumes=volumes,
+        phrases=(phrase,),
+        sections=(FormSection(0, bars, "phrase", 0),),
+        rel_span=0.0,
+        spans={0: 0.0},
+    )
+    sung = profile_for("torroba", "sonatina")
+    assert sung is not None
+    _gain, c_lo, c_hi = tide_bounds(*window_for(sung, 0.0), sung)
+    assert (c_lo, c_hi) == (42.0, 50.0)
+    lead = [_note(bar, 0.0, 64) for bar in range(bars)]
+    bass = [_note(bar, 0.0, 64, midi=48, voice=3) for bar in range(bars)]
+    heard_lead, _support, heard_low = apply_guitar_wave(ctx, lead, [], bass, ["sonatina"])
+    assert _at(heard_lead, 0, 0.0) == 42 and _at(heard_lead, 4, 0.0) == 50
+    assert _at(heard_low, 0, 0.0) == 42 and _at(heard_low, 4, 0.0) == 50
+
+    dance = profile_for("torroba", "fandanguillo")
+    assert dance is not None
+    _gain, c_lo, c_hi = tide_bounds(*window_for(dance, 1.0), dance)
+    assert round_center(c_lo) == 48 and round_center(c_hi) == 55
+    high = [_note(bar, 0.0, 72, midi=72) for bar in range(bars)]
+    heard_high, _support, _low = apply_guitar_wave(ctx, high, [], [], ["danza"])
+    assert _at(heard_high, 0, 0.0) == 56 and _at(heard_high, 4, 0.0) == 63
+
+
+def test_dance_snap_reads_the_written_bell_not_the_affine_value() -> None:
+    """Velocity 48 is gone after the tide. The nail still has to see the written number."""
+    bars = 8
+    volumes = [1.0 + 40.0 * math.exp(-((bar - 3) ** 2) / 3.0) for bar in range(bars)]
+    phrase = _phrase_over(bars, 3)
+    ctx = _ctx(
+        ensemble="torroba",
+        bars=bars,
+        volumes=volumes,
+        phrases=(phrase,),
+        sections=(FormSection(0, bars, "phrase", 0),),
+        rel_span=0.02,
+        spans={0: 0.02},
+    )
+    lead = [_note(bar, 1.0, 64) for bar in range(bars)]
+    lead.append(_note(3, 0.0, 48, midi=67, accent=True))
+    heard, _support, _low = apply_guitar_wave(ctx, lead, [], [], ["danza"])
+    bell = next(note for note in heard if note.bar == 3 and abs(note.beat) < 1e-6)
+    assert bell.velocity is not None and bell.velocity <= 63

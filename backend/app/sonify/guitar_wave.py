@@ -57,6 +57,9 @@ def _profile(
     per_sec: int,
     targets: str,
     smooth: int,
+    *,
+    d_lo: int = D_LO,
+    d_hi: int = D_HI,
 ) -> PatternWaveProfile:
     return PatternWaveProfile(
         floor_calm,
@@ -69,6 +72,8 @@ def _profile(
         per_sec,
         targets,
         smooth,
+        d_lo,
+        d_hi,
     )
 
 
@@ -106,15 +111,17 @@ PROFILES: dict[tuple[str, str], PatternWaveProfile] = {
     ("brouwer", "sarabande"): _profile(26, 32, 56, 62, 68, 72, 1, 2, "sarabande", 9),
     ("brouwer", "brouwer_etude"): _profile(26, 32, 58, 63, 68, 72, 1, 3, "tumbao", 3),
     ("brouwer", "elogio_pizz"): _profile(26, 32, 56, 62, 72, 76, 1, 4, "slap", 3),
-    ("torroba", "castillo"): _profile(26, 30, 54, 58, None, None, 0, 0, "none", 9),
-    ("torroba", "sonatina"): _profile(30, 34, 58, 62, 66, 68, 1, 2, "accent", 5),
-    ("torroba", "fandanguillo"): _profile(30, 36, 58, 63, 68, 70, 1, 3, "accent", 3),
-    ("torroba", "danza"): _profile(30, 36, 58, 63, 68, 70, 1, 3, "accent", 3),
-    # Juglar uses the sonatina row. Alcaniz and Olite use the danza row.
-    # Soft Alcaniz and thin or pushed Olite borrow the castillo row per bar.
-    ("torroba", "torroba_tremolo"): _profile(30, 34, 58, 62, 66, 68, 1, 2, "accent", 5),
-    ("torroba", "alcaniz"): _profile(30, 36, 58, 63, 68, 70, 1, 3, "accent", 3),
-    ("torroba", "olite"): _profile(30, 36, 58, 63, 68, 70, 1, 3, "accent", 3),
+    # Sung and dance rows share a window at both ends, so alpha_warm does not
+    # open either one. d_lo/d_hi are per row; the dataclass defaults stay -16/8.
+    ("torroba", "castillo"): _profile(34, 34, 58, 58, None, None, 0, 0, "none", 5, d_lo=-8, d_hi=8),
+    ("torroba", "sonatina"): _profile(34, 34, 58, 58, None, None, 0, 0, "none", 5, d_lo=-8, d_hi=8),
+    ("torroba", "fandanguillo"): _profile(40, 40, 63, 63, 70, 73, 1, 3, "accent", 3, d_lo=-8, d_hi=8),
+    ("torroba", "danza"): _profile(40, 40, 63, 63, 70, 73, 1, 3, "accent", 3, d_lo=-8, d_hi=8),
+    # Juglar sings on the castillo row. Alcaniz and Olite dance.
+    # Soft Alcaniz and thin or pushed Olite borrow castillo, so they sing too.
+    ("torroba", "torroba_tremolo"): _profile(34, 34, 58, 58, None, None, 0, 0, "none", 5, d_lo=-8, d_hi=8),
+    ("torroba", "alcaniz"): _profile(40, 40, 63, 63, 70, 73, 1, 3, "accent", 3, d_lo=-8, d_hi=8),
+    ("torroba", "olite"): _profile(40, 40, 63, 63, 70, 73, 1, 3, "accent", 3, d_lo=-8, d_hi=8),
 }
 
 
@@ -724,6 +731,7 @@ def _is_target(
     onset: float,
     level: float,
     scale_eighths: set[int] | None = None,
+    written_velocity: int | None = None,
 ) -> bool:
     profile = profile_for(ctx.ensemble, pattern)
     if profile is None or profile.snap_wide is None:
@@ -790,8 +798,11 @@ def _is_target(
         return voice == "lead" and event.accent
     if pattern == "elogio_pizz":
         return voice == "lead" and event.accent and event.staccato
-    if pattern in {"sonatina", "fandanguillo", "danza", "torroba_tremolo", "alcaniz", "olite"}:
-        return voice == "lead" and event.accent
+    if pattern in {"fandanguillo", "danza", "alcaniz", "olite"}:
+        # A harmonic bell is written 48. Affine has already replaced that
+        # number, so the written velocity is what decides the nail.
+        written = event.velocity if written_velocity is None else written_velocity
+        return voice == "lead" and event.accent and written != 48
     return False
 
 
@@ -830,7 +841,14 @@ def _u_at(wave: _Wave, bar: int) -> float:
     return wave.levels[index]
 
 
-def _collect_units(ctx, voices: dict[str, list[NoteEvent]], patterns, waves, scale_eighths=None) -> list[_Unit]:
+def _collect_units(
+    ctx,
+    voices: dict[str, list[NoteEvent]],
+    patterns,
+    waves,
+    scale_eighths=None,
+    written: dict[str, list[int | None]] | None = None,
+) -> list[_Unit]:
     units: list[_Unit] = []
     tresillo: dict[int, _Unit] = {}
     for voice, events in voices.items():
@@ -856,7 +874,8 @@ def _collect_units(ctx, voices: dict[str, list[NoteEvent]], patterns, waves, sca
             onset = _onset(event, ctx.epb)
             phrase = _phrase_at(ctx, onset)
             level = _u_at(wave, event.bar)
-            if not _is_target(ctx, pattern, event, voice, phrase, onset, level, scale_eighths):
+            prior = None if written is None else written[voice][index]
+            if not _is_target(ctx, pattern, event, voice, phrase, onset, level, scale_eighths, prior):
                 continue
             breath = phrase_curve(phrase, onset)
             score = 0.70 * level + 0.30 * breath
@@ -961,9 +980,9 @@ def _select_units(ctx, units: list[_Unit], waves, voices, scale_eighths=None) ->
     return chosen
 
 
-def _apply_snaps(ctx, voices, patterns, waves, scale_eighths=None) -> None:
+def _apply_snaps(ctx, voices, patterns, waves, scale_eighths=None, written=None) -> None:
     """Overwrite only the chosen attacks. Companions stay on the clamped affine value."""
-    units = _collect_units(ctx, voices, patterns, waves, scale_eighths)
+    units = _collect_units(ctx, voices, patterns, waves, scale_eighths, written)
     for unit in _select_units(ctx, units, waves, voices, scale_eighths):
         velocity = _snapped_velocity(unit.score, unit.ceiling)
         velocity = max(66, min(unit.ceiling, velocity))
@@ -1115,7 +1134,8 @@ def apply_guitar_wave(
     placed, waves, leading, trailing = _place_centers(ctx, patterns, volumes)
     _fit_pedal_speech(voices, placed, leading, trailing)
     covered = set(scale_eighths or ())
+    written = {voice: [event.velocity for event in events] for voice, events in voices.items()}
     _apply_affine(ctx, voices, placed, patterns, covered)
-    _apply_snaps(ctx, voices, patterns, waves, covered)
+    _apply_snaps(ctx, voices, patterns, waves, covered, written)
     _apply_stabs(ctx, voices, trailing, patterns)
     return _sync_ties(voices["lead"]), _sync_ties(voices["support"]), _sync_ties(voices["low"])

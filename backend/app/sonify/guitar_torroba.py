@@ -342,8 +342,29 @@ def _bass_event(eighth: int, midi: int, epb: int, velocity: int, *, length: int 
     return event
 
 
+def _raised_bed(lead_vel: int, band: str) -> tuple[int, int, int]:
+    """Lift Torroba's bass by 4, then keep lead > bass > support, floor 40.
+
+    The weak bass stays 4 under the strong bass. A sung note written 64 stops
+    the strong bass at 62. A lead of 72 still allows bass 64.
+    """
+    support, bass = _under_lead(lead_vel, band)
+    bass += 4
+    bass = min(bass, max(42, lead_vel - 2))
+    support = min(support, bass - 2)
+    support = max(40, support)
+    if bass < support + 2:
+        bass = min(max(42, lead_vel - 2), max(support + 2, 42))
+    if bass >= lead_vel:
+        bass = max(42, lead_vel - 2)
+        support = max(40, min(support, bass - 2))
+    weak = max(40, bass - 4)
+    return support, bass, weak
+
+
 def _bed(lead_vel: int, band: str) -> tuple[int, int]:
-    return _under_lead(lead_vel, band)
+    support, bass, _weak = _raised_bed(lead_vel, band)
+    return support, bass
 
 
 def _render_castillo_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
@@ -382,11 +403,32 @@ def _render_castillo_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[N
     return lead, support, low
 
 
-def _approaches(ctx, target: int, count: int) -> list[int]:
-    found: list[int] = []
+def _approaches(ctx, target: int, count: int, chord=None) -> list[int]:
+    """Scale steps into `target`. Into G they step onto Ab, and Ab is last.
+
+    The notes before Ab are walked from Ab, not from the step under G with
+    the final slot overwritten. A three-note pickup into G4 is F–G–Ab.
+    """
+    low = ctx.treble_floor
+    high = ctx.treble_top
+    ab = torroba_ab_approach(ctx, target, chord)
+    if count >= 1 and ab is not None and low <= ab <= high:
+        if count == 1:
+            return [ab]
+        found: list[int] = []
+        cursor = ab
+        for _step in range(count - 1):
+            nxt = torroba_scale_step(ctx, cursor, -1, low=low, high=high)
+            if nxt == cursor or nxt == ab:
+                break
+            found.append(nxt)
+            cursor = nxt
+        found.reverse()
+        return found + [ab]
+    found = []
     cursor = target
     for _step in range(count):
-        nxt = _walk(cursor, -1, ctx.mode, ctx.treble_floor, ctx.treble_top)
+        nxt = torroba_scale_step(ctx, cursor, -1, low=low, high=high)
         if nxt == cursor or nxt == target:
             break
         found.append(nxt)
@@ -432,7 +474,7 @@ def _sixteenth(
 
 def _into_strong(ctx, target: int, eighth: int, phrase, *, run: bool) -> list[NoteEvent]:
     count = 3 if run else 1
-    pitches = _approaches(ctx, target, count)
+    pitches = _approaches(ctx, target, count, ctx.chord(eighth // ctx.epb))
     if not pitches:
         return []
     events: list[NoteEvent] = []
@@ -1291,8 +1333,7 @@ class _Pen:
         return max(self._ordinary(eighth), 68)
 
     def beds(self, lead_written: int) -> tuple[int, int, int]:
-        support, bass = _under_lead(lead_written, self.ctx.band(self.bar))
-        return support, bass, max(40, bass - 4)
+        return _raised_bed(lead_written, self.ctx.band(self.bar))
 
     def _local_lead(self, eighth: int, written: int, midi: int) -> int:
         """Keep a level that already belongs to this eighth. Move a borrowed one.
@@ -1338,8 +1379,7 @@ class _Pen:
             68,
         )
         for source in leads:
-            support, bass = _under_lead(source, self.ctx.band(self.bar))
-            weak = max(40, bass - 4)
+            support, bass, weak = _raised_bed(source, self.ctx.band(self.bar))
             if voice == 2 and written == support:
                 role = 0
             elif voice == 3 and written == bass:
@@ -1348,8 +1388,7 @@ class _Pen:
                 role = 2
             else:
                 continue
-            next_support, next_bass = _under_lead(source, band)
-            return (next_support, next_bass, max(40, next_bass - 4))[role]
+            return _raised_bed(source, band)[role]
         return written
 
     def add(self, beat: float, midi: int | None, duration: float, voice: int, written: int, steps: int, **flags) -> None:
@@ -2749,15 +2788,29 @@ def _scale_away(ctx, pitch: int, direction: int) -> int:
     toward = pitch + direction * 12
     low = min(ctx.treble_floor, pitch, toward)
     high = max(ctx.treble_top, pitch, toward)
-    stepped = torroba_scale_step(ctx, pitch, toward, low=low, high=high)
+    signed = 1 if direction >= 0 else -1
+    stepped = torroba_scale_step(ctx, pitch, signed, low=low, high=high)
     if stepped == pitch:
-        return pitch + direction
+        chromatic = pitch + signed
+        if pitch % 12 == 10 and chromatic % 12 == 11:
+            return pitch
+        return chromatic
     return stepped
 
 
-def _two_into(ctx, start: int, target: int) -> tuple[int, int]:
-    """Two scale steps that arrive on `target`. Equal pitches pull off from above."""
+def _two_into(ctx, start: int, target: int, chord=None) -> tuple[int, int]:
+    """Two scale steps that arrive on `target`. Equal pitches pull off from above.
+
+    The second pitch is the note immediately before `target`. It is Ab when
+    that destination is G and the bar's chord allows the approach.
+    """
     away = -1 if start < target else 1
+    ab = torroba_ab_approach(ctx, target, chord)
+    if ab is not None:
+        # The first pitch steps onto Ab. It is not the scale step under G.
+        second = ab
+        first = _scale_away(ctx, ab, away)
+        return first, second
     second = _scale_away(ctx, target, away)
     first = _scale_away(ctx, second, away)
     return first, second
@@ -2870,7 +2923,7 @@ def _alcaniz_opening(ctx, bar: int, phrase):
         if inner is not None:
             support.append(_heard(bar, 0.0, inner, 0.5, 2, inner_vel))
     target = _melody_at(ctx, origin + 3)
-    first, second = _two_into(ctx, top, target)
+    first, second = _two_into(ctx, top, target, ctx.chord(bar))
     lead.append(_heard(bar, 0.5, first, 0.5, 1, _lead_vel(ctx, origin + 1, phrase), slur_start=True))
     lead.append(_heard(bar, 1.0, second, 0.5, 1, _lead_vel(ctx, origin + 2, phrase)))
     arrival = _lead_vel(ctx, origin + 3, phrase)
@@ -2903,8 +2956,11 @@ def _melody_here(ctx, eighth: int) -> int | None:
     return None
 
 
-def _scale_steps(ctx, start: int, target: int) -> list[int]:
-    """Diatonic steps from `start` to `target`, excluding `start` and including `target`."""
+def _scale_steps(ctx, start: int, target: int, chord=None) -> list[int]:
+    """Diatonic steps from `start` to `target`, excluding `start` and including `target`.
+
+    The penultimate note is Ab when `target` is G and the destination chord allows it.
+    """
     if start == target:
         return []
     notes: list[int] = []
@@ -2914,7 +2970,8 @@ def _scale_steps(ctx, start: int, target: int) -> list[int]:
     for _guard in range(24):
         if cursor == target:
             break
-        nxt = torroba_scale_step(ctx, cursor, target, low=low, high=high)
+        direction = 1 if target > cursor else -1
+        nxt = torroba_scale_step(ctx, cursor, direction, low=low, high=high)
         if nxt == cursor:
             notes.append(target)
             break
@@ -2922,16 +2979,29 @@ def _scale_steps(ctx, start: int, target: int) -> list[int]:
         cursor = nxt
     if notes and notes[-1] != target:
         notes.append(target)
-    return notes
+    ab = torroba_ab_approach(ctx, target, chord)
+    if len(notes) == 1 and ab is not None and low <= ab <= high:
+        direction = -1 if start < target else 1
+        step = torroba_scale_step(ctx, ab, direction, low=low, high=high)
+        return [step, ab, target]
+    return _with_ab_before(ctx, notes, target, chord, low=low, high=high)
 
 
 def _fit_walk(steps: list[int]) -> list[int] | None:
-    """Three eighths. A short walk repeats. A long walk jumps once on the last eighth."""
+    """Three eighths. A short walk repeats the last pitch.
+
+    A longer walk still ends on the target, and the eighth before that target
+    is the penultimate scale step. That is Ab when the gate put it there.
+    """
     if not steps:
         return None
-    if len(steps) <= 3:
-        return steps + [steps[-1]] * (3 - len(steps))
-    return steps[:2] + [steps[-1]]
+    if len(steps) > 3:
+        # Ab sits a semitone above G. Sound the scale step that walks onto
+        # that Ab, not the opening of a long walk that then leaps.
+        if steps[-1] % 12 == 7 and steps[-2] % 12 == 8 and steps[-2] == steps[-1] + 1:
+            return [steps[-3], steps[-2], steps[-1]]
+        return [steps[0], steps[-2], steps[-1]]
+    return steps + [steps[-1]] * (3 - len(steps))
 
 
 def _olite_chord(ctx, bar: int, eighth: int, phrase, *, accented: bool):
@@ -2954,10 +3024,10 @@ def _olite_chord(ctx, bar: int, eighth: int, phrase, *, accented: bool):
     return lead, support, low
 
 
-def _olite_group(ctx, bar: int, eighths: tuple[int, int, int], start: int, target: int | None, phrase):
+def _olite_group(ctx, bar: int, eighths: tuple[int, int, int], start: int, target: int | None, phrase, chord=None):
     if target is None:
         return []
-    fitted = _fit_walk(_scale_steps(ctx, start, target))
+    fitted = _fit_walk(_scale_steps(ctx, start, target, chord))
     if not fitted:
         return []
     notes: list[NoteEvent] = []
@@ -2979,8 +3049,10 @@ def _olite_vivace(ctx, bar: int, phrase, *, accented: bool):
     origin = bar * ctx.epb
     start = _melody_at(ctx, origin)
     middle = _melody_at(ctx, origin + 4)
-    lead.extend(_olite_group(ctx, bar, (1, 2, 3), start, middle, phrase))
-    lead.extend(_olite_group(ctx, bar, (5, 6, 7), middle, _melody_here(ctx, origin + ctx.epb), phrase))
+    lead.extend(_olite_group(ctx, bar, (1, 2, 3), start, middle, phrase, ctx.chord(bar)))
+    next_bar = bar + 1
+    next_chord = ctx.chord(next_bar) if next_bar < ctx.bars else ctx.chord(bar)
+    lead.extend(_olite_group(ctx, bar, (5, 6, 7), middle, _melody_here(ctx, origin + ctx.epb), phrase, next_chord))
     return lead, support, low
 
 
@@ -3048,19 +3120,226 @@ def _render_torroba_bar(ctx, bar: int, phrase, pattern: str, patterns=None):
     return _render_sonatina_bar(ctx, bar, phrase)
 
 
+_G_PCS = frozenset({2, 7, 11})
+_G7_PCS = frozenset({2, 5, 7, 11})
+_SUNG_ARCH = frozenset({"castillo", "sonatina", "torroba_tremolo"})
+
+
+def _chord_allows_ab(chord) -> bool:
+    """G or G7 allows the approach. No chord means the destination pitch decides."""
+    if chord is None:
+        return True
+    name = getattr(chord, "name", None)
+    if name is not None:
+        return name in {"G", "G7"}
+    if isinstance(chord, frozenset):
+        return chord == _G_PCS or chord == _G7_PCS
+    return False
+
+
+def torroba_ab_approach(ctx, destination: int, chord=None) -> int | None:
+    """Ab a semitone above `destination` when that note is G.
+
+    A supplied chord must be G or G7. A chord on its own never inserts Ab,
+    and a run that lands on D or B keeps its diatonic approach.
+    """
+    if getattr(ctx, "mode", None) != "minor" or destination % 12 != 7:
+        return None
+    if not _chord_allows_ab(chord):
+        return None
+    return destination + 1
+
+
+def _step_onto(ctx, pitch: int, coming_from: int, *, low: int, high: int) -> int:
+    """The scale note that steps onto `pitch` from the side `coming_from` is on."""
+    direction = -1 if coming_from <= pitch else 1
+    return torroba_scale_step(ctx, pitch, direction, low=low, high=high)
+
+
+def rewrite_torroba_approach(ctx, notes: list[int], chord, *, low: int, high: int) -> list[int]:
+    """Ab immediately before G, reached by a scale step.
+
+    The first pitch stays put. A rewrite that would leap, or that would move
+    that first pitch, is declined and the diatonic line stands.
+    """
+    if getattr(ctx, "ensemble", None) != "torroba" or len(notes) < 2:
+        return list(notes)
+    end = notes[-1]
+    ab = torroba_ab_approach(ctx, end, chord)
+    if ab is None or not low <= ab <= high:
+        return list(notes)
+    if notes[-2] == ab and (len(notes) < 3 or abs(notes[-3] - ab) <= 2):
+        return list(notes)
+    # Two pitches with the opening already beside Ab become opening–Ab–G.
+    # Replacing the opening would delete the note that steps onto Ab.
+    if len(notes) == 2 and abs(notes[0] - ab) <= 2 and notes[0] != ab:
+        return [notes[0], ab, notes[-1]]
+    updated = list(notes)
+    updated[-2] = ab
+    if len(updated) >= 3 and abs(notes[-3] - ab) > 2:
+        updated[-3] = _step_onto(ctx, ab, notes[-3], low=low, high=high)
+    if updated[0] != notes[0]:
+        return list(notes)
+    if any(not low <= note <= high for note in updated):
+        return list(notes)
+    if any(abs(right - left) > 2 for left, right in zip(updated, updated[1:])):
+        return list(notes)
+    return updated
+
+
+def _with_ab_before(ctx, notes: list[int], target: int, chord, *, low: int, high: int) -> list[int]:
+    """Ab before G. The note before that Ab is the scale step onto it."""
+    ab = torroba_ab_approach(ctx, target, chord)
+    if ab is None or not notes or notes[-1] != target or not low <= ab <= high:
+        return notes
+    if len(notes) >= 2 and notes[-2] == ab and (len(notes) < 3 or abs(notes[-3] - ab) <= 2):
+        return notes
+    if len(notes) == 1:
+        return [ab, target]
+    if len(notes) == 2:
+        return [_step_onto(ctx, ab, notes[0], low=low, high=high), ab, target]
+    updated = list(notes)
+    updated[-2] = ab
+    if abs(notes[-3] - ab) > 2:
+        updated[-3] = _step_onto(ctx, ab, notes[-3], low=low, high=high)
+    return updated
+
+
 def torroba_scale_step(ctx, pitch: int, toward: int, *, low: int, high: int) -> int:
-    """Diatonic step. The penultimate note into G may be Ab. Bb is not raised."""
-    if toward == pitch:
-        return pitch
-    direction = 1 if toward > pitch else -1
-    nxt = pitch + direction
-    after = pitch + 2 * direction
-    if ctx.mode == "minor" and low <= nxt <= high and nxt % 12 == 8 and after % 12 == 7:
-        return nxt
+    """One diatonic step. `toward >= 0` climbs, as in `classic_scale_step`.
+
+    Bb is not raised to B. Ab is not chosen here: the walkers that know the
+    destination place it only on the note immediately before G.
+    """
+    direction = 1 if toward >= 0 else -1
     stepped = _walk(pitch, direction, ctx.mode, low, high)
     if pitch % 12 == 10 and stepped % 12 == 11:
         return pitch
     return stepped
+
+
+def _sung_attack(pattern: str, event: NoteEvent) -> bool:
+    """The note that sings. Sixteenth pickups and a harmonic bell stay put."""
+    if event.midi is None or event.velocity is None or event.velocity == 48:
+        return False
+    if pattern == "torroba_tremolo":
+        return abs(event.beat - round(event.beat)) < 1e-6
+    return event.duration_beats + 1e-9 >= 0.5
+
+
+def _arch_curve(onsets: list[float], apex: float) -> list[int]:
+    """Rise toward the note in front of the apex. The arrival releases.
+
+    Two sung notes span 6. A longer phrase spans 8. Both sit inside 6–8.
+    """
+    count = len(onsets)
+    span = 8 if count >= 3 else 6
+    amounts = [0] * count
+    if count == 0 or onsets[-1] == onsets[0]:
+        if count:
+            amounts[0] = span
+        return amounts
+    arrival = next((index for index, onset in enumerate(onsets) if onset + 1e-9 >= apex), count - 1)
+    if arrival == 0:
+        width = onsets[-1] - onsets[0]
+        for index, onset in enumerate(onsets):
+            amounts[index] = int(round(span * (1.0 - (onset - onsets[0]) / width)))
+        amounts[0] = span
+        amounts[-1] = 0
+        return amounts
+    peak = arrival - 1
+    rise = onsets[peak] - onsets[0]
+    for index in range(peak + 1):
+        if rise <= 1e-9:
+            amounts[index] = span
+        else:
+            amounts[index] = int(round(span * (onsets[index] - onsets[0]) / rise))
+    amounts[peak] = span
+    release = max(0, span - 5)
+    tail = onsets[-1] - onsets[arrival]
+    for index in range(arrival, count):
+        if tail <= 1e-9:
+            amounts[index] = release
+        else:
+            amounts[index] = int(round(release * (1.0 - (onsets[index] - onsets[arrival]) / tail)))
+    amounts[arrival] = release
+    return amounts
+
+
+def _tenuto_gaps(amounts: list[int], bars: list[int]) -> None:
+    """The crest of each bar sits 4–6 above the other sung notes in that bar."""
+    grouped: dict[int, list[int]] = {}
+    for index, bar in enumerate(bars):
+        grouped.setdefault(bar, []).append(index)
+    for indexes in grouped.values():
+        if len(indexes) < 2:
+            continue
+        crest = max(indexes, key=lambda index: (amounts[index], -index))
+        quiet = min(amounts[index] for index in indexes if index != crest)
+        gap = amounts[crest] - quiet
+        if gap > 6:
+            amounts[crest] = quiet + 6
+        elif gap < 4:
+            amounts[crest] = quiet + 5
+
+
+def _clamp_arch(amounts: list[int]) -> None:
+    if not amounts:
+        return
+    low = min(amounts)
+    if low < 0:
+        for index in range(len(amounts)):
+            amounts[index] -= low
+    high = max(amounts)
+    low = min(amounts)
+    width = high - low
+    if width > 8 and width > 0:
+        for index, amount in enumerate(amounts):
+            amounts[index] = low + int(round((amount - low) * 8 / width))
+        peak = max(range(len(amounts)), key=lambda index: amounts[index])
+        amounts[peak] = min(amounts) + 8
+    elif width < 6:
+        peak = max(range(len(amounts)), key=lambda index: amounts[index])
+        amounts[peak] += 6 - width
+
+
+def apply_torroba_sung_arch(ctx, lead, patterns):
+    """Phrase arch on the sung Torroba lead, written before the volume wave.
+
+    Dance patterns keep the strong-beat floor. Bass and support are not passed
+    through here, so they do not take the same addition. The written result
+    stays at or under 72 when the ordinary note is 64.
+    """
+    if getattr(ctx, "ensemble", None) != "torroba":
+        return list(lead)
+    from app.sonify.guitar_patterns import _bar_pattern
+
+    events = list(lead)
+    for phrase in getattr(ctx, "phrases", ()) or ():
+        chosen: list[tuple[float, int, int]] = []
+        for index, event in enumerate(events):
+            onset = event.bar * ctx.epb + float(event.beat) * 2.0
+            if not phrase.start <= onset < phrase.end:
+                continue
+            pattern = _bar_pattern(ctx, event.bar, patterns)
+            if pattern not in _SUNG_ARCH or not _sung_attack(pattern, event):
+                continue
+            chosen.append((onset, event.bar, index))
+        if len(chosen) < 2:
+            continue
+        chosen.sort()
+        onsets = [item[0] for item in chosen]
+        bars = [item[1] for item in chosen]
+        amounts = _arch_curve(onsets, float(phrase.apex.start))
+        _tenuto_gaps(amounts, bars)
+        _clamp_arch(amounts)
+        for (_onset, _bar, index), amount in zip(chosen, amounts):
+            event = events[index]
+            room = 72 - int(event.velocity or 0)
+            applied = min(amount, room) if room > 0 else 0
+            if applied > 0:
+                events[index] = replace(event, velocity=int(event.velocity) + applied)
+    return events
 
 
 def torroba_frame(ctx, bar: int) -> list[tuple]:

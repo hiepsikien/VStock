@@ -577,20 +577,24 @@ def test_snap_targets_are_accented_leads_and_castillo_has_none() -> None:
     sonatina = profile_for("torroba", "sonatina")
     dance = profile_for("torroba", "danza")
     assert castillo is not None and castillo.snap_wide is None and castillo.max_units_per_phrase == 0
-    assert sonatina is not None and (sonatina.snap_calm, sonatina.snap_wide) == (66, 68)
-    assert sonatina.max_units_per_phrase == 1 and sonatina.max_units_per_sec == 2
-    assert dance is not None and (dance.snap_calm, dance.snap_wide) == (68, 70)
+    assert sonatina is not None and sonatina.snap_calm is None and sonatina.snap_wide is None
+    assert sonatina.max_units_per_phrase == 0 and sonatina.max_units_per_sec == 0
+    assert dance is not None and (dance.snap_calm, dance.snap_wide) == (70, 73)
     assert dance.max_units_per_phrase == 1 and dance.max_units_per_sec == 3
     assert profile_for("torroba", "fandanguillo").max_units_per_sec == 3
     ctx = _ctx(melody=[72] * 8, phrase=_joined(0, [72] * 8))
     accented = NoteEvent(bar=0, beat=0.0, midi=72, duration_beats=0.5, voice=1, velocity=68, accent=True)
     plain = NoteEvent(bar=0, beat=1.0, midi=72, duration_beats=0.5, voice=1, velocity=72, accent=False)
     inner = NoteEvent(bar=0, beat=0.0, midi=67, duration_beats=0.5, voice=2, velocity=68, accent=True)
+    bell = NoteEvent(bar=0, beat=0.0, midi=67, duration_beats=2.0, voice=1, velocity=48, accent=True)
     assert _is_target(ctx, "castillo", accented, "lead", ctx.phrases[0], 0.0, 1.0) is False
-    assert _is_target(ctx, "sonatina", accented, "lead", ctx.phrases[0], 0.0, 1.0) is True
+    assert _is_target(ctx, "castillo", bell, "lead", ctx.phrases[0], 0.0, 1.0) is False
+    assert _is_target(ctx, "sonatina", accented, "lead", ctx.phrases[0], 0.0, 1.0) is False
     assert _is_target(ctx, "sonatina", plain, "lead", ctx.phrases[0], 1.0, 1.0) is False
     assert _is_target(ctx, "fandanguillo", inner, "support", ctx.phrases[0], 0.0, 1.0) is False
     assert _is_target(ctx, "danza", accented, "lead", ctx.phrases[0], 0.0, 1.0) is True
+    assert _is_target(ctx, "danza", bell, "lead", ctx.phrases[0], 0.0, 1.0) is False
+    assert _is_target(ctx, "fandanguillo", bell, "lead", ctx.phrases[0], 0.0, 1.0) is False
 
 
 def test_inner_above_65_is_playable_only_under_the_lead() -> None:
@@ -734,11 +738,111 @@ def test_danza_grids_and_humanize_ceiling() -> None:
 
 
 def test_scale_step_may_be_ab_and_does_not_raise_bb() -> None:
-    ctx = SimpleNamespace(mode="minor")
-    assert torroba_scale_step(ctx, 69, 67, low=59, high=81) % 12 == 8
-    stepped = torroba_scale_step(ctx, 70, 74, low=59, high=81)
+    from app.sonify.guitar_scale_passages import _trace_scale
+    from app.sonify.guitar_torroba import _approaches, _fit_walk, _scale_steps, _two_into
+
+    ctx = SimpleNamespace(mode="minor", treble_floor=59, treble_top=81, ensemble="torroba")
+    climbed = torroba_scale_step(ctx, 67, 1, low=59, high=81)
+    assert climbed > 67
+    stepped = torroba_scale_step(ctx, 70, 1, low=59, high=81)
     assert stepped % 12 != 11
-    assert torroba_scale_step(ctx, 70, 67, low=59, high=81) % 12 == 8
+    assert torroba_scale_step(ctx, 70, -1, low=59, high=81) % 12 == 8
+
+    # Ab stands only immediately before G, and only when the bar is G or G7.
+    into_g = _scale_steps(ctx, 69, 67, G)
+    assert into_g[-1] == 67 and into_g[-2] % 12 == 8
+    climbed_line = _scale_steps(ctx, 60, 67, G)
+    assert climbed_line[-1] == 67 and climbed_line[-2] % 12 == 8
+    assert len(climbed_line) > 3
+    fitted = _fit_walk(climbed_line)
+    assert fitted is not None and fitted[1] % 12 == 8 and fitted[-1] == 67
+    assert abs(fitted[0] - fitted[1]) <= 2 and abs(fitted[1] - fitted[2]) <= 2
+    into_d = _scale_steps(ctx, 69, 62, G)
+    assert into_d[-1] == 62 and into_d[-2] % 12 != 8
+    assert all(note % 12 != 8 for note in into_d)
+    assert _scale_steps(ctx, 69, 67, C)[-2:] != [68, 67]
+
+    assert _approaches(ctx, 67, 1, G) == [68]
+    assert _approaches(ctx, 67, 1, C)[-1] % 12 != 8
+    # Three sixteenths walk onto Ab. They do not keep D–Eb and leap a fourth.
+    assert _approaches(ctx, 67, 3, G) == [65, 67, 68]
+    assert _approaches(ctx, 74, 3, G)[-1] % 12 != 8
+
+    first, second = _two_into(ctx, 60, 67, G)
+    assert (first, second) == (67, 68)
+    fallen, before = _two_into(ctx, 72, 67, G)
+    assert (fallen, before) == (70, 68)
+    _first, other = _two_into(ctx, 60, 67, CM)
+    assert other % 12 != 8
+    _first, onto_d = _two_into(ctx, 72, 74, G)
+    assert onto_d % 12 != 8
+
+    traced = _trace_scale(ctx, 69, 67, "down", False, 59, 81, chord=G)
+    assert traced == [69, 68, 67]
+    passed = _trace_scale(ctx, 69, 62, "down", False, 50, 81, chord=G)
+    assert passed is not None and passed[-1] == 62 and passed[-2] % 12 != 8
+    assert all(note % 12 != 8 for note in passed)
+    over_c = _trace_scale(ctx, 69, 67, "down", False, 59, 81, chord=C)
+    assert over_c is not None and over_c[-2] % 12 != 8
+
+
+def test_embellish_steps_into_ab_and_a_retreat_uses_the_same_gate() -> None:
+    """Ab is declined when the note before it would have to leap. A spare step can take it."""
+    from app.sonify.guitar_scale_passages import _embellish, _trace_scale, _with_retreat
+    from app.sonify.guitar_torroba import rewrite_torroba_approach
+
+    ctx = SimpleNamespace(mode="minor", treble_floor=59, treble_top=81, ensemble="torroba", semitones=0, ceiling=84, epb=8)
+    into_g = _trace_scale(ctx, 60, 67, "up", False, 50, 81, chord=G)
+    assert into_g is not None
+    heard = _embellish(into_g, len(into_g), ctx, "up", False, 50, 81, G.pitch_classes)
+    assert heard == [60, 62, 63, 65, 67]
+
+    roomy = _embellish(into_g, len(into_g) + 2, ctx, "up", False, 50, 81, G.pitch_classes)
+    assert roomy == [60, 62, 63, 65, 67, 68, 67]
+
+    into_d = _trace_scale(ctx, 60, 74, "up", False, 50, 81, chord=G)
+    assert into_d is not None
+    heard_d = _embellish(into_d, len(into_d), ctx, "up", False, 50, 81, G.pitch_classes)
+    assert heard_d is not None and heard_d[-1] == 74 and heard_d[-2] % 12 != 8
+
+    above = [72, 70, 69, 67]
+    placed = rewrite_torroba_approach(ctx, above, G.pitch_classes, low=50, high=81)
+    assert placed == [72, 70, 68, 67]
+    flags = [False, False, False, False, True, False]
+    retreated = _with_retreat(72, 67, 6, flags, ctx, "down", False, low=50, high=81, chord_pcs=G.pitch_classes)
+    assert retreated == [72, 70, 68, 67, 68, 67]
+    climbed = _with_retreat(
+        60, 67, 6, [False, False, True, False, False, False], ctx, "up", False, low=50, high=81, chord_pcs=G.pitch_classes
+    )
+    assert climbed == [60, 62, 61, 63, 65, 67]
+
+
+def test_flat_sung_phrase_arches_the_lead_and_leaves_the_bass() -> None:
+    """A flat sung phrase has no swell. The arch is the 6–8 degrees on the lead."""
+    from app.sonify.guitar_torroba import apply_torroba_sung_arch
+
+    pitches = [67] * 32
+    phrase = _joined(0, pitches)
+    assert phrase.rise == 0
+    ctx = _ctx(melody=pitches, phrase=phrase, bars=4, character="calm")
+    lead = [
+        NoteEvent(bar=bar, beat=0.0, midi=67, duration_beats=2.0, voice=1, velocity=64)
+        for bar in range(4)
+    ]
+    bass = [
+        NoteEvent(bar=bar, beat=0.0, midi=43, duration_beats=2.0, voice=3, velocity=60)
+        for bar in range(4)
+    ]
+    arched = apply_torroba_sung_arch(ctx, lead, ["castillo"])
+    heard = [int(note.velocity or 0) for note in arched]
+    assert max(heard) - min(heard) >= 6
+    assert max(heard) - min(heard) <= 8
+    assert max(heard) <= 72
+    assert heard != [64, 64, 64, 64]
+    # The pass is lead-only. The same written bass does not take that addition.
+    assert [int(note.velocity or 0) for note in bass] == [60, 60, 60, 60]
+    danced = apply_torroba_sung_arch(ctx, lead, ["danza"])
+    assert [int(note.velocity or 0) for note in danced] == [64, 64, 64, 64]
 
 
 def test_frames_and_body_patterns_stay_playable() -> None:
@@ -907,7 +1011,7 @@ def test_breath_harmonics_and_fandanguillo_grids() -> None:
         covered_lead, covered_support, covered_low = _render_torroba_bar(covered_ctx, 0, covered, "castillo")
     assert {round(note.beat, 2) for note in covered_support} == {1.0}
     assert covered_support[0].velocity == 50
-    assert covered_low[0].velocity == 54
+    assert covered_low[0].velocity == 58
     assert covered_lead[0].duration_beats >= 2
 
     # Ending at eighth 4 leaves only offset 2. That one-offset tail is dropped; offset 6 stays,
@@ -922,7 +1026,7 @@ def test_breath_harmonics_and_fandanguillo_grids() -> None:
         partial_lead, partial_support, partial_low = _render_torroba_bar(partial_ctx, 0, ended, "castillo")
     assert {round(note.beat, 2) for note in partial_support} == {3.0}
     assert partial_support[0].velocity == 56
-    assert partial_low[0].velocity == 60
+    assert partial_low[0].velocity == 62
     assert partial_lead[0].velocity == covered_lead[0].velocity
 
     # The downbeat owner does not close. The phrase that starts at eighth 4 does, and it
@@ -1644,14 +1748,14 @@ def test_type_3_harmonic_is_48_only_on_a_node() -> None:
         assert sustain[0].accent is (velocity != 48)
         assert (midi in _HARMONICS) is (velocity == 48)
         bass = [note for note in parts[2][2] if note.midi is not None]
-        assert len(bass) == 1 and bass[0].velocity == 60 - _MICRO
+        assert len(bass) == 1 and bass[0].velocity == 62 - _MICRO
 
 
 def test_type_7_mordent_and_bar_5_bass_keep_the_written_steps() -> None:
     expected = {
-        "4/4": [58, 58, 58, 58, 56, 56, 58],
-        "3/4": [58, 58, 56, 56, 58],
-        "6/8": [58, 58, 56, 56, 58],
+        "4/4": [60, 60, 60, 60, 58, 58, 60],
+        "3/4": [60, 60, 58, 58, 60],
+        "6/8": [60, 60, 58, 58, 60],
     }
     for kind, velocities in expected.items():
         ctx, _phrase, parts = _flat_figure(kind, 7)
@@ -1673,7 +1777,7 @@ def test_type_7_mordent_and_bar_5_bass_keep_the_written_steps() -> None:
         assert len(chord_bass) == 1
         assert chord_bass[0].beat == pytest.approx(0.0)
         assert chord_bass[0].duration_beats == pytest.approx(0.5)
-        assert chord_bass[0].velocity == 58
+        assert chord_bass[0].velocity == 60
         assert [note.velocity for note in running] == velocities
         assert all(note.duration_beats == pytest.approx(0.5) for note in running)
         assert running[-1].midi % 12 == C.pitches[0] % 12
@@ -1757,22 +1861,22 @@ def test_type_8_bass_color_stays_under_the_ceiling_and_keeps_a_single_eighth() -
     ]
     for note in color:
         assert note.midi <= 52
-        assert note.velocity == 60 - _MICRO
+        assert note.velocity == 62 - _MICRO
     ordinary, _phrase, plain = _flat_figure("4/4", 8, chord=G)
     for note in plain[0][2]:
         assert note.midi not in _HARMONICS
-        assert note.velocity == 60 - _MICRO
+        assert note.velocity == 62 - _MICRO
         assert note.midi < 52
     for beat in (0.0, 2.0):
         attacks = [note for note in parts[1][0] if note.beat == pytest.approx(beat)]
         assert len(attacks) == 1 and attacks[0].duration_beats == pytest.approx(0.5)
     first_slur = [note.velocity for note in parts[1][0] if 0.5 <= note.beat < 2]
-    assert first_slur == [62, 62, 62]
+    assert first_slur == [64, 64, 64]
     second_slur = [note.velocity for note in parts[1][0] if note.beat >= 2.5]
-    assert second_slur == [62, 62, 60]
+    assert second_slur == [62, 62, 62]
     _ctx34, _phrase34, three = _flat_figure("3/4", 8, chord=C)
     three_lead = [note.velocity for note in three[1][0] if note.beat >= 0.5 and note.duration_beats == pytest.approx(0.5)]
-    assert three_lead[:3] == [62, 62, 62]
+    assert three_lead[:3] == [64, 64, 64]
     six = _flat_figure("6/8", 8, chord=C)[2]
     eighth_three = [note for note in six[0][0] if note.beat == pytest.approx(1.5)]
     assert len(eighth_three) == 1 and eighth_three[0].velocity == 64
@@ -1824,20 +1928,20 @@ def test_type_4_and_type_5_keep_the_locked_levels() -> None:
     assert tail == [64, 64 - _MICRO, 64 - _MICRO, 64 - _MICRO]
     weak_bass = [note for note in call[0][2] if note.beat == pytest.approx(3.5)]
     weak_support = [note for note in call[0][1] if note.beat == pytest.approx(3.5)]
-    assert len(weak_bass) == 1 and weak_bass[0].velocity == 56
+    assert len(weak_bass) == 1 and weak_bass[0].velocity == 58
     assert len(weak_support) == 1 and weak_support[0].velocity == 54
     _ctx34, _phrase34, call34 = _flat_figure("3/4", 4)
     bass_five = [note for note in call34[0][2] if note.beat == pytest.approx(2.5)]
     support_five = [note for note in call34[0][1] if note.beat == pytest.approx(2.5)]
     support_four = [note for note in call34[0][1] if note.beat == pytest.approx(2.0)]
-    assert len(bass_five) == 1 and bass_five[0].velocity == 56
+    assert len(bass_five) == 1 and bass_five[0].velocity == 58
     assert len(support_five) == 1 and support_five[0].velocity == 54
     assert len(support_four) == 1 and support_four[0].velocity == 56
     assert not any(note.beat == pytest.approx(0.0) for note in call[0][0])
     assert four.kind == "4/4"
     _ctx_figure, _phrase, fan = _flat_figure("4/4", 5)
     assert fan[0][0][0].velocity == 68
-    assert fan[0][2][0].velocity == 60
+    assert fan[0][2][0].velocity == 64
     assert fan[0][1][0].velocity == 56
     handoff = [note.velocity for note in fan[2][0]]
     assert handoff == [68 - 2 * _MICRO, 68 - 2 * _MICRO, 68 - _MICRO, 68]
@@ -1848,7 +1952,7 @@ def test_type_4_and_type_5_keep_the_locked_levels() -> None:
     assert [note.midi for note in slur] == [50, 48]
     assert [note.duration_beats for note in slur] == [pytest.approx(0.25), pytest.approx(0.25)]
     assert slur[0].slur_start and slur[1].slur_stop
-    assert [note.velocity for note in slur] == [60 - 2 * _MICRO, 60 - _MICRO]
+    assert [note.velocity for note in slur] == [64 - 2 * _MICRO, 64 - _MICRO]
 
 
 def test_harmonic_48_skips_the_whole_bar_extra() -> None:
@@ -1973,7 +2077,7 @@ def _assert_type7_roll(lead, support, low, bar_beats: float, *, written: bool = 
     if written:
         assert highs[0].velocity == 64
         assert {note.velocity for note in mids} == {54}
-        assert bass[0].velocity == 58
+        assert bass[0].velocity == 60
 
 
 def _assert_block(lead, support, low) -> None:
@@ -2194,7 +2298,7 @@ def test_rolled_rasgueado_onsets_releases_and_block_chords(kind: str) -> None:
     _assert_eighth_roll(
         *type2[0],
         lead_velocity=64,
-        bass_velocity=58,
+        bass_velocity=60,
         support_velocity=54,
         accent=False,
         min_strings=3,
@@ -2217,7 +2321,7 @@ def test_rolled_rasgueado_onsets_releases_and_block_chords(kind: str) -> None:
     _assert_eighth_roll(
         *danced,
         lead_velocity=68,
-        bass_velocity=60,
+        bass_velocity=64,
         support_velocity=56,
         accent=True,
     )
@@ -2226,7 +2330,7 @@ def test_rolled_rasgueado_onsets_releases_and_block_chords(kind: str) -> None:
     _assert_eighth_roll(
         *type3[0],
         lead_velocity=64,
-        bass_velocity=58,
+        bass_velocity=60,
         support_velocity=54,
         accent=False,
         min_strings=3,
@@ -2234,7 +2338,7 @@ def test_rolled_rasgueado_onsets_releases_and_block_chords(kind: str) -> None:
     )
 
     _ctx5, _phrase5, type5 = _flat_figure(kind, 5)
-    _assert_eighth_roll(*type5[0], lead_velocity=68, bass_velocity=60, support_velocity=56)
+    _assert_eighth_roll(*type5[0], lead_velocity=68, bass_velocity=64, support_velocity=56)
     _assert_block(*type5[3])
 
     _ctx7, _phrase7, type7 = _flat_figure(kind, 7)
@@ -2261,7 +2365,7 @@ def test_rolled_rasgueado_onsets_releases_and_block_chords(kind: str) -> None:
         assert all(note.duration_beats == pytest.approx(0.25) for note in opened)
 
     _meter, epb, strong, _beats = _FIGURE_METERS[kind]
-    # Held, so the downbeat is not a close and the beds stay 68 / 60 / 56.
+    # Held, so the downbeat is not a close and the beds stay 68 / 64 / 56.
     phrase = _joined(0, [72] * epb, held=True)
     grid = _ctx(
         melody=[72] * epb,
@@ -2275,7 +2379,7 @@ def test_rolled_rasgueado_onsets_releases_and_block_chords(kind: str) -> None:
     )
     with compose_meter(meter):
         dance = _render_torroba_bar(grid, 0, phrase, "fandanguillo")
-    _assert_eighth_roll(*dance, lead_velocity=68, bass_velocity=60, support_velocity=56)
+    _assert_eighth_roll(*dance, lead_velocity=68, bass_velocity=64, support_velocity=56)
     assert_playable(_figure_score(grid, [dance], 1), profiles="torroba")
 
     if kind != "4/4":
@@ -2703,10 +2807,12 @@ def test_castillos_mood_table_and_printed_names() -> None:
     olite = profile_for("torroba", "olite")
     danza = profile_for("torroba", "danza")
     assert juglar is not None and sonatina is not None
-    assert (juglar.snap_calm, juglar.snap_wide, juglar.max_units_per_phrase, juglar.max_units_per_sec) == (66, 68, 1, 2)
+    assert juglar.snap_calm is None and juglar.snap_wide is None
+    assert (juglar.max_units_per_phrase, juglar.max_units_per_sec) == (0, 0)
     assert alcaniz is not None and danza is not None and olite is not None
-    assert (alcaniz.snap_calm, alcaniz.snap_wide, alcaniz.max_units_per_sec) == (68, 70, 3)
-    assert (olite.snap_calm, olite.snap_wide, olite.max_units_per_sec) == (68, 70, 3)
+    assert (alcaniz.snap_calm, alcaniz.snap_wide, alcaniz.max_units_per_sec) == (70, 73, 3)
+    assert (olite.snap_calm, olite.snap_wide, olite.max_units_per_sec) == (70, 73, 3)
+    assert (danza.snap_calm, danza.snap_wide) == (70, 73)
 
 
 def _macro(kind: str, epb: int, strong: tuple[int, ...], bpm: int, character: str, *, bridge: bool, trio: bool, moods: list[str] | None, bar_beats: float):
@@ -2833,7 +2939,7 @@ def test_juglar_triplets_accent_only_the_downbeat() -> None:
     assert all(round(note.beat * 12) % 4 == 0 for note in lead)
     accented = NoteEvent(bar=0, beat=0.0, midi=67, duration_beats=4 / 12, voice=1, velocity=60, accent=True)
     plain = NoteEvent(bar=0, beat=4 / 12, midi=67, duration_beats=4 / 12, voice=1, velocity=56)
-    assert _is_target(ctx, "torroba_tremolo", accented, "lead", phrase, 0.0, 1.0) is True
+    assert _is_target(ctx, "torroba_tremolo", accented, "lead", phrase, 0.0, 1.0) is False
     assert _is_target(ctx, "torroba_tremolo", plain, "lead", phrase, 4 / 12, 1.0) is False
 
     thin_phrase = Phrase(0, 6, (Run(0, 6, 67),))
@@ -3064,7 +3170,7 @@ def test_olite_chords_walk_and_thin_close() -> None:
         (note for note in short_lead if abs(note.beat) > 1e-6 and abs(note.beat - 2.0) > 1e-6),
         key=lambda note: note.beat,
     )
-    assert [note.midi for note in walked] == [62, 64, 64, 65, 67, 72]
+    assert [note.midi for note in walked] == [62, 64, 64, 65, 71, 72]
     assert all(not note.accent for note in walked)
     assert not any(note.beat == pytest.approx(walked_beat) for note in short_support for walked_beat in (0.5, 1.0, 1.5, 2.5, 3.0, 3.5))
     assert castillos_wave_row(ctx, 0, ["olite"], "olite") == "olite"
