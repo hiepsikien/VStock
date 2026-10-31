@@ -2618,7 +2618,14 @@ def _heard(bar: int, beat: float, midi: int, duration: float, voice: int, veloci
 
 
 def _lead_vel(ctx, eighth: int, phrase) -> int:
-    return _note_velocity(eighth, 1, _apex_eighths(ctx.phrases), phrase)
+    """Swell of the sentence that owns this eighth.
+
+    The phrase of the downbeat is only the fallback. A sentence that opens
+    mid-bar takes its own swell from that eighth on. Accent and the floor
+    stay with the bar's grid.
+    """
+    owner = _phrase_covering(ctx, eighth, phrase)
+    return _note_velocity(eighth, 1, _apex_eighths(ctx.phrases), owner)
 
 
 def _one_under(velocity: int, band: str) -> int:

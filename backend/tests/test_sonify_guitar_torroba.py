@@ -3061,6 +3061,53 @@ def test_olite_chords_walk_and_thin_close() -> None:
     assert _beats(stayed) == [0.0, 2.0] and stayed_support == []
     assert all(not note.accent for note in stayed)
 
+
+def test_castillos_second_half_uses_the_sentence_that_opens_there() -> None:
+    """A sentence that starts mid-bar brings its own swell. The price note stays."""
+    rise = [60, 62, 64, 67, 69, 71, 72, 74]
+    opening = _joined(0, [72] * 4, held=True)
+    following = _joined(4, rise)
+    assert following.rise >= MIN_RISE and following.apex.start > 4
+    melody = [72] * 4 + rise
+    olite = _many((opening, following), kind="4/4", melody=melody)
+    with compose_meter(METER_44):
+        olite_lead, _support, _low = _render_torroba_bar(olite, 0, opening, "olite")
+    apex = _apex_eighths(olite.phrases)
+    local = _note_velocity(4, 1, apex, following)
+    borrowed = _note_velocity(4, 1, apex, opening)
+    assert local == 60 and borrowed == 64
+    chord = next(note for note in olite_lead if note.beat == pytest.approx(2.0))
+    first = next(note for note in olite_lead if note.beat == pytest.approx(0.0))
+    assert chord.midi == melody[4] and chord.velocity == local and not chord.accent
+    assert first.velocity == borrowed
+
+    soft_open = _joined(0, [72] * 3, held=True)
+    soft_next = _joined(3, rise)
+    alcaniz = _many((soft_open, soft_next), kind="6/8", melody=[72] * 3 + rise)
+    with compose_meter(METER_68):
+        alcaniz_lead, _support, _low = _render_torroba_bar(alcaniz, 0, soft_open, "alcaniz")
+    apex = _apex_eighths(alcaniz.phrases)
+    later = next(note for note in alcaniz_lead if note.beat == pytest.approx(1.5))
+    early = next(note for note in alcaniz_lead if note.beat == pytest.approx(0.0))
+    assert later.midi == 60 and later.duration_beats == pytest.approx(1.5)
+    assert later.velocity == _note_velocity(3, 1, apex, soft_next)
+    assert later.velocity != _note_velocity(3, 1, apex, soft_open)
+    assert early.velocity == _note_velocity(0, 1, apex, soft_open)
+
+    juglar_open = _joined(0, [72] * 4, held=True)
+    juglar_next = _joined(4, rise)
+    juglar = _many((juglar_open, juglar_next), kind="3/4", melody=melody)
+    with compose_meter(METER_34):
+        juglar_lead, _support, _low = _render_torroba_bar(juglar, 0, juglar_open, "torroba_tremolo")
+    apex = _apex_eighths(juglar.phrases)
+    downbeat = next(note for note in juglar_lead if note.beat == pytest.approx(0.0))
+    last = next(note for note in juglar_lead if note.beat == pytest.approx(2.0))
+    assert last.midi == melody[4] and last.duration_beats == pytest.approx(1.0)
+    assert last.velocity == _note_velocity(4, 1, apex, juglar_next)
+    assert downbeat.velocity == _note_velocity(0, 1, apex, juglar_open)
+    assert last.velocity != downbeat.velocity
+
+
 def test_type3_scale_follows_each_eighth_of_the_sentence() -> None:
     """A scale cell is a sentence, not one velocity copied from its last note."""
     pitches = [60] * 8 + list(range(62, 70)) + [74] * 8
