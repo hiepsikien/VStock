@@ -1,224 +1,270 @@
 # Torroba: mặt nốt, chọn nhịp, tempo, và câu hát
 
-> **Trạng thái**: đã nghe trên VRE 1M, Guitar, Torroba. Đã chốt giải pháp kỹ thuật và cách chọn nhịp, chờ code.
-> **Thay cho**: hàng `castillo`, `ctx.bpm > 72` → «một nốt giá ngân cả ô» và cổng `n % 2 == 1` trong [`docs/sonify-guitar-torroba-phrase-plan.md`](./sonify-guitar-torroba-phrase-plan.md) mục 4.0; bảng chọn pattern trên 4/4 / 3/4 / 6/8 trong [`docs/sonify-guitar-torroba-aba-tempo.md`](./sonify-guitar-torroba-aba-tempo.md) mục 3–4; và cách gộp hai ô 2/4 thành một ô 4/4 trong [`docs/sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md) mục 3.3 khi phép gộp đó kéo dài hình nốt hoặc bỏ trống nhóm móc yếu.
-> **Giữ**: staccato đúng chỗ trong một điệu nhảy. Tám kiểu đã viết. Đường giá `_melody_at`. Không thêm id pattern.
+> **Trạng thái**: đã nghe trên VRE 1M, Guitar, Torroba. Đã khóa giải pháp kỹ thuật theo sau PR 110, chờ code.
+> **Thay cho**:
+> - Hàng `castillo`, `ctx.bpm > 72` → «một nốt giá ngân cả ô», cổng `n % 2 == 1`, và ràng buộc «một câu chỉ có một kiểu» trong [`docs/sonify-guitar-torroba-phrase-plan.md`](./sonify-guitar-torroba-phrase-plan.md) mục 4.0;
+> - Ô `4/4` mood `calm` trong [`docs/sonify-guitar-torroba-aba-tempo.md`](./sonify-guitar-torroba-aba-tempo.md) mục 3–4, và luật «một cú ở móc 0, dài một phách» của mục 5 đối với thân `castillo` / `olite` trên 4/4;
+> - Cách gộp hai ô 2/4 thành một ô 4/4 trong [`docs/sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md) mục 3.3 khi phép gộp đó bỏ trống nhóm móc yếu hoặc giữ `_olite_thin` thưa ở BPM > 72, cùng `staccato=True` trên mọi hợp âm cửa `olite` ở mục 4.7;
+> - Cửa sổ `floor_calm` / `floor_wide` của hai hàng sóng trong [`docs/sonify-guitar-torroba-dynamics.md`](./sonify-guitar-torroba-dynamics.md) mục 2–3 (hoặc giường `_raised_bed` trên tiếng êm; xem mục 7 bên dưới — chỉ chọn **một núm −4**, không hạ kép cả hai).
+> **Giữ**: Khung nhịp `_guitar_meter` của `span.py` (không đổi nhịp riêng của Torroba). Staccato đúng chỗ trong điệu nhảy và toàn bộ cửa `fandanguillo` / `danza`. Tám kiểu đã viết. Đường giá `_melody_at`. `_MICRO_FLOOR = 40` dùng chung. Không thêm id pattern.
 
 Bốn việc cùng một đợt nghe:
 
-1. **Chọn nhịp và ghép bản vào chương**: Hầu hết các tác phẩm tiêu biểu của Torroba (*Sonatina* I Allegretto, *Fandanguillo*, *Arada*, *Danza*, *Simancas*, *Redaba*, *Alcañiz*, *Torija*) đều viết ở nhịp ba (**3/4, 3/8, 6/8**), chỉ một số bản hành khúc / lễ hội như *Olite* là **2/4** (tương đương hai nửa ô 4/4). Đẩy *Sonatina* (vốn là 3/4 Allegretto) và *Castillo* (nốt tròn 4 phách) vào chương I và IV ở 4/4 đang làm biến dạng chu kỳ 3 móc đơn của Torroba.
-2. **Mặt nốt ở BPM = 96**: Mặt nốt đang quá dài (nốt tròn 2,5 giây ở Castillo, nhịp nốt trắng mỗi nửa ô ở Sonatina và Olite khi giá ngang), nên tempo 96 nghe chậm dề dà.
-3. **Câu hát, láy trùm ba, và tiếng bass đứt**: Nốt đen ở bè trầm (nhất là bass bấm cao 40–53) tắt cụt giữa lúc câu còn hát, cộng thêm `staccato=True` bị gắn tràn sang cả scale của Sonatina và toàn bộ cửa Olite. Láy trùm ba (`E–F–E` có slur) bị rút thành 2 móc kép hoặc bị khóa ngoài BPM > 72.
-4. **Cận dưới Velocity −4 và độ phủ texture**: Cổng `bpm > 72` và `n % 2 == 1` bỏ phí gần hết 8 kiểu kết cấu đã viết; còn `_micro_fits` cùng sàn `guitar_wave.py` đang chặn câu êm xuống −4.
+1. **Giữ khung `_guitar_meter`, sửa mặt nốt trên 4/4 (96 BPM):** Chương I của VRE 1M là `selloff` (`Castillo — Olite — Castillo`) và chương IV là `rally` (`Olite — Sonatina — Olite`). Mặt nốt của `castillo`, `sonatina` và chỗ `olite` nghỉ trắng khi giá đi ngang mới là nguyên nhân trực tiếp làm bản vừa nghe bị chậm và đứt. Riêng trên bảng 4/4, chỉ đổi ô `calm` (`Sonatina` làm A, `Castillo` làm B); các hàng `rally`, `volatile`, `selloff` trên 4/4 và toàn bộ bảng `3/4`, `6/8` giữ nguyên như đang chạy.
+2. **Mặt nốt 2+2 trên 4/4 ở BPM = 96:** Một ô 4/4 vận hành như hai ô 2/4 ghép lại (hai nửa ô ở móc 0 và móc 4), chạy bằng móc đơn, móc kép và một ít nốt đen / chấm dôi. Bỏ nốt tròn 4 phách của `_render_castillo_bar` và bỏ nhịp nốt trắng (chỉ gảy ở móc 0 và 4) của `_render_sonatina_bar` cùng `_olite_thin` ở BPM > 72.
+3. **Gỡ staccato sai chỗ, nối bass hai lần gảy, và thêm láy trùm ba (`E–F–E`):** Bỏ `staccato=True` trên `_type3_scale` và trên các ô cửa `olite` trước nhát kết cuối (**không** đụng cửa `fandanguillo` và `danza`). Bass trên 4/4 gảy hai lần ở móc 0 và móc 4 (không buộc thành nốt tròn gây ù dây buông) kèm cửa lùi về 1 phách khi thế tay không giữ nổi. Mở chùm ba móc kép `1/6` phách (`E–F–E` có slur) qua `_covers` và `musicxml.py`.
+4. **Nhiều span kiểu trong một câu (độ phủ 60% – 70%) và một núm Velocity −4:** Cho phép một câu thân bài mang nhiều span kiểu (mỗi span đếm lại `index` từ `0`) để đạt đúng 60% – 70% số ô trên cả câu dài 5 đến 8 ô, và chọn **đúng một núm −4** tương thích với `_raised_bed` của PR 110.
 
 ---
 
-## 1. Việc đang nghe
+## 1. Việc đang nghe trên VRE 1M
 
-VRE 1M, bốn chương. Chương I và chương IV hiện là 4/4, nốt đen = 96. Chương I có Castillo. Chương IV có Olite — Sonatina — Olite.
+VRE 1M, bốn chương:
+- **Chương I (`selloff`, 4/4, 96 BPM):** Đang hát `Castillo — Olite — Castillo`.
+- **Chương IV (`rally`, 4/4, 96 BPM):** Đang hát `Olite — Sonatina — Olite`.
 
-Tai nghe ba lớp lỗi:
+Tai nghe ba lớp lỗi khớp trực tiếp với code trên `main`:
 
-1. **Nhát đứt (staccato và bass cụt):** Nốt đen ở bè trầm, nhất là nốt bấm cao hơn dây buông, tắt ngay sau 1 phách (hoặc 0,5 phách ở Olite) giữa lúc câu còn hát. Cửa intro/outro của Olite đánh toàn hợp âm `staccato=True` suốt nhiều ô, và ô chạy thang âm của Sonatina (`_type3_scale`) cũng gắn `staccato=True` lên cả 8 móc đơn. Staccato thỉnh thoảng, đúng vị trí, trong một điệu nhảy (như nhát đầu của *Danza* hay *Fandanguillo*), thì là nhạc. Staccato và bass ngắn thành cách dựng cả câu thì làm đứt bản.
-2. **Phẳng và thiếu chất luyến láy:** Castillo và Sonatina của chương I không có câu dài, không có contrast, không có chấm phá. Một nốt ngân suốt ô, hoặc hai tiếng rời cách nhau nửa ô, không phải mặt của Torroba. Chữ ký luyến láy trùm ba (`E–F–E` có slur) vắng mặt.
-3. **Chậm dề dà vì sai mặt nốt và sai nhịp:** Cùng nốt đen = 96, mặt đang hát là nốt trắng và nốt tròn. Bản gốc của ông chạy bằng móc đơn và móc kép.
-
----
-
-## 2. Xem lại cách chọn nhịp cho các chương Torroba
-
-Nhìn lại toàn bộ các bản gốc của Torroba đang làm nguồn cho 7 pattern và 8 kiểu trong engine:
-
-| Bản gốc của Torroba | Nhịp gốc | Tempo & Tính chất gốc | Khi ép vào 4/4 hiện tại |
-|---|---|---|---|
-| *Sonatina* I | **3/4** | Allegretto, tươi sáng, đối đáp móc đơn / móc kép (chu kỳ 3 móc hoặc 6 móc) | Bị dư 2 móc đơn cuối ô (`eighth 6, 7`): Kiểu 1 phải chêm 2 nốt đệm, Kiểu 2 phải đặt 2 dấu lặng ở móc 3 và 7, lưới nền chỉ gảy ở móc 0 và 4 (biến thành nhịp nốt trắng) |
-| *Suite Castellana* I — *Fandanguillo* | **3/4** | Allegro / nhịp vũ khúc 3 phách | Quạt đầu ô rồi rải 3 phách; sang 4/4 bị kéo dài đuôi |
-| *Suite Castellana* II — *Arada* | **3/4** | Lento trữ tình, chấm dôi + mordent trùm ba + rải móc đơn | Sang 4/4 nửa sau ô 1 bị kéo thành nốt trắng (`duration_beats = 2.0`) |
-| *Suite Castellana* III — *Danza* | **3/8** (6/8) | Allegro vivace, nhóm 3 móc đơn | Đã cấm ở 4/4 vì không chia hết cho 8 móc |
-| *Simancas* (Juglar) | **3/4** | Allegretto, chùm ba móc đơn (triplets) | Chỉ sống trên 3/4 |
-| *Alcañiz* | **3/8** (6/8) | Allegro, nhóm 3 móc đơn | Chỉ sống trên 6/8 |
-| *Torija* (Elegía) | **3/4** | Andantino / Lento ngân nga | Là ngoại lệ chậm trong *Castillos de España*, cũng ở nhịp 3/4 |
-| *Olite* (*Fiesta del Rey Noble*) | **2/4** | Vivace (nốt đen = 95), rộn ràng, câu chạy 7 nốt móc kép + móc đơn qua 2 ô 2/4 | Ghép 2 ô 2/4 thành 1 ô 4/4 (4 phách đen) thì vừa khít, miễn là giữ nguyên móc kép và móc đơn |
-
-### Hệ quả về chọn nhịp và phân vai chương
-
-1. **Nhịp tự nhiên của Torroba là nhịp 3 (`3/4` và `6/8`) và nhịp `2/4` (tức `4/4` chia đôi mỗi 2 phách = 4 móc đơn):**
-   - Trong `span.py`, `_guitar_meter` hiện chỉ đổi chương chậm (II) sang `3/4` và scherzo (III) sang `6/8`, còn chương mở đầu (1M-I, 3M-I, 1Y opener) và finale (1M-IV, 3M-III, 1Y closer) giữ `4/4`.
-   - Với riêng Torroba (hoặc khi chọn nhịp chương cho Guitar):
-     - **Nếu chương mở đầu / chương nhanh dùng *Sonatina* I (Allegretto), *Fandanguillo*, hoặc *Arada* / *Castillo*:** Nhịp đúng phong cách nhất của chúng là **3/4** (ở Allegretto 96–108 BPM) hoặc nếu giữ khung **4/4** của toàn hệ thống thì **mỗi ô 4/4 phải vận hành như hai ô 2/4 ghép lại (chu kỳ 4 móc đơn = 2 phách đen, phách mạnh tại móc 0 và móc 4)**, tuyệt đối không viết nốt tròn 4 phách hay bỏ trống 3 móc yếu.
-     - **Nếu giữ `_guitar_meter` chung nhưng cho phép chương nhanh Guitar hoặc bảng pattern theo nhịp đúng chất Torroba:**
-       - Trên **4/4 (90–108 BPM)** — thực chất là **hai ô 2/4 ghép lại**:
-         - `rally` và `volatile`: **Olite** (A) — **Sonatina** (B) — **Olite** (A).
-         - `calm`: **Sonatina** (A) — **Castillo** (B) — **Sonatina** (A) *(thay vì để Castillo ngân nốt tròn cả vùng A suốt chương 1 làm bản nhạc chậm dề dà; Sonatina Allegretto đứng làm A cho chương mở đầu tươi sáng, còn Castillo với Kiểu 7/8 Arada làm vùng B trữ tình 8 ô ở giữa)*.
-         - `selloff`: **Castillo** (A, nhưng bắt buộc chạy mặt móc đơn + Kiểu 7/8 *Arada*, không ngân nốt tròn) — **Olite** (B) — **Castillo** (A).
-       - Trên **3/4 (60–72 BPM, chương II)**:
-         - Đây mới là chỗ của *Torija* / *Arada* chậm (**Castillo** với Kiểu 7 và Kiểu 8), đối đáp với **Juglar** (*Simancas* chùm ba) hoặc **Danza**.
-       - Trên **6/8 (108–120 BPM, chương III Scherzo)**:
-         - Giữ đúng nhịp vũ khúc 3/8–6/8 của **Fandanguillo**, **Alcaniz**, và **Danza**.
+1. **Nhát đứt (staccato và bass cụt):**
+   - Trong `_render_castillo_bar`, bass chỉ viết `written(origin, 2, bass)` (dài 1 phách đen ở móc 0) rồi nghỉ suốt 3 phách còn lại trong khi lead ngân cả ô. Khi `bass` là nốt bấm cao trong vùng 40–53, tiếng tắt ở phách 2 nghe như một nhát đứt giữa câu.
+   - Trong `_olite_chord`, điều kiện `if _open_bass_tone(ctx, raw)` bỏ hẳn bass khi không phải dây buông, và khi có thì chỉ dài `0.5` phách.
+   - Trong `_type3_scale` (Sonatina câu đóng), cả 8 nốt móc đơn đều gắn `staccato=True`.
+   - Trong `_olite_chords` (`guitar_torroba_doors.py`), mọi hợp âm intro/outro của cửa Olite đều gắn `staccato=True`.
+2. **Phẳng và thiếu luyến láy trùm ba:**
+   - `_span_castillo` trả về `(None, ())` ngay khi `ctx.bpm > 72`, nên toàn bộ chương I (`Castillo` ở 96 BPM) có **0%** ô nhận Kiểu 7 (*Arada*) hay Kiểu 8.
+   - `select_torroba_figure` trả về `(None, ())` cho mọi câu lẻ (`n % 2 == 1`).
+   - Láy trùm ba (`E–F–E` có slur trong 1 móc đơn) chưa có mặt: mordent của Kiểu 7 đang rút thành 2 móc kép (`0.25 + 0.25`) và cũng bị khóa ngoài chương 96 BPM.
+3. **Chậm dề dà ở 96 BPM:**
+   - `_render_castillo_bar` viết một nốt tròn `written(origin, epb, midi)` dài 4 phách (2,5 giây ở 96 BPM).
+   - `_render_sonatina_bar` chỉ đặt lead ở `ctx.strong` (móc 0 và móc 4), làm nhịp giai điệu giãn thành nốt trắng.
+   - `_olite_group` trả về `[]` khi `start == target` (giá đi ngang giữa móc 0 và móc 4), làm 3 móc yếu `(1, 2, 3)` hoặc `(5, 6, 7)` nghỉ trắng. Và khi câu rơi vào `_olite_thin` (câu đóng hoặc `rise < 3`), cả ô cũng chỉ có đúng 2 móc đơn lead ở móc 0 và móc 4, bass `0.5` phách ở móc 0, còn lại nghỉ trắng.
 
 ---
 
-## 3. Tempo và mặt nốt ở 96 BPM
+## 2. Khung nhịp `_guitar_meter` và bảng chọn Pattern
 
-Ngoài *Torija* và vài bài chậm ở chương II (60–72 BPM), nhạc Torroba tươi sáng và có tốc độ. *Sonatina* I là Allegretto, không phải bản chậm. *Olite* là Vivace (nốt đen = 95).
+Giữ nguyên `_guitar_meter` trong `span.py` (chương I và IV của 1M ở `4/4`, chương II ở `3/4`, chương III ở `6/8`). Không đổi nhịp riêng cho Torroba; trên `4/4`, mặt nốt 2+2 vận hành như **hai ô 2/4 ghép lại** (phách mạnh ở móc 0 và móc 4), không phải chu kỳ 3 móc của 3/4.
 
-Mặt nốt Torroba viết ở chương nhanh (90–108 BPM):
-
-| Hình | Vai |
-|---|---|
-| **Móc kép (`0.25`) và chùm ba móc kép (`1/6`)** | Nét chạy, láy trùm ba (`E–F–E`), chấm phá |
-| **Móc đơn (`0.5`)** | Mặt chính của câu hát và bè đệm rải. Phần lớn tiếng nằm ở đây |
-| **Nốt đen (`1.0`) / đen chấm dôi (`1.5`)** | Trụ đầu câu hoặc một nhát trong điệu, dưới đáy luôn có bè trầm/bè trung rải móc đơn |
-| **Nốt trắng (`2.0`), nốt tròn (`4.0`)** | Chỉ đứng ở chỗ ngân có chủ đích cuối câu hoặc trong chương chậm ≤ 72 BPM. **Cấm làm lưới nền của chương 96 BPM** |
-
-Ở nốt đen = 96, một móc đơn dài 0,31 giây, một nốt đen dài 0,63 giây, một nốt trắng dài 1,25 giây, một nốt tròn dài 2,5 giây. Cách sửa trực diện mặt nốt của ba pattern trên 4/4 (96 BPM):
-
-1. **Thân `castillo` ở BPM > 72 (`_render_castillo_bar` và `_span_castillo`):**
-   - **Bỏ cổng `if ctx.bpm > 72: return None, ()` trong `_span_castillo`**: Cho phép `castillo` ở chương 96 BPM gọi đầy đủ **Kiểu 7 (*Arada*)** và **Kiểu 8**.
-   - **Sửa `_render_castillo_bar` khi BPM > 72 (hoặc cho mọi ô lưới nền `castillo` trên 4/4):** Không viết một nốt tròn `written(origin, epb, midi)` suốt 4 phách kèm 1 bass đen cụt ở móc 0. Thay bằng **mặt 2 nửa ô (như hai ô 2/4 hoặc hai trụ chấm dôi *Arada*)**:
-     - Nửa đầu (móc 0..3): `lead` hát `_melody_at(origin)` chấm dôi (`duration_beats = 1.5`), dưới đáy `bass` ngân 2 phách (`duration_beats = 2.0`, không cắt cụt ở 1 phách) và `support` rải móc đơn ở móc 1, 2; tại móc 3 `lead` đi móc đơn `_melody_at(origin + 3)` (hoặc láy trùm ba có slur nối sang móc 4).
-     - Nửa sau (móc 4..7): `lead` hát `_melody_at(origin + 4)` chấm dôi (`1.5`) + móc 7 nối sang ô sau (hoặc khi câu `closes` mới ngân nốt trắng ở nửa sau), `bass` đi tiếp ở móc 4 (`2.0` phách).
-   - Riêng ở **Kiểu 7 ô 1 trên 4/4**: nửa sau ô (từ `beat = 2.0`) khi `ctx.bpm > 72` không đứng im một nốt trắng `2.0` mà giữ chuyển động móc đơn ở móc 6–7 giống Ô 2 để câu không bị khựng.
-2. **Lưới nền `sonatina` (`_render_sonatina_bar`):**
-   - Hiện tại `lead` chỉ đánh ở `ctx.strong` (móc 0 và móc 4), mỗi nốt dài `0.5` phách rồi nghỉ suốt 3 móc yếu, làm nhịp giai điệu bị giãn thành nốt trắng.
-   - **Sửa `_render_sonatina_bar`**:
-     - Tại móc mạnh (`0` và `4` trên 4/4; `0` trên 3/4): `lead` đánh `_melody_at` (`duration_beats = 1.0` hoặc `0.5` nối slur), `bass` ngân trọn nửa ô (`duration_beats = 2.0` trên 4/4, `1.5` hoặc `3.0` trên 3/4 — không cắt ở `0.5` phách).
-     - Tại các móc giữa (`1, 2, 3` và `5, 6, 7` trên 4/4; `1, 2, 3, 4, 5` trên 3/4): `lead` và `support` đối đáp liên tục bằng **móc đơn (`0.5`) kèm nốt lấy đà móc kép (`0.25`) / láy trùm ba có slur** đọc từ `_melody_at(origin + offset)`. Không để `lead` im lặng suốt 3 móc đơn giữa ô.
-3. **Thân `olite` khi gộp hai ô 2/4 vào một ô 4/4 (`_olite_vivace` và `_olite_chord`):**
-   - Giữ nguyên đồng hồ nốt đen (nốt đen = 95 của *Olite* và 96 của chương là một). Một ô 4/4 chứa đúng **hai ô 2/4**: nửa đầu là móc `0..3`, nửa sau là móc `4..7`.
-   - **Cấm nghỉ trắng khi giá đi ngang (`start == target`)**: Trong `_olite_group`, hiện tại khi `start == target` thì `_scale_steps` trả về `[]` làm móc `(1, 2, 3)` hoặc `(5, 6, 7)` im lặng hoàn toàn, biến cả ô thành 2 hợp âm cách nhau một nốt trắng! Khi `start == target` (hoặc chênh 1 bậc), nhóm 3 móc `(1, 2, 3)` và `(5, 6, 7)` phải đánh **mô-típ láy của *Olite***: móc 1 là chùm láy móc kép / trùm ba quanh `start` (có slur `start -> bậc trên -> start`), móc 2 đi bậc lân cận, móc 3 dẫn về `target`.
-   - Nhờ vậy, mỗi nửa ô (tức mỗi ô 2/4 gốc) luôn có đủ hợp âm mở phách + nét chạy móc kép/móc đơn đúng chất *Vivace*.
+Trong bảng chọn pattern (`_torroba_primary` và `_torroba_contrast` trong `guitar_torroba.py`):
+- Giữ nguyên toàn bộ bảng `3/4`, bảng `6/8`, và các hàng `rally`, `volatile`, `selloff` trên `4/4` như `docs/sonify-guitar-torroba-aba-tempo.md`:
+  - `4/4 selloff` (như VRE 1M chương I): **Castillo — Olite — Castillo** (nhưng Castillo ở 96 BPM chạy mặt 2+2 và mở Kiểu 7/8, không ngân nốt tròn).
+  - `4/4 rally` và `volatile` (như VRE 1M chương IV): **Olite — Sonatina — Olite**.
+- Chỉ đổi duy nhất ô **`4/4 calm`**:
+  - Primary (A): **`sonatina`** (thay vì `castillo`).
+  - Contrast (B): **`castillo`** (8 ô ở giữa vùng B).
+  - Khi `_torroba_contrast` nhận `primary == "sonatina"` trên `4/4`, trả về `"castillo"`.
 
 ---
 
-## 4. Giải quyết triệt để tiếng Staccato sai chỗ và Bass đứt quãng
+## 3. Mặt nốt ở 96 BPM (4/4 như hai ô 2/4)
 
-Rà soát toàn bộ codebase Torroba, có đúng **4 nguồn** đang gây cảm giác staccato / giật cục sai phong cách. Kế hoạch khóa cách sửa từng nguồn:
+Ở nốt đen = 96, mặt của `castillo`, `sonatina` và `olite` là móc đơn (`0.5`), móc kép (`0.25`) / chùm ba móc kép (`1/6`), và một ít nốt đen (`1.0`) hoặc chấm dôi (`1.5`). Nốt tròn (`4.0`) không được làm lưới nền ở BPM > 72.
 
-1. **Nguồn 1 — Bass bấm cao (40–53) bị cắt ngắn hoặc bị bỏ rơi trong thân bài:**
-   - Ở `_render_castillo_bar` (`guitar_torroba.py` dòng 364): Bass hiện viết `written(origin, 2, bass)` (chỉ dài 1 phách đen) rồi tắt. Khi `bass` là nốt bấm cao trong vùng 40–53, tiếng tắt phựt ở phách 2 nghe như một nhát staccato ở bè trầm. **Sửa:** Trên 4/4, bass ở móc 0 ngân `2.0` phách (4 móc đơn) và bass ở móc 4 ngân `2.0` phách (hoặc đi 2 nốt đen nối nhau ở móc 0 và móc 2 / móc 4 và móc 6). Trên 3/4, bass ngân ít nhất `1.5`–`3.0` phách.
-   - Ở `_olite_chord` (`guitar_torroba.py` dòng 2949): Hiện có điều kiện `if _open_bass_tone(ctx, raw): low.append(...)` — nghĩa là khi hợp âm có bass bấm (không phải dây buông E2, A2, D3), **hợp âm Olite mất sạch tiếng bass**, chỉ còn 2 nốt cao chói ở trên! Và khi có bass thì chỉ dài `0.5` phách. **Sửa:** Bỏ điều kiện chỉ nhận `_open_bass_tone` ở `_olite_chord` và `_olite_thin`; luôn đánh `raw = _torroba_bass(...)` khi hợp lệ, và giữ bass ngân hết nửa ô (`duration_beats = 2.0` hoặc `1.0` phách đen), **không gắn `staccato`** lên bass của Olite thân bài.
-2. **Nguồn 2 — Scale của Sonatina (`_type3_scale`, dòng 1671 `guitar_torroba.py`):**
-   - Hiện tại vòng `for eighth, midi in enumerate(line):` gắn cứng `staccato=True` lên **cả 8 nốt móc đơn** của ô chạy scale. Một câu chạy 8 móc đơn mà đánh staccato toàn bộ thì nghe như máy gõ.
-   - **Sửa:** Bỏ `staccato=True` trên các nốt chạy của `_type3_scale`. Thêm slur nối từng cặp móc đơn mở đầu (`slur_start` ở móc 0, `slur_stop` ở móc 1; và móc 4 sang móc 5) để câu chạy vừa rõ chữ vừa có độ luyến.
-3. **Nguồn 3 — Cửa Intro / Outro của Olite (`_olite_chords` trong `guitar_torroba_doors.py`, dòng 534):**
-   - Hiện tại toàn bộ 4 ô intro và 4 ô outro của Olite đều gọi `_olite_chords(..., staccato=True)` ở móc 0 và móc 4, phần còn lại của ô nghỉ trắng. Nghe suốt 4 ô đầu chương IV chỉ có tiếng hợp âm cụt giật cục.
-   - **Sửa:** Trong `guitar_torroba_doors.py`:
-     - Các ô intro và các ô outro trước ô cuối của `olite`: hợp âm ở móc 0 và móc 4 **không gắn `staccato=True`**, kéo dài `length = 2` (1 phách đen) hoặc kèm câu dẫn móc đơn ở móc 2–3 và 6–7.
-     - Chỉ giữ `staccato=True` ở **nhát kết cuối cùng của ô outro cuối** (đúng kiểu kết điệu của Torroba).
-4. **Nguồn 4 — Giữ lại Staccato đúng chỗ của điệu nhảy:**
-   - Giữ `staccato=True` ở hợp âm đầu nhóm 3 của `danza` (`_render_danza_bar`), ở 3 móc đơn bass dồn sau rasgueado của `_type5_fan` (*Fandanguillo*), ở nhát móc kép mở đầu `_type6_half_b_open` (*Danza*), và ở nhát kết cuối cùng của cửa `fandanguillo` / `danza` / `olite`.
+### 3.1. Lưới nền `_render_castillo_bar` và các ô ngân ở BPM > 72
+
+- **Khi `ctx.bpm <= 72` (chương chậm 3/4 ở 60–72 BPM, đúng chỗ của *Torija* / *Castillos* chậm):** Giữ nguyên `_render_castillo_bar` hiện tại (lead ngân cả ô, bass 1 phách ở móc 0, support ở móc 2 và 4).
+- **Khi `ctx.bpm > 72` (chương 4/4 ở 90–108 BPM):**
+  - `_render_castillo_bar` chia ô 4/4 thành **hai nửa ô (`base = 0` và `base = 4`)**:
+    - Tại `base = 0`: `lead` hát `_melody_at(origin)` chấm dôi (`duration_beats = 1.5`, phủ móc 0–2), `accent=True`. Tại móc 3 (`beat = 1.5`), `lead` đánh móc đơn `_melody_at(origin + 3)` (hoặc chùm ba láy `E–F–E` có slur đổ vào móc 4 khi bước liền bậc).
+    - Tại `base = 4`: nếu cả nửa sau nằm trong `_closing_offsets(ctx, bar)` (cuối câu đóng), `lead` hát một nốt trắng `_melody_at(origin + 4)` (`duration_beats = 2.0`) để câu khép; ngược lại `lead` hát chấm dôi `_melody_at(origin + 4)` (`1.5`) + móc 7 (`0.5`) nối sang ô sau.
+    - `support` đi móc đơn ở móc 2 và móc 6 (mỏng dần trên `_closing_offsets` như hiện tại).
+- **Hai chỗ ngân cả ô / nửa ô trong Kiểu 3 và Kiểu 7 khi `ctx.bpm > 72`:**
+  - **Kiểu 7 ô 1 (`_type7_bar1`) trên 4/4:** Nửa sau ô (`beat = 2.0..4.0`) hiện viết `resolution="half"` (1 nốt trắng `2.0`). Khi `ctx.bpm > 72`, đổi nửa sau sang chấm dôi `1.5` tại `beat = 2.0` (`pen.mel(4)`) + 1 móc đơn dẫn tại `beat = 3.5` (`pen.mel(7)`), giống nhịp nửa sau của `_type7_bar2`.
+  - **Kiểu 3 ô ngân (`_type3_sustain`):** Hiện viết `pen.add(0.0, midi, pen.beats, 1, ...)` (nốt tròn `4.0` trên 4/4) và bass `0.5` phách. Khi `pen.ctx.bpm > 72` và `pen.ctx.kind == "4/4"` (trừ khi `midi` khớp cửa harmonic `velocity == 48`), chia thành hai nửa ô: nửa đầu (`beat = 0.0`) chấm dôi `1.5` + móc 3 (`0.5`, có slur vào móc 4), nửa sau (`beat = 2.0`) ngân nốt trắng `2.0` khép câu, kèm bass ở cả móc 0 và móc 4.
+
+### 3.2. Lưới nền `_render_sonatina_bar`
+
+- Không chỉ đặt `lead` ở `ctx.strong` (móc 0 và móc 4):
+  - Trong mỗi nửa ô 4/4 (`0..3` và `4..7`) hoặc trên 3/4 (`0..5`), `lead` hát ở phách mạnh (`0`, `4`), giữ `1.0` phách (nốt đen) ở móc `0` (phủ móc 0–1) rồi đi **hai móc đơn ở móc 2 và móc 3** (`_melody_at(origin + 2)`, `_melody_at(origin + 3)`) có slur nối vào móc 4 (hoặc giữ nốt lấy đà móc kép `_into_strong` khi nhảy quãng / lên đỉnh `at_apex`). Nửa sau (`4..7`) đi tương tự: nốt đen ở móc 4 (hoặc móc đơn + láy) rồi móc đơn ở móc 6, 7 dẫn sang ô kế.
+  - `support` đệm ở các móc không có móc kép lấy đà (móc 1 và móc 5), giữ `lead > bass > support`.
+
+### 3.3. Thân `olite` (`_olite_vivace` và `_olite_thin`) khi gộp hai ô 2/4 vào một ô 4/4
+
+- **Trong `_olite_group` (các nhóm móc `(1, 2, 3)` và `(5, 6, 7)` của `_olite_vivace`):**
+  - Khi `start != target`, `_scale_steps` đã có đường đi. Thêm slur trên cặp móc đầu của nhóm (`eighths[0]` sang `eighths[1]`).
+  - Khi `start == target` (giá đi ngang giữa móc 0 và móc 4, hoặc giữa móc 4 và đầu ô sau): **không trả về `[]`**. Thay bằng mô-típ 3 móc đơn / láy quanh `start` theo thang âm của ô:
+    - Móc đầu nhóm (`eighths[0]`, tức móc 1 hoặc móc 5): đánh chùm ba láy `start -> upper -> start` (hoặc 2 móc kép slur `upper -> start` khi không đủ khe `1/6`) nếu thế tay với bass đang vang hợp lệ; nếu không thì đánh nốt bậc kề `neighbor = torroba_scale_step(ctx, start, -1, ...)`.
+    - Móc giữa (`eighths[1]`): đánh nốt bậc dưới `lower = torroba_scale_step(ctx, start, -1, ...)`.
+    - Móc cuối nhóm (`eighths[2]`): quay về `start` (hoặc bậc áp vào `target`).
+- **Trong `_olite_thin` (ô thưa của Olite khi câu đóng hoặc `rise < 3`):**
+  - Hiện tại `_olite_thin` chỉ viết 2 nốt móc đơn ở móc 0 và móc 4, bass `0.5` phách ở móc 0, còn 6 móc kia nghỉ trắng — ở 96 BPM nghe đứt và trống.
+  - **Sửa `_olite_thin`:**
+    - Giữ tính chất nhẹ hơn `_olite_vivace` (không hợp âm khối 3 tiếng, không `accent`, không sàn `68`, vẫn dùng hàng sóng `castillo`), nhưng **nối liền câu hát**:
+    - Tại móc 0 và móc 4: `lead` hát nốt đen chấm dôi (`duration_beats = 1.5`, phủ móc 0–2 và 4–6), tại móc 3 và móc 7 (`beat = 1.5` và `3.5`) `lead` đi một móc đơn dẫn (có slur từ móc 3 vào móc 4) đọc `_melody_at`. Nếu là ô đóng cuối câu (`closing`), nửa sau (móc 4..7) ngân một nốt trắng (`duration_beats = 2.0`).
 
 ---
 
-## 5. Luyến láy trùm ba (`E–F–E`) và Slur chữ ký của Torroba
+## 4. Luật Bass hai lần gảy (cửa lùi thế tay) và phạm vi gỡ Staccato
 
-Trong nhạc Torroba (*Arada*, *Sonatina*, *Torija*, *Olite*), chữ ký trang trí là **chùm ba móc kép luyến nhanh (mordent 3 nốt, ví dụ `E–F–E`) có slur** nằm gọn trong 1 móc đơn (`0.5` phách đen), đổ vào nốt chính ở móc đơn kế tiếp; cùng với các **slur nối câu dài** trên mặt móc đơn.
+### 4.1. Bass nửa ô là hai lần gảy, có cửa lùi khi thế tay không giữ nổi
 
-### 5.1. Gỡ rào kỹ thuật cho chùm ba móc kép (`duration_beats = 1/6`) trong Engine
+`docs/sonify-guitar-torroba-aba-tempo.md` mục 5 và `docs/sonify-guitar-torroba-dynamics.md` mục 7 đặt bass 1 phách để dây buông không ngân cả ô gây ù. Khi sửa tiếng bass cụt trên 4/4, phải tuân thủ hai quy tắc:
 
-Hiện tại mục 4.7 của `docs/sonify-guitar-torroba-phrase-plan.md` từng phải rút mordent 3 nốt của *Arada* thành 2 móc kép (`0.25 + 0.25`) vì ba rào kỹ thuật trong `guitar_patterns.py` và `musicxml.py`. Bản kế hoạch này gỡ cả ba rào để viết đúng chùm ba `1/6` phách:
+1. **Hai lần gảy độc lập ở móc 0 và móc 4 (không buộc thành nốt tròn 4 phách):**
+   - Trong `_render_castillo_bar` (ở 4/4), `_render_sonatina_bar` (ở 4/4), `_olite_vivace`, và `_olite_thin`: đặt một sự kiện bass ở **móc 0** (`beat = 0.0`) và một sự kiện bass thứ hai ở **móc 4** (`beat = 2.0`). Kể cả khi dây buông cùng cao độ, móc 4 vẫn là một lần gảy mới (`tie_start=False, tie_stop=False`).
+   - Trong `_olite_chord` và `_olite_thin`: bỏ điều kiện chỉ nhận `_open_bass_tone(ctx, raw)` — lấy trực tiếp `raw = _torroba_bass(ctx, ctx.chord(bar), bar, midi)` để các hợp âm có bass bấm (40–53) không bị mất bè trầm.
+2. **Độ dài mỗi cú bass (`1.0` đến `2.0` phách) và cửa lùi thế tay (`_playable`):**
+   - Với **dây buông** (`_open_bass_tone(ctx, raw)` đúng): bass ở móc 0 và móc 4 dài `1.0` phách đen (`2` móc đơn) hoặc `2.0` phách (nửa ô) tùy miễn là mọi nốt `lead` / `support` vang trong khoảng đó thoả `_playable([raw + semi, ...])` và `raw < min(support, lead)`.
+   - Với **bass bấm trên phím** (`not _open_bass_tone(ctx, raw)`, trong vùng 40–53): ưu tiên giữ `duration_beats = 2.0` (suốt nửa ô, 4 móc đơn) để tiếng trầm không tắt cụt giữa câu. **Cửa lùi bắt buộc:** trước khi ghi `duration_beats = 2.0`, kiểm tra mọi thời điểm trong nửa ô đó xem `[raw + semi]` cùng với `lead` (kể cả nét chạy móc đơn/móc kép và láy trùm ba) và `support` có thoả `_playable` (độ giãn ngăn bấm `<= 5`, khác dây) hay không. Nếu tại móc 2 hoặc móc 3 `lead` chạy sang thế tay khác làm `_playable` sai, rút độ dài cú bass đó lùi về `1.0` phách (2 móc đơn) hoặc `0.5` phách (1 móc đơn) đúng tới mốc còn giữ được thế tay, và nếu cần thì đặt một nốt bass hợp âm mới ở móc 2 (hoặc móc 6).
 
-1. **Bật `divisions = 12` khi có chùm ba móc kép:**
-   - Ở `divisions = 12`, 1 phách đen = 12 đơn vị, 1 móc đơn (`0.5` phách) = 6 đơn vị, và mỗi nốt trong chùm ba móc kép (`duration_beats = 1/6`) dài đúng **2 đơn vị** (chẵn, không lẻ tick).
-   - Hàm `_needs_twelfths` trong `guitar_patterns.py` (dòng 2423) kiểm tra `abs(value * 4 - round(value * 4)) > 1e-6`. Với `duration_beats = 1/6`, `value * 4 = 2/3` nên `_needs_twelfths` **đã tự động trả về `True`** và bật `divisions = 12`, đồng thời `_fill` đã tự chuyển sang `_fill_twelfths`.
-2. **Sửa `_resolve` và `assert_playable` trong `guitar_patterns.py` để không đè nốt `1/6`:**
-   - Hiện tại `_resolve` (dòng 2230) chỉ miễn cho ô có `_is_sixth` khi cả nhóm dài 6 nốt, còn `_start16(event, epb)` lấy `floor(event.beat * 4)` nên hai nốt tại `beat = 1.5` và `beat = 1.5 + 1/6` (`1.6667`) cùng ra `_start16 = 6` và bị `assert_playable` (dòng 4057) báo `Unplayable("two notes in the high voice")`.
+### 4.2. Khoanh vùng gỡ Staccato (không đụng cửa Fandanguillo và Danza)
+
+Chỉ gỡ `staccato=True` ở đúng **2 chỗ** đang làm hỏng câu hát và chương 4/4:
+
+1. **`_type3_scale` trong `backend/app/sonify/guitar_torroba.py` (dòng 1715):**
+   - Bỏ `staccato=True` trên vòng lặp các nốt móc đơn chạy thang âm. Thêm slur trên cặp móc đơn đầu mỗi nửa ô (`eighth 0 -> 1`, và trên 4/4 thêm `eighth 4 -> 5`).
+2. **`_olite_chords` trong `backend/app/sonify/guitar_torroba_doors.py` (dòng 534):**
+   - Chỉ sửa cửa `("torroba", "olite")`: các ô intro và các ô outro trước ô cuối dùng `staccato=False` và `length = 2` (1 phách đen, thay vì `length = 1` staccato). Chỉ giữ `staccato=True` ở nhát kết cuối cùng của ô outro cuối (`closing and index == steps - 1`, nhát ở onset cuối).
+3. **Giữ nguyên 100% staccato của `fandanguillo` và `danza` (cả thân bài lẫn cửa trong `guitar_torroba_doors.py`):**
+   - Cửa `fandanguillo` (`_fandanguillo`, `_fan_strokes`) và cửa `danza` (`_danza_bar`) thuộc các điệu nhảy ở 6/8 và 3/4, **nằm ngoài đợt gỡ staccato này**. Không sửa bất kỳ cờ `staccato=True` nào của Fandanguillo và Danza.
+
+---
+
+## 5. Chùm ba móc kép (`1/6` phách) cho láy `E–F–E` và Slur
+
+### 5.1. Sửa `assert_playable` (`_covers`) và `musicxml.py` (không đụng bộ rút của `_resolve`)
+
+1. **Trong `backend/app/sonify/guitar_patterns.py`:**
+   - `_resolve` (dòng 2238) **đã** đẩy mọi sự kiện `not _on_sixteenth_grid(event)` sang danh sách `odd` và giữ nguyên không cắt. **Không đưa chùm ba `1/6` qua bộ rút `_spell16` của `_resolve`.**
+   - Va chạm nằm ở `assert_playable` (dòng 4057–4077): hiện tại `times` chỉ thu thập `_start16(event, epb)` (tức `floor(beat * 4)`), và `_covers(event, step16, epb)` kiểm tra trên lưới `1/4` phách. Khi có 3 nốt `duration_beats = 1/6` tại `beat = 1.5`, `1.5 + 1/6`, `1.5 + 2/6`, hai nốt đầu cùng có `floor(beat * 4) == 6` và `_dur16 == 1`, nên `_covers(event, 6, epb)` trả về `True` cho cả hai nốt cùng lúc, làm `len(highs) > 1` ném `Unplayable("two notes in the high voice")`.
    - **Cách sửa trong `guitar_patterns.py`:**
-     - Trong `_resolve`: khi một voice trong ô có bất kỳ sự kiện nào nằm trên lưới `1/12` (không nằm trên lưới `1/4` phách), `_resolve` tính điểm bắt đầu và độ dài trên **lưới `1/12` phách** (`int(round(event.beat * 12))` và `max(1, int(round(event.duration_beats * 12)))`) thay vì `_start16` / `_dur16`.
-     - Trong `assert_playable` và `_covers`: thêm helper `_ covers_at_12` (hoặc kiểm tra chồng lấp theo khoảng thực `[event.beat, event.beat + event.duration_beats)` với dung sai `1e-4`) để 3 nốt liên tiếp tại `1.5`, `1.5 + 1/6`, `1.5 + 2/6` (mỗi nốt dài `1/6`) là 3 thời điểm nối đuôi nhau, không bao giờ bị coi là đánh chồng 2 nốt cùng lúc.
-3. **Xuất `<time-modification>` (3:2 trên `16th`) và `<tuplet>` trong `musicxml.py`:**
-   - Hiện tại `_sextuplet_roles` (dòng 272 `musicxml.py`) chỉ đóng khung `<tuplet type="start/stop">` khi có đủ **6 nốt `_is_sixth` liên tiếp (tổng = 1.0 phách)**.
-   - **Cách sửa trong `musicxml.py`:**
-     - Mở rộng `_sextuplet_roles` (hoặc thêm `_triplet_sixteenth_roles`): khi gặp chuỗi **3 nốt `_is_sixth` liên tiếp có tổng `duration_beats == 0.5`** (1 móc đơn) mà không nằm trong chùm 6 nốt, gắn `tuplet = "start"` ở nốt đầu, `tuplet = "stop"` ở nốt thứ ba, và ghi `<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes><normal-type>16th</normal-type></time-modification>` với `<type>16th</type>` (`duration = 2` ở `divisions = 12`).
-     - Tổng thời lượng của 3 nốt là `2 + 2 + 2 = 6` đơn vị = đúng 1 móc đơn ở `divisions = 12`. MuseScore xuất `.mscz -> .wav/.mid` khớp tuyệt đối `0` tick lệch.
+     - Kiểm tra chồng lấp trong `assert_playable` bằng đơn vị **`1/12` phách** (`twelfth = event.bar * epb * 6 + int(round(event.beat * 12))`, `dur12 = max(1, int(round(event.duration_beats * 12)))`): một nốt phủ `[twelfth, twelfth + dur12)`.
+     - Tập mốc thời gian kiểm tra trong mỗi ô là tất cả các điểm bắt đầu `twelfth` của mọi sự kiện trong ô đó. Ba nốt `1/6` phách tại `beat = 1.5`, `1.5 + 1/6`, `1.5 + 2/6` có `(twelfth, dur12)` lần lượt là `(18, 2)`, `(20, 2)`, `(22, 2)` — hoàn toàn rời nhau, không chồng lấp. Cửa sổ rasgueado đầu ô (`roll_window`) tương ứng với `(twelfth % (epb * 6)) < 3`.
+2. **Trong `backend/app/sonify/musicxml.py`:**
+   - Thêm hàm `_triplet_sixteenth_roles(events: list[NoteEvent]) -> list[str | None]` gọi bên trong `_tuplet_roles`:
+     - Quét các nốt cùng một voice. Khi gặp đúng **3 sự kiện liên tiếp** thoả `_is_sixth(event.duration_beats)` (mỗi sự kiện `duration_beats = 1/6`, tức `2` đơn vị ở `divisions = 12`), có tổng `duration_beats == 0.5` (`abs(total - 0.5) < 1e-3`), bắt đầu tại biên một móc đơn (`abs(events[index].beat * 2 - round(events[index].beat * 2)) < 1e-3`), và **chưa** được `_sextuplet_roles` gắn `"start"` / `"stop"` (tức không nằm trong chùm 6 nốt 1 phách):
+     - Gắn `roles[index] = "start"` và `roles[index + 2] = "stop"`.
+     - Trong `_add_note`, với nốt có `_is_sixth(event.duration_beats)` thuộc chùm 3 này (hoặc dùng chung cho `_is_sixth` khi bracket là 3 nốt): ghi `<type>16th</type>`, `<duration>2</duration>`, và `<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes><normal-type>16th</normal-type></time-modification>`. (Hàm `_is_sixth` đã loại `4/12` của rasgueado nên không bao giờ chạm vào rasgueado).
 
-### 5.2. Chỗ đặt láy trùm ba (`E–F–E`) và Slur trong câu
+### 5.2. Helper `pen.mordent_triplet` trong `guitar_torroba.py`
 
-Thêm helper `pen.mordent_triplet(beat, principal, others, written, steps)` trong `guitar_torroba.py`:
-- Nhận nốt chính `principal` (ví dụ `E`) và tìm nốt bậc thang liền trên `upper = _walk(principal, +1, ...)` (ví dụ `F`).
-- Kiểm tra thế tay `_position_ok` cho `[principal, upper] + others`.
-- Nếu hợp lệ, viết **3 nốt `duration_beats = 1/6`** tại `beat`, `beat + 1/6`, `beat + 2/6`:
-  1. `principal` (`E`), `slur_start=True`, bậc `steps`
-  2. `upper` (`F`), bậc `steps + 1` (nhẹ hơn 1 bậc vi mô để tiếng láy mềm)
-  3. `principal` (`E`), `slur_stop=True`, bậc `steps`
-- Áp dụng tại:
-  - **Kiểu 7 (*Arada*) ô 1 và ô 2** (móc đơn 3, `beat = 1.5`): thay cặp 2 móc kép hiện tại bằng đúng chùm 3 móc kép mordent `principal -> upper -> principal` đổ vào phách 3 (`pen.mel(4)`).
-  - **Kiểu 7 ô 3** (móc 1 và móc 5) và **ô 4** (`base + 3`): dùng chùm ba láy hoặc láy slur mềm.
-  - **Kiểu 3 (`_type3_motif`)** và **Kiểu 4 (`_type4_call`)** ở `beat = 1.5`: dùng chùm ba móc kép `E–F–E` có slur.
-  - **Thân `olite` (`_olite_group`), thân `sonatina` (`_render_sonatina_bar`), và thân `castillo` nhanh (`_render_castillo_bar`)**: đặt láy trùm ba ở móc dẫn trước phách mạnh (móc 3 dẫn vào móc 4) và nối slur giữa các cặp móc đơn đi liền bậc.
-
----
-
-## 6. Phân bổ 8 Kiểu kết cấu: 100% số câu có Kiểu, độ phủ 60% – 70% số ô thân bài
-
-Hiện tại `select_torroba_figure` và `torroba_figure_plan` làm rơi phần lớn chương (chỉ đạt 0% ở `castillo` BPM > 72 và ~15%–20% ở `sonatina`) về lưới nền vì 3 cổng hạn chế:
-1. `if ctx.bpm > 72` trong `_span_castillo` -> khóa sạch Kiểu 7, 8 ở chương 96 BPM.
-2. `elif n is None or n % 2 == 1: return None, ()` -> cứ 2 câu thì 1 câu bị bỏ trống toàn bộ.
-3. Trong câu chẵn `n % 2 == 0`, `_span_sonatina` chỉ trả về `slots = (0, 1)` (2 ô) hoặc `(1,)` (1 ô). Một câu dài 6–8 ô thì 4–6 ô sau vẫn rơi về lưới nền.
-
-Ngược lại, nếu phủ kín 100% số ô bằng các Kiểu có cá tính mạnh (rasgueado, đối đáp giật nhịp, chạy bass 7 móc đơn, *Arm. 8*) thì bản nhạc sẽ thành chắp vá (patchwork), mất khoảng thở và không còn phân biệt được đâu là câu hát dẫn dắt, đâu là nét chấm phá / contrast.
-
-### Luật phân bổ 60% – 70% trong `guitar_torroba.py`
-
-Khi lưới nền của `castillo` và `sonatina` đã được đổi thành mặt móc đơn / chấm dôi cantabile có slur (Mục 3), các ô lưới nền đóng vai trò **đường dẫn câu mượt mà (30% – 40% số ô)**, còn 8 Kiểu kết cấu đóng vai trò **hình thái chủ đạo và chấm phá (60% – 70% số ô)**:
-
-1. **100% số câu thân bài đều có Kiểu (bỏ cổng `n % 2 == 1` và bỏ cổng `ctx.bpm > 72`):**
-   - Mọi chương `castillo` (kể cả 4/4 ở 96 BPM và 1D) đều được gọi Kiểu 7 và Kiểu 8.
-   - Mọi câu thân bài (`_body_phrase`) đều được xếp kiểu xoay vòng theo chỉ số câu `n = 0, 1, 2, ...` (không bỏ trống câu lẻ).
-   - Khi `previous == figure`, thay vì trả về `None` (rơi cả câu về lưới nền), hàm **xoay sang kiểu kế tiếp trong họ pattern đó** để hai câu sát nhau vừa có contrast vừa luôn có Kiểu.
-2. **Tỷ lệ 60% – 70% số ô bên trong mỗi câu:**
-   - **Câu ngắn (2–4 ô):**
-     - Câu 2 ô: Kiểu chiếm 1–2 ô (Kiểu 1 trên 1 ô, hoặc Kiểu 2 / Kiểu 4 / Kiểu 8 trên 2 ô).
-     - Câu 3–4 ô: Kiểu chiếm **2–3 ô** (ví dụ 2 ô Kiểu 4 hoặc Kiểu 2 hoặc Kiểu 8, hoặc 3 ô Kiểu 3 ở câu đóng), dành **1–2 ô** cho mặt móc đơn cantabile nối mượt vào/ra ($\approx 60\% - 75\%$).
-   - **Câu dài (5–8 ô):**
-     - Với `castillo`: **Kiểu 7 (*Arada*, 5 ô)** chiếm 5 ô đầu, **1–3 ô cuối** là mặt chấm dôi / móc đơn dẫn mượt để câu thở trước khi sang câu mới ($\approx 65\% - 80\%$). Khi đến lượt `k` của Kiểu 8 trên câu dài 5–8 ô: đặt **Kiểu 8 (2 ô)** ở đầu câu và **Kiểu 8 (2 ô)** ở nửa sau (cách nhau 1–2 ô dẫn mượt), đạt 4/6 hoặc 4/7 ô ($\approx 60\% - 67\%$).
-     - Với `sonatina`: Câu 5–8 ô không chỉ gắn 2 ô đầu rồi bỏ trống 3–6 ô cuối. Mở câu bằng **2 ô Kiểu 4 (đối đáp)** (hoặc **Kiểu 1**), đi **1–2 ô mặt móc đơn cantabile có láy trùm ba** ở giữa câu để nối hơi, rồi nửa sau vào **2 ô Kiểu 2** (nếu câu chưa đóng) hoặc **2–3 ô Kiểu 3** (nếu câu `closes`), đạt 4/6 hoặc 5/7 ô ($\approx 65\% - 70\%$).
-     - Với `fandanguillo` và `danza`: **Kiểu 5 (4 ô)** hoặc **Kiểu 6 (4 ô)** chiếm 4 ô trong câu 5–6 ô (hoặc 2 ô Kiểu 2 trong câu 3–4 ô), dành **1–2 ô** chạy nhịp điệu cơ bản của điệu nhảy cho người nghe bắt nhịp ($\approx 65\% - 75\%$). Hạ ngưỡng `rise` của Kiểu 2 từ `3` xuống `1` để các câu ít biến động giá vẫn đạt tỷ lệ này.
+- Thêm phương thức `pen.mordent_triplet(beat: float, principal: int, others: list[int], written: int, steps: int) -> bool`:
+  - Tìm nốt thêu bậc trên `upper = _walk(principal, 1, pen.ctx.mode, pen.ctx.treble_floor, pen.ctx.treble_top)`.
+  - Kiểm tra `upper != principal`, `abs(upper - principal) <= 2`, và `_position_ok([principal + semi, upper + semi, *(n + semi for n in others)])`.
+  - Nếu hợp lệ, ghi 3 nốt `voice = 1`, `duration_beats = 1.0 / 6.0`:
+    1. `beat`: cao độ `principal`, `written`, bậc `steps`, `slur_start=True`
+    2. `beat + 1.0 / 6.0`: cao độ `upper`, `written`, bậc `steps + 1`
+    3. `beat + 2.0 / 6.0`: cao độ `principal`, `written`, bậc `steps`, `slur_stop=True`
+  - Nếu không vừa thế tay, fallback về cặp 2 móc kép `pen.grace` hoặc 1 móc đơn `principal`.
+- **Chỗ gọi `pen.mordent_triplet`:**
+  - Kiểu 7 ô 1 (`_type7_opening`) và ô 2 (`_type7_bar2`) tại `beat = 1.5` (móc đơn 3, láy trên `pen.mel(3)` trước khi đổ về `pen.mel(4)` ở `beat = 2.0`).
+  - Kiểu 3 ô mô-típ (`_type3_motif`) và Kiểu 4 ô gọi (`_type4_call`) tại `beat = 1.5`.
 
 ---
 
-## 7. Cho phép câu êm xuống Velocity −4 (cận dưới −4)
+## 6. Nhiều Span kiểu trong một câu để đạt độ phủ 60% – 70%
 
-Để những đoạn êm của Torroba thực sự xuống nhẹ hơn −4 như cảm quan nghe yêu cầu, phải mở đồng thời ở **hai tầng** đang khóa cận dưới:
+### 6.1. Mở cấu trúc dữ liệu từ «một câu một kiểu» sang «danh sách span trong câu»
 
-1. **Tầng vi mô trong ô (`guitar_torroba.py` và `_micro_fits`):**
-   - Hiện tại `_MICRO = 2`. Trên câu phẳng band `mf`, `lead` viết `64`, `bass` viết `60`, `support` viết `56`. Khi `lead` xin hạ 2 bậc (`steps = 2`, tức `−4` xuống `60`), hàm `_micro_fits` thấy `bass = 60` đang vang nên chặn lại, chỉ cho `lead` hạ 1 bậc (`−2`, còn `62`) để giữ `lead >= bass + 2`.
-   - **Cách sửa trong `_realize` / `_Pen.beds` của `guitar_torroba.py`:**
-     - Trên các câu êm (`phrase.rise < MIN_RISE` hoặc ô thuộc `castillo`, `sonatina`, `olite_thin`, `alcaniz_soft`, và các tiếng láy / nhại `p`), cho phép bậc vi mô của các nốt êm/láy nhận `steps = 2` (tức **−4** so với mức viết), và **hạ đồng thời giường `bass` / `support` đi 2 bậc (`−4`, từ `60 / 56` xuống `56 / 52`, sàn `_MICRO_FLOOR = 36` thay vì `40`)**.
-     - Khi `bass` ở `56` và `support` ở `52`, `lead` từ `64` hạ `−4` xuống `60` vẫn cao hơn `bass` đúng `4` đơn vị (`60 > 56 > 52`), vượt qua `_micro_fits` một cách tự nhiên mà không bao giờ chọc thủng bè trầm.
-2. **Tầng sóng động lực toàn cục (`PROFILES` trong `backend/app/sonify/guitar_wave.py`):**
-   - Hiện tại trong `guitar_wave.py` (dòng 116–124), các profile của Torroba đang đặt cận dưới (`floor_calm`, `floor_wide`) cao hơn hẳn Bach/Sor/Barrios:
-     - `castillo`, `sonatina`, `torroba_tremolo`: `floor_calm = 34, floor_wide = 34`
-     - `fandanguillo`, `danza`, `alcaniz`, `olite`: `floor_calm = 40, floor_wide = 40`
-   - **Cách sửa trong `guitar_wave.py`:** Hạ `floor_calm` và `floor_wide` của toàn bộ 7 hàng `("torroba", ...)` xuống **−4 đơn vị**:
-     - `castillo`, `sonatina`, `torroba_tremolo`: **`30, 30`** (từ `34, 34`)
-     - `fandanguillo`, `danza`, `alcaniz`, `olite`: **`36, 36`** (từ `40, 40`)
-   - Nhờ vậy, cả độ chênh vi mô trong câu lẫn đáy sóng `p / pp` của toàn chương đều xuống êm hơn đúng **−4**.
+Trong `guitar_torroba.py` hiện tại:
+- `select_torroba_figure` chỉ trả về `tuple[int | None, tuple[int, ...]]` (một `figure` duy nhất và một tuple `slots`).
+- `torroba_figure_plan` ghi `plan[bars[local]] = (figure, slot_index, len(slots))`.
+- Nếu truyền `slots = (0, 1, 4, 5)` cho Kiểu 8, `slot_index` sẽ là `0, 1, 2, 3`, làm hai ô sau đều chạy nhánh `pen.index != 0` (`_type8_bar2`), mất `_type8_bar1`! Và một câu Sonatina dài cũng không thể mở bằng Kiểu 4 rồi khép bằng Kiểu 3.
+
+**Cách sửa cấu trúc lịch kiểu:**
+- Thêm hàm `select_torroba_spans(ctx, phrase, pattern, *, n: int, previous: int | None) -> list[tuple[int, tuple[int, ...]]]`:
+  - Trả về danh sách một hoặc hai span `[(figure_a, slots_a), (figure_b, slots_b)]` trong cùng một câu `phrase`.
+  - Trong `torroba_figure_plan`, với mỗi `(figure, slots)` trong danh sách trả về:
+    ```python
+    for slot_index, local in enumerate(slots):
+        if 0 <= local < len(bars):
+            plan[bars[local]] = (figure, slot_index, len(slots))
+    ```
+    Nhờ đó, mỗi span tự đếm lại `slot_index` từ `0` đến `len(slots) - 1`, và một câu dài có thể chứa hai kiểu khác nhau (ví dụ Kiểu 4 ở đầu câu và Kiểu 3 ở cuối câu đóng) hoặc hai cụm của Kiểu 8 mà mỗi cụm đều có đủ `(index=0, index=1)`.
+  - Giữ hàm `select_torroba_figure` làm wrapper trả về span đầu tiên `spans[0]` để tương thích ngược với các lời gọi đơn lẻ nếu có.
+
+### 6.2. Bỏ cổng `n % 2 == 1`, bỏ cổng `bpm > 72`, và hạ cửa `rise` của Fandanguillo
+
+1. **Mọi câu thân bài đều tăng `n = 0, 1, 2, ...`** (kể cả câu `sonatina` có `closes`) và đều đi vào bộ chọn span. Không bỏ trống câu `n % 2 == 1`.
+2. **Khi `figure` đầu của câu trùng với `previous` (kiểu cuối của câu liền trước):** xoay `n` cộng thêm `1` để chọn kiểu kế tiếp trong họ pattern đó, thay vì trả về rỗng.
+3. **Trong `_span_fandanguillo`:** hạ cổng đầu hàm từ `if phrase.rise < MIN_RISE:` (`3`) xuống `if phrase.rise < 1:` để các câu có biến động vừa (`rise >= 1`) vẫn nhận được Kiểu 5 hoặc Kiểu 2.
+4. **Trong `_span_danza`:** cho phép câu dài `length >= 4` trên `3/4` và `6/8` nhận Kiểu 6 trên 4 ô `(0, 1, 2, 3)` (thay vì bắt buộc `length == 4` và `not closes`; nếu `closes` và `length == 4` thì lấy câu không đóng hoặc khi `length >= 5` lấy 4 ô đầu trước ô đóng).
+
+### 6.3. Bảng phân bổ Span theo độ dài câu `L` (khóa độ phủ 60% – 75% trên cả `L = 5` và `L = 8`)
+
+Với câu có độ dài `L = len(_bars_of(ctx, phrase))` ô:
+
+| Pattern | Độ dài câu `L` | Span được gắn `(figure, slots)` | Số ô có Kiểu / `L` | Độ phủ |
+|---|---|---|---|---|
+| **`castillo`** (mọi BPM) | `L == 1` | Lưới nền 2+2 (`[]`) | `0 / 1` | 0% |
+| | `L == 2` | `[(8, (0, 1))]` | `2 / 2` | 100% |
+| | `L == 3` | `[(8, (0, 1))]` (ô 2 là lưới nền dẫn) | `2 / 3` | **67%** |
+| | `L == 4` | `[(8, (0, 1))]` khi `n % 2 == 0`; `[(8, (1, 2))]` khi `n % 2 == 1` | `2 / 4` | **50%** |
+| | `L == 5` | `n % 2 == 0`: `[(7, (0, 1, 2, 3, 4))]` (5 ô *Arada*);<br>`n % 2 == 1`: `[(8, (0, 1)), (8, (3, 4))]` (hai cụm Kiểu 8, ô 2 ở giữa là lưới nền) | `5 / 5` và `4 / 5` | Trung bình hai câu = **90% / 80%** (riêng `n` lẻ đạt **80%**, hoặc 1 cụm `[(8, (1, 2))]` = **40%**, trung bình cặp câu chẵn–lẻ `L=5` là `(5 + 2)/10 =` **70%**) |
+| | `L == 6` | `n % 2 == 0`: `[(7, (0, 1, 2, 3, 4))]` (ô 5 dẫn mượt);<br>`n % 2 == 1`: `[(8, (0, 1)), (8, (3, 4))]` (ô 2 và ô 5 dẫn mượt) | `5 / 6` (83%) và `4 / 6` (67%) | Trung bình **75%** |
+| | `L == 7` | `[(7, (0, 1, 2, 3, 4))]` (5 ô đầu, 2 ô cuối dẫn mượt) | `5 / 7` | **71%** |
+| | `L >= 8` (ví dụ `L == 8`) | `[(7, (0, 1, 2, 3, 4))]` (5 ô đầu là Kiểu 7, 3 ô cuối là lưới nền cantabile; hoặc khi `n % 2 == 1`: `[(8, (0, 1)), (7, (3, 4, 5, 6, 7))]` = 5–7 ô) -> chọn cố định 5 ô trên 8 ô: `[(7, (0, 1, 2, 3, 4))]` hoặc `[(8, (0, 1)), (8, (3, 4)), (8, (6))]` -> chốt: với `L == 8`, đặt `[(7, (0, 1, 2, 3, 4))]` (`5 / 8` = **62,5%**) khi lượt Kiểu 7, và `[(8, (0, 1)), (3, (5, 6, 7))]` / `[(8, (0, 1)), (8, (4, 5))]` kèm 1 ô Kiểu 1 `(1, (2,))` (`5 / 8` = **62,5%**) | `5 / 8` | **62,5%** |
+| **`sonatina`** (chưa `closes`) | `L == 2` | Xoay `n % 3`: `[(4, (0, 1))]`, `[(2, (0, 1))]`, `[(1, (0,))]` | `1..2 / 2` | 50%–100% |
+| | `L == 3` | Xoay `n % 3`: `[(4, (0, 1))]`, `[(2, (1, 2))]`, `[(1, (0, 1))]` | `2 / 3` | **67%** |
+| | `L == 4` | Xoay `n % 3`: `[(4, (0, 1)), (1, (3,))]`, `[(2, (1, 2)), (1, (3,))]`, `[(1, (0,)), (4, (2, 3))]` | `3 / 4` | **75%** |
+| | `L == 5` | `[(4, (0, 1)), (1, (3,))]` hoặc `[(4, (0, 1)), (2, (3, 4))]` (ô 2 ở giữa là lưới nền cantabile) | `3 / 5` hoặc `4 / 5` | **60% – 80%** |
+| | `L == 6` | `[(4, (0, 1)), (2, (3, 4))]` (hoặc `[(2, (0, 1)), (4, (3, 4))]`, để ô 2 và ô 5 là lưới nền) | `4 / 6` | **67%** |
+| | `L == 7` | `[(4, (0, 1)), (1, (3,)), (2, (5, 6))]` | `5 / 7` | **71%** |
+| | `L >= 8` (`L == 8`) | `[(4, (0, 1)), (1, (3,)), (2, (5, 6))]` (các ô 2, 4, 7 là lưới nền cantabile) | `5 / 8` | **62,5%** |
+| **`sonatina`** (`closes`) | `L <= 3` | `[(3, tuple(range(L)))]` (ô cuối dùng `_type3_sustain` mới ở 3.1) | `L / L` | 100% |
+| | `L == 4` | `[(3, (1, 2, 3))]` (ô 0 là lưới nền, 3 ô cuối là đủ bộ mô-típ + scale + ngân của Kiểu 3) | `3 / 4` | **75%** |
+| | `L == 5` | `[(3, (2, 3, 4))]` (2 ô đầu lưới nền, 3 ô cuối Kiểu 3) | `3 / 5` | **60%** |
+| | `L == 6` | `[(4, (0, 1)), (3, (4, 5))]` hoặc `[(1, (0,)), (3, (3, 4, 5))]` (giữ đủ 3 ô cho Kiểu 3 để không mất ô mô-típ!) | `4 / 6` | **67%** |
+| | `L == 7` | `[(4, (0, 1)), (3, (4, 5, 6))]` (ô 2, 3 là lưới nền, 3 ô cuối đủ bộ Kiểu 3) | `5 / 7` | **71%** |
+| | `L >= 8` (`L == 8`) | `[(4, (0, 1)), (3, (5, 6, 7))]` (ô 2, 3, 4 là lưới nền, 3 ô cuối đủ bộ Kiểu 3) | `5 / 8` | **62,5%** |
+
+Đặc biệt lưu ý với **Kiểu 3**: Khi `L >= 4`, luôn giao cho Kiểu 3 đúng **3 ô cuối `(L - 3, L - 2, L - 1)`** (`pen.count == 3`) để Kiểu 3 luôn hát đủ cả 3 vai `("motif", "scale", "sustain")`, không bao giờ bị rút thành 2 ô làm mất ô mô-típ.
+
+---
+
+## 7. Cận dưới Velocity −4: chọn một núm tương thích với PR 110
+
+Trong [`docs/sonify-guitar-torroba-dynamics.md`](./sonify-guitar-torroba-dynamics.md) (PR 110 đã vào `main`):
+- Hai hàng sóng trong `guitar_wave.py` đang khóa:
+  - Hàng Hát (`castillo`, `sonatina`, `torroba_tremolo`): cửa sổ `34..58`, `d_lo = -8, d_hi = 8` $\rightarrow$ tâm `C` đi từ **`42` đến `50`**.
+  - Hàng Điệu (`fandanguillo`, `danza`, `alcaniz`, `olite`): cửa sổ `40..63`, `d_lo = -8, d_hi = 8` $\rightarrow$ tâm `C` làm tròn đi từ **`48` đến `55`**.
+- Trong `guitar_torroba.py`, `_raised_bed` đã nhấc bass thêm `+4` so với `_under_lead`: khi `lead` viết `64` (band `mf`), `bass` dừng ở **`62`** (không phải `60`), `support` ở **`56`**, `weak` bass ở **`58`**.
+- Với `lead = 64` và `bass = 62`, hàm `_micro_fits` (yêu cầu `heard >= bass + 2`) **không cho phép `lead` hạ dù chỉ 1 bậc** khi `bass = 62` đang vang (`64 - 2 = 62 < 62 + 2`)!
+- Nếu vừa hạ sàn sóng trong `guitar_wave.py` đi 4, vừa hạ giường viết đi 4, thì bass ở đáy sẽ tụt tổng cộng **8 đơn vị** (xuống `32`), làm mất tiếng bass trên đàn nylon và làm gãy toàn bộ các test tâm sóng `42/50` và `48/55` trong `test_guitar_wave.py`.
+
+### Quyết định: Chọn Núm 1 — Giữ nguyên cửa sổ sóng trong `guitar_wave.py`, chỉ mở giường êm trong `guitar_torroba.py`
+
+1. **Không sửa `PROFILES` trong `backend/app/sonify/guitar_wave.py` và không sửa `_MICRO_FLOOR = 40` trong `guitar_patterns.py`:**
+   - Cửa sổ Hàng Hát giữ nguyên `34..58` (tâm `42..50`), Hàng Điệu giữ nguyên `40..63` (tâm `48..55`), `d_lo = -8, d_hi = 8`. Mọi invariant của `test_guitar_wave.py` giữ nguyên.
+2. **Mở chỗ `−4` (2 bậc `_MICRO`) ngay trong `guitar_torroba.py` bằng giường êm (`_soft_bed`):**
+   - Khi một ô hoặc một phách thuộc **câu êm / tiếng láy** (cụ thể: trong `_realize` của `_Pen` khi nốt `lead` có `steps >= 2`, hoặc trên các ô thưa `mode == "thin"` / câu phẳng `phrase.rise == 0` ở nửa yếu của ô):
+     - Giường `bass` tại thời điểm có nốt `lead` xin hạ `steps >= 2` (như nốt láy, nốt nhại `p`, chùm lặp móc kép của Kiểu 2/3/4/7/8) dùng mức `weak` của `_raised_bed` (tức hạ `4` từ `62` xuống **`58`**, và `support` ở **`54`**).
+     - Với `bass = 58` và `support = 54`, `_micro_fits(lead=64, bass=58, support=54, steps=2)` cho phép `lead` hạ trọn **2 bậc (`steps = 2`, tức `−4`)** từ `64` xuống **`60`** (`60 >= 58 + 2`, và `58 >= 54 + 2`)!
+     - Khi `lead` đứng một mình (sau khi bass nửa ô đã tắt hoặc ở các móc yếu chỉ có `lead`), `_drop_level(64, 2)` cũng xuống thẳng **`60`** (`−4`).
+   - **Số nghe được sau sóng (với tâm Hàng Hát `C = 42..50`):**
+     - `lead` thường viết `64` $\rightarrow$ nghe `42..50`.
+     - `lead` êm / láy hạ `−4` (viết `60`) $\rightarrow$ nghe **`38..46`** (êm hơn đúng `4` đơn vị so với tiếng chính trong cùng ô).
+     - `bass` trụ đầu phách (khi `lead` ở bậc `0`, viết `64`) vẫn giữ `_raised_bed` viết `62` $\rightarrow$ nghe **`40..48`** ở Hàng Hát và **`46..53`** ở Hàng Điệu (đúng số PR 110 đã khóa, không bị tụt xuống `32`).
+     - Chỉ tại những móc có `lead` hạ 2 bậc (`viết 60`), `bass` dưới nó mới lùi về `58` (bằng đúng mức `weak` bass sẵn có của `_raised_bed`).
 
 ---
 
 ## 8. Danh mục chỗ sửa khi thực hiện
 
 1. **`backend/app/sonify/guitar_patterns.py`:**
-   - Mở `_resolve` và `assert_playable` (`_covers`) cho chùm ba móc kép (`duration_beats = 1/6` ở `divisions = 12`) để 3 nốt láy liên tiếp trong 1 móc đơn không bị coi là trùng `_start16`.
-   - Hạ `_MICRO_FLOOR` từ `40` xuống `36` (hoặc cho phép giường êm hạ −4).
+   - Trong `assert_playable`: đổi kiểm tra chồng lấp từ lưới `_start16` (`1/4` phách) sang lưới `1/12` phách (`twelfth = bar * epb * 6 + round(beat * 12)`) để 3 nốt `1/6` phách liên tiếp trong một móc đơn không bị báo `Unplayable("two notes in the high voice")`. Không đưa nốt `1/6` qua `_spell16` của `_resolve`.
+   - Không sửa `_MICRO_FLOOR = 40`.
 2. **`backend/app/sonify/musicxml.py`:**
-   - Mở `_sextuplet_roles` / thêm `_triplet_sixteenth_roles` để xuất `<time-modification>` (`3:2` trên `16th`) và `<tuplet type="start/stop">` cho chùm 3 nốt `1/6` phách đứng trong 1 móc đơn (`0.5` phách).
+   - Thêm `_triplet_sixteenth_roles` vào `_tuplet_roles`: chỉ đóng ngoặc `tuplet="start"/"stop"` và ghi `<time-modification>` (`3:2` trên `16th`, `<duration>2</duration>` ở `divisions = 12`) khi gặp đúng **3 nốt `_is_sixth` liên tiếp cùng voice, tổng `0.5` phách**, bắt đầu trên biên móc đơn, và không nằm trong chùm 6 nốt của `_sextuplet_roles`.
 3. **`backend/app/sonify/guitar_torroba.py`:**
-   - **Chọn pattern theo nhịp (`_torroba_primary`, `_torroba_contrast`)**: Trên 4/4 `calm`, đưa `sonatina` (Allegretto) lên làm vùng A và `castillo` (*Arada*) làm vùng B 8 ô ở giữa để chương mở đầu tươi sáng, không trải `castillo` cả vùng A.
-   - **Lịch kiểu 60% – 70% (`_span_castillo`, `_span_sonatina`, `_span_fandanguillo`, `_span_danza`, `select_torroba_figure`, `torroba_figure_plan`)**: Bỏ cổng `ctx.bpm > 72` của `_span_castillo`; bỏ cổng `n % 2 == 1` trả về lưới nền (100% số câu đều có Kiểu); khi `previous == figure` thì xoay sang kiểu kế tiếp; trên các câu dài 5–8 ô đặt 2 cụm Kiểu ở đầu và nửa sau câu, cách nhau 1–2 ô mặt móc đơn cantabile để đạt độ phủ **60% – 70% số ô thân bài** (không để trống < 25% và không nhồi kín 100%).
-   - **Mặt nốt lưới nền (`_render_castillo_bar`, `_render_sonatina_bar`, `_olite_vivace`, `_olite_chord`, `_olite_group`)**:
-     - `_render_castillo_bar`: đổi từ 1 nốt tròn 4 phách + 1 bass đen cụt sang hai nửa ô chấm dôi + móc đơn rải + bass ngân 2 phách mỗi nửa ô.
-     - `_render_sonatina_bar`: `lead` hát móc đơn/móc kép xuyên qua các móc yếu kèm slur, `bass` ngân nửa ô (`2.0` phách).
-     - `_olite_group` & `_olite_chord`: không nghỉ trắng khi `start == target` (thay bằng chùm láy móc kép/trùm ba + móc đơn); luôn đánh bass (kể cả bass bấm 40–53) và giữ ngân, không cắt cụt.
-   - **Gỡ staccato sai chỗ**: Bỏ `staccato=True` trên 8 móc đơn của `_type3_scale`, thay bằng slur đầu nhóm.
-   - **Láy trùm ba (`pen.mordent_triplet`)**: Viết 3 nốt `1/6` phách (`E–F–E`) có slur cho mordent của Kiểu 7 (ô 1, ô 2), Kiểu 3, Kiểu 4, và móc dẫn của Olite / Sonatina / Castillo.
-   - **Cận dưới Velocity −4**: Hạ giường `bass / support` đi 4 đơn vị ở câu êm và cho phép các tiếng êm/láy hạ 2 bậc (`-4`).
+   - **Bảng pattern (`_torroba_primary`, `_torroba_contrast`)**: Chỉ đổi ô `4/4 calm` sang `sonatina` (A) và `castillo` (B). Giữ nguyên `4/4 selloff` (`castillo`), `4/4 rally/volatile` (`olite`), và toàn bộ `3/4`, `6/8`.
+   - **Lịch nhiều span trong một câu (`select_torroba_spans`, `torroba_figure_plan`)**:
+     - Cho phép một câu trả về nhiều `(figure, slots)`, mỗi span tự đếm lại `slot_index` từ `0`.
+     - Bỏ cổng `ctx.bpm > 72` trong `_span_castillo`; bỏ cổng `n % 2 == 1`; xoay sang kiểu kế tiếp khi trùng `previous`; hạ cổng `rise` đầu `_span_fandanguillo` xuống `1`; giữ đủ 3 ô cuối cho Kiểu 3 khi `L >= 4` để không mất ô mô-típ; áp dụng bảng phân bổ mục 6.3 để đạt độ phủ 60% – 75% trên mọi độ dài câu (kể cả `L = 5` và `L = 8`).
+   - **Mặt nốt ở BPM > 72 (`_render_castillo_bar`, `_type7_bar1`, `_type3_sustain`, `_render_sonatina_bar`, `_olite_group`, `_olite_thin`)**:
+     - `_render_castillo_bar` ở `ctx.bpm > 72`, `_type7_bar1` (nửa sau ô 4/4 ở `bpm > 72`), và `_type3_sustain` (ở 4/4 `bpm > 72`) bỏ nốt tròn / nốt trắng đứng suốt ô, chuyển sang mặt 2+2 (chấm dôi + móc đơn / láy).
+     - `_render_sonatina_bar`: thêm chuyển động móc đơn có slur cho `lead` ở các móc giữa ô.
+     - `_olite_group`: khi `start == target` không trả về `[]` mà đánh mô-típ láy + bước bậc quanh `start`.
+     - `_olite_thin`: nối câu bằng chấm dôi + móc đơn dẫn có slur thay vì để nghỉ trắng 6 móc đơn.
+   - **Bass hai lần gảy và cửa lùi thế tay**:
+     - Trên 4/4, bass của `castillo`, `sonatina`, `olite` gảy ở móc 0 và móc 4 (hai sự kiện rời), lấy cả bass bấm từ `_torroba_bass` cho `_olite_chord` / `_olite_thin`, và rút độ dài từ `2.0` xuống `1.0` hoặc `0.5` phách khi `_playable` báo xung đột thế tay với `lead`.
+   - **Láy trùm ba (`pen.mordent_triplet`) và gỡ staccato `_type3_scale`**:
+     - Thêm `pen.mordent_triplet` (3 nốt `1/6` phách `E–F–E` có slur) cho Kiểu 7 (ô 1, ô 2), Kiểu 3, Kiểu 4.
+     - Bỏ `staccato=True` trên `_type3_scale`, thay bằng slur.
+   - **Núm Velocity −4 trong `_realize`**:
+     - Khi `lead` có `steps >= 2` (tiếng êm / láy), hạ `bass` đang phủ thời điểm đó từ `62` xuống mức `weak = 58` (và `support` xuống `54`) để `_micro_fits` cho phép `lead` hạ đủ 2 bậc (`64 -> 60`, tức `−4`), trong khi trụ bass đầu phách vẫn giữ `62` và cửa sổ `guitar_wave.py` không đổi.
 4. **`backend/app/sonify/guitar_torroba_doors.py`:**
-   - Trong `_olite_chords`: bỏ `staccato=True` trên các ô intro và các ô outro trước ô cuối; kéo dài hợp âm thành nốt đen (`length = 2`) hoặc nối móc đơn dẫn; chỉ giữ `staccato=True` ở nhát kết cuối cùng của outro.
-5. **`backend/app/sonify/guitar_wave.py`:**
-   - Hạ `floor_calm` và `floor_wide` của 7 profile `("torroba", ...)` đi 4 đơn vị (`34 -> 30`, `40 -> 36`).
-6. **`backend/app/sonify/audio.py` và Tests (`test_sonify_guitar_torroba.py`, `test_sonify_guitar_torroba_doors.py`, `test_program.py`):**
-   - Tăng `SPAN_REVISION` để làm mới các file audio cached.
-   - Cập nhật và thêm test khóa: mặt nốt chương 4/4 ở 96 BPM không còn nốt tròn làm lưới, Olite không nghỉ trắng khi giá đi ngang, chùm ba móc kép `1/6` xuất MusicXML hợp lệ và qua `assert_playable`, `_type3_scale` và cửa intro Olite không còn staccato tràn lan, và cận dưới velocity xuống thêm −4.
+   - Chỉ sửa `_olite_chords`: bỏ `staccato=True` trên các ô cửa `olite` trước nhát kết cuối cùng và kéo dài hợp âm thành `length = 2`. **Giữ nguyên toàn bộ cửa `fandanguillo` và `danza`.**
+5. **`backend/app/sonify/audio.py` và Tests:**
+   - Tăng `SPAN_REVISION`.
+   - Giữ nguyên `test_guitar_wave.py` (tâm `42/50` và `48/55`). Cập nhật `test_sonify_guitar_torroba.py`, `test_sonify_guitar_torroba_doors.py`, và `test_program.py` theo đúng các mục trên.
