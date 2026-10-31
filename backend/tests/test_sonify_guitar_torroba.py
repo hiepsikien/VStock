@@ -2895,6 +2895,34 @@ def test_alcaniz_dance_soft_and_opening() -> None:
     assert any(note.accent and note.beat == pytest.approx(0.0) and (note.velocity or 0) >= 68 for note in opened)
     assert any(note.beat == pytest.approx(2.0) and note.voice == 1 for note in opened)
     assert opened_support
+    for beat in (2.0, 2.5):
+        sung = next(note.midi for note in opened if note.beat == pytest.approx(beat))
+        held = [note for note in opened_support if note.beat == pytest.approx(beat)]
+        assert len(held) == 1
+        assert sung - held[0].midi in {3, 4, 8, 9}
+        assert held[0].midi < sung
+    # A under C: the third is F, a scale tone. The sixth is C, a chord tone.
+    # The highest chord tone under A is E, a fourth, which must not be used.
+    probe = Phrase(0, 6, (Run(0, 4, 64), Run(4, 2, 69)))
+    probe_ctx = _ctx(
+        melody=[64, 64, 64, 64, 69, 69],
+        phrase=probe,
+        kind="6/8",
+        epb=6,
+        strong=(0, 3),
+        bpm=96,
+        character="rally",
+        bar_beats=3,
+        chord=C,
+    )
+    with compose_meter(METER_68):
+        probe_lead, probe_support, _probe_low = _render_torroba_bar(probe_ctx, 0, probe, "alcaniz")
+    for beat in (2.0, 2.5):
+        sung = next(note.midi for note in probe_lead if note.beat == pytest.approx(beat))
+        held = [note for note in probe_support if note.beat == pytest.approx(beat)]
+        assert sung == 69 and len(held) == 1
+        assert sung - held[0].midi in {3, 4, 8, 9}
+        assert held[0].midi % 12 in C.pitch_classes
     assert not any(note.slur_start for note in danced)
     assert _beats([note for note in danced if note.voice == 1]) == [0.0, 1.5]
     sounded = [*danced, *danced_support, *danced_low]

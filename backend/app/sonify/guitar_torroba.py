@@ -2608,6 +2608,61 @@ def _alcaniz_soft(ctx, bar: int, phrase):
     return lead, [], low
 
 
+def _scale_degree_below(lead: int, steps: int, mode: str) -> int | None:
+    """`steps` diatonic degrees under `lead`. Two degrees is a third; five is a sixth."""
+    if steps <= 0 or not _on_scale(lead, mode):
+        return None
+    note = lead
+    for _step in range(steps):
+        note -= 1
+        skipped = 0
+        while not _on_scale(note, mode):
+            note -= 1
+            skipped += 1
+            if skipped > 6:
+                return None
+    return note
+
+
+def _alcaniz_under_lead(ctx, chord: Chord, lead: int, bass: int | None) -> int | None:
+    """A diatonic third or sixth under the lead, inside the inner register.
+
+    A chord tone on that interval wins. Otherwise the scale tone. The third
+    wins when both intervals are the same kind of tone and both fit.
+    """
+    semi = ctx.semitones
+    floor = max(ctx.mid_low, 50 - semi)
+    if bass is not None:
+        floor = max(floor, bass + 1)
+    ceiling = min(ctx.mid_high, 65 - semi, lead - 1)
+    if ceiling < floor:
+        return None
+    pcs = chord.pitch_classes
+
+    def candidate(steps: int) -> int | None:
+        note = _scale_degree_below(lead, steps, ctx.mode)
+        if note is None or not floor <= note <= ceiling or not note < lead:
+            return None
+        if bass is not None and note <= bass:
+            return None
+        if lead - note not in {3, 4, 8, 9}:
+            return None
+        sounding = [note + semi, lead + semi]
+        if bass is not None:
+            sounding.insert(0, bass + semi)
+        if not _playable(sounding):
+            return None
+        return note
+
+    third = candidate(2)
+    sixth = candidate(5)
+    chord_tones = [note for note in (third, sixth) if note is not None and note % 12 in pcs]
+    if chord_tones:
+        return max(chord_tones)
+    scale_tones = [note for note in (third, sixth) if note is not None]
+    return max(scale_tones) if scale_tones else None
+
+
 def _alcaniz_opening(ctx, bar: int, phrase):
     origin = bar * ctx.epb
     top = _melody_at(ctx, origin)
@@ -2633,20 +2688,13 @@ def _alcaniz_opening(ctx, bar: int, phrase):
     lead.append(
         _heard(bar, 1.5, target, 0.5, 1, max(arrival, 68), accent=True, slur_stop=True)
     )
-    prev = target
     for eighth in (4, 5):
         sung = _melody_at(ctx, origin + eighth)
         level = _lead_vel(ctx, origin + eighth, phrase)
         lead.append(_heard(bar, eighth * 0.5, sung, 0.5, 1, level))
-        if raw is None:
-            prev = sung
-            continue
-        inner = _torroba_inner(
-            ctx, ctx.chord(bar), sung, raw, allow_high=False, prev_lead=prev
-        )
+        inner = _alcaniz_under_lead(ctx, ctx.chord(bar), sung, raw)
         if inner is not None:
             support.append(_heard(bar, eighth * 0.5, inner, 0.5, 2, _bed(level, band)[0]))
-        prev = sung
     return lead, support, low
 
 
