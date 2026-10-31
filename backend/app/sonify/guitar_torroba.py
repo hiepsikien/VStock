@@ -2965,12 +2965,16 @@ def _scale_steps(ctx, start: int, target: int, chord=None) -> list[int]:
 
 
 def _fit_walk(steps: list[int]) -> list[int] | None:
-    """Three eighths. A short walk repeats. A long walk jumps once on the last eighth."""
+    """Three eighths. A short walk repeats the last pitch.
+
+    A longer walk still ends on the target, and the eighth before that target
+    is the penultimate scale step. That is Ab when the gate put it there.
+    """
     if not steps:
         return None
-    if len(steps) <= 3:
-        return steps + [steps[-1]] * (3 - len(steps))
-    return steps[:2] + [steps[-1]]
+    if len(steps) > 3:
+        return [steps[0], steps[-2], steps[-1]]
+    return steps + [steps[-1]] * (3 - len(steps))
 
 
 def _olite_chord(ctx, bar: int, eighth: int, phrase, *, accented: bool):

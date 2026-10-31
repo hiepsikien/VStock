@@ -739,7 +739,7 @@ def test_danza_grids_and_humanize_ceiling() -> None:
 
 def test_scale_step_may_be_ab_and_does_not_raise_bb() -> None:
     from app.sonify.guitar_scale_passages import _trace_scale
-    from app.sonify.guitar_torroba import _approaches, _scale_steps, _two_into
+    from app.sonify.guitar_torroba import _approaches, _fit_walk, _scale_steps, _two_into
 
     ctx = SimpleNamespace(mode="minor", treble_floor=59, treble_top=81, ensemble="torroba")
     climbed = torroba_scale_step(ctx, 67, 1, low=59, high=81)
@@ -753,6 +753,9 @@ def test_scale_step_may_be_ab_and_does_not_raise_bb() -> None:
     assert into_g[-1] == 67 and into_g[-2] % 12 == 8
     climbed_line = _scale_steps(ctx, 60, 67, G)
     assert climbed_line[-1] == 67 and climbed_line[-2] % 12 == 8
+    assert len(climbed_line) > 3
+    fitted = _fit_walk(climbed_line)
+    assert fitted is not None and fitted[1] % 12 == 8 and fitted[-1] == 67
     into_d = _scale_steps(ctx, 69, 62, G)
     assert into_d[-1] == 62 and into_d[-2] % 12 != 8
     assert all(note % 12 != 8 for note in into_d)
@@ -3132,7 +3135,7 @@ def test_olite_chords_walk_and_thin_close() -> None:
         (note for note in short_lead if abs(note.beat) > 1e-6 and abs(note.beat - 2.0) > 1e-6),
         key=lambda note: note.beat,
     )
-    assert [note.midi for note in walked] == [62, 64, 64, 65, 67, 72]
+    assert [note.midi for note in walked] == [62, 64, 64, 65, 71, 72]
     assert all(not note.accent for note in walked)
     assert not any(note.beat == pytest.approx(walked_beat) for note in short_support for walked_beat in (0.5, 1.0, 1.5, 2.5, 3.0, 3.5))
     assert castillos_wave_row(ctx, 0, ["olite"], "olite") == "olite"

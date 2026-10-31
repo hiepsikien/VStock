@@ -986,22 +986,20 @@ def _villa_color_step(ctx: _Ctx, current: int, toward: int, end: int, low: int, 
 
 
 def _trace_ab(ctx: _Ctx, notes: list[int], end: int, low: int, high: int, chord) -> list[int]:
-    """Ab immediately before `end` when that destination is G. Other landings stay diatonic."""
-    if ctx.ensemble != "torroba" or not notes or notes[-1] != end:
+    """Ab immediately before `end` when that destination is G. Other landings stay diatonic.
+
+    The approach replaces the pitch already in that slot. A path that is only
+    the destination has no slot to replace, and the length never grows.
+    """
+    if ctx.ensemble != "torroba" or not notes or notes[-1] != end or len(notes) < 2:
         return notes
     from app.sonify.guitar_torroba import torroba_ab_approach
 
     ab = torroba_ab_approach(ctx, end, chord)
     if ab is None or not low <= ab <= high:
         return notes
-    if len(notes) >= 2 and notes[-2] % 12 == 8 and abs(notes[-2] - end) == 1:
+    if notes[-2] % 12 == 8 and abs(notes[-2] - end) == 1:
         return notes
-    if len(notes) == 2:
-        # Keep the opening pitch and put Ab in the slot immediately before the destination.
-        start = notes[0]
-        if start == ab:
-            return notes
-        return [start, ab, end]
     updated = list(notes)
     updated[-2] = ab
     return updated
@@ -1416,6 +1414,12 @@ def _embellish(
         notes = grown
     if len(notes) != count or notes[0] != path[0] or notes[-1] != path[-1]:
         return None
+    if ctx.ensemble == "torroba" and len(notes) >= 2:
+        from app.sonify.guitar_torroba import torroba_ab_approach
+
+        ab = torroba_ab_approach(ctx, notes[-1], chord_pcs)
+        if ab is not None and low <= ab <= high:
+            notes[-2] = ab
     if any(note < low or note > high for note in notes):
         return None
     if any(abs(right - left) > 2 for left, right in zip(notes, notes[1:])):
