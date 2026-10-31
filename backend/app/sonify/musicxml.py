@@ -37,6 +37,7 @@ is written one octave above sounding pitch with `<transpose><octave-change>-1`.
 
 from __future__ import annotations
 
+import math
 import xml.etree.ElementTree as ET
 from typing import TypeVar
 
@@ -171,6 +172,30 @@ def _roll_gap_rest(event: NoteEvent) -> bool:
     return _near(units, 1.0) or _near(units, 2.0)
 
 
+def _roll_time_modification(
+    nominal: float, duration_beats: float, divisions: int
+) -> tuple[str, str, str] | None:
+    """Ratio that makes MuseScore advance by `<duration>`, not by `<type>`.
+
+    An eighth written as 4 units is `3:2` in sixteenths. An odd remainder
+    (`5`, or `47` under a whole note) is a 32nd ratio. The rest use 16ths.
+    """
+    nominal_units = int(round(nominal * divisions))
+    actual_units = int(round(duration_beats * divisions))
+    if nominal_units < 1 or actual_units < 1 or nominal_units == actual_units:
+        return None
+    divisor = math.gcd(nominal_units, actual_units)
+    reduced_nominal = nominal_units // divisor
+    reduced_actual = actual_units // divisor
+    if (reduced_nominal, reduced_actual) == (3, 2):
+        normal_type = "16th"
+    elif actual_units % 2 == 1:
+        normal_type = "32nd"
+    else:
+        normal_type = "16th"
+    return str(reduced_nominal), str(reduced_actual), normal_type
+
+
 def _gap_spelling(event: NoteEvent) -> tuple[str, tuple[str, str, str]]:
     """Triplet spelling of a roll's leading rest. A lone 2/12 rest is not 6:4."""
     units = event.duration_beats * 12.0
@@ -273,9 +298,14 @@ def _add_note(
     # bracket actually claimed it. A lone rest ahead of a roll is a triplet.
     gap = tuplet is None and _roll_gap_rest(event)
     gap_mod: tuple[str, str, str] | None = None
+    roll_mod: tuple[str, str, str] | None = None
     if nominal is not None:
         note_type, dots = _note_type(nominal)
         sixth = False
+        # `<duration>` is already the shortened unit count. The ratio tells
+        # MuseScore to move the cursor by that count, so the later voices
+        # still start on the beat after `<backup>`.
+        roll_mod = _roll_time_modification(nominal, event.duration_beats, divisions)
     elif gap:
         note_type, gap_mod = _gap_spelling(event)
         dots = 0
@@ -286,7 +316,12 @@ def _add_note(
     _add(note, "type", note_type)
     for _ in range(dots):
         _add(note, "dot")
-    if gap_mod is not None:
+    if roll_mod is not None:
+        modification = _add(note, "time-modification")
+        _add(modification, "actual-notes", roll_mod[0])
+        _add(modification, "normal-notes", roll_mod[1])
+        _add(modification, "normal-type", roll_mod[2])
+    elif gap_mod is not None:
         modification = _add(note, "time-modification")
         _add(modification, "actual-notes", gap_mod[0])
         _add(modification, "normal-notes", gap_mod[1])

@@ -553,6 +553,8 @@ def _block(
     band = _attack_band(ctx, bar, offset, _closing_offsets(ctx, bar))
     inner_vel, bass_vel = _bed(velocity, band)
     bass = _torroba_bass(ctx, ctx.chord(bar), bar, midi)
+    if bass is not None and not _playable([bass + ctx.semitones, midi + ctx.semitones]):
+        bass = None
     lead = [_attack(eighth, midi, epb, velocity, accent=accent)]
     if staccato:
         lead = [replace(lead[0], staccato=True)]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import xml.etree.ElementTree as ET
 from dataclasses import replace
 from types import SimpleNamespace
@@ -1969,7 +1970,9 @@ def _assert_eighth_xml(measure: ET.Element) -> None:
     assert (lead_note.find("duration").text, lead_note.find("type").text) == ("4", "eighth")
     for note in (bass_note, support_note, lead_note):
         assert note.find("dot") is None
-        assert note.find("time-modification") is None
+    assert bass_note.find("time-modification") is None
+    assert _time_modification(support_note) == ("6", "5", "32nd")
+    assert _time_modification(lead_note) == ("3", "2", "16th")
     assert lead[0].find("rest") is not None
     assert lead[0].find("duration").text == "2"
     assert lead[0].find("type").text == "16th"
@@ -1981,9 +1984,21 @@ def _assert_eighth_xml(measure: ET.Element) -> None:
     assert support[0].find("time-modification/actual-notes").text == "3"
     assert support[0].find("time-modification/normal-type").text == "32nd"
     assert bass[0].find("rest") is None
+    shortened = {support_note, lead_note}
     for note in measure.iter("note"):
-        if note.find("rest") is None:
-            assert note.find("time-modification") is None
+        if note.find("rest") is not None or note in shortened:
+            continue
+        assert note.find("time-modification") is None
+
+
+def _time_modification(note: ET.Element) -> tuple[str, str, str]:
+    modification = note.find("time-modification")
+    assert modification is not None
+    return (
+        modification.find("actual-notes").text,
+        modification.find("normal-notes").text,
+        modification.find("normal-type").text,
+    )
 
 
 def _assert_held_lead_xml(measure: ET.Element, units: int, kind: str) -> None:
@@ -1992,9 +2007,18 @@ def _assert_held_lead_xml(measure: ET.Element, units: int, kind: str) -> None:
     if kind == "4/4":
         assert lead.find("type").text == "whole"
         assert lead.find("dot") is None
+        nominal_units = 48
     else:
         assert lead.find("type").text == "half"
         assert lead.find("dot") is not None
+        nominal_units = 36
+    divisor = math.gcd(nominal_units, units)
+    normal_type = "32nd" if units % 2 == 1 else "16th"
+    assert _time_modification(lead) == (
+        str(nominal_units // divisor),
+        str(units // divisor),
+        normal_type,
+    )
 
 
 @pytest.mark.parametrize("kind", ["4/4", "3/4", "6/8"])
@@ -2174,6 +2198,8 @@ def test_rolled_chord_scores_engrave_on_division_12(kind: str) -> None:
     assert (bass_note.find("duration").text, bass_note.find("type").text) == ("6", "eighth")
     assert (support_note.find("duration").text, support_note.find("type").text) == ("5", "eighth")
     assert bass_note.find("dot") is None and support_note.find("dot") is None
+    assert bass_note.find("time-modification") is None
+    assert _time_modification(support_note) == ("6", "5", "32nd")
 
     _ctx2, _phrase2, pair_parts = _flat_figure(kind, 2, midi=59, chord=_UNISON)
     pair_score = _engrave(_ctx2, pair_parts)
@@ -2184,7 +2210,9 @@ def test_rolled_chord_scores_engrave_on_division_12(kind: str) -> None:
     pair_bass = _first_attack(_streams(pair_bar)[-1])
     assert pair_lead.find("duration").text == "5"
     assert pair_lead.find("type").text == "eighth" and pair_lead.find("dot") is None
+    assert _time_modification(pair_lead) == ("6", "5", "32nd")
     assert pair_bass.find("duration").text == "6"
+    assert pair_bass.find("time-modification") is None
     assert _streams(pair_bar)[0][0].find("duration").text == "1"
 
     _ctx7, _phrase7, held_parts = _flat_figure(kind, 7, midi=59, chord=_UNISON)
@@ -2260,3 +2288,92 @@ def test_intro_and_danza_stay_block_chords_when_a_roll_sets_division_12() -> Non
     )
     assert body and all(note.beat == pytest.approx(0.0) for note in body)
     assert_playable(danza, profiles="torroba")
+
+
+def _assert_type7_bar5_kept(score: Score, bar: int) -> None:
+    """The rolled lead and the seven-eighth bass run survive boundary rewrites."""
+    rolled = [
+        note
+        for note in score.lead
+        if note.bar == bar and note.midi is not None and note.beat < 0.25
+    ]
+    assert len(rolled) == 1
+    assert rolled[0].beat == pytest.approx(2 / 12)
+    assert rolled[0].duration_beats == pytest.approx(score.bar_beats - 2 / 12)
+    running = sorted(
+        (
+            note
+            for note in score.low
+            if note.bar == bar and note.midi is not None and note.beat >= 0.5 - 1e-9
+        ),
+        key=lambda note: note.beat,
+    )
+    assert [round(note.beat, 2) for note in running] == [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5]
+    assert all(note.duration_beats == pytest.approx(0.5) for note in running)
+    # Steps -1, -1, -1, -1, -2, -2, -1. One bar center shifts them together.
+    base = running[0].velocity
+    assert [note.velocity - base for note in running] == [0, 0, 0, 0, -2, -2, 0]
+    assert running[-1].midi % 12 == C.pitches[0] % 12
+
+
+def test_type_7_bar_5_keeps_the_roll_across_a_boundary_and_a_pattern_change() -> None:
+    framed = _render(
+        [72] * 56,
+        (_joined(0, [72] * 8, held=True), _joined(8, [72] * 40), _joined(48, [72] * 8)),
+        chords={bar: C for bar in range(7)},
+        kinds={0: "intro", **{bar: "phrase" for bar in range(1, 6)}, 6: "outro"},
+        mode="major",
+        character="calm",
+        bpm=72,
+        sections=(
+            FormSection(0, 1, "intro", 0),
+            FormSection(1, 6, "phrase", 0),
+            FormSection(6, 7, "outro", 0),
+        ),
+    )
+    _assert_type7_bar5_kept(framed, 5)
+    assert_playable(framed, profiles="torroba")
+
+    crossed = _render(
+        [72] * 48,
+        (_joined(0, [72] * 40), _joined(40, [72] * 8)),
+        chords={bar: C for bar in range(6)},
+        kinds={bar: "phrase" for bar in range(6)},
+        mode="major",
+        character="calm",
+        bpm=72,
+        sections=(
+            FormSection(0, 5, "phrase", 0),
+            FormSection(5, 6, "phrase", 0, bridge=True),
+        ),
+    )
+    _assert_type7_bar5_kept(crossed, 4)
+    assert_playable(crossed, profiles="torroba")
+
+
+def test_block_drops_a_bass_the_melody_cannot_fret() -> None:
+    """F2 under a high price does not fit. The chord keeps the lead alone."""
+    only_f = Chord("F", "F", "major", "", (65,))
+    cases = (
+        ("fandanguillo", "4/4", METER_44, 8, (0, 4), 4.0),
+        ("danza", "6/8", METER_68, 6, (0, 3), 3.0),
+    )
+    for pattern, kind, meter, epb, strong, bar_beats in cases:
+        phrase = _joined(0, [76] * epb, held=True)
+        ctx = _ctx(
+            melody=[76] * epb,
+            phrase=phrase,
+            kind=kind,
+            epb=epb,
+            strong=strong,
+            character="volatile" if pattern == "fandanguillo" else "calm",
+            bar_beats=bar_beats,
+            chord=only_f,
+        )
+        with compose_meter(meter):
+            lead, support, low = _render_torroba_bar(ctx, 0, phrase, pattern)
+        assert low == []
+        opening = _opening(lead, support, low)
+        assert len(opening) == 1 and opening[0].voice == 1
+        assert opening[0].beat == pytest.approx(0.0)
+        assert_playable(_figure_score(ctx, [(lead, support, low)], 2), profiles="torroba")

@@ -3046,10 +3046,12 @@ def render_patterned_voices(
         lead, support, low = _strip_pedal(ctx, lead, support, low)
         lead, support, low = _paint_frames(ctx, patterns, lead, support, low)
         lead, support, low, relaxed = _smooth_boundaries(
-            ctx, patterns, lead, support, low, scale_eighths
+            ctx, patterns, lead, support, low, scale_eighths, figure_bars=set(figure_at)
         )
     else:
-        lead, support, low = _transitions(ctx, patterns, levels, lead, support, low, scale_eighths)
+        lead, support, low = _transitions(
+            ctx, patterns, levels, lead, support, low, scale_eighths, figure_bars=set(figure_at)
+        )
     for eighth in _caesura_eighths(ctx, levels):
         if eighth in scale_eighths:
             continue
@@ -3457,10 +3459,23 @@ def _plant_pickup(
     return lead, support, low
 
 
-def _smooth_boundaries(ctx: _Ctx, patterns, lead, support, low, scale_eighths: set[int] | None = None):
+def _smooth_boundaries(
+    ctx: _Ctx,
+    patterns,
+    lead,
+    support,
+    low,
+    scale_eighths: set[int] | None = None,
+    figure_bars: set[int] | None = None,
+):
     relaxed: set[int] = set()
     protected = scale_eighths or set()
+    owned = figure_bars or set()
     for bar in _boundary_bars(ctx, patterns):
+        # A Torroba figure owns its bass line and its rolled lead. A boundary
+        # pickup would replace the last eighth and spell the roll back to beat 0.
+        if bar in owned:
+            continue
         pattern = _bar_pattern(ctx, bar, patterns)
         half = max(1, ctx.epb // 2)
         window = range((bar + 1) * ctx.epb - half, (bar + 1) * ctx.epb)
@@ -3590,8 +3605,12 @@ def _shape_dynamics(
     return shape(lead, "lead"), shape(support, "support"), shape(low, "low")
 
 
-def _transitions(ctx, patterns, levels, lead, support, low, scale_eighths: set[int] | None = None):
+def _transitions(
+    ctx, patterns, levels, lead, support, low, scale_eighths: set[int] | None = None,
+    figure_bars: set[int] | None = None,
+):
     protected = scale_eighths or set()
+    owned = figure_bars or set()
     body = [
         index
         for index, phrase in enumerate(ctx.phrases)
@@ -3604,6 +3623,10 @@ def _transitions(ctx, patterns, levels, lead, support, low, scale_eighths: set[i
         if phrase.end - phrase.start < 1:
             continue
         eighth = phrase.end - 1
+        # The last eighth of a figure bar is part of the figure. Silencing it
+        # cuts the rolled lead back to the downbeat and drops the final bass.
+        if eighth // ctx.epb in owned:
+            continue
         runs = _runs(ctx.melody, phrase.start, phrase.end)
         held_ending = bool(runs) and runs[-1][1] >= 2
         running_ending = bool(runs) and all(length < 4 for _s, length, _m in runs)
