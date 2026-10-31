@@ -71,6 +71,9 @@ _EXPECTED = {
     ("torroba", "sonatina"),
     ("torroba", "fandanguillo"),
     ("torroba", "danza"),
+    ("torroba", "torroba_tremolo"),
+    ("torroba", "alcaniz"),
+    ("torroba", "olite"),
 }
 
 
@@ -198,7 +201,7 @@ def _guitar_score(lead: list[NoteEvent], *, ensemble: str = "classic", bars: int
 
 
 def test_same_bar_differences_follow_one_rounded_center() -> None:
-    """Invariant 1. round(C) once, then the written offset. M is 1 on all 35 rows."""
+    """Invariant 1. round(C) once, then the written offset. M is 1 on all 38 rows."""
     assert set(PROFILES) == _EXPECTED
     for profile in PROFILES.values():
         assert profile.floor_calm <= profile.floor_wide
@@ -259,6 +262,9 @@ def test_same_bar_differences_follow_one_rounded_center() -> None:
         ("torroba", "sonatina"): (30, 58, 34, 62, 5),
         ("torroba", "fandanguillo"): (30, 58, 36, 63, 3),
         ("torroba", "danza"): (30, 58, 36, 63, 3),
+        ("torroba", "torroba_tremolo"): (30, 58, 34, 62, 5),
+        ("torroba", "alcaniz"): (30, 58, 36, 63, 3),
+        ("torroba", "olite"): (30, 58, 36, 63, 3),
     }
     assert set(windows) == set(PROFILES)
     for key, expected in windows.items():

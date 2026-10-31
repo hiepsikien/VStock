@@ -17,36 +17,53 @@ from app.sonify.phrasing import MIN_RISE
 _OPEN_BASS = (40, 45, 50)
 _HARMONICS = frozenset({52, 57, 62, 67, 71, 76, 79})
 _TORROBA_PATTERNS = frozenset({"castillo", "sonatina", "fandanguillo", "danza"})
+# Juglar, Alcaniz, and Olite. Kept out of `_TORROBA_PATTERNS` so an even `n`
+# is not spelled as a Castillo figure.
+_CASTILLOS_PATTERNS = frozenset({"torroba_tremolo", "alcaniz", "olite"})
 _DEGREE_I = 0
 _DEGREE_V = 7
+JUGLAR_THIN = 9
+ALCANIZ_OPENING = 10
+ALCANIZ_SOFT = 11
+OLITE_THIN = 12
+_TRIPLET = 4.0 / 12.0
 
 
 def _torroba_primary(ctx, mood: str | None, *, framed_macro: bool = False) -> str:
-    """One Torroba texture for a phrase or, when framed, a whole section.
+    """One Torroba pattern for a phrase or, when framed, a whole section.
 
-    Unframed phrases use the 4/4 mood map at every meter. A framed scherzo
-    in 6/8 is the only place `danza` is chosen. `danza` never stands in 4/4.
+    A framed scherzo in 6/8 is the only place `danza` or `alcaniz` is chosen.
+    `danza` never stands in 4/4. Olite is the 4/4 volatile pattern, including 1D.
     """
     if ctx.bpm <= 72:
         return "castillo"
     if framed_macro and ctx.kind == "6/8":
-        if mood in {"rally", "volatile"}:
+        if mood == "rally":
+            return "alcaniz"
+        if mood == "volatile":
             return "fandanguillo"
         if mood == "selloff":
             return "castillo"
         return "danza"
     if mood == "volatile":
-        return "fandanguillo"
+        return "olite" if ctx.kind == "4/4" else "fandanguillo"
     if mood in {"rally", "selloff"}:
         return "sonatina"
     return "castillo"
 
 
-def _torroba_contrast(ctx, primary: str) -> str:
-    """The other formal area. Slow writing answers with the sonatina."""
-    if ctx.bpm <= 72:
-        return "sonatina"
-    if ctx.kind == "6/8" and ctx.bpm > 72 and primary in {"danza", "fandanguillo"}:
+def _torroba_contrast(ctx, primary: str, mood: str | None = None) -> str:
+    """The other formal area.
+
+    `mood` is the middle section, read the way `_dominant_pattern` reads a
+    phrase group. A slow 3/4 bridge answers with Juglar only when that mood
+    is calm. A scherzo dance, including Alcaniz, answers with Castillo.
+    """
+    if mood is None:
+        mood = ctx.character
+    if ctx.bpm <= 72 and ctx.kind == "3/4":
+        return "torroba_tremolo" if mood == "calm" else "sonatina"
+    if ctx.kind == "6/8" and ctx.bpm > 72 and primary in {"danza", "fandanguillo", "alcaniz"}:
         return "castillo"
     if primary == "castillo":
         return "sonatina"
@@ -1099,6 +1116,7 @@ def torroba_figure_plan(ctx, patterns: list[str]) -> dict[int, tuple[int, int, i
                 if 0 <= local < len(bars):
                     plan[bars[local]] = (figure, slot_index, len(slots))
             previous = figure
+    plan.update(_castillos_figure_plan(ctx, patterns))
     return plan
 
 
@@ -2300,7 +2318,490 @@ def apply_sonatina_downbeats(ctx, lead, support, patterns):
     return lead, support
 
 
-def _render_torroba_bar(ctx, bar: int, phrase, pattern: str):
+def _pattern_row(patterns, count: int, pattern: str) -> list[str]:
+    if patterns is None:
+        return [pattern] * count
+    row = list(patterns)
+    if len(row) < count:
+        row.extend(["pedal"] * (count - len(row)))
+    return row
+
+
+def _grid_state(ctx, patterns: list[str]) -> dict[int, str]:
+    """Body phrase index → `thin`, `pushed`, or `full`.
+
+    A closing phrase is always thin. A `rise < 3` phrase is thin unless the
+    previous body phrase of this pattern was thin for the same reason: that
+    phrase sings the base-grid notes with no accent and no floor. The flag
+    clears after a push, a full phrase, a close, another pattern, or a new section.
+    """
+    sections: dict[object, list[int]] = {}
+    order: list[object] = []
+    for index, phrase in enumerate(ctx.phrases):
+        if index >= len(patterns) or not _body_phrase(ctx, phrase):
+            continue
+        key = _section_key(ctx, phrase)
+        if key not in sections:
+            sections[key] = []
+            order.append(key)
+        sections[key].append(index)
+    state: dict[int, str] = {}
+    for key in order:
+        previous_thin = False
+        previous_pattern = None
+        for index in sections[key]:
+            pattern = patterns[index]
+            phrase = ctx.phrases[index]
+            if pattern not in _CASTILLOS_PATTERNS:
+                previous_thin = False
+                previous_pattern = pattern
+                continue
+            if pattern != previous_pattern:
+                previous_thin = False
+            previous_pattern = pattern
+            if phrase.closes:
+                state[index] = "thin"
+                previous_thin = False
+            elif phrase.rise < MIN_RISE:
+                if previous_thin:
+                    state[index] = "pushed"
+                    previous_thin = False
+                else:
+                    state[index] = "thin"
+                    previous_thin = True
+            else:
+                state[index] = "full"
+                previous_thin = False
+    return state
+
+
+def _castillos_n(ctx, patterns: list[str], index: int) -> int:
+    """How many earlier body phrases of this pattern sit in the same section."""
+    phrase = ctx.phrases[index]
+    pattern = patterns[index]
+    key = _section_key(ctx, phrase)
+    count = 0
+    for earlier in range(index):
+        if patterns[earlier] != pattern or not _body_phrase(ctx, ctx.phrases[earlier]):
+            continue
+        if _section_key(ctx, ctx.phrases[earlier]) != key:
+            continue
+        count += 1
+    return count
+
+
+def _phrase_index(ctx, phrase) -> int | None:
+    if phrase is None:
+        return None
+    for index, item in enumerate(ctx.phrases):
+        if item is phrase:
+            return index
+    return None
+
+
+def _lone_mode(phrase) -> str:
+    if phrase is not None and phrase.runs and not phrase.closes and phrase.rise >= MIN_RISE:
+        return "full"
+    return "thin"
+
+
+def _castillos_bar_mode(ctx, bar: int, phrase, pattern: str, patterns) -> tuple[str, int, bool]:
+    """Density of this bar, the pattern's phrase number, and the Alcaniz opening."""
+    row = _pattern_row(patterns, len(ctx.phrases), pattern)
+    index = _phrase_index(ctx, phrase)
+    if index is None or index >= len(row) or row[index] != pattern:
+        mode = _lone_mode(phrase)
+        n = 0
+    else:
+        mode = _grid_state(ctx, row).get(index, "thin")
+        n = _castillos_n(ctx, row, index)
+    local = 0
+    if phrase is not None:
+        bars = _bars_of(ctx, phrase)
+        if bar in bars:
+            local = bars.index(bar)
+    opening = (
+        pattern == "alcaniz"
+        and mode == "full"
+        and n == 0
+        and local < 2
+        and ctx.kind == "6/8"
+    )
+    return mode, n, opening
+
+
+def castillos_wave_row(ctx, bar: int, patterns, pattern: str) -> str:
+    """Wave profile id for one body bar.
+
+    Juglar stays on the sonatina row. Alcaniz dance, opening, and a pushed
+    dance stay on the danza row; a soft bar uses Castillo. Olite's full grid
+    uses the danza row; a thin or pushed bar uses Castillo.
+    """
+    if pattern not in _CASTILLOS_PATTERNS:
+        return pattern
+    mode, _n, _opening = _castillos_bar_mode(ctx, bar, _phrase_at(ctx, bar * ctx.epb), pattern, patterns)
+    if pattern == "torroba_tremolo":
+        return "torroba_tremolo"
+    if pattern == "alcaniz":
+        return "castillo" if mode == "thin" else "alcaniz"
+    return "olite" if mode == "full" else "castillo"
+
+
+def _castillos_figure_plan(ctx, patterns: list[str]) -> dict[int, tuple[int, int, int]]:
+    row = _pattern_row(patterns, len(ctx.phrases), "pedal")
+    state = _grid_state(ctx, row)
+    plan: dict[int, tuple[int, int, int]] = {}
+    for index, phrase in enumerate(ctx.phrases):
+        if index >= len(row) or not _body_phrase(ctx, phrase):
+            continue
+        pattern = row[index]
+        if pattern not in _CASTILLOS_PATTERNS:
+            continue
+        mode = state.get(index, "thin")
+        n = _castillos_n(ctx, row, index)
+        bars = _bars_of(ctx, phrase)
+        slots: list[int] = []
+        figure: int | None = None
+        if pattern == "torroba_tremolo" and mode == "thin":
+            figure = JUGLAR_THIN
+            slots = list(range(len(bars)))
+        elif pattern == "alcaniz" and mode == "thin":
+            figure = ALCANIZ_SOFT
+            slots = list(range(len(bars)))
+        elif pattern == "alcaniz" and mode == "full" and n == 0:
+            figure = ALCANIZ_OPENING
+            slots = list(range(min(2, len(bars))))
+        elif pattern == "olite" and mode == "thin":
+            figure = OLITE_THIN
+            slots = list(range(len(bars)))
+        if figure is None:
+            continue
+        for slot_index, local in enumerate(slots):
+            if 0 <= local < len(bars):
+                plan[bars[local]] = (figure, slot_index, len(slots))
+    return plan
+
+
+def _heard(bar: int, beat: float, midi: int, duration: float, voice: int, velocity: int, **flags) -> NoteEvent:
+    return NoteEvent(
+        bar=bar,
+        beat=beat,
+        midi=midi,
+        duration_beats=duration,
+        voice=voice,
+        velocity=velocity,
+        **flags,
+    )
+
+
+def _lead_vel(ctx, eighth: int, phrase) -> int:
+    return _note_velocity(eighth, 1, _apex_eighths(ctx.phrases), phrase)
+
+
+def _one_under(velocity: int, band: str) -> int:
+    """One `_under_lead` step under the attack. Pitch stays put."""
+    support, _bass = _under_lead(velocity, band)
+    if support < velocity:
+        return support
+    return max(40, velocity - _MICRO)
+
+
+def _sounding_bass(ctx, bar: int, lead: int) -> int | None:
+    bass = _torroba_bass(ctx, ctx.chord(bar), bar, lead)
+    if bass is None or not _open_bass_tone(ctx, bass):
+        return None
+    return bass
+
+
+def _downbeat_only(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    """A meter this pattern does not spell. One lead, and an open bass when there is one."""
+    eighth = bar * ctx.epb
+    midi = _melody_at(ctx, eighth)
+    velocity = _lead_vel(ctx, eighth, phrase)
+    lead = [_heard(bar, 0.0, midi, 0.5, 1, velocity)]
+    low: list[NoteEvent] = []
+    bass = _sounding_bass(ctx, bar, midi)
+    if bass is not None:
+        _inner, bass_vel = _bed(velocity, ctx.band(bar))
+        low.append(_heard(bar, 0.0, bass, 0.5, 3, bass_vel))
+    return lead, [], low
+
+
+def _render_juglar_bar(ctx, bar: int, phrase, mode: str):
+    """Eighth-note triplets in 3/4. Only attack 1 of eighth 0 can carry an accent."""
+    if ctx.kind != "3/4":
+        return _downbeat_only(ctx, bar, phrase)
+    lead: list[NoteEvent] = []
+    low: list[NoteEvent] = []
+    band = ctx.band(bar)
+    for quarter, eighth in enumerate((0, 2, 4)):
+        origin = bar * ctx.epb + eighth
+        midi = _melody_at(ctx, origin)
+        velocity = _lead_vel(ctx, origin, phrase)
+        beat = float(quarter)
+        accent = mode == "full" and eighth == 0
+        if mode == "thin":
+            lead.append(_heard(bar, beat, midi, 1.0, 1, velocity))
+            bass_duration = 1.0
+        else:
+            dropped = _one_under(velocity, band)
+            lead.append(_heard(bar, beat, midi, _TRIPLET, 1, velocity, accent=accent))
+            lead.append(_heard(bar, beat + _TRIPLET, midi, _TRIPLET, 1, dropped))
+            lead.append(_heard(bar, beat + 2 * _TRIPLET, midi, _TRIPLET, 1, dropped))
+            bass_duration = _TRIPLET
+        bass = _sounding_bass(ctx, bar, midi)
+        if bass is not None:
+            _inner, bass_vel = _bed(velocity, band)
+            low.append(_heard(bar, beat, bass, bass_duration, 3, bass_vel))
+    return lead, [], low
+
+
+def _scale_away(ctx, pitch: int, direction: int) -> int:
+    toward = pitch + direction * 12
+    low = min(ctx.treble_floor, pitch, toward)
+    high = max(ctx.treble_top, pitch, toward)
+    stepped = torroba_scale_step(ctx, pitch, toward, low=low, high=high)
+    if stepped == pitch:
+        return pitch + direction
+    return stepped
+
+
+def _two_into(ctx, start: int, target: int) -> tuple[int, int]:
+    """Two scale steps that arrive on `target`. Equal pitches pull off from above."""
+    away = -1 if start < target else 1
+    second = _scale_away(ctx, target, away)
+    first = _scale_away(ctx, second, away)
+    return first, second
+
+
+def _alcaniz_dance(ctx, bar: int, phrase, *, accented: bool):
+    lead: list[NoteEvent] = []
+    low: list[NoteEvent] = []
+    band = ctx.band(bar)
+    for eighth in (0, 3):
+        origin = bar * ctx.epb + eighth
+        midi = _melody_at(ctx, origin)
+        ordinary = _lead_vel(ctx, origin, phrase)
+        velocity = max(ordinary, 68) if accented else ordinary
+        lead.append(_heard(bar, eighth * 0.5, midi, 0.5, 1, velocity, accent=accented))
+        answer = eighth + 1
+        bass = _sounding_bass(ctx, bar, midi)
+        if bass is not None:
+            _inner, bass_vel = _bed(ordinary, band)
+            low.append(_heard(bar, answer * 0.5, bass, 0.5, 3, bass_vel))
+    return lead, [], low
+
+
+def _alcaniz_soft(ctx, bar: int, phrase):
+    lead: list[NoteEvent] = []
+    for eighth in (0, 3):
+        origin = bar * ctx.epb + eighth
+        midi = _melody_at(ctx, origin)
+        velocity = _lead_vel(ctx, origin, phrase)
+        lead.append(_heard(bar, eighth * 0.5, midi, 1.5, 1, velocity))
+    low: list[NoteEvent] = []
+    sung = _melody_at(ctx, bar * ctx.epb)
+    bass = _sounding_bass(ctx, bar, sung)
+    if bass is not None:
+        _inner, bass_vel = _bed(_lead_vel(ctx, bar * ctx.epb, phrase), ctx.band(bar))
+        low.append(_heard(bar, 0.0, bass, 0.5, 3, bass_vel))
+    return lead, [], low
+
+
+def _alcaniz_opening(ctx, bar: int, phrase):
+    origin = bar * ctx.epb
+    top = _melody_at(ctx, origin)
+    ordinary = _lead_vel(ctx, origin, phrase)
+    velocity = max(ordinary, 68)
+    band = ctx.band(bar)
+    inner_vel, bass_vel = _bed(velocity, band)
+    raw = _torroba_bass(ctx, ctx.chord(bar), bar, top)
+    lead = [_heard(bar, 0.0, top, 0.5, 1, velocity, accent=True)]
+    support: list[NoteEvent] = []
+    low: list[NoteEvent] = []
+    if raw is not None and _open_bass_tone(ctx, raw):
+        low.append(_heard(bar, 0.0, raw, 0.5, 3, bass_vel))
+    if raw is not None:
+        inner = _torroba_inner(ctx, ctx.chord(bar), top, raw, allow_high=True)
+        if inner is not None:
+            support.append(_heard(bar, 0.0, inner, 0.5, 2, inner_vel))
+    target = _melody_at(ctx, origin + 3)
+    first, second = _two_into(ctx, top, target)
+    lead.append(_heard(bar, 0.5, first, 0.5, 1, _lead_vel(ctx, origin + 1, phrase), slur_start=True))
+    lead.append(_heard(bar, 1.0, second, 0.5, 1, _lead_vel(ctx, origin + 2, phrase)))
+    arrival = _lead_vel(ctx, origin + 3, phrase)
+    lead.append(
+        _heard(bar, 1.5, target, 0.5, 1, max(arrival, 68), accent=True, slur_stop=True)
+    )
+    prev = target
+    for eighth in (4, 5):
+        sung = _melody_at(ctx, origin + eighth)
+        level = _lead_vel(ctx, origin + eighth, phrase)
+        lead.append(_heard(bar, eighth * 0.5, sung, 0.5, 1, level))
+        if raw is None:
+            prev = sung
+            continue
+        inner = _torroba_inner(
+            ctx, ctx.chord(bar), sung, raw, allow_high=False, prev_lead=prev
+        )
+        if inner is not None:
+            support.append(_heard(bar, eighth * 0.5, inner, 0.5, 2, _bed(level, band)[0]))
+        prev = sung
+    return lead, support, low
+
+
+def _render_alcaniz_bar(ctx, bar: int, phrase, mode: str, *, opening: bool):
+    if ctx.kind != "6/8":
+        return _downbeat_only(ctx, bar, phrase)
+    if mode == "thin":
+        return _alcaniz_soft(ctx, bar, phrase)
+    if opening:
+        return _alcaniz_opening(ctx, bar, phrase)
+    return _alcaniz_dance(ctx, bar, phrase, accented=mode == "full")
+
+
+def _melody_here(ctx, eighth: int) -> int | None:
+    if 0 <= eighth < len(ctx.melody):
+        return ctx.melody[eighth]
+    return None
+
+
+def _scale_steps(ctx, start: int, target: int) -> list[int]:
+    """Diatonic steps from `start` to `target`, excluding `start` and including `target`."""
+    if start == target:
+        return []
+    notes: list[int] = []
+    cursor = start
+    low = min(start, target) - 2
+    high = max(start, target) + 2
+    for _guard in range(24):
+        if cursor == target:
+            break
+        nxt = torroba_scale_step(ctx, cursor, target, low=low, high=high)
+        if nxt == cursor:
+            notes.append(target)
+            break
+        notes.append(nxt)
+        cursor = nxt
+    if notes and notes[-1] != target:
+        notes.append(target)
+    return notes
+
+
+def _fit_walk(steps: list[int]) -> list[int] | None:
+    """Three eighths. A short walk repeats. A long walk jumps once on the last eighth."""
+    if not steps:
+        return None
+    if len(steps) <= 3:
+        return steps + [steps[-1]] * (3 - len(steps))
+    return steps[:2] + [steps[-1]]
+
+
+def _olite_chord(ctx, bar: int, eighth: int, phrase, *, accented: bool):
+    origin = bar * ctx.epb + eighth
+    midi = _melody_at(ctx, origin)
+    ordinary = _lead_vel(ctx, origin, phrase)
+    velocity = max(ordinary, 68) if accented else ordinary
+    lead = [_heard(bar, eighth * 0.5, midi, 0.5, 1, velocity, accent=accented)]
+    support: list[NoteEvent] = []
+    low: list[NoteEvent] = []
+    raw = _torroba_bass(ctx, ctx.chord(bar), bar, midi)
+    if raw is None:
+        return lead, support, low
+    inner_vel, bass_vel = _bed(velocity, ctx.band(bar))
+    if _open_bass_tone(ctx, raw):
+        low.append(_heard(bar, eighth * 0.5, raw, 0.5, 3, bass_vel))
+    inner = _torroba_inner(ctx, ctx.chord(bar), midi, raw, allow_high=True)
+    if inner is not None:
+        support.append(_heard(bar, eighth * 0.5, inner, 0.5, 2, inner_vel))
+    return lead, support, low
+
+
+def _olite_group(ctx, bar: int, eighths: tuple[int, int, int], start: int, target: int | None, phrase):
+    if target is None:
+        return []
+    fitted = _fit_walk(_scale_steps(ctx, start, target))
+    if not fitted:
+        return []
+    notes: list[NoteEvent] = []
+    for eighth, midi in zip(eighths, fitted):
+        velocity = _lead_vel(ctx, bar * ctx.epb + eighth, phrase)
+        notes.append(_heard(bar, eighth * 0.5, midi, 0.5, 1, velocity))
+    return notes
+
+
+def _olite_vivace(ctx, bar: int, phrase, *, accented: bool):
+    lead: list[NoteEvent] = []
+    support: list[NoteEvent] = []
+    low: list[NoteEvent] = []
+    for eighth in (0, 4):
+        part_lead, part_support, part_low = _olite_chord(ctx, bar, eighth, phrase, accented=accented)
+        lead.extend(part_lead)
+        support.extend(part_support)
+        low.extend(part_low)
+    origin = bar * ctx.epb
+    start = _melody_at(ctx, origin)
+    middle = _melody_at(ctx, origin + 4)
+    lead.extend(_olite_group(ctx, bar, (1, 2, 3), start, middle, phrase))
+    lead.extend(_olite_group(ctx, bar, (5, 6, 7), middle, _melody_here(ctx, origin + ctx.epb), phrase))
+    return lead, support, low
+
+
+def _olite_thin(ctx, bar: int, phrase):
+    lead: list[NoteEvent] = []
+    for eighth in (0, 4):
+        origin = bar * ctx.epb + eighth
+        midi = _melody_at(ctx, origin)
+        lead.append(_heard(bar, eighth * 0.5, midi, 0.5, 1, _lead_vel(ctx, origin, phrase)))
+    low: list[NoteEvent] = []
+    sung = _melody_at(ctx, bar * ctx.epb)
+    bass = _sounding_bass(ctx, bar, sung)
+    if bass is not None:
+        _inner, bass_vel = _bed(_lead_vel(ctx, bar * ctx.epb, phrase), ctx.band(bar))
+        low.append(_heard(bar, 0.0, bass, 0.5, 3, bass_vel))
+    return lead, [], low
+
+
+def _render_olite_bar(ctx, bar: int, phrase, mode: str):
+    if ctx.kind != "4/4":
+        return _downbeat_only(ctx, bar, phrase)
+    if mode == "thin":
+        return _olite_thin(ctx, bar, phrase)
+    return _olite_vivace(ctx, bar, phrase, accented=mode == "full")
+
+
+def _pen_juglar_thin(pen: _Pen):
+    return _render_juglar_bar(pen.ctx, pen.bar, pen.phrase, "thin")
+
+
+def _pen_alcaniz_opening(pen: _Pen):
+    return _render_alcaniz_bar(pen.ctx, pen.bar, pen.phrase, "full", opening=True)
+
+
+def _pen_alcaniz_soft(pen: _Pen):
+    return _render_alcaniz_bar(pen.ctx, pen.bar, pen.phrase, "thin", opening=False)
+
+
+def _pen_olite_thin(pen: _Pen):
+    return _render_olite_bar(pen.ctx, pen.bar, pen.phrase, "thin")
+
+
+_FIGURES[JUGLAR_THIN] = _pen_juglar_thin
+_FIGURES[ALCANIZ_OPENING] = _pen_alcaniz_opening
+_FIGURES[ALCANIZ_SOFT] = _pen_alcaniz_soft
+_FIGURES[OLITE_THIN] = _pen_olite_thin
+
+
+def _render_torroba_bar(ctx, bar: int, phrase, pattern: str, patterns=None):
+    if pattern == "torroba_tremolo":
+        mode, _n, _opening = _castillos_bar_mode(ctx, bar, phrase, pattern, patterns)
+        return _render_juglar_bar(ctx, bar, phrase, mode)
+    if pattern == "alcaniz":
+        mode, _n, opening = _castillos_bar_mode(ctx, bar, phrase, pattern, patterns)
+        return _render_alcaniz_bar(ctx, bar, phrase, mode, opening=opening)
+    if pattern == "olite":
+        mode, _n, _opening = _castillos_bar_mode(ctx, bar, phrase, pattern, patterns)
+        return _render_olite_bar(ctx, bar, phrase, mode)
     if pattern == "castillo":
         return _render_castillo_bar(ctx, bar, phrase)
     if pattern == "fandanguillo":

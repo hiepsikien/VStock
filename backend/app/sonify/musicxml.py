@@ -214,6 +214,51 @@ def _eighth_roll_units(event: NoteEvent, divisions: int) -> int | None:
     return units
 
 
+def _is_triplet_eighth(event: NoteEvent) -> bool:
+    """One attack of an eighth-note triplet: 4/12 at tick 0, 4, or 8.
+
+    A rasgueado lead also lasts 4/12, but it starts at tick 2 and keeps the
+    nominal-duration path. Tick 1 and tick 2 are not triplet attacks.
+    """
+    if not _near(event.duration_beats * 12.0, 4.0):
+        return False
+    return int(round(event.beat * 12.0)) % 4 == 0
+
+
+def _triplet_eighth_roles(events: list[NoteEvent]) -> list[str | None]:
+    """Bracket three eighth-note triplet attacks that fill one quarter."""
+    roles: list[str | None] = [None] * len(events)
+    index = 0
+    while index < len(events):
+        if not _is_triplet_eighth(events[index]):
+            index += 1
+            continue
+        end = index
+        total = 0.0
+        origin = events[index].beat
+        while (
+            end < len(events)
+            and _is_triplet_eighth(events[end])
+            and abs(events[end].beat - (origin + total)) <= 1e-6
+            and total < 1.0 - 1e-3
+        ):
+            total += events[end].duration_beats
+            end += 1
+        if end - index == 3 and abs(total - 1.0) < 1e-3:
+            roles[index] = "start"
+            roles[end - 1] = "stop"
+        index = max(end, index + 1)
+    return roles
+
+
+def _tuplet_roles(events: list[NoteEvent]) -> list[str | None]:
+    roles = _sextuplet_roles(events)
+    for index, role in enumerate(_triplet_eighth_roles(events)):
+        if role is not None:
+            roles[index] = role
+    return roles
+
+
 def _is_sixth(beats: float) -> bool:
     """One note of a sextuplet: a sixteenth inside 6:4.
 
@@ -308,6 +353,7 @@ def _add_note(
     # bracket actually claimed it. A roll gap is emitted as `<forward>`
     # before this function runs.
     roll_mod: tuple[str, str, str] | None = None
+    triplet_eighth = False
     if nominal is not None:
         note_type, dots = _note_type(nominal)
         sixth = False
@@ -315,6 +361,11 @@ def _add_note(
         # MuseScore to move the cursor by that count, so the later voices
         # still start on the beat after `<backup>`.
         roll_mod = _roll_time_modification(nominal, event.duration_beats, divisions, note_type)
+    elif _is_triplet_eighth(event):
+        # An eighth times 2/3 advances one triplet attack (4 divisions at 12).
+        note_type, dots = ("eighth", 0)
+        sixth = False
+        triplet_eighth = True
     else:
         sixth = _is_sixth(event.duration_beats)
         note_type, dots = ("16th", 0) if sixth else _note_type(event.duration_beats)
@@ -326,6 +377,11 @@ def _add_note(
         _add(modification, "actual-notes", roll_mod[0])
         _add(modification, "normal-notes", roll_mod[1])
         _add(modification, "normal-type", roll_mod[2])
+    elif triplet_eighth:
+        modification = _add(note, "time-modification")
+        _add(modification, "actual-notes", "3")
+        _add(modification, "normal-notes", "2")
+        _add(modification, "normal-type", "eighth")
     elif sixth:
         modification = _add(note, "time-modification")
         _add(modification, "actual-notes", "6")
@@ -1168,7 +1224,7 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                 # and the bass) all sit around mp.
                 marking = markings[voice_index]
                 _dynamic(measure, DynamicEvent(bar=0, marking=marking, sound=SOUND[marking]))
-            roles = _sextuplet_roles(ordered)
+            roles = _tuplet_roles(ordered)
             index = 0
             while index < len(ordered):
                 event = ordered[index]

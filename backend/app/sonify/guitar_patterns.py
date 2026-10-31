@@ -81,6 +81,9 @@ _FAMILY = {
     "sonatina": "torroba",
     "fandanguillo": "torroba",
     "danza": "torroba",
+    "torroba_tremolo": "torroba",
+    "alcaniz": "torroba",
+    "olite": "torroba",
 }
 _PROFILE = {
     "study": "study",
@@ -118,6 +121,9 @@ _PROFILE = {
     "sonatina": "torroba",
     "fandanguillo": "torroba",
     "danza": "torroba",
+    "torroba_tremolo": "torroba",
+    "alcaniz": "torroba",
+    "olite": "torroba",
 }
 
 
@@ -803,7 +809,7 @@ def _select_body(
     if ctx.ensemble == "torroba":
         primary = _torroba_primary(ctx, mood)
         if trio or bridge:
-            return _torroba_contrast(ctx, primary)
+            return _torroba_contrast(ctx, primary, mood)
         return primary
     if ctx.bpm >= BARRIOS_TREMOLO_MIN_BPM and first_body:
         return {"classic": "study", "villa": "villa_pattern"}.get(ctx.ensemble, "preludio")
@@ -1195,7 +1201,7 @@ def _contrast_pattern(ctx: _Ctx, primary: str, phrases: list[Phrase], bars: list
     if ctx.ensemble == "bach":
         return _bach_contrast(ctx, primary, mood)
     if ctx.ensemble == "torroba":
-        return _torroba_contrast(ctx, primary)
+        return _torroba_contrast(ctx, primary, mood)
     if ctx.ensemble == "classic":
         choice = "elegiaque" if ctx.mode == "minor" or mood == "selloff" else "cantabile"
         if choice != primary:
@@ -2980,11 +2986,19 @@ def render_patterned_voices(
             lead.extend(part_lead)
             support.extend(part_support)
             low.extend(part_low)
-        elif pattern in {"castillo", "sonatina", "fandanguillo", "danza"}:
+        elif pattern in {
+            "castillo",
+            "sonatina",
+            "fandanguillo",
+            "danza",
+            "torroba_tremolo",
+            "alcaniz",
+            "olite",
+        }:
             placed = figure_at.get(bar)
             if placed is None:
                 part_lead, part_support, part_low = _render_torroba_bar(
-                    ctx, bar, phrase_here, pattern
+                    ctx, bar, phrase_here, pattern, patterns
                 )
             else:
                 figure, index, count = placed
@@ -3114,7 +3128,15 @@ def render_patterned_voices(
     torroba_bars = {
         bar
         for bar in range(musical_bars)
-        if _bar_pattern(ctx, bar, patterns) in {"castillo", "sonatina", "fandanguillo", "danza"}
+        if _bar_pattern(ctx, bar, patterns) in {
+            "castillo",
+            "sonatina",
+            "fandanguillo",
+            "danza",
+            "torroba_tremolo",
+            "alcaniz",
+            "olite",
+        }
     }
     if torroba_bars:
         plucked = (plucked or set()) | torroba_bars
@@ -3254,6 +3276,9 @@ _PEDAL_DOOR_PROFILE = {
     "sonatina": "torroba",
     "fandanguillo": "torroba",
     "danza": "torroba",
+    "torroba_tremolo": "torroba",
+    "alcaniz": "torroba",
+    "olite": "torroba",
 }
 
 
@@ -3569,6 +3594,9 @@ _WHOLE_BAR_EXTRA = frozenset({
     "fandanguillo",
     "castillo",
     "sonatina",
+    "torroba_tremolo",
+    "alcaniz",
+    "olite",
 })
 
 
