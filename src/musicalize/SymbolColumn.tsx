@@ -82,7 +82,12 @@ function ReplayList({
         })}
       </View>
       {span === '1D' && sessions.length > 0 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sessions}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.sessionScroll}
+          contentContainerStyle={styles.sessions}
+        >
           {sessions.map((session) => {
             const active = session.date === selectedDate;
             const chip = chipDate(session.date);
@@ -158,6 +163,8 @@ function LiveList({ rows, selectedKey, onRow }: LiveColumn) {
     </ScrollView>
   );
 }
+
+const SESSION_CHIP_HEIGHT = 8 + 16 + 18 + 8 + 4;
 
 function SwitchButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
@@ -235,15 +242,24 @@ const styles = StyleSheet.create({
   rangeTextActive: {
     color: palette.text,
   },
+  sessionScroll: {
+    height: SESSION_CHIP_HEIGHT,
+    flexGrow: 0,
+    flexShrink: 0,
+    marginBottom: 10,
+  },
   sessions: {
+    alignItems: 'flex-start',
     gap: 6,
-    paddingBottom: 10,
   },
   session: {
+    height: SESSION_CHIP_HEIGHT,
+    alignSelf: 'flex-start',
     minWidth: 64,
     alignItems: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 8,
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
     borderRadius: 8,
     backgroundColor: palette.background,
   },
@@ -253,10 +269,14 @@ const styles = StyleSheet.create({
   sessionWeek: {
     color: palette.textMuted,
     fontSize: 12,
+    lineHeight: 16,
+    includeFontPadding: false,
   },
   sessionDay: {
     color: palette.text,
     fontSize: 13,
+    lineHeight: 18,
+    includeFontPadding: false,
     fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },

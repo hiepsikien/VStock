@@ -61,6 +61,12 @@ function isAbort(error: unknown): boolean {
   return error instanceof Error && (error.name === 'AbortError' || /aborted/i.test(error.message));
 }
 
+function joinedVolumes(parts: { prices: number[]; volumes?: number[] }[]): number[] | null {
+  if (parts.some((item) => !item.volumes || item.volumes.length !== item.prices.length)) return null;
+  const volumes = parts.flatMap((item) => item.volumes ?? []);
+  return volumes.length ? volumes : null;
+}
+
 export function ReplayRoom({ wide, onMode }: Props) {
   const [symbols, setSymbols] = useState<SymbolChoice[]>(
     DEFAULT_SYMBOLS.map((symbol) => ({ symbol, name: symbol })),
@@ -77,7 +83,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const [series, setSeries] = useState<SessionMinutes | null>(null);
   const [manifest, setManifest] = useState<RecapManifest | null>(null);
   const [movements, setMovements] = useState<SpanMovement[] | null>(null);
-  const [spanLine, setSpanLine] = useState<{ key: string; prices: number[] } | null>(null);
+  const [spanLine, setSpanLine] = useState<{ key: string; prices: number[]; volumes?: number[] } | null>(null);
   const [asOf, setAsOf] = useState('');
   const [homeKey, setHomeKey] = useState('');
   const [index, setIndex] = useState(0);
@@ -234,7 +240,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
         });
         if (cancelled) return;
         const prices = plan.movements.flatMap((item) => item.prices);
-        setSpanLine(prices.length > 1 ? { key, prices } : null);
+        const volumes = joinedVolumes(plan.movements);
+        setSpanLine(prices.length > 1 ? { key, prices, ...(volumes ? { volumes } : {}) } : null);
       } catch (err) {
         if (cancelled || isAbort(err)) return;
         setSpanLine(null);
@@ -676,6 +683,14 @@ export function ReplayRoom({ wide, onMode }: Props) {
     return series?.prices ?? [];
   }, [movements, series, span, spanKey, spanLine]);
 
+  const volumes = useMemo(() => {
+    if (span !== '1D' && movements) return joinedVolumes(movements);
+    if (span !== '1D' && spanLine?.key === spanKey && spanLine.prices.length > 1) {
+      return joinedVolumes([spanLine]);
+    }
+    return series ? joinedVolumes([series]) : null;
+  }, [movements, series, span, spanKey, spanLine]);
+
   const cursor = useMemo(() => {
     if (span === '1D') {
       if (!manifest || !series || series.prices.length < 1) return { index: null as number | null, label: null as string | null };
@@ -832,13 +847,13 @@ export function ReplayRoom({ wide, onMode }: Props) {
       stage={
         <Stage
           prices={prices}
+          volumes={volumes}
           cursorIndex={cursor.index}
           cursorLabel={cursor.label}
           dimUnplayed={Boolean(manifest || movements) && !finished && (playing || audible || composing)}
           focusStart={focus?.start}
           focusEnd={focus?.end}
           program={program}
-          wave={span === '1D' ? manifest?.peaks ?? null : null}
           identity={program ? null : identity}
           banner={error}
           seekable={stageSeekable}

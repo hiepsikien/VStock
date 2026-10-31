@@ -15,6 +15,68 @@ import { colors } from '../theme';
 
 const UNPLAYED_OPACITY = 0.28;
 
+export const VOLUME_STRIP = 30;
+
+export function volumeStripFor(plotHeight: number, enabled: boolean): number {
+  if (!enabled || plotHeight <= 0) return 0;
+  return Math.min(VOLUME_STRIP, Math.max(0, plotHeight - 24));
+}
+
+/** One filled outline for the visible window. The baseline is the bottom of the plot. */
+function volumeOutline(
+  volumes: number[],
+  width: number,
+  height: number,
+  strip: number,
+  focusStart?: number,
+  focusEnd?: number,
+): string {
+  if (volumes.length < 1 || width <= 0 || height <= 0 || strip <= 0) return '';
+  const start = focusStart ?? 0;
+  const end = focusEnd ?? volumes.length - 1;
+  const span = Math.max(end - start, 1e-6);
+  const i0 = Math.max(0, Math.floor(start));
+  const i1 = Math.min(volumes.length - 1, Math.ceil(end));
+  let peak = 0;
+  for (let index = i0; index <= i1; index += 1) {
+    const value = volumes[index] ?? 0;
+    if (value > peak) peak = value;
+  }
+  if (peak <= 0) return '';
+  const yAt = (value: number) => height - (Math.max(0, value) / peak) * strip;
+  const samples: { x: number; y: number }[] = [];
+  const slot = width / span;
+  if (slot >= 1.6) {
+    for (let index = i0; index <= i1; index += 1) {
+      samples.push({ x: ((index - start) / span) * width, y: yAt(volumes[index] ?? 0) });
+    }
+  } else {
+    const columns = Math.max(1, Math.ceil(width));
+    const bins = new Array<number>(columns).fill(0);
+    const seen = new Array<boolean>(columns).fill(false);
+    for (let index = i0; index <= i1; index += 1) {
+      const x = ((index - start) / span) * width;
+      const bin = Math.min(columns - 1, Math.max(0, Math.floor(x)));
+      const value = Math.max(0, volumes[index] ?? 0);
+      if (!seen[bin] || value > bins[bin]) bins[bin] = value;
+      seen[bin] = true;
+    }
+    for (let bin = 0; bin < columns; bin += 1) {
+      if (!seen[bin]) continue;
+      samples.push({ x: bin, y: yAt(bins[bin]) });
+    }
+  }
+  if (samples.length === 0) return '';
+  const first = samples[0];
+  const last = samples[samples.length - 1];
+  let path = `M${first.x.toFixed(2)},${height.toFixed(2)}`;
+  for (const sample of samples) {
+    path += `L${sample.x.toFixed(2)},${sample.y.toFixed(2)}`;
+  }
+  path += `L${last.x.toFixed(2)},${height.toFixed(2)}Z`;
+  return path;
+}
+
 function WaveBars({
   peaks,
   width,
@@ -71,6 +133,9 @@ type Props = {
   /** Peak amplitudes in 0..1, drawn across the same frame as the price line. */
   wave?: number[] | null;
   waveColor?: string;
+  /** Traded volume, one value per price, drawn as a strip under the line. */
+  volumes?: number[] | null;
+  volumeColor?: string;
 };
 
 export function Sparkline({
@@ -89,10 +154,17 @@ export function Sparkline({
   playheadColor,
   wave = null,
   waveColor = '#E040A0',
+  volumes = null,
+  volumeColor = 'rgba(62, 224, 224, 0.45)',
 }: Props) {
-  const { line, fill, cursor } = useMemo(() => {
+  const volumeStrip = volumeStripFor(height, Boolean(volumes && volumes.length > 0 && volumes.length === data.length));
+  const { line, fill, cursor, volume } = useMemo(() => {
+    const outline =
+      volumeStrip > 0 && volumes
+        ? volumeOutline(volumes, width, height, volumeStrip, focusStart, focusEnd)
+        : '';
     if (data.length < 2) {
-      return { line: '', fill: '', cursor: null as { x: number; y: number } | null };
+      return { line: '', fill: '', cursor: null as { x: number; y: number } | null, volume: outline };
     }
 
     const start = focusStart ?? 0;
@@ -109,7 +181,7 @@ export function Sparkline({
     }
     const range = max - min || 1;
     const padY = 2;
-    const usableH = height - padY * 2;
+    const usableH = Math.max(1, height - padY * 2 - volumeStrip);
 
     const points: { x: number; y: number }[] = [];
     for (let index = i0; index <= i1; index += 1) {
@@ -124,7 +196,8 @@ export function Sparkline({
       .map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`)
       .join(' ');
 
-    const fillPath = `${linePath} L${width},${height} L0,${height} Z`;
+    const priceBottom = height - volumeStrip;
+    const fillPath = `${linePath} L${width},${priceBottom} L0,${priceBottom} Z`;
     const cursor =
       cursorIndex == null
         ? null
@@ -136,8 +209,8 @@ export function Sparkline({
               ((data[Math.min(data.length - 1, Math.max(0, cursorIndex))] - min) / range) * usableH,
           };
 
-    return { line: linePath, fill: fillPath, cursor };
-  }, [cursorIndex, data, focusEnd, focusStart, width, height]);
+    return { line: linePath, fill: fillPath, cursor, volume: outline };
+  }, [cursorIndex, data, focusEnd, focusStart, height, volumeStrip, volumes, width]);
 
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   const stroke = strokeColor ?? (positive ? colors.positive : colors.negative);
@@ -151,6 +224,7 @@ export function Sparkline({
     wave && wave.length > 1 ? (
       <WaveBars peaks={wave} width={width} height={height} color={waveColor} />
     ) : null;
+  const volumeShape = volume ? <Path d={volume} fill={volumeColor} /> : null;
 
   return (
     <View style={{ width, height, overflow: 'hidden' }}>
@@ -186,6 +260,7 @@ export function Sparkline({
         {dimUnplayed && cursor ? (
           <>
             <G clipPath={`url(#${unplayedClipId})`} opacity={UNPLAYED_OPACITY}>
+              {volumeShape}
               {waveBars}
               {showFill && fill ? <Path d={fill} fill={fillPaint} /> : null}
               {line ? (
@@ -200,6 +275,7 @@ export function Sparkline({
               ) : null}
             </G>
             <G clipPath={`url(#${playedClipId})`}>
+              {volumeShape}
               {waveBars}
               {showFill && fill ? <Path d={fill} fill={fillPaint} /> : null}
               {line ? (
@@ -216,6 +292,7 @@ export function Sparkline({
           </>
         ) : (
           <G opacity={dimUnplayed ? UNPLAYED_OPACITY : 1}>
+            {volumeShape}
             {waveBars}
             {showFill && fill ? <Path d={fill} fill={fillPaint} /> : null}
             {line ? (
