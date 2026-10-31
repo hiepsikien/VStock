@@ -150,24 +150,31 @@ Thêm helper `pen.mordent_triplet(beat, principal, others, written, steps)` tron
 
 ---
 
-## 6. Đưa 8 Kiểu kết cấu phủ kín chương (bỏ các cổng làm nghèo bản nhạc)
+## 6. Phân bổ 8 Kiểu kết cấu: 100% số câu có Kiểu, độ phủ 60% – 70% số ô thân bài
 
-Hiện tại `select_torroba_figure` và `torroba_figure_plan` làm rơi phần lớn chương về lưới nền vì 3 cổng hạn chế:
+Hiện tại `select_torroba_figure` và `torroba_figure_plan` làm rơi phần lớn chương (chỉ đạt 0% ở `castillo` BPM > 72 và ~15%–20% ở `sonatina`) về lưới nền vì 3 cổng hạn chế:
 1. `if ctx.bpm > 72` trong `_span_castillo` -> khóa sạch Kiểu 7, 8 ở chương 96 BPM.
 2. `elif n is None or n % 2 == 1: return None, ()` -> cứ 2 câu thì 1 câu bị bỏ trống toàn bộ.
-3. Trong câu chẵn `n % 2 == 0`, `_span_sonatina` chỉ trả về `slots = (0, 1)` (2 ô) hoặc `(1,)` (1 ô). Một câu dài 6 ô thì 4 ô sau vẫn rơi về lưới nền.
+3. Trong câu chẵn `n % 2 == 0`, `_span_sonatina` chỉ trả về `slots = (0, 1)` (2 ô) hoặc `(1,)` (1 ô). Một câu dài 6–8 ô thì 4–6 ô sau vẫn rơi về lưới nền.
 
-### Luật lịch kiểu mới trong `guitar_torroba.py`
+Ngược lại, nếu phủ kín 100% số ô bằng các Kiểu có cá tính mạnh (rasgueado, đối đáp giật nhịp, chạy bass 7 móc đơn, *Arm. 8*) thì bản nhạc sẽ thành chắp vá (patchwork), mất khoảng thở và không còn phân biệt được đâu là câu hát dẫn dắt, đâu là nét chấm phá / contrast.
 
-1. **Bỏ cổng `ctx.bpm > 72` trong `_span_castillo`**: Mọi chương `castillo` (kể cả 4/4 ở 96 BPM và 1D) đều được gọi Kiểu 7 và Kiểu 8.
-2. **Bỏ cổng `n % 2 == 1` trả về `None`**:
-   - Mọi câu thân bài (`_body_phrase`) đều được xếp kiểu xoay vòng theo chỉ số câu `n` (`n = 0, 1, 2, ...`), không bỏ cách câu lẻ.
-   - Cổng `previous == figure` thay vì trả về `None` (rơi về lưới nền) sẽ **xoay sang kiểu kế tiếp trong họ pattern đó** để hai câu sát nhau vừa có contrast vừa không bị rơi về lưới trống.
-3. **Phủ kín các câu dài:**
-   - Với `sonatina` (câu chưa `closes`): một câu dài `L >= 4` ô không chỉ gắn kiểu ở 1–2 ô đầu rồi bỏ mặc `L - 2` ô sau. Chia câu thành các cụm 2 ô liên tiếp để phối xen kẽ **Kiểu 4 (2 ô đối đáp)** $\rightarrow$ **Kiểu 1 (1–2 ô rải chữ V 6 móc kép)** $\rightarrow$ **Kiểu 2 (2 ô rasgueado nhẹ + hợp âm móc đơn)**, và nếu câu `closes` thì 2–3 ô cuối ghép nối tiếp vào **Kiểu 3 (mô-típ + scale mượt + ngân)**.
-   - Với `castillo`: câu dài `>= 5` ô nhận **Kiểu 7 (5 ô *Arada*)**, nếu còn dư `>= 2` ô sau Kiểu 7 thì nhận tiếp **Kiểu 8 (2 ô)**; câu dài `2..4` ô nhận **Kiểu 8** trên các cặp 2 ô.
-   - Với `fandanguillo`: xoay vòng **Kiểu 5 (4 ô)** và **Kiểu 2 (2 ô)** trên mọi câu có đủ độ dài (hạ ngưỡng `rise` của Kiểu 2 từ `3` xuống `1` để các câu ít biến động giá vẫn có kết cấu).
-   - Với `danza`: **Kiểu 6** mở cho mọi câu có độ dài `>= 4` ô trên 3/4 và 6/8 (lấy 4 ô đầu của câu thay vì bắt buộc `length == 4` chính xác).
+### Luật phân bổ 60% – 70% trong `guitar_torroba.py`
+
+Khi lưới nền của `castillo` và `sonatina` đã được đổi thành mặt móc đơn / chấm dôi cantabile có slur (Mục 3), các ô lưới nền đóng vai trò **đường dẫn câu mượt mà (30% – 40% số ô)**, còn 8 Kiểu kết cấu đóng vai trò **hình thái chủ đạo và chấm phá (60% – 70% số ô)**:
+
+1. **100% số câu thân bài đều có Kiểu (bỏ cổng `n % 2 == 1` và bỏ cổng `ctx.bpm > 72`):**
+   - Mọi chương `castillo` (kể cả 4/4 ở 96 BPM và 1D) đều được gọi Kiểu 7 và Kiểu 8.
+   - Mọi câu thân bài (`_body_phrase`) đều được xếp kiểu xoay vòng theo chỉ số câu `n = 0, 1, 2, ...` (không bỏ trống câu lẻ).
+   - Khi `previous == figure`, thay vì trả về `None` (rơi cả câu về lưới nền), hàm **xoay sang kiểu kế tiếp trong họ pattern đó** để hai câu sát nhau vừa có contrast vừa luôn có Kiểu.
+2. **Tỷ lệ 60% – 70% số ô bên trong mỗi câu:**
+   - **Câu ngắn (2–4 ô):**
+     - Câu 2 ô: Kiểu chiếm 1–2 ô (Kiểu 1 trên 1 ô, hoặc Kiểu 2 / Kiểu 4 / Kiểu 8 trên 2 ô).
+     - Câu 3–4 ô: Kiểu chiếm **2–3 ô** (ví dụ 2 ô Kiểu 4 hoặc Kiểu 2 hoặc Kiểu 8, hoặc 3 ô Kiểu 3 ở câu đóng), dành **1–2 ô** cho mặt móc đơn cantabile nối mượt vào/ra ($\approx 60\% - 75\%$).
+   - **Câu dài (5–8 ô):**
+     - Với `castillo`: **Kiểu 7 (*Arada*, 5 ô)** chiếm 5 ô đầu, **1–3 ô cuối** là mặt chấm dôi / móc đơn dẫn mượt để câu thở trước khi sang câu mới ($\approx 65\% - 80\%$). Khi đến lượt `k` của Kiểu 8 trên câu dài 5–8 ô: đặt **Kiểu 8 (2 ô)** ở đầu câu và **Kiểu 8 (2 ô)** ở nửa sau (cách nhau 1–2 ô dẫn mượt), đạt 4/6 hoặc 4/7 ô ($\approx 60\% - 67\%$).
+     - Với `sonatina`: Câu 5–8 ô không chỉ gắn 2 ô đầu rồi bỏ trống 3–6 ô cuối. Mở câu bằng **2 ô Kiểu 4 (đối đáp)** (hoặc **Kiểu 1**), đi **1–2 ô mặt móc đơn cantabile có láy trùm ba** ở giữa câu để nối hơi, rồi nửa sau vào **2 ô Kiểu 2** (nếu câu chưa đóng) hoặc **2–3 ô Kiểu 3** (nếu câu `closes`), đạt 4/6 hoặc 5/7 ô ($\approx 65\% - 70\%$).
+     - Với `fandanguillo` và `danza`: **Kiểu 5 (4 ô)** hoặc **Kiểu 6 (4 ô)** chiếm 4 ô trong câu 5–6 ô (hoặc 2 ô Kiểu 2 trong câu 3–4 ô), dành **1–2 ô** chạy nhịp điệu cơ bản của điệu nhảy cho người nghe bắt nhịp ($\approx 65\% - 75\%$). Hạ ngưỡng `rise` của Kiểu 2 từ `3` xuống `1` để các câu ít biến động giá vẫn đạt tỷ lệ này.
 
 ---
 
@@ -200,7 +207,7 @@ Hiện tại `select_torroba_figure` và `torroba_figure_plan` làm rơi phần 
    - Mở `_sextuplet_roles` / thêm `_triplet_sixteenth_roles` để xuất `<time-modification>` (`3:2` trên `16th`) và `<tuplet type="start/stop">` cho chùm 3 nốt `1/6` phách đứng trong 1 móc đơn (`0.5` phách).
 3. **`backend/app/sonify/guitar_torroba.py`:**
    - **Chọn pattern theo nhịp (`_torroba_primary`, `_torroba_contrast`)**: Trên 4/4 `calm`, đưa `sonatina` (Allegretto) lên làm vùng A và `castillo` (*Arada*) làm vùng B 8 ô ở giữa để chương mở đầu tươi sáng, không trải `castillo` cả vùng A.
-   - **Lịch kiểu (`_span_castillo`, `_span_sonatina`, `_span_fandanguillo`, `_span_danza`, `select_torroba_figure`, `torroba_figure_plan`)**: Bỏ cổng `ctx.bpm > 72` của `_span_castillo`; bỏ cổng `n % 2 == 1` trả về lưới nền; khi `previous == figure` thì xoay sang kiểu kế tiếp; ghép nối nhiều kiểu để phủ kín các câu dài.
+   - **Lịch kiểu 60% – 70% (`_span_castillo`, `_span_sonatina`, `_span_fandanguillo`, `_span_danza`, `select_torroba_figure`, `torroba_figure_plan`)**: Bỏ cổng `ctx.bpm > 72` của `_span_castillo`; bỏ cổng `n % 2 == 1` trả về lưới nền (100% số câu đều có Kiểu); khi `previous == figure` thì xoay sang kiểu kế tiếp; trên các câu dài 5–8 ô đặt 2 cụm Kiểu ở đầu và nửa sau câu, cách nhau 1–2 ô mặt móc đơn cantabile để đạt độ phủ **60% – 70% số ô thân bài** (không để trống < 25% và không nhồi kín 100%).
    - **Mặt nốt lưới nền (`_render_castillo_bar`, `_render_sonatina_bar`, `_olite_vivace`, `_olite_chord`, `_olite_group`)**:
      - `_render_castillo_bar`: đổi từ 1 nốt tròn 4 phách + 1 bass đen cụt sang hai nửa ô chấm dôi + móc đơn rải + bass ngân 2 phách mỗi nửa ô.
      - `_render_sonatina_bar`: `lead` hát móc đơn/móc kép xuyên qua các móc yếu kèm slur, `bass` ngân nửa ô (`2.0` phách).
