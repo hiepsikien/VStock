@@ -288,7 +288,8 @@ def _thin(eighths: list[int], ctx, bar: int) -> list[int]:
 
 def _lead_velocity(ctx, eighth: int, phrase, *, dance: bool) -> tuple[int, bool]:
     apex = _apex_eighths(ctx.phrases)
-    ordinary = _note_velocity(eighth, 1, apex, phrase)
+    owner = _phrase_covering(ctx, eighth, phrase)
+    ordinary = _note_velocity(eighth, 1, apex, owner)
     if dance and eighth % ctx.epb in ctx.strong:
         return max(ordinary, 68), True
     if dance:
@@ -464,7 +465,8 @@ def _render_sonatina_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[N
     for offset in strong:
         eighth = origin + offset
         midi = _melody_at(ctx, eighth)
-        velocity, accent = _lead_velocity(ctx, eighth, phrase, dance=False)
+        local_phrase = _phrase_covering(ctx, eighth, phrase)
+        velocity, accent = _lead_velocity(ctx, eighth, local_phrase, dance=False)
         event = _attack(eighth, midi, epb, velocity, accent=accent)
         # Both beats of this bar are sonatina. Block the slur only when the
         # earlier beat's phrase closes before this beat; one phrase may still join them.
@@ -477,14 +479,14 @@ def _render_sonatina_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[N
         if prev_midi is not None and offset > 0 and not blocked:
             gap = abs(midi - prev_midi)
             at_apex = (
-                phrase is not None
-                and phrase.runs
-                and phrase.apex.start <= eighth < phrase.apex.end
+                local_phrase is not None
+                and local_phrase.runs
+                and local_phrase.apex.start <= eighth < local_phrase.apex.end
             )
-            run = gap > 2 and phrase is not None and phrase.rise >= MIN_RISE and at_apex
+            run = gap > 2 and local_phrase is not None and local_phrase.rise >= MIN_RISE and at_apex
             leap = gap > 2 and not run
             if run or leap:
-                approaches = _into_strong(ctx, midi, eighth, phrase, run=run)
+                approaches = _into_strong(ctx, midi, eighth, local_phrase, run=run)
                 if approaches:
                     lead.extend(approaches)
                     event = _slur_arrive(event)
@@ -564,7 +566,8 @@ def _block(
     eighth = bar * epb + offset
     midi = _melody_at(ctx, eighth)
     dance_strong = offset in ctx.strong
-    ordinary = _note_velocity(eighth, 1, _apex_eighths(ctx.phrases), phrase)
+    owner = _phrase_covering(ctx, eighth, phrase)
+    ordinary = _note_velocity(eighth, 1, _apex_eighths(ctx.phrases), owner)
     velocity = max(ordinary, 68) if dance_strong else 64
     accent = dance_strong
     band = _attack_band(ctx, bar, offset, _closing_offsets(ctx, bar))
@@ -591,7 +594,8 @@ def _answer(ctx, bar: int, offset: int, phrase) -> NoteEvent:
     midi = _melody_at(ctx, eighth)
     strong = offset in ctx.strong
     if strong:
-        ordinary = _note_velocity(eighth, 1, _apex_eighths(ctx.phrases), phrase)
+        owner = _phrase_covering(ctx, eighth, phrase)
+        ordinary = _note_velocity(eighth, 1, _apex_eighths(ctx.phrases), owner)
         return _attack(eighth, midi, epb, max(ordinary, 68), accent=True)
     return _attack(eighth, midi, epb, 64, accent=False)
 
@@ -879,6 +883,11 @@ def _phrase_at(ctx, eighth: int):
         if phrase.start <= eighth < phrase.end and phrase.runs:
             return phrase
     return None
+
+
+def _phrase_covering(ctx, eighth: int, fallback=None):
+    found = _phrase_at(ctx, eighth)
+    return found if found is not None else fallback
 
 
 def _sonatina_slur_blocked(ctx, earlier: int, later: int) -> bool:
@@ -1227,9 +1236,24 @@ class _Pen:
     def mel(self, eighth: int) -> int:
         return _melody_at(self.ctx, self.origin + eighth)
 
+    def _eighth_at(self, beat: float) -> int:
+        return min(self.epb - 1, max(0, int(beat * 2 + 1e-9)))
+
+    def _phrase_covering(self, eighth: int):
+        """The sentence that owns this eighth, not only the downbeat's phrase.
+
+        A bar can close one phrase and open the next. The new sentence starts
+        at its own swell instead of continuing the phrase that held the downbeat.
+        """
+        return _phrase_covering(self.ctx, self.origin + eighth, self.phrase)
+
+    def _ordinary(self, eighth: int) -> int:
+        phrase = self._phrase_covering(eighth)
+        return _note_velocity(self.origin + eighth, 1, _apex_eighths(self.ctx.phrases), phrase)
+
     def lead_level(self, eighth: int, *, strong: bool) -> tuple[int, bool]:
         dance = self.pattern in {"fandanguillo", "danza"}
-        ordinary = _note_velocity(self.origin + eighth, 1, _apex_eighths(self.ctx.phrases), self.phrase)
+        ordinary = self._ordinary(eighth)
         if dance and strong:
             return max(ordinary, 68), True
         if strong:
@@ -1238,16 +1262,78 @@ class _Pen:
 
     def dance_written(self, eighth: int) -> int:
         """Strong-beat level of a dance, including an off-beat note the figure writes at 68."""
-        ordinary = _note_velocity(self.origin + eighth, 1, _apex_eighths(self.ctx.phrases), self.phrase)
-        return max(ordinary, 68)
+        return max(self._ordinary(eighth), 68)
 
     def beds(self, lead_written: int) -> tuple[int, int, int]:
         support, bass = _under_lead(lead_written, self.ctx.band(self.bar))
         return support, bass, max(40, bass - 4)
 
+    def _local_lead(self, eighth: int, written: int, midi: int) -> int:
+        """Keep a level that already belongs to this eighth. Move a borrowed one.
+
+        A cell often captures the downbeat, or the last note of a scale, and
+        stamps it on every attack. The sentence is `_note_velocity` at the
+        attack's own eighth. A harmonic painted 48 stays a harmonic. A dance
+        floor of 68 stays a dance floor, then follows this eighth once the
+        sentence rises past it. Micro steps are applied afterwards, so the
+        gap inside the cell survives the move.
+        """
+        if written == 48 and midi + self.ctx.semitones in _HARMONICS:
+            return written
+        local = self.lead_level(eighth, strong=eighth in self.strong)[0]
+        danced = self.dance_written(eighth)
+        if written in {local, danced}:
+            return written
+        if self.pattern in {"fandanguillo", "danza"} and written >= 68:
+            return danced
+        return local
+
+    def _cadence_bed(self, eighth: int, beat: float, duration: float, voice: int, written: int) -> int:
+        """A closing eighth sits on `p`. The role (support, bass, weak bass) stays.
+
+        A note that already rings the whole bar follows `_bar_band`: `p` only
+        when the close covers every eighth. Anything else keeps the caller's bed.
+        """
+        closing = _closing_offsets(self.ctx, self.bar)
+        if not closing:
+            return written
+        if beat <= 1e-9 and duration + 1e-9 >= self.beats:
+            band = _bar_band(self.ctx, self.bar, closing)
+        else:
+            band = _attack_band(self.ctx, self.bar, eighth, closing)
+        if band == self.ctx.band(self.bar):
+            return written
+        leads = (
+            self.lead_level(eighth, strong=eighth in self.strong)[0],
+            self.dance_written(eighth),
+            self.lead_level(0, strong=0 in self.strong)[0],
+            self.dance_written(0),
+            64,
+            68,
+        )
+        for source in leads:
+            support, bass = _under_lead(source, self.ctx.band(self.bar))
+            weak = max(40, bass - 4)
+            if voice == 2 and written == support:
+                role = 0
+            elif voice == 3 and written == bass:
+                role = 1
+            elif voice == 3 and written == weak:
+                role = 2
+            else:
+                continue
+            next_support, next_bass = _under_lead(source, band)
+            return (next_support, next_bass, max(40, next_bass - 4))[role]
+        return written
+
     def add(self, beat: float, midi: int | None, duration: float, voice: int, written: int, steps: int, **flags) -> None:
         if midi is None or duration <= 0:
             return
+        eighth = self._eighth_at(beat)
+        if voice == 1:
+            written = self._local_lead(eighth, written, midi)
+        elif voice in {2, 3}:
+            written = self._cadence_bed(eighth, beat, duration, voice, written)
         self.attacks.append(
             _Attack(
                 beat=beat,
@@ -1264,8 +1350,37 @@ class _Pen:
             )
         )
 
+    def _thin_cadence(self, support: list[NoteEvent]) -> list[NoteEvent]:
+        """Drop the inner attacks a base-grid close would thin.
+
+        The lead still sings the cadence. The inner voice breathes, the same
+        way Castillo and the dances leave a closing tail thinner than the bar.
+        A rolled chord keeps every string of the fan. With no bass the middle
+        strings land on the beat, and that beat is still the chord.
+        """
+        drop: set[int] = set()
+        for tail in _breath_tails(self.ctx, self.bar):
+            chosen = sorted(tail)
+            if len(chosen) >= 2:
+                drop.update(chosen[1::2])
+            elif len(chosen) == 1:
+                drop.add(chosen[0])
+        if not drop:
+            return support
+        # Only a fan spaces a voice inside the first eighth. A block chord
+        # stacks every voice on the beat, so its inner note still breathes.
+        rolled = any(0.0 < attack.beat < 0.25 for attack in self.attacks)
+        return [
+            note
+            for note in support
+            if self._eighth_at(note.beat) not in drop
+            or 0.0 < note.beat < 0.25
+            or (rolled and note.beat <= 1e-9)
+        ]
+
     def finish(self):
-        return _realize(self.ctx, self.bar, self.attacks)
+        lead, support, low = _realize(self.ctx, self.bar, self.attacks)
+        return lead, self._thin_cadence(support), low
 
     def bass_of(self, lead: int | None) -> int | None:
         return _torroba_bass(self.ctx, self.ctx.chord(self.bar), self.bar, lead)
@@ -1621,12 +1736,20 @@ def _type4_call(pen: _Pen):
             mark = False
         low_here = low if (pen.ctx.kind == "4/4" and eighth in {4, 7}) or (pen.ctx.kind != "4/4" and eighth == pen.epb - 1) else None
         weak = low_here is not None and not (pen.ctx.kind == "4/4" and eighth == 4)
+        tail_support, tail_bass, tail_weak = pen.beds(level)
+        # Weak bass is 4 under the strong bass, and this eighth's inner voice
+        # takes one micro step. A sentence that opens at 60 already holds the
+        # strong bass at 58, so 58 - 4 meets the stepped inner voice. Keep the
+        # weak bass one step above that voice: lead can then take its own step.
+        if weak:
+            stepped_support = max(40, tail_support - _MICRO)
+            tail_weak = max(tail_weak, min(tail_bass, stepped_support + _MICRO))
         inner_here = pen.support_of(sung, low or sung - 5, capped=False)
         pen.add(eighth * 0.5, sung, 0.5, 1, level, lead_steps, accent=mark and lead_steps == 0)
         if inner_here is not None:
-            pen.add(eighth * 0.5, inner_here, 0.5, 2, support_level, 1 if weak else 0)
+            pen.add(eighth * 0.5, inner_here, 0.5, 2, tail_support, 1 if weak else 0)
         if low_here is not None:
-            pen.add(eighth * 0.5, low_here, 0.5, 3, weak_bass if weak else bass_level, 0)
+            pen.add(eighth * 0.5, low_here, 0.5, 3, tail_weak if weak else tail_bass, 0)
     return pen.finish()
 
 
