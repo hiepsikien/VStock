@@ -1,10 +1,10 @@
 # Pattern, texture, và cửa intro/outro của Torroba
 
-> **Trạng thái**: định nghĩa để chốt. Chưa có trong code.
+> **Trạng thái**: đã sửa theo phản hồi. Lưới móc của ba pattern mới nằm ở mục 3. Chưa có trong code.
 > **Khung đang chạy**: [`docs/sonify-guitar-frame-variations.md`](./sonify-guitar-frame-variations.md) mục 4. Bốn pattern và tám texture: [`docs/sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md), [`docs/sonify-guitar-torroba-phrase-plan.md`](./sonify-guitar-torroba-phrase-plan.md). Tên in: [`docs/sonify-pattern-names.md`](./sonify-pattern-names.md).
-> **Nguồn đã đọc**: *Simancas* (tab E. Ceja), *Zafra* (bản classclef, Allegretto vivace, nốt đen = 110), *Redaba* (bản Cadencia 1973, Allegretto, 3/4, Mi trưởng, 54 ô), *Alcañiz* (bản Segovia, tab ohdan, Allegro, móc đơn = 168, 3/8, La trưởng). *Suite Castellana* đã có Fandanguillo, Danza, Arada và Float. File này không mở lại chúng.
+> **Nguồn đã đọc**: *Simancas* (tab E. Ceja), *Zafra* (bản classclef, Allegretto vivace, nốt đen = 110), *Redaba* (bản Cadencia 1973, Allegretto, 3/4, Mi trưởng, 54 ô), *Alcañiz* (bản Segovia, tab ohdan, Allegro, móc đơn = 168, 3/8, La trưởng), *Olite* (bản Cadencia, phụ đề *Fiesta del Rey Noble*, Vivace, nốt đen = 95, 2/4, La trưởng, 109 ô). *Suite Castellana* đã có Fandanguillo, Danza, Arada và Float.
 
-Hai chữ đang bị dùng cho hai lớp khác nhau. Mục 1 khóa nghĩa. Mục 2 khóa form của chương không phải 1D. Mục 3 đặt Tremolo và Alcañiz thành hai pattern mới, mỗi pattern ba texture. Mục 4 là cửa intro/outro của bốn pattern đang hát.
+Mục 1 khóa pattern, texture và cửa. Mục 2 là một bảng mood. Mục 3 là hợp đồng giá và lưới móc của Juglar, Alcaniz, Olite. Mục 4 là cửa của bốn pattern đang hát.
 
 ---
 
@@ -19,11 +19,11 @@ Bốn pattern đang hát:
 | `castillo` | Castillo | Một nốt giá ngân, bass buông. Chậm thì Arada và Float xen vào |
 | `sonatina` | Sonatina | Rải và đối thoại của *Sonatina* I |
 | `fandanguillo` | Fandanguillo | Điệu 3/4–6/8, quạt ở ô đầu câu |
-| `danza` | Danza | Khoanh lại. Hợp âm staccato đầu nhóm ba, chỉ thân bài 3/4 và 6/8. Texture Bounce đi cùng, vì Bounce chỉ thuộc Danza |
+| `danza` | Danza | Hợp âm staccato đầu nhóm ba. Scherzo `calm`, thân bài 3/4 và 6/8. Bounce vẫn là texture của Danza. Danza không nhận vai điệu nhanh của 4/4 |
 
 **Texture** là cách đánh bên trong pattern đã khóa. Tám texture đang hát: Arpeggio, Rasgueado, Pizzicato, Dialogue, Arch, Bounce, Arada, Float. Mỗi texture thuộc một pattern cha, theo bảng ở [`docs/sonify-pattern-names.md`](./sonify-pattern-names.md) mục 3. Texture không có id trong `_FAMILY`, không vào `_PATTERN_TITLE`, không lên dòng chương. Ô pedal không nhận texture, vì ô pedal không có đường giá.
 
-Một câu giữ một texture. Câu kế có thể đổi texture, hoặc về lưới nền của pattern cha. Bộ đếm `n` / `k` và bước 7 của mục 4.0 trong kế hoạch câu giữ nguyên: hai câu sát nhau không lặp cùng một số texture.
+Một câu giữ một texture. Tám texture đang hát giữ bước 7 của mục 4.0 trong kế hoạch câu: câu `n` lẻ là lưới nền, hai câu sát nhau không lặp cùng một số texture. Ba pattern mới thêm một cửa đứng trước bước đó, ghi ở mục 3: câu `rise < 3` hoặc `closes` hát lưới thưa của pattern, kể cả khi `n` lẻ. Câu thưa sát câu thưa thì câu sau về lưới nền.
 
 **Cửa** là kịch bản intro và outro của pattern. Cửa đọc hợp âm chức năng, không đọc `_melody_at`. Cửa không phải texture.
 
@@ -50,59 +50,119 @@ Guitar lấy form symphony rồi đổi nhịp: chương chậm thành 3/4, sche
 | 1M I, 1M IV, 3M I, 3M III, tháng mở và tháng cuối của 1Y | không gắn bridge, không gắn trio | Mỗi slot chọn một pattern theo mood của slot đó, cùng Sor, Villa và Brouwer. Slot đầu và slot cuối trùng pattern khi mood trùng |
 | 1W nhiều phiên | không contrast, dài hơn 40 ô | Mỗi phiên một pattern theo mood của phiên |
 
-Bach và Barrios, khi bài dài hơn 40 ô, đi một hàng palette trước trio. Torroba không đi hàng đó. Pattern mới cũng không mở hàng palette. Nó chiếm một ô trong A hoặc trong B của bảng trên.
+Bach và Barrios, khi bài dài hơn 40 ô, đi một hàng palette trước trio. Torroba không mở hàng đó.
+
+Bảng trên là code đang chạy. Bảng dưới là đề xuất. 1D, 1W và chương 4/4 không có bridge không có vùng B: mỗi khung một pattern theo mood. Chương có bridge hoặc trio mới có cột B.
+
+| Khung | Mood | A | B |
+|---|---|---|---|
+| 4/4, kể cả 1D và 1W | `calm` | Castillo | — |
+| 4/4 | `rally` | Sonatina | — |
+| 4/4 | `selloff` | Sonatina | — |
+| 4/4 | `volatile` | Olite | — |
+| 3/4, BPM ≤ 72, có bridge | `calm` của đoạn giữa | Castillo | Juglar |
+| 3/4, BPM ≤ 72, có bridge | `rally`, `selloff`, `volatile` của đoạn giữa | Castillo | Sonatina |
+| Scherzo 6/8, có trio | `calm` | Danza | Castillo |
+| Scherzo 6/8 | `rally` | Alcaniz | Castillo |
+| Scherzo 6/8 | `volatile` | Fandanguillo | Castillo |
+| Scherzo 6/8 | `selloff` | Castillo | Sonatina |
+
+Mood của đoạn giữa đọc trên các câu của vùng B, cùng cách `_dominant_pattern` đọc một nhóm câu. `rally` và `selloff` của 4/4 vẫn cùng Sonatina. `rally` và `volatile` của scherzo tách thành Alcaniz và Fandanguillo.
 
 ---
 
-## 3. Hai pattern mới
+## 3. Ba pattern mới
 
-Mỗi pattern khóa cả một vùng A hoặc một vùng B. Ba texture của nó chỉ hát khi câu đã thuộc pattern đó. Texture không lên dòng chương. 1D, 1W và các chương 4/4 giữ bảng mood hiện tại. BPM của vùng là BPM của chương.
+Nốt hát là `_melody_at`. Nốt trên của hợp âm là `_melody_at` của móc đó. Fret trong tab là hình: slur, song thanh, hợp âm hay nốt đơn. Bass buông giữ khi `_torroba_bass` trả dây Mi, La hoặc Rê. Harmonic vận tốc 48 chỉ khi cao độ vang trùng nút và nốt dài ít nhất hai phách, cửa đang có. Nốt còn lại là nốt hợp âm hoặc nốt thang.
 
-Chữ **Tremolo** trên chart đã thuộc Barrios (`tremolo`). Pattern Torroba dùng id `torroba_tremolo`. Tên in đề xuất là **Juglar**, lấy từ phụ đề *Juglaresca* của *Simancas*. Texture tremolo bên trong vẫn mang tên đó trong code, và không vào `PATTERN_NAMES`.
+`phrase.rise` và `closes` chọn mật độ. `MIN_RISE` là 3, cùng cửa vòm của Fandanguillo. Câu `rise < 3` hoặc `closes` hát lưới thưa, kể cả `n` lẻ. Câu `rise >= 3` và chưa đóng: `n` lẻ là lưới nền, `n` chẵn được gọi texture dày khi mục dưới cho phép. Hai câu thưa sát nhau: câu sau về lưới nền.
 
-### 3.1 Tremolo — id `torroba_tremolo`
+Ô điệu dùng một `extra` cho cả ô, cùng anchor của `danza` và `fandanguillo`, để khoảng đã viết sống sót qua `apply_guitar_wave`. Phách mạnh của ô điệu viết `max(_note_velocity, 68)` và `accent=True`. Profile sóng của ô điệu cùng hàng `danza`: snap 68/70, một nốt móng mỗi câu, ba nốt mỗi đoạn, target `accent`. Ô thưa và ô tremolo không lấy sàn 68.
 
-Ba texture, theo thứ tự trong một vùng đã khóa pattern này. Câu tremolo được câu điệu Zafra kế tiếp đáp. Câu sau cặp đó là điệu Redaba. Bước 7 vẫn chặn hai câu sát nhau cùng một texture.
+Cửa intro/outro của ba pattern này viết sau. Cửa không thay lưới thân bài ở dưới.
 
-| Texture | Lấy từ | Hình đã đọc trên bản |
+### 3.1 Juglar — id `torroba_tremolo`
+
+Chữ **Tremolo** trên chart thuộc Barrios. Tên in là **Juglar**. Id `tremolo` và hàng bốn móc kép của Barrios giữ cho Barrios.
+
+Lưới nền là tremolo của *Simancas*: từ ô 5 của tab, giai điệu lặp một nốt, bass đúng phách. Một phách của engine là hai móc đơn. Ba cú không rơi lên lưới móc đơn. Chúng là bộ ba móc đơn trong thời gian của một phách, tỉ lệ 3:2. `divisions = 12` đã có vì quạt: một phách là 12 tick, ba cú ở tick 0, 4 và 8. Onset `1/12` và `2/12` của quạt không dùng cho tremolo.
+
+| Cú | Tick trong phách | Vai |
 |---|---|---|
-| tremolo | *Simancas*, và thân tremolo của *Zafra* | *Simancas* ở 3/4. Bốn ô đầu là một vòng bass Mi với bè trong thưa. Từ ô 5, giai điệu là ba cú cùng một nốt trong một phách, bass đổi chậm hơn, thường đúng phách. *Zafra* mở ở Allegretto vivace, nốt đen = 110, bằng cùng một ngón trái lặp nhiều cú rồi một nốt bass buông |
-| Điệu Zafra | Phần điệu sau tremolo trong *Zafra* (*Fantasmas*) | Chỗ ngón trái đổi từng cú, cùng tempo 110, có accent. Khoảng ô 45–53 là ostinato harmonic `<12>` xen nốt bấm. Cuối bản, khoảng ô 100–103, có chữ pizz. Đoạn rall về 70 (ô 54–63) là câu slur chậm của bản, không lấy vào texture này |
-| Điệu Redaba | Điệu của *Redaba* | Bản Cadencia ghi **REDABA**, Allegretto, 3/4, Mi trưởng, 54 ô. Đây là bản đang gọi là Rebada. Phần điệu là câu allegretto mở đầu và câu trở lại *a tempo* ở ô 19, mức *f*, sau đoạn *pp* và *rit.* Bản in còn *cediendo*, *dim.*, và *ff* về sau. Lưới từng móc của điệu này chưa chốt, vì lớp chữ của PDF không đủ nốt |
+| 1 | 0 | Lead là `_melody_at` của móc mạnh. Có accent. Vận tốc là `_note_velocity` của móc đó, không sàn 68. Bass `_torroba_bass` chỉ ở cú này |
+| 2 | 4 | Cùng cao độ lead. Không accent. Viết thấp hơn cú 1 đúng một bậc `_under_lead` |
+| 3 | 8 | Cùng cao độ lead. Không accent. Cùng bậc cú 2. Bass nghỉ |
 
-Tremolo của Torroba là ba cú giai điệu trong một phách, bass trên phách. Id `tremolo` và hàng offset bốn móc kép của Barrios giữ cho Barrios.
+Bè trong nghỉ suốt bộ ba. Profile sóng của ô này cùng hàng `sonatina`: snap 66/68, một nốt mỗi câu, hai nốt mỗi đoạn. Chỉ cú 1 có accent, nên chỉ cú 1 vào lớp móng. Ô tremolo vẫn lấy một `extra` cho cả ô, để bậc giữa cú 1 và hai cú sau sống sót qua sóng.
 
-Chỗ trong form: chương chậm có bridge (1M II, 3M II, chương giữa của 1Y, 3/4, BPM ≤ 72). A vẫn là Castillo. B là Tremolo. A trở lại Castillo. Dòng chương là `Castillo — Juglar — Castillo`. Sonatina vẫn là rally và selloff của mọi chương 4/4.
+Lưới thưa, khi `rise < 3` hoặc `closes`: chỉ cú 1, trường độ hết phách (`duration_beats = 1.0`). Cú 2 và cú 3 nghỉ.
 
-### 3.2 Alcañiz — id `alcaniz`, tên in **Alcaniz**
+Chỗ trong bảng mục 2: B của chương chậm khi đoạn giữa là `calm`. A là Castillo. Dòng chương là `Castillo — Juglar — Castillo`. Đoạn giữa `rally`, `selloff` hoặc `volatile` giữ B là Sonatina. *Zafra* là Allegretto vivace, nốt đen = 110. *Redaba* là Allegretto. Hai điệu đó không hát ở BPM ≤ 72. PDF của *Redaba* chưa đủ nốt để chốt lưới móc. Hai điệu chưa vào `_FIGURES` và chưa có ô trong bảng mood.
 
-Bản là *Alcañiz (Festiva)* trong *Castillos de España*, bản Segovia. Allegro, móc đơn = 168, nhịp 3/8, giọng La trưởng. Engine không có nhịp 3/8. Trên scherzo 6/8, một ô 6/8 chứa hai nhóm 3/8. Trên 3/4, một ô 3/4 chứa hai nhóm 3/8.
+### 3.2 Alcaniz — id `alcaniz`, tên in **Alcaniz**
 
-Ba texture, lấy từ ba đoạn khác nhau của cùng bản:
+*Alcañiz (Festiva)*, bản Segovia. Allegro, móc đơn = 168, nhịp 3/8, giọng La trưởng. Engine không có nhịp 3/8. Scherzo 6/8 có phách mạnh ở móc 0 và móc 3, đúng hai đầu nhóm 3/8. Chương 3/4 chỉ móc 0 là phách mạnh. Alcaniz không gán vào chương 3/4.
 
-| Texture | Đoạn trên tab Segovia | Hình tay phải |
-|---|---|---|
-| Mở đầu | Khổ lặp đầu, có ending 1 và ending 2 | Phách đầu: bass Mi buông và một hợp âm. Rồi một nét pull-off trên dây Si (`0-5-kéo-4-5-7`). Ô sau là song thanh đi xuống: dây Mi `9-7-5` trên dây Rê `7-6-4`, giải bằng `4-búa-5-4-2` cũng song thanh. Ending 1 là một nốt lấy đà rồi cadence kéo về đầu khổ |
-| Điệu | Động cơ 3/8, rõ nhất sau dấu coda và ở bước lặp ba lần | Nốt giai điệu đen chấm, bass đáp bằng móc đơn (Mi `0`, Si `1`, Sol `0`, bass La `3`). Rồi hai móc đơn bè trong (Rê `4` rồi `2`). Bước lặp: Mi `2`, Si `0-2`, Sol `3`, bass Mi `2`, ba lần, rồi một nét `4-2-0` |
-| Mềm | Sau ending 2, chữ *To Coda*, trước đoạn móc ba mươi hai | Nét slur đi xuống `2-búa-4-kéo-2-0`. Giai điệu thưa trên một pedal, bè trong `4-kéo-2-1`, bass `4-2-4`. Trường độ mở ra đen chấm và một nốt tròn. Ô harmonic cuối (`<12>` rồi hợp âm harmonic dây buông) là ô khép của coda, thuộc texture này. Đoạn móc ba mươi hai là nét nối vào *D.C.*, cùng vai nét chạy ngắn đã có, không thành texture thứ tư |
+*Festiva* là Allegro. Scherzo `calm` giữ Danza, điệu biên hẹp đang hát. Alcaniz nhận scherzo `rally`, chỗ giá chạy. B là Castillo vì A là điệu. Dòng chương là `Alcaniz — Castillo — Alcaniz`.
 
-Chỗ trong form, sau khi Danza được khoanh: scherzo `calm` hôm nay là Danza. Ô đó đổi thành Alcaniz, vì *Alcañiz* viết ở 3/8 và một ô 6/8 chứa đúng hai nhóm 3/8. B vẫn là Castillo. Dòng chương là `Alcaniz — Castillo — Alcaniz`. Scherzo `selloff` giữ A là Castillo và B là Sonatina. Scherzo `rally` và `volatile` vẫn là Fandanguillo, B vẫn là Castillo.
+Lưới nền là điệu. Trong mỗi nhóm ba móc, đầu nhóm là giai điệu, móc kế là bass đáp.
+
+| Móc 6/8 | Vai |
+|---|---|
+| 0 và 3 | Lead `_melody_at`, `accent=True`, `max(_note_velocity, 68)`. Hai móc này là hai phách mạnh |
+| 1 và 4 | Bass một móc đơn, `_torroba_bass` khi hợp âm có bass buông. Không accent |
+| 2 và 5 | Nghỉ |
+
+Trong một nhóm, đầu nhóm mạnh hơn móc đáp. Cả hai đầu nhóm đều là phách mạnh của 6/8, nên cả hai lấy sàn 68.
+
+Texture mở đầu chỉ câu `n = 0` của vùng, khi `rise >= 3` và câu chưa `closes`, trên hai ô đầu. Các ô sau của câu là lưới điệu.
+
+| Móc 6/8 | Vai |
+|---|---|
+| 0 | Hợp âm, nốt trên là `_melody_at`, accent, sàn 68. Bass buông khi `_torroba_bass` trả dây buông |
+| 1, 2 | Hai nốt lead slur, bước thang vào `_melody_at` của móc 3. Hình pull-off là slur, không chép fret |
+| 3 | Lead `_melody_at`, accent, sàn 68 |
+| 4, 5 | Bè trong đi song thanh quãng 3 hoặc quãng 6 dưới lead, nốt hợp âm hoặc nốt thang. Lead hát `_melody_at` của móc đó |
+
+Texture mềm khi `rise < 3` hoặc `closes`, kể cả `n` lẻ. Đây là đoạn sau ending 2 của bản: nốt dài, slur, pedal.
+
+| Móc 6/8 | Vai |
+|---|---|
+| 0 | Lead `_melody_at`, `duration_beats = 1.5`, phủ móc 0–2. Không accent, không sàn 68. Vận tốc là `_note_velocity` |
+| 3 | Cùng hình, phủ móc 3–5 |
+| 1, 2, 4, 5 | Nghỉ |
+| Bass | Một nốt ở móc 0, `_torroba_bass` khi có dây buông, trường độ một móc đơn |
+
+Ô mềm dùng profile `castillo`: không snap. Ô điệu và hai ô mở đầu dùng profile hàng `danza`. Ô harmonic cuối của coda chỉ ra vận tốc 48 khi cửa harmonic đang có khớp. Đoạn móc ba mươi hai của bản là nét nối, cùng vai nét chạy ngắn đã có, không thành texture.
 
 ### 3.3 Olite — id `olite`, tên in **Olite**
 
-*Olite* trong *Castillos de España*. Bản Cadencia ghi phụ đề *Fiesta del Rey Noble*. Vivace, nốt đen = 95, nhịp 2/4, giọng La trưởng, 109 ô.
+*Olite*, phụ đề *Fiesta del Rey Noble*. Vivace, nốt đen = 95, nhịp 2/4, giọng La trưởng, 109 ô. Thân Vivace đến khoảng ô 63, *Tempo 1* từ ô 90. Ô 69–89 là Lento, nốt đen = 60.
 
-Đây là một pattern, không phải figure.
+Olite là pattern. Fandanguillo là điệu 3/4–6/8. Danza là điệu nhóm ba của scherzo `calm`. Olite là điệu đôi, nhận `volatile` của mọi chương 4/4, kể cả 1D. `calm` 4/4 vẫn là Castillo. `rally` và `selloff` 4/4 vẫn là Sonatina. Fandanguillo giữ scherzo `volatile`.
 
-Figure phải nằm trong một pattern cha và chỉ hát một câu. Danza đang được khoanh, nên Olite không có cha là Danza. Fandanguillo là điệu 3/4–6/8, quạt ở móc 0. Alcañiz là điệu 3/8. Tremolo là ba cú giai điệu một phách rồi một điệu 3/4. *Olite* là điệu đôi: những ô đầu khóa barre II và nhắc hợp âm, rồi một nét chạy ngắn (các bậc kiểu `5-5-4-2-3-2-0`, `0-2-4`). Accent nằm trên hợp âm. Thân Vivace chạy đến khoảng ô 63. Ô 64–68 rall. Ô 69–89 là Lento, nốt đen = 60, giai điệu đi từng nốt. Ô 90, *Tempo 1*, nốt đen = 95, điệu đôi trở lại đến ô 109.
+Engine không có nhịp 2/4. Hai ô 2/4 thành một ô 4/4. Hợp âm rơi vào móc 0 và móc 4, hai phách mạnh. Nét bảy nốt trên bản (`5-5-4-2-3-2-0`) không nằm trong một phách và không chia hết cho tám móc. Nét đó là đường giữa hai hợp âm, viết trên các móc yếu, mỗi móc một nốt, cao độ là bước thang tới `_melody_at` của phách mạnh kế. Móc yếu còn thừa thì nghỉ. Không có cú thứ bảy trong một phách.
 
-Điệu Vivace đủ hát cả một vùng. Lento của bản là đoạn giữa của chính *Olite*, cùng vai vùng B. Pattern Olite chỉ giữ điệu nhanh. Vùng B của chương vẫn là pattern khác.
+Lưới nền, câu `rise >= 3` và chưa `closes`:
 
-Engine không có nhịp 2/4. Hai ô 2/4 thành một ô 4/4: phách 0 và phách 4 mỗi phách là một hợp âm của điệu, nét chạy nằm trong phách. `danza` không đứng ở 4/4. Olite đứng đúng chỗ đó.
+| Móc 4/4 | Vai |
+|---|---|
+| 0 | Hợp âm, nốt trên `_melody_at`, accent, sàn 68. Bass buông khi `_torroba_bass` trả dây buông |
+| 1, 2, 3 | Lead đơn, bước thang. Không hợp âm |
+| 4 | Hợp âm, nốt trên `_melody_at` của móc 4, accent, sàn 68 |
+| 5, 6, 7 | Lead đơn, bước thang, hoặc nghỉ |
 
-Chỗ trong form: mọi chương 4/4, mood `volatile`, hôm nay là Fandanguillo. Ô đó đổi thành Olite. Fandanguillo giữ scherzo `rally` và `volatile`. `calm` 4/4 vẫn là Castillo. `rally` và `selloff` 4/4 vẫn là Sonatina. 1D `volatile` vì thế hát Olite cả thân.
+Profile sóng cùng hàng `danza`. Một `extra` cho cả ô.
 
-Ba pattern mới có cửa intro/outro cùng dạng mục 4: bản ngắn hai bước, bản dài bốn bước, profile `"torroba"`, không quạt 5–6 dây trên ô pedal. Kịch bản cửa và lưới từng móc viết sau khi các chỗ trên được giữ.
+Texture thưa lấy từ Lento, khi `rise < 3` hoặc `closes`, kể cả `n` lẻ. 1D không có vùng B. Câu thưa là chỗ ngày `volatile` đổi mật độ.
+
+| Móc 4/4 | Vai |
+|---|---|
+| 0 và 4 | Một nốt lead `_melody_at`. Không hợp âm, không sàn 68, không accent, trừ khi móc là đỉnh câu |
+| 1, 2, 3, 5, 6, 7 | Nghỉ |
+| Bass | Một nốt ở móc 0 |
+
+Ô thưa dùng profile `castillo`, không snap. Hai câu thưa sát nhau: câu sau về lưới Vivace.
 
 ---
 
@@ -122,7 +182,7 @@ Bước nào `frame_roles` lặp thì ô giống hệt. `_compressed` giữ nử
 
 Profile ô pedal của cả bốn cửa là `"torroba"`. `_PEDAL_DOOR_PROFILE` đã có bốn khóa này. Trần bass 53 và cửa bè trung trên 65, khi còn dưới bè cao, giữ nguyên. Ô pedal không đi qua `_plant_pickup`.
 
-Vận tốc viết theo bậc thang của [`docs/sonify-guitar-frame-variations.md`](./sonify-guitar-frame-variations.md) mục 4.2. Intro bước 0 ở `_PP` (46), bước 1 ở `_P` (50), bước 2 trong `50..56`, bước 3 trong `56..60`. Outro bước 0 ở `_P` hoặc `_MP`, các bước sau hạ dần, bước cuối của `castillo` ở `_PP`. Fandanguillo và Danza khép ở `_MF` (64), staccato, không tan về `_PP`. `apply_guitar_wave` vẫn cộng `round(C) - 64` sau đó. Hiệu trong ô giữ nguyên.
+Vận tốc viết theo bậc thang của [`docs/sonify-guitar-frame-variations.md`](./sonify-guitar-frame-variations.md) mục 4.2. Lưới chung: intro bước 0 ở `_PP` (46), bước 1 ở `_P` (50), bước 2 trong `50..56`, bước 3 trong `56..60`. Outro bước 0 ở `_P` hoặc `_MP`, các bước sau hạ dần, bước cuối của `castillo` ở `_PP`. Bước nào của một cửa ghi mức riêng thì mức đó thắng lưới chung. Intro Fandanguillo bước 0 là hợp âm staccato `_MF` (64), có accent. Fandanguillo và Danza khép ở `_MF`, staccato, không tan về `_PP`. `apply_guitar_wave` vẫn cộng `round(C) - 64` sau đó. Hiệu trong ô giữ nguyên.
 
 Móc kép trong cửa viết `duration_beats = 0.25`, cùng cách nốt lấy đà của sonatina. Không có thẻ `<grace/>`. Không có quạt 5–6 dây ở cửa. Rasgueado nhiều dây ở lại thân bài.
 
@@ -198,26 +258,26 @@ Nguồn cửa: *Suite Castellana* III. Hợp âm staccato đầu nhóm ba, rồi
 
 ---
 
-## 5. Chỗ code, sau khi mục 1–3 được giữ
+## 5. Chỗ code, sau khi bảng mục 2 được giữ
 
-Cửa của bốn pattern hiện có:
+Cửa của bốn pattern đang hát:
 
 - Bốn hàm cửa trong `guitar_torroba.py`, trả `list[tuple]` cùng dạng spec của `guitar_frame.py`.
 - Khóa `("torroba", "castillo")`, `("torroba", "sonatina")`, `("torroba", "fandanguillo")`, `("torroba", "danza")` trong `DOORS` hoặc `_RETAINED_DOORS`. Khóa giữ lại thắng khóa import.
 - `_torroba` giữ làm lưới khi `render_intro` được gọi không có pattern.
+- Cửa `danza` vẫn có bước 4/4 cho lời gọi ép. Scheduler không chọn `danza` ở 4/4.
 
-Hai pattern mới, khi được giữ:
+Ba pattern mới:
 
-- `torroba_tremolo` vào `_FAMILY`, `_PATTERN_TITLE` (**Juglar**), `PATTERN_NAMES`, `PROFILES`, và `_PEDAL_DOOR_PROFILE`. `_torroba_contrast` của chương chậm (`bpm <= 72`) trả id này.
-- `alcaniz` vào cùng các bảng, tên in **Alcaniz**. Scherzo `calm` trả id này thay cho `danza`. B của scherzo đó vẫn là `castillo`.
-- `olite` vào cùng các bảng, tên in **Olite**. Chương 4/4 mood `volatile` trả id này thay cho `fandanguillo`.
-- Sáu texture của Tremolo và Alcañiz đăng ký trong `_FIGURES`, mỗi texture chỉ khi pattern của câu là pattern cha của nó. Olite là lưới của chính pattern, chưa có texture con.
-- Trong `torroba_tremolo`, câu tremolo được câu điệu Zafra đáp, rồi tới điệu Redaba.
-- `danza` rời `_torroba_primary`. Texture Bounce không còn được gọi.
+- `torroba_tremolo`, tên in **Juglar**, vào `_FAMILY`, `_PATTERN_TITLE`, `PATTERN_NAMES`, `PROFILES`, `_PEDAL_DOOR_PROFILE`, và tập extra cả ô. Profile sóng cùng hàng `sonatina`. `_torroba_contrast` của chương chậm trả id này khi mood đoạn giữa là `calm`.
+- `alcaniz`, tên in **Alcaniz**, vào cùng các bảng. Profile ô điệu và ô mở đầu cùng hàng `danza`. Ô mềm cùng hàng `castillo`. Scherzo `rally` trả id này. Chỉ render trên 6/8.
+- `olite`, tên in **Olite**, vào cùng các bảng. Profile ô Vivace cùng hàng `danza`. Ô thưa cùng hàng `castillo`. Chương 4/4 mood `volatile` trả id này.
+- Texture thưa của Juglar, texture mở đầu và texture mềm của Alcaniz, texture thưa của Olite đăng ký trong `_FIGURES`. Điệu Zafra và điệu Redaba không đăng ký.
 
 Giữ nguyên:
 
-- `calm`, `rally` và `selloff` của 4/4. Khóa một pattern của 1D. Fandanguillo trên scherzo `rally` và `volatile`. B = Castillo khi scherzo chọn Fandanguillo. B = Sonatina khi scherzo chọn Castillo.
+- Danza trên scherzo `calm`, và Bounce.
+- `calm`, `rally`, `selloff` của 4/4. Fandanguillo trên scherzo `volatile`. B = Sonatina khi scherzo chọn Castillo, và khi đoạn giữa của chương chậm không phải `calm`.
 - Tám texture hiện có, kể cả cửa tempo và cửa `k` của Arada và Float.
 - Rasgueado 5–6 dây và 3–4 dây của thân bài.
 - `fit_intro` / `fit_outro`, sàn, trần, số stab.
