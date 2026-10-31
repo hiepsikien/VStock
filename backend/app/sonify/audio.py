@@ -937,7 +937,20 @@ def musescore_export(xml_path: Path, wav_path: Path) -> None:
                 source = xml_path
                 command = [binary, "-o", str(wav_path), str(source)]
         try:
-            _run_musescore(command, env)
+            try:
+                _run_musescore(command, env)
+            except RecapUnavailable as exc:
+                # MuseScore saves a rasgueado tuplet a few ticks longer than the
+                # bar, then refuses to play that score back. The MusicXML it
+                # imported plays, with the attacks on the twelfth.
+                if source == xml_path:
+                    raise
+                logger.warning(
+                    "Prepared score could not be played back; exporting the MusicXML: %s",
+                    exc,
+                )
+                command = [binary, "-o", str(wav_path), str(xml_path)]
+                _run_musescore(command, env)
         finally:
             if config is not None:
                 shutil.rmtree(config, ignore_errors=True)

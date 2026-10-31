@@ -474,6 +474,43 @@ def test_musescore_export_uses_installed_musesounds(tmp_path: Path, monkeypatch:
     assert not wav.with_suffix(".mscz").exists()
 
 
+def test_playback_uses_musicxml_when_prepared_score_is_too_long(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.sonify import audio as audio_mod
+
+    calls: list[list[str]] = []
+
+    def run(command: list[str], env: dict[str, str]) -> None:
+        del env
+        calls.append(command)
+        output = Path(command[command.index("-o") + 1])
+        source = command[-1]
+        if output.suffix == ".mscz":
+            output.write_bytes(b"x" * 80)
+            return
+        if source.endswith(".mscz"):
+            raise audio_mod.RecapUnavailable("Voice too long. Found: 3197/3072. Expected: 4/4.")
+        output.write_bytes(b"RIFFxxxxWAVEfmt ")
+
+    monkeypatch.setattr(audio_mod, "_run_musescore", run)
+    monkeypatch.setattr(audio_mod, "find_musescore", lambda: "/usr/bin/mscore")
+    monkeypatch.setattr(audio_mod, "general_soundfont", lambda: None)
+    monkeypatch.setattr(audio_mod, "_installed_muse_sounds", lambda: {"Acoustic Nylon": ("77", "Muse Guitars")})
+    monkeypatch.setattr(audio_mod, "_xml_requests_muse_sounds", lambda path, library: True)
+    monkeypatch.setattr(audio_mod, "_assign_installed_sounds", lambda *args, **kwargs: True)
+    monkeypatch.setattr(audio_mod, "_silence_metronome", lambda: (lambda: None))
+    xml = tmp_path / "in.musicxml"
+    xml.write_text("<score-partwise/>", encoding="utf-8")
+    wav = tmp_path / "out.wav"
+    audio_mod.musescore_export(xml, wav)
+    sources = [call[-1] for call in calls]
+    assert sources[0].endswith(".musicxml")
+    assert sources[1].endswith(".mscz")
+    assert sources[2].endswith(".musicxml")
+    assert wav.is_file()
+
+
 def test_nylon_guitar_stays_on_ms_basic_so_note_velocities_speak(tmp_path: Path) -> None:
     import json
     import zipfile
