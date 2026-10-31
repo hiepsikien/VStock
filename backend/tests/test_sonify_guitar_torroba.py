@@ -782,6 +782,28 @@ def test_scale_step_may_be_ab_and_does_not_raise_bb() -> None:
     assert over_c is not None and over_c[-2] % 12 != 8
 
 
+def test_embellish_keeps_ab_on_the_climb_into_g() -> None:
+    """Eb to Ab is wider than a whole tone. That one step stays, and the line still lands on G."""
+    from app.sonify.guitar_scale_passages import _embellish, _trace_scale
+
+    ctx = SimpleNamespace(mode="minor", treble_floor=59, treble_top=81, ensemble="torroba")
+    into_g = _trace_scale(ctx, 60, 67, "up", False, 50, 81, chord=G)
+    assert into_g is not None
+    heard = _embellish(into_g, len(into_g), ctx, "up", False, 50, 81, G.pitch_classes)
+    assert heard is not None
+    assert len(heard) == len(into_g)
+    assert heard[-2] % 12 == 8
+    assert heard[-1] == 67
+
+    into_d = _trace_scale(ctx, 60, 74, "up", False, 50, 81, chord=G)
+    assert into_d is not None
+    heard_d = _embellish(into_d, len(into_d), ctx, "up", False, 50, 81, G.pitch_classes)
+    assert heard_d is not None
+    assert len(heard_d) == len(into_d)
+    assert heard_d[-1] == 74
+    assert heard_d[-2] % 12 != 8
+
+
 def test_flat_sung_phrase_arches_the_lead_and_leaves_the_bass() -> None:
     """A flat sung phrase has no swell. The arch is the 6–8 degrees on the lead."""
     from app.sonify.guitar_torroba import apply_torroba_sung_arch

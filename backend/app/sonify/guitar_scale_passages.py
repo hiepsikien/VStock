@@ -1365,6 +1365,23 @@ def _barrios_tail(
     return notes, 0
 
 
+def _steps_allow_ab(notes: list[int]) -> bool:
+    """Whole-tone steps, except the one into Ab a semitone above G.
+
+    That approach may be a third. Any other step wider than 2 still fails.
+    """
+    wide = [
+        index
+        for index, (left, right) in enumerate(zip(notes, notes[1:]))
+        if abs(right - left) > 2
+    ]
+    if not wide:
+        return True
+    if len(notes) < 3 or notes[-2] != notes[-1] + 1:
+        return False
+    return wide == [len(notes) - 3]
+
+
 def _embellish(
     path: list[int],
     count: int,
@@ -1422,7 +1439,10 @@ def _embellish(
             notes[-2] = ab
     if any(note < low or note > high for note in notes):
         return None
-    if any(abs(right - left) > 2 for left, right in zip(notes, notes[1:])):
+    if ctx.ensemble == "torroba" and len(notes) >= 2 and notes[-2] == notes[-1] + 1:
+        if not _steps_allow_ab(notes):
+            return None
+    elif any(abs(right - left) > 2 for left, right in zip(notes, notes[1:])):
         return None
     return notes
 
