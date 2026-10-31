@@ -3254,6 +3254,9 @@ _PEDAL_DOOR_PROFILE = {
     "sonatina": "torroba",
     "fandanguillo": "torroba",
     "danza": "torroba",
+    "torroba_tremolo": "torroba",
+    "alcaniz": "torroba",
+    "olite": "torroba",
 }
 
 

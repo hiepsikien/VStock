@@ -773,7 +773,9 @@ def test_frames_and_body_patterns_stay_playable() -> None:
     )
     assert_playable(long_score, profiles="torroba")
     outro_notes = [note.midi for note in (*long_score.lead, *long_score.support, *long_score.low) if note.bar == 11 and note.midi is not None]
-    assert any(note % 12 == 4 for note in outro_notes)
+    # The sonatina outro holds I in the mode, so a minor close keeps the minor third.
+    assert any(note % 12 == 3 for note in outro_notes)
+    assert all(note % 12 != 4 for note in outro_notes)
     assert long_score.slots[-1].chord.name == "Cm"
     for pattern, meter, character in (
         ("castillo", METER_44, "calm"),
