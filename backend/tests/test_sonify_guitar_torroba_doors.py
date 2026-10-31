@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from app.sonify.chords import C, CM
 from app.sonify.form import ChordSlot
-from app.sonify.guitar_patterns import _Ctx, _MICRO, assert_playable
+from app.sonify.guitar_patterns import _Ctx, _under_lead, assert_playable
 from app.sonify.keys import C_KEY
 from app.sonify.model import NoteEvent, Score
 
@@ -240,8 +240,10 @@ def test_juglar_intro_attacks_each_beat_and_leads_in_at_eighth_five() -> None:
     by_eighth = {_eighth(note): note for note in opening}
     assert by_eighth[0].velocity == 46
     assert by_eighth[0].duration_beats == 1
-    assert by_eighth[2].velocity == 46 - _MICRO
-    assert by_eighth[4].velocity == 46 - _MICRO
+    echo, _bass = _under_lead(46, "mf")
+    assert echo < 46
+    assert by_eighth[2].velocity == echo
+    assert by_eighth[4].velocity == echo
     assert by_eighth[2].duration_beats == 1
     assert by_eighth[4].duration_beats == 1
     assert all(not note.accent for note in _all_notes(lead, support, low, frame[0]))
@@ -251,8 +253,10 @@ def test_juglar_intro_attacks_each_beat_and_leads_in_at_eighth_five() -> None:
     assert arrived[0].duration_beats == 1
     assert arrived[4].duration_beats == 0.5
     assert arrived[0].midi == arrived[2].midi == arrived[4].midi
-    assert arrived[2].velocity == arrived[0].velocity - _MICRO
-    assert arrived[4].velocity == arrived[0].velocity - _MICRO
+    later, _bass = _under_lead(arrived[0].velocity, "mf")
+    assert later < arrived[0].velocity
+    assert arrived[2].velocity == later
+    assert arrived[4].velocity == later
     assert not arrived[2].accent and not arrived[4].accent
     at_five = [note for note in _all_notes(lead, support, low, frame[1]) if _eighth(note) == 5]
     assert len(at_five) == 1

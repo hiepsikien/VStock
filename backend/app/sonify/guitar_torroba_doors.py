@@ -430,8 +430,8 @@ def _juglar_motor(ctx, bar: int, name: str, velocity: int, *, lead_in: bool) -> 
     if pair is None:
         return []
     lead, bass = pair
-    _support, bass_velocity = _beds(velocity)
-    echo = _one_step_under(velocity)
+    support, bass_velocity = _beds(velocity)
+    echo = support if support < velocity else velocity
     fourth = 1 if lead_in else 2
     specs = [
         (0, 2, lead, 1, velocity, {}),
