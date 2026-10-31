@@ -1265,3 +1265,24 @@ def test_torroba_sung_and_dance_tides_keep_an_eight_degree_lead() -> None:
     high = [_note(bar, 0.0, 72, midi=72) for bar in range(bars)]
     heard_high, _support, _low = apply_guitar_wave(ctx, high, [], [], ["danza"])
     assert _at(heard_high, 0, 0.0) == 56 and _at(heard_high, 4, 0.0) == 63
+
+
+def test_dance_snap_reads_the_written_bell_not_the_affine_value() -> None:
+    """Velocity 48 is gone after the tide. The nail still has to see the written number."""
+    bars = 8
+    volumes = [1.0 + 40.0 * math.exp(-((bar - 3) ** 2) / 3.0) for bar in range(bars)]
+    phrase = _phrase_over(bars, 3)
+    ctx = _ctx(
+        ensemble="torroba",
+        bars=bars,
+        volumes=volumes,
+        phrases=(phrase,),
+        sections=(FormSection(0, bars, "phrase", 0),),
+        rel_span=0.02,
+        spans={0: 0.02},
+    )
+    lead = [_note(bar, 1.0, 64) for bar in range(bars)]
+    lead.append(_note(3, 0.0, 48, midi=67, accent=True))
+    heard, _support, _low = apply_guitar_wave(ctx, lead, [], [], ["danza"])
+    bell = next(note for note in heard if note.bar == 3 and abs(note.beat) < 1e-6)
+    assert bell.velocity is not None and bell.velocity <= 63

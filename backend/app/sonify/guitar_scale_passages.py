@@ -986,23 +986,16 @@ def _villa_color_step(ctx: _Ctx, current: int, toward: int, end: int, low: int, 
 
 
 def _trace_ab(ctx: _Ctx, notes: list[int], end: int, low: int, high: int, chord) -> list[int]:
-    """Ab immediately before `end` when that destination is G. Other landings stay diatonic.
+    """Ab immediately before `end` when that destination is G.
 
-    The approach replaces the pitch already in that slot. A path that is only
-    the destination has no slot to replace, and the length never grows.
+    The note before Ab steps onto Ab. A leap declines the approach. Two
+    pitches that already sit beside Ab become opening–Ab–G.
     """
     if ctx.ensemble != "torroba" or not notes or notes[-1] != end or len(notes) < 2:
         return notes
-    from app.sonify.guitar_torroba import torroba_ab_approach
+    from app.sonify.guitar_torroba import rewrite_torroba_approach
 
-    ab = torroba_ab_approach(ctx, end, chord)
-    if ab is None or not low <= ab <= high:
-        return notes
-    if notes[-2] % 12 == 8 and abs(notes[-2] - end) == 1:
-        return notes
-    updated = list(notes)
-    updated[-2] = ab
-    return updated
+    return rewrite_torroba_approach(ctx, notes, chord, low=low, high=high)
 
 
 def _trace_scale(
@@ -1365,23 +1358,6 @@ def _barrios_tail(
     return notes, 0
 
 
-def _steps_allow_ab(notes: list[int]) -> bool:
-    """Whole-tone steps, except the one into Ab a semitone above G.
-
-    That approach may be a third. Any other step wider than 2 still fails.
-    """
-    wide = [
-        index
-        for index, (left, right) in enumerate(zip(notes, notes[1:]))
-        if abs(right - left) > 2
-    ]
-    if not wide:
-        return True
-    if len(notes) < 3 or notes[-2] != notes[-1] + 1:
-        return False
-    return wide == [len(notes) - 3]
-
-
 def _embellish(
     path: list[int],
     count: int,
@@ -1432,17 +1408,12 @@ def _embellish(
     if len(notes) != count or notes[0] != path[0] or notes[-1] != path[-1]:
         return None
     if ctx.ensemble == "torroba" and len(notes) >= 2:
-        from app.sonify.guitar_torroba import torroba_ab_approach
+        from app.sonify.guitar_torroba import rewrite_torroba_approach
 
-        ab = torroba_ab_approach(ctx, notes[-1], chord_pcs)
-        if ab is not None and low <= ab <= high:
-            notes[-2] = ab
+        notes = rewrite_torroba_approach(ctx, notes, chord_pcs, low=low, high=high)
     if any(note < low or note > high for note in notes):
         return None
-    if ctx.ensemble == "torroba" and len(notes) >= 2 and notes[-2] == notes[-1] + 1:
-        if not _steps_allow_ab(notes):
-            return None
-    elif any(abs(right - left) > 2 for left, right in zip(notes, notes[1:])):
+    if any(abs(right - left) > 2 for left, right in zip(notes, notes[1:])):
         return None
     return notes
 
@@ -1745,7 +1716,18 @@ def _with_retreat(
         return None
     if any(note < low or note > high for note in notes):
         return None
-    return notes
+    from app.sonify.guitar_torroba import rewrite_torroba_approach
+
+    rewritten = rewrite_torroba_approach(ctx, notes, chord_pcs, low=low, high=high)
+    if rewritten == notes:
+        return notes
+    for index in range(1, count - 1):
+        direction = against if _retreat_flag(retreat_at, index) else toward
+        if (rewritten[index] - rewritten[index - 1]) * direction <= 0:
+            return notes
+    if any(abs(right - left) > 2 for left, right in zip(rewritten, rewritten[1:])):
+        return notes
+    return rewritten
 
 
 def _assign(ctx: _Ctx, passage: ScalePassage, slots: list[_Slot]) -> list[int] | None:

@@ -756,6 +756,7 @@ def test_scale_step_may_be_ab_and_does_not_raise_bb() -> None:
     assert len(climbed_line) > 3
     fitted = _fit_walk(climbed_line)
     assert fitted is not None and fitted[1] % 12 == 8 and fitted[-1] == 67
+    assert abs(fitted[0] - fitted[1]) <= 2 and abs(fitted[1] - fitted[2]) <= 2
     into_d = _scale_steps(ctx, 69, 62, G)
     assert into_d[-1] == 62 and into_d[-2] % 12 != 8
     assert all(note % 12 != 8 for note in into_d)
@@ -763,18 +764,21 @@ def test_scale_step_may_be_ab_and_does_not_raise_bb() -> None:
 
     assert _approaches(ctx, 67, 1, G) == [68]
     assert _approaches(ctx, 67, 1, C)[-1] % 12 != 8
-    assert _approaches(ctx, 67, 3, G)[-1] % 12 == 8
+    # Three sixteenths walk onto Ab. They do not keep D–Eb and leap a fourth.
+    assert _approaches(ctx, 67, 3, G) == [65, 67, 68]
     assert _approaches(ctx, 74, 3, G)[-1] % 12 != 8
 
-    _first, second = _two_into(ctx, 60, 67, G)
-    assert second % 12 == 8
+    first, second = _two_into(ctx, 60, 67, G)
+    assert (first, second) == (67, 68)
+    fallen, before = _two_into(ctx, 72, 67, G)
+    assert (fallen, before) == (70, 68)
     _first, other = _two_into(ctx, 60, 67, CM)
     assert other % 12 != 8
     _first, onto_d = _two_into(ctx, 72, 74, G)
     assert onto_d % 12 != 8
 
     traced = _trace_scale(ctx, 69, 67, "down", False, 59, 81, chord=G)
-    assert traced is not None and traced[-2] % 12 == 8 and traced[-1] == 67
+    assert traced == [69, 68, 67]
     passed = _trace_scale(ctx, 69, 62, "down", False, 50, 81, chord=G)
     assert passed is not None and passed[-1] == 62 and passed[-2] % 12 != 8
     assert all(note % 12 != 8 for note in passed)
@@ -782,26 +786,35 @@ def test_scale_step_may_be_ab_and_does_not_raise_bb() -> None:
     assert over_c is not None and over_c[-2] % 12 != 8
 
 
-def test_embellish_keeps_ab_on_the_climb_into_g() -> None:
-    """Eb to Ab is wider than a whole tone. That one step stays, and the line still lands on G."""
-    from app.sonify.guitar_scale_passages import _embellish, _trace_scale
+def test_embellish_steps_into_ab_and_a_retreat_uses_the_same_gate() -> None:
+    """Ab is declined when the note before it would have to leap. A spare step can take it."""
+    from app.sonify.guitar_scale_passages import _embellish, _trace_scale, _with_retreat
+    from app.sonify.guitar_torroba import rewrite_torroba_approach
 
-    ctx = SimpleNamespace(mode="minor", treble_floor=59, treble_top=81, ensemble="torroba")
+    ctx = SimpleNamespace(mode="minor", treble_floor=59, treble_top=81, ensemble="torroba", semitones=0, ceiling=84, epb=8)
     into_g = _trace_scale(ctx, 60, 67, "up", False, 50, 81, chord=G)
     assert into_g is not None
     heard = _embellish(into_g, len(into_g), ctx, "up", False, 50, 81, G.pitch_classes)
-    assert heard is not None
-    assert len(heard) == len(into_g)
-    assert heard[-2] % 12 == 8
-    assert heard[-1] == 67
+    assert heard == [60, 62, 63, 65, 67]
+
+    roomy = _embellish(into_g, len(into_g) + 2, ctx, "up", False, 50, 81, G.pitch_classes)
+    assert roomy == [60, 62, 63, 65, 67, 68, 67]
 
     into_d = _trace_scale(ctx, 60, 74, "up", False, 50, 81, chord=G)
     assert into_d is not None
     heard_d = _embellish(into_d, len(into_d), ctx, "up", False, 50, 81, G.pitch_classes)
-    assert heard_d is not None
-    assert len(heard_d) == len(into_d)
-    assert heard_d[-1] == 74
-    assert heard_d[-2] % 12 != 8
+    assert heard_d is not None and heard_d[-1] == 74 and heard_d[-2] % 12 != 8
+
+    above = [72, 70, 69, 67]
+    placed = rewrite_torroba_approach(ctx, above, G.pitch_classes, low=50, high=81)
+    assert placed == [72, 70, 68, 67]
+    flags = [False, False, False, False, True, False]
+    retreated = _with_retreat(72, 67, 6, flags, ctx, "down", False, low=50, high=81, chord_pcs=G.pitch_classes)
+    assert retreated == [72, 70, 68, 67, 68, 67]
+    climbed = _with_retreat(
+        60, 67, 6, [False, False, True, False, False, False], ctx, "up", False, low=50, high=81, chord_pcs=G.pitch_classes
+    )
+    assert climbed == [60, 62, 61, 63, 65, 67]
 
 
 def test_flat_sung_phrase_arches_the_lead_and_leaves_the_bass() -> None:

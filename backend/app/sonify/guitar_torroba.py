@@ -404,11 +404,29 @@ def _render_castillo_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[N
 
 
 def _approaches(ctx, target: int, count: int, chord=None) -> list[int]:
-    """Scale steps into `target`. The last one may be Ab when `target` is G."""
-    found: list[int] = []
-    cursor = target
+    """Scale steps into `target`. Into G they step onto Ab, and Ab is last.
+
+    The notes before Ab are walked from Ab, not from the step under G with
+    the final slot overwritten. A three-note pickup into G4 is F–G–Ab.
+    """
     low = ctx.treble_floor
     high = ctx.treble_top
+    ab = torroba_ab_approach(ctx, target, chord)
+    if count >= 1 and ab is not None and low <= ab <= high:
+        if count == 1:
+            return [ab]
+        found: list[int] = []
+        cursor = ab
+        for _step in range(count - 1):
+            nxt = torroba_scale_step(ctx, cursor, -1, low=low, high=high)
+            if nxt == cursor or nxt == ab:
+                break
+            found.append(nxt)
+            cursor = nxt
+        found.reverse()
+        return found + [ab]
+    found = []
+    cursor = target
     for _step in range(count):
         nxt = torroba_scale_step(ctx, cursor, -1, low=low, high=high)
         if nxt == cursor or nxt == target:
@@ -416,9 +434,6 @@ def _approaches(ctx, target: int, count: int, chord=None) -> list[int]:
         found.append(nxt)
         cursor = nxt
     found.reverse()
-    ab = torroba_ab_approach(ctx, target, chord)
-    if found and ab is not None and low <= ab <= high:
-        found[-1] = ab
     return found
 
 
@@ -2790,11 +2805,14 @@ def _two_into(ctx, start: int, target: int, chord=None) -> tuple[int, int]:
     that destination is G and the bar's chord allows the approach.
     """
     away = -1 if start < target else 1
-    second = _scale_away(ctx, target, away)
-    first = _scale_away(ctx, second, away)
     ab = torroba_ab_approach(ctx, target, chord)
     if ab is not None:
+        # The first pitch steps onto Ab. It is not the scale step under G.
         second = ab
+        first = _scale_away(ctx, ab, away)
+        return first, second
+    second = _scale_away(ctx, target, away)
+    first = _scale_away(ctx, second, away)
     return first, second
 
 
@@ -2961,6 +2979,11 @@ def _scale_steps(ctx, start: int, target: int, chord=None) -> list[int]:
         cursor = nxt
     if notes and notes[-1] != target:
         notes.append(target)
+    ab = torroba_ab_approach(ctx, target, chord)
+    if len(notes) == 1 and ab is not None and low <= ab <= high:
+        direction = -1 if start < target else 1
+        step = torroba_scale_step(ctx, ab, direction, low=low, high=high)
+        return [step, ab, target]
     return _with_ab_before(ctx, notes, target, chord, low=low, high=high)
 
 
@@ -2973,6 +2996,10 @@ def _fit_walk(steps: list[int]) -> list[int] | None:
     if not steps:
         return None
     if len(steps) > 3:
+        # Ab sits a semitone above G. Sound the scale step that walks onto
+        # that Ab, not the opening of a long walk that then leaps.
+        if steps[-1] % 12 == 7 and steps[-2] % 12 == 8 and steps[-2] == steps[-1] + 1:
+            return [steps[-3], steps[-2], steps[-1]]
         return [steps[0], steps[-2], steps[-1]]
     return steps + [steps[-1]] * (3 - len(steps))
 
@@ -3123,17 +3150,58 @@ def torroba_ab_approach(ctx, destination: int, chord=None) -> int | None:
     return destination + 1
 
 
+def _step_onto(ctx, pitch: int, coming_from: int, *, low: int, high: int) -> int:
+    """The scale note that steps onto `pitch` from the side `coming_from` is on."""
+    direction = -1 if coming_from <= pitch else 1
+    return torroba_scale_step(ctx, pitch, direction, low=low, high=high)
+
+
+def rewrite_torroba_approach(ctx, notes: list[int], chord, *, low: int, high: int) -> list[int]:
+    """Ab immediately before G, reached by a scale step.
+
+    The first pitch stays put. A rewrite that would leap, or that would move
+    that first pitch, is declined and the diatonic line stands.
+    """
+    if getattr(ctx, "ensemble", None) != "torroba" or len(notes) < 2:
+        return list(notes)
+    end = notes[-1]
+    ab = torroba_ab_approach(ctx, end, chord)
+    if ab is None or not low <= ab <= high:
+        return list(notes)
+    if notes[-2] == ab and (len(notes) < 3 or abs(notes[-3] - ab) <= 2):
+        return list(notes)
+    # Two pitches with the opening already beside Ab become opening–Ab–G.
+    # Replacing the opening would delete the note that steps onto Ab.
+    if len(notes) == 2 and abs(notes[0] - ab) <= 2 and notes[0] != ab:
+        return [notes[0], ab, notes[-1]]
+    updated = list(notes)
+    updated[-2] = ab
+    if len(updated) >= 3 and abs(notes[-3] - ab) > 2:
+        updated[-3] = _step_onto(ctx, ab, notes[-3], low=low, high=high)
+    if updated[0] != notes[0]:
+        return list(notes)
+    if any(not low <= note <= high for note in updated):
+        return list(notes)
+    if any(abs(right - left) > 2 for left, right in zip(updated, updated[1:])):
+        return list(notes)
+    return updated
+
+
 def _with_ab_before(ctx, notes: list[int], target: int, chord, *, low: int, high: int) -> list[int]:
-    """Put Ab in the penultimate slot when `target` is the G this bar approaches."""
+    """Ab before G. The note before that Ab is the scale step onto it."""
     ab = torroba_ab_approach(ctx, target, chord)
     if ab is None or not notes or notes[-1] != target or not low <= ab <= high:
         return notes
-    if len(notes) >= 2 and notes[-2] == ab:
+    if len(notes) >= 2 and notes[-2] == ab and (len(notes) < 3 or abs(notes[-3] - ab) <= 2):
         return notes
     if len(notes) == 1:
         return [ab, target]
+    if len(notes) == 2:
+        return [_step_onto(ctx, ab, notes[0], low=low, high=high), ab, target]
     updated = list(notes)
     updated[-2] = ab
+    if abs(notes[-3] - ab) > 2:
+        updated[-3] = _step_onto(ctx, ab, notes[-3], low=low, high=high)
     return updated
 
 
