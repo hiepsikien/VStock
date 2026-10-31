@@ -77,6 +77,9 @@ const PATTERN_NAMES = new Set([
   'Sonatina',
   'Fandanguillo',
   'Danza',
+  'Juglar',
+  'Alcaniz',
+  'Olite',
 ]);
 
 export type ChartFocus = { start: number; end: number };

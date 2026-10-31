@@ -1920,6 +1920,7 @@ _HAT_PATTERNS = frozenset(
         "bach_allemande",
         "castillo",
         "sonatina",
+        "torroba_tremolo",
     }
 )
 _BAROQUE_PATTERNS = frozenset({"bach_bourree", "bach_gavotte", "bach_gigue", "bach_prelude"})
@@ -1938,6 +1939,8 @@ _KINETIC_PATTERNS = frozenset(
         "etude11",
         "fandanguillo",
         "danza",
+        "alcaniz",
+        "olite",
     }
 )
 _LOUD_DOWN_PATTERNS = _KINETIC_PATTERNS | frozenset({"elogio_pizz", "bach_chaconne"})
@@ -1945,8 +1948,8 @@ _LOUD_DOWN_PATTERNS = _KINETIC_PATTERNS | frozenset({"elogio_pizz", "bach_chacon
 # (entry step on a descent, span, ceiling). The key is the pattern id.
 _NARROW_ROWS: dict[str, tuple[int, int, int]] = {
     **{name: (6, 24, 80) for name in ("villa_pattern", "etude1", "etude11", "chord_melody", "thumb_cantabile")},
-    **{name: (4, 18, 76) for name in ("preludio", "andante", "tremolo", "choro", "vals", "polca", "hemiola", "fandanguillo", "danza")},
-    **{name: (4, 16, 76) for name in ("study", "galop", "mozart_var", "cantabile", "elegiaque", "castillo", "sonatina")},
+    **{name: (4, 18, 76) for name in ("preludio", "andante", "tremolo", "choro", "vals", "polca", "hemiola", "fandanguillo", "danza", "alcaniz", "olite")},
+    **{name: (4, 16, 76) for name in ("study", "galop", "mozart_var", "cantabile", "elegiaque", "castillo", "sonatina", "torroba_tremolo")},
     **{
         name: (4, 12, 74)
         for name in (

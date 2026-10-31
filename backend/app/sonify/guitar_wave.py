@@ -72,7 +72,7 @@ def _profile(
     )
 
 
-# Exactly the 35 (ensemble, pattern) rows. Pedal is a frame path, not another row.
+# Exactly the 38 (ensemble, pattern) rows. Pedal is a frame path, not another row.
 # Ceilings stay put. Floors are the raised windows, and `smooth` is the odd W.
 PROFILES: dict[tuple[str, str], PatternWaveProfile] = {
     ("bach", "bach_sarabande"): _profile(28, 34, 56, 62, None, None, 0, 0, "none", 9),
@@ -110,6 +110,11 @@ PROFILES: dict[tuple[str, str], PatternWaveProfile] = {
     ("torroba", "sonatina"): _profile(30, 34, 58, 62, 66, 68, 1, 2, "accent", 5),
     ("torroba", "fandanguillo"): _profile(30, 36, 58, 63, 68, 70, 1, 3, "accent", 3),
     ("torroba", "danza"): _profile(30, 36, 58, 63, 68, 70, 1, 3, "accent", 3),
+    # Juglar uses the sonatina row. Alcaniz and Olite use the danza row.
+    # Soft Alcaniz and thin or pushed Olite borrow the castillo row per bar.
+    ("torroba", "torroba_tremolo"): _profile(30, 34, 58, 62, 66, 68, 1, 2, "accent", 5),
+    ("torroba", "alcaniz"): _profile(30, 36, 58, 63, 68, 70, 1, 3, "accent", 3),
+    ("torroba", "olite"): _profile(30, 36, 58, 63, 68, 70, 1, 3, "accent", 3),
 }
 
 
@@ -424,6 +429,9 @@ class _Wave:
     c_lo: float
     c_hi: float
     centers: list[float]
+    # When set, snap budget is the formal section, not this sub-wave.
+    span_start: int = 0
+    span_end: int = 0
 
 
 @dataclass
@@ -522,42 +530,78 @@ def _section_pattern(ctx, patterns: list[str], start: int, end: int) -> str:
     return _pattern_at(ctx, start, patterns)
 
 
+_CASTILLOS_WAVES = frozenset({"torroba_tremolo", "alcaniz", "olite"})
+
+
+def _make_wave(ctx, volumes, section, start: int, end: int, pattern: str, profile: PatternWaveProfile, span: tuple[int, int]) -> _Wave:
+    smoothed = smooth_ell(volumes, start, end, profile.smooth)
+    bands = [ctx.band(bar) for bar in range(start, end)]
+    raw = u_raw_from(smoothed, bands)
+    price = alpha_price(_rel_span(ctx, section))
+    volume = alpha_volume(smoothed, price)
+    inward = bool(section is not None and (getattr(section, "trio", False) or getattr(section, "bridge", False)))
+    opened = warm_alpha(price, volume, inward=inward)
+    v_floor, v_ceil = window_for(profile, opened)
+    opened_gain, c_lo, c_hi = tide_bounds(v_floor, v_ceil, profile)
+    levels = shape_u(raw, c_lo, c_hi)
+    centers = centers_from(c_lo, c_hi, levels)
+    return _Wave(
+        start,
+        end,
+        pattern,
+        levels,
+        smoothed,
+        price,
+        volume,
+        opened,
+        v_floor,
+        v_ceil,
+        opened_gain,
+        c_lo,
+        c_hi,
+        centers,
+        span[0],
+        span[1],
+    )
+
+
+def _row_spans(ctx, patterns: list[str], start: int, end: int) -> list[tuple[int, int, str, str]]:
+    """Consecutive bars that share a musical pattern and a wave row."""
+    from app.sonify.guitar_torroba import castillos_wave_row
+
+    groups: list[tuple[int, int, str, str]] = []
+    for bar in range(start, end):
+        musical = _pattern_at(ctx, bar, patterns)
+        if musical in _CASTILLOS_WAVES:
+            row = castillos_wave_row(ctx, bar, patterns, musical)
+        else:
+            row = musical
+        if groups and groups[-1][1] == bar and groups[-1][2] == musical and groups[-1][3] == row:
+            groups[-1] = (groups[-1][0], bar + 1, musical, row)
+            continue
+        groups.append((bar, bar + 1, musical, row))
+    return groups
+
+
 def _build_waves(ctx, volumes: list[float], patterns: list[str], pedal: set[int]) -> dict[int, _Wave]:
     found: dict[int, _Wave] = {}
     for section, start, end in _body_spans(ctx, pedal):
         if end <= start:
             continue
         pattern = _section_pattern(ctx, patterns, start, end)
+        if pattern in _CASTILLOS_WAVES:
+            for row_start, row_end, musical, row in _row_spans(ctx, patterns, start, end):
+                profile = profile_for(ctx.ensemble, row)
+                if profile is None:
+                    continue
+                wave = _make_wave(ctx, volumes, section, row_start, row_end, musical, profile, (start, end))
+                for bar in range(row_start, row_end):
+                    found[bar] = wave
+            continue
         profile = profile_for(ctx.ensemble, pattern)
         if profile is None:
             continue
-        smoothed = smooth_ell(volumes, start, end, profile.smooth)
-        bands = [ctx.band(bar) for bar in range(start, end)]
-        raw = u_raw_from(smoothed, bands)
-        price = alpha_price(_rel_span(ctx, section))
-        volume = alpha_volume(smoothed, price)
-        inward = bool(section is not None and (getattr(section, "trio", False) or getattr(section, "bridge", False)))
-        opened = warm_alpha(price, volume, inward=inward)
-        v_floor, v_ceil = window_for(profile, opened)
-        opened_gain, c_lo, c_hi = tide_bounds(v_floor, v_ceil, profile)
-        levels = shape_u(raw, c_lo, c_hi)
-        centers = centers_from(c_lo, c_hi, levels)
-        wave = _Wave(
-            start,
-            end,
-            pattern,
-            levels,
-            smoothed,
-            price,
-            volume,
-            opened,
-            v_floor,
-            v_ceil,
-            opened_gain,
-            c_lo,
-            c_hi,
-            centers,
-        )
+        wave = _make_wave(ctx, volumes, section, start, end, pattern, profile, (0, 0))
         for bar in range(start, end):
             found[bar] = wave
     return found
@@ -746,7 +790,7 @@ def _is_target(
         return voice == "lead" and event.accent
     if pattern == "elogio_pizz":
         return voice == "lead" and event.accent and event.staccato
-    if pattern in {"sonatina", "fandanguillo", "danza"}:
+    if pattern in {"sonatina", "fandanguillo", "danza", "torroba_tremolo", "alcaniz", "olite"}:
         return voice == "lead" and event.accent
     return False
 
@@ -799,7 +843,12 @@ def _collect_units(ctx, voices: dict[str, list[NoteEvent]], patterns, waves, sca
             if wave is None:
                 continue
             pattern = _pattern_at(ctx, event.bar, patterns)
-            profile = profile_for(ctx.ensemble, pattern)
+            row = pattern
+            if pattern in _CASTILLOS_WAVES:
+                from app.sonify.guitar_torroba import castillos_wave_row
+
+                row = castillos_wave_row(ctx, event.bar, patterns, pattern)
+            profile = profile_for(ctx.ensemble, row)
             if profile is None or profile.snap_wide is None:
                 continue
             if wave.alpha_price < 0.25 and pattern != "elogio_pizz":
@@ -889,7 +938,10 @@ def _select_units(ctx, units: list[_Unit], waves, voices, scale_eighths=None) ->
         wave = waves.get(unit.bar)
         if wave is None:
             continue
-        by_section.setdefault((wave.start, wave.end, unit.pattern), []).append(unit)
+        start, end = wave.start, wave.end
+        if wave.span_end > wave.span_start:
+            start, end = wave.span_start, wave.span_end
+        by_section.setdefault((start, end, unit.pattern), []).append(unit)
     chosen: list[_Unit] = []
     for (start, end, pattern), group in by_section.items():
         wave = waves[group[0].bar]
