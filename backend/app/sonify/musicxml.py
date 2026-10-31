@@ -124,20 +124,77 @@ _NOTE_TYPES = {
 }
 
 
+def _near(left: float, right: float) -> bool:
+    return abs(left - right) <= 1e-6
+
+
 def _note_type(beats: float) -> tuple[str, int]:
-    try:
-        return _NOTE_TYPES[beats]
-    except KeyError as exc:
-        raise ValueError(f"unsupported duration: {beats} beats") from exc
+    for known, spelled in _NOTE_TYPES.items():
+        if _near(beats, known):
+            return spelled
+    # Leading rests that `_fill_twelfths` writes ahead of a rasgueado attack.
+    # 1/12 is a 32nd triplet and 2/12 is a 16th triplet. Neither is a sextuplet.
+    units = beats * 12.0
+    if _near(units, 1.0):
+        return ("32nd", 0)
+    if _near(units, 2.0):
+        return ("16th", 0)
+    raise ValueError(f"unsupported duration: {beats} beats")
+
+
+def _nominal_duration(event: NoteEvent) -> float | None:
+    """Written `T_v` of a rolled attack. The sounding duration stays shorter.
+
+    The roll offset lives only in `<duration>`. `<type>` still shows the note
+    the attack would have been on the beat: an eighth, or the whole bar.
+    Only beats `1/12` and `2/12` are roll attacks. A sextuplet sixth can also
+    start at `2/12`; that note keeps the 6:4 spelling.
+    """
+    if event.midi is None:
+        return None
+    beat = event.beat
+    if not (_near(beat, 1.0 / 12.0) or _near(beat, 2.0 / 12.0)):
+        return None
+    if _is_sixth(event.duration_beats):
+        return None
+    nominal = event.duration_beats + (beat % 0.5)
+    if not any(_near(nominal, known) for known in _NOTE_TYPES):
+        return None
+    return nominal
+
+
+def _roll_gap_rest(event: NoteEvent) -> bool:
+    """A 1/12 or 2/12 rest filling the space before a rasgueado attack."""
+    if event.midi is not None or event.beat < 0.0 or event.beat >= 0.25:
+        return False
+    units = event.duration_beats * 12.0
+    return _near(units, 1.0) or _near(units, 2.0)
+
+
+def _gap_spelling(event: NoteEvent) -> tuple[str, tuple[str, str, str]]:
+    """Triplet spelling of a roll's leading rest. A lone 2/12 rest is not 6:4."""
+    units = event.duration_beats * 12.0
+    if _near(units, 1.0):
+        return "32nd", ("3", "2", "32nd")
+    return "16th", ("3", "2", "16th")
 
 
 def _is_sixth(beats: float) -> bool:
-    """One note of a sextuplet: a sixteenth inside 6:4."""
+    """One note of a sextuplet: a sixteenth inside 6:4.
+
+    A rolled lead of `4/12` is twice a sixth and must not enter the bracket.
+    """
+    if _near(beats * 12.0, 4.0):
+        return False
     return abs(beats * 6 - 1.0) < 1e-3
 
 
 def _sextuplet_roles(events: list[NoteEvent]) -> list[str | None]:
-    """Bracket each run of six sixths that fills one quarter."""
+    """Bracket each run of six sixths that fills one quarter.
+
+    A lone `2/12` rest, or a rolled note of `4/12`, does not open a bracket.
+    `_is_sixth` rejects `4/12`, and a single sixth never reaches six notes.
+    """
     roles: list[str | None] = [None] * len(events)
     index = 0
     while index < len(events):
@@ -211,12 +268,30 @@ def _add_note(
     if event.tie_start:
         _add(note, "tie", type="start")
     _add(note, "voice", str(event.voice))
-    sixth = _is_sixth(event.duration_beats)
-    note_type, dots = ("16th", 0) if sixth else _note_type(event.duration_beats)
+    nominal = _nominal_duration(event)
+    # A 2/12 rest is also a sixth long. It is a sextuplet only when the
+    # bracket actually claimed it. A lone rest ahead of a roll is a triplet.
+    gap = tuplet is None and _roll_gap_rest(event)
+    gap_mod: tuple[str, str, str] | None = None
+    if nominal is not None:
+        note_type, dots = _note_type(nominal)
+        sixth = False
+    elif gap:
+        note_type, gap_mod = _gap_spelling(event)
+        dots = 0
+        sixth = False
+    else:
+        sixth = _is_sixth(event.duration_beats)
+        note_type, dots = ("16th", 0) if sixth else _note_type(event.duration_beats)
     _add(note, "type", note_type)
     for _ in range(dots):
         _add(note, "dot")
-    if sixth:
+    if gap_mod is not None:
+        modification = _add(note, "time-modification")
+        _add(modification, "actual-notes", gap_mod[0])
+        _add(modification, "normal-notes", gap_mod[1])
+        _add(modification, "normal-type", gap_mod[2])
+    elif sixth:
         modification = _add(note, "time-modification")
         _add(modification, "actual-notes", "6")
         _add(modification, "normal-notes", "4")

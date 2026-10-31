@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
 from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
 
 from app.sonify.chords import (
+    Chord,
     AF,
     AM,
     AM7,
@@ -47,6 +49,8 @@ from app.sonify.guitar_patterns import (
     _Ctx,
     _MICRO,
     _apex_eighths,
+    _fill,
+    _fill_voices,
     _fallback_body_pattern,
     _note_velocity,
     _owning_pattern,
@@ -57,6 +61,8 @@ from app.sonify.guitar_patterns import (
 )
 from app.sonify.guitar_torroba import (
     _HARMONICS,
+    _Pen,
+    _rasgueado_onsets,
     _render_torroba_bar,
     _torroba_bass,
     _torroba_contrast,
@@ -481,11 +487,15 @@ def test_dance_writes_a_four_step_gap_and_one_extra_per_bar() -> None:
     ctx = _ctx(melody=[72] * 8, phrase=phrase, character="volatile")
     with compose_meter(METER_44):
         lead, _support, _low = _render_torroba_bar(ctx, 0, phrase, "fandanguillo")
+    rolled = [note for note in lead if note.beat < 0.25]
+    assert len(rolled) == 1
+    assert rolled[0].beat == pytest.approx(2 / 12)
+    assert rolled[0].duration_beats == pytest.approx(4 / 12)
+    assert rolled[0].velocity == 68 and rolled[0].accent
     by_beat = {round(note.beat, 2): note for note in lead if note.duration_beats >= 0.5}
-    assert by_beat[0.0].velocity == 68 and by_beat[0.0].accent
     assert by_beat[1.0].velocity == 64 and not by_beat[1.0].accent
     assert by_beat[2.0].velocity == 68 and by_beat[2.0].accent
-    assert by_beat[0.0].velocity - by_beat[1.0].velocity == 4
+    assert rolled[0].velocity - by_beat[1.0].velocity == 4
     rising = Phrase(0, 16, (Run(0, 8, 74), Run(8, 8, 60)))
     shape_ctx = _ctx(melody=[74] * 8 + [60] * 8, phrase=rising, bars=2)
     events = [
@@ -804,7 +814,12 @@ def _with_phrases(ctx, phrases, kind_at=None):
 
 
 def _gap_beats(support) -> set[float]:
-    return {round(note.beat, 2) for note in support if note.midi is not None and round(note.beat, 2) != 0.0}
+    """Inner notes after the downbeat chord. The rolled support sits before 0.25."""
+    return {
+        round(note.beat, 2)
+        for note in support
+        if note.midi is not None and note.beat >= 0.25
+    }
 
 
 def _at(notes, beat: float):
@@ -1025,14 +1040,19 @@ def test_breath_harmonics_and_fandanguillo_grids() -> None:
     )
     with compose_meter(METER_68):
         lead, support, low = _render_torroba_bar(six, 0, six.phrases[0], "fandanguillo")
+    roll = round(2 / 12, 2)
     by_beat = {round(note.beat, 2): note for note in lead}
-    assert set(by_beat) == {0.0, 1.0, 1.5}
-    assert by_beat[0.0].velocity >= 68 and by_beat[0.0].accent and by_beat[0.0].midi == 72
+    assert set(by_beat) == {roll, 1.0, 1.5}
+    assert by_beat[roll].velocity >= 68 and by_beat[roll].accent and by_beat[roll].midi == 72
     assert by_beat[1.0].velocity == 64 and not by_beat[1.0].accent
     assert by_beat[1.5].velocity >= 68 and by_beat[1.5].accent
-    sounding = [note for note in (*lead, *support, *low) if abs(note.beat) < 1e-6]
-    assert len(sounding) <= 3
-    assert max(note.midi for note in sounding if note.midi is not None) == 72
+    opening = sorted(
+        (note for note in (*lead, *support, *low) if note.midi is not None and note.beat < 0.25),
+        key=lambda note: note.beat,
+    )
+    assert [note.beat for note in opening] == pytest.approx([0.0, 1 / 12, 2 / 12])
+    assert [note.voice for note in opening] == [3, 2, 1]
+    assert opening[-1].midi == 72
 
     three = _ctx(
         melody=[72] * 6,
@@ -1046,9 +1066,10 @@ def test_breath_harmonics_and_fandanguillo_grids() -> None:
     )
     with compose_meter(METER_34):
         waltzed, _support, _low = _render_torroba_bar(three, 0, three.phrases[0], "fandanguillo")
+    roll = round(2 / 12, 2)
     beats = {round(note.beat, 2): note for note in waltzed}
-    assert set(beats) == {0.0, 1.0, 2.0}
-    assert beats[0.0].velocity >= 68 and beats[0.0].accent
+    assert set(beats) == {roll, 1.0, 2.0}
+    assert beats[roll].velocity >= 68 and beats[roll].accent
     assert beats[1.0].velocity == 64 and not beats[1.0].accent
     assert beats[2.0].velocity == 64 and not beats[2.0].accent
 
@@ -1589,9 +1610,15 @@ def test_type_7_mordent_and_bar_5_bass_keep_the_written_steps() -> None:
         assert len(half) == 1 and half[0].duration_beats == pytest.approx(2.0 if kind == "4/4" else 1.0)
         assert half[0].velocity == 64
         bass = [note for note in parts[4][2] if note.midi is not None]
-        assert [note.velocity for note in bass] == velocities
-        assert all(note.duration_beats == pytest.approx(0.5) for note in bass)
-        assert bass[-1].midi % 12 == C.pitches[0] % 12
+        chord_bass = [note for note in bass if note.beat < 0.25]
+        running = [note for note in bass if note.beat >= 0.5 - 1e-9]
+        assert len(chord_bass) == 1
+        assert chord_bass[0].beat == pytest.approx(0.0)
+        assert chord_bass[0].duration_beats == pytest.approx(0.5)
+        assert chord_bass[0].velocity == 60
+        assert [note.velocity for note in running] == velocities
+        assert all(note.duration_beats == pytest.approx(0.5) for note in running)
+        assert running[-1].midi % 12 == C.pitches[0] % 12
         grace = [note for note in parts[2][0] if abs(note.beat - 0.5) < 0.3]
         support = [note for note in parts[2][1] if note.beat == pytest.approx(0.5)]
         assert len(grace) == 2 and all(note.duration_beats == pytest.approx(0.25) for note in grace)
@@ -1822,3 +1849,414 @@ def test_figure_bars_keep_their_own_slur_and_grow_no_pickup() -> None:
     assert len(answer) == 1 and answer[0].duration_beats == pytest.approx(4.0)
     base = [note for note in score.lead if note.bar == 2 and note.beat == pytest.approx(0.0) and note.midi is not None]
     assert len(base) == 1 and base[0].duration_beats < 4
+
+
+def _opening(lead, support, low, *, limit: float = 0.25) -> list[NoteEvent]:
+    """Sounding attacks inside the first sixteenth. Rests do not count."""
+    notes = [
+        note
+        for note in (*lead, *support, *low)
+        if note.midi is not None and 0.0 <= note.beat < limit - 1e-9
+    ]
+    return sorted(notes, key=lambda note: (note.beat, -note.voice))
+
+
+def _assert_eighth_roll(lead, support, low, *, lead_velocity: int | None = None) -> None:
+    opening = _opening(lead, support, low)
+    assert [note.voice for note in opening] == [3, 2, 1]
+    assert [note.beat for note in opening] == pytest.approx([0.0, 1 / 12, 2 / 12])
+    assert [note.duration_beats for note in opening] == pytest.approx([0.5, 5 / 12, 4 / 12])
+    assert all(note.beat + note.duration_beats == pytest.approx(0.5) for note in opening)
+    assert opening[2].accent
+    # The volume wave moves a finished score. Written levels are the figure's.
+    if lead_velocity is not None:
+        assert opening[2].velocity == lead_velocity
+        assert opening[1].velocity == 56
+        assert opening[0].velocity == 60
+
+
+def _assert_type7_roll(lead, support, low, bar_beats: float, *, written: bool = False) -> None:
+    opening = _opening(lead, support, low)
+    assert [note.voice for note in opening] == [3, 2, 1]
+    assert [note.beat for note in opening] == pytest.approx([0.0, 1 / 12, 2 / 12])
+    assert [note.duration_beats for note in opening] == pytest.approx([0.5, 5 / 12, bar_beats - 2 / 12])
+    assert opening[0].beat + opening[0].duration_beats == pytest.approx(0.5)
+    assert opening[1].beat + opening[1].duration_beats == pytest.approx(0.5)
+    assert opening[2].beat + opening[2].duration_beats == pytest.approx(bar_beats)
+    assert opening[2].accent
+    if written:
+        assert opening[2].velocity == 64
+        assert opening[1].velocity == 56
+        assert opening[0].velocity == 60
+
+
+def _assert_block(lead, support, low) -> None:
+    """Every attack in the first sixteenth shares the downbeat.
+
+    A carried bass leaves only the lead there. That lead is still not rolled.
+    """
+    opening = _opening(lead, support, low)
+    assert opening
+    assert all(note.beat == pytest.approx(0.0) for note in opening)
+
+
+_UNISON = Chord("C", "C", "major", "", (60,))
+
+
+def _pattern_score(kind: str, pattern: str, *, character: str, bpm: int, bars: int = 4):
+    meter, epb, _strong, _beats = _FIGURE_METERS[kind]
+    row = [72] * (epb * bars)
+    return _render(
+        row,
+        (_joined(0, row),),
+        chords={bar: C for bar in range(bars)},
+        kinds={bar: "phrase" for bar in range(bars)},
+        mode="major",
+        character=character,
+        bpm=bpm,
+        meter=meter,
+    )
+
+
+def _engrave(ctx, parts) -> Score:
+    """Fill a figure the way the score renderer does, on the twelfth grid."""
+    score = _figure_score(ctx, parts, ctx.bars)
+    epb = ctx.epb
+    return replace(
+        score,
+        lead=tuple(_fill(list(score.lead), score.bars, epb, 1)),
+        support=tuple(_fill_voices(list(score.support), score.bars, epb, 2)),
+        low=tuple(_fill(list(score.low), score.bars, epb, 3)),
+        divisions=12,
+    )
+
+
+def _streams(measure: ET.Element) -> list[list[ET.Element]]:
+    streams: list[list[ET.Element]] = [[]]
+    for child in measure:
+        if child.tag == "backup":
+            streams.append([])
+        elif child.tag == "note":
+            streams[-1].append(child)
+    return streams
+
+
+def _first_attack(stream: list[ET.Element]) -> ET.Element:
+    for note in stream:
+        if note.find("rest") is None:
+            return note
+    raise AssertionError("voice has no sounding note")
+
+
+def _assert_measures_sum(score: Score) -> None:
+    root = ET.fromstring(score_to_musicxml(score))
+    expected = int(round(score.bar_beats * score.divisions))
+    for measure in root.find("part").findall("measure"):
+        for stream in _streams(measure):
+            total = sum(
+                int(note.find("duration").text)
+                for note in stream
+                if note.find("chord") is None
+            )
+            assert total == expected
+
+
+def _assert_eighth_xml(measure: ET.Element) -> None:
+    lead, support, bass = _streams(measure)[0], _streams(measure)[1], _streams(measure)[-1]
+    bass_note, support_note, lead_note = _first_attack(bass), _first_attack(support), _first_attack(lead)
+    assert (bass_note.find("duration").text, bass_note.find("type").text) == ("6", "eighth")
+    assert (support_note.find("duration").text, support_note.find("type").text) == ("5", "eighth")
+    assert (lead_note.find("duration").text, lead_note.find("type").text) == ("4", "eighth")
+    for note in (bass_note, support_note, lead_note):
+        assert note.find("dot") is None
+        assert note.find("time-modification") is None
+    assert lead[0].find("rest") is not None
+    assert lead[0].find("duration").text == "2"
+    assert lead[0].find("type").text == "16th"
+    assert lead[0].find("time-modification/actual-notes").text == "3"
+    assert lead[0].find("time-modification/normal-type").text == "16th"
+    assert support[0].find("rest") is not None
+    assert support[0].find("duration").text == "1"
+    assert support[0].find("type").text == "32nd"
+    assert support[0].find("time-modification/actual-notes").text == "3"
+    assert support[0].find("time-modification/normal-type").text == "32nd"
+    assert bass[0].find("rest") is None
+    for note in measure.iter("note"):
+        if note.find("rest") is None:
+            assert note.find("time-modification") is None
+
+
+def _assert_held_lead_xml(measure: ET.Element, units: int, kind: str) -> None:
+    lead = _first_attack(_streams(measure)[0])
+    assert lead.find("duration").text == str(units)
+    if kind == "4/4":
+        assert lead.find("type").text == "whole"
+        assert lead.find("dot") is None
+    else:
+        assert lead.find("type").text == "half"
+        assert lead.find("dot") is not None
+
+
+@pytest.mark.parametrize("kind", ["4/4", "3/4", "6/8"])
+def test_rolled_rasgueado_onsets_releases_and_block_chords(kind: str) -> None:
+    """Section 4.9: five rolls, and every other chord still speaks together."""
+    assert _rasgueado_onsets([1, 2, 3]) == {3: 0.0, 2: 1 / 12, 1: 2 / 12}
+    assert _rasgueado_onsets([1, 3]) == {3: 0.0, 1: 1 / 12}
+    assert _rasgueado_onsets([2, 1]) == {2: 0.0, 1: 1 / 12}
+    assert _rasgueado_onsets([1]) == {1: 0.0}
+    _meter, _epb, _strong, bar_beats = _FIGURE_METERS[kind]
+
+    _ctx2, _phrase2, type2 = _flat_figure(kind, 2)
+    _assert_eighth_roll(*type2[0], lead_velocity=64)
+    _assert_block(*type2[1])
+
+    _ctx3, _phrase3, type3 = _flat_figure(kind, 3)
+    _assert_eighth_roll(*type3[0], lead_velocity=64)
+
+    _ctx5, _phrase5, type5 = _flat_figure(kind, 5)
+    _assert_eighth_roll(*type5[0], lead_velocity=68)
+    _assert_block(*type5[3])
+
+    _ctx7, _phrase7, type7 = _flat_figure(kind, 7)
+    for index in range(4):
+        _assert_block(*type7[index])
+    _assert_type7_roll(*type7[4], bar_beats, written=True)
+
+    _ctx8, _phrase8, type8 = _flat_figure(kind, 8)
+    _assert_block(*type8[0])
+    _assert_block(*type8[1])
+
+    _ctx4, _phrase4, type4 = _flat_figure(kind, 4)
+    _assert_block(*type4[0])
+    assert not any(note.beat < 0.25 and note.midi is not None for note in type4[0][0])
+
+    if kind != "4/4":
+        _ctx6, _phrase6, type6 = _flat_figure(kind, 6)
+        _assert_block(*type6[0])
+        assert {note.voice for note in _opening(*type6[0])} >= {1, 2, 3}
+        _assert_block(*type6[1])
+        _assert_block(*type6[2])
+        opened = _opening(*type6[2])
+        assert [note.voice for note in opened] == [3, 2]
+        assert all(note.duration_beats == pytest.approx(0.25) for note in opened)
+
+    meter, epb, strong, _beats = _FIGURE_METERS[kind]
+    # Held, so the downbeat is not a close and the beds stay 68 / 60 / 56.
+    phrase = _joined(0, [72] * epb, held=True)
+    grid = _ctx(
+        melody=[72] * epb,
+        phrase=phrase,
+        kind=kind,
+        epb=epb,
+        strong=strong,
+        character="volatile",
+        bar_beats=bar_beats,
+        chord=C,
+    )
+    with compose_meter(meter):
+        dance = _render_torroba_bar(grid, 0, phrase, "fandanguillo")
+    _assert_eighth_roll(*dance, lead_velocity=68)
+    assert_playable(_figure_score(grid, [dance], 1), profiles="torroba")
+
+    if kind != "4/4":
+        danza_ctx = replace(grid, character="calm")
+        with compose_meter(meter):
+            danza = _render_torroba_bar(danza_ctx, 0, phrase, "danza")
+        _assert_block(*danza)
+        assert all(note.staccato for note in _opening(*danza))
+        assert_playable(_figure_score(danza_ctx, [danza], 1), profiles="torroba")
+
+
+def test_two_voice_roll_closes_the_gap_and_a_lone_lead_stays_on_the_beat() -> None:
+    for kind in ("4/4", "3/4", "6/8"):
+        _meter, _epb, _strong, bar_beats = _FIGURE_METERS[kind]
+        _ctx2, _phrase2, type2 = _flat_figure(kind, 2, midi=59, chord=_UNISON)
+        pair = _opening(*type2[0])
+        assert [note.voice for note in pair] == [3, 1]
+        assert [note.beat for note in pair] == pytest.approx([0.0, 1 / 12])
+        assert [note.duration_beats for note in pair] == pytest.approx([0.5, 5 / 12])
+        block = _opening(*type2[1])
+        assert [note.voice for note in block] == [3, 1]
+        assert all(note.beat == pytest.approx(0.0) for note in block)
+
+        _ctx7, phrase7, type7 = _flat_figure(kind, 7, midi=59, chord=_UNISON)
+        held = _opening(*type7[4])
+        assert [note.voice for note in held] == [3, 1]
+        assert [note.beat for note in held] == pytest.approx([0.0, 1 / 12])
+        assert [note.duration_beats for note in held] == pytest.approx([0.5, bar_beats - 1 / 12])
+        for index in range(4):
+            earlier = _opening(*type7[index])
+            assert earlier
+            assert all(note.beat == pytest.approx(0.0) for note in earlier)
+
+        meter = _FIGURE_METERS[kind][0]
+        with compose_meter(meter):
+            missing_bass = _Pen(
+                _ctx7, 4, phrase7, "castillo", index=4, count=5, next_figure=None
+            )
+            missing_bass.rasgueado(
+                [
+                    (3, None, 60, 0, {}),
+                    (2, 55, 56, 0, {}),
+                    (1, 72, 64, 0, {"accent": True}),
+                ],
+                {3: 0.5, 2: 0.5, 1: missing_bass.beats},
+            )
+            lead, support, low = missing_bass.finish()
+            alone = _Pen(_ctx7, 0, phrase7, "castillo", index=0, count=5, next_figure=None)
+            alone.rasgueado(
+                [
+                    (3, None, 60, 0, {}),
+                    (2, None, 56, 0, {}),
+                    (1, 72, 64, 0, {"accent": True}),
+                ],
+                {3: 0.5, 2: 0.5, 1: 0.5},
+            )
+            only_lead, only_support, only_low = alone.finish()
+        assert low == []
+        assert [note.beat for note in (*support, *lead)] == pytest.approx([0.0, 1 / 12])
+        assert support[0].duration_beats == pytest.approx(0.5)
+        assert lead[0].duration_beats == pytest.approx(missing_bass.beats - 1 / 12)
+        assert only_support == [] and only_low == []
+        assert only_lead[0].beat == pytest.approx(0.0)
+        assert only_lead[0].duration_beats == pytest.approx(0.5)
+
+
+def test_type_1_bass_cuts_at_the_barline_before_a_rolled_successor() -> None:
+    phrase = _joined(0, [72] * 16, held=True)
+    ctx = _many((phrase,), melody=[72] * 16)
+    for nxt in (None, 2, 3, 5, 7):
+        with compose_meter(METER_44):
+            _lead, _support, bass = render_torroba_figure(
+                ctx, 0, phrase, "sonatina", 1, index=0, count=1, next_figure=nxt
+            )
+        cut = max(bass, key=lambda note: note.beat)
+        assert cut.beat == pytest.approx(2.25)
+        assert cut.duration_beats == pytest.approx(1.75)
+
+
+@pytest.mark.parametrize("kind", ["4/4", "3/4", "6/8"])
+def test_rolled_chord_scores_engrave_on_division_12(kind: str) -> None:
+    meter, epb, _strong, bar_beats = _FIGURE_METERS[kind]
+    dance = _pattern_score(kind, "fandanguillo", character="volatile", bpm=96)
+    assert dance.divisions == 12
+    _assert_eighth_roll(
+        [note for note in dance.lead if note.bar == 0],
+        [note for note in dance.support if note.bar == 0],
+        [note for note in dance.low if note.bar == 0],
+    )
+    assert_playable(dance, profiles="torroba")
+    _assert_measures_sum(dance)
+    root = ET.fromstring(score_to_musicxml(dance))
+    _assert_eighth_xml(root.find("part").findall("measure")[0])
+
+    slow = _pattern_score(kind, "castillo", character="calm", bpm=72, bars=5)
+    assert slow.divisions == 12
+    for bar in range(4):
+        _assert_block(
+            [note for note in slow.lead if note.bar == bar],
+            [note for note in slow.support if note.bar == bar],
+            [note for note in slow.low if note.bar == bar],
+        )
+    _assert_type7_roll(
+        [note for note in slow.lead if note.bar == 4],
+        [note for note in slow.support if note.bar == 4],
+        [note for note in slow.low if note.bar == 4],
+        bar_beats,
+    )
+    assert_playable(slow, profiles="torroba")
+    _assert_measures_sum(slow)
+    slow_root = ET.fromstring(score_to_musicxml(slow))
+    bar5 = slow_root.find("part").findall("measure")[4]
+    _assert_held_lead_xml(bar5, epb * 6 - 2, kind)
+    support_note = _first_attack(_streams(bar5)[1])
+    bass_note = _first_attack(_streams(bar5)[-1])
+    assert (bass_note.find("duration").text, bass_note.find("type").text) == ("6", "eighth")
+    assert (support_note.find("duration").text, support_note.find("type").text) == ("5", "eighth")
+    assert bass_note.find("dot") is None and support_note.find("dot") is None
+
+    _ctx2, _phrase2, pair_parts = _flat_figure(kind, 2, midi=59, chord=_UNISON)
+    pair_score = _engrave(_ctx2, pair_parts)
+    assert pair_score.divisions == 12
+    _assert_measures_sum(pair_score)
+    pair_bar = ET.fromstring(score_to_musicxml(pair_score)).find("part").findall("measure")[0]
+    pair_lead = _first_attack(_streams(pair_bar)[0])
+    pair_bass = _first_attack(_streams(pair_bar)[-1])
+    assert pair_lead.find("duration").text == "5"
+    assert pair_lead.find("type").text == "eighth" and pair_lead.find("dot") is None
+    assert pair_bass.find("duration").text == "6"
+    assert _streams(pair_bar)[0][0].find("duration").text == "1"
+
+    _ctx7, _phrase7, held_parts = _flat_figure(kind, 7, midi=59, chord=_UNISON)
+    held_score = _engrave(_ctx7, held_parts)
+    _assert_measures_sum(held_score)
+    held_bar = ET.fromstring(score_to_musicxml(held_score)).find("part").findall("measure")[4]
+    _assert_held_lead_xml(held_bar, epb * 6 - 1, kind)
+    assert _first_attack(_streams(held_bar)[-1]).find("duration").text == "6"
+    assert _streams(held_bar)[0][0].find("rest") is not None
+    assert _streams(held_bar)[0][0].find("duration").text == "1"
+
+    quiet = _pattern_score(kind, "castillo", character="calm", bpm=96)
+    assert quiet.divisions != 12
+    assert_playable(quiet, profiles="torroba")
+    assert meter.eighths_per_bar == epb
+
+
+def test_intro_and_danza_stay_block_chords_when_a_roll_sets_division_12() -> None:
+    pitches = [72] * 32
+    framed = _render(
+        pitches,
+        (_joined(0, pitches[:8], held=True), _joined(8, pitches[8:24]), _joined(24, pitches[24:])),
+        chords={bar: C for bar in range(4)},
+        kinds={0: "intro", 1: "phrase", 2: "phrase", 3: "outro"},
+        mode="major",
+        character="volatile",
+        bpm=96,
+        sections=(
+            FormSection(0, 1, "intro", 0),
+            FormSection(1, 3, "phrase", 0),
+            FormSection(3, 4, "outro", 0),
+        ),
+    )
+    assert framed.divisions == 12
+    for bar in (0, 3):
+        _assert_block(
+            [note for note in framed.lead if note.bar == bar],
+            [note for note in framed.support if note.bar == bar],
+            [note for note in framed.low if note.bar == bar],
+        )
+    _assert_eighth_roll(
+        [note for note in framed.lead if note.bar == 1],
+        [note for note in framed.support if note.bar == 1],
+        [note for note in framed.low if note.bar == 1],
+    )
+    assert_playable(framed, profiles="torroba")
+    _assert_measures_sum(framed)
+
+    danza = _render(
+        [72] * 24,
+        (
+            _joined(0, [72] * 6, held=True),
+            _joined(6, [72] * 12),
+            _joined(18, [72] * 6),
+        ),
+        chords={bar: C for bar in range(4)},
+        kinds={0: "intro", 1: "phrase", 2: "phrase", 3: "outro"},
+        mode="major",
+        character="calm",
+        bpm=96,
+        meter=METER_68,
+        sections=(
+            FormSection(0, 1, "intro", 0),
+            FormSection(1, 3, "phrase", 0),
+            FormSection(3, 4, "outro", 0),
+        ),
+    )
+    assert danza.divisions != 12
+    body = _opening(
+        [note for note in danza.lead if note.bar == 1],
+        [note for note in danza.support if note.bar == 1],
+        [note for note in danza.low if note.bar == 1],
+    )
+    assert body and all(note.beat == pytest.approx(0.0) for note in body)
+    assert_playable(danza, profiles="torroba")

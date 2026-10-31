@@ -346,7 +346,7 @@ def test_render_detects_once_on_raw_pitches_before_quantize(monkeypatch) -> None
 
     monkeypatch.setattr("app.sonify.guitar_scales.detect_price_impulses", detect)
 
-    def bumped(raw, chord_at, scale, mode="major"):
+    def bumped(raw, chord_at, scale, mode="major", ensemble=""):
         return [note + 1 for note in real_quantize(raw, chord_at, scale, mode)]
 
     monkeypatch.setattr(sys.modules["app.sonify.render"], "quantize_strong_beats", bumped)

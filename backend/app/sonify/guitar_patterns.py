@@ -2251,6 +2251,20 @@ def _needs_sixteenths(events: list[NoteEvent]) -> bool:
     return False
 
 
+def _needs_twelfths(events: list[NoteEvent]) -> bool:
+    """True when a beat or a duration leaves the sixteenth grid.
+
+    A rasgueado roll puts support on `1/12` and lead on `2/12`, and shortens
+    those notes to `5/12` and `4/12`. That asks for `divisions = 12`.
+    """
+    for event in events:
+        for value in (event.beat, event.duration_beats):
+            scaled = value * 4
+            if abs(scaled - round(scaled)) > 1e-6:
+                return True
+    return False
+
+
 def _step_playable_and_ordered(
     pitch: int,
     step16: int,
@@ -3102,9 +3116,11 @@ def render_patterned_voices(
         and (ctx.character is not None or ctx.bars > 40)
     ):
         divisions = 4
-    # A movement with any Étude No. 11 phrase engraves on the twelfth grid.
-    # A sixteenth of Étude No. 1 is then three units, and a sextuplet sixth is two.
-    if "etude11" in patterns:
+    # Étude No. 11 and a rasgueado roll both engrave on the twelfth grid.
+    # A sixteenth is then three units, a sextuplet sixth is two, and the roll's
+    # `1/12` offset is one. This assignment stays after the sixteenth gate so
+    # `divisions = 4` cannot overwrite 12.
+    if "etude11" in patterns or _needs_twelfths([*lead, *support, *low]):
         divisions = 12
     filled_lead = _ScaleLead(_fill(lead, musical_bars, epb, 1))
     filled_lead.scale_eighths = tuple(sorted(scale_eighths))

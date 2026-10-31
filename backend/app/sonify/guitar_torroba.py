@@ -577,8 +577,34 @@ def _answer(ctx, bar: int, offset: int, phrase) -> NoteEvent:
     return _attack(eighth, midi, epb, 64, accent=False)
 
 
+def _rasgueado_onsets(voices: list[int]) -> dict[int, float]:
+    """Low-to-high onsets a twelfth apart. A missing voice closes the gap."""
+    ordered = [voice for voice in (3, 2, 1) if voice in voices]
+    return {voice: index / 12.0 for index, voice in enumerate(ordered)}
+
+
+def _spread_rasgueado(
+    lead: list[NoteEvent],
+    support: list[NoteEvent],
+    low: list[NoteEvent],
+    *,
+    lead_release: float = 0.5,
+    chord_release: float = 0.5,
+) -> None:
+    """Turn a simultaneous downbeat chord into a bass-to-lead roll."""
+    buckets = ((3, low, chord_release), (2, support, chord_release), (1, lead, lead_release))
+    present = [voice for voice, notes, _release in buckets if notes and notes[0].midi is not None]
+    onsets = _rasgueado_onsets(present)
+    for voice, notes, release in buckets:
+        if voice not in onsets:
+            continue
+        beat = onsets[voice]
+        notes[0] = replace(notes[0], beat=beat, duration_beats=release - beat)
+
+
 def _render_fandanguillo_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
     lead, support, low = _block(ctx, bar, 0, phrase, staccato=False)
+    _spread_rasgueado(lead, support, low)
     for offset in _fandanguillo_melody(ctx.kind):
         if offset < ctx.epb:
             lead.append(_answer(ctx, bar, offset, phrase))
@@ -1056,6 +1082,14 @@ class _Pen:
         if bass and low is not None:
             self.add(beat, low, 0.5, 3, weak if weak_bass else bass_level, 0)
 
+    def rasgueado(self, members: list[tuple], releases: dict[int, float]) -> None:
+        """Place a rolled chord. `members` are `(voice, midi, written, steps, flags)`."""
+        present = [member for member in members if member[1] is not None]
+        onsets = _rasgueado_onsets([member[0] for member in present])
+        for voice, midi, written, steps, flags in present:
+            beat = onsets[voice]
+            self.add(beat, midi, releases[voice] - beat, voice, written, steps, **flags)
+
     def grace(self, principal: int, others: list[int]) -> tuple[int, int] | None:
         upper = _walk(principal, 1, self.ctx.mode, self.ctx.treble_floor, self.ctx.treble_top)
         if upper == principal:
@@ -1090,6 +1124,35 @@ class _Pen:
         if self.bar + 1 >= self.ctx.bars:
             return False
         return self.ctx.chord(self.bar) == self.ctx.chord(self.bar + 1)
+
+
+def _sonority_ok(pen: _Pen, pitches: list[int | None]) -> bool:
+    semi = pen.ctx.semitones
+    return _playable([pitch + semi for pitch in pitches if pitch is not None])
+
+
+def _open_rasgueado(pen: _Pen, written: int, *, lead_release: float) -> None:
+    """Roll eighth 0 from bass up to lead. Each voice cuts at its own `T_v`.
+
+    Two sounding voices stand at `0` and `1/12`. A lone lead stays on the beat.
+    Bass is kept only when it frets with the lead and the inner voice.
+    """
+    sung = pen.mel(0)
+    support_level, bass_level, _weak = pen.beds(written)
+    low = pen.bass_of(sung)
+    inner = pen.support_of(sung, low, capped=False) if low is not None else None
+    if low is not None and not _sonority_ok(pen, [low, inner, sung]):
+        low = None
+    if inner is not None and not _sonority_ok(pen, [low, inner, sung]):
+        inner = None
+    pen.rasgueado(
+        [
+            (3, low, bass_level, 0, {}),
+            (2, inner, support_level, 0, {}),
+            (1, sung, written, 0, {"accent": True}),
+        ],
+        {3: 0.5, 2: 0.5, 1: lead_release},
+    )
 
 
 def _render_type1(pen: _Pen):
@@ -1151,15 +1214,10 @@ def _two_chord_tones(pen: _Pen, lead: int, bass: int) -> tuple[int | None, int |
 def _render_type2(pen: _Pen):
     anchor = pen.mel(0)
     strong_written, _accent = pen.lead_level(0, strong=True)
-    support_level, bass_level, _weak = pen.beds(strong_written)
+    bass_level = pen.beds(strong_written)[1]
     if pen.index == 0:
         low = pen.bass_of(anchor)
-        inner = pen.support_of(anchor, low, capped=False)
-        pen.add(0.0, anchor, 0.5, 1, strong_written, 0, accent=True)
-        if inner is not None:
-            pen.add(0.0, inner, 0.5, 2, support_level, 0)
-        if low is not None:
-            pen.add(0.0, low, 0.5, 3, bass_level, 0)
+        _open_rasgueado(pen, strong_written, lead_release=0.5)
         repeated = _rasgueado_pitch(pen, anchor)
         bundle = pen.group()
         if pen.ctx.kind == "4/4":
@@ -1206,16 +1264,8 @@ def _render_type3(pen: _Pen):
 
 
 def _type3_motif(pen: _Pen):
-    sung = pen.mel(0)
     written, _accent = pen.lead_level(0, strong=True)
-    support_level, bass_level, _weak = pen.beds(written)
-    low = pen.bass_of(sung)
-    inner = pen.support_of(sung, low, capped=False)
-    pen.add(0.0, sung, 0.5, 1, written, 0, accent=True)
-    if inner is not None:
-        pen.add(0.0, inner, 0.5, 2, support_level, 0)
-    if low is not None:
-        pen.add(0.0, low, 0.5, 3, bass_level, 0)
+    _open_rasgueado(pen, written, lead_release=0.5)
     repeated = pen.mel(1)
     bundle = pen.group()
     pen.add(0.5, repeated, 0.25, 1, written, 2, group=bundle)
@@ -1411,16 +1461,9 @@ def _render_type5(pen: _Pen):
 
 
 def _type5_fan(pen: _Pen):
-    sung = pen.mel(0)
     written = pen.dance_written(0)
-    support_level, bass_level, _weak = pen.beds(written)
-    low = pen.bass_of(sung)
-    inner = pen.support_of(sung, low, capped=False)
-    pen.add(0.0, sung, 0.5, 1, written, 0, accent=True)
-    if inner is not None:
-        pen.add(0.0, inner, 0.5, 2, support_level, 0)
-    if low is not None:
-        pen.add(0.0, low, 0.5, 3, bass_level, 0)
+    bass_level = pen.beds(written)[1]
+    _open_rasgueado(pen, written, lead_release=0.5)
     held = pen.low_price(1)
     bundle = pen.group()
     for offset, steps in enumerate((2, 2, 2)):
@@ -1831,10 +1874,9 @@ def _scale_to_root(pen: _Pen, count: int, ceiling: int | None = None) -> list[in
 def _type7_bar5(pen: _Pen):
     sung = pen.mel(0)
     written, _accent = pen.lead_level(0, strong=True)
-    support_level, bass_level, _weak = pen.beds(written)
-    inner = pen.support_of(sung, pen.bass_of(sung), capped=False)
-    pen.add(0.0, sung, pen.beats, 1, written, 0, accent=True)
-    pen.add(0.0, inner, 0.5, 2, support_level, 0)
+    bass_level = pen.beds(written)[1]
+    # Bass covers 2/12, so `_micro_fits` sees it. The lead step is 0 and stays 0.
+    _open_rasgueado(pen, written, lead_release=pen.beats)
     if pen.ctx.kind == "4/4":
         steps = (1, 1, 1, 1, 2, 2, 1)
     else:
