@@ -41,6 +41,8 @@ Mục tiêu, theo thứ tự ưu tiên:
 - **Magenta không bao giờ làm nền một khối lớn hơn một hàng hoặc nút play.** Chỗ
   đang chọn đánh dấu bằng vạch 2px + surface sáng hơn.
 - **Amber chỉ ở playhead và đếm ngược nghỉ.** Không dùng amber cho nút.
+- **Sóng `peaks` chỉ trên timeline.** Không vẽ lại trong khung giá ở bất kỳ độ mờ
+  hay màu nào — luật ở `musicalize-plan.md` là về nội dung, không về màu.
 - **Viền mảnh thay vì bóng đổ.** Không gradient trang trí, không đổ bóng, không đĩa than.
 - **Số luôn mono, tabular.** Mã, giờ, BPM, phần trăm.
 - **Chuyển động 120–240ms.** Không hiệu ứng dài hơn 400ms ngoài zoom chart đã có (900ms).
@@ -107,7 +109,7 @@ không cuộn trong.
 │ …              │  MÃ   PHIÊN   GIỌNG   NHỊP   BPM   THỜI LƯỢNG  (bar) │
 ├────────────────┴───────────────────────────────────────────────────────┤
 │ GIAO HƯỞNG  JAZZ  TỐI GIẢN  AMBIENT  GUITAR        (shelf 5 tile)      │
-│ Dây mảnh · Dây đôi · Đồng     Torroba · Bach · Sor · Lobos   ⚙         │
+│ Dây · Gỗ · Đồng               Torroba · Bach · Sor · Lobos   ⚙         │
 │ (▶)  ⟲    0:42 ────────────────────────────── 15:12                    │
 │ ▁▂▃▅▂▁▃▅▂▁▃▅▂▁▃▅▂▁▃▅▂▁▃▅  │1────────│2────────│3────────│     (timeline)│
 └────────────────────────────────────────────────────────────────────────┘
@@ -152,8 +154,8 @@ vì hiện tại người dùng phải cuộn hết danh sách mới thấy char
     khi `document.visibilityState === 'visible'` (web) — **không** dùng
     `useMarketPolling` vì hook đó phụ thuộc `useFocusEffect` của react-navigation.
     Giới hạn 12 mã đang hiện. Lỗi thì ẩn cột phụ, hàng vẫn bấm được.
-  - Màu phần trăm: P0 dùng đơn sắc — dấu `▲/▼` + `text` cho tăng, `textMuted` cho
-    giảm; hướng đọc lấy từ độ dốc sparkline. Xem câu hỏi mở số 1.
+  - Màu phần trăm: **đơn sắc** (đã chốt, xem mục 13) — dấu `▲/▼` + `text` cho
+    tăng, `textMuted` cho giảm; hướng đọc lấy từ độ dốc sparkline.
 - Chân cột: gợi ý phím (`Space phát/tạm dừng · ←→ tua`) `mono` 10 `textFaint`, và
   trạng thái `12 mã · HOSE` bên phải.
 - Đang phát (live): hàng `BTCUSDT · đoạn ~90s` giữ nguyên vị trí theo plan; thêm
@@ -173,14 +175,16 @@ vì hiện tại người dùng phải cuộn hết danh sách mới thấy char
   - Đoạn chưa phát: `opacity 0.22` (giữ `dimUnplayed`).
   - Đoạn đã phát: nét 2.5px + một nét nền 7px cùng màu `opacity 0.14` làm glow.
   - Vùng tô: gradient `dataFill` → trong suốt, clip theo playhead.
-  - `peaks` (`1D`): vẽ rất mờ (`opacity 0.10`, cao 60% giữa chart) phía sau đường.
-    Đây là thứ làm sân khấu "có nhạc" mà không phạm luật cấm sóng trong khung giá —
-    plan cấm vẽ sóng magenta như dữ liệu thứ hai; bản này là texture nền, cùng màu
-    cyan, không có trục riêng. Nếu bạn muốn giữ tuyệt đối luật cũ thì bỏ mục này.
+  - **Không vẽ `peaks` trong khung giá.** `docs/musicalize-plan.md` cấm theo nội
+    dung, không theo màu: "Không vẽ `RecapManifest.peaks` trong cùng khung với
+    đường cyan. Sóng `peaks` của phiên `1D` chỉ trên thanh Phiên", lặp ba lần.
+    Sóng chỉ sống trên timeline (mục 5.4). Xem mục 13.
   - Không vẽ nến: API chỉ trả `close` (`prices`), không có OHLC. Ghi rõ để sau này
     không ai đi tìm `open/high/low`.
   - Dải khối lượng: cao 36, sát đáy, màu `rgba(62,224,224,0.22)`, phần đã phát
     `0.42`, có đường baseline `hairline`. Nhãn `KL` (`mono` 10, `textFaint`) ở trái.
+    36 là **nới có chủ đích** từ ~30px của `musicalize-plan.md` để dải đọc được ở
+    1440px; không đổi số liệu, vị trí hay luật "không in số khối lượng".
 - Playhead: vạch 1px amber, chấm 6px ở giao điểm với đường, pill giờ `mono` 11
   (nền amber, chữ `background`) ở trên, `left` clamp trong `[8, width-64]`.
 - Trạng thái:
@@ -198,9 +202,10 @@ vì hiện tại người dùng phải cuộn hết danh sách mới thấy char
 Cao cố định 232 (wide) / auto (narrow). Bỏ `ScrollView` trong `RoomFrame.tsx`.
 Nền `panel`, viền trên `hairline`, padding 16.
 
-**Hàng 1 — shelf thể loại.** 5 tile cao 56, chia đều, bo 8, nền `surface`, viền
-`hairline`. Tile bật: chữ `text`, vạch dưới 3px magenta, nền `surfaceActive`. Mỗi
-tile có một motif 8×8 (`■` giao hưởng, `◍` jazz, `▤` tối giản, `◌` ambient, `≋`
+**Hàng 1 — shelf thể loại.** `N` tile cao 56, chia đều, bo 8, nền `surface`, viền
+`hairline`. `N` = số thể loại đang có: 5 ở replay (có Guitar), 4 ở live
+(`STREAM_GENRES`). Tile bật: chữ `text`, vạch dưới 3px magenta, nền `surfaceActive`.
+Mỗi tile có một motif 8×8 (`■` giao hưởng, `◍` jazz, `▤` tối giản, `◌` ambient, `≋`
 guitar) màu `textFaint` để bật thì `sound`. Không dùng icon thư viện.
 
 **Hàng 2 — nhạc cụ / nghệ sĩ.** Chữ thường, không chip: các lựa chọn cách nhau
@@ -220,13 +225,36 @@ chương hiện tại (`section`, `textFaint`) + `4/6`.
 - Rãnh 4px bo 2 `track`; phần đã phát `sound`; chấm kéo 10px amber.
 - `1D`: giữ `peaks` làm cột 36px phía sau rãnh, cột đã phát `sound`, chưa phát
   `track`.
-- Nhiều chương: tick `hairlineStrong` 8px tại mỗi mốc chương; đoạn nghỉ giữa
-  chương vẽ rãnh `hairline` thay vì `track`. Nhãn chương chỉ hiện khi hover (web)
-  hoặc khi rê ngón (native): tooltip `surface` + viền `hairline`, nội dung
-  `Tên chương · 3:12`.
-- Giờ hiển thị **clamp** `min(time, duration)` để hết cảnh `4:23 / 4:20` ở P0; P1
-  mới truy nguyên nhân lệch trong `ReplayRoom.onTime` nếu vẫn còn.
+- Nhiều chương: chia rãnh theo `workSegments(movements)` — đoạn `audio` vẽ `track`,
+  đoạn `rest` vẽ `hairline`. Nhãn chương chỉ hiện khi hover (web) hoặc khi rê ngón
+  (native): tooltip `surface` + viền `hairline`, nội dung `Tên chương · 3:12`.
+- Giờ hiển thị dùng `clockText(time, duration)` (hàm thuần trong `labels.ts`).
 - Touch target 44px (đã có `flatHit: height 28` → tăng vùng chạm, không tăng rãnh).
+
+**Ánh xạ thời gian và hành vi kéo.** Đây là phần rủi ro nhất của đợt, không phải
+"chạm nhẹ" vào `ReplayRoom`.
+
+- **Hàm ánh xạ đã có sẵn** trong `seek.ts`: `workSegments`, `workDuration`,
+  `placeOnWork`, `workSecondsAt`. Không viết lại, không sửa `seek.ts`.
+  `ReplayRoom.onWorkScrub` hiện đã dùng đúng chuỗi đó, nên timeline gộp tái dùng
+  nguyên vẹn:
+  `placeOnWork(movements, scrubberSeek(workDuration(movements), ratio))`.
+- `1D` là **một** đoạn `audio`, nên `placeOnWork` trả `{ index: 0, offset }`; `peaks`
+  vẽ trên cùng thanh đó.
+- **Kéo vào đoạn nghỉ:** dừng tại nghỉ, `offset = t - segment.start`, hiện cung đếm
+  ngược; hết nghỉ thì sang chương sau. Đây là hành vi hiện tại
+  (`beginRest(place.afterIndex, restAfterSec, place.offset)`), giữ nguyên.
+- **Kéo vắt qua nghỉ:** không nhảy thẳng sang chương sau; thả tay trong nghỉ vẫn
+  tính là đang nghỉ. Lý do: khớp `onWorkScrub` hôm nay và khớp `parked` +
+  `restOffset` đã có trong `ReplayRoom`.
+- **Thả tay khi đang không phát:** `onWorkScrub` hiện `clearRest()` sau `beginRest`,
+  tức là không tự chạy tiếp. Giữ nguyên.
+- **Bỏ** `onMovementScrub` và thanh Chương. `onStageRatio` vẫn là đường tua trong
+  chương đang phóng — không đổi.
+- **Test** (mở rộng `src/musicalize/seek.test.ts`): `workDuration` gồm nghỉ nhưng
+  dừng ở nốt cuối; `placeOnWork` tại biên `start`/`end` của `audio` và `rest`;
+  `workSecondsAt` clamp `restOffset`. Phần clamp hiển thị tách thành
+  `clockText` và test ở `labels.test.ts` (mục 11).
 
 **Popover `⚙` (`OptionsPopover.tsx`, mới).** `Humanize`, `Màu`, và (P2) `Chép liên
 kết`. Nền `panel`, viền `hairline`, bo 4, rộng 240, neo dưới nút. Đóng bằng `Esc`,
@@ -258,8 +286,10 @@ Web: tôn trọng `prefers-reduced-motion` — tắt pulse/shimmer, giữ crossf
 ## 7. Bàn phím (web)
 
 `src/musicalize/useKeyboard.ts` (mới). Gắn `window.addEventListener('keydown')` chỉ
-khi `Platform.OS === 'web'`. Bỏ qua khi `event.target` là `input`, `textarea`, hoặc
-`isContentEditable`.
+khi `Platform.OS === 'web'`. Bỏ qua khi `event.target` là `input`, `textarea`,
+`isContentEditable`, hoặc một phần tử tương tác (`button`, `[role="button"]`,
+`[role="slider"]`, `a[href]`). Thiếu vế cuối thì `Space` trên một nút đang focus sẽ
+vừa bấm nút vừa toggle play — toggle hai lần.
 
 | Phím | Việc |
 |---|---|
@@ -314,30 +344,35 @@ Không đụng `fetchRecap`/`fetchSpan`.
 
 ## 10. Kế hoạch
 
-### P0 — "hết wireframe" (~1 ngày)
+### P0 — "hết wireframe" (~1–1,5 ngày)
+
+Trọng tâm P0 là **cụm transport + tile thể loại** (phần "hết wireframe" chính).
+Tick chương và tooltip dời sang P1 để P0 không phình.
 
 - [ ] `palette.ts`: thêm `panel`, `surfaceActive`, `hairline`, `hairlineStrong`, `textFaint`, `dataFill`, `soundSoft`; đổi `background`, `surface`.
 - [ ] `type.ts` mới: font role + scale theo bảng mục 3.
 - [ ] `TopBar.tsx` mới, gắn vào `RoomFrame.tsx`; bỏ `brand` khỏi `SymbolColumn`.
 - [ ] `Controls.tsx`: transport thành play tròn + `⟲` + clock; bỏ `ChipRow` lớn cho thể loại, thay tile; options vào popover.
 - [ ] `SymbolColumn.tsx`: hàng có tên công ty + sparkline + %, vạch trái khi chọn; bỏ `detail = span`.
-- [ ] `Scrubber.tsx`: gộp timeline, clamp giờ, tick chương.
+- [ ] `Scrubber.tsx`: gộp timeline (theo ánh xạ ở 5.4), `clockText` + `labels.test.ts`.
 - [ ] `Stage.tsx`: khối tiêu đề trên-trái, trục 4 nhãn bắt đầu `top: 32`, pill playhead clamp.
 - [ ] `useKeyboard.ts` + `useQuotes.ts`.
 - [ ] `Sparkline.tsx`: thêm prop tuỳ chọn `grid?: boolean`, `glow?: boolean`; mặc định `false` để terminal không đổi.
+- [ ] **A11y ngay khi tạo component:** `accessibilityLabel` + `accessibilityState` cho mọi `Pressable` mới, touch target ≥ 44. Không dồn sang P1.
 
 **Xong khi:** không còn khối magenta nào lớn hơn một hàng; `Space` phát/tạm dừng;
 đổi mã thấy tên công ty và %; không còn nhãn đè nhau; dock không có thanh cuộn;
-`4:23 / 4:20` không còn.
+`4:23 / 4:20` không còn; component mới đều có label.
 
 ### P1 — "nguy hiểm" (2–3 ngày)
 
 - [ ] Serif cho tên bài + dòng meta mono; badge mã.
 - [ ] Chart: lưới, 4 nhãn trục, glow đoạn đã phát, gradient theo playhead, dải khối lượng mới.
+- [ ] Tick chương + tooltip tên chương trên timeline; đoạn nghỉ vẽ rãnh `hairline`.
 - [ ] Trạng thái: trống, đang soạn (shimmer), nghỉ (cung đếm ngược), live (chấm + `TRỰC TIẾP`).
 - [ ] Motion theo mục 6, gồm `prefers-reduced-motion`.
 - [ ] Narrow: stage 44vh trên, dock dính dưới, danh sách mã thành dải chip ngang.
-- [ ] Accessibility: `accessibilityLabel` cho mọi `Pressable`, focus ring 2px `hairlineStrong` trên web, touch target ≥ 44.
+- [ ] Rà a11y toàn mặt nghe: focus ring 2px `hairlineStrong` trên web, touch target ≥ 44, đọc thử bằng screen reader (label đã có từ P0).
 
 **Xong khi:** ảnh chụp màn hình ở 1440px đọc được "phòng thu", không cần đọc chữ
 vẫn biết đang phát hay dừng; chuyển mã có crossfade; mobile thấy chart ngay khi mở.
@@ -364,10 +399,13 @@ vẫn biết đang phát hay dừng; chuyển mã có crossfade; mobile thấy c
 | `src/musicalize/RoomFrame.tsx` | sửa — topbar, bỏ scroll dock, narrow mới |
 | `src/musicalize/SymbolColumn.tsx` | sửa — hàng có dữ liệu, chip không tô |
 | `src/musicalize/Controls.tsx` | sửa — shelf, transport, popover |
-| `src/musicalize/Scrubber.tsx` | sửa — timeline gộp, clamp, tick |
+| `src/musicalize/Scrubber.tsx` | sửa — timeline gộp, `clockText` |
 | `src/musicalize/Stage.tsx` | sửa — tiêu đề, trục, playhead, trạng thái |
+| `src/musicalize/labels.ts` | sửa — thêm `clockText` (hàm thuần) |
+| `src/musicalize/labels.test.ts` | mới — test clamp giờ |
+| `package.json` | sửa — `test:musicalize` chạy thêm `labels.test.ts` |
 | `src/components/Sparkline.tsx` | sửa — thêm prop optional, mặc định không đổi |
-| `src/musicalize/ReplayRoom.tsx` | chạm nhẹ — truyền prop mới, không đổi logic seek |
+| `src/musicalize/ReplayRoom.tsx` | sửa — bỏ `onMovementScrub`, truyền `movements` cho timeline; giữ `onWorkScrub`/`onStageRatio` |
 | `src/musicalize/LiveRoom.tsx` | chạm nhẹ — nhãn trạng thái |
 
 Không sửa: `ReplayPlayer.tsx`, `liveSynth.ts`, `seek.ts`, `program.ts`,
@@ -375,6 +413,9 @@ Không sửa: `ReplayPlayer.tsx`, `liveSynth.ts`, `seek.ts`, `program.ts`,
 
 ## 12. Rủi ro
 
+- **Timeline gộp là rủi ro số một của đợt**, không phải việc trang trí. Ánh xạ dùng
+  lại `seek.ts` nên không phải viết toán mới, nhưng hành vi kéo qua nghỉ, `parked`
+  và `restOffset` phải khớp đúng mục 5.4 trước khi xoá `onMovementScrub`.
 - **`Sparkline` dùng chung với terminal.** Mọi prop mới phải optional và mặc định
   giữ đúng hành vi cũ (`grid: false`, `glow: false`). Terminal không được đổi một pixel.
 - **Thêm request cho cột trái.** Chỉ 12 mã, 30s, chỉ khi tab visible, lỗi thì ẩn.
@@ -386,11 +427,21 @@ Không sửa: `ReplayPlayer.tsx`, `liveSynth.ts`, `seek.ts`, `program.ts`,
 - **Lệch đồng hồ `4:23 / 4:20`** có thể là lỗi thật trong `onTime`. P0 chỉ clamp
   hiển thị; nếu P1 vẫn thấy thì mở việc riêng, không vá trong tài liệu này.
 
-## 13. Câu hỏi mở
+## 13. Quyết định và câu hỏi mở
 
-1. **Phần trăm tăng/giảm:** giữ đơn sắc (dấu `▲▼`, đúng luật ba màu) hay thêm
-   `up #35D07F` / `down #FF5C5C` chỉ trong cột trái? Đơn sắc đẹp hơn, hai màu đọc nhanh hơn.
-2. **Sóng `peaks` mờ phía sau đường giá:** có giữ không? Nó làm sân khấu "có nhạc"
-   nhưng lấn vào luật "sóng không vào khung giá" của plan cũ.
+Đã chốt sau review:
+
+1. **Phần trăm tăng/giảm dùng đơn sắc.** Dấu `▲/▼`, `text` khi tăng và `textMuted`
+   khi giảm; hướng đọc lấy từ độ dốc sparkline. Không thêm xanh/đỏ, giữ đúng luật
+   ba màu. Nếu sau này cần đọc nhanh bằng màu thì đó là một token mới trong
+   `palette.ts`, không đổi bố cục.
+2. **`peaks` không vào khung giá.** `docs/musicalize-plan.md` cấm theo nội dung,
+   không theo màu: "Không vẽ `RecapManifest.peaks` trong cùng khung với đường cyan.
+   Sóng `peaks` của phiên `1D` chỉ trên thanh Phiên", lặp ba lần. Bản này giữ
+   nguyên luật đó: sóng chỉ sống trên timeline. Muốn vẽ nền sau đường giá thì phải
+   sửa `musicalize-plan.md` trước, và đó là PR riêng — không nằm trong đợt này.
+
+Còn mở:
+
 3. **Serif cho tên bài:** đồng ý hướng cổ điển (Iowan/Palatino/Georgia) hay muốn
    condensed grotesk kiểu bìa album techno?
