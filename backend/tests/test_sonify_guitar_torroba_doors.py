@@ -298,13 +298,21 @@ def test_olite_keeps_both_chords_and_the_breath_has_no_second_chord() -> None:
     lead, support, low, frame = _region("olite", 2, "4/4")
     opening = _sounding(lead, frame[0])
     assert _onsets(lead, frame[0]) == {0, 4}
-    assert all(note.staccato and note.accent and note.velocity == 50 for note in opening)
+    assert all(
+        not note.staccato and note.duration_beats == 1.0 and note.accent and note.velocity == 50
+        for note in opening
+    )
+    beds = [*_sounding(support, frame[0]), *_sounding(low, frame[0])]
+    assert beds and all(not note.staccato and note.duration_beats == 1.0 for note in beds)
     assert 0 in _onsets(low, frame[0]) and 4 in _onsets(low, frame[0])
     touched = _sounding(lead, frame[1])
     assert 4 in _onsets(lead, frame[1])
     assert {6, 7} <= _onsets(lead, frame[1])
     scale = [note for note in touched if _eighth(note) in {6, 7}]
     assert {note.beat for note in scale} == {3.0, 3.5}
+    assert all(not note.staccato and note.duration_beats == 0.5 for note in scale)
+    arrived = [note for note in _all_notes(lead, support, low, frame[1]) if _eighth(note) in {0, 4}]
+    assert arrived and all(not note.staccato and note.duration_beats == 1.0 for note in arrived)
     one_lead, _one_support, _one_low, one_frame = _region("olite", 1, "4/4")
     assert 4 in _onsets(one_lead, one_frame[0])
     assert {6, 7} <= _onsets(one_lead, one_frame[0])
@@ -316,6 +324,58 @@ def test_olite_keeps_both_chords_and_the_breath_has_no_second_chord() -> None:
     assert _eighth(sung[0]) == 0
     assert sung[0].duration_beats == 1
     assert sung[0].velocity == 50
+    assert not sung[0].staccato
+    early_outro = [note for note in _all_notes(long_lead, long_support, long_low, long_frame[0]) if _eighth(note) in {0, 4}]
+    assert early_outro and all(not note.staccato and note.duration_beats == 1.0 for note in early_outro)
+    final = _all_notes(long_lead, long_support, long_low, long_frame[-1])
+    held = [note for note in final if _eighth(note) == 0]
+    stroke = [note for note in final if _eighth(note) == 4]
+    assert held and all(not note.staccato and note.duration_beats == 1.0 for note in held)
+    assert stroke and all(note.staccato and note.duration_beats == 0.5 for note in stroke)
+
+
+def _chord_onsets(lead, support, low, bar: int, onsets: set[int]) -> list[NoteEvent]:
+    return [note for note in _all_notes(lead, support, low, bar) if _eighth(note) in onsets]
+
+
+def test_olite_door_chords_hold_a_quarter_until_the_final_stroke() -> None:
+    grids = {"4/4": {0, 4}, "6/8": {0, 3}, "3/4": {0}}
+    for meter, onsets in grids.items():
+        for length in (2, 4):
+            lead, support, low, frame = _region("olite", length, meter)
+            for bar in frame:
+                notes = _chord_onsets(lead, support, low, bar, onsets)
+                assert notes, (meter, length, bar)
+                assert all(not note.staccato and note.duration_beats == 1.0 for note in notes), (meter, length, bar)
+            outro_lead, outro_support, outro_low, outro_frame = _region("olite", length, meter, closing=True)
+            chord_bars = outro_frame[:-1]
+            if length == 4:
+                chord_bars = [bar for bar in chord_bars if bar != outro_frame[2]]
+            for bar in chord_bars:
+                notes = _chord_onsets(outro_lead, outro_support, outro_low, bar, onsets)
+                assert notes, (meter, length, bar, "outro")
+                assert all(not note.staccato and note.duration_beats == 1.0 for note in notes), (
+                    meter,
+                    length,
+                    bar,
+                    "outro",
+                )
+            final = _chord_onsets(outro_lead, outro_support, outro_low, outro_frame[-1], onsets)
+            by_onset: dict[int, list[NoteEvent]] = {}
+            for note in final:
+                eighth = _eighth(note)
+                assert eighth is not None
+                by_onset.setdefault(eighth, []).append(note)
+            assert set(by_onset) == onsets, (meter, length)
+            last_onset = max(onsets)
+            for eighth, group in by_onset.items():
+                if eighth == last_onset:
+                    assert all(note.staccato and note.duration_beats == 0.5 for note in group), (meter, length)
+                else:
+                    assert all(not note.staccato and note.duration_beats == 1.0 for note in group), (meter, length)
+    lead, support, low, frame = _region("olite", 4, "4/4")
+    scale = [note for note in _sounding(lead, frame[-1]) if _eighth(note) in {6, 7}]
+    assert scale and all(not note.staccato and note.duration_beats == 0.5 for note in scale)
 
 
 def test_castillo_doors_and_juglar_hold_shorten_the_bass() -> None:

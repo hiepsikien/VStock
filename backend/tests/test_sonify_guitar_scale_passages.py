@@ -1233,6 +1233,28 @@ def test_stamp_arrival_keeps_the_tie_and_carries_the_landing_velocity() -> None:
     assert tail and all(event.velocity == 90 and event.midi == 67 for event in tail)
 
 
+def test_splice_drops_the_tail_of_a_cut_juglar_triplet() -> None:
+    """A sixteenth scale that ends at beat 1.5 must not leave the third triplet attack.
+
+    That leftover starts at 1.666, just after the scale, and the writer spells it
+    as a lone 3:2 eighth. MuseScore then refuses the bar.
+    """
+    epb = 6
+    beats = [quarter + step / 3.0 for quarter in (0.0, 1.0, 2.0) for step in (0, 1, 2)]
+    lead = [
+        NoteEvent(bar=0, beat=beat, midi=60, duration_beats=1.0 / 3.0, voice=1)
+        for beat in beats
+    ]
+    fresh = [
+        NoteEvent(bar=0, beat=0.0, midi=62, duration_beats=0.5, voice=1),
+        NoteEvent(bar=0, beat=0.5, midi=64, duration_beats=0.5, voice=1),
+        NoteEvent(bar=0, beat=1.0, midi=65, duration_beats=0.5, voice=1),
+    ]
+    spliced = _splice(lead, 0, 6, fresh, epb)
+    sounding = sorted((event for event in spliced if event.midi is not None), key=lambda event: event.beat)
+    assert [round(event.beat, 4) for event in sounding] == [0.0, 0.5, 1.0, 2.0, 2.3333, 2.6667]
+
+
 def _pad(parts: list[tuple[str, int]], bars: int) -> list[tuple[str, int]]:
     """Extend a layout with study bars so a kept span is not rejected by the 30% room."""
     have = sum(count for _pattern, count in parts)

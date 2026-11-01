@@ -26,26 +26,34 @@ JUGLAR_THIN = 9
 ALCANIZ_OPENING = 10
 ALCANIZ_SOFT = 11
 OLITE_THIN = 12
+CASTILLO_WALK = 13
+CASTILLO_CADENCE = 14
+_REAL_TORROBA_FIGURES = frozenset({*range(1, 9), ALCANIZ_OPENING, CASTILLO_WALK, CASTILLO_CADENCE})
 _TRIPLET = 4.0 / 12.0
 
 
 def _torroba_primary(ctx, mood: str | None, *, framed_macro: bool = False) -> str:
     """One Torroba pattern for this meter and mood.
 
-    `framed_macro` is ignored. The same table names a phrase and a section.
-    Sonatina is never an A. A meter outside these three uses the 4/4 row.
-    A mood outside the row uses that row's calm cell.
+    `framed_macro` is ignored. 4/4 names Olite for rally and volatile only.
+    Calm and selloff are retargeted to 3/4 before this picker, so a 4/4 calm
+    or selloff that still arrives is Olite: not Sonatina, and not the old
+    Castillo selloff. 3/4 calm is Sonatina above 72 and Castillo at 72 or
+    below, so the slow movement stays Castillo — Juglar — Castillo. 6/8 stays
+    Danza, Alcaniz, and Fandanguillo. A meter outside these three uses the
+    4/4 row. A mood outside a row uses that row's calm cell, or Olite on 4/4.
     """
     del framed_macro
+    if ctx.kind == "3/4" and mood not in {"rally", "selloff", "volatile"}:
+        if ctx.bpm > 72:
+            return "sonatina"
+        return "castillo"
     table = {
         "4/4": {
-            "calm": "castillo",
             "rally": "olite",
-            "selloff": "castillo",
             "volatile": "olite",
         },
         "3/4": {
-            "calm": "castillo",
             "rally": "torroba_tremolo",
             "selloff": "castillo",
             "volatile": "danza",
@@ -60,15 +68,19 @@ def _torroba_primary(ctx, mood: str | None, *, framed_macro: bool = False) -> st
     row = table.get(ctx.kind, table["4/4"])
     if mood in row:
         return row[mood]
-    return row["calm"]
+    if "calm" in row:
+        return row["calm"]
+    return "olite"
 
 
 def _torroba_contrast(ctx, primary: str, mood: str | None = None) -> str:
     """The other pattern in the same meter.
 
-    `mood` is the opening section. Castillo in 3/4 answers with Juglar only
-    when that mood is calm, and with Danza only when it is selloff. A cell
-    with no row returns `primary`.
+    `mood` is the opening section. Olite on 4/4 answers with Castillo, not
+    Sonatina. Castillo in 3/4 answers with Sonatina when that mood is calm
+    and the tempo is above 72, with Juglar when calm is at 72 or below, and
+    with Danza when it is selloff. 6/8 has no Sonatina cell. A cell with no
+    row returns `primary`.
     """
     if mood is None:
         mood = ctx.character
@@ -76,13 +88,19 @@ def _torroba_contrast(ctx, primary: str, mood: str | None = None) -> str:
     if primary == "castillo" and kind == "4/4":
         return "olite"
     if primary == "castillo" and kind == "3/4":
+        if mood == "calm" and ctx.bpm > 72:
+            return "sonatina"
         if mood == "calm":
             return "torroba_tremolo"
         if mood == "selloff":
             return "danza"
         return primary
     if primary == "olite" and kind == "4/4":
-        return "sonatina"
+        return "castillo"
+    if primary == "sonatina" and kind == "4/4":
+        return "castillo"
+    if primary == "sonatina" and kind == "3/4":
+        return "castillo"
     if primary == "torroba_tremolo" and kind == "3/4":
         return "danza"
     if primary == "danza" and kind == "3/4":
@@ -367,7 +385,288 @@ def _bed(lead_vel: int, band: str) -> tuple[int, int]:
     return support, bass
 
 
-def _render_castillo_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+def _events_during(events: list[NoteEvent], bar: int, eighth: int) -> list[int]:
+    """Pitches already sounding anywhere inside this eighth."""
+    beat = eighth * 0.5
+    stop = beat + 0.5
+    found: list[int] = []
+    for event in events:
+        if event.midi is None or event.bar != bar:
+            continue
+        end = event.beat + event.duration_beats
+        if event.beat < stop - 1e-9 and end > beat + 1e-9:
+            found.append(event.midi)
+    return found
+
+
+def _sounding_at(events: list[NoteEvent], bar: int, beat: float) -> list[int]:
+    """Pitches whose attack is still ringing at `beat`. Sequential notes are not stacked."""
+    found: list[int] = []
+    for event in events:
+        if event.midi is None or event.bar != bar:
+            continue
+        if event.beat <= beat + 1e-9 < event.beat + event.duration_beats:
+            found.append(event.midi)
+    return found
+
+
+def _bass_length_eighths(ctx, raw: int, bar: int, start: int, events: list[NoteEvent], *, limit: int) -> int | None:
+    """Longest legal bass (4, 2, or 1 eighth) that still frets with every attack in the window.
+
+    ``None`` when even the shortest option breaks the hand. The rejected
+    length is not written.
+    """
+    semi = ctx.semitones
+    opened = _open_bass_tone(ctx, raw)
+    options = (4, 2) if opened else (4, 2, 1)
+    options = tuple(length for length in options if length <= limit)
+
+    def fits(length: int) -> bool:
+        if start + length > ctx.epb:
+            return False
+        window_start = start * 0.5
+        window_end = (start + length) * 0.5
+        instants = [(start + offset) * 0.5 for offset in range(length)]
+        for event in events:
+            if event.midi is None or event.bar != bar:
+                continue
+            if window_start - 1e-9 <= event.beat < window_end - 1e-9:
+                instants.append(event.beat)
+        for beat in instants:
+            pitches = _sounding_at(events, bar, beat)
+            if not pitches:
+                continue
+            if raw >= min(pitches):
+                return False
+            if not _playable([raw + semi, *(pitch + semi for pitch in pitches)]):
+                return False
+        return True
+
+    for length in options:
+        if fits(length):
+            return length
+    return None
+
+
+def _bass_eighths_fit(ctx, bass: int, bar: int, start: int, length: int, events: list[NoteEvent]) -> bool:
+    """True when `bass` frets with the lead and support sounding in this span.
+
+    Voice 3 in `events` is ignored, so the note being lengthened is not asked
+    to share a string with itself. A 6/8 bass that starts before eighth 3
+    stops at that eighth and does not cover it.
+    """
+    if length <= 0 or start < 0 or start + length > ctx.epb:
+        return False
+    if ctx.kind == "6/8" and start < 3 < start + length:
+        return False
+    semi = ctx.semitones
+    window_start = start * 0.5
+    window_end = (start + length) * 0.5
+    company = [event for event in events if event.voice != 3]
+    instants = [(start + offset) * 0.5 for offset in range(length)]
+    for event in company:
+        if event.midi is None or event.bar != bar:
+            continue
+        if window_start - 1e-9 <= event.beat < window_end - 1e-9:
+            instants.append(event.beat)
+    for beat in instants:
+        pitches = _sounding_at(company, bar, beat)
+        if not pitches:
+            continue
+        if bass >= min(pitches):
+            return False
+        if not _playable([bass + semi, *(pitch + semi for pitch in pitches)]):
+            return False
+    return True
+
+
+def _choose_bass_eighths(
+    ctx,
+    bass: int,
+    bar: int,
+    start: int,
+    old: int,
+    new: int,
+    events: list[NoteEvent],
+) -> int:
+    """One step longer when the hand still fits. Otherwise the old length."""
+    if new > old and _bass_eighths_fit(ctx, bass, bar, start, new, events):
+        return new
+    return old
+
+
+def _fitting_bass(
+    ctx,
+    bar: int,
+    start: int,
+    raw: int | None,
+    events: list[NoteEvent],
+    lengths: tuple[int, ...],
+) -> tuple[int, int] | None:
+    """A bass pitch and one length from `lengths` that frets with `events`.
+
+    `lengths` is preference order, longest first. The given pitch wins when
+    any of those lengths fits. Otherwise a chord tone that frets on this
+    eighth is tried. Nothing is returned when no length fits, so the attack
+    is left unwritten instead of failing `assert_playable`.
+    """
+    if start < 0 or start >= ctx.epb or not lengths:
+        return None
+    company = [event for event in events if event.voice != 3]
+
+    def length_for(pitch: int) -> int | None:
+        for length in lengths:
+            if _bass_eighths_fit(ctx, pitch, bar, start, length, company):
+                return length
+        return None
+
+    if raw is not None:
+        found = length_for(raw)
+        if found is not None:
+            return raw, found
+    alt = _chord_bass_at(ctx, bar, start, company)
+    if alt is None or alt == raw:
+        return None
+    found = length_for(alt)
+    if found is None:
+        return None
+    return alt, found
+
+
+def _support_under_bass(
+    ctx,
+    bar: int,
+    support: list[NoteEvent],
+    lead: list[NoteEvent],
+    bass: int,
+    start: int,
+    length: int,
+) -> list[NoteEvent]:
+    """Drop an inner note that cannot fret once the bass pitch has moved."""
+    semi = ctx.semitones
+    window_start = start * 0.5
+    window_end = (start + length) * 0.5
+    kept: list[NoteEvent] = []
+    for event in support:
+        if event.midi is None or event.bar != bar:
+            kept.append(event)
+            continue
+        highs = _sounding_at(lead, bar, event.beat)
+        if highs and event.midi >= min(highs):
+            continue
+        overlaps = window_start - 1e-9 <= event.beat < window_end - 1e-9
+        if overlaps and event.midi <= bass:
+            continue
+        sounding = [event.midi + semi, *(pitch + semi for pitch in highs)]
+        if overlaps:
+            sounding.insert(0, bass + semi)
+        if _playable(sounding):
+            kept.append(event)
+    return kept
+
+
+def _retune_bass(
+    ctx,
+    bar: int,
+    low: list[NoteEvent],
+    events: list[NoteEvent],
+    eighth: int,
+    old: int,
+    new: int,
+    *,
+    clear_staccato: bool,
+) -> list[NoteEvent]:
+    """Lengthen the bass attack at `eighth`. Do not add a second attack."""
+    tuned: list[NoteEvent] = []
+    for note in low:
+        if note.midi is None or abs(note.beat - eighth * 0.5) > 1e-6:
+            tuned.append(note)
+            continue
+        length = _choose_bass_eighths(ctx, note.midi, bar, eighth, old, new, events)
+        tuned.append(
+            replace(
+                note,
+                duration_beats=length * 0.5,
+                staccato=False if clear_staccato else note.staccato,
+            )
+        )
+    return tuned
+
+
+def _chord_bass_at(ctx, bar: int, eighth: int, events: list[NoteEvent]) -> int | None:
+    """A chord bass that frets with each attack already sounding on this eighth."""
+    start = eighth * 0.5
+    instants = [start]
+    for event in events:
+        if event.midi is None or event.bar != bar:
+            continue
+        if start - 1e-9 <= event.beat < start + 0.5 - 1e-9:
+            instants.append(event.beat)
+    moments = [_sounding_at(events, bar, beat) for beat in instants]
+    ceilings = [min(pitches) for pitches in moments if pitches]
+    ceiling = min(ceilings) if ceilings else None
+    raw = _torroba_bass(ctx, ctx.chord(bar), bar, ceiling)
+    low, high = _bass_window(ctx)
+    semi = ctx.semitones
+    pool: list[int] = []
+    if raw is not None:
+        pool.append(raw)
+    pcs = ctx.chord(bar).pitch_classes
+    for note in range(low, high + 1):
+        if note % 12 in pcs and note not in pool:
+            pool.append(note)
+    for note in pool:
+        legal = True
+        for pitches in moments:
+            if not pitches:
+                continue
+            if note >= min(pitches) or not _playable([note + semi, *(pitch + semi for pitch in pitches)]):
+                legal = False
+                break
+        if legal:
+            return note
+    return None
+
+
+def _half_bass_events(
+    ctx,
+    bar: int,
+    start: int,
+    raw: int | None,
+    velocity: int,
+    events: list[NoteEvent],
+) -> list[NoteEvent]:
+    """One bass attack for a half bar, shortened when the hand cannot hold it.
+
+    A fretted bass that breaks at eighth 2 or 6 (or the eighth after) is cut
+    back to 1.0 or 0.5, and a new chord bass is placed on that eighth. The two
+    half-bar attacks are never tied to each other.
+    """
+    if raw is None or start >= ctx.epb:
+        return []
+    limit = min(4, ctx.epb - start)
+    length = _bass_length_eighths(ctx, raw, bar, start, events, limit=limit)
+    if length is None:
+        return []
+    origin = bar * ctx.epb
+    notes = [_bass_event(origin + start, raw, ctx.epb, velocity, length=length)]
+    retreat_at = start + 2
+    if length < limit and retreat_at < ctx.epb and start % 4 == 0:
+        fresh = _chord_bass_at(ctx, bar, retreat_at, events)
+        if fresh is not None:
+            rest_limit = min(2, ctx.epb - retreat_at)
+            rest = _bass_length_eighths(ctx, fresh, bar, retreat_at, events, limit=rest_limit)
+            if rest is not None:
+                notes.append(_bass_event(origin + retreat_at, fresh, ctx.epb, velocity, length=rest))
+    return [replace(note, tie_start=False, tie_stop=False, voice=3, accent=False) for note in notes]
+
+
+def _render_castillo_sustain(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    """Whole-bar lead. 4/4 still attacks the bass twice, at eighth 0 and eighth 4.
+
+    3/4 lengthens the eighth-0 bass from two eighths to three when that span
+    still frets with the lead and support. 6/8 keeps the two-eighth bass.
+    """
     epb = ctx.epb
     origin = bar * epb
     midi = _melody_at(ctx, origin)
@@ -380,27 +679,44 @@ def _render_castillo_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[N
     # unless the close itself runs through the last eighth.
     _inner_vel, bass_vel = _bed(velocity, _bar_band(ctx, bar, closing))
     bass = _torroba_bass(ctx, ctx.chord(bar), bar, midi)
-    low = []
-    if bass is not None:
-        low = written(origin, 2, bass, velocity=bass_vel)
-        low = [replace(event, voice=3, accent=False) for event in low]
+    low: list[NoteEvent] = []
     support: list[NoteEvent] = []
-    if velocity == 48:
-        return lead, support, low
-    offsets = {2, 6} if ctx.kind == "4/4" else {2, 5} if ctx.kind == "6/8" else {2, 4}
-    kept = _thin(sorted(offset for offset in offsets if offset < epb), ctx, bar)
-    prev = None
-    for offset in kept:
-        sung = _melody_at(ctx, origin + offset)
-        inner = None if bass is None else _torroba_inner(
-            ctx, ctx.chord(bar), midi, bass, allow_high=True, prev_lead=prev
-        )
-        prev = sung
-        if inner is None:
-            continue
-        band = _attack_band(ctx, bar, offset, closing)
-        support.append(_support_event(origin + offset, inner, epb, _bed(velocity, band)[0]))
+    if velocity != 48:
+        offsets = {2, 6} if ctx.kind == "4/4" else {2, 5} if ctx.kind == "6/8" else {2, 4}
+        kept = _thin(sorted(offset for offset in offsets if offset < epb), ctx, bar)
+        prev = None
+        for offset in kept:
+            sung = _melody_at(ctx, origin + offset)
+            inner = None if bass is None else _torroba_inner(
+                ctx, ctx.chord(bar), midi, bass, allow_high=True, prev_lead=prev
+            )
+            prev = sung
+            if inner is None:
+                continue
+            band = _attack_band(ctx, bar, offset, closing)
+            support.append(_support_event(origin + offset, inner, epb, _bed(velocity, band)[0]))
+    if ctx.kind == "4/4" and bass is not None:
+        low.extend(_half_bass_events(ctx, bar, 0, bass, bass_vel, [*lead, *support]))
+        low.extend(_half_bass_events(ctx, bar, 4, bass, bass_vel, [*lead, *support]))
+    elif bass is not None:
+        # 3/4 prefers three eighths, then the old two, then one. 6/8 stays at
+        # two and may shorten. A pitch that frets at none of those lengths is
+        # replaced by another chord tone, or the bass is omitted.
+        lengths = (3, 2, 1) if ctx.kind == "3/4" else (2, 1)
+        fitted = _fitting_bass(ctx, bar, 0, bass, [*lead, *support], lengths)
+        if fitted is not None:
+            pitch, eighths = fitted
+            if pitch != bass:
+                support = _support_under_bass(ctx, bar, support, lead, pitch, 0, eighths)
+            low = written(origin, eighths, pitch, velocity=bass_vel)
+            low = [replace(event, voice=3, accent=False) for event in low]
     return lead, support, low
+
+
+def _render_castillo_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    """4/4 at every tempo uses the sustained grid, including bars outside Arada."""
+    return _render_castillo_sustain(ctx, bar, phrase)
+
 
 
 def _approaches(ctx, target: int, count: int, chord=None) -> list[int]:
@@ -520,7 +836,168 @@ def _slur_arrive(event: NoteEvent) -> NoteEvent:
     return replace(event, slur_stop=True)
 
 
+def _sonatina_approach(ctx, earlier: int, later: int, earlier_pitch: int, later_pitch: int) -> str | None:
+    """How the line reaches `later`: a grace, a step slur, or nothing."""
+    if later < 0 or _sonatina_slur_blocked(ctx, earlier, later):
+        return None
+    gap = abs(later_pitch - earlier_pitch)
+    if gap == 0:
+        return None
+    phrase = _phrase_covering(ctx, later, None)
+    at_apex = phrase is not None and phrase.runs and phrase.apex.start <= later < phrase.apex.end
+    if gap > 2 and phrase is not None and phrase.rise >= MIN_RISE and at_apex:
+        return "run"
+    if gap > 2:
+        return "leap"
+    if 1 <= gap <= 2:
+        return "step"
+    return None
+
+
+def _render_sonatina_moving(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    """Quarter on each strong eighth, then two slurred eighths, unless a grace already leads in."""
+    epb = ctx.epb
+    origin = bar * epb
+    lead: list[NoteEvent] = []
+    # 4/4 is two halves. 3/4 keeps a quarter on eighth 4, which ends the bar.
+    groups = [(0, 4)]
+    if 4 < epb:
+        groups.append((4, epb))
+    pending_stop = False
+    for base, arrival in groups:
+        if base >= epb:
+            continue
+        eighth = origin + base
+        midi = _melody_at(ctx, eighth)
+        local = _phrase_covering(ctx, eighth, phrase)
+        velocity, accent = _lead_velocity(ctx, eighth, local, dance=False)
+        if ctx.kind != "4/4":
+            accent = base in ctx.strong
+        length = min(2, epb - base)
+        lead.extend(written(eighth, length, midi, accent=accent, velocity=velocity, slur_stop=pending_stop))
+        pending_stop = False
+        arrival_eighth = origin + arrival
+        if arrival_eighth >= len(ctx.melody):
+            target = midi
+            kind = None
+        else:
+            target = _melody_at(ctx, arrival_eighth)
+            kind = _sonatina_approach(ctx, eighth, arrival_eighth, midi, target)
+        if kind in {"leap", "run"}:
+            if arrival < epb:
+                owner = _phrase_covering(ctx, arrival_eighth, phrase)
+                approaches = _into_strong(ctx, target, arrival_eighth, owner, run=kind == "run")
+                if approaches:
+                    lead.extend(approaches)
+                    pending_stop = True
+            continue
+        first = base + 2
+        second = base + 3
+        if second >= epb:
+            continue
+        left = _melody_at(ctx, origin + first)
+        right = _melody_at(ctx, origin + second)
+        left_level = _lead_velocity(ctx, origin + first, _phrase_covering(ctx, origin + first, phrase), dance=False)[0]
+        right_level = _lead_velocity(ctx, origin + second, _phrase_covering(ctx, origin + second, phrase), dance=False)[0]
+        # A step slurs into the next strong beat. A repeated pitch, a blocked
+        # close, and a grace (handled above) do not.
+        slur = kind == "step" and not (left == right == target)
+        lead.extend(written(origin + first, 1, left, velocity=left_level, slur_start=slur))
+        lead.extend(written(origin + second, 1, right, velocity=right_level))
+        if arrival < epb and slur:
+            pending_stop = True
+    closing = _closing_offsets(ctx, bar)
+    chord = ctx.chord(bar)
+    support: list[NoteEvent] = []
+    low: list[NoteEvent] = []
+    strong = [0, 4] if ctx.kind == "4/4" else [offset for offset in (0, 4) if offset < epb]
+    # Pitch actually written on 3/4 and 6/8. The inner voice frets with this
+    # note, not with a `_torroba_bass` that the hand could not hold.
+    grid_bass: dict[int, int] = {}
+    for offset in strong:
+        if ctx.kind != "4/4" and offset not in ctx.strong and offset != 0:
+            continue
+        eighth = origin + offset
+        midi = _melody_at(ctx, eighth)
+        velocity = next(
+            (
+                event.velocity or 64
+                for event in lead
+                if event.voice == 1 and abs(event.beat - offset * 0.5) < 1e-6 and event.duration_beats >= 0.5
+            ),
+            64,
+        )
+        band = _attack_band(ctx, bar, offset, closing)
+        _inner_vel, bass_vel = _bed(velocity, band)
+        bass = _torroba_bass(ctx, chord, bar, midi)
+        if ctx.kind == "4/4":
+            continue
+        fitted = _fitting_bass(ctx, bar, offset, bass, lead, (1,))
+        if fitted is None:
+            continue
+        pitch, length = fitted
+        grid_bass[offset] = pitch
+        low.append(_bass_event(eighth, pitch, epb, bass_vel, length=length))
+    inners = [offset for offset in (1, 5) if offset < epb]
+    prev = None
+    for offset in _thin(inners, ctx, bar):
+        # The quarter on the strong eighth is still ringing through this
+        # eighth. The price written on the weak eighth has not been played.
+        cover_beat = offset * 0.5
+        sounding = next(
+            (
+                event
+                for event in lead
+                if event.midi is not None
+                and event.beat <= cover_beat + 1e-9 < event.beat + event.duration_beats
+            ),
+            None,
+        )
+        cover = sounding.midi if sounding is not None else _melody_at(ctx, origin + offset)
+        level = sounding.velocity if sounding is not None and sounding.velocity is not None else 64
+        if ctx.kind == "4/4":
+            bass = _torroba_bass(ctx, chord, bar, cover)
+        else:
+            bass = None
+            for placed in sorted(grid_bass):
+                if placed <= offset:
+                    bass = grid_bass[placed]
+        if bass is None:
+            continue
+        inner = _torroba_inner(ctx, chord, cover, bass, allow_high=False, prev_lead=prev)
+        prev = cover
+        if inner is None:
+            continue
+        band = _attack_band(ctx, bar, offset, closing)
+        support.append(_support_event(origin + offset, inner, epb, _bed(level, band)[0]))
+    if ctx.kind == "4/4":
+        sounding = [*lead, *support]
+        for offset in (0, 4):
+            midi = _melody_at(ctx, origin + offset)
+            velocity = next(
+                (
+                    event.velocity or 64
+                    for event in lead
+                    if event.voice == 1 and abs(event.beat - offset * 0.5) < 1e-6 and (event.duration_beats or 0) >= 0.5
+                ),
+                64,
+            )
+            band = _attack_band(ctx, bar, offset, closing)
+            _inner_vel, bass_vel = _bed(velocity, band)
+            raw = _torroba_bass(ctx, chord, bar, midi)
+            low.extend(_half_bass_events(ctx, bar, offset, raw, bass_vel, sounding))
+    sixteenths = [event for event in lead if abs((event.duration_beats or 0) - 0.25) < 1e-6]
+    if sixteenths:
+        window_start = min(_start16(event, epb) for event in sixteenths)
+        window_end = max(_start16(event, epb) + 1 for event in sixteenths)
+        support = _clear_support(support, window_start, window_end, epb)
+    lead.sort(key=lambda event: (event.bar, event.beat, event.duration_beats))
+    return lead, support, low
+
+
 def _render_sonatina_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    if ctx.kind in {"4/4", "3/4"}:
+        return _render_sonatina_moving(ctx, bar, phrase)
     epb = ctx.epb
     origin = bar * epb
     strong = [offset for offset in ctx.strong if offset < epb]
@@ -607,7 +1084,7 @@ def _fandanguillo_melody(kind: str) -> tuple[int, ...]:
         return (2, 3)
     if kind == "3/4":
         return (2, 4)
-    return (2, 4, 6)
+    return ()
 
 
 def _danza_chords(kind: str) -> tuple[int, ...]:
@@ -649,7 +1126,8 @@ def _block(
     support: list[NoteEvent] = []
     low: list[NoteEvent] = []
     if bass is not None:
-        low.append(_bass_event(eighth, bass, epb, bass_vel, staccato=staccato))
+        # The bass loses staccato. Lead and support keep it.
+        low.append(_bass_event(eighth, bass, epb, bass_vel, staccato=False))
         inner = _torroba_inner(ctx, ctx.chord(bar), midi, bass, allow_high=True)
         if inner is not None:
             support.append(_support_event(eighth, inner, epb, inner_vel, staccato=staccato))
@@ -873,7 +1351,8 @@ def _fandanguillo_rolls_bar(ctx, bar: int, phrase) -> bool:
 
 
 def _render_fandanguillo_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
-    if _fandanguillo_rolls_bar(ctx, bar, phrase):
+    rolls = _fandanguillo_rolls_bar(ctx, bar, phrase)
+    if rolls:
         eighth = bar * ctx.epb
         midi = _melody_at(ctx, eighth)
         ordinary = _note_velocity(eighth, 1, _apex_eighths(ctx.phrases), phrase)
@@ -909,6 +1388,9 @@ def _render_fandanguillo_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], li
             continue
         band = _attack_band(ctx, bar, offset, closing)
         support.append(_support_event(bar * ctx.epb + offset, inner, ctx.epb, _bed(64, band)[0]))
+    # The rasgueado opening stays at 0.5. A block bass is one eighth, so one step is two.
+    if not rolls and ctx.kind in {"3/4", "6/8"}:
+        low = _retune_bass(ctx, bar, low, [*lead, *support], 0, 1, 2, clear_staccato=False)
     return lead, support, low
 
 
@@ -935,6 +1417,11 @@ def _render_danza_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[Note
             continue
         band = _attack_band(ctx, bar, offset, closing)
         support.append(_support_event(bar * ctx.epb + offset, inner, ctx.epb, _bed(64, band)[0]))
+    if ctx.kind == "3/4":
+        low = _retune_bass(ctx, bar, low, [*lead, *support], 0, 1, 2, clear_staccato=True)
+    elif ctx.kind == "6/8":
+        low = _retune_bass(ctx, bar, low, [*lead, *support], 0, 1, 2, clear_staccato=True)
+        low = _retune_bass(ctx, bar, low, [*lead, *support], 3, 1, 2, clear_staccato=True)
     return lead, support, low
 
 
@@ -1030,6 +1517,28 @@ def _drop_level(written: int, steps: int) -> int:
     return max(40, written - steps * _MICRO)
 
 
+def _soft_level(attack: _Attack, lead_written: int) -> int:
+    """Weak bed under a lead that asks for two micro steps.
+
+    Bass uses the weak value of `_raised_bed` (62 → 58 when the lead is 64).
+    Support sits four under that weak bass (56 → 54) so lead > bass > support
+    still holds after the lead drops two steps.
+    """
+    for band in ("mf", "mp", "p", "f"):
+        support, bass, weak = _raised_bed(lead_written, band)
+        if attack.voice == 3 and attack.written in {bass, weak}:
+            return weak
+        if attack.voice == 2 and attack.written == support:
+            return max(40, min(support - _MICRO, weak - 2 * _MICRO))
+    if attack.voice == 3:
+        return max(40, attack.written - 2 * _MICRO)
+    return max(40, attack.written - _MICRO)
+
+
+def _attacks_overlap(left: _Attack, right: _Attack) -> bool:
+    return left.beat < right.beat + right.duration - 1e-9 and right.beat < left.beat + left.duration - 1e-9
+
+
 def _bars_of(ctx, phrase) -> list[int]:
     """Bars whose downbeat this phrase holds. A shared bar stays with that phrase."""
     if phrase.end <= phrase.start:
@@ -1057,62 +1566,166 @@ def _section_key(ctx, phrase):
     return (section.start, section.end)
 
 
-def _span_type3(length: int) -> tuple[int, tuple[int, ...]]:
-    if length >= 3:
-        return 3, (length - 3, length - 2, length - 1)
+def _castillo_34_spans(length: int, n: int) -> list[tuple[int, tuple[int, ...]]]:
+    """Tile a nine-bar Castillos sentence across the phrase.
+
+    A phrase of one bar stays on the sustain grid. A longer phrase repeats the
+    sentence every nine bars, and a shorter remainder uses the compressed roles
+    of that same sentence instead of falling back to a whole-bar sustain.
+    """
+    if length <= 1:
+        return []
+    figure = CASTILLO_WALK if n % 2 == 0 else CASTILLO_CADENCE
+    spans: list[tuple[int, tuple[int, ...]]] = []
+    start = 0
+    while start < length:
+        chunk = min(9, length - start)
+        spans.append((figure, tuple(range(start, start + chunk))))
+        start += chunk
+    return spans
+
+
+def _castillo_spans(length: int, n: int, kind: str) -> list[tuple[int, tuple[int, ...]]]:
+    """Locked castillo rows. Types 7 and 8 are Arada, and Arada is 4/4 only.
+
+    3/4 calls the two Castillos sentences (`CASTILLO_WALK` and `CASTILLO_CADENCE`).
+    6/8 stays on the base grid.
+    """
+    if kind == "3/4":
+        return _castillo_34_spans(length, n)
+    if kind != "4/4" or length <= 1:
+        return []
+    if length in {2, 3}:
+        return [(8, (0, 1))]
+    if length == 4:
+        if n % 2 == 0:
+            return [(8, (0, 1))]
+        return [(8, (1, 2))]
+    if length == 5:
+        if n % 2 == 0:
+            return [(7, (0, 1, 2, 3, 4))]
+        return [(8, (0, 1)), (8, (3, 4))]
+    if length == 6:
+        if n % 2 == 0:
+            return [(7, (0, 1, 2, 3, 4))]
+        return [(8, (0, 1)), (8, (3, 4))]
+    if length == 7:
+        return [(7, (0, 1, 2, 3, 4))]
+    if n % 2 == 0:
+        return [(7, (0, 1, 2, 3, 4))]
+    # L >= 8, the other turn: 5 of 8 bars. Two type-8 pairs plus one type-1 bar.
+    return [(8, (0, 1)), (8, (4, 5)), (1, (2,))]
+
+
+def _sonatina_open_spans(length: int, n: int) -> list[tuple[int, tuple[int, ...]]]:
+    """Open sonatina. `n % 3` turns the short rows; longer rows lock one pair."""
+    if length <= 1:
+        return []
+    turn = n % 3
     if length == 2:
-        return 3, (0, 1)
-    return 3, (0,)
+        return ([(4, (0, 1))], [(2, (0, 1))], [(1, (0,))])[turn]
+    if length == 3:
+        return ([(4, (0, 1))], [(2, (1, 2))], [(1, (0, 1))])[turn]
+    if length == 4:
+        return (
+            [(4, (0, 1)), (1, (3,))],
+            [(2, (1, 2)), (1, (3,))],
+            [(1, (0,)), (4, (2, 3))],
+        )[turn]
+    if length == 5:
+        if n % 2 == 0:
+            return [(4, (0, 1)), (1, (3,))]
+        return [(4, (0, 1)), (2, (3, 4))]
+    if length == 6:
+        if n % 2 == 0:
+            return [(4, (0, 1)), (2, (3, 4))]
+        return [(2, (0, 1)), (4, (3, 4))]
+    # L == 7 and L >= 8. Five sung bars; the rest stay on the cantabile grid.
+    return [(4, (0, 1)), (1, (3,)), (2, (5, 6))]
 
 
-def _span_sonatina(phrase, length: int, k: int) -> tuple[int | None, tuple[int, ...]]:
-    if k % 3 == 0 and length >= 4:
-        return 4, (0, 1)
-    if k % 3 == 1 and phrase.rise >= MIN_RISE and length >= 2:
-        start = max(0, length // 2 - 1)
-        if start + 1 < length:
-            return 2, (start, start + 1)
-    if k % 3 == 2 and length >= 3:
-        return 1, (1,)
-    return None, ()
+def _sonatina_close_spans(length: int, n: int) -> list[tuple[int, tuple[int, ...]]]:
+    """A close of four bars or more always ends on a 3-bar type 3."""
+    del n
+    if length <= 0:
+        return []
+    if length <= 3:
+        return [(3, tuple(range(length)))]
+    tail = (length - 3, length - 2, length - 1)
+    if length == 4 or length == 5:
+        return [(3, tail)]
+    if length == 6:
+        # The 2-bar type-3 alternative is not used. One opening bar keeps 4/6.
+        return [(1, (0,)), (3, tail)]
+    if length == 7:
+        return [(4, (0, 1)), (3, tail)]
+    return [(4, (0, 1)), (3, tail)]
 
 
-def _span_fandanguillo(phrase, length: int, k: int, closes: bool) -> tuple[int | None, tuple[int, ...]]:
-    """Type 5 and type 2 never share a phrase, and neither one stands in for the other."""
-    if phrase.rise < MIN_RISE:
-        return None, ()
+def _fandanguillo_spans(phrase, length: int, n: int, closes: bool) -> list[tuple[int, tuple[int, ...]]]:
+    """Type 5 and type 2 never share a phrase. A rise of 1 is enough to enter."""
+    if phrase.rise < 1:
+        return []
     room = length - 1 if closes else length
-    if k % 2 == 0:
+    if n % 2 == 0:
         if room >= 4:
-            return 5, (0, 1, 2, 3)
-        return None, ()
+            return [(5, (0, 1, 2, 3))]
+        return []
     if room < 2:
-        return None, ()
+        return []
     start = max(0, length // 2 - 1)
     if start + 1 >= (length - 1 if closes else length):
-        return None, ()
-    return 2, (start, start + 1)
+        return []
+    return [(2, (start, start + 1))]
 
 
-def _span_danza(ctx, length: int, closes: bool) -> tuple[int | None, tuple[int, ...]]:
-    # No 4/4 spelling. A 4/4 chapter never selects danza; the gate is here too.
-    if ctx.kind not in {"3/4", "6/8"} or closes or length != 4:
-        return None, ()
-    return 6, (0, 1, 2, 3)
+def _danza_spans(ctx, length: int, closes: bool) -> list[tuple[int, tuple[int, ...]]]:
+    # No 4/4 spelling. A closing phrase of exactly four bars stays on the grid.
+    if ctx.kind not in {"3/4", "6/8"} or length < 4:
+        return []
+    if closes and length == 4:
+        return []
+    return [(6, (0, 1, 2, 3))]
 
 
-def _span_castillo(ctx, length: int, k: int) -> tuple[int | None, tuple[int, ...]]:
-    if ctx.bpm > 72:
-        return None, ()
-    if k % 2 == 0:
-        if length >= 5:
-            return 7, tuple(range(5))
-        if length in {2, 3, 4}:
-            return 8, (0, 1)
-        return None, ()
-    if length >= 2:
-        return 8, (0, 1)
-    return None, ()
+def _phrase_spans(ctx, phrase, pattern: str, n: int) -> list[tuple[int, tuple[int, ...]]]:
+    length = len(_bars_of(ctx, phrase))
+    closes = bool(phrase.closes)
+    if pattern == "sonatina" and closes:
+        return _sonatina_close_spans(length, n)
+    if pattern == "sonatina":
+        return _sonatina_open_spans(length, n)
+    if pattern == "fandanguillo":
+        return _fandanguillo_spans(phrase, length, n, closes)
+    if pattern == "danza":
+        return _danza_spans(ctx, length, closes)
+    return _castillo_spans(length, n, ctx.kind)
+
+
+def select_torroba_spans(
+    ctx,
+    phrase,
+    pattern: str,
+    *,
+    n: int,
+    previous: int | None,
+) -> list[tuple[int, tuple[int, ...]]]:
+    """One or two figure spans for a body phrase.
+
+    Every body phrase enters, including a closing sonatina and an odd `n`.
+    When the first figure matches the previous phrase, `n` advances by one
+    and the next figure in that family is used.
+    """
+    if pattern not in _TORROBA_PATTERNS or phrase is None or phrase.end <= phrase.start:
+        return []
+    if len(_bars_of(ctx, phrase)) <= 0:
+        return []
+    spans = _phrase_spans(ctx, phrase, pattern, n)
+    if spans and previous is not None and spans[0][0] == previous:
+        rotated = _phrase_spans(ctx, phrase, pattern, n + 1)
+        if rotated:
+            spans = rotated
+    return spans
 
 
 def select_torroba_figure(
@@ -1124,40 +1737,23 @@ def select_torroba_figure(
     k: int | None,
     previous: int | None,
 ) -> tuple[int | None, tuple[int, ...]]:
-    """One figure for a body phrase, or the base grid.
+    """The first span, for callers that still ask for one figure.
 
-    `n` counts body phrases of this pattern in the section. A sonatina close
-    does not take an `n`; it sings type 3. Odd `n` is the base grid. `k`
-    counts even `n` from 0. The phrase after one that used the same figure
-    id returns to the base grid.
+    `k` is ignored. `n` is the phrase number inside the pattern. An empty
+    span list returns `(None, ())`.
     """
-    if pattern not in _TORROBA_PATTERNS or phrase is None or phrase.end <= phrase.start:
+    del k
+    spans = select_torroba_spans(ctx, phrase, pattern, n=0 if n is None else n, previous=previous)
+    if not spans:
         return None, ()
-    length = len(_bars_of(ctx, phrase))
-    if length <= 0:
-        return None, ()
-    closes = bool(phrase.closes)
-    if pattern == "sonatina" and closes:
-        figure, slots = _span_type3(length)
-    elif n is None or n % 2 == 1:
-        return None, ()
-    elif pattern == "sonatina":
-        figure, slots = _span_sonatina(phrase, length, 0 if k is None else k)
-    elif pattern == "fandanguillo":
-        figure, slots = _span_fandanguillo(phrase, length, 0 if k is None else k, closes)
-    elif pattern == "danza":
-        figure, slots = _span_danza(ctx, length, closes)
-    else:
-        figure, slots = _span_castillo(ctx, length, 0 if k is None else k)
-    if figure is None or (previous is not None and previous == figure):
-        return None, ()
-    return figure, slots
+    return spans[0]
 
 
 def torroba_figure_plan(ctx, patterns: list[str]) -> dict[int, tuple[int, int, int]]:
     """Absolute bar → `(figure, index within the figure, figure length)`.
 
-    Bars that stay on the base grid are absent. Pattern ids are unchanged.
+    Each span restarts `index` at 0, so two type-8 pairs in one phrase both
+    sing `_type8_bar1`. Bars that stay on the base grid are absent.
     """
     if ctx.ensemble != "torroba":
         return {}
@@ -1175,24 +1771,18 @@ def torroba_figure_plan(ctx, patterns: list[str]) -> dict[int, tuple[int, int, i
         for index in indexes:
             phrase = ctx.phrases[index]
             pattern = patterns[index]
-            if pattern == "sonatina" and phrase.closes:
-                n: int | None = None
-                k: int | None = None
-            else:
-                n = counters.get(pattern, 0)
-                counters[pattern] = n + 1
-                k = n // 2
-            figure, slots = select_torroba_figure(
-                ctx, phrase, pattern, n=n, k=k, previous=previous
-            )
-            if figure is None:
+            n = counters.get(pattern, 0)
+            counters[pattern] = n + 1
+            spans = select_torroba_spans(ctx, phrase, pattern, n=n, previous=previous)
+            if not spans:
                 previous = None
                 continue
             bars = _bars_of(ctx, phrase)
-            for slot_index, local in enumerate(slots):
-                if 0 <= local < len(bars):
-                    plan[bars[local]] = (figure, slot_index, len(slots))
-            previous = figure
+            for figure, slots in spans:
+                for slot_index, local in enumerate(slots):
+                    if 0 <= local < len(bars):
+                        plan[bars[local]] = (figure, slot_index, len(slots))
+            previous = spans[-1][0]
     plan.update(_castillos_figure_plan(ctx, patterns))
     return plan
 
@@ -1204,8 +1794,17 @@ def _realize(ctx, bar: int, attacks: list[_Attack]) -> tuple[list[NoteEvent], li
     """
     bar_beats = ctx.epb * 0.5
     heard: dict[int, int] = {}
+    leads = [attack for attack in attacks if attack.voice == 1]
     for index, attack in enumerate(attacks):
-        if attack.voice != 1:
+        if attack.voice == 1:
+            continue
+        covered = [lead for lead in leads if _attacks_overlap(attack, lead)]
+        # A bass that also covers a steps-0 pillar keeps the full bed.
+        # A bed that covers only a soft lead (steps >= 2) uses the weak level,
+        # so `_micro_fits` can drop that lead by 4.
+        if covered and min(lead.steps for lead in covered) >= 2:
+            heard[index] = _soft_level(attack, max(lead.written for lead in covered))
+        else:
             heard[index] = _drop_level(attack.written, attack.steps)
 
     def covering(voice: int, beat: float) -> int | None:
@@ -1504,6 +2103,26 @@ class _Pen:
             return None
         return upper, principal
 
+    def mordent_triplet(self, beat: float, principal: int, others: list[int], written: int, steps: int) -> bool:
+        """Three 1/6 notes, principal–upper–principal, slurred. Falls back to a grace or an eighth."""
+        upper = _walk(principal, 1, self.ctx.mode, self.ctx.treble_floor, self.ctx.treble_top)
+        semi = self.ctx.semitones
+        sounding = [principal + semi, upper + semi, *(note + semi for note in others)]
+        if upper != principal and abs(upper - principal) <= 2 and _position_ok(sounding):
+            sixth = 1.0 / 6.0
+            self.add(beat, principal, sixth, 1, written, steps, slur_start=True)
+            self.add(beat + sixth, upper, sixth, 1, written, steps + 1)
+            self.add(beat + 2.0 * sixth, principal, sixth, 1, written, steps, slur_stop=True)
+            return True
+        neighbor = self.grace(principal, others)
+        if neighbor is None:
+            self.add(beat, principal, 0.5, 1, written, 1)
+            return False
+        grace_upper, body = neighbor
+        self.add(beat, grace_upper, 0.25, 1, written, 2, slur_start=True)
+        self.add(beat + 0.25, body, 0.25, 1, written, 1, slur_stop=True)
+        return False
+
     def low_price(self, eighth: int) -> int:
         pitch = self.mel(eighth)
         while pitch > 52:
@@ -1679,13 +2298,7 @@ def _type3_motif(pen: _Pen):
     pen.add(0.75, repeated, 0.25, 1, written, 2, group=bundle)
     pen.add(1.0, repeated, 0.5, 1, written, 1)
     principal = pen.mel(3)
-    neighbor = pen.grace(principal, [])
-    if neighbor is None:
-        pen.add(1.5, principal, 0.5, 1, written, 1)
-    else:
-        upper, body = neighbor
-        pen.add(1.5, upper, 0.25, 1, written, 2, slur_start=True)
-        pen.add(1.75, body, 0.25, 1, written, 1, slur_stop=True)
+    pen.mordent_triplet(1.5, principal, [], written, 2)
     for eighth in range(4, pen.epb):
         level, mark = pen.lead_level(eighth, strong=eighth in pen.strong)
         steps = 0 if eighth in pen.strong else 1
@@ -1699,6 +2312,12 @@ def _type3_scale(pen: _Pen):
     line = _ascending(pen, target, pen.epb)
     for eighth, midi in enumerate(line):
         last = eighth == pen.epb - 1
+        # Slur the first pair of each half. 4/4 also slurs eighths 4 → 5.
+        # Fandanguillo and danza staccato are not written here.
+        slur_start = eighth == 0 or (pen.ctx.kind == "4/4" and eighth == 4)
+        slur_stop = eighth == 1 or (pen.ctx.kind == "4/4" and eighth == 5)
+        if last:
+            slur_start = False
         pen.add(
             eighth * 0.5,
             midi,
@@ -1707,7 +2326,8 @@ def _type3_scale(pen: _Pen):
             written,
             0 if last else 1,
             accent=last and (pen.epb - 1) in pen.strong,
-            staccato=True,
+            slur_start=slur_start,
+            slur_stop=slur_stop,
         )
     return pen.finish()
 
@@ -1732,9 +2352,9 @@ def _type3_sustain(pen: _Pen):
     duration = pen.beats
     velocity = _harmonic_velocity(pen.ctx, midi, duration, ordinary)
     _support_level, bass_level, _weak = pen.beds(ordinary)
+    low = pen.bass_of(midi)
     # A bell at 48 is not an accent: sonatina snap targets accented leads.
     pen.add(0.0, midi, duration, 1, velocity, 0, accent=velocity != 48)
-    low = pen.bass_of(midi)
     pen.add(0.0, low, 0.5, 3, bass_level, 1)
     return pen.finish()
 
@@ -1759,34 +2379,9 @@ def _type4_call(pen: _Pen):
     pen.add(0.75, repeated, 0.25, 1, motif, 1)
     eighth_two, _mark = pen.lead_level(2, strong=False)
     pen.add(1.0, pen.mel(2), 0.5, 1, eighth_two, 1)
-    principal = pen.mel(2)
-    neighbor = pen.grace(principal, [])
-    strong_resolution = pen.ctx.kind == "6/8"
+    # The mordent sits on eighth 3 and spills into the arrival at beat 2.0.
     ornament, _mark = pen.lead_level(3, strong=False)
-    resolution, resolve_mark = pen.lead_level(3, strong=strong_resolution)
-    if neighbor is None:
-        pen.add(
-            1.5,
-            principal,
-            0.5,
-            1,
-            resolution,
-            0 if strong_resolution else 1,
-            accent=strong_resolution and resolve_mark,
-        )
-    else:
-        upper, body = neighbor
-        pen.add(1.5, upper, 0.25, 1, ornament, 1, slur_start=True)
-        pen.add(
-            1.75,
-            body,
-            0.25,
-            1,
-            resolution,
-            0 if strong_resolution else 1,
-            slur_stop=True,
-            accent=strong_resolution and resolve_mark,
-        )
+    pen.mordent_triplet(1.5, pen.mel(3), [], ornament, 2)
     tail = range(4, pen.epb)
     for eighth in tail:
         sung = pen.mel(eighth)
@@ -2077,14 +2672,7 @@ def _type7_opening(pen: _Pen, *, resolution: str) -> None:
     pen.add(0.5, low, 0.5, 3, bass_level, 1)
     pen.add(1.0, higher, 0.5, 2, support_level, 1)
     mordent_written = pen.lead_level(3, strong=False)[0]
-    principal = pen.mel(4)
-    neighbor = pen.grace(principal, [])
-    if neighbor is None:
-        pen.add(1.5, principal, 0.5, 1, mordent_written, 1)
-    else:
-        upper, body = neighbor
-        pen.add(1.5, upper, 0.25, 1, mordent_written, 2, slur_start=True)
-        pen.add(1.75, body, 0.25, 1, mordent_written, 1, slur_stop=True)
+    pen.mordent_triplet(1.5, pen.mel(3), [], mordent_written, 2)
     resolved = pen.lead_level(4, strong=False)[0]
     if resolution == "half":
         pen.add(2.0, pen.mel(4), 2.0, 1, resolved, 0)
@@ -2118,14 +2706,7 @@ def _type7_bar2(pen: _Pen):
     pen.add(0.5, low, 0.5, 3, bass_level, 1)
     pen.add(1.0, higher, 0.5, 2, support_level, 1)
     mordent_written = pen.lead_level(3, strong=False)[0]
-    principal = pen.mel(4)
-    neighbor = pen.grace(principal, [])
-    if neighbor is None:
-        pen.add(1.5, principal, 0.5, 1, mordent_written, 1)
-    else:
-        upper, body = neighbor
-        pen.add(1.5, upper, 0.25, 1, mordent_written, 2, slur_start=True)
-        pen.add(1.75, body, 0.25, 1, mordent_written, 1, slur_stop=True)
+    pen.mordent_triplet(1.5, pen.mel(3), [], mordent_written, 2)
     held = pen.lead_level(4, strong=False)[0]
     if pen.ctx.kind == "4/4":
         pen.add(2.0, pen.mel(4), 1.5, 1, held, 1)
@@ -2252,6 +2833,8 @@ def _scale_to_root(pen: _Pen, count: int, ceiling: int | None = None) -> list[in
 
     A degree the held lead cannot fret with is left out. The eighth rhythm
     stays one note per eighth. Open E2 still fits a high lead; F2 does not.
+    Arada (types 7 and 8) keeps this fixed window. The 3/4 cadence walks its
+    own line in `_cadence_bass_line`.
     """
     goal = _root_in_bass(pen)
     semi = pen.ctx.semitones
@@ -2284,6 +2867,46 @@ def _scale_to_root(pen: _Pen, count: int, ceiling: int | None = None) -> list[in
         path.append(scale[cursor])
     path.reverse()
     return path
+
+
+def _cadence_bass_line(pen: _Pen, count: int, ceiling: int) -> list[int]:
+    """Bass quarters that step into the chord root.
+
+    The arrival is the lowest root that still has a stepwise approach under it.
+    Each step is a second. A lower root that would need a leap, including the
+    open string when the degrees just above it will not fret, gives way to the
+    next root.
+    """
+    low, high = _bass_window(pen.ctx)
+    root = pen.ctx.chord(pen.bar).pitches[0] % 12
+    semi = pen.ctx.semitones
+
+    def fits(pitch: int) -> bool:
+        return _playable([pitch + semi, ceiling + semi])
+
+    roots = [note for note in range(low, high + 1) if note % 12 == root and fits(note)]
+    scale = [note for note in range(low, high + 1) if _on_scale(note, pen.ctx.mode) and fits(note)]
+    need = max(0, count - 1)
+
+    def approach(goal: int) -> list[int] | None:
+        chain: list[int] = []
+        cursor = goal
+        while len(chain) < need:
+            lower = [note for note in scale if note < cursor]
+            if not lower or cursor - lower[-1] > 2:
+                return None
+            cursor = lower[-1]
+            chain.append(cursor)
+        chain.reverse()
+        return chain
+
+    goal = next((candidate for candidate in roots if approach(candidate) is not None), None)
+    if goal is None:
+        goal = roots[-1] if roots else low
+    head = approach(goal) or []
+    while len(head) < need:
+        head.insert(0, head[0] if head else goal)
+    return (head + [goal])[:count]
 
 
 def _type7_bar5(pen: _Pen):
@@ -2412,6 +3035,298 @@ def _type8_three(pen: _Pen, start: int, written: int, support_level: int) -> Non
     pen.add((start + 2) * 0.5, goal, 0.5, 1, written, 2, slur_stop=True)
 
 
+def _castillo_34_bass_fits(pen: _Pen, bass: int | None, start: float, duration: float) -> bool:
+    if bass is None:
+        return False
+    semi = pen.ctx.semitones
+    end = start + duration
+    relevant = [
+        attack
+        for attack in pen.attacks
+        if attack.voice != 3
+        and attack.midi is not None
+        and attack.beat + attack.duration > start + 1e-9
+        and attack.beat < end - 1e-9
+    ]
+    instants = {start} | {max(start, attack.beat) for attack in relevant}
+    for beat in instants:
+        pitches = [
+            attack.midi
+            for attack in relevant
+            if attack.beat <= beat + 1e-9 < attack.beat + attack.duration
+        ]
+        if not pitches:
+            continue
+        if bass >= min(pitches):
+            return False
+        if not _playable([bass + semi, *(pitch + semi for pitch in pitches)]):
+            return False
+    return True
+
+
+def _castillo_34_add_bass(pen: _Pen, start: float, durations: tuple[float, ...], level: int, steps: int) -> int | None:
+    eighth = pen._eighth_at(start)
+    raw = pen.bass_of(pen.mel(eighth))
+    candidates: list[int] = []
+    if raw is not None:
+        candidates.append(raw)
+    pcs = pen.ctx.chord(pen.bar).pitch_classes
+    low, high = _bass_window(pen.ctx)
+    for note in range(low, high + 1):
+        if note % 12 in pcs and note not in candidates:
+            candidates.append(note)
+    open_bass = max(low, min(high, 40 - pen.ctx.semitones))
+    if open_bass not in candidates:
+        candidates.append(open_bass)
+    for pitch in candidates:
+        for duration in durations:
+            if _castillo_34_bass_fits(pen, pitch, start, duration):
+                pen.add(start, pitch, duration, 3, level, steps)
+                return pitch
+    return None
+
+
+def _castillo_walk_role(index: int, count: int) -> str:
+    if count <= 1:
+        return "hold"
+    if index == 0:
+        return "fan"
+    if index == count - 1:
+        return "hold"
+    if index == count - 2:
+        return "turn_to_bass"
+    return "quarters" if index % 2 == 1 else "turn"
+
+
+def _castillo_walk_fan(pen: _Pen):
+    written, _accent = pen.lead_level(0, strong=True)
+    _open_rasgueado(pen, written, lead_release=0.5, max_notes=6, accent=True, bed_steps=0)
+    repeated = pen.mel(1)
+    rep_written = pen.lead_level(1, strong=False)[0]
+    for offset, step in ((1, 2), (2, 2), (3, 1)):
+        pen.add(offset * 0.5, repeated, 0.5, 1, rep_written, step, staccato=True)
+    step = _walk(repeated, 1, pen.ctx.mode, pen.ctx.treble_floor, pen.ctx.treble_top)
+    if step == repeated:
+        step = pen.mel(4)
+    pen.add(2.0, step, 0.5, 1, pen.lead_level(4, strong=False)[0], 1, staccato=True)
+    pen.add(2.5, pen.mel(5), 0.5, 1, pen.lead_level(5, strong=False)[0], 0, accent=True)
+    return pen.finish()
+
+
+def _castillo_walk_quarters(pen: _Pen):
+    first = pen.mel(0)
+    middle = _walk(first, -1, pen.ctx.mode, pen.ctx.treble_floor, pen.ctx.treble_top)
+    if middle == first:
+        middle = pen.mel(2)
+    last = _walk(middle, -1, pen.ctx.mode, pen.ctx.treble_floor, pen.ctx.treble_top)
+    if last == middle:
+        last = pen.mel(4)
+    pitches = (first, middle, last)
+    steps_seq = (0, 1, 2)
+    for beat_index, eighth in enumerate((0, 2, 4)):
+        if eighth >= pen.epb:
+            break
+        strong = eighth == 0
+        written, mark = pen.lead_level(eighth, strong=strong)
+        steps = steps_seq[beat_index]
+        pen.add(beat_index * 1.0, pitches[beat_index], 1.0, 1, written, steps, accent=mark and strong)
+    support_level, bass_level, _weak = pen.beds(pen.lead_level(0, strong=True)[0])
+    _castillo_34_add_bass(pen, 0.0, (1.5, 1.0, 0.5), bass_level, 1)
+    del support_level
+    return pen.finish()
+
+
+def _castillo_walk_turn(pen: _Pen, *, to_bass: bool):
+    anchor = pen.mel(0)
+    upper = _walk(anchor, 1, pen.ctx.mode, pen.ctx.treble_floor, pen.ctx.treble_top)
+    lower = _walk(anchor, -1, pen.ctx.mode, pen.ctx.treble_floor, pen.ctx.treble_top)
+    semi = pen.ctx.semitones
+    can_slur = upper != anchor and abs(upper - anchor) <= 2 and _position_ok([anchor + semi, upper + semi])
+    e0 = pen.lead_level(0, strong=True)[0]
+    e1 = pen.lead_level(1, strong=False)[0]
+    e2 = pen.lead_level(2, strong=False)[0]
+    e3 = pen.lead_level(3, strong=False)[0]
+    pen.add(0.0, anchor, 0.5, 1, e0, 0, accent=True, slur_start=can_slur)
+    pen.add(0.5, upper if can_slur else pen.mel(1), 0.5, 1, e1, 2, slur_stop=can_slur)
+    pen.add(1.0, anchor, 0.5, 1, e2, 1)
+    pen.add(1.5, lower if lower != anchor else pen.mel(3), 0.5, 1, e3, 2)
+    written4 = pen.lead_level(4, strong=False)[0]
+    _support_level, bass_level, _weak = pen.beds(e0)
+    if to_bass:
+        pen.add(2.0, pen.mel(4), 1.0, 1, written4, 1)
+        _castillo_34_add_bass(pen, 2.0, (1.0, 0.5), bass_level, 0)
+    else:
+        pen.add(2.0, pen.mel(4), 1.0, 1, written4, 1)
+        _castillo_34_add_bass(pen, 0.0, (0.5,), bass_level, 1)
+    return pen.finish()
+
+
+def _castillo_walk_hold(pen: _Pen):
+    written, _accent = pen.lead_level(0, strong=True)
+    _support_level, bass_level, _weak = pen.beds(written)
+    lead_0 = pen.mel(0)
+    anchor = pen.mel(1)
+    step = _walk(anchor, 1, pen.ctx.mode, pen.ctx.treble_floor, pen.ctx.treble_top)
+    for eighth, midi, steps in (
+        (1, anchor, 2),
+        (2, anchor, 2),
+        (3, step if step != anchor else pen.mel(3), 1),
+        (4, pen.mel(4), 0),
+    ):
+        if eighth >= pen.epb:
+            break
+        level = pen.lead_level(eighth, strong=False)[0]
+        pen.add(eighth * 0.5, midi, 1.0 if eighth == 4 else 0.5, 1, level, steps, accent=(eighth == 4))
+    if not any(attack.voice == 1 for attack in pen.attacks):
+        pen.add(0.0, lead_0, pen.beats, 1, written, 0, accent=True)
+    _castillo_34_add_bass(pen, 0.0, (pen.beats, 1.5, 1.0, 0.5), bass_level, 1)
+    return pen.finish()
+
+
+def _render_type13(pen: _Pen):
+    """Castillos 3/4 sentence 1 (bars #3–#11): rasgueado launch, fifth-string walk, low B arrival."""
+    role = _castillo_walk_role(pen.index, pen.count)
+    if role == "fan":
+        return _castillo_walk_fan(pen)
+    if role == "quarters":
+        return _castillo_walk_quarters(pen)
+    if role == "turn":
+        return _castillo_walk_turn(pen, to_bass=False)
+    if role == "turn_to_bass":
+        return _castillo_walk_turn(pen, to_bass=True)
+    return _castillo_walk_hold(pen)
+
+
+def _castillo_cadence_role(index: int, count: int) -> str:
+    if count <= 1:
+        return "final"
+    if count == 2:
+        return ("pickup", "final")[index]
+    if count == 3:
+        return ("pickup", "chords_a", "final")[index]
+    if count == 4:
+        return ("pickup", "chords_a", "dotted", "final")[index]
+    if count == 5:
+        return ("pickup", "chords_a", "Burst", "dotted", "final")[index]
+    if count == 6:
+        return ("pickup", "chords_a", "Burst", "echo", "dotted", "final")[index]
+    if count == 7:
+        return ("pickup", "chords_a", "chords_b", "Burst", "echo", "dotted", "final")[index]
+    if count == 8:
+        return ("pickup", "chords_a", "chords_b", "Burst", "echo", "dotted", "tie_prep", "final")[index]
+    roles = ("pickup", "chords_a", "chords_b", "Burst", "echo", "dotted", "chords_b", "tie_prep", "final")
+    return roles[min(index, len(roles) - 1)]
+
+
+def _castillo_cadence_chords(pen: _Pen, *, steps_seq: tuple[int, int, int]):
+    for beat_index, eighth in enumerate((0, 2, 4)):
+        if eighth >= pen.epb:
+            break
+        sung = pen.mel(eighth)
+        steps = steps_seq[min(beat_index, len(steps_seq) - 1)]
+        written, mark = pen.lead_level(eighth, strong=(eighth == 0 or steps == 0))
+        support_level, bass_level, _weak = pen.beds(written)
+        low = pen.bass_of(sung)
+        inner = pen.support_of(sung, low, capped=False)
+        beat = beat_index * 1.0
+        pen.add(beat, sung, 1.0, 1, written, steps, accent=mark and steps == 0)
+        if inner is not None and _playable([inner + pen.ctx.semitones, sung + pen.ctx.semitones]):
+            pen.add(beat, inner, 1.0, 2, support_level, steps)
+        _castillo_34_add_bass(pen, beat, (1.0, 0.5), bass_level, steps)
+    return pen.finish()
+
+
+def _castillo_cadence_burst(pen: _Pen):
+    sung = pen.mel(0)
+    written, _accent = pen.lead_level(0, strong=True)
+    support_level, _bass_level, weak_bass = pen.beds(written)
+    pen.add(0.0, sung, 0.5, 1, written, 0, accent=True)
+    # The neighbor asks for one step more than the body. On the weak bass bed
+    # that extra step does not fit, so the three notes settle together.
+    pen.mordent_triplet(0.5, pen.mel(1), [], pen.lead_level(1, strong=False)[0], 2)
+    for eighth, duration in ((2, 1.0), (4, 1.0)):
+        if eighth >= pen.epb:
+            break
+        pen.add(eighth * 0.5, pen.mel(eighth), duration, 1, pen.lead_level(eighth, strong=False)[0], 2)
+    low = _castillo_34_add_bass(pen, 0.0, (pen.beats, 1.5, 1.0, 0.5), weak_bass, 0)
+    early_leads = [
+        attack.midi
+        for attack in pen.attacks
+        if attack.voice == 1 and attack.midi is not None and attack.beat < 1.5 - 1e-9
+    ]
+    ceiling = min(early_leads) if early_leads else sung
+    inner = pen.support_of(ceiling, low, capped=False)
+    if (
+        inner is not None
+        and inner < ceiling
+        and _castillo_34_bass_fits(pen, inner, 0.0, 1.5)
+        and all(
+            _playable(
+                [*([low + pen.ctx.semitones] if low is not None else []), inner + pen.ctx.semitones, m + pen.ctx.semitones]
+            )
+            for m in early_leads
+        )
+    ):
+        pen.add(0.0, inner, 1.5, 2, support_level, 0, accent=True)
+    return pen.finish()
+
+
+def _castillo_cadence_echo(pen: _Pen):
+    # One bass per beat, at that beat's step, so the last quarter can fall two
+    # steps. A single bass across the bar holds the bed up and stops the taper.
+    return _castillo_cadence_chords(pen, steps_seq=(0, 1, 2))
+
+
+def _castillo_cadence_dotted(pen: _Pen, *, prep_tie: bool):
+    sung0 = pen.mel(0)
+    written0, _accent = pen.lead_level(0, strong=True)
+    _support_level, _bass_level, weak_bass = pen.beds(written0)
+    pen.add(0.0, sung0, 1.5, 1, written0, 0, accent=True)
+    sung3 = pen.mel(3)
+    written3 = pen.lead_level(3, strong=False)[0]
+    pen.add(1.5, sung3, 0.5, 1, written3, 2, slur_start=prep_tie)
+    sung4 = pen.mel(4)
+    written4 = pen.lead_level(4, strong=False)[0]
+    pen.add(2.0, sung4, 1.0, 1, written4, 1, slur_stop=prep_tie)
+    _castillo_34_add_bass(pen, 1.0, (2.0, 1.0, 0.5), weak_bass, 0)
+    return pen.finish()
+
+
+def _castillo_cadence_final(pen: _Pen):
+    sung = pen.mel(0)
+    ordinary, _accent = pen.lead_level(0, strong=True)
+    _support_level, bass_level, _weak = pen.beds(ordinary)
+    # The arrival is a sung tenuto, including when the pitch is a natural node.
+    pen.add(0.0, sung, pen.beats, 1, ordinary, 0, accent=True)
+    line = _cadence_bass_line(pen, 3, sung)
+    for beat_index, (midi, steps) in enumerate(zip(line, (2, 1, 0))):
+        if _castillo_34_bass_fits(pen, midi, beat_index * 1.0, 1.0):
+            pen.add(beat_index * 1.0, midi, 1.0, 3, bass_level, steps)
+        else:
+            _castillo_34_add_bass(pen, beat_index * 1.0, (1.0, 0.5), bass_level, steps)
+    return pen.finish()
+
+
+def _render_type14(pen: _Pen):
+    """Castillos 3/4 sentence 2 (bars #11–#19): II pickup, cresc. chords, f burst, rall. cadence."""
+    role = _castillo_cadence_role(pen.index, pen.count)
+    if role == "pickup":
+        return _castillo_walk_hold(pen)
+    if role == "chords_a":
+        return _castillo_cadence_chords(pen, steps_seq=(2, 2, 1))
+    if role == "chords_b":
+        return _castillo_cadence_chords(pen, steps_seq=(1, 1, 0))
+    if role == "Burst":
+        return _castillo_cadence_burst(pen)
+    if role == "echo":
+        return _castillo_cadence_echo(pen)
+    if role == "dotted":
+        return _castillo_cadence_dotted(pen, prep_tie=False)
+    if role == "tie_prep":
+        return _castillo_cadence_dotted(pen, prep_tie=True)
+    return _castillo_cadence_final(pen)
+
+
 _FIGURES = {
     1: _render_type1,
     2: _render_type2,
@@ -2421,6 +3336,8 @@ _FIGURES = {
     6: _render_type6,
     7: _render_type7,
     8: _render_type8,
+    CASTILLO_WALK: _render_type13,
+    CASTILLO_CADENCE: _render_type14,
 }
 
 
@@ -2440,12 +3357,14 @@ def render_torroba_figure(
     return _FIGURES[figure](pen)
 
 
-def apply_sonatina_downbeats(ctx, lead, support, patterns):
+def apply_sonatina_downbeats(ctx, lead, support, patterns, scale_eighths: set[int] | None = None):
     """Leap, run, and step into a sonatina downbeat, written after frames.
 
     The sixteenth before offset 0 lives in the previous bar. `_resolve` then
     shortens a castillo or frame hold that would otherwise share the high voice.
-    Castillo, fandanguillo, and danza do not grow a pickup.
+    Castillo, fandanguillo, and danza do not grow a pickup. The arrival is the
+    lead note already written on that downbeat. A scale eighth owns its own
+    line, so no pickup is planted into it or out of it.
     """
     from app.sonify.guitar_patterns import _bar_pattern
 
@@ -2469,7 +3388,16 @@ def apply_sonatina_downbeats(ctx, lead, support, patterns):
             ctx, previous, eighth
         ):
             continue
-        target = _melody_at(ctx, eighth)
+        if scale_eighths and (eighth in scale_eighths or previous in scale_eighths):
+            _drop_unfinished_eighth_slur(lead, previous // epb)
+            continue
+        # The note already written on this downbeat. `_melody_at` is the price
+        # line, which a lowered stretch and a later passage no longer match.
+        arrival = _price_note(lead, eighth, epb)
+        if arrival is not None and lead[arrival].midi is not None:
+            target = lead[arrival].midi
+        else:
+            target = _melody_at(ctx, eighth)
         # Castillo and a calm frame hold the downbeat price. Eighth 4's close
         # is not sounding, so the interval is the held note, not `_melody_at`.
         prev_index = _price_note(lead, previous, epb)
@@ -2488,6 +3416,7 @@ def apply_sonatina_downbeats(ctx, lead, support, patterns):
         if run or leap:
             approaches = _into_strong(ctx, target, eighth, phrase, run=run)
             if not approaches:
+                _drop_unfinished_eighth_slur(lead, previous // epb)
                 continue
             arrival = _price_note(lead, eighth, epb)
             lead.extend(approaches)
@@ -2499,11 +3428,47 @@ def apply_sonatina_downbeats(ctx, lead, support, patterns):
             continue
         if 1 <= gap <= 2:
             arrival = _price_note(lead, eighth, epb)
-            if prev_index is not None:
-                lead[prev_index] = _slur_leave(lead[prev_index])
-            if arrival is not None:
-                lead[arrival] = _slur_arrive(lead[arrival])
+            # The moving eighths already opened the slur. Do not also open one
+            # on the strong quarter.
+            if _eighth_slur_open(lead, previous // epb):
+                if arrival is not None:
+                    lead[arrival] = _slur_arrive(lead[arrival])
+            else:
+                if prev_index is not None:
+                    lead[prev_index] = _slur_leave(lead[prev_index])
+                if arrival is not None:
+                    lead[arrival] = _slur_arrive(lead[arrival])
+            continue
+        _drop_unfinished_eighth_slur(lead, previous // epb)
+    _drop_dangling_eighth_slurs(lead)
     return lead, support
+
+
+def _drop_dangling_eighth_slurs(lead: list[NoteEvent]) -> None:
+    """An eighth slur that never reaches the next downbeat is not a slur."""
+    for index, event in enumerate(lead):
+        if event.midi is None or not event.slur_start or event.beat + 1e-9 < 3.0:
+            continue
+        closed = any(
+            note.midi is not None and note.bar == event.bar + 1 and abs(note.beat) < 1e-6 and note.slur_stop
+            for note in lead
+        )
+        if not closed:
+            lead[index] = replace(event, slur_start=False)
+
+
+def _eighth_slur_open(lead: list[NoteEvent], bar: int) -> bool:
+    """True when eighths 6–7 already started a slur toward the next downbeat."""
+    return any(
+        event.bar == bar and event.midi is not None and event.slur_start and event.beat + 1e-9 >= 3.0
+        for event in lead
+    )
+
+
+def _drop_unfinished_eighth_slur(lead: list[NoteEvent], bar: int) -> None:
+    for index, event in enumerate(lead):
+        if event.bar == bar and event.slur_start and event.beat + 1e-9 >= 3.0:
+            lead[index] = replace(event, slur_start=False)
 
 
 def _pattern_row(patterns, count: int, pattern: str) -> list[str]:
@@ -2778,10 +3743,16 @@ def _render_juglar_bar(ctx, bar: int, phrase, mode: str, patterns=None):
             lead.append(_heard(bar, beat + 2 * _TRIPLET, midi, _TRIPLET, 1, dropped))
     sung = _melody_at(ctx, bar * ctx.epb)
     bass = _sounding_bass(ctx, bar, sung)
+    support: list[NoteEvent] = []
     if bass is not None:
-        _inner, bass_vel = _bed(_lead_vel(ctx, bar * ctx.epb, phrase), band)
-        low.append(_heard(bar, 0.0, bass, 1.0, 3, bass_vel))
-    return lead, [], low
+        inner_vel, bass_vel = _bed(_lead_vel(ctx, bar * ctx.epb, phrase), band)
+        here = _melody_at(ctx, bar * ctx.epb + 2)
+        inner = _torroba_inner(ctx, ctx.chord(bar), here, bass, allow_high=True)
+        if inner is not None:
+            support.append(_heard(bar, 1.0, inner, 0.5, 2, inner_vel))
+        eighths = _choose_bass_eighths(ctx, bass, bar, 0, 2, 3, [*lead, *support])
+        low.append(_heard(bar, 0.0, bass, eighths * 0.5, 3, bass_vel))
+    return lead, support, low
 
 
 def _scale_away(ctx, pitch: int, direction: int) -> int:
@@ -2818,7 +3789,7 @@ def _two_into(ctx, start: int, target: int, chord=None) -> tuple[int, int]:
 
 def _alcaniz_dance(ctx, bar: int, phrase, *, accented: bool):
     lead: list[NoteEvent] = []
-    low: list[NoteEvent] = []
+    answers: list[tuple[int, int, int]] = []
     band = ctx.band(bar)
     for eighth in (0, 3):
         origin = bar * ctx.epb + eighth
@@ -2826,12 +3797,40 @@ def _alcaniz_dance(ctx, bar: int, phrase, *, accented: bool):
         ordinary = _lead_vel(ctx, origin, phrase)
         velocity = max(ordinary, 68) if accented else ordinary
         lead.append(_heard(bar, eighth * 0.5, midi, 0.5, 1, velocity, accent=accented))
-        answer = eighth + 1
         bass = _sounding_bass(ctx, bar, midi)
         if bass is not None:
             _inner, bass_vel = _bed(ordinary, band)
-            low.append(_heard(bar, answer * 0.5, bass, 0.5, 3, bass_vel))
-    return lead, [], low
+            answers.append((eighth + 1, bass, bass_vel))
+    support: list[NoteEvent] = []
+    low: list[NoteEvent] = []
+    first = next((item for item in answers if item[0] == 1), None)
+    lead0 = _melody_at(ctx, bar * ctx.epb)
+    bed_vel = _bed(_lead_vel(ctx, bar * ctx.epb, phrase), band)[0]
+    long_first = False
+    if first is None:
+        gap = _gap_inner(ctx, ctx.chord(bar), bar)
+        if gap is not None:
+            support.append(_heard(bar, 1.0, gap, 0.5, 2, bed_vel))
+    else:
+        _eighth, bass, _bass_vel = first
+        inner = _torroba_inner(ctx, ctx.chord(bar), lead0, bass, allow_high=True)
+        planted = _heard(bar, 1.0, inner, 0.5, 2, bed_vel) if inner is not None else None
+        company = [*lead, *([planted] if planted is not None else [])]
+        if _choose_bass_eighths(ctx, bass, bar, 1, 1, 2, company) == 2:
+            long_first = True
+            if planted is not None:
+                support.append(planted)
+        else:
+            gap = _gap_inner(ctx, ctx.chord(bar), bar)
+            if gap is not None:
+                support.append(_heard(bar, 1.0, gap, 0.5, 2, bed_vel))
+    for eighth, bass, bass_vel in answers:
+        if eighth == 1:
+            length = 2 if long_first else 1
+        else:
+            length = _choose_bass_eighths(ctx, bass, bar, eighth, 1, 2, [*lead, *support])
+        low.append(_heard(bar, eighth * 0.5, bass, length * 0.5, 3, bass_vel))
+    return lead, support, low
 
 
 def _alcaniz_soft(ctx, bar: int, phrase):
@@ -2842,12 +3841,18 @@ def _alcaniz_soft(ctx, bar: int, phrase):
         velocity = _lead_vel(ctx, origin, phrase)
         lead.append(_heard(bar, eighth * 0.5, midi, 1.5, 1, velocity))
     low: list[NoteEvent] = []
+    support: list[NoteEvent] = []
     sung = _melody_at(ctx, bar * ctx.epb)
     bass = _sounding_bass(ctx, bar, sung)
     if bass is not None:
-        _inner, bass_vel = _bed(_lead_vel(ctx, bar * ctx.epb, phrase), ctx.band(bar))
-        low.append(_heard(bar, 0.0, bass, 0.5, 3, bass_vel))
-    return lead, [], low
+        inner_vel, bass_vel = _bed(_lead_vel(ctx, bar * ctx.epb, phrase), ctx.band(bar))
+        # Eighth 0's lead is still ringing (1.5) when the inner note speaks.
+        inner = _torroba_inner(ctx, ctx.chord(bar), sung, bass, allow_high=True)
+        if inner is not None:
+            support.append(_heard(bar, 1.0, inner, 0.5, 2, inner_vel))
+        eighths = _choose_bass_eighths(ctx, bass, bar, 0, 1, 2, [*lead, *support])
+        low.append(_heard(bar, 0.0, bass, eighths * 0.5, 3, bass_vel))
+    return lead, support, low
 
 
 def _scale_degree_below(lead: int, steps: int, mode: str) -> int | None:
@@ -2937,6 +3942,7 @@ def _alcaniz_opening(ctx, bar: int, phrase):
         inner = _alcaniz_under_lead(ctx, ctx.chord(bar), sung, raw)
         if inner is not None:
             support.append(_heard(bar, eighth * 0.5, inner, 0.5, 2, _bed(level, band)[0]))
+    low = _retune_bass(ctx, bar, low, [*lead, *support], 0, 1, 2, clear_staccato=False)
     return lead, support, low
 
 
@@ -3005,47 +4011,132 @@ def _fit_walk(steps: list[int]) -> list[int] | None:
 
 
 def _olite_chord(ctx, bar: int, eighth: int, phrase, *, accented: bool):
+    """Strong-beat eighth plus inner voice. Bass is placed once per half bar later."""
     origin = bar * ctx.epb + eighth
     midi = _melody_at(ctx, origin)
     ordinary = _lead_vel(ctx, origin, phrase)
     velocity = max(ordinary, 68) if accented else ordinary
     lead = [_heard(bar, eighth * 0.5, midi, 0.5, 1, velocity, accent=accented)]
     support: list[NoteEvent] = []
-    low: list[NoteEvent] = []
     raw = _torroba_bass(ctx, ctx.chord(bar), bar, midi)
     if raw is None:
-        return lead, support, low
-    inner_vel, bass_vel = _bed(velocity, ctx.band(bar))
-    if _open_bass_tone(ctx, raw):
-        low.append(_heard(bar, eighth * 0.5, raw, 0.5, 3, bass_vel))
+        return lead, support, []
+    inner_vel, _bass_vel = _bed(velocity, ctx.band(bar))
     inner = _torroba_inner(ctx, ctx.chord(bar), midi, raw, allow_high=True)
     if inner is not None:
         support.append(_heard(bar, eighth * 0.5, inner, 0.5, 2, inner_vel))
-    return lead, support, low
+    return lead, support, []
+
+
+def _olite_upper_fits(ctx, start: int, others: list[int]) -> int | None:
+    """Upper neighbor of `start` when principal, upper, and `others` share one position."""
+    upper = _walk(start, 1, ctx.mode, ctx.treble_floor, ctx.treble_top)
+    if upper == start or abs(upper - start) > 2:
+        return None
+    semi = ctx.semitones
+    sounding = [start + semi, upper + semi, *(note + semi for note in others)]
+    if not _position_ok(sounding):
+        return None
+    return upper
+
+
+def _olite_grace_pair(ctx, start: int, upper: int, others: list[int]) -> bool:
+    """Two sixteenths, upper then start, when each fits with the sounding bass."""
+    semi = ctx.semitones
+    pair = [upper + semi, start + semi]
+    if not _position_ok(pair):
+        return False
+    ordered = sorted({upper, start})
+    if any(abs(left - right) > 4 for left, right in zip(ordered, ordered[1:])):
+        return False
+    others_s = [note + semi for note in others]
+    return _playable([upper + semi, *others_s]) and _playable([start + semi, *others_s])
 
 
 def _olite_group(ctx, bar: int, eighths: tuple[int, int, int], start: int, target: int | None, phrase, chord=None):
     if target is None:
         return []
-    fitted = _fit_walk(_scale_steps(ctx, start, target, chord))
-    if not fitted:
-        return []
+    if start != target:
+        fitted = _fit_walk(_scale_steps(ctx, start, target, chord))
+        if not fitted:
+            return []
+        notes: list[NoteEvent] = []
+        for index, (eighth, midi) in enumerate(zip(eighths, fitted)):
+            velocity = _lead_vel(ctx, bar * ctx.epb + eighth, phrase)
+            notes.append(
+                _heard(
+                    bar,
+                    eighth * 0.5,
+                    midi,
+                    0.5,
+                    1,
+                    velocity,
+                    slur_start=index == 0,
+                    slur_stop=index == 1,
+                )
+            )
+        return notes
+    return _olite_neighbor(ctx, bar, eighths, start, phrase, chord)
+
+
+def _olite_neighbor(ctx, bar: int, eighths: tuple[int, int, int], start: int, phrase, chord) -> list[NoteEvent]:
+    """Three eighths around a repeated pitch: mordent, lower neighbor, return."""
+    owner = chord if chord is not None else ctx.chord(bar)
+    bass = _torroba_bass(ctx, owner, bar, start)
+    others = [bass] if bass is not None else []
+    beat = eighths[0] * 0.5
+    velocity = _lead_vel(ctx, bar * ctx.epb + eighths[0], phrase)
     notes: list[NoteEvent] = []
-    for eighth, midi in zip(eighths, fitted):
-        velocity = _lead_vel(ctx, bar * ctx.epb + eighth, phrase)
-        notes.append(_heard(bar, eighth * 0.5, midi, 0.5, 1, velocity))
+    upper = _olite_upper_fits(ctx, start, others)
+    if upper is not None:
+        sixth = 1.0 / 6.0
+        notes.extend(
+            [
+                _heard(bar, beat, start, sixth, 1, velocity, slur_start=True),
+                _heard(bar, beat + sixth, upper, sixth, 1, velocity),
+                _heard(bar, beat + 2.0 * sixth, start, sixth, 1, velocity, slur_stop=True),
+            ]
+        )
+    elif upper is None and _walk(start, 1, ctx.mode, ctx.treble_floor, ctx.treble_top) != start:
+        climbed = _walk(start, 1, ctx.mode, ctx.treble_floor, ctx.treble_top)
+        if abs(climbed - start) <= 2 and _olite_grace_pair(ctx, start, climbed, others):
+            notes.append(_heard(bar, beat, climbed, 0.25, 1, velocity, slur_start=True))
+            notes.append(_heard(bar, beat + 0.25, start, 0.25, 1, velocity, slur_stop=True))
+        else:
+            neighbor = torroba_scale_step(ctx, start, -1, low=ctx.treble_floor, high=ctx.treble_top)
+            notes.append(_heard(bar, beat, neighbor, 0.5, 1, velocity))
+    else:
+        neighbor = torroba_scale_step(ctx, start, -1, low=ctx.treble_floor, high=ctx.treble_top)
+        notes.append(_heard(bar, beat, neighbor, 0.5, 1, velocity))
+    lower = torroba_scale_step(ctx, start, -1, low=ctx.treble_floor, high=ctx.treble_top)
+    for eighth, midi in (
+        (eighths[1], lower),
+        (eighths[2], start),
+    ):
+        level = _lead_vel(ctx, bar * ctx.epb + eighth, phrase)
+        notes.append(_heard(bar, eighth * 0.5, midi, 0.5, 1, level))
     return notes
+
+
+def _olite_half_bass(ctx, bar: int, phrase, events: list[NoteEvent], ceiling: int) -> list[NoteEvent]:
+    """Bass at eighth 0 and eighth 4. Fretted 40–53 stay; open and fretted both reattack."""
+    raw = _torroba_bass(ctx, ctx.chord(bar), bar, ceiling)
+    if raw is None:
+        return []
+    _inner, bass_vel = _bed(_lead_vel(ctx, bar * ctx.epb, phrase), ctx.band(bar))
+    low: list[NoteEvent] = []
+    low.extend(_half_bass_events(ctx, bar, 0, raw, bass_vel, events))
+    low.extend(_half_bass_events(ctx, bar, 4, raw, bass_vel, events))
+    return low
 
 
 def _olite_vivace(ctx, bar: int, phrase, *, accented: bool):
     lead: list[NoteEvent] = []
     support: list[NoteEvent] = []
-    low: list[NoteEvent] = []
     for eighth in (0, 4):
-        part_lead, part_support, part_low = _olite_chord(ctx, bar, eighth, phrase, accented=accented)
+        part_lead, part_support, _part_low = _olite_chord(ctx, bar, eighth, phrase, accented=accented)
         lead.extend(part_lead)
         support.extend(part_support)
-        low.extend(part_low)
     origin = bar * ctx.epb
     start = _melody_at(ctx, origin)
     middle = _melody_at(ctx, origin + 4)
@@ -3053,21 +4144,34 @@ def _olite_vivace(ctx, bar: int, phrase, *, accented: bool):
     next_bar = bar + 1
     next_chord = ctx.chord(next_bar) if next_bar < ctx.bars else ctx.chord(bar)
     lead.extend(_olite_group(ctx, bar, (5, 6, 7), middle, _melody_here(ctx, origin + ctx.epb), phrase, next_chord))
+    low = _olite_half_bass(ctx, bar, phrase, [*lead, *support], min(start, middle))
     return lead, support, low
 
 
 def _olite_thin(ctx, bar: int, phrase):
+    """Dotted quarters joined by a leading eighth. A closing half bar is one half note."""
+    epb = ctx.epb
+    origin = bar * epb
+    closing = _closing_offsets(ctx, bar)
+    closes_half = set(range(4, epb)) <= closing
     lead: list[NoteEvent] = []
-    for eighth in (0, 4):
-        origin = bar * ctx.epb + eighth
-        midi = _melody_at(ctx, origin)
-        lead.append(_heard(bar, eighth * 0.5, midi, 0.5, 1, _lead_vel(ctx, origin, phrase)))
-    low: list[NoteEvent] = []
-    sung = _melody_at(ctx, bar * ctx.epb)
-    bass = _sounding_bass(ctx, bar, sung)
-    if bass is not None:
-        _inner, bass_vel = _bed(_lead_vel(ctx, bar * ctx.epb, phrase), ctx.band(bar))
-        low.append(_heard(bar, 0.0, bass, 0.5, 3, bass_vel))
+    midi0 = _melody_at(ctx, origin)
+    level0 = _lead_vel(ctx, origin, phrase)
+    lead.extend(written(origin, 3, midi0, velocity=level0))
+    midi3 = _melody_at(ctx, origin + 3)
+    level3 = _lead_vel(ctx, origin + 3, phrase)
+    lead.extend(written(origin + 3, 1, midi3, velocity=level3, slur_start=True))
+    midi4 = _melody_at(ctx, origin + 4)
+    level4 = _lead_vel(ctx, origin + 4, phrase)
+    if closes_half:
+        lead.extend(written(origin + 4, 4, midi4, velocity=level4, slur_stop=True))
+    else:
+        lead.extend(written(origin + 4, 3, midi4, velocity=level4, slur_stop=True))
+        midi7 = _melody_at(ctx, origin + 7)
+        level7 = _lead_vel(ctx, origin + 7, phrase)
+        lead.extend(written(origin + 7, 1, midi7, velocity=level7))
+    ceiling = min(note.midi for note in lead if note.midi is not None)
+    low = _olite_half_bass(ctx, bar, phrase, lead, ceiling)
     return lead, [], low
 
 
