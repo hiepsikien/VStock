@@ -1665,13 +1665,15 @@ def _melody_at(ctx: _Ctx, eighth: int) -> int:
 
 
 def _torroba_base_stretches(ctx: _Ctx, figure_at: dict) -> list[list[int]]:
-    """Body-bar runs in one phrase that the figure plan does not claim.
+    """Body-bar runs in one phrase that a real figure does not claim.
 
-    A stretch is maximal and does not cross a phrase. Figure bars and pedal
-    bars split the run and stay out of it. The list is in movement order,
-    starting at index 0, so the first stretch is even.
+    A stretch is maximal and does not cross a phrase. Types 1–8 and the
+    Alcaniz opening split the run and stay high. Thin Alcaniz, thin Olite,
+    and the last Juglar bar are the base grid, so they stay in the run.
+    Pedal bars split it too. The list is in movement order, starting at
+    index 0, so the first stretch is even.
     """
-    from app.sonify.guitar_torroba import _bars_of
+    from app.sonify.guitar_torroba import ALCANIZ_OPENING, _bars_of
 
     if ctx.ensemble != "torroba":
         return []
@@ -1683,7 +1685,12 @@ def _torroba_base_stretches(ctx: _Ctx, figure_at: dict) -> list[list[int]]:
             if bar in claimed or bar < 0 or bar >= ctx.bars:
                 continue
             claimed.add(bar)
-            if ctx.kind_at.get(bar, "phrase") in _PEDAL or bar in figure_at:
+            # Types 1–8 and the Alcaniz opening stay high. Thin Alcaniz, thin
+            # Olite, and the Juglar last bar are the base grid under a figure id.
+            placed = figure_at.get(bar)
+            figure = placed[0] if placed is not None else None
+            blocks = figure is not None and (figure <= 8 or figure == ALCANIZ_OPENING)
+            if ctx.kind_at.get(bar, "phrase") in _PEDAL or blocks:
                 if run:
                     stretches.append(run)
                     run = []
@@ -3495,7 +3502,7 @@ def render_patterned_voices(
     # a pedal hold; `_resolve` shortens whatever lead note still covers them.
     from app.sonify.guitar_torroba import apply_sonatina_downbeats
 
-    lead, support = apply_sonatina_downbeats(ctx, lead, support, patterns)
+    lead, support = apply_sonatina_downbeats(ctx, lead, support, patterns, scale_eighths)
     lead = _resolve(lead, epb, 1)
     support = _resolve_voices(support, epb, 2)
     low = _resolve(low, epb, 3)

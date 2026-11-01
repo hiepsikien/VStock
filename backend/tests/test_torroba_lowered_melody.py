@@ -3,6 +3,8 @@
 import inspect
 from dataclasses import replace
 
+import pytest
+
 from app.sonify.chords import C
 from app.sonify.form import METER_34, METER_44, ChordSlot, FormSection, compose_meter
 from app.sonify.guitar import render_guitar_score
@@ -16,7 +18,7 @@ from app.sonify.guitar_patterns import (
     render_patterned_voices,
 )
 from app.sonify.guitar_scale_passages import ScalePassage, ScalePlan
-from app.sonify.guitar_torroba import _scale_degree_below, torroba_figure_plan
+from app.sonify.guitar_torroba import _scale_degree_below, apply_sonatina_downbeats, torroba_figure_plan
 from app.sonify.keys import C_KEY, compose_register, register_for
 from app.sonify.model import HarmonyEvent, NoteEvent, Phrase, Run
 
@@ -313,3 +315,50 @@ def test_render_guitar_score_forwards_movement_index(monkeypatch) -> None:
             movement_index=0,
         )
     assert seen["movement_index"] == 0
+
+
+def test_thin_grids_stay_in_base_stretches_and_real_figures_split_them() -> None:
+    """Alcaniz soft, Olite thin, and the Juglar last bar are the base grid.
+
+    Types 1–8 and the Alcaniz opening stay out of the stretch.
+    """
+    ctx = _ctx(bars=4, phrases=(_phrase(0, 4, 8),))
+    soft = {bar: (11, bar, 4) for bar in range(4)}
+    thin = {bar: (12, bar, 4) for bar in range(4)}
+    last = {3: (9, 0, 1)}
+    assert _torroba_base_stretches(ctx, soft) == [[0, 1, 2, 3]]
+    assert _torroba_base_stretches(ctx, thin) == [[0, 1, 2, 3]]
+    assert _torroba_base_stretches(ctx, last) == [[0, 1, 2, 3]]
+    split = {**soft, 1: (7, 0, 1)}
+    assert _torroba_base_stretches(ctx, split) == [[0], [2, 3]]
+    opening = {0: (10, 0, 2), 1: (10, 1, 2)}
+    assert _torroba_base_stretches(ctx, opening) == [[2, 3]]
+
+
+def test_sonatina_pickup_aims_at_the_written_downbeat_and_skips_a_scale_eighth(monkeypatch) -> None:
+    """The grace follows the note already written, not the price still in the array."""
+    monkeypatch.setattr("app.sonify.guitar_torroba.torroba_figure_plan", lambda ctx, patterns: {})
+    epb = 6
+    ctx = _ctx(
+        bars=2,
+        phrases=(_phrase(0, 2, epb, midi=74),),
+        kind="3/4",
+        epb=epb,
+        strong=(0,),
+        melody=[74] * (2 * epb),
+        character="calm",
+        bpm=96,
+    )
+    lead = [
+        NoteEvent(bar=0, beat=0.0, midi=67, duration_beats=2.0, voice=1, velocity=64),
+        NoteEvent(bar=1, beat=0.0, midi=60, duration_beats=1.0, voice=1, velocity=64),
+    ]
+    planted, _support = apply_sonatina_downbeats(ctx, list(lead), [], ["sonatina"])
+    grace = [note for note in planted if note.duration_beats == pytest.approx(0.25)]
+    assert len(grace) == 1 and grace[0].midi == 59
+    assert grace[0].bar == 0 and grace[0].beat == pytest.approx(2.75)
+
+    skipped, _support = apply_sonatina_downbeats(
+        ctx, list(lead), [], ["sonatina"], scale_eighths={epb}
+    )
+    assert not [note for note in skipped if note.duration_beats == pytest.approx(0.25)]

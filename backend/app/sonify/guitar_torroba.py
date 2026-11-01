@@ -492,6 +492,76 @@ def _choose_bass_eighths(
     return old
 
 
+def _fitting_bass(
+    ctx,
+    bar: int,
+    start: int,
+    raw: int | None,
+    events: list[NoteEvent],
+    lengths: tuple[int, ...],
+) -> tuple[int, int] | None:
+    """A bass pitch and one length from `lengths` that frets with `events`.
+
+    `lengths` is preference order, longest first. The given pitch wins when
+    any of those lengths fits. Otherwise a chord tone that frets on this
+    eighth is tried. Nothing is returned when no length fits, so the attack
+    is left unwritten instead of failing `assert_playable`.
+    """
+    if start < 0 or start >= ctx.epb or not lengths:
+        return None
+    company = [event for event in events if event.voice != 3]
+
+    def length_for(pitch: int) -> int | None:
+        for length in lengths:
+            if _bass_eighths_fit(ctx, pitch, bar, start, length, company):
+                return length
+        return None
+
+    if raw is not None:
+        found = length_for(raw)
+        if found is not None:
+            return raw, found
+    alt = _chord_bass_at(ctx, bar, start, company)
+    if alt is None or alt == raw:
+        return None
+    found = length_for(alt)
+    if found is None:
+        return None
+    return alt, found
+
+
+def _support_under_bass(
+    ctx,
+    bar: int,
+    support: list[NoteEvent],
+    lead: list[NoteEvent],
+    bass: int,
+    start: int,
+    length: int,
+) -> list[NoteEvent]:
+    """Drop an inner note that cannot fret once the bass pitch has moved."""
+    semi = ctx.semitones
+    window_start = start * 0.5
+    window_end = (start + length) * 0.5
+    kept: list[NoteEvent] = []
+    for event in support:
+        if event.midi is None or event.bar != bar:
+            kept.append(event)
+            continue
+        highs = _sounding_at(lead, bar, event.beat)
+        if highs and event.midi >= min(highs):
+            continue
+        overlaps = window_start - 1e-9 <= event.beat < window_end - 1e-9
+        if overlaps and event.midi <= bass:
+            continue
+        sounding = [event.midi + semi, *(pitch + semi for pitch in highs)]
+        if overlaps:
+            sounding.insert(0, bass + semi)
+        if _playable(sounding):
+            kept.append(event)
+    return kept
+
+
 def _retune_bass(
     ctx,
     bar: int,
@@ -626,11 +696,17 @@ def _render_castillo_sustain(ctx, bar: int, phrase) -> tuple[list[NoteEvent], li
         low.extend(_half_bass_events(ctx, bar, 0, bass, bass_vel, [*lead, *support]))
         low.extend(_half_bass_events(ctx, bar, 4, bass, bass_vel, [*lead, *support]))
     elif bass is not None:
-        eighths = 2
-        if ctx.kind == "3/4":
-            eighths = _choose_bass_eighths(ctx, bass, bar, 0, 2, 3, [*lead, *support])
-        low = written(origin, eighths, bass, velocity=bass_vel)
-        low = [replace(event, voice=3, accent=False) for event in low]
+        # 3/4 prefers three eighths, then the old two, then one. 6/8 stays at
+        # two and may shorten. A pitch that frets at none of those lengths is
+        # replaced by another chord tone, or the bass is omitted.
+        lengths = (3, 2, 1) if ctx.kind == "3/4" else (2, 1)
+        fitted = _fitting_bass(ctx, bar, 0, bass, [*lead, *support], lengths)
+        if fitted is not None:
+            pitch, eighths = fitted
+            if pitch != bass:
+                support = _support_under_bass(ctx, bar, support, lead, pitch, 0, eighths)
+            low = written(origin, eighths, pitch, velocity=bass_vel)
+            low = [replace(event, voice=3, accent=False) for event in low]
     return lead, support, low
 
 
@@ -832,6 +908,9 @@ def _render_sonatina_moving(ctx, bar: int, phrase) -> tuple[list[NoteEvent], lis
     support: list[NoteEvent] = []
     low: list[NoteEvent] = []
     strong = [0, 4] if ctx.kind == "4/4" else [offset for offset in (0, 4) if offset < epb]
+    # Pitch actually written on 3/4 and 6/8. The inner voice frets with this
+    # note, not with a `_torroba_bass` that the hand could not hold.
+    grid_bass: dict[int, int] = {}
     for offset in strong:
         if ctx.kind != "4/4" and offset not in ctx.strong and offset != 0:
             continue
@@ -850,8 +929,12 @@ def _render_sonatina_moving(ctx, bar: int, phrase) -> tuple[list[NoteEvent], lis
         bass = _torroba_bass(ctx, chord, bar, midi)
         if ctx.kind == "4/4":
             continue
-        if bass is not None:
-            low.append(_bass_event(eighth, bass, epb, bass_vel))
+        fitted = _fitting_bass(ctx, bar, offset, bass, lead, (1,))
+        if fitted is None:
+            continue
+        pitch, length = fitted
+        grid_bass[offset] = pitch
+        low.append(_bass_event(eighth, pitch, epb, bass_vel, length=length))
     inners = [offset for offset in (1, 5) if offset < epb]
     prev = None
     for offset in _thin(inners, ctx, bar):
@@ -869,7 +952,13 @@ def _render_sonatina_moving(ctx, bar: int, phrase) -> tuple[list[NoteEvent], lis
         )
         cover = sounding.midi if sounding is not None else _melody_at(ctx, origin + offset)
         level = sounding.velocity if sounding is not None and sounding.velocity is not None else 64
-        bass = _torroba_bass(ctx, chord, bar, cover)
+        if ctx.kind == "4/4":
+            bass = _torroba_bass(ctx, chord, bar, cover)
+        else:
+            bass = None
+            for placed in sorted(grid_bass):
+                if placed <= offset:
+                    bass = grid_bass[placed]
         if bass is None:
             continue
         inner = _torroba_inner(ctx, chord, cover, bass, allow_high=False, prev_lead=prev)
@@ -2907,12 +2996,14 @@ def render_torroba_figure(
     return _FIGURES[figure](pen)
 
 
-def apply_sonatina_downbeats(ctx, lead, support, patterns):
+def apply_sonatina_downbeats(ctx, lead, support, patterns, scale_eighths: set[int] | None = None):
     """Leap, run, and step into a sonatina downbeat, written after frames.
 
     The sixteenth before offset 0 lives in the previous bar. `_resolve` then
     shortens a castillo or frame hold that would otherwise share the high voice.
-    Castillo, fandanguillo, and danza do not grow a pickup.
+    Castillo, fandanguillo, and danza do not grow a pickup. The arrival is the
+    lead note already written on that downbeat. A scale eighth owns its own
+    line, so no pickup is planted into it or out of it.
     """
     from app.sonify.guitar_patterns import _bar_pattern
 
@@ -2936,7 +3027,16 @@ def apply_sonatina_downbeats(ctx, lead, support, patterns):
             ctx, previous, eighth
         ):
             continue
-        target = _melody_at(ctx, eighth)
+        if scale_eighths and (eighth in scale_eighths or previous in scale_eighths):
+            _drop_unfinished_eighth_slur(lead, previous // epb)
+            continue
+        # The note already written on this downbeat. `_melody_at` is the price
+        # line, which a lowered stretch and a later passage no longer match.
+        arrival = _price_note(lead, eighth, epb)
+        if arrival is not None and lead[arrival].midi is not None:
+            target = lead[arrival].midi
+        else:
+            target = _melody_at(ctx, eighth)
         # Castillo and a calm frame hold the downbeat price. Eighth 4's close
         # is not sounding, so the interval is the held note, not `_melody_at`.
         prev_index = _price_note(lead, previous, epb)

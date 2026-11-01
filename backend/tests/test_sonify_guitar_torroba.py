@@ -384,7 +384,9 @@ def test_picardy_swaps_only_the_closing_bar_and_does_not_requantize(monkeypatch)
     assert score.slots[1].chord.name == "C"
     lead = [note.midi for note in score.lead if note.bar == 1 and note.midi is not None]
     assert lead
-    assert lead[0] == under_cm[8]
+    # Picardy keeps the placed G. This even thin-Olite stretch then sings it a fifth lower.
+    assert under_cm[8] == 67
+    assert lead[0] == 60
     assert score.harmonies[-1].chord.name == "C"
 
 
@@ -1499,6 +1501,48 @@ def test_castillo_4_4_holds_the_downbeat_for_the_bar() -> None:
     assert sounded[0].beat == pytest.approx(0.0)
     assert sounded[0].duration_beats == pytest.approx(4.0)
     assert not any(abs(note.duration_beats - 1.0 / 6.0) < 1e-6 for note in lead)
+
+
+def test_3_4_bass_retreats_to_a_chord_tone_the_lead_can_fret() -> None:
+    """Fm's F2 does not fit a high lead. The bar keeps a chord bass that does."""
+    melody = [72] * 6
+    phrase = _joined(0, melody, held=True)
+    ctx = _ctx(
+        melody=melody,
+        phrase=phrase,
+        kind="3/4",
+        epb=6,
+        strong=(0,),
+        character="calm",
+        bar_beats=3.0,
+        chord=FM,
+        bpm=96,
+    )
+    with compose_meter(METER_34):
+        castillo = _render_torroba_bar(ctx, 0, phrase, "castillo")
+        sonatina = _render_torroba_bar(ctx, 0, phrase, "sonatina")
+    for lead, support, low in (castillo, sonatina):
+        sounded = [note for note in low if note.midi is not None]
+        assert sounded and all(note.midi != 41 for note in sounded)
+        assert_playable(_figure_score(ctx, [(lead, support, low)], 1, FM), profiles="torroba")
+    assert castillo[2][0].duration_beats == pytest.approx(1.5)
+    assert sonatina[2][0].duration_beats == pytest.approx(0.5)
+
+    open_phrase = _joined(0, melody, held=True)
+    open_ctx = _ctx(
+        melody=melody,
+        phrase=open_phrase,
+        kind="3/4",
+        epb=6,
+        strong=(0,),
+        character="calm",
+        bar_beats=3.0,
+        chord=C,
+        bpm=96,
+    )
+    with compose_meter(METER_34):
+        _lead, _support, low = _render_torroba_bar(open_ctx, 0, open_phrase, "castillo")
+    assert len(low) == 1 and low[0].midi == 40 and low[0].duration_beats == pytest.approx(1.5)
 
 
 def test_bass_attack_is_omitted_when_no_length_frets() -> None:
