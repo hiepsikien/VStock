@@ -136,6 +136,11 @@ type Props = {
   /** Traded volume, one value per price, drawn as a strip under the line. */
   volumes?: number[] | null;
   volumeColor?: string;
+  /** Quiet horizontal rules behind the line. Off by default: the terminal keeps its face. */
+  grid?: boolean;
+  /** Soft halo under the stroke. Off by default. */
+  glow?: boolean;
+  gridColor?: string;
 };
 
 export function Sparkline({
@@ -156,6 +161,9 @@ export function Sparkline({
   waveColor = '#E040A0',
   volumes = null,
   volumeColor = 'rgba(62, 224, 224, 0.45)',
+  grid = false,
+  glow = false,
+  gridColor = 'rgba(244, 241, 234, 0.05)',
 }: Props) {
   const volumeStrip = volumeStripFor(height, Boolean(volumes && volumes.length > 0 && volumes.length === data.length));
   const { line, fill, cursor, volume } = useMemo(() => {
@@ -257,12 +265,39 @@ export function Sparkline({
           )}
         </Defs>
 
+        {grid ? (
+          <G>
+            {[0, 1 / 3, 2 / 3, 1].map((t) => (
+              <Line
+                key={t}
+                x1={0}
+                y1={(height - volumeStrip) * t}
+                x2={width}
+                y2={(height - volumeStrip) * t}
+                stroke={gridColor}
+                strokeWidth={1}
+              />
+            ))}
+          </G>
+        ) : null}
+
         {dimUnplayed && cursor ? (
           <>
             <G clipPath={`url(#${unplayedClipId})`} opacity={UNPLAYED_OPACITY}>
               {volumeShape}
               {waveBars}
               {showFill && fill ? <Path d={fill} fill={fillPaint} /> : null}
+              {glow && line ? (
+                <Path
+                  d={line}
+                  stroke={stroke}
+                  strokeWidth={strokeWidth * 3}
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity={0.16}
+                />
+              ) : null}
               {line ? (
                 <Path
                   d={line}
@@ -278,6 +313,17 @@ export function Sparkline({
               {volumeShape}
               {waveBars}
               {showFill && fill ? <Path d={fill} fill={fillPaint} /> : null}
+              {glow && line ? (
+                <Path
+                  d={line}
+                  stroke={stroke}
+                  strokeWidth={strokeWidth * 3}
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity={0.16}
+                />
+              ) : null}
               {line ? (
                 <Path
                   d={line}
@@ -295,6 +341,17 @@ export function Sparkline({
             {volumeShape}
             {waveBars}
             {showFill && fill ? <Path d={fill} fill={fillPaint} /> : null}
+            {glow && line ? (
+              <Path
+                d={line}
+                stroke={stroke}
+                strokeWidth={strokeWidth * 3}
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity={0.16}
+              />
+            ) : null}
             {line ? (
               <Path
                 d={line}

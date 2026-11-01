@@ -1,52 +1,70 @@
 import React from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLUMN_WIDTH, palette } from './palette';
+import { COLUMN_WIDTH, DOCK_HEIGHT, palette } from './palette';
 
 type Props = {
   wide: boolean;
   chooser: React.ReactNode;
   stage: React.ReactNode;
   controls: React.ReactNode;
+  topBar?: React.ReactNode;
 };
 
-/** Two columns from 960px. Below that: chooser, stage, controls. */
-export function RoomFrame({ wide, chooser, stage, controls }: Props) {
+/** Two columns from 960px. Below that: stage, dock, then the chooser list. */
+export function RoomFrame({ wide, chooser, stage, controls, topBar }: Props) {
   const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
+
   if (wide) {
     return (
-      <View style={[styles.wide, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-        <View style={styles.left}>{chooser}</View>
-        <View style={styles.right}>
-          <View style={styles.stage}>{stage}</View>
-          <ScrollView style={styles.controls} contentContainerStyle={styles.controlsContent}>
-            {controls}
-          </ScrollView>
+      <View
+        style={[
+          styles.root,
+          { paddingTop: insets.top, paddingBottom: insets.bottom },
+        ]}
+      >
+        {topBar}
+        <View style={styles.wide}>
+          <View style={styles.left}>{chooser}</View>
+          <View style={styles.right}>
+            <View style={styles.stage}>{stage}</View>
+            <View style={styles.dock}>{controls}</View>
+          </View>
         </View>
       </View>
     );
   }
+
+  const stageHeight = Math.max(300, Math.min(460, height * 0.44));
+
   return (
-    <ScrollView
-      style={styles.narrow}
-      contentContainerStyle={{ paddingTop: insets.top, paddingBottom: insets.bottom + 24 }}
+    <View
+      style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}
     >
+      {topBar}
+      <View style={{ height: stageHeight }}>{stage}</View>
+      <View style={[styles.dock, styles.dockNarrow]}>{controls}</View>
       <View style={styles.narrowChooser}>{chooser}</View>
-      <View style={styles.narrowStage}>{stage}</View>
-      {controls}
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: palette.background,
+  },
   wide: {
     flex: 1,
     flexDirection: 'row',
-    backgroundColor: palette.background,
+    minHeight: 0,
   },
   left: {
     width: COLUMN_WIDTH,
-    backgroundColor: palette.surface,
+    backgroundColor: palette.panel,
+    borderRightWidth: 1,
+    borderRightColor: palette.hairline,
   },
   right: {
     flex: 1,
@@ -59,21 +77,18 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     overflow: 'hidden',
   },
-  controls: {
-    maxHeight: '46%',
+  dock: {
+    height: DOCK_HEIGHT,
+    backgroundColor: palette.panel,
+    borderTopWidth: 1,
+    borderTopColor: palette.hairline,
   },
-  controlsContent: {
-    flexGrow: 1,
-  },
-  narrow: {
-    flex: 1,
-    backgroundColor: palette.background,
+  dockNarrow: {
+    height: 'auto',
   },
   narrowChooser: {
-    height: 460,
-    backgroundColor: palette.surface,
-  },
-  narrowStage: {
-    height: 420,
+    flex: 1,
+    minHeight: 0,
+    backgroundColor: palette.panel,
   },
 });

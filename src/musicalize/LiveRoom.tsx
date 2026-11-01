@@ -8,6 +8,7 @@ import { RoomFrame } from './RoomFrame';
 import { sonifySocketUrl } from './seek';
 import { Stage } from './Stage';
 import { SymbolColumn } from './SymbolColumn';
+import { TopBar } from './TopBar';
 
 type Props = {
   wide: boolean;
@@ -188,7 +189,8 @@ export function LiveRoom({ wide, onMode }: Props) {
   return (
     <RoomFrame
       wide={wide}
-      chooser={<SymbolColumn mode="live" onMode={onMode} rows={rows} selectedKey={selectedKey} onRow={choose} />}
+      topBar={<TopBar mode="live" onMode={onMode} />}
+      chooser={<SymbolColumn mode="live" rows={rows} selectedKey={selectedKey} onRow={choose} />}
       stage={
         <Stage
           prices={prices}
@@ -198,7 +200,7 @@ export function LiveRoom({ wide, onMode }: Props) {
           identity={
             prices.length > 1 ? null : source === 'history' ? `${symbol} · đoạn ~90s` : symbol
           }
-          banner={banner ?? (!playing ? status : null)}
+          banner={banner}
           seekable={false}
         />
       }
@@ -215,7 +217,7 @@ export function LiveRoom({ wide, onMode }: Props) {
             setPlaying(false);
             setStatus(null);
           }}
-          status={playing ? status : null}
+          status={status}
         />
       }
     />

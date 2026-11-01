@@ -17,6 +17,7 @@ import {
 import {
   chartFocus,
   englishDate,
+  englishKey,
   lerpFocus,
   movementOffsets,
   pieceCopy,
@@ -25,9 +26,12 @@ import {
   type PieceProgram,
 } from '../sonify/program';
 import { Controls } from './Controls';
-import type { ListenSpan } from './labels';
+import { clockText, GENRES, type ListenSpan } from './labels';
 import { RoomFrame } from './RoomFrame';
 import { ReplayPlayer, type SeekCommand } from './ReplayPlayer';
+import { TopBar } from './TopBar';
+import { useKeyboard } from './useKeyboard';
+import { useQuotes } from './useQuotes';
 import {
   dailyMapClock,
   dailyStageSeek,
@@ -39,6 +43,7 @@ import {
   spanStageSeek,
   workDuration,
   workSecondsAt,
+  clamp01,
 } from './seek';
 import { Stage } from './Stage';
 import { SymbolColumn, type SymbolChoice } from './SymbolColumn';
@@ -102,6 +107,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const [startSec, setStartSec] = useState(0);
   const [seek, setSeek] = useState<SeekCommand | null>(null);
   const [focus, setFocus] = useState<ChartFocus | null>(null);
+  const [focusSignal, setFocusSignal] = useState(0);
 
   const request = useRef<AbortController | null>(null);
   const restTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -168,7 +174,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
       try {
         const rows = await fetchMarketSymbols();
         if (cancelled || !rows.length) return;
-        setSymbols(rows.map((item) => ({ symbol: item.symbol, name: item.name })));
+        setSymbols(rows.map((item) => ({ symbol: item.symbol, name: item.name, exchange: item.exchange })));
         setSymbol((current) => {
           if (rows.some((item) => item.symbol === current)) return current;
           return rows.find((item) => item.symbol === 'VNM')?.symbol ?? rows[0].symbol;
@@ -181,6 +187,17 @@ export function ReplayRoom({ wide, onMode }: Props) {
       cancelled = true;
     };
   }, []);
+
+  const quoteSymbols = useMemo(() => {
+    const query = filter.trim().toUpperCase();
+    const shown = query
+      ? symbols.filter(
+          (item) => item.symbol.includes(query) || item.name.toUpperCase().includes(query),
+        )
+      : symbols;
+    return shown.map((item) => item.symbol);
+  }, [filter, symbols]);
+  const quotes = useQuotes(quoteSymbols);
 
   useEffect(() => {
     if (span !== '1D') return;
@@ -575,17 +592,6 @@ export function ReplayRoom({ wide, onMode }: Props) {
     [finished, issueSeek, manifest, mediaDuration],
   );
 
-  const onMovementScrub = useCallback(
-    (ratio: number) => {
-      const movement = movements?.[index];
-      if (!movement) return;
-      const clock = mediaDuration > 0 ? mediaDuration : movement.durationSec;
-      const target = scrubberSeek(clock, ratio);
-      jumpToMovement(index, target, playingRef.current || finished);
-    },
-    [finished, index, jumpToMovement, mediaDuration, movements],
-  );
-
   const onWorkScrub = useCallback(
     (ratio: number) => {
       if (!movements) return;
@@ -848,11 +854,99 @@ export function ReplayRoom({ wide, onMode }: Props) {
             movementFrameSettled(focus, offsets[index] ?? 0, current.prices.length)));
 
   const fileClock = manifest ? (mediaDuration > 0 ? mediaDuration : manifest.durationSec) : 0;
-  const movementClock = mediaDuration > 0 ? mediaDuration : (current?.durationSec ?? 0);
   const workClock = movements ? workDuration(movements) : 0;
   const workTime = movements
     ? workSecondsAt(movements, index, movementTime, resting, restOffset)
     : 0;
+
+  const chapterCount = span === '1D' ? 1 : (movements?.length ?? 0);
+  const chapterIndex = span === '1D' ? 0 : index;
+  const chapterLabel =
+    span === '1D'
+      ? manifest?.movementName?.trim() || null
+      : current?.name?.trim() || (movements ? `Chương ${index + 1}` : null);
+
+  const timeline =
+    span === '1D'
+      ? manifest
+        ? {
+            label: 'Phiên',
+            progress: fileClock > 0 ? Math.min(1, movementTime / fileClock) : 0,
+            time: movementTime,
+            duration: fileClock,
+            peaks: manifest.peaks.length ? manifest.peaks : [0.2],
+          }
+        : null
+      : movements
+        ? {
+            label: 'Tác phẩm',
+            progress: workClock > 0 ? Math.min(1, workTime / workClock) : 0,
+            time: workTime,
+            duration: workClock,
+          }
+        : null;
+
+  const durationClock = span === '1D' ? fileClock : workClock;
+  const keyName = span === '1D' ? (manifest?.keyLabel ?? '') : (current?.keyLabel ?? homeKey);
+  const stageMeta = [
+    symbol,
+    span === '1D' ? (date ? englishDate(date) || date : null) : span,
+    keyName ? englishKey(keyName) : null,
+    current?.bpm ? `${current.bpm} BPM` : null,
+    durationClock > 0 ? clockText(durationClock, durationClock) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  const seekBy = useCallback(
+    (delta: number) => {
+      if (span === '1D') {
+        if (!manifest || fileClock <= 0) return;
+        onFileScrub(clamp01((movementTime + delta) / fileClock));
+        return;
+      }
+      if (!movements || workClock <= 0) return;
+      onWorkScrub(clamp01((workTime + delta) / workClock));
+    },
+    [fileClock, manifest, movementTime, movements, onFileScrub, onWorkScrub, span, workClock, workTime],
+  );
+
+  const jumpChapter = useCallback(
+    (delta: number) => {
+      if (span === '1D' || !movements || movements.length < 2) return;
+      const next = Math.min(movements.length - 1, Math.max(0, index + delta));
+      if (next === index) return;
+      jumpToMovement(next, 0, playingRef.current);
+    },
+    [index, jumpToMovement, movements, span],
+  );
+
+  const toggle = useCallback(() => {
+    if (playing) onPause();
+    else onPlay();
+  }, [onPause, onPlay, playing]);
+
+  const pickGenre = useCallback((slot: number) => {
+    const next = GENRES[slot];
+    if (!next) return;
+    setVariant(next.id);
+    setEnsemble('classic');
+  }, []);
+
+  useKeyboard({
+    onToggle: toggle,
+    onReplay,
+    onSeekBy: seekBy,
+    onChapter: jumpChapter,
+    onGenre: pickGenre,
+    onFocusSearch: () => setFocusSignal((signal) => signal + 1),
+    onEscape: () => {
+      const doc = (
+        globalThis as { document?: { activeElement?: { blur?: () => void } } }
+      ).document;
+      doc?.activeElement?.blur?.();
+    },
+  });
 
   const identity =
     span === '1D'
@@ -863,10 +957,16 @@ export function ReplayRoom({ wide, onMode }: Props) {
     <>
     <RoomFrame
       wide={wide}
+      topBar={
+        <TopBar
+          mode="replay"
+          onMode={onMode}
+          onSearch={() => setFocusSignal((signal) => signal + 1)}
+        />
+      }
       chooser={
         <SymbolColumn
           mode="replay"
-          onMode={onMode}
           symbols={symbols}
           filter={filter}
           onFilter={setFilter}
@@ -877,6 +977,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
           onSymbol={setSymbol}
           onSpan={setSpan}
           onDate={setDate}
+          quotes={quotes}
+          focusSignal={focusSignal}
         />
       }
       stage={
@@ -890,6 +992,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
           focusEnd={focus?.end}
           program={program}
           identity={program ? null : identity}
+          badge={program ? symbol : null}
+          meta={program ? stageMeta : null}
           banner={error}
           seekable={stageSeekable}
           onSeekRatio={onStageRatio}
@@ -905,34 +1009,10 @@ export function ReplayRoom({ wide, onMode }: Props) {
           playing={playing}
           finished={finished}
           composing={composing}
-          fileScrub={
-            span === '1D' && manifest
-              ? {
-                  peaks: manifest.peaks.length ? manifest.peaks : [0.2],
-                  progress: fileClock > 0 ? Math.min(1, movementTime / fileClock) : 0,
-                  time: movementTime,
-                  duration: fileClock,
-                }
-              : null
-          }
-          movementScrub={
-            span !== '1D' && current
-              ? {
-                  progress: movementClock > 0 ? Math.min(1, (resting ? movementClock : movementTime) / movementClock) : 0,
-                  time: resting ? movementClock : movementTime,
-                  duration: movementClock,
-                }
-              : null
-          }
-          workScrub={
-            span !== '1D' && movements && movements.length > 1
-              ? {
-                  progress: workClock > 0 ? Math.min(1, workTime / workClock) : 0,
-                  time: workTime,
-                  duration: workClock,
-                }
-              : null
-          }
+          timeline={timeline}
+          chapterLabel={chapterLabel}
+          chapterIndex={chapterIndex}
+          chapterCount={chapterCount}
           onVariant={(next) => {
             setVariant(next);
             setEnsemble('classic');
@@ -943,9 +1023,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
           onPlay={onPlay}
           onPause={onPause}
           onReplay={onReplay}
-          onFileScrub={onFileScrub}
-          onMovementScrub={onMovementScrub}
-          onWorkScrub={onWorkScrub}
+          onTimeline={span === '1D' ? onFileScrub : onWorkScrub}
           status={composing ? 'Đang soạn…' : resting ? 'Nghỉ giữa chương' : null}
         />
       }

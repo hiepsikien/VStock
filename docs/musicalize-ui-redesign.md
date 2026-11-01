@@ -79,7 +79,7 @@ Không thêm `expo-font` ở P0/P1. Dùng font hệ thống, khai trong
 
 | Vai trò | Web | iOS | Android | Size / lineHeight | Weight | Tracking |
 |---|---|---|---|---|---|---|
-| `display` | `'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif` | `Georgia` | `serif` | 34 / 38 (wide), 26 / 30 (narrow) | 600 | −0.6 |
+| `display` | `Georgia, 'Palatino Linotype', Palatino, 'Times New Roman', 'Noto Serif', serif` | `Georgia` | `serif` | 34 / 38 (wide), 26 / 30 (narrow) | 600 | −0.6 |
 | `sans` | `-apple-system, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif` | `System` | `sans-serif` | 14 / 20 | 500 | 0 |
 | `wordmark` | `sans` | `sans` | `sans` | 13 / 16 | 700 | 3.0, uppercase |
 | `section` | `sans` | `sans` | `sans` | 11 / 14 | 700 | 1.2, uppercase |
@@ -88,6 +88,13 @@ Không thêm `expo-font` ở P0/P1. Dùng font hệ thống, khai trong
 
 `display` là serif: đây là thay đổi tạo khác biệt lớn nhất so với công sức. Nếu sau
 này muốn font riêng thì thêm `expo-font` ở P2, không đổi cấu trúc `type.ts`.
+
+**Kiểm tra tiếng Việt trước khi chốt font (đã làm trên macOS).** Georgia, Palatino,
+Times New Roman và Baskerville đều có đủ `ạ ế đ ư ơ ộ ỹ ấ`; Charter thiếu `ư ơ`.
+Georgia đứng đầu vì được vẽ cho màn hình (x-height lớn, tương phản nét thấp) và
+đủ dấu tiếng Việt. Đã kiểm bằng `fc-query` trên chính file font trong
+`/System/Library/Fonts`. Menlo thiếu `ế` và `ấ`, nên **không bao giờ đặt câu tiếng
+Việt ở vai `mono`** — dùng `section` hoặc `sans`.
 
 ## 4. Bố cục
 
@@ -229,6 +236,7 @@ chương hiện tại (`section`, `textFaint`) + `4/6`.
   đoạn `rest` vẽ `hairline`. Nhãn chương chỉ hiện khi hover (web) hoặc khi rê ngón
   (native): tooltip `surface` + viền `hairline`, nội dung `Tên chương · 3:12`.
 - Giờ hiển thị dùng `clockText(time, duration)` (hàm thuần trong `labels.ts`).
+  Chỉ có **một** đồng hồ, nằm ở hàng transport; timeline chỉ có nhãn và rãnh.
 - Touch target 44px (đã có `flatHit: height 28` → tăng vùng chạm, không tăng rãnh).
 
 **Ánh xạ thời gian và hành vi kéo.** Đây là phần rủi ro nhất của đợt, không phải
@@ -264,7 +272,8 @@ bấm ra ngoài, hoặc chọn xong. Thay `disclosure` đang làm reflow cả do
 
 Không đổi logic. Chỉ dùng chung Topbar/Stage/Dock mới. Bỏ Guitar khỏi shelf (đã
 đúng). Nút play khi chưa nối: chữ `NGHE ĐÀI`. Trạng thái `Đang nối…` chuyển thành
-`mono` ở hàng transport, không dùng banner.
+chữ `sans` 12 màu `textMuted` ở hàng transport, không dùng banner. Không đặt câu
+tiếng Việt ở vai `mono` vì Menlo thiếu `ế/ấ` (xem mục 3).
 
 ## 6. Chuyển động
 
@@ -349,16 +358,16 @@ Không đụng `fetchRecap`/`fetchSpan`.
 Trọng tâm P0 là **cụm transport + tile thể loại** (phần "hết wireframe" chính).
 Tick chương và tooltip dời sang P1 để P0 không phình.
 
-- [ ] `palette.ts`: thêm `panel`, `surfaceActive`, `hairline`, `hairlineStrong`, `textFaint`, `dataFill`, `soundSoft`; đổi `background`, `surface`.
-- [ ] `type.ts` mới: font role + scale theo bảng mục 3.
-- [ ] `TopBar.tsx` mới, gắn vào `RoomFrame.tsx`; bỏ `brand` khỏi `SymbolColumn`.
-- [ ] `Controls.tsx`: transport thành play tròn + `⟲` + clock; bỏ `ChipRow` lớn cho thể loại, thay tile; options vào popover.
-- [ ] `SymbolColumn.tsx`: hàng có tên công ty + sparkline + %, vạch trái khi chọn; bỏ `detail = span`.
-- [ ] `Scrubber.tsx`: gộp timeline (theo ánh xạ ở 5.4), `clockText` + `labels.test.ts`.
-- [ ] `Stage.tsx`: khối tiêu đề trên-trái, trục 4 nhãn bắt đầu `top: 32`, pill playhead clamp.
-- [ ] `useKeyboard.ts` + `useQuotes.ts`.
-- [ ] `Sparkline.tsx`: thêm prop tuỳ chọn `grid?: boolean`, `glow?: boolean`; mặc định `false` để terminal không đổi.
-- [ ] **A11y ngay khi tạo component:** `accessibilityLabel` + `accessibilityState` cho mọi `Pressable` mới, touch target ≥ 44. Không dồn sang P1.
+- [x] `palette.ts`: thêm `panel`, `surfaceActive`, `hairline`, `hairlineStrong`, `textFaint`, `dataFill`, `soundSoft`; đổi `background`, `surface`.
+- [x] `type.ts` mới: font role + scale theo bảng mục 3.
+- [x] `TopBar.tsx` mới, gắn vào `RoomFrame.tsx`; bỏ `brand` khỏi `SymbolColumn`.
+- [x] `Controls.tsx`: transport thành play tròn + `⟲` + clock; bỏ `ChipRow` lớn cho thể loại, thay tile; options vào popover.
+- [x] `SymbolColumn.tsx`: hàng có tên công ty + sparkline + %, vạch trái khi chọn; bỏ `detail = span`.
+- [x] `Scrubber.tsx`: gộp timeline (theo ánh xạ ở 5.4), `clockText` + `labels.test.ts`.
+- [x] `Stage.tsx`: khối tiêu đề trên-trái, trục 4 nhãn bắt đầu `top: 32`, pill playhead clamp.
+- [x] `useKeyboard.ts` + `useQuotes.ts`.
+- [x] `Sparkline.tsx`: thêm prop tuỳ chọn `grid?: boolean`, `glow?: boolean`; mặc định `false` để terminal không đổi.
+- [x] **A11y ngay khi tạo component:** `accessibilityLabel` + `accessibilityState` cho mọi `Pressable` mới, touch target ≥ 44. Không dồn sang P1.
 
 **Xong khi:** không còn khối magenta nào lớn hơn một hàng; `Space` phát/tạm dừng;
 đổi mã thấy tên công ty và %; không còn nhãn đè nhau; dock không có thanh cuộn;
@@ -443,5 +452,6 @@ Không sửa: `ReplayPlayer.tsx`, `liveSynth.ts`, `seek.ts`, `program.ts`,
 
 Còn mở:
 
-3. **Serif cho tên bài:** đồng ý hướng cổ điển (Iowan/Palatino/Georgia) hay muốn
-   condensed grotesk kiểu bìa album techno?
+3. ~~**Serif cho tên bài:**~~ Đã chốt: serif cổ điển, **Georgia** đứng đầu (đủ dấu
+   tiếng Việt, vẽ cho màn hình), rồi Palatino và Times New Roman. Xem bảng chữ ở
+   mục 3 và ghi chú kiểm tra `ạ ế đ ư ơ ộ ỹ ấ`.
