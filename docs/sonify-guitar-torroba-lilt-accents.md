@@ -1,6 +1,6 @@
 # Torroba: trọng âm bậc thang 3/4 – 6/8 và độ du di nhịp Tây Ban Nha (*Aire español / Rubato*)
 
-> **Trạng thái**: đã khóa, chờ vào code.
+> **Trạng thái**: đã vào code.
 > **Đọc cùng**: [`docs/sonify-guitar-torroba-meter-doors.md`](./sonify-guitar-torroba-meter-doors.md), [`docs/sonify-guitar-torroba-dynamics.md`](./sonify-guitar-torroba-dynamics.md), [`docs/sonify-guitar-torroba-phrase-plan.md`](./sonify-guitar-torroba-phrase-plan.md) mục 4, [`docs/sonify-humanize-timing-plan.md`](./sonify-humanize-timing-plan.md).
 > **Giữ**: Lưới nhịp `3/4`, `6/8`, `4/4` đã khóa. Một tâm sóng `round(C)` và một `extra` cho cả ô (`_WHOLE_BAR_EXTRA`). Không dùng Jazz swing (`swing=True`). Không sửa `duration_beats` của `NoteEvent`.
 
