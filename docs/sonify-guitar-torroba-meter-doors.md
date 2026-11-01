@@ -16,7 +16,7 @@ Engine có `METER_34` và `METER_68`. Không có `METER_24` và không có nhị
 |---|---|---|---|
 | `sonatina` | *Sonatina* I *Allegretto*, II *Andante* | 3/4 | 3/4 |
 | `sonatina` | *Sonatina* III *Allegro* | 3/8 | 6/8, xem mục 4 |
-| `castillo` | *Torija* và các *Castillos* chậm | 3/4 | 3/4. Không gọi kiểu 7, kiểu 8 |
+| `castillo` | *Torija* và các *Castillos* chậm | 3/4 | 3/4. Không gọi kiểu 7, kiểu 8; gọi hai câu 3/4 (`CASTILLO_WALK = 13`, `CASTILLO_CADENCE = 14`) |
 | `castillo` khi là Arada | *Suite Castellana* II, *Arada*, Lento | 4/4, hai nửa ô | 4/4. Kiểu 7 và kiểu 8 chỉ ở đây |
 | `fandanguillo` | *Suite Castellana* I | 3/4 và 6/8 | Bỏ tuple `(2, 4, 6)` của `_fandanguillo_melody`. Hàm chỉ trả `(2, 3)` trên 6/8 và `(2, 4)` trên 3/4 |
 | `danza` | *Suite Castellana* III | 3/4 và 6/8 | Giữ. `_danza_spans` tiếp tục trả rỗng ngoài hai nhịp này |
@@ -77,11 +77,24 @@ SSI 1M sau bảng này:
 
 ---
 
-## 3. Arada rời nhóm 3/4 và 6/8
+## 3. Arada rời nhóm 3/4 và 6/8; hai câu Castillos 3/4 (kiểu 13 và 14)
 
-Kiểu 7 và kiểu 8 là *Arada*, nhịp gốc 4/4. `_castillo_spans` hiện không đọc `kind`, nên hai kiểu này đang hát trên Castillo 3/4. Sửa: `kind` không phải `4/4` thì `_castillo_spans` trả `[]`. Castillo 3/4 hát lưới nền của 3/4, không hát Arada.
+Kiểu 7 và kiểu 8 là *Arada*, nhịp gốc 4/4. `_castillo_spans` trên `6/8` trả `[]`. Trên `4/4`, Arada không dùng mặt nhanh `bpm > 72`; `_type7_bar1` luôn `resolution="half"`.
 
-Trên 4/4, Arada không dùng mặt nhanh `bpm > 72`. `_type7_bar1` luôn `resolution="half"`.
+Trên `3/4`, `_castillo_spans` không gọi Arada mà gọi hai câu 9 ô của *Castillos* (`CASTILLO_WALK = 13` khi `n` chẵn, `CASTILLO_CADENCE = 14` khi `n` lẻ) cho mọi câu dài từ 2 ô trở lên (`tuple(range(min(9, length)))`), co giãn theo độ dài câu:
+
+- **Câu 1 (`CASTILLO_WALK = 13`, ô #3 → #11):**
+  - Ô đầu (`fan`): hợp âm dải rasgueado 5–6 dây ở móc 0 (`steps = 0`, `accent=True`), bốn móc đơn staccato lặp trên dây trầm (`steps = 2, 2, 1, 1`), móc 5 đẩy sang ô kế (`steps = 0`, `accent=True`).
+  - Các ô giữa: xen kẽ ô ba nốt đen đi bước xuống (`quarters`, bậc vi mô `0, 1, 2` giảm dần trong ô) và ô bốn móc đơn có luyến đầu ô rồi một nốt đen (`turn`, bốn móc đơn lượn `0, 2, 1, 2` rồi nốt đen bậc `1`). Ô áp chót (`turn_to_bass`) đặt tiếng trầm ở phách 3 để dẫn vào ô kết.
+  - Ô cuối (`hold`, bản lề ô #11): nốt trầm ngân trọn 3 phách dưới bốn móc đơn dẫn ở thế tay `II` đi từ nhẹ lên rõ (`steps = 2, 2, 1 → 0`, nốt đen cuối `accent=True`).
+- **Câu 2 (`CASTILLO_CADENCE = 14`, ô #11 → #19):**
+  - Ô đầu (`pickup`, cùng mặt bản lề ô #11): mở lại bằng nốt trầm ngân trọn ô và bốn móc đơn dẫn `2, 2, 1 → 0`.
+  - Hai ô hợp âm đen `cresc.` (`chords_a` → `chords_b`): bậc vi mô đi từ `(2, 2, 1)` sang `(1, 1, 0)` tạo crescendo xuyên hai ô.
+  - Ô bung `f` (`Burst`) và ô hợp âm đáp (`echo`): móc 0 bung ở bậc `0` (`accent=True`), chùm luyến mordent ở móc 1, rồi hai phách sau cùng ô `echo` lắng dần `(0, 1, 2)`.
+  - Hai ô chấm dôi thế tay `VII` (`dotted` / `tie_prep`): phách đầu chấm dôi bậc `0` (`accent=True`), móc đơn lướt nhẹ bậc `2` (trên nền `weak_bass`), phách 3 bậc `1`.
+  - Ô kết `rall. / ten.` (`final`): giai điệu ngân trọn ô ở bậc `0`, dưới là ba nốt trầm đen đi về chủ âm với bậc `(2, 1, 0)` nhấn vào nốt kết `ten.`.
+
+Hai kiểu `13` và `14` nằm trong `_REAL_TORROBA_FIGURES`, nên các ô thuộc hai kiểu này giữ bè cao (không hạ quãng 5) và tách các đoạn lưới nền giống kiểu 1–8 và `ALCANIZ_OPENING`. Câu `castillo` 3/4 chỉ dài 1 ô vẫn ở lại lưới ngân cả ô.
 
 ---
 

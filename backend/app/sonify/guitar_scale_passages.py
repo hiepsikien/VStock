@@ -2515,6 +2515,21 @@ def _preludio_pair(ctx: _Ctx, patterns: list[str], bar: int) -> tuple[int, int |
     return anchor, None
 
 
+def _written_lead_slices(lead: list[NoteEvent], eighth: int, stop: int, epb: int) -> list[list[int]]:
+    found: list[list[int]] = []
+    for cursor in range(eighth, stop):
+        when = cursor * 2
+        sounding = [
+            event.midi
+            for event in lead
+            if event.midi is not None
+            and _start16(event, epb) <= when < _start16(event, epb) + _dur16(event)
+        ]
+        if sounding:
+            found.append(sounding)
+    return found
+
+
 def _slices_between(
     leads: dict[int, list[int]],
     eighth: int,
@@ -2763,6 +2778,8 @@ def _rewrite_bass(
                 group = leads.get(cursor)
                 if group:
                     slices.append(group)
+            if stop > target + 1:
+                slices.extend(_written_lead_slices(lead, target + 1, stop, ctx.epb))
             if not slices:
                 slices = [[_melody_pitch(ctx, eighth)]]
             pitch = _bass_under_slices(ctx, bar, slices)

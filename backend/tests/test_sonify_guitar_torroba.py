@@ -2695,17 +2695,26 @@ def test_rolled_chord_scores_engrave_on_division_12(kind: str) -> None:
         assert bass_note.find("time-modification") is None
         _assert_tied_fifth(_streams(bar5)[1])
     else:
-        # 3/4 Castillo at 72 stays on the base grid. Types 7 and 8 do not play.
+        # 3/4 Castillo opens with the rasgueado of `CASTILLO_WALK` (divisions=12).
+        # A 1-bar phrase stays on the base grid (divisions != 12).
         slow = _pattern_score(kind, "castillo", character="calm", bpm=72, bars=5)
-        assert slow.divisions != 12
-        for bar in range(5):
-            lead = [note for note in slow.lead if note.bar == bar and note.midi is not None]
-            assert len(lead) == 1
-            assert lead[0].beat == pytest.approx(0.0)
-            assert lead[0].duration_beats == pytest.approx(3.0)
-            bass = [note for note in slow.low if note.bar == bar and note.beat == pytest.approx(0.0)]
-            assert len(bass) == 1 and bass[0].duration_beats == pytest.approx(1.5)
+        assert slow.divisions == 12
+        _assert_eighth_roll(
+            [note for note in slow.lead if note.bar == 0],
+            [note for note in slow.support if note.bar == 0],
+            [note for note in slow.low if note.bar == 0],
+        )
         assert_playable(slow, profiles="torroba")
+        _assert_measures_sum(slow)
+        one_bar = _pattern_score(kind, "castillo", character="calm", bpm=72, bars=1)
+        assert one_bar.divisions != 12
+        lead = [note for note in one_bar.lead if note.bar == 0 and note.midi is not None]
+        assert len(lead) == 1
+        assert lead[0].beat == pytest.approx(0.0)
+        assert lead[0].duration_beats == pytest.approx(3.0)
+        bass = [note for note in one_bar.low if note.bar == 0 and note.beat == pytest.approx(0.0)]
+        assert len(bass) == 1 and bass[0].duration_beats == pytest.approx(1.5)
+        assert_playable(one_bar, profiles="torroba")
 
     _ctx2, _phrase2, pair_parts = _flat_figure(kind, 2, midi=59, chord=_UNISON)
     pair_score = _engrave(_ctx2, pair_parts)
@@ -2728,10 +2737,13 @@ def test_rolled_chord_scores_engrave_on_division_12(kind: str) -> None:
     assert opening_rest.find("duration").text == "1"
     assert opening_rest.find("type").text == "32nd"
 
-    # 3/4 calm above 72 is Sonatina. Selloff stays Castillo, on the base grid.
+    # 3/4 calm above 72 is Sonatina. Selloff stays Castillo (with `CASTILLO_WALK` on 3/4).
     quiet_character = "selloff" if kind in {"4/4", "3/4"} else "calm"
     quiet = _pattern_score(kind, "castillo", character=quiet_character, bpm=96)
-    assert quiet.divisions != 12
+    if kind == "3/4":
+        assert quiet.divisions == 12
+    else:
+        assert quiet.divisions != 12
     assert_playable(quiet, profiles="torroba")
     assert meter.eighths_per_bar == epb
 
@@ -3997,12 +4009,23 @@ def test_figure_spans_lock_the_castillo_and_sonatina_table() -> None:
                     assigned.append((figure, slot_index, len(slots)))
             assert assigned.count((8, 0, 2)) == 2
             assert plan  # the even turn still paints type 7
-    for kind in ("3/4", "6/8"):
-        epb = _FIGURE_METERS[kind][1]
-        for turn in (0, 1):
-            phrase = _joined(0, [60] * (5 * epb), held=True)
-            ctx = _many((phrase,), kind=kind, bpm=72)
-            assert select_torroba_spans(ctx, phrase, "castillo", n=turn, previous=None) == []
+    for turn, expected in ((0, 13), (1, 14)):
+        epb = _FIGURE_METERS["3/4"][1]
+        phrase = _joined(0, [60] * (5 * epb), held=True)
+        ctx = _many((phrase,), kind="3/4", bpm=72)
+        assert select_torroba_spans(ctx, phrase, "castillo", n=turn, previous=None) == [
+            (expected, (0, 1, 2, 3, 4))
+        ]
+        long_phrase = _joined(0, [60] * (11 * epb), held=True)
+        long_ctx = _many((long_phrase,), kind="3/4", bpm=72)
+        assert select_torroba_spans(long_ctx, long_phrase, "castillo", n=turn, previous=None) == [
+            (expected, tuple(range(9)))
+        ]
+    epb_68 = _FIGURE_METERS["6/8"][1]
+    for turn in (0, 1):
+        phrase = _joined(0, [60] * (5 * epb_68), held=True)
+        ctx = _many((phrase,), kind="6/8", bpm=72)
+        assert select_torroba_spans(ctx, phrase, "castillo", n=turn, previous=None) == []
 
 
 def test_soft_lead_drops_four_and_the_pillar_bass_stays() -> None:
@@ -4026,3 +4049,107 @@ def test_soft_lead_drops_four_and_the_pillar_bass_stays() -> None:
     assert support[0].velocity == 54
     alone, _support, _low = _realize(ctx, 0, [_Attack(2.0, 64, 0.5, 1, 64, 2)])
     assert alone[0].velocity == 60
+
+
+@pytest.mark.parametrize("figure", [13, 14])
+@pytest.mark.parametrize("length", [2, 3, 4, 5, 6, 7, 8, 9])
+def test_castillo_34_sentences_engrave_and_remain_playable(figure: int, length: int) -> None:
+    meter, epb, strong, bar_beats = _FIGURE_METERS["3/4"]
+    pitches = [64 + (idx % 5) for idx in range(length * epb)]
+    phrase = _joined(0, pitches, held=True)
+    ctx = _ctx(
+        melody=pitches,
+        phrase=phrase,
+        kind="3/4",
+        epb=epb,
+        strong=strong,
+        bpm=72,
+        character="selloff",
+        bars=length,
+        chord=EM,
+        mode="minor",
+        bar_beats=bar_beats,
+    )
+    parts = [
+        render_torroba_figure(ctx, bar, phrase, "castillo", figure, index=bar, count=length)
+        for bar in range(length)
+    ]
+    score = _engrave(ctx, parts)
+    assert_playable(score, profiles="torroba")
+    _assert_measures_sum(score)
+    if figure == 13:
+        # Bar 0 opens with the rasgueado fan; the final bar holds the whole-bar bass arrival.
+        assert any(0.0 < note.beat < 0.25 for note in score.lead if note.bar == 0)
+        last_bass = [
+            note
+            for note in score.low
+            if note.bar == length - 1 and note.midi is not None and note.beat == pytest.approx(0.0)
+        ]
+        assert last_bass and sum(note.duration_beats for note in last_bass) == pytest.approx(3.0)
+    else:
+        # Bar 0 is the shared hold/pickup bar (#11); the final bar ends on three quarter bass steps.
+        first_bass = [
+            note
+            for note in score.low
+            if note.bar == 0 and note.midi is not None and note.beat == pytest.approx(0.0)
+        ]
+        assert first_bass and sum(note.duration_beats for note in first_bass) == pytest.approx(3.0)
+        final_bass = [
+            note
+            for note in score.low
+            if note.bar == length - 1 and note.midi is not None
+        ]
+        assert [round(note.beat, 2) for note in final_bass] == [0.0, 1.0, 2.0]
+
+
+def test_castillo_34_sentences_keep_micro_velocity_contours() -> None:
+    meter, epb, strong, bar_beats = _FIGURE_METERS["3/4"]
+    pitches = [67] * (9 * epb)
+    phrase = _joined(0, pitches, held=True)
+    ctx = _ctx(
+        melody=pitches,
+        phrase=phrase,
+        kind="3/4",
+        epb=epb,
+        strong=strong,
+        bpm=72,
+        character="selloff",
+        bars=9,
+        chord=EM,
+        mode="minor",
+        bar_beats=bar_beats,
+    )
+    # Sentence 1 (type 13):
+    # Bar 0 (`fan`): rolled chord lead at 64, then eighths 1..5 climb from 60 -> 60 -> 62 -> 62 -> 64.
+    fan_lead, _fan_sup, _fan_low = render_torroba_figure(ctx, 0, phrase, "castillo", 13, index=0, count=9)
+    assert [note.velocity for note in fan_lead if note.midi is not None] == [64, 60, 60, 62, 62, 64]
+    # Bar 1 (`quarters`): three quarter notes taper 64 -> 62 -> 60.
+    q_lead, _q_sup, _q_low = render_torroba_figure(ctx, 1, phrase, "castillo", 13, index=1, count=9)
+    assert [note.velocity for note in q_lead if note.midi is not None] == [64, 62, 60]
+    # Bar 2 (`turn`): upper-neighbor eighth group shapes 64, 60, 62, 60, then quarter 62.
+    t_lead, _t_sup, _t_low = render_torroba_figure(ctx, 2, phrase, "castillo", 13, index=2, count=9)
+    assert [note.velocity for note in t_lead if note.midi is not None] == [64, 60, 62, 60, 62]
+    # Bar 8 (`hold`, bar #11): whole-bar bass under pickup eighths rising to the quarter arrival.
+    h_lead, _h_sup, h_low = render_torroba_figure(ctx, 8, phrase, "castillo", 13, index=8, count=9)
+    assert h_low[0].duration_beats == pytest.approx(3.0)
+    assert h_lead[0].velocity < h_lead[-1].velocity == 64
+
+    # Sentence 2 (type 14):
+    # Bars 1 and 2 (`chords_a` -> `chords_b`): crescendo across the two three-chord bars.
+    ca_lead, _ca_sup, _ca_low = render_torroba_figure(ctx, 1, phrase, "castillo", 14, index=1, count=9)
+    cb_lead, _cb_sup, _cb_low = render_torroba_figure(ctx, 2, phrase, "castillo", 14, index=2, count=9)
+    assert [note.velocity for note in ca_lead if note.midi is not None] == [60, 60, 62]
+    assert [note.velocity for note in cb_lead if note.midi is not None] == [62, 62, 64]
+    # Bar 4 (`echo`): three chords taper 64 -> 62 -> 60.
+    ec_lead, _ec_sup, _ec_low = render_torroba_figure(ctx, 4, phrase, "castillo", 14, index=4, count=9)
+    assert [note.velocity for note in ec_lead if note.midi is not None][0] > [
+        note.velocity for note in ec_lead if note.midi is not None
+    ][-1]
+    # Bar 5 (`dotted`): dotted-quarter 64, light eighth 60, quarter 62.
+    dt_lead, _dt_sup, _dt_low = render_torroba_figure(ctx, 5, phrase, "castillo", 14, index=5, count=9)
+    assert [note.velocity for note in dt_lead if note.midi is not None] == [64, 60, 62]
+    # Bar 8 (`final`): three bass quarters step into the tenuto arrival (58 -> 60 -> 62).
+    _fn_lead, _fn_sup, fn_low = render_torroba_figure(ctx, 8, phrase, "castillo", 14, index=8, count=9)
+    assert [note.velocity for note in fn_low if note.midi is not None] == [58, 60, 62]
+
+

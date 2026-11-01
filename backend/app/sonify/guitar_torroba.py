@@ -26,6 +26,9 @@ JUGLAR_THIN = 9
 ALCANIZ_OPENING = 10
 ALCANIZ_SOFT = 11
 OLITE_THIN = 12
+CASTILLO_WALK = 13
+CASTILLO_CADENCE = 14
+_REAL_TORROBA_FIGURES = frozenset({*range(1, 9), ALCANIZ_OPENING, CASTILLO_WALK, CASTILLO_CADENCE})
 _TRIPLET = 4.0 / 12.0
 
 
@@ -1563,11 +1566,22 @@ def _section_key(ctx, phrase):
     return (section.start, section.end)
 
 
+def _castillo_34_spans(length: int, n: int) -> list[tuple[int, tuple[int, ...]]]:
+    """Two nine-bar Castillos sentences in 3/4, compressed when the phrase is shorter."""
+    if length <= 1:
+        return []
+    figure = CASTILLO_WALK if n % 2 == 0 else CASTILLO_CADENCE
+    return [(figure, tuple(range(min(9, length))))]
+
+
 def _castillo_spans(length: int, n: int, kind: str) -> list[tuple[int, tuple[int, ...]]]:
     """Locked castillo rows. Types 7 and 8 are Arada, and Arada is 4/4 only.
 
-    Each span restarts its own slot index at 0. 3/4 and 6/8 stay on the base grid.
+    3/4 calls the two Castillos sentences (`CASTILLO_WALK` and `CASTILLO_CADENCE`).
+    6/8 stays on the base grid.
     """
+    if kind == "3/4":
+        return _castillo_34_spans(length, n)
     if kind != "4/4" or length <= 1:
         return []
     if length in {2, 3}:
@@ -2796,31 +2810,33 @@ def _type7_bar4(pen: _Pen):
 
 def _root_in_bass(pen: _Pen) -> int:
     root = pen.ctx.chord(pen.bar).pitches[0] % 12
-    tones = [note for note in range(40, 53) if note % 12 == root]
+    low, high = _bass_window(pen.ctx)
+    tones = [note for note in range(low, high + 1) if note % 12 == root]
     if tones:
         return tones[0]
     found = pen.bass_of(None)
-    return 48 if found is None else max(40, min(52, found))
+    return max(low, min(high, 48 if found is None else found))
 
 
 def _scale_to_root(pen: _Pen, count: int, ceiling: int | None = None) -> list[int]:
-    """Stepwise bass in 40–52, ending on the chord root.
+    """Stepwise bass in the playable bass window, ending on the chord root.
 
     A degree the held lead cannot fret with is left out. The eighth rhythm
     stays one note per eighth. Open E2 still fits a high lead; F2 does not.
     """
     goal = _root_in_bass(pen)
     semi = pen.ctx.semitones
+    low, high = _bass_window(pen.ctx)
 
     def fits(pitch: int) -> bool:
         if ceiling is None:
             return True
         return _playable([pitch + semi, ceiling + semi])
 
-    scale = [pitch for pitch in range(40, 53) if _on_scale(pitch, pen.ctx.mode) and fits(pitch)]
+    scale = [pitch for pitch in range(low, high + 1) if _on_scale(pitch, pen.ctx.mode) and fits(pitch)]
     if not scale:
         found = pen.bass_of(ceiling)
-        fallback = 40 if found is None else max(40, min(52, found))
+        fallback = low if found is None else max(low, min(high, found))
         return [fallback] * count
     if goal not in scale:
         root = goal % 12
@@ -2968,6 +2984,313 @@ def _type8_three(pen: _Pen, start: int, written: int, support_level: int) -> Non
     pen.add((start + 2) * 0.5, goal, 0.5, 1, written, 2, slur_stop=True)
 
 
+def _castillo_34_bass_fits(pen: _Pen, bass: int | None, start: float, duration: float) -> bool:
+    if bass is None:
+        return False
+    semi = pen.ctx.semitones
+    end = start + duration
+    relevant = [
+        attack
+        for attack in pen.attacks
+        if attack.voice != 3
+        and attack.midi is not None
+        and attack.beat + attack.duration > start + 1e-9
+        and attack.beat < end - 1e-9
+    ]
+    instants = {start} | {max(start, attack.beat) for attack in relevant}
+    for beat in instants:
+        pitches = [
+            attack.midi
+            for attack in relevant
+            if attack.beat <= beat + 1e-9 < attack.beat + attack.duration
+        ]
+        if not pitches:
+            continue
+        if bass >= min(pitches):
+            return False
+        if not _playable([bass + semi, *(pitch + semi for pitch in pitches)]):
+            return False
+    return True
+
+
+def _castillo_34_add_bass(pen: _Pen, start: float, durations: tuple[float, ...], level: int, steps: int) -> int | None:
+    eighth = pen._eighth_at(start)
+    raw = pen.bass_of(pen.mel(eighth))
+    candidates: list[int] = []
+    if raw is not None:
+        candidates.append(raw)
+    pcs = pen.ctx.chord(pen.bar).pitch_classes
+    low, high = _bass_window(pen.ctx)
+    for note in range(low, high + 1):
+        if note % 12 in pcs and note not in candidates:
+            candidates.append(note)
+    open_bass = max(low, min(high, 40 - pen.ctx.semitones))
+    if open_bass not in candidates:
+        candidates.append(open_bass)
+    for pitch in candidates:
+        for duration in durations:
+            if _castillo_34_bass_fits(pen, pitch, start, duration):
+                pen.add(start, pitch, duration, 3, level, steps)
+                return pitch
+    return None
+
+
+def _castillo_walk_role(index: int, count: int) -> str:
+    if count <= 1:
+        return "hold"
+    if index == 0:
+        return "fan"
+    if index == count - 1:
+        return "hold"
+    if index == count - 2:
+        return "turn_to_bass"
+    return "quarters" if index % 2 == 1 else "turn"
+
+
+def _castillo_walk_fan(pen: _Pen):
+    written, _accent = pen.lead_level(0, strong=True)
+    _open_rasgueado(pen, written, lead_release=0.5, max_notes=6, accent=True, bed_steps=0)
+    repeated = pen.mel(1)
+    rep_written = pen.lead_level(1, strong=False)[0]
+    for offset, step in ((1, 2), (2, 2), (3, 1)):
+        pen.add(offset * 0.5, repeated, 0.5, 1, rep_written, step, staccato=True)
+    step = _walk(repeated, 1, pen.ctx.mode, pen.ctx.treble_floor, pen.ctx.treble_top)
+    if step == repeated:
+        step = pen.mel(4)
+    pen.add(2.0, step, 0.5, 1, pen.lead_level(4, strong=False)[0], 1, staccato=True)
+    pen.add(2.5, pen.mel(5), 0.5, 1, pen.lead_level(5, strong=False)[0], 0, accent=True)
+    return pen.finish()
+
+
+def _castillo_walk_quarters(pen: _Pen):
+    first = pen.mel(0)
+    middle = _walk(first, -1, pen.ctx.mode, pen.ctx.treble_floor, pen.ctx.treble_top)
+    if middle == first:
+        middle = pen.mel(2)
+    last = _walk(middle, -1, pen.ctx.mode, pen.ctx.treble_floor, pen.ctx.treble_top)
+    if last == middle:
+        last = pen.mel(4)
+    pitches = (first, middle, last)
+    steps_seq = (0, 1, 2)
+    for beat_index, eighth in enumerate((0, 2, 4)):
+        if eighth >= pen.epb:
+            break
+        strong = eighth == 0
+        written, mark = pen.lead_level(eighth, strong=strong)
+        steps = steps_seq[beat_index]
+        pen.add(beat_index * 1.0, pitches[beat_index], 1.0, 1, written, steps, accent=mark and strong)
+    support_level, bass_level, _weak = pen.beds(pen.lead_level(0, strong=True)[0])
+    _castillo_34_add_bass(pen, 0.0, (1.5, 1.0, 0.5), bass_level, 1)
+    del support_level
+    return pen.finish()
+
+
+def _castillo_walk_turn(pen: _Pen, *, to_bass: bool):
+    anchor = pen.mel(0)
+    upper = _walk(anchor, 1, pen.ctx.mode, pen.ctx.treble_floor, pen.ctx.treble_top)
+    lower = _walk(anchor, -1, pen.ctx.mode, pen.ctx.treble_floor, pen.ctx.treble_top)
+    semi = pen.ctx.semitones
+    can_slur = upper != anchor and abs(upper - anchor) <= 2 and _position_ok([anchor + semi, upper + semi])
+    e0 = pen.lead_level(0, strong=True)[0]
+    e1 = pen.lead_level(1, strong=False)[0]
+    e2 = pen.lead_level(2, strong=False)[0]
+    e3 = pen.lead_level(3, strong=False)[0]
+    pen.add(0.0, anchor, 0.5, 1, e0, 0, accent=True, slur_start=can_slur)
+    pen.add(0.5, upper if can_slur else pen.mel(1), 0.5, 1, e1, 2, slur_stop=can_slur)
+    pen.add(1.0, anchor, 0.5, 1, e2, 1)
+    pen.add(1.5, lower if lower != anchor else pen.mel(3), 0.5, 1, e3, 2)
+    written4 = pen.lead_level(4, strong=False)[0]
+    _support_level, bass_level, _weak = pen.beds(e0)
+    if to_bass:
+        pen.add(2.0, pen.mel(4), 1.0, 1, written4, 1)
+        _castillo_34_add_bass(pen, 2.0, (1.0, 0.5), bass_level, 0)
+    else:
+        pen.add(2.0, pen.mel(4), 1.0, 1, written4, 1)
+        _castillo_34_add_bass(pen, 0.0, (0.5,), bass_level, 1)
+    return pen.finish()
+
+
+def _castillo_walk_hold(pen: _Pen):
+    written, _accent = pen.lead_level(0, strong=True)
+    _support_level, bass_level, _weak = pen.beds(written)
+    lead_0 = pen.mel(0)
+    anchor = pen.mel(1)
+    step = _walk(anchor, 1, pen.ctx.mode, pen.ctx.treble_floor, pen.ctx.treble_top)
+    for eighth, midi, steps in (
+        (1, anchor, 2),
+        (2, anchor, 2),
+        (3, step if step != anchor else pen.mel(3), 1),
+        (4, pen.mel(4), 0),
+    ):
+        if eighth >= pen.epb:
+            break
+        level = pen.lead_level(eighth, strong=False)[0]
+        pen.add(eighth * 0.5, midi, 1.0 if eighth == 4 else 0.5, 1, level, steps, accent=(eighth == 4))
+    if not any(attack.voice == 1 for attack in pen.attacks):
+        pen.add(0.0, lead_0, pen.beats, 1, written, 0, accent=True)
+    _castillo_34_add_bass(pen, 0.0, (pen.beats, 1.5, 1.0, 0.5), bass_level, 1)
+    return pen.finish()
+
+
+def _render_type13(pen: _Pen):
+    """Castillos 3/4 sentence 1 (bars #3–#11): rasgueado launch, fifth-string walk, low B arrival."""
+    role = _castillo_walk_role(pen.index, pen.count)
+    if role == "fan":
+        return _castillo_walk_fan(pen)
+    if role == "quarters":
+        return _castillo_walk_quarters(pen)
+    if role == "turn":
+        return _castillo_walk_turn(pen, to_bass=False)
+    if role == "turn_to_bass":
+        return _castillo_walk_turn(pen, to_bass=True)
+    return _castillo_walk_hold(pen)
+
+
+def _castillo_cadence_role(index: int, count: int) -> str:
+    if count <= 1:
+        return "final"
+    if count == 2:
+        return ("pickup", "final")[index]
+    if count == 3:
+        return ("pickup", "chords_a", "final")[index]
+    if count == 4:
+        return ("pickup", "chords_a", "dotted", "final")[index]
+    if count == 5:
+        return ("pickup", "chords_a", "Burst", "dotted", "final")[index]
+    if count == 6:
+        return ("pickup", "chords_a", "Burst", "echo", "dotted", "final")[index]
+    if count == 7:
+        return ("pickup", "chords_a", "chords_b", "Burst", "echo", "dotted", "final")[index]
+    if count == 8:
+        return ("pickup", "chords_a", "chords_b", "Burst", "echo", "dotted", "tie_prep", "final")[index]
+    roles = ("pickup", "chords_a", "chords_b", "Burst", "echo", "dotted", "chords_b", "tie_prep", "final")
+    return roles[min(index, len(roles) - 1)]
+
+
+def _castillo_cadence_chords(pen: _Pen, *, steps_seq: tuple[int, int, int]):
+    for beat_index, eighth in enumerate((0, 2, 4)):
+        if eighth >= pen.epb:
+            break
+        sung = pen.mel(eighth)
+        steps = steps_seq[min(beat_index, len(steps_seq) - 1)]
+        written, mark = pen.lead_level(eighth, strong=(eighth == 0 or steps == 0))
+        support_level, bass_level, _weak = pen.beds(written)
+        low = pen.bass_of(sung)
+        inner = pen.support_of(sung, low, capped=False)
+        beat = beat_index * 1.0
+        pen.add(beat, sung, 1.0, 1, written, steps, accent=mark and steps == 0)
+        if inner is not None and _playable([inner + pen.ctx.semitones, sung + pen.ctx.semitones]):
+            pen.add(beat, inner, 1.0, 2, support_level, steps)
+        _castillo_34_add_bass(pen, beat, (1.0, 0.5), bass_level, steps)
+    return pen.finish()
+
+
+def _castillo_cadence_burst(pen: _Pen):
+    sung = pen.mel(0)
+    written, _accent = pen.lead_level(0, strong=True)
+    support_level, bass_level, _weak = pen.beds(written)
+    pen.add(0.0, sung, 0.5, 1, written, 0, accent=True)
+    pen.mordent_triplet(0.5, pen.mel(1), [], pen.lead_level(1, strong=False)[0], 1)
+    for eighth, duration, steps in ((2, 1.0, 1), (4, 1.0, 2)):
+        if eighth >= pen.epb:
+            break
+        pen.add(eighth * 0.5, pen.mel(eighth), duration, 1, pen.lead_level(eighth, strong=False)[0], steps)
+    low = _castillo_34_add_bass(pen, 0.0, (pen.beats, 1.5, 1.0, 0.5), bass_level, 0)
+    early_leads = [
+        attack.midi
+        for attack in pen.attacks
+        if attack.voice == 1 and attack.midi is not None and attack.beat < 1.5 - 1e-9
+    ]
+    ceiling = min(early_leads) if early_leads else sung
+    inner = pen.support_of(ceiling, low, capped=False)
+    if (
+        inner is not None
+        and inner < ceiling
+        and _castillo_34_bass_fits(pen, inner, 0.0, 1.5)
+        and all(
+            _playable(
+                [*([low + pen.ctx.semitones] if low is not None else []), inner + pen.ctx.semitones, m + pen.ctx.semitones]
+            )
+            for m in early_leads
+        )
+    ):
+        pen.add(0.0, inner, 1.5, 2, support_level, 0, accent=True)
+    return pen.finish()
+
+
+def _castillo_cadence_echo(pen: _Pen):
+    written, _accent = pen.lead_level(0, strong=True)
+    support_level, bass_level, _weak = pen.beds(written)
+    steps_seq = (0, 1, 2)
+    for beat_index, eighth in enumerate((0, 2, 4)):
+        if eighth >= pen.epb:
+            break
+        sung = pen.mel(eighth)
+        steps = steps_seq[beat_index]
+        level = pen.lead_level(eighth, strong=(beat_index == 0))[0]
+        pen.add(beat_index * 1.0, sung, 1.0, 1, level, steps, accent=(beat_index == 0))
+    low = _castillo_34_add_bass(pen, 0.0, (pen.beats, 1.5, 1.0, 0.5), bass_level, 1)
+    for beat_index, eighth in enumerate((0, 2, 4)):
+        if eighth >= pen.epb:
+            break
+        sung = pen.mel(eighth)
+        steps = steps_seq[beat_index]
+        inner = pen.support_of(sung, low, capped=False)
+        if inner is not None and _castillo_34_bass_fits(pen, inner, beat_index * 1.0, 1.0):
+            pen.add(beat_index * 1.0, inner, 1.0, 2, support_level, steps)
+    return pen.finish()
+
+
+def _castillo_cadence_dotted(pen: _Pen, *, prep_tie: bool):
+    sung0 = pen.mel(0)
+    written0, _accent = pen.lead_level(0, strong=True)
+    _support_level, _bass_level, weak_bass = pen.beds(written0)
+    pen.add(0.0, sung0, 1.5, 1, written0, 0, accent=True)
+    sung3 = pen.mel(3)
+    written3 = pen.lead_level(3, strong=False)[0]
+    pen.add(1.5, sung3, 0.5, 1, written3, 2, slur_start=prep_tie)
+    sung4 = pen.mel(4)
+    written4 = pen.lead_level(4, strong=False)[0]
+    pen.add(2.0, sung4, 1.0, 1, written4, 1, slur_stop=prep_tie)
+    _castillo_34_add_bass(pen, 1.0, (2.0, 1.0, 0.5), weak_bass, 0)
+    return pen.finish()
+
+
+def _castillo_cadence_final(pen: _Pen):
+    sung = pen.mel(0)
+    ordinary, _accent = pen.lead_level(0, strong=True)
+    velocity = _harmonic_velocity(pen.ctx, sung, pen.beats, ordinary)
+    _support_level, bass_level, _weak = pen.beds(ordinary)
+    pen.add(0.0, sung, pen.beats, 1, velocity, 0, accent=(velocity != 48))
+    line = _scale_to_root(pen, 3, sung)
+    for beat_index, (midi, steps) in enumerate(zip(line, (2, 1, 0))):
+        if _castillo_34_bass_fits(pen, midi, beat_index * 1.0, 1.0):
+            pen.add(beat_index * 1.0, midi, 1.0, 3, bass_level, steps)
+        else:
+            _castillo_34_add_bass(pen, beat_index * 1.0, (1.0, 0.5), bass_level, steps)
+    return pen.finish()
+
+
+def _render_type14(pen: _Pen):
+    """Castillos 3/4 sentence 2 (bars #11–#19): II pickup, cresc. chords, f burst, rall. cadence."""
+    role = _castillo_cadence_role(pen.index, pen.count)
+    if role == "pickup":
+        return _castillo_walk_hold(pen)
+    if role == "chords_a":
+        return _castillo_cadence_chords(pen, steps_seq=(2, 2, 1))
+    if role == "chords_b":
+        return _castillo_cadence_chords(pen, steps_seq=(1, 1, 0))
+    if role == "Burst":
+        return _castillo_cadence_burst(pen)
+    if role == "echo":
+        return _castillo_cadence_echo(pen)
+    if role == "dotted":
+        return _castillo_cadence_dotted(pen, prep_tie=False)
+    if role == "tie_prep":
+        return _castillo_cadence_dotted(pen, prep_tie=True)
+    return _castillo_cadence_final(pen)
+
+
 _FIGURES = {
     1: _render_type1,
     2: _render_type2,
@@ -2977,6 +3300,8 @@ _FIGURES = {
     6: _render_type6,
     7: _render_type7,
     8: _render_type8,
+    CASTILLO_WALK: _render_type13,
+    CASTILLO_CADENCE: _render_type14,
 }
 
 

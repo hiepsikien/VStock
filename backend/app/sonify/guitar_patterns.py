@@ -1673,7 +1673,7 @@ def _torroba_base_stretches(ctx: _Ctx, figure_at: dict) -> list[list[int]]:
     Pedal bars split it too. The list is in movement order, starting at
     index 0, so the first stretch is even.
     """
-    from app.sonify.guitar_torroba import ALCANIZ_OPENING, _bars_of
+    from app.sonify.guitar_torroba import _REAL_TORROBA_FIGURES, _bars_of
 
     if ctx.ensemble != "torroba":
         return []
@@ -1685,11 +1685,12 @@ def _torroba_base_stretches(ctx: _Ctx, figure_at: dict) -> list[list[int]]:
             if bar in claimed or bar < 0 or bar >= ctx.bars:
                 continue
             claimed.add(bar)
-            # Types 1–8 and the Alcaniz opening stay high. Thin Alcaniz, thin
-            # Olite, and the Juglar last bar are the base grid under a figure id.
+            # Types 1–8, the Alcaniz opening, and the 3/4 Castillos sentences
+            # stay high. Thin Alcaniz, thin Olite, and the Juglar last bar are
+            # the base grid under a figure id.
             placed = figure_at.get(bar)
             figure = placed[0] if placed is not None else None
-            blocks = figure is not None and (figure <= 8 or figure == ALCANIZ_OPENING)
+            blocks = figure in _REAL_TORROBA_FIGURES
             if ctx.kind_at.get(bar, "phrase") in _PEDAL or blocks:
                 if run:
                     stretches.append(run)

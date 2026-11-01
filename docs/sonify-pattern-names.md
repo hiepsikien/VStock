@@ -83,8 +83,10 @@ Tên dưới đây là nhãn cho code. File kế hoạch vẫn đánh số Kiể
 | 4 | Dialogue | `sonatina` | *Sonatina* I, hai ô mở đầu, câu gọi và câu đáp |
 | 5 | Arch | `fandanguillo` | *Suite Castellana* I, vòm bốn ô: quạt, giá ở bè trầm, rồi giao lên bè cao |
 | 6 | Bounce | `danza` | *Suite Castellana* III, chùm ba trên hợp âm ngân |
-| 7 | Arada | `castillo`, BPM ≤ 72 | *Suite Castellana* II, câu đầu *Arada*, năm ô |
-| 8 | Float | `castillo`, BPM ≤ 72 | *Arada* câu 2: hợp âm chấm dôi, hai tiếng `Arm. 8`, câu hát sang ô kế |
+| 7 | Arada | `castillo` (4/4) | *Suite Castellana* II, câu đầu *Arada*, năm ô |
+| 8 | Float | `castillo` (4/4) | *Arada* câu 2: hợp âm chấm dôi, hai tiếng `Arm. 8`, câu hát sang ô kế |
+| 13 | Walk (`CASTILLO_WALK`) | `castillo` (3/4) | *Castillos* 3/4 câu 1 (ô #3–#11): quạt rasgueado mở, đi bộ trên dây trầm xen chùm móc luyến, đáp nốt trầm ngân trọn ô #11 |
+| 14 | Cadence (`CASTILLO_CADENCE`) | `castillo` (3/4) | *Castillos* 3/4 câu 2 (ô #11–#19): dẫn thế tay `II` trên nốt trầm ngân, hai ô hợp âm `cresc.`, bung `f` + mordent, câu chấm dôi `VII` và kết `rall. / ten.` |
 
 Arpeggio ở đây là nhãn kiểu của Sonatina. Villa đã in **Arpeggio** trên chart (`villa_pattern`), nên tên này không đưa vào `PATTERN_NAMES`.
 
