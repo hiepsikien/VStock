@@ -4352,6 +4352,32 @@ def test_three_four_offbeats_step_outside_the_owning_apex() -> None:
     assert _at(lead, 2.0).velocity == 62 and _at(lead, 2.0).duration_beats == pytest.approx(1.0)
     assert not any(note.midi is not None and note.beat == pytest.approx(2.5) for note in lead)
 
+    # Rise 1 still has a real apex. Eighth 4 keeps its written level; eighth 2 drops.
+    small = [71, 71, 71, 71, 72, 71]
+    small_phrase = _joined(0, small, held=True)
+    assert small_phrase.rise == 1
+    assert len({run.midi for run in small_phrase.runs}) > 1
+    assert small_phrase.apex.start == 4 and abs(small[0] - small[4]) <= 2
+    small_ctx = _ctx(
+        melody=small,
+        phrase=small_phrase,
+        kind="3/4",
+        epb=6,
+        strong=(0,),
+        character="calm",
+        bar_beats=3,
+        chord=C,
+    )
+    with compose_meter(METER_34):
+        small_lead, _support, _low = _render_torroba_bar(small_ctx, 0, small_phrase, "sonatina")
+    small_apex = _apex_eighths(small_ctx.phrases)
+    apex_level = _note_velocity(4, 1, small_apex, small_phrase)
+    off_level = _note_velocity(2, 1, small_apex, small_phrase)
+    assert apex_level == 72 and off_level == 64
+    assert _at(small_lead, 2.0).velocity == apex_level
+    assert _at(small_lead, 1.0).velocity == max(40, off_level - 2)
+    assert _at(small_lead, 0.0).velocity == 64 and _at(small_lead, 0.0).accent
+
     # A sentence that opens on eighth 4 keeps that eighth when the peak is there.
     opening = _joined(0, [72, 72, 72, 72], held=True)
     following = _joined(4, [74, 72])

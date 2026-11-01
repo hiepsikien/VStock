@@ -1461,13 +1461,15 @@ def _phrase_covering(ctx, eighth: int, fallback=None):
 
 
 def _on_moving_apex(owner, eighth: int) -> bool:
-    """True when `eighth` sits on the peak of a phrase that actually moves.
+    """True when `eighth` is on the peak `_apex_eighths` would mark.
 
-    A flat phrase (`rise == 0`) names its only run as the apex. That run is
-    not a melodic peak — `_apex_eighths` skips it — so a 3/4 off-beat still
-    steps down. A phrase that moves keeps the eighths inside `owner.apex`.
+    A phrase is not a melodic peak when `rise <= 0` or it has one distinct
+    pitch. Rise 1 or 2 still keeps every eighth inside `owner.apex`.
     """
-    if owner is None or not owner.runs or owner.rise <= 0:
+    if owner is None or not owner.runs:
+        return False
+    distinct = {run.midi for run in owner.runs}
+    if owner.rise <= 0 or len(distinct) <= 1:
         return False
     return owner.apex.start <= eighth < owner.apex.end
 
