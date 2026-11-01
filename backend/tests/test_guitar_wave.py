@@ -7,6 +7,7 @@ that was already written on the note.
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 from app.sonify.chords import C
 from app.sonify.form import FormSection
@@ -18,6 +19,7 @@ from app.sonify.guitar_wave import (
     alpha_price,
     alpha_volume,
     _is_target,
+    _wave_profile,
     apply_guitar_wave,
     fit_intro,
     fit_outro,
@@ -1265,6 +1267,64 @@ def test_torroba_sung_and_dance_tides_keep_an_eight_degree_lead() -> None:
     high = [_note(bar, 0.0, 72, midi=72) for bar in range(bars)]
     heard_high, _support, _low = apply_guitar_wave(ctx, high, [], [], ["danza"])
     assert _at(heard_high, 0, 0.0) == 56 and _at(heard_high, 4, 0.0) == 63
+
+
+def test_movement_zero_raises_the_sung_ceiling_to_63() -> None:
+    """The first movement sings up to 63. The profile table itself stays at 58.
+
+    Written 72 plus d_hi 8 meets that ceiling on the peak bar. floor_calm stays
+    34, so the calm center still opens at 42. The tide is 13 wide, and the
+    step of 4 cannot fall from the plateau to that floor in two bars, so the
+    opening bar of this ell sits at 55. A later movement, and a missing index,
+    keep the peak at 58 and that opening bar at 50.
+    """
+    for name in ("castillo", "sonatina", "torroba_tremolo"):
+        profile = PROFILES[("torroba", name)]
+        assert (profile.floor_calm, profile.floor_wide) == (34, 34)
+        assert (profile.ceil_calm, profile.ceil_wide) == (58, 58)
+        assert profile.d_lo == -8 and profile.d_hi == 8
+    for name in ("fandanguillo", "danza", "alcaniz", "olite"):
+        profile = PROFILES[("torroba", name)]
+        assert profile.floor_calm == 40 and profile.ceil_calm == 63
+        assert profile.d_lo == -8 and profile.d_hi == 8
+
+    bars = 9
+    ell = (0, 0, 0, 0, 6, 0, 0, 0, 0)
+    volumes = [math.exp(value) - 1 for value in ell]
+    phrase = Phrase(0, bars * _EPB, tuple(Run(index, 1, 64) for index in range(bars * _EPB)))
+    ctx = _ctx(
+        ensemble="torroba",
+        bars=bars,
+        volumes=volumes,
+        phrases=(phrase,),
+        sections=(FormSection(0, bars, "phrase", 0),),
+        rel_span=0.0,
+        spans={0: 0.0},
+    )
+    classic = _wave_profile(replace(ctx, ensemble="classic", movement_index=0), "cantabile")
+    assert classic is PROFILES[("classic", "cantabile")]
+    for pattern in ("castillo", "sonatina", "torroba_tremolo"):
+        lifted = _wave_profile(replace(ctx, movement_index=0), pattern)
+        assert lifted is not None and lifted is not PROFILES[("torroba", pattern)]
+        assert lifted.ceil_calm == 63 and lifted.ceil_wide == 63
+        assert lifted.floor_calm == 34 and lifted.d_hi == 8
+        assert PROFILES[("torroba", pattern)].ceil_calm == 58
+        assert _wave_profile(ctx, pattern) is PROFILES[("torroba", pattern)]
+        assert _wave_profile(replace(ctx, movement_index=1), pattern) is PROFILES[("torroba", pattern)]
+        high = [_note(bar, 0.0, 72) for bar in range(bars)]
+        plain, _support, _low = apply_guitar_wave(ctx, high, [], [], [pattern])
+        first, _support, _low = apply_guitar_wave(replace(ctx, movement_index=0), high, [], [], [pattern])
+        later, _support, _low = apply_guitar_wave(replace(ctx, movement_index=1), high, [], [], [pattern])
+        assert _at(plain, 4, 0.0) == 58
+        assert _at(later, 4, 0.0) == 58
+        assert _at(first, 4, 0.0) == 63
+        assert _at(plain, 0, 0.0) == 50
+        assert _at(later, 0, 0.0) == 50
+        assert _at(first, 0, 0.0) == 55
+    dance = [_note(bar, 0.0, 72) for bar in range(bars)]
+    plain_dance, _support, _low = apply_guitar_wave(ctx, dance, [], [], ["danza"])
+    first_dance, _support, _low = apply_guitar_wave(replace(ctx, movement_index=0), dance, [], [], ["danza"])
+    assert _at(plain_dance, 4, 0.0) == _at(first_dance, 4, 0.0) == 63
 
 
 def test_dance_snap_reads_the_written_bell_not_the_affine_value() -> None:

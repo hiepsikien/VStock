@@ -208,6 +208,23 @@ def test_a_missing_triplet_eighth_stays_one_rest() -> None:
     assert tuplets[2] is not None and tuplets[2].get("type") == "stop"
 
 
+def test_torroba_lead_outside_a_scale_may_sound_at_55() -> None:
+    """Voice 1 under a Torroba profile may sound at 55. Every other profile stays at 59."""
+    low = NoteEvent(bar=0, beat=0.0, midi=55, duration_beats=1.0, voice=1, velocity=64)
+    assert_playable(_score([low]), profiles="torroba")
+    assert_playable(_score([replace(low, midi=58)]), profiles="torroba")
+    with pytest.raises(Unplayable, match="outside profile"):
+        assert_playable(_score([low]), profiles="study")
+    with pytest.raises(Unplayable, match="outside profile"):
+        assert_playable(_score([replace(low, midi=58)]), profiles="study")
+    with pytest.raises(Unplayable, match="outside profile"):
+        assert_playable(_score([replace(low, midi=54)]), profiles="torroba")
+    # A scale eighth keeps the passage floor. 55 is still under that floor.
+    scaled = replace(_score([low]), scale_eighths=(0,))
+    with pytest.raises(Unplayable, match="outside profile"):
+        assert_playable(scaled, profiles="torroba")
+
+
 def test_lone_sixth_and_rasgueado_stay_out_of_the_triplet() -> None:
     lone = [_sixth(0.0)]
     assert _triplet_sixteenth_roles(lone) == [None]
