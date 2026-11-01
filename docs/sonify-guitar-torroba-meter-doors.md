@@ -93,7 +93,7 @@ Trên `3/4`, `_castillo_spans` không gọi Arada mà gọi hai câu *Castillos*
   - Ô bung `f` (`burst`): móc 0 bậc `0` (`accent=True`). Chùm mordent và hai phách sau ngồi bậc `2`. Trên lead viết 64 thì nghe 60. Bass cả ô là bed yếu, nên bậc 2 lọt qua; nốt giữa mordent xin thêm một bậc nhưng bed không cho, ba nốt nghe đều.
   - Ô hợp âm đáp (`echo`): ba nốt đen bậc `(0, 1, 2)`, mỗi phách một tiếng trầm cùng bậc. Trên lead viết 64 nghe `64, 62, 60`.
   - Hai ô chấm dôi thế tay `VII` (`dotted` / `tie_prep`): phách đầu chấm dôi bậc `0` (`accent=True`), móc đơn lướt nhẹ bậc `2` (trên nền `weak_bass`), phách 3 bậc `1`.
-  - Ô kết `rall. / ten.` (`final`): giai điệu ngân trọn ô ở bậc `0`, đúng vận tốc viết, kể cả khi nốt trùng nút harmonic. Dưới là ba nốt trầm đen đi về đúng chủ âm, bậc `(2, 1, 0)`, nhấn vào nốt kết `ten.`.
+  - Ô kết `rall. / ten.` (`final`): giai điệu ngân trọn ô ở bậc `0`, đúng vận tốc viết, kể cả khi nốt trùng nút harmonic. Ba nốt trầm đen bước vào chủ âm thấp nhất còn đủ bậc dẫn ngay bên dưới (mỗi bước là một quãng 2), bậc `(2, 1, 0)`, nhấn vào nốt kết `ten.`. Không nhảy xuống dây buông.
 
 Hai kiểu `13` và `14` nằm trong `_REAL_TORROBA_FIGURES`, nên các ô thuộc hai kiểu này giữ bè cao (không hạ quãng 5) và tách các đoạn lưới nền giống kiểu 1–8 và `ALCANIZ_OPENING`. Câu `castillo` 3/4 chỉ dài 1 ô vẫn ở lại lưới ngân cả ô.
 

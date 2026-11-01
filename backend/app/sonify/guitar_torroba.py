@@ -2870,12 +2870,12 @@ def _scale_to_root(pen: _Pen, count: int, ceiling: int | None = None) -> list[in
 
 
 def _cadence_bass_line(pen: _Pen, count: int, ceiling: int) -> list[int]:
-    """Bass quarters that arrive on the chord root.
+    """Bass quarters that step into the chord root.
 
-    The last note is a root inside the playable bass window. Degrees that
-    cannot fret under `ceiling` are skipped, so the approach compresses onto
-    the root instead of sliding the arrival off it. The walk rises into a root
-    that has room below it, and falls onto a root that sits at the bottom.
+    The arrival is the lowest root that still has a stepwise approach under it.
+    Each step is a second. A lower root that would need a leap, including the
+    open string when the degrees just above it will not fret, gives way to the
+    next root.
     """
     low, high = _bass_window(pen.ctx)
     root = pen.ctx.chord(pen.bar).pitches[0] % 12
@@ -2884,21 +2884,26 @@ def _cadence_bass_line(pen: _Pen, count: int, ceiling: int) -> list[int]:
     def fits(pitch: int) -> bool:
         return _playable([pitch + semi, ceiling + semi])
 
-    roots = [note for note in range(low, high + 1) if note % 12 == root]
-    fitting = [note for note in roots if fits(note)]
-    goal = fitting[0] if fitting else (roots[0] if roots else low)
-    scale = [
-        note
-        for note in range(low, high + 1)
-        if note != goal and _on_scale(note, pen.ctx.mode) and fits(note)
-    ]
-    below = [note for note in scale if note < goal]
-    above = [note for note in scale if note > goal]
+    roots = [note for note in range(low, high + 1) if note % 12 == root and fits(note)]
+    scale = [note for note in range(low, high + 1) if _on_scale(note, pen.ctx.mode) and fits(note)]
     need = max(0, count - 1)
-    if len(below) >= need or not above:
-        head = below[-need:] if need else []
-    else:
-        head = list(reversed(above[:need]))
+
+    def approach(goal: int) -> list[int] | None:
+        chain: list[int] = []
+        cursor = goal
+        while len(chain) < need:
+            lower = [note for note in scale if note < cursor]
+            if not lower or cursor - lower[-1] > 2:
+                return None
+            cursor = lower[-1]
+            chain.append(cursor)
+        chain.reverse()
+        return chain
+
+    goal = next((candidate for candidate in roots if approach(candidate) is not None), None)
+    if goal is None:
+        goal = roots[-1] if roots else low
+    head = approach(goal) or []
     while len(head) < need:
         head.insert(0, head[0] if head else goal)
     return (head + [goal])[:count]

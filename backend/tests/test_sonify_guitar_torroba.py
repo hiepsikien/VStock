@@ -4164,18 +4164,20 @@ def test_castillo_34_sentences_keep_micro_velocity_contours() -> None:
     assert fn_lead[0].accent is True
     bass = [note for note in fn_low if note.midi is not None]
     assert [note.velocity for note in bass] == [58, 60, 62]
-    assert bass[-1].midi % 12 == 4
+    assert [note.midi for note in bass] == [50, 51, 52]
 
 
 def test_cadence_bass_arrives_on_the_root_and_arada_keeps_its_window() -> None:
-    """The cadence bass ends on the chord root. Arada's scale stays in 40–52 when transposed."""
+    """The cadence bass steps into the root. Arada's scale stays in 40–52 when transposed."""
     _meter, epb, strong, bar_beats = _FIGURE_METERS["3/4"]
-    for lead, chord, mode, root in (
-        (60, EM, "minor", 4),
-        (64, EM, "minor", 4),
-        (72, EM, "minor", 4),
-        (76, EM, "minor", 4),
-        (67, C, "major", 0),
+    # Em has no degree under E2, so the line rises D–Eb–E into E3 instead of leaping to the open string.
+    for lead, chord, mode, line in (
+        (60, EM, "minor", [50, 51, 52]),
+        (64, EM, "minor", [50, 51, 52]),
+        (67, EM, "minor", [50, 51, 52]),
+        (72, EM, "minor", [50, 51, 52]),
+        (76, EM, "minor", [50, 51, 52]),
+        (67, C, "major", [45, 47, 48]),
     ):
         pitches = [lead] * (9 * epb)
         phrase = _joined(0, pitches, held=True)
@@ -4194,7 +4196,7 @@ def test_cadence_bass_arrives_on_the_root_and_arada_keeps_its_window() -> None:
         )
         _sung, _support, low = render_torroba_figure(ctx, 8, phrase, "castillo", 14, index=8, count=9)
         bass = [note.midi for note in low if note.midi is not None]
-        assert bass and bass[-1] % 12 == root
+        assert bass == line
     arada = [67] * 40
     phrase = _joined(0, arada, held=True)
     ctx = _ctx(melody=arada, phrase=phrase, kind="4/4", bars=5, chord=EM, mode="minor")
