@@ -1,12 +1,20 @@
 # Torroba: mặt nốt, chọn nhịp, tempo, và câu hát
 
-> **Trạng thái**: đã nghe trên VRE 1M, Guitar, Torroba. Đã khóa giải pháp kỹ thuật theo sau PR 110, chờ code.
+> **Trạng thái**: đã code trên PR 111. Không còn là chỉ thị cho nhịp và mặt 2+2.
+> **Bị thay bởi** [`docs/sonify-guitar-torroba-meter-doors.md`](./sonify-guitar-torroba-meter-doors.md). Đừng viết lại các chỗ sau:
+> - Giữ `_guitar_meter` và không retarget Torroba. Calm và selloff từng ở 4/4 sang 3/4 trước khi gắn khung.
+> - Bảng 4/4 selloff `Castillo — Olite` và rally `Olite — Sonatina`. Rally và volatile ở lại Olite — Castillo. 4/4 calm không còn là Sonatina.
+> - Mặt 2+2 khi `bpm > 72`: Castillo chấm dôi, `_type7_bar1` với `resolution="dotted"`, `_type3_sustain` tách đôi.
+>
+> Phần còn lại của file này mô tả code đã viết (tuplet 3:2, cửa Olite, bass 4/4 hai nhát khi thế tay vừa, nhiều span trong một câu), trừ chỗ bản cửa nhịp nói khác.
 > **Thay cho**:
 > - Hàng `castillo`, `ctx.bpm > 72` → «một nốt giá ngân cả ô», cổng `n % 2 == 1`, và ràng buộc «một câu chỉ có một kiểu» trong [`docs/sonify-guitar-torroba-phrase-plan.md`](./sonify-guitar-torroba-phrase-plan.md) mục 4.0;
 > - Ô `4/4` mood `calm` trong [`docs/sonify-guitar-torroba-aba-tempo.md`](./sonify-guitar-torroba-aba-tempo.md) mục 3–4, và luật «một cú ở móc 0, dài một phách» của mục 5 đối với thân `castillo` / `olite` trên 4/4;
 > - Cách gộp hai ô 2/4 thành một ô 4/4 trong [`docs/sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md) mục 3.3 khi phép gộp đó bỏ trống nhóm móc yếu hoặc giữ `_olite_thin` thưa ở BPM > 72, cùng `staccato=True` trên mọi hợp âm cửa `olite` ở mục 4.7;
 > - Cửa sổ `floor_calm` / `floor_wide` của hai hàng sóng trong [`docs/sonify-guitar-torroba-dynamics.md`](./sonify-guitar-torroba-dynamics.md) mục 2–3 (hoặc giường `_raised_bed` trên tiếng êm; xem mục 7 bên dưới — chỉ chọn **một núm −4**, không hạ kép cả hai).
-> **Giữ**: Khung nhịp `_guitar_meter` của `span.py` (không đổi nhịp riêng của Torroba). Staccato đúng chỗ trong điệu nhảy và toàn bộ cửa `fandanguillo` / `danza`. Tám kiểu đã viết. Đường giá `_melody_at`. `_MICRO_FLOOR = 40` dùng chung. Không thêm id pattern.
+> **Giữ**: Staccato đúng chỗ trong điệu nhảy và toàn bộ cửa `fandanguillo` / `danza`. Tám kiểu đã viết. Đường giá `_melody_at`. `_MICRO_FLOOR = 40` dùng chung. Không thêm id pattern. Câu «không đổi nhịp riêng của Torroba» ở dưới không còn hiệu lực.
+
+Bốn việc dưới đây là bản nghe của PR 111. Việc 1 và việc 2 đã bị bản cửa nhịp thay.
 
 Bốn việc cùng một đợt nghe:
 
@@ -43,6 +51,8 @@ Tai nghe ba lớp lỗi khớp trực tiếp với code trên `main`:
 
 ## 2. Khung nhịp `_guitar_meter` và bảng chọn Pattern
 
+Mục này không còn hiệu lực. Nhịp và bảng pattern theo bản cửa nhịp.
+
 Giữ nguyên `_guitar_meter` trong `span.py` (chương I và IV của 1M ở `4/4`, chương II ở `3/4`, chương III ở `6/8`). Không đổi nhịp riêng cho Torroba; trên `4/4`, mặt nốt 2+2 vận hành như **hai ô 2/4 ghép lại** (phách mạnh ở móc 0 và móc 4), không phải chu kỳ 3 móc của 3/4.
 
 Trong bảng chọn pattern (`_torroba_primary` và `_torroba_contrast` trong `guitar_torroba.py`):
@@ -57,6 +67,8 @@ Trong bảng chọn pattern (`_torroba_primary` và `_torroba_contrast` trong `g
 ---
 
 ## 3. Mặt nốt ở 96 BPM (4/4 như hai ô 2/4)
+
+Mục này không còn hiệu lực. Mặt 2+2 đã bị gỡ. Castillo 4/4 ngân cả ô ở mọi BPM. Kiểu 7 và kiểu 3 không còn nhánh `bpm > 72`.
 
 Ở nốt đen = 96, mặt của `castillo`, `sonatina` và `olite` là móc đơn (`0.5`), móc kép (`0.25`) / chùm ba móc kép (`1/6`), và một ít nốt đen (`1.0`) hoặc chấm dôi (`1.5`). Nốt tròn (`4.0`) không được làm lưới nền ở BPM > 72.
 
@@ -240,6 +252,8 @@ Trong [`docs/sonify-guitar-torroba-dynamics.md`](./sonify-guitar-torroba-dynamic
 ---
 
 ## 8. Danh mục chỗ sửa khi thực hiện
+
+Mục bảng pattern và mục mặt 2+2 ở BPM > 72 trong danh sách này đã bị bản cửa nhịp thay. Đừng thực hiện lại.
 
 1. **`backend/app/sonify/guitar_patterns.py`:**
    - Trong `assert_playable`: đổi kiểm tra chồng lấp từ lưới `_start16` (`1/4` phách) sang lưới `1/12` phách (`twelfth = bar * epb * 6 + round(beat * 12)`) để 3 nốt `1/6` phách liên tiếp trong một móc đơn không bị báo `Unplayable("two notes in the high voice")`. Không đưa nốt `1/6` qua `_spell16` của `_resolve`.

@@ -1,6 +1,6 @@
 # Torroba: cửa nhịp gốc, bè trung, và trần chương đầu
 
-> **Trạng thái**: đã nghe SSI 1M trên PR 111, đã đối chiếu nguồn và code. Đã khóa. Chờ code.
+> **Trạng thái**: đã code trên PR 112. Bản này là khóa hiện hành. Bản mặt nốt không được dùng để viết lại nhịp hay mặt 2+2.
 > **Đọc cùng**: [`docs/sonify-guitar-torroba-note-surface.md`](./sonify-guitar-torroba-note-surface.md), [`docs/sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md) mục 3, [`docs/sonify-guitar-torroba-dynamics.md`](./sonify-guitar-torroba-dynamics.md) mục 2.
 > **Giữ**: `_guitar_meter` của mọi ensemble khác Torroba. Olite trên 4/4. Arada (kiểu 7 và kiểu 8) trên 4/4. Không thêm id pattern. `_shape_dynamics` vẫn chạy. Không nâng dynamics bằng bậc vi mô trong ô.
 
@@ -130,7 +130,9 @@ Một bước, trên lưới nền của 3/4 và 6/8:
 
 `_playable` thất bại thì giữ độ dài cũ. Không thêm nhát bass ở móc 4 của 3/4. Bass 6/8 không được phủ móc 3.
 
-Không áp cho Olite. Từng điệu một:
+Không áp cho Olite. Sonatina cũng không. Bass của `_render_sonatina_moving` trên 3/4 và 6/8 giữ một móc đơn, 0.5 phách. Bước 1.0 lên 1.5 là giường Castillo và Juglar, không phải lưới đang hát móc đơn giữa ô. Nốt bass không bấm được cùng lead thì đổi sang nốt hợp âm khác, hoặc bỏ. Không kéo dài để giả độ dày.
+
+Từng điệu một:
 
 | Điệu | Bass được kéo |
 |---|---|
