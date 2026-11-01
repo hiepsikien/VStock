@@ -295,10 +295,13 @@ Web: tôn trọng `prefers-reduced-motion` — tắt pulse/shimmer, giữ crossf
 ## 7. Bàn phím (web)
 
 `src/musicalize/useKeyboard.ts` (mới). Gắn `window.addEventListener('keydown')` chỉ
-khi `Platform.OS === 'web'`. Bỏ qua khi `event.target` là `input`, `textarea`,
-`isContentEditable`, hoặc một phần tử tương tác (`button`, `[role="button"]`,
-`[role="slider"]`, `a[href]`). Thiếu vế cuối thì `Space` trên một nút đang focus sẽ
-vừa bấm nút vừa toggle play — toggle hai lần.
+khi `Platform.OS === 'web'`. Với phím thường, bỏ qua khi `event.target` là `input`,
+`textarea`, `isContentEditable`, hoặc một phần tử tương tác (`button`, `a[href]`,
+`[role="button"]`, `[role="slider"]`, `[role="tab"]`, `[role="link"]`,
+`[role="menuitem"]`). Nhờ vậy `Space` trên một chip đang focus chỉ kích hoạt chip,
+không toggle play lần nữa; `Enter` vẫn theo hành vi mặc định của control. `⌘K` và
+`Esc` vẫn chạy từ mọi chỗ vì chúng mở/đóng một lớp. Khi palette hoặc popover `⚙`
+đang mở, bàn phím transport tạm ngưng để lớp trên sở hữu phím.
 
 | Phím | Việc |
 |---|---|
@@ -351,8 +354,9 @@ Không cần backend mới. Tái dùng:
 | Chương, giọng, BPM | `fetchSpan`, `pieceCopy` (đã dùng) |
 | `peaks` | `RecapManifest.peaks` (đã dùng) |
 
-Thêm một request `fetchWatchlist` cho tối đa 12 mã, cache trong memory, 30s/lần.
-Không đụng `fetchRecap`/`fetchSpan`.
+Thêm một request `fetchWatchlist` cho tối đa 12 mã, làm mới mỗi 30s, bỏ qua khi
+tab ẩn; lỗi thì giữ dữ liệu cũ và không chặn danh sách. Không cache giữa các lần
+mount — 12 mã một request là đủ rẻ. Không đụng `fetchRecap`/`fetchSpan`.
 
 ## 10. Kế hoạch
 

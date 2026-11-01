@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Path, Rect } from 'react-native-svg';
 import {
@@ -46,6 +46,8 @@ type ReplayProps = {
   onReplay: () => void;
   onMute?: () => void;
   onTimeline: (ratio: number) => void;
+  /** Lets the room release the transport keys while this popover is open. */
+  onOptionsOpenChange?: (open: boolean) => void;
   status?: string | null;
 };
 
@@ -97,10 +99,15 @@ function ReplayControls({
   onReplay,
   onMute,
   onTimeline,
+  onOptionsOpenChange,
   status,
 }: ReplayProps) {
   const [optionsOpen, setOptionsOpen] = useState(false);
   const shelf = ENSEMBLE_ROWS[variant];
+
+  useEffect(() => {
+    onOptionsOpenChange?.(optionsOpen);
+  }, [onOptionsOpenChange, optionsOpen]);
   return (
     <>
       <View style={styles.shelf}>

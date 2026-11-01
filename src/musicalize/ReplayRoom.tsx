@@ -121,6 +121,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const [focus, setFocus] = useState<ChartFocus | null>(null);
   const [focusSignal, setFocusSignal] = useState(0);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [muted, setMuted] = useState(false);
 
   const request = useRef<AbortController | null>(null);
@@ -990,8 +991,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
         doc?.activeElement?.blur?.();
       },
     },
-    // The palette owns the keyboard while it is open.
-    !paletteOpen,
+    // A palette or the options popover owns the keyboard while it is open.
+    !paletteOpen && !optionsOpen,
   );
 
   const identity =
@@ -1078,6 +1079,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
           onReplay={onReplay}
           onMute={() => setMuted((value) => !value)}
           onTimeline={span === '1D' ? onFileScrub : onWorkScrub}
+          onOptionsOpenChange={setOptionsOpen}
         />
       }
     >

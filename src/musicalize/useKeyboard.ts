@@ -35,6 +35,10 @@ type Doc = {
 };
 
 const TEXT_ENTRY = 'input, textarea, select, [contenteditable="true"]';
+// A focused control owns Space/Enter. Without this the page would also run
+// the transport and the chip would fire twice.
+const INTERACTIVE =
+  'button, a[href], [role="button"], [role="slider"], [role="tab"], [role="link"], [role="menuitem"]';
 
 function inTextEntry(target: ElementLike | null | undefined): boolean {
   if (!target) return false;
@@ -44,13 +48,21 @@ function inTextEntry(target: ElementLike | null | undefined): boolean {
   return Boolean(target.closest?.(TEXT_ENTRY));
 }
 
+function inInteractive(target: ElementLike | null | undefined): boolean {
+  if (!target) return false;
+  const tag = target.tagName?.toLowerCase();
+  if (tag === 'button') return true;
+  return Boolean(target.closest?.(INTERACTIVE));
+}
+
 /**
  * Web keyboard map for the listening surface.
  *
- * Space always means transport, even when a chip or a button has focus: the
- * event is prevented so the focused control does not fire a second time. Enter
- * still activates a focused control the normal way. `⌘K`/`Ctrl+K` opens the
- * palette even from the filter box; `M` is ordinary text there.
+ * Normal keys are ignored while a text field or a control has focus: Space on
+ * a focused chip activates that chip the normal way and never toggles the
+ * transport a second time. `⌘K`/`Ctrl+K` and `Escape` still work everywhere,
+ * because they open/close a layer rather than operate the transport. The room
+ * keyboard is disabled entirely while a palette or popover owns the layer.
  */
 export function useKeyboard(handlers: Handlers, enabled = true) {
   const latest = useRef(handlers);
@@ -89,7 +101,7 @@ export function useKeyboard(handlers: Handlers, enabled = true) {
         return;
       }
 
-      if (inTextEntry(event.target)) return;
+      if (inTextEntry(event.target) || inInteractive(event.target)) return;
 
       const key = event.key;
       const shift = Boolean(event.shiftKey);
@@ -144,8 +156,8 @@ export function useKeyboard(handlers: Handlers, enabled = true) {
       if (handled) event.preventDefault?.();
     };
 
-    // Capture: a focused text input can stop the bubble, and Escape must still
-    // reach the page. Space and the other transport keys are filtered below.
+    // Capture: a focused text input or control can stop the bubble, and Escape
+    // must still reach the page. Normal keys are filtered by target above.
     doc.addEventListener('keydown', onKeyDown, true);
     return () => doc.removeEventListener?.('keydown', onKeyDown, true);
   }, [enabled]);
