@@ -129,6 +129,29 @@ def profile_for(ensemble: str, pattern: str) -> PatternWaveProfile | None:
     return PROFILES.get((ensemble, pattern))
 
 
+# Sung rows. Dance rows already sit at 63 and are not rewritten here.
+_SUNG_ROWS = frozenset({"castillo", "sonatina", "torroba_tremolo"})
+
+
+def _wave_profile(ctx, pattern: str) -> PatternWaveProfile | None:
+    """The row for this bar. Movement 0 lifts the sung ceilings from 58 to 63.
+
+    `floor_calm` stays 34. The 24 measured on a first movement is the intro
+    and the outro, not the body floor. `d_hi` stays 8, so a note written 72
+    reaches 63. Movement 1 and later, and a missing index, keep 58.
+    """
+    profile = profile_for(getattr(ctx, "ensemble", ""), pattern)
+    if profile is None:
+        return None
+    if (
+        getattr(ctx, "movement_index", None) == 0
+        and getattr(ctx, "ensemble", "") == "torroba"
+        and pattern in _SUNG_ROWS
+    ):
+        return replace(profile, ceil_calm=63, ceil_wide=63)
+    return profile
+
+
 def resolve_bar_volumes(ctx) -> list[float]:
     """Per-bar intensity. Missing data falls back to the printed band."""
     if getattr(ctx, "bar_volumes", None):
@@ -598,14 +621,14 @@ def _build_waves(ctx, volumes: list[float], patterns: list[str], pedal: set[int]
         pattern = _section_pattern(ctx, patterns, start, end)
         if pattern in _CASTILLOS_WAVES:
             for row_start, row_end, musical, row in _row_spans(ctx, patterns, start, end):
-                profile = profile_for(ctx.ensemble, row)
+                profile = _wave_profile(ctx, row)
                 if profile is None:
                     continue
                 wave = _make_wave(ctx, volumes, section, row_start, row_end, musical, profile, (start, end))
                 for bar in range(row_start, row_end):
                     found[bar] = wave
             continue
-        profile = profile_for(ctx.ensemble, pattern)
+        profile = _wave_profile(ctx, pattern)
         if profile is None:
             continue
         wave = _make_wave(ctx, volumes, section, start, end, pattern, profile, (0, 0))

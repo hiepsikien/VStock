@@ -694,7 +694,8 @@ def test_sonatina_slur_leap_and_run_stay_out_of_scale_eighths() -> None:
     assert 2 <= len(run) <= 4
     assert all((note.velocity or 0) <= 64 for note in run)
     arrival = [note for note in score.lead if abs(note.beat - 2.0) < 1e-6 and note.duration_beats >= 0.5]
-    assert len(arrival) == 1 and arrival[0].midi == 74
+    # The bar is stretch 0, so D5 is sung a fifth lower, on G4.
+    assert len(arrival) == 1 and arrival[0].midi == 67
     assert run[0].slur_start and arrival[0].slur_stop
     assert score.scale_eighths == ()
     xml = score_to_musicxml(score)
@@ -1121,10 +1122,11 @@ def test_breath_harmonics_and_fandanguillo_grids() -> None:
         for note in crossed.lead
     )
 
-    # Selloff stays Castillo. A repeated bar still graces into the next sonatina downbeat.
+    # Selloff stays Castillo. E5 lowers to G4 and still leaps into the next sonatina.
+    # C5 would lower onto that E4 arrival, and the leap would be gone.
     graced = _two_bars(
-        [72] * 8 + [64] * 8,
-        (_joined(0, [72] * 8), _joined(8, [64] * 8, held=True)),
+        [76] * 8 + [64] * 8,
+        (_joined(0, [76] * 8), _joined(8, [64] * 8, held=True)),
         {0: C, 1: C},
         character="selloff",
         character_at=("selloff", "rally"),
@@ -1132,18 +1134,18 @@ def test_breath_harmonics_and_fandanguillo_grids() -> None:
     )
     grace = [note for note in graced.lead if note.midi is not None and note.duration_beats == 0.25]
     assert [(note.bar, round(note.beat, 2)) for note in grace] == [(0, 3.75)]
-    # Eighth 4 is sung, so 71 steps into 72 and does not take a leap grace.
+    # Eighth 4 lowers from C5 to E4 and steps into D4. A step grows no leap grace.
     stepped_close = _two_bars(
-        [60] * 4 + [71] * 4 + [72] * 8,
-        (_joined(0, [60] * 4 + [71] * 4), _joined(8, [72] * 8, held=True)),
-        {0: CMAJ7, 1: C},
+        [67] * 4 + [72] * 4 + [62] * 8,
+        (_joined(0, [67] * 4 + [72] * 4), _joined(8, [62] * 8, held=True)),
+        {0: C, 1: G},
         character="selloff",
         character_at=("selloff", "rally"),
         sections=_castillo_then_sonatina(),
     )
     assert not any(note.midi is not None and note.duration_beats == 0.25 for note in stepped_close.lead)
-    assert _strong(stepped_close, 0, 2.0).midi == 71 and _strong(stepped_close, 0, 2.0).slur_start
-    assert _strong(stepped_close, 1, 0.0).midi == 72 and _strong(stepped_close, 1, 0.0).slur_stop
+    assert _strong(stepped_close, 0, 2.0).midi == 64 and _strong(stepped_close, 0, 2.0).slur_start
+    assert _strong(stepped_close, 1, 0.0).midi == 62 and _strong(stepped_close, 1, 0.0).slur_stop
     held_step = _two_bars(
         [72] * 4 + [60] * 4 + [71] * 8,
         (_joined(0, [72] * 4 + [60] * 4), _joined(8, [71] * 8, held=True)),
@@ -1152,8 +1154,8 @@ def test_breath_harmonics_and_fandanguillo_grids() -> None:
         character_at=("selloff", "rally"),
         sections=_castillo_then_sonatina(),
     )
-    # The fast bar sings eighth 4, so the step into sonatina leaves from that note.
-    assert _strong(held_step, 0, 2.0).midi == 60
+    # The fast bar sings eighth 4. C4 is under the floor, so that eighth is G3.
+    assert _strong(held_step, 0, 2.0).midi == 55
     assert _strong(held_step, 0, 2.0).slur_start or any(
         note.midi is not None and note.duration_beats == 0.25 and note.slur_start for note in held_step.lead
     )
@@ -1323,8 +1325,8 @@ def test_sonatina_downbeat_leap_step_run_and_castillo_hold() -> None:
     assert running.scale_eighths == ()
 
     held = _two_bars(
-        [72] * 8 + [64] * 8,
-        (_joined(0, [72] * 8), _joined(8, [64] * 8, held=True)),
+        [76] * 8 + [64] * 8,
+        (_joined(0, [76] * 8), _joined(8, [64] * 8, held=True)),
         {0: C, 1: C},
         character="selloff",
         character_at=("selloff", "rally"),
@@ -1355,27 +1357,29 @@ def test_sonatina_downbeat_leap_step_run_and_castillo_hold() -> None:
         sections=_castillo_then_sonatina(),
     )
     held_price = [note for note in held_step.lead if note.bar == 0 and abs(note.beat) < 1e-6 and note.midi is not None]
-    assert len(held_price) == 1 and held_price[0].midi == step_line[0] == 72
+    # C5 is stretch 0, so the held downbeat sings E4.
+    assert len(held_price) == 1 and held_price[0].midi == 64
     assert held_price[0].duration_beats == pytest.approx(1.5)
     assert any(note.midi is not None and note.duration_beats == 0.25 and note.slur_start for note in held_step.lead)
     step_arrival = [note for note in held_step.lead if note.bar == 1 and abs(note.beat) < 1e-6 and note.duration_beats >= 0.5]
     assert len(step_arrival) == 1 and step_arrival[0].midi == 71 and step_arrival[0].slur_stop
 
-    leap_line = [60] * 4 + [71] * 4 + [72] * 8
+    leap_line = [67] * 4 + [72] * 4 + [62] * 8
     held_leap = _two_bars(
         leap_line,
         (_joined(0, leap_line[:8]), _joined(8, leap_line[8:], held=True)),
-        {0: CMAJ7, 1: C},
+        {0: C, 1: G},
         character="selloff",
         character_at=("selloff", "rally"),
         sections=_castillo_then_sonatina(),
     )
     sounded = [note for note in held_leap.lead if note.bar == 0 and abs(note.beat) < 1e-6 and note.midi is not None]
-    assert len(sounded) == 1 and sounded[0].midi == leap_line[0] == 60
+    # G4 lowers to C4. Eighth 4 lowers from C5 to E4 and steps into D4.
+    assert len(sounded) == 1 and sounded[0].midi == 60
     assert not any(note.midi is not None and note.duration_beats == 0.25 for note in held_leap.lead)
-    assert _strong(held_leap, 0, 2.0).midi == 71 and _strong(held_leap, 0, 2.0).slur_start
+    assert _strong(held_leap, 0, 2.0).midi == 64 and _strong(held_leap, 0, 2.0).slur_start
     leap_arrival = [note for note in held_leap.lead if note.bar == 1 and abs(note.beat) < 1e-6 and note.duration_beats >= 0.5]
-    assert len(leap_arrival) == 1 and leap_arrival[0].midi == 72 and leap_arrival[0].slur_stop
+    assert len(leap_arrival) == 1 and leap_arrival[0].midi == 62 and leap_arrival[0].slur_stop
     assert_playable(leap, profiles="torroba")
     assert_playable(running, profiles="torroba")
 
@@ -2616,7 +2620,12 @@ def test_rolled_chord_scores_engrave_on_division_12(kind: str) -> None:
     assert opening_rest.find("type").text == "32nd"
 
     quiet = _pattern_score(kind, "castillo", character="selloff" if kind == "4/4" else "calm", bpm=96)
-    assert quiet.divisions != 12
+    # 4/4 lowers the even stretch: eighth 3 stays on F and eighth 4 takes E.
+    # That step is the Castillo mordent, which engraves on the twelfth grid.
+    if kind == "4/4":
+        assert quiet.divisions == 12
+    else:
+        assert quiet.divisions != 12
     assert_playable(quiet, profiles="torroba")
     assert meter.eighths_per_bar == epb
 
