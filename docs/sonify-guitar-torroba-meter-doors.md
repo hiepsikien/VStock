@@ -24,7 +24,13 @@ Engine có `METER_34` và `METER_68`. Không có `METER_24` và không có nhị
 | `alcaniz` | *Alcañiz*, 3/8 | 6/8 | Giữ. Ngoài 6/8 vẫn là `_downbeat_only` |
 | `olite` | *Olite*, Vivace, nốt đen = 95 | 2/4 | Giữ 4/4. `_render_olite_bar` tiếp tục đòi `kind == "4/4"`. Đây không phải bản ép |
 
-Mặt 2+2 ở `bpm > 72` trên `castillo`, `_type7_bar1` (`resolution="dotted"`), và `_type3_sustain` là cách ép một điệu 3/4 hoặc một Lento 4/4 vào hai ô 2/4. Bỏ nhánh `dotted`. Arada trên 4/4 dùng `resolution="half"` ở mọi BPM, kể cả 96. `_type7_bar4` trên 4/4 giữ hai nửa `_type7_half`.
+Mặt 2+2 ở `bpm > 72` và `kind == "4/4"` là cách ép. Bỏ cả ba nhánh, kể cả ô Castillo không rơi vào span kiểu 7 hoặc 8:
+
+- `_render_castillo_bar` gọi thẳng `_render_castillo_sustain` trên 4/4 ở mọi BPM. Không còn nhánh chấm dôi và mordent khi `bpm > 72`.
+- `_type7_bar1` luôn `resolution="half"` trên 4/4. Bỏ `resolution="dotted"`.
+- `_type3_sustain` bỏ `fast = bpm > 72 and kind == "4/4"`.
+
+Arada trên 4/4 dùng nửa ô đó ở mọi BPM, kể cả 96. `_type7_bar4` trên 4/4 giữ hai nửa `_type7_half`.
 
 ---
 
@@ -34,18 +40,31 @@ Mặt 2+2 ở `bpm > 72` trên `castillo`, `_type7_bar1` (`resolution="dotted"`)
 
 `prepare_month`, `prepare_quarter`, và `prepare_year` hiện chỉ nhận `variant`. `prepare_week` không nhận `variant` lẫn `ensemble`. `plan_span` trong `backend/app/services/spans.py` phải truyền `ensemble` vào bốn hàm đó. Chỉ khi `variant == "guitar"` và `ensemble == "torroba"` thì áp bảng dưới. Ensemble khác nhận đúng spec guitar hiện tại.
 
-1D không đi qua `prepare_*`. `render.py` gán `DAILY_ENSEMBLE_SPEC`, đang là 4/4. Bản copy cho Torroba đổi meter của spec đó trước khi soạn, cùng bảng character.
+1D không đi qua `prepare_*`. `render.py` gán `DAILY_ENSEMBLE_SPEC`, đang là 4/4, 34 ô. Bản copy cho Torroba đổi meter của spec đó trước khi soạn, cùng bảng character, và giữ 34 ô. Không gọi `attach_frame` cho ngày.
 
-Chương guitar đã là 3/4 hoặc 6/8 thì giữ. Chương guitar đang 4/4 thì:
+`_assign_torroba` và `form_pattern_ids` nhận ngày bằng `ctx.bars == 34 and ctx.kind == "4/4"`. Ngày `calm` hoặc `selloff` sang 3/4 thì cổng đó sai, và ngày bị in ba tên. Đổi hai cổng đó thành `ctx.bars == 34`. Trên engine chỉ bài ngày có 34 ô. Không đụng các cổng `bars == 34` của Bach và Barrios.
+
+`plan_month` và `plan_quarter` gọi `attach_frame` trước khi có character. `frame_bars_for` cho 1M và 3M là 4 ô trên 4/4 và 6 ô trên 3/4 hoặc 6/8. 1Y là 2 ô trên 4/4 và 3 ô trên 3/4 hoặc 6/8. Đổi meter sau khung thì chương 3/4 vẫn mang khung 4 ô của 4/4.
+
+Thứ tự cho Torroba: lấy spec thân từ `month_specs`, `quarter_specs`, hoặc `year_specs`, chưa khung. Biết character. Đổi meter theo bảng dưới. Rồi mới `attach_frame`. `plan_month` không còn khung hộ trước bước này.
+
+1W không có khung. Character dùng để đổi nhịp tuần là `session_characters[0]`, cùng vùng mở mà `_torroba_opening_mood` đọc. Không dùng `movement.character` của cả tuần khi nó khác phiên đầu.
+
+`plan_span` được gọi ở `backend/app/routers/stocks.py` (`get_span`) và ở `load_movement_audio`. Cả hai phải nhận `ensemble`. Manifest đổi nhịp mà audio vẫn dựng bằng `classic` thì fingerprint lệch và file trả 404.
+
+Chương guitar đã là 3/4 hoặc 6/8 thì giữ nguyên hàng pattern của nhịp đó, trừ ô `3/4 calm` ở mục dưới. Chương guitar đang 4/4 thì:
 
 | Character | Nhịp Torroba | A | B |
 |---|---|---|---|
 | `rally` | 4/4 | `olite` | `castillo`, chỉ Arada |
 | `volatile` | 4/4 | `olite` | `castillo`, chỉ Arada |
-| `calm` | 3/4 | `sonatina` | `castillo` lưới 3/4, không kiểu 7 và 8 |
+| `calm`, `bpm > 72` | 3/4 | `sonatina` | `castillo` lưới 3/4, không kiểu 7 và 8 |
+| `calm`, `bpm <= 72` | 3/4, chương vốn đã 3/4 | `castillo` | `torroba_tremolo` |
 | `selloff` | 3/4 | `castillo` lưới 3/4 | `danza` |
 
-`_torroba_contrast` trên 4/4 khi primary là `olite` trả `castillo`, không trả `sonatina`. Hàng 4/4 của `_torroba_primary` chỉ còn `olite` cho `rally` và `volatile`. Ô `calm` và `selloff` của hàng 4/4 không còn được chọn, vì hai character đó đã sang 3/4 trước lúc chọn pattern.
+Ô `("3/4", "calm")` không được đổi thành `sonatina` cho mọi BPM. `_torroba_primary` và `_torroba_contrast` phân nhánh: `kind == "3/4"` và `mood == "calm"` và `ctx.bpm > 72` thì A là `sonatina`, B là `castillo`. Cùng ô mà `ctx.bpm <= 72` thì A vẫn là `castillo`, B vẫn là `torroba_tremolo`. Chương II của 1M là 3/4 ở 72. Assertion `Castillo — Juglar — Castillo` trong `test_program.py` giữ nguyên. Chương I calm ở 96, sau khi sang 3/4, mới là Sonatina — Castillo — Sonatina.
+
+`_torroba_contrast` trên 4/4 khi primary là `olite` trả `castillo`, không trả `sonatina`. Hàng 4/4 của `_torroba_primary` chỉ còn `olite` cho `rally` và `volatile`. Assertion finale `Olite — Sonatina — Olite` đổi thành `Olite — Castillo — Olite`. Ô `calm` và `selloff` của hàng 4/4 không còn được chọn, vì hai character đó đã sang 3/4 trước lúc chọn pattern.
 
 SSI 1M sau bảng này:
 
@@ -90,6 +109,10 @@ Sàn là `max(bass + 3, 55 - ctx.semitones)` khi có bass, nếu không thì `55
 
 Khi lead đã hạ có cao độ vang `<= 62`, support dưới nốt đó nghỉ. `_torroba_inner` không bị ép vào một quãng hẹp giữa bass và lead. Bass giữ bè trầm.
 
+Hạ xảy ra trên các eighth của đoạn đó, ghi vào mảng mà `_melody_at` đọc, trước vòng render từng ô. `apply_scale_passages` chạy sau vòng đó và phải vẫn thấy đường giá gốc: passage tính từ bản melody trước khi hạ, rồi ghi đè đúng các eighth của passage. Eighth không thuộc passage giữ nốt đã hạ.
+
+`apply_sonatina_downbeats` chạy sau passage. Nó đang lấy `target = _melody_at(ctx, eighth)`. Nếu mảng đó vẫn là bè cao trong khi ô đã viết nốt hạ, nốt lấy đà móc kép bị trồng ở quãng cao rồi slur xuống bè trung. Target của một ô thuộc đoạn hạ là midi của nốt lead đã viết tại phách mạnh của ô đó, không phải `_melody_at` của đường giá gốc.
+
 ---
 
 ## 6. Dày thêm một bước
@@ -105,16 +128,27 @@ Một bước, trên lưới nền của 3/4 và 6/8:
 
 `_playable` thất bại thì giữ độ dài cũ. Không thêm nhát bass ở móc 4 của 3/4. Bass 6/8 không được phủ móc 3.
 
-Áp cho bass móc 0 của `castillo` lưới 3/4, Juglar, Fandanguillo, Danza, và Alcaniz. Không áp cho Olite.
+Không áp cho Olite. Từng điệu một:
 
-Ô lưới nền đang có `support` rỗng thì thêm một nốt bè trung, nếu `_torroba_inner` trả được một nốt:
-
-| Ô | Móc của nốt mới |
+| Điệu | Bass được kéo |
 |---|---|
-| Juglar, 3/4 | 2 |
-| Alcaniz điệu và Alcaniz mềm, 6/8 | 2 |
+| Castillo lưới 3/4, Juglar | Nhát ở móc 0 |
+| Fandanguillo | Nhát ở móc 0. Nốt bass bỏ `staccato` nếu nhát đó đang staccato. Lead và support của hợp âm giữ staccato |
+| Danza | Nhát bass trong `_block(..., staccato=True)` ở móc 0, và ở móc 3 trên 6/8. Bỏ `staccato` trên riêng nốt bass. Lead và support giữ staccato |
+| Alcaniz mềm và Alcaniz mở | Nhát bass ở móc 0 |
+| Alcaniz điệu, `_alcaniz_dance` | Không có bass ở móc 0. Lead ở móc 0 và móc 3, bass đáp ở móc 1 và móc 4, mỗi nhát 0.5 phách. Kéo hai nhát đáp đó lên 1.0 phách. Chúng dừng trước móc 3 và trước vạch ô. Không dời bass về móc 0 |
 
-Ô đã có support thì không thêm. Không thêm support cho Olite.
+Bass mới ngân đè lên móc mà `_gap_inner` đang coi là một nốt đơn. `_gap_inner` và bước đặt bass dài hơn phải `_playable` cùng lead và support còn ngân trong cửa sổ đó. Không vừa thì giữ độ dài cũ.
+
+Ô lưới nền đang có `support` rỗng thì thêm một nốt bè trung:
+
+| Ô | Móc | Lead đưa vào hàm |
+|---|---|---|
+| Juglar, 3/4 | 2 | Lead đang vang ở móc đó, `_torroba_inner` |
+| Alcaniz mềm, 6/8 | 2 | Lead móc 0 đang ngân cả 1.5 phách, `_torroba_inner` với cao độ đó |
+| Alcaniz điệu, 6/8 | 2 | Lead nghỉ ở móc 2. Lấy cao độ lead của móc 0, gọi `_torroba_inner`, và `_playable` với bass móc 1 đang ngân. `_gap_inner` chỉ khi không có bass đang ngân |
+
+Ô đã có support thì không thêm. Không thêm support cho Olite. `_torroba_inner` trả `None` thì không viết nốt đó.
 
 ---
 
