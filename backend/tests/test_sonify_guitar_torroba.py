@@ -32,6 +32,7 @@ from app.sonify.chords import (
     G7,
     GM,
 )
+from app.sonify.keys import C_KEY, EB_KEY
 from app.sonify.form import (
     METER_34,
     METER_44,
@@ -4019,7 +4020,14 @@ def test_figure_spans_lock_the_castillo_and_sonatina_table() -> None:
         long_phrase = _joined(0, [60] * (11 * epb), held=True)
         long_ctx = _many((long_phrase,), kind="3/4", bpm=72)
         assert select_torroba_spans(long_ctx, long_phrase, "castillo", n=turn, previous=None) == [
-            (expected, tuple(range(9)))
+            (expected, tuple(range(9))),
+            (expected, (9, 10)),
+        ]
+        full = _joined(0, [60] * (18 * epb), held=True)
+        full_ctx = _many((full,), kind="3/4", bpm=72)
+        assert select_torroba_spans(full_ctx, full, "castillo", n=turn, previous=None) == [
+            (expected, tuple(range(9))),
+            (expected, tuple(range(9, 18))),
         ]
     epb_68 = _FIGURE_METERS["6/8"][1]
     for turn in (0, 1):
@@ -4140,16 +4148,96 @@ def test_castillo_34_sentences_keep_micro_velocity_contours() -> None:
     cb_lead, _cb_sup, _cb_low = render_torroba_figure(ctx, 2, phrase, "castillo", 14, index=2, count=9)
     assert [note.velocity for note in ca_lead if note.midi is not None] == [60, 60, 62]
     assert [note.velocity for note in cb_lead if note.midi is not None] == [62, 62, 64]
+    # Bar 3 (`burst`): downbeat 64, then the mordent and the two later quarters settle at 60.
+    burst_lead, _burst_sup, _burst_low = render_torroba_figure(ctx, 3, phrase, "castillo", 14, index=3, count=9)
+    assert [note.velocity for note in burst_lead if note.midi is not None] == [64, 60, 60, 60, 60, 60]
     # Bar 4 (`echo`): three chords taper 64 -> 62 -> 60.
     ec_lead, _ec_sup, _ec_low = render_torroba_figure(ctx, 4, phrase, "castillo", 14, index=4, count=9)
-    assert [note.velocity for note in ec_lead if note.midi is not None][0] > [
-        note.velocity for note in ec_lead if note.midi is not None
-    ][-1]
+    assert [note.velocity for note in ec_lead if note.midi is not None] == [64, 62, 60]
     # Bar 5 (`dotted`): dotted-quarter 64, light eighth 60, quarter 62.
     dt_lead, _dt_sup, _dt_low = render_torroba_figure(ctx, 5, phrase, "castillo", 14, index=5, count=9)
     assert [note.velocity for note in dt_lead if note.midi is not None] == [64, 60, 62]
-    # Bar 8 (`final`): three bass quarters step into the tenuto arrival (58 -> 60 -> 62).
-    _fn_lead, _fn_sup, fn_low = render_torroba_figure(ctx, 8, phrase, "castillo", 14, index=8, count=9)
-    assert [note.velocity for note in fn_low if note.midi is not None] == [58, 60, 62]
+    # Bar 8 (`final`): the held G4 stays the written 64, not a harmonic 48.
+    # The bass line arrives on E and steps 58 -> 60 -> 62.
+    fn_lead, _fn_sup, fn_low = render_torroba_figure(ctx, 8, phrase, "castillo", 14, index=8, count=9)
+    assert [(note.midi, note.velocity) for note in fn_lead if note.midi is not None] == [(67, 64)]
+    assert fn_lead[0].accent is True
+    bass = [note for note in fn_low if note.midi is not None]
+    assert [note.velocity for note in bass] == [58, 60, 62]
+    assert bass[-1].midi % 12 == 4
+
+
+def test_cadence_bass_arrives_on_the_root_and_arada_keeps_its_window() -> None:
+    """The cadence bass ends on the chord root. Arada's scale stays in 40–52 when transposed."""
+    _meter, epb, strong, bar_beats = _FIGURE_METERS["3/4"]
+    for lead, chord, mode, root in (
+        (60, EM, "minor", 4),
+        (64, EM, "minor", 4),
+        (72, EM, "minor", 4),
+        (76, EM, "minor", 4),
+        (67, C, "major", 0),
+    ):
+        pitches = [lead] * (9 * epb)
+        phrase = _joined(0, pitches, held=True)
+        ctx = _ctx(
+            melody=pitches,
+            phrase=phrase,
+            kind="3/4",
+            epb=epb,
+            strong=strong,
+            bpm=72,
+            character="selloff",
+            bars=9,
+            chord=chord,
+            mode=mode,
+            bar_beats=bar_beats,
+        )
+        _sung, _support, low = render_torroba_figure(ctx, 8, phrase, "castillo", 14, index=8, count=9)
+        bass = [note.midi for note in low if note.midi is not None]
+        assert bass and bass[-1] % 12 == root
+    arada = [67] * 40
+    phrase = _joined(0, arada, held=True)
+    ctx = _ctx(melody=arada, phrase=phrase, kind="4/4", bars=5, chord=EM, mode="minor")
+    ctx.semitones = 3
+    _lead, _support, low = render_torroba_figure(ctx, 4, phrase, "castillo", 7, index=4, count=5)
+    written = [note.midi for note in low if note.midi is not None and note.beat > 0]
+    assert written
+    assert all(40 <= midi <= 52 for midi in written)
+
+
+def test_castillo_34_repeats_past_nine_bars_and_stays_playable() -> None:
+    """A phrase longer than nine bars repeats the sentence instead of sustaining the tail."""
+    _meter, epb, strong, bar_beats = _FIGURE_METERS["3/4"]
+    for length, semitones, key in ((12, 0, C_KEY), (18, 0, C_KEY), (18, 3, EB_KEY)):
+        pitches = [60 + (index % 7) for index in range(length * epb)]
+        phrase = _joined(0, pitches, held=True)
+        ctx = _ctx(
+            melody=pitches,
+            phrase=phrase,
+            kind="3/4",
+            epb=epb,
+            strong=strong,
+            bpm=72,
+            character="selloff",
+            bars=length,
+            chord=EM,
+            mode="minor",
+            bar_beats=bar_beats,
+        )
+        ctx.semitones = semitones
+        for turn in (0, 1):
+            spans = select_torroba_spans(ctx, phrase, "castillo", n=turn, previous=None)
+            covered = [bar for _figure, slots in spans for bar in slots]
+            assert covered == list(range(length))
+            parts = [
+                render_torroba_figure(
+                    ctx, bar, phrase, "castillo", figure, index=slot_index, count=len(slots)
+                )
+                for figure, slots in spans
+                for slot_index, bar in enumerate(slots)
+            ]
+            score = _engrave(ctx, parts)
+            assert_playable(score, key=key, profiles="torroba")
+            _assert_measures_sum(score)
 
 

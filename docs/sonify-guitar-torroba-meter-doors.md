@@ -81,7 +81,7 @@ SSI 1M sau bảng này:
 
 Kiểu 7 và kiểu 8 là *Arada*, nhịp gốc 4/4. `_castillo_spans` trên `6/8` trả `[]`. Trên `4/4`, Arada không dùng mặt nhanh `bpm > 72`; `_type7_bar1` luôn `resolution="half"`.
 
-Trên `3/4`, `_castillo_spans` không gọi Arada mà gọi hai câu 9 ô của *Castillos* (`CASTILLO_WALK = 13` khi `n` chẵn, `CASTILLO_CADENCE = 14` khi `n` lẻ) cho mọi câu dài từ 2 ô trở lên (`tuple(range(min(9, length)))`), co giãn theo độ dài câu:
+Trên `3/4`, `_castillo_spans` không gọi Arada mà gọi hai câu *Castillos* (`CASTILLO_WALK = 13` khi `n` chẵn, `CASTILLO_CADENCE = 14` khi `n` lẻ) cho mọi câu dài từ 2 ô. Câu lặp mỗi 9 ô. Phần dư ngắn hơn 9 ô dùng bảng vai co của chính câu đó, không trở về lưới ngân cả ô. Câu đúng 1 ô vẫn ở lưới đó:
 
 - **Câu 1 (`CASTILLO_WALK = 13`, ô #3 → #11):**
   - Ô đầu (`fan`): hợp âm dải rasgueado 5–6 dây ở móc 0 (`steps = 0`, `accent=True`), bốn móc đơn staccato lặp trên dây trầm (`steps = 2, 2, 1, 1`), móc 5 đẩy sang ô kế (`steps = 0`, `accent=True`).
@@ -90,9 +90,10 @@ Trên `3/4`, `_castillo_spans` không gọi Arada mà gọi hai câu 9 ô của 
 - **Câu 2 (`CASTILLO_CADENCE = 14`, ô #11 → #19):**
   - Ô đầu (`pickup`, cùng mặt bản lề ô #11): mở lại bằng nốt trầm ngân trọn ô và bốn móc đơn dẫn `2, 2, 1 → 0`.
   - Hai ô hợp âm đen `cresc.` (`chords_a` → `chords_b`): bậc vi mô đi từ `(2, 2, 1)` sang `(1, 1, 0)` tạo crescendo xuyên hai ô.
-  - Ô bung `f` (`Burst`) và ô hợp âm đáp (`echo`): móc 0 bung ở bậc `0` (`accent=True`), chùm luyến mordent ở móc 1, rồi hai phách sau cùng ô `echo` lắng dần `(0, 1, 2)`.
+  - Ô bung `f` (`burst`): móc 0 bậc `0` (`accent=True`). Chùm mordent và hai phách sau ngồi bậc `2`. Trên lead viết 64 thì nghe 60. Bass cả ô là bed yếu, nên bậc 2 lọt qua; nốt giữa mordent xin thêm một bậc nhưng bed không cho, ba nốt nghe đều.
+  - Ô hợp âm đáp (`echo`): ba nốt đen bậc `(0, 1, 2)`, mỗi phách một tiếng trầm cùng bậc. Trên lead viết 64 nghe `64, 62, 60`.
   - Hai ô chấm dôi thế tay `VII` (`dotted` / `tie_prep`): phách đầu chấm dôi bậc `0` (`accent=True`), móc đơn lướt nhẹ bậc `2` (trên nền `weak_bass`), phách 3 bậc `1`.
-  - Ô kết `rall. / ten.` (`final`): giai điệu ngân trọn ô ở bậc `0`, dưới là ba nốt trầm đen đi về chủ âm với bậc `(2, 1, 0)` nhấn vào nốt kết `ten.`.
+  - Ô kết `rall. / ten.` (`final`): giai điệu ngân trọn ô ở bậc `0`, đúng vận tốc viết, kể cả khi nốt trùng nút harmonic. Dưới là ba nốt trầm đen đi về đúng chủ âm, bậc `(2, 1, 0)`, nhấn vào nốt kết `ten.`.
 
 Hai kiểu `13` và `14` nằm trong `_REAL_TORROBA_FIGURES`, nên các ô thuộc hai kiểu này giữ bè cao (không hạ quãng 5) và tách các đoạn lưới nền giống kiểu 1–8 và `ALCANIZ_OPENING`. Câu `castillo` 3/4 chỉ dài 1 ô vẫn ở lại lưới ngân cả ô.
 

@@ -1567,11 +1567,22 @@ def _section_key(ctx, phrase):
 
 
 def _castillo_34_spans(length: int, n: int) -> list[tuple[int, tuple[int, ...]]]:
-    """Two nine-bar Castillos sentences in 3/4, compressed when the phrase is shorter."""
+    """Tile a nine-bar Castillos sentence across the phrase.
+
+    A phrase of one bar stays on the sustain grid. A longer phrase repeats the
+    sentence every nine bars, and a shorter remainder uses the compressed roles
+    of that same sentence instead of falling back to a whole-bar sustain.
+    """
     if length <= 1:
         return []
     figure = CASTILLO_WALK if n % 2 == 0 else CASTILLO_CADENCE
-    return [(figure, tuple(range(min(9, length))))]
+    spans: list[tuple[int, tuple[int, ...]]] = []
+    start = 0
+    while start < length:
+        chunk = min(9, length - start)
+        spans.append((figure, tuple(range(start, start + chunk))))
+        start += chunk
+    return spans
 
 
 def _castillo_spans(length: int, n: int, kind: str) -> list[tuple[int, tuple[int, ...]]]:
@@ -2810,33 +2821,33 @@ def _type7_bar4(pen: _Pen):
 
 def _root_in_bass(pen: _Pen) -> int:
     root = pen.ctx.chord(pen.bar).pitches[0] % 12
-    low, high = _bass_window(pen.ctx)
-    tones = [note for note in range(low, high + 1) if note % 12 == root]
+    tones = [note for note in range(40, 53) if note % 12 == root]
     if tones:
         return tones[0]
     found = pen.bass_of(None)
-    return max(low, min(high, 48 if found is None else found))
+    return 48 if found is None else max(40, min(52, found))
 
 
 def _scale_to_root(pen: _Pen, count: int, ceiling: int | None = None) -> list[int]:
-    """Stepwise bass in the playable bass window, ending on the chord root.
+    """Stepwise bass in 40–52, ending on the chord root.
 
     A degree the held lead cannot fret with is left out. The eighth rhythm
     stays one note per eighth. Open E2 still fits a high lead; F2 does not.
+    Arada (types 7 and 8) keeps this fixed window. The 3/4 cadence walks its
+    own line in `_cadence_bass_line`.
     """
     goal = _root_in_bass(pen)
     semi = pen.ctx.semitones
-    low, high = _bass_window(pen.ctx)
 
     def fits(pitch: int) -> bool:
         if ceiling is None:
             return True
         return _playable([pitch + semi, ceiling + semi])
 
-    scale = [pitch for pitch in range(low, high + 1) if _on_scale(pitch, pen.ctx.mode) and fits(pitch)]
+    scale = [pitch for pitch in range(40, 53) if _on_scale(pitch, pen.ctx.mode) and fits(pitch)]
     if not scale:
         found = pen.bass_of(ceiling)
-        fallback = low if found is None else max(low, min(high, found))
+        fallback = 40 if found is None else max(40, min(52, found))
         return [fallback] * count
     if goal not in scale:
         root = goal % 12
@@ -2856,6 +2867,41 @@ def _scale_to_root(pen: _Pen, count: int, ceiling: int | None = None) -> list[in
         path.append(scale[cursor])
     path.reverse()
     return path
+
+
+def _cadence_bass_line(pen: _Pen, count: int, ceiling: int) -> list[int]:
+    """Bass quarters that arrive on the chord root.
+
+    The last note is a root inside the playable bass window. Degrees that
+    cannot fret under `ceiling` are skipped, so the approach compresses onto
+    the root instead of sliding the arrival off it. The walk rises into a root
+    that has room below it, and falls onto a root that sits at the bottom.
+    """
+    low, high = _bass_window(pen.ctx)
+    root = pen.ctx.chord(pen.bar).pitches[0] % 12
+    semi = pen.ctx.semitones
+
+    def fits(pitch: int) -> bool:
+        return _playable([pitch + semi, ceiling + semi])
+
+    roots = [note for note in range(low, high + 1) if note % 12 == root]
+    fitting = [note for note in roots if fits(note)]
+    goal = fitting[0] if fitting else (roots[0] if roots else low)
+    scale = [
+        note
+        for note in range(low, high + 1)
+        if note != goal and _on_scale(note, pen.ctx.mode) and fits(note)
+    ]
+    below = [note for note in scale if note < goal]
+    above = [note for note in scale if note > goal]
+    need = max(0, count - 1)
+    if len(below) >= need or not above:
+        head = below[-need:] if need else []
+    else:
+        head = list(reversed(above[:need]))
+    while len(head) < need:
+        head.insert(0, head[0] if head else goal)
+    return (head + [goal])[:count]
 
 
 def _type7_bar5(pen: _Pen):
@@ -3188,14 +3234,16 @@ def _castillo_cadence_chords(pen: _Pen, *, steps_seq: tuple[int, int, int]):
 def _castillo_cadence_burst(pen: _Pen):
     sung = pen.mel(0)
     written, _accent = pen.lead_level(0, strong=True)
-    support_level, bass_level, _weak = pen.beds(written)
+    support_level, _bass_level, weak_bass = pen.beds(written)
     pen.add(0.0, sung, 0.5, 1, written, 0, accent=True)
-    pen.mordent_triplet(0.5, pen.mel(1), [], pen.lead_level(1, strong=False)[0], 1)
-    for eighth, duration, steps in ((2, 1.0, 1), (4, 1.0, 2)):
+    # The neighbor asks for one step more than the body. On the weak bass bed
+    # that extra step does not fit, so the three notes settle together.
+    pen.mordent_triplet(0.5, pen.mel(1), [], pen.lead_level(1, strong=False)[0], 2)
+    for eighth, duration in ((2, 1.0), (4, 1.0)):
         if eighth >= pen.epb:
             break
-        pen.add(eighth * 0.5, pen.mel(eighth), duration, 1, pen.lead_level(eighth, strong=False)[0], steps)
-    low = _castillo_34_add_bass(pen, 0.0, (pen.beats, 1.5, 1.0, 0.5), bass_level, 0)
+        pen.add(eighth * 0.5, pen.mel(eighth), duration, 1, pen.lead_level(eighth, strong=False)[0], 2)
+    low = _castillo_34_add_bass(pen, 0.0, (pen.beats, 1.5, 1.0, 0.5), weak_bass, 0)
     early_leads = [
         attack.midi
         for attack in pen.attacks
@@ -3219,26 +3267,9 @@ def _castillo_cadence_burst(pen: _Pen):
 
 
 def _castillo_cadence_echo(pen: _Pen):
-    written, _accent = pen.lead_level(0, strong=True)
-    support_level, bass_level, _weak = pen.beds(written)
-    steps_seq = (0, 1, 2)
-    for beat_index, eighth in enumerate((0, 2, 4)):
-        if eighth >= pen.epb:
-            break
-        sung = pen.mel(eighth)
-        steps = steps_seq[beat_index]
-        level = pen.lead_level(eighth, strong=(beat_index == 0))[0]
-        pen.add(beat_index * 1.0, sung, 1.0, 1, level, steps, accent=(beat_index == 0))
-    low = _castillo_34_add_bass(pen, 0.0, (pen.beats, 1.5, 1.0, 0.5), bass_level, 1)
-    for beat_index, eighth in enumerate((0, 2, 4)):
-        if eighth >= pen.epb:
-            break
-        sung = pen.mel(eighth)
-        steps = steps_seq[beat_index]
-        inner = pen.support_of(sung, low, capped=False)
-        if inner is not None and _castillo_34_bass_fits(pen, inner, beat_index * 1.0, 1.0):
-            pen.add(beat_index * 1.0, inner, 1.0, 2, support_level, steps)
-    return pen.finish()
+    # One bass per beat, at that beat's step, so the last quarter can fall two
+    # steps. A single bass across the bar holds the bed up and stops the taper.
+    return _castillo_cadence_chords(pen, steps_seq=(0, 1, 2))
 
 
 def _castillo_cadence_dotted(pen: _Pen, *, prep_tie: bool):
@@ -3259,10 +3290,10 @@ def _castillo_cadence_dotted(pen: _Pen, *, prep_tie: bool):
 def _castillo_cadence_final(pen: _Pen):
     sung = pen.mel(0)
     ordinary, _accent = pen.lead_level(0, strong=True)
-    velocity = _harmonic_velocity(pen.ctx, sung, pen.beats, ordinary)
     _support_level, bass_level, _weak = pen.beds(ordinary)
-    pen.add(0.0, sung, pen.beats, 1, velocity, 0, accent=(velocity != 48))
-    line = _scale_to_root(pen, 3, sung)
+    # The arrival is a sung tenuto, including when the pitch is a natural node.
+    pen.add(0.0, sung, pen.beats, 1, ordinary, 0, accent=True)
+    line = _cadence_bass_line(pen, 3, sung)
     for beat_index, (midi, steps) in enumerate(zip(line, (2, 1, 0))):
         if _castillo_34_bass_fits(pen, midi, beat_index * 1.0, 1.0):
             pen.add(beat_index * 1.0, midi, 1.0, 3, bass_level, steps)

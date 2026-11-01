@@ -92,11 +92,14 @@ Arpeggio ở đây là nhãn kiểu của Sonatina. Villa đã in **Arpeggio** t
 
 Kiểu 2, Kiểu 3 (ô mô-típ), Kiểu 5 (ô 1), Kiểu 7 (ô 5) và móc 0 của lưới `fandanguillo` đều mở bằng hợp âm dải rasgueado (`bass → support → lead` lệch `1/12` phách). Kiểu 2 giữ tên **Rasgueado** vì đó là cả hình của nó. Kiểu 5 là vòm bốn ô của Fandanguillo, tên **Arch**.
 
-Kiểu 7 và kiểu 8 đều lấy nét từ *Arada*, và chỉ vào `castillo` khi `ctx.bpm <= 72`. Bốn bullet dưới chỉ nhắc cách chia độ dài. Cửa chọn đầy đủ là bước 6 và bước 7 của mục 4.0 trong [`docs/sonify-guitar-torroba-phrase-plan.md`](./sonify-guitar-torroba-phrase-plan.md): câu `n` lẻ là lưới nền, `k` chỉ đếm các câu `n` chẵn, và câu liền trước đã chọn cùng số kiểu thì câu này về lưới nền.
+Kiểu 7 và kiểu 8 là *Arada*, chỉ trên `castillo` nhịp `4/4`. Cửa không còn `bpm > 72`. Cách chia độ dài khóa ở mục 3 của [`docs/sonify-guitar-torroba-meter-doors.md`](./sonify-guitar-torroba-meter-doors.md):
 
-- `k` chẵn và câu dài ít nhất 5 ô: kiểu 7 trên năm ô đầu.
-- `k` chẵn và câu dài 2, 3 hoặc 4 ô: kiểu 8 trên hai ô đầu, để khỏi cắt năm ô của câu đầu *Arada*.
-- `k` lẻ và câu dài ít nhất 2 ô: kiểu 8 trên hai ô đầu, dù câu trước không phải kiểu 7.
-- Câu dài 1 ô, hoặc `ctx.bpm > 72`: lưới nền.
+- Câu dài 2–3 ô: kiểu 8 trên hai ô đầu.
+- Câu dài 4 ô: kiểu 8 trên `(0, 1)` khi `n` chẵn, trên `(1, 2)` khi `n` lẻ.
+- Câu dài 5–6 ô và `n` chẵn: kiểu 7 trên năm ô đầu. `n` lẻ: hai cặp kiểu 8.
+- Câu dài 7 ô: kiểu 7.
+- Câu dài từ 8 ô và `n` chẵn: kiểu 7 trên năm ô đầu. `n` lẻ: kiểu 8 trên `(0, 1)`, kiểu 8 trên `(4, 5)`, kiểu 1 trên ô 2.
+
+Trên `3/4`, `castillo` không gọi Arada. Câu từ 2 ô hát kiểu 13 (`n` chẵn) hoặc kiểu 14 (`n` lẻ), lặp mỗi 9 ô; phần dư ngắn hơn 9 ô dùng bảng vai co của câu đó. Câu 1 ô, và mọi câu `6/8`, ở lại lưới nền.
 
 Tên kiểu 8 là **Float**, câu hát bồng bềnh sang ô kế. Không gọi **Harmonics**. Plan đã có cửa vận tốc 48 khi nốt ngân trùng nút harmonic. Hai tiếng `Arm. 8` của kiểu 8 ngắn hơn hai phách, nên câu phẳng ra 58, không ra 48. Hàm và comment sau này không được đọc tên kiểu thành cửa vận tốc đó.
