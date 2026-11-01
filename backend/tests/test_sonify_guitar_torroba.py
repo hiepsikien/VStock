@@ -72,6 +72,8 @@ from app.sonify.guitar_torroba import (
     _grid_state,
     _half_bass_events,
     _rasgueado_onsets,
+    _alcaniz_dance,
+    _alcaniz_opening,
     _render_torroba_bar,
     _torroba_bass,
     _torroba_contrast,
@@ -529,7 +531,8 @@ def test_dance_writes_a_four_step_gap_and_one_extra_per_bar() -> None:
     assert rolled[0].velocity == 68 and rolled[0].accent
     by_beat = {round(note.beat, 2): note for note in lead if note.duration_beats >= 0.5}
     assert by_beat[1.0].velocity == 64 and not by_beat[1.0].accent
-    assert by_beat[1.5].velocity >= 68 and by_beat[1.5].accent
+    # Eighth 3 is the secondary strong beat: one degree under 68, and not an accent.
+    assert by_beat[1.5].velocity == 66 and not by_beat[1.5].accent
     assert rolled[0].velocity - by_beat[1.0].velocity == 4
     four = _ctx(melody=[72] * 8, phrase=_joined(0, [72] * 8), character="volatile")
     with compose_meter(METER_44):
@@ -1234,7 +1237,7 @@ def test_breath_harmonics_and_fandanguillo_grids() -> None:
     assert set(by_beat) == {roll, 1.0, 1.5}
     assert by_beat[roll].velocity >= 68 and by_beat[roll].accent and by_beat[roll].midi == 72
     assert by_beat[1.0].velocity == 64 and not by_beat[1.0].accent
-    assert by_beat[1.5].velocity >= 68 and by_beat[1.5].accent
+    assert by_beat[1.5].velocity == 66 and not by_beat[1.5].accent
     opening = sorted(
         (note for note in (*lead, *support, *low) if note.midi is not None and note.beat < 0.25),
         key=lambda note: note.beat,
@@ -3311,8 +3314,12 @@ def test_alcaniz_dance_soft_and_opening() -> None:
     assert not any(note.beat == pytest.approx(2.5) for note in sounded)
     assert [note.duration_beats for note in danced_low] == [pytest.approx(1.0), pytest.approx(1.0)]
     assert any(note.beat == pytest.approx(0.5) and note.voice == 3 for note in danced_low)
-    assert all(note.accent for note in danced)
-    assert all((note.velocity or 0) >= 68 for note in danced)
+    danced_leads = sorted(danced, key=lambda note: note.beat)
+    dance_apex = _apex_eighths(ctx.phrases)
+    down_level = _note_velocity(12, 1, dance_apex, opening)
+    secondary_level = _note_velocity(15, 1, dance_apex, opening)
+    assert danced_leads[0].accent and danced_leads[0].velocity == max(down_level, 68)
+    assert not danced_leads[1].accent and danced_leads[1].velocity == max(secondary_level - 2, 66)
     assert not any(note.slur_start for note in second)
     assert _beats(second) == [0.0, 1.5]
     plan = torroba_figure_plan(ctx, ["alcaniz", "alcaniz", "alcaniz"])
@@ -3489,8 +3496,10 @@ def test_castillos_second_half_uses_the_sentence_that_opens_there() -> None:
     apex = _apex_eighths(juglar.phrases)
     downbeat = next(note for note in juglar_lead if note.beat == pytest.approx(0.0))
     last = next(note for note in juglar_lead if note.beat == pytest.approx(2.0))
+    owned = _note_velocity(4, 1, apex, juglar_next)
     assert last.midi == melody[4] and last.duration_beats == pytest.approx(4 / 12)
-    assert last.velocity == _note_velocity(4, 1, apex, juglar_next)
+    # Eighth 4 opens the next sentence and is not that sentence's apex, so the 3/4 slope steps it.
+    assert last.velocity == max(40, owned - 2)
     assert downbeat.velocity == _note_velocity(0, 1, apex, juglar_open)
     assert last.velocity != downbeat.velocity
 
@@ -4241,5 +4250,208 @@ def test_castillo_34_repeats_past_nine_bars_and_stays_playable() -> None:
             score = _engrave(ctx, parts)
             assert_playable(score, key=key, profiles="torroba")
             _assert_measures_sum(score)
+
+
+def _lead_in_eighth(notes, offset: int) -> NoteEvent:
+    """The one sounding lead whose onset falls in this eighth, including a rolled downbeat."""
+    found = [
+        note
+        for note in notes
+        if note.midi is not None and offset - 1e-9 <= note.beat * 2 < offset + 1 - 1e-9
+    ]
+    assert len(found) == 1
+    return found[0]
+
+
+def _six_eight(melody: list[int], phrase: Phrase, *, bars: int | None = None):
+    return _ctx(
+        melody=melody,
+        phrase=phrase,
+        kind="6/8",
+        epb=6,
+        strong=(0, 3),
+        character="calm",
+        bars=bars,
+        bar_beats=3,
+        chord=C,
+    )
+
+
+def test_six_eight_dance_grid_writes_a_secondary_accent() -> None:
+    """Danza and Fandanguillo 6/8, written before the wave, on a flat phrase."""
+    phrase = _joined(0, [72] * 6)
+    assert phrase.rise == 0
+    ctx = _six_eight([72] * 6, phrase)
+    with compose_meter(METER_68):
+        danced, _support, _low = _render_torroba_bar(ctx, 0, phrase, "danza")
+        fan, _support, _low = _render_torroba_bar(ctx, 0, phrase, "fandanguillo")
+    ordered = sorted((note for note in danced if note.midi is not None), key=lambda note: note.beat)
+    assert [round(note.beat, 2) for note in ordered] == [0.0, 0.5, 1.0, 1.5, 2.0, 2.5]
+    assert [note.velocity for note in ordered] == [68, 64, 64, 66, 64, 64]
+    assert [note.accent for note in ordered] == [True, False, False, False, False, False]
+
+    down = _lead_in_eighth(fan, 0)
+    middle = _lead_in_eighth(fan, 2)
+    secondary = _lead_in_eighth(fan, 3)
+    assert down.beat != pytest.approx(0.0)
+    assert [down.velocity, middle.velocity, secondary.velocity] == [68, 64, 66]
+    assert down.accent and not middle.accent and not secondary.accent
+
+
+def test_alcaniz_dance_secondary_accent_and_opening_arrival() -> None:
+    """Full dance steps eighth 3. Pushed stays ordinary. The opening arrival stays accented."""
+    phrase = _joined(0, [72] * 6, held=True)
+    assert phrase.rise == 0
+    ctx = _six_eight([72] * 6, phrase)
+    with compose_meter(METER_68):
+        full, _support, _low = _alcaniz_dance(ctx, 0, phrase, accented=True)
+        pushed, _support, _low = _alcaniz_dance(ctx, 0, phrase, accented=False)
+        opened, _support, _low = _alcaniz_opening(ctx, 0, phrase)
+    full_leads = sorted(full, key=lambda note: note.beat)
+    pushed_leads = sorted(pushed, key=lambda note: note.beat)
+    assert [note.velocity for note in full_leads] == [68, 66]
+    assert [note.accent for note in full_leads] == [True, False]
+    assert [round(note.beat, 2) for note in full_leads] == [0.0, 1.5]
+    assert [note.velocity for note in pushed_leads] == [64, 64]
+    assert [note.accent for note in pushed_leads] == [False, False]
+    arrival = _at(opened, 1.5)
+    assert arrival.velocity == 68 and arrival.accent and arrival.slur_stop
+
+    left = _joined(0, [72] * 6, held=True)
+    right = _joined(6, [72] * 6, held=True)
+    pushed_ctx = _many((left, right), kind="6/8", melody=[72] * 12)
+    with compose_meter(METER_68):
+        rendered, _support, _low = _render_torroba_bar(pushed_ctx, 1, right, "alcaniz")
+    rendered_leads = sorted(rendered, key=lambda note: note.beat)
+    assert [note.duration_beats for note in rendered_leads] == [pytest.approx(0.5), pytest.approx(0.5)]
+    assert [note.velocity for note in rendered_leads] == [64, 64]
+    assert all(not note.accent for note in rendered_leads)
+
+
+def test_three_four_offbeats_step_outside_the_owning_apex() -> None:
+    """Sonatina 3/4 writes 64, 62, 62 outside a flat phrase's trivial apex."""
+    melody = [72, 72, 72, 72, 72, 72]
+    phrase = _joined(0, melody, held=True)
+    assert phrase.rise == 0
+    assert abs(melody[0] - melody[4]) <= 2
+    ctx = _ctx(
+        melody=melody,
+        phrase=phrase,
+        kind="3/4",
+        epb=6,
+        strong=(0,),
+        character="calm",
+        bar_beats=3,
+        chord=C,
+    )
+    with compose_meter(METER_34):
+        lead, _support, _low = _render_torroba_bar(ctx, 0, phrase, "sonatina")
+    assert _at(lead, 0.0).velocity == 64 and _at(lead, 0.0).accent
+    assert _at(lead, 1.0).velocity == 62 and _at(lead, 1.0).duration_beats == pytest.approx(0.5)
+    assert _at(lead, 1.5).velocity == 62 and _at(lead, 1.5).duration_beats == pytest.approx(0.5)
+    assert _at(lead, 2.0).velocity == 62 and _at(lead, 2.0).duration_beats == pytest.approx(1.0)
+    assert not any(note.midi is not None and note.beat == pytest.approx(2.5) for note in lead)
+
+    # Rise 1 still has a real apex. Eighth 4 keeps its written level; eighth 2 drops.
+    small = [71, 71, 71, 71, 72, 71]
+    small_phrase = _joined(0, small, held=True)
+    assert small_phrase.rise == 1
+    assert len({run.midi for run in small_phrase.runs}) > 1
+    assert small_phrase.apex.start == 4 and abs(small[0] - small[4]) <= 2
+    small_ctx = _ctx(
+        melody=small,
+        phrase=small_phrase,
+        kind="3/4",
+        epb=6,
+        strong=(0,),
+        character="calm",
+        bar_beats=3,
+        chord=C,
+    )
+    with compose_meter(METER_34):
+        small_lead, _support, _low = _render_torroba_bar(small_ctx, 0, small_phrase, "sonatina")
+    small_apex = _apex_eighths(small_ctx.phrases)
+    apex_level = _note_velocity(4, 1, small_apex, small_phrase)
+    off_level = _note_velocity(2, 1, small_apex, small_phrase)
+    assert apex_level == 72 and off_level == 64
+    assert _at(small_lead, 2.0).velocity == apex_level
+    assert _at(small_lead, 1.0).velocity == max(40, off_level - 2)
+    assert _at(small_lead, 0.0).velocity == 64 and _at(small_lead, 0.0).accent
+
+    # A sentence that opens on eighth 4 keeps that eighth when the peak is there.
+    opening = _joined(0, [72, 72, 72, 72], held=True)
+    following = _joined(4, [74, 72])
+    assert following.rise > 0 and following.apex.start == 4
+    split = [72, 72, 72, 72, 74, 72]
+    assert abs(split[0] - split[4]) <= 2
+    split_ctx = _many((opening, following), kind="3/4", melody=split)
+    with compose_meter(METER_34):
+        split_lead, _support, _low = _render_torroba_bar(split_ctx, 0, opening, "sonatina")
+    apex = _apex_eighths(split_ctx.phrases)
+    kept = _note_velocity(4, 1, apex, following)
+    assert kept == 72
+    assert _at(split_lead, 2.0).velocity == kept
+    assert _at(split_lead, 0.0).velocity == 64 and _at(split_lead, 0.0).accent
+    assert _at(split_lead, 1.0).velocity == 62
+    assert _at(split_lead, 1.5).velocity == 62
+
+    # 4/4 does not take the 3/4 slope.
+    four_phrase = _joined(0, [72] * 8, held=True)
+    four = _ctx(melody=[72] * 8, phrase=four_phrase, kind="4/4", character="calm", chord=C)
+    with compose_meter(METER_44):
+        four_lead, _support, _low = _render_torroba_bar(four, 0, four_phrase, "sonatina")
+    assert _at(four_lead, 0.0).velocity == 64 and _at(four_lead, 0.0).accent
+    assert _at(four_lead, 1.0).velocity == 64
+    assert _at(four_lead, 2.0).velocity == 64 and _at(four_lead, 2.0).accent
+
+
+def test_juglar_flat_bar_steps_the_later_beats() -> None:
+    """Beat 1 stays 64. Beats 2 and 3 step to 62 on triplets and on a quarter-note bar."""
+    phrase = _joined(0, [72] * 6, held=True)
+    assert phrase.rise == 0
+    ctx = _ctx(
+        melody=[72] * 6,
+        phrase=phrase,
+        kind="3/4",
+        epb=6,
+        strong=(0,),
+        bpm=72,
+        character="calm",
+        bar_beats=3,
+        chord=C,
+    )
+    with compose_meter(METER_34):
+        triplets, _support, _low = _render_torroba_bar(ctx, 0, phrase, "torroba_tremolo")
+        quarters, _support, _low = _render_torroba_bar(ctx, 0, phrase, "torroba_tremolo", ["torroba_tremolo"])
+    for quarter, eighth in enumerate((0, 2, 4)):
+        attacks = sorted(
+            (note for note in triplets if quarter - 1e-9 <= note.beat < quarter + 1 - 1e-9),
+            key=lambda note: note.beat,
+        )
+        assert len(attacks) == 3
+        assert attacks[0].velocity == (64 if eighth == 0 else 62)
+        assert attacks[1].velocity == 56 and attacks[2].velocity == 56
+        assert attacks[0].accent is (eighth == 0)
+    ordered = sorted(quarters, key=lambda note: note.beat)
+    assert [note.velocity for note in ordered] == [64, 62, 62]
+    assert [note.duration_beats for note in ordered] == [pytest.approx(1.0), pytest.approx(1.0), pytest.approx(1.0)]
+    assert all(not note.accent for note in ordered)
+
+
+@pytest.mark.parametrize("kind", ["4/4", "3/4", "6/8"])
+def test_type4_call_sixteenths_take_two_steps(kind: str) -> None:
+    """Flat phrase: both sixteenths share steps 2, and the eighth stays at steps 1."""
+    _ctx_figure, phrase, parts = _flat_figure(kind, 4)
+    assert phrase.rise == 0
+    lead = [note for note in parts[0][0] if note.midi is not None]
+    first = _at(lead, 0.5)
+    second = _at(lead, 0.75)
+    eighth = _at(lead, 1.0)
+    assert first.duration_beats == pytest.approx(0.25)
+    assert second.duration_beats == pytest.approx(0.25)
+    assert eighth.duration_beats == pytest.approx(0.5)
+    assert first.velocity == 60 and second.velocity == 60
+    assert eighth.velocity == 62
+    assert not first.tenuto and not second.tenuto and not eighth.tenuto
 
 
