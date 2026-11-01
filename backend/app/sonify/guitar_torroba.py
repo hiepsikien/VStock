@@ -1296,10 +1296,9 @@ def _render_fandanguillo_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], li
             continue
         band = _attack_band(ctx, bar, offset, closing)
         support.append(_support_event(bar * ctx.epb + offset, inner, ctx.epb, _bed(64, band)[0]))
-    # The rasgueado opening stays at 0.5. A block chord lengthens one bass note.
+    # The rasgueado opening stays at 0.5. A block bass is one eighth, so one step is two.
     if not rolls and ctx.kind in {"3/4", "6/8"}:
-        target = 3 if ctx.kind == "3/4" else 2
-        low = _retune_bass(ctx, bar, low, [*lead, *support], 0, 1, target, clear_staccato=False)
+        low = _retune_bass(ctx, bar, low, [*lead, *support], 0, 1, 2, clear_staccato=False)
     return lead, support, low
 
 
@@ -1327,7 +1326,7 @@ def _render_danza_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[Note
         band = _attack_band(ctx, bar, offset, closing)
         support.append(_support_event(bar * ctx.epb + offset, inner, ctx.epb, _bed(64, band)[0]))
     if ctx.kind == "3/4":
-        low = _retune_bass(ctx, bar, low, [*lead, *support], 0, 1, 3, clear_staccato=True)
+        low = _retune_bass(ctx, bar, low, [*lead, *support], 0, 1, 2, clear_staccato=True)
     elif ctx.kind == "6/8":
         low = _retune_bass(ctx, bar, low, [*lead, *support], 0, 1, 2, clear_staccato=True)
         low = _retune_bass(ctx, bar, low, [*lead, *support], 3, 1, 2, clear_staccato=True)
