@@ -6,7 +6,7 @@
 
 Ba việc:
 
-1. **Phân tầng trọng âm viết trên `6/8` và `3/4`:** Trên `6/8` của các điệu vũ (`danza`, `fandanguillo`, và `_alcaniz_dance` khi `accented=True`), móc đơn `0` là trọng âm chính (`max(ordinary, 68)`, `accent=True`), móc đơn `3` là trọng âm phụ (`max(ordinary - 2, 66)`, `accent=False`). Trên `3/4` (`_render_sonatina_moving`, `_render_juglar_bar`), phách 1 (móc `0`) giữ `ordinary`, còn các phách sau hạ 1 bậc (`-2`) khi móc đó không nằm trong đỉnh (`apex`) của câu sở hữu chính móc đó (`_phrase_covering`).
+1. **Phân tầng trọng âm viết trên `6/8` và `3/4`:** Trên `6/8` của các điệu vũ (`danza`, `fandanguillo`, và `_alcaniz_dance` khi `accented=True`), móc đơn `0` là trọng âm chính (`max(ordinary, 68)`, `accent=True`), móc đơn `3` là trọng âm phụ (`max(ordinary - 2, 66)`, `accent=False`). Trên `3/4` (`_render_sonatina_moving`, `_render_juglar_bar`), phách 1 (móc `0`) giữ `ordinary`, còn các phách sau hạ 1 bậc (`-2`) khi móc đó không phải đỉnh giai điệu thật của câu sở hữu chính móc đó (`_phrase_covering`, cùng cổng `_apex_eighths` / `_on_moving_apex`). Câu `rise <= 0` hoặc chỉ một cao độ không phải đỉnh, nên các phách sau vẫn hạ `2` dù `owner.apex` phủ cả run.
 2. **Đồng bộ bậc lực `steps` trong `_type4_call`:** Đưa cụm hai móc kép + một móc đơn tại `beat = 0.5, 0.75, 1.0` của `_type4_call` từ `steps = 1, 1, 1` sang `steps = 2, 2, 1` giống `_type3_motif` (không gắn thêm `tenuto`, không đụng `_into_strong`).
 3. **Mở rộng `_tempo_clock` cho `("guitar", "torroba")` bằng tổng ba độ lệch zero-sum độc lập:** Tầng câu ($\Delta_{\text{phrase}}$), tầng đầu ô ($\Delta_{\text{bar}}$), và tầng lilt ($\Delta_{\text{lilt}}$) tự triệt tiêu trung bình về `0.0` ngay trong phạm vi của chính nó, cộng tuyến tính vào `1.0`, co tỷ lệ toàn câu nếu chạm trần `±0.10`, và giữ mốc trả `nominal` tại `phrase.end`.
 
@@ -42,22 +42,26 @@ Trên lưới điệu `6/8` có nhấn (`_render_danza_bar`, `_render_fandanguil
 
 ### 1.3. Trọng âm trên `3/4` (`_render_sonatina_moving` và `_render_juglar_bar`)
 
-Một ô `3/4` có phách 1 ở móc `0`, phách 2 ở móc `2`, phách 3 ở móc `4`. Một ô có thể chứa hai câu (`Phrase`), nên việc kiểm tra một móc `origin + offset` có phải đỉnh câu hay không **phải tra trên câu sở hữu chính móc đó** (`owner = _phrase_covering(ctx, origin + offset, phrase)`), không dùng `phrase` của phách 1:
+Một ô `3/4` có phách 1 ở móc `0`, phách 2 ở móc `2`, phách 3 ở móc `4`. Một ô có thể chứa hai câu (`Phrase`), nên việc kiểm tra một móc có phải đỉnh hay không **phải tra trên câu sở hữu chính móc đó** (`owner = _phrase_covering(...)`), không dùng `phrase` của phách 1. Cổng là `_on_moving_apex`, cùng điều kiện `_apex_eighths` — không dùng riêng `owner.apex`:
 
 ```python
-in_apex = (
-    owner is not None
-    and owner.runs
-    and owner.apex.start <= origin + offset < owner.apex.end
-)
+def _on_moving_apex(owner, eighth: int) -> bool:
+    if owner is None or not owner.runs:
+        return False
+    distinct = {run.midi for run in owner.runs}
+    if owner.rise <= 0 or len(distinct) <= 1:
+        return False
+    return owner.apex.start <= eighth < owner.apex.end
 ```
+
+Câu phẳng (`rise <= 0`, hoặc chỉ một cao độ) không phải đỉnh, dù `owner.apex` phủ cả run. Nếu chỉ so `owner.apex`, phách 2 và phách 3 của câu phẳng sẽ giữ `64`; cổng trên hạ chúng xuống `62`. `rise` bằng `1` hoặc `2` vẫn là đỉnh thật: mọi móc nằm trong `owner.apex` giữ mức viết.
 
 1. **`_render_sonatina_moving` khi `ctx.kind == "3/4"`:**
    - Móc `0` (nốt đen phủ móc `0–1`): giữ `velocity = ordinary`, `accent = True`.
-   - Móc `2`, móc `3` (hai móc đơn) và móc `4` (nốt đen phủ móc `4–5`): với mỗi móc `offset in (2, 3, 4)`, lấy `owner = _phrase_covering(ctx, origin + offset, phrase)` như hiện tại; nếu `origin + offset` **không** thỏa `in_apex` của `owner`, hạ vận tốc viết đi `2` đơn vị: `max(40, level - 2)`. Nếu thuộc `apex` của `owner`, giữ nguyên `level`.
+   - Móc `2`, móc `3` (hai móc đơn) và móc `4` (nốt đen phủ móc `4–5`): với mỗi móc `offset in (2, 3, 4)`, lấy `owner = _phrase_covering(ctx, origin + offset, phrase)` (`origin = bar * ctx.epb`). Nếu `_on_moving_apex(owner, origin + offset)`, giữ nguyên `level`. Ngược lại hạ `max(40, level - 2)`.
 2. **`_render_juglar_bar` (`torroba_tremolo`, `3/4`):**
    - Phách 1 (`eighth == 0`): cú 1 của bộ ba (hoặc nốt đen khi `quarter_notes`) giữ `velocity`, `accent = (mode == "full" and not quarter_notes)`.
-   - Phách 2 và phách 3 (`eighth in (2, 4)`): lấy `owner = _phrase_covering(ctx, origin, phrase)` (với `origin = bar * ctx.epb + eighth`, cùng câu mà `_lead_vel` đang đọc). Nếu `origin` **không** thuộc `owner.apex`, hạ cú 1 của phách đó đi `2` đơn vị (`velocity = max(40, velocity - 2)`), `accent = False`.
+   - Phách 2 và phách 3 (`eighth in (2, 4)`): lấy `owner = _phrase_covering(ctx, origin, phrase)` (với `origin = bar * ctx.epb + eighth` đã cộng sẵn `eighth`, cùng câu mà `_lead_vel` đang đọc). Nếu `_on_moving_apex(owner, origin)`, giữ nguyên `velocity`. Ngược lại hạ cú 1 của phách đó (`velocity = max(40, velocity - 2)`), `accent = False`.
    - Lưu ý về `_one_under(velocity, band)`: trên câu phẳng band `mf`, `_under_lead(64, "mf")` và `_under_lead(62, "mf")` đều trả `support = 56`. Do đó cú 2 và cú 3 của bộ ba giữ ở `56` trên cả ba phách; việc hạ cú 1 của phách 2 và phách 3 từ `64` xuống `62` làm nghiêng đúng **cú đầu của mỗi phách** (`64 → 62 → 62`). (`torroba_tremolo` không có `snap` trong `PROFILES`).
 
 ---
@@ -140,7 +144,7 @@ Trong mỗi ô nhịp `bar`, chia ô thành các khe móc đơn $s = 0, 1, \dots
    - **Trọng âm `6/8`:**
      - Trong `_block` (Danza, dòng 1102) và `_answer` (Fandanguillo / Danza, dòng 1137): khi `ctx.kind == "6/8"` và `offset == 3`, đặt `velocity = max(ordinary - 2, 66)` và `accent = False` (móc `0` giữ `max(ordinary, 68)` và `accent = True`).
      - Trong `_alcaniz_dance` (dòng 3790): khi `accented` đúng (`mode == "full"`): móc `0` viết `max(ordinary, 68)`, `accent = True`; móc `3` viết `max(ordinary - 2, 66)`, `accent = False`. Khi `not accented` (`mode == "pushed"`): giữ cả móc `0` và móc `3` ở `ordinary`, `accent = False`. Giữ nguyên `_alcaniz_opening`.
-   - **Trọng âm `3/4`:** Trong `_render_sonatina_moving` (khi `ctx.kind == "3/4"`, tại `offset in (2, 3, 4)` với `origin = bar * ctx.epb`, tra `_phrase_covering(ctx, origin + offset, phrase)`) và trong `_render_juglar_bar` (tại `eighth in (2, 4)` với `origin = bar * ctx.epb + eighth` đã cộng sẵn `eighth`, tra `_phrase_covering(ctx, origin, phrase)`), kiểm tra `in_apex` trên câu sở hữu chính móc đó. Nếu không thuộc `owner.apex`, hạ vận tốc viết `max(40, velocity - 2)`.
+   - **Trọng âm `3/4`:** Trong `_render_sonatina_moving` (khi `ctx.kind == "3/4"`, tại `offset in (2, 3, 4)` với `origin = bar * ctx.epb`, tra `_phrase_covering(ctx, origin + offset, phrase)`) và trong `_render_juglar_bar` (tại `eighth in (2, 4)` với `origin = bar * ctx.epb + eighth` đã cộng sẵn `eighth`, tra `_phrase_covering(ctx, origin, phrase)`), giữ vận tốc khi `_on_moving_apex` đúng. Cổng đó khớp `_apex_eighths`: câu `rise <= 0` hoặc chỉ một cao độ không phải đỉnh, nên vẫn hạ `max(40, velocity - 2)`. Không dùng riêng `owner.apex.start <= eighth < owner.apex.end`.
    - **`_type4_call` (dòng 2368–2380):** Đổi hai móc kép tại `0.5, 0.75` sang `steps = 2` (chung `group = pen.group()`), giữ móc đơn tại `1.0` ở `steps = 1` (khớp `_type3_motif` ở dòng 2292–2299).
 2. **`backend/app/sonify/humanize.py`:**
    - Trong `_tempo_clock` / `_phrase_tempos`: khi `score.variant == "guitar"` và `score.ensemble == "torroba"` (với `divisions >= 2` chẵn), tính $\Delta[u] = \Delta_{\text{phrase}}[u] + \Delta_{\text{bar}}[u] + \Delta_{\text{lilt}}[u]$ theo Mục 3.2, co tỷ lệ toàn câu bằng $s = 0.10 / \max_u |\Delta[u]|$ nếu $\max_u |\Delta[u]| > 0.10$, phát `round(nominal * (1.0 + s * delta_u), 2)`, và giữ nguyên mốc trả `(round(end, 4), nominal, order)` tại `phrase.end` cùng cổng `_MIN_PHRASE_BEATS = 2.0`.
@@ -150,7 +154,7 @@ Trong mỗi ô nhịp `bar`, chia ô thành các khe móc đơn $s = 0, 1, \dots
        - Danza `6/8`: sắp xếp `lead` theo `note.beat` (vì `_render_danza_bar` append hợp âm móc `0, 3` trước rồi mới append melody `1, 2, 4, 5`), xác nhận theo thứ tự móc ra `[68, 64, 64, 66, 64, 64]` và chỉ móc `0` có `accent=True`.
        - Fandanguillo `6/8` ra 3 nốt `lead` tại móc `0, 2, 3` với vận tốc `[68, 64, 66]`, chỉ móc `0` có `accent=True`.
        - `_alcaniz_dance` ở `mode == "full"` ra 2 nốt `lead` tại móc `0, 3` với vận tốc `[68, 66]`, chỉ móc `0` có `accent=True`; ở `mode == "pushed"` cả hai móc giữ `[64, 64]` và `accent=False`; `_alcaniz_opening` giữ móc `3` ở `68` (`accent=True`).
-     - **Test vận tốc viết trên `3/4`:** Câu phẳng (`rise == 0`) của Sonatina (với cao độ giữa móc `0` và móc `4` cách nhau $\le 2$ bán cung để `_sonatina_approach` không rẽ nhánh `leap`/`run` bỏ qua móc `2, 3`) và của Juglar có phách 1 viết `64` và phách 2, 3 viết `62`; khi một câu thứ hai mở ở giữa ô và có `apex` tại móc `4` (`_phrase_covering`), móc `4` không bị hạ.
+     - **Test vận tốc viết trên `3/4`:** Câu phẳng (`rise == 0`) của Sonatina (với cao độ giữa móc `0` và móc `4` cách nhau $\le 2$ bán cung để `_sonatina_approach` không rẽ nhánh `leap`/`run` bỏ qua móc `2, 3`) và của Juglar có phách 1 viết `64` và phách 2, 3 viết `62`. `rise` bằng `1` hoặc `2` vẫn là đỉnh thật: móc nằm trong `owner.apex` giữ mức viết (`72`), móc ngoài đỉnh hạ `2`. Câu thứ hai mở ở giữa ô chỉ giữ móc `4` khi đỉnh đó là đỉnh thật (`rise > 0` và hơn một cao độ), không phải vì `owner.apex` phủ móc đó.
      - **Test `_type4_call` trên câu phẳng (`rise == 0`):** Vì hai móc kép đọc `lead_level(1)` và móc đơn đọc `lead_level(2)`, test trên câu phẳng để cả hai cùng mức nền `64`, xác nhận vận tốc sau `_realize` của hai móc kép (`0.5, 0.75`) thấp hơn móc đơn (`1.0`) đúng một bậc `_MICRO = 2` (`60` so với `62`).
    - Trong `backend/tests/test_humanize.py`:
      - **Test đồng hồ tính sẵn trên Torroba:** Kiểm tra dãy hệ số từng `division` trên câu `3/4` và `6/8` có cụm `♪ ♬` (và chuỗi `♪ ♬ ♪` liên tiếp để xác nhận nuốt cặp `s += 2`), xác nhận mốc `phrase.end` trả về `nominal` BPM khi tiếp theo là một câu ngắn `< 2.0` phách, xác nhận khi cả ba tầng cùng dấu tới `0.13` thì toàn câu được co về trần `0.10` (`~77%` liều), và trung bình cộng các BPM theo division sau `round(..., 2)` khớp `score.bpm` trong sai số làm tròn `pytest.approx(score.bpm, abs=0.01)`.
