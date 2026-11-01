@@ -1,4 +1,4 @@
-import { clockText, formatClock, formatDelta } from './labels';
+import { clockText, foldText, formatClock, formatDelta } from './labels';
 
 function equal<T>(actual: T, expected: T, label = '') {
   if (actual !== expected) {
@@ -31,5 +31,10 @@ equal(down?.positive, false, 'down sign');
 equal(formatDelta(0)?.glyph, '·', 'flat glyph');
 equal(formatDelta(null), null, 'missing quote stays empty');
 equal(formatDelta(Number.NaN), null, 'nan quote stays empty');
+
+equal(foldText('Giao hưởng'), 'giao huong', 'fold removes tone marks');
+equal(foldText('ĐỒNG'), 'dong', 'fold handles đ and case');
+equal(foldText('  Tối giản  '), 'toi gian', 'fold trims and removes marks');
+equal(foldText('Jazz'), 'jazz', 'fold keeps ascii');
 
 console.log('musicalize label tests passed');

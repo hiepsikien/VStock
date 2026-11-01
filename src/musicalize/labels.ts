@@ -47,6 +47,20 @@ export function chipDate(iso: string): { weekday: string; day: string } {
   return { weekday, day: `${day}/${month}` };
 }
 
+/**
+ * Search folding for the command palette. Vietnamese labels must match a
+ * query typed without diacritics: "giao huong" finds "Giao hưởng".
+ */
+export function foldText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase()
+    .trim();
+}
+
 export type Delta = { glyph: string; text: string; positive: boolean };
 
 /** Monochrome day change: the arrow carries the direction, the sparkline the slope. */

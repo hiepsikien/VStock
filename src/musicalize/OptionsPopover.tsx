@@ -1,5 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Modal, Platform, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { copyCurrentLink, linkSupported } from './link';
 import { palette } from './palette';
 import { type } from './type';
 
@@ -20,6 +21,24 @@ export function OptionsPopover({
   onHumanize,
   onColor,
 }: Props) {
+  const [copyState, setCopyState] = useState<'idle' | 'done' | 'fail'>('idle');
+  const [canCopy] = useState(() => linkSupported());
+
+  useEffect(() => {
+    if (copyState === 'idle') return;
+    const timer = setTimeout(() => setCopyState('idle'), 2000);
+    return () => clearTimeout(timer);
+  }, [copyState]);
+
+  useEffect(() => {
+    if (!visible) setCopyState('idle');
+  }, [visible]);
+
+  const copyLink = async () => {
+    const ok = await copyCurrentLink();
+    setCopyState(ok ? 'done' : 'fail');
+  };
+
   useEffect(() => {
     if (!visible || Platform.OS !== 'web') return;
     const doc = (globalThis as {
@@ -51,6 +70,19 @@ export function OptionsPopover({
           <Text style={[type.section, styles.title]}>Tùy chọn nghe</Text>
           <OptionRow label="Humanize" value={humanize} onChange={onHumanize} />
           <OptionRow label="Màu" value={colorOn} onChange={onColor} />
+          {canCopy ? (
+            <Pressable
+              onPress={() => void copyLink()}
+              style={styles.linkRow}
+              accessibilityRole="button"
+              accessibilityLabel="Chép liên kết"
+            >
+              <Text style={[type.sans, styles.rowLabel]}>Chép liên kết</Text>
+              <Text style={[type.section, styles.linkHint, copyState === 'done' && styles.linkHintOn]}>
+                {copyState === 'done' ? 'Đã chép' : copyState === 'fail' ? 'Thử lại' : 'URL'}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
     </Modal>
@@ -112,5 +144,22 @@ const styles = StyleSheet.create({
   },
   rowLabel: {
     color: palette.text,
+  },
+  linkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 44,
+    marginTop: 4,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: palette.hairline,
+  },
+  linkHint: {
+    color: palette.textFaint,
+    fontSize: 10,
+  },
+  linkHintOn: {
+    color: palette.sound,
   },
 });

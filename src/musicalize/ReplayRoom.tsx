@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   absoluteApiUrl,
   DEFAULT_SYMBOLS,
+  ENSEMBLE_ROWS,
   fetchMarketSymbols,
   fetchRecap,
   fetchSessionMinutes,
@@ -26,7 +27,9 @@ import {
   type PieceProgram,
 } from '../sonify/program';
 import { Controls } from './Controls';
+import { CommandPalette } from './CommandPalette';
 import { clockText, GENRES, type ListenSpan } from './labels';
+import { readLink, writeLink } from './link';
 import { RoomFrame } from './RoomFrame';
 import { ReplayPlayer, type SeekCommand } from './ReplayPlayer';
 import { TopBar } from './TopBar';
@@ -78,14 +81,21 @@ export function ReplayRoom({ wide, onMode }: Props) {
     DEFAULT_SYMBOLS.map((symbol) => ({ symbol, name: symbol })),
   );
   const [filter, setFilter] = useState('');
-  const [symbol, setSymbol] = useState('VNM');
-  const [span, setSpan] = useState<ListenSpan>('1D');
-  const [variant, setVariant] = useState<RecapVariant>('symphony');
-  const [ensemble, setEnsemble] = useState<RecapEnsemble>('classic');
-  const [humanize, setHumanize] = useState(true);
-  const [colorOn, setColorOn] = useState(true);
+  // The URL is the source of truth on the first render: a shared link opens
+  // the same room. Native has no location and gets the defaults.
+  const [boot] = useState(() => readLink());
+  const [symbol, setSymbol] = useState(boot.symbol);
+  const [span, setSpan] = useState<ListenSpan>(boot.span);
+  const [variant, setVariant] = useState<RecapVariant>(boot.genre);
+  const [ensemble, setEnsemble] = useState<RecapEnsemble>(() =>
+    boot.ensemble && ENSEMBLE_ROWS[boot.genre].some((row) => row.id === boot.ensemble)
+      ? boot.ensemble
+      : 'classic',
+  );
+  const [humanize, setHumanize] = useState(boot.humanize);
+  const [colorOn, setColorOn] = useState(boot.color);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [date, setDate] = useState<string | null>(null);
+  const [date, setDate] = useState<string | null>(boot.date);
   const [series, setSeries] = useState<SessionMinutes | null>(null);
   const [manifest, setManifest] = useState<RecapManifest | null>(null);
   const [movements, setMovements] = useState<SpanMovement[] | null>(null);
@@ -108,6 +118,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const [seek, setSeek] = useState<SeekCommand | null>(null);
   const [focus, setFocus] = useState<ChartFocus | null>(null);
   const [focusSignal, setFocusSignal] = useState(0);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [muted, setMuted] = useState(false);
 
   const request = useRef<AbortController | null>(null);
   const restTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -167,6 +179,12 @@ export function ReplayRoom({ wide, onMode }: Props) {
     signatureRef.current = signature;
     clearPlayback();
   }, [clearPlayback, signature]);
+
+  // Keep the address bar shareable. `replaceState` avoids a history entry for
+  // every tuning change.
+  useEffect(() => {
+    writeLink({ symbol, span, date, genre: variant, ensemble, humanize, color: colorOn });
+  }, [colorOn, date, ensemble, humanize, span, symbol, variant]);
 
   useEffect(() => {
     let cancelled = false;
@@ -933,20 +951,26 @@ export function ReplayRoom({ wide, onMode }: Props) {
     setEnsemble('classic');
   }, []);
 
-  useKeyboard({
-    onToggle: toggle,
-    onReplay,
-    onSeekBy: seekBy,
-    onChapter: jumpChapter,
-    onGenre: pickGenre,
-    onFocusSearch: () => setFocusSignal((signal) => signal + 1),
-    onEscape: () => {
-      const doc = (
-        globalThis as { document?: { activeElement?: { blur?: () => void } } }
-      ).document;
-      doc?.activeElement?.blur?.();
+  useKeyboard(
+    {
+      onToggle: toggle,
+      onReplay,
+      onSeekBy: seekBy,
+      onChapter: jumpChapter,
+      onGenre: pickGenre,
+      onFocusSearch: () => setFocusSignal((signal) => signal + 1),
+      onCommandPalette: () => setPaletteOpen((open) => !open),
+      onMute: () => setMuted((value) => !value),
+      onEscape: () => {
+        const doc = (
+          globalThis as { document?: { activeElement?: { blur?: () => void } } }
+        ).document;
+        doc?.activeElement?.blur?.();
+      },
     },
-  });
+    // The palette owns the keyboard while it is open.
+    !paletteOpen,
+  );
 
   const identity =
     span === '1D'
@@ -961,7 +985,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
         <TopBar
           mode="replay"
           onMode={onMode}
-          onSearch={() => setFocusSignal((signal) => signal + 1)}
+          onSearch={() => setPaletteOpen(true)}
         />
       }
       chooser={
@@ -1009,6 +1033,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
           playing={playing}
           finished={finished}
           composing={composing}
+          muted={muted}
           timeline={timeline}
           chapterLabel={chapterLabel}
           chapterIndex={chapterIndex}
@@ -1023,6 +1048,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
           onPlay={onPlay}
           onPause={onPause}
           onReplay={onReplay}
+          onMute={() => setMuted((value) => !value)}
           onTimeline={span === '1D' ? onFileScrub : onWorkScrub}
           status={composing ? 'Đang soạn…' : resting ? 'Nghỉ giữa chương' : null}
         />
@@ -1036,6 +1062,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
         startSec={startSec}
         wantPlay={playing && !resting && !finished}
         seek={seek}
+        muted={muted}
         onTime={onTime}
         onEnded={onEnded}
         onAudible={() => setAudible(true)}
@@ -1043,6 +1070,24 @@ export function ReplayRoom({ wide, onMode }: Props) {
         onDuration={setMediaDuration}
       />
     ) : null}
+    <CommandPalette
+      visible={paletteOpen}
+      onClose={() => setPaletteOpen(false)}
+      symbols={symbols}
+      symbol={symbol}
+      span={span}
+      variant={variant}
+      date={date}
+      sessions={sessions}
+      onSymbol={setSymbol}
+      onSpan={setSpan}
+      onVariant={(next) => {
+        if (next === variant) return;
+        setVariant(next);
+        setEnsemble('classic');
+      }}
+      onDate={setDate}
+    />
     </>
   );
 }

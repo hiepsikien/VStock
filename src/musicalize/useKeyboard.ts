@@ -9,6 +9,8 @@ type Handlers = {
   onGenre?: (index: number) => void;
   onFocusSearch?: () => void;
   onEscape?: () => void;
+  onCommandPalette?: () => void;
+  onMute?: () => void;
 };
 
 type KeyEvent = {
@@ -47,7 +49,8 @@ function inTextEntry(target: ElementLike | null | undefined): boolean {
  *
  * Space always means transport, even when a chip or a button has focus: the
  * event is prevented so the focused control does not fire a second time. Enter
- * still activates a focused control the normal way.
+ * still activates a focused control the normal way. `⌘K`/`Ctrl+K` opens the
+ * palette even from the filter box; `M` is ordinary text there.
  */
 export function useKeyboard(handlers: Handlers, enabled = true) {
   const latest = useRef(handlers);
@@ -59,9 +62,22 @@ export function useKeyboard(handlers: Handlers, enabled = true) {
     if (!doc?.addEventListener) return;
 
     const onKeyDown = (event: KeyEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-
       const current = latest.current;
+
+      // ⌘K / Ctrl+K works even while the filter box has focus.
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.altKey &&
+        (event.key === 'k' || event.key === 'K')
+      ) {
+        if (current.onCommandPalette) {
+          current.onCommandPalette();
+          event.preventDefault?.();
+        }
+        return;
+      }
+
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
 
       // Escape must reach the handler even from the filter box: blurring that
       // box is exactly what the key is for.
@@ -114,6 +130,11 @@ export function useKeyboard(handlers: Handlers, enabled = true) {
         }
         case '/':
           if (current.onFocusSearch) current.onFocusSearch();
+          else handled = false;
+          break;
+        case 'm':
+        case 'M':
+          if (current.onMute) current.onMute();
           else handled = false;
           break;
         default:

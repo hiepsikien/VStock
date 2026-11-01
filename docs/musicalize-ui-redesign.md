@@ -309,8 +309,9 @@ vừa bấm nút vừa toggle play — toggle hai lần.
 | `R` | Nghe lại |
 | `1`–`5` | Chọn thể loại theo thứ tự shelf |
 | `/` | Focus ô lọc mã |
+| `M` | Tắt / bật tiếng |
 | `Esc` | Đóng popover / bỏ focus |
-| `⌘K` / `Ctrl+K` | Mở palette (P2) |
+| `⌘K` / `Ctrl+K` | Mở / đóng command palette |
 
 Hiện gợi ý phím ở chân cột trái để người dùng biết mà dùng.
 
@@ -333,8 +334,10 @@ Hiện gợi ý phím ở chân cột trái để người dùng biết mà dùn
 | `h` | humanize `1/0` | `1` |
 | `c` | màu `1/0` | `1` |
 
-Giá trị sai thì rơi về mặc định, không báo lỗi. Nút `Chép liên kết` trong popover
-`⚙` ghi URL hiện tại vào clipboard và hiện `ĐÃ CHÉP` 1.5s.
+Giá trị sai thì rơi về mặc định, không báo lỗi; `d` chỉ được đọc khi `r=1D`.
+Ensemble không có trong `ENSEMBLE_ROWS[g]` thì về `classic`. Nút `Chép liên kết`
+trong popover `⚙` ghi URL hiện tại vào clipboard, hiện `ĐÃ CHÉP` 2s, hoặc `THỬ LẠI`
+khi trình duyệt chặn clipboard.
 
 ## 9. Dữ liệu
 
@@ -388,11 +391,11 @@ vẫn biết đang phát hay dừng; chuyển mã có crossfade; mobile thấy c
 
 ### P2 — "đắt tiền" (2 ngày)
 
-- [ ] Deep link + `Chép liên kết`.
-- [ ] Command palette `⌘K` (mã, thể loại, khung, ngày).
-- [ ] Cue legend (giai điệu / thanh khoản / breakout / scale) khi backend có cue track — đúng thứ tự ở `musicalize-plan.md`.
-- [ ] Tuỳ chọn `expo-font` nếu muốn font display riêng.
-- [ ] `M` tắt tiếng nếu `ReplayPlayer` mở được volume.
+- [x] Deep link + `Chép liên kết`: `link.ts` đọc/ghi `s/r/d/g/e/h/c`, `d` chỉ có nghĩa khi `1D`, giá trị sai rơi về mặc định; `replaceState` giữ URL luôn chia sẻ được; native giữ mặc định. `Chép liên kết` chỉ hiện khi có clipboard API.
+- [x] Command palette `⌘K` (mã, thể loại, khung, ngày): `CommandPalette.tsx`; tìm không dấu (`foldText`); `↑↓` chọn, `↵` mở, `esc` đóng; mở từ nút `⌘K` trên TopBar hoặc `Meta/Ctrl+K`; `/` vẫn focus ô lọc.
+- [ ] Cue legend (giai điệu / thanh khoản / breakout / scale) khi backend có cue track — đúng thứ tự ở `musicalize-plan.md`. **Hoãn:** không có track `cue` trong `backend/app` lẫn response recap/span, nên không dựng legend giả.
+- [ ] Tuỳ chọn `expo-font` nếu muốn font display riêng. **Không cần:** stack Georgia-first ở `type.ts` đã phủ đủ dấu tiếng Việt; thêm font chỉ tăng bundle.
+- [x] `M` tắt tiếng: `ReplayPlayer` nhận thêm prop `muted` (gán `player.muted` của expo-audio), nút loa cạnh `⟲`, label đổi `Tắt tiếng` / `Bật tiếng`.
 
 ## 11. File map
 
@@ -400,25 +403,28 @@ vẫn biết đang phát hay dừng; chuyển mã có crossfade; mobile thấy c
 |---|---|
 | `src/musicalize/palette.ts` | sửa — thêm token |
 | `src/musicalize/type.ts` | mới — font + scale |
-| `src/musicalize/TopBar.tsx` | mới |
-| `src/musicalize/OptionsPopover.tsx` | mới |
-| `src/musicalize/useKeyboard.ts` | mới |
+| `src/musicalize/TopBar.tsx` | mới — nút `⌘K` mở palette |
+| `src/musicalize/OptionsPopover.tsx` | mới — humanize, màu, `Chép liên kết` |
+| `src/musicalize/useKeyboard.ts` | mới — thêm `⌘K`, `M` |
 | `src/musicalize/useQuotes.ts` | mới |
-| `src/musicalize/link.ts` | mới (P2) |
+| `src/musicalize/link.ts` | mới (P2) — parse/format/read/write deep link |
+| `src/musicalize/link.test.ts` | mới (P2) — test parse/format/fallback |
+| `src/musicalize/CommandPalette.tsx` | mới (P2) — palette mã / thể loại / khung / ngày |
 | `src/musicalize/RoomFrame.tsx` | sửa — topbar, bỏ scroll dock, narrow mới |
 | `src/musicalize/SymbolColumn.tsx` | sửa — hàng có dữ liệu, chip không tô |
-| `src/musicalize/Controls.tsx` | sửa — shelf, transport, popover |
+| `src/musicalize/Controls.tsx` | sửa — shelf, transport, nút tắt tiếng, popover |
 | `src/musicalize/Scrubber.tsx` | sửa — timeline gộp, `clockText` |
 | `src/musicalize/Stage.tsx` | sửa — tiêu đề, trục, playhead, trạng thái |
-| `src/musicalize/labels.ts` | sửa — thêm `clockText` (hàm thuần) |
-| `src/musicalize/labels.test.ts` | mới — test clamp giờ |
-| `package.json` | sửa — `test:musicalize` chạy thêm `labels.test.ts` |
+| `src/musicalize/labels.ts` | sửa — thêm `clockText`, `foldText` (hàm thuần) |
+| `src/musicalize/labels.test.ts` | mới — test clamp giờ, bỏ dấu |
+| `package.json` | sửa — `test:musicalize` chạy thêm `labels.test.ts`, `link.test.ts` |
 | `src/components/Sparkline.tsx` | sửa — thêm prop optional, mặc định không đổi |
-| `src/musicalize/ReplayRoom.tsx` | sửa — bỏ `onMovementScrub`, truyền `movements` cho timeline; giữ `onWorkScrub`/`onStageRatio` |
+| `src/musicalize/ReplayRoom.tsx` | sửa — deep link, palette, mute; bỏ `onMovementScrub`, truyền `movements` cho timeline; giữ `onWorkScrub`/`onStageRatio` |
+| `src/musicalize/ReplayPlayer.tsx` | sửa additive — prop `muted`, không đổi luồng phát/tua |
 | `src/musicalize/LiveRoom.tsx` | chạm nhẹ — nhãn trạng thái |
 
-Không sửa: `ReplayPlayer.tsx`, `liveSynth.ts`, `seek.ts`, `program.ts`,
-`recapCursor.ts`, `backend/`.
+Không sửa: `liveSynth.ts`, `seek.ts`, `program.ts`, `recapCursor.ts`, `backend/`.
+`ReplayPlayer.tsx` chỉ nhận thêm prop `muted`; logic seek/finish giữ nguyên.
 
 ## 12. Rủi ro
 

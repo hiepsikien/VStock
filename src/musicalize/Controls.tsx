@@ -30,6 +30,7 @@ type ReplayProps = {
   /** The work has ended. Nghe lại restarts it; Nghe stays quiet. */
   finished?: boolean;
   composing: boolean;
+  muted?: boolean;
   timeline: Scrub | null;
   chapterLabel?: string | null;
   chapterIndex?: number;
@@ -41,6 +42,7 @@ type ReplayProps = {
   onPlay: () => void;
   onPause: () => void;
   onReplay: () => void;
+  onMute?: () => void;
   onTimeline: (ratio: number) => void;
   status?: string | null;
 };
@@ -79,6 +81,7 @@ function ReplayControls({
   playing,
   finished = false,
   composing,
+  muted = false,
   timeline,
   chapterLabel,
   chapterIndex,
@@ -90,6 +93,7 @@ function ReplayControls({
   onPlay,
   onPause,
   onReplay,
+  onMute,
   onTimeline,
   status,
 }: ReplayProps) {
@@ -144,7 +148,7 @@ function ReplayControls({
         <Pressable
           onPress={() => setOptionsOpen(true)}
           hitSlop={6}
-          style={styles.gear}
+          style={styles.tool}
           accessibilityRole="button"
           accessibilityLabel="Tùy chọn nghe"
           accessibilityState={{ expanded: optionsOpen }}
@@ -200,6 +204,53 @@ function ReplayControls({
             />
           </Svg>
         </Pressable>
+
+        {onMute ? (
+          <Pressable
+            onPress={onMute}
+            hitSlop={6}
+            style={styles.mute}
+            accessibilityRole="button"
+            accessibilityLabel={muted ? 'Bật tiếng' : 'Tắt tiếng'}
+            accessibilityState={{ selected: muted }}
+          >
+            <Svg width={16} height={16} viewBox="0 0 16 16">
+              <Path
+                d="M2 6h2.5L8 3.2v9.6L4.5 10H2z"
+                fill="none"
+                stroke={muted ? palette.textFaint : palette.textMuted}
+                strokeWidth={1.4}
+                strokeLinejoin="round"
+              />
+              {muted ? (
+                <Path
+                  d="M10.4 6.2l3.2 3.6M13.6 6.2l-3.2 3.6"
+                  fill="none"
+                  stroke={palette.textFaint}
+                  strokeWidth={1.4}
+                  strokeLinecap="round"
+                />
+              ) : (
+                <>
+                  <Path
+                    d="M10 6.1a2.7 2.7 0 0 1 0 3.8"
+                    fill="none"
+                    stroke={palette.textMuted}
+                    strokeWidth={1.4}
+                    strokeLinecap="round"
+                  />
+                  <Path
+                    d="M11.9 4.4a5 5 0 0 1 0 7.2"
+                    fill="none"
+                    stroke={palette.textMuted}
+                    strokeWidth={1.4}
+                    strokeLinecap="round"
+                  />
+                </>
+              )}
+            </Svg>
+          </Pressable>
+        ) : null}
 
         <View style={styles.clock}>
           <Text style={[type.mono, styles.clockNow]}>
@@ -385,13 +436,22 @@ const styles = StyleSheet.create({
   shelfLinkRuleActive: {
     backgroundColor: palette.hairlineStrong,
   },
-  gear: {
+  tool: {
     width: 32,
     height: 32,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 3,
     borderRadius: 4,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+  },
+  mute: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: palette.hairline,
   },

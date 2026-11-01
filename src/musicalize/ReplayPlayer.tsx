@@ -9,6 +9,7 @@ type Props = {
   startSec: number;
   wantPlay: boolean;
   seek: SeekCommand | null;
+  muted?: boolean;
   onTime: (seconds: number) => void;
   onEnded: () => void;
   onAudible: () => void;
@@ -21,6 +22,7 @@ export function ReplayPlayer({
   startSec,
   wantPlay,
   seek,
+  muted = false,
   onTime,
   onEnded,
   onAudible,
@@ -53,6 +55,13 @@ export function ReplayPlayer({
   useEffect(() => {
     if (status.error) onErrorRef.current('Máy chủ chưa soạn được nhạc.');
   }, [status.error]);
+
+  // `M` in the room. The player is recreated per file, so this also covers a
+  // mute set before the next movement loads.
+  useEffect(() => {
+    if (!status.isLoaded) return;
+    player.muted = muted;
+  }, [muted, player, status.isLoaded]);
 
   useEffect(() => {
     if (!status.isLoaded || booted.current || status.error) return;

@@ -42,7 +42,7 @@ export function TopBar({ mode, onMode, onSearch, searchEnabled = true }: Props) 
             hitSlop={8}
             style={styles.search}
             accessibilityRole="button"
-            accessibilityLabel="Tìm mã"
+            accessibilityLabel="Bảng lệnh"
           >
             <Text style={[type.monoSmall, styles.searchText]}>
               {Platform.OS === 'web' ? '⌘K' : 'TÌM'}
