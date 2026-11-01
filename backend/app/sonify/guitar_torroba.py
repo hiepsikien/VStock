@@ -29,7 +29,44 @@ OLITE_THIN = 12
 CASTILLO_WALK = 13
 CASTILLO_CADENCE = 14
 _REAL_TORROBA_FIGURES = frozenset({*range(1, 9), ALCANIZ_OPENING, CASTILLO_WALK, CASTILLO_CADENCE})
-_TRIPLET = 4.0 / 12.0
+
+# One Juglar chunk is three plucked fingers on one quantized price, and the
+# thumb on the beat under them. p-a-m-i: the four plucks sit on one sixteenth
+# grid, so a 3/4 bar is twelve attacks whatever the tempo.
+JUGLAR_FINGERS = (0, -3, -4)   # three fingers under the thumb pluck
+JUGLAR_STEP = 0.25             # one sixteenth: four plucks per beat
+JUGLAR_RISE = 2                # thumb 2 above the loudest finger of that beat
+JUGLAR_THUMB_FLOOR = 42
+JUGLAR_THUMB_CEIL = 88
+
+
+def _juglar_thumb(fingers: list[int]) -> int:
+    """The thumb of a Juglar chunk sings over all three fingers.
+
+    `fingers` is exactly the three velocities of one beat, never the whole
+    bar: `_three_four_offbeat` steps the later beats down, so a bar-wide max
+    would flatten that walk into one pedal level.
+    """
+    return max(JUGLAR_THUMB_FLOOR, min(JUGLAR_THUMB_CEIL, max(fingers) + JUGLAR_RISE))
+
+# The tempo band every Torroba movement lives in. A movement slower than its
+# row is lifted to the row; nothing is lowered unless it passed 140.
+TORROBA_TEMPO_MIN = 96
+TORROBA_TEMPO_MAX = 140
+TORROBA_TEMPO_FLOOR = {
+    ("calm", "3/4"): 96,
+    ("calm", "4/4"): 96,
+    ("calm", "6/8"): 104,
+    ("selloff", "3/4"): 104,
+    ("selloff", "4/4"): 104,
+    ("selloff", "6/8"): 116,
+    ("rally", "3/4"): 112,
+    ("rally", "4/4"): 120,
+    ("rally", "6/8"): 120,
+    ("volatile", "3/4"): 124,
+    ("volatile", "4/4"): 132,
+    ("volatile", "6/8"): 140,
+}
 
 
 def _torroba_primary(ctx, mood: str | None, *, framed_macro: bool = False) -> str:
@@ -38,15 +75,15 @@ def _torroba_primary(ctx, mood: str | None, *, framed_macro: bool = False) -> st
     `framed_macro` is ignored. 4/4 names Olite for rally and volatile only.
     Calm and selloff are retargeted to 3/4 before this picker, so a 4/4 calm
     or selloff that still arrives is Olite: not Sonatina, and not the old
-    Castillo selloff. 3/4 calm is Sonatina above 72 and Castillo at 72 or
-    below, so the slow movement stays Castillo — Juglar — Castillo. 6/8 stays
-    Danza, Alcaniz, and Fandanguillo. A meter outside these three uses the
-    4/4 row. A mood outside a row uses that row's calm cell, or Olite on 4/4.
+    Castillo selloff. 3/4 calm is Castillo at every tempo, so the slow
+    movement stays Castillo — Juglar — Castillo; the old `bpm > 72` gate that
+    swapped Sonatina in is gone because the Juglar density now follows the
+    tempo by itself. 6/8 stays Danza, Alcaniz, and Fandanguillo. A meter
+    outside these three uses the 4/4 row. A mood outside a row uses that
+    row's calm cell, or Olite on 4/4.
     """
     del framed_macro
     if ctx.kind == "3/4" and mood not in {"rally", "selloff", "volatile"}:
-        if ctx.bpm > 72:
-            return "sonatina"
         return "castillo"
     table = {
         "4/4": {
@@ -77,10 +114,9 @@ def _torroba_contrast(ctx, primary: str, mood: str | None = None) -> str:
     """The other pattern in the same meter.
 
     `mood` is the opening section. Olite on 4/4 answers with Castillo, not
-    Sonatina. Castillo in 3/4 answers with Sonatina when that mood is calm
-    and the tempo is above 72, with Juglar when calm is at 72 or below, and
-    with Danza when it is selloff. 6/8 has no Sonatina cell. A cell with no
-    row returns `primary`.
+    Sonatina. Castillo in 3/4 answers with Juglar when that mood is calm — at
+    every tempo, now that the `bpm > 72` gate is gone — and with Danza when it
+    is selloff. 6/8 has no Sonatina cell. A cell with no row returns `primary`.
     """
     if mood is None:
         mood = ctx.character
@@ -88,8 +124,6 @@ def _torroba_contrast(ctx, primary: str, mood: str | None = None) -> str:
     if primary == "castillo" and kind == "4/4":
         return "olite"
     if primary == "castillo" and kind == "3/4":
-        if mood == "calm" and ctx.bpm > 72:
-            return "sonatina"
         if mood == "calm":
             return "torroba_tremolo"
         if mood == "selloff":
@@ -3521,7 +3555,7 @@ def _pattern_row(patterns, count: int, pattern: str) -> list[str]:
 def _grid_state(ctx, patterns: list[str]) -> dict[int, str]:
     """Body phrase index → `thin`, `pushed`, or `full`.
 
-    Juglar is always `full`. A flat phrase and a close still sing triplets;
+    Juglar is always `full`. A flat phrase and a close still sing chunks;
     the last bar of the region is chosen later, in `_render_juglar_bar`.
     Alcaniz and Olite keep the older grid. A closing phrase is thin. A
     `rise < 3` phrase is thin unless the previous body phrase of this pattern
@@ -3707,14 +3741,6 @@ def _lead_vel(ctx, eighth: int, phrase) -> int:
     return _note_velocity(eighth, 1, _apex_eighths(ctx.phrases), owner)
 
 
-def _one_under(velocity: int, band: str) -> int:
-    """One `_under_lead` step under the attack. Pitch stays put."""
-    support, _bass = _under_lead(velocity, band)
-    if support < velocity:
-        return support
-    return max(40, velocity - _MICRO)
-
-
 def _sounding_bass(ctx, bar: int, lead: int) -> int | None:
     bass = _torroba_bass(ctx, ctx.chord(bar), bar, lead)
     if bass is None or not _open_bass_tone(ctx, bass):
@@ -3755,10 +3781,12 @@ def _juglar_region_last(ctx, bar: int, patterns) -> bool:
 
 
 def _render_juglar_bar(ctx, bar: int, phrase, mode: str, patterns=None):
-    """Eighth-note triplets in 3/4. Only attack 1 of eighth 0 can carry an accent.
+    """Three chunks of four plucks in 3/4: the thumb on the beat, three fingers after it.
 
-    The last bar of a Juglar region is one note per beat. Every earlier bar
-    is triplets, including a closing phrase. The bass is one beat at eighth 0.
+    Only the first finger of the downbeat chunk can carry an accent. The last
+    bar of a Juglar region is one note per beat, so it has no chunk to sing on.
+    Every earlier bar is chunks, including a closing phrase. The thumb plucks
+    the same bass at each beat and sings above the fingers, not under them.
     """
     if ctx.kind != "3/4":
         return _downbeat_only(ctx, bar, phrase)
@@ -3766,6 +3794,7 @@ def _render_juglar_bar(ctx, bar: int, phrase, mode: str, patterns=None):
     low: list[NoteEvent] = []
     band = ctx.band(bar)
     quarter_notes = mode == "thin" or _juglar_region_last(ctx, bar, patterns)
+    levels: list[int] = []
     for quarter, eighth in enumerate((0, 2, 4)):
         origin = bar * ctx.epb + eighth
         midi = _melody_at(ctx, origin)
@@ -3773,18 +3802,40 @@ def _render_juglar_bar(ctx, bar: int, phrase, mode: str, patterns=None):
         # Slope before both spellings, so a region's last (quarter-note) bar matches.
         if eighth in (2, 4):
             velocity = _three_four_offbeat(ctx, origin, phrase, velocity)
+        levels.append(velocity)
         beat = float(quarter)
         accent = mode == "full" and eighth == 0 and not quarter_notes
         if quarter_notes:
             lead.append(_heard(bar, beat, midi, 1.0, 1, velocity))
-        else:
-            dropped = _one_under(velocity, band)
-            lead.append(_heard(bar, beat, midi, _TRIPLET, 1, velocity, accent=accent))
-            lead.append(_heard(bar, beat + _TRIPLET, midi, _TRIPLET, 1, dropped))
-            lead.append(_heard(bar, beat + 2 * _TRIPLET, midi, _TRIPLET, 1, dropped))
+            continue
+        # The thumb already sits on the beat, so the fingers start one sixteenth later.
+        for index, offset in enumerate(JUGLAR_FINGERS):
+            lead.append(
+                _heard(
+                    bar,
+                    beat + (index + 1) * JUGLAR_STEP,
+                    midi,
+                    JUGLAR_STEP,
+                    1,
+                    max(40, velocity + offset),
+                    accent=accent and index == 0,
+                )
+            )
+    support: list[NoteEvent] = []
     sung = _melody_at(ctx, bar * ctx.epb)
     bass = _sounding_bass(ctx, bar, sung)
-    support: list[NoteEvent] = []
+    if not quarter_notes:
+        # No inner note: a chunk is exactly four plucks. The thumb is the
+        # second line, so it is rewritten after the arch instead of `_bed`.
+        if bass is not None:
+            for quarter, (eighth, level) in enumerate(zip((0, 2, 4), levels)):
+                thumb = _juglar_thumb([max(40, level + offset) for offset in JUGLAR_FINGERS])
+                found = _fitting_bass(ctx, bar, eighth, bass, [*lead, *support], (2, 1))
+                if found is None:
+                    continue
+                pitch, length = found
+                low.append(_heard(bar, float(quarter), pitch, length * 0.5, 3, thumb))
+        return lead, support, low
     if bass is not None:
         inner_vel, bass_vel = _bed(_lead_vel(ctx, bar * ctx.epb, phrase), band)
         here = _melody_at(ctx, bar * ctx.epb + 2)
@@ -4377,9 +4428,27 @@ def _sung_attack(pattern: str, event: NoteEvent) -> bool:
     """The note that sings. Sixteenth pickups and a harmonic bell stay put."""
     if event.midi is None or event.velocity is None or event.velocity == 48:
         return False
-    if pattern == "torroba_tremolo":
-        return abs(event.beat - round(event.beat)) < 1e-6
     return event.duration_beats + 1e-9 >= 0.5
+
+
+def _first_of_beat(events: list[NoteEvent]) -> dict[tuple[int, int], int]:
+    """Index of the earliest lead attack in each bar beat.
+
+    Juglar sings its first finger, which sits a sixteenth after the beat, so
+    the tremolo branch cannot ask for an integer beat any more. The 48 rule is
+    the same as `_sung_attack`'s: that level marks a pickup that does not sing,
+    and letting one through would steal the chunk and drop the arch.
+    """
+    first: dict[tuple[int, int], int] = {}
+    for index, event in enumerate(events):
+        if event.voice != 1 or event.midi is None or event.velocity is None:
+            continue
+        if event.velocity == 48:
+            continue
+        key = (event.bar, int(event.beat))
+        if key not in first or event.beat < events[first[key]].beat:
+            first[key] = index
+    return first
 
 
 def _arch_curve(onsets: list[float], apex: float) -> list[int]:
@@ -4458,18 +4527,52 @@ def _clamp_arch(amounts: list[int]) -> None:
         amounts[peak] += 6 - width
 
 
+def _juglar_cluster(events, sung: NoteEvent) -> list[int]:
+    """Indexes of the fingers of `sung`'s beat, in attack order."""
+    beat = int(sung.beat)
+    found = [
+        cursor
+        for cursor, event in enumerate(events)
+        if event.voice == 1
+        and event.bar == sung.bar
+        and event.midi == sung.midi
+        and beat <= event.beat < beat + 1
+    ]
+    return sorted(found, key=lambda cursor: events[cursor].beat)
+
+
+def _respell_juglar_cluster(events: list[NoteEvent], sung: NoteEvent) -> None:
+    """Fingers follow the sung finger, 3–4 degrees apart, under the 72 cap.
+
+    The fill lands after the cap, not before: a sung finger that reaches 72
+    keeps its waver instead of flattening the whole beat. It also overwrites the
+    lopsided `_shape_dynamics` addition, because the three fingers of a chunk
+    fall in two different eighths.
+    """
+    cluster = _juglar_cluster(events, sung)
+    if len(cluster) != len(JUGLAR_FINGERS):
+        return
+    base = int(events[cluster[0]].velocity or 0)
+    for order, cursor in enumerate(cluster):
+        events[cursor] = replace(
+            events[cursor], velocity=max(40, min(72, base + JUGLAR_FINGERS[order]))
+        )
+
+
 def apply_torroba_sung_arch(ctx, lead, patterns):
     """Phrase arch on the sung Torroba lead, written before the volume wave.
 
     Dance patterns keep the strong-beat floor. Bass and support are not passed
     through here, so they do not take the same addition. The written result
-    stays at or under 72 when the ordinary note is 64.
+    stays at or under 72 when the ordinary note is 64. A Juglar chunk sings its
+    first finger, and the two fingers behind it are respelled after the cap.
     """
     if getattr(ctx, "ensemble", None) != "torroba":
         return list(lead)
     from app.sonify.guitar_patterns import _bar_pattern
 
     events = list(lead)
+    first_of_beat = _first_of_beat(events)
     for phrase in getattr(ctx, "phrases", ()) or ():
         chosen: list[tuple[float, int, int]] = []
         for index, event in enumerate(events):
@@ -4477,7 +4580,13 @@ def apply_torroba_sung_arch(ctx, lead, patterns):
             if not phrase.start <= onset < phrase.end:
                 continue
             pattern = _bar_pattern(ctx, event.bar, patterns)
-            if pattern not in _SUNG_ARCH or not _sung_attack(pattern, event):
+            if pattern not in _SUNG_ARCH:
+                continue
+            if pattern == "torroba_tremolo":
+                sings = first_of_beat.get((event.bar, int(event.beat))) == index
+            else:
+                sings = _sung_attack(pattern, event)
+            if not sings:
                 continue
             chosen.append((onset, event.bar, index))
         if len(chosen) < 2:
@@ -4493,8 +4602,42 @@ def apply_torroba_sung_arch(ctx, lead, patterns):
             room = 72 - int(event.velocity or 0)
             applied = min(amount, room) if room > 0 else 0
             if applied > 0:
-                events[index] = replace(event, velocity=int(event.velocity) + applied)
+                event = replace(event, velocity=int(event.velocity) + applied)
+                events[index] = event
+            if _bar_pattern(ctx, event.bar, patterns) == "torroba_tremolo":
+                _respell_juglar_cluster(events, event)
     return events
+
+
+def apply_juglar_thumb(ctx, lead, low, patterns):
+    """The thumb sings 2 degrees over the chunk again, after the arch lifted the fingers.
+
+    The arch does not receive `low`, so without this pass the bass written at
+    render time falls back under a sung finger that the arch just raised. The
+    pass runs once, on the written layer that the volume wave reads afterwards.
+    """
+    from app.sonify.guitar_patterns import _bar_pattern
+
+    lifted = list(low)
+    for index, event in enumerate(lifted):
+        if event.midi is None or event.velocity is None:
+            continue
+        if abs(event.beat - int(event.beat)) > 1e-9:
+            continue
+        if _bar_pattern(ctx, event.bar, patterns) != "torroba_tremolo":
+            continue
+        fingers = [
+            int(note.velocity)
+            for note in lead
+            if note.voice == 1
+            and note.bar == event.bar
+            and note.velocity is not None
+            and event.beat - 1e-9 <= note.beat < event.beat + 1 - 1e-9
+        ]
+        if len(fingers) != len(JUGLAR_FINGERS):
+            continue
+        lifted[index] = replace(event, velocity=_juglar_thumb(fingers))
+    return lifted
 
 
 def torroba_frame(ctx, bar: int) -> list[tuple]:
@@ -4528,7 +4671,7 @@ def _edge_frame(ctx, bar: int, price: int, mood: str | None) -> list[tuple]:
         inner = _torroba_inner(ctx, ctx.chord(bar), price, bass, allow_high=True)
         if inner is not None:
             specs.append((0, 1, inner, 2, inner_vel, {}))
-    if ctx.bpm <= 72 or (mood == "selloff" and ctx.kind == "6/8"):
+    if mood == "selloff" and ctx.kind == "6/8":
         if epb > 1:
             specs.append((1, epb - 1, price, 1, 64, {}))
         return specs
