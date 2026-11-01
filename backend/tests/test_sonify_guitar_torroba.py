@@ -704,7 +704,8 @@ def test_sonatina_slur_leap_and_run_stay_out_of_scale_eighths() -> None:
         sections=_bridge(1),
     )
     held = [note for note in score.lead if note.midi is not None]
-    assert [(note.midi, note.duration_beats) for note in held] == [(67, pytest.approx(4.0))]
+    # Stretch 0. G4 on G is B3, the chord tone under the scale fifth.
+    assert [(note.midi, note.duration_beats) for note in held] == [(59, pytest.approx(4.0))]
     assert score.scale_eighths == ()
     xml = score_to_musicxml(score)
     assert "<grace" not in xml
@@ -1140,8 +1141,8 @@ def test_breath_harmonics_and_fandanguillo_grids() -> None:
         FormSection(1, 2, "phrase", 1),
     )
     graced = _render(
-        [72] * 6 + [64] * 6,
-        (_joined(0, [72] * 6), _joined(6, [64] * 6, held=True)),
+        [76] * 6 + [64] * 6,
+        (_joined(0, [76] * 6), _joined(6, [64] * 6, held=True)),
         chords={0: C, 1: C},
         kinds={0: "phrase", 1: "phrase"},
         mode="major",
@@ -1153,13 +1154,13 @@ def test_breath_harmonics_and_fandanguillo_grids() -> None:
     grace = [note for note in graced.lead if note.midi is not None and note.duration_beats == 0.25]
     assert [(note.bar, round(note.beat, 2)) for note in grace] == [(0, 2.75)]
     assert grace[0].slur_start
-    assert _strong(graced, 0, 0.0).midi == 72
-    assert _strong(graced, 0, 2.0).midi == 72
+    assert _strong(graced, 0, 0.0).midi == 67
+    assert _strong(graced, 0, 2.0).midi == 67
     assert _strong(graced, 1, 0.0).midi == 64 and _strong(graced, 1, 0.0).slur_stop
     # Eighth 4 of the Castillo bar is the same held pitch, not the unsung 71.
     stepped_close = _render(
-        [72] * 3 + [71] * 3 + [72] * 6,
-        (_joined(0, [72] * 3 + [71] * 3), _joined(6, [72] * 6, held=True)),
+        [72] * 3 + [71] * 3 + [64] * 6,
+        (_joined(0, [72] * 3 + [71] * 3), _joined(6, [64] * 6, held=True)),
         chords={0: CMAJ7, 1: C},
         kinds={0: "phrase", 1: "phrase"},
         mode="major",
@@ -1169,12 +1170,12 @@ def test_breath_harmonics_and_fandanguillo_grids() -> None:
         sections=castillo_then_sonatina,
     )
     assert not any(note.midi is not None and note.duration_beats == 0.25 for note in stepped_close.lead)
-    assert _strong(stepped_close, 0, 0.0).midi == 72
-    assert _strong(stepped_close, 0, 2.0).midi == 72
-    assert _strong(stepped_close, 1, 0.0).midi == 72 and not _strong(stepped_close, 1, 0.0).slur_stop
+    assert _strong(stepped_close, 0, 0.0).midi == 64
+    assert _strong(stepped_close, 0, 2.0).midi == 64
+    assert _strong(stepped_close, 1, 0.0).midi == 64 and not _strong(stepped_close, 1, 0.0).slur_stop
     held_step = _render(
-        [72] * 3 + [60] * 3 + [71] * 6,
-        (_joined(0, [72] * 3 + [60] * 3), _joined(6, [71] * 6, held=True)),
+        [72] * 3 + [60] * 3 + [62] * 6,
+        (_joined(0, [72] * 3 + [60] * 3), _joined(6, [62] * 6, held=True)),
         chords={0: C, 1: G},
         kinds={0: "phrase", 1: "phrase"},
         mode="major",
@@ -1183,9 +1184,9 @@ def test_breath_harmonics_and_fandanguillo_grids() -> None:
         meter=METER_34,
         sections=castillo_then_sonatina,
     )
-    assert _strong(held_step, 0, 0.0).midi == 72 and _strong(held_step, 0, 0.0).slur_start
-    assert _strong(held_step, 0, 2.0).midi == 72
-    assert _strong(held_step, 1, 0.0).midi == 71 and _strong(held_step, 1, 0.0).slur_stop
+    assert _strong(held_step, 0, 0.0).midi == 64 and _strong(held_step, 0, 0.0).slur_start
+    assert _strong(held_step, 0, 2.0).midi == 64
+    assert _strong(held_step, 1, 0.0).midi == 62 and _strong(held_step, 1, 0.0).slur_stop
 
     node = [67] * 8
     node_phrase = _joined(0, node)
@@ -1368,8 +1369,8 @@ def test_sonatina_downbeat_leap_step_run_and_castillo_hold() -> None:
         FormSection(1, 2, "phrase", 1),
     )
     held = _waltz(
-        [72] * 6 + [64] * 6,
-        (_joined(0, [72] * 6), _joined(6, [64] * 6, held=True)),
+        [76] * 6 + [64] * 6,
+        (_joined(0, [76] * 6), _joined(6, [64] * 6, held=True)),
         {0: C, 1: C},
         sections=castillo_bridge,
     )
@@ -1388,7 +1389,7 @@ def test_sonatina_downbeat_leap_step_run_and_castillo_hold() -> None:
     assert not any(note.midi is not None and note.duration_beats == 0.25 for note in dance.lead)
 
     # Castillo holds the downbeat. The unsung note at the later eighth does not decide the ornament.
-    step_line = [72] * 3 + [60] * 3 + [71] * 6
+    step_line = [72] * 3 + [60] * 3 + [62] * 6
     held_step = _waltz(
         step_line,
         (_joined(0, step_line[:6]), _joined(6, step_line[6:], held=True)),
@@ -1396,12 +1397,12 @@ def test_sonatina_downbeat_leap_step_run_and_castillo_hold() -> None:
         sections=castillo_bridge,
     )
     held_price = [note for note in held_step.lead if note.bar == 0 and abs(note.beat) < 1e-6 and note.midi is not None]
-    assert len(held_price) == 1 and held_price[0].midi == step_line[0] == 72
+    assert len(held_price) == 1 and held_price[0].midi == 64
     assert held_price[0].duration_beats == pytest.approx(2.0)
     assert held_price[0].slur_start
-    assert _strong(held_step, 0, 2.0).midi == 72
+    assert _strong(held_step, 0, 2.0).midi == 64
     step_arrival = [note for note in held_step.lead if note.bar == 1 and abs(note.beat) < 1e-6 and note.duration_beats >= 0.5]
-    assert len(step_arrival) == 1 and step_arrival[0].midi == 71 and step_arrival[0].slur_stop
+    assert len(step_arrival) == 1 and step_arrival[0].midi == 62 and step_arrival[0].slur_stop
 
     leap_line = [60] * 3 + [71] * 3 + [72] * 6
     held_leap = _waltz(
@@ -1411,10 +1412,10 @@ def test_sonatina_downbeat_leap_step_run_and_castillo_hold() -> None:
         sections=castillo_bridge,
     )
     sounded = [note for note in held_leap.lead if note.bar == 0 and abs(note.beat) < 1e-6 and note.midi is not None]
-    assert len(sounded) == 1 and sounded[0].midi == leap_line[0] == 60
-    # 60 into 72 is a leap from the held downbeat, so the grace is still planted.
+    assert len(sounded) == 1 and sounded[0].midi == 55
+    # C4 is under the floor, so the hold is G3. That still leaps into C5.
     assert any(note.midi is not None and note.duration_beats == 0.25 for note in held_leap.lead)
-    assert _strong(held_leap, 0, 2.0).midi == 60
+    assert _strong(held_leap, 0, 2.0).midi == 55
     leap_arrival = [note for note in held_leap.lead if note.bar == 1 and abs(note.beat) < 1e-6 and note.duration_beats >= 0.5]
     assert len(leap_arrival) == 1 and leap_arrival[0].midi == 72 and leap_arrival[0].slur_stop
     assert_playable(leap, profiles="torroba")
