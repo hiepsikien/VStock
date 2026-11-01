@@ -873,6 +873,9 @@ def _render_sonatina_moving(ctx, bar: int, phrase) -> tuple[list[NoteEvent], lis
         velocity, accent = _lead_velocity(ctx, eighth, local, dance=False)
         if ctx.kind != "4/4":
             accent = base in ctx.strong
+        # 3/4 beat 3 is this quarter (eighths 4–5). Beat 1 stays ordinary.
+        if ctx.kind == "3/4" and base == 4:
+            velocity = _three_four_offbeat(ctx, eighth, phrase, velocity)
         length = min(2, epb - base)
         lead.extend(written(eighth, length, midi, accent=accent, velocity=velocity, slur_stop=pending_stop))
         pending_stop = False
@@ -899,6 +902,9 @@ def _render_sonatina_moving(ctx, bar: int, phrase) -> tuple[list[NoteEvent], lis
         right = _melody_at(ctx, origin + second)
         left_level = _lead_velocity(ctx, origin + first, _phrase_covering(ctx, origin + first, phrase), dance=False)[0]
         right_level = _lead_velocity(ctx, origin + second, _phrase_covering(ctx, origin + second, phrase), dance=False)[0]
+        if ctx.kind == "3/4":
+            left_level = _three_four_offbeat(ctx, origin + first, phrase, left_level)
+            right_level = _three_four_offbeat(ctx, origin + second, phrase, right_level)
         # A step slurs into the next strong beat. A repeated pitch, a blocked
         # close, and a grace (handled above) do not.
         slur = kind == "step" and not (left == right == target)
@@ -1113,8 +1119,13 @@ def _block(
     dance_strong = offset in ctx.strong
     owner = _phrase_covering(ctx, eighth, phrase)
     ordinary = _note_velocity(eighth, 1, _apex_eighths(ctx.phrases), owner)
-    velocity = max(ordinary, 68) if dance_strong else 64
-    accent = dance_strong
+    # 6/8 secondary strong beat: one degree under the downbeat, and not an accent.
+    if ctx.kind == "6/8" and offset == 3:
+        velocity = max(ordinary - 2, 66)
+        accent = False
+    else:
+        velocity = max(ordinary, 68) if dance_strong else 64
+        accent = dance_strong
     band = _attack_band(ctx, bar, offset, _closing_offsets(ctx, bar))
     inner_vel, bass_vel = _bed(velocity, band)
     bass = _torroba_bass(ctx, ctx.chord(bar), bar, midi)
@@ -1139,6 +1150,10 @@ def _answer(ctx, bar: int, offset: int, phrase) -> NoteEvent:
     eighth = bar * epb + offset
     midi = _melody_at(ctx, eighth)
     strong = offset in ctx.strong
+    if ctx.kind == "6/8" and offset == 3:
+        owner = _phrase_covering(ctx, eighth, phrase)
+        ordinary = _note_velocity(eighth, 1, _apex_eighths(ctx.phrases), owner)
+        return _attack(eighth, midi, epb, max(ordinary - 2, 66), accent=False)
     if strong:
         owner = _phrase_covering(ctx, eighth, phrase)
         ordinary = _note_velocity(eighth, 1, _apex_eighths(ctx.phrases), owner)
@@ -1443,6 +1458,26 @@ def _phrase_at(ctx, eighth: int):
 def _phrase_covering(ctx, eighth: int, fallback=None):
     found = _phrase_at(ctx, eighth)
     return found if found is not None else fallback
+
+
+def _on_moving_apex(owner, eighth: int) -> bool:
+    """True when `eighth` sits on the peak of a phrase that actually moves.
+
+    A flat phrase (`rise == 0`) names its only run as the apex. That run is
+    not a melodic peak — `_apex_eighths` skips it — so a 3/4 off-beat still
+    steps down. A phrase that moves keeps the eighths inside `owner.apex`.
+    """
+    if owner is None or not owner.runs or owner.rise <= 0:
+        return False
+    return owner.apex.start <= eighth < owner.apex.end
+
+
+def _three_four_offbeat(ctx, eighth: int, phrase, level: int) -> int:
+    """One degree under a 3/4 off-beat that is not its owner's peak."""
+    owner = _phrase_covering(ctx, eighth, phrase)
+    if _on_moving_apex(owner, eighth):
+        return level
+    return max(40, level - 2)
 
 
 def _sonatina_slur_blocked(ctx, earlier: int, later: int) -> bool:
@@ -2375,8 +2410,9 @@ def _type4_call(pen: _Pen):
     pen.add(0.0, inner, 0.5, 2, support_level, 0)
     repeated = pen.mel(1)
     motif, _mark = pen.lead_level(1, strong=False)
-    pen.add(0.5, repeated, 0.25, 1, motif, 1)
-    pen.add(0.75, repeated, 0.25, 1, motif, 1)
+    bundle = pen.group()
+    pen.add(0.5, repeated, 0.25, 1, motif, 2, group=bundle)
+    pen.add(0.75, repeated, 0.25, 1, motif, 2, group=bundle)
     eighth_two, _mark = pen.lead_level(2, strong=False)
     pen.add(1.0, pen.mel(2), 0.5, 1, eighth_two, 1)
     # The mordent sits on eighth 3 and spills into the arrival at beat 2.0.
@@ -3732,6 +3768,9 @@ def _render_juglar_bar(ctx, bar: int, phrase, mode: str, patterns=None):
         origin = bar * ctx.epb + eighth
         midi = _melody_at(ctx, origin)
         velocity = _lead_vel(ctx, origin, phrase)
+        # Slope before both spellings, so a region's last (quarter-note) bar matches.
+        if eighth in (2, 4):
+            velocity = _three_four_offbeat(ctx, origin, phrase, velocity)
         beat = float(quarter)
         accent = mode == "full" and eighth == 0 and not quarter_notes
         if quarter_notes:
@@ -3795,8 +3834,18 @@ def _alcaniz_dance(ctx, bar: int, phrase, *, accented: bool):
         origin = bar * ctx.epb + eighth
         midi = _melody_at(ctx, origin)
         ordinary = _lead_vel(ctx, origin, phrase)
-        velocity = max(ordinary, 68) if accented else ordinary
-        lead.append(_heard(bar, eighth * 0.5, midi, 0.5, 1, velocity, accent=accented))
+        if accented and eighth == 0:
+            velocity = max(ordinary, 68)
+            mark = True
+        elif accented and eighth == 3:
+            velocity = max(ordinary - 2, 66)
+            mark = False
+        else:
+            # Pushed bars keep both beats at ordinary. The 66 floor would
+            # lift eighth 3 above a downbeat that is still at 64.
+            velocity = ordinary
+            mark = False
+        lead.append(_heard(bar, eighth * 0.5, midi, 0.5, 1, velocity, accent=mark))
         bass = _sounding_bass(ctx, bar, midi)
         if bass is not None:
             _inner, bass_vel = _bed(ordinary, band)
