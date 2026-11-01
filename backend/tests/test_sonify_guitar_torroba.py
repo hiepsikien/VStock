@@ -66,15 +66,21 @@ from app.sonify.guitar_torroba import (
     _FIGURES,
     _HARMONICS,
     _Pen,
+    _bass_length_eighths,
+    _bed,
     _grid_state,
+    _half_bass_events,
     _rasgueado_onsets,
     _render_torroba_bar,
     _torroba_bass,
     _torroba_contrast,
     _torroba_primary,
     castillos_wave_row,
+    _Attack,
+    _realize,
     render_torroba_figure,
     select_torroba_figure,
+    select_torroba_spans,
     skips_bar_extra,
     torroba_figure_plan,
     torroba_scale_step,
@@ -468,13 +474,13 @@ def test_four_fallbacks_and_the_mood_map() -> None:
     rally = _ctx(melody=[64] * 8, phrase=phrase, character="rally")
     assert _select_body(rally, phrase, first_body=True, previous=[], section=None) == "olite"
     calm = _ctx(melody=[64] * 8, phrase=phrase, character="calm")
-    assert _select_body(calm, phrase, first_body=True, previous=[], section=None) == "castillo"
+    assert _select_body(calm, phrase, first_body=True, previous=[], section=None) == "olite"
     volatile = _ctx(melody=[64] * 8, phrase=phrase, character="volatile")
     assert _select_body(volatile, phrase, first_body=True, previous=[], section=None) == "olite"
     slow = _ctx(melody=[64] * 8, phrase=phrase, character="selloff", bpm=72)
-    assert _select_body(slow, phrase, first_body=True, previous=[], section=None) == "castillo"
+    assert _select_body(slow, phrase, first_body=True, previous=[], section=None) == "olite"
     selloff = _ctx(melody=[64] * 8, phrase=phrase, character="selloff", bpm=96)
-    assert _select_body(selloff, phrase, first_body=True, previous=[], section=None) == "castillo"
+    assert _select_body(selloff, phrase, first_body=True, previous=[], section=None) == "olite"
     scherzo = _ctx(melody=[64] * 6, phrase=_joined(0, [64] * 6), kind="6/8", epb=6, strong=(0, 3), character="calm", bar_beats=3)
     assert _torroba_primary(scherzo, "calm", framed_macro=True) == "danza"
     assert _torroba_primary(scherzo, "calm", framed_macro=False) == "danza"
@@ -501,9 +507,17 @@ def test_four_fallbacks_and_the_mood_map() -> None:
 
 
 def test_dance_writes_a_four_step_gap_and_one_extra_per_bar() -> None:
-    phrase = _joined(0, [72] * 8)
-    ctx = _ctx(melody=[72] * 8, phrase=phrase, character="volatile")
-    with compose_meter(METER_44):
+    phrase = _joined(0, [72] * 6)
+    ctx = _ctx(
+        melody=[72] * 6,
+        phrase=phrase,
+        kind="6/8",
+        epb=6,
+        strong=(0, 3),
+        character="volatile",
+        bar_beats=3,
+    )
+    with compose_meter(METER_68):
         lead, _support, _low = _render_torroba_bar(ctx, 0, phrase, "fandanguillo")
     rolled = [note for note in lead if note.beat < 0.25]
     assert len(rolled) == 1
@@ -512,8 +526,12 @@ def test_dance_writes_a_four_step_gap_and_one_extra_per_bar() -> None:
     assert rolled[0].velocity == 68 and rolled[0].accent
     by_beat = {round(note.beat, 2): note for note in lead if note.duration_beats >= 0.5}
     assert by_beat[1.0].velocity == 64 and not by_beat[1.0].accent
-    assert by_beat[2.0].velocity == 68 and by_beat[2.0].accent
+    assert by_beat[1.5].velocity >= 68 and by_beat[1.5].accent
     assert rolled[0].velocity - by_beat[1.0].velocity == 4
+    four = _ctx(melody=[72] * 8, phrase=_joined(0, [72] * 8), character="volatile")
+    with compose_meter(METER_44):
+        four_lead, _support, _low = _render_torroba_bar(four, 0, four.phrases[0], "fandanguillo")
+    assert not any(note.duration_beats >= 0.5 and note.beat >= 0.5 for note in four_lead)
     rising = Phrase(0, 16, (Run(0, 8, 74), Run(8, 8, 60)))
     shape_ctx = _ctx(melody=[74] * 8 + [60] * 8, phrase=rising, bars=2)
     events = [
@@ -534,7 +552,10 @@ def test_castillo_and_sonatina_share_one_extra_per_bar() -> None:
     assert castillo_ctx.band(2) == "mf"
     with compose_meter(METER_44):
         lead, support, low = _render_torroba_bar(castillo_ctx, 2, rising, "castillo")
-    assert any(note.duration_beats >= 2 and note.midi == 72 for note in lead)
+    # 4/4 holds the downbeat for the bar, including a bar that is not the close.
+    assert len(lead) == 1
+    assert lead[0].beat == pytest.approx(0.0)
+    assert lead[0].duration_beats == pytest.approx(4.0)
     later = [note for note in support if abs(note.beat - 3.0) < 1e-6]
     assert later
     shaped_lead, shaped_support, _shaped_low = _shape_dynamics(
@@ -652,9 +673,9 @@ def test_sonatina_slur_leap_and_run_stay_out_of_scale_eighths() -> None:
     ctx = _ctx(melody=step, phrase=step_phrase, character="rally", chord=G)
     with compose_meter(METER_44):
         lead, _support, _low = _render_torroba_bar(ctx, 0, step_phrase, "sonatina")
-    strong = [note for note in lead if note.duration_beats >= 0.5]
-    assert [note.midi for note in strong] == [72, 74]
-    assert any(note.slur_start for note in strong) and any(note.slur_stop for note in strong)
+    quarters = [note for note in lead if note.duration_beats >= 1.0]
+    assert [note.midi for note in quarters] == [72, 74]
+    assert any(note.slur_start for note in lead) and any(note.slur_stop for note in lead)
     assert not any(note.duration_beats == 0.25 for note in lead)
 
     leap = [74] * 4 + [67] * 4
@@ -663,14 +684,14 @@ def test_sonatina_slur_leap_and_run_stay_out_of_scale_eighths() -> None:
     with compose_meter(METER_44):
         leaped, _support, _low = _render_torroba_bar(leap_ctx, 0, leap_phrase, "sonatina")
     arrivals = [note for note in leaped if abs(note.beat - 2.0) < 1e-6]
-    assert len(arrivals) == 1 and arrivals[0].duration_beats == 0.5 and arrivals[0].midi == 67
+    assert len(arrivals) == 1 and arrivals[0].duration_beats == pytest.approx(1.0) and arrivals[0].midi == 67
     approaches = [note for note in leaped if note.duration_beats == 0.25]
     assert len(approaches) == 1
     assert approaches[0].beat == 1.75 and approaches[0].velocity == 56 and approaches[0].slur_start
     assert arrivals[0].slur_stop
 
     rising = [67] * 4 + [74] * 4
-    # Held so the one-bar line stays on the base grid. A close of this length is type 3.
+    # A rally bridge is Castillo, the contrast of Olite. One bar has no Arada span.
     rise_phrase = _joined(0, rising, held=True)
     score = _render(
         rising,
@@ -682,12 +703,9 @@ def test_sonatina_slur_leap_and_run_stay_out_of_scale_eighths() -> None:
         bpm=96,
         sections=_bridge(1),
     )
-    run = [note for note in score.lead if note.duration_beats == 0.25]
-    assert 2 <= len(run) <= 4
-    assert all((note.velocity or 0) <= 64 for note in run)
-    arrival = [note for note in score.lead if abs(note.beat - 2.0) < 1e-6 and note.duration_beats >= 0.5]
-    assert len(arrival) == 1 and arrival[0].midi == 74
-    assert run[0].slur_start and arrival[0].slur_stop
+    held = [note for note in score.lead if note.midi is not None]
+    # Stretch 0. G4 on G is B3, the chord tone under the scale fifth.
+    assert [(note.midi, note.duration_beats) for note in held] == [(59, pytest.approx(4.0))]
     assert score.scale_eighths == ()
     xml = score_to_musicxml(score)
     assert "<grace" not in xml
@@ -713,7 +731,10 @@ def test_danza_grids_and_humanize_ceiling() -> None:
     answers = [note for note in lead if not note.staccato]
     assert {round(note.beat, 2) for note in answers} == {0.5, 1.0, 2.0, 2.5}
     assert all(note.velocity == 64 and not note.accent for note in answers)
-    assert all(note.staccato for note in support + low)
+    assert support and all(note.staccato for note in support)
+    assert low and all(not note.staccato for note in low)
+    assert [round(note.beat, 2) for note in low] == [0.0, 1.5]
+    assert all(note.duration_beats == pytest.approx(1.0) for note in low)
 
     three = _ctx(
         melody=[72] * 6,
@@ -896,12 +917,11 @@ def test_frames_and_body_patterns_stay_playable() -> None:
     )
     assert_playable(long_score, profiles="torroba")
     outro_notes = [note.midi for note in (*long_score.lead, *long_score.support, *long_score.low) if note.bar == 11 and note.midi is not None]
-    # The sonatina outro holds I in the mode, so a minor close keeps the minor third.
-    assert any(note % 12 == 3 for note in outro_notes)
-    assert all(note % 12 != 4 for note in outro_notes)
+    # Rally's contrast is Castillo, so the joined outro is that cadence, not Sonatina's minor I.
+    assert {note % 12 for note in outro_notes} == {4, 7}
     assert long_score.slots[-1].chord.name == "Cm"
     for pattern, meter, character in (
-        ("castillo", METER_44, "calm"),
+        ("castillo", METER_44, "selloff"),
         ("sonatina", METER_44, "rally"),
         ("olite", METER_44, "volatile"),
         ("danza", METER_68, "calm"),
@@ -954,8 +974,9 @@ def _at(notes, beat: float):
 
 
 def test_breath_harmonics_and_fandanguillo_grids() -> None:
-    full_gaps = {0.5, 1.5, 2.5, 3.5}
-    thin_gaps = {0.5, 2.5}
+    # 4/4 Fandanguillo has no melody eighths, so every off-downbeat eighth can take a gap.
+    full_gaps = {0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5}
+    thin_gaps = {0.5, 1.5, 2.5, 3.5}
 
     # A close on bar 1 (1 % 4 == 1) thins that bar. Bar 0, still inside the phrase, stays full.
     closing = _joined(0, [72] * 16)
@@ -994,7 +1015,7 @@ def test_breath_harmonics_and_fandanguillo_grids() -> None:
     )
     with compose_meter(METER_44):
         _lead, split_support, _low = _render_torroba_bar(split_ctx, 0, head, "fandanguillo")
-    assert _gap_beats(split_support) == {0.5, 2.5, 3.5}
+    assert _gap_beats(split_support) == {0.5, 1.5, 2.5, 3.0, 3.5}
     assert _at(split_support, 0.5).velocity == 50
     assert _at(split_support, 2.5).velocity == 50
     assert _at(split_support, 3.5).velocity == 56
@@ -1011,8 +1032,11 @@ def test_breath_harmonics_and_fandanguillo_grids() -> None:
         covered_lead, covered_support, covered_low = _render_torroba_bar(covered_ctx, 0, covered, "castillo")
     assert {round(note.beat, 2) for note in covered_support} == {1.0}
     assert covered_support[0].velocity == 50
-    assert covered_low[0].velocity == 58
-    assert covered_lead[0].duration_beats >= 2
+    assert [round(note.beat, 2) for note in covered_low] == [0.0, 2.0]
+    assert all(note.velocity == 58 and not note.tie_start and not note.tie_stop for note in covered_low)
+    assert len(covered_lead) == 1
+    assert covered_lead[0].beat == pytest.approx(0.0)
+    assert covered_lead[0].duration_beats == pytest.approx(4.0)
 
     # Ending at eighth 4 leaves only offset 2. That one-offset tail is dropped; offset 6 stays,
     # and the bar bed stays the printed band because the close does not reach the last eighth.
@@ -1102,42 +1126,77 @@ def test_breath_harmonics_and_fandanguillo_grids() -> None:
         {0: G, 1: G},
         character="rally",
     )
+    # Olite thin joins the leading eighth to the next strong beat inside the bar.
     assert not any(note.midi is not None and note.duration_beats == 0.25 for note in crossed.lead)
-    assert not any(note.slur_start or note.slur_stop for note in crossed.lead if note.midi is not None)
-
-    # Castillo still graces into sonatina. held_step slurs the sounding 72, not the unsung 60.
-    for pitches, chords in (
-        ([72] * 8 + [64] * 8, {0: C, 1: C}),
-        ([60] * 4 + [71] * 4 + [72] * 8, {0: CMAJ7, 1: C}),
-    ):
-        graced = _two_bars(
-            pitches,
-            (_joined(0, pitches[:8]), _joined(8, pitches[8:], held=True)),
-            chords,
-            character="calm",
-            character_at=("calm", "rally"),
-            sections=_castillo_then_sonatina(),
-        )
-        grace = [note for note in graced.lead if note.midi is not None and note.duration_beats == 0.25]
-        assert [(note.bar, round(note.beat, 2)) for note in grace] == [(0, 3.75)]
-    held_step = _two_bars(
-        [72] * 4 + [60] * 4 + [71] * 8,
-        (_joined(0, [72] * 4 + [60] * 4), _joined(8, [71] * 8, held=True)),
-        {0: C, 1: G},
-        character="calm",
-        character_at=("calm", "rally"),
-        sections=_castillo_then_sonatina(),
+    assert any(note.slur_start and note.beat == pytest.approx(1.5) for note in crossed.lead if note.bar == 0)
+    assert not any(
+        note.midi is not None and note.bar == 1 and note.beat == pytest.approx(0.0) and note.slur_stop
+        for note in crossed.lead
     )
-    assert not any(note.midi is not None and note.duration_beats == 0.25 for note in held_step.lead)
-    assert _strong(held_step, 0, 0.0).slur_start
-    assert _strong(held_step, 1, 0.0).slur_stop
+
+    # 3/4 calm above 72 is Sonatina, and its bridge is Castillo. The hold is the
+    # downbeat, so a leap graces from that pitch and a step slurs from it.
+    castillo_then_sonatina = (
+        FormSection(0, 1, "phrase", 0, bridge=True),
+        FormSection(1, 2, "phrase", 1),
+    )
+    graced = _render(
+        [76] * 6 + [64] * 6,
+        (_joined(0, [76] * 6), _joined(6, [64] * 6, held=True)),
+        chords={0: C, 1: C},
+        kinds={0: "phrase", 1: "phrase"},
+        mode="major",
+        character="calm",
+        bpm=96,
+        meter=METER_34,
+        sections=castillo_then_sonatina,
+    )
+    grace = [note for note in graced.lead if note.midi is not None and note.duration_beats == 0.25]
+    assert [(note.bar, round(note.beat, 2)) for note in grace] == [(0, 2.75)]
+    assert grace[0].slur_start
+    assert _strong(graced, 0, 0.0).midi == 67
+    assert _strong(graced, 0, 2.0).midi == 67
+    assert _strong(graced, 1, 0.0).midi == 64 and _strong(graced, 1, 0.0).slur_stop
+    # Eighth 4 of the Castillo bar is the same held pitch, not the unsung 71.
+    stepped_close = _render(
+        [72] * 3 + [71] * 3 + [64] * 6,
+        (_joined(0, [72] * 3 + [71] * 3), _joined(6, [64] * 6, held=True)),
+        chords={0: CMAJ7, 1: C},
+        kinds={0: "phrase", 1: "phrase"},
+        mode="major",
+        character="calm",
+        bpm=96,
+        meter=METER_34,
+        sections=castillo_then_sonatina,
+    )
+    assert not any(note.midi is not None and note.duration_beats == 0.25 for note in stepped_close.lead)
+    assert _strong(stepped_close, 0, 0.0).midi == 64
+    assert _strong(stepped_close, 0, 2.0).midi == 64
+    assert _strong(stepped_close, 1, 0.0).midi == 64 and not _strong(stepped_close, 1, 0.0).slur_stop
+    held_step = _render(
+        [72] * 3 + [60] * 3 + [62] * 6,
+        (_joined(0, [72] * 3 + [60] * 3), _joined(6, [62] * 6, held=True)),
+        chords={0: C, 1: G},
+        kinds={0: "phrase", 1: "phrase"},
+        mode="major",
+        character="calm",
+        bpm=96,
+        meter=METER_34,
+        sections=castillo_then_sonatina,
+    )
+    assert _strong(held_step, 0, 0.0).midi == 64 and _strong(held_step, 0, 0.0).slur_start
+    assert _strong(held_step, 0, 2.0).midi == 64
+    assert _strong(held_step, 1, 0.0).midi == 62 and _strong(held_step, 1, 0.0).slur_stop
 
     node = [67] * 8
     node_phrase = _joined(0, node)
     node_ctx = _ctx(melody=node, phrase=node_phrase, character="calm", chord=G, mode="minor")
     with compose_meter(METER_44):
         sung, emptied, _low = _render_torroba_bar(node_ctx, 0, node_phrase, "castillo")
-    assert sung[0].midi == 67 and sung[0].velocity == 48 and sung[0].duration_beats >= 2
+    # The whole bar is the harmonic bell, so the inner voice stays empty.
+    assert len(sung) == 1
+    assert sung[0].beat == pytest.approx(0.0) and sung[0].midi == 67
+    assert sung[0].velocity == 48 and sung[0].duration_beats == pytest.approx(4.0)
     assert emptied == []
 
     ordinary = [72] * 8
@@ -1242,109 +1301,125 @@ def _two_bars(pitches, phrases, chords, *, character="rally", character_at=None,
         )
 
 
+def _type4_pair(score: Score) -> None:
+    """A held 2-bar sonatina is type 4. The grid grace is not planted on a figure bar."""
+    sixteenths = [
+        (note.bar, round(note.beat, 2))
+        for note in score.lead
+        if note.midi is not None and note.duration_beats == 0.25
+    ]
+    assert (0, 0.5) in sixteenths and (0, 0.75) in sixteenths
+    assert (0, 3.75) not in sixteenths
+    mordent = [
+        note
+        for note in score.lead
+        if note.bar == 0 and note.midi is not None and abs(note.duration_beats * 6 - 1) < 1e-3
+    ]
+    assert len(mordent) == 3 and mordent[0].slur_start and mordent[-1].slur_stop
+    assert not any(note.slur_start and note.slur_stop for note in score.lead)
+
+
+def _waltz(pitches, phrases, chords, *, sections=None, character="calm", bpm=96):
+    bars = len(pitches) // 6
+    return _render(
+        pitches,
+        phrases,
+        chords=chords,
+        kinds={bar: "phrase" for bar in range(bars)},
+        mode="major",
+        character=character,
+        bpm=bpm,
+        meter=METER_34,
+        sections=sections,
+    )
+
+
 def test_sonatina_downbeat_leap_step_run_and_castillo_hold() -> None:
-    leap = _two_bars(
-        [74] * 8 + [67] * 8,
-        (_joined(0, [74] * 8 + [67] * 8, held=True),),
+    # 3/4 calm above 72 is Sonatina. Two bars with no bridge stay on type 4.
+    leap = _waltz(
+        [74] * 6 + [67] * 6,
+        (_joined(0, [74] * 6 + [67] * 6, held=True),),
         {0: G, 1: G},
-        sections=_bridge(2),
     )
-    pickup = [note for note in leap.lead if note.midi is not None and note.duration_beats == 0.25]
-    assert [(note.bar, round(note.beat, 2)) for note in pickup] == [(0, 3.75)]
-    assert pickup[0].slur_start and pickup[0].voice == 1 and (pickup[0].velocity or 0) <= 64
+    _type4_pair(leap)
     arrival = [note for note in leap.lead if note.bar == 1 and abs(note.beat) < 1e-6 and note.duration_beats >= 0.5]
-    assert len(arrival) == 1 and arrival[0].midi == 67 and arrival[0].slur_stop
-    assert not any(_covers_beat(note, 0, 3.75, 0.25) for note in leap.support)
-    assert all(note.bar >= 0 for note in leap.lead)
-    assert_playable(leap, profiles="torroba")
+    assert len(arrival) == 1 and arrival[0].midi == 67
 
-    step = _two_bars(
-        [71] * 8 + [72] * 8,
-        (_joined(0, [71] * 8 + [72] * 8, held=True),),
+    step = _waltz(
+        [71] * 6 + [72] * 6,
+        (_joined(0, [71] * 6 + [72] * 6, held=True),),
         {0: G, 1: C},
-        sections=_bridge(2),
     )
-    assert not any(note.midi is not None and note.duration_beats == 0.25 for note in step.lead)
-    previous = [note for note in step.lead if note.bar == 0 and abs(note.beat - 2.0) < 1e-6 and note.duration_beats >= 0.5]
+    _type4_pair(step)
     arrived = [note for note in step.lead if note.bar == 1 and abs(note.beat) < 1e-6 and note.duration_beats >= 0.5]
-    assert len(previous) == 1 and previous[0].midi == 71 and previous[0].slur_start
-    assert len(arrived) == 1 and arrived[0].midi == 72 and arrived[0].slur_stop
+    assert len(arrived) == 1 and arrived[0].midi == 72
 
-    running = _two_bars(
-        [67] * 8 + [74] * 8,
-        (_joined(0, [67] * 8 + [74] * 8, held=True),),
+    running = _waltz(
+        [67] * 6 + [74] * 6,
+        (_joined(0, [67] * 6 + [74] * 6, held=True),),
         {0: G, 1: G},
-        sections=_bridge(2),
     )
-    run = sorted(
-        (note for note in running.lead if note.midi is not None and note.bar == 0 and note.duration_beats == 0.25),
-        key=lambda note: note.beat,
-    )
-    assert [round(note.beat, 2) for note in run] == [3.25, 3.5, 3.75]
-    assert all((note.velocity or 0) <= 64 for note in run)
-    assert run[0].slur_start and not any(note.slur_start for note in run[1:])
+    _type4_pair(running)
     apex = [note for note in running.lead if note.bar == 1 and abs(note.beat) < 1e-6 and note.duration_beats >= 0.5]
-    assert len(apex) == 1 and apex[0].midi == 74 and apex[0].slur_stop
+    assert len(apex) == 1 and apex[0].midi == 74
     assert running.scale_eighths == ()
-    for beat in (3.25, 3.5, 3.75):
-        assert not any(_covers_beat(note, 0, beat, 0.25) for note in running.support)
-    assert_playable(running, profiles="torroba")
 
-    held = _two_bars(
-        [72] * 8 + [64] * 8,
-        (_joined(0, [72] * 8), _joined(8, [64] * 8, held=True)),
+    castillo_bridge = (
+        FormSection(0, 1, "phrase", 0, bridge=True),
+        FormSection(1, 2, "phrase", 1),
+    )
+    held = _waltz(
+        [76] * 6 + [64] * 6,
+        (_joined(0, [76] * 6), _joined(6, [64] * 6, held=True)),
         {0: C, 1: C},
-        character="calm",
-        character_at=("calm", "rally"),
-        sections=_castillo_then_sonatina(),
+        sections=castillo_bridge,
     )
     grace = [note for note in held.lead if note.midi is not None and note.duration_beats == 0.25]
-    assert [(note.bar, round(note.beat, 2)) for note in grace] == [(0, 3.75)]
+    assert [(note.bar, round(note.beat, 2)) for note in grace] == [(0, 2.75)]
     assert grace[0].slur_start
     sung = [note for note in held.lead if note.bar == 1 and abs(note.beat) < 1e-6 and note.duration_beats >= 0.5]
     assert len(sung) == 1 and sung[0].midi == 64 and sung[0].slur_stop
     for note in held.lead:
         if note.bar != 0 or note.duration_beats == 0.25 or note.midi is None:
             continue
-        assert note.beat + note.duration_beats <= 3.75 + 1e-6
+        assert note.beat + note.duration_beats <= 2.75 + 1e-6
     assert_playable(held, profiles="torroba")
 
     dance = _two_bars([72] * 16, (_joined(0, [72] * 16),), {0: C, 1: C}, character="volatile")
     assert not any(note.midi is not None and note.duration_beats == 0.25 for note in dance.lead)
 
-    # Castillo holds the downbeat. The unsung close at eighth 4 must not decide the ornament.
-    step_line = [72] * 4 + [60] * 4 + [71] * 8
-    held_step = _two_bars(
+    # Castillo holds the downbeat. The unsung note at the later eighth does not decide the ornament.
+    step_line = [72] * 3 + [60] * 3 + [62] * 6
+    held_step = _waltz(
         step_line,
-        (_joined(0, step_line[:8]), _joined(8, step_line[8:], held=True)),
+        (_joined(0, step_line[:6]), _joined(6, step_line[6:], held=True)),
         {0: C, 1: G},
-        character="calm",
-        character_at=("calm", "rally"),
-        sections=_castillo_then_sonatina(),
+        sections=castillo_bridge,
     )
     held_price = [note for note in held_step.lead if note.bar == 0 and abs(note.beat) < 1e-6 and note.midi is not None]
-    assert len(held_price) == 1 and held_price[0].midi == step_line[0] == 72
+    assert len(held_price) == 1 and held_price[0].midi == 64
+    assert held_price[0].duration_beats == pytest.approx(2.0)
     assert held_price[0].slur_start
-    assert not any(note.midi is not None and note.duration_beats == 0.25 for note in held_step.lead)
+    assert _strong(held_step, 0, 2.0).midi == 64
     step_arrival = [note for note in held_step.lead if note.bar == 1 and abs(note.beat) < 1e-6 and note.duration_beats >= 0.5]
-    assert len(step_arrival) == 1 and step_arrival[0].midi == 71 and step_arrival[0].slur_stop
+    assert len(step_arrival) == 1 and step_arrival[0].midi == 62 and step_arrival[0].slur_stop
 
-    leap_line = [60] * 4 + [71] * 4 + [72] * 8
-    held_leap = _two_bars(
+    leap_line = [60] * 3 + [71] * 3 + [72] * 6
+    held_leap = _waltz(
         leap_line,
-        (_joined(0, leap_line[:8]), _joined(8, leap_line[8:], held=True)),
+        (_joined(0, leap_line[:6]), _joined(6, leap_line[6:], held=True)),
         {0: CMAJ7, 1: C},
-        character="calm",
-        character_at=("calm", "rally"),
-        sections=_castillo_then_sonatina(),
+        sections=castillo_bridge,
     )
     sounded = [note for note in held_leap.lead if note.bar == 0 and abs(note.beat) < 1e-6 and note.midi is not None]
-    assert len(sounded) == 1 and sounded[0].midi == leap_line[0] == 60
-    leap_pickup = [note for note in held_leap.lead if note.midi is not None and note.duration_beats == 0.25]
-    assert [(note.bar, round(note.beat, 2)) for note in leap_pickup] == [(0, 3.75)]
-    assert leap_pickup[0].slur_start
+    assert len(sounded) == 1 and sounded[0].midi == 55
+    # C4 is under the floor, so the hold is G3. That still leaps into C5.
+    assert any(note.midi is not None and note.duration_beats == 0.25 for note in held_leap.lead)
+    assert _strong(held_leap, 0, 2.0).midi == 55
     leap_arrival = [note for note in held_leap.lead if note.bar == 1 and abs(note.beat) < 1e-6 and note.duration_beats >= 0.5]
     assert len(leap_arrival) == 1 and leap_arrival[0].midi == 72 and leap_arrival[0].slur_stop
+    assert_playable(leap, profiles="torroba")
+    assert_playable(running, profiles="torroba")
 
 
 def _strong(score_or_notes, bar: int, beat: float):
@@ -1359,50 +1434,85 @@ def _strong(score_or_notes, bar: int, beat: float):
 
 
 def test_sonatina_slur_is_one_arch_and_skips_a_repeated_note() -> None:
-    # G hears Ab, so these strong beats stay a semitone apart after quantization.
-    line = [67] * 4 + [68] * 4 + [67] * 4 + [68] * 4
+    # The grid skips a slur when the two eighths repeat the next strong pitch.
+    same_phrase = _joined(0, [72] * 8, held=True)
+    same_ctx = _ctx(melody=[72] * 8, phrase=same_phrase, character="rally", chord=C)
+    with compose_meter(METER_44):
+        same_lead, _support, _low = _render_torroba_bar(same_ctx, 0, same_phrase, "sonatina")
+    assert not any(note.slur_start or note.slur_stop for note in same_lead if note.midi is not None)
+    step = [72] * 4 + [74] * 4
+    step_phrase = _joined(0, step, held=True)
+    step_ctx = _ctx(melody=step, phrase=step_phrase, character="rally", chord=G)
+    with compose_meter(METER_44):
+        step_lead, _support, _low = _render_torroba_bar(step_ctx, 0, step_phrase, "sonatina")
+    assert any(note.slur_start and not note.slur_stop for note in step_lead)
+    assert any(note.slur_stop and not note.slur_start for note in step_lead)
+    assert not any(note.slur_start and note.slur_stop for note in step_lead)
+
+    # 3/4 calm above 72 is Sonatina. A held 2-bar phrase is type 4, so the answer holds the bar.
+    line = [67] * 6 + [68] * 6
     score = _render(
         line,
         (_joined(0, line, held=True),),
         chords={0: G, 1: G},
         kinds={0: "phrase", 1: "phrase"},
         mode="minor",
-        character="rally",
-        sections=_bridge(2),
+        character="calm",
+        bpm=96,
+        meter=METER_34,
     )
     assert not any(note.slur_start and note.slur_stop for note in score.lead)
-    assert _strong(score, 0, 0.0).slur_start and not _strong(score, 0, 0.0).slur_stop
-    assert not _strong(score, 0, 2.0).slur_start and not _strong(score, 0, 2.0).slur_stop
-    assert not _strong(score, 1, 0.0).slur_start and not _strong(score, 1, 0.0).slur_stop
-    assert _strong(score, 1, 2.0).slur_stop and not _strong(score, 1, 2.0).slur_start
-    xml = score_to_musicxml(score)
-    slurs = [mark for mark in xml.split("<slur ") if mark.startswith("type=")]
-    assert [mark.split('"', 2)[1] for mark in slurs] == ["start", "stop"]
+    answer = [note for note in score.lead if note.bar == 1 and note.midi is not None and note.beat == pytest.approx(0.0)]
+    assert len(answer) == 1 and answer[0].duration_beats >= 2
 
-    same = _two_bars(
-        [72] * 16,
-        (_joined(0, [72] * 16, held=True),),
-        {0: C, 1: C},
-        character="rally",
-        sections=_bridge(2),
-    )
-    assert not any(note.slur_start or note.slur_stop for note in same.lead if note.midi is not None)
 
-    stepped = [72] * 8 + [68] * 4 + [67] * 4
-    joined = _render(
-        stepped,
-        (_joined(0, stepped, held=True),),
-        chords={0: C, 1: G},
-        kinds={0: "phrase", 1: "phrase"},
-        mode="minor",
-        character="rally",
-        sections=_bridge(2),
-    )
-    pickup = [note for note in joined.lead if note.duration_beats == 0.25 and note.midi is not None]
-    assert len(pickup) == 1 and pickup[0].slur_start and not pickup[0].slur_stop
-    assert not _strong(joined, 1, 0.0).slur_start and not _strong(joined, 1, 0.0).slur_stop
-    assert _strong(joined, 1, 2.0).slur_stop and not _strong(joined, 1, 2.0).slur_start
-    assert not any(note.slur_start and note.slur_stop for note in joined.lead)
+def test_sonatina_inner_uses_the_quarter_that_is_still_ringing() -> None:
+    # Eighth 1 and eighth 5 are written higher than the quarters that cover them.
+    melody = [60, 67, 67, 67, 64, 71, 71, 71]
+    phrase = _joined(0, melody, held=True)
+    ctx = _ctx(melody=melody, phrase=phrase, character="rally", chord=C, bpm=96)
+    with compose_meter(METER_44):
+        lead, support, _low = _render_torroba_bar(ctx, 0, phrase, "sonatina")
+    for beat, unsung in ((0.5, 67), (2.5, 71)):
+        quarter = next(
+            note
+            for note in lead
+            if note.midi is not None and note.beat <= beat + 1e-9 < note.beat + note.duration_beats
+        )
+        inner = next(note for note in support if note.midi is not None and abs(note.beat - beat) < 1e-6)
+        assert quarter.midi < unsung
+        assert inner.midi < quarter.midi
+        assert inner.velocity == _bed(quarter.velocity or 64, "mf")[0]
+    opening = next(note for note in lead if abs(note.beat) < 1e-6 and note.midi == 60)
+    assert opening.velocity == 60
+
+
+def test_castillo_4_4_holds_the_downbeat_for_the_bar() -> None:
+    melody = [60, 60, 60, 64, 65, 65, 65, 67]
+    phrase = _joined(0, melody, held=True)
+    ctx = _ctx(melody=melody, phrase=phrase, character="selloff", chord=C, bpm=96)
+    with compose_meter(METER_44):
+        lead, _support, _low = _render_torroba_bar(ctx, 0, phrase, "castillo")
+    sounded = [note for note in lead if note.midi is not None]
+    assert len(sounded) == 1
+    assert sounded[0].midi == 60
+    assert sounded[0].beat == pytest.approx(0.0)
+    assert sounded[0].duration_beats == pytest.approx(4.0)
+    assert not any(abs(note.duration_beats - 1.0 / 6.0) < 1e-6 for note in lead)
+
+
+def test_bass_attack_is_omitted_when_no_length_frets() -> None:
+    phrase = _joined(0, [60] * 8, held=True)
+    ctx = _ctx(melody=[60] * 8, phrase=phrase, chord=C, bpm=96)
+    blocked = [NoteEvent(bar=0, beat=0.0, midi=48, duration_beats=2.0, voice=1)]
+    assert _bass_length_eighths(ctx, 48, 0, 0, blocked, limit=4) is None
+    assert _half_bass_events(ctx, 0, 0, 48, 58, blocked) == []
+    # The opening eighth is free. A longer hold meets the lead and is cut, not forced.
+    later = [NoteEvent(bar=0, beat=0.5, midi=48, duration_beats=1.5, voice=1)]
+    assert _bass_length_eighths(ctx, 52, 0, 0, later, limit=4) == 1
+    kept = _half_bass_events(ctx, 0, 0, 52, 58, later)
+    assert kept and kept[0].duration_beats == pytest.approx(0.5)
+    assert kept[0].midi == 52
 
 
 def test_sonatina_pickup_rests_only_its_sixteenth() -> None:
@@ -1411,7 +1521,8 @@ def test_sonatina_pickup_rests_only_its_sixteenth() -> None:
     ctx = _ctx(melody=leap, phrase=phrase, character="rally", chord=G)
     with compose_meter(METER_44):
         _lead, support, _low = _render_torroba_bar(ctx, 0, phrase, "sonatina")
-    assert any(abs(note.beat - 1.5) < 1e-6 and abs((note.duration_beats or 0) - 0.25) < 1e-6 for note in support)
+    # Support sits on eighths 1 and 5. The grace sixteenth at 1.75 is empty underneath.
+    assert not any(abs((note.duration_beats or 0) - 0.25) < 1e-6 for note in support)
     assert not any(_covers_beat(note, 0, 1.75, 0.25) for note in support)
 
 
@@ -1583,6 +1694,7 @@ def _vels(notes, bar: int | None = None) -> list[tuple[float, int]]:
 
 
 def test_rise_below_three_suppresses_type_2_and_type_5() -> None:
+    """Fandanguillo enters at rise 1. Sonatina open follows the span table, not MIN_RISE."""
     quiet = (
         _span(0, 32, 72, 72, held=True, tail=1),
         _span(32, 32, 72, 72, held=True, tail=1),
@@ -1590,30 +1702,25 @@ def test_rise_below_three_suppresses_type_2_and_type_5() -> None:
     )
     assert quiet[2].rise == 2 and quiet[2].rise < MIN_RISE
     plan = torroba_figure_plan(_many(quiet), ["sonatina", "sonatina", "sonatina"])
-    assert _used(plan, quiet[2], 8) == {}
-    risen = (
-        quiet[0],
-        quiet[1],
-        _span(64, 32, 67, 72, held=True, tail=1),
-    )
-    assert risen[2].rise >= MIN_RISE
-    sung = torroba_figure_plan(_many(risen), ["sonatina", "sonatina", "sonatina"])
-    assert set(_used(sung, risen[2], 8).values()) == {2}
-
+    # L=4, n rotated off the previous figure: type 4 on (0, 1) and type 1 on bar 3.
+    assert _used(plan, quiet[2], 8) == {8: 4, 9: 4, 11: 1}
+    flat = _span(0, 48, 72, 72, held=True, tail=48)
+    assert flat.rise == 0
+    assert torroba_figure_plan(_many((flat,)), ["fandanguillo"]) == {}
     short = _span(0, 48, 70, 72, held=True, tail=1)
-    assert short.rise < MIN_RISE
-    denied = torroba_figure_plan(_many((short,)), ["fandanguillo"])
-    assert denied == {}
-    allowed = _span(0, 48, 67, 72, held=True, tail=1)
-    assert allowed.rise >= MIN_RISE
-    granted = torroba_figure_plan(_many((allowed,)), ["fandanguillo"])
+    assert 1 <= short.rise < MIN_RISE
+    granted = torroba_figure_plan(_many((short,)), ["fandanguillo"])
     assert set(granted.values()) == {(5, 0, 4), (5, 1, 4), (5, 2, 4), (5, 3, 4)}
     # Not enough room for type 5 does not borrow type 2.
     cramped = _span(0, 24, 60, 72, held=True, tail=1)
     assert cramped.rise >= MIN_RISE
     assert torroba_figure_plan(_many((cramped,)), ["fandanguillo"]) == {}
     short_sonatina = _span(0, 16, 72, 72, held=True, tail=1)
-    assert torroba_figure_plan(_many((short_sonatina,)), ["sonatina"]) == {}
+    assert short_sonatina.rise < MIN_RISE
+    assert torroba_figure_plan(_many((short_sonatina,)), ["sonatina"]) == {
+        0: (4, 0, 2),
+        1: (4, 1, 2),
+    }
 
 
 def test_castillo_figure_gate_follows_tempo_and_length() -> None:
@@ -1624,8 +1731,9 @@ def test_castillo_figure_gate_follows_tempo_and_length() -> None:
     )
     plan = torroba_figure_plan(_many(slow, bpm=72), ["castillo", "castillo", "castillo"])
     assert _used(plan, slow[0], 8) == {bar: 7 for bar in range(5)}
-    assert _used(plan, slow[1], 8) == {}
-    assert _used(plan, slow[2], 8) == {9: 8, 10: 8}
+    # L=4, odd n: type 8 on slots (1, 2). The next phrase rotates off that type 8.
+    assert _used(plan, slow[1], 8) == {6: 8, 7: 8}
+    assert _used(plan, slow[2], 8) == {10: 8, 11: 8}
     sustain = _render_torroba_bar(_many((slow[1],), bpm=72), 0, slow[1], "castillo")[0]
     sounded = [note for note in sustain if note.midi is not None]
     assert len(sounded) == 1 and sounded[0].duration_beats >= 4
@@ -1636,7 +1744,9 @@ def test_castillo_figure_gate_follows_tempo_and_length() -> None:
     assert set(cut.values()) == {(8, 0, 2), (8, 1, 2)}
 
     fast = torroba_figure_plan(_many(slow, bpm=96), ["castillo", "castillo", "castillo"])
-    assert fast == {}
+    assert _used(fast, slow[0], 8) == {bar: 7 for bar in range(5)}
+    assert _used(fast, slow[1], 8) == {6: 8, 7: 8}
+    assert _used(fast, slow[2], 8) == {10: 8, 11: 8}
 
 
 def test_a_shared_bar_stays_with_the_phrase_that_holds_its_downbeat() -> None:
@@ -1662,11 +1772,11 @@ def test_sonatina_close_is_type_3_and_not_type_4() -> None:
     assert phrases[0].rise == 1 and not phrases[0].closes
     assert phrases[2].rise == 5 and phrases[5].closes and phrases[5].rise == 2
     plan = torroba_figure_plan(_many(phrases), ["sonatina"] * 6)
-    assert _used(plan, phrases[0], 8) == {0: 4, 1: 4}
-    assert _used(plan, phrases[1], 8) == {}
-    assert _used(plan, phrases[2], 8) == {11: 2, 12: 2}
-    assert _used(plan, phrases[3], 8) == {}
-    assert _used(plan, phrases[4], 8) == {20: 1}
+    assert _used(plan, phrases[0], 8) == {0: 4, 1: 4, 3: 2, 4: 2}
+    assert _used(plan, phrases[1], 8) == {6: 1, 8: 4, 9: 4}
+    assert _used(plan, phrases[2], 8) == {10: 1, 12: 4, 13: 4}
+    assert _used(plan, phrases[3], 8) == {14: 4, 15: 4, 17: 1}
+    assert _used(plan, phrases[4], 8) == {20: 2, 21: 2, 22: 1}
     assert _used(plan, phrases[5], 8) == {24: 3, 25: 3, 26: 3}
     assert 4 not in _used(plan, phrases[5], 8).values()
 
@@ -1679,8 +1789,8 @@ def test_fandanguillo_phrase_holds_one_figure() -> None:
     )
     plan = torroba_figure_plan(_many(phrases), ["fandanguillo"] * 3)
     assert set(_used(plan, phrases[0], 8).values()) == {5}
-    assert _used(plan, phrases[1], 8) == {}
-    assert set(_used(plan, phrases[2], 8).values()) == {2}
+    assert _used(plan, phrases[1], 8) == {7: 2, 8: 2}
+    assert set(_used(plan, phrases[2], 8).values()) == {5}
     for phrase in phrases:
         assert len(set(_used(plan, phrase, 8).values())) <= 1
 
@@ -1691,16 +1801,20 @@ def test_fandanguillo_phrase_holds_one_figure() -> None:
 
 
 def test_adjacent_phrase_does_not_repeat_a_figure() -> None:
-    first = _span(0, 32, 72, 72, tail=8)
-    second = _span(32, 32, 72, 72, tail=8)
-    assert first.closes and second.closes
+    first = _span(0, 48, 60, 72, held=True, tail=1)
+    second = _span(48, 48, 60, 72, held=True, tail=1)
+    assert not first.closes and not second.closes
     plan = torroba_figure_plan(_many((first, second)), ["sonatina", "sonatina"])
-    assert set(_used(plan, first, 8).values()) == {3}
-    assert _used(plan, second, 8) == {}
+    # L=6 even opens on type 4 and ends on type 2. The next odd turn would
+    # open on type 2, so it rotates to the even row and opens on type 4.
+    assert _used(plan, first, 8)[0] == 4
+    assert _used(plan, second, 8)[6] == 4
+    assert 2 in _used(plan, first, 8).values()
+    closing = _span(0, 32, 72, 72, tail=8)
     again = select_torroba_figure(
-        _many((second,)), second, "sonatina", n=None, k=None, previous=3
+        _many((closing,)), closing, "sonatina", n=None, k=None, previous=3
     )
-    assert again == (None, ())
+    assert again == (3, (1, 2, 3))
 
 
 def test_danza_on_four_four_does_not_call_type_6() -> None:
@@ -1714,6 +1828,11 @@ def test_danza_on_four_four_does_not_call_type_6() -> None:
         closed = _span(0, epb * 4, 72, 72, tail=epb)
         assert closed.closes
         assert torroba_figure_plan(_many((closed,), kind=kind), ["danza"]) == {}
+        longer = _span(0, epb * 5, 72, 72, tail=epb)
+        assert longer.closes
+        extended = torroba_figure_plan(_many((longer,), kind=kind), ["danza"])
+        assert set(extended) == {0, 1, 2, 3}
+        assert set(value[0] for value in extended.values()) == {6}
 
 
 def test_type_1_bass_rings_only_into_another_type_1_bar() -> None:
@@ -1759,15 +1878,14 @@ def test_type_7_mordent_and_bar_5_bass_keep_the_written_steps() -> None:
     }
     for kind, velocities in expected.items():
         ctx, _phrase, parts = _flat_figure(kind, 7)
-        for lead, support, low in parts:
-            assert not any(abs(note.duration_beats * 6 - 1) < 1e-3 for note in (*lead, *support, *low))
         mordent = sorted(
-            (note for note in parts[0][0] if note.duration_beats == pytest.approx(0.25)),
+            (note for note in parts[0][0] if abs(note.duration_beats * 6 - 1) < 1e-3),
             key=lambda note: note.beat,
         )
-        assert [round(note.beat, 2) for note in mordent] == [1.5, 1.75]
-        assert mordent[0].slur_start and mordent[1].slur_stop
-        assert [note.velocity for note in mordent] == [64 - 2 * _MICRO, 64 - _MICRO]
+        sixth = 1.0 / 6.0
+        assert [note.beat for note in mordent] == pytest.approx([1.5, 1.5 + sixth, 1.5 + 2 * sixth])
+        assert mordent[0].slur_start and mordent[2].slur_stop
+        assert [note.velocity for note in mordent] == [64 - 2 * _MICRO, 64 - 3 * _MICRO, 64 - 2 * _MICRO]
         half = [note for note in parts[0][0] if note.beat == pytest.approx(2.0)]
         assert len(half) == 1 and half[0].duration_beats == pytest.approx(2.0 if kind == "4/4" else 1.0)
         assert half[0].velocity == 64
@@ -1827,7 +1945,8 @@ def test_type_7_odd_eighth_and_pickup_follow_their_own_swell() -> None:
     first_mordent = sorted((note for note in first if 1.5 <= note.beat < 2.0), key=lambda note: note.beat)
     assert [note.velocity for note in first_mordent] == [
         first_mordent_written - 2 * _MICRO,
-        first_mordent_written - _MICRO,
+        first_mordent_written - 3 * _MICRO,
+        first_mordent_written - 2 * _MICRO,
     ]
     half = [note for note in first if note.beat == pytest.approx(2.0)]
     assert len(half) == 1 and half[0].duration_beats == pytest.approx(2.0)
@@ -1844,7 +1963,11 @@ def test_type_7_odd_eighth_and_pickup_follow_their_own_swell() -> None:
     assert len(pickup) == 1 and pickup[0].velocity == pickup_written
     mordent_written = _note_velocity(11, 1, apex, phrase)
     mordent = sorted((note for note in second if 1.5 <= note.beat < 2.0), key=lambda note: note.beat)
-    assert [note.velocity for note in mordent] == [mordent_written - 2 * _MICRO, mordent_written - _MICRO]
+    assert [note.velocity for note in mordent] == [
+        mordent_written - 2 * _MICRO,
+        mordent_written - 3 * _MICRO,
+        mordent_written - 2 * _MICRO,
+    ]
     odd_written = _note_velocity(17, 1, apex, phrase)
     assert odd_written != _note_velocity(16, 1, apex, phrase)
     grace = sorted((note for note in third if 0.5 <= note.beat < 1.0), key=lambda note: note.beat)
@@ -1919,7 +2042,7 @@ def test_type_6_stays_playable_off_four_four(kind: str) -> None:
 
 
 def test_type_4_and_type_5_keep_the_locked_levels() -> None:
-    for kind, beat, velocity in (("4/4", 2.0, 64), ("3/4", 2.0, 64), ("6/8", 1.75, 64)):
+    for kind, beat, velocity in (("4/4", 2.0, 64), ("3/4", 2.0, 64), ("6/8", 2.0, 64)):
         _ctx_figure, _phrase, parts = _flat_figure(kind, 4)
         lead = [note for note in parts[0][0] if note.beat == pytest.approx(beat)]
         assert len(lead) == 1 and lead[0].velocity == velocity
@@ -1993,25 +2116,29 @@ def test_weak_lead_follows_the_swell_above_64() -> None:
 
 
 def test_figure_bars_keep_their_own_slur_and_grow_no_pickup() -> None:
-    pitches = [72] * 31 + [73]
+    # 4/4 no longer selects Sonatina. The same four-bar hold on 3/4 calm is type 4.
+    pitches = [72] * 24
     score = _render(
         pitches,
         (_joined(0, pitches, held=True),),
         chords={bar: C for bar in range(4)},
         kinds={bar: "phrase" for bar in range(4)},
         mode="major",
-        character="rally",
+        character="calm",
         bpm=96,
-        sections=_bridge(4),
+        meter=METER_34,
     )
     call = [note for note in score.lead if note.bar == 0 and note.midi is not None]
     assert not any(note.beat == pytest.approx(0.0) for note in call)
     assert any(note.slur_start and note.beat == pytest.approx(1.5) for note in call)
-    assert not any(note.duration_beats == pytest.approx(0.25) and note.beat == pytest.approx(3.75) for note in score.lead)
+    assert not any(
+        note.midi is not None and note.duration_beats == pytest.approx(0.25) and note.beat == pytest.approx(3.75)
+        for note in score.lead
+    )
     answer = [note for note in score.lead if note.bar == 1 and note.midi is not None and note.beat == pytest.approx(0.0)]
-    assert len(answer) == 1 and answer[0].duration_beats == pytest.approx(4.0)
+    assert len(answer) == 1 and answer[0].duration_beats == pytest.approx(3.0)
     base = [note for note in score.lead if note.bar == 2 and note.beat == pytest.approx(0.0) and note.midi is not None]
-    assert len(base) == 1 and base[0].duration_beats < 4
+    assert len(base) == 1 and base[0].duration_beats < 3
 
 
 def _opening(lead, support, low, *, limit: float = 0.25) -> list[NoteEvent]:
@@ -2387,7 +2514,10 @@ def test_rolled_rasgueado_onsets_releases_and_block_chords(kind: str) -> None:
         with compose_meter(meter):
             danza = _render_torroba_bar(danza_ctx, 0, phrase, "danza")
         _assert_block(*danza)
-        assert all(note.staccato for note in _opening(*danza))
+        opened = _opening(*danza)
+        assert opened
+        assert all(note.staccato for note in opened if note.voice != 3)
+        assert all(not note.staccato for note in opened if note.voice == 3)
         assert_playable(_figure_score(danza_ctx, [danza], 1), profiles="torroba")
 
 
@@ -2483,8 +2613,20 @@ def test_rolled_chord_scores_engrave_on_division_12(kind: str) -> None:
         calm = _pattern_score(kind, "danza", character="calm", bpm=72, bars=5)
         assert calm.divisions != 12
         assert_playable(calm, profiles="torroba")
-    else:
-        slow = _pattern_score(kind, "castillo", character="calm", bpm=72, bars=5)
+    elif kind == "4/4":
+        # Rally's bridge is Castillo, so a five-bar phrase still engraves Arada.
+        row = [72] * (epb * 5)
+        slow = _render(
+            row,
+            (_joined(0, row),),
+            chords={bar: C for bar in range(5)},
+            kinds={bar: "phrase" for bar in range(5)},
+            mode="major",
+            character="rally",
+            bpm=72,
+            meter=meter,
+            sections=(FormSection(0, 5, "phrase", 0, bridge=True),),
+        )
         assert slow.divisions == 12
         for bar in range(4):
             _assert_block(
@@ -2508,6 +2650,18 @@ def test_rolled_chord_scores_engrave_on_division_12(kind: str) -> None:
         assert bass_note.find("dot") is None
         assert bass_note.find("time-modification") is None
         _assert_tied_fifth(_streams(bar5)[1])
+    else:
+        # 3/4 Castillo at 72 stays on the base grid. Types 7 and 8 do not play.
+        slow = _pattern_score(kind, "castillo", character="calm", bpm=72, bars=5)
+        assert slow.divisions != 12
+        for bar in range(5):
+            lead = [note for note in slow.lead if note.bar == bar and note.midi is not None]
+            assert len(lead) == 1
+            assert lead[0].beat == pytest.approx(0.0)
+            assert lead[0].duration_beats == pytest.approx(3.0)
+            bass = [note for note in slow.low if note.bar == bar and note.beat == pytest.approx(0.0)]
+            assert len(bass) == 1 and bass[0].duration_beats == pytest.approx(1.5)
+        assert_playable(slow, profiles="torroba")
 
     _ctx2, _phrase2, pair_parts = _flat_figure(kind, 2, midi=59, chord=_UNISON)
     pair_score = _engrave(_ctx2, pair_parts)
@@ -2530,7 +2684,9 @@ def test_rolled_chord_scores_engrave_on_division_12(kind: str) -> None:
     assert opening_rest.find("duration").text == "1"
     assert opening_rest.find("type").text == "32nd"
 
-    quiet = _pattern_score(kind, "castillo", character="calm", bpm=96)
+    # 3/4 calm above 72 is Sonatina. Selloff stays Castillo, on the base grid.
+    quiet_character = "selloff" if kind in {"4/4", "3/4"} else "calm"
+    quiet = _pattern_score(kind, "castillo", character=quiet_character, bpm=96)
     assert quiet.divisions != 12
     assert_playable(quiet, profiles="torroba")
     assert meter.eighths_per_bar == epb
@@ -2620,11 +2776,11 @@ def test_type_7_bar_5_keeps_the_roll_across_a_boundary_and_a_pattern_change() ->
         chords={bar: C for bar in range(7)},
         kinds={0: "intro", **{bar: "phrase" for bar in range(1, 6)}, 6: "outro"},
         mode="major",
-        character="calm",
+        character="rally",
         bpm=72,
         sections=(
             FormSection(0, 1, "intro", 0),
-            FormSection(1, 6, "phrase", 0),
+            FormSection(1, 6, "phrase", 0, bridge=True),
             FormSection(6, 7, "outro", 0),
         ),
     )
@@ -2637,11 +2793,11 @@ def test_type_7_bar_5_keeps_the_roll_across_a_boundary_and_a_pattern_change() ->
         chords={bar: C for bar in range(6)},
         kinds={bar: "phrase" for bar in range(6)},
         mode="major",
-        character="calm",
+        character="rally",
         bpm=72,
         sections=(
-            FormSection(0, 5, "phrase", 0),
-            FormSection(5, 6, "phrase", 0, bridge=True),
+            FormSection(0, 5, "phrase", 0, bridge=True),
+            FormSection(5, 6, "phrase", 1),
         ),
     )
     _assert_type7_bar5_kept(crossed, 4)
@@ -2765,18 +2921,25 @@ def test_castillos_mood_table_and_printed_names() -> None:
     for mood in ("calm", "rally", "selloff", "volatile"):
         assert _torroba_primary(four, mood, framed_macro=True) != "danza"
         assert _torroba_primary(four, mood, framed_macro=False) != "danza"
-    assert _torroba_primary(four, "calm", framed_macro=True) == "castillo"
+    assert _torroba_primary(four, "calm", framed_macro=True) == "olite"
+    assert _torroba_primary(four, "selloff", framed_macro=True) == "olite"
+    assert _torroba_contrast(four, "sonatina") == "castillo"
     assert _torroba_primary(four, "rally", framed_macro=True) == "olite"
-    assert _torroba_primary(four, "selloff", framed_macro=True) == "castillo"
     assert _torroba_primary(four, "volatile", framed_macro=True) == "olite"
     assert _torroba_primary(four, "rally", framed_macro=False) == "olite"
     assert _torroba_contrast(four, "castillo") == "olite"
-    assert _torroba_contrast(four, "olite") == "sonatina"
+    assert _torroba_contrast(four, "olite") == "castillo"
     waltz = _ctx(melody=[64] * 6, phrase=_joined(0, [64] * 6), kind="3/4", epb=6, strong=(0,), bpm=72, bar_beats=3)
     assert _torroba_primary(waltz, "calm") == "castillo"
     assert _torroba_primary(waltz, "rally") == "torroba_tremolo"
     assert _torroba_primary(waltz, "selloff") == "castillo"
     assert _torroba_primary(waltz, "volatile") == "danza"
+    fast_waltz = replace(waltz, bpm=96)
+    assert _torroba_primary(fast_waltz, "calm") == "sonatina"
+    assert _torroba_contrast(fast_waltz, "sonatina", "calm") == "castillo"
+    assert _torroba_contrast(fast_waltz, "castillo", "calm") == "sonatina"
+    assert _torroba_primary(fast_waltz, "selloff") == "castillo"
+    assert _torroba_contrast(fast_waltz, "castillo", "selloff") == "danza"
     assert _torroba_contrast(replace(waltz, character="calm"), "castillo", "calm") == "torroba_tremolo"
     assert _torroba_contrast(replace(waltz, character="selloff"), "castillo", "selloff") == "danza"
     assert _torroba_contrast(waltz, "torroba_tremolo") == "danza"
@@ -2920,9 +3083,10 @@ def test_juglar_triplets_accent_only_the_downbeat() -> None:
     )
     with compose_meter(METER_34):
         lead, support, low = _render_torroba_bar(ctx, 0, phrase, "torroba_tremolo")
-    assert support == []
+    assert len(support) == 1 and support[0].beat == pytest.approx(1.0) and support[0].voice == 2
+    assert support[0].midi < lead[0].midi
     assert [round(note.beat * 12) for note in low] == [0]
-    assert low[0].duration_beats == pytest.approx(1.0)
+    assert low[0].duration_beats == pytest.approx(1.5)
     assert all(note.midi == 40 for note in low)
     for quarter, eighth in enumerate((0, 2, 4)):
         attacks = [note for note in lead if quarter - 1e-9 <= note.beat < quarter + 1 - 1e-9]
@@ -2946,11 +3110,11 @@ def test_juglar_triplets_accent_only_the_downbeat() -> None:
     thin_ctx = replace(ctx, melody=[67] * 6, phrases=(thin_phrase,))
     with compose_meter(METER_34):
         thin_lead, thin_support, thin_low = _render_torroba_bar(thin_ctx, 0, thin_phrase, "torroba_tremolo")
-    assert thin_support == []
+    assert len(thin_support) == 1 and thin_support[0].beat == pytest.approx(1.0)
     assert len(thin_lead) == 9
     assert thin_lead[0].accent and not any(note.accent for note in thin_lead[1:])
     assert all(abs(note.duration_beats - 4 / 12) < 1e-9 for note in thin_lead)
-    assert len(thin_low) == 1 and thin_low[0].duration_beats == pytest.approx(1.0)
+    assert len(thin_low) == 1 and thin_low[0].duration_beats == pytest.approx(1.5)
 
     first = Phrase(0, 6, (Run(0, 3, 67), Run(3, 3, 69)))
     second = Phrase(6, 12, (Run(6, 3, 67), Run(9, 3, 69)))
@@ -3086,7 +3250,9 @@ def test_alcaniz_dance_soft_and_opening() -> None:
     assert not any(note.slur_start for note in danced)
     assert _beats([note for note in danced if note.voice == 1]) == [0.0, 1.5]
     sounded = [*danced, *danced_support, *danced_low]
-    assert not any(note.beat == pytest.approx(1.0) or note.beat == pytest.approx(2.5) for note in sounded)
+    assert any(note.beat == pytest.approx(1.0) and note.voice == 2 for note in danced_support)
+    assert not any(note.beat == pytest.approx(2.5) for note in sounded)
+    assert [note.duration_beats for note in danced_low] == [pytest.approx(1.0), pytest.approx(1.0)]
     assert any(note.beat == pytest.approx(0.5) and note.voice == 3 for note in danced_low)
     assert all(note.accent for note in danced)
     assert all((note.velocity or 0) >= 68 for note in danced)
@@ -3109,11 +3275,11 @@ def test_alcaniz_dance_soft_and_opening() -> None:
     )
     with compose_meter(METER_68):
         soft, soft_support, soft_low = _render_torroba_bar(soft_ctx, 0, soft_phrase, "alcaniz")
-    assert soft_support == []
+    assert len(soft_support) == 1 and soft_support[0].beat == pytest.approx(1.0) and soft_support[0].voice == 2
     assert [note.duration_beats for note in soft] == [pytest.approx(1.5), pytest.approx(1.5)]
     assert all(not note.accent for note in soft)
     assert soft[0].velocity == 64 and soft[0].velocity < 68
-    assert len(soft_low) == 1 and soft_low[0].beat == pytest.approx(0.0) and soft_low[0].duration_beats == pytest.approx(0.5)
+    assert len(soft_low) == 1 and soft_low[0].beat == pytest.approx(0.0) and soft_low[0].duration_beats == pytest.approx(1.0)
     assert castillos_wave_row(soft_ctx, 0, ["alcaniz"], "alcaniz") == "castillo"
     assert castillos_wave_row(ctx, 2, ["alcaniz", "alcaniz", "alcaniz"], "alcaniz") == "alcaniz"
 
@@ -3165,7 +3331,10 @@ def test_olite_chords_walk_and_thin_close() -> None:
     assert len(chords) == 2 and all(note.accent and (note.velocity or 0) >= 68 for note in chords)
     assert still_support
     weak = [note for note in still_lead if abs(note.beat) > 1e-6 and abs(note.beat - 2.0) > 1e-6]
-    assert weak == []
+    # A repeated pitch no longer rests. The first eighth of the group is a mordent triplet.
+    triplet = sorted((note for note in weak if abs(note.duration_beats * 6 - 1) < 1e-3), key=lambda note: note.beat)
+    assert len(triplet) >= 3
+    assert triplet[0].slur_start and triplet[0].midi == 60
     walked = sorted(
         (note for note in short_lead if abs(note.beat) > 1e-6 and abs(note.beat - 2.0) > 1e-6),
         key=lambda note: note.beat,
@@ -3180,10 +3349,13 @@ def test_olite_chords_walk_and_thin_close() -> None:
     with compose_meter(METER_44):
         thin_lead, thin_support, thin_low = _render_torroba_bar(close_ctx, 0, closing, "olite")
     assert thin_support == []
-    assert _beats(thin_lead) == [0.0, 2.0]
+    assert _beats(thin_lead) == [0.0, 1.5, 2.0]
+    assert thin_lead[0].duration_beats == pytest.approx(1.5)
+    assert thin_lead[-1].duration_beats == pytest.approx(2.0)
     assert all(not note.accent for note in thin_lead)
     assert thin_lead[0].velocity == 60 and thin_lead[0].velocity < 68
-    assert len(thin_low) == 1 and thin_low[0].beat == pytest.approx(0.0)
+    assert [round(note.beat, 2) for note in thin_low] == [0.0, 2.0]
+    assert all(not note.tie_start and not note.tie_stop for note in thin_low)
     assert castillos_wave_row(close_ctx, 0, ["olite"], "olite") == "castillo"
     assert torroba_figure_plan(close_ctx, ["olite"])[0][0] == 12
 
@@ -3201,7 +3373,7 @@ def test_olite_chords_walk_and_thin_close() -> None:
     with compose_meter(METER_44):
         first_lead, first_support, _first_low = _render_torroba_bar(pair, 0, left, "olite")
         second_lead, second_support, _second_low = _render_torroba_bar(pair, 1, right, "olite")
-    assert _beats(first_lead) == [0.0, 2.0] and first_support == []
+    assert _beats(first_lead) == [0.0, 1.5, 2.0, 3.5] and first_support == []
     assert all(not note.accent for note in first_lead)
     second_weak = sorted(
         (note for note in second_lead if abs(note.beat) > 1e-6 and abs(note.beat - 2.0) > 1e-6),
@@ -3216,7 +3388,7 @@ def test_olite_chords_walk_and_thin_close() -> None:
     closed_ctx = replace(pair, phrases=(left, closed))
     with compose_meter(METER_44):
         stayed, stayed_support, _stayed_low = _render_torroba_bar(closed_ctx, 1, closed, "olite")
-    assert _beats(stayed) == [0.0, 2.0] and stayed_support == []
+    assert _beats(stayed) == [0.0, 1.5, 2.0] and stayed_support == []
     assert all(not note.accent for note in stayed)
 
 
@@ -3499,8 +3671,8 @@ def test_juglar_bar_before_the_return_stays_triplets() -> None:
     assert [round(note.beat, 2) for note in last] == [0.0, 1.0, 2.0]
     assert all(note.duration_beats == pytest.approx(1.0) for note in last)
     assert all(not note.accent for note in last)
-    assert len(earlier_low) == 1 and earlier_low[0].duration_beats == pytest.approx(1.0)
-    assert len(last_low) == 1 and last_low[0].duration_beats == pytest.approx(1.0)
+    assert len(earlier_low) == 1 and earlier_low[0].duration_beats == pytest.approx(1.5)
+    assert len(last_low) == 1 and last_low[0].duration_beats == pytest.approx(1.5)
     assert 68 not in plan
     assert plan[69][0] == 9
 
@@ -3510,10 +3682,12 @@ def test_castillo_bass_is_one_beat_and_the_lead_holds_the_bar() -> None:
     ctx = _ctx(melody=[72] * 8, phrase=phrase, character="calm", chord=C)
     with compose_meter(METER_44):
         lead, _support, low = _render_torroba_bar(ctx, 0, phrase, "castillo")
-    assert len(low) == 1
-    assert low[0].beat == pytest.approx(0.0)
-    assert low[0].duration_beats == pytest.approx(1.0)
-    assert lead and lead[0].duration_beats == pytest.approx(4.0)
+    assert [round(note.beat, 2) for note in low] == [0.0, 2.0]
+    assert all(note.duration_beats == pytest.approx(2.0) for note in low)
+    assert all(not note.tie_start and not note.tie_stop for note in low)
+    assert len(lead) == 1
+    assert lead[0].beat == pytest.approx(0.0)
+    assert lead[0].duration_beats == pytest.approx(4.0)
 
 
 def test_alcaniz_and_olite_keep_thin_then_pushed() -> None:
@@ -3630,12 +3804,12 @@ def test_slot_splits_follow_the_aba_windows() -> None:
     )
     painted = _patterns(one)
     assert split_into(32, 3) == [10, 11, 11]
-    expected = ["castillo"] * 10 + ["olite"] * 11 + ["castillo"] * 11
+    expected = ["olite"] * 10 + ["castillo"] * 11 + ["olite"] * 11
     for bar, pattern in enumerate(expected):
         if one.kind_at[bar] in {"intro", "outro"}:
             continue
         assert _body_pattern(one, painted, bar) == pattern
-    assert form_pattern_ids(one, painted) == ["castillo", "olite", "castillo"]
+    assert form_pattern_ids(one, painted) == ["olite", "castillo", "olite"]
 
     # The year opener's outro is its own slot. It is not a third phrase region.
     opener = _slot_score([36, 36])
@@ -3652,9 +3826,9 @@ def test_slot_splits_follow_the_aba_windows() -> None:
     painted = _patterns(opener)
     second = 4 + 36
     for bar in range(4, second):
-        assert _body_pattern(opener, painted, bar) == "castillo"
+        assert _body_pattern(opener, painted, bar) == "olite"
     for bar in range(second, second + 36):
-        pattern = "olite" if bar < second + 18 else "castillo"
+        pattern = "castillo" if bar < second + 18 else "olite"
         assert _body_pattern(opener, painted, bar) == pattern
 
     two = _slot_score([16, 11])
@@ -3663,43 +3837,148 @@ def test_slot_splits_follow_the_aba_windows() -> None:
     start = 4 + 16
     left = 11 // 2
     for bar in range(start, start + 11):
-        pattern = "olite" if bar < start + left else "castillo"
+        pattern = "castillo" if bar < start + left else "olite"
         assert _body_pattern(two, painted, bar) == pattern
 
     three = _slot_score([32, 32, 32])
     painted = _patterns(three)
     middle = 4 + 32
-    for offset, pattern in enumerate(["castillo"] * 12 + ["olite"] * 8 + ["castillo"] * 12):
+    for offset, pattern in enumerate(["olite"] * 12 + ["castillo"] * 8 + ["olite"] * 12):
         assert _body_pattern(three, painted, middle + offset) == pattern
     for bar in range(4, 4 + 32):
-        assert _body_pattern(three, painted, bar) == "castillo"
+        assert _body_pattern(three, painted, bar) == "olite"
     for bar in range(4 + 64, 4 + 96):
-        assert _body_pattern(three, painted, bar) == "castillo"
+        assert _body_pattern(three, painted, bar) == "olite"
 
     four = _slot_score([32, 32, 32, 32])
     painted = _patterns(four)
     # Four sessions: the middle session is index 2, the one that starts at the midpoint.
     middle = 4 + 64
-    for offset, pattern in enumerate(["castillo"] * 12 + ["olite"] * 8 + ["castillo"] * 12):
+    for offset, pattern in enumerate(["olite"] * 12 + ["castillo"] * 8 + ["olite"] * 12):
         assert _body_pattern(four, painted, middle + offset) == pattern
     for bar in range(4 + 32, 4 + 64):
-        assert _body_pattern(four, painted, bar) == "castillo"
+        assert _body_pattern(four, painted, bar) == "olite"
 
     five = _slot_score([8, 8, 8, 8, 8])
     painted = _patterns(five)
     middle = 4 + 16
-    assert [_body_pattern(five, painted, middle + offset) for offset in range(8)] == ["olite"] * 8
+    assert [_body_pattern(five, painted, middle + offset) for offset in range(8)] == ["castillo"] * 8
 
     bridged = _slot_score([16, 24, 16], bridge_at=1)
     painted = _patterns(bridged)
     bridge = 4 + 16
     for bar in range(bridge, bridge + 24):
-        assert _body_pattern(bridged, painted, bar) == "olite"
-    for bar in list(range(4, bridge)) + list(range(bridge + 24, bridge + 24 + 16)):
         assert _body_pattern(bridged, painted, bar) == "castillo"
-    assert form_pattern_ids(bridged, painted) == ["castillo", "olite", "castillo"]
+    for bar in list(range(4, bridge)) + list(range(bridge + 24, bridge + 24 + 16)):
+        assert _body_pattern(bridged, painted, bar) == "olite"
+    assert form_pattern_ids(bridged, painted) == ["olite", "castillo", "olite"]
 
     calm = ["calm"] * 12 + ["selloff"] * 12
     waltz = _slot_score([8, 8], kind="3/4", character="selloff", bridge_at=1, moods=calm)
     painted = _patterns(waltz)
     assert form_pattern_ids(waltz, painted) == ["castillo", "torroba_tremolo", "castillo"]
+
+
+def _bars_phrase(length: int, *, closes: bool) -> Phrase:
+    eighths = length * 8
+    return _joined(0, [60] * eighths, held=not closes)
+
+
+def test_figure_spans_lock_the_castillo_and_sonatina_table() -> None:
+    """Section 6.3. Each length, open and close, even n and odd n."""
+    castillo_even = {
+        1: [],
+        2: [(8, (0, 1))],
+        3: [(8, (0, 1))],
+        4: [(8, (0, 1))],
+        5: [(7, (0, 1, 2, 3, 4))],
+        6: [(7, (0, 1, 2, 3, 4))],
+        7: [(7, (0, 1, 2, 3, 4))],
+        8: [(7, (0, 1, 2, 3, 4))],
+    }
+    castillo_odd = {
+        1: [],
+        2: [(8, (0, 1))],
+        3: [(8, (0, 1))],
+        4: [(8, (1, 2))],
+        5: [(8, (0, 1)), (8, (3, 4))],
+        6: [(8, (0, 1)), (8, (3, 4))],
+        7: [(7, (0, 1, 2, 3, 4))],
+        8: [(8, (0, 1)), (8, (4, 5)), (1, (2,))],
+    }
+    sonatina_open = {
+        1: {0: [], 1: [], 2: []},
+        2: {0: [(4, (0, 1))], 1: [(2, (0, 1))], 2: [(1, (0,))]},
+        3: {0: [(4, (0, 1))], 1: [(2, (1, 2))], 2: [(1, (0, 1))]},
+        4: {
+            0: [(4, (0, 1)), (1, (3,))],
+            1: [(2, (1, 2)), (1, (3,))],
+            2: [(1, (0,)), (4, (2, 3))],
+        },
+        5: {0: [(4, (0, 1)), (1, (3,))], 1: [(4, (0, 1)), (2, (3, 4))]},
+        6: {0: [(4, (0, 1)), (2, (3, 4))], 1: [(2, (0, 1)), (4, (3, 4))]},
+        7: {0: [(4, (0, 1)), (1, (3,)), (2, (5, 6))], 1: [(4, (0, 1)), (1, (3,)), (2, (5, 6))]},
+        8: {0: [(4, (0, 1)), (1, (3,)), (2, (5, 6))], 1: [(4, (0, 1)), (1, (3,)), (2, (5, 6))]},
+    }
+    sonatina_close = {
+        1: [(3, (0,))],
+        2: [(3, (0, 1))],
+        3: [(3, (0, 1, 2))],
+        4: [(3, (1, 2, 3))],
+        5: [(3, (2, 3, 4))],
+        6: [(1, (0,)), (3, (3, 4, 5))],
+        7: [(4, (0, 1)), (3, (4, 5, 6))],
+        8: [(4, (0, 1)), (3, (5, 6, 7))],
+    }
+    for length in range(1, 9):
+        phrase = _bars_phrase(length, closes=False)
+        ctx = _many((phrase,), bpm=96)
+        assert select_torroba_spans(ctx, phrase, "castillo", n=0, previous=None) == castillo_even[length]
+        assert select_torroba_spans(ctx, phrase, "castillo", n=1, previous=None) == castillo_odd[length]
+        for turn, expected in sonatina_open[length].items():
+            assert select_torroba_spans(ctx, phrase, "sonatina", n=turn, previous=None) == expected
+        closed = _bars_phrase(length, closes=True)
+        close_ctx = _many((closed,), bpm=96)
+        assert closed.closes
+        assert select_torroba_spans(close_ctx, closed, "sonatina", n=0, previous=None) == sonatina_close[length]
+        assert select_torroba_spans(close_ctx, closed, "sonatina", n=1, previous=None) == sonatina_close[length]
+        # Two type-8 spans in one phrase each restart slot_index at 0.
+        if length == 8:
+            plan = torroba_figure_plan(ctx, ["castillo"])
+            # n=0 is the type-7 turn. Force the odd turn by asking the selector.
+            spans = castillo_odd[8]
+            assigned = []
+            for figure, slots in spans:
+                for slot_index, _local in enumerate(slots):
+                    assigned.append((figure, slot_index, len(slots)))
+            assert assigned.count((8, 0, 2)) == 2
+            assert plan  # the even turn still paints type 7
+    for kind in ("3/4", "6/8"):
+        epb = _FIGURE_METERS[kind][1]
+        for turn in (0, 1):
+            phrase = _joined(0, [60] * (5 * epb), held=True)
+            ctx = _many((phrase,), kind=kind, bpm=72)
+            assert select_torroba_spans(ctx, phrase, "castillo", n=turn, previous=None) == []
+
+
+def test_soft_lead_drops_four_and_the_pillar_bass_stays() -> None:
+    """Knob 1: a steps>=2 lead is heard 4 under 64. A steps-0 bass pillar stays at 62."""
+    phrase = _joined(0, [64] * 8, held=True)
+    ctx = _many((phrase,), bpm=96, melody=[64] * 8)
+    attacks = [
+        _Attack(0.0, 64, 0.5, 1, 64, 0),
+        _Attack(0.0, 40, 1.0, 3, 62, 0),
+        _Attack(2.0, 64, 0.5, 1, 64, 2),
+        _Attack(2.0, 40, 1.0, 3, 62, 0),
+        _Attack(2.0, 55, 0.5, 2, 56, 0),
+    ]
+    lead, support, low = _realize(ctx, 0, attacks)
+    pillar = next(note for note in low if note.beat == pytest.approx(0.0))
+    assert pillar.velocity == 62
+    soft = next(note for note in lead if note.beat == pytest.approx(2.0))
+    assert soft.velocity == 60
+    covered_bass = next(note for note in low if note.beat == pytest.approx(2.0))
+    assert covered_bass.velocity == 58
+    assert support[0].velocity == 54
+    alone, _support, _low = _realize(ctx, 0, [_Attack(2.0, 64, 0.5, 1, 64, 2)])
+    assert alone[0].velocity == 60

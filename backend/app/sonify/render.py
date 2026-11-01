@@ -915,6 +915,7 @@ def render(
     ensemble: Ensemble = "classic",
     character_at: Sequence[MovementCharacter | None] | None = None,
     gap_leads: Sequence[str | None] | None = None,
+    movement_index: int | None = None,
 ) -> Score:
     """Compose in C, with register bounds shifted for `key` before any note is placed.
 
@@ -944,6 +945,7 @@ def render(
             ensemble=ensemble,
             character_at=character_at,
             gap_leads=gap_leads,
+            movement_index=movement_index,
         )
     return score
 
@@ -969,6 +971,7 @@ def _compose(
     ensemble: Ensemble = "classic",
     character_at: Sequence[MovementCharacter | None] | None = None,
     gap_leads: Sequence[str | None] | None = None,
+    movement_index: int | None = None,
 ) -> Score:
     """Turn one session of closes into a 30-bar score for `variant` ('symphony', 'jazz', 'minimalist').
 
@@ -998,6 +1001,12 @@ def _compose(
         spec = DAILY_AMBIENT_SPEC
     elif daily_ensemble:
         spec = DAILY_ENSEMBLE_SPEC
+        # 1D has no prepare step and no frame. Copy the 34-bar day and retarget
+        # before composing, so the written meter is the one the score uses.
+        if variant == "guitar" and ensemble == "torroba":
+            from app.sonify.span import retarget_torroba_meter
+
+            spec = retarget_torroba_meter(spec, character)
     musical_bars = MUSICAL_BARS if spec is None else spec.bars
     warmup, body_end = _frame_edges(spec)
     meter = METER_44 if spec is None else spec.meter
@@ -1255,33 +1264,42 @@ def _compose(
                 strong_eighths=tuple(guitar_meter.strong_eighths),
                 pedal_bars=pedal_bars,
             )
-            return _finish(
-                render_guitar_score(
-                    title=title,
-                    chosen=chosen,
-                    sample_indexes=sample_indexes,
-                    slots=slots,
-                    pitches=pitches,
-                    phrases=phrases,
-                    dynamics=dynamics,
-                    bands=bands,
-                    band_at=band_at,
-                    musical_bars=musical_bars,
-                    total_eighths=piece_eighths,
-                    bpm=GUITAR_BPM[ensemble] if form is None else spec.bpm,
-                    ensemble=ensemble,
-                    harmonies=harmonies,
-                    mode=mode,
-                    character=character,
-                    character_at=character_at,
-                    sections=tuple(spec.sections) if spec is not None else None,
-                    rel_span=rel_span,
-                    bar_volumes=bar_volumes,
-                    section_rel_spans=section_rel_spans,
-                    raw_pitches=raw_pitches,
-                    impulses=impulses,
-                )
+            import inspect
+
+            guitar_kwargs = dict(
+                title=title,
+                chosen=chosen,
+                sample_indexes=sample_indexes,
+                slots=slots,
+                pitches=pitches,
+                phrases=phrases,
+                dynamics=dynamics,
+                bands=bands,
+                band_at=band_at,
+                musical_bars=musical_bars,
+                total_eighths=piece_eighths,
+                bpm=GUITAR_BPM[ensemble] if form is None else spec.bpm,
+                ensemble=ensemble,
+                harmonies=harmonies,
+                mode=mode,
+                character=character,
+                character_at=character_at,
+                sections=tuple(spec.sections) if spec is not None else None,
+                rel_span=rel_span,
+                bar_volumes=bar_volumes,
+                section_rel_spans=section_rel_spans,
+                raw_pitches=raw_pitches,
+                impulses=impulses,
+                movement_index=movement_index,
             )
+            # The guitar score grows this parameter. Pass it when the call can
+            # take it; do not drop a later error that mentions the same name.
+            accepted = inspect.signature(render_guitar_score).parameters
+            if "movement_index" not in accepted and not any(
+                parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in accepted.values()
+            ):
+                guitar_kwargs.pop("movement_index")
+            return _finish(render_guitar_score(**guitar_kwargs))
 
         flute_notes, yield_spans, flute_wedges, flute_dynamics = _flute_and_violin_dovetail(
             phrases,

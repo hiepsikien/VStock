@@ -93,6 +93,7 @@ def render_guitar_score(
     section_rel_spans: dict | None = None,
     raw_pitches: list[int] | None = None,
     impulses: tuple | None = None,
+    movement_index: int | None = None,
 ) -> Score:
     meter = active_meter()
     register = active_register()
@@ -156,6 +157,7 @@ def render_guitar_score(
         section_rel_spans=section_rel_spans,
         impulses=impulses,
         regime_at={bar: slot.regime for slot in slots for bar in slot.bars()},
+        movement_index=movement_index,
     )
     try:
         lead, support, low, divisions = render_patterned_voices(**voice_kwargs)

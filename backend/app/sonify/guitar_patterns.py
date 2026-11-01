@@ -172,6 +172,8 @@ class _Ctx:
     section_rel_spans: dict | None = None
     impulses: tuple = ()
     regime_at: dict = field(default_factory=dict)
+    # 0 is the first prepared movement (1D, 1W, and the first 1Y month that has bars).
+    movement_index: int | None = None
 
     def chord(self, bar: int) -> Chord:
         if bar in self.chord_at:
@@ -1310,7 +1312,7 @@ def _centered_contrast(count: int) -> tuple[int, int, int]:
 
 
 def _assign_torroba(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
-    """A–B–A for Torroba. The 34-bar day in 4/4 stays one pattern.
+    """A–B–A for Torroba. The 34-bar day stays one pattern in every meter.
 
     Primary is the mood of the opening region only. The close copies that id.
     A bridge or trio keeps its whole B region. Three or more slots put eight
@@ -1320,7 +1322,8 @@ def _assign_torroba(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
     from app.sonify.span import split_into
 
     regions = _torroba_regions(ctx)
-    if ctx.bars == 34 and ctx.kind == "4/4":
+    # Only a day has 34 bars. A calm or selloff day retimed to 3/4 is still one name.
+    if ctx.bars == 34:
         mood = _torroba_opening_mood(ctx) if regions else _majority_mood(ctx, _phrase_bars(ctx, body))
         _paint_phrases(chosen, body, _torroba_primary(ctx, mood, framed_macro=True))
         return chosen
@@ -1659,6 +1662,156 @@ def _melody_at(ctx: _Ctx, eighth: int) -> int:
     if 0 <= eighth < len(ctx.melody):
         return ctx.melody[eighth]
     return ctx.melody[-1] if ctx.melody else 64
+
+
+def _torroba_base_stretches(ctx: _Ctx, figure_at: dict) -> list[list[int]]:
+    """Body-bar runs in one phrase that the figure plan does not claim.
+
+    A stretch is maximal and does not cross a phrase. Figure bars and pedal
+    bars split the run and stay out of it. The list is in movement order,
+    starting at index 0, so the first stretch is even.
+    """
+    from app.sonify.guitar_torroba import _bars_of
+
+    if ctx.ensemble != "torroba":
+        return []
+    claimed: set[int] = set()
+    stretches: list[list[int]] = []
+    for phrase in ctx.phrases:
+        run: list[int] = []
+        for bar in _bars_of(ctx, phrase):
+            if bar in claimed or bar < 0 or bar >= ctx.bars:
+                continue
+            claimed.add(bar)
+            if ctx.kind_at.get(bar, "phrase") in _PEDAL or bar in figure_at:
+                if run:
+                    stretches.append(run)
+                    run = []
+                continue
+            if run and bar != run[-1] + 1:
+                stretches.append(run)
+                run = []
+            run.append(bar)
+        if run:
+            stretches.append(run)
+    return stretches
+
+
+def _chord_tone_at_or_below(pitch: int, pitch_classes: frozenset[int]) -> int:
+    """Nearest chord tone that is not higher than `pitch`."""
+    best: int | None = None
+    for pc in pitch_classes:
+        note = pitch - ((pitch - pc) % 12)
+        if best is None or note > best:
+            best = note
+    return pitch if best is None else best
+
+
+def _scale_at_or_above(pitch: int, mode: str) -> int | None:
+    for note in range(pitch, pitch + 8):
+        if _on_scale(note, mode):
+            return note
+    return None
+
+
+def _lower_torroba_pitch(ctx: _Ctx, eighth: int, midi: int) -> int:
+    """One voice-1 pitch, a diatonic fifth under `midi`, or `midi` when it cannot drop.
+
+    Four scale steps, not seven semitones. A strong eighth that misses the
+    chord takes the nearest chord tone at or below that fifth. A fifth under
+    the floor rises to the scale tone at or just above the floor. That tone
+    still on the bass means this note stays where it was.
+    """
+    from app.sonify.guitar_torroba import _scale_degree_below, _torroba_bass
+
+    degree = _scale_degree_below(midi, 4, ctx.mode)
+    if degree is None or degree >= midi:
+        return midi
+    bar = eighth // ctx.epb
+    chosen = degree
+    if eighth % ctx.epb in ctx.strong:
+        pcs = ctx.chord(bar).pitch_classes
+        if chosen % 12 not in pcs:
+            chosen = _chord_tone_at_or_below(chosen, pcs)
+    bass = _torroba_bass(ctx, ctx.chord(bar), bar, midi)
+    floor = 55 - ctx.semitones
+    if bass is not None:
+        floor = max(bass + 3, floor)
+    if chosen < floor:
+        lifted = _scale_at_or_above(floor, ctx.mode)
+        if lifted is None or lifted >= midi:
+            return midi
+        sounded = _torroba_bass(ctx, ctx.chord(bar), bar, lifted)
+        if sounded is not None and lifted <= sounded:
+            return midi
+        chosen = lifted
+    if chosen >= midi:
+        return midi
+    if bass is not None and chosen <= bass:
+        return midi
+    return chosen
+
+
+def _lower_torroba_stretches(ctx: _Ctx, figure_at: dict) -> set[int]:
+    """Even stretches, index 0 included, drop a fifth on voice 1's melody array.
+
+    Odd stretches and figure bars stay in the treble. The returned eighths are
+    the ones whose pitch actually fell.
+    """
+    if ctx.ensemble != "torroba" or not ctx.melody:
+        return set()
+    changed: set[int] = set()
+    for index, bars in enumerate(_torroba_base_stretches(ctx, figure_at)):
+        if index % 2 == 1:
+            continue
+        for bar in bars:
+            start = bar * ctx.epb
+            end = min(len(ctx.melody), start + ctx.epb)
+            for eighth in range(start, end):
+                original = ctx.melody[eighth]
+                lowered = _lower_torroba_pitch(ctx, eighth, original)
+                if lowered < original:
+                    ctx.melody[eighth] = lowered
+                    changed.add(eighth)
+    return changed
+
+
+def _event_eighth_span(event: NoteEvent, epb: int) -> tuple[float, float]:
+    start = event.bar * epb + event.beat * 2
+    end = start + max(0.0, event.duration_beats) * 2
+    if end <= start:
+        end = start + 1e-6
+    return start, end
+
+
+def _omit_support_under_lowered_lead(
+    ctx: _Ctx,
+    lead: list[NoteEvent],
+    support: list[NoteEvent],
+    lowered_eighths: set[int],
+) -> list[NoteEvent]:
+    """Drop support that rings under a lowered lead whose sounding pitch is <= 62."""
+    if not support or not lowered_eighths:
+        return support
+    spans: list[tuple[float, float]] = []
+    for event in lead:
+        if event.midi is None or event.midi + ctx.semitones > 62:
+            continue
+        start, end = _event_eighth_span(event, ctx.epb)
+        if any(start - 1e-6 <= eighth < end - 1e-9 for eighth in lowered_eighths):
+            spans.append((start, end))
+    if not spans:
+        return support
+    kept: list[NoteEvent] = []
+    for event in support:
+        if event.midi is None:
+            kept.append(event)
+            continue
+        start, end = _event_eighth_span(event, ctx.epb)
+        if any(start < hi - 1e-9 and end > lo + 1e-9 for lo, hi in spans):
+            continue
+        kept.append(event)
+    return kept
 
 
 def _support_eighths(kind: str, band: str, rolling: bool, level: int) -> set[int]:
@@ -2390,7 +2543,13 @@ def _rest_twelfths(start: int, length: int, epb: int, voice: int) -> list[NoteEv
             cursor += take
             left -= take
             continue
-        step = 2 if take >= 2 else take
+        # Four twelfths on the triplet grid is the missing attack of an
+        # eighth-note triplet. Two sextuplet rests leave that 3:2 group
+        # unclosed, and MuseScore refuses the bar.
+        if take % 4 == 0 and cursor % 4 == 0 and take % 3 != 0:
+            step = 4
+        else:
+            step = 2 if take >= 2 else take
         if step <= 0:
             break
         bar = cursor // per_bar
@@ -2591,6 +2750,25 @@ def _covers(event: NoteEvent, when: int, epb: int) -> bool:
     return begin <= when < begin + _dur16(event)
 
 
+def _start12(event: NoteEvent, epb: int) -> int:
+    """Start index on the twelfth-of-a-beat grid.
+
+    ``assert_playable`` samples this grid. A sixteenth grid floors ``beat * 4``,
+    so three ``1/6`` notes inside one eighth share a slot and look simultaneous.
+    """
+    return event.bar * epb * 6 + int(round(event.beat * 12))
+
+
+def _dur12(event: NoteEvent) -> int:
+    return max(1, int(round(event.duration_beats * 12)))
+
+
+def _covers12(event: NoteEvent, when: int, epb: int) -> bool:
+    """True when ``when`` lies in ``[start, start + duration)`` on the twelfth grid."""
+    begin = _start12(event, epb)
+    return begin <= when < begin + _dur12(event)
+
+
 def _tremolo_region_arch(bars: set[int], bar: int) -> int:
     """Slow arch across one contiguous tremolo run. Both ends add 0."""
     start = bar
@@ -2785,7 +2963,8 @@ def form_pattern_ids(ctx: _Ctx, patterns: list[str]) -> list[str]:
         ctx.ensemble == "torroba"
         and _framed(ctx)
         and not _has_contrast_section(ctx)
-        and not (ctx.bars == 34 and ctx.kind == "4/4")
+        # A 34-bar day is one name in every meter. Bach and Barrios keep their own gates.
+        and not (ctx.bars == 34)
     ):
         successive = _successive_body_patterns(ctx, patterns)
         if len(successive) >= 2:
@@ -2854,6 +3033,7 @@ def render_patterned_voices(
     section_rel_spans: dict | None = None,
     impulses: tuple = (),
     regime_at: dict | None = None,
+    movement_index: int | None = None,
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent], int]:
     meter = active_meter()
     epb = meter.eighths_per_bar
@@ -2895,6 +3075,7 @@ def render_patterned_voices(
         section_rel_spans=None if section_rel_spans is None else dict(section_rel_spans),
         impulses=tuple(impulses or ()),
         regime_at=dict(regime_at or {}),
+        movement_index=movement_index,
     )
     patterns = _patterns(ctx) if phrases else []
     headline = _HEADLINE.get()
@@ -2945,6 +3126,9 @@ def render_patterned_voices(
     from app.sonify.guitar_torroba import render_torroba_figure, torroba_figure_plan
 
     figure_at = torroba_figure_plan(ctx, patterns) if ctx.ensemble == "torroba" else {}
+    # The passage below still reads this copy. The render loop reads the lowered array.
+    original_melody = list(ctx.melody)
+    lowered_eighths = _lower_torroba_stretches(ctx, figure_at)
     attacks_by_phrase = {
         index: _lead_attacks(ctx.melody, phrase.start, phrase.end) for index, phrase in enumerate(phrases)
     }
@@ -3186,6 +3370,9 @@ def render_patterned_voices(
                 part_lead, part_support, part_low = _render_torroba_bar(
                     ctx, bar, phrase_here, pattern, patterns
                 )
+                part_support = _omit_support_under_lowered_lead(
+                    ctx, part_lead, part_support, lowered_eighths
+                )
             else:
                 figure, index, count = placed
                 following = figure_at.get(bar + 1)
@@ -3219,7 +3406,16 @@ def render_patterned_voices(
         sounding_swarm_eighths,
     )
 
+    # Passages are chosen from the price line, then they overwrite only their eighths.
+    if ctx.ensemble == "torroba":
+        lowered_melody = list(ctx.melody)
+        ctx.melody = list(original_melody)
     lead, support, low, scale_plan = apply_scale_passages(ctx, patterns, lead, support, low)
+    if ctx.ensemble == "torroba":
+        for eighth in scale_plan.scale_eighths:
+            if 0 <= eighth < len(original_melody):
+                lowered_melody[eighth] = original_melody[eighth]
+        ctx.melody = lowered_melody
     scale_eighths = set(scale_plan.scale_eighths)
     long_scale_eighths = {
         eighth
@@ -3350,6 +3546,10 @@ def render_patterned_voices(
 
     lead = _restamp_swarm_hairpins(ctx, patterns, lead, written_lead)
     lead = restamp_passage_hairpins(ctx, patterns, scale_plan, lead, written_lead)
+    if lowered_eighths:
+        support = _omit_support_under_lowered_lead(
+            ctx, lead, support, lowered_eighths - set(scale_plan.scale_eighths)
+        )
     divisions = 4 if _needs_sixteenths([*lead, *support, *low]) else 2
     # Bach's mordent, bariolage, and scale runs are sixteenth figures. When any
     # voice asks for that grid, the engraving stays at division 4.
@@ -4042,7 +4242,8 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
                 elif in_scale:
                     floor, ceiling = 57, 83
                 else:
-                    floor = 59
+                    # Outside a scale passage. A Torroba lead may sound at 55.
+                    floor = 55 if profile == "torroba" else 59
                     ceiling = 83 if profile == "barrios_preludio" else 81
                 if sounding > ceiling or sounding < floor:
                     raise Unplayable(f"lead {sounding} is outside profile {profile}")
@@ -4054,17 +4255,19 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
         for event in events:
             if event.midi is None:
                 continue
-            times.add(_start16(event, epb))
+            times.add(_start12(event, epb))
             if not _on_sixteenth_grid(event):
                 roll_bars.add(event.bar)
     for when in sorted(times):
-        bar = when // (epb * 2)
+        bar = when // (epb * 6)
         profile = profile_at.get(bar, "study")
-        roll_window = profile == "torroba" and (when % (epb * 2)) < 2 and bar in roll_bars
+        # First half-beat: the old window was two sixteenth slots. On this
+        # grid that is six twelfths. Three would cut the fandanguillo roll.
+        roll_window = profile == "torroba" and (when % (epb * 6)) < 6 and bar in roll_bars
         sounding_notes: list[tuple[int, int]] = []
         for voice, events in voices.items():
             for event in events:
-                if event.midi is not None and _covers(event, when, epb):
+                if event.midi is not None and _covers12(event, when, epb):
                     sounding_notes.append((voice, event.midi + semitones))
         if not sounding_notes:
             continue
@@ -4117,6 +4320,17 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
             raise Unplayable("upper middle is not below the melody")
         if uppers and lows and max(lows) >= min(uppers):
             raise Unplayable("bass is not below the upper middle")
+        # A roll speaks the inner voice a twelfth or two before the melody,
+        # inside one sixteenth. Those attacks share a start on the old grid,
+        # so the ceiling still hears that melody.
+        slot_highs = highs
+        if profile == "torroba" and not slot_highs:
+            slot = when // 3
+            slot_highs = [
+                event.midi + semitones
+                for event in voices[1]
+                if event.midi is not None and _start16(event, epb) == slot
+            ]
         for voice, pitch in sounding_notes:
             if voice in {2, 4} and pitch > 65:
                 high_block = bool(highs) and min(highs) >= 80 and pitch < min(highs)
@@ -4124,7 +4338,7 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
                 etude = profile in {"villa_etude1", "villa_etude11"}
                 # The 65 ceiling opens only while the inner note stays under the high voice.
                 preludio = profile == "barrios_preludio" and bool(highs) and pitch < min(highs)
-                torroba = profile == "torroba" and bool(highs) and pitch < min(highs)
+                torroba = profile == "torroba" and bool(slot_highs) and pitch < min(slot_highs)
                 if not high_block and not thumb and not etude and not preludio and not torroba:
                     raise Unplayable(f"inner voice {pitch} is above the middle register")
         if not _playable([pitch for _voice, pitch in sounding_notes]):

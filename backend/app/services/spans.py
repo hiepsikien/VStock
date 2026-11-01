@@ -80,7 +80,12 @@ def movement_audio_path(
     )
 
 
-async def plan_span(symbol: str, span: str, variant: Variant = "symphony") -> SpanPlan:
+async def plan_span(
+    symbol: str,
+    span: str,
+    variant: Variant = "symphony",
+    ensemble: Ensemble = "classic",
+) -> SpanPlan:
     if span == "1W":
         payload = await fetch_minute_payload(symbol)
         samples = samples_from_ohlc(payload)
@@ -104,6 +109,8 @@ async def plan_span(symbol: str, span: str, variant: Variant = "symphony") -> Sp
                 [[point.bar for point in points] for points in day_points],
                 symbol,
                 openings,
+                variant=variant,
+                ensemble=ensemble,
             ),
             days[-1],
         )
@@ -112,21 +119,35 @@ async def plan_span(symbol: str, span: str, variant: Variant = "symphony") -> Sp
         if payload_truncated(payload, MONTH_LOOKBACK_DAYS):
             payload = await fetch_ohlc(symbol, MONTH_LOOKBACK_DAYS, "5")
             stamped = coarse_bars(samples_from_ohlc(payload))
-            return SpanPlan(prepare_month(_days(stamped), symbol, variant=variant), stamped[-1][0])
+            return SpanPlan(
+                prepare_month(_days(stamped), symbol, variant=variant, ensemble=ensemble),
+                stamped[-1][0],
+            )
         samples = samples_from_ohlc(payload)
         days = session_dates(samples, 10_000)
         return SpanPlan(
-            prepare_month([(day, session_bars(samples, day)) for day in days], symbol, variant=variant),
+            prepare_month(
+                [(day, session_bars(samples, day)) for day in days],
+                symbol,
+                variant=variant,
+                ensemble=ensemble,
+            ),
             days[-1],
         )
     if span == "3M":
         payload = await fetch_ohlc(symbol, QUARTER_LOOKBACK_DAYS, "5")
         stamped = coarse_bars(samples_from_ohlc(payload))
-        return SpanPlan(prepare_quarter(stamped, symbol, variant=variant), stamped[-1][0])
+        return SpanPlan(
+            prepare_quarter(stamped, symbol, variant=variant, ensemble=ensemble),
+            stamped[-1][0],
+        )
     if span == "1Y":
         payload = await fetch_ohlc(symbol, YEAR_LOOKBACK_DAYS, "30")
         stamped = coarse_bars(samples_from_ohlc(payload))
-        return SpanPlan(prepare_year(stamped, symbol, variant=variant), year_as_of(stamped))
+        return SpanPlan(
+            prepare_year(stamped, symbol, variant=variant, ensemble=ensemble),
+            year_as_of(stamped),
+        )
     raise ValueError(f"unsupported span: {span}")
 
 
@@ -172,7 +193,7 @@ async def load_movement_audio(
     humanize: bool = True,
     color: bool = True,
 ) -> SpanAsset:
-    movements = (await plan_span(symbol, span, variant)).movements
+    movements = (await plan_span(symbol, span, variant, ensemble)).movements
     if index < 0 or index >= len(movements):
         raise LookupError(str(index))
     movement = movements[index]

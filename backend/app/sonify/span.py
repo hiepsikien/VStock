@@ -42,7 +42,7 @@ from app.sonify.keys import (
     stock_home_key,
     year_key,
 )
-from app.sonify.model import Variant
+from app.sonify.model import Ensemble, Variant
 from app.sonify.model import (
     Bar,
     DynamicEvent,
@@ -285,6 +285,44 @@ def _guitar_meter(spec: FormSpec) -> FormSpec:
     else:
         return spec
     return replace(spec, meter=meter)
+
+
+def retarget_torroba_meter(spec: FormSpec, character: MovementCharacter | None) -> FormSpec:
+    """Move a 4/4 Torroba movement to 3/4 when it is calm or a selloff.
+
+    3/4 and 6/8 stay on the meter `_guitar_meter` already chose. Rally and
+    volatile stay in 4/4. Tempo stays. Call this before `attach_frame`.
+    """
+    if (spec.meter.beats, spec.meter.beat_type) != (4, 4):
+        return spec
+    if character not in ("calm", "selloff"):
+        return spec
+    return replace(spec, meter=METER_34)
+
+
+def _torroba_span(variant: str, ensemble: str) -> bool:
+    return variant == "guitar" and ensemble == "torroba"
+
+
+def _framed_torroba(
+    bodies: tuple[FormSpec, ...],
+    characters: Sequence[MovementCharacter],
+    counts: Sequence[int],
+    span: str,
+    labels: tuple[str, ...],
+    rests: tuple[float, ...],
+) -> tuple[Movement, ...]:
+    """Retarget each unframed body, then attach the frame for that meter."""
+    if not (len(bodies) == len(characters) == len(counts) == len(labels) == len(rests)):
+        raise ValueError(f"a {span} Torroba plan needs one character per movement")
+    specs = tuple(
+        attach_frame(retarget_torroba_meter(body, character), span)
+        for body, character in zip(bodies, characters)
+    )
+    return tuple(
+        Movement(label, spec, count, rest)
+        for label, spec, count, rest in zip(labels, specs, counts, rests)
+    )
 
 
 def month_specs(variant: str = "symphony") -> tuple[FormSpec, FormSpec, FormSpec, FormSpec]:
@@ -1042,6 +1080,8 @@ def prepare_week(
     sessions: list[list[Bar]],
     symbol: str | None = None,
     openings: Sequence[float | None] | None = None,
+    variant: Variant = "symphony",
+    ensemble: Ensemble = "classic",
 ) -> tuple[PreparedMovement, ...]:
     usable = [bars for bars in sessions if bars][-5:]
     if not usable:
@@ -1067,10 +1107,15 @@ def prepare_week(
     outro = None
     if len(usable) >= 2:
         outro = finale_outro(session_characters[0], session_characters[-1])
+    # A week has no frame. The opening session is the region the Torroba
+    # pattern reads, which can differ from the whole-week character.
+    spec = movement.spec
+    if _torroba_span(variant, ensemble):
+        spec = retarget_torroba_meter(spec, session_characters[0])
     return (
         PreparedMovement(
             label=movement.label,
-            spec=movement.spec,
+            spec=spec,
             bars=flat,
             groups=week_source_groups([len(bars) for bars in usable]),
             rest_after=0.0,
@@ -1088,10 +1133,24 @@ def prepare_month(
     sessions: list[tuple[date, list[Bar]]],
     symbol: str | None = None,
     variant: Variant = "symphony",
+    ensemble: Ensemble = "classic",
 ) -> tuple[PreparedMovement, ...]:
     parts = month_parts(sessions)
-    movements = plan_month([len(part) for part in parts], variant)
     characters = tuple(movement_character([bar.close for bar in part], "1M") for part in parts)
+    counts = [len(part) for part in parts]
+    if _torroba_span(variant, ensemble):
+        # plan_month frames before the character is known. Torroba retargets
+        # the unframed body first, then takes the frame for the new meter.
+        movements = _framed_torroba(
+            month_specs(variant),
+            characters,
+            counts,
+            "1M",
+            ("I", "II", "III", "IV"),
+            (MONTH_REST_SECONDS, MONTH_REST_SECONDS, MONTH_REST_SECONDS, 0.0),
+        )
+    else:
+        movements = plan_month(counts, variant)
     edges = _edges(parts)
     home = _home(symbol)
     keys = _span_keys(variant, "1M", home, characters, edges)
@@ -1114,10 +1173,22 @@ def prepare_quarter(
     stamped: list[tuple[date, Bar]],
     symbol: str | None = None,
     variant: Variant = "symphony",
+    ensemble: Ensemble = "classic",
 ) -> tuple[PreparedMovement, ...]:
     parts = quarter_parts(stamped)
-    movements = plan_quarter([len(part) for part in parts], variant)
     characters = tuple(movement_character([bar.close for bar in part], "3M") for part in parts)
+    counts = [len(part) for part in parts]
+    if _torroba_span(variant, ensemble):
+        movements = _framed_torroba(
+            quarter_specs(variant),
+            characters,
+            counts,
+            "3M",
+            ("I", "II", "III"),
+            (QUARTER_REST_SECONDS, QUARTER_REST_SECONDS, 0.0),
+        )
+    else:
+        movements = plan_quarter(counts, variant)
     edges = _edges(parts)
     home = _home(symbol)
     keys = _span_keys(variant, "3M", home, characters, edges)
@@ -1140,9 +1211,12 @@ def prepare_year(
     stamped: list[tuple[date, Bar]],
     symbol: str | None = None,
     variant: Variant = "symphony",
+    ensemble: Ensemble = "classic",
 ) -> tuple[PreparedMovement, ...]:
     """Months play in time order. The form follows the calendar month, so December is the finale whenever it falls."""
-    specs = tuple(attach_frame(spec, "1Y") for spec in year_specs(variant))
+    torroba = _torroba_span(variant, ensemble)
+    bodies = year_specs(variant)
+    framed = () if torroba else tuple(attach_frame(spec, "1Y") for spec in bodies)
     kept = [(day, bars) for day, bars in year_groups(stamped) if len(bars) >= MIN_YEAR_CANDLES]
     if not kept:
         raise ValueError("a year needs one month with enough candles")
@@ -1159,7 +1233,10 @@ def prepare_year(
                 else SEASON_REST_SECONDS
             )
         character = movement_character([bar.close for bar in bars], "1Y")
-        spec = specs[day.month - 1]
+        if torroba:
+            spec = attach_frame(retarget_torroba_meter(bodies[day.month - 1], character), "1Y")
+        else:
+            spec = framed[day.month - 1]
         closing = boundary_regimes(
             [bar.close for bar in bars], [bar.ma20 for bar in bars]
         )[1]
