@@ -300,6 +300,24 @@ def retarget_torroba_meter(spec: FormSpec, character: MovementCharacter | None) 
     return replace(spec, meter=METER_34)
 
 
+def retarget_torroba_tempo(spec: FormSpec, character: MovementCharacter | None) -> FormSpec:
+    """Lift a Torroba movement into 96–140 BPM. Nothing slower than 96 survives.
+
+    The floor is read from the meter the movement has *after*
+    `retarget_torroba_meter`, so a 4/4 calm that just became 3/4 takes the 3/4
+    row. An unknown mood takes the calm row; an unknown meter takes the band's
+    minimum. Call this right after `retarget_torroba_meter`.
+    """
+    from app.sonify.guitar_torroba import TORROBA_TEMPO_FLOOR, TORROBA_TEMPO_MAX, TORROBA_TEMPO_MIN
+
+    kind = f"{spec.meter.beats}/{spec.meter.beat_type}"
+    floor = TORROBA_TEMPO_FLOOR.get((character or "calm", kind), TORROBA_TEMPO_MIN)
+    bpm = min(TORROBA_TEMPO_MAX, max(spec.bpm, floor))
+    if bpm == spec.bpm:
+        return spec
+    return replace(spec, bpm=bpm)
+
+
 def _torroba_span(variant: str, ensemble: str) -> bool:
     return variant == "guitar" and ensemble == "torroba"
 
@@ -316,7 +334,10 @@ def _framed_torroba(
     if not (len(bodies) == len(characters) == len(counts) == len(labels) == len(rests)):
         raise ValueError(f"a {span} Torroba plan needs one character per movement")
     specs = tuple(
-        attach_frame(retarget_torroba_meter(body, character), span)
+        attach_frame(
+            retarget_torroba_tempo(retarget_torroba_meter(body, character), character),
+            span,
+        )
         for body, character in zip(bodies, characters)
     )
     return tuple(
@@ -1111,7 +1132,9 @@ def prepare_week(
     # pattern reads, which can differ from the whole-week character.
     spec = movement.spec
     if _torroba_span(variant, ensemble):
-        spec = retarget_torroba_meter(spec, session_characters[0])
+        spec = retarget_torroba_tempo(
+            retarget_torroba_meter(spec, session_characters[0]), session_characters[0]
+        )
     return (
         PreparedMovement(
             label=movement.label,
@@ -1234,7 +1257,12 @@ def prepare_year(
             )
         character = movement_character([bar.close for bar in bars], "1Y")
         if torroba:
-            spec = attach_frame(retarget_torroba_meter(bodies[day.month - 1], character), "1Y")
+            spec = attach_frame(
+                retarget_torroba_tempo(
+                    retarget_torroba_meter(bodies[day.month - 1], character), character
+                ),
+                "1Y",
+            )
         else:
             spec = framed[day.month - 1]
         closing = boundary_regimes(

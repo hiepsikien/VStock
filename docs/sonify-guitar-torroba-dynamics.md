@@ -98,6 +98,8 @@ Nhấn của câu hát là tenuto trong cửa sổ, viết trước sóng, kho�
 
 Câu phẳng đang cộng extra `0`. Thêm một vòng viết riêng trên bè hát của `castillo`, `sonatina` và `torroba_tremolo`, trước sóng. Nốt đi lên về phía trước nốt đỉnh. Nốt chạm thì thả. Cả cung rộng `6–8` bậc, và không vượt `72` khi nốt thường viết `64`, để không chồng thêm một lần nữa lên tenuto. Affine giữ nguyên khoảng trong ô. Đây là độ động của câu ngân. `_shape_dynamics` không nhận vòng này. Ensemble khác không đi qua đó.
 
+Trên Juglar, vòng câu chạm chùm hai lượt, không phải một. `apply_torroba_sung_arch` chọn **ngón đầu của chùm** (`+0,25` phách) làm cú hát rồi respell hai ngón sau theo `JUGLAR_FINGERS = (0, −3, −4)`, kẹp `40..72` (`_respell_juglar_cluster`); rồi `apply_juglar_thumb` ghi lại ngón cái sau arch, `max(ba ngón) + 2` kẹp `42..88` (`_juglar_thumb`), vì ngón cái búng lại mỗi phách và phải hát **trên** chùm. Nên ảnh hưởng của arch lên Juglar là hai lượt, và ngón cái là nốt duy nhất có thể chạm `74` khi cú hát đã ở trần `72`.
+
 Hàng điệu giữ khoảng đã viết trong ô, kể cả phách mạnh `max(_note_velocity, 68)`. Không thêm cung của câu hát lên rasgueado.
 
 ---

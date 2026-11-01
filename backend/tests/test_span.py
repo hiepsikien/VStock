@@ -3,6 +3,7 @@
 import asyncio
 import math
 from array import array
+from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 
@@ -23,7 +24,7 @@ from app.sonify.form import (
 )
 from app.sonify.model import Bar, NoteEvent, Score
 from app.sonify.render import render
-from app.sonify.form import FormSection, FormSpec, METER_44
+from app.sonify.form import FormSection, FormSpec, METER_44, METER_54
 from app.sonify.session import SessionPoint
 from app.sonify.span import (
     attach_frame,
@@ -38,6 +39,7 @@ from app.sonify.span import (
     plan_week,
     quarter_specs,
     retarget_torroba_meter,
+    retarget_torroba_tempo,
     slice_score,
     split_into,
     week_source_groups,
@@ -341,6 +343,27 @@ def _week_of(day: int, bars: list[Bar]) -> tuple[date, list[Bar]]:
     return date(2026, 1, day), bars
 
 
+def test_torroba_tempo_floor_lifts_only_and_reads_the_new_meter() -> None:
+    body = month_specs("guitar")[0]
+    assert (_meter(body), body.bpm) == ((4, 4), 96)
+    # 4/4 calm becomes 3/4 before the floor reads the meter.
+    calm = retarget_torroba_tempo(retarget_torroba_meter(body, "calm"), "calm")
+    assert (_meter(calm), calm.bpm) == ((3, 4), 96)
+    rally = retarget_torroba_tempo(body, "rally")
+    assert (_meter(rally), rally.bpm) == ((4, 4), 120)
+    volatile = retarget_torroba_tempo(body, "volatile")
+    assert (_meter(volatile), volatile.bpm) == ((4, 4), 132)
+    selloff = retarget_torroba_tempo(retarget_torroba_meter(body, "selloff"), "selloff")
+    assert (_meter(selloff), selloff.bpm) == ((3, 4), 104)
+    # A movement already over the floor is not slowed down.
+    fast = replace(body, bpm=120)
+    assert retarget_torroba_tempo(fast, "calm") == fast
+    # An unknown mood reads the calm row; an unknown meter reads the band minimum.
+    assert retarget_torroba_tempo(replace(body, bpm=48), None).bpm == 96
+    five_four = replace(body, bpm=48, meter=METER_54)
+    assert retarget_torroba_tempo(five_four, "rally").bpm == 96
+
+
 def test_torroba_meter_follows_character_and_keeps_tempo() -> None:
     body = month_specs("guitar")[0]
     assert (_meter(body), body.bpm) == ((4, 4), 96)
@@ -375,12 +398,12 @@ def test_torroba_month_frames_after_the_meter_change() -> None:
     assert _frame_lengths(torroba[0].spec) == (6, 6)
     assert torroba[0].spec.bars == bodies[0].bars + 12
     assert _fingerprint_meter(torroba[0]) == (3, 4)
-    assert torroba[1].spec == attach_frame(bodies[1], "1M")
-    assert torroba[1].spec.bpm == 72
+    assert torroba[1].spec == attach_frame(retarget_torroba_tempo(bodies[1], "rally"), "1M")
+    assert torroba[1].spec.bpm == 112
     assert torroba[2].spec == attach_frame(bodies[2], "1M")
     assert _meter(torroba[2].spec) == (6, 8)
-    assert torroba[3].spec == attach_frame(bodies[3], "1M")
-    assert (_meter(torroba[3].spec), torroba[3].spec.bpm) == ((4, 4), 96)
+    assert torroba[3].spec == attach_frame(retarget_torroba_tempo(bodies[3], "rally"), "1M")
+    assert (_meter(torroba[3].spec), torroba[3].spec.bpm) == ((4, 4), 120)
     assert _frame_lengths(torroba[3].spec) == (4, 4)
     assert _fingerprint_meter(torroba[3]) == (4, 4)
     assert [movement.spec for movement in classic] == [
@@ -403,14 +426,14 @@ def test_torroba_quarter_and_year_use_the_frame_of_the_new_meter() -> None:
     bodies = quarter_specs("guitar")
     assert [movement.character for movement in quarter] == ["selloff", "rally", "volatile"]
     assert _meter(quarter[0].spec) == (3, 4)
-    assert quarter[0].spec.bpm == 96
+    assert quarter[0].spec.bpm == 104
     assert _frame_lengths(quarter[0].spec) == (6, 6)
     assert quarter[0].spec.bars == bodies[0].bars + 12
-    assert quarter[1].spec == attach_frame(bodies[1], "3M")
+    assert quarter[1].spec == attach_frame(retarget_torroba_tempo(bodies[1], "rally"), "3M")
     assert _meter(quarter[1].spec) == (3, 4)
-    assert quarter[1].spec.bpm == 60
-    assert quarter[2].spec == attach_frame(bodies[2], "3M")
-    assert (_meter(quarter[2].spec), quarter[2].spec.bpm) == ((4, 4), 108)
+    assert quarter[1].spec.bpm == 112
+    assert quarter[2].spec == attach_frame(retarget_torroba_tempo(bodies[2], "volatile"), "3M")
+    assert (_meter(quarter[2].spec), quarter[2].spec.bpm) == ((4, 4), 132)
     assert _frame_lengths(quarter[2].spec) == (4, 4)
     plain = prepare_quarter(stamped, "VNM", "guitar", "barrios")
     assert plain[0].spec == attach_frame(bodies[0], "3M")
@@ -430,10 +453,11 @@ def test_torroba_quarter_and_year_use_the_frame_of_the_new_meter() -> None:
     assert year[0].spec.bpm == 100
     assert _frame_lengths(year[0].spec) == (3, 3)
     assert year[0].spec.bars == specs[0].bars + 6
-    assert year[1].spec == attach_frame(specs[1], "1Y")
+    assert year[1].spec == attach_frame(retarget_torroba_tempo(specs[1], "rally"), "1Y")
     assert _meter(year[1].spec) == (3, 4)
-    assert year[2].spec == attach_frame(specs[11], "1Y")
-    assert (_meter(year[2].spec), year[2].spec.bpm) == ((4, 4), 96)
+    assert year[1].spec.bpm == 112
+    assert year[2].spec == attach_frame(retarget_torroba_tempo(specs[11], "rally"), "1Y")
+    assert (_meter(year[2].spec), year[2].spec.bpm) == ((4, 4), 120)
     assert _frame_lengths(year[2].spec) == (2, 2)
     untouched = prepare_year(year_stamped, "VNM", "guitar", "bach")
     assert untouched[0].spec == attach_frame(specs[0], "1Y")
@@ -447,7 +471,7 @@ def test_torroba_week_uses_the_opening_session_and_has_no_frame() -> None:
     assert opening_calm.session_characters[0] == "calm"
     assert opening_calm.character == "rally"
     assert _meter(opening_calm.spec) == (3, 4)
-    assert opening_calm.spec.bpm == 90
+    assert opening_calm.spec.bpm == 96
     assert opening_calm.spec.bars == week_spec(2).bars
     assert all(section.kind != "warmup" for section in opening_calm.spec.sections)
     assert _fingerprint_meter(opening_calm) == (3, 4)
@@ -457,10 +481,12 @@ def test_torroba_week_uses_the_opening_session_and_has_no_frame() -> None:
     assert opening_rally.session_characters[0] == "rally"
     assert opening_rally.character == "selloff"
     assert _meter(opening_rally.spec) == (4, 4)
+    assert opening_rally.spec.bpm == 120
     assert _fingerprint_meter(opening_rally) == (4, 4)
 
     classic = prepare_week([calm, rally], variant="guitar", ensemble="classic")[0]
     assert _meter(classic.spec) == (4, 4)
+    assert classic.spec.bpm == 90
     assert classic.spec.bars == week_spec(2).bars
 
 

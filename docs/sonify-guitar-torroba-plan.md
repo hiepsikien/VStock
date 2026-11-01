@@ -3,6 +3,7 @@
 > **Trạng thái**: nền tảng (dialect, 4 pattern cơ sở, La♭ trên Sol, Picardy) đã hát trên `main`. Tám kiểu kết cấu và luật phối với bốn pattern nằm ở mục 4 của [`docs/sonify-guitar-torroba-phrase-plan.md`](./sonify-guitar-torroba-phrase-plan.md).
 > **Nguồn phác thảo**: [`docs/torroba.txt`](./torroba.txt).
 > **Khung đang chạy**: [`docs/sonify-classical-guitar.md`](./sonify-classical-guitar.md). Một nhà là một dialect hòa âm cộng một palette pattern. Thân bài khóa một pattern theo mood. Bè cao là đường giá, đọc bằng `_melody_at`.
+> **Đã bị thay một phần**: phần chọn pattern (bảng mood ở mục 5 và mục 7 dưới đây) đã bị [`docs/sonify-guitar-torroba-aba-tempo.md`](./sonify-guitar-torroba-aba-tempo.md) thay, vì chương ngoài `1D` giờ hát A–B–A hai pattern. File này giữ vai trò **thang velocity** (mục 5) và **hình học tay**; bảng mood đầy đủ đọc ở file kia mục 3 và mục 4.
 
 Torroba là nhà thứ sáu của guitar nylon. Chất của ông là vòng Andalucia và giai điệu hát trên dây buông. Bè cao giữ nguyên đường giá. Pattern và nốt lấy đà chỉ đổi cách phát nốt đó.
 
@@ -21,7 +22,7 @@ Torroba là nhà thứ sáu của guitar nylon. Chất của ông là vòng Anda
 
 Villa đã giữ màu ấn tượng (hợp âm treo, trượt song song). Torroba giữ địa lý còn thiếu: Phrygian / Andalucia. Giọng thứ của engine là Đô thứ, nên vòng của ông trong code là **Cm → Bb → Ab → G → Cm**. Nốt màu là **La♭ ngân trên Sol trưởng**.
 
-Tempo ngày: **96 BPM**, cùng vùng với Bach. Điệu vũ lấy nhịp nhún từ meter và cách ngân, không từ một BPM ngày cao hơn. Các span khác giữ BPM của span (`1W` 90, chương 4/4 của `1M` / `3M` / `1Y` trong khoảng 96–108).
+Tempo ngày: **96 BPM**, cùng vùng với Bach. Điệu vũ lấy nhịp nhún từ meter và cách ngân, không từ một BPM ngày cao hơn. Sau đợt retarget tempo, chương 3/4 nằm trong `96–124`, chương 4/4 trong `96–132`, chương 6/8 trong `108–140`. `1D` giữ **96**; `1W` chương mở **lên 120** (rally 4/4) từ 90, calm 96, selloff 104, volatile 132; `1M` I là **104** trên 3/4 và `1M` III là **120** trên 6/8; tháng 12 của `1Y` rally là **120**. Con số từng chương đo bằng `PYTHONPATH=. python backend/tmp/diag_torroba_specs.py`.
 
 ---
 
@@ -132,10 +133,12 @@ Hợp âm phách đầu của `fandanguillo` và `danza` có tối đa ba tiến
 
 | Pattern | Nguồn | Tay phải | Mood | Bè cao |
 |---|---|---|---|---|
-| `castillo` | *Castillos de España*, *Sonatina* Andante | Rải thưa, bass buông, một nốt hát dài mỗi ô | `calm`. `selloff` khi BPM ≤ 72 | Đúng nốt giá, ngân cả ô |
-| `sonatina` | *Sonatina* chương I và III | Rải móc đơn. Giai điệu ở phách mạnh. Bè trung đi các móc còn lại | `rally`. `selloff` ở 4/4 | Mỗi phách mạnh là `_melody_at`. Liền bậc thì slur trong renderer. Nhảy thì nốt lấy đà |
+| `castillo` | *Castillos de España*, *Sonatina* Andante | Rải thưa, bass buông, một nốt hát dài mỗi ô | `calm`. `selloff` ở 3/4 và 4/4, mọi tempo | Đúng nốt giá, ngân cả ô |
+| `sonatina` | *Sonatina* chương I và III | Rải móc đơn. Giai điệu ở phách mạnh. Bè trung đi các móc còn lại | Không còn mood nào. Bảng đang chạy không trả id này: 4/4 rally là `olite`, 4/4 selloff là `castillo` ([aba-tempo](./sonify-guitar-torroba-aba-tempo.md) mục 3) | Mỗi phách mạnh là `_melody_at`. Liền bậc thì slur trong renderer. Nhảy thì nốt lấy đà |
 | `fandanguillo` | *Suite Castellana* I, *Piezas características* | Một hợp âm dải rasgueado ở móc 0, giai điệu đáp ở các móc sau. Lưới theo meter bên dưới | `volatile`. Scherzo khi giá chạy | Nốt trên của hợp âm dải móc 0 là giá. Mỗi phách mạnh còn lại cũng là `_melody_at` |
 | `danza` | *Suite Castellana* III | Hợp âm khối staccato đầu mỗi nhóm ba móc, rồi nốt đáp | Scherzo đi ngang, biên hẹp, `calm` | Mỗi hợp âm lấy nốt giá của móc đó làm tiếng trên. Nốt đáp tiếp đường giá, hoặc một nốt láng giềng quay về. Không bịa thêm một close |
+
+Bảng trên chỉ còn bốn pattern gốc. Palette chạy thật có bảy: thêm `torroba_tremolo` (in là **Juglar**), `alcaniz` và `olite`. Bảng mood của cả bảy, và luật A–B–A, nằm ở [`docs/sonify-guitar-torroba-aba-tempo.md`](./sonify-guitar-torroba-aba-tempo.md) mục 3 và mục 4; hình Juglar ở [`docs/sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md) mục 3.1.
 
 Lưới `fandanguillo`:
 
@@ -147,7 +150,7 @@ Lưới `danza`:
 
 - **6/8**: hai nhóm. Hợp âm khối staccato ở móc 0 và móc 3. Đáp ở móc 1–2 và 4–5.
 - **3/4**: một hợp âm khối staccato ở móc 0. Đáp ở móc 1–2. Móc 4 là nốt giai điệu, không phải hợp âm thứ hai.
-- **4/4**: `danza` không đứng ở chương 4/4. `volatile` của 4/4 là `fandanguillo`.
+- **4/4**: `danza` không đứng ở chương 4/4. `volatile` của 4/4 là `olite`; `fandanguillo` chỉ đứng 6/8.
 
 `selloff` không có pattern bi ca. Sor đã có `elegiaque`. Cùng `sonatina`, vòng rơi xuống Sol trưởng và bè cao được phép hát La♭. Chương chậm thì `selloff` về `castillo`.
 
@@ -156,6 +159,8 @@ Rasgueado là hợp âm dải ba tiếng từ trầm lên cao (`bass → support
 ### Vận tốc trong ô
 
 Số trong bảng là vận tốc pattern viết ra, trước `_shape_dynamics` và trước `apply_guitar_wave`. Thứ tự giữ `lead > bass > inner` qua `_under_lead`. Sàn 40. Không nốt nào viết trên `_MELODY_APEX` (72).
+
+Một ngoại lệ: thân `torroba_tremolo` trên 3/4 (Juglar, mục 5.1 của [`docs/sonify-guitar-torroba-tempo-plan.md`](./sonify-guitar-torroba-tempo-plan.md)) đảo thang thành **`bass > cú hát > ngón 2 > ngón 3`**, vì bass búng lại mỗi phách chứ không ngân dưới bè. Ba ngón theo `JUGLAR_FINGERS = (0, −3, −4)` trên cú hát của chùm, và ngón cái viết `max(ba ngón của phách đó) + 2`, kẹp `42..88` (`_juglar_thumb`). Ngón cái là nốt duy nhất được phép chạm **74** khi cú hát đã ở trần 72; ngoại lệ này chỉ áp cho `torroba_tremolo` trong 3/4, không áp cho cửa, `castillo`, `alcaniz` hay `olite`.
 
 Thứ tự sau đó:
 
@@ -202,7 +207,7 @@ Nốt lấy đà là một móc kép (`duration_beats = 0.25`) ở móc kép cu�
 
 **Harmonics.** `musicxml.py` không có thẻ `<harmonic/>`. Soundfont phát cao độ đã viết. Kim cương là cách ngân của `_bells`: cùng cao độ giá, vận tốc viết 48, bè trung nghỉ. Chỉ khi cao độ vang của nốt đang ngân đã trùng một nút harmonic tự nhiên của dây buông, tức nằm trong `{52, 57, 62, 67, 71, 76, 79}`, và nốt dài từ hai phách đen. Không kéo giá sang nút gần nhất. Không trùng thì đó là nốt ngân thường.
 
-Tên in trên chương trình (`_PATTERN_TITLE` và `PATTERN_NAMES`): `Castillo`, `Sonatina`, `Fandanguillo`, `Danza`.
+Tên in trên chương trình (`_PATTERN_TITLE` và `PATTERN_NAMES`): `Castillo`, `Sonatina`, `Fandanguillo`, `Danza`, cộng ba tên của đợt sau: **Juglar** (`torroba_tremolo`), **Alcaniz**, **Olite**. Bảy tên đó là palette đang chạy; `Sonatina` vẫn in được nhưng không picker nào trả id của nó.
 
 ---
 
@@ -220,25 +225,27 @@ Không phải pattern mới. Đặt sau khi pattern của câu đã khóa.
 
 ## 7. Bộ chọn macro
 
-Đi cùng cách chia ở [`docs/sonify-guitar-torroba-aba-tempo.md`](./sonify-guitar-torroba-aba-tempo.md). Ngày 34 ô trong 4/4 giữ một pattern. Chương không có `bridge` / `trio` không khóa một pattern cho cả thân: từ ba slot thì contrast là 8 ô giữa slot `count // 2`, hai slot thì nửa đầu slot sau, một slot thì `split_into` ba phần. Chương đã có bridge hoặc trio giữ cả vùng B. Primary lấy mood của slot 0. Vùng cuối chép id đó. Cửa `bpm <= 72 → castillo` bỏ, cả trên câu không khung.
+Đi cùng cách chia ở [`docs/sonify-guitar-torroba-aba-tempo.md`](./sonify-guitar-torroba-aba-tempo.md). Ngày 34 ô trong 4/4 giữ một pattern. Chương không có `bridge` / `trio` không khóa một pattern cho cả thân: từ ba slot thì contrast là 8 ô giữa slot `count // 2`, hai slot thì nửa đầu slot sau, một slot thì `split_into` ba phần. Chương đã có bridge hoặc trio giữ cả vùng B. Primary lấy mood của slot 0. Vùng cuối chép id đó. Cửa `bpm <= 72 → castillo` bỏ, cả trên câu không khung; `_torroba_primary` và `_torroba_contrast` đọc `ctx.kind`, không đọc `ctx.bpm`.
 
-Hàng 4/4 áp cho mọi chương 4/4: `1D` (96 BPM của Torroba), `1W` (90), `1M` I và IV (96), `3M` I (96), `3M` III (108), tháng mở `1Y` (100), tháng 12 của `1Y` (96).
+Ba header dưới ghi dải BPM có thật sau retarget, không phải một cửa. 4/4 chỉ còn ở `rally` và `volatile`, vì `calm` và `selloff` 4/4 đã đổi sang 3/4 trong `retarget_torroba_meter` **trước** khi đọc sàn.
 
-| 4/4, 90–108 BPM | A |
+Hàng 4/4 áp cho các chương 4/4 có thật, tức `rally` và `volatile` sau retarget: `1D` (96, đi `GUITAR_BPM['torroba']`), `1W` (120 / 132), `1M` IV (120), `1Q` I (120), `3M` I (120), `3M` III (132), tháng 12 của `1Y` (120). Hàng 3/4 áp cho `1M` I selloff (104), `1M` II (96), `1Q` II (96), `3M` II (96), `1W` calm (96) và selloff (104), chương giữa `1Y` (96), tháng mở `1Y` (100). Hàng 6/8 áp cho `1M` III (120) và các scherzo của `1Y` (108–140). Đo bằng `PYTHONPATH=. python backend/tmp/diag_torroba_specs.py`.
+
+| 4/4, 96–132 BPM | A |
 |---|---|
 | calm | `castillo` |
 | rally | `olite` |
 | selloff | `castillo` |
 | volatile | `olite` |
 
-| 3/4, 60–72 BPM | A |
+| 3/4, 96–124 BPM | A |
 |---|---|
 | calm | `castillo` |
 | rally | `torroba_tremolo` |
 | selloff | `castillo` |
 | volatile | `danza` |
 
-| 6/8, 108–120 BPM | A |
+| 6/8, 108–140 BPM | A |
 |---|---|
 | calm | `danza` |
 | rally | `alcaniz` |
@@ -248,13 +255,13 @@ Hàng 4/4 áp cho mọi chương 4/4: `1D` (96 BPM của Torroba), `1W` (90), `1
 | A | B trên 4/4 | B trên 3/4 | B trên 6/8 |
 |---|---|---|---|
 | `castillo` | `olite` | `torroba_tremolo` khi slot 0 là calm. `danza` khi slot 0 là selloff | — |
-| `olite` | `sonatina` | — | — |
+| `olite` | `castillo` | — | — |
 | `torroba_tremolo` | — | `danza` | — |
 | `danza` | — | `torroba_tremolo` | `alcaniz` |
 | `alcaniz` | — | — | `danza` |
 | `fandanguillo` | — | — | `danza` |
 
-Fixture không khung (`_framed(ctx) == False`) đi `_select_body` rồi `_torroba_primary`. Mỗi câu một pattern, cùng bảng, không ép A–B–A. Câu nằm trong `bridge` hoặc `trio` lấy hàng contrast của primary đó. Không có vân tay riêng kiểu Barrios `1D`. Nhánh `torroba` trong `_select_body` đứng trước `ctx.bpm >= BARRIOS_TREMOLO_MIN_BPM`. Nhánh trong `_contrast_pattern` đứng trước `ctx.bpm < BARRIOS_TREMOLO_MIN_BPM` và truyền mood của slot 0, không truyền mood vùng giữa. Dict `"sonatina"` chỉ là lưới khi không còn câu để chọn. Sonatina không có hàng A.
+Fixture không khung (`_framed(ctx) == False`) đi `_select_body` rồi `_torroba_primary`. Mỗi câu một pattern, cùng bảng, không ép A–B–A. Câu nằm trong `bridge` hoặc `trio` lấy hàng contrast của primary đó. Không có vân tay riêng kiểu Barrios `1D`. Nhánh `torroba` trong `_select_body` đứng trước `ctx.bpm >= BARRIOS_TREMOLO_MIN_BPM`. Nhánh trong `_contrast_pattern` đứng trước `ctx.bpm < BARRIOS_TREMOLO_MIN_BPM` và truyền mood của slot 0, không truyền mood vùng giữa. Dict `"sonatina"` chỉ còn là lưới khi không còn câu để chọn: bộ chọn không trả `sonatina` cho Torroba nữa, và B của `olite` trên 4/4 là `castillo`, nên renderer `sonatina` chỉ mở khi test gọi tay. Sonatina không có hàng A.
 
 Intro và outro đi qua `guitar_frame.py`, cùng kiểu khung 2 ô và 4 ô của các nhà kia:
 
@@ -285,7 +292,7 @@ Tám kiểu ở mục 4 của kế hoạch câu không mở lại các ý trên.
 ## 9. Thứ tự làm
 
 1. **Dialect và La♭.** `extra("minor") = (BF,)`, hai bảng cấm, cạnh Andalucia trả trọng số, cặp lạ chạm `Bb` trả `0.0`. Loss của `G` / `G7` nghe pitch class 8. Cross-bar không phạt La♭ giữ sang hai hợp âm đó. Cả hai lần `quantize_strong_beats` giữ La♭ khi nốt đang xét vẫn là pitch class 8, kể cả nhánh giao pitch class khi run giữ qua `Cm` và `G`. Picardy đứng sau `_place_melody` trong `render_guitar_score`. Pattern tạm vẫn là arpeggio thường. Test: giọng thứ đi được `Cm → Bb → Ab → G → Cm` trong khi phách mạnh là La♭. `Cm` không được loss 0 trên La♭. Ensemble khác vẫn lượng tử hóa như cũ.
-2. **`sonatina`.** Phách mạnh là close, vận tốc theo bảng mục 5. Slur liền bậc gán trong renderer, và ô Torroba nằm trong `skip_bars` của `_slur()`. Nốt lấy đà là móc kép trước phách mạnh. Profile `"torroba"` cho phép bè trung vượt 65 khi còn dưới bè cao. Đây là pattern của rally và selloff ở 4/4.
+2. **`sonatina`.** Phách mạnh là close, vận tốc theo bảng mục 5. Slur liền bậc gán trong renderer, và ô Torroba nằm trong `skip_bars` của `_slur()`. Nốt lấy đà là móc kép trước phách mạnh. Profile `"torroba"` cho phép bè trung vượt 65 khi còn dưới bè cao. Pattern này từng hát rally và 4/4 selloff; bảng đang chạy không còn ô nào cho nó — 4/4 rally là `olite`, 4/4 selloff là `castillo`, và renderer chỉ mở khi test gọi tay.
 3. **`danza` và `fandanguillo`.** Đủ lưới 4/4, 6/8 và 3/4 ở mục 5. Hợp âm tối đa ba tiếng, nốt trên là giá của móc đó, viết ít nhất 68. Cùng profile `"torroba"`. `_shape_dynamics` lấy một `extra` cho cả ô. Snap 68/70, `_is_target` là bè cao có accent.
 4. **`castillo`, ô thở, harmonics đúng cao độ, khung intro/outro, bốn hàng `PROFILES`.** `castillo` không snap. `sonatina` snap 66/68. Humanize trần 73 đọc vận tốc sau sóng.
 

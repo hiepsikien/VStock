@@ -24,6 +24,7 @@ from app.sonify.span import (
     attach_frame,
     month_specs,
     retarget_torroba_meter,
+    retarget_torroba_tempo,
     movement_title,
     quarter_specs,
     week_spec,
@@ -461,7 +462,10 @@ def test_torroba_day_week_and_chapters_follow_the_aba_tables(monkeypatch):
     assert selloff == "Castillo"
     assert rally == "Olite"
 
-    opening = attach_frame(retarget_torroba_meter(month_specs("guitar")[0], "selloff"), "1M")
+    opening = attach_frame(
+        retarget_torroba_tempo(retarget_torroba_meter(month_specs("guitar")[0], "selloff"), "selloff"),
+        "1M",
+    )
     name, saved = _capture_torroba(monkeypatch, flat, character="selloff", form=opening)
     assert name == "Castillo — Danza — Castillo"
     middle = next(
@@ -487,7 +491,10 @@ def test_torroba_day_week_and_chapters_follow_the_aba_tables(monkeypatch):
     window = list(range(middle.start + left, middle.start + left + 8))
     assert _contrast_body_bars(saved["ctx"], saved["patterns"], "castillo") == window
 
-    slow = attach_frame(month_specs("guitar")[1], "1M")
+    slow = attach_frame(
+        retarget_torroba_tempo(retarget_torroba_meter(month_specs("guitar")[1], "calm"), "calm"),
+        "1M",
+    )
     name, saved = _capture_torroba(monkeypatch, flat, character="calm", form=slow)
     assert name == "Castillo — Juglar — Castillo"
     bridge = next(section for section in saved["ctx"].sections if section.bridge)
@@ -495,7 +502,10 @@ def test_torroba_day_week_and_chapters_follow_the_aba_tables(monkeypatch):
     assert len(juglar) > 8
     assert juglar[0] == bridge.start and juglar[-1] == bridge.end - 1
 
-    scherzo = attach_frame(month_specs("guitar")[2], "1M")
+    scherzo = attach_frame(
+        retarget_torroba_tempo(retarget_torroba_meter(month_specs("guitar")[2], "selloff"), "selloff"),
+        "1M",
+    )
     name, _saved = _capture_torroba(monkeypatch, flat, character="selloff", form=scherzo)
     assert name == "Fandanguillo — Danza — Fandanguillo"
 

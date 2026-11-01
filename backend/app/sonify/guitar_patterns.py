@@ -3583,9 +3583,10 @@ def render_patterned_voices(
     lead, support, low = _shape_dynamics(
         ctx, lead, support, low, relaxed, patterns, protected_eighths
     )
-    from app.sonify.guitar_torroba import apply_torroba_sung_arch
+    from app.sonify.guitar_torroba import apply_juglar_thumb, apply_torroba_sung_arch
 
     lead = apply_torroba_sung_arch(ctx, lead, patterns)
+    low = apply_juglar_thumb(ctx, lead, low, patterns)
     written_lead = list(lead)
     from app.sonify.guitar_wave import apply_guitar_wave
 

@@ -18,7 +18,12 @@ from app.sonify.guitar_patterns import (
     render_patterned_voices,
 )
 from app.sonify.guitar_scale_passages import ScalePassage, ScalePlan
-from app.sonify.guitar_torroba import _scale_degree_below, apply_sonatina_downbeats, torroba_figure_plan
+from app.sonify.guitar_torroba import (
+    _scale_degree_below,
+    _torroba_primary,
+    apply_sonatina_downbeats,
+    torroba_figure_plan,
+)
 from app.sonify.keys import C_KEY, compose_register, register_for
 from app.sonify.model import HarmonyEvent, NoteEvent, Phrase, Run
 
@@ -102,6 +107,23 @@ def _framed_day(kind: str, character: str, bars: int = 34, bpm: int = 96) -> _Ct
     )
 
 
+def _name_sonatina(monkeypatch) -> None:
+    """Force Sonatina on 3/4: the picker no longer returns it on its own.
+
+    Calm 3/4 is Castillo — Juglar — Castillo at every tempo now — the old
+    `bpm > 72` gate is gone — but the Sonatina renderer is still live code, and
+    its base stretches are what this file's lowered fifth rides on.
+    """
+    real = _torroba_primary
+
+    def primary(ctx, mood, *, framed_macro: bool = False) -> str:
+        if ctx.kind == "3/4":
+            return "sonatina"
+        return real(ctx, mood, framed_macro=framed_macro)
+
+    monkeypatch.setattr("app.sonify.guitar_patterns._torroba_primary", primary)
+
+
 def _lead_at(lead, bar: int, beat: float, *, minimum: float = 0.5) -> NoteEvent:
     found = [
         note
@@ -178,7 +200,8 @@ def test_a_retimed_day_is_one_pattern_name() -> None:
     assert form_pattern_ids(longer, painted) == ["castillo", "torroba_tremolo", "castillo"]
 
 
-def test_lowered_lead_stays_on_voice_1_and_drops_support_at_62() -> None:
+def test_lowered_lead_stays_on_voice_1_and_drops_support_at_62(monkeypatch) -> None:
+    _name_sonatina(monkeypatch)
     epb = 6
     phrases = (_phrase(0, 1, epb), _phrase(1, 1, epb))
     melody = [67] * (2 * epb)
@@ -214,6 +237,7 @@ def test_lowered_lead_stays_on_voice_1_and_drops_support_at_62() -> None:
 
 
 def test_a_passage_reads_the_original_line_and_leaves_the_other_eighths_lowered(monkeypatch) -> None:
+    _name_sonatina(monkeypatch)
     epb = 6
     phrases = (_phrase(0, 1, epb), _phrase(1, 1, epb))
     melody = [67] * (2 * epb)

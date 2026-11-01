@@ -52,6 +52,7 @@ backend/var/
 backend/**/__pycache__/
 backend/**/*.pyc
 backend/data/
+backend/tmp/
 research/.venv/
 research/**/__pycache__/
 research/**/*.pyc
