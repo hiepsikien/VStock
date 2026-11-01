@@ -11,6 +11,10 @@ The shared clock is a `<sound tempo>` curve on `score.tempos`. Each phrase
 starts slightly fast and ends slightly slow, so the beat-weighted BPM
 deviation inside the phrase is 0. Every step sits on the score's division
 grid: a division centered on a step takes the mean of the two sides.
+
+Guitar Torroba keeps that one grid and adds a bar lean and an eighth-slot
+lilt. Each tier sums to 0 inside the phrase. The three move together, and
+the whole phrase scales only when their sum passes 10%.
 """
 
 from __future__ import annotations
@@ -36,6 +40,16 @@ _TEMPO_DELTA = {
 }
 _RAMP_BEATS = 3.0
 _MIN_PHRASE_BEATS = 2.0
+# Torroba's phrase breath is wider than the other guitars. A closing phrase
+# is still the same symmetric pair, not a deeper ritard. The bar lean and the
+# lilt are separate zero-sum tiers on that grid. Past ±10% the phrase scales.
+_TORROBA_OPEN_DELTA = 0.035
+_TORROBA_CLOSE_DELTA = 0.050
+_TEMPO_CAP = 0.10
+_LILT_DELTA = 0.04
+# A rasgueado fan strikes on 1/12 or 2/12. The downbeat itself is not a fan.
+_FAN_LIMIT = 0.25 - 1e-6
+_ONSET_TOL = 1e-4
 # Ambient breathes on a long note: two quarters, four eighths.
 _LONG_EIGHTHS = 4
 
@@ -312,7 +326,12 @@ def _copy_ties(original: tuple[NoteEvent, ...], heard: list[NoteEvent]) -> list[
 
 
 def _tempo_clock(score: Score) -> tuple[TempoEvent, ...]:
-    """Phrase breath on one clock. The end yields the time the opening took."""
+    """Phrase breath on one clock. The end yields the time the opening took.
+
+    Torroba guitar samples the same phrase arc, then adds the bar lean and
+    the lilt before the change-detection pass. A following short phrase still
+    finds the nominal tempo waiting at this phrase's end.
+    """
     delta = _TEMPO_DELTA.get(score.variant, 0.01)
     if delta <= 0 or not score.phrases:
         return ()
@@ -322,6 +341,7 @@ def _tempo_clock(score: Score) -> tuple[TempoEvent, ...]:
     nominal = float(score.bpm)
     piece_end = score.bars * bar_beats
     divisions = score.divisions if score.divisions > 0 else 2
+    torroba = _torroba_clock(score, divisions)
     raw: list[tuple[float, float, int]] = []
     order = 0
     for phrase in score.phrases:
@@ -331,7 +351,11 @@ def _tempo_clock(score: Score) -> tuple[TempoEvent, ...]:
         end = min(phrase.end / 2.0, piece_end)
         if end - start < _MIN_PHRASE_BEATS - 1e-9:
             continue
-        for beat, bpm in _phrase_tempos(start, end, nominal, delta, divisions):
+        if torroba:
+            series = _torroba_phrase_tempos(score, phrase, start, end, nominal, divisions)
+        else:
+            series = _phrase_tempos(start, end, nominal, delta, divisions)
+        for beat, bpm in series:
             if 0 <= beat < piece_end - 1e-9:
                 raw.append((round(beat, 4), bpm, order))
                 order += 1
@@ -417,6 +441,245 @@ def _tempo_factor(
         if left - 1e-9 <= beat < right - 1e-9:
             return factor
     return regions[-1][2]
+
+
+def _torroba_clock(score: Score, divisions: int) -> bool:
+    """The three-tier clock is guitar Torroba on an even division grid."""
+    return (
+        score.variant == "guitar"
+        and score.ensemble == "torroba"
+        and divisions >= 2
+        and divisions % 2 == 0
+    )
+
+
+def _torroba_phrase_tempos(
+    score: Score,
+    phrase: Phrase,
+    start: float,
+    end: float,
+    nominal: float,
+    divisions: int,
+):
+    """Phrase arc, bar lean, and lilt, sampled on the division grid.
+
+    Each tier sums to 0 across the phrase's units. When the stacked delta
+    passes ±10%, the whole phrase scales by the same factor. One unit is
+    never clamped on its own.
+    """
+    breath = _TORROBA_CLOSE_DELTA if phrase.closes else _TORROBA_OPEN_DELTA
+    regions = _tempo_regions(start, end, breath)
+    start_units = int(round(start * divisions))
+    end_units = int(round(end * divisions))
+    count = end_units - start_units
+    if count <= 0:
+        return
+    bar_delta = _bar_deltas(score, start, end, divisions, start_units, count)
+    lilt_delta = _lilt_deltas(score, start, end, divisions, start_units, count)
+    combined: list[float] = []
+    for offset in range(count):
+        unit = start_units + offset
+        phrase_delta = _tempo_factor((unit + 0.5) / divisions, regions) - 1.0
+        combined.append(phrase_delta + bar_delta[offset] + lilt_delta[offset])
+    peak = max(abs(value) for value in combined)
+    scale = _TEMPO_CAP / peak if peak > _TEMPO_CAP else 1.0
+    previous: float | None = None
+    for offset, value in enumerate(combined):
+        bpm = round(nominal * (1.0 + scale * value), 2)
+        if previous is not None and abs(previous - bpm) < 0.001:
+            continue
+        yield round((start_units + offset) / divisions, 4), bpm
+        previous = bpm
+
+
+def _bar_deltas(
+    score: Score,
+    start: float,
+    end: float,
+    divisions: int,
+    start_units: int,
+    count: int,
+) -> list[float]:
+    """Lean on bars that sit wholly inside the phrase. A cut bar stays 0."""
+    deltas = [0.0] * count
+    bar_beats = float(score.bar_beats)
+    for bar in range(score.bars):
+        bar_start = bar * bar_beats
+        bar_end = bar_start + bar_beats
+        if bar_start < start - 1e-9 or bar_end > end + 1e-9:
+            continue
+        lean = _bar_lean(score, _is_rasgueado(score, bar))
+        if lean is None:
+            continue
+        window, first_delta, second_delta = lean
+        first = int(round(bar_start * divisions))
+        split = int(round((bar_start + window) * divisions))
+        last = int(round(bar_end * divisions))
+        for unit in range(first, last):
+            index = unit - start_units
+            if 0 <= index < count:
+                deltas[index] = first_delta if unit < split else second_delta
+    return deltas
+
+
+def _bar_lean(score: Score, fan: bool) -> tuple[float, float, float] | None:
+    """`(window_beats, delta_before, delta_after)`. A fan replaces the plain bar.
+
+    6/8 leans across the two dotted quarters. 3/4 leans across beat 1 and the
+    two beats after it. Plain 4/4 does not lean; only its fan does.
+    """
+    if score.beats == 6 and score.beat_type == 8:
+        return (1.5, -0.04, 0.04) if fan else (1.5, -0.02, 0.02)
+    if score.beats == 3 and score.beat_type == 4:
+        return (1.0, -0.04, 0.02) if fan else (1.0, -0.02, 0.01)
+    if score.beats == 4 and score.beat_type == 4 and fan:
+        return (1.0, -0.045, 0.015)
+    return None
+
+
+def _is_rasgueado(score: Score, bar: int) -> bool:
+    """A fan onset sits strictly between the downbeat and the next sixteenth."""
+    for field in ("lead", "support"):
+        notes = getattr(score, field)
+        for note in notes:
+            if note.bar == bar and 0.0 < note.beat < _FAN_LIMIT:
+                return True
+    return False
+
+
+def _lilt_deltas(
+    score: Score,
+    start: float,
+    end: float,
+    divisions: int,
+    start_units: int,
+    count: int,
+) -> list[float]:
+    """Non-overlapping eighth pairs. E–S slows then hurries; S–E does the reverse.
+
+    A pair is taken only when both slots lie inside the phrase, then the walk
+    steps over both. E–S–E therefore leaves the last eighth unpaired.
+    """
+    deltas = [0.0] * count
+    bar_beats = float(score.bar_beats)
+    slot_count = int(round(bar_beats * 2.0))
+    if slot_count <= 0:
+        return deltas
+    by_bar: dict[int, list[NoteEvent]] = {}
+    for note in score.lead:
+        if _is_attack(note):
+            by_bar.setdefault(note.bar, []).append(note)
+    for bar in range(score.bars):
+        attacks = by_bar.get(bar, [])
+        kinds = [_slot_kind(attacks, slot) for slot in range(slot_count)]
+        slot = 0
+        while slot < slot_count:
+            nxt = slot + 1
+            pair = (kinds[slot], kinds[nxt]) if nxt < slot_count else None
+            inside = nxt < slot_count and _slots_inside(bar, slot, bar_beats, start, end)
+            if inside and pair == ("E", "S"):
+                _paint_slot(deltas, bar, slot, -_LILT_DELTA, bar_beats, divisions, start_units)
+                _paint_slot(deltas, bar, nxt, _LILT_DELTA, bar_beats, divisions, start_units)
+                slot += 2
+                continue
+            if inside and pair == ("S", "E"):
+                _paint_slot(deltas, bar, slot, _LILT_DELTA, bar_beats, divisions, start_units)
+                _paint_slot(deltas, bar, nxt, -_LILT_DELTA, bar_beats, divisions, start_units)
+                slot += 2
+                continue
+            slot += 1
+    return deltas
+
+
+def _slots_inside(bar: int, slot: int, bar_beats: float, start: float, end: float) -> bool:
+    """Both this eighth and the next one sit inside `[start, end)`."""
+    left = bar * bar_beats + slot * 0.5
+    right = left + 1.0
+    return left >= start - 1e-9 and right <= end + 1e-9
+
+
+def _paint_slot(
+    deltas: list[float],
+    bar: int,
+    slot: int,
+    value: float,
+    bar_beats: float,
+    divisions: int,
+    start_units: int,
+) -> None:
+    left = bar * bar_beats + slot * 0.5
+    first = int(round(left * divisions))
+    last = int(round((left + 0.5) * divisions))
+    for unit in range(first, last):
+        index = unit - start_units
+        if 0 <= index < len(deltas):
+            deltas[index] = value
+
+
+def _slot_kind(attacks: list[NoteEvent], slot: int) -> str | None:
+    """`E` is one eighth. `S` is two sixteenths or three notes of 1/6.
+
+    Four sixteenths on the grid are S–S, so the pair walk skips them. A grace
+    at 1.75 is a single offbeat sixteenth. A 3-sixteenth run at 1.25..1.75
+    spills into the next eighth and must not become S there.
+    """
+    left = slot * 0.5
+    right = left + 0.5
+    inside = [note for note in attacks if left - 1e-9 <= note.beat < right - 1e-9]
+    if len(inside) == 1:
+        note = inside[0]
+        if abs(note.beat - left) <= _ONSET_TOL and abs(note.duration_beats - 0.5) <= _ONSET_TOL:
+            return "E"
+        return None
+    if _two_sixteenths(inside, left) and not _continues_pickup(attacks, left):
+        return "S"
+    if _three_sixths(inside, left):
+        return "S"
+    return None
+
+
+def _two_sixteenths(notes: list[NoteEvent], left: float) -> bool:
+    if len(notes) != 2:
+        return False
+    ordered = sorted(notes, key=lambda note: note.beat)
+    targets = (left, left + 0.25)
+    return all(
+        abs(note.beat - target) <= _ONSET_TOL and abs(note.duration_beats - 0.25) <= _ONSET_TOL
+        for note, target in zip(ordered, targets)
+    )
+
+
+def _three_sixths(notes: list[NoteEvent], left: float) -> bool:
+    if len(notes) != 3:
+        return False
+    sixth = 1.0 / 6.0
+    ordered = sorted(notes, key=lambda note: note.beat)
+    targets = (left, left + sixth, left + 2.0 * sixth)
+    return all(
+        abs(note.beat - target) <= _ONSET_TOL and abs(note.duration_beats - sixth) <= _ONSET_TOL
+        for note, target in zip(ordered, targets)
+    )
+
+
+def _continues_pickup(attacks: list[NoteEvent], slot_start: float) -> bool:
+    """True when this sixteenth pair is the tail of a run that began off the eighth.
+
+    The note a quarter-beat earlier poisons the slot unless that note is itself
+    the back half of a sixteenth pair already sitting on the previous eighth.
+    Four grid sixteenths stay S–S. The run 1.25, 1.50, 1.75 does not.
+    """
+    pickup = slot_start - 0.25
+    pair_start = slot_start - 0.5
+    if not _sixteenth_at(attacks, pickup):
+        return False
+    return not _sixteenth_at(attacks, pair_start)
+
+
+def _sixteenth_at(attacks: list[NoteEvent], beat: float) -> bool:
+    return any(
+        abs(note.beat - beat) <= _ONSET_TOL and abs(note.duration_beats - 0.25) <= _ONSET_TOL
+        for note in attacks
+    )
 
 
 def _place(beat: float, bar_beats: float) -> tuple[int, float]:

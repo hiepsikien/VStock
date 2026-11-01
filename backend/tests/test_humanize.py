@@ -7,6 +7,8 @@ import struct
 from array import array
 from pathlib import Path
 
+import pytest
+
 from app.sonify.humanize import chosen_offset, humanize
 from app.sonify.model import NoteEvent, Phrase, Run, Score
 from app.sonify.musicxml import score_to_musicxml
@@ -379,6 +381,335 @@ def test_jazz_and_minimalist_clocks_stay_under_one_percent() -> None:
     assert any(event.bpm == 99.5 for event in wood.tempos)
     assert max(abs(event.bpm - 100) for event in jazz.tempos) < 1
     assert max(abs(event.bpm - 100) for event in wood.tempos) < 1
+
+
+def _open_phrase(start: int, end: int) -> Phrase:
+    """A cadence shorter than a period, so `closes` is false."""
+    span = end - start
+    cadence = min(3, span)
+    head = span - cadence
+    runs = ((Run(start, head, 60),) if head else ()) + (Run(start + head, cadence, 64),)
+    phrase = Phrase(start, end, runs)
+    assert not phrase.closes
+    return phrase
+
+
+def _closing_phrase(start: int, end: int) -> Phrase:
+    """A period-length cadence that is not held over, so `closes` is true."""
+    span = end - start
+    if span < 4:
+        raise AssertionError("a closing phrase needs a period-length cadence")
+    if span == 4:
+        runs = (Run(start, 4, 62),)
+    else:
+        runs = (Run(start, span - 4, 60), Run(end - 4, 4, 62))
+    phrase = Phrase(start, end, runs)
+    assert phrase.closes and not phrase.held_over
+    return phrase
+
+
+def _meter(kind: str) -> dict[str, float | int]:
+    if kind == "6/8":
+        return {"beats": 6, "beat_type": 8, "bar_beats": 3.0}
+    if kind == "3/4":
+        return {"beats": 3, "beat_type": 4, "bar_beats": 3.0}
+    return {"beats": 4, "beat_type": 4, "bar_beats": 4.0}
+
+
+def _torroba(**fields) -> Score:
+    base = dict(variant="guitar", ensemble="torroba", bpm=100, divisions=2)
+    base.update(fields)
+    return _score(**base)
+
+
+def _hit(
+    bar: int,
+    beat: float,
+    duration: float,
+    midi: int = 67,
+    *,
+    voice: int = 1,
+) -> NoteEvent:
+    return NoteEvent(
+        bar=bar,
+        beat=beat,
+        midi=midi,
+        duration_beats=duration,
+        voice=voice,
+        velocity=70,
+    )
+
+
+def _lilt_bar() -> tuple[NoteEvent, ...]:
+    """E–S–E across the first three eighths, then S–E. The middle E must stay unpaired."""
+    return (
+        _hit(0, 0.0, 0.5, 67),
+        _hit(0, 0.5, 0.25, 69),
+        _hit(0, 0.75, 0.25, 71),
+        _hit(0, 1.0, 0.5, 72),
+        _hit(0, 2.0, 0.25, 74),
+        _hit(0, 2.25, 0.25, 76),
+        _hit(0, 2.5, 0.5, 77),
+    )
+
+
+def _clock(score: Score) -> list[tuple[int, float, float]]:
+    return [(event.bar, event.beat, event.bpm) for event in score.tempos]
+
+
+def _division_bpms(score: Score, start: float, end: float) -> list[float]:
+    bar_beats = float(score.bar_beats)
+    points = sorted((_absolute(event, bar_beats), event.bpm) for event in score.tempos)
+    start_units = int(round(start * score.divisions))
+    end_units = int(round(end * score.divisions))
+    bpms: list[float] = []
+    for unit in range(start_units, end_units):
+        beat = unit / score.divisions
+        bpms.append(next(value for point, value in reversed(points) if point <= beat + 1e-9))
+    return bpms
+
+
+# Beat 1.0 is the third eighth of E–S–E. It carries phrase + bar only.
+_THREE_FOUR_LILT = [
+    (0, 0.0, 97.5),
+    (0, 0.5, 105.5),
+    (0, 1.0, 104.5),
+    (0, 1.5, 97.5),
+    (0, 2.0, 101.5),
+    (0, 2.5, 93.5),
+]
+_SIX_EIGHT_LILT = [
+    (0, 0.0, 97.5),
+    (0, 0.5, 105.5),
+    (0, 1.0, 101.5),
+    (0, 1.5, 98.5),
+    (0, 2.0, 102.5),
+    (0, 2.5, 94.5),
+]
+
+
+def test_torroba_eighth_and_subdivision_lilt_on_three_four_and_six_eight() -> None:
+    """An eighth plus two sixteenths, and E–S–E, on both Torroba meters.
+
+    The value at beat 1.0 is the unpaired middle eighth. Pairing it again
+    would pull that step down by 0.04.
+    """
+    curves = {"3/4": _THREE_FOUR_LILT, "6/8": _SIX_EIGHT_LILT}
+    for kind, curve in curves.items():
+        for divisions in (2, 4, 12):
+            heard = humanize(
+                _torroba(
+                    bars=1,
+                    divisions=divisions,
+                    phrases=(_open_phrase(0, 6),),
+                    lead=_lilt_bar(),
+                    **_meter(kind),
+                )
+            )
+            assert _clock(heard) == curve
+            bpms = _division_bpms(heard, 0.0, 3.0)
+            assert sum(bpms) / len(bpms) == pytest.approx(heard.bpm, abs=0.01)
+
+
+def test_torroba_triplet_counts_as_the_subdivided_eighth() -> None:
+    sixth = 1.0 / 6.0
+    curve = [
+        (0, 0.0, 97.5),
+        (0, 0.5, 105.5),
+        (0, 1.0, 104.5),
+        (0, 1.5, 97.5),
+    ]
+    sixteenths = (
+        _hit(0, 0.0, 0.5, 67),
+        _hit(0, 0.5, 0.25, 69),
+        _hit(0, 0.75, 0.25, 71),
+    )
+    triplet = (
+        _hit(0, 0.0, 0.5, 67),
+        _hit(0, 0.5, sixth, 69),
+        _hit(0, 0.5 + sixth, sixth, 71),
+        _hit(0, 0.5 + 2.0 * sixth, sixth, 72),
+    )
+    for lead in (sixteenths, triplet):
+        for divisions in (2, 12):
+            heard = humanize(
+                _torroba(
+                    bars=1,
+                    divisions=divisions,
+                    phrases=(_open_phrase(0, 6),),
+                    lead=lead,
+                    **_meter("3/4"),
+                )
+            )
+            assert _clock(heard) == curve
+
+
+def test_torroba_phrase_end_returns_nominal_before_a_short_phrase() -> None:
+    short = Phrase(6, 8, (Run(6, 2, 60),))
+    assert not short.closes
+    assert short.end / 2.0 - short.start / 2.0 < 2.0
+    heard = humanize(
+        _torroba(
+            bars=2,
+            divisions=4,
+            phrases=(_open_phrase(0, 6), short),
+            lead=_lilt_bar(),
+            **_meter("3/4"),
+        )
+    )
+    assert _clock(heard) == [*_THREE_FOUR_LILT, (1, 0.0, 100)]
+
+
+def test_torroba_stacked_tiers_scale_the_whole_phrase_to_a_tenth() -> None:
+    """Closing -0.05, a 6/8 fan -0.04, and a lilt -0.04 meet at -0.13.
+
+    The cap scales every unit, so the neighbor of the peak is not left at the
+    raw -0.05. Rounding may move the division mean by about 0.01 BPM.
+    """
+    lead = (
+        _hit(2, 0.0, 0.5, 67),
+        _hit(2, 0.5, 0.25, 69),
+        _hit(2, 0.75, 0.25, 71),
+    )
+    fan = _hit(2, 1.0 / 12.0, 0.4, 48, voice=2)
+    for divisions in (2, 4, 12):
+        heard = humanize(
+            _torroba(
+                bars=3,
+                divisions=divisions,
+                phrases=(_closing_phrase(0, 18),),
+                lead=lead,
+                support=(fan,),
+                **_meter("6/8"),
+            )
+        )
+        placed = {
+            round(_absolute(event, heard.bar_beats), 4): event.bpm for event in heard.tempos
+        }
+        assert placed[6.0] == 90.0
+        assert placed[6.5] == 96.15
+        assert not any(6.0 < beat < 6.5 for beat in placed)
+        bpms = _division_bpms(heard, 0.0, 9.0)
+        assert min(bpms) == 90.0
+        assert max(abs(bpm / heard.bpm - 1.0) for bpm in bpms) == pytest.approx(0.10, abs=1e-9)
+        assert sum(bpms) / len(bpms) == pytest.approx(heard.bpm, abs=0.01)
+
+
+def test_torroba_offbeat_sixteenths_do_not_take_the_lilt() -> None:
+    """Type-2 sixteenths are S–S. A grace, or a run across 1.25..1.75, is not S."""
+    plain = [
+        (0, 0.0, 101.5),
+        (0, 1.0, 104.5),
+        (0, 1.5, 97.5),
+    ]
+    figures = (
+        (
+            _hit(0, 0.5, 0.25, 67),
+            _hit(0, 0.75, 0.25, 69),
+            _hit(0, 1.0, 0.25, 71),
+            _hit(0, 1.25, 0.25, 72),
+        ),
+        (_hit(0, 1.75, 0.25, 67),),
+        (
+            _hit(0, 1.25, 0.25, 67),
+            _hit(0, 1.5, 0.25, 69),
+            _hit(0, 1.75, 0.25, 71),
+            _hit(0, 2.0, 0.5, 72),
+        ),
+    )
+    for lead in figures:
+        heard = humanize(
+            _torroba(
+                bars=1,
+                divisions=4,
+                phrases=(_open_phrase(0, 6),),
+                lead=lead,
+                **_meter("3/4"),
+            )
+        )
+        assert _clock(heard) == plain
+
+
+def test_torroba_bar_lean_follows_the_meter_and_stops_at_a_phrase_cut() -> None:
+    plain = [(0, 0.0, 105), (0, 2.0, 95)]
+    for support in (
+        (),
+        (_hit(0, 0.0, 0.5, 48, voice=2),),
+        (_hit(0, 0.25, 0.25, 48, voice=2),),
+    ):
+        heard = humanize(
+            _torroba(
+                bars=1,
+                divisions=2,
+                phrases=(_closing_phrase(0, 8),),
+                support=support,
+                **_meter("4/4"),
+            )
+        )
+        assert _clock(heard) == plain
+
+    fan = humanize(
+        _torroba(
+            bars=1,
+            divisions=2,
+            phrases=(_closing_phrase(0, 8),),
+            support=(_hit(0, 1.0 / 12.0, 0.4, 48, voice=2),),
+            **_meter("4/4"),
+        )
+    )
+    assert _clock(fan) == [(0, 0.0, 100.5), (0, 1.0, 106.5), (0, 2.0, 96.5)]
+
+    three = humanize(
+        _torroba(
+            bars=1,
+            divisions=2,
+            phrases=(_open_phrase(0, 6),),
+            support=(_hit(0, 1.0 / 12.0, 0.4, 48, voice=2),),
+            **_meter("3/4"),
+        )
+    )
+    assert _clock(three) == [(0, 0.0, 99.5), (0, 1.0, 105.5), (0, 1.5, 98.5)]
+
+    cut = humanize(
+        _torroba(
+            bars=2,
+            divisions=2,
+            phrases=(_closing_phrase(2, 10),),
+            support=(
+                _hit(0, 1.0 / 12.0, 0.4, 48, voice=2),
+                _hit(1, 1.0 / 12.0, 0.4, 50, voice=2),
+            ),
+            **_meter("4/4"),
+        )
+    )
+    assert _clock(cut) == [(0, 1.0, 105), (0, 3.0, 95), (1, 1.0, 100)]
+
+
+def test_torroba_clock_stays_off_unless_the_grid_is_an_even_guitar_division() -> None:
+    phrase = _phrase(0, 32)
+    odd = dict(bars=4, bpm=88, divisions=3, phrases=(phrase,))
+    torroba = humanize(_score(**odd, variant="guitar", ensemble="torroba"))
+    classic = humanize(_score(**odd, variant="guitar", ensemble="classic"))
+    assert _clock(torroba) == _clock(classic)
+    assert torroba.tempos[0].bpm == 88.88
+
+    symphony = humanize(
+        _score(bars=4, bpm=88, variant="symphony", ensemble="torroba", phrases=(phrase,))
+    )
+    assert symphony.tempos[0].bpm == 88.88
+
+    other_guitar = humanize(
+        _score(
+            bars=1,
+            bpm=100,
+            divisions=2,
+            variant="guitar",
+            ensemble="classic",
+            phrases=(_open_phrase(0, 6),),
+            **_meter("6/8"),
+        )
+    )
+    assert other_guitar.tempos[0].bpm == 101
 
 
 def _quarters(bars: int) -> tuple[NoteEvent, ...]:
