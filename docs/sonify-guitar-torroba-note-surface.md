@@ -68,11 +68,15 @@ Trong bảng chọn pattern (`_torroba_primary` và `_torroba_contrast` trong `g
 
 ## 3. Mặt nốt ở 96 BPM (4/4 như hai ô 2/4)
 
-Mục này không còn hiệu lực. Mặt 2+2 đã bị gỡ. Castillo 4/4 ngân cả ô ở mọi BPM. Kiểu 7 và kiểu 3 không còn nhánh `bpm > 72`.
+Chỉ mục 3.1 không còn hiệu lực. Mặt 2+2 đã bị gỡ. Castillo 4/4 ngân cả ô ở mọi BPM. Kiểu 7 và kiểu 3 không còn nhánh `bpm > 72`.
 
-Ở nốt đen = 96, mặt của `castillo`, `sonatina` và `olite` là móc đơn (`0.5`), móc kép (`0.25`) / chùm ba móc kép (`1/6`), và một ít nốt đen (`1.0`) hoặc chấm dôi (`1.5`). Nốt tròn (`4.0`) không được làm lưới nền ở BPM > 72.
+Mục 3.2 và 3.3 vẫn là mặt nốt code đang hát. `_render_sonatina_moving` đặt nốt đen ở phách mạnh rồi hai móc đơn có slur. `_olite_thin` là nốt đen chấm dôi cộng móc dẫn, và giá đi ngang không trả về ô trống.
 
 ### 3.1. Lưới nền `_render_castillo_bar` và các ô ngân ở BPM > 72
+
+Đoạn dưới đây là mặt 2+2 đã gỡ, không phải chỉ thị cho lượt sau.
+
+Ở nốt đen = 96, mặt 2+2 của `castillo` là móc đơn (`0.5`), móc kép (`0.25`) / chùm ba móc kép (`1/6`), và một ít nốt đen (`1.0`) hoặc chấm dôi (`1.5`). Nốt tròn (`4.0`) không được làm lưới nền ở BPM > 72.
 
 - **Khi `ctx.bpm <= 72` (chương chậm 3/4 ở 60–72 BPM, đúng chỗ của *Torija* / *Castillos* chậm):** Giữ nguyên `_render_castillo_bar` hiện tại (lead ngân cả ô, bass 1 phách ở móc 0, support ở móc 2 và 4).
 - **Khi `ctx.bpm > 72` (chương 4/4 ở 90–108 BPM):**

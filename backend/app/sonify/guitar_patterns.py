@@ -2224,10 +2224,50 @@ def _apply_scale_run(
     return lead, support, low, bars
 
 
-def _splice(events: list[NoteEvent], start: int, end: int, fresh: list[NoteEvent], epb: int) -> list[NoteEvent]:
-    kept: list[NoteEvent] = []
+def _cut_eighth_triplet(events: list[NoteEvent], start: int, end: int, epb: int) -> set[int]:
+    """Drop every attack of an eighth-note triplet the splice cuts into.
+
+    Juglar writes three notes of ``4/12`` on the beat. A scale is spelled on
+    sixteenths, and ``_start16`` floors the last of those three onto the splice
+    boundary, so the overlap test keeps it. That leftover is a lone 3:2 eighth.
+    MuseScore ignores the ratio and refuses the bar.
+    """
+    grouped: dict[tuple[int, int], list[NoteEvent]] = {}
     for event in events:
         if event.midi is None:
+            continue
+        if abs(event.duration_beats * 12.0 - 4.0) > 0.05:
+            continue
+        grouped.setdefault((event.bar, event.voice), []).append(event)
+    drop: set[int] = set()
+    for notes in grouped.values():
+        notes.sort(key=lambda note: note.beat)
+        index = 0
+        while index + 2 < len(notes):
+            group = notes[index : index + 3]
+            origin = group[0].beat
+            if abs(origin - round(origin)) > 1e-4 or any(
+                abs((group[step].beat - origin) - step / 3.0) > 1e-3 for step in (1, 2)
+            ):
+                index += 1
+                continue
+            if any(_triplet_hits_splice(note, start, end, epb) for note in group):
+                drop.update(id(note) for note in group)
+            index += 3
+    return drop
+
+
+def _triplet_hits_splice(event: NoteEvent, start: int, end: int, epb: int) -> bool:
+    begin = event.bar * epb * 2 + event.beat * 4.0
+    finish = begin + event.duration_beats * 4.0
+    return finish > start + 1e-6 and begin < end - 1e-6
+
+
+def _splice(events: list[NoteEvent], start: int, end: int, fresh: list[NoteEvent], epb: int) -> list[NoteEvent]:
+    drop = _cut_eighth_triplet(events, start, end, epb)
+    kept: list[NoteEvent] = []
+    for event in events:
+        if event.midi is None or id(event) in drop:
             continue
         begin = _start16(event, epb)
         finish = begin + _dur16(event)
