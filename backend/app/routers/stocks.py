@@ -450,7 +450,7 @@ async def get_span(
     if range not in SPAN_RANGES:
         raise HTTPException(status_code=404, detail=f"No sonification for {range}")
     try:
-        plan = await plan_span(sym, range, variant)
+        plan = await plan_span(sym, range, variant, ensemble=chosen)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:

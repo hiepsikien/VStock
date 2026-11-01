@@ -1268,6 +1268,7 @@ class RecapStore:
             home_pedal=movement.home_pedal,
             character_at=movement.bar_characters,
             gap_leads=movement.gap_leads,
+            movement_index=0 if span == "1W" else index,
         )
         if humanize:
             score = humanize_score(score)
@@ -1411,6 +1412,7 @@ class RecapStore:
             title=f"{symbol} {day.isoformat()}",
             key=stock_home_key(symbol),
             character=movement_character([bar.close for bar in bars], "1D"),
+            movement_index=0,
         )
         if humanize:
             score = humanize_score(score)
