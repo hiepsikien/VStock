@@ -1,18 +1,25 @@
-import React, { useState } from 'react';
-import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import Svg, { Path, Rect } from 'react-native-svg';
 import {
   ENSEMBLE_ROWS,
   type RecapEnsemble,
   type RecapVariant,
 } from '../api/client';
-import { GENRES, STREAM_GENRES, type StreamVariant } from './labels';
-import { palette } from './palette';
-import { FlatScrubber, PeakScrubber } from './Scrubber';
+import { clockText, GENRES, STREAM_GENRES, type StreamVariant } from './labels';
+import { MotionPressable, RiseRule } from './motion';
+import { OptionsPopover } from './OptionsPopover';
+import { palette, TOUCH_TARGET } from './palette';
+import { Timeline, type TimelinePart } from './Scrubber';
+import { type } from './type';
 
 type Scrub = {
+  label: string;
   progress: number;
   time: number;
   duration: number;
+  parts?: TimelinePart[] | null;
+  peaks?: number[] | null;
 };
 
 type ReplayProps = {
@@ -25,9 +32,11 @@ type ReplayProps = {
   /** The work has ended. Nghe lại restarts it; Nghe stays quiet. */
   finished?: boolean;
   composing: boolean;
-  fileScrub: (Scrub & { peaks: number[] }) | null;
-  movementScrub: Scrub | null;
-  workScrub: Scrub | null;
+  muted?: boolean;
+  timeline: Scrub | null;
+  chapterLabel?: string | null;
+  chapterIndex?: number;
+  chapterCount?: number;
   onVariant: (variant: RecapVariant) => void;
   onEnsemble: (ensemble: RecapEnsemble) => void;
   onHumanize: (value: boolean) => void;
@@ -35,9 +44,10 @@ type ReplayProps = {
   onPlay: () => void;
   onPause: () => void;
   onReplay: () => void;
-  onFileScrub: (ratio: number) => void;
-  onMovementScrub: (ratio: number) => void;
-  onWorkScrub: (ratio: number) => void;
+  onMute?: () => void;
+  onTimeline: (ratio: number) => void;
+  /** Lets the room release the transport keys while this popover is open. */
+  onOptionsOpenChange?: (open: boolean) => void;
   status?: string | null;
 };
 
@@ -51,11 +61,18 @@ type LiveProps = {
   status?: string | null;
 };
 
+const MOTIF: Record<RecapVariant, string> = {
+  symphony: '■',
+  jazz: '●',
+  minimalist: '▤',
+  ambient: '○',
+  guitar: '≈',
+};
+
 export function Controls(props: ReplayProps | LiveProps) {
   return (
     <View style={styles.wrap}>
       {props.mode === 'replay' ? <ReplayControls {...props} /> : <LiveControls {...props} />}
-      {props.status ? <Text style={styles.status}>{props.status}</Text> : null}
     </View>
   );
 }
@@ -68,9 +85,11 @@ function ReplayControls({
   playing,
   finished = false,
   composing,
-  fileScrub,
-  movementScrub,
-  workScrub,
+  muted = false,
+  timeline,
+  chapterLabel,
+  chapterIndex,
+  chapterCount,
   onVariant,
   onEnsemble,
   onHumanize,
@@ -78,268 +97,453 @@ function ReplayControls({
   onPlay,
   onPause,
   onReplay,
-  onFileScrub,
-  onMovementScrub,
-  onWorkScrub,
+  onMute,
+  onTimeline,
+  onOptionsOpenChange,
+  status,
 }: ReplayProps) {
   const [optionsOpen, setOptionsOpen] = useState(false);
   const shelf = ENSEMBLE_ROWS[variant];
+
+  useEffect(() => {
+    onOptionsOpenChange?.(optionsOpen);
+  }, [onOptionsOpenChange, optionsOpen]);
   return (
-    <View>
-      <ChipRow
-        items={GENRES.map((item) => ({ id: item.id, label: item.label }))}
-        selected={variant}
-        onSelect={(id) => onVariant(id as RecapVariant)}
-        large
-      />
-      <ChipRow
-        items={shelf.map((item) => ({ id: item.id, label: item.label }))}
-        selected={ensemble}
-        onSelect={(id) => onEnsemble(id as RecapEnsemble)}
-      />
-      <View style={styles.transport}>
-        <TransportButton
-          label="Nghe"
-          active={!playing && !finished}
-          disabled={composing || finished}
-          onPress={onPlay}
-        />
-        <TransportButton label="Tạm dừng" active={playing} disabled={!playing && !composing} onPress={onPause} />
-        <TransportButton label="Nghe lại" onPress={onReplay} />
+    <>
+      <View style={styles.shelf}>
+        {GENRES.map((item) => {
+          const active = item.id === variant;
+          return (
+            <MotionPressable
+              key={item.id}
+              onPress={() => onVariant(item.id)}
+              style={[styles.tile, active && styles.tileActive]}
+              accessibilityRole="button"
+              accessibilityLabel={item.label}
+              accessibilityState={{ selected: active }}
+            >
+              <Text style={[styles.motif, active && styles.motifActive]}>{MOTIF[item.id]}</Text>
+              <Text style={[type.sans, styles.tileText, active && styles.tileTextActive]} numberOfLines={1}>
+                {item.label}
+              </Text>
+              {active ? <RiseRule style={styles.tileRule} /> : null}
+            </MotionPressable>
+          );
+        })}
       </View>
-      {fileScrub ? (
-        <PeakScrubber
-          peaks={fileScrub.peaks}
-          progress={fileScrub.progress}
-          time={fileScrub.time}
-          duration={fileScrub.duration}
-          onRatio={onFileScrub}
-        />
-      ) : null}
-      {movementScrub ? (
-        <FlatScrubber
-          label="Chương"
-          progress={movementScrub.progress}
-          time={movementScrub.time}
-          duration={movementScrub.duration}
-          onRatio={onMovementScrub}
-        />
-      ) : null}
-      {workScrub ? (
-        <FlatScrubber
-          label="Tác phẩm"
-          progress={workScrub.progress}
-          time={workScrub.time}
-          duration={workScrub.duration}
-          onRatio={onWorkScrub}
-        />
-      ) : null}
-      <Pressable
-        onPress={() => setOptionsOpen((open) => !open)}
-        style={styles.disclosure}
-        accessibilityRole="button"
-        accessibilityState={{ expanded: optionsOpen }}
-      >
-        <Text style={styles.disclosureText}>{optionsOpen ? 'Tùy chọn nghe ▾' : 'Tùy chọn nghe ▸'}</Text>
-      </Pressable>
-      {optionsOpen ? (
-        <View style={styles.options}>
-          <OptionSwitch label="Humanize" value={humanize} onChange={onHumanize} />
-          <OptionSwitch label="Màu" value={colorOn} onChange={onColor} />
+
+      <View style={styles.shelfRow}>
+        <View style={styles.shelfLinks}>
+          {shelf.map((item) => {
+            const active = item.id === ensemble;
+            return (
+              <MotionPressable
+                key={item.id}
+                onPress={() => onEnsemble(item.id)}
+                hitSlop={6}
+                style={styles.shelfLink}
+                accessibilityRole="button"
+                accessibilityLabel={item.label}
+                accessibilityState={{ selected: active }}
+              >
+                <Text style={[type.sans, styles.shelfLinkText, active && styles.shelfLinkTextActive]}>
+                  {item.label}
+                </Text>
+                {active ? <RiseRule color={palette.hairlineStrong} style={styles.shelfLinkRule} /> : null}
+              </MotionPressable>
+            );
+          })}
         </View>
-      ) : null}
-    </View>
-  );
-}
-
-function LiveControls({ variant, playing, onVariant, onPlay, onPause }: LiveProps) {
-  return (
-    <View>
-      <ChipRow
-        items={STREAM_GENRES.map((item) => ({ id: item.id, label: item.label }))}
-        selected={variant}
-        onSelect={(id) => onVariant(id as StreamVariant)}
-        large
-      />
-      <View style={styles.transport}>
-        <TransportButton label="Nghe" active={!playing} onPress={onPlay} />
-        <TransportButton label="Tạm dừng" active={playing} disabled={!playing} onPress={onPause} />
+        <MotionPressable
+          onPress={() => setOptionsOpen(true)}
+          hitSlop={6}
+          style={styles.tool}
+          accessibilityRole="button"
+          accessibilityLabel="Tùy chọn nghe"
+          accessibilityState={{ expanded: optionsOpen }}
+        >
+          <View style={styles.gearDot} />
+          <View style={styles.gearDot} />
+          <View style={styles.gearDot} />
+        </MotionPressable>
       </View>
-    </View>
-  );
-}
 
-function ChipRow({
-  items,
-  selected,
-  onSelect,
-  large = false,
-}: {
-  items: { id: string; label: string }[];
-  selected: string;
-  onSelect: (id: string) => void;
-  large?: boolean;
-}) {
-  return (
-    <View style={styles.chips}>
-      {items.map((item) => {
-        const active = item.id === selected;
-        return (
-          <Pressable
-            key={item.id}
-            onPress={() => onSelect(item.id)}
-            style={[styles.chip, active && styles.chipActive]}
+      <View style={styles.transport}>
+        <View style={styles.playWrap}>
+          {playing ? <View pointerEvents="none" style={styles.playHalo} /> : null}
+          <MotionPressable
+            onPress={playing ? onPause : onPlay}
+            disabled={composing || (finished && !playing)}
+            style={[styles.play, (composing || (finished && !playing)) && styles.playDisabled]}
             accessibilityRole="button"
-            accessibilityState={{ selected: active }}
+            accessibilityLabel={playing ? 'Tạm dừng' : 'Nghe'}
           >
-            <Text style={[styles.chipText, large && styles.chipTextLarge, active && styles.chipTextActive]} numberOfLines={1}>
-              {item.label}
+            {playing ? (
+              <Svg width={16} height={18} viewBox="0 0 16 18">
+                <Rect x={1} y={0} width={5} height={18} rx={1} fill={palette.background} />
+                <Rect x={10} y={0} width={5} height={18} rx={1} fill={palette.background} />
+              </Svg>
+            ) : (
+              <Svg width={16} height={18} viewBox="0 0 16 18">
+                <Path d="M1 1 L15 9 L1 17 Z" fill={palette.background} />
+              </Svg>
+            )}
+          </MotionPressable>
+        </View>
+
+        <MotionPressable
+          onPress={onReplay}
+          hitSlop={4}
+          style={styles.replay}
+          accessibilityRole="button"
+          accessibilityLabel="Nghe lại"
+        >
+          <Svg width={20} height={20} viewBox="0 0 20 20">
+            <Path
+              d="M16 10a6 6 0 1 1-1.76-4.24"
+              fill="none"
+              stroke={palette.textMuted}
+              strokeWidth={1.6}
+              strokeLinecap="round"
+            />
+            <Path
+              d="M16.4 1.6v4h-4"
+              fill="none"
+              stroke={palette.textMuted}
+              strokeWidth={1.6}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </Svg>
+        </MotionPressable>
+
+        {onMute ? (
+          <MotionPressable
+            onPress={onMute}
+            hitSlop={6}
+            style={styles.mute}
+            accessibilityRole="button"
+            accessibilityLabel={muted ? 'Bật tiếng' : 'Tắt tiếng'}
+            accessibilityState={{ selected: muted }}
+          >
+            <Svg width={16} height={16} viewBox="0 0 16 16">
+              <Path
+                d="M2 6h2.5L8 3.2v9.6L4.5 10H2z"
+                fill="none"
+                stroke={muted ? palette.textFaint : palette.textMuted}
+                strokeWidth={1.4}
+                strokeLinejoin="round"
+              />
+              {muted ? (
+                <Path
+                  d="M10.4 6.2l3.2 3.6M13.6 6.2l-3.2 3.6"
+                  fill="none"
+                  stroke={palette.textFaint}
+                  strokeWidth={1.4}
+                  strokeLinecap="round"
+                />
+              ) : (
+                <>
+                  <Path
+                    d="M10 6.1a2.7 2.7 0 0 1 0 3.8"
+                    fill="none"
+                    stroke={palette.textMuted}
+                    strokeWidth={1.4}
+                    strokeLinecap="round"
+                  />
+                  <Path
+                    d="M11.9 4.4a5 5 0 0 1 0 7.2"
+                    fill="none"
+                    stroke={palette.textMuted}
+                    strokeWidth={1.4}
+                    strokeLinecap="round"
+                  />
+                </>
+              )}
+            </Svg>
+          </MotionPressable>
+        ) : null}
+
+        <View style={styles.clock}>
+          <Text style={[type.mono, styles.clockNow]}>
+            {timeline ? clockText(timeline.time, timeline.duration) : '0:00'}
+          </Text>
+          <Text style={[type.monoSmall, styles.clockTotal]}>
+            {timeline ? `/ ${clockText(timeline.duration, timeline.duration)}` : '/ 0:00'}
+          </Text>
+        </View>
+
+        {status ? (
+          <Text style={[type.sans, styles.transportStatus]} numberOfLines={1}>
+            {status}
+          </Text>
+        ) : null}
+
+        {chapterLabel ? (
+          <View style={styles.chapter}>
+            <Text style={[type.section, styles.chapterName]} numberOfLines={1}>
+              {chapterLabel}
             </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
+            {chapterCount && chapterCount > 1 ? (
+              <Text style={[type.monoSmall, styles.chapterIndex]}>
+                {Math.min(chapterCount, (chapterIndex ?? 0) + 1)}/{chapterCount}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
 
-function TransportButton({
-  label,
-  onPress,
-  active = false,
-  disabled = false,
-}: {
-  label: string;
-  onPress: () => void;
-  active?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      style={[styles.button, active && styles.buttonActive, disabled && styles.buttonDisabled]}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-    >
-      <Text style={styles.buttonText}>{label}</Text>
-    </Pressable>
-  );
-}
+      {timeline ? <Timeline {...timeline} onRatio={onTimeline} /> : null}
 
-function OptionSwitch({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <View style={styles.option}>
-      <Text style={styles.optionLabel}>{label}</Text>
-      <Switch
-        value={value}
-        onValueChange={onChange}
-        trackColor={{ false: palette.track, true: palette.sound }}
-        thumbColor={palette.text}
-        accessibilityLabel={label}
+      <OptionsPopover
+        visible={optionsOpen}
+        onClose={() => setOptionsOpen(false)}
+        humanize={humanize}
+        colorOn={colorOn}
+        onHumanize={onHumanize}
+        onColor={onColor}
       />
-    </View>
+    </>
+  );
+}
+
+function LiveControls({ variant, playing, onVariant, onPlay, onPause, status }: LiveProps) {
+  return (
+    <>
+      <View style={styles.shelf}>
+        {STREAM_GENRES.map((item) => {
+          const active = item.id === variant;
+          return (
+            <MotionPressable
+              key={item.id}
+              onPress={() => onVariant(item.id)}
+              style={[styles.tile, active && styles.tileActive]}
+              accessibilityRole="button"
+              accessibilityLabel={item.label}
+              accessibilityState={{ selected: active }}
+            >
+              <Text style={[styles.motif, active && styles.motifActive]}>{MOTIF[item.id]}</Text>
+              <Text style={[type.sans, styles.tileText, active && styles.tileTextActive]} numberOfLines={1}>
+                {item.label}
+              </Text>
+              {active ? <RiseRule style={styles.tileRule} /> : null}
+            </MotionPressable>
+          );
+        })}
+      </View>
+
+      <View style={styles.transport}>
+        <View style={styles.playWrap}>
+          {playing ? <View pointerEvents="none" style={styles.playHalo} /> : null}
+          <MotionPressable
+            onPress={playing ? onPause : onPlay}
+            style={styles.play}
+            accessibilityRole="button"
+            accessibilityLabel={playing ? 'Tạm dừng' : 'Nghe đài'}
+          >
+            {playing ? (
+              <Svg width={16} height={18} viewBox="0 0 16 18">
+                <Rect x={1} y={0} width={5} height={18} rx={1} fill={palette.background} />
+                <Rect x={10} y={0} width={5} height={18} rx={1} fill={palette.background} />
+              </Svg>
+            ) : (
+              <Svg width={16} height={18} viewBox="0 0 16 18">
+                <Path d="M1 1 L15 9 L1 17 Z" fill={palette.background} />
+              </Svg>
+            )}
+          </MotionPressable>
+        </View>
+        <Text style={[type.section, styles.liveHint]}>
+          {playing ? 'Đang thu tín hiệu' : 'Chọn đài rồi bấm nghe'}
+        </Text>
+        {status ? (
+          <Text style={[type.sans, styles.transportStatus]} numberOfLines={1}>
+            {status}
+          </Text>
+        ) : null}
+      </View>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: {
+    flex: 1,
     paddingHorizontal: 16,
     paddingTop: 8,
-    paddingBottom: 16,
-    backgroundColor: palette.background,
+    paddingBottom: 6,
+    backgroundColor: palette.panel,
   },
-  chips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 8,
-  },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: palette.surface,
-  },
-  chipActive: {
-    backgroundColor: palette.sound,
-  },
-  chipText: {
-    color: palette.textMuted,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  chipTextLarge: {
-    fontSize: 15,
-  },
-  chipTextActive: {
-    color: palette.text,
-  },
-  transport: {
+  shelf: {
     flexDirection: 'row',
     gap: 8,
-    marginTop: 14,
   },
-  button: {
+  tile: {
     flex: 1,
+    height: 56,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.hairline,
     backgroundColor: palette.surface,
+    paddingHorizontal: 4,
   },
-  buttonActive: {
-    backgroundColor: palette.sound,
+  tileActive: {
+    backgroundColor: palette.surfaceActive,
+    borderColor: palette.hairlineStrong,
   },
-  buttonDisabled: {
-    opacity: 0.45,
+  motif: {
+    color: palette.textFaint,
+    fontSize: 10,
+    lineHeight: 14,
   },
-  buttonText: {
-    color: palette.text,
-    fontSize: 16,
-    fontWeight: '600',
+  motifActive: {
+    color: palette.sound,
   },
-  disclosure: {
-    marginTop: 14,
-    alignSelf: 'flex-start',
-  },
-  disclosureText: {
+  tileText: {
     color: palette.textMuted,
     fontSize: 13,
-    fontWeight: '600',
+    lineHeight: 18,
   },
-  options: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
+  tileTextActive: {
+    color: palette.text,
   },
-  option: {
-    flex: 1,
+  tileRule: {
+    position: 'absolute',
+    left: 10,
+    right: 10,
+    bottom: 0,
+    height: 3,
+    borderTopLeftRadius: 2,
+    borderTopRightRadius: 2,
+    backgroundColor: palette.sound,
+  },
+  shelfRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingLeft: 10,
-    paddingRight: 6,
+    height: 34,
+    marginTop: 0,
+  },
+  shelfLinks: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  shelfLink: {
     paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: palette.surface,
   },
-  optionLabel: {
+  shelfLinkText: {
+    color: palette.textFaint,
+    fontSize: 13,
+  },
+  shelfLinkTextActive: {
     color: palette.text,
-    fontSize: 13,
-    fontWeight: '600',
   },
-  status: {
-    color: palette.playhead,
-    fontSize: 13,
-    textAlign: 'center',
-    marginTop: 10,
+  shelfLinkRule: {
+    height: 1,
+    marginTop: 3,
+    backgroundColor: 'transparent',
+  },
+  tool: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+  },
+  mute: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+  },
+  gearDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: palette.textMuted,
+  },
+  transport: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 4,
+  },
+  playWrap: {
+    width: 56,
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playHalo: {
+    position: 'absolute',
+    left: -4,
+    top: -4,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 1,
+    borderColor: palette.soundSoft,
+  },
+  play: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.sound,
+  },
+  playDisabled: {
+    opacity: 0.35,
+  },
+  replay: {
+    width: TOUCH_TARGET,
+    height: TOUCH_TARGET,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: palette.hairline,
+  },
+  clock: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+  },
+  clockNow: {
+    color: palette.text,
+  },
+  clockTotal: {
+    color: palette.textFaint,
+  },
+  chapter: {
+    flex: 1,
+    alignItems: 'flex-end',
+  },
+  chapterName: {
+    color: palette.textFaint,
+  },
+  chapterIndex: {
+    color: palette.textMuted,
+    marginTop: 2,
+  },
+  liveHint: {
+    color: palette.textFaint,
+  },
+  transportStatus: {
+    color: palette.textMuted,
+    flexShrink: 1,
+    fontSize: 12,
+    lineHeight: 16,
   },
 });
