@@ -101,11 +101,13 @@ Giai điệu hạ vẫn là `voice 1`. Không chuyển sang `voice 2`. `apply_to
 
 PR 111 cho hầu hết câu `castillo` và `sonatina` có `L >= 2` ít nhất một span trong `torroba_figure_plan`. Điều kiện «cả câu không có ô figure» gần như không bao giờ đúng trên hai pattern đó. Không viết `if any(bar in plan)`.
 
-Đơn vị là một đoạn lưới nền: dãy ô thân bài liên tiếp, cùng một câu, vắng mặt trong `torroba_figure_plan`. Đoạn thứ 1, 3, 5… của chương hạ giai điệu. Đoạn chẵn giữ bè cao. Ô figure giữ bè cao.
+Đơn vị là một đoạn lưới nền: dãy ô thân bài liên tiếp, cùng một câu, vắng mặt trong `torroba_figure_plan`. Đếm từ 0 theo thứ tự trong chương. Đoạn có `index % 2 == 0` hạ giai điệu, kể cả đoạn mở đầu. Đoạn có `index % 2 == 1` giữ bè cao. Ô figure giữ bè cao.
 
 Cao độ không phải `midi - 7`. Hạ bốn bậc thang bằng `_scale_degree_below(midi, 4, ctx.mode)`. Trong docstring của hàm đó, hai bậc là một quãng 3, nên bốn bậc là một quãng 5 đúng điệu thức. Trên phách mạnh, nếu nốt đó không thuộc hợp âm, lấy nốt hợp âm gần nó nhất mà vẫn không cao hơn nốt thang vừa hạ.
 
-Sàn là `max(bass + 3, 55 - ctx.semitones)` khi có bass, nếu không thì `55 - ctx.semitones`. Nốt thang nằm dưới sàn thì lấy nốt thang tại hoặc ngay trên sàn. Nốt đó vẫn chạm bass thì nốt này không hạ.
+Sàn là `max(bass + 3, 55 - ctx.semitones)` khi có bass, nếu không thì `55 - ctx.semitones`. Cao độ vang vì thế được xuống tới 55. Nốt thang nằm dưới sàn thì lấy nốt thang tại hoặc ngay trên sàn. Nốt đó vẫn chạm bass thì nốt này không hạ.
+
+`assert_playable` đang đặt `floor = 59` cho mọi nốt `voice == 1` ngoài `scale_eighths`. Lead vang 55–58 ném `Unplayable`. Với `profile == "torroba"`, sàn đó hạ xuống 55. Profile khác giữ 59.
 
 Khi lead đã hạ có cao độ vang `<= 62`, support dưới nốt đó nghỉ. `_torroba_inner` không bị ép vào một quãng hẹp giữa bass và lead. Bass giữ bè trầm.
 
@@ -133,7 +135,7 @@ Không áp cho Olite. Từng điệu một:
 | Điệu | Bass được kéo |
 |---|---|
 | Castillo lưới 3/4, Juglar | Nhát ở móc 0 |
-| Fandanguillo | Nhát ở móc 0. Nốt bass bỏ `staccato` nếu nhát đó đang staccato. Lead và support của hợp âm giữ staccato |
+| Fandanguillo | Chỉ ô hợp âm khối, `not _fandanguillo_rolls_bar`, kéo bass móc 0. Ô đầu câu có quạt rasgueado giữ đúng 0.5 phách: `voice 3` có thể là hai nốt bass, và `assert_playable` cấm hai bass khi đã ra khỏi cửa sổ quạt. Không sửa test `beat + duration == 0.5` của cú quạt |
 | Danza | Nhát bass trong `_block(..., staccato=True)` ở móc 0, và ở móc 3 trên 6/8. Bỏ `staccato` trên riêng nốt bass. Lead và support giữ staccato |
 | Alcaniz mềm và Alcaniz mở | Nhát bass ở móc 0 |
 | Alcaniz điệu, `_alcaniz_dance` | Không có bass ở móc 0. Lead ở móc 0 và móc 3, bass đáp ở móc 1 và móc 4, mỗi nhát 0.5 phách. Kéo hai nhát đáp đó lên 1.0 phách. Chúng dừng trước móc 3 và trước vạch ô. Không dời bass về móc 0 |
