@@ -66,7 +66,10 @@ from app.sonify.guitar_torroba import (
     _FIGURES,
     _HARMONICS,
     _Pen,
+    _bass_length_eighths,
+    _bed,
     _grid_state,
+    _half_bass_events,
     _rasgueado_onsets,
     _render_torroba_bar,
     _torroba_bass,
@@ -1418,6 +1421,55 @@ def test_sonatina_slur_is_one_arch_and_skips_a_repeated_note() -> None:
     assert not any(note.slur_start and note.slur_stop for note in score.lead)
     answer = [note for note in score.lead if note.bar == 1 and note.midi is not None and note.beat == pytest.approx(0.0)]
     assert len(answer) == 1 and answer[0].duration_beats >= 2
+
+
+def test_sonatina_inner_uses_the_quarter_that_is_still_ringing() -> None:
+    # Eighth 1 and eighth 5 are written higher than the quarters that cover them.
+    melody = [60, 67, 67, 67, 64, 71, 71, 71]
+    phrase = _joined(0, melody, held=True)
+    ctx = _ctx(melody=melody, phrase=phrase, character="rally", chord=C, bpm=96)
+    with compose_meter(METER_44):
+        lead, support, _low = _render_torroba_bar(ctx, 0, phrase, "sonatina")
+    for beat, unsung in ((0.5, 67), (2.5, 71)):
+        quarter = next(
+            note
+            for note in lead
+            if note.midi is not None and note.beat <= beat + 1e-9 < note.beat + note.duration_beats
+        )
+        inner = next(note for note in support if note.midi is not None and abs(note.beat - beat) < 1e-6)
+        assert quarter.midi < unsung
+        assert inner.midi < quarter.midi
+        assert inner.velocity == _bed(quarter.velocity or 64, "mf")[0]
+    opening = next(note for note in lead if abs(note.beat) < 1e-6 and note.midi == 60)
+    assert opening.velocity == 60
+
+
+def test_castillo_step_mordent_slurs_into_the_next_half() -> None:
+    melody = [60, 60, 60, 64, 65, 65, 65, 67]
+    phrase = _joined(0, melody, held=True)
+    ctx = _ctx(melody=melody, phrase=phrase, character="selloff", chord=C, bpm=96)
+    with compose_meter(METER_44):
+        lead, _support, _low = _render_torroba_bar(ctx, 0, phrase, "castillo")
+    sixth = 1.0 / 6.0
+    group = [note for note in lead if note.midi is not None and abs(note.duration_beats - sixth) < 1e-6]
+    assert [round(note.beat, 3) for note in group] == [1.5, round(1.5 + sixth, 3), round(1.5 + 2 * sixth, 3)]
+    assert group[0].slur_start and not group[2].slur_stop
+    arrival = next(note for note in lead if note.midi is not None and abs(note.beat - 2.0) < 1e-6)
+    assert arrival.midi == 65 and arrival.slur_stop and not arrival.slur_start
+
+
+def test_bass_attack_is_omitted_when_no_length_frets() -> None:
+    phrase = _joined(0, [60] * 8, held=True)
+    ctx = _ctx(melody=[60] * 8, phrase=phrase, chord=C, bpm=96)
+    blocked = [NoteEvent(bar=0, beat=0.0, midi=48, duration_beats=2.0, voice=1)]
+    assert _bass_length_eighths(ctx, 48, 0, 0, blocked, limit=4) is None
+    assert _half_bass_events(ctx, 0, 0, 48, 58, blocked) == []
+    # The opening eighth is free. A longer hold meets the lead and is cut, not forced.
+    later = [NoteEvent(bar=0, beat=0.5, midi=48, duration_beats=1.5, voice=1)]
+    assert _bass_length_eighths(ctx, 52, 0, 0, later, limit=4) == 1
+    kept = _half_bass_events(ctx, 0, 0, 52, 58, later)
+    assert kept and kept[0].duration_beats == pytest.approx(0.5)
+    assert kept[0].midi == 52
 
 
 def test_sonatina_pickup_rests_only_its_sixteenth() -> None:

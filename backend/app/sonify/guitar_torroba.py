@@ -394,8 +394,12 @@ def _sounding_at(events: list[NoteEvent], bar: int, beat: float) -> list[int]:
     return found
 
 
-def _bass_length_eighths(ctx, raw: int, bar: int, start: int, events: list[NoteEvent], *, limit: int) -> int:
-    """Longest legal bass (4, 2, or 1 eighth) that still frets with every attack in the window."""
+def _bass_length_eighths(ctx, raw: int, bar: int, start: int, events: list[NoteEvent], *, limit: int) -> int | None:
+    """Longest legal bass (4, 2, or 1 eighth) that still frets with every attack in the window.
+
+    ``None`` when even the shortest option breaks the hand. The rejected
+    length is not written.
+    """
     semi = ctx.semitones
     opened = _open_bass_tone(ctx, raw)
     options = (4, 2) if opened else (4, 2, 1)
@@ -425,7 +429,7 @@ def _bass_length_eighths(ctx, raw: int, bar: int, start: int, events: list[NoteE
     for length in options:
         if fits(length):
             return length
-    return options[-1] if options else 1
+    return None
 
 
 def _chord_bass_at(ctx, bar: int, eighth: int, events: list[NoteEvent]) -> int | None:
@@ -481,6 +485,8 @@ def _half_bass_events(
         return []
     limit = min(4, ctx.epb - start)
     length = _bass_length_eighths(ctx, raw, bar, start, events, limit=limit)
+    if length is None:
+        return []
     origin = bar * ctx.epb
     notes = [_bass_event(origin + start, raw, ctx.epb, velocity, length=length)]
     retreat_at = start + 2
@@ -489,7 +495,8 @@ def _half_bass_events(
         if fresh is not None:
             rest_limit = min(2, ctx.epb - retreat_at)
             rest = _bass_length_eighths(ctx, fresh, bar, retreat_at, events, limit=rest_limit)
-            notes.append(_bass_event(origin + retreat_at, fresh, ctx.epb, velocity, length=rest))
+            if rest is not None:
+                notes.append(_bass_event(origin + retreat_at, fresh, ctx.epb, velocity, length=rest))
     return [replace(note, tie_start=False, tie_stop=False, voice=3, accent=False) for note in notes]
 
 
@@ -500,7 +507,10 @@ def _scale_step_into(ctx, left: int, right: int) -> bool:
 
 
 def _grid_mordent(ctx, bar: int, beat: float, principal: int, velocity: int, others: list[int]) -> list[NoteEvent]:
-    """E–F–E in one eighth when the hand fits. Otherwise one eighth of `principal`."""
+    """E–F–E in one eighth when the hand fits. Otherwise one eighth of `principal`.
+
+    The slur stays open. The note on the next strong eighth closes it.
+    """
     upper = _walk(principal, 1, ctx.mode, ctx.treble_floor, ctx.treble_top)
     semi = ctx.semitones
     sounding = [principal + semi, upper + semi, *(note + semi for note in others)]
@@ -509,10 +519,10 @@ def _grid_mordent(ctx, bar: int, beat: float, principal: int, velocity: int, oth
         return [
             NoteEvent(bar=bar, beat=beat, midi=principal, duration_beats=sixth, voice=1, velocity=velocity, slur_start=True),
             NoteEvent(bar=bar, beat=beat + sixth, midi=upper, duration_beats=sixth, voice=1, velocity=velocity),
-            NoteEvent(bar=bar, beat=beat + 2.0 * sixth, midi=principal, duration_beats=sixth, voice=1, velocity=velocity, slur_stop=True),
+            NoteEvent(bar=bar, beat=beat + 2.0 * sixth, midi=principal, duration_beats=sixth, voice=1, velocity=velocity),
         ]
     return [
-        NoteEvent(bar=bar, beat=beat, midi=principal, duration_beats=0.5, voice=1, velocity=velocity),
+        NoteEvent(bar=bar, beat=beat, midi=principal, duration_beats=0.5, voice=1, velocity=velocity, slur_start=True),
     ]
 
 
@@ -581,7 +591,7 @@ def _render_castillo_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[N
     level4, _mark = _lead_velocity(ctx, origin + 4, phrase, dance=False)
     if closes_half:
         half_velocity = _harmonic_velocity(ctx, midi4, 2.0, level4)
-        arrival = written(origin + 4, 4, midi4, velocity=half_velocity, slur_stop=not _scale_step_into(ctx, midi3, midi4))
+        arrival = written(origin + 4, 4, midi4, velocity=half_velocity, slur_stop=True)
         lead.extend(arrival)
     else:
         lead.extend(
@@ -591,7 +601,7 @@ def _render_castillo_bar(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[N
                 midi4,
                 accent=True,
                 velocity=level4,
-                slur_stop=not _scale_step_into(ctx, midi3, midi4),
+                slur_stop=True,
             )
         )
         midi7 = _melody_at(ctx, origin + 7)
@@ -842,16 +852,29 @@ def _render_sonatina_moving(ctx, bar: int, phrase) -> tuple[list[NoteEvent], lis
     inners = [offset for offset in (1, 5) if offset < epb]
     prev = None
     for offset in _thin(inners, ctx, bar):
-        sung = _melody_at(ctx, origin + offset)
-        bass = _torroba_bass(ctx, chord, bar, sung)
+        # The quarter on the strong eighth is still ringing through this
+        # eighth. The price written on the weak eighth has not been played.
+        cover_beat = offset * 0.5
+        sounding = next(
+            (
+                event
+                for event in lead
+                if event.midi is not None
+                and event.beat <= cover_beat + 1e-9 < event.beat + event.duration_beats
+            ),
+            None,
+        )
+        cover = sounding.midi if sounding is not None else _melody_at(ctx, origin + offset)
+        level = sounding.velocity if sounding is not None and sounding.velocity is not None else 64
+        bass = _torroba_bass(ctx, chord, bar, cover)
         if bass is None:
             continue
-        inner = _torroba_inner(ctx, chord, sung, bass, allow_high=False, prev_lead=prev)
-        prev = sung
+        inner = _torroba_inner(ctx, chord, cover, bass, allow_high=False, prev_lead=prev)
+        prev = cover
         if inner is None:
             continue
         band = _attack_band(ctx, bar, offset, closing)
-        support.append(_support_event(origin + offset, inner, epb, _bed(64, band)[0]))
+        support.append(_support_event(origin + offset, inner, epb, _bed(level, band)[0]))
     if ctx.kind == "4/4":
         sounding = [*lead, *support]
         for offset in (0, 4):
