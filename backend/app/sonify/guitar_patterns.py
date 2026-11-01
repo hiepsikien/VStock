@@ -2390,7 +2390,13 @@ def _rest_twelfths(start: int, length: int, epb: int, voice: int) -> list[NoteEv
             cursor += take
             left -= take
             continue
-        step = 2 if take >= 2 else take
+        # Four twelfths on the triplet grid is the missing attack of an
+        # eighth-note triplet. Two sextuplet rests leave that 3:2 group
+        # unclosed, and MuseScore refuses the bar.
+        if take % 4 == 0 and cursor % 4 == 0 and take % 3 != 0:
+            step = 4
+        else:
+            step = 2 if take >= 2 else take
         if step <= 0:
             break
         bar = cursor // per_bar

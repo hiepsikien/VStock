@@ -11,6 +11,7 @@ from app.sonify.guitar_patterns import (
     Unplayable,
     _covers12,
     _dur12,
+    _fill,
     _start12,
     assert_playable,
 )
@@ -174,6 +175,37 @@ def test_sextuplet_keeps_six_over_four() -> None:
     tuplets = [note.find("notations").find("tuplet") for note in (sounding[0], sounding[-1])]
     assert tuplets[0].get("type") == "start"
     assert tuplets[1].get("type") == "stop"
+
+
+def test_a_missing_triplet_eighth_stays_one_rest() -> None:
+    """A caesura that removes the third triplet attack must not split into two sixths.
+
+    Two unbracketed sextuplet rests make MuseScore reject the bar.
+    """
+    third = 4.0 / 12.0
+    notes = [
+        NoteEvent(bar=0, beat=0.0, midi=74, duration_beats=third, voice=1, velocity=64),
+        NoteEvent(bar=0, beat=third, midi=74, duration_beats=third, voice=1, velocity=64),
+        NoteEvent(bar=0, beat=1.0, midi=74, duration_beats=0.5, voice=1, velocity=64),
+    ]
+    filled = _fill(notes, 1, _EPB, 1)
+    rests = [note for note in filled if note.midi is None and note.beat < 1.0]
+    assert len(rests) == 1
+    assert rests[0].beat == pytest.approx(2 * third)
+    assert rests[0].duration_beats == pytest.approx(third)
+    xml = score_to_musicxml(_score(filled))
+    assert "<actual-notes>6</actual-notes>" not in xml
+    measure = ET.fromstring(xml).find("part").find("measure")
+    group = [note for note in measure.findall("note") if note.find("chord") is None][:3]
+    assert len(group) == 3
+    assert group[2].find("rest") is not None
+    assert [_modification(note) for note in group] == [("3", "2", "eighth")] * 3
+    tuplets = [
+        note.find("notations").find("tuplet") if note.find("notations") is not None else None
+        for note in group
+    ]
+    assert tuplets[0] is not None and tuplets[0].get("type") == "start"
+    assert tuplets[2] is not None and tuplets[2].get("type") == "stop"
 
 
 def test_lone_sixth_and_rasgueado_stay_out_of_the_triplet() -> None:
