@@ -1,9 +1,11 @@
 """Even base-grid stretches sing a fifth lower. A 34-bar day stays one pattern."""
 
+import inspect
 from dataclasses import replace
 
 from app.sonify.chords import C
-from app.sonify.form import METER_44, FormSection, compose_meter
+from app.sonify.form import METER_44, ChordSlot, FormSection, compose_meter
+from app.sonify.guitar import render_guitar_score
 from app.sonify.guitar_patterns import (
     _Ctx,
     _lower_torroba_pitch,
@@ -16,7 +18,7 @@ from app.sonify.guitar_patterns import (
 from app.sonify.guitar_scale_passages import ScalePassage, ScalePlan
 from app.sonify.guitar_torroba import _scale_degree_below, torroba_figure_plan
 from app.sonify.keys import C_KEY, compose_register, register_for
-from app.sonify.model import NoteEvent, Phrase, Run
+from app.sonify.model import HarmonyEvent, NoteEvent, Phrase, Run
 
 
 def _phrase(start_bar: int, bars: int, epb: int, midi: int = 67) -> Phrase:
@@ -76,7 +78,7 @@ def _ctx(
     )
 
 
-def _framed_day(kind: str, character: str, bars: int = 34) -> _Ctx:
+def _framed_day(kind: str, character: str, bars: int = 34, bpm: int = 96) -> _Ctx:
     epb = 8 if kind == "4/4" else 6
     strong = (0, 4) if kind == "4/4" else (0,)
     intro, outro = 2, 2
@@ -94,6 +96,7 @@ def _framed_day(kind: str, character: str, bars: int = 34) -> _Ctx:
         strong=strong,
         character=character,
         sections=sections,
+        bpm=bpm,
     )
 
 
@@ -167,8 +170,8 @@ def test_a_retimed_day_is_one_pattern_name() -> None:
     assert len(set(body)) == 1
     assert form_pattern_ids(rally, painted) == ["olite"]
 
-    # A movement that is not a day still alternates.
-    longer = _framed_day("3/4", "calm", bars=32)
+    # A movement that is not a day still alternates. 72 is the slow calm row.
+    longer = _framed_day("3/4", "calm", bars=32, bpm=72)
     painted = _patterns(longer)
     assert form_pattern_ids(longer, painted) == ["castillo", "torroba_tremolo", "castillo"]
 
@@ -272,3 +275,41 @@ def test_a_passage_reads_the_original_line_and_leaves_the_other_eighths_lowered(
     assert _lead_at(lead, 0, 0.0).midi == 67
     assert _lead_at(lead, 0, 1.0).midi == 60
     assert _lead_at(lead, 1, 0.0).midi == 67
+
+
+def test_render_guitar_score_forwards_movement_index(monkeypatch) -> None:
+    parameter = inspect.signature(render_guitar_score).parameters["movement_index"]
+    assert parameter.default is None
+    seen: dict[str, int | None] = {}
+
+    def spy(**kwargs):
+        seen["movement_index"] = kwargs["movement_index"]
+        return [], [], [], 2
+
+    monkeypatch.setattr("app.sonify.guitar_patterns.render_patterned_voices", spy)
+    pitches = [72] * 8
+    slots = (ChordSlot(0, 1, C, "sideway", "phrase"),)
+    register = register_for(C_KEY)
+    with compose_meter(METER_44), compose_register(C_KEY, register):
+        render_guitar_score(
+            title="Torroba",
+            chosen=(),
+            sample_indexes=None,
+            slots=slots,
+            pitches=pitches,
+            phrases=(_phrase(0, 1, 8),),
+            dynamics=(),
+            bands=["mf"],
+            band_at={0: "mf"},
+            musical_bars=1,
+            total_eighths=8,
+            bpm=96,
+            ensemble="torroba",
+            harmonies=(HarmonyEvent(0, C),),
+            mode="major",
+            character="calm",
+            sections=(FormSection(0, 1, "phrase", 0),),
+            rel_span=0.0,
+            movement_index=0,
+        )
+    assert seen["movement_index"] == 0
