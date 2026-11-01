@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Path, Rect } from 'react-native-svg';
 import {
   ENSEMBLE_ROWS,
@@ -7,9 +7,10 @@ import {
   type RecapVariant,
 } from '../api/client';
 import { clockText, GENRES, STREAM_GENRES, type StreamVariant } from './labels';
+import { MotionPressable, RiseRule } from './motion';
 import { OptionsPopover } from './OptionsPopover';
 import { palette, TOUCH_TARGET } from './palette';
-import { Timeline } from './Scrubber';
+import { Timeline, type TimelinePart } from './Scrubber';
 import { type } from './type';
 
 type Scrub = {
@@ -17,6 +18,7 @@ type Scrub = {
   progress: number;
   time: number;
   duration: number;
+  parts?: TimelinePart[] | null;
   peaks?: number[] | null;
 };
 
@@ -105,7 +107,7 @@ function ReplayControls({
         {GENRES.map((item) => {
           const active = item.id === variant;
           return (
-            <Pressable
+            <MotionPressable
               key={item.id}
               onPress={() => onVariant(item.id)}
               style={[styles.tile, active && styles.tileActive]}
@@ -117,8 +119,8 @@ function ReplayControls({
               <Text style={[type.sans, styles.tileText, active && styles.tileTextActive]} numberOfLines={1}>
                 {item.label}
               </Text>
-              {active ? <View style={styles.tileRule} /> : null}
-            </Pressable>
+              {active ? <RiseRule style={styles.tileRule} /> : null}
+            </MotionPressable>
           );
         })}
       </View>
@@ -128,7 +130,7 @@ function ReplayControls({
           {shelf.map((item) => {
             const active = item.id === ensemble;
             return (
-              <Pressable
+              <MotionPressable
                 key={item.id}
                 onPress={() => onEnsemble(item.id)}
                 hitSlop={6}
@@ -140,12 +142,12 @@ function ReplayControls({
                 <Text style={[type.sans, styles.shelfLinkText, active && styles.shelfLinkTextActive]}>
                   {item.label}
                 </Text>
-                <View style={[styles.shelfLinkRule, active && styles.shelfLinkRuleActive]} />
-              </Pressable>
+                {active ? <RiseRule color={palette.hairlineStrong} style={styles.shelfLinkRule} /> : null}
+              </MotionPressable>
             );
           })}
         </View>
-        <Pressable
+        <MotionPressable
           onPress={() => setOptionsOpen(true)}
           hitSlop={6}
           style={styles.tool}
@@ -156,30 +158,33 @@ function ReplayControls({
           <View style={styles.gearDot} />
           <View style={styles.gearDot} />
           <View style={styles.gearDot} />
-        </Pressable>
+        </MotionPressable>
       </View>
 
       <View style={styles.transport}>
-        <Pressable
-          onPress={playing ? onPause : onPlay}
-          disabled={composing || (finished && !playing)}
-          style={[styles.play, (composing || (finished && !playing)) && styles.playDisabled]}
-          accessibilityRole="button"
-          accessibilityLabel={playing ? 'Tạm dừng' : 'Nghe'}
-        >
-          {playing ? (
-            <Svg width={16} height={18} viewBox="0 0 16 18">
-              <Rect x={1} y={0} width={5} height={18} rx={1} fill={palette.background} />
-              <Rect x={10} y={0} width={5} height={18} rx={1} fill={palette.background} />
-            </Svg>
-          ) : (
-            <Svg width={16} height={18} viewBox="0 0 16 18">
-              <Path d="M1 1 L15 9 L1 17 Z" fill={palette.background} />
-            </Svg>
-          )}
-        </Pressable>
+        <View style={styles.playWrap}>
+          {playing ? <View pointerEvents="none" style={styles.playHalo} /> : null}
+          <MotionPressable
+            onPress={playing ? onPause : onPlay}
+            disabled={composing || (finished && !playing)}
+            style={[styles.play, (composing || (finished && !playing)) && styles.playDisabled]}
+            accessibilityRole="button"
+            accessibilityLabel={playing ? 'Tạm dừng' : 'Nghe'}
+          >
+            {playing ? (
+              <Svg width={16} height={18} viewBox="0 0 16 18">
+                <Rect x={1} y={0} width={5} height={18} rx={1} fill={palette.background} />
+                <Rect x={10} y={0} width={5} height={18} rx={1} fill={palette.background} />
+              </Svg>
+            ) : (
+              <Svg width={16} height={18} viewBox="0 0 16 18">
+                <Path d="M1 1 L15 9 L1 17 Z" fill={palette.background} />
+              </Svg>
+            )}
+          </MotionPressable>
+        </View>
 
-        <Pressable
+        <MotionPressable
           onPress={onReplay}
           hitSlop={4}
           style={styles.replay}
@@ -203,10 +208,10 @@ function ReplayControls({
               strokeLinejoin="round"
             />
           </Svg>
-        </Pressable>
+        </MotionPressable>
 
         {onMute ? (
-          <Pressable
+          <MotionPressable
             onPress={onMute}
             hitSlop={6}
             style={styles.mute}
@@ -249,7 +254,7 @@ function ReplayControls({
                 </>
               )}
             </Svg>
-          </Pressable>
+          </MotionPressable>
         ) : null}
 
         <View style={styles.clock}>
@@ -302,7 +307,7 @@ function LiveControls({ variant, playing, onVariant, onPlay, onPause, status }: 
         {STREAM_GENRES.map((item) => {
           const active = item.id === variant;
           return (
-            <Pressable
+            <MotionPressable
               key={item.id}
               onPress={() => onVariant(item.id)}
               style={[styles.tile, active && styles.tileActive]}
@@ -314,30 +319,33 @@ function LiveControls({ variant, playing, onVariant, onPlay, onPause, status }: 
               <Text style={[type.sans, styles.tileText, active && styles.tileTextActive]} numberOfLines={1}>
                 {item.label}
               </Text>
-              {active ? <View style={styles.tileRule} /> : null}
-            </Pressable>
+              {active ? <RiseRule style={styles.tileRule} /> : null}
+            </MotionPressable>
           );
         })}
       </View>
 
       <View style={styles.transport}>
-        <Pressable
-          onPress={playing ? onPause : onPlay}
-          style={styles.play}
-          accessibilityRole="button"
-          accessibilityLabel={playing ? 'Tạm dừng' : 'Nghe đài'}
-        >
-          {playing ? (
-            <Svg width={16} height={18} viewBox="0 0 16 18">
-              <Rect x={1} y={0} width={5} height={18} rx={1} fill={palette.background} />
-              <Rect x={10} y={0} width={5} height={18} rx={1} fill={palette.background} />
-            </Svg>
-          ) : (
-            <Svg width={16} height={18} viewBox="0 0 16 18">
-              <Path d="M1 1 L15 9 L1 17 Z" fill={palette.background} />
-            </Svg>
-          )}
-        </Pressable>
+        <View style={styles.playWrap}>
+          {playing ? <View pointerEvents="none" style={styles.playHalo} /> : null}
+          <MotionPressable
+            onPress={playing ? onPause : onPlay}
+            style={styles.play}
+            accessibilityRole="button"
+            accessibilityLabel={playing ? 'Tạm dừng' : 'Nghe đài'}
+          >
+            {playing ? (
+              <Svg width={16} height={18} viewBox="0 0 16 18">
+                <Rect x={1} y={0} width={5} height={18} rx={1} fill={palette.background} />
+                <Rect x={10} y={0} width={5} height={18} rx={1} fill={palette.background} />
+              </Svg>
+            ) : (
+              <Svg width={16} height={18} viewBox="0 0 16 18">
+                <Path d="M1 1 L15 9 L1 17 Z" fill={palette.background} />
+              </Svg>
+            )}
+          </MotionPressable>
+        </View>
         <Text style={[type.section, styles.liveHint]}>
           {playing ? 'Đang thu tín hiệu' : 'Chọn đài rồi bấm nghe'}
         </Text>
@@ -433,9 +441,6 @@ const styles = StyleSheet.create({
     marginTop: 3,
     backgroundColor: 'transparent',
   },
-  shelfLinkRuleActive: {
-    backgroundColor: palette.hairlineStrong,
-  },
   tool: {
     width: 32,
     height: 32,
@@ -466,6 +471,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     marginTop: 4,
+  },
+  playWrap: {
+    width: 56,
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playHalo: {
+    position: 'absolute',
+    left: -4,
+    top: -4,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 1,
+    borderColor: palette.soundSoft,
   },
   play: {
     width: 56,

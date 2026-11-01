@@ -45,11 +45,13 @@ import {
   spanMapClock,
   spanStageSeek,
   workDuration,
+  workSegments,
   workSecondsAt,
   clamp01,
 } from './seek';
 import { Stage } from './Stage';
 import { SymbolColumn, type SymbolChoice } from './SymbolColumn';
+import type { TimelinePart } from './Scrubber';
 import { ambientDailyCandleIndexAt, spanCandleIndexAt } from '../utils/recapCursor';
 
 type Props = {
@@ -884,6 +886,25 @@ export function ReplayRoom({ wide, onMode }: Props) {
       ? manifest?.movementName?.trim() || null
       : current?.name?.trim() || (movements ? `Chương ${index + 1}` : null);
 
+  // The merged timeline draws one groove per movement and a hairline groove
+  // for each rest. Names come from the same movements the audio uses.
+  const timelineParts = useMemo<TimelinePart[] | null>(() => {
+    if (span === '1D' || !movements) return null;
+    return workSegments(movements).map((segment) =>
+      segment.kind === 'audio'
+        ? {
+            kind: 'audio' as const,
+            start: segment.start,
+            end: segment.end,
+            label: movements[segment.index]?.name?.trim() || `Chương ${segment.index + 1}`,
+          }
+        : { kind: 'rest' as const, start: segment.start, end: segment.end, label: 'Nghỉ' },
+    );
+  }, [movements, span]);
+
+  const restTotal = resting ? (movements?.[index]?.restAfterSec ?? 0) : 0;
+  const restRemaining = resting ? Math.max(0, restTotal - restOffset) : 0;
+
   const timeline =
     span === '1D'
       ? manifest
@@ -901,6 +922,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
             progress: workClock > 0 ? Math.min(1, workTime / workClock) : 0,
             time: workTime,
             duration: workClock,
+            parts: timelineParts,
           }
         : null;
 
@@ -1021,6 +1043,12 @@ export function ReplayRoom({ wide, onMode }: Props) {
           banner={error}
           seekable={stageSeekable}
           onSeekRatio={onStageRatio}
+          composing={composing}
+          resting={resting}
+          restRemaining={restRemaining}
+          restTotal={restTotal}
+          playing={audible}
+          chartKey={`${symbol}|${span}|${variant}|${date ?? ''}`}
         />
       }
       controls={
@@ -1050,7 +1078,6 @@ export function ReplayRoom({ wide, onMode }: Props) {
           onReplay={onReplay}
           onMute={() => setMuted((value) => !value)}
           onTimeline={span === '1D' ? onFileScrub : onWorkScrub}
-          status={composing ? 'Đang soạn…' : resting ? 'Nghỉ giữa chương' : null}
         />
       }
     >

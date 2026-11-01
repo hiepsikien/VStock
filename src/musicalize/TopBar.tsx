@@ -1,5 +1,6 @@
-import React, { useEffect, useRef } from 'react';
-import { Animated, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import React from 'react';
+import { Animated, Platform, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { MotionPressable, usePulse } from './motion';
 import { palette, TOPBAR_HEIGHT } from './palette';
 import { type } from './type';
 
@@ -11,22 +12,11 @@ type Props = {
 };
 
 export function TopBar({ mode, onMode, onSearch, searchEnabled = true }: Props) {
-  const pulse = useRef(new Animated.Value(1)).current;
+  const pulse = usePulse(mode === 'live', 1600, 0.25);
   const { width } = useWindowDimensions();
   // Phones keep only the wordmark and the mode switch; the search key and the
   // status label would push the pill off the bar.
   const compact = width < 720;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 0.25, duration: 800, useNativeDriver: false }),
-        Animated.timing(pulse, { toValue: 1, duration: 800, useNativeDriver: false }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [pulse]);
 
   return (
     <View style={styles.bar}>
@@ -37,7 +27,7 @@ export function TopBar({ mode, onMode, onSearch, searchEnabled = true }: Props) 
 
       <View style={styles.right}>
         {searchEnabled && onSearch && !compact ? (
-          <Pressable
+          <MotionPressable
             onPress={onSearch}
             hitSlop={8}
             style={styles.search}
@@ -47,7 +37,7 @@ export function TopBar({ mode, onMode, onSearch, searchEnabled = true }: Props) 
             <Text style={[type.monoSmall, styles.searchText]}>
               {Platform.OS === 'web' ? '⌘K' : 'TÌM'}
             </Text>
-          </Pressable>
+          </MotionPressable>
         ) : null}
 
         <View style={styles.pill} accessibilityRole="tablist">
@@ -84,7 +74,7 @@ function ModePill({
   onPress: () => void;
 }) {
   return (
-    <Pressable
+    <MotionPressable
       onPress={onPress}
       hitSlop={8}
       style={[styles.pillItem, active && styles.pillItemActive]}
@@ -94,7 +84,7 @@ function ModePill({
     >
       <View style={[styles.pillDot, active && styles.pillDotActive]} />
       <Text style={[type.sans, styles.pillText, active && styles.pillTextActive]}>{label}</Text>
-    </Pressable>
+    </MotionPressable>
   );
 }
 
@@ -201,4 +191,3 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
 });
-

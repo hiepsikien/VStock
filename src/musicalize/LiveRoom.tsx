@@ -202,6 +202,9 @@ export function LiveRoom({ wide, onMode }: Props) {
           }
           banner={banner}
           seekable={false}
+          live
+          playing={playing}
+          chartKey={`${selectedKey}|${variant}`}
         />
       }
       controls={

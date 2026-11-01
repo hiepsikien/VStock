@@ -1,11 +1,21 @@
 import React, { useEffect, useRef } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputInstance } from 'react-native';
+import {
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  useWindowDimensions,
+  type TextInputInstance,
+} from 'react-native';
 import type { SessionSummary } from '../api/client';
 import { Sparkline } from '../components/Sparkline';
 import { englishDate } from '../sonify/program';
 import { chipDate, formatDelta, LISTEN_SPANS, type ListenSpan } from './labels';
 import type { LiveListRow } from './liveRows';
-import { palette } from './palette';
+import { MotionPressable, RiseRule } from './motion';
+import { palette, WIDE_BREAKPOINT } from './palette';
 import { type } from './type';
 import type { Quote } from './useQuotes';
 
@@ -35,12 +45,23 @@ type LiveColumn = {
 };
 
 export function SymbolColumn(props: ReplayColumn | LiveColumn) {
+  const { width } = useWindowDimensions();
+  // Below the breakpoint the chooser becomes a single horizontal rail: the
+  // chart has to be visible on the first screen, not after a 460px list.
+  const compact = width < WIDE_BREAKPOINT;
+
   return (
-    <View style={styles.column}>
-      <Text style={[type.section, styles.eyebrow]}>
-        {props.mode === 'replay' ? 'Thị trường' : 'Đài'}
-      </Text>
-      {props.mode === 'replay' ? <ReplayList {...props} /> : <LiveList {...props} />}
+    <View style={[styles.column, compact && styles.columnCompact]}>
+      {compact ? null : (
+        <Text style={[type.section, styles.eyebrow]}>
+          {props.mode === 'replay' ? 'Thị trường' : 'Đài'}
+        </Text>
+      )}
+      {props.mode === 'replay' ? (
+        <ReplayList {...props} compact={compact} />
+      ) : (
+        <LiveList {...props} compact={compact} />
+      )}
     </View>
   );
 }
@@ -58,7 +79,8 @@ function ReplayList({
   onDate,
   quotes,
   focusSignal = 0,
-}: ReplayColumn) {
+  compact,
+}: ReplayColumn & { compact: boolean }) {
   const inputRef = useRef<TextInputInstance>(null);
   const query = filter.trim().toUpperCase();
   const shown = symbols.filter((item) => {
@@ -72,6 +94,111 @@ function ReplayList({
   useEffect(() => {
     if (focusSignal > 0) inputRef.current?.focus();
   }, [focusSignal]);
+
+  if (compact) {
+    return (
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.rail}
+        contentContainerStyle={styles.railContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.railFilterShell}>
+          <TextInput
+            ref={inputRef}
+            value={filter}
+            onChangeText={onFilter}
+            placeholder="Lọc mã"
+            placeholderTextColor={palette.textFaint}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            style={[type.sans, styles.railFilter]}
+            accessibilityLabel="Lọc mã"
+          />
+        </View>
+
+        {LISTEN_SPANS.map((item) => {
+          const active = item === span;
+          return (
+            <MotionPressable
+              key={item}
+              onPress={() => onSpan(item)}
+              style={[styles.railChip, active && styles.railChipActive]}
+              accessibilityRole="button"
+              accessibilityLabel={`Khung ${item}`}
+              accessibilityState={{ selected: active }}
+            >
+              <Text style={[type.monoSmall, styles.railChipText, active && styles.railChipTextActive]}>
+                {item}
+              </Text>
+            </MotionPressable>
+          );
+        })}
+
+        {span === '1D' && sessions.length > 0 ? (
+          <>
+            <View style={styles.railDivider} />
+            {sessions.map((session) => {
+              const active = session.date === selectedDate;
+              const chip = chipDate(session.date);
+              return (
+                <MotionPressable
+                  key={session.date}
+                  onPress={() => onDate(session.date)}
+                  style={[styles.railChip, active && styles.railChipActive]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Phiên ${chip.day}`}
+                  accessibilityState={{ selected: active }}
+                >
+                  <Text style={[type.monoSmall, styles.railChipText, active && styles.railChipTextActive]}>
+                    {chip.day}
+                  </Text>
+                </MotionPressable>
+              );
+            })}
+          </>
+        ) : null}
+
+        <View style={styles.railDivider} />
+
+        {shown.map((item) => {
+          const active = item.symbol === selectedSymbol;
+          const quote = quotes?.[item.symbol] ?? null;
+          const delta = quote ? formatDelta(quote.changePercent) : null;
+          return (
+            <MotionPressable
+              key={item.symbol}
+              onPress={() => onSymbol(item.symbol)}
+              style={[styles.railSymbol, active && styles.railSymbolActive]}
+              accessibilityRole="button"
+              accessibilityLabel={`${item.symbol}${
+                delta ? `, ${delta.positive ? 'tăng' : 'giảm'} ${delta.text}` : ''
+              }`}
+              accessibilityState={{ selected: active }}
+            >
+              <Text style={[type.monoSmall, styles.railSymbolText, active && styles.railSymbolTextActive]}>
+                {item.symbol}
+              </Text>
+              {delta ? (
+                <Text
+                  style={[
+                    type.monoSmall,
+                    styles.railDelta,
+                    delta.positive ? styles.deltaUp : styles.deltaDown,
+                  ]}
+                >
+                  {delta.glyph}
+                  {delta.text}
+                </Text>
+              ) : null}
+              {active ? <RiseRule style={styles.railRule} /> : null}
+            </MotionPressable>
+          );
+        })}
+      </ScrollView>
+    );
+  }
 
   return (
     <>
@@ -98,7 +225,7 @@ function ReplayList({
         {LISTEN_SPANS.map((item) => {
           const active = item === span;
           return (
-            <Pressable
+            <MotionPressable
               key={item}
               onPress={() => onSpan(item)}
               hitSlop={8}
@@ -108,8 +235,8 @@ function ReplayList({
               accessibilityState={{ selected: active }}
             >
               <Text style={[type.mono, styles.rangeText, active && styles.rangeTextActive]}>{item}</Text>
-              <View style={[styles.rangeRule, active && styles.rangeRuleActive]} />
-            </Pressable>
+              {active ? <RiseRule style={styles.rangeRule} /> : <View style={styles.rangeRule} />}
+            </MotionPressable>
           );
         })}
       </View>
@@ -125,7 +252,7 @@ function ReplayList({
             const active = session.date === selectedDate;
             const chip = chipDate(session.date);
             return (
-              <Pressable
+              <MotionPressable
                 key={session.date}
                 onPress={() => onDate(session.date)}
                 style={[styles.session, active && styles.sessionActive]}
@@ -139,7 +266,7 @@ function ReplayList({
                 <Text style={[type.mono, styles.sessionDay, active && styles.sessionTextActive]}>
                   {chip.day}
                 </Text>
-              </Pressable>
+              </MotionPressable>
             );
           })}
         </ScrollView>
@@ -156,7 +283,7 @@ function ReplayList({
           const delta = quote ? formatDelta(quote.changePercent) : null;
           const activeDate = active && span === '1D' && selectedDate ? englishDate(selectedDate) : null;
           return (
-            <Pressable
+            <MotionPressable
               key={item.symbol}
               onPress={() => onSymbol(item.symbol)}
               style={[styles.row, active && styles.rowActive]}
@@ -200,7 +327,7 @@ function ReplayList({
                   {delta.text}
                 </Text>
               ) : null}
-            </Pressable>
+            </MotionPressable>
           );
         })}
       </ScrollView>
@@ -218,13 +345,56 @@ function ReplayList({
   );
 }
 
-function LiveList({ rows, selectedKey, onRow }: LiveColumn) {
+function LiveList({
+  rows,
+  selectedKey,
+  onRow,
+  compact,
+}: LiveColumn & { compact: boolean }) {
+  if (compact) {
+    return (
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.rail}
+        contentContainerStyle={styles.railContent}
+      >
+        {rows.map((row) => {
+          const active = row.key === selectedKey;
+          return (
+            <MotionPressable
+              key={row.key}
+              onPress={() => onRow(row)}
+              style={[styles.railSymbol, active && styles.railSymbolActive]}
+              accessibilityRole="button"
+              accessibilityLabel={row.title}
+              accessibilityState={{ selected: active }}
+            >
+              <Text
+                style={[type.monoSmall, styles.railSymbolText, active && styles.railSymbolTextActive]}
+                numberOfLines={1}
+              >
+                {row.title}
+              </Text>
+              {row.subtitle ? (
+                <Text style={[type.sans, styles.railName]} numberOfLines={1}>
+                  {row.subtitle}
+                </Text>
+              ) : null}
+              {active ? <RiseRule style={styles.railRule} /> : null}
+            </MotionPressable>
+          );
+        })}
+      </ScrollView>
+    );
+  }
+
   return (
     <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
       {rows.map((row) => {
         const active = row.key === selectedKey;
         return (
-          <Pressable
+          <MotionPressable
             key={row.key}
             onPress={() => onRow(row)}
             style={[styles.row, active && styles.rowActive]}
@@ -244,7 +414,7 @@ function LiveList({ rows, selectedKey, onRow }: LiveColumn) {
               ) : null}
             </View>
             {active ? <View style={styles.onAir} /> : null}
-          </Pressable>
+          </MotionPressable>
         );
       })}
     </ScrollView>
@@ -259,6 +429,11 @@ const styles = StyleSheet.create({
     backgroundColor: palette.panel,
     paddingTop: 12,
     paddingHorizontal: 12,
+  },
+  columnCompact: {
+    paddingTop: 0,
+    paddingHorizontal: 0,
+    justifyContent: 'flex-start',
   },
   eyebrow: {
     color: palette.textFaint,
@@ -305,9 +480,6 @@ const styles = StyleSheet.create({
     height: 2,
     marginTop: 6,
     backgroundColor: 'transparent',
-  },
-  rangeRuleActive: {
-    backgroundColor: palette.sound,
   },
   sessionScroll: {
     height: SESSION_CHIP_HEIGHT,
@@ -421,5 +593,92 @@ const styles = StyleSheet.create({
     color: palette.textFaint,
     fontSize: 10,
     lineHeight: 14,
+  },
+  rail: {
+    flexGrow: 0,
+    height: 56,
+  },
+  railContent: {
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+  },
+  railFilterShell: {
+    width: 128,
+    height: 32,
+    justifyContent: 'center',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    backgroundColor: palette.background,
+    paddingHorizontal: 8,
+  },
+  railFilter: {
+    color: palette.text,
+    fontSize: 13,
+    paddingVertical: 0,
+  },
+  railChip: {
+    height: 32,
+    minWidth: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    backgroundColor: palette.background,
+  },
+  railChipActive: {
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.surface,
+  },
+  railChipText: {
+    color: palette.textFaint,
+  },
+  railChipTextActive: {
+    color: palette.text,
+  },
+  railDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: palette.hairline,
+  },
+  railSymbol: {
+    minHeight: 40,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    backgroundColor: palette.surface,
+  },
+  railSymbolActive: {
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.surfaceActive,
+  },
+  railSymbolText: {
+    color: palette.textFaint,
+  },
+  railSymbolTextActive: {
+    color: palette.text,
+  },
+  railName: {
+    color: palette.textFaint,
+    fontSize: 10,
+    lineHeight: 13,
+  },
+  railDelta: {
+    fontSize: 10,
+    lineHeight: 13,
+  },
+  railRule: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 2,
+    borderTopLeftRadius: 2,
+    borderTopRightRadius: 2,
   },
 });

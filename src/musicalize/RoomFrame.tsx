@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { installFocusRing } from './a11y';
 import { COLUMN_WIDTH, DOCK_HEIGHT, palette } from './palette';
 
 type Props = {
@@ -11,10 +12,14 @@ type Props = {
   topBar?: React.ReactNode;
 };
 
-/** Two columns from 960px. Below that: stage, dock, then the chooser list. */
+/** Two columns from 960px. Below that: stage, dock, then the chooser rail. */
 export function RoomFrame({ wide, chooser, stage, controls, topBar }: Props) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
+
+  useEffect(() => {
+    installFocusRing();
+  }, []);
 
   if (wide) {
     return (
@@ -36,7 +41,7 @@ export function RoomFrame({ wide, chooser, stage, controls, topBar }: Props) {
     );
   }
 
-  const stageHeight = Math.max(300, Math.min(460, height * 0.44));
+  const stageHeight = Math.max(260, Math.min(460, height * 0.44));
 
   return (
     <View

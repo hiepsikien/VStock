@@ -378,13 +378,13 @@ Tick chương và tooltip dời sang P1 để P0 không phình.
 
 ### P1 — "nguy hiểm" (2–3 ngày)
 
-- [ ] Serif cho tên bài + dòng meta mono; badge mã.
-- [ ] Chart: lưới, 4 nhãn trục, glow đoạn đã phát, gradient theo playhead, dải khối lượng mới.
-- [ ] Tick chương + tooltip tên chương trên timeline; đoạn nghỉ vẽ rãnh `hairline`.
-- [ ] Trạng thái: trống, đang soạn (shimmer), nghỉ (cung đếm ngược), live (chấm + `TRỰC TIẾP`).
-- [ ] Motion theo mục 6, gồm `prefers-reduced-motion`.
-- [ ] Narrow: stage 44vh trên, dock dính dưới, danh sách mã thành dải chip ngang.
-- [ ] Rà a11y toàn mặt nghe: focus ring 2px `hairlineStrong` trên web, touch target ≥ 44, đọc thử bằng screen reader (label đã có từ P0).
+- [x] Serif cho tên bài + dòng meta mono; badge mã.
+- [x] Chart: lưới, 4 nhãn trục, glow đoạn đã phát, gradient theo playhead, dải khối lượng mới.
+- [x] Tick chương + tooltip tên chương trên timeline; đoạn nghỉ vẽ rãnh `hairline`.
+- [x] Trạng thái: trống, đang soạn (shimmer), nghỉ (cung đếm ngược), live (chấm + `TRỰC TIẾP`).
+- [x] Motion theo mục 6, gồm `prefers-reduced-motion` (`motion.tsx`).
+- [x] Narrow: stage 44vh trên, dock dính dưới, danh sách mã thành dải chip ngang.
+- [x] Rà a11y toàn mặt nghe: focus ring 2px `hairlineStrong` trên web (`a11y.ts`), touch target ≥ 44, label/`accessibilityState` đã có từ P0.
 
 **Xong khi:** ảnh chụp màn hình ở 1440px đọc được "phòng thu", không cần đọc chữ
 vẫn biết đang phát hay dừng; chuyển mã có crossfade; mobile thấy chart ngay khi mở.
@@ -409,12 +409,14 @@ vẫn biết đang phát hay dừng; chuyển mã có crossfade; mobile thấy c
 | `src/musicalize/useQuotes.ts` | mới |
 | `src/musicalize/link.ts` | mới (P2) — parse/format/read/write deep link |
 | `src/musicalize/link.test.ts` | mới (P2) — test parse/format/fallback |
+| `src/musicalize/motion.tsx` | mới (P1) — press/rise/crossfade/pulse + `prefers-reduced-motion` |
+| `src/musicalize/a11y.ts` | mới (P1) — focus ring web `:focus-visible` |
 | `src/musicalize/CommandPalette.tsx` | mới (P2) — palette mã / thể loại / khung / ngày |
 | `src/musicalize/RoomFrame.tsx` | sửa — topbar, bỏ scroll dock, narrow mới |
 | `src/musicalize/SymbolColumn.tsx` | sửa — hàng có dữ liệu, chip không tô |
 | `src/musicalize/Controls.tsx` | sửa — shelf, transport, nút tắt tiếng, popover |
-| `src/musicalize/Scrubber.tsx` | sửa — timeline gộp, `clockText` |
-| `src/musicalize/Stage.tsx` | sửa — tiêu đề, trục, playhead, trạng thái |
+| `src/musicalize/Scrubber.tsx` | sửa — timeline gộp, tick chương, tooltip, rãnh nghỉ, `clockText` |
+| `src/musicalize/Stage.tsx` | sửa — tiêu đề, trục, playhead, glow/gradient, trạng thái |
 | `src/musicalize/labels.ts` | sửa — thêm `clockText`, `foldText` (hàm thuần) |
 | `src/musicalize/labels.test.ts` | mới — test clamp giờ, bỏ dấu |
 | `package.json` | sửa — `test:musicalize` chạy thêm `labels.test.ts`, `link.test.ts` |

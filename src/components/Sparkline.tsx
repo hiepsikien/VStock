@@ -1,5 +1,5 @@
-import React, { useId, useMemo } from 'react';
-import { View } from 'react-native';
+import React, { useEffect, useId, useMemo, useRef } from 'react';
+import { Animated, View } from 'react-native';
 import Svg, {
   Circle,
   ClipPath,
@@ -17,9 +17,13 @@ const UNPLAYED_OPACITY = 0.28;
 
 export const VOLUME_STRIP = 30;
 
-export function volumeStripFor(plotHeight: number, enabled: boolean): number {
+export function volumeStripFor(
+  plotHeight: number,
+  enabled: boolean,
+  maxStrip: number = VOLUME_STRIP,
+): number {
   if (!enabled || plotHeight <= 0) return 0;
-  return Math.min(VOLUME_STRIP, Math.max(0, plotHeight - 24));
+  return Math.min(maxStrip, Math.max(0, plotHeight - 24));
 }
 
 /** One filled outline for the visible window. The baseline is the bottom of the plot. */
@@ -128,14 +132,26 @@ type Props = {
   strokeColor?: string;
   /** Flat fill. Omit to keep the theme gradient when `showFill` is set. */
   flatFill?: string;
+  /** Fade a flat fill from the line into the baseline instead of painting it solid. */
+  fillFade?: boolean;
+  /** Clip the fill to the played side of the playhead. Off by default. */
+  playedFillOnly?: boolean;
   /** Playhead stroke and dot. Omit to keep the terminal accent. */
   playheadColor?: string;
+  /** Breathe the playhead dot while the piece is audible. Off by default. */
+  pulseCursor?: boolean;
   /** Peak amplitudes in 0..1, drawn across the same frame as the price line. */
   wave?: number[] | null;
   waveColor?: string;
   /** Traded volume, one value per price, drawn as a strip under the line. */
   volumes?: number[] | null;
   volumeColor?: string;
+  /** Cap on the volume strip. The studio asks for 36, the terminal keeps 30. */
+  volumeStripMax?: number;
+  /** Colour for the volume already played. Omit to keep the terminal's one-colour strip. */
+  volumePlayedColor?: string;
+  /** Hairline on the price baseline, at the top edge of the volume strip. */
+  baselineColor?: string;
   /** Quiet horizontal rules behind the line. Off by default: the terminal keeps its face. */
   grid?: boolean;
   /** Soft halo under the stroke. Off by default. */
@@ -156,16 +172,26 @@ export function Sparkline({
   focusEnd,
   strokeColor,
   flatFill,
+  fillFade = false,
+  playedFillOnly = false,
   playheadColor,
+  pulseCursor = false,
   wave = null,
   waveColor = '#E040A0',
   volumes = null,
   volumeColor = 'rgba(62, 224, 224, 0.45)',
+  volumeStripMax = VOLUME_STRIP,
+  volumePlayedColor,
+  baselineColor,
   grid = false,
   glow = false,
   gridColor = 'rgba(244, 241, 234, 0.05)',
 }: Props) {
-  const volumeStrip = volumeStripFor(height, Boolean(volumes && volumes.length > 0 && volumes.length === data.length));
+  const volumeStrip = volumeStripFor(
+    height,
+    Boolean(volumes && volumes.length > 0 && volumes.length === data.length),
+    volumeStripMax,
+  );
   const { line, fill, cursor, volume } = useMemo(() => {
     const outline =
       volumeStrip > 0 && volumes
@@ -224,15 +250,45 @@ export function Sparkline({
   const stroke = strokeColor ?? (positive ? colors.positive : colors.negative);
   const playhead = playheadColor ?? colors.accent;
   const gradId = `sparkGrad-${uid}`;
+  const fadeId = `sparkFade-${uid}`;
   const playedClipId = `sparkPlayed-${uid}`;
   const unplayedClipId = `sparkUnplayed-${uid}`;
   const splitX = cursor ? Math.min(width, Math.max(0, cursor.x)) : 0;
-  const fillPaint = flatFill ?? `url(#${gradId})`;
+  const fillPaint = flatFill ? (fillFade ? `url(#${fadeId})` : flatFill) : `url(#${gradId})`;
   const waveBars =
     wave && wave.length > 1 ? (
       <WaveBars peaks={wave} width={width} height={height} color={waveColor} />
     ) : null;
-  const volumeShape = volume ? <Path d={volume} fill={volumeColor} /> : null;
+  // A two-tone volume strip needs its own layer outside the played/unplayed
+  // price groups: the base stays quiet while only the played part brightens.
+  const layeredVolume = Boolean(volumePlayedColor && volume && volumeStrip > 0);
+  const volumeShape = volume && !layeredVolume ? <Path d={volume} fill={volumeColor} /> : null;
+
+  const pulse = useRef(new Animated.Value(1)).current;
+  const pulsing = pulseCursor && cursor != null;
+  useEffect(() => {
+    pulse.stopAnimation();
+    if (!pulsing) {
+      pulse.setValue(1);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 0.35,
+          duration: 600,
+          useNativeDriver: false,
+        }),
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: false,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse, pulsing]);
 
   return (
     <View style={{ width, height, overflow: 'hidden' }}>
@@ -246,6 +302,12 @@ export function Sparkline({
                 stopOpacity={0.28}
               />
               <Stop offset="100%" stopColor={stroke} stopOpacity={0} />
+            </LinearGradient>
+          ) : null}
+          {showFill && flatFill && fillFade ? (
+            <LinearGradient id={fadeId} x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0%" stopColor={flatFill} stopOpacity={1} />
+              <Stop offset="100%" stopColor={flatFill} stopOpacity={0} />
             </LinearGradient>
           ) : null}
           {dimUnplayed && cursor && (
@@ -281,12 +343,36 @@ export function Sparkline({
           </G>
         ) : null}
 
+        {baselineColor && volumeStrip > 0 ? (
+          <Line
+            x1={0}
+            y1={height - volumeStrip}
+            x2={width}
+            y2={height - volumeStrip}
+            stroke={baselineColor}
+            strokeWidth={1}
+          />
+        ) : null}
+
+        {layeredVolume && volume ? (
+          <>
+            <Path d={volume} fill={volumeColor} />
+            {dimUnplayed && cursor ? (
+              <G clipPath={`url(#${playedClipId})`}>
+                <Path d={volume} fill={volumePlayedColor} />
+              </G>
+            ) : null}
+          </>
+        ) : null}
+
         {dimUnplayed && cursor ? (
           <>
             <G clipPath={`url(#${unplayedClipId})`} opacity={UNPLAYED_OPACITY}>
               {volumeShape}
               {waveBars}
-              {showFill && fill ? <Path d={fill} fill={fillPaint} /> : null}
+              {showFill && fill && !playedFillOnly ? (
+                <Path d={fill} fill={fillPaint} />
+              ) : null}
               {glow && line ? (
                 <Path
                   d={line}
@@ -379,6 +465,24 @@ export function Sparkline({
           </>
         ) : null}
       </Svg>
+      {pulsing && cursor ? (
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: cursor.x - 4.5,
+            top: cursor.y - 4.5,
+            width: 9,
+            height: 9,
+            borderRadius: 5,
+            backgroundColor: playhead,
+            opacity: pulse,
+            transform: [
+              { scale: pulse.interpolate({ inputRange: [0.35, 1], outputRange: [1.7, 1] }) },
+            ],
+          }}
+        />
+      ) : null}
     </View>
   );
 }
