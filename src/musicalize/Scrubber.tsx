@@ -38,7 +38,7 @@ type Props = DragProps & {
   duration?: number;
   /** Multi-movement work: audio and rest spans, in order. */
   parts?: TimelinePart[] | null;
-  /** Audio peaks for a single-session file. The work bar has none. */
+  /** Audio peaks for a single-session file or a composed work. */
   peaks?: number[] | null;
 };
 

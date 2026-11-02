@@ -12,6 +12,7 @@ from datetime import date
 import httpx
 from fastapi import Request
 
+from app.ingestion.providers.entrade_indices import ENTRADE_INDEX, INDEX_SYMBOLS
 from app.services.cache import cache
 from app.services.http_utils import ENTRADE_HEADERS
 from app.sonify.audio import RecapAsset, RecapCancelled, RecapUnavailable, recap_store
@@ -31,6 +32,11 @@ def _cache_key(symbol: str) -> str:
     return f"minute-ohlc:{symbol}"
 
 
+def _ohlc_url(symbol: str) -> str:
+    """Index candles live on a different Entrade endpoint than stock candles."""
+    return ENTRADE_INDEX if symbol.upper() in INDEX_SYMBOLS else ENTRADE_OHLC
+
+
 async def fetch_ohlc(symbol: str, lookback_days: int, resolution: str) -> dict:
     """OHLC for a long-form span. The 1-day recap keeps `fetch_minute_payload`."""
     sym = symbol.upper()
@@ -47,7 +53,7 @@ async def fetch_ohlc(symbol: str, lookback_days: int, resolution: str) -> dict:
         "resolution": resolution,
     }
     async with httpx.AsyncClient(timeout=20.0, headers=ENTRADE_HEADERS) as client:
-        response = await client.get(ENTRADE_OHLC, params=params)
+        response = await client.get(_ohlc_url(sym), params=params)
         response.raise_for_status()
         payload = response.json()
     if not isinstance(payload, dict):
@@ -87,7 +93,7 @@ async def fetch_minute_payload(symbol: str) -> dict:
         "resolution": "1",
     }
     async with httpx.AsyncClient(timeout=20.0, headers=ENTRADE_HEADERS) as client:
-        response = await client.get(ENTRADE_OHLC, params=params)
+        response = await client.get(_ohlc_url(sym), params=params)
         response.raise_for_status()
         payload = response.json()
     if not isinstance(payload, dict):

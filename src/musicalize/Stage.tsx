@@ -226,6 +226,8 @@ export function Stage({
                 volumeColor={VOLUME_COLOR}
                 volumePlayedColor={VOLUME_PLAYED}
                 volumeStripMax={VOLUME_STRIP_MAX}
+                volumeScale="sqrt"
+                volumeCapPercentile={0.999}
                 baselineColor={palette.hairline}
                 pulseCursor={playing && !reduced}
                 grid

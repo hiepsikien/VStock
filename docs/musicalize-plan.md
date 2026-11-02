@@ -4,6 +4,11 @@ Web app nghe nhạc trên engine sonify và API đang có. App Expo giữ vai tr
 
 Tài liệu này chốt sản phẩm v1, phong cách, và tech stack của mặt nghe. Tách dịch vụ, hàng đợi MuseScore và cache audio vẫn viết sau, khi phạm vi lớn hơn hai phòng.
 
+> **Cập nhật 2026-11:** sóng `peaks` đã có cho span dài (`1W`–`1Y`) qua
+> `SpanMovementResponse.peaks`; xem `docs/musicalize-ui-redesign.md`. Các câu
+> "đợt này không thêm `peaks`" bên dưới là mốc lịch sử của đợt v1, không còn là
+> luật hiện hành. Sóng vẫn chỉ nằm trên timeline, không vào khung giá.
+
 ## Mặt nghe, đợt sửa
 
 Năm việc dưới đây khóa đợt sửa mặt nghe. Câu cũ hơn trong tài liệu này, nếu khác, làm theo mục này.

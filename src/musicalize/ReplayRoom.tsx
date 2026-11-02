@@ -10,6 +10,7 @@ import {
   fetchSessionMinutes,
   fetchSessions,
   fetchSpan,
+  fetchSpanPeaks,
   type DfiPiece,
   type DfiSignature,
   type RecapEnsemble,
@@ -58,6 +59,7 @@ import {
 import { Stage } from './Stage';
 import { SymbolColumn, type SymbolChoice } from './SymbolColumn';
 import type { TimelinePart } from './Scrubber';
+import { workWaveform, type WavePeaks } from './peaks';
 import { ambientDailyCandleIndexAt, spanCandleIndexAt } from '../utils/recapCursor';
 
 type Props = {
@@ -84,10 +86,26 @@ function joinedVolumes(parts: { prices: number[]; volumes?: number[] }[]): numbe
   return volumes.length ? volumes : null;
 }
 
+const PINNED_INDICES: SymbolChoice[] = [
+  {
+    symbol: 'VNINDEX',
+    name: 'VN-Index',
+    exchange: 'HOSE',
+    kind: 'index',
+  },
+  {
+    symbol: 'HNX',
+    name: 'HNX-Index',
+    exchange: 'HNX',
+    kind: 'index',
+  },
+];
+
 export function ReplayRoom({ wide, onMode }: Props) {
   const [symbols, setSymbols] = useState<SymbolChoice[]>(
     DEFAULT_SYMBOLS.map((symbol) => ({ symbol, name: symbol })),
   );
+  const [visibleSymbols, setVisibleSymbols] = useState<string[]>([]);
   const [filter, setFilter] = useState('');
   // The URL is the source of truth on the first render: a shared link opens
   // the same room. Native has no location and gets the defaults.
@@ -108,6 +126,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const [manifest, setManifest] = useState<RecapManifest | null>(null);
   const [movements, setMovements] = useState<SpanMovement[] | null>(null);
   const [spanLine, setSpanLine] = useState<{ key: string; prices: number[]; volumes?: number[] } | null>(null);
+  const [spanPeaks, setSpanPeaks] = useState<Array<WavePeaks | null> | null>(null);
   const [asOf, setAsOf] = useState('');
   const [homeKey, setHomeKey] = useState('');
   const [index, setIndex] = useState(0);
@@ -137,6 +156,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const [ensembleLoading, setEnsembleLoading] = useState(false);
 
   const request = useRef<AbortController | null>(null);
+  const peaksRequest = useRef<AbortController | null>(null);
   const restTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const seekSeq = useRef(0);
   const dfiPoll = useRef({ key: '', count: 0 });
@@ -159,9 +179,12 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const clearPlayback = useCallback(() => {
     request.current?.abort();
     request.current = null;
+    peaksRequest.current?.abort();
+    peaksRequest.current = null;
     clearRest();
     setManifest(null);
     setMovements(null);
+    setSpanPeaks(null);
     setAsOf('');
     setHomeKey('');
     setIndex(0);
@@ -184,6 +207,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
   useEffect(() => {
     return () => {
       request.current?.abort();
+      peaksRequest.current?.abort();
       clearRest();
     };
   }, [clearRest]);
@@ -296,9 +320,20 @@ export function ReplayRoom({ wide, onMode }: Props) {
       try {
         const rows = await fetchMarketSymbols();
         if (cancelled || !rows.length) return;
-        setSymbols(rows.map((item) => ({ symbol: item.symbol, name: item.name, exchange: item.exchange })));
+        const stocks: SymbolChoice[] = rows
+          .filter((item) => !PINNED_INDICES.some((pinned) => pinned.symbol === item.symbol))
+          .map((item) => ({
+            symbol: item.symbol,
+            name: item.name,
+            exchange: item.exchange,
+            ranges: item.ranges,
+            kind: 'stock' as const,
+          }));
+        setSymbols([...PINNED_INDICES, ...stocks]);
         setSymbol((current) => {
-          if (rows.some((item) => item.symbol === current)) return current;
+          if (rows.some((item) => item.symbol === current) || PINNED_INDICES.some((item) => item.symbol === current)) {
+            return current;
+          }
           return rows.find((item) => item.symbol === 'VNM')?.symbol ?? rows[0].symbol;
         });
       } catch {
@@ -311,15 +346,13 @@ export function ReplayRoom({ wide, onMode }: Props) {
   }, []);
 
   const quoteSymbols = useMemo(() => {
-    const query = filter.trim().toUpperCase();
-    const shown = query
-      ? symbols.filter(
-          (item) => item.symbol.includes(query) || item.name.toUpperCase().includes(query),
-        )
-      : symbols;
-    return shown.map((item) => item.symbol);
-  }, [filter, symbols]);
-  const quotes = useQuotes(quoteSymbols);
+    const fallback = symbols.slice(0, 16).map((item) => item.symbol);
+    const visible = visibleSymbols.filter((item) =>
+      symbols.some((symbolChoice) => symbolChoice.symbol === item),
+    );
+    return [...new Set([symbol, ...visible, ...fallback])].slice(0, 17);
+  }, [symbol, symbols, visibleSymbols]);
+  const quotes = useQuotes(quoteSymbols, span);
 
   useEffect(() => {
     if (span !== '1D') return;
@@ -372,6 +405,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
     const controller = new AbortController();
     let cancelled = false;
     const key = spanKey;
+    setSpanPeaks(null);
     void (async () => {
       try {
         const plan = await fetchSpan(symbol, span, variant, ensemble, controller.signal, {
@@ -382,9 +416,16 @@ export function ReplayRoom({ wide, onMode }: Props) {
         const prices = plan.movements.flatMap((item) => item.prices);
         const volumes = joinedVolumes(plan.movements);
         setSpanLine(prices.length > 1 ? { key, prices, ...(volumes ? { volumes } : {}) } : null);
+        setSpanPeaks(
+          plan.movements.map((item) => ({
+            peaks: item.peaks && item.peaks.length ? item.peaks : null,
+            level: item.peakLevel ?? 0,
+          })),
+        );
       } catch (err) {
         if (cancelled || isAbort(err)) return;
         setSpanLine(null);
+        setSpanPeaks(null);
       }
     })();
     return () => {
@@ -392,6 +433,52 @@ export function ReplayRoom({ wide, onMode }: Props) {
       controller.abort();
     };
   }, [colorOn, ensemble, humanize, span, spanKey, symbol, variant]);
+
+  /**
+   * A movement's waveform only exists after its audio file is written. The
+   * player loads that file when a movement starts, so ask the plan once more
+   * and merge the peaks without touching durations, prices or playback.
+   */
+  const refreshSpanPeaks = useCallback(() => {
+    if (span === '1D') return;
+    peaksRequest.current?.abort();
+    const controller = new AbortController();
+    peaksRequest.current = controller;
+    void (async () => {
+      try {
+        const peaks = await fetchSpanPeaks(symbol, span, variant, ensemble, controller.signal, {
+          humanize,
+          color: colorOn,
+        });
+        if (controller.signal.aborted) return;
+        if (
+          peaks.symbol !== symbol ||
+          peaks.range !== span ||
+          peaks.variant !== variant ||
+          (peaks.ensemble != null && peaks.ensemble !== ensemble) ||
+          (peaks.humanize != null && peaks.humanize !== humanize) ||
+          (peaks.color != null && peaks.color !== colorOn)
+        ) {
+          return;
+        }
+        setSpanPeaks((prev) => {
+          const next = [...(prev ?? [])];
+          for (const item of peaks.movements) {
+            const previous = next[item.index];
+            next[item.index] = {
+              peaks: item.peaks && item.peaks.length ? item.peaks : (previous?.peaks ?? null),
+              level: item.peakLevel ?? previous?.level ?? 0,
+            };
+          }
+          return next;
+        });
+      } catch {
+        // Peaks are additive. Keep whatever the timeline already has.
+      } finally {
+        if (peaksRequest.current === controller) peaksRequest.current = null;
+      }
+    })();
+  }, [colorOn, ensemble, humanize, span, symbol, variant]);
 
   const seekTarget = useRef<number | null>(null);
 
@@ -929,6 +1016,23 @@ export function ReplayRoom({ wide, onMode }: Props) {
     return series ? joinedVolumes([series]) : null;
   }, [movements, series, span, spanKey, spanLine]);
 
+  const waveform = useMemo(() => {
+    if (span === '1D' || !movements) return null;
+    return workWaveform(movements, spanPeaks);
+  }, [movements, span, spanPeaks]);
+
+  const selectedChangePercent = useMemo(() => {
+    // The selected 1D session has its own close-vs-reference change. Using the
+    // day quote here would label an old session with today's move.
+    if (span === '1D') {
+      return series?.changePercent ?? quotes?.[symbol]?.changePercent ?? null;
+    }
+    if (prices.length < 2) return null;
+    const first = prices[0];
+    const last = prices[prices.length - 1];
+    return first > 0 ? ((last - first) / first) * 100 : null;
+  }, [prices, quotes, series, span, symbol]);
+
   const cursor = useMemo(() => {
     if (span === '1D') {
       if (!manifest || !series || series.prices.length < 1) return { index: null as number | null, label: null as string | null };
@@ -1110,6 +1214,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
             time: workTime,
             duration: workClock,
             parts: timelineParts,
+            peaks: waveform,
           }
         : null;
 
@@ -1212,6 +1317,9 @@ export function ReplayRoom({ wide, onMode }: Props) {
           onDate={setDate}
           quotes={quotes}
           focusSignal={focusSignal}
+          selectedSparkline={prices.length > 1 ? prices : null}
+          selectedChangePercent={selectedChangePercent}
+          onVisibleSymbols={setVisibleSymbols}
         />
       }
       stage={
@@ -1288,6 +1396,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
         onAudible={() => setAudible(true)}
         onError={setError}
         onDuration={setMediaDuration}
+        onReady={refreshSpanPeaks}
       />
     ) : null}
     <CommandPalette

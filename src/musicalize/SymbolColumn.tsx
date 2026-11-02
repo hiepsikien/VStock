@@ -1,5 +1,6 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
+  FlatList,
   Platform,
   ScrollView,
   StyleSheet,
@@ -16,10 +17,18 @@ import { chipDate, formatDelta, LISTEN_SPANS, type ListenSpan } from './labels';
 import type { LiveListRow } from './liveRows';
 import { MotionPressable, RiseRule } from './motion';
 import { palette, WIDE_BREAKPOINT } from './palette';
+import { filterSymbols } from './symbolFilter';
 import { type } from './type';
 import type { Quote } from './useQuotes';
 
-export type SymbolChoice = { symbol: string; name: string; exchange?: string };
+export type SymbolChoice = {
+  symbol: string;
+  name: string;
+  exchange?: string;
+  /** Stored candle ranges. Empty means nothing to chart yet. */
+  ranges?: string[];
+  kind?: 'index' | 'stock';
+};
 
 type ReplayColumn = {
   mode: 'replay';
@@ -35,6 +44,11 @@ type ReplayColumn = {
   onDate: (date: string) => void;
   quotes?: Record<string, Quote> | null;
   focusSignal?: number;
+  /** The selected row can update before the batched rail quote arrives. */
+  selectedSparkline?: number[] | null;
+  selectedChangePercent?: number | null;
+  /** Viewport symbols, so the quote request stays small. */
+  onVisibleSymbols?: (symbols: string[]) => void;
 };
 
 type LiveColumn = {
@@ -79,21 +93,125 @@ function ReplayList({
   onDate,
   quotes,
   focusSignal = 0,
+  selectedSparkline = null,
+  selectedChangePercent = null,
+  onVisibleSymbols,
   compact,
 }: ReplayColumn & { compact: boolean }) {
   const inputRef = useRef<TextInputInstance>(null);
   const query = filter.trim().toUpperCase();
-  const shown = symbols.filter((item) => {
-    if (!query) return true;
-    return item.symbol.includes(query) || item.name.toUpperCase().includes(query);
-  });
-  const exchange = shown.length > 0 && shown.every((item) => item.exchange === shown[0].exchange)
-    ? shown[0].exchange
-    : null;
+  const shown = filterSymbols(symbols, filter, selectedSymbol);
+  const exchangeRows = shown.filter((item) => item.kind !== 'index');
+  const exchange =
+    exchangeRows.length > 0 && exchangeRows.every((item) => item.exchange === exchangeRows[0].exchange)
+      ? exchangeRows[0].exchange
+      : null;
+
+  const visibleCb = useRef(onVisibleSymbols);
+  visibleCb.current = onVisibleSymbols;
+  const visibleKey = shown.slice(0, 16).map((item) => item.symbol).join(',');
 
   useEffect(() => {
     if (focusSignal > 0) inputRef.current?.focus();
   }, [focusSignal]);
+
+  useEffect(() => {
+    visibleCb.current?.(visibleKey ? visibleKey.split(',') : []);
+  }, [visibleKey]);
+
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 20 }).current;
+  const onViewableItemsChanged = useRef(
+    ({ viewableItems }: { viewableItems: Array<{ item: SymbolChoice; isViewable: boolean }> }) => {
+      const next = viewableItems
+        .filter((entry) => entry.isViewable)
+        .map((entry) => entry.item.symbol)
+        .slice(0, 16);
+      if (next.length) visibleCb.current?.(next);
+    },
+  ).current;
+
+  const renderRow = useCallback(
+    ({ item }: { item: SymbolChoice }) => {
+      const active = item.symbol === selectedSymbol;
+      const quote = quotes?.[item.symbol] ?? null;
+      const deltaValue =
+        active && selectedChangePercent != null
+          ? selectedChangePercent
+          : (quote?.changePercent ?? null);
+      const delta = formatDelta(deltaValue);
+      const series =
+        active && selectedSparkline && selectedSparkline.length > 1
+          ? selectedSparkline
+          : quote?.sparkline;
+      // The stored-only endpoint falls back to a shorter range. Dim the line so
+      // a 1D shape is never mistaken for a 1Y shape.
+      const fallbackRange =
+        !active && quote?.rangeUsed && quote.rangeUsed !== span ? quote.rangeUsed : null;
+      const activeDate = active && span === '1D' && selectedDate ? englishDate(selectedDate) : null;
+      return (
+        <MotionPressable
+          onPress={() => onSymbol(item.symbol)}
+          style={[styles.row, active && styles.rowActive]}
+          accessibilityRole="button"
+          accessibilityLabel={`${item.symbol}, ${item.name}${
+            delta
+              ? delta.glyph === '·'
+                ? `, ${delta.text}`
+                : `, ${delta.positive ? 'tăng' : 'giảm'} ${delta.text}`
+              : ''
+          }${fallbackRange ? `, dữ liệu ${fallbackRange}` : ''}`}
+          accessibilityState={{ selected: active }}
+        >
+          <View style={[styles.rowBar, active && styles.rowBarOn]} />
+          <View style={styles.rowMain}>
+            <Text style={[type.mono, styles.symbol]} numberOfLines={1}>
+              {item.symbol}
+            </Text>
+            <Text style={[type.sans, styles.name]} numberOfLines={1}>
+              {activeDate ?? item.name}
+            </Text>
+          </View>
+          {series && series.length > 1 ? (
+            <View style={fallbackRange ? styles.sparkFallback : undefined}>
+              <Sparkline
+                data={series}
+                width={44}
+                height={18}
+                strokeWidth={1.25}
+                strokeColor={palette.data}
+              />
+            </View>
+          ) : null}
+          {delta ? (
+            <Text
+              style={[
+                type.monoSmall,
+                styles.delta,
+                delta.positive ? styles.deltaUp : styles.deltaDown,
+              ]}
+            >
+              {delta.glyph}
+              {delta.text}
+            </Text>
+          ) : null}
+        </MotionPressable>
+      );
+    },
+    [
+      onSymbol,
+      quotes,
+      selectedChangePercent,
+      selectedDate,
+      selectedSparkline,
+      selectedSymbol,
+      span,
+    ],
+  );
+
+  const extraData = useMemo(
+    () => ({ selectedSymbol, selectedChangePercent, quotes, selectedSparkline }),
+    [quotes, selectedChangePercent, selectedSparkline, selectedSymbol],
+  );
 
   if (compact) {
     return (
@@ -165,7 +283,11 @@ function ReplayList({
         {shown.map((item) => {
           const active = item.symbol === selectedSymbol;
           const quote = quotes?.[item.symbol] ?? null;
-          const delta = quote ? formatDelta(quote.changePercent) : null;
+          const percent =
+            active && selectedChangePercent != null
+              ? selectedChangePercent
+              : (quote?.changePercent ?? null);
+          const delta = formatDelta(percent);
           return (
             <MotionPressable
               key={item.symbol}
@@ -272,65 +394,26 @@ function ReplayList({
         </ScrollView>
       ) : null}
 
-      <ScrollView
+      <FlatList
         style={styles.list}
         contentContainerStyle={styles.listContent}
+        data={shown}
+        extraData={extraData}
+        keyExtractor={(item) => item.symbol}
+        renderItem={renderRow}
         keyboardShouldPersistTaps="handled"
-      >
-        {shown.map((item) => {
-          const active = item.symbol === selectedSymbol;
-          const quote = quotes?.[item.symbol] ?? null;
-          const delta = quote ? formatDelta(quote.changePercent) : null;
-          const activeDate = active && span === '1D' && selectedDate ? englishDate(selectedDate) : null;
-          return (
-            <MotionPressable
-              key={item.symbol}
-              onPress={() => onSymbol(item.symbol)}
-              style={[styles.row, active && styles.rowActive]}
-              accessibilityRole="button"
-              accessibilityLabel={`${item.symbol}, ${item.name}${
-                delta
-                  ? delta.glyph === '·'
-                    ? `, ${delta.text}`
-                    : `, ${delta.positive ? 'tăng' : 'giảm'} ${delta.text}`
-                  : ''
-              }`}
-              accessibilityState={{ selected: active }}
-            >
-              <View style={[styles.rowBar, active && styles.rowBarOn]} />
-              <View style={styles.rowMain}>
-                <Text style={[type.mono, styles.symbol]} numberOfLines={1}>
-                  {item.symbol}
-                </Text>
-                <Text style={[type.sans, styles.name]} numberOfLines={1}>
-                  {activeDate ?? item.name}
-                </Text>
-              </View>
-              {quote && quote.sparkline.length > 1 ? (
-                <Sparkline
-                  data={quote.sparkline}
-                  width={44}
-                  height={18}
-                  strokeWidth={1.25}
-                  strokeColor={palette.data}
-                />
-              ) : null}
-              {delta ? (
-                <Text
-                  style={[
-                    type.monoSmall,
-                    styles.delta,
-                    delta.positive ? styles.deltaUp : styles.deltaDown,
-                  ]}
-                >
-                  {delta.glyph}
-                  {delta.text}
-                </Text>
-              ) : null}
-            </MotionPressable>
-          );
-        })}
-      </ScrollView>
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={viewabilityConfig}
+        initialNumToRender={16}
+        maxToRenderPerBatch={16}
+        windowSize={7}
+        removeClippedSubviews
+        ListEmptyComponent={
+          <Text style={[type.sans, styles.emptyList]}>
+            {query ? 'Không tìm thấy mã' : 'Chưa có mã có dữ liệu'}
+          </Text>
+        }
+      />
 
       <View style={styles.footer}>
         <Text style={[type.sans, styles.footerText]}>
@@ -527,6 +610,12 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: 8,
   },
+  emptyList: {
+    color: palette.textFaint,
+    fontSize: 12,
+    paddingVertical: 16,
+    textAlign: 'center',
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -565,6 +654,9 @@ const styles = StyleSheet.create({
     color: palette.textFaint,
     fontSize: 11,
     lineHeight: 15,
+  },
+  sparkFallback: {
+    opacity: 0.45,
   },
   delta: {
     color: palette.text,

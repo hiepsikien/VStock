@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_history_updated_at ON history(updated_at);
+CREATE INDEX IF NOT EXISTS idx_history_range_symbol ON history(range_key, symbol);
 
 CREATE TABLE IF NOT EXISTS symbols (
     symbol TEXT PRIMARY KEY,

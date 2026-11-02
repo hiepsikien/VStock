@@ -30,6 +30,48 @@ class HistoryRepository:
             return []
         return [float(p) for p in parsed if p]
 
+    async def get_many(
+        self, symbols: list[str], chart_range: ChartRange
+    ) -> dict[str, list[float]]:
+        """One query for a batch of stored series. Never calls a provider."""
+        cleaned = [symbol.upper() for symbol in symbols if symbol]
+        if not cleaned:
+            return {}
+        placeholders = ",".join("?" for _ in cleaned)
+        db = await get_db()
+        cursor = await db.execute(
+            f"""
+            SELECT symbol, prices FROM history
+            WHERE range_key = ? AND symbol IN ({placeholders})
+            """,
+            (chart_range, *cleaned),
+        )
+        rows = await cursor.fetchall()
+        result: dict[str, list[float]] = {}
+        for row in rows:
+            try:
+                parsed = json.loads(row["prices"] or "[]")
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(parsed, list):
+                continue
+            prices = [float(price) for price in parsed if price]
+            if prices:
+                result[row["symbol"]] = prices
+        return result
+
+    async def range_coverage(self) -> dict[str, list[str]]:
+        """Which ranges have stored candles for each symbol."""
+        db = await get_db()
+        cursor = await db.execute("SELECT symbol, range_key FROM history")
+        rows = await cursor.fetchall()
+        coverage: dict[str, list[str]] = {}
+        for row in rows:
+            coverage.setdefault(row["symbol"], []).append(row["range_key"])
+        for ranges in coverage.values():
+            ranges.sort()
+        return coverage
+
     async def upsert(self, symbol: str, chart_range: ChartRange, prices: list[float]) -> None:
         if not prices:
             return
