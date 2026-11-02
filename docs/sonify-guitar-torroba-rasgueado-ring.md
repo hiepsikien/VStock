@@ -2,12 +2,12 @@
 
 > **Trạng thái**: **kế hoạch**, chưa vào code.
 > **Đọc cùng**: [`docs/sonify-guitar-torroba-phrase-plan.md`](./sonify-guitar-torroba-phrase-plan.md) mục 4 (định nghĩa Loại 1 / Loại 2), [`docs/sonify-guitar-torroba-note-surface.md`](./sonify-guitar-torroba-note-surface.md), [`docs/sonify-guitar-torroba-dynamics.md`](./sonify-guitar-torroba-dynamics.md), [`docs/sonify-guitar-torroba-lilt-accents.md`](./sonify-guitar-torroba-lilt-accents.md), [`docs/sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md), [`docs/sonify-guitar-torroba-juglar-cushion-dynamics-tempo.md`](./sonify-guitar-torroba-juglar-cushion-dynamics-tempo.md).
-> **Giữ**: không thêm pattern id, không thêm ô nhạc, không đổi form, không đổi lưới nhịp `3/4` / `4/4` / `6/8`, không đổi tempo / lilt / bar lean nền của `humanize`. Chỉ sửa **độ dài** và **velocity** của đúng ba nốt quạt, cộng một pass velocity ở cuối `humanize` và một tầng tempo `fan_hold`.
+> **Giữ**: không thêm pattern id, không thêm ô nhạc, không đổi form, không đổi lưới nhịp `3/4` / `4/4` / `6/8`, không đổi tempo / lilt / bar lean nền của `humanize`. Chỉ sửa **độ dài** và **velocity** của đúng ba nốt quạt, cộng `_apply_fans` ở tầng wave và một tầng tempo `fan_hold` ở humanize.
 
 **Tóm tắt**: ba trục, ba tầng.
 
 1. **Ngân** (`apply_torroba_fan_ring`, sau `_repair`): nới duration của **cả cụm bass**, **nốt support thấp nhất**, và **lead** tới `min(nốt kế tiếp cùng bè, vạch nhịp, CAP)`. CAP: Loại 1 `1,5 / 1,0 / 0,75` phách; Loại 2 `1,0 / 0,75 / 0,5`. Mở cửa sổ `assert_playable` 6 → 12 twelfth cho bar có quạt.
-2. **To** (`apply_torroba_fan_heard`, cuối `humanize`): nâng lead lên `peak + 3` (Loại 1) / `peak + 2` (Loại 2); kéo bass/support lên theo độ dày; giữ đúng dải ấm `<= 64` hoặc dải móng `69–80`.
+2. **To** (`_apply_fans`, trong `apply_guitar_wave` — tầng động lực, **trước** humanize): nâng lead lên `peak + 3` (Loại 1) / `peak + 2` (Loại 2) nếu còn ở dải ấm; nếu vượt `64` thì cả cụm vào dải móng `73 / 71 / 69`. Humanize **không** quyết định độ to; nó chỉ thêm ±2 micro.
 3. **Nhịp** (`_fan_hold_deltas`, trong tempo clock Torroba): nốt **ngay sau** cú quạt vào trễ `1/12` phách (Loại 1) / `1/24` phách (Loại 2), rồi bù lại trong ô. Không đổi `NoteEvent.beat`, chỉ đổi `TempoEvent`.
 
 ---
@@ -203,74 +203,88 @@ end(lead)    = room(lead)  (không thêm)
 
 ## 4. Quy tắc mới — độ to
 
-### 4.1. Vì sao phải đặt **sau humanize**
+### 4.1. Nguyên tắc phân tầng
 
-Hai tầng phía trước đều bóp méo velocity của cú quạt:
+Humanize là tầng cuối, chỉ làm việc của **cơ thể người chơi**: micro-timing, micro-dynamics. Nó không quyết định bản nhạc *là gì*. Áp nguyên tắc đó cho rasgueado:
+
+| Việc | Bản chất | Tầng |
+|---|---|---|
+| Voicing hợp âm, accent viết | âm nhạc | figure |
+| Ngân (giá trị nốt viết) | âm nhạc, do kỹ thuật tay mà có | score (ring pass) |
+| To (dynamic của cú quạt) | âm nhạc | **wave** (`_apply_fans`) |
+| Trễ nốt sau | giới hạn cơ thể | **humanize** (`_fan_hold_deltas`) |
+| Micro ±2 | cơ thể | humanize (đã có) |
+
+Vì vậy phần "to" **không** đặt trong humanize. Cú quạt to hơn nền là quyết định âm nhạc; humanize chỉ thêm dao động nhỏ quanh mức đã viết. Nếu đặt lift sau `_clamp_guitar`, humanize trở thành nơi sửa dynamic — sai nguyên tắc "humanize là bước cuối, chỉ humanize".
+
+### 4.2. Vì sao tầng sóng, không phải humanize
+
+Ba tầng phía trước đều bóp méo velocity của cú quạt:
 
 - `_Pen._local_lead()` ghi đè velocity viết bên trong figure.
-- `apply_guitar_wave()` kẹp `min(v_ceil, raw)`; trần `58` / `63` làm phần tăng trước sóng biến mất đúng lúc cú quạt đã ở đỉnh ô.
-- `humanize._clamp_guitar()` còn kẹp lần nữa: nốt viết `<= 64` bị `min(64, current)`, nốt viết `> 64` bị `max(69, min(73, current))`. Tức là mọi nốt trên `64` bị gom vào dải móng `69–73`; mức `76` đặt trước humanize sẽ bị hạ còn `73`.
+- `apply_guitar_wave()` kẹp `min(v_ceil, raw)`; trần `58` / `63` làm phần tăng trước sóng biến mất.
+- `humanize._clamp_guitar()` gom nốt `> 64` vào dải móng `69–73`.
 
-Vì vậy tầng tăng lực phải chạy **sau `_clamp_guitar()`**, tức là ở **cuối `humanize()`**, và là tầng cuối cùng ghi velocity trước khi ghi MusicXML. Đặt trong `render_patterned_voices()` là không đủ.
+Tầng đúng để quyết định dynamic là **`apply_guitar_wave`**, cạnh `_apply_snaps` / `_apply_stabs`. Đây là tầng diễn giải động lực của bản nhạc, không phải tầng humanize. `_apply_fans` chạy **sau `_apply_affine`**, nên nó đặt được mức trên `v_ceil` đúng như `_apply_stabs` đang làm.
 
-### 4.2. Luật
+Sau đó `_clamp_guitar()` vẫn chạy trong humanize, nhưng nếu `_apply_fans` đã đặt fan vào dải ấm (`<= 64`) hoặc dải móng (`69–73`) thì clamp **giữ nguyên**, không phá. Humanize không cần biết fan là gì.
 
-Thêm helper trong `humanize.py` (file đã có logic Torroba: `_bar_lean`, `_is_rasgueado`):
+### 4.3. Luật `_apply_fans`
+
+Thêm trong `guitar_wave.py`:
 
 ```python
-def apply_torroba_fan_heard(score, lead, support, low):
-    """Nâng ba nốt quạt lên trên mọi nốt khác trong cùng ô, sau humanize."""
+def _apply_fans(ctx, voices, patterns):
+    """Đặt dynamic của cú quạt: dải ấm hoặc dải móng, sau affine/snaps."""
 ```
 
-Gọi ở cuối `humanize()` khi `score.variant == "guitar"` và `score.ensemble == "torroba"`, trước `replace(score, ...)`.
+Gọi trong `apply_guitar_wave()` sau `_apply_snaps` / `_apply_stabs`, trước `_sync_ties`.
 
 Với mỗi ô quạt:
 
 ```text
 fan_ids  = ba nốt của cú quạt
-peak     = max(velocity của mọi nốt khác trong ô cùng bar, không thuộc fan_ids)
+peak     = max(velocity của mọi nốt khác trong ô, không thuộc fan_ids), sau affine/snaps
 lead_now, bass_now, support_now = velocity hiện tại của ba nốt quạt
 
-lead_t = min(FAN_CEIL, max(lead_now, peak + MARGIN[kind]))
+lead_t = max(lead_now, peak + MARGIN[kind])
 
 if lead_t <= 64:
-    # dải ấm: giữ nguyên chất nylon, chỉ nới độ dày
+    # dải ấm: giữ chất nylon, chỉ nới độ dày
     lead    = lead_t
     bass    = max(bass_now, lead - 4)
     support = max(support_now, min(bass - 2, lead - 6))
 else:
-    # dải móng: 69–73 là vùng móng, cần đủ chỗ cho 3 bè với khe 2
-    lead    = min(FAN_CEIL, max(lead_t, 73))
-    bass    = lead - 2
-    support = lead - 4
+    # dải móng chỉ có 69–73; 3 bè với khe 2 => 73 / 71 / 69
+    lead, bass, support = 73, 71, 69
 ```
 
-- `lead_t <= 64` → cả cú quạt ở dải ấm, chỉ to hơn nền vài đơn vị.
-- `lead_t > 64` → cả cú quạt vào dải móng, tối thiểu `73 / 71 / 69`, đúng chất rasgueado.
-- Không bao giờ hạ nốt nào: nhánh móng luôn cho `bass`/`support` cao hơn giá trị cũ (vốn `<= 64`); nhánh ấm chỉ dùng `max()`.
+- `lead_t <= 64` → cả cú quạt ở dải ấm.
+- `lead_t > 64` → cả cú quạt vào dải móng `73 / 71 / 69`. Sau affine/snap, lead quạt tối đa `73`, bass/support tối đa `63`, nên ba giá trị tuyệt đối này **không hạ** nốt nào.
+- Không dùng `FAN_CEIL` 80 nữa: `_clamp_guitar` sẽ hạ `> 73` về `73`, nên đặt đúng ngay từ đầu.
 - Bất biến `lead > bass > support`, khe `>= 2` được bảo đảm bởi công thức, không cần clamp riêng.
 
 Bảng đề xuất:
 
-| Loại | `MARGIN` | `FAN_CEIL` |
-|---|---:|---:|
-| **1 — attack** | `+3` | `80` |
-| **2 — mềm** | `+2` | `78` |
+| Loại | `MARGIN` | Ghi chú |
+|---|---:|---|
+| **1 — attack** | `+3` | vào dải móng khi `lead_t > 64` |
+| **2 — mềm** | `+2` | thường ở lại dải ấm; chỉ vào móng khi nền ô đã `>= 63` |
 
-- `lead_t` bảo đảm cú quạt là tiếng to nhất ô (`>= peak + MARGIN`).
-- `bass` / `support` **khôi phục độ dày của hợp âm** chứ không chỉ dịch đều: nếu sóng đã kẹp bass/support xuống quá thấp (như ô 70: `54 / 40 / 32`), lift kéo chúng lên `lead - 4` / `lead - 6` để cả cú quạt cùng to, không bị "đầu voi đuôi chuột".
+- `lead_t` bảo đảm cú quạt không thấp hơn nền: `>= peak + MARGIN`.
+- `bass` / `support` **khôi phục độ dày của hợp âm** chứ không chỉ dịch đều: nếu sóng đã kẹp bass/support xuống quá thấp (như ô 70: `54 / 40 / 32`), `_apply_fans` kéo chúng lên `lead - 4` / `lead - 6` để cả cú quạt cùng to, không bị "đầu voi đuôi chuột".
 - Nếu cú quạt đã đủ to và đủ dày thì các `max()` giữ nguyên, không đổi gì.
-- `FAN_CEIL` chỉ để chặn trường hợp ô có stab/scale rất to; trên dữ liệu hiện tại chưa chạm.
+- Vì đây là tầng **wave**, không phải humanize, `_apply_fans` không cần biết `humanize` tồn tại; nó chỉ đặt dynamic đúng như `_apply_snaps` / `_apply_stabs`.
 
-### 4.3. Kết quả dự kiến trên ACB 1M II (Loại 1, `MARGIN = 3`)
+### 4.4. Kết quả dự kiến trên ACB 1M II (Loại 1, `MARGIN = 3`)
 
-> Bảng dưới tính trên số đo **pre-humanize** ở mục 1.1, chỉ để thấy hướng. Giá trị cuối phụ thuộc `peak` **sau** humanize và nhánh ấm/móng ở 4.2. Các ô rơi vào dải móng sẽ theo hình `lead / lead−2 / lead−4`, tối thiểu `73 / 71 / 69`.
+> Bảng dưới tính trên số đo **sau wave, trước humanize** ở mục 1.1. Các ô rơi vào dải móng dùng `73 / 71 / 69`; các ô còn lại ở dải ấm.
 
-| Ô | Lead hiện tại | Bass / Support hiện tại | Peak | Lead target | Sau lift (lead / bass / support) |
+| Ô | Lead hiện tại | Bass / Support hiện tại | Peak | Lead target | Sau `_apply_fans` |
 |---|---:|---|---:|---:|---|
 | 10 | 43 | 43 / 41 | 50 | 53 | 53 / 49 / 47 |
 | 17 | 54 | 50 / 42 | 54 | 57 | 57 / 53 / 51 |
-| 23 | 57 | 57 / 49 | 73 | 76 | 76 / 74 / 72 (móng) |
+| 23 | 57 | 57 / 49 | 73 | 76 | 73 / 71 / 69 (móng) |
 | 31 | 51 | 45 / 37 | 51 | 54 | 54 / 50 / 48 |
 | 36 | 53 | 52 / 44 | 53 | 56 | 56 / 52 / 50 |
 | 40 | 55 | 55 / 47 | 55 | 58 | 58 / 55 / 52 |
@@ -282,7 +296,7 @@ Bảng đề xuất:
 | 91 | 57 | 53 / 45 | 55 | 58 | 58 / 54 / 52 |
 | 96 | 43 | 41 / 38 | 53 | 56 | 56 / 52 / 50 |
 
-Tức là cú quạt **luôn** là tiếng to nhất ô, hơn nốt to nhất còn lại ít nhất `3` đơn vị, và cả ba bè cùng dày lên.
+Tức là cú quạt **không bao giờ thấp hơn nền**, thường cao hơn `3` đơn vị, và cả ba bè cùng dày lên. Ở các ô nền đã ở dải móng, cú quạt cũng ở dải móng (`73 / 71 / 69`).
 
 ---
 
@@ -365,10 +379,13 @@ Hai pass về **độ dài / độ to** nằm ở hai tầng khác nhau (trục 
    - Đặt **sau `_repair()`**, **trước `apply_sonatina_downbeats()`** (và trước `_resolve()`).
    - Lý do: `_repair()` có thể cắt support/bass; ring phải là bước cuối cùng quyết định duration. `_resolve()` / `_fill()` sau đó chỉ kiểm tra lại, không phá.
    - Chỉ chạy khi `ctx.ensemble == "torroba"`.
-2. **`apply_torroba_fan_heard()`** — trong `humanize.humanize()`.
-   - Đặt **sau `_clamp_guitar()`** và sau khi dựng `updated` cho cả 5 field, **trước `replace(score, ...)`**.
-   - Chỉ chạy khi `score.variant == "guitar"` và `score.ensemble == "torroba"`.
-   - Đây là tầng cuối ghi velocity trước khi `score_to_musicxml()`.
+   - Đây là tầng **score** (giá trị nốt viết), không phải humanize.
+2. **`_apply_fans()`** — trong `guitar_wave.apply_guitar_wave()`.
+   - Đặt **sau `_apply_snaps()` / `_apply_stabs()`**, trước `_sync_ties()`.
+   - Lý do: dynamic của cú quạt là quyết định **âm nhạc**, phải nằm ở tầng sóng (cùng chỗ với snap/stab), không phải humanize.
+   - Chỉ chạy khi `ctx.ensemble == "torroba"`.
+3. **`_fan_hold_deltas()`** — trong `humanize._torroba_phrase_tempos()`.
+   - Đây là tầng **cơ thể** duy nhất của rasgueado: độ trễ nốt sau. Xem mục 13.
 
 Chữ ký:
 
@@ -377,14 +394,18 @@ Chữ ký:
 def apply_torroba_fan_ring(ctx, lead, support, low, patterns):
     return lead, support, low
 
-# humanize.py — velocity, sau _clamp_guitar
-def apply_torroba_fan_heard(score, lead, support, low):
-    return lead, support, low
+# guitar_wave.py — dynamic, sau affine/snaps
+def _apply_fans(ctx, voices, patterns):
+    ...
+
+# humanize.py — tempo, sau cap
+def _fan_hold_deltas(score, start, end, divisions, start_units, count):
+    ...
 ```
 
-Ngoài hai pass, còn một chỗ phải sửa: **`assert_playable()`** trong `guitar_patterns.py` — mở cửa sổ quạt từ 6 → 12 twelfth cho bar có cú quạt thật (mục 3.3). Đây là điều kiện để bass 2 nốt ngân qua `0,5` không bị báo `two bass notes are the tremolo exception`.
+Ngoài ba chỗ trên, còn một chỗ phải sửa: **`assert_playable()`** trong `guitar_patterns.py` — mở cửa sổ quạt từ 6 → 12 twelfth cho bar có cú quạt thật (mục 3.3). Đây là điều kiện để bass 2 nốt ngân qua `0,5` không bị báo `two bass notes are the tremolo exception`.
 
-Cả hai pass dùng chung `_fan_shape()` / `_fan_attacks()`; không lặp logic nhận diện. Bản trong `humanize.py` đọc thẳng `score.lead` / `score.support` / `score.low` nên không cần `ctx` / `patterns`.
+`apply_torroba_fan_ring()` và `_apply_fans()` dùng chung logic nhận diện `_fan_shape()` (đặt trong `guitar_torroba.py`); `_fan_hold_deltas()` dùng `_is_rasgueado()` sẵn có trong `humanize.py`.
 
 ---
 
@@ -413,9 +434,9 @@ Lưu ý đo được: **ACB 1M II chỉ có Loại 1** (13/13 cú quạt đều 
 5. **`6/8`**: `bar_beats = 3,0`; `CAP` lớn nhất `1,5` vẫn nằm trong ô. Không cần đổi.
 6. **Hai nốt bass cùng lúc** (quãng tám): cả hai cùng ngân tới `end(bass)`, cùng duration — vì MuseScore chuẩn hoá chord về duration nốt đầu, không thể cho một nốt dài một nốt ngắn. Cửa sổ quạt đã nới ở 3.3 để cho phép 2 bass cùng vang trong phạm vi cú ngân.
 7. **Lead bị chặn ở `0,5`** (castillo walk, type 2/3): giữ nguyên lead; bass/support vẫn nới. Đây là ngoại lệ đã nêu ở mục 3.3.
-8. **Quạt ở ô không có nốt nào khác**: `peak` rỗng → `lead_t = min(FAN_CEIL, lead_now)`; bass/support vẫn được kéo lên theo `lead_t - 4` / `lead_t - 6` nếu đang thấp hơn. Không lỗi.
+8. **Quạt ở ô không có nốt nào khác**: `peak` rỗng → `lead_t = lead_now`; bass/support vẫn được kéo lên theo `lead - 4` / `lead - 6` nếu đang thấp hơn. Không lỗi.
 9. **`assert_playable()` với support ngân qua `0,5`**: support chỉ có một nốt trong bè, nên `len(mids) <= 1` ở ngoài cửa sổ. Nếu sau này support có nốt mới trước `end`, `room(support)` đã chặn.
-10. **Humanize**: `humanize()` đổi velocity (±2) và tempo, không đổi duration. Lift nằm **sau** `_clamp_guitar()` nên không bị nudge hay kẹp lại; nó là tầng cuối. Vì vậy `services/dfi.py` (cũng gọi `humanize()`) và audio path cùng thấy một score đã lift, không lệch nhau.
+10. **Humanize**: `humanize()` chỉ còn làm phần **cơ thể** của quạt — `_fan_hold_deltas` (trễ nốt sau) và nudge ±2. Dynamic gốc nằm ở `_apply_fans` (wave), **trước** humanize; `_clamp_guitar` chỉ giữ dải, không đổi quan hệ. `services/dfi.py` và audio path cùng thấy một score đã humanize; quạt giữ nguyên dynamic từ wave.
 
 ---
 
@@ -425,7 +446,7 @@ Lưu ý đo được: **ACB 1M II chỉ có Loại 1** (13/13 cú quạt đều 
 2. **`guitar_torroba.py`**: thêm `_fan_shape()` và `apply_torroba_fan_ring()`.
 3. **`guitar_patterns.render_patterned_voices()`**: gọi ring sau `_repair()`, trước `apply_sonatina_downbeats()`.
 4. **`guitar_patterns.assert_playable()`**: mở cửa sổ quạt 6 → 12 twelfth cho `fan_bars`.
-5. **`humanize.py`**: thêm `apply_torroba_fan_heard()` và gọi ở cuối `humanize()`, sau `_clamp_guitar()`.
+5. **`guitar_wave.py`**: thêm `_apply_fans()` và gọi trong `apply_guitar_wave()` sau `_apply_snaps` / `_apply_stabs`, trước `_sync_ties`.
 6. **`humanize.py`**: thêm `_fan_hold_deltas()` và cộng vào `_torroba_phrase_tempos()` sau cap (mục 13).
 7. Chạy `backend/tmp/diag_fan_ring.py` trước/sau; thêm test unit + pipeline + ký âm + timing.
 8. Nghe ACB 1M II và một bản có Loại 2; chỉnh `CAP` / `MARGIN` / `D` nếu cần.
@@ -448,14 +469,14 @@ Mỗi bước chạy test ngay, không gộp. Bước 1–3 làm trước (durat
   - `assert_playable(..., profiles="torroba")` pass cho cả ba mét, với cửa sổ quạt mở tới 12 twelfth.
 - `_fan_shape()` không nhận nhầm nốt mordent / grace ở `0,25` (điều kiện `< 0,25`).
 
-### 9.2. Unit — độ to
+### 9.2. Unit — độ to (tầng wave)
 
-- Trên fixture pipeline, dựng một ô có cú quạt + một nốt lead to hơn ở `0,5`; chạy `render_guitar_score()` rồi `humanize_score()` (vì lift nằm cuối `humanize`).
-- Nhánh ấm (`lead_t <= 64`): `lead == peak + 3` (Loại 1) / `+2` (Loại 2); `bass >= lead - 4`; `support >= min(bass - 2, lead - 6)`; mọi giá trị `<= 64`.
-- Nhánh móng (`lead_t > 64`): `lead >= 73`, `bass == lead - 2`, `support == lead - 4`; không có giá trị nào trong `65–68`.
-- `lead > bass > support`, khe `>= 2` sau lift.
-- Khẳng định ca "quạt đã là tiếng to nhất ô nhưng bass/support bị sóng kẹp thấp" vẫn được kéo lên (ô 70 kiểu `54 / 40 / 32` → `54 / 50 / 48`).
-- Khẳng định `_clamp_guitar()` không hạ lại fan: mọi giá trị lift nằm trong `[1, 127]`, và `humanize()` không chạy lại sau lift.
+- Trên fixture pipeline, dựng một ô có cú quạt + một nốt lead to hơn ở `0,5`; chạy `render_guitar_score()` (đã gồm wave). **Không** cần `humanize_score()` để kiểm tra dynamic gốc.
+- Nhánh ấm (`lead_t <= 64`): `lead == max(lead_now, peak + 3)` (Loại 1) / `+2` (Loại 2); `bass >= lead - 4`; `support >= min(bass - 2, lead - 6)`; mọi giá trị `<= 64`.
+- Nhánh móng (`lead_t > 64`): đúng `73 / 71 / 69`.
+- `lead > bass > support`, khe `>= 2`.
+- Khẳng định ca "bass/support bị sóng kẹp thấp" vẫn được kéo lên (ô 70 kiểu `54 / 40 / 32` → `54 / 50 / 48`).
+- **Humanize không sửa dynamic của fan**: chạy `humanize_score(score)` rồi so sánh — fan giữ đúng dải (`<= 64` hoặc `69–73`), chỉ có thể lệch ±2 do nudge, không bị kéo khỏi dải.
 - Khẳng định các nốt **không thuộc** cú quạt không đổi velocity.
 
 ### 9.3. Ký âm
@@ -472,7 +493,7 @@ Mỗi bước chạy test ngay, không gộp. Bước 1–3 làm trước (durat
 - `pytest backend/tests/test_sonify_note_surface_grid.py -q` (`_covers12`, `two notes in the high voice`, và test cửa sổ quạt — nay 12 twelfth cho bar có quạt).
 - `pytest backend/tests/test_sonify_guitar.py -q`.
 - Toàn bộ: `pytest backend/tests -q`.
-- Test gọi **trực tiếp** `render_torroba_figure()` / `_render_torroba_bar()` sẽ vẫn thấy `0,5` vì ring là pass của pipeline (và lift nằm trong `humanize`). Ghi chú rõ trong test mới, giống cách `_torroba_cushion` đã làm.
+- Test gọi **trực tiếp** `render_torroba_figure()` / `_render_torroba_bar()` sẽ vẫn thấy `0,5` vì ring là pass của pipeline; `_apply_fans` nằm trong wave, trước humanize. Ghi chú rõ trong test mới, giống cách `_torroba_cushion` đã làm.
 
 ### 9.5. Nghe thử
 
@@ -490,14 +511,15 @@ Mỗi bước chạy test ngay, không gộp. Bước 1–3 làm trước (durat
 - [ ] Support dừng trước nốt lead thấp hơn nó; bass dừng trước nốt thấp hơn nó.
 - [ ] `assert_playable` cho phép bass 2 nốt ngân qua `0,5` trong cửa sổ 12 twelfth của bar quạt, nhưng vẫn bắt attack mới chen vào.
 - [ ] Không nốt quạt nào bị **rút ngắn** so với hiện tại.
-- [ ] Trong mỗi ô quạt, `velocity(lead)` là lớn nhất ô và `>= peak + 3` (Loại 1) / `>= peak + 2` (Loại 2).
+- [ ] Trong mỗi ô quạt, `velocity(lead)` không thấp hơn nền và `>= peak + 3` (Loại 1) / `>= peak + 2` (Loại 2) khi còn ở dải ấm.
 - [ ] Bass/support được kéo lên theo độ dày hợp âm: `bass >= lead - 4`, `support >= min(bass - 2, lead - 6)`.
-- [ ] `lead > bass > support` với khe `>= 2` sau lift.
-- [ ] Không velocity quạt nào rơi vào `65–68`: hoặc cả cụm `<= 64` (ấm), hoặc cả cụm `>= 69` (móng) với hình `lead / lead−2 / lead−4`, `lead >= 73`.
+- [ ] `lead > bass > support` với khe `>= 2` sau wave.
+- [ ] Dynamic gốc của quạt nằm ở `_apply_fans` (wave), **không** ở humanize.
+- [ ] Không velocity quạt nào rơi vào `65–68`: hoặc cả cụm `<= 64` (ấm), hoặc đúng `73 / 71 / 69` (móng).
 - [ ] Các nốt không thuộc cú quạt giữ nguyên velocity.
 - [ ] `assert_playable(..., profiles="torroba")` pass trên toàn bộ fixture Torroba.
 - [ ] MusicXML: không `<forward>` trong ô quạt; độ dài các voice cộng đúng bằng ô.
-- [ ] Velocity quạt sau `humanize_score()` đúng bằng target của lift; nudge ±2 không chạy sau lift.
+- [ ] `humanize_score()` chỉ làm lệch ±2 và giữ nguyên dải của fan; không kéo fan khỏi dải ấm/móng.
 - [ ] Nốt **ngay sau** cú quạt vào trễ đúng `1/12` phách (Loại 1) / `1/24` phách (Loại 2), đo bằng tích phân tempo clock.
 - [ ] Thời gian kết thúc ô / phrase **không đổi**; `NoteEvent.beat` không đổi, chỉ có `TempoEvent`.
 - [ ] Quạt 16th áp cùng `D` như móc đơn; ô không có attack sau thì không sinh tempo event.
@@ -507,10 +529,10 @@ Mỗi bước chạy test ngay, không gộp. Bước 1–3 làm trước (durat
 
 ## 11. Tài liệu cần cập nhật khi vào code
 
-- [`docs/sonify-guitar-torroba-phrase-plan.md`](./sonify-guitar-torroba-phrase-plan.md) mục 4: bảng Loại 1 / Loại 2 thêm cột "ngân" và "lift".
+- [`docs/sonify-guitar-torroba-phrase-plan.md`](./sonify-guitar-torroba-phrase-plan.md) mục 4: bảng Loại 1 / Loại 2 thêm cột "ngân" và "dynamic".
 - [`docs/sonify-guitar-torroba-note-surface.md`](./sonify-guitar-torroba-note-surface.md): thêm dạng "held part-bar" (`head + plain tail`), cạnh `held-eighth` / `held-fifth`; **đổi cửa sổ quạt từ 6 → 12 twelfth** cho bar có quạt, kèm lý do (hợp âm ngân qua nửa phách).
 - [`docs/sonify-pattern-names.md`](./sonify-pattern-names.md) mục 3: ghi chú rasgueado giờ có thể ngân một phần ô.
-- [`docs/sonify-guitar-torroba-dynamics.md`](./sonify-guitar-torroba-dynamics.md): thêm tầng `apply_torroba_fan_heard` ở cuối `humanize`, sau `_clamp_guitar`, và lý do phải nằm sau `v_ceil` + dải móng `69–73`.
+- [`docs/sonify-guitar-torroba-dynamics.md`](./sonify-guitar-torroba-dynamics.md): thêm `_apply_fans` ở tầng wave (sau snap/stab), lý do dynamic của quạt là quyết định âm nhạc chứ không phải humanize; humanize chỉ còn `_fan_hold_deltas` + nudge ±2.
 - [`docs/sonify-guitar-torroba-lilt-accents.md`](./sonify-guitar-torroba-lilt-accents.md): thêm tầng thứ tư `fan_hold` vào mục tempo (ba tầng → bốn tầng), kèm công thức `x = D/(span+D)`, `y = D/(comp-D)` và lý do tầng này nằm sau cap.
 - [`docs/sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md) mục 3: cập nhật nếu có bảng duration của roll.
 
@@ -525,16 +547,16 @@ Mỗi bước chạy test ngay, không gộp. Bước 1–3 làm trước (durat
 | Mở cửa sổ quạt 6 → 12 làm lọt stack xấu | Chỉ mở cho `fan_bars` (có onset trong `0 < beat < 0,25`), không mở cho mọi `roll_bar`; ngưỡng đếm và kiểm tra thứ tự bè giữ nguyên |
 | Chord lệch duration bị MuseScore kéo dài nốt ngắn | Không dùng chord lệch duration: bass cả cụm cùng duration; support chỉ thêm **đuôi tie** cho nốt thấp nhất (đuôi là nốt riêng, không phải `<chord/>`) |
 | MuseScore từ chối ô vì tuplet | Giữ rest `2/12` / `1/12` là `<rest>` có 3:2; đuôi tie là nốt plain |
-| Lift làm cú quạt chói | `FAN_CEIL` 80 / 78; công thức chỉ nới, không rút; giữ `lead > bass > support` |
-| `_Pen._local_lead()` ghi đè | Lift đặt sau humanize, ngoài `_Pen` |
-| Sóng kẹp mất phần tăng | Lift đặt sau `min(v_ceil, raw)` |
-| `humanize._clamp_guitar()` hạ `76 → 73` | Lift đặt **sau** `_clamp_guitar()`, cuối `humanize()` |
+| Dynamic quạt bị humanize sửa | `_apply_fans` đặt đúng dải (`<= 64` hoặc `69–73`); `_clamp_guitar` chỉ giữ dải, không đổi quan hệ |
+| `_Pen._local_lead()` ghi đè | `_apply_fans` đặt sau `_apply_affine` trong wave, ngoài `_Pen` |
+| Sóng kẹp mất phần tăng | `_apply_fans` chạy **sau** `min(v_ceil, raw)`, giống `_apply_stabs` |
+| `humanize._clamp_guitar()` hạ `73` | `_apply_fans` đặt đúng `73 / 71 / 69`; clamp giữ nguyên vì đã ở dải móng |
 | Tempo dip 20 % nghe thành "khựng" | Chỉ `4/12` phách; giảm `D` Loại 1 về `1/24` hoặc kéo điểm bắt đầu chậm về `0` (`x` còn `14,3 %`) |
 | Tempo dip làm dài phrase | Zero-sum theo thời gian trong từng ô (`+x` rồi `−y`); test thời điểm kết thúc phrase |
 | Tempo dip bị cap 10 % bóp mất độ trễ | Cộng `fan_delta` **sau** `scale`, clamp riêng `±25 %` |
-| Ảnh hưởng ensemble khác | Ring chỉ chạy khi `ctx.ensemble == "torroba"`; lift và fan_hold chỉ chạy khi `score.variant == "guitar"` và `score.ensemble == "torroba"` |
+| Ảnh hưởng ensemble khác | Ring và `_apply_fans` chỉ chạy khi `ctx.ensemble == "torroba"`; fan_hold chỉ chạy khi `score.variant == "guitar"` và `score.ensemble == "torroba"` |
 
-Rollback: xoá lời gọi `apply_torroba_fan_ring()` trong `render_patterned_voices()`, xoá lời gọi `apply_torroba_fan_heard()` cuối `humanize()`, xoá `_fan_hold_deltas()` khỏi `_torroba_phrase_tempos()`, trả `_rasgueado_kind()` và điều kiện `roll_window` về bản cũ, xoá hai helper. Không có thay đổi cấu trúc dữ liệu.
+Rollback: xoá lời gọi `apply_torroba_fan_ring()` trong `render_patterned_voices()`, xoá lời gọi `_apply_fans()` trong `apply_guitar_wave()`, xoá `_fan_hold_deltas()` khỏi `_torroba_phrase_tempos()`, trả `_rasgueado_kind()` và điều kiện `roll_window` về bản cũ, xoá các helper. Không có thay đổi cấu trúc dữ liệu.
 
 ---
 
