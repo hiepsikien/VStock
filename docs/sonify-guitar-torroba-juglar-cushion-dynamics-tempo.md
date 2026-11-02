@@ -1,6 +1,6 @@
 # Torroba: Juglar bass, ô đệm A–B–A, động lực A đầu, và tempo 92–132
 
-> **Trạng thái**: **đã vào code**, `SPAN_REVISION` `"70"` → `"71"`, `pytest tests/ -q` **749 passed**. Đo lại trên ACB 1M II: bass đủ `1,0` phách ở mọi phách (bar 47/49 không còn `0,5`), ô đệm rơi đúng **bar 46** (ô Castillo cuối cùng) và **bar 69**, cả hai đường framed/unframed đều có gap `2,0–3,0`.
+> **Trạng thái**: **đã vào code**, `SPAN_REVISION` `"70"` → `"71"`, `pytest tests/ -q` **751 passed**. Đo lại trên ACB 1M II: bass đủ `1,0` phách ở mọi phách (bar 47/49 không còn `0,5`), ô đệm rơi đúng **bar 46** (ô Castillo cuối cùng) và **bar 69**, cả hai đường framed/unframed đều có gap `2,0–3,0`.
 > **Lệch so với kế hoạch ban đầu**: mối nối A→B không phải bar 48 mà là **bar 46**. Phrase Castillo cuối vùng (phrase 15) trải tới hết bar 46, còn section B bắt đầu ở bar 46; nên bar 46 vẫn render `castillo`, và đó mới là ô cuối vùng đi trước. Vì vậy `_torroba_boundary()` đọc **hai bar liền kề** (`_bar_pattern(bar) != _bar_pattern(bar+1)`) thay vì đọc `ctx.section()`/`section.end - 1`, và `apply_sonatina_downbeats()` bỏ pickup khi bar trước là ô đệm để gap không bị lấp lại.
 > **Đọc cùng**: [`docs/sonify-guitar-torroba-aba-tempo.md`](./sonify-guitar-torroba-aba-tempo.md), [`docs/sonify-guitar-torroba-dynamics.md`](./sonify-guitar-torroba-dynamics.md), [`docs/sonify-guitar-torroba-tempo-plan.md`](./sonify-guitar-torroba-tempo-plan.md), [`docs/sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md).
 > **Giữ**: không thêm id pattern, không thêm ô nhạc, không đổi form A–B–A, không đổi cờ `bridge` / `trio` trong `span.py`. Chỉ sửa nội dung bên trong ô đã có.
@@ -215,6 +215,7 @@ Trong mỗi đường, trước vòng xử lý hiện tại:
 - Ô đệm có ít nhất một phách không có attack mới.
 - Không có nốt nào bị cắt trước khi hết duration ghi (kiểm tra note-off trùng mốc phách).
 - Bass của ô đệm vẫn còn ít nhất một cú.
+- Note bị cắt ở gap không để lại tie treo: `tie_start` bị clear trên segment bị cắt, và `tie_stop` ở bar kế tiếp (nếu tie vượt vạch nhịp) cũng bị clear.
 - Phần đầu figure bar (trước `gap`) vẫn còn ít nhất một attack lead.
 - 6/8: gap là 3 móc, không phải 2.
 

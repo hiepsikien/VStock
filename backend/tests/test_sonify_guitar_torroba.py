@@ -4895,6 +4895,65 @@ def test_torroba_cushion_clears_a_bass_tie_into_the_dropped_gap() -> None:
     assert not any(note.beat >= 2.0 - 1e-9 for note in bass if note.bar == 1)
 
 
+def test_torroba_cushion_clears_a_tie_that_crosses_the_barline() -> None:
+    ctx, patterns, _lead, _support, _low = _aba_cushion_fixture("3/4", 6, (0,), 3.0)
+    lead = [
+        NoteEvent(
+            bar=1,
+            beat=0.0,
+            midi=60,
+            duration_beats=3.0,
+            voice=1,
+            velocity=64,
+            tie_start=True,
+        ),
+        NoteEvent(
+            bar=2,
+            beat=0.0,
+            midi=60,
+            duration_beats=1.0,
+            voice=1,
+            velocity=64,
+            tie_stop=True,
+        ),
+    ]
+    heard, _inner, _bass = _smooth_boundaries(
+        ctx, patterns, lead, [], [], figure_bars={1}
+    )[:3]
+    outgoing = [note for note in heard if note.bar == 1]
+    assert [(note.beat, note.duration_beats) for note in outgoing] == [(0.0, 2.0)]
+    assert not outgoing[0].tie_start
+    # The continuation in the next bar is a plain attack now, not a tie stop.
+    incoming = [note for note in heard if note.bar == 2]
+    assert len(incoming) == 1 and not incoming[0].tie_stop
+
+
+def test_torroba_boundary_skips_a_meter_the_cushion_cannot_spell() -> None:
+    from app.sonify.guitar_patterns import _torroba_boundary
+
+    phrase = Phrase(0, 6, (Run(0, 6, 67),))
+    ctx = _ctx(
+        melody=[67] * 12,
+        phrase=phrase,
+        kind="other",
+        epb=6,
+        strong=(0,),
+        bpm=72,
+        character="calm",
+        bars=2,
+        bar_beats=3.0,
+    )
+    ctx = replace(
+        ctx,
+        phrases=(phrase,),
+        chord_at={0: C, 1: C},
+        kind_at={0: "phrase", 1: "phrase"},
+        band_at={0: "mf", 1: "mf"},
+    )
+    # Different patterns, but the cushion has no gap shape for this meter.
+    assert _torroba_boundary(ctx, 0, ["castillo", "sonatina"]) is False
+
+
 def test_drop_region_holds_a_torroba_bass_to_the_next_attack() -> None:
     from app.sonify.guitar_scale_passages import _drop_region
 

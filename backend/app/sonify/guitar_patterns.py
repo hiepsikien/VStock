@@ -2204,7 +2204,41 @@ def _torroba_cushion(ctx, bar: int, lead, support, low):
             for index, event in enumerate(kept)
         ]
 
-    return cut(lead, trim=True), cut(support, trim=True), cut(low, trim=False)
+    lead, support, low = (
+        cut(lead, trim=True),
+        cut(support, trim=True),
+        cut(low, trim=False),
+    )
+    return (
+        _clear_orphan_tie_stops(lead, ctx.epb),
+        _clear_orphan_tie_stops(support, ctx.epb),
+        _clear_orphan_tie_stops(low, ctx.epb),
+    )
+
+
+def _clear_orphan_tie_stops(events: list[NoteEvent], epb: int) -> list[NoteEvent]:
+    """Drop a `tie_stop` whose `tie_start` was cleared on this or the previous bar.
+
+    A cushion may trim a note that ties across the barline. The start is cleared
+    on the outgoing bar, so the continuation in the next bar must not keep a
+    `tie_stop` that points at nothing.
+    """
+    starts = {
+        (event.midi, event.voice, round(event.bar * epb + (event.beat + event.duration_beats) * 2, 6))
+        for event in events
+        if event.midi is not None and event.tie_start
+    }
+    cleaned: list[NoteEvent] = []
+    for event in events:
+        if event.midi is None or not event.tie_stop:
+            cleaned.append(event)
+            continue
+        here = round(event.bar * epb + event.beat * 2, 6)
+        if (event.midi, event.voice, here) in starts:
+            cleaned.append(event)
+        else:
+            cleaned.append(replace(event, tie_stop=False))
+    return cleaned
 
 
 def _scale_line(target: int, steps: int, ascending: bool, mode: str, low: int, high: int, chromatic: bool) -> list[int]:
