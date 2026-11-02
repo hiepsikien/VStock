@@ -83,8 +83,8 @@ Với dataset chứng khoán, tín hiệu nguồn gồm **đường giá** và *
 
 | Thể loại | Nốt/tín hiệu mang giá | Ghi chú cho DFI |
 |---|---|---|
-| **Giao hưởng** | `lead` = violin, sinh từ `melody_parts(pitches, ...)` trong `phrasing.py`. Flute là quãng 3/5 ở trên, không phải giá. Cello có lúc lấy dòng trầm. | Lấy `lead`, không lấy `high` (flute) và không lấy nốt cao nhất của cả score. |
-| **Jazz** | `lead` = alto sax, `_sax_melody_curve(...)` từ `pitches`, có thể dịch cả câu 0/12/24 semitone để vừa register. Vibraphone là đỉnh/điểm nhấn, không phải giá. | So trong từng câu; bỏ qua dịch octave ở biên câu. Không lấy nốt vibraphone. |
+| **Giao hưởng** | `melody_parts(pitches, ...)` chia **cùng một đường giá** giữa `lead` (violin) và `support` (cello) với dovetail handoff. Flute (`high`) là quãng 3/5 ở trên, không phải giá. | Trace lấy **`lead` + `support`**; không lấy `high` (flute), `comp`/`low` (piano/bass) hay nốt cao nhất của cả score. |
+| **Jazz** | `melody_parts(...)` chia đường giá giữa `lead` (alto sax) và `support` (tenor sax); có thể dịch cả câu 0/12/24 semitone để vừa register. Vibraphone (`high`) là đỉnh/điểm nhấn, không phải giá. | Trace lấy **`lead` + `support`**; so trong từng câu, bỏ qua dịch octave ở biên câu. Không lấy vibraphone. |
 | **Tối giản** | Arpeggio synth: cửa sổ đăng ký, độ sáng, articulation, velocity lấy từ `raw_pitches`; pulse lấy volume. | Không so từng nốt. Ghi `register_center` mỗi bar (trung bình cửa sổ arpeggio) làm `pitch` của trace. |
 | **Ambient** | Glass line: anchor ở đầu câu/bar, ngân dài, thở bằng breath; bed theo hợp âm và volume. | Chỉ so ở anchor/breath. Ngân dài qua biến động giá là mất fidelity có chủ ý; coverage và shape phải phản ánh. |
 | **Guitar — Bach** | Bè cao; prelude: móc kép chẵn là giá, móc kép lẻ là bậc phụ. | Trace chỉ ghi móc kép chẵn. Không lấy nốt cao nhất. |
@@ -96,7 +96,7 @@ Với dataset chứng khoán, tín hiệu nguồn gồm **đường giá** và *
 
 ### 3.3. Dàn nhạc
 
-- Các ensemble không phải guitar (`wood`, `brass`, `soul`, `organ`, `mallet`, `breath`, `choir`) chủ yếu đổi **âm sắc, register, lực**, không đổi thuật toán giá. DFI phải gần như không đổi so với `classic` (kỳ vọng lệch ≤ 3 điểm).
+- Các ensemble không phải guitar (`wood`, `brass`, `soul`, `organ`, `mallet`, `breath`, `choir`) chủ yếu đổi **âm sắc, register, lực**, không đổi thuật toán giá. DFI phải gần như không đổi so với `classic` (kỳ vọng lệch ≤ 3–4 điểm; `wood` fold bè trầm lên octave nên có thể nhích hơn).
 - Sáu ensemble guitar là sáu thuật toán viết. DFI được phép lệch rõ. Đây là chỗ UI so sánh có ý nghĩa nhất.
 
 Nếu DFI của `wood` lệch `classic` quá nhiều, gần như chắc chắn trace đang bắt nhầm nốt, không phải “gỗ nghe khác”.
@@ -780,7 +780,7 @@ GET /v1/sonify/dfi/pieces
 
 ### 9.1. Sai lệch đã biết so với thiết kế ban đầu
 
-- **Trace không phải lúc nào cũng ghi tại chỗ viết nốt.** Guitar ghi qua `_TRACE_LINE` / `_TRACE_PRICE_LINE`; các variant còn lại dựng trace trong `_attach_dfi_inputs` từ `score.lead` (hoặc lead+support+low). Hệ quả: nốt đệm/hoa mỹ trùng cao độ với đường giá có thể bị nhận nhầm, và `n_sounding` (dùng cho confidence) chênh giữa các ensemble. Với Torroba, trace dùng **ý đồ** trước khi hạ quãng/đổi bè, nên đo “writer định đặt giá ở đâu” hơn là “tai nghe thấy gì”. Nếu đường giá chuyển sang bè mà helper không đọc (ví dụ coda giao hưởng), coverage sẽ **conservative** — thấp hơn thực tế; sửa gốc vẫn là ghi trace tại writer.
+- **Trace không phải lúc nào cũng ghi tại chỗ viết nốt.** Guitar ghi qua `_TRACE_LINE` / `_TRACE_PRICE_LINE`; symphony/jazz dựng trace trong `_attach_dfi_inputs` từ **`lead` + `support`** (violin + cello, alto + tenor) vì `melody_parts` chia cùng một đường giá giữa hai bè; minimalist/ambient dùng `lead`. Hệ quả: nốt đệm/hoa mỹ trùng cao độ với đường giá có thể bị nhận nhầm, và `n_sounding` (dùng cho confidence) chênh giữa các ensemble. Với Torroba, trace dùng **ý đồ** trước khi hạ quãng/đổi bè, nên đo “writer định đặt giá ở đâu” hơn là “tai nghe thấy gì”. Nếu đường giá chuyển sang bè mà helper không đọc (ví dụ flute hay piano), coverage sẽ **conservative** — thấp hơn thực tế; sửa gốc vẫn là ghi trace tại writer.
 - **`role` mới dùng `attack/anchor/register`.** `hold` và `rest` có trong model nhưng writer chưa phát; coverage suy ra từ khoảng nghe của trace point thay vì role.
 - **`low-evidence` chưa surface.** `_motion` tính cờ fallback nhưng `compute()` bỏ qua; UI chỉ thấy `confidence` tổng.
 - **Band chưa calibration.** Trên phiên êm tổng hợp, điểm cao nhất đã lên 74–78 sau các fix; corpus thật chưa chạy. Band `Rõ` (70) và `Rất rõ` (85) có thể đạt sau Phase 7; giữ nguyên ngưỡng thay vì hạ cho đẹp số.

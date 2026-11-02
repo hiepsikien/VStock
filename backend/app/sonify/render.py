@@ -1185,14 +1185,19 @@ def _compose(
                         octave_tolerant=True,
                     )
                 elif variant in ("symphony", "jazz"):
+                    # `melody_parts` splits the price line between the two
+                    # line voices with dovetail handoffs: violin + cello in a
+                    # symphony, alto + tenor in jazz. Reading only `lead`
+                    # loses every bar where the line drops to the lower voice.
                     trace = trace_from_notes(
-                        score.lead,
+                        [*score.lead, *score.support],
                         line=pitches,
                         prices=price_eighths,
                         epb=dfi_epb,
                         bar_beats=dfi_bar_beats,
                         frame_bars=frame_set,
                         octave_tolerant=True,
+                        voice="line",
                     )
             return replace(
                 score,

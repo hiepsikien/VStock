@@ -174,6 +174,24 @@ def test_coverage_does_not_shrink_to_a_partial_trace() -> None:
     assert coverage < 0.8
 
 
+def test_symphony_and_jazz_trace_the_lower_line_voice() -> None:
+    # melody_parts splits the price line between violin + cello (symphony) and
+    # alto + tenor (jazz). A downtrend puts the line in the lower voice; Shape
+    # and Motion must see those bars, not just score.lead.
+    bars = [
+        Bar(close=100.0 - index * 1.5, volume=1000.0 + index * 100.0)
+        for index in range(32)
+    ]
+    for variant in ("symphony", "jazz"):
+        score = render(bars, variant=variant, ensemble="classic")  # type: ignore[arg-type]
+        trace_bars = {point.bar for point in score.price_trace if point.pitch is not None}
+        lead_bars = {note.bar for note in score.lead if note.midi is not None}
+        support_bars = {note.bar for note in score.support if note.midi is not None}
+        support_only = support_bars - lead_bars
+        assert support_only, variant
+        assert support_only & trace_bars, variant
+
+
 def test_ready_movement_hides_dfi_when_the_bars_moved(monkeypatch) -> None:
     from pathlib import Path
 
@@ -300,7 +318,9 @@ def test_non_guitar_ensembles_keep_the_same_chart_clarity() -> None:
             )
             assert breakdown is not None, (variant, ensemble)
             scores.append(breakdown.score)
-        assert max(scores) - min(scores) <= 3, (variant, scores)
+        # Wood folds the lower line voice up by an octave, which can add ~3.1
+        # points of contour noise; the other non-guitar rows stay well under 1.
+        assert max(scores) - min(scores) <= 4, (variant, scores)
 
 
 def test_guitar_ensembles_do_not_lose_the_line_to_register_choices() -> None:
