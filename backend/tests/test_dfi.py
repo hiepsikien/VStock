@@ -9,10 +9,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.routers import stocks
+from app.schemas import DfiBreakdown as DfiBreakdownSchema
 from app.schemas import RecapResponse
 from app.services import dfi as dfi_service
 from app.sonify.model import Bar, NoteEvent, PriceTracePoint
 from app.sonify.dfi import (
+    DFI_VERSION,
+    MOTION_ON_ANCHORS,
     DfiBreakdown,
     _Point,
     _band,
@@ -22,6 +25,8 @@ from app.sonify.dfi import (
     _shape,
     _volume,
     compute,
+    fill_trace_from_notes,
+    motion_points,
     trace_from_notes,
 )
 from app.sonify.render import render
@@ -360,9 +365,10 @@ def test_non_guitar_ensembles_keep_the_same_chart_clarity() -> None:
             )
             assert breakdown is not None, (variant, ensemble)
             scores.append(breakdown.score)
-        # Wood folds the lower line voice up by an octave, which can add ~3.1
-        # points of contour noise; the other non-guitar rows stay well under 1.
-        assert max(scores) - min(scores) <= 4, (variant, scores)
+        # The trace now records the intended line (`snap_to_line`), so an
+        # octave fold no longer shows up as contour noise.  Measured spread is
+        # 0.00 for every row; keep a small margin for future writers.
+        assert max(scores) - min(scores) <= 2, (variant, scores)
 
 
 def test_guitar_ensembles_do_not_lose_the_line_to_register_choices() -> None:
@@ -413,6 +419,7 @@ def test_recap_response_parses_the_breakdown() -> None:
             "confidence": "high",
             "n_moves": 30,
             "n_sounding": 60,
+            "motion_pairs": 44,
             "version": "1",
         },
     }
@@ -420,6 +427,7 @@ def test_recap_response_parses_the_breakdown() -> None:
     assert response.dfi is not None
     assert response.dfi.score == 78.0
     assert response.dfi.band == "clear"
+    assert response.dfi.motion_pairs == 44
 
 
 def _breakdown(score: float) -> DfiBreakdown:
@@ -489,3 +497,234 @@ def test_pieces_endpoint_rejects_an_unknown_ensemble() -> None:
         "/v1/sonify/dfi/pieces?symbol=vnm&bucket=day&date=2026-11-02&variant=symphony&ensemble=organ"
     )
     assert response.status_code == 422
+
+
+def test_trace_snaps_to_the_intended_line() -> None:
+    notes = [NoteEvent(bar=0, beat=0.0, midi=72, duration_beats=1.0, voice=1)]
+    trace = trace_from_notes(
+        notes,
+        line=[60] * 8,
+        prices=[10.0] * 8,
+        epb=8,
+        bar_beats=4.0,
+        octave_tolerant=True,
+        snap_to_line=True,
+    )
+    assert len(trace) == 1
+    assert trace[0].pitch == 60.0
+    assert trace[0].sounding_pitch == 72.0
+
+
+def test_trace_keeps_the_longer_note_on_a_tie() -> None:
+    notes = [
+        NoteEvent(bar=0, beat=0.0, midi=60, duration_beats=1.0, voice=1),
+        NoteEvent(bar=0, beat=0.0, midi=60, duration_beats=3.0, voice=2),
+    ]
+    trace = trace_from_notes(
+        notes, line=[60] * 8, prices=[10.0] * 8, epb=8, bar_beats=4.0
+    )
+    assert len(trace) == 1
+    assert trace[0].duration_beats == 3.0
+
+
+def test_fill_trace_merges_high_ties() -> None:
+    notes = [
+        NoteEvent(bar=0, beat=0.0, midi=67, duration_beats=2.0, voice=5, tie_start=True),
+        NoteEvent(bar=0, beat=2.0, midi=67, duration_beats=2.0, voice=5, tie_stop=True),
+    ]
+    trace = fill_trace_from_notes(
+        (),
+        notes,
+        line=[60] * 8,
+        prices=[10.0] * 8,
+        epb=8,
+        bar_beats=4.0,
+        yield_spans=[(0, 8)],
+    )
+    assert len(trace) == 1
+    assert trace[0].pitch == 60.0
+    assert trace[0].sounding_pitch == 67.0
+    assert trace[0].duration_beats == 4.0
+
+
+def test_fill_trace_does_not_stack_overlapping_high_notes() -> None:
+    notes = [
+        NoteEvent(bar=0, beat=0.0, midi=67, duration_beats=2.0, voice=5),
+        NoteEvent(bar=0, beat=1.0, midi=69, duration_beats=2.0, voice=5),
+    ]
+    trace = fill_trace_from_notes(
+        (),
+        notes,
+        line=[60] * 8,
+        prices=[10.0] * 8,
+        epb=8,
+        bar_beats=4.0,
+        yield_spans=[(0, 8)],
+    )
+    assert len(trace) == 1
+
+
+def test_fill_uses_yield_spans() -> None:
+    notes = [
+        NoteEvent(bar=0, beat=0.0, midi=67, duration_beats=1.0, voice=5),
+        NoteEvent(bar=1, beat=0.0, midi=67, duration_beats=1.0, voice=5),
+    ]
+    trace = fill_trace_from_notes(
+        (),
+        notes,
+        line=[60] * 16,
+        prices=[10.0] * 16,
+        epb=8,
+        bar_beats=4.0,
+        yield_spans=[(8, 16)],
+    )
+    assert len(trace) == 1
+    assert trace[0].bar == 1
+
+
+def test_fill_skips_a_note_attacking_just_before_the_span() -> None:
+    notes = [NoteEvent(bar=0, beat=0.0, midi=67, duration_beats=4.0, voice=5)]
+    trace = fill_trace_from_notes(
+        (),
+        notes,
+        line=[60] * 8,
+        prices=[10.0] * 8,
+        epb=8,
+        bar_beats=4.0,
+        yield_spans=[(1, 8)],
+    )
+    assert trace == ()
+
+
+def test_fill_without_yield_spans_adds_nothing() -> None:
+    base = (
+        PriceTracePoint(bar=0, beat=0.0, duration_beats=4.0, price=10.0, pitch=60.0),
+    )
+    notes = [NoteEvent(bar=1, beat=0.0, midi=67, duration_beats=1.0, voice=5)]
+    trace = fill_trace_from_notes(
+        base,
+        notes,
+        line=[60] * 16,
+        prices=[10.0] * 16,
+        epb=8,
+        bar_beats=4.0,
+        yield_spans=[],
+    )
+    assert trace == base
+
+
+def test_motion_points_drops_frame_bars() -> None:
+    trace = (
+        PriceTracePoint(bar=0, beat=0.0, duration_beats=4.0, price=10.0, pitch=60.0),
+        PriceTracePoint(bar=1, beat=0.0, duration_beats=4.0, price=11.0, pitch=62.0),
+        PriceTracePoint(bar=2, beat=0.0, duration_beats=4.0, price=12.0, pitch=64.0),
+    )
+    score = SimpleNamespace(price_trace=trace, frame_bars=(2,), phrases=())
+    points = motion_points(score, [(0, 3)], epb=4)
+    assert [point.eighth for point in points[0]] == [0, 4]
+
+
+def test_motion_points_deduplicates_base_and_fill() -> None:
+    trace = (
+        PriceTracePoint(
+            bar=0, beat=0.0, duration_beats=4.0, price=10.0, pitch=60.0, voice="line"
+        ),
+        PriceTracePoint(
+            bar=0, beat=0.0, duration_beats=1.0, price=10.0, pitch=60.0, voice="high"
+        ),
+        PriceTracePoint(
+            bar=1, beat=0.0, duration_beats=4.0, price=11.0, pitch=62.0, voice="line"
+        ),
+    )
+    score = SimpleNamespace(price_trace=trace, frame_bars=(), phrases=())
+    points = motion_points(score, [(0, 2)], epb=4)
+    assert len(points[0]) == 2
+
+
+def test_motion_source_is_per_variant() -> None:
+    assert MOTION_ON_ANCHORS["guitar"] is True
+    assert MOTION_ON_ANCHORS["symphony"] is True
+    assert MOTION_ON_ANCHORS["jazz"] is True
+    assert MOTION_ON_ANCHORS["minimalist"] is True
+    assert MOTION_ON_ANCHORS["ambient"] is False
+    assert MOTION_ON_ANCHORS.get("unknown", True) is True
+
+
+def test_motion_filters_below_the_window_eps() -> None:
+    points = _points([10.0, 10.01, 10.02, 10.03, 10.04], [60, 60, 60, 60, 60])
+    value, weight, _low = _motion(points, eps=0.1)
+    assert value is None
+    assert weight == 0.0
+
+
+def test_schemas_version_matches_dfi_version() -> None:
+    assert DfiBreakdownSchema.model_fields["version"].default == DFI_VERSION
+    assert DfiBreakdownSchema.model_fields["motion_pairs"].default == 0
+
+
+def test_guitar_sets_sounding_pitch_on_remap() -> None:
+    volatile = [
+        Bar(
+            close=100.0 + (8.0 if index % 2 else -8.0) + index * 0.3,
+            volume=1000 + index * 300,
+        )
+        for index in range(32)
+    ]
+    score = render(volatile, variant="guitar", ensemble="torroba")
+    trace = [point for point in score.price_trace if point.pitch is not None]
+    assert trace
+    assert all(point.sounding_pitch is not None for point in trace)
+    assert any(point.pitch != point.sounding_pitch for point in trace)
+
+
+def test_sounding_pitch_keeps_the_flute_offset() -> None:
+    notes = [
+        NoteEvent(bar=0, beat=0.0, midi=63, duration_beats=1.0, voice=5),
+        NoteEvent(bar=1, beat=0.0, midi=51, duration_beats=1.0, voice=5),
+    ]
+    trace = fill_trace_from_notes(
+        (),
+        notes,
+        line=[60] * 16,
+        prices=[10.0] * 16,
+        epb=8,
+        bar_beats=4.0,
+        yield_spans=[(0, 16)],
+    )
+    assert len(trace) == 2
+    for point in trace:
+        assert point.sounding_pitch is not None
+        assert round(point.sounding_pitch - point.pitch) % 12 == 3
+
+
+def test_symphony_trace_covers_a_flute_only_bar() -> None:
+    base = (
+        PriceTracePoint(bar=0, beat=0.0, duration_beats=4.0, price=10.0, pitch=60.0),
+    )
+    notes = [NoteEvent(bar=1, beat=0.0, midi=63, duration_beats=4.0, voice=5)]
+    trace = fill_trace_from_notes(
+        base,
+        notes,
+        line=[60] * 16,
+        prices=[10.0] * 16,
+        epb=8,
+        bar_beats=4.0,
+        yield_spans=[(8, 16)],
+    )
+    assert [point.bar for point in trace] == [0, 1]
+    assert trace[1].voice == "high"
+
+
+def test_same_trace_across_symphony_ensembles() -> None:
+    def base_trace(ensemble: str):
+        score = render(_bars(trend=0.8), variant="symphony", ensemble=ensemble)  # type: ignore[arg-type]
+        return {
+            (point.bar, round(point.beat, 2), round(point.pitch, 1))
+            for point in score.price_trace
+            if point.voice == "line" and point.pitch is not None
+        }
+
+    classic = base_trace("classic")
+    assert classic
+    for ensemble in ("wood", "brass"):
+        assert base_trace(ensemble) == classic

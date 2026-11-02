@@ -1,7 +1,7 @@
 # Kế hoạch sửa DFI v4 — trace theo bè và Motion theo nốt giá
 
-> Trạng thái: **kế hoạch đề xuất, chưa implement; 5 quyết định ở §10 đã chốt
-> ngày 2026-11-03**. Đã đối chiếu với code và chạy prototype trên `ACB / 3M`
+> Trạng thái: **đã implement trong PR #128** (DFI v4). 5 quyết định ở §10 đã
+> chốt ngày 2026-11-03. Đã đối chiếu với code, implement và đo trên `ACB / 3M`
 > (local DB; dữ liệu `as_of` **2026-11-02**). Bảng số trong §1.1/§5/§7
 > regenerate bằng `backend/scripts/dfi_probe.py`; số phụ thuộc ngày dữ liệu,
 > không phải hằng số.
@@ -81,9 +81,9 @@ trace points              196
 coverage                 0.48
 ```
 
-Mô phỏng đúng spec yield-span (capture `pitches` + `yield_spans` từ writer,
-merge tie, lọc span, lọc overlap, `pitch=line[eighth]`, **không clip**) trên
-`symphony / classic`:
+Số thực tế sau implement (đúng spec yield-span: capture `pitches` + `yield_spans`
+từ writer, merge tie, lọc span, lọc overlap, `pitch=line[eighth]`, **không
+clip**) trên `symphony / classic`:
 
 | movement | coverage v3 → fill | Shape v3 → fill | Motion (anchor) v3 → fill | score v3 → v4 |
 |---|---:|---:|---:|---:|
@@ -392,14 +392,18 @@ Xem §6 và §9. Cập nhật `docs/sonify-data-fidelity-index.md` §4.2, §4.5,
 high chỉ 24. 49% là **breath có chủ ý**; halo/drone là nền, không mang giá.
 Vì vậy **chỉ dùng `lead`**, và **giữ grid Motion** để hold dài vẫn bị phạt.
 
-| movement | v3 score | v3 motion | anchors | grid+eps | score v4 (grid) |
+| movement | v3 score | v3 motion | anchors (v4 trace) | grid+eps | score v4 (grid) |
 |---|---:|---:|---:|---:|---:|
-| I | 22.6 | 0.000 | 0.316 | 0.000 | 22.6 |
-| II | 19.8 | 0.037 | 0.302 | 0.049 | 20.0 |
-| III | 18.7 | 0.000 | 0.441 | **0.010** | **18.8** |
+| I | 22.6 | 0.000 | 0.325 | 0.005 | **29.8** |
+| II | 19.8 | 0.037 | 0.333 | 0.049 | **29.9** |
+| III | 18.7 | 0.000 | 0.496 | 0.010 | **27.2** |
 
-Nếu làm anchor toàn cục, ambient tăng ~15–25% (26.1/22.9/23.4) và mâu thuẫn
-§4.5/§10 #6. Đề xuất: **per-variant** như §4.2(e).
+Số `score v4` cao hơn bảng Motion-only cũ (22.6/20.0/18.8) vì `snap_to_line`
+bỏ octave fold của glass, sửa **cả Shape/Resolution**, không chỉ Motion.
+Motion vẫn ~0 vì grid giữ hold. Đây là số **đã implement**, không phải ước lượng.
+
+Nếu làm anchor toàn cục, ambient còn cao hơn nữa (anchors 0.325/0.333/0.496) và
+thưởng hold, trái §4.5/§10 #6. Đề xuất: **per-variant** như §4.2(e).
 
 ### Minimalist — anchor, giữ `eps` chung, chấp nhận 0
 
@@ -475,7 +479,7 @@ pytest backend/tests -q
 .venv/bin/python scripts/dfi_probe.py ACB 3M guitar torroba
 ```
 
-## 7. Re-baseline (số đo prototype)
+## 7. Re-baseline (số đo sau implement)
 
 `backend/scripts/dfi_probe.py`, `ACB / 3M`, humanize. "score v4" là blend lại
 với Motion mới, **chưa gồm fill flute**.
@@ -488,25 +492,33 @@ với Motion mới, **chưa gồm fill flute**.
 | II | 0.1297 | 0.268 | 0.214 | 46.1 | 47.4 |
 | III | 0.1275 | 0.475 | 0.479 | 39.7 | 46.2 |
 
-### Symphony / jazz — chưa fill (chỉ để so Motion)
+### Symphony — chưa fill (ước lượng lịch sử)
 
-Các số `score v4` dưới đây **chưa có fill flute**, nên không phải target cuối.
-Dùng để thấy Motion/jazz/symphony đổi thế nào khi chỉ đổi nguồn Motion.
+Các số này chỉ để thấy Motion đổi thế nào khi chưa có fill; **không phải số v4**.
+Số v4 thực tế ở bảng dưới.
 
-| variant | mv | v3 motion | anchors+eps | score v3 | score v4 (chưa fill) |
-|---|---|---:|---:|---:|---:|
-| symphony | I | 0.266 | 0.274 | 33.7 | 33.8 |
-| symphony | II | 0.279 | 0.107 | 37.6 | 35.7 |
-| symphony | III | 0.370 | 0.359 | 51.6 | 51.5 |
-| jazz | I | 0.343 | 0.351 | 66.8 | 66.9 |
-| jazz | II | 0.205 | 0.138 | 57.4 | 56.2 |
-| jazz | III | 0.438 | 0.437 | 61.7 | 61.6 |
+| mv | v3 motion | anchors+eps | score v3 | score ước tính (chưa fill) |
+|---|---|---:|---:|---:|
+| I | 0.266 | 0.274 | 33.7 | 33.8 |
+| II | 0.279 | 0.107 | 37.6 | 35.7 |
+| III | 0.370 | 0.359 | 51.6 | 51.5 |
 
-### Symphony — fill prototype (yield_spans, đúng spec §4.2(b))
+### Jazz — v4 actual
 
-Đây là **target cho PR implementation**, không phải số đã có trong code.
+`snap_to_line` bỏ octave fold của alto/tenor, nên score cao hơn ước lượng
+Motion-only; Motion giữ anchor+eps.
 
-| movement | coverage v3 → fill | Shape v3 → fill | Motion v3 → fill | score v3 → v4 |
+| mv | v3 motion | anchors+eps | score v3 | score v4 |
+|---|---|---:|---:|---:|
+| I | 0.343 | 0.351 | 66.8 | 68.2 |
+| II | 0.205 | 0.138 | 57.4 | 57.4 |
+| III | 0.438 | 0.437 | 61.7 | 63.9 |
+
+### Symphony — fill actual
+
+Số thực tế sau implement (`dfi_probe.py`, `as_of` 2026-11-02); khớp target.
+
+| movement | coverage v3 → v4 | Shape v3 → v4 | Motion v3 → v4 | score v3 → v4 |
 |---|---:|---:|---:|---:|
 | I | 0.484 → 1.000 | 0.875 → 0.829 | 0.266 → 0.371 | 33.7 → **69.4** |
 | II | 0.525 → 0.964 | 0.963 → 0.982 | 0.279 → 0.132 | 37.6 → **69.0** |
@@ -524,6 +536,10 @@ dưới "Rõ"). Ghi vào PR description để reviewer không tưởng lỗi.
   thêm 242/207/164 point), confidence thành `high` gần như mặc định. Ghi nhận,
   không chặn.
 - `n_moves`/`opportunity` vẫn đo trên lưới; Motion đo trên anchor. Ghi rõ.
+- **`snap_to_line` không chỉ đổi Motion.** Nó bỏ octave fold nên Shape/Resolution
+  của ambient/jazz cũng tăng: ambient mv I 22.6 → **29.8**, jazz mv I 66.8 →
+  **68.2**. Các bảng "Motion-only" trước đây đánh giá thấp hệ quả này; số v4
+  thực tế ở §5/§7 là nguồn đúng.
 - **M không còn so sánh chéo variant từ v4:** ambient giữ grid, 4 variant còn
   lại dùng anchor. Bảng xếp hạng genre ở index §5.3 phải đọc M là *tương đối*,
   không phải cùng một định nghĩa mẫu.
@@ -553,38 +569,39 @@ dưới "Rõ"). Ghi vào PR description để reviewer không tưởng lỗi.
 
 ## 9. Checklist triển khai
 
-- [ ] `PriceTracePoint.sounding_pitch` (diagnostic-only).
-- [ ] `trace_from_notes`: `carrier`, `snap_to_line`, `diff_by_key`, duration tie.
-- [ ] `guitar.py`: set `sounding_pitch` khi remap `pitch=intended`.
-- [ ] `fill_trace_from_notes`: `yield_spans`, merge tie, cập nhật lookup; **không clip**.
-- [ ] `_motion` dùng `eps`; doc §4.5 thống nhất `<4 cặp`.
-- [ ] `motion_points`: lọc frame; dedupe.
-- [ ] `compute`: `MOTION_ON_ANCHORS.get(variant, True)` (ambient grid).
-- [ ] `render.py`: giữ `if not trace:`; khởi tạo `yield_spans`; symphony fill `high`.
-- [ ] `DFI_VERSION = "4"` + `schemas.py` import.
-- [ ] `motion_pairs` (additive, default 0) + test recap.
-- [ ] Test §6, gồm `sounding_pitch` **mod 12**.
-- [ ] Chạy `pytest backend/tests`.
-- [ ] Chạy `scripts/dfi_probe.py` cho 5 variant × 3 movement, cập nhật §1.1/§5/§7.
-- [ ] Đo ensemble spread; chỉ siết tolerance nếu spread ≤ 1.
+- [x] `PriceTracePoint.sounding_pitch` (diagnostic-only).
+- [x] `trace_from_notes`: `carrier`, `snap_to_line`, `diff_by_key`, duration tie.
+- [x] `guitar.py`: set `sounding_pitch` khi remap `pitch=intended`.
+- [x] `fill_trace_from_notes`: `yield_spans`, merge tie, cập nhật lookup; **không clip**.
+- [x] `_motion` dùng `eps`; doc §4.5 thống nhất `<4 cặp`.
+- [x] `motion_points`: lọc frame; dedupe.
+- [x] `compute`: `MOTION_ON_ANCHORS.get(variant, True)` (ambient grid).
+- [x] `render.py`: giữ `if not trace:`; khởi tạo `yield_spans`; symphony fill `high`.
+- [x] `DFI_VERSION = "4"` + `schemas.py` import.
+- [x] `motion_pairs` (additive, default 0) + test recap.
+- [x] Test §6, gồm `sounding_pitch` **mod 12**.
+- [x] Chạy `pytest backend/tests` (805 pass).
+- [x] Chạy `scripts/dfi_probe.py` cho 5 variant × 3 movement, cập nhật §1.1/§5/§7.
+- [x] Đo ensemble spread = **0.00** cho cả 4 variant → siết `<= 2`.
 - [ ] Cập nhật `docs/sonify-data-fidelity-index.md` (§4.2, §4.5, §5.3, §9.1, §9.2, §10).
 - [ ] Ghi band flip ("Rất mờ" → "Vừa") vào PR description.
-- [ ] Xác nhận `dfi_signatures.json` chưa tồn tại; Phase 7 tạo artifact (không chặn v4).
-- [ ] Kiểm tra URL gốc `ACB / 3M / guitar / torroba`.
+- [x] Xác nhận `dfi_signatures.json` chưa tồn tại; Phase 7 tạo artifact (không chặn v4).
+- [x] Kiểm tra URL gốc `ACB / 3M / guitar / torroba` (motion 0.455, score 39.2).
 
 ## 10. Quyết định đã chốt (2026-11-03)
 
 1. **Ambient Motion — giữ grid.** Anchor thưởng cho hold dài (giá chạy qua nốt
-   ngân), trái §4.5. Grid+eps giữ nguyên hành vi v3 (`0.000/0.049/0.010`).
+   ngân), trái §4.5. Grid+eps giữ Motion ~0 (`0.005/0.049/0.010`); score v4
+   tăng do `snap_to_line` bỏ octave fold (xem §5).
    Anchor chỉ xem lại nếu ambient writer bắt đầu mã hoá biến động trong nốt ngân.
 2. **Minimalist II/III — chấp nhận `M = 0`.** τ từng window âm là tín hiệu thật
    của encoding register, không phải lỗi eps. Không hạ eps. Mở task riêng để sửa
    `_synth_arpeggio_part` nếu muốn register phản ánh biên độ giá.
 3. **`dfi_signatures.json` — để Phase 7 tạo lần đầu.** Artifact chưa tồn tại;
    endpoint trả `[]`, UI hiện `chuẩn —`. Không tạo fixture tạm trong v4.
-4. **Bằng chứng — thêm `motion_pairs`; chưa siết tolerance.** `motion_pairs`
-   (additive, default 0) vào `DfiBreakdown`/`schemas.py` + test recap. Đo
-   ensemble spread sau khi implement; chỉ siết `<= 2` nếu spread ≤ 1.
+4. **Bằng chứng — thêm `motion_pairs`; đã đo spread = 0.00 → siết `<= 2`.**
+   `motion_pairs` (additive, default 0) vào `DfiBreakdown`/`schemas.py` + test
+   recap; `test_non_guitar_ensembles...` siết từ `<= 4` xuống `<= 2`.
 5. **So sánh chéo variant — chấp nhận + ghi rõ.** Ambient grid, còn lại anchor;
    `S/T/R/C` vẫn so được, `M` là chẩn đoán tương đối. Chuẩn hoá (nếu cần) để
    Phase 7 với corpus + listening panel.

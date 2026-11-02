@@ -187,6 +187,7 @@ class PriceTracePoint:
     duration_beats: float
     price: float
     pitch: float | None
+    sounding_pitch: float | None = None
     role: Literal["attack", "hold", "anchor", "register", "rest"] = "attack"
     weight: float = 1.0
     voice: str = "lead"

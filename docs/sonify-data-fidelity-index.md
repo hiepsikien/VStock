@@ -143,22 +143,26 @@ class PriceTracePoint:
     beat: float                  # cùng hệ với NoteEvent (quarter-note beat)
     duration_beats: float        # để biết nốt có đang kêu trong bar nguồn hay không
     price: float                 # close nguồn mà điểm này muốn mã hoá
-    pitch: float | None          # cao độ nghe được, hoặc centroid của cửa sổ
+    pitch: float | None          # cao độ ý định (line), hoặc centroid của cửa sổ
+    sounding_pitch: float | None = None  # MIDI thật khi pitch đã snap (diagnostic)
     role: Literal["attack", "hold", "anchor", "register", "rest"]
     weight: float = 1.0
-    voice: str = "lead"          # lead / high / low / thumb / ...
+    voice: str = "lead"          # line / high / price / ...
     source_bar: int | None = None
 ```
 
 Quy ước:
 
 - Trace dùng `(bar, beat)` để khớp trực tiếp với `NoteEvent`; không dùng `eighth` làm khoá chính. Khi cần lưới phân tích, quy đổi bằng `eighth = round((bar * score.bar_beats + beat) * 2)`.
-- `pitch` là **một số thực** vì minimalist dùng centroid cửa sổ, không phải MIDI của một nốt.
+- `pitch` là **một số thực** vì minimalist dùng centroid cửa sổ, không phải MIDI của một nốt. Với guitar/symphony/jazz/ambient, `pitch` ghi **cao độ ý định** `line[eighth]` (`snap_to_line`); `sounding_pitch` giữ MIDI thật. `compute` chỉ đọc `pitch` — `sounding_pitch` là diagnostic.
 - `duration_beats` là bắt buộc: Coverage cần biết một nốt ngân có phủ bar nguồn hay không.
 - `hold` nghĩa là nốt đang ngân và vẫn đang đại diện cho giá; nếu giá chạy mà `pitch` không đổi, đó là lỗi fidelity, không phải im lặng.
 - `rest` nghĩa là không có tín hiệu giá; dùng cho coverage.
 - `role="anchor"` cho ambient; `role="register"` cho minimalist.
 - Trace được ghi **ngay trong writer**, không trích xuất lại từ `NoteEvent`.
+- Symphony đọc `lead + support + high`: violin/cello (hoặc oboe/clarinet, trumpet/trombone) mang line, và **flute/piccolo/glockenspiel nhận line khi violin yield**. Flute chơi hòa âm +3/+4/+7 (mod 12), nên `fill_trace_from_notes` ghi `line[eighth]` tại attack trong `yield_spans`, chỉ ở chỗ base im lặng.
+- Jazz đọc `lead + support` (alto/tenor, soprano/baritone, trumpet/trombone); `high` (vibraphone/electric guitar) là comping, không thêm.
+- Ambient chỉ đọc `lead` (glass); `high` (shimmer) là chord-tone accent, `support`/`low` là bed. Minimalist đọc register của `lead` (arpeggio).
 
 Ngoài ra, dùng lại đúng ba thứ `_compose` đã tính inline trong `render.py:1076–1083`:
 
@@ -233,23 +237,27 @@ Không gộp tất cả các câu thành một tương quan lớn: jazz dịch o
 
 Mục tiêu: biên độ. Giá đi 1% thì nốt có thể đi 1 bậc; giá đi 5% thì nốt nên đi xa hơn.
 
-Với các cặp liên tiếp trong cùng câu:
+**Nguồn mẫu theo variant (v4).** Guitar/symphony/jazz/minimalist đọc **nốt giá** (`price_trace` attacks), không đọc từng eighth: chuỗi nến resample đổi giá vài lần trong một bar trong khi writer chỉ đặt 2–3 nốt, nên các bước giữa hai nốt là việc của Resolution, không phải Motion. Ambient giữ **lưới eighth** vì glass ngân dài qua giá chạy là mất fidelity thật.
+
+Với các cặp liên tiếp trong cùng analysis window:
 
 ```text
 x = |ΔP_t|
 y = |pitch_t − pitch_{t−1}|
 
-τ_phrase = Kendall tau-b(x, y)
-M_phrase = max(0, τ_phrase)
+τ_window = Kendall tau-b(x, y)
+M_window = max(0, τ_window)
 ```
 
 - Dùng Kendall tau-b vì có nhiều tie (giá đứng, nốt lặp).
-- Bỏ các cặp **không có gì đổi** (`|ΔP| ≤ εp` và `|Δpitch| = 0`): giá chỉ đổi ở biên source bar nên phần lớn bước eighth là (0, 0), và tau-b tính chúng là tie làm loãng tương quan thật (0.6 → 0.05). Cặp `hold` thật (`|ΔP| > εp`, `Δpitch = 0`) vẫn giữ và vẫn bị phạt.
-- Câu có ít hơn 4 cặp hoặc mọi `x` bằng nhau: bỏ qua, không cho điểm.
-- Nếu `x` có biến thiên nhưng mọi `y` bằng 0, `M_phrase = 0`, **không bỏ câu** (cùng lý do với Shape).
+- Bỏ các cặp **không có gì đổi** (`|ΔP| ≤ εp` **và** `Δpitch = 0`). `εp` là `_phrase_eps` của window (5% range, 25% typical step, sàn 5 bps). Cặp `hold` thật (`|ΔP| > εp`, `Δpitch = 0`) vẫn giữ và vẫn bị phạt.
+- Window có ít hơn **4** cặp hoặc mọi `x` bằng nhau: `M = None`, trọng số được chia lại cho các component còn lại. Đây là hành vi chấp nhận; `motion_pairs` cho biết mẫu ít hay nhiều.
+- Nếu `x` có biến thiên nhưng mọi `y` bằng 0, `M_window = 0`, **không bỏ window** (cùng lý do với Shape).
 - `M` là trung bình có trọng số theo số cặp.
 
-**Fallback cho ambient / trace thưa:** Motion vẫn dùng **tất cả** cặp, kể cả `hold`, vì ngân dài qua biến động giá là mất fidelity thật. Nếu câu có ít hơn 3 cặp mà `x` khác 0 (quá ít anchor để tính tương quan), Motion chuyển sang so **anchor-to-anchor** (bỏ các `hold` thuần) và đánh dấu `M` là `low-evidence`; nếu vẫn không đủ, `M = null` và trọng số được chia lại. Như vậy ambient vẫn bị phạt khi ngân dài qua giá chạy, nhưng không bị kéo về 0 chỉ vì cấu trúc tie.
+**Ambient / trace thưa:** ambient vẫn dùng **lưới eighth**, kể cả `hold`, vì ngân dài qua biến động giá là mất fidelity thật. Fallback anchor-to-anchor trong `_motion` chỉ cứu window có quá ít cặp; nếu vẫn không đủ, `M = null` và trọng số chia lại.
+
+**So sánh chéo variant:** từ v4, `M` của ambient (grid) không cùng định nghĩa mẫu với 4 variant còn lại (anchor). `S/T/R/C` vẫn so được; `M` là chẩn đoán tương đối, không dùng để xếp hạng genre.
 
 Motion khác Shape: Shape hỏi “cùng hướng không”, Motion hỏi “mạnh/yếu có tương xứng không”. Một bản có thể đúng hướng nhưng mọi thay đổi đều thành một bậc, hoặc ngược lại. Ambient thưa sẽ thấp ở Motion **có chủ ý**; UI ghi “thưa có chủ ý” để không mâu thuẫn với số.
 
@@ -782,7 +790,7 @@ GET /v1/sonify/dfi/pieces
 
 ### 9.1. Sai lệch đã biết so với thiết kế ban đầu
 
-- **Trace không phải lúc nào cũng ghi tại chỗ viết nốt.** Guitar ghi qua `_TRACE_LINE` / `_TRACE_PRICE_LINE`; symphony/jazz dựng trace trong `_attach_dfi_inputs` từ **`lead` + `support`** (violin + cello, alto + tenor) vì `melody_parts` chia cùng một đường giá giữa hai bè; minimalist/ambient dùng `lead`. Hệ quả: nốt đệm/hoa mỹ trùng cao độ với đường giá có thể bị nhận nhầm, và `n_sounding` (dùng cho confidence) chênh giữa các ensemble. Với Torroba, trace dùng **ý đồ** trước khi hạ quãng/đổi bè, nên đo “writer định đặt giá ở đâu” hơn là “tai nghe thấy gì”. Nếu đường giá chuyển sang bè mà helper không đọc (ví dụ flute hay piano), coverage sẽ **conservative** — thấp hơn thực tế; sửa gốc vẫn là ghi trace tại writer.
+- **Trace không phải lúc nào cũng ghi tại chỗ viết nốt.** Guitar ghi qua `_TRACE_LINE` / `_TRACE_PRICE_LINE`; symphony/jazz dựng trace trong `_attach_dfi_inputs` từ **vai trò bè** (`lead + support`, và `high` cho symphony) vì `melody_parts` chia cùng một đường giá giữa hai bè, còn flute nhận line khi violin yield. Ambient/minimalist dùng `lead`. Từ v4, `pitch` ghi **cao độ ý định** (`snap_to_line`) và `sounding_pitch` giữ MIDI thật, nên trace đo “writer định đặt giá ở đâu”; nếu writer đổi bè mà helper không đọc, coverage vẫn có thể conservative — sửa gốc vẫn là ghi trace tại writer. `sounding_pitch` là diagnostic-only, `compute` không đọc.
 - **`role` mới dùng `attack/anchor/register`.** `hold` và `rest` có trong model nhưng writer chưa phát; coverage suy ra từ khoảng nghe của trace point thay vì role.
 - **`low-evidence` chưa surface.** `_motion` tính cờ fallback nhưng `compute()` bỏ qua; UI chỉ thấy `confidence` tổng.
 - **Band chưa calibration.** Trên phiên êm tổng hợp, điểm cao nhất đã lên 74–78 sau các fix; corpus thật chưa chạy. Band `Rõ` (70) và `Rất rõ` (85) có thể đạt sau Phase 7; giữ nguyên ngưỡng thay vì hạ cho đẹp số.
@@ -790,24 +798,26 @@ GET /v1/sonify/dfi/pieces
 
 ### 9.2. Kế hoạch sửa v4
 
-Hai lỗi dưới đây đã điều tra xong; kế hoạch **đề xuất**, **5 điểm ở §10 đã
-chốt** ngày 2026-11-03, chưa implement. Xem
+Hai lỗi dưới đây đã điều tra xong và **đã implement trong PR #128** (DFI v4,
+2026-11-03). 5 điểm ở §10 của plan đã chốt. Xem
 [`sonify-dfi-trace-motion-fix-plan.md`](./sonify-dfi-trace-motion-fix-plan.md).
 
-- **Symphony bỏ sót bè `high`.** Violin yield cho Flute/Piccolo/Glockenspiel,
-  nhưng trace chỉ đọc `lead + support`. Trên `ACB / 3M` movement I, 55% grid
-  có flute kêu mà không có trace point; coverage chỉ 0.48.
-- **Motion chạy trên lưới eighth.** Nó báo 0.01 cho guitar/Torroba dù tương
-  quan trên nốt giá là 0.26–0.51. Trong movement I, 384/919 **bước nến** là 1
-  tick; trong mẫu đã lọc của window I là 36/86 cặp 1 tick, và 36 trong 41 hold
-  nằm đúng ở mức tick đó.
+- **Symphony bỏ sót bè `high` — đã sửa.** Violin yield cho
+  Flute/Piccolo/Glockenspiel; trace giờ đọc `lead + support + high` và chỉ fill
+  trong `yield_spans`, ghi cao độ ý định. Trên `ACB / 3M`, coverage
+  0.484/0.525/0.680 → **1.000/0.964/1.000**, score 33.7/37.6/51.6 →
+  **69.4/69.0/67.6**. Band mv I đổi "Rất mờ" → "Vừa".
+- **Motion chạy trên lưới eighth — đã sửa.** Guitar/symphony/jazz/minimalist
+  đọc **nốt giá**; ambient giữ grid. Guitar/Torroba: motion 0.015/0.130/0.127 →
+  **0.455/0.214/0.479**, score 30.9/46.1/39.7 → **39.2/47.4/46.2**. Minimalist
+  II/III chấp nhận `M = 0` (tín hiệu thật của register encoding).
+- **Kèm theo:** `snap_to_line` bỏ octave fold nên Shape/Resolution của
+  ambient/jazz cũng tăng (ambient mv I 22.6 → 29.8; jazz 66.8 → 68.2);
+  `sounding_pitch` giữ caveat "ý định vs tai nghe"; `motion_pairs` là additive;
+  `DFI_VERSION = "4"` ở cả `dfi.py` và `schemas.py`.
 
-Kế hoạch sửa: ghi trace theo **vai trò bè** (không theo tên nhạc cụ), thêm
-`fill_trace_from_notes` cho `high`, chuyển Motion sang **anchor-to-anchor** cho
-guitar/symphony/jazz/minimalist nhưng **giữ grid cho ambient**, dùng `eps` đúng
-§4.5, giữ `sounding_pitch` để không mất caveat "ý định vs tai nghe", tăng
-`DFI_VERSION` lên `"4"` (cả `dfi.py` và `schemas.py`), và commit
-`backend/scripts/dfi_probe.py` để bảng §7 regenerate được.
+Probe `backend/scripts/dfi_probe.py` regenerate bảng §1.1/§5/§7. Số phụ thuộc
+`as_of` (lần đo: 2026-11-02).
 
 
 ---
@@ -831,6 +841,7 @@ Cần calibration / quyết định ở Phase 7:
 10. **Sàn `εp`:** 5 bps (`0.0005 × median(close)`) là khởi điểm; chỉnh theo volatility.
 11. **“Cùng phiên/chương” trong sheet:** dùng endpoint compose-only `dfi/pieces` (§6.5, §7.1); nếu lỗi/chưa sẵn sàng, fallback chỉ hiện dòng đang chọn + `Chuẩn`.
 12. **Cache cũ:** meta ghi `dfi_inputs` (digest của bars); thiếu hoặc lệch thì tính lại, không ghép DFI của score khác vào audio đang cache.
+13. **DFI v4 (2026-11-03):** trace theo **vai trò bè** + fill `high` trong `yield_spans`; Motion đọc **nốt giá** cho guitar/symphony/jazz/minimalist và **giữ grid** cho ambient; `eps` đúng §4.5 (`<4` cặp → `null`); `motion_pairs` additive; `sounding_pitch` diagnostic; `DFI_VERSION = "4"` ở `dfi.py` và `schemas.py`. Minimalist II/III chấp nhận `M = 0`; `dfi_signatures.json` để Phase 7 tạo lần đầu.
 
 ---
 

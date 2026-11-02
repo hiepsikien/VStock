@@ -19,17 +19,29 @@ import math
 from bisect import bisect_right
 from dataclasses import dataclass, replace
 from statistics import median
-from typing import Iterable, Literal, Sequence
+from typing import Callable, Iterable, Literal, Sequence
 
 from app.sonify.model import Bar, NoteEvent, PriceTracePoint, Score
 
-DFI_VERSION = "3"
+DFI_VERSION = "4"
 
 WEIGHT_SHAPE = 0.33
 WEIGHT_MOTION = 0.21
 WEIGHT_STRUCTURE = 0.19
 WEIGHT_RESOLUTION = 0.17
 WEIGHT_VOLUME = 0.10
+
+# Ambient keeps the eighth grid: a glass note held through a price move is a
+# real fidelity loss, and the grid is what catches it.  The other writers put
+# the line on fewer attacks than the candle series has steps, so Motion reads
+# their price notes instead.
+MOTION_ON_ANCHORS: dict[str, bool] = {
+    "guitar": True,
+    "symphony": True,
+    "jazz": True,
+    "minimalist": True,
+    "ambient": False,
+}
 
 # Talk about the musical grid with a clear unit: one quarter beat is two
 # eighths regardless of meter.
@@ -66,6 +78,7 @@ class DfiBreakdown:
     confidence: Literal["low", "medium", "high"]
     n_moves: int
     n_sounding: int
+    motion_pairs: int = 0
     version: str = DFI_VERSION
 
     def to_dict(self) -> dict:
@@ -85,6 +98,7 @@ class DfiBreakdown:
             "confidence": self.confidence,
             "n_moves": self.n_moves,
             "n_sounding": self.n_sounding,
+            "motion_pairs": self.motion_pairs,
             "version": self.version,
         }
 
@@ -105,6 +119,7 @@ class DfiBreakdown:
                 confidence=payload.get("confidence", "low"),
                 n_moves=int(payload.get("n_moves") or 0),
                 n_sounding=int(payload.get("n_sounding") or 0),
+                motion_pairs=int(payload.get("motion_pairs") or 0),
                 version=str(payload.get("version") or DFI_VERSION),
             )
         except (KeyError, TypeError, ValueError):
@@ -143,6 +158,8 @@ def trace_from_notes(
     octave_tolerant: bool = False,
     max_octaves: int = 3,
     voice: str = "lead",
+    snap_to_line: bool = False,
+    carrier: Callable[[NoteEvent, int], float | None] | None = None,
 ) -> tuple[PriceTracePoint, ...]:
     """Match the notes that actually carry `line` at their attack.
 
@@ -152,9 +169,16 @@ def trace_from_notes(
     phrases.  A held note stays one trace point: its duration tells Coverage
     that the line is still sounding and tells Shape/Motion that the pitch did
     not move while price did.
+
+    `snap_to_line` records the intended line pitch instead of the sounding
+    MIDI; `sounding_pitch` keeps the MIDI so the intent-vs-heard gap stays
+    measurable.  `carrier` overrides the match rule: it returns the target
+    pitch for a note, or None to drop it.  Flute uses it because it sounds a
+    harmony, not the line.
     """
     found: list[PriceTracePoint] = []
     index_by_key: dict[tuple[int, float], int] = {}
+    diff_by_key: dict[tuple[int, float], int] = {}
     open_ties: dict[int, int] = {}
     for note in notes:
         if note.midi is None:
@@ -174,34 +198,98 @@ def trace_from_notes(
         eighth = _event_eighth(note, epb)
         if eighth is None or eighth < 0 or eighth >= len(line):
             continue
-        target = line[eighth]
-        diff = note.midi - target
-        matches = diff == 0
-        if not matches and octave_tolerant:
-            matches = diff % 12 == 0 and abs(diff) <= 12 * max_octaves and diff != 0
-        if not matches:
-            continue
+        if carrier is not None:
+            target_value = carrier(note, eighth)
+            if target_value is None:
+                continue
+            target = target_value
+        else:
+            target = line[eighth]
+            diff = note.midi - target
+            matches = diff == 0
+            if not matches and octave_tolerant:
+                matches = diff % 12 == 0 and abs(diff) <= 12 * max_octaves and diff != 0
+            if not matches:
+                continue
+        diff = abs(note.midi - target)
         price = prices[eighth] if eighth < len(prices) else 0.0
         point = PriceTracePoint(
             bar=note.bar,
             beat=note.beat,
             duration_beats=max(note.duration_beats, 0.01),
             price=price,
-            pitch=float(note.midi),
+            pitch=float(target) if snap_to_line else float(note.midi),
+            sounding_pitch=float(note.midi),
             role=role,
             voice=voice,
         )
         key = (note.bar, round(note.beat, 4))
         if key in index_by_key:
             index = index_by_key[key]
-            if abs(diff) < abs(found[index].pitch - target):  # type: ignore[operator]
+            previous = found[index]
+            better = diff < diff_by_key[key] or (
+                diff == diff_by_key[key] and point.duration_beats > previous.duration_beats
+            )
+            if better:
                 found[index] = point
+                diff_by_key[key] = diff
         else:
             index_by_key[key] = len(found)
+            diff_by_key[key] = diff
             found.append(point)
         if note.tie_start:
             open_ties[note.midi] = index_by_key[key]
     return tuple(sorted(found, key=lambda point: (point.bar, point.beat)))
+
+
+def fill_trace_from_notes(
+    base: Sequence[PriceTracePoint],
+    notes: Iterable[NoteEvent],
+    *,
+    line: Sequence[int],
+    prices: Sequence[float],
+    epb: int,
+    bar_beats: float,
+    frame_bars: frozenset[int] = frozenset(),
+    yield_spans: Sequence[tuple[int, int]] = (),
+    voice: str = "high",
+) -> tuple[PriceTracePoint, ...]:
+    """Add a harmony voice that carries the line inside `yield_spans`.
+
+    Symphony hands the line to Flute when Violin yields.  Flute sounds a
+    diatonic third or fifth above the line, so it cannot match `line` by MIDI;
+    this records the intended line pitch at the flute attack.  Only attacks
+    inside a yield span are kept, and only where the base trace is silent, so
+    a doubling never becomes a second price reading.
+    """
+    spans = tuple(yield_spans)
+    if not spans:
+        return tuple(base)
+    raw = trace_from_notes(
+        notes,
+        line=line,
+        prices=prices,
+        epb=epb,
+        bar_beats=bar_beats,
+        frame_bars=frame_bars,
+        voice=voice,
+        snap_to_line=True,
+        carrier=lambda _note, eighth: float(line[eighth]),
+    )
+    lookup = _PitchLookup(base, bar_beats)
+    extra: list[PriceTracePoint] = []
+    for point in raw:
+        eighth = point.bar * epb + int(round(point.beat * 2))
+        if not any(start <= eighth < end for start, end in spans):
+            continue
+        start, end = _trace_bounds(point, bar_beats)
+        if _overlaps(lookup.items, lookup.starts, lookup.max_span, start, end):
+            continue
+        extra.append(point)
+        lookup = _PitchLookup((*base, *extra), bar_beats)
+    if not extra:
+        return tuple(base)
+    return tuple(sorted((*base, *extra), key=lambda item: (item.bar, item.beat)))
 
 
 def trace_register_per_bar(
@@ -476,6 +564,49 @@ def _deregister(points: Sequence[_Point]) -> list[_Point]:
     return adjusted
 
 
+def motion_points(
+    score: Score,
+    windows: Sequence[tuple[int, int]],
+    epb: int,
+) -> dict[int, list[_Point]]:
+    """The price notes, one per attack, grouped by analysis window.
+
+    Motion asks about step size: "when the price moves far, does the note move
+    farther?"  That question is about the writer's price decisions, so it must
+    read the trace attacks, not every eighth.  The eighth grid samples the
+    resampled candle series, which changes several times inside a bar while one
+    note sustains; those steps belong to Resolution.  Frame bars are excluded
+    exactly as `_grid` excludes them, so every component reads the same bars.
+    """
+    frame = frozenset(score.frame_bars)
+    points: list[_Point] = []
+    seen: set[int] = set()
+    for point in score.price_trace:
+        if point.pitch is None or point.bar in frame:
+            continue
+        window = _window_of(windows, point.bar)
+        if window is None:
+            continue
+        eighth = point.bar * epb + int(round(point.beat * 2))
+        if eighth in seen:
+            continue
+        seen.add(eighth)
+        points.append(
+            _Point(
+                eighth=eighth,
+                price=point.price,
+                pitch=point.pitch,
+                window=window,
+                phrase=_phrase_of(score.phrases, eighth),
+            )
+        )
+    points.sort(key=lambda item: item.eighth)
+    by_window: dict[int, list[_Point]] = {}
+    for point in _deregister(points):
+        by_window.setdefault(point.window, []).append(point)
+    return by_window
+
+
 def _phrase_eps(
     points: Sequence[_Point],
     *,
@@ -543,7 +674,7 @@ def _motion(points: Sequence[_Point], eps: float) -> tuple[float | None, float, 
     pairs = [
         (left, right)
         for left, right in pairs
-        if abs(right.price - left.price) > _EPS
+        if abs(right.price - left.price) > eps
         or abs((right.pitch or 0.0) - (left.pitch or 0.0)) > _EPS
     ]
     x = [abs(right.price - left.price) for left, right in pairs]
@@ -864,6 +995,12 @@ def compute(score: Score, *, variant: str, ensemble: str = "classic") -> DfiBrea
     if n_moves < 4:
         return None
 
+    notes_by_window = (
+        motion_points(score, windows, epb)
+        if MOTION_ON_ANCHORS.get(variant, True)
+        else None
+    )
+
     shape_sum = shape_weight = 0.0
     motion_sum = motion_weight = 0.0
     resolution_sum = resolution_weight = 0.0
@@ -873,7 +1010,12 @@ def compute(score: Score, *, variant: str, ensemble: str = "classic") -> DfiBrea
         if value is not None:
             shape_sum += value * weight
             shape_weight += weight
-        value, weight, _low = _motion(chunk, eps)
+        motion_chunk = (
+            chunk
+            if notes_by_window is None
+            else notes_by_window.get(chunk[0].window, [])
+        )
+        value, weight, _low = _motion(motion_chunk, eps)
         if value is not None:
             motion_sum += value * weight
             motion_weight += weight
@@ -935,4 +1077,5 @@ def compute(score: Score, *, variant: str, ensemble: str = "classic") -> DfiBrea
         confidence=confidence,
         n_moves=n_moves,
         n_sounding=n_sounding,
+        motion_pairs=int(motion_weight),
     )

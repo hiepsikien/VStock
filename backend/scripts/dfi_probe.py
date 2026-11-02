@@ -7,18 +7,21 @@ Usage (from backend/):
 
 It prints, per movement:
 
-  v3           the score the server serves today
-  anchors      Motion read from price-trace attacks, no eps filter
-  anchors+eps  the planned v4 rule (attacks + the documented window eps)
-  grid+eps     the same eps rule on the eighth grid (ambient reference)
+  v4 score       the score the server computes today
+  v4 motion      the Motion component the server computes today
+  anchors        Motion read from price-trace attacks, no eps filter
+  anchors+eps    the documented window-eps rule on the attacks
+  grid+eps       the same eps rule on the eighth grid
+  counterfactual re-blend with `--source` (anchors or grid)
 
-`--classify` adds the §1.1 pair table: raw pairs, pairs after dropping (0,0),
+`--classify` adds the pair tables: raw pairs, pairs after dropping (0,0),
 holds, ornaments, and per-window tau.
 
 The probe never writes the renderer or the audio cache.  It does call
 `plan_span`, which fetches live OHLC when the local store is cold, so the
 numbers depend on the data date.  The header prints `as_of`; record it with
-any table copied into the plan.
+any table copied into the plan.  The plan's §7 tables are the historical
+pre-v4 baseline; this probe reports v4.
 """
 
 from __future__ import annotations
@@ -247,7 +250,7 @@ async def probe(
     print(f"# {symbol} {span} {variant}/{ensemble}  source={source}")
     print(f"as_of: {plan.as_of.isoformat()}  (numbers depend on this date)")
     print()
-    print("| movement | v3 score | v3 motion | anchors | anchors+eps | grid+eps | score v4 |")
+    print("| movement | v4 score | v4 motion | anchors | anchors+eps | grid+eps | counterfactual |")
     print("|---|---:|---:|---:|---:|---:|---:|")
 
     rows: list[dict] = []
@@ -340,9 +343,9 @@ async def probe(
 
     print()
     print(
-        "`anchors` = price notes only, no eps. `anchors+eps` = planned "
-        "Motion. `grid+eps` = ambient reference. `score v4` uses the "
-        "selected source."
+        "`anchors` = price notes only, no eps. `anchors+eps` = the documented "
+        "window-eps rule. `grid+eps` = eighth grid reference. "
+        "`counterfactual` re-blends with `--source`."
     )
 
 

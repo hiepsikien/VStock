@@ -491,6 +491,8 @@ export type DfiBreakdown = {
   confidence: 'low' | 'medium' | 'high';
   n_moves?: number;
   n_sounding?: number;
+  /** Pair count behind Motion; low values mean low evidence. */
+  motion_pairs?: number;
   version: string;
 };
 
