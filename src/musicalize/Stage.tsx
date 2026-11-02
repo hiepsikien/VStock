@@ -165,8 +165,8 @@ export function Stage({
                     accessibilityRole={onPafi ? 'button' : 'text'}
                     accessibilityLabel={
                       pafi
-                        ? `Độ rõ đường giá ${Math.round(pafi.score)} trên 100, mức ${pafiBandLabel(pafi.band).toLowerCase()}`
-                        : 'Chưa đủ mẫu để đo độ rõ đường giá'
+                        ? `Độ trung thực dữ liệu ${Math.round(pafi.score)} trên 100, mức ${pafiBandLabel(pafi.band).toLowerCase()}`
+                        : 'Chưa đủ mẫu để đo độ trung thực dữ liệu'
                     }
                   >
                     <Text style={[type.monoSmall, styles.pafiPillText]}>

@@ -45,32 +45,32 @@ const BREAKDOWN: {
   {
     key: 'shape',
     label: 'Hình dạng',
-    hint: 'Đường giá và đường cao độ có cùng hướng không. 0 là đi ngược, 1 là đi cùng hướng.',
+    hint: 'Đường giá và đường cao độ có cùng hướng không.',
   },
   {
     key: 'motion',
     label: 'Chuyển động',
-    hint: 'Biên độ có tương xứng không: giá đi xa thì nốt có đi xa hơn. Ngân dài trong lúc giá chạy bị trừ.',
+    hint: 'Giá đi xa thì nốt có đi xa hơn không.',
   },
   {
     key: 'structure',
     label: 'Cấu trúc',
-    hint: 'Đỉnh, đáy và hướng của cả câu có rơi đúng chỗ. Thấp khi đỉnh giá và đỉnh giai điệu lệch nhau.',
+    hint: 'Đỉnh, đáy và hướng của cả câu có rơi đúng chỗ không.',
   },
   {
     key: 'resolution',
     label: 'Độ phân giải',
-    hint: 'Biến động nhỏ có nghe ra không, và texture có chạy trong lúc giá đứng không.',
+    hint: 'Biến động nhỏ có nghe ra, và texture có chạy khi giá đứng không.',
   },
   {
     key: 'volume',
     label: 'Khối lượng',
-    hint: 'Volume lớn có nghe to và rõ hơn không. Tính cả dynamics đã in (p/mp/mf/f), không chỉ velocity.',
+    hint: 'Volume lớn có nghe to và rõ hơn không.',
   },
   {
     key: 'coverage',
     label: 'Độ phủ',
-    hint: 'Phần thời gian đường giá thực sự phát, tính theo mức biến động giá. Đây là hệ số nhân vào điểm, không phải điểm thành phần.',
+    hint: 'Phần thời gian đường giá thực sự phát, tính theo mức biến động giá.',
   },
 ];
 
@@ -122,7 +122,7 @@ export function PafiSheet({
         style={styles.backdrop}
         onPress={onClose}
         accessibilityRole="button"
-        accessibilityLabel="Đóng độ rõ đường giá"
+        accessibilityLabel="Đóng độ trung thực dữ liệu"
       >
         <View />
       </Pressable>
@@ -133,7 +133,7 @@ export function PafiSheet({
         >
           <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
             <View style={styles.header}>
-              <Text style={[type.section, styles.kicker]}>Độ rõ đường giá</Text>
+              <Text style={[type.section, styles.kicker]}>Độ trung thực dữ liệu</Text>
               <Text style={[type.mono, styles.score]}>
                 {pafi ? Math.round(pafi.score) : '—'}
               </Text>
@@ -155,9 +155,7 @@ export function PafiSheet({
 
             {showHelp ? (
               <Text style={[type.sans, styles.helpText]} accessibilityLiveRegion="polite">
-                Mỗi thành phần chấm 0–1. PA là trung bình có trọng số của chúng nhân với Độ phủ.
-                PA đo đường giá có nghe rõ không, không đo bản nhạc hay hay dở. Chạm tên từng
-                thành phần để xem nó hỏi gì.
+                PA phản ánh mức nghe rõ của giá và volume, không phải độ hay của bản nhạc.
               </Text>
             ) : null}
 
@@ -285,7 +283,7 @@ export function PafiSheet({
             })}
 
             <Text style={[type.monoSmall, styles.note]}>
-              PA không đo độ hay của bản nhạc. Đổi âm sắc không nên đổi độ rõ đường giá.
+              PA không đo độ hay của bản nhạc. Đổi âm sắc không nên đổi độ trung thực dữ liệu.
             </Text>
           </ScrollView>
           <MotionPressable

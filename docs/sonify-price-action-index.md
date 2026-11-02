@@ -38,7 +38,7 @@ PAFI phải đo **đúng nốt/tín hiệu mà writer chủ định dùng để 
 3. **Chuẩn hoá theo cơ hội.** Phiên đi ngang không bị trừ điểm oan; chỉ tính trên những chỗ giá thực sự có biến động.
 4. **Bất biến với đăng ký.** Jazz nén quãng tám, guitar đổi bè, ambient fold glass. Vì vậy so sánh **hướng và biên độ trong từng câu**, không so cao độ tuyệt đối giữa các câu.
 5. **Tách “độ phủ” khỏi “độ chính xác”.** Một bản có thể đúng khi có nốt, nhưng im quá nhiều; hoặc có nốt đều nhưng giữ nguyên khi giá chạy.
-6. **Không dùng để xếp hạng thể loại.** Ambient thưa là bản sắc, không phải lỗi. UI phải nói rõ: “độ rõ đường giá”, không phải “chất lượng”.
+6. **Không dùng để xếp hạng thể loại.** Ambient thưa là bản sắc, không phải lỗi. UI phải nói rõ: “độ trung thực dữ liệu”, không phải “chất lượng”.
 7. **Volume là một phần của cùng trục**, không phải trục thứ hai. Volume được đo ở cấp cửa sổ thanh khoản, bằng tương quan hạng với năng lượng thật của bản nhạc.
 
 ---
@@ -452,7 +452,7 @@ VNM · 02/11 · C major · 90 BPM · 4:12 · PA 78
 - `PA 78` bấm được, mở `PafiSheet`.
 - Nếu `null`: `PA —`.
 - Nếu `low`: `PA ~78`, opacity thấp hơn.
-- `accessibilityLabel`: “Độ rõ đường giá 78 trên 100, mức rõ”.
+- `accessibilityLabel`: “Độ trung thực dữ liệu 78 trên 100, mức rõ”.
 
 Không thêm một hàng mới; pill nằm trong dòng meta để không làm Stage cao lên.
 
@@ -502,7 +502,7 @@ GET /v1/sonify/pafi/pieces
 - Nếu endpoint chưa sẵn sàng hoặc lỗi: chỉ hiện dòng đang chọn + cột `Chuẩn`; các dòng khác `—`. Không chặn việc nghe.
 
 ```text
-Độ rõ đường giá                         78  (Rõ)
+Độ trung thực dữ liệu                         78  (Rõ)
 ────────────────────────────────────────────
 Hình dạng        ████████████████░░   0.84
 Chuyển động      █████████████░░░░░   0.71
@@ -542,7 +542,7 @@ Torroba                80         76
 | Thành phần | Copy |
 |---|---|
 | Pill | `PA 78` |
-| Sheet title | `Độ rõ đường giá` |
+| Sheet title | `Độ trung thực dữ liệu` |
 | Band | `Rất rõ` / `Rõ` / `Vừa` / `Mờ` / `Rất mờ` |
 | Shape | `Hình dạng` — “hướng đi của giá và nốt có khớp” |
 | Motion | `Chuyển động` — “biên độ có tương xứng” |
@@ -760,7 +760,7 @@ GET /v1/sonify/pafi/pieces
 
 Đã chốt sau feedback:
 
-1. **Tên hiển thị:** pill `PA`, sheet `Độ rõ đường giá`. Pill có `accessibilityLabel` đầy đủ.
+1. **Tên hiển thị:** pill `PA`, sheet `Độ trung thực dữ liệu`. Pill có `accessibilityLabel` đầy đủ.
 2. **Coverage là hệ số nhân `C^1`:** giữ, nhưng `C` đo trên **source bar chung**, không đo trên lưới riêng của từng variant (§4.9). Không dùng `C^0.75` để “làm mềm” trước khi sửa cấu trúc.
 3. **Trọng số:** `S 0.33`, `M 0.21`, `T 0.19`, `R 0.17`, `V 0.10`. Volume giảm còn 0.10; 0.02 dồn vào Cấu trúc. Phase 7 xác nhận.
 4. **Signature tách bucket `day`/`span`:** giữ.
