@@ -157,6 +157,15 @@ export function ReplayRoom({ wide, onMode }: Props) {
 
   const request = useRef<AbortController | null>(null);
   const peaksRequest = useRef<AbortController | null>(null);
+  // A peaks refresh is cheap but re-plans the work. Let one answer land instead
+  // of aborting it every time another movement finishes; ask once more after.
+  const peaksPending = useRef(false);
+  const peaksAgain = useRef(false);
+  const peaksPoll = useRef({ key: '', count: 0 });
+  // Files already pre-rendered, and the single background render in flight.
+  const prefetched = useRef<Set<string>>(new Set());
+  const prefetchRequest = useRef<AbortController | null>(null);
+  const prefetchTarget = useRef('');
   const restTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const seekSeq = useRef(0);
   const dfiPoll = useRef({ key: '', count: 0 });
@@ -181,6 +190,13 @@ export function ReplayRoom({ wide, onMode }: Props) {
     request.current = null;
     peaksRequest.current?.abort();
     peaksRequest.current = null;
+    peaksPending.current = false;
+    peaksAgain.current = false;
+    peaksPoll.current = { key: '', count: 0 };
+    prefetchRequest.current?.abort();
+    prefetchRequest.current = null;
+    prefetchTarget.current = '';
+    prefetched.current = new Set();
     clearRest();
     setManifest(null);
     setMovements(null);
@@ -208,6 +224,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
     return () => {
       request.current?.abort();
       peaksRequest.current?.abort();
+      prefetchRequest.current?.abort();
       clearRest();
     };
   }, [clearRest]);
@@ -435,13 +452,20 @@ export function ReplayRoom({ wide, onMode }: Props) {
   }, [colorOn, ensemble, humanize, span, spanKey, symbol, variant]);
 
   /**
-   * A movement's waveform only exists after its audio file is written. The
-   * player loads that file when a movement starts, so ask the plan once more
-   * and merge the peaks without touching durations, prices or playback.
+   * A movement's waveform only exists after its audio file is written. Merge
+   * whatever the plan can see now without touching durations, prices or
+   * playback. Requests are coalesced: aborting a slow refresh and starting a
+   * new one on every chapter change is what left the waveform a chapter behind.
    */
   const refreshSpanPeaks = useCallback(() => {
     if (span === '1D') return;
-    peaksRequest.current?.abort();
+    if (peaksPending.current) {
+      // The in-flight answer may predate the file we are waiting for. Ask again
+      // when it returns instead of throwing that work away.
+      peaksAgain.current = true;
+      return;
+    }
+    peaksPending.current = true;
     const controller = new AbortController();
     peaksRequest.current = controller;
     void (async () => {
@@ -475,10 +499,86 @@ export function ReplayRoom({ wide, onMode }: Props) {
       } catch {
         // Peaks are additive. Keep whatever the timeline already has.
       } finally {
+        peaksPending.current = false;
         if (peaksRequest.current === controller) peaksRequest.current = null;
+        if (peaksAgain.current && !controller.signal.aborted) {
+          peaksAgain.current = false;
+          refreshSpanPeaks();
+        }
       }
     })();
   }, [colorOn, ensemble, humanize, span, symbol, variant]);
+
+  /**
+   * Rendering a movement is what writes its peaks. Waiting for a chapter to
+   * start therefore guarantees its waveform is still missing. Render the next
+   * movement while this one plays (one byte is enough to make the server write
+   * the file), then refresh so its waveform is on the timeline before it
+   * starts.
+   */
+  useEffect(() => {
+    if (span === '1D' || mediaDuration <= 0) return;
+    const nextIndex = index + 1;
+    const next = movementsRef.current?.[nextIndex];
+    if (!next) return;
+    const key = `${spanKey}|${nextIndex}`;
+    if (prefetched.current.has(key)) return;
+    // Keep a render the chapter we just entered is still waiting for. Any other
+    // background render is stale once the index moved on.
+    if (prefetchRequest.current && prefetchTarget.current !== `${spanKey}|${index}`) {
+      prefetchRequest.current.abort();
+      prefetchRequest.current = null;
+    }
+    const controller = new AbortController();
+    prefetchRequest.current = controller;
+    prefetchTarget.current = key;
+    void (async () => {
+      try {
+        const response = await fetch(absoluteApiUrl(next.audioUrl), {
+          signal: controller.signal,
+          headers: { Range: 'bytes=0-0' },
+        });
+        if (!response.ok && response.status !== 206) return;
+        // The server writes the whole file before answering a range request.
+        await response.arrayBuffer();
+        if (controller.signal.aborted) return;
+        prefetched.current.add(key);
+        refreshSpanPeaks();
+      } catch {
+        // The chapter will request its own file when it starts.
+      } finally {
+        if (prefetchRequest.current === controller) {
+          prefetchRequest.current = null;
+          prefetchTarget.current = '';
+        }
+      }
+    })();
+  }, [index, mediaDuration, refreshSpanPeaks, span, spanKey]);
+
+  /**
+   * Fallback when a background render or its peaks request failed: retry a
+   * bounded number of times while the heard movement still has no envelope.
+   */
+  const heardHasPeaks = Boolean(spanPeaks?.[index]?.peaks?.length);
+  useEffect(() => {
+    if (span === '1D' || mediaDuration <= 0) return;
+    const key = `${spanKey}|${index}`;
+    if (peaksPoll.current.key !== key) peaksPoll.current = { key, count: 0 };
+    if (heardHasPeaks) return;
+    if (peaksPoll.current.count >= 20) return;
+    let stopped = false;
+    const pull = () => {
+      if (stopped || peaksPoll.current.count >= 20) return;
+      peaksPoll.current.count += 1;
+      refreshSpanPeaks();
+    };
+    void pull();
+    const timer = setInterval(pull, 3000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [heardHasPeaks, index, mediaDuration, refreshSpanPeaks, span, spanKey]);
 
   const seekTarget = useRef<number | null>(null);
 
@@ -626,6 +726,10 @@ export function ReplayRoom({ wide, onMode }: Props) {
         }
         setManifest(null);
         setMovements(plan.movements);
+        // A new listen may re-plan the work, so pre-rendered indices from the
+        // previous run no longer describe the same movement.
+        prefetched.current = new Set();
+        peaksPoll.current = { key: '', count: 0 };
         setAsOf(plan.asOf ?? '');
         setHomeKey(plan.keyLabel ?? '');
         setIndex(0);
