@@ -787,6 +787,22 @@ GET /v1/sonify/dfi/pieces
 - **Band chưa calibration.** Trên phiên êm tổng hợp, điểm cao nhất đã lên 74–78 sau các fix; corpus thật chưa chạy. Band `Rõ` (70) và `Rất rõ` (85) có thể đạt sau Phase 7; giữ nguyên ngưỡng thay vì hạ cho đẹp số.
 - **Thứ hạng trên phiên biến động mạnh** có thể là minimalist > symphony > jazz > ambient, ngược kỳ vọng §5.3 #4. Nguyên nhân là `quantize_strong_beats` bẻ đường giá về hợp âm ở phách mạnh (S/T thấp trong khi M cao), không phải trace sai. Đây là input cho Phase 7.
 
+### 9.2. Kế hoạch sửa v4
+
+Hai lỗi dưới đây đã điều tra xong và chốt kế hoạch (chưa implement), xem
+[`sonify-dfi-trace-motion-fix-plan.md`](./sonify-dfi-trace-motion-fix-plan.md):
+
+- **Symphony bỏ sót bè `high`.** Violin yield cho Flute/Piccolo/Glockenspiel,
+  nhưng trace chỉ đọc `lead + support`. Trên `ACB / 3M` movement I, 55% grid
+  có flute kêu mà không có trace point; coverage chỉ 0.48.
+- **Motion chạy trên lưới eighth.** Nó báo 0.01 cho guitar/Torroba dù tương
+  quan trên nốt giá là 0.26–0.51, vì 42% bước giá 1 tick nằm giữa hai nốt và
+  bị tính là hold/ornament.
+
+Kế hoạch sửa: ghi trace theo **vai trò bè** (không theo tên nhạc cụ), thêm
+`fill_trace_from_notes` cho `high`, chuyển Motion sang **anchor-to-anchor** trên
+`price_trace`, dùng `eps` đúng §4.5, và tăng `DFI_VERSION` lên `"4"`.
+
 ---
 
 ## 10. Quyết định đã chốt và điểm cần calibration
