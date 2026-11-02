@@ -455,7 +455,7 @@ Các kỳ vọng dùng làm test, không phải để ép kết quả:
 1. `|DFI(wood) − DFI(classic)| ≤ 3` cho ≥ 90% bản giao hưởng; tương tự `brass`.
 2. `|DFI(soul/organ) − DFI(classic)| ≤ 3` cho jazz; `mallet` gần minimalist; `breath/choir` gần ambient; `guitar` (thép) gần minimalist `classic`.
 3. Guitar: sáu ensemble được phép lệch; Bach và Torroba thường cao hơn Villa/Barrios vì ít hoa mỹ che giá. Đây là **chẩn đoán**, không hard-code thứ hạng.
-4. Trên corpus biến động: Giao hưởng/Jazz > Tối giản > Ambient. Ambient thấp hơn một phần vì Motion/Hình dạng phạt ngân dài — đó là chủ ý; Coverage chỉ phạt khi ambient nghỉ hẳn. Nếu Ambient > Tối giản, kiểm tra trace trước khi kết luận.
+4. Trên corpus biến động: Giao hưởng/Jazz > Tối giản > Ambient. Từ v4, ambient thấp chủ yếu vì **Motion** (grid giữ hold); Shape ambient cao (0.896/0.790/0.888) vì `snap_to_line` bỏ octave fold. Coverage chỉ phạt khi ambient nghỉ hẳn. Nếu Ambient > Tối giản, kiểm tra trace trước khi kết luận.
 5. **Từ DFI v4, `M` không cùng định nghĩa mẫu giữa các variant.** Ambient giữ **grid** (hold dài bị phạt); guitar/symphony/jazz/minimalist dùng **anchor** (nốt giá). Vì vậy so hạng `M` chéo genre chỉ là tương đối; `S/T/R/C` vẫn so được. Đừng dùng `M` để kết luận genre này “trung thực hơn” genre kia.
 6. Phiên đi ngang: tất cả `null` hoặc `low`, không thể hiện 0 điểm.
 7. Trước khi chốt trọng số, đo **ma trận tương quan** giữa `S`, `M`, `R` trên corpus. Nếu `R` gần như là hàm của `S` (vì trace bậc thang buộc đơn điệu), gộp `R` vào `S` hoặc trả bớt trọng số cho `R`, chuẩn hoá lại và ưu tiên `S`; Phase 7 quyết định.
@@ -812,9 +812,11 @@ Hai lỗi dưới đây đã điều tra xong và **đã implement trong PR #128
   **0.455/0.214/0.479**, score 30.9/46.1/39.7 → **39.2/47.4/46.2**. Minimalist
   II/III chấp nhận `M = 0` (tín hiệu thật của register encoding).
 - **Kèm theo:** `snap_to_line` bỏ octave fold nên Shape/Resolution của
-  ambient/jazz cũng tăng (ambient mv I 22.6 → 29.8; jazz 66.8 → 68.2);
-  `sounding_pitch` giữ caveat "ý định vs tai nghe"; `motion_pairs` là additive;
-  `DFI_VERSION = "4"` ở cả `dfi.py` và `schemas.py`.
+  ambient/jazz/symphony cũng tăng: ambient mv I 22.6 → 29.8; jazz 66.8 → 68.2;
+  symphony +14.6/+22.6 nhưng mv III **−1.7** (T 0.938→0.672). Đây là đo
+  **ý định**, không phải "điểm cao hơn"; `sounding_pitch` giữ caveat "ý định vs
+  tai nghe"; `motion_pairs` là additive; `DFI_VERSION = "4"` ở cả `dfi.py` và
+  `schemas.py`.
 
 Probe `backend/scripts/dfi_probe.py` regenerate bảng §1.1/§5/§7. Số phụ thuộc
 `as_of` (lần đo: 2026-11-02).
@@ -841,7 +843,7 @@ Cần calibration / quyết định ở Phase 7:
 10. **Sàn `εp`:** 5 bps (`0.0005 × median(close)`) là khởi điểm; chỉnh theo volatility.
 11. **“Cùng phiên/chương” trong sheet:** dùng endpoint compose-only `dfi/pieces` (§6.5, §7.1); nếu lỗi/chưa sẵn sàng, fallback chỉ hiện dòng đang chọn + `Chuẩn`.
 12. **Cache cũ:** meta ghi `dfi_inputs` (digest của bars); thiếu hoặc lệch thì tính lại, không ghép DFI của score khác vào audio đang cache.
-13. **DFI v4 (2026-11-03):** trace theo **vai trò bè** + fill `high` trong `yield_spans`; Motion đọc **nốt giá** cho guitar/symphony/jazz/minimalist và **giữ grid** cho ambient; `eps` đúng §4.5 (`<4` cặp → `null`); `motion_pairs` additive; `sounding_pitch` diagnostic; `DFI_VERSION = "4"` ở `dfi.py` và `schemas.py`. Minimalist II/III chấp nhận `M = 0`; `dfi_signatures.json` để Phase 7 tạo lần đầu.
+13. **DFI v4 (2026-11-03):** trace theo **vai trò bè** + fill `high` trong `yield_spans`; Motion đọc **nốt giá** cho guitar/symphony/jazz/minimalist và **giữ grid** cho ambient; `eps` đúng §4.5 (`<4` cặp → `null`); `motion_pairs` additive, **diagnostic API-only** (chưa hiển thị ở `DfiSheet`); `sounding_pitch` diagnostic; `DFI_VERSION = "4"` ở `dfi.py` và `schemas.py`. Minimalist II/III chấp nhận `M = 0`; `dfi_signatures.json` để Phase 7 tạo lần đầu.
 
 ---
 

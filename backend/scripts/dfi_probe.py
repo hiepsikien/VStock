@@ -73,12 +73,6 @@ def motion_stats(points, eps: float):
     return tau, len(pairs)
 
 
-def motion_with_eps(points, eps: float):
-    """`motion_stats` clamped at 0, matching production `_motion`."""
-    tau, count = motion_stats(points, eps)
-    return (None if tau is None else max(0.0, tau)), float(count)
-
-
 def anchor_points(score, windows, epb):
     """One point per price-note attack, frame bars excluded, grouped by window."""
     frame = frozenset(score.frame_bars)
@@ -140,16 +134,18 @@ def blend(base, motion: float | None) -> float | None:
 
 
 def all_motion(by_window, eps_by_window, *, eps_mode: bool) -> float | None:
+    """Average Motion over windows.
+
+    `eps_mode=False` is the counterfactual "no eps filter": it runs the same
+    stats with the tiny `_EPS` threshold, so the probe still shows the
+    before/after effect now that production `_motion` always takes eps.
+    """
     total = weight = 0.0
     for index in sorted(by_window):
-        if eps_mode:
-            value, count = motion_with_eps(by_window[index], eps_by_window[index])
-        else:
-            value, count, _low = D._motion(
-                by_window[index], eps_by_window.get(index, D._EPS)
-            )
-        if value is not None:
-            total += value * count
+        eps = eps_by_window[index] if eps_mode else D._EPS
+        tau, count = motion_stats(by_window[index], eps)
+        if tau is not None:
+            total += max(0.0, tau) * count
             weight += count
     return None if not weight else total / weight
 

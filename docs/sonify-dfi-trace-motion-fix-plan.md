@@ -52,7 +52,7 @@ Số cặp trong movement I (`scripts/dfi_probe.py ... --classify`):
 - Motion của **movement** II/III là 0.130/0.127 (dương). Chỉ **window** II/III
   của movement I có τ âm; đừng gán nhầm hai cấp.
 
-Prototype (frame bars đã lọc, `dfi_probe.py`):
+Số sau implement (frame bars đã lọc, `dfi_probe.py`):
 
 | movement | v3 motion | anchors | anchors+eps | score v3 | score v4 |
 |---|---:|---:|---:|---:|---:|
@@ -90,6 +90,10 @@ clip**) trên `symphony / classic`:
 | I | 0.484 → **1.000** | 0.875 → **0.829** | 0.266 → **0.371** | 33.7 → **69.4** |
 | II | 0.525 → **0.964** | 0.963 → **0.982** | 0.279 → **0.132** | 37.6 → **69.0** |
 | III | 0.680 → **1.000** | 0.991 → **0.921** | 0.370 → **0.435** | 51.6 → **67.6** |
+
+Bảng này là **fill + snap**. Nếu chỉ fill mà chưa snap, score là
+54.8/46.4/69.3; phần chênh **+14.6 / +22.6 / −1.7** là do `snap_to_line`
+(bảng attribution ở §7). Với ambient/jazz, snap cũng là phần lớn mức tăng.
 
 Ba điều phải đọc đúng:
 
@@ -323,9 +327,9 @@ còn lại (`dfi.py:900-915`). v4 **chấp nhận renormalize** — không thêm
 "score không vượt trần bằng chứng" vì chưa có cơ chế đó. Test chỉ pin hành vi
 `test_motion_null_renormalizes_the_rest`, không hứa điều không làm được.
 
-Nếu muốn minh bạch, thêm `motion_pairs: int` vào `DfiBreakdown`
-(additive, optional) — xem §10.4. Việc này kéo theo `schemas.py` và
-`test_recap_response_parses_the_breakdown`, nên là quyết định riêng.
+Đã thêm `motion_pairs: int` (additive, default 0) vào `DfiBreakdown` và
+`schemas.py`. Đây là **diagnostic API-only**: `DfiSheet` chưa hiển thị; UI có
+thể đọc sau nếu muốn cảnh báo "ít mẫu". Test recap đã cập nhật.
 
 ### 4.3. `backend/app/sonify/render.py`
 
@@ -481,8 +485,8 @@ pytest backend/tests -q
 
 ## 7. Re-baseline (số đo sau implement)
 
-`backend/scripts/dfi_probe.py`, `ACB / 3M`, humanize. "score v4" là blend lại
-với Motion mới, **chưa gồm fill flute**.
+`backend/scripts/dfi_probe.py`, `ACB / 3M`, humanize. "score v4" là số thực tế
+sau implement (fill + snap); bảng "chưa fill" bên dưới là ước lượng lịch sử.
 
 ### Guitar torroba
 
@@ -514,7 +518,7 @@ Motion-only; Motion giữ anchor+eps.
 | II | 0.205 | 0.138 | 57.4 | 57.4 |
 | III | 0.438 | 0.437 | 61.7 | 63.9 |
 
-### Symphony — fill actual
+### Symphony — fill + snap actual
 
 Số thực tế sau implement (`dfi_probe.py`, `as_of` 2026-11-02); khớp target.
 
@@ -527,6 +531,24 @@ Số thực tế sau implement (`dfi_probe.py`, `as_of` 2026-11-02); khớp targ
 Score tăng chủ yếu qua coverage (`33.7 / 0.484 ≈ 69.6`); Shape/Motion chỉ đổi
 vài phần trăm và Motion mv II còn giảm. Band mv I đổi "Rất mờ" → "Vừa" (0.6
 dưới "Rõ"). Ghi vào PR description để reviewer không tưởng lỗi.
+
+### Snap attribution — fill/eps only vs v4
+
+`snap_to_line` không chỉ đổi Motion; nó bỏ octave fold nên Shape/Resolution
+cũng đổi. Số đo tách riêng (dựng lại trace bằng `sounding_pitch` cho cột
+fill-only):
+
+| variant | fill/eps only (I/II/III) | v4 actual (I/II/III) | snap |
+|---|---|---|---:|
+| symphony | 54.8 / 46.4 / 69.3 | 69.4 / 69.0 / 67.6 | **+14.6 / +22.6 / −1.7** |
+| ambient | 22.6 / 20.0 / 18.8 | 29.8 / 29.9 / 27.2 | **+7.2 / +9.9 / +8.4** |
+| jazz | 66.9 / 56.2 / 61.6 | 68.2 / 57.4 / 63.9 | +1.3 / +1.2 / +2.3 |
+
+- Ambient mv I: S 0.581→0.896, T 0.735→0.906, M 0.000→0.005 — **toàn bộ** mức
+  tăng là snap, không phải Motion.
+- Symphony mv II: snap chiếm **72%** mức tăng.
+- Symphony mv III **giảm −1.7** vì T 0.938→0.672 khi flute thôi bị hạ octave:
+  intent không đồng nghĩa "tốt hơn". Ghi vào §8 risk.
 
 ### Ghi chú re-baseline
 
@@ -563,6 +585,8 @@ dưới "Rõ"). Ghi vào PR description để reviewer không tưởng lỗi.
 | Minimalist M=0 | Tưởng là lỗi eps | Giữ eps; sửa writer nếu muốn >0; ghi re-baseline |
 | Band flip do coverage | Reviewer tưởng lỗi; nhãn nhảy 2 bậc | Ghi rõ score tăng qua coverage; band thresholds không đổi |
 | Snap mở rộng "ý định vs nghe" | Mất khả năng phát hiện harmony trôi | Giữ `sounding_pitch`; không đóng §9.1 |
+| Snap không luôn cải thiện | Symphony mv III −1.7; tưởng regression | Ghi attribution; intent ≠ "tốt hơn" |
+| `compute` chỉ đọc `pitch` | Ensemble test thành tautology | Contour test trên `sounding_pitch`; docstring |
 | Probe phụ thuộc dữ liệu live | Bảng §7 không tái lập | In `as_of`; ghi ngày vào doc |
 | Hard-code version lần hai | Schema lệch DFI | Import `DFI_VERSION` |
 | Ensemble spread | Test `<=4` đỏ | Test same-trace; siết có chủ đích |
@@ -583,8 +607,8 @@ dưới "Rõ"). Ghi vào PR description để reviewer không tưởng lỗi.
 - [x] Chạy `pytest backend/tests` (805 pass).
 - [x] Chạy `scripts/dfi_probe.py` cho 5 variant × 3 movement, cập nhật §1.1/§5/§7.
 - [x] Đo ensemble spread = **0.00** cho cả 4 variant → siết `<= 2`.
-- [ ] Cập nhật `docs/sonify-data-fidelity-index.md` (§4.2, §4.5, §5.3, §9.1, §9.2, §10).
-- [ ] Ghi band flip ("Rất mờ" → "Vừa") vào PR description.
+- [x] Cập nhật `docs/sonify-data-fidelity-index.md` (§4.2, §4.5, §5.3, §9.1, §9.2, §10).
+- [x] Ghi band flip ("Rất mờ" → "Vừa") vào PR description.
 - [x] Xác nhận `dfi_signatures.json` chưa tồn tại; Phase 7 tạo artifact (không chặn v4).
 - [x] Kiểm tra URL gốc `ACB / 3M / guitar / torroba` (motion 0.455, score 39.2).
 
@@ -605,3 +629,8 @@ dưới "Rõ"). Ghi vào PR description để reviewer không tưởng lỗi.
 5. **So sánh chéo variant — chấp nhận + ghi rõ.** Ambient grid, còn lại anchor;
    `S/T/R/C` vẫn so được, `M` là chẩn đoán tương đối. Chuẩn hoá (nếu cần) để
    Phase 7 với corpus + listening panel.
+6. **`snap_to_line` cho symphony/jazz/ambient — đã chốt.** Trace đo **ý định**,
+   `sounding_pitch` giữ cao độ thật. Hệ quả: ambient +7–10, jazz +1–2,
+   symphony +14.6/+22.6 nhưng mv III **−1.7** (T giảm). Chấp nhận vì mục tiêu
+   là đo dữ liệu nguồn, không phải "điểm cao hơn"; §1.2/§7 tách fill-only vs
+   v4, và §8 ghi rủi ro "intent không đồng nghĩa tốt hơn".

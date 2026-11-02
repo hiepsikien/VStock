@@ -12,6 +12,7 @@ from app.routers import stocks
 from app.schemas import DfiBreakdown as DfiBreakdownSchema
 from app.schemas import RecapResponse
 from app.services import dfi as dfi_service
+from app.sonify import dfi as dfi_module
 from app.sonify.model import Bar, NoteEvent, PriceTracePoint
 from app.sonify.dfi import (
     DFI_VERSION,
@@ -365,9 +366,9 @@ def test_non_guitar_ensembles_keep_the_same_chart_clarity() -> None:
             )
             assert breakdown is not None, (variant, ensemble)
             scores.append(breakdown.score)
-        # The trace now records the intended line (`snap_to_line`), so an
-        # octave fold no longer shows up as contour noise.  Measured spread is
-        # 0.00 for every row; keep a small margin for future writers.
+        # The trace now records the intended line, so the score spread is 0 by
+        # design; this still catches a trace that drifts between ensembles.
+        # `test_same_trace_across_symphony_ensembles` guards the audible contour.
         assert max(scores) - min(scores) <= 2, (variant, scores)
 
 
@@ -679,22 +680,26 @@ def test_guitar_sets_sounding_pitch_on_remap() -> None:
 
 def test_sounding_pitch_keeps_the_flute_offset() -> None:
     notes = [
-        NoteEvent(bar=0, beat=0.0, midi=63, duration_beats=1.0, voice=5),
-        NoteEvent(bar=1, beat=0.0, midi=51, duration_beats=1.0, voice=5),
+        NoteEvent(bar=0, beat=0.0, midi=63, duration_beats=1.0, voice=5),  # +3
+        NoteEvent(bar=1, beat=0.0, midi=64, duration_beats=1.0, voice=5),  # +4
+        NoteEvent(bar=2, beat=0.0, midi=67, duration_beats=1.0, voice=5),  # +7
+        NoteEvent(bar=3, beat=0.0, midi=51, duration_beats=1.0, voice=5),  # -9
     ]
     trace = fill_trace_from_notes(
         (),
         notes,
-        line=[60] * 16,
-        prices=[10.0] * 16,
+        line=[60] * 32,
+        prices=[10.0] * 32,
         epb=8,
         bar_beats=4.0,
-        yield_spans=[(0, 16)],
+        yield_spans=[(0, 32)],
     )
-    assert len(trace) == 2
+    assert len(trace) == 4
+    offsets = []
     for point in trace:
         assert point.sounding_pitch is not None
-        assert round(point.sounding_pitch - point.pitch) % 12 == 3
+        offsets.append(round(point.sounding_pitch - point.pitch) % 12)
+    assert sorted(offsets) == [3, 3, 4, 7]
 
 
 def test_symphony_trace_covers_a_flute_only_bar() -> None:
@@ -716,15 +721,82 @@ def test_symphony_trace_covers_a_flute_only_bar() -> None:
 
 
 def test_same_trace_across_symphony_ensembles() -> None:
-    def base_trace(ensemble: str):
-        score = render(_bars(trend=0.8), variant="symphony", ensemble=ensemble)  # type: ignore[arg-type]
+    """The intent trace is ensemble-invariant; the audible contour still follows it."""
+
+    def rendered(ensemble: str):
+        return render(_bars(trend=0.8), variant="symphony", ensemble=ensemble)  # type: ignore[arg-type]
+
+    def intent(score) -> set[tuple[int, float, float]]:
         return {
             (point.bar, round(point.beat, 2), round(point.pitch, 1))
             for point in score.price_trace
-            if point.voice == "line" and point.pitch is not None
+            if point.pitch is not None
         }
 
-    classic = base_trace("classic")
-    assert classic
+    classic = rendered("classic")
+    classic_intent = intent(classic)
+    assert classic_intent
     for ensemble in ("wood", "brass"):
-        assert base_trace(ensemble) == classic
+        score = rendered(ensemble)
+        assert intent(score) == classic_intent
+        breakdown = compute(score, variant="symphony", ensemble=ensemble)
+        assert breakdown is not None
+        assert breakdown.coverage > 0.5
+        assert breakdown.volume is not None and breakdown.volume > 0
+        # `compute` reads intent, so the score spread is 0 by design.  Guard the
+        # audible pitch separately: an octave fold must not invert the contour.
+        a = {
+            (point.bar, round(point.beat, 3)): point.sounding_pitch
+            for point in classic.price_trace
+            if point.sounding_pitch is not None
+        }
+        b = {
+            (point.bar, round(point.beat, 3)): point.sounding_pitch
+            for point in score.price_trace
+            if point.sounding_pitch is not None
+        }
+        keys = sorted(set(a) & set(b))
+        agree = total = 0
+        for left, right in zip(keys, keys[1:]):
+            delta_a = a[right] - a[left]
+            delta_b = b[right] - b[left]
+            if delta_a == 0 and delta_b == 0:
+                continue
+            total += 1
+            agree += (delta_a > 0) == (delta_b > 0)
+        assert total
+        assert agree / total >= 0.8, (ensemble, agree, total)
+
+
+def test_compute_uses_anchors_for_guitar_and_grid_for_ambient(monkeypatch) -> None:
+    calls: list[str] = []
+    original = dfi_module.motion_points
+
+    def spy(score, windows, epb):
+        calls.append(score.variant)
+        return original(score, windows, epb)
+
+    monkeypatch.setattr(dfi_module, "motion_points", spy)
+    guitar = compute(
+        render(_bars(), variant="guitar", ensemble="bach"),
+        variant="guitar",
+        ensemble="bach",
+    )
+    assert guitar is not None
+    assert calls == ["guitar"]
+
+    calls.clear()
+    ambient = compute(
+        render(_bars(), variant="ambient", ensemble="classic"),
+        variant="ambient",
+        ensemble="classic",
+    )
+    assert ambient is not None
+    assert calls == []
+
+
+def test_motion_returns_zero_when_every_step_holds() -> None:
+    points = _points([10, 11, 13, 16, 20], [64, 64, 64, 64, 64])
+    value, weight, _low = _motion(points, eps=0.1)
+    assert value == 0.0
+    assert weight == 4.0
