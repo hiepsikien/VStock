@@ -790,8 +790,8 @@ GET /v1/sonify/dfi/pieces
 
 ### 9.2. Kế hoạch sửa v4
 
-Hai lỗi dưới đây đã điều tra xong; kế hoạch **đề xuất**, còn **5 điểm cần
-chốt** (§10 của plan), chưa implement. Xem
+Hai lỗi dưới đây đã điều tra xong; kế hoạch **đề xuất**, **5 điểm ở §10 đã
+chốt** ngày 2026-11-03, chưa implement. Xem
 [`sonify-dfi-trace-motion-fix-plan.md`](./sonify-dfi-trace-motion-fix-plan.md).
 
 - **Symphony bỏ sót bè `high`.** Violin yield cho Flute/Piccolo/Glockenspiel,

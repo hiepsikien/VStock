@@ -1,9 +1,10 @@
 # Kế hoạch sửa DFI v4 — trace theo bè và Motion theo nốt giá
 
-> Trạng thái: **kế hoạch đề xuất, chưa implement**. Đã đối chiếu với code và
-> chạy prototype trên `ACB / 3M` (local DB; dữ liệu `as_of` **2026-11-02**).
-> Còn **5 quyết định** ở §10. Bảng số trong §1.1/§5/§7 regenerate bằng
-> `backend/scripts/dfi_probe.py`; số phụ thuộc ngày dữ liệu, không phải hằng số.
+> Trạng thái: **kế hoạch đề xuất, chưa implement; 5 quyết định ở §10 đã chốt
+> ngày 2026-11-03**. Đã đối chiếu với code và chạy prototype trên `ACB / 3M`
+> (local DB; dữ liệu `as_of` **2026-11-02**). Bảng số trong §1.1/§5/§7
+> regenerate bằng `backend/scripts/dfi_probe.py`; số phụ thuộc ngày dữ liệu,
+> không phải hằng số.
 
 ## 0. Phạm vi
 
@@ -80,18 +81,35 @@ trace points              196
 coverage                 0.48
 ```
 
-Prototype fill (dùng **midi flute đang kêu**, chưa phải `line[eighth]`):
+Mô phỏng đúng spec yield-span (capture `pitches` + `yield_spans` từ writer,
+merge tie, lọc span, lọc overlap, `pitch=line[eighth]`, **không clip**) trên
+`symphony / classic`:
 
-| movement | coverage v3 → fill | shape v3 → fill | score v3 → fill |
-|---|---:|---:|---:|
-| I | 0.484 → 1.000 | 0.875 → 0.512 | 33.7 → 54.7 |
-| II | 0.525 → 0.964 | — | — |
-| III | 0.680 → 1.000 | — | — |
+| movement | coverage v3 → fill | Shape v3 → fill | Motion (anchor) v3 → fill | score v3 → v4 |
+|---|---:|---:|---:|---:|
+| I | 0.484 → **1.000** | 0.875 → **0.829** | 0.266 → **0.371** | 33.7 → **69.4** |
+| II | 0.525 → **0.964** | 0.963 → **0.982** | 0.279 → **0.132** | 37.6 → **69.0** |
+| III | 0.680 → **1.000** | 0.991 → **0.921** | 0.370 → **0.435** | 51.6 → **67.6** |
 
-Đây là **số đo prototype**, không phải "upper bound": với `line[eighth]`, Shape
-là tương quan price↔line (guitar mv I chỉ 0.32), nên **score có thể thấp hơn**
-54.7 và **Motion có thể giảm**. Kết luận đúng là: *score thay đổi chủ yếu qua
-hệ số coverage; phải đo lại S/M trước–sau, không hứa score tăng.*
+Ba điều phải đọc đúng:
+
+1. **Điểm nhảy gần như toàn bộ là hệ số coverage.** `33.7 / 0.484 ≈ 69.6`; S/M
+   chỉ đổi vài phần trăm. Không được nói "fill làm symphony trung thực hơn 36
+   điểm" — nó chỉ làm phần timeline trước đây bị bỏ nay được tính.
+2. **Shape với intent không tụt còn 0.32.** Con số 0.32 của guitar đến từ
+   quantization/sampling của guitar, không phải từ intent. Shape symphony sau
+   fill là 0.829/0.982/0.921. Vì vậy câu cũ "score có thể thấp hơn 54.7" là
+   **sai hướng**; đo thực tế là 69.4.
+3. **Motion có thể giảm** (mv II 0.279 → 0.132) dù score tăng. Score và Motion
+   là hai chuyện khác nhau; đừng dùng score tăng để nói Motion tốt lên.
+
+**Band flip là thay đổi sản phẩm:** mv I 33.7 ("Rất mờ") → 69.4 ("Vừa"), chỉ
+**0.6 điểm** dưới "Rõ" (70). Band thresholds không đổi (§0), nên nhãn nhảy 2
+bậc; phải ghi vào PR description/re-baseline để reviewer không tưởng lỗi.
+
+Flute chơi hòa âm **+3/+4/+7 (mod 12)** so với line; line có thể bị hạ 1–2
+octave nên offset thô là −9 (= +3−12), −17 (= +7−24)… `snap_to_line` ghi
+intent, `sounding_pitch` giữ midi thật để chẩn đoán.
 
 ## 2. Nguyên tắc sửa
 
@@ -216,9 +234,10 @@ def fill_trace_from_notes(base, notes, *, line, prices, epb, bar_beats,
 ```
 
 - **Không còn `_clip_after_base`.** Note high bắt đầu trong overlap (violin còn
-  kêu) bị bỏ; mất tối đa `FLUTE_OVERLAP` (1 beat) ở đầu span. Đây là thay đổi
-  nhỏ, không thêm arithmetic dời `start`/`price` — tránh đúng lỗi "dời start
-  nhưng giữ price cũ".
+  kêu) bị bỏ. Đo trên ACB/3M: chỉ 4/246, 5/212, 0/164 point bị loại (đều là
+  hòa âm +3/+4/+7 (mod 12) ngoài span) và coverage vẫn 1.000/0.964/1.000. Xấu
+  nhất lý thuyết là mất 1 beat (`FLUTE_OVERLAP`) ở đầu span; thêm test cho note
+  attack ngay trước span.
 - `yield_spans` loại flute ornament ngoài span (kể cả khi violin nghỉ vì
   breath), nên không cần heuristic overlap.
 - Nếu `yield_spans` rỗng, `fill` trả `base`; test
@@ -354,7 +373,8 @@ remapped.append(replace(point, pitch=float(intended[eighth]),
 
 Đây là chỗ caveat "ý định vs tai nghe" khởi nguồn; nếu không set, field mới
 bỏ trống đúng chỗ cần nhất. `sounding_pitch` là **diagnostic-only**: `compute`
-vẫn đọc `pitch`; thêm test offset cho guitar (0/12) và symphony (+3/+4/+7).
+vẫn đọc `pitch`; thêm test offset cho guitar (0/12) và symphony
+(`(pitch - sounding_pitch) % 12 ∈ {3,4,7}`).
 
 ### 4.4. Test và tài liệu
 
@@ -430,8 +450,9 @@ Thêm vào `backend/tests/test_dfi.py`:
 | `test_fill_uses_yield_spans` | high note ngoài `yield_spans` không vào trace |
 | `test_fill_skips_high_ornament_outside_yield_spans` | flute ornament khi violin nghỉ nhưng ngoài span → không vào trace |
 | `test_fill_without_yield_spans_adds_nothing` | `yield_spans=()` → trả đúng `base` |
+| `test_fill_keeps_a_note_attacking_just_before_the_span` | note attack sát trước span: hành vi bỏ được pin; coverage mất ≤ 1 beat |
 | `test_guitar_sets_sounding_pitch_on_remap` | guitar remap `pitch=intended` vẫn giữ `sounding_pitch` cũ |
-| `test_sounding_pitch_keeps_the_flute_offset` | symphony `pitch - sounding_pitch` ∈ {3,4,7} (diagnostic-only) |
+| `test_sounding_pitch_keeps_the_flute_offset` | symphony `(pitch - sounding_pitch) % 12 ∈ {3,4,7}` (diagnostic-only; offset thô có thể −9/−17) |
 | `test_motion_points_drops_frame_bars` | point trong `frame_bars` không vào Motion |
 | `test_motion_deduplicates_base_and_fill` | base + fill cùng eighth → 1 point, giữ base |
 | `test_motion_uses_anchors_for_guitar` | Motion guitar ≠ grid Motion trên cùng score |
@@ -467,9 +488,12 @@ với Motion mới, **chưa gồm fill flute**.
 | II | 0.1297 | 0.268 | 0.214 | 46.1 | 47.4 |
 | III | 0.1275 | 0.475 | 0.479 | 39.7 | 46.2 |
 
-### Symphony / jazz (chưa fill)
+### Symphony / jazz — chưa fill (chỉ để so Motion)
 
-| variant | mv | v3 motion | anchors+eps | score v3 | score v4 |
+Các số `score v4` dưới đây **chưa có fill flute**, nên không phải target cuối.
+Dùng để thấy Motion/jazz/symphony đổi thế nào khi chỉ đổi nguồn Motion.
+
+| variant | mv | v3 motion | anchors+eps | score v3 | score v4 (chưa fill) |
 |---|---|---:|---:|---:|---:|
 | symphony | I | 0.266 | 0.274 | 33.7 | 33.8 |
 | symphony | II | 0.279 | 0.107 | 37.6 | 35.7 |
@@ -478,15 +502,27 @@ với Motion mới, **chưa gồm fill flute**.
 | jazz | II | 0.205 | 0.138 | 57.4 | 56.2 |
 | jazz | III | 0.438 | 0.437 | 61.7 | 61.6 |
 
-Symphony coverage sẽ tăng khi fill (0.484/0.525/0.680 → ~1.0), nhưng Shape và
-Motion có thể giảm; đo lại sau khi implement, không dùng bảng này để hứa điểm.
+### Symphony — fill prototype (yield_spans, đúng spec §4.2(b))
+
+Đây là **target cho PR implementation**, không phải số đã có trong code.
+
+| movement | coverage v3 → fill | Shape v3 → fill | Motion v3 → fill | score v3 → v4 |
+|---|---:|---:|---:|---:|
+| I | 0.484 → 1.000 | 0.875 → 0.829 | 0.266 → 0.371 | 33.7 → **69.4** |
+| II | 0.525 → 0.964 | 0.963 → 0.982 | 0.279 → 0.132 | 37.6 → **69.0** |
+| III | 0.680 → 1.000 | 0.991 → 0.921 | 0.370 → 0.435 | 51.6 → **67.6** |
+
+Score tăng chủ yếu qua coverage (`33.7 / 0.484 ≈ 69.6`); Shape/Motion chỉ đổi
+vài phần trăm và Motion mv II còn giảm. Band mv I đổi "Rất mờ" → "Vừa" (0.6
+dưới "Rõ"). Ghi vào PR description để reviewer không tưởng lỗi.
 
 ### Ghi chú re-baseline
 
 - Số đo ngày `as_of` **2026-11-02**; `plan_span` có thể fetch dữ liệu live khi
   cache lạnh, nên chạy lại có thể lệch. Probe in `as_of` ở đầu.
-- `n_sounding` symphony mv I sẽ nhảy ~196 → ~558; confidence thành `high` gần
-  như mặc định. Ghi nhận, không chặn.
+- `n_sounding` symphony sẽ nhảy 196/151/328 → **~438/358/492** (fill merge tie
+  thêm 242/207/164 point), confidence thành `high` gần như mặc định. Ghi nhận,
+  không chặn.
 - `n_moves`/`opportunity` vẫn đo trên lưới; Motion đo trên anchor. Ghi rõ.
 - **M không còn so sánh chéo variant từ v4:** ambient giữ grid, 4 variant còn
   lại dùng anchor. Bảng xếp hạng genre ở index §5.3 phải đọc M là *tương đối*,
@@ -494,7 +530,8 @@ Motion có thể giảm; đo lại sau khi implement, không dùng bảng này �
 - `DFI_VERSION` bump làm sidecar cũ miss (`audio.py:422`,
   `services/dfi.py:113`, `sessions.py:238`, `spans.py:191`).
 - `dfi_signatures.json` **chưa tồn tại** trong repo: endpoint trả `[]`, UI hiện
-  `chuẩn —`. Phase 7 mới tạo artifact; v4 không chặn và không tạo fixture tạm.
+  `chuẩn —`. Phase 7 mới tạo artifact lần đầu; v4 không chặn và không tạo
+  fixture tạm.
 
 ## 8. Rủi ro và cách chặn
 
@@ -504,11 +541,11 @@ Motion có thể giảm; đo lại sau khi implement, không dùng bảng này �
 | Tie-break không có `diff` | Luôn giữ note đầu; mất duration | `diff_by_key` + test duration |
 | Fill mỗi đoạn tie thành point | Attack giả, pitch ý định đổi giữa nốt | `trace_from_notes` merge tie; test 1 point |
 | Fill chồng note high | Hai lần đọc cùng giá | Cập nhật `lookup` sau mỗi extra |
-| Fill note bắt đầu trong overlap | Mất đầu span (≤ 1 beat) | Chọn theo `yield_spans`; bỏ note overlap, không clip |
+| Fill note bắt đầu trong overlap | Xấu nhất mất 1 beat đầu span | Chọn theo `yield_spans`; đo ACB: 0 mất coverage |
 | `yield_spans` lệch sau frame | Fill sai bar | `apply_span_frame` giữ body (`movement_frame.py:117`); test same-trace |
 | Motion anchor làm rơi cặp | Renormalize đẩy điểm lên | Chấp nhận renormalize; test pin hành vi |
 | Minimalist M=0 | Tưởng là lỗi eps | Giữ eps; sửa writer nếu muốn >0; ghi re-baseline |
-| Score symphony giảm | Kỳ vọng sai | Đo S/M trước–sau; không hứa tăng |
+| Band flip do coverage | Reviewer tưởng lỗi; nhãn nhảy 2 bậc | Ghi rõ score tăng qua coverage; band thresholds không đổi |
 | Snap mở rộng "ý định vs nghe" | Mất khả năng phát hiện harmony trôi | Giữ `sounding_pitch`; không đóng §9.1 |
 | Probe phụ thuộc dữ liệu live | Bảng §7 không tái lập | In `as_of`; ghi ngày vào doc |
 | Hard-code version lần hai | Schema lệch DFI | Import `DFI_VERSION` |
@@ -525,26 +562,29 @@ Motion có thể giảm; đo lại sau khi implement, không dùng bảng này �
 - [ ] `compute`: `MOTION_ON_ANCHORS.get(variant, True)` (ambient grid).
 - [ ] `render.py`: giữ `if not trace:`; khởi tạo `yield_spans`; symphony fill `high`.
 - [ ] `DFI_VERSION = "4"` + `schemas.py` import.
-- [ ] Test §6.
+- [ ] `motion_pairs` (additive, default 0) + test recap.
+- [ ] Test §6, gồm `sounding_pitch` **mod 12**.
 - [ ] Chạy `pytest backend/tests`.
 - [ ] Chạy `scripts/dfi_probe.py` cho 5 variant × 3 movement, cập nhật §1.1/§5/§7.
+- [ ] Đo ensemble spread; chỉ siết tolerance nếu spread ≤ 1.
 - [ ] Cập nhật `docs/sonify-data-fidelity-index.md` (§4.2, §4.5, §5.3, §9.1, §9.2, §10).
+- [ ] Ghi band flip ("Rất mờ" → "Vừa") vào PR description.
 - [ ] Xác nhận `dfi_signatures.json` chưa tồn tại; Phase 7 tạo artifact (không chặn v4).
 - [ ] Kiểm tra URL gốc `ACB / 3M / guitar / torroba`.
 
-## 10. Quyết định cần chốt
+## 10. Quyết định đã chốt (2026-11-03)
 
-1. **Ambient Motion:** giữ **grid** (đề xuất, đúng §4.5 "hold dài là mất
-   fidelity") hay anchor toàn cục (ambient tăng ~15–25%, phải sửa §4.5/§10 #6)?
-2. **Minimalist II/III:** chấp nhận **M = 0** (đề xuất — tín hiệu thật, eps
-   đúng) hay mở một việc sửa **encoding register của writer** để bước register
-   phản ánh biên độ giá? Không hạ eps để được số đẹp.
-3. **`dfi_signatures.json`:** artifact **chưa tồn tại** (endpoint trả `[]`, UI
-   `chuẩn —`). Để Phase 7 tạo, hay tạo fixture nhỏ ngay trong PR implementation?
-   Khuyến nghị: Phase 7, vì v4 chưa calibration.
-4. **Minh bạch bằng chứng:** thêm `motion_pairs: int` (additive, optional) vào
-   `DfiBreakdown`/`schemas.py` và cập nhật `test_recap_response_parses_the_breakdown`,
-   đồng thời siết `test_non_guitar_ensembles...` xuống `<= 2`? Nếu không, giữ
-   schema nguyên và chỉ ghi doc.
-5. **So sánh chéo variant:** chấp nhận M khác định nghĩa (ambient grid, còn lại
-   anchor) và ghi rõ trong index §5.3/§10, hay chuẩn hoá lại sau Phase 7?
+1. **Ambient Motion — giữ grid.** Anchor thưởng cho hold dài (giá chạy qua nốt
+   ngân), trái §4.5. Grid+eps giữ nguyên hành vi v3 (`0.000/0.049/0.010`).
+   Anchor chỉ xem lại nếu ambient writer bắt đầu mã hoá biến động trong nốt ngân.
+2. **Minimalist II/III — chấp nhận `M = 0`.** τ từng window âm là tín hiệu thật
+   của encoding register, không phải lỗi eps. Không hạ eps. Mở task riêng để sửa
+   `_synth_arpeggio_part` nếu muốn register phản ánh biên độ giá.
+3. **`dfi_signatures.json` — để Phase 7 tạo lần đầu.** Artifact chưa tồn tại;
+   endpoint trả `[]`, UI hiện `chuẩn —`. Không tạo fixture tạm trong v4.
+4. **Bằng chứng — thêm `motion_pairs`; chưa siết tolerance.** `motion_pairs`
+   (additive, default 0) vào `DfiBreakdown`/`schemas.py` + test recap. Đo
+   ensemble spread sau khi implement; chỉ siết `<= 2` nếu spread ≤ 1.
+5. **So sánh chéo variant — chấp nhận + ghi rõ.** Ambient grid, còn lại anchor;
+   `S/T/R/C` vẫn so được, `M` là chẩn đoán tương đối. Chuẩn hoá (nếu cần) để
+   Phase 7 với corpus + listening panel.

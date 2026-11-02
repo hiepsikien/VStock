@@ -156,9 +156,10 @@ def classify_grid(by_window, eps_by_window, *, movement: str, windows, epb: int)
     print()
     print(f"### movement {movement} — grid pairs")
     print(
-        "| window | steps | usable | after (0,0) | hold | ornament | 1-tick | tau |"
+        "| window | steps | usable pairs | after (0,0) | hold | ornament | "
+        "1-tick | eps | tau |"
     )
-    print("|---|---:|---:|---:|---:|---:|---:|---:|")
+    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
     for index in sorted(by_window):
         points = [point for point in by_window[index] if point.pitch is not None]
         raw = list(zip(points, points[1:]))
@@ -187,10 +188,14 @@ def classify_grid(by_window, eps_by_window, *, movement: str, windows, epb: int)
         )
         value, _count = motion_stats(by_window[index], D._EPS)
         start, end = windows[index]
+        # Windows are contiguous bar spans today; if that changes, derive
+        # `steps` from the actual eighth range instead.
         steps = (end - start) * epb - 1
+        eps = eps_by_window.get(index, D._EPS)
         print(
             f"| {index} | {steps} | {len(raw)} | {len(kept)} | {holds} | "
-            f"{ornaments} | {one_tick} | {'—' if value is None else f'{value:.3f}'} |"
+            f"{ornaments} | {one_tick} | {eps:.4f} | "
+            f"{'—' if value is None else f'{value:.3f}'} |"
         )
 
 
@@ -245,6 +250,8 @@ async def probe(
     print("| movement | v3 score | v3 motion | anchors | anchors+eps | grid+eps | score v4 |")
     print("|---|---:|---:|---:|---:|---:|---:|")
 
+    rows: list[dict] = []
+    details: list[dict] = []
     for index, movement in enumerate(plan.movements):
         roman = ROMAN[index] if index < len(ROMAN) else str(index + 1)
         score = dfi_service._movement_score(
@@ -252,7 +259,7 @@ async def probe(
         )
         base = D.compute(score, variant=variant, ensemble=ensemble)
         if base is None:
-            print(f"| {index} ({roman}) | — | — | — | — | — | — |")
+            rows.append({"index": index, "roman": roman, "base": None})
             continue
 
         epb = max(1, int(round(score.bar_beats * 2)))
@@ -280,17 +287,56 @@ async def probe(
         grid_eps = all_motion(grid, eps_by_window, eps_mode=True)
         shown = anchor_eps if source == "anchors" else grid_eps
         score_v4 = blend(base, shown)
+        rows.append(
+            {
+                "index": index,
+                "roman": roman,
+                "base": base,
+                "anchor": anchor,
+                "anchor_eps": anchor_eps,
+                "grid_eps": grid_eps,
+                "score_v4": score_v4,
+            }
+        )
+        details.append(
+            {
+                "index": index,
+                "roman": roman,
+                "grid": grid,
+                "anchors": anchors,
+                "eps_by_window": eps_by_window,
+                "windows": windows,
+                "epb": epb,
+            }
+        )
+
+    # Main table first so it can be copied into the plan without interleaving.
+    for row in rows:
+        label = f"{row['index']} ({row['roman']})"
+        if row["base"] is None:
+            print(f"| {label} | — | — | — | — | — | — |")
+            continue
+        score_v4 = row["score_v4"]
         print(
-            f"| {index} ({roman}) | {base.score:.1f} | {base.motion:.3f} | "
-            f"{fmt(anchor)} | {fmt(anchor_eps)} | {fmt(grid_eps)} | "
+            f"| {label} | {row['base'].score:.1f} | {row['base'].motion:.3f} | "
+            f"{fmt(row['anchor'])} | {fmt(row['anchor_eps'])} | "
+            f"{fmt(row['grid_eps'])} | "
             f"{'—' if score_v4 is None else f'{score_v4:.1f}'} |"
         )
-        if show_classify:
-            label = f"{index} ({roman})"
+
+    if show_classify:
+        for detail in details:
+            label = f"{detail['index']} ({detail['roman']})"
             classify_grid(
-                grid, eps_by_window, movement=label, windows=windows, epb=epb
+                detail["grid"],
+                detail["eps_by_window"],
+                movement=label,
+                windows=detail["windows"],
+                epb=detail["epb"],
             )
-            classify_anchors(anchors, eps_by_window, movement=label)
+            classify_anchors(
+                detail["anchors"], detail["eps_by_window"], movement=label
+            )
 
     print()
     print(
