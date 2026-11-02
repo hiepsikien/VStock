@@ -132,11 +132,13 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const [genrePieces, setGenrePieces] = useState<DfiPiece[] | null>(null);
   const [ensemblePieces, setEnsemblePieces] = useState<DfiPiece[] | null>(null);
   const [dfiSignatures, setDfiSignatures] = useState<DfiSignature[]>([]);
-  const [dfiLoading, setDfiLoading] = useState(false);
+  const [genreLoading, setGenreLoading] = useState(false);
+  const [ensembleLoading, setEnsembleLoading] = useState(false);
 
   const request = useRef<AbortController | null>(null);
   const restTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const seekSeq = useRef(0);
+  const dfiPoll = useRef({ key: '', count: 0 });
   const focusRef = useRef<ChartFocus | null>(null);
   const zoomFrame = useRef(0);
   const movementsRef = useRef<SpanMovement[] | null>(null);
@@ -214,33 +216,78 @@ export function ReplayRoom({ wide, onMode }: Props) {
     return () => controller.abort();
   }, [dfiBucket]);
 
-  // The sheet's two comparison tables are composed on the server. A failure
-  // on either side leaves the current row visible and the others as `—`.
+  // The sheet's two comparison tables are composed on the server. Reset on
+  // close so reopening on another symbol cannot flash the previous session's
+  // rows, and keep the genre table independent of ensemble changes.
+  useEffect(() => {
+    if (dfiOpen) return;
+    setGenrePieces(null);
+    setEnsemblePieces(null);
+    setGenreLoading(false);
+    setEnsembleLoading(false);
+  }, [dfiOpen]);
+
   useEffect(() => {
     if (!dfiOpen) return;
     if (dfiBucket === 'day' && !date) return;
     const controller = new AbortController();
-    setDfiLoading(true);
-    const base = {
-      symbol,
-      bucket: dfiBucket,
-      date: dfiBucket === 'day' ? date : null,
-      range: dfiBucket === 'span' ? span : null,
-      movement: dfiBucket === 'span' ? index : 0,
-      mix: { humanize, color: colorOn },
-    } as const;
+    setGenrePieces(null);
+    setGenreLoading(true);
     void (async () => {
-      const [genre, ensembleRows] = await Promise.allSettled([
-        fetchDfiPieces({ ...base, variant: null, ensemble: null }, controller.signal),
-        fetchDfiPieces({ ...base, variant, ensemble: null }, controller.signal),
-      ]);
-      if (controller.signal.aborted) return;
-      setGenrePieces(genre.status === 'fulfilled' ? genre.value.pieces : null);
-      setEnsemblePieces(ensembleRows.status === 'fulfilled' ? ensembleRows.value.pieces : null);
-      setDfiLoading(false);
+      try {
+        const result = await fetchDfiPieces(
+          {
+            symbol,
+            bucket: dfiBucket,
+            date: dfiBucket === 'day' ? date : null,
+            range: dfiBucket === 'span' ? span : null,
+            movement: dfiBucket === 'span' ? index : 0,
+            variant: null,
+            ensemble: null,
+            mix: { humanize, color: colorOn },
+          },
+          controller.signal,
+        );
+        if (!controller.signal.aborted) setGenrePieces(result.pieces);
+      } catch {
+        if (!controller.signal.aborted) setGenrePieces(null);
+      } finally {
+        if (!controller.signal.aborted) setGenreLoading(false);
+      }
     })();
     return () => controller.abort();
-  }, [colorOn, date, ensemble, humanize, index, dfiBucket, dfiOpen, span, symbol, variant]);
+  }, [colorOn, date, dfiBucket, dfiOpen, humanize, index, span, symbol]);
+
+  useEffect(() => {
+    if (!dfiOpen) return;
+    if (dfiBucket === 'day' && !date) return;
+    const controller = new AbortController();
+    setEnsemblePieces(null);
+    setEnsembleLoading(true);
+    void (async () => {
+      try {
+        const result = await fetchDfiPieces(
+          {
+            symbol,
+            bucket: dfiBucket,
+            date: dfiBucket === 'day' ? date : null,
+            range: dfiBucket === 'span' ? span : null,
+            movement: dfiBucket === 'span' ? index : 0,
+            variant,
+            ensemble: null,
+            mix: { humanize, color: colorOn },
+          },
+          controller.signal,
+        );
+        if (!controller.signal.aborted) setEnsemblePieces(result.pieces);
+      } catch {
+        if (!controller.signal.aborted) setEnsemblePieces(null);
+      } finally {
+        if (!controller.signal.aborted) setEnsembleLoading(false);
+      }
+    })();
+    return () => controller.abort();
+  }, [colorOn, date, dfiBucket, dfiOpen, humanize, index, span, symbol, variant]);
 
   useEffect(() => {
     let cancelled = false;
@@ -695,11 +742,18 @@ export function ReplayRoom({ wide, onMode }: Props) {
     // A movement can be heard before its score exists, and an old cache can
     // hold audio without DFI. Neither number appears on its own: re-read the
     // plan until the current movement has both.
+    //
+    // A null DFI is also terminal: the line did not move enough to score.
+    // Bound the retries so a flat session does not poll the whole span
+    // forever.
     if (span === '1D' || !audible || (heardName && heardReady && heardDfi)) return;
+    const pollKey = `${symbol}|${span}|${variant}|${ensemble}|${index}`;
+    if (dfiPoll.current.key !== pollKey) dfiPoll.current = { key: pollKey, count: 0 };
     let stopped = false;
     let pending = false;
     const pull = async () => {
-      if (stopped || pending) return;
+      if (stopped || pending || dfiPoll.current.count >= 8) return;
+      dfiPoll.current.count += 1;
       pending = true;
       try {
         const plan = await fetchSpan(symbol, span, variant, ensemble, undefined, {
@@ -1203,7 +1257,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
       signatures={dfiSignatures}
       genrePieces={genrePieces}
       ensemblePieces={ensemblePieces}
-      loading={dfiLoading}
+      loading={genreLoading || ensembleLoading}
       onVariant={(next) => {
         if (next === variant) return;
         setVariant(next);

@@ -13,13 +13,15 @@ cantabile, Bach preludes, and Ambient holds all put the line somewhere else.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from bisect import bisect_right
 from dataclasses import dataclass, replace
 from statistics import median
 from typing import Iterable, Literal, Sequence
 
-from app.sonify.model import NoteEvent, PriceTracePoint, Score
+from app.sonify.model import Bar, NoteEvent, PriceTracePoint, Score
 
 DFI_VERSION = "3"
 
@@ -32,6 +34,21 @@ WEIGHT_VOLUME = 0.10
 # Talk about the musical grid with a clear unit: one quarter beat is two
 # eighths regardless of meter.
 _EPS = 1e-9
+
+
+def data_digest(bars: Iterable[Bar]) -> str:
+    """Digest of the bars a score was built from, stored beside the audio.
+
+    A live session can change the last close without changing the bar count.
+    The digest lets the reader notice that the cached DFI describes a slightly
+    different score instead of showing a stale number.
+    """
+    payload = json.dumps(
+        [(round(bar.close, 8), round(float(bar.volume), 8)) for bar in bars],
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha1(payload).hexdigest()[:16]
 
 
 @dataclass(frozen=True)
@@ -431,9 +448,15 @@ def _shape(points: Sequence[_Point], eps: float) -> tuple[float | None, float]:
     if (max(prices) - min(prices)) <= eps:
         return None, 0.0
     if len(usable) >= 4:
-        rho = spearman(prices, [point.pitch for point in usable])  # type: ignore[list-item]
+        pitches = [point.pitch for point in usable]
+        if all(abs(value - pitches[0]) <= _EPS for value in pitches):  # type: ignore[operator]
+            # Price moved but the line held one note. That is a failure, not
+            # an undefined correlation; dropping it would renormalize the
+            # weight onto the remaining components and reward the hold.
+            return 0.0, float(len(usable))
+        rho = spearman(prices, pitches)  # type: ignore[list-item]
         if rho is None:
-            return None, 0.0
+            return 0.0, float(len(usable))
         return max(0.0, rho), float(len(usable))
     # Ambient: too few anchors for a rank correlation. Reward same-direction
     # consecutive pairs instead, with half the evidence weight.
@@ -479,6 +502,11 @@ def _motion(points: Sequence[_Point], eps: float) -> tuple[float | None, float, 
             low_evidence = True
     if len(pairs) < 4 or all(abs(value - x[0]) <= _EPS for value in x):
         return None, 0.0, low_evidence
+    if all(abs(value - y[0]) <= _EPS for value in y):
+        # Price changed but every step used the same pitch. Kendall tau-b has
+        # no denominator here; the honest score is zero, not "skip and
+        # renormalize onto the other components".
+        return 0.0, float(len(pairs)), low_evidence
     tau = kendall_tau_b(x, y)
     if tau is None:
         return None, 0.0, low_evidence
@@ -643,6 +671,12 @@ def _coverage(
         count = len(group)
         for position, source in enumerate(group):
             location[source] = (musical_bar, position, count)
+    # The lead enters after the intro in a 1D piece. Bars before the first
+    # price-bearing note (and after the last) are frame, not a rest from the
+    # line, so they must not dilute coverage.
+    active_bars = [point.bar for point in score.price_trace if point.pitch is not None]
+    first_active = min(active_bars) if active_bars else None
+    last_active = max(active_bars) if active_bars else None
     weights: list[float] = []
     sounds: list[int] = []
     for source, close in enumerate(closes):
@@ -651,6 +685,10 @@ def _coverage(
             continue
         musical_bar, position, count = place
         if musical_bar in frame_bars:
+            continue
+        if first_active is not None and (
+            musical_bar < first_active or musical_bar > last_active
+        ):
             continue
         window = _window_of(windows, musical_bar)
         eps = eps_by_window.get(window, session_eps) if window is not None else session_eps

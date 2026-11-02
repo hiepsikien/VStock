@@ -21,9 +21,12 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from typing import Iterable
 
+from fastapi import Request
+
 from app.sonify.audio import (
     RECAP_REVISION,
     SPAN_REVISION,
+    RecapCancelled,
     _compose,
     humanize_score,
     recap_store,
@@ -31,7 +34,7 @@ from app.sonify.audio import (
 from app.sonify.ensemble import ensembles_for
 from app.sonify.keys import movement_character, stock_home_key
 from app.sonify.model import Bar, Ensemble, VARIANTS, Variant
-from app.sonify.dfi import DFI_VERSION, DfiBreakdown, compute as compute_dfi
+from app.sonify.dfi import DFI_VERSION, DfiBreakdown, compute as compute_dfi, data_digest
 
 ComposeKey = tuple[str, str, str, str, bool, str, str]
 _CACHE: dict[ComposeKey, tuple[DfiBreakdown | None, str]] = {}
@@ -42,18 +45,35 @@ _PLANS: dict[tuple[str, str, Variant, str], tuple[float, object]] = {}
 _PLAN_LOCK = threading.Lock()
 _PLAN_TTL_SEC = 120.0
 
+_SIDECAR_TTL_SEC = 14 * 24 * 3600
+_PRUNE_LOCK = threading.Lock()
+_LAST_PRUNE = 0.0
 
-def _digest(values: Iterable[float]) -> str:
-    payload = json.dumps(list(values), separators=(",", ":"), default=str).encode("utf-8")
-    return hashlib.sha1(payload).hexdigest()[:16]
+
+def _prune_sidecars() -> None:
+    """Drop sidecars nobody has asked for in two weeks."""
+    global _LAST_PRUNE
+    now = time.time()
+    with _PRUNE_LOCK:
+        if now - _LAST_PRUNE < 3600:
+            return
+        _LAST_PRUNE = now
+    folder = recap_store().root / "dfi"
+    cutoff = now - _SIDECAR_TTL_SEC
+    try:
+        paths = list(folder.glob("*.json"))
+    except OSError:
+        return
+    for path in paths:
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink(missing_ok=True)
+        except OSError:
+            continue
 
 
 def bars_digest(bars: Iterable[Bar]) -> str:
-    return _digest(
-        value
-        for bar in bars
-        for value in (round(bar.close, 8), round(float(bar.volume), 8))
-    )
+    return data_digest(bars)
 
 
 def _store(key: ComposeKey, value: DfiBreakdown | None) -> DfiBreakdown | None:
@@ -117,6 +137,7 @@ def _write_sidecar(key: ComposeKey, value: DfiBreakdown | None, stamp: str) -> N
     except OSError:
         # A read-only store still serves the in-memory value.
         return
+    _prune_sidecars()
 
 
 def _recap_key(
@@ -352,12 +373,15 @@ async def pieces_for_day(
     rows: list[tuple[Variant, Ensemble]],
     humanize: bool = True,
     color: bool = True,
+    request: Request | None = None,
 ) -> list[DfiPieceResult]:
     bars = await recap_bars(symbol, day)
     if not bars:
         raise LookupError(day.isoformat())
     results: list[DfiPieceResult] = []
     for variant, ensemble in rows:
+        if request is not None and await request.is_disconnected():
+            raise RecapCancelled("DFI pieces cancelled")
         results.append(
             await asyncio.to_thread(
                 recap_dfi, symbol, day, bars, variant, ensemble, humanize, color
@@ -373,10 +397,13 @@ async def pieces_for_span(
     rows: list[tuple[Variant, Ensemble]],
     humanize: bool = True,
     color: bool = True,
+    request: Request | None = None,
 ) -> tuple[list[DfiPieceResult], date]:
     results: list[DfiPieceResult] = []
     as_of: date | None = None
     for variant, ensemble in rows:
+        if request is not None and await request.is_disconnected():
+            raise RecapCancelled("DFI pieces cancelled")
         plan = await span_plan(symbol, span, variant, ensemble)
         if index < 0 or index >= len(plan.movements):
             raise LookupError(str(index))

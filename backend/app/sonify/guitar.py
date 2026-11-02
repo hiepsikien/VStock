@@ -196,6 +196,9 @@ def render_guitar_score(
                 else:
                     remapped.append(point)
             price_trace = tuple(remapped)
+    # Release the last render's melody arrays; the context outlives this call.
+    _TRACE_LINE.set(None)
+    _TRACE_PRICE_LINE.set(None)
     return Score(
         title=title,
         bpm=bpm,

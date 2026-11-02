@@ -31,7 +31,7 @@ from app.sonify.ensemble import Ensemble
 from app.sonify.humanize import humanize as humanize_score
 from app.sonify.model import ENSEMBLES, VARIANTS, Bar, Variant
 from app.sonify.musicxml import score_to_musicxml
-from app.sonify.dfi import DFI_VERSION, compute as compute_dfi
+from app.sonify.dfi import DFI_VERSION, compute as compute_dfi, data_digest
 from app.sonify.playback import piece_seconds
 from app.sonify.render import render
 from app.sonify.session import VN, is_session_closed
@@ -146,6 +146,7 @@ class RecapAsset:
     humanize: bool = True
     color: bool = True
     dfi: dict | None = None
+    dfi_inputs: str = ""
 
     @property
     def audio_url(self) -> str:
@@ -172,6 +173,7 @@ class SpanAsset:
     fingerprint: str
     movement_name: str = ""
     dfi: dict | None = None
+    dfi_inputs: str = ""
 
 
 def write_wav(path: Path, channels: int, rate: int, samples: array) -> None:
@@ -1201,12 +1203,13 @@ class RecapStore:
         humanize: bool = True,
         color: bool = True,
         dfi: dict | None = None,
+        inputs: str = "",
     ) -> None:
         """Write a recomposed DFI back into an old asset's metadata."""
         if not dfi:
             return
         key = self._stem(symbol, day, variant, bar_count, ensemble, humanize, color)
-        self._remember_dfi(self.root / f"{key}.json", dfi)
+        self._remember_dfi(self.root / f"{key}.json", dfi, inputs)
 
     def remember_movement_dfi(
         self,
@@ -1220,15 +1223,16 @@ class RecapStore:
         humanize: bool = True,
         color: bool = True,
         dfi: dict | None = None,
+        inputs: str = "",
     ) -> None:
         if not dfi:
             return
         stem = self._span_stem(
             symbol, span, index, variant, candle_count, fingerprint, ensemble, humanize, color
         )
-        self._remember_dfi(self._span_dir() / f"{stem}.json", dfi)
+        self._remember_dfi(self._span_dir() / f"{stem}.json", dfi, inputs)
 
-    def _remember_dfi(self, path: Path, dfi: dict) -> None:
+    def _remember_dfi(self, path: Path, dfi: dict, inputs: str = "") -> None:
         if not path.is_file():
             return
         try:
@@ -1236,6 +1240,8 @@ class RecapStore:
         except (OSError, json.JSONDecodeError):
             return
         payload["dfi"] = dfi
+        if inputs:
+            payload["dfi_inputs"] = inputs
         tmp = path.with_name(f"{path.name}.tmp")
         try:
             tmp.write_text(json.dumps(payload), encoding="utf-8")
@@ -1388,6 +1394,7 @@ class RecapStore:
                 "humanize": humanize,
                 "color": color,
                 "dfi": None if dfi is None else dfi.to_dict(),
+                "dfi_inputs": data_digest(movement.bars),
             }
             meta_tmp = work / f"{stem}.json"
             meta_tmp.write_text(json.dumps(payload), encoding="utf-8")
@@ -1445,6 +1452,7 @@ class RecapStore:
             fingerprint=fingerprint,
             movement_name=str(payload.get("movementName") or ""),
             dfi=_stored_dfi(payload.get("dfi")),
+            dfi_inputs=str(payload.get("dfi_inputs") or ""),
         )
 
     def _prune_work(self, work: Path) -> None:
@@ -1531,6 +1539,7 @@ class RecapStore:
                 "humanize": humanize,
                 "color": color,
                 "dfi": None if dfi is None else dfi.to_dict(),
+                "dfi_inputs": data_digest(bars),
             }
             meta_tmp = work / f"{key}.json"
             meta_tmp.write_text(json.dumps(payload), encoding="utf-8")
@@ -1637,6 +1646,7 @@ class RecapStore:
             humanize=humanize,
             color=color,
             dfi=_stored_dfi(payload.get("dfi")),
+            dfi_inputs=str(payload.get("dfi_inputs") or ""),
         )
 
 

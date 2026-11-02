@@ -7,8 +7,9 @@ is requested, so the chart can show the form before the first file exists.
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 
 from fastapi import Request
@@ -26,6 +27,7 @@ from app.sonify.audio import (
     layer_query,
     recap_store,
 )
+from app.sonify.dfi import data_digest
 from app.sonify.model import Ensemble, Variant
 from app.sonify.session import coarse_bars, samples_from_ohlc, session_bars, session_dates
 from app.sonify.span import (
@@ -37,6 +39,8 @@ from app.sonify.span import (
     prepare_year,
     year_as_of,
 )
+
+logger = logging.getLogger(__name__)
 
 SPAN_RANGES = ("1W", "1M", "3M", "1Y")
 
@@ -170,7 +174,7 @@ def ready_movement(
     humanize: bool = True,
     color: bool = True,
 ) -> SpanAsset | None:
-    return recap_store().get_movement(
+    asset = recap_store().get_movement(
         symbol.upper(),
         span,
         index,
@@ -181,6 +185,12 @@ def ready_movement(
         humanize,
         color,
     )
+    if asset is not None and asset.dfi is not None:
+        if asset.dfi_inputs != data_digest(movement.bars):
+            # The last close moved after this file was scored. Treat it as
+            # missing so the plan does not stop the client's refresh poll.
+            asset = replace(asset, dfi=None)
+    return asset
 
 
 async def load_movement_audio(
@@ -222,34 +232,51 @@ async def load_movement_audio(
             humanize,
             color,
         )
-        if getattr(asset, "dfi", None) is None:
-            from app.services import dfi as dfi_service
+        digest = data_digest(movement.bars)
+        if (
+            getattr(asset, "dfi", None) is None
+            or getattr(asset, "dfi_inputs", "") != digest
+        ):
+            # Never let a DFI recompose failure turn cached audio into a 503.
+            asset = replace(asset, dfi=None)
+            try:
+                from app.services import dfi as dfi_service
 
-            piece = await asyncio.to_thread(
-                dfi_service.movement_dfi,
-                symbol.upper(),
-                span,
-                index,
-                movement,
-                variant,
-                ensemble,
-                humanize,
-                color,
-            )
-            asset = dfi_service.apply_to_asset(asset, piece)
-            remember = getattr(recap_store(), "remember_movement_dfi", None)
-            if callable(remember):
-                remember(
+                piece = await asyncio.to_thread(
+                    dfi_service.movement_dfi,
                     symbol.upper(),
                     span,
                     index,
+                    movement,
                     variant,
-                    movement.candle_count,
-                    movement.scale_fingerprint,
                     ensemble,
                     humanize,
                     color,
-                    getattr(asset, "dfi", None),
+                )
+                asset = dfi_service.apply_to_asset(asset, piece)
+                asset = replace(asset, dfi_inputs=digest)
+                remember = getattr(recap_store(), "remember_movement_dfi", None)
+                if callable(remember):
+                    remember(
+                        symbol.upper(),
+                        span,
+                        index,
+                        variant,
+                        movement.candle_count,
+                        movement.scale_fingerprint,
+                        ensemble,
+                        humanize,
+                        color,
+                        getattr(asset, "dfi", None),
+                        digest,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "DFI recompose failed for %s %s movement %s: %s",
+                    symbol,
+                    span,
+                    index,
+                    exc,
                 )
         return asset
     except (RecapUnavailable, RecapCancelled):

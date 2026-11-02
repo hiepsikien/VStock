@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -10,11 +11,12 @@ from fastapi.testclient import TestClient
 from app.routers import stocks
 from app.schemas import RecapResponse
 from app.services import dfi as dfi_service
-from app.sonify.model import Bar, NoteEvent
+from app.sonify.model import Bar, NoteEvent, PriceTracePoint
 from app.sonify.dfi import (
     DfiBreakdown,
     _Point,
     _band,
+    _coverage,
     _motion,
     _shape,
     _volume,
@@ -73,7 +75,7 @@ def test_motion_reads_step_size_not_only_direction() -> None:
     matching_score, _weight, low = _motion(matching, eps=0.1)
     frozen_score, _frozen_weight, _ = _motion(frozen, eps=0.1)
     assert matching_score == 1.0
-    assert frozen_score is None
+    assert frozen_score == 0.0
     assert low is False
 
 
@@ -86,6 +88,96 @@ def test_motion_ignores_eighths_where_neither_price_nor_pitch_moved() -> None:
     score, weight, _low = _motion(_points(prices, pitches), eps=0.0)
     assert score == 1.0
     assert weight == 4.0
+
+
+def test_shape_scores_zero_when_the_line_holds_one_note() -> None:
+    prices = [10.0, 11.0, 13.0, 16.0, 20.0]
+    held = _points(prices, [64.0] * len(prices))
+    score, weight = _shape(held, eps=0.1)
+    assert score == 0.0
+    assert weight == 5.0
+
+
+def test_coverage_skips_bars_before_the_line_enters() -> None:
+    score = SimpleNamespace(
+        source_closes=(10.0, 11.0, 12.0),
+        source_groups=((0,), (1,), (2,)),
+        price_trace=(PriceTracePoint(bar=1, beat=0.0, price=0.0, pitch=60, duration_beats=4.0),),
+        bar_beats=4.0,
+    )
+    coverage, _detail = _coverage(
+        score,
+        frozenset(),
+        [(0, 3)],
+        {0: 0.1},
+        0.1,
+        [],
+        lambda _eighth: 60.0,
+        2,
+    )
+    assert coverage == 1.0
+
+
+def test_coverage_still_punishes_a_rest_inside_the_line() -> None:
+    score = SimpleNamespace(
+        source_closes=(10.0, 11.0, 12.0),
+        source_groups=((0,), (1,), (2,)),
+        price_trace=(
+            PriceTracePoint(bar=0, beat=0.0, price=0.0, pitch=60, duration_beats=4.0),
+            PriceTracePoint(bar=2, beat=0.0, price=0.0, pitch=62, duration_beats=4.0),
+        ),
+        bar_beats=4.0,
+    )
+    coverage, _detail = _coverage(
+        score,
+        frozenset(),
+        [(0, 3)],
+        {0: 0.1},
+        0.1,
+        [],
+        lambda _eighth: 60.0,
+        2,
+    )
+    assert 0.4 < coverage < 0.7
+
+
+def test_ready_movement_hides_dfi_when_the_bars_moved(monkeypatch) -> None:
+    from pathlib import Path
+
+    from app.services import spans as spans_service
+    from app.sonify.audio import SpanAsset
+    from app.sonify.dfi import data_digest
+
+    bars = [Bar(close=10.0, volume=100.0), Bar(close=11.0, volume=200.0)]
+    asset = SpanAsset(
+        symbol="AAM",
+        span="3M",
+        index=0,
+        variant="jazz",
+        audio_path=Path("x.m4a"),
+        duration_sec=1.0,
+        map_duration_sec=1.0,
+        peaks=[],
+        bar_count=2,
+        media_type="audio/mp4",
+        fingerprint="f",
+        dfi={"score": 50.0},
+        dfi_inputs="stale",
+    )
+
+    class Store:
+        def get_movement(self, *_args, **_kwargs):
+            return asset
+
+    monkeypatch.setattr(spans_service, "recap_store", lambda: Store())
+    movement = SimpleNamespace(candle_count=2, scale_fingerprint="f", bars=bars)
+    stale = spans_service.ready_movement("AAM", "3M", 0, "jazz", movement)
+    assert stale is not None and stale.dfi is None
+
+    fresh = SpanAsset(**{**asset.__dict__, "dfi_inputs": data_digest(bars)})
+    monkeypatch.setattr(Store, "get_movement", lambda self, *_a, **_k: fresh)
+    kept = spans_service.ready_movement("AAM", "3M", 0, "jazz", movement)
+    assert kept is not None and kept.dfi == {"score": 50.0}
 
 
 def test_volume_hears_the_printed_dynamic() -> None:
@@ -243,7 +335,7 @@ def _breakdown(score: float) -> DfiBreakdown:
 
 
 def test_pieces_endpoint_returns_each_requested_row(monkeypatch) -> None:
-    async def fake_day(symbol, day, rows, humanize=True, color=True):
+    async def fake_day(symbol, day, rows, humanize=True, color=True, request=None):
         return [
             dfi_service.DfiPieceResult(
                 variant, ensemble, None, _breakdown(70.0 + index), False, "2026-11-02T09:00:00Z"

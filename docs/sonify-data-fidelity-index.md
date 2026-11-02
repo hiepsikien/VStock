@@ -225,6 +225,7 @@ S_phrase = max(0, ρ_phrase)
 - `max(0, ρ)` vì tương quan âm là sai rõ ràng, không thưởng.
 - Câu có 2–3 anchor (ambient): thay bằng tỷ lệ đồng hướng của các cặp liên tiếp, chuẩn hoá về 0–1; trọng số thấp hơn.
 - `S = Σ(n_phrase × S_phrase) / Σ n_phrase`, chỉ trên các câu tính được.
+- Nếu giá có biến thiên nhưng cao độ đứng yên, `S_phrase = 0`, **không bỏ câu**. Bỏ đi rồi chia lại trọng số sẽ thưởng cho việc giữ một nốt.
 
 Không gộp tất cả các câu thành một tương quan lớn: jazz dịch octave và guitar đổi bè sẽ tạo nhảy giả ở biên câu.
 
@@ -245,6 +246,7 @@ M_phrase = max(0, τ_phrase)
 - Dùng Kendall tau-b vì có nhiều tie (giá đứng, nốt lặp).
 - Bỏ các cặp **không có gì đổi** (`|ΔP| ≤ εp` và `|Δpitch| = 0`): giá chỉ đổi ở biên source bar nên phần lớn bước eighth là (0, 0), và tau-b tính chúng là tie làm loãng tương quan thật (0.6 → 0.05). Cặp `hold` thật (`|ΔP| > εp`, `Δpitch = 0`) vẫn giữ và vẫn bị phạt.
 - Câu có ít hơn 4 cặp hoặc mọi `x` bằng nhau: bỏ qua, không cho điểm.
+- Nếu `x` có biến thiên nhưng mọi `y` bằng 0, `M_phrase = 0`, **không bỏ câu** (cùng lý do với Shape).
 - `M` là trung bình có trọng số theo số cặp.
 
 **Fallback cho ambient / trace thưa:** Motion vẫn dùng **tất cả** cặp, kể cả `hold`, vì ngân dài qua biến động giá là mất fidelity thật. Nếu câu có ít hơn 3 cặp mà `x` khác 0 (quá ít anchor để tính tương quan), Motion chuyển sang so **anchor-to-anchor** (bỏ các `hold` thuần) và đánh dấu `M` là `low-evidence`; nếu vẫn không đủ, `M = null` và trọng số được chia lại. Như vậy ambient vẫn bị phạt khi ngân dài qua giá chạy, nhưng không bị kéo về 0 chỉ vì cấu trúc tie.
@@ -351,6 +353,7 @@ Mục tiêu: đường giá có mặt ở những lúc giá chạy không. Đây
   C = Σ(w_s × sounding_s) / Σ(w_s)
   ```
 - Bỏ các source bar rơi vào section `warmup`, `cooldown`, `intro`, `outro`.
+- Bỏ các source bar **trước nốt mang giá đầu tiên** và **sau nốt mang giá cuối cùng**. Ở `1D`, lead thường vào sau vài bar; đó là intro, không phải rest, nên không được phạt coverage. Rest **bên trong** khoảng có line vẫn bị phạt bình thường.
 - Với `s = 0`, không có `P_{s−1}`; dùng `w_s = εp_s`.
 - Rest lúc giá đứng gần như không bị phạt (`w_s = εp_s`).
 - Rest lúc giá chạy bị phạt nặng (`w_s = |ΔP_s|`).
@@ -663,16 +666,14 @@ GET /v1/sonify/dfi/pieces
 
 - `render._compose` đã có `score`, `bars`, `groups`, `windows`, `window_volumes`, `bands`.
 - Chỗ cắm `dfi.compute(...)` là `audio.py`: `RecapStore._render` (`audio.py:1394`) và `RecapStore._render_movement` (`audio.py:1233`), **sau** `humanize_score(score)`. `humanize_score` chỉ là alias của `humanize` trong `humanize.py`, re-export ở `audio.py:31`; humanize đổi velocity/tempo chứ không đổi `(bar, beat)`, nên trace vẫn khớp.
-- Ghi `dfi` vào meta JSON cạnh audio.
-- Đọc lại trong `RecapAsset` / `SpanAsset`.
+- Ghi `dfi` và `dfi_inputs` vào meta JSON cạnh audio. `dfi_inputs` là digest của `bars` (close + volume) mà score được dựng ra.
+- Đọc lại trong `RecapAsset` / `SpanAsset`. Nếu `dfi_inputs` thiếu hoặc khác digest hiện tại (nến cuối đổi trong phiên live), coi như cache thiếu DFI và tính lại; **không hiển thị số của score cũ**. Endpoint plan cũng kiểm tra digest và trả `dfi = null` nếu lệch, để client biết còn phải chờ.
 - Với cache cũ chưa có `dfi`: **không bump `RECAP_REVISION`** (sẽ render lại toàn bộ audio rất đắt). Thay vào đó:
-  1. Khi đọc cache thiếu `dfi`, compose lại score (không export MuseScore), tính DFI, ghi sidecar `.dfi.json`.
-  2. Nếu compose lại lỗi, trả `null`; UI hiện `DFI —`.
-- Sidecar phải có **`inputs_hash`** trên đúng các input đã dùng để compose: `bars` (close + volume), `groups`, `volume_low/high`, `key`, `character`, `mode`, `home_pedal`, form/spec fingerprint, `variant`, `ensemble`, `humanize`, `color`, `RECAP_REVISION`/`SPAN_REVISION`, và `dfi_version`.
-- Lưu thêm `inputs_digest` (hash từng thành phần: `bars`, `groups`, `settings`) để debug khi lệch; không cần copy toàn bộ `bars` vào sidecar.
-- Khi đọc sidecar, tính lại `inputs_hash` từ cache meta. Nếu lệch, **không dùng sidecar**; trả `null` thay vì ghép DFI của một phiên bản score khác vào audio đang cache. Nếu meta cũ thiếu input để dựng lại hash, cũng trả `null`.
-- Các bản render mới ghi `inputs_digest` vào meta cạnh audio; bản cũ thiếu digest thì chấp nhận `DFI —` cho đến lần render lại, thay vì đoán.
+  1. Khi đọc cache thiếu `dfi` (hoặc digest lệch), compose lại score (không export MuseScore), tính DFI, ghi `dfi` + `dfi_inputs` vào meta.
+  2. Nếu compose lại lỗi, log warning, trả `null`; audio cache vẫn phát bình thường. UI hiện `DFI —`.
+- Sidecar key đã chứa `dfi_version`, `RECAP_REVISION`/`SPAN_REVISION`, `variant`, `ensemble`, `humanize`, `color`, `date`/`movement`, và digest của `bars`. Các input còn lại (`groups`, form/spec) là hàm của `bars` + form nên không cần hash riêng.
 - Sidecar có `dfi_version`; đổi version thì tính lại sidecar, không đụng audio.
+- Sidecar được dọn theo TTL 14 ngày, kiểm tra tối đa mỗi giờ, để endpoint compose-only không làm đầy đĩa.
 
 ### 7.3. Hiệu năng
 
@@ -750,7 +751,7 @@ GET /v1/sonify/dfi/pieces
 - Kiểm tra `V` có bão hoà không (median gần 1, ít phân biệt); nếu có, giữ 0.10 hoặc giảm nữa, dồn sang `S`/`T`.
 - Chỉnh `εp_phrase` (nhất là sàn 5 bps), trọng số, ngưỡng band nếu cần.
 - So sánh với một panel nghe nhỏ (5–10 người, 20 clip): Spearman giữa DFI và xếp hạng cảm nhận. Mục tiêu > 0.6; nếu thấp, xem lại trace/trọng số.
-- Chốt `dfi_version = "1"`.
+- Chốt `dfi_version` mới khi công thức/trọng số thay đổi; hiện tại là `"3"`.
 
 Ước lượng: 7–10 ngày làm việc (gồm endpoint compose-only cho bảng so sánh), chưa gồm calibration nghe.
 
@@ -774,6 +775,13 @@ GET /v1/sonify/dfi/pieces
 | Corpus lệch regime | Signature sai | Paired corpus cùng symbol-ngày; median; p25/p75 |
 | Metric bị game bởi writer | Nhạc mất tự nhiên | Giữ test nhạc tính hiện có; calibration nghe |
 
+### 9.1. Sai lệch đã biết so với thiết kế ban đầu
+
+- **Trace không phải lúc nào cũng ghi tại chỗ viết nốt.** Guitar ghi qua `_TRACE_LINE` / `_TRACE_PRICE_LINE`; các variant còn lại dựng trace trong `_attach_dfi_inputs` từ `score.lead` (hoặc lead+support+low). Hệ quả: nốt đệm/hoa mỹ trùng cao độ với đường giá có thể bị nhận nhầm, và `n_sounding` (dùng cho confidence) chênh giữa các ensemble. Với Torroba, trace dùng **ý đồ** trước khi hạ quãng/đổi bè, nên đo “writer định đặt giá ở đâu” hơn là “tai nghe thấy gì”.
+- **`role` mới dùng `attack/anchor/register`.** `hold` và `rest` có trong model nhưng writer chưa phát; coverage suy ra từ khoảng nghe của trace point thay vì role.
+- **`low-evidence` chưa surface.** `_motion` tính cờ fallback nhưng `compute()` bỏ qua; UI chỉ thấy `confidence` tổng.
+- **Band chưa calibration.** Trên corpus hiện tại, điểm cao nhất quanh 60–65; band `Rõ` (70) và `Rất rõ` (85) gần như không đạt. Giữ nguyên ngưỡng cho tới Phase 7 thay vì hạ cho đẹp số.
+
 ---
 
 ## 10. Quyết định đã chốt và điểm cần calibration
@@ -786,14 +794,15 @@ GET /v1/sonify/dfi/pieces
 4. **Signature tách bucket `day`/`span`:** giữ.
 5. **Shelf chính chỉ hiện số của ensemble đang chọn:** giữ; tất cả nằm trong sheet.
 6. **Ambient:** thêm dòng “thưa là bản sắc” trong sheet; Motion vẫn phạt ngân dài qua giá chạy, nhưng có fallback anchor-to-anchor khi quá ít cặp.
+7. **Coverage bỏ phần lead chưa vào:** source bar trước trace point đầu tiên và sau trace point cuối cùng là frame, không phải rest (§4.9). Rest bên trong khoảng có line vẫn bị phạt.
 
 Cần calibration / quyết định ở Phase 7:
 
-7. **`R` có bị `S` nuốt không:** đo correlation matrix; nếu `R` gần như hàm của `S`, gộp hoặc giảm trọng số `R`.
-8. **`V` có bão hoà không:** nếu median gần 1 và ít phân biệt, giữ 0.10 hoặc giảm nữa.
-9. **Sàn `εp`:** 5 bps (`0.0005 × median(close)`) là khởi điểm; chỉnh theo volatility.
-10. **“Cùng phiên/chương” trong sheet:** dùng endpoint compose-only `dfi/pieces` (§6.5, §7.1); nếu lỗi/chưa sẵn sàng, fallback chỉ hiện dòng đang chọn + `Chuẩn`.
-11. **Sidecar cache cũ:** bắt buộc `inputs_hash`; lệch thì trả `null`, không ghép DFI của score khác vào audio đang cache.
+8. **`R` có bị `S` nuốt không:** đo correlation matrix; nếu `R` gần như hàm của `S`, gộp hoặc giảm trọng số `R`.
+9. **`V` có bão hoà không:** nếu median gần 1 và ít phân biệt, giữ 0.10 hoặc giảm nữa.
+10. **Sàn `εp`:** 5 bps (`0.0005 × median(close)`) là khởi điểm; chỉnh theo volatility.
+11. **“Cùng phiên/chương” trong sheet:** dùng endpoint compose-only `dfi/pieces` (§6.5, §7.1); nếu lỗi/chưa sẵn sàng, fallback chỉ hiện dòng đang chọn + `Chuẩn`.
+12. **Cache cũ:** meta ghi `dfi_inputs` (digest của bars); thiếu hoặc lệch thì tính lại, không ghép DFI của score khác vào audio đang cache.
 
 ---
 

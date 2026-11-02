@@ -210,6 +210,12 @@ export function DfiSheet({
               </Text>
             )}
 
+            {variant === 'ambient' && dfi ? (
+              <Text style={[type.sans, styles.ambientNote]}>
+                Thưa là bản sắc; điểm thấp ở Chuyển động/Hình dạng là có chủ ý.
+              </Text>
+            ) : null}
+
             <View style={styles.rule} />
             <View style={styles.tableHeader}>
               <Text style={[type.section, styles.tableTitle]}>Thể loại</Text>
@@ -423,6 +429,12 @@ const styles = StyleSheet.create({
     color: palette.textMuted,
     fontSize: 12,
     lineHeight: 18,
+  },
+  ambientNote: {
+    color: palette.textFaint,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 8,
   },
   rule: {
     height: 1,
