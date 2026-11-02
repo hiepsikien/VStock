@@ -43,7 +43,7 @@ type Props = {
   playing?: boolean;
   /** Changing this string fades the chart in: symbol, span or genre. */
   chartKey?: string;
-  /** Price-action fidelity of the piece being heard. Undefined hides the pill. */
+  /** Data fidelity of the piece being heard. Undefined hides the pill. */
   dfi?: DfiBreakdown | null;
   onDfi?: () => void;
 };

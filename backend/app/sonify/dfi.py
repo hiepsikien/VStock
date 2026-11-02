@@ -338,6 +338,32 @@ def _trace_bounds(point: PriceTracePoint, bar_beats: float) -> tuple[float, floa
     return start, end
 
 
+# A 1D lead typically enters after eight to ten bars. The grace is bounded:
+# a trace that only covers the last third must not make coverage say 1.0.
+_ENTRANCE_GRACE_BARS = 12
+
+
+def _active_span(score: Score, windows: Sequence[tuple[int, int]]) -> tuple[int, int]:
+    """Musical bars where the line is expected to be present.
+
+    The range comes from the form's analysis windows, not from the trace, so a
+    broken trace cannot shrink the denominator to itself. Only a bounded
+    entrance/exit is excused.
+    """
+    if windows:
+        window_start = min(start for start, _length in windows)
+        window_end = max(start + length for start, length in windows)
+    else:
+        window_start, window_end = 0, score.bars
+    active = [point.bar for point in score.price_trace if point.pitch is not None]
+    if not active:
+        return window_start, window_end
+    first, last = min(active), max(active)
+    start = window_start + min(max(first - window_start, 0), _ENTRANCE_GRACE_BARS)
+    end = window_end - min(max(window_end - last, 0), _ENTRANCE_GRACE_BARS)
+    return start, end
+
+
 class _PitchLookup:
     def __init__(self, trace: Sequence[PriceTracePoint], bar_beats: float) -> None:
         self.bar_beats = bar_beats
@@ -345,17 +371,41 @@ class _PitchLookup:
             ((*_trace_bounds(point, bar_beats), point) for point in trace if point.pitch is not None),
             key=lambda item: (item[0], item[1]),
         )
+        self.starts = [item[0] for item in self.items]
+        self.max_span = max((end - start for start, end, _point in self.items), default=0.0)
 
     def at(self, position: float) -> float | None:
         best: PriceTracePoint | None = None
         best_key: tuple[float, float] = (-1.0, -1.0)
-        for start, end, point in self.items:
+        index = bisect_right(self.starts, position) - 1
+        earliest = position - self.max_span
+        while index >= 0 and self.items[index][0] >= earliest:
+            start, end, point = self.items[index]
             if start - 1e-9 <= position < end - 1e-9:
                 key = (point.weight, start)
                 if best is None or key > best_key:
                     best = point
                     best_key = key
+            index -= 1
         return None if best is None else best.pitch
+
+
+def _overlaps(
+    items: Sequence[tuple[float, float, PriceTracePoint]],
+    starts: Sequence[float],
+    max_span: float,
+    start: float,
+    end: float,
+) -> bool:
+    """Any trace point sounding inside [start, end), via a bounded backward scan."""
+    index = bisect_right(starts, end) - 1
+    earliest = end - max_span
+    while index >= 0 and items[index][0] >= earliest:
+        point_start, point_end, _point = items[index]
+        if point_start < end - 1e-9 and point_end > start + 1e-9:
+            return True
+        index -= 1
+    return False
 
 
 def _grid(
@@ -671,12 +721,20 @@ def _coverage(
         count = len(group)
         for position, source in enumerate(group):
             location[source] = (musical_bar, position, count)
-    # The lead enters after the intro in a 1D piece. Bars before the first
-    # price-bearing note (and after the last) are frame, not a rest from the
-    # line, so they must not dilute coverage.
-    active_bars = [point.bar for point in score.price_trace if point.pitch is not None]
-    first_active = min(active_bars) if active_bars else None
-    last_active = max(active_bars) if active_bars else None
+    # The lead enters after the intro in a 1D piece. The active range comes
+    # from the form, with only a bounded entrance/exit excused, so a trace that
+    # covers just part of the piece cannot shrink coverage to itself.
+    active_start, active_end = _active_span(score, windows)
+    trace_items = sorted(
+        (
+            (*_trace_bounds(point, score.bar_beats), point)
+            for point in score.price_trace
+            if point.pitch is not None
+        ),
+        key=lambda item: (item[0], item[1]),
+    )
+    trace_starts = [item[0] for item in trace_items]
+    trace_span = max((end - start for start, end, _point in trace_items), default=0.0)
     weights: list[float] = []
     sounds: list[int] = []
     for source, close in enumerate(closes):
@@ -686,9 +744,7 @@ def _coverage(
         musical_bar, position, count = place
         if musical_bar in frame_bars:
             continue
-        if first_active is not None and (
-            musical_bar < first_active or musical_bar > last_active
-        ):
+        if musical_bar < active_start or musical_bar > active_end:
             continue
         window = _window_of(windows, musical_bar)
         eps = eps_by_window.get(window, session_eps) if window is not None else session_eps
@@ -698,14 +754,9 @@ def _coverage(
             weight = max(abs(close - closes[source - 1]), eps)
         start = musical_bar + position / count
         end = musical_bar + (position + 1) / count
-        sounding = 0
-        for point in score.price_trace:
-            if point.pitch is None:
-                continue
-            point_start, point_end = _trace_bounds(point, score.bar_beats)
-            if point_start < end - 1e-9 and point_end > start + 1e-9:
-                sounding = 1
-                break
+        sounding = (
+            1 if _overlaps(trace_items, trace_starts, trace_span, start, end) else 0
+        )
         weights.append(weight)
         sounds.append(sounding)
     total = sum(weights)
@@ -788,9 +839,12 @@ def compute(score: Score, *, variant: str, ensemble: str = "classic") -> DfiBrea
     )
 
     n_moves = 0
+    active_start, active_end = _active_span(score, windows)
     ordered = sorted(points, key=lambda point: point.eighth)
     for left, right in zip(ordered, ordered[1:]):
         if right.eighth - left.eighth != 1:
+            continue
+        if not (active_start <= right.eighth // epb <= active_end):
             continue
         if abs(right.price - left.price) > eps_by_window[right.window]:
             n_moves += 1

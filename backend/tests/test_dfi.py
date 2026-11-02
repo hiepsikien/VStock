@@ -141,6 +141,39 @@ def test_coverage_still_punishes_a_rest_inside_the_line() -> None:
     assert 0.4 < coverage < 0.7
 
 
+def test_coverage_does_not_shrink_to_a_partial_trace() -> None:
+    # A broken trace that only covers the last quarter must not make coverage
+    # self-referential. The active range comes from the form, with only a
+    # bounded entrance excused.
+    source_count = 20
+    score = SimpleNamespace(
+        source_closes=tuple(10.0 + index * 0.1 for index in range(source_count)),
+        source_groups=tuple((index,) for index in range(source_count)),
+        price_trace=tuple(
+            PriceTracePoint(
+                bar=bar,
+                beat=0.0,
+                price=10.0 + bar * 0.1,
+                pitch=60 + bar,
+                duration_beats=4.0,
+            )
+            for bar in range(15, 20)
+        ),
+        bar_beats=4.0,
+    )
+    coverage, _detail = _coverage(
+        score,
+        frozenset(),
+        [(0, source_count)],
+        {0: 0.01},
+        0.01,
+        [],
+        lambda _eighth: 60.0,
+        2,
+    )
+    assert coverage < 0.8
+
+
 def test_ready_movement_hides_dfi_when_the_bars_moved(monkeypatch) -> None:
     from pathlib import Path
 

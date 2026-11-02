@@ -51,7 +51,7 @@ type ReplayProps = {
   /** Lets the room release the transport keys while this popover is open. */
   onOptionsOpenChange?: (open: boolean) => void;
   status?: string | null;
-  /** Price-action fidelity of the piece being heard. */
+  /** Data fidelity of the piece being heard. */
   dfi?: DfiBreakdown | null;
   /** Corpus median for the active genre/ensemble, when the artifact exists. */
   dfiSignature?: DfiSignature | null;

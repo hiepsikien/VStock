@@ -121,6 +121,7 @@ class DfiSignature(BaseModel):
     p25: float
     p75: float
     n: int
+    # Corpus artifact format, not DFI_VERSION.
     version: str = "1"
     updatedAt: str = ""
     stale: bool = False

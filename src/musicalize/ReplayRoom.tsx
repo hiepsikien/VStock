@@ -756,6 +756,35 @@ export function ReplayRoom({ wide, onMode }: Props) {
       dfiPoll.current.count += 1;
       pending = true;
       try {
+        if (heardReady) {
+          // A ready movement with no DFI only needs its own number. Ask the
+          // compose-only endpoint instead of re-downloading every movement's
+          // prices and volumes.
+          const result = await fetchDfiPieces({
+            symbol,
+            bucket: 'span',
+            range: span,
+            movement: index,
+            variant,
+            ensemble,
+            mix: { humanize, color: colorOn },
+          });
+          if (stopped) return;
+          const piece =
+            result.pieces.find((item) => item.variant === variant && item.ensemble === ensemble) ??
+            (result.pieces.length === 1 ? result.pieces[0] : null);
+          if (piece?.dfi) {
+            setMovements((existing) => {
+              if (!existing) return existing;
+              const current = existing[index];
+              if (!current || current.dfi) return existing;
+              const next = existing.slice();
+              next[index] = { ...current, dfi: piece.dfi };
+              return next;
+            });
+          }
+          return;
+        }
         const plan = await fetchSpan(symbol, span, variant, ensemble, undefined, {
           humanize,
           color: colorOn,
@@ -798,6 +827,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
     heardDfi,
     heardReady,
     humanize,
+    index,
     span,
     symbol,
     variant,
@@ -1257,7 +1287,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
       signatures={dfiSignatures}
       genrePieces={genrePieces}
       ensemblePieces={ensemblePieces}
-      loading={genreLoading || ensembleLoading}
+      genreLoading={genreLoading}
+      ensembleLoading={ensembleLoading}
       onVariant={(next) => {
         if (next === variant) return;
         setVariant(next);

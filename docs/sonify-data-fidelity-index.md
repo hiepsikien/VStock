@@ -40,7 +40,7 @@ DFI phải đo **đúng nốt/tín hiệu mà writer chủ định dùng để m
 ## 2. Nguyên tắc thiết kế
 
 1. **Một trục duy nhất:** 0–100, càng cao càng dễ nghe ra dữ liệu nguồn (giá + volume). Không cộng điểm “giàu nhạc tính”.
-2. **Đo trên tín hiệu chủ định, không đo trên audio.** Mỗi writer ghi lại `PriceTracePoint` ngay lúc viết nốt.
+2. **Đo trên tín hiệu chủ định, không đo trên audio.** Guitar ghi `PriceTracePoint` qua `_TRACE_LINE`; các variant còn lại dựng trace trong `_attach_dfi_inputs` từ nốt chủ đích của writer. Xem sai lệch đã biết ở §9.1.
 3. **Chuẩn hoá theo cơ hội.** Phiên đi ngang không bị trừ điểm oan; chỉ tính trên những chỗ dữ liệu thực sự có biến động.
 4. **Bất biến với đăng ký.** Jazz nén quãng tám, guitar đổi bè, ambient fold glass. Vì vậy so sánh **hướng và biên độ trong từng câu**, không so cao độ tuyệt đối giữa các câu.
 5. **Tách “độ phủ” khỏi “độ chính xác”.** Một bản có thể đúng khi có nốt, nhưng im quá nhiều; hoặc có nốt đều nhưng giữ nguyên khi giá chạy.
@@ -633,6 +633,8 @@ class DfiPiecesResponse(BaseModel):
 
 `band` dùng `"fair"` cho khoảng 55–69; UI map sang nhãn `Vừa`. Không dùng `"mixed"` để tránh hai bộ từ vựng.
 
+`DfiSignature.version` là version của **artifact corpus**, tách khỏi `DFI_VERSION` của metric; đổi công thức không tự đổi version chữ ký.
+
 Gắn:
 
 - `RecapResponse.dfi: DfiBreakdown | None = None`
@@ -674,6 +676,7 @@ GET /v1/sonify/dfi/pieces
 - Sidecar key đã chứa `dfi_version`, `RECAP_REVISION`/`SPAN_REVISION`, `variant`, `ensemble`, `humanize`, `color`, `date`/`movement`, và digest của `bars`. Các input còn lại (`groups`, form/spec) là hàm của `bars` + form nên không cần hash riêng.
 - Sidecar có `dfi_version`; đổi version thì tính lại sidecar, không đụng audio.
 - Sidecar được dọn theo TTL 14 ngày, kiểm tra tối đa mỗi giờ, để endpoint compose-only không làm đầy đĩa.
+- **Ops sau khi deploy DFI:** xoá một lần `var/audio/pafi/` (sidecar của tên cũ). Code mới chỉ đọc/ghi `var/audio/dfi/` và không tự xoá thư mục cũ.
 
 ### 7.3. Hiệu năng
 
@@ -761,7 +764,7 @@ GET /v1/sonify/dfi/pieces
 
 | Rủi ro | Hậu quả | Cách chặn |
 |---|---|---|
-| Trace bắt nhầm nốt hoa mỹ | Điểm thấp/sai cho Bach, Torroba, Villa | Trace ghi tại writer; test “nốt cao nhất” phải thua trace |
+| Trace bắt nhầm nốt hoa mỹ | Điểm thấp/sai cho Bach, Torroba, Villa | Trace do writer/`_attach_dfi_inputs` xác định; test “nốt cao nhất” phải thua trace |
 | Writer đổi mà quên trace | DFI lệch âm thầm | Test consistency: trace ↔ `NoteEvent`; golden test |
 | Jazz dịch octave ở biên câu | Shape/Motion sai | Chỉ so trong câu; không gộp level toàn bản |
 | Ambient ngân dài | Điểm thấp | Đúng với “độ trung thực dữ liệu”; Motion fallback anchor-to-anchor khi quá ít cặp; UI ghi “thưa có chủ ý”, không gọi là lỗi |
@@ -780,7 +783,8 @@ GET /v1/sonify/dfi/pieces
 - **Trace không phải lúc nào cũng ghi tại chỗ viết nốt.** Guitar ghi qua `_TRACE_LINE` / `_TRACE_PRICE_LINE`; các variant còn lại dựng trace trong `_attach_dfi_inputs` từ `score.lead` (hoặc lead+support+low). Hệ quả: nốt đệm/hoa mỹ trùng cao độ với đường giá có thể bị nhận nhầm, và `n_sounding` (dùng cho confidence) chênh giữa các ensemble. Với Torroba, trace dùng **ý đồ** trước khi hạ quãng/đổi bè, nên đo “writer định đặt giá ở đâu” hơn là “tai nghe thấy gì”.
 - **`role` mới dùng `attack/anchor/register`.** `hold` và `rest` có trong model nhưng writer chưa phát; coverage suy ra từ khoảng nghe của trace point thay vì role.
 - **`low-evidence` chưa surface.** `_motion` tính cờ fallback nhưng `compute()` bỏ qua; UI chỉ thấy `confidence` tổng.
-- **Band chưa calibration.** Trên corpus hiện tại, điểm cao nhất quanh 60–65; band `Rõ` (70) và `Rất rõ` (85) gần như không đạt. Giữ nguyên ngưỡng cho tới Phase 7 thay vì hạ cho đẹp số.
+- **Band chưa calibration.** Trên phiên êm tổng hợp, điểm cao nhất đã lên 74–78 sau các fix; corpus thật chưa chạy. Band `Rõ` (70) và `Rất rõ` (85) có thể đạt sau Phase 7; giữ nguyên ngưỡng thay vì hạ cho đẹp số.
+- **Thứ hạng trên phiên biến động mạnh** có thể là minimalist > symphony > jazz > ambient, ngược kỳ vọng §5.3 #4. Nguyên nhân là `quantize_strong_beats` bẻ đường giá về hợp âm ở phách mạnh (S/T thấp trong khi M cao), không phải trace sai. Đây là input cho Phase 7.
 
 ---
 
@@ -808,4 +812,4 @@ Cần calibration / quyết định ở Phase 7:
 
 ## 11. Tóm tắt một dòng
 
-DFI đo **mức phản ánh dữ liệu nguồn** (hiện tại: giá + volume) bằng năm thành phần — hình dạng 0.33, chuyển động 0.21, cấu trúc 0.19, độ phân giải 0.17, khối lượng 0.10 — nhân với **độ phủ theo source bar**, chuẩn hoá theo cơ hội, lấy từ **trace do writer ghi** chứ không suy từ nốt cao nhất; hiển thị kín đáo trong replay và so sánh bằng **trung vị corpus** cho từng thể loại/dàn nhạc.
+DFI đo **mức phản ánh dữ liệu nguồn** (hiện tại: giá + volume) bằng năm thành phần — hình dạng 0.33, chuyển động 0.21, cấu trúc 0.19, độ phân giải 0.17, khối lượng 0.10 — nhân với **độ phủ theo source bar**, chuẩn hoá theo cơ hội, lấy từ **trace do writer xác định** chứ không suy từ nốt cao nhất; hiển thị kín đáo trong replay và so sánh bằng **trung vị corpus** cho từng thể loại/dàn nhạc.

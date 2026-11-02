@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Modal,
   Pressable,
@@ -32,7 +32,8 @@ type Props = {
   genrePieces: DfiPiece[] | null;
   /** One row per ensemble of `variant`. */
   ensemblePieces: DfiPiece[] | null;
-  loading?: boolean;
+  genreLoading?: boolean;
+  ensembleLoading?: boolean;
   onVariant: (variant: RecapVariant) => void;
   onEnsemble: (ensemble: RecapEnsemble) => void;
 };
@@ -100,7 +101,8 @@ export function DfiSheet({
   signatures,
   genrePieces,
   ensemblePieces,
-  loading = false,
+  genreLoading = false,
+  ensembleLoading = false,
   onVariant,
   onEnsemble,
 }: Props) {
@@ -111,6 +113,12 @@ export function DfiSheet({
   const ensembleComparable = ensemblePieces != null;
   const [openHint, setOpenHint] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+
+  useEffect(() => {
+    if (visible) return;
+    setOpenHint(null);
+    setShowHelp(false);
+  }, [visible]);
 
   const toggleHint = (key: string) => {
     setOpenHint((current) => (current === key ? null : key));
@@ -220,7 +228,7 @@ export function DfiSheet({
             <View style={styles.tableHeader}>
               <Text style={[type.section, styles.tableTitle]}>Thể loại</Text>
               <Text style={[type.monoSmall, styles.tableHint]}>
-                {loading ? 'đang soạn…' : activeSignature ? `chuẩn ${Math.round(activeSignature.score)}` : 'chuẩn —'}
+                {genreLoading ? 'đang soạn…' : activeSignature ? `chuẩn ${Math.round(activeSignature.score)}` : 'chuẩn —'}
               </Text>
             </View>
             {GENRES.map((item) => {
@@ -233,7 +241,7 @@ export function DfiSheet({
                   onPress={() => onVariant(item.id)}
                   style={[styles.row, active && styles.rowActive]}
                   accessibilityRole="button"
-                  accessibilityLabel={`${item.label}${score == null ? '' : `, độ rõ ${Math.round(score)}`}`}
+                  accessibilityLabel={`${item.label}${score == null ? '' : `, độ trung thực ${Math.round(score)}`}`}
                   accessibilityState={{ selected: active }}
                 >
                   <View style={styles.labelCell}>
@@ -256,7 +264,7 @@ export function DfiSheet({
             <View style={styles.tableHeader}>
               <Text style={[type.section, styles.tableTitle]}>Dàn nhạc</Text>
               <Text style={[type.monoSmall, styles.tableHint]}>
-                {loading ? 'đang soạn…' : 'cùng thước đo'}
+                {ensembleLoading ? 'đang soạn…' : 'cùng thước đo'}
               </Text>
             </View>
             {ENSEMBLE_ROWS[variant].map((item) => {
@@ -269,7 +277,7 @@ export function DfiSheet({
                   onPress={() => onEnsemble(item.id)}
                   style={[styles.row, active && styles.rowActive]}
                   accessibilityRole="button"
-                  accessibilityLabel={`${item.label}${score == null ? '' : `, độ rõ ${Math.round(score)}`}`}
+                  accessibilityLabel={`${item.label}${score == null ? '' : `, độ trung thực ${Math.round(score)}`}`}
                   accessibilityState={{ selected: active }}
                 >
                   <View style={styles.labelCell}>
