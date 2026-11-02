@@ -1,20 +1,24 @@
-"""Reproduce the DFI v4 re-baseline without changing the production code.
+"""Reproduce the DFI v4 re-baseline.
 
 Usage (from backend/):
   .venv/bin/python scripts/dfi_probe.py ACB 3M guitar torroba
   .venv/bin/python scripts/dfi_probe.py ACB 3M ambient classic --source grid
-  .venv/bin/python scripts/dfi_probe.py ACB 3M symphony classic
+  .venv/bin/python scripts/dfi_probe.py ACB 3M guitar torroba --classify
 
 It prints, per movement:
 
   v3           the score the server serves today
   anchors      Motion read from price-trace attacks, no eps filter
-  anchors+eps  the planned v4 rule (attacks + the documented phrase eps)
+  anchors+eps  the planned v4 rule (attacks + the documented window eps)
   grid+eps     the same eps rule on the eighth grid (ambient reference)
 
-The script is read-only: it calls `plan_span` and `_movement_score`, never the
-renderer or the audio cache.  It does not model the symphony Flute fill; that
-needs the production trace change and is measured in the implementation PR.
+`--classify` adds the §1.1 pair table: raw pairs, pairs after dropping (0,0),
+holds, ornaments, and per-window tau.
+
+The probe never writes the renderer or the audio cache.  It does call
+`plan_span`, which fetches live OHLC when the local store is cold, so the
+numbers depend on the data date.  The header prints `as_of`; record it with
+any table copied into the plan.
 """
 
 from __future__ import annotations
@@ -22,19 +26,22 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from pathlib import Path
 
-sys.path[:0] = ["/Users/andynguyen/Projects/VStock/backend"]
+sys.path[:0] = [str(Path(__file__).resolve().parents[1])]
 
 from app.services import dfi as dfi_service  # noqa: E402
 from app.services.spans import plan_span  # noqa: E402
 from app.sonify import dfi as D  # noqa: E402
 
+ROMAN = ("I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X")
 
-def motion_with_eps(points, eps: float):
-    """`dfi._motion` with the documented eps filter.
 
-    The production copy currently filters with `_EPS = 1e-9`; this mirrors the
-    planned change so the probe can measure it before the code lands.
+def motion_stats(points, eps: float):
+    """Unclamped `dfi._motion` with a configurable price filter.
+
+    Returns `(tau_or_none, pair_count)`.  `_motion` clamps at 0, which hides
+    the negative taus that explain a 0.000 component; the probe needs them.
     """
     usable = [point for point in points if point.pitch is not None]
     pairs = list(zip(usable, usable[1:]))
@@ -56,13 +63,17 @@ def motion_with_eps(points, eps: float):
             x = [abs(right.price - left.price) for left, right in pairs]
             y = [abs(right.pitch - left.pitch) for left, right in pairs]
     if len(pairs) < 4 or all(abs(value - x[0]) <= D._EPS for value in x):
-        return None, 0.0
+        return None, 0
     if all(abs(value - y[0]) <= D._EPS for value in y):
-        return 0.0, float(len(pairs))
+        return 0.0, len(pairs)
     tau = D.kendall_tau_b(x, y)
-    if tau is None:
-        return None, 0.0
-    return max(0.0, tau), float(len(pairs))
+    return tau, len(pairs)
+
+
+def motion_with_eps(points, eps: float):
+    """`motion_stats` clamped at 0, matching production `_motion`."""
+    tau, count = motion_stats(points, eps)
+    return (None if tau is None else max(0.0, tau)), float(count)
 
 
 def anchor_points(score, windows, epb):
@@ -97,10 +108,12 @@ def anchor_points(score, windows, epb):
 
 
 def grid_points(score, variant, windows, pitch_at):
+    """`compute` does `_deregister(_grid(...))`; mirror it exactly."""
+    points = D._deregister(
+        D._grid(score, variant, pitch_at, frozenset(score.frame_bars), windows)
+    )
     by_window = {}
-    for point in D._grid(
-        score, variant, pitch_at, frozenset(score.frame_bars), windows
-    ):
+    for point in points:
         by_window.setdefault(point.window, []).append(point)
     return by_window
 
@@ -138,24 +151,108 @@ def all_motion(by_window, eps_by_window, *, eps_mode: bool) -> float | None:
     return None if not weight else total / weight
 
 
+def classify_grid(by_window, eps_by_window, *, movement: str, windows, epb: int) -> None:
+    """The §1.1 table: where Motion's evidence goes, on the eighth grid."""
+    print()
+    print(f"### movement {movement} — grid pairs")
+    print(
+        "| window | steps | usable | after (0,0) | hold | ornament | 1-tick | tau |"
+    )
+    print("|---|---:|---:|---:|---:|---:|---:|---:|")
+    for index in sorted(by_window):
+        points = [point for point in by_window[index] if point.pitch is not None]
+        raw = list(zip(points, points[1:]))
+        kept = [
+            (left, right)
+            for left, right in raw
+            if abs(right.price - left.price) > D._EPS
+            or abs((right.pitch or 0.0) - (left.pitch or 0.0)) > D._EPS
+        ]
+        holds = sum(
+            1
+            for left, right in kept
+            if abs(right.price - left.price) > D._EPS
+            and abs((right.pitch or 0.0) - (left.pitch or 0.0)) <= D._EPS
+        )
+        ornaments = sum(
+            1
+            for left, right in kept
+            if abs(right.price - left.price) <= D._EPS
+            and abs((right.pitch or 0.0) - (left.pitch or 0.0)) > D._EPS
+        )
+        one_tick = sum(
+            1
+            for left, right in kept
+            if abs(abs(right.price - left.price) - 0.05) <= 1e-9
+        )
+        value, _count = motion_stats(by_window[index], D._EPS)
+        start, end = windows[index]
+        steps = (end - start) * epb - 1
+        print(
+            f"| {index} | {steps} | {len(raw)} | {len(kept)} | {holds} | "
+            f"{ornaments} | {one_tick} | {'—' if value is None else f'{value:.3f}'} |"
+        )
+
+
+def classify_anchors(by_window, eps_by_window, *, movement: str) -> None:
+    """The minimalist check: anchor pairs and tau before/after the eps filter."""
+    print()
+    print(f"### movement {movement} — anchor pairs")
+    print("| window | pairs | hold | ornament | 1-tick | tau | pairs+eps | tau+eps |")
+    print("|---|---:|---:|---:|---:|---:|---:|---:|")
+    for index in sorted(by_window):
+        points = [point for point in by_window[index] if point.pitch is not None]
+        pairs = list(zip(points, points[1:]))
+        holds = sum(
+            1
+            for left, right in pairs
+            if abs(right.price - left.price) > D._EPS
+            and abs((right.pitch or 0.0) - (left.pitch or 0.0)) <= D._EPS
+        )
+        ornaments = sum(
+            1
+            for left, right in pairs
+            if abs(right.price - left.price) <= D._EPS
+            and abs((right.pitch or 0.0) - (left.pitch or 0.0)) > D._EPS
+        )
+        one_tick = sum(
+            1
+            for left, right in pairs
+            if abs(abs(right.price - left.price) - 0.05) <= 1e-9
+        )
+        value, _count = motion_stats(by_window[index], D._EPS)
+        filtered, filtered_count = motion_stats(
+            by_window[index], eps_by_window.get(index, D._EPS)
+        )
+        print(
+            f"| {index} | {len(pairs)} | {holds} | {ornaments} | {one_tick} | "
+            f"{'—' if value is None else f'{value:.3f}'} | {filtered_count} | "
+            f"{'—' if filtered is None else f'{filtered:.3f}'} |"
+        )
+
+
 def fmt(value: float | None) -> str:
     return "—" if value is None else f"{value:.3f}"
 
 
-async def probe(symbol: str, span: str, variant: str, ensemble: str, source: str) -> None:
+async def probe(
+    symbol: str, span: str, variant: str, ensemble: str, source: str, show_classify: bool
+) -> None:
     plan = await plan_span(symbol, span, variant=variant, ensemble=ensemble)
     print(f"# {symbol} {span} {variant}/{ensemble}  source={source}")
+    print(f"as_of: {plan.as_of.isoformat()}  (numbers depend on this date)")
     print()
     print("| movement | v3 score | v3 motion | anchors | anchors+eps | grid+eps | score v4 |")
     print("|---|---:|---:|---:|---:|---:|---:|")
 
     for index, movement in enumerate(plan.movements):
+        roman = ROMAN[index] if index < len(ROMAN) else str(index + 1)
         score = dfi_service._movement_score(
             symbol, span, index, movement, variant, ensemble, humanize=True
         )
         base = D.compute(score, variant=variant, ensemble=ensemble)
         if base is None:
-            print(f"| {index} | — | — | — | — | — | — |")
+            print(f"| {index} ({roman}) | — | — | — | — | — | — |")
             continue
 
         epb = max(1, int(round(score.bar_beats * 2)))
@@ -184,10 +281,16 @@ async def probe(symbol: str, span: str, variant: str, ensemble: str, source: str
         shown = anchor_eps if source == "anchors" else grid_eps
         score_v4 = blend(base, shown)
         print(
-            f"| {index} | {base.score:.1f} | {base.motion:.3f} | "
+            f"| {index} ({roman}) | {base.score:.1f} | {base.motion:.3f} | "
             f"{fmt(anchor)} | {fmt(anchor_eps)} | {fmt(grid_eps)} | "
             f"{'—' if score_v4 is None else f'{score_v4:.1f}'} |"
         )
+        if show_classify:
+            label = f"{index} ({roman})"
+            classify_grid(
+                grid, eps_by_window, movement=label, windows=windows, epb=epb
+            )
+            classify_anchors(anchors, eps_by_window, movement=label)
 
     print()
     print(
@@ -209,8 +312,22 @@ def main() -> None:
         default="anchors",
         help="Motion source for the v4 score column",
     )
+    parser.add_argument(
+        "--classify",
+        action="store_true",
+        help="print the §1.1 pair table after each movement",
+    )
     args = parser.parse_args()
-    asyncio.run(probe(args.symbol, args.span, args.variant, args.ensemble, args.source))
+    asyncio.run(
+        probe(
+            args.symbol,
+            args.span,
+            args.variant,
+            args.ensemble,
+            args.source,
+            args.classify,
+        )
+    )
 
 
 if __name__ == "__main__":

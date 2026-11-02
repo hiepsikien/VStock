@@ -1,15 +1,18 @@
 # Kế hoạch sửa DFI v4 — trace theo bè và Motion theo nốt giá
 
 > Trạng thái: **kế hoạch đề xuất, chưa implement**. Đã đối chiếu với code và
-> chạy prototype trên `ACB / 3M` (local DB) ngày 2026-11-03. Còn **4 quyết
-> định** ở §10. Bảng số trong §7 regenerate bằng `backend/scripts/dfi_probe.py`.
+> chạy prototype trên `ACB / 3M` (local DB; dữ liệu `as_of` **2026-11-02**).
+> Còn **5 quyết định** ở §10. Bảng số trong §1.1/§5/§7 regenerate bằng
+> `backend/scripts/dfi_probe.py`; số phụ thuộc ngày dữ liệu, không phải hằng số.
 
 ## 0. Phạm vi
 
 - Backend DFI: `backend/app/sonify/dfi.py`, `backend/app/sonify/render.py`,
   `backend/app/sonify/model.py`, `backend/app/schemas.py`.
 - Test: `backend/tests/test_dfi.py`.
-- Công cụ: `backend/scripts/dfi_probe.py` (read-only, đã thêm trong PR này).
+- Công cụ: `backend/scripts/dfi_probe.py` — không ghi renderer/audio cache,
+  nhưng `plan_span` gọi OHLC live khi store lạnh, nên số phụ thuộc `as_of`
+  (probe in ra đầu mỗi lần chạy). Đường dẫn dùng `Path(__file__).parents[1]`.
 - Tài liệu: `docs/sonify-data-fidelity-index.md` và file này.
 - **Không** đổi audio, endpoint, hay UI (trừ copy ambient nếu chốt §10.1).
 - Không đổi trọng số `S/M/T/R/V`, ngưỡng band, hay công thức coverage.
@@ -31,15 +34,16 @@ Baseline qua `GET /v1/sonify/dfi/pieces` khớp plan cũ:
 trong plan dùng **"cửa sổ"** cho analysis window, còn "phrase" là đơn vị nhỏ
 hơn trong `score.phrases`. `_phrase_eps` là **per window**, không per phrase.
 
-Số cặp trong movement I (đã kiểm lại bằng probe):
+Số cặp trong movement I (`scripts/dfi_probe.py ... --classify`):
 
 | | window I | window II | window III |
 |---|---:|---:|---:|
-| cặp thô (mọi eighth liên tiếp) | 359 | 383 | 359 |
+| bước eighth trong cửa sổ | 359 | 383 | 359 |
+| cặp usable (cả hai điểm có `pitch`) | 278 | 280 | 258 |
 | cặp sau khi bỏ `(0,0)` | 130 | 143 | 124 |
 | trong đó hold (`ΔP>0, Δpitch=0`) | 41 | 52 | 44 |
 | trong đó ornament (`ΔP=0, Δpitch>0`) | 21 | 19 | 17 |
-| τ-b trên mẫu đã lọc | 0.045 | −0.078 | −0.061 |
+| τ-b trên mẫu đã lọc (chưa kẹp 0) | 0.045 | −0.078 | −0.061 |
 
 - 41 hold của window I: **36 đúng 1 tick 0.05**, 3 ở 0.10, 2 ở 0.20.
 - "42% bước 1 tick" ở index §9.2 là **384/919 bước nến**; trong mẫu đã lọc
@@ -62,9 +66,9 @@ hạng tất cả các bước với nhau nên tín hiệu thật bị xoá.
 
 ### 1.2. Symphony bỏ sót bè `high`
 
-`render.py:1187-1201` chỉ gom `[*score.lead, *score.support]` (violin + cello)
-khi dựng trace. Khi violin yield, violin/cello im lặng và **flute**
-(`score.high`) một mình mang đường giá.
+`render.py:1165` (`_attach_dfi_inputs`; pool `[*score.lead, *score.support]` ở
+1187-1201) chỉ gom violin + cello khi dựng trace. Khi violin yield, violin/cello
+im lặng và **flute** (`score.high`) một mình mang đường giá.
 
 Đo trên `ACB / 3M / symphony / classic`, movement I:
 
@@ -177,38 +181,51 @@ if key in index_by_key and candidate >= best_by_key[key]:
 - Tie (`tie_start`/`tie_stop`) vẫn merge vào `open_ties` như hiện tại; khi merge
   duration, cộng dồn.
 
-#### b) `fill_trace_from_notes` — tái dùng builder, không viết loop song song
+#### b) `fill_trace_from_notes` — chọn theo `yield_spans`, không theo overlap
+
+`_flute_and_violin_dovetail` đã trả `yield_spans` (`render.py:1381`) và
+`melody_parts` dùng chính spans đó để chia violin/cello. `apply_span_frame`
+chỉ thay bar warmup/cooldown, giữ body (`movement_frame.py:117`:
+`high=with_rests(_body(score.high, body, cool), total)`), nên toạ độ eighth
+của body không đổi. Vì vậy chọn high note theo span **chính xác hơn** heuristic
+overlap, và loại luôn flute ornament ngoài span.
 
 ```python
 def fill_trace_from_notes(base, notes, *, line, prices, epb, bar_beats,
-                          frame_bars=frozenset(), voice="high"):
-    """Thêm bè high ở nơi base im lặng, ghi cao độ ý định."""
+                          frame_bars=frozenset(), yield_spans=(),
+                          voice="high"):
     raw = trace_from_notes(
         notes, line=line, prices=prices, epb=epb, bar_beats=bar_beats,
         frame_bars=frame_bars, voice=voice,
         snap_to_line=True,
         carrier=lambda _note, eighth: float(line[eighth]),
     )
+    spans = tuple(yield_spans)
     lookup = _PitchLookup(base, bar_beats)
     extra = []
     for point in raw:
-        start, end = _trace_bounds(point, bar_beats)
-        if not _overlaps(lookup.items, lookup.starts, lookup.max_span, start, end):
-            extra.append(point)
+        eighth = point.bar * epb + int(round(point.beat * 2))
+        if not any(start <= eighth < end for start, end in spans):
             continue
-        # Dovetail: note bắt đầu trong lúc base còn kêu nhưng kéo dài sang
-        # khoảng trống. Cắt phần chồng, giữ phần còn lại.
-        clipped = _clip_after_base(point, lookup, bar_beats)
-        if clipped is not None:
-            extra.append(clipped)
+        start, end = _trace_bounds(point, bar_beats)
+        if _overlaps(lookup.items, lookup.starts, lookup.max_span, start, end):
+            continue
+        extra.append(point)
         lookup = _PitchLookup((*base, *extra), bar_beats)   # chặn high chồng nhau
     return tuple(sorted((*base, *extra), key=lambda item: (item.bar, item.beat)))
 ```
 
-- `trace_from_notes` đã merge tie; không tạo "attack giả" mỗi đoạn tie.
-- Cập nhật `lookup` sau mỗi `extra` để 2 note high overlap không cùng được thêm.
-- `_clip_after_base` là helper mới: tính khoảng base phủ, dời `start`/giảm
-  `duration_beats`. Nếu không còn phần nào thì bỏ.
+- **Không còn `_clip_after_base`.** Note high bắt đầu trong overlap (violin còn
+  kêu) bị bỏ; mất tối đa `FLUTE_OVERLAP` (1 beat) ở đầu span. Đây là thay đổi
+  nhỏ, không thêm arithmetic dời `start`/`price` — tránh đúng lỗi "dời start
+  nhưng giữ price cũ".
+- `yield_spans` loại flute ornament ngoài span (kể cả khi violin nghỉ vì
+  breath), nên không cần heuristic overlap.
+- Nếu `yield_spans` rỗng, `fill` trả `base`; test
+  `test_fill_without_yield_spans_adds_nothing` pin hành vi.
+- `trace_from_notes` giữ check biên `eighth < len(line)` **trước khi** gọi
+  `carrier`; `carrier` trả `None` thì bỏ note, và `target` của carrier được
+  dùng để tính `diff` cho tie-break.
 
 #### c) `_motion` — dùng `eps` đúng tài liệu
 
@@ -260,7 +277,8 @@ MOTION_ON_ANCHORS = {
     "minimalist": True, "ambient": False,
 }
 ...
-notes_by_window = motion_points(score, windows, epb) if MOTION_ON_ANCHORS[variant] else None
+use_anchors = MOTION_ON_ANCHORS.get(variant, True)   # variant lạ → mặc định anchor
+notes_by_window = motion_points(score, windows, epb) if use_anchors else None
 ...
 if notes_by_window is not None:
     chunk_for_motion = notes_by_window.get(chunk[0].window, [])
@@ -275,12 +293,20 @@ value, weight, _low = _motion(chunk_for_motion, eps)
 - `schemas.py:122`: `version: str = "3"` → import `DFI_VERSION` từ
   `app.sonify.dfi` và dùng default; tránh hard-code lần hai. Thêm test.
 
-#### g) `n_moves` / `opportunity` — ghi rõ, chưa đổi
+#### g) `n_moves` / `opportunity` và renormalize — ghi rõ
 
 `n_moves` và `opportunity` vẫn đếm trên lưới eighth; Motion đo trên anchor.
 Hai đại lượng không còn mô tả cùng tập bằng chứng. v4 **giữ nguyên** `n_moves`
-(để không đổi confidence/opportunity lần nữa) và ghi rõ trong doc. Nếu muốn
-minh bạch, thêm `motion_pairs: int` vào `DfiBreakdown` (additive) — xem §10.4.
+(để không đổi confidence/opportunity lần nữa) và ghi rõ trong doc.
+
+Khi một window trả `M = None`, `compute` vẫn chia lại trọng số cho các component
+còn lại (`dfi.py:900-915`). v4 **chấp nhận renormalize** — không thêm luật
+"score không vượt trần bằng chứng" vì chưa có cơ chế đó. Test chỉ pin hành vi
+`test_motion_null_renormalizes_the_rest`, không hứa điều không làm được.
+
+Nếu muốn minh bạch, thêm `motion_pairs: int` vào `DfiBreakdown`
+(additive, optional) — xem §10.4. Việc này kéo theo `schemas.py` và
+`test_recap_response_parses_the_breakdown`, nên là quyết định riêng.
 
 ### 4.3. `backend/app/sonify/render.py`
 
@@ -306,12 +332,29 @@ if not trace:
             trace = fill_trace_from_notes(
                 trace, score.high, line=pitches, prices=price_eighths,
                 epb=dfi_epb, bar_beats=dfi_bar_beats, frame_bars=frame_set,
-                voice="high",
+                yield_spans=yield_spans, voice="high",
             )
 ```
 
+`yield_spans` được tính ở nhánh symphony/jazz (`render.py:1381`). Khởi tạo
+`yield_spans: list[tuple[int, int]] = []` **trước** khi định nghĩa
+`_attach_dfi_inputs` để closure không `UnboundLocalError` ở nhánh không phải
+symphony. Chỉ symphony truyền spans vào fill.
+
 `_attach_dfi_inputs` chạy sau `fit_ensemble`/frame nên thấy `lead/support/high`
 cuối cùng. `fill_trace_from_notes` chỉ dùng cho symphony.
+
+**Guitar.** Trong `guitar.py:180-190`, khi remap `pitch=intended[eighth]`, set
+luôn `sounding_pitch` bằng pitch cũ:
+
+```python
+remapped.append(replace(point, pitch=float(intended[eighth]),
+                        sounding_pitch=point.pitch))
+```
+
+Đây là chỗ caveat "ý định vs tai nghe" khởi nguồn; nếu không set, field mới
+bỏ trống đúng chỗ cần nhất. `sounding_pitch` là **diagnostic-only**: `compute`
+vẫn đọc `pitch`; thêm test offset cho guitar (0/12) và symphony (+3/+4/+7).
 
 ### 4.4. Test và tài liệu
 
@@ -333,12 +376,12 @@ Vì vậy **chỉ dùng `lead`**, và **giữ grid Motion** để hold dài vẫ
 |---|---:|---:|---:|---:|---:|
 | I | 22.6 | 0.000 | 0.316 | 0.000 | 22.6 |
 | II | 19.8 | 0.037 | 0.302 | 0.049 | 20.0 |
-| III | 18.7 | 0.000 | 0.441 | 0.018 | 18.9 |
+| III | 18.7 | 0.000 | 0.441 | **0.010** | **18.8** |
 
 Nếu làm anchor toàn cục, ambient tăng ~15–25% (26.1/22.9/23.4) và mâu thuẫn
 §4.5/§10 #6. Đề xuất: **per-variant** như §4.2(e).
 
-### Minimalist — anchor, nhưng `eps` cần hiệu chỉnh
+### Minimalist — anchor, giữ `eps` chung, chấp nhận 0
 
 `render_minimalist_score`: `lead=arpeggio` encode giá bằng register/brightness;
 `high=bell` là accent thưa. `trace_register_per_bar(lead)` phủ 100% bar.
@@ -349,10 +392,30 @@ Nếu làm anchor toàn cục, ambient tăng ~15–25% (26.1/22.9/23.4) và mâu
 | II | 39.6 | 0.105 | **0.000** | 39.6 |
 | III | 28.4 | 0.151 | **0.000** | 28.4 |
 
-`anchors+eps` làm mv II/III về 0 vì `_phrase_eps` (5% range) lớn hơn bước
-register. Đây là **quyết định §10.2**: dùng `eps` nhỏ hơn cho minimalist
-(ví dụ `0.25 × eps`) hay bỏ `eps` riêng cho minimalist; không được để mặc định
-5% giết Motion của một encoding thô.
+**Chẩn đoán đúng** (probe `--classify`, anchor pairs): sau eps filter **vẫn còn
+19–63 cặp**, không rơi xuống `<4`; τ từng window **âm** rồi bị `max(0, …)`:
+
+| movement | window | pairs sau eps | τ sau eps (chưa kẹp) |
+|---|---|---:|---:|
+| II | 0 / 1 / 2 | 24 / 25 / 19 | −0.148 / −0.353 / −0.300 |
+| III | 0 / 1 / 2 | 40 / 50 / 63 | −0.115 / −0.098 / −0.124 |
+
+Đây là **tín hiệu thật**: giá đi xa hơn không cho bước register lớn hơn. Câu cũ
+"`_phrase_eps` (5% range) lớn hơn bước register" **sai thứ nguyên**: eps là
+ngưỡng **giá** (0.02–0.0575), còn bước register là semitone (0.38–3.62).
+
+Nếu hạ eps, Motion chỉ tăng vì các cặp `(ΔP nhỏ, Δpitch=0)` quay lại làm loãng
+τ, không phải vì tín hiệu tốt lên:
+
+| movement | eps 1× | 0.25× | 0× |
+|---|---:|---:|---:|
+| II | 0.000 | 0.070 | 0.133 |
+| III | 0.000 | 0.092 | 0.156 |
+
+Đề xuất: **giữ một eps chung, chấp nhận M = 0 cho minimalist II/III**, ghi vào
+re-baseline. Nếu muốn M > 0 thì sửa **encoding register của writer** (để bước
+register phản ánh biên độ giá), không hạ eps để được số đẹp. Đây là quyết định
+§10.2.
 
 ## 6. Kế hoạch test
 
@@ -364,14 +427,18 @@ Thêm vào `backend/tests/test_dfi.py`:
 | `test_trace_keeps_the_longer_note_on_a_tie` | 2 note cùng `(bar,beat)`, cùng `|diff|` → giữ duration dài hơn |
 | `test_fill_trace_merges_high_ties` | một nốt high tied dài → **1** trace point |
 | `test_fill_trace_does_not_stack_overlapping_high_notes` | 2 high overlap → chỉ 1 point |
-| `test_fill_trace_clips_a_dovetail_start` | high bắt đầu trong base, kéo sang khoảng trống → point bắt đầu sau base |
+| `test_fill_uses_yield_spans` | high note ngoài `yield_spans` không vào trace |
+| `test_fill_skips_high_ornament_outside_yield_spans` | flute ornament khi violin nghỉ nhưng ngoài span → không vào trace |
+| `test_fill_without_yield_spans_adds_nothing` | `yield_spans=()` → trả đúng `base` |
+| `test_guitar_sets_sounding_pitch_on_remap` | guitar remap `pitch=intended` vẫn giữ `sounding_pitch` cũ |
+| `test_sounding_pitch_keeps_the_flute_offset` | symphony `pitch - sounding_pitch` ∈ {3,4,7} (diagnostic-only) |
 | `test_motion_points_drops_frame_bars` | point trong `frame_bars` không vào Motion |
 | `test_motion_deduplicates_base_and_fill` | base + fill cùng eighth → 1 point, giữ base |
 | `test_motion_uses_anchors_for_guitar` | Motion guitar ≠ grid Motion trên cùng score |
 | `test_motion_uses_grid_for_ambient` | ambient vẫn đọc grid |
 | `test_motion_filters_below_the_window_eps` | cặp `|ΔP| < eps`, `Δpitch=0` bị bỏ |
 | `test_motion_returns_zero_when_every_step_holds` | đủ cặp, mọi `y=0` → `0`, không `None` |
-| `test_motion_null_does_not_inflate_the_score` | window thiếu cặp → Motion `None`, score không vượt trần bằng chứng |
+| `test_motion_null_renormalizes_the_rest` | window thiếu cặp → Motion `None`, `compute` chia lại trọng số (hành vi chấp nhận) |
 | `test_symphony_trace_covers_a_flute_only_bar` | bar chỉ `high` kêu → có trace point |
 | `test_same_trace_across_symphony_ensembles` | `classic/wood/brass` cho cùng tập bar/pitch (sai khác octave đã snap) |
 | `test_schemas_version_matches_dfi_version` | `DfiBreakdown.version == DFI_VERSION` |
@@ -416,9 +483,14 @@ Motion có thể giảm; đo lại sau khi implement, không dùng bảng này �
 
 ### Ghi chú re-baseline
 
+- Số đo ngày `as_of` **2026-11-02**; `plan_span` có thể fetch dữ liệu live khi
+  cache lạnh, nên chạy lại có thể lệch. Probe in `as_of` ở đầu.
 - `n_sounding` symphony mv I sẽ nhảy ~196 → ~558; confidence thành `high` gần
   như mặc định. Ghi nhận, không chặn.
 - `n_moves`/`opportunity` vẫn đo trên lưới; Motion đo trên anchor. Ghi rõ.
+- **M không còn so sánh chéo variant từ v4:** ambient giữ grid, 4 variant còn
+  lại dùng anchor. Bảng xếp hạng genre ở index §5.3 phải đọc M là *tương đối*,
+  không phải cùng một định nghĩa mẫu.
 - `DFI_VERSION` bump làm sidecar cũ miss (`audio.py:422`,
   `services/dfi.py:113`, `sessions.py:238`, `spans.py:191`).
 - `dfi_signatures.json` là artifact corpus; quyết định regenerate ở §10.3.
@@ -429,30 +501,33 @@ Motion có thể giảm; đo lại sau khi implement, không dùng bảng này �
 |---|---|---|
 | `motion_points` không lọc frame | Motion lệch Shape/Resolution | Lọc `score.frame_bars`; test |
 | Tie-break không có `diff` | Luôn giữ note đầu; mất duration | `diff_by_key` + test duration |
-| Fill mỗi đoạn tie thành point | Attack giả, pitch ý định đổi giữa nốt | Tái dùng `trace_from_notes`; test 1 point |
+| Fill mỗi đoạn tie thành point | Attack giả, pitch ý định đổi giữa nốt | `trace_from_notes` merge tie; test 1 point |
 | Fill chồng note high | Hai lần đọc cùng giá | Cập nhật `lookup` sau mỗi extra |
-| Fill note bắt đầu trong base | Mất đầu khoảng yield | Clip phần chồng; test |
-| Motion anchor làm rơi cặp | Renormalize đẩy điểm lên | Test `None` không inflate; ghi rõ |
-| `eps` 5% giết minimalist | Motion II/III = 0 | Quyết định eps riêng §10.2 |
+| Fill note bắt đầu trong overlap | Mất đầu span (≤ 1 beat) | Chọn theo `yield_spans`; bỏ note overlap, không clip |
+| `yield_spans` lệch sau frame | Fill sai bar | `apply_span_frame` giữ body (`movement_frame.py:117`); test same-trace |
+| Motion anchor làm rơi cặp | Renormalize đẩy điểm lên | Chấp nhận renormalize; test pin hành vi |
+| Minimalist M=0 | Tưởng là lỗi eps | Giữ eps; sửa writer nếu muốn >0; ghi re-baseline |
 | Score symphony giảm | Kỳ vọng sai | Đo S/M trước–sau; không hứa tăng |
 | Snap mở rộng "ý định vs nghe" | Mất khả năng phát hiện harmony trôi | Giữ `sounding_pitch`; không đóng §9.1 |
+| Probe phụ thuộc dữ liệu live | Bảng §7 không tái lập | In `as_of`; ghi ngày vào doc |
 | Hard-code version lần hai | Schema lệch DFI | Import `DFI_VERSION` |
 | Ensemble spread | Test `<=4` đỏ | Test same-trace; siết có chủ đích |
 
 ## 9. Checklist triển khai
 
-- [ ] `PriceTracePoint.sounding_pitch`.
+- [ ] `PriceTracePoint.sounding_pitch` (diagnostic-only).
 - [ ] `trace_from_notes`: `carrier`, `snap_to_line`, `diff_by_key`, duration tie.
-- [ ] `fill_trace_from_notes`: tái dùng builder, merge tie, clip dovetail, cập nhật lookup.
+- [ ] `guitar.py`: set `sounding_pitch` khi remap `pitch=intended`.
+- [ ] `fill_trace_from_notes`: `yield_spans`, merge tie, cập nhật lookup; **không clip**.
 - [ ] `_motion` dùng `eps`; doc §4.5 thống nhất `<4 cặp`.
 - [ ] `motion_points`: lọc frame; dedupe.
-- [ ] `compute`: `MOTION_ON_ANCHORS` (ambient grid, còn lại anchor).
-- [ ] `render.py`: giữ `if not trace:`; symphony fill `high`.
+- [ ] `compute`: `MOTION_ON_ANCHORS.get(variant, True)` (ambient grid).
+- [ ] `render.py`: giữ `if not trace:`; khởi tạo `yield_spans`; symphony fill `high`.
 - [ ] `DFI_VERSION = "4"` + `schemas.py` import.
 - [ ] Test §6.
 - [ ] Chạy `pytest backend/tests`.
-- [ ] Chạy `scripts/dfi_probe.py` cho 5 variant × 3 movement, cập nhật §7.
-- [ ] Cập nhật `docs/sonify-data-fidelity-index.md` (§4.2, §4.5, §9.1, §9.2, §10).
+- [ ] Chạy `scripts/dfi_probe.py` cho 5 variant × 3 movement, cập nhật §1.1/§5/§7.
+- [ ] Cập nhật `docs/sonify-data-fidelity-index.md` (§4.2, §4.5, §5.3, §9.1, §9.2, §10).
 - [ ] Quyết định regenerate `dfi_signatures.json`.
 - [ ] Kiểm tra URL gốc `ACB / 3M / guitar / torroba`.
 
@@ -460,8 +535,13 @@ Motion có thể giảm; đo lại sau khi implement, không dùng bảng này �
 
 1. **Ambient Motion:** giữ **grid** (đề xuất, đúng §4.5 "hold dài là mất
    fidelity") hay anchor toàn cục (ambient tăng ~15–25%, phải sửa §4.5/§10 #6)?
-2. **Minimalist `eps`:** dùng `0.25 × _phrase_eps` hay bỏ `eps` riêng cho
-   minimalist? Nếu giữ 5%, mv II/III Motion = 0.
+2. **Minimalist II/III:** chấp nhận **M = 0** (đề xuất — tín hiệu thật, eps
+   đúng) hay mở một việc sửa **encoding register của writer** để bước register
+   phản ánh biên độ giá? Không hạ eps để được số đẹp.
 3. **`dfi_signatures.json`:** regenerate trong PR implementation hay để Phase 7?
-4. **Minh bạch bằng chứng:** thêm `motion_pairs: int` vào `DfiBreakdown` và
-   siết `test_non_guitar_ensembles...` xuống `<= 2`?
+4. **Minh bạch bằng chứng:** thêm `motion_pairs: int` (additive, optional) vào
+   `DfiBreakdown`/`schemas.py` và cập nhật `test_recap_response_parses_the_breakdown`,
+   đồng thời siết `test_non_guitar_ensembles...` xuống `<= 2`? Nếu không, giữ
+   schema nguyên và chỉ ghi doc.
+5. **So sánh chéo variant:** chấp nhận M khác định nghĩa (ambient grid, còn lại
+   anchor) và ghi rõ trong index §5.3/§10, hay chuẩn hoá lại sau Phase 7?

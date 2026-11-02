@@ -448,8 +448,9 @@ Các kỳ vọng dùng làm test, không phải để ép kết quả:
 2. `|DFI(soul/organ) − DFI(classic)| ≤ 3` cho jazz; `mallet` gần minimalist; `breath/choir` gần ambient; `guitar` (thép) gần minimalist `classic`.
 3. Guitar: sáu ensemble được phép lệch; Bach và Torroba thường cao hơn Villa/Barrios vì ít hoa mỹ che giá. Đây là **chẩn đoán**, không hard-code thứ hạng.
 4. Trên corpus biến động: Giao hưởng/Jazz > Tối giản > Ambient. Ambient thấp hơn một phần vì Motion/Hình dạng phạt ngân dài — đó là chủ ý; Coverage chỉ phạt khi ambient nghỉ hẳn. Nếu Ambient > Tối giản, kiểm tra trace trước khi kết luận.
-5. Phiên đi ngang: tất cả `null` hoặc `low`, không thể hiện 0 điểm.
-6. Trước khi chốt trọng số, đo **ma trận tương quan** giữa `S`, `M`, `R` trên corpus. Nếu `R` gần như là hàm của `S` (vì trace bậc thang buộc đơn điệu), gộp `R` vào `S` hoặc trả bớt trọng số cho `R`, chuẩn hoá lại và ưu tiên `S`; Phase 7 quyết định.
+5. **Từ DFI v4, `M` không cùng định nghĩa mẫu giữa các variant.** Ambient giữ **grid** (hold dài bị phạt); guitar/symphony/jazz/minimalist dùng **anchor** (nốt giá). Vì vậy so hạng `M` chéo genre chỉ là tương đối; `S/T/R/C` vẫn so được. Đừng dùng `M` để kết luận genre này “trung thực hơn” genre kia.
+6. Phiên đi ngang: tất cả `null` hoặc `low`, không thể hiện 0 điểm.
+7. Trước khi chốt trọng số, đo **ma trận tương quan** giữa `S`, `M`, `R` trên corpus. Nếu `R` gần như là hàm của `S` (vì trace bậc thang buộc đơn điệu), gộp `R` vào `S` hoặc trả bớt trọng số cho `R`, chuẩn hoá lại và ưu tiên `S`; Phase 7 quyết định.
 
 ---
 
@@ -789,7 +790,7 @@ GET /v1/sonify/dfi/pieces
 
 ### 9.2. Kế hoạch sửa v4
 
-Hai lỗi dưới đây đã điều tra xong; kế hoạch **đề xuất**, còn **4 điểm cần
+Hai lỗi dưới đây đã điều tra xong; kế hoạch **đề xuất**, còn **5 điểm cần
 chốt** (§10 của plan), chưa implement. Xem
 [`sonify-dfi-trace-motion-fix-plan.md`](./sonify-dfi-trace-motion-fix-plan.md).
 
