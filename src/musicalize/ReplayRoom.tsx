@@ -743,7 +743,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
     // next play writes `play` and starts a fresh set of retries. Computing the
     // key only after the guard would keep the exhausted `play` budget across a
     // pause/resume.
-    const pollKey = `${symbol}|${span}|${variant}|${ensemble}|${index}|${heardReady ? 'ready' : 'wait'}|${audible ? 'play' : 'idle'}`;
+    const pollKey = `${symbol}|${span}|${variant}|${ensemble}|${index}|${heardReady ? 'ready' : 'wait'}|${heardName ? 'name' : 'noname'}|${audible ? 'play' : 'idle'}`;
     if (dfiPoll.current.key !== pollKey) dfiPoll.current = { key: pollKey, count: 0 };
     if (span === '1D' || !audible || (heardName && heardReady && heardDfi)) return;
     // A movement can be heard before its score exists, and an old cache can

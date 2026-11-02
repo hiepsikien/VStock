@@ -678,6 +678,7 @@ export async function fetchRecap(
   return apiGet<RecapManifest>(
     `/v1/stocks/${encodeURIComponent(sym)}/sessions/${encodeURIComponent(day)}/recap?variant=${variant}&ensemble=${ensemble}${mixQuery(mix)}`,
     signal,
+    true,
   );
 }
 
