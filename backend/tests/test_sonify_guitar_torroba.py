@@ -2397,7 +2397,9 @@ def _assert_measures_sum(score: Score) -> None:
             assert total == expected
 
 
-def _assert_tied_fifth(stream: list[ET.Element], *, continues: set[int] | None = None) -> None:
+def _assert_tied_fifth(
+    stream: list[ET.Element], *, continues: set[int] | None = None, partial: bool = False
+) -> None:
     """A 5-unit chord is a 32nd triplet rest, then tied 32nds, then tied eighths."""
     continues = set(continues or ())
     rest = stream[0]
@@ -2431,21 +2433,28 @@ def _assert_tied_fifth(stream: list[ET.Element], *, continues: set[int] | None =
         assert head.get("dynamics") == heads[0].get("dynamics") and head.get("dynamics") is not None
         assert head.find("dot") is None
         assert _time_modification(head) == ("3", "2", "32nd")
+    outgoing: set[int] = set()
     for place, tail in enumerate(tails):
         assert tail.find("type").text == "eighth"
-        expected = ["stop"] + (["start"] if place in continues else [])
-        assert [tie.get("type") for tie in tail.findall("tie")] == expected
+        ties = [tie.get("type") for tie in tail.findall("tie")]
+        if "start" in ties:
+            outgoing.add(place)
+        assert ties in (["stop"], ["stop", "start"])
         assert (tail.find("chord") is not None) is (place > 0)
         assert tail.get("dynamics") == heads[0].get("dynamics")
         assert tail.find("dot") is None
         assert _time_modification(tail) == ("3", "2", "32nd")
-    if continues:
+    if partial:
+        assert len(outgoing) == 1
+    else:
+        assert outgoing == continues
+    if partial or continues:
         assert index < len(stream)
-        partial = stream[index]
-        assert partial.tag == "note" and partial.find("rest") is None
-        assert partial.find("duration").text == "3"
-        assert partial.find("type").text == "16th"
-        assert [tie.get("type") for tie in partial.findall("tie")] == ["stop"]
+        partial_tail = stream[index]
+        assert partial_tail.tag == "note" and partial_tail.find("rest") is None
+        assert partial_tail.find("duration").text == "3"
+        assert partial_tail.find("type").text == "16th"
+        assert [tie.get("type") for tie in partial_tail.findall("tie")] == ["stop"]
 
 
 def _assert_eighth_xml(measure: ET.Element) -> None:
@@ -2803,7 +2812,7 @@ def test_rolled_chord_scores_engrave_on_division_12(kind: str) -> None:
             and stream[0].find("rest") is not None
             and stream[0].find("duration").text == "1"
         )
-        _assert_tied_fifth(support_stream, continues={0})
+        _assert_tied_fifth(support_stream, partial=True)
         assert_playable(slow, profiles="torroba")
         _assert_measures_sum(slow)
         one_bar = _pattern_score(kind, "castillo", character="calm", bpm=72, bars=1)
@@ -5277,5 +5286,34 @@ def test_musicxml_keeps_every_lead_note_in_a_chord_at_the_roll_offset() -> None:
         and note.find("duration").text == "4"
     }
     assert ("C", "6") in pitches and ("G", "5") in pitches
+
+    # Mixed durations: a sounding chord cannot hold two lengths. MuseScore
+    # normalizes it to the longest note, so the tail is the max for every string.
+    mixed = replace(
+        score,
+        lead=tuple(
+            [note for note in score.lead if note.bar != 0]
+            + [
+                NoteEvent(bar=0, beat=2 / 12, midi=72, duration_beats=10 / 12, voice=1, velocity=64),
+                NoteEvent(bar=0, beat=2 / 12, midi=67, duration_beats=7 / 12, voice=1, velocity=64),
+            ]
+        ),
+    )
+    mixed_stream = _streams(ET.fromstring(score_to_musicxml(mixed)).find("part").findall("measure")[0])[0]
+    mixed_notes = [
+        note for note in mixed_stream if note.tag == "note" and note.find("rest") is None
+    ]
+    mixed_heads = [
+        (note.find("pitch/step").text, note.find("pitch/octave").text)
+        for note in mixed_notes
+        if note.find("duration").text == "4"
+    ]
+    mixed_tails = [
+        note.find("duration").text
+        for note in mixed_notes
+        if note.find("duration").text == "6"
+    ]
+    assert set(mixed_heads) == {("C", "6"), ("G", "5")}
+    assert mixed_tails == ["6", "6"]
 
 

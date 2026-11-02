@@ -1,6 +1,6 @@
 # Torroba: rasgueado to hơn, ngân dài hơn, nốt sau vào trễ (Loại 1 / Loại 2)
 
-> **Trạng thái**: **đã vào code**, `pytest backend/tests -q` **780 passed**.
+> **Trạng thái**: **đã vào code**, `pytest backend/tests -q` **782 passed**.
 > **Đã làm**: `apply_torroba_fan_ring` (score), `_apply_fans` + `NoteEvent.pinned` (dynamic), `_fan_hold_multipliers` (humanize), floor `3/12`, lead guard, cửa sổ `assert_playable` 6 → 12, và test cho cả ba trục.
 > **Lệch nhỏ so với kế hoạch**: `_apply_fans` gọi sau hai restamp (không nằm trong `apply_guitar_wave`); `humanize()` có thêm `fan_hold: bool = True` để test style cũ tách khỏi tầng cơ thể; `fan_hold` dùng `delay_seconds = D * 60 / base_bpm[first]` để zero-sum theo thời gian thật, không theo beat danh nghĩa.
 > **Đọc cùng**: [`docs/sonify-guitar-torroba-phrase-plan.md`](./sonify-guitar-torroba-phrase-plan.md) mục 4 (định nghĩa Loại 1 / Loại 2), [`docs/sonify-guitar-torroba-note-surface.md`](./sonify-guitar-torroba-note-surface.md), [`docs/sonify-guitar-torroba-dynamics.md`](./sonify-guitar-torroba-dynamics.md), [`docs/sonify-guitar-torroba-lilt-accents.md`](./sonify-guitar-torroba-lilt-accents.md), [`docs/sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md), [`docs/sonify-guitar-torroba-juglar-cushion-dynamics-tempo.md`](./sonify-guitar-torroba-juglar-cushion-dynamics-tempo.md).
@@ -367,6 +367,8 @@ def _rasgueado_span(event, divisions, bar_beats) -> tuple[str, int] | None:
 - **Group cùng beat**: vòng lặp hiện tại gom mọi nốt cùng `beat` thành một group rồi đọc `kind` từ nốt đầu. Phải đổi thành đọc **`duration_units` lớn nhất trong group** (nốt giữ tiếng), rồi:
   - nếu `> 5` (support) → head chord đều `5/12` + đuôi cho đúng nốt có duration lớn nhất (đã chọn là nốt thấp nhất);
   - nếu tất cả `== 5` → đường plain như cũ.
+- **Lead group phát toàn bộ**: head `4/12` cho **mọi** nốt trong group (giữ `<chord/>` và `tuplet`), nốt nào `> 4` nhận tail. Chord lệch duration bị chuẩn hoá về nốt dài (MuseScore), có test khóa cả cùng-duration và mixed-duration tại `2/12`.
+- **Bar-long support nhiều nốt**: chỉ carrier nhận outgoing tie; các nốt còn lại dừng ở `6/12`. Đây là chủ ý; hiện production chỉ có lead bar-long (type 7) nên chưa lộ.
 - **`_add_tied_fifth` phải nhận per-note `continues`**, không phải `continue_after: bool` cho cả cụm. Với partial tail, chỉ nốt giữ tiếng nhận `tie start`; các nốt support còn lại chỉ `tie stop` (không treo tie). Xem 5.4.
 - Bản ngân hết ô hiện tại (`bar_units - 2` / `bar_units - 1`) tự động rơi vào cùng công thức, nên **không cần nhánh riêng**.
 - Hàm cũ `_rasgueado_kind()` vẫn có thể giữ làm wrapper mỏng cho test cũ, hoặc đổi tên và cập nhật test.
@@ -530,7 +532,7 @@ Mỗi bước chạy test ngay, không gộp. Bước 1–3 làm trước (durat
 - `lead > bass > support`, khe `>= 2`.
 - Khẳng định ca "bass/support bị sóng kẹp thấp" vẫn được kéo lên (ô 70 kiểu `54 / 40 / 32` → `54 / 50 / 48`).
 - **Pin qua humanize**: chạy `humanize_score(score)` rồi so sánh — fan giữ **đúng** `73 / 71 / 69` hoặc đúng mức ấm, không lệch ±2, không bị `_clamp_guitar` kéo `73/71/69 → 71/69/69`.
-- **Scale passage + fan bar**: dựng một scale passage đi qua ô quạt; khẳng định `_apply_fans` chạy sau restamp nên fan lead không bị `_install_lead()` ghi đè.
+- **Scale passage + fan bar** (follow-up): thứ tự `_apply_fans` sau restamp đã đảm bảo bằng cấu trúc, nhưng chưa có test riêng; nếu sau này đổi thứ tự, thêm fixture passage đi qua ô quạt.
 - Khẳng định các nốt **không thuộc** cú quạt không đổi velocity.
 
 ### 9.3. Ký âm
@@ -770,12 +772,14 @@ bpm = max(nominal * 0.60, min(nominal * 1.40, bpm))
 
 ## 15. Kết quả triển khai
 
-- `pytest backend/tests -q`: **780 passed**.
+- `pytest backend/tests -q`: **782 passed**.
 - **Cache revision**: `SPAN_REVISION` `71 → 72`, `RECAP_REVISION` `76 → 77` — audio/DFI cũ không replay score cũ.
 - ACB 1M II, 13 ô quạt: bass `0,5 → 1,0`; support thấp nhất `0,5 → 0,75`; lead giữ `0,5` (bị nốt lặp chặn); support còn lại giữ `0,5`.
 - Dynamic sau `_apply_fans`: các ô ấm `53–59` (lead) / `49–55` (bass) / `47–53` (support); các ô nền móng (`23`, `87`) đúng `73 / 71 / 69`.
 - `pinned` giữ nguyên qua `humanize_score()`; thứ tự `lead > bass > support` không bị `_clamp_guitar` làm bằng nhau.
 - `fan_hold`: nốt ngay sau quạt trễ đúng `1/12` (Loại 1) / `1/24` (Loại 2) phách; thời lượng ô không đổi.
-- **MusicXML lead chord**: nhánh lead phát **toàn bộ** group (không chỉ carrier); regression nốt lead cùng beat tại `2/12` đã có test.
-- **Partial support XML**: `_assert_tied_fifth(continues=...)` khóa carrier `stop+start`, nốt khác `stop`, tail `3/12` chỉ carrier; test trên 3/4 Castillo.
-- Test mới: `test_fan_ring_and_dynamic_survive_humanize`, `test_musicxml_keeps_every_lead_note_in_a_chord_at_the_roll_offset`, `test_torroba_fan_hold_delays_only_the_next_attack`, `test_torroba_fan_hold_skips_a_short_span`.
+- **MusicXML lead chord**: nhánh lead phát **toàn bộ** group (không chỉ carrier); chord lệch duration được chuẩn hoá về nốt dài (đúng MuseScore), có test cho cả cùng-duration và mixed-duration tại `2/12`.
+- **Partial support XML**: `_assert_tied_fifth(partial=True)` khóa carrier `stop+start`, nốt khác `stop`, tail `3/12` chỉ carrier; test trên 3/4 Castillo.
+- **Window test**: đổi tên thành `test_fan_bar_gets_the_whole_first_beat`; thêm `test_a_non_fan_roll_bar_keeps_the_strict_window` (bar odd-grid không có fan vẫn bị luật chặt).
+- Test mới: `test_fan_ring_and_dynamic_survive_humanize`, `test_musicxml_keeps_every_lead_note_in_a_chord_at_the_roll_offset`, `test_torroba_fan_hold_delays_only_the_next_attack`, `test_torroba_fan_hold_skips_a_short_span`, `test_torroba_fan_hold_works_without_a_lead`.
+- **DFI / tên chương bị "—"**: plan cũ bị HTTP cache giữ lại sau khi audio/DFI được ghi. Đã sửa: `apiGet` dùng `cache: 'no-store'`; `/span` và `/sonify/dfi/pieces` trả `Cache-Control: no-store`; poll reset budget khi bắt đầu phát / audio ready và tăng lên 24 lần (~36 s).

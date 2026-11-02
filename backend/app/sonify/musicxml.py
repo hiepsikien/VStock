@@ -615,7 +615,12 @@ def _add_plain_tail(
     bar_beats: float | None,
     start_beat: float = 0.5,
 ) -> None:
-    """Tie the rolled eighth into ordinary notes for the rest of the bar."""
+    """Tie the rolled eighth into ordinary notes for the rest of the bar.
+
+    `start_beat` is where the first tail lands. Every current caller places a
+    4- or 5-unit head first, so the tail starts at `6/12`. The cursor advances
+    by each piece's duration; the XML writer is sequential.
+    """
     pieces = _plain_tail(remaining)
     cursor = start_beat
     for piece_index, units in enumerate(pieces):

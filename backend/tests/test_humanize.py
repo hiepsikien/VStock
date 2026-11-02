@@ -641,9 +641,9 @@ def test_torroba_fan_hold_delays_only_the_next_attack() -> None:
     delay_seconds = (1.0 / 12.0) * 60.0 / score.bpm
     assert _clock_time(held, 2.0 / 12.0, 0.5) - _clock_time(
         plain, 2.0 / 12.0, 0.5
-    ) == pytest.approx(delay_seconds, abs=0.01)
+    ) == pytest.approx(delay_seconds, abs=0.005)
     assert _clock_time(held, 0.0, 3.0) == pytest.approx(
-        _clock_time(plain, 0.0, 3.0), abs=0.01
+        _clock_time(plain, 0.0, 3.0), abs=0.005
     )
 
 
@@ -664,6 +664,26 @@ def test_torroba_fan_hold_skips_a_short_span() -> None:
     assert _clock_time(humanize(score), 0.0, 3.0) == pytest.approx(
         _clock_time(humanize(score, fan_hold=False), 0.0, 3.0), abs=1e-6
     )
+
+
+def test_torroba_fan_hold_works_without_a_lead() -> None:
+    """The anchor is the latest fan beat, so a bass+support fan still delays."""
+    support = (
+        _hit(0, 1.0 / 12.0, 5.0 / 12.0, 60, voice=2),
+        _hit(0, 0.5, 0.5, 60, voice=2),
+    )
+    low = (_hit(0, 0.0, 0.5, 40, voice=3),)
+    score = _torroba(
+        bars=2,
+        divisions=12,
+        phrases=(_closing_phrase(0, 6),),
+        support=support,
+        low=low,
+        **_meter("6/8"),
+    )
+    held = humanize(score)
+    plain = humanize(score, fan_hold=False)
+    assert _clock_time(held, 1.0 / 12.0, 0.5) > _clock_time(plain, 1.0 / 12.0, 0.5)
 
 
 def test_torroba_offbeat_sixteenths_do_not_take_the_lilt() -> None:

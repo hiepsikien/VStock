@@ -7,6 +7,8 @@ from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 
+from starlette.responses import Response
+
 from app.sonify.audio import RecapStore, SpanAsset, join_chunks, write_wav
 from app.sonify.chords import A7, BF, BM7B5, C, EF, FDIM7, fifth_above_bass
 from app.sonify.phrasing import quantize_strong_beats
@@ -278,7 +280,7 @@ def test_span_response_volumes_match_each_movement(monkeypatch) -> None:
 
     monkeypatch.setattr("app.routers.stocks.plan_span", fake_plan)
     monkeypatch.setattr("app.routers.stocks.ready_movement", lambda *_args, **_kwargs: None)
-    response = asyncio.run(get_span("vnm", "1M", "symphony", "classic", True, True))
+    response = asyncio.run(get_span(Response(), "vnm", "1M", "symphony", "classic", True, True))
     assert len(response.movements) == len(movements)
     from app.services.spans import movement_duration
 
@@ -296,7 +298,7 @@ def test_span_response_volumes_match_each_movement(monkeypatch) -> None:
         movement_name = ""
 
     monkeypatch.setattr("app.routers.stocks.ready_movement", lambda *_args, **_kwargs: Cached())
-    cached = asyncio.run(get_span("vnm", "1M", "symphony", "classic", True, True))
+    cached = asyncio.run(get_span(Response(), "vnm", "1M", "symphony", "classic", True, True))
     assert cached.movements[0].durationSec == 263.0
     assert cached.movements[0].mapDurationSec == 260.0
 
@@ -642,7 +644,7 @@ def test_span_routes_forward_ensemble(monkeypatch) -> None:
 
     monkeypatch.setattr("app.routers.stocks.plan_span", fake_plan)
     monkeypatch.setattr("app.routers.stocks.ready_movement", lambda *_args, **_kwargs: None)
-    asyncio.run(get_span("vnm", "1M", "guitar", "torroba", True, True))
+    asyncio.run(get_span(Response(), "vnm", "1M", "guitar", "torroba", True, True))
     assert seen["plan"] == ("VNM", "1M", "guitar", "torroba")
 
     async def fake_service_plan(symbol, span, variant="symphony", ensemble="classic"):

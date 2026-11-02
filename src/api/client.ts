@@ -220,7 +220,10 @@ type HistoryDto = {
 };
 
 async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, { signal });
+  // Live prices, plans, and DFI change as soon as a movement is written. A
+  // cached 200 would keep an older plan (empty movement name, null DFI) even
+  // after the server has the new one, so every GET bypasses the HTTP cache.
+  const res = await fetch(`${API_URL}${path}`, { signal, cache: 'no-store' });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new Error(`API ${res.status}: ${body || res.statusText}`);
