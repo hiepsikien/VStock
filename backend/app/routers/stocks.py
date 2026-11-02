@@ -10,6 +10,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 
+from app.ingestion.providers.entrade_indices import INDEX_SYMBOLS
 from app.schemas import (
     DEFAULT_WATCHLIST,
     ChartRange,
@@ -19,6 +20,8 @@ from app.schemas import (
     DfiSignature,
     RecapResponse,
     SpanMovementResponse,
+    SpanPeaksMovement,
+    SpanPeaksResponse,
     SpanResponse,
     SessionDetailResponse,
     SessionListResponse,
@@ -31,6 +34,7 @@ from app.schemas import (
     SymbolInfo,
     SymbolsResponse,
     WatchlistItem,
+    WatchlistSparkline,
 )
 from app.services import fundamentals, history, indices, market_session, quotes, symbols as symbols_service
 from app.services import dfi as dfi_service
@@ -60,6 +64,14 @@ def _ensemble(variant: Variant, name: str) -> Ensemble:
         return ensemble_for(variant, name)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+async def _symbol_coverage() -> dict[str, dict]:
+    try:
+        return await symbols_service.fetch_coverage()
+    except Exception as exc:
+        logger.warning("Symbol coverage unavailable: %s", exc)
+        return {}
 
 
 def _empty_fund() -> dict:
@@ -169,7 +181,14 @@ async def list_symbols(
         ex = exchange.upper()
         rows = [r for r in rows if r["exchange"] == ex]
 
-    items = [SymbolInfo(**r) for r in rows]
+    coverage = await _symbol_coverage()
+    items = [
+        SymbolInfo(
+            **r,
+            ranges=coverage.get(r["symbol"], {}).get("ranges", []),
+        )
+        for r in rows
+    ]
     return SymbolsResponse(count=len(items), symbols=items)
 
 
@@ -182,7 +201,14 @@ async def search_symbols(
         rows = await symbols_service.search_symbols(q, limit=limit)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Symbol source unavailable: {exc}") from exc
-    return [SymbolInfo(**r) for r in rows]
+    coverage = await _symbol_coverage()
+    return [
+        SymbolInfo(
+            **row,
+            ranges=coverage.get(row["symbol"], {}).get("ranges", []),
+        )
+        for row in rows
+    ]
 
 
 @router.get("/indices", response_model=IndicesResponse)
@@ -192,6 +218,66 @@ async def get_market_indices() -> IndicesResponse:
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Index source unavailable: {exc}") from exc
     return IndicesResponse(items=[IndexQuote(**r) for r in rows])
+
+
+@router.get("/watchlist/sparklines", response_model=list[WatchlistSparkline])
+async def get_watchlist_sparklines(
+    symbols: str | None = Query(
+        default=None,
+        description="Comma-separated symbols. Defaults to VN blue chips.",
+    ),
+    range: ChartRange = Query(default="1D"),
+) -> list[WatchlistSparkline]:
+    """Light rail payload: stored candles only, plus the day quote for 1D."""
+    symbol_list = (
+        [s.strip().upper() for s in symbols.split(",") if s.strip()]
+        if symbols is not None
+        else list(DEFAULT_WATCHLIST)
+    )
+    if not symbol_list:
+        return []
+    # The rail asks for at most 16; cap defensively without changing the
+    # existing /watchlist contract.
+    symbol_list = symbol_list[:32]
+
+    stored = await history.fetch_sparklines(symbol_list, range)
+    quote_map: dict[str, dict] = {}
+    index_map: dict[str, dict] = {}
+    if range == "1D":
+        equity_symbols = [sym for sym in symbol_list if sym not in INDEX_SYMBOLS]
+        try:
+            quote_map = await quotes.fetch_quotes(equity_symbols) if equity_symbols else {}
+        except Exception:
+            # The stored candle is still useful; a missing quote only costs the %
+            quote_map = {}
+        if any(sym in INDEX_SYMBOLS for sym in symbol_list):
+            try:
+                index_map = {
+                    row["symbol"]: row for row in await indices.fetch_market_indices()
+                }
+            except Exception:
+                index_map = {}
+
+    rows: list[WatchlistSparkline] = []
+    for sym in symbol_list:
+        item = stored.get(sym)
+        if not item:
+            continue
+        prices = item["prices"]
+        change: float | None = item.get("changePercent")
+        if range == "1D":
+            quote = quote_map.get(sym) or index_map.get(sym)
+            if quote is not None:
+                change = round(float(quote.get("changePercent") or 0), 2)
+        rows.append(
+            WatchlistSparkline(
+                symbol=sym,
+                changePercent=change,
+                sparkline=prices,
+                rangeUsed=item["range"],
+            )
+        )
+    return rows
 
 
 @router.get("/watchlist", response_model=list[WatchlistItem])
@@ -503,6 +589,8 @@ async def get_span(
                 cooldownSec=round(movement_frame(movement)[1], 3),
                 prices=[round(bar.close, 2) for bar in movement.bars],
                 volumes=[round(float(bar.volume), 4) for bar in movement.bars],
+                peaks=list(getattr(cached, "peaks", None) or []) if cached is not None else [],
+                peakLevel=float(getattr(cached, "peak_level", 0.0) or 0.0) if cached is not None else 0.0,
                 character=movement.character,
                 characterLabel=CHARACTER_LABEL.get(movement.character or "", ""),
                 sessionCharacters=[
@@ -532,6 +620,53 @@ async def get_span(
         humanize=humanize,
         color=color,
         dfi=work_dfi,
+    )
+
+
+@router.get("/stocks/{symbol}/span/peaks", response_model=SpanPeaksResponse)
+async def get_span_peaks(
+    response: Response,
+    symbol: str,
+    range: str = Query(default="1W"),
+    variant: Variant = Query(default="symphony"),
+    ensemble: str = Query(default="classic"),
+    humanize: bool = Query(default=True),
+    color: bool = Query(default=True),
+) -> SpanPeaksResponse:
+    """Only the per-movement envelopes. Avoids resending prices/volumes on refresh."""
+    sym = symbol.upper()
+    response.headers["Cache-Control"] = "no-store"
+    chosen = _ensemble(variant, ensemble)
+    if range not in SPAN_RANGES:
+        raise HTTPException(status_code=404, detail=f"No sonification for {range}")
+    try:
+        # TODO: cache plan_span here; peaks refreshes still re-plan the work.
+        plan = await plan_span(sym, range, variant, ensemble=chosen)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Span history unavailable: {exc}") from exc
+
+    peaks: list[SpanPeaksMovement] = []
+    for index, movement in enumerate(plan.movements):
+        cached = ready_movement(sym, range, index, variant, movement, chosen, humanize, color)
+        peaks.append(
+            SpanPeaksMovement(
+                index=index,
+                peaks=list(getattr(cached, "peaks", None) or []) if cached is not None else [],
+                peakLevel=float(getattr(cached, "peak_level", 0.0) or 0.0)
+                if cached is not None
+                else 0.0,
+            )
+        )
+    return SpanPeaksResponse(
+        symbol=sym,
+        range=range,
+        variant=variant,
+        ensemble=chosen,
+        humanize=humanize,
+        color=color,
+        movements=peaks,
     )
 
 

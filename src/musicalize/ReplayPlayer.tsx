@@ -15,6 +15,8 @@ type Props = {
   onAudible: () => void;
   onError: (message: string) => void;
   onDuration: (seconds: number) => void;
+  /** The file exists and is loaded: safe to ask the plan for its peaks. */
+  onReady?: () => void;
 };
 
 export function ReplayPlayer({
@@ -28,6 +30,7 @@ export function ReplayPlayer({
   onAudible,
   onError,
   onDuration,
+  onReady,
 }: Props) {
   const player = useAudioPlayer(url, { updateInterval: 80, downloadFirst: true });
   const status = useAudioPlayerStatus(player);
@@ -44,6 +47,7 @@ export function ReplayPlayer({
   const onAudibleRef = useRef(onAudible);
   const onErrorRef = useRef(onError);
   const onDurationRef = useRef(onDuration);
+  const onReadyRef = useRef(onReady);
   seekRef.current = seek;
   wantPlayRef.current = wantPlay;
   onTimeRef.current = onTime;
@@ -51,6 +55,7 @@ export function ReplayPlayer({
   onAudibleRef.current = onAudible;
   onErrorRef.current = onError;
   onDurationRef.current = onDuration;
+  onReadyRef.current = onReady;
 
   useEffect(() => {
     if (status.error) onErrorRef.current('Máy chủ chưa soạn được nhạc.');
@@ -88,6 +93,7 @@ export function ReplayPlayer({
       if (cancelled || booted.current) return;
       booted.current = true;
       setReady(true);
+      onReadyRef.current?.();
       onAudibleRef.current();
       if (wantPlayRef.current) player.play();
     })();

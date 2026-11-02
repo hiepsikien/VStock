@@ -2,7 +2,12 @@
 
 Tài liệu này chốt hướng làm đẹp và làm hữu dụng mặt nghe Musicalize. Nó bổ sung cho
 `docs/musicalize-plan.md`, không thay các luật ở đó (thứ tự màn nghe, hành vi
-playhead, sóng `peaks` chỉ trên thanh Phiên, tên bài nằm ngoài `Sparkline`).
+playhead, sóng `peaks` chỉ trên thanh thời gian, tên bài nằm ngoài `Sparkline`).
+
+> **Cập nhật 2026-11:** sóng `peaks` nay có trên timeline của **mọi khung**
+> (`1D`–`1Y`), ghép từ peaks của từng movement theo work clock. Nó vẫn **không**
+> được vẽ trong khung giá. Backend `SpanMovementResponse` trả `peaks` khi file
+> audio của movement đã có; movement chưa render thì để trống, không bịa từ giá.
 
 ## Phạm vi
 
@@ -190,8 +195,12 @@ vì hiện tại người dùng phải cuộn hết danh sách mới thấy char
     không ai đi tìm `open/high/low`.
   - Dải khối lượng: cao 36, sát đáy, màu `rgba(62,224,224,0.22)`, phần đã phát
     `0.42`, có đường baseline `hairline`. Nhãn `KL` (`mono` 10, `textFaint`) ở trái.
-    36 là **nới có chủ đích** từ ~30px của `musicalize-plan.md` để dải đọc được ở
-    1440px; không đổi số liệu, vị trí hay luật "không in số khối lượng".
+    36 là mức đủ đọc với thang căn bậc hai, vẫn nới từ ~30px của `musicalize-plan.md`;
+    không đổi số liệu, vị trí hay luật "không in số khối lượng". Thang đo dùng
+    **căn bậc hai + chặn P99.9** (không dùng log): với dữ liệu HNX 1D (241 nến),
+    sqrt giữ trung vị ~21% và P90 ~38%; log đẩy trung vị lên ~85% và thành một
+    băng đặc. `volumeCap` dùng nearest-rank `floor`, nên P99.9 luôn cắt ít nhất
+    cột lớn nhất khi cửa sổ có từ 2 nến trở lên, không bị thoái hoá thành max.
 - Playhead: vạch 1px amber, chấm 6px ở giao điểm với đường, pill giờ `mono` 11
   (nền amber, chữ `background`) ở trên, `left` clamp trong `[8, width-64]`.
 - Trạng thái:
@@ -232,6 +241,8 @@ chương hiện tại (`section`, `textFaint`) + `4/6`.
 - Rãnh 4px bo 2 `track`; phần đã phát `sound`; chấm kéo 10px amber.
 - `1D`: giữ `peaks` làm cột 36px phía sau rãnh, cột đã phát `sound`, chưa phát
   `track`.
+- Nhiều chương: ghép `peaks` của từng movement vào đúng đoạn audio của nó; đoạn
+  nghỉ để 0. Movement chưa render audio thì đoạn đó trống, tự điền khi file xuất hiện.
 - Nhiều chương: chia rãnh theo `workSegments(movements)` — đoạn `audio` vẽ `track`,
   đoạn `rest` vẽ `hairline`. Nhãn chương chỉ hiện khi hover (web) hoặc khi rê ngón
   (native): tooltip `surface` + viền `hairline`, nội dung `Tên chương · 3:12`.
@@ -352,7 +363,7 @@ Không cần backend mới. Tái dùng:
 | Giá, %, sparkline cho cột trái | `fetchWatchlist(symbols)` → `Stock { price, changePercent, sparkline }` |
 | Phiên, nến phút, khối lượng | `fetchSessions`, `fetchSessionMinutes` (đã dùng) |
 | Chương, giọng, BPM | `fetchSpan`, `pieceCopy` (đã dùng) |
-| `peaks` | `RecapManifest.peaks` (đã dùng) |
+| `peaks` | `RecapManifest.peaks` (1D) và `SpanMovementResponse.peaks` (span) |
 
 Thêm một request `fetchWatchlist` cho tối đa 12 mã, làm mới mỗi 30s, bỏ qua khi
 tab ẩn; lỗi thì giữ dữ liệu cũ và không chặn danh sách. Không cache giữa các lần
@@ -456,11 +467,10 @@ Không sửa: `liveSynth.ts`, `seek.ts`, `program.ts`, `recapCursor.ts`, `backen
    khi giảm; hướng đọc lấy từ độ dốc sparkline. Không thêm xanh/đỏ, giữ đúng luật
    ba màu. Nếu sau này cần đọc nhanh bằng màu thì đó là một token mới trong
    `palette.ts`, không đổi bố cục.
-2. **`peaks` không vào khung giá.** `docs/musicalize-plan.md` cấm theo nội dung,
-   không theo màu: "Không vẽ `RecapManifest.peaks` trong cùng khung với đường cyan.
-   Sóng `peaks` của phiên `1D` chỉ trên thanh Phiên", lặp ba lần. Bản này giữ
-   nguyên luật đó: sóng chỉ sống trên timeline. Muốn vẽ nền sau đường giá thì phải
-   sửa `musicalize-plan.md` trước, và đó là PR riêng — không nằm trong đợt này.
+2. **`peaks` không vào khung giá.** Sóng chỉ sống trên timeline. Từ 2026-11,
+   timeline của mọi khung đều có sóng: `1D` lấy `RecapManifest.peaks`, span lấy
+   `SpanMovementResponse.peaks` và ghép theo work clock. Vẫn không vẽ sóng trong
+   cùng khung với đường giá.
 
 Còn mở:
 

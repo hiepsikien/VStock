@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.sonify.model import Ensemble
+
 ChartRange = Literal["1D", "1W", "1M", "3M", "1Y", "5Y"]
 
 DEFAULT_WATCHLIST = [
@@ -31,6 +33,13 @@ class WatchlistItem(BaseModel):
     currency: str = "₫"
     sparkline: list[float] = Field(default_factory=list)
     unavailable: bool = False
+
+
+class WatchlistSparkline(BaseModel):
+    symbol: str
+    changePercent: float | None = None
+    sparkline: list[float] = Field(default_factory=list)
+    rangeUsed: str = "1D"
 
 
 class IncomePeriod(BaseModel):
@@ -191,6 +200,8 @@ class SpanMovementResponse(BaseModel):
     cooldownSec: float
     prices: list[float]
     volumes: list[float]
+    peaks: list[float] = []
+    peakLevel: float = 0.0
     character: str | None = None
     characterLabel: str = ""
     sessionCharacters: list[str] = []
@@ -199,6 +210,22 @@ class SpanMovementResponse(BaseModel):
     beatType: int = 4
     name: str = ""
     dfi: DfiBreakdown | None = None
+
+
+class SpanPeaksMovement(BaseModel):
+    index: int
+    peaks: list[float] = Field(default_factory=list)
+    peakLevel: float = 0.0
+
+
+class SpanPeaksResponse(BaseModel):
+    symbol: str
+    range: Literal["1W", "1M", "3M", "1Y"]
+    variant: Literal["symphony", "jazz", "minimalist", "ambient", "guitar"]
+    ensemble: Ensemble = "classic"
+    humanize: bool = True
+    color: bool = True
+    movements: list[SpanPeaksMovement]
 
 
 class SpanResponse(BaseModel):
@@ -289,6 +316,7 @@ class SymbolInfo(BaseModel):
     symbol: str
     name: str
     exchange: str
+    ranges: list[str] = Field(default_factory=list)
 
 
 class SymbolsResponse(BaseModel):

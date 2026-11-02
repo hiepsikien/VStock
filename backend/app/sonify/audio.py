@@ -41,7 +41,9 @@ logger = logging.getLogger(__name__)
 # Bump when the score or the sound changes, so old files are not replayed.
 RECAP_REVISION = "77"
 # Long-form files live beside the daily recap and use their own revision.
-SPAN_REVISION = "72"
+# Bump when the score, sound, or manifest shape changes: old JSON missing a new
+# field is still accepted with a default, so a manifest-only change must bump.
+SPAN_REVISION = "73"
 PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
@@ -172,6 +174,7 @@ class SpanAsset:
     bar_count: int
     media_type: str
     fingerprint: str
+    peak_level: float = 0.0
     movement_name: str = ""
     dfi: dict | None = None
     dfi_inputs: str = ""
@@ -255,17 +258,19 @@ def find_musescore() -> str | None:
     return resolve_executable(musescore_candidates())
 
 
-def waveform_peaks(path: Path, buckets: int = PEAK_BUCKETS) -> tuple[float, list[float]]:
-    """Duration and normalized peak envelope of a WAV file.
+def waveform_peaks_with_level(
+    path: Path, buckets: int = PEAK_BUCKETS
+) -> tuple[float, list[float], float]:
+    """Duration, normalized envelope, and the file's absolute peak level.
 
-    MuseScore 3 writes 16-bit integer samples. MuseScore 4 writes 32-bit float,
-    which the stdlib ``wave`` reader rejects.
+    The envelope is normalized to its own loudest bucket for shape. `level` is
+    that bucket on a 0..1 full-scale, so several movements can be compared.
     """
     channels, rate, samples = _wav_samples(path)
     count = len(samples) // channels if channels else 0
     duration = count / rate if rate else 0.0
     if count < 1 or channels < 1:
-        return duration, [0.0] * buckets
+        return duration, [0.0] * buckets, 0.0
     peaks: list[float] = []
     loudest = 0.0
     for index in range(buckets):
@@ -285,8 +290,24 @@ def waveform_peaks(path: Path, buckets: int = PEAK_BUCKETS) -> tuple[float, list
             loudest = local
         peaks.append(local)
     if loudest <= 0:
-        return duration, [0.0] * buckets
-    return duration, [round(peak / loudest, 4) for peak in peaks]
+        return duration, [0.0] * buckets, 0.0
+    full_scale = 1.0 if samples.typecode == "f" else 32768.0
+    level = min(1.0, loudest / full_scale)
+    return (
+        duration,
+        [round(peak / loudest, 4) for peak in peaks],
+        round(level, 6),
+    )
+
+
+def waveform_peaks(path: Path, buckets: int = PEAK_BUCKETS) -> tuple[float, list[float]]:
+    """Duration and normalized peak envelope of a WAV file.
+
+    MuseScore 3 writes 16-bit integer samples. MuseScore 4 writes 32-bit float,
+    which the stdlib ``wave`` reader rejects.
+    """
+    duration, peaks, _level = waveform_peaks_with_level(path, buckets)
+    return duration, peaks
 
 
 def join_chunks(
@@ -1365,7 +1386,7 @@ class RecapStore:
             if not wav_path.is_file() or wav_path.stat().st_size < 64:
                 raise RecapUnavailable("MuseScore wrote an empty movement")
             heard = _color_for_export(wav_path, variant) if color else wav_path
-            duration, peaks = waveform_peaks(heard)
+            duration, peaks, peak_level = waveform_peaks_with_level(heard)
             if duration <= 0:
                 duration = musical
             map_duration = musical if 0 < musical <= duration else duration
@@ -1389,6 +1410,7 @@ class RecapStore:
                 "mapDurationSec": round(map_duration, 3),
                 "barCount": movement.candle_count,
                 "peaks": peaks,
+                "peakLevel": peak_level,
                 "audio": audio_path.name,
                 "fingerprint": movement.scale_fingerprint,
                 "movementName": dance,
@@ -1452,6 +1474,7 @@ class RecapStore:
             bar_count=int(payload.get("barCount") or 0),
             media_type=_media_type(audio_path),
             fingerprint=fingerprint,
+            peak_level=float(payload.get("peakLevel") or 0.0),
             movement_name=str(payload.get("movementName") or ""),
             dfi=_stored_dfi(payload.get("dfi")),
             dfi_inputs=str(payload.get("dfi_inputs") or ""),

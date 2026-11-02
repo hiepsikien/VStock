@@ -1,12 +1,38 @@
 from __future__ import annotations
 
 from app.ingestion.providers.market_symbols import fetch_all_market_symbols
+from app.repositories.history_repo import HistoryRepository
 from app.repositories.symbols_repo import SymbolsRepository
 from app.services.cache import cache
+from app.services.history import SPARKLINE_RANGE_ORDER
 
 SYMBOLS_TTL = 6 * 3600
+COVERAGE_TTL = 60
 
 _repo = SymbolsRepository()
+_history_repo = HistoryRepository()
+
+
+async def fetch_coverage() -> dict[str, dict]:
+    """Stored range availability, cached briefly so the rail can hide dead rows."""
+    cached = cache.get("symbols:coverage")
+    if cached is not None:
+        return cached
+
+    ranges = await _history_repo.range_coverage()
+    coverage = {
+        symbol: {
+            "ranges": sorted(
+                available,
+                key=lambda item: SPARKLINE_RANGE_ORDER.index(item)
+                if item in SPARKLINE_RANGE_ORDER
+                else len(SPARKLINE_RANGE_ORDER),
+            )
+        }
+        for symbol, available in ranges.items()
+    }
+    cache.set("symbols:coverage", coverage, COVERAGE_TTL)
+    return coverage
 
 
 async def fetch_all_symbols() -> list[dict]:

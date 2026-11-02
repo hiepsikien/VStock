@@ -12,6 +12,7 @@ import Svg, {
   Stop,
 } from 'react-native-svg';
 import { colors } from '../theme';
+import { volumeCap, volumeRatio, type VolumeScale } from './volumeScale';
 
 const UNPLAYED_OPACITY = 0.28;
 
@@ -34,6 +35,8 @@ function volumeOutline(
   strip: number,
   focusStart?: number,
   focusEnd?: number,
+  scale: VolumeScale = 'linear',
+  capPercentile = 0.98,
 ): string {
   if (volumes.length < 1 || width <= 0 || height <= 0 || strip <= 0) return '';
   const start = focusStart ?? 0;
@@ -41,13 +44,22 @@ function volumeOutline(
   const span = Math.max(end - start, 1e-6);
   const i0 = Math.max(0, Math.floor(start));
   const i1 = Math.min(volumes.length - 1, Math.ceil(end));
+  const visibleValues: number[] = [];
   let peak = 0;
   for (let index = i0; index <= i1; index += 1) {
-    const value = volumes[index] ?? 0;
+    const value = Math.max(0, volumes[index] ?? 0);
+    visibleValues.push(value);
     if (value > peak) peak = value;
   }
   if (peak <= 0) return '';
-  const yAt = (value: number) => height - (Math.max(0, value) / peak) * strip;
+  // sqrt lifts the low body so the session shape reads; the P99.9 cap only
+  // pins the top one or two bars so a single auction print cannot set the
+  // scale on its own.
+  const ceiling =
+    scale === 'linear'
+      ? peak
+      : Math.max(volumeCap(visibleValues, capPercentile), peak * 0.01, Number.EPSILON);
+  const yAt = (value: number) => height - volumeRatio(value, ceiling, scale) * strip;
   const samples: { x: number; y: number }[] = [];
   const slot = width / span;
   if (slot >= 1.6) {
@@ -146,6 +158,10 @@ type Props = {
   /** Traded volume, one value per price, drawn as a strip under the line. */
   volumes?: number[] | null;
   volumeColor?: string;
+  /** `sqrt` compresses auction/open spikes so the rest of the session reads. */
+  volumeScale?: VolumeScale;
+  /** Values above this percentile are drawn at full height when `volumeScale` is not `linear`. */
+  volumeCapPercentile?: number;
   /** Cap on the volume strip. The studio asks for 36, the terminal keeps 30. */
   volumeStripMax?: number;
   /** Colour for the volume already played. Omit to keep the terminal's one-colour strip. */
@@ -180,6 +196,8 @@ export function Sparkline({
   waveColor = '#E040A0',
   volumes = null,
   volumeColor = 'rgba(62, 224, 224, 0.45)',
+  volumeScale = 'linear',
+  volumeCapPercentile = 0.98,
   volumeStripMax = VOLUME_STRIP,
   volumePlayedColor,
   baselineColor,
@@ -195,7 +213,16 @@ export function Sparkline({
   const { line, fill, cursor, volume } = useMemo(() => {
     const outline =
       volumeStrip > 0 && volumes
-        ? volumeOutline(volumes, width, height, volumeStrip, focusStart, focusEnd)
+        ? volumeOutline(
+            volumes,
+            width,
+            height,
+            volumeStrip,
+            focusStart,
+            focusEnd,
+            volumeScale,
+            volumeCapPercentile,
+          )
         : '';
     if (data.length < 2) {
       return { line: '', fill: '', cursor: null as { x: number; y: number } | null, volume: outline };
@@ -244,7 +271,18 @@ export function Sparkline({
           };
 
     return { line: linePath, fill: fillPath, cursor, volume: outline };
-  }, [cursorIndex, data, focusEnd, focusStart, height, volumeStrip, volumes, width]);
+  }, [
+    cursorIndex,
+    data,
+    focusEnd,
+    focusStart,
+    height,
+    volumeCapPercentile,
+    volumeScale,
+    volumeStrip,
+    volumes,
+    width,
+  ]);
 
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   const stroke = strokeColor ?? (positive ? colors.positive : colors.negative);

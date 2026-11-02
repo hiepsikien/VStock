@@ -611,6 +611,10 @@ export type SpanMovement = {
   cooldownSec: number;
   prices: number[];
   volumes?: number[];
+  /** Audio envelope 0..1 for a rendered movement. Empty until the file exists. */
+  peaks?: number[];
+  /** Absolute peak level of that file, so movements can be compared. */
+  peakLevel?: number;
   character?: string | null;
   characterLabel?: string;
   sessionCharacters?: string[];
@@ -648,6 +652,34 @@ export async function fetchSpan(
   const sym = symbol.toUpperCase();
   return apiGet<SpanManifest>(
     `/v1/stocks/${encodeURIComponent(sym)}/span?range=${range}&variant=${variant}&ensemble=${ensemble}${mixQuery(mix)}`,
+    signal,
+    true,
+  );
+}
+
+export type SpanPeaksManifest = {
+  symbol: string;
+  range: SpanRange;
+  variant: RecapVariant;
+  /** Optional so an older API without the echo fields still merges peaks. */
+  ensemble?: RecapEnsemble;
+  humanize?: boolean;
+  color?: boolean;
+  movements: Array<{ index: number; peaks: number[]; peakLevel?: number }>;
+};
+
+/** Peaks only: the refresh after a movement's file is written. */
+export async function fetchSpanPeaks(
+  symbol: string,
+  range: SpanRange,
+  variant: RecapVariant,
+  ensemble: RecapEnsemble = 'classic',
+  signal?: AbortSignal,
+  mix: SonifyMix = MIX_ON,
+): Promise<SpanPeaksManifest> {
+  const sym = symbol.toUpperCase();
+  return apiGet<SpanPeaksManifest>(
+    `/v1/stocks/${encodeURIComponent(sym)}/span/peaks?range=${range}&variant=${variant}&ensemble=${ensemble}${mixQuery(mix)}`,
     signal,
     true,
   );
@@ -778,7 +810,30 @@ export type MarketSymbol = {
   symbol: string;
   name: string;
   exchange: string;
+  /** Stored candle ranges. Empty means the symbol has no chart yet. */
+  ranges?: string[];
 };
+
+export type RangeSparkline = {
+  symbol: string;
+  changePercent: number | null;
+  sparkline: number[];
+  /** The range actually served when the requested one was missing. */
+  rangeUsed?: string;
+};
+
+/** Stored-only rail candles, downsample server-side. Never plans a sonification. */
+export async function fetchRangeSparklines(
+  symbols: string[],
+  range: ChartRange,
+): Promise<RangeSparkline[]> {
+  if (symbols.length === 0) return [];
+  const params = new URLSearchParams({
+    symbols: symbols.join(','),
+    range,
+  });
+  return apiGet<RangeSparkline[]>(`/v1/watchlist/sparklines?${params.toString()}`);
+}
 
 export async function fetchMarketSymbols(exchange?: 'HOSE' | 'HNX'): Promise<MarketSymbol[]> {
   const qs = exchange ? `?exchange=${exchange}` : '';
