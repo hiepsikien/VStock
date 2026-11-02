@@ -32,6 +32,7 @@ import {
 } from '../sonify/program';
 import { Controls } from './Controls';
 import { DfiSheet } from './DfiSheet';
+import { dfiPollKey } from './dfiPoll';
 import { CommandPalette } from './CommandPalette';
 import { clockText, GENRES, type ListenSpan } from './labels';
 import { readLink, writeLink } from './link';
@@ -743,7 +744,16 @@ export function ReplayRoom({ wide, onMode }: Props) {
     // next play writes `play` and starts a fresh set of retries. Computing the
     // key only after the guard would keep the exhausted `play` budget across a
     // pause/resume.
-    const pollKey = `${symbol}|${span}|${variant}|${ensemble}|${index}|${heardReady ? 'ready' : 'wait'}|${heardName ? 'name' : 'noname'}|${audible ? 'play' : 'idle'}`;
+    const pollKey = dfiPollKey({
+      symbol,
+      span,
+      variant,
+      ensemble,
+      index,
+      ready: heardReady,
+      name: heardName,
+      audible,
+    });
     if (dfiPoll.current.key !== pollKey) dfiPoll.current = { key: pollKey, count: 0 };
     if (span === '1D' || !audible || (heardName && heardReady && heardDfi)) return;
     // A movement can be heard before its score exists, and an old cache can

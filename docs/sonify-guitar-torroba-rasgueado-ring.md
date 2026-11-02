@@ -1,6 +1,6 @@
 # Torroba: rasgueado to hơn, ngân dài hơn, nốt sau vào trễ (Loại 1 / Loại 2)
 
-> **Trạng thái**: **đã vào code**, `pytest backend/tests -q` **782 passed**.
+> **Trạng thái**: **đã vào code**, `pytest backend/tests -q` **783 passed**.
 > **Đã làm**: `apply_torroba_fan_ring` (score), `_apply_fans` + `NoteEvent.pinned` (dynamic), `_fan_hold_multipliers` (humanize), floor `3/12`, lead guard, cửa sổ `assert_playable` 6 → 12, và test cho cả ba trục.
 > **Lệch nhỏ so với kế hoạch**: `_apply_fans` gọi sau hai restamp (không nằm trong `apply_guitar_wave`); `humanize()` có thêm `fan_hold: bool = True` để test style cũ tách khỏi tầng cơ thể; `fan_hold` dùng `delay_seconds = D * 60 / base_bpm[first]` để zero-sum theo thời gian thật, không theo beat danh nghĩa.
 > **Đọc cùng**: [`docs/sonify-guitar-torroba-phrase-plan.md`](./sonify-guitar-torroba-phrase-plan.md) mục 4 (định nghĩa Loại 1 / Loại 2), [`docs/sonify-guitar-torroba-note-surface.md`](./sonify-guitar-torroba-note-surface.md), [`docs/sonify-guitar-torroba-dynamics.md`](./sonify-guitar-torroba-dynamics.md), [`docs/sonify-guitar-torroba-lilt-accents.md`](./sonify-guitar-torroba-lilt-accents.md), [`docs/sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md), [`docs/sonify-guitar-torroba-juglar-cushion-dynamics-tempo.md`](./sonify-guitar-torroba-juglar-cushion-dynamics-tempo.md).
@@ -772,7 +772,7 @@ bpm = max(nominal * 0.60, min(nominal * 1.40, bpm))
 
 ## 15. Kết quả triển khai
 
-- `pytest backend/tests -q`: **782 passed**.
+- `pytest backend/tests -q`: **783 passed**.
 - **Cache revision**: `SPAN_REVISION` `71 → 72`, `RECAP_REVISION` `76 → 77` — audio/DFI cũ không replay score cũ.
 - ACB 1M II, 13 ô quạt: bass `0,5 → 1,0`; support thấp nhất `0,5 → 0,75`; lead giữ `0,5` (bị nốt lặp chặn); support còn lại giữ `0,5`.
 - Dynamic sau `_apply_fans`: các ô ấm `53–59` (lead) / `49–55` (bass) / `47–53` (support); các ô nền móng (`23`, `87`) đúng `73 / 71 / 69`.
@@ -783,3 +783,4 @@ bpm = max(nominal * 0.60, min(nominal * 1.40, bpm))
 - **Window test**: đổi tên thành `test_fan_bar_gets_the_whole_first_beat`; thêm `test_a_non_fan_roll_bar_keeps_the_strict_window` (bar odd-grid không có fan vẫn bị luật chặt).
 - Test mới: `test_fan_ring_and_dynamic_survive_humanize`, `test_musicxml_keeps_every_lead_note_in_a_chord_at_the_roll_offset`, `test_torroba_fan_hold_delays_only_the_next_attack`, `test_torroba_fan_hold_skips_a_short_span`, `test_torroba_fan_hold_works_without_a_lead`.
 - **DFI / tên chương bị "—"**: plan cũ bị HTTP cache giữ lại sau khi audio/DFI được ghi. Đã sửa: `apiGet(..., noStore=true)` cho `fetchSpan`, `fetchDfiPieces` và `fetchRecap`; `/span`, `/sonify/dfi/pieces` và `/sessions/{date}/recap` trả `Cache-Control: no-store`; poll reset budget trước guard, key gồm `audible` + `heardReady` + `heardName`, 24 lần (~36 s). Các GET khác (watchlist, news, signatures) giữ cache bình thường.
+- **Khóa hành vi cache/poll**: `test_dynamic_plan_routes_disable_the_http_cache` assert `no-store` cho span/recap/DFI; `src/musicalize/dfiPoll.ts` + `dfiPoll.test.ts` khóa pause → play đổi key/reset budget.

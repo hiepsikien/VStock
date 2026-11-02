@@ -303,6 +303,100 @@ def test_span_response_volumes_match_each_movement(monkeypatch) -> None:
     assert cached.movements[0].mapDurationSec == 260.0
 
 
+def test_dynamic_plan_routes_disable_the_http_cache(monkeypatch) -> None:
+    """Span, recap, and DFI pieces are written after the audio; never replay them."""
+    import asyncio
+    from types import SimpleNamespace
+
+    from starlette.requests import Request
+
+    from app.routers.stocks import get_dfi_pieces, get_recap, get_span
+    from app.services.spans import SpanPlan, prepare_month
+
+    request = Request({"type": "http", "method": "GET", "path": "/", "headers": []})
+
+    movements = prepare_month(
+        [
+            (date(2026, 1, 5), [Bar(10.0, 100.0), Bar(10.4, 0.0)]),
+            (date(2026, 1, 6), [Bar(11.0, 40.0)]),
+            (date(2026, 1, 7), [Bar(11.5)]),
+            (date(2026, 1, 8), [Bar(12.0, 5.0), Bar(12.2, 8.0)]),
+        ],
+        "VNM",
+    )
+
+    async def fake_plan(*_args, **_kwargs):
+        return SpanPlan(movements, date(2026, 1, 5))
+
+    monkeypatch.setattr("app.routers.stocks.plan_span", fake_plan)
+    monkeypatch.setattr("app.routers.stocks.ready_movement", lambda *_args, **_kwargs: None)
+    span_response = Response()
+    asyncio.run(get_span(span_response, "vnm", "1M", "symphony", "classic", True, True))
+    assert span_response.headers["cache-control"] == "no-store"
+
+    asset = SimpleNamespace(
+        symbol="VNM",
+        day=date(2026, 1, 5),
+        variant="symphony",
+        ensemble="classic",
+        duration_sec=1.0,
+        map_duration_sec=1.0,
+        bar_count=1,
+        peaks=[],
+        audio_url="",
+        character=None,
+        key_label="C",
+        movement_name="",
+        humanize=True,
+        color=True,
+        dfi=None,
+    )
+
+    async def fake_recap(*_args, **_kwargs):
+        return asset
+
+    monkeypatch.setattr("app.routers.stocks.load_recap", fake_recap)
+    recap_response = Response()
+    asyncio.run(
+        get_recap(
+            recap_response,
+            "vnm",
+            date(2026, 1, 5),
+            request,
+            "symphony",
+            "classic",
+            True,
+            True,
+        )
+    )
+    assert recap_response.headers["cache-control"] == "no-store"
+
+    monkeypatch.setattr("app.routers.stocks.dfi_service.requested_rows", lambda *_args, **_kwargs: ())
+
+    async def fake_pieces(*_args, **_kwargs):
+        return [], date(2026, 1, 5)
+
+    monkeypatch.setattr("app.routers.stocks.dfi_service.pieces_for_span", fake_pieces)
+    dfi_response = Response()
+    asyncio.run(
+        get_dfi_pieces(
+            dfi_response,
+            request,
+            "vnm",
+            "span",
+            None,
+            "1M",
+            None,
+            0,
+            "symphony",
+            "classic",
+            True,
+            True,
+        )
+    )
+    assert dfi_response.headers["cache-control"] == "no-store"
+
+
 def test_join_trims_the_tail_of_every_chunk_but_the_last():
     rate = 1000
     first = array("h", [1000] * 2000 + [9] * 500)
