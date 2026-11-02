@@ -301,7 +301,7 @@ def retarget_torroba_meter(spec: FormSpec, character: MovementCharacter | None) 
 
 
 def retarget_torroba_tempo(spec: FormSpec, character: MovementCharacter | None) -> FormSpec:
-    """Lift a Torroba movement into 96–140 BPM. Nothing slower than 96 survives.
+    """Lift a Torroba movement into 92–132 BPM. Nothing slower than 92 survives.
 
     The floor is read from the meter the movement has *after*
     `retarget_torroba_meter`, so a 4/4 calm that just became 3/4 takes the 3/4

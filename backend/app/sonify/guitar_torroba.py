@@ -8,6 +8,7 @@ replaces the price note, and neither one is recorded as a scale passage.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
 
 from app.sonify.chords import Chord
@@ -50,22 +51,22 @@ def _juglar_thumb(fingers: list[int]) -> int:
     return max(JUGLAR_THUMB_FLOOR, min(JUGLAR_THUMB_CEIL, max(fingers) + JUGLAR_RISE))
 
 # The tempo band every Torroba movement lives in. A movement slower than its
-# row is lifted to the row; nothing is lowered unless it passed 140.
-TORROBA_TEMPO_MIN = 96
-TORROBA_TEMPO_MAX = 140
+# row is lifted to the row; nothing is lowered unless it passed 132.
+TORROBA_TEMPO_MIN = 92
+TORROBA_TEMPO_MAX = 132
 TORROBA_TEMPO_FLOOR = {
-    ("calm", "3/4"): 96,
-    ("calm", "4/4"): 96,
-    ("calm", "6/8"): 104,
-    ("selloff", "3/4"): 104,
-    ("selloff", "4/4"): 104,
-    ("selloff", "6/8"): 116,
-    ("rally", "3/4"): 112,
-    ("rally", "4/4"): 120,
-    ("rally", "6/8"): 120,
-    ("volatile", "3/4"): 124,
-    ("volatile", "4/4"): 132,
-    ("volatile", "6/8"): 140,
+    ("calm", "3/4"): 92,
+    ("calm", "4/4"): 92,
+    ("calm", "6/8"): 96,
+    ("selloff", "3/4"): 96,
+    ("selloff", "4/4"): 96,
+    ("selloff", "6/8"): 108,
+    ("rally", "3/4"): 104,
+    ("rally", "4/4"): 112,
+    ("rally", "6/8"): 112,
+    ("volatile", "3/4"): 116,
+    ("volatile", "4/4"): 124,
+    ("volatile", "6/8"): 132,
 }
 
 
@@ -3438,7 +3439,7 @@ def apply_sonatina_downbeats(ctx, lead, support, patterns, scale_eighths: set[in
     lead note already written on that downbeat. A scale eighth owns its own
     line, so no pickup is planted into it or out of it.
     """
-    from app.sonify.guitar_patterns import _bar_pattern
+    from app.sonify.guitar_patterns import _bar_pattern, _torroba_boundary
 
     epb = ctx.epb
     if 0 not in {offset for offset in ctx.strong if offset < epb}:
@@ -3453,6 +3454,10 @@ def apply_sonatina_downbeats(ctx, lead, support, patterns, scale_eighths: set[in
         if previous is None:
             continue
         if bar in figure_bars or previous // epb in figure_bars:
+            continue
+        # A cushion bar keeps its last beat empty. Planting a pickup back into
+        # it would fill the gap the A-B-A cushion just opened.
+        if _torroba_boundary(ctx, previous // epb, patterns):
             continue
         # A castillo hold is not sonatina, so the sounding note can still grace
         # into this downbeat. The unsung close at eighth 4 is not consulted.
@@ -3748,6 +3753,64 @@ def _sounding_bass(ctx, bar: int, lead: int) -> int | None:
     return bass
 
 
+def _juglar_bass(
+    ctx,
+    bar: int,
+    eighth: int,
+    raw: int | None,
+    lead: list[NoteEvent],
+    support: list[NoteEvent],
+) -> tuple[int, int] | None:
+    """Bass of one p-a-m-i chunk. A fretted bass is valid, and the attack stays.
+
+    `_sounding_bass` rejects a fretted bass, which drops the whole beat on an F
+    chord in a written key whose open strings miss the triad. The chunk keeps
+    the Torroba bass instead and lets `_fitting_bass` move to another chord
+    tone when the hand cannot hold two eighths. If that still fails, the whole
+    high voice of this chunk drops an octave (written in `lead`, which the
+    caller keeps) and both lengths are tried again. If no bass can be written
+    at all, the dropped octave is rolled back and `None` is returned, so a lost
+    beat never leaves a silently re-voiced melody behind. Only an impossible
+    hand loses the beat; the score stays playable instead of forcing a note
+    that `assert_playable` would reject.
+    """
+    found = _fitting_bass(ctx, bar, eighth, raw, [*lead, *support], (2,))
+    if found is not None:
+        return found
+    start = eighth * 0.5
+    end = start + 1.0
+    lowered: list[tuple[int, NoteEvent]] = []
+    for index, event in enumerate(lead):
+        if event.bar != bar or event.midi is None or event.voice != 1:
+            continue
+        if not (start - 1e-9 <= event.beat < end - 1e-9):
+            continue
+        if event.midi - 12 < ctx.treble_floor:
+            continue
+        lowered.append((index, event))
+        lead[index] = replace(event, midi=event.midi - 12)
+    if lowered:
+        found = _fitting_bass(ctx, bar, eighth, raw, [*lead, *support], (2, 1))
+        if found is not None:
+            return found
+    found = _fitting_bass(ctx, bar, eighth, raw, [*lead, *support], (1,))
+    if found is not None:
+        return found
+    # Last resort: the lowest chord tone in the bass window at a half beat. It
+    # should never fire on the measured material; an impossible hand is the only
+    # case where the beat is dropped rather than writing an unplayable note.
+    low, high = _bass_window(ctx)
+    for pitch in range(low, high + 1):
+        if pitch % 12 not in ctx.chord(bar).pitch_classes:
+            continue
+        found = _fitting_bass(ctx, bar, eighth, pitch, [*lead, *support], (1,))
+        if found is not None:
+            return found
+    for index, event in lowered:
+        lead[index] = event
+    return None
+
+
 def _downbeat_only(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
     """A meter this pattern does not spell. One lead, and an open bass when there is one."""
     eighth = bar * ctx.epb
@@ -3793,7 +3856,8 @@ def _render_juglar_bar(ctx, bar: int, phrase, mode: str, patterns=None):
     lead: list[NoteEvent] = []
     low: list[NoteEvent] = []
     band = ctx.band(bar)
-    quarter_notes = mode == "thin" or _juglar_region_last(ctx, bar, patterns)
+    region_last = _juglar_region_last(ctx, bar, patterns)
+    quarter_notes = mode == "thin" or region_last
     levels: list[int] = []
     for quarter, eighth in enumerate((0, 2, 4)):
         origin = bar * ctx.epb + eighth
@@ -3806,36 +3870,43 @@ def _render_juglar_bar(ctx, bar: int, phrase, mode: str, patterns=None):
         beat = float(quarter)
         accent = mode == "full" and eighth == 0 and not quarter_notes
         if quarter_notes:
-            lead.append(_heard(bar, beat, midi, 1.0, 1, velocity))
+            # Only the final bar of the Juglar region releases its last note
+            # early. A thin bar in the middle still rings to the barline.
+            duration = 0.25 if region_last and quarter == 2 else 1.0
+            lead.append(_heard(bar, beat, midi, duration, 1, velocity))
             continue
         # The thumb already sits on the beat, so the fingers start one sixteenth later.
         for index, offset in enumerate(JUGLAR_FINGERS):
+            duration = JUGLAR_STEP
+            if index == len(JUGLAR_FINGERS) - 1 and quarter != 2:
+                duration = 0.5
             lead.append(
                 _heard(
                     bar,
                     beat + (index + 1) * JUGLAR_STEP,
                     midi,
-                    JUGLAR_STEP,
+                    duration,
                     1,
                     max(40, velocity + offset),
                     accent=accent and index == 0,
                 )
             )
     support: list[NoteEvent] = []
-    sung = _melody_at(ctx, bar * ctx.epb)
-    bass = _sounding_bass(ctx, bar, sung)
     if not quarter_notes:
         # No inner note: a chunk is exactly four plucks. The thumb is the
         # second line, so it is rewritten after the arch instead of `_bed`.
-        if bass is not None:
-            for quarter, (eighth, level) in enumerate(zip((0, 2, 4), levels)):
-                thumb = _juglar_thumb([max(40, level + offset) for offset in JUGLAR_FINGERS])
-                found = _fitting_bass(ctx, bar, eighth, bass, [*lead, *support], (2, 1))
-                if found is None:
-                    continue
-                pitch, length = found
-                low.append(_heard(bar, float(quarter), pitch, length * 0.5, 3, thumb))
+        for quarter, (eighth, level) in enumerate(zip((0, 2, 4), levels)):
+            origin = bar * ctx.epb + eighth
+            raw = _torroba_bass(ctx, ctx.chord(bar), bar, _melody_at(ctx, origin))
+            thumb = _juglar_thumb([max(40, level + offset) for offset in JUGLAR_FINGERS])
+            found = _juglar_bass(ctx, bar, eighth, raw, lead, support)
+            if found is None:
+                continue
+            pitch, length = found
+            low.append(_heard(bar, float(quarter), pitch, length * 0.5, 3, thumb))
         return lead, support, low
+    sung = _melody_at(ctx, bar * ctx.epb)
+    bass = _torroba_bass(ctx, ctx.chord(bar), bar, sung)
     if bass is not None:
         inner_vel, bass_vel = _bed(_lead_vel(ctx, bar * ctx.epb, phrase), band)
         here = _melody_at(ctx, bar * ctx.epb + 2)
@@ -4606,6 +4677,102 @@ def apply_torroba_sung_arch(ctx, lead, patterns):
                 events[index] = event
             if _bar_pattern(ctx, event.bar, patterns) == "torroba_tremolo":
                 _respell_juglar_cluster(events, event)
+    return events
+
+
+def apply_castillo_first_a_contour(ctx, lead, patterns):
+    """Dynamic contour for the first Castillos A region, after arch and before the wave.
+
+    The figure pen normalizes a borrowed velocity to the eighth's own level, so
+    a contour written inside the figure is flattened. This pass runs after that
+    normalization and after the sung arch, while the volume wave still applies
+    one uniform shift per bar. The written differences therefore survive to
+    audio.
+
+    The opening body region is the target. When its first phrase sings
+    Castillo, every following body phrase that also sings Castillo belongs to
+    the same A region, so the arc spans the whole region (open, rise, release)
+    instead of one phrase. A movement whose opening body is another pattern is
+    left alone, and the returning A after the B contrast keeps its own shape.
+    """
+    if getattr(ctx, "ensemble", None) != "torroba":
+        return list(lead)
+    from app.sonify.guitar_patterns import _bar_pattern
+
+    phrases = getattr(ctx, "phrases", ()) or ()
+    opening = None
+    for index, candidate in enumerate(phrases):
+        if index >= len(patterns):
+            break
+        if not _body_phrase(ctx, candidate):
+            continue
+        opening = index
+        break
+    if opening is None or patterns[opening] != "castillo":
+        return list(lead)
+
+    region_start = phrases[opening].start
+    region_end = phrases[opening].end
+    for index in range(opening + 1, len(phrases)):
+        candidate = phrases[index]
+        if index >= len(patterns) or patterns[index] != "castillo":
+            break
+        if not _body_phrase(ctx, candidate):
+            break
+        region_end = max(region_end, candidate.end)
+
+    events = list(lead)
+    onsets = [event.bar * ctx.epb + float(event.beat) * 2.0 for event in events]
+    inside = [
+        index
+        for index, onset in enumerate(onsets)
+        if region_start <= onset < region_end
+        and _bar_pattern(ctx, events[index].bar, patterns) == "castillo"
+    ]
+    if not inside:
+        return events
+
+    by_bar: dict[int, list[int]] = {}
+    for index in inside:
+        by_bar.setdefault(events[index].bar, []).append(index)
+
+    for indexes in by_bar.values():
+        indexes.sort(key=lambda item: onsets[item])
+        velocities = [int(events[item].velocity or 0) for item in indexes]
+        flat = max(velocities) - min(velocities) < 4
+        repeated = any(
+            events[indexes[position]].midi == events[indexes[position - 1]].midi
+            for position in range(1, len(indexes))
+        )
+        if not (flat or repeated):
+            continue
+        for item in indexes:
+            event = events[item]
+            progress = (onsets[item] - region_start) / max(1, region_end - region_start)
+            arc = round(5 * math.sin(math.pi * progress)) - 2
+            beat_index = min(3, max(0, int(event.beat + 1e-9)))
+            beat_step = -2 * min(beat_index, 2)
+            velocity = int(event.velocity or 0) + arc + beat_step
+            events[item] = replace(event, velocity=max(44, min(72, velocity)))
+        # Keep a repeated pitch at least four apart. When the later note would
+        # fall under the floor, raise the earlier one instead of going below it.
+        for position in range(1, len(indexes)):
+            earlier = events[indexes[position - 1]]
+            later = events[indexes[position]]
+            if earlier.midi != later.midi:
+                continue
+            earlier_velocity = int(earlier.velocity or 0)
+            later_velocity = int(later.velocity or 0)
+            if abs(earlier_velocity - later_velocity) >= 4:
+                continue
+            if earlier_velocity - 4 >= 44:
+                events[indexes[position]] = replace(
+                    later, velocity=earlier_velocity - 4
+                )
+            else:
+                events[indexes[position - 1]] = replace(
+                    earlier, velocity=min(72, later_velocity + 4)
+                )
     return events
 
 

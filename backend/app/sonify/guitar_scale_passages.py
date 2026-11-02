@@ -2246,11 +2246,16 @@ def _drop_region(
     end: int,
     epb: int,
     preserve: set[int] | None = None,
+    hold_bass_until: int | None = None,
 ) -> list[NoteEvent]:
     """Remove sounding time in `[start, end)` without inventing an onset at `end`.
 
     `preserve` keeps the attack that starts on those eighths, so a Bartók slap
     at eighth 3 survives a sub-bar scale.
+    `hold_bass_until` lets a bass that began before the region ring up to that
+    eighth. A Torroba thumb holds a whole beat, and a run that starts on the
+    last eighth of that beat must not clip it to half a beat. The ring stops at
+    the next strong eighth, where the rewritten bass plants a new attack.
     """
     keep_onsets = preserve or set()
     lo = start * 2
@@ -2271,10 +2276,13 @@ def _drop_region(
             kept.append(event)
             continue
         if begin < lo:
+            keep_to = lo
+            if hold_bass_until is not None and event.voice == 3:
+                keep_to = min(finish, max(lo, hold_bass_until * 2))
             kept.extend(
                 _spell16(
                     begin,
-                    lo - begin,
+                    keep_to - begin,
                     event.midi,
                     epb,
                     event.voice,
@@ -2702,7 +2710,22 @@ def _rewrite_bass(
 ) -> list[NoteEvent] | None:
     start, target = passage.start, passage.target
     slap = _slap_eighths(ctx, patterns, passage)
-    low = _drop_region(low, start, target, ctx.epb, slap)
+    # Torroba's tremolo thumb holds a full beat. A run that opens on the last
+    # eighth of the beat must not shorten that thumb. The ring stops where the
+    # rewritten bass plants its next attack.
+    hold_until = None
+    if getattr(ctx, "ensemble", None) == "torroba":
+        hold_until = start
+        while hold_until < target and hold_until % ctx.epb not in ctx.strong:
+            hold_until += 1
+    low = _drop_region(
+        low,
+        start,
+        target,
+        ctx.epb,
+        slap,
+        hold_bass_until=hold_until,
+    )
     low = _release_split_ties(ctx, patterns, start, target, low)
     leads = _leads_at(slots, pitches)
     first = start // ctx.epb

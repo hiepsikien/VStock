@@ -10,7 +10,7 @@ Ba việc cùng một đợt: mọi chương ngoài 1D hát ít nhất hai patte
 
 ## 1. Việc đang nghe
 
-ACB 1M, Guitar, Torroba, giọng nhà Si♭. Bốn chương. Cột nhịp và BPM đã là **sau retarget tempo** (đợt 96–140); cột pattern là bảng pattern **trước** đợt này, tức cái đang nghe ở rev 69. Trạng thái đã vào code nằm ở bảng `Hôm nay / Sau` cuối mục 4.
+ACB 1M, Guitar, Torroba, giọng nhà Si♭. Bốn chương. Cột nhịp và BPM đã là **sau retarget tempo** (đợt 92–132); cột pattern là bảng pattern **trước** đợt này, tức cái đang nghe ở rev 69. Trạng thái đã vào code nằm ở bảng `Hôm nay / Sau` cuối mục 4.
 
 | Chương | Nhịp đang chạy | Mood | Tên trong file audio | Pattern đang hát |
 |---|---|---|---|---|
@@ -75,34 +75,34 @@ Sonatina không còn ô nào trong bảng: `_torroba_primary` không trả nó, 
 
 Juglar chỉ đứng trên 3/4. Trên 4/4 và 6/8, `_render_juglar_bar` rơi `_downbeat_only`: một nốt, không chùm. Danza đã có lưới 3/4 (hợp âm staccato ở móc 0, đáp ở móc 1, 2 và 4) và lưới 6/8 (hợp âm ở móc 0 và 3). Danza không vào 4/4.
 
-| 4/4, 96–132 BPM | A | Vì sao |
+| 4/4, 92–124 BPM | A | Vì sao |
 |---|---|---|
 | calm | Castillo | Nốt hát dài, bass một phách |
 | rally | Olite | Nét chạy 4/4, không trải Sonatina cả vùng |
 | selloff | Castillo | Nốt dài. Vòng hợp âm đi xuống vẫn ở dialect |
 | volatile | Olite | Lưới 4/4 của chương nhanh |
 
-Sau retarget, 4/4 chỉ còn ở rally và volatile. Đo bằng `tmp/diag_torroba_specs.py`: 1W rally, 1M IV, 1Q I và tháng 12 của 1Y đều **120**; volatile **132** (3M III từ 108). Chương `calm` và `selloff` 4/4 đổi sang 3/4 trong `retarget_torroba_meter` **trước** khi đọc sàn, nên chúng đọc bảng 3/4. 1D giữ **96** vì đi `GUITAR_BPM['torroba']`, không có `_spec`.
+Sau retarget, 4/4 chỉ còn ở rally và volatile. Đo bằng `tmp/diag_torroba_specs.py`: 1W rally, 1M IV, 1Q I và tháng 12 của 1Y đều **112**; volatile **124** (3M III từ 108). Chương `calm` và `selloff` 4/4 đổi sang 3/4 trong `retarget_torroba_meter` **trước** khi đọc sàn, nên chúng đọc bảng 3/4. 1D giữ **96** vì đi `GUITAR_BPM['torroba']`, không có `_spec`.
 
-| 3/4, 96–124 BPM | A | Vì sao |
+| 3/4, 92–116 BPM | A | Vì sao |
 |---|---|---|
 | calm | Castillo | Nốt hát dài, bass một phách; Juglar là contrast |
 | rally | Juglar | Ba chùm bốn cú trên 3/4 |
 | selloff | Castillo | Nốt dài |
 | volatile | Danza | Hợp âm staccato đã có lưới 3/4 |
 
-1M II là **96**. 3M II là **96**. Chương giữa 1Y là **96**. selloff 3/4 là 104, rally 112, volatile 124. 3M III ở calm đổi sang 3/4 và giữ 108, vẫn bảng này.
+1M II là **96**. 3M II là **96**. Chương giữa 1Y là **96**. selloff 3/4 là 96, rally 104, volatile 116. 3M III ở calm đổi sang 3/4 và giữ 108, vẫn bảng này.
 
-Hai hàng nhanh của bảng này — `rally` 112 và `volatile` 124 — chỉ xảy ra ở những ô **vốn đã** 3/4: `1M II`, `3M II`, và chương 2 / 5 / 8 / 11 của `1Y`. Ô 4/4 chỉ đổi sang 3/4 khi mood là `calm` hoặc `selloff` (`retarget_torroba_meter`), và hai mood đó đọc 96 / 104. Nên chương để nghe thử tremolo ở 7,5 và 8,3 cú/giây là `1M II` / `3M II`, hoặc ô 3/4 của `1Y`. Quét 112 mã × `1M`/`3M`/`1Y` (`tmp/diag_juglar_fast.py`): 169 chương 3/4 từ 112 BPM trở lên, **cả 169 hát Juglar**, không có chương nào rơi về `sonatina`.
+Hai hàng nhanh của bảng này — `rally` 104 và `volatile` 116 — chỉ xảy ra ở những ô **vốn đã** 3/4: `1M II`, `3M II`, và chương 2 / 5 / 8 / 11 của `1Y`. Ô 4/4 chỉ đổi sang 3/4 khi mood là `calm` hoặc `selloff` (`retarget_torroba_meter`), và hai mood đó đọc 92 / 96. Nên chương để nghe thử tremolo ở 6,9 và 7,7 cú/giây là `1M II` / `3M II`, hoặc ô 3/4 của `1Y`. Quét lại sau khi hạ dải (`tmp/diag_juglar_fast.py`): mọi chương 3/4 ở rally và volatile đều hát Juglar, không có chương nào rơi về `sonatina`.
 
-| 6/8, 108–140 BPM | A | Vì sao |
+| 6/8, 96–132 BPM | A | Vì sao |
 |---|---|---|
 | calm | Danza | Hợp âm staccato, đúng tempo scherzo |
 | rally | Alcaniz | Điệu 6/8 |
 | volatile | Fandanguillo | Quạt, lưới 6/8 |
 | selloff | Fandanguillo | Vẫn là điệu. Castillo ngân cả ô không đứng ở 120 |
 
-1M III là **120**. Scherzo 1Y (closer, sau khi guitar đổi 3/4 sang 6/8) rally là 120, calm là 108. 6/8 selloff là 116, volatile 140.
+1M III là **120**. Scherzo 1Y (closer, sau khi guitar đổi 3/4 sang 6/8) rally là 120, calm là 108. 6/8 selloff là 116, volatile bị trần mới kéo về 132.
 
 ---
 

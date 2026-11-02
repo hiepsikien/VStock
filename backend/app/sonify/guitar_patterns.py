@@ -2111,6 +2111,136 @@ def _silence(events: list[NoteEvent], eighth: int, epb: int) -> list[NoteEvent]:
     return _drop_overlap(events, eighth * 2, eighth * 2 + 2, epb)
 
 
+def _torroba_boundary(ctx, bar: int, patterns) -> bool:
+    """True when a Torroba body bar yields to a different Torroba pattern."""
+    if getattr(ctx, "ensemble", None) != "torroba":
+        return False
+    if getattr(ctx, "kind", None) not in {"3/4", "4/4", "6/8"}:
+        return False
+    if bar < 0 or bar + 1 >= ctx.bars:
+        return False
+    if ctx.kind_at.get(bar, "phrase") in _PEDAL:
+        return False
+    if ctx.kind_at.get(bar + 1, "phrase") in _PEDAL:
+        return False
+    # The seam is read from the two bars, not from the section map. A phrase
+    # may spill one bar into the next section, so the last bar that still
+    # renders the outgoing pattern is the bar that yields, not necessarily
+    # `section.end - 1`.
+    left = _bar_pattern(ctx, bar, patterns)
+    right = _bar_pattern(ctx, bar + 1, patterns)
+    return left != right and "pedal" not in {left, right}
+
+
+def _torroba_cushion_bars(ctx, patterns) -> list[int]:
+    """Every body bar whose next bar sings a different Torroba pattern."""
+    if getattr(ctx, "ensemble", None) != "torroba":
+        return []
+    return [bar for bar in range(ctx.bars - 1) if _torroba_boundary(ctx, bar, patterns)]
+
+
+def _torroba_cushion(ctx, bar: int, lead, support, low):
+    """Thin the outgoing Torroba bar into a cushion with one clear empty beat.
+
+    Keep every attack before the final beat, drop new attacks on that beat, and
+    cut a lead or inner note that would ring across it exactly on the beat line.
+    A bass that already rings into the gap is left alone; no new bass starts
+    inside it. The figure head therefore survives, while the last beat is a rest.
+    """
+    if getattr(ctx, "ensemble", None) != "torroba":
+        return lead, support, low
+    if ctx.kind not in {"3/4", "4/4", "6/8"}:
+        return lead, support, low
+    beat_eighths = 3 if ctx.kind == "6/8" else 2
+    bar_start = bar * ctx.epb
+    gap_eighth = (bar + 1) * ctx.epb - beat_eighths
+    gap_beat = (gap_eighth - bar_start) * 0.5
+
+    def cut(events, *, trim: bool):
+        kept: list[NoteEvent] = []
+        dropped: list[NoteEvent] = []
+        for event in events:
+            if event.midi is None or event.bar != bar:
+                kept.append(event)
+                continue
+            if event.beat >= gap_beat - 1e-9:
+                dropped.append(event)
+                continue
+            if trim and event.beat + event.duration_beats > gap_beat + 1e-9:
+                kept.append(
+                    replace(
+                        event,
+                        duration_beats=max(0.0, gap_beat - event.beat),
+                        # The continuation after the gap is dropped, so the
+                        # trimmed note must not open a tie to nothing.
+                        tie_start=False,
+                    )
+                )
+            else:
+                kept.append(event)
+        if not dropped:
+            return kept
+        # A bass may ring through the gap, but its tied continuation after the
+        # gap is dropped. Clear the tie on the kept segment so no tie is left
+        # pointing at a note that no longer exists.
+        clear: set[int] = set()
+        for gone in dropped:
+            if not gone.tie_stop:
+                continue
+            for index, event in enumerate(kept):
+                if (
+                    event.midi == gone.midi
+                    and event.voice == gone.voice
+                    and event.bar == gone.bar
+                    and event.tie_start
+                    and abs(event.beat + event.duration_beats - gone.beat) < 1e-6
+                ):
+                    clear.add(index)
+                    break
+        if not clear:
+            return kept
+        return [
+            replace(event, tie_start=False) if index in clear else event
+            for index, event in enumerate(kept)
+        ]
+
+    lead, support, low = (
+        cut(lead, trim=True),
+        cut(support, trim=True),
+        cut(low, trim=False),
+    )
+    return (
+        _clear_orphan_tie_stops(lead, ctx.epb),
+        _clear_orphan_tie_stops(support, ctx.epb),
+        _clear_orphan_tie_stops(low, ctx.epb),
+    )
+
+
+def _clear_orphan_tie_stops(events: list[NoteEvent], epb: int) -> list[NoteEvent]:
+    """Drop a `tie_stop` whose `tie_start` was cleared on this or the previous bar.
+
+    A cushion may trim a note that ties across the barline. The start is cleared
+    on the outgoing bar, so the continuation in the next bar must not keep a
+    `tie_stop` that points at nothing.
+    """
+    starts = {
+        (event.midi, event.voice, round(event.bar * epb + (event.beat + event.duration_beats) * 2, 6))
+        for event in events
+        if event.midi is not None and event.tie_start
+    }
+    cleaned: list[NoteEvent] = []
+    for event in events:
+        if event.midi is None or not event.tie_stop:
+            cleaned.append(event)
+            continue
+        here = round(event.bar * epb + event.beat * 2, 6)
+        if (event.midi, event.voice, here) in starts:
+            cleaned.append(event)
+        else:
+            cleaned.append(replace(event, tie_stop=False))
+    return cleaned
+
+
 def _scale_line(target: int, steps: int, ascending: bool, mode: str, low: int, high: int, chromatic: bool) -> list[int]:
     start = target
     moved = 0
@@ -3583,9 +3713,14 @@ def render_patterned_voices(
     lead, support, low = _shape_dynamics(
         ctx, lead, support, low, relaxed, patterns, protected_eighths
     )
-    from app.sonify.guitar_torroba import apply_juglar_thumb, apply_torroba_sung_arch
+    from app.sonify.guitar_torroba import (
+        apply_castillo_first_a_contour,
+        apply_juglar_thumb,
+        apply_torroba_sung_arch,
+    )
 
     lead = apply_torroba_sung_arch(ctx, lead, patterns)
+    lead = apply_castillo_first_a_contour(ctx, lead, patterns)
     low = apply_juglar_thumb(ctx, lead, low, patterns)
     written_lead = list(lead)
     from app.sonify.guitar_wave import apply_guitar_wave
@@ -3970,7 +4105,17 @@ def _smooth_boundaries(
     relaxed: set[int] = set()
     protected = scale_eighths or set()
     owned = figure_bars or set()
-    for bar in _boundary_bars(ctx, patterns):
+    seams = _boundary_bars(ctx, patterns)
+    cushions = _torroba_cushion_bars(ctx, patterns)
+    if cushions:
+        seams = sorted(set(seams) | set(cushions))
+    for bar in seams:
+        # A Torroba body bar that yields to another Torroba pattern becomes a
+        # cushion. It runs before the figure guard on purpose: the two A-B-A
+        # seams are figure bars, and a full bar would leave no empty beat.
+        if _torroba_boundary(ctx, bar, patterns):
+            lead, support, low = _torroba_cushion(ctx, bar, lead, support, low)
+            continue
         # A Torroba figure owns its bass line and its rolled lead. A boundary
         # pickup would replace the last eighth and spell the roll back to beat 0.
         if bar in owned:
@@ -4125,6 +4270,10 @@ def _transitions(
         if phrase.end - phrase.start < 1:
             continue
         eighth = phrase.end - 1
+        bar = eighth // ctx.epb
+        if _torroba_boundary(ctx, bar, patterns):
+            lead, support, low = _torroba_cushion(ctx, bar, lead, support, low)
+            continue
         # The last eighth of a figure bar is part of the figure. Silencing it
         # cuts the rolled lead back to the downbeat and drops the final bass.
         if eighth // ctx.epb in owned:
