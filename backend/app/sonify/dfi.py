@@ -359,8 +359,14 @@ def _active_span(score: Score, windows: Sequence[tuple[int, int]]) -> tuple[int,
     if not active:
         return window_start, window_end
     first, last = min(active), max(active)
-    start = window_start + min(max(first - window_start, 0), _ENTRANCE_GRACE_BARS)
-    end = window_end - min(max(window_end - last, 0), _ENTRANCE_GRACE_BARS)
+    # Also cap the grace as a fraction of the form, so a trace that only
+    # covers the middle cannot shrink the denominator to that middle.
+    grace = min(
+        _ENTRANCE_GRACE_BARS,
+        max(1, math.ceil(0.25 * max(window_end - window_start, 1))),
+    )
+    start = window_start + min(max(first - window_start, 0), grace)
+    end = window_end - min(max(window_end - last - 1, 0), grace)
     return start, end
 
 
@@ -399,7 +405,10 @@ def _overlaps(
 ) -> bool:
     """Any trace point sounding inside [start, end), via a bounded backward scan."""
     index = bisect_right(starts, end) - 1
-    earliest = end - max_span
+    # A point starting before `start - max_span` ends at or before `start`,
+    # so it cannot overlap. Using `end - max_span` here skipped the early
+    # part of a long source-bar interval when notes are short (guitar).
+    earliest = start - max_span
     while index >= 0 and items[index][0] >= earliest:
         point_start, point_end, _point = items[index]
         if point_start < end - 1e-9 and point_end > start + 1e-9:
@@ -744,7 +753,7 @@ def _coverage(
         musical_bar, position, count = place
         if musical_bar in frame_bars:
             continue
-        if musical_bar < active_start or musical_bar > active_end:
+        if musical_bar < active_start or musical_bar >= active_end:
             continue
         window = _window_of(windows, musical_bar)
         eps = eps_by_window.get(window, session_eps) if window is not None else session_eps
@@ -844,7 +853,7 @@ def compute(score: Score, *, variant: str, ensemble: str = "classic") -> DfiBrea
     for left, right in zip(ordered, ordered[1:]):
         if right.eighth - left.eighth != 1:
             continue
-        if not (active_start <= right.eighth // epb <= active_end):
+        if not (active_start <= right.eighth // epb < active_end):
             continue
         if abs(right.price - left.price) > eps_by_window[right.window]:
             n_moves += 1

@@ -379,14 +379,28 @@ async def pieces_for_day(
     if not bars:
         raise LookupError(day.isoformat())
     results: list[DfiPieceResult] = []
+    digest = data_digest(bars)
     for variant, ensemble in rows:
         if request is not None and await request.is_disconnected():
             raise RecapCancelled("DFI pieces cancelled")
-        results.append(
-            await asyncio.to_thread(
-                recap_dfi, symbol, day, bars, variant, ensemble, humanize, color
-            )
+        result = await asyncio.to_thread(
+            recap_dfi, symbol, day, bars, variant, ensemble, humanize, color
         )
+        results.append(result)
+        if result.dfi is not None:
+            remember = getattr(recap_store(), "remember_recap_dfi", None)
+            if callable(remember):
+                remember(
+                    symbol,
+                    day,
+                    variant,
+                    len(bars),
+                    ensemble,
+                    humanize,
+                    color,
+                    result.dfi.to_dict(),
+                    digest,
+                )
     return results
 
 
@@ -409,19 +423,34 @@ async def pieces_for_span(
             raise LookupError(str(index))
         movement = plan.movements[index]
         as_of = plan.as_of
-        results.append(
-            await asyncio.to_thread(
-                movement_dfi,
-                symbol,
-                span,
-                index,
-                movement,
-                variant,
-                ensemble,
-                humanize,
-                color,
-            )
+        result = await asyncio.to_thread(
+            movement_dfi,
+            symbol,
+            span,
+            index,
+            movement,
+            variant,
+            ensemble,
+            humanize,
+            color,
         )
+        results.append(result)
+        if result.dfi is not None:
+            remember = getattr(recap_store(), "remember_movement_dfi", None)
+            if callable(remember):
+                remember(
+                    symbol,
+                    span,
+                    index,
+                    variant,
+                    movement.candle_count,
+                    movement.scale_fingerprint,
+                    ensemble,
+                    humanize,
+                    color,
+                    result.dfi.to_dict(),
+                    data_digest(movement.bars),
+                )
     if as_of is None:
         raise LookupError(span)
     return results, as_of

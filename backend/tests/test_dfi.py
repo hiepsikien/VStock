@@ -18,6 +18,7 @@ from app.sonify.dfi import (
     _band,
     _coverage,
     _motion,
+    _overlaps,
     _shape,
     _volume,
     compute,
@@ -142,9 +143,6 @@ def test_coverage_still_punishes_a_rest_inside_the_line() -> None:
 
 
 def test_coverage_does_not_shrink_to_a_partial_trace() -> None:
-    # A broken trace that only covers the last quarter must not make coverage
-    # self-referential. The active range comes from the form, with only a
-    # bounded entrance excused.
     source_count = 20
     score = SimpleNamespace(
         source_closes=tuple(10.0 + index * 0.1 for index in range(source_count)),
@@ -172,6 +170,44 @@ def test_coverage_does_not_shrink_to_a_partial_trace() -> None:
         2,
     )
     assert coverage < 0.8
+
+
+def test_coverage_rejects_a_trace_that_only_covers_the_middle() -> None:
+    source_count = 34
+    score = SimpleNamespace(
+        source_closes=tuple(10.0 + index * 0.05 for index in range(source_count)),
+        source_groups=tuple((index,) for index in range(source_count)),
+        price_trace=tuple(
+            PriceTracePoint(
+                bar=bar,
+                beat=0.0,
+                price=10.0 + bar * 0.05,
+                pitch=60 + bar,
+                duration_beats=4.0,
+            )
+            for bar in range(12, 23)
+        ),
+        bar_beats=4.0,
+    )
+    coverage, _detail = _coverage(
+        score,
+        frozenset(),
+        [(0, source_count)],
+        {0: 0.001},
+        0.001,
+        [],
+        lambda _eighth: 60.0,
+        2,
+    )
+    assert coverage < 0.8
+
+
+def test_overlaps_sees_a_short_note_at_the_start_of_a_long_bar() -> None:
+    # A sixteenth-note trace point at the start of a whole bar must count.
+    # Scanning back from `end - max_span` skipped it and collapsed guitar
+    # coverage.
+    items = [(0.1, 0.15, None)]
+    assert _overlaps(items, [0.1], 0.05, 0.0, 1.0)
 
 
 def test_symphony_and_jazz_trace_the_lower_line_voice() -> None:
@@ -324,15 +360,26 @@ def test_non_guitar_ensembles_keep_the_same_chart_clarity() -> None:
 
 
 def test_guitar_ensembles_do_not_lose_the_line_to_register_choices() -> None:
-    bars = _bars()
-    for ensemble in ("bach", "classic", "villa", "barrios", "brouwer", "torroba"):
-        breakdown = compute(
-            render(bars, variant="guitar", ensemble=ensemble),  # type: ignore[arg-type]
-            variant="guitar",
-            ensemble=ensemble,
-        )
-        assert breakdown is not None, ensemble
-        assert breakdown.coverage > 0.8, (ensemble, breakdown.coverage)
+    sessions = {
+        "calm": _bars(),
+        "volatile": [
+            Bar(close=100.0 + (8.0 if index % 2 else -8.0) + index * 0.3, volume=1000.0 + index * 300.0)
+            for index in range(32)
+        ],
+        "down": [
+            Bar(close=140.0 - index * 2.0, volume=1000.0 + index * 100.0)
+            for index in range(32)
+        ],
+    }
+    for name, bars in sessions.items():
+        for ensemble in ("bach", "classic", "villa", "barrios", "brouwer", "torroba"):
+            breakdown = compute(
+                render(bars, variant="guitar", ensemble=ensemble),  # type: ignore[arg-type]
+                variant="guitar",
+                ensemble=ensemble,
+            )
+            assert breakdown is not None, (name, ensemble)
+            assert breakdown.coverage > 0.95, (name, ensemble, breakdown.coverage)
 
 
 def test_recap_response_parses_the_breakdown() -> None:

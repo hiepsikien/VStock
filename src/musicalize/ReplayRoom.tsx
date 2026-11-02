@@ -751,24 +751,29 @@ export function ReplayRoom({ wide, onMode }: Props) {
     if (dfiPoll.current.key !== pollKey) dfiPoll.current = { key: pollKey, count: 0 };
     let stopped = false;
     let pending = false;
+    const controller = new AbortController();
     const pull = async () => {
       if (stopped || pending || dfiPoll.current.count >= 8) return;
       dfiPoll.current.count += 1;
       pending = true;
       try {
-        if (heardReady) {
-          // A ready movement with no DFI only needs its own number. Ask the
+        if (heardReady && heardName) {
+          // A ready movement with a name only needs its own number. Ask the
           // compose-only endpoint instead of re-downloading every movement's
-          // prices and volumes.
-          const result = await fetchDfiPieces({
-            symbol,
-            bucket: 'span',
-            range: span,
-            movement: index,
-            variant,
-            ensemble,
-            mix: { humanize, color: colorOn },
-          });
+          // prices and volumes. Without a name (old guitar cache), fall
+          // through to the plan so the dance can still arrive.
+          const result = await fetchDfiPieces(
+            {
+              symbol,
+              bucket: 'span',
+              range: span,
+              movement: index,
+              variant,
+              ensemble,
+              mix: { humanize, color: colorOn },
+            },
+            controller.signal,
+          );
           if (stopped) return;
           const piece =
             result.pieces.find((item) => item.variant === variant && item.ensemble === ensemble) ??
@@ -785,10 +790,17 @@ export function ReplayRoom({ wide, onMode }: Props) {
           }
           return;
         }
-        const plan = await fetchSpan(symbol, span, variant, ensemble, undefined, {
-          humanize,
-          color: colorOn,
-        });
+        const plan = await fetchSpan(
+          symbol,
+          span,
+          variant,
+          ensemble,
+          controller.signal,
+          {
+            humanize,
+            color: colorOn,
+          },
+        );
         if (stopped) return;
         setMovements((existing) => {
           if (!existing) return existing;
@@ -817,6 +829,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
     const timer = setInterval(() => void pull(), 1500);
     return () => {
       stopped = true;
+      controller.abort();
       clearInterval(timer);
     };
   }, [
