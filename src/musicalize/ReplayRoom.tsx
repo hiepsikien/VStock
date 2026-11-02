@@ -11,6 +11,7 @@ import {
   fetchSessions,
   fetchSpan,
   fetchSpanPeaks,
+  prefetchSpanAudio,
   type DfiPiece,
   type DfiSignature,
   type RecapEnsemble,
@@ -60,6 +61,17 @@ import { Stage } from './Stage';
 import { SymbolColumn, type SymbolChoice } from './SymbolColumn';
 import type { TimelinePart } from './Scrubber';
 import { workWaveform, type WavePeaks } from './peaks';
+import {
+  PEAKS_POLL_BUDGET,
+  finishPeaksRefresh,
+  needsPrefetch,
+  peaksPollDelay,
+  peaksPollKey,
+  prefetchKey,
+  requestPeaksRefresh,
+  stalePrefetchTargets,
+  type PeaksRefreshState,
+} from './peaksPrefetch';
 import { ambientDailyCandleIndexAt, spanCandleIndexAt } from '../utils/recapCursor';
 
 type Props = {
@@ -157,6 +169,20 @@ export function ReplayRoom({ wide, onMode }: Props) {
 
   const request = useRef<AbortController | null>(null);
   const peaksRequest = useRef<AbortController | null>(null);
+  // A peaks refresh is cheap but re-plans the work. Let one answer land instead
+  // of aborting it every time another movement finishes; ask once more after.
+  const peaksState = useRef<PeaksRefreshState>({ pending: false, again: false });
+  // Bumped whenever the timeline identity changes; a response from the old
+  // identity must never merge into the new one.
+  const peaksGen = useRef(0);
+  const peaksPoll = useRef({ key: '', count: 0 });
+  // Files already pre-rendered, and every background render still in flight.
+  const prefetched = useRef<Set<string>>(new Set());
+  const prefetchInFlight = useRef<Map<number, AbortController>>(new Map());
+  // The index that produced the current `mediaDuration`. On a chapter change
+  // the old duration is still set for one render; without this the prefetch
+  // would start before the new chapter's own audio request.
+  const mediaIndex = useRef(-1);
   const restTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const seekSeq = useRef(0);
   const dfiPoll = useRef({ key: '', count: 0 });
@@ -176,11 +202,31 @@ export function ReplayRoom({ wide, onMode }: Props) {
     }
   }, []);
 
+  /** Drop every background render. Aborting also cancels MuseScore server-side. */
+  const abortPrefetches = useCallback(() => {
+    for (const controller of prefetchInFlight.current.values()) controller.abort();
+    prefetchInFlight.current.clear();
+  }, []);
+
+  /**
+   * Forget the waveform state of the work being replaced. A new identity and a
+   * re-plan of the same identity both land here so the paths cannot drift.
+   */
+  const resetPeaksState = useCallback(() => {
+    peaksRequest.current?.abort();
+    peaksRequest.current = null;
+    peaksState.current = { pending: false, again: false };
+    peaksGen.current += 1;
+    peaksPoll.current = { key: '', count: 0 };
+    mediaIndex.current = -1;
+    abortPrefetches();
+    prefetched.current = new Set();
+  }, [abortPrefetches]);
+
   const clearPlayback = useCallback(() => {
     request.current?.abort();
     request.current = null;
-    peaksRequest.current?.abort();
-    peaksRequest.current = null;
+    resetPeaksState();
     clearRest();
     setManifest(null);
     setMovements(null);
@@ -202,15 +248,16 @@ export function ReplayRoom({ wide, onMode }: Props) {
     setSeek(null);
     setFocus(null);
     focusRef.current = null;
-  }, [clearRest]);
+  }, [clearRest, resetPeaksState]);
 
   useEffect(() => {
     return () => {
       request.current?.abort();
       peaksRequest.current?.abort();
+      abortPrefetches();
       clearRest();
     };
-  }, [clearRest]);
+  }, [abortPrefetches, clearRest]);
 
   const signature = `${symbol}|${span}|${date ?? ''}|${variant}|${ensemble}|${humanize ? 1 : 0}|${colorOn ? 1 : 0}`;
   const signatureRef = useRef(signature);
@@ -435,13 +482,15 @@ export function ReplayRoom({ wide, onMode }: Props) {
   }, [colorOn, ensemble, humanize, span, spanKey, symbol, variant]);
 
   /**
-   * A movement's waveform only exists after its audio file is written. The
-   * player loads that file when a movement starts, so ask the plan once more
-   * and merge the peaks without touching durations, prices or playback.
+   * A movement's waveform only exists after its audio file is written. Merge
+   * whatever the plan can see now without touching durations, prices or
+   * playback. Requests are coalesced: aborting a slow refresh and starting a
+   * new one on every chapter change is what left the waveform a chapter behind.
    */
   const refreshSpanPeaks = useCallback(() => {
     if (span === '1D') return;
-    peaksRequest.current?.abort();
+    if (!requestPeaksRefresh(peaksState.current)) return;
+    const gen = peaksGen.current;
     const controller = new AbortController();
     peaksRequest.current = controller;
     void (async () => {
@@ -450,7 +499,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
           humanize,
           color: colorOn,
         });
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || gen !== peaksGen.current) return;
         if (
           peaks.symbol !== symbol ||
           peaks.range !== span ||
@@ -475,10 +524,91 @@ export function ReplayRoom({ wide, onMode }: Props) {
       } catch {
         // Peaks are additive. Keep whatever the timeline already has.
       } finally {
-        if (peaksRequest.current === controller) peaksRequest.current = null;
+        // A newer identity owns the shared state now; leave its request alone.
+        if (peaksRequest.current === controller) {
+          peaksRequest.current = null;
+          if (finishPeaksRefresh(peaksState.current) && !controller.signal.aborted) {
+            refreshSpanPeaks();
+          }
+        }
       }
     })();
   }, [colorOn, ensemble, humanize, span, symbol, variant]);
+
+  /**
+   * Rendering a movement is what writes its peaks. Waiting for a chapter to
+   * start therefore guarantees its waveform is still missing. Render the next
+   * movement while this one plays (one byte is enough to make the server write
+   * the file), then refresh so its waveform is on the timeline before it
+   * starts.
+   */
+  useEffect(() => {
+    if (span === '1D' || !playing || mediaDuration <= 0 || mediaIndex.current !== index) return;
+    const nextIndex = index + 1;
+    const next = movementsRef.current?.[nextIndex];
+    if (!next || !needsPrefetch(next)) return;
+    const key = prefetchKey(spanKey, nextIndex);
+    if (prefetched.current.has(key)) return;
+    // Keep a render the chapter we just entered is still waiting for, plus the
+    // one being prepared. Anything skipped past is wasted work.
+    const inFlight = prefetchInFlight.current;
+    for (const target of stalePrefetchTargets(inFlight.keys(), index)) {
+      inFlight.get(target)?.abort();
+      inFlight.delete(target);
+    }
+    if (inFlight.has(nextIndex)) return;
+    const controller = new AbortController();
+    inFlight.set(nextIndex, controller);
+    void (async () => {
+      try {
+        if (!(await prefetchSpanAudio(next.audioUrl, controller.signal))) return;
+        if (controller.signal.aborted) return;
+        prefetched.current.add(key);
+        refreshSpanPeaks();
+      } catch {
+        // The chapter will request its own file when it starts.
+      } finally {
+        if (inFlight.get(nextIndex) === controller) inFlight.delete(nextIndex);
+      }
+    })();
+  }, [index, mediaDuration, playing, refreshSpanPeaks, span, spanKey]);
+
+  /**
+   * Fallback when a background render or its peaks request failed: retry with
+   * a small backoff while the heard movement still has no envelope. Only runs
+   * while playing, so a paused room does not keep re-planning the span.
+   */
+  const heardHasPeaks = Boolean(spanPeaks?.[index]?.peaks?.length);
+  useEffect(() => {
+    if (span === '1D') return;
+    const key = peaksPollKey({ symbol, span, variant, ensemble, index, playing });
+    if (peaksPoll.current.key !== key) peaksPoll.current = { key, count: 0 };
+    if (!playing || mediaDuration <= 0 || mediaIndex.current !== index || heardHasPeaks) return;
+    if (peaksPoll.current.count >= PEAKS_POLL_BUDGET) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const pull = () => {
+      if (stopped || peaksPoll.current.count >= PEAKS_POLL_BUDGET) return;
+      peaksPoll.current.count += 1;
+      refreshSpanPeaks();
+      timer = setTimeout(pull, peaksPollDelay(peaksPoll.current.count));
+    };
+    timer = setTimeout(pull, peaksPollDelay(0));
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [
+    ensemble,
+    heardHasPeaks,
+    index,
+    mediaDuration,
+    playing,
+    refreshSpanPeaks,
+    span,
+    symbol,
+    variant,
+  ]);
 
   const seekTarget = useRef<number | null>(null);
 
@@ -626,6 +756,9 @@ export function ReplayRoom({ wide, onMode }: Props) {
         }
         setManifest(null);
         setMovements(plan.movements);
+        // A new listen may re-plan the work, so pre-rendered indices and peaks
+        // from the previous run no longer describe the same movement.
+        resetPeaksState();
         setAsOf(plan.asOf ?? '');
         setHomeKey(plan.keyLabel ?? '');
         setIndex(0);
@@ -646,7 +779,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
         }
       }
     })();
-  }, [colorOn, date, ensemble, humanize, span, symbol, variant]);
+  }, [colorOn, date, ensemble, humanize, resetPeaksState, span, symbol, variant]);
 
   const jumpToMovement = useCallback(
     (nextIndex: number, seconds: number, autoplay: boolean) => {
@@ -1150,6 +1283,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
         : null;
 
   useEffect(() => {
+    mediaIndex.current = -1;
     setMediaDuration(0);
   }, [audioUrl]);
 
@@ -1395,7 +1529,10 @@ export function ReplayRoom({ wide, onMode }: Props) {
         onEnded={onEnded}
         onAudible={() => setAudible(true)}
         onError={setError}
-        onDuration={setMediaDuration}
+        onDuration={(seconds) => {
+          mediaIndex.current = index;
+          setMediaDuration(seconds);
+        }}
         onReady={refreshSpanPeaks}
       />
     ) : null}
