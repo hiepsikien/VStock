@@ -17,6 +17,7 @@ from app.sonify.pafi import (
     _band,
     _motion,
     _shape,
+    _volume,
     compute,
     trace_from_notes,
 )
@@ -74,6 +75,29 @@ def test_motion_reads_step_size_not_only_direction() -> None:
     assert matching_score == 1.0
     assert frozen_score is None
     assert low is False
+
+
+def test_motion_ignores_eighths_where_neither_price_nor_pitch_moved() -> None:
+    # The eighths between two source bars repeat both price and pitch. They
+    # are not holds over a moving price; counting them as ties used to pull a
+    # perfect rank correlation down to ~0.27.
+    prices = [10.0, 10.0, 11.0, 11.0, 13.0, 13.0, 16.0, 16.0, 20.0]
+    pitches = [60.0, 60.0, 61.0, 61.0, 63.0, 63.0, 66.0, 66.0, 70.0]
+    score, weight, _low = _motion(_points(prices, pitches), eps=0.0)
+    assert score == 1.0
+    assert weight == 4.0
+
+
+def test_volume_hears_the_printed_dynamic() -> None:
+    bars = [
+        Bar(close=100 + math.sin(index / 3) * 2 + index * 0.1, volume=100 + index * 40)
+        for index in range(80)
+    ]
+    score = render(bars, variant="symphony", ensemble="classic")
+    value = _volume(score)
+    assert value is not None
+    assert value > 0.5
+
 
 
 def test_trace_extends_a_tied_price_note_and_skips_off_grid_ornaments() -> None:

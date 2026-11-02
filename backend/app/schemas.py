@@ -110,7 +110,7 @@ class PafiBreakdown(BaseModel):
     confidence: Literal["low", "medium", "high"] = "low"
     n_moves: int = 0
     n_sounding: int = 0
-    version: str = "1"
+    version: str = "2"
 
 
 class PafiSignature(BaseModel):

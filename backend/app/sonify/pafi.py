@@ -12,13 +12,14 @@ cantabile, Bach preludes, and Ambient holds all put the line somewhere else.
 from __future__ import annotations
 
 import math
+from bisect import bisect_right
 from dataclasses import dataclass, replace
 from statistics import median
 from typing import Iterable, Literal, Sequence
 
 from app.sonify.model import NoteEvent, PriceTracePoint, Score
 
-PAFI_VERSION = "1"
+PAFI_VERSION = "2"
 
 WEIGHT_SHAPE = 0.33
 WEIGHT_MOTION = 0.21
@@ -448,6 +449,16 @@ def _shape(points: Sequence[_Point], eps: float) -> tuple[float | None, float]:
 def _motion(points: Sequence[_Point], eps: float) -> tuple[float | None, float, bool]:
     usable = [point for point in points if point.pitch is not None]
     pairs = list(zip(usable, usable[1:]))
+    # Price only changes at a source-bar boundary, so most eighth steps are
+    # (no price move, no pitch move).  They carry no rank information, but
+    # Kendall tau-b counts them as ties and dilutes a real 0.6 to 0.05.
+    # A hold over a moving price (x > 0, y == 0) stays and is still penalized.
+    pairs = [
+        (left, right)
+        for left, right in pairs
+        if abs(right.price - left.price) > _EPS
+        or abs((right.pitch or 0.0) - (left.pitch or 0.0)) > _EPS
+    ]
     x = [abs(right.price - left.price) for left, right in pairs]
     y = [abs(right.pitch - left.pitch) for left, right in pairs]  # type: ignore[operator]
     low_evidence = False
@@ -556,6 +567,28 @@ def _resolution(points: Sequence[_Point], eps: float, pitch_step: float) -> tupl
     return 2 * precision * recall / (precision + recall), float(len(pairs))
 
 
+def _dynamic_gain(score: Score):
+    """Loudness multiplier of the printed dynamic in force at a note.
+
+    MuseScore plays the letter dynamic, not the note velocity.  A score can
+    print p/mp/mf/f per window while every `NoteEvent.velocity` stays around
+    64, so velocity alone reads a real volume contour as silence.
+    """
+    events = sorted(score.dynamics, key=lambda item: (item.bar, item.beat))
+    if not events:
+        return lambda _bar, _beat: 1.0
+    bar_beats = max(score.bar_beats, 1.0)
+    positions = [event.bar + event.beat / bar_beats for event in events]
+    gains = [event.sound / 90.0 for event in events]
+
+    def gain(bar: int, beat: float) -> float:
+        position = bar + beat / bar_beats
+        index = bisect_right(positions, position) - 1
+        return gains[index] if index >= 0 else 1.0
+
+    return gain
+
+
 def _volume(score: Score) -> float | None:
     windows = score.volume_windows
     volumes = score.window_volumes
@@ -566,6 +599,7 @@ def _volume(score: Score) -> float | None:
         for part in (score.high, score.lead, score.support, score.comp, score.low)
         for event in part
     ]
+    gain = _dynamic_gain(score)
     energies: list[float] = []
     used_volumes: list[float] = []
     for (start, length), volume in zip(windows, volumes):
@@ -577,7 +611,7 @@ def _volume(score: Score) -> float | None:
             if event.midi is None or not (start <= event.bar < start + length):
                 continue
             velocity = 64 if event.velocity is None else event.velocity
-            energy += max(event.duration_beats, 0.01) * velocity
+            energy += max(event.duration_beats, 0.01) * velocity * gain(event.bar, event.beat)
         energies.append(energy / beats)
         used_volumes.append(volume)
     if len(used_volumes) < 4 or len(set(round(value, 9) for value in used_volumes)) < 3:

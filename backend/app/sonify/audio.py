@@ -31,7 +31,7 @@ from app.sonify.ensemble import Ensemble
 from app.sonify.humanize import humanize as humanize_score
 from app.sonify.model import ENSEMBLES, VARIANTS, Bar, Variant
 from app.sonify.musicxml import score_to_musicxml
-from app.sonify.pafi import compute as compute_pafi
+from app.sonify.pafi import PAFI_VERSION, compute as compute_pafi
 from app.sonify.playback import piece_seconds
 from app.sonify.render import render
 from app.sonify.session import VN, is_session_closed
@@ -385,6 +385,18 @@ def _media_type(path: Path) -> str:
     if path.suffix == ".wav":
         return "audio/wav"
     return "application/octet-stream"
+
+
+def _stored_pafi(value):
+    """Read PAFI from an asset payload, or None when the metric has moved on.
+
+    The number is stored next to the audio.  A metric revision must miss, not
+    serve yesterday's formula, so the next audio load recomposes and writes
+    the new one.
+    """
+    if not isinstance(value, dict) or value.get("version") != PAFI_VERSION:
+        return None
+    return value
 
 
 def write_synthesizer_config(folder: Path, soundfont: Path) -> None:
@@ -1432,7 +1444,7 @@ class RecapStore:
             media_type=_media_type(audio_path),
             fingerprint=fingerprint,
             movement_name=str(payload.get("movementName") or ""),
-            pafi=payload.get("pafi"),
+            pafi=_stored_pafi(payload.get("pafi")),
         )
 
     def _prune_work(self, work: Path) -> None:
@@ -1624,7 +1636,7 @@ class RecapStore:
             movement_name=str(payload.get("movementName") or ""),
             humanize=humanize,
             color=color,
-            pafi=payload.get("pafi"),
+            pafi=_stored_pafi(payload.get("pafi")),
         )
 
 

@@ -224,6 +224,7 @@ M_phrase = max(0, τ_phrase)
 ```
 
 - Dùng Kendall tau-b vì có nhiều tie (giá đứng, nốt lặp).
+- Bỏ các cặp **không có gì đổi** (`|ΔP| ≤ εp` và `|Δpitch| = 0`): giá chỉ đổi ở biên source bar nên phần lớn bước eighth là (0, 0), và tau-b tính chúng là tie làm loãng tương quan thật (0.6 → 0.05). Cặp `hold` thật (`|ΔP| > εp`, `Δpitch = 0`) vẫn giữ và vẫn bị phạt.
 - Câu có ít hơn 4 cặp hoặc mọi `x` bằng nhau: bỏ qua, không cho điểm.
 - `M` là trung bình có trọng số theo số cặp.
 
@@ -296,8 +297,10 @@ Với mỗi cửa sổ `w`:
 
 ```text
 V_w = window_volumes[w]               # average_liquidity(...) đã tính trong render.py
-E_w = Σ(duration_beats × velocity) / window_beats   # năng lượng thật từ NoteEvent
+E_w = Σ(duration_beats × velocity × gain(marking)) / window_beats
 ```
+
+`gain(marking) = SOUND[marking] / 90`: MuseScore phát **letter dynamic** đã in, không phát `NoteEvent.velocity`. Một bản có thể in p/mp/mf/f theo cửa sổ trong khi mọi velocity quanh 64; nếu chỉ đọc velocity thì volume thật bị chấm thành 0 dù tai nghe rõ to nhỏ. `gain` lấy từ chính `score.dynamics` (sự kiện đang có hiệu lực tại `bar/beat` của nốt), nên vẫn là "năng lượng thật" chứ không so band dự kiến với band đã in.
 
 ```text
 V = max(0, Kendall tau-b(V_w, E_w))
@@ -305,7 +308,7 @@ V = max(0, Kendall tau-b(V_w, E_w))
 
 - Chỉ dùng cửa sổ có `V_w > 0`.
 - Cần ít nhất 4 cửa sổ và ít nhất 3 giá trị volume khác nhau; nếu không, `V = null`.
-- Nếu `velocity` thiếu, dùng số nốt × độ dài làm năng lượng thay thế; ghi rõ trong metadata.
+- Nếu `velocity` thiếu, dùng 64 (MusicXML default) và vẫn nhân `gain`.
 - Không so band dự kiến với band đã in, vì writer có thể dịch band cho hợp âm sắc. So **volume thật** với **năng lượng thật** là đúng câu hỏi “volume có nghe ra không”.
 
 Volume là phần dễ implement nhất vì chỉ cần đọc `NoteEvent` và cửa sổ đã có; không cần trace từng nốt.
