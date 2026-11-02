@@ -208,16 +208,25 @@ export function ReplayRoom({ wide, onMode }: Props) {
     prefetchInFlight.current.clear();
   }, []);
 
-  const clearPlayback = useCallback(() => {
-    request.current?.abort();
-    request.current = null;
+  /**
+   * Forget the waveform state of the work being replaced. A new identity and a
+   * re-plan of the same identity both land here so the paths cannot drift.
+   */
+  const resetPeaksState = useCallback(() => {
     peaksRequest.current?.abort();
     peaksRequest.current = null;
     peaksState.current = { pending: false, again: false };
     peaksGen.current += 1;
     peaksPoll.current = { key: '', count: 0 };
+    mediaIndex.current = -1;
     abortPrefetches();
     prefetched.current = new Set();
+  }, [abortPrefetches]);
+
+  const clearPlayback = useCallback(() => {
+    request.current?.abort();
+    request.current = null;
+    resetPeaksState();
     clearRest();
     setManifest(null);
     setMovements(null);
@@ -235,12 +244,11 @@ export function ReplayRoom({ wide, onMode }: Props) {
     setComposing(false);
     setError(null);
     setMediaDuration(0);
-    mediaIndex.current = -1;
     setStartSec(0);
     setSeek(null);
     setFocus(null);
     focusRef.current = null;
-  }, [abortPrefetches, clearRest]);
+  }, [clearRest, resetPeaksState]);
 
   useEffect(() => {
     return () => {
@@ -750,13 +758,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
         setMovements(plan.movements);
         // A new listen may re-plan the work, so pre-rendered indices and peaks
         // from the previous run no longer describe the same movement.
-        peaksRequest.current?.abort();
-        peaksRequest.current = null;
-        peaksState.current = { pending: false, again: false };
-        peaksGen.current += 1;
-        peaksPoll.current = { key: '', count: 0 };
-        abortPrefetches();
-        prefetched.current = new Set();
+        resetPeaksState();
         setAsOf(plan.asOf ?? '');
         setHomeKey(plan.keyLabel ?? '');
         setIndex(0);
@@ -777,7 +779,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
         }
       }
     })();
-  }, [abortPrefetches, colorOn, date, ensemble, humanize, span, symbol, variant]);
+  }, [colorOn, date, ensemble, humanize, resetPeaksState, span, symbol, variant]);
 
   const jumpToMovement = useCallback(
     (nextIndex: number, seconds: number, autoplay: boolean) => {

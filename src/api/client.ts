@@ -699,7 +699,7 @@ export async function prefetchSpanAudio(
     signal,
     headers: { Range: 'bytes=0-0' },
   });
-  const plan = prefetchResponsePlan(response.status, response.ok);
+  const plan = prefetchResponsePlan(response.status);
   if (plan === 'range') {
     await response.arrayBuffer();
     return true;
