@@ -171,6 +171,26 @@ class HarmonyEvent:
 
 
 @dataclass(frozen=True)
+class PriceTracePoint:
+    """One place a writer put the price line into a sounding note.
+
+    The trace is written where the note is written, not recovered from the
+    finished score. `pitch` is a float because Minimalist records the register
+    centroid of an arpeggio window, not a single MIDI note.
+    """
+
+    bar: int
+    beat: float
+    duration_beats: float
+    price: float
+    pitch: float | None
+    role: Literal["attack", "hold", "anchor", "register", "rest"] = "attack"
+    weight: float = 1.0
+    voice: str = "lead"
+    source_bar: int | None = None
+
+
+@dataclass(frozen=True)
 class Score:
     """A rendered 30-bar score across five role-neutral parts (P5 high, P1 lead, P2 support, P3 comp, P4 low).
 
@@ -217,6 +237,17 @@ class Score:
     # Eighths of realized scale passages. Long ones are at least one bar.
     scale_eighths: tuple[int, ...] = ()
     long_scale_eighths: tuple[int, ...] = ()
+    # Inputs PAFI needs after the score is humanized. Empty on scores built by
+    # hand in tests; PAFI returns None for those.
+    price_trace: tuple[PriceTracePoint, ...] = ()
+    price_eighths: tuple[float, ...] = ()
+    source_closes: tuple[float, ...] = ()
+    source_groups: tuple[tuple[int, ...], ...] = ()
+    volume_windows: tuple[tuple[int, int], ...] = ()
+    window_volumes: tuple[float, ...] = ()
+    frame_bars: tuple[int, ...] = ()
+    # Musical sections that PAFI analyses. Frame sections are excluded.
+    analysis_windows: tuple[tuple[int, int], ...] = ()
 
     # Backwards-compatible chamber part aliases
     @property

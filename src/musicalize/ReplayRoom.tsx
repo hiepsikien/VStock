@@ -4,10 +4,14 @@ import {
   DEFAULT_SYMBOLS,
   ENSEMBLE_ROWS,
   fetchMarketSymbols,
+  fetchPafiPieces,
+  fetchPafiSignatures,
   fetchRecap,
   fetchSessionMinutes,
   fetchSessions,
   fetchSpan,
+  type PafiPiece,
+  type PafiSignature,
   type RecapEnsemble,
   type RecapManifest,
   type RecapVariant,
@@ -27,6 +31,7 @@ import {
   type PieceProgram,
 } from '../sonify/program';
 import { Controls } from './Controls';
+import { PafiSheet } from './PafiSheet';
 import { CommandPalette } from './CommandPalette';
 import { clockText, GENRES, type ListenSpan } from './labels';
 import { readLink, writeLink } from './link';
@@ -123,6 +128,11 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [pafiOpen, setPafiOpen] = useState(false);
+  const [genrePieces, setGenrePieces] = useState<PafiPiece[] | null>(null);
+  const [ensemblePieces, setEnsemblePieces] = useState<PafiPiece[] | null>(null);
+  const [pafiSignatures, setPafiSignatures] = useState<PafiSignature[]>([]);
+  const [pafiLoading, setPafiLoading] = useState(false);
 
   const request = useRef<AbortController | null>(null);
   const restTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -188,6 +198,49 @@ export function ReplayRoom({ wide, onMode }: Props) {
   useEffect(() => {
     writeLink({ symbol, span, date, genre: variant, ensemble, humanize, color: colorOn });
   }, [colorOn, date, ensemble, humanize, span, symbol, variant]);
+
+  const pafiBucket = span === '1D' ? 'day' : 'span';
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const rows = await fetchPafiSignatures(pafiBucket, undefined, controller.signal);
+        setPafiSignatures(rows);
+      } catch (err) {
+        if (!isAbort(err)) setPafiSignatures([]);
+      }
+    })();
+    return () => controller.abort();
+  }, [pafiBucket]);
+
+  // The sheet's two comparison tables are composed on the server. A failure
+  // on either side leaves the current row visible and the others as `—`.
+  useEffect(() => {
+    if (!pafiOpen) return;
+    if (pafiBucket === 'day' && !date) return;
+    const controller = new AbortController();
+    setPafiLoading(true);
+    const base = {
+      symbol,
+      bucket: pafiBucket,
+      date: pafiBucket === 'day' ? date : null,
+      range: pafiBucket === 'span' ? span : null,
+      movement: pafiBucket === 'span' ? index : 0,
+      mix: { humanize, color: colorOn },
+    } as const;
+    void (async () => {
+      const [genre, ensembleRows] = await Promise.allSettled([
+        fetchPafiPieces({ ...base, variant: null, ensemble: null }, controller.signal),
+        fetchPafiPieces({ ...base, variant, ensemble: null }, controller.signal),
+      ]);
+      if (controller.signal.aborted) return;
+      setGenrePieces(genre.status === 'fulfilled' ? genre.value.pieces : null);
+      setEnsemblePieces(ensembleRows.status === 'fulfilled' ? ensembleRows.value.pieces : null);
+      setPafiLoading(false);
+    })();
+    return () => controller.abort();
+  }, [colorOn, date, ensemble, humanize, index, pafiBucket, pafiOpen, span, symbol, variant]);
 
   useEffect(() => {
     let cancelled = false;
@@ -687,6 +740,11 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const totalCandles = lengths.reduce((sum, length) => sum + length, 0);
   const multi = (movements?.length ?? 0) > 1;
   const current = movements?.[index] ?? null;
+  const activePafi = span === '1D' ? (manifest?.pafi ?? null) : (current?.pafi ?? null);
+  const activePafiSignature =
+    pafiSignatures.find((row) => row.variant === variant && row.ensemble === ensemble) ??
+    pafiSignatures.find((row) => row.variant === variant && row.ensemble === 'classic') ??
+    null;
   const targetFocus =
     movements && totalCandles > 1
       ? chartFocus({
@@ -1050,6 +1108,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
           restTotal={restTotal}
           playing={audible}
           chartKey={`${symbol}|${span}|${variant}|${date ?? ''}`}
+          pafi={activePafi}
+          onPafi={() => setPafiOpen(true)}
         />
       }
       controls={
@@ -1080,6 +1140,9 @@ export function ReplayRoom({ wide, onMode }: Props) {
           onMute={() => setMuted((value) => !value)}
           onTimeline={span === '1D' ? onFileScrub : onWorkScrub}
           onOptionsOpenChange={setOptionsOpen}
+          pafi={activePafi}
+          pafiSignature={activePafiSignature}
+          onPafi={() => setPafiOpen(true)}
         />
       }
     >
@@ -1116,6 +1179,23 @@ export function ReplayRoom({ wide, onMode }: Props) {
         setEnsemble('classic');
       }}
       onDate={setDate}
+    />
+    <PafiSheet
+      visible={pafiOpen}
+      onClose={() => setPafiOpen(false)}
+      pafi={activePafi}
+      variant={variant}
+      ensemble={ensemble}
+      signatures={pafiSignatures}
+      genrePieces={genrePieces}
+      ensemblePieces={ensemblePieces}
+      loading={pafiLoading}
+      onVariant={(next) => {
+        if (next === variant) return;
+        setVariant(next);
+        setEnsemble('classic');
+      }}
+      onEnsemble={setEnsemble}
     />
     </>
   );

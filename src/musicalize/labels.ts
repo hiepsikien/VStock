@@ -1,4 +1,4 @@
-import type { RecapVariant } from '../api/client';
+import type { PafiBand, RecapVariant } from '../api/client';
 
 export const GENRES: { id: RecapVariant; label: string }[] = [
   { id: 'symphony', label: 'Giao hưởng' },
@@ -18,6 +18,25 @@ export type StreamVariant = (typeof STREAM_GENRES)[number]['id'];
 
 export const LISTEN_SPANS = ['1D', '1W', '1M', '3M', '1Y'] as const;
 export type ListenSpan = (typeof LISTEN_SPANS)[number];
+
+/** The server says `fair`; listeners see `Vừa`. No second vocabulary. */
+export const PAFI_BAND_LABEL: Record<PafiBand, string> = {
+  'very-clear': 'Rất rõ',
+  clear: 'Rõ',
+  fair: 'Vừa',
+  faint: 'Mờ',
+  'very-faint': 'Rất mờ',
+};
+
+export function pafiBandLabel(band: PafiBand | null | undefined): string {
+  return band ? PAFI_BAND_LABEL[band] : 'Chưa đủ mẫu';
+}
+
+export function pafiPillText(score: number | null | undefined, confidence?: 'low' | 'medium' | 'high'): string {
+  if (score == null || !Number.isFinite(score)) return 'PA —';
+  const value = Math.round(score);
+  return confidence === 'low' ? `PA ~${value}` : `PA ${value}`;
+}
 
 export function formatClock(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';

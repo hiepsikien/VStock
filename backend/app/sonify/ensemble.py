@@ -109,6 +109,12 @@ def ensemble_for(variant: Variant, name: str) -> Ensemble:
     return cast(Ensemble, name)
 
 
+def ensembles_for(variant: Variant) -> tuple[Ensemble, ...]:
+    """Every row that variant can play, `classic` first."""
+    rows = _ALLOWED[variant]
+    return ("classic", *sorted(row for row in rows if row != "classic"))
+
+
 def parts_for(variant: Variant, ensemble: Ensemble) -> tuple[PartSpec, ...] | None:
     """Replacement part row, or None when the variant keeps its original instruments."""
     if ensemble == "classic":

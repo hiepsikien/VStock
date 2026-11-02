@@ -3,10 +3,12 @@ import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Path, Rect } from 'react-native-svg';
 import {
   ENSEMBLE_ROWS,
+  type PafiBreakdown,
+  type PafiSignature,
   type RecapEnsemble,
   type RecapVariant,
 } from '../api/client';
-import { clockText, GENRES, STREAM_GENRES, type StreamVariant } from './labels';
+import { clockText, GENRES, pafiPillText, STREAM_GENRES, type StreamVariant } from './labels';
 import { MotionPressable, RiseRule } from './motion';
 import { OptionsPopover } from './OptionsPopover';
 import { palette, TOUCH_TARGET } from './palette';
@@ -49,6 +51,11 @@ type ReplayProps = {
   /** Lets the room release the transport keys while this popover is open. */
   onOptionsOpenChange?: (open: boolean) => void;
   status?: string | null;
+  /** Price-action fidelity of the piece being heard. */
+  pafi?: PafiBreakdown | null;
+  /** Corpus median for the active genre/ensemble, when the artifact exists. */
+  pafiSignature?: PafiSignature | null;
+  onPafi?: () => void;
 };
 
 type LiveProps = {
@@ -68,6 +75,9 @@ const MOTIF: Record<RecapVariant, string> = {
   ambient: '○',
   guitar: '≈',
 };
+
+/** Spectrum width in px. Percent strings are unreliable on native. */
+const PAFI_TRACK_WIDTH = 84;
 
 export function Controls(props: ReplayProps | LiveProps) {
   return (
@@ -101,6 +111,9 @@ function ReplayControls({
   onTimeline,
   onOptionsOpenChange,
   status,
+  pafi = null,
+  pafiSignature = null,
+  onPafi,
 }: ReplayProps) {
   const [optionsOpen, setOptionsOpen] = useState(false);
   const shelf = ENSEMBLE_ROWS[variant];
@@ -147,13 +160,49 @@ function ReplayControls({
                 accessibilityState={{ selected: active }}
               >
                 <Text style={[type.sans, styles.shelfLinkText, active && styles.shelfLinkTextActive]}>
-                  {item.label}
+                  {active && pafi ? `${item.label} · ${Math.round(pafi.score)}` : item.label}
                 </Text>
                 {active ? <RiseRule color={palette.hairlineStrong} style={styles.shelfLinkRule} /> : null}
               </MotionPressable>
             );
           })}
         </View>
+        <MotionPressable
+          onPress={onPafi}
+          disabled={!onPafi}
+          hitSlop={6}
+          style={styles.pafiSpectrum}
+          accessibilityRole={onPafi ? 'button' : 'text'}
+          accessibilityLabel={
+            pafi
+              ? `Độ rõ đường giá ${Math.round(pafi.score)} trên 100${pafiSignature ? `, chuẩn ${Math.round(pafiSignature.score)}` : ''}`
+              : 'Chưa đủ mẫu để đo độ rõ đường giá'
+          }
+        >
+          <View style={styles.pafiTrack}>
+            <View
+              style={[
+                styles.pafiFill,
+                { width: Math.round(PAFI_TRACK_WIDTH * Math.max(0, Math.min(1, (pafi?.score ?? 0) / 100))) },
+              ]}
+            />
+            {pafiSignature ? (
+              <View
+                style={[
+                  styles.pafiMark,
+                  {
+                    left:
+                      Math.round(PAFI_TRACK_WIDTH * Math.max(0, Math.min(1, pafiSignature.score / 100))) -
+                      1,
+                  },
+                ]}
+              />
+            ) : null}
+          </View>
+          <Text style={[type.monoSmall, styles.pafiSpectrumText]}>
+            {pafiPillText(pafi?.score, pafi?.confidence)}
+          </Text>
+        </MotionPressable>
         <MotionPressable
           onPress={() => setOptionsOpen(true)}
           hitSlop={6}
@@ -425,6 +474,37 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     height: 34,
     marginTop: 0,
+  },
+  pafiSpectrum: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 4,
+    height: 28,
+  },
+  pafiTrack: {
+    width: PAFI_TRACK_WIDTH,
+    height: 4,
+    borderRadius: 2,
+    overflow: 'hidden',
+    backgroundColor: palette.track,
+  },
+  pafiFill: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: palette.sound,
+  },
+  pafiMark: {
+    position: 'absolute',
+    top: -2,
+    width: 2,
+    height: 8,
+    backgroundColor: palette.textMuted,
+  },
+  pafiSpectrumText: {
+    color: palette.textMuted,
+    fontVariant: ['tabular-nums'],
+    minWidth: 38,
   },
   shelfLinks: {
     flexDirection: 'row',

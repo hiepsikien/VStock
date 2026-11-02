@@ -222,6 +222,34 @@ async def load_recap(
             humanize,
             color,
         )
+        if getattr(asset, "pafi", None) is None:
+            # An old cache has audio but no PAFI. Compose the score again
+            # (no export) and record the number rather than re-rendering audio.
+            from app.services import pafi as pafi_service
+
+            piece = await asyncio.to_thread(
+                pafi_service.recap_pafi,
+                symbol.upper(),
+                day,
+                bars,
+                variant,
+                ensemble,
+                humanize,
+                color,
+            )
+            asset = pafi_service.apply_to_asset(asset, piece)
+            remember = getattr(recap_store(), "remember_recap_pafi", None)
+            if callable(remember):
+                remember(
+                    symbol.upper(),
+                    day,
+                    variant,
+                    len(bars),
+                    ensemble,
+                    humanize,
+                    color,
+                    getattr(asset, "pafi", None),
+                )
         return replace(
             asset,
             character=character,

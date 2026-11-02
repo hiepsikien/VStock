@@ -96,6 +96,52 @@ class SessionDetailResponse(BaseModel):
     changePercent: float
 
 
+class PafiBreakdown(BaseModel):
+    score: float
+    band: Literal["very-clear", "clear", "fair", "faint", "very-faint"]
+    shape: float | None = None
+    motion: float | None = None
+    structure: float | None = None
+    resolution: float | None = None
+    volume: float | None = None
+    coverage: float
+    coverage_detail: float | None = None
+    opportunity: float = 0
+    confidence: Literal["low", "medium", "high"] = "low"
+    n_moves: int = 0
+    n_sounding: int = 0
+    version: str = "1"
+
+
+class PafiSignature(BaseModel):
+    variant: Literal["symphony", "jazz", "minimalist", "ambient", "guitar"]
+    ensemble: str
+    bucket: Literal["day", "span"]
+    score: float
+    p25: float
+    p75: float
+    n: int
+    version: str = "1"
+    updatedAt: str = ""
+    stale: bool = False
+
+
+class PafiPiece(BaseModel):
+    variant: Literal["symphony", "jazz", "minimalist", "ambient", "guitar"]
+    ensemble: str
+    movement: int | None = None
+    pafi: PafiBreakdown | None = None
+    cached: bool = False
+    computedAt: str | None = None
+
+
+class PafiPiecesResponse(BaseModel):
+    symbol: str
+    bucket: Literal["day", "span"]
+    asOf: str
+    pieces: list[PafiPiece]
+
+
 class RecapResponse(BaseModel):
     symbol: str
     date: str
@@ -127,6 +173,7 @@ class RecapResponse(BaseModel):
     movementName: str = ""
     humanize: bool = True
     color: bool = True
+    pafi: PafiBreakdown | None = None
 
 
 class SpanMovementResponse(BaseModel):
@@ -150,6 +197,7 @@ class SpanMovementResponse(BaseModel):
     beats: int = 4
     beatType: int = 4
     name: str = ""
+    pafi: PafiBreakdown | None = None
 
 
 class SpanResponse(BaseModel):
@@ -177,6 +225,7 @@ class SpanResponse(BaseModel):
     keyLabel: str = ""
     humanize: bool = True
     color: bool = True
+    pafi: PafiBreakdown | None = None
 
 
 class HealthResponse(BaseModel):

@@ -210,7 +210,7 @@ async def load_movement_audio(
 
     watcher = asyncio.create_task(watch_disconnect())
     try:
-        return await asyncio.to_thread(
+        asset = await asyncio.to_thread(
             recap_store().ensure_movement,
             symbol.upper(),
             span,
@@ -222,6 +222,36 @@ async def load_movement_audio(
             humanize,
             color,
         )
+        if getattr(asset, "pafi", None) is None:
+            from app.services import pafi as pafi_service
+
+            piece = await asyncio.to_thread(
+                pafi_service.movement_pafi,
+                symbol.upper(),
+                span,
+                index,
+                movement,
+                variant,
+                ensemble,
+                humanize,
+                color,
+            )
+            asset = pafi_service.apply_to_asset(asset, piece)
+            remember = getattr(recap_store(), "remember_movement_pafi", None)
+            if callable(remember):
+                remember(
+                    symbol.upper(),
+                    span,
+                    index,
+                    variant,
+                    movement.candle_count,
+                    movement.scale_fingerprint,
+                    ensemble,
+                    humanize,
+                    color,
+                    getattr(asset, "pafi", None),
+                )
+        return asset
     except (RecapUnavailable, RecapCancelled):
         raise
     except Exception as exc:
