@@ -690,8 +690,12 @@ export function ReplayRoom({ wide, onMode }: Props) {
 
   const heardName = movements?.[index]?.name?.trim() ?? '';
   const heardReady = Boolean(movements?.[index]?.ready);
+  const heardPafi = Boolean(movements?.[index]?.pafi);
   useEffect(() => {
-    if (variant !== 'guitar' || span === '1D' || !audible || heardName || heardReady) return;
+    // A movement can be heard before its score exists, and an old cache can
+    // hold audio without PAFI. Neither number appears on its own: re-read the
+    // plan until the current movement has both.
+    if (span === '1D' || !audible || (heardName && heardReady && heardPafi)) return;
     let stopped = false;
     let pending = false;
     const pull = async () => {
@@ -710,14 +714,13 @@ export function ReplayRoom({ wide, onMode }: Props) {
             const incoming = plan.movements[itemIndex];
             if (!incoming) return item;
             const name = incoming.name?.trim() ?? '';
-            if (item.name?.trim()) {
-              if (item.ready === incoming.ready) return item;
-              changed = true;
-              return { ...item, ready: incoming.ready };
-            }
-            if (!name && item.ready === incoming.ready) return item;
+            const patch: Partial<SpanMovement> = {};
+            if (!item.name?.trim() && name) patch.name = name;
+            if (item.ready !== incoming.ready) patch.ready = incoming.ready;
+            if (!item.pafi && incoming.pafi) patch.pafi = incoming.pafi;
+            if (!Object.keys(patch).length) return item;
             changed = true;
-            return { ...item, ready: incoming.ready, ...(name ? { name } : {}) };
+            return { ...item, ...patch };
           });
           return changed ? next : existing;
         });
@@ -733,7 +736,18 @@ export function ReplayRoom({ wide, onMode }: Props) {
       stopped = true;
       clearInterval(timer);
     };
-  }, [audible, colorOn, ensemble, heardName, heardReady, humanize, span, symbol, variant]);
+  }, [
+    audible,
+    colorOn,
+    ensemble,
+    heardName,
+    heardPafi,
+    heardReady,
+    humanize,
+    span,
+    symbol,
+    variant,
+  ]);
 
   const lengths = movements?.map((item) => item.prices.length) ?? [];
   const offsets = movementOffsets(lengths);
