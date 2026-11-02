@@ -22,7 +22,7 @@ Torroba là nhà thứ sáu của guitar nylon. Chất của ông là vòng Anda
 
 Villa đã giữ màu ấn tượng (hợp âm treo, trượt song song). Torroba giữ địa lý còn thiếu: Phrygian / Andalucia. Giọng thứ của engine là Đô thứ, nên vòng của ông trong code là **Cm → Bb → Ab → G → Cm**. Nốt màu là **La♭ ngân trên Sol trưởng**.
 
-Tempo ngày: **96 BPM**, cùng vùng với Bach. Điệu vũ lấy nhịp nhún từ meter và cách ngân, không từ một BPM ngày cao hơn. Sau đợt retarget tempo, chương 3/4 nằm trong `96–124`, chương 4/4 trong `96–132`, chương 6/8 trong `108–140`. `1D` giữ **96**; `1W` chương mở **lên 120** (rally 4/4) từ 90, calm 96, selloff 104, volatile 132; `1M` I là **104** trên 3/4 và `1M` III là **120** trên 6/8; tháng 12 của `1Y` rally là **120**. Con số từng chương đo bằng `PYTHONPATH=. python backend/tmp/diag_torroba_specs.py`.
+Tempo ngày: **96 BPM**, cùng vùng với Bach. Điệu vũ lấy nhịp nhún từ meter và cách ngân, không từ một BPM ngày cao hơn. Sau đợt retarget tempo, chương 3/4 nằm trong `92–116`, chương 4/4 trong `92–124`, chương 6/8 trong `96–132`. `1D` giữ **96**; `1W` chương mở **lên 112** (rally 4/4) từ 90, calm 92, selloff 96, volatile 124; `1M` I là **96** trên 3/4 và `1M` III là **120** trên 6/8; tháng 12 của `1Y` rally là **112**. Con số từng chương đo bằng `PYTHONPATH=. python backend/tmp/diag_torroba_specs.py`.
 
 ---
 
@@ -229,23 +229,23 @@ Không phải pattern mới. Đặt sau khi pattern của câu đã khóa.
 
 Ba header dưới ghi dải BPM có thật sau retarget, không phải một cửa. 4/4 chỉ còn ở `rally` và `volatile`, vì `calm` và `selloff` 4/4 đã đổi sang 3/4 trong `retarget_torroba_meter` **trước** khi đọc sàn.
 
-Hàng 4/4 áp cho các chương 4/4 có thật, tức `rally` và `volatile` sau retarget: `1D` (96, đi `GUITAR_BPM['torroba']`), `1W` (120 / 132), `1M` IV (120), `1Q` I (120), `3M` I (120), `3M` III (132), tháng 12 của `1Y` (120). Hàng 3/4 áp cho `1M` I selloff (104), `1M` II (96), `1Q` II (96), `3M` II (96), `1W` calm (96) và selloff (104), chương giữa `1Y` (96), tháng mở `1Y` (100). Hàng 6/8 áp cho `1M` III (120) và các scherzo của `1Y` (108–140). Đo bằng `PYTHONPATH=. python backend/tmp/diag_torroba_specs.py`.
+Hàng 4/4 áp cho các chương 4/4 có thật, tức `rally` và `volatile` sau retarget: `1D` (96, đi `GUITAR_BPM['torroba']`), `1W` (112 / 124), `1M` IV (112), `1Q` I (112), `3M` I (112), `3M` III (124), tháng 12 của `1Y` (112). Hàng 3/4 áp cho `1M` I selloff (96), `1M` II (96), `1Q` II (96), `3M` II (96), `1W` calm (92) và selloff (96), chương giữa `1Y` (96), tháng mở `1Y` (100). Hàng 6/8 áp cho `1M` III (120) và các scherzo của `1Y` (96–132). Đo bằng `PYTHONPATH=. python backend/tmp/diag_torroba_specs.py`.
 
-| 4/4, 96–132 BPM | A |
+| 4/4, 92–124 BPM | A |
 |---|---|
 | calm | `castillo` |
 | rally | `olite` |
 | selloff | `castillo` |
 | volatile | `olite` |
 
-| 3/4, 96–124 BPM | A |
+| 3/4, 92–116 BPM | A |
 |---|---|
 | calm | `castillo` |
 | rally | `torroba_tremolo` |
 | selloff | `castillo` |
 | volatile | `danza` |
 
-| 6/8, 108–140 BPM | A |
+| 6/8, 96–132 BPM | A |
 |---|---|
 | calm | `danza` |
 | rally | `alcaniz` |
