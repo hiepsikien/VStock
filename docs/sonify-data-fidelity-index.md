@@ -789,19 +789,25 @@ GET /v1/sonify/dfi/pieces
 
 ### 9.2. Kế hoạch sửa v4
 
-Hai lỗi dưới đây đã điều tra xong và chốt kế hoạch (chưa implement), xem
-[`sonify-dfi-trace-motion-fix-plan.md`](./sonify-dfi-trace-motion-fix-plan.md):
+Hai lỗi dưới đây đã điều tra xong; kế hoạch **đề xuất**, còn **4 điểm cần
+chốt** (§10 của plan), chưa implement. Xem
+[`sonify-dfi-trace-motion-fix-plan.md`](./sonify-dfi-trace-motion-fix-plan.md).
 
 - **Symphony bỏ sót bè `high`.** Violin yield cho Flute/Piccolo/Glockenspiel,
   nhưng trace chỉ đọc `lead + support`. Trên `ACB / 3M` movement I, 55% grid
   có flute kêu mà không có trace point; coverage chỉ 0.48.
 - **Motion chạy trên lưới eighth.** Nó báo 0.01 cho guitar/Torroba dù tương
-  quan trên nốt giá là 0.26–0.51, vì 42% bước giá 1 tick nằm giữa hai nốt và
-  bị tính là hold/ornament.
+  quan trên nốt giá là 0.26–0.51. Trong movement I, 384/919 **bước nến** là 1
+  tick; trong mẫu đã lọc của window I là 36/86 cặp 1 tick, và 36 trong 41 hold
+  nằm đúng ở mức tick đó.
 
 Kế hoạch sửa: ghi trace theo **vai trò bè** (không theo tên nhạc cụ), thêm
-`fill_trace_from_notes` cho `high`, chuyển Motion sang **anchor-to-anchor** trên
-`price_trace`, dùng `eps` đúng §4.5, và tăng `DFI_VERSION` lên `"4"`.
+`fill_trace_from_notes` cho `high`, chuyển Motion sang **anchor-to-anchor** cho
+guitar/symphony/jazz/minimalist nhưng **giữ grid cho ambient**, dùng `eps` đúng
+§4.5, giữ `sounding_pitch` để không mất caveat "ý định vs tai nghe", tăng
+`DFI_VERSION` lên `"4"` (cả `dfi.py` và `schemas.py`), và commit
+`backend/scripts/dfi_probe.py` để bảng §7 regenerate được.
+
 
 ---
 
