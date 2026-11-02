@@ -739,6 +739,12 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const heardReady = Boolean(movements?.[index]?.ready);
   const heardDfi = Boolean(movements?.[index]?.dfi);
   useEffect(() => {
+    // Reset the budget before the early return. A pause writes `idle`; the
+    // next play writes `play` and starts a fresh set of retries. Computing the
+    // key only after the guard would keep the exhausted `play` budget across a
+    // pause/resume.
+    const pollKey = `${symbol}|${span}|${variant}|${ensemble}|${index}|${heardReady ? 'ready' : 'wait'}|${audible ? 'play' : 'idle'}`;
+    if (dfiPoll.current.key !== pollKey) dfiPoll.current = { key: pollKey, count: 0 };
     if (span === '1D' || !audible || (heardName && heardReady && heardDfi)) return;
     // A movement can be heard before its score exists, and an old cache can
     // hold audio without DFI. Neither number appears on its own: re-read the
@@ -750,8 +756,6 @@ export function ReplayRoom({ wide, onMode }: Props) {
     // Bound the retries so a flat session does not poll the whole span
     // forever. A long movement's DFI sidecar can take a while to write, so
     // the budget is wider than the old twelve seconds.
-    const pollKey = `${symbol}|${span}|${variant}|${ensemble}|${index}|${heardReady ? 'ready' : 'wait'}|${audible ? 'play' : 'idle'}`;
-    if (dfiPoll.current.key !== pollKey) dfiPoll.current = { key: pollKey, count: 0 };
     let stopped = false;
     let pending = false;
     const controller = new AbortController();
