@@ -121,8 +121,8 @@ def test_real_twelfth_overlap_is_still_unplayable() -> None:
         assert_playable(_score(notes), profiles="torroba")
 
 
-def test_rasgueado_window_stays_the_first_half_beat() -> None:
-    """Twelfths 3, 4, and 5 are still inside the old two-sixteenth roll.
+def test_fan_bar_gets_the_whole_first_beat() -> None:
+    """Twelfths 3, 4, and 5 are inside the fan's ringing window.
 
     A second inner note starting at beat 4/12 rings with the rolled chord.
     The loose roll limits allow it. A window of three twelfths would not.
@@ -143,6 +143,25 @@ def test_rasgueado_window_stays_the_first_half_beat() -> None:
     assert _covers12(support[0], 4, _EPB)
     assert _covers12(lead[0], 4, _EPB)
     assert_playable(score, profiles="torroba")
+
+
+def test_a_non_fan_roll_bar_keeps_the_strict_window() -> None:
+    """Only bars with a real fan onset (`0 < beat < 0.25`) get the wider window."""
+    lead = [
+        NoteEvent(bar=0, beat=3.0 / 12.0, midi=64, duration_beats=2.0 / 12.0, voice=1, velocity=68),
+    ]
+    support = [
+        NoteEvent(bar=0, beat=0.5, midi=55, duration_beats=0.5, voice=2, velocity=56),
+        NoteEvent(bar=0, beat=0.5, midi=59, duration_beats=0.5, voice=2, velocity=56),
+        NoteEvent(bar=0, beat=0.5, midi=62, duration_beats=0.5, voice=2, velocity=56),
+    ]
+    low = [
+        NoteEvent(bar=0, beat=0.5, midi=40, duration_beats=0.5, voice=3, velocity=54),
+        NoteEvent(bar=0, beat=0.5, midi=47, duration_beats=0.5, voice=3, velocity=54),
+    ]
+    score = replace(_score(lead), support=tuple(support), low=tuple(low))
+    with pytest.raises(Unplayable, match="too many notes in one voice"):
+        assert_playable(score, profiles="torroba")
 
 
 def test_triplet_sixteenth_exports_three_over_two() -> None:

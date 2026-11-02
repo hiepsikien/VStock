@@ -3678,6 +3678,9 @@ def render_patterned_voices(
         support = _silence(support, eighth, epb)
         low = _silence(low, eighth, epb)
     lead, support, low = _repair(ctx, lead, support, low)
+    from app.sonify.guitar_torroba import apply_torroba_fan_ring
+
+    lead, support, low = apply_torroba_fan_ring(ctx, lead, support, low, patterns)
     # Downbeat pickups belong to the previous bar. Frames have already replaced
     # a pedal hold; `_resolve` shortens whatever lead note still covers them.
     from app.sonify.guitar_torroba import apply_sonatina_downbeats
@@ -3743,6 +3746,9 @@ def render_patterned_voices(
         support = _omit_support_under_lowered_lead(
             ctx, lead, support, lowered_eighths - set(scale_plan.scale_eighths)
         )
+    from app.sonify.guitar_wave import _apply_fans
+
+    lead, support, low = _apply_fans(ctx, lead, support, low, patterns)
     divisions = 4 if _needs_sixteenths([*lead, *support, *low]) else 2
     # Bach's mordent, bariolage, and scale runs are sixteenth figures. When any
     # voice asks for that grid, the engraving stays at division 4.
@@ -4460,6 +4466,7 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
                 raise Unplayable(f"inner voice {sounding} is below the middle register")
     times: set[int] = set()
     roll_bars: set[int] = set()
+    fan_bars: set[int] = set()
     for events in voices.values():
         for event in events:
             if event.midi is None:
@@ -4467,12 +4474,20 @@ def assert_playable(score: Score, key: KeySpec = C_KEY, profiles: str | dict | t
             times.add(_start12(event, epb))
             if not _on_sixteenth_grid(event):
                 roll_bars.add(event.bar)
+    for events in (score.lead, score.support):
+        for event in events:
+            if event.midi is not None and 0.0 < event.beat < 0.25:
+                fan_bars.add(event.bar)
     for when in sorted(times):
         bar = when // (epb * 6)
         profile = profile_at.get(bar, "study")
         # First half-beat: the old window was two sixteenth slots. On this
-        # grid that is six twelfths. Three would cut the fandanguillo roll.
-        roll_window = profile == "torroba" and (when % (epb * 6)) < 6 and bar in roll_bars
+        # grid that is six twelfths. A fan's ringing chord gets the whole
+        # first beat, so two bass notes may sustain past 0.5.
+        roll_window = profile == "torroba" and (
+            (bar in roll_bars and (when % (epb * 6)) < 6)
+            or (bar in fan_bars and (when % (epb * 6)) < 12)
+        )
         sounding_notes: list[tuple[int, int]] = []
         for voice, events in voices.items():
             for event in events:

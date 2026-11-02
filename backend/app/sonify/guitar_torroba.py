@@ -4856,6 +4856,112 @@ def _edge_frame(ctx, bar: int, price: int, mood: str | None) -> list[tuple]:
     return specs
 
 
+# Rasgueado ring caps in twelfths, by voice: 1 lead, 2 support, 3 bass.
+_FAN_RING = {
+    "strong": {1: 18, 2: 9, 3: 12},
+    "soft": {1: 12, 2: 6, 3: 9},
+}
+_FAN_MARGIN = {"strong": 3, "soft": 2}
+_FAN_NAIL = (73, 71, 69)
+
+
+def _fan_window(bar: int, *pools) -> list[NoteEvent]:
+    """Sounding attacks in the first half beat of a bar."""
+    return [
+        event
+        for pool in pools
+        for event in pool
+        if event.bar == bar and event.midi is not None and 0.0 <= event.beat < 0.25
+    ]
+
+
+def _fan_shape(ctx, bar: int, lead, support, low):
+    """`('strong' | 'soft', {voice: [events]})` for one rolled chord, or None.
+
+    Strong is 5-6 strings. Soft is 3-4. A narrow hand that only finds four
+    strings on a strong figure reads as soft; the difference is small.
+    """
+    window = _fan_window(bar, lead, support, low)
+    if not any(event.beat > 0.0 for event in window):
+        return None
+    groups: dict[int, list[NoteEvent]] = {1: [], 2: [], 3: []}
+    for event in window:
+        groups[event.voice].append(event)
+    pitches = {event.midi for event in window}
+    return ("strong" if len(pitches) >= 5 else "soft"), groups
+
+
+def _ring_end(event: NoteEvent, pools, *, voice: int, pitch: int, cap: int, bar_units: int) -> int:
+    """End in twelfths: the next attack in the voice, a vertical guard, and CAP."""
+    onset = int(round(event.beat * 12))
+    room = bar_units
+    for pool in pools:
+        for other in pool:
+            if other.bar != event.bar or other.midi is None:
+                continue
+            start = int(round(other.beat * 12))
+            if start <= onset:
+                continue
+            if other.voice == voice:
+                room = min(room, start)
+            elif voice == 1 and other.voice in (2, 3) and other.midi >= pitch:
+                room = min(room, start)
+            elif voice == 2 and other.voice == 1 and other.midi <= pitch:
+                room = min(room, start)
+            elif voice == 3 and other.voice in (1, 2) and other.midi <= pitch:
+                room = min(room, start)
+    end = min(room, cap)
+    return (end // 3) * 3
+
+
+def _replace_event(events: list[NoteEvent], target: NoteEvent, **changes) -> list[NoteEvent]:
+    return [replace(event, **changes) if event is target else event for event in events]
+
+
+def apply_torroba_fan_ring(ctx, lead, support, low, patterns=None):
+    """Lengthen the fan's written value: bass whole, support lowest, lead.
+
+    Runs after `_repair()` and before `_resolve()`. Only extends, never
+    shortens. Every end is floored to a multiple of 3/12 so a tie tail is
+    never a sextuplet (2/12) or a 32nd chain.
+    """
+    if getattr(ctx, "ensemble", None) != "torroba":
+        return lead, support, low
+    lead = list(lead)
+    support = list(support)
+    low = list(low)
+    bar_units = int(round(ctx.bar_beats * 12))
+    for bar in range(ctx.bars):
+        shape = _fan_shape(ctx, bar, lead, support, low)
+        if shape is None:
+            continue
+        kind, groups = shape
+        caps = _FAN_RING[kind]
+        pools = (lead, support, low)
+        for event in groups[1]:
+            end = _ring_end(event, pools, voice=1, pitch=event.midi, cap=caps[1], bar_units=bar_units)
+            current = int(round((event.beat + event.duration_beats) * 12))
+            if end > current:
+                lead = _replace_event(lead, event, duration_beats=end / 12.0 - event.beat)
+                pools = (lead, support, low)
+        for event in groups[3]:
+            end = _ring_end(event, pools, voice=3, pitch=event.midi, cap=caps[3], bar_units=bar_units)
+            current = int(round((event.beat + event.duration_beats) * 12))
+            if end > current:
+                low = _replace_event(low, event, duration_beats=end / 12.0 - event.beat)
+                pools = (lead, support, low)
+        if groups[2]:
+            carrier = min(groups[2], key=lambda event: (event.midi, event.beat))
+            end = _ring_end(carrier, pools, voice=2, pitch=carrier.midi, cap=caps[2], bar_units=bar_units)
+            current = int(round((carrier.beat + carrier.duration_beats) * 12))
+            if end > current:
+                support = _replace_event(
+                    support, carrier, duration_beats=end / 12.0 - carrier.beat
+                )
+                pools = (lead, support, low)
+    return lead, support, low
+
+
 from app.sonify.guitar_patterns import (  # noqa: E402
     _INNER,
     _apex_eighths,

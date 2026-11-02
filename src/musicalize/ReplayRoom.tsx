@@ -32,6 +32,7 @@ import {
 } from '../sonify/program';
 import { Controls } from './Controls';
 import { DfiSheet } from './DfiSheet';
+import { dfiPollKey } from './dfiPoll';
 import { CommandPalette } from './CommandPalette';
 import { clockText, GENRES, type ListenSpan } from './labels';
 import { readLink, writeLink } from './link';
@@ -739,21 +740,37 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const heardReady = Boolean(movements?.[index]?.ready);
   const heardDfi = Boolean(movements?.[index]?.dfi);
   useEffect(() => {
+    // Reset the budget before the early return. A pause writes `idle`; the
+    // next play writes `play` and starts a fresh set of retries. Computing the
+    // key only after the guard would keep the exhausted `play` budget across a
+    // pause/resume.
+    const pollKey = dfiPollKey({
+      symbol,
+      span,
+      variant,
+      ensemble,
+      index,
+      ready: heardReady,
+      name: heardName,
+      audible,
+    });
+    if (dfiPoll.current.key !== pollKey) dfiPoll.current = { key: pollKey, count: 0 };
+    if (span === '1D' || !audible || (heardName && heardReady && heardDfi)) return;
     // A movement can be heard before its score exists, and an old cache can
     // hold audio without DFI. Neither number appears on its own: re-read the
-    // plan until the current movement has both.
+    // plan until the current movement has both. Starting playback resets the
+    // retry budget, so a page opened before the cache was written still fills
+    // in after the user presses play.
     //
     // A null DFI is also terminal: the line did not move enough to score.
     // Bound the retries so a flat session does not poll the whole span
-    // forever.
-    if (span === '1D' || !audible || (heardName && heardReady && heardDfi)) return;
-    const pollKey = `${symbol}|${span}|${variant}|${ensemble}|${index}`;
-    if (dfiPoll.current.key !== pollKey) dfiPoll.current = { key: pollKey, count: 0 };
+    // forever. A long movement's DFI sidecar can take a while to write, so
+    // the budget is wider than the old twelve seconds.
     let stopped = false;
     let pending = false;
     const controller = new AbortController();
     const pull = async () => {
-      if (stopped || pending || dfiPoll.current.count >= 8) return;
+      if (stopped || pending || dfiPoll.current.count >= 24) return;
       dfiPoll.current.count += 1;
       pending = true;
       try {

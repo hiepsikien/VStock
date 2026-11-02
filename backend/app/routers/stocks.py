@@ -400,6 +400,7 @@ async def get_session_minutes(symbol: str, session_date: date) -> SessionDetailR
 
 @router.get("/stocks/{symbol}/sessions/{session_date}/recap", response_model=RecapResponse)
 async def get_recap(
+    response: Response,
     symbol: str,
     session_date: date,
     request: Request,
@@ -409,6 +410,9 @@ async def get_recap(
     color: bool = Query(default=True),
 ) -> RecapResponse:
     sym = symbol.upper()
+    # The movement name and DFI are written with the audio. A cached recap from
+    # before that write would show an empty name and a missing DFI.
+    response.headers["Cache-Control"] = "no-store"
     chosen = _ensemble(variant, ensemble)
     try:
         asset = await load_recap(sym, session_date, variant, request, chosen, humanize, color)
@@ -446,6 +450,7 @@ async def get_recap(
 
 @router.get("/stocks/{symbol}/span", response_model=SpanResponse)
 async def get_span(
+    response: Response,
     symbol: str,
     range: str = Query(default="1W"),
     variant: Variant = Query(default="symphony"),
@@ -454,6 +459,9 @@ async def get_span(
     color: bool = Query(default=True),
 ) -> SpanResponse:
     sym = symbol.upper()
+    # A movement name and its DFI appear after the audio is written. Never let
+    # a browser or proxy replay a plan from before that write.
+    response.headers["Cache-Control"] = "no-store"
     chosen = _ensemble(variant, ensemble)
     if range not in SPAN_RANGES:
         raise HTTPException(status_code=404, detail=f"No sonification for {range}")
@@ -562,6 +570,7 @@ async def get_dfi_signatures(
 
 @router.get("/sonify/dfi/pieces", response_model=DfiPiecesResponse)
 async def get_dfi_pieces(
+    response: Response,
     request: Request,
     symbol: str,
     bucket: Literal["day", "span"] = Query(default="day"),
@@ -575,6 +584,7 @@ async def get_dfi_pieces(
     color: bool = Query(default=True),
 ) -> DfiPiecesResponse:
     """Compose other rows of the same session or movement, without exporting audio."""
+    response.headers["Cache-Control"] = "no-store"
     sym = symbol.upper()
     try:
         rows = dfi_service.requested_rows(variant, ensemble)

@@ -90,7 +90,7 @@ Tên dưới đây là nhãn cho code. File kế hoạch vẫn đánh số Kiể
 
 Arpeggio ở đây là nhãn kiểu của Sonatina. Villa đã in **Arpeggio** trên chart (`villa_pattern`), nên tên này không đưa vào `PATTERN_NAMES`.
 
-Kiểu 2, Kiểu 3 (ô mô-típ), Kiểu 5 (ô 1), Kiểu 7 (ô 5) và móc 0 của lưới `fandanguillo` đều mở bằng hợp âm dải rasgueado (`bass → support → lead` lệch `1/12` phách). Kiểu 2 giữ tên **Rasgueado** vì đó là cả hình của nó. Kiểu 5 là vòm bốn ô của Fandanguillo, tên **Arch**.
+Kiểu 2, Kiểu 3 (ô mô-típ), Kiểu 5 (ô 1), Kiểu 7 (ô 5) và móc 0 của lưới `fandanguillo` đều mở bằng hợp âm dải rasgueado (`bass → support → lead` lệch `1/12` phách). Kiểu 2 giữ tên **Rasgueado** vì đó là cả hình của nó. Kiểu 5 là vòm bốn ô của Fandanguillo, tên **Arch**. **Cập nhật PR #121**: hợp âm quạt có thể ngân một phần ô (bass/support thấp nhất/lead) và có dynamic riêng ở tầng wave; xem [`docs/sonify-guitar-torroba-rasgueado-ring.md`](./sonify-guitar-torroba-rasgueado-ring.md).
 
 Kiểu 7 và kiểu 8 là *Arada*, chỉ trên `castillo` nhịp `4/4`. Cửa không còn `bpm > 72`. Cách chia độ dài khóa ở mục 3 của [`docs/sonify-guitar-torroba-meter-doors.md`](./sonify-guitar-torroba-meter-doors.md):
 

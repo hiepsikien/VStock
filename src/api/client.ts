@@ -219,8 +219,14 @@ type HistoryDto = {
   prices: number[];
 };
 
-async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, { signal });
+async function apiGet<T>(path: string, signal?: AbortSignal, noStore = false): Promise<T> {
+  // Live prices, plans, and DFI change as soon as a movement is written. Only
+  // the plan and DFI readers opt out of the HTTP cache; everything else keeps
+  // normal caching so watchlist and news do not refetch on every screen.
+  const res = await fetch(
+    `${API_URL}${path}`,
+    noStore ? { signal, cache: 'no-store' as const } : { signal },
+  );
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new Error(`API ${res.status}: ${body || res.statusText}`);
@@ -643,6 +649,7 @@ export async function fetchSpan(
   return apiGet<SpanManifest>(
     `/v1/stocks/${encodeURIComponent(sym)}/span?range=${range}&variant=${variant}&ensemble=${ensemble}${mixQuery(mix)}`,
     signal,
+    true,
   );
 }
 
@@ -671,6 +678,7 @@ export async function fetchRecap(
   return apiGet<RecapManifest>(
     `/v1/stocks/${encodeURIComponent(sym)}/sessions/${encodeURIComponent(day)}/recap?variant=${variant}&ensemble=${ensemble}${mixQuery(mix)}`,
     signal,
+    true,
   );
 }
 
@@ -702,7 +710,7 @@ export async function fetchDfiPieces(
   const mix = params.mix ?? MIX_ON;
   query.set('humanize', mix.humanize ? '1' : '0');
   query.set('color', mix.color ? '1' : '0');
-  return apiGet<DfiPiecesResponse>(`/v1/sonify/dfi/pieces?${query.toString()}`, signal);
+  return apiGet<DfiPiecesResponse>(`/v1/sonify/dfi/pieces?${query.toString()}`, signal, true);
 }
 
 /** Corpus medians. An empty list means the offline artifact is not built yet. */
