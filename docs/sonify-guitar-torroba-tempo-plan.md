@@ -1,7 +1,8 @@
-# Torroba: tempo 96–140, Juglar nghe được, và micro-shaping kiểu Barrios
+# Torroba: tempo 92–132 (đợt đầu 96–140), Juglar nghe được, và micro-shaping kiểu Barrios
 
 > **Trạng thái**: **đã vào code**, `SPAN_REVISION` `"69"` → `"70"`, `pytest tests/ -q` **734 passed**. Đã kiểm bằng dữ liệu thật (112 mã × `1M`/`3M`/`1Y`): **169 chương 3/4 từ 112 BPM trở lên, cả 169 hát Juglar** — không chương nhanh nào rơi về `sonatina`. Chỉ còn bước nghe lại (mục 10, bước 8): `MSN 1M II` / `PVS 1M II` / `VCB 1M I`.
 > **Sửa**: bảng BPM ở [`docs/sonify-guitar-torroba-aba-tempo.md`](./sonify-guitar-torroba-aba-tempo.md) mục 3 và mục 4, hàng `3/4, 60–72 BPM` ở [`docs/sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md) mục 2, và câu “hai cú sau thấp hơn một nấc `_under_lead`” trong cùng file mục 3.1.
+> **Cập nhật sau đó**: dải tempo hiện tại là **92–132**, xem [`docs/sonify-guitar-torroba-juglar-cushion-dynamics-tempo.md`](./sonify-guitar-torroba-juglar-cushion-dynamics-tempo.md) mục 4. Các bảng đo BPM dưới đây là bản ghi của đợt đầu `96–140`.
 > **Giữ**: không thêm id pattern. Không đổi id `torroba_tremolo`, tên in **Juglar**. Không đụng Barrios: `guitar.py` `_TREMOLO_THUMB` / `_tremolo` / `BARRIOS_TREMOLO_MIN_BPM` chỉ là tham chiếu, không sửa. Không sửa cờ `bridge` / `trio` trong `span.py`.
 
 Đo lại sau khi vào code, `backend/tmp/diag_torroba_tempo.py`, 3/4 rally, 8 ô, band `mf`, **trước** sóng:
@@ -15,7 +16,7 @@
 
 Chùm là hình **không phụ thuộc tempo**: cùng chín ngón và ba ngón cái ở mọi BPM. Khoảng bên trong chùm còn 3–4 bậc (trước là 14), ngón cái hát 2 bậc trên ngón to nhất của phách, và cú hát nằm ở `+0,25` phách. Ô cuối vùng vẫn một nốt mỗi phách (`64 / 62 / 62`, ba ngón nghỉ).
 
-Bốn việc cùng một đợt: tempo mọi chương Torroba vào khoảng **96–140 BPM**; Juglar búng **bốn cú mỗi phách** (1 bass + 3 ngón) nên đạt **6,4–9,3 cú/giây** và nghe ra tremolo; ba ngón trong chùm chỉ còn cách nhau 3–4 bậc thay vì 14, và **ngón cái hát 2 bậc trên nốt to nhất của chùm** vì bass cũng là bè giai điệu; và cửa `bpm > 72` trong picker bị bỏ để chương chậm vẫn hát Juglar.
+Bốn việc cùng một đợt: tempo mọi chương Torroba vào khoảng **92–132 BPM**; Juglar búng **bốn cú mỗi phách** (1 bass + 3 ngón) nên đạt **6,1–8,8 cú/giây** và nghe ra tremolo; ba ngón trong chùm chỉ còn cách nhau 3–4 bậc thay vì 14, và **ngón cái hát 2 bậc trên nốt to nhất của chùm** vì bass cũng là bè giai điệu; và cửa `bpm > 72` trong picker bị bỏ để chương chậm vẫn hát Juglar.
 
 ---
 
@@ -54,29 +55,29 @@ Barrios không làm vậy. `guitar.py` `_tremolo` giữ **cùng một `_TREMOLO_
 Ba hằng số mới trong `guitar_torroba.py`:
 
 ```python
-TORROBA_TEMPO_MIN = 96
-TORROBA_TEMPO_MAX = 140
+TORROBA_TEMPO_MIN = 92
+TORROBA_TEMPO_MAX = 132
 TORROBA_TEMPO_FLOOR = {
-    ("calm", "3/4"): 96,
-    ("calm", "4/4"): 96,
-    ("calm", "6/8"): 104,
-    ("selloff", "3/4"): 104,
-    ("selloff", "4/4"): 104,
-    ("selloff", "6/8"): 116,
-    ("rally", "3/4"): 112,
-    ("rally", "4/4"): 120,
-    ("rally", "6/8"): 120,
-    ("volatile", "3/4"): 124,
-    ("volatile", "4/4"): 132,
-    ("volatile", "6/8"): 140,
+    ("calm", "3/4"): 92,
+    ("calm", "4/4"): 92,
+    ("calm", "6/8"): 96,
+    ("selloff", "3/4"): 96,
+    ("selloff", "4/4"): 96,
+    ("selloff", "6/8"): 108,
+    ("rally", "3/4"): 104,
+    ("rally", "4/4"): 112,
+    ("rally", "6/8"): 112,
+    ("volatile", "3/4"): 116,
+    ("volatile", "4/4"): 124,
+    ("volatile", "6/8"): 132,
 }
 ```
 
-`retarget_torroba_tempo(spec, character)` trong `span.py`, cạnh `retarget_torroba_meter` (dòng 290), **chỉ nâng, không hạ** — trừ khi một spec đã vượt trần, khi đó `min` kéo nó về 140; hôm nay cao nhất là **120** (1M III, 6/8) nên nhánh đó không chạy.
+`retarget_torroba_tempo(spec, character)` trong `span.py`, cạnh `retarget_torroba_meter` (dòng 290), **chỉ nâng, không hạ** — trừ khi một spec đã vượt trần, khi đó `min` kéo nó về 132; đợt 92–132 dùng đúng nhánh này cho 6/8 volatile (`140 → 132`).
 
 ```python
 def retarget_torroba_tempo(spec: FormSpec, character: MovementCharacter | None) -> FormSpec:
-    """Lift a Torroba movement into 96–140 BPM. Nothing slower than 96 survives."""
+    """Lift a Torroba movement into 92–132 BPM. Nothing slower than 92 survives."""
     kind = f"{spec.meter.beats}/{spec.meter.beat_type}"
     floor = TORROBA_TEMPO_FLOOR.get((character or "calm", kind), TORROBA_TEMPO_MIN)
     bpm = min(TORROBA_TEMPO_MAX, max(spec.bpm, floor))

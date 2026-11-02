@@ -57,6 +57,8 @@ from app.sonify.guitar_patterns import (
     _owning_pattern,
     _select_body,
     _shape_dynamics,
+    _smooth_boundaries,
+    _transitions,
     assert_playable,
     _FAMILY,
     _patterns,
@@ -75,9 +77,11 @@ from app.sonify.guitar_torroba import (
     _alcaniz_dance,
     _alcaniz_opening,
     _render_torroba_bar,
+    _sounding_bass,
     _torroba_bass,
     _torroba_contrast,
     _torroba_primary,
+    apply_castillo_first_a_contour,
     castillos_wave_row,
     _Attack,
     _realize,
@@ -89,7 +93,7 @@ from app.sonify.guitar_torroba import (
     torroba_scale_step,
 )
 from app.sonify.program import pattern_form, pattern_title
-from app.sonify.guitar_wave import _is_target, profile_for
+from app.sonify.guitar_wave import _is_target, apply_guitar_wave, profile_for
 from app.sonify.harmony import BACH, TORROBA, TorrobaDialect, dialect_for
 from app.sonify.humanize import _clamp_guitar
 from app.sonify.model import HarmonyEvent, NoteEvent, Phrase, Run, Score
@@ -1160,8 +1164,9 @@ def test_breath_harmonics_and_fandanguillo_grids(monkeypatch) -> None:
         for note in crossed.lead
     )
 
-    # 3/4 Sonatina with a Castillo bridge. The hold is the
-    # downbeat, so a leap graces from that pitch and a step slurs from it.
+    # 3/4 Sonatina with a Castillo bridge. The seam is an A-B-A cushion: the
+    # outgoing bar keeps its downbeat and rests on the last beat, with no
+    # pickup planted back into the gap.
     castillo_then_sonatina = (
         FormSection(0, 1, "phrase", 0, bridge=True),
         FormSection(1, 2, "phrase", 1),
@@ -1177,12 +1182,13 @@ def test_breath_harmonics_and_fandanguillo_grids(monkeypatch) -> None:
         meter=METER_34,
         sections=castillo_then_sonatina,
     )
-    grace = [note for note in graced.lead if note.midi is not None and note.duration_beats == 0.25]
-    assert [(note.bar, round(note.beat, 2)) for note in grace] == [(0, 2.75)]
-    assert grace[0].slur_start
+    assert not any(
+        note.midi is not None and note.bar == 0 and note.beat >= 2.0 - 1e-9
+        for note in graced.lead
+    )
     assert _strong(graced, 0, 0.0).midi == 67
-    assert _strong(graced, 0, 2.0).midi == 67
-    assert _strong(graced, 1, 0.0).midi == 64 and _strong(graced, 1, 0.0).slur_stop
+    assert _strong(graced, 0, 0.0).duration_beats == pytest.approx(2.0)
+    assert _strong(graced, 1, 0.0).midi == 64 and not _strong(graced, 1, 0.0).slur_stop
     # Eighth 4 of the Castillo bar is the same held pitch, not the unsung 71.
     stepped_close = _render(
         [72] * 3 + [71] * 3 + [64] * 6,
@@ -1197,7 +1203,11 @@ def test_breath_harmonics_and_fandanguillo_grids(monkeypatch) -> None:
     )
     assert not any(note.midi is not None and note.duration_beats == 0.25 for note in stepped_close.lead)
     assert _strong(stepped_close, 0, 0.0).midi == 64
-    assert _strong(stepped_close, 0, 2.0).midi == 64
+    assert _strong(stepped_close, 0, 0.0).duration_beats == pytest.approx(2.0)
+    assert not any(
+        note.midi is not None and note.bar == 0 and note.beat >= 2.0 - 1e-9
+        for note in stepped_close.lead
+    )
     assert _strong(stepped_close, 1, 0.0).midi == 64 and not _strong(stepped_close, 1, 0.0).slur_stop
     held_step = _render(
         [72] * 3 + [60] * 3 + [62] * 6,
@@ -1210,9 +1220,15 @@ def test_breath_harmonics_and_fandanguillo_grids(monkeypatch) -> None:
         meter=METER_34,
         sections=castillo_then_sonatina,
     )
-    assert _strong(held_step, 0, 0.0).midi == 64 and _strong(held_step, 0, 0.0).slur_start
-    assert _strong(held_step, 0, 2.0).midi == 64
-    assert _strong(held_step, 1, 0.0).midi == 62 and _strong(held_step, 1, 0.0).slur_stop
+    assert _strong(held_step, 0, 0.0).midi == 64
+    # No pickup leads into the next bar, so the downbeat opens no slur.
+    assert not _strong(held_step, 0, 0.0).slur_start
+    assert _strong(held_step, 0, 0.0).duration_beats == pytest.approx(2.0)
+    assert not any(
+        note.midi is not None and note.bar == 0 and note.beat >= 2.0 - 1e-9
+        for note in held_step.lead
+    )
+    assert _strong(held_step, 1, 0.0).midi == 62 and not _strong(held_step, 1, 0.0).slur_stop
 
     node = [67] * 8
     node_phrase = _joined(0, node)
@@ -1401,21 +1417,22 @@ def test_sonatina_downbeat_leap_step_run_and_castillo_hold(monkeypatch) -> None:
         {0: C, 1: C},
         sections=castillo_bridge,
     )
-    grace = [note for note in held.lead if note.midi is not None and note.duration_beats == 0.25]
-    assert [(note.bar, round(note.beat, 2)) for note in grace] == [(0, 2.75)]
-    assert grace[0].slur_start
+    # The Castillo->Sonatina seam is an A-B-A cushion: the downbeat holds two
+    # beats, the last beat is a rest, and no pickup fills it back in.
+    assert not any(
+        note.midi is not None and note.bar == 0 and note.beat >= 2.0 - 1e-9
+        for note in held.lead
+    )
+    assert _strong(held, 0, 0.0).midi == 67
+    assert _strong(held, 0, 0.0).duration_beats == pytest.approx(2.0)
     sung = [note for note in held.lead if note.bar == 1 and abs(note.beat) < 1e-6 and note.duration_beats >= 0.5]
-    assert len(sung) == 1 and sung[0].midi == 64 and sung[0].slur_stop
-    for note in held.lead:
-        if note.bar != 0 or note.duration_beats == 0.25 or note.midi is None:
-            continue
-        assert note.beat + note.duration_beats <= 2.75 + 1e-6
+    assert len(sung) == 1 and sung[0].midi == 64 and not sung[0].slur_stop
     assert_playable(held, profiles="torroba")
 
     dance = _two_bars([72] * 16, (_joined(0, [72] * 16),), {0: C, 1: C}, character="volatile")
     assert not any(note.midi is not None and note.duration_beats == 0.25 for note in dance.lead)
 
-    # Castillo holds the downbeat. The unsung note at the later eighth does not decide the ornament.
+    # Castillo holds the downbeat. The unsung note at the later eighth does not decide the pitch.
     step_line = [72] * 3 + [60] * 3 + [62] * 6
     held_step = _waltz(
         step_line,
@@ -1426,10 +1443,14 @@ def test_sonatina_downbeat_leap_step_run_and_castillo_hold(monkeypatch) -> None:
     held_price = [note for note in held_step.lead if note.bar == 0 and abs(note.beat) < 1e-6 and note.midi is not None]
     assert len(held_price) == 1 and held_price[0].midi == 64
     assert held_price[0].duration_beats == pytest.approx(2.0)
-    assert held_price[0].slur_start
-    assert _strong(held_step, 0, 2.0).midi == 64
+    # No pickup is planted into the cushion's empty beat, so no slur opens here.
+    assert not held_price[0].slur_start
+    assert not any(
+        note.midi is not None and note.bar == 0 and note.beat >= 2.0 - 1e-9
+        for note in held_step.lead
+    )
     step_arrival = [note for note in held_step.lead if note.bar == 1 and abs(note.beat) < 1e-6 and note.duration_beats >= 0.5]
-    assert len(step_arrival) == 1 and step_arrival[0].midi == 62 and step_arrival[0].slur_stop
+    assert len(step_arrival) == 1 and step_arrival[0].midi == 62 and not step_arrival[0].slur_stop
 
     leap_line = [60] * 3 + [71] * 3 + [72] * 6
     held_leap = _waltz(
@@ -1441,10 +1462,13 @@ def test_sonatina_downbeat_leap_step_run_and_castillo_hold(monkeypatch) -> None:
     sounded = [note for note in held_leap.lead if note.bar == 0 and abs(note.beat) < 1e-6 and note.midi is not None]
     assert len(sounded) == 1 and sounded[0].midi == 55
     # C4 is under the floor, so the hold is G3. That still leaps into C5.
-    assert any(note.midi is not None and note.duration_beats == 0.25 for note in held_leap.lead)
-    assert _strong(held_leap, 0, 2.0).midi == 55
+    assert sounded[0].duration_beats == pytest.approx(2.0)
+    assert not any(
+        note.midi is not None and note.bar == 0 and note.beat >= 2.0 - 1e-9
+        for note in held_leap.lead
+    )
     leap_arrival = [note for note in held_leap.lead if note.bar == 1 and abs(note.beat) < 1e-6 and note.duration_beats >= 0.5]
-    assert len(leap_arrival) == 1 and leap_arrival[0].midi == 72 and leap_arrival[0].slur_stop
+    assert len(leap_arrival) == 1 and leap_arrival[0].midi == 72 and not leap_arrival[0].slur_stop
     assert_playable(leap, profiles="torroba")
     assert_playable(running, profiles="torroba")
 
@@ -2852,6 +2876,37 @@ def _assert_type7_bar5_kept(score: Score, bar: int) -> None:
     assert running[-1].midi % 12 == C.pitches[0] % 12
 
 
+def _assert_type7_cushion(score: Score, bar: int) -> None:
+    """At a pattern seam the figure head survives and the last beat is a rest."""
+    rolled = [
+        note
+        for note in score.lead
+        if note.bar == bar and note.midi is not None and note.beat < 0.25
+    ]
+    assert len(rolled) == 1
+    assert rolled[0].beat == pytest.approx(2 / 12)
+    # The roll is cut on the beat line, not in the middle of a pluck.
+    assert rolled[0].beat + rolled[0].duration_beats == pytest.approx(score.bar_beats - 1.0)
+    assert not any(
+        note.midi is not None and note.beat >= score.bar_beats - 1.0 - 1e-9
+        for note in score.lead
+        if note.bar == bar
+    )
+    running = sorted(
+        (
+            note
+            for note in score.low
+            if note.bar == bar and note.midi is not None and note.beat >= 0.5 - 1e-9
+        ),
+        key=lambda note: note.beat,
+    )
+    # No new bass starts inside the empty beat.
+    assert [round(note.beat, 2) for note in running] == [0.5, 1.0, 1.5, 2.0, 2.5]
+    assert all(note.duration_beats == pytest.approx(0.5) for note in running)
+    base = running[0].velocity
+    assert [note.velocity - base for note in running] == [0, 0, 0, 0, -2]
+
+
 def test_type_7_bar_5_keeps_the_roll_across_a_boundary_and_a_pattern_change() -> None:
     framed = _render(
         [72] * 56,
@@ -2883,7 +2938,7 @@ def test_type_7_bar_5_keeps_the_roll_across_a_boundary_and_a_pattern_change() ->
             FormSection(5, 6, "phrase", 1),
         ),
     )
-    _assert_type7_bar5_kept(crossed, 4)
+    _assert_type7_cushion(crossed, 4)
     assert_playable(crossed, profiles="torroba")
 
 
@@ -3215,7 +3270,8 @@ def test_juglar_chunk_is_one_thumb_and_three_fingers() -> None:
             quarter * 12 + 9,
         ]
         assert {note.midi for note in attacks} == {melody[eighth]}
-        assert all(abs(note.duration_beats - 0.25) < 1e-9 for note in attacks)
+        expected = [0.25, 0.25, 0.5] if quarter < 2 else [0.25, 0.25, 0.25]
+        assert [note.duration_beats for note in attacks] == pytest.approx(expected)
         assert attacks[0].velocity > attacks[1].velocity > attacks[2].velocity
         assert attacks[0].velocity - attacks[2].velocity == 4
         # The thumb sings over the chunk instead of bedding under it (5.1).
@@ -3242,7 +3298,9 @@ def test_juglar_chunk_is_one_thumb_and_three_fingers() -> None:
     assert thin_support == []
     assert len(thin_lead) == 9
     assert thin_lead[0].accent and not any(note.accent for note in thin_lead[1:])
-    assert all(abs(note.duration_beats - 0.25) < 1e-9 for note in thin_lead)
+    assert [note.duration_beats for note in thin_lead] == pytest.approx(
+        [0.25, 0.25, 0.5, 0.25, 0.25, 0.5, 0.25, 0.25, 0.25]
+    )
     assert len(thin_low) == 3 and all(note.duration_beats == pytest.approx(1.0) for note in thin_low)
 
     first = Phrase(0, 6, (Run(0, 3, 67), Run(3, 3, 69)))
@@ -3267,7 +3325,9 @@ def test_juglar_chunk_is_one_thumb_and_three_fingers() -> None:
         closed, _support, _low = _render_torroba_bar(closing_ctx, 1, closing, "torroba_tremolo")
     assert len(closed) == 9
     assert closed[0].accent
-    assert all(abs(note.duration_beats - 0.25) < 1e-9 for note in closed)
+    assert [note.duration_beats for note in closed] == pytest.approx(
+        [0.25, 0.25, 0.5, 0.25, 0.25, 0.5, 0.25, 0.25, 0.25]
+    )
 
     # The shape does not read the tempo: 120 BPM is the same chunk on the same grid.
     fast_ctx = replace(ctx, bpm=120)
@@ -3276,9 +3336,10 @@ def test_juglar_chunk_is_one_thumb_and_three_fingers() -> None:
     assert [round(note.beat * 12) for note in fast] == [
         3, 6, 9, 15, 18, 21, 27, 30, 33
     ]
-    assert all(abs(note.duration_beats - 0.25) < 1e-9 for note in fast)
+    assert [note.duration_beats for note in fast] == pytest.approx(
+        [0.25, 0.25, 0.5, 0.25, 0.25, 0.5, 0.25, 0.25, 0.25]
+    )
     assert len(fast_low) == 3
-
     rising = phrase
     gap = [
         NoteEvent(bar=0, beat=0.0, midi=67, duration_beats=4 / 12, voice=1, velocity=60, accent=True),
@@ -3317,8 +3378,10 @@ def test_juglar_chunk_is_one_thumb_and_three_fingers() -> None:
     )
     xml = score_to_musicxml(score)
     assert "<grace" not in xml
-    # Three sixteenths per beat: no 3:2 tuplet left anywhere in the bar.
-    assert xml.count("<type>16th</type>") == 9
+    # Three sixteenths lead into each beat; the fourth pluck of the first two
+    # beats is an eighth, and the closing pluck stays a sixteenth.
+    assert xml.count("<type>16th</type>") == 7
+    assert xml.count("<type>eighth</type>") == 2
     assert "<time-modification>" not in xml
     assert rising.rise >= MIN_RISE
 
@@ -3811,10 +3874,14 @@ def test_juglar_bar_before_the_return_stays_a_chunk() -> None:
         last, _support, last_low = _render_torroba_bar(ctx, 69, closing, "torroba_tremolo", patterns)
         plan = torroba_figure_plan(ctx, patterns)
     assert len(earlier) == 9
-    assert all(abs(note.duration_beats - 0.25) < 1e-9 for note in earlier)
+    # Two ordinary chunks and the closing chunk: only the closing one keeps
+    # the fourth pluck at a sixteenth so it ends on the barline.
+    assert [note.duration_beats for note in earlier] == pytest.approx(
+        [0.25, 0.25, 0.5, 0.25, 0.25, 0.5, 0.25, 0.25, 0.25]
+    )
     assert earlier[0].accent
     assert [round(note.beat, 2) for note in last] == [0.0, 1.0, 2.0]
-    assert all(note.duration_beats == pytest.approx(1.0) for note in last)
+    assert [note.duration_beats for note in last] == pytest.approx([1.0, 1.0, 0.25])
     assert all(not note.accent for note in last)
     # The chunk bar bounces the thumb on every beat; the quarter-note bar holds one.
     assert len(earlier_low) == 3
@@ -4516,8 +4583,254 @@ def test_juglar_flat_bar_steps_the_later_beats() -> None:
         assert attacks[0].accent is (eighth == 0)
     ordered = sorted(quarters, key=lambda note: note.beat)
     assert [note.velocity for note in ordered] == [64, 62, 62]
-    assert [note.duration_beats for note in ordered] == [pytest.approx(1.0), pytest.approx(1.0), pytest.approx(1.0)]
+    assert [note.duration_beats for note in ordered] == pytest.approx([1.0, 1.0, 0.25])
     assert all(not note.accent for note in ordered)
+
+
+def test_juglar_bass_keeps_a_fretted_f_on_every_beat() -> None:
+    """F major in Bb has no open bass, so the chunk must fret its own thumb."""
+    phrase = Phrase(0, 6, (Run(0, 2, 65), Run(2, 2, 65), Run(4, 2, 65)))
+    ctx = replace(
+        _ctx(
+            melody=[65] * 6,
+            phrase=phrase,
+            kind="3/4",
+            epb=6,
+            strong=(0,),
+            bpm=72,
+            character="calm",
+            bar_beats=3,
+            chord=F,
+        ),
+        semitones=-2,
+    )
+    assert _torroba_bass(ctx, F, 0, 65) == 45
+    # The open-string filter rejects this written A: sounding 43 is not a bass string.
+    assert _sounding_bass(ctx, 0, 65) is None
+    with compose_meter(METER_34):
+        _lead, support, low = _render_torroba_bar(ctx, 0, phrase, "torroba_tremolo")
+    assert support == []
+    assert [(note.beat, note.midi, note.duration_beats) for note in low] == [
+        (0.0, 45, 1.0),
+        (1.0, 45, 1.0),
+        (2.0, 45, 1.0),
+    ]
+
+
+def _aba_cushion_fixture(
+    kind: str,
+    epb: int,
+    strong: tuple[int, ...],
+    bar_beats: float,
+    *,
+    spill: bool = False,
+):
+    phrases = (
+        Phrase(0, 3 * epb if spill else 2 * epb, (Run(0, 2 * epb, 67),)),
+        Phrase(2 * epb, 4 * epb, (Run(2 * epb, 2 * epb, 72),)),
+        Phrase(4 * epb, 6 * epb, (Run(4 * epb, 2 * epb, 67),)),
+    )
+    ctx = _ctx(
+        melody=[67] * (6 * epb),
+        phrase=phrases[0],
+        kind=kind,
+        epb=epb,
+        strong=strong,
+        bpm=72,
+        character="calm",
+        bars=6,
+        bar_beats=bar_beats,
+    )
+    ctx = replace(
+        ctx,
+        phrases=phrases,
+        sections=(
+            FormSection(0, 2, "phrase", 0),
+            FormSection(2, 4, "phrase", 1),
+            FormSection(4, 6, "phrase", 2),
+        ),
+        chord_at={bar: C for bar in range(6)},
+        kind_at={bar: "phrase" for bar in range(6)},
+        band_at={bar: "mf" for bar in range(6)},
+    )
+    patterns = ["castillo", "sonatina", "castillo"]
+    lead: list[NoteEvent] = []
+    support: list[NoteEvent] = []
+    low: list[NoteEvent] = []
+    for bar in range(6):
+        midi = 72 if bar == 3 else 67
+        for eighth in range(epb):
+            lead.append(
+                NoteEvent(
+                    bar=bar,
+                    beat=eighth * 0.5,
+                    midi=midi,
+                    duration_beats=0.5,
+                    voice=1,
+                    velocity=64,
+                )
+            )
+        low.append(NoteEvent(bar=bar, beat=0.0, midi=45, duration_beats=2.0, voice=3, velocity=60))
+        low.append(NoteEvent(bar=bar, beat=2.0, midi=45, duration_beats=1.0, voice=3, velocity=60))
+    support.append(NoteEvent(bar=1, beat=1.0, midi=60, duration_beats=2.0, voice=2, velocity=55))
+    support.append(NoteEvent(bar=3, beat=1.0, midi=60, duration_beats=2.0, voice=2, velocity=55))
+    return ctx, patterns, lead, support, low
+
+
+@pytest.mark.parametrize(
+    ("kind", "epb", "strong", "bar_beats", "gap_beat"),
+    [
+        ("3/4", 6, (0,), 3.0, 2.0),
+        ("6/8", 6, (0, 3), 3.0, 1.5),
+    ],
+)
+def test_torroba_cushion_leaves_one_clear_beat_at_both_aba_seams(
+    kind: str,
+    epb: int,
+    strong: tuple[int, ...],
+    bar_beats: float,
+    gap_beat: float,
+) -> None:
+    ctx, patterns, lead, support, low = _aba_cushion_fixture(kind, epb, strong, bar_beats)
+    # Both seams are figure bars. The cushion must still run before that guard.
+    figure_bars = {1, 3}
+    paths = {
+        "framed": lambda: _smooth_boundaries(
+            ctx, patterns, lead, support, low, figure_bars=figure_bars
+        )[:3],
+        "unframed": lambda: _transitions(
+            ctx, patterns, (), lead, support, low, figure_bars=figure_bars
+        ),
+    }
+    for name, run in paths.items():
+        heard, inner, bass = run()
+        for bar in (1, 3):
+            head = [note for note in heard if note.bar == bar]
+            assert head, f"{name}: the figure head disappeared in bar {bar}"
+            assert all(note.beat < gap_beat - 1e-9 for note in head), name
+            assert all(
+                note.beat + note.duration_beats <= gap_beat + 1e-9 for note in head
+            ), name
+            assert not any(
+                gap_beat - 1e-9 <= note.beat < bar_beats for note in heard if note.bar == bar
+            ), name
+            assert not any(
+                note.beat >= gap_beat - 1e-9 for note in inner if note.bar == bar
+            ), name
+            # A bass that began on the beat still rings; no new bass starts in
+            # the empty beat.
+            assert any(
+                note.voice == 3 and note.beat == 0.0 for note in bass if note.bar == bar
+            ), name
+            assert not any(
+                note.beat >= gap_beat - 1e-9 for note in bass if note.bar == bar
+            ), name
+
+
+def test_torroba_cushion_reads_the_pattern_seam_not_the_section_edge() -> None:
+    """The cushion lands on the last bar that still sings the outgoing pattern.
+
+    ACB 1M II starts section B at bar 46, yet the last Castillo phrase still
+    owns bar 46. The cushion belongs there, not on `section.end - 1` (bar 45),
+    which would leave the real seam with a full last beat.
+    """
+    ctx, patterns, lead, support, low = _aba_cushion_fixture(
+        "3/4", 6, (0,), 3.0, spill=True
+    )
+    from app.sonify.guitar_patterns import _bar_pattern
+
+    # Section 0 ends at bar 2, but `castillo` still owns bar 2 and changes to
+    # `sonatina` only at bar 3.
+    assert ctx.section(1) is not ctx.section(2)
+    assert _bar_pattern(ctx, 1, patterns) == "castillo"
+    assert _bar_pattern(ctx, 2, patterns) == "castillo"
+    assert _bar_pattern(ctx, 3, patterns) == "sonatina"
+    paths = {
+        "framed": lambda: _smooth_boundaries(
+            ctx, patterns, lead, support, low, figure_bars={2}
+        )[:3],
+        "unframed": lambda: _transitions(
+            ctx, patterns, (), lead, support, low, figure_bars={2}
+        ),
+    }
+    for name, run in paths.items():
+        heard, _inner, _bass = run()
+        # Bar 1 is still inside the outgoing pattern, so it keeps its last beat.
+        assert any(
+            note.midi is not None and note.beat >= 2.0 - 1e-9
+            for note in heard
+            if note.bar == 1
+        ), name
+        # The real seam is bar 2, and its last beat is the cushion gap.
+        assert not any(
+            note.midi is not None and note.beat >= 2.0 - 1e-9
+            for note in heard
+            if note.bar == 2
+        ), name
+
+
+def test_castillo_first_a_contour_spreads_repeats_and_survives_the_wave() -> None:
+    first = _joined(0, [64] * 32)
+    second = _joined(32, [67] * 8)
+    ctx = _ctx(
+        melody=[64] * 32 + [67] * 8,
+        phrase=first,
+        kind="4/4",
+        epb=8,
+        bpm=96,
+        character="calm",
+        bars=5,
+        bar_beats=4.0,
+    )
+    ctx = replace(
+        ctx,
+        phrases=(first, second),
+        sections=(FormSection(0, 4, "phrase", 0), FormSection(4, 5, "phrase", 1)),
+        chord_at={bar: C for bar in range(5)},
+        kind_at={bar: "phrase" for bar in range(5)},
+        band_at={bar: "mf" for bar in range(5)},
+        bar_volumes=[4.0] * 5,
+        section_rel_spans={0: 0.02, 4: 0.02},
+    )
+    patterns = ["castillo", "sonatina"]
+    lead = [
+        NoteEvent(
+            bar=bar,
+            beat=float(beat),
+            midi=64,
+            duration_beats=1.0,
+            voice=1,
+            velocity=56,
+        )
+        for bar in range(4)
+        for beat in range(4)
+    ]
+    untouched = [
+        NoteEvent(
+            bar=4,
+            beat=float(beat),
+            midi=67,
+            duration_beats=1.0,
+            voice=1,
+            velocity=70,
+        )
+        for beat in range(4)
+    ]
+    contoured = apply_castillo_first_a_contour(ctx, [*lead, *untouched], patterns)
+    inside = sorted(
+        (note for note in contoured if note.bar < 4), key=lambda note: (note.bar, note.beat)
+    )
+    velocities = [int(note.velocity or 0) for note in inside]
+    assert max(velocities) - min(velocities) >= 8
+    for earlier, later in zip(inside, inside[1:]):
+        if earlier.midi == later.midi:
+            assert abs(int(earlier.velocity or 0) - int(later.velocity or 0)) >= 4
+    # The returning A keeps its own shape.
+    assert [int(note.velocity or 0) for note in contoured if note.bar == 4] == [70] * 4
+
+    heard, _support, _low = apply_guitar_wave(ctx, contoured, [], [], patterns)
+    after_wave = [int(note.velocity or 0) for note in heard if note.bar < 4]
+    assert max(after_wave) - min(after_wave) >= 4
 
 
 @pytest.mark.parametrize("kind", ["4/4", "3/4", "6/8"])

@@ -46,21 +46,21 @@ Primary chọn một lần, `_majority_mood` trên slot 0. Vùng cuối chép đ
 
 Primary của slot 0. Vùng cuối chép id đó.
 
-| 4/4, 96–132 BPM | A |
+| 4/4, 92–124 BPM | A |
 |---|---|
 | calm | Castillo |
 | rally | Olite |
 | selloff | Castillo |
 | volatile | Olite |
 
-| 3/4, 96–124 BPM | A |
+| 3/4, 92–116 BPM | A |
 |---|---|
 | calm | Castillo |
 | rally | Juglar |
 | selloff | Castillo |
 | volatile | Danza |
 
-| 6/8, 108–140 BPM | A |
+| 6/8, 96–132 BPM | A |
 |---|---|
 | calm | Danza |
 | rally | Alcaniz |
@@ -102,7 +102,7 @@ Cửa intro/outro của ba pattern này nằm ở mục 4.5, 4.6 và 4.7. Cửa 
 
 Chữ **Tremolo** trên chart thuộc Barrios. Tên in là **Juglar**. Id `tremolo` và hàng bốn móc kép của Barrios giữ cho Barrios.
 
-Lưới nền là tremolo của *Simancas*: từ ô 5 của tab, giai điệu lặp một nốt, bass đúng đầu phách. Một ô 3/4 là **ba chùm, mỗi chùm bốn cú** — đúng cách búng p-a-m-i: ngón cái (bass) vào đầu phách, rồi ba ngón a-m-i bật cùng một nốt giá trên ba móc kép sau đó. Tổng 12 cú một ô, tất cả trên lưới móc kép, nên `divisions = 4` qua `_needs_sixteenths`, không phải `12`. Ô 3/4 có ba phách, mở ở móc 0, móc 2 và móc 4. Chỉ móc 0 là phách mạnh của meter. Hình không phụ thuộc tempo: 96 BPM cho 6,4 cú/giây, 140 BPM cho 9,3 cú/giây, cả hai trong dải tremolo thật 6–12 cú/giây. Juglar chỉ hát trên 3/4, ở mọi tempo, không còn ngưỡng đổi hình.
+Lưới nền là tremolo của *Simancas*: từ ô 5 của tab, giai điệu lặp một nốt, bass đúng đầu phách. Một ô 3/4 là **ba chùm, mỗi chùm bốn cú** — đúng cách búng p-a-m-i: ngón cái (bass) vào đầu phách, rồi ba ngón a-m-i bật cùng một nốt giá trên ba móc kép sau đó. Tổng 12 cú một ô, tất cả trên lưới móc kép, nên `divisions = 4` qua `_needs_sixteenths`, không phải `12`. Ô 3/4 có ba phách, mở ở móc 0, móc 2 và móc 4. Chỉ móc 0 là phách mạnh của meter. Hình không phụ thuộc tempo: 92 BPM cho 6,1 cú/giây, 132 BPM cho 8,8 cú/giây, cả hai trong dải tremolo thật 6–12 cú/giây. Juglar chỉ hát trên 3/4, ở mọi tempo, không còn ngưỡng đổi hình.
 
 Cả chùm của một phách lấy một cao độ: `_melody_at` của móc chẵn mở phách đó. Móc lẻ không đổi nốt giữa chừng chùm.
 
