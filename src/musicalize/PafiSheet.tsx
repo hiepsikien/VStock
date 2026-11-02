@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Modal,
   Pressable,
@@ -37,13 +37,41 @@ type Props = {
   onEnsemble: (ensemble: RecapEnsemble) => void;
 };
 
-const BREAKDOWN: { key: keyof PafiBreakdown; label: string }[] = [
-  { key: 'shape', label: 'Hình dạng' },
-  { key: 'motion', label: 'Chuyển động' },
-  { key: 'structure', label: 'Cấu trúc' },
-  { key: 'resolution', label: 'Độ phân giải' },
-  { key: 'volume', label: 'Khối lượng' },
-  { key: 'coverage', label: 'Độ phủ' },
+const BREAKDOWN: {
+  key: keyof PafiBreakdown;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    key: 'shape',
+    label: 'Hình dạng',
+    hint: 'Đường giá và đường cao độ có cùng hướng không. 0 là đi ngược, 1 là đi cùng hướng.',
+  },
+  {
+    key: 'motion',
+    label: 'Chuyển động',
+    hint: 'Biên độ có tương xứng không: giá đi xa thì nốt có đi xa hơn. Ngân dài trong lúc giá chạy bị trừ.',
+  },
+  {
+    key: 'structure',
+    label: 'Cấu trúc',
+    hint: 'Đỉnh, đáy và hướng của cả câu có rơi đúng chỗ. Thấp khi đỉnh giá và đỉnh giai điệu lệch nhau.',
+  },
+  {
+    key: 'resolution',
+    label: 'Độ phân giải',
+    hint: 'Biến động nhỏ có nghe ra không, và texture có chạy trong lúc giá đứng không.',
+  },
+  {
+    key: 'volume',
+    label: 'Khối lượng',
+    hint: 'Volume lớn có nghe to và rõ hơn không. Tính cả dynamics đã in (p/mp/mf/f), không chỉ velocity.',
+  },
+  {
+    key: 'coverage',
+    label: 'Độ phủ',
+    hint: 'Phần thời gian đường giá thực sự phát, tính theo mức biến động giá. Đây là hệ số nhân vào điểm, không phải điểm thành phần.',
+  },
 ];
 
 function scoreOf(pieces: PafiPiece[] | null, variant: RecapVariant, ensemble: string): number | null {
@@ -81,6 +109,12 @@ export function PafiSheet({
   const activeSignature = signatureOf(signatures, variant, ensemble);
   const genreComparable = genrePieces != null;
   const ensembleComparable = ensemblePieces != null;
+  const [openHint, setOpenHint] = useState<string | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
+
+  const toggleHint = (key: string) => {
+    setOpenHint((current) => (current === key ? null : key));
+  };
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -107,27 +141,67 @@ export function PafiSheet({
                 {pafiBandLabel(pafi?.band)}
                 {pafi?.confidence === 'low' ? ' · ít mẫu' : ''}
               </Text>
+              <MotionPressable
+                onPress={() => setShowHelp((value) => !value)}
+                hitSlop={10}
+                style={[styles.helpButton, showHelp && styles.helpButtonOn]}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: showHelp }}
+                accessibilityLabel={showHelp ? 'Ẩn cách đọc điểm' : 'Xem cách đọc điểm'}
+              >
+                <Text style={[type.monoSmall, styles.helpGlyph]}>?</Text>
+              </MotionPressable>
             </View>
+
+            {showHelp ? (
+              <Text style={[type.sans, styles.helpText]} accessibilityLiveRegion="polite">
+                Mỗi thành phần chấm 0–1. PA là trung bình có trọng số của chúng nhân với Độ phủ.
+                PA đo đường giá có nghe rõ không, không đo bản nhạc hay hay dở. Chạm tên từng
+                thành phần để xem nó hỏi gì.
+              </Text>
+            ) : null}
 
             {pafi ? (
               <View style={styles.breakdown}>
                 {BREAKDOWN.map((row) => {
                   const raw = pafi[row.key];
                   const value = typeof raw === 'number' ? raw : null;
+                  const open = openHint === row.key;
                   return (
-                    <View key={row.key} style={styles.meterRow}>
-                      <Text style={[type.sans, styles.meterLabel]}>{row.label}</Text>
-                      <View style={styles.meterTrack}>
-                        <View
-                          style={[
-                            styles.meterFill,
-                            { width: Math.round(112 * Math.max(0, Math.min(1, value ?? 0))) },
-                          ]}
-                        />
-                      </View>
-                      <Text style={[type.monoSmall, styles.meterValue]}>
-                        {value == null ? '—' : value.toFixed(2)}
-                      </Text>
+                    <View key={row.key}>
+                      <MotionPressable
+                        onPress={() => toggleHint(row.key)}
+                        style={styles.meterRow}
+                        accessibilityRole="button"
+                        accessibilityState={{ expanded: open }}
+                        accessibilityLabel={`${row.label} ${value == null ? 'chưa có số' : value.toFixed(2)}. ${open ? 'Ẩn' : 'Xem'} giải thích`}
+                      >
+                        <View style={styles.meterLabelCell}>
+                          <Text style={[type.sans, styles.meterLabel]}>{row.label}</Text>
+                          <Text style={[type.monoSmall, styles.hintGlyph, open && styles.hintGlyphOn]}>
+                            ?
+                          </Text>
+                        </View>
+                        <View style={styles.meterTrack}>
+                          <View
+                            style={[
+                              styles.meterFill,
+                              { width: Math.round(112 * Math.max(0, Math.min(1, value ?? 0))) },
+                            ]}
+                          />
+                        </View>
+                        <Text style={[type.monoSmall, styles.meterValue]}>
+                          {value == null ? '—' : value.toFixed(2)}
+                        </Text>
+                      </MotionPressable>
+                      {open ? (
+                        <Text
+                          style={[type.sans, styles.hintText]}
+                          accessibilityLiveRegion="polite"
+                        >
+                          {row.hint}
+                        </Text>
+                      ) : null}
                     </View>
                   );
                 })}
@@ -251,7 +325,7 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    alignItems: 'baseline',
+    alignItems: 'center',
     gap: 10,
     marginBottom: 8,
   },
@@ -269,19 +343,65 @@ const styles = StyleSheet.create({
     color: palette.textMuted,
     fontSize: 12,
   },
+  helpButton: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  helpButtonOn: {
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.surface,
+  },
+  helpGlyph: {
+    color: palette.textMuted,
+  },
+  helpText: {
+    color: palette.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: 10,
+  },
   breakdown: {
-    gap: 6,
+    gap: 2,
   },
   meterRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    minHeight: 22,
+    minHeight: 30,
+    borderRadius: 4,
+  },
+  meterLabelCell: {
+    width: 108,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   meterLabel: {
     color: palette.textMuted,
-    width: 96,
     fontSize: 12,
+    flexShrink: 1,
+  },
+  hintGlyph: {
+    color: palette.textFaint,
+    fontSize: 10,
+  },
+  hintGlyphOn: {
+    color: palette.sound,
+  },
+  hintText: {
+    color: palette.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    marginLeft: 4,
+    marginBottom: 6,
+    paddingLeft: 8,
+    borderLeftWidth: 1,
+    borderLeftColor: palette.hairline,
   },
   meterTrack: {
     width: 112,
