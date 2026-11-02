@@ -353,7 +353,7 @@ Mục tiêu: đường giá có mặt ở những lúc giá chạy không. Đây
   C = Σ(w_s × sounding_s) / Σ(w_s)
   ```
 - Bỏ các source bar rơi vào section `warmup`, `cooldown`, `intro`, `outro`.
-- Bỏ các source bar **trước nốt mang giá đầu tiên** và **sau nốt mang giá cuối cùng**. Ở `1D`, lead thường vào sau vài bar; đó là intro, không phải rest, nên không được phạt coverage. Rest **bên trong** khoảng có line vẫn bị phạt bình thường.
+- Bỏ các source bar **trước nốt mang giá đầu tiên** và **sau nốt mang giá cuối cùng**, nhưng tổng phần miễn trừ bị chặn ở **25% độ dài form** (tối đa 24 bar, chia cho hai đầu). Ở `1D`, lead thường vào sau vài bar; đó là intro, không phải rest, nên không được phạt coverage. Rest **bên trong** khoảng có line vẫn bị phạt bình thường.
 - Với `s = 0`, không có `P_{s−1}`; dùng `w_s = εp_s`.
 - Rest lúc giá đứng gần như không bị phạt (`w_s = εp_s`).
 - Rest lúc giá chạy bị phạt nặng (`w_s = |ΔP_s|`).
@@ -668,8 +668,9 @@ GET /v1/sonify/dfi/pieces
 
 - `render._compose` đã có `score`, `bars`, `groups`, `windows`, `window_volumes`, `bands`.
 - Chỗ cắm `dfi.compute(...)` là `audio.py`: `RecapStore._render` (`audio.py:1394`) và `RecapStore._render_movement` (`audio.py:1233`), **sau** `humanize_score(score)`. `humanize_score` chỉ là alias của `humanize` trong `humanize.py`, re-export ở `audio.py:31`; humanize đổi velocity/tempo chứ không đổi `(bar, beat)`, nên trace vẫn khớp.
-- Ghi `dfi` và `dfi_inputs` vào meta JSON cạnh audio. `dfi_inputs` là digest của `bars` (close + volume) mà score được dựng ra.
-- Đọc lại trong `RecapAsset` / `SpanAsset`. Nếu `dfi_inputs` thiếu hoặc khác digest hiện tại (nến cuối đổi trong phiên live), coi như cache thiếu DFI và tính lại; **không hiển thị số của score cũ**. Endpoint plan cũng kiểm tra digest và trả `dfi = null` nếu lệch, để client biết còn phải chờ.
+- Ghi `dfi`, `dfi_inputs` và `dfi_checked` vào meta JSON cạnh audio. `dfi_inputs` là digest của `bars` (close + volume) mà score được dựng ra; `dfi_checked` là `DFI_VERSION` của lần chấm. Nhờ vậy một phiên đi ngang (`dfi = null`) không bị compose lại mỗi request, và version cũ vẫn bị tính lại.
+- Đọc lại trong `RecapAsset` / `SpanAsset`. Nếu `dfi_inputs` khác digest hiện tại hoặc `dfi_checked` khác version, coi như cache thiếu DFI và tính lại; **không hiển thị số của score cũ**. Endpoint plan cũng kiểm tra và trả `dfi = null` nếu lệch, để client biết còn phải chờ.
+- Với phiên **đang mở**, nếu close cuối đổi mà `barCount` không đổi, DFI recompute từ bars hiện tại có thể gắn vào audio render cũ (drift một nến cuối). Replay phiên đã đóng không gặp. Chấp nhận và ghi chú; muốn tuyệt đối thì giữ digest của lần render và trả `null` thay vì recompute.
 - Với cache cũ chưa có `dfi`: **không bump `RECAP_REVISION`** (sẽ render lại toàn bộ audio rất đắt). Thay vào đó:
   1. Khi đọc cache thiếu `dfi` (hoặc digest lệch), compose lại score (không export MuseScore), tính DFI, ghi `dfi` + `dfi_inputs` vào meta.
   2. Nếu compose lại lỗi, log warning, trả `null`; audio cache vẫn phát bình thường. UI hiện `DFI —`.

@@ -15,7 +15,7 @@ from fastapi import Request
 from app.services.cache import cache
 from app.services.http_utils import ENTRADE_HEADERS
 from app.sonify.audio import RecapAsset, RecapCancelled, RecapUnavailable, recap_store
-from app.sonify.dfi import data_digest
+from app.sonify.dfi import DFI_VERSION, data_digest
 from app.sonify.model import Ensemble, Variant
 from app.sonify.session import samples_from_ohlc, session_dates, session_points
 
@@ -228,8 +228,8 @@ async def load_recap(
         )
         digest = data_digest(bars)
         if (
-            getattr(asset, "dfi", None) is None
-            or getattr(asset, "dfi_inputs", "") != digest
+            getattr(asset, "dfi_inputs", "") != digest
+            or getattr(asset, "dfi_checked", "") != DFI_VERSION
         ):
             # An old cache has audio but no DFI, or it was computed from a
             # different close. Compose the score again (no export) and record
@@ -250,7 +250,7 @@ async def load_recap(
                     color,
                 )
                 asset = dfi_service.apply_to_asset(asset, piece)
-                asset = replace(asset, dfi_inputs=digest)
+                asset = replace(asset, dfi_inputs=digest, dfi_checked=DFI_VERSION)
                 remember = getattr(recap_store(), "remember_recap_dfi", None)
                 if callable(remember):
                     remember(

@@ -27,7 +27,7 @@ from app.sonify.audio import (
     layer_query,
     recap_store,
 )
-from app.sonify.dfi import data_digest
+from app.sonify.dfi import DFI_VERSION, data_digest
 from app.sonify.model import Ensemble, Variant
 from app.sonify.session import coarse_bars, samples_from_ohlc, session_bars, session_dates
 from app.sonify.span import (
@@ -186,7 +186,10 @@ def ready_movement(
         color,
     )
     if asset is not None and asset.dfi is not None:
-        if asset.dfi_inputs != data_digest(movement.bars):
+        if (
+            asset.dfi_inputs != data_digest(movement.bars)
+            or asset.dfi_checked != DFI_VERSION
+        ):
             # The last close moved after this file was scored. Treat it as
             # missing so the plan does not stop the client's refresh poll.
             asset = replace(asset, dfi=None)
@@ -234,8 +237,8 @@ async def load_movement_audio(
         )
         digest = data_digest(movement.bars)
         if (
-            getattr(asset, "dfi", None) is None
-            or getattr(asset, "dfi_inputs", "") != digest
+            getattr(asset, "dfi_inputs", "") != digest
+            or getattr(asset, "dfi_checked", "") != DFI_VERSION
         ):
             # Never let a DFI recompose failure turn cached audio into a 503.
             asset = replace(asset, dfi=None)
@@ -254,7 +257,7 @@ async def load_movement_audio(
                     color,
                 )
                 asset = dfi_service.apply_to_asset(asset, piece)
-                asset = replace(asset, dfi_inputs=digest)
+                asset = replace(asset, dfi_inputs=digest, dfi_checked=DFI_VERSION)
                 remember = getattr(recap_store(), "remember_movement_dfi", None)
                 if callable(remember):
                     remember(

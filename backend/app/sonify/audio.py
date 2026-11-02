@@ -147,6 +147,7 @@ class RecapAsset:
     color: bool = True
     dfi: dict | None = None
     dfi_inputs: str = ""
+    dfi_checked: str = ""
 
     @property
     def audio_url(self) -> str:
@@ -174,6 +175,7 @@ class SpanAsset:
     movement_name: str = ""
     dfi: dict | None = None
     dfi_inputs: str = ""
+    dfi_checked: str = ""
 
 
 def write_wav(path: Path, channels: int, rate: int, samples: array) -> None:
@@ -1205,9 +1207,7 @@ class RecapStore:
         dfi: dict | None = None,
         inputs: str = "",
     ) -> None:
-        """Write a recomposed DFI back into an old asset's metadata."""
-        if not dfi:
-            return
+        """Write a recomposed DFI (or the checked-null marker) into metadata."""
         key = self._stem(symbol, day, variant, bar_count, ensemble, humanize, color)
         self._remember_dfi(self.root / f"{key}.json", dfi, inputs)
 
@@ -1225,14 +1225,14 @@ class RecapStore:
         dfi: dict | None = None,
         inputs: str = "",
     ) -> None:
-        if not dfi:
+        if inputs == "" and dfi is None:
             return
         stem = self._span_stem(
             symbol, span, index, variant, candle_count, fingerprint, ensemble, humanize, color
         )
         self._remember_dfi(self._span_dir() / f"{stem}.json", dfi, inputs)
 
-    def _remember_dfi(self, path: Path, dfi: dict, inputs: str = "") -> None:
+    def _remember_dfi(self, path: Path, dfi: dict | None, inputs: str = "") -> None:
         if not path.is_file():
             return
         try:
@@ -1240,6 +1240,7 @@ class RecapStore:
         except (OSError, json.JSONDecodeError):
             return
         payload["dfi"] = dfi
+        payload["dfi_checked"] = DFI_VERSION
         if inputs:
             payload["dfi_inputs"] = inputs
         tmp = path.with_name(f"{path.name}.tmp")
@@ -1395,6 +1396,7 @@ class RecapStore:
                 "color": color,
                 "dfi": None if dfi is None else dfi.to_dict(),
                 "dfi_inputs": data_digest(movement.bars),
+                "dfi_checked": DFI_VERSION,
             }
             meta_tmp = work / f"{stem}.json"
             meta_tmp.write_text(json.dumps(payload), encoding="utf-8")
@@ -1453,6 +1455,7 @@ class RecapStore:
             movement_name=str(payload.get("movementName") or ""),
             dfi=_stored_dfi(payload.get("dfi")),
             dfi_inputs=str(payload.get("dfi_inputs") or ""),
+            dfi_checked=str(payload.get("dfi_checked") or ""),
         )
 
     def _prune_work(self, work: Path) -> None:
@@ -1540,6 +1543,7 @@ class RecapStore:
                 "color": color,
                 "dfi": None if dfi is None else dfi.to_dict(),
                 "dfi_inputs": data_digest(bars),
+                "dfi_checked": DFI_VERSION,
             }
             meta_tmp = work / f"{key}.json"
             meta_tmp.write_text(json.dumps(payload), encoding="utf-8")
@@ -1647,6 +1651,7 @@ class RecapStore:
             color=color,
             dfi=_stored_dfi(payload.get("dfi")),
             dfi_inputs=str(payload.get("dfi_inputs") or ""),
+            dfi_checked=str(payload.get("dfi_checked") or ""),
         )
 
 

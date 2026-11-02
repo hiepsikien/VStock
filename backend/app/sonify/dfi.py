@@ -359,15 +359,18 @@ def _active_span(score: Score, windows: Sequence[tuple[int, int]]) -> tuple[int,
     if not active:
         return window_start, window_end
     first, last = min(active), max(active)
-    # Also cap the grace as a fraction of the form, so a trace that only
-    # covers the middle cannot shrink the denominator to that middle.
-    grace = min(
-        _ENTRANCE_GRACE_BARS,
-        max(1, math.ceil(0.25 * max(window_end - window_start, 1))),
+    # Cap the *total* entrance + exit exemption. Allowing the full grace at
+    # each end could excuse half the form and hide a trace that only covers
+    # the middle.
+    total_grace = min(
+        2 * _ENTRANCE_GRACE_BARS,
+        max(2, math.ceil(0.25 * max(window_end - window_start, 1))),
     )
-    start = window_start + min(max(first - window_start, 0), grace)
-    end = window_end - min(max(window_end - last - 1, 0), grace)
-    return start, end
+    before = max(first - window_start, 0)
+    entrance = min(before, total_grace)
+    after = max(window_end - last - 1, 0)
+    exit_grace = min(after, total_grace - entrance)
+    return window_start + entrance, window_end - exit_grace
 
 
 class _PitchLookup:

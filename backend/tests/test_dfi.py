@@ -233,7 +233,7 @@ def test_ready_movement_hides_dfi_when_the_bars_moved(monkeypatch) -> None:
 
     from app.services import spans as spans_service
     from app.sonify.audio import SpanAsset
-    from app.sonify.dfi import data_digest
+    from app.sonify.dfi import DFI_VERSION, data_digest
 
     bars = [Bar(close=10.0, volume=100.0), Bar(close=11.0, volume=200.0)]
     asset = SpanAsset(
@@ -261,7 +261,13 @@ def test_ready_movement_hides_dfi_when_the_bars_moved(monkeypatch) -> None:
     stale = spans_service.ready_movement("AAM", "3M", 0, "jazz", movement)
     assert stale is not None and stale.dfi is None
 
-    fresh = SpanAsset(**{**asset.__dict__, "dfi_inputs": data_digest(bars)})
+    fresh = SpanAsset(
+        **{
+            **asset.__dict__,
+            "dfi_inputs": data_digest(bars),
+            "dfi_checked": DFI_VERSION,
+        }
+    )
     monkeypatch.setattr(Store, "get_movement", lambda self, *_a, **_k: fresh)
     kept = spans_service.ready_movement("AAM", "3M", 0, "jazz", movement)
     assert kept is not None and kept.dfi == {"score": 50.0}

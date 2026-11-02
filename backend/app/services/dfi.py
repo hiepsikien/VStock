@@ -251,9 +251,10 @@ def recap_dfi(
     ensemble: Ensemble = "classic",
     humanize: bool = True,
     color: bool = True,
+    digest: str | None = None,
 ) -> DfiPieceResult:
     """Compose the recap score (no export) and read its DFI."""
-    digest = bars_digest(bars)
+    digest = digest or bars_digest(bars)
     key = _recap_key(symbol, day, variant, ensemble, humanize, color, digest)
     hit = _load(key)
     if hit is not None:
@@ -281,8 +282,9 @@ def movement_dfi(
     ensemble: Ensemble = "classic",
     humanize: bool = True,
     color: bool = True,
+    digest: str | None = None,
 ) -> DfiPieceResult:
-    digest = bars_digest(movement.bars)
+    digest = digest or bars_digest(movement.bars)
     key = _movement_key(symbol, span, index, variant, ensemble, humanize, color, digest)
     hit = _load(key)
     if hit is not None:
@@ -384,7 +386,7 @@ async def pieces_for_day(
         if request is not None and await request.is_disconnected():
             raise RecapCancelled("DFI pieces cancelled")
         result = await asyncio.to_thread(
-            recap_dfi, symbol, day, bars, variant, ensemble, humanize, color
+            recap_dfi, symbol, day, bars, variant, ensemble, humanize, color, digest
         )
         results.append(result)
         if result.dfi is not None:
@@ -423,6 +425,7 @@ async def pieces_for_span(
             raise LookupError(str(index))
         movement = plan.movements[index]
         as_of = plan.as_of
+        digest = data_digest(movement.bars)
         result = await asyncio.to_thread(
             movement_dfi,
             symbol,
@@ -433,6 +436,7 @@ async def pieces_for_span(
             ensemble,
             humanize,
             color,
+            digest,
         )
         results.append(result)
         if result.dfi is not None:
@@ -449,7 +453,7 @@ async def pieces_for_span(
                     humanize,
                     color,
                     result.dfi.to_dict(),
-                    data_digest(movement.bars),
+                    digest,
                 )
     if as_of is None:
         raise LookupError(span)
