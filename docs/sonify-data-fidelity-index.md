@@ -780,7 +780,7 @@ GET /v1/sonify/dfi/pieces
 
 ### 9.1. Sai lệch đã biết so với thiết kế ban đầu
 
-- **Trace không phải lúc nào cũng ghi tại chỗ viết nốt.** Guitar ghi qua `_TRACE_LINE` / `_TRACE_PRICE_LINE`; các variant còn lại dựng trace trong `_attach_dfi_inputs` từ `score.lead` (hoặc lead+support+low). Hệ quả: nốt đệm/hoa mỹ trùng cao độ với đường giá có thể bị nhận nhầm, và `n_sounding` (dùng cho confidence) chênh giữa các ensemble. Với Torroba, trace dùng **ý đồ** trước khi hạ quãng/đổi bè, nên đo “writer định đặt giá ở đâu” hơn là “tai nghe thấy gì”.
+- **Trace không phải lúc nào cũng ghi tại chỗ viết nốt.** Guitar ghi qua `_TRACE_LINE` / `_TRACE_PRICE_LINE`; các variant còn lại dựng trace trong `_attach_dfi_inputs` từ `score.lead` (hoặc lead+support+low). Hệ quả: nốt đệm/hoa mỹ trùng cao độ với đường giá có thể bị nhận nhầm, và `n_sounding` (dùng cho confidence) chênh giữa các ensemble. Với Torroba, trace dùng **ý đồ** trước khi hạ quãng/đổi bè, nên đo “writer định đặt giá ở đâu” hơn là “tai nghe thấy gì”. Nếu đường giá chuyển sang bè mà helper không đọc (ví dụ coda giao hưởng), coverage sẽ **conservative** — thấp hơn thực tế; sửa gốc vẫn là ghi trace tại writer.
 - **`role` mới dùng `attack/anchor/register`.** `hold` và `rest` có trong model nhưng writer chưa phát; coverage suy ra từ khoảng nghe của trace point thay vì role.
 - **`low-evidence` chưa surface.** `_motion` tính cờ fallback nhưng `compute()` bỏ qua; UI chỉ thấy `confidence` tổng.
 - **Band chưa calibration.** Trên phiên êm tổng hợp, điểm cao nhất đã lên 74–78 sau các fix; corpus thật chưa chạy. Band `Rõ` (70) và `Rất rõ` (85) có thể đạt sau Phase 7; giữ nguyên ngưỡng thay vì hạ cho đẹp số.

@@ -351,8 +351,8 @@ def _active_span(score: Score, windows: Sequence[tuple[int, int]]) -> tuple[int,
     entrance/exit is excused.
     """
     if windows:
-        window_start = min(start for start, _length in windows)
-        window_end = max(start + length for start, length in windows)
+        window_start = min(start for start, _end in windows)
+        window_end = max(end for _start, end in windows)
     else:
         window_start, window_end = 0, score.bars
     active = [point.bar for point in score.price_trace if point.pitch is not None]
