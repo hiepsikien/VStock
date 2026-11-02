@@ -192,7 +192,17 @@ def render_guitar_score(
             for point in price_trace:
                 eighth = point.bar * meter.eighths_per_bar + int(round(point.beat * 2))
                 if 0 <= eighth < len(intended):
-                    remapped.append(replace(point, pitch=float(intended[eighth])))
+                    remapped.append(
+                        replace(
+                            point,
+                            pitch=float(intended[eighth]),
+                            sounding_pitch=(
+                                point.sounding_pitch
+                                if point.sounding_pitch is not None
+                                else point.pitch
+                            ),
+                        )
+                    )
                 else:
                     remapped.append(point)
             price_trace = tuple(remapped)

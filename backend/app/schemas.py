@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.sonify.dfi import DFI_VERSION
 from app.sonify.model import Ensemble
 
 ChartRange = Literal["1D", "1W", "1M", "3M", "1Y", "5Y"]
@@ -119,7 +120,8 @@ class DfiBreakdown(BaseModel):
     confidence: Literal["low", "medium", "high"] = "low"
     n_moves: int = 0
     n_sounding: int = 0
-    version: str = "3"
+    motion_pairs: int = 0
+    version: str = DFI_VERSION
 
 
 class DfiSignature(BaseModel):
