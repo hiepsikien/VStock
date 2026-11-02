@@ -133,7 +133,8 @@ export function ReplayPlayer({
       onDurationRef.current(duration);
       // Web reports `isLoaded` before the source is downloaded, so wait for a
       // real duration: only then has the server written this movement's file.
-      // Peaks are measured from that file.
+      // Peaks are measured from that file. If a broken source never reports a
+      // duration, the room's bounded retry still fills the envelope.
       if (!readyNotified.current) {
         readyNotified.current = true;
         onReadyRef.current?.();

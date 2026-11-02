@@ -11,6 +11,7 @@ import {
   fetchSessions,
   fetchSpan,
   fetchSpanPeaks,
+  prefetchSpanAudio,
   type DfiPiece,
   type DfiSignature,
   type RecapEnsemble,
@@ -60,6 +61,17 @@ import { Stage } from './Stage';
 import { SymbolColumn, type SymbolChoice } from './SymbolColumn';
 import type { TimelinePart } from './Scrubber';
 import { workWaveform, type WavePeaks } from './peaks';
+import {
+  PEAKS_POLL_BUDGET,
+  finishPeaksRefresh,
+  needsPrefetch,
+  peaksPollDelay,
+  peaksPollKey,
+  prefetchKey,
+  requestPeaksRefresh,
+  stalePrefetchTargets,
+  type PeaksRefreshState,
+} from './peaksPrefetch';
 import { ambientDailyCandleIndexAt, spanCandleIndexAt } from '../utils/recapCursor';
 
 type Props = {
@@ -159,13 +171,18 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const peaksRequest = useRef<AbortController | null>(null);
   // A peaks refresh is cheap but re-plans the work. Let one answer land instead
   // of aborting it every time another movement finishes; ask once more after.
-  const peaksPending = useRef(false);
-  const peaksAgain = useRef(false);
+  const peaksState = useRef<PeaksRefreshState>({ pending: false, again: false });
+  // Bumped whenever the timeline identity changes; a response from the old
+  // identity must never merge into the new one.
+  const peaksGen = useRef(0);
   const peaksPoll = useRef({ key: '', count: 0 });
-  // Files already pre-rendered, and the single background render in flight.
+  // Files already pre-rendered, and every background render still in flight.
   const prefetched = useRef<Set<string>>(new Set());
-  const prefetchRequest = useRef<AbortController | null>(null);
-  const prefetchTarget = useRef('');
+  const prefetchInFlight = useRef<Map<number, AbortController>>(new Map());
+  // The index that produced the current `mediaDuration`. On a chapter change
+  // the old duration is still set for one render; without this the prefetch
+  // would start before the new chapter's own audio request.
+  const mediaIndex = useRef(-1);
   const restTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const seekSeq = useRef(0);
   const dfiPoll = useRef({ key: '', count: 0 });
@@ -185,17 +202,21 @@ export function ReplayRoom({ wide, onMode }: Props) {
     }
   }, []);
 
+  /** Drop every background render. Aborting also cancels MuseScore server-side. */
+  const abortPrefetches = useCallback(() => {
+    for (const controller of prefetchInFlight.current.values()) controller.abort();
+    prefetchInFlight.current.clear();
+  }, []);
+
   const clearPlayback = useCallback(() => {
     request.current?.abort();
     request.current = null;
     peaksRequest.current?.abort();
     peaksRequest.current = null;
-    peaksPending.current = false;
-    peaksAgain.current = false;
+    peaksState.current = { pending: false, again: false };
+    peaksGen.current += 1;
     peaksPoll.current = { key: '', count: 0 };
-    prefetchRequest.current?.abort();
-    prefetchRequest.current = null;
-    prefetchTarget.current = '';
+    abortPrefetches();
     prefetched.current = new Set();
     clearRest();
     setManifest(null);
@@ -214,20 +235,21 @@ export function ReplayRoom({ wide, onMode }: Props) {
     setComposing(false);
     setError(null);
     setMediaDuration(0);
+    mediaIndex.current = -1;
     setStartSec(0);
     setSeek(null);
     setFocus(null);
     focusRef.current = null;
-  }, [clearRest]);
+  }, [abortPrefetches, clearRest]);
 
   useEffect(() => {
     return () => {
       request.current?.abort();
       peaksRequest.current?.abort();
-      prefetchRequest.current?.abort();
+      abortPrefetches();
       clearRest();
     };
-  }, [clearRest]);
+  }, [abortPrefetches, clearRest]);
 
   const signature = `${symbol}|${span}|${date ?? ''}|${variant}|${ensemble}|${humanize ? 1 : 0}|${colorOn ? 1 : 0}`;
   const signatureRef = useRef(signature);
@@ -459,13 +481,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
    */
   const refreshSpanPeaks = useCallback(() => {
     if (span === '1D') return;
-    if (peaksPending.current) {
-      // The in-flight answer may predate the file we are waiting for. Ask again
-      // when it returns instead of throwing that work away.
-      peaksAgain.current = true;
-      return;
-    }
-    peaksPending.current = true;
+    if (!requestPeaksRefresh(peaksState.current)) return;
+    const gen = peaksGen.current;
     const controller = new AbortController();
     peaksRequest.current = controller;
     void (async () => {
@@ -474,7 +491,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
           humanize,
           color: colorOn,
         });
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || gen !== peaksGen.current) return;
         if (
           peaks.symbol !== symbol ||
           peaks.range !== span ||
@@ -499,11 +516,12 @@ export function ReplayRoom({ wide, onMode }: Props) {
       } catch {
         // Peaks are additive. Keep whatever the timeline already has.
       } finally {
-        peaksPending.current = false;
-        if (peaksRequest.current === controller) peaksRequest.current = null;
-        if (peaksAgain.current && !controller.signal.aborted) {
-          peaksAgain.current = false;
-          refreshSpanPeaks();
+        // A newer identity owns the shared state now; leave its request alone.
+        if (peaksRequest.current === controller) {
+          peaksRequest.current = null;
+          if (finishPeaksRefresh(peaksState.current) && !controller.signal.aborted) {
+            refreshSpanPeaks();
+          }
         }
       }
     })();
@@ -517,68 +535,72 @@ export function ReplayRoom({ wide, onMode }: Props) {
    * starts.
    */
   useEffect(() => {
-    if (span === '1D' || mediaDuration <= 0) return;
+    if (span === '1D' || !playing || mediaDuration <= 0 || mediaIndex.current !== index) return;
     const nextIndex = index + 1;
     const next = movementsRef.current?.[nextIndex];
-    if (!next) return;
-    const key = `${spanKey}|${nextIndex}`;
+    if (!next || !needsPrefetch(next)) return;
+    const key = prefetchKey(spanKey, nextIndex);
     if (prefetched.current.has(key)) return;
-    // Keep a render the chapter we just entered is still waiting for. Any other
-    // background render is stale once the index moved on.
-    if (prefetchRequest.current && prefetchTarget.current !== `${spanKey}|${index}`) {
-      prefetchRequest.current.abort();
-      prefetchRequest.current = null;
+    // Keep a render the chapter we just entered is still waiting for, plus the
+    // one being prepared. Anything skipped past is wasted work.
+    const inFlight = prefetchInFlight.current;
+    for (const target of stalePrefetchTargets(inFlight.keys(), index)) {
+      inFlight.get(target)?.abort();
+      inFlight.delete(target);
     }
+    if (inFlight.has(nextIndex)) return;
     const controller = new AbortController();
-    prefetchRequest.current = controller;
-    prefetchTarget.current = key;
+    inFlight.set(nextIndex, controller);
     void (async () => {
       try {
-        const response = await fetch(absoluteApiUrl(next.audioUrl), {
-          signal: controller.signal,
-          headers: { Range: 'bytes=0-0' },
-        });
-        if (!response.ok && response.status !== 206) return;
-        // The server writes the whole file before answering a range request.
-        await response.arrayBuffer();
+        if (!(await prefetchSpanAudio(next.audioUrl, controller.signal))) return;
         if (controller.signal.aborted) return;
         prefetched.current.add(key);
         refreshSpanPeaks();
       } catch {
         // The chapter will request its own file when it starts.
       } finally {
-        if (prefetchRequest.current === controller) {
-          prefetchRequest.current = null;
-          prefetchTarget.current = '';
-        }
+        if (inFlight.get(nextIndex) === controller) inFlight.delete(nextIndex);
       }
     })();
-  }, [index, mediaDuration, refreshSpanPeaks, span, spanKey]);
+  }, [index, mediaDuration, playing, refreshSpanPeaks, span, spanKey]);
 
   /**
-   * Fallback when a background render or its peaks request failed: retry a
-   * bounded number of times while the heard movement still has no envelope.
+   * Fallback when a background render or its peaks request failed: retry with
+   * a small backoff while the heard movement still has no envelope. Only runs
+   * while playing, so a paused room does not keep re-planning the span.
    */
   const heardHasPeaks = Boolean(spanPeaks?.[index]?.peaks?.length);
   useEffect(() => {
-    if (span === '1D' || mediaDuration <= 0) return;
-    const key = `${spanKey}|${index}`;
+    if (span === '1D') return;
+    const key = peaksPollKey({ symbol, span, variant, ensemble, index, playing });
     if (peaksPoll.current.key !== key) peaksPoll.current = { key, count: 0 };
-    if (heardHasPeaks) return;
-    if (peaksPoll.current.count >= 20) return;
+    if (!playing || mediaDuration <= 0 || mediaIndex.current !== index || heardHasPeaks) return;
+    if (peaksPoll.current.count >= PEAKS_POLL_BUDGET) return;
     let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const pull = () => {
-      if (stopped || peaksPoll.current.count >= 20) return;
+      if (stopped || peaksPoll.current.count >= PEAKS_POLL_BUDGET) return;
       peaksPoll.current.count += 1;
       refreshSpanPeaks();
+      timer = setTimeout(pull, peaksPollDelay(peaksPoll.current.count));
     };
-    void pull();
-    const timer = setInterval(pull, 3000);
+    timer = setTimeout(pull, peaksPollDelay(0));
     return () => {
       stopped = true;
-      clearInterval(timer);
+      if (timer) clearTimeout(timer);
     };
-  }, [heardHasPeaks, index, mediaDuration, refreshSpanPeaks, span, spanKey]);
+  }, [
+    ensemble,
+    heardHasPeaks,
+    index,
+    mediaDuration,
+    playing,
+    refreshSpanPeaks,
+    span,
+    symbol,
+    variant,
+  ]);
 
   const seekTarget = useRef<number | null>(null);
 
@@ -726,10 +748,15 @@ export function ReplayRoom({ wide, onMode }: Props) {
         }
         setManifest(null);
         setMovements(plan.movements);
-        // A new listen may re-plan the work, so pre-rendered indices from the
-        // previous run no longer describe the same movement.
-        prefetched.current = new Set();
+        // A new listen may re-plan the work, so pre-rendered indices and peaks
+        // from the previous run no longer describe the same movement.
+        peaksRequest.current?.abort();
+        peaksRequest.current = null;
+        peaksState.current = { pending: false, again: false };
+        peaksGen.current += 1;
         peaksPoll.current = { key: '', count: 0 };
+        abortPrefetches();
+        prefetched.current = new Set();
         setAsOf(plan.asOf ?? '');
         setHomeKey(plan.keyLabel ?? '');
         setIndex(0);
@@ -750,7 +777,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
         }
       }
     })();
-  }, [colorOn, date, ensemble, humanize, span, symbol, variant]);
+  }, [abortPrefetches, colorOn, date, ensemble, humanize, span, symbol, variant]);
 
   const jumpToMovement = useCallback(
     (nextIndex: number, seconds: number, autoplay: boolean) => {
@@ -1254,6 +1281,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
         : null;
 
   useEffect(() => {
+    mediaIndex.current = -1;
     setMediaDuration(0);
   }, [audioUrl]);
 
@@ -1499,7 +1527,10 @@ export function ReplayRoom({ wide, onMode }: Props) {
         onEnded={onEnded}
         onAudible={() => setAudible(true)}
         onError={setError}
-        onDuration={setMediaDuration}
+        onDuration={(seconds) => {
+          mediaIndex.current = index;
+          setMediaDuration(seconds);
+        }}
         onReady={refreshSpanPeaks}
       />
     ) : null}

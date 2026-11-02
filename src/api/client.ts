@@ -20,6 +20,7 @@ import {
 } from '../storage/marketCache';
 import type { IndexQuote } from '../components/WatchlistSummary';
 import { sanitizePriceChange } from '../utils/sanitizePriceChange';
+import { prefetchResponsePlan } from './prefetchPlan';
 
 /** True for private LAN hosts we can rewrite localhost → (not Expo tunnel domains). */
 function isLanHostname(host: string): boolean {
@@ -683,6 +684,32 @@ export async function fetchSpanPeaks(
     signal,
     true,
   );
+}
+
+/**
+ * Ask the server to render one movement's audio without paying for the file
+ * twice. A one-byte range request still runs the export before the response;
+ * older servers that ignore Range answer 200, so drop that body.
+ */
+export async function prefetchSpanAudio(
+  path: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  const response = await fetch(absoluteApiUrl(path), {
+    signal,
+    headers: { Range: 'bytes=0-0' },
+  });
+  const plan = prefetchResponsePlan(response.status, response.ok);
+  if (plan === 'range') {
+    await response.arrayBuffer();
+    return true;
+  }
+  try {
+    await response.body?.cancel();
+  } catch {
+    // The file is already written; only a duplicate download was avoided.
+  }
+  return plan === 'discard';
 }
 
 export type SonifyTapeSymbol = {
