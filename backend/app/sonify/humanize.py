@@ -7,6 +7,16 @@ keeps the Etude arches and any other landing whose neighbor is that close.
 `tie_stop` is not an attack. It copies the attack it continues only when
 both were written at the same velocity. A swell peak keeps its own number.
 
+A pitch the writer repeats at one level is separated after that plateau pass:
+alternate strikes of the pair lean by `REPEAT_GAP` around the written level.
+The wave moves a whole bar at once and the plateau pass is frozen beside a
+step of 2, so neither can open that pair on its own. Only two consecutive
+lead attacks in one bar that the writer left at one level are separated; a
+written step is a contour and stays. The pass is lead only, skips pedal bars,
+pinned and hairpin attacks, and never drops a body note under the guitar
+micro floor or under the bass/support line. This runs for every guitar
+ensemble and keeps ties in sync with the attack it changed.
+
 The shared clock is a `<sound tempo>` curve on `score.tempos`. Each phrase
 starts slightly fast and ends slightly slow, so the beat-weighted BPM
 deviation inside the phrase is 0. Every step sits on the score's division
@@ -26,6 +36,13 @@ from dataclasses import dataclass, replace
 from app.sonify.model import NoteEvent, Phrase, Score, TempoEvent
 
 CAP = 2
+# A pitch struck twice at one written level reads as one held note
+# machine-gunned. Alternate strikes lean by this much around the written level.
+REPEAT_GAP = 4
+# The guitar micro floor (`_MICRO_FLOOR`). The pass must not create a new body
+# note under it; a quiet note that is already under it is left alone.
+REPEAT_FLOOR = 40
+_PEDAL = frozenset({"intro", "outro", "warmup", "cooldown"})
 _CHOICES = (-2, -1, 0, 1, 2)
 _FIELDS = ("high", "lead", "support", "comp", "low")
 _TICKS = 480
@@ -91,13 +108,26 @@ def humanize(score: Score, *, offset_at: OffsetAt = chosen_offset, fan_hold: boo
                     _clamp_offset(offset_at(score.variant, score.ensemble, field, note.bar, note.beat)),
                 )
     _repair(hits, offsets, bar_beats)
-    updated: dict[str, tuple[NoteEvent, ...]] = {}
+    heard_by_field: dict[str, list[NoteEvent]] = {}
     for field in _FIELDS:
         notes = getattr(score, field)
         heard = _apply(field, notes, offsets)
         if score.variant == "guitar":
             heard = _clamp_guitar(notes, heard, score.ensemble)
-        updated[field] = tuple(_copy_ties(notes, heard))
+        heard_by_field[field] = heard
+    if score.variant == "guitar":
+        heard_by_field["lead"] = _separate_repeats(
+            score.lead,
+            heard_by_field["lead"],
+            score.ensemble,
+            bass=heard_by_field["low"],
+            support=heard_by_field["support"],
+            pedal_bars=_pedal_bars(score),
+        )
+    updated: dict[str, tuple[NoteEvent, ...]] = {}
+    for field in _FIELDS:
+        notes = getattr(score, field)
+        updated[field] = tuple(_copy_ties(notes, heard_by_field[field]))
     return replace(score, **updated, tempos=_tempo_clock(score, fan_hold=fan_hold))
 
 
@@ -254,13 +284,18 @@ def _shrink_choice(
     return max(options, key=lambda key: (abs(offsets.get(key, 0)), key))
 
 
+def _nail_ceiling(ensemble: str) -> int:
+    """Bach, Sor, and Torroba stop at 73. The other guitars reach 79."""
+    return 73 if ensemble in {"bach", "classic", "torroba"} else 79
+
+
 def _clamp_guitar(original: tuple[NoteEvent, ...], heard: list[NoteEvent], ensemble: str) -> list[NoteEvent]:
     """Warm notes stay nylon. A written snap stays inside the nail layer.
 
     A written note at or under 64 stays at or under 64. Snaps sit in 69..73
     for Bach, Sor, and Torroba, and 69..79 for the other guitar ensembles.
     """
-    ceiling = 73 if ensemble in {"bach", "classic", "torroba"} else 79
+    ceiling = _nail_ceiling(ensemble)
     clamped: list[NoteEvent] = []
     for note, heard_note in zip(original, heard):
         written = note.velocity
@@ -279,6 +314,181 @@ def _clamp_guitar(original: tuple[NoteEvent, ...], heard: list[NoteEvent], ensem
             velocity = max(69, min(ceiling, current))
         clamped.append(heard_note if velocity == current else replace(heard_note, velocity=velocity))
     return clamped
+
+
+def _pedal_bars(score: Score) -> set[int]:
+    """Bars the frame owns. A repeated note there is a pedal, not a figure."""
+    found: set[int] = set()
+    for slot in score.slots:
+        if getattr(slot, "section", None) in _PEDAL:
+            found.update(slot.bars())
+    return found
+
+
+def _repeat_bounds(written: int, ensemble: str) -> tuple[int, int]:
+    """The window a repeated pair may move inside. Written above 64 is a nail."""
+    if written > 64:
+        return 69, _nail_ceiling(ensemble)
+    return REPEAT_FLOOR, 64
+
+
+def _voice_floor(bar: int, beat: float, duration: float, events: list[NoteEvent]) -> int:
+    """The loudest bass or support note sounding under this lead attack."""
+    floor = 0
+    for note in events:
+        if note.bar != bar or note.midi is None or note.velocity is None or note.tie_stop:
+            continue
+        start = float(note.beat)
+        if start < beat + duration and beat < start + note.duration_beats:
+            floor = max(floor, int(note.velocity))
+    return floor
+
+
+def _repeat_pair(earlier: NoteEvent, later: NoteEvent) -> bool:
+    """Two consecutive lead attacks the writer left at one level."""
+    if earlier.midi is None or later.midi is None or earlier.midi != later.midi:
+        return False
+    if earlier.velocity is None or later.velocity is None:
+        return False
+    if earlier.velocity != later.velocity:
+        return False
+    if earlier.pinned or later.pinned or earlier.hairpin or later.hairpin:
+        return False
+    return True
+
+
+def _shape_run(
+    run: list[int],
+    original: tuple[NoteEvent, ...],
+    changed: list[NoteEvent],
+    ensemble: str,
+    bass: list[NoteEvent],
+    support: list[NoteEvent],
+) -> None:
+    """Alternate a run of equal written strikes around its first heard level.
+
+    The first strike keeps the level the wave and the plateau pass already gave
+    it; odd strikes lean by one `REPEAT_GAP` and even strikes return to it.
+    Anchoring every strike on the first one, instead of on the previous changed
+    strike, stops a three-note run from ratcheting down 8. A strike never moves
+    more than `REPEAT_GAP` from its own heard level, so a plateau offset on one
+    strike cannot turn the articulation into a jump. When the lean would cross
+    the floor, the ceiling, or the bass/support line, the other side is tried
+    once and the strike otherwise keeps the heard level.
+    """
+    written = int(original[run[0]].velocity or 0)
+    base = int(changed[run[0]].velocity or written)
+    if base <= 64 and base < REPEAT_FLOOR:
+        # A body note already under the guitar floor is a whisper. Lifting it
+        # to 40 or lowering it further would write a new dynamic, not open a pair.
+        return
+    lift = bool(original[run[1]].accent and not original[run[0]].accent)
+    written_low, written_high = _repeat_bounds(written, ensemble)
+    step = REPEAT_GAP if lift else -REPEAT_GAP
+    # If the first strike alone leaves an odd strike more than one gap from its
+    # own heard level, lift the whole run toward that strike. This is what turns
+    # 53/57 into 57/53 instead of 53/49.
+    first_target = base
+    for position in range(1, len(run), 2):
+        odd = int(changed[run[position]].velocity or written)
+        candidate = first_target + step
+        if step < 0 and candidate < odd - REPEAT_GAP:
+            first_target += (odd - REPEAT_GAP) - candidate
+        elif step > 0 and candidate > odd + REPEAT_GAP:
+            first_target -= candidate - (odd + REPEAT_GAP)
+        first_target = min(base + REPEAT_GAP, max(base - REPEAT_GAP, first_target))
+        first_target = min(written_high, max(written_low, first_target))
+    floors: list[int] = []
+    for position, index in enumerate(run):
+        note = original[index]
+        old = int(changed[index].velocity or written)
+        low = max(
+            written_low,
+            _voice_floor(note.bar, float(note.beat), note.duration_beats, bass) + 1,
+            _voice_floor(note.bar, float(note.beat), note.duration_beats, support) + 1,
+        )
+        floors.append(low)
+        if position % 2 == 0:
+            target = first_target
+            target = min(written_high, max(written_low, target))
+        else:
+            target = first_target + step
+            if low <= written_high and first_target >= low:
+                if target < low:
+                    raised = first_target + REPEAT_GAP
+                    target = raised if step < 0 and raised <= written_high else low
+                elif target > written_high:
+                    target = base
+                target = min(written_high, max(low, target))
+            else:
+                # A polyphonic lead note can already sit under the bass. Do
+                # not lift it to that line; keep the articulation in the
+                # written band and let the existing voicing stand.
+                target = min(written_high, max(written_low, target))
+        # The articulation is one gap, never a jump from the strike's own level.
+        target = min(old + REPEAT_GAP, max(old - REPEAT_GAP, target))
+        target = min(written_high, max(written_low, target))
+        if target != changed[index].velocity:
+            changed[index] = replace(changed[index], velocity=target)
+    if len(run) == 2:
+        pair_low = max(floors)
+        first = int(changed[run[0]].velocity or 0)
+        second = int(changed[run[1]].velocity or 0)
+        if (
+            abs(first - second) < REPEAT_GAP
+            and written_high - pair_low >= REPEAT_GAP
+            and written_high - base <= REPEAT_GAP
+        ):
+            # The pair is already at the top of its band. A nail 70/70 has no
+            # room to lean down, and an accent that cannot rise cannot be
+            # dropped either. Use the two ends of the narrow band.
+            if lift:
+                first, second = written_high - REPEAT_GAP, written_high
+            else:
+                first, second = written_high, written_high - REPEAT_GAP
+            changed[run[0]] = replace(changed[run[0]], velocity=first)
+            changed[run[1]] = replace(changed[run[1]], velocity=second)
+
+
+def _separate_repeats(
+    original: tuple[NoteEvent, ...],
+    heard: list[NoteEvent],
+    ensemble: str,
+    *,
+    bass: list[NoteEvent],
+    support: list[NoteEvent],
+    pedal_bars: set[int],
+) -> list[NoteEvent]:
+    """Give consecutive strikes of one pitch a gap the ear can hear.
+
+    Only the lead, only one bar, and only consecutive attacks the writer left
+    at one level. `REPEAT_GAP` is small enough to read as articulation, and
+    anchoring the whole run on its first strike keeps a three-note repeat from
+    stepping down 8. A pinned fan or a hairpin ramp is explicit and stays.
+    Pedal bars are the frame, not a figure. The bass/support line and the
+    guitar micro floor are hard limits, so the accompaniment invariant
+    `lead > bass > support` survives the pass.
+    """
+    changed = list(heard)
+    by_bar: dict[int, list[int]] = {}
+    for index, note in enumerate(original):
+        if not _is_attack(note) or note.bar in pedal_bars:
+            continue
+        by_bar.setdefault(note.bar, []).append(index)
+    for bar, indexes in by_bar.items():
+        indexes.sort(key=lambda index: (float(original[index].beat), index))
+        start = 0
+        while start < len(indexes):
+            stop = start + 1
+            while stop < len(indexes) and _repeat_pair(
+                original[indexes[stop - 1]], original[indexes[stop]]
+            ):
+                stop += 1
+            run = indexes[start:stop]
+            if len(run) >= 2:
+                _shape_run(run, original, changed, ensemble, bass, support)
+            start = stop
+    return changed
 
 
 def _apply(field: str, notes: tuple[NoteEvent, ...], offsets: dict[tuple[str, int, int, int], int]) -> list[NoteEvent]:
