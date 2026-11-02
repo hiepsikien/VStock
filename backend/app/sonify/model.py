@@ -237,8 +237,8 @@ class Score:
     # Eighths of realized scale passages. Long ones are at least one bar.
     scale_eighths: tuple[int, ...] = ()
     long_scale_eighths: tuple[int, ...] = ()
-    # Inputs PAFI needs after the score is humanized. Empty on scores built by
-    # hand in tests; PAFI returns None for those.
+    # Inputs DFI needs after the score is humanized. Empty on scores built by
+    # hand in tests; DFI returns None for those.
     price_trace: tuple[PriceTracePoint, ...] = ()
     price_eighths: tuple[float, ...] = ()
     source_closes: tuple[float, ...] = ()
@@ -246,7 +246,7 @@ class Score:
     volume_windows: tuple[tuple[int, int], ...] = ()
     window_volumes: tuple[float, ...] = ()
     frame_bars: tuple[int, ...] = ()
-    # Musical sections that PAFI analyses. Frame sections are excluded.
+    # Musical sections that DFI analyses. Frame sections are excluded.
     analysis_windows: tuple[tuple[int, int], ...] = ()
 
     # Backwards-compatible chamber part aliases

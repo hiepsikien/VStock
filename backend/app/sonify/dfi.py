@@ -1,7 +1,9 @@
-"""PAFI — Price Action Fidelity Index.
+"""DFI — Data Fidelity Index.
 
-The index answers one question: how clearly can a listener hear the price line
-in a sonified piece?  It is deliberately not a score for musical quality.
+The index answers one question: how faithfully does a sonified piece reflect
+its source data?  The first dataset is the stock price line plus volume; the
+metric is not tied to stocks, and the same components apply to any ordered
+series.  It is deliberately not a score for musical quality.
 
 The metric reads the writer's own `price_trace`, the resampled close series,
 and the liquidity windows that were already used to compose the score.  It
@@ -19,7 +21,7 @@ from typing import Iterable, Literal, Sequence
 
 from app.sonify.model import NoteEvent, PriceTracePoint, Score
 
-PAFI_VERSION = "2"
+DFI_VERSION = "3"
 
 WEIGHT_SHAPE = 0.33
 WEIGHT_MOTION = 0.21
@@ -33,7 +35,7 @@ _EPS = 1e-9
 
 
 @dataclass(frozen=True)
-class PafiBreakdown:
+class DfiBreakdown:
     score: float
     band: Literal["very-clear", "clear", "fair", "faint", "very-faint"]
     shape: float | None
@@ -47,7 +49,7 @@ class PafiBreakdown:
     confidence: Literal["low", "medium", "high"]
     n_moves: int
     n_sounding: int
-    version: str = PAFI_VERSION
+    version: str = DFI_VERSION
 
     def to_dict(self) -> dict:
         return {
@@ -70,7 +72,7 @@ class PafiBreakdown:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict) -> "PafiBreakdown | None":
+    def from_dict(cls, payload: dict) -> "DfiBreakdown | None":
         try:
             return cls(
                 score=float(payload["score"]),
@@ -86,7 +88,7 @@ class PafiBreakdown:
                 confidence=payload.get("confidence", "low"),
                 n_moves=int(payload.get("n_moves") or 0),
                 n_sounding=int(payload.get("n_sounding") or 0),
-                version=str(payload.get("version") or PAFI_VERSION),
+                version=str(payload.get("version") or DFI_VERSION),
             )
         except (KeyError, TypeError, ValueError):
             return None
@@ -707,8 +709,8 @@ def _band(score: float) -> Literal["very-clear", "clear", "fair", "faint", "very
     return "very-faint"
 
 
-def compute(score: Score, *, variant: str, ensemble: str = "classic") -> PafiBreakdown | None:
-    """Return the PAFI for a finished (and, ideally, humanized) score."""
+def compute(score: Score, *, variant: str, ensemble: str = "classic") -> DfiBreakdown | None:
+    """Return the DFI for a finished (and, ideally, humanized) score."""
     if not score.price_trace or not score.price_eighths:
         return None
     epb = max(1, int(round(score.bar_beats * 2)))
@@ -815,7 +817,7 @@ def compute(score: Score, *, variant: str, ensemble: str = "classic") -> PafiBre
     else:
         confidence = "low"
 
-    return PafiBreakdown(
+    return DfiBreakdown(
         score=total,
         band=_band(total),
         shape=None if not shape_weight else shape_sum / shape_weight,

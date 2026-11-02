@@ -4,14 +4,14 @@ import {
   DEFAULT_SYMBOLS,
   ENSEMBLE_ROWS,
   fetchMarketSymbols,
-  fetchPafiPieces,
-  fetchPafiSignatures,
+  fetchDfiPieces,
+  fetchDfiSignatures,
   fetchRecap,
   fetchSessionMinutes,
   fetchSessions,
   fetchSpan,
-  type PafiPiece,
-  type PafiSignature,
+  type DfiPiece,
+  type DfiSignature,
   type RecapEnsemble,
   type RecapManifest,
   type RecapVariant,
@@ -31,7 +31,7 @@ import {
   type PieceProgram,
 } from '../sonify/program';
 import { Controls } from './Controls';
-import { PafiSheet } from './PafiSheet';
+import { DfiSheet } from './DfiSheet';
 import { CommandPalette } from './CommandPalette';
 import { clockText, GENRES, type ListenSpan } from './labels';
 import { readLink, writeLink } from './link';
@@ -128,11 +128,11 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [muted, setMuted] = useState(false);
-  const [pafiOpen, setPafiOpen] = useState(false);
-  const [genrePieces, setGenrePieces] = useState<PafiPiece[] | null>(null);
-  const [ensemblePieces, setEnsemblePieces] = useState<PafiPiece[] | null>(null);
-  const [pafiSignatures, setPafiSignatures] = useState<PafiSignature[]>([]);
-  const [pafiLoading, setPafiLoading] = useState(false);
+  const [dfiOpen, setDfiOpen] = useState(false);
+  const [genrePieces, setGenrePieces] = useState<DfiPiece[] | null>(null);
+  const [ensemblePieces, setEnsemblePieces] = useState<DfiPiece[] | null>(null);
+  const [dfiSignatures, setDfiSignatures] = useState<DfiSignature[]>([]);
+  const [dfiLoading, setDfiLoading] = useState(false);
 
   const request = useRef<AbortController | null>(null);
   const restTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -199,48 +199,48 @@ export function ReplayRoom({ wide, onMode }: Props) {
     writeLink({ symbol, span, date, genre: variant, ensemble, humanize, color: colorOn });
   }, [colorOn, date, ensemble, humanize, span, symbol, variant]);
 
-  const pafiBucket = span === '1D' ? 'day' : 'span';
+  const dfiBucket = span === '1D' ? 'day' : 'span';
 
   useEffect(() => {
     const controller = new AbortController();
     void (async () => {
       try {
-        const rows = await fetchPafiSignatures(pafiBucket, undefined, controller.signal);
-        setPafiSignatures(rows);
+        const rows = await fetchDfiSignatures(dfiBucket, undefined, controller.signal);
+        setDfiSignatures(rows);
       } catch (err) {
-        if (!isAbort(err)) setPafiSignatures([]);
+        if (!isAbort(err)) setDfiSignatures([]);
       }
     })();
     return () => controller.abort();
-  }, [pafiBucket]);
+  }, [dfiBucket]);
 
   // The sheet's two comparison tables are composed on the server. A failure
   // on either side leaves the current row visible and the others as `—`.
   useEffect(() => {
-    if (!pafiOpen) return;
-    if (pafiBucket === 'day' && !date) return;
+    if (!dfiOpen) return;
+    if (dfiBucket === 'day' && !date) return;
     const controller = new AbortController();
-    setPafiLoading(true);
+    setDfiLoading(true);
     const base = {
       symbol,
-      bucket: pafiBucket,
-      date: pafiBucket === 'day' ? date : null,
-      range: pafiBucket === 'span' ? span : null,
-      movement: pafiBucket === 'span' ? index : 0,
+      bucket: dfiBucket,
+      date: dfiBucket === 'day' ? date : null,
+      range: dfiBucket === 'span' ? span : null,
+      movement: dfiBucket === 'span' ? index : 0,
       mix: { humanize, color: colorOn },
     } as const;
     void (async () => {
       const [genre, ensembleRows] = await Promise.allSettled([
-        fetchPafiPieces({ ...base, variant: null, ensemble: null }, controller.signal),
-        fetchPafiPieces({ ...base, variant, ensemble: null }, controller.signal),
+        fetchDfiPieces({ ...base, variant: null, ensemble: null }, controller.signal),
+        fetchDfiPieces({ ...base, variant, ensemble: null }, controller.signal),
       ]);
       if (controller.signal.aborted) return;
       setGenrePieces(genre.status === 'fulfilled' ? genre.value.pieces : null);
       setEnsemblePieces(ensembleRows.status === 'fulfilled' ? ensembleRows.value.pieces : null);
-      setPafiLoading(false);
+      setDfiLoading(false);
     })();
     return () => controller.abort();
-  }, [colorOn, date, ensemble, humanize, index, pafiBucket, pafiOpen, span, symbol, variant]);
+  }, [colorOn, date, ensemble, humanize, index, dfiBucket, dfiOpen, span, symbol, variant]);
 
   useEffect(() => {
     let cancelled = false;
@@ -690,12 +690,12 @@ export function ReplayRoom({ wide, onMode }: Props) {
 
   const heardName = movements?.[index]?.name?.trim() ?? '';
   const heardReady = Boolean(movements?.[index]?.ready);
-  const heardPafi = Boolean(movements?.[index]?.pafi);
+  const heardDfi = Boolean(movements?.[index]?.dfi);
   useEffect(() => {
     // A movement can be heard before its score exists, and an old cache can
-    // hold audio without PAFI. Neither number appears on its own: re-read the
+    // hold audio without DFI. Neither number appears on its own: re-read the
     // plan until the current movement has both.
-    if (span === '1D' || !audible || (heardName && heardReady && heardPafi)) return;
+    if (span === '1D' || !audible || (heardName && heardReady && heardDfi)) return;
     let stopped = false;
     let pending = false;
     const pull = async () => {
@@ -717,7 +717,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
             const patch: Partial<SpanMovement> = {};
             if (!item.name?.trim() && name) patch.name = name;
             if (item.ready !== incoming.ready) patch.ready = incoming.ready;
-            if (!item.pafi && incoming.pafi) patch.pafi = incoming.pafi;
+            if (!item.dfi && incoming.dfi) patch.dfi = incoming.dfi;
             if (!Object.keys(patch).length) return item;
             changed = true;
             return { ...item, ...patch };
@@ -741,7 +741,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
     colorOn,
     ensemble,
     heardName,
-    heardPafi,
+    heardDfi,
     heardReady,
     humanize,
     span,
@@ -754,10 +754,10 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const totalCandles = lengths.reduce((sum, length) => sum + length, 0);
   const multi = (movements?.length ?? 0) > 1;
   const current = movements?.[index] ?? null;
-  const activePafi = span === '1D' ? (manifest?.pafi ?? null) : (current?.pafi ?? null);
-  const activePafiSignature =
-    pafiSignatures.find((row) => row.variant === variant && row.ensemble === ensemble) ??
-    pafiSignatures.find((row) => row.variant === variant && row.ensemble === 'classic') ??
+  const activeDfi = span === '1D' ? (manifest?.dfi ?? null) : (current?.dfi ?? null);
+  const activeDfiSignature =
+    dfiSignatures.find((row) => row.variant === variant && row.ensemble === ensemble) ??
+    dfiSignatures.find((row) => row.variant === variant && row.ensemble === 'classic') ??
     null;
   const targetFocus =
     movements && totalCandles > 1
@@ -1122,8 +1122,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
           restTotal={restTotal}
           playing={audible}
           chartKey={`${symbol}|${span}|${variant}|${date ?? ''}`}
-          pafi={activePafi}
-          onPafi={() => setPafiOpen(true)}
+          dfi={activeDfi}
+          onDfi={() => setDfiOpen(true)}
         />
       }
       controls={
@@ -1154,9 +1154,9 @@ export function ReplayRoom({ wide, onMode }: Props) {
           onMute={() => setMuted((value) => !value)}
           onTimeline={span === '1D' ? onFileScrub : onWorkScrub}
           onOptionsOpenChange={setOptionsOpen}
-          pafi={activePafi}
-          pafiSignature={activePafiSignature}
-          onPafi={() => setPafiOpen(true)}
+          dfi={activeDfi}
+          dfiSignature={activeDfiSignature}
+          onDfi={() => setDfiOpen(true)}
         />
       }
     >
@@ -1194,16 +1194,16 @@ export function ReplayRoom({ wide, onMode }: Props) {
       }}
       onDate={setDate}
     />
-    <PafiSheet
-      visible={pafiOpen}
-      onClose={() => setPafiOpen(false)}
-      pafi={activePafi}
+    <DfiSheet
+      visible={dfiOpen}
+      onClose={() => setDfiOpen(false)}
+      dfi={activeDfi}
       variant={variant}
       ensemble={ensemble}
-      signatures={pafiSignatures}
+      signatures={dfiSignatures}
       genrePieces={genrePieces}
       ensemblePieces={ensemblePieces}
-      loading={pafiLoading}
+      loading={dfiLoading}
       onVariant={(next) => {
         if (next === variant) return;
         setVariant(next);

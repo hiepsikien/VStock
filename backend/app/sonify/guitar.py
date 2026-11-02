@@ -18,7 +18,7 @@ from app.sonify.chords import C, Chord
 from app.sonify.form import active_meter
 from app.sonify.keys import C_KEY, MovementCharacter, active_register
 from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score
-from app.sonify.pafi import trace_from_notes
+from app.sonify.dfi import trace_from_notes
 from app.sonify.phrasing import Phrase, quantize_strong_beats, written
 from app.sonify.quantize import C_MAJOR_PCS, C_NATURAL_MINOR_PCS, scale_from_classes
 

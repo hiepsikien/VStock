@@ -87,7 +87,7 @@ from app.sonify.phrasing import (
     written,
 )
 from app.sonify.quantize import c_major_scale, c_natural_minor_scale, price_to_scale_index, resample
-from app.sonify.pafi import trace_from_notes, trace_register_per_bar
+from app.sonify.dfi import trace_from_notes, trace_register_per_bar
 from app.sonify.regime import REGIME_BARS, classify_window
 
 FLUTE_TRIGGER = 79  # G5: Flute enters on high apex (>= G5) or Breakout
@@ -1151,8 +1151,8 @@ def _compose(
             )
         )
         frame_set = frozenset(frame_bars)
-        pafi_epb = meter.eighths_per_bar
-        pafi_bar_beats = meter.quarter_beats
+        dfi_epb = meter.eighths_per_bar
+        dfi_bar_beats = meter.quarter_beats
         if spec is not None:
             analysis_windows = tuple(
                 (section.start, section.end)
@@ -1162,15 +1162,15 @@ def _compose(
         else:
             analysis_windows = ((0, musical_bars),)
 
-        def _attach_pafi_inputs(score: Score) -> Score:
+        def _attach_dfi_inputs(score: Score) -> Score:
             trace = score.price_trace
             if not trace:
                 if variant == "minimalist":
                     trace = trace_register_per_bar(
                         score.lead,
                         prices=price_eighths,
-                        epb=pafi_epb,
-                        bar_beats=pafi_bar_beats,
+                        epb=dfi_epb,
+                        bar_beats=dfi_bar_beats,
                         frame_bars=frame_set,
                     )
                 elif variant == "ambient":
@@ -1178,8 +1178,8 @@ def _compose(
                         score.lead,
                         line=pitches,
                         prices=price_eighths,
-                        epb=pafi_epb,
-                        bar_beats=pafi_bar_beats,
+                        epb=dfi_epb,
+                        bar_beats=dfi_bar_beats,
                         frame_bars=frame_set,
                         role="anchor",
                         octave_tolerant=True,
@@ -1189,8 +1189,8 @@ def _compose(
                         score.lead,
                         line=pitches,
                         prices=price_eighths,
-                        epb=pafi_epb,
-                        bar_beats=pafi_bar_beats,
+                        epb=dfi_epb,
+                        bar_beats=dfi_bar_beats,
                         frame_bars=frame_set,
                         octave_tolerant=True,
                     )
@@ -1232,7 +1232,7 @@ def _compose(
             from app.sonify.groove import _GROOVE
 
             _GROOVE.set({})
-            return _attach_pafi_inputs(score)
+            return _attach_dfi_inputs(score)
 
         from app.sonify.groove import _GROOVE, build_groove
 

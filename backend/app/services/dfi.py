@@ -1,6 +1,6 @@
-"""Compose a score just to read its PAFI. No audio, no MuseScore.
+"""Compose a score just to read its DFI. No audio, no MuseScore.
 
-`GET /v1/sonify/pafi/pieces` needs the same price-action number for several
+`GET /v1/sonify/dfi/pieces` needs the same data-fidelity number for several
 variant/ensemble rows of one session or one span movement.  The audio store
 only knows the row the listener selected, so this module composes the other
 rows from the same bars and caches the result in memory.
@@ -31,10 +31,10 @@ from app.sonify.audio import (
 from app.sonify.ensemble import ensembles_for
 from app.sonify.keys import movement_character, stock_home_key
 from app.sonify.model import Bar, Ensemble, VARIANTS, Variant
-from app.sonify.pafi import PAFI_VERSION, PafiBreakdown, compute as compute_pafi
+from app.sonify.dfi import DFI_VERSION, DfiBreakdown, compute as compute_dfi
 
 ComposeKey = tuple[str, str, str, str, bool, str, str]
-_CACHE: dict[ComposeKey, tuple[PafiBreakdown | None, str]] = {}
+_CACHE: dict[ComposeKey, tuple[DfiBreakdown | None, str]] = {}
 _CACHE_LOCK = threading.Lock()
 _CACHE_LIMIT = 256
 
@@ -56,7 +56,7 @@ def bars_digest(bars: Iterable[Bar]) -> str:
     )
 
 
-def _store(key: ComposeKey, value: PafiBreakdown | None) -> PafiBreakdown | None:
+def _store(key: ComposeKey, value: DfiBreakdown | None) -> DfiBreakdown | None:
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with _CACHE_LOCK:
         if len(_CACHE) >= _CACHE_LIMIT:
@@ -66,7 +66,7 @@ def _store(key: ComposeKey, value: PafiBreakdown | None) -> PafiBreakdown | None
     return value
 
 
-def _load(key: ComposeKey) -> tuple[PafiBreakdown | None, str | None, bool] | None:
+def _load(key: ComposeKey) -> tuple[DfiBreakdown | None, str | None, bool] | None:
     with _CACHE_LOCK:
         item = _CACHE.get(key)
     if item is not None:
@@ -81,33 +81,33 @@ def _load(key: ComposeKey) -> tuple[PafiBreakdown | None, str | None, bool] | No
 
 def _sidecar_path(key: ComposeKey):
     name = hashlib.sha1(json.dumps(key, separators=(",", ":")).encode("utf-8")).hexdigest()
-    return recap_store().root / "pafi" / f"{name}.json"
+    return recap_store().root / "dfi" / f"{name}.json"
 
 
-def _read_sidecar(key: ComposeKey) -> tuple[PafiBreakdown | None, str] | None:
+def _read_sidecar(key: ComposeKey) -> tuple[DfiBreakdown | None, str] | None:
     path = _sidecar_path(key)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    if not isinstance(payload, dict) or payload.get("version") != PAFI_VERSION:
+    if not isinstance(payload, dict) or payload.get("version") != DFI_VERSION:
         return None
     stamp = str(payload.get("computedAt") or "")
-    raw = payload.get("pafi")
+    raw = payload.get("dfi")
     if raw is None:
         return None, stamp
-    value = PafiBreakdown.from_dict(raw)
+    value = DfiBreakdown.from_dict(raw)
     if value is None:
         return None
     return value, stamp
 
 
-def _write_sidecar(key: ComposeKey, value: PafiBreakdown | None, stamp: str) -> None:
+def _write_sidecar(key: ComposeKey, value: DfiBreakdown | None, stamp: str) -> None:
     path = _sidecar_path(key)
     payload = {
-        "version": PAFI_VERSION,
+        "version": DFI_VERSION,
         "computedAt": stamp,
-        "pafi": None if value is None else value.to_dict(),
+        "dfi": None if value is None else value.to_dict(),
     }
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -129,7 +129,7 @@ def _recap_key(
     digest: str,
 ) -> ComposeKey:
     return (
-        f"day:{symbol}:{day.isoformat()}:{RECAP_REVISION}:{PAFI_VERSION}:{digest}",
+        f"day:{symbol}:{day.isoformat()}:{RECAP_REVISION}:{DFI_VERSION}:{digest}",
         variant,
         ensemble,
         "day",
@@ -150,7 +150,7 @@ def _movement_key(
     digest: str,
 ) -> ComposeKey:
     return (
-        f"span:{symbol}:{span}:{index}:{SPAN_REVISION}:{PAFI_VERSION}:{digest}",
+        f"span:{symbol}:{span}:{index}:{SPAN_REVISION}:{DFI_VERSION}:{digest}",
         variant,
         ensemble,
         "span",
@@ -171,7 +171,7 @@ def _recap_score(
         variant,
         ensemble,
         bars,
-        title=f"{symbol} pafi",
+        title=f"{symbol} dfi",
         key=stock_home_key(symbol),
         character=movement_character([bar.close for bar in bars], "1D"),
         movement_index=0,
@@ -194,7 +194,7 @@ def _movement_score(
         variant,
         ensemble,
         movement.bars,
-        title=f"{symbol} {span} pafi",
+        title=f"{symbol} {span} dfi",
         form=movement.spec,
         source_groups=movement.groups,
         key=movement.key,
@@ -213,16 +213,16 @@ def _movement_score(
 
 
 @dataclass(frozen=True)
-class PafiPieceResult:
+class DfiPieceResult:
     variant: Variant
     ensemble: Ensemble
     movement: int | None
-    pafi: PafiBreakdown | None
+    dfi: DfiBreakdown | None
     cached: bool
     computedAt: str | None
 
 
-def recap_pafi(
+def recap_dfi(
     symbol: str,
     day: date,
     bars: list[Bar],
@@ -230,18 +230,18 @@ def recap_pafi(
     ensemble: Ensemble = "classic",
     humanize: bool = True,
     color: bool = True,
-) -> PafiPieceResult:
-    """Compose the recap score (no export) and read its PAFI."""
+) -> DfiPieceResult:
+    """Compose the recap score (no export) and read its DFI."""
     digest = bars_digest(bars)
     key = _recap_key(symbol, day, variant, ensemble, humanize, color, digest)
     hit = _load(key)
     if hit is not None:
         value, stamp, cached = hit
-        return PafiPieceResult(variant, ensemble, None, value, cached, stamp)
+        return DfiPieceResult(variant, ensemble, None, value, cached, stamp)
     score = _recap_score(symbol, bars, variant, ensemble, humanize)
-    value = compute_pafi(score, variant=variant, ensemble=ensemble)
+    value = compute_dfi(score, variant=variant, ensemble=ensemble)
     stamp = _store(key, value)
-    return PafiPieceResult(
+    return DfiPieceResult(
         variant,
         ensemble,
         None,
@@ -251,7 +251,7 @@ def recap_pafi(
     )
 
 
-def movement_pafi(
+def movement_dfi(
     symbol: str,
     span: str,
     index: int,
@@ -260,17 +260,17 @@ def movement_pafi(
     ensemble: Ensemble = "classic",
     humanize: bool = True,
     color: bool = True,
-) -> PafiPieceResult:
+) -> DfiPieceResult:
     digest = bars_digest(movement.bars)
     key = _movement_key(symbol, span, index, variant, ensemble, humanize, color, digest)
     hit = _load(key)
     if hit is not None:
         value, stamp, cached = hit
-        return PafiPieceResult(variant, ensemble, index, value, cached, stamp)
+        return DfiPieceResult(variant, ensemble, index, value, cached, stamp)
     score = _movement_score(symbol, span, index, movement, variant, ensemble, humanize)
-    value = compute_pafi(score, variant=variant, ensemble=ensemble)
+    value = compute_dfi(score, variant=variant, ensemble=ensemble)
     _store(key, value)
-    return PafiPieceResult(
+    return DfiPieceResult(
         variant,
         ensemble,
         index,
@@ -352,15 +352,15 @@ async def pieces_for_day(
     rows: list[tuple[Variant, Ensemble]],
     humanize: bool = True,
     color: bool = True,
-) -> list[PafiPieceResult]:
+) -> list[DfiPieceResult]:
     bars = await recap_bars(symbol, day)
     if not bars:
         raise LookupError(day.isoformat())
-    results: list[PafiPieceResult] = []
+    results: list[DfiPieceResult] = []
     for variant, ensemble in rows:
         results.append(
             await asyncio.to_thread(
-                recap_pafi, symbol, day, bars, variant, ensemble, humanize, color
+                recap_dfi, symbol, day, bars, variant, ensemble, humanize, color
             )
         )
     return results
@@ -373,8 +373,8 @@ async def pieces_for_span(
     rows: list[tuple[Variant, Ensemble]],
     humanize: bool = True,
     color: bool = True,
-) -> tuple[list[PafiPieceResult], date]:
-    results: list[PafiPieceResult] = []
+) -> tuple[list[DfiPieceResult], date]:
+    results: list[DfiPieceResult] = []
     as_of: date | None = None
     for variant, ensemble in rows:
         plan = await span_plan(symbol, span, variant, ensemble)
@@ -384,7 +384,7 @@ async def pieces_for_span(
         as_of = plan.as_of
         results.append(
             await asyncio.to_thread(
-                movement_pafi,
+                movement_dfi,
                 symbol,
                 span,
                 index,
@@ -400,6 +400,6 @@ async def pieces_for_span(
     return results, as_of
 
 
-def apply_to_asset(asset, piece: PafiPieceResult):
-    """Attach a composed PAFI to a recap or movement asset."""
-    return replace(asset, pafi=None if piece.pafi is None else piece.pafi.to_dict())
+def apply_to_asset(asset, piece: DfiPieceResult):
+    """Attach a composed DFI to a recap or movement asset."""
+    return replace(asset, dfi=None if piece.dfi is None else piece.dfi.to_dict())

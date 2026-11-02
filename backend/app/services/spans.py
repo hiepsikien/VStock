@@ -222,11 +222,11 @@ async def load_movement_audio(
             humanize,
             color,
         )
-        if getattr(asset, "pafi", None) is None:
-            from app.services import pafi as pafi_service
+        if getattr(asset, "dfi", None) is None:
+            from app.services import dfi as dfi_service
 
             piece = await asyncio.to_thread(
-                pafi_service.movement_pafi,
+                dfi_service.movement_dfi,
                 symbol.upper(),
                 span,
                 index,
@@ -236,8 +236,8 @@ async def load_movement_audio(
                 humanize,
                 color,
             )
-            asset = pafi_service.apply_to_asset(asset, piece)
-            remember = getattr(recap_store(), "remember_movement_pafi", None)
+            asset = dfi_service.apply_to_asset(asset, piece)
+            remember = getattr(recap_store(), "remember_movement_dfi", None)
             if callable(remember):
                 remember(
                     symbol.upper(),
@@ -249,7 +249,7 @@ async def load_movement_audio(
                     ensemble,
                     humanize,
                     color,
-                    getattr(asset, "pafi", None),
+                    getattr(asset, "dfi", None),
                 )
         return asset
     except (RecapUnavailable, RecapCancelled):

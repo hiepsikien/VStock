@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import type { PafiBreakdown } from '../api/client';
+import type { DfiBreakdown } from '../api/client';
 import { Sparkline, volumeStripFor } from '../components/Sparkline';
 import type { PieceProgram } from '../sonify/program';
-import { pafiBandLabel, pafiPillText } from './labels';
+import { dfiBandLabel, dfiPillText } from './labels';
 import { MotionPressable, useChartEntrance, usePulse, useReducedMotion } from './motion';
 import { palette, WIDE_BREAKPOINT } from './palette';
 import { clamp01 } from './seek';
@@ -44,8 +44,8 @@ type Props = {
   /** Changing this string fades the chart in: symbol, span or genre. */
   chartKey?: string;
   /** Price-action fidelity of the piece being heard. Undefined hides the pill. */
-  pafi?: PafiBreakdown | null;
-  onPafi?: () => void;
+  dfi?: DfiBreakdown | null;
+  onDfi?: () => void;
 };
 
 export function Stage({
@@ -70,8 +70,8 @@ export function Stage({
   live = false,
   playing = false,
   chartKey = '',
-  pafi = undefined,
-  onPafi,
+  dfi = undefined,
+  onDfi,
 }: Props) {
   const { width } = useWindowDimensions();
   const reduced = useReducedMotion();
@@ -144,7 +144,7 @@ export function Stage({
                 {program.instruments}
               </Text>
             ) : null}
-            {badge || meta || pafi !== undefined ? (
+            {badge || meta || dfi !== undefined ? (
               <View style={styles.metaRow}>
                 {badge ? (
                   <View style={styles.badge}>
@@ -156,21 +156,21 @@ export function Stage({
                     {meta}
                   </Text>
                 ) : null}
-                {pafi !== undefined ? (
+                {dfi !== undefined ? (
                   <MotionPressable
-                    onPress={onPafi}
-                    disabled={!onPafi}
+                    onPress={onDfi}
+                    disabled={!onDfi}
                     hitSlop={8}
-                    style={[styles.pafiPill, pafi?.confidence === 'low' && styles.pafiPillLow]}
-                    accessibilityRole={onPafi ? 'button' : 'text'}
+                    style={[styles.dfiPill, dfi?.confidence === 'low' && styles.dfiPillLow]}
+                    accessibilityRole={onDfi ? 'button' : 'text'}
                     accessibilityLabel={
-                      pafi
-                        ? `Độ trung thực dữ liệu ${Math.round(pafi.score)} trên 100, mức ${pafiBandLabel(pafi.band).toLowerCase()}`
+                      dfi
+                        ? `Độ trung thực dữ liệu ${Math.round(dfi.score)} trên 100, mức ${dfiBandLabel(dfi.band).toLowerCase()}`
                         : 'Chưa đủ mẫu để đo độ trung thực dữ liệu'
                     }
                   >
-                    <Text style={[type.monoSmall, styles.pafiPillText]}>
-                      {pafiPillText(pafi?.score, pafi?.confidence)}
+                    <Text style={[type.monoSmall, styles.dfiPillText]}>
+                      {dfiPillText(dfi?.score, dfi?.confidence)}
                     </Text>
                   </MotionPressable>
                 ) : null}
@@ -428,7 +428,7 @@ const styles = StyleSheet.create({
     color: palette.textFaint,
     flexShrink: 1,
   },
-  pafiPill: {
+  dfiPill: {
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 999,
@@ -436,10 +436,10 @@ const styles = StyleSheet.create({
     borderColor: palette.hairlineStrong,
     backgroundColor: palette.surface,
   },
-  pafiPillLow: {
+  dfiPillLow: {
     opacity: 0.55,
   },
-  pafiPillText: {
+  dfiPillText: {
     color: palette.textMuted,
     fontVariant: ['tabular-nums'],
   },

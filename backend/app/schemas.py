@@ -96,7 +96,7 @@ class SessionDetailResponse(BaseModel):
     changePercent: float
 
 
-class PafiBreakdown(BaseModel):
+class DfiBreakdown(BaseModel):
     score: float
     band: Literal["very-clear", "clear", "fair", "faint", "very-faint"]
     shape: float | None = None
@@ -110,10 +110,10 @@ class PafiBreakdown(BaseModel):
     confidence: Literal["low", "medium", "high"] = "low"
     n_moves: int = 0
     n_sounding: int = 0
-    version: str = "2"
+    version: str = "3"
 
 
-class PafiSignature(BaseModel):
+class DfiSignature(BaseModel):
     variant: Literal["symphony", "jazz", "minimalist", "ambient", "guitar"]
     ensemble: str
     bucket: Literal["day", "span"]
@@ -126,20 +126,20 @@ class PafiSignature(BaseModel):
     stale: bool = False
 
 
-class PafiPiece(BaseModel):
+class DfiPiece(BaseModel):
     variant: Literal["symphony", "jazz", "minimalist", "ambient", "guitar"]
     ensemble: str
     movement: int | None = None
-    pafi: PafiBreakdown | None = None
+    dfi: DfiBreakdown | None = None
     cached: bool = False
     computedAt: str | None = None
 
 
-class PafiPiecesResponse(BaseModel):
+class DfiPiecesResponse(BaseModel):
     symbol: str
     bucket: Literal["day", "span"]
     asOf: str
-    pieces: list[PafiPiece]
+    pieces: list[DfiPiece]
 
 
 class RecapResponse(BaseModel):
@@ -173,7 +173,7 @@ class RecapResponse(BaseModel):
     movementName: str = ""
     humanize: bool = True
     color: bool = True
-    pafi: PafiBreakdown | None = None
+    dfi: DfiBreakdown | None = None
 
 
 class SpanMovementResponse(BaseModel):
@@ -197,7 +197,7 @@ class SpanMovementResponse(BaseModel):
     beats: int = 4
     beatType: int = 4
     name: str = ""
-    pafi: PafiBreakdown | None = None
+    dfi: DfiBreakdown | None = None
 
 
 class SpanResponse(BaseModel):
@@ -225,7 +225,7 @@ class SpanResponse(BaseModel):
     keyLabel: str = ""
     humanize: bool = True
     color: bool = True
-    pafi: PafiBreakdown | None = None
+    dfi: DfiBreakdown | None = None
 
 
 class HealthResponse(BaseModel):

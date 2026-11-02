@@ -467,12 +467,12 @@ export const ENSEMBLE_ROWS: Record<RecapVariant, { id: RecapEnsemble; label: str
   ],
 };
 
-export type PafiBand = 'very-clear' | 'clear' | 'fair' | 'faint' | 'very-faint';
+export type DfiBand = 'very-clear' | 'clear' | 'fair' | 'faint' | 'very-faint';
 
-/** The server's price-action fidelity number. Zero analysis on the client. */
-export type PafiBreakdown = {
+/** The server's data-fidelity number. Zero analysis on the client. */
+export type DfiBreakdown = {
   score: number;
-  band: PafiBand;
+  band: DfiBand;
   shape: number | null;
   motion: number | null;
   structure: number | null;
@@ -487,7 +487,7 @@ export type PafiBreakdown = {
   version: string;
 };
 
-export type PafiSignature = {
+export type DfiSignature = {
   variant: RecapVariant;
   ensemble: string;
   bucket: 'day' | 'span';
@@ -500,20 +500,20 @@ export type PafiSignature = {
   stale: boolean;
 };
 
-export type PafiPiece = {
+export type DfiPiece = {
   variant: RecapVariant;
   ensemble: string;
   movement: number | null;
-  pafi: PafiBreakdown | null;
+  dfi: DfiBreakdown | null;
   cached: boolean;
   computedAt: string | null;
 };
 
-export type PafiPiecesResponse = {
+export type DfiPiecesResponse = {
   symbol: string;
   bucket: 'day' | 'span';
   asOf: string;
-  pieces: PafiPiece[];
+  pieces: DfiPiece[];
 };
 
 export type SessionSummary = {
@@ -560,7 +560,7 @@ export type RecapManifest = {
   movementName?: string;
   humanize?: boolean;
   color?: boolean;
-  pafi?: PafiBreakdown | null;
+  dfi?: DfiBreakdown | null;
 };
 
 export function absoluteApiUrl(path: string): string {
@@ -613,7 +613,7 @@ export type SpanMovement = {
   beatType?: number;
   /** Dance or tempo composed for this movement. */
   name?: string;
-  pafi?: PafiBreakdown | null;
+  dfi?: DfiBreakdown | null;
 };
 
 export type SpanManifest = {
@@ -628,7 +628,7 @@ export type SpanManifest = {
   keyLabel?: string;
   humanize?: boolean;
   color?: boolean;
-  pafi?: PafiBreakdown | null;
+  dfi?: DfiBreakdown | null;
 };
 
 export async function fetchSpan(
@@ -675,7 +675,7 @@ export async function fetchRecap(
 }
 
 /** Compose other genre/ensemble rows of the current session or movement. */
-export async function fetchPafiPieces(
+export async function fetchDfiPieces(
   params: {
     symbol: string;
     bucket: 'day' | 'span';
@@ -687,7 +687,7 @@ export async function fetchPafiPieces(
     mix?: SonifyMix;
   },
   signal?: AbortSignal,
-): Promise<PafiPiecesResponse> {
+): Promise<DfiPiecesResponse> {
   const query = new URLSearchParams();
   query.set('symbol', params.symbol.toUpperCase());
   query.set('bucket', params.bucket);
@@ -702,19 +702,19 @@ export async function fetchPafiPieces(
   const mix = params.mix ?? MIX_ON;
   query.set('humanize', mix.humanize ? '1' : '0');
   query.set('color', mix.color ? '1' : '0');
-  return apiGet<PafiPiecesResponse>(`/v1/sonify/pafi/pieces?${query.toString()}`, signal);
+  return apiGet<DfiPiecesResponse>(`/v1/sonify/dfi/pieces?${query.toString()}`, signal);
 }
 
 /** Corpus medians. An empty list means the offline artifact is not built yet. */
-export async function fetchPafiSignatures(
+export async function fetchDfiSignatures(
   bucket: 'day' | 'span',
   variant?: RecapVariant,
   signal?: AbortSignal,
-): Promise<PafiSignature[]> {
+): Promise<DfiSignature[]> {
   const query = new URLSearchParams();
   query.set('bucket', bucket);
   if (variant) query.set('variant', variant);
-  return apiGet<PafiSignature[]>(`/v1/sonify/pafi/signatures?${query.toString()}`, signal);
+  return apiGet<DfiSignature[]>(`/v1/sonify/dfi/signatures?${query.toString()}`, signal);
 }
 
 export async function fetchHistory(symbol: string, range: ChartRange): Promise<number[]> {

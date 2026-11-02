@@ -1,4 +1,4 @@
-import { clockText, foldText, formatClock, formatDelta, pafiBandLabel, pafiPillText } from './labels';
+import { clockText, foldText, formatClock, formatDelta, dfiBandLabel, dfiPillText } from './labels';
 
 function equal<T>(actual: T, expected: T, label = '') {
   if (actual !== expected) {
@@ -37,12 +37,12 @@ equal(foldText('ĐỒNG'), 'dong', 'fold handles đ and case');
 equal(foldText('  Tối giản  '), 'toi gian', 'fold trims and removes marks');
 equal(foldText('Jazz'), 'jazz', 'fold keeps ascii');
 
-equal(pafiBandLabel('fair'), 'Vừa', 'server fair maps to Vietnamese');
-equal(pafiBandLabel('very-clear'), 'Rất rõ', 'clear band');
-equal(pafiBandLabel(null), 'Chưa đủ mẫu', 'missing band is not a zero');
-equal(pafiPillText(78.4, 'high'), 'PA 78', 'pill rounds');
-equal(pafiPillText(78.4, 'low'), 'PA ~78', 'low confidence keeps the tilde');
-equal(pafiPillText(null), 'PA —', 'missing score');
-equal(pafiPillText(Number.NaN), 'PA —', 'nan score');
+equal(dfiBandLabel('fair'), 'Vừa', 'server fair maps to Vietnamese');
+equal(dfiBandLabel('very-clear'), 'Rất rõ', 'clear band');
+equal(dfiBandLabel(null), 'Chưa đủ mẫu', 'missing band is not a zero');
+equal(dfiPillText(78.4, 'high'), 'DFI 78', 'pill rounds');
+equal(dfiPillText(78.4, 'low'), 'DFI ~78', 'low confidence keeps the tilde');
+equal(dfiPillText(null), 'DFI —', 'missing score');
+equal(dfiPillText(Number.NaN), 'DFI —', 'nan score');
 
 console.log('musicalize label tests passed');

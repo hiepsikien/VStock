@@ -141,7 +141,7 @@ _SKIP_VOICES: ContextVar[bool] = ContextVar("vstock_guitar_skip_voices", default
 # are planned. `render_guitar_score` reads it to trace the price line against
 # the notes that were actually written.
 _TRACE_LINE: ContextVar[list[int] | None] = ContextVar("vstock_guitar_trace_line", default=None)
-# The placed price line before Torroba lowers even stretches. PAFI treats that
+# The placed price line before Torroba lowers even stretches. DFI treats that
 # lowering as a register choice, not as a different price reading.
 _TRACE_PRICE_LINE: ContextVar[list[int] | None] = ContextVar(
     "vstock_guitar_trace_price_line", default=None

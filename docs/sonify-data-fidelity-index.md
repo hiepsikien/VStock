@@ -1,8 +1,10 @@
-# PAFI — Chỉ số độ rõ Price Action
+# DFI — Data Fidelity Index (Chỉ số độ trung thực dữ liệu)
 
-> **Trạng thái:** thiết kế, chưa implement.
+> **Trạng thái:** đã implement cho dataset giá + volume; calibration corpus ở Phase 7.
 >
-> **Mục tiêu:** đo xem một bản sonify nghe ra **đường giá** rõ đến đâu, ở cấp **câu → chương → tác phẩm → thể loại/dàn nhạc**. Đây là chỉ số **độ rõ chart**, không phải điểm hay/xấu của âm nhạc.
+> **Mục tiêu:** đo xem một bản sonify phản ánh **dữ liệu nguồn** trung thực đến đâu, ở cấp **câu → chương → tác phẩm → thể loại/dàn nhạc**. Đây là chỉ số **độ trung thực dữ liệu**, không phải điểm hay/xấu của âm nhạc.
+>
+> **Tổng quát:** DFI không gắn với chứng khoán. Dataset đầu tiên là **giá (OHLC) + volume**; cùng công thức dùng được cho chuỗi dữ liệu khác (crypto, order book, nhiệt độ, lưu lượng, sentiment…) vì mọi thành phần đều đo quan hệ giữa **tín hiệu nguồn** và **tín hiệu đã sonify**.
 >
 > **Phạm vi:** replay trước (`1D`, `1W`, `1M`, `3M`, `1Y`). Live stream để sau.
 >
@@ -12,7 +14,11 @@
 
 ## 1. Vấn đề
 
-Pipeline hiện tại mã hoá price action bằng nhiều cách khác nhau:
+Sonify nhận một chuỗi dữ liệu và biến nó thành âm nhạc. Với chứng khoán, chuỗi đó là **giá và volume**; với dataset khác, nó có thể là bất kỳ tín hiệu nào có thứ tự thời gian. Câu hỏi của DFI:
+
+> Người nghe có nghe ra **dữ liệu nguồn** không, hay chỉ nghe thấy một bản nhạc?
+
+Trong dataset chứng khoán, pipeline mã hoá **đường giá** bằng nhiều cách khác nhau:
 
 - Giao hưởng và Jazz gần như **hát đúng đường giá** ở bè chính.
 - Tối giản mã hoá giá bằng **cửa sổ đăng ký của arpeggio**, không phải một nốt.
@@ -27,27 +33,38 @@ Vì vậy không thể lấy “nốt cao nhất đang kêu” làm đường gi
 - Minimalist mã hoá giá bằng **độ cao trung bình/cửa sổ của arpeggio**, không phải từng nốt.
 - Ambient ngân dài qua nhiều biến động giá; đó là chủ ý, nhưng làm chart mờ.
 
-PAFI phải đo **đúng nốt/tín hiệu mà writer chủ định dùng để mang giá**, không suy ra từ âm thanh.
+DFI phải đo **đúng nốt/tín hiệu mà writer chủ định dùng để mang dữ liệu nguồn** (hiện tại: đường giá; volume đo ở cấp cửa sổ), không suy ra từ âm thanh.
 
 ---
 
 ## 2. Nguyên tắc thiết kế
 
-1. **Một trục duy nhất:** 0–100, càng cao càng dễ nghe ra đường giá. Không cộng điểm “giàu nhạc tính”.
+1. **Một trục duy nhất:** 0–100, càng cao càng dễ nghe ra dữ liệu nguồn (giá + volume). Không cộng điểm “giàu nhạc tính”.
 2. **Đo trên tín hiệu chủ định, không đo trên audio.** Mỗi writer ghi lại `PriceTracePoint` ngay lúc viết nốt.
-3. **Chuẩn hoá theo cơ hội.** Phiên đi ngang không bị trừ điểm oan; chỉ tính trên những chỗ giá thực sự có biến động.
+3. **Chuẩn hoá theo cơ hội.** Phiên đi ngang không bị trừ điểm oan; chỉ tính trên những chỗ dữ liệu thực sự có biến động.
 4. **Bất biến với đăng ký.** Jazz nén quãng tám, guitar đổi bè, ambient fold glass. Vì vậy so sánh **hướng và biên độ trong từng câu**, không so cao độ tuyệt đối giữa các câu.
 5. **Tách “độ phủ” khỏi “độ chính xác”.** Một bản có thể đúng khi có nốt, nhưng im quá nhiều; hoặc có nốt đều nhưng giữ nguyên khi giá chạy.
 6. **Không dùng để xếp hạng thể loại.** Ambient thưa là bản sắc, không phải lỗi. UI phải nói rõ: “độ trung thực dữ liệu”, không phải “chất lượng”.
 7. **Volume là một phần của cùng trục**, không phải trục thứ hai. Volume được đo ở cấp cửa sổ thanh khoản, bằng tương quan hạng với năng lượng thật của bản nhạc.
 
+### 2.1. Tên gọi
+
+| Nơi hiển thị | Giá trị |
+|---|---|
+| Tên chỉ số | **DFI — Data Fidelity Index** |
+| Pill trong replay | `DFI 78` (thiếu số: `DFI —`; ít mẫu: `DFI ~78`) |
+| Sheet | `Độ trung thực dữ liệu` |
+| Field API / code | `dfi` (module `sonify/dfi.py`, service `services/dfi.py`) |
+
+Không dùng “độ rõ đường giá” làm tên chỉ số: DFI đo cả volume và sẽ mở rộng cho dataset khác, không chỉ đường giá. Trong phần còn lại, “giá” là **tín hiệu nguồn của dataset chứng khoán**; với dataset khác, đọc “giá” thành “tín hiệu nguồn”.
+
 ---
 
-## 3. Cách pipeline hiện tại mã hoá price action
+## 3. Cách pipeline hiện tại mã hoá dữ liệu giá
 
 ### 3.1. Tín hiệu chung
 
-Trong `backend/app/sonify/render.py`:
+Với dataset chứng khoán, tín hiệu nguồn gồm **đường giá** và **volume**. Trong `backend/app/sonify/render.py`:
 
 1. Mỗi musical bar lấy một nhóm nến nguồn (`groups`).
 2. Giá được resample thành `eighths_per_bar` điểm:
@@ -60,11 +77,11 @@ Trong `backend/app/sonify/render.py`:
 4. `plan_phrases(...)` cắt câu tại chỗ giá đứng.
 5. Volume được gom theo `LIQUIDITY_WINDOWS` (hoặc `liquidity_windows_for(spec)`), xếp thành band `p–f` bằng `marking_for_volume(...)`.
 
-`raw_pitches` là đường giá **trước** khi bị hợp âm bẻ; `pitches` là đường giá **sau** khi quantize. PAFI nên đo trên cái tai nghe thấy, tức `pitches` hoặc nốt cuối cùng writer chọn, nhưng vẫn giữ `close` gốc để biết “giá đã đi đâu”.
+`raw_pitches` là đường giá **trước** khi bị hợp âm bẻ; `pitches` là đường giá **sau** khi quantize. DFI nên đo trên cái tai nghe thấy, tức `pitches` hoặc nốt cuối cùng writer chọn, nhưng vẫn giữ `close` gốc để biết “giá đã đi đâu”.
 
 ### 3.2. Từng thể loại
 
-| Thể loại | Nốt/tín hiệu mang giá | Ghi chú cho PAFI |
+| Thể loại | Nốt/tín hiệu mang giá | Ghi chú cho DFI |
 |---|---|---|
 | **Giao hưởng** | `lead` = violin, sinh từ `melody_parts(pitches, ...)` trong `phrasing.py`. Flute là quãng 3/5 ở trên, không phải giá. Cello có lúc lấy dòng trầm. | Lấy `lead`, không lấy `high` (flute) và không lấy nốt cao nhất của cả score. |
 | **Jazz** | `lead` = alto sax, `_sax_melody_curve(...)` từ `pitches`, có thể dịch cả câu 0/12/24 semitone để vừa register. Vibraphone là đỉnh/điểm nhấn, không phải giá. | So trong từng câu; bỏ qua dịch octave ở biên câu. Không lấy nốt vibraphone. |
@@ -79,19 +96,21 @@ Trong `backend/app/sonify/render.py`:
 
 ### 3.3. Dàn nhạc
 
-- Các ensemble không phải guitar (`wood`, `brass`, `soul`, `organ`, `mallet`, `breath`, `choir`) chủ yếu đổi **âm sắc, register, lực**, không đổi thuật toán giá. PAFI phải gần như không đổi so với `classic` (kỳ vọng lệch ≤ 3 điểm).
-- Sáu ensemble guitar là sáu thuật toán viết. PAFI được phép lệch rõ. Đây là chỗ UI so sánh có ý nghĩa nhất.
+- Các ensemble không phải guitar (`wood`, `brass`, `soul`, `organ`, `mallet`, `breath`, `choir`) chủ yếu đổi **âm sắc, register, lực**, không đổi thuật toán giá. DFI phải gần như không đổi so với `classic` (kỳ vọng lệch ≤ 3 điểm).
+- Sáu ensemble guitar là sáu thuật toán viết. DFI được phép lệch rõ. Đây là chỗ UI so sánh có ý nghĩa nhất.
 
-Nếu PAFI của `wood` lệch `classic` quá nhiều, gần như chắc chắn trace đang bắt nhầm nốt, không phải “gỗ nghe khác”.
+Nếu DFI của `wood` lệch `classic` quá nhiều, gần như chắc chắn trace đang bắt nhầm nốt, không phải “gỗ nghe khác”.
 
 ---
 
-## 4. Định nghĩa PAFI
+## 4. Định nghĩa DFI
+
+DFI là một chỉ số **theo dataset**, không theo riêng chứng khoán. Với dataset giá, các thành phần `S/M/T/R` đo đường giá và `V` đo volume; với dataset khác, thay “giá” bằng tín hiệu nguồn tương ứng và giữ nguyên cách chấm.
 
 ### 4.1. Công thức
 
 ```text
-PAFI = 100 × (0.33·S + 0.21·M + 0.19·T + 0.17·R + 0.10·V) × C
+DFI = 100 × (0.33·S + 0.21·M + 0.19·T + 0.17·R + 0.10·V) × C
 ```
 
 > Công thức này thay bản 4 thành phần đã bàn trước đó (`0.35/0.25/0.20/0.20`) bằng cách thêm **Khối lượng** vào cùng một trục. Volume chỉ giữ 0.10 vì band đã được writer in vào density/velocity theo thiết kế, nên `V` thường bão hoà; 0.02 còn lại dồn vào **Cấu trúc**, thành phần ít chồng lấn nhất với Shape. Calibration ở Phase 7 sẽ xác nhận lại.
@@ -105,10 +124,10 @@ PAFI = 100 × (0.33·S + 0.21·M + 0.19·T + 0.17·R + 0.10·V) × C
 | `V` | Khối lượng (Volume) | 0.10 | Volume lớn có nghe thành dày/to hơn? |
 | `C` | Độ phủ (Coverage) | × | Đường giá có mặt ở các bar nguồn khi giá thực sự chạy? |
 
-Nếu **không có volume** (symbol thiếu dữ liệu, hoặc mọi cửa sổ đều 0), bỏ `V` và chuẩn hoá lại:
+Nếu **không có volume** (dataset không có volume, symbol thiếu dữ liệu, hoặc mọi cửa sổ đều 0), bỏ `V` và chuẩn hoá lại:
 
 ```text
-PAFI = 100 × (0.33·S + 0.21·M + 0.19·T + 0.17·R) / 0.90 × C
+DFI = 100 × (0.33·S + 0.21·M + 0.19·T + 0.17·R) / 0.90 × C
 ```
 
 Nếu `S`, `M`, `T`, `R` không tính được vì quá ít cơ hội, trả `null`, không trả 0.
@@ -155,7 +174,7 @@ Không cần thêm trace volume vào từng writer; năng lượng thật lấy 
 
 ### 4.3. Chuẩn hoá theo cơ hội
 
-PAFI dùng **hai lưới**, có chủ đích:
+DFI dùng **hai lưới**, có chủ đích:
 
 1. **Lưới phân tích** cho `S/M/T/R`: bám theo cách thể loại viết nốt.
    - Giao hưởng, Jazz, Guitar: **mỗi eighth**.
@@ -163,7 +182,7 @@ PAFI dùng **hai lưới**, có chủ đích:
    - Ambient: **mỗi anchor/breath**, cộng các điểm `hold` để biết giá có được restate hay không.
 2. **Lưới nguồn chung** cho `C`: **mỗi source bar** (nến nguồn), ánh xạ vào musical time qua `groups`. Không dùng số musical bar làm đơn vị chung, vì các variant có form/`musical_bars` khác nhau. Lưới source bar giống nhau cho mọi variant/ensemble, nên `C` so sánh chéo được. Xem §4.9.
 
-Bỏ hoàn toàn các section `warmup`, `cooldown`, `intro`, `outro` khỏi tử số và mẫu số. Đó là khung, không phải price action.
+Bỏ hoàn toàn các section `warmup`, `cooldown`, `intro`, `outro` khỏi tử số và mẫu số. Đó là khung, không phải dữ liệu nguồn.
 
 Với mỗi bước trên lưới phân tích:
 
@@ -189,7 +208,7 @@ Với mỗi bước trên lưới phân tích:
 
 `n_moves = số bước trên lưới phân tích có |ΔP_t| > εp_phrase`.
 
-Nếu `n_moves < 4`, trả `null` với lý do `low_opportunity`; UI hiện `PA —`. Đây là cách “không trừ điểm phiên đi ngang”: không có cơ hội thì không có điểm, thay vì cho 0 hoặc 100 giả.
+Nếu `n_moves < 4`, trả `null` với lý do `low_opportunity`; UI hiện `DFI —`. Đây là cách “không trừ điểm phiên đi ngang”: không có cơ hội thì không có điểm, thay vì cho 0 hoặc 100 giả.
 
 ### 4.4. Shape — Hình dạng
 
@@ -336,14 +355,14 @@ Mục tiêu: đường giá có mặt ở những lúc giá chạy không. Đây
 - Rest lúc giá đứng gần như không bị phạt (`w_s = εp_s`).
 - Rest lúc giá chạy bị phạt nặng (`w_s = |ΔP_s|`).
 - Ambient ngân dài vẫn `sounding_s = 1`; nó bị phạt ở Shape/Motion, không phải Coverage. Nhờ vậy không phạt kép vì “ngân dài” vừa mất Motion vừa mất Coverage.
-- Nếu `Σw_s = 0` (giá hoàn toàn đứng), `C = 1`; PAFI sẽ `null` vì `n_moves = 0`.
-- `coverage_detail` (per-eighth/per-bar theo variant) vẫn tính nhưng chỉ là **chẩn đoán**, không đưa vào PAFI và không dùng để so chéo thể loại.
+- Nếu `Σw_s = 0` (giá hoàn toàn đứng), `C = 1`; DFI sẽ `null` vì `n_moves = 0`.
+- `coverage_detail` (per-eighth/per-bar theo variant) vẫn tính nhưng chỉ là **chẩn đoán**, không đưa vào DFI và không dùng để so chéo thể loại.
 
 Cách chia đều này khớp với `resample(closes, eighths_per_bar)` trong `_compose`: các close trong một group được rải đều trên musical bar.
 
 Lưới source bar là **cùng một tập `bars`** cho mọi variant/ensemble của cùng session/span. Đây là điều kiện để `C` so sánh chéo có nghĩa.
 
-`C` là **hệ số nhân**, không phải một sub-score. Lý do: nếu đường giá vắng 40% thời gian có biến động, độ rõ chart không thể vượt quá 60% dù những chỗ có mặt rất đúng.
+`C` là **hệ số nhân**, không phải một sub-score. Lý do: nếu đường giá vắng 40% thời gian có biến động, độ trung thực dữ liệu không thể vượt quá 60% dù những chỗ có mặt rất đúng.
 
 ### 4.10. Cơ hội, độ tin cậy, và band hiển thị
 
@@ -385,10 +404,10 @@ UI hiện số nguyên; API trả float 1 chữ số thập phân. Với `low`, 
 | Cấp | Cách tính | Dùng để |
 |---|---|---|
 | **Câu** (`Phrase`) | S/M/T/R trên các điểm trong câu; C theo trọng số giá trong câu | Debug writer, xem câu nào làm mờ chart |
-| **Chương** (`Movement`, span) | Tính PAFI **trực tiếp** trên trace/source bar của cả chương | Hiển thị trong sheet khi nghe span |
-| **Tác phẩm** (`1D` hoặc cả span) | Tính PAFI **trực tiếp** trên trace/source bar gộp của tác phẩm | Con số `PA` trên Stage |
+| **Chương** (`Movement`, span) | Tính DFI **trực tiếp** trên trace/source bar của cả chương | Hiển thị trong sheet khi nghe span |
+| **Tác phẩm** (`1D` hoặc cả span) | Tính DFI **trực tiếp** trên trace/source bar gộp của tác phẩm | Con số `DFI` trên Stage |
 
-Không lấy trung vị các điểm đã tính ở cấp dưới: PAFI có phép nhân và `max(0, …)`, nên trung vị các điểm không bằng điểm tính trên dữ liệu gộp. Nếu cần một con số tổng hợp cho UI, tính lại từ trace gộp.
+Không lấy trung vị các điểm đã tính ở cấp dưới: DFI có phép nhân và `max(0, …)`, nên trung vị các điểm không bằng điểm tính trên dữ liệu gộp. Nếu cần một con số tổng hợp cho UI, tính lại từ trace gộp.
 
 Khi cần trọng số giữa các chương (ví dụ hiển thị một dòng “trung bình chương”), dùng **số phách trong score** (`score.bar_beats × score.bars`), không dùng `durationSec` đã humanize/playback. Humanize có tempo curve; `durationSec` làm trọng số lệch khỏi cấu trúc nhạc.
 
@@ -400,7 +419,7 @@ Chữ ký **không phải** điểm của một bản. Nó là trung vị trên 
 
 ```text
 signature(variant, ensemble, bucket) =
-    median(PAFI(piece) for piece in corpus)
+    median(DFI(piece) for piece in corpus)
 ```
 
 - `bucket = "day"` cho `1D`, `"span"` cho `1W/1M/3M/1Y`. Form và khung khác nhau, không nên trộn.
@@ -416,14 +435,14 @@ Corpus đề xuất ban đầu:
 - 1D: 30–50 symbol thanh khoản × 20–60 phiên gần nhất.
 - Span: 20 symbol × 4 range × 12 asOf.
 - Cùng một bộ cho mọi variant/ensemble.
-- Lưu artifact JSON (ví dụ `backend/app/sonify/fixtures/pafi_signatures.json`) kèm `pafi_version` và `sonify_revision`.
+- Lưu artifact JSON (ví dụ `backend/app/sonify/fixtures/dfi_signatures.json`) kèm `dfi_version` và `sonify_revision`.
 
 ### 5.3. Kiểm tra tính nhất quán
 
 Các kỳ vọng dùng làm test, không phải để ép kết quả:
 
-1. `|PAFI(wood) − PAFI(classic)| ≤ 3` cho ≥ 90% bản giao hưởng; tương tự `brass`.
-2. `|PAFI(soul/organ) − PAFI(classic)| ≤ 3` cho jazz; `mallet` gần minimalist; `breath/choir` gần ambient; `guitar` (thép) gần minimalist `classic`.
+1. `|DFI(wood) − DFI(classic)| ≤ 3` cho ≥ 90% bản giao hưởng; tương tự `brass`.
+2. `|DFI(soul/organ) − DFI(classic)| ≤ 3` cho jazz; `mallet` gần minimalist; `breath/choir` gần ambient; `guitar` (thép) gần minimalist `classic`.
 3. Guitar: sáu ensemble được phép lệch; Bach và Torroba thường cao hơn Villa/Barrios vì ít hoa mỹ che giá. Đây là **chẩn đoán**, không hard-code thứ hạng.
 4. Trên corpus biến động: Giao hưởng/Jazz > Tối giản > Ambient. Ambient thấp hơn một phần vì Motion/Hình dạng phạt ngân dài — đó là chủ ý; Coverage chỉ phạt khi ambient nghỉ hẳn. Nếu Ambient > Tối giản, kiểm tra trace trước khi kết luận.
 5. Phiên đi ngang: tất cả `null` hoặc `low`, không thể hiện 0 điểm.
@@ -446,12 +465,12 @@ Các kỳ vọng dùng làm test, không phải để ép kết quả:
 Thêm một pill nhỏ vào dòng meta hiện tại (`ReplayRoom.tsx` dựng `stageMeta`, truyền qua `Stage.tsx`):
 
 ```text
-VNM · 02/11 · C major · 90 BPM · 4:12 · PA 78
+VNM · 02/11 · C major · 90 BPM · 4:12 · DFI 78
 ```
 
-- `PA 78` bấm được, mở `PafiSheet`.
-- Nếu `null`: `PA —`.
-- Nếu `low`: `PA ~78`, opacity thấp hơn.
+- `DFI 78` bấm được, mở `DfiSheet`.
+- Nếu `null`: `DFI —`.
+- Nếu `low`: `DFI ~78`, opacity thấp hơn.
 - `accessibilityLabel`: “Độ trung thực dữ liệu 78 trên 100, mức rõ”.
 
 Không thêm một hàng mới; pill nằm trong dòng meta để không làm Stage cao lên.
@@ -461,7 +480,7 @@ Không thêm một hàng mới; pill nằm trong dòng meta để không làm St
 Một spectrum mảnh, cao 3–4px, rộng ~120px:
 
 ```text
-PA  [██████████░░░░░░]  78
+DFI  [██████████░░░░░░]  78
                   ↑
               chuẩn thể loại 74
 ```
@@ -476,28 +495,28 @@ PA  [██████████░░░░░░]  78
 - Ensemble đang chọn hiện thêm số nhỏ cạnh nhãn: `Bach · 81`.
 - Các ensemble khác không hiện số ở shelf chính, tránh rối.
 - Trong sheet, hiện đủ sáu dòng guitar kèm số và khoảng p25–p75.
-- Với các thể loại không phải guitar, số của các ensemble thường gần nhau; hiện đủ để người nghe thấy “đổi âm sắc không đổi chart clarity”.
+- Với các thể loại không phải guitar, số của các ensemble thường gần nhau; hiện đủ để người nghe thấy “đổi âm sắc không đổi độ trung thực dữ liệu”.
 
-### 6.5. `PafiSheet`
+### 6.5. `DfiSheet`
 
 Một bottom sheet/popover mới, có thể tái dùng style của `OptionsPopover`.
 
-**Nguồn dữ liệu cho cột “Cùng phiên/chương”:** cột này cần PAFI của **cùng đơn vị đang nghe** render bằng variant/ensemble khác. `RecapResponse.pafi` chỉ có cho asset đang chọn, nên cần một endpoint compose-only:
+**Nguồn dữ liệu cho cột “Cùng phiên/chương”:** cột này cần DFI của **cùng đơn vị đang nghe** render bằng variant/ensemble khác. `RecapResponse.dfi` chỉ có cho asset đang chọn, nên cần một endpoint compose-only:
 
 ```text
-GET /v1/sonify/pafi/pieces
+GET /v1/sonify/dfi/pieces
     ?symbol=VNM
     &bucket=day&date=2026-11-02
     &movement=0                 # bỏ qua với 1D; với span là chương đang nghe
     &variant=jazz&ensemble=classic
 ```
 
-- Trả `PafiBreakdown | null` cho từng combo, kèm `cached`, `computedAt`.
+- Trả `DfiBreakdown | null` cho từng combo, kèm `cached`, `computedAt`.
 - Với span, thay `date` bằng `range` + `asOf`; `movement` là chương đang nghe.
 - **Bảng thể loại:** gọi 5 variant với `ensemble=classic` (dàn mặc định của từng thể loại) để cùng một thước đo. Nếu ensemble đang nghe khác `classic`, dòng đang chọn có badge “đang nghe” nhưng số trong bảng vẫn là `classic`; điểm của bản đang nghe nằm ở đầu sheet.
 - **Bảng dàn nhạc:** gọi toàn bộ ensemble của variant đang chọn (3–6 combo).
 - Với span, bảng so sánh **chương đang nghe**, không so cả tác phẩm; header ghi “Chương này”. Điểm tác phẩm vẫn ở đầu sheet.
-- Server compose-only, **không export MuseScore**, cache sidecar theo `(symbol, bucket, date/asOf, movement, variant, ensemble, pafi_version, humanize)`; debounce/cancel nếu người dùng đổi qua lại.
+- Server compose-only, **không export MuseScore**, cache sidecar theo `(symbol, bucket, date/asOf, movement, variant, ensemble, dfi_version, humanize)`; debounce/cancel nếu người dùng đổi qua lại.
 - Dùng cùng `humanize`/`color` với bản đang nghe. Nếu khác humanize, chỉ so `S/M/T/R`; không so `V` vì velocity khác.
 - Nếu endpoint chưa sẵn sàng hoặc lỗi: chỉ hiện dòng đang chọn + cột `Chuẩn`; các dòng khác `—`. Không chặn việc nghe.
 
@@ -528,7 +547,7 @@ Lobos                  70         68
 Brouwer                72         69
 Torroba                80         76
 ────────────────────────────────────────────
-Điểm này đo mức nghe ra đường giá, không đo chất lượng âm nhạc.
+Điểm này đo mức phản ánh dữ liệu (giá và volume), không đo chất lượng âm nhạc.
 ```
 
 - Mỗi dòng thể loại/dàn nhạc bấm được để đổi; highlight dòng đang chọn.
@@ -541,17 +560,18 @@ Torroba                80         76
 
 | Thành phần | Copy |
 |---|---|
-| Pill | `PA 78` |
+| Pill | `DFI 78` |
 | Sheet title | `Độ trung thực dữ liệu` |
 | Band | `Rất rõ` / `Rõ` / `Vừa` / `Mờ` / `Rất mờ` |
-| Shape | `Hình dạng` — “hướng đi của giá và nốt có khớp” |
-| Motion | `Chuyển động` — “biên độ có tương xứng” |
-| Structure | `Cấu trúc` — “đỉnh, đáy, độ rộng của câu” |
-| Resolution | `Độ phân giải` — “biến động nhỏ có được giữ” |
-| Volume | `Khối lượng` — “volume có nghe ra” |
-| Coverage | `Độ phủ` — “đường giá có mặt ở các bar nguồn khi giá chạy” |
+| Shape | `Hình dạng` — “Đường giá và đường cao độ có cùng hướng không.” |
+| Motion | `Chuyển động` — “Giá đi xa thì nốt có đi xa hơn không.” |
+| Structure | `Cấu trúc` — “Đỉnh, đáy và hướng của cả câu có rơi đúng chỗ không.” |
+| Resolution | `Độ phân giải` — “Biến động nhỏ có nghe ra, và texture có chạy khi giá đứng không.” |
+| Volume | `Khối lượng` — “Volume lớn có nghe to và rõ hơn không.” |
+| Coverage | `Độ phủ` — “Phần thời gian đường giá thực sự phát, tính theo mức biến động giá.” |
+| Help | `DFI phản ánh mức nghe rõ của giá và volume, không phải độ hay của bản nhạc.` |
 | Signature | `Chuẩn thể loại` / `Chuẩn dàn nhạc` |
-| Disclaimer | `Điểm này đo mức nghe ra đường giá, không đo chất lượng âm nhạc.` |
+| Disclaimer | `Điểm này đo mức phản ánh dữ liệu (giá và volume), không đo chất lượng âm nhạc.` |
 
 Tránh các từ “điểm hay”, “xếp hạng”, “tốt nhất”.
 
@@ -564,7 +584,7 @@ Tránh các từ “điểm hay”, “xếp hạng”, “tốt nhất”.
 Thêm vào `backend/app/schemas.py`:
 
 ```python
-class PafiBreakdown(BaseModel):
+class DfiBreakdown(BaseModel):
     score: float
     band: Literal["very-clear", "clear", "fair", "faint", "very-faint"]
     shape: float
@@ -579,7 +599,7 @@ class PafiBreakdown(BaseModel):
     version: str
 
 
-class PafiSignature(BaseModel):
+class DfiSignature(BaseModel):
     variant: Literal["symphony", "jazz", "minimalist", "ambient", "guitar"]
     ensemble: str
     bucket: Literal["day", "span"]
@@ -592,35 +612,35 @@ class PafiSignature(BaseModel):
     stale: bool = False
 
 
-class PafiPiece(BaseModel):
+class DfiPiece(BaseModel):
     variant: Literal["symphony", "jazz", "minimalist", "ambient", "guitar"]
     ensemble: str
     movement: int | None = None
-    pafi: PafiBreakdown | None = None
+    dfi: DfiBreakdown | None = None
     cached: bool = False
     computedAt: str | None = None
 
 
-class PafiPiecesResponse(BaseModel):
+class DfiPiecesResponse(BaseModel):
     symbol: str
     bucket: Literal["day", "span"]
     asOf: str
-    pieces: list[PafiPiece]
+    pieces: list[DfiPiece]
 ```
 
 `band` dùng `"fair"` cho khoảng 55–69; UI map sang nhãn `Vừa`. Không dùng `"mixed"` để tránh hai bộ từ vựng.
 
 Gắn:
 
-- `RecapResponse.pafi: PafiBreakdown | None = None`
-- `SpanMovementResponse.pafi: PafiBreakdown | None = None`
-- `SpanResponse.pafi: PafiBreakdown | None = None` (điểm tác phẩm)
-- `SpanResponse.pafiMovements` không cần; đã có trong từng movement.
+- `RecapResponse.dfi: DfiBreakdown | None = None`
+- `SpanMovementResponse.dfi: DfiBreakdown | None = None`
+- `SpanResponse.dfi: DfiBreakdown | None = None` (điểm tác phẩm)
+- `SpanResponse.dfiMovements` không cần; đã có trong từng movement.
 
 Endpoint chữ ký:
 
 ```text
-GET /v1/sonify/pafi/signatures?variant=symphony&bucket=day
+GET /v1/sonify/dfi/signatures?variant=symphony&bucket=day
 ```
 
 Trả tất cả ensemble của variant đó (hoặc tất cả variant nếu bỏ `variant`) để client fetch một lần. Cache `public, max-age=3600`.
@@ -628,7 +648,7 @@ Trả tất cả ensemble của variant đó (hoặc tất cả variant nếu b�
 Endpoint compose-only cho bảng so sánh trong sheet:
 
 ```text
-GET /v1/sonify/pafi/pieces
+GET /v1/sonify/dfi/pieces
     ?symbol=VNM
     &bucket=day&date=2026-11-02
     &movement=0
@@ -637,29 +657,29 @@ GET /v1/sonify/pafi/pieces
 
 - `bucket=day`: dùng `date`; `bucket=span`: dùng `range` + `asOf` + `movement`.
 - `variant`/`ensemble` là filter; bỏ trống thì trả tất cả combo được yêu cầu (5 variant hoặc toàn bộ ensemble của một variant).
-- Trả `PafiPiecesResponse`; không export audio.
+- Trả `DfiPiecesResponse`; không export audio.
 
 ### 7.2. Nơi tính và cache
 
 - `render._compose` đã có `score`, `bars`, `groups`, `windows`, `window_volumes`, `bands`.
-- Chỗ cắm `pafi.compute(...)` là `audio.py`: `RecapStore._render` (`audio.py:1394`) và `RecapStore._render_movement` (`audio.py:1233`), **sau** `humanize_score(score)`. `humanize_score` chỉ là alias của `humanize` trong `humanize.py`, re-export ở `audio.py:31`; humanize đổi velocity/tempo chứ không đổi `(bar, beat)`, nên trace vẫn khớp.
-- Ghi `pafi` vào meta JSON cạnh audio.
+- Chỗ cắm `dfi.compute(...)` là `audio.py`: `RecapStore._render` (`audio.py:1394`) và `RecapStore._render_movement` (`audio.py:1233`), **sau** `humanize_score(score)`. `humanize_score` chỉ là alias của `humanize` trong `humanize.py`, re-export ở `audio.py:31`; humanize đổi velocity/tempo chứ không đổi `(bar, beat)`, nên trace vẫn khớp.
+- Ghi `dfi` vào meta JSON cạnh audio.
 - Đọc lại trong `RecapAsset` / `SpanAsset`.
-- Với cache cũ chưa có `pafi`: **không bump `RECAP_REVISION`** (sẽ render lại toàn bộ audio rất đắt). Thay vào đó:
-  1. Khi đọc cache thiếu `pafi`, compose lại score (không export MuseScore), tính PAFI, ghi sidecar `.pafi.json`.
-  2. Nếu compose lại lỗi, trả `null`; UI hiện `PA —`.
-- Sidecar phải có **`inputs_hash`** trên đúng các input đã dùng để compose: `bars` (close + volume), `groups`, `volume_low/high`, `key`, `character`, `mode`, `home_pedal`, form/spec fingerprint, `variant`, `ensemble`, `humanize`, `color`, `RECAP_REVISION`/`SPAN_REVISION`, và `pafi_version`.
+- Với cache cũ chưa có `dfi`: **không bump `RECAP_REVISION`** (sẽ render lại toàn bộ audio rất đắt). Thay vào đó:
+  1. Khi đọc cache thiếu `dfi`, compose lại score (không export MuseScore), tính DFI, ghi sidecar `.dfi.json`.
+  2. Nếu compose lại lỗi, trả `null`; UI hiện `DFI —`.
+- Sidecar phải có **`inputs_hash`** trên đúng các input đã dùng để compose: `bars` (close + volume), `groups`, `volume_low/high`, `key`, `character`, `mode`, `home_pedal`, form/spec fingerprint, `variant`, `ensemble`, `humanize`, `color`, `RECAP_REVISION`/`SPAN_REVISION`, và `dfi_version`.
 - Lưu thêm `inputs_digest` (hash từng thành phần: `bars`, `groups`, `settings`) để debug khi lệch; không cần copy toàn bộ `bars` vào sidecar.
-- Khi đọc sidecar, tính lại `inputs_hash` từ cache meta. Nếu lệch, **không dùng sidecar**; trả `null` thay vì ghép PAFI của một phiên bản score khác vào audio đang cache. Nếu meta cũ thiếu input để dựng lại hash, cũng trả `null`.
-- Các bản render mới ghi `inputs_digest` vào meta cạnh audio; bản cũ thiếu digest thì chấp nhận `PA —` cho đến lần render lại, thay vì đoán.
-- Sidecar có `pafi_version`; đổi version thì tính lại sidecar, không đụng audio.
+- Khi đọc sidecar, tính lại `inputs_hash` từ cache meta. Nếu lệch, **không dùng sidecar**; trả `null` thay vì ghép DFI của một phiên bản score khác vào audio đang cache. Nếu meta cũ thiếu input để dựng lại hash, cũng trả `null`.
+- Các bản render mới ghi `inputs_digest` vào meta cạnh audio; bản cũ thiếu digest thì chấp nhận `DFI —` cho đến lần render lại, thay vì đoán.
+- Sidecar có `dfi_version`; đổi version thì tính lại sidecar, không đụng audio.
 
 ### 7.3. Hiệu năng
 
-- PAFI chỉ đọc `NoteEvent` + trace; mục tiêu < 50ms/bản.
+- DFI chỉ đọc `NoteEvent` + trace; mục tiêu < 50ms/bản.
 - Không gọi MuseScore, không đọc WAV.
 - Signature là artifact tĩnh; API chỉ đọc JSON.
-- Endpoint `pafi/pieces` là compose-only (không export). Mục tiêu < 300ms/combo khi ấm cache, < 2s cho 5–11 combo khi nguội; phải có cache sidecar, debounce và cancel. Nếu vượt ngân sách, sheet fallback về “dòng đang chọn + Chuẩn”.
+- Endpoint `dfi/pieces` là compose-only (không export). Mục tiêu < 300ms/combo khi ấm cache, < 2s cho 5–11 combo khi nguội; phải có cache sidecar, debounce và cancel. Nếu vượt ngân sách, sheet fallback về “dòng đang chọn + Chuẩn”.
 
 ---
 
@@ -689,7 +709,7 @@ GET /v1/sonify/pafi/pieces
 
 ### Phase 3 — Metric + test
 
-- Viết `backend/app/sonify/pafi.py`: `compute`, `shape`, `motion`, `structure`, `resolution`, `volume`, `coverage`, `band`.
+- Viết `backend/app/sonify/dfi.py`: `compute`, `shape`, `motion`, `structure`, `resolution`, `volume`, `coverage`, `band`.
 - Test synthetic:
   - Giá tăng đơn điệu, nốt tăng đơn điệu → `S ≈ 1`, `R ≈ 1`.
   - Giá tăng, nốt giảm → `S = 0`.
@@ -704,8 +724,8 @@ GET /v1/sonify/pafi/pieces
 
 - Thêm schema, gắn vào recap/span.
 - Sidecar cho cache cũ, có `inputs_hash` và hành vi trả `null` khi lệch.
-- Endpoint signature và endpoint compose-only `pafi/pieces` cho bảng so sánh trong sheet.
-- Test API: recap/span trả `pafi`; cache cũ trả `null` hoặc sidecar; `pafi/pieces` trả đủ combo, cache ấm, cancel khi đổi variant; không làm chậm đáng kể.
+- Endpoint signature và endpoint compose-only `dfi/pieces` cho bảng so sánh trong sheet.
+- Test API: recap/span trả `dfi`; cache cũ trả `null` hoặc sidecar; `dfi/pieces` trả đủ combo, cache ấm, cancel khi đổi variant; không làm chậm đáng kể.
 
 ### Phase 5 — Signature corpus
 
@@ -719,7 +739,7 @@ GET /v1/sonify/pafi/pieces
 - `Stage` pill.
 - Spectrum dưới genre shelf.
 - Ensemble numeral.
-- `PafiSheet` + chọn thể loại/dàn nhạc.
+- `DfiSheet` + chọn thể loại/dàn nhạc.
 - Accessibility, loading, `null`, `low`.
 - Test format số, band, copy.
 
@@ -729,8 +749,8 @@ GET /v1/sonify/pafi/pieces
 - Đo ma trận tương quan `S/M/R/T`; nếu `R` gần như hàm của `S`, gộp `R` vào `S` hoặc trả bớt trọng số cho `R`. Ghi quyết định vào version.
 - Kiểm tra `V` có bão hoà không (median gần 1, ít phân biệt); nếu có, giữ 0.10 hoặc giảm nữa, dồn sang `S`/`T`.
 - Chỉnh `εp_phrase` (nhất là sàn 5 bps), trọng số, ngưỡng band nếu cần.
-- So sánh với một panel nghe nhỏ (5–10 người, 20 clip): Spearman giữa PAFI và xếp hạng cảm nhận. Mục tiêu > 0.6; nếu thấp, xem lại trace/trọng số.
-- Chốt `pafi_version = "1"`.
+- So sánh với một panel nghe nhỏ (5–10 người, 20 clip): Spearman giữa DFI và xếp hạng cảm nhận. Mục tiêu > 0.6; nếu thấp, xem lại trace/trọng số.
+- Chốt `dfi_version = "1"`.
 
 Ước lượng: 7–10 ngày làm việc (gồm endpoint compose-only cho bảng so sánh), chưa gồm calibration nghe.
 
@@ -741,16 +761,16 @@ GET /v1/sonify/pafi/pieces
 | Rủi ro | Hậu quả | Cách chặn |
 |---|---|---|
 | Trace bắt nhầm nốt hoa mỹ | Điểm thấp/sai cho Bach, Torroba, Villa | Trace ghi tại writer; test “nốt cao nhất” phải thua trace |
-| Writer đổi mà quên trace | PAFI lệch âm thầm | Test consistency: trace ↔ `NoteEvent`; golden test |
+| Writer đổi mà quên trace | DFI lệch âm thầm | Test consistency: trace ↔ `NoteEvent`; golden test |
 | Jazz dịch octave ở biên câu | Shape/Motion sai | Chỉ so trong câu; không gộp level toàn bản |
-| Ambient ngân dài | Điểm thấp | Đúng với “chart clarity”; Motion fallback anchor-to-anchor khi quá ít cặp; UI ghi “thưa có chủ ý”, không gọi là lỗi |
+| Ambient ngân dài | Điểm thấp | Đúng với “độ trung thực dữ liệu”; Motion fallback anchor-to-anchor khi quá ít cặp; UI ghi “thưa có chủ ý”, không gọi là lỗi |
 | Minimalist nhiều nốt trang trí | Precision thấp | Trace chỉ ghi centroid, không ghi từng nốt arpeggio |
 | Volume band quá thô | Volume score bão hoà | So hạng, không so giá trị tuyệt đối; cần ≥ 4 cửa sổ; hạ trọng số còn 0.10 |
 | Coverage khác lưới giữa variant | So chéo thể loại sai | `C` dùng source bar chung; `coverage_detail` chỉ chẩn đoán |
 | `S/M/R` chồng lấn | Trọng số nhân đôi cùng một tín hiệu | Đo correlation matrix ở Phase 7; gộp `R` vào `S` nếu cần |
-| Sidecar dùng input khác audio cache | PAFI không khớp bản đang nghe | `inputs_hash`; lệch thì trả `null`, không ghép |
-| Phiên ít biến động | Điểm 0/100 giả | Trả `null` khi `n_moves < 4`; hiện `PA —` |
-| Dùng PAFI để chọn “thể loại hay” | Sai mục tiêu | Copy và UI tách “độ rõ” khỏi “chất lượng” |
+| Sidecar dùng input khác audio cache | DFI không khớp bản đang nghe | `inputs_hash`; lệch thì trả `null`, không ghép |
+| Phiên ít biến động | Điểm 0/100 giả | Trả `null` khi `n_moves < 4`; hiện `DFI —` |
+| Dùng DFI để chọn “thể loại hay” | Sai mục tiêu | Copy và UI tách “độ rõ” khỏi “chất lượng” |
 | Corpus lệch regime | Signature sai | Paired corpus cùng symbol-ngày; median; p25/p75 |
 | Metric bị game bởi writer | Nhạc mất tự nhiên | Giữ test nhạc tính hiện có; calibration nghe |
 
@@ -760,7 +780,7 @@ GET /v1/sonify/pafi/pieces
 
 Đã chốt sau feedback:
 
-1. **Tên hiển thị:** pill `PA`, sheet `Độ trung thực dữ liệu`. Pill có `accessibilityLabel` đầy đủ.
+1. **Tên hiển thị:** pill `DFI`, sheet `Độ trung thực dữ liệu`. Pill có `accessibilityLabel` đầy đủ.
 2. **Coverage là hệ số nhân `C^1`:** giữ, nhưng `C` đo trên **source bar chung**, không đo trên lưới riêng của từng variant (§4.9). Không dùng `C^0.75` để “làm mềm” trước khi sửa cấu trúc.
 3. **Trọng số:** `S 0.33`, `M 0.21`, `T 0.19`, `R 0.17`, `V 0.10`. Volume giảm còn 0.10; 0.02 dồn vào Cấu trúc. Phase 7 xác nhận.
 4. **Signature tách bucket `day`/`span`:** giữ.
@@ -772,11 +792,11 @@ Cần calibration / quyết định ở Phase 7:
 7. **`R` có bị `S` nuốt không:** đo correlation matrix; nếu `R` gần như hàm của `S`, gộp hoặc giảm trọng số `R`.
 8. **`V` có bão hoà không:** nếu median gần 1 và ít phân biệt, giữ 0.10 hoặc giảm nữa.
 9. **Sàn `εp`:** 5 bps (`0.0005 × median(close)`) là khởi điểm; chỉnh theo volatility.
-10. **“Cùng phiên/chương” trong sheet:** dùng endpoint compose-only `pafi/pieces` (§6.5, §7.1); nếu lỗi/chưa sẵn sàng, fallback chỉ hiện dòng đang chọn + `Chuẩn`.
-11. **Sidecar cache cũ:** bắt buộc `inputs_hash`; lệch thì trả `null`, không ghép PAFI của score khác vào audio đang cache.
+10. **“Cùng phiên/chương” trong sheet:** dùng endpoint compose-only `dfi/pieces` (§6.5, §7.1); nếu lỗi/chưa sẵn sàng, fallback chỉ hiện dòng đang chọn + `Chuẩn`.
+11. **Sidecar cache cũ:** bắt buộc `inputs_hash`; lệch thì trả `null`, không ghép DFI của score khác vào audio đang cache.
 
 ---
 
 ## 11. Tóm tắt một dòng
 
-PAFI đo **mức nghe ra đường giá** bằng năm thành phần — hình dạng 0.33, chuyển động 0.21, cấu trúc 0.19, độ phân giải 0.17, khối lượng 0.10 — nhân với **độ phủ theo source bar**, chuẩn hoá theo cơ hội, lấy từ **trace do writer ghi** chứ không suy từ nốt cao nhất; hiển thị kín đáo trong replay và so sánh bằng **trung vị corpus** cho từng thể loại/dàn nhạc.
+DFI đo **mức phản ánh dữ liệu nguồn** (hiện tại: giá + volume) bằng năm thành phần — hình dạng 0.33, chuyển động 0.21, cấu trúc 0.19, độ phân giải 0.17, khối lượng 0.10 — nhân với **độ phủ theo source bar**, chuẩn hoá theo cơ hội, lấy từ **trace do writer ghi** chứ không suy từ nốt cao nhất; hiển thị kín đáo trong replay và so sánh bằng **trung vị corpus** cho từng thể loại/dàn nhạc.

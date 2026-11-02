@@ -10,13 +10,13 @@ import {
 } from 'react-native';
 import {
   ENSEMBLE_ROWS,
-  type PafiBreakdown,
-  type PafiPiece,
-  type PafiSignature,
+  type DfiBreakdown,
+  type DfiPiece,
+  type DfiSignature,
   type RecapEnsemble,
   type RecapVariant,
 } from '../api/client';
-import { GENRES, pafiBandLabel } from './labels';
+import { GENRES, dfiBandLabel } from './labels';
 import { MotionPressable } from './motion';
 import { palette, TOUCH_TARGET } from './palette';
 import { type } from './type';
@@ -24,21 +24,21 @@ import { type } from './type';
 type Props = {
   visible: boolean;
   onClose: () => void;
-  pafi: PafiBreakdown | null;
+  dfi: DfiBreakdown | null;
   variant: RecapVariant;
   ensemble: RecapEnsemble;
-  signatures: PafiSignature[];
+  signatures: DfiSignature[];
   /** One row per genre, all at its default ensemble. */
-  genrePieces: PafiPiece[] | null;
+  genrePieces: DfiPiece[] | null;
   /** One row per ensemble of `variant`. */
-  ensemblePieces: PafiPiece[] | null;
+  ensemblePieces: DfiPiece[] | null;
   loading?: boolean;
   onVariant: (variant: RecapVariant) => void;
   onEnsemble: (ensemble: RecapEnsemble) => void;
 };
 
 const BREAKDOWN: {
-  key: keyof PafiBreakdown;
+  key: keyof DfiBreakdown;
   label: string;
   hint: string;
 }[] = [
@@ -74,16 +74,16 @@ const BREAKDOWN: {
   },
 ];
 
-function scoreOf(pieces: PafiPiece[] | null, variant: RecapVariant, ensemble: string): number | null {
+function scoreOf(pieces: DfiPiece[] | null, variant: RecapVariant, ensemble: string): number | null {
   const row = pieces?.find((item) => item.variant === variant && item.ensemble === ensemble);
-  return row?.pafi?.score ?? null;
+  return row?.dfi?.score ?? null;
 }
 
 function signatureOf(
-  signatures: PafiSignature[],
+  signatures: DfiSignature[],
   variant: RecapVariant,
   ensemble: string,
-): PafiSignature | null {
+): DfiSignature | null {
   return (
     signatures.find((item) => item.variant === variant && item.ensemble === ensemble) ??
     signatures.find((item) => item.variant === variant && item.ensemble === 'classic') ??
@@ -91,10 +91,10 @@ function signatureOf(
   );
 }
 
-export function PafiSheet({
+export function DfiSheet({
   visible,
   onClose,
-  pafi,
+  dfi,
   variant,
   ensemble,
   signatures,
@@ -135,11 +135,11 @@ export function PafiSheet({
             <View style={styles.header}>
               <Text style={[type.section, styles.kicker]}>Độ trung thực dữ liệu</Text>
               <Text style={[type.mono, styles.score]}>
-                {pafi ? Math.round(pafi.score) : '—'}
+                {dfi ? Math.round(dfi.score) : '—'}
               </Text>
               <Text style={[type.sans, styles.band]}>
-                {pafiBandLabel(pafi?.band)}
-                {pafi?.confidence === 'low' ? ' · ít mẫu' : ''}
+                {dfiBandLabel(dfi?.band)}
+                {dfi?.confidence === 'low' ? ' · ít mẫu' : ''}
               </Text>
               <MotionPressable
                 onPress={() => setShowHelp((value) => !value)}
@@ -155,14 +155,14 @@ export function PafiSheet({
 
             {showHelp ? (
               <Text style={[type.sans, styles.helpText]} accessibilityLiveRegion="polite">
-                PA phản ánh mức nghe rõ của giá và volume, không phải độ hay của bản nhạc.
+                DFI phản ánh mức nghe rõ của giá và volume, không phải độ hay của bản nhạc.
               </Text>
             ) : null}
 
-            {pafi ? (
+            {dfi ? (
               <View style={styles.breakdown}>
                 {BREAKDOWN.map((row) => {
-                  const raw = pafi[row.key];
+                  const raw = dfi[row.key];
                   const value = typeof raw === 'number' ? raw : null;
                   const open = openHint === row.key;
                   return (
@@ -283,7 +283,7 @@ export function PafiSheet({
             })}
 
             <Text style={[type.monoSmall, styles.note]}>
-              PA không đo độ hay của bản nhạc. Đổi âm sắc không nên đổi độ trung thực dữ liệu.
+              DFI không đo độ hay của bản nhạc. Đổi âm sắc không nên đổi độ trung thực dữ liệu.
             </Text>
           </ScrollView>
           <MotionPressable

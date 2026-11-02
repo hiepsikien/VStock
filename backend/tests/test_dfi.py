@@ -1,4 +1,4 @@
-"""PAFI: the price line must stay readable through the writing, not just sound nice."""
+"""DFI: the price line must stay readable through the writing, not just sound nice."""
 
 from __future__ import annotations
 
@@ -9,10 +9,10 @@ from fastapi.testclient import TestClient
 
 from app.routers import stocks
 from app.schemas import RecapResponse
-from app.services import pafi as pafi_service
+from app.services import dfi as dfi_service
 from app.sonify.model import Bar, NoteEvent
-from app.sonify.pafi import (
-    PafiBreakdown,
+from app.sonify.dfi import (
+    DfiBreakdown,
     _Point,
     _band,
     _motion,
@@ -201,7 +201,7 @@ def test_recap_response_parses_the_breakdown() -> None:
         "barCount": 32,
         "peaks": [0.5],
         "audioUrl": "/audio.m4a",
-        "pafi": {
+        "dfi": {
             "score": 78.0,
             "band": "clear",
             "shape": 0.84,
@@ -219,13 +219,13 @@ def test_recap_response_parses_the_breakdown() -> None:
         },
     }
     response = RecapResponse(**payload)
-    assert response.pafi is not None
-    assert response.pafi.score == 78.0
-    assert response.pafi.band == "clear"
+    assert response.dfi is not None
+    assert response.dfi.score == 78.0
+    assert response.dfi.band == "clear"
 
 
-def _breakdown(score: float) -> PafiBreakdown:
-    return PafiBreakdown(
+def _breakdown(score: float) -> DfiBreakdown:
+    return DfiBreakdown(
         score=score,
         band=_band(score),
         shape=0.8,
@@ -245,32 +245,32 @@ def _breakdown(score: float) -> PafiBreakdown:
 def test_pieces_endpoint_returns_each_requested_row(monkeypatch) -> None:
     async def fake_day(symbol, day, rows, humanize=True, color=True):
         return [
-            pafi_service.PafiPieceResult(
+            dfi_service.DfiPieceResult(
                 variant, ensemble, None, _breakdown(70.0 + index), False, "2026-11-02T09:00:00Z"
             )
             for index, (variant, ensemble) in enumerate(rows)
         ]
 
-    monkeypatch.setattr(pafi_service, "pieces_for_day", fake_day)
+    monkeypatch.setattr(dfi_service, "pieces_for_day", fake_day)
     app = FastAPI()
     app.include_router(stocks.router)
     client = TestClient(app)
     response = client.get(
-        "/v1/sonify/pafi/pieces?symbol=vnm&bucket=day&date=2026-11-02&variant=symphony"
+        "/v1/sonify/dfi/pieces?symbol=vnm&bucket=day&date=2026-11-02&variant=symphony"
     )
     assert response.status_code == 200
     body = response.json()
     assert body["symbol"] == "VNM"
     assert body["bucket"] == "day"
     assert len(body["pieces"]) == 3
-    assert body["pieces"][0]["pafi"]["score"] == 70.0
+    assert body["pieces"][0]["dfi"]["score"] == 70.0
 
 
 def test_pieces_endpoint_needs_a_date_for_a_day() -> None:
     app = FastAPI()
     app.include_router(stocks.router)
     client = TestClient(app)
-    response = client.get("/v1/sonify/pafi/pieces?symbol=vnm&bucket=day&variant=symphony")
+    response = client.get("/v1/sonify/dfi/pieces?symbol=vnm&bucket=day&variant=symphony")
     assert response.status_code == 422
 
 
@@ -278,7 +278,7 @@ def test_signatures_endpoint_is_empty_until_the_artifact_exists() -> None:
     app = FastAPI()
     app.include_router(stocks.router)
     client = TestClient(app)
-    response = client.get("/v1/sonify/pafi/signatures?bucket=day")
+    response = client.get("/v1/sonify/dfi/signatures?bucket=day")
     assert response.status_code == 200
     assert response.json() == []
 
@@ -288,6 +288,6 @@ def test_pieces_endpoint_rejects_an_unknown_ensemble() -> None:
     app.include_router(stocks.router)
     client = TestClient(app)
     response = client.get(
-        "/v1/sonify/pafi/pieces?symbol=vnm&bucket=day&date=2026-11-02&variant=symphony&ensemble=organ"
+        "/v1/sonify/dfi/pieces?symbol=vnm&bucket=day&date=2026-11-02&variant=symphony&ensemble=organ"
     )
     assert response.status_code == 422
