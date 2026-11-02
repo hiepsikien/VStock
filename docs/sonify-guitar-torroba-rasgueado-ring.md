@@ -689,7 +689,8 @@ g = D / (T_fast - D)      # BPM đoạn nhanh *= (1 + g)
 - `base_i` là hệ số tempo **đã có** của từng division (phrase arc + bar lean + lilt), không phải 0. Vì vậy phải tính trên `T_slow`/`T_fast` thật, không dùng `span`/`comp` thô — nếu không, độ trễ lệch 10–30 % khi nền đang +5…10 %.
 - Trong code, `T_slow`/`T_fast` tính bằng **giây** (`60 / (bpm * 12)` mỗi division) và `delay_seconds = D * 60 / b_local`; công thức `f = D/(T+D)` giữ nguyên, chỉ đổi đơn vị cho khớp.
 - `f`, `g` là **hệ số nhân**, không phải cộng vào delta. Tổng thời gian của ô không đổi (zero-sum theo **thời gian**).
-- Clamp **`f ≤ 0.25` và `g ≤ 0.25`** (clamp từng hệ số fan), không clamp tổng BPM trước. Tổng BPM sau đó được clamp riêng ở `nominal * [0.60, 1.40]`.
+- Clamp **`f ≤ 0.25` và `g ≤ 0.25`** (clamp từng hệ số fan), không clamp tổng BPM trước. Khi `g` chạm trần, `f` được tính lại từ phần thời gian `g` thực sự bù được; bar vẫn zero-sum, nhưng **độ trễ thực tế < D** — chấp nhận khi vùng bù quá ngắn.
+- Clamp tổng BPM sau đó ở `nominal * [0.60, 1.40]`.
 - Nếu `span <= 0`, `comp <= D`, hoặc `span < 3D`: **bỏ qua** ô đó. `span < 3D` là ca quạt 16th / next quá sát; `f` sẽ > 33 % và nghe thành giật, không còn là "một chút".
 - Nếu không có lead (quạt hai bè), dùng `anchor = max(beat các nốt quạt)`.
 - Hiện mỗi ô chỉ có **một** cú quạt (đúng với pattern hiện tại); `anchor = max(beat các nốt quạt)`. Nếu sau này có hai cú trong một ô, cần xử tuần tự theo từng `anchor` — code hiện chưa làm.
