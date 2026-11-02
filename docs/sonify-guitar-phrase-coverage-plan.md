@@ -22,7 +22,7 @@ Với một câu body có `rise > 0`:
 
 Sửa so với bản đo cũ: bản cũ lấy `max(open, close)` làm mốc, nên câu có apex ở đầu/cuối bị chấm oan. Bản trước của mục này ghi "min của hai phần tư", nhưng `_arch()` lấy mean của **union** hai phần tư; bảng dưới là số chạy đúng theo code hiện tại.
 
-Bảng dưới đo tại engine commit `b5f74ca`, ngày 2026-11-03, bằng `backend/scripts/diag_phrase_coverage.py` trong PR này. `n` là số câu `rise > 0` body; `median` là median arch trên **written**; `arch ≥ 2` cũng trên written. Cột heard gần như trùng và nằm trong output script.
+Bảng dưới đo tại engine commit `b5f74ca`, script commit `8c2ac1e`, ngày 2026-11-03, bằng `backend/scripts/diag_phrase_coverage.py` trong PR này. `n` là số câu `rise > 0` body; `median` là median arch trên **written**; `arch ≥ 2` cũng trên written. Cột heard gần như trùng và nằm trong output script.
 
 | Pattern | n | median arch | arch ≥ 2 |
 |---|---:|---:|---:|
@@ -67,7 +67,7 @@ Việc đo trên toàn bộ lead (cách cũ) làm loãng arch của các pattern
 
 Nhãn texture lấy từ `guitar_torroba._castillos_figure_plan()`, không lấy từ `_bar_pattern()`. `_bar_pattern()` chỉ trả `alcaniz` / `olite` / `torroba_tremolo`; ba texture mỏng là **figure** (`ALCANIZ_SOFT`, `OLITE_THIN`, `JUGLAR_THIN`) do figure plan chọn. Vì vậy bảng cũ trộn soft/thin với full/opening và không tái lập được.
 
-Baseline (lead, đo tại engine `b5f74ca`, 2026-11-03):
+Baseline (lead, đo tại engine `b5f74ca`, script `8c2ac1e`, 2026-11-03):
 
 | Pattern / texture | n ô | % ô phẳng (range ≤ 1) | median range |
 |---|---:|---:|---:|
