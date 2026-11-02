@@ -61,6 +61,7 @@ from app.sonify.model import (
     HarmonyEvent,
     NoteEvent,
     Phrase,
+    PriceTracePoint,
     Run,
     Score,
     Variant,
@@ -86,6 +87,7 @@ from app.sonify.phrasing import (
     written,
 )
 from app.sonify.quantize import c_major_scale, c_natural_minor_scale, price_to_scale_index, resample
+from app.sonify.dfi import trace_from_notes, trace_register_per_bar
 from app.sonify.regime import REGIME_BARS, classify_window
 
 FLUTE_TRIGGER = 79  # G5: Flute enters on high apex (>= G5) or Breakout
@@ -1047,6 +1049,7 @@ def _compose(
         session_high = max(bar.close for bar in bars) if price_high is None else price_high
         held_close = bars[0].close
         raw_pitches: list[int] = []
+        price_eighths: list[float] = []
         for group in groups:
             if group:
                 closes = [bars[index].close for index in group]
@@ -1054,6 +1057,7 @@ def _compose(
             else:
                 closes = [held_close]
             for close in resample(closes, active_meter().eighths_per_bar):
+                price_eighths.append(close)
                 raw_pitches.append(
                     scale[price_to_scale_index(close, session_low, session_high, len(scale))]
                 )
@@ -1135,6 +1139,78 @@ def _compose(
                 for section in spec.sections
                 if section.kind not in ("warmup", "cooldown")
             )
+        frame_kinds = {"warmup", "cooldown", "intro", "outro"}
+        frame_bars = tuple(
+            sorted(
+                {
+                    bar
+                    for section in (spec.sections if spec is not None else ())
+                    if section.kind in frame_kinds
+                    for bar in range(section.start, min(section.end, musical_bars))
+                }
+            )
+        )
+        frame_set = frozenset(frame_bars)
+        dfi_epb = meter.eighths_per_bar
+        dfi_bar_beats = meter.quarter_beats
+        if spec is not None:
+            analysis_windows = tuple(
+                (section.start, section.end)
+                for section in spec.sections
+                if section.kind == "phrase"
+            )
+        else:
+            analysis_windows = ((0, musical_bars),)
+
+        def _attach_dfi_inputs(score: Score) -> Score:
+            trace = score.price_trace
+            if not trace:
+                if variant == "minimalist":
+                    trace = trace_register_per_bar(
+                        score.lead,
+                        prices=price_eighths,
+                        epb=dfi_epb,
+                        bar_beats=dfi_bar_beats,
+                        frame_bars=frame_set,
+                    )
+                elif variant == "ambient":
+                    trace = trace_from_notes(
+                        score.lead,
+                        line=pitches,
+                        prices=price_eighths,
+                        epb=dfi_epb,
+                        bar_beats=dfi_bar_beats,
+                        frame_bars=frame_set,
+                        role="anchor",
+                        octave_tolerant=True,
+                    )
+                elif variant in ("symphony", "jazz"):
+                    # `melody_parts` splits the price line between the two
+                    # line voices with dovetail handoffs: violin + cello in a
+                    # symphony, alto + tenor in jazz. Reading only `lead`
+                    # loses every bar where the line drops to the lower voice.
+                    trace = trace_from_notes(
+                        [*score.lead, *score.support],
+                        line=pitches,
+                        prices=price_eighths,
+                        epb=dfi_epb,
+                        bar_beats=dfi_bar_beats,
+                        frame_bars=frame_set,
+                        octave_tolerant=True,
+                        voice="line",
+                    )
+            return replace(
+                score,
+                price_trace=tuple(trace),
+                price_eighths=tuple(price_eighths),
+                source_closes=tuple(bar.close for bar in bars),
+                source_groups=tuple(tuple(group) for group in groups),
+                volume_windows=tuple(windows),
+                window_volumes=tuple(float(value) for value in window_volumes),
+                frame_bars=frame_bars,
+                analysis_windows=analysis_windows,
+            )
+
         def _finish(score: Score) -> Score:
             # The key has to be on the score before the fold. Drone and swell are
             # written in C; A and Bb then drop them, and the fold must see that.
@@ -1161,7 +1237,7 @@ def _compose(
             from app.sonify.groove import _GROOVE
 
             _GROOVE.set({})
-            return score
+            return _attach_dfi_inputs(score)
 
         from app.sonify.groove import _GROOVE, build_groove
 
@@ -1291,6 +1367,7 @@ def _compose(
                 raw_pitches=raw_pitches,
                 impulses=impulses,
                 movement_index=movement_index,
+                price_eighths=price_eighths,
             )
             # The guitar score grows this parameter. Pass it when the call can
             # take it; do not drop a later error that mentions the same name.

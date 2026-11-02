@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
+import type { DfiBreakdown } from '../api/client';
 import { Sparkline, volumeStripFor } from '../components/Sparkline';
 import type { PieceProgram } from '../sonify/program';
-import { useChartEntrance, usePulse, useReducedMotion } from './motion';
+import { dfiBandLabel, dfiPillText } from './labels';
+import { MotionPressable, useChartEntrance, usePulse, useReducedMotion } from './motion';
 import { palette, WIDE_BREAKPOINT } from './palette';
 import { clamp01 } from './seek';
 import { type } from './type';
@@ -41,6 +43,9 @@ type Props = {
   playing?: boolean;
   /** Changing this string fades the chart in: symbol, span or genre. */
   chartKey?: string;
+  /** Data fidelity of the piece being heard. Undefined hides the pill. */
+  dfi?: DfiBreakdown | null;
+  onDfi?: () => void;
 };
 
 export function Stage({
@@ -65,6 +70,8 @@ export function Stage({
   live = false,
   playing = false,
   chartKey = '',
+  dfi = undefined,
+  onDfi,
 }: Props) {
   const { width } = useWindowDimensions();
   const reduced = useReducedMotion();
@@ -137,7 +144,7 @@ export function Stage({
                 {program.instruments}
               </Text>
             ) : null}
-            {badge || meta ? (
+            {badge || meta || dfi !== undefined ? (
               <View style={styles.metaRow}>
                 {badge ? (
                   <View style={styles.badge}>
@@ -148,6 +155,24 @@ export function Stage({
                   <Text style={[type.meta, styles.meta]} numberOfLines={1}>
                     {meta}
                   </Text>
+                ) : null}
+                {dfi !== undefined ? (
+                  <MotionPressable
+                    onPress={onDfi}
+                    disabled={!onDfi}
+                    hitSlop={8}
+                    style={[styles.dfiPill, dfi?.confidence === 'low' && styles.dfiPillLow]}
+                    accessibilityRole={onDfi ? 'button' : 'text'}
+                    accessibilityLabel={
+                      dfi
+                        ? `Độ trung thực dữ liệu ${Math.round(dfi.score)} trên 100, mức ${dfiBandLabel(dfi.band).toLowerCase()}`
+                        : 'Chưa đủ mẫu để đo độ trung thực dữ liệu'
+                    }
+                  >
+                    <Text style={[type.monoSmall, styles.dfiPillText]}>
+                      {dfiPillText(dfi?.score, dfi?.confidence)}
+                    </Text>
+                  </MotionPressable>
                 ) : null}
               </View>
             ) : null}
@@ -402,6 +427,21 @@ const styles = StyleSheet.create({
   meta: {
     color: palette.textFaint,
     flexShrink: 1,
+  },
+  dfiPill: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: palette.hairlineStrong,
+    backgroundColor: palette.surface,
+  },
+  dfiPillLow: {
+    opacity: 0.55,
+  },
+  dfiPillText: {
+    color: palette.textMuted,
+    fontVariant: ['tabular-nums'],
   },
   chartArea: {
     flex: 1,

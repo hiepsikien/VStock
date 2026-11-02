@@ -137,6 +137,15 @@ _HEADLINE: ContextVar[list[str] | None] = ContextVar("vstock_guitar_headline", d
 _FORM: ContextVar[list[list[str]] | None] = ContextVar("vstock_guitar_form", default=None)
 # The namer skips the voice grid. Playback leaves this false.
 _SKIP_VOICES: ContextVar[bool] = ContextVar("vstock_guitar_skip_voices", default=False)
+# The final melody array, after Torroba lowers stretches and scale passages
+# are planned. `render_guitar_score` reads it to trace the price line against
+# the notes that were actually written.
+_TRACE_LINE: ContextVar[list[int] | None] = ContextVar("vstock_guitar_trace_line", default=None)
+# The placed price line before Torroba lowers even stretches. DFI treats that
+# lowering as a register choice, not as a different price reading.
+_TRACE_PRICE_LINE: ContextVar[list[int] | None] = ContextVar(
+    "vstock_guitar_trace_price_line", default=None
+)
 
 
 @dataclass
@@ -3758,6 +3767,8 @@ def render_patterned_voices(
     filled_lead = _ScaleLead(_fill(lead, musical_bars, epb, 1))
     filled_lead.scale_eighths = tuple(sorted(scale_eighths))
     filled_lead.long_scale_eighths = tuple(sorted(long_scale_eighths))
+    _TRACE_LINE.set(list(ctx.melody))
+    _TRACE_PRICE_LINE.set(list(original_melody))
     return (
         filled_lead,
         _fill_voices(support, musical_bars, epb, 2),

@@ -96,6 +96,53 @@ class SessionDetailResponse(BaseModel):
     changePercent: float
 
 
+class DfiBreakdown(BaseModel):
+    score: float
+    band: Literal["very-clear", "clear", "fair", "faint", "very-faint"]
+    shape: float | None = None
+    motion: float | None = None
+    structure: float | None = None
+    resolution: float | None = None
+    volume: float | None = None
+    coverage: float
+    coverage_detail: float | None = None
+    opportunity: float = 0
+    confidence: Literal["low", "medium", "high"] = "low"
+    n_moves: int = 0
+    n_sounding: int = 0
+    version: str = "3"
+
+
+class DfiSignature(BaseModel):
+    variant: Literal["symphony", "jazz", "minimalist", "ambient", "guitar"]
+    ensemble: str
+    bucket: Literal["day", "span"]
+    score: float
+    p25: float
+    p75: float
+    n: int
+    # Corpus artifact format, not DFI_VERSION.
+    version: str = "1"
+    updatedAt: str = ""
+    stale: bool = False
+
+
+class DfiPiece(BaseModel):
+    variant: Literal["symphony", "jazz", "minimalist", "ambient", "guitar"]
+    ensemble: str
+    movement: int | None = None
+    dfi: DfiBreakdown | None = None
+    cached: bool = False
+    computedAt: str | None = None
+
+
+class DfiPiecesResponse(BaseModel):
+    symbol: str
+    bucket: Literal["day", "span"]
+    asOf: str
+    pieces: list[DfiPiece]
+
+
 class RecapResponse(BaseModel):
     symbol: str
     date: str
@@ -127,6 +174,7 @@ class RecapResponse(BaseModel):
     movementName: str = ""
     humanize: bool = True
     color: bool = True
+    dfi: DfiBreakdown | None = None
 
 
 class SpanMovementResponse(BaseModel):
@@ -150,6 +198,7 @@ class SpanMovementResponse(BaseModel):
     beats: int = 4
     beatType: int = 4
     name: str = ""
+    dfi: DfiBreakdown | None = None
 
 
 class SpanResponse(BaseModel):
@@ -177,6 +226,7 @@ class SpanResponse(BaseModel):
     keyLabel: str = ""
     humanize: bool = True
     color: bool = True
+    dfi: DfiBreakdown | None = None
 
 
 class HealthResponse(BaseModel):

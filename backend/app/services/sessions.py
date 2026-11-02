@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 import time
 from dataclasses import replace
@@ -14,8 +15,11 @@ from fastapi import Request
 from app.services.cache import cache
 from app.services.http_utils import ENTRADE_HEADERS
 from app.sonify.audio import RecapAsset, RecapCancelled, RecapUnavailable, recap_store
+from app.sonify.dfi import DFI_VERSION, data_digest
 from app.sonify.model import Ensemble, Variant
 from app.sonify.session import samples_from_ohlc, session_dates, session_points
+
+logger = logging.getLogger(__name__)
 
 ENTRADE_OHLC = "https://services.entrade.com.vn/chart-api/v2/ohlcs/stock"
 # Calendar span that still covers seven sessions across a holiday week.
@@ -222,6 +226,46 @@ async def load_recap(
             humanize,
             color,
         )
+        digest = data_digest(bars)
+        if (
+            getattr(asset, "dfi_inputs", "") != digest
+            or getattr(asset, "dfi_checked", "") != DFI_VERSION
+        ):
+            # An old cache has audio but no DFI, or it was computed from a
+            # different close. Compose the score again (no export) and record
+            # the number rather than re-rendering audio. A failure here must
+            # not make cached audio unplayable.
+            asset = replace(asset, dfi=None)
+            try:
+                from app.services import dfi as dfi_service
+
+                piece = await asyncio.to_thread(
+                    dfi_service.recap_dfi,
+                    symbol.upper(),
+                    day,
+                    bars,
+                    variant,
+                    ensemble,
+                    humanize,
+                    color,
+                )
+                asset = dfi_service.apply_to_asset(asset, piece)
+                asset = replace(asset, dfi_inputs=digest, dfi_checked=DFI_VERSION)
+                remember = getattr(recap_store(), "remember_recap_dfi", None)
+                if callable(remember):
+                    remember(
+                        symbol.upper(),
+                        day,
+                        variant,
+                        len(bars),
+                        ensemble,
+                        humanize,
+                        color,
+                        getattr(asset, "dfi", None),
+                        digest,
+                    )
+            except Exception as exc:
+                logger.warning("DFI recompose failed for %s %s: %s", symbol, day, exc)
         return replace(
             asset,
             character=character,

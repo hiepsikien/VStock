@@ -31,6 +31,7 @@ from app.sonify.ensemble import Ensemble
 from app.sonify.humanize import humanize as humanize_score
 from app.sonify.model import ENSEMBLES, VARIANTS, Bar, Variant
 from app.sonify.musicxml import score_to_musicxml
+from app.sonify.dfi import DFI_VERSION, compute as compute_dfi, data_digest
 from app.sonify.playback import piece_seconds
 from app.sonify.render import render
 from app.sonify.session import VN, is_session_closed
@@ -144,6 +145,9 @@ class RecapAsset:
     movement_name: str = ""
     humanize: bool = True
     color: bool = True
+    dfi: dict | None = None
+    dfi_inputs: str = ""
+    dfi_checked: str = ""
 
     @property
     def audio_url(self) -> str:
@@ -169,6 +173,9 @@ class SpanAsset:
     media_type: str
     fingerprint: str
     movement_name: str = ""
+    dfi: dict | None = None
+    dfi_inputs: str = ""
+    dfi_checked: str = ""
 
 
 def write_wav(path: Path, channels: int, rate: int, samples: array) -> None:
@@ -382,6 +389,18 @@ def _media_type(path: Path) -> str:
     if path.suffix == ".wav":
         return "audio/wav"
     return "application/octet-stream"
+
+
+def _stored_dfi(value):
+    """Read DFI from an asset payload, or None when the metric has moved on.
+
+    The number is stored next to the audio.  A metric revision must miss, not
+    serve yesterday's formula, so the next audio load recomposes and writes
+    the new one.
+    """
+    if not isinstance(value, dict) or value.get("version") != DFI_VERSION:
+        return None
+    return value
 
 
 def write_synthesizer_config(folder: Path, soundfont: Path) -> None:
@@ -1176,6 +1195,61 @@ class RecapStore:
             f"{layer_mark(humanize, color)}"
         )
 
+    def remember_recap_dfi(
+        self,
+        symbol: str,
+        day: date,
+        variant: Variant,
+        bar_count: int,
+        ensemble: Ensemble = "classic",
+        humanize: bool = True,
+        color: bool = True,
+        dfi: dict | None = None,
+        inputs: str = "",
+    ) -> None:
+        """Write a recomposed DFI (or the checked-null marker) into metadata."""
+        key = self._stem(symbol, day, variant, bar_count, ensemble, humanize, color)
+        self._remember_dfi(self.root / f"{key}.json", dfi, inputs)
+
+    def remember_movement_dfi(
+        self,
+        symbol: str,
+        span: str,
+        index: int,
+        variant: Variant,
+        candle_count: int,
+        fingerprint: str,
+        ensemble: Ensemble = "classic",
+        humanize: bool = True,
+        color: bool = True,
+        dfi: dict | None = None,
+        inputs: str = "",
+    ) -> None:
+        if inputs == "" and dfi is None:
+            return
+        stem = self._span_stem(
+            symbol, span, index, variant, candle_count, fingerprint, ensemble, humanize, color
+        )
+        self._remember_dfi(self._span_dir() / f"{stem}.json", dfi, inputs)
+
+    def _remember_dfi(self, path: Path, dfi: dict | None, inputs: str = "") -> None:
+        if not path.is_file():
+            return
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        payload["dfi"] = dfi
+        payload["dfi_checked"] = DFI_VERSION
+        if inputs:
+            payload["dfi_inputs"] = inputs
+        tmp = path.with_name(f"{path.name}.tmp")
+        try:
+            tmp.write_text(json.dumps(payload), encoding="utf-8")
+            self._publish(tmp, path)
+        except OSError:
+            tmp.unlink(missing_ok=True)
+
     def get_movement(
         self,
         symbol: str,
@@ -1272,6 +1346,7 @@ class RecapStore:
         )
         if humanize:
             score = humanize_score(score)
+        dfi = compute_dfi(score, variant=variant, ensemble=ensemble)
         work = self.root / "work"
         work.mkdir(parents=True, exist_ok=True)
         xml_path = work / f"{stem}.musicxml"
@@ -1319,6 +1394,9 @@ class RecapStore:
                 "movementName": dance,
                 "humanize": humanize,
                 "color": color,
+                "dfi": None if dfi is None else dfi.to_dict(),
+                "dfi_inputs": data_digest(movement.bars),
+                "dfi_checked": DFI_VERSION,
             }
             meta_tmp = work / f"{stem}.json"
             meta_tmp.write_text(json.dumps(payload), encoding="utf-8")
@@ -1375,6 +1453,9 @@ class RecapStore:
             media_type=_media_type(audio_path),
             fingerprint=fingerprint,
             movement_name=str(payload.get("movementName") or ""),
+            dfi=_stored_dfi(payload.get("dfi")),
+            dfi_inputs=str(payload.get("dfi_inputs") or ""),
+            dfi_checked=str(payload.get("dfi_checked") or ""),
         )
 
     def _prune_work(self, work: Path) -> None:
@@ -1416,6 +1497,7 @@ class RecapStore:
         )
         if humanize:
             score = humanize_score(score)
+        dfi = compute_dfi(score, variant=variant, ensemble=ensemble)
         work = self.root / "work"
         work.mkdir(parents=True, exist_ok=True)
         xml_path = work / f"{key}.musicxml"
@@ -1459,6 +1541,9 @@ class RecapStore:
                 "movementName": dance,
                 "humanize": humanize,
                 "color": color,
+                "dfi": None if dfi is None else dfi.to_dict(),
+                "dfi_inputs": data_digest(bars),
+                "dfi_checked": DFI_VERSION,
             }
             meta_tmp = work / f"{key}.json"
             meta_tmp.write_text(json.dumps(payload), encoding="utf-8")
@@ -1564,6 +1649,9 @@ class RecapStore:
             movement_name=str(payload.get("movementName") or ""),
             humanize=humanize,
             color=color,
+            dfi=_stored_dfi(payload.get("dfi")),
+            dfi_inputs=str(payload.get("dfi_inputs") or ""),
+            dfi_checked=str(payload.get("dfi_checked") or ""),
         )
 
 

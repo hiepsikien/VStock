@@ -18,6 +18,7 @@ from app.sonify.chords import C, Chord
 from app.sonify.form import active_meter
 from app.sonify.keys import C_KEY, MovementCharacter, active_register
 from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score
+from app.sonify.dfi import trace_from_notes
 from app.sonify.phrasing import Phrase, quantize_strong_beats, written
 from app.sonify.quantize import C_MAJOR_PCS, C_NATURAL_MINOR_PCS, scale_from_classes
 
@@ -94,6 +95,7 @@ def render_guitar_score(
     raw_pitches: list[int] | None = None,
     impulses: tuple | None = None,
     movement_index: int | None = None,
+    price_eighths: list[float] | None = None,
 ) -> Score:
     meter = active_meter()
     register = active_register()
@@ -133,7 +135,7 @@ def render_guitar_score(
     melody, slots, chord_at, harmonies = _picardy_close(
         melody, slots, phrases, chord_at, kind_at, harmonies, mode, ensemble
     )
-    from app.sonify.guitar_patterns import render_patterned_voices
+    from app.sonify.guitar_patterns import _TRACE_LINE, _TRACE_PRICE_LINE, render_patterned_voices
 
     forwarded_raw = list(raw_pitches) if raw_pitches is not None else list(pitches)
     voice_kwargs = dict(
@@ -169,6 +171,34 @@ def render_guitar_score(
         lead, support, low, divisions = render_patterned_voices(**voice_kwargs)
     scale_eighths = tuple(getattr(lead, "scale_eighths", ()))
     long_scale_eighths = tuple(getattr(lead, "long_scale_eighths", ()))
+    trace_prices = list(price_eighths) if price_eighths else []
+    price_trace = ()
+    if trace_prices:
+        line = list(_TRACE_LINE.get() or melody)
+        needed = musical_bars * meter.eighths_per_bar
+        while len(line) < needed:
+            line.append(line[-1] if line else 64)
+        price_trace = trace_from_notes(
+            [*lead, *support, *low],
+            line=line,
+            prices=trace_prices,
+            epb=meter.eighths_per_bar,
+            bar_beats=meter.quarter_beats,
+            voice="price",
+        )
+        intended = _TRACE_PRICE_LINE.get()
+        if intended:
+            remapped = []
+            for point in price_trace:
+                eighth = point.bar * meter.eighths_per_bar + int(round(point.beat * 2))
+                if 0 <= eighth < len(intended):
+                    remapped.append(replace(point, pitch=float(intended[eighth])))
+                else:
+                    remapped.append(point)
+            price_trace = tuple(remapped)
+    # Release the last render's melody arrays; the context outlives this call.
+    _TRACE_LINE.set(None)
+    _TRACE_PRICE_LINE.set(None)
     return Score(
         title=title,
         bpm=bpm,
@@ -198,6 +228,8 @@ def render_guitar_score(
         bar_beats=meter.quarter_beats,
         scale_eighths=scale_eighths,
         long_scale_eighths=long_scale_eighths,
+        price_trace=price_trace,
+        price_eighths=tuple(trace_prices),
     )
 
 
