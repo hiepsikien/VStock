@@ -6,6 +6,7 @@ import math
 import struct
 from array import array
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -135,6 +136,123 @@ def test_same_beat_notes_share_one_offset() -> None:
     # A written 64 is still warm. The guitar clamp keeps the shared offset from crossing 64.
     offset = chosen_offset("guitar", "classic", "support", 0, 0.0)
     assert heard_chord[0].velocity == min(64, 64 + offset)
+
+
+def test_a_repeated_pitch_never_strikes_at_one_velocity() -> None:
+    """The writer's one level per eighth must not machine-gun a repeated pitch."""
+    notes = tuple(_note(index * 0.5, 56, midi=67, voice=1) for index in range(4))
+    heard = humanize(_score(lead=notes), offset_at=lambda *_args: 0).lead
+    # The lean alternates around the written level.
+    assert [note.velocity for note in heard] == [56, 52, 56, 52]
+
+
+def test_a_three_note_repeat_does_not_ratchet() -> None:
+    """A third strike returns to the first level, never steps down another 4."""
+    notes = tuple(_note(index * 0.5, 56, midi=67, voice=1) for index in range(3))
+    heard = humanize(_score(lead=notes), offset_at=lambda *_args: 0).lead
+    assert [note.velocity for note in heard] == [56, 52, 56]
+    assert min(note.velocity for note in heard) >= 56 - 4
+
+
+def test_a_written_step_is_not_a_repeated_strike() -> None:
+    """Two attacks the writer already separates are a contour, not a plateau."""
+    notes = tuple(
+        _note(index * 0.5, velocity, midi=67, voice=1)
+        for index, velocity in enumerate((50, 51, 53))
+    )
+    heard = humanize(_score(lead=notes), offset_at=lambda *_args: 0).lead
+    assert [note.velocity for note in heard] == [50, 51, 53]
+
+
+def test_a_repeated_nail_stays_inside_the_snap_window() -> None:
+    """Two written 70s cannot fall into the warm layer to make the gap."""
+    notes = tuple(_note(index * 0.5, 70, midi=76, voice=1) for index in range(2))
+    for ensemble, ceiling in (("bach", 73), ("classic", 73), ("torroba", 73), ("barrios", 79)):
+        heard = humanize(_score(lead=notes, ensemble=ensemble), offset_at=lambda *_args: 0).lead
+        velocities = [note.velocity for note in heard]
+        assert all(69 <= velocity <= ceiling for velocity in velocities)
+        assert abs(velocities[0] - velocities[1]) >= 4
+
+
+def test_a_repeat_under_the_micro_floor_is_left_alone() -> None:
+    """The pass must not create a new body note under 40, even to make a gap."""
+    notes = tuple(_note(index * 0.5, 16, midi=67, voice=1) for index in range(2))
+    heard = humanize(_score(lead=notes), offset_at=lambda *_args: 0).lead
+    assert [note.velocity for note in heard] == [16, 16]
+
+
+def test_a_repeated_note_does_not_go_under_the_floor() -> None:
+    notes = tuple(_note(index * 0.5, 40, midi=67, voice=1) for index in range(2))
+    heard = humanize(_score(lead=notes), offset_at=lambda *_args: 0).lead
+    assert [note.velocity for note in heard] == [40, 44]
+
+
+def test_a_repeated_note_stays_above_bass_and_support() -> None:
+    """The lean cannot cross the accompaniment line, even when it runs out of room."""
+    lead = tuple(_note(beat, 64, midi=67, voice=1, duration_beats=0.5) for beat in (0.0, 0.5))
+    bass = (_note(0.0, 60, midi=48, voice=3, duration_beats=1.0),)
+    support = (_note(0.0, 56, midi=55, duration_beats=1.0),)
+    heard = humanize(_score(lead=lead, low=bass, support=support), offset_at=lambda *_args: 0)
+    assert [note.velocity for note in heard.lead] == [64, 61]
+    assert all(note.velocity > heard.low[0].velocity for note in heard.lead)
+    assert all(note.velocity > heard.support[0].velocity for note in heard.lead)
+
+
+def test_a_pedal_bar_is_left_alone() -> None:
+    slot = SimpleNamespace(section="intro", bars=lambda: [0])
+    notes = tuple(_note(index * 0.5, 56, midi=67, voice=1) for index in range(2))
+    heard = humanize(_score(lead=notes, slots=(slot,)), offset_at=lambda *_args: 0).lead
+    assert [note.velocity for note in heard] == [56, 56]
+
+
+def test_a_later_accent_is_lifted_not_flattened() -> None:
+    notes = (
+        _note(0.0, 56, midi=67, voice=1),
+        _note(0.5, 56, midi=67, voice=1, accent=True),
+    )
+    heard = humanize(_score(lead=notes), offset_at=lambda *_args: 0).lead
+    assert [note.velocity for note in heard] == [56, 60]
+
+
+def test_a_repeat_inside_a_hairpin_keeps_the_written_ramp() -> None:
+    notes = tuple(_note(index * 0.5, 44, midi=74, voice=1, hairpin=True) for index in range(2))
+    heard = humanize(_score(lead=notes), offset_at=lambda *_args: 2).lead
+    assert [note.velocity for note in heard] == [44, 44]
+
+
+def test_a_pinned_repeat_keeps_its_dynamic() -> None:
+    notes = tuple(_note(index * 0.5, 70, midi=76, voice=1, pinned=True) for index in range(2))
+    heard = humanize(_score(lead=notes), offset_at=lambda *_args: 0).lead
+    assert [note.velocity for note in heard] == [70, 70]
+
+
+def test_a_repeat_across_a_barline_is_left_alone() -> None:
+    """The measured unit is one bar; a theme returning on the next bar is not a figure."""
+    notes = (
+        _note(3.0, 56, midi=67, voice=1),
+        NoteEvent(bar=1, beat=0.0, midi=67, duration_beats=0.5, voice=1, velocity=56),
+    )
+    heard = humanize(_score(lead=notes, bars=2), offset_at=lambda *_args: 0).lead
+    assert [note.velocity for note in heard] == [56, 56]
+
+
+def test_a_repeat_with_another_pitch_between_is_left_alone() -> None:
+    """Only consecutive lead attacks are the measured repeated-strike pair."""
+    notes = (
+        _note(0.0, 56, midi=67, voice=1),
+        _note(0.5, 56, midi=69, voice=1),
+        _note(1.0, 56, midi=67, voice=1),
+    )
+    heard = humanize(_score(lead=notes), offset_at=lambda *_args: 0).lead
+    assert [note.velocity for note in heard] == [56, 56, 56]
+
+
+def test_a_tie_copies_the_separated_attack() -> None:
+    attack = _note(0.0, 56, midi=67, tie_start=True, duration_beats=1.0, voice=1)
+    tied = _note(1.0, 56, midi=67, tie_stop=True, duration_beats=0.5, voice=1)
+    repeat = _note(1.5, 56, midi=67, duration_beats=0.5, voice=1)
+    heard = humanize(_score(lead=(attack, tied, repeat)), offset_at=lambda *_args: 0).lead
+    assert [note.velocity for note in heard] == [56, 56, 52]
 
 
 def test_an_inverting_offset_shrinks_toward_zero() -> None:
