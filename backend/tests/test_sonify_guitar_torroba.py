@@ -2257,6 +2257,7 @@ def _assert_eighth_roll(
     accent: bool = True,
     min_strings: int = 5,
     max_strings: int = 6,
+    ringed: bool = False,
 ) -> None:
     opening = _opening(lead, support, low)
     bass = [note for note in opening if note.voice == 3]
@@ -2264,13 +2265,26 @@ def _assert_eighth_roll(
     highs = [note for note in opening if note.voice == 1]
     assert bass and mids and len(highs) == 1
     assert min_strings <= len(opening) <= max_strings
-    assert all(note.beat == pytest.approx(0.0) and note.duration_beats == pytest.approx(0.5) for note in bass)
-    assert all(
-        note.beat == pytest.approx(1 / 12) and note.duration_beats == pytest.approx(5 / 12) for note in mids
-    )
+    assert all(note.beat == pytest.approx(0.0) for note in bass)
     assert highs[0].beat == pytest.approx(2 / 12)
-    assert highs[0].duration_beats == pytest.approx(4 / 12)
-    assert all(note.beat + note.duration_beats == pytest.approx(0.5) for note in opening)
+    if ringed:
+        # The pipeline ring lengthens the bass, the lowest support, and the
+        # lead when it has room. Everything still ends on a 3/12 boundary.
+        assert len({note.duration_beats for note in bass}) == 1
+        assert bass[0].duration_beats >= 0.5
+        lowest = min(mids, key=lambda note: note.midi)
+        assert lowest.duration_beats >= 5 / 12
+        assert all(
+            note.duration_beats == pytest.approx(5 / 12) for note in mids if note is not lowest
+        )
+        assert highs[0].duration_beats >= 4 / 12
+        for note in opening:
+            assert round((note.beat + note.duration_beats) * 12) % 3 == 0
+    else:
+        assert all(note.duration_beats == pytest.approx(0.5) for note in bass)
+        assert all(note.duration_beats == pytest.approx(5 / 12) for note in mids)
+        assert highs[0].duration_beats == pytest.approx(4 / 12)
+        assert all(note.beat + note.duration_beats == pytest.approx(0.5) for note in opening)
     assert highs[0].accent is accent
     # The volume wave moves a finished score. Written levels are the figure's.
     if lead_velocity is not None:
@@ -2281,7 +2295,9 @@ def _assert_eighth_roll(
         assert {note.velocity for note in mids} == {support_velocity}
 
 
-def _assert_type7_roll(lead, support, low, bar_beats: float, *, written: bool = False) -> None:
+def _assert_type7_roll(
+    lead, support, low, bar_beats: float, *, written: bool = False, ringed: bool = False
+) -> None:
     opening = _opening(lead, support, low)
     bass = [note for note in opening if note.voice == 3]
     mids = [note for note in opening if note.voice == 2]
@@ -2289,9 +2305,18 @@ def _assert_type7_roll(lead, support, low, bar_beats: float, *, written: bool = 
     assert len(bass) == 1 and 1 <= len(mids) <= 2 and len(highs) == 1
     assert 3 <= len(opening) <= 4
     assert bass[0].beat == pytest.approx(0.0) and bass[0].duration_beats == pytest.approx(0.5)
-    assert all(
-        note.beat == pytest.approx(1 / 12) and note.duration_beats == pytest.approx(5 / 12) for note in mids
-    )
+    if ringed:
+        assert all(note.beat == pytest.approx(1 / 12) for note in mids)
+        lowest = min(mids, key=lambda note: note.midi)
+        assert lowest.duration_beats >= 5 / 12
+        assert all(
+            note.duration_beats == pytest.approx(5 / 12) for note in mids if note is not lowest
+        )
+    else:
+        assert all(
+            note.beat == pytest.approx(1 / 12) and note.duration_beats == pytest.approx(5 / 12)
+            for note in mids
+        )
     assert highs[0].beat == pytest.approx(2 / 12)
     assert highs[0].duration_beats == pytest.approx(bar_beats - 2 / 12)
     assert highs[0].beat + highs[0].duration_beats == pytest.approx(bar_beats)
@@ -2417,11 +2442,12 @@ def _assert_tied_fifth(stream: list[ET.Element]) -> None:
 def _assert_eighth_xml(measure: ET.Element) -> None:
     lead, support, bass = _streams(measure)[0], _streams(measure)[1], _streams(measure)[-1]
     assert bass[0].tag == "note" and bass[0].find("rest") is None
-    assert (bass[0].find("duration").text, bass[0].find("type").text) == ("6", "eighth")
+    # The pipeline ring lengthens the bass to a quarter (12/12).
+    assert (bass[0].find("duration").text, bass[0].find("type").text) == ("12", "quarter")
     assert bass[0].find("dot") is None and bass[0].find("time-modification") is None
     place = 1
     while place < len(bass) and bass[place].find("chord") is not None:
-        assert bass[place].find("duration").text == "6"
+        assert bass[place].find("duration").text == "12"
         assert bass[place].find("time-modification") is None
         place += 1
     lead_note = _first_attack(lead)
@@ -2694,6 +2720,7 @@ def test_rolled_chord_scores_engrave_on_division_12(kind: str) -> None:
             [note for note in dance.lead if note.bar == 0],
             [note for note in dance.support if note.bar == 0],
             [note for note in dance.low if note.bar == 0],
+            ringed=True,
         )
         assert_playable(dance, profiles="torroba")
         _assert_measures_sum(dance)
@@ -2734,6 +2761,7 @@ def test_rolled_chord_scores_engrave_on_division_12(kind: str) -> None:
             [note for note in slow.support if note.bar == 4],
             [note for note in slow.low if note.bar == 4],
             bar_beats,
+            ringed=True,
         )
         assert_playable(slow, profiles="torroba")
         _assert_measures_sum(slow)
@@ -2754,6 +2782,7 @@ def test_rolled_chord_scores_engrave_on_division_12(kind: str) -> None:
             [note for note in slow.lead if note.bar == 0],
             [note for note in slow.support if note.bar == 0],
             [note for note in slow.low if note.bar == 0],
+            ringed=True,
         )
         assert_playable(slow, profiles="torroba")
         _assert_measures_sum(slow)
@@ -2835,6 +2864,7 @@ def test_intro_and_danza_stay_block_chords_when_a_roll_sets_division_12() -> Non
         [note for note in framed.lead if note.bar == 1],
         [note for note in framed.support if note.bar == 1],
         [note for note in framed.low if note.bar == 1],
+        ringed=True,
     )
     assert_playable(framed, profiles="torroba")
     _assert_measures_sum(framed)
@@ -5178,5 +5208,34 @@ def test_type4_call_sixteenths_take_two_steps(kind: str) -> None:
     assert first.velocity == 60 and second.velocity == 60
     assert eighth.velocity == 62
     assert not first.tenuto and not second.tenuto and not eighth.tenuto
+
+
+def test_fan_ring_and_dynamic_survive_humanize() -> None:
+    """The bass rings, the lowest support rings, and the pinned chord keeps its order."""
+    from app.sonify.humanize import humanize as humanize_score
+
+    score = _pattern_score("3/4", "castillo", character="calm", bpm=72, bars=5)
+    heard = humanize_score(score)
+    opening = _opening(
+        [note for note in heard.lead if note.bar == 0],
+        [note for note in heard.support if note.bar == 0],
+        [note for note in heard.low if note.bar == 0],
+    )
+    lead = [note for note in opening if note.voice == 1]
+    support = [note for note in opening if note.voice == 2]
+    bass = [note for note in opening if note.voice == 3]
+    assert len(lead) == 1 and len(support) == 3 and len(bass) == 2
+    assert {note.duration_beats for note in bass} == {1.0}
+    lowest = min(support, key=lambda note: note.midi)
+    assert lowest.duration_beats == pytest.approx(8 / 12)
+    assert lowest.beat + lowest.duration_beats == pytest.approx(0.75)
+    assert all(
+        note.duration_beats == pytest.approx(5 / 12) for note in support if note is not lowest
+    )
+    assert all(note.pinned for note in (*lead, *support, *bass))
+    assert lead[0].velocity > bass[0].velocity > support[0].velocity
+    for note in (*lead, *support, *bass):
+        assert round((note.beat + note.duration_beats) * 12) % 3 == 0
+    assert_playable(heard, profiles="torroba")
 
 

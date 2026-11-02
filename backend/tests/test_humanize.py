@@ -581,7 +581,8 @@ def test_torroba_stacked_tiers_scale_the_whole_phrase_to_a_tenth() -> None:
                 lead=lead,
                 support=(fan,),
                 **_meter("6/8"),
-            )
+            ),
+            fan_hold=False,
         )
         placed = {
             round(_absolute(event, heard.bar_beats), 4): event.bpm for event in heard.tempos
@@ -593,6 +594,76 @@ def test_torroba_stacked_tiers_scale_the_whole_phrase_to_a_tenth() -> None:
         assert min(bpms) == 90.0
         assert max(abs(bpm / heard.bpm - 1.0) for bpm in bpms) == pytest.approx(0.10, abs=1e-9)
         assert sum(bpms) / len(bpms) == pytest.approx(heard.bpm, abs=0.01)
+
+
+def _clock_time(score: Score, start: float, end: float, divisions: int = 12) -> float:
+    """Seconds from `start` to `end`, integrating the tempo between events."""
+    del divisions
+    events = sorted((t.bar * score.bar_beats + t.beat, t.bpm) for t in score.tempos)
+    current = score.bpm
+    cursor = start
+    total = 0.0
+    for when, bpm in events:
+        if when <= start + 1e-9:
+            current = bpm
+            continue
+        if when >= end - 1e-9:
+            break
+        total += (when - cursor) * 60.0 / current
+        cursor = when
+        current = bpm
+    total += (end - cursor) * 60.0 / current
+    return total
+
+
+def test_torroba_fan_hold_delays_only_the_next_attack() -> None:
+    """The body tier adds D beats before the next attack and keeps the bar length."""
+    lead = (
+        _hit(0, 2.0 / 12.0, 4.0 / 12.0, 72),
+        _hit(0, 0.5, 0.5, 72),
+        _hit(0, 1.0, 0.5, 74),
+    )
+    support = tuple(
+        _hit(0, 1.0 / 12.0, 5.0 / 12.0, pitch, voice=2) for pitch in (60, 64, 67)
+    )
+    low = tuple(_hit(0, 0.0, 0.5, pitch, voice=3) for pitch in (40, 52))
+    score = _torroba(
+        bars=2,
+        divisions=12,
+        phrases=(_closing_phrase(0, 6),),
+        lead=lead,
+        support=support,
+        low=low,
+        **_meter("6/8"),
+    )
+    held = humanize(score)
+    plain = humanize(score, fan_hold=False)
+    delay_seconds = (1.0 / 12.0) * 60.0 / score.bpm
+    assert _clock_time(held, 2.0 / 12.0, 0.5) - _clock_time(
+        plain, 2.0 / 12.0, 0.5
+    ) == pytest.approx(delay_seconds, abs=0.01)
+    assert _clock_time(held, 0.0, 3.0) == pytest.approx(
+        _clock_time(plain, 0.0, 3.0), abs=0.01
+    )
+
+
+def test_torroba_fan_hold_skips_a_short_span() -> None:
+    """A sixteenth fan whose next attack is one twelfth later is left alone."""
+    lead = (_hit(0, 2.0 / 12.0, 4.0 / 12.0, 72), _hit(0, 3.0 / 12.0, 0.5, 72))
+    support = (_hit(0, 1.0 / 12.0, 5.0 / 12.0, 60, voice=2),)
+    low = (_hit(0, 0.0, 0.5, 40, voice=3),)
+    score = _torroba(
+        bars=2,
+        divisions=12,
+        phrases=(_closing_phrase(0, 6),),
+        lead=lead,
+        support=support,
+        low=low,
+        **_meter("6/8"),
+    )
+    assert _clock_time(humanize(score), 0.0, 3.0) == pytest.approx(
+        _clock_time(humanize(score, fan_hold=False), 0.0, 3.0), abs=1e-6
+    )
 
 
 def test_torroba_offbeat_sixteenths_do_not_take_the_lilt() -> None:

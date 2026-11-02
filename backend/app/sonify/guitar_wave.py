@@ -1047,6 +1047,58 @@ def _apply_stabs(ctx, voices, trailing: list[int], patterns: list[str] | None = 
                 _put(events, index, _STAB[voice])
 
 
+def _apply_fans(ctx, lead, support, low, patterns=None):
+    """Set the rolled chord's dynamic after the wave and the restamps.
+
+    A fan is a musical accent: lead rises above the bar's other attacks, and
+    bass/support rise with it. The value is pinned so humanize does not nudge
+    it or fold the nail layer's 73/71/69 onto 69/69.
+    """
+    if getattr(ctx, "ensemble", None) != "torroba":
+        return lead, support, low
+    from app.sonify.guitar_torroba import _FAN_MARGIN, _FAN_NAIL, _fan_shape
+
+    def set_voice(events, targets, velocity):
+        ids = {id(event) for event in targets}
+        return [
+            replace(event, velocity=velocity, pinned=True) if id(event) in ids else event
+            for event in events
+        ]
+
+    lead = list(lead)
+    support = list(support)
+    low = list(low)
+    for bar in range(ctx.bars):
+        shape = _fan_shape(ctx, bar, lead, support, low)
+        if shape is None:
+            continue
+        kind, groups = shape
+        fan_ids = {id(event) for event in (*groups[1], *groups[2], *groups[3])}
+        others = [
+            event.velocity
+            for event in (*lead, *support, *low)
+            if event.bar == bar
+            and event.midi is not None
+            and id(event) not in fan_ids
+            and event.velocity is not None
+        ]
+        peak = max(others) if others else None
+        lead_now = max((event.velocity or 0) for event in groups[1]) if groups[1] else 0
+        bass_now = max((event.velocity or 0) for event in groups[3]) if groups[3] else 0
+        support_now = max((event.velocity or 0) for event in groups[2]) if groups[2] else 0
+        lead_t = max(lead_now, (peak + _FAN_MARGIN[kind]) if peak is not None else lead_now)
+        if lead_t > 64 or max(bass_now, support_now) > 64:
+            lead_v, bass_v, support_v = _FAN_NAIL
+        else:
+            lead_v = lead_t
+            bass_v = max(bass_now, lead_v - 4)
+            support_v = max(support_now, min(bass_v - 2, lead_v - 6))
+        lead = set_voice(lead, groups[1], lead_v)
+        support = set_voice(support, groups[2], support_v)
+        low = set_voice(low, groups[3], bass_v)
+    return lead, support, low
+
+
 def _sync_ties(events: list[NoteEvent]) -> list[NoteEvent]:
     order = sorted(range(len(events)), key=lambda index: (events[index].bar, events[index].beat, events[index].tie_stop))
     chain: dict[int, int] = {}

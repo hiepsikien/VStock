@@ -136,6 +136,9 @@ class NoteEvent:
     tenuto: bool = False
     staccato: bool = False
     hairpin: bool = False
+    # A velocity that is already final (e.g. a rasgueado dynamic set after the
+    # wave). Humanize keeps it instead of nudging or re-clamping it.
+    pinned: bool = False
 
 
 @dataclass(frozen=True)

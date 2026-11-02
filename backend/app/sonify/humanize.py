@@ -67,7 +67,7 @@ def chosen_offset(variant: str, ensemble: str, field: str, bar: int, beat: float
     return _CHOICES[value % 5]
 
 
-def humanize(score: Score, *, offset_at: OffsetAt = chosen_offset) -> Score:
+def humanize(score: Score, *, offset_at: OffsetAt = chosen_offset, fan_hold: bool = True) -> Score:
     """Return a new score. Written pitches, durations, and printed dynamics stay."""
     bar_beats = score.bar_beats
     offsets: dict[tuple[str, int, int, int], int] = {}
@@ -98,7 +98,7 @@ def humanize(score: Score, *, offset_at: OffsetAt = chosen_offset) -> Score:
         if score.variant == "guitar":
             heard = _clamp_guitar(notes, heard, score.ensemble)
         updated[field] = tuple(_copy_ties(notes, heard))
-    return replace(score, **updated, tempos=_tempo_clock(score))
+    return replace(score, **updated, tempos=_tempo_clock(score, fan_hold=fan_hold))
 
 
 @dataclass(frozen=True)
@@ -268,9 +268,10 @@ def _clamp_guitar(original: tuple[NoteEvent, ...], heard: list[NoteEvent], ensem
         if written is None or current is None or not _is_attack(note):
             clamped.append(heard_note)
             continue
-        if note.hairpin:
+        if note.hairpin or note.pinned:
             # A reprinted scale or swarm hairpin already has its velocity.
             # The snap window would fold every step above 64 onto one ceiling.
+            # A pinned rasgueado was decided by the dynamic layer before us.
             velocity = written
         elif written <= 64:
             velocity = min(64, current)
@@ -284,6 +285,9 @@ def _apply(field: str, notes: tuple[NoteEvent, ...], offsets: dict[tuple[str, in
     heard: list[NoteEvent] = []
     for note in notes:
         if not _is_attack(note):
+            heard.append(note)
+            continue
+        if note.pinned:
             heard.append(note)
             continue
         offset = offsets.get(_group(field, note), 0)
@@ -325,7 +329,7 @@ def _copy_ties(original: tuple[NoteEvent, ...], heard: list[NoteEvent]) -> list[
     return heard
 
 
-def _tempo_clock(score: Score) -> tuple[TempoEvent, ...]:
+def _tempo_clock(score: Score, *, fan_hold: bool = True) -> tuple[TempoEvent, ...]:
     """Phrase breath on one clock. The end yields the time the opening took.
 
     Torroba guitar samples the same phrase arc, then adds the bar lean and
@@ -352,7 +356,9 @@ def _tempo_clock(score: Score) -> tuple[TempoEvent, ...]:
         if end - start < _MIN_PHRASE_BEATS - 1e-9:
             continue
         if torroba:
-            series = _torroba_phrase_tempos(score, phrase, start, end, nominal, divisions)
+            series = _torroba_phrase_tempos(
+                score, phrase, start, end, nominal, divisions, fan_hold=fan_hold
+            )
         else:
             series = _phrase_tempos(start, end, nominal, delta, divisions)
         for beat, bpm in series:
@@ -460,6 +466,8 @@ def _torroba_phrase_tempos(
     end: float,
     nominal: float,
     divisions: int,
+    *,
+    fan_hold: bool = True,
 ):
     """Phrase arc, bar lean, and lilt, sampled on the division grid.
 
@@ -483,9 +491,16 @@ def _torroba_phrase_tempos(
         combined.append(phrase_delta + bar_delta[offset] + lilt_delta[offset])
     peak = max(abs(value) for value in combined)
     scale = _TEMPO_CAP / peak if peak > _TEMPO_CAP else 1.0
+    base_bpm = [nominal * (1.0 + scale * value) for value in combined]
+    fan_mult = (
+        _fan_hold_multipliers(score, phrase, start, end, divisions, start_units, count, base_bpm)
+        if fan_hold
+        else [1.0] * count
+    )
     previous: float | None = None
     for offset, value in enumerate(combined):
-        bpm = round(nominal * (1.0 + scale * value), 2)
+        bpm = base_bpm[offset] * fan_mult[offset]
+        bpm = round(max(nominal * 0.60, min(nominal * 1.40, bpm)), 2)
         if previous is not None and abs(previous - bpm) < 0.001:
             continue
         yield round((start_units + offset) / divisions, 4), bpm
@@ -596,6 +611,91 @@ def _slots_inside(bar: int, slot: int, bar_beats: float, start: float, end: floa
     left = bar * bar_beats + slot * 0.5
     right = left + 1.0
     return left >= start - 1e-9 and right <= end + 1e-9
+
+
+def _fan_hold_multipliers(
+    score: Score,
+    phrase: Phrase,
+    start: float,
+    end: float,
+    divisions: int,
+    start_units: int,
+    count: int,
+    base_bpm: list[float],
+) -> list[float]:
+    """Multiplicative BPM factors that delay only the note after a fan.
+
+    Slow `[anchor, next)` by `f` and speed `[next, bar_end)` by `g` so the
+    added time is exactly `D` beats and the bar keeps its length. `D` is
+    `1/12` of a quarter for a strong fan and `1/24` for a soft one. A short
+    span (`< 3D`) is skipped so the dip never becomes a hiccup.
+    """
+    del phrase
+    multipliers = [1.0] * count
+    bar_beats = float(score.bar_beats)
+    if bar_beats <= 0 or count <= 0:
+        return multipliers
+    for bar in range(score.bars):
+        bar_start = bar * bar_beats
+        bar_end = bar_start + bar_beats
+        if bar_start < start - 1e-9 or bar_end > end + 1e-9:
+            continue
+        fan = [
+            note
+            for note in (*score.lead, *score.support, *score.low)
+            if note.bar == bar and note.midi is not None and 0.0 <= note.beat < 0.25
+        ]
+        if not any(note.beat > 0.0 for note in fan):
+            continue
+        anchor = max(note.beat for note in fan)
+        strong = len({note.midi for note in fan}) >= 5
+        delay = (1.0 / 12.0) if strong else (1.0 / 24.0)
+        later = sorted(
+            (
+                note
+                for note in (*score.lead, *score.support, *score.low)
+                if note.bar == bar
+                and note.midi is not None
+                and note.velocity is not None
+                and not note.tie_stop
+                and note.beat > anchor + 1e-9
+            ),
+            key=lambda note: note.beat,
+        )
+        if not later:
+            continue
+        next_beat = later[0].beat
+        span = next_beat - anchor
+        comp = bar_beats - next_beat
+        if span <= 0.0 or span < 3.0 * delay or comp <= delay:
+            continue
+        first = max(int(round((bar_start + anchor) * divisions)), start_units)
+        split = int(round((bar_start + next_beat) * divisions))
+        last = min(int(round(bar_end * divisions)), start_units + count)
+        split = min(split, last)
+        if first >= split:
+            continue
+        slow = sum(
+            60.0 / (base_bpm[unit - start_units] * 12.0) for unit in range(first, split)
+        )
+        fast = sum(
+            60.0 / (base_bpm[unit - start_units] * 12.0) for unit in range(split, last)
+        )
+        delay_seconds = delay * 60.0 / base_bpm[first - start_units]
+        if slow <= 0.0 or fast <= delay_seconds:
+            continue
+        f = min(delay_seconds / (slow + delay_seconds), 0.25)
+        extra = slow * f / (1.0 - f)
+        g = extra / (fast - extra) if fast > extra else 0.25
+        if g > 0.25:
+            g = 0.25
+            extra = fast * g / (1.0 + g)
+            f = extra / (slow + extra)
+        for unit in range(first, split):
+            multipliers[unit - start_units] *= 1.0 - f
+        for unit in range(split, last):
+            multipliers[unit - start_units] *= 1.0 + g
+    return multipliers
 
 
 def _paint_slot(
