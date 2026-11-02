@@ -613,16 +613,18 @@ def _add_plain_tail(
     mode: str,
     divisions: int,
     bar_beats: float | None,
+    start_beat: float = 0.5,
 ) -> None:
     """Tie the rolled eighth into ordinary notes for the rest of the bar."""
     pieces = _plain_tail(remaining)
+    cursor = start_beat
     for piece_index, units in enumerate(pieces):
         last = piece_index == len(pieces) - 1
         for index, event in enumerate(events):
-            # Beat 1 is outside the roll, so `<type>` is the plain duration.
+            # The cursor is outside the roll, so `<type>` is the plain duration.
             tail = replace(
                 event,
-                beat=1.0,
+                beat=cursor,
                 duration_beats=units / float(divisions),
                 tie_stop=True,
                 tie_start=not last,
@@ -644,6 +646,7 @@ def _add_plain_tail(
                 mode=mode,
                 slur_number=str(event.voice),
             )
+        cursor += units / float(divisions)
 
 
 def _rasgueado_span(event: NoteEvent, divisions: int, bar_beats: float) -> tuple[str, int] | None:
@@ -653,7 +656,7 @@ def _rasgueado_span(event: NoteEvent, divisions: int, bar_beats: float) -> tuple
     A held tail keeps the same role and a larger unit count. The count must be
     `head + 3k` so the plain tail is never a 2/12 sextuplet.
     """
-    if divisions != 12 or event.midi is None or event.beat >= 0.25:
+    if divisions != 12 or event.midi is None or event.tie_stop or event.beat >= 0.25:
         return None
     beat_units = int(round(event.beat * divisions))
     duration_units = int(round(event.duration_beats * divisions))
@@ -1302,17 +1305,14 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                         nxt_index += 1
                     if voice_index == 0:
                         emit_on_cursor(event.beat)
-                    span = _rasgueado_span(event, score.divisions, score.bar_beats)
+                    units_by_note = [
+                        int(round(note.duration_beats * score.divisions)) for note in group
+                    ]
+                    units = max(units_by_note)
+                    carrier = group[units_by_note.index(units)]
+                    span = _rasgueado_span(carrier, score.divisions, score.bar_beats)
                     if span is not None:
                         role_name = span[0]
-                        units = max(
-                            int(round(note.duration_beats * score.divisions))
-                            for note in group
-                        )
-                        carrier = max(
-                            group,
-                            key=lambda note: int(round(note.duration_beats * score.divisions)),
-                        )
                         if role_name == "support":
                             _add_tied_fifth(
                                 measure,
@@ -1342,22 +1342,28 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                                 )
                         else:
                             tail = units - 4
-                            head = replace(
-                                carrier,
-                                duration_beats=4.0 / 12.0,
-                                tie_start=tail > 0,
-                                tie_stop=False,
-                            )
-                            _add_note(
-                                measure,
-                                head,
-                                tuplet=group_roles[group.index(carrier)],
-                                **note_kwargs(carrier, harmony),
-                            )
-                            if tail > 0:
+                            tails: list[NoteEvent] = []
+                            for note_index, note in enumerate(group):
+                                has_tail = units_by_note[note_index] > 4
+                                head = replace(
+                                    note,
+                                    duration_beats=4.0 / 12.0,
+                                    tie_start=has_tail,
+                                    tie_stop=False,
+                                )
+                                _add_note(
+                                    measure,
+                                    head,
+                                    chord=note_index > 0,
+                                    tuplet=group_roles[note_index],
+                                    **note_kwargs(note, harmony),
+                                )
+                                if has_tail:
+                                    tails.append(note)
+                            if tails:
                                 _add_plain_tail(
                                     measure,
-                                    [carrier],
+                                    tails,
                                     tail,
                                     written_shift=12,
                                     harmony=harmony,

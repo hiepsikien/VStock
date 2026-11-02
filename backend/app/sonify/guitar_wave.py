@@ -1087,12 +1087,13 @@ def _apply_fans(ctx, lead, support, low, patterns=None):
         bass_now = max((event.velocity or 0) for event in groups[3]) if groups[3] else 0
         support_now = max((event.velocity or 0) for event in groups[2]) if groups[2] else 0
         lead_t = max(lead_now, (peak + _FAN_MARGIN[kind]) if peak is not None else lead_now)
+        lead_t = max(lead_t, bass_now + 2, support_now + 2)
         if lead_t > 64 or max(bass_now, support_now) > 64:
             lead_v, bass_v, support_v = _FAN_NAIL
         else:
             lead_v = lead_t
-            bass_v = max(bass_now, lead_v - 4)
-            support_v = max(support_now, min(bass_v - 2, lead_v - 6))
+            bass_v = min(max(bass_now, lead_v - 4), lead_v - 2)
+            support_v = min(max(support_now, min(bass_v - 2, lead_v - 6)), bass_v - 2)
         lead = set_voice(lead, groups[1], lead_v)
         support = set_voice(support, groups[2], support_v)
         low = set_voice(low, groups[3], bass_v)

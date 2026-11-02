@@ -3,6 +3,7 @@
 > **Trạng thái**: đã vào code.
 > **Đọc cùng**: [`docs/sonify-guitar-dynamics-wave-plan.md`](./sonify-guitar-dynamics-wave-plan.md) mục 2 và 5, [`docs/sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md) mục vận tốc trong ô và mục scale chung.
 > **Giữ**: Trần ấm `63`. Một tâm `C` cho cả ô. Bass không vào lớp móng. Không thêm id pattern. Passage giữ tập nốt thứ tự nhiên. Không thêm Rê♭, không thêm Si. `_shape_dynamics` của ensemble khác không đổi.
+> **Cập nhật PR #121**: rasgueado có thêm `_apply_fans` (sau wave + restamp) đặt dynamic quạt, và `NoteEvent.pinned` giữ nguyên qua humanize. Xem [`docs/sonify-guitar-torroba-rasgueado-ring.md`](./sonify-guitar-torroba-rasgueado-ring.md) mục 4.
 
 Torroba sống bằng bậc thang: câu ngân giữ một mặt bằng, điệu bước vào sáng hơn. Sóng hiện tại để Castillo ở cửa sổ nhẹ, `W = 9`, và bass một phách `mf` nghe `38–42`. Một cửa sổ `40..63` cho cả bảy hàng làm bass lớn hơn nhưng xóa bậc đó, vì `U` min–max trong từng đoạn và `alpha_warm` không còn chỗ để mở. Plan này tách hàng hát và hàng điệu, giữ `d_hi = 8` để đỉnh câu không bị bóp, và sửa hướng scale trước khi nới sóng.
 

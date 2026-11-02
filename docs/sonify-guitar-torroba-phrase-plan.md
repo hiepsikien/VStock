@@ -165,6 +165,7 @@ Phách mạnh của meter: 4/4 là móc đơn 0 và 4. 6/8 là móc đơn 0 và 
 **Hợp âm dải (rasgueado) — phân loại theo mật độ dây và lực quạt, đối chiếu với hợp âm khối:**
 
 - **Hai loại rasgueado của Torroba (không dùng loại 3 kết bài > 5 nốt chậm ở `outro`):**
+  > **Cập nhật PR #121**: cả hai loại có thêm **ngân** (bass `1,0` / support thấp nhất `0,75` / lead tuỳ chỗ; Loại 2 support `0,5`) và **dynamic** (lead `peak+3/+2`, dải ấm `<=64` hoặc móng `73/71/69`). Xem [`docs/sonify-guitar-torroba-rasgueado-ring.md`](./sonify-guitar-torroba-rasgueado-ring.md) mục 3–4.
   1. **Loại 1 — Rasgueado mạnh, tạo không khí / báo hiệu mở câu (5–6 dây, khi thế bấm hẹp tối thiểu 4 dây):**
      - **Vị trí:** **Kiểu 5, ô 1, móc đơn 0** (mở vòm `ff` *Fandanguillo*), **lưới `fandanguillo` tại ô mở đầu câu dài từ 2 ô trở lên (`bar == _bars_of(ctx, phrase)[0]`), móc đơn 0** (các ô sau bên trong câu hoặc câu 1 ô trên chương dài giữ hợp âm khối để không dập quạt liên thanh mỗi ô), và **Kiểu 2, ô 1, móc đơn 0 khi `pattern == "fandanguillo"`**.
      - **Mật độ dây và xếp bè (`_rasgueado_voicing(..., max_notes=6)`):** Quạt tối đa **5–6 dây** hợp lệ trong cùng một thế tay (`_playable` đúng, độ giãn các ngăn bấm `> 0` không quá 5 ngăn, cao độ tăng nghiêm ngặt theo thứ tự dây `6 -> 1`, ưu tiên thế bấm không có quãng 2 `< 3` bán âm giữa hai dây kề nhau, nốt dây cao nhất là `lead`). Phân bổ vào 3 bè tại các mốc `0.0`, `1/12`, `2/12`:

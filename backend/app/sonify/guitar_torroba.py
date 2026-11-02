@@ -4943,11 +4943,13 @@ def apply_torroba_fan_ring(ctx, lead, support, low, patterns=None):
             current = int(round((event.beat + event.duration_beats) * 12))
             if end > current:
                 lead = _replace_event(lead, event, duration_beats=end / 12.0 - event.beat)
+                pools = (lead, support, low)
         for event in groups[3]:
             end = _ring_end(event, pools, voice=3, pitch=event.midi, cap=caps[3], bar_units=bar_units)
             current = int(round((event.beat + event.duration_beats) * 12))
             if end > current:
                 low = _replace_event(low, event, duration_beats=end / 12.0 - event.beat)
+                pools = (lead, support, low)
         if groups[2]:
             carrier = min(groups[2], key=lambda event: (event.midi, event.beat))
             end = _ring_end(carrier, pools, voice=2, pitch=carrier.midi, cap=caps[2], bar_units=bar_units)
@@ -4956,6 +4958,7 @@ def apply_torroba_fan_ring(ctx, lead, support, low, patterns=None):
                 support = _replace_event(
                     support, carrier, duration_beats=end / 12.0 - carrier.beat
                 )
+                pools = (lead, support, low)
     return lead, support, low
 
 

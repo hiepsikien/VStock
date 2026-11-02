@@ -2397,8 +2397,9 @@ def _assert_measures_sum(score: Score) -> None:
             assert total == expected
 
 
-def _assert_tied_fifth(stream: list[ET.Element]) -> None:
+def _assert_tied_fifth(stream: list[ET.Element], *, continues: set[int] | None = None) -> None:
     """A 5-unit chord is a 32nd triplet rest, then tied 32nds, then tied eighths."""
+    continues = set(continues or ())
     rest = stream[0]
     assert rest.tag == "note" and rest.find("rest") is not None
     assert rest.find("duration").text == "1"
@@ -2432,11 +2433,19 @@ def _assert_tied_fifth(stream: list[ET.Element]) -> None:
         assert _time_modification(head) == ("3", "2", "32nd")
     for place, tail in enumerate(tails):
         assert tail.find("type").text == "eighth"
-        assert [tie.get("type") for tie in tail.findall("tie")] == ["stop"]
+        expected = ["stop"] + (["start"] if place in continues else [])
+        assert [tie.get("type") for tie in tail.findall("tie")] == expected
         assert (tail.find("chord") is not None) is (place > 0)
         assert tail.get("dynamics") == heads[0].get("dynamics")
         assert tail.find("dot") is None
         assert _time_modification(tail) == ("3", "2", "32nd")
+    if continues:
+        assert index < len(stream)
+        partial = stream[index]
+        assert partial.tag == "note" and partial.find("rest") is None
+        assert partial.find("duration").text == "3"
+        assert partial.find("type").text == "16th"
+        assert [tie.get("type") for tie in partial.findall("tie")] == ["stop"]
 
 
 def _assert_eighth_xml(measure: ET.Element) -> None:
@@ -2784,6 +2793,17 @@ def test_rolled_chord_scores_engrave_on_division_12(kind: str) -> None:
             [note for note in slow.low if note.bar == 0],
             ringed=True,
         )
+        root = ET.fromstring(score_to_musicxml(slow))
+        bar0 = root.find("part").findall("measure")[0]
+        support_stream = next(
+            stream
+            for stream in _streams(bar0)
+            if stream
+            and stream[0].tag == "note"
+            and stream[0].find("rest") is not None
+            and stream[0].find("duration").text == "1"
+        )
+        _assert_tied_fifth(support_stream, continues={0})
         assert_playable(slow, profiles="torroba")
         _assert_measures_sum(slow)
         one_bar = _pattern_score(kind, "castillo", character="calm", bpm=72, bars=1)
@@ -5237,5 +5257,25 @@ def test_fan_ring_and_dynamic_survive_humanize() -> None:
     for note in (*lead, *support, *bass):
         assert round((note.beat + note.duration_beats) * 12) % 3 == 0
     assert_playable(heard, profiles="torroba")
+
+
+def test_musicxml_keeps_every_lead_note_in_a_chord_at_the_roll_offset() -> None:
+    """A lead chord at 2/12 must not lose its inner string."""
+    score = _pattern_score("3/4", "castillo", character="calm", bpm=72, bars=5)
+    lead = [note for note in score.lead if note.bar != 0] + [
+        NoteEvent(bar=0, beat=2 / 12, midi=72, duration_beats=4 / 12, voice=1, velocity=64),
+        NoteEvent(bar=0, beat=2 / 12, midi=67, duration_beats=4 / 12, voice=1, velocity=64),
+    ]
+    score = replace(score, lead=tuple(lead))
+    root = ET.fromstring(score_to_musicxml(score))
+    stream = _streams(root.find("part").findall("measure")[0])[0]
+    pitches = {
+        (note.find("pitch/step").text, note.find("pitch/octave").text)
+        for note in stream
+        if note.tag == "note"
+        and note.find("rest") is None
+        and note.find("duration").text == "4"
+    }
+    assert ("C", "6") in pitches and ("G", "5") in pitches
 
 
