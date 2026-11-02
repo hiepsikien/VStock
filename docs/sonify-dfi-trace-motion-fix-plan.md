@@ -493,7 +493,8 @@ Motion có thể giảm; đo lại sau khi implement, không dùng bảng này �
   không phải cùng một định nghĩa mẫu.
 - `DFI_VERSION` bump làm sidecar cũ miss (`audio.py:422`,
   `services/dfi.py:113`, `sessions.py:238`, `spans.py:191`).
-- `dfi_signatures.json` là artifact corpus; quyết định regenerate ở §10.3.
+- `dfi_signatures.json` **chưa tồn tại** trong repo: endpoint trả `[]`, UI hiện
+  `chuẩn —`. Phase 7 mới tạo artifact; v4 không chặn và không tạo fixture tạm.
 
 ## 8. Rủi ro và cách chặn
 
@@ -528,7 +529,7 @@ Motion có thể giảm; đo lại sau khi implement, không dùng bảng này �
 - [ ] Chạy `pytest backend/tests`.
 - [ ] Chạy `scripts/dfi_probe.py` cho 5 variant × 3 movement, cập nhật §1.1/§5/§7.
 - [ ] Cập nhật `docs/sonify-data-fidelity-index.md` (§4.2, §4.5, §5.3, §9.1, §9.2, §10).
-- [ ] Quyết định regenerate `dfi_signatures.json`.
+- [ ] Xác nhận `dfi_signatures.json` chưa tồn tại; Phase 7 tạo artifact (không chặn v4).
 - [ ] Kiểm tra URL gốc `ACB / 3M / guitar / torroba`.
 
 ## 10. Quyết định cần chốt
@@ -538,7 +539,9 @@ Motion có thể giảm; đo lại sau khi implement, không dùng bảng này �
 2. **Minimalist II/III:** chấp nhận **M = 0** (đề xuất — tín hiệu thật, eps
    đúng) hay mở một việc sửa **encoding register của writer** để bước register
    phản ánh biên độ giá? Không hạ eps để được số đẹp.
-3. **`dfi_signatures.json`:** regenerate trong PR implementation hay để Phase 7?
+3. **`dfi_signatures.json`:** artifact **chưa tồn tại** (endpoint trả `[]`, UI
+   `chuẩn —`). Để Phase 7 tạo, hay tạo fixture nhỏ ngay trong PR implementation?
+   Khuyến nghị: Phase 7, vì v4 chưa calibration.
 4. **Minh bạch bằng chứng:** thêm `motion_pairs: int` (additive, optional) vào
    `DfiBreakdown`/`schemas.py` và cập nhật `test_recap_response_parses_the_breakdown`,
    đồng thời siết `test_non_guitar_ensembles...` xuống `<= 2`? Nếu không, giữ
