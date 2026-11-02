@@ -2158,11 +2158,13 @@ def _torroba_cushion(ctx, bar: int, lead, support, low):
 
     def cut(events, *, trim: bool):
         kept: list[NoteEvent] = []
+        dropped: list[NoteEvent] = []
         for event in events:
             if event.midi is None or event.bar != bar:
                 kept.append(event)
                 continue
             if event.beat >= gap_beat - 1e-9:
+                dropped.append(event)
                 continue
             if trim and event.beat + event.duration_beats > gap_beat + 1e-9:
                 kept.append(
@@ -2176,7 +2178,31 @@ def _torroba_cushion(ctx, bar: int, lead, support, low):
                 )
             else:
                 kept.append(event)
-        return kept
+        if not dropped:
+            return kept
+        # A bass may ring through the gap, but its tied continuation after the
+        # gap is dropped. Clear the tie on the kept segment so no tie is left
+        # pointing at a note that no longer exists.
+        clear: set[int] = set()
+        for gone in dropped:
+            if not gone.tie_stop:
+                continue
+            for index, event in enumerate(kept):
+                if (
+                    event.midi == gone.midi
+                    and event.voice == gone.voice
+                    and event.bar == gone.bar
+                    and event.tie_start
+                    and abs(event.beat + event.duration_beats - gone.beat) < 1e-6
+                ):
+                    clear.add(index)
+                    break
+        if not clear:
+            return kept
+        return [
+            replace(event, tie_start=False) if index in clear else event
+            for index, event in enumerate(kept)
+        ]
 
     return cut(lead, trim=True), cut(support, trim=True), cut(low, trim=False)
 

@@ -3768,16 +3768,18 @@ def _juglar_bass(
     the Torroba bass instead and lets `_fitting_bass` move to another chord
     tone when the hand cannot hold two eighths. If that still fails, the whole
     high voice of this chunk drops an octave (written in `lead`, which the
-    caller keeps) and both lengths are tried again. Only an impossible hand
-    loses the beat; the score stays playable instead of forcing a note that
-    `assert_playable` would reject.
+    caller keeps) and both lengths are tried again. If no bass can be written
+    at all, the dropped octave is rolled back and `None` is returned, so a lost
+    beat never leaves a silently re-voiced melody behind. Only an impossible
+    hand loses the beat; the score stays playable instead of forcing a note
+    that `assert_playable` would reject.
     """
     found = _fitting_bass(ctx, bar, eighth, raw, [*lead, *support], (2,))
     if found is not None:
         return found
     start = eighth * 0.5
     end = start + 1.0
-    changed = False
+    lowered: list[tuple[int, NoteEvent]] = []
     for index, event in enumerate(lead):
         if event.bar != bar or event.midi is None or event.voice != 1:
             continue
@@ -3785,9 +3787,9 @@ def _juglar_bass(
             continue
         if event.midi - 12 < ctx.treble_floor:
             continue
+        lowered.append((index, event))
         lead[index] = replace(event, midi=event.midi - 12)
-        changed = True
-    if changed:
+    if lowered:
         found = _fitting_bass(ctx, bar, eighth, raw, [*lead, *support], (2, 1))
         if found is not None:
             return found
@@ -3804,6 +3806,8 @@ def _juglar_bass(
         found = _fitting_bass(ctx, bar, eighth, pitch, [*lead, *support], (1,))
         if found is not None:
             return found
+    for index, event in lowered:
+        lead[index] = event
     return None
 
 

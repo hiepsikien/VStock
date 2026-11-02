@@ -4617,6 +4617,93 @@ def test_juglar_bass_keeps_a_fretted_f_on_every_beat() -> None:
     ]
 
 
+def _juglar_chunk(midi: int) -> list[NoteEvent]:
+    return [
+        NoteEvent(bar=0, beat=0.25 + 0.25 * index, midi=midi, duration_beats=0.25, voice=1, velocity=56)
+        for index in range(3)
+    ]
+
+
+def test_juglar_bass_drops_the_high_voice_an_octave_when_the_hand_cannot_fit(monkeypatch) -> None:
+    from app.sonify import guitar_torroba as gt
+
+    phrase = Phrase(0, 6, (Run(0, 2, 72), Run(2, 2, 72), Run(4, 2, 72)))
+    ctx = _ctx(melody=[72] * 6, phrase=phrase, kind="3/4", epb=6, strong=(0,), bpm=72, character="calm", bar_beats=3, chord=C)
+    lead = _juglar_chunk(72)
+
+    def fit_only_after_the_drop(ctx, bass, bar, start, length, events):
+        highs = [event.midi for event in events if event.voice == 1 and event.midi is not None]
+        return bool(highs) and max(highs) <= 60
+
+    monkeypatch.setattr(gt, "_bass_eighths_fit", fit_only_after_the_drop)
+    found = gt._juglar_bass(ctx, 0, 0, 45, lead, [])
+    assert found == (45, 2)
+    # The chunk's high voice is written one octave down, and the caller keeps it.
+    assert [event.midi for event in lead] == [60, 60, 60]
+
+
+def test_juglar_bass_drops_only_the_notes_above_the_treble_floor(monkeypatch) -> None:
+    from app.sonify import guitar_torroba as gt
+
+    phrase = Phrase(0, 6, (Run(0, 2, 72), Run(2, 2, 72), Run(4, 2, 72)))
+    ctx = _ctx(melody=[72] * 6, phrase=phrase, kind="3/4", epb=6, strong=(0,), bpm=72, character="calm", bar_beats=3, chord=C)
+    lead = _juglar_chunk(72)
+    lead[1] = replace(lead[1], midi=62)
+    lead[2] = replace(lead[2], midi=62)
+
+    def fit_only_after_the_drop(ctx, bass, bar, start, length, events):
+        highs = [event.midi for event in events if event.voice == 1 and event.midi is not None]
+        return bool(highs) and max(highs) <= 62
+
+    monkeypatch.setattr(gt, "_bass_eighths_fit", fit_only_after_the_drop)
+    assert gt._juglar_bass(ctx, 0, 0, 45, lead, []) == (45, 2)
+    # 72 falls to 60; 62 would fall under the floor and stays put.
+    assert [event.midi for event in lead] == [60, 62, 62]
+
+
+def test_juglar_bass_rolls_the_octave_drop_back_when_no_bass_fits(monkeypatch) -> None:
+    from app.sonify import guitar_torroba as gt
+
+    phrase = Phrase(0, 6, (Run(0, 2, 72), Run(2, 2, 72), Run(4, 2, 72)))
+    ctx = _ctx(melody=[72] * 6, phrase=phrase, kind="3/4", epb=6, strong=(0,), bpm=72, character="calm", bar_beats=3, chord=C)
+    lead = _juglar_chunk(72)
+
+    monkeypatch.setattr(gt, "_bass_eighths_fit", lambda *args, **kwargs: False)
+    assert gt._juglar_bass(ctx, 0, 0, 45, lead, []) is None
+    # A lost beat must not leave a re-voiced melody behind.
+    assert [event.midi for event in lead] == [72, 72, 72]
+
+
+def test_castillo_contour_leaves_a_non_castillo_opening_body_alone() -> None:
+    phrase = _joined(0, [64] * 8)
+    ctx = _ctx(
+        melody=[64] * 8,
+        phrase=phrase,
+        kind="4/4",
+        epb=8,
+        bpm=96,
+        character="rally",
+        bars=1,
+        bar_beats=4.0,
+    )
+    ctx = replace(
+        ctx,
+        phrases=(phrase,),
+        sections=(FormSection(0, 1, "phrase", 0),),
+        chord_at={0: C},
+        kind_at={0: "phrase"},
+        band_at={0: "mf"},
+        bar_volumes=[4.0],
+        section_rel_spans={0: 0.02},
+    )
+    lead = [
+        NoteEvent(bar=0, beat=float(beat), midi=64, duration_beats=1.0, voice=1, velocity=56)
+        for beat in range(4)
+    ]
+    # `olite` opens the body: no Castillo A region, so the pass must not touch it.
+    assert apply_castillo_first_a_contour(ctx, lead, ["olite", "castillo"]) == lead
+
+
 def _aba_cushion_fixture(
     kind: str,
     epb: int,
@@ -4774,6 +4861,38 @@ def test_torroba_cushion_clears_a_tie_that_would_cross_the_gap() -> None:
     assert not kept[0].tie_start
     assert not any(note.beat >= 2.0 - 1e-9 for note in heard if note.bar == 1)
     assert inner == [] and bass == []
+
+
+def test_torroba_cushion_clears_a_bass_tie_into_the_dropped_gap() -> None:
+    ctx, patterns, _lead, _support, _low = _aba_cushion_fixture("3/4", 6, (0,), 3.0)
+    low = [
+        NoteEvent(
+            bar=1,
+            beat=0.0,
+            midi=45,
+            duration_beats=2.0,
+            voice=3,
+            velocity=48,
+            tie_start=True,
+        ),
+        NoteEvent(
+            bar=1,
+            beat=2.0,
+            midi=45,
+            duration_beats=1.0,
+            voice=3,
+            velocity=48,
+            tie_stop=True,
+        ),
+    ]
+    _heard, _inner, bass = _smooth_boundaries(
+        ctx, patterns, [], [], low, figure_bars={1}
+    )[:3]
+    kept = [note for note in bass if note.bar == 1]
+    # The bass rings to the gap, but its dropped continuation leaves no tie.
+    assert [(note.beat, note.duration_beats) for note in kept] == [(0.0, 2.0)]
+    assert not kept[0].tie_start
+    assert not any(note.beat >= 2.0 - 1e-9 for note in bass if note.bar == 1)
 
 
 def test_drop_region_holds_a_torroba_bass_to_the_next_attack() -> None:

@@ -1,6 +1,6 @@
 # Torroba: Juglar bass, ô đệm A–B–A, động lực A đầu, và tempo 92–132
 
-> **Trạng thái**: **đã vào code**, `SPAN_REVISION` `"70"` → `"71"`, `pytest tests/ -q` **744 passed**. Đo lại trên ACB 1M II: bass đủ `1,0` phách ở mọi phách (bar 47/49 không còn `0,5`), ô đệm rơi đúng **bar 46** (ô Castillo cuối cùng) và **bar 69**, cả hai đường framed/unframed đều có gap `2,0–3,0`.
+> **Trạng thái**: **đã vào code**, `SPAN_REVISION` `"70"` → `"71"`, `pytest tests/ -q` **749 passed**. Đo lại trên ACB 1M II: bass đủ `1,0` phách ở mọi phách (bar 47/49 không còn `0,5`), ô đệm rơi đúng **bar 46** (ô Castillo cuối cùng) và **bar 69**, cả hai đường framed/unframed đều có gap `2,0–3,0`.
 > **Lệch so với kế hoạch ban đầu**: mối nối A→B không phải bar 48 mà là **bar 46**. Phrase Castillo cuối vùng (phrase 15) trải tới hết bar 46, còn section B bắt đầu ở bar 46; nên bar 46 vẫn render `castillo`, và đó mới là ô cuối vùng đi trước. Vì vậy `_torroba_boundary()` đọc **hai bar liền kề** (`_bar_pattern(bar) != _bar_pattern(bar+1)`) thay vì đọc `ctx.section()`/`section.end - 1`, và `apply_sonatina_downbeats()` bỏ pickup khi bar trước là ô đệm để gap không bị lấp lại.
 > **Đọc cùng**: [`docs/sonify-guitar-torroba-aba-tempo.md`](./sonify-guitar-torroba-aba-tempo.md), [`docs/sonify-guitar-torroba-dynamics.md`](./sonify-guitar-torroba-dynamics.md), [`docs/sonify-guitar-torroba-tempo-plan.md`](./sonify-guitar-torroba-tempo-plan.md), [`docs/sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md).
 > **Giữ**: không thêm id pattern, không thêm ô nhạc, không đổi form A–B–A, không đổi cờ `bridge` / `trio` trong `span.py`. Chỉ sửa nội dung bên trong ô đã có.
@@ -278,6 +278,8 @@ Bảng dưới ghi **delta contour** (giá trị cộng vào velocity viết, tr
 
 Cộng thêm `arc` của cả vùng (khoảng `-2 … +3`) để tạo đường cong mở → căng → nhả giữa các ô. Điều kiện test là **spread toàn vùng ≥ 8**, **hai nốt lặp liền kề lệch ≥ 4** (bước 6 bảo đảm), và **spread sau sóng ≥ 4**. Không giá trị nào được dưới sàn `44`; nếu contour muốn xuống thấp hơn, nâng nốt trước thay vì hạ nốt sau. Bar 45 dùng đúng phách chứa onset nên 5 attack vẫn đọc `0 / -2 / -4 / -4 / -4`, chỉ khác arc và clamp `72` so với bảng cũ.
 
+Sàn `44` là **velocity viết**, không phải velocity nghe. Sóng dịch mỗi ô một center: `nghe = round(center) + (viết − 64)`. Trên ACB 1M II vùng A, center khoảng `49–52`, nên viết `44` nghe khoảng `29–32` — sát sàn nghe của body (`SPEECH = 22`, `PEDAL_FLOOR = 20`). Đo 8 movement có contour (4 mã × `1W`/`1M`): velocity viết nhỏ nhất là `47` (PVS 1M I), ACB 1M II là `51`, nên sàn `44` hiện chưa bao giờ chạm. Hạ sàn viết sẽ hạ luôn độ nghe được; muốn release sâu hơn thật thì hạ đồng thời sàn viết và `beat_step` rồi nghe lại.
+
 ### 3.4. Test cần thêm
 
 - A đầu: mọi ô có nốt lặp liền kề đều có chênh velocity ≥ 4.
@@ -394,7 +396,7 @@ Các dòng `96 / 100 / 104 / 120` còn lại chỉ đổi nếu body thực tế
 - [x] Bar 69 (vừa là cuối vùng Juglar vừa là transition B→A): **ô đệm thắng**; không còn attack lead ở phách 3, có gap `2,0–3,0`.
 - [x] A→B (bar 46) và B→A (bar 69): ô cuối vùng đi trước có ≥ 1 phách không attack mới, không có note-off giữa móc; áp ở **cả framed và unframed**.
 - [x] Phần đầu figure bar (trước `gap`) vẫn còn ít nhất một attack lead.
-- [x] A đầu Castillos (cả vùng A, không chỉ phrase đầu): spread velocity ≥ 8; nốt lặp liền kề lệch ≥ 4; spread còn ≥ 4 sau sóng; không giá trị nào dưới `44`.
+- [x] A đầu Castillos (cả vùng A, không chỉ phrase đầu): spread velocity ≥ 8; nốt lặp liền kề lệch ≥ 4; spread còn ≥ 4 sau sóng; không giá trị **viết** nào dưới `44` (sàn nghe thấp hơn sau sóng).
 - [x] Mọi `spec.bpm` Torroba nằm trong `[92, 132]`; `140 → 132`.
 - [x] `SPAN_REVISION = "71"`.
 
