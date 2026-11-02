@@ -1,0 +1,290 @@
+# Kế hoạch mở rộng Shape Dynamics cho Guitar
+
+> **Trạng thái**: đề xuất, chưa viết vào engine. Baseline `tests/test_guitar_wave.py`: 17/17 pass.
+>
+> **Liên kết**: [`docs/sonify-guitar-dynamics-wave-plan.md`](./sonify-guitar-dynamics-wave-plan.md), [`docs/sonify-guitar-phrase-coverage-plan.md`](./sonify-guitar-phrase-coverage-plan.md), [`docs/sonify-guitar-scale-dynamics-plan.md`](./sonify-guitar-scale-dynamics-plan.md), [`docs/sonify-barrios-tremolo-dynamics.md`](./sonify-barrios-tremolo-dynamics.md), [`docs/sonify-symphony-dynamics.md`](./sonify-symphony-dynamics.md).
+>
+> **Mục tiêu**: tăng biên độ volume cảm nhận được trên guitar mà vẫn giữ nguyên cấu trúc âm nhạc — within-bar interval, thứ tự bè, accent, tremolo, etude arch, hairpin, seam giữa section.
+
+---
+
+## 1. Chẩn đoán
+
+### 1.1. Cách chạy hiện tại
+
+Tầng dynamics của guitar là hai bước nối tiếp trong `guitar_patterns.render_patterned_voices`:
+
+```text
+_shape_dynamics()                    guitar_patterns.py:4203
+  └── cộng extra của câu: round(4 * swell) = 0..+4
+      Bỏ qua pedal, etude1, etude11, tremolo, protected, relaxed.
+
+apply_guitar_wave()                  guitar_wave.py:1188
+  ├── resolve_bar_volumes()          volume mỗi ô, fallback band
+  ├── _make_wave()                   log → trung bình W → min-max section → Lipschitz
+  ├── _apply_affine()                V = round(C) + (V_written - 64)
+  ├── _apply_snaps()                 ghi đè 66..76 cho vài cú được chọn
+  └── _sync_ties()
+```
+
+Các hằng số quyết định biên độ:
+
+```text
+d_lo = -16, d_hi = +8     # dải lệch viết sẵn mà bộ lọc giữ
+DEVIATION = 24
+STEP = 4                  # bước tối đa giữa hai ô
+WARM_LIMIT = 63           # trần ấm của body
+snap = 66..76             # lớp ép dây, rất hiếm
+```
+
+Cửa sổ genre và tide suy ra như sau:
+
+```text
+C_lo = floor - d_lo
+C_hi = ceil  - d_hi
+tide = C_hi - C_lo = (ceil - floor) - 24
+```
+
+### 1.2. Số đo hiện tại
+
+| Pattern (calm) | floor..ceil | C_lo..C_hi | Tide |
+|---|---:|---:|---:|
+| Bach sarabande | 28..56 | 44..48 | **4** |
+| Cantabile | 26..54 | 42..46 | **4** |
+| Brouwer noviembre | 24..52 | 40..44 | **4** |
+| Barrios andante | 26..54 | 42..46 | **4** |
+| Torroba castillo | 34..58 | 42..50 | **8** |
+| Torroba fandanguillo | 40..63 | 47.7..55.3 | **7.7** |
+
+Hai quan sát quan trọng:
+
+1. **Torroba đang động hơn hẳn** chỉ vì profile dùng `d_lo = -8` thay vì `-16`. Các ensemble khác đang dành gần như toàn bộ cửa sổ cho phần vi mô chưa dùng hết.
+2. **`alpha_warm` từ calm → wide thường nâng cả floor lẫn ceil.** Ví dụ Bach sarabande `28..56 → 34..62`: cả khối dịch lên 6 bậc, nhưng tide vẫn là 4. Cơ chế "wide" hiện tại làm section **to hơn**, không làm section **rộng hơn**.
+
+### 1.3. Lớp nghe thực tế
+
+- `musicxml._guitar_part` (`musicxml.py:1221`) **không in `score.dynamics`**.
+- Nó chỉ in `MELODY_DYNAMIC` (`mp`) ở ô 0 (`musicxml.py:1243`), và với Barrios một `mp` mỗi bè (`musicxml.py:1286`).
+- Vì vậy tai người nghe chỉ có **velocity**, không có lớp chữ p/mp/mf/f hỗ trợ.
+
+Hệ quả: mọi cải thiện volume phải nằm trong velocity, hoặc phải bật lại printed dynamics một cách có kiểm soát và có test playback.
+
+### 1.4. Kết luận
+
+**Cấu trúc: 9/10. Biểu cảm volume: khoảng 4/10.**
+
+- Tide 3–5 bậc MIDI trên nylon chỉ vào cỡ **~0,5–0,8 dB** (theo bậc độ lớn đo trong `docs/sonify-symphony-dynamics.md`; guitar có thể khác nhưng cùng bậc). Ngưỡng nghe trong bản nhiều bè khoảng **1 dB**.
+- Trần `V_ceil ≤ 63` + `min(v_ceil, raw)` làm phẳng đúng chỗ cao trào: nốt viết 72/76/80 dễ dồn về cùng một số.
+- Min-max theo từng section xóa mức tuyệt đối; không có anchor toàn bài.
+- Snap `66..76` quá hiếm để tạo thành một **vùng f**; nó chỉ là vài nốt lẻ.
+
+---
+
+## 2. Điểm mạnh cần giữ
+
+1. **Affine là abstraction đúng.** `V = round(C) + (V_written - 64)` giữ nguyên hiệu MIDI trong ô, kể cả khi `C` có đuôi `.5`. Đây là điều kiện then chốt để không phá cấu trúc.
+2. **Tách macro và micro rất kỷ luật.** Sóng chỉ dời cả khối; pattern/accent/tremolo/etude vẫn là micro viết sẵn. Band không bị cộng hai lần.
+3. **Log + cửa sổ W theo thể loại.** `smooth_ell` làm phẳng nhiễu; `W = 3/5/9` cho điệu / câu chạy / câu ngân hợp lý về mặt âm nhạc.
+4. **Chặn bước Lipschitz 4 bậc.** Khi tide đủ lớn, nó tránh cú nhảy cả khối tại vạch nhịp.
+5. **Intro/outro có đường `L` và speech floor 22.** Không đẩy nốt xuống dưới mức còn nghe, không kẹp từng nốt vào `F`.
+6. **Snap có ngân sách.** Không biến mọi nốt thành accent; giữ được sự quý hiếm của lớp ép dây.
+7. **Test bất biến rất tốt.** Các invariant về within-bar difference, seam, pedal speech, snap budget được ghi rõ trong `test_guitar_wave.py`.
+
+---
+
+## 3. Điểm yếu
+
+### 3.1. Cao
+
+1. **Tide 3–5 bậc là quá nhỏ.** Đây là yếu tố số một. Với phần lớn profile, `ceil - floor` gần như bị ăn hết bởi `d_lo = -16`.
+2. **`alpha_warm` dịch cửa sổ thay vì mở rộng cửa sổ.** "Wide" nên là tăng range, không chỉ tăng level.
+3. **Trần `≤63` + clamp làm phẳng cao trào.** Nốt viết trên `d_hi` dồn về cùng một số; càng lên đỉnh càng mất tương phản.
+4. **Min-max theo section xóa mức tuyệt đối.** Section to và section nhỏ có thể có cùng độ gợn; thiếu đường cong lớn xuyên section.
+5. **Không khống chế liên tục giữa các section/row.** Mỗi `_Wave` được chuẩn hóa riêng; Lipschitz chỉ chạy bên trong wave. Seam có thể nhảy quá 4 bậc.
+
+### 3.2. Trung bình
+
+6. **`W = 9` trên section ngắn + reflection.** Section 2–3 ô gần như phẳng; reflection có thể tạo đỉnh giả ở biên.
+7. **Lipschitz vô hiệu khi tide ≤ 4.** `delta_U = 4 / tide ≥ 1`, nên C có thể nhảy từ đáy lên đỉnh ngay một vạch.
+8. **`_shape_dynamics` bỏ câu phẳng và chỉ +0..+4.** `phrase_at()` yêu cầu `phrase.rise > 0`; câu phẳng không có arch. Coverage hiện tại: `danza` 69%, `preludio`/`torroba_tremolo` 76%, `bach_prelude` 67%.
+9. **Phrase extra có thể phá within-bar interval.** Extra cộng theo event/eighth, không theo ô, và bỏ qua `relaxed`/`protected`. Trừ các pattern trong `_WHOLE_BAR_EXTRA`, hai nốt cùng ô có thể nhận extra khác nhau.
+10. **Snap quá hiếm để tạo "vùng f".** Ngân sách `0.045 × số attack`, tối đa 4 unit/section.
+
+### 3.3. Thấp, nhưng đáng sửa
+
+11. **Bậc 64/65 là "vách đá".** `humanize._clamp_guitar` (`humanize.py:292`) buộc nốt viết `≤64` ở `≤64`, nốt viết `>64` vào `≥69`. Một cặp 64/65 trong cùng ô có thể thành 64/69 — mất 5 bậc.
+12. **DFI có thể chấm sai lớp dynamics.** `dfi._dynamic_gain` (`dfi.py:662`) giả định chữ dynamics được phát, nhưng `_guitar_part` chỉ in `mp`. Cần xác nhận lại metric trước khi dùng DFI để đánh giá guitar.
+13. **Hiệu năng.** `phrase_at()` quét tuyến tính cho từng event; `_bar_pattern` gọi 2 lần/event; `_pedal_regions` tính 2 lần; `lipschitz` là O(n²).
+
+---
+
+## 4. Mô hình đề xuất
+
+Giữ đúng tinh thần hiện tại, chỉ tách ba thành phần:
+
+```text
+C(b) = anchor(section) + tide(volume) + breath(phrase)
+V    = soft_clip( round(C(b)) + (V_written - 64), ceiling )
+```
+
+Trong đó:
+
+- **`anchor`**: section này to/nhỏ hơn toàn bài bao nhiêu.
+- **`tide`**: đường cong volume bên trong section.
+- **`breath`**: vòng cung câu nhạc, **một số cho cả ô**, không cộng từng nốt.
+- **`soft_clip`**: giữ được vài bậc cuối thay vì dồn hết về trần.
+
+Tất cả đều là hàm của ô, nên **mọi nốt trong ô vẫn nhận cùng một shift**; within-bar interval được bảo toàn tuyệt đối.
+
+---
+
+## 5. Kế hoạch sửa
+
+### P0 — Tái phân bổ cửa sổ, đừng nâng floor khi "wide"
+
+Đây là thay đổi ít rủi ro nhất và cho kết quả lớn nhất.
+
+- Thiết kế lại profile theo **range trước, floor sau**:
+
+```text
+range = ceil - floor - (d_hi - d_lo)
+floor = ceil - range - (d_hi - d_lo)
+```
+
+- Với Bach sarabande, thay vì `calm 28..56`, `wide 34..62` (tide 4), dùng `wide 28..62` (tide 10). Đáy vẫn là 44, đỉnh lên 54; **không thêm nốt mới, không đổi timbre trần**.
+- Hoặc thêm trường `range_calm/range_wide` vào `PatternWaveProfile`, rồi suy `floor` từ `ceil` và `range`.
+- Đặt **tide tối thiểu 6–8 bậc** cho mọi body section, kể cả ngày volume phẳng.
+
+Lưu ý: hạ floor của wide sẽ hạ luôn `F` dùng cho intro/outro `L`. Nên tách `F` của pedal khỏi `v_floor` của body, hoặc giữ `F` ở mức cũ.
+
+### P1 — Đo `d_lo/d_hi` thực tế theo pattern
+
+- Sau `_shape_dynamics`, đo phân vị 1%/99% của `V_written - 64` **trên cả ba bè** cho từng pattern.
+- Đặt `d_lo/d_hi` theo phân vị đó, thay vì `-16/+8` cố định.
+- Ví dụ pattern chỉ viết thấp nhất 56 (`d=-8`) và cao nhất 72 (`d=+8`): đặt `d_lo=-8`, `d_hi=8`; tide tăng thêm 8 bậc mà **không nốt nào bị đổi quan hệ trong ô**.
+- Nốt hiếm nằm ngoài khoảng đo sẽ bị kẹp; chấp nhận nếu tỷ lệ dưới ~0,5%.
+
+### P2 — Soft-knee ở trần
+
+Thay `min(v_ceil, raw)` bằng một hàm monotone:
+
+```python
+def soft_ceiling(raw: int, ceil: int, knee: int | None = None) -> int:
+    knee = ceil - 3 if knee is None else knee
+    if raw <= knee:
+        return raw
+    span = ceil - knee
+    return knee + round(span * (1 - math.exp(-(raw - knee) / span)))
+```
+
+- Giữ được ít nhất 3 mức trong 6 bậc cuối, thay vì tất cả về 63.
+- Không đổi thứ tự, không đổi timbre trần, nhưng cứu được đỉnh của câu.
+- Test: monotone; hiệu preserved cho `raw <= knee`; không có hai nốt khác nhau bị dồn về cùng số nếu còn chỗ.
+
+### P3 — Anchor toàn bài + seam liên tục
+
+- Giữ min-max trong section cho **shape**, nhưng thêm offset tuyệt đối:
+
+```text
+anchor(section) = clamp(beta * (log_vol_section - log_vol_piece), -A, +A)
+```
+
+- `A` khoảng 4–6 bậc. Section to hơn sẽ thực sự to hơn, dù tỷ lệ nội bộ nhỏ.
+- Buộc `|C(b) - C(b-1)| ≤ 4` **xuyên seam**, không chỉ trong từng wave. Có thể chạy một pass Lipschitz toàn bài sau khi ghép các wave, hoặc truyền tâm cuối của section trước làm điều kiện đầu của section sau.
+- Với `trio/bridge`, thay vì nhân `alpha_warm` cho 0.5 (thu hẹp range), hãy hạ `anchor` và giữ range — đoạn contrast vẫn có không gian thở.
+
+### P4 — Hợp nhất lớp phrase
+
+Hiện có ba cơ chế chồng nhau: `_note_velocity` viết arch, `_shape_dynamics` cộng extra, `phrase_curve` chỉ để xếp hạng snap. Nên:
+
+- Một hàm `phrase_breath(phrase, bar)` duy nhất, trả 0..1, **dùng cho câu phẳng lẫn câu có rise**. Đưa nó vào `C(b)` như một số hạng, không cộng vào từng nốt.
+- Pattern nào đã tự viết contour (etude, tremolo, preludio) thì **không nhận breath lần nữa**; pattern còn lại nhận.
+- Điều này sửa luôn `danza`/`preludio`/`bach_prelude` mà không cần mở `_shape_dynamics` cho từng event.
+
+### P5 — W thích ứng và bỏ reflection ở section ngắn
+
+```python
+width = min(profile.smooth, max(1, 2 * ((len(levels) - 1) // 2) + 1))
+```
+
+- Section ngắn hơn `W` thì dùng fit tuyến tính cục bộ hoặc không làm mượt, thay vì reflection.
+- Reflection hiện tại lặp biên, có thể tạo peak giả; với section 2–3 ô, nó làm phẳng gần như toàn bộ.
+
+### P6 — Nếu muốn score "nói" volume
+
+Hiện `_guitar_part` chỉ in `mp`. Có hai hướng:
+
+- **Giữ velocity-only** (như hiện tại) và mở rộng velocity như P0–P3. Đây là hướng an toàn, không sợ MuseScore nhân đôi dynamics.
+- **In dynamics theo section** (p/mp/mf/f) tại đầu section, lấy từ **tâm C thực tế** chứ không phải band window cũ. Phải test playback vì MuseScore có thể reset/scale note velocity khi gặp chữ mới. Nếu in, nên in rất thưa (1 chữ/section) và dùng wedge cho vòng cung, tránh in từng ô.
+
+### P7 — Dọn hiệu năng (không đổi âm nhạc)
+
+- Cache `phrase_at` theo eighth.
+- Cache `_bar_pattern` theo bar.
+- Tính `_pedal_regions` một lần.
+- Đổi `lipschitz` sang hai pass distance transform O(n) nếu section dài.
+- `humanize._pairs` bucket theo bar/voice thay vì O(n²) toàn bộ.
+
+---
+
+## 6. Đo lường và test
+
+### 6.1. Metric trước/sau
+
+| Metric | Mục tiêu |
+|---|---|
+| `p90(heard) - p10(heard)` trên lead attack, mỗi section | **≥ 8–12 bậc** body, **≥ 12–16** ở cao trào |
+| Số tâm `C` nguyên khác nhau / section | **≥ 8** thay vì 3–5 |
+| `max |C(b) - C(b-1)|` xuyên seam | **≤ 4** |
+| Tỷ lệ cặp nốt cùng ô giữ đúng hiệu | **100%** cho nốt không bị kẹp |
+| Số nốt body < 22 hoặc > 63 (trừ snap/peak window) | **0** |
+| `lead > bass > support` sau humanize | **100%** |
+| DFI/PAFI guitar | Đo lại sau khi xác nhận `_dynamic_gain` |
+
+### 6.2. Bất biến cần thêm test
+
+1. Với mọi pattern, `tide ≥ 6` ở body.
+2. `C` liên tục qua seam giữa hai section/row.
+3. Soft-knee monotone và giữ ≥3 mức cuối.
+4. Breath là một số cho cả ô, không đổi within-bar interval.
+5. Nốt 64 và 65 trong cùng ô vẫn cách nhau 1 sau humanize (nếu writer sinh ra 65).
+6. Intro/outro vẫn nối đúng `C` của body và không tụt dưới speech floor.
+
+### 6.3. Nghe A/B
+
+Mỗi thay đổi nghe tối thiểu:
+
+- Một movement Bach có cả calm và wide.
+- Một Barrios tremolo (kiểm tra arch trong ô không bị bẹt).
+- Một Torroba `castillo` và `fandanguillo` (so với baseline đang 8 bậc).
+- Một bản volume phẳng (kiểm tra tide tối thiểu không tạo cảm giác "gợn giả").
+
+---
+
+## 7. Thứ tự thực hiện
+
+1. **P0 + P2 + test + đo** — 1–2 ngày, rủi ro thấp, gần như chắc chắn nghe khác rõ.
+2. **P1 (d_lo/d_hi theo pattern)** — đo phân vị, cập nhật bảng, nghe lại từng ensemble.
+3. **P3 (anchor + seam)** — thay đổi kiến trúc nhỏ, cần nghe kỹ transition.
+4. **P4 (hợp nhất phrase)** — sửa coverage `danza`/`preludio`/`bach_prelude`.
+5. **P5, P7** — dọn dẹp.
+6. **P6** — quyết định có in dynamics hay không, sau khi nghe và đo.
+
+---
+
+## 8. Việc không làm
+
+- Không thêm accent ngẫu nhiên hoặc tăng velocity từng nốt.
+- Không đổi cao độ, duration, slur, pattern, tempo trong đợt này.
+- Không đổi trần timbre `WARM_LIMIT` của body (trừ khi P6 được duyệt).
+- Không mở `_shape_dynamics` cho pedal hoặc tremolo/etude đã có contour riêng.
+- Không in thêm chữ dynamics khi chưa test playback chống nhân đôi.
+
+---
+
+## 9. Câu hỏi cần nghe/duyệt
+
+1. Section "wide" có được phép có đáy thấp bằng section "calm" không? Nếu không, phải chọn giữa **range** và **mức to tuyệt đối**.
+2. Có chấp nhận nốt hiếm nằm ngoài `d_lo/d_hi` bị kẹp để đổi lấy tide lớn hơn không? Tỷ lệ tối đa là bao nhiêu?
+3. Có muốn một "vùng f" 1–2 ô ở cao trào (66–68) hay chỉ giữ snap lẻ như hiện tại?
+4. Score có cần in dynamics để người đọc thấy volume, hay tiếp tục velocity-only?
