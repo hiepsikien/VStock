@@ -1,6 +1,6 @@
 # Torroba: Juglar bass, ô đệm A–B–A, động lực A đầu, và tempo 92–132
 
-> **Trạng thái**: **đã vào code**, `SPAN_REVISION` `"70"` → `"71"`, `pytest tests/ -q` **738 passed**. Đo lại trên ACB 1M II: bass đủ `1,0` phách ở mọi phách (bar 47/49 không còn `0,5`), ô đệm rơi đúng **bar 46** (ô Castillo cuối cùng) và **bar 69**, cả hai đường framed/unframed đều có gap `2,0–3,0`.
+> **Trạng thái**: **đã vào code**, `SPAN_REVISION` `"70"` → `"71"`, `pytest tests/ -q` **744 passed**. Đo lại trên ACB 1M II: bass đủ `1,0` phách ở mọi phách (bar 47/49 không còn `0,5`), ô đệm rơi đúng **bar 46** (ô Castillo cuối cùng) và **bar 69**, cả hai đường framed/unframed đều có gap `2,0–3,0`.
 > **Lệch so với kế hoạch ban đầu**: mối nối A→B không phải bar 48 mà là **bar 46**. Phrase Castillo cuối vùng (phrase 15) trải tới hết bar 46, còn section B bắt đầu ở bar 46; nên bar 46 vẫn render `castillo`, và đó mới là ô cuối vùng đi trước. Vì vậy `_torroba_boundary()` đọc **hai bar liền kề** (`_bar_pattern(bar) != _bar_pattern(bar+1)`) thay vì đọc `ctx.section()`/`section.end - 1`, và `apply_sonatina_downbeats()` bỏ pickup khi bar trước là ô đệm để gap không bị lấp lại.
 > **Đọc cùng**: [`docs/sonify-guitar-torroba-aba-tempo.md`](./sonify-guitar-torroba-aba-tempo.md), [`docs/sonify-guitar-torroba-dynamics.md`](./sonify-guitar-torroba-dynamics.md), [`docs/sonify-guitar-torroba-tempo-plan.md`](./sonify-guitar-torroba-tempo-plan.md), [`docs/sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md).
 > **Giữ**: không thêm id pattern, không thêm ô nhạc, không đổi form A–B–A, không đổi cờ `bridge` / `trio` trong `span.py`. Chỉ sửa nội dung bên trong ô đã có.
@@ -94,16 +94,18 @@ Bảng hiện tại: sàn `96`, trần `140`. `retarget_torroba_tempo()` chỉ n
 Thêm helper trong `guitar_torroba.py`:
 
 ```python
-def _juglar_bass(ctx, bar, eighth, lead, events) -> tuple[int, int]:
+def _juglar_bass(ctx, bar, eighth, raw, lead, support) -> tuple[int, int] | None:
     """Bass của một cú p-a-m-i. Dây bấm cũng hợp lệ, và cú bass luôn có mặt."""
 ```
+
+`lead` được truyền **nguyên list** (không copy) để nhánh hạ voicing ghi thẳng cao độ mới vào chùm; caller giữ list đó khi dựng `low`.
 
 Thứ tự thử (giữ đúng thứ tự ưu tiên, không lặp logic lung tung):
 
 1. `_fitting_bass(ctx, bar, eighth, raw, events, (2,))` — `raw` là `_torroba_bass()`. Hàm này tự thử `raw` trước, rồi `_chord_bass_at()` nếu `raw` không vừa. Đây là bước chính và đã đủ cho toàn bộ ACB 1M II (diag báo `0` lỗi).
 2. Nếu bước 1 trả `None`: **hạ voicing bè cao xuống một quãng tám** cho chùm đó rồi thử lại bước 1. Đây là nhánh “chỉnh voicing” đúng ý người dùng, không phải hạ bass.
 3. Nếu vẫn `None`: `_fitting_bass(..., (1,))` — giữ cú bass nửa phách còn hơn mất phách. Chỉ dùng khi tay thật sự không giữ nổi 2 móc; ghi log/đếm trong test.
-4. Lưới an toàn cuối: âm hợp âm thấp nhất trong `_bass_window(ctx)` ở nửa phách. **Không xảy ra trên dữ liệu hiện tại**, nhưng phải đo lại **sau pipeline đầy đủ** để chắc `_repair` / `_resolve` không xóa nó. Nếu xảy ra, đó là lỗi cần sửa voicing, không phải test pass.
+4. Lưới an toàn cuối: thử lần lượt từng âm hợp âm trong `_bass_window(ctx)` ở nửa phách. Nếu **không âm nào** vừa tay kể cả sau khi hạ voicing, trả `None` để caller bỏ phách — thà mất một phách còn hơn ghi nốt không bấm được và làm `assert_playable` fail. **Không xảy ra trên dữ liệu hiện tại** (diag `0` lỗi), nhưng phải đo lại **sau pipeline đầy đủ** để chắc `_repair` / `_resolve` không xóa cú bass.
 
 `_render_juglar_bar()` bỏ hẳn điều kiện `if bass is not None` ở **nhánh chùm tremolo**; mỗi phách gọi `_juglar_bass()` và ghi `low.append(...)`. Nhánh `quarter_notes` (ô cuối vùng, không phải tremolo) giữ một cú bass như hiện tại; nó thuộc mục 1.3, không chịu luật “mỗi phách một cú”.
 
@@ -138,6 +140,7 @@ Nốt thứ 4 dài `0,5` sẽ ngân từ `+0,75` tới `+1,25`, tức nối sang
   - Test này gọi **trực tiếp** `_render_torroba_bar`, chưa qua cushion, nên `last` vẫn đổi từ `1.0` xuống `0.25` cho nốt cuối (bar 69). Ở pipeline đầy đủ, cushion mới là bước xóa nốt phách 3.
   - `:3814` đang assert **cả 9 nốt bar 68** dài `0,25`; đổi thành **per-cluster**: hai chùm đầu có nốt thứ 4 dài `0,5`, chùm cuối ô dài `0,25`.
 - Thêm test đo **sau pipeline đầy đủ** (không chỉ `_render_torroba_bar`) để chắc bass không bị `_repair` / `_resolve` / `_rewrite_bass` xóa, và bar 69 có cushion thay vì nốt phách 3.
+- Đã implement bước **hạ voicing bè cao một quãng tám** (mục 1.1 bước 2): `_juglar_bass()` sửa trực tiếp các nốt voice 1 của chùm trong `lead` rồi thử lại `(2, 1)`. Trên ACB 1M II nhánh này không chạy.
 - **Đã tìm ra thủ phạm thật của cú bass `0,5`**: `guitar_scale_passages._drop_region()` cắt mọi bè còn ngân khi một scale passage bắt đầu giữa phách (bar 47/49 có passage mở ở móc cuối phách 2). `_rewrite_bass()` giờ truyền `hold_bass_until` cho Torroba, để bass ngân tới cú bass kế tiếp mà `_rewrite_bass` sẽ đặt, thay vì cắt đôi phách.
 
 ---
@@ -235,19 +238,19 @@ Thêm helper trong `guitar_torroba.py`:
 
 ```python
 def apply_castillo_first_a_contour(ctx, lead, patterns):
-    """Contour velocity cho phrase Castillo đầu tiên, sau arch và trước sóng."""
+    """Contour velocity cho vùng Castillos A đầu, sau arch và trước sóng."""
 ```
 
-Xác định **A đầu**: phrase body đầu tiên có `patterns[index] == "castillo"`. Chỉ áp trong phrase đó.
+Xác định **A đầu**: phrase body **đầu tiên** của movement. Nếu pattern của nó không phải `castillo` (ví dụ chương 4/4 rally mở bằng `olite`), pass không làm gì — không contour vùng B contrast. Nếu đúng là `castillo`, vùng A gồm phrase đó **và mọi phrase body liền kề cũng `castillo`**, dừng ở pattern khác đầu tiên. Đây là cả vùng A (bar 10–46 trên ACB 1M II), không phải một phrase; A cuối sau B không nằm trong vùng nên giữ nguyên.
 
-Với từng ô trong phrase:
+Với từng ô trong vùng:
 
-1. Tính `progress = (onset - phrase.start) / max(1, phrase.end - phrase.start)`.
+1. Tính `progress = (onset - region.start) / max(1, region.end - region.start)` trên **cả vùng**.
 2. `arc = round(5 * sin(pi * progress)) - 2` → khoảng `-2 … +3`, mở nhẹ, giữa căng, cuối nhả.
 3. `beat_index = min(3, int(event.beat + 1e-9))` (phách 0, 1, 2, 3 của ô), rồi `beat_step = -2 * min(beat_index, 2)` → phách 1 `0`, phách 2 `-2`, phách 3 và 4 `-4`. Đây là **phách chứa onset** (floor), không phải thứ tự attack, nên bar 45 có 5 attack vẫn dùng đúng phách; nốt lệch phách như `0,5` vẫn thuộc phách 0.
 4. Chỉ áp khi ô **phẳng** (`max - min < 4`) hoặc có **nốt lặp liền kề**. Ô đã có contour tự nhiên (ví dụ ô 10) được giữ nguyên.
 5. `velocity = clamp(velocity + arc + beat_step, 44, 72)`.
-6. Sau đó quét nốt lặp liền kề: nếu cùng `midi` và chênh velocity `< 4`, **hạ nốt sau thêm 4** nếu còn trên sàn; nếu nốt sau đã ở `44`, **nâng nốt trước thêm 4** (clamp `72`) để khoảng cách vẫn ≥ 4. Không bao giờ để cặp lặp cùng velocity ở sàn.
+6. Sau đó quét nốt lặp liền kề: nếu cùng `midi` và chênh velocity `< 4`, **hạ nốt sau xuống `earlier - 4`** nếu `earlier - 4 ≥ 44`; nếu không, **nâng nốt trước lên `later + 4`** (clamp `72`) để khoảng cách vẫn ≥ 4. Điều kiện phải kiểm tra chính giá trị được ghi (`earlier - 4`), không phải `later - 4`; nếu kiểm sai, cặp `45/48` sẽ ghi `41` và rơi dưới sàn.
 
 Gọi trong `guitar_patterns.py`:
 
@@ -263,21 +266,26 @@ Thứ tự này quan trọng: contour chạy **sau** arch (arch không ghi đè)
 
 Bảng dưới ghi **delta contour** (giá trị cộng vào velocity viết, trước sóng), không ghi velocity tuyệt đối — vì velocity nghe được còn phụ thuộc center của sóng từng ô:
 
-| Ô | Hiện tại (sau sóng) | Delta contour (trước sóng) |
-|---|---|---|
-| 11 | `56 / 56 / 56` | `0 / -2 / -4` |
-| 15 | `53 / 53 / 53` | `0 / -2 / -4` |
-| 28 | `52 / 52 / 52 / 52` | `0 / -2 / -4 / -4` |
-| 45 | `58 / 58 / 58 / 58 / 58` | `0 / -2 / -4 / -4 / -4` |
+Đo lại sau khi vào code (velocity viết, trước sóng) trên các ô phẳng của vùng A:
 
-Cộng thêm `arc` của cả phrase (khoảng `-2 … +3`) để tạo đường cong mở → căng → nhả giữa các ô. Điều kiện test là **spread toàn phrase ≥ 8**, **hai nốt lặp liền kề lệch ≥ 4** (bước 6 bảo đảm), và **spread sau sóng ≥ 4**. Không giá trị nào được dưới sàn `44`; nếu contour muốn xuống thấp hơn, nâng nốt trước thay vì hạ nốt sau.
+| Ô | Trước | Sau |
+|---|---|---|
+| 11 | `72 / 72 / 72` | `70 / 69 / 67` |
+| 12 | `74 / 72 / 73 / 72 / 72` | `72 / 71 / 70 / 69 / 67` |
+| 15 | `72 / 72 / 72` | `72 / 70 / 68` |
+| 28 | `72 / 72 / 72 / 72` | `72 / 68 / 72 / 71` |
+| 45 | `75 / 72 / 73 / 72 / 73` | `72 / 71 / 70 / 68 / 67` |
+
+Cộng thêm `arc` của cả vùng (khoảng `-2 … +3`) để tạo đường cong mở → căng → nhả giữa các ô. Điều kiện test là **spread toàn vùng ≥ 8**, **hai nốt lặp liền kề lệch ≥ 4** (bước 6 bảo đảm), và **spread sau sóng ≥ 4**. Không giá trị nào được dưới sàn `44`; nếu contour muốn xuống thấp hơn, nâng nốt trước thay vì hạ nốt sau. Bar 45 dùng đúng phách chứa onset nên 5 attack vẫn đọc `0 / -2 / -4 / -4 / -4`, chỉ khác arc và clamp `72` so với bảng cũ.
 
 ### 3.4. Test cần thêm
 
 - A đầu: mọi ô có nốt lặp liền kề đều có chênh velocity ≥ 4.
-- A đầu: spread velocity trong phrase ≥ 8.
+- A đầu: spread velocity trong **cả vùng** ≥ 8 (test dùng hai phrase castillo liền nhau).
 - Gọi `apply_guitar_wave()` sau contour, xác nhận spread vẫn ≥ 4.
-- A cuối không bị đổi nếu không nằm trong phạm vi “A đầu”.
+- A cuối (phrase castillo sau B) không bị đổi.
+- Cặp lặp sát sàn (`earlier = 45`, `later = 48`) không đẩy nốt nào xuống dưới `44`.
+- Ô đã có contour tự nhiên (spread ≥ 4, không nốt lặp liền kề) được giữ nguyên.
 
 **Nếu muốn fix đồng loạt các pattern khác** (đợt riêng, không nằm trong kế hoạch này):
 
@@ -386,7 +394,7 @@ Các dòng `96 / 100 / 104 / 120` còn lại chỉ đổi nếu body thực tế
 - [x] Bar 69 (vừa là cuối vùng Juglar vừa là transition B→A): **ô đệm thắng**; không còn attack lead ở phách 3, có gap `2,0–3,0`.
 - [x] A→B (bar 46) và B→A (bar 69): ô cuối vùng đi trước có ≥ 1 phách không attack mới, không có note-off giữa móc; áp ở **cả framed và unframed**.
 - [x] Phần đầu figure bar (trước `gap`) vẫn còn ít nhất một attack lead.
-- [x] A đầu Castillos: spread velocity ≥ 8; nốt lặp liền kề lệch ≥ 4; spread còn ≥ 4 sau sóng; không giá trị nào dưới `44`.
+- [x] A đầu Castillos (cả vùng A, không chỉ phrase đầu): spread velocity ≥ 8; nốt lặp liền kề lệch ≥ 4; spread còn ≥ 4 sau sóng; không giá trị nào dưới `44`.
 - [x] Mọi `spec.bpm` Torroba nằm trong `[92, 132]`; `140 → 132`.
 - [x] `SPAN_REVISION = "71"`.
 

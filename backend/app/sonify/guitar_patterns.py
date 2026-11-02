@@ -2115,6 +2115,8 @@ def _torroba_boundary(ctx, bar: int, patterns) -> bool:
     """True when a Torroba body bar yields to a different Torroba pattern."""
     if getattr(ctx, "ensemble", None) != "torroba":
         return False
+    if getattr(ctx, "kind", None) not in {"3/4", "4/4", "6/8"}:
+        return False
     if bar < 0 or bar + 1 >= ctx.bars:
         return False
     if ctx.kind_at.get(bar, "phrase") in _PEDAL:
@@ -2167,6 +2169,9 @@ def _torroba_cushion(ctx, bar: int, lead, support, low):
                     replace(
                         event,
                         duration_beats=max(0.0, gap_beat - event.beat),
+                        # The continuation after the gap is dropped, so the
+                        # trimmed note must not open a tie to nothing.
+                        tie_start=False,
                     )
                 )
             else:

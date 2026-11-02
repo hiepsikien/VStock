@@ -4672,8 +4672,9 @@ def _aba_cushion_fixture(
             )
         low.append(NoteEvent(bar=bar, beat=0.0, midi=45, duration_beats=2.0, voice=3, velocity=60))
         low.append(NoteEvent(bar=bar, beat=2.0, midi=45, duration_beats=1.0, voice=3, velocity=60))
-    support.append(NoteEvent(bar=1, beat=1.0, midi=60, duration_beats=2.0, voice=2, velocity=55))
-    support.append(NoteEvent(bar=3, beat=1.0, midi=60, duration_beats=2.0, voice=2, velocity=55))
+    support_len = 3.0 if bar_beats == 4.0 else 2.0
+    support.append(NoteEvent(bar=1, beat=1.0, midi=60, duration_beats=support_len, voice=2, velocity=55))
+    support.append(NoteEvent(bar=3, beat=1.0, midi=60, duration_beats=support_len, voice=2, velocity=55))
     return ctx, patterns, lead, support, low
 
 
@@ -4681,6 +4682,7 @@ def _aba_cushion_fixture(
     ("kind", "epb", "strong", "bar_beats", "gap_beat"),
     [
         ("3/4", 6, (0,), 3.0, 2.0),
+        ("4/4", 8, (0, 4), 4.0, 3.0),
         ("6/8", 6, (0, 3), 3.0, 1.5),
     ],
 )
@@ -4717,6 +4719,20 @@ def test_torroba_cushion_leaves_one_clear_beat_at_both_aba_seams(
             assert not any(
                 note.beat >= gap_beat - 1e-9 for note in inner if note.bar == bar
             ), name
+            # A support note that would ring across the gap is cut on the beat
+            # line, not in the middle of a pluck.
+            crossing = [
+                note
+                for note in inner
+                if note.bar == bar
+                and note.beat < gap_beat - 1e-9
+                and note.beat + note.duration_beats >= gap_beat - 1e-9
+            ]
+            assert crossing, name
+            assert all(
+                note.beat + note.duration_beats == pytest.approx(gap_beat)
+                for note in crossing
+            ), name
             # A bass that began on the beat still rings; no new bass starts in
             # the empty beat.
             assert any(
@@ -4725,6 +4741,54 @@ def test_torroba_cushion_leaves_one_clear_beat_at_both_aba_seams(
             assert not any(
                 note.beat >= gap_beat - 1e-9 for note in bass if note.bar == bar
             ), name
+
+
+def test_torroba_cushion_clears_a_tie_that_would_cross_the_gap() -> None:
+    ctx, patterns, _lead, _support, _low = _aba_cushion_fixture("3/4", 6, (0,), 3.0)
+    lead = [
+        NoteEvent(
+            bar=1,
+            beat=0.0,
+            midi=60,
+            duration_beats=2.5,
+            voice=1,
+            velocity=64,
+            tie_start=True,
+        ),
+        NoteEvent(
+            bar=1,
+            beat=2.5,
+            midi=60,
+            duration_beats=0.5,
+            voice=1,
+            velocity=64,
+            tie_stop=True,
+        ),
+    ]
+    heard, inner, bass = _smooth_boundaries(
+        ctx, patterns, lead, [], [], figure_bars={1}
+    )[:3]
+    kept = [note for note in heard if note.bar == 1]
+    # The head is cut on the beat line and opens no tie to the dropped tail.
+    assert [(note.beat, note.duration_beats) for note in kept] == [(0.0, 2.0)]
+    assert not kept[0].tie_start
+    assert not any(note.beat >= 2.0 - 1e-9 for note in heard if note.bar == 1)
+    assert inner == [] and bass == []
+
+
+def test_drop_region_holds_a_torroba_bass_to_the_next_attack() -> None:
+    from app.sonify.guitar_scale_passages import _drop_region
+
+    # 3/4 bar, one full-beat bass on beat 2. A run opens on the last eighth of
+    # that beat, which is sixteenth 10: a plain drop cuts the bass to half a beat.
+    events = [NoteEvent(bar=0, beat=2.0, midi=45, duration_beats=1.0, voice=3, velocity=48)]
+    clipped = _drop_region(events, 5, 6, 6)
+    assert [(note.beat, note.duration_beats) for note in clipped] == [(2.0, 0.5)]
+    held = _drop_region(events, 5, 6, 6, hold_bass_until=6)
+    assert [(note.beat, note.duration_beats) for note in held] == [(2.0, 1.0)]
+    # A new attack planted at the region start keeps the old bass clipped there.
+    at_start = _drop_region(events, 5, 6, 6, hold_bass_until=5)
+    assert [(note.beat, note.duration_beats) for note in at_start] == [(2.0, 0.5)]
 
 
 def test_torroba_cushion_reads_the_pattern_seam_not_the_section_edge() -> None:
@@ -4769,30 +4833,37 @@ def test_torroba_cushion_reads_the_pattern_seam_not_the_section_edge() -> None:
         ), name
 
 
-def test_castillo_first_a_contour_spreads_repeats_and_survives_the_wave() -> None:
-    first = _joined(0, [64] * 32)
-    second = _joined(32, [67] * 8)
+def test_castillo_first_a_contour_spreads_the_whole_region_and_survives_the_wave() -> None:
+    first = _joined(0, [64] * 16)
+    second = _joined(16, [64] * 16)
+    contrast = _joined(32, [67] * 8)
+    returning = _joined(40, [64] * 8)
+    bars = 6
     ctx = _ctx(
-        melody=[64] * 32 + [67] * 8,
+        melody=[64] * 40 + [64] * 8,
         phrase=first,
         kind="4/4",
         epb=8,
         bpm=96,
         character="calm",
-        bars=5,
+        bars=bars,
         bar_beats=4.0,
     )
     ctx = replace(
         ctx,
-        phrases=(first, second),
-        sections=(FormSection(0, 4, "phrase", 0), FormSection(4, 5, "phrase", 1)),
-        chord_at={bar: C for bar in range(5)},
-        kind_at={bar: "phrase" for bar in range(5)},
-        band_at={bar: "mf" for bar in range(5)},
-        bar_volumes=[4.0] * 5,
-        section_rel_spans={0: 0.02, 4: 0.02},
+        phrases=(first, second, contrast, returning),
+        sections=(
+            FormSection(0, 4, "phrase", 0),
+            FormSection(4, 5, "phrase", 1),
+            FormSection(5, 6, "phrase", 2),
+        ),
+        chord_at={bar: C for bar in range(bars)},
+        kind_at={bar: "phrase" for bar in range(bars)},
+        band_at={bar: "mf" for bar in range(bars)},
+        bar_volumes=[4.0] * bars,
+        section_rel_spans={0: 0.02, 4: 0.02, 5: 0.02},
     )
-    patterns = ["castillo", "sonatina"]
+    patterns = ["castillo", "castillo", "sonatina", "castillo"]
     lead = [
         NoteEvent(
             bar=bar,
@@ -4805,7 +4876,7 @@ def test_castillo_first_a_contour_spreads_repeats_and_survives_the_wave() -> Non
         for bar in range(4)
         for beat in range(4)
     ]
-    untouched = [
+    contrast_notes = [
         NoteEvent(
             bar=4,
             beat=float(beat),
@@ -4816,21 +4887,102 @@ def test_castillo_first_a_contour_spreads_repeats_and_survives_the_wave() -> Non
         )
         for beat in range(4)
     ]
-    contoured = apply_castillo_first_a_contour(ctx, [*lead, *untouched], patterns)
+    returning_notes = [
+        NoteEvent(
+            bar=5,
+            beat=float(beat),
+            midi=64,
+            duration_beats=1.0,
+            voice=1,
+            velocity=56,
+        )
+        for beat in range(4)
+    ]
+    contoured = apply_castillo_first_a_contour(
+        ctx, [*lead, *contrast_notes, *returning_notes], patterns
+    )
     inside = sorted(
         (note for note in contoured if note.bar < 4), key=lambda note: (note.bar, note.beat)
     )
     velocities = [int(note.velocity or 0) for note in inside]
+    # The whole opening A region is contoured, not only its first phrase: bar 2
+    # is in the second Castillo phrase and still leaves the flat 56 level.
     assert max(velocities) - min(velocities) >= 8
+    assert min(velocities) >= 44
     for earlier, later in zip(inside, inside[1:]):
         if earlier.midi == later.midi:
             assert abs(int(earlier.velocity or 0) - int(later.velocity or 0)) >= 4
-    # The returning A keeps its own shape.
+    # The B contrast and the returning A keep their own shape.
     assert [int(note.velocity or 0) for note in contoured if note.bar == 4] == [70] * 4
+    assert [int(note.velocity or 0) for note in contoured if note.bar == 5] == [56] * 4
 
     heard, _support, _low = apply_guitar_wave(ctx, contoured, [], [], patterns)
     after_wave = [int(note.velocity or 0) for note in heard if note.bar < 4]
     assert max(after_wave) - min(after_wave) >= 4
+
+
+def test_castillo_contour_never_drops_below_the_floor() -> None:
+    """A repeated pair at 45/48 must raise the earlier note, not write 41."""
+    phrase = _joined(0, [64] * 8)
+    ctx = _ctx(
+        melody=[64] * 8,
+        phrase=phrase,
+        kind="4/4",
+        epb=8,
+        bpm=96,
+        character="calm",
+        bars=1,
+        bar_beats=4.0,
+    )
+    ctx = replace(
+        ctx,
+        phrases=(phrase,),
+        sections=(FormSection(0, 1, "phrase", 0),),
+        chord_at={0: C},
+        kind_at={0: "phrase"},
+        band_at={0: "mf"},
+        bar_volumes=[4.0],
+        section_rel_spans={0: 0.02},
+    )
+    lead = [
+        NoteEvent(bar=0, beat=0.0, midi=64, duration_beats=1.0, voice=1, velocity=47),
+        NoteEvent(bar=0, beat=1.0, midi=64, duration_beats=1.0, voice=1, velocity=48),
+    ]
+    contoured = apply_castillo_first_a_contour(ctx, lead, ["castillo"])
+    velocities = [int(note.velocity or 0) for note in contoured]
+    assert min(velocities) >= 44
+    assert abs(velocities[0] - velocities[1]) >= 4
+
+
+def test_castillo_contour_keeps_a_bar_that_already_has_a_shape() -> None:
+    phrase = _joined(0, [64] * 8)
+    ctx = _ctx(
+        melody=[64] * 8,
+        phrase=phrase,
+        kind="4/4",
+        epb=8,
+        bpm=96,
+        character="calm",
+        bars=1,
+        bar_beats=4.0,
+    )
+    ctx = replace(
+        ctx,
+        phrases=(phrase,),
+        sections=(FormSection(0, 1, "phrase", 0),),
+        chord_at={0: C},
+        kind_at={0: "phrase"},
+        band_at={0: "mf"},
+        bar_volumes=[4.0],
+        section_rel_spans={0: 0.02},
+    )
+    lead = [
+        NoteEvent(bar=0, beat=float(beat), midi=60 + beat, duration_beats=1.0, voice=1, velocity=52 + 3 * beat)
+        for beat in range(4)
+    ]
+    assert max(note.velocity for note in lead) - min(note.velocity for note in lead) >= 4
+    contoured = apply_castillo_first_a_contour(ctx, lead, ["castillo"])
+    assert [note.velocity for note in contoured] == [note.velocity for note in lead]
 
 
 @pytest.mark.parametrize("kind", ["4/4", "3/4", "6/8"])

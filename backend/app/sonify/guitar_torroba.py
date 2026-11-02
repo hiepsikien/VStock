@@ -3758,37 +3758,53 @@ def _juglar_bass(
     bar: int,
     eighth: int,
     raw: int | None,
-    events: list[NoteEvent],
+    lead: list[NoteEvent],
+    support: list[NoteEvent],
 ) -> tuple[int, int] | None:
     """Bass of one p-a-m-i chunk. A fretted bass is valid, and the attack stays.
 
     `_sounding_bass` rejects a fretted bass, which drops the whole beat on an F
     chord in a written key whose open strings miss the triad. The chunk keeps
-    the Torroba bass instead, lets `_fitting_bass` move to another chord tone
-    when the hand cannot hold two eighths, and only falls to a half-beat bass
-    when the hand cannot hold even one. The final fallback is the lowest chord
-    tone in the bass window; it should never fire on the measured ACB 1M II
-    material, but it keeps the beat audible if a voicing is unusually tight.
+    the Torroba bass instead and lets `_fitting_bass` move to another chord
+    tone when the hand cannot hold two eighths. If that still fails, the whole
+    high voice of this chunk drops an octave (written in `lead`, which the
+    caller keeps) and both lengths are tried again. Only an impossible hand
+    loses the beat; the score stays playable instead of forcing a note that
+    `assert_playable` would reject.
     """
-    found = _fitting_bass(ctx, bar, eighth, raw, events, (2,))
+    found = _fitting_bass(ctx, bar, eighth, raw, [*lead, *support], (2,))
     if found is not None:
         return found
-    found = _fitting_bass(ctx, bar, eighth, raw, events, (1,))
-    if found is not None:
-        return found
-    low, high = _bass_window(ctx)
-    pool = [
-        note
-        for note in range(low, high + 1)
-        if note % 12 in ctx.chord(bar).pitch_classes
-    ]
-    if not pool:
-        return None
-    for pitch in pool:
-        found = _fitting_bass(ctx, bar, eighth, pitch, events, (1,))
+    start = eighth * 0.5
+    end = start + 1.0
+    changed = False
+    for index, event in enumerate(lead):
+        if event.bar != bar or event.midi is None or event.voice != 1:
+            continue
+        if not (start - 1e-9 <= event.beat < end - 1e-9):
+            continue
+        if event.midi - 12 < ctx.treble_floor:
+            continue
+        lead[index] = replace(event, midi=event.midi - 12)
+        changed = True
+    if changed:
+        found = _fitting_bass(ctx, bar, eighth, raw, [*lead, *support], (2, 1))
         if found is not None:
             return found
-    return pool[0], 1
+    found = _fitting_bass(ctx, bar, eighth, raw, [*lead, *support], (1,))
+    if found is not None:
+        return found
+    # Last resort: the lowest chord tone in the bass window at a half beat. It
+    # should never fire on the measured material; an impossible hand is the only
+    # case where the beat is dropped rather than writing an unplayable note.
+    low, high = _bass_window(ctx)
+    for pitch in range(low, high + 1):
+        if pitch % 12 not in ctx.chord(bar).pitch_classes:
+            continue
+        found = _fitting_bass(ctx, bar, eighth, pitch, [*lead, *support], (1,))
+        if found is not None:
+            return found
+    return None
 
 
 def _downbeat_only(ctx, bar: int, phrase) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
@@ -3879,7 +3895,7 @@ def _render_juglar_bar(ctx, bar: int, phrase, mode: str, patterns=None):
             origin = bar * ctx.epb + eighth
             raw = _torroba_bass(ctx, ctx.chord(bar), bar, _melody_at(ctx, origin))
             thumb = _juglar_thumb([max(40, level + offset) for offset in JUGLAR_FINGERS])
-            found = _juglar_bass(ctx, bar, eighth, raw, [*lead, *support])
+            found = _juglar_bass(ctx, bar, eighth, raw, lead, support)
             if found is None:
                 continue
             pitch, length = found
@@ -4661,37 +4677,52 @@ def apply_torroba_sung_arch(ctx, lead, patterns):
 
 
 def apply_castillo_first_a_contour(ctx, lead, patterns):
-    """Dynamic contour for the first Castillo A phrase, after arch and before the wave.
+    """Dynamic contour for the first Castillos A region, after arch and before the wave.
 
     The figure pen normalizes a borrowed velocity to the eighth's own level, so
     a contour written inside the figure is flattened. This pass runs after that
     normalization and after the sung arch, while the volume wave still applies
     one uniform shift per bar. The written differences therefore survive to
-    audio. Only the first body phrase whose pattern is Castillo is touched; the
-    returning A keeps its own shape.
+    audio.
+
+    The opening body region is the target. When its first phrase sings
+    Castillo, every following body phrase that also sings Castillo belongs to
+    the same A region, so the arc spans the whole region (open, rise, release)
+    instead of one phrase. A movement whose opening body is another pattern is
+    left alone, and the returning A after the B contrast keeps its own shape.
     """
     if getattr(ctx, "ensemble", None) != "torroba":
         return list(lead)
     from app.sonify.guitar_patterns import _bar_pattern
 
     phrases = getattr(ctx, "phrases", ()) or ()
-    phrase = None
+    opening = None
     for index, candidate in enumerate(phrases):
-        if index >= len(patterns) or patterns[index] != "castillo":
-            continue
+        if index >= len(patterns):
+            break
         if not _body_phrase(ctx, candidate):
             continue
-        phrase = candidate
+        opening = index
         break
-    if phrase is None:
+    if opening is None or patterns[opening] != "castillo":
         return list(lead)
+
+    region_start = phrases[opening].start
+    region_end = phrases[opening].end
+    for index in range(opening + 1, len(phrases)):
+        candidate = phrases[index]
+        if index >= len(patterns) or patterns[index] != "castillo":
+            break
+        if not _body_phrase(ctx, candidate):
+            break
+        region_end = max(region_end, candidate.end)
 
     events = list(lead)
     onsets = [event.bar * ctx.epb + float(event.beat) * 2.0 for event in events]
     inside = [
         index
         for index, onset in enumerate(onsets)
-        if phrase.start <= onset < phrase.end
+        if region_start <= onset < region_end
         and _bar_pattern(ctx, events[index].bar, patterns) == "castillo"
     ]
     if not inside:
@@ -4713,14 +4744,14 @@ def apply_castillo_first_a_contour(ctx, lead, patterns):
             continue
         for item in indexes:
             event = events[item]
-            progress = (onsets[item] - phrase.start) / max(1, phrase.end - phrase.start)
+            progress = (onsets[item] - region_start) / max(1, region_end - region_start)
             arc = round(5 * math.sin(math.pi * progress)) - 2
             beat_index = min(3, max(0, int(event.beat + 1e-9)))
             beat_step = -2 * min(beat_index, 2)
             velocity = int(event.velocity or 0) + arc + beat_step
             events[item] = replace(event, velocity=max(44, min(72, velocity)))
-        # Keep a repeated pitch at least four apart. When the later note is
-        # already on the floor, raise the earlier one instead of going below it.
+        # Keep a repeated pitch at least four apart. When the later note would
+        # fall under the floor, raise the earlier one instead of going below it.
         for position in range(1, len(indexes)):
             earlier = events[indexes[position - 1]]
             later = events[indexes[position]]
@@ -4730,7 +4761,7 @@ def apply_castillo_first_a_contour(ctx, lead, patterns):
             later_velocity = int(later.velocity or 0)
             if abs(earlier_velocity - later_velocity) >= 4:
                 continue
-            if later_velocity - 4 >= 44:
+            if earlier_velocity - 4 >= 44:
                 events[indexes[position]] = replace(
                     later, velocity=earlier_velocity - 4
                 )
