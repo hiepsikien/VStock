@@ -142,10 +142,17 @@ def all_motion(by_window, eps_by_window, *, eps_mode: bool) -> float | None:
     """
     total = weight = 0.0
     for index in sorted(by_window):
-        eps = eps_by_window[index] if eps_mode else D._EPS
-        tau, count = motion_stats(by_window[index], eps)
-        if tau is not None:
-            total += max(0.0, tau) * count
+        if eps_mode:
+            # Production path, so the probe stays in parity with `_motion`.
+            value, count, _low = D._motion(
+                by_window[index], eps_by_window[index]
+            )
+        else:
+            # Counterfactual: the same stats with the tiny threshold.
+            tau, count = motion_stats(by_window[index], D._EPS)
+            value = None if tau is None else max(0.0, tau)
+        if value is not None:
+            total += value * count
             weight += count
     return None if not weight else total / weight
 

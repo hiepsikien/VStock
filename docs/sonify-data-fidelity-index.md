@@ -144,7 +144,7 @@ class PriceTracePoint:
     duration_beats: float        # để biết nốt có đang kêu trong bar nguồn hay không
     price: float                 # close nguồn mà điểm này muốn mã hoá
     pitch: float | None          # cao độ ý định (line), hoặc centroid của cửa sổ
-    sounding_pitch: float | None = None  # MIDI thật khi pitch đã snap (diagnostic)
+    sounding_pitch: float | None = None  # MIDI C-space (trước transpose) khi pitch đã snap (diagnostic)
     role: Literal["attack", "hold", "anchor", "register", "rest"]
     weight: float = 1.0
     voice: str = "lead"          # line / high / price / ...
@@ -154,7 +154,7 @@ class PriceTracePoint:
 Quy ước:
 
 - Trace dùng `(bar, beat)` để khớp trực tiếp với `NoteEvent`; không dùng `eighth` làm khoá chính. Khi cần lưới phân tích, quy đổi bằng `eighth = round((bar * score.bar_beats + beat) * 2)`.
-- `pitch` là **một số thực** vì minimalist dùng centroid cửa sổ, không phải MIDI của một nốt. Với guitar/symphony/jazz/ambient, `pitch` ghi **cao độ ý định** `line[eighth]` (`snap_to_line`); `sounding_pitch` giữ MIDI thật. `compute` chỉ đọc `pitch` — `sounding_pitch` là diagnostic.
+- `pitch` là **một số thực** vì minimalist dùng centroid cửa sổ, không phải MIDI của một nốt. Với guitar/symphony/jazz/ambient, `pitch` ghi **cao độ ý định** `line[eighth]` (`snap_to_line`); `sounding_pitch` giữ **MIDI C-space** của nốt bè thực sự chơi (trước transpose của nhạc cụ; **không phải concert pitch**). `compute` chỉ đọc `pitch` — `sounding_pitch` là diagnostic.
 - `duration_beats` là bắt buộc: Coverage cần biết một nốt ngân có phủ bar nguồn hay không.
 - `hold` nghĩa là nốt đang ngân và vẫn đang đại diện cho giá; nếu giá chạy mà `pitch` không đổi, đó là lỗi fidelity, không phải im lặng.
 - `rest` nghĩa là không có tín hiệu giá; dùng cho coverage.
@@ -790,7 +790,7 @@ GET /v1/sonify/dfi/pieces
 
 ### 9.1. Sai lệch đã biết so với thiết kế ban đầu
 
-- **Trace không phải lúc nào cũng ghi tại chỗ viết nốt.** Guitar ghi qua `_TRACE_LINE` / `_TRACE_PRICE_LINE`; symphony/jazz dựng trace trong `_attach_dfi_inputs` từ **vai trò bè** (`lead + support`, và `high` cho symphony) vì `melody_parts` chia cùng một đường giá giữa hai bè, còn flute nhận line khi violin yield. Ambient/minimalist dùng `lead`. Từ v4, `pitch` ghi **cao độ ý định** (`snap_to_line`) và `sounding_pitch` giữ MIDI thật, nên trace đo “writer định đặt giá ở đâu”; nếu writer đổi bè mà helper không đọc, coverage vẫn có thể conservative — sửa gốc vẫn là ghi trace tại writer. `sounding_pitch` là diagnostic-only, `compute` không đọc.
+- **Trace không phải lúc nào cũng ghi tại chỗ viết nốt.** Guitar ghi qua `_TRACE_LINE` / `_TRACE_PRICE_LINE`; symphony/jazz dựng trace trong `_attach_dfi_inputs` từ **vai trò bè** (`lead + support`, và `high` cho symphony) vì `melody_parts` chia cùng một đường giá giữa hai bè, còn flute nhận line khi violin yield. Ambient/minimalist dùng `lead`. Từ v4, `pitch` ghi **cao độ ý định** (`snap_to_line`) và `sounding_pitch` giữ **MIDI C-space** của nốt bè thực sự chơi (trước transpose của nhạc cụ; không phải concert pitch), nên trace đo “writer định đặt giá ở đâu”; nếu writer đổi bè mà helper không đọc, coverage vẫn có thể conservative — sửa gốc vẫn là ghi trace tại writer. `sounding_pitch` là diagnostic-only, `compute` không đọc.
 - **`role` mới dùng `attack/anchor/register`.** `hold` và `rest` có trong model nhưng writer chưa phát; coverage suy ra từ khoảng nghe của trace point thay vì role.
 - **`low-evidence` chưa surface.** `_motion` tính cờ fallback nhưng `compute()` bỏ qua; UI chỉ thấy `confidence` tổng.
 - **Band chưa calibration.** Trên phiên êm tổng hợp, điểm cao nhất đã lên 74–78 sau các fix; corpus thật chưa chạy. Band `Rõ` (70) và `Rất rõ` (85) có thể đạt sau Phase 7; giữ nguyên ngưỡng thay vì hạ cho đẹp số.
@@ -814,9 +814,9 @@ Hai lỗi dưới đây đã điều tra xong và **đã implement trong PR #128
 - **Kèm theo:** `snap_to_line` bỏ octave fold nên Shape/Resolution của
   ambient/jazz/symphony cũng tăng: ambient mv I 22.6 → 29.8; jazz 66.8 → 68.2;
   symphony +14.6/+22.6 nhưng mv III **−1.7** (T 0.938→0.672). Đây là đo
-  **ý định**, không phải "điểm cao hơn"; `sounding_pitch` giữ caveat "ý định vs
-  tai nghe"; `motion_pairs` là additive; `DFI_VERSION = "4"` ở cả `dfi.py` và
-  `schemas.py`.
+  **ý định**, không phải "điểm cao hơn"; `sounding_pitch` (C-space, trước
+  transpose) giữ caveat "ý định vs nốt bè thực chơi"; `motion_pairs` là
+  additive; `DFI_VERSION = "4"` ở cả `dfi.py` và `schemas.py`.
 
 Probe `backend/scripts/dfi_probe.py` regenerate bảng §1.1/§5/§7. Số phụ thuộc
 `as_of` (lần đo: 2026-11-02).

@@ -723,8 +723,16 @@ def test_symphony_trace_covers_a_flute_only_bar() -> None:
 def test_same_trace_across_symphony_ensembles() -> None:
     """The intent trace is ensemble-invariant; the audible contour still follows it."""
 
+    bars = [
+        Bar(
+            close=100.0 + (index % 6) * 2.0 + index * 0.2,
+            volume=1000 + index * 50,
+        )
+        for index in range(64)
+    ]
+
     def rendered(ensemble: str):
-        return render(_bars(trend=0.8), variant="symphony", ensemble=ensemble)  # type: ignore[arg-type]
+        return render(bars, variant="symphony", ensemble=ensemble)  # type: ignore[arg-type]
 
     def intent(score) -> set[tuple[int, float, float]]:
         return {

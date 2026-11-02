@@ -170,11 +170,12 @@ def trace_from_notes(
     that the line is still sounding and tells Shape/Motion that the pitch did
     not move while price did.
 
-    `snap_to_line` records the intended line pitch instead of the sounding
-    MIDI; `sounding_pitch` keeps the MIDI so the intent-vs-heard gap stays
-    measurable.  `carrier` overrides the match rule: it returns the target
-    pitch for a note, or None to drop it.  Flute uses it because it sounds a
-    harmony, not the line.
+    `snap_to_line` records the intended line pitch instead of the part's
+    written MIDI; `sounding_pitch` keeps that written MIDI in the score's
+    C-space (before the instrument transpose), so the intent-vs-written gap
+    stays measurable.  It is not concert pitch.  `carrier` overrides the match
+    rule: it returns the target pitch for a note, or None to drop it.  Flute
+    uses it because it sounds a harmony, not the line.
     """
     found: list[PriceTracePoint] = []
     index_by_key: dict[tuple[int, float], int] = {}

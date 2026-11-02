@@ -3,8 +3,9 @@
 > Trạng thái: **đã implement trong PR #128** (DFI v4). 5 quyết định ở §10 đã
 > chốt ngày 2026-11-03. Đã đối chiếu với code, implement và đo trên `ACB / 3M`
 > (local DB; dữ liệu `as_of` **2026-11-02**). Bảng số trong §1.1/§5/§7
-> regenerate bằng `backend/scripts/dfi_probe.py`; số phụ thuộc ngày dữ liệu,
-> không phải hằng số.
+> regenerate bằng `backend/scripts/dfi_probe.py`; cột **v3** ở §7 là baseline
+> lịch sử đo trước v4, không regenerate được. Số phụ thuộc ngày dữ liệu, không
+> phải hằng số.
 
 ## 0. Phạm vi
 
@@ -113,16 +114,18 @@ bậc; phải ghi vào PR description/re-baseline để reviewer không tưởng
 
 Flute chơi hòa âm **+3/+4/+7 (mod 12)** so với line; line có thể bị hạ 1–2
 octave nên offset thô là −9 (= +3−12), −17 (= +7−24)… `snap_to_line` ghi
-intent, `sounding_pitch` giữ midi thật để chẩn đoán.
+intent, `sounding_pitch` giữ **MIDI C-space** của nốt bè thực sự chơi (trước
+transpose của nhạc cụ; **không phải concert pitch**) để chẩn đoán.
 
 ## 2. Nguyên tắc sửa
 
 1. **Theo vai trò bè, không theo tên nhạc cụ.** `ensemble.py` giữ
    `P5/P1/P2/P3/P4` → `high/lead/support/comp/low`; các ensemble chỉ đổi
    MuseSounds voice và vài biên cao độ.
-2. **Ghi cao độ ý định, giữ cả cao độ nghe được.** `trace.pitch = line[eighth]`
+2. **Ghi cao độ ý định, giữ cả nốt bè thực sự chơi.** `trace.pitch = line[eighth]`
    khi `snap_to_line`; thêm `PriceTracePoint.sounding_pitch` (optional) để lưu
-   midi thật. Không đóng caveat "ý định vs tai nghe" ở §9.1.
+   **MIDI C-space** của nốt bè thực sự chơi (trước transpose của nhạc cụ; không
+   phải concert pitch). Không đóng caveat "ý định vs nốt bè thực chơi" ở §9.1.
 3. **Chỉ thêm bè thật sự mang giá.** Halo/shimmer/bell/vibraphone/swell không
    được thêm.
 4. **Loại frame bars ở mọi nơi.** `_grid` đã bỏ (`dfi.py:435`); `motion_points`
@@ -166,7 +169,7 @@ Thêm field optional, không phá cache cũ:
 class PriceTracePoint:
     ...
     pitch: float | None
-    sounding_pitch: float | None = None   # midi thật khi pitch đã snap
+    sounding_pitch: float | None = None   # MIDI C-space (trước transpose) khi pitch đã snap
 ```
 
 ### 4.2. `backend/app/sonify/dfi.py`
@@ -368,22 +371,22 @@ symphony. Chỉ symphony truyền spans vào fill.
 cuối cùng. `fill_trace_from_notes` chỉ dùng cho symphony.
 
 **Guitar.** Trong `guitar.py:180-190`, khi remap `pitch=intended[eighth]`, set
-luôn `sounding_pitch` bằng pitch cũ:
+luôn `sounding_pitch` bằng pitch cũ (MIDI C-space của nốt đang chơi):
 
 ```python
 remapped.append(replace(point, pitch=float(intended[eighth]),
                         sounding_pitch=point.pitch))
 ```
 
-Đây là chỗ caveat "ý định vs tai nghe" khởi nguồn; nếu không set, field mới
-bỏ trống đúng chỗ cần nhất. `sounding_pitch` là **diagnostic-only**: `compute`
-vẫn đọc `pitch`; thêm test offset cho guitar (0/12) và symphony
-(`(pitch - sounding_pitch) % 12 ∈ {3,4,7}`).
+Đây là chỗ caveat "ý định vs nốt bè thực chơi" khởi nguồn; nếu không set, field
+mới bỏ trống đúng chỗ cần nhất. `sounding_pitch` là **diagnostic-only**:
+`compute` vẫn đọc `pitch`; thêm test offset cho guitar (0/12) và symphony
+(`(sounding_pitch - pitch) % 12 ∈ {3,4,7}`).
 
 ### 4.4. Test và tài liệu
 
 Xem §6 và §9. Cập nhật `docs/sonify-data-fidelity-index.md` §4.2, §4.5, §9.1,
-§9.2, §10; không đóng caveat "ý định vs tai nghe".
+§9.2, §10; không đóng caveat "ý định vs nốt bè thực chơi (C-space)".
 
 ## 5. Ambient và Minimalist
 
@@ -460,7 +463,7 @@ Thêm vào `backend/tests/test_dfi.py`:
 | `test_fill_without_yield_spans_adds_nothing` | `yield_spans=()` → trả đúng `base` |
 | `test_fill_keeps_a_note_attacking_just_before_the_span` | note attack sát trước span: hành vi bỏ được pin; coverage mất ≤ 1 beat |
 | `test_guitar_sets_sounding_pitch_on_remap` | guitar remap `pitch=intended` vẫn giữ `sounding_pitch` cũ |
-| `test_sounding_pitch_keeps_the_flute_offset` | symphony `(pitch - sounding_pitch) % 12 ∈ {3,4,7}` (diagnostic-only; offset thô có thể −9/−17) |
+| `test_sounding_pitch_keeps_the_flute_offset` | symphony `(sounding_pitch - pitch) % 12 ∈ {3,4,7}` (diagnostic-only, C-space; offset thô có thể −9/−17) |
 | `test_motion_points_drops_frame_bars` | point trong `frame_bars` không vào Motion |
 | `test_motion_deduplicates_base_and_fill` | base + fill cùng eighth → 1 point, giữ base |
 | `test_motion_uses_anchors_for_guitar` | Motion guitar ≠ grid Motion trên cùng score |
@@ -549,6 +552,20 @@ fill-only):
 - Symphony mv II: snap chiếm **72%** mức tăng.
 - Symphony mv III **giảm −1.7** vì T 0.938→0.672 khi flute thôi bị hạ octave:
   intent không đồng nghĩa "tốt hơn". Ghi vào §8 risk.
+
+### Band flip — 5 movement
+
+| variant | mv | v3 | v4 | nhãn |
+|---|---|---:|---:|---|
+| guitar/torroba | III | 39.7 | 46.2 | Rất mờ → **Mờ** |
+| symphony | I | 33.7 | 69.4 | Rất mờ → **Vừa** |
+| symphony | II | 37.6 | 69.0 | Rất mờ → **Vừa** |
+| symphony | III | 51.6 | 67.6 | Mờ → **Vừa** |
+| minimalist | I | 51.7 | 57.0 | Mờ → **Vừa** |
+
+**Case gốc `ACB/3M/guitar/torroba` mv I vẫn "Rất mờ"** (30.9 → 39.2, dưới 40).
+Cải thiện người dùng thấy là **Motion 0.01 → 0.455** trong sheet, không phải
+band. Band thresholds không đổi; QA đừng tưởng chưa fix.
 
 ### Ghi chú re-baseline
 
