@@ -151,7 +151,7 @@ def velocity_stats(values):
 
 
 def dev_limits(ensemble: str, deviations: dict) -> dict[str, int | None]:
-    """Profile headroom per row. `None` means the row has no profile (pedal)."""
+    """Profile headroom per row. `None` means the row has no entry in PROFILES."""
     return {
         row: (profile.d_hi if profile is not None else None)
         for row in deviations

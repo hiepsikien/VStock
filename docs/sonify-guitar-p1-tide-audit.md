@@ -92,4 +92,4 @@ Nghiệm thu:
 
 - `tests/test_guitar_wave.py::test_p1_keeps_the_profiles_upper_headroom_on_every_row` quét cả 38 row.
 - Re-run `backend/scripts/p1_audit.py` sau bản sửa P1 (trước trim bass −2): Δc_hi = 0 ở **cả 30 pattern**; `tremolo` và `etude11` trở về đúng profile (note delta 0,0). Các row có `d_lo` được trim chỉ đổi ở phía yên tĩnh, mean ≤ 0,63 bậc và max 0.
-- Barrios movement 4, sau P1: bass bar 42 là `45, 51, 55` (trước sửa `49, 55, 59`); bar 76 là `50, 52, 69, 58, 53` (trước sửa `54, 56, 69, 61, 59`). Sau thêm `TREMOLO_BASS_TRIM`: bar 42 `44, 49, 53`; bar 76 `48, 48, 52, 64, 56, 53`.
+- `TREMOLO_BASS_TRIM` là **−2 phẳng trên mọi attack `low`/`support` trong bar `tremolo`**, kể cả nốt snap; test `test_barrios_tremolo_body_drops_two_after_the_wave` khóa điều này. Số tuyệt đối phụ thuộc snapshot dữ liệu live nên không chép vào doc.

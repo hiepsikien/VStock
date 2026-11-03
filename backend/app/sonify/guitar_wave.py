@@ -8,7 +8,7 @@ tremolo step survives as the MIDI difference that was already on the note.
 The one deliberate exception is Barrios `tremolo`: after the wave, snaps,
 and stabs, `_apply_tremolo_bass_trim` lowers the thumb and its chord colour
 by `TREMOLO_BASS_TRIM`. The lead keeps the shared center, so the final
-tremolo body sits two steps under the written relation.
+tremolo body sits `TREMOLO_BASS_TRIM` steps under the written relation.
 """
 
 from __future__ import annotations
