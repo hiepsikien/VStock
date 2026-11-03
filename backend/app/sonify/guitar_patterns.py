@@ -4209,64 +4209,16 @@ def _shape_dynamics(
     patterns: list[str] | None = None,
     scale_eighths: set[int] | None = None,
 ):
-    """Add the phrase's extra (0..+4) and leave the written offsets in place.
+    """Deprecated: the shared phrase breath now lives in the bar center.
 
-    The printed band is not added here. The volume wave owns that tide, so a
-    `p` bar and an `f` bar with the same center produce the same shift.
-    Etude cells and tremolo already carry their own arch; a second extra or
-    band step would move those offsets before the affine reads them.
-    Lead attacks on a scale passage or a sarabande swarm keep the hairpin.
+    `apply_guitar_wave` adds `_phrase_breath()` to `C(b)` before the affine, so
+    every voice in the bar moves together and the within-bar interval cannot
+    change. The per-pattern 12-step arch in `_note_velocity` still owns the
+    lead. This function stays as a named seam for callers and tests; it must
+    not add a second extra.
     """
-    from app.sonify.guitar_torroba import skips_bar_extra
-
-    protected = scale_eighths or set()
-    pedal = set(_pedal_regions(ctx)[0]) | set(_pedal_regions(ctx)[1])
-
-    def phrase_at(eighth: int) -> Phrase | None:
-        for phrase in ctx.phrases:
-            if phrase.start <= eighth < phrase.end and phrase.rise > 0:
-                return phrase
-        return None
-
-    def shape(events: list[NoteEvent], voice: str) -> list[NoteEvent]:
-        shaped: list[NoteEvent] = []
-        for event in events:
-            if event.midi is None or event.velocity is None or event.bar in pedal:
-                shaped.append(event)
-                continue
-            eighth = event.bar * ctx.epb + int(math.floor(event.beat * 2 + 1e-9))
-            if voice == "lead" and eighth in protected:
-                shaped.append(event)
-                continue
-            if eighth in relaxed:
-                shaped.append(event)
-                continue
-            if patterns is not None and _bar_pattern(ctx, event.bar, patterns) in {"etude1", "etude11", "tremolo"}:
-                shaped.append(event)
-                continue
-            # A harmonic node already at 48 stays at 48. Type 8's short bass
-            # colors are the bass bed, so the extra still lands on them.
-            if skips_bar_extra(ctx, event):
-                shaped.append(event)
-                continue
-            phrase = phrase_at(eighth)
-            if phrase is None:
-                shaped.append(event)
-                continue
-            # Galop already carries a beat contour. Every pattern that receives
-            # a section-5 contour does too. One extra for the whole bar keeps
-            # that contour; a per-eighth extra cancels the two-step gaps.
-            anchor = eighth
-            if patterns is not None and _bar_pattern(ctx, event.bar, patterns) in _WHOLE_BAR_EXTRA:
-                anchor = event.bar * ctx.epb
-            extra = round(4 * swell(phrase, min(max(anchor, phrase.start), phrase.end - 1)))
-            if extra == 0:
-                shaped.append(event)
-                continue
-            shaped.append(replace(event, velocity=event.velocity + extra))
-        return shaped
-
-    return shape(lead, "lead"), shape(support, "support"), shape(low, "low")
+    del ctx, relaxed, patterns, scale_eighths
+    return lead, support, low
 
 
 def _transitions(

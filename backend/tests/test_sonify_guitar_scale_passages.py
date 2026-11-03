@@ -450,9 +450,10 @@ def test_ascending_entry_does_not_swell_downward_from_72() -> None:
     notes = [event for start, event in _ordered(score.lead) if 2 <= start <= 16]
     assert notes
     velocities = [event.velocity for event in notes]
-    # Study reads the post-wave note. Heard 56 opens there and climbs one Sor span to 72.
-    assert velocities[0] == 56
-    assert velocities[-1] == 72
+    # Study reads the post-wave note. Heard 55 opens there and climbs one Sor span to 71
+    # (P2 compresses the last step under the ceiling).
+    assert velocities[0] == 55
+    assert velocities[-1] == 71
     assert velocities[-2] < velocities[-1]
     assert all(value < 72 for value in velocities[:-1])
     assert all(right >= left for left, right in zip(velocities, velocities[1:]))
@@ -1670,8 +1671,8 @@ def test_etude1_hairpin_survives_humanize() -> None:
     notes = [event for start, event in _ordered(score.lead) if 48 <= start <= 64]
     assert notes
     velocities = [event.velocity for event in notes]
-    assert velocities[0] == 47
-    assert velocities[-1] == 71
+    assert velocities[0] == 46
+    assert velocities[-1] == 70
     assert all(event.hairpin for event in notes)
     assert not any(
         event.midi is not None and event.bar == 3 for event in score.support
