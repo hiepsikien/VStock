@@ -32,8 +32,9 @@ _GUITAR_NOISE = 0.0003
 _GUITAR_GATE = 0.01
 
 # Sample type of each `array` typecode, for the NumPy views. A typecode that
-# is not here keeps the per-sample loop, so a new WAV format can never break
-# the render path.
+# is not here keeps the per-sample loop, and that loop assumes 16-bit whenever
+# the typecode is not `f`. `_wav_samples` only returns `f` or `h`, so this is a
+# guard against a crash, not a promise of correct audio for a new format.
 _DTYPES = {"f": "float32", "h": "int16"}
 
 # Samples per block on the NumPy paths. One block allocates a few float64

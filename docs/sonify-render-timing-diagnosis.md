@@ -131,7 +131,7 @@ Tổng theo phase sau P0-1:
 Ba điều đổi sau P0-1:
 
 - Color từ **38,02 s** xuống **1,75 s** ở `1M`, và từ **60,91 s** xuống **2,56 s** ở `3M`.
-- Color không còn tỷ lệ theo "số giây nhạc" nữa: 0,5 s cho 263 s nhạc, 0,84 s cho 503 s nhạc. Phần còn lại là thời gian đọc/ghi file.
+- Color không còn tỷ lệ theo "số giây nhạc" nữa: 0,5 s cho 263 s nhạc, 0,84 s cho 503 s nhạc. Toàn bộ các movement đo được nằm trong **0,3–0,9 s**; phần còn lại là thời gian đọc/ghi file.
 - **MuseScore giờ là phase lớn nhất** (70–82% tổng), rồi encode AAC (12–20%). Đây là lý do P1-1 (batch) là bước tiếp theo.
 
 Kiểm chứng âm thanh: chạy `apply_preset` cũ và mới trên cùng file dry 263 s (float32, guitar), so sánh SHA-256 — **hai file giống hệt từng byte**, 9,708 s → 0,399 s. Số này thấp hơn phase `color` trong bench (10,4 → 0,51 s) vì `apply_preset` thuần không gồm phần đo peaks, publish và overhead của `ensure_movement`. Với int16 (MuseScore 3) cũng khớp từng sample, vì phép cộng giữ ở float64 rồi mới cắt về int16 giống `int()` trong vòng lặp cũ.
@@ -222,7 +222,7 @@ Thứ tự theo **mức giảm thời gian / rủi ro**, không theo độ phứ
 
 **Độ chính xác**: so sánh SHA-256 của file WAV tạo bởi `apply_preset` cũ và mới trên cùng file dry 263 s (float32, guitar): **giống hệt từng byte**. Với int16 của MuseScore 3, kết quả khớp từng sample. Vì vậy **không bump `SPAN_REVISION`/`RECAP_REVISION`**; file đã cache vẫn dùng được.
 
-**Test**: `tests/test_humanize.py` có sáu test mới — noise khớp công thức `_unit_noise`, đường int16 cắt giống vòng lặp, `_limit_peak` dùng một gain chung rồi cắt về 0, fallback không numpy khớp đường block, một ma trận block × channels × gate trên cả hai typecode, và một golden SHA-256 để phát hiện lệch âm thầm.
+**Test**: `tests/test_humanize.py` có bảy test mới — noise khớp công thức `_unit_noise`, đường int16 cắt giống vòng lặp, `_limit_peak` dùng một gain chung rồi cắt về 0, fallback không numpy khớp đường block, một ma trận block × channels × gate trên cả hai typecode (mỗi tổ hợp đều cắt block ít nhất một lần), một golden SHA-256 để phát hiện lệch âm thầm, và một test typecode lạ không làm crash.
 
 **Ảnh hưởng đo được**: `1M` 86,4 → **50,3 s**, `3M` 108,8 → **50,5 s**, `1Y` 62,2 → **36,1 s**, `1W` 31,3 → **15,8 s**. Đây là win lớn nhất và ít rủi ro nhất; sau bước này MuseScore là phase lớn nhất.
 

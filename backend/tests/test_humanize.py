@@ -1174,8 +1174,9 @@ def test_block_path_matches_the_loop_at_any_block_size(
     from app.sonify import preset as preset_module
 
     rnd = random.Random(11)
+    frames = 200  # more than the largest block below, so every case crosses
     values = []
-    for _ in range(53 * channels):
+    for _ in range(frames * channels):
         if kind == "f":
             values.append(rnd.choice([0.0, 0.004, 0.5, -0.75, 0.999]))
         else:
@@ -1193,6 +1194,16 @@ def test_block_path_matches_the_loop_at_any_block_size(
     _limit_peak(loop, dry)
 
     assert list(fast) == list(loop)
+
+
+def test_unknown_typecode_falls_back_without_raising() -> None:
+    """`_wav_samples` never returns this, but a new format must not crash color."""
+    pytest.importorskip("numpy")
+    dry = array("d", [0.1, -0.2, 0.3])
+    heard = array("d", dry)
+    _mix_noise(heard, dry, 1, 0.001, False)
+    _limit_peak(heard, dry)
+    assert len(heard) == 3
 
 
 def test_vintage_golden_bytes_do_not_drift() -> None:
