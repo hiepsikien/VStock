@@ -213,8 +213,8 @@ FIELDS: tuple[ParamField, ...] = (
         0.05,
         1.0,
         "",
-        "0 dễ, 1 hiện tại, 2 điêu luyện. Chỉ áp dụng cho guitar.",
-        applies_to=("guitar",),
+        "0 dễ, 1 hiện tại, 2 điêu luyện. Hiện chỉ áp dụng cho Bach và Torroba.",
+        applies_to=("bach", "torroba"),
         tier="C",
     ),
     ParamField(

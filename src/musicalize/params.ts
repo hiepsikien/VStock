@@ -90,6 +90,21 @@ export function visibleFields(
   return PARAM_FIELDS.filter((field) => fieldVisible(field, variant, span, tiers, ensemble));
 }
 
+/** Local display/render copy: fields that do not apply fall back to default. */
+export function renderParams(
+  params: SonifyParams,
+  variant?: string,
+  span?: string,
+  ensemble?: string,
+  tiers: string[] = BUNDLED_TIERS,
+): SonifyParams {
+  const shaped = applyTiers(params, tiers);
+  for (const field of PARAM_FIELDS) {
+    if (!fieldVisible(field, variant, span, tiers, ensemble)) shaped[field.key] = field.default;
+  }
+  return shaped;
+}
+
 /** Tier is a rollout switch. Fields outside it behave as their default. */
 export function applyTiers(
   params: SonifyParams,

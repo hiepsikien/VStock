@@ -85,6 +85,7 @@ export function trackEvent(
   return writeChain;
 }
 
-export async function flushTelemetry(): Promise<void> {
-  await flush();
+export function flushTelemetry(): Promise<void> {
+  writeChain = writeChain.then(() => flush());
+  return writeChain;
 }

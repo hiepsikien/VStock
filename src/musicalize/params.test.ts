@@ -5,6 +5,7 @@ import {
   LINK_SCHEMA_VERSION,
   PARAM_FIELDS,
   applyTiers,
+  renderParams,
   visibleFields,
   baseBpmFor,
   createProfile,
@@ -282,7 +283,9 @@ console.log('musicalize params tests passed');
 
 
 ok(ALL_TIERS.join(',') === 'A,B,C', 'all tiers bundled');
-ok(visibleFields('guitar', '1D', ALL_TIERS).some((field) => field.key === 'technique'), 'guitar sees technique');
+ok(!visibleFields('guitar', '1D', ALL_TIERS, 'classic').some((field) => field.key === 'technique'), 'classic hides technique');
+ok(visibleFields('guitar', '1D', ALL_TIERS, 'bach').some((field) => field.key === 'technique'), 'bach sees technique');
+ok(visibleFields('guitar', '1D', ALL_TIERS, 'torroba').some((field) => field.key === 'technique'), 'torroba sees technique');
 ok(!visibleFields('symphony', '1D', ALL_TIERS).some((field) => field.key === 'technique'), 'symphony hides technique');
 ok(visibleFields('symphony', '1M', ALL_TIERS).some((field) => field.key === 'frame'), 'long span sees frame');
 ok(!visibleFields('symphony', '1D', ALL_TIERS).some((field) => field.key === 'frame'), 'daily hides frame');
@@ -292,3 +295,14 @@ const tiered = applyTiers({ ...DEFAULT_PARAMS, harmony: 0, technique: 2 }, ['A']
 ok(tiered.harmony === 1 && tiered.technique === 1, 'tier A strips B/C');
 ok(normalizeParams({ frame: 'nope' }).frame === 'auto', 'unknown choice falls back');
 ok(LINK_SCHEMA_VERSION === 2, 'link schema stays 2');
+
+
+const effective = renderParams(
+  { ...DEFAULT_PARAMS, technique: 2, harmony: 0.5 },
+  'guitar',
+  '1D',
+  'classic',
+  ALL_TIERS,
+);
+ok(effective.technique === 1, 'renderParams drops inapplicable technique');
+ok(effective.harmony === 0.5, 'renderParams keeps applicable harmony');

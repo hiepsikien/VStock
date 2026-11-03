@@ -225,12 +225,13 @@ export const PARAMS_SCHEMA: ParamsSchema = {
           "step": 0.05,
           "default": 1.0,
           "unit": "",
-          "description": "0 dễ, 1 hiện tại, 2 điêu luyện. Chỉ áp dụng cho guitar.",
+          "description": "0 dễ, 1 hiện tại, 2 điêu luyện. Hiện chỉ áp dụng cho Bach và Torroba.",
           "signed": false,
           "choices": [],
           "auto": false,
           "appliesTo": [
-            "guitar"
+            "bach",
+            "torroba"
           ],
           "tier": "C"
         }
