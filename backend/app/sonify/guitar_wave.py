@@ -700,7 +700,9 @@ def _written_deviations(ctx, voices, patterns: list[str], pedal: set[int]) -> di
     Trimming the unused tails frees room for the tide without moving any note
     that the writer actually uses. Rows with fewer than 24 attacks keep the
     profile default so a tiny section cannot invent a narrow window. The 1%/99%
-    tails are outside the measured band and may be clamped by the tide.
+    tails are outside the measured band and may be clamped by the tide. All
+    three voices share one bucket, so a low bass usually keeps `d_lo` negative;
+    the trim mostly frees the upper tail.
     """
     from app.sonify.guitar_torroba import castillos_wave_row
 
@@ -750,7 +752,7 @@ def _make_wave(ctx, volumes, section, start: int, end: int, pattern: str, profil
     opened = warm_alpha(price, volume, inward=inward)
     # P0 lowers the body floor. Pedal speech keeps the pre-P0 floor so the
     # intro/outro do not slide down with the wider tide.
-    pedal_floor, _pedal_ceiling = window_for(base_profile, opened, min_tide=False)
+    pedal_floor, _ = window_for(base_profile, opened, min_tide=False)
     v_floor, v_ceil = window_for(profile, opened)
     opened_gain, c_lo, c_hi = tide_bounds(v_floor, v_ceil, profile)
     levels = shape_u(raw, c_lo, c_hi)
@@ -873,7 +875,10 @@ def _place_centers(ctx, patterns: list[str], volumes: list[float], deviations: d
             continue
         breath = _phrase_breath(ctx, bar, patterns, ctx.epb, skip)
         if breath:
-            center = min(spot.wave.c_hi, max(spot.wave.c_lo, spot.center + breath))
+            # Breath is non-negative. Clamp upward only: a section whose anchor
+            # already sits above `c_hi` (MAX_TIDE active) must not be pulled
+            # back down by its own breath.
+            center = max(spot.center, min(spot.wave.c_hi, spot.center + breath))
             placed[bar] = replace(spot, center=center, rounded=round_center(center))
 
     _limit_body_seams(placed, ctx, pedal)

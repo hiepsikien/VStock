@@ -5016,6 +5016,8 @@ def test_villa_live_tresillo_boosts_velocity_identically_in_mf_and_f_and_keeps_b
             assert all(vel is not None and vel < lead_vel for vel in (*low_accents.values(), *inner_accents.values()))
             assert all(vel is not None and vel <= min(inner_accents.values()) for vel in unaccented_inner)
             if bar == 0:
+                # Capture the band shift on the first bar; the loop still checks
+                # bar 1's voicing, and the framed score below covers the rest.
                 accent_by_band[band] = low_accents[0.0] or 0
         assert not any(note.accent for note in _pitched(score.support, 2))
     assert accent_by_band["f"] > accent_by_band["mf"]

@@ -1509,3 +1509,41 @@ def test_section_anchor_uses_the_body_median() -> None:
     assert _section_anchor(volumes, 4, 8, 4.0) == 0.0
     # The all-bar median is 2.5, which would invent a positive anchor.
     assert _section_anchor(volumes, 4, 8) > 0.0
+
+
+def test_breath_never_lowers_an_anchored_center(monkeypatch) -> None:
+    """MAX_TIDE can put c_hi below the post-anchor center; breath must only add."""
+    import app.sonify.guitar_wave as gw
+
+    wave = gw._Wave(
+        start=0,
+        end=1,
+        pattern="cantabile",
+        levels=[1.0],
+        smoothed=[0.0],
+        alpha_price=0.0,
+        alpha_vol=0.0,
+        alpha_warm=0.0,
+        v_floor=30,
+        v_ceil=58,
+        pedal_floor=30,
+        gain=1.0,
+        c_lo=36.0,
+        c_hi=52.0,
+        centers=[54.0],
+    )
+    assert wave.c_hi < wave.v_ceil
+    monkeypatch.setattr(gw, "_build_waves", lambda *args, **kwargs: {0: wave})
+    phrase = Phrase(0, _EPB, (Run(0, 1, 72), Run(1, 7, 60)))
+    ctx = _ctx(
+        ensemble="classic",
+        bars=1,
+        volumes=[4.0],
+        phrases=(phrase,),
+        sections=(FormSection(0, 1, "phrase", 0),),
+        spans={0: 0.0},
+    )
+    placed, _waves, _leading, _trailing = _place_centers(
+        ctx, ["cantabile"], [4.0], {"cantabile": (0, 0)}, set()
+    )
+    assert placed[0].center == 54.0
