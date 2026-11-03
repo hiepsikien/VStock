@@ -62,4 +62,5 @@ def test_pin_params_keeps_a_and_b_hashes(monkeypatch: pytest.MonkeyPatch) -> Non
     result = asyncio.run(pin_params({"hashes": ["a123", "b456"], "ttlSec": 30}))
     assert result["pinned"] == 2
     assert recap_store()._pinned("a123")
+    assert recap_store()._pinned("_pa123")
     assert recap_store()._pinned("b456")

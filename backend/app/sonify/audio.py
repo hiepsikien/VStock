@@ -1227,11 +1227,17 @@ class RecapStore:
                     self._pins[text] = until
 
     def _pinned(self, mark: str) -> bool:
-        until = self._pins.get(mark)
-        if until is None:
+        candidates = [mark]
+        if mark.startswith("_p"):
+            candidates.append(mark[2:])
+        else:
+            candidates.append(f"_p{mark}")
+        until = max((self._pins.get(item, 0.0) for item in candidates), default=0.0)
+        if until <= 0.0:
             return False
         if until <= time.time():
-            self._pins.pop(mark, None)
+            for item in candidates:
+                self._pins.pop(item, None)
             return False
         return True
 
