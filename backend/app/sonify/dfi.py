@@ -23,7 +23,7 @@ from typing import Callable, Iterable, Literal, Sequence
 
 from app.sonify.model import Bar, NoteEvent, PriceTracePoint, Score
 
-DFI_VERSION = "4"
+DFI_VERSION = "5"
 
 WEIGHT_SHAPE = 0.33
 WEIGHT_MOTION = 0.21

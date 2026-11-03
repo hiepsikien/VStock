@@ -17,7 +17,13 @@ from dataclasses import replace
 from app.sonify.chords import C, Chord
 from app.sonify.form import active_meter
 from app.sonify.keys import C_KEY, MovementCharacter, active_register
-from app.sonify.model import DynamicEvent, HarmonyEvent, NoteEvent, Score
+from app.sonify.model import (
+    DynamicEvent,
+    HarmonyEvent,
+    NoteEvent,
+    PriceTracePoint,
+    Score,
+)
 from app.sonify.dfi import trace_from_notes
 from app.sonify.phrasing import Phrase, quantize_strong_beats, written
 from app.sonify.quantize import C_MAJOR_PCS, C_NATURAL_MINOR_PCS, scale_from_classes
@@ -135,7 +141,13 @@ def render_guitar_score(
     melody, slots, chord_at, harmonies = _picardy_close(
         melody, slots, phrases, chord_at, kind_at, harmonies, mode, ensemble
     )
-    from app.sonify.guitar_patterns import _TRACE_LINE, _TRACE_PRICE_LINE, render_patterned_voices
+    from app.sonify.guitar_patterns import (
+        _TRACE_LINE,
+        _TRACE_OWNED,
+        _TRACE_PRICE_LINE,
+        _TRACE_SUPPRESS,
+        render_patterned_voices,
+    )
 
     forwarded_raw = list(raw_pitches) if raw_pitches is not None else list(pitches)
     voice_kwargs = dict(
@@ -178,19 +190,66 @@ def render_guitar_score(
         needed = musical_bars * meter.eighths_per_bar
         while len(line) < needed:
             line.append(line[-1] if line else 64)
+        frame_bars = frozenset(
+            bar for bar, kind in kind_at.items() if kind in _PEDAL
+        )
         price_trace = trace_from_notes(
             [*lead, *support, *low],
             line=line,
             prices=trace_prices,
             epb=meter.eighths_per_bar,
             bar_beats=meter.quarter_beats,
+            frame_bars=frame_bars,
             voice="price",
         )
+        owned = tuple(_TRACE_OWNED.get() or ())
+        suppress = frozenset(_TRACE_SUPPRESS.get() or ())
+        if suppress:
+            price_trace = tuple(
+                point for point in price_trace if point.bar not in suppress
+            )
+        if owned:
+            owned_keys = {(item.bar, round(item.beat, 4)) for item in owned}
+            price_trace = tuple(
+                point
+                for point in price_trace
+                if (point.bar, round(point.beat, 4)) not in owned_keys
+            )
+            extra = []
+            for item in owned:
+                if item.bar in frame_bars:
+                    continue
+                if not 0 <= item.price_eighth < len(trace_prices):
+                    continue
+                extra.append(
+                    PriceTracePoint(
+                        bar=item.bar,
+                        beat=item.beat,
+                        duration_beats=item.duration_beats,
+                        price=trace_prices[item.price_eighth],
+                        pitch=item.pitch,
+                        sounding_pitch=item.sounding_pitch,
+                        role="attack",
+                        voice="price",
+                        price_eighth=item.price_eighth,
+                    )
+                )
+            price_trace = tuple(
+                sorted(
+                    (*price_trace, *extra),
+                    key=lambda point: (point.bar, point.beat),
+                )
+            )
         intended = _TRACE_PRICE_LINE.get()
         if intended:
             remapped = []
             for point in price_trace:
-                eighth = point.bar * meter.eighths_per_bar + int(round(point.beat * 2))
+                if point.price_eighth is not None:
+                    eighth = point.price_eighth
+                else:
+                    eighth = point.bar * meter.eighths_per_bar + int(
+                        round(point.beat * 2)
+                    )
                 if 0 <= eighth < len(intended):
                     remapped.append(
                         replace(
@@ -209,6 +268,8 @@ def render_guitar_score(
     # Release the last render's melody arrays; the context outlives this call.
     _TRACE_LINE.set(None)
     _TRACE_PRICE_LINE.set(None)
+    _TRACE_OWNED.set(None)
+    _TRACE_SUPPRESS.set(None)
     return Score(
         title=title,
         bpm=bpm,

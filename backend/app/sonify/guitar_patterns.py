@@ -148,6 +148,63 @@ _TRACE_PRICE_LINE: ContextVar[list[int] | None] = ContextVar(
 )
 
 
+@dataclass(frozen=True)
+class _TraceSpec:
+    """A price point owned by a writer, before `guitar.py` fills the price."""
+
+    bar: int
+    beat: float
+    duration_beats: float
+    price_eighth: int
+    pitch: float | None
+    sounding_pitch: float | None = None
+
+
+# Writers that re-register or delay the line record the exact points here.
+# `guitar.render_guitar_score` merges them, suppresses generic trace in the
+# same bars, and `PriceTracePoint.price_eighth` keeps the remap on the price
+# origin instead of rounding an off-grid attack.
+_TRACE_OWNED: ContextVar[list[_TraceSpec] | None] = ContextVar(
+    "vstock_guitar_trace_owned", default=None
+)
+_TRACE_SUPPRESS: ContextVar[set[int] | None] = ContextVar(
+    "vstock_guitar_trace_suppress", default=None
+)
+
+
+def _record_trace_point(
+    *,
+    bar: int,
+    beat: float,
+    duration_beats: float,
+    price_eighth: int,
+    pitch: float | None,
+    sounding_pitch: float | None = None,
+) -> None:
+    """Record one writer-owned price point, when a render is collecting them."""
+    found = _TRACE_OWNED.get()
+    if found is None:
+        return
+    found.append(
+        _TraceSpec(
+            bar=bar,
+            beat=beat,
+            duration_beats=max(duration_beats, 0.01),
+            price_eighth=price_eighth,
+            pitch=pitch,
+            sounding_pitch=sounding_pitch,
+        )
+    )
+
+
+def _suppress_trace_bars(start: int, end: int) -> None:
+    """Suppress generic trace for bars whose writer owns the price line."""
+    blocked = _TRACE_SUPPRESS.get()
+    if blocked is None or end <= start:
+        return
+    blocked.update(range(start, end))
+
+
 @dataclass
 class _Ctx:
     melody: list[int]
@@ -3330,6 +3387,8 @@ def render_patterned_voices(
         form.append(form_pattern_ids(ctx, patterns))
     if _SKIP_VOICES.get():
         return [], [], [], 2
+    _TRACE_OWNED.set([])
+    _TRACE_SUPPRESS.set(set())
     _fit_elegiaque_melody(ctx, patterns)
     levels = _grand_levels(ctx, patterns)
     lead: list[NoteEvent] = []
