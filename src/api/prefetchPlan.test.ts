@@ -17,6 +17,12 @@ if (prefetchOutcome(400) !== 'fatal') {
 if (prefetchOutcome(404) !== 'fatal') {
   throw new Error('a missing movement must not be retried');
 }
+if (prefetchOutcome(401) !== 'fatal') {
+  throw new Error('an auth failure must not be retried');
+}
+if (prefetchOutcome(403) !== 'fatal') {
+  throw new Error('a forbidden prefetch must not be retried');
+}
 if (prefetchOutcome(422) !== 'fatal') {
   throw new Error('an invalid range must not be retried');
 }

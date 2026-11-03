@@ -70,14 +70,14 @@ import {
   type PeaksRefreshState,
 } from './peaksPrefetch';
 import {
-  AHEAD_CAP,
   commitReason,
   lookaheadDepth,
   markMovementReady,
   maxRenderRatio,
+  playerHasStarted,
   queueTargets,
   retryDelay,
-  shouldAbortTarget,
+  shouldAbortOnIndexChange,
 } from './composeQueue';
 import { ambientDailyCandleIndexAt, spanCandleIndexAt } from '../utils/recapCursor';
 
@@ -106,7 +106,6 @@ type QueueState = {
   cooldownUntil: Map<number, { url: string; until: number }>;
   done: Set<string>;
   renderRatio: number;
-  readyLatencySec: number;
 };
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -210,7 +209,6 @@ export function ReplayRoom({ wide, onMode }: Props) {
     cooldownUntil: new Map(),
     done: new Set(),
     renderRatio: 0,
-    readyLatencySec: 0,
   });
   // The index that produced the current `mediaDuration`. On a chapter change
   // the old duration is still set for one render.
@@ -260,7 +258,6 @@ export function ReplayRoom({ wide, onMode }: Props) {
     queue.current.cooldownUntil.clear();
     queue.current.done.clear();
     queue.current.renderRatio = 0;
-    queue.current.readyLatencySec = 0;
     committedRef.current = false;
     playerStartedRef.current = false;
     setGeneration(queue.current.generation);
@@ -549,8 +546,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
           peaks.variant !== variant ||
           (peaks.ensemble != null && peaks.ensemble !== ensemble) ||
           (peaks.humanize != null && peaks.humanize !== humanize) ||
-          (peaks.color != null && peaks.color !== colorOn) ||
-          (peaks.asOf && asOf && peaks.asOf !== asOf)
+          (peaks.color != null && peaks.color !== colorOn)
         ) {
           return;
         }
@@ -614,7 +610,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
         }
       }
     })();
-  }, [asOf, colorOn, ensemble, humanize, span, symbol, variant]);
+  }, [colorOn, ensemble, humanize, span, symbol, variant]);
 
   const hasMovements = movements != null;
   const currentMovement = movements?.[index] ?? null;
@@ -701,7 +697,6 @@ export function ReplayRoom({ wide, onMode }: Props) {
         if (controller.signal.aborted) continue;
 
         if (outcome === 'ready') {
-          queue.current.readyLatencySec = (Date.now() - started) / 1000;
           queue.current.done.add(url);
           queue.current.attempts.delete(url);
           queue.current.cooldownUntil.delete(next);
@@ -749,13 +744,23 @@ export function ReplayRoom({ wide, onMode }: Props) {
   useEffect(() => {
     const flight = queue.current.inFlight;
     const currentReady = movementsRef.current?.[index]?.ready === true;
+    const depth = lookaheadDepth({
+      ratio: queue.current.renderRatio,
+      paused: !playingRef.current,
+      committed: committedRef.current,
+    });
     // Keep only what helps the chapter being entered. If that chapter has no
     // file, the player needs the single slot, so a prefetch for a later
-    // chapter must not sit in front of its request.
+    // chapter must not sit in front of its request. A jump back also drops a
+    // render that is now outside the window.
     if (
       flight &&
-      (shouldAbortTarget(flight.index, index) ||
-        (!currentReady && flight.index !== index))
+      shouldAbortOnIndexChange({
+        flightIndex: flight.index,
+        currentIndex: index,
+        currentReady,
+        depth,
+      })
     ) {
       flight.controller.abort();
       queue.current.inFlight = null;
@@ -771,10 +776,19 @@ export function ReplayRoom({ wide, onMode }: Props) {
   /** The player has actually started the heard chapter. */
   useEffect(() => {
     if (!currentMovement) return;
-    if (currentMovement.ready || mediaDuration > 0 || audible || resting) {
+    if (
+      playerHasStarted({
+        ready: currentMovement.ready,
+        audible,
+        resting,
+        mediaIndex: mediaIndex.current,
+        currentIndex: index,
+        mediaDurationSec: mediaDuration,
+      })
+    ) {
       playerStartedRef.current = true;
     }
-  }, [audible, currentMovement, mediaDuration, resting]);
+  }, [audible, currentMovement, index, mediaDuration, resting]);
 
   /** The listener has heard enough to be treated as staying for the work. */
   useEffect(() => {
@@ -1269,7 +1283,12 @@ export function ReplayRoom({ wide, onMode }: Props) {
             const name = incoming.name?.trim() ?? '';
             const patch: Partial<SpanMovement> = {};
             if (!item.name?.trim() && name) patch.name = name;
-            if (item.ready !== incoming.ready) patch.ready = incoming.ready;
+            // A new plan can point at another fingerprint. Only an explicit
+            // ready for the same URL may skip the pump.
+            if (incoming.ready && !item.ready && incoming.audioUrl === item.audioUrl) {
+              patch.ready = true;
+              queue.current.done.add(item.audioUrl);
+            }
             if (!item.dfi && incoming.dfi) patch.dfi = incoming.dfi;
             if (!Object.keys(patch).length) return item;
             changed = true;

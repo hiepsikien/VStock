@@ -5,8 +5,10 @@ import {
   lookaheadDepth,
   markMovementReady,
   maxRenderRatio,
+  playerHasStarted,
   queueTargets,
   retryDelay,
+  shouldAbortOnIndexChange,
   shouldAbortTarget,
 } from './composeQueue';
 
@@ -121,6 +123,89 @@ if (!shouldAbortTarget(1, 3)) throw new Error('a passed chapter must abort');
 if (shouldAbortTarget(3, 3)) throw new Error('the heard chapter must not abort');
 if (shouldAbortTarget(4, 3)) throw new Error('a future chapter must not abort');
 if (shouldAbortTarget(null, 3)) throw new Error('no in-flight render means no abort');
+
+// Index changes: drop passed work, drop work outside the new window, and drop
+// a future render when the chapter being entered still needs the export slot.
+if (!shouldAbortOnIndexChange({ flightIndex: 1, currentIndex: 3, currentReady: true, depth: 1 })) {
+  throw new Error('a passed render must abort on a jump forward');
+}
+if (shouldAbortOnIndexChange({ flightIndex: 3, currentIndex: 3, currentReady: false, depth: 1 })) {
+  throw new Error('the render for the heard chapter must survive');
+}
+if (shouldAbortOnIndexChange({ flightIndex: 4, currentIndex: 3, currentReady: true, depth: 1 })) {
+  throw new Error('a render inside the window survives when the heard chapter is ready');
+}
+if (!shouldAbortOnIndexChange({ flightIndex: 5, currentIndex: 3, currentReady: true, depth: 1 })) {
+  throw new Error('a render outside the window must abort on a jump back');
+}
+if (!shouldAbortOnIndexChange({ flightIndex: 4, currentIndex: 3, currentReady: false, depth: 2 })) {
+  throw new Error('an unready chapter must not wait behind a later render');
+}
+if (shouldAbortOnIndexChange({ flightIndex: null, currentIndex: 3, currentReady: false, depth: 1 })) {
+  throw new Error('no in-flight render means no index-change abort');
+}
+
+// Player started: a duration from the previous chapter must not unlock the next.
+if (
+  playerHasStarted({
+    ready: false,
+    audible: false,
+    resting: false,
+    mediaIndex: 0,
+    currentIndex: 1,
+    mediaDurationSec: 200,
+  })
+) {
+  throw new Error('a stale duration from the previous chapter must not count as started');
+}
+if (
+  !playerHasStarted({
+    ready: false,
+    audible: false,
+    resting: false,
+    mediaIndex: 1,
+    currentIndex: 1,
+    mediaDurationSec: 200,
+  })
+) {
+  throw new Error('a duration for this chapter means the player started');
+}
+if (
+  !playerHasStarted({
+    ready: true,
+    audible: false,
+    resting: false,
+    mediaIndex: -1,
+    currentIndex: 1,
+    mediaDurationSec: 0,
+  })
+) {
+  throw new Error('a ready chapter needs no player wait');
+}
+if (
+  !playerHasStarted({
+    ready: false,
+    audible: true,
+    resting: false,
+    mediaIndex: -1,
+    currentIndex: 1,
+    mediaDurationSec: 0,
+  })
+) {
+  throw new Error('audible means the player started');
+}
+if (
+  !playerHasStarted({
+    ready: false,
+    audible: false,
+    resting: true,
+    mediaIndex: -1,
+    currentIndex: 1,
+    mediaDurationSec: 0,
+  })
+) {
+  throw new Error('a rest unmounts the player, so the pump may look ahead');
+}
 
 if (retryDelay(1) !== 2000 || retryDelay(2) !== 5000 || retryDelay(3) !== 10000) {
   throw new Error('retry backoff must be 2s, 5s, 10s');

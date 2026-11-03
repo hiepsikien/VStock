@@ -39,6 +39,10 @@ export function commitReason(input: {
 /**
  * Chapters to keep prepared ahead. The render ratio comes from the server and
  * excludes queue wait, so a busy server cannot raise the depth on its own.
+ *
+ * Production keeps `AHEAD_CAP` at 1, so this returns 1 until P2 raises the cap
+ * after adding server-side playback priority. The ratio and paused branches are
+ * covered by tests so the P2 switch is a one-line change.
  */
 export function lookaheadDepth(input: {
   ratio: number;
@@ -86,6 +90,42 @@ export function queueTargets(input: {
 /** A render for a chapter the listener has already passed is wasted work. */
 export function shouldAbortTarget(target: number | null, currentIndex: number): boolean {
   return target != null && target < currentIndex;
+}
+
+/**
+ * Whether a background render must be dropped when the heard chapter changes.
+ * Keep a render for the chapter being entered, and keep future renders only
+ * while that chapter already has a file (otherwise the player needs the single
+ * export slot first).
+ */
+export function shouldAbortOnIndexChange(input: {
+  flightIndex: number | null;
+  currentIndex: number;
+  currentReady: boolean;
+  depth: number;
+}): boolean {
+  if (input.flightIndex == null) return false;
+  if (shouldAbortTarget(input.flightIndex, input.currentIndex)) return true;
+  const last = input.currentIndex + Math.max(1, Math.min(input.depth, MAX_AHEAD_HARD));
+  if (input.flightIndex > last) return true;
+  return !input.currentReady && input.flightIndex !== input.currentIndex;
+}
+
+/**
+ * The player has asked for the heard chapter, so the pump may look ahead.
+ * `mediaIndex` must match: on a chapter change the old duration is still set
+ * for one render and must not unlock the next chapter's prefetch.
+ */
+export function playerHasStarted(input: {
+  ready: boolean;
+  audible: boolean;
+  resting: boolean;
+  mediaIndex: number;
+  currentIndex: number;
+  mediaDurationSec: number;
+}): boolean {
+  if (input.ready || input.audible || input.resting) return true;
+  return input.mediaIndex === input.currentIndex && input.mediaDurationSec > 0;
 }
 
 /** Backoff before retrying a failed render, in milliseconds. 0 means cool down. */
