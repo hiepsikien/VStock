@@ -49,7 +49,7 @@ Các điểm “nên sửa” còn lại đã vào §3.1–§3.7, §5, §6.3, §
 - `Default` là profile **bất biến**, nằm ở server và được bundle trong app để so khớp.
 - Profile người dùng lưu **local** (AsyncStorage). Chia sẻ bằng URL chứa parameter đã chuẩn hoá.
 - Built-in preset đơn giản nằm ở server, không cần auth.
-- Cache audio dùng **`params_hash`**; Default không đổi tên file để cache cũ vẫn dùng được.
+- Cache audio dùng **`params_hash`**; Default không đổi tên file để không thêm biến thể cache. Revision vẫn tăng khi âm thanh Default đổi, nên file audio cũ có thể bị `prune()`; `_nh/_nc` giữ đúng âm thanh legacy, không hứa tái dùng file cũ.
 - DFI của bản non-default vẫn được tính và lưu, nhưng **cột so sánh corpus chỉ hiện với Default** trong V1.
 
 ---
@@ -785,7 +785,7 @@ UI:
 
 **Backend (V1 bắt buộc)**
 
-1. Default cho ra score/MusicXML **y hệt** trước khi tách params; test cũ pass; cache cũ vẫn dùng.
+1. Default cho ra score/MusicXML **y hệt** trước khi tách params; test cũ pass; `h=0` cho MusicXML giống bản legacy `_nh` (file audio cũ có thể đã bị `prune()` khi revision tăng).
 2. Bảy knob có hiệu lực qua `p`; `tempo` áp trước writer; BPM hiệu lực là int; tremolo rơi đúng ngưỡng.
 3. Legacy `h=0` cho **MusicXML từng byte** giống `p{humanize:0, breath:0}` và giống `_nh` cũ; `p{humanize:0}` là bản khác.
 4. Không có cache collision; `prune()` không xoá bản non-default; LRU bounded.
