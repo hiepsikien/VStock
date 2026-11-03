@@ -46,7 +46,7 @@ export const SCHEMA_VERSION = PARAMS_SCHEMA.schema;
 export const LINK_SCHEMA_VERSION = 2;
 export const P_MAX_LENGTH = 2048;
 export const ALL_TIERS = PARAMS_SCHEMA.allTiers ?? ['A', 'B', 'C'];
-export const BUNDLED_TIERS = PARAMS_SCHEMA.enabledTiers ?? ALL_TIERS;
+export const BUNDLED_TIERS: string[] = ['A'];
 const HUMANIZE_SOFT_WARNING = 1.1;
 const BREATH_SOFT_WARNING = 1.2;
 

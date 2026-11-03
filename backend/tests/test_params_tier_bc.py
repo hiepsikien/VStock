@@ -25,6 +25,11 @@ from app.sonify.render import render
 from app.sonify.span import attach_frame, month_specs
 
 
+@pytest.fixture(autouse=True)
+def _all_tiers(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VSTOCK_SONIFY_PARAMS_TIER", "A,B,C")
+
+
 def _bars() -> list[Bar]:
     closes = [100 + ((i * 7) % 13) for i in range(240)]
     return [Bar(value, 100_000.0, value) for value in closes]
@@ -82,9 +87,13 @@ def test_harmony_zero_uses_triads_only() -> None:
 
 
 def test_harmony_two_can_use_borrowed_chords() -> None:
+    with compose_params({**DEFAULT_PARAMS, "harmony": 1.0}):
+        base = render(_bars(), regimes=("uptrend", "sideway", "downtrend"))
     with compose_params({**DEFAULT_PARAMS, "harmony": 2.0}):
-        score = render(_bars(), regimes=("uptrend", "sideway", "downtrend"))
-    assert any(len(slot.chord.pitches) >= 4 for slot in score.slots)
+        rich = render(_bars(), regimes=("uptrend", "sideway", "downtrend"))
+    base_four = sum(1 for slot in base.slots if len(slot.chord.pitches) >= 4)
+    rich_four = sum(1 for slot in rich.slots if len(slot.chord.pitches) >= 4)
+    assert rich_four > base_four
 
 
 def test_frame_and_meter_choices_apply() -> None:
@@ -99,7 +108,7 @@ def test_frame_and_meter_choices_apply() -> None:
     assert short.bars < long.bars
 
     with compose_params({**DEFAULT_PARAMS, "meter": "3/4"}):
-        score = render(_bars(), variant="guitar", ensemble="classic", regimes=("sideway",) * 3)
+        score = render(_bars(), variant="guitar", ensemble="torroba", regimes=("sideway",) * 3)
     assert (score.beats, score.beat_type) == (3, 4)
 
 
@@ -115,12 +124,12 @@ def _changes(score) -> int:
     return sum(1 for left, right in zip(score.slots, score.slots[1:]) if left.chord != right.chord)
 
 
-def test_motion_zero_keeps_more_and_two_changes_more() -> None:
-    with compose_params({**DEFAULT_PARAMS, "motion": 0.0}):
-        calm = _changes(render(_bars(), regimes=("uptrend", "sideway", "downtrend")))
-    with compose_params({**DEFAULT_PARAMS, "motion": 2.0}):
-        busy = _changes(render(_bars(), regimes=("uptrend", "sideway", "downtrend")))
-    assert calm <= busy
+def test_motion_is_monotone() -> None:
+    counts = []
+    for motion in (0.0, 1.0, 2.0):
+        with compose_params({**DEFAULT_PARAMS, "motion": motion}):
+            counts.append(_changes(render(_bars(), regimes=("uptrend", "sideway", "downtrend"))))
+    assert counts[0] < counts[1] < counts[2]
 
 
 def test_technique_renders_both_extremes() -> None:
@@ -133,3 +142,13 @@ def test_technique_renders_both_extremes() -> None:
                 regimes=("sideway",) * 3,
             )
         assert score.bars > 0
+
+
+def test_register_changes_the_written_line() -> None:
+    with compose_params({**DEFAULT_PARAMS, "register": 0.0}):
+        low = render(_bars(), regimes=("uptrend", "sideway", "downtrend"))
+    with compose_params({**DEFAULT_PARAMS, "register": 2.0}):
+        high = render(_bars(), regimes=("uptrend", "sideway", "downtrend"))
+    low_pitches = tuple(event.midi for event in low.lead if event.midi is not None)
+    high_pitches = tuple(event.midi for event in high.lead if event.midi is not None)
+    assert low_pitches != high_pitches

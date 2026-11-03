@@ -11,6 +11,8 @@ active register, so a transposed key stays inside the same sounding range.
 
 from __future__ import annotations
 
+from functools import wraps
+
 import math
 from dataclasses import replace
 
@@ -79,7 +81,7 @@ _TREMOLO_CLUSTER = 4
 TREMOLO_BASS_TRIM = 2
 
 
-def render_guitar_score(
+def _render_guitar_score_impl(
     *,
     title: str,
     chosen: tuple,
@@ -306,6 +308,24 @@ def render_guitar_score(
         price_trace=price_trace,
         price_eighths=tuple(trace_prices),
     )
+
+
+@wraps(_render_guitar_score_impl)
+def render_guitar_score(**kwargs) -> Score:
+    """Render, then fall back to the automatic pattern if a technique breaks playability."""
+    score = _render_guitar_score_impl(**kwargs)
+    from app.sonify.params import active, active_params, compose_params
+
+    if active("technique") == 1.0:
+        return score
+    from app.sonify.guitar_patterns import Unplayable, assert_playable as _assert_playable
+
+    try:
+        _assert_playable(score, profiles="study")
+    except Unplayable:
+        with compose_params({**active_params(), "technique": 1.0}):
+            return _render_guitar_score_impl(**kwargs)
+    return score
 
 
 def assert_playable(score: Score, key=C_KEY, profiles: str | dict | tuple | list = "study"):

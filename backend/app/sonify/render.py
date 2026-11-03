@@ -1029,7 +1029,7 @@ def _compose(
             from app.sonify.span import retarget_torroba_meter
 
             spec = retarget_torroba_meter(spec, character)
-    if spec is not None and variant == "guitar":
+    if spec is not None and variant == "guitar" and ensemble == "torroba":
         from app.sonify.form import METER_128 as M128, METER_34 as M34, METER_44 as M44, METER_68 as M68
         from app.sonify.params import active_choice
 

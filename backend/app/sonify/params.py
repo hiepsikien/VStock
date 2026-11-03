@@ -27,9 +27,9 @@ HUMANIZE_SOFT_WARNING = 1.1
 BREATH_SOFT_WARNING = 1.2
 
 TIERS = ("A", "B", "C")
-# Local development ships every tier. A rollout sets VSTOCK_SONIFY_PARAMS_TIER=A
-# (or A,B) to hide the higher tiers without changing code.
-DEFAULT_TIERS = TIERS
+# Production starts with tier A. Local development sets
+# VSTOCK_SONIFY_PARAMS_TIER=A,B,C to expose the new knobs.
+DEFAULT_TIERS = ("A",)
 
 
 @dataclass(frozen=True)
@@ -352,6 +352,10 @@ def apply_tiers(
 
 
 def _normalize_value(field: ParamField, value: Any) -> tuple[float | str | bool, str | None]:
+    if field.kind == "toggle":
+        if isinstance(value, bool):
+            return value, None
+        return field.default, "unknown_choice"
     if field.kind == "choice":
         if isinstance(value, str):
             allowed = {choice.value for choice in field.choices}
@@ -393,7 +397,8 @@ def normalize_with_warnings(
                     warnings.append({"code": "clamped", "key": key, "value": number})
         if field.tier not in active_tiers:
             params[key] = field.default
-            warnings.append({"code": "tier_disabled", "key": key})
+            if key in source:
+                warnings.append({"code": "tier_disabled", "key": key})
     for key in source:
         if key not in FIELD_BY_KEY:
             warnings.append({"code": "unknown_key", "key": str(key)})

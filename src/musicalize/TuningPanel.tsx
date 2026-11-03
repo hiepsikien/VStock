@@ -335,6 +335,56 @@ function ChoiceRow({
   );
 }
 
+function ToggleRow({
+  field,
+  value,
+  helpOpen,
+  onToggleHelp,
+  onChange,
+}: {
+  field: ParamsFieldSchema;
+  value: ParamValue;
+  helpOpen: boolean;
+  onToggleHelp: () => void;
+  onChange: (value: ParamValue) => void;
+}) {
+  const active = value === true;
+  return (
+    <View style={styles.param}>
+      <View style={styles.paramHead}>
+        <View style={styles.paramLabelRow}>
+          <Text style={[type.sans, styles.paramLabel]}>{field.label}</Text>
+          <Pressable
+            onPress={onToggleHelp}
+            hitSlop={10}
+            style={[styles.helpButton, helpOpen && styles.helpButtonOpen]}
+            accessibilityRole="button"
+            accessibilityLabel={`Giải thích ${field.label}`}
+            accessibilityState={{ expanded: helpOpen }}
+          >
+            <Text style={[type.monoSmall, styles.helpMark, helpOpen && styles.helpMarkOpen]}>
+              ?
+            </Text>
+          </Pressable>
+        </View>
+        <Text style={[type.mono, styles.paramValue]}>{active ? 'Bật' : 'Tắt'}</Text>
+      </View>
+      {helpOpen ? <Text style={[type.sans, styles.paramHelp]}>{field.description}</Text> : null}
+      <Pressable
+        onPress={() => onChange(!active)}
+        style={[styles.choice, active && styles.choiceActive, styles.toggleWide]}
+        accessibilityRole="switch"
+        accessibilityLabel={field.label}
+        accessibilityState={{ checked: active }}
+      >
+        <Text style={[type.sans, styles.choiceText, active && styles.choiceTextActive]}>
+          {active ? 'Bật' : 'Tắt'}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
 function TuningTab({
   baseBpm,
   variant,
@@ -354,6 +404,9 @@ function TuningTab({
   const highBreath = warnings.some((warning) => warning.code === 'high_breath');
   const guitarLow = variant === 'guitar' && bpm < 90;
   const visibleKeys = new Set(visibleFields(variant, span, tiers).map((field) => field.key));
+  const hiddenChanged = PARAM_FIELDS.filter(
+    (field) => !visibleKeys.has(field.key) && params[field.key] !== field.default,
+  ).length;
   const groups = PARAM_GROUPS.map((group) => ({
     ...group,
     fields: group.fields.filter((field) => visibleKeys.has(field.key)),
@@ -370,6 +423,11 @@ function TuningTab({
       {profile.id === DEFAULT_PROFILE_ID && dirty ? (
         <Text style={[type.sans, styles.note]}>
           Default bất biến. Lưu sẽ tạo một bản sao có tên.
+        </Text>
+      ) : null}
+      {hiddenChanged > 0 ? (
+        <Text style={[type.sans, styles.note]}>
+          Còn {hiddenChanged} thay đổi ẩn không áp dụng cho màn này.
         </Text>
       ) : null}
 
@@ -405,6 +463,20 @@ function TuningTab({
                 />
               );
             }
+            if (field.type === 'toggle') {
+              return (
+                <ToggleRow
+                  key={field.key}
+                  field={field}
+                  value={value}
+                  helpOpen={helpKey === field.key}
+                  onToggleHelp={() =>
+                    setHelpKey((current) => (current === field.key ? null : field.key))
+                  }
+                  onChange={(next) => setParam(field.key, next)}
+                />
+              );
+            }
             return (
               <ParamSlider
                 key={field.key}
@@ -427,7 +499,7 @@ function TuningTab({
   );
 }
 
-function ProfileTab({ variant }: { variant?: string }) {
+function ProfileTab({ variant, span, tiers }: { variant?: string; span?: string; tiers: string[] }) {
   const {
     store,
     profile,
@@ -507,7 +579,7 @@ function ProfileTab({ variant }: { variant?: string }) {
                 </Text>
                 <Text style={[type.monoSmall, styles.profileMeta]} numberOfLines={1}>
                   {item.id === DEFAULT_PROFILE_ID ? 'khoá · ' : ''}
-                  {paramSummary(item.params, variant)}
+                  {paramSummary(item.params, variant, span)}
                 </Text>
               </View>
               {active ? <Text style={[type.monoSmall, styles.activeMark]}>đang dùng</Text> : null}
@@ -727,7 +799,7 @@ export function TuningPanel({ baseBpm, variant, span }: Props) {
         {tab === 'tune' ? (
           <TuningTab baseBpm={baseBpm} variant={variant} span={span} tiers={enabledTiers} />
         ) : (
-          <ProfileTab variant={variant} />
+          <ProfileTab variant={variant} span={span} tiers={enabledTiers} />
         )}
       </ScrollView>
       {tab === 'tune' ? (
@@ -1056,6 +1128,10 @@ const styles = StyleSheet.create({
   choiceActive: {
     borderColor: palette.sound,
     backgroundColor: palette.soundSoft,
+  },
+  toggleWide: {
+    alignSelf: 'flex-start',
+    minWidth: 72,
   },
   choiceText: {
     color: palette.textMuted,

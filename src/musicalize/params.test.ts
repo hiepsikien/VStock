@@ -282,10 +282,10 @@ console.log('musicalize params tests passed');
 
 
 ok(ALL_TIERS.join(',') === 'A,B,C', 'all tiers bundled');
-ok(visibleFields('guitar', '1D').some((field) => field.key === 'technique'), 'guitar sees technique');
-ok(!visibleFields('symphony', '1D').some((field) => field.key === 'technique'), 'symphony hides technique');
-ok(visibleFields('symphony', '1M').some((field) => field.key === 'frame'), 'long span sees frame');
-ok(!visibleFields('symphony', '1D').some((field) => field.key === 'frame'), 'daily hides frame');
+ok(visibleFields('guitar', '1D', ALL_TIERS).some((field) => field.key === 'technique'), 'guitar sees technique');
+ok(!visibleFields('symphony', '1D', ALL_TIERS).some((field) => field.key === 'technique'), 'symphony hides technique');
+ok(visibleFields('symphony', '1M', ALL_TIERS).some((field) => field.key === 'frame'), 'long span sees frame');
+ok(!visibleFields('symphony', '1D', ALL_TIERS).some((field) => field.key === 'frame'), 'daily hides frame');
 const tiered = applyTiers({ ...DEFAULT_PARAMS, harmony: 0, technique: 2 }, ['A']);
 ok(tiered.harmony === 1 && tiered.technique === 1, 'tier A strips B/C');
 ok(normalizeParams({ frame: 'nope' }).frame === 'auto', 'unknown choice falls back');

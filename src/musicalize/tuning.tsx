@@ -25,6 +25,7 @@ import {
   planPlayParams,
   renameProfile,
   resetProfile,
+  SCHEMA_VERSION,
   selectProfile,
   serializeProfileStore,
   updateProfileParams,
@@ -78,11 +79,17 @@ type TuningValue = {
 
 const TuningContext = createContext<TuningValue | null>(null);
 
+function changedKeys(params: SonifyParams): string[] {
+  return Object.entries(params)
+    .filter(([key, value]) => {
+      const field = PARAM_FIELD_BY_KEY[key];
+      return field ? value !== field.default : false;
+    })
+    .map(([key]) => key);
+}
+
 function changedKnobs(params: SonifyParams): number {
-  return Object.entries(params).filter(([key, value]) => {
-    const field = PARAM_FIELD_BY_KEY[key];
-    return field ? value !== field.default : false;
-  }).length;
+  return changedKeys(params).length;
 }
 
 const envEnabled =
@@ -104,6 +111,7 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
   const [loaded, setLoaded] = useState(false);
   const [playNonce, setPlayNonce] = useState(0);
   const [autoSavedNotice, setAutoSavedNotice] = useState<string | null>(null);
+  const lastKnobTrack = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -173,6 +181,11 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
 
   const setParam = useCallback((key: string, value: ParamValue) => {
     setParams((current) => normalizeParams({ ...current, [key]: value }));
+    const now = Date.now();
+    if (now - lastKnobTrack.current > 800) {
+      lastKnobTrack.current = now;
+      void trackEvent('knob_change', { key });
+    }
   }, []);
 
   const select = useCallback(
@@ -195,11 +208,11 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
     if (!paramsEqual(plan.savedParams, savedParams)) setSavedParams(plan.savedParams);
     if (plan.savedName) {
       setAutoSavedNotice(`Đã lưu vào · ${plan.savedName}`);
-      void trackEvent('profile_save', { source: 'play', knobs: changedKnobs(plan.savedParams) });
+      void trackEvent('profile_save', { source: 'play', knobs: changedKnobs(plan.savedParams), changedKeys: changedKeys(plan.savedParams), schema: SCHEMA_VERSION, enabledTiers });
     }
     setHeardParams(plan.savedParams);
     setPlayNonce((nonce) => nonce + 1);
-  }, [params, savedParams, store]);
+  }, [enabledTiers, params, savedParams, store]);
 
   const revert = useCallback(() => {
     const next = profile.params;
@@ -214,15 +227,15 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
       setStore(next.store);
       setParams(next.profile.params);
       setSavedParams(next.profile.params);
-      void trackEvent('profile_save', { source: 'create', knobs: changedKnobs(next.profile.params) });
+      void trackEvent('profile_save', { source: 'create', knobs: changedKnobs(next.profile.params), changedKeys: changedKeys(next.profile.params), schema: SCHEMA_VERSION, enabledTiers });
       return;
     }
     const shaped = normalizeParams(params);
     setStore(updateProfileParams(store, profile.id, shaped));
     setParams(shaped);
     setSavedParams(shaped);
-    void trackEvent('profile_save', { source: 'save', knobs: changedKnobs(shaped) });
-  }, [params, profile.id, store]);
+    void trackEvent('profile_save', { source: 'save', knobs: changedKnobs(shaped), changedKeys: changedKeys(shaped), schema: SCHEMA_VERSION, enabledTiers });
+  }, [enabledTiers, params, profile.id, store]);
 
   const addProfile = useCallback(
     (name?: string) => {

@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 import time
 from datetime import date
 from pathlib import Path
@@ -755,6 +756,8 @@ async def get_params_presets(response: Response) -> list[dict]:
     return presets_payload()
 
 
+_EVENT_LOCK = threading.Lock()
+_SEEN_EVENT_IDS: set[str] = set()
 _EVENT_NAMES = {
     "ab_toggle",
     "profile_save",
@@ -810,25 +813,36 @@ async def post_sonify_events(payload: dict) -> dict:
         name = item.get("name")
         if name not in _EVENT_NAMES:
             continue
+        event_id = str(item.get("eventId") or "")
+        if event_id and event_id in _SEEN_EVENT_IDS:
+            continue
         body = item.get("payload", {})
         if body is not None and not isinstance(body, dict):
             body = {}
+        at = item.get("at")
+        if not isinstance(at, (int, float)):
+            at = time.time()
         rows.append(
             {
                 "name": name,
-                "eventId": str(item.get("eventId") or ""),
-                "at": item.get("at") or time.time(),
+                "eventId": event_id,
+                "at": float(at),
                 "payload": body or {},
             }
         )
+        if event_id:
+            _SEEN_EVENT_IDS.add(event_id)
         accepted += 1
     if not rows:
         raise HTTPException(status_code=400, detail="no known events")
+    if len(_SEEN_EVENT_IDS) > 20_000:
+        _SEEN_EVENT_IDS.clear()
     path = _event_log_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        for row in rows:
-            handle.write(json.dumps(row, separators=(",", ":"), ensure_ascii=False) + "\n")
+    with _EVENT_LOCK:
+        with path.open("a", encoding="utf-8") as handle:
+            for row in rows:
+                handle.write(json.dumps(row, separators=(",", ":"), ensure_ascii=False) + "\n")
     return {"accepted": accepted}
 
 

@@ -49,6 +49,15 @@ def test_events_reject_empty_oversize_and_bad_payload(monkeypatch: pytest.Monkey
         )
 
 
+def test_events_dedupe_event_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("VSTOCK_SONIFY_EVENT_LOG", str(path))
+    payload = {"events": [{"name": "play", "eventId": "same-id", "payload": {}}]}
+    assert asyncio.run(post_sonify_events(payload)) == {"accepted": 1}
+    with pytest.raises(HTTPException):
+        asyncio.run(post_sonify_events(payload))
+
+
 def test_pin_params_keeps_a_and_b_hashes(monkeypatch: pytest.MonkeyPatch) -> None:
     result = asyncio.run(pin_params({"hashes": ["a123", "b456"], "ttlSec": 30}))
     assert result["pinned"] == 2

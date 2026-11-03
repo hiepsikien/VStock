@@ -457,9 +457,12 @@ def _bar_change_penalty(character: MovementCharacter | None) -> float:
     from app.sonify.params import active
 
     motion = active("motion")
+    # 3x the change penalty at 0, unchanged at 1, and a negative incentive
+    # at 2 so the knob is monotone instead of saturating.
+    scale = 4.0 - 3.0 * motion
     if character is None:
-        return SINGLE_BAR_CHANGE_PENALTY * (2.0 - motion)
-    return _CHARACTER_BAR_CHANGE[character] * (2.0 - motion)
+        return SINGLE_BAR_CHANGE_PENALTY * scale
+    return _CHARACTER_BAR_CHANGE[character] * scale
 
 
 def plan_markov_chords(
@@ -701,6 +704,8 @@ def plan_markov_chords(
                 base_bias = minor_bias(chord, regime)
             else:
                 base_bias = chord_bias(chord, regime, bar_character[bar])
+            if harmony > 1.0 and len(chord.pitches) >= 4:
+                base_bias -= (harmony - 1.0) * 0.25
             base_bias += active_dialect.bias(chord, bar_character[bar], mode, strong_pcs)
             if bar in bridge_starts and is_subdominant(chord, mode):
                 base_bias -= PHRASE_TONIC_BONUS

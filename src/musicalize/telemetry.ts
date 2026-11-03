@@ -53,7 +53,11 @@ async function flush(): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ events }),
     });
-    if (response.ok) await writeBuffer([]);
+    if (response.ok) {
+      const sent = new Set(events.map((event) => event.eventId));
+      const remaining = (await readBuffer()).filter((event) => !sent.has(event.eventId));
+      await writeBuffer(remaining);
+    }
   } catch {
     // Keep the buffer for the next attempt.
   } finally {
