@@ -154,6 +154,9 @@ class WedgeEvent:
 class DynamicEvent:
     bar: int
     marking: str
+    # Informational at compose time. The written <sound dynamics> and the DFI
+    # gain read `sound_for(marking)` when they consume the score, because the
+    # dynamics knob can change after this event was built.
     sound: int
     beat: float = 0.0
 

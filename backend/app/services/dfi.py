@@ -286,7 +286,10 @@ def recap_dfi(
         value, stamp, cached = hit
         return DfiPieceResult(variant, ensemble, None, value, cached, stamp)
     score = _recap_score(symbol, bars, variant, ensemble, values)
-    value = compute_dfi(score, variant=variant, ensemble=ensemble)
+    # `_dynamic_gain` reads `sound_for(marking)`, which reads the dynamics
+    # knob. The DFI must be computed inside the same params scope as audio.
+    with compose_params(values):
+        value = compute_dfi(score, variant=variant, ensemble=ensemble)
     stamp = _store(key, value)
     return DfiPieceResult(
         variant,
@@ -316,7 +319,9 @@ def movement_dfi(
         value, stamp, cached = hit
         return DfiPieceResult(variant, ensemble, index, value, cached, stamp)
     score = _movement_score(symbol, span, index, movement, variant, ensemble, values)
-    value = compute_dfi(score, variant=variant, ensemble=ensemble)
+    # Same params scope as the audio render; `sound_for` is context-sensitive.
+    with compose_params(values):
+        value = compute_dfi(score, variant=variant, ensemble=ensemble)
     _store(key, value)
     return DfiPieceResult(
         variant,

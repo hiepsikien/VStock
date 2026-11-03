@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from math import sin
 from xml.etree import ElementTree as ET
 
 from app.sonify.dynamics import (
     BASE_VELOCITY,
+    contrast_velocity,
     fill_velocity,
     piano_velocity_for,
     sound_for,
     velocity_for,
 )
-from app.sonify.model import Bar, DynamicEvent
+from app.sonify.humanize import _clamp_guitar
+from app.sonify.model import Bar, DynamicEvent, NoteEvent
 from app.sonify.musicxml import _dynamic
 from app.sonify.params import DEFAULT_PARAMS, compose_params
 from app.sonify.render import render
@@ -80,17 +83,20 @@ def _spread(score) -> int:
 
 
 def test_the_knob_stretches_every_part_not_just_the_piano() -> None:
-    with compose_params(DEFAULT_PARAMS):
-        base = render(_bars(), variant="symphony")
-    with compose_params({**DEFAULT_PARAMS, "dynamics": 1.5}):
-        wide = render(_bars(), variant="symphony")
+    for variant in ("symphony", "guitar", "ambient"):
+        with compose_params(DEFAULT_PARAMS):
+            base = render(_bars(), variant=variant)
+        with compose_params({**DEFAULT_PARAMS, "dynamics": 1.5}):
+            wide = render(_bars(), variant=variant)
 
-    assert _spread(wide) > _spread(base)
-    # The violin and piano must move too. Scaling only one bed would leave
-    # one of these lists untouched.
-    assert _velocities(wide, "lead") != _velocities(base, "lead")
-    assert _velocities(wide, "support") != _velocities(base, "support")
-    assert _velocities(wide, "comp") != _velocities(base, "comp")
+        assert _spread(wide) > _spread(base), variant
+        # The melodic parts must move too. Scaling only one bed would leave
+        # one of these lists untouched.
+        for field in ("lead", "support", "comp"):
+            before = _velocities(base, field)
+            if not before:
+                continue
+            assert _velocities(wide, field) != before, (variant, field)
 
 
 def test_musicxml_dynamic_reads_the_knob_at_write_time() -> None:
@@ -102,3 +108,13 @@ def test_musicxml_dynamic_reads_the_knob_at_write_time() -> None:
     assert sound is not None
     assert sound.get("dynamics") == expected
     assert sound.get("dynamics") != "54"
+
+
+def test_guitar_snap_ceiling_follows_the_dynamics_knob() -> None:
+    written = NoteEvent(bar=0, beat=0.0, midi=64, duration_beats=0.5, voice=1, velocity=71)
+    heard = [replace(written, velocity=125)]
+
+    with compose_params(DEFAULT_PARAMS):
+        assert _clamp_guitar((written,), heard, "classic")[0].velocity == 73
+    with compose_params({**DEFAULT_PARAMS, "dynamics": 1.5}):
+        assert _clamp_guitar((written,), heard, "classic")[0].velocity == contrast_velocity(73)

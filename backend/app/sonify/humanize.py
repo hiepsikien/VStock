@@ -23,6 +23,7 @@ import math
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
+from app.sonify.dynamics import contrast_velocity
 from app.sonify.model import NoteEvent, Phrase, Score, TempoEvent
 from app.sonify.params import active_params
 
@@ -316,7 +317,7 @@ def _clamp_guitar(original: tuple[NoteEvent, ...], heard: list[NoteEvent], ensem
     A written note at or under 64 stays at or under 64. Snaps sit in 69..73
     for Bach, Sor, and Torroba, and 69..79 for the other guitar ensembles.
     """
-    ceiling = 73 if ensemble in {"bach", "classic", "torroba"} else 79
+    ceiling = contrast_velocity(73 if ensemble in {"bach", "classic", "torroba"} else 79)
     clamped: list[NoteEvent] = []
     for note, heard_note in zip(original, heard):
         written = note.velocity

@@ -12,7 +12,7 @@ are chosen so round(N / 100 * 90) is the velocity in the third column.
 from __future__ import annotations
 
 from dataclasses import replace
-from math import log1p
+from math import floor, log1p
 
 from app.sonify.groove import groove_at
 from app.sonify.model import Score
@@ -45,8 +45,13 @@ _CENTER = 64
 
 
 def _contrast(base: int) -> int:
-    scaled = round(_CENTER + (base - _CENTER) * active("dynamics"))
+    scaled = floor(_CENTER + (base - _CENTER) * active("dynamics") + 0.5)
     return max(1, min(127, scaled))
+
+
+def contrast_velocity(base: int) -> int:
+    """Apply the dynamics contrast to a written velocity or ceiling."""
+    return _contrast(base)
 
 
 def apply_contrast(score: Score) -> Score:

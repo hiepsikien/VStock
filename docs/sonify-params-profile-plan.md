@@ -373,7 +373,7 @@ Quy tắc:
 - Key lạ → bỏ qua và cảnh báo `unknown_key`.
 - Sai kiểu → 400.
 - Số ngoài khoảng → kẹp và cảnh báo `clamped`.
-- Cảnh báo mềm `high_humanize`, `high_breath`, `tremolo_below_min` (khi variant guitar và BPM hiệu lực < 90).
+- Cảnh báo mềm `high_humanize`, `high_breath`. Ghi chú guitar “dưới ngưỡng tremolo” là hint phía client, suy từ `baseBpm` trong schema và BPM hiệu lực < 90; server không nhận `variant` ở `/validate` nên không phát warning này.
 - **Warnings trả `code + key + value`, không trả câu tiếng Việt.** Client map sang copy; server không phải nguồn bản địa hoá.
 - Không nhận chuỗi FFmpeg, code, biểu thức, đường dẫn file, key ngoài schema.
 

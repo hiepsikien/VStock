@@ -830,6 +830,33 @@ def test_dfi_keys_only_add_a_hash_for_a_profile_mark() -> None:
     assert profile[0].endswith(params_hash(profile_params))
 
 
+def test_recomposed_dfi_reads_the_dynamics_knob_inside_the_params_scope(
+    monkeypatch,
+) -> None:
+    from datetime import date
+
+    from app.sonify.params import DEFAULT_PARAMS, active
+
+    values = {**DEFAULT_PARAMS, "dynamics": 1.5}
+    bars = _bars()
+    seen: list[float] = []
+    original = dfi_service.compute_dfi
+
+    def spy(score, **kwargs):
+        seen.append(active("dynamics"))
+        return original(score, **kwargs)
+
+    monkeypatch.setattr(dfi_service, "compute_dfi", spy)
+    monkeypatch.setattr(dfi_service, "_read_sidecar", lambda _key: None)
+    monkeypatch.setattr(dfi_service, "_write_sidecar", lambda *_args, **_kwargs: None)
+    dfi_service._CACHE.clear()
+    result = dfi_service.recap_dfi(
+        "ZZZDFI", date(2026, 10, 14), bars, "symphony", "classic", values
+    )
+    assert result.dfi is not None
+    assert seen == [1.5]
+
+
 def test_movement_dfi_keys_only_add_a_hash_for_a_profile_mark() -> None:
     from app.sonify.params import DEFAULT_PARAMS, params_from_flags, params_hash
 
