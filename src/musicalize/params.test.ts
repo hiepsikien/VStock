@@ -286,6 +286,8 @@ ok(visibleFields('guitar', '1D', ALL_TIERS).some((field) => field.key === 'techn
 ok(!visibleFields('symphony', '1D', ALL_TIERS).some((field) => field.key === 'technique'), 'symphony hides technique');
 ok(visibleFields('symphony', '1M', ALL_TIERS).some((field) => field.key === 'frame'), 'long span sees frame');
 ok(!visibleFields('symphony', '1D', ALL_TIERS).some((field) => field.key === 'frame'), 'daily hides frame');
+ok(!visibleFields('guitar', '1D', ALL_TIERS, 'classic').some((field) => field.key === 'meter'), 'meter hides outside torroba');
+ok(visibleFields('guitar', '1D', ALL_TIERS, 'torroba').some((field) => field.key === 'meter'), 'meter shows for torroba');
 const tiered = applyTiers({ ...DEFAULT_PARAMS, harmony: 0, technique: 2 }, ['A']);
 ok(tiered.harmony === 1 && tiered.technique === 1, 'tier A strips B/C');
 ok(normalizeParams({ frame: 'nope' }).frame === 'auto', 'unknown choice falls back');

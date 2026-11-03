@@ -69,13 +69,15 @@ export function fieldVisible(
   variant?: string,
   span?: string,
   tiers: string[] = BUNDLED_TIERS,
+  ensemble?: string,
 ): boolean {
   if (!tiers.includes(field.tier)) return false;
   if (!field.appliesTo.length) return true;
   const spans = field.appliesTo.filter(isSpanToken);
-  const variants = field.appliesTo.filter((item) => !isSpanToken(item));
+  const targets = field.appliesTo.filter((item) => !isSpanToken(item));
   if (spans.length && span && spans.includes(span)) return true;
-  if (variants.length && variant && variants.includes(variant)) return true;
+  if (targets.length && variant && targets.includes(variant)) return true;
+  if (targets.length && ensemble && targets.includes(ensemble)) return true;
   return false;
 }
 
@@ -83,8 +85,9 @@ export function visibleFields(
   variant?: string,
   span?: string,
   tiers: string[] = BUNDLED_TIERS,
+  ensemble?: string,
 ): ParamsFieldSchema[] {
-  return PARAM_FIELDS.filter((field) => fieldVisible(field, variant, span, tiers));
+  return PARAM_FIELDS.filter((field) => fieldVisible(field, variant, span, tiers, ensemble));
 }
 
 /** Tier is a rollout switch. Fields outside it behave as their default. */

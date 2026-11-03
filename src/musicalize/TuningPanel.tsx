@@ -15,6 +15,7 @@ import {
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
+  BUNDLED_TIERS,
   DEFAULT_PROFILE_ID,
   PARAM_FIELDS,
   PARAM_GROUPS,
@@ -39,6 +40,7 @@ type Props = {
   baseBpm?: number;
   variant?: string;
   span?: string;
+  ensemble?: string;
 };
 
 function clamp(value: number, minimum: number, maximum: number): number {
@@ -75,12 +77,26 @@ const GUITAR_KEYS = new Set(
   PARAM_GROUPS.find((group) => group.id === 'guitar')?.fields.map((field) => field.key) ?? [],
 );
 
-function changedCount(params: SonifyParams, variant?: string, span?: string): number {
-  return visibleFields(variant, span).filter((field) => params[field.key] !== field.default).length;
+function changedCount(
+  params: SonifyParams,
+  variant?: string,
+  span?: string,
+  ensemble?: string,
+  tiers: string[] = BUNDLED_TIERS,
+): number {
+  return visibleFields(variant, span, tiers, ensemble).filter(
+    (field) => params[field.key] !== field.default,
+  ).length;
 }
 
-function paramSummary(params: SonifyParams, variant?: string, span?: string): string {
-  const count = changedCount(params, variant, span);
+function paramSummary(
+  params: SonifyParams,
+  variant?: string,
+  span?: string,
+  ensemble?: string,
+  tiers: string[] = BUNDLED_TIERS,
+): string {
+  const count = changedCount(params, variant, span, ensemble, tiers);
   return count === 0 ? 'Default' : `${count} thay đổi`;
 }
 
@@ -389,11 +405,13 @@ function TuningTab({
   baseBpm,
   variant,
   span,
+  ensemble,
   tiers,
 }: {
   baseBpm: number;
   variant?: string;
   span?: string;
+  ensemble?: string;
   tiers: string[];
 }) {
   const { profile, params, dirty, setParam } = useTuning();
@@ -403,7 +421,7 @@ function TuningTab({
   const highHumanize = warnings.some((warning) => warning.code === 'high_humanize');
   const highBreath = warnings.some((warning) => warning.code === 'high_breath');
   const guitarLow = variant === 'guitar' && bpm < 90;
-  const visibleKeys = new Set(visibleFields(variant, span, tiers).map((field) => field.key));
+  const visibleKeys = new Set(visibleFields(variant, span, tiers, ensemble).map((field) => field.key));
   const hiddenChanged = PARAM_FIELDS.filter(
     (field) => !visibleKeys.has(field.key) && params[field.key] !== field.default,
   ).length;
@@ -499,7 +517,7 @@ function TuningTab({
   );
 }
 
-function ProfileTab({ variant, span, tiers }: { variant?: string; span?: string; tiers: string[] }) {
+function ProfileTab({ variant, span, ensemble, tiers }: { variant?: string; span?: string; ensemble?: string; tiers: string[] }) {
   const {
     store,
     profile,
@@ -579,7 +597,7 @@ function ProfileTab({ variant, span, tiers }: { variant?: string; span?: string;
                 </Text>
                 <Text style={[type.monoSmall, styles.profileMeta]} numberOfLines={1}>
                   {item.id === DEFAULT_PROFILE_ID ? 'khoá · ' : ''}
-                  {paramSummary(item.params, variant, span)}
+                  {paramSummary(item.params, variant, span, ensemble, tiers)}
                 </Text>
               </View>
               {active ? <Text style={[type.monoSmall, styles.activeMark]}>đang dùng</Text> : null}
@@ -677,7 +695,7 @@ function SmallButton({
   );
 }
 
-export function TuningPanel({ baseBpm, variant, span }: Props) {
+export function TuningPanel({ baseBpm, variant, span, ensemble }: Props) {
   const { enabled, enabledTiers, open, setOpen, dirty, revert, saveChanges } = useTuning();
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -797,9 +815,9 @@ export function TuningPanel({ baseBpm, variant, span }: Props) {
         keyboardShouldPersistTaps="handled"
       >
         {tab === 'tune' ? (
-          <TuningTab baseBpm={baseBpm} variant={variant} span={span} tiers={enabledTiers} />
+          <TuningTab baseBpm={baseBpm} variant={variant} span={span} ensemble={ensemble} tiers={enabledTiers} />
         ) : (
-          <ProfileTab variant={variant} span={span} tiers={enabledTiers} />
+          <ProfileTab variant={variant} span={span} ensemble={ensemble} tiers={enabledTiers} />
         )}
       </ScrollView>
       {tab === 'tune' ? (

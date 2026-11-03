@@ -269,7 +269,7 @@ FIELDS: tuple[ParamField, ...] = (
             ParamChoice("12/8", "12/8"),
         ),
         auto=True,
-        applies_to=("guitar",),
+        applies_to=("torroba",),
         tier="B",
     ),
 )
@@ -411,6 +411,45 @@ def normalize_with_warnings(
     if isinstance(breath, float) and breath > BREATH_SOFT_WARNING:
         warnings.append({"code": "high_breath", "key": "breath", "value": breath})
     return params, warnings
+
+
+_SPAN_TOKENS = frozenset({"1D", "1W", "1M", "3M", "1Y"})
+
+
+def _applies_to(field: ParamField, variant: str | None, ensemble: str | None, span: str | None) -> bool:
+    if not field.applies_to:
+        return True
+    spans = tuple(item for item in field.applies_to if item in _SPAN_TOKENS)
+    targets = tuple(item for item in field.applies_to if item not in _SPAN_TOKENS)
+    if spans and span and span in spans:
+        return True
+    if targets and variant and variant in targets:
+        return True
+    if targets and ensemble and ensemble in targets:
+        return True
+    return False
+
+
+def inapplicable_warnings(
+    raw: Mapping[str, Any] | None,
+    *,
+    variant: str | None = None,
+    ensemble: str | None = None,
+    span: str | None = None,
+) -> list[dict[str, Any]]:
+    """Warn about fields that do not apply to this room. Does not touch the hash."""
+    source = raw or {}
+    if not isinstance(source, Mapping):
+        return []
+    warnings: list[dict[str, Any]] = []
+    for key, field in FIELD_BY_KEY.items():
+        if key not in source:
+            continue
+        if field.tier not in enabled_tiers():
+            continue
+        if not _applies_to(field, variant, ensemble, span):
+            warnings.append({"code": "inapplicable", "key": key})
+    return warnings
 
 
 def normalize_params(

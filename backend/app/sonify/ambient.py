@@ -90,9 +90,12 @@ def promote_ambient_slots(
     slots: tuple[ChordSlot, ...],
 ) -> tuple[tuple[ChordSlot, ...], tuple[HarmonyEvent, ...], dict[int, Chord]]:
     """Promote each slot, then join neighbours that become the same jazz chord."""
+    from app.sonify.params import active
+
+    keep_triads = active("harmony") < 0.75
     merged: list[ChordSlot] = []
     for slot in slots:
-        chord = jazz_chord(slot.chord)
+        chord = slot.chord if keep_triads else jazz_chord(slot.chord)
         previous = merged[-1] if merged else None
         if (
             previous is not None

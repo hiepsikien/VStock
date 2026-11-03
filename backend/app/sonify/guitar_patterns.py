@@ -1545,6 +1545,18 @@ def _assign_macro(ctx: _Ctx, chosen: list[str], body: list[int]) -> list[str]:
     """
     if not body:
         return chosen
+    from app.sonify.params import active
+
+    technique = active("technique")
+    if technique != 1.0 and ctx.ensemble in {"barrios", "torroba"}:
+        simple = technique < 1.0
+        if ctx.ensemble == "barrios":
+            pattern = "andante" if simple else ("tremolo" if ctx.bpm >= 90 else "choro")
+        else:
+            pattern = "castillo" if simple else ("torroba_tremolo" if ctx.bpm >= 90 else "danza")
+        for index in body:
+            chosen[index] = pattern
+        return chosen
     if ctx.ensemble == "torroba":
         return _assign_torroba(ctx, chosen, body)
     if ctx.ensemble == "barrios" and ctx.bars > 40:

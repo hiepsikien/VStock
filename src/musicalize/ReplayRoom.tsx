@@ -167,6 +167,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
   );
   const {
     params,
+    savedParams,
     heardParams,
     draftDirty,
     savedDirty,
@@ -340,6 +341,14 @@ export function ReplayRoom({ wide, onMode }: Props) {
   useEffect(() => {
     if (abSide === 'A') setPlayingParams(normalizeParams(heardParams));
   }, [abSide, heardParams]);
+
+  const savedKey = paramsKey(savedParams);
+  const savedKeyRef = useRef(savedKey);
+  useEffect(() => {
+    if (savedKeyRef.current === savedKey) return;
+    savedKeyRef.current = savedKey;
+    setAbSide('A');
+  }, [savedKey]);
   // Warm B while the tuning drawer is open so the first A/B toggle does not
   // wait for MuseScore. This only fills the server/cache; it never writes state.
   useEffect(() => {
@@ -377,9 +386,9 @@ export function ReplayRoom({ wide, onMode }: Props) {
           );
           if (controller.signal.aborted) return;
           rememberHash(plan.paramsHash ?? plan.movements[0]?.paramsHash);
-          const first = plan.movements[0];
-          if (first?.audioUrl) {
-            await prefetchSpanAudio(first.audioUrl, controller.signal, 15 * 60_000);
+          const target = plan.movements[Math.min(index, plan.movements.length - 1)];
+          if (target?.audioUrl) {
+            await prefetchSpanAudio(target.audioUrl, controller.signal, 15 * 60_000);
           }
         } catch {
           if (!controller.signal.aborted) {
@@ -396,6 +405,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
     date,
     ensemble,
     heardParams,
+    index,
     params,
     rememberHash,
     span,
@@ -1904,6 +1914,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
       tuningBaseBpm={baseBpmFor(variant, ensemble)}
       tuningVariant={variant}
       tuningSpan={span}
+      tuningEnsemble={ensemble}
       topBar={
         <TopBar
           mode="replay"

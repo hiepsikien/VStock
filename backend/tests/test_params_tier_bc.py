@@ -16,6 +16,7 @@ from app.sonify.params import (
     TIERS,
     apply_tiers,
     compose_params,
+    inapplicable_warnings,
     decode_params,
     encode_params,
     params_hash,
@@ -109,7 +110,19 @@ def test_frame_and_meter_choices_apply() -> None:
 
     with compose_params({**DEFAULT_PARAMS, "meter": "3/4"}):
         score = render(_bars(), variant="guitar", ensemble="torroba", regimes=("sideway",) * 3)
+        classic = render(_bars(), variant="guitar", ensemble="classic", regimes=("sideway",) * 3)
     assert (score.beats, score.beat_type) == (3, 4)
+    assert (classic.beats, classic.beat_type) == (4, 4)
+
+
+def test_inapplicable_warnings_use_room_context() -> None:
+    assert inapplicable_warnings({"technique": 2}, variant="symphony") == [
+        {"code": "inapplicable", "key": "technique"}
+    ]
+    assert inapplicable_warnings({"meter": "3/4"}, variant="guitar", ensemble="classic") == [
+        {"code": "inapplicable", "key": "meter"}
+    ]
+    assert inapplicable_warnings({"meter": "3/4"}, variant="guitar", ensemble="torroba") == []
 
 
 def test_schema_fixture_is_independent_of_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -132,16 +145,21 @@ def test_motion_is_monotone() -> None:
     assert counts[0] < counts[1] < counts[2]
 
 
-def test_technique_renders_both_extremes() -> None:
-    for technique in (0.0, 2.0):
-        with compose_params({**DEFAULT_PARAMS, "technique": technique}):
-            score = render(
-                _bars(),
-                variant="guitar",
-                ensemble="barrios",
-                regimes=("sideway",) * 3,
+def test_technique_changes_every_ensemble() -> None:
+    for ensemble in ("classic", "villa", "barrios", "brouwer", "bach", "torroba"):
+        signatures = []
+        for technique in (0.0, 1.0, 2.0):
+            with compose_params({**DEFAULT_PARAMS, "technique": technique}):
+                score = render(
+                    _bars(),
+                    variant="guitar",
+                    ensemble=ensemble,
+                    regimes=("sideway",) * 3,
+                )
+            signatures.append(
+                tuple((event.bar, event.midi, event.velocity) for event in score.lead if event.midi is not None)
             )
-        assert score.bars > 0
+        assert signatures[0] != signatures[1] or signatures[1] != signatures[2], ensemble
 
 
 def test_register_changes_the_written_line() -> None:
@@ -152,3 +170,11 @@ def test_register_changes_the_written_line() -> None:
     low_pitches = tuple(event.midi for event in low.lead if event.midi is not None)
     high_pitches = tuple(event.midi for event in high.lead if event.midi is not None)
     assert low_pitches != high_pitches
+
+
+def test_harmony_zero_keeps_ambient_triads_and_jazz_floor() -> None:
+    with compose_params({**DEFAULT_PARAMS, "harmony": 0.0}):
+        ambient = render(_bars(), variant="ambient", regimes=("uptrend", "sideway", "downtrend"))
+        jazz = render(_bars(), variant="jazz", regimes=("uptrend", "sideway", "downtrend"))
+    assert all(len(slot.chord.pitches) <= 3 for slot in ambient.slots)
+    assert any(len(slot.chord.pitches) >= 4 for slot in jazz.slots)

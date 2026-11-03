@@ -12,6 +12,9 @@ active register, so a transposed key stays inside the same sounding range.
 from __future__ import annotations
 
 from functools import wraps
+import logging
+
+logger = logging.getLogger(__name__)
 
 import math
 from dataclasses import replace
@@ -310,21 +313,44 @@ def _render_guitar_score_impl(
     )
 
 
+_ENSEMBLE_PROFILE = {
+    "classic": "study",
+    "villa": "villa_pattern",
+    "barrios": "barrios_preludio",
+    "brouwer": "brouwer",
+    "bach": "bach",
+    "torroba": "torroba",
+}
+
+
 @wraps(_render_guitar_score_impl)
 def render_guitar_score(**kwargs) -> Score:
-    """Render, then fall back to the automatic pattern if a technique breaks playability."""
-    score = _render_guitar_score_impl(**kwargs)
+    """Render the chosen technique, falling back only when the automatic baseline
+    is itself playable. Some corpora fail the strict profile checker even at the
+    default; in that case the checker cannot distinguish a technique regression.
+    """
     from app.sonify.params import active, active_params, compose_params
 
+    score = _render_guitar_score_impl(**kwargs)
     if active("technique") == 1.0:
         return score
+    ensemble = str(kwargs.get("ensemble") or "classic")
+    profile = _ENSEMBLE_PROFILE.get(ensemble, "study")
     from app.sonify.guitar_patterns import Unplayable, assert_playable as _assert_playable
 
+    with compose_params({**active_params(), "technique": 1.0}):
+        baseline = _render_guitar_score_impl(**kwargs)
     try:
-        _assert_playable(score, profiles="study")
+        _assert_playable(baseline, profiles=profile)
     except Unplayable:
-        with compose_params({**active_params(), "technique": 1.0}):
-            return _render_guitar_score_impl(**kwargs)
+        # The default itself does not satisfy this profile on this corpus.
+        # A fallback here would make the knob a no-op, so keep the chosen take.
+        return score
+    try:
+        _assert_playable(score, profiles=profile)
+    except Unplayable:
+        logger.warning("technique fallback for guitar ensemble %s", ensemble)
+        return baseline
     return score
 
 

@@ -57,6 +57,7 @@ from app.sonify.ensemble import Ensemble, ensemble_for
 from app.sonify.keys import CHARACTER_LABEL, key_label, work_key_label
 from app.sonify.params import (
     SCHEMA_VERSION,
+    inapplicable_warnings,
     normalize_with_warnings,
     params_from_query,
     params_hash,
@@ -742,6 +743,14 @@ async def validate_params(payload: dict) -> dict:
         values, warnings = normalize_with_warnings(raw)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    warnings.extend(
+        inapplicable_warnings(
+            raw,
+            variant=payload.get("variant"),
+            ensemble=payload.get("ensemble"),
+            span=payload.get("span"),
+        )
+    )
     return {
         "schema": SCHEMA_VERSION,
         "params": values,

@@ -372,7 +372,7 @@ export const PARAMS_SCHEMA: ParamsSchema = {
           ],
           "auto": true,
           "appliesTo": [
-            "guitar"
+            "torroba"
           ],
           "tier": "B"
         }
