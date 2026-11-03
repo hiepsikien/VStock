@@ -1077,7 +1077,10 @@ export function ReplayRoom({ wide, onMode }: Props) {
     void (async () => {
       try {
         if (chosenSpan === '1D') {
-          if (!chosenDate) return;
+          if (!chosenDate) {
+            if (options?.crossfade) setAbPreparing(false);
+            return;
+          }
           const recap = await fetchRecap(
             chosenSymbol,
             chosenDate,
@@ -1141,6 +1144,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
         );
         if (controller.signal.aborted) return;
         if (!plan.movements.length) {
+          if (options?.crossfade) setAbPreparing(false);
           setError('Chưa đủ phiên để soạn bản này.');
           return;
         }
