@@ -15,11 +15,18 @@ from app.sonify.guitar_patterns import _Ctx, _shape_dynamics
 from app.sonify.guitar_wave import (
     BAND_LEVEL,
     PROFILES,
+    SPEECH,
     affine_raw,
     alpha_price,
     alpha_volume,
     _is_target,
+    _joined_floor,
+    _limit_steps,
+    _place_centers,
+    _phrase_breath,
+    _section_anchor,
     _wave_profile,
+    _written_deviations,
     apply_guitar_wave,
     fit_intro,
     fit_outro,
@@ -27,8 +34,10 @@ from app.sonify.guitar_wave import (
     intro_centers,
     outro_centers,
     profile_for,
+    resolve_bar_volumes,
     round_center,
     smooth_ell,
+    soft_ceiling,
     tide_bounds,
     warm_alpha,
     window_for,
@@ -167,7 +176,9 @@ def _at(notes: list[NoteEvent], bar: int, beat: float) -> int:
 def _window(ensemble: str, pattern: str, volumes: list[float], rel_span: float, *, inward: bool = False) -> tuple[int, int, float, float]:
     profile = profile_for(ensemble, pattern)
     assert profile is not None
-    smoothed = smooth_ell(volumes, 0, len(volumes), profile.smooth)
+    # P5: the wave shrinks W to the section, keeping it odd.
+    width = min(profile.smooth, max(1, 2 * ((len(volumes) - 1) // 2) + 1))
+    smoothed = smooth_ell(volumes, 0, len(volumes), width)
     price = alpha_price(rel_span)
     opened = warm_alpha(price, alpha_volume(smoothed, price), inward=inward)
     floor, ceiling = window_for(profile, opened)
@@ -220,8 +231,8 @@ def test_same_bar_differences_follow_one_rounded_center() -> None:
                 assert gain(floor, ceiling) == 1.0
                 assert profile.snap_wide is None and profile.max_units_per_phrase == 0
             else:
-                assert (floor, ceiling, profile.smooth) == (40, 63, 3)
-                assert abs(gain(floor, ceiling) - (23 / 24)) < 1e-12
+                assert (floor, ceiling, profile.smooth) == (39, 63, 3)
+                assert abs(gain(floor, ceiling) - 1.0) < 1e-12
                 assert (profile.snap_calm, profile.snap_wide) == (70, 73)
             continue
         assert profile.d_lo == -16 and profile.d_hi == 8
@@ -297,24 +308,15 @@ def test_same_bar_differences_follow_one_rounded_center() -> None:
     assert max(profile.ceil_calm for key, profile in PROFILES.items() if key[0] != "torroba") == 58
     assert max(profile.ceil_calm for profile in PROFILES.values()) == 63
     assert max(profile.ceil_wide for profile in PROFILES.values()) == 63
-    # The twelve wide rows left at tide 3. A floor of +4 would have left tide 3;
-    # these stay on that tide, with the ceiling untouched.
-    for key in (
-        ("bach", "bach_bourree"),
-        ("bach", "bach_fuga"),
-        ("bach", "bach_gigue"),
-        ("bach", "bach_courante"),
-        ("classic", "galop"),
-        ("barrios", "tremolo"),
-        ("barrios", "choro"),
-        ("barrios", "polca"),
-        ("barrios", "hemiola"),
-        ("villa", "thumb_cantabile"),
-        ("villa", "etude1"),
-        ("villa", "etude11"),
-    ):
-        floor, ceiling = window_for(PROFILES[key], 1.0)
-        assert ceiling - floor == 27
+    # P0: every body row gets at least MIN_TIDE steps when the speech floor
+    # leaves room. Noviembre calm is the one row that tops out at 6.
+    for key, profile in PROFILES.items():
+        floor, ceiling = window_for(profile, 1.0)
+        assert ceiling - floor >= 6, key
+        if ceiling - profile.d_hi < 6:
+            continue
+        if floor != SPEECH:
+            assert ceiling - floor >= 8, key
 
     bars = 7
     # Tiny copy of (0, 0, 5, 4, 4, 4, 4). Noviembre calm stays shut (ratio under
@@ -339,11 +341,13 @@ def test_same_bar_differences_follow_one_rounded_center() -> None:
         _note(4, 1.0, 70, midi=70),
     ]
     heard, _support, _low = apply_guitar_wave(ctx, lead, [], [], ["noviembre"])
-    assert _at(heard, 0, 0.0) == 40
-    assert _at(heard, 0, 1.0) == 41
+    assert _at(heard, 0, 0.0) == 38
+    assert _at(heard, 0, 1.0) == 39
     assert _at(heard, 0, 2.0) - _at(heard, 0, 0.0) == 8
     assert _at(heard, 0, 0.0) - _at(heard, 0, 3.0) == 16
     center_gap = _at(heard, 4, 0.0) - _at(heard, 0, 0.0)
+    # The breath clamp keeps bar 4 six steps above bar 0; 70 is six above 64 and
+    # stays under the knee at this center, so the heard gap is the full 6.
     assert _at(heard, 4, 1.0) - _at(heard, 0, 0.0) == center_gap + 6
 
     # Tremolo, etude, preludio, and a plain pattern keep written steps when
@@ -424,12 +428,13 @@ def test_body_edges_use_the_genre_window() -> None:
         _note(2, 0.0, 64, midi=60),
     ]
     heard, _support, _low = apply_guitar_wave(ctx, lead, [], [], ["tremolo"])
-    assert _at(heard, 6, 0.0) == ceiling
-    assert _at(heard, 6, 1.0) == 63
-    assert _at(heard, 6, 2.0) == 63
-    assert _at(heard, 3, 0.0) == floor
-    # Bar 4 is off the valley, so 48 there sits above the floor.
-    assert _at(heard, 4, 0.0) > floor
+    # P2: written 72 at the peak compresses one step under the ceiling; 80
+    # reaches it. The valley is the lowest heard center, not necessarily the
+    # window floor (the tide and breath share the bar).
+    assert [_at(heard, 6, beat) for beat in (0.0, 1.0, 2.0, 3.0)] == [62, 63, 63, 55]
+    assert _at(heard, 3, 0.0) == 35
+    assert _at(heard, 4, 0.0) == 38
+    assert _at(heard, 2, 0.0) == 48
     # Lipschitz may lift neighbors. It does not move the center's peak onto the raw 5.
     assert _at(heard, 6, 3.0) > _at(heard, 2, 0.0)
 
@@ -438,11 +443,11 @@ def test_body_edges_use_the_genre_window() -> None:
     assert all(note.velocity is not None and note.velocity <= 64 for note in lifted.lead)
 
     short_volumes = [1.0, 80.0]
-    # Elegiaque's tide is 6, so two adjacent bars are still too close for U = 0.
     short_floor, short_ceiling, c_lo, c_hi = _window("classic", "elegiaque", short_volumes, 0.0)
     width = profile_for("classic", "elegiaque")
     assert width is not None
-    smoothed = smooth_ell(short_volumes, 0, 2, width.smooth)
+    short_width = min(width.smooth, max(1, 2 * ((len(short_volumes) - 1) // 2) + 1))
+    smoothed = smooth_ell(short_volumes, 0, 2, short_width)
     distance = abs(smoothed.index(max(smoothed)) - smoothed.index(min(smoothed)))
     assert distance < math.ceil((c_hi - c_lo) / 4)
     short = _ctx(
@@ -457,7 +462,7 @@ def test_body_edges_use_the_genre_window() -> None:
     lead.append(_note(1, 1.0, 72, midi=72))
     heard, _support, _low = apply_guitar_wave(short, lead, [], [], ["elegiaque"])
     assert all(_at(heard, bar, 0.0) > short_floor for bar in range(2))
-    assert _at(heard, 1, 1.0) == short_ceiling
+    assert _at(heard, 1, 1.0) == 59
 
 
 def test_the_smoothed_series_holds_the_peak_and_the_barline_step() -> None:
@@ -485,19 +490,30 @@ def test_the_smoothed_series_holds_the_peak_and_the_barline_step() -> None:
         spans={0: 0.0},
     )
     # Study uses W=5, so the center peaks on the shoulder (4.2), not the raw 5.
+    # P4 breath is clamped to the tide bounds, so compare the tide's own centers
+    # for the exact peak; the heard values still prove the step limit.
     lead = [_note(bar, beat, 64) for bar in range(bars) for beat in (0.0, 3.0)]
     heard, _support, _low = apply_guitar_wave(ctx, lead, [], [], ["study"])
     centers = [_at(heard, bar, 0.0) for bar in range(bars)]
-    assert centers.index(max(centers)) == 4
+    placed, _waves, _leading, _trailing = _place_centers(
+        ctx, ["study"] * bars, resolve_bar_volumes(ctx)
+    )
+    wave = placed[0].wave
+    assert wave is not None
+    tide = [round(wave.centers[index]) for index in range(bars)]
+    assert tide.index(max(tide)) == 4
+    assert tide.index(max(tide)) != 2
     assert centers.index(max(centers)) != 2
-    assert centers[4] > centers[2]
+    assert centers[4] >= centers[2]
     assert all(_at(heard, bar, 3.0) == centers[bar] for bar in range(bars))
     assert all(abs(centers[bar] - centers[bar - 1]) <= 4 for bar in range(1, bars))
 
     def peaked(ensemble: str, pattern: str) -> int:
         profile = profile_for(ensemble, pattern)
         assert profile is not None
-        series = smooth_ell(volumes, 0, bars, profile.smooth)
+        # P5: the wave uses min(profile.smooth, section length, odd).
+        width = min(profile.smooth, max(1, 2 * ((bars - 1) // 2) + 1))
+        series = smooth_ell(volumes, 0, bars, width)
         local = _ctx(
             ensemble=ensemble,
             bars=bars,
@@ -510,14 +526,26 @@ def test_the_smoothed_series_holds_the_peak_and_the_barline_step() -> None:
             local, [_note(bar, 0.0, 64) for bar in range(bars)], [], [], [pattern]
         )
         heard_centers = [_at(heard_lead, bar, 0.0) for bar in range(bars)]
-        assert heard_centers.index(max(heard_centers)) == series.index(max(series))
-        assert heard_centers.index(max(heard_centers)) != 2
+        # P4 adds the phrase breath to the final velocity. Compare the tide's
+        # own centers so this test still measures only the smoothed volume.
+        placed, _waves, _leading, _trailing = _place_centers(
+            local, [pattern] * bars, resolve_bar_volumes(local)
+        )
+        wave = placed[0].wave
+        assert wave is not None
+        tide_centers = [
+            round(wave.centers[bar - wave.start]) for bar in range(bars)
+        ]
+        assert tide_centers.index(max(tide_centers)) == series.index(max(series))
+        assert tide_centers.index(max(tide_centers)) != 2
+        assert all(abs(tide_centers[bar] - tide_centers[bar - 1]) <= 4 for bar in range(1, bars))
         assert all(abs(heard_centers[bar] - heard_centers[bar - 1]) <= 4 for bar in range(1, bars))
-        return heard_centers.index(max(heard_centers))
+        return tide_centers.index(max(tide_centers))
 
-    # Same ell, different W: the dance looks at 3 bars and the song at 9.
+    # Same ell, different W: the dance looks at 3 bars and the song at 5
+    # (P5 shrinks the nine-point window to the seven-bar section).
     assert peaked("bach", "bach_gigue") == 3
-    assert peaked("classic", "cantabile") == 6
+    assert peaked("classic", "cantabile") == 5
     assert peaked("bach", "bach_gigue") != peaked("classic", "cantabile")
 
 
@@ -541,8 +569,14 @@ def test_a_flat_section_takes_one_center_from_the_band() -> None:
         lead.append(_note(0, 2.0, 48, midi=48))
         heard, _support, _low = apply_guitar_wave(ctx, lead, [], [], ["cantabile"])
         melody = [_at(heard, bar, 0.0) for bar in range(bars)]
-        assert len(set(melody)) == 1
-        assert _at(heard, 0, 1.0) - melody[0] == 8
+        # P4: a flat phrase now breathes 0..+4 across its bars, so the four
+        # melody attacks are no longer one number. At a high band the breath is
+        # clamped to the tide ceiling, so the spread can shrink to one step.
+        assert 1 <= max(melody) - min(melody) <= 4
+        assert melody.index(max(melody)) in {1, 2, 3}
+        # P2 compresses the last steps: 72 over 64 is 8 on the lower bands and
+        # 7 when the bar's ceiling is already at the knee.
+        assert _at(heard, 0, 1.0) - melody[0] in {7, 8}
         assert melody[0] - _at(heard, 0, 2.0) == 16
         assert level == BAND_LEVEL[band]
 
@@ -773,8 +807,10 @@ def test_each_section_keeps_its_own_window() -> None:
     assert gain(trio_floor, trio_ceiling) == 1.0
     assert trio_low < wide_low
     assert trio_high < wide_high
-    assert wide_apex - wide_high == 8
-    assert trio_apex - trio_high == 8
+    # P2: the written 72 is above the knee, so its headroom over the 64 line
+    # compresses; it still sits above it and never exceeds the written 8.
+    assert 0 < wide_apex - wide_high <= 8
+    assert 0 < trio_apex - trio_high <= 8
 
 
 def test_a_body_below_the_speech_line_holds_the_pedal_at_the_seam() -> None:
@@ -797,8 +833,8 @@ def test_a_body_below_the_speech_line_holds_the_pedal_at_the_seam() -> None:
 
 def test_intro_and_outro_shift_the_written_gesture() -> None:
     """Invariant 8. Pedal bars keep the written shape, join the body, and stab after the clamp."""
-    # Andante calm, flat mf: body C = 44.6, which is under L = 46. The whole
-    # intro stays there. round(44.6) = 45, so written 44 is 25 on every bar.
+    # Andante calm: the pre-P0 body floor keeps the whole intro at the body
+    # center. Written 44/50/46 land at 23/29/25 on every intro bar.
     intro = 8
     total = intro + 1
     kinds = {bar: ("intro" if bar < intro else "phrase") for bar in range(total)}
@@ -820,11 +856,9 @@ def test_intro_and_outro_shift_the_written_gesture() -> None:
     ]
     seam = [_note(intro - 1, 3.0, 64, midi=64), _note(intro, 0.0, 64)]
     heard, _support, _low = apply_guitar_wave(ctx, bell + seam, [], [], ["pedal"] * intro + ["andante"])
-    assert [_at(heard, 0, beat) for beat in (0.0, 0.5, 1.0)] == [25, 31, 27]
+    assert [_at(heard, 0, beat) for beat in (0.0, 0.5, 1.0)] == [23, 29, 25]
     soft = [_at(heard, bar, 0.0) for bar in range(intro)]
-    assert soft == [25] * intro
-    assert soft != [22, 22, 23, 23, 23, 24, 24, 25]
-    assert all(abs(soft[bar] - soft[bar - 1]) <= 4 for bar in range(1, intro))
+    assert soft == [23] * intro
     assert _at(heard, intro - 1, 0.5) - soft[-1] == 6
     assert _at(heard, intro - 1, 1.0) - soft[-1] == 2
     assert _at(heard, intro - 1, 3.0) == _at(heard, intro, 0.0)
@@ -872,7 +906,7 @@ def test_intro_and_outro_shift_the_written_gesture() -> None:
         [],
         ["pedal"] * intro + ["tremolo"] * body_bars,
     )
-    assert _at(heard, intro - 1, 0.0) == _at(heard, intro, 0.0) == 55
+    assert _at(heard, intro - 1, 0.0) == _at(heard, intro, 0.0)
     assert abs(_at(heard, 0, 0.0) - _at(heard, 1, 0.0)) <= 4
 
     def outro(count: int) -> list[int]:
@@ -904,12 +938,9 @@ def test_intro_and_outro_shift_the_written_gesture() -> None:
         return [_at(heard, bar, 0.0) for bar in range(body_bars - 1, total)]
 
     two = outro(2)
-    assert two[0] == 55
-    assert two[-1] == 51
+    assert two == [55, 55, 51]
     nine = outro(9)
-    assert nine[0] == 55
-    # Floor 36. Written 64 has L = 36, so the nine-bar fall stops at 36.
-    assert nine[-1] == 36
+    assert nine == [55, 55, 53, 50, 48, 46, 43, 41, 38, 36]
     assert nine[-1] != 23
 
     total = body_bars + 9
@@ -937,10 +968,12 @@ def test_intro_and_outro_shift_the_written_gesture() -> None:
     heard, _support, _low = apply_guitar_wave(ctx, notes, [], [], ["tremolo"] * body_bars + ["pedal"] * 9)
     melody = [_at(heard, bar, 0.0) for bar in range(body_bars, total)]
     quiet = [_at(heard, bar, 1.0) for bar in range(body_bars, total)]
-    # The bell's L is 56, above the body center 55, so the outro parks there.
-    assert melody == [55] * 9
-    assert quiet == [35] * 9
-    assert all(quiet[index] - melody[index] == -20 for index in range(len(melody)))
+    # The bell's L sits under the body center, so the outro can fall. The
+    # written 20-step gap survives except at the very top, where P2 compresses
+    # the 64 note by one; the fall never exceeds the 4-step limit.
+    assert all(-20 <= quiet[index] - melody[index] <= -19 for index in range(len(melody)))
+    assert all(melody[index] >= melody[index + 1] for index in range(len(melody) - 1))
+    assert all(melody[index] - melody[index + 1] <= 4 for index in range(len(melody) - 1))
 
     ctx = _ctx(
         ensemble="brouwer",
@@ -1055,31 +1088,26 @@ def test_pedal_speech_uses_the_body_floor() -> None:
         return heard
 
     gigue = pedal_score("bach", "bach_gigue", 6, [(0.0, 50)], band="mf", rel=0.03)
-    opening = _at(gigue, 0, 0.0)
-    assert opening - (50 - 64) == 50
-    assert opening == 36
-    assert opening != 22
-    seam = [_at(gigue, bar, 0.0) for bar in range(6)]
-    assert seam[0] < seam[-1]
-    assert all(abs(seam[bar] - seam[bar - 1]) <= 4 for bar in range(1, 6))
+    assert [_at(gigue, bar, 0.0) for bar in range(7)] == [36, 36, 37, 37, 38, 38, 38]
+    seam = [_at(gigue, bar, 0.0) for bar in range(7)]
+    assert seam[5] == seam[6]
+    assert all(abs(seam[bar] - seam[bar - 1]) <= 4 for bar in range(1, 7))
 
     choro = pedal_score("barrios", "choro", 4, [(0.0, 44), (0.5, 50), (1.0, 46)], band="p", rel=0.03)
-    assert [_at(choro, 0, beat) for beat in (0.0, 0.5, 1.0)] == [32, 38, 34]
-    assert [_at(choro, bar, 0.0) for bar in range(4)] == [32, 32, 32, 32]
+    assert [_at(choro, 0, beat) for beat in (0.0, 0.5, 1.0)] == [28, 34, 30]
+    assert [_at(choro, bar, 0.0) for bar in range(4)] == [28, 28, 28, 28]
     assert _at(choro, 3, 0.0) == _at(choro, 4, 0.0)
 
     galop_soft = pedal_score("classic", "galop", 4, [(0.0, 46), (1.0, 64)], band="p", rel=0.03)
-    assert [_at(galop_soft, bar, 0.0) for bar in range(4)] == [34, 34, 34, 34]
-    assert _at(galop_soft, 0, 0.0) < 36
+    assert [_at(galop_soft, bar, 0.0) for bar in range(4)] == [30, 30, 30, 30]
     galop_mid = pedal_score("classic", "galop", 4, [(0.0, 46), (1.0, 64)], band="mp", rel=0.03)
-    assert [_at(galop_mid, bar, 0.0) for bar in range(4)] == [35, 35, 35, 35]
+    assert [_at(galop_mid, bar, 0.0) for bar in range(4)] == [32, 32, 32, 32]
     galop_even = pedal_score("classic", "galop", 6, [(0.0, 50)], band="mf", rel=0.03)
-    assert _at(galop_even, 0, 0.0) - (50 - 64) == 50
-    assert _at(galop_even, 0, 0.0) == 36
+    assert [_at(galop_even, bar, 0.0) for bar in range(7)] == [36, 36, 37, 37, 38, 38, 38]
 
     # Noviembre calm, written 64: L = 24, and 27 still clears it, so the ramp stays.
     whisper = pedal_score("brouwer", "noviembre", 8, [(0.0, 64)], band="mf", rel=0.0)
-    assert _at(whisper, 0, 0.0) == 27
+    assert [_at(whisper, bar, 0.0) for bar in range(9)] == [27, 29, 31, 33, 36, 38, 40, 42, 42]
     assert _at(whisper, 7, 0.0) == _at(whisper, 8, 0.0)
 
 
@@ -1109,7 +1137,7 @@ def test_a_middle_pedal_takes_the_nearest_body_floor() -> None:
 
 
 def test_the_raised_floor_still_prints_the_bell_at_the_trough() -> None:
-    """Noviembre calm stores bell 44 as 20. Andante calm stores it as 22. Wide andante is 48..52."""
+    """Both calm rows now put the written 44 bell at 18 and the 48 at 22."""
     bars = 16
     volumes = [4.0] * 8 + [4.8] * 8
     phrase = _phrase_over(bars, 12, high=60, low=60)
@@ -1133,23 +1161,23 @@ def test_the_raised_floor_still_prints_the_bell_at_the_trough() -> None:
         )
         return _at(heard, 0, 0.0), _at(heard, 0, 1.0)
 
-    assert trough("brouwer", "noviembre") == (20, 24)
-    assert trough("barrios", "andante") == (22, 26)
+    assert trough("brouwer", "noviembre") == (18, 22)
+    assert trough("barrios", "andante") == (18, 22)
     noviembre = profile_for("brouwer", "noviembre")
     andante = profile_for("barrios", "andante")
     assert noviembre is not None and andante is not None
     floor, ceiling = window_for(noviembre, 0.0)
     gain_m, c_lo, c_hi = tide_bounds(floor, ceiling, noviembre)
-    assert (floor, ceiling, gain_m, c_hi - c_lo) == (24, 52, 1.0, 4)
-    assert affine_raw(c_lo, 44) == 20
+    assert (floor, ceiling, gain_m, c_hi - c_lo) == (22, 52, 1.0, 6)
+    assert affine_raw(c_lo, 44) == 18
     floor, ceiling = window_for(andante, 0.0)
     _gain, c_lo, c_hi = tide_bounds(floor, ceiling, andante)
-    assert (floor, ceiling) == (26, 54)
-    assert affine_raw(c_lo, 44) == 22
+    assert (floor, ceiling) == (22, 54)
+    assert affine_raw(c_lo, 44) == 18
 
     wide = [1.0] * 8 + [80.0] * 8
     floor, ceiling, c_lo, c_hi = _window("barrios", "andante", wide, 0.03)
-    assert (floor, ceiling, c_lo, c_hi) == (32, 60, 48, 52)
+    assert (floor, ceiling, c_lo, c_hi) == (28, 60, 44, 52)
     ctx = _ctx(
         ensemble="barrios",
         bars=bars,
@@ -1175,8 +1203,8 @@ def test_the_raised_floor_still_prints_the_bell_at_the_trough() -> None:
         [],
         ["andante"],
     )
-    assert (_at(heard, 0, 0.0), _at(heard, 0, 1.0), _at(heard, 0, 2.0), _at(heard, 0, 3.0)) == (48, 56, 32, 60)
-    assert (_at(heard, 12, 0.0), _at(heard, 12, 1.0), _at(heard, 12, 2.0), _at(heard, 12, 3.0)) == (52, 60, 36, 60)
+    assert (_at(heard, 0, 0.0), _at(heard, 0, 1.0), _at(heard, 0, 2.0), _at(heard, 0, 3.0)) == (44, 52, 28, 59)
+    assert (_at(heard, 12, 0.0), _at(heard, 12, 1.0), _at(heard, 12, 2.0), _at(heard, 12, 3.0)) == (52, 59, 36, 60)
 
 
 def test_suite_snaps_follow_the_written_attack() -> None:
@@ -1236,7 +1264,7 @@ def test_suite_snaps_follow_the_written_attack() -> None:
 
 
 def test_torroba_sung_and_dance_tides_keep_an_eight_degree_lead() -> None:
-    """Sung centers are 42 and 50. Dance rounds to 48 and 55, and 72 still clears by 8."""
+    """Sung tide is 42..50; the flat breath is clamped at c_hi. Dance rounds 47..55."""
     bars = 9
     ell = (0, 0, 0, 0, 6, 0, 0, 0, 0)
     volumes = [math.exp(value) - 1 for value in ell]
@@ -1263,10 +1291,10 @@ def test_torroba_sung_and_dance_tides_keep_an_eight_degree_lead() -> None:
     dance = profile_for("torroba", "fandanguillo")
     assert dance is not None
     _gain, c_lo, c_hi = tide_bounds(*window_for(dance, 1.0), dance)
-    assert round_center(c_lo) == 48 and round_center(c_hi) == 55
+    assert round_center(c_lo) == 47 and round_center(c_hi) == 55
     high = [_note(bar, 0.0, 72, midi=72) for bar in range(bars)]
     heard_high, _support, _low = apply_guitar_wave(ctx, high, [], [], ["danza"])
-    assert _at(heard_high, 0, 0.0) == 56 and _at(heard_high, 4, 0.0) == 63
+    assert _at(heard_high, 0, 0.0) == 55 and _at(heard_high, 4, 0.0) == 62
 
 
 def test_movement_zero_raises_the_sung_ceiling_to_63() -> None:
@@ -1315,16 +1343,16 @@ def test_movement_zero_raises_the_sung_ceiling_to_63() -> None:
         plain, _support, _low = apply_guitar_wave(ctx, high, [], [], [pattern])
         first, _support, _low = apply_guitar_wave(replace(ctx, movement_index=0), high, [], [], [pattern])
         later, _support, _low = apply_guitar_wave(replace(ctx, movement_index=1), high, [], [], [pattern])
-        assert _at(plain, 4, 0.0) == 58
-        assert _at(later, 4, 0.0) == 58
-        assert _at(first, 4, 0.0) == 63
+        assert _at(plain, 4, 0.0) == 57
+        assert _at(later, 4, 0.0) == 57
+        assert _at(first, 4, 0.0) == 62
         assert _at(plain, 0, 0.0) == 50
         assert _at(later, 0, 0.0) == 50
         assert _at(first, 0, 0.0) == 55
     dance = [_note(bar, 0.0, 72) for bar in range(bars)]
     plain_dance, _support, _low = apply_guitar_wave(ctx, dance, [], [], ["danza"])
     first_dance, _support, _low = apply_guitar_wave(replace(ctx, movement_index=0), dance, [], [], ["danza"])
-    assert _at(plain_dance, 4, 0.0) == _at(first_dance, 4, 0.0) == 63
+    assert _at(plain_dance, 4, 0.0) == _at(first_dance, 4, 0.0) == 62
 
 
 def test_dance_snap_reads_the_written_bell_not_the_affine_value() -> None:
@@ -1346,3 +1374,176 @@ def test_dance_snap_reads_the_written_bell_not_the_affine_value() -> None:
     heard, _support, _low = apply_guitar_wave(ctx, lead, [], [], ["danza"])
     bell = next(note for note in heard if note.bar == 3 and abs(note.beat) < 1e-6)
     assert bell.velocity is not None and bell.velocity <= 63
+
+
+def test_soft_ceiling_is_monotone_and_keeps_three_top_steps() -> None:
+    """P2: the last six written steps still produce at least three heard values."""
+    values = [soft_ceiling(raw, 63) for raw in range(55, 81)]
+    assert values == sorted(values)
+    assert all(value <= 63 for value in values)
+    assert soft_ceiling(60, 63) == 60
+    assert soft_ceiling(80, 63) == 63
+    assert len({soft_ceiling(raw, 63) for raw in range(61, 67)}) >= 3
+
+
+def test_flat_phrase_breath_is_one_number_per_bar() -> None:
+    """P4: a flat phrase opens, peaks in the middle, and eases at the close."""
+    bars = 4
+    phrase = Phrase(0, bars * _EPB, tuple(Run(index, 1, 64) for index in range(bars * _EPB)))
+    ctx = _ctx(
+        ensemble="classic",
+        bars=bars,
+        volumes=[4.0] * bars,
+        phrases=(phrase,),
+        sections=(FormSection(0, bars, "phrase", 0),),
+        spans={0: 0.0},
+    )
+    assert [
+        _phrase_breath(ctx, bar, ["cantabile"] * bars, _EPB, set())
+        for bar in range(bars)
+    ] == [0, 2, 4, 3]
+
+
+def test_phrase_breath_skips_own_contour_and_harmonic_bars() -> None:
+    bars = 4
+    phrase = _phrase_over(bars, 2)
+    ctx = _ctx(
+        ensemble="classic",
+        bars=bars,
+        volumes=[4.0] * bars,
+        phrases=(phrase,),
+        sections=(FormSection(0, bars, "phrase", 0),),
+        spans={0: 0.0},
+    )
+    assert max(
+        _phrase_breath(ctx, bar, ["cantabile"] * bars, _EPB, set())
+        for bar in range(bars)
+    ) == 4
+    assert all(
+        _phrase_breath(ctx, bar, ["etude1"] * bars, _EPB, set()) == 0
+        for bar in range(bars)
+    )
+    assert all(
+        _phrase_breath(ctx, bar, ["cantabile"] * bars, _EPB, {bar}) == 0
+        for bar in range(bars)
+    )
+
+
+def test_section_anchor_lifts_a_louder_section() -> None:
+    """P3: a 4x louder section gets a positive anchor; the quiet one is lower."""
+    volumes = [1.0, 1.0, 4.0, 4.0]
+    quiet = _section_anchor(volumes, 0, 2)
+    loud = _section_anchor(volumes, 2, 4)
+    assert quiet < loud
+    assert loud > 0
+
+
+def test_limit_steps_caps_both_sides_of_a_seam() -> None:
+    """P3 uses the largest minorant: peaks are lowered, valleys are not raised."""
+    assert _limit_steps([40.0, 50.0, 40.0]) == [40.0, 44.0, 40.0]
+    assert _limit_steps([40.0, 40.0, 60.0]) == [40.0, 40.0, 44.0]
+
+
+def test_written_deviations_keeps_the_profile_under_24_attacks() -> None:
+    """P1's sample guard: a short fixture must not invent a narrow window."""
+    phrase = Phrase(0, _EPB, (Run(0, _EPB, 64),))
+    ctx = _ctx(
+        ensemble="classic",
+        bars=1,
+        volumes=[4.0],
+        phrases=(phrase,),
+        sections=(FormSection(0, 1, "phrase", 0),),
+        spans={0: 0.0},
+    )
+    short = [_note(0, index * 0.125, 64) for index in range(23)]
+    voices = {"lead": short, "support": [], "low": []}
+    assert _written_deviations(ctx, voices, ["cantabile"], set()) == {}
+    full = [_note(0, index * 0.125, 64) for index in range(24)]
+    voices = {"lead": full, "support": [], "low": []}
+    assert _written_deviations(ctx, voices, ["cantabile"], set()) == {
+        "cantabile": (0, 0)
+    }
+
+
+def test_max_tide_caps_a_trimmed_deviation() -> None:
+    """P1 can free the whole window; MAX_TIDE stops it becoming a 20-step leap."""
+    profile = profile_for("classic", "cantabile")
+    assert profile is not None
+    flat = replace(profile, d_lo=0, d_hi=0)
+    _gain, c_lo, c_hi = tide_bounds(22, 63, flat)
+    assert c_hi - c_lo == 16
+
+
+def test_relaxed_bar_skips_the_shared_breath() -> None:
+    """A boundary bar that was already thinned must not get the breath twice."""
+    bars = 4
+    phrase = Phrase(0, bars * _EPB, tuple(Run(index, 1, 64) for index in range(bars * _EPB)))
+    ctx = _ctx(
+        ensemble="classic",
+        bars=bars,
+        volumes=[4.0] * bars,
+        phrases=(phrase,),
+        sections=(FormSection(0, bars, "phrase", 0),),
+        spans={0: 0.0},
+    )
+    lead = [_note(bar, 0.0, 64) for bar in range(bars)]
+    normal, _support, _low = apply_guitar_wave(ctx, lead, [], [], ["cantabile"])
+    relaxed, _support, _low = apply_guitar_wave(
+        ctx, lead, [], [], ["cantabile"], relaxed={2 * _EPB}
+    )
+    assert _at(relaxed, 2, 0.0) < _at(normal, 2, 0.0)
+
+
+def test_soft_ceiling_keeps_exact_steps_below_the_knee() -> None:
+    """The core contract: below the knee, written steps are unchanged."""
+    assert soft_ceiling(55, 63) == 55
+    assert soft_ceiling(58, 63) == 58
+    assert soft_ceiling(60, 63) == 60
+    assert soft_ceiling(58, 63) - soft_ceiling(55, 63) == 3
+
+
+def test_section_anchor_uses_the_body_median() -> None:
+    """P3: a long quiet frame must not make every body section look loud."""
+    volumes = [1.0, 1.0, 1.0, 1.0, 4.0, 4.0, 4.0, 4.0]
+    # Body-only median is 4, so the body section is exactly at the reference.
+    assert _section_anchor(volumes, 4, 8, 4.0) == 0.0
+    # The all-bar median is 2.5, which would invent a positive anchor.
+    assert _section_anchor(volumes, 4, 8) > 0.0
+
+
+def test_breath_never_lowers_an_anchored_center(monkeypatch) -> None:
+    """MAX_TIDE can put c_hi below the post-anchor center; breath must only add."""
+    import app.sonify.guitar_wave as gw
+
+    wave = gw._Wave(
+        start=0,
+        end=1,
+        pattern="cantabile",
+        levels=[1.0],
+        smoothed=[0.0],
+        alpha_price=0.0,
+        alpha_vol=0.0,
+        alpha_warm=0.0,
+        v_floor=30,
+        v_ceil=58,
+        pedal_floor=30,
+        gain=1.0,
+        c_lo=36.0,
+        c_hi=52.0,
+        centers=[54.0],
+    )
+    assert wave.c_hi < wave.v_ceil
+    monkeypatch.setattr(gw, "_build_waves", lambda *args, **kwargs: {0: wave})
+    phrase = Phrase(0, _EPB, (Run(0, 1, 72), Run(1, 7, 60)))
+    ctx = _ctx(
+        ensemble="classic",
+        bars=1,
+        volumes=[4.0],
+        phrases=(phrase,),
+        sections=(FormSection(0, 1, "phrase", 0),),
+        spans={0: 0.0},
+    )
+    placed, _waves, _leading, _trailing = _place_centers(
+        ctx, ["cantabile"], [4.0], {"cantabile": (0, 0)}, set()
+    )
+    assert placed[0].center == 54.0

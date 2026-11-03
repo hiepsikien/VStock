@@ -569,9 +569,11 @@ def test_dance_writes_a_four_step_gap_and_one_extra_per_bar() -> None:
         NoteEvent(bar=0, beat=0.0, midi=50, duration_beats=0.5, voice=3, velocity=60),
     ]
     shaped, _support, low = _shape_dynamics(shape_ctx, events[:2], [], events[2:], set(), ["fandanguillo"])
+    # P4: the shared breath moved to C. The per-note writer leaves the four-step
+    # gap and the bass offset exactly as written.
     assert shaped[0].velocity - shaped[1].velocity == 4
-    assert shaped[0].velocity - 68 == low[0].velocity - 60
-    assert shaped[0].velocity != 68
+    assert shaped[0].velocity == 68
+    assert low[0].velocity == 60
 
 
 def test_castillo_and_sonatina_share_one_extra_per_bar() -> None:
@@ -590,11 +592,11 @@ def test_castillo_and_sonatina_share_one_extra_per_bar() -> None:
     shaped_lead, shaped_support, _shaped_low = _shape_dynamics(
         castillo_ctx, list(lead), list(support), list(low), set(), ["castillo"]
     )
-    lead_extra = shaped_lead[0].velocity - lead[0].velocity
-    assert lead_extra == round(4 * swell(rising, 2 * castillo_ctx.epb))
-    assert lead_extra != round(4 * swell(rising, 2 * castillo_ctx.epb + 6))
+    # P4: the old per-note extra is gone. The shared breath is one number in C,
+    # so the writer's velocities must pass through unchanged.
+    assert shaped_lead[0].velocity == lead[0].velocity
     for before, after in zip(support, shaped_support):
-        assert after.velocity - before.velocity == lead_extra
+        assert after.velocity == before.velocity
 
     line = [60] * 12 + [72] * 4
     run_phrase = Phrase(0, 16, (Run(0, 12, 60), Run(12, 4, 72)))
@@ -615,9 +617,7 @@ def test_castillo_and_sonatina_share_one_extra_per_bar() -> None:
         (note for note in shaped_run_lead if note.duration_beats == 0.25 and note.midi is not None),
         key=lambda note: note.beat,
     )
-    extra = heard[0].velocity - 56
-    assert extra == round(4 * swell(run_phrase, sonatina_ctx.epb))
-    assert [note.velocity for note in heard] == [56 + extra, 60 + extra, 64 + extra]
+    assert [note.velocity for note in heard] == [56, 60, 64]
     assert heard[1].velocity - heard[0].velocity == 4
     assert heard[2].velocity - heard[1].velocity == 4
 
@@ -2181,8 +2181,10 @@ def test_harmonic_48_skips_the_whole_bar_extra() -> None:
     assert not skips_bar_extra(ctx, replace(node, midi=50))
     assert not skips_bar_extra(ctx, replace(node, velocity=58))
     shaped, _support, _low = _shape_dynamics(ctx, [node, ordinary], [], [], set(), ["sonatina", "sonatina"])
+    # P4: the shared breath lives in C, so the per-note writer leaves both
+    # values alone. `apply_guitar_wave` adds the harmonic bar to `breath_skip`.
     assert shaped[0].velocity == 48
-    assert shaped[1].velocity == 64 + 4
+    assert shaped[1].velocity == 64
 
 
 def test_weak_lead_follows_the_swell_above_64() -> None:

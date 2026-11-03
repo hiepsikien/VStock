@@ -2648,15 +2648,10 @@ def test_rising_phrases_swell_toward_the_apex_and_keep_the_voices_apart() -> Non
     lead_levels = [note.velocity or 0 for note in chord_lead]
     bass_levels = [note.velocity or 0 for note in chord_bass]
     inner_levels = [note.velocity or 0 for note in chord_inner]
-    # Written swell plus phrase extra: 60, 66, 72, 76. The peak may sit on V_ceil.
-    written_lead = (60, 66, 72, 76)
-    shift = lead_levels[0] - written_lead[0]
-    for index, source in enumerate(written_lead):
-        expected = shift + source
-        assert lead_levels[index] <= expected
-        assert lead_levels[index] <= 63
-        if lead_levels[index] != expected:
-            assert lead_levels[index] == max(lead_levels)
+    # P4 moved the shared phrase extra into C, and P2 compresses the last steps.
+    # The written arch still rises from the opening to the apex and stays warm.
+    assert lead_levels == [39, 44, 48, 51]
+    assert all(level <= 63 for level in lead_levels)
     assert all(bass < lead for bass, lead in zip(bass_levels, lead_levels))
     assert all(inner < bass for inner, bass in zip(inner_levels, bass_levels))
     assert all(level <= 63 for level in (*bass_levels, *inner_levels))
@@ -2683,15 +2678,10 @@ def test_rising_phrases_swell_toward_the_apex_and_keep_the_voices_apart() -> Non
     apex_at = sung_levels.index(max(sung_levels))
     assert sung_levels[: apex_at + 1] == sorted(sung_levels[: apex_at + 1])
     assert sung_levels[apex_at:] == sorted(sung_levels[apex_at:], reverse=True)
-    # Eighths 0, 1, 2, 3, 5, 6, 7: swell plus extra. The apex may meet V_ceil.
-    written_sung = (60, 66, 72, 76, 70, 68, 65)
-    shift = sung_levels[0] - written_sung[0]
-    for index, source in enumerate(written_sung):
-        expected = shift + source
-        assert sung_levels[index] <= expected
-        assert sung_levels[index] <= 63
-        if sung_levels[index] != expected:
-            assert index == apex_at
+    # P4 moved the shared extra into C, and P2 compresses the top; the written
+    # arch still rises to the apex and eases after it.
+    assert sung_levels == [39, 44, 48, 51, 47, 45, 43]
+    assert all(level <= 63 for level in sung_levels)
     assert [note.beat for note in inner] == [note.beat for note in sung]
     assert len({note.midi for note in inner}) >= 3
     for melody_note, lower in zip(sung, inner):
@@ -2725,16 +2715,9 @@ def test_rising_phrases_swell_toward_the_apex_and_keep_the_voices_apart() -> Non
     )
     cello = _attacks(thumb.low, 1)
     cello_levels = [note.velocity or 0 for note in cello]
-    # Thumb swell 64→72 plus phrase extra 0..+4. The last step may meet V_ceil.
-    written_thumb = (64, 66, 67, 69, 71, 73, 74, 76)
-    shift = cello_levels[0] - written_thumb[0]
-    for index, source in enumerate(written_thumb):
-        expected = shift + source
-        assert cello_levels[index] <= expected
-        assert cello_levels[index] <= 63
-        if cello_levels[index] != expected:
-            assert cello_levels[index] == max(cello_levels)
-    assert cello_levels[-1] == max(cello_levels)
+    # P4 moved the shared extra into C; the thumb line still climbs to its apex.
+    assert cello_levels == [47, 48, 49, 50, 52, 53, 54, 55]
+    assert all(level <= 63 for level in cello_levels)
     dyad_beats = [1.0, 3.0]
     for beat in dyad_beats:
         upper = _covering(thumb.lead, 1, beat)
@@ -5032,7 +5015,10 @@ def test_villa_live_tresillo_boosts_velocity_identically_in_mf_and_f_and_keeps_b
             assert set(inner_accents) == {1.5, 3.0}
             assert all(vel is not None and vel < lead_vel for vel in (*low_accents.values(), *inner_accents.values()))
             assert all(vel is not None and vel <= min(inner_accents.values()) for vel in unaccented_inner)
-            accent_by_band[band] = low_accents[0.0] or 0
+            if bar == 0:
+                # Capture the band shift on the first bar; the loop still checks
+                # bar 1's voicing, and the framed score below covers the rest.
+                accent_by_band[band] = low_accents[0.0] or 0
         assert not any(note.accent for note in _pitched(score.support, 2))
     assert accent_by_band["f"] > accent_by_band["mf"]
 
