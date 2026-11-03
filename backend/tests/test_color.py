@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from array import array
+from datetime import date
 from pathlib import Path
 
-from app.sonify.audio import _wav_samples, write_wav
+from app.sonify import audio as audio_module
+from app.sonify.audio import RecapStore, _wav_samples, write_wav
+from app.sonify.model import Bar
 from app.sonify.params import DEFAULT_PARAMS, compose_params
 from app.sonify.preset import apply_preset, preset_chain
 
@@ -74,3 +77,35 @@ def test_noise_lands_even_when_the_color_chain_is_off(tmp_path: Path) -> None:
     assert apply_preset(dry, out, "symphony", params=params)
     _channels, _rate, heard = _wav_samples(out)
     assert max(abs(sample) for sample in heard) > 0.001
+
+
+def test_recap_render_routes_noise_when_color_is_off(tmp_path: Path, monkeypatch) -> None:
+    """The render boundary must call the colour step even when color = 0."""
+
+    def export(_xml: Path, wav: Path) -> None:
+        write_wav(wav, 1, 8000, array("f", [0.05] * 800))
+
+    monkeypatch.setattr(audio_module, "_transcode_m4a", lambda *_args, **_kwargs: False)
+    store = RecapStore(tmp_path, exporter=export)
+    day = date(2026, 10, 14)
+    bars = [Bar(100.0, 1000.0)]
+
+    paths: dict[tuple[float, float], Path] = {}
+    for color, noise in ((0.0, 0.0), (0.0, 0.5), (1.0, 0.0), (1.0, 0.5)):
+        asset = store._render(
+            "NOISE",
+            day,
+            "symphony",
+            bars,
+            None,
+            params={**DEFAULT_PARAMS, "color": color, "noise": noise},
+        )
+        paths[(color, noise)] = asset.audio_path
+
+    dry_off = paths[(0.0, 0.0)].read_bytes()
+    wet_off = paths[(0.0, 0.5)].read_bytes()
+    dry_on = paths[(1.0, 0.0)].read_bytes()
+    wet_on = paths[(1.0, 0.5)].read_bytes()
+
+    assert wet_off != dry_off
+    assert wet_on != dry_on

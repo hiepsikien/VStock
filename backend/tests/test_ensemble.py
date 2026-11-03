@@ -278,14 +278,15 @@ def test_mix_flags_skip_a_layer_and_keep_the_sibling_file(tmp_path: Path, monkey
 
     bare = store.ensure("FPT", day, "symphony", bars, humanize=False, color=False)
     assert shaped == []
-    assert tinted == []
+    # Color is off, but the default noise bed still goes through the mix step.
+    assert tinted == ["symphony"]
     assert bare.audio_path.stem.endswith(f"_{RECAP_REVISION}_1_nh_nc")
     assert "&p=" in bare.audio_url and "humanize=" not in bare.audio_url
     assert _STORED_NAME.match(bare.audio_path.name)
 
     lifted = store.ensure("VNM", day, "symphony", bars, humanize=False)
     assert shaped == []
-    assert tinted == ["symphony"]
+    assert tinted == ["symphony", "symphony"]
     assert lifted.audio_path.stem.endswith(f"_{RECAP_REVISION}_1_nh")
     assert "&p=" in lifted.audio_url and "humanize=" not in lifted.audio_url
 
@@ -302,7 +303,7 @@ def test_mix_flags_skip_a_layer_and_keep_the_sibling_file(tmp_path: Path, monkey
     assert dry.audio_path.stem.endswith("_nc")
     assert "&p=" in dry.audio_url and "humanize=" not in dry.audio_url
     assert shaped == [1, 1]
-    assert tinted == ["symphony", "symphony"]
+    assert tinted == ["symphony", "symphony", "symphony", "jazz"]
 
     meta = tmp_path / f"{full.audio_path.stem}.json"
     payload = json.loads(meta.read_text(encoding="utf-8"))

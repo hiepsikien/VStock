@@ -1365,3 +1365,21 @@ def test_humanize_ceiling_is_three_at_one_point_five() -> None:
     assert max(offsets) <= 3
     assert min(offsets) >= -3
     assert 3 in offsets or -3 in offsets
+
+
+def test_humanize_two_only_adds_to_the_unsatured_branch() -> None:
+    keys = [(bar, beat) for bar in range(8) for beat in (0.0, 0.5, 1.0, 1.5)]
+    at_15 = {
+        key: chosen_offset("guitar", "classic", "lead", *key, humanize=1.5)
+        for key in keys
+    }
+    at_20 = {
+        key: chosen_offset("guitar", "classic", "lead", *key, humanize=2.0)
+        for key in keys
+    }
+    # Base ±2 is already on ±3 at 1.5; 2.0 must not create a new saturated key.
+    assert {key for key, value in at_15.items() if abs(value) == 3} == {
+        key for key, value in at_20.items() if abs(value) == 3
+    }
+    assert max(abs(value) for value in at_20.values()) == 3
+    assert any(abs(value) == 2 for value in at_20.values())

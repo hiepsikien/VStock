@@ -1496,7 +1496,7 @@ class RecapStore:
             if not wav_path.is_file() or wav_path.stat().st_size < 64:
                 raise RecapUnavailable("MuseScore wrote an empty movement")
             color_started = time.monotonic()
-            heard = _color_for_export(wav_path, variant, params=values) if values["color"] else wav_path
+            heard = _color_for_export(wav_path, variant, params=values)
             color_sec = time.monotonic() - color_started
             peaks_started = time.monotonic()
             duration, peaks, peak_level = waveform_peaks_with_level(heard)
@@ -1679,7 +1679,7 @@ class RecapStore:
         try:
             _raise_if_cancelled_event(cancel)
             self._exporter(xml_path, wav_path)
-            heard = _color_for_export(wav_path, variant, params=values) if values["color"] else wav_path
+            heard = _color_for_export(wav_path, variant, params=values)
             duration, peaks = waveform_peaks(heard)
             musical = piece_seconds(score.bars, score.bpm, score.bar_beats)
             if duration <= 0:
