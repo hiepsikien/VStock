@@ -528,18 +528,9 @@ class _Placed:
 
 
 def _pedal_regions(ctx) -> tuple[list[int], list[int]]:
-    leading: list[int] = []
-    bar = 0
-    while bar < ctx.bars and ctx.kind_at.get(bar, "phrase") in _PEDAL:
-        leading.append(bar)
-        bar += 1
-    trailing: list[int] = []
-    bar = ctx.bars - 1
-    while bar >= 0 and bar not in leading and ctx.kind_at.get(bar, "phrase") in _PEDAL:
-        trailing.append(bar)
-        bar -= 1
-    trailing.reverse()
-    return leading, trailing
+    from app.sonify.guitar_patterns import _pedal_regions as cached
+
+    return cached(ctx)
 
 
 def _rel_span(ctx, section) -> float:
@@ -556,10 +547,9 @@ def _pattern_at(ctx, bar: int, patterns: list[str]) -> str:
 
 
 def _phrase_at(ctx, t: float):
-    for phrase in ctx.phrases:
-        if phrase.start <= t < phrase.end:
-            return phrase
-    return None
+    from app.sonify.guitar_patterns import _phrase_at as cached
+
+    return cached(ctx, t)
 
 
 def _k_of(event) -> float:

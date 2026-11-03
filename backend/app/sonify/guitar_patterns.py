@@ -183,6 +183,29 @@ class _Ctx:
     regime_at: dict = field(default_factory=dict)
     # 0 is the first prepared movement (1D, 1W, and the first 1Y month that has bars).
     movement_index: int | None = None
+    # Per-render memo tables. They never change a rendered note; they only keep
+    # repeated phrase, pattern, and pedal queries off the linear scans.
+    _phrase_source: tuple[Phrase, ...] | None = field(
+        default=None, repr=False, compare=False, init=False
+    )
+    _phrase_cache: dict[float, Phrase | None] = field(
+        default_factory=dict, repr=False, compare=False, init=False
+    )
+    _phrase_by_bar: dict[int, tuple[Phrase, ...]] | None = field(
+        default=None, repr=False, compare=False, init=False
+    )
+    _pattern_source: list[str] | None = field(
+        default=None, repr=False, compare=False, init=False
+    )
+    _pattern_signature: tuple[str, ...] | None = field(
+        default=None, repr=False, compare=False, init=False
+    )
+    _pattern_cache: dict[int, str] = field(
+        default_factory=dict, repr=False, compare=False, init=False
+    )
+    _pedal_cache: tuple[tuple[int, ...], tuple[int, ...]] | None = field(
+        default=None, repr=False, compare=False, init=False
+    )
 
     def chord(self, bar: int) -> Chord:
         if bar in self.chord_at:
@@ -439,11 +462,32 @@ def _rises(phrase: Phrase | None) -> bool:
     return bool(phrase and phrase.runs and phrase.rise >= MIN_RISE)
 
 
-def _phrase_at(ctx: _Ctx, eighth: int) -> Phrase | None:
-    for phrase in ctx.phrases:
+def _phrase_at(ctx: _Ctx, eighth: float) -> Phrase | None:
+    """The phrase holding one eighth, from a per-render bar index."""
+    if ctx._phrase_source is not ctx.phrases:
+        ctx._phrase_source = ctx.phrases
+        ctx._phrase_cache.clear()
+        ctx._phrase_by_bar = None
+    if eighth in ctx._phrase_cache:
+        return ctx._phrase_cache[eighth]
+    if ctx._phrase_by_bar is None:
+        by_bar: dict[int, list[Phrase]] = {}
+        for phrase in ctx.phrases:
+            if phrase.end <= phrase.start:
+                continue
+            first = int(math.floor(phrase.start / ctx.epb))
+            last = int(math.floor((phrase.end - 1) / ctx.epb))
+            for bar in range(first, last + 1):
+                by_bar.setdefault(bar, []).append(phrase)
+        ctx._phrase_by_bar = {bar: tuple(items) for bar, items in by_bar.items()}
+    bar = int(math.floor(eighth / ctx.epb))
+    found = None
+    for phrase in ctx._phrase_by_bar.get(bar, ()):
         if phrase.start <= eighth < phrase.end:
-            return phrase
-    return None
+            found = phrase
+            break
+    ctx._phrase_cache[eighth] = found
+    return found
 
 
 def _melody_swell(phrase: Phrase, eighth: int) -> int:
@@ -1631,13 +1675,26 @@ def _cap_accents(ctx: _Ctx, plans: dict, perpetual: dict, limit: int = 2) -> tup
 
 
 def _bar_pattern(ctx: _Ctx, bar: int, patterns: list[str]) -> str:
-    kind = ctx.kind_at.get(bar, "phrase")
-    if kind in _PEDAL:
-        return "pedal"
-    pattern = _owning_pattern(ctx, bar, patterns)
-    if pattern == "pedal" and _framed(ctx):
-        return _fallback_body_pattern(ctx, bar, patterns)
-    return pattern
+    # Callers may pass a fresh copy each call, so compare the content before
+    # dropping the cache. They must not mutate a list in place after passing it.
+    if patterns is not ctx._pattern_source:
+        signature = tuple(patterns)
+        if signature != ctx._pattern_signature:
+            ctx._pattern_cache.clear()
+        ctx._pattern_source = patterns
+        ctx._pattern_signature = signature
+    if bar not in ctx._pattern_cache:
+        kind = ctx.kind_at.get(bar, "phrase")
+        if kind in _PEDAL:
+            name = "pedal"
+        else:
+            pattern = _owning_pattern(ctx, bar, patterns)
+            if pattern == "pedal" and _framed(ctx):
+                name = _fallback_body_pattern(ctx, bar, patterns)
+            else:
+                name = pattern
+        ctx._pattern_cache[bar] = name
+    return ctx._pattern_cache[bar]
 
 
 def _owning_pattern(ctx: _Ctx, bar: int, patterns: list[str]) -> str:
@@ -3822,6 +3879,9 @@ def _allow_approach(ctx: _Ctx, bar: int, patterns: list[str]) -> bool:
 
 
 def _pedal_regions(ctx: _Ctx) -> tuple[list[int], list[int]]:
+    cached = ctx._pedal_cache
+    if cached is not None:
+        return list(cached[0]), list(cached[1])
     leading: list[int] = []
     bar = 0
     while bar < ctx.bars and ctx.kind_at.get(bar, "phrase") in _PEDAL:
@@ -3833,6 +3893,7 @@ def _pedal_regions(ctx: _Ctx) -> tuple[list[int], list[int]]:
         trailing.append(bar)
         bar -= 1
     trailing.reverse()
+    ctx._pedal_cache = (tuple(leading), tuple(trailing))
     return leading, trailing
 
 

@@ -1,6 +1,6 @@
 # Kế hoạch mở rộng Shape Dynamics cho Guitar
 
-> **Trạng thái**: P0–P5 đã vào `main`; P6 (in dynamics) và P7 (dọn hiệu năng) chưa. `pytest -q` trên `main`: **823 pass**. Các việc còn lại nằm ở [`docs/sonify-guitar-shape-dynamics-backlog.md`](./sonify-guitar-shape-dynamics-backlog.md).
+> **Trạng thái**: P0–P5 đã vào `main`; P6 (in dynamics) chưa. P7 đã xong phần cache guitar và bucket `humanize._pairs` (PR #133); phần `lipschitz` O(n) đã bỏ vì đổi kết quả float. Các việc còn lại nằm ở [`docs/sonify-guitar-shape-dynamics-backlog.md`](./sonify-guitar-shape-dynamics-backlog.md).
 >
 > **Liên kết**: [`docs/sonify-guitar-shape-dynamics-backlog.md`](./sonify-guitar-shape-dynamics-backlog.md), [`docs/sonify-guitar-dynamics-wave-plan.md`](./sonify-guitar-dynamics-wave-plan.md), [`docs/sonify-guitar-phrase-coverage-plan.md`](./sonify-guitar-phrase-coverage-plan.md), [`docs/sonify-guitar-scale-dynamics-plan.md`](./sonify-guitar-scale-dynamics-plan.md), [`docs/sonify-barrios-tremolo-dynamics.md`](./sonify-barrios-tremolo-dynamics.md), [`docs/sonify-symphony-dynamics.md`](./sonify-symphony-dynamics.md).
 >
@@ -19,13 +19,13 @@
 | **P4** | đã xong | `_phrase_breath` nằm trong `C(b)`, clamp **một chiều lên** ở `c_hi` (không kéo center xuống); bar có eighth `relaxed` bị skip; `_shape_dynamics` thành seam no-op |
 | **P5** | đã xong | `_make_wave` thu `W` về độ dài section, giữ lẻ |
 | **P6** | chưa | score vẫn velocity-only, chỉ in `mp` ở ô 0 |
-| **P7** | chưa | cache `phrase_at`/`_bar_pattern`, đổi `lipschitz` sang O(n); không đổi hành vi |
+| **P7** | một phần | cache `phrase_at`/`_bar_pattern`/`_pedal_regions` và bucket `humanize._pairs` (PR #133); `lipschitz` giữ direct max vì hai pass làm lệch float 1 ULP |
 
 Các test cũ có assertion số tuyệt đối đã được đổi sang bất biến hoặc giá trị mới:
 
 - `tests/test_guitar_wave.py`: 28 test, gồm test mới cho `soft_ceiling`, `phrase_breath`, `section_anchor`, `_limit_steps`, `_written_deviations` (guard 24), `MAX_TIDE`, bar `relaxed`, body-only median, và breath không kéo center xuống.
 - `tests/test_sonify_guitar.py`, `tests/test_sonify_guitar_torroba.py`, `tests/test_sonify_guitar_scale_passages.py`: cập nhật các chỗ dựa vào extra cũ hoặc clamp cứng, re-pin giá trị mới thay vì nới thành bất đẳng thức.
-- Toàn bộ backend trên bản merge `main`: **823 passed**.
+- Toàn bộ backend trên bản merge `main` sau PR #133: **827 passed**.
 
 ### 0.1. Khác với bản đề xuất ban đầu
 
@@ -266,11 +266,15 @@ Hiện `_guitar_part` chỉ in `mp`. Có hai hướng:
 
 ### P7 — Dọn hiệu năng (không đổi âm nhạc)
 
-- Cache `phrase_at` theo eighth.
-- Cache `_bar_pattern` theo bar.
-- Tính `_pedal_regions` một lần.
-- Đổi `lipschitz` sang hai pass distance transform O(n) nếu section dài.
-- `humanize._pairs` bucket theo bar/voice thay vì O(n²) toàn bộ.
+Đã làm trong PR #133:
+
+- Cache `phrase_at` theo bar/eighth, `_bar_pattern` theo bar, và `_pedal_regions` một lần mỗi render trên `_Ctx`.
+- `humanize._pairs` bucket theo start bar thay vì quét toàn bộ cặp; pair set và thứ tự không đổi.
+- Đo trên score 152 bar (5 phiên 32/32/32/32/24, median 7 lần): render guitar/barrios **599.4 → 596.7 ms** (cache guitar dưới 1%); `humanize()` guitar/barrios **88.2 → 13.6 ms**, symphony **27.3 → 12.5 ms**, minimalist **489.8 → 121.5 ms**; suite 4 movement guitar **1055.1 → 1045.3 ms**.
+
+Không làm:
+
+- `lipschitz` hai pass O(n). Hai pass chỉ giữ được một trong các term nên có thể lệch **1 ULP** so với direct max; với input dạng band-derived, 6/30.000 mảng lệch và có thể vi phạm ràng buộc chênh lệch kề. Đo render cho thấy chỉ tiết kiệm **~0.01–0.02 ms/render** (5–9 lần gọi, section ~30 bar), nên giữ direct max. Test `test_lipschitz_matches_the_direct_cone_envelope` pin hợp đồng này.
 
 ---
 

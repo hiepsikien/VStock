@@ -2176,6 +2176,50 @@ def _barrios_ctx(
     )
 
 
+def test_phrase_lookup_matches_the_linear_scan() -> None:
+    """The bar index keeps first-match order, held-over overlaps, and odd eighths."""
+    from app.sonify.guitar_patterns import _phrase_at
+
+    phrases = (
+        _held(0, 8, 60, held_over=True),
+        _held(4, 12, 64, held_over=True),
+        _held(15, 4, 67),
+    )
+    ctx = _barrios_ctx(
+        phrases,
+        (),
+        {bar: "phrase" for bar in range(6)},
+        bpm=96,
+        bars=6,
+        character="rally",
+    )
+    for eighth in [tick / 2 for tick in range(-2, 40)]:
+        expected = next(
+            (phrase for phrase in phrases if phrase.start <= eighth < phrase.end), None
+        )
+        assert _phrase_at(ctx, eighth) is expected
+    ctx.phrases = (_held(8, 8, 67),)
+    assert _phrase_at(ctx, 4) is None
+    assert _phrase_at(ctx, 8) is ctx.phrases[0]
+
+
+def test_pattern_cache_follows_a_new_pattern_list() -> None:
+    """A fresh list with different content must not reuse the previous bar cache."""
+    from app.sonify.guitar_patterns import _bar_pattern
+
+    phrases = (_held(0, 8, 60), _held(8, 8, 64))
+    ctx = _barrios_ctx(
+        phrases,
+        (),
+        {0: "phrase", 1: "phrase"},
+        bpm=96,
+        bars=2,
+        character="rally",
+    )
+    assert _bar_pattern(ctx, 1, ["preludio", "study"]) == "study"
+    assert _bar_pattern(ctx, 1, ["study", "preludio"]) == "preludio"
+
+
 def _body_pattern_row(ctx, patterns: list[str]) -> list[str]:
     row: list[str] = []
     for index, phrase in enumerate(ctx.phrases):
