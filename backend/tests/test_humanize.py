@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
+import random
 import struct
 from array import array
 from pathlib import Path
@@ -21,7 +23,15 @@ from app.sonify.humanize import (
 )
 from app.sonify.model import NoteEvent, Phrase, Run, Score
 from app.sonify.musicxml import score_to_musicxml
-from app.sonify.preset import _mix_noise, apply_preset, preset_chain
+from app.sonify.preset import (
+    _BLOCK_SAMPLES,
+    _GUITAR_GATE,
+    _limit_peak,
+    _mix_noise,
+    _unit_noise,
+    apply_preset,
+    preset_chain,
+)
 
 
 def _note(
@@ -1091,6 +1101,137 @@ def test_vintage_noise_uses_the_sample_scale() -> None:
     opened = array("h", above_gate)
     _mix_noise(opened, above_gate, 1, 0.0003, True)
     assert opened != above_gate
+
+
+def test_block_noise_matches_the_fixed_counter() -> None:
+    """The vectorized bed lands on the same float sample as `_unit_noise`."""
+    pytest.importorskip("numpy")
+    frames = _BLOCK_SAMPLES // 2 + 5  # crosses one block boundary
+    dry = array("f")
+    for frame in range(frames):
+        dry.append(0.42 if frame % 5 else 0.0)
+    heard = array("f", dry)
+    _mix_noise(heard, dry, 1, 0.0003, True)
+
+    expected = array("f", dry)
+    for frame in range(frames):
+        if abs(float(dry[frame])) < _GUITAR_GATE:
+            continue
+        expected[frame] = float(dry[frame]) + 0.0003 * _unit_noise(frame, 0)
+    assert list(heard) == list(expected)
+
+
+def test_block_noise_truncates_like_the_int16_loop() -> None:
+    pytest.importorskip("numpy")
+    frames = 3000
+    dry = array("h")
+    for frame in range(frames):
+        dry.append(1000 if frame % 4 else 40)
+    heard = array("h", dry)
+    _mix_noise(heard, dry, 1, 0.0003, True)
+
+    expected = array("h", dry)
+    span = 0.0003 * 32767.0
+    for frame in range(frames):
+        if abs(float(dry[frame])) < _GUITAR_GATE * 32767.0:
+            continue
+        bounded = int(float(dry[frame]) + span * _unit_noise(frame, 0))
+        expected[frame] = max(-32768, min(32767, bounded))
+    assert list(heard) == list(expected)
+
+
+def test_loop_fallback_matches_the_block_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without NumPy the per-sample loop must still give the same samples."""
+    pytest.importorskip("numpy")
+    from app.sonify import preset as preset_module
+
+    frames = 501
+    dry = array("f")
+    for frame in range(frames):
+        dry.append(0.42 if frame % 5 else 0.0)
+
+    block = array("f", dry)
+    _mix_noise(block, dry, 1, 0.0003, True)
+    _limit_peak(block, dry)
+
+    monkeypatch.setattr(preset_module, "_np", None)
+    loop = array("f", dry)
+    _mix_noise(loop, dry, 1, 0.0003, True)
+    _limit_peak(loop, dry)
+
+    assert list(block) == list(loop)
+
+
+@pytest.mark.parametrize("kind", ["f", "h"])
+@pytest.mark.parametrize("channels", [1, 2])
+@pytest.mark.parametrize("gate", [True, False])
+@pytest.mark.parametrize("block", [1, 7, 64])
+def test_block_path_matches_the_loop_at_any_block_size(
+    kind: str, channels: int, gate: bool, block: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A block boundary must not change a sample, for either typecode."""
+    pytest.importorskip("numpy")
+    from app.sonify import preset as preset_module
+
+    rnd = random.Random(11)
+    frames = 200  # more than the largest block below, so every case crosses
+    values = []
+    for _ in range(frames * channels):
+        if kind == "f":
+            values.append(rnd.choice([0.0, 0.004, 0.5, -0.75, 0.999]))
+        else:
+            values.append(rnd.choice([0, 30, 327, 328, 1000, -20000, 32767, -32768]))
+    dry = array(kind, values)
+
+    monkeypatch.setattr(preset_module, "_BLOCK_SAMPLES", block)
+    fast = array(kind, dry)
+    _mix_noise(fast, dry, channels, 0.0003, gate)
+    _limit_peak(fast, dry)
+
+    monkeypatch.setattr(preset_module, "_np", None)
+    loop = array(kind, dry)
+    _mix_noise(loop, dry, channels, 0.0003, gate)
+    _limit_peak(loop, dry)
+
+    assert list(fast) == list(loop)
+
+
+def test_unknown_typecode_falls_back_without_raising() -> None:
+    """`_wav_samples` never returns this, but a new format must not crash color."""
+    pytest.importorskip("numpy")
+    dry = array("d", [0.1, -0.2, 0.3])
+    heard = array("d", dry)
+    _mix_noise(heard, dry, 1, 0.001, False)
+    _limit_peak(heard, dry)
+    assert len(heard) == 3
+
+
+def test_vintage_golden_bytes_do_not_drift() -> None:
+    """Pin the exact color math. Change the hash only on purpose."""
+    dry = array("f")
+    for frame in range(600):
+        dry.append(0.5 if frame % 3 == 0 else 0.0)
+    heard = array("f", dry)
+    _mix_noise(heard, dry, 2, 0.0003, True)
+    _limit_peak(heard, dry)
+    assert hashlib.sha256(heard.tobytes()).hexdigest() == (
+        "87ae61bcbdb4550117f5e92f52d13554fbc52d19b017217a4b4307301b0cd121"
+    )
+
+
+def test_peak_limit_uses_one_gain_and_truncates() -> None:
+    pytest.importorskip("numpy")
+    dry = array("f", [0.0, 0.5, -0.25, 0.0])
+    heard = array("f", [0.1, 0.8, -0.4, 0.0])
+    _limit_peak(heard, dry)
+    gain = 0.5 / 0.8
+    assert list(heard) == list(array("f", [0.1 * gain, 0.5, -0.25, 0.0]))
+
+    pcm_dry = array("h", [1000, -1000])
+    pcm_heard = array("h", [1200, -1100])
+    _limit_peak(pcm_heard, pcm_dry)
+    # int() in the loop truncates toward zero, so -1100 becomes -916, not -917.
+    assert list(pcm_heard) == [1000, -916]
 
 
 def _tone_then_silence(path: Path) -> None:
