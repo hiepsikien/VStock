@@ -808,3 +808,42 @@ def test_motion_returns_zero_when_every_step_holds() -> None:
     value, weight, _low = _motion(points, eps=0.1)
     assert value == 0.0
     assert weight == 4.0
+
+
+def test_dfi_keys_only_add_a_hash_for_a_profile_mark() -> None:
+    from datetime import date
+
+    from app.sonify.params import DEFAULT_PARAMS, params_from_flags, params_hash
+
+    day = date(2026, 10, 14)
+    default = dfi_service._recap_key("FPT", day, "symphony", "classic", DEFAULT_PARAMS, "d")
+    legacy = dfi_service._recap_key(
+        "FPT", day, "symphony", "classic", params_from_flags(False, True), "d"
+    )
+    profile_params = {**DEFAULT_PARAMS, "tempo": 0.96}
+    profile = dfi_service._recap_key(
+        "FPT", day, "symphony", "classic", profile_params, "d"
+    )
+    assert legacy != default
+    assert params_hash(profile_params) not in legacy[0]
+    assert profile != default
+    assert profile[0].endswith(params_hash(profile_params))
+
+
+def test_movement_dfi_keys_only_add_a_hash_for_a_profile_mark() -> None:
+    from app.sonify.params import DEFAULT_PARAMS, params_from_flags, params_hash
+
+    default = dfi_service._movement_key(
+        "FPT", "1W", 0, "jazz", "classic", DEFAULT_PARAMS, "d"
+    )
+    legacy = dfi_service._movement_key(
+        "FPT", "1W", 0, "jazz", "classic", params_from_flags(True, False), "d"
+    )
+    profile_params = {**DEFAULT_PARAMS, "tempo": 0.96}
+    profile = dfi_service._movement_key(
+        "FPT", "1W", 0, "jazz", "classic", profile_params, "d"
+    )
+    assert legacy != default
+    assert params_hash(profile_params) not in legacy[0]
+    assert profile != default
+    assert profile[0].endswith(params_hash(profile_params))

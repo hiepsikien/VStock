@@ -14,7 +14,7 @@ Maps market data onto three direct auditory dimensions:
 from __future__ import annotations
 
 from app.sonify.chords import Chord, Regime
-from app.sonify.dynamics import SOUND
+from app.sonify.dynamics import sound_for
 from app.sonify.form import (
     BEATS_PER_BAR,
     active_meter,
@@ -174,7 +174,7 @@ def _synth_arpeggio_part(
                 DynamicEvent(
                     bar=phrase.start // active_meter().eighths_per_bar,
                     marking="mp",
-                    sound=SOUND["mp"],
+                    sound=sound_for("mp"),
                     beat=(phrase.start % active_meter().eighths_per_bar) * 0.5,
                 )
             )

@@ -253,11 +253,11 @@ def test_mix_flags_skip_a_layer_and_keep_the_sibling_file(tmp_path: Path, monkey
     shaped: list[int] = []
     tinted: list[str] = []
 
-    def fake_humanize(score):
+    def fake_humanize(score, **kwargs):
         shaped.append(1)
         return score
 
-    def fake_color(path: Path, variant: str) -> Path:
+    def fake_color(path: Path, variant: str, **kwargs) -> Path:
         tinted.append(variant)
         return path
 
@@ -280,20 +280,19 @@ def test_mix_flags_skip_a_layer_and_keep_the_sibling_file(tmp_path: Path, monkey
     assert shaped == []
     assert tinted == []
     assert bare.audio_path.stem.endswith(f"_{RECAP_REVISION}_1_nh_nc")
-    assert "humanize=0" in bare.audio_url and "color=0" in bare.audio_url
+    assert "&p=" in bare.audio_url and "humanize=" not in bare.audio_url
     assert _STORED_NAME.match(bare.audio_path.name)
 
     lifted = store.ensure("VNM", day, "symphony", bars, humanize=False)
     assert shaped == []
     assert tinted == ["symphony"]
     assert lifted.audio_path.stem.endswith(f"_{RECAP_REVISION}_1_nh")
-    assert "humanize=0" in lifted.audio_url
-    assert "color=" not in lifted.audio_url
+    assert "&p=" in lifted.audio_url and "humanize=" not in lifted.audio_url
 
     full = store.ensure("FPT", day, "symphony", bars)
     assert shaped == [1]
     assert full.audio_path.stem.endswith(f"_{RECAP_REVISION}_1")
-    assert "humanize=" not in full.audio_url and "color=" not in full.audio_url
+    assert "p=" not in full.audio_url
     assert bare.audio_path.is_file()
     assert full.audio_path.is_file()
     assert store.get("FPT", day, "symphony", 1, humanize=False, color=False).audio_path == bare.audio_path
@@ -301,8 +300,7 @@ def test_mix_flags_skip_a_layer_and_keep_the_sibling_file(tmp_path: Path, monkey
 
     dry = store.ensure("HPG", day, "jazz", bars, color=False)
     assert dry.audio_path.stem.endswith("_nc")
-    assert "color=0" in dry.audio_url
-    assert "humanize=" not in dry.audio_url
+    assert "&p=" in dry.audio_url and "humanize=" not in dry.audio_url
     assert shaped == [1, 1]
     assert tinted == ["symphony", "symphony"]
 

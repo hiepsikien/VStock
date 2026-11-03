@@ -34,6 +34,12 @@ from app.sonify.audio import (
 from app.sonify.ensemble import ensembles_for
 from app.sonify.keys import movement_character, stock_home_key
 from app.sonify.model import Bar, Ensemble, VARIANTS, Variant
+from app.sonify.params import (
+    cache_mark,
+    compose_params,
+    normalize_params,
+    params_hash,
+)
 from app.sonify.dfi import DFI_VERSION, DfiBreakdown, compute as compute_dfi, data_digest
 
 ComposeKey = tuple[str, str, str, str, bool, str, str]
@@ -140,17 +146,30 @@ def _write_sidecar(key: ComposeKey, value: DfiBreakdown | None, stamp: str) -> N
     _prune_sidecars()
 
 
+def _layers(params) -> tuple[bool, bool]:
+    values = normalize_params(params)
+    humanize = float(values["humanize"]) != 0.0 or float(values["breath"]) != 0.0
+    return humanize, float(values["color"]) != 0.0
+
+
+def _params_salt(params) -> str:
+    """Only a profile mark needs the hash in the key. Default and legacy reuse."""
+    values = normalize_params(params)
+    return f":{params_hash(values)}" if cache_mark(values).startswith("_p") else ""
+
+
 def _recap_key(
     symbol: str,
     day: date,
     variant: Variant,
     ensemble: Ensemble,
-    humanize: bool,
-    color: bool,
+    params,
     digest: str,
 ) -> ComposeKey:
+    humanize, color = _layers(params)
     return (
-        f"day:{symbol}:{day.isoformat()}:{RECAP_REVISION}:{DFI_VERSION}:{digest}",
+        f"day:{symbol}:{day.isoformat()}:{RECAP_REVISION}:{DFI_VERSION}:{digest}"
+        f"{_params_salt(params)}",
         variant,
         ensemble,
         "day",
@@ -166,12 +185,13 @@ def _movement_key(
     index: int,
     variant: Variant,
     ensemble: Ensemble,
-    humanize: bool,
-    color: bool,
+    params,
     digest: str,
 ) -> ComposeKey:
+    humanize, color = _layers(params)
     return (
-        f"span:{symbol}:{span}:{index}:{SPAN_REVISION}:{DFI_VERSION}:{digest}",
+        f"span:{symbol}:{span}:{index}:{SPAN_REVISION}:{DFI_VERSION}:{digest}"
+        f"{_params_salt(params)}",
         variant,
         ensemble,
         "span",
@@ -186,20 +206,23 @@ def _recap_score(
     bars: list[Bar],
     variant: Variant,
     ensemble: Ensemble,
-    humanize: bool,
+    params,
 ):
-    score, _dance = _compose(
-        variant,
-        ensemble,
-        bars,
-        title=f"{symbol} dfi",
-        key=stock_home_key(symbol),
-        character=movement_character([bar.close for bar in bars], "1D"),
-        movement_index=0,
-    )
-    if humanize:
-        score = humanize_score(score)
-    return score
+    values = normalize_params(params)
+    humanize, _color = _layers(values)
+    with compose_params(values):
+        score, _dance = _compose(
+            variant,
+            ensemble,
+            bars,
+            title=f"{symbol} dfi",
+            key=stock_home_key(symbol),
+            character=movement_character([bar.close for bar in bars], "1D"),
+            movement_index=0,
+        )
+        if humanize:
+            score = humanize_score(score, params=values)
+        return score
 
 
 def _movement_score(
@@ -209,28 +232,31 @@ def _movement_score(
     movement,
     variant: Variant,
     ensemble: Ensemble,
-    humanize: bool,
+    params,
 ):
-    score, _dance = _compose(
-        variant,
-        ensemble,
-        movement.bars,
-        title=f"{symbol} {span} dfi",
-        form=movement.spec,
-        source_groups=movement.groups,
-        key=movement.key,
-        character=movement.character,
-        outro_override=movement.outro_override,
-        framed=False,
-        mode=movement.mode,
-        home_pedal=movement.home_pedal,
-        character_at=movement.bar_characters,
-        gap_leads=movement.gap_leads,
-        movement_index=0 if span == "1W" else index,
-    )
-    if humanize:
-        score = humanize_score(score)
-    return score
+    values = normalize_params(params)
+    humanize, _color = _layers(values)
+    with compose_params(values):
+        score, _dance = _compose(
+            variant,
+            ensemble,
+            movement.bars,
+            title=f"{symbol} {span} dfi",
+            form=movement.spec,
+            source_groups=movement.groups,
+            key=movement.key,
+            character=movement.character,
+            outro_override=movement.outro_override,
+            framed=False,
+            mode=movement.mode,
+            home_pedal=movement.home_pedal,
+            character_at=movement.bar_characters,
+            gap_leads=movement.gap_leads,
+            movement_index=0 if span == "1W" else index,
+        )
+        if humanize:
+            score = humanize_score(score, params=values)
+        return score
 
 
 @dataclass(frozen=True)
@@ -249,18 +275,18 @@ def recap_dfi(
     bars: list[Bar],
     variant: Variant,
     ensemble: Ensemble = "classic",
-    humanize: bool = True,
-    color: bool = True,
+    params=None,
     digest: str | None = None,
 ) -> DfiPieceResult:
     """Compose the recap score (no export) and read its DFI."""
+    values = normalize_params(params)
     digest = digest or bars_digest(bars)
-    key = _recap_key(symbol, day, variant, ensemble, humanize, color, digest)
+    key = _recap_key(symbol, day, variant, ensemble, values, digest)
     hit = _load(key)
     if hit is not None:
         value, stamp, cached = hit
         return DfiPieceResult(variant, ensemble, None, value, cached, stamp)
-    score = _recap_score(symbol, bars, variant, ensemble, humanize)
+    score = _recap_score(symbol, bars, variant, ensemble, values)
     value = compute_dfi(score, variant=variant, ensemble=ensemble)
     stamp = _store(key, value)
     return DfiPieceResult(
@@ -280,17 +306,17 @@ def movement_dfi(
     movement,
     variant: Variant,
     ensemble: Ensemble = "classic",
-    humanize: bool = True,
-    color: bool = True,
+    params=None,
     digest: str | None = None,
 ) -> DfiPieceResult:
+    values = normalize_params(params)
     digest = digest or bars_digest(movement.bars)
-    key = _movement_key(symbol, span, index, variant, ensemble, humanize, color, digest)
+    key = _movement_key(symbol, span, index, variant, ensemble, values, digest)
     hit = _load(key)
     if hit is not None:
         value, stamp, cached = hit
         return DfiPieceResult(variant, ensemble, index, value, cached, stamp)
-    score = _movement_score(symbol, span, index, movement, variant, ensemble, humanize)
+    score = _movement_score(symbol, span, index, movement, variant, ensemble, values)
     value = compute_dfi(score, variant=variant, ensemble=ensemble)
     _store(key, value)
     return DfiPieceResult(
@@ -373,20 +399,20 @@ async def pieces_for_day(
     symbol: str,
     day: date,
     rows: list[tuple[Variant, Ensemble]],
-    humanize: bool = True,
-    color: bool = True,
+    params=None,
     request: Request | None = None,
 ) -> list[DfiPieceResult]:
     bars = await recap_bars(symbol, day)
     if not bars:
         raise LookupError(day.isoformat())
+    values = normalize_params(params)
     results: list[DfiPieceResult] = []
     digest = data_digest(bars)
     for variant, ensemble in rows:
         if request is not None and await request.is_disconnected():
             raise RecapCancelled("DFI pieces cancelled")
         result = await asyncio.to_thread(
-            recap_dfi, symbol, day, bars, variant, ensemble, humanize, color, digest
+            recap_dfi, symbol, day, bars, variant, ensemble, values, digest
         )
         results.append(result)
         if result.dfi is not None:
@@ -398,8 +424,7 @@ async def pieces_for_day(
                     variant,
                     len(bars),
                     ensemble,
-                    humanize,
-                    color,
+                    values,
                     result.dfi.to_dict(),
                     digest,
                 )
@@ -411,10 +436,10 @@ async def pieces_for_span(
     span: str,
     index: int,
     rows: list[tuple[Variant, Ensemble]],
-    humanize: bool = True,
-    color: bool = True,
+    params=None,
     request: Request | None = None,
 ) -> tuple[list[DfiPieceResult], date]:
+    values = normalize_params(params)
     results: list[DfiPieceResult] = []
     as_of: date | None = None
     for variant, ensemble in rows:
@@ -434,8 +459,7 @@ async def pieces_for_span(
             movement,
             variant,
             ensemble,
-            humanize,
-            color,
+            values,
             digest,
         )
         results.append(result)
@@ -450,8 +474,7 @@ async def pieces_for_span(
                     movement.candle_count,
                     movement.scale_fingerprint,
                     ensemble,
-                    humanize,
-                    color,
+                    values,
                     result.dfi.to_dict(),
                     digest,
                 )

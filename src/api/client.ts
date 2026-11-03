@@ -19,6 +19,15 @@ import {
   writeQuotesCache,
 } from '../storage/marketCache';
 import type { IndexQuote } from '../components/WatchlistSummary';
+import {
+  DEFAULT_PARAMS,
+  encodeParams,
+  isDefaultParams,
+  normalizeParams,
+  paramsFromFlags,
+  paramsQuery as paramsSuffix,
+  type SonifyParams,
+} from '../musicalize/params';
 import { sanitizePriceChange } from '../utils/sanitizePriceChange';
 import { prefetchOutcome, type PrefetchOutcome } from './prefetchPlan';
 
@@ -546,10 +555,49 @@ export type SonifyMix = {
   color: boolean;
 };
 
+/** Old callers pass the two booleans; the room passes the seven knobs. */
+export type SonifyParamsInput = SonifyParams | SonifyMix;
+
 export const MIX_ON: SonifyMix = { humanize: true, color: true };
 
-function mixQuery(mix: SonifyMix): string {
-  return `&humanize=${mix.humanize ? '1' : '0'}&color=${mix.color ? '1' : '0'}`;
+function coerceParams(input?: SonifyParamsInput): SonifyParams {
+  if (!input) return DEFAULT_PARAMS;
+  if (typeof (input as SonifyMix).humanize === 'boolean') {
+    const mix = input as SonifyMix;
+    return paramsFromFlags(mix.humanize, mix.color);
+  }
+  return normalizeParams(input);
+}
+
+/** Query suffix for audio and peaks. Empty for Default. */
+export function sonifyParamsQuery(input?: SonifyParamsInput): string {
+  return paramsSuffix(coerceParams(input));
+}
+
+export type ParamsSchemaResponse = {
+  schema: number;
+  groups: Array<{
+    id: string;
+    label: string;
+    fields: Array<{
+      key: string;
+      label: string;
+      type: 'number';
+      min: number;
+      max: number;
+      step: number;
+      default: number;
+      unit: string;
+      description: string;
+    }>;
+  }>;
+  defaultHash: string;
+  enabled: boolean;
+};
+
+/** The kill switch lives here, not in the client bundle. */
+export async function fetchParamsSchema(signal?: AbortSignal): Promise<ParamsSchemaResponse> {
+  return apiGet<ParamsSchemaResponse>('/v1/sonify/params/schema', signal);
 }
 
 export type RecapManifest = {
@@ -654,11 +702,11 @@ export async function fetchSpan(
   variant: RecapVariant,
   ensemble: RecapEnsemble = 'classic',
   signal?: AbortSignal,
-  mix: SonifyMix = MIX_ON,
+  params: SonifyParamsInput = DEFAULT_PARAMS,
 ): Promise<SpanManifest> {
   const sym = symbol.toUpperCase();
   return apiGet<SpanManifest>(
-    `/v1/stocks/${encodeURIComponent(sym)}/span?range=${range}&variant=${variant}&ensemble=${ensemble}${mixQuery(mix)}`,
+    `/v1/stocks/${encodeURIComponent(sym)}/span?range=${range}&variant=${variant}&ensemble=${ensemble}${sonifyParamsQuery(params)}`,
     signal,
     true,
   );
@@ -694,11 +742,11 @@ export async function fetchSpanPeaks(
   variant: RecapVariant,
   ensemble: RecapEnsemble = 'classic',
   signal?: AbortSignal,
-  mix: SonifyMix = MIX_ON,
+  params: SonifyParamsInput = DEFAULT_PARAMS,
 ): Promise<SpanPeaksManifest> {
   const sym = symbol.toUpperCase();
   return apiGet<SpanPeaksManifest>(
-    `/v1/stocks/${encodeURIComponent(sym)}/span/peaks?range=${range}&variant=${variant}&ensemble=${ensemble}${mixQuery(mix)}`,
+    `/v1/stocks/${encodeURIComponent(sym)}/span/peaks?range=${range}&variant=${variant}&ensemble=${ensemble}${sonifyParamsQuery(params)}`,
     signal,
     true,
   );
@@ -764,11 +812,11 @@ export async function fetchRecap(
   variant: RecapVariant,
   ensemble: RecapEnsemble = 'classic',
   signal?: AbortSignal,
-  mix: SonifyMix = MIX_ON,
+  params: SonifyParamsInput = DEFAULT_PARAMS,
 ): Promise<RecapManifest> {
   const sym = symbol.toUpperCase();
   return apiGet<RecapManifest>(
-    `/v1/stocks/${encodeURIComponent(sym)}/sessions/${encodeURIComponent(day)}/recap?variant=${variant}&ensemble=${ensemble}${mixQuery(mix)}`,
+    `/v1/stocks/${encodeURIComponent(sym)}/sessions/${encodeURIComponent(day)}/recap?variant=${variant}&ensemble=${ensemble}${sonifyParamsQuery(params)}`,
     signal,
     true,
   );
@@ -784,6 +832,8 @@ export async function fetchDfiPieces(
     movement?: number;
     variant?: RecapVariant | null;
     ensemble?: RecapEnsemble | null;
+    /** The seven knobs. `mix` stays for the older listening surfaces. */
+    params?: SonifyParamsInput;
     mix?: SonifyMix;
   },
   signal?: AbortSignal,
@@ -799,9 +849,8 @@ export async function fetchDfiPieces(
   }
   if (params.variant) query.set('variant', params.variant);
   if (params.ensemble) query.set('ensemble', params.ensemble);
-  const mix = params.mix ?? MIX_ON;
-  query.set('humanize', mix.humanize ? '1' : '0');
-  query.set('color', mix.color ? '1' : '0');
+  const shaped = coerceParams(params.params ?? params.mix);
+  if (!isDefaultParams(shaped)) query.set('p', encodeParams(shaped));
   return apiGet<DfiPiecesResponse>(`/v1/sonify/dfi/pieces?${query.toString()}`, signal, true);
 }
 

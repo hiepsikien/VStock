@@ -22,14 +22,93 @@ _SYMPHONY_NOISE = 0.001
 _GUITAR_NOISE = 0.0003
 _GUITAR_GATE = 0.01
 
-_SYMPHONY = (
-    "highshelf=f=8000:g=-2,equalizer=f=300:t=h:w=200:g=1.5,"
-    "asoftclip=type=tanh:threshold=0.9:oversample=1,aecho=1:1:24|40|58:0.07|0.045|0.03"
-)
-_GUITAR = "highshelf=f=8000:g=-1,equalizer=f=280:t=h:w=180:g=1.2,aecho=1:1:12|20:0.05|0.03"
-_JAZZ = "aecho=1:1:22|36|48:0.08|0.05|0.03,asoftclip=type=tanh:threshold=0.9:oversample=1"
-_MINIMALIST = "aecho=1:1:18|32:0.07|0.04"
-_AMBIENT = "highshelf=f=7000:g=-1.5,aecho=1:1:28|48:0.06|0.035"
+
+@dataclass(frozen=True)
+class ColorSpec:
+    """Typed colour for one variant. The FFmpeg chain is generated from this."""
+
+    name: str
+    highshelf_hz: int = 0
+    highshelf_db: float = 0.0
+    eq_hz: int = 0
+    eq_width: int = 0
+    eq_db: float = 0.0
+    echo: tuple[tuple[int, float], ...] = ()
+    softclip_threshold: float | None = None
+    echo_before_clip: bool = False
+    noise: float = 0.0
+    gate_noise: bool = False
+
+    def chain(self, amount: float) -> str:
+        return _ordered_chain(self, amount)
+
+
+def _ordered_chain(spec: ColorSpec, amount: float) -> str:
+    """Emit the same order as the hardcoded chain: shelf, eq, clip, echo."""
+    parts: list[str] = []
+    if spec.highshelf_hz and spec.highshelf_db:
+        gain = spec.highshelf_db * amount
+        if gain:
+            parts.append(f"highshelf=f={spec.highshelf_hz}:g={gain:g}")
+    if spec.eq_hz and spec.eq_db:
+        gain = spec.eq_db * amount
+        if gain:
+            parts.append(f"equalizer=f={spec.eq_hz}:t=h:w={spec.eq_width}:g={gain:g}")
+    clip = ""
+    if spec.softclip_threshold is not None:
+        threshold = 1.0 - (1.0 - spec.softclip_threshold) * amount
+        if threshold < 1.0:
+            clip = f"asoftclip=type=tanh:threshold={threshold:g}:oversample=1"
+    taps = [(delay, decay * amount) for delay, decay in spec.echo if decay * amount > 0]
+    echo = ""
+    if taps:
+        delays = "|".join(str(delay) for delay, _decay in taps)
+        decays = "|".join(f"{decay:g}" for _delay, decay in taps)
+        echo = f"aecho=1:1:{delays}:{decays}"
+    if spec.echo_before_clip:
+        parts.extend(filter(None, (echo, clip)))
+    else:
+        parts.extend(filter(None, (clip, echo)))
+    return ",".join(parts)
+
+
+_COLOR_SPECS: dict[str, ColorSpec] = {
+    "symphony": ColorSpec(
+        "vintage",
+        highshelf_hz=8000,
+        highshelf_db=-2,
+        eq_hz=300,
+        eq_width=200,
+        eq_db=1.5,
+        echo=((24, 0.07), (40, 0.045), (58, 0.03)),
+        softclip_threshold=0.9,
+        noise=_SYMPHONY_NOISE,
+    ),
+    "guitar": ColorSpec(
+        "vintage",
+        highshelf_hz=8000,
+        highshelf_db=-1,
+        eq_hz=280,
+        eq_width=180,
+        eq_db=1.2,
+        echo=((12, 0.05), (20, 0.03)),
+        noise=_GUITAR_NOISE,
+        gate_noise=True,
+    ),
+    "jazz": ColorSpec(
+        "club",
+        echo=((22, 0.08), (36, 0.05), (48, 0.03)),
+        softclip_threshold=0.9,
+        echo_before_clip=True,
+    ),
+    "minimalist": ColorSpec("wood", echo=((18, 0.07), (32, 0.04))),
+    "ambient": ColorSpec(
+        "air",
+        highshelf_hz=7000,
+        highshelf_db=-1.5,
+        echo=((28, 0.06), (48, 0.035)),
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -42,22 +121,33 @@ class PresetChain:
     gate_noise: bool = False
 
 
-_CHAINS: dict[str, PresetChain] = {
-    "symphony": PresetChain("vintage", _SYMPHONY, noise=_SYMPHONY_NOISE, gate_noise=False),
-    "guitar": PresetChain("vintage", _GUITAR, noise=_GUITAR_NOISE, gate_noise=True),
-    "jazz": PresetChain("club", _JAZZ),
-    "minimalist": PresetChain("wood", _MINIMALIST),
-    "ambient": PresetChain("air", _AMBIENT),
-}
+def preset_chain(variant: str, *, amount: float = 1.0, noise: float = 1.0) -> PresetChain | None:
+    spec = _COLOR_SPECS.get(variant)
+    if spec is None:
+        return None
+    chain = spec.chain(amount)
+    if not chain:
+        return None
+    return PresetChain(spec.name, chain, noise=spec.noise * noise, gate_noise=spec.gate_noise)
 
 
-def preset_chain(variant: str) -> PresetChain | None:
-    return _CHAINS.get(variant)
-
-
-def apply_preset(dry_path: Path, colored_path: Path, variant: str) -> bool:
+def apply_preset(
+    dry_path: Path,
+    colored_path: Path,
+    variant: str,
+    *,
+    params=None,
+) -> bool:
     """Write a colored WAV the same length as `dry_path`. False keeps the dry file."""
-    chain = preset_chain(variant)
+    from app.sonify.params import active_params
+
+    values = active_params() if params is None else params
+    amount = float(values.get("color", 1.0))
+    if amount <= 0:
+        return False
+    chain = preset_chain(
+        variant, amount=amount, noise=float(values.get("noise", 1.0))
+    )
     ffmpeg = shutil.which("ffmpeg")
     if chain is None or ffmpeg is None or not dry_path.is_file():
         return False

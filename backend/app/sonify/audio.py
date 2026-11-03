@@ -20,7 +20,7 @@ import threading
 import time
 import zipfile
 from array import array
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -30,6 +30,15 @@ from xml.etree import ElementTree as ET
 from app.sonify.ensemble import Ensemble
 from app.sonify.humanize import humanize as humanize_score
 from app.sonify.model import ENSEMBLES, VARIANTS, Bar, Variant
+from app.sonify.params import (
+    DEFAULT_PARAMS,
+    cache_mark,
+    compose_params,
+    normalize_params,
+    params_from_flags,
+    params_hash,
+    params_query,
+)
 from app.sonify.musicxml import score_to_musicxml
 from app.sonify.dfi import DFI_VERSION, compute as compute_dfi, data_digest
 from app.sonify.playback import piece_seconds
@@ -49,6 +58,9 @@ PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
 AUDIO_MAX_AGE_DAYS = max(1, int(os.environ.get("VSTOCK_AUDIO_MAX_AGE_DAYS", "30")))
+# Non-default profiles are LRU-bounded per piece. Default and the legacy layer
+# marks are pinned and only expire by age.
+PARAMS_CACHE_MAX = max(1, int(os.environ.get("VSTOCK_PARAMS_CACHE_MAX", "4")))
 # Export temps under work/ outlive a crashed MuseScore. A live export is at most
 # the 180s deadline, so anything older than this is leftover.
 WORK_KEEP_SEC = 15 * 60
@@ -57,8 +69,10 @@ _STORED_NAME = re.compile(
     + "|".join(VARIANTS)
     + r")(?:-(?:"
     + "|".join(name for name in ENSEMBLES if name != "classic")
-    + r"))?_(?P<rev>[^_]+)_\d+(?:_nh)?(?:_nc)?\.(?:m4a|wav|json)$"
+    + r"))?_(?P<rev>[^_]+)_\d+(?:_nh)?(?:_nc)?(?:_p[0-9a-f]{12})?"
+    r"\.(?:m4a|wav|json)$"
 )
+_P_HASH_MARK = re.compile(r"_p[0-9a-f]{12}$")
 
 
 def layer_mark(humanize: bool = True, color: bool = True) -> str:
@@ -78,6 +92,38 @@ def layer_query(humanize: bool = True, color: bool = True) -> str:
     if not color:
         parts.append("color=0")
     return "" if not parts else "&" + "&".join(parts)
+
+
+def _humanize_on(params: Mapping[str, float]) -> bool:
+    return float(params.get("humanize", 1.0)) != 0.0 or float(params.get("breath", 1.0)) != 0.0
+
+
+def _color_on(params: Mapping[str, float]) -> bool:
+    return float(params.get("color", 1.0)) != 0.0
+
+
+def _payload_matches(payload: dict, params: Mapping[str, float]) -> bool:
+    """New files carry the hash; legacy files only carry the boolean layers."""
+    stored = str(payload.get("paramsHash") or "")
+    if stored:
+        return stored == params_hash(params)
+    return bool(payload.get("humanize", True)) == _humanize_on(
+        params
+    ) and bool(payload.get("color", True)) == _color_on(params)
+
+
+def _params_with_legacy(
+    params: Mapping[str, float] | None,
+    humanize: bool | None,
+    color: bool | None,
+) -> Mapping[str, float] | None:
+    """Old internal callers still pass the two booleans."""
+    if params is None and (humanize is not None or color is not None):
+        return params_from_flags(
+            True if humanize is None else humanize,
+            True if color is None else color,
+        )
+    return params
 
 
 _export_cancel = threading.local()
@@ -146,16 +192,25 @@ class RecapAsset:
     character: str | None = None
     key_label: str = ""
     movement_name: str = ""
-    humanize: bool = True
-    color: bool = True
+    params: Mapping[str, float] | None = None
+    params_hash: str = ""
     dfi: dict | None = None
     dfi_inputs: str = ""
+    dfi_params_hash: str = ""
     dfi_checked: str = ""
+
+    @property
+    def humanize(self) -> bool:
+        return _humanize_on(self.params or DEFAULT_PARAMS)
+
+    @property
+    def color(self) -> bool:
+        return _color_on(self.params or DEFAULT_PARAMS)
 
     @property
     def audio_url(self) -> str:
         extra = "" if self.ensemble == "classic" else f"&ensemble={self.ensemble}"
-        extra += layer_query(self.humanize, self.color)
+        extra += params_query(self.params)
         return (
             f"/v1/stocks/{self.symbol}/sessions/{self.day.isoformat()}"
             f"/recap/audio.m4a?variant={self.variant}&v={self.bar_count}&r={RECAP_REVISION}{extra}"
@@ -179,8 +234,11 @@ class SpanAsset:
     movement_name: str = ""
     render_sec: float = 0.0
     render_ratio: float = 0.0
+    params: Mapping[str, float] | None = None
+    params_hash: str = ""
     dfi: dict | None = None
     dfi_inputs: str = ""
+    dfi_params_hash: str = ""
     dfi_checked: str = ""
 
 
@@ -1041,7 +1099,9 @@ def _transcode_m4a(wav_path: Path, m4a_path: Path, *, variant: str | None = None
     return _ffmpeg_aac(ffmpeg, wav_path, m4a_path, None)
 
 
-def _color_for_export(wav_path: Path, variant: str) -> Path:
+def _color_for_export(
+    wav_path: Path, variant: str, *, params: Mapping[str, float] | None = None
+) -> Path:
     """Color the dry export. The encode step adds no further filter.
 
     `_GUITAR_HALL` stays unused: that chain is a glass dome, not one of the
@@ -1050,7 +1110,7 @@ def _color_for_export(wav_path: Path, variant: str) -> Path:
     from app.sonify.preset import apply_preset
 
     colored = wav_path.with_name(wav_path.stem + ".preset.wav")
-    if apply_preset(wav_path, colored, variant):
+    if apply_preset(wav_path, colored, variant, params=params):
         return colored
     colored.unlink(missing_ok=True)
     return wav_path
@@ -1096,12 +1156,15 @@ class RecapStore:
         variant: Variant,
         bar_count: int,
         ensemble: Ensemble = "classic",
-        humanize: bool = True,
-        color: bool = True,
+        params: Mapping[str, float] | None = None,
+        *,
+        humanize: bool | None = None,
+        color: bool | None = None,
     ) -> str:
+        values = normalize_params(_params_with_legacy(params, humanize, color))
         return (
             f"{self._piece(symbol, day, variant, ensemble)}_{RECAP_REVISION}_{bar_count}"
-            f"{layer_mark(humanize, color)}"
+            f"{cache_mark(values)}"
         )
 
     def _is_closed(self, day: date) -> bool:
@@ -1114,18 +1177,20 @@ class RecapStore:
         variant: Variant,
         bar_count: int,
         ensemble: Ensemble = "classic",
-        humanize: bool = True,
-        color: bool = True,
+        params: Mapping[str, float] | None = None,
+        *,
+        humanize: bool | None = None,
+        color: bool | None = None,
     ) -> RecapAsset | None:
         """Serve one finished file. Does not compose."""
         self.prune()
+        values = normalize_params(_params_with_legacy(params, humanize, color))
         return self._read(
             symbol,
             day,
             variant,
-            self._stem(symbol, day, variant, bar_count, ensemble, humanize, color),
-            humanize,
-            color,
+            self._stem(symbol, day, variant, bar_count, ensemble, values),
+            values,
         )
 
     def ensure(
@@ -1136,29 +1201,33 @@ class RecapStore:
         bars: list[Bar],
         cancel: threading.Event | None = None,
         ensemble: Ensemble = "classic",
-        humanize: bool = True,
-        color: bool = True,
+        params: Mapping[str, float] | None = None,
+        *,
+        humanize: bool | None = None,
+        color: bool | None = None,
     ) -> RecapAsset:
         if not bars:
             raise ValueError("need at least one price bar")
         self.prune()
-        piece = self._piece(symbol, day, variant, ensemble) + layer_mark(humanize, color)
+        values = normalize_params(_params_with_legacy(params, humanize, color))
+        piece = self._piece(symbol, day, variant, ensemble) + cache_mark(values)
         with self._lock(piece):
             _raise_if_cancelled_event(cancel)
-            cached = self._cached(symbol, day, variant, len(bars), ensemble, humanize, color)
+            cached = self._cached(symbol, day, variant, len(bars), ensemble, values)
             if cached is not None:
                 return cached
             _raise_if_cancelled_event(cancel)
             with self._slots:
                 _raise_if_cancelled_event(cancel)
-                cached = self._cached(symbol, day, variant, len(bars), ensemble, humanize, color)
+                cached = self._cached(symbol, day, variant, len(bars), ensemble, values)
                 if cached is not None:
                     return cached
-                return self._render(symbol, day, variant, bars, cancel, ensemble, humanize, color)
+                return self._render(symbol, day, variant, bars, cancel, ensemble, values)
 
     def prune(self) -> None:
         """Drop other score revisions, expired files, and leftover export temps."""
         cutoff = time.time() - AUDIO_MAX_AGE_DAYS * 86400
+        hashes: dict[str, dict[str, list[tuple[float, Path]]]] = {}
         for path in list(self.root.iterdir()):
             if path.is_dir():
                 if path.name == "work":
@@ -1171,16 +1240,39 @@ class RecapStore:
             match = _STORED_NAME.match(path.name)
             current = match is not None and match.group("rev") == RECAP_REVISION
             try:
-                expired = path.stat().st_mtime < cutoff
+                modified = path.stat().st_mtime
             except OSError:
                 continue
-            if not current or expired:
+            if not current or modified < cutoff:
                 path.unlink(missing_ok=True)
+                continue
+            mark = _P_HASH_MARK.search(path.stem)
+            if mark is not None:
+                group = path.stem[: mark.start()]
+                hashes.setdefault(group, {}).setdefault(mark.group(0), []).append(
+                    (modified, path)
+                )
+        self._prune_hashes(hashes)
+
+    @staticmethod
+    def _prune_hashes(groups: dict[str, dict[str, list[tuple[float, Path]]]]) -> None:
+        """Keep the newest `PARAMS_CACHE_MAX` profile hashes per piece."""
+        for per_hash in groups.values():
+            if len(per_hash) <= PARAMS_CACHE_MAX:
+                continue
+            ranked = sorted(
+                per_hash.items(),
+                key=lambda item: max(modified for modified, _path in item[1]),
+            )
+            for _mark, files in ranked[: len(ranked) - PARAMS_CACHE_MAX]:
+                for _modified, path in files:
+                    path.unlink(missing_ok=True)
 
     def _prune_spans(self, spans: Path, cutoff: float) -> None:
+        hashes: dict[str, dict[str, list[tuple[float, Path]]]] = {}
         for path in list(spans.iterdir()):
             try:
-                expired = path.stat().st_mtime < cutoff
+                modified = path.stat().st_mtime
             except OSError:
                 continue
             current = any(
@@ -1192,8 +1284,16 @@ class RecapStore:
                 )
                 for variant in VARIANTS
             )
-            if not current or expired:
+            if not current or modified < cutoff:
                 path.unlink(missing_ok=True)
+                continue
+            mark = _P_HASH_MARK.search(path.stem)
+            if mark is not None:
+                group = path.stem[: mark.start()]
+                hashes.setdefault(group, {}).setdefault(mark.group(0), []).append(
+                    (modified, path)
+                )
+        self._prune_hashes(hashes)
 
     def _span_dir(self) -> Path:
         folder = self.root / "spans"
@@ -1209,14 +1309,17 @@ class RecapStore:
         candle_count: int,
         fingerprint: str,
         ensemble: Ensemble = "classic",
-        humanize: bool = True,
-        color: bool = True,
+        params: Mapping[str, float] | None = None,
+        *,
+        humanize: bool | None = None,
+        color: bool | None = None,
     ) -> str:
         token = fingerprint.replace(".", "p").replace("-", "_")
         marker = variant if ensemble == "classic" else f"{variant}_{ensemble}"
+        values = normalize_params(_params_with_legacy(params, humanize, color))
         return (
             f"{symbol}_{span}_{index}_{marker}_{SPAN_REVISION}_{candle_count}_{token}"
-            f"{layer_mark(humanize, color)}"
+            f"{cache_mark(values)}"
         )
 
     def remember_recap_dfi(
@@ -1226,13 +1329,13 @@ class RecapStore:
         variant: Variant,
         bar_count: int,
         ensemble: Ensemble = "classic",
-        humanize: bool = True,
-        color: bool = True,
+        params: Mapping[str, float] | None = None,
         dfi: dict | None = None,
         inputs: str = "",
     ) -> None:
         """Write a recomposed DFI (or the checked-null marker) into metadata."""
-        key = self._stem(symbol, day, variant, bar_count, ensemble, humanize, color)
+        values = normalize_params(params)
+        key = self._stem(symbol, day, variant, bar_count, ensemble, values)
         self._remember_dfi(self.root / f"{key}.json", dfi, inputs)
 
     def remember_movement_dfi(
@@ -1244,15 +1347,15 @@ class RecapStore:
         candle_count: int,
         fingerprint: str,
         ensemble: Ensemble = "classic",
-        humanize: bool = True,
-        color: bool = True,
+        params: Mapping[str, float] | None = None,
         dfi: dict | None = None,
         inputs: str = "",
     ) -> None:
         if inputs == "" and dfi is None:
             return
+        values = normalize_params(params)
         stem = self._span_stem(
-            symbol, span, index, variant, candle_count, fingerprint, ensemble, humanize, color
+            symbol, span, index, variant, candle_count, fingerprint, ensemble, values
         )
         self._remember_dfi(self._span_dir() / f"{stem}.json", dfi, inputs)
 
@@ -1283,14 +1386,17 @@ class RecapStore:
         candle_count: int,
         fingerprint: str,
         ensemble: Ensemble = "classic",
-        humanize: bool = True,
-        color: bool = True,
+        params: Mapping[str, float] | None = None,
+        *,
+        humanize: bool | None = None,
+        color: bool | None = None,
     ) -> SpanAsset | None:
         self.prune()
+        values = normalize_params(_params_with_legacy(params, humanize, color))
         stem = self._span_stem(
-            symbol, span, index, variant, candle_count, fingerprint, ensemble, humanize, color
+            symbol, span, index, variant, candle_count, fingerprint, ensemble, values
         )
-        return self._read_span(symbol, span, index, variant, stem, fingerprint, humanize, color)
+        return self._read_span(symbol, span, index, variant, stem, fingerprint, values)
 
     def ensure_movement(
         self,
@@ -1301,31 +1407,34 @@ class RecapStore:
         movement,  # PreparedMovement; kept untyped to avoid an import cycle
         cancel: threading.Event | None = None,
         ensemble: Ensemble = "classic",
-        humanize: bool = True,
-        color: bool = True,
+        params: Mapping[str, float] | None = None,
+        *,
+        humanize: bool | None = None,
+        color: bool | None = None,
     ) -> SpanAsset:
         fingerprint = movement.scale_fingerprint
         candle_count = movement.candle_count
+        values = normalize_params(_params_with_legacy(params, humanize, color))
         piece = (
             f"span:{symbol}:{span}:{index}:{self._tag(variant, ensemble)}"
-            f"{layer_mark(humanize, color)}"
+            f"{cache_mark(values)}"
         )
         with self._lock(piece):
             _raise_if_cancelled_event(cancel)
             cached = self.get_movement(
-                symbol, span, index, variant, candle_count, fingerprint, ensemble, humanize, color
+                symbol, span, index, variant, candle_count, fingerprint, ensemble, values
             )
             if cached is not None:
                 return cached
             with self._slots:
                 _raise_if_cancelled_event(cancel)
                 cached = self.get_movement(
-                    symbol, span, index, variant, candle_count, fingerprint, ensemble, humanize, color
+                    symbol, span, index, variant, candle_count, fingerprint, ensemble, values
                 )
                 if cached is not None:
                     return cached
                 return self._render_movement(
-                    symbol, span, index, variant, movement, cancel, ensemble, humanize, color
+                    symbol, span, index, variant, movement, cancel, ensemble, values
                 )
 
     def _render_movement(
@@ -1337,10 +1446,10 @@ class RecapStore:
         movement,
         cancel: threading.Event | None,
         ensemble: Ensemble = "classic",
-        humanize: bool = True,
-        color: bool = True,
+        params: Mapping[str, float] | None = None,
     ) -> SpanAsset:
         started = time.monotonic()
+        values = normalize_params(params)
         stem = self._span_stem(
             symbol,
             span,
@@ -1349,34 +1458,38 @@ class RecapStore:
             movement.candle_count,
             movement.scale_fingerprint,
             ensemble,
-            humanize,
-            color,
+            values,
         )
-        score, dance = _compose(
-            variant,
-            ensemble,
-            movement.bars,
-            title=f"{symbol} {span} {movement.label}",
-            form=movement.spec,
-            source_groups=movement.groups,
-            key=movement.key,
-            character=movement.character,
-            outro_override=movement.outro_override,
-            framed=False,
-            mode=movement.mode,
-            home_pedal=movement.home_pedal,
-            character_at=movement.bar_characters,
-            gap_leads=movement.gap_leads,
-            movement_index=0 if span == "1W" else index,
-        )
-        if humanize:
-            score = humanize_score(score)
-        dfi = compute_dfi(score, variant=variant, ensemble=ensemble)
+        with compose_params(values):
+            score, dance = _compose(
+                variant,
+                ensemble,
+                movement.bars,
+                title=f"{symbol} {span} {movement.label}",
+                form=movement.spec,
+                source_groups=movement.groups,
+                key=movement.key,
+                character=movement.character,
+                outro_override=movement.outro_override,
+                framed=False,
+                mode=movement.mode,
+                home_pedal=movement.home_pedal,
+                character_at=movement.bar_characters,
+                gap_leads=movement.gap_leads,
+                movement_index=0 if span == "1W" else index,
+            )
+            if _humanize_on(values):
+                score = humanize_score(score, params=values)
+            dfi = compute_dfi(score, variant=variant, ensemble=ensemble)
         work = self.root / "work"
         work.mkdir(parents=True, exist_ok=True)
         xml_path = work / f"{stem}.musicxml"
         wav_path = work / f"{stem}.wav"
-        xml_path.write_text(score_to_musicxml(score), encoding="utf-8")
+        # `sound_for` reads the dynamics knob while the XML is written, so the
+        # context must still be active here.
+        with compose_params(values):
+            xml = score_to_musicxml(score)
+        xml_path.write_text(xml, encoding="utf-8")
         musical = piece_seconds(score.bars, score.bpm, score.bar_beats)
         previous = getattr(_export_cancel, "event", None)
         previous_timeout = getattr(_export_timeout, "seconds", None)
@@ -1392,7 +1505,7 @@ class RecapStore:
             if not wav_path.is_file() or wav_path.stat().st_size < 64:
                 raise RecapUnavailable("MuseScore wrote an empty movement")
             color_started = time.monotonic()
-            heard = _color_for_export(wav_path, variant) if color else wav_path
+            heard = _color_for_export(wav_path, variant, params=values) if values["color"] else wav_path
             color_sec = time.monotonic() - color_started
             peaks_started = time.monotonic()
             duration, peaks, peak_level = waveform_peaks_with_level(heard)
@@ -1446,17 +1559,20 @@ class RecapStore:
                 "movementName": dance,
                 "renderSec": round(render_sec, 3),
                 "renderRatio": round(render_ratio, 4),
-                "humanize": humanize,
-                "color": color,
+                "humanize": _humanize_on(values),
+                "color": _color_on(values),
+                "paramsHash": params_hash(values),
+                "params": dict(values),
                 "dfi": None if dfi is None else dfi.to_dict(),
                 "dfi_inputs": data_digest(movement.bars),
+                "dfiParamsHash": params_hash(values),
                 "dfi_checked": DFI_VERSION,
             }
             meta_tmp = work / f"{stem}.json"
             meta_tmp.write_text(json.dumps(payload), encoding="utf-8")
             self._publish(meta_tmp, self._span_dir() / f"{stem}.json")
             asset = self._read_span(
-                symbol, span, index, variant, stem, movement.scale_fingerprint, humanize, color
+                symbol, span, index, variant, stem, movement.scale_fingerprint, values
             )
             if asset is None:
                 raise RecapUnavailable("movement audio was not stored")
@@ -1474,9 +1590,9 @@ class RecapStore:
         variant: Variant,
         stem: str,
         fingerprint: str,
-        humanize: bool = True,
-        color: bool = True,
+        params: Mapping[str, float] | None = None,
     ) -> SpanAsset | None:
+        values = normalize_params(params)
         folder = self.root / "spans"
         meta_path = folder / f"{stem}.json"
         if not meta_path.is_file():
@@ -1491,7 +1607,7 @@ class RecapStore:
             return None
         if str(payload.get("fingerprint") or "") != fingerprint:
             return None
-        if bool(payload.get("humanize", True)) != humanize or bool(payload.get("color", True)) != color:
+        if not _payload_matches(payload, values):
             return None
         peaks = payload.get("peaks") or []
         return SpanAsset(
@@ -1510,8 +1626,11 @@ class RecapStore:
             movement_name=str(payload.get("movementName") or ""),
             render_sec=float(payload.get("renderSec") or 0.0),
             render_ratio=float(payload.get("renderRatio") or 0.0),
+            params=values,
+            params_hash=params_hash(values),
             dfi=_stored_dfi(payload.get("dfi")),
             dfi_inputs=str(payload.get("dfi_inputs") or ""),
+            dfi_params_hash=str(payload.get("dfiParamsHash") or ""),
             dfi_checked=str(payload.get("dfi_checked") or ""),
         )
 
@@ -1537,35 +1656,39 @@ class RecapStore:
         bars: list[Bar],
         cancel: threading.Event | None,
         ensemble: Ensemble = "classic",
-        humanize: bool = True,
-        color: bool = True,
+        params: Mapping[str, float] | None = None,
     ) -> RecapAsset:
-        key = self._stem(symbol, day, variant, len(bars), ensemble, humanize, color)
+        values = normalize_params(params)
+        key = self._stem(symbol, day, variant, len(bars), ensemble, values)
         from app.sonify.keys import movement_character, stock_home_key
 
-        score, dance = _compose(
-            variant,
-            ensemble,
-            bars,
-            title=f"{symbol} {day.isoformat()}",
-            key=stock_home_key(symbol),
-            character=movement_character([bar.close for bar in bars], "1D"),
-            movement_index=0,
-        )
-        if humanize:
-            score = humanize_score(score)
-        dfi = compute_dfi(score, variant=variant, ensemble=ensemble)
+        with compose_params(values):
+            score, dance = _compose(
+                variant,
+                ensemble,
+                bars,
+                title=f"{symbol} {day.isoformat()}",
+                key=stock_home_key(symbol),
+                character=movement_character([bar.close for bar in bars], "1D"),
+                movement_index=0,
+            )
+            if _humanize_on(values):
+                score = humanize_score(score, params=values)
+            dfi = compute_dfi(score, variant=variant, ensemble=ensemble)
         work = self.root / "work"
         work.mkdir(parents=True, exist_ok=True)
         xml_path = work / f"{key}.musicxml"
         wav_path = work / f"{key}.wav"
-        xml_path.write_text(score_to_musicxml(score), encoding="utf-8")
+        # `sound_for` reads the dynamics knob while the XML is written.
+        with compose_params(values):
+            xml = score_to_musicxml(score)
+        xml_path.write_text(xml, encoding="utf-8")
         previous = getattr(_export_cancel, "event", None)
         _export_cancel.event = cancel
         try:
             _raise_if_cancelled_event(cancel)
             self._exporter(xml_path, wav_path)
-            heard = _color_for_export(wav_path, variant) if color else wav_path
+            heard = _color_for_export(wav_path, variant, params=values) if values["color"] else wav_path
             duration, peaks = waveform_peaks(heard)
             musical = piece_seconds(score.bars, score.bpm, score.bar_beats)
             if duration <= 0:
@@ -1596,10 +1719,13 @@ class RecapStore:
                 "audio": audio_path.name,
                 "closed": self._is_closed(day),
                 "movementName": dance,
-                "humanize": humanize,
-                "color": color,
+                "humanize": _humanize_on(values),
+                "color": _color_on(values),
+                "paramsHash": params_hash(values),
+                "params": dict(values),
                 "dfi": None if dfi is None else dfi.to_dict(),
                 "dfi_inputs": data_digest(bars),
+                "dfiParamsHash": params_hash(values),
                 "dfi_checked": DFI_VERSION,
             }
             meta_tmp = work / f"{key}.json"
@@ -1607,7 +1733,7 @@ class RecapStore:
             self._publish(meta_tmp, self.root / f"{key}.json")
             if self._is_closed(day):
                 self._drop_other_counts(symbol, day, variant, len(bars), ensemble)
-            return self._asset(symbol, day, variant, audio_path, payload, humanize, color)
+            return self._asset(symbol, day, variant, audio_path, payload, values)
         finally:
             _export_cancel.event = previous
             xml_path.unlink(missing_ok=True)
@@ -1624,16 +1750,15 @@ class RecapStore:
         variant: Variant,
         bar_count: int,
         ensemble: Ensemble = "classic",
-        humanize: bool = True,
-        color: bool = True,
+        params: Mapping[str, float] | None = None,
     ) -> RecapAsset | None:
+        values = normalize_params(params)
         cached = self._read(
             symbol,
             day,
             variant,
-            self._stem(symbol, day, variant, bar_count, ensemble, humanize, color),
-            humanize,
-            color,
+            self._stem(symbol, day, variant, bar_count, ensemble, values),
+            values,
         )
         if cached is not None and self._is_closed(day):
             self._drop_other_counts(symbol, day, variant, bar_count, ensemble)
@@ -1661,9 +1786,9 @@ class RecapStore:
         day: date,
         variant: Variant,
         key: str,
-        humanize: bool = True,
-        color: bool = True,
+        params: Mapping[str, float] | None = None,
     ) -> RecapAsset | None:
+        values = normalize_params(params)
         meta_path = self.root / f"{key}.json"
         if not meta_path.is_file():
             return None
@@ -1677,9 +1802,9 @@ class RecapStore:
         audio_path = self.root / name
         if not name or audio_path.name != name or not audio_path.is_file():
             return None
-        if bool(payload.get("humanize", True)) != humanize or bool(payload.get("color", True)) != color:
+        if not _payload_matches(payload, values):
             return None
-        return self._asset(symbol, day, variant, audio_path, payload, humanize, color)
+        return self._asset(symbol, day, variant, audio_path, payload, values)
 
     def _asset(
         self,
@@ -1688,9 +1813,9 @@ class RecapStore:
         variant: Variant,
         audio_path: Path,
         payload: dict,
-        humanize: bool = True,
-        color: bool = True,
+        params: Mapping[str, float] | None = None,
     ) -> RecapAsset:
+        values = normalize_params(params)
         peaks = payload.get("peaks") or []
         return RecapAsset(
             symbol=symbol,
@@ -1704,10 +1829,11 @@ class RecapStore:
             media_type=_media_type(audio_path),
             ensemble=payload.get("ensemble") or "classic",
             movement_name=str(payload.get("movementName") or ""),
-            humanize=humanize,
-            color=color,
+            params=values,
+            params_hash=params_hash(values),
             dfi=_stored_dfi(payload.get("dfi")),
             dfi_inputs=str(payload.get("dfi_inputs") or ""),
+            dfi_params_hash=str(payload.get("dfiParamsHash") or ""),
             dfi_checked=str(payload.get("dfi_checked") or ""),
         )
 

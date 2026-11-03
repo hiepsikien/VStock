@@ -26,11 +26,11 @@ from app.sonify.audio import (
     SpanAsset,
     RecapCancelled,
     RecapUnavailable,
-    layer_query,
     recap_store,
 )
 from app.sonify.dfi import DFI_VERSION, data_digest
 from app.sonify.model import Ensemble, Variant
+from app.sonify.params import normalize_params, params_hash, params_query
 from app.sonify.session import (
     VN,
     coarse_bars,
@@ -79,12 +79,11 @@ def movement_audio_path(
     variant: Variant,
     movement: PreparedMovement,
     ensemble: Ensemble = "classic",
-    humanize: bool = True,
-    color: bool = True,
+    params=None,
 ) -> str:
     fingerprint = movement.scale_fingerprint
     extra = "" if ensemble == "classic" else f"&ensemble={ensemble}"
-    extra += layer_query(humanize, color)
+    extra += params_query(params)
     return (
         f"/v1/stocks/{symbol}/span/audio.m4a"
         f"?range={span}&movement={index}&variant={variant}"
@@ -262,9 +261,9 @@ def ready_movement(
     variant: Variant,
     movement: PreparedMovement,
     ensemble: Ensemble = "classic",
-    humanize: bool = True,
-    color: bool = True,
+    params=None,
 ) -> SpanAsset | None:
+    values = normalize_params(params)
     asset = recap_store().get_movement(
         symbol.upper(),
         span,
@@ -273,13 +272,14 @@ def ready_movement(
         movement.candle_count,
         movement.scale_fingerprint,
         ensemble,
-        humanize,
-        color,
+        values,
     )
     if asset is not None and asset.dfi is not None:
+        stored_hash = getattr(asset, "dfi_params_hash", "")
         if (
             asset.dfi_inputs != data_digest(movement.bars)
             or asset.dfi_checked != DFI_VERSION
+            or (stored_hash and stored_hash != params_hash(values))
         ):
             # The last close moved after this file was scored. Treat it as
             # missing so the plan does not stop the client's refresh poll.
@@ -294,9 +294,9 @@ async def load_movement_audio(
     variant: Variant,
     request: Request | None = None,
     ensemble: Ensemble = "classic",
-    humanize: bool = True,
-    color: bool = True,
+    params=None,
 ) -> SpanAsset:
+    values = normalize_params(params)
     movements = (await plan_span_cached(symbol, span, variant, ensemble)).movements
     if index < 0 or index >= len(movements):
         raise LookupError(str(index))
@@ -323,13 +323,15 @@ async def load_movement_audio(
             movement,
             cancel,
             ensemble,
-            humanize,
-            color,
+            values,
         )
         digest = data_digest(movement.bars)
+        wanted_hash = params_hash(values)
+        stored_hash = getattr(asset, "dfi_params_hash", "")
         if (
             getattr(asset, "dfi_inputs", "") != digest
             or getattr(asset, "dfi_checked", "") != DFI_VERSION
+            or (stored_hash and stored_hash != wanted_hash)
         ):
             # Never let a DFI recompose failure turn cached audio into a 503.
             asset = replace(asset, dfi=None)
@@ -344,11 +346,15 @@ async def load_movement_audio(
                     movement,
                     variant,
                     ensemble,
-                    humanize,
-                    color,
+                    values,
                 )
                 asset = dfi_service.apply_to_asset(asset, piece)
-                asset = replace(asset, dfi_inputs=digest, dfi_checked=DFI_VERSION)
+                asset = replace(
+                    asset,
+                    dfi_inputs=digest,
+                    dfi_params_hash=wanted_hash,
+                    dfi_checked=DFI_VERSION,
+                )
                 remember = getattr(recap_store(), "remember_movement_dfi", None)
                 if callable(remember):
                     remember(
@@ -359,8 +365,7 @@ async def load_movement_audio(
                         movement.candle_count,
                         movement.scale_fingerprint,
                         ensemble,
-                        humanize,
-                        color,
+                        values,
                         getattr(asset, "dfi", None),
                         digest,
                     )

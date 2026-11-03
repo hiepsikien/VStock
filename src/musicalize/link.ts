@@ -1,5 +1,13 @@
 import type { RecapEnsemble, RecapVariant } from '../api/client';
 import { GENRES, LISTEN_SPANS, type ListenSpan } from './labels';
+import {
+  encodeParams,
+  isDefaultParams,
+  normalizeParams,
+  paramsFromFlags,
+  paramsFromQuery,
+  type SonifyParams,
+} from './params';
 
 export type LinkState = {
   symbol: string;
@@ -8,8 +16,8 @@ export type LinkState = {
   genre: RecapVariant;
   /** Not validated against the genre here; the room falls back to `classic`. */
   ensemble: RecapEnsemble | null;
-  humanize: boolean;
-  color: boolean;
+  /** The seven knobs. Default keeps the old URL without `p`. */
+  params: SonifyParams;
 };
 
 const DEFAULT_SYMBOL = 'VNM';
@@ -28,7 +36,7 @@ function flag(value: string | null, fallback: boolean): boolean {
 
 /**
  * Read the deep link. Anything unknown falls back silently: a bad URL should
- * still open a working room.
+ * still open a working room. A bad `p` opens Default rather than failing.
  */
 export function parseLink(search: string, fallbackSymbol = DEFAULT_SYMBOL): LinkState {
   const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
@@ -47,14 +55,19 @@ export function parseLink(search: string, fallbackSymbol = DEFAULT_SYMBOL): Link
   const rawEnsemble = (params.get('e') ?? '').trim();
   const ensemble = rawEnsemble ? (rawEnsemble as RecapEnsemble) : null;
 
+  const humanize = flag(params.get('h'), true);
+  const color = flag(params.get('c'), true);
+  const shaped = params.get('p')
+    ? paramsFromQuery(params.get('p'), humanize, color)
+    : paramsFromFlags(humanize, color);
+
   return {
     symbol,
     span,
     date,
     genre,
     ensemble,
-    humanize: flag(params.get('h'), true),
-    color: flag(params.get('c'), true),
+    params: shaped,
   };
 }
 
@@ -66,8 +79,9 @@ export function formatLink(state: LinkState): string {
   params.set('g', state.genre);
   if (state.span === '1D' && state.date) params.set('d', state.date);
   if (state.ensemble) params.set('e', state.ensemble);
-  params.set('h', state.humanize ? '1' : '0');
-  params.set('c', state.color ? '1' : '0');
+  // A legacy `h`/`c` link is converted to `p` on write; never both.
+  const shaped = normalizeParams(state.params);
+  if (!isDefaultParams(shaped)) params.set('p', encodeParams(shaped));
   return params.toString();
 }
 

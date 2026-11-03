@@ -11,7 +11,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 
 from app.sonify.chords import Chord
-from app.sonify.dynamics import COOLDOWN_MARKING, SOUND
+from app.sonify.dynamics import COOLDOWN_MARKING, sound_for
 from app.sonify.form import DAILY_AMBIENT_BARS, EIGHTHS_PER_BAR
 from app.sonify.keys import active_register
 from app.sonify.model import DynamicEvent, NoteEvent, Score, WedgeEvent
@@ -183,7 +183,7 @@ def _minimalist(score: Score) -> Score:
             WedgeEvent(33, _BEAT, "stop"),
         ),
         lead_dynamics=_body_dynamics(score.lead_dynamics),
-        support_dynamics=(DynamicEvent(33, COOLDOWN_MARKING, SOUND[COOLDOWN_MARKING]),),
+        support_dynamics=(DynamicEvent(33, COOLDOWN_MARKING, sound_for(COOLDOWN_MARKING)),),
         low_wedges=_hairpin(0),
     )
 
@@ -386,13 +386,13 @@ def _body_dynamics(events: Sequence[DynamicEvent]) -> tuple[DynamicEvent, ...]:
 
 def _line_letters(events: Sequence[DynamicEvent], *, cool_attack: bool) -> tuple[DynamicEvent, ...]:
     kept = list(_body_dynamics(events))
-    letters = [DynamicEvent(0, "p", SOUND["p"])]
+    letters = [DynamicEvent(0, "p", sound_for("p"))]
     if not any(event.bar == BODY_START and event.beat == 0.0 for event in kept):
-        letters.append(DynamicEvent(BODY_START, "mp", SOUND["mp"]))
+        letters.append(DynamicEvent(BODY_START, "mp", sound_for("mp")))
     letters.extend(kept)
     if cool_attack:
-        letters.append(DynamicEvent(COOL_START, "mp", SOUND["mp"]))
-    letters.append(DynamicEvent(PIECE_END - 1, COOLDOWN_MARKING, SOUND[COOLDOWN_MARKING]))
+        letters.append(DynamicEvent(COOL_START, "mp", sound_for("mp")))
+    letters.append(DynamicEvent(PIECE_END - 1, COOLDOWN_MARKING, sound_for(COOLDOWN_MARKING)))
     return tuple(letters)
 
 
@@ -401,20 +401,20 @@ def _cool_letters(events: Sequence[DynamicEvent], *, sing: bool, attack: bool) -
     if not sing:
         return tuple(letters)
     if attack:
-        letters.append(DynamicEvent(COOL_START, "mp", SOUND["mp"]))
-    letters.append(DynamicEvent(PIECE_END - 1, COOLDOWN_MARKING, SOUND[COOLDOWN_MARKING]))
+        letters.append(DynamicEvent(COOL_START, "mp", sound_for("mp")))
+    letters.append(DynamicEvent(PIECE_END - 1, COOLDOWN_MARKING, sound_for(COOLDOWN_MARKING)))
     return tuple(letters)
 
 
 def _bass_letters(events: Sequence[DynamicEvent]) -> tuple[DynamicEvent, ...]:
     kept = list(_body_dynamics(events))
-    letters = [DynamicEvent(0, "p", SOUND["p"])]
+    letters = [DynamicEvent(0, "p", sound_for("p"))]
     if not any(event.bar == BODY_START and event.beat == 0.0 for event in kept):
-        letters.append(DynamicEvent(BODY_START, "mp", SOUND["mp"]))
+        letters.append(DynamicEvent(BODY_START, "mp", sound_for("mp")))
     letters.extend(kept)
     if not kept or kept[-1].marking != "mp":
-        letters.append(DynamicEvent(COOL_START, "mp", SOUND["mp"]))
-    letters.append(DynamicEvent(PIECE_END - 1, COOLDOWN_MARKING, SOUND[COOLDOWN_MARKING]))
+        letters.append(DynamicEvent(COOL_START, "mp", sound_for("mp")))
+    letters.append(DynamicEvent(PIECE_END - 1, COOLDOWN_MARKING, sound_for(COOLDOWN_MARKING)))
     return tuple(letters)
 
 
@@ -569,7 +569,7 @@ def _flute_body_dynamics(
     sounding = any(note.bar == body and note.beat == 0.0 and note.midi is not None for note in notes)
     starts = bool(kept) and kept[0].bar == body and kept[0].beat == 0.0
     if body_mark == "mf" and sounding and not starts:
-        kept.insert(0, DynamicEvent(body, "mf", SOUND["mf"], 0.0))
+        kept.insert(0, DynamicEvent(body, "mf", sound_for("mf"), 0.0))
     return tuple(kept)
 
 
@@ -608,10 +608,10 @@ def _piano_frame_dynamics(
         kept = kept[1:]
     starts = bool(kept) and kept[0].bar == body and kept[0].beat == 0.0
     if not starts and body_mark != "p":
-        kept.insert(0, DynamicEvent(body, body_mark, SOUND[body_mark], 0.0))
+        kept.insert(0, DynamicEvent(body, body_mark, sound_for(body_mark), 0.0))
     if not dynamic:
         return tuple(kept)
-    out = [DynamicEvent(warm_start, "p", SOUND["p"], 0.0), *kept]
+    out = [DynamicEvent(warm_start, "p", sound_for("p"), 0.0), *kept]
     if tag > 0 and (out[-1].marking != "p" or _crescendo_follows(out[-1], wedges, cool)):
-        out.append(DynamicEvent(cool, "p", SOUND["p"], 0.0))
+        out.append(DynamicEvent(cool, "p", sound_for("p"), 0.0))
     return tuple(out)

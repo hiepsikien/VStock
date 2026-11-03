@@ -29,6 +29,41 @@ SOUND: dict[str, int] = {marking: percent for marking, percent, _velocity in DYN
 COOLDOWN_MARKING = "ppp"
 SOUND[COOLDOWN_MARKING] = 22
 
+# Marking -> intended MIDI velocity at the default dynamics. Everything is
+# derived from this table so `<sound dynamics>` and `<note velocity>` cannot
+# drift apart.
+BASE_VELOCITY: dict[str, int] = {
+    marking: velocity for marking, _percent, velocity in DYNAMICS
+}
+BASE_VELOCITY[COOLDOWN_MARKING] = 20
+PIANO_BASE: dict[str, int] = {"p": 46, "mp": 54, "mf": 62, "f": 68}
+_CENTER = 64
+
+
+def _contrast(base: int) -> int:
+    from app.sonify.params import active
+
+    scaled = round(_CENTER + (base - _CENTER) * active("dynamics"))
+    return max(1, min(127, scaled))
+
+
+def velocity_for(marking: str) -> int:
+    """Velocity after the dynamics knob. At 1.0 this is the old table."""
+    return _contrast(BASE_VELOCITY.get(marking, _CENTER))
+
+
+def sound_for(marking: str) -> int:
+    """Playback percent derived from the velocity, not a second table."""
+    return int(round(velocity_for(marking) / 90 * 100))
+
+
+def piano_velocity_for(marking: str) -> int:
+    return _contrast(PIANO_BASE.get(marking, 64))
+
+
+def fill_velocity() -> int:
+    return _contrast(64)
+
 # The bass sits under the melody. Its busiest band still drives eighth notes,
 # but the printed and played loudness stops at this letter.
 BASS_CEILING = "mp"

@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React from 'react';
+import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Svg, { Path, Rect } from 'react-native-svg';
 import {
   ENSEMBLE_ROWS,
@@ -10,10 +10,10 @@ import {
 } from '../api/client';
 import { clockText, GENRES, dfiPillText, STREAM_GENRES, type StreamVariant } from './labels';
 import { MotionPressable, RiseRule } from './motion';
-import { OptionsPopover } from './OptionsPopover';
-import { palette, TOUCH_TARGET } from './palette';
+import { palette, TOUCH_TARGET, WIDE_BREAKPOINT } from './palette';
 import { Timeline, type TimelinePart } from './Scrubber';
 import { type } from './type';
+import { TuningTrigger } from './TuningPanel';
 
 type Scrub = {
   label: string;
@@ -28,8 +28,6 @@ type ReplayProps = {
   mode: 'replay';
   variant: RecapVariant;
   ensemble: RecapEnsemble;
-  humanize: boolean;
-  colorOn: boolean;
   playing: boolean;
   /** The work has ended. Nghe lại restarts it; Nghe stays quiet. */
   finished?: boolean;
@@ -41,15 +39,11 @@ type ReplayProps = {
   chapterCount?: number;
   onVariant: (variant: RecapVariant) => void;
   onEnsemble: (ensemble: RecapEnsemble) => void;
-  onHumanize: (value: boolean) => void;
-  onColor: (value: boolean) => void;
   onPlay: () => void;
   onPause: () => void;
   onReplay: () => void;
   onMute?: () => void;
   onTimeline: (ratio: number) => void;
-  /** Lets the room release the transport keys while this popover is open. */
-  onOptionsOpenChange?: (open: boolean) => void;
   status?: string | null;
   /** Data fidelity of the piece being heard. */
   dfi?: DfiBreakdown | null;
@@ -90,8 +84,6 @@ export function Controls(props: ReplayProps | LiveProps) {
 function ReplayControls({
   variant,
   ensemble,
-  humanize,
-  colorOn,
   playing,
   finished = false,
   composing,
@@ -102,25 +94,19 @@ function ReplayControls({
   chapterCount,
   onVariant,
   onEnsemble,
-  onHumanize,
-  onColor,
   onPlay,
   onPause,
   onReplay,
   onMute,
   onTimeline,
-  onOptionsOpenChange,
   status,
   dfi = null,
   dfiSignature = null,
   onDfi,
 }: ReplayProps) {
-  const [optionsOpen, setOptionsOpen] = useState(false);
   const shelf = ENSEMBLE_ROWS[variant];
+  const wide = useWindowDimensions().width >= WIDE_BREAKPOINT;
 
-  useEffect(() => {
-    onOptionsOpenChange?.(optionsOpen);
-  }, [onOptionsOpenChange, optionsOpen]);
   return (
     <>
       <View style={styles.shelf}>
@@ -146,7 +132,7 @@ function ReplayControls({
       </View>
 
       <View style={styles.shelfRow}>
-        <View style={styles.shelfLinks}>
+        <View style={[styles.shelfLinks, wide && styles.shelfLinksWide]}>
           {shelf.map((item) => {
             const active = item.id === ensemble;
             return (
@@ -203,18 +189,7 @@ function ReplayControls({
             {dfiPillText(dfi?.score, dfi?.confidence)}
           </Text>
         </MotionPressable>
-        <MotionPressable
-          onPress={() => setOptionsOpen(true)}
-          hitSlop={6}
-          style={styles.tool}
-          accessibilityRole="button"
-          accessibilityLabel="Tùy chọn nghe"
-          accessibilityState={{ expanded: optionsOpen }}
-        >
-          <View style={styles.gearDot} />
-          <View style={styles.gearDot} />
-          <View style={styles.gearDot} />
-        </MotionPressable>
+        <TuningTrigger />
       </View>
 
       <View style={styles.transport}>
@@ -343,15 +318,6 @@ function ReplayControls({
       </View>
 
       {timeline ? <Timeline {...timeline} onRatio={onTimeline} /> : null}
-
-      <OptionsPopover
-        visible={optionsOpen}
-        onClose={() => setOptionsOpen(false)}
-        humanize={humanize}
-        colorOn={colorOn}
-        onHumanize={onHumanize}
-        onColor={onColor}
-      />
     </>
   );
 }
@@ -513,6 +479,11 @@ const styles = StyleSheet.create({
     gap: 12,
     flex: 1,
   },
+  shelfLinksWide: {
+    flexWrap: 'nowrap',
+    overflow: 'hidden',
+    minWidth: 0,
+  },
   shelfLink: {
     paddingVertical: 4,
   },
@@ -528,16 +499,6 @@ const styles = StyleSheet.create({
     marginTop: 3,
     backgroundColor: 'transparent',
   },
-  tool: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 3,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: palette.hairline,
-  },
   mute: {
     width: 32,
     height: 32,
@@ -546,12 +507,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: palette.hairline,
-  },
-  gearDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: palette.textMuted,
   },
   transport: {
     flexDirection: 'row',

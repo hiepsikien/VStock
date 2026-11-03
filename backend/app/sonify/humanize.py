@@ -24,8 +24,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from app.sonify.model import NoteEvent, Phrase, Score, TempoEvent
+from app.sonify.params import active_params
 
 CAP = 2
+# The plateau gate is a musical decision, not the offset ceiling. Keeping it
+# separate lets the humanize knob grow without rewriting the freeze structure.
+FREEZE_GAP = 2
 _CHOICES = (-2, -1, 0, 1, 2)
 _FIELDS = ("high", "lead", "support", "comp", "low")
 _TICKS = 480
@@ -56,7 +60,23 @@ _LONG_EIGHTHS = 4
 OffsetAt = Callable[[str, str, str, int, float], int]
 
 
-def chosen_offset(variant: str, ensemble: str, field: str, bar: int, beat: float) -> int:
+def _stable_unit(value: int) -> float:
+    """A deterministic fraction in [0, 1) from the FNV value.
+
+    Never Python's hash(): it is randomized per process, and the same params
+    must give the same offset in every worker.
+    """
+    return ((value >> 8) & 0xFFFF) / 65536.0
+
+
+def chosen_offset(
+    variant: str,
+    ensemble: str,
+    field: str,
+    bar: int,
+    beat: float,
+    humanize: float = 1.0,
+) -> int:
     """Stable mix of the group key. Python's hash() changes between processes."""
     tick = int(round(float(beat) * _TICKS))
     raw = f"{variant}|{ensemble}|{field}|{bar}|{tick}".encode()
@@ -64,11 +84,35 @@ def chosen_offset(variant: str, ensemble: str, field: str, bar: int, beat: float
     for byte in raw:
         value ^= byte
         value = (value * 16777619) & 0xFFFFFFFF
-    return _CHOICES[value % 5]
+    base = _CHOICES[value % 5]
+    target = base * humanize
+    magnitude = abs(target)
+    whole = int(magnitude)
+    if whole < magnitude and _stable_unit(value) < magnitude - whole:
+        whole += 1
+    offset = whole if target >= 0 else -whole
+    return max(-3, min(3, offset))
 
 
-def humanize(score: Score, *, offset_at: OffsetAt = chosen_offset, fan_hold: bool = True) -> Score:
+def humanize(
+    score: Score,
+    *,
+    offset_at: OffsetAt | None = None,
+    fan_hold: bool = True,
+    params=None,
+) -> Score:
     """Return a new score. Written pitches, durations, and printed dynamics stay."""
+    values = active_params() if params is None else params
+    humanize_factor = float(values.get("humanize", 1.0))
+    breath_factor = float(values.get("breath", 1.0))
+    if humanize_factor == 0.0 and breath_factor == 0.0:
+        # The legacy `_nh` file skipped this function entirely.
+        return score
+    chooser = offset_at or (
+        lambda variant, ensemble, field, bar, beat: chosen_offset(
+            variant, ensemble, field, bar, beat, humanize_factor
+        )
+    )
     bar_beats = score.bar_beats
     offsets: dict[tuple[str, int, int, int], int] = {}
     hits: list[_Hit] = []
@@ -84,21 +128,32 @@ def humanize(score: Score, *, offset_at: OffsetAt = chosen_offset, fan_hold: boo
             following = runs[index + 1] if index + 1 < len(runs) else None
             if not _movable(run, previous, following):
                 continue
+            if humanize_factor == 0.0:
+                continue
             for note in run:
                 key = _group(field, note)
                 offsets.setdefault(
                     key,
-                    _clamp_offset(offset_at(score.variant, score.ensemble, field, note.bar, note.beat)),
+                    _clamp_offset(chooser(score.variant, score.ensemble, field, note.bar, note.beat)),
                 )
     _repair(hits, offsets, bar_beats)
     updated: dict[str, tuple[NoteEvent, ...]] = {}
+    # Default keeps the old guitar fold even when a score has no movable run.
+    # A zero-humanize profile must not fold: its offsets are all zero.
+    clamp_guitar = score.variant == "guitar" and (
+        humanize_factor != 0.0 or any(offsets.values())
+    )
     for field in _FIELDS:
         notes = getattr(score, field)
         heard = _apply(field, notes, offsets)
-        if score.variant == "guitar":
+        if clamp_guitar:
             heard = _clamp_guitar(notes, heard, score.ensemble)
         updated[field] = tuple(_copy_ties(notes, heard))
-    return replace(score, **updated, tempos=_tempo_clock(score, fan_hold=fan_hold))
+    return replace(
+        score,
+        **updated,
+        tempos=_tempo_clock(score, fan_hold=fan_hold, breath=breath_factor),
+    )
 
 
 @dataclass(frozen=True)
@@ -142,15 +197,16 @@ def _movable(run: list[NoteEvent], previous: list[NoteEvent] | None, following: 
     if len(run) < 2 or run[0].velocity is None:
         return False
     velocity = run[0].velocity
-    if previous and previous[0].velocity is not None and abs(previous[0].velocity - velocity) <= CAP:
+    if previous and previous[0].velocity is not None and abs(previous[0].velocity - velocity) <= FREEZE_GAP:
         return False
-    if following and following[0].velocity is not None and abs(following[0].velocity - velocity) <= CAP:
+    if following and following[0].velocity is not None and abs(following[0].velocity - velocity) <= FREEZE_GAP:
         return False
     return True
 
 
 def _clamp_offset(value: int) -> int:
-    return max(-CAP, min(CAP, int(value)))
+    # `chosen_offset` already rounded; the ceiling belongs to the knob, not CAP.
+    return max(-3, min(3, int(value)))
 
 
 def _clamp_velocity(value: int) -> int:
@@ -329,14 +385,14 @@ def _copy_ties(original: tuple[NoteEvent, ...], heard: list[NoteEvent]) -> list[
     return heard
 
 
-def _tempo_clock(score: Score, *, fan_hold: bool = True) -> tuple[TempoEvent, ...]:
+def _tempo_clock(score: Score, *, fan_hold: bool = True, breath: float = 1.0) -> tuple[TempoEvent, ...]:
     """Phrase breath on one clock. The end yields the time the opening took.
 
     Torroba guitar samples the same phrase arc, then adds the bar lean and
     the lilt before the change-detection pass. A following short phrase still
     finds the nominal tempo waiting at this phrase's end.
     """
-    delta = _TEMPO_DELTA.get(score.variant, 0.01)
+    delta = _TEMPO_DELTA.get(score.variant, 0.01) * breath
     if delta <= 0 or not score.phrases:
         return ()
     bar_beats = float(score.bar_beats)
@@ -357,7 +413,7 @@ def _tempo_clock(score: Score, *, fan_hold: bool = True) -> tuple[TempoEvent, ..
             continue
         if torroba:
             series = _torroba_phrase_tempos(
-                score, phrase, start, end, nominal, divisions, fan_hold=fan_hold
+                score, phrase, start, end, nominal, divisions, fan_hold=fan_hold, breath=breath
             )
         else:
             series = _phrase_tempos(start, end, nominal, delta, divisions)
@@ -468,6 +524,7 @@ def _torroba_phrase_tempos(
     divisions: int,
     *,
     fan_hold: bool = True,
+    breath: float = 1.0,
 ):
     """Phrase arc, bar lean, and lilt, sampled on the division grid.
 
@@ -475,15 +532,17 @@ def _torroba_phrase_tempos(
     passes ±10%, the whole phrase scales by the same factor. One unit is
     never clamped on its own.
     """
-    breath = _TORROBA_CLOSE_DELTA if phrase.closes else _TORROBA_OPEN_DELTA
-    regions = _tempo_regions(start, end, breath)
+    breath_delta = (
+        _TORROBA_CLOSE_DELTA if phrase.closes else _TORROBA_OPEN_DELTA
+    ) * breath
+    regions = _tempo_regions(start, end, breath_delta)
     start_units = int(round(start * divisions))
     end_units = int(round(end * divisions))
     count = end_units - start_units
     if count <= 0:
         return
     bar_delta = _bar_deltas(score, start, end, divisions, start_units, count)
-    lilt_delta = _lilt_deltas(score, start, end, divisions, start_units, count)
+    lilt_delta = _lilt_deltas(score, start, end, divisions, start_units, count, breath=breath)
     combined: list[float] = []
     for offset in range(count):
         unit = start_units + offset
@@ -569,6 +628,8 @@ def _lilt_deltas(
     divisions: int,
     start_units: int,
     count: int,
+    *,
+    breath: float = 1.0,
 ) -> list[float]:
     """Non-overlapping eighth pairs. E–S slows then hurries; S–E does the reverse.
 
@@ -576,6 +637,7 @@ def _lilt_deltas(
     steps over both. E–S–E therefore leaves the last eighth unpaired.
     """
     deltas = [0.0] * count
+    lilt = _LILT_DELTA * breath
     bar_beats = float(score.bar_beats)
     slot_count = int(round(bar_beats * 2.0))
     if slot_count <= 0:
@@ -593,13 +655,13 @@ def _lilt_deltas(
             pair = (kinds[slot], kinds[nxt]) if nxt < slot_count else None
             inside = nxt < slot_count and _slots_inside(bar, slot, bar_beats, start, end)
             if inside and pair == ("E", "S"):
-                _paint_slot(deltas, bar, slot, -_LILT_DELTA, bar_beats, divisions, start_units)
-                _paint_slot(deltas, bar, nxt, _LILT_DELTA, bar_beats, divisions, start_units)
+                _paint_slot(deltas, bar, slot, -lilt, bar_beats, divisions, start_units)
+                _paint_slot(deltas, bar, nxt, lilt, bar_beats, divisions, start_units)
                 slot += 2
                 continue
             if inside and pair == ("S", "E"):
-                _paint_slot(deltas, bar, slot, _LILT_DELTA, bar_beats, divisions, start_units)
-                _paint_slot(deltas, bar, nxt, -_LILT_DELTA, bar_beats, divisions, start_units)
+                _paint_slot(deltas, bar, slot, lilt, bar_beats, divisions, start_units)
+                _paint_slot(deltas, bar, nxt, -lilt, bar_beats, divisions, start_units)
                 slot += 2
                 continue
             slot += 1
