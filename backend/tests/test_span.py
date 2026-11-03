@@ -829,6 +829,43 @@ def test_plan_cache_is_invalidated_when_the_market_opens(monkeypatch) -> None:
     spans.clear_plan_cache()
 
 
+def test_plan_cache_is_invalidated_after_the_lunch_break(monkeypatch) -> None:
+    from app.services import spans
+    from app.sonify.session import VN
+
+    movements = prepare_month(
+        [
+            (date(2026, 1, 5), [Bar(10.0, 100.0)]),
+            (date(2026, 1, 6), [Bar(10.4, 40.0)]),
+            (date(2026, 1, 7), [Bar(10.8, 5.0)]),
+            (date(2026, 1, 8), [Bar(11.0, 8.0)]),
+        ],
+        "VNM",
+    )
+    calls = {"count": 0}
+    state = {"open": False}
+    today = datetime.now(VN).date()
+
+    async def fake_plan(*_args, **_kwargs):
+        calls["count"] += 1
+        # The morning already gave today's candles, so `as_of` cannot reveal
+        # that the plan was built during the lunch break.
+        return spans.SpanPlan(movements, today)
+
+    monkeypatch.setattr(spans, "plan_span", fake_plan)
+    monkeypatch.setattr(spans, "is_market_open", lambda: state["open"])
+    spans.clear_plan_cache()
+
+    async def run():
+        await spans.plan_span_cached("VNM", "1M")
+        state["open"] = True
+        await spans.plan_span_cached("VNM", "1M")
+
+    asyncio.run(run())
+    assert calls["count"] == 2
+    spans.clear_plan_cache()
+
+
 def test_plan_span_cached_reuses_and_single_flights(monkeypatch) -> None:
     from app.services import spans
 

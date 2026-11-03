@@ -168,7 +168,7 @@ async def plan_span(
 PLAN_TTL_CLOSED = 600.0
 PLAN_TTL_OPEN = 60.0
 _PLAN_CACHE_MAX = 64
-_PLAN_CACHE: dict[tuple[str, str, str, str], tuple[float, SpanPlan]] = {}
+_PLAN_CACHE: dict[tuple[str, str, str, str], tuple[float, SpanPlan, bool]] = {}
 _PLAN_LOCKS: dict[
     tuple[str, str, str, str], tuple[asyncio.AbstractEventLoop, asyncio.Lock]
 ] = {}
@@ -180,15 +180,17 @@ def plan_ttl(market_open: bool | None = None) -> float:
     return PLAN_TTL_OPEN if live else PLAN_TTL_CLOSED
 
 
-def _plan_cache_valid(
-    entry: tuple[float, SpanPlan], now: float
-) -> bool:
-    until, plan = entry
+def _plan_cache_valid(entry: tuple[float, SpanPlan, bool], now: float) -> bool:
+    until, plan, was_open = entry
     if until <= now:
         return False
-    # A plan cached before the opening bell can carry yesterday's `as_of` with
-    # a ten-minute TTL. Do not serve it into the session.
-    if is_market_open() and plan.as_of < datetime.now(VN).date():
+    open_now = is_market_open()
+    # A plan cached while the market was closed must not survive any opening
+    # bell, including the 13:00 restart after lunch. Its `as_of` can already be
+    # today from the morning, so `as_of` alone cannot catch this.
+    if open_now and not was_open:
+        return False
+    if open_now and plan.as_of < datetime.now(VN).date():
         return False
     return True
 
@@ -217,8 +219,8 @@ async def plan_span_cached(
 ) -> SpanPlan:
     """Plan once per listening session, not once per chapter render.
 
-    Concurrent requests share one lock and one plan. `/span` and `/span/peaks`
-    stay uncached because they must show a new candle immediately.
+    Concurrent requests share one lock and one plan. `/span` stays uncached
+    because it must show a new candle immediately.
     """
     key = (symbol.upper(), span, variant, ensemble)
     now = time.monotonic()
@@ -231,10 +233,13 @@ async def plan_span_cached(
         if cached is not None and _plan_cache_valid(cached, now):
             return cached[1]
         plan = await plan_span(symbol, span, variant, ensemble)
-        _PLAN_CACHE[key] = (time.monotonic() + plan_ttl(), plan)
+        was_open = is_market_open()
+        _PLAN_CACHE[key] = (time.monotonic() + plan_ttl(was_open), plan, was_open)
         if len(_PLAN_CACHE) > _PLAN_CACHE_MAX:
             cutoff = time.monotonic()
-            for stale_key in [k for k, (until, _) in _PLAN_CACHE.items() if until <= cutoff]:
+            for stale_key in [
+                k for k, (until, _, _) in _PLAN_CACHE.items() if until <= cutoff
+            ]:
                 _PLAN_CACHE.pop(stale_key, None)
             while len(_PLAN_CACHE) > _PLAN_CACHE_MAX:
                 _PLAN_CACHE.pop(next(iter(_PLAN_CACHE)), None)
