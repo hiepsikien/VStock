@@ -128,6 +128,13 @@ def test_cache_mark_only_uses_the_old_suffixes_for_the_old_combinations() -> Non
     assert legacy_layer_mark({**DEFAULT_PARAMS, "tempo": 0.96}) == ""
 
 
+def test_cache_mark_distinguishes_guitar_balance() -> None:
+    soft = {**DEFAULT_PARAMS, "guitar_bass": -8.0}
+    loud = {**DEFAULT_PARAMS, "guitar_bass": 8.0}
+    assert cache_mark(soft).startswith("_p")
+    assert cache_mark(soft) != cache_mark(loud)
+
+
 def test_compose_params_scopes_active_values() -> None:
     assert active("tempo") == 1.0
     params = {**DEFAULT_PARAMS, "tempo": 0.9}
@@ -166,6 +173,8 @@ def test_schema_and_default_hash_are_consistent() -> None:
         assert by_key[key]["step"] == 1.0
         assert by_key[key]["default"] == 0.0
         assert by_key[key]["unit"] == ""
+        assert by_key[key]["signed"] is True
+    assert by_key["tempo"]["signed"] is False
     json.dumps(payload)
 
 

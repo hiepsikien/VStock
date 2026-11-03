@@ -293,9 +293,11 @@ function TuningTab({
   const highHumanize = warnings.some((warning) => warning.code === 'high_humanize');
   const highBreath = warnings.some((warning) => warning.code === 'high_breath');
   const guitarLow = variant === 'guitar' && bpm < 90;
-  const groups = PARAM_GROUPS.filter(
-    (group) => group.id !== 'guitar' || variant === 'guitar',
-  );
+  const visibleKeys = new Set(visibleFields(variant).map((field) => field.key));
+  const groups = PARAM_GROUPS.map((group) => ({
+    ...group,
+    fields: group.fields.filter((field) => visibleKeys.has(field.key)),
+  })).filter((group) => group.fields.length > 0);
 
   return (
     <>
@@ -325,7 +327,9 @@ function TuningTab({
                   ? 'Trên 1.10 dễ làm phẳng contour'
                   : field.key === 'breath' && highBreath
                     ? 'Trên 1.20 đã chạm trần câu'
-                    : null;
+                    : GUITAR_KEYS.has(field.key) && value > 4
+                      ? 'Trên +4 đẩy nốt snap khỏi dải móng'
+                      : null;
             return (
               <ParamSlider
                 key={field.key}

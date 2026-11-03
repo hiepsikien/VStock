@@ -96,6 +96,7 @@ equal(guitar.max, 8, 'guitar max');
 equal(guitar.step, 1, 'guitar step');
 equal(guitar.default, 0, 'guitar default');
 equal(guitar.unit, '', 'guitar unit');
+equal(guitar.signed, true, 'guitar signed');
 equal(paramValueText(guitar, 0), '0', 'guitar zero text');
 equal(paramValueText(guitar, 4), '+4', 'guitar positive text');
 equal(paramValueText(guitar, -8), '-8', 'guitar negative text');

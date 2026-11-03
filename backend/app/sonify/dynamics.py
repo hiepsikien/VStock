@@ -99,6 +99,7 @@ def apply_voice_balance(score: Score) -> Score:
             if note.velocity is None
             else replace(
                 note,
+                # The schema step is 1, so `offset` is always integer-valued.
                 velocity=max(1, min(127, int(note.velocity + offset))),
             )
             for note in notes

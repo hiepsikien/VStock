@@ -37,6 +37,9 @@ class ParamField:
     default: float
     unit: str
     description: str
+    # Display a leading "+" for positive integers. The client uses this
+    # explicitly instead of inferring signedness from the step.
+    signed: bool = False
 
 
 PERFORMANCE = "performance"
@@ -131,6 +134,7 @@ FIELDS: tuple[ParamField, ...] = (
         0.0,
         "",
         "Độ lệch velocity của bè cao (giai điệu). 0 là bản hiện tại.",
+        signed=True,
     ),
     ParamField(
         "guitar_mid",
@@ -142,6 +146,7 @@ FIELDS: tuple[ParamField, ...] = (
         0.0,
         "",
         "Độ lệch velocity của bè trung (voice 2 và 4). 0 là bản hiện tại.",
+        signed=True,
     ),
     ParamField(
         "guitar_bass",
@@ -153,6 +158,7 @@ FIELDS: tuple[ParamField, ...] = (
         0.0,
         "",
         "Độ lệch velocity của bè bass (ngón cái). 0 là bản hiện tại.",
+        signed=True,
     ),
 )
 
@@ -385,6 +391,7 @@ def schema_payload(*, enabled: bool | None = None) -> dict[str, Any]:
                 "default": field.default,
                 "unit": field.unit,
                 "description": field.description,
+                "signed": field.signed,
             }
             for field in FIELDS
             if field.group == group_id

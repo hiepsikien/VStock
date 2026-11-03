@@ -309,13 +309,9 @@ export function baseBpmFor(variant: string, ensemble: string): number {
 }
 
 export function paramValueText(field: ParamsFieldSchema, value: number): string {
-  if (field.step >= 1) {
-    const text = value.toFixed(0);
-    const signed = value > 0 ? `+${text}` : text;
-    return field.unit ? `${signed}${field.unit}` : signed;
-  }
-  const text = value.toFixed(2);
-  return field.unit ? `${text}${field.unit}` : text;
+  const text = value.toFixed(field.step >= 1 ? 0 : 2);
+  const signed = field.signed && value > 0 ? `+${text}` : text;
+  return field.unit ? `${signed}${field.unit}` : signed;
 }
 
 /** Soft copy only; never blocks a render. */

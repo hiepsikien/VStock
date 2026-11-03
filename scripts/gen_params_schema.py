@@ -50,6 +50,7 @@ def _ts_text(payload: dict) -> str:
         + "  default: number;\n"
         + "  unit: string;\n"
         + "  description: string;\n"
+        + "  signed: boolean;\n"
         + "};\n\n"
         + "export type ParamsGroupSchema = {\n"
         + "  id: string;\n"
