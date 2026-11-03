@@ -17,9 +17,24 @@ Backend FastAPI + APScheduler + SQLite. Cần **volume persistent** cho `vstock.
 | `SENTRY_DSN` | (trống = tắt) | DSN project Python trên Sentry |
 | `SENTRY_ENVIRONMENT` | `production` | Tag môi trường trên Sentry |
 | `SENTRY_TRACES_SAMPLE_RATE` | `0.1` | Tỷ lệ sample performance |
+| `VSTOCK_SONIFY_EVENTS_DB` | `backend/data/sonify-events.sqlite3` | Kho telemetry nghe nhạc. Trỏ vào volume chung nếu nhiều instance |
+| `VSTOCK_SONIFY_EVENT_LOG` | (trống = tắt) | Mirror JSONL tùy chọn cho log collector |
+| `VSTOCK_SONIFY_EVENTS_RATE_PER_MIN` | `120` | Rate limit batch event theo IP tại process; proxy vẫn nên giới hạn toàn cục |
+| `VSTOCK_SONIFY_PIN_RATE_PER_MIN` | `600` | Rate limit pin cache A/B theo IP |
 
 Healthcheck: `GET /health`  
 Ingestion status: `GET /v1/health/sources`
+
+### Telemetry nghe nhạc
+
+`POST /v1/sonify/events` ghi vào SQLite (`VSTOCK_SONIFY_EVENTS_DB`) và trả `accepted`. Batch trùng `eventId` trả `accepted: 0`, nên client có thể xoá buffer sau khi retry. Báo cáo gate (số session replay, tỷ lệ A/B, profile có knob B/C):
+
+```bash
+cd backend
+.venv/bin/python scripts/sonify_events_report.py --since 2026-11-01
+# Nhiều instance: lặp --db cho từng file
+.venv/bin/python scripts/sonify_events_report.py --db /data/a.sqlite3 --db /data/b.sqlite3 --json
+```
 
 ---
 

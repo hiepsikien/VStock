@@ -274,6 +274,17 @@ def ready_movement(
         ensemble,
         values,
     )
+    if asset is not None:
+        logger.info(
+            "span_cache hit symbol=%s span=%s index=%s variant=%s "
+            "ensemble=%s paramsHash=%s",
+            symbol.upper(),
+            span,
+            index,
+            variant,
+            ensemble,
+            params_hash(values),
+        )
     if asset is not None and asset.dfi is not None:
         stored_hash = getattr(asset, "dfi_params_hash", "")
         if (

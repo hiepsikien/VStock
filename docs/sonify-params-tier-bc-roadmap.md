@@ -1,6 +1,6 @@
 # Tầng B/C của parameter profile — Lộ trình và hạng mục triển khai
 
-> **Trạng thái**: kế hoạch v9 — đã implement một phần ở [PR #139](https://github.com/hiepsikien/VStock/pull/139); các giới hạn ghi ở §11.
+> **Trạng thái**: kế hoạch v10 — [PR #139](https://github.com/hiepsikien/VStock/pull/139) đã ship phần lớn Wave 0–5; A3.1/A3.2/A3.4 được hoàn tất sau đó. Các giới hạn còn lại ghi ở §11.
 >
 > **Đọc cùng**: [`sonify-params-profile-plan.md`](./sonify-params-profile-plan.md), [`musicalize-plan.md`](./musicalize-plan.md), [`sonify-humanize-preset-plan.md`](./sonify-humanize-preset-plan.md), [PR #137 — volume ba bè guitar](https://github.com/hiepsikien/VStock/pull/137), [PR #34 — giọng gốc và chuyển giọng](https://github.com/hiepsikien/VStock/pull/34), [PR #139 — implementation](https://github.com/hiepsikien/VStock/pull/139).
 >
@@ -250,7 +250,7 @@ Sau sprint này sẽ có dữ liệu thật để quyết định B1.
 - `test_params_migration.py` (mới): decode `p` schema 2; profile store v2; hash của profile cũ đổi **hai mốc** (#137 rồi B0), Default vẫn `""`.
 - `test_params_flow.py` (mới): `savedParams` → server `applyTiers` → `renderParams`; `p` chứa saved (kể cả B khi tier tắt); server hash sau `applyTiers`; client `paramsKey` chỉ session key; `appliesTo` không đổi hash; offline tier A không mất giá trị B.
 - `test_params_hash_vectors.py` (mới): đọc **cùng file vector JSON** (ví dụ `backend/tests/fixtures/params_hash_vectors.json`) cho number/string/bool/số âm; `params.test.ts` hoặc script Node đọc cùng file; CI chạy cả Python và TS/Node.
-- `test_events.py` (mới): endpoint batch nhận event, validate schema, lưu JSONL/SQLite, không nhận PII; `play`/`eventId`; cap batch 100/payload 64 KB; batch rỗng/hỏng trả lỗi rõ.
+- `test_events.py`: endpoint batch nhận event, validate schema, lưu SQLite, dedupe `eventId` qua restart, allowlist payload (không nhận PII), summary gate (session/AB/profile B/C), rate limit; mirror JSONL; cap batch 100/payload 64 KB; batch rỗng/hỏng trả lỗi rõ.
 - `test_harmony.py` (mở rộng): `harmony=0/1/2`; default sequence identical; jazz floor; không có hợp âm ngoài catalog.
 - `test_keys.py`/`test_params.py`: `register` cực trị; guitar playable.
 - `test_sonify_guitar.py`: ma trận `technique`; `assert_playable`; pairwise `register × technique`.
@@ -265,7 +265,7 @@ Sau sprint này sẽ có dữ liệu thật để quyết định B1.
 - `link.test.ts`: `p` schema 2 vẫn mở; schema 2 có field B/C bị client cũ bỏ qua; `writeLink` dùng `LINK_SCHEMA_VERSION = 2`; `p` trên audio/peaks cũng schema 2; `/validate` nhận 2+3.
 - `profileStorage` test: profile v1 nhân noise đúng; profile v2 có `noise: 0.2` giữ 0.2.
 - `TuningPanel`: **tách logic thuần** (visible fields, changedCount, `renderParams`, badge) để test bằng `tsx`; repo chưa có React test renderer, không thêm dependency chỉ để test panel. Nếu cần component test, thêm `@testing-library/react-native` như một quyết định riêng.
-- A/B: state machine (`aParams`/`bParams`/`activeSide`/`playingParams`); B preview không ghi heard/URL; `Lưu` vs `Play`; `1D` `RecapManifest` + span `SpanManifest`; musical position; lazy prefetch/debounce/cancel; pin **cả A và B** (`paramsKey` + `tierHash` mỗi phía); LiveRoom disabled.
+- A/B: state machine (`aParams`/`bParams`/`activeSide`/`playingParams`); B preview không ghi heard/URL; `Lưu` vs `Play`; `1D` `RecapManifest` + span `SpanManifest`; musical position; lazy prefetch/debounce/cancel; pin **cả A và B** (`paramsKey` + `tierHash` mỗi phía); LiveRoom disabled. `crossfade.test.ts` giữ bar/beat/fraction qua tempo 0.75/1.25 và clamp release tail.
 - Telemetry: client buffer local khi offline, flush batch, không gửi PII; event names khớp endpoint.
 - A11y: `ChoiceRow`/`ToggleRow`/A/B toggle có role, label, keyboard, touch target.
 
@@ -360,10 +360,13 @@ Còn mở:
 
 Các điểm dưới đây là giới hạn có chủ ý của bản đang chạy, không phải AC mới:
 
-- `renderParams()` trong client là **helper local cho hiển thị/effective params**, chưa được dùng trong pipeline audio/peaks/DFI. `p` vẫn gửi `savedParams`; server là nguồn hash cuối.
-- Warning `inapplicable` hiện chỉ có ở `/validate`; client chưa gọi endpoint này và chưa hiển thị warning. UI chỉ ẩn field theo `appliesTo`.
-- `POST /v1/sonify/params/pin` và `POST /v1/sonify/events` chưa có auth/rate limit trong code; dựa vào proxy. `_pins`/`_SEEN_EVENT_IDS` là memory từng process; multi-instance cần store chung.
+- **A3.1 đã có dual player + crossfade 120 ms.** `ReplayPlayer` giữ side cũ phát trong lúc load side mới; hết 120 ms mới hạ side cũ. Nếu file mới không ready trong 15 s, side cũ tiếp tục phát và UI báo qua notice. Vị trí được giữ theo `movement + bar/beat/fraction` (`crossfade.ts`), có test tempo 0.75/1.25; `1D` dùng ratio vì `RecapManifest` không mang BPM/meter.
+- **A3.2 đã có consumer cho `/validate`.** `TuningPanel` debounce 350 ms, gửi `params + variant/ensemble/span`, hiển thị warning `inapplicable`, `tier_disabled`, `clamped`, `unknown_choice` bằng label field. Offline giữ warning cuối và local hint.
+- **A3.4 dùng SQLite mặc định** tại `backend/data/sonify-events.sqlite3` (env `VSTOCK_SONIFY_EVENTS_DB`). `eventId` là primary key nên retry không đếm trùng, kể cả sau restart; batch trùng trả `accepted: 0`. Payload được allowlist (bỏ email/free text). Rate limit tại process là fallback (`VSTOCK_SONIFY_EVENTS_RATE_PER_MIN`, `VSTOCK_SONIFY_PIN_RATE_PER_MIN`); proxy vẫn nên giới hạn toàn cục. `VSTOCK_SONIFY_EVENT_LOG` giữ mirror JSONL.
+- **Query gate**: `backend/scripts/sonify_events_report.py` đọc một hoặc nhiều DB, in `byDay`, số session replay, số session A/B, và số profile lưu có knob B/C. Chưa có dashboard HTTP có auth; multi-instance nên trỏ `VSTOCK_SONIFY_EVENTS_DB` vào volume chung hoặc merge bằng `--db` lặp lại.
+- `renderParams()` trong client vẫn là **helper local cho hiển thị/effective params**, chưa được dùng trong pipeline audio/peaks/DFI. `p` vẫn gửi `savedParams`; server là nguồn hash cuối.
 - `technique` chỉ hiện cho Bach/Torroba; các ensemble còn lại baseline chưa playable dưới profile hiện tại nên knob bị ẩn thay vì no-op.
 - `technique_fallback` hiện là `logger.warning`, chưa thành warning API/UI.
 - `assert_playable` trong wrapper dùng score C-space, nên `C_KEY` là đúng; nếu sau này score giữ key đã transpose thì phải truyền `key` tương ứng.
 - `apply_tiers` backend hiện là helper/test seam; production đi qua `normalize_with_warnings`.
+- Auth cho `/params/pin` và `/events` vẫn để proxy; app mobile không giữ secret tin cậy được. Nếu cần auth thật, làm signed session token ở Wave D.
