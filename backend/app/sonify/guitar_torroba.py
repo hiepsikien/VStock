@@ -3859,9 +3859,20 @@ def _render_juglar_bar(ctx, bar: int, phrase, mode: str, patterns=None):
     region_last = _juglar_region_last(ctx, bar, patterns)
     quarter_notes = mode == "thin" or region_last
     levels: list[int] = []
+    if not quarter_notes:
+        _suppress_trace_bars(bar, bar + 1)
     for quarter, eighth in enumerate((0, 2, 4)):
         origin = bar * ctx.epb + eighth
         midi = _melody_at(ctx, origin)
+        if not quarter_notes:
+            _record_trace_point(
+                bar=bar,
+                beat=float(quarter),
+                duration_beats=1.0,
+                price_eighth=origin,
+                pitch=float(midi),
+                sounding_pitch=float(midi),
+            )
         velocity = _lead_vel(ctx, origin, phrase)
         # Slope before both spellings, so a region's last (quarter-note) bar matches.
         if eighth in (2, 4):
@@ -4971,8 +4982,10 @@ from app.sonify.guitar_patterns import (  # noqa: E402
     _note_velocity,
     _on_scale,
     _playable,
+    _record_trace_point,
     _spell16,
     _start16,
+    _suppress_trace_bars,
     _MICRO,
     _micro_fits,
     _position_ok,
