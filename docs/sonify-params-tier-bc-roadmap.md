@@ -1,10 +1,10 @@
 # Tầng B/C của parameter profile — Lộ trình và hạng mục triển khai
 
-> **Trạng thái**: đề xuất v2, đã xử lý review ngày 2026-11-03, chưa code.
+> **Trạng thái**: đề xuất v3, đã xử lý review ngày 2026-11-03, chưa code.
 >
 > **Đọc cùng**: [`sonify-params-profile-plan.md`](./sonify-params-profile-plan.md), [`musicalize-plan.md`](./musicalize-plan.md), [`sonify-humanize-preset-plan.md`](./sonify-humanize-preset-plan.md), [PR #137 — volume ba bè guitar](https://github.com/hiepsikien/VStock/pull/137), [PR #34 — giọng gốc và chuyển giọng](https://github.com/hiepsikien/VStock/pull/34).
 >
-> **Mục tiêu**: mở rộng bàn tinh chỉnh từ 7 knob tầng A sang các knob tầng B (hòa âm, vùng âm, khung) và tầng C (kỹ thuật guitar, nhịp đổi hợp âm), mà vẫn giữ `Default` bất biến, cache/DFI nhất quán, và không biến phòng nghe thành DAW.
+> **Mục tiêu**: mở rộng bàn tinh chỉnh từ tầng A (7 knob, 10 sau PR #137) sang các knob tầng B (hòa âm, vùng âm, khung) và tầng C (kỹ thuật guitar, nhịp đổi hợp âm), mà vẫn giữ `Default` bất biến, cache/DFI nhất quán, và không biến phòng nghe thành DAW.
 
 ---
 
@@ -14,15 +14,15 @@ Bảy điểm dưới đây chốt hướng triển khai. Các mục còn mở n
 
 | # | Quyết định |
 |---|---|
-| 1 | **A/B chỉ làm ở `ReplayRoom`**, và là **score-aware**: so sánh cả audio, peaks, score/MusicXML, DFI và chart. `LiveRoom` không có playhead để giữ; A/B ở live là việc sau, hành vi là restart stream. |
-| 2 | **B là draft, không auto-save.** Preview B không gọi `planPlayParams`, không tạo profile. Chỉ lưu khi người dùng bấm `Lưu`. |
-| 3 | **Link `p` tiếp tục ghi schema 2 trong giai đoạn chuyển tiếp.** Server và client mới đọc cả schema 2 và 3; app cũ đọc schema 2, giữ knob A và bỏ qua field B/C lạ. Khi app floor hỗ trợ v3 mới đổi writer sang schema 3. |
-| 4 | **`appliesTo` enforce ở client, server chỉ cảnh báo.** Hash **không phụ thuộc variant/ensemble/span**. Không xoá giá trị đã lưu khi đổi variant; chỉ tính `effectiveParams` cho lần render. |
+| 1 | **A/B chỉ làm ở `ReplayRoom`**, và là **DFI-aware**: so sánh audio, peaks, `SpanManifest` movement metadata và DFI. Không có endpoint MusicXML/score diff, nên A/B không so sánh score chart. Chart giá là dữ liệu chung, không prefetch riêng. `LiveRoom` không có playhead để giữ; A/B ở live là việc sau, hành vi là restart stream. |
+| 2 | **B là draft, không auto-save.** Preview B không gọi `planPlayParams`, không tạo profile. `Lưu` lưu không phát; `Play` khi đang ở B thì lưu draft, phát B và kết thúc A/B (B trở thành A mới). |
+| 3 | **Link `p` tiếp tục ghi schema 2 trong giai đoạn chuyển tiếp.** Tách `LINK_SCHEMA_VERSION` khỏi `SCHEMA_VERSION`; `encodeParams` nhận schema; `/validate` nhận 2+3. Toàn bộ `p` (link, audio, peaks) dùng cùng schema 2 trong transition. App cũ đọc schema 2, giữ knob A và bỏ qua field B/C lạ. |
+| 4 | **`appliesTo` enforce ở client, server chỉ cảnh báo.** `p`/hash dùng **tier-canonical saved params**; `appliesTo` chỉ tạo `renderParams`. Hash không phụ thuộc variant/ensemble/span. Không xoá giá trị đã lưu khi đổi variant. |
 | 5 | **Bỏ `form` và `key` khỏi bảng knob chốt.** `form` để discovery sau A/B; `key` chờ PR #34 và quyết định sản phẩm về bản sắc giọng. |
-| 6 | **Guitar voice (3 knob) gộp vào lần bump schema v3.** Không ship riêng trên schema 2 để tránh đổi `DEFAULT_HASH` hai lần. |
+| 6 | **Merge PR #137 (guitar voice) trước B0**, chấp nhận `DEFAULT_HASH` đổi hai lần: một lần khi #137 vào `main`, một lần khi B0 lên schema v3. B0 chuyển 3 knob guitar đã merge sang schema v3. |
 | 7 | **Tier flag tách khỏi fixture.** Fixture committed luôn chứa đủ tier; endpoint runtime mới overlay env. `VSTOCK_SONIFY_PARAMS_TIER` dạng `A`, `A,B`, `A,B,C`; mặc định `A`; token lạ bị bỏ qua kèm log. |
 
-**Hệ quả của #6**: nếu code guitar voice đã có trong working tree, giữ nhánh nháp và rebase sau khi B0 xong, hoặc revert phần schema khỏi nhánh đó. Không merge guitar voice vào `main` trước B0.
+**Hệ quả của #6**: PR #137 body hiện đã mô tả code/test (không còn docs-only); trước khi merge chỉ cần xác nhận lại mô tả và hash. B0.6 chuyển `apply_voice_balance` + test sang schema v3. Hai lần đổi hash chấp nhận được vì chỉ ảnh hưởng cache non-default/DFI, LRU dọn file cũ.
 
 ---
 
@@ -30,12 +30,12 @@ Bảy điểm dưới đây chốt hướng triển khai. Các mục còn mở n
 
 ### 1.1 Tầng A đã có
 
-> Nếu guitar voice đã merge trước tài liệu này, §1.1 sẽ có 10 field và `DEFAULT_HASH` khác; các quyết định còn lại không đổi. Kiểm tra lại `SCHEMA_VERSION` và hash pin trước khi bắt đầu B0.
+> Baseline đối chiếu là `9734a87`: 7 field, `DEFAULT_HASH = 5800e09635be`. Sau PR #137: 10 field, `DEFAULT_HASH = 8653a4d3fcad`. Sau B0: schema 3, hash mới. Các quyết định còn lại không đổi.
 
 | Thành phần | Trạng thái |
 |---|---|
-| Schema | `SCHEMA_VERSION = 2`, 7 field đều `number` trong `backend/app/sonify/params.py` |
-| Canonical hash | `params_key()` / `params_hash()`, `DEFAULT_HASH = 5800e09635be` đang được pin trong test |
+| Schema | Tại base `9734a87`: `SCHEMA_VERSION = 2`, 7 field `number`. Sau PR #137: 10 field, vẫn schema 2 |
+| Canonical hash | `params_key()` / `params_hash()`; hash pin đổi theo từng mốc: `5800e09635be` → `8653a4d3fcad` (#137) → hash B0 |
 | Cache | `cache_mark()` trả `""` cho Default, `_nh/_nc/_nh_nc` cho legacy, `_p<hash>` cho profile khác |
 | Context | `compose_params()` ContextVar, đã dùng trong `audio.py` và `services/dfi.py` |
 | DFI | `_recap_key` / `_movement_key` có `params_hash` cho bản `_p<hash>`; `dfiParamsHash` là field riêng |
@@ -44,6 +44,8 @@ Bảy điểm dưới đây chốt hướng triển khai. Các mục còn mở n
 | Preset | Default, Gần, Ấm, Sống, Dày |
 
 ### 1.2 Khoảng trống cho tầng B/C
+
+Các điểm dưới đây đối chiếu tại base `9734a87`. Nếu PR #137 đã merge, mục 2 (`changedCount`) có thể đã được sửa một phần; các mục còn lại vẫn đúng.
 
 | # | Khoảng trống | Hệ quả |
 |---|---|---|
@@ -60,7 +62,7 @@ Bảy điểm dưới đây chốt hướng triển khai. Các mục còn mở n
 ### 1.3 Vì sao không nhảy thẳng vào form/Viterbi
 
 - **A/B là đòn bẩy lớn nhất.** Nó biến “thử knob” từ một hành động rời room thành một thao tác một giây. Không có nó, mọi knob B/C đều khó đánh giá.
-- **Schema v3 là cửa một lần.** Nếu thêm từng knob rồi bump schema nhiều lần, mỗi lần đổi `DEFAULT_HASH`, link cũ và profile cũ lại phải migrate. Guitar voice vì vậy gộp vào v3.
+- **Schema v3 là cửa một lần cho B/C.** PR #137 ship trước trên schema 2, nên `DEFAULT_HASH` đổi hai lần: một lần ở #137, một lần ở B0. Chấp nhận vì #137 đã có code/test và chỉ ảnh hưởng cache non-default/DFI.
 - **Form/meter chạm nhiều bất biến.** Chúng đổi độ dài bài, số bar, `frame_seconds`, mapping giá, guitar pattern, DFI trace. Đây là việc có thể làm, nhưng phải tách khỏi B1 và có test riêng.
 
 ---
@@ -71,19 +73,39 @@ Bảy điểm dưới đây chốt hướng triển khai. Các mục còn mở n
 2. **Macro knob, không expose raw weight.** Không đưa `TRANSITION_WEIGHT`, `SEVENTH_TENSION_COST`, chuỗi FFmpeg hay trọng số Viterbi lên UI. Chỉ đưa các trục người nghe hiểu: “Màu hòa âm”, “Vùng âm”, “Kỹ thuật”, “Nhịp hòa âm”.
 3. **`tier` khác `appliesTo`.**
    - `tier` là rollout toàn cục. Field ngoài tier bị ép default **trước khi hash** để audio/cache nhất quán; hash vì vậy phụ thuộc cấu hình tier.
-   - `appliesTo` là ngữ cảnh âm nhạc (variant/ensemble/span). Client tính `effectiveParams`; server cảnh báo; **không** ép default và **không** đưa context vào hash.
+   - `appliesTo` là ngữ cảnh âm nhạc (variant/ensemble/span). Client tính `renderParams`; server cảnh báo; **không** ép default và **không** đưa context vào hash.
 4. **Không xoá giá trị đã lưu.** Đổi variant chỉ đổi cách hiển thị/render, không xoá field khỏi profile. Profile dùng chung vẫn giữ nguyên dữ liệu.
-5. **Một lần bump schema v3.** Khai báo trước toàn bộ key B/C, kể cả key còn tắt sau tier flag, và gộp 3 knob guitar. `p` schema 2 vẫn phải đọc được.
-6. **A/B trước khi mở B/C.** A/B phải score-aware vì B1/C1/C2 đổi score, không chỉ audio.
+5. **Một lần bump schema v3.** Khai báo trước toàn bộ key B/C, kể cả key còn tắt sau tier flag. PR #137 ship trước trên v2, nên hash đổi hai lần: #137 và B0.
+6. **A/B trước khi mở B/C.** A/B so sánh audio, peaks, movement metadata và DFI; không cần MusicXML/score diff.
 7. **Rollout theo tầng.** Server trả `enabledTiers`; client ẩn group ngoài tầng được bật. Default vẫn là `A`.
 8. **Không thay đổi bản sắc dữ liệu nếu chưa có chủ ý.** `key` và form là thay đổi bản sắc bài; chỉ làm sau khi có quyết định sản phẩm rõ ràng.
 9. **Playability là cổng, không phải gợi ý.** Mọi knob guitar phải đi qua `assert_playable`; nếu không playable thì fallback auto + warning, không render bản vỡ.
+
+### 2.1 Parameter flow
+
+Một bảng duy nhất để tránh lệch giữa profile, `p`, hash, cache, DFI và A/B:
+
+| Object | Dùng cho |
+|---|---|
+| `savedParams` | Profile storage, `changedCount`, nguồn UI. Không bị xoá khi đổi variant |
+| `tierParams = applyTiers(savedParams)` | `p` (link/audio/peaks), `paramsKey`, server `params_hash`, `cache_mark`, DFI key, A/B session key |
+| `renderParams = applyAppliesTo(tierParams, context)` | Audio/peaks/DFI/score render; giá trị UI hiển thị là effective |
+| `aParams` / `heardParams` | Snapshot A; URL khi đang A/B |
+| `bParams` | Draft B; chỉ dùng cho preview, không ghi profile/URL |
+| `playingParams` | Side đang phát (`A` hoặc `B`) cho player và DFI đang nghe |
+
+Quy tắc:
+
+- `p` **không** chứa `appliesTo`; hash vì vậy context-free. `tierParams` được tính ở cả client và server; server là nguồn sự thật cuối.
+- `paramsKey` của client chỉ là canonical string cho React key và A/B session key; **không** dùng làm cache hash. Hash audio do server tính sau cùng một bước `applyTiers`.
+- `appliesTo` chỉ tạo `renderParams`; server cảnh báo `inapplicable` nhưng không sửa `p`/hash.
+- Preview B không ghi `heardParams`, không đổi URL, không ghi profile. `Lưu` lưu `bParams`; `Play` khi ở B lưu draft, phát B, gán `aParams = bParams`, `activeSide = A`, rồi kết thúc A/B.
 
 ---
 
 ## 3. Bản đồ knob đề xuất
 
-### 3.1 Guitar voice — gộp vào B0
+### 3.1 Guitar voice — PR #137 trước B0
 
 | Key | Nhãn | Kiểu | Khoảng | Default | Phạm vi | Ghi chú |
 |---|---|---|---:|---:|---|---|
@@ -99,7 +121,7 @@ Bảy điểm dưới đây chốt hướng triển khai. Các mục còn mở n
 | `register` | Vùng âm | number | 0.00–2.00, step .05 | 1.00 | tất cả; guitar giới hạn | B1 | 0 = thấp/ấm; 1 = hiện tại; 2 = cao/sáng. Dịch bounds, không đổi giọng |
 | `technique` | Kỹ thuật | number | 0.00–2.00, step .05 | 1.00 | guitar | C1 | 0 = dễ/arpeggio/chorale; 1 = hiện tại; 2 = điêu luyện/tremolo/dance |
 | `motion` | Nhịp hòa âm | number | 0.00–2.00, step .05 | 1.00 | tất cả | C2 | 0 = giữ hợp âm lâu; 1 = hiện tại; 2 = đổi hợp âm dồn dập |
-| `frame` | Khung | choice | auto / 0 / ngắn / dài | auto | span dài `1M–1Y` | B2 | Độ dài warm-up/cool-down; 1D giữ `daily_frame` riêng |
+| `frame` | Khung | choice | auto / không khung / ngắn / dài | auto | span dài `1M/3M/1Y` | B2 | Độ dài warm-up/cool-down; 1D giữ `daily_frame` riêng |
 | `meter` | Tiết nhịp | choice | auto / 4/4 / 3/4 / 6/8 / 12/8 | auto | hẹp, nơi đã có retarget | B2 | Chỉ mở cho đường Torroba/guitar đã có retarget; jazz swing là playback flag, không phải meter |
 
 **Không đưa vào bảng chốt**: `key` và `form`. Hai trục này nằm ở §9 và chỉ thành knob sau khi có quyết định/discovery tương ứng.
@@ -112,8 +134,9 @@ Bảy điểm dưới đây chốt hướng triển khai. Các mục còn mở n
 
 | Wave | Pha | Nội dung | Kết quả | Ước lượng | Rủi ro |
 |---|---|---|---|---|---|
-| **1** | A3 | A/B score-aware, `appliesTo`, tier flag, telemetry | So sánh được A/B; UI không hiện knob sai thể loại; có số liệu để quyết định B2 | 2–3 tuần | Trung bình |
-| **2** | B0 | Schema v3, migration, UI choice/toggle, generator, guitar voice | Nền cho mọi knob B/C; chưa đổi âm thanh Default | 2–3 tuần | Trung bình |
+| **0** | #137 | Merge guitar voice trên schema 2; xác nhận body/test; pin hash mới | Guitar có 3 knob balance; hash đổi lần 1 | 0.5 tuần | Thấp |
+| **1** | A3 | A/B DFI-aware, `appliesTo`, tier flag, telemetry | So sánh được A/B; UI không hiện knob sai thể loại; có số liệu để quyết định B2 | 2–3 tuần | Trung bình |
+| **2** | B0 | Schema v3, migration, UI choice/toggle, generator, migrate guitar voice | Nền cho mọi knob B/C; hash đổi lần 2; Default không đổi audio | 2–3 tuần | Trung bình |
 | **3** | B1 | `harmony`, `register` | 2 macro knob tạo khác biệt rõ về hòa âm và vùng | 3–4 tuần | Trung bình |
 | **4** | C1 | `technique`, guard playability | Guitar có “độ điêu luyện” mà vẫn chơi được | 2–3 tuần | Trung bình |
 | **5** | C2 | `motion` | Điều khiển nhịp đổi hợp âm | 2 tuần | Trung bình |
@@ -126,29 +149,29 @@ Bảy điểm dưới đây chốt hướng triển khai. Các mục còn mở n
 
 ## 5. Hạng mục triển khai
 
-### Wave 1 — A3: A/B score-aware + nền vận hành
+### Wave 1 — A3: A/B DFI-aware + nền vận hành
 
 | ID | Hạng mục | Việc chính | AC |
 |---|---|---|---|
-| A3.1 | A/B score-aware | Chỉ `ReplayRoom`. A = `heardParams`, B = draft. Chuẩn bị đủ audio, peaks, score/MusicXML, DFI và chart cho cả hai trước khi cho toggle. Giữ **vị trí nhạc** (bar/beat hoặc fraction), không phải giây. Crossfade 120 ms; nếu nền tảng không hỗ trợ thì gap ≤150 ms và không click. Pin hai hash A/B trong phiên để prune/LRU không xoá. `LiveRoom` disable A/B; live restart stream là việc sau. URL chia sẻ A, không chia sẻ B trong V1. | Toggle không lệch nhạc; B chưa sẵn sàng thì hiện “Đang chuẩn bị B”, không đổi nguồn; không click; không mất vị trí; A/B không auto-save |
-| A3.2 | `appliesTo` + effective params | Thêm `appliesTo` vào schema; client tính `effectiveParams` cho render/validation nhưng **giữ saved values**. `TuningPanel` lọc group; `changedCount()` chỉ đếm field hiện; profile có badge “có thay đổi ẩn”. Server nhận context ở `/validate` và endpoint render để cảnh báo `inapplicable`, nhưng không ép default và không đưa context vào hash. | Đổi variant không xoá profile; nghe Giao hưởng không thấy knob guitar; hash không đổi chỉ vì variant |
-| A3.3 | Tier flag | `enabledTiers` trong schema runtime; env `VSTOCK_SONIFY_PARAMS_TIER` dạng `A`, `A,B`, `A,B,C`, mặc định `A`; token lạ bỏ qua + log. Fixture committed luôn đủ tier. Server ép key ngoài tier về default trước hash và cảnh báo `tier_disabled`. Client lưu `enabledTiers` vào state; offline dùng bundled `A` và hiện ghi chú. | Tắt B không ảnh hưởng A; crafted `p` có knob B vẫn bị ép default; `gen_params_schema.py --check` không phụ thuộc env |
-| A3.4 | Instrumentation | Log A/B toggle, knob được dùng, profile lưu, render/cache hit, prefetch fail. Không log nội dung nhạy cảm. | Có dashboard/query đủ để chạy gate §7.5 |
-| A3.5 | Test | A/B theo bar/beat khi `tempo` đổi; B chưa ready; prefetch/pin; LiveRoom disabled; `appliesTo`; tier; URL. | `test:musicalize` + backend pass |
+| A3.1 | A/B DFI-aware | Chỉ `ReplayRoom`. A = `aParams`/`heardParams`; B = `bParams` draft. So sánh **audio, peaks, `SpanManifest` movement metadata và DFI**; không có MusicXML/score diff. Chart giá là dữ liệu chung, không prefetch riêng. Lazy prefetch: chỉ chuẩn bị B khi người dùng mở A/B; debounce và cancel khi draft đổi. Giữ **vị trí nhạc** (bar/beat/fraction), không phải giây. Crossfade 120 ms; fallback gap ≤150 ms và không click. Pin hai `tierParams` (session key) trong phiên để prune/LRU không xoá. `LiveRoom` disable A/B. URL chia sẻ A, không chia sẻ B. | State machine rõ `aParams`/`bParams`/`activeSide`/`playingParams`; B preview **không** ghi `heardParams`, không đổi URL/profile; `Lưu` chỉ lưu; `Play` khi ở B lưu draft, phát B, gán A = B rồi kết thúc A/B; B chưa ready thì hiện “Đang chuẩn bị B”; toggle không lệch nhạc; không click |
+| A3.2 | `appliesTo` + parameter flow | Thêm `appliesTo`/`tier` dưới dạng **metadata v2-compatible** (không đổi `p`/hash) trong A3; B0 mới thêm `kind/choices`. Client tính `tierParams` rồi `renderParams`; **giữ saved values**. `TuningPanel` lọc group; `changedCount()` chỉ đếm field hiện; profile có badge “có thay đổi ẩn”. Server nhận context ở `/validate` và endpoint render để cảnh báo `inapplicable`, nhưng không ép default và không đưa context vào hash. | Đổi variant không xoá profile; nghe Giao hưởng không thấy knob guitar; hash không đổi chỉ vì variant; `p`/hash dùng `tierParams`, `appliesTo` chỉ ảnh hưởng render |
+| A3.3 | Tier flag | `enabledTiers` trong schema runtime; env `VSTOCK_SONIFY_PARAMS_TIER` dạng `A`, `A,B`, `A,B,C`, mặc định `A`; token lạ bỏ qua + log. Fixture committed luôn đủ tier. Server ép key ngoài tier về default trước hash và cảnh báo `tier_disabled`. Client lưu `enabledTiers` vào state; offline dùng bundled `A` và hiện ghi chú. | Tắt B không ảnh hưởng A; test tier bằng **field synthetic** ở A3; crafted `p` có field B/C thật được test ở B0.7; `gen_params_schema.py --check` không phụ thuộc env |
+| A3.4 | Instrumentation MVP | **Server structured logs** cho render/cache/DFI (`paramsHash`, variant, cache hit, render ms, prefetch fail). **Client local counters** trong AsyncStorage cho `ab_toggle`, `knob_change`, `profile_save`; không thêm endpoint analytics, không log PII. | Có log/query đủ để tính denominator §7.5: phiên `ReplayRoom` có ít nhất một lần Play; số profile lưu; số lần A/B; cache hit. Nếu thiếu dữ liệu, gate chuyển qualitative |
+| A3.5 | Test | A/B state machine; musical position khi `tempo` đổi; lazy prefetch/debounce/cancel; B chưa ready; pin; LiveRoom disabled; `appliesTo`; tier synthetic; URL; link `p` schema 2. | `test:musicalize` + backend pass |
 
-**Ghi chú A/B**: “score-aware” không có nghĩa là hai player chạy song song vô hạn. Nó nghĩa là B phải có đủ dữ liệu để chart/DFI/MusicXML khớp với tiếng. Nếu B chỉ khác mix (color/noise), đường audio-only vẫn dùng chung cơ chế; không cần hai implementation.
+**Ghi chú A/B**: “DFI-aware” không có nghĩa là hai player chạy song song vô hạn. Nó nghĩa là B phải có đủ audio/peaks/metadata/DFI để tai và chỉ số khớp nhau. Nếu B chỉ khác mix (color/noise), đường audio-only vẫn dùng chung cơ chế; không cần hai implementation.
 
 ### Wave 2 — B0: nền schema v3
 
 | ID | Hạng mục | Việc chính |
 |---|---|---|
-| B0.1 | Kiểu field | `ParamField` thêm `kind: number/choice/toggle`, `choices`, `auto`, `appliesTo`, `tier`; `default` giữ kiểu tương ứng. Khai báo trước toàn bộ key B/C và 3 knob guitar. |
-| B0.2 | Canonical mixed type | Number dùng `pythonNumber`/`json.dumps`; choice là JSON string có quote; toggle là `true/false`. `normalizeParams` validate/clamp theo kind. Thêm **test vector hash xuyên ngôn ngữ** cho number/string/bool. |
-| B0.3 | Migration | Backend `decode_params` nhận schema 2 và 3; client `decodeParams` nhận 2 và 3. Link writer vẫn ghi schema 2 trong giai đoạn chuyển tiếp; chỉ đổi sang 3 khi app floor hỗ trợ. Profile store migrate **theo schema chính xác**: chỉ `schema === 1` mới nhân `noise` legacy; `schema === 2` giữ nguyên. |
+| B0.1 | Kiểu field | A3 đã thêm `appliesTo`/`tier` dạng metadata; B0 thêm `kind: number/choice/toggle`, `choices`, `auto`, `default` giữ kiểu tương ứng. Khai báo trước toàn bộ key B/C. |
+| B0.2 | Canonical mixed type | Number dùng `pythonNumber`/`json.dumps`; choice là JSON string có quote; toggle là `true/false`. `normalizeParams` validate/clamp theo kind. Choice values phải ASCII; nếu không, dùng `ensure_ascii=False` ở cả Python và TS. Thêm **test vector hash xuyên ngôn ngữ** cho number/string/bool. |
+| B0.3 | Migration | Backend `decode_params` nhận schema 2 và 3; client `decodeParams` nhận 2 và 3. Tách `LINK_SCHEMA_VERSION = 2` khỏi `SCHEMA_VERSION`; `encodeParams(params, schema)`; `/validate` nhận 2+3. Toàn bộ `p` (link/audio/peaks) dùng schema 2 trong transition; chỉ đổi sang 3 khi app floor hỗ trợ. Profile store migrate **theo schema chính xác**: chỉ `schema === 1` mới nhân `noise` legacy; `schema === 2` giữ nguyên. |
 | B0.4 | Generator/fixture | `gen_params_schema.py` sinh type mới và fixture với **đủ tier** (`schema_payload(enabled=True, tiers=ALL_TIERS)`); runtime endpoint overlay env. Test `--check` trong môi trường có/không có env. |
 | B0.5 | UI control | Thêm `ChoiceRow`, `ToggleRow`; tab mới tên **“Nâng cao”** (không dùng lại “Sâu hơn” của group `texture`); group collapse; a11y `adjustable`/`radio`/`switch`, keyboard, touch target. |
-| B0.6 | Guitar voice | Tích hợp 3 knob từ PR #137 sau schema v3; giữ thứ tự balance **sau `humanize()`**, DFI **trước** balance; cập nhật comment “ten knobs” ở `params.ts`, `link.ts`, `client.ts`. |
-| B0.7 | Test | `DEFAULT_HASH` mới một lần; schema `--check`; v2 link round-trip; profile v2 có `noise: 0.2` vẫn 0.2; hash vector number/string/bool; tier env. |
+| B0.6 | Guitar voice migration | Sau khi #137 merge, chuyển 3 knob guitar sang schema v3; giữ thứ tự balance **sau `humanize()`**, DFI **trước** balance; giữ test `test_voice_balance.py`; cập nhật comment “ten knobs” ở `params.ts`, `link.ts`, `client.ts`. |
+| B0.7 | Test | `DEFAULT_HASH` đổi lần hai (B0), sau lần một ở #137; test cả hai mốc; schema `--check`; v2 link round-trip; profile v2 có `noise: 0.2` vẫn 0.2; hash vector number/string/bool; tier env; crafted `p` có field B/C thật bị ép default. |
 
 **Không đổi âm thanh Default ở B0.** Đây là pha bắt buộc trước mọi knob B/C.
 
@@ -157,7 +180,7 @@ Bảy điểm dưới đây chốt hướng triển khai. Các mục còn mở n
 | ID | Hạng mục | Việc chính | AC |
 |---|---|---|---|
 | B1.1 | `harmony` | Lọc catalog và scale `SEVENTH_TENSION_COST` (trong `chords.py`) cùng borrowed bias (`chords.py`/`form.py`). `0` dùng **floor theo variant**: symphony/ambient/minimalist/guitar = triad, không borrowed; jazz = vẫn có 7th, không 9th/borrowed. `2` mở tối đa trong catalog của variant. | Default sequence identical; jazz 0 vẫn có 7th nhưng không 9th/borrowed; symphony 0 không có 4-note chord; `harmony=2` nhiều màu hơn trên corpus cố định |
-| B1.2 | `register` | `shift = sign(x) * floor(abs(x) + 0.5)` với `x = (value - 1) * 3` semitone; 0 = −3, 1 = 0, 2 = +3. Dịch chromatic các bound, áp sau `register_for(key)` và trước `tune_register()`; guitar kẹp ±2 và chạy `assert_playable`, fallback shift 0 + warning nếu không playable. Không đổi `KEY_RING`. | Default 1.0 trả cùng object; 0/2 dịch đúng ±3 trên register gốc; ensemble hẹp có thể clamp, ghi nhận trong test; guitar playable; không đụng logic key của PR #34 |
+| B1.2 | `register` | `shift = sign(x) * floor(abs(x) + 0.5)` với `x = (value - 1) * 3` semitone; 0 = −3, 1 = 0, 2 = +3. Dịch chromatic các bound, áp sau `register_for(key)` và trước `tune_register()`; guitar kẹp ±2 và chạy `assert_playable`, fallback shift 0 + warning nếu không playable. Không đổi `KEY_RING`. | Default 1.0 trả cùng object; non-guitar 0/2 dịch ±3 trên register gốc, guitar ±2; ensemble hẹp có thể clamp, ghi nhận trong test; guitar playable; không đụng logic key của PR #34 |
 | B1.3 | UI | Label “Tối giản / Chuẩn / Phong phú”, “Thấp / Chuẩn / Cao”; help text; hint jazz ở `harmony=0`; A/B. | Người dùng hiểu knob mà không cần đọc docs |
 | B1.4 | Test | Default parity; vocabulary theo variant; register bounds; guitar playability; **pairwise** `harmony × motion` chuẩn bị cho C2. | Không regression ngoài profile mới |
 
@@ -168,7 +191,7 @@ Bảy điểm dưới đây chốt hướng triển khai. Các mục còn mở n
 | C1.1 | `technique` | Chỉ áp dụng `variant === "guitar"`; override `_dominant_pattern`/`_patterns` qua whitelist theo ensemble (`classic`, `villa`, `barrios`, `brouwer`, `bach`, `torroba`). | Không chọn pattern ngoài whitelist |
 | C1.2 | Fallback | Nếu pattern được chọn không playable hoặc sai meter/BPM, fallback pattern auto + warning `technique_fallback`. | Không có tổ hợp nào raise `Unplayable` |
 | C1.3 | `position` (optional) | Thế tay thấp/chuẩn/cao; chỉ làm nếu `technique` ổn định. | Không phá `_playable` |
-| C1.4 | Test + span | Thêm `span` vào `render_guitar_score`/`_Ctx` **hoặc** test ở tầng `plan_*` (`plan_week`, `plan_month`, `plan_quarter`, `plan_year`) nơi span còn. Ma trận ensemble × character × span × technique; chạy `assert_playable`; pairwise `register × technique`. | Default 1.0 trả cùng score; mọi tổ hợp playable |
+| C1.4 | Test + span | Thêm `span` vào `render_guitar_score`/`_Ctx` **hoặc** test ở tầng `plan_week`/`plan_month`/`plan_quarter`/`year_specs` (chưa có `plan_year`) nơi span còn. Ma trận ensemble × character × span × technique; chạy `assert_playable`; pairwise `register × technique`. | Default 1.0 trả cùng score; mọi tổ hợp playable |
 
 ### Wave 5 — C2: Viterbi motion
 
@@ -200,16 +223,16 @@ Bảy điểm dưới đây chốt hướng triển khai. Các mục còn mở n
 
 ## 6. Sprint đầu tiên
 
-Wave 1 ước 2–3 tuần. Sprint đầu là **3 tuần** để bao hết A3.1–A3.5, không tách A3.4/A3.5 ra ngoài.
+PR #137 merge trước sprint (Wave 0). Wave 1 ước 2–3 tuần. Sprint đầu là **3 tuần** để bao hết A3.1–A3.5.
 
 | Tuần | Ngày | Việc |
 |---|---|---|
-| 1 | 1–2 | Chốt state A/B; định nghĩa musical position (bar/beat/fraction); thiết kế prefetch/pin |
-| 1 | 3–5 | A/B path audio + peaks; B chưa ready; không auto-save |
-| 2 | 6–8 | A/B score-aware: MusicXML/DFI/chart; crossfade/gap; `ReplayRoom`; disable `LiveRoom` |
-| 2 | 9–10 | `appliesTo` + `effectiveParams` + badge thay đổi ẩn |
-| 3 | 11–12 | Tier flag + fixture all tiers + server enforcement |
-| 3 | 13–14 | Instrumentation + test + docs/ADR |
+| 1 | 1–2 | Chốt state machine A/B (`aParams`/`bParams`/`activeSide`/`playingParams`); musical position; thiết kế lazy prefetch/pin |
+| 1 | 3–5 | A/B path audio + peaks + `SpanManifest` metadata; B chưa ready; không auto-save; `Lưu`/`Play` behavior |
+| 2 | 6–8 | A/B DFI-aware: DFI comparison; crossfade/gap; `ReplayRoom`; disable `LiveRoom` |
+| 2 | 9–10 | `appliesTo` + `tierParams`/`renderParams` + badge thay đổi ẩn |
+| 3 | 11–12 | Tier flag + fixture all tiers + server enforcement + synthetic tier test |
+| 3 | 13–14 | Instrumentation MVP (server logs + local counters) + test + docs/ADR |
 
 Sau sprint này sẽ có dữ liệu thật để quyết định B1.
 
@@ -220,7 +243,8 @@ Sau sprint này sẽ có dữ liệu thật để quyết định B1.
 ### 7.1 Backend
 
 - `test_params.py`: schema v3, default hash mới, normalize mixed type, `--check` không drift.
-- `test_params_migration.py` (mới): decode `p` schema 2; profile store v2; hash của profile cũ đổi một lần, Default vẫn `""`.
+- `test_params_migration.py` (mới): decode `p` schema 2; profile store v2; hash của profile cũ đổi **hai mốc** (#137 rồi B0), Default vẫn `""`.
+- `test_params_flow.py` (mới): `savedParams → tierParams → renderParams`; `p`/hash dùng `tierParams`; `appliesTo` không đổi hash; client `paramsKey` khớp server hash sau `applyTiers`.
 - `test_params_hash_vectors.py` (mới): cùng params number/string/bool cho cùng hash ở Python và TS.
 - `test_harmony.py` (mở rộng): `harmony=0/1/2`; default sequence identical; jazz floor; không có hợp âm ngoài catalog.
 - `test_keys.py`/`test_params.py`: `register` cực trị; guitar playable.
@@ -231,11 +255,11 @@ Sau sprint này sẽ có dữ liệu thật để quyết định B1.
 
 ### 7.2 Frontend
 
-- `params.test.ts`: normalize/encode/decode mixed type; default hash; migration; hash vector.
-- `link.test.ts`: `p` schema 2 vẫn mở; schema 2 có field B/C bị client cũ bỏ qua; `writeLink` ghi schema 2 trong transition; `p` xuất hiện ở audio và peaks.
+- `params.test.ts`: normalize/encode/decode mixed type; default hash; migration; hash vector; `paramsKey` dùng `tierParams`.
+- `link.test.ts`: `p` schema 2 vẫn mở; schema 2 có field B/C bị client cũ bỏ qua; `writeLink` dùng `LINK_SCHEMA_VERSION = 2`; `p` trên audio/peaks cũng schema 2; `/validate` nhận 2+3.
 - `profileStorage` test: profile v1 nhân noise đúng; profile v2 có `noise: 0.2` giữ 0.2.
-- `TuningPanel`: **tách logic thuần** (visible fields, changedCount, effectiveParams) để test bằng `tsx`; repo chưa có React test renderer, không thêm dependency chỉ để test panel. Nếu cần component test, thêm `@testing-library/react-native` như một quyết định riêng.
-- A/B: musical position, B chưa ready, prefetch/pin, LiveRoom disabled.
+- `TuningPanel`: **tách logic thuần** (visible fields, changedCount, `tierParams`, `renderParams`) để test bằng `tsx`; repo chưa có React test renderer, không thêm dependency chỉ để test panel. Nếu cần component test, thêm `@testing-library/react-native` như một quyết định riêng.
+- A/B: state machine (`aParams`/`bParams`/`activeSide`/`playingParams`); B preview không ghi heard/URL; `Lưu` vs `Play`; musical position; lazy prefetch/debounce/cancel; pin; LiveRoom disabled.
 - A11y: `ChoiceRow`/`ToggleRow`/A/B toggle có role, label, keyboard, touch target.
 
 ### 7.3 Nghe thử
@@ -250,7 +274,7 @@ Không nghe toàn bộ 100+ tổ hợp. Sampling plan:
 ### 7.4 Definition of done
 
 - Default parity: score/MusicXML byte-identical; audio Default không đổi tên file.
-- Schema `--check` xanh; `DEFAULT_HASH` pin đúng một lần.
+- Schema `--check` xanh; `DEFAULT_HASH` pin đúng theo từng mốc: #137 (`8653a4d3fcad`) và B0 (hash mới).
 - Link `p` cũ và mới round-trip; profile cũ migrate; `noise` không bị nhân đôi.
 - Không có cache collision; prune/LRU bounded; A/B pin hoạt động.
 - Guitar không raise `Unplayable` ở mọi tổ hợp knob.
@@ -259,12 +283,14 @@ Không nghe toàn bộ 100+ tổ hợp. Sampling plan:
 
 ### 7.5 Gate cho Wave 6
 
-Đề xuất threshold, chỉnh sau khi có dữ liệu:
+Đề xuất threshold, chỉnh sau khi có dữ liệu. Nguồn: server structured logs + client local counters; không cần analytics service.
 
-- A/B được dùng trong ≥20% phiên nghe lại, hai tuần liên tiếp.
-- ≥10% profile đã lưu có ít nhất một knob B/C.
-- Có ≥5 yêu cầu/feedback cụ thể về đổi cấu trúc bài hoặc giọng.
-- Không có regression DFI/cache quá 1% sau B1/C1/C2.
+- **Denominator**: phiên `ReplayRoom` có ít nhất một lần Play, tính theo ngày/tuần; không tính `LiveRoom`.
+- A/B được dùng trong ≥20% phiên `ReplayRoom`, hai tuần liên tiếp.
+- ≥10% profile đã lưu có ít nhất một knob B/C; đếm từ `profile_save` + params đã lưu.
+- Có ≥5 yêu cầu/feedback cụ thể về đổi cấu trúc bài hoặc giọng; nguồn là issue/support, ghi ngày và nội dung.
+- Không có regression DFI/cache quá 1% sau B1/C1/C2; đo bằng log `paramsHash`, cache hit/miss, render ms.
+- Nếu thiếu dữ liệu hoặc denominator <30 phiên/tuần, gate chuyển **qualitative**: review thủ công + quyết định sản phẩm.
 
 Nếu không đạt, dừng ở Wave 5.
 
@@ -276,15 +302,18 @@ Nếu không đạt, dừng ở Wave 5.
 |---|---|
 | Default lệch tiếng | Snapshot score/MusicXML; test parity; tier flag; không bump revision nếu không cần |
 | Guitar vỡ thế tay | `assert_playable` làm cổng; fallback auto + warning; test ma trận |
-| Schema v3 làm hỏng link cũ | Link writer ghi schema 2 trong transition; server/client đọc 2+3; test client cũ; banner fallback nếu cần |
+| Schema v3 làm hỏng link cũ | `LINK_SCHEMA_VERSION = 2`; `encodeParams(params, schema)`; server/client đọc 2+3; test client cũ; banner fallback nếu cần |
+| PR #137 + B0 đổi hash hai lần | Chấp nhận; chỉ cache non-default/DFI bị re-render; ghi log mốc hash và để LRU dọn |
 | Profile v2 bị nhân `noise` lần nữa | Migration key theo `schema === 1`, không `< current`; test `noise: 0.2` |
-| Canonical string/bool lệch Python–TS | Test vector hash xuyên ngôn ngữ cho cả 3 kind |
+| Canonical string/bool lệch Python–TS | Test vector hash xuyên ngôn ngữ cho cả 3 kind; choice ASCII hoặc `ensure_ascii=False` |
 | Tier flag làm `--check` phụ thuộc env | Fixture luôn đủ tier; runtime overlay env; test cả hai môi trường |
 | Bật/tắt tier làm hash đổi | Chấp nhận; chỉ xảy ra lúc rollout, ghi log và để LRU dọn cache cũ; không đổi tier trong lúc render |
-| `appliesTo` làm hash phụ thuộc variant | Hash context-free; chỉ effective params khi render; chấp nhận cache trùng |
-| A/B prefetch bị LRU xoá | Pin hai hash trong phiên; hiện trạng thái “đang chuẩn bị B” |
-| A/B prefetch làm tăng tải render | Chỉ prefetch khi người dùng mở A/B; debounce; dùng slot MuseScore hiện có; hiện trạng thái chờ |
+| `appliesTo` làm hash phụ thuộc variant | `p`/hash dùng `tierParams`; `appliesTo` chỉ tạo `renderParams`; chấp nhận cache trùng |
+| Parameter flow lệch giữa profile/p/hash/DFI | Bảng §2.1 là hợp đồng; test `savedParams → tierParams → renderParams`; server là nguồn hash cuối |
+| A/B prefetch bị LRU xoá | Pin hai `tierParams`/session key trong phiên; hiện trạng thái “đang chuẩn bị B” |
+| A/B prefetch làm tăng tải render | Lazy: chỉ prefetch khi mở A/B; debounce/cancel; dùng slot MuseScore hiện có; hiện trạng thái chờ |
 | A/B làm mất vị trí khi `tempo` đổi | Giữ bar/beat/fraction, không giữ giây; test tempo 0.75/1.25 |
+| Telemetry không có hạ tầng | MVP chỉ server logs + client local counters; gate có denominator và fallback qualitative |
 | Form/meter làm lệch chart/DFI | Chỉ mở nơi đã có retarget; test `frame_seconds`, duration, DFI trace |
 | UI quá tải | Group collapse, tab “Nâng cao”, chỉ hiện field áp dụng, A/B thay vì bắt nghe lại |
 | Cache phình | LRU hiện có; có thể giảm `VSTOCK_PARAMS_CACHE_MAX` cho B/C |
@@ -295,14 +324,14 @@ Nếu không đạt, dừng ở Wave 5.
 
 ## 9. Quyết định còn mở
 
-Đã chốt ở §0: A/B scope, B draft, link schema 2, `appliesTo` client/server, bỏ `form`/`key` khỏi bảng chốt, gộp guitar voice vào v3, format tier.
+Đã chốt ở §0: A/B scope + payload, B draft/Play behavior, link schema 2, parameter flow `saved → tier → render`, `appliesTo` client/server, bỏ `form`/`key` khỏi bảng chốt, merge PR #137 trước B0, format tier, telemetry MVP.
 
 Còn mở:
 
 1. **Profile dùng chung hay theo variant?** V1 dùng chung và giữ saved values. Nếu UX thấy khó hiểu, có thể thêm badge “knob này chỉ áp dụng cho guitar” thay vì tách store.
 2. **`form` là trục mới hay chỉ là `span` + `frame`?** Cần spike/ADR trước khi thành knob. Nếu chỉ là span/frame, không thêm key `form`.
 3. **`key` có cần thành knob không?** Nếu có, rebase PR #34; nếu không, giữ `stock_home_key` và chỉ dùng `register` để đổi vùng.
-4. **A/B crossfade hay gap?** Doc chốt crossfade 120 ms; nếu platform không ổn định, fallback gap ≤150 ms. Cần test trên web/native trước khi khóa AC.
+4. **A/B crossfade hay gap?** Phương án ưu tiên là crossfade 120 ms; fallback gap ≤150 ms nếu platform không ổn định. Cần test trên web/native trước khi khóa AC.
 5. **Có cần chia sẻ B qua URL không?** V1 chỉ chia sẻ A. Nếu cần, thêm `b=` hoặc `pb=` sau, không trộn vào `p`.
 
 ---
