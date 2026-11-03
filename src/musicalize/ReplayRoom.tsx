@@ -343,13 +343,6 @@ export function ReplayRoom({ wide, onMode }: Props) {
     if (abSide === 'A') setPlayingParams(normalizeParams(heardParams));
   }, [abSide, heardParams]);
 
-  const savedKey = paramsKey(savedParams);
-  const savedKeyRef = useRef(savedKey);
-  useEffect(() => {
-    if (savedKeyRef.current === savedKey) return;
-    savedKeyRef.current = savedKey;
-    setAbSide('A');
-  }, [savedKey]);
   // Warm B while the tuning drawer is open so the first A/B toggle does not
   // wait for MuseScore. This only fills the server/cache; it never writes state.
   useEffect(() => {
@@ -1171,6 +1164,18 @@ export function ReplayRoom({ wide, onMode }: Props) {
     if (!playNonce) return;
     listenRef.current(heardParams);
   }, [heardParams, playNonce]);
+
+  const savedKey = paramsKey(savedParams);
+  const savedKeyRef = useRef(savedKey);
+  useEffect(() => {
+    if (savedKeyRef.current === savedKey) return;
+    savedKeyRef.current = savedKey;
+    if (abSide === 'A') return;
+    setAbSide('A');
+    setAbPreparing(false);
+    clearPlayback();
+    listenRef.current(heardParams);
+  }, [abSide, clearPlayback, heardParams, savedKey]);
 
   const jumpToMovement = useCallback(
     (nextIndex: number, seconds: number, autoplay: boolean) => {

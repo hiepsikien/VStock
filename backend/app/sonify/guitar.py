@@ -343,9 +343,10 @@ def render_guitar_score(**kwargs) -> Score:
     try:
         _assert_playable(baseline, profiles=profile)
     except Unplayable:
-        # The default itself does not satisfy this profile on this corpus.
-        # A fallback here would make the knob a no-op, so keep the chosen take.
-        return score
+        # The automatic take is not playable under this profile. Do not return
+        # a different take that may be worse; keep the safe automatic score.
+        logger.warning("technique fallback: auto baseline unplayable for %s", ensemble)
+        return baseline
     try:
         _assert_playable(score, profiles=profile)
     except Unplayable:

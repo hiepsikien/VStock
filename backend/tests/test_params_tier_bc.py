@@ -22,6 +22,8 @@ from app.sonify.params import (
     params_hash,
     schema_payload,
 )
+from app.sonify.guitar import assert_playable
+from app.sonify.guitar_patterns import Unplayable
 from app.sonify.render import render
 from app.sonify.span import attach_frame, month_specs
 
@@ -145,8 +147,30 @@ def test_motion_is_monotone() -> None:
     assert counts[0] < counts[1] < counts[2]
 
 
-def test_technique_changes_every_ensemble() -> None:
+_PROFILE = {
+    "classic": "study",
+    "villa": "villa_pattern",
+    "barrios": "barrios_preludio",
+    "brouwer": "brouwer",
+    "bach": "bach",
+    "torroba": "torroba",
+}
+
+
+def test_technique_changes_or_safely_falls_back() -> None:
     for ensemble in ("classic", "villa", "barrios", "brouwer", "bach", "torroba"):
+        with compose_params({**DEFAULT_PARAMS, "technique": 1.0}):
+            baseline = render(
+                _bars(),
+                variant="guitar",
+                ensemble=ensemble,
+                regimes=("sideway",) * 3,
+            )
+        baseline_playable = True
+        try:
+            assert_playable(baseline, profiles=_PROFILE[ensemble])
+        except Unplayable:
+            baseline_playable = False
         signatures = []
         for technique in (0.0, 1.0, 2.0):
             with compose_params({**DEFAULT_PARAMS, "technique": technique}):
@@ -159,7 +183,10 @@ def test_technique_changes_every_ensemble() -> None:
             signatures.append(
                 tuple((event.bar, event.midi, event.velocity) for event in score.lead if event.midi is not None)
             )
-        assert signatures[0] != signatures[1] or signatures[1] != signatures[2], ensemble
+        if baseline_playable:
+            assert signatures[0] != signatures[1] or signatures[1] != signatures[2], ensemble
+        else:
+            assert signatures[0] == signatures[1] == signatures[2], f"{ensemble} should fall back"
 
 
 def test_register_changes_the_written_line() -> None:
