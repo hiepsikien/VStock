@@ -7,6 +7,10 @@ services:
     environment:
       VSTOCK_DB_PATH: /data/vstock.db
       VSTOCK_AUDIO_DIR: /data/audio
+      VSTOCK_SONIFY_EVENTS_DB: /data/sonify-events.sqlite3
+      # Trust the Docker proxy (Caddy) to populate X-Forwarded-For. Keep the
+      # API port private so external clients cannot spoof it.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-*}
       QT_QPA_PLATFORM: offscreen
       PORT: "8000"
       # Companion AI (Gemini) — set one of:

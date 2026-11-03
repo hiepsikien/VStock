@@ -5,6 +5,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     VSTOCK_DB_PATH=/data/vstock.db \
     VSTOCK_AUDIO_DIR=/data/audio \
+    VSTOCK_SONIFY_EVENTS_DB=/data/sonify-events.sqlite3 \
+    FORWARDED_ALLOW_IPS=* \
     PORT=8000 \
     QT_QPA_PLATFORM=offscreen \
     XDG_RUNTIME_DIR=/tmp/runtime-root \
@@ -30,10 +32,11 @@ RUN python3 -m venv /opt/venv \
 
 COPY app/ app/
 COPY config/ config/
+COPY scripts/ scripts/
 
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"
 
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --proxy-headers --forwarded-allow-ips=${FORWARDED_ALLOW_IPS:-127.0.0.1}"]

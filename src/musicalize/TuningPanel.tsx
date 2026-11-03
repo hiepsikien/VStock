@@ -21,6 +21,7 @@ import {
   PARAM_GROUPS,
   effectiveBpm,
   numberValue,
+  paramsKey,
   paramValueText,
   stepValue,
   visibleFields,
@@ -419,7 +420,11 @@ function TuningTab({
 }) {
   const { profile, params, dirty, setParam } = useTuning();
   const [helpKey, setHelpKey] = useState<string | null>(null);
-  const [serverWarnings, setServerWarnings] = useState<ParamWarning[]>([]);
+  const [serverWarnings, setServerWarnings] = useState<{
+    key: string;
+    warnings: ParamWarning[];
+  }>({ key: '', warnings: [] });
+  const currentParamsKey = paramsKey(params);
   const bpm = effectiveBpm(baseBpm, numberValue(params, 'tempo'));
   const warnings = warningsFor(params);
   const highHumanize = warnings.some((warning) => warning.code === 'high_humanize');
@@ -434,7 +439,9 @@ function TuningTab({
     const timer = setTimeout(() => {
       void validateParams(params, { variant, ensemble, span }, controller.signal)
         .then((result) => {
-          if (!controller.signal.aborted) setServerWarnings(result.warnings);
+          if (!controller.signal.aborted) {
+            setServerWarnings({ key: currentParamsKey, warnings: result.warnings });
+          }
         })
         .catch(() => {
           // Offline keeps the last server copy and local hints.
@@ -444,13 +451,19 @@ function TuningTab({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [ensemble, params, span, variant]);
+  }, [currentParamsKey, ensemble, params, span, variant]);
 
-  const serverNotes = warningTexts(
-    serverWarnings.filter(
-      (warning) => warning.code !== 'high_humanize' && warning.code !== 'high_breath',
-    ),
-  );
+  const serverNotes =
+    serverWarnings.key === currentParamsKey
+      ? warningTexts(
+          serverWarnings.warnings.filter(
+            (warning) =>
+              warning.code !== 'high_humanize' && warning.code !== 'high_breath',
+          ),
+        )
+      : [];
+  const shownServerNotes = serverNotes.slice(0, 3);
+  const hiddenServerNotes = Math.max(0, serverNotes.length - shownServerNotes.length);
   const guitarLow = variant === 'guitar' && bpm < 90;
   const visibleKeys = new Set(visibleFields(variant, span, tiers, ensemble).map((field) => field.key));
   const hiddenChanged = PARAM_FIELDS.filter(
@@ -481,7 +494,8 @@ function TuningTab({
       ) : null}
       {serverNotes.length > 0 ? (
         <Text style={[type.sans, styles.note]} numberOfLines={4}>
-          {serverNotes.join(' · ')}
+          {shownServerNotes.join(' · ')}
+          {hiddenServerNotes > 0 ? ` · và ${hiddenServerNotes} cảnh báo khác` : ''}
         </Text>
       ) : null}
 

@@ -231,6 +231,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const [abNotice, setAbNotice] = useState<string | null>(null);
   const sessionId = useRef(`s_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
   const pendingPosition = useRef<MusicalPosition | null>(null);
+  const audibleIndex = useRef(0);
+  const abRevert = useRef<{ side: 'A' | 'B'; params: SonifyParams } | null>(null);
   const pinnedHashes = useRef<string[]>([]);
   const rememberHash = useCallback((hash?: string) => {
     if (!hash) return;
@@ -1358,6 +1360,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const switchAB = useCallback(
     (side: 'A' | 'B') => {
       if (side === abSide) return;
+      abRevert.current = { side: abSide, params: playingParams };
       const timing =
         span === '1D'
           ? manifest
@@ -1384,6 +1387,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
       movementTime,
       movements,
       params,
+      playingParams,
       span,
     ],
   );
@@ -2071,15 +2075,38 @@ export function ReplayRoom({ wide, onMode }: Props) {
         wantPlay={playing && !resting && !finished}
         seek={seek}
         muted={muted}
-        onPreparingChange={setAbPreparing}
+        onPreparingChange={(preparing) => {
+          // Only A/B owns this button state. Movement crossfades are normal
+          // playback and must not flash the A/B trigger for a whole render.
+          if (!preparing) setAbPreparing(false);
+        }}
         onSwitchFailed={(message) => {
           setAbPreparing(false);
-          setAbNotice(message);
+          if (abPreparing) {
+            const previous = abRevert.current;
+            if (previous) {
+              setAbSide(previous.side);
+              setPlayingParams(previous.params);
+              abRevert.current = null;
+            }
+            setAbNotice(message);
+            return;
+          }
+          // A movement loaded too slowly. The previous audio is still
+          // playing, so put the chart back on the movement it belongs to.
+          setIndex(audibleIndex.current);
+          setAbNotice('Không chuẩn bị được movement kế tiếp. Vẫn đang phát movement hiện tại.');
         }}
         onTime={onTime}
         onEnded={onEnded}
-        onAudible={() => setAudible(true)}
-        onError={setError}
+        onAudible={() => {
+          setAudible(true);
+          audibleIndex.current = index;
+        }}
+        onError={(message) => {
+          setAbPreparing(false);
+          setError(message);
+        }}
         onDuration={(seconds) => {
           mediaIndex.current = index;
           setMediaDuration(seconds);

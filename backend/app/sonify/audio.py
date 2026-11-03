@@ -1506,7 +1506,7 @@ class RecapStore:
             if _humanize_on(values):
                 score = humanize_score(score, params=values)
             dfi = compute_dfi(score, variant=variant, ensemble=ensemble)
-            logger.info(
+            logger.debug(
                 "dfi_compute symbol=%s span=%s index=%s variant=%s ensemble=%s paramsHash=%s",
                 symbol,
                 span,
@@ -1711,7 +1711,7 @@ class RecapStore:
             if _humanize_on(values):
                 score = humanize_score(score, params=values)
             dfi = compute_dfi(score, variant=variant, ensemble=ensemble)
-            logger.info(
+            logger.debug(
                 "dfi_compute symbol=%s date=%s variant=%s ensemble=%s paramsHash=%s",
                 symbol,
                 day.isoformat(),
@@ -1808,7 +1808,7 @@ class RecapStore:
             values,
         )
         if cached is not None:
-            logger.info(
+            logger.debug(
                 "recap_cache hit symbol=%s date=%s variant=%s ensemble=%s "
                 "paramsHash=%s read_ms=%.1f",
                 symbol,

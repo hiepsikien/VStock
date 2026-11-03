@@ -90,14 +90,3 @@ export function secondsAt(position: Omit<MusicalPosition, 'index'>, timing: Move
     (Math.max(0, position.beat) + clamp(position.fraction, 0, 1)) * grid.beatSec;
   return clamp(t, 0, length);
 }
-
-/**
- * Clamp a saved position to a movement that may have a different length on
- * the other side. The movement index is clamped by the caller.
- */
-export function positionForMovement(
-  position: Omit<MusicalPosition, 'index'>,
-  timing: MovementTiming,
-): Omit<MusicalPosition, 'index'> {
-  return positionAt(secondsAt(position, timing), timing);
-}

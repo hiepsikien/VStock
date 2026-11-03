@@ -17,10 +17,11 @@ Backend FastAPI + APScheduler + SQLite. Cần **volume persistent** cho `vstock.
 | `SENTRY_DSN` | (trống = tắt) | DSN project Python trên Sentry |
 | `SENTRY_ENVIRONMENT` | `production` | Tag môi trường trên Sentry |
 | `SENTRY_TRACES_SAMPLE_RATE` | `0.1` | Tỷ lệ sample performance |
-| `VSTOCK_SONIFY_EVENTS_DB` | `backend/data/sonify-events.sqlite3` | Kho telemetry nghe nhạc. Trỏ vào volume chung nếu nhiều instance |
+| `VSTOCK_SONIFY_EVENTS_DB` | `backend/data/sonify-events.sqlite3` (local) / `/data/sonify-events.sqlite3` (Docker) | Kho telemetry nghe nhạc. Trong Docker đã nằm trên volume `vstock-data`; nhiều instance phải trỏ cùng volume/store |
 | `VSTOCK_SONIFY_EVENT_LOG` | (trống = tắt) | Mirror JSONL tùy chọn cho log collector |
 | `VSTOCK_SONIFY_EVENTS_RATE_PER_MIN` | `120` | Rate limit batch event theo IP tại process; proxy vẫn nên giới hạn toàn cục |
 | `VSTOCK_SONIFY_PIN_RATE_PER_MIN` | `600` | Rate limit pin cache A/B theo IP |
+| `FORWARDED_ALLOW_IPS` | `*` (Docker Compose) | Uvicorn chỉ tin `X-Forwarded-For` từ các IP này. Giữ port API private; nếu proxy khác, đặt đúng IP/subnet của proxy |
 
 Healthcheck: `GET /health`  
 Ingestion status: `GET /v1/health/sources`
@@ -34,7 +35,13 @@ cd backend
 .venv/bin/python scripts/sonify_events_report.py --since 2026-11-01
 # Nhiều instance: lặp --db cho từng file
 .venv/bin/python scripts/sonify_events_report.py --db /data/a.sqlite3 --db /data/b.sqlite3 --json
+# Docker: script đã có trong image
+docker compose exec api python scripts/sonify_events_report.py --since 2026-11-01
+# Retention: chạy định kỳ, ví dụ cron 90 ngày
+docker compose exec api python scripts/sonify_events_report.py --prune-days 90
 ```
+
+Rate limit dùng `request.client.host`; khi đứng sau Caddy/nginx phải bật `--proxy-headers` (Dockerfile đã bật) và đặt `FORWARDED_ALLOW_IPS` đúng proxy, nếu không mọi client sẽ chung một bucket IP của proxy. Endpoint không có auth; chỉ mở API qua proxy và giữ port 8000 private.
 
 ---
 

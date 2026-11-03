@@ -1,4 +1,4 @@
-import { positionAt, positionForMovement, secondsAt } from './crossfade';
+import { positionAt, secondsAt } from './crossfade';
 
 function ok(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
@@ -29,7 +29,7 @@ const fallback = positionAt(7.5, { durationSec: 30 });
 ok(fallback.bar === 0 && fallback.beat === 0, 'fallback has no bar grid');
 ok(Math.abs(fallback.ratio - 0.25) < 1e-9, 'fallback uses the ratio');
 
-const clamped = positionForMovement({ bar: 99, beat: 99, fraction: 0.9, ratio: 1 }, common);
+const clamped = positionAt(secondsAt({ bar: 99, beat: 99, fraction: 0.9, ratio: 1 }, common), common);
 ok(Math.abs(secondsAt(clamped, common) - 30) < 1e-9, 'position clamps to the movement length');
 
 console.log('musicalize crossfade tests passed');

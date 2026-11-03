@@ -91,7 +91,8 @@ def test_events_drop_unknown_and_pii_fields(
                         "payload": {
                             "sessionId": "s_1",
                             "span": "1D",
-                            "variant": "symphony",
+                            "variant": "not-a-genre",
+                            "ensemble": "not-an-ensemble",
                             "email": "nobody@example.com",
                             "message": "free text",
                             "blob": {"nested": True},
@@ -114,7 +115,7 @@ def test_events_drop_unknown_and_pii_fields(
     rows = connection.execute("SELECT payload FROM events ORDER BY event_id").fetchall()
     connection.close()
     play = json.loads(rows[0][0])
-    assert play == {"sessionId": "s_1", "span": "1D", "variant": "symphony"}
+    assert play == {"sessionId": "s_1", "span": "1D"}
     profile = json.loads(rows[1][0])
     assert profile["changedKeys"] == ["harmony"]
     assert profile["enabledTiers"] == ["A", "B"]
@@ -143,12 +144,23 @@ def test_event_summary_answers_gate_questions(
                         "at": 40,
                         "payload": {"changedKeys": ["tempo"], "knobs": 1},
                     },
+                    {
+                        "name": "profile_save",
+                        "eventId": "f3-auto",
+                        "at": 50,
+                        "payload": {
+                            "source": "play",
+                            "changedKeys": ["harmony"],
+                            "knobs": 1,
+                        },
+                    },
                 ]
             }
         )
     )
     summary = EventStore(db).summary()
     assert summary["sessions"] == {"replay": 2, "ab": 1, "abRatio": 0.5}
+    # Auto-save on Play must not inflate the profile denominator.
     assert summary["profiles"] == {"saved": 2, "withBc": 1, "withBcRatio": 0.5}
     assert summary["byDay"]
 
@@ -166,6 +178,23 @@ def test_event_endpoint_rate_limit_uses_env(
     with pytest.raises(HTTPException) as error:
         asyncio.run(post_sonify_events(second))
     assert error.value.status_code == 429
+
+
+def test_events_prune_old_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db = _db(tmp_path, monkeypatch)
+    store = EventStore(db)
+    store.append(
+        [
+            {
+                "name": "play",
+                "eventId": "old",
+                "at": 10.0,
+                "payload": {},
+            }
+        ]
+    )
+    assert store.prune(100.0) == 1
+    assert store.summary()["total"] == 0
 
 
 def test_rate_limiter_blocks_after_limit() -> None:

@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 data/
+scripts/out/
 *.db
 .git/
 .gitignore

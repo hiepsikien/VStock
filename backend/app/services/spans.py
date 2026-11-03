@@ -275,7 +275,7 @@ def ready_movement(
         values,
     )
     if asset is not None:
-        logger.info(
+        logger.debug(
             "span_cache hit symbol=%s span=%s index=%s variant=%s "
             "ensemble=%s paramsHash=%s",
             symbol.upper(),

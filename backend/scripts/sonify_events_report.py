@@ -16,7 +16,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import date, datetime, time, timedelta, timezone
+import time
+from datetime import date, datetime, time as clock_time, timedelta, timezone
 from pathlib import Path
 
 sys.path[:0] = [str(Path(__file__).resolve().parents[1])]
@@ -28,7 +29,7 @@ def _timestamp(value: str, *, end: bool) -> float:
     text = value.strip()
     if len(text) == 10:
         day = date.fromisoformat(text)
-        moment = datetime.combine(day, time.min, tzinfo=timezone.utc)
+        moment = datetime.combine(day, clock_time.min, tzinfo=timezone.utc)
         if end:
             moment += timedelta(days=1)
         return moment.timestamp()
@@ -83,12 +84,24 @@ def main() -> None:
     )
     parser.add_argument("--since", help="ISO date or datetime (UTC)")
     parser.add_argument("--until", help="ISO date or datetime (UTC); date is exclusive")
+    parser.add_argument(
+        "--prune-days",
+        type=int,
+        help="delete events older than N days before reporting (use with care)",
+    )
     parser.add_argument("--json", action="store_true", help="print JSON only")
     args = parser.parse_args()
 
     since = _timestamp(args.since, end=False) if args.since else None
     until = _timestamp(args.until, end=True) if args.until else None
     paths = [Path(item) for item in args.db] or [None]
+    for path in paths:
+        if path is not None and not path.is_file():
+            parser.error(f"database not found: {path}")
+    if args.prune_days is not None:
+        cutoff = time.time() - max(0, args.prune_days) * 86_400
+        deleted = sum(EventStore(path).prune(cutoff) for path in paths)
+        print(f"pruned:     {deleted}", file=sys.stderr)
     summaries = [EventStore(path).summary(since=since, until=until) for path in paths]
     result = _merge(summaries)
     if args.json:

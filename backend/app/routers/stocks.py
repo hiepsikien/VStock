@@ -4,13 +4,13 @@ import asyncio
 import json
 import logging
 import os
-import time
 from datetime import date
 from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
+from starlette.concurrency import run_in_threadpool
 
 from app.ingestion.providers.entrade_indices import INDEX_SYMBOLS
 from app.schemas import (
@@ -55,6 +55,7 @@ from app.sonify.audio import RecapCancelled, RecapUnavailable, recap_store
 from app.sonify.ensemble import Ensemble, ensemble_for
 from app.sonify.events import (
     RateLimiter,
+    env_int,
     event_store,
     events_rate_limit,
     sanitize_event,
@@ -782,14 +783,6 @@ def _client_key(request: Request | None) -> str:
     return request.client.host or "unknown"
 
 
-def _env_limit(name: str, default: int) -> int:
-    raw = os.environ.get(name, str(default))
-    try:
-        return max(0, int(raw))
-    except (TypeError, ValueError):
-        return default
-
-
 def _event_limiter() -> RateLimiter:
     global _EVENT_LIMITER, _EVENT_LIMITER_LIMIT
     limit = events_rate_limit()
@@ -801,7 +794,7 @@ def _event_limiter() -> RateLimiter:
 
 def _pin_limiter() -> RateLimiter:
     global _PIN_LIMITER, _PIN_LIMITER_LIMIT
-    limit = _env_limit("VSTOCK_SONIFY_PIN_RATE_PER_MIN", 600)
+    limit = env_int("VSTOCK_SONIFY_PIN_RATE_PER_MIN", 600)
     if _PIN_LIMITER is None or _PIN_LIMITER_LIMIT != limit:
         _PIN_LIMITER = RateLimiter(limit)
         _PIN_LIMITER_LIMIT = limit
@@ -858,7 +851,8 @@ async def post_sonify_events(payload: dict, request: Request = None) -> dict:  #
         raise HTTPException(status_code=400, detail="no known events")
     # A duplicate batch is a successful retry, not an error: the client can
     # clear its local buffer even when the first response was lost.
-    return {"accepted": event_store().append(rows)}
+    accepted = await run_in_threadpool(event_store().append, rows)
+    return {"accepted": accepted}
 
 
 @router.get("/sonify/dfi/signatures", response_model=list[DfiSignature])

@@ -21,6 +21,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any, Mapping
 
+from app.sonify.model import ENSEMBLES as ALL_ENSEMBLES, VARIANTS as ALL_VARIANTS
 from app.sonify.params import FIELD_BY_KEY
 
 EVENT_NAMES = frozenset(
@@ -28,6 +29,9 @@ EVENT_NAMES = frozenset(
 )
 SPANS = frozenset({"1D", "1W", "1M", "3M", "1Y"})
 TIERS = frozenset({"A", "B", "C"})
+VARIANTS = frozenset(ALL_VARIANTS)
+ENSEMBLES = frozenset(ALL_ENSEMBLES)
+PROFILE_SOURCES = frozenset({"play", "create", "save"})
 BC_KEYS = frozenset(
     key for key, field in FIELD_BY_KEY.items() if field.tier in ("B", "C")
 )
@@ -94,6 +98,12 @@ def sanitize_payload(name: str, payload: Any) -> dict[str, Any]:
             continue
         if key == "key" and text not in FIELD_BY_KEY:
             continue
+        if key == "variant" and text not in VARIANTS:
+            continue
+        if key == "ensemble" and text not in ENSEMBLES:
+            continue
+        if key == "source" and text not in PROFILE_SOURCES:
+            continue
         out[key] = text
     for key in numbers:
         number = _number(payload.get(key))
@@ -118,13 +128,15 @@ def sanitize_event(item: Any) -> dict[str, Any] | None:
     if name not in EVENT_NAMES:
         return None
     event_id = _string(item.get("eventId"), 96) or f"anon_{uuid.uuid4().hex}"
+    now = time.time()
     at = _number(item.get("at"))
-    if at is None:
-        at = time.time()
+    # A client clock can be wrong, but a bad timestamp must not poison the
+    # daily gate. Keep one year of history and one day of future skew.
+    stamp = now if at is None else max(now - 370 * 86_400, min(now + 86_400, float(at)))
     return {
         "name": name,
         "eventId": event_id,
-        "at": float(at),
+        "at": stamp,
         "payload": sanitize_payload(name, item.get("payload")),
     }
 
@@ -151,8 +163,17 @@ class RateLimiter:
                 return False
             bucket.append(stamp)
             if len(self._hits) > 10_000:
-                for name in [name for name, hits in self._hits.items() if not hits]:
+                stale = [
+                    name
+                    for name, hits in self._hits.items()
+                    if not hits or hits[-1] <= cutoff
+                ]
+                for name in stale[:2_000]:
                     self._hits.pop(name, None)
+                # If every bucket is still live, evict arbitrary oldest keys
+                # so memory stays bounded under a spoofed-IP flood.
+                while len(self._hits) > 10_000:
+                    self._hits.pop(next(iter(self._hits)), None)
             return True
 
     def reset(self) -> None:
@@ -210,31 +231,45 @@ class EventStore:
             return 0
         inserted_rows: list[dict[str, Any]] = []
         with closing(self._connect()) as connection:
-            for row in rows:
-                payload = row.get("payload") or {}
-                session_id = payload.get("sessionId")
-                if not isinstance(session_id, str):
-                    session_id = None
-                cursor = connection.execute(
-                    """
-                    INSERT OR IGNORE INTO events
-                        (event_id, name, at, session_id, payload, received_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        row["eventId"],
-                        row["name"],
-                        float(row["at"]),
-                        session_id,
-                        json.dumps(payload, separators=(",", ":"), ensure_ascii=False),
-                        time.time(),
-                    ),
-                )
-                if cursor.rowcount > 0:
-                    inserted_rows.append(row)
-            connection.commit()
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                for row in rows:
+                    payload = row.get("payload") or {}
+                    session_id = payload.get("sessionId")
+                    if not isinstance(session_id, str):
+                        session_id = None
+                    cursor = connection.execute(
+                        """
+                        INSERT OR IGNORE INTO events
+                            (event_id, name, at, session_id, payload, received_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            row["eventId"],
+                            row["name"],
+                            float(row["at"]),
+                            session_id,
+                            json.dumps(payload, separators=(",", ":"), ensure_ascii=False),
+                            time.time(),
+                        ),
+                    )
+                    if cursor.rowcount > 0:
+                        inserted_rows.append(row)
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
         self._mirror_jsonl(inserted_rows)
         return len(inserted_rows)
+
+    def prune(self, before: float) -> int:
+        """Delete events older than `before` (Unix seconds)."""
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                "DELETE FROM events WHERE at < ? OR received_at < ?",
+                (float(before), float(before)),
+            )
+            return max(0, cursor.rowcount)
 
     def summary(
         self,
@@ -291,13 +326,18 @@ class EventStore:
                 f"SELECT payload FROM events {clause} {'AND' if clause else 'WHERE'} name = 'profile_save'",
                 args,
             ).fetchall()
-        saved = len(profile_rows)
+        saved = 0
         with_bc = 0
         for (payload_text,) in profile_rows:
             try:
                 payload = json.loads(payload_text)
             except (TypeError, ValueError):
                 continue
+            # Auto-save on Play is a play event, not a new profile. Counting it
+            # would inflate the gate denominator for heavy listeners.
+            if payload.get("source") == "play":
+                continue
+            saved += 1
             changed = payload.get("changedKeys")
             if isinstance(changed, list) and any(key in BC_KEYS for key in changed):
                 with_bc += 1
@@ -322,9 +362,13 @@ def event_store() -> EventStore:
     return EventStore()
 
 
-def events_rate_limit() -> int:
-    raw = os.environ.get("VSTOCK_SONIFY_EVENTS_RATE_PER_MIN", "120")
+def env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, str(default))
     try:
         return max(0, int(raw))
     except (TypeError, ValueError):
-        return 120
+        return default
+
+
+def events_rate_limit() -> int:
+    return env_int("VSTOCK_SONIFY_EVENTS_RATE_PER_MIN", 120)

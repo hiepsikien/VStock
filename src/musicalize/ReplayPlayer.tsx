@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import { completedSlot, loadedSlot, resumedSlot, shouldAnnounceAudible } from './playerState';
 import { shouldArmFinish, shouldResumePlay } from './seek';
 
 export type SeekCommand = { id: number; seconds: number };
@@ -305,7 +306,7 @@ export function ReplayPlayer({
       setSlots((prev) => ({
         ...prev,
         [from]: { ...prev[from], play: false, gain: 0 },
-        [to]: { ...prev[to], play, gain: play ? 1 : 0 },
+        [to]: completedSlot(prev[to], play),
       }));
       onPreparingRef.current?.(false);
       if (play) onAudibleRef.current();
@@ -354,7 +355,9 @@ export function ReplayPlayer({
         return;
       }
       if (slot === activeRef.current) {
+        onPreparingRef.current?.(false);
         onReadyRef.current?.();
+        if (wantPlayRef.current) onAudibleRef.current();
       }
     },
     [finishSwitch, startFade],
@@ -373,12 +376,7 @@ export function ReplayPlayer({
     if (!current.url && !slotsRef.current[other(currentActive)].url) {
       setSlots((prev) => ({
         ...prev,
-        [currentActive]: {
-          url,
-          startSec: startSecRef.current,
-          play: wantPlayRef.current,
-          gain: wantPlayRef.current ? 1 : 0,
-        },
+        [currentActive]: loadedSlot(url, startSecRef.current, wantPlayRef.current),
       }));
       return;
     }
@@ -426,8 +424,11 @@ export function ReplayPlayer({
     if (!current.url) return;
     setSlots((prev) => ({
       ...prev,
-      [activeRef.current]: { ...prev[activeRef.current], play: true },
+      [activeRef.current]: resumedSlot(prev[activeRef.current]),
     }));
+    if (shouldAnnounceAudible(ready.current[activeRef.current], wantPlay)) {
+      onAudibleRef.current();
+    }
   }, [cancelPending, wantPlay]);
 
   useEffect(() => {
