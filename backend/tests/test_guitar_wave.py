@@ -1494,7 +1494,7 @@ def test_written_deviations_keeps_the_profile_under_24_attacks() -> None:
     full = [_note(0, index * 0.125, 64) for index in range(24)]
     voices = {"lead": full, "support": [], "low": []}
     assert _written_deviations(ctx, voices, ["cantabile"], set()) == {
-        "cantabile": (0, 0)
+        "cantabile": WrittenDeviation(0, 0)
     }
 
 

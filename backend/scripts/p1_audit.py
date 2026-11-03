@@ -75,7 +75,6 @@ def run_score(symbol, span, index, movement, ensemble, *, mode: str) -> Run:
     `mode` is `current`, `before`, or `none`. `none` is the profile baseline;
     `before` applies the old `min(profile.d_hi, measured 99th)` trim.
     """
-    captured: dict = {}
     deviations: dict = {}
     waves: dict = {}
     original_dev = GW._written_deviations
@@ -151,13 +150,13 @@ def velocity_stats(values):
     }
 
 
-def dev_limits(ensemble: str, deviations: dict) -> dict[str, int]:
-    limits: dict[str, int] = {}
-    for row in deviations:
-        profile = GW.profile_for(ensemble, row)
-        if profile is not None:
-            limits[row] = profile.d_hi
-    return limits
+def dev_limits(ensemble: str, deviations: dict) -> dict[str, int | None]:
+    """Profile headroom per row. `None` means the row has no profile (pedal)."""
+    return {
+        row: (profile.d_hi if profile is not None else None)
+        for row in deviations
+        for profile in (GW.profile_for(ensemble, row),)
+    }
 
 
 async def audit_case(symbol, span, ensemble, mode, results):
@@ -231,7 +230,7 @@ async def audit_case(symbol, span, ensemble, mode, results):
 
 def summarize(results):
     agg: dict[tuple[str, str], dict] = defaultdict(lambda: {"delta": [], "new": [], "old": []})
-    dev_rows: dict[str, list[tuple[float, float, int]]] = defaultdict(list)
+    dev_rows: dict[str, list[tuple[float, float, int | None]]] = defaultdict(list)
     wave_hi: dict[str, list[float]] = defaultdict(list)
     for item in results:
         for key, stats in item["per_voice"].items():
@@ -248,9 +247,7 @@ def summarize(results):
                     (n, stats["old"]["mean"], stats["old"]["max"])
                 )
         for row, (lo, hi) in item["deviations"].items():
-            limit = item["dev_limits"].get(row)
-            if limit is not None:
-                dev_rows[row].append((lo, hi, limit))
+            dev_rows[row].append((lo, hi, item["dev_limits"].get(row)))
         for wave in item["waves"]:
             pattern = wave["wave"][2]
             wave_hi[pattern].append(wave["d_c_hi"])
@@ -300,9 +297,10 @@ def summarize(results):
     for row, values in sorted(dev_rows.items()):
         lo = statistics.median(v[0] for v in values)
         hi = statistics.median(v[1] for v in values)
-        limit = statistics.median(v[2] for v in values)
-        trimmed = sum(1 for _, h, cap in values if h < cap)
-        print(f"| `{row}` | {len(values)} | {limit:+.0f} | {lo:+.0f} | {hi:+.0f} | {trimmed} |")
+        limits = [v[2] for v in values if v[2] is not None]
+        limit_text = "—" if not limits else f"{statistics.median(limits):+.0f}"
+        trimmed = sum(1 for _, h, cap in values if cap is not None and h < cap)
+        print(f"| `{row}` | {len(values)} | {limit_text} | {lo:+.0f} | {hi:+.0f} | {trimmed} |")
 
 
 async def main():

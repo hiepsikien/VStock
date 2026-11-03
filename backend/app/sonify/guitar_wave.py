@@ -4,6 +4,11 @@ The smoothed tide is one center C per bar. Every sounding note keeps the
 velocity it was written with, shifted by round(C) - 64. Lead, bass, and
 inner voices in the same bar share that center, so a swell, an accent, or a
 tremolo step survives as the MIDI difference that was already on the note.
+
+The one deliberate exception is Barrios `tremolo`: after the wave, snaps,
+and stabs, `_apply_tremolo_bass_trim` lowers the thumb and its chord colour
+by `TREMOLO_BASS_TRIM`. The lead keeps the shared center, so the final
+tremolo body sits two steps under the written relation.
 """
 
 from __future__ import annotations

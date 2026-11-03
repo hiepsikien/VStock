@@ -71,14 +71,14 @@ Cả ba bè dùng chung một center và một soft-knee, nên P1 dời đều c
 `d_hi` không phải là một phân vị để đo lại theo bản. Nó là **headroom của trần timbre**: `c_hi = v_ceil - d_hi`. Hạ `d_hi` làm mọi nốt thường trong row dâng lên; bè nào chạm trần trước sẽ đổi tương quan. Vì vậy P1 chỉ nên trim **đáy**:
 
 ```python
-d_lo = max(profile.d_lo, deviation[0])
 d_hi = profile.d_hi          # headroom, not a measured tail
+d_lo = min(d_hi, max(profile.d_lo, deviation.d_lo))
 ```
 
 Hướng này:
 
 - Giữ lợi ích của P1: row viết thấp hơn `-16` vẫn được hạ `c_lo`, tide rộng về phía yên tĩnh.
-- Không đẩy bất kỳ bè nào vào trần; `c_hi` trở về `v_ceil - profile.d_hi` cho **mọi** row.
+- Không đẩy bất kỳ bè nào vào trần; `c_hi` **không bao giờ cao hơn** `v_ceil - profile.d_hi` cho mọi row. Khi `d_lo` bị clamp bằng `d_hi` thì `deviation = 0`, và `MAX_TIDE` có thể kéo `c_hi` xuống thấp hơn mốc đó.
 - Không cần ngoại lệ riêng cho `tremolo` hay `_OWN_CONTOUR`; quy tắc là toàn cục, nên pattern mới không tái phạm.
 - Nếu một pattern thật sự cần trần thấp hơn, sửa `ceil_calm/ceil_wide` hoặc `d_hi` trong `PROFILES` và nghe lại.
 
@@ -86,7 +86,7 @@ Hướng này:
 
 P1 trả đỉnh tremolo về profile, nhưng tai vẫn nghe thumb quá to. Đây là vấn đề cân bằng nhạc, không phải P1: `TREMOLO_BASS_TRIM = 2` hạ `low` và nốt màu `support` hai bậc **sau** `_apply_snaps` / `_apply_stabs` và trước `_sync_ties`. Đặt sau snap vì đỉnh thumb bị `_apply_snaps` ghi lại. Lead fill giữ nguyên, nên giai điệu tách khỏi bass thêm 2 bậc. Chi tiết ở `docs/sonify-barrios-tremolo-dynamics.md`.
 
-Vì vậy nếu chạy `p1_audit.py` trên HEAD, cột note delta của `tremolo` `low`/`support` sẽ là **-2**; đó là trim nhạc có chủ đích, không phải P1. Cột `Δc_hi` vẫn phải là 0.
+Trim −2 nằm trong `apply_guitar_wave`, nên có mặt ở **cả** nhánh `current` và `none` của `p1_audit.py`; vì vậy cột note delta của P1 tự triệt tiêu và không đo được trim này. Muốn kiểm tra −2, dùng test trực tiếp `_apply_tremolo_bass_trim` hoặc so score trước/sau bước đó. Audit P1 chỉ cần giữ `Δc_hi = 0`.
 
 Nghiệm thu:
 

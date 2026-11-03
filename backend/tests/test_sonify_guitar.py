@@ -17,6 +17,7 @@ from app.sonify.guitar import (
     _place_melody,
     _slur,
     _tremolo,
+    TREMOLO_BASS_TRIM,
     assert_playable,
     guard_chromatic_approach,
     render_guitar_score,
@@ -2955,7 +2956,9 @@ def test_barrios_week_tremolo_bass_moves_inside_the_bar() -> None:
             for note in score.lead
             if note.bar == bar and note.midi is not None and abs(note.beat - (beat + 0.25)) < 1e-6
         )
-        assert middle is not None and thumb >= middle + 1
+        # The written invariant is thumb >= m + 3. The final trim lowers the
+        # thumb, so compare the written thumb (`thumb + trim`) against that.
+        assert middle is not None and thumb + TREMOLO_BASS_TRIM >= middle + 3
 
 
 def test_barrios_outro_and_brouwer_intro_keep_a_flat_level() -> None:
