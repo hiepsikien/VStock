@@ -41,8 +41,9 @@ logger = logging.getLogger(__name__)
 # Bump when the score or the sound changes, so old files are not replayed.
 RECAP_REVISION = "77"
 # Long-form files live beside the daily recap and use their own revision.
-# Bump when the score, sound, or manifest shape changes: old JSON missing a new
-# field is still accepted with a default, so a manifest-only change must bump.
+# Bump when the score, sound, or a manifest field that changes playback
+# changes. Additive diagnostic fields (renderSec, renderRatio) are exempt:
+# old JSON defaults them to 0.
 SPAN_REVISION = "73"
 PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
@@ -176,6 +177,8 @@ class SpanAsset:
     fingerprint: str
     peak_level: float = 0.0
     movement_name: str = ""
+    render_sec: float = 0.0
+    render_ratio: float = 0.0
     dfi: dict | None = None
     dfi_inputs: str = ""
     dfi_checked: str = ""
@@ -1337,6 +1340,7 @@ class RecapStore:
         humanize: bool = True,
         color: bool = True,
     ) -> SpanAsset:
+        started = time.monotonic()
         stem = self._span_stem(
             symbol,
             span,
@@ -1382,16 +1386,25 @@ class RecapStore:
         _export_timeout.seconds = max(180, int(musical * 2) + 60)
         try:
             _raise_if_cancelled_event(cancel)
+            export_started = time.monotonic()
             self._exporter(xml_path, wav_path)
+            export_sec = time.monotonic() - export_started
             if not wav_path.is_file() or wav_path.stat().st_size < 64:
                 raise RecapUnavailable("MuseScore wrote an empty movement")
+            color_started = time.monotonic()
             heard = _color_for_export(wav_path, variant) if color else wav_path
+            color_sec = time.monotonic() - color_started
+            peaks_started = time.monotonic()
             duration, peaks, peak_level = waveform_peaks_with_level(heard)
+            peaks_sec = time.monotonic() - peaks_started
             if duration <= 0:
                 duration = musical
             map_duration = musical if 0 < musical <= duration else duration
             m4a_tmp = work / f"{stem}.m4a"
-            if _transcode_m4a(heard, m4a_tmp, variant=variant):
+            encode_started = time.monotonic()
+            encoded = _transcode_m4a(heard, m4a_tmp, variant=variant)
+            encode_sec = time.monotonic() - encode_started
+            if encoded:
                 audio_path = self._publish(m4a_tmp, self._span_dir() / f"{stem}.m4a")
                 heard.unlink(missing_ok=True)
                 if heard != wav_path:
@@ -1401,6 +1414,23 @@ class RecapStore:
                 if heard != wav_path:
                     wav_path.unlink(missing_ok=True)
                 m4a_tmp.unlink(missing_ok=True)
+            render_sec = time.monotonic() - started
+            render_ratio = render_sec / musical if musical > 0 else 0.0
+            logger.info(
+                "span_render symbol=%s span=%s index=%s musical=%.1fs "
+                "export=%.1fs color=%.1fs peaks=%.1fs encode=%.1fs "
+                "total=%.1fs ratio=%.3f",
+                symbol,
+                span,
+                index,
+                musical,
+                export_sec,
+                color_sec,
+                peaks_sec,
+                encode_sec,
+                render_sec,
+                render_ratio,
+            )
             payload = {
                 "symbol": symbol,
                 "span": span,
@@ -1414,6 +1444,8 @@ class RecapStore:
                 "audio": audio_path.name,
                 "fingerprint": movement.scale_fingerprint,
                 "movementName": dance,
+                "renderSec": round(render_sec, 3),
+                "renderRatio": round(render_ratio, 4),
                 "humanize": humanize,
                 "color": color,
                 "dfi": None if dfi is None else dfi.to_dict(),
@@ -1476,6 +1508,8 @@ class RecapStore:
             fingerprint=fingerprint,
             peak_level=float(payload.get("peakLevel") or 0.0),
             movement_name=str(payload.get("movementName") or ""),
+            render_sec=float(payload.get("renderSec") or 0.0),
+            render_ratio=float(payload.get("renderRatio") or 0.0),
             dfi=_stored_dfi(payload.get("dfi")),
             dfi_inputs=str(payload.get("dfi_inputs") or ""),
             dfi_checked=str(payload.get("dfi_checked") or ""),

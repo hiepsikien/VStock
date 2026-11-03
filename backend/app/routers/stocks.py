@@ -591,6 +591,8 @@ async def get_span(
                 volumes=[round(float(bar.volume), 4) for bar in movement.bars],
                 peaks=list(getattr(cached, "peaks", None) or []) if cached is not None else [],
                 peakLevel=float(getattr(cached, "peak_level", 0.0) or 0.0) if cached is not None else 0.0,
+                renderSec=float(getattr(cached, "render_sec", 0.0) or 0.0) if cached is not None else 0.0,
+                renderRatio=float(getattr(cached, "render_ratio", 0.0) or 0.0) if cached is not None else 0.0,
                 character=movement.character,
                 characterLabel=CHARACTER_LABEL.get(movement.character or "", ""),
                 sessionCharacters=[
@@ -657,6 +659,19 @@ async def get_span_peaks(
                 peakLevel=float(getattr(cached, "peak_level", 0.0) or 0.0)
                 if cached is not None
                 else 0.0,
+                audioUrl=movement_audio_path(
+                    sym, range, index, variant, movement, chosen, humanize, color
+                ),
+                ready=cached is not None,
+                durationSec=float(getattr(cached, "duration_sec", 0.0) or 0.0)
+                if cached is not None
+                else 0.0,
+                renderSec=float(getattr(cached, "render_sec", 0.0) or 0.0)
+                if cached is not None
+                else 0.0,
+                renderRatio=float(getattr(cached, "render_ratio", 0.0) or 0.0)
+                if cached is not None
+                else 0.0,
             )
         )
     return SpanPeaksResponse(
@@ -666,6 +681,7 @@ async def get_span_peaks(
         ensemble=chosen,
         humanize=humanize,
         color=color,
+        asOf=plan.as_of.isoformat(),
         movements=peaks,
     )
 
