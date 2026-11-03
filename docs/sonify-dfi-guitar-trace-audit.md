@@ -439,6 +439,8 @@ P1 nên là:
 
 Các số trong tài liệu lấy từ `main` `d0385c0`, dữ liệu `as_of 2026-11-03`. Quy ước: **`mN` là index 0-based**, nên `m1` = movement II.
 
+Cột DFI là snapshot trên `d0385c0`: trace/coverage không đổi, nhưng main sau đó có thể lệch DFI ±0.6. Muốn số khớp tuyệt đối phải checkout đúng commit này.
+
 ```bash
 cd backend
 .venv/bin/python scripts/dfi_probe.py VNINDEX 1M guitar villa
