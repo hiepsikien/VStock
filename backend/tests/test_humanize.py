@@ -1049,10 +1049,20 @@ def test_preset_chains_match_the_five_lines() -> None:
     assert "highshelf=f=8000:g=-1" in guitar.ffmpeg
     assert "extrastereo" not in guitar.ffmpeg and "extrastereo" not in symphony.ffmpeg
     assert symphony.noise == 0.001 and symphony.gate_noise is False
-    assert guitar.noise < symphony.noise and guitar.gate_noise is True
-    assert jazz.name == "club" and "aecho=" in jazz.ffmpeg and jazz.noise == 0
-    assert wood.name == "wood" and "aecho=" in wood.ffmpeg and "asoftclip" not in wood.ffmpeg and wood.noise == 0
-    assert air.name == "air" and "highshelf=" in air.ffmpeg and "aecho=" in air.ffmpeg and air.noise == 0
+    assert guitar.noise == 0.001 and guitar.gate_noise is True
+    assert jazz.name == "club" and "aecho=" in jazz.ffmpeg and jazz.noise == 0.001
+    assert (
+        wood.name == "wood"
+        and "aecho=" in wood.ffmpeg
+        and "asoftclip" not in wood.ffmpeg
+        and wood.noise == 0.001
+    )
+    assert (
+        air.name == "air"
+        and "highshelf=" in air.ffmpeg
+        and "aecho=" in air.ffmpeg
+        and air.noise == 0.001
+    )
     assert "0.4" not in wood.ffmpeg
 
 

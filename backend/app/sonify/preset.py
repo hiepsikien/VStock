@@ -26,9 +26,7 @@ try:  # pragma: no cover - production installs NumPy from requirements.txt
 except ImportError:  # pragma: no cover - keeps the loop fallback usable
     _np = None
 
-# Symphony bed, about -60 dB. Guitar is lower and gated.
-_SYMPHONY_NOISE = 0.001
-_GUITAR_NOISE = 0.0003
+# The noise knob is a percent of full scale. Guitar keeps the gate.
 _GUITAR_GATE = 0.01
 
 # Sample type of each `array` typecode, for the NumPy views. A typecode that
@@ -56,7 +54,6 @@ class ColorSpec:
     echo: tuple[tuple[int, float], ...] = ()
     softclip_threshold: float | None = None
     echo_before_clip: bool = False
-    noise: float = 0.0
     gate_noise: bool = False
 
     def chain(self, amount: float) -> str:
@@ -102,7 +99,6 @@ _COLOR_SPECS: dict[str, ColorSpec] = {
         eq_db=1.5,
         echo=((24, 0.07), (40, 0.045), (58, 0.03)),
         softclip_threshold=0.9,
-        noise=_SYMPHONY_NOISE,
     ),
     "guitar": ColorSpec(
         "vintage",
@@ -112,7 +108,6 @@ _COLOR_SPECS: dict[str, ColorSpec] = {
         eq_width=180,
         eq_db=1.2,
         echo=((12, 0.05), (20, 0.03)),
-        noise=_GUITAR_NOISE,
         gate_noise=True,
     ),
     "jazz": ColorSpec(
@@ -141,14 +136,21 @@ class PresetChain:
     gate_noise: bool = False
 
 
-def preset_chain(variant: str, *, amount: float = 1.0, noise: float = 1.0) -> PresetChain | None:
+def preset_chain(
+    variant: str, *, amount: float = 1.0, noise_percent: float = 0.1
+) -> PresetChain | None:
     spec = _COLOR_SPECS.get(variant)
     if spec is None:
         return None
     chain = spec.chain(amount)
     if not chain:
         return None
-    return PresetChain(spec.name, chain, noise=spec.noise * noise, gate_noise=spec.gate_noise)
+    return PresetChain(
+        spec.name,
+        chain,
+        noise=noise_percent / 100.0,
+        gate_noise=spec.gate_noise,
+    )
 
 
 def apply_preset(
@@ -158,46 +160,68 @@ def apply_preset(
     *,
     params=None,
 ) -> bool:
-    """Write a colored WAV the same length as `dry_path`. False keeps the dry file."""
+    """Write a colored WAV the same length as `dry_path`. False keeps the dry file.
+
+    Color and noise are independent: noise still lands when the wet chain is off.
+    """
     from app.sonify.params import active_params
 
     values = active_params() if params is None else params
     amount = float(values.get("color", 1.0))
-    if amount <= 0:
+    noise_percent = float(values.get("noise", 0.1))
+    if amount <= 0 and noise_percent <= 0:
         return False
-    chain = preset_chain(
-        variant, amount=amount, noise=float(values.get("noise", 1.0))
-    )
-    ffmpeg = shutil.which("ffmpeg")
-    if chain is None or ffmpeg is None or not dry_path.is_file():
+    spec = _COLOR_SPECS.get(variant)
+    if spec is None or not dry_path.is_file():
         return False
     channels, rate, dry = _wav_samples(dry_path)
     if channels not in (1, 2) or rate <= 0 or not dry:
         return False
     frames = len(dry) // channels
-    # Raw PCM avoids FFmpeg's WAVE_FORMAT_EXTENSIBLE header.
-    raw = colored_path.with_name(colored_path.stem + ".pcm")
-    sample_format = "f32le" if dry.typecode == "f" else "s16le"
-    command = [ffmpeg, "-y", "-i", str(dry_path), "-af", chain.ffmpeg, "-f", sample_format, str(raw)]
-    try:
-        completed = subprocess.run(command, check=False, capture_output=True, text=True, timeout=120)
-    except (OSError, subprocess.TimeoutExpired):
+
+    if amount > 0:
+        chain = preset_chain(variant, amount=amount, noise_percent=noise_percent)
+        ffmpeg = shutil.which("ffmpeg")
+        if chain is None or ffmpeg is None:
+            return False
+        # Raw PCM avoids FFmpeg's WAVE_FORMAT_EXTENSIBLE header.
+        raw = colored_path.with_name(colored_path.stem + ".pcm")
+        sample_format = "f32le" if dry.typecode == "f" else "s16le"
+        command = [
+            ffmpeg,
+            "-y",
+            "-i",
+            str(dry_path),
+            "-af",
+            chain.ffmpeg,
+            "-f",
+            sample_format,
+            str(raw),
+        ]
+        try:
+            completed = subprocess.run(
+                command, check=False, capture_output=True, text=True, timeout=120
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            raw.unlink(missing_ok=True)
+            return False
+        if completed.returncode != 0 or not raw.is_file():
+            raw.unlink(missing_ok=True)
+            return False
+        payload = raw.read_bytes()
         raw.unlink(missing_ok=True)
-        return False
-    if completed.returncode != 0 or not raw.is_file():
-        raw.unlink(missing_ok=True)
-        return False
-    payload = raw.read_bytes()
-    raw.unlink(missing_ok=True)
-    width = 4 if dry.typecode == "f" else 2
-    count = len(payload) // width
-    heard = array(dry.typecode)
-    heard.frombytes(payload[: count * width])
-    heard = array(heard.typecode, heard[: frames * channels])
-    if len(heard) < frames * channels:
-        return False
-    if chain.noise:
-        _mix_noise(heard, dry, channels, chain.noise, chain.gate_noise)
+        width = 4 if dry.typecode == "f" else 2
+        count = len(payload) // width
+        heard = array(dry.typecode)
+        heard.frombytes(payload[: count * width])
+        heard = array(heard.typecode, heard[: frames * channels])
+        if len(heard) < frames * channels:
+            return False
+    else:
+        heard = array(dry.typecode, dry[: frames * channels])
+
+    if noise_percent > 0:
+        _mix_noise(heard, dry, channels, noise_percent / 100.0, spec.gate_noise)
     _limit_peak(heard, dry)
     write_wav(colored_path, channels, rate, heard)
     return colored_path.is_file()

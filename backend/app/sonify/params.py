@@ -20,7 +20,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 P_MAX_LENGTH = 2048
 HUMANIZE_SOFT_WARNING = 1.1
 BREATH_SOFT_WARNING = 1.2
@@ -52,40 +52,40 @@ FIELDS: tuple[ParamField, ...] = (
         0.01,
         1.0,
         "×",
-        "Nhân BPM gốc của dòng nhạc.",
+        "Tăng giảm tốc độ của bản thu so với nhịp gốc.",
     ),
     ParamField(
         "humanize",
         "Người",
         PERFORMANCE,
         0.0,
-        1.5,
+        2.0,
         0.05,
         1.0,
         "",
-        "Độ lệch velocity.",
+        "Độ lệch velocity giữa các nốt để bớt đều máy móc.",
     ),
     ParamField(
         "breath",
         "Hơi thở",
         PERFORMANCE,
         0.0,
-        1.5,
+        2.0,
         0.05,
         1.0,
         "",
-        "Độ cong tempo trong câu.",
+        "Độ cong tốc độ ở đầu và cuối mỗi câu.",
     ),
     ParamField(
         "color",
         "Màu",
         PERFORMANCE,
         0.0,
-        1.0,
-        0.05,
+        2.0,
+        0.01,
         1.0,
         "",
-        "Lượng wet của preset.",
+        "Lượng hiệu ứng màu (EQ, echo, soft-clip); 0 là khô, 2 là đậm gấp đôi.",
     ),
     ParamField(
         "dynamics",
@@ -96,29 +96,29 @@ FIELDS: tuple[ParamField, ...] = (
         0.05,
         1.0,
         "",
-        "Co giãn velocity quanh mốc 64.",
+        "Độ chênh lực bấm giữa các sắc thái, quanh velocity 64.",
     ),
     ParamField(
         "noise",
         "Nhiễu",
         TEXTURE,
         0.0,
-        1.0,
+        0.5,
         0.05,
-        1.0,
-        "",
-        "Nhân nền nhiễu của preset.",
+        0.1,
+        "%",
+        "Nhiễu nền cộng vào bản thu, tính bằng % toàn thang.",
     ),
     ParamField(
         "density",
         "Mật độ",
         TEXTURE,
         0.0,
-        1.5,
+        2.0,
         0.05,
         1.0,
         "",
-        "Nhân độ dài và số lượng fill, bell.",
+        "Lượng fill và bell chèn vào giữa các câu.",
     ),
 )
 
@@ -380,7 +380,7 @@ def presets_payload() -> list[dict[str, Any]]:
         {
             "id": "warm",
             "name": "Ấm",
-            "params": {**DEFAULT_PARAMS, "tempo": 0.96, "noise": 0.8},
+            "params": {**DEFAULT_PARAMS, "tempo": 0.96, "noise": 0.2},
         },
         {
             "id": "alive",

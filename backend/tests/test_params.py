@@ -24,11 +24,12 @@ from app.sonify.params import (
     params_hash,
     params_key,
     schema_payload,
+    SCHEMA_VERSION,
 )
 
 
 def test_default_hash_is_pinned() -> None:
-    assert DEFAULT_HASH == "35d9a160e9a3"
+    assert DEFAULT_HASH == "5800e09635be"
     assert params_hash(DEFAULT_PARAMS) == DEFAULT_HASH
 
 
@@ -48,7 +49,7 @@ def test_missing_keys_take_the_default_and_unknown_keys_warn() -> None:
 def test_out_of_range_is_clamped_and_warned() -> None:
     params, warnings = normalize_with_warnings({"tempo": 1.4, "humanize": 99})
     assert params["tempo"] == 1.25
-    assert params["humanize"] == 1.5
+    assert params["humanize"] == 2.0
     codes = {(warning["code"], warning["key"]) for warning in warnings}
     assert ("clamped", "tempo") in codes
     assert ("clamped", "humanize") in codes
@@ -82,7 +83,7 @@ def test_bad_p_is_an_error() -> None:
         decode_params("not-base64!")
     assert decode_params("e30") == DEFAULT_PARAMS
     wrong_schema = base64.urlsafe_b64encode(
-        json.dumps({"schema": 2, "params": DEFAULT_PARAMS}).encode()
+        json.dumps({"schema": SCHEMA_VERSION + 1, "params": DEFAULT_PARAMS}).encode()
     ).decode()
     with pytest.raises(ValueError):
         decode_params(wrong_schema.rstrip("="))
@@ -129,7 +130,7 @@ def test_compose_params_scopes_active_values() -> None:
 
 def test_schema_and_default_hash_are_consistent() -> None:
     payload = schema_payload(enabled=True)
-    assert payload["schema"] == 1
+    assert payload["schema"] == SCHEMA_VERSION
     assert payload["defaultHash"] == DEFAULT_HASH
     assert payload["enabled"] is True
     by_key = {
@@ -140,7 +141,17 @@ def test_schema_and_default_hash_are_consistent() -> None:
     assert set(by_key) == set(DEFAULT_PARAMS)
     assert by_key["tempo"]["min"] == 0.75
     assert by_key["tempo"]["max"] == 1.25
-    assert by_key["humanize"]["max"] == 1.5
+    assert by_key["humanize"]["max"] == 2.0
+    assert by_key["breath"]["max"] == 2.0
+    assert by_key["color"]["min"] == 0.0
+    assert by_key["color"]["max"] == 2.0
+    assert by_key["color"]["step"] == 0.01
+    assert by_key["noise"]["min"] == 0.0
+    assert by_key["noise"]["max"] == 0.5
+    assert by_key["noise"]["step"] == 0.05
+    assert by_key["noise"]["default"] == 0.1
+    assert by_key["noise"]["unit"] == "%"
+    assert by_key["density"]["max"] == 2.0
     json.dumps(payload)
 
 
