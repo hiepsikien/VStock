@@ -64,7 +64,6 @@ BREAKOUT = "breakout"
 BREAKOUT_LOOKBACK = 32  # eighths: four bars
 
 # Piano answers a held cadence in its last beats, while the melody holds and breathes.
-FILL_VELOCITY = 64  # mp, one step over the printed comping p
 FILL_DELAY = 2
 FILL_SPAN = 6
 FILL_MIN = 2

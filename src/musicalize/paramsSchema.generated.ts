@@ -21,6 +21,7 @@ export type ParamsSchema = {
   schema: number;
   groups: ParamsGroupSchema[];
   defaultHash: string;
+  baseBpm: Record<string, number | Record<string, number>>;
   enabled: boolean;
 };
 
@@ -118,5 +119,19 @@ export const PARAMS_SCHEMA: ParamsSchema = {
     }
   ],
   "defaultHash": "35d9a160e9a3",
+  "baseBpm": {
+    "symphony": 90,
+    "jazz": 82,
+    "minimalist": 118,
+    "ambient": 60,
+    "guitar": {
+      "bach": 96,
+      "classic": 88,
+      "villa": 100,
+      "barrios": 120,
+      "brouwer": 108,
+      "torroba": 96
+    }
+  },
   "enabled": true
 };

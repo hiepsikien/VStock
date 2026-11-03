@@ -9,14 +9,15 @@ from app.sonify.chords import Chord, Regime, fifth_above_bass, progression
 from app.sonify.ensemble import fit_ensemble, tune_register
 from app.sonify.dynamics import (
     MARKINGS,
+    apply_contrast,
     average_liquidity,
     bass_marking,
     effective_comp_band,
-    fill_velocity,
+    fill_base,
     marking_for_volume,
     percentile,
+    piano_base,
     piano_marking,
-    piano_velocity_for,
     sound_for,
 )
 from app.sonify.form import (
@@ -752,7 +753,7 @@ def _right_hand(
 ) -> tuple[tuple[NoteEvent, ...], list[tuple[int, float, str, bool]], list[WedgeEvent]]:
     """Third and seventh on beat 1 for half a bar, cut short when a fill comes in.
 
-    Without a bed map the fills stay at FILL_VELOCITY and no hairpin is written.
+    Without a bed map the fills stay at mp and no hairpin is written.
     Symphony passes the bed so each fill group swells or settles against it.
     """
     from app.sonify.groove import groove_at
@@ -792,7 +793,7 @@ def _right_hand(
         kept.append((start, length, midi))
     if bed_velocity_at is None or bed_marking_at is None:
         for start, length, midi in kept:
-            events.extend(written(start, length, midi, velocity=fill_velocity()))
+            events.extend(written(start, length, midi, velocity=fill_base()))
         return with_rests(events, piece_eighths), [], []
 
     groups: list[tuple[Phrase | None, list[tuple[int, int, int]]]] = []
@@ -1266,6 +1267,9 @@ def _compose(
                     from app.sonify.movement_frame import apply_span_frame
 
                     score = apply_span_frame(score, spec, character)
+            # The dynamics knob stretches every written part around mp, after
+            # the frame has set its own velocities. Default is a no-op.
+            score = apply_contrast(score)
             from app.sonify.groove import _GROOVE
 
             _GROOVE.set({})
@@ -1428,7 +1432,7 @@ def _compose(
         eff_bands = {
             bar: effective_comp_band(band_at[bar], bar) for bar in range(musical_bars)
         }
-        bed_velocity_at = {bar: piano_velocity_for(eff_bands[bar]) for bar in range(musical_bars)}
+        bed_velocity_at = {bar: piano_base(eff_bands[bar]) for bar in range(musical_bars)}
         bed_marking_at = {bar: piano_marking(eff_bands[bar]) for bar in range(musical_bars)}
         dense_left = frozenset(
             bar

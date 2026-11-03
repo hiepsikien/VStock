@@ -60,6 +60,7 @@ def _ts_text(payload: dict) -> str:
         + "  schema: number;\n"
         + "  groups: ParamsGroupSchema[];\n"
         + "  defaultHash: string;\n"
+        + "  baseBpm: Record<string, number | Record<string, number>>;\n"
         + "  enabled: boolean;\n"
         + "};\n\n"
         + f"export const PARAMS_SCHEMA: ParamsSchema = {body};\n"

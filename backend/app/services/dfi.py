@@ -39,6 +39,7 @@ from app.sonify.params import (
     compose_params,
     normalize_params,
     params_hash,
+    params_layers,
 )
 from app.sonify.dfi import DFI_VERSION, DfiBreakdown, compute as compute_dfi, data_digest
 
@@ -147,9 +148,7 @@ def _write_sidecar(key: ComposeKey, value: DfiBreakdown | None, stamp: str) -> N
 
 
 def _layers(params) -> tuple[bool, bool]:
-    values = normalize_params(params)
-    humanize = float(values["humanize"]) != 0.0 or float(values["breath"]) != 0.0
-    return humanize, float(values["color"]) != 0.0
+    return params_layers(params)
 
 
 def _params_salt(params) -> str:

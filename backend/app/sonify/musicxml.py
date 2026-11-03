@@ -797,7 +797,9 @@ def _dynamic(parent: ET.Element, event: DynamicEvent) -> None:
     direction_type = _add(direction, "direction-type")
     dynamics = _add(direction_type, "dynamics")
     _add(dynamics, event.marking)
-    _add(direction, "sound", dynamics=str(event.sound))
+    # Read the knob while writing, not at import. The module-level default
+    # events would otherwise freeze `<sound dynamics>` at Default.
+    _add(direction, "sound", dynamics=str(sound_for(event.marking)))
 
 
 def _wedge(parent: ET.Element, event: WedgeEvent) -> None:

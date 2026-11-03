@@ -57,6 +57,7 @@ from app.sonify.params import (
     normalize_with_warnings,
     params_from_query,
     params_hash,
+    params_layers,
     presets_payload,
     schema_payload,
 )
@@ -84,10 +85,7 @@ def _params(p: str | None, humanize: bool, color: bool):
 
 
 def _layers(params) -> tuple[bool, bool]:
-    return (
-        float(params["humanize"]) != 0.0 or float(params["breath"]) != 0.0,
-        float(params["color"]) != 0.0,
-    )
+    return params_layers(params)
 
 
 async def _symbol_coverage() -> dict[str, dict]:

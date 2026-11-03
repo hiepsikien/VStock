@@ -7,9 +7,11 @@ import json
 import pytest
 
 from app.sonify.params import (
+    BASE_BPM,
     DEFAULT_HASH,
     DEFAULT_PARAMS,
     active,
+    base_bpm,
     cache_mark,
     compose_params,
     decode_params,
@@ -140,3 +142,16 @@ def test_schema_and_default_hash_are_consistent() -> None:
     assert by_key["tempo"]["max"] == 1.25
     assert by_key["humanize"]["max"] == 1.5
     json.dumps(payload)
+
+
+def test_schema_base_bpm_matches_the_writers() -> None:
+    from app.sonify import ambient, guitar, jazz, minimalist
+    from app.sonify.form import BPM
+
+    assert BASE_BPM["symphony"] == BPM
+    assert BASE_BPM["jazz"] == jazz.JAZZ_BPM
+    assert BASE_BPM["minimalist"] == minimalist.MINIMALIST_BPM
+    assert BASE_BPM["ambient"] == ambient.AMBIENT_BPM
+    assert BASE_BPM["guitar"] == guitar.GUITAR_BPM
+    assert base_bpm("guitar", "torroba") == 96
+    assert base_bpm("symphony", "classic") == 90

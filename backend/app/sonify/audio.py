@@ -37,6 +37,7 @@ from app.sonify.params import (
     normalize_params,
     params_from_flags,
     params_hash,
+    params_layers,
     params_query,
 )
 from app.sonify.musicxml import score_to_musicxml
@@ -75,16 +76,6 @@ _STORED_NAME = re.compile(
 _P_HASH_MARK = re.compile(r"_p[0-9a-f]{12}$")
 
 
-def layer_mark(humanize: bool = True, color: bool = True) -> str:
-    """Suffix when a post-compose layer is off. Both on keeps the current stem."""
-    parts: list[str] = []
-    if not humanize:
-        parts.append("nh")
-    if not color:
-        parts.append("nc")
-    return "" if not parts else "_" + "_".join(parts)
-
-
 def layer_query(humanize: bool = True, color: bool = True) -> str:
     parts: list[str] = []
     if not humanize:
@@ -95,11 +86,11 @@ def layer_query(humanize: bool = True, color: bool = True) -> str:
 
 
 def _humanize_on(params: Mapping[str, float]) -> bool:
-    return float(params.get("humanize", 1.0)) != 0.0 or float(params.get("breath", 1.0)) != 0.0
+    return params_layers(params)[0]
 
 
 def _color_on(params: Mapping[str, float]) -> bool:
-    return float(params.get("color", 1.0)) != 0.0
+    return params_layers(params)[1]
 
 
 def _payload_matches(payload: dict, params: Mapping[str, float]) -> bool:

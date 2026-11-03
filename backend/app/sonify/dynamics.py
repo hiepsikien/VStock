@@ -11,9 +11,12 @@ are chosen so round(N / 100 * 90) is the velocity in the third column.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from math import log1p
 
 from app.sonify.groove import groove_at
+from app.sonify.model import Score
+from app.sonify.params import active
 
 # marking, sound-dynamics percent, intended MIDI velocity
 DYNAMICS: tuple[tuple[str, int, int], ...] = (
@@ -37,14 +40,31 @@ BASE_VELOCITY: dict[str, int] = {
 }
 BASE_VELOCITY[COOLDOWN_MARKING] = 20
 PIANO_BASE: dict[str, int] = {"p": 46, "mp": 54, "mf": 62, "f": 68}
+FILL_BASE = 64
 _CENTER = 64
 
 
 def _contrast(base: int) -> int:
-    from app.sonify.params import active
-
     scaled = round(_CENTER + (base - _CENTER) * active("dynamics"))
     return max(1, min(127, scaled))
+
+
+def apply_contrast(score: Score) -> Score:
+    """Stretch every written note velocity around the mp pivot.
+
+    Called once after the writer and the daily/span frame. At the default
+    factor this returns the same score object, so Default stays byte-identical.
+    """
+    if active("dynamics") == 1.0:
+        return score
+    fields: dict[str, tuple] = {}
+    for name in ("high", "lead", "support", "comp", "low"):
+        notes = getattr(score, name)
+        fields[name] = tuple(
+            note if note.velocity is None else replace(note, velocity=_contrast(note.velocity))
+            for note in notes
+        )
+    return replace(score, **fields)
 
 
 def velocity_for(marking: str) -> int:
@@ -61,8 +81,17 @@ def piano_velocity_for(marking: str) -> int:
     return _contrast(PIANO_BASE.get(marking, 64))
 
 
+def piano_base(marking: str) -> int:
+    """The written piano velocity before the score-wide contrast pass."""
+    return PIANO_BASE.get(marking, 64)
+
+
 def fill_velocity() -> int:
-    return _contrast(64)
+    return _contrast(FILL_BASE)
+
+
+def fill_base() -> int:
+    return FILL_BASE
 
 # The bass sits under the melody. Its busiest band still drives eighth notes,
 # but the printed and played loudness stops at this letter.

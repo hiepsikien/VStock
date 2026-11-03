@@ -14,7 +14,7 @@ import hashlib
 import json
 import math
 import os
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -129,6 +129,31 @@ GROUPS: tuple[tuple[str, str], ...] = (
     (TEXTURE, "Sâu hơn"),
 )
 
+# The unmodified tempo of each line. The schema carries this so the drawer can
+# show the derived BPM without a hand-kept copy in the client.
+GUITAR_BPM: dict[str, int] = {
+    "bach": 96,
+    "classic": 88,
+    "villa": 100,
+    "barrios": 120,
+    "brouwer": 108,
+    "torroba": 96,
+}
+BASE_BPM: dict[str, int | dict[str, int]] = {
+    "symphony": 90,
+    "jazz": 82,
+    "minimalist": 118,
+    "ambient": 60,
+    "guitar": GUITAR_BPM,
+}
+
+
+def base_bpm(variant: str, ensemble: str = "classic") -> int:
+    value = BASE_BPM.get(variant, BASE_BPM["symphony"])
+    if isinstance(value, dict):
+        return value.get(ensemble, value["classic"])
+    return value
+
 Params = dict[str, float]
 
 
@@ -186,10 +211,6 @@ def params_key(params: Mapping[str, Any] | None) -> str:
     """Canonical JSON string, used by the client as a React key."""
     canonical = {"schema": SCHEMA_VERSION, "params": normalize_params(params)}
     return json.dumps(canonical, separators=(",", ":"), sort_keys=True)
-
-
-def canonical_json(params: Mapping[str, Any] | None) -> str:
-    return params_key(params)
 
 
 def params_hash(params: Mapping[str, Any] | None) -> str:
@@ -276,10 +297,6 @@ def cache_mark(params: Mapping[str, Any] | None) -> str:
     return legacy_layer_mark(normalized) or f"_p{params_hash(normalized)}"
 
 
-def legacy_layer_mark_for(params: Mapping[str, Any]) -> str:
-    return legacy_layer_mark(params)
-
-
 def is_default(params: Mapping[str, Any] | None) -> bool:
     return normalize_params(params) == DEFAULT_PARAMS
 
@@ -290,6 +307,13 @@ def params_query(params: Mapping[str, Any] | None) -> str:
     if normalized == DEFAULT_PARAMS:
         return ""
     return f"&p={encode_params(normalized)}"
+
+
+def params_layers(params: Mapping[str, Any] | None) -> tuple[bool, bool]:
+    """(humanize layer on, color layer on) for one params object."""
+    normalized = normalize_params(params)
+    humanize = normalized["humanize"] != 0.0 or normalized["breath"] != 0.0
+    return humanize, normalized["color"] != 0.0
 
 
 def params_enabled() -> bool:
@@ -335,6 +359,7 @@ def schema_payload(*, enabled: bool | None = None) -> dict[str, Any]:
         "schema": SCHEMA_VERSION,
         "groups": groups,
         "defaultHash": DEFAULT_HASH,
+        "baseBpm": BASE_BPM,
         "enabled": params_enabled() if enabled is None else enabled,
     }
     return payload
@@ -394,16 +419,3 @@ def tempo_bpm(bpm: int | float, tempo: float | None = None) -> int:
     """Effective BPM. Half-up, so `.5` is monotone as `tempo` rises."""
     factor = active("tempo") if tempo is None else tempo
     return int(float(bpm) * factor + 0.5)
-
-
-def tremolo_below_min(bpm: int, variant: str) -> bool:
-    return variant == "guitar" and bpm < 90
-
-
-def describe_warning(code: str, key: str) -> str:
-    """Client-side copy is the source of truth; this is a fallback for logs."""
-    return f"{code}:{key}"
-
-
-def iter_field_keys() -> Iterable[str]:
-    return (field.key for field in FIELDS)
