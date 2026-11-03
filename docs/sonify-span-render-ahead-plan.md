@@ -356,7 +356,7 @@ useEffect(() => {
 - `cooldownUntil` có thời hạn; không có `blocked` vĩnh viễn.
 - `markMovementReady` được gọi với `url`, nên nếu plan đổi fingerprint giữa chừng thì no-op.
 - `prefetchSpanAudio` đổi chữ ký thành `(path, signal, timeoutMs)` và trả `'ready' | 'retry' | 'fatal'` (`src/api/client.ts:696`). `prefetchOutcome` (`src/api/prefetchPlan.ts`): `2xx` → `ready`; `400/401/403/404/422` → `fatal`; còn lại → `retry`. Cập nhật `src/api/prefetchPlan.test.ts`.
-- Timeout tính trong vòng bơm: `max(15 * 60_000, (2 * durationSec + 300) * 1000)`, vì request có thể chờ slot. Không được ngắn hơn `musical * 2 + 60` của server (`audio.py:1382`) cộng allowance chờ slot. Khi timeout, trước khi retry phải hỏi `/span/peaks` xem file đã có chưa; tránh render lại từ đầu.
+- Timeout tính trong vòng bơm: `max(15 * 60_000, (2 * durationSec + 300) * 1000)`, vì request có thể chờ slot. Không được ngắn hơn `musical * 2 + 60` của server (`audio.py:1382`) cộng allowance chờ slot. Khi timeout, lần retry dựa vào cache server: `ensure_movement` trả file đã publish trước khi lấy slot, nên nếu render đã xong thì retry rất rẻ. Không có pre-check `/span/peaks`; nếu timeout đã abort render thì lần retry render lại từ đầu.
 
 ### 5.4. Chủ sở hữu chương hiện tại
 
@@ -453,6 +453,7 @@ Thiết kế cache:
   - `is_market_open() == True` → 60 giây.
   - `is_market_open() == False` → 10 phút.
 - Kiểm tra lại lúc **đọc** cache: nếu thị trường đang mở và `plan.as_of < hôm nay`, bỏ entry. Một plan tạo lúc 08:50 với `as_of` hôm qua và TTL 10 phút sẽ không sống qua giờ mở cửa 09:00.
+- Ghi trạng thái thị trường lúc insert. Nếu entry được tạo khi đóng cửa mà lúc đọc thị trường đã mở, bỏ entry **bất kể `as_of`**. Đây là case nghỉ trưa: plan tạo lúc 12:59 có `as_of = hôm nay` (đã có nến buổi sáng) nhưng phải bị bỏ khi 13:00 mở lại. Cùng luật này phủ luôn giờ mở 09:00.
 - `fetch_ohlc` bên dưới vẫn có TTL 45 giây, nên phần OHLC có thể cũ tối đa 45 giây; plan tự dựng lại từ payload đó.
 - Chỉ dùng trong đường audio/prefetch và `/span/peaks`. `/span` vẫn gọi bản tươi.
 
@@ -580,7 +581,7 @@ Chạy trong `npm run test:musicalize` (đã thêm `composeQueue.test.ts`).
 
 - `test_span.py`: `/span` trả `renderSec`/`renderRatio` khi JSON có, 0 khi file cũ; `_read_span` đọc đúng.
 - `/span/peaks`: có `asOf`, `audioUrl`, `ready`, `durationSec`, `renderSec`; movement chưa render trả `ready=false`.
-- Plan cache: hai request audio đồng thời chỉ gọi `fetch_ohlc` một lần (single-flight); đóng cửa dùng lại sau 5 phút (TTL 10 phút); phiên mở hết hạn sau 60 giây; plan tạo trước giờ mở bị bỏ khi thị trường mở; hai `variant` khác nhau không dùng chung.
+- Plan cache: hai request audio đồng thời chỉ gọi `fetch_ohlc` một lần (single-flight); đóng cửa dùng lại sau 10 phút; phiên mở hết hạn sau 60 giây; plan tạo trước giờ mở 09:00 hoặc sau nghỉ trưa 13:00 bị bỏ; hai `variant` khác nhau không dùng chung.
 - `SPAN_REVISION` giữ nguyên; test comment/revision hiện có vẫn xanh.
 - Khi có P2: playback vào slot trước 10 prefetch đang chờ; prefetch trả `503` + `Retry-After` khi chờ quá 5 giây; cancel trong 1 giây; heartbeat hết hạn dừng worker.
 
@@ -653,8 +654,9 @@ Chạy trong `npm run test:musicalize` (đã thêm `composeQueue.test.ts`).
 
 P0 và P1 đã vào code trong PR này. P2 chưa làm, đúng điều kiện ở mục 9.
 
-- **P0**: `renderSec`/`renderRatio` trong JSON, `SpanAsset`, `_read_span`, `/span`; `/span/peaks` trả thêm identity/trạng thái; prefetch trả `ready|retry|fatal`, retry có backoff, abort không backoff; prefetch chạy khi pause/nghỉ; `done` theo URL; `markMovementReady` theo URL; generation là state; cache plan theo `plan.as_of`.
+- **P0**: `renderSec`/`renderRatio` trong JSON, `SpanAsset`, `_read_span`, `/span`; `/span/peaks` trả thêm identity/trạng thái; prefetch trả `ready|retry|fatal`, retry có backoff, abort không backoff; prefetch chạy khi pause/nghỉ; `done` theo URL; `markMovementReady` theo URL; generation là state; cache plan theo giờ mở cửa.
 - **P1**: `src/musicalize/composeQueue.ts` + test; vòng bơm một request, depth 1; `playerStartedRef`; cooldown 60 giây; nhãn "đang soạn" và dòng "đang soạn chương kế" trong màn nghỉ.
-- **Sau review #129**: `playerHasStarted` loại `mediaDuration` cũ bằng `mediaIndex`; `shouldAbortOnIndexChange` huỷ render ngoài cửa sổ khi nhảy lùi; DFI poll chỉ merge `ready` khi URL khớp; plan cache TTL theo giờ mở và tự vô hiệu lúc đọc; `/span/peaks` dùng plan cache; bỏ `asOf` guard; `401/403` là `fatal`.
+- **Sau review #129**: `playerHasStarted` loại `mediaDuration` cũ bằng `mediaIndex`; `shouldAbortOnIndexChange` huỷ render ngoài cửa sổ khi nhảy lùi; DFI poll chỉ merge `ready` khi URL khớp; plan cache TTL theo giờ mở và tự vô hiệu khi có chuyển tiếp `closed → open` (gồm nghỉ trưa); `/span/peaks` dùng plan cache; bỏ `asOf` guard; `401/403` là `fatal`; timeout retry dựa vào cache server, không pre-check peaks.
+- **Đã biết, follow-up**: (M3) readiness chỉ promote, không demote; file bị prune giữa lượt nghe không xảy ra với `AUDIO_MAX_AGE_DAYS = 30`. (M5) client giữ `audioUrl` của lần Nghe hiện tại; muốn xử lý fingerprint đổi giữa phiên thì route audio phải nhận `scale`/`candles` và trả `409`, hoặc `refreshSpanPeaks` phải cập nhật URL rồi reset `ready`/`done`.
 - **Chưa làm (P2)**: `X-Span-Priority`, `POST /span/prepare`, depth 2/3.
 - **Không đổi**: form/nhịp/nghỉ, `audioUrl`, `RECAP_REVISION`, `SPAN_REVISION` (chỉ sửa comment ở `audio.py`).
