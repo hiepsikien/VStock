@@ -1,27 +1,10 @@
 # Volume ba bè guitar — Kế hoạch
 
-> **Trạng thái**: đã đối chiếu code và sửa theo review, chưa code.
+> **Trạng thái**: đã đối chiếu code, chưa code.
 >
 > **Đọc cùng**: [`sonify-params-profile-plan.md`](./sonify-params-profile-plan.md), [`musicalize-plan.md`](./musicalize-plan.md), [`sonify-instrument-sets.md`](./sonify-instrument-sets.md).
 >
 > **Mục tiêu**: thêm ba knob cân bằng bè **cao / trung / bass** cho variant `guitar` trong bàn tinh chỉnh, giữ `Default` bất biến, và không đổi kiến trúc render hiện tại.
-
----
-
-## 0. Sửa sau review
-
-| # | Vấn đề | Cách sửa trong doc |
-|---|---|---|
-| 1 | Câu “sau `humanize_score()`” dễ khiến người code đặt call **trong** `if _humanize_on(values):`, làm knob chết khi Humanize = 0 | §4.3 chỉ rõ đặt ngay trước `xml = score_to_musicxml(score)` trong khối `with compose_params(values):` thứ hai, sau `dfi = compute_dfi(...)`; thêm test `humanize = 0, breath = 0` |
-| 2 | Test “DFI không đổi trước/sau balance” sai nghĩa: `_volume()` đọc `event.velocity` | §5.1 đổi thành test **thứ tự pipeline**: DFI lấy trên score trước balance; thêm comment cạnh call |
-| 3 | Thiếu pin số knob `7`; thêm 3 field sẽ đỏ ngay | §5.2 và §7 thêm `params.test.ts:52`, comment “seven knobs” ở `params.ts:6` và `link.ts:19` |
-| 4 | `changedCount()` và `paramSummary()` mâu thuẫn: `paramSummary` được dùng ở danh sách profile, nơi không có `variant` | §4.5 dùng helper `visibleFields(variant)` cho cả hai, và truyền `variant` vào `ProfileTab` |
-| 5 | Rủi ro timbre bị đánh giá thấp: `1.25` đẩy mid/bass vào dải móng và có thể sáng hơn melody | §9 ghi số cụ thể; §5.3 A/B `1.00 / 1.10 / 1.25`; §4.5 thêm hint; fallback cap `68` cho mid/bass nếu tai nghe không đạt |
-| 6 | Chưa có bước xác nhận MuseScore thực sự tôn trọng velocity từng nốt | §5.0 thêm “Bước 0” render `bass=0.75` vs `1.25`, đo RMS/nghe; fail thì dừng, chuyển phương án B |
-| 7 | Câu “file non-default cũ không được tái dùng” quá rộng | §4.4 sửa: profile chỉ khác humanize/breath/color vẫn tái dùng `_nh` / `_nc` / `_nh_nc`; chỉ profile khác các knob khác mới đổi hash |
-| 8 | `_clamp_guitar` ghi “69..79” quá rộng | §4.3 sửa thành **69..73** cho `bach`/`classic`/`torroba`, **69..79** cho ensemble còn lại, và chỉ áp cho attack |
-
-Các nit về line ref, `readLink()`, consumer khác của schema, và ước lượng cũng đã vào §2.3, §4.4, §5.1, §5.2, §7, §9.
 
 ---
 
@@ -65,7 +48,7 @@ Vì vậy ba bè không cần tách mới ở tầng dữ liệu; chúng đã l�
 ### 2.3 Hạ tầng params và tuning drawer đã sẵn
 
 - `backend/app/sonify/params.py:33-120` — schema bảy knob hiện tại.
-- `backend/app/sonify/params.py:405` — `active()`; `compose_params` ở `:409`.
+- `backend/app/sonify/params.py:405` — `active()`; `compose_params` ở `:410`.
 - `backend/app/sonify/dynamics.py:41-65` — `contrast_velocity()` và `apply_contrast()` là tiền lệ scale velocity toàn cục.
 - `backend/app/sonify/render.py:1272` — `apply_contrast(score)` chạy sau frame, trước humanize.
 - `src/musicalize/TuningPanel.tsx:301` — drawer render group/field động từ schema.
@@ -90,7 +73,7 @@ Thêm ba field là mở rộng đúng chỗ, không phải dựng cơ chế mớ
 | 9 | Phạm vi | Chỉ `score.variant == "guitar"`; không áp cho ensemble `guitar` của Minimalist |
 | 10 | Schema | Giữ `SCHEMA_VERSION = 2`; key mới là optional, thiếu thì lấy default |
 | 11 | Cache | Dùng `params_hash` sẵn có; Default vẫn không có hậu tố |
-| 12 | Timbre mid/bass | Giữ range `0.75–1.25`; hint UI khi `> 1.10`; A/B bắt buộc `1.00 / 1.10 / 1.25`; nếu mid/bass lấn melody, fallback ở PR code là cap velocity mid/bass `68` (không đổi range ở doc này) |
+| 12 | Timbre mid/bass | Giữ range `0.75–1.25`; hint UI khi `> 1.10`; A/B bắt buộc `1.00 / 1.10 / 1.25`; **v1 không cap**; chỉ nếu A/B fail mới cap velocity mid/bass `68` (không đổi range ở doc này) |
 
 ---
 
@@ -194,7 +177,7 @@ Các chỗ recompose chỉ để tính DFI (`backend/app/services/dfi.py:223,257
 - Dùng helper đó cho **cả ba** chỗ: render group (`:301`), `changedCount()` (`:71`), và `paramSummary()` (`:74`).
 - `paramSummary()` đang được gọi ở danh sách profile (`:418`) trong `ProfileTab` — component này hiện **không** nhận `variant` (`:338`, render ở `:638`). Phải truyền `variant` từ `TuningPanel` xuống `ProfileTab` và xuống `paramSummary(item.params, variant)`. Nếu chỉ lọc ở group render, profile vẫn báo “3 thay đổi” khi đang nghe Giao hưởng.
 - Thêm hint cho `guitar_mid` / `guitar_bass` khi `> 1.10`: “Dễ lấn melody / vào lớp móng”. Ba slider vẫn dùng `ParamSlider` hiện có.
-- Profile lưu/đổi tên/URL dùng nguyên cơ chế `params.ts`; không đổi logic `link.ts` / `profileStorage.ts`. Chỉ sửa comment “seven knobs” ở `params.ts:6` và `link.ts:19` thành “ten knobs” khi thêm field.
+- Profile lưu/đổi tên/URL dùng nguyên cơ chế `params.ts`; không đổi logic `link.ts` / `profileStorage.ts`. Chỉ sửa comment “seven knobs” ở `params.ts:6`, `link.ts:19`, `src/api/client.ts:558` và `:833` thành “ten knobs” khi thêm field. `docs/sonify-params-profile-plan.md` là doc lịch sử, không sửa.
 
 ---
 
@@ -204,7 +187,7 @@ Các chỗ recompose chỉ để tính DFI (`backend/app/services/dfi.py:223,257
 
 Đây là **điều kiện tiên quyết**, làm trước khi viết pass:
 
-1. Từ **cùng một score** guitar `classic` (hoặc `torroba`), tạo hai MusicXML bằng cách nhân `dynamics` của các nốt `low` với `0.75` và `1.25` (script tạm hoặc sửa tay), rồi export qua `musescore_export`. Chưa cần thêm params vào schema.
+1. Từ **cùng một score** guitar `classic` (hoặc `torroba`), tạo hai bản bằng cách nhân `NoteEvent.velocity` của các nốt trong `score.low` với `0.75` và `1.25` (script tạm), rồi để `score_to_musicxml()` ghi thành thuộc tính `<note dynamics="...">` và export qua `musescore_export`. Chưa cần thêm params vào schema. **Không** đụng `score.dynamics` — đó là danh sách `DynamicEvent`, không phải velocity từng nốt.
 2. Đo RMS/peak hai file (`ffmpeg -af astats` hoặc `waveform_peaks_with_level`) và nghe A/B.
 3. Nếu hai file giống nhau hoặc không nghe khác: MuseScore đang áp `<sound dynamics>` của part đè lên velocity từng nốt. **Dừng**, chuyển thẳng phương án B; không code tiếp pass A.
 4. Nếu khác rõ: ghi lại file/kết quả vào PR rồi mới code.
@@ -225,7 +208,7 @@ Các chỗ recompose chỉ để tính DFI (`backend/app/services/dfi.py:223,257
   - velocity luôn trong `1..127`.
   - tie chain vẫn cùng velocity.
   - `humanize = 0, breath = 0` + `guitar_bass = 0.75` vẫn đổi `low` (không bị gate bởi `if _humanize_on`).
-- **Thứ tự DFI**: `dfi = compute_dfi(score)` lấy trên score **trước** balance. Test snapshot `dfi` rồi assert giá trị đã tính không đổi sau balance. Thêm comment `# must stay after compute_dfi`. Không viết test `compute_dfi(balance(score)) == compute_dfi(score)` — `_volume()` đọc `event.velocity` (`backend/app/sonify/dfi.py:817-841`) nên test đó sẽ đỏ, đúng như thiết kế.
+- **Thứ tự DFI**: `dfi = compute_dfi(score)` lấy trên score **trước** balance. Test end-to-end ở tầng store: dùng exporter giả (như `test_recap`), render cùng spec hai lần chỉ khác `guitar_bass` (`1.0` vs `0.75`), assert `dfi` trong payload **bằng nhau**; chọn score có `window_volumes` đủ để `_volume()` không trả `None`, nếu không test sẽ xanh vô nghĩa. Test này đi qua đúng thứ tự trong `audio.py`; nếu ai đảo balance lên trước `compute_dfi`, `_volume()` đọc `event.velocity` đã đổi (`backend/app/sonify/dfi.py:817-841`) và DFI sẽ khác → đỏ. Thêm comment `# must stay after compute_dfi` cạnh call.
 - `cache_mark()` khác nhau giữa hai mức balance; Default vẫn `""`.
 - `python scripts/gen_params_schema.py --check` xanh.
 
@@ -234,7 +217,7 @@ Các chỗ recompose chỉ để tính DFI (`backend/app/services/dfi.py:223,257
 - `normalizeParams()` điền default cho key mới.
 - `paramsKey()` khớp server.
 - `readLink()` với `p` cũ (thiếu ba key): ba key mới nhận `1.0`, các knob còn lại giữ nguyên giá trị cũ trong link — không phải toàn bộ về Default.
-- `params.test.ts:52` pin số knob `7 → 10`; sửa comment “seven knobs” ở `params.ts:6` và `link.ts:19`.
+- `params.test.ts:52` pin số knob `7 → 10`; sửa comment “seven knobs” ở `params.ts:6`, `link.ts:19`, `src/api/client.ts:558` và `:833`.
 - `TuningPanel` ẩn group `guitar` ở variant khác, hiện ở `guitar`.
 - `changedCount()` và `paramSummary()` dùng `visibleFields(variant)`; `ProfileTab` nhận `variant`, profile summary ở phòng Giao hưởng không đếm knob guitar.
 
@@ -274,7 +257,7 @@ Hệ quả: đổi layout score (ba khuông), đổi `_PARTS_BY_VARIANT`, test M
 | Audio | `backend/app/sonify/audio.py` | Gọi pass ở 2 chỗ trước `score_to_musicxml()` |
 | Sinh schema | `backend/app/sonify/fixtures/params_schema.json`, `src/musicalize/paramsSchema.generated.ts` | Chạy `gen_params_schema.py` |
 | UI | `src/musicalize/TuningPanel.tsx` | `visibleFields(variant)`, hint mid/bass, truyền `variant` vào `ProfileTab` |
-| Test | `backend/tests/test_params.py`, `backend/tests/test_params_cache.py`, test guitar/humanize, `src/musicalize/params.test.ts` | Cập nhật hash; pin `7 → 10` ở `params.test.ts:52`; sửa comment “seven knobs” ở `params.ts:6`, `link.ts:19`; thêm case balance và `humanize = 0` |
+| Test | `backend/tests/test_params.py`, `backend/tests/test_params_cache.py`, test guitar/humanize, `src/musicalize/params.test.ts` | Cập nhật hash; pin `7 → 10` ở `params.test.ts:52`; sửa comment “seven knobs” ở `params.ts:6`, `link.ts:19`, `src/api/client.ts:558` và `:833`; thêm case balance và `humanize = 0` |
 
 Ước lượng: **0.5 ngày cho Bước 0 + nghe thử**, cộng **1–1.5 ngày code**, không gồm nghe thử trên nhiều ensemble.
 
@@ -295,7 +278,7 @@ Hệ quả: đổi layout score (ba khuông), đổi `_PARTS_BY_VARIANT`, test M
 
 | Rủi ro | Mức | Xử lý |
 |---|---|---|
-| Velocity đổi timbre, không phải gain thuần | Trung bình | `1.25` đưa mid `56 → 70`, bass `60 → 75` trong khi melody giữ `64`: mid/bass vào dải móng và có thể sáng hơn melody. A/B `1.00/1.10/1.25`; hint UI; fallback cap `68` cho mid/bass |
+| Velocity đổi timbre, không phải gain thuần | Trung bình | `1.25` đưa mid `56 → 70`, bass `60 → 75` trong khi melody giữ `64`: mid/bass vào dải móng và có thể sáng hơn melody. A/B `1.00/1.10/1.25`; hint UI; **v1 không cap**; chỉ cap `68` cho mid/bass nếu A/B fail |
 | Boost cả ba cùng lúc có thể chạm trần mix | Thấp | Range `1.25`; nghe thử file `.m4a`; nếu cần, thêm limiter cuối ở PR sau |
 | Bass mang giai điệu ở `thumb_cantabile` | Trung bình | Ghi chú trong tài liệu; không có cách tách nếu không đổi pattern |
 | DFI không phản ánh balance | Thấp | Là quyết định có chủ ý: DFI là metric dữ liệu, balance là mix |
