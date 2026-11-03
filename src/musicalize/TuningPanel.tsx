@@ -674,6 +674,27 @@ export function TuningPanel({ baseBpm, variant }: Props) {
     </>
   );
 
+  const drawer = (
+    <Animated.View
+      style={[
+        styles.drawer,
+        {
+          paddingTop: insets.top + 8,
+          paddingBottom: insets.bottom,
+          transform: [{ translateX: drawerX }],
+        },
+      ]}
+    >
+      {content}
+    </Animated.View>
+  );
+
+  // Push mode keeps the chart live: no Modal and no tap-catching layer. The
+  // drawer sits in the reserved gutter, so the chart can still be used.
+  if (wide && width >= 1280) {
+    return rendered ? drawer : null;
+  }
+
   return (
     <Modal
       visible={rendered}
@@ -690,18 +711,7 @@ export function TuningPanel({ baseBpm, variant }: Props) {
           accessibilityLabel="Đóng tinh chỉnh"
         />
         {wide ? (
-          <Animated.View
-            style={[
-              styles.drawer,
-              {
-                paddingTop: insets.top + 8,
-                paddingBottom: insets.bottom,
-                transform: [{ translateX: drawerX }],
-              },
-            ]}
-          >
-            {content}
-          </Animated.View>
+          drawer
         ) : (
           <Animated.View
             style={[
@@ -725,9 +735,9 @@ export function TuningPanel({ baseBpm, variant }: Props) {
 }
 
 /** The trigger lives in the shelf row; it carries the active profile name. */
-export function TuningTrigger() {
+export function TuningTrigger({ available = true }: { available?: boolean } = {}) {
   const { enabled, open, setOpen, profile, dirty } = useTuning();
-  if (!enabled) return null;
+  if (!enabled || !available) return null;
   return (
     <Pressable
       onPress={() => setOpen(!open)}

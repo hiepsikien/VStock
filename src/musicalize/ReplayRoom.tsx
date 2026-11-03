@@ -1817,6 +1817,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
           onReplay={onReplay}
           onMute={() => setMuted((value) => !value)}
           onTimeline={span === '1D' ? onFileScrub : onWorkScrub}
+          tuningBaseBpm={baseBpmFor(variant, ensemble)}
           dfi={activeDfi}
           dfiSignature={activeDfiSignature}
           onDfi={() => setDfiOpen(true)}

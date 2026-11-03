@@ -45,6 +45,8 @@ type ReplayProps = {
   onMute?: () => void;
   onTimeline: (ratio: number) => void;
   status?: string | null;
+  /** The unmodified BPM, so the trigger can hide when no panel can render. */
+  tuningBaseBpm?: number;
   /** Data fidelity of the piece being heard. */
   dfi?: DfiBreakdown | null;
   /** Corpus median for the active genre/ensemble, when the artifact exists. */
@@ -100,6 +102,7 @@ function ReplayControls({
   onMute,
   onTimeline,
   status,
+  tuningBaseBpm,
   dfi = null,
   dfiSignature = null,
   onDfi,
@@ -189,7 +192,7 @@ function ReplayControls({
             {dfiPillText(dfi?.score, dfi?.confidence)}
           </Text>
         </MotionPressable>
-        <TuningTrigger />
+        <TuningTrigger available={tuningBaseBpm != null} />
       </View>
 
       <View style={styles.transport}>

@@ -107,12 +107,21 @@ export function isDefaultParams(params: SonifyParams): boolean {
   return paramsEqual(normalizeParams(params), DEFAULT_PARAMS);
 }
 
-/** Canonical JSON. Rounds to the step before writing, so 0.9600001 is 0.96. */
+function pythonNumber(value: number): string {
+  // Python's json.dumps writes 1.0 for an integral float. The server hashes
+  // this exact text, so the client string must match too.
+  if (Number.isInteger(value)) return `${value}.0`;
+  return String(value);
+}
+
+/** Canonical JSON, byte-identical to the server's `params_key`. */
 export function paramsKey(params: SonifyParams): string {
   const normalized = normalizeParams(params);
-  const sorted: Record<string, number> = {};
-  for (const key of [...PARAM_KEYS].sort()) sorted[key] = normalized[key];
-  return JSON.stringify({ schema: SCHEMA_VERSION, params: sorted });
+  const body = [...PARAM_KEYS]
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${pythonNumber(normalized[key])}`)
+    .join(',');
+  return `{"params":{${body}},"schema":${SCHEMA_VERSION}}`;
 }
 
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
@@ -287,34 +296,16 @@ export function effectiveBpm(baseBpm: number, tempo: number): number {
   return Math.floor(baseBpm * tempo + 0.5);
 }
 
-const GUITAR_BPM: Record<string, number> = {
-  bach: 96,
-  classic: 88,
-  villa: 100,
-  barrios: 120,
-  brouwer: 108,
-  torroba: 96,
-};
+const SCHEMA_BPM = PARAMS_SCHEMA.baseBpm;
 
-/** The unmodified tempo of a line, before the knob. */
+/** The unmodified tempo of a line, before the knob. Comes from the schema. */
 export function baseBpmFor(variant: string, ensemble: string): number {
-  switch (variant) {
-    case 'jazz':
-      return 82;
-    case 'minimalist':
-      return 118;
-    case 'ambient':
-      return 60;
-    case 'guitar':
-      return GUITAR_BPM[ensemble] ?? GUITAR_BPM.classic;
-    default:
-      return 90;
+  const value = SCHEMA_BPM[variant];
+  if (typeof value === 'number') return value;
+  if (value && typeof value === 'object') {
+    return value[ensemble] ?? value.classic ?? 90;
   }
-}
-
-export function formatParam(field: ParamsFieldSchema, value: number): string {
-  const digits = field.step >= 0.01 ? 2 : 2;
-  return `${value.toFixed(digits)}${field.unit}`;
+  return 90;
 }
 
 export function paramValueText(field: ParamsFieldSchema, value: number): string {

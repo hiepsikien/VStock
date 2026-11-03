@@ -558,8 +558,6 @@ export type SonifyMix = {
 /** Old callers pass the two booleans; the room passes the seven knobs. */
 export type SonifyParamsInput = SonifyParams | SonifyMix;
 
-export const MIX_ON: SonifyMix = { humanize: true, color: true };
-
 function coerceParams(input?: SonifyParamsInput): SonifyParams {
   if (!input) return DEFAULT_PARAMS;
   if (typeof (input as SonifyMix).humanize === 'boolean') {

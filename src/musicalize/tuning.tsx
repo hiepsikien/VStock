@@ -159,7 +159,10 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
   );
 
   const revert = useCallback(() => {
-    setParams(profile.params);
+    const next = profile.params;
+    setParams(next);
+    setHeardParams(next);
+    setPreviewNonce((nonce) => nonce + 1);
   }, [profile.params]);
 
   const saveChanges = useCallback(() => {
@@ -219,7 +222,11 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
       if (id === DEFAULT_PROFILE_ID) return;
       const next = resetProfile(store, id);
       setStore(next);
-      if (store.activeId === id) setParams({ ...DEFAULT_PARAMS });
+      if (store.activeId === id) {
+        setParams({ ...DEFAULT_PARAMS });
+        setHeardParams({ ...DEFAULT_PARAMS });
+        setPreviewNonce((nonce) => nonce + 1);
+      }
     },
     [store],
   );

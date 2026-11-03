@@ -85,6 +85,11 @@ equal(
   paramsKey({ ...DEFAULT_PARAMS, tempo: 0.96 }),
   'round before the canonical key',
 );
+equal(
+  paramsKey({ ...DEFAULT_PARAMS, tempo: 0.96 }),
+  '{"params":{"breath":1.0,"color":1.0,"density":1.0,"dynamics":1.0,"humanize":1.0,"noise":1.0,"tempo":0.96},"schema":1}',
+  'canonical text matches the server',
+);
 
 let threw = false;
 try {
