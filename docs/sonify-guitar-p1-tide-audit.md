@@ -10,7 +10,7 @@ P1 (`_written_deviations`) đo phân vị 1%/99% của `V_written - 64` theo wav
 
 A/B trên cùng một movement:
 
-- **Before**: code trước bản sửa, P1 trim cả `d_lo` và `d_hi`.
+- **Before**: code trước bản sửa, P1 trim cả `d_lo` và `d_hi`. Tái lập bằng `scripts/p1_audit.py <out> --mode before`.
 - **Baseline**: `_written_deviations` trả `{}`, tức dùng `d_lo/d_hi` gốc của profile.
 - Sau bản sửa, chạy lại A/B với **Baseline**: phần trần phải trùng baseline, phần đáy chỉ khác ở các row có `d_lo` được trim.
 - `humanize=False` để cô lập sóng; sau đó so từng nốt theo `(part, bar, beat, midi)`.
@@ -62,7 +62,7 @@ Cả ba bè dùng chung một center và một soft-knee, nên P1 dời đều c
 
 ### 3.3. Hệ quả
 
-- `tremolo` là row duy nhất có tide trần tăng đáng kể: `c_hi` từ `v_ceil - 8` lên `v_ceil - 4` (có wave +6 nên một số bar +2, có wave +4 nên +4).
+- `tremolo` là row duy nhất có tide trần tăng đáng kể: trung vị `c_hi` tăng **+2**, lớn nhất **+4** (các wave đo `d_hi ≈ +6`, nên `c_hi` lên `v_ceil - 6`; wave viết hẹp hơn lên `v_ceil - 4`).
 - Với Barrios movement 4, `c_hi` hiện tại là 59 thay vì 55; các bar to của thumb tăng +2 đến +4. Đây đúng là hiện tượng “bass tremolo hơi to hơn cần thiết”.
 - `etude11` chỉ +1, nghe nhẹ hơn nhưng cùng cơ chế.
 
@@ -82,8 +82,14 @@ Hướng này:
 - Không cần ngoại lệ riêng cho `tremolo` hay `_OWN_CONTOUR`; quy tắc là toàn cục, nên pattern mới không tái phạm.
 - Nếu một pattern thật sự cần trần thấp hơn, sửa `ceil_calm/ceil_wide` hoặc `d_hi` trong `PROFILES` và nghe lại.
 
+## 5. Bass −2 sau P1
+
+P1 trả đỉnh tremolo về profile, nhưng tai vẫn nghe thumb quá to. Đây là vấn đề cân bằng nhạc, không phải P1: `TREMOLO_BASS_TRIM = 2` hạ `low` và nốt màu `support` hai bậc **sau** `_apply_snaps` / `_apply_stabs` và trước `_sync_ties`. Đặt sau snap vì đỉnh thumb bị `_apply_snaps` ghi lại. Lead fill giữ nguyên, nên giai điệu tách khỏi bass thêm 2 bậc. Chi tiết ở `docs/sonify-barrios-tremolo-dynamics.md`.
+
+Vì vậy nếu chạy `p1_audit.py` trên HEAD, cột note delta của `tremolo` `low`/`support` sẽ là **-2**; đó là trim nhạc có chủ đích, không phải P1. Cột `Δc_hi` vẫn phải là 0.
+
 Nghiệm thu:
 
 - `tests/test_guitar_wave.py::test_p1_keeps_the_profiles_upper_headroom_on_every_row` quét cả 38 row.
-- Re-run `backend/scripts/p1_audit.py` sau bản sửa: Δc_hi = 0 ở **cả 30 pattern**; `tremolo` và `etude11` trở về đúng profile (note delta 0,0). Các row có `d_lo` được trim chỉ đổi ở phía yên tĩnh, mean ≤ 0,63 bậc và max 0.
-- Barrios movement 4: bass peak của bar 42 trở lại `45, 51, 55` (trước sửa `49, 55, 59`), bar 76 trở lại `50, 52, 69, 58, 53` (trước sửa `54, 56, 69, 61, 59`).
+- Re-run `backend/scripts/p1_audit.py` sau bản sửa P1 (trước trim bass −2): Δc_hi = 0 ở **cả 30 pattern**; `tremolo` và `etude11` trở về đúng profile (note delta 0,0). Các row có `d_lo` được trim chỉ đổi ở phía yên tĩnh, mean ≤ 0,63 bậc và max 0.
+- Barrios movement 4, sau P1: bass bar 42 là `45, 51, 55` (trước sửa `49, 55, 59`); bar 76 là `50, 52, 69, 58, 53` (trước sửa `54, 56, 69, 61, 59`). Sau thêm `TREMOLO_BASS_TRIM`: bar 42 `44, 49, 53`; bar 76 `48, 48, 52, 64, 56, 53`.

@@ -2,11 +2,12 @@
 
 Usage (from backend/):
   .venv/bin/python scripts/p1_audit.py tmp/p1_audit.json
+  .venv/bin/python scripts/p1_audit.py tmp/p1_before.json --mode before
 
-Compares the finished score with P1 trim (current) and without it (profile
-bounds: d_lo/d_hi from `PROFILES`) for the same movement.  It records, per
-musical pattern and voice, how much the wave moved each note and how much the
-tide top (`c_hi`) changed.  See `docs/sonify-guitar-p1-tide-audit.md`.
+Compares the finished score with P1 trim and without it (profile bounds:
+d_lo/d_hi from `PROFILES`) for the same movement.  `--mode before` restores
+the old upper trim (`min(profile.d_hi, measured 99th)`) so the historical
+table in `docs/sonify-guitar-p1-tide-audit.md` can be reproduced from HEAD.
 
 The script fetches live OHLC when the local store is cold, so the numbers
 depend on the data date.  It is diagnostic only; it does not change code or
@@ -15,12 +16,14 @@ the audio cache.
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 import statistics
 import sys
 from collections import defaultdict
 from contextlib import contextmanager
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 sys.path[:0] = [str(Path(__file__).resolve().parents[1])]
@@ -30,7 +33,6 @@ from app.services.spans import plan_span
 from app.sonify import guitar_patterns as GP
 from app.sonify import guitar_wave as GW
 
-OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("tmp/p1_audit.json")
 CASES = [
     ("AAA", "1M"),
     ("ACB", "1M"),
@@ -39,6 +41,14 @@ CASES = [
 ]
 ENSEMBLES = ["classic", "bach", "barrios", "villa", "brouwer", "torroba"]
 PARTS = ("high", "lead", "support", "comp", "low")
+
+
+@dataclass
+class Run:
+    score: object
+    captured: dict
+    deviations: dict
+    waves: dict
 
 
 @contextmanager
@@ -57,6 +67,62 @@ def capture_guitar():
         yield captured
     finally:
         GP._patterns = original_patterns
+
+
+def run_score(symbol, span, index, movement, ensemble, *, mode: str) -> Run:
+    """Render one movement.
+
+    `mode` is `current`, `before`, or `none`. `none` is the profile baseline;
+    `before` applies the old `min(profile.d_hi, measured 99th)` trim.
+    """
+    captured: dict = {}
+    deviations: dict = {}
+    waves: dict = {}
+    original_dev = GW._written_deviations
+    original_wave = GW._make_wave
+
+    def dev(ctx, voices, patterns, pedal):
+        found = original_dev(ctx, voices, patterns, pedal)
+        deviations.update(found)
+        return {} if mode == "none" else found
+
+    def wave(ctx, volumes, section, start, end, pattern, profile, span_, deviation=None, piece_median=None):
+        if mode == "before" and deviation is not None:
+            d_lo = max(profile.d_lo, deviation.d_lo)
+            d_hi = min(profile.d_hi, deviation.d_hi_diagnostic)
+            if d_hi < d_lo:
+                d_hi = d_lo
+            trimmed = replace(profile, d_lo=d_lo, d_hi=d_hi)
+            made = original_wave(
+                ctx, volumes, section, start, end, pattern, trimmed, span_, None, piece_median
+            )
+        else:
+            made = original_wave(
+                ctx, volumes, section, start, end, pattern, profile, span_, deviation, piece_median
+            )
+        waves[(start, end, pattern, made.span_start, made.span_end)] = {
+            "c_lo": made.c_lo,
+            "c_hi": made.c_hi,
+            "v_floor": made.v_floor,
+            "v_ceil": made.v_ceil,
+            "gain": made.gain,
+            "deviation": None
+            if deviation is None
+            else (deviation.d_lo, deviation.d_hi_diagnostic),
+        }
+        return made
+
+    GW._written_deviations = dev
+    GW._make_wave = wave
+    try:
+        with capture_guitar() as captured:
+            score = dfi_service._movement_score(
+                symbol, span, index, movement, "guitar", ensemble, humanize=False
+            )
+    finally:
+        GW._written_deviations = original_dev
+        GW._make_wave = original_wave
+    return Run(score, captured, deviations, waves)
 
 
 def note_map(score):
@@ -85,88 +151,29 @@ def velocity_stats(values):
     }
 
 
-async def audit_case(symbol, span, ensemble, results):
+def dev_limits(ensemble: str, deviations: dict) -> dict[str, int]:
+    limits: dict[str, int] = {}
+    for row in deviations:
+        profile = GW.profile_for(ensemble, row)
+        if profile is not None:
+            limits[row] = profile.d_hi
+    return limits
+
+
+async def audit_case(symbol, span, ensemble, mode, results):
     plan = await plan_span(symbol, span, variant="guitar", ensemble=ensemble)
     for index, movement in enumerate(plan.movements):
-        # New: current P1 trim.
-        captured_new: dict = {}
-        dev_new: dict = {}
-        waves_new: dict = {}
+        new = run_score(symbol, span, index, movement, ensemble, mode=mode)
+        old = run_score(symbol, span, index, movement, ensemble, mode="none")
 
-        original_dev = GW._written_deviations
-        original_wave = GW._make_wave
-
-        def dev(ctx, voices, patterns, pedal):
-            found = original_dev(ctx, voices, patterns, pedal)
-            dev_new.update(found)
-            return found
-
-        def wave(ctx, volumes, section, start, end, pattern, profile, span_, deviation=None, piece_median=None):
-            made = original_wave(
-                ctx, volumes, section, start, end, pattern, profile, span_, deviation, piece_median
-            )
-            waves_new[(start, end, pattern, made.span_start, made.span_end)] = {
-                "c_lo": made.c_lo,
-                "c_hi": made.c_hi,
-                "v_floor": made.v_floor,
-                "v_ceil": made.v_ceil,
-                "gain": made.gain,
-                "deviation": deviation,
-            }
-            return made
-
-        GW._written_deviations = dev
-        GW._make_wave = wave
-        try:
-            with capture_guitar() as cap_new:
-                score_new = dfi_service._movement_score(
-                    symbol, span, index, movement, "guitar", ensemble, humanize=False
-                )
-        finally:
-            GW._written_deviations = original_dev
-            GW._make_wave = original_wave
-
-        # Old: no P1 trim.
-        captured_old: dict = {}
-        waves_old: dict = {}
-
-        def dev_old(ctx, voices, patterns, pedal):
-            return {}
-
-        def wave_old(ctx, volumes, section, start, end, pattern, profile, span_, deviation=None, piece_median=None):
-            made = original_wave(
-                ctx, volumes, section, start, end, pattern, profile, span_, deviation, piece_median
-            )
-            waves_old[(start, end, pattern, made.span_start, made.span_end)] = {
-                "c_lo": made.c_lo,
-                "c_hi": made.c_hi,
-                "v_floor": made.v_floor,
-                "v_ceil": made.v_ceil,
-                "gain": made.gain,
-                "deviation": deviation,
-            }
-            return made
-
-        GW._written_deviations = dev_old
-        GW._make_wave = wave_old
-        try:
-            with capture_guitar() as cap_old:
-                score_old = dfi_service._movement_score(
-                    symbol, span, index, movement, "guitar", ensemble, humanize=False
-                )
-        finally:
-            GW._written_deviations = original_dev
-            GW._make_wave = original_wave
-
-        ctx = cap_new.get("ctx")
-        patterns = cap_new.get("patterns") or []
+        ctx = new.captured.get("ctx")
+        patterns = new.captured.get("patterns") or []
         if ctx is None:
             continue
-        new_notes = note_map(score_new)
-        old_notes = note_map(score_old)
+        new_notes = note_map(new.score)
+        old_notes = note_map(old.score)
         common = sorted(set(new_notes) & set(old_notes))
 
-        # Per-pattern and per-voice deltas.
         per_voice: dict[tuple[str, str], list[int]] = defaultdict(list)
         per_voice_new: dict[tuple[str, str], list[int]] = defaultdict(list)
         per_voice_old: dict[tuple[str, str], list[int]] = defaultdict(list)
@@ -178,11 +185,10 @@ async def audit_case(symbol, span, ensemble, results):
             per_voice_new[(pattern, part)].append(new_notes[key])
             per_voice_old[(pattern, part)].append(old_notes[key])
 
-        # Wave-bound deltas.
         wave_rows = []
-        for key in sorted(set(waves_new) & set(waves_old)):
-            n = waves_new[key]
-            o = waves_old[key]
+        for key in sorted(set(new.waves) & set(old.waves)):
+            n = new.waves[key]
+            o = old.waves[key]
             wave_rows.append(
                 {
                     "wave": key,
@@ -203,8 +209,12 @@ async def audit_case(symbol, span, ensemble, results):
                 "span": span,
                 "ensemble": ensemble,
                 "movement": index,
-                "bars": score_new.bars,
-                "deviations": dev_new,
+                "bars": new.score.bars,
+                "deviations": {
+                    row: (value.d_lo, value.d_hi_diagnostic)
+                    for row, value in new.deviations.items()
+                },
+                "dev_limits": dev_limits(ensemble, new.deviations),
                 "waves": wave_rows,
                 "per_voice": {
                     f"{pattern}|{part}": {
@@ -220,22 +230,27 @@ async def audit_case(symbol, span, ensemble, results):
 
 
 def summarize(results):
-    # Aggregate per pattern/voice.
     agg: dict[tuple[str, str], dict] = defaultdict(lambda: {"delta": [], "new": [], "old": []})
-    dev_rows: dict[str, list[tuple[float, float]]] = defaultdict(list)
+    dev_rows: dict[str, list[tuple[float, float, int]]] = defaultdict(list)
     wave_hi: dict[str, list[float]] = defaultdict(list)
     for item in results:
         for key, stats in item["per_voice"].items():
             pattern, part = key.split("|", 1)
-            # Reconstruct all deltas from stats is impossible; aggregate means
-            # with a weighted sum instead.
             n = stats["delta"].get("n", 0)
             if n:
-                agg[(pattern, part)]["delta"].append((n, stats["delta"]["mean"], stats["delta"]["max"]))
-                agg[(pattern, part)]["new"].append((n, stats["new"]["mean"], stats["new"]["max"]))
-                agg[(pattern, part)]["old"].append((n, stats["old"]["mean"], stats["old"]["max"]))
+                agg[(pattern, part)]["delta"].append(
+                    (n, stats["delta"]["mean"], stats["delta"]["max"])
+                )
+                agg[(pattern, part)]["new"].append(
+                    (n, stats["new"]["mean"], stats["new"]["max"])
+                )
+                agg[(pattern, part)]["old"].append(
+                    (n, stats["old"]["mean"], stats["old"]["max"])
+                )
         for row, (lo, hi) in item["deviations"].items():
-            dev_rows[row].append((lo, hi))
+            limit = item["dev_limits"].get(row)
+            if limit is not None:
+                dev_rows[row].append((lo, hi, limit))
         for wave in item["waves"]:
             pattern = wave["wave"][2]
             wave_hi[pattern].append(wave["d_c_hi"])
@@ -244,7 +259,10 @@ def summarize(results):
     print("| pattern | waves | mean Δc_hi | max Δc_hi |")
     print("|---|---:|---:|---:|")
     for pattern, values in sorted(wave_hi.items(), key=lambda kv: -statistics.mean(kv[1])):
-        print(f"| `{pattern}` | {len(values)} | {statistics.mean(values):+.2f} | {max(values):+.2f} |")
+        print(
+            f"| `{pattern}` | {len(values)} | "
+            f"{statistics.mean(values):+.2f} | {max(values):+.2f} |"
+        )
 
     print("\n## Note delta by pattern and voice (weighted)")
     print("| pattern | voice | notes | mean Δ | max Δ | mean new | max new | mean old | max old |")
@@ -254,6 +272,7 @@ def summarize(results):
         def weighted(items, index):
             total = sum(item[0] for item in items)
             return None if not total else sum(item[0] * item[index] for item in items) / total
+
         n = sum(item[0] for item in buckets["delta"])
         rows.append(
             (
@@ -276,27 +295,38 @@ def summarize(results):
         )
 
     print("\n## Measured deviations by row")
-    print("| row | samples | d_lo | d_hi | rows where d_hi < 8 |")
-    print("|---|---:|---:|---:|---:|")
+    print("| row | samples | profile d_hi | d_lo | d_hi | samples below profile |")
+    print("|---|---:|---:|---:|---:|---:|")
     for row, values in sorted(dev_rows.items()):
         lo = statistics.median(v[0] for v in values)
         hi = statistics.median(v[1] for v in values)
-        trimmed = sum(1 for _, h in values if h < 8)
-        print(f"| `{row}` | {len(values)} | {lo:+.0f} | {hi:+.0f} | {trimmed} |")
+        limit = statistics.median(v[2] for v in values)
+        trimmed = sum(1 for _, h, cap in values if h < cap)
+        print(f"| `{row}` | {len(values)} | {limit:+.0f} | {lo:+.0f} | {hi:+.0f} | {trimmed} |")
 
 
 async def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("output", nargs="?", default="tmp/p1_audit.json")
+    parser.add_argument(
+        "--mode",
+        choices=("current", "before"),
+        default="current",
+        help="current = trim d_lo only; before = old trim of both tails",
+    )
+    args = parser.parse_args()
     results = []
     for symbol, span in CASES:
         for ensemble in ENSEMBLES:
             try:
-                await audit_case(symbol, span, ensemble, results)
+                await audit_case(symbol, span, ensemble, args.mode, results)
             except Exception as error:  # noqa: BLE001
                 print(f"skip {symbol} {span} {ensemble}: {error}", file=sys.stderr)
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    out = Path(args.output)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(results, indent=2), encoding="utf-8")
     summarize(results)
-    print(f"\nwrote {OUT}")
+    print(f"\nwrote {out}")
 
 
 if __name__ == "__main__":

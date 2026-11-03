@@ -9,6 +9,8 @@ from __future__ import annotations
 import math
 from dataclasses import replace
 
+import pytest
+
 from app.sonify.chords import C
 from app.sonify.form import FormSection
 from app.sonify.guitar_patterns import _Ctx, _shape_dynamics
@@ -21,6 +23,7 @@ from app.sonify.guitar_wave import (
     alpha_volume,
     _is_target,
     _joined_floor,
+    _apply_tremolo_bass_trim,
     _limit_steps,
     _make_wave,
     _place_centers,
@@ -28,6 +31,7 @@ from app.sonify.guitar_wave import (
     _section_anchor,
     _wave_profile,
     _written_deviations,
+    WrittenDeviation,
     apply_guitar_wave,
     fit_intro,
     fit_outro,
@@ -374,7 +378,9 @@ def test_same_bar_differences_follow_one_rounded_center() -> None:
     ordered = sorted(heard_low, key=lambda note: note.beat)
     assert [ordered[index].velocity - ordered[0].velocity for index in range(4)] == [0, 4, 8, 5]
     first = sorted((note for note in heard_lead if note.beat < 1), key=lambda note: note.beat)
-    assert [note.velocity - ordered[0].velocity for note in first] == [-6, -3, -4, -6]
+    # The tremolo body sits `TREMOLO_BASS_TRIM` under the lead; the fill keeps
+    # its written offsets, so the lead-to-thumb gap narrows by two steps.
+    assert [note.velocity - ordered[0].velocity for note in first] == [-4, -1, -2, -4]
 
     etude = _ctx(ensemble="villa", bars=1, volumes=[4.0], phrases=(flat,), sections=(section,), spans={0: 0.0})
     sung = [_note(0, 1.75, 60, midi=67, duration=0.5), _note(0, 2.25, 60, midi=72, duration=1.0)]
@@ -1512,7 +1518,7 @@ def test_p1_keeps_the_profiles_upper_headroom_on_every_row() -> None:
             rel_span=0.03,
             spans={0: 0.03},
         )
-        measured = (profile.d_lo, profile.d_hi - 4)
+        measured = WrittenDeviation(profile.d_lo, profile.d_hi - 4)
         wave = _make_wave(
             ctx,
             [4.0] * bars,
@@ -1524,7 +1530,100 @@ def test_p1_keeps_the_profiles_upper_headroom_on_every_row() -> None:
             (0, 0),
             measured,
         )
-        assert wave.c_hi == wave.v_ceil - profile.d_hi, (ensemble, pattern)
+        assert wave.c_hi == pytest.approx(wave.v_ceil - profile.d_hi), (ensemble, pattern)
+
+        # The lower half of P1 must still work end-to-end. Compare the wave
+        # built from a profile trimmed at `d_lo` with the one built from the
+        # measured lower tail. `MAX_TIDE` and rounding affect both equally.
+        trimmed = profile.d_lo + 6
+        reference = _make_wave(
+            ctx,
+            [4.0] * bars,
+            ctx.sections[0],
+            0,
+            bars,
+            pattern,
+            replace(profile, d_lo=trimmed),
+            (0, 0),
+            None,
+        )
+        got = _make_wave(
+            ctx,
+            [4.0] * bars,
+            ctx.sections[0],
+            0,
+            bars,
+            pattern,
+            profile,
+            (0, 0),
+            WrittenDeviation(trimmed, profile.d_hi - 4),
+        )
+        assert (got.c_lo, got.c_hi) == pytest.approx((reference.c_lo, reference.c_hi))
+
+
+def test_p1_clamps_a_high_lower_trim_at_the_profile_top() -> None:
+    """A measured 1% above `d_hi` must not raise `c_hi` or invert the window."""
+    profile = profile_for("classic", "cantabile")
+    assert profile is not None
+    bars = 1
+    phrase = Phrase(0, _EPB, (Run(0, _EPB, 64),))
+    ctx = _ctx(
+        ensemble="classic",
+        bars=bars,
+        volumes=[4.0],
+        phrases=(phrase,),
+        sections=(FormSection(0, bars, "phrase", 0),),
+        spans={0: 0.0},
+    )
+    wave = _make_wave(
+        ctx,
+        [4.0],
+        ctx.sections[0],
+        0,
+        bars,
+        "cantabile",
+        profile,
+        (0, 0),
+        WrittenDeviation(profile.d_hi + 2, 0),
+    )
+    reference = _make_wave(
+        ctx,
+        [4.0],
+        ctx.sections[0],
+        0,
+        bars,
+        "cantabile",
+        replace(profile, d_lo=profile.d_hi),
+        (0, 0),
+        None,
+    )
+    assert (wave.c_lo, wave.c_hi) == pytest.approx((reference.c_lo, reference.c_hi))
+    assert wave.c_hi <= wave.v_ceil - profile.d_hi + 1e-9
+
+
+def test_barrios_tremolo_body_drops_two_after_the_wave() -> None:
+    """The thumb and its colour sit two under the lead; other patterns do not."""
+    bars = 1
+    phrase = Phrase(0, _EPB, (Run(0, _EPB, 64),))
+    ctx = _ctx(
+        ensemble="barrios",
+        bars=bars,
+        volumes=[4.0],
+        phrases=(phrase,),
+        sections=(FormSection(0, bars, "phrase", 0),),
+        spans={0: 0.0},
+    )
+    lead = [_note(0, 0.0, 60, midi=72)]
+    support = [_note(0, 0.0, 60, midi=55, voice=2)]
+    low = [_note(0, 0.0, 60, midi=45, voice=3), _note(0, 1.0, 60, midi=45, voice=3)]
+    _apply_tremolo_bass_trim(ctx, low, support, ["tremolo"])
+    assert [note.velocity for note in low] == [58, 58]
+    assert support[0].velocity == 58
+    assert lead[0].velocity == 60
+
+    other = [_note(0, 0.0, 60, midi=45, voice=3)]
+    _apply_tremolo_bass_trim(ctx, other, [], ["study"])
+    assert other[0].velocity == 60
 
 
 def test_max_tide_caps_a_trimmed_deviation() -> None:

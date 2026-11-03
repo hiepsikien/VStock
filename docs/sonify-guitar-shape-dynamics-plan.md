@@ -318,7 +318,7 @@ Mỗi thay đổi nghe tối thiểu:
 ## 7. Thứ tự thực hiện
 
 1. **P0 + P2 + test + đo** — 1–2 ngày, rủi ro thấp, gần như chắc chắn nghe khác rõ.
-2. **P1 (d_lo/d_hi theo pattern)** — đo phân vị, cập nhật bảng, nghe lại từng ensemble.
+2. **P1 (d_lo theo pattern, d_hi giữ profile)** — đo phân vị đáy, cập nhật bảng, nghe lại từng ensemble.
 3. **P3 (anchor + seam)** — thay đổi kiến trúc nhỏ, cần nghe kỹ transition.
 4. **P4 (hợp nhất phrase)** — sửa coverage `danza`/`preludio`/`bach_prelude`.
 5. **P5, P7** — dọn dẹp.
