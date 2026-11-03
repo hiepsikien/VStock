@@ -22,6 +22,7 @@ from app.sonify.guitar_wave import (
     _is_target,
     _joined_floor,
     _limit_steps,
+    _make_wave,
     _place_centers,
     _phrase_breath,
     _section_anchor,
@@ -1489,6 +1490,41 @@ def test_written_deviations_keeps_the_profile_under_24_attacks() -> None:
     assert _written_deviations(ctx, voices, ["cantabile"], set()) == {
         "cantabile": (0, 0)
     }
+
+
+def test_p1_keeps_the_profiles_upper_headroom_on_every_row() -> None:
+    """The upper tail is a profile guard, not a per-piece measurement.
+
+    A low measured 99th percentile must not lower `d_hi`. The profile's value
+    is the room the loudest written note needs under the timbre ceiling; if the
+    wave trims it, every common note rises and one voice can saturate before
+    the others.
+    """
+    bars = 4
+    phrase = _phrase_over(bars, bars // 2)
+    for (ensemble, pattern), profile in PROFILES.items():
+        ctx = _ctx(
+            ensemble=ensemble,
+            bars=bars,
+            volumes=[4.0] * bars,
+            phrases=(phrase,),
+            sections=(FormSection(0, bars, "phrase", 0),),
+            rel_span=0.03,
+            spans={0: 0.03},
+        )
+        measured = (profile.d_lo, profile.d_hi - 4)
+        wave = _make_wave(
+            ctx,
+            [4.0] * bars,
+            ctx.sections[0],
+            0,
+            bars,
+            pattern,
+            profile,
+            (0, 0),
+            measured,
+        )
+        assert wave.c_hi == wave.v_ceil - profile.d_hi, (ensemble, pattern)
 
 
 def test_max_tide_caps_a_trimmed_deviation() -> None:

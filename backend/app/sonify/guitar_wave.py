@@ -686,13 +686,17 @@ _CASTILLOS_WAVES = frozenset({"torroba_tremolo", "alcaniz", "olite"})
 def _written_deviations(ctx, voices, patterns: list[str], pedal: set[int]) -> dict[str, tuple[int, int]]:
     """P1: the 1st/99th percentile of `V_written - 64` per wave row.
 
-    A pattern that only writes 56..72 does not need the global -16/+8 window.
-    Trimming the unused tails frees room for the tide without moving any note
-    that the writer actually uses. Rows with fewer than 24 attacks keep the
-    profile default so a tiny section cannot invent a narrow window. The 1%/99%
-    tails are outside the measured band and may be clamped by the tide. All
-    three voices share one bucket, so a low bass usually keeps `d_lo` negative;
-    the trim mostly frees the upper tail.
+    Only the lower percentile is applied by `_make_wave`. The upper tail stays
+    at the profile's `d_hi`: that value is the headroom which keeps the loudest
+    written note under the timbre ceiling. Trimming it raises every common note
+    in the row, and one voice reaches the ceiling before the others, so the
+    balance changes even though every voice moved by the same center. A pattern
+    that really wants a lower top must say so in `PROFILES`, not infer it from
+    the current piece.
+
+    Rows with fewer than 24 attacks keep the profile default so a tiny section
+    cannot invent a narrow window. The 1%/99% tails are outside the measured
+    band and may be clamped by the tide. All three voices share one bucket.
     """
     from app.sonify.guitar_torroba import castillos_wave_row
 
@@ -725,8 +729,15 @@ def _written_deviations(ctx, voices, patterns: list[str], pedal: set[int]) -> di
 def _make_wave(ctx, volumes, section, start: int, end: int, pattern: str, profile: PatternWaveProfile, span: tuple[int, int], deviation: tuple[int, int] | None = None, piece_median: float | None = None) -> _Wave:
     base_profile = profile
     if deviation is not None:
+        # P1 trims only the unused lower tail. The upper tail is not a
+        # measured value: `d_hi` is the profile's headroom to the timbre
+        # ceiling. Lowering it lifts every common note in the row and lets one
+        # voice saturate before the others, which changes the balance. The
+        # audit in `docs/sonify-guitar-p1-tide-audit.md` found this only on
+        # `tremolo` and `etude11`, but the rule is global so a new pattern
+        # cannot regress the same way.
         d_lo = max(profile.d_lo, deviation[0])
-        d_hi = min(profile.d_hi, deviation[1])
+        d_hi = profile.d_hi
         if d_hi < d_lo:
             d_hi = d_lo
         profile = replace(profile, d_lo=d_lo, d_hi=d_hi)
