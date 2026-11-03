@@ -163,6 +163,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
   );
   const {
     heardParams,
+    draftDirty,
     savedDirty,
     playNonce,
     requestPlay,
@@ -1087,7 +1088,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
 
   const onPlay = useCallback(() => {
     if (composing || finished) return;
-    if (savedDirty) {
+    if (draftDirty || savedDirty) {
       requestPlay();
       return;
     }
@@ -1107,6 +1108,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
   }, [
     beginRest,
     composing,
+    draftDirty,
     finished,
     index,
     listen,
@@ -1131,7 +1133,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
   }, [clearRest, composing]);
 
   const onReplay = useCallback(() => {
-    if (savedDirty) {
+    if (draftDirty || savedDirty) {
       requestPlay();
       return;
     }
@@ -1172,6 +1174,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
     jumpToMovement(0, 0, true);
   }, [
     clearRest,
+    draftDirty,
     finished,
     index,
     issueSeek,

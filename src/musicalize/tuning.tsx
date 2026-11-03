@@ -46,6 +46,8 @@ type TuningValue = {
   heardParams: SonifyParams;
   /** Draft differs from the active profile's saved values. */
   dirty: boolean;
+  /** Draft differs from the last saved/selected config. */
+  draftDirty: boolean;
   /** Saved params differ from what is currently heard. */
   savedDirty: boolean;
   /** Bumped only when Play asks for the latest saved params. */
@@ -137,6 +139,7 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
 
   const profile = activeProfile(store);
   const dirty = !paramsEqual(params, profile.params);
+  const draftDirty = !paramsEqual(params, savedParams);
   const savedDirty = !paramsEqual(savedParams, heardParams);
 
   const setParam = useCallback((key: string, value: number) => {
@@ -157,9 +160,27 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
   );
 
   const requestPlay = useCallback(() => {
-    setHeardParams(savedParams);
+    let next = savedParams;
+    if (!paramsEqual(params, savedParams)) {
+      // Auto-save the draft before Play. Default is immutable, so it becomes
+      // a named copy, exactly like the Save button.
+      const shaped = normalizeParams(params);
+      if (profile.id === DEFAULT_PROFILE_ID) {
+        const created = createProfile(store, 'Bản của tôi', shaped);
+        setStore(created.store);
+        setParams(created.profile.params);
+        setSavedParams(created.profile.params);
+        next = created.profile.params;
+      } else {
+        setStore(updateProfileParams(store, profile.id, shaped));
+        setParams(shaped);
+        setSavedParams(shaped);
+        next = shaped;
+      }
+    }
+    setHeardParams(next);
     setPlayNonce((nonce) => nonce + 1);
-  }, [savedParams]);
+  }, [params, profile.id, savedParams, store]);
 
   const revert = useCallback(() => {
     const next = profile.params;
@@ -259,6 +280,7 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
       savedParams,
       heardParams,
       dirty,
+      draftDirty,
       savedDirty,
       playNonce,
       setParam,
@@ -277,6 +299,7 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
     [
       addProfile,
       dirty,
+      draftDirty,
       duplicate,
       enabled,
       exportProfiles,

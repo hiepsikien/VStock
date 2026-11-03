@@ -33,7 +33,7 @@ Các điểm “nên sửa” còn lại đã vào §3.1–§3.7, §5, §6.3, §
 | # | Quyết định |
 |---|---|
 | 1 | V1 chỉ làm **tầng A** — parameter an toàn, hiệu quả cao. Tầng B (form, harmony, register) và tầng C (thuật toán guitar, trọng số Viterbi) để sau. |
-| 2 | Hành vi hiện tại được lưu nguyên vẹn thành **`Default` profile**. Default là mốc so sánh và không được âm thầm đổi tiếng. |
+| 2 | Hành vi hiện tại được lưu nguyên vẹn thành **`Default` profile**; score/MusicXML của Default phải bất biến. Audio Default đổi **một lần, có chủ ý** ở revision 80 khi `noise` chuyển sang % tuyệt đối và có bed trên cả 5 variant; đây là thay đổi được ghi nhận, không phải drift âm thầm. |
 | 3 | Profile có **tên**, tạo được, **đổi tên** được, nhân bản, xoá, reset. |
 | 4 | UI mở thành **drawer từ cạnh phải** trên màn rộng và **sheet từ dưới lên** trên điện thoại. Không mở inline để không đẩy chart và không bắt người dùng scroll. Chi tiết ở §8. |
 | 5 | **Chưa cần auth**. V1 chưa có profile server theo user. |
@@ -628,6 +628,7 @@ Hành vi:
 - `Reset` bỏ thay đổi chưa lưu, quay draft về profile đang chọn.
 - `Lưu` ghi draft vào profile; không phát lại, không dừng audio đang chạy.
 - Nút Play bên ngoài dùng profile đã lưu mới nhất: params giống bản đang nghe thì dùng lại cache, khác thì soạn bản mới.
+- Nếu draft đang khác profile, Play tự lưu draft trước (Default sẽ thành bản sao có tên), rồi phát cấu hình đó.
 - Hiển thị BPM suy ra cạnh `Nhịp` (ví dụ `1.00× · 90 BPM`); guitar dưới 90 BPM hiện ghi chú “dưới ngưỡng tremolo”.
 - Cảnh báo mềm `humanize > 1.1`, `breath > 1.2`, không chặn.
 - Haptic nhẹ khi chạm mốc (`expo-haptics` đã có), không rung liên tục khi kéo.
@@ -787,7 +788,7 @@ UI:
 - Mỗi slider có nút `−`/`+` hai đầu, nhảy đúng step và disable ở biên.
 - Kéo slider hoặc bấm `−/+` chỉ đổi draft; không render, không đổi URL.
 - `Lưu` ghi draft vào profile, không phát lại; `Reset` bỏ draft về profile đang chọn.
-- Nút Play bên ngoài dùng profile đã lưu mới nhất; params không đổi thì dùng cache cũ, đổi thì soạn bản mới.
+- Nút Play bên ngoài dùng profile đã lưu mới nhất; nếu draft chưa lưu, Play tự lưu draft trước; params không đổi thì dùng cache cũ, đổi thì soạn bản mới.
 - Chọn profile không tự phát; không còn nút “Nghe bản này” hay “Dùng profile này”.
 - Slider có role `adjustable`, arrow keys hoạt động.
 
@@ -795,7 +796,7 @@ UI:
 
 **Backend (V1 bắt buộc)**
 
-1. Default cho ra score/MusicXML **y hệt** trước khi tách params; test cũ pass; `h=0` cho MusicXML giống bản legacy `_nh` (file audio cũ có thể đã bị `prune()` khi revision tăng).
+1. Default cho ra score/MusicXML **y hệt** trước khi tách params; test cũ pass; `h=0` cho MusicXML giống bản legacy `_nh` (file audio cũ có thể đã bị `prune()` khi revision tăng). Audio Default đổi một lần ở revision 80 do bed noise phủ cả 5 variant; ghi nhận và nghe thử piano/ambient.
 2. Bảy knob có hiệu lực qua `p`; `tempo` áp trước writer; BPM hiệu lực là int; tremolo rơi đúng ngưỡng.
 3. Legacy `h=0` cho **MusicXML từng byte** giống `p{humanize:0, breath:0}` và giống `_nh` cũ; `p{humanize:0}` là bản khác.
 4. Không có cache collision; `prune()` không xoá bản non-default; LRU bounded.
