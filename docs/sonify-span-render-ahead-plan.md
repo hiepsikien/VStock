@@ -355,7 +355,7 @@ useEffect(() => {
 - `queue.current.inFlight` là chốt single-flight cho StrictMode và cho effect restart.
 - `cooldownUntil` có thời hạn; không có `blocked` vĩnh viễn.
 - `markMovementReady` được gọi với `url`, nên nếu plan đổi fingerprint giữa chừng thì no-op.
-- `prefetchSpanAudio` đổi chữ ký thành `(path, signal, timeoutMs)` và trả `'ready' | 'retry' | 'fatal'` (`src/api/client.ts:696`). `prefetchResponsePlan` (`src/api/prefetchPlan.ts`): `206` → `ready`; `2xx` khác → `ready`; `400/404/422` → `fatal`; còn lại → `retry`. Cập nhật `src/api/prefetchPlan.test.ts`.
+- `prefetchSpanAudio` đổi chữ ký thành `(path, signal, timeoutMs)` và trả `'ready' | 'retry' | 'fatal'` (`src/api/client.ts:696`). `prefetchOutcome` (`src/api/prefetchPlan.ts`): `2xx` → `ready`; `400/401/403/404/422` → `fatal`; còn lại → `retry`. Cập nhật `src/api/prefetchPlan.test.ts`.
 - Timeout tính trong vòng bơm: `max(15 * 60_000, (2 * durationSec + 300) * 1000)`, vì request có thể chờ slot. Không được ngắn hơn `musical * 2 + 60` của server (`audio.py:1382`) cộng allowance chờ slot. Khi timeout, trước khi retry phải hỏi `/span/peaks` xem file đã có chưa; tránh render lại từ đầu.
 
 ### 5.4. Chủ sở hữu chương hiện tại
@@ -363,7 +363,7 @@ useEffect(() => {
 `playerStartedRef` chỉ bật khi một trong bốn điều kiện đúng:
 
 - `movements[index].ready === true` (file đã có; request của player là cache hit, không chiếm slot), hoặc
-- `mediaDuration > 0` (player đã tải xong chương hiện tại), hoặc
+- `mediaIndex.current === index && mediaDuration > 0` (player đã tải xong **đúng chương hiện tại**; giá trị `mediaDuration` còn sót của chương trước không được tính), hoặc
 - `audible === true` (player đã phát được ít nhất một lần trong chương), hoặc
 - `resting === true` (đang nghỉ giữa chương; player đã unmount nên không còn tranh request).
 
@@ -373,7 +373,16 @@ Reset về `false` mỗi khi `index` đổi. Nhờ vậy pump không bao giờ g
 useEffect(() => {
   const current = movements?.[index];
   if (!current) return;
-  if (current.ready || mediaDuration > 0 || audible || resting) {
+  if (
+    playerHasStarted({
+      ready: current.ready,
+      audible,
+      resting,
+      mediaIndex: mediaIndex.current,
+      currentIndex: index,
+      mediaDurationSec: mediaDuration,
+    })
+  ) {
     playerStartedRef.current = true;
   }
 }, [audible, index, mediaDuration, movements, resting]);
@@ -396,7 +405,12 @@ Khi player báo `onDuration`, chương đang nghe chắc chắn đã có file. C
 ### 5.6. Huỷ và cooldown
 
 - Generation đổi: abort `inFlight`, xoá `attempts`/`done`/`cooldown`, dừng vòng bơm cũ. Đây là chỗ duy nhất huỷ toàn bộ.
-- `index` đổi: huỷ khi `shouldAbortTarget(inFlight.index, index)`. Ngoài ra, nếu chương vừa vào **chưa** ready, huỷ cả render của chương phía trước (`flight.index !== index`) để request của player vào slot trước; nếu chương vừa vào đã ready, giữ render phía trước. Xoá cooldown cho **mọi** `target >= index`; reset `playerStartedRef`.
+- `index` đổi: dùng `shouldAbortOnIndexChange` thay cho chỉ so `target < index`:
+  - render đã lùi lại phía sau (`flight.index < index`) → huỷ;
+  - render nằm ngoài cửa sổ mới (`flight.index > index + depth`) → huỷ, kể cả khi nhảy lùi về một chương đã ready;
+  - chương vừa vào **chưa** ready và render không phải chính chương đó → huỷ để request của player vào slot trước;
+  - còn lại giữ.
+  Xoá cooldown cho **mọi** `target >= index`; reset `playerStartedRef`.
 - `fatal` hoặc hết retry: cooldown 60 giây cho đúng index + URL đó. Hết hạn thì thử lại. Không bao giờ block cứng chương kế.
 - Rời phòng: abort, như hiện tại (`ReplayRoom.tsx:253-260`).
 
@@ -423,8 +437,7 @@ Route `get_span_peaks` (`stocks.py:626-700`) đã có `plan` và `ready_movement
 
 Client (`ReplayRoom.tsx:490-536`) hiện chỉ merge `peaks` vào `spanPeaks`. Phải sửa thêm:
 
-- Bỏ response nếu `peaks.asOf !== asOf` (state `asOf` của manifest, `client.ts:638`).
-- Với từng movement: chỉ ghi `ready`/`durationSec`/`renderSec`/`renderRatio` khi `peaks.movements[i].audioUrl === movements[i].audioUrl`. Lệch là plan đã đổi fingerprint; bỏ qua.
+- Không dùng `asOf` để chặn cả response: nếu server roll sang ngày mới trong lúc nghe, chặn theo `asOf` sẽ khoá cả peaks của chương đang nghe. Chỉ merge `ready`/`durationSec`/`renderSec`/`renderRatio` khi `peaks.movements[i].audioUrl === movements[i].audioUrl`; peaks vẫn merge theo index như trước.
 - `ready === true` thì thêm URL vào `queue.done` để pump không request lại.
 - `renderRatio` cập nhật bằng giá trị lớn nhất trong response, chỉ dùng cho `lookaheadDepth`.
 
@@ -436,14 +449,18 @@ Thiết kế cache:
 
 - Key: `(symbol, span, variant, ensemble)`.
 - Single-flight: hai request đồng thời dùng chung một future.
-- TTL theo trạng thái phiên:
-  - `plan.as_of < hôm nay` (dữ liệu đã đóng) → 10 phút.
-  - `plan.as_of == hôm nay` (phiên đang mở) → 60 giây. `fetch_ohlc` bên dưới vẫn có TTL 45 giây, nên phần OHLC có thể cũ tối đa 45 giây; plan tự dựng lại từ payload đó.
-- Chỉ dùng trong đường audio/prefetch. `/span` và `/span/peaks` vẫn gọi bản tươi.
+- TTL theo trạng thái thị trường:
+  - `is_market_open() == True` → 60 giây.
+  - `is_market_open() == False` → 10 phút.
+- Kiểm tra lại lúc **đọc** cache: nếu thị trường đang mở và `plan.as_of < hôm nay`, bỏ entry. Một plan tạo lúc 08:50 với `as_of` hôm qua và TTL 10 phút sẽ không sống qua giờ mở cửa 09:00.
+- `fetch_ohlc` bên dưới vẫn có TTL 45 giây, nên phần OHLC có thể cũ tối đa 45 giây; plan tự dựng lại từ payload đó.
+- Chỉ dùng trong đường audio/prefetch và `/span/peaks`. `/span` vẫn gọi bản tươi.
 
 Đây là điểm sửa so với bản trước: TTL 15 giây vô dụng vì một render đã dài hơn 15 giây. Cache 10 phút cho dữ liệu đóng mới thật sự cắt được chi phí tuần tự.
 
-Rủi ro còn lại: route audio không nhận `scale`/`candles` từ client; nó tự lập kế hoạch rồi trả file theo fingerprint của plan. Với TTL 60 giây trong phiên mở, file trả về có thể lệch fingerprint so với `audioUrl` client đang giữ trong tối đa một phút. Lần refresh plan kế tiếp sẽ đổi URL. Ghi rõ trong test để không nới TTL.
+- 60 giây trong phiên mở chỉ giúp các request **đồng thời/retry**, không amortize chuỗi prefetch tuần tự (một render đã có thể dài hơn 60 giây). Với `AHEAD_CAP = 1`, mỗi chương chỉ cần một plan nên đây không phải blocker.
+
+Rủi ro còn lại: route audio không nhận `scale`/`candles` từ client; nó tự lập kế hoạch rồi trả file theo fingerprint của plan. Với TTL 60 giây trong phiên mở, file trả về có thể lệch fingerprint so với `audioUrl` client đang giữ trong tối đa một phút. Client **không** đổi `audioUrl` giữa lượt nghe: URL mới chỉ được lấy ở lần bấm Nghe kế tiếp. Vì vậy peaks merge `ready` theo URL và bỏ qua row lệch; đây là giới hạn đã biết, không phải cơ chế tự sửa. Ghi rõ trong test để không nới TTL.
 
 ### 6.4. Ưu tiên slot
 
@@ -557,13 +574,13 @@ Chạy trong `npm run test:musicalize` (đã thêm `composeQueue.test.ts`).
 - `shouldAbortTarget`: `(1, 3) → true`; `(3, 3) → false`; `(4, 3) → false`; `(null, 3) → false`.
 - `retryDelay`: 2/5/10 rồi 0.
 - `markMovementReady`: URL khớp → đổi đúng một phần tử; URL lệch → giữ nguyên reference; giữ `durationSec`/`peaks`.
-- `prefetchResponsePlan`: 206/200/204 → `ready`; 400/404/422 → `fatal`; 500/503 → `retry`.
+- `prefetchOutcome`: 206/200/204 → `ready`; 400/401/403/404/422 → `fatal`; 429/500/503 → `retry`.
 
 ### Python
 
 - `test_span.py`: `/span` trả `renderSec`/`renderRatio` khi JSON có, 0 khi file cũ; `_read_span` đọc đúng.
 - `/span/peaks`: có `asOf`, `audioUrl`, `ready`, `durationSec`, `renderSec`; movement chưa render trả `ready=false`.
-- Plan cache: hai request audio đồng thời chỉ gọi `fetch_ohlc` một lần (single-flight); dữ liệu đóng vẫn dùng lại sau 5 phút (TTL 10 phút); phiên mở hết hạn sau 60 giây; hai `variant` khác nhau không dùng chung.
+- Plan cache: hai request audio đồng thời chỉ gọi `fetch_ohlc` một lần (single-flight); đóng cửa dùng lại sau 5 phút (TTL 10 phút); phiên mở hết hạn sau 60 giây; plan tạo trước giờ mở bị bỏ khi thị trường mở; hai `variant` khác nhau không dùng chung.
 - `SPAN_REVISION` giữ nguyên; test comment/revision hiện có vẫn xanh.
 - Khi có P2: playback vào slot trước 10 prefetch đang chờ; prefetch trả `503` + `Retry-After` khi chờ quá 5 giây; cancel trong 1 giây; heartbeat hết hạn dừng worker.
 
@@ -638,5 +655,6 @@ P0 và P1 đã vào code trong PR này. P2 chưa làm, đúng điều kiện ở
 
 - **P0**: `renderSec`/`renderRatio` trong JSON, `SpanAsset`, `_read_span`, `/span`; `/span/peaks` trả thêm identity/trạng thái; prefetch trả `ready|retry|fatal`, retry có backoff, abort không backoff; prefetch chạy khi pause/nghỉ; `done` theo URL; `markMovementReady` theo URL; generation là state; cache plan theo `plan.as_of`.
 - **P1**: `src/musicalize/composeQueue.ts` + test; vòng bơm một request, depth 1; `playerStartedRef`; cooldown 60 giây; nhãn "đang soạn" và dòng "đang soạn chương kế" trong màn nghỉ.
+- **Sau review #129**: `playerHasStarted` loại `mediaDuration` cũ bằng `mediaIndex`; `shouldAbortOnIndexChange` huỷ render ngoài cửa sổ khi nhảy lùi; DFI poll chỉ merge `ready` khi URL khớp; plan cache TTL theo giờ mở và tự vô hiệu lúc đọc; `/span/peaks` dùng plan cache; bỏ `asOf` guard; `401/403` là `fatal`.
 - **Chưa làm (P2)**: `X-Span-Priority`, `POST /span/prepare`, depth 2/3.
 - **Không đổi**: form/nhịp/nghỉ, `audioUrl`, `RECAP_REVISION`, `SPAN_REVISION` (chỉ sửa comment ở `audio.py`).
