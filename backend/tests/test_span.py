@@ -227,6 +227,19 @@ def test_a_week_launches_musescore_once(tmp_path):
     asset = store.ensure_movement("MBB", "1W", 0, "symphony", movement)
     assert len(calls) == 1
     assert asset.audio_path.is_file()
+    assert asset.render_sec > 0
+    assert asset.render_ratio >= 0
+    cached = store.get_movement(
+        "MBB",
+        "1W",
+        0,
+        "symphony",
+        movement.candle_count,
+        movement.scale_fingerprint,
+    )
+    assert cached is not None
+    assert cached.render_sec == asset.render_sec
+    assert cached.render_ratio == asset.render_ratio
 
 
 def test_week_score_uses_the_shared_series_and_the_week_form():
@@ -296,11 +309,15 @@ def test_span_response_volumes_match_each_movement(monkeypatch) -> None:
         duration_sec = 263.0
         map_duration_sec = 260.0
         movement_name = ""
+        render_sec = 30.0
+        render_ratio = 0.125
 
     monkeypatch.setattr("app.routers.stocks.ready_movement", lambda *_args, **_kwargs: Cached())
     cached = asyncio.run(get_span(Response(), "vnm", "1M", "symphony", "classic", True, True))
     assert cached.movements[0].durationSec == 263.0
     assert cached.movements[0].mapDurationSec == 260.0
+    assert cached.movements[0].renderSec == 30.0
+    assert cached.movements[0].renderRatio == 0.125
 
 
 def test_dynamic_plan_routes_disable_the_http_cache(monkeypatch) -> None:
@@ -723,8 +740,9 @@ def test_plan_span_forwards_ensemble(monkeypatch) -> None:
 
 def test_span_routes_forward_ensemble(monkeypatch) -> None:
     from app.routers.stocks import get_span
-    from app.services.spans import SpanPlan, load_movement_audio
+    from app.services.spans import SpanPlan, clear_plan_cache, load_movement_audio
 
+    clear_plan_cache()
     sessions = [
         (date(2026, 1, day), [Bar(10.0), Bar(10.1)])
         for day in (5, 6, 7, 8)
@@ -767,3 +785,164 @@ def test_span_routes_forward_ensemble(monkeypatch) -> None:
     asyncio.run(load_movement_audio("VNM", "1M", 0, "guitar", None, "torroba"))
     assert seen["audio"] == ("VNM", "1M", "guitar", "torroba")
     assert seen["ensure"] == "torroba"
+
+
+def test_plan_ttl_keeps_closed_data_longer_than_a_live_session() -> None:
+    from app.services.spans import PLAN_TTL_CLOSED, PLAN_TTL_OPEN, plan_ttl
+
+    assert plan_ttl(False) == PLAN_TTL_CLOSED
+    assert plan_ttl(True) == PLAN_TTL_OPEN
+
+
+def test_plan_cache_is_invalidated_when_the_market_opens(monkeypatch) -> None:
+    from app.services import spans
+
+    movements = prepare_month(
+        [
+            (date(2026, 1, 5), [Bar(10.0, 100.0)]),
+            (date(2026, 1, 6), [Bar(10.4, 40.0)]),
+            (date(2026, 1, 7), [Bar(10.8, 5.0)]),
+            (date(2026, 1, 8), [Bar(11.0, 8.0)]),
+        ],
+        "VNM",
+    )
+    calls = {"count": 0}
+    state = {"open": False}
+
+    async def fake_plan(*_args, **_kwargs):
+        calls["count"] += 1
+        return spans.SpanPlan(movements, date(2026, 1, 8))
+
+    monkeypatch.setattr(spans, "plan_span", fake_plan)
+    monkeypatch.setattr(spans, "is_market_open", lambda: state["open"])
+    spans.clear_plan_cache()
+
+    async def run():
+        await spans.plan_span_cached("VNM", "1M")
+        state["open"] = True
+        # The first plan has yesterday's as_of and a ten-minute TTL. It must
+        # not survive the opening bell.
+        await spans.plan_span_cached("VNM", "1M")
+
+    asyncio.run(run())
+    assert calls["count"] == 2
+    spans.clear_plan_cache()
+
+
+def test_plan_cache_is_invalidated_after_the_lunch_break(monkeypatch) -> None:
+    from app.services import spans
+    from app.sonify.session import VN
+
+    movements = prepare_month(
+        [
+            (date(2026, 1, 5), [Bar(10.0, 100.0)]),
+            (date(2026, 1, 6), [Bar(10.4, 40.0)]),
+            (date(2026, 1, 7), [Bar(10.8, 5.0)]),
+            (date(2026, 1, 8), [Bar(11.0, 8.0)]),
+        ],
+        "VNM",
+    )
+    calls = {"count": 0}
+    state = {"open": False}
+    today = datetime.now(VN).date()
+
+    async def fake_plan(*_args, **_kwargs):
+        calls["count"] += 1
+        # The morning already gave today's candles, so `as_of` cannot reveal
+        # that the plan was built during the lunch break.
+        return spans.SpanPlan(movements, today)
+
+    monkeypatch.setattr(spans, "plan_span", fake_plan)
+    monkeypatch.setattr(spans, "is_market_open", lambda: state["open"])
+    spans.clear_plan_cache()
+
+    async def run():
+        await spans.plan_span_cached("VNM", "1M")
+        state["open"] = True
+        await spans.plan_span_cached("VNM", "1M")
+
+    asyncio.run(run())
+    assert calls["count"] == 2
+    spans.clear_plan_cache()
+
+
+def test_plan_span_cached_reuses_and_single_flights(monkeypatch) -> None:
+    from app.services import spans
+
+    movements = prepare_month(
+        [
+            (date(2026, 1, 5), [Bar(10.0, 100.0)]),
+            (date(2026, 1, 6), [Bar(10.4, 40.0)]),
+            (date(2026, 1, 7), [Bar(10.8, 5.0)]),
+            (date(2026, 1, 8), [Bar(11.0, 8.0)]),
+        ],
+        "VNM",
+    )
+    calls = {"count": 0}
+
+    async def fake_plan(*_args, **_kwargs):
+        calls["count"] += 1
+        await asyncio.sleep(0.01)
+        return spans.SpanPlan(movements, date(2026, 1, 8))
+
+    monkeypatch.setattr(spans, "plan_span", fake_plan)
+    monkeypatch.setattr(spans, "is_market_open", lambda: False)
+    spans.clear_plan_cache()
+
+    async def run():
+        first, second = await asyncio.gather(
+            spans.plan_span_cached("VNM", "1M"),
+            spans.plan_span_cached("vnm", "1M"),
+        )
+        third = await spans.plan_span_cached("VNM", "1M", "jazz")
+        return first, second, third
+
+    first, second, third = asyncio.run(run())
+    assert first is second
+    assert third is not first
+    assert calls["count"] == 2
+    spans.clear_plan_cache()
+
+
+def test_span_peaks_carries_readiness_and_identity(monkeypatch) -> None:
+    from app.routers.stocks import get_span_peaks
+    from app.services.spans import SpanPlan
+
+    movements = prepare_month(
+        [
+            (date(2026, 1, 5), [Bar(10.0, 100.0)]),
+            (date(2026, 1, 6), [Bar(10.4, 40.0)]),
+            (date(2026, 1, 7), [Bar(10.8, 5.0)]),
+            (date(2026, 1, 8), [Bar(11.0, 8.0)]),
+        ],
+        "VNM",
+    )
+
+    async def fake_plan(*_args, **_kwargs):
+        return SpanPlan(movements, date(2026, 1, 8))
+
+    class Cached:
+        peaks = [0.1, 0.2]
+        peak_level = 0.7
+        duration_sec = 240.0
+        render_sec = 30.0
+        render_ratio = 0.125
+
+    calls = {"count": 0}
+
+    def fake_ready(*_args, **_kwargs):
+        calls["count"] += 1
+        return Cached() if calls["count"] == 1 else None
+
+    monkeypatch.setattr("app.routers.stocks.plan_span_cached", fake_plan)
+    monkeypatch.setattr("app.routers.stocks.ready_movement", fake_ready)
+    response = asyncio.run(
+        get_span_peaks(Response(), "vnm", "1M", "symphony", "classic", True, True)
+    )
+    assert response.asOf == "2026-01-08"
+    assert response.movements[0].ready is True
+    assert response.movements[0].audioUrl.startswith("/v1/stocks/VNM/span/audio.m4a")
+    assert response.movements[0].durationSec == 240.0
+    assert response.movements[0].renderSec == 30.0
+    assert response.movements[0].renderRatio == 0.125
+    assert response.movements[1].ready is False

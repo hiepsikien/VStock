@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.sonify.dfi import DFI_VERSION
 from app.sonify.model import Ensemble
 
 ChartRange = Literal["1D", "1W", "1M", "3M", "1Y", "5Y"]
@@ -119,7 +120,8 @@ class DfiBreakdown(BaseModel):
     confidence: Literal["low", "medium", "high"] = "low"
     n_moves: int = 0
     n_sounding: int = 0
-    version: str = "3"
+    motion_pairs: int = 0
+    version: str = DFI_VERSION
 
 
 class DfiSignature(BaseModel):
@@ -202,6 +204,8 @@ class SpanMovementResponse(BaseModel):
     volumes: list[float]
     peaks: list[float] = []
     peakLevel: float = 0.0
+    renderSec: float = 0.0
+    renderRatio: float = 0.0
     character: str | None = None
     characterLabel: str = ""
     sessionCharacters: list[str] = []
@@ -216,6 +220,11 @@ class SpanPeaksMovement(BaseModel):
     index: int
     peaks: list[float] = Field(default_factory=list)
     peakLevel: float = 0.0
+    audioUrl: str = ""
+    ready: bool = False
+    durationSec: float = 0.0
+    renderSec: float = 0.0
+    renderRatio: float = 0.0
 
 
 class SpanPeaksResponse(BaseModel):
@@ -225,6 +234,7 @@ class SpanPeaksResponse(BaseModel):
     ensemble: Ensemble = "classic"
     humanize: bool = True
     color: bool = True
+    asOf: str = ""
     movements: list[SpanPeaksMovement]
 
 

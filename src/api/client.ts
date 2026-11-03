@@ -20,6 +20,7 @@ import {
 } from '../storage/marketCache';
 import type { IndexQuote } from '../components/WatchlistSummary';
 import { sanitizePriceChange } from '../utils/sanitizePriceChange';
+import { prefetchOutcome, type PrefetchOutcome } from './prefetchPlan';
 
 /** True for private LAN hosts we can rewrite localhost → (not Expo tunnel domains). */
 function isLanHostname(host: string): boolean {
@@ -490,6 +491,8 @@ export type DfiBreakdown = {
   confidence: 'low' | 'medium' | 'high';
   n_moves?: number;
   n_sounding?: number;
+  /** Pair count behind Motion; low values mean low evidence. */
+  motion_pairs?: number;
   version: string;
 };
 
@@ -623,6 +626,10 @@ export type SpanMovement = {
   beatType?: number;
   /** Dance or tempo composed for this movement. */
   name?: string;
+  /** Wall seconds spent inside the export slot. Zero for files written before the field existed. */
+  renderSec?: number;
+  /** `renderSec / musicalSec`. Used to size lookahead. */
+  renderRatio?: number;
   dfi?: DfiBreakdown | null;
 };
 
@@ -665,7 +672,19 @@ export type SpanPeaksManifest = {
   ensemble?: RecapEnsemble;
   humanize?: boolean;
   color?: boolean;
-  movements: Array<{ index: number; peaks: number[]; peakLevel?: number }>;
+  /** Identity of the plan these rows came from. */
+  asOf?: string;
+  movements: Array<{
+    index: number;
+    peaks: number[];
+    peakLevel?: number;
+    /** URL and readiness let the client merge only the row it still holds. */
+    audioUrl?: string;
+    ready?: boolean;
+    durationSec?: number;
+    renderSec?: number;
+    renderRatio?: number;
+  }>;
 };
 
 /** Peaks only: the refresh after a movement's file is written. */
@@ -683,6 +702,47 @@ export async function fetchSpanPeaks(
     signal,
     true,
   );
+}
+
+/**
+ * Ask the server to render one movement's audio without paying for the file
+ * twice. A one-byte range request still runs the export before the response;
+ * older servers that ignore Range answer 200, so drop that body.
+ *
+ * The timeout must cover the queue for the single MuseScore slot, not just the
+ * export: an abort after the request entered the slot cancels the render.
+ */
+export async function prefetchSpanAudio(
+  path: string,
+  signal?: AbortSignal,
+  timeoutMs = 15 * 60_000,
+): Promise<PrefetchOutcome> {
+  const controller = new AbortController();
+  const relay = () => controller.abort();
+  if (signal?.aborted) controller.abort();
+  signal?.addEventListener('abort', relay);
+  const timer = setTimeout(() => controller.abort(), Math.max(1, timeoutMs));
+  try {
+    const response = await fetch(absoluteApiUrl(path), {
+      signal: controller.signal,
+      headers: { Range: 'bytes=0-0' },
+    });
+    const outcome = prefetchOutcome(response.status);
+    if (outcome === 'ready' && response.status === 206) {
+      // Consume the one byte. The server has already written the whole file.
+      await response.arrayBuffer();
+      return outcome;
+    }
+    try {
+      await response.body?.cancel();
+    } catch {
+      // The file is already written; only a duplicate download was avoided.
+    }
+    return outcome;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', relay);
+  }
 }
 
 export type SonifyTapeSymbol = {

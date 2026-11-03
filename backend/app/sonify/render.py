@@ -87,7 +87,7 @@ from app.sonify.phrasing import (
     written,
 )
 from app.sonify.quantize import c_major_scale, c_natural_minor_scale, price_to_scale_index, resample
-from app.sonify.dfi import trace_from_notes, trace_register_per_bar
+from app.sonify.dfi import fill_trace_from_notes, trace_from_notes, trace_register_per_bar
 from app.sonify.regime import REGIME_BARS, classify_window
 
 FLUTE_TRIGGER = 79  # G5: Flute enters on high apex (>= G5) or Breakout
@@ -1162,6 +1162,10 @@ def _compose(
         else:
             analysis_windows = ((0, musical_bars),)
 
+        # Filled by `_flute_and_violin_dovetail` on the symphony path.  Bound
+        # here so `_attach_dfi_inputs` can close over it on every variant.
+        yield_spans: list[tuple[int, int]] = []
+
         def _attach_dfi_inputs(score: Score) -> Score:
             trace = score.price_trace
             if not trace:
@@ -1183,6 +1187,7 @@ def _compose(
                         frame_bars=frame_set,
                         role="anchor",
                         octave_tolerant=True,
+                        snap_to_line=True,
                     )
                 elif variant in ("symphony", "jazz"):
                     # `melody_parts` splits the price line between the two
@@ -1198,7 +1203,23 @@ def _compose(
                         frame_bars=frame_set,
                         octave_tolerant=True,
                         voice="line",
+                        snap_to_line=True,
                     )
+                    if variant == "symphony":
+                        # Flute (high) takes the line when the violin yields.
+                        # It sounds a harmony, so record the intended line
+                        # pitch and only inside the recorded yield spans.
+                        trace = fill_trace_from_notes(
+                            trace,
+                            score.high,
+                            line=pitches,
+                            prices=price_eighths,
+                            epb=dfi_epb,
+                            bar_beats=dfi_bar_beats,
+                            frame_bars=frame_set,
+                            yield_spans=yield_spans,
+                            voice="high",
+                        )
             return replace(
                 score,
                 price_trace=tuple(trace),

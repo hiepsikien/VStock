@@ -46,6 +46,7 @@ from app.services.spans import (
     movement_duration,
     movement_frame,
     plan_span,
+    plan_span_cached,
     ready_movement,
 )
 from app.sonify.audio import RecapCancelled, RecapUnavailable
@@ -591,6 +592,8 @@ async def get_span(
                 volumes=[round(float(bar.volume), 4) for bar in movement.bars],
                 peaks=list(getattr(cached, "peaks", None) or []) if cached is not None else [],
                 peakLevel=float(getattr(cached, "peak_level", 0.0) or 0.0) if cached is not None else 0.0,
+                renderSec=float(getattr(cached, "render_sec", 0.0) or 0.0) if cached is not None else 0.0,
+                renderRatio=float(getattr(cached, "render_ratio", 0.0) or 0.0) if cached is not None else 0.0,
                 character=movement.character,
                 characterLabel=CHARACTER_LABEL.get(movement.character or "", ""),
                 sessionCharacters=[
@@ -640,8 +643,10 @@ async def get_span_peaks(
     if range not in SPAN_RANGES:
         raise HTTPException(status_code=404, detail=f"No sonification for {range}")
     try:
-        # TODO: cache plan_span here; peaks refreshes still re-plan the work.
-        plan = await plan_span(sym, range, variant, ensemble=chosen)
+        # Peaks can use the same plan the audio route is rendering from. The
+        # cache is short for a live session and invalidated at the opening bell,
+        # so this still sees a new candle within the documented window.
+        plan = await plan_span_cached(sym, range, variant, chosen)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
@@ -657,6 +662,19 @@ async def get_span_peaks(
                 peakLevel=float(getattr(cached, "peak_level", 0.0) or 0.0)
                 if cached is not None
                 else 0.0,
+                audioUrl=movement_audio_path(
+                    sym, range, index, variant, movement, chosen, humanize, color
+                ),
+                ready=cached is not None,
+                durationSec=float(getattr(cached, "duration_sec", 0.0) or 0.0)
+                if cached is not None
+                else 0.0,
+                renderSec=float(getattr(cached, "render_sec", 0.0) or 0.0)
+                if cached is not None
+                else 0.0,
+                renderRatio=float(getattr(cached, "render_ratio", 0.0) or 0.0)
+                if cached is not None
+                else 0.0,
             )
         )
     return SpanPeaksResponse(
@@ -666,6 +684,7 @@ async def get_span_peaks(
         ensemble=chosen,
         humanize=humanize,
         color=color,
+        asOf=plan.as_of.isoformat(),
         movements=peaks,
     )
 

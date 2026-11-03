@@ -37,6 +37,8 @@ type Props = {
   resting?: boolean;
   restRemaining?: number;
   restTotal?: number;
+  /** During a rest, false means the next chapter is still being written. */
+  nextReady?: boolean | null;
   /** Live room: pulsing dot and `TRỰC TIẾP` in the chart corner. */
   live?: boolean;
   /** Audible: the playhead dot breathes. */
@@ -67,6 +69,7 @@ export function Stage({
   resting = false,
   restRemaining = 0,
   restTotal = 0,
+  nextReady = null,
   live = false,
   playing = false,
   chartKey = '',
@@ -298,6 +301,9 @@ export function Stage({
                   {clockForRest(restRemaining)}
                 </Text>
               </View>
+              {nextReady === false ? (
+                <Text style={[type.monoSmall, styles.restHint]}>đang soạn chương kế</Text>
+              ) : null}
             </View>
           ) : null}
 
@@ -516,6 +522,9 @@ const styles = StyleSheet.create({
   },
   restClock: {
     color: palette.playhead,
+  },
+  restHint: {
+    color: palette.textFaint,
   },
   live: {
     position: 'absolute',

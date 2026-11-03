@@ -35,6 +35,7 @@ export function ReplayPlayer({
   const player = useAudioPlayer(url, { updateInterval: 80, downloadFirst: true });
   const status = useAudioPlayerStatus(player);
   const booted = useRef(false);
+  const readyNotified = useRef(false);
   const [ready, setReady] = useState(false);
   const ended = useRef(false);
   const armFinish = useRef(true);
@@ -93,7 +94,6 @@ export function ReplayPlayer({
       if (cancelled || booted.current) return;
       booted.current = true;
       setReady(true);
-      onReadyRef.current?.();
       onAudibleRef.current();
       if (wantPlayRef.current) player.play();
     })();
@@ -129,7 +129,17 @@ export function ReplayPlayer({
   useEffect(() => {
     if (!status.isLoaded) return;
     const duration = status.duration > 0 ? status.duration : 0;
-    if (duration > 0) onDurationRef.current(duration);
+    if (duration > 0) {
+      onDurationRef.current(duration);
+      // Web reports `isLoaded` before the source is downloaded, so wait for a
+      // real duration: only then has the server written this movement's file.
+      // Peaks are measured from that file. If a broken source never reports a
+      // duration, the room's bounded retry still fills the envelope.
+      if (!readyNotified.current) {
+        readyNotified.current = true;
+        onReadyRef.current?.();
+      }
+    }
     if (pending.current != null && Math.abs(status.currentTime - pending.current) <= 0.45) {
       pending.current = null;
     }

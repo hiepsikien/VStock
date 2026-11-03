@@ -180,6 +180,10 @@ class PriceTracePoint:
     The trace is written where the note is written, not recovered from the
     finished score. `pitch` is a float because Minimalist records the register
     centroid of an arpeggio window, not a single MIDI note.
+
+    `sounding_pitch` is the note the part actually plays in the score's
+    C-space, before MuseScore transposes the instrument.  It is not concert
+    pitch: a Bb trumpet written at C4 sounds Bb3.
     """
 
     bar: int
@@ -187,6 +191,7 @@ class PriceTracePoint:
     duration_beats: float
     price: float
     pitch: float | None
+    sounding_pitch: float | None = None
     role: Literal["attack", "hold", "anchor", "register", "rest"] = "attack"
     weight: float = 1.0
     voice: str = "lead"

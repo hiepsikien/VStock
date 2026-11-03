@@ -11,6 +11,7 @@ import {
   fetchSessions,
   fetchSpan,
   fetchSpanPeaks,
+  prefetchSpanAudio,
   type DfiPiece,
   type DfiSignature,
   type RecapEnsemble,
@@ -60,6 +61,24 @@ import { Stage } from './Stage';
 import { SymbolColumn, type SymbolChoice } from './SymbolColumn';
 import type { TimelinePart } from './Scrubber';
 import { workWaveform, type WavePeaks } from './peaks';
+import {
+  PEAKS_POLL_BUDGET,
+  finishPeaksRefresh,
+  peaksPollDelay,
+  peaksPollKey,
+  requestPeaksRefresh,
+  type PeaksRefreshState,
+} from './peaksPrefetch';
+import {
+  commitReason,
+  lookaheadDepth,
+  markMovementReady,
+  maxRenderRatio,
+  playerHasStarted,
+  queueTargets,
+  retryDelay,
+  shouldAbortOnIndexChange,
+} from './composeQueue';
 import { ambientDailyCandleIndexAt, spanCandleIndexAt } from '../utils/recapCursor';
 
 type Props = {
@@ -78,6 +97,22 @@ function failureText(error: unknown, span: ListenSpan): string {
 
 function isAbort(error: unknown): boolean {
   return error instanceof Error && (error.name === 'AbortError' || /aborted/i.test(error.message));
+}
+
+type QueueState = {
+  generation: number;
+  inFlight: { index: number; url: string; controller: AbortController } | null;
+  attempts: Map<string, number>;
+  cooldownUntil: Map<number, { url: string; until: number }>;
+  done: Set<string>;
+  renderRatio: number;
+};
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Long enough to cover the one-slot queue, not just the export. */
+function prefetchTimeoutMs(durationSec: number): number {
+  return Math.max(15 * 60_000, (2 * Math.max(0, durationSec) + 300) * 1000);
 }
 
 function joinedVolumes(parts: { prices: number[]; volumes?: number[] }[]): number[] | null {
@@ -157,6 +192,27 @@ export function ReplayRoom({ wide, onMode }: Props) {
 
   const request = useRef<AbortController | null>(null);
   const peaksRequest = useRef<AbortController | null>(null);
+  // A peaks refresh is cheap but re-plans the work. Let one answer land instead
+  // of aborting it every time another movement finishes; ask once more after.
+  const peaksState = useRef<PeaksRefreshState>({ pending: false, again: false });
+  // Bumped whenever the timeline identity changes; a response from the old
+  // identity must never merge into the new one.
+  const peaksGen = useRef(0);
+  const peaksPoll = useRef({ key: '', count: 0 });
+  // One pump owns every background render. The player still owns the heard
+  // chapter; this queue only looks at what comes after it.
+  const [generation, setGeneration] = useState(0);
+  const queue = useRef<QueueState>({
+    generation: 0,
+    inFlight: null,
+    attempts: new Map(),
+    cooldownUntil: new Map(),
+    done: new Set(),
+    renderRatio: 0,
+  });
+  // The index that produced the current `mediaDuration`. On a chapter change
+  // the old duration is still set for one render.
+  const mediaIndex = useRef(-1);
   const restTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const seekSeq = useRef(0);
   const dfiPoll = useRef({ key: '', count: 0 });
@@ -165,9 +221,15 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const movementsRef = useRef<SpanMovement[] | null>(null);
   const indexRef = useRef(0);
   const playingRef = useRef(false);
+  const committedRef = useRef(false);
+  const finishedRef = useRef(false);
+  // False until the player has asked for the heard chapter. Prevents the pump
+  // from racing its own request for the next one.
+  const playerStartedRef = useRef(false);
   movementsRef.current = movements;
   indexRef.current = index;
   playingRef.current = playing;
+  finishedRef.current = finished;
 
   const clearRest = useCallback(() => {
     if (restTimer.current) {
@@ -176,11 +238,35 @@ export function ReplayRoom({ wide, onMode }: Props) {
     }
   }, []);
 
+  /**
+   * Forget the waveform and render state of the work being replaced. A new
+   * identity and a re-plan of the same identity both land here so the paths
+   * cannot drift. Bumping the generation aborts every background render and
+   * restarts the pump.
+   */
+  const resetPeaksState = useCallback(() => {
+    peaksRequest.current?.abort();
+    peaksRequest.current = null;
+    peaksState.current = { pending: false, again: false };
+    peaksGen.current += 1;
+    peaksPoll.current = { key: '', count: 0 };
+    mediaIndex.current = -1;
+    queue.current.generation += 1;
+    queue.current.inFlight?.controller.abort();
+    queue.current.inFlight = null;
+    queue.current.attempts.clear();
+    queue.current.cooldownUntil.clear();
+    queue.current.done.clear();
+    queue.current.renderRatio = 0;
+    committedRef.current = false;
+    playerStartedRef.current = false;
+    setGeneration(queue.current.generation);
+  }, []);
+
   const clearPlayback = useCallback(() => {
     request.current?.abort();
     request.current = null;
-    peaksRequest.current?.abort();
-    peaksRequest.current = null;
+    resetPeaksState();
     clearRest();
     setManifest(null);
     setMovements(null);
@@ -202,12 +288,13 @@ export function ReplayRoom({ wide, onMode }: Props) {
     setSeek(null);
     setFocus(null);
     focusRef.current = null;
-  }, [clearRest]);
+  }, [clearRest, resetPeaksState]);
 
   useEffect(() => {
     return () => {
       request.current?.abort();
       peaksRequest.current?.abort();
+      queue.current.inFlight?.controller.abort();
       clearRest();
     };
   }, [clearRest]);
@@ -435,13 +522,15 @@ export function ReplayRoom({ wide, onMode }: Props) {
   }, [colorOn, ensemble, humanize, span, spanKey, symbol, variant]);
 
   /**
-   * A movement's waveform only exists after its audio file is written. The
-   * player loads that file when a movement starts, so ask the plan once more
-   * and merge the peaks without touching durations, prices or playback.
+   * A movement's waveform only exists after its audio file is written. Merge
+   * whatever the plan can see now without touching durations, prices or
+   * playback. Requests are coalesced: aborting a slow refresh and starting a
+   * new one on every chapter change is what left the waveform a chapter behind.
    */
   const refreshSpanPeaks = useCallback(() => {
     if (span === '1D') return;
-    peaksRequest.current?.abort();
+    if (!requestPeaksRefresh(peaksState.current)) return;
+    const gen = peaksGen.current;
     const controller = new AbortController();
     peaksRequest.current = controller;
     void (async () => {
@@ -450,7 +539,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
           humanize,
           color: colorOn,
         });
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || gen !== peaksGen.current) return;
         if (
           peaks.symbol !== symbol ||
           peaks.range !== span ||
@@ -461,6 +550,13 @@ export function ReplayRoom({ wide, onMode }: Props) {
         ) {
           return;
         }
+        let measured = 0;
+        for (const item of peaks.movements) {
+          if (typeof item.renderRatio === 'number' && item.renderRatio > measured) {
+            measured = item.renderRatio;
+          }
+        }
+        if (measured > 0) queue.current.renderRatio = measured;
         setSpanPeaks((prev) => {
           const next = [...(prev ?? [])];
           for (const item of peaks.movements) {
@@ -472,13 +568,276 @@ export function ReplayRoom({ wide, onMode }: Props) {
           }
           return next;
         });
+        setMovements((existing) => {
+          if (!existing) return existing;
+          let changed = false;
+          const next = existing.map((movement, itemIndex) => {
+            const incoming = peaks.movements.find((item) => item.index === itemIndex);
+            // A re-plan changes the fingerprint; a row for another URL must
+            // never make this movement look rendered.
+            if (!incoming || !incoming.audioUrl || incoming.audioUrl !== movement.audioUrl) {
+              return movement;
+            }
+            const patch: Partial<SpanMovement> = {};
+            if (incoming.ready === true && !movement.ready) {
+              patch.ready = true;
+              queue.current.done.add(movement.audioUrl);
+            }
+            if (incoming.durationSec != null && incoming.durationSec > 0 && incoming.durationSec !== movement.durationSec) {
+              patch.durationSec = incoming.durationSec;
+            }
+            if (incoming.renderSec != null && incoming.renderSec > 0 && incoming.renderSec !== movement.renderSec) {
+              patch.renderSec = incoming.renderSec;
+            }
+            if (incoming.renderRatio != null && incoming.renderRatio > 0 && incoming.renderRatio !== movement.renderRatio) {
+              patch.renderRatio = incoming.renderRatio;
+            }
+            if (!Object.keys(patch).length) return movement;
+            changed = true;
+            return { ...movement, ...patch };
+          });
+          return changed ? next : existing;
+        });
       } catch {
         // Peaks are additive. Keep whatever the timeline already has.
       } finally {
-        if (peaksRequest.current === controller) peaksRequest.current = null;
+        // A newer identity owns the shared state now; leave its request alone.
+        if (peaksRequest.current === controller) {
+          peaksRequest.current = null;
+          if (finishPeaksRefresh(peaksState.current) && !controller.signal.aborted) {
+            refreshSpanPeaks();
+          }
+        }
       }
     })();
   }, [colorOn, ensemble, humanize, span, symbol, variant]);
+
+  const hasMovements = movements != null;
+  const currentMovement = movements?.[index] ?? null;
+
+  /**
+   * One pump for every background render. It never asks for the heard chapter:
+   * the player owns that request. It keeps running while paused and through the
+   * rest between chapters, and stops only when the identity or generation
+   * changes.
+   */
+  useEffect(() => {
+    if (span === '1D' || !hasMovements) return;
+    const gen = generation;
+    let stopped = false;
+
+    void (async () => {
+      while (!stopped && gen === queue.current.generation) {
+        if (finishedRef.current) {
+          await sleep(500);
+          continue;
+        }
+        // Let the player ask for the heard chapter first. This is what stops a
+        // prefetch from reaching the single export slot before the chapter the
+        // listener is waiting for.
+        if (!playerStartedRef.current) {
+          await sleep(200);
+          continue;
+        }
+        if (queue.current.inFlight) {
+          await sleep(200);
+          continue;
+        }
+        const list = movementsRef.current;
+        if (!list) {
+          await sleep(500);
+          continue;
+        }
+        const depth = lookaheadDepth({
+          ratio: queue.current.renderRatio,
+          paused: !playingRef.current,
+          committed: committedRef.current,
+        });
+        const targets = queueTargets({
+          currentIndex: indexRef.current,
+          count: list.length,
+          urls: list.map((item) => item.audioUrl),
+          ready: list.map((item) => item.ready),
+          depth,
+          done: queue.current.done,
+          cooldownUntil: queue.current.cooldownUntil,
+          now: Date.now(),
+        });
+        const next = targets[0];
+        if (next == null) {
+          await sleep(500);
+          continue;
+        }
+        const target = list[next];
+        if (!target?.audioUrl) {
+          await sleep(500);
+          continue;
+        }
+        const url = target.audioUrl;
+        const controller = new AbortController();
+        queue.current.inFlight = { index: next, url, controller };
+        const started = Date.now();
+        let outcome: 'ready' | 'retry' | 'fatal';
+        try {
+          outcome = await prefetchSpanAudio(
+            url,
+            controller.signal,
+            prefetchTimeoutMs(target.durationSec),
+          );
+        } catch {
+          outcome = 'retry';
+        } finally {
+          if (queue.current.inFlight?.controller === controller) {
+            queue.current.inFlight = null;
+          }
+        }
+        if (stopped || gen !== queue.current.generation) return;
+        // The index effect aborted this render because the listener moved on.
+        // That is not a failure: do not back off, and serve the new target now.
+        if (controller.signal.aborted) continue;
+
+        if (outcome === 'ready') {
+          queue.current.done.add(url);
+          queue.current.attempts.delete(url);
+          queue.current.cooldownUntil.delete(next);
+          // Wall time is not render time; readiness is enough here. The peaks
+          // refresh fills renderSec/renderRatio from the server.
+          setMovements((existing) =>
+            existing ? markMovementReady(existing, next, url, 0) : existing,
+          );
+          refreshSpanPeaks();
+          continue;
+        }
+        if (outcome === 'fatal') {
+          queue.current.attempts.delete(url);
+          queue.current.cooldownUntil.set(next, { url, until: Date.now() + 60_000 });
+          continue;
+        }
+        const attempt = (queue.current.attempts.get(url) ?? 0) + 1;
+        queue.current.attempts.set(url, attempt);
+        const delay = retryDelay(attempt);
+        if (!delay) {
+          // Three failed attempts: rest for a minute, then try again. Never
+          // block a chapter for the rest of the work.
+          queue.current.attempts.delete(url);
+          queue.current.cooldownUntil.set(next, { url, until: Date.now() + 60_000 });
+          continue;
+        }
+        await sleep(delay);
+      }
+    })();
+
+    return () => {
+      stopped = true;
+      queue.current.inFlight?.controller.abort();
+      queue.current.inFlight = null;
+    };
+  }, [
+    generation,
+    hasMovements,
+    refreshSpanPeaks,
+    span,
+    spanKey,
+  ]);
+
+  /** A render for a chapter the listener has passed is wasted work. */
+  useEffect(() => {
+    const flight = queue.current.inFlight;
+    const currentReady = movementsRef.current?.[index]?.ready === true;
+    const depth = lookaheadDepth({
+      ratio: queue.current.renderRatio,
+      paused: !playingRef.current,
+      committed: committedRef.current,
+    });
+    // Keep only what helps the chapter being entered. If that chapter has no
+    // file, the player needs the single slot, so a prefetch for a later
+    // chapter must not sit in front of its request. A jump back also drops a
+    // render that is now outside the window.
+    if (
+      flight &&
+      shouldAbortOnIndexChange({
+        flightIndex: flight.index,
+        currentIndex: index,
+        currentReady,
+        depth,
+      })
+    ) {
+      flight.controller.abort();
+      queue.current.inFlight = null;
+    }
+    for (const target of [...queue.current.cooldownUntil.keys()]) {
+      if (target >= index) queue.current.cooldownUntil.delete(target);
+    }
+    // The new chapter may not have a file yet: wait for the player to ask for
+    // it before preparing the one after.
+    playerStartedRef.current = false;
+  }, [index, spanKey]);
+
+  /** The player has actually started the heard chapter. */
+  useEffect(() => {
+    if (!currentMovement) return;
+    if (
+      playerHasStarted({
+        ready: currentMovement.ready,
+        audible,
+        resting,
+        mediaIndex: mediaIndex.current,
+        currentIndex: index,
+        mediaDurationSec: mediaDuration,
+      })
+    ) {
+      playerStartedRef.current = true;
+    }
+  }, [audible, currentMovement, index, mediaDuration, resting]);
+
+  /** The listener has heard enough to be treated as staying for the work. */
+  useEffect(() => {
+    if (span === '1D' || committedRef.current) return;
+    const reason = commitReason({
+      audible,
+      heardSec: movementTime,
+      movementSec: currentMovement?.durationSec ?? 0,
+      seeked: false,
+    });
+    if (reason) committedRef.current = true;
+  }, [audible, currentMovement, movementTime, span]);
+
+  /**
+   * Fallback when a background render or its peaks request failed: retry with
+   * a small backoff while the heard movement still has no envelope. Only runs
+   * while playing, so a paused room does not keep re-planning the span.
+   */
+  const heardHasPeaks = Boolean(spanPeaks?.[index]?.peaks?.length);
+  useEffect(() => {
+    if (span === '1D') return;
+    const key = peaksPollKey({ symbol, span, variant, ensemble, index, playing });
+    if (peaksPoll.current.key !== key) peaksPoll.current = { key, count: 0 };
+    if (!playing || mediaDuration <= 0 || mediaIndex.current !== index || heardHasPeaks) return;
+    if (peaksPoll.current.count >= PEAKS_POLL_BUDGET) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const pull = () => {
+      if (stopped || peaksPoll.current.count >= PEAKS_POLL_BUDGET) return;
+      peaksPoll.current.count += 1;
+      refreshSpanPeaks();
+      timer = setTimeout(pull, peaksPollDelay(peaksPoll.current.count));
+    };
+    timer = setTimeout(pull, peaksPollDelay(0));
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [
+    ensemble,
+    heardHasPeaks,
+    index,
+    mediaDuration,
+    playing,
+    refreshSpanPeaks,
+    span,
+    symbol,
+    variant,
+  ]);
 
   const seekTarget = useRef<number | null>(null);
 
@@ -626,6 +985,13 @@ export function ReplayRoom({ wide, onMode }: Props) {
         }
         setManifest(null);
         setMovements(plan.movements);
+        // A new listen may re-plan the work, so pre-rendered URLs and peaks
+        // from the previous run no longer describe the same movement.
+        resetPeaksState();
+        for (const movement of plan.movements) {
+          if (movement.ready) queue.current.done.add(movement.audioUrl);
+        }
+        queue.current.renderRatio = maxRenderRatio(plan.movements);
         setAsOf(plan.asOf ?? '');
         setHomeKey(plan.keyLabel ?? '');
         setIndex(0);
@@ -646,10 +1012,12 @@ export function ReplayRoom({ wide, onMode }: Props) {
         }
       }
     })();
-  }, [colorOn, date, ensemble, humanize, span, symbol, variant]);
+  }, [colorOn, date, ensemble, humanize, resetPeaksState, span, symbol, variant]);
 
   const jumpToMovement = useCallback(
     (nextIndex: number, seconds: number, autoplay: boolean) => {
+      // An explicit seek is a stronger signal than the dwell threshold.
+      committedRef.current = true;
       const current = movementsRef.current?.[nextIndex];
       const written = current?.durationSec ?? seconds;
       const file = nextIndex === indexRef.current && mediaDuration > 0 ? mediaDuration : 0;
@@ -915,7 +1283,12 @@ export function ReplayRoom({ wide, onMode }: Props) {
             const name = incoming.name?.trim() ?? '';
             const patch: Partial<SpanMovement> = {};
             if (!item.name?.trim() && name) patch.name = name;
-            if (item.ready !== incoming.ready) patch.ready = incoming.ready;
+            // A new plan can point at another fingerprint. Only an explicit
+            // ready for the same URL may skip the pump.
+            if (incoming.ready && !item.ready && incoming.audioUrl === item.audioUrl) {
+              patch.ready = true;
+              queue.current.done.add(item.audioUrl);
+            }
             if (!item.dfi && incoming.dfi) patch.dfi = incoming.dfi;
             if (!Object.keys(patch).length) return item;
             changed = true;
@@ -1150,6 +1523,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
         : null;
 
   useEffect(() => {
+    mediaIndex.current = -1;
     setMediaDuration(0);
   }, [audioUrl]);
 
@@ -1172,10 +1546,15 @@ export function ReplayRoom({ wide, onMode }: Props) {
 
   const chapterCount = span === '1D' ? 1 : (movements?.length ?? 0);
   const chapterIndex = span === '1D' ? 0 : index;
+  const nextChapterReady = span === '1D' ? null : (movements?.[index + 1]?.ready ?? null);
+  const baseChapterLabel =
+    current?.name?.trim() || (movements ? `Chương ${index + 1}` : null);
   const chapterLabel =
     span === '1D'
       ? manifest?.movementName?.trim() || null
-      : current?.name?.trim() || (movements ? `Chương ${index + 1}` : null);
+      : baseChapterLabel && current && !current.ready
+        ? `${baseChapterLabel} · đang soạn`
+        : baseChapterLabel;
 
   // The merged timeline draws one groove per movement and a hairline groove
   // for each rest. Names come from the same movements the audio uses.
@@ -1342,6 +1721,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
           resting={resting}
           restRemaining={restRemaining}
           restTotal={restTotal}
+          nextReady={nextChapterReady}
           playing={audible}
           chartKey={`${symbol}|${span}|${variant}|${date ?? ''}`}
           dfi={activeDfi}
@@ -1395,7 +1775,19 @@ export function ReplayRoom({ wide, onMode }: Props) {
         onEnded={onEnded}
         onAudible={() => setAudible(true)}
         onError={setError}
-        onDuration={setMediaDuration}
+        onDuration={(seconds) => {
+          mediaIndex.current = index;
+          setMediaDuration(seconds);
+          // The player only reports a duration after the file is written, so
+          // the heard chapter is ready even if the plan has not refreshed yet.
+          const heard = movementsRef.current?.[index];
+          if (heard?.audioUrl) {
+            queue.current.done.add(heard.audioUrl);
+            setMovements((list) =>
+              list ? markMovementReady(list, index, heard.audioUrl, 0) : list,
+            );
+          }
+        }}
         onReady={refreshSpanPeaks}
       />
     ) : null}
