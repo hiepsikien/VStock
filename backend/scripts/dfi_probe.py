@@ -267,8 +267,8 @@ def capture_guitar_trace():
         return found
 
     def trace(notes, **kwargs):
-        captured["line"] = kwargs["line"]
-        captured["epb"] = kwargs["epb"]
+        captured["line"] = kwargs.get("line")
+        captured["epb"] = kwargs.get("epb")
         return original_trace(notes, **kwargs)
 
     GP._patterns = patterns
@@ -284,9 +284,12 @@ def print_pattern_trace(score, captured: dict, label: str) -> None:
     """Print trace coverage per guitar pattern for one movement.
 
     `exact` counts written notes whose pitch equals the intended line at their
-    own eighth. It includes frame bars and duplicate voices; `frame points`
-    isolates trace points that `dfi._grid` later drops. A missing exact note or
-    an extra frame point is therefore visible without changing the score.
+    own eighth. It includes frame bars, duplicate voices, and `tie_stop` notes;
+    `frame points` isolates trace points that `dfi._grid` later drops. A missing
+    exact note or an extra frame point is therefore visible without changing the
+    score. `near-line` means the note matches `line` somewhere in ±2 eighths
+    around its own eighth. The `lead/support/low pts` columns attribute a trace
+    point to the score voice whose sounding MIDI it carries.
     """
     ctx = captured.get("ctx")
     patterns = captured.get("patterns") or []
@@ -300,6 +303,7 @@ def print_pattern_trace(score, captured: dict, label: str) -> None:
 
     frame = frozenset(score.frame_bars)
     stats: dict[str, dict] = {}
+    source_voices: dict[tuple[int, float, int], set[str]] = {}
 
     def bucket(pattern: str) -> dict:
         return stats.setdefault(
@@ -313,17 +317,24 @@ def print_pattern_trace(score, captured: dict, label: str) -> None:
                 "near_line": 0,
                 "trace_points": 0,
                 "frame_points": 0,
+                "lead_pts": 0,
+                "support_pts": 0,
+                "low_pts": 0,
+                "other_pts": 0,
             },
         )
 
     for part in ("high", "lead", "support", "comp", "low"):
-        for note in getattr(score, part):
+        for note in getattr(score, part, ()):
             if note.midi is None:
                 continue
             pattern = GP._bar_pattern(ctx, note.bar, patterns)
             stat = bucket(pattern)
             stat["bars"].add(note.bar)
             stat["notes"] += 1
+            source_voices.setdefault(
+                (note.bar, round(note.beat, 4), int(note.midi)), set()
+            ).add(part)
             eighth_f = note.bar * epb + note.beat * 2
             on_grid = abs(eighth_f - round(eighth_f)) < 0.01
             nearest = int(round(eighth_f))
@@ -343,21 +354,33 @@ def print_pattern_trace(score, captured: dict, label: str) -> None:
         stat["trace_points"] += 1
         stat["trace_bars"].add(point.bar)
         stat["frame_points"] += point.bar in frame
+        sounding = (
+            None
+            if point.sounding_pitch is None
+            else int(round(point.sounding_pitch))
+        )
+        voices = source_voices.get((point.bar, round(point.beat, 4), sounding), set())
+        voice_key = f"{next(iter(voices))}_pts" if len(voices) == 1 else ""
+        if voice_key in stat:
+            stat[voice_key] += 1
+        else:
+            stat["other_pts"] += 1
 
     print()
     print(f"### movement {label} — per-pattern trace")
     print(
         "| pattern | bars | notes | trace pts | trace bars | frame pts | "
-        "exact notes | off-grid | near-line |"
+        "exact notes | off-grid | near-line | lead pts | support pts | low pts | other pts |"
     )
-    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for pattern in sorted(stats):
         stat = stats[pattern]
         print(
             f"| `{pattern}` | {len(stat['bars'])} | {stat['notes']} | "
             f"{stat['trace_points']} | {len(stat['trace_bars'])} | "
             f"{stat['frame_points']} | {stat['exact']} | {stat['off_grid']} | "
-            f"{stat['near_line']} |"
+            f"{stat['near_line']} | {stat['lead_pts']} | {stat['support_pts']} | "
+            f"{stat['low_pts']} | {stat['other_pts']} |"
         )
 
 
