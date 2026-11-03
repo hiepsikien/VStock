@@ -118,3 +118,13 @@ def test_guitar_snap_ceiling_follows_the_dynamics_knob() -> None:
         assert _clamp_guitar((written,), heard, "classic")[0].velocity == 73
     with compose_params({**DEFAULT_PARAMS, "dynamics": 1.5}):
         assert _clamp_guitar((written,), heard, "classic")[0].velocity == contrast_velocity(73)
+
+
+def test_guitar_snap_floor_follows_the_dynamics_knob() -> None:
+    written = NoteEvent(bar=0, beat=0.0, midi=64, duration_beats=0.5, voice=1, velocity=67)
+    heard = [replace(written, velocity=50)]
+
+    with compose_params(DEFAULT_PARAMS):
+        assert _clamp_guitar((written,), heard, "classic")[0].velocity == 69
+    with compose_params({**DEFAULT_PARAMS, "dynamics": 0.5}):
+        assert _clamp_guitar((written,), heard, "classic")[0].velocity == contrast_velocity(69)

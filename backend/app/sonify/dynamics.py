@@ -44,14 +44,10 @@ FILL_BASE = 64
 _CENTER = 64
 
 
-def _contrast(base: int) -> int:
+def contrast_velocity(base: int) -> int:
+    """Apply the dynamics contrast to a written velocity, ceiling, or floor."""
     scaled = floor(_CENTER + (base - _CENTER) * active("dynamics") + 0.5)
     return max(1, min(127, scaled))
-
-
-def contrast_velocity(base: int) -> int:
-    """Apply the dynamics contrast to a written velocity or ceiling."""
-    return _contrast(base)
 
 
 def apply_contrast(score: Score) -> Score:
@@ -65,8 +61,10 @@ def apply_contrast(score: Score) -> Score:
     fields: dict[str, tuple] = {}
     for name in ("high", "lead", "support", "comp", "low"):
         notes = getattr(score, name)
+        # `pinned` is final for humanize, not for this pass: this is the
+        # dynamics layer itself, and humanize keeps the scaled value after us.
         fields[name] = tuple(
-            note if note.velocity is None else replace(note, velocity=_contrast(note.velocity))
+            note if note.velocity is None else replace(note, velocity=contrast_velocity(note.velocity))
             for note in notes
         )
     return replace(score, **fields)
@@ -74,7 +72,7 @@ def apply_contrast(score: Score) -> Score:
 
 def velocity_for(marking: str) -> int:
     """Velocity after the dynamics knob. At 1.0 this is the old table."""
-    return _contrast(BASE_VELOCITY.get(marking, _CENTER))
+    return contrast_velocity(BASE_VELOCITY.get(marking, _CENTER))
 
 
 def sound_for(marking: str) -> int:
@@ -83,7 +81,7 @@ def sound_for(marking: str) -> int:
 
 
 def piano_velocity_for(marking: str) -> int:
-    return _contrast(PIANO_BASE.get(marking, 64))
+    return contrast_velocity(PIANO_BASE.get(marking, 64))
 
 
 def piano_base(marking: str) -> int:
@@ -92,7 +90,7 @@ def piano_base(marking: str) -> int:
 
 
 def fill_velocity() -> int:
-    return _contrast(FILL_BASE)
+    return contrast_velocity(FILL_BASE)
 
 
 def fill_base() -> int:
