@@ -199,6 +199,9 @@ class PriceTracePoint:
     weight: float = 1.0
     voice: str = "lead"
     source_bar: int | None = None
+    # Origin of `price`/`pitch` for writer-owned points whose attack is off the
+    # eighth grid. `None` means derive it from `bar`/`beat` (legacy points).
+    price_eighth: int | None = None
 
 
 @dataclass(frozen=True)

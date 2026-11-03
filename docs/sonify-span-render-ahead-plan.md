@@ -49,7 +49,7 @@ Chỉ chạy sau khi chương hiện tại đã tải xong. Độ trễ này ch�
 
 ### 2.6. Độ sâu 1 có đủ không?
 
-Không có số đo thật trong repo. Ví dụ log ở mục 3 là **định dạng**, không phải số đo. Nếu `renderRatio` thực tế quanh 0,15 như ví dụ đó, depth 1 đã dư 5–6 lần cho chương 8:20. Vì vậy **không mặc định depth 2–3** trước khi đo. Tăng depth là cách xử lý tranh slot, không phải cách xử lý render chậm.
+Đã có số đo thật: `renderRatio` nằm trong **0,07–0,09** cho `1W`, `1M`, `3M`, `1Y` (guitar, cache lạnh), và **0,03–0,05** sau khi tối ưu color bằng numpy (xem [`sonify-render-timing-diagnosis.md`](./sonify-render-timing-diagnosis.md)). Với chương 4–5 phút, render chỉ chiếm ~3–9% thời lượng, nên depth 1 đã dư rất nhiều. Vì vậy **không mặc định depth 2–3**; tăng depth là cách xử lý tranh slot, không phải cách xử lý render chậm.
 
 Bảng độ dài để tham chiếu:
 
@@ -76,7 +76,7 @@ span_render symbol=ACB span=3M index=1 musical=<s> export=<s> color=<s>
   peaks=<s> encode=<s> total=<s> ratio=<total/musical>
 ```
 
-Đây là ví dụ định dạng, **không phải số đo**. `musical` lấy từ `piece_seconds(...)` đã có (`audio.py:1376`).
+Đây là ví dụ định dạng. Số đo thật của pipeline hiện tại, cùng phân tích MuseScore/color và đề xuất tối ưu, ở [`sonify-render-timing-diagnosis.md`](./sonify-render-timing-diagnosis.md). `musical` lấy từ `piece_seconds(...)` đã có (`audio.py:1376`).
 
 Ghi vào JSON movement (`audio.py:1404-1425`):
 
@@ -559,7 +559,7 @@ Mục tiêu: hết "nghe hết chương mới soạn" trong điều kiện một
 2. `POST /span/prepare` + worker nền.
 3. Cho phép `depth = 2` (và 3 khi pause dài) sau khi có ưu tiên và số đo.
 4. LRU theo dung lượng nếu cache vượt ngưỡng.
-5. Cân nhắc `VSTOCK_MUSESCORE_SLOTS = 2` nếu VM ≥ 4 vCPU; đo CPU/nhiệt trước.
+5. Cân nhắc `VSTOCK_MUSESCORE_SLOTS = 2` nếu VM ≥ 4 vCPU; đo CPU/nhiệt trước. Trên 2 vCPU, ưu tiên batch + color nhanh (xem [`sonify-render-timing-diagnosis.md`](./sonify-render-timing-diagnosis.md)) trước khi tăng slot.
 
 ---
 

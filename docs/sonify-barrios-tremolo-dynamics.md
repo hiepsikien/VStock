@@ -96,7 +96,7 @@ Vòm chậm cộng thêm trên vùng tremolo liền nhau. `t` là vị trí ô t
 
 `guitar_patterns.py` gọi `_tremolo` với mọi ô đánh dấu `"phrase"`, rồi mới lọc `tremolo_bars`. Tính `t` trong `_tremolo` sẽ trải vòm qua cả ô Preludio bị bỏ. Vòm chậm bám tập ô tremolo thật, ở nhánh `pattern == "tremolo"` trong `guitar_patterns.py`. Lời gọi có thể truyền tập đó vào. Không suy `t` từ `kind_at` đang được truyền là toàn `"phrase"`.
 
-Band dịch cả vòm, không xóa vòm: `p` trừ 6, `mp` trừ 3, `mf` giữ, `f` cộng 3. Kẹp ngón cái trong 44–72. Mỗi cụm, ngón cái lớn hơn nốt `m` của chính cụm đó ít nhất 3. Không đòi ngón cái phách nhẹ lớn hơn `m` của phách mạnh. Nếu đòi vậy, vòm trong ô bị bẹt.
+Band dịch cả vòm, không xóa vòm: `p` trừ 6, `mp` trừ 3, `mf` giữ, `f` cộng 3. Kẹp ngón cái trong 44–72. Mỗi cụm, ngón cái lớn hơn nốt `m` của chính cụm đó ít nhất 3 trước `TREMOLO_BASS_TRIM`; sau khi hạ bass 2, khoảng còn lại ít nhất 1. Không đòi ngón cái phách nhẹ lớn hơn `m` của phách mạnh. Nếu đòi vậy, vòm trong ô bị bẹt.
 
 `_shape_dynamics` bỏ qua cả ba bè của ô tremolo, giống ô etude. Nếu không bỏ, band cũ (`p` trừ 12) cộng thêm một lần nữa.
 
@@ -105,6 +105,10 @@ Bỏ `_tremolo_boost`. Cộng phẳng 2 hoặc 4 cho cả ô, và khóa ô đầ
 1D dùng cùng công thức.
 
 Không đổi cửa chọn tremolo, không đổi Preludio, choro, polca, và không viết hairpin MusicXML. Playback guitar đọc velocity từng nốt. Barrios hiện chỉ in một chữ `mp` ở ô 0.
+
+### Bass −2 sau sóng
+
+P1 headroom fix đưa đỉnh tremolo về profile, nhưng tai vẫn nghe thumb quá to trong bản cuối. `TREMOLO_BASS_TRIM = 2` hạ bè `low` và nốt màu `support` hai bậc **sau** `_apply_snaps` / `_apply_stabs` và trước `_sync_ties`. Phải đặt sau snap vì đỉnh thumb đã bị `_apply_snaps` ghi lại ở bar đỉnh. Lead fill giữ nguyên mức viết, nên giai điệu tách khỏi bass thêm 2 bậc. Nốt màu hạ cùng bass để không có chuyện bè trong to hơn ngón cái ở phách đổi hợp âm.
 
 ### Test tremolo
 

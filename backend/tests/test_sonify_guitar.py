@@ -17,6 +17,7 @@ from app.sonify.guitar import (
     _place_melody,
     _slur,
     _tremolo,
+    TREMOLO_BASS_TRIM,
     assert_playable,
     guard_chromatic_approach,
     render_guitar_score,
@@ -1202,7 +1203,7 @@ def test_phase1_held_melody_tremolo_tapers_and_breathes() -> None:
     by_beat = {round(note.beat, 2): note.velocity for note in thumbs}
     anchor = by_beat[1.0]
     assert [by_beat[beat] - anchor for beat in (0.0, 1.0, 2.0, 3.0)] == [-4, 0, 4, 1]
-    assert [velocity - anchor for velocity in at_one] == [-6, -3, -4, -6]
+    assert [velocity - anchor for velocity in at_one] == [-4, -1, -2, -4]
     assert len(thumbs) == 8  # root and fifth on every quarter
 
     # A closing 6/8 bar is only three quarter beats, so the tremolo is not cut.
@@ -1579,7 +1580,7 @@ def test_phase1_a_calm_scherzo_still_tremolos_a_held_line() -> None:
         key=lambda note: note.beat,
     )
     thumb = next(note.velocity for note in score.low if note.bar == 1 and abs(note.beat) < 1e-6 and note.midi)
-    assert [note.velocity - thumb for note in sung[:4]] == [-6, -3, -4, -6]
+    assert [note.velocity - thumb for note in sung[:4]] == [-4, -1, -2, -4]
     quiet = _guitar(
         (_held(0, 6, 72), _held(6, 6, 72)),
         bpm=120,
@@ -2123,7 +2124,7 @@ def test_a_daily_piece_keeps_one_pattern_across_the_body() -> None:
         for note in barrios.low
         if note.bar == 31 and abs(note.beat) < 1e-6 and note.midi is not None and note.duration_beats >= 0.75
     )
-    assert [velocity - thumb for velocity in fills] == [-6, -3, -4, -6]
+    assert [velocity - thumb for velocity in fills] == [-4, -1, -2, -4]
 
 
 def _barrios_ctx(
@@ -2174,6 +2175,50 @@ def _barrios_ctx(
         strong=(0, 4) if kind == "4/4" else (0, 3),
         bar_beats=epb / 2,
     )
+
+
+def test_phrase_lookup_matches_the_linear_scan() -> None:
+    """The bar index keeps first-match order, held-over overlaps, and odd eighths."""
+    from app.sonify.guitar_patterns import _phrase_at
+
+    phrases = (
+        _held(0, 8, 60, held_over=True),
+        _held(4, 12, 64, held_over=True),
+        _held(15, 4, 67),
+    )
+    ctx = _barrios_ctx(
+        phrases,
+        (),
+        {bar: "phrase" for bar in range(6)},
+        bpm=96,
+        bars=6,
+        character="rally",
+    )
+    for eighth in [tick / 2 for tick in range(-2, 40)]:
+        expected = next(
+            (phrase for phrase in phrases if phrase.start <= eighth < phrase.end), None
+        )
+        assert _phrase_at(ctx, eighth) is expected
+    ctx.phrases = (_held(8, 8, 67),)
+    assert _phrase_at(ctx, 4) is None
+    assert _phrase_at(ctx, 8) is ctx.phrases[0]
+
+
+def test_pattern_cache_follows_a_new_pattern_list() -> None:
+    """A fresh list with different content must not reuse the previous bar cache."""
+    from app.sonify.guitar_patterns import _bar_pattern
+
+    phrases = (_held(0, 8, 60), _held(8, 8, 64))
+    ctx = _barrios_ctx(
+        phrases,
+        (),
+        {0: "phrase", 1: "phrase"},
+        bpm=96,
+        bars=2,
+        character="rally",
+    )
+    assert _bar_pattern(ctx, 1, ["preludio", "study"]) == "study"
+    assert _bar_pattern(ctx, 1, ["study", "preludio"]) == "preludio"
 
 
 def _body_pattern_row(ctx, patterns: list[str]) -> list[str]:
@@ -2752,8 +2797,8 @@ def test_a_two_bar_tremolo_region_matches_at_both_ends() -> None:
     at_one = [note.velocity for note in _attacks(score.lead, 1) if 1.0 - 1e-6 <= note.beat < 2.0]
     thumb = next(note.velocity for note in score.low if note.bar == 1 and abs(note.beat - 1.0) < 1e-6 and note.midi)
     downbeat = next(iter(first_thumb))
-    assert [velocity - downbeat for velocity in first] == [-6, -3, -4, -6]
-    assert [velocity - thumb for velocity in at_one] == [-6, -3, -4, -6]
+    assert [velocity - downbeat for velocity in first] == [-4, -1, -2, -4]
+    assert [velocity - thumb for velocity in at_one] == [-4, -1, -2, -4]
     assert thumb > at_one[1] > at_one[2] > at_one[0]
     _assert_engraved(score, {0: "barrios_preludio", 1: "barrios_tremolo", 2: "barrios_tremolo"})
 
@@ -2911,7 +2956,9 @@ def test_barrios_week_tremolo_bass_moves_inside_the_bar() -> None:
             for note in score.lead
             if note.bar == bar and note.midi is not None and abs(note.beat - (beat + 0.25)) < 1e-6
         )
-        assert middle is not None and thumb >= middle + 3
+        # The written invariant is thumb >= m + 3. The final trim lowers the
+        # thumb, so compare the written thumb (`thumb + trim`) against that.
+        assert middle is not None and thumb + TREMOLO_BASS_TRIM >= middle + 3
 
 
 def test_barrios_outro_and_brouwer_intro_keep_a_flat_level() -> None:

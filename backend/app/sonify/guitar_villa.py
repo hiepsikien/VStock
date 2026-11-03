@@ -312,6 +312,22 @@ def _render_thumb(ctx: _Ctx, phrase: Phrase) -> tuple[list[NoteEvent], list[Note
                 lower_vel = upper_vel
             support.extend(_eighth_event(eighth, 1, lower, ctx.epb, 2, lower_vel))
             lead.extend(_eighth_event(eighth, 1, higher, ctx.epb, 1, upper_vel))
+    _suppress_trace_bars(
+        phrase.start // ctx.epb, (phrase.end - 1) // ctx.epb + 1
+    )
+    for event in low:
+        if event.midi is None:
+            continue
+        eighth = _start16(event, ctx.epb) // 2
+        if 0 <= eighth < len(ctx.melody):
+            _record_trace_point(
+                bar=event.bar,
+                beat=event.beat,
+                duration_beats=event.duration_beats,
+                price_eighth=eighth,
+                pitch=float(ctx.melody[eighth]),
+                sounding_pitch=float(event.midi),
+            )
     return lead, support, low
 
 
@@ -451,6 +467,15 @@ def _render_etude1_bar(
             lead.append(
                 _placed(bar, beat, midi, duration, 1, _etude_hairpin(ctx, phrase, hairpin_eighth))
             )
+            if 0 <= hairpin_eighth < len(ctx.melody):
+                _record_trace_point(
+                    bar=bar,
+                    beat=beat,
+                    duration_beats=duration,
+                    price_eighth=hairpin_eighth,
+                    pitch=float(ctx.melody[hairpin_eighth]),
+                    sounding_pitch=float(midi),
+                )
             continue
         degree = _ETUDE1_MIDDLE.get(index)
         if degree is None:
@@ -465,6 +490,7 @@ def _render_etude1_bar(
         _etude_hairpin(ctx, phrase, eighth) for _midi, eighth, _duration in high_at.values()
     )
     low = [_placed(bar, 0.0, bass, 4.0, 3, max(44, sung_velocity - 4))]
+    _suppress_trace_bars(bar, bar + 1)
     return lead, support, low
 
 
@@ -639,9 +665,11 @@ from app.sonify.guitar_patterns import (  # noqa: E402
     _peak,
     _playable,
     _pool,
+    _record_trace_point,
     _rises,
     _shape_accompaniment,
     _sounding_midi,
+    _suppress_trace_bars,
     _start16,
     _strings_differ,
     _support_eighths,

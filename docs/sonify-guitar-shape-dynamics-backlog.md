@@ -1,15 +1,15 @@
 # Backlog — shape dynamics cho guitar
 
-Phần P0–P5 của [shape dynamics](sonify-guitar-shape-dynamics-plan.md) đã vào `main`. Tài liệu này giữ lại những việc **cố ý chưa làm** trong PR đó, kèm điều kiện để được phép làm.
+Phần P0–P5 của [shape dynamics](sonify-guitar-shape-dynamics-plan.md) đã vào `main`. Tài liệu này giữ lại những việc **cố ý chưa làm** trong PR đó, kèm điều kiện để được phép làm. Mục P7 đã xong ở PR #133 được giữ lại để ghi lý do thiết kế.
 
-Không có mục nào ở đây là bug. Mỗi mục là một thay đổi hành vi hoặc một quyết định sản phẩm chưa chốt.
+Không có mục nào ở đây là bug. Mỗi mục là một thay đổi hành vi hoặc một quyết định sản phẩm chưa chốt; riêng P7 là ghi chú đóng.
 
 ## Trạng thái
 
 | # | Việc | Loại | Chặn bởi |
 |---|---|---|---|
 | 1 | P6 — in dynamics theo section | notation + playback | chưa test MuseScore, chưa chốt score dành cho ai |
-| 2 | P7 — cache `phrase_at` / `_bar_pattern` / `_pedal_regions`, `lipschitz` O(n) | hiệu năng | chỉ cần benchmark, không đổi âm nhạc |
+| 2 | P7 — cache guitar + `humanize._pairs` (**đã xong** ở PR #133); `lipschitz` O(n) đã bỏ | hiệu năng | hai pass lệch float 1 ULP; giữ direct max |
 | 3 | `MIN_TIDE` theo thể loại | âm nhạc | `SPEECH` chặn ở các row floor thấp |
 | 4 | `_limit_steps`: minorant → majorant hoặc projection đối xứng | âm nhạc | chỉ đổi nếu nghe seam bị dìm |
 | 5 | Tách `window_for(min_tide=...)` thành `body_window()` / `pedal_window()` | đọc code | không cần cho PR này |
@@ -47,40 +47,29 @@ Hệ quả:
 
 ---
 
-## 2. P7 — dọn hiệu năng
+## 2. P7 — cache + humanize (đã xong), `lipschitz` O(n) (đã bỏ)
 
-Không đổi một nốt nào. Chỉ làm khi có benchmark chứng minh đáng làm, và tách PR riêng.
+PR #133 làm phần không đổi âm nhạc:
 
-### Các điểm nóng
+- `_phrase_at`: index phrase theo bar và cache theo eighth trên `_Ctx`.
+- `_bar_pattern`: cache theo signature của `patterns` và bar.
+- `_pedal_regions`: cache leading/trailing một lần mỗi render.
+- `guitar_wave` dùng chung cache phrase/pedal với `guitar_patterns`.
+- `humanize._pairs`: bucket theo start bar, giữ nguyên pair set và thứ tự.
 
-| Hàm | Vấn đề |
-|---|---|
-| `_phrase_at(ctx, eighth)` | duyệt `ctx.phrases` tuyến tính, gọi trong `_phrase_breath`, `_apply_snaps`, `_shape_dynamics` cũ |
-| `_bar_pattern(ctx, bar, patterns)` | gọi lại cho cùng bar ở `_written_deviations`, `breath_skip`, `_phrase_breath`, `_apply_snaps` |
-| `_pedal_regions(ctx)` | tính lại nhiều lần trong một render |
-| `lipschitz()` / `shape_u()` | O(n²): mỗi bar so với toàn bộ bar còn lại |
-| `humanize._pairs` | bucket O(n²) toàn bộ nốt |
+Đo trên score 152 bar (5 phiên 32/32/32/32/24, median 7 lần): render guitar/barrios **599.4 → 596.7 ms**; suite 4 movement guitar **1055.1 → 1045.3 ms**; `humanize()` guitar/barrios **88.2 → 13.6 ms**, symphony **27.3 → 12.5 ms**, minimalist **489.8 → 121.5 ms**. Riêng cache guitar ảnh hưởng dưới 1% thời gian render; phần đáng giữ là `humanize._pairs`.
 
-### Cách làm
+### `lipschitz` — giữ direct max
 
-- Precompute `phrase_by_bar: dict[int, Phrase]` và `pattern_by_bar: dict[int, str]` một lần mỗi render.
-- Tính `_pedal_regions` một lần rồi truyền xuống.
-- `lipschitz` hai pass O(n):
+Hai pass O(n) chỉ giữ được một trong các term `level - delta * distance`, nên với input dạng band-derived có thể lệch **1 ULP** so với direct max (6/30.000 mảng, max 1.1e-16) và có thể vi phạm ràng buộc chênh lệch kề. Đo render cho thấy chỉ tiết kiệm **~0.01–0.02 ms/render**, nên giữ direct max.
 
-  ```python
-  for i in range(1, n):
-      out[i] = min(out[i], out[i - 1] + step)
-  for i in range(n - 2, -1, -1):
-      out[i] = min(out[i], out[i + 1] + step)
-  ```
-
-- `humanize._pairs` bucket theo `(bar, voice)`.
+Test `test_lipschitz_matches_the_direct_cone_envelope` pin kết quả với công thức direct max; `test_phrase_lookup_matches_the_linear_scan` và `test_pairs_bucket_matches_the_full_overlap_scan` là differential test cho hai phần cache.
 
 ### Nghiệm thu
 
-- Toàn bộ test hiện có pass **không sửa một assertion nào** (đây là refactor thuần).
-- Benchmark trước/sau trên một movement 152 bar và một suite dài; ghi thời gian render.
-- Nếu `lipschitz` đổi kết quả dù chỉ một bar, coi là thay đổi hành vi và phải re-pin test riêng.
+- Toàn bộ test cũ pass, không sửa assertion nào.
+- 4 test mới: differential cho `_phrase_at`, `_pairs`, `lipschitz`, và cache `_bar_pattern`.
+- Benchmark render/humanize trước/sau: xem PR #133.
 
 ---
 
@@ -205,4 +194,4 @@ Chỉ làm khi có một bản thật sự nghe thấy peak giả ở intro/outr
 - **Snap và stab**: `_apply_snaps` / `_apply_stabs` giữ nguyên; snap budget và giá trị `70/66/62` không đổi.
 - **Trần timbre** `WARM_LIMIT = 63` giữ nguyên cho body; chỉ mở khi P6 được duyệt.
 - **Humanize** và clamp 64/65 không đổi.
-- **`_written_deviations` gộp ba bè**: bass thường giữ `d_lo = -16`, trim chủ yếu mở phía trần. Đây là hành vi đã ghi trong docstring, không phải việc còn treo.
+- **`_written_deviations` gộp ba bè**: bass thường giữ `d_lo = -16`; P1 chỉ trim đáy, `d_hi` giữ profile. Hành vi này đã sửa sau audit `docs/sonify-guitar-p1-tide-audit.md`: trim trần làm `tremolo` và `etude11` dâng lên, các row khác không đổi.

@@ -273,12 +273,45 @@ def _pairs(hits: list[_Hit], bar_beats: float) -> list[tuple[_Hit, _Hit]]:
             if left.note.velocity != right.note.velocity:
                 pairs.append((left, right))
     ordered_hits = sorted(hits, key=lambda hit: (hit.field, _attack_key(hit.note)))
-    for index, left in enumerate(ordered_hits):
-        for right in ordered_hits[index + 1 :]:
-            if left.field == right.field or left.note.velocity == right.note.velocity:
-                continue
-            if _overlaps(left, right, bar_beats):
-                pairs.append((left, right))
+    if bar_beats > 0 and ordered_hits:
+        # Overlap only reaches across bars whose starts are within the longest
+        # note of the hits. Bucket by start bar, then walk each left's window in
+        # index order so the pair list stays identical to the full scan.
+        starts = [_start(hit, bar_beats) for hit in ordered_hits]
+        start_bars = [int(math.floor(start / bar_beats)) for start in starts]
+        buckets: dict[int, list[int]] = {}
+        for index, bar in enumerate(start_bars):
+            buckets.setdefault(bar, []).append(index)
+        lowest, highest = min(start_bars), max(start_bars)
+        longest = max(max(0.0, hit.note.duration_beats) for hit in ordered_hits)
+        lookback = int(math.ceil(longest / bar_beats)) + 1
+        for index, left in enumerate(ordered_hits):
+            start = starts[index]
+            finish = start + left.note.duration_beats
+            first_bar = max(lowest, start_bars[index] - lookback)
+            last_bar = (
+                int(math.floor(finish / bar_beats)) if finish > start else start_bars[index]
+            )
+            last_bar = min(highest, last_bar)
+            candidates: list[int] = []
+            for bar in range(first_bar, last_bar + 1):
+                candidates.extend(buckets.get(bar, ()))
+            candidates.sort()
+            for other in candidates:
+                if other <= index:
+                    continue
+                right = ordered_hits[other]
+                if left.field == right.field or left.note.velocity == right.note.velocity:
+                    continue
+                if _overlaps(left, right, bar_beats):
+                    pairs.append((left, right))
+    else:
+        for index, left in enumerate(ordered_hits):
+            for right in ordered_hits[index + 1 :]:
+                if left.field == right.field or left.note.velocity == right.note.velocity:
+                    continue
+                if _overlaps(left, right, bar_beats):
+                    pairs.append((left, right))
     pairs.sort(
         key=lambda pair: (
             min(_start(pair[0], bar_beats), _start(pair[1], bar_beats)),
