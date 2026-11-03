@@ -3,6 +3,7 @@ import { Platform, useWindowDimensions, View } from 'react-native';
 import { LiveRoom } from './LiveRoom';
 import { palette, WIDE_BREAKPOINT } from './palette';
 import { ReplayRoom } from './ReplayRoom';
+import { TuningProvider } from './tuning';
 
 type Mode = 'replay' | 'live';
 
@@ -25,12 +26,14 @@ export function MusicalizeApp() {
   }, []);
 
   return (
-    <View style={{ flex: 1, backgroundColor: palette.background }}>
-      {mode === 'live' ? (
-        <LiveRoom wide={wide} onMode={setMode} />
-      ) : (
-        <ReplayRoom wide={wide} onMode={setMode} />
-      )}
-    </View>
+    <TuningProvider>
+      <View style={{ flex: 1, backgroundColor: palette.background }}>
+        {mode === 'live' ? (
+          <LiveRoom wide={wide} onMode={setMode} />
+        ) : (
+          <ReplayRoom wide={wide} onMode={setMode} />
+        )}
+      </View>
+    </TuningProvider>
   );
 }

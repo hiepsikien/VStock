@@ -52,6 +52,15 @@ from app.services.spans import (
 from app.sonify.audio import RecapCancelled, RecapUnavailable
 from app.sonify.ensemble import Ensemble, ensemble_for
 from app.sonify.keys import CHARACTER_LABEL, key_label, work_key_label
+from app.sonify.params import (
+    SCHEMA_VERSION,
+    normalize_with_warnings,
+    params_from_query,
+    params_hash,
+    params_layers,
+    presets_payload,
+    schema_payload,
+)
 from app.sonify.program import span_movement_name
 from app.sonify.model import Variant
 
@@ -65,6 +74,18 @@ def _ensemble(variant: Variant, name: str) -> Ensemble:
         return ensemble_for(variant, name)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _params(p: str | None, humanize: bool, color: bool):
+    text = p if isinstance(p, str) and p else None
+    try:
+        return params_from_query(text, humanize=humanize, color=color)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid p: {exc}") from exc
+
+
+def _layers(params) -> tuple[bool, bool]:
+    return params_layers(params)
 
 
 async def _symbol_coverage() -> dict[str, dict]:
@@ -495,14 +516,16 @@ async def get_recap(
     ensemble: str = Query(default="classic"),
     humanize: bool = Query(default=True),
     color: bool = Query(default=True),
+    p: str | None = Query(default=None),
 ) -> RecapResponse:
     sym = symbol.upper()
     # The movement name and DFI are written with the audio. A cached recap from
     # before that write would show an empty name and a missing DFI.
     response.headers["Cache-Control"] = "no-store"
     chosen = _ensemble(variant, ensemble)
+    valid = _params(p, humanize, color)
     try:
-        asset = await load_recap(sym, session_date, variant, request, chosen, humanize, color)
+        asset = await load_recap(sym, session_date, variant, request, chosen, valid)
     except LookupError:
         raise HTTPException(
             status_code=404,
@@ -529,8 +552,8 @@ async def get_recap(
         characterLabel=CHARACTER_LABEL.get(asset.character or "", ""),
         keyLabel=asset.key_label,
         movementName=asset.movement_name,
-        humanize=asset.humanize,
-        color=asset.color,
+        humanize=_layers(valid)[0],
+        color=_layers(valid)[1],
         dfi=asset.dfi,
     )
 
@@ -544,12 +567,14 @@ async def get_span(
     ensemble: str = Query(default="classic"),
     humanize: bool = Query(default=True),
     color: bool = Query(default=True),
+    p: str | None = Query(default=None),
 ) -> SpanResponse:
     sym = symbol.upper()
     # A movement name and its DFI appear after the audio is written. Never let
     # a browser or proxy replay a plan from before that write.
     response.headers["Cache-Control"] = "no-store"
     chosen = _ensemble(variant, ensemble)
+    valid = _params(p, humanize, color)
     if range not in SPAN_RANGES:
         raise HTTPException(status_code=404, detail=f"No sonification for {range}")
     try:
@@ -561,7 +586,7 @@ async def get_span(
     rows = []
     work_dfi = None
     for index, movement in enumerate(plan.movements):
-        cached = ready_movement(sym, range, index, variant, movement, chosen, humanize, color)
+        cached = ready_movement(sym, range, index, variant, movement, chosen, valid)
         if range == "1W" and cached is not None:
             # A week is one movement, so the work score is that movement.
             work_dfi = getattr(cached, "dfi", None)
@@ -583,7 +608,7 @@ async def get_span(
                 mapDurationSec=mapped,
                 ready=cached is not None,
                 audioUrl=movement_audio_path(
-                    sym, range, index, variant, movement, chosen, humanize, color
+                    sym, range, index, variant, movement, chosen, valid
                 ),
                 restAfterSec=movement.rest_after,
                 warmupSec=round(movement_frame(movement)[0], 3),
@@ -620,8 +645,8 @@ async def get_span(
         movements=rows,
         asOf=plan.as_of.isoformat(),
         keyLabel=work_key_label(sym, [movement.mode for movement in plan.movements]),
-        humanize=humanize,
-        color=color,
+        humanize=_layers(valid)[0],
+        color=_layers(valid)[1],
         dfi=work_dfi,
     )
 
@@ -635,11 +660,13 @@ async def get_span_peaks(
     ensemble: str = Query(default="classic"),
     humanize: bool = Query(default=True),
     color: bool = Query(default=True),
+    p: str | None = Query(default=None),
 ) -> SpanPeaksResponse:
     """Only the per-movement envelopes. Avoids resending prices/volumes on refresh."""
     sym = symbol.upper()
     response.headers["Cache-Control"] = "no-store"
     chosen = _ensemble(variant, ensemble)
+    valid = _params(p, humanize, color)
     if range not in SPAN_RANGES:
         raise HTTPException(status_code=404, detail=f"No sonification for {range}")
     try:
@@ -654,7 +681,7 @@ async def get_span_peaks(
 
     peaks: list[SpanPeaksMovement] = []
     for index, movement in enumerate(plan.movements):
-        cached = ready_movement(sym, range, index, variant, movement, chosen, humanize, color)
+        cached = ready_movement(sym, range, index, variant, movement, chosen, valid)
         peaks.append(
             SpanPeaksMovement(
                 index=index,
@@ -663,7 +690,7 @@ async def get_span_peaks(
                 if cached is not None
                 else 0.0,
                 audioUrl=movement_audio_path(
-                    sym, range, index, variant, movement, chosen, humanize, color
+                    sym, range, index, variant, movement, chosen, valid
                 ),
                 ready=cached is not None,
                 durationSec=float(getattr(cached, "duration_sec", 0.0) or 0.0)
@@ -682,11 +709,45 @@ async def get_span_peaks(
         range=range,
         variant=variant,
         ensemble=chosen,
-        humanize=humanize,
-        color=color,
+        humanize=_layers(valid)[0],
+        color=_layers(valid)[1],
         asOf=plan.as_of.isoformat(),
         movements=peaks,
     )
+
+
+@router.get("/sonify/params/schema")
+async def get_params_schema(response: Response) -> dict:
+    """The single schema the client renders. Also carries the kill switch."""
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return schema_payload()
+
+
+@router.post("/sonify/params/validate")
+async def validate_params(payload: dict) -> dict:
+    """Normalize knobs without rendering anything."""
+    schema = payload.get("schema", SCHEMA_VERSION)
+    if schema != SCHEMA_VERSION:
+        raise HTTPException(status_code=400, detail="Unsupported params schema")
+    raw = payload.get("params", {})
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=400, detail="params must be an object")
+    try:
+        values, warnings = normalize_with_warnings(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "schema": SCHEMA_VERSION,
+        "params": values,
+        "hash": params_hash(values),
+        "warnings": warnings,
+    }
+
+
+@router.get("/sonify/params/presets")
+async def get_params_presets(response: Response) -> list[dict]:
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return presets_payload()
 
 
 @router.get("/sonify/dfi/signatures", response_model=list[DfiSignature])
@@ -736,10 +797,12 @@ async def get_dfi_pieces(
     ensemble: str | None = Query(default=None),
     humanize: bool = Query(default=True),
     color: bool = Query(default=True),
+    p: str | None = Query(default=None),
 ) -> DfiPiecesResponse:
     """Compose other rows of the same session or movement, without exporting audio."""
     response.headers["Cache-Control"] = "no-store"
     sym = symbol.upper()
+    valid = _params(p, humanize, color)
     try:
         rows = dfi_service.requested_rows(variant, ensemble)
     except ValueError as exc:
@@ -749,7 +812,7 @@ async def get_dfi_pieces(
             raise HTTPException(status_code=422, detail="date is required for bucket=day")
         try:
             results = await dfi_service.pieces_for_day(
-                sym, date, rows, humanize, color, request
+                sym, date, rows, valid, request
             )
         except LookupError:
             raise HTTPException(
@@ -768,7 +831,7 @@ async def get_dfi_pieces(
             raise HTTPException(status_code=404, detail=f"No sonification for {range}")
         try:
             results, stamped = await dfi_service.pieces_for_span(
-                sym, range, movement, rows, humanize, color, request
+                sym, range, movement, rows, valid, request
             )
         except LookupError:
             raise HTTPException(status_code=404, detail="That movement is not in this span") from None
@@ -807,14 +870,16 @@ async def get_span_audio(
     ensemble: str = Query(default="classic"),
     humanize: bool = Query(default=True),
     color: bool = Query(default=True),
+    p: str | None = Query(default=None),
 ) -> FileResponse:
     sym = symbol.upper()
     chosen = _ensemble(variant, ensemble)
+    valid = _params(p, humanize, color)
     if range not in SPAN_RANGES:
         raise HTTPException(status_code=404, detail=f"No sonification for {range}")
     try:
         asset = await load_movement_audio(
-            sym, range, movement, variant, request, chosen, humanize, color
+            sym, range, movement, variant, request, chosen, valid
         )
     except LookupError:
         raise HTTPException(status_code=404, detail="That movement is not in this span") from None
@@ -842,11 +907,13 @@ async def get_recap_audio(
     ensemble: str = Query(default="classic"),
     humanize: bool = Query(default=True),
     color: bool = Query(default=True),
+    p: str | None = Query(default=None),
     v: int = Query(..., ge=1),
 ) -> FileResponse:
     sym = symbol.upper()
+    valid = _params(p, humanize, color)
     asset = ready_recap(
-        sym, session_date, variant, v, _ensemble(variant, ensemble), humanize, color
+        sym, session_date, variant, v, _ensemble(variant, ensemble), valid
     )
     if asset is None:
         raise HTTPException(status_code=404, detail="Recap audio is not ready")

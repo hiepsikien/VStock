@@ -7,7 +7,7 @@ the five parts. Silence is the default, and a rest still belongs to its section.
 from __future__ import annotations
 
 from app.sonify.chords import Chord, Regime, fifth_above_bass, jazz_chord
-from app.sonify.dynamics import COOLDOWN_MARKING, SOUND
+from app.sonify.dynamics import COOLDOWN_MARKING, sound_for
 from app.sonify.form import (
     active_meter,
     ChordSlot,
@@ -431,7 +431,7 @@ def _breath(
         DynamicEvent(
             bar=start // active_meter().eighths_per_bar,
             marking=peak_marking,
-            sound=SOUND[peak_marking],
+            sound=sound_for(peak_marking),
             beat=(start % active_meter().eighths_per_bar) * 0.5,
         )
     ]
@@ -606,7 +606,7 @@ def _daily_frame_breaths(
         DynamicEvent(
             bar=intro.start,
             marking="p",
-            sound=SOUND["p"],
+            sound=sound_for("p"),
             beat=0.0,
         )
     ]
@@ -621,7 +621,7 @@ def _daily_frame_breaths(
                 DynamicEvent(
                     bar=start // active_meter().eighths_per_bar,
                     marking="mp",
-                    sound=SOUND["mp"],
+                    sound=sound_for("mp"),
                     beat=(start % active_meter().eighths_per_bar) * 0.5,
                 )
             )
@@ -632,7 +632,7 @@ def _daily_frame_breaths(
             DynamicEvent(
                 bar=last,
                 marking=COOLDOWN_MARKING,
-                sound=SOUND[COOLDOWN_MARKING],
+                sound=sound_for(COOLDOWN_MARKING),
                 beat=0.0,
             )
         )
@@ -652,7 +652,7 @@ def _daily_frame_breaths(
                 DynamicEvent(
                     bar=last,
                     marking=COOLDOWN_MARKING,
-                    sound=SOUND[COOLDOWN_MARKING],
+                    sound=sound_for(COOLDOWN_MARKING),
                     beat=0.0,
                 )
             )
@@ -728,7 +728,7 @@ def _bed_dynamics(windows: list[tuple[int, int]] | tuple[tuple[int, int], ...], 
         marking = _bed_marking(band)
         if marking == previous:
             continue
-        events.append(DynamicEvent(bar=start, marking=marking, sound=SOUND[marking]))
+        events.append(DynamicEvent(bar=start, marking=marking, sound=sound_for(marking)))
         previous = marking
     return tuple(events)
 
@@ -774,7 +774,7 @@ def _framed_bed_dynamics(
         nonlocal previous
         if marking == previous:
             return
-        events.append(DynamicEvent(bar=bar, marking=marking, sound=SOUND[marking]))
+        events.append(DynamicEvent(bar=bar, marking=marking, sound=sound_for(marking)))
         previous = marking
 
     add(intro.start, "p")
@@ -1104,11 +1104,11 @@ def render_ambient_score(
         lead_dynamics=tuple(glass_dynamics),
         support_dynamics=(
             (
-                DynamicEvent(bar=next(section.start for section in form.sections if section.kind == "phrase"), marking="mp", sound=SOUND["mp"]),
+                DynamicEvent(bar=next(section.start for section in form.sections if section.kind == "phrase"), marking="mp", sound=sound_for("mp")),
                 DynamicEvent(
                     bar=next(section.end for section in form.sections if section.kind == "outro") - 1,
                     marking=COOLDOWN_MARKING,
-                    sound=SOUND[COOLDOWN_MARKING],
+                    sound=sound_for(COOLDOWN_MARKING),
                 ),
             )
             if frame

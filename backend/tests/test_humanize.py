@@ -1049,10 +1049,20 @@ def test_preset_chains_match_the_five_lines() -> None:
     assert "highshelf=f=8000:g=-1" in guitar.ffmpeg
     assert "extrastereo" not in guitar.ffmpeg and "extrastereo" not in symphony.ffmpeg
     assert symphony.noise == 0.001 and symphony.gate_noise is False
-    assert guitar.noise < symphony.noise and guitar.gate_noise is True
-    assert jazz.name == "club" and "aecho=" in jazz.ffmpeg and jazz.noise == 0
-    assert wood.name == "wood" and "aecho=" in wood.ffmpeg and "asoftclip" not in wood.ffmpeg and wood.noise == 0
-    assert air.name == "air" and "highshelf=" in air.ffmpeg and "aecho=" in air.ffmpeg and air.noise == 0
+    assert guitar.noise == 0.001 and guitar.gate_noise is True
+    assert jazz.name == "club" and "aecho=" in jazz.ffmpeg and jazz.noise == 0.001
+    assert (
+        wood.name == "wood"
+        and "aecho=" in wood.ffmpeg
+        and "asoftclip" not in wood.ffmpeg
+        and wood.noise == 0.001
+    )
+    assert (
+        air.name == "air"
+        and "highshelf=" in air.ffmpeg
+        and "aecho=" in air.ffmpeg
+        and air.noise == 0.001
+    )
     assert "0.4" not in wood.ffmpeg
 
 
@@ -1296,3 +1306,80 @@ def _rms(path: Path, start: float) -> float:
     if not window:
         return 0.0
     return math.sqrt(sum(float(sample) ** 2 for sample in window) / len(window))
+
+
+def test_chosen_offset_is_stable_across_hash_seeds() -> None:
+    import os
+    import subprocess
+    import sys
+
+    code = (
+        "from app.sonify.humanize import chosen_offset\n"
+        "print(','.join(str(chosen_offset('guitar','classic','lead',3,beat))\n"
+        "      for beat in (0.0,0.5,1.0,1.5,2.0,2.5,3.0,3.5)))\n"
+    )
+    runs = []
+    for seed in ("0", "1", "12345"):
+        env = {**os.environ, "PYTHONHASHSEED": seed}
+        completed = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=str(Path(__file__).resolve().parents[1]),
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        runs.append(completed.stdout.strip())
+    assert len(set(runs)) == 1
+
+
+def test_humanize_zero_and_breath_zero_skip_the_whole_layer() -> None:
+    from app.sonify.params import DEFAULT_PARAMS
+
+    score = _score(lead=_quarters(1))
+    heard = humanize(
+        score, params={**DEFAULT_PARAMS, "humanize": 0.0, "breath": 0.0}
+    )
+    assert heard == score
+
+
+def test_humanize_zero_with_breath_keeps_the_guitar_velocities() -> None:
+    from app.sonify.params import DEFAULT_PARAMS
+
+    peak = _note(0.0, 82, midi=76, voice=1, hairpin=True)
+    step = _note(0.5, 72, midi=74, voice=1, hairpin=True)
+    snap = _note(1.0, 82, midi=72, voice=1)
+    heard = humanize(
+        _score(lead=(peak, step, snap)),
+        params={**DEFAULT_PARAMS, "humanize": 0.0, "breath": 1.0},
+    )
+    assert [note.velocity for note in heard.lead] == [82, 72, 82]
+
+
+def test_humanize_ceiling_is_three_at_one_point_five() -> None:
+    offsets = {
+        chosen_offset("guitar", "classic", "lead", bar, beat, humanize=1.5)
+        for bar in range(4)
+        for beat in (0.0, 0.5, 1.0, 1.5)
+    }
+    assert max(offsets) <= 3
+    assert min(offsets) >= -3
+    assert 3 in offsets or -3 in offsets
+
+
+def test_humanize_two_only_adds_to_the_unsatured_branch() -> None:
+    keys = [(bar, beat) for bar in range(8) for beat in (0.0, 0.5, 1.0, 1.5)]
+    at_15 = {
+        key: chosen_offset("guitar", "classic", "lead", *key, humanize=1.5)
+        for key in keys
+    }
+    at_20 = {
+        key: chosen_offset("guitar", "classic", "lead", *key, humanize=2.0)
+        for key in keys
+    }
+    # Base ±2 is already on ±3 at 1.5; 2.0 must not create a new saturated key.
+    assert {key for key, value in at_15.items() if abs(value) == 3} == {
+        key for key, value in at_20.items() if abs(value) == 3
+    }
+    assert max(abs(value) for value in at_20.values()) == 3
+    assert any(abs(value) == 2 for value in at_20.values())

@@ -22,6 +22,7 @@ from statistics import median
 from typing import Callable, Iterable, Literal, Sequence
 
 from app.sonify.model import Bar, NoteEvent, PriceTracePoint, Score
+from app.sonify.dynamics import sound_for
 
 DFI_VERSION = "5"
 
@@ -803,7 +804,7 @@ def _dynamic_gain(score: Score):
         return lambda _bar, _beat: 1.0
     bar_beats = max(score.bar_beats, 1.0)
     positions = [event.bar + event.beat / bar_beats for event in events]
-    gains = [event.sound / 90.0 for event in events]
+    gains = [sound_for(event.marking) / 90.0 for event in events]
 
     def gain(bar: int, beat: float) -> float:
         position = bar + beat / bar_beats

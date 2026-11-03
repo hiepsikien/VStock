@@ -11,9 +11,12 @@ are chosen so round(N / 100 * 90) is the velocity in the third column.
 
 from __future__ import annotations
 
-from math import log1p
+from dataclasses import replace
+from math import floor, log1p
 
 from app.sonify.groove import groove_at
+from app.sonify.model import Score
+from app.sonify.params import active
 
 # marking, sound-dynamics percent, intended MIDI velocity
 DYNAMICS: tuple[tuple[str, int, int], ...] = (
@@ -28,6 +31,70 @@ SOUND: dict[str, int] = {marking: percent for marking, percent, _velocity in DYN
 # Cool-down arrival. 22% of forte is velocity 20, under p at 49.
 COOLDOWN_MARKING = "ppp"
 SOUND[COOLDOWN_MARKING] = 22
+
+# Marking -> intended MIDI velocity at the default dynamics. Everything is
+# derived from this table so `<sound dynamics>` and `<note velocity>` cannot
+# drift apart.
+BASE_VELOCITY: dict[str, int] = {
+    marking: velocity for marking, _percent, velocity in DYNAMICS
+}
+BASE_VELOCITY[COOLDOWN_MARKING] = 20
+PIANO_BASE: dict[str, int] = {"p": 46, "mp": 54, "mf": 62, "f": 68}
+FILL_BASE = 64
+_CENTER = 64
+
+
+def contrast_velocity(base: int) -> int:
+    """Apply the dynamics contrast to a written velocity, ceiling, or floor."""
+    scaled = floor(_CENTER + (base - _CENTER) * active("dynamics") + 0.5)
+    return max(1, min(127, scaled))
+
+
+def apply_contrast(score: Score) -> Score:
+    """Stretch every written note velocity around the mp pivot.
+
+    Called once after the writer and the daily/span frame. At the default
+    factor this returns the same score object, so Default stays byte-identical.
+    """
+    if active("dynamics") == 1.0:
+        return score
+    fields: dict[str, tuple] = {}
+    for name in ("high", "lead", "support", "comp", "low"):
+        notes = getattr(score, name)
+        # `pinned` is final for humanize, not for this pass: this is the
+        # dynamics layer itself, and humanize keeps the scaled value after us.
+        fields[name] = tuple(
+            note if note.velocity is None else replace(note, velocity=contrast_velocity(note.velocity))
+            for note in notes
+        )
+    return replace(score, **fields)
+
+
+def velocity_for(marking: str) -> int:
+    """Velocity after the dynamics knob. At 1.0 this is the old table."""
+    return contrast_velocity(BASE_VELOCITY.get(marking, _CENTER))
+
+
+def sound_for(marking: str) -> int:
+    """Playback percent derived from the velocity, not a second table."""
+    return int(round(velocity_for(marking) / 90 * 100))
+
+
+def piano_velocity_for(marking: str) -> int:
+    return contrast_velocity(PIANO_BASE.get(marking, 64))
+
+
+def piano_base(marking: str) -> int:
+    """The written piano velocity before the score-wide contrast pass."""
+    return PIANO_BASE.get(marking, 64)
+
+
+def fill_velocity() -> int:
+    return contrast_velocity(FILL_BASE)
+
+
+def fill_base() -> int:
+    return FILL_BASE
 
 # The bass sits under the melody. Its busiest band still drives eighth notes,
 # but the printed and played loudness stops at this letter.

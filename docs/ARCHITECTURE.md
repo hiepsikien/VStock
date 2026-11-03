@@ -601,6 +601,9 @@ thắng, vì lệnh dừng nằm sẵn trong sổ và giá khớp của nó khô
 | `app/services/symbols.py` | Full symbol list + search |
 | `app/services/news.py` | VNDirect news aggregation |
 | `app/services/market_session.py` | Local VN market hours |
+| `app/sonify/params.py` | Bảy knob tier A: schema, normalize, hash, cache mark, `p` encode/decode, kill switch |
+| `app/sonify/audio.py` | Render + cache audio; cache mark và LRU theo `params_hash` |
+| `app/routers/stocks.py` (`/v1/sonify/params/*`) | Schema, validate, preset; `p` cho recap/span/peaks/DFI |
 
 ## Phụ lục: Client file map
 
@@ -617,5 +620,8 @@ thắng, vì lệnh dừng nằm sẵn trong sổ và giá khớp của nó khô
 | `src/utils/marketSession.ts` | VN market hours, poll intervals |
 | `src/types.ts` | Stock, ChartRange domain types |
 | `src/types/news.ts` | NewsItem, NewsFilter types |
+| `src/musicalize/params.ts` | Defaults/schema generated, normalize, `p`, profile CRUD |
+| `src/musicalize/tuning.tsx` | Profile state ở `MusicalizeApp`; draft vs heard params |
+| `src/musicalize/TuningPanel.tsx` | Drawer/sheet bảy knob + tab Profile |
 | `src/screens/HealthScreen.tsx` | Dev health — trạng thái ingestion / providers |
 | `src/components/ApiStatusBanner.tsx` | Banner lỗi API + nút thử lại |

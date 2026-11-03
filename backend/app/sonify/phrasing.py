@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 
 from app.sonify.chords import Chord
-from app.sonify.dynamics import SOUND
+from app.sonify.dynamics import sound_for
 from app.sonify.form import (
     EIGHTHS_PER_BAR,
     HALF_BAR,
@@ -64,7 +64,6 @@ BREAKOUT = "breakout"
 BREAKOUT_LOOKBACK = 32  # eighths: four bars
 
 # Piano answers a held cadence in its last beats, while the melody holds and breathes.
-FILL_VELOCITY = 64  # mp, one step over the printed comping p
 FILL_DELAY = 2
 FILL_SPAN = 6
 FILL_MIN = 2
@@ -84,6 +83,11 @@ BELL_FULL_SPAN = 0.020
 
 def bell_budget(rel_span: float, max_eighths: int = BELL_MAX_EIGHTHS) -> int:
     """Scale maximum high-bell eighths linearly with relative session volatility."""
+    from app.sonify.params import active
+
+    max_eighths = int(round(max_eighths * active("density")))
+    if max_eighths <= 0:
+        return 0
     if rel_span <= BELL_FLAT_SPAN:
         return 0
     if rel_span >= BELL_FULL_SPAN:
@@ -768,7 +772,7 @@ def melody_parts(
                             DynamicEvent(
                                 bar=attacks[0].start // active_meter().eighths_per_bar,
                                 marking=MELODY_MARKING,
-                                sound=SOUND[MELODY_MARKING],
+                                sound=sound_for(MELODY_MARKING),
                                 beat=(attacks[0].start % active_meter().eighths_per_bar) * 0.5,
                             )
                         )
@@ -884,11 +888,18 @@ def fills(
     whose chord has fewer than three tones out of the melody's way gets none.
     """
     notes: list[tuple[int, int, int]] = []
+    from app.sonify.params import active
+
+    density = active("density")
+    if density <= 0:
+        return notes
+    min_fills = max(1, int(round(FILL_MIN * density)))
     for run, owner in cadences:
-        span = 3 if (active_meter().beats, active_meter().beat_type) == (6, 8) else FILL_SPAN
+        base_span = 3 if (active_meter().beats, active_meter().beat_type) == (6, 8) else FILL_SPAN
+        span = max(1, int(round(base_span * density)))
         first = max(run.start + FILL_DELAY, run.end - span)
         eighths = [eighth for eighth in range(first, run.end) if eighth % active_meter().eighths_per_bar]
-        if len(eighths) < FILL_MIN:
+        if len(eighths) < min_fills:
             continue
         chords = {chord_at[eighth // active_meter().eighths_per_bar] for eighth in eighths}
         tones = {chord: fill_tones(chord, run.midi, owner) for chord in chords}

@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 
 from app.sonify.chords import Chord
-from app.sonify.dynamics import COOLDOWN_MARKING, SOUND
+from app.sonify.dynamics import COOLDOWN_MARKING, sound_for
 from app.sonify.form import FormSpec, compose_meter
 from app.sonify.keys import active_register
 from app.sonify.model import DynamicEvent, NoteEvent, Score, WedgeEvent
@@ -216,7 +216,7 @@ def _minimalist(
         comp=_rest_comp(score, warm_start, body, cool, end),
         low=tuple([*_body(score.low, body, cool), *pulse]),
         support_wedges=_body_wedges(score.support_wedges, body, cool) + _fade(cool, end - 1),
-        support_dynamics=(DynamicEvent(end - 1, COOLDOWN_MARKING, SOUND[COOLDOWN_MARKING], beat=0.0),),
+        support_dynamics=(DynamicEvent(end - 1, COOLDOWN_MARKING, sound_for(COOLDOWN_MARKING), beat=0.0),),
         low_wedges=_fade(cool, end - 1),
     )
 
@@ -669,12 +669,12 @@ def _letters(
     kept = [event for event in events if body <= event.bar < cool]
     letters: list[DynamicEvent] = []
     if entrance is not None:
-        letters.append(DynamicEvent(entrance, "p", SOUND["p"]))
+        letters.append(DynamicEvent(entrance, "p", sound_for("p")))
         if not any(event.bar == body and event.beat == 0.0 for event in kept):
-            letters.append(DynamicEvent(body, "mp", SOUND["mp"]))
+            letters.append(DynamicEvent(body, "mp", sound_for("mp")))
     letters.extend(kept)
     if sing:
-        letters.append(DynamicEvent(end - 1, COOLDOWN_MARKING, SOUND[COOLDOWN_MARKING]))
+        letters.append(DynamicEvent(end - 1, COOLDOWN_MARKING, sound_for(COOLDOWN_MARKING)))
     return tuple(letters)
 
 
@@ -682,9 +682,9 @@ def _bass_letters(
     events: Sequence[DynamicEvent], warm: int, body: int, cool: int, end: int
 ) -> tuple[DynamicEvent, ...]:
     kept = [event for event in events if body <= event.bar < cool]
-    letters = [DynamicEvent(warm, "p", SOUND["p"])]
+    letters = [DynamicEvent(warm, "p", sound_for("p"))]
     if not any(event.bar == body and event.beat == 0.0 for event in kept):
-        letters.append(DynamicEvent(body, "mp", SOUND["mp"]))
+        letters.append(DynamicEvent(body, "mp", sound_for("mp")))
     letters.extend(kept)
-    letters.append(DynamicEvent(end - 1, COOLDOWN_MARKING, SOUND[COOLDOWN_MARKING]))
+    letters.append(DynamicEvent(end - 1, COOLDOWN_MARKING, sound_for(COOLDOWN_MARKING)))
     return tuple(letters)

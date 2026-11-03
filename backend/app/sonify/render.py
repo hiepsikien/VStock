@@ -9,14 +9,16 @@ from app.sonify.chords import Chord, Regime, fifth_above_bass, progression
 from app.sonify.ensemble import fit_ensemble, tune_register
 from app.sonify.dynamics import (
     MARKINGS,
-    PIANO_VELOCITY,
-    SOUND,
+    apply_contrast,
     average_liquidity,
     bass_marking,
     effective_comp_band,
+    fill_base,
     marking_for_volume,
     percentile,
+    piano_base,
     piano_marking,
+    sound_for,
 )
 from app.sonify.form import (
     BPM,
@@ -69,7 +71,6 @@ from app.sonify.model import (
 )
 from app.sonify.phrasing import (
     BREAKOUT,
-    FILL_VELOCITY,
     MIN_RISE,
     WEDGE_MIN,
     _wedge_at,
@@ -387,7 +388,7 @@ def _shape_flute_span(
             DynamicEvent(
                 arc_start // epb,
                 start_marking,
-                SOUND[start_marking],
+                sound_for(start_marking),
                 (arc_start % epb) * 0.5,
             )
         )
@@ -752,7 +753,7 @@ def _right_hand(
 ) -> tuple[tuple[NoteEvent, ...], list[tuple[int, float, str, bool]], list[WedgeEvent]]:
     """Third and seventh on beat 1 for half a bar, cut short when a fill comes in.
 
-    Without a bed map the fills stay at FILL_VELOCITY and no hairpin is written.
+    Without a bed map the fills stay at mp and no hairpin is written.
     Symphony passes the bed so each fill group swells or settles against it.
     """
     from app.sonify.groove import groove_at
@@ -792,7 +793,7 @@ def _right_hand(
         kept.append((start, length, midi))
     if bed_velocity_at is None or bed_marking_at is None:
         for start, length, midi in kept:
-            events.extend(written(start, length, midi, velocity=FILL_VELOCITY))
+            events.extend(written(start, length, midi, velocity=fill_base()))
         return with_rests(events, piece_eighths), [], []
 
     groups: list[tuple[Phrase | None, list[tuple[int, int, int]]]] = []
@@ -878,11 +879,11 @@ def _comp_dynamics(
     for bar in range(bars):
         bed = bed_marking_at[bar]
         if (bar, 0.0) in sounding and bed != current:
-            events.append(DynamicEvent(bar, bed, SOUND[bed], 0.0))
+            events.append(DynamicEvent(bar, bed, sound_for(bed), 0.0))
             current = bed
         for beat, marking, has_wedge in by_bar.get(bar, []):
             if marking != current:
-                events.append(DynamicEvent(bar, marking, SOUND[marking], beat))
+                events.append(DynamicEvent(bar, marking, sound_for(marking), beat))
             current = "drifted" if has_wedge else marking
     return events
 
@@ -952,6 +953,13 @@ def render(
     return score
 
 
+def _tempo_bpm(bpm: int | float) -> int:
+    """Scale a nominal BPM by the active tempo knob, half-up to an int."""
+    from app.sonify.params import active
+
+    return int(float(bpm) * active("tempo") + 0.5)
+
+
 def _compose(
     bars: list[Bar],
     *,
@@ -1010,6 +1018,10 @@ def _compose(
 
             spec = retarget_torroba_meter(spec, character)
     musical_bars = MUSICAL_BARS if spec is None else spec.bars
+    if spec is not None:
+        # Carries the tempo knob into every reader of `spec.bpm`, including
+        # the groove decisions, while the nominal form stays untouched.
+        spec = replace(spec, bpm=_tempo_bpm(spec.bpm))
     warmup, body_end = _frame_edges(spec)
     meter = METER_44 if spec is None else spec.meter
     with compose_meter(meter):
@@ -1086,7 +1098,7 @@ def _compose(
         high_volume = percentile(traded, 0.90) if volume_high is None else volume_high
         bands = [marking_for_volume(volume, low_volume, high_volume) for volume in window_volumes]
         dynamics = tuple(
-            DynamicEvent(bar=start, marking=bass_marking(band), sound=SOUND[bass_marking(band)])
+            DynamicEvent(bar=start, marking=bass_marking(band), sound=sound_for(bass_marking(band)))
             for (start, _length), band in zip(windows, bands)
         )
         harmonies = tuple(
@@ -1255,6 +1267,9 @@ def _compose(
                     from app.sonify.movement_frame import apply_span_frame
 
                     score = apply_span_frame(score, spec, character)
+            # The dynamics knob stretches every written part around mp, after
+            # the frame has set its own velocities. Default is a no-op.
+            score = apply_contrast(score)
             from app.sonify.groove import _GROOVE
 
             _GROOVE.set({})
@@ -1282,7 +1297,7 @@ def _compose(
                     rel_span=rel_span,
                     musical_bars=musical_bars,
                     total_eighths=piece_eighths,
-                    bpm=JAZZ_BPM if form is None else spec.bpm,
+                    bpm=_tempo_bpm(JAZZ_BPM) if form is None else spec.bpm,
                     bell_caps=bell_caps,
                     mode=mode,
                 )
@@ -1307,7 +1322,7 @@ def _compose(
                     rel_span=rel_span,
                     musical_bars=musical_bars,
                     total_eighths=piece_eighths,
-                    bpm=MINIMALIST_BPM if form is None else spec.bpm,
+                    bpm=_tempo_bpm(MINIMALIST_BPM) if form is None else spec.bpm,
                     bell_caps=bell_caps,
                 )
             )
@@ -1330,7 +1345,7 @@ def _compose(
                     source_groups=groups,
                     musical_bars=musical_bars,
                     total_eighths=piece_eighths,
-                    bpm=AMBIENT_BPM if form is None else spec.bpm,
+                    bpm=_tempo_bpm(AMBIENT_BPM) if form is None else spec.bpm,
                     frame=daily_ambient,
                 )
             )
@@ -1375,7 +1390,7 @@ def _compose(
                 band_at=band_at,
                 musical_bars=musical_bars,
                 total_eighths=piece_eighths,
-                bpm=GUITAR_BPM[ensemble] if form is None else spec.bpm,
+                bpm=_tempo_bpm(GUITAR_BPM[ensemble]) if form is None else spec.bpm,
                 ensemble=ensemble,
                 harmonies=harmonies,
                 mode=mode,
@@ -1417,7 +1432,7 @@ def _compose(
         eff_bands = {
             bar: effective_comp_band(band_at[bar], bar) for bar in range(musical_bars)
         }
-        bed_velocity_at = {bar: PIANO_VELOCITY[eff_bands[bar]] for bar in range(musical_bars)}
+        bed_velocity_at = {bar: piano_base(eff_bands[bar]) for bar in range(musical_bars)}
         bed_marking_at = {bar: piano_marking(eff_bands[bar]) for bar in range(musical_bars)}
         dense_left = frozenset(
             bar
@@ -1453,7 +1468,7 @@ def _compose(
 
         return _finish(Score(
             title=title,
-            bpm=BPM if form is None else spec.bpm,
+            bpm=_tempo_bpm(BPM) if form is None else spec.bpm,
             bars=musical_bars,
             regimes=chosen,
             regime_samples=sample_indexes,

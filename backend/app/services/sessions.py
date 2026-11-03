@@ -18,6 +18,7 @@ from app.services.http_utils import ENTRADE_HEADERS
 from app.sonify.audio import RecapAsset, RecapCancelled, RecapUnavailable, recap_store
 from app.sonify.dfi import DFI_VERSION, data_digest
 from app.sonify.model import Ensemble, Variant
+from app.sonify.params import normalize_params, params_hash
 from app.sonify.session import samples_from_ohlc, session_dates, session_points
 
 logger = logging.getLogger(__name__)
@@ -183,11 +184,10 @@ def ready_recap(
     variant: Variant,
     bar_count: int,
     ensemble: Ensemble = "classic",
-    humanize: bool = True,
-    color: bool = True,
+    params=None,
 ) -> RecapAsset | None:
     """Return a file that was already composed. Never starts MuseScore."""
-    return recap_store().get(symbol.upper(), day, variant, bar_count, ensemble, humanize, color)
+    return recap_store().get(symbol.upper(), day, variant, bar_count, ensemble, params)
 
 
 async def load_recap(
@@ -196,8 +196,7 @@ async def load_recap(
     variant: Variant,
     request: Request | None = None,
     ensemble: Ensemble = "classic",
-    humanize: bool = True,
-    color: bool = True,
+    params=None,
 ) -> RecapAsset:
     payload = await fetch_minute_payload(symbol)
     points = session_points(samples_from_ohlc(payload), day)
@@ -229,13 +228,16 @@ async def load_recap(
             bars,
             cancel,
             ensemble,
-            humanize,
-            color,
+            params,
         )
         digest = data_digest(bars)
+        values = normalize_params(params)
+        wanted_hash = params_hash(values)
+        stored_hash = getattr(asset, "dfi_params_hash", "")
         if (
             getattr(asset, "dfi_inputs", "") != digest
             or getattr(asset, "dfi_checked", "") != DFI_VERSION
+            or (stored_hash and stored_hash != wanted_hash)
         ):
             # An old cache has audio but no DFI, or it was computed from a
             # different close. Compose the score again (no export) and record
@@ -252,11 +254,15 @@ async def load_recap(
                     bars,
                     variant,
                     ensemble,
-                    humanize,
-                    color,
+                    values,
                 )
                 asset = dfi_service.apply_to_asset(asset, piece)
-                asset = replace(asset, dfi_inputs=digest, dfi_checked=DFI_VERSION)
+                asset = replace(
+                    asset,
+                    dfi_inputs=digest,
+                    dfi_params_hash=wanted_hash,
+                    dfi_checked=DFI_VERSION,
+                )
                 remember = getattr(recap_store(), "remember_recap_dfi", None)
                 if callable(remember):
                     remember(
@@ -265,8 +271,7 @@ async def load_recap(
                         variant,
                         len(bars),
                         ensemble,
-                        humanize,
-                        color,
+                        values,
                         getattr(asset, "dfi", None),
                         digest,
                     )

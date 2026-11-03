@@ -25,6 +25,7 @@ from __future__ import annotations
 from itertools import combinations
 
 from app.sonify.chords import Chord, Regime, jazz_chord
+from app.sonify.dynamics import fill_base
 from app.sonify.form import (
     HALF_BAR,
     active_meter,
@@ -38,7 +39,6 @@ from app.sonify.phrasing import (
     BELL_MAX_EIGHTHS,
     BREAKOUT,
     CELLO_OVERLAP,
-    FILL_VELOCITY,
     MIN_RISE,
     PERIOD,
     Phrase,
@@ -943,7 +943,7 @@ def _rhodes_comping_part(
         beat = (start % meter.eighths_per_bar) * 0.5
         if groove_at(bar).caesura and beat >= meter.quarter_beats / 2:
             continue
-        right_events.extend(written(start, length, midi, velocity=FILL_VELOCITY))
+        right_events.extend(written(start, length, midi, velocity=fill_base()))
     caesura_bars = {note.bar for note in right_events if groove_at(note.bar).caesura}
     for bar in caesura_bars:
         right_events = silence_second_half(right_events, bar)

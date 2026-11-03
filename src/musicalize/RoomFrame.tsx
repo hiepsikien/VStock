@@ -3,6 +3,8 @@ import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { installFocusRing } from './a11y';
 import { COLUMN_WIDTH, DOCK_HEIGHT, palette } from './palette';
+import { DRAWER_WIDTH, TuningPanel } from './TuningPanel';
+import { useTuning } from './tuning';
 
 type Props = {
   wide: boolean;
@@ -10,12 +12,27 @@ type Props = {
   stage: React.ReactNode;
   controls: React.ReactNode;
   topBar?: React.ReactNode;
+  /** The room's unmodified tempo, so the tuning panel can show the derived BPM. */
+  tuningBaseBpm?: number;
+  tuningVariant?: string;
 };
 
 /** Two columns from 960px. Below that: stage, dock, then the chooser rail. */
-export function RoomFrame({ wide, chooser, stage, controls, topBar }: Props) {
+export function RoomFrame({
+  wide,
+  chooser,
+  stage,
+  controls,
+  topBar,
+  tuningBaseBpm,
+  tuningVariant,
+}: Props) {
   const insets = useSafeAreaInsets();
-  const { height } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
+  const { open: tuningOpen, enabled: tuningEnabled } = useTuning();
+  // At 1280px the drawer pushes the chart instead of covering it.
+  const push =
+    wide && width >= 1280 && tuningEnabled && tuningOpen && tuningBaseBpm != null;
 
   useEffect(() => {
     installFocusRing();
@@ -36,7 +53,9 @@ export function RoomFrame({ wide, chooser, stage, controls, topBar }: Props) {
             <View style={styles.stage}>{stage}</View>
             <View style={styles.dock}>{controls}</View>
           </View>
+          {push ? <View style={{ width: DRAWER_WIDTH }} /> : null}
         </View>
+        <TuningPanel baseBpm={tuningBaseBpm} variant={tuningVariant} />
       </View>
     );
   }
@@ -51,6 +70,7 @@ export function RoomFrame({ wide, chooser, stage, controls, topBar }: Props) {
       <View style={{ height: stageHeight }}>{stage}</View>
       <View style={[styles.dock, styles.dockNarrow]}>{controls}</View>
       <View style={styles.narrowChooser}>{chooser}</View>
+      <TuningPanel baseBpm={tuningBaseBpm} variant={tuningVariant} />
     </View>
   );
 }

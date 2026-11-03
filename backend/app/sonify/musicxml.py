@@ -44,7 +44,7 @@ from dataclasses import replace
 from typing import TypeVar
 
 from app.sonify.chords import Chord
-from app.sonify.dynamics import COOLDOWN_MARKING, SOUND
+from app.sonify.dynamics import BASE_VELOCITY, COOLDOWN_MARKING, sound_for
 from app.sonify.form import BEATS_PER_BAR, MUSICAL_BARS
 from app.sonify.keys import KeySpec, midi_to_spelled_pitch, signature_fifths, transpose_chord
 from app.sonify.ensemble import parts_for, sounds_at_pitch
@@ -791,13 +791,15 @@ def _harmony(parent: ET.Element, event: HarmonyEvent, key: KeySpec, mode: str = 
 
 
 def _dynamic(parent: ET.Element, event: DynamicEvent) -> None:
-    if event.marking not in SOUND:
+    if event.marking not in BASE_VELOCITY:
         raise ValueError(f"dynamic {event.marking} is outside ppp–f")
     direction = _add(parent, "direction", placement="below")
     direction_type = _add(direction, "direction-type")
     dynamics = _add(direction_type, "dynamics")
     _add(dynamics, event.marking)
-    _add(direction, "sound", dynamics=str(event.sound))
+    # Read the knob while writing, not at import. The module-level default
+    # events would otherwise freeze `<sound dynamics>` at Default.
+    _add(direction, "sound", dynamics=str(sound_for(event.marking)))
 
 
 def _wedge(parent: ET.Element, event: WedgeEvent) -> None:
@@ -867,7 +869,7 @@ def _part_list(root: ET.Element, variant: Variant = "symphony", ensemble: Ensemb
         _add(midi, "midi-program", program)
 
 
-MELODY_DYNAMIC = DynamicEvent(bar=0, marking="mp", sound=SOUND["mp"])
+MELODY_DYNAMIC = DynamicEvent(bar=0, marking="mp", sound=sound_for("mp"))
 
 
 def _direction_order(event: WedgeEvent | DynamicEvent) -> tuple[float, int]:
@@ -956,7 +958,7 @@ def _melody_part(
         flush(score.bar_beats)
 
 
-PIANO_DYNAMIC = DynamicEvent(bar=0, marking="p", sound=SOUND["p"])
+PIANO_DYNAMIC = DynamicEvent(bar=0, marking="p", sound=sound_for("p"))
 
 
 def _opening_dynamic(
@@ -1019,11 +1021,11 @@ def _piano_part(root: ET.Element, score: Score) -> None:
             bar_wedges = [wedge for wedge in score.low_wedges if wedge.bar == bar]
             letters: list[DynamicEvent] = []
             if any(wedge.kind == "stop" and wedge.beat == 0.0 and bar == 2 for wedge in bar_wedges):
-                letters.append(DynamicEvent(bar, "mp", SOUND["mp"]))
+                letters.append(DynamicEvent(bar, "mp", sound_for("mp")))
             if any(wedge.kind == "diminuendo" and wedge.beat == 0.0 for wedge in bar_wedges):
-                letters.append(DynamicEvent(bar, "mp", SOUND["mp"]))
+                letters.append(DynamicEvent(bar, "mp", sound_for("mp")))
             if any(wedge.kind == "stop" and bar >= 32 for wedge in bar_wedges):
-                letters.append(DynamicEvent(bar, COOLDOWN_MARKING, SOUND[COOLDOWN_MARKING]))
+                letters.append(DynamicEvent(bar, COOLDOWN_MARKING, sound_for(COOLDOWN_MARKING)))
             for direction in sorted([*bar_wedges, *letters], key=_direction_order):
                 if isinstance(direction, DynamicEvent):
                     _dynamic(measure, direction)
@@ -1169,7 +1171,7 @@ def _ambient_swell_part(root: ET.Element, score: Score) -> None:
                     if bar > 0 or event.beat > 0.0:
                         _dynamic(
                             measure,
-                            DynamicEvent(bar=bar, marking="p", sound=SOUND["p"], beat=event.beat),
+                            DynamicEvent(bar=bar, marking="p", sound=sound_for("p"), beat=event.beat),
                         )
                     _wedge(measure, WedgeEvent(bar=bar, beat=event.beat, kind="crescendo"))
                 else:
@@ -1180,7 +1182,7 @@ def _ambient_swell_part(root: ET.Element, score: Score) -> None:
                         DynamicEvent(
                             bar=bar,
                             marking=peak_marking,
-                            sound=SOUND[peak_marking],
+                            sound=sound_for(peak_marking),
                             beat=event.beat,
                         ),
                     )
@@ -1283,7 +1285,7 @@ def _guitar_part(root: ET.Element, score: Score) -> None:
                 # the tremolo fill and both thumb voices (the middle colour
                 # and the bass) all sit around mp.
                 marking = markings[voice_index]
-                _dynamic(measure, DynamicEvent(bar=0, marking=marking, sound=SOUND[marking]))
+                _dynamic(measure, DynamicEvent(bar=0, marking=marking, sound=sound_for(marking)))
             roles = _tuplet_roles(ordered)
             sixteenth = _triplet_sixteenth_members(ordered)
             index = 0
@@ -1463,7 +1465,7 @@ def score_to_musicxml(score: Score) -> str:
         high_open, high_rest = _opening_dynamic(score.high_dynamics, MELODY_DYNAMIC)
         high_wedges = score.high_wedges
     elif score.variant == "ambient":
-        high_open = DynamicEvent(bar=0, marking="f", sound=SOUND["f"])
+        high_open = DynamicEvent(bar=0, marking="f", sound=sound_for("f"))
         high_rest = ()
         high_wedges = ()
     else:

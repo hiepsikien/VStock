@@ -1,0 +1,110 @@
+{
+  "schema": 2,
+  "groups": [
+    {
+      "id": "performance",
+      "label": "Trình diễn",
+      "fields": [
+        {
+          "key": "tempo",
+          "label": "Nhịp",
+          "type": "number",
+          "min": 0.75,
+          "max": 1.25,
+          "step": 0.01,
+          "default": 1.0,
+          "unit": "×",
+          "description": "Tăng giảm tốc độ của bản thu so với nhịp gốc."
+        },
+        {
+          "key": "humanize",
+          "label": "Người",
+          "type": "number",
+          "min": 0.0,
+          "max": 2.0,
+          "step": 0.05,
+          "default": 1.0,
+          "unit": "",
+          "description": "Độ lệch velocity giữa các nốt để bớt đều máy móc."
+        },
+        {
+          "key": "breath",
+          "label": "Hơi thở",
+          "type": "number",
+          "min": 0.0,
+          "max": 2.0,
+          "step": 0.05,
+          "default": 1.0,
+          "unit": "",
+          "description": "Độ cong tốc độ ở đầu và cuối mỗi câu."
+        },
+        {
+          "key": "color",
+          "label": "Màu",
+          "type": "number",
+          "min": 0.0,
+          "max": 2.0,
+          "step": 0.01,
+          "default": 1.0,
+          "unit": "",
+          "description": "Lượng hiệu ứng màu (EQ, echo, soft-clip); 0 là khô, 2 là đậm gấp đôi."
+        }
+      ]
+    },
+    {
+      "id": "texture",
+      "label": "Sâu hơn",
+      "fields": [
+        {
+          "key": "dynamics",
+          "label": "Tương phản",
+          "type": "number",
+          "min": 0.5,
+          "max": 1.5,
+          "step": 0.05,
+          "default": 1.0,
+          "unit": "",
+          "description": "Độ chênh lực bấm giữa các sắc thái, quanh velocity 64."
+        },
+        {
+          "key": "noise",
+          "label": "Nhiễu",
+          "type": "number",
+          "min": 0.0,
+          "max": 0.5,
+          "step": 0.05,
+          "default": 0.1,
+          "unit": "%",
+          "description": "Nhiễu nền cộng vào bản thu, tính bằng % toàn thang."
+        },
+        {
+          "key": "density",
+          "label": "Mật độ",
+          "type": "number",
+          "min": 0.0,
+          "max": 2.0,
+          "step": 0.05,
+          "default": 1.0,
+          "unit": "",
+          "description": "Lượng fill và bell chèn vào giữa các câu."
+        }
+      ]
+    }
+  ],
+  "defaultHash": "5800e09635be",
+  "baseBpm": {
+    "symphony": 90,
+    "jazz": 82,
+    "minimalist": 118,
+    "ambient": 60,
+    "guitar": {
+      "bach": 96,
+      "classic": 88,
+      "villa": 100,
+      "barrios": 120,
+      "brouwer": 108,
+      "torroba": 96
+    }
+  },
+  "enabled": true
+}
