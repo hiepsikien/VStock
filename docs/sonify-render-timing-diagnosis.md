@@ -15,11 +15,11 @@ Mục tiêu: biết thời gian thật của từng phase, xác định phase n�
 2. Một movement `1M` (221 nến, 263 s nhạc) mất **22,2 s**; trong đó MuseScore **10,5 s**, color **9,7 s**, encode AAC **1,8 s**.
 3. Cả tác phẩm `1M` (4 movement, 16:04 nhạc) mất **86,7 s** khi cache lạnh. `1W` 31,4 s; `3M` 108,9 s; `1Y` 62,3 s (3 movement theo dữ liệu hiện tại).
 4. **Color là vòng lặp Python trên từng sample**, tốn ~3,8–4,0% độ dài nhạc. Với `3M` (25:23 nhạc), color **60,9 s**, nhiều hơn cả MuseScore (35,6 s).
-5. **Vector hóa color bằng numpy** đã vào code (P0-1): 10,4 s → **0,51 s** cho cùng file 263 s, và file WAV **giống hệt từng byte** với bản cũ (cả float32 của MuseScore 4 lẫn int16 của MuseScore 3). Đây là win lớn nhất, ít rủi ro nhất.
+5. **Vector hóa color bằng numpy** đã vào code (P0-1): phase `color` trong bench 10,4 s → **0,51 s** cho cùng file 263 s, và file WAV **giống hệt từng byte** với bản cũ (cả float32 của MuseScore 4 lẫn int16 của MuseScore 3). Đây là win lớn nhất, ít rủi ro nhất.
 6. **Batch MuseScore** (đã prototype, chưa vào code): 4 movement xuất trong **26,7 s** thay vì 41,0 s; movement 0 vẫn xong ~10,6 s, các movement sau ~5–6 s mỗi cái thay vì ~10–11 s.
 7. **Đo lại sau P0-1**: `1W` **15,9 s**, `1M` **50,5 s**, `3M` **50,6 s**, `1Y` **36,1 s**; chương 0 của `1M` còn **13,1 s**. Sau P0-1 + batch (ước tính): `1M` còn **~30 s**, `3M` **~28 s**.
 8. **Chương 0 là chờ bắt buộc**, không có file thì không có tiếng. Vì vậy ưu tiên UX là giảm chương 0 (P0-1); batch chủ yếu giảm tổng thời gian và chuẩn bị chương sau, không làm chương 0 nhanh hơn. Với chương 4–8 phút, chương 1+ có rất nhiều thời gian để render trong lúc nghe.
-9. Sau P0-1, **MuseScore là phase lớn nhất** (73–76% thời gian render còn lại), encode AAC ~17–20%, còn color chỉ ~3%. Vì vậy P1-1 (batch) là bước tiếp theo đáng làm.
+9. Sau P0-1, **MuseScore là phase lớn nhất** (70–82% thời gian render còn lại), encode AAC 12–20%, còn color chỉ 3–5%. Vì vậy P1-1 (batch) là bước tiếp theo đáng làm.
 
 
 > Các số trên đo trên Apple M5 với MuseScore 4.7.6. Production là Ubuntu 24.04, MuseScore 3, VM 2 vCPU — phải đo lại trong container trước khi chốt ngưỡng. Xem mục 7.
@@ -134,7 +134,7 @@ Ba điều đổi sau P0-1:
 - Color không còn tỷ lệ theo "số giây nhạc" nữa: 0,5 s cho 263 s nhạc, 0,84 s cho 503 s nhạc. Phần còn lại là thời gian đọc/ghi file.
 - **MuseScore giờ là phase lớn nhất** (70–82% tổng), rồi encode AAC (12–20%). Đây là lý do P1-1 (batch) là bước tiếp theo.
 
-Kiểm chứng âm thanh: chạy `apply_preset` cũ và mới trên cùng file dry 263 s (float32, guitar), so sánh SHA-256 — **hai file giống hệt từng byte**, 9,708 s → 0,399 s. Với int16 (MuseScore 3) cũng khớp từng sample, vì phép cộng giữ ở float64 rồi mới cắt về int16 giống `int()` trong vòng lặp cũ.
+Kiểm chứng âm thanh: chạy `apply_preset` cũ và mới trên cùng file dry 263 s (float32, guitar), so sánh SHA-256 — **hai file giống hệt từng byte**, 9,708 s → 0,399 s. Số này thấp hơn phase `color` trong bench (10,4 → 0,51 s) vì `apply_preset` thuần không gồm phần đo peaks, publish và overhead của `ensure_movement`. Với int16 (MuseScore 3) cũng khớp từng sample, vì phép cộng giữ ở float64 rồi mới cắt về int16 giống `int()` trong vòng lặp cũ.
 
 
 ---
@@ -209,10 +209,10 @@ Thứ tự theo **mức giảm thời gian / rủi ro**, không theo độ phứ
 
 - Noise tính bằng `uint32`: phép nhân và dịch tự wrap mod 2³², đúng bằng `& 0xFFFFFFFF` trong `_unit_noise`.
 - Cộng ở `float64` rồi mới cast về `float32`/`int16`, nên khớp đúng điểm làm tròn của vòng lặp cũ (`int()` cắt về 0, `np.trunc` cũng vậy).
-- Chia block `1 << 19` sample (~4 MB scratch), để movement 25 phút không cần thêm một bản sao trong RAM.
-- `import numpy` nằm trong `try/except ImportError`; thiếu numpy thì chạy vòng lặp cũ. `numpy>=2.0.0` đã thêm vào `backend/requirements.txt`.
+- Chia block `1 << 19` sample. Một block sinh vài temporary `float64` (`seed`, `noise`, `column`, bản `gated`), đỉnh bộ nhớ tạm ~30 MB và **không phụ thuộc độ dài movement** (đo trên file 503 s stereo: +28 MB RSS).
+- `import numpy` nằm trong `try/except ImportError`; thiếu numpy, hoặc gặp typecode lạ, thì chạy vòng lặp cũ. `numpy>=2.0.0` đã thêm vào `backend/requirements.txt`.
 
-**Đã đo** trên cùng file 263 s:
+**Đã đo** trên cùng file 263 s (phase `color` trong bench, gồm cả đọc/ghi file):
 
 | Bước | Trước | Sau |
 |---|---:|---:|
@@ -222,7 +222,7 @@ Thứ tự theo **mức giảm thời gian / rủi ro**, không theo độ phứ
 
 **Độ chính xác**: so sánh SHA-256 của file WAV tạo bởi `apply_preset` cũ và mới trên cùng file dry 263 s (float32, guitar): **giống hệt từng byte**. Với int16 của MuseScore 3, kết quả khớp từng sample. Vì vậy **không bump `SPAN_REVISION`/`RECAP_REVISION`**; file đã cache vẫn dùng được.
 
-**Test**: `tests/test_humanize.py` có ba test mới khoá lại hành vi — noise khớp công thức `_unit_noise` (có đi qua ranh giới block), đường int16 cắt giống vòng lặp, và `_limit_peak` dùng một gain chung rồi cắt về 0.
+**Test**: `tests/test_humanize.py` có sáu test mới — noise khớp công thức `_unit_noise`, đường int16 cắt giống vòng lặp, `_limit_peak` dùng một gain chung rồi cắt về 0, fallback không numpy khớp đường block, một ma trận block × channels × gate trên cả hai typecode, và một golden SHA-256 để phát hiện lệch âm thầm.
 
 **Ảnh hưởng đo được**: `1M` 86,4 → **50,3 s**, `3M` 108,8 → **50,5 s**, `1Y` 62,2 → **36,1 s**, `1W` 31,3 → **15,8 s**. Đây là win lớn nhất và ít rủi ro nhất; sau bước này MuseScore là phase lớn nhất.
 
@@ -392,7 +392,7 @@ anoisesrc=color=white:amplitude=0.0003:seed=20261103:sample_rate=44100:duration=
 | `1Y` | 1 | 180 | 198,01 s | 9,509 | 0,438 | 1,335 | 11,51 |
 | `1Y` | 2 | 198 | 204,61 s | 9,490 | 0,343 | 1,397 | 11,43 |
 
-So với bảng A.1–A.3 bên dưới, chỉ cột Color đổi; MuseScore, encode và compose giữ nguyên trong sai số đo.
+So với bảng A.1–A.3 bên dưới, **chỉ cột Color đổi rõ rệt**. MuseScore và encode dao động ~±1 s giữa hai lần đo (ví dụ `3M` index 0: 12,457 → 11,512 s; index 2: 11,603 → 12,568 s), nên đừng đọc chênh lệch dưới ~1 s ở hai cột đó là do P0-1.
 
 ### A.1. `1M` từng movement (guitar, trước P0-1)
 

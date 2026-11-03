@@ -31,11 +31,14 @@ _SYMPHONY_NOISE = 0.001
 _GUITAR_NOISE = 0.0003
 _GUITAR_GATE = 0.01
 
-# Sample type of each `array` typecode, for the NumPy views.
+# Sample type of each `array` typecode, for the NumPy views. A typecode that
+# is not here keeps the per-sample loop, so a new WAV format can never break
+# the render path.
 _DTYPES = {"f": "float32", "h": "int16"}
 
-# Samples per block on the NumPy paths. A 1 << 19 block of float64 scratch is
-# 4 MB, so a 25-minute movement never needs a whole second copy in RAM.
+# Samples per block on the NumPy paths. One block allocates a few float64
+# temporaries (seed, noise, column, the gated copy), so the peak scratch is
+# around 30 MB whether the movement is one minute or twenty-five.
 _BLOCK_SAMPLES = 1 << 19
 
 _SYMPHONY = (
@@ -114,11 +117,16 @@ def _unit_scale(samples: array) -> float:
     return 32767.0 if samples.typecode == "h" else 1.0
 
 
+def _numpy_ready(heard: array, dry: array) -> bool:
+    """True when both arrays have a NumPy view, so the block path can run."""
+    return _np is not None and heard.typecode in _DTYPES and dry.typecode in _DTYPES
+
+
 def _mix_noise(heard: array, dry: array, channels: int, amplitude: float, gate: bool) -> None:
     frames = len(heard) // channels
     if frames <= 0:
         return
-    if _np is not None:
+    if _numpy_ready(heard, dry):
         _mix_noise_numpy(heard, dry, channels, frames, amplitude, gate)
         return
     span = amplitude * _unit_scale(heard)
@@ -169,9 +177,9 @@ def _mix_noise_numpy(
             value ^= value >> _np.uint32(17)
             value ^= value << _np.uint32(5)
             noise = value.astype(_np.float64) / float(0x7FFFFFFF) - 1.0
-            column = heard_view[start:stop, channel].astype(_np.float64) + span * noise
+            current = heard_view[start:stop, channel].astype(_np.float64)
+            column = current + span * noise
             if gated is not None:
-                current = heard_view[start:stop, channel].astype(_np.float64)
                 column = _np.where(gated, column, current)
             if dtype == _np.int16:
                 column = _np.clip(_np.trunc(column), -32768, 32767)
@@ -188,7 +196,7 @@ def _unit_noise(frame: int, channel: int) -> float:
 
 
 def _limit_peak(heard: array, dry: array) -> None:
-    if _np is not None:
+    if _numpy_ready(heard, dry):
         _limit_peak_numpy(heard, dry)
         return
     dry_peak = max((abs(float(sample)) for sample in dry), default=0.0)

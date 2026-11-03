@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
+import random
 import struct
 from array import array
 from pathlib import Path
@@ -1158,6 +1160,52 @@ def test_loop_fallback_matches_the_block_path(monkeypatch: pytest.MonkeyPatch) -
     _limit_peak(loop, dry)
 
     assert list(block) == list(loop)
+
+
+@pytest.mark.parametrize("kind", ["f", "h"])
+@pytest.mark.parametrize("channels", [1, 2])
+@pytest.mark.parametrize("gate", [True, False])
+@pytest.mark.parametrize("block", [1, 7, 64])
+def test_block_path_matches_the_loop_at_any_block_size(
+    kind: str, channels: int, gate: bool, block: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A block boundary must not change a sample, for either typecode."""
+    pytest.importorskip("numpy")
+    from app.sonify import preset as preset_module
+
+    rnd = random.Random(11)
+    values = []
+    for _ in range(53 * channels):
+        if kind == "f":
+            values.append(rnd.choice([0.0, 0.004, 0.5, -0.75, 0.999]))
+        else:
+            values.append(rnd.choice([0, 30, 327, 328, 1000, -20000, 32767, -32768]))
+    dry = array(kind, values)
+
+    monkeypatch.setattr(preset_module, "_BLOCK_SAMPLES", block)
+    fast = array(kind, dry)
+    _mix_noise(fast, dry, channels, 0.0003, gate)
+    _limit_peak(fast, dry)
+
+    monkeypatch.setattr(preset_module, "_np", None)
+    loop = array(kind, dry)
+    _mix_noise(loop, dry, channels, 0.0003, gate)
+    _limit_peak(loop, dry)
+
+    assert list(fast) == list(loop)
+
+
+def test_vintage_golden_bytes_do_not_drift() -> None:
+    """Pin the exact color math. Change the hash only on purpose."""
+    dry = array("f")
+    for frame in range(600):
+        dry.append(0.5 if frame % 3 == 0 else 0.0)
+    heard = array("f", dry)
+    _mix_noise(heard, dry, 2, 0.0003, True)
+    _limit_peak(heard, dry)
+    assert hashlib.sha256(heard.tobytes()).hexdigest() == (
+        "87ae61bcbdb4550117f5e92f52d13554fbc52d19b017217a4b4307301b0cd121"
+    )
 
 
 def test_peak_limit_uses_one_gain_and_truncates() -> None:
