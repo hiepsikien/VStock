@@ -477,7 +477,7 @@ Chốt:
 
 Prune theo tuổi vẫn giữ 30 ngày cho mọi file còn lại.
 
-Lưu ý: hash tính trên **hệ số `tempo`**, trong khi audio phụ thuộc `int(bpm × tempo)`. Vì profile áp cho mọi variant, không thể canonical hoá hash theo BPM hiệu lực; hai `tempo` sát nhau có thể cho cùng audio nhưng hai hash. LRU đếm riêng từng hash — chấp nhận trong V1, không có cách gộp đúng nếu chưa biết variant.
+Lưu ý: hash tính trên **hệ số `tempo`**, trong khi audio phụ thuộc `int(bpm × tempo + 0.5)`. Vì profile áp cho mọi variant, không thể canonical hoá hash theo BPM hiệu lực; hai `tempo` sát nhau có thể cho cùng audio nhưng hai hash. LRU đếm riêng từng hash — chấp nhận trong V1, không có cách gộp đúng nếu chưa biết variant.
 
 ### 6.4 DFI — cả đường audio lẫn đường recompose
 
