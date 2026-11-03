@@ -146,7 +146,16 @@ def attach_frame(spec: FormSpec, span: str) -> FormSpec:
     """Shift the body right and pedal a warm-up and a cool-down outside it."""
     if span not in ("1M", "3M", "1Y"):
         return spec
+    from app.sonify.params import active_choice
+
+    mode = active_choice("frame")
     count = frame_bars_for(spec.meter, span)
+    if mode == "none":
+        return spec
+    if mode == "short":
+        count = max(1, count // 2)
+    elif mode == "long":
+        count = count * 2
     shifted = [
         FormSection(
             section.start + count,

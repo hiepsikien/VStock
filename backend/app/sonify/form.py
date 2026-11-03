@@ -454,9 +454,15 @@ def chord_bias(chord: Chord, regime: Regime, character: MovementCharacter | None
 
 
 def _bar_change_penalty(character: MovementCharacter | None) -> float:
+    from app.sonify.params import active
+
+    motion = active("motion")
+    # 3x the change penalty at 0, unchanged at 1, and a negative incentive
+    # at 2 so the knob is monotone instead of saturating.
+    scale = 4.0 - 3.0 * motion
     if character is None:
-        return SINGLE_BAR_CHANGE_PENALTY
-    return _CHARACTER_BAR_CHANGE[character]
+        return SINGLE_BAR_CHANGE_PENALTY * scale
+    return _CHARACTER_BAR_CHANGE[character] * scale
 
 
 def plan_markov_chords(
@@ -488,6 +494,10 @@ def plan_markov_chords(
     chord for 3+ bars is chosen whenever staying preserves the melody notes
     better than moving.
     """
+    from app.sonify.params import active
+
+    harmony = active("harmony")
+    motion = active("motion")
     if spec is None:
         if len(regimes) != 3:
             raise ValueError("expected one regime per phrase")
@@ -502,6 +512,10 @@ def plan_markov_chords(
         phrase_starts = spec.phrase_starts
         spans = spec.spans(regimes)
         borrowed = spec.borrowed
+    if harmony < 1.0:
+        borrowed = False
+    elif harmony >= 1.5:
+        borrowed = True
     active_dialect = COMMON if dialect is None else dialect
     meter = METER_44 if spec is None else spec.meter
     epb = meter.eighths_per_bar
@@ -553,7 +567,11 @@ def plan_markov_chords(
         bar_section.extend([section] * (end - start))
 
     base_catalog = MINOR_CATALOG if mode == "minor" else chords_for_spec(borrowed)
+    if harmony < 0.75:
+        base_catalog = tuple(chord for chord in base_catalog if len(chord.pitches) <= 3)
     extra = active_dialect.extra(mode)
+    if harmony < 0.75:
+        extra = tuple(chord for chord in extra if len(chord.pitches) <= 3)
     extra_ids = set(extra)
     catalog = tuple([*base_catalog, *(chord for chord in extra if chord not in set(base_catalog))])
     bridge_starts = {
@@ -686,6 +704,8 @@ def plan_markov_chords(
                 base_bias = minor_bias(chord, regime)
             else:
                 base_bias = chord_bias(chord, regime, bar_character[bar])
+            if harmony > 1.0 and len(chord.pitches) >= 4:
+                base_bias -= (harmony - 1.0) * 0.25
             base_bias += active_dialect.bias(chord, bar_character[bar], mode, strong_pcs)
             if bar in bridge_starts and is_subdominant(chord, mode):
                 base_bias -= PHRASE_TONIC_BONUS
@@ -860,13 +880,14 @@ def plan_markov_chords(
                         if section in _PEDAL:
                             trans_cost = PEDAL_STAY_COST
                         elif prev_held == 1:
-                            trans_cost = SECOND_BAR_STAY_COST
+                            trans_cost = SECOND_BAR_STAY_COST * motion
                         else:
                             trans_cost = (
-                                -TRANSITION_WEIGHT * math.log(root_prob) + EXTENDED_STAY_PENALTY
+                                -TRANSITION_WEIGHT * motion * math.log(root_prob)
+                                + EXTENDED_STAY_PENALTY * motion
                             )
                     else:
-                        trans_cost = -TRANSITION_WEIGHT * math.log(root_prob)
+                        trans_cost = -TRANSITION_WEIGHT * motion * math.log(root_prob)
                         if not new_section and prev_held == 1:
                             trans_cost += penalties[bar]
                     if same_root and prev_chord != chord:

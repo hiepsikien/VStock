@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import replace
+import math
 
 from app.sonify.chords import Chord, Regime, fifth_above_bass, progression
 from app.sonify.ensemble import fit_ensemble, tune_register
@@ -52,6 +53,7 @@ from app.sonify.keys import (
     active_register,
     compose_register,
     register_for,
+    shift_register,
 )
 from app.sonify.jazz import render_jazz_score
 from app.sonify.minimalist import render_minimalist_score
@@ -926,7 +928,17 @@ def render(
     The daily recap turns it on. A caller that passes `form` keeps that form.
     """
     chosen_key = C_KEY if key is None else key
-    tuned = tune_register(register_for(chosen_key), ensemble, chosen_key.semitones)
+    from app.sonify.params import active
+
+    x = (active("register") - 1.0) * 3.0
+    semitones = int(math.floor(abs(x) + 0.5)) * (1 if x >= 0 else -1)
+    if ensemble == "guitar":
+        semitones = max(-2, min(2, semitones))
+    tuned = tune_register(
+        shift_register(register_for(chosen_key), semitones),
+        ensemble,
+        chosen_key.semitones,
+    )
     with compose_register(chosen_key, tuned):
         score = _compose(
             bars,
@@ -1017,6 +1029,19 @@ def _compose(
             from app.sonify.span import retarget_torroba_meter
 
             spec = retarget_torroba_meter(spec, character)
+    if spec is not None and variant == "guitar" and ensemble == "torroba":
+        from app.sonify.form import METER_128 as M128, METER_34 as M34, METER_44 as M44, METER_68 as M68
+        from app.sonify.params import active_choice
+
+        meters = {
+            "4/4": M44,
+            "3/4": M34,
+            "6/8": M68,
+            "12/8": M128,
+        }
+        chosen_meter = meters.get(active_choice("meter"))
+        if chosen_meter is not None:
+            spec = replace(spec, meter=chosen_meter)
     musical_bars = MUSICAL_BARS if spec is None else spec.bars
     if spec is not None:
         # Carries the tempo knob into every reader of `spec.bpm`, including

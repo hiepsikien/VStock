@@ -11,6 +11,11 @@ active register, so a transposed key stays inside the same sounding range.
 
 from __future__ import annotations
 
+from functools import wraps
+import logging
+
+logger = logging.getLogger(__name__)
+
 import math
 from dataclasses import replace
 
@@ -79,7 +84,7 @@ _TREMOLO_CLUSTER = 4
 TREMOLO_BASS_TRIM = 2
 
 
-def render_guitar_score(
+def _render_guitar_score_impl(
     *,
     title: str,
     chosen: tuple,
@@ -306,6 +311,48 @@ def render_guitar_score(
         price_trace=price_trace,
         price_eighths=tuple(trace_prices),
     )
+
+
+_ENSEMBLE_PROFILE = {
+    "classic": "study",
+    "villa": "villa_pattern",
+    "barrios": "barrios_preludio",
+    "brouwer": "brouwer",
+    "bach": "bach",
+    "torroba": "torroba",
+}
+
+
+@wraps(_render_guitar_score_impl)
+def render_guitar_score(**kwargs) -> Score:
+    """Render the chosen technique, falling back only when the automatic baseline
+    is itself playable. Some corpora fail the strict profile checker even at the
+    default; in that case the checker cannot distinguish a technique regression.
+    """
+    from app.sonify.params import active, active_params, compose_params
+
+    score = _render_guitar_score_impl(**kwargs)
+    if active("technique") == 1.0:
+        return score
+    ensemble = str(kwargs.get("ensemble") or "classic")
+    profile = _ENSEMBLE_PROFILE.get(ensemble, "study")
+    from app.sonify.guitar_patterns import Unplayable, assert_playable as _assert_playable
+
+    with compose_params({**active_params(), "technique": 1.0}):
+        baseline = _render_guitar_score_impl(**kwargs)
+    try:
+        _assert_playable(baseline, profiles=profile)
+    except Unplayable:
+        # The automatic take is not playable under this profile. Do not return
+        # a different take that may be worse; keep the safe automatic score.
+        logger.warning("technique fallback: auto baseline unplayable for %s", ensemble)
+        return baseline
+    try:
+        _assert_playable(score, profiles=profile)
+    except Unplayable:
+        logger.warning("technique fallback for guitar ensemble %s", ensemble)
+        return baseline
+    return score
 
 
 def assert_playable(score: Score, key=C_KEY, profiles: str | dict | tuple | list = "study"):

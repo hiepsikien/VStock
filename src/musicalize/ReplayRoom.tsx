@@ -11,6 +11,7 @@ import {
   fetchSessions,
   fetchSpan,
   fetchSpanPeaks,
+  pinParams,
   prefetchSpanAudio,
   type DfiPiece,
   type DfiSignature,
@@ -41,6 +42,8 @@ import { readLink, writeLink } from './link';
 import {
   baseBpmFor,
   isDefaultParams,
+  normalizeParams,
+  paramsEqual,
   paramsKey,
   paramsLayers,
   type SonifyParams,
@@ -49,6 +52,7 @@ import { RoomFrame } from './RoomFrame';
 import { ReplayPlayer, type SeekCommand } from './ReplayPlayer';
 import { TopBar } from './TopBar';
 import { useTuning } from './tuning';
+import { trackEvent } from './telemetry';
 import { useKeyboard } from './useKeyboard';
 import { useQuotes } from './useQuotes';
 import {
@@ -162,6 +166,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
       : 'classic',
   );
   const {
+    params,
+    savedParams,
     heardParams,
     draftDirty,
     savedDirty,
@@ -172,7 +178,11 @@ export function ReplayRoom({ wide, onMode }: Props) {
     setOpen: setTuningOpen,
   } = useTuning();
   const heardKey = paramsKey(heardParams);
-  const heardLayers = paramsLayers(heardParams);
+  const [playingParams, setPlayingParams] = useState<SonifyParams>(() =>
+    normalizeParams(heardParams),
+  );
+  const playingKey = paramsKey(playingParams);
+  const playingLayers = paramsLayers(playingParams);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [date, setDate] = useState<string | null>(boot.date);
   const [series, setSeries] = useState<SessionMinutes | null>(null);
@@ -195,6 +205,19 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const [mediaDuration, setMediaDuration] = useState(0);
   const [playEpoch, setPlayEpoch] = useState(0);
   const [startSec, setStartSec] = useState(0);
+  const [abSide, setAbSide] = useState<'A' | 'B'>('A');
+  const [abPreparing, setAbPreparing] = useState(false);
+  const sessionId = useRef(`s_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
+  const pendingRatio = useRef<number | null>(null);
+  const pendingIndex = useRef<number | null>(null);
+  const pinnedHashes = useRef<string[]>([]);
+  const rememberHash = useCallback((hash?: string) => {
+    if (!hash) return;
+    if (!pinnedHashes.current.includes(hash)) {
+      pinnedHashes.current = [...pinnedHashes.current, hash].slice(-8);
+    }
+    void pinParams(pinnedHashes.current);
+  }, []);
   const [seek, setSeek] = useState<SeekCommand | null>(null);
   const [focus, setFocus] = useState<ChartFocus | null>(null);
   const [focusSignal, setFocusSignal] = useState(0);
@@ -316,11 +339,82 @@ export function ReplayRoom({ wide, onMode }: Props) {
     };
   }, [clearRest]);
 
+  useEffect(() => {
+    if (abSide === 'A') setPlayingParams(normalizeParams(heardParams));
+  }, [abSide, heardParams]);
+
+  // Warm B while the tuning drawer is open so the first A/B toggle does not
+  // wait for MuseScore. This only fills the server/cache; it never writes state.
+  useEffect(() => {
+    if (!tuningOpen) return;
+    const draft = normalizeParams(params);
+    if (paramsEqual(draft, normalizeParams(heardParams))) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          if (span === '1D') {
+            if (!date) return;
+            const recap = await fetchRecap(
+              symbol,
+              date,
+              variant,
+              ensemble,
+              controller.signal,
+              draft,
+            );
+            if (controller.signal.aborted) return;
+            rememberHash(recap.paramsHash);
+            if (recap.audioUrl) {
+              await prefetchSpanAudio(recap.audioUrl, controller.signal, 15 * 60_000);
+            }
+            return;
+          }
+          const plan = await fetchSpan(
+            symbol,
+            span,
+            variant,
+            ensemble,
+            controller.signal,
+            draft,
+          );
+          if (controller.signal.aborted) return;
+          rememberHash(plan.paramsHash ?? plan.movements[0]?.paramsHash);
+          const target = plan.movements[Math.min(index, plan.movements.length - 1)];
+          if (target?.audioUrl) {
+            await prefetchSpanAudio(target.audioUrl, controller.signal, 15 * 60_000);
+          }
+        } catch {
+          if (!controller.signal.aborted) {
+            void trackEvent('prefetch_fail', { span, source: 'ab' });
+          }
+        }
+      })();
+    }, 800);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [
+    date,
+    ensemble,
+    heardParams,
+    index,
+    params,
+    rememberHash,
+    span,
+    symbol,
+    tuningOpen,
+    variant,
+  ]);
+
+
   const signature = `${symbol}|${span}|${date ?? ''}|${variant}|${ensemble}|${heardKey}`;
   const signatureRef = useRef(signature);
   useEffect(() => {
     if (signatureRef.current === signature) return;
     signatureRef.current = signature;
+    setAbSide('A');
     clearPlayback();
   }, [clearPlayback, signature]);
 
@@ -380,7 +474,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
             movement: dfiBucket === 'span' ? index : 0,
             variant: null,
             ensemble: null,
-            params: heardParams,
+            params: playingParams,
           },
           controller.signal,
         );
@@ -392,7 +486,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
       }
     })();
     return () => controller.abort();
-  }, [date, dfiBucket, dfiOpen, heardKey, index, span, symbol]);
+  }, [date, dfiBucket, dfiOpen, playingKey, index, span, symbol]);
 
   useEffect(() => {
     if (!dfiOpen) return;
@@ -411,7 +505,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
             movement: dfiBucket === 'span' ? index : 0,
             variant,
             ensemble: null,
-            params: heardParams,
+            params: playingParams,
           },
           controller.signal,
         );
@@ -423,7 +517,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
       }
     })();
     return () => controller.abort();
-  }, [date, dfiBucket, dfiOpen, heardKey, index, span, symbol, variant]);
+  }, [date, dfiBucket, dfiOpen, playingKey, index, span, symbol, variant]);
 
   useEffect(() => {
     let cancelled = false;
@@ -510,7 +604,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
     };
   }, [date, span, symbol]);
 
-  const spanKey = `${symbol}|${span}|${variant}|${ensemble}|${heardKey}`;
+  const spanKey = `${symbol}|${span}|${variant}|${ensemble}|${playingKey}`;
   useEffect(() => {
     if (span === '1D') return;
     const controller = new AbortController();
@@ -519,7 +613,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
     setSpanPeaks(null);
     void (async () => {
       try {
-        const plan = await fetchSpan(symbol, span, variant, ensemble, controller.signal, heardParams);
+        const plan = await fetchSpan(symbol, span, variant, ensemble, controller.signal, playingParams);
         if (cancelled) return;
         const prices = plan.movements.flatMap((item) => item.prices);
         const volumes = joinedVolumes(plan.movements);
@@ -540,7 +634,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
       cancelled = true;
       controller.abort();
     };
-  }, [ensemble, heardParams, span, spanKey, symbol, variant]);
+  }, [ensemble, playingParams, span, spanKey, symbol, variant]);
 
   /**
    * A movement's waveform only exists after its audio file is written. Merge
@@ -562,7 +656,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
           variant,
           ensemble,
           controller.signal,
-          heardParams,
+          playingParams,
         );
         if (controller.signal.aborted || gen !== peaksGen.current) return;
         if (
@@ -570,8 +664,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
           peaks.range !== span ||
           peaks.variant !== variant ||
           (peaks.ensemble != null && peaks.ensemble !== ensemble) ||
-          (peaks.humanize != null && peaks.humanize !== heardLayers.humanize) ||
-          (peaks.color != null && peaks.color !== heardLayers.color)
+          (peaks.humanize != null && peaks.humanize !== playingLayers.humanize) ||
+          (peaks.color != null && peaks.color !== playingLayers.color)
         ) {
           return;
         }
@@ -635,7 +729,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
         }
       }
     })();
-  }, [ensemble, heardLayers.color, heardLayers.humanize, heardParams, span, symbol, variant]);
+  }, [ensemble, playingLayers.color, playingLayers.humanize, playingParams, span, symbol, variant]);
 
   const hasMovements = movements != null;
   const currentMovement = movements?.[index] ?? null;
@@ -740,6 +834,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
         }
         const attempt = (queue.current.attempts.get(url) ?? 0) + 1;
         queue.current.attempts.set(url, attempt);
+        void trackEvent('prefetch_fail', { span, index: next, attempt });
         const delay = retryDelay(attempt);
         if (!delay) {
           // Three failed attempts: rest for a minute, then try again. Never
@@ -955,6 +1050,10 @@ export function ReplayRoom({ wide, onMode }: Props) {
     const chosenEnsemble = ensemble;
     const shaped = paramsOverride ?? heardParams;
     const chosenDate = date;
+    const resumeRatio = pendingRatio.current;
+    const resumeIndex = pendingIndex.current;
+    pendingRatio.current = null;
+    pendingIndex.current = null;
     void (async () => {
       try {
         if (chosenSpan === '1D') {
@@ -988,14 +1087,17 @@ export function ReplayRoom({ wide, onMode }: Props) {
             }
             setSeries(fresh);
             setManifest(again);
+            rememberHash(again.paramsHash);
           } else {
             setSeries(detail);
             setManifest(recap);
+            rememberHash(recap.paramsHash);
           }
           setMovements(null);
+          const at = Math.max(0, Math.min(1, resumeRatio ?? 0)) * Math.max(0, recap.durationSec);
           setIndex(0);
-          setMovementTime(0);
-          setStartSec(0);
+          setMovementTime(at);
+          setStartSec(at);
           setSeek(null);
           setAudible(false);
           setPlaying(true);
@@ -1017,6 +1119,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
         }
         setManifest(null);
         setMovements(plan.movements);
+        rememberHash(plan.paramsHash ?? plan.movements[0]?.paramsHash);
         // A new listen may re-plan the work, so pre-rendered URLs and peaks
         // from the previous run no longer describe the same movement.
         resetPeaksState();
@@ -1026,9 +1129,12 @@ export function ReplayRoom({ wide, onMode }: Props) {
         queue.current.renderRatio = maxRenderRatio(plan.movements);
         setAsOf(plan.asOf ?? '');
         setHomeKey(plan.keyLabel ?? '');
-        setIndex(0);
-        setMovementTime(0);
-        setStartSec(0);
+        const chapter = Math.max(0, Math.min(plan.movements.length - 1, resumeIndex ?? 0));
+        const chapterSec = plan.movements[chapter]?.durationSec ?? 0;
+        const at = Math.max(0, Math.min(1, resumeRatio ?? 0)) * Math.max(0, chapterSec);
+        setIndex(chapter);
+        setMovementTime(at);
+        setStartSec(at);
         setSeek(null);
         setResting(false);
         setAudible(false);
@@ -1041,10 +1147,11 @@ export function ReplayRoom({ wide, onMode }: Props) {
         if (request.current === controller) {
           request.current = null;
           setComposing(false);
+          setAbPreparing(false);
         }
       }
     })();
-  }, [date, ensemble, heardParams, resetPeaksState, span, symbol, variant]);
+  }, [date, ensemble, heardParams, rememberHash, resetPeaksState, span, symbol, variant]);
 
   // Play commits the latest saved profile first; this effect starts the listen
   // after the old identity has been cleared. Draft edits never bump playNonce.
@@ -1057,6 +1164,18 @@ export function ReplayRoom({ wide, onMode }: Props) {
     if (!playNonce) return;
     listenRef.current(heardParams);
   }, [heardParams, playNonce]);
+
+  const savedKey = paramsKey(savedParams);
+  const savedKeyRef = useRef(savedKey);
+  useEffect(() => {
+    if (savedKeyRef.current === savedKey) return;
+    savedKeyRef.current = savedKey;
+    if (abSide === 'A') return;
+    setAbSide('A');
+    setAbPreparing(false);
+    clearPlayback();
+    listenRef.current(heardParams);
+  }, [abSide, clearPlayback, heardParams, savedKey]);
 
   const jumpToMovement = useCallback(
     (nextIndex: number, seconds: number, autoplay: boolean) => {
@@ -1089,6 +1208,12 @@ export function ReplayRoom({ wide, onMode }: Props) {
 
   const onPlay = useCallback(() => {
     if (composing) return;
+    void trackEvent('play', { sessionId: sessionId.current, span, variant, ensemble });
+    if (abSide === 'B') {
+      setAbSide('A');
+      requestPlay();
+      return;
+    }
     if (draftDirty || savedDirty) {
       requestPlay();
       return;
@@ -1108,7 +1233,9 @@ export function ReplayRoom({ wide, onMode }: Props) {
     }
     listen();
   }, [
+    abSide,
     beginRest,
+    ensemble,
     composing,
     draftDirty,
     finished,
@@ -1121,6 +1248,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
     resting,
     savedDirty,
     span,
+    variant,
   ]);
 
   const onPause = useCallback(() => {
@@ -1190,6 +1318,24 @@ export function ReplayRoom({ wide, onMode }: Props) {
     savedDirty,
     span,
   ]);
+
+  const switchAB = useCallback(
+    (side: 'A' | 'B') => {
+      if (side === abSide) return;
+      pendingRatio.current =
+        (span === '1D' ? mediaDuration : (movements?.[index]?.durationSec ?? 0)) > 0
+          ? movementTime /
+            (span === '1D' ? mediaDuration : (movements?.[index]?.durationSec ?? 0))
+          : 0;
+      pendingIndex.current = index;
+      setAbSide(side);
+      setAbPreparing(side === 'B');
+      setPlayingParams(side === 'A' ? normalizeParams(heardParams) : normalizeParams(params));
+      void trackEvent('ab_toggle', { sessionId: sessionId.current, side, span });
+      listen(side === 'A' ? heardParams : normalizeParams(params));
+    },
+    [abSide, heardParams, index, listen, mediaDuration, movementTime, movements, params, span],
+  );
 
   const onStageRatio = useCallback(
     (ratio: number) => {
@@ -1312,7 +1458,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
               movement: index,
               variant,
               ensemble,
-              params: heardParams,
+              params: playingParams,
             },
             controller.signal,
           );
@@ -1338,7 +1484,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
           variant,
           ensemble,
           controller.signal,
-          heardParams,
+          playingParams,
         );
         if (stopped) return;
         setMovements((existing) => {
@@ -1381,7 +1527,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
     ensemble,
     heardName,
     heardDfi,
-    heardParams,
+    playingParams,
     heardReady,
     index,
     span,
@@ -1396,7 +1542,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const current = movements?.[index] ?? null;
   const activeDfi = span === '1D' ? (manifest?.dfi ?? null) : (current?.dfi ?? null);
   const activeDfiSignature =
-    isDefaultParams(heardParams)
+    isDefaultParams(playingParams)
       ? (dfiSignatures.find(
           (row) => row.variant === variant && row.ensemble === ensemble,
         ) ??
@@ -1775,6 +1921,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
       wide={wide}
       tuningBaseBpm={baseBpmFor(variant, ensemble)}
       tuningVariant={variant}
+      tuningSpan={span}
+      tuningEnsemble={ensemble}
       topBar={
         <TopBar
           mode="replay"
@@ -1850,6 +1998,9 @@ export function ReplayRoom({ wide, onMode }: Props) {
           onPlay={onPlay}
           onPause={onPause}
           onReplay={onReplay}
+          abSide={abSide}
+          abPreparing={abPreparing}
+          onAB={switchAB}
           onMute={() => setMuted((value) => !value)}
           onTimeline={span === '1D' ? onFileScrub : onWorkScrub}
           notice={autoSavedNotice}

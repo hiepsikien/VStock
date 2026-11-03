@@ -13,7 +13,7 @@ function equal<T>(actual: T, expected: T, label = '') {
   }
 }
 
-function sameParams(actual: Record<string, number>, expected: Record<string, number>, label = '') {
+function sameParams(actual: Record<string, number | string | boolean>, expected: Record<string, number | string | boolean>, label = '') {
   if (!paramsEqual(actual, expected)) {
     throw new Error(`${label} params differ: ${JSON.stringify(actual)} != ${JSON.stringify(expected)}`);
   }

@@ -3,6 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import threading
+import time
 from datetime import date
 from pathlib import Path
 from typing import Literal
@@ -49,11 +52,12 @@ from app.services.spans import (
     plan_span_cached,
     ready_movement,
 )
-from app.sonify.audio import RecapCancelled, RecapUnavailable
+from app.sonify.audio import RecapCancelled, RecapUnavailable, recap_store
 from app.sonify.ensemble import Ensemble, ensemble_for
 from app.sonify.keys import CHARACTER_LABEL, key_label, work_key_label
 from app.sonify.params import (
     SCHEMA_VERSION,
+    inapplicable_warnings,
     normalize_with_warnings,
     params_from_query,
     params_hash,
@@ -554,6 +558,7 @@ async def get_recap(
         movementName=asset.movement_name,
         humanize=_layers(valid)[0],
         color=_layers(valid)[1],
+        paramsHash=params_hash(valid),
         dfi=asset.dfi,
     )
 
@@ -634,6 +639,7 @@ async def get_span(
                     index=index,
                     stored=cached.movement_name if cached is not None else "",
                 ),
+                paramsHash=params_hash(valid),
                 dfi=getattr(cached, "dfi", None) if cached is not None else None,
             )
         )
@@ -647,6 +653,7 @@ async def get_span(
         keyLabel=work_key_label(sym, [movement.mode for movement in plan.movements]),
         humanize=_layers(valid)[0],
         color=_layers(valid)[1],
+        paramsHash=params_hash(valid),
         dfi=work_dfi,
     )
 
@@ -727,7 +734,7 @@ async def get_params_schema(response: Response) -> dict:
 async def validate_params(payload: dict) -> dict:
     """Normalize knobs without rendering anything."""
     schema = payload.get("schema", SCHEMA_VERSION)
-    if schema != SCHEMA_VERSION:
+    if schema not in (2, SCHEMA_VERSION):
         raise HTTPException(status_code=400, detail="Unsupported params schema")
     raw = payload.get("params", {})
     if not isinstance(raw, dict):
@@ -736,6 +743,14 @@ async def validate_params(payload: dict) -> dict:
         values, warnings = normalize_with_warnings(raw)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    warnings.extend(
+        inapplicable_warnings(
+            raw,
+            variant=payload.get("variant"),
+            ensemble=payload.get("ensemble"),
+            span=payload.get("span"),
+        )
+    )
     return {
         "schema": SCHEMA_VERSION,
         "params": values,
@@ -748,6 +763,96 @@ async def validate_params(payload: dict) -> dict:
 async def get_params_presets(response: Response) -> list[dict]:
     response.headers["Cache-Control"] = "public, max-age=300"
     return presets_payload()
+
+
+_EVENT_LOCK = threading.Lock()
+_SEEN_EVENT_IDS: set[str] = set()
+_EVENT_NAMES = {
+    "ab_toggle",
+    "profile_save",
+    "knob_change",
+    "prefetch_fail",
+    "play",
+}
+
+
+def _event_log_path() -> Path:
+    configured = os.environ.get("VSTOCK_SONIFY_EVENT_LOG")
+    if configured:
+        return Path(configured)
+    return Path(__file__).resolve().parents[2] / "data" / "sonify-events.jsonl"
+
+
+@router.post("/sonify/params/pin")
+async def pin_params(payload: dict) -> dict:
+    """Keep the two A/B cache marks alive while the listener toggles."""
+    hashes = payload.get("hashes")
+    if not isinstance(hashes, list):
+        raise HTTPException(status_code=400, detail="hashes must be a list")
+    if len(hashes) > 8:
+        raise HTTPException(status_code=400, detail="too many hashes")
+    ttl = payload.get("ttlSec", 600)
+    try:
+        ttl_sec = max(1.0, min(3600.0, float(ttl)))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="ttlSec must be a number") from None
+    recap_store().pin_hashes([str(item) for item in hashes], ttl_sec)
+    return {"pinned": len(hashes), "ttlSec": ttl_sec}
+
+
+@router.post("/sonify/events")
+async def post_sonify_events(payload: dict) -> dict:
+    """Small batch sink for the client's listening telemetry.
+
+    One JSON object per line. No account ids, no free text. The endpoint is
+    intentionally boring: the gate only needs counts by event name and day.
+    """
+    events = payload.get("events")
+    if not isinstance(events, list):
+        raise HTTPException(status_code=400, detail="events must be a list")
+    if len(events) > 100:
+        raise HTTPException(status_code=400, detail="too many events")
+    if len(json.dumps(payload, separators=(",", ":"))) > 64_000:
+        raise HTTPException(status_code=413, detail="payload too large")
+    accepted = 0
+    rows: list[dict] = []
+    for item in events:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if name not in _EVENT_NAMES:
+            continue
+        event_id = str(item.get("eventId") or "")
+        if event_id and event_id in _SEEN_EVENT_IDS:
+            continue
+        body = item.get("payload", {})
+        if body is not None and not isinstance(body, dict):
+            body = {}
+        at = item.get("at")
+        if not isinstance(at, (int, float)):
+            at = time.time()
+        rows.append(
+            {
+                "name": name,
+                "eventId": event_id,
+                "at": float(at),
+                "payload": body or {},
+            }
+        )
+        if event_id:
+            _SEEN_EVENT_IDS.add(event_id)
+        accepted += 1
+    if not rows:
+        raise HTTPException(status_code=400, detail="no known events")
+    if len(_SEEN_EVENT_IDS) > 20_000:
+        _SEEN_EVENT_IDS.clear()
+    path = _event_log_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _EVENT_LOCK:
+        with path.open("a", encoding="utf-8") as handle:
+            for row in rows:
+                handle.write(json.dumps(row, separators=(",", ":"), ensure_ascii=False) + "\n")
+    return {"accepted": accepted}
 
 
 @router.get("/sonify/dfi/signatures", response_model=list[DfiSignature])
