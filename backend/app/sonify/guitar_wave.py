@@ -271,24 +271,24 @@ def warm_alpha(price: float, volume: float, *, inward: bool) -> float:
     return opened
 
 
-def window_for(profile: PatternWaveProfile, opened: float) -> tuple[int, int]:
+def window_for(profile: PatternWaveProfile, opened: float, *, min_tide: bool = True) -> tuple[int, int]:
     floor = int(round(profile.floor_calm + opened * (profile.floor_wide - profile.floor_calm)))
     ceiling = int(round(profile.ceil_calm + opened * (profile.ceil_wide - profile.ceil_calm)))
     ceiling = min(WARM_LIMIT, ceiling)
     if ceiling < floor:
         ceiling = floor
+    if not min_tide:
+        return floor, ceiling
     # P0: keep a minimum body tide. Lowering the floor is the only free move:
     # the ceiling is the nylon timbre guard. Never go under the speech floor.
     deviation = profile.d_hi - profile.d_lo
     floor = min(floor, ceiling - deviation - MIN_TIDE)
     floor = max(SPEECH, floor)
-    if ceiling < floor:
-        ceiling = floor
     return floor, ceiling
 
 
 def gain(v_floor: int, v_ceil: int, deviation: int = DEVIATION) -> float:
-    """M = 1 on every locked window, because each one is at least `deviation` wide."""
+    """M compresses only when a profile's deviation is wider than its window."""
     span = v_ceil - v_floor
     if span <= 0:
         return 0.0
@@ -504,6 +504,9 @@ class _Wave:
     alpha_warm: float
     v_floor: int
     v_ceil: int
+    # Floor before P0 lowered it. Pedal speech uses this F, not the wider body
+    # window, so a louder body tide does not drag the intro/outro down with it.
+    pedal_floor: int
     gain: float
     c_lo: float
     c_hi: float
@@ -521,6 +524,7 @@ class _Placed:
     v_floor: int
     v_ceil: int
     wave: _Wave | None
+    pedal_floor: int = PEDAL_FLOOR
 
 
 def _pedal_regions(ctx) -> tuple[list[int], list[int]]:
@@ -583,10 +587,23 @@ def _contiguous(bars: list[int]) -> list[tuple[int, int]]:
     return spans
 
 
-def _section_anchor(volumes: list[float], start: int, end: int) -> float:
-    """P3: how loud this section is against the rest of the piece, in MIDI steps."""
+def _section_anchor(
+    volumes: list[float],
+    start: int,
+    end: int,
+    piece_median: float | None = None,
+) -> float:
+    """P3: how loud this section is against the body of the piece, in MIDI steps.
+
+    `piece_median` is measured over body bars only. A long quiet frame must not
+    drag the median down and lift every body section toward the ceiling.
+    """
     section = [volume for volume in volumes[start:end] if volume > 0]
-    piece = positive_median([volume for volume in volumes if volume > 0])
+    piece = (
+        positive_median([volume for volume in volumes if volume > 0])
+        if piece_median is None
+        else piece_median
+    )
     if not section or piece <= 0:
         return 0.0
     level = sum(section) / len(section)
@@ -597,7 +614,7 @@ def _section_anchor(volumes: list[float], start: int, end: int) -> float:
 
 
 def _limit_steps(centers: list[float], step: float = STEP) -> list[float]:
-    """Smallest envelope above `centers` whose adjacent bars differ by at most `step`."""
+    """Largest envelope below `centers` whose adjacent bars differ by at most `step`."""
     shaped = list(centers)
     for index in range(1, len(shaped)):
         shaped[index] = min(shaped[index], shaped[index - 1] + step)
@@ -681,8 +698,9 @@ def _written_deviations(ctx, voices, patterns: list[str], pedal: set[int]) -> di
 
     A pattern that only writes 56..72 does not need the global -16/+8 window.
     Trimming the unused tails frees room for the tide without moving any note
-    that the writer actually uses. Rows with fewer than four attacks keep the
-    profile default so a tiny section cannot invent a narrow window.
+    that the writer actually uses. Rows with fewer than 24 attacks keep the
+    profile default so a tiny section cannot invent a narrow window. The 1%/99%
+    tails are outside the measured band and may be clamped by the tide.
     """
     from app.sonify.guitar_torroba import castillos_wave_row
 
@@ -712,7 +730,8 @@ def _written_deviations(ctx, voices, patterns: list[str], pedal: set[int]) -> di
     return found
 
 
-def _make_wave(ctx, volumes, section, start: int, end: int, pattern: str, profile: PatternWaveProfile, span: tuple[int, int], deviation: tuple[int, int] | None = None) -> _Wave:
+def _make_wave(ctx, volumes, section, start: int, end: int, pattern: str, profile: PatternWaveProfile, span: tuple[int, int], deviation: tuple[int, int] | None = None, piece_median: float | None = None) -> _Wave:
+    base_profile = profile
     if deviation is not None:
         d_lo = max(profile.d_lo, deviation[0])
         d_hi = min(profile.d_hi, deviation[1])
@@ -729,13 +748,21 @@ def _make_wave(ctx, volumes, section, start: int, end: int, pattern: str, profil
     volume = alpha_volume(smoothed, price)
     inward = bool(section is not None and (getattr(section, "trio", False) or getattr(section, "bridge", False)))
     opened = warm_alpha(price, volume, inward=inward)
+    # P0 lowers the body floor. Pedal speech keeps the pre-P0 floor so the
+    # intro/outro do not slide down with the wider tide.
+    pedal_floor, _pedal_ceiling = window_for(base_profile, opened, min_tide=False)
     v_floor, v_ceil = window_for(profile, opened)
     opened_gain, c_lo, c_hi = tide_bounds(v_floor, v_ceil, profile)
     levels = shape_u(raw, c_lo, c_hi)
     centers = centers_from(c_lo, c_hi, levels)
     # P3: add the section's own level. Clamp to the hard note bounds, not to
     # the tide bounds, so a section with M < 1 can still use its free steps.
-    anchor = _section_anchor(volumes, section.start if section is not None else start, section.end if section is not None else end)
+    anchor = _section_anchor(
+        volumes,
+        section.start if section is not None else start,
+        section.end if section is not None else end,
+        piece_median,
+    )
     if anchor:
         hard_lo = v_floor - profile.d_lo
         hard_hi = v_ceil - profile.d_hi
@@ -756,6 +783,7 @@ def _make_wave(ctx, volumes, section, start: int, end: int, pattern: str, profil
         opened,
         v_floor,
         v_ceil,
+        pedal_floor,
         opened_gain,
         c_lo,
         c_hi,
@@ -786,6 +814,14 @@ def _row_spans(ctx, patterns: list[str], start: int, end: int) -> list[tuple[int
 def _build_waves(ctx, volumes: list[float], patterns: list[str], pedal: set[int], deviations: dict[str, tuple[int, int]] | None = None) -> dict[int, _Wave]:
     deviations = deviations or {}
     found: dict[int, _Wave] = {}
+    # P3: the anchor's reference is the body only. A long quiet frame must not
+    # pull the median down and lift every section toward the ceiling.
+    body_volumes = [
+        volumes[bar]
+        for bar in range(ctx.bars)
+        if bar not in pedal and volumes[bar] > 0
+    ]
+    piece_median = positive_median(body_volumes)
     for section, start, end in _body_spans(ctx, pedal):
         if end <= start:
             continue
@@ -797,7 +833,7 @@ def _build_waves(ctx, volumes: list[float], patterns: list[str], pedal: set[int]
                     continue
                 wave = _make_wave(
                     ctx, volumes, section, row_start, row_end, musical, profile,
-                    (start, end), deviations.get(row),
+                    (start, end), deviations.get(row), piece_median,
                 )
                 for bar in range(row_start, row_end):
                     found[bar] = wave
@@ -807,7 +843,7 @@ def _build_waves(ctx, volumes: list[float], patterns: list[str], pedal: set[int]
             continue
         wave = _make_wave(
             ctx, volumes, section, start, end, pattern, profile, (0, 0),
-            deviations.get(pattern),
+            deviations.get(pattern), piece_median,
         )
         for bar in range(start, end):
             found[bar] = wave
@@ -822,17 +858,22 @@ def _place_centers(ctx, patterns: list[str], volumes: list[float], deviations: d
     for bar, wave in waves.items():
         index = bar - wave.start
         center = wave.centers[index]
-        placed[bar] = _Placed(center, round_center(center), False, wave.v_floor, wave.v_ceil, wave)
+        placed[bar] = _Placed(
+            center, round_center(center), False, wave.v_floor, wave.v_ceil, wave,
+            wave.pedal_floor,
+        )
 
     # P4: the shared phrase breath is one number for the bar. It replaces the
     # per-note `_shape_dynamics` extra, so every voice in the bar moves together.
+    # Clamp it to the tide bounds: a bar already at its peak cannot gain another
+    # four steps without compressing its written intervals.
     skip = breath_skip or set()
     for bar, spot in list(placed.items()):
         if spot.pedal or spot.wave is None:
             continue
         breath = _phrase_breath(ctx, bar, patterns, ctx.epb, skip)
         if breath:
-            center = spot.center + breath
+            center = min(spot.wave.c_hi, max(spot.wave.c_lo, spot.center + breath))
             placed[bar] = replace(spot, center=center, rounded=round_center(center))
 
     _limit_body_seams(placed, ctx, pedal)
@@ -1327,11 +1368,11 @@ def _bar_floors(voices: dict[str, list[NoteEvent]], bars: list[int], floor: int)
 
 
 def _joined_floor(placed: dict[int, _Placed], bar: int) -> int | None:
-    """Window floor of a body bar that has a wave. None when that bar has no wave."""
+    """Pre-P0 window floor of a body bar that has a wave. None when it has no wave."""
     spot = placed.get(bar)
     if spot is None or spot.wave is None:
         return None
-    return spot.v_floor
+    return spot.pedal_floor
 
 
 def _nearest_body_floor(placed: dict[int, _Placed], bar: int) -> int:
@@ -1340,13 +1381,16 @@ def _nearest_body_floor(placed: dict[int, _Placed], bar: int) -> int:
     if not candidates:
         return SPEECH
     nearest = min(candidates, key=lambda other: (abs(other - bar), other))
-    return int(placed[nearest].v_floor)
+    return int(placed[nearest].pedal_floor)
 
 
 def _retarget(placed: dict[int, _Placed], bars: list[int], centers: list[float]) -> None:
     for bar, center in zip(bars, centers):
         spot = placed[bar]
-        placed[bar] = _Placed(float(center), round_center(center), True, spot.v_floor, spot.v_ceil, None)
+        placed[bar] = _Placed(
+            float(center), round_center(center), True, spot.v_floor, spot.v_ceil,
+            None, spot.pedal_floor,
+        )
 
 
 def _fit_pedal_speech(
@@ -1393,7 +1437,6 @@ def apply_guitar_wave(
     floor of the body bar being joined. Snap and frame stabs run after that
     and overwrite only their own attacks.
     """
-    del relaxed
     patterns = list(patterns or [])
     voices = {"lead": list(lead), "support": list(support), "low": list(low)}
     volumes = resolve_bar_volumes(ctx)
@@ -1401,12 +1444,16 @@ def apply_guitar_wave(
     deviations = _written_deviations(ctx, voices, patterns, pedal)
     from app.sonify.guitar_torroba import skips_bar_extra
 
-    breath_skip = {
+    # P4 is bar-level, so a bar with any relaxed eighth is skipped entirely.
+    # This is the old `_shape_dynamics` protection: a boundary texture that was
+    # already thinned must not receive the shared breath a second time.
+    breath_skip = {eighth // ctx.epb for eighth in (relaxed or set())}
+    breath_skip.update(
         event.bar
         for events in voices.values()
         for event in events
         if event.midi is not None and skips_bar_extra(ctx, event)
-    }
+    )
     placed, waves, leading, trailing = _place_centers(ctx, patterns, volumes, deviations, breath_skip)
     _fit_pedal_speech(voices, placed, leading, trailing)
     covered = set(scale_eighths or ())

@@ -1,6 +1,6 @@
 # Kế hoạch mở rộng Shape Dynamics cho Guitar
 
-> **Trạng thái**: P0–P5 đã viết vào engine; P6 (in dynamics) và P7 (dọn hiệu năng) chưa. `pytest -q`: **793 pass**.
+> **Trạng thái**: P0–P5 đã viết vào engine; P6 (in dynamics) và P7 (dọn hiệu năng) chưa. `pytest -q` trên bản merge `main`: **822 pass**.
 >
 > **Liên kết**: [`docs/sonify-guitar-dynamics-wave-plan.md`](./sonify-guitar-dynamics-wave-plan.md), [`docs/sonify-guitar-phrase-coverage-plan.md`](./sonify-guitar-phrase-coverage-plan.md), [`docs/sonify-guitar-scale-dynamics-plan.md`](./sonify-guitar-scale-dynamics-plan.md), [`docs/sonify-barrios-tremolo-dynamics.md`](./sonify-barrios-tremolo-dynamics.md), [`docs/sonify-symphony-dynamics.md`](./sonify-symphony-dynamics.md).
 >
@@ -12,46 +12,48 @@
 
 | Mục | Trạng thái | Ghi chú |
 |---|---|---|
-| **P0** | đã xong | `MIN_TIDE = 8`; `window_for` chỉ hạ floor, không xuống dưới `SPEECH = 22` |
-| **P1** | đã xong | `_written_deviations` đo 1%/99% theo wave row; cần ≥ 24 attack mới trim, nếu không giữ `d_lo/d_hi` của profile |
+| **P0** | đã xong | `MIN_TIDE = 8`; `window_for` chỉ hạ floor, không xuống dưới `SPEECH = 22`. Pedal `F` giữ floor **trước** P0. |
+| **P1** | đã xong | `_written_deviations` đo 1%/99% theo wave row; cần ≥ 24 attack mới trim, nếu không giữ `d_lo/d_hi` của profile. `MAX_TIDE = 16` chặn tide sau khi trim. |
 | **P2** | đã xong | `soft_ceiling` exponential knee 3 bậc, áp cho cả body và pedal |
-| **P3** | đã xong | `_section_anchor` (beta 4, cap ±5) + `_limit_body_seams` bước 4 xuyên section/row |
-| **P4** | đã xong | `_phrase_breath` nằm trong `C(b)`; `_shape_dynamics` trở thành seam no-op |
+| **P3** | đã xong | `_section_anchor` (beta 4, cap ±5, median chỉ trên body) + `_limit_body_seams` bước 4 xuyên section/row |
+| **P4** | đã xong | `_phrase_breath` nằm trong `C(b)`, clamp vào tide bounds; bar có eighth `relaxed` bị skip; `_shape_dynamics` thành seam no-op |
 | **P5** | đã xong | `_make_wave` thu `W` về độ dài section, giữ lẻ |
 | **P6** | chưa | score vẫn velocity-only, chỉ in `mp` ở ô 0 |
 | **P7** | chưa | cache `phrase_at`/`_bar_pattern`, đổi `lipschitz` sang O(n); không đổi hành vi |
 
 Các test cũ có assertion số tuyệt đối đã được đổi sang bất biến hoặc giá trị mới:
 
-- `tests/test_guitar_wave.py`: 21 test, gồm 4 test mới cho `soft_ceiling`, `phrase_breath`, `section_anchor`.
-- `tests/test_sonify_guitar.py`, `tests/test_sonify_guitar_torroba.py`, `tests/test_sonify_guitar_scale_passages.py`: cập nhật các chỗ dựa vào extra cũ hoặc clamp cứng.
-- Toàn bộ backend: **793 passed**.
+- `tests/test_guitar_wave.py`: 27 test, gồm test mới cho `soft_ceiling`, `phrase_breath`, `section_anchor`, `_limit_steps`, `_written_deviations` (guard 24), `MAX_TIDE`, bar `relaxed`, và body-only median.
+- `tests/test_sonify_guitar.py`, `tests/test_sonify_guitar_torroba.py`, `tests/test_sonify_guitar_scale_passages.py`: cập nhật các chỗ dựa vào extra cũ hoặc clamp cứng, re-pin giá trị mới thay vì nới thành bất đẳng thức.
+- Toàn bộ backend trên bản merge `main`: **822 passed**.
 
 ### 0.1. Khác với bản đề xuất ban đầu
 
-- **P0** không viết lại bảng `PROFILES`. `window_for` giữ floor/ceil gốc và chỉ hạ floor khi cần đủ `MIN_TIDE`. Như vậy mọi row cũ vẫn còn làm mốc, và `SPEECH` là chặn dưới.
-- **P1** đo runtime theo **wave row** của từng bản, không hardcode bảng đo. Ngưỡng mẫu 24 attack để fixture nhỏ không tự thu hẹp window. Các nốt hiếm ngoài 1%/99% sẽ bị kẹp.
+- **P0** không viết lại bảng `PROFILES`. `window_for` giữ floor/ceil gốc và chỉ hạ floor khi cần đủ `MIN_TIDE`. Như vậy mọi row cũ vẫn còn làm mốc, và `SPEECH` là chặn dưới. `pedal_floor` giữ floor trước P0 để `L` của intro/outro không tụt theo body tide.
+- **P1** đo runtime theo **wave row** của từng bản, không hardcode bảng đo. Ngưỡng mẫu 24 attack để fixture nhỏ không tự thu hẹp window. Các nốt hiếm ngoài 1%/99% sẽ bị kẹp. `MAX_TIDE` là guard cho trường hợp trim mở hết cửa sổ, không phải nguồn tide chính.
 - **P2** áp cho cả pedal, không chỉ body. Nếu pedal dùng clamp cứng `min(63, raw)` trong khi body dùng soft-knee, seam body→outro lệch 1 bậc.
-- **P3** anchor bị kẹp trong hard note bounds (`v_floor - d_lo`, `v_ceil - d_hi`), và step limit chạy trên từng đoạn body liền nhau, không chỉ trong một `_Wave`.
-- **P4** `_shape_dynamics` trở thành seam no-op; `_phrase_breath` đọc câu tại **đầu ô**, không theo từng eighth. Đây là lựa chọn có chủ đích: `C` là một số cho cả ô, nên breath cũng phải một số cho cả ô. Câu mở giữa ô vẫn được xử lý bởi bug 0.4 ở PR #124 (per-eighth cho `_note_velocity`), không phải bởi breath.
+- **P3** anchor bị kẹp trong hard note bounds (`v_floor - d_lo`, `v_ceil - d_hi`), và step limit chạy trên từng đoạn body liền nhau, không chỉ trong một `_Wave`. Median của anchor chỉ tính bar body, không tính pedal/frame. `_limit_steps` là **minorant** (hạ đỉnh), không phải majorant; đây là chủ ý để không tự nâng bar yên tĩnh lên.
+- **P4** `_shape_dynamics` trở thành seam no-op; `_phrase_breath` đọc câu tại **đầu ô**, không theo từng eighth. Đây là lựa chọn có chủ đích: `C` là một số cho cả ô, nên breath cũng phải một số cho cả ô. Câu mở giữa ô vẫn được xử lý bởi bug 0.4 ở PR #124 (per-eighth cho `_note_velocity`), không phải bởi breath. Breath bị clamp vào tide bounds; bar có eighth `relaxed` bị skip để không shape hai lần.
 - **P5** `W = min(profile.smooth, 2*floor((len-1)/2)+1)`. Với section 7 ô, cantabile dùng `W = 7` thay vì 9; đỉnh smoothed có thể lệch một ô so với bảng cũ.
 
 ### 0.2. Kết quả đo trên `VNM 1W` movement 0 (Bach)
 
-Cùng dữ liệu cache, so `origin/main` (`d0385c0`) với branch này:
+Cùng dữ liệu cache, so `origin/main` (`d0385c0`) với branch này sau khi tách pedal floor, body median, và clamp breath:
 
 | Metric | Trước | Sau |
 |---|---:|---:|
-| `C(b)` body, p90 − p10 | **5.06** | **7.84** |
-| Số tâm `C` nguyên khác nhau | **10** | **16** |
-| `C` min..max | 44..53 | 41..56 |
-| Lead bar-mean, p90 − p10 | 12.00 | 14.23 |
+| `C(b)` body, p90 − p10 | **5.06** | **7.00** |
+| Số tâm `C` nguyên khác nhau | **10** | **13** |
+| `C` min..max | 44..53 | 41..53 |
+| Lead bar-mean, p90 − p10 | 12.00 | 13.30 |
 
-Diễn giải: biên độ macro tăng khoảng **55%**, số mức nghe được tăng **60%**; lead bar-mean tăng ít hơn vì arch 12 bậc viết sẵn vẫn chi phối. Đây là mức gần target 8–12 của P0; các pattern có floor thấp hơn (noviembre, cantabile) bị `SPEECH` chặn nên tide tối đa 6–8.
+Diễn giải: biên độ macro tăng khoảng **38%**, số mức nghe được tăng **30%**; lead bar-mean tăng ít hơn vì arch 12 bậc viết sẵn vẫn chi phối. Đây là mức gần target 8–12 của P0; các pattern có floor thấp hơn (noviembre, cantabile) bị `SPEECH` chặn nên tide tối đa 6–8.
 
 ---
 
 ## 1. Chẩn đoán
+
+> Mục 1–3 giữ nguyên chẩn đoán ban đầu. Code hiện tại đã đổi theo mục 0: `_shape_dynamics` không còn cộng extra, breath nằm trong `C(b)`, và `apply_guitar_wave` có thêm anchor/seam/soft-knee.
 
 ### 1.1. Cách chạy hiện tại
 

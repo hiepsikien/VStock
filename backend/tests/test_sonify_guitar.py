@@ -2650,8 +2650,7 @@ def test_rising_phrases_swell_toward_the_apex_and_keep_the_voices_apart() -> Non
     inner_levels = [note.velocity or 0 for note in chord_inner]
     # P4 moved the shared phrase extra into C, and P2 compresses the last steps.
     # The written arch still rises from the opening to the apex and stays warm.
-    assert lead_levels == sorted(lead_levels)
-    assert lead_levels[0] < lead_levels[-1]
+    assert lead_levels == [39, 44, 48, 51]
     assert all(level <= 63 for level in lead_levels)
     assert all(bass < lead for bass, lead in zip(bass_levels, lead_levels))
     assert all(inner < bass for inner, bass in zip(inner_levels, bass_levels))
@@ -2681,6 +2680,7 @@ def test_rising_phrases_swell_toward_the_apex_and_keep_the_voices_apart() -> Non
     assert sung_levels[apex_at:] == sorted(sung_levels[apex_at:], reverse=True)
     # P4 moved the shared extra into C, and P2 compresses the top; the written
     # arch still rises to the apex and eases after it.
+    assert sung_levels == [39, 44, 48, 51, 47, 45, 43]
     assert all(level <= 63 for level in sung_levels)
     assert [note.beat for note in inner] == [note.beat for note in sung]
     assert len({note.midi for note in inner}) >= 3
@@ -2716,8 +2716,7 @@ def test_rising_phrases_swell_toward_the_apex_and_keep_the_voices_apart() -> Non
     cello = _attacks(thumb.low, 1)
     cello_levels = [note.velocity or 0 for note in cello]
     # P4 moved the shared extra into C; the thumb line still climbs to its apex.
-    assert cello_levels == sorted(cello_levels)
-    assert cello_levels[-1] == max(cello_levels)
+    assert cello_levels == [47, 48, 49, 50, 52, 53, 54, 55]
     assert all(level <= 63 for level in cello_levels)
     dyad_beats = [1.0, 3.0]
     for beat in dyad_beats:
@@ -5016,7 +5015,8 @@ def test_villa_live_tresillo_boosts_velocity_identically_in_mf_and_f_and_keeps_b
             assert set(inner_accents) == {1.5, 3.0}
             assert all(vel is not None and vel < lead_vel for vel in (*low_accents.values(), *inner_accents.values()))
             assert all(vel is not None and vel <= min(inner_accents.values()) for vel in unaccented_inner)
-            accent_by_band[band] = low_accents[0.0] or 0
+            if bar == 0:
+                accent_by_band[band] = low_accents[0.0] or 0
         assert not any(note.accent for note in _pitched(score.support, 2))
     assert accent_by_band["f"] > accent_by_band["mf"]
 
