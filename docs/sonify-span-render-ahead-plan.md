@@ -1,6 +1,6 @@
 # Soạn trước chương: hàng đợi render cho bản nhiều chương
 
-> **Trạng thái**: kế hoạch, đã sửa theo review. Chưa vào code.
+> **Trạng thái**: P0 và P1 đã vào code trong PR này. P2 (ưu tiên slot, `prepare`, depth > 1) chưa làm, đúng điều kiện trong tài liệu.
 > **Phạm vi**: `1M`, `3M`, `1Y` ở phòng Replay (Musicalize). `1D` và `1W` là một chương, không đổi.
 > **Không đổi**: form, nhịp, tempo, số ô, chỗ nghỉ, nội dung âm nhạc.
 > **Revision**: không bump `SPAN_REVISION`. Field mới là chẩn đoán, additive, thiếu thì mặc định 0; sửa comment ở `audio.py:44-46` để ghi rõ ngoại lệ này (mục 6.5).
@@ -167,6 +167,7 @@ export function commitReason(input: {
 export function lookaheadDepth(input: {
   ratio: number;       // renderRatio từ server
   paused: boolean;
+  committed: boolean;  // đã nghe đủ ngưỡng cam kết
   max?: number;
 }): number;
 
@@ -200,8 +201,8 @@ export function markMovementReady<M extends { audioUrl: string; ready: boolean; 
 Quy tắc:
 
 - `commitReason`: `seeked` → `'seek'`; `heardSec >= COMMIT_SEC` → `'dwell'`; `movementSec > 0 && heardSec / movementSec >= COMMIT_RATIO` → `'ratio'`; còn lại `null`. Chỉ xét khi `audible`.
-- `lookaheadDepth`: `base = ratio > 0.7 ? 2 : 1`; `paused` thì `base + 1`; kẹp `[1, max]`, `max` mặc định `AHEAD_CAP` và không vượt `MAX_AHEAD_HARD`. Ở P1 `AHEAD_CAP = 1`, nên pause vẫn chỉ đi trước 1 chương. **Không** dùng wall time.
-- `queueTargets`: duyệt `currentIndex + 1 … currentIndex + depth`, bỏ `ready[i]`, bỏ `done.has(urls[i])`, bỏ index đang cooldown với đúng URL đó. Không chèn `currentIndex`.
+- `lookaheadDepth`: chưa cam kết → 1. Đã cam kết: `base = ratio > 0.7 ? 2 : 1`; `paused` thì `base + 1`; kẹp `[1, max]`, `max` mặc định `AHEAD_CAP` và không vượt `MAX_AHEAD_HARD`. Ở P1 `AHEAD_CAP = 1`, nên pause vẫn chỉ đi trước 1 chương. **Không** dùng wall time.
+- `queueTargets`: chỉ xét cửa sổ `currentIndex + 1 … currentIndex + depth`; bỏ `ready[i]`, bỏ `done.has(urls[i])`, bỏ index đang cooldown với đúng URL đó. Khi một chương trong cửa sổ đã ready, **không** trượt sang chương sau để lấp chỗ: làm vậy depth 1 sẽ render dần cả tác phẩm. Không chèn `currentIndex`.
 - `shouldAbortTarget`: `target != null && target < currentIndex`. `target === currentIndex` **không** huỷ.
 - `retryDelay`: 2s, 5s, 10s; sau đó trả 0 (nghĩa là vào cooldown 60 giây, không phải bỏ vĩnh viễn).
 - `markMovementReady`: kiểm `movements[index].audioUrl === url`; lệch thì trả nguyên mảng. Khớp thì trả mảng mới chỉ đổi `ready`, và chỉ ghi `renderSec` khi tham số > 0. Không đụng `durationSec`, `peaks`, `prices`.
@@ -380,6 +381,8 @@ useEffect(() => {
 
 Trường hợp chương hiện tại `ready`: request của player đi qua `_lock(piece)` và trả cache **trước** `with self._slots` (`audio.py:1310-1324`), nên prefetch `index + 1` không thể chặn nó. Đây là lý do điều kiện `ready` là đủ an toàn.
 
+Khi player báo `onDuration`, chương đang nghe chắc chắn đã có file. Code đánh dấu `ready` + `done` cho URL đó ngay (`ReplayRoom.tsx`, callback `onDuration`), để nhãn chương không còn "đang soạn" và pump không bao giờ nhắm lại nó.
+
 ### 5.5. Cam kết
 
 - `commitReason` chạy trên `audible`, `movementTime`, `movements[index].durationSec`; lưu vào `committedRef`.
@@ -393,7 +396,7 @@ Trường hợp chương hiện tại `ready`: request của player đi qua `_lo
 ### 5.6. Huỷ và cooldown
 
 - Generation đổi: abort `inFlight`, xoá `attempts`/`done`/`cooldown`, dừng vòng bơm cũ. Đây là chỗ duy nhất huỷ toàn bộ.
-- `index` đổi: huỷ khi `shouldAbortTarget(inFlight.index, index)`; xoá cooldown cho **mọi** `target >= index`; reset `playerStartedRef`.
+- `index` đổi: huỷ khi `shouldAbortTarget(inFlight.index, index)`. Ngoài ra, nếu chương vừa vào **chưa** ready, huỷ cả render của chương phía trước (`flight.index !== index`) để request của player vào slot trước; nếu chương vừa vào đã ready, giữ render phía trước. Xoá cooldown cho **mọi** `target >= index`; reset `playerStartedRef`.
 - `fatal` hoặc hết retry: cooldown 60 giây cho đúng index + URL đó. Hết hạn thì thử lại. Không bao giờ block cứng chương kế.
 - Rời phòng: abort, như hiện tại (`ReplayRoom.tsx:253-260`).
 
@@ -549,7 +552,7 @@ Mục tiêu: hết "nghe hết chương mới soạn" trong điều kiện một
 Chạy trong `npm run test:musicalize` (đã thêm `composeQueue.test.ts`).
 
 - `commitReason`: chưa nghe → `null`; `heardSec = 25` → `'dwell'`; seek → `'seek'`; `movementSec = 0` không chia 0; `audible = true` + `heardSec = 0` (vừa pause) → `null`.
-- `lookaheadDepth`: `ratio = 0` → 1; `ratio = 0.8`, `max = 2` → 2; `ratio = 0.8` với `max` mặc định 1 → 1; `paused` cộng 1 nhưng không vượt `max`.
+- `lookaheadDepth`: `ratio = 0` → 1; chưa cam kết với `max = 3` → 1; `ratio = 0.8`, cam kết, `max = 2` → 2; `ratio = 0.8` với `max` mặc định 1 → 1; `paused` cộng 1 nhưng không vượt `max`.
 - `queueTargets`: không trả `currentIndex`; tối đa `depth`; bỏ `ready`, `done`, cooldown đúng URL; cooldown của URL khác không chặn index đó.
 - `shouldAbortTarget`: `(1, 3) → true`; `(3, 3) → false`; `(4, 3) → false`; `(null, 3) → false`.
 - `retryDelay`: 2/5/10 rồi 0.
@@ -626,3 +629,14 @@ Chạy trong `npm run test:musicalize` (đã thêm `composeQueue.test.ts`).
 | B | `audible` là "đã từng nghe", `onEnded`, chia 0, script test, POST, Stage, footprint, prune | 5.5, 5.5, 5.2, 5.2, 6.6, 8, 7 |
 | C | Depth 1 có thể đã đủ | 2.6, 9, 12 |
 | D | Câu hỏi mở | 12 |
+
+---
+
+## 14. Trạng thái triển khai
+
+P0 và P1 đã vào code trong PR này. P2 chưa làm, đúng điều kiện ở mục 9.
+
+- **P0**: `renderSec`/`renderRatio` trong JSON, `SpanAsset`, `_read_span`, `/span`; `/span/peaks` trả thêm identity/trạng thái; prefetch trả `ready|retry|fatal`, retry có backoff, abort không backoff; prefetch chạy khi pause/nghỉ; `done` theo URL; `markMovementReady` theo URL; generation là state; cache plan theo `plan.as_of`.
+- **P1**: `src/musicalize/composeQueue.ts` + test; vòng bơm một request, depth 1; `playerStartedRef`; cooldown 60 giây; nhãn "đang soạn" và dòng "đang soạn chương kế" trong màn nghỉ.
+- **Chưa làm (P2)**: `X-Span-Priority`, `POST /span/prepare`, depth 2/3.
+- **Không đổi**: form/nhịp/nghỉ, `audioUrl`, `RECAP_REVISION`, `SPAN_REVISION` (chỉ sửa comment ở `audio.py`).
