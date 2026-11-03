@@ -2203,6 +2203,23 @@ def test_phrase_lookup_matches_the_linear_scan() -> None:
     assert _phrase_at(ctx, 8) is ctx.phrases[0]
 
 
+def test_pattern_cache_follows_a_new_pattern_list() -> None:
+    """A fresh list with different content must not reuse the previous bar cache."""
+    from app.sonify.guitar_patterns import _bar_pattern
+
+    phrases = (_held(0, 8, 60), _held(8, 8, 64))
+    ctx = _barrios_ctx(
+        phrases,
+        (),
+        {0: "phrase", 1: "phrase"},
+        bpm=96,
+        bars=2,
+        character="rally",
+    )
+    assert _bar_pattern(ctx, 1, ["preludio", "study"]) == "study"
+    assert _bar_pattern(ctx, 1, ["study", "preludio"]) == "preludio"
+
+
 def _body_pattern_row(ctx, patterns: list[str]) -> list[str]:
     row: list[str] = []
     for index, phrase in enumerate(ctx.phrases):

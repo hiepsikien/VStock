@@ -1447,25 +1447,27 @@ def test_limit_steps_caps_both_sides_of_a_seam() -> None:
 
 def test_lipschitz_matches_the_direct_cone_envelope() -> None:
     """A band-derived input must keep the exact direct max, not a two-pass lift."""
-    levels = [(value - 20.0) / 40.0 for value in (20, 24, 20, 36, 28, 24, 20)]
     delta = 4.0 / 40.0
-    shaped = lipschitz(levels, delta)
-    expected = [
-        min(
-            1.0,
-            max(
-                0.0,
+    # The second case is where a two-pass lift diverges by 1 ULP.
+    for values in ((20, 24, 20, 36, 28, 24, 20), (40, 36, 20)):
+        levels = [(value - 20.0) / 40.0 for value in values]
+        shaped = lipschitz(levels, delta)
+        expected = [
+            min(
+                1.0,
                 max(
-                    level - delta * abs(index - other)
-                    for other, level in enumerate(levels)
+                    0.0,
+                    max(
+                        level - delta * abs(index - other)
+                        for other, level in enumerate(levels)
+                    ),
                 ),
-            ),
-        )
-        for index in range(len(levels))
-    ]
-    assert shaped == expected
-    assert all(right - left <= delta + 1e-12 for left, right in zip(shaped, shaped[1:]))
-    assert all(right - left >= -delta - 1e-12 for left, right in zip(shaped, shaped[1:]))
+            )
+            for index in range(len(levels))
+        ]
+        assert shaped == expected
+        assert all(right - left <= delta + 1e-12 for left, right in zip(shaped, shaped[1:]))
+        assert all(right - left >= -delta - 1e-12 for left, right in zip(shaped, shaped[1:]))
 
 
 def test_written_deviations_keeps_the_profile_under_24_attacks() -> None:

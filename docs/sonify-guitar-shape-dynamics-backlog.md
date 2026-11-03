@@ -1,16 +1,15 @@
 # Backlog — shape dynamics cho guitar
 
-Phần P0–P5 của [shape dynamics](sonify-guitar-shape-dynamics-plan.md) đã vào `main`. Tài liệu này giữ lại những việc **cố ý chưa làm** trong PR đó, kèm điều kiện để được phép làm.
+Phần P0–P5 của [shape dynamics](sonify-guitar-shape-dynamics-plan.md) đã vào `main`. Tài liệu này giữ lại những việc **cố ý chưa làm** trong PR đó, kèm điều kiện để được phép làm. Mục P7 đã xong ở PR #133 được giữ lại để ghi lý do thiết kế.
 
-Không có mục nào ở đây là bug. Mỗi mục là một thay đổi hành vi hoặc một quyết định sản phẩm chưa chốt.
+Không có mục nào ở đây là bug. Mỗi mục là một thay đổi hành vi hoặc một quyết định sản phẩm chưa chốt; riêng P7 là ghi chú đóng.
 
 ## Trạng thái
 
 | # | Việc | Loại | Chặn bởi |
 |---|---|---|---|
 | 1 | P6 — in dynamics theo section | notation + playback | chưa test MuseScore, chưa chốt score dành cho ai |
-| 2 | P7 — cache guitar + `humanize._pairs` | hiệu năng | **đã xong** ở PR #133 |
-| 2b | P7 — `lipschitz` O(n) | hiệu năng | hai pass lệch float 1 ULP; giữ direct max |
+| 2 | P7 — cache guitar + `humanize._pairs` (**đã xong** ở PR #133); `lipschitz` O(n) đã bỏ | hiệu năng | hai pass lệch float 1 ULP; giữ direct max |
 | 3 | `MIN_TIDE` theo thể loại | âm nhạc | `SPEECH` chặn ở các row floor thấp |
 | 4 | `_limit_steps`: minorant → majorant hoặc projection đối xứng | âm nhạc | chỉ đổi nếu nghe seam bị dìm |
 | 5 | Tách `window_for(min_tide=...)` thành `body_window()` / `pedal_window()` | đọc code | không cần cho PR này |
@@ -69,7 +68,7 @@ Test `test_lipschitz_matches_the_direct_cone_envelope` pin kết quả với cô
 ### Nghiệm thu
 
 - Toàn bộ test cũ pass, không sửa assertion nào.
-- 3 test differential mới cho `_phrase_at`, `_pairs`, `lipschitz`.
+- 4 test mới: differential cho `_phrase_at`, `_pairs`, `lipschitz`, và cache `_bar_pattern`.
 - Benchmark render/humanize trước/sau: xem PR #133.
 
 ---

@@ -470,12 +470,6 @@ def _phrase_at(ctx: _Ctx, eighth: float) -> Phrase | None:
         ctx._phrase_by_bar = None
     if eighth in ctx._phrase_cache:
         return ctx._phrase_cache[eighth]
-    if ctx.epb <= 0:
-        found = next(
-            (phrase for phrase in ctx.phrases if phrase.start <= eighth < phrase.end), None
-        )
-        ctx._phrase_cache[eighth] = found
-        return found
     if ctx._phrase_by_bar is None:
         by_bar: dict[int, list[Phrase]] = {}
         for phrase in ctx.phrases:
@@ -1681,6 +1675,8 @@ def _cap_accents(ctx: _Ctx, plans: dict, perpetual: dict, limit: int = 2) -> tup
 
 
 def _bar_pattern(ctx: _Ctx, bar: int, patterns: list[str]) -> str:
+    # Callers may pass a fresh copy each call, so compare the content before
+    # dropping the cache. They must not mutate a list in place after passing it.
     if patterns is not ctx._pattern_source:
         signature = tuple(patterns)
         if signature != ctx._pattern_signature:

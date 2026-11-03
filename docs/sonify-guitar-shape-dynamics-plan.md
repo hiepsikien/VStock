@@ -25,7 +25,7 @@ Các test cũ có assertion số tuyệt đối đã được đổi sang bất 
 
 - `tests/test_guitar_wave.py`: 28 test, gồm test mới cho `soft_ceiling`, `phrase_breath`, `section_anchor`, `_limit_steps`, `_written_deviations` (guard 24), `MAX_TIDE`, bar `relaxed`, body-only median, và breath không kéo center xuống.
 - `tests/test_sonify_guitar.py`, `tests/test_sonify_guitar_torroba.py`, `tests/test_sonify_guitar_scale_passages.py`: cập nhật các chỗ dựa vào extra cũ hoặc clamp cứng, re-pin giá trị mới thay vì nới thành bất đẳng thức.
-- Toàn bộ backend trên bản merge `main`: **823 passed**.
+- Toàn bộ backend trên bản merge `main` sau PR #133: **827 passed**.
 
 ### 0.1. Khác với bản đề xuất ban đầu
 
