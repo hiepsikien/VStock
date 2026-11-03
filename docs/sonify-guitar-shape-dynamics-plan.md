@@ -13,7 +13,7 @@
 | Mục | Trạng thái | Ghi chú |
 |---|---|---|
 | **P0** | đã xong | `MIN_TIDE = 8`; `window_for` chỉ hạ floor, không xuống dưới `SPEECH = 22`. Pedal `F` giữ floor **trước** P0. |
-| **P1** | đã xong | `_written_deviations` đo 1%/99% theo wave row; cần ≥ 24 attack mới trim, nếu không giữ `d_lo/d_hi` của profile. `MAX_TIDE = 16` chặn tide sau khi trim. |
+| **P1** | đã sửa | `_written_deviations` đo 1%/99% theo wave row; cần ≥ 24 attack mới trim. `_make_wave` chỉ trim **đáy** (`d_lo`); `d_hi` giữ profile vì là headroom timbre, không phải phân vị runtime. `MAX_TIDE = 16` chặn tide. Audit: [`sonify-guitar-p1-tide-audit.md`](./sonify-guitar-p1-tide-audit.md). |
 | **P2** | đã xong | `soft_ceiling` exponential knee 3 bậc, áp cho cả body và pedal |
 | **P3** | đã xong | `_section_anchor` (beta 4, cap ±5, median chỉ trên body) + `_limit_body_seams` bước 4 xuyên section/row |
 | **P4** | đã xong | `_phrase_breath` nằm trong `C(b)`, clamp **một chiều lên** ở `c_hi` (không kéo center xuống); bar có eighth `relaxed` bị skip; `_shape_dynamics` thành seam no-op |
@@ -23,14 +23,14 @@
 
 Các test cũ có assertion số tuyệt đối đã được đổi sang bất biến hoặc giá trị mới:
 
-- `tests/test_guitar_wave.py`: 28 test, gồm test mới cho `soft_ceiling`, `phrase_breath`, `section_anchor`, `_limit_steps`, `_written_deviations` (guard 24), `MAX_TIDE`, bar `relaxed`, body-only median, và breath không kéo center xuống.
+- `tests/test_guitar_wave.py`: 30 test, gồm test mới cho `soft_ceiling`, `phrase_breath`, `section_anchor`, `_limit_steps`, `_written_deviations` (guard 24), `MAX_TIDE`, bar `relaxed`, body-only median, breath không kéo center xuống, và `test_p1_keeps_the_profiles_upper_headroom_on_every_row` (quét cả 38 row).
 - `tests/test_sonify_guitar.py`, `tests/test_sonify_guitar_torroba.py`, `tests/test_sonify_guitar_scale_passages.py`: cập nhật các chỗ dựa vào extra cũ hoặc clamp cứng, re-pin giá trị mới thay vì nới thành bất đẳng thức.
 - Toàn bộ backend trên bản merge `main` sau PR #133: **827 passed**.
 
 ### 0.1. Khác với bản đề xuất ban đầu
 
 - **P0** không viết lại bảng `PROFILES`. `window_for` giữ floor/ceil gốc và chỉ hạ floor khi cần đủ `MIN_TIDE`. Như vậy mọi row cũ vẫn còn làm mốc, và `SPEECH` là chặn dưới. `pedal_floor` giữ floor trước P0 để `L` của intro/outro không tụt theo body tide.
-- **P1** đo runtime theo **wave row** của từng bản, không hardcode bảng đo. Ngưỡng mẫu 24 attack để fixture nhỏ không tự thu hẹp window. Các nốt hiếm ngoài 1%/99% sẽ bị kẹp. `MAX_TIDE` là guard cho trường hợp trim mở hết cửa sổ, không phải nguồn tide chính.
+- **P1** đo runtime theo **wave row** của từng bản, không hardcode bảng đo, nhưng chỉ áp dụng cho **đáy**. `d_hi` của profile là headroom tới trần timbre: hạ nó làm mọi nốt thường trong row dâng lên, và bè nào chạm trần trước sẽ đổi tương quan với các bè còn lại. Audit 4 phiên × 6 ensemble = 24 tổ hợp (`docs/sonify-guitar-p1-tide-audit.md`) cho thấy chỉ `tremolo` và `etude11` có `d_hi` đo dưới 8, với `c_hi` tăng tới +4; mọi row khác không đổi. Ngưỡng mẫu 24 attack để fixture nhỏ không tự thu hẹp window. `MAX_TIDE` là guard cho trường hợp trim mở hết cửa sổ, không phải nguồn tide chính.
 - **P2** áp cho cả pedal, không chỉ body. Nếu pedal dùng clamp cứng `min(63, raw)` trong khi body dùng soft-knee, seam body→outro lệch 1 bậc.
 - **P3** anchor bị kẹp trong hard note bounds (`v_floor - d_lo`, `v_ceil - d_hi`), và step limit chạy trên từng đoạn body liền nhau, không chỉ trong một `_Wave`. Median của anchor chỉ tính bar body, không tính pedal/frame. `_limit_steps` là **minorant** (hạ đỉnh), không phải majorant; đây là chủ ý để không tự nâng bar yên tĩnh lên.
 - **P4** `_shape_dynamics` trở thành seam no-op; `_phrase_breath` đọc câu tại **đầu ô**, không theo từng eighth. Đây là lựa chọn có chủ đích: `C` là một số cho cả ô, nên breath cũng phải một số cho cả ô. Câu mở giữa ô vẫn được xử lý bởi bug 0.4 ở PR #124 (per-eighth cho `_note_velocity`), không phải bởi breath. Breath chỉ đẩy center **lên**, clamp ở `c_hi`; không kéo center xuống khi anchor đã vượt `c_hi` (MAX_TIDE active). Bar có eighth `relaxed` bị skip để không shape hai lần.
@@ -204,12 +204,15 @@ floor = ceil - range - (d_hi - d_lo)
 
 Lưu ý: hạ floor của wide sẽ hạ luôn `F` dùng cho intro/outro `L`. Nên tách `F` của pedal khỏi `v_floor` của body, hoặc giữ `F` ở mức cũ.
 
-### P1 — Đo `d_lo/d_hi` thực tế theo pattern
+### P1 — Đo `d_lo` thực tế theo pattern; giữ `d_hi` của profile
 
-- Sau `_shape_dynamics`, đo phân vị 1%/99% của `V_written - 64` **trên cả ba bè** cho từng pattern.
-- Đặt `d_lo/d_hi` theo phân vị đó, thay vì `-16/+8` cố định.
-- Ví dụ pattern chỉ viết thấp nhất 56 (`d=-8`) và cao nhất 72 (`d=+8`): đặt `d_lo=-8`, `d_hi=8`; tide tăng thêm 8 bậc mà **không nốt nào bị đổi quan hệ trong ô**.
-- Nốt hiếm nằm ngoài khoảng đo sẽ bị kẹp; chấp nhận nếu tỷ lệ dưới ~0,5%.
+- Sau `_shape_dynamics`, đo phân vị 1%/99% của `V_written - 64` **trên cả ba bè** cho từng pattern. Phân vị 99% vẫn được ghi để chẩn đoán, nhưng không áp vào trần.
+- Chỉ dùng phân vị **1%** để đặt `d_lo`, thay vì `-16` cố định. `d_hi` giữ nguyên giá trị trong `PROFILES`.
+- `d_hi` không phải là một phân vị để đo lại theo bản: nó là **headroom của trần timbre**. Hạ `d_hi` làm `c_hi = v_ceil - d_hi` dâng lên, kéo mọi nốt thường trong row lên cùng một center. Bè nào có velocity viết cao hơn sẽ chạm `v_ceil` / soft-knee trước, nên tương quan giữa các bè đổi dù phép dời là affine.
+- Ví dụ pattern chỉ viết thấp nhất 56 (`d=-8`): đặt `d_lo=-8`; `c_lo` hạ xuống, tide rộng thêm 8 bậc về phía yên tĩnh, còn `c_hi` không đổi. Đây là hướng mở tide an toàn vì không đẩy bè nào vào trần.
+- Nếu một pattern thật sự cần trần thấp hơn, phải sửa `ceil_calm/ceil_wide` hoặc `d_hi` trong `PROFILES` và nghe lại; không suy ra từ dữ liệu của một phiên.
+- Audit rộng: [`sonify-guitar-p1-tide-audit.md`](./sonify-guitar-p1-tide-audit.md). Trong 4 phiên × 6 ensemble (24 tổ hợp), chỉ `tremolo` (Δc_hi trung bình +2,5, tối đa +4) và `etude11` (+1) bị ảnh hưởng; 28 pattern còn lại có `d_hi` đo ≥ 8 nên P1 không đổi trần.
+- Nốt hiếm nằm ngoài khoảng đo **đáy** sẽ bị kẹp; chấp nhận nếu tỷ lệ dưới ~0,5%.
 
 ### P2 — Soft-knee ở trần
 
@@ -315,7 +318,7 @@ Mỗi thay đổi nghe tối thiểu:
 ## 7. Thứ tự thực hiện
 
 1. **P0 + P2 + test + đo** — 1–2 ngày, rủi ro thấp, gần như chắc chắn nghe khác rõ.
-2. **P1 (d_lo/d_hi theo pattern)** — đo phân vị, cập nhật bảng, nghe lại từng ensemble.
+2. **P1 (d_lo theo pattern, d_hi giữ profile)** — đo phân vị đáy, cập nhật bảng, nghe lại từng ensemble.
 3. **P3 (anchor + seam)** — thay đổi kiến trúc nhỏ, cần nghe kỹ transition.
 4. **P4 (hợp nhất phrase)** — sửa coverage `danza`/`preludio`/`bach_prelude`.
 5. **P5, P7** — dọn dẹp.

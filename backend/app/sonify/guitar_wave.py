@@ -4,6 +4,11 @@ The smoothed tide is one center C per bar. Every sounding note keeps the
 velocity it was written with, shifted by round(C) - 64. Lead, bass, and
 inner voices in the same bar share that center, so a swell, an accent, or a
 tremolo step survives as the MIDI difference that was already on the note.
+
+The one deliberate exception is Barrios `tremolo`: after the wave, snaps,
+and stabs, `_apply_tremolo_bass_trim` lowers the thumb and its chord colour
+by `TREMOLO_BASS_TRIM`. The lead keeps the shared center, so the final
+tremolo body sits `TREMOLO_BASS_TRIM` steps under the written relation.
 """
 
 from __future__ import annotations
@@ -11,9 +16,10 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from dataclasses import dataclass, replace
+from typing import NamedTuple
 
 from app.sonify.dynamics import percentile, positive_median
-from app.sonify.guitar import _PEDAL, _TREMOLO_QUARTER_OFFSETS
+from app.sonify.guitar import _PEDAL, _TREMOLO_QUARTER_OFFSETS, TREMOLO_BASS_TRIM
 from app.sonify.model import NoteEvent
 from app.sonify.phrasing import swell
 
@@ -683,16 +689,27 @@ def _section_pattern(ctx, patterns: list[str], start: int, end: int) -> str:
 _CASTILLOS_WAVES = frozenset({"torroba_tremolo", "alcaniz", "olite"})
 
 
-def _written_deviations(ctx, voices, patterns: list[str], pedal: set[int]) -> dict[str, tuple[int, int]]:
+class WrittenDeviation(NamedTuple):
+    """P1's lower tail, plus the upper percentile for diagnostics only."""
+
+    d_lo: int
+    d_hi_diagnostic: int
+
+
+def _written_deviations(ctx, voices, patterns: list[str], pedal: set[int]) -> dict[str, WrittenDeviation]:
     """P1: the 1st/99th percentile of `V_written - 64` per wave row.
 
-    A pattern that only writes 56..72 does not need the global -16/+8 window.
-    Trimming the unused tails frees room for the tide without moving any note
-    that the writer actually uses. Rows with fewer than 24 attacks keep the
-    profile default so a tiny section cannot invent a narrow window. The 1%/99%
-    tails are outside the measured band and may be clamped by the tide. All
-    three voices share one bucket, so a low bass usually keeps `d_lo` negative;
-    the trim mostly frees the upper tail.
+    `_make_wave` applies only `d_lo`. `d_hi_diagnostic` is kept for the audit
+    script, but never feeds the wave: the profile's `d_hi` is the headroom
+    which keeps the loudest written note under the timbre ceiling. Trimming
+    `d_hi` raises every common note in the row, and one voice reaches the
+    ceiling before the others, so the balance changes even though every voice
+    moved by the same center. A pattern that really wants a lower top must say
+    so in `PROFILES`, not infer it from the current piece.
+
+    Rows with fewer than 24 attacks keep the profile default so a tiny section
+    cannot invent a narrow window. The lower 1% tail is outside the measured
+    band and may be clamped by the tide. All three voices share one bucket.
     """
     from app.sonify.guitar_torroba import castillos_wave_row
 
@@ -709,26 +726,27 @@ def _written_deviations(ctx, voices, patterns: list[str], pedal: set[int]) -> di
             else:
                 row = musical
             buckets[row].append(int(event.velocity) - WRITTEN_CENTER)
-    found: dict[str, tuple[int, int]] = {}
+    found: dict[str, WrittenDeviation] = {}
     for row, values in buckets.items():
         # A short fixture is not evidence that the pattern never writes its
         # extremes. Only a real phrase collection may trim the profile.
         if len(values) < 24:
             continue
-        found[row] = (
+        found[row] = WrittenDeviation(
             int(math.floor(percentile(values, 0.01))),
             int(math.ceil(percentile(values, 0.99))),
         )
     return found
 
 
-def _make_wave(ctx, volumes, section, start: int, end: int, pattern: str, profile: PatternWaveProfile, span: tuple[int, int], deviation: tuple[int, int] | None = None, piece_median: float | None = None) -> _Wave:
+def _make_wave(ctx, volumes, section, start: int, end: int, pattern: str, profile: PatternWaveProfile, span: tuple[int, int], deviation: WrittenDeviation | None = None, piece_median: float | None = None) -> _Wave:
     base_profile = profile
     if deviation is not None:
-        d_lo = max(profile.d_lo, deviation[0])
-        d_hi = min(profile.d_hi, deviation[1])
-        if d_hi < d_lo:
-            d_hi = d_lo
+        # P1 trims only the lower tail; `d_hi` is the profile's timbre
+        # headroom. Clamp the lower trim at `d_hi` so a high measured 1% can
+        # never invert the window or silently raise `c_hi`.
+        d_hi = profile.d_hi
+        d_lo = min(d_hi, max(profile.d_lo, deviation.d_lo))
         profile = replace(profile, d_lo=d_lo, d_hi=d_hi)
     # P5: a 9-point window on a two-bar section is almost flat. Shrink the
     # window to the section, keeping it odd, so short sections still breathe.
@@ -1326,6 +1344,24 @@ def _apply_fans(ctx, lead, support, low, patterns=None):
     return lead, support, low
 
 
+def _apply_tremolo_bass_trim(ctx, low, support, patterns: list[str]) -> None:
+    """Barrios tremolo: drop the thumb and its colour after the wave and snaps.
+
+    The apex thumb is rewritten by `_apply_snaps` to a value above the written
+    level, so the trim cannot live in `_tremolo`. The colour rides the same
+    level as the thumb; lowering only the low voice would leave the inner note
+    louder than the bass on a chord change. The lead fill keeps its level, so
+    the melody is not pulled down with the bass.
+    """
+    for events in (low, support):
+        for index, event in enumerate(events):
+            if event.midi is None or event.velocity is None:
+                continue
+            if _pattern_at(ctx, event.bar, patterns) != "tremolo":
+                continue
+            _put(events, index, max(1, int(event.velocity) - TREMOLO_BASS_TRIM))
+
+
 def _sync_ties(events: list[NoteEvent]) -> list[NoteEvent]:
     order = sorted(range(len(events)), key=lambda index: (events[index].bar, events[index].beat, events[index].tie_stop))
     chain: dict[int, int] = {}
@@ -1456,4 +1492,5 @@ def apply_guitar_wave(
     _apply_affine(ctx, voices, placed, patterns, covered)
     _apply_snaps(ctx, voices, patterns, waves, covered, written)
     _apply_stabs(ctx, voices, trailing, patterns)
+    _apply_tremolo_bass_trim(ctx, voices["low"], voices["support"], patterns)
     return _sync_ties(voices["lead"]), _sync_ties(voices["support"]), _sync_ties(voices["low"])

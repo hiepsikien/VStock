@@ -73,6 +73,10 @@ _TREMOLO_QUARTER_OFFSETS = {4: (-4, 0, 4, 1), 3: (-4, 4, 0)}
 # One tremolo cluster is one quarter note: four sixteenth repeats of a single
 # melody pitch, with the thumb ringing underneath for the whole quarter.
 _TREMOLO_CLUSTER = 4
+# After the wave and the snaps, the Barrios tremolo thumb and its chord colour
+# sit this many steps under the written level. The lead fill keeps its written
+# level, so the melody is not pulled down with the bass.
+TREMOLO_BASS_TRIM = 2
 
 
 def render_guitar_score(

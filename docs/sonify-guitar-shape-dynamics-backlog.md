@@ -194,4 +194,4 @@ Chỉ làm khi có một bản thật sự nghe thấy peak giả ở intro/outr
 - **Snap và stab**: `_apply_snaps` / `_apply_stabs` giữ nguyên; snap budget và giá trị `70/66/62` không đổi.
 - **Trần timbre** `WARM_LIMIT = 63` giữ nguyên cho body; chỉ mở khi P6 được duyệt.
 - **Humanize** và clamp 64/65 không đổi.
-- **`_written_deviations` gộp ba bè**: bass thường giữ `d_lo = -16`, trim chủ yếu mở phía trần. Đây là hành vi đã ghi trong docstring, không phải việc còn treo.
+- **`_written_deviations` gộp ba bè**: bass thường giữ `d_lo = -16`; P1 chỉ trim đáy, `d_hi` giữ profile. Hành vi này đã sửa sau audit `docs/sonify-guitar-p1-tide-audit.md`: trim trần làm `tremolo` và `etude11` dâng lên, các row khác không đổi.
