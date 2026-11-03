@@ -555,7 +555,7 @@ export type SonifyMix = {
   color: boolean;
 };
 
-/** Old callers pass the two booleans; the room passes the seven knobs. */
+/** Old callers pass the two booleans; the room passes the ten knobs. */
 export type SonifyParamsInput = SonifyParams | SonifyMix;
 
 function coerceParams(input?: SonifyParamsInput): SonifyParams {
@@ -830,7 +830,7 @@ export async function fetchDfiPieces(
     movement?: number;
     variant?: RecapVariant | null;
     ensemble?: RecapEnsemble | null;
-    /** The seven knobs. `mix` stays for the older listening surfaces. */
+    /** The ten knobs. `mix` stays for the older listening surfaces. */
     params?: SonifyParamsInput;
     mix?: SonifyMix;
   },

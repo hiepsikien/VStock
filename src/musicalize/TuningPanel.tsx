@@ -67,12 +67,22 @@ async function readClipboard(): Promise<string | null> {
   }
 }
 
-function changedCount(params: SonifyParams): number {
-  return PARAM_FIELDS.filter((field) => params[field.key] !== field.default).length;
+const GUITAR_KEYS = new Set(
+  PARAM_GROUPS.find((group) => group.id === 'guitar')?.fields.map((field) => field.key) ?? [],
+);
+
+/** The guitar knobs only exist in the guitar room. */
+function visibleFields(variant?: string): ParamsFieldSchema[] {
+  if (variant === 'guitar') return PARAM_FIELDS;
+  return PARAM_FIELDS.filter((field) => !GUITAR_KEYS.has(field.key));
 }
 
-function paramSummary(params: SonifyParams): string {
-  const count = changedCount(params);
+function changedCount(params: SonifyParams, variant?: string): number {
+  return visibleFields(variant).filter((field) => params[field.key] !== field.default).length;
+}
+
+function paramSummary(params: SonifyParams, variant?: string): string {
+  const count = changedCount(params, variant);
   return count === 0 ? 'Default' : `${count} thay đổi`;
 }
 
@@ -283,6 +293,11 @@ function TuningTab({
   const highHumanize = warnings.some((warning) => warning.code === 'high_humanize');
   const highBreath = warnings.some((warning) => warning.code === 'high_breath');
   const guitarLow = variant === 'guitar' && bpm < 90;
+  const visibleKeys = new Set(visibleFields(variant).map((field) => field.key));
+  const groups = PARAM_GROUPS.map((group) => ({
+    ...group,
+    fields: group.fields.filter((field) => visibleKeys.has(field.key)),
+  })).filter((group) => group.fields.length > 0);
 
   return (
     <>
@@ -298,7 +313,7 @@ function TuningTab({
         </Text>
       ) : null}
 
-      {PARAM_GROUPS.map((group) => (
+      {groups.map((group) => (
         <View key={group.id} style={styles.group}>
           <Text style={[type.section, styles.groupLabel]}>{group.label}</Text>
           {group.fields.map((field) => {
@@ -312,7 +327,9 @@ function TuningTab({
                   ? 'Trên 1.10 dễ làm phẳng contour'
                   : field.key === 'breath' && highBreath
                     ? 'Trên 1.20 đã chạm trần câu'
-                    : null;
+                    : GUITAR_KEYS.has(field.key) && value > 4
+                      ? 'Trên +4 đẩy nốt snap khỏi dải móng'
+                      : null;
             return (
               <ParamSlider
                 key={field.key}
@@ -335,7 +352,7 @@ function TuningTab({
   );
 }
 
-function ProfileTab() {
+function ProfileTab({ variant }: { variant?: string }) {
   const {
     store,
     profile,
@@ -415,7 +432,7 @@ function ProfileTab() {
                 </Text>
                 <Text style={[type.monoSmall, styles.profileMeta]} numberOfLines={1}>
                   {item.id === DEFAULT_PROFILE_ID ? 'khoá · ' : ''}
-                  {paramSummary(item.params)}
+                  {paramSummary(item.params, variant)}
                 </Text>
               </View>
               {active ? <Text style={[type.monoSmall, styles.activeMark]}>đang dùng</Text> : null}
@@ -635,7 +652,7 @@ export function TuningPanel({ baseBpm, variant }: Props) {
         {tab === 'tune' ? (
           <TuningTab baseBpm={baseBpm} variant={variant} />
         ) : (
-          <ProfileTab />
+          <ProfileTab variant={variant} />
         )}
       </ScrollView>
       {tab === 'tune' ? (

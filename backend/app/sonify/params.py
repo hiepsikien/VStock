@@ -37,10 +37,14 @@ class ParamField:
     default: float
     unit: str
     description: str
+    # Display a leading "+" for positive integers. The client uses this
+    # explicitly instead of inferring signedness from the step.
+    signed: bool = False
 
 
 PERFORMANCE = "performance"
 TEXTURE = "texture"
+GUITAR = "guitar"
 
 FIELDS: tuple[ParamField, ...] = (
     ParamField(
@@ -120,6 +124,42 @@ FIELDS: tuple[ParamField, ...] = (
         "",
         "Lượng fill và bell chèn vào giữa các câu.",
     ),
+    ParamField(
+        "guitar_high",
+        "Bè cao",
+        GUITAR,
+        -12.0,
+        12.0,
+        1.0,
+        0.0,
+        "",
+        "Độ lệch velocity của bè cao (giai điệu). 0 là bản hiện tại.",
+        signed=True,
+    ),
+    ParamField(
+        "guitar_mid",
+        "Bè trung",
+        GUITAR,
+        -12.0,
+        12.0,
+        1.0,
+        0.0,
+        "",
+        "Độ lệch velocity của bè trung (voice 2 và 4). 0 là bản hiện tại.",
+        signed=True,
+    ),
+    ParamField(
+        "guitar_bass",
+        "Bè bass",
+        GUITAR,
+        -12.0,
+        12.0,
+        1.0,
+        0.0,
+        "",
+        "Độ lệch velocity của bè bass (ngón cái). 0 là bản hiện tại.",
+        signed=True,
+    ),
 )
 
 FIELD_BY_KEY: dict[str, ParamField] = {field.key: field for field in FIELDS}
@@ -127,6 +167,7 @@ DEFAULT_PARAMS: dict[str, float] = {field.key: field.default for field in FIELDS
 GROUPS: tuple[tuple[str, str], ...] = (
     (PERFORMANCE, "Trình diễn"),
     (TEXTURE, "Sâu hơn"),
+    (GUITAR, "Guitar"),
 )
 
 # The unmodified tempo of each line. The schema carries this so the drawer can
@@ -350,6 +391,7 @@ def schema_payload(*, enabled: bool | None = None) -> dict[str, Any]:
                 "default": field.default,
                 "unit": field.unit,
                 "description": field.description,
+                "signed": field.signed,
             }
             for field in FIELDS
             if field.group == group_id

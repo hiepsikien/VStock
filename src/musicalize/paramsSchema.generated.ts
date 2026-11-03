@@ -9,6 +9,7 @@ export type ParamsFieldSchema = {
   default: number;
   unit: string;
   description: string;
+  signed: boolean;
 };
 
 export type ParamsGroupSchema = {
@@ -41,7 +42,8 @@ export const PARAMS_SCHEMA: ParamsSchema = {
           "step": 0.01,
           "default": 1.0,
           "unit": "×",
-          "description": "Tăng giảm tốc độ của bản thu so với nhịp gốc."
+          "description": "Tăng giảm tốc độ của bản thu so với nhịp gốc.",
+          "signed": false
         },
         {
           "key": "humanize",
@@ -52,7 +54,8 @@ export const PARAMS_SCHEMA: ParamsSchema = {
           "step": 0.05,
           "default": 1.0,
           "unit": "",
-          "description": "Độ lệch velocity giữa các nốt để bớt đều máy móc."
+          "description": "Độ lệch velocity giữa các nốt để bớt đều máy móc.",
+          "signed": false
         },
         {
           "key": "breath",
@@ -63,7 +66,8 @@ export const PARAMS_SCHEMA: ParamsSchema = {
           "step": 0.05,
           "default": 1.0,
           "unit": "",
-          "description": "Độ cong tốc độ ở đầu và cuối mỗi câu."
+          "description": "Độ cong tốc độ ở đầu và cuối mỗi câu.",
+          "signed": false
         },
         {
           "key": "color",
@@ -74,7 +78,8 @@ export const PARAMS_SCHEMA: ParamsSchema = {
           "step": 0.01,
           "default": 1.0,
           "unit": "",
-          "description": "Lượng hiệu ứng màu (EQ, echo, soft-clip); 0 là khô, 2 là đậm gấp đôi."
+          "description": "Lượng hiệu ứng màu (EQ, echo, soft-clip); 0 là khô, 2 là đậm gấp đôi.",
+          "signed": false
         }
       ]
     },
@@ -91,7 +96,8 @@ export const PARAMS_SCHEMA: ParamsSchema = {
           "step": 0.05,
           "default": 1.0,
           "unit": "",
-          "description": "Độ chênh lực bấm giữa các sắc thái, quanh velocity 64."
+          "description": "Độ chênh lực bấm giữa các sắc thái, quanh velocity 64.",
+          "signed": false
         },
         {
           "key": "noise",
@@ -102,7 +108,8 @@ export const PARAMS_SCHEMA: ParamsSchema = {
           "step": 0.05,
           "default": 0.1,
           "unit": "%",
-          "description": "Nhiễu nền cộng vào bản thu, tính bằng % toàn thang."
+          "description": "Nhiễu nền cộng vào bản thu, tính bằng % toàn thang.",
+          "signed": false
         },
         {
           "key": "density",
@@ -113,12 +120,55 @@ export const PARAMS_SCHEMA: ParamsSchema = {
           "step": 0.05,
           "default": 1.0,
           "unit": "",
-          "description": "Lượng fill và bell chèn vào giữa các câu."
+          "description": "Lượng fill và bell chèn vào giữa các câu.",
+          "signed": false
+        }
+      ]
+    },
+    {
+      "id": "guitar",
+      "label": "Guitar",
+      "fields": [
+        {
+          "key": "guitar_high",
+          "label": "Bè cao",
+          "type": "number",
+          "min": -12.0,
+          "max": 12.0,
+          "step": 1.0,
+          "default": 0.0,
+          "unit": "",
+          "description": "Độ lệch velocity của bè cao (giai điệu). 0 là bản hiện tại.",
+          "signed": true
+        },
+        {
+          "key": "guitar_mid",
+          "label": "Bè trung",
+          "type": "number",
+          "min": -12.0,
+          "max": 12.0,
+          "step": 1.0,
+          "default": 0.0,
+          "unit": "",
+          "description": "Độ lệch velocity của bè trung (voice 2 và 4). 0 là bản hiện tại.",
+          "signed": true
+        },
+        {
+          "key": "guitar_bass",
+          "label": "Bè bass",
+          "type": "number",
+          "min": -12.0,
+          "max": 12.0,
+          "step": 1.0,
+          "default": 0.0,
+          "unit": "",
+          "description": "Độ lệch velocity của bè bass (ngón cái). 0 là bản hiện tại.",
+          "signed": true
         }
       ]
     }
   ],
-  "defaultHash": "5800e09635be",
+  "defaultHash": "8653a4d3fcad",
   "baseBpm": {
     "symphony": 90,
     "jazz": 82,

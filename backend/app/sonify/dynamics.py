@@ -70,6 +70,43 @@ def apply_contrast(score: Score) -> Score:
     return replace(score, **fields)
 
 
+GUITAR_VOICE_FIELDS: tuple[tuple[str, str], ...] = (
+    ("lead", "guitar_high"),
+    ("support", "guitar_mid"),
+    ("low", "guitar_bass"),
+)
+
+
+def apply_voice_balance(score: Score) -> Score:
+    """Offset the three guitar streams after humanize, before MusicXML.
+
+    Guitar is one nylon part and MS Basic plays the note velocity, so the
+    balance is a velocity offset, not a mixer fader. The knob is a MIDI
+    velocity delta in [-8, +8]. This pass must stay after compute_dfi:
+    `_volume()` reads event velocity. At 0 it returns the same score object,
+    so Default stays byte-identical.
+    """
+    if score.variant != "guitar":
+        return score
+    offsets = {name: active(key) for name, key in GUITAR_VOICE_FIELDS}
+    if all(offset == 0.0 for offset in offsets.values()):
+        return score
+    fields: dict[str, tuple] = {}
+    for name, offset in offsets.items():
+        notes = getattr(score, name)
+        fields[name] = tuple(
+            note
+            if note.velocity is None
+            else replace(
+                note,
+                # The schema step is 1, so `offset` is always integer-valued.
+                velocity=max(1, min(127, int(note.velocity + offset))),
+            )
+            for note in notes
+        )
+    return replace(score, **fields)
+
+
 def velocity_for(marking: str) -> int:
     """Velocity after the dynamics knob. At 1.0 this is the old table."""
     return contrast_velocity(BASE_VELOCITY.get(marking, _CENTER))

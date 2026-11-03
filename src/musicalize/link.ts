@@ -16,7 +16,7 @@ export type LinkState = {
   genre: RecapVariant;
   /** Not validated against the genre here; the room falls back to `classic`. */
   ensemble: RecapEnsemble | null;
-  /** The seven knobs. Default keeps the old URL without `p`. */
+  /** The ten knobs. Default keeps the old URL without `p`. */
   params: SonifyParams;
 };
 
