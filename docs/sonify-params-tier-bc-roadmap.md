@@ -193,7 +193,7 @@ PR #137 hiện dùng **signed velocity offset**, không phải hệ số nhân. 
 | ID | Hạng mục | Việc chính | AC |
 |---|---|---|---|
 | C1.1 | `technique` | Chỉ áp dụng `variant === "guitar"`; override `_dominant_pattern`/`_patterns` qua whitelist theo ensemble (`classic`, `villa`, `barrios`, `brouwer`, `bach`, `torroba`). | Không chọn pattern ngoài whitelist |
-| C1.2 | Fallback | Nếu pattern được chọn không playable hoặc sai meter/BPM, fallback pattern auto + warning `technique_fallback`. | Không có tổ hợp nào raise `Unplayable` |
+| C1.2 | Fallback | Nếu pattern được chọn không playable hoặc sai meter/BPM, fallback pattern auto + log `technique_fallback`. Warning API/UI để sau. | Không có tổ hợp nào raise `Unplayable` khi baseline playable; baseline vốn không playable thì giữ baseline an toàn |
 | C1.3 | `position` (optional) | Thế tay thấp/chuẩn/cao; chỉ làm nếu `technique` ổn định. | Không phá `_playable` |
 | C1.4 | Test + span | Thêm `span` vào `render_guitar_score`/`_Ctx` **hoặc** test ở tầng `plan_week`/`plan_month`/`plan_quarter`/`year_specs` (chưa có `plan_year`) nơi span còn. Ma trận ensemble × character × span × technique; chạy `assert_playable`; pairwise `register × technique`. | Default 1.0 trả cùng score; mọi tổ hợp playable |
 
