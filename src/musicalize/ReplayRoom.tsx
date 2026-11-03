@@ -161,7 +161,14 @@ export function ReplayRoom({ wide, onMode }: Props) {
       ? boot.ensemble
       : 'classic',
   );
-  const { heardParams, previewNonce, open: tuningOpen, setOpen: setTuningOpen } = useTuning();
+  const {
+    heardParams,
+    savedDirty,
+    playNonce,
+    requestPlay,
+    open: tuningOpen,
+    setOpen: setTuningOpen,
+  } = useTuning();
   const heardKey = paramsKey(heardParams);
   const heardLayers = paramsLayers(heardParams);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -1037,17 +1044,17 @@ export function ReplayRoom({ wide, onMode }: Props) {
     })();
   }, [date, ensemble, heardParams, resetPeaksState, span, symbol, variant]);
 
-  // A tuning commit updates the heard values and asks the room to play them.
-  // The ref keeps this effect out of the transport's dependency graph.
+  // Play commits the latest saved profile first; this effect starts the listen
+  // after the old identity has been cleared. Draft edits never bump playNonce.
   const listenRef = useRef(listen);
   listenRef.current = listen;
-  const previewSeen = useRef(0);
+  const playSeen = useRef(0);
   useEffect(() => {
-    if (previewNonce === previewSeen.current) return;
-    previewSeen.current = previewNonce;
-    if (!previewNonce) return;
+    if (playNonce === playSeen.current) return;
+    playSeen.current = playNonce;
+    if (!playNonce) return;
     listenRef.current(heardParams);
-  }, [heardParams, previewNonce]);
+  }, [heardParams, playNonce]);
 
   const jumpToMovement = useCallback(
     (nextIndex: number, seconds: number, autoplay: boolean) => {
@@ -1080,6 +1087,10 @@ export function ReplayRoom({ wide, onMode }: Props) {
 
   const onPlay = useCallback(() => {
     if (composing || finished) return;
+    if (savedDirty) {
+      requestPlay();
+      return;
+    }
     if (resting && movements) {
       const movement = movements[index];
       if (!movement) return;
@@ -1093,7 +1104,20 @@ export function ReplayRoom({ wide, onMode }: Props) {
       return;
     }
     listen();
-  }, [beginRest, composing, finished, index, listen, manifest, movements, restOffset, resting, span]);
+  }, [
+    beginRest,
+    composing,
+    finished,
+    index,
+    listen,
+    manifest,
+    movements,
+    requestPlay,
+    restOffset,
+    resting,
+    savedDirty,
+    span,
+  ]);
 
   const onPause = useCallback(() => {
     if (composing) {
@@ -1107,6 +1131,10 @@ export function ReplayRoom({ wide, onMode }: Props) {
   }, [clearRest, composing]);
 
   const onReplay = useCallback(() => {
+    if (savedDirty) {
+      requestPlay();
+      return;
+    }
     const count = span === '1D' ? 1 : (movements?.length ?? 0);
     if (span !== '1D' && !movements) {
       listen();
@@ -1153,6 +1181,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
     movementTime,
     movements,
     parked,
+    requestPlay,
+    savedDirty,
     span,
   ]);
 

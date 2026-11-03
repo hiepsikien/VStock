@@ -15,6 +15,7 @@ import {
   layerHumanize,
   normalizeParams,
   normalizeWithWarnings,
+  paramValueText,
   paramsEqual,
   paramsFromFlags,
   paramsFromQuery,
@@ -46,7 +47,7 @@ function same(a: Record<string, number>, b: Record<string, number>, label = '') 
   }
 }
 
-ok(DEFAULT_HASH === '35d9a160e9a3', 'default hash is pinned');
+ok(DEFAULT_HASH === '5800e09635be', 'default hash is pinned');
 ok(Object.keys(DEFAULT_PARAMS).length === 7, 'seven knobs');
 
 const tempo = PARAM_FIELDS.find((field) => field.key === 'tempo');
@@ -57,8 +58,37 @@ equal(tempo.max, 1.25, 'tempo max');
 equal(tempo.step, 0.01, 'tempo step');
 equal(stepValue(tempo, 0.9600000001), 0.96, 'round to the step');
 
+const color = PARAM_FIELDS.find((field) => field.key === 'color');
+ok(Boolean(color), 'color field exists');
+if (!color) throw new Error('missing color');
+equal(color.min, 0, 'color min');
+equal(color.max, 2, 'color max');
+equal(color.step, 0.01, 'color step');
+
+for (const key of ['humanize', 'breath', 'density']) {
+  const field = PARAM_FIELDS.find((item) => item.key === key);
+  ok(Boolean(field), `${key} field exists`);
+  if (!field) throw new Error(`missing ${key}`);
+  equal(field.min, 0, `${key} min`);
+  equal(field.max, 2, `${key} max`);
+  equal(field.step, 0.05, `${key} step`);
+  equal(field.default, 1, `${key} default is centered`);
+}
+
+const noise = PARAM_FIELDS.find((field) => field.key === 'noise');
+ok(Boolean(noise), 'noise field exists');
+if (!noise) throw new Error('missing noise');
+equal(noise.min, 0, 'noise min');
+equal(noise.max, 0.5, 'noise max');
+equal(noise.step, 0.05, 'noise step');
+equal(noise.default, 0.1, 'noise default');
+equal(noise.unit, '%', 'noise unit');
+equal(paramValueText(noise, 0.1), '0.10%', 'noise value text');
+equal(paramValueText(color, 2), '2.00', 'color value text');
+equal(paramValueText(tempo, 1), '1.00×', 'tempo value text');
+
 same(normalizeParams({ tempo: 0.96 }), { ...DEFAULT_PARAMS, tempo: 0.96 }, 'missing keys default');
-same(normalizeParams({ tempo: 1.4, humanize: 9 }), { ...DEFAULT_PARAMS, tempo: 1.25, humanize: 1.5 }, 'clamped');
+same(normalizeParams({ tempo: 1.4, humanize: 9 }), { ...DEFAULT_PARAMS, tempo: 1.25, humanize: 2.0 }, 'clamped');
 same(normalizeParams({ tempo: 'fast' }), DEFAULT_PARAMS, 'wrong type falls back');
 same(normalizeParams({ nope: 1 }), DEFAULT_PARAMS, 'unknown key dropped');
 
@@ -87,7 +117,7 @@ equal(
 );
 equal(
   paramsKey({ ...DEFAULT_PARAMS, tempo: 0.96 }),
-  '{"params":{"breath":1.0,"color":1.0,"density":1.0,"dynamics":1.0,"humanize":1.0,"noise":1.0,"tempo":0.96},"schema":1}',
+  '{"params":{"breath":1.0,"color":1.0,"density":1.0,"dynamics":1.0,"humanize":1.0,"noise":0.1,"tempo":0.96},"schema":2}',
   'canonical text matches the server',
 );
 
@@ -181,5 +211,18 @@ equal(parseProfileStore('{oops'), null, 'bad json ignored');
 ok(parsed != null && isDefaultParams(parsed.profiles[0].params), 'Default params survive');
 equal(uniqueProfileName('   ', store.profiles), 'Bản của tôi', 'empty name gets a label');
 equal(uniqueProfileName('x'.repeat(60), store.profiles).length, 40, 'name is capped');
+
+const legacyStore = parseProfileStore(
+  JSON.stringify({
+    schema: 1,
+    activeId: 'old',
+    profiles: [{ id: 'old', name: 'Cũ', params: { ...DEFAULT_PARAMS, noise: 1 } }],
+  }),
+);
+equal(
+  legacyStore?.profiles.find((profile) => profile.id === 'old')?.params.noise,
+  0.1,
+  'schema 1 noise multiplier becomes a percent',
+);
 
 console.log('musicalize params tests passed');

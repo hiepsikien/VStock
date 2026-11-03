@@ -39,7 +39,7 @@ Các điểm “nên sửa” còn lại đã vào §3.1–§3.7, §5, §6.3, §
 | 5 | **Chưa cần auth**. V1 chưa có profile server theo user. |
 | 6 | Chưa làm AI tạo profile, chưa làm tầng B/C. Chỉ chỉnh tầng A trước. |
 | 7 | `tempo` thấp làm rơi tremolo guitar là **hành vi được chấp nhận**, không clamp BPM. Writer dùng BPM hiệu lực, nên chọn pattern và score luôn nhất quán. BPM hiệu lực là **số nguyên**; không cần phần lẻ. |
-| 8 | `humanize` là knob **liên tục 0–1.5, step 0.05**. Trần offset tách khỏi ngưỡng freeze. Không mở lại vùng ±4. `1.0` là mức khuyến nghị; cảnh báo từ `> 1.1`; `1.5` là trần kỹ thuật. |
+| 8 | `humanize` là knob **liên tục 0–2.0, step 0.05**. Trần offset tách khỏi ngưỡng freeze. Trên `1.5` nhóm base `±2` đã bão hoà ở `±3`, chỉ nhóm `±1` còn tăng; `1.0` là mức khuyến nghị, cảnh báo từ `> 1.1`; `1.5` là trần kỹ thuật của nhóm chính. |
 | 9 | Cache non-default dùng **LRU theo `params_hash`**, không giữ mọi hash 30 ngày. Default được pin; legacy `_nh/_nc` chỉ pin khi params đúng tổ hợp legacy. |
 | 10 | Legacy `h=0` giữ cache cũ bằng cách map thành `{humanize: 0, breath: 0}`, skip `humanize()` khi cả hai bằng 0, và guard `_clamp_guitar`. `p{humanize: 0}` (breath vẫn 1) là bản khác, dùng `_p<hash>`. |
 | 11 | State profile nằm ở **`MusicalizeApp`**, nơi chỉ render một room tại một thời điểm; `RoomFrame` chỉ render panel. Không nhân đôi hook ở `LiveRoom` và `ReplayRoom`. |
@@ -71,7 +71,7 @@ Parameter nằm rải rác trong code:
 | Ngưỡng guitar | `BARRIOS_TREMOLO_MIN_BPM = 90` chọn tremolo / sixteenths theo `ctx.bpm` | `guitar*.py`, `guitar_patterns.py` |
 | Dynamics | bảng velocity `p/mp/mf/f`, trần bass `mp`, velocity piano | `dynamics.py` và 53 điểm đọc rải rác |
 | Humanize | `CAP = 2` vừa là trần offset vừa là ngưỡng freeze; `_TEMPO_DELTA`, Torroba 3.5%/5%, trần 10%, lilt 4% | `humanize.py` |
-| Mix / màu | chuỗi FFmpeg từng variant, noise `0.001` / `0.0003`, gate `0.01` | `preset.py` |
+| Mix / màu | chuỗi FFmpeg từng variant, noise `%` tuyệt đối, gate `0.01` | `preset.py` |
 | Render | MuseScore binary, soundfont, số slot export, AAC filter | `audio.py` |
 
 UI hiện tại chỉ có `variant`, `ensemble`, `humanize` bật/tắt, `color` bật/tắt trong `src/musicalize/OptionsPopover.tsx`. URL chỉ mang `h=0/1` và `c=0/1` (`src/musicalize/link.ts`).
@@ -89,17 +89,17 @@ UI hiện tại chỉ có `variant`, `ensemble`, `humanize` bật/tắt, `color`
 
 ### 3.1 Bảy knob
 
-Tất cả là **hệ số**, mặc định `1.0`, để một profile dùng được cho mọi variant.
+Tất cả đều là số thực; phần lớn là **hệ số** mặc định `1.0`, riêng `noise` là biên độ tuyệt đối, để một profile dùng được cho mọi variant.
 
 | Key | Nhãn UI | Khoảng | Bước | Default | Ý nghĩa |
 |---|---|---:|---:|---:|---|
 | `tempo` | Nhịp | `0.75 – 1.25` | `0.01` | `1.00` | Nhân BPM gốc của variant. 1.0 = đúng hiện tại. |
-| `humanize` | Người | `0.00 – 1.50` | `0.05` | `1.00` | Độ lệch velocity. 0 = máy hoàn toàn; 1 = hiện tại; 1.5 = trần ±3. |
-| `breath` | Hơi thở | `0.00 – 1.50` | `0.05` | `1.00` | Nhân độ cong tempo trong câu. 0 = phẳng; 1 = hiện tại. |
+| `humanize` | Người | `0.00 – 2.00` | `0.05` | `1.00` | Độ lệch velocity. 0 = máy hoàn toàn; 1 = hiện tại; 1.5 = trần offset ±3, trên 1.5 chỉ còn nhánh ±1 tăng. |
+| `breath` | Hơi thở | `0.00 – 2.00` | `0.05` | `1.00` | Nhân độ cong tempo trong câu. 0 = phẳng; 1 = hiện tại. |
 | `dynamics` | Tương phản | `0.50 – 1.50` | `0.05` | `1.00` | Co giãn velocity quanh mốc 64. 1 = bảng p–f hiện tại. |
-| `color` | Màu | `0.00 – 1.00` | `0.05` | `1.00` | Lượng wet của preset. 0 = khô; 1 = chuỗi hiện tại. |
-| `noise` | Nhiễu | `0.00 – 1.00` | `0.05` | `1.00` | Nhân nền nhiễu của preset. 0 = không nhiễu. |
-| `density` | Mật độ | `0.00 – 1.50` | `0.05` | `1.00` | Nhân độ dài/số lượng fill và bell. 0 = không fill/bell; 1 = hiện tại. |
+| `color` | Màu | `0.00 – 2.00` | `0.01` | `1.00` | Lượng wet của preset. 0 = khô; 1 = chuỗi hiện tại; 2 = đậm gấp đôi. |
+| `noise` | Nhiễu | `0.00 – 0.50` | `0.05` | `0.10` | Nhiễu nền tuyệt đối, % full-scale. 0 = không nhiễu; 0.5 = −46 dBFS. |
+| `density` | Mật độ | `0.00 – 2.00` | `0.05` | `1.00` | Nhân độ dài/số lượng fill và bell. 0 = không fill/bell; 1 = hiện tại; 2 = gấp đôi. |
 
 ### 3.2 `tempo` — BPM hiệu lực, không phải phép nhân hậu kỳ
 
@@ -159,7 +159,7 @@ Cách làm chốt:
 - Trần thực tế là `ceil(2 × humanize)`; không cần clamp riêng vì `|target| ≤ 2 × humanize`. Nếu vẫn giữ `_clamp_offset`, clamp **sau** khi làm tròn, không clamp float rồi cắt int.
 - Ở `humanize = 1`, `target` là số nguyên → offset **trùng tuyệt đối** hiện tại, đảm bảo Default parity.
 - `humanize = 0` → offset 0 toàn bộ.
-- `humanize = 1.5` → trần ±3. Đây là trần kỹ thuật, không phải mức khuyến nghị: `sonify-humanize-preset-plan.md` đã loại ±3 vì làm phẳng contour. **`1.25` cũng đã có thể ra ±3**: `base ±2 → 2.5`, 50% ra 3. Vì vậy `1.0` là mức khuyến nghị, cảnh báo mềm bắt đầu từ `> 1.1`, và AC phải kiểm tra contour ở cả `1.25` lẫn `1.5`. Nếu nghe thử cho thấy phẳng, hạ UI max về `1.0` hoặc `1.1`, giữ schema `1.5` cho V1.1.
+- `humanize = 1.5` → trần ±3. Trên `1.5` nhóm base `±2` bão hoà, `2.0` chỉ còn tăng nhóm `±1`. Đây là trần kỹ thuật, không phải mức khuyến nghị: `sonify-humanize-preset-plan.md` đã loại ±3 vì làm phẳng contour. **`1.25` cũng đã có thể ra ±3**: `base ±2 → 2.5`, 50% ra 3. Vì vậy `1.0` là mức khuyến nghị, cảnh báo mềm bắt đầu từ `> 1.1`, và AC phải kiểm tra contour ở cả `1.25` lẫn `1.5`.
 
 Range dừng ở `1.5`, step `0.05`, cảnh báo mềm khi `> 1.1`.
 
@@ -187,7 +187,7 @@ class ColorSpec:
     softclip_threshold: float
 ```
 
-`amount` (0–1) biến đổi:
+`amount` (0–2) biến đổi:
 
 - gain dB nhân `amount`;
 - decay nhân `amount`;
@@ -195,12 +195,14 @@ class ColorSpec:
 - delay giữ nguyên, chỉ bỏ tap khi decay = 0;
 - `amount = 0` bỏ hẳn filter màu, dùng WAV khô.
 
+`amount` có thể vượt `1` (lên `2`) để đậm hơn preset gốc: gain, decay và ngưỡng soft-clip vẫn nằm trong dải hợp lệ.
+
 Chuỗi FFmpeg được **sinh** từ spec theo thứ tự cố định. Ở `amount = 1`, chuỗi phải **giống từng byte** chuỗi hiện tại; test khoá chuỗi Default cho cả 5 variant. Mọi giá trị khác là kết quả của spec, không phải “mò hệ số”.
 
 ### 3.7 `density` và `noise`
 
 - `density` nhân `FILL_SPAN`, `FILL_MIN`, `BELL_MAX_EIGHTHS` trong `phrasing.py`; `0` bỏ fill/bell, `1` giữ nguyên, `>1` kéo dài trong giới hạn an toàn. Không chỉnh số nốt giai điệu, không chỉnh guitar pattern.
-- `noise` nhân `_SYMPHONY_NOISE` / `_GUITAR_NOISE`; guitar vẫn giữ gate `0.01`; variant khác bỏ qua như hiện tại.
+- `noise` là biên độ tuyệt đối tính bằng % full-scale (`0–0.5%`), không phải hệ số nhân. Guitar giữ gate `0.01`; mọi variant đều nhận nền nhiễu, kể cả khi `color = 0`. Nhiễu trộn sau chuỗi màu, trước peak limit.
 
 ### 3.8 Thứ tự triển khai trong tầng A
 
@@ -228,7 +230,7 @@ A1 chạm ít module hơn và cho cảm nhận rõ nhất. A2 chạm `dynamics.p
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "id": "default",
   "name": "Default",
   "params": {
@@ -237,7 +239,7 @@ A1 chạm ít module hơn và cho cảm nhận rõ nhất. A2 chạm `dynamics.p
     "breath": 1.0,
     "dynamics": 1.0,
     "color": 1.0,
-    "noise": 1.0,
+    "noise": 0.1,
     "density": 1.0
   },
   "createdAt": null,
@@ -254,7 +256,7 @@ A1 chạm ít module hơn và cho cảm nhận rõ nhất. A2 chạm `dynamics.p
 ```text
 params = { key: round(round(value / step) * step, 2) for key in SCHEMA }
 canonical = json.dumps(
-  {"schema": 1, "params": params},
+  {"schema": 2, "params": params},
   separators=(",", ":"),
   sort_keys=True,
 )
@@ -264,7 +266,7 @@ params_hash = sha256(canonical).hexdigest()[:12]
 - **Round theo step trước khi hash.** Nếu không, `0.9600000000000001` tạo hash khác `0.96` dù nghe giống hệt.
 - `round(..., 2)` để xoá bụi float sau khi nhân step.
 - Server là nơi tính hash chuẩn. Client dùng `paramsKey` (canonical string) cho React key; không tự hash.
-- Default hash được pin trong test. Với canonical ở §4.1: `35d9a160e9a3`.
+- Default hash được pin trong test. Với canonical ở §4.1: `5800e09635be`.
 
 ### 4.3 Preset built-in
 
@@ -272,7 +274,7 @@ params_hash = sha256(canonical).hexdigest()[:12]
 |---|---|---|
 | `Default` | Đúng bản đang nghe | tất cả `1.0` |
 | `Gần` | Khô, rõ, ít không gian | `color 0.45`, `noise 0.0` |
-| `Ấm` | Nhiều thân tiếng, chậm hơn một nhịp | `tempo 0.96`, `color 1.0`, `noise 0.8` |
+| `Ấm` | Nhiều thân tiếng, chậm hơn một nhịp | `tempo 0.96`, `color 1.0`, `noise 0.2` |
 | `Sống` | Nhiều humanize và hơi thở | `humanize 1.1`, `breath 1.15` |
 | `Dày` | Nhiều fill/bell hơn | `density 1.25` |
 
@@ -305,7 +307,7 @@ CI so sánh output với file đã commit; lệch thì fail. Không có bản fa
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "groups": [
     {
       "id": "performance",
@@ -334,7 +336,7 @@ CI so sánh output với file đã commit; lệch thì fail. Không có bản fa
       ]
     }
   ],
-  "defaultHash": "35d9a160e9a3",
+  "defaultHash": "5800e09635be",
   "enabled": true
 }
 ```
@@ -350,15 +352,15 @@ Hai nhóm khớp disclosure “Sâu hơn” ở UI; nhóm `performance` chứa `
 Request:
 
 ```json
-{ "schema": 1, "params": { "tempo": 1.4, "humanize": 99 } }
+{ "schema": 2, "params": { "tempo": 1.4, "humanize": 99 } }
 ```
 
 Response:
 
 ```json
 {
-  "schema": 1,
-  "params": { "tempo": 1.25, "humanize": 1.5, "breath": 1.0, "dynamics": 1.0, "color": 1.0, "noise": 1.0, "density": 1.0 },
+  "schema": 2,
+  "params": { "tempo": 1.25, "humanize": 2.0, "breath": 1.0, "dynamics": 1.0, "color": 1.0, "noise": 0.1, "density": 1.0 },
   "hash": "…",
   "warnings": [
     { "code": "clamped", "key": "tempo", "value": 1.4 },
@@ -412,11 +414,11 @@ Không chỉ audio: **peaks và scrubber phải xin cùng params**, nếu không
 Ví dụ canonical đầy đủ cho `tempo = 0.96`:
 
 ```text
-{"params":{"breath":1.0,"color":1.0,"density":1.0,"dynamics":1.0,"humanize":1.0,"noise":1.0,"tempo":0.96},"schema":1}
+{"params":{"breath":1.0,"color":1.0,"density":1.0,"dynamics":1.0,"humanize":1.0,"noise":0.1,"tempo":0.96},"schema":2}
 ```
 
 ```text
-p=eyJwYXJhbXMiOnsiYnJlYXRoIjoxLjAsImNvbG9yIjoxLjAsImRlbnNpdHkiOjEuMCwiZHluYW1pY3MiOjEuMCwiaHVtYW5pemUiOjEuMCwibm9pc2UiOjEuMCwidGVtcG8iOjAuOTZ9LCJzY2hlbWEiOjF9
+p=eyJwYXJhbXMiOnsiYnJlYXRoIjoxLjAsImNvbG9yIjoxLjAsImRlbnNpdHkiOjEuMCwiZHluYW1pY3MiOjEuMCwiaHVtYW5pemUiOjEuMCwibm9pc2UiOjAuMSwidGVtcG8iOjAuOTZ9LCJzY2hlbWEiOjJ9
 ```
 
 ---
@@ -514,7 +516,7 @@ Vì chưa có auth:
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "activeId": "default",
   "profiles": [
     { "id": "default", "name": "Default", "params": { "...": 1.0 } },
@@ -529,7 +531,7 @@ Quy tắc:
 - Tên không rỗng, tối đa 40 ký tự; không trùng (không phân biệt hoa thường), nếu trùng thêm hậu tố.
 - Đổi tên chỉ đổi `name`, không đổi `params`, không đổi hash.
 - Xoá profile đang dùng → quay về `Default`.
-- “Reset” đưa params về default nhưng giữ tên profile.
+- “Reset” ở tab Tinh chỉnh bỏ draft, quay về profile đang chọn; “Về Default” ở tab Profile đưa params profile về default nhưng giữ tên.
 - Import/export JSON qua clipboard (web và native). V1 chưa cần file picker.
 
 ### 7.2 Khi có auth (sau này)
@@ -595,36 +597,41 @@ Hai tab:
 
 Tab `Tinh chỉnh`:
 
-```text
-Default  • đã sửa        [Lưu] [Hoàn tác]
+Mỗi thanh trượt có hai mốc tách biệt: vạch mảnh ở **giữa thang** và mỏ neo đậm tại **giá trị default** (có thể lệch, ví dụ `noise`). Phần tô màu chạy từ mỏ neo đến knob; nút `?` cạnh nhãn mở một câu mô tả.
 
-Nhịp        ──────◆────  1.00×   (90 BPM)
-Người       ───────◆───  1.00
-Hơi thở     ──────◆────  1.00
-Màu         ────────◆──  1.00
+```text
+Default  • đã sửa
+[−] Nhịp        ──────◆────  1.00×  (90 BPM) [+]
+[−] Người       ────◆──────  1.00          [+]
+[−] Hơi thở     ────◆──────  1.00          [+]
+[−] Màu         ─────■◆────  1.00          [+]
 
 ── Sâu hơn ─────────────────
-Tương phản  ──────◆────  1.00
-Nhiễu       ────────◆──  1.00
-Mật độ      ──────◆────  1.00
+[−] Tương phản  ──────◆────  1.00          [+]
+[−] Nhiễu       ◆──────────  0.10%         [+]
+[−] Mật độ      ────◆──────  1.00          [+]
+
+[Reset]                         [Lưu]
 ```
 
 Tab `Profile`:
 
 - Danh sách profile: `Default` (khoá), các profile local.
-- Tạo mới, nhân bản, đổi tên, xoá, reset.
+- Tạo mới, nhân bản, đổi tên, xoá, reset về Default.
 - Import/export JSON.
-- Nút “Dùng profile này” và “Lưu thay đổi”.
+- Chọn profile chỉ đổi profile đang dùng; **không tự phát**.
 - Không có A/B trong V1; nếu làm, ghi rõ `(V1.1)` và không đưa vào AC V1.
 
 Hành vi:
 
-- Kéo slider cập nhật giá trị ngay, **không render audio mỗi bước**.
-- Thả tay → nếu “Nghe thử tự động” bật thì gọi audio mới; nếu tắt, chờ “Nghe bản này”.
+- Kéo slider hoặc bấm `−/+` chỉ cập nhật **draft**, không render audio, không đổi URL.
+- `Reset` bỏ thay đổi chưa lưu, quay draft về profile đang chọn.
+- `Lưu` ghi draft vào profile; không phát lại, không dừng audio đang chạy.
+- Nút Play bên ngoài dùng profile đã lưu mới nhất: params giống bản đang nghe thì dùng lại cache, khác thì soạn bản mới.
 - Hiển thị BPM suy ra cạnh `Nhịp` (ví dụ `1.00× · 90 BPM`); guitar dưới 90 BPM hiện ghi chú “dưới ngưỡng tremolo”.
 - Cảnh báo mềm `humanize > 1.1`, `breath > 1.2`, không chặn.
 - Haptic nhẹ khi chạm mốc (`expo-haptics` đã có), không rung liên tục khi kéo.
-- Nút “Nghe bản này” cố định ở đáy drawer/sheet.
+- Không còn nút “Nghe bản này” trong drawer/sheet.
 
 ### 8.4 Kỹ thuật và a11y
 
@@ -695,7 +702,7 @@ Hành vi:
 
 `test_params.py` — **file mới**:
 
-- Default canonical JSON và hash `35d9a160e9a3` ổn định.
+- Default canonical JSON và hash `5800e09635be` ổn định.
 - Round theo step trước khi hash: `0.9600000000000001` và `0.96` cùng hash.
 - Schema đúng default/min/max/step, đủ hai nhóm.
 - Normalize: thiếu key → default; ngoài khoảng → kẹp; key lạ → `unknown_key`; sai kiểu → lỗi.
@@ -777,8 +784,11 @@ UI:
 - Điện thoại: bottom sheet snap 48%/88%; chart thấy ở nửa trên; transport không bị đẩy khỏi màn hình.
 - Web 960 px và 1280 px: nút `Tinh chỉnh · Default` không tràn, tên dài ellipsis; drawer overlay/push đúng ngưỡng.
 - Không backdrop tối; tap ngoài và `Esc` đóng.
-- Kéo slider không gọi render liên tục.
-- Đổi profile làm audio URL và peaks URL đổi cùng nhau, không phát nhầm cache.
+- Mỗi slider có nút `−`/`+` hai đầu, nhảy đúng step và disable ở biên.
+- Kéo slider hoặc bấm `−/+` chỉ đổi draft; không render, không đổi URL.
+- `Lưu` ghi draft vào profile, không phát lại; `Reset` bỏ draft về profile đang chọn.
+- Nút Play bên ngoài dùng profile đã lưu mới nhất; params không đổi thì dùng cache cũ, đổi thì soạn bản mới.
+- Chọn profile không tự phát; không còn nút “Nghe bản này” hay “Dùng profile này”.
 - Slider có role `adjustable`, arrow keys hoạt động.
 
 ### 11.3 Tiêu chí nghiệm thu
@@ -844,7 +854,7 @@ UI:
 | `p` chỉ đổi audio, không đổi peaks | `paramsQuery` dùng chung cho audio, peaks, movement, dfi pieces. |
 | Nút mở tràn ở 960 px | `maxWidth`, `flexShrink`, ellipsis; test 960 và 1280. |
 | UI quá giống DAW | Track mảnh, nhãn mono, không sidebar; chỉ mở khi cần. |
-| Slider render liên tục | Chỉ render khi thả tay hoặc bấm “Nghe bản này”; debounce. |
+| Slider render liên tục | Slider/`−/+` chỉ đổi draft; Play mới dùng profile đã lưu và cache hash quyết định bản cũ/mới. |
 | Tên profile trùng | Chuẩn hoá, cảnh báo, thêm hậu tố. |
 
 ---

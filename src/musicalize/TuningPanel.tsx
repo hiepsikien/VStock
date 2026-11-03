@@ -7,7 +7,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View,
@@ -83,34 +82,28 @@ function ParamSlider({
   value,
   derived,
   hint,
+  helpOpen,
+  onToggleHelp,
   onChange,
-  onComplete,
 }: {
   field: ParamsFieldSchema;
   value: number;
   derived?: string;
   hint?: string | null;
+  helpOpen: boolean;
+  onToggleHelp: () => void;
   onChange: (value: number) => void;
-  onComplete: (value: number) => void;
 }) {
   const [width, setWidth] = useState(0);
   const widthRef = useRef(0);
   const valueRef = useRef(value);
-  const latest = useRef(value);
   const onChangeRef = useRef(onChange);
-  const onCompleteRef = useRef(onComplete);
   valueRef.current = value;
-  latest.current = value;
   onChangeRef.current = onChange;
-  onCompleteRef.current = onComplete;
 
-  const commit = useCallback(
-    (next: number) => {
-      latest.current = next;
-      onChangeRef.current(next);
-    },
-    [],
-  );
+  const commit = useCallback((next: number) => {
+    onChangeRef.current(next);
+  }, []);
 
   const fromX = useCallback(
     (x: number) => {
@@ -133,12 +126,6 @@ function ParamSlider({
         onPanResponderMove: (event) => {
           fromX(event.nativeEvent.locationX);
         },
-        onPanResponderRelease: () => {
-          onCompleteRef.current(latest.current);
-        },
-        onPanResponderTerminate: () => {
-          onCompleteRef.current(latest.current);
-        },
       }),
     [fromX],
   );
@@ -147,12 +134,20 @@ function ParamSlider({
     (direction: 1 | -1) => {
       const next = stepValue(field, valueRef.current + direction * field.step);
       commit(next);
-      onCompleteRef.current(next);
+      void Haptics.selectionAsync().catch(() => undefined);
     },
     [commit, field],
   );
 
-  const ratio = clamp((value - field.min) / (field.max - field.min), 0, 1);
+  const span = field.max - field.min;
+  const ratio = clamp(span > 0 ? (value - field.min) / span : 0, 0, 1);
+  const defaultRatio = clamp(span > 0 ? (field.default - field.min) / span : 0, 0, 1);
+  const atMin = value <= field.min + 1e-9;
+  const atMax = value >= field.max - 1e-9;
+  const defaultX = width * defaultRatio;
+  const knobX = width * ratio;
+  const fillLeft = Math.min(defaultX, knobX);
+  const fillWidth = Math.abs(knobX - defaultX);
   const webProps =
     Platform.OS === 'web'
       ? ({
@@ -172,11 +167,9 @@ function ParamSlider({
               event.preventDefault?.();
             } else if (event.key === 'Home') {
               commit(field.min);
-              onCompleteRef.current(field.min);
               event.preventDefault?.();
             } else if (event.key === 'End') {
               commit(field.max);
-              onCompleteRef.current(field.max);
               event.preventDefault?.();
             }
           },
@@ -186,43 +179,85 @@ function ParamSlider({
   return (
     <View style={styles.param}>
       <View style={styles.paramHead}>
-        <Text style={[type.sans, styles.paramLabel]}>{field.label}</Text>
+        <View style={styles.paramLabelRow}>
+          <Text style={[type.sans, styles.paramLabel]}>{field.label}</Text>
+          <Pressable
+            onPress={onToggleHelp}
+            hitSlop={10}
+            style={[styles.helpButton, helpOpen && styles.helpButtonOpen]}
+            accessibilityRole="button"
+            accessibilityLabel={`Giải thích ${field.label}`}
+            accessibilityState={{ expanded: helpOpen }}
+          >
+            <Text style={[type.monoSmall, styles.helpMark, helpOpen && styles.helpMarkOpen]}>
+              ?
+            </Text>
+          </Pressable>
+        </View>
         <Text style={[type.mono, styles.paramValue]}>{paramValueText(field, value)}</Text>
       </View>
-      <View
-        {...webProps}
-        {...responder.panHandlers}
-        onLayout={(event) => {
-          const next = event.nativeEvent.layout.width;
-          widthRef.current = next;
-          setWidth(next);
-        }}
-        style={styles.sliderHit}
-        focusable
-        accessible
-        accessibilityRole="adjustable"
-        accessibilityLabel={field.label}
-        accessibilityValue={{
-          min: field.min,
-          max: field.max,
-          now: value,
-          text: paramValueText(field, value),
-        }}
-        accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
-        onAccessibilityAction={(event) => {
-          if (event.nativeEvent.actionName === 'increment') nudge(1);
-          if (event.nativeEvent.actionName === 'decrement') nudge(-1);
-        }}
-      >
-        <View style={styles.sliderTrack}>
-          <View style={[styles.sliderFill, { width: `${Math.round(ratio * 100)}%` }]} />
-          <View
-            style={[
-              styles.sliderKnob,
-              { left: Math.max(0, Math.min(width - 12, width * ratio - 6)) },
-            ]}
-          />
+      {helpOpen ? <Text style={[type.sans, styles.paramHelp]}>{field.description}</Text> : null}
+      <View style={styles.stepRow}>
+        <Pressable
+          onPress={() => nudge(-1)}
+          disabled={atMin}
+          hitSlop={6}
+          style={[styles.stepButton, atMin && styles.disabled]}
+          accessibilityRole="button"
+          accessibilityLabel={`Giảm ${field.label}`}
+          accessibilityState={{ disabled: atMin }}
+        >
+          <Text style={[type.mono, styles.stepMark]}>−</Text>
+        </Pressable>
+        <View
+          {...webProps}
+          {...responder.panHandlers}
+          onLayout={(event) => {
+            const next = event.nativeEvent.layout.width;
+            widthRef.current = next;
+            setWidth(next);
+          }}
+          style={styles.sliderHit}
+          focusable
+          accessible
+          accessibilityRole="adjustable"
+          accessibilityLabel={field.label}
+          accessibilityHint={field.description}
+          accessibilityValue={{
+            min: field.min,
+            max: field.max,
+            now: value,
+            text: paramValueText(field, value),
+          }}
+          accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === 'increment') nudge(1);
+            if (event.nativeEvent.actionName === 'decrement') nudge(-1);
+          }}
+        >
+          <View style={styles.sliderTrack}>
+            <View style={[styles.sliderFill, { left: fillLeft, width: fillWidth }]} />
+            <View style={[styles.sliderCenter, { left: width / 2 - 0.5 }]} />
+            <View style={[styles.sliderDefault, { left: defaultX - 1.5 }]} />
+            <View
+              style={[
+                styles.sliderKnob,
+                { left: Math.max(0, Math.min(width - 12, knobX - 6)) },
+              ]}
+            />
+          </View>
         </View>
+        <Pressable
+          onPress={() => nudge(1)}
+          disabled={atMax}
+          hitSlop={6}
+          style={[styles.stepButton, atMax && styles.disabled]}
+          accessibilityRole="button"
+          accessibilityLabel={`Tăng ${field.label}`}
+          accessibilityState={{ disabled: atMax }}
+        >
+          <Text style={[type.mono, styles.stepMark]}>+</Text>
+        </Pressable>
       </View>
       {derived || hint ? (
         <View style={styles.paramFoot}>
@@ -237,34 +272,17 @@ function ParamSlider({
 function TuningTab({
   baseBpm,
   variant,
-  autoPreview,
-  onAutoPreview,
 }: {
   baseBpm: number;
   variant?: string;
-  autoPreview: boolean;
-  onAutoPreview: (value: boolean) => void;
 }) {
-  const {
-    profile,
-    params,
-    dirty,
-    commit,
-    revert,
-    saveChanges,
-    setParam,
-  } = useTuning();
+  const { profile, params, dirty, setParam } = useTuning();
+  const [helpKey, setHelpKey] = useState<string | null>(null);
   const bpm = effectiveBpm(baseBpm, params.tempo);
   const warnings = warningsFor(params);
   const highHumanize = warnings.some((warning) => warning.code === 'high_humanize');
   const highBreath = warnings.some((warning) => warning.code === 'high_breath');
   const guitarLow = variant === 'guitar' && bpm < 90;
-
-  const finish = (key: string, value: number) => {
-    if (!autoPreview) return;
-    void Haptics.selectionAsync().catch(() => undefined);
-    commit({ ...params, [key]: value }, true);
-  };
 
   return (
     <>
@@ -273,21 +291,6 @@ function TuningTab({
           {profile.name}
         </Text>
         {dirty ? <Text style={[type.monoSmall, styles.modified]}>• đã sửa</Text> : null}
-      </View>
-      <View style={styles.actionRow}>
-        <SmallButton label="Lưu" onPress={saveChanges} disabled={!dirty} />
-        <SmallButton label="Hoàn tác" onPress={revert} disabled={!dirty} />
-        <View style={{ flex: 1 }} />
-        <View style={styles.autoRow}>
-          <Text style={[type.sans, styles.autoLabel]}>Nghe thử</Text>
-          <Switch
-            value={autoPreview}
-            onValueChange={onAutoPreview}
-            trackColor={{ false: palette.track, true: palette.sound }}
-            thumbColor={palette.text}
-            accessibilityLabel="Nghe thử tự động"
-          />
-        </View>
       </View>
       {profile.id === DEFAULT_PROFILE_ID && dirty ? (
         <Text style={[type.sans, styles.note]}>
@@ -317,8 +320,11 @@ function TuningTab({
                 value={value}
                 derived={derived}
                 hint={hint}
+                helpOpen={helpKey === field.key}
+                onToggleHelp={() =>
+                  setHelpKey((current) => (current === field.key ? null : field.key))
+                }
                 onChange={(next) => setParam(field.key, next)}
-                onComplete={(next) => finish(field.key, next)}
               />
             );
           })}
@@ -333,11 +339,8 @@ function ProfileTab() {
   const {
     store,
     profile,
-    params,
     dirty,
-    heardDirty,
     select,
-    commit,
     saveChanges,
     addProfile,
     duplicate,
@@ -346,7 +349,6 @@ function ProfileTab() {
     reset,
     importProfiles,
     exportProfiles,
-    setOpen,
   } = useTuning();
   const [editor, setEditor] = useState<'create' | 'rename' | null>(null);
   const [nameDraft, setNameDraft] = useState('');
@@ -459,26 +461,12 @@ function ProfileTab() {
 
       <View style={styles.actionRow}>
         <SmallButton
-          label="Reset"
+          label="Về Default"
           onPress={() => reset(profile.id)}
           disabled={profile.id === DEFAULT_PROFILE_ID}
         />
         <SmallButton label="Lưu thay đổi" onPress={saveChanges} disabled={!dirty} />
       </View>
-
-      <Pressable
-        onPress={() => {
-          commit(params, true);
-          setOpen(false);
-        }}
-        style={styles.primary}
-        accessibilityRole="button"
-        accessibilityLabel="Dùng profile này"
-      >
-        <Text style={[type.section, styles.primaryText]}>
-          {heardDirty ? 'Dùng profile này' : 'Nghe lại profile này'}
-        </Text>
-      </Pressable>
 
       {canClipboard || canRead || canCopyLink ? (
         <View style={styles.actionRow}>
@@ -496,7 +484,7 @@ function ProfileTab() {
       ) : null}
       {notice ? <Text style={[type.sans, styles.notice]}>{notice}</Text> : null}
       <Text style={[type.sans, styles.footNote]}>
-        Profile lưu trên máy. Tên không đi vào hash hay URL.
+        Profile lưu trên máy. Tên không đi vào hash hay URL. Bấm Play bên ngoài để nghe profile đang chọn.
       </Text>
     </>
   );
@@ -526,13 +514,12 @@ function SmallButton({
 }
 
 export function TuningPanel({ baseBpm, variant }: Props) {
-  const { enabled, open, setOpen, params, commit } = useTuning();
+  const { enabled, open, setOpen, dirty, revert, saveChanges } = useTuning();
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const wide = width >= WIDE_BREAKPOINT;
   const [rendered, setRendered] = useState(open);
   const [tab, setTab] = useState<'tune' | 'profile'>('tune');
-  const [autoPreview, setAutoPreview] = useState(true);
   const [snap, setSnap] = useState<'half' | 'full'>('half');
   const drawerX = useRef(new Animated.Value(DRAWER_WIDTH)).current;
   const sheetHeight = Math.max(260, Math.round(height * 0.88));
@@ -646,29 +633,26 @@ export function TuningPanel({ baseBpm, variant }: Props) {
         keyboardShouldPersistTaps="handled"
       >
         {tab === 'tune' ? (
-          <TuningTab
-            baseBpm={baseBpm}
-            variant={variant}
-            autoPreview={autoPreview}
-            onAutoPreview={setAutoPreview}
-          />
+          <TuningTab baseBpm={baseBpm} variant={variant} />
         ) : (
           <ProfileTab />
         )}
       </ScrollView>
       {tab === 'tune' ? (
         <View style={styles.footerFixed}>
-          <Pressable
-            onPress={() => {
-              commit(params, true);
-              setOpen(false);
-            }}
-            style={styles.primary}
-            accessibilityRole="button"
-            accessibilityLabel="Nghe bản này"
-          >
-            <Text style={[type.section, styles.primaryText]}>Nghe bản này</Text>
-          </Pressable>
+          <View style={styles.footerActions}>
+            <SmallButton label="Reset" onPress={revert} disabled={!dirty} />
+            <Pressable
+              onPress={saveChanges}
+              disabled={!dirty}
+              style={[styles.primary, styles.footerPrimary, !dirty && styles.disabled]}
+              accessibilityRole="button"
+              accessibilityLabel="Lưu profile"
+              accessibilityState={{ disabled: !dirty }}
+            >
+              <Text style={[type.section, styles.primaryText]}>Lưu</Text>
+            </Pressable>
+          </View>
         </View>
       ) : null}
     </>
@@ -894,15 +878,6 @@ const styles = StyleSheet.create({
   disabled: {
     opacity: 0.35,
   },
-  autoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  autoLabel: {
-    color: palette.textFaint,
-    fontSize: 12,
-  },
   note: {
     color: palette.textFaint,
     fontSize: 12,
@@ -922,18 +897,77 @@ const styles = StyleSheet.create({
   },
   paramHead: {
     flexDirection: 'row',
-    alignItems: 'baseline',
+    alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 8,
+  },
+  paramLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 1,
   },
   paramLabel: {
     color: palette.text,
     fontSize: 13,
   },
+  helpButton: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: palette.hairlineStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  helpButtonOpen: {
+    borderColor: palette.sound,
+    backgroundColor: palette.soundSoft,
+  },
+  helpMark: {
+    color: palette.textFaint,
+    fontSize: 10,
+    lineHeight: 12,
+  },
+  helpMarkOpen: {
+    color: palette.sound,
+  },
+  paramHelp: {
+    color: palette.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
   paramValue: {
     color: palette.textMuted,
     fontSize: 12,
   },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  stepButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.surface,
+  },
+  stepMark: {
+    color: palette.textMuted,
+    fontSize: 14,
+  },
   sliderHit: {
+    flex: 1,
     height: 34,
     justifyContent: 'center',
   },
@@ -944,8 +978,26 @@ const styles = StyleSheet.create({
     overflow: 'visible',
   },
   sliderFill: {
+    position: 'absolute',
+    top: 0,
     height: 4,
     borderRadius: 2,
+    backgroundColor: palette.sound,
+  },
+  sliderCenter: {
+    position: 'absolute',
+    top: -9,
+    width: 1,
+    height: 5,
+    borderRadius: 0.5,
+    backgroundColor: palette.hairlineStrong,
+  },
+  sliderDefault: {
+    position: 'absolute',
+    top: -12,
+    width: 3,
+    height: 8,
+    borderRadius: 1.5,
     backgroundColor: palette.sound,
   },
   sliderKnob: {
@@ -978,15 +1030,21 @@ const styles = StyleSheet.create({
   primaryText: {
     color: palette.background,
   },
-  footer: {
-    marginTop: 4,
-  },
   footerFixed: {
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 8,
     borderTopWidth: 1,
     borderTopColor: palette.hairline,
+  },
+  footerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  footerPrimary: {
+    flex: 1,
+    marginTop: 0,
   },
   profileList: {
     gap: 6,

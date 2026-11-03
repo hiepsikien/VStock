@@ -309,7 +309,8 @@ export function baseBpmFor(variant: string, ensemble: string): number {
 }
 
 export function paramValueText(field: ParamsFieldSchema, value: number): string {
-  return field.unit === '×' ? `${value.toFixed(2)}×` : value.toFixed(2);
+  const text = value.toFixed(2);
+  return field.unit ? `${text}${field.unit}` : text;
 }
 
 /** Soft copy only; never blocks a render. */
@@ -387,9 +388,18 @@ function withProfiles(store: ProfileStore, profiles: SonifyProfile[]): ProfileSt
   return { ...store, profiles };
 }
 
+/** Schema 1 treated `noise` as a multiplier of a per-variant bed. */
+function legacyParams(raw: unknown): unknown {
+  if (!isRecord(raw)) return raw;
+  const noise = raw.noise;
+  if (typeof noise !== 'number' || !Number.isFinite(noise)) return raw;
+  return { ...raw, noise: noise * 0.1 };
+}
+
 export function normalizeProfileStore(raw: unknown, fallback?: SonifyParams): ProfileStore {
   const base = initialProfileStore(fallback);
   if (!isRecord(raw) || !Array.isArray(raw.profiles)) return base;
+  const legacy = typeof raw.schema === 'number' && raw.schema < SCHEMA_VERSION;
   const profiles: SonifyProfile[] = [];
   const seen = new Set<string>();
   for (const item of raw.profiles) {
@@ -404,7 +414,9 @@ export function normalizeProfileStore(raw: unknown, fallback?: SonifyParams): Pr
           ? item.name.trim().slice(0, PROFILE_NAME_MAX)
           : 'Bản của tôi';
     const params =
-      id === DEFAULT_PROFILE_ID ? { ...DEFAULT_PARAMS } : normalizeParams(item.params);
+      id === DEFAULT_PROFILE_ID
+        ? { ...DEFAULT_PARAMS }
+        : normalizeParams(legacy ? legacyParams(item.params) : item.params);
     profiles.push({ id, name, params });
   }
   if (!profiles.some((profile) => profile.id === DEFAULT_PROFILE_ID)) {

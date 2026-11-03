@@ -17,10 +17,8 @@ import {
   deleteProfile,
   duplicateProfile,
   initialProfileStore,
-  normalizeProfileStore,
   normalizeParams,
   paramsEqual,
-  paramsKey,
   parseProfileStore,
   renameProfile,
   resetProfile,
@@ -42,17 +40,20 @@ type TuningValue = {
   profile: SonifyProfile;
   /** The slider values. Changing these does not render audio. */
   params: SonifyParams;
+  /** The latest saved/selected params. The next Play uses these. */
+  savedParams: SonifyParams;
   /** The values the room is actually playing and sharing. */
   heardParams: SonifyParams;
   /** Draft differs from the active profile's saved values. */
   dirty: boolean;
-  /** Draft differs from what is heard. */
-  heardDirty: boolean;
-  previewNonce: number;
+  /** Saved params differ from what is currently heard. */
+  savedDirty: boolean;
+  /** Bumped only when Play asks for the latest saved params. */
+  playNonce: number;
   setParam: (key: string, value: number) => void;
   select: (id: string) => void;
-  /** Commit the draft and ask the room to play it. */
-  commit: (next?: SonifyParams, preview?: boolean) => void;
+  /** Start a new listen with the latest saved params. */
+  requestPlay: () => void;
   revert: () => void;
   saveChanges: () => void;
   addProfile: (name?: string) => void;
@@ -73,13 +74,16 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
   const [boot] = useState(() => readLink());
   const [store, setStore] = useState<ProfileStore>(() => initialProfileStore());
   const [params, setParams] = useState<SonifyParams>(() => normalizeParams(boot.params));
+  const [savedParams, setSavedParams] = useState<SonifyParams>(() =>
+    normalizeParams(boot.params),
+  );
   const [heardParams, setHeardParams] = useState<SonifyParams>(() =>
     normalizeParams(boot.params),
   );
   const [open, setOpen] = useState(false);
   const [schemaEnabled, setSchemaEnabled] = useState(true);
   const [loaded, setLoaded] = useState(false);
-  const [previewNonce, setPreviewNonce] = useState(0);
+  const [playNonce, setPlayNonce] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -99,6 +103,7 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
         active ?? saved.profiles.find((profile) => paramsEqual(profile.params, boot.params));
       setStore(match ? selectProfile(saved, match.id) : { ...saved, activeId: DEFAULT_PROFILE_ID });
       setParams(normalizeParams(boot.params));
+      setSavedParams(match ? match.params : normalizeParams(boot.params));
       setHeardParams(normalizeParams(boot.params));
       setLoaded(true);
     })();
@@ -132,7 +137,7 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
 
   const profile = activeProfile(store);
   const dirty = !paramsEqual(params, profile.params);
-  const heardDirty = !paramsEqual(params, heardParams);
+  const savedDirty = !paramsEqual(savedParams, heardParams);
 
   const setParam = useCallback((key: string, value: number) => {
     setParams((current) => normalizeParams({ ...current, [key]: value }));
@@ -143,26 +148,23 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
       const next = selectProfile(store, id);
       setStore(next);
       const chosen = next.profiles.find((item) => item.id === id);
-      if (chosen) setParams(chosen.params);
+      if (chosen) {
+        setParams(chosen.params);
+        setSavedParams(chosen.params);
+      }
     },
     [store],
   );
 
-  const commit = useCallback(
-    (next?: SonifyParams, preview = true) => {
-      const shaped = normalizeParams(next ?? params);
-      setParams(shaped);
-      setHeardParams(shaped);
-      if (preview) setPreviewNonce((nonce) => nonce + 1);
-    },
-    [params],
-  );
+  const requestPlay = useCallback(() => {
+    setHeardParams(savedParams);
+    setPlayNonce((nonce) => nonce + 1);
+  }, [savedParams]);
 
   const revert = useCallback(() => {
     const next = profile.params;
     setParams(next);
-    setHeardParams(next);
-    setPreviewNonce((nonce) => nonce + 1);
+    setSavedParams(next);
   }, [profile.params]);
 
   const saveChanges = useCallback(() => {
@@ -171,11 +173,13 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
       const next = createProfile(store, 'Bản của tôi', params);
       setStore(next.store);
       setParams(next.profile.params);
+      setSavedParams(next.profile.params);
       return;
     }
     const shaped = normalizeParams(params);
     setStore(updateProfileParams(store, profile.id, shaped));
     setParams(shaped);
+    setSavedParams(shaped);
   }, [params, profile.id, store]);
 
   const addProfile = useCallback(
@@ -183,6 +187,7 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
       const next = createProfile(store, name ?? 'Bản của tôi', params);
       setStore(next.store);
       setParams(next.profile.params);
+      setSavedParams(next.profile.params);
     },
     [params, store],
   );
@@ -192,6 +197,7 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
       const next = duplicateProfile(store, id ?? profile.id);
       setStore(next.store);
       setParams(next.profile.params);
+      setSavedParams(next.profile.params);
     },
     [profile.id, store],
   );
@@ -211,7 +217,7 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
       if (store.activeId === id) {
         const fallback = activeProfile(next);
         setParams(fallback.params);
-        setHeardParams(fallback.params);
+        setSavedParams(fallback.params);
       }
     },
     [store],
@@ -224,8 +230,7 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
       setStore(next);
       if (store.activeId === id) {
         setParams({ ...DEFAULT_PARAMS });
-        setHeardParams({ ...DEFAULT_PARAMS });
-        setPreviewNonce((nonce) => nonce + 1);
+        setSavedParams({ ...DEFAULT_PARAMS });
       }
     },
     [store],
@@ -237,7 +242,7 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
     setStore(parsed);
     const active = activeProfile(parsed);
     setParams(active.params);
-    setHeardParams(active.params);
+    setSavedParams(active.params);
     return true;
   }, []);
 
@@ -251,13 +256,14 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
       store,
       profile,
       params,
+      savedParams,
       heardParams,
       dirty,
-      heardDirty,
-      previewNonce,
+      savedDirty,
+      playNonce,
       setParam,
       select,
-      commit,
+      requestPlay,
       revert,
       saveChanges,
       addProfile,
@@ -270,23 +276,24 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       addProfile,
-      commit,
       dirty,
       duplicate,
       enabled,
       exportProfiles,
-      heardDirty,
       heardParams,
       importProfiles,
       open,
       params,
-      previewNonce,
+      playNonce,
       profile,
       remove,
       rename,
+      requestPlay,
       reset,
       revert,
       saveChanges,
+      savedDirty,
+      savedParams,
       select,
       setParam,
       store,
@@ -300,14 +307,4 @@ export function useTuning(): TuningValue {
   const value = useContext(TuningContext);
   if (!value) throw new Error('useTuning must be used inside TuningProvider');
   return value;
-}
-
-/** Canonical identity for React keys and effect dependencies. */
-export function heardParamsKey(params: SonifyParams): string {
-  return paramsKey(params);
-}
-
-/** Kept for callers that only need a stable object without the hook. */
-export function normalizeStoredProfiles(raw: unknown): ProfileStore {
-  return normalizeProfileStore(raw);
 }
