@@ -1,6 +1,6 @@
 # Chẩn đoán thời gian render bản dài (span audio)
 
-> **Trạng thái**: đã đo trên máy dev ngày 2026-11-03. Các đề xuất tối ưu **chưa** vào code.
+> **Trạng thái**: đã đo trên máy dev ngày 2026-11-03. **P0-1 (vector hóa color bằng numpy) đã vào code trong PR này** và đã đo lại; các đề xuất còn lại (P0-2, P1, P2) **chưa** làm.
 > **Phạm vi**: pipeline `plan_span` → `ensure_movement` → `_render_movement` cho `1W`, `1M`, `3M`, `1Y` ở phòng Replay.
 > **Liên quan**: [`sonify-span-render-ahead-plan.md`](./sonify-span-render-ahead-plan.md) (hàng đợi prefetch), [`sonify-long-form.md`](./sonify-long-form.md) (form và độ dài chương).
 > **Công cụ tái lập**: [`backend/scripts/bench_render.py`](../backend/scripts/bench_render.py).
@@ -11,14 +11,16 @@ Mục tiêu: biết thời gian thật của từng phase, xác định phase n�
 
 ## 1. Kết luận ngắn
 
-1. **MuseScore và tô màu (color) chiếm ~90%** thời gian render. Phần soạn nhạc thật (compose, humanize, DFI, MusicXML) chỉ ~1–2%.
+1. **MuseScore và tô màu (color) chiếm ~90%** thời gian render trước khi tối ưu. Phần soạn nhạc thật (compose, humanize, DFI, MusicXML) chỉ ~1–2%.
 2. Một movement `1M` (221 nến, 263 s nhạc) mất **22,2 s**; trong đó MuseScore **10,5 s**, color **9,7 s**, encode AAC **1,8 s**.
 3. Cả tác phẩm `1M` (4 movement, 16:04 nhạc) mất **86,7 s** khi cache lạnh. `1W` 31,4 s; `3M` 108,9 s; `1Y` 62,3 s (3 movement theo dữ liệu hiện tại).
 4. **Color là vòng lặp Python trên từng sample**, tốn ~3,8–4,0% độ dài nhạc. Với `3M` (25:23 nhạc), color **60,9 s**, nhiều hơn cả MuseScore (35,6 s).
-5. **Vector hóa color bằng numpy** (đã prototype): 10,4 s → **~0,5 s** cho cùng file 263 s, output gần như bit-identical (float32: max 3e-8; int16: max 1 LSB). Đây là win lớn nhất, ít rủi ro nhất.
-6. **Batch MuseScore** (đã prototype): 4 movement xuất trong **26,7 s** thay vì 41,0 s; movement 0 vẫn xong ~10,6 s, các movement sau ~5–6 s mỗi cái thay vì ~10–11 s.
-7. Ước tính sau P0 (numpy): `1M` còn **~50 s**, `3M` **~49 s**, chương 0 còn **~13–17 s**. Sau P0 + batch: `1M` còn **~30 s**, `3M` **~28 s**.
+5. **Vector hóa color bằng numpy** đã vào code (P0-1): 10,4 s → **0,51 s** cho cùng file 263 s, và file WAV **giống hệt từng byte** với bản cũ (cả float32 của MuseScore 4 lẫn int16 của MuseScore 3). Đây là win lớn nhất, ít rủi ro nhất.
+6. **Batch MuseScore** (đã prototype, chưa vào code): 4 movement xuất trong **26,7 s** thay vì 41,0 s; movement 0 vẫn xong ~10,6 s, các movement sau ~5–6 s mỗi cái thay vì ~10–11 s.
+7. **Đo lại sau P0-1**: `1W` **15,9 s**, `1M` **50,5 s**, `3M` **50,6 s**, `1Y` **36,1 s**; chương 0 của `1M` còn **13,1 s**. Sau P0-1 + batch (ước tính): `1M` còn **~30 s**, `3M` **~28 s**.
 8. **Chương 0 là chờ bắt buộc**, không có file thì không có tiếng. Vì vậy ưu tiên UX là giảm chương 0 (P0-1); batch chủ yếu giảm tổng thời gian và chuẩn bị chương sau, không làm chương 0 nhanh hơn. Với chương 4–8 phút, chương 1+ có rất nhiều thời gian để render trong lúc nghe.
+9. Sau P0-1, **MuseScore là phase lớn nhất** (73–76% thời gian render còn lại), encode AAC ~17–20%, còn color chỉ ~3%. Vì vậy P1-1 (batch) là bước tiếp theo đáng làm.
+
 
 > Các số trên đo trên Apple M5 với MuseScore 4.7.6. Production là Ubuntu 24.04, MuseScore 3, VM 2 vCPU — phải đo lại trong container trước khi chốt ngưỡng. Xem mục 7.
 
@@ -102,6 +104,39 @@ Mẫu `symphony` cùng movement: MuseScore **14,48 s**, color **10,37 s**, encod
 - Với tác phẩm ngắn/nhiều movement (`1M`, `1Y`), **MuseScore chiếm gần một nửa** vì mỗi movement phải khởi động một process.
 - Với tác phẩm dài (`3M`), **color chiếm hơn một nửa** vì nó tỷ lệ thuận với số giây nhạc.
 
+### 3.4. Đo lại sau P0-1 (numpy color, đã vào code)
+
+Cùng lệnh, cùng máy, cache lạnh, sau khi `apply_preset` chuyển sang numpy:
+
+| Span | Movements | Render (trước) | Render (sau) | Tiết kiệm | Ratio sau |
+|---|---:|---:|---:|---:|---:|
+| `1W` | 1 | 31,30 s | **15,77 s** | −15,53 s | 0,037 |
+| `1M` | 4 | 86,44 s | **50,29 s** | −36,15 s | 0,052 |
+| `3M` | 3 | 108,80 s | **50,51 s** | −58,29 s | 0,033 |
+| `1Y` | 3 | 62,20 s | **36,06 s** | −26,14 s | 0,053 |
+
+Cộng `plan` (0,06–0,22 s) thì end-to-end là `1W` 15,9 s, `1M` 50,5 s, `3M` 50,6 s, `1Y` 36,1 s.
+
+Tổng theo phase sau P0-1:
+
+| Phase | `1W` (1 mv) | `1M` (4 mv) | `3M` (3 mv) | `1Y` (3 mv) |
+|---|---:|---:|---:|---:|
+| Compose | 0,63 | 1,01 | 2,12 | 0,54 |
+| Humanize + DFI + MusicXML | 0,06 | 0,14 | 0,22 | 0,07 |
+| **MuseScore** | **11,55** | **41,02** | **35,56** | **29,51** |
+| **Color** | **0,69** | **1,75** | **2,56** | **1,28** |
+| Peaks | 0,02 | 0,07 | 0,08 | 0,04 |
+| **Encode AAC** | **2,81** | **6,28** | **9,95** | **4,62** |
+
+Ba điều đổi sau P0-1:
+
+- Color từ **38,02 s** xuống **1,75 s** ở `1M`, và từ **60,91 s** xuống **2,56 s** ở `3M`.
+- Color không còn tỷ lệ theo "số giây nhạc" nữa: 0,5 s cho 263 s nhạc, 0,84 s cho 503 s nhạc. Phần còn lại là thời gian đọc/ghi file.
+- **MuseScore giờ là phase lớn nhất** (70–82% tổng), rồi encode AAC (12–20%). Đây là lý do P1-1 (batch) là bước tiếp theo.
+
+Kiểm chứng âm thanh: chạy `apply_preset` cũ và mới trên cùng file dry 263 s (float32, guitar), so sánh SHA-256 — **hai file giống hệt từng byte**, 9,708 s → 0,399 s. Với int16 (MuseScore 3) cũng khớp từng sample, vì phép cộng giữ ở float64 rồi mới cắt về int16 giống `int()` trong vòng lặp cũ.
+
+
 ---
 
 ## 4. Phân tích từng phase
@@ -132,23 +167,23 @@ Mẫu `symphony` cùng movement: MuseScore **14,48 s**, color **10,37 s**, encod
 
 Batch **không làm chương 0 nhanh hơn** (vẫn ~10,6 s), nhưng mỗi movement sau chỉ ~5–6 s thay vì ~10–11 s. Đây là cách giảm chi phí khởi động cho các chương sau, không phải cách giảm cold start chương 0.
 
-### 4.2. Color (~3,8–4,0% độ dài nhạc)
+### 4.2. Color (~3,8–4,0% độ dài nhạc trước P0-1; ~0,15% sau)
 
 `apply_preset` gồm hai phần:
 
 1. FFmpeg chạy chain preset ra PCM thô: **0,16 s** cho 263 s nhạc.
-2. Python đọc PCM, trộn noise từng frame (`_mix_noise`), rồi giới hạn đỉnh từng sample (`_limit_peak`), ghi WAV: **~10,2 s**.
+2. Đọc PCM, trộn noise từng frame (`_mix_noise`), giới hạn đỉnh (`_limit_peak`), ghi WAV.
 
-Toàn bộ 10,4 s gần như nằm ở vòng lặp Python. Vì vậy color tỷ lệ thuận với độ dài nhạc:
+Trước P0-1, phần 2 là vòng lặp Python từng sample: **~10,2 s**, nên color tỷ lệ thuận với độ dài nhạc:
 
-| Span | Color | Tỷ lệ trên độ dài nhạc |
+| Span | Color (trước) | Tỷ lệ trên độ dài nhạc |
 |---|---:|---:|
 | `1W` | 16,26 s | 3,78% |
 | `1M` | 38,02 s | 3,94% |
 | `3M` | 60,91 s | 4,00% |
 | `1Y` | 27,45 s | 4,01% |
 
-Đây là phase tối ưu được nhiều nhất mà **không đổi âm thanh**.
+Sau P0-1, phần 2 chạy theo block trong numpy: **~0,23 s** cho 263 s, và color không còn tỷ lệ theo độ dài nhạc nữa (phần lớn thời gian còn lại là đọc/ghi file). Đây là phase tối ưu được nhiều nhất mà **không đổi âm thanh**.
 
 ### 4.3. Encode AAC (~0,65% độ dài nhạc)
 
@@ -166,24 +201,30 @@ Compose, humanize, DFI, MusicXML, peaks, publish đều rất nhỏ. Không nên
 
 Thứ tự theo **mức giảm thời gian / rủi ro**, không theo độ phức tạp.
 
-### P0-1. Vector hóa `apply_preset` bằng numpy (khuyến nghị làm ngay)
+### P0-1. Vector hóa `apply_preset` bằng numpy — ✅ đã làm trong PR này
 
-**Thay đổi**: thay `_mix_noise` và `_limit_peak` bằng phép toán numpy trên toàn mảng; giữ nguyên FFmpeg chain, LCG noise, gate và cách tính gain.
+**Thay đổi**: `_mix_noise` và `_limit_peak` chuyển sang phép toán numpy theo block; FFmpeg chain, LCG noise, gate và cách tính gain giữ nguyên. Vòng lặp từng sample vẫn còn làm fallback khi không có numpy.
+
+**Chi tiết code** (`backend/app/sonify/preset.py`):
+
+- Noise tính bằng `uint32`: phép nhân và dịch tự wrap mod 2³², đúng bằng `& 0xFFFFFFFF` trong `_unit_noise`.
+- Cộng ở `float64` rồi mới cast về `float32`/`int16`, nên khớp đúng điểm làm tròn của vòng lặp cũ (`int()` cắt về 0, `np.trunc` cũng vậy).
+- Chia block `1 << 19` sample (~4 MB scratch), để movement 25 phút không cần thêm một bản sao trong RAM.
+- `import numpy` nằm trong `try/except ImportError`; thiếu numpy thì chạy vòng lặp cũ. `numpy>=2.0.0` đã thêm vào `backend/requirements.txt`.
 
 **Đã đo** trên cùng file 263 s:
 
-| Bước | Hiện tại | Numpy |
+| Bước | Trước | Sau |
 |---|---:|---:|
 | FFmpeg preset → PCM | 0,16 s | 0,16 s |
-| Python DSP (noise + gate + limit) | ~10,2 s | ~0,23 s |
-| Ghi WAV | ~0,1 s | ~0,1 s |
-| **Tổng color** | **10,4 s** | **~0,5 s** |
+| DSP (noise + gate + limit) | ~10,2 s | ~0,23 s |
+| **Tổng color** | **10,4 s** | **0,51 s** |
 
-**Độ chính xác**: so với output hiện tại, trên file float32 của MuseScore 4: max abs diff **2,98e-8**, RMS diff **1,25e-9**, đỉnh giống hệt. Trên file int16 của MuseScore 3: max diff **1 LSB**, trung bình ~2e-5 LSB. Tai người không phân biệt được; **không cần bump revision** vì âm thanh không đổi. Nếu muốn mọi file khớp bit-for-bit với bản cũ thì bump revision và chấp nhận render lại.
+**Độ chính xác**: so sánh SHA-256 của file WAV tạo bởi `apply_preset` cũ và mới trên cùng file dry 263 s (float32, guitar): **giống hệt từng byte**. Với int16 của MuseScore 3, kết quả khớp từng sample. Vì vậy **không bump `SPAN_REVISION`/`RECAP_REVISION`**; file đã cache vẫn dùng được.
 
-**Chi phí**: thêm `numpy>=2.0` vào `backend/requirements.txt`. Wheel ~18 MB; Docker image đã có MuseScore nên phần tăng này không đáng kể. Có thể để import tùy chọn (`try/except ImportError`) và fallback về vòng lặp cũ cho môi trường dev không có numpy, nhưng production nên cài cứng.
+**Test**: `tests/test_humanize.py` có ba test mới khoá lại hành vi — noise khớp công thức `_unit_noise` (có đi qua ranh giới block), đường int16 cắt giống vòng lặp, và `_limit_peak` dùng một gain chung rồi cắt về 0.
 
-**Ảnh hưởng**: mọi movement, đặc biệt `3M` (60,9 s → ~1,5 s cho 3 movement). Đây là win lớn nhất và ít rủi ro nhất.
+**Ảnh hưởng đo được**: `1M` 86,4 → **50,3 s**, `3M` 108,8 → **50,5 s**, `1Y` 62,2 → **36,1 s**, `1W` 31,3 → **15,8 s**. Đây là win lớn nhất và ít rủi ro nhất; sau bước này MuseScore là phase lớn nhất.
 
 ### P0-2. Ghi thêm phase vào log `span_render`
 
@@ -258,21 +299,21 @@ Số dưới đây là **ước tính** từ thời gian phase đo được, gi�
 
 ### 6.1. Cold start chương 0 (người dùng bấm nghe)
 
-| Span | Hiện tại | Sau P0-1 (numpy) |
+| Span | Trước | Sau P0-1 (đo) |
 |---|---:|---:|
-| `1W` (1 movement) | 31,3 s | **15,5 s** |
-| `1M` movement 0 | 22,2 s | **13,0 s** |
-| `3M` movement 0 | 36,7 s | **17,4 s** |
+| `1W` (1 movement) | 31,3 s | **15,8 s** |
+| `1M` movement 0 | 22,2 s | **13,1 s** |
+| `3M` movement 0 | 36,7 s | **16,8 s** |
 | `1Y` movement 0 | 24,1 s | **13,1 s** |
 
 ### 6.2. Toàn bộ tác phẩm
 
-| Span | Hiện tại | Sau P0-1 | Sau P0-1 + P1 (batch + slot) |
+| Span | Trước | Sau P0-1 (đo) | Sau P0-1 + P1 (ước tính) |
 |---|---:|---:|---:|
-| `1W` | 31,4 s | **15,6 s** | **15,6 s** |
-| `1M` | 86,7 s | **50,6 s** | **~30 s** |
-| `3M` | 108,9 s | **49,5 s** | **~28 s** |
-| `1Y` | 62,3 s | **36,3 s** | **~21 s** |
+| `1W` | 31,4 s | **15,9 s** | **15,9 s** |
+| `1M` | 86,7 s | **50,5 s** | **~31 s** |
+| `3M` | 108,9 s | **50,6 s** | **~28 s** |
+| `1Y` | 62,3 s | **36,1 s** | **~22 s** |
 
 `1Y` 12 movement: batch cả 12 không nên; dùng cửa sổ 2–4 chương, hoặc chỉ batch khi người nghe đã commit.
 
@@ -284,7 +325,7 @@ Số dưới đây là **ước tính** từ thời gian phase đo được, gi�
 |---|---|
 | Production là MuseScore 3, không phải 4.7.6 | Chạy `scripts/bench_render.py` trong Docker image trên VM; so sánh từng phase |
 | VM 2 vCPU chậm hơn M5 | Đo 1/2/4 listener đồng thời; theo dõi CPU, nhiệt, queue wait |
-| Numpy đổi kết quả âm thanh | So sánh sample-by-sample với output cũ; đã đo max diff 3e-8, vẫn nên có golden test |
+| Numpy đổi kết quả âm thanh | Đã kiểm: file WAV giống hệt từng byte với bản cũ (float32 và int16), và có test khoá công thức trong `tests/test_humanize.py`. Vẫn nên chạy A/B nghe trên 10 tác phẩm trước khi phát hành |
 | Batch không hỗ trợ trên `mscore3` | Thử `mscore3 -j job.json` trong container trước khi viết code |
 | Batch chiếm slot/CPU lâu | Đo thời gian chờ của một request playback khi batch đang chạy; thêm ưu tiên slot |
 | Huỷ batch ảnh hưởng người khác | Refcount waiter hoặc chỉ batch khi một work đang được nghe |
@@ -316,26 +357,44 @@ anoisesrc=color=white:amplitude=0.0003:seed=20261103:sample_rate=44100:duration=
 - Deterministic với `seed` (hash giống nhau qua hai lần chạy).
 - Sau khi áp cùng gain: RMS diff **1,75e-4**, max diff **7,6e-4** so với output hiện tại. Khác noise texture nên cần A/B và bump revision.
 
-Ưu điểm: không thêm dependency, gộp được encode. Nhược điểm: đổi âm thanh, khó tái tạo chính xác noise cũ, và filter graph phức tạp hơn. Vì numpy cho kết quả gần như identical và cũng rất nhanh, **numpy là lựa chọn trước**; FFmpeg-only là phương án dự phòng.
+Ưu điểm: không thêm dependency, gộp được encode. Nhược điểm: đổi âm thanh, khó tái tạo chính xác noise cũ, và filter graph phức tạp hơn. Vì numpy cho kết quả **giống hệt từng byte** và cũng rất nhanh (0,51 s so với 0,29 s), **numpy đã được chọn**; FFmpeg-only chỉ còn là phương án dự phòng nếu sau này muốn bỏ numpy.
 
 ---
 
 ## 9. Việc cần làm
 
-- [ ] P0-1: vector hóa `apply_preset` bằng numpy; thêm `numpy` vào requirements; golden test so sánh sample.
+- [x] P0-1: vector hóa `apply_preset` bằng numpy; thêm `numpy` vào requirements; test khoá công thức noise/gain.
 - [ ] P0-2: thêm `compose`, `humanize`, `dfi`, `musicxml`, `slotWait` vào log `span_render`.
 - [ ] P1-2: chuyển `with self._slots` xuống quanh `self._exporter`; giữ `renderSec` không gồm queue wait.
 - [ ] P1-1: prototype batch `mscore -j` trong container MuseScore 3; đo lại 1/2/4 movement trên VM 2 vCPU.
 - [ ] P1-1: thiết kế batch manager (thứ tự chương, phát hiện file xong, huỷ, dọn WAV).
 - [ ] P2-1: prewarm sau đóng cửa cho watchlist/top symbol.
 - [ ] P2-2: đo `EXPORT_SLOTS=2` trên ≥4 vCPU; ưu tiên playback trước prefetch.
-- [ ] Chạy lại toàn bộ bảng trong tài liệu này trên production; cập nhật số thật.
+- [ ] Chạy lại toàn bộ bảng trong tài liệu này trên production (MuseScore 3, VM 2 vCPU); cập nhật số thật.
 
 ---
 
 ## Phụ lục: số đo chi tiết
 
-### A.1. `1M` từng movement (guitar)
+### A.0. Sau P0-1, từng movement (guitar, cache lạnh)
+
+| Span | Index | Nến | Nhạc | MuseScore | Color | Encode | Tổng |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `1W` | 0 | 1112 | 429,70 s | 11,548 | 0,691 | 2,814 | 15,77 |
+| `1M` | 0 | 221 | 263,02 s | 10,512 | 0,511 | 1,783 | 13,07 |
+| `1M` | 1 | 1115 | 273,02 s | 10,514 | 0,500 | 1,795 | 13,08 |
+| `1M` | 2 | 1129 | 165,01 s | 9,500 | 0,298 | 1,067 | 11,11 |
+| `1M` | 3 | 3792 | 263,02 s | 10,491 | 0,438 | 1,640 | 13,03 |
+| `3M` | 0 | 874 | 503,04 s | 11,512 | 0,838 | 3,461 | 16,82 |
+| `3M` | 1 | 920 | 519,04 s | 11,480 | 0,837 | 3,419 | 16,21 |
+| `3M` | 2 | 1104 | 500,81 s | 12,568 | 0,888 | 3,070 | 17,48 |
+| `1Y` | 0 | 171 | 281,20 s | 10,508 | 0,497 | 1,886 | 13,12 |
+| `1Y` | 1 | 180 | 198,01 s | 9,509 | 0,438 | 1,335 | 11,51 |
+| `1Y` | 2 | 198 | 204,61 s | 9,490 | 0,343 | 1,397 | 11,43 |
+
+So với bảng A.1–A.3 bên dưới, chỉ cột Color đổi; MuseScore, encode và compose giữ nguyên trong sai số đo.
+
+### A.1. `1M` từng movement (guitar, trước P0-1)
 
 | Index | Nến | Nhạc | Compose | MuseScore | Color | Encode | Tổng |
 |---:|---:|---:|---:|---:|---:|---:|---:|
@@ -344,7 +403,7 @@ anoisesrc=color=white:amplitude=0.0003:seed=20261103:sample_rate=44100:duration=
 | 2 | 1129 | 165,01 s | 0,190 | 9,500 | 6,891 | 1,060 | 17,69 |
 | 3 | 3792 | 263,02 s | 0,383 | 10,476 | 10,898 | 1,636 | 23,46 |
 
-### A.2. `3M` từng movement (guitar)
+### A.2. `3M` từng movement (guitar, trước P0-1)
 
 | Index | Nến | Nhạc | Compose | MuseScore | Color | Encode | Tổng |
 |---:|---:|---:|---:|---:|---:|---:|---:|
@@ -352,7 +411,7 @@ anoisesrc=color=white:amplitude=0.0003:seed=20261103:sample_rate=44100:duration=
 | 1 | 920 | 519,04 s | 0,388 | 11,518 | 20,581 | 3,435 | 36,00 |
 | 2 | 1104 | 500,81 s | 0,832 | 11,603 | 20,481 | 3,020 | 36,06 |
 
-### A.3. `1W` và `1Y` (guitar)
+### A.3. `1W` và `1Y` (guitar, trước P0-1)
 
 | Span | Index | Nến | Nhạc | Compose | MuseScore | Color | Encode | Tổng |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -361,7 +420,7 @@ anoisesrc=color=white:amplitude=0.0003:seed=20261103:sample_rate=44100:duration=
 | `1Y` | 1 | 180 | 198,01 s | 0,205 | 9,498 | 8,147 | 1,311 | 19,20 |
 | `1Y` | 2 | 198 | 204,61 s | 0,177 | 9,480 | 7,844 | 1,400 | 18,94 |
 
-### A.4. Mẫu `symphony`
+### A.4. Mẫu `symphony` (trước P0-1)
 
 | Index | Nến | Nhạc | Compose | MuseScore | Color | Encode | Tổng |
 |---:|---:|---:|---:|---:|---:|---:|---:|

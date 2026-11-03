@@ -49,7 +49,7 @@ Chỉ chạy sau khi chương hiện tại đã tải xong. Độ trễ này ch�
 
 ### 2.6. Độ sâu 1 có đủ không?
 
-Đã có số đo thật: `renderRatio` nằm trong **0,07–0,09** cho `1W`, `1M`, `3M`, `1Y` (guitar, cache lạnh; xem [`sonify-render-timing-diagnosis.md`](./sonify-render-timing-diagnosis.md)). Với chương 4–5 phút, render chỉ chiếm ~7–9% thời lượng, nên depth 1 đã dư rất nhiều. Vì vậy **không mặc định depth 2–3**; tăng depth là cách xử lý tranh slot, không phải cách xử lý render chậm.
+Đã có số đo thật: `renderRatio` nằm trong **0,07–0,09** cho `1W`, `1M`, `3M`, `1Y` (guitar, cache lạnh), và **0,03–0,05** sau khi tối ưu color bằng numpy (xem [`sonify-render-timing-diagnosis.md`](./sonify-render-timing-diagnosis.md)). Với chương 4–5 phút, render chỉ chiếm ~3–9% thời lượng, nên depth 1 đã dư rất nhiều. Vì vậy **không mặc định depth 2–3**; tăng depth là cách xử lý tranh slot, không phải cách xử lý render chậm.
 
 Bảng độ dài để tham chiếu:
 

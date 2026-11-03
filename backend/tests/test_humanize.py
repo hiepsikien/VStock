@@ -21,7 +21,15 @@ from app.sonify.humanize import (
 )
 from app.sonify.model import NoteEvent, Phrase, Run, Score
 from app.sonify.musicxml import score_to_musicxml
-from app.sonify.preset import _mix_noise, apply_preset, preset_chain
+from app.sonify.preset import (
+    _BLOCK_SAMPLES,
+    _GUITAR_GATE,
+    _limit_peak,
+    _mix_noise,
+    _unit_noise,
+    apply_preset,
+    preset_chain,
+)
 
 
 def _note(
@@ -1091,6 +1099,80 @@ def test_vintage_noise_uses_the_sample_scale() -> None:
     opened = array("h", above_gate)
     _mix_noise(opened, above_gate, 1, 0.0003, True)
     assert opened != above_gate
+
+
+def test_block_noise_matches_the_fixed_counter() -> None:
+    """The vectorized bed lands on the same float sample as `_unit_noise`."""
+    pytest.importorskip("numpy")
+    frames = _BLOCK_SAMPLES // 2 + 5  # crosses one block boundary
+    dry = array("f")
+    for frame in range(frames):
+        dry.append(0.42 if frame % 5 else 0.0)
+    heard = array("f", dry)
+    _mix_noise(heard, dry, 1, 0.0003, True)
+
+    expected = array("f", dry)
+    for frame in range(frames):
+        if abs(float(dry[frame])) < _GUITAR_GATE:
+            continue
+        expected[frame] = float(dry[frame]) + 0.0003 * _unit_noise(frame, 0)
+    assert list(heard) == list(expected)
+
+
+def test_block_noise_truncates_like_the_int16_loop() -> None:
+    pytest.importorskip("numpy")
+    frames = 3000
+    dry = array("h")
+    for frame in range(frames):
+        dry.append(1000 if frame % 4 else 40)
+    heard = array("h", dry)
+    _mix_noise(heard, dry, 1, 0.0003, True)
+
+    expected = array("h", dry)
+    span = 0.0003 * 32767.0
+    for frame in range(frames):
+        if abs(float(dry[frame])) < _GUITAR_GATE * 32767.0:
+            continue
+        bounded = int(float(dry[frame]) + span * _unit_noise(frame, 0))
+        expected[frame] = max(-32768, min(32767, bounded))
+    assert list(heard) == list(expected)
+
+
+def test_loop_fallback_matches_the_block_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without NumPy the per-sample loop must still give the same samples."""
+    pytest.importorskip("numpy")
+    from app.sonify import preset as preset_module
+
+    frames = 501
+    dry = array("f")
+    for frame in range(frames):
+        dry.append(0.42 if frame % 5 else 0.0)
+
+    block = array("f", dry)
+    _mix_noise(block, dry, 1, 0.0003, True)
+    _limit_peak(block, dry)
+
+    monkeypatch.setattr(preset_module, "_np", None)
+    loop = array("f", dry)
+    _mix_noise(loop, dry, 1, 0.0003, True)
+    _limit_peak(loop, dry)
+
+    assert list(block) == list(loop)
+
+
+def test_peak_limit_uses_one_gain_and_truncates() -> None:
+    pytest.importorskip("numpy")
+    dry = array("f", [0.0, 0.5, -0.25, 0.0])
+    heard = array("f", [0.1, 0.8, -0.4, 0.0])
+    _limit_peak(heard, dry)
+    gain = 0.5 / 0.8
+    assert list(heard) == list(array("f", [0.1 * gain, 0.5, -0.25, 0.0]))
+
+    pcm_dry = array("h", [1000, -1000])
+    pcm_heard = array("h", [1200, -1100])
+    _limit_peak(pcm_heard, pcm_dry)
+    # int() in the loop truncates toward zero, so -1100 becomes -916, not -917.
+    assert list(pcm_heard) == [1000, -916]
 
 
 def _tone_then_silence(path: Path) -> None:
