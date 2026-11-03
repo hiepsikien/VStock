@@ -14,14 +14,14 @@ Tám điểm dưới đây chốt hướng triển khai. Các mục còn mở n�
 
 | # | Quyết định |
 |---|---|
-| 1 | **A/B chỉ làm ở `ReplayRoom`**, và là **DFI-aware**: so sánh audio, peaks, movement metadata và DFI. Với `1D` dùng `RecapManifest` (audio/peaks/dfi); với `1W/1M/3M/1Y` dùng `SpanManifest.movements[].dfi`. Không có endpoint MusicXML/score diff, nên A/B không so sánh score chart. Chart giá là dữ liệu chung, không prefetch riêng. `LiveRoom` không có playhead để giữ; A/B ở live là việc sau, hành vi là restart stream. |
+| 1 | **A/B chỉ làm ở `ReplayRoom`**, và là **DFI-aware**: so sánh audio, peaks, movement metadata và DFI. Với `1D` dùng `RecapManifest` (audio/peaks/dfi); với `1W/1M/3M/1Y` dùng `SpanManifest.movements[].dfi`. Không có endpoint MusicXML/score diff, nên A/B không so sánh score chart. Chart giá là dữ liệu chung, không prefetch riêng. A/B bắt đầu từ `savedParams`; nếu savedParams đổi trong lúc mở A/B thì reset A/B. `LiveRoom` không có playhead để giữ; A/B ở live là việc sau, hành vi là restart stream. |
 | 2 | **B là draft, không auto-save.** Preview B không gọi `planPlayParams`, không tạo profile. `Lưu` lưu không phát; `Play` khi đang ở B thì lưu draft, phát B và kết thúc A/B (B trở thành A mới). |
 | 3 | **Link `p` tiếp tục ghi schema 2 trong giai đoạn chuyển tiếp.** Tách `LINK_SCHEMA_VERSION` khỏi `SCHEMA_VERSION`; `encodeParams` nhận schema; `/validate` nhận 2+3. Toàn bộ `p` (link, audio, peaks) dùng cùng schema 2 trong transition. App cũ đọc schema 2, giữ knob A và bỏ qua field B/C lạ. |
 | 4 | **`p` do server quyết định tier.** Client gửi **`savedParams`**, server `applyTiers` rồi mới hash/cache/DFI. Client `paramsKey(savedParams)` chỉ là session/UI key, không phải cache hash. `appliesTo` chỉ tạo `renderParams`. Hash không phụ thuộc variant/ensemble/span. Không xoá giá trị đã lưu khi đổi variant. |
 | 5 | **Bỏ `form` và `key` khỏi bảng knob chốt.** `form` để discovery sau A/B; `key` chờ PR #34 và quyết định sản phẩm về bản sắc giọng. |
 | 6 | **Merge PR #137 (guitar voice) trước B0**, chấp nhận `DEFAULT_HASH` đổi hai lần: một lần khi #137 vào `main`, một lần khi B0 lên schema v3. B0 chuyển 3 knob guitar đã merge sang schema v3. |
 | 7 | **Tier flag tách khỏi fixture.** Fixture committed luôn chứa đủ tier; endpoint runtime mới overlay env. `VSTOCK_SONIFY_PARAMS_TIER` dạng `A`, `A,B`, `A,B,C`; mặc định `A`; token lạ bị bỏ qua kèm log. |
-| 8 | **Telemetry MVP có endpoint batch tối thiểu.** Client gửi batch `ab_toggle`/`profile_save`/`knob_change`/`prefetch_fail`; server lưu JSONL/SQLite, không PII. Server logs giữ render/cache/DFI. Gate §7.5 tính trên dữ liệu tổng hợp này. |
+| 8 | **Telemetry MVP có endpoint batch tối thiểu.** Client gửi batch `play`/`ab_toggle`/`profile_save`/`knob_change`/`prefetch_fail`; server lưu JSONL/SQLite, không PII. `play` mang `sessionId`, `span`, `variant`, `ensemble`; `profile_save` mang `schema`, `enabledTiers`, số knob B/C. Mỗi event có `eventId` để retry không đếm trùng. Endpoint cap batch 100, payload 64 KB; rate limit ở proxy. Server logs giữ render/cache/DFI. Gate §7.5 tính trên dữ liệu tổng hợp này. Nếu deploy nhiều instance, JSONL/SQLite local phải gom về một store trước khi tính gate. |
 
 **Hệ quả của #6**: PR #137 body hiện đã mô tả code/test (không còn docs-only); trước khi merge chỉ cần xác nhận lại mô tả và hash. B0.6 chuyển `apply_voice_balance` + test sang schema v3. Hai lần đổi hash chấp nhận được vì chỉ ảnh hưởng cache non-default/DFI, LRU dọn file cũ.
 
@@ -94,12 +94,12 @@ Một bảng duy nhất để tránh lệch giữa profile, `p`, hash, cache, DF
 | `aParams` / `heardParams` | Snapshot A; URL khi đang A/B |
 | `bParams` | Draft B; chỉ dùng cho preview, không ghi profile/URL |
 | `playingParams` | Side đang phát (`A` hoặc `B`) cho player và DFI đang nghe |
-| `paramsKey` / `tierHash` | `paramsKey(savedParams)` là session/UI key; `tierHash` là hash server trả sau `applyTiers`, dùng pin/cache |
+| `paramsKey` / `tierHash` | `paramsKey(savedParams)` là session/UI key; `tierHash` là hash server trả sau `applyTiers` trong `RecapManifest.paramsHash` / `SpanManifest.paramsHash` (và `SpanManifest.movements[].paramsHash`), dùng pin/cache |
 
 Quy tắc:
 
 - **Server-authoritative `p`**: client gửi `savedParams`; server `applyTiers` rồi mới hash/cache/DFI. Client offline hoặc cache tier cũ không làm mất giá trị B đã lưu.
-- `paramsKey` của client chỉ là canonical string cho React key và A/B session key; **không** dùng làm cache hash. Hash audio do server tính sau `applyTiers`; A/B pin dùng `tierHash` server trả.
+- `paramsKey` của client chỉ là canonical string cho React key và A/B session key; **không** dùng làm cache hash. Hash audio do server tính sau `applyTiers`; A/B pin dùng `tierHash` server trả cho **cả A và B**.
 - `appliesTo` chỉ tạo `renderParams`; server cảnh báo `inapplicable` nhưng không sửa `p`/hash.
 - Preview B không ghi `heardParams`, không đổi URL, không ghi profile. `Lưu` lưu `bParams`; `Play` khi ở B lưu draft, phát B, gán `aParams = bParams`, `activeSide = A`, rồi kết thúc A/B.
 
@@ -157,11 +157,11 @@ PR #137 hiện dùng **signed velocity offset**, không phải hệ số nhân. 
 
 | ID | Hạng mục | Việc chính | AC |
 |---|---|---|---|
-| A3.1 | A/B DFI-aware | Chỉ `ReplayRoom`. A = `aParams`/`heardParams`; B = `bParams` draft. So sánh **audio, peaks, movement metadata và DFI**: `1D` dùng `RecapManifest` (audio/peaks/dfi); `1W/1M/3M/1Y` dùng `SpanManifest.movements[].dfi`. Không có MusicXML/score diff. Chart giá là dữ liệu chung, không prefetch riêng. Lazy prefetch: chỉ chuẩn bị B khi người dùng mở A/B; debounce và cancel khi draft đổi. Giữ **vị trí nhạc** (bar/beat/fraction), không phải giây. Crossfade 120 ms là **AC tạm**, chốt sau test web/native; fallback gap ≤150 ms và không click. Pin `paramsKey(savedParams)` (session) và `tierHash` server trả trong phiên để prune/LRU không xoá. `LiveRoom` disable A/B. URL chia sẻ A, không chia sẻ B. | State machine rõ `aParams`/`bParams`/`activeSide`/`playingParams`; B preview **không** ghi `heardParams`, không đổi URL/profile; `Lưu` chỉ lưu; `Play` khi ở B lưu draft, phát B, gán A = B rồi kết thúc A/B; B chưa ready thì hiện “Đang chuẩn bị B”; toggle không lệch nhạc; không click; chạy được cả `1D` và span dài |
+| A3.1 | A/B DFI-aware | Chỉ `ReplayRoom`. A = `aParams`/`heardParams`; B = `bParams` draft. So sánh **audio, peaks, movement metadata và DFI**: `1D` dùng `RecapManifest` (audio/peaks/dfi); `1W/1M/3M/1Y` dùng `SpanManifest.movements[].dfi`. Không có MusicXML/score diff. Chart giá là dữ liệu chung, không prefetch riêng. Lazy prefetch: chỉ chuẩn bị B khi người dùng mở A/B; debounce và cancel khi draft đổi. Giữ **vị trí nhạc** (bar/beat/fraction), không phải giây. Crossfade 120 ms là **AC tạm**, chốt sau test web/native; fallback gap ≤150 ms và không click. Pin **cả hai phía**: `paramsKey(savedParams)` + `tierHash(A)` và `paramsKey(bParams)` + `tierHash(B)` trong phiên để prune/LRU không xoá. `LiveRoom` disable A/B. URL chia sẻ A, không chia sẻ B. | State machine rõ `aParams`/`bParams`/`activeSide`/`playingParams`; B preview **không** ghi `heardParams`, không đổi URL/profile; `Lưu` chỉ lưu; `Play` khi ở B lưu draft, phát B, gán A = B rồi kết thúc A/B; B chưa ready thì hiện “Đang chuẩn bị B”; toggle không lệch nhạc; không click; chạy được cả `1D` và span dài |
 | A3.2 | `appliesTo` + parameter flow | Thêm `appliesTo`/`tier` dưới dạng **metadata v2-compatible** (không đổi `p`/hash) trong A3; B0 mới thêm `kind/choices/signed`. Client gửi `savedParams`; server `applyTiers` rồi hash; client dùng `enabledTiers` chỉ để ẩn/hiện UI và tính `renderParams` local cho hiển thị. **Giữ saved values.** `TuningPanel` lọc group; `changedCount()` chỉ đếm field hiện; profile có badge “có thay đổi ẩn”. Server nhận context ở `/validate` và endpoint render để cảnh báo `inapplicable`, nhưng không ép default và không đưa context vào hash. | Đổi variant không xoá profile; nghe Giao hưởng không thấy knob guitar; hash không đổi chỉ vì variant; `p` gửi `savedParams`, server hash sau `applyTiers`; client `paramsKey` chỉ session key; offline tier A không làm mất giá trị B đã lưu |
 | A3.3 | Tier flag | `enabledTiers` trong schema runtime; env `VSTOCK_SONIFY_PARAMS_TIER` dạng `A`, `A,B`, `A,B,C`, mặc định `A`; token lạ bỏ qua + log. Fixture committed luôn đủ tier. Server ép key ngoài tier về default trước hash và cảnh báo `tier_disabled`. Client lưu `enabledTiers` vào state; offline dùng bundled `A` và hiện ghi chú. | Tắt B không ảnh hưởng A; test tier bằng **field synthetic** ở A3; crafted `p` có field B/C thật được test ở B0.7; `gen_params_schema.py --check` không phụ thuộc env |
-| A3.4 | Telemetry MVP | **Server structured logs** cho render/cache/DFI (`paramsHash`, variant, cache hit, render ms, DFI). **Endpoint batch tối thiểu** `POST /v1/sonify/events` nhận `ab_toggle`, `profile_save`, `knob_change`, `prefetch_fail`; client buffer local khi offline rồi flush; lưu JSONL/SQLite, không PII. `prefetch_fail` là event client, không phải server log. | Có log/query đủ để tính denominator §7.5: phiên `ReplayRoom` có ít nhất một lần Play; số profile lưu có knob B/C; số lần A/B; cache hit; prefetch fail |
-| A3.5 | Test | A/B state machine; `1D` `RecapManifest` + span `SpanManifest`; musical position khi `tempo` đổi; lazy prefetch/debounce/cancel; B chưa ready; pin; LiveRoom disabled; `appliesTo`; tier synthetic; URL; link `p` schema 2; event batch. | `test:musicalize` + backend pass |
+| A3.4 | Telemetry MVP | **Server structured logs** cho render/cache/DFI (`paramsHash`, variant, cache hit, render ms, DFI). **Endpoint batch tối thiểu** `POST /v1/sonify/events` nhận `play`, `ab_toggle`, `profile_save`, `knob_change`, `prefetch_fail`; `play` mang `sessionId`/`span`/`variant`/`ensemble`; `profile_save` mang `schema`/`enabledTiers`/số knob B/C. Mỗi event có `eventId`; client buffer local khi offline rồi flush; lưu JSONL/SQLite, không PII. Cap batch 100, payload 64 KB; rate limit ở proxy. `prefetch_fail` là event client, không phải server log. Nếu chạy nhiều instance, cần gom JSONL/SQLite về một store. | Có log/query đủ để tính denominator §7.5: phiên `ReplayRoom` có ít nhất một lần `play`; số profile lưu có knob B/C sau rollout; số lần A/B; cache hit; prefetch fail |
+| A3.5 | Test | A/B state machine; `1D` `RecapManifest` + span `SpanManifest`; musical position khi `tempo` đổi; lazy prefetch/debounce/cancel; B chưa ready; pin cả A và B; LiveRoom disabled; `appliesTo`; tier synthetic; URL; link `p` schema 2; event batch có `play`/`eventId`. | `test:musicalize` + backend pass |
 
 **Ghi chú A/B**: “DFI-aware” không có nghĩa là hai player chạy song song vô hạn. Nó nghĩa là B phải có đủ audio/peaks/metadata/DFI để tai và chỉ số khớp nhau. Nếu B chỉ khác mix (color/noise), đường audio-only vẫn dùng chung cơ chế; không cần hai implementation.
 
@@ -250,7 +250,7 @@ Sau sprint này sẽ có dữ liệu thật để quyết định B1.
 - `test_params_migration.py` (mới): decode `p` schema 2; profile store v2; hash của profile cũ đổi **hai mốc** (#137 rồi B0), Default vẫn `""`.
 - `test_params_flow.py` (mới): `savedParams` → server `applyTiers` → `renderParams`; `p` chứa saved (kể cả B khi tier tắt); server hash sau `applyTiers`; client `paramsKey` chỉ session key; `appliesTo` không đổi hash; offline tier A không mất giá trị B.
 - `test_params_hash_vectors.py` (mới): đọc **cùng file vector JSON** (ví dụ `backend/tests/fixtures/params_hash_vectors.json`) cho number/string/bool/số âm; `params.test.ts` hoặc script Node đọc cùng file; CI chạy cả Python và TS/Node.
-- `test_events.py` (mới): endpoint batch nhận event, validate schema, lưu JSONL/SQLite, không nhận PII; batch rỗng/hỏng trả lỗi rõ.
+- `test_events.py` (mới): endpoint batch nhận event, validate schema, lưu JSONL/SQLite, không nhận PII; `play`/`eventId`; cap batch 100/payload 64 KB; batch rỗng/hỏng trả lỗi rõ.
 - `test_harmony.py` (mở rộng): `harmony=0/1/2`; default sequence identical; jazz floor; không có hợp âm ngoài catalog.
 - `test_keys.py`/`test_params.py`: `register` cực trị; guitar playable.
 - `test_sonify_guitar.py`: ma trận `technique`; `assert_playable`; pairwise `register × technique`.
@@ -265,7 +265,7 @@ Sau sprint này sẽ có dữ liệu thật để quyết định B1.
 - `link.test.ts`: `p` schema 2 vẫn mở; schema 2 có field B/C bị client cũ bỏ qua; `writeLink` dùng `LINK_SCHEMA_VERSION = 2`; `p` trên audio/peaks cũng schema 2; `/validate` nhận 2+3.
 - `profileStorage` test: profile v1 nhân noise đúng; profile v2 có `noise: 0.2` giữ 0.2.
 - `TuningPanel`: **tách logic thuần** (visible fields, changedCount, `renderParams`, badge) để test bằng `tsx`; repo chưa có React test renderer, không thêm dependency chỉ để test panel. Nếu cần component test, thêm `@testing-library/react-native` như một quyết định riêng.
-- A/B: state machine (`aParams`/`bParams`/`activeSide`/`playingParams`); B preview không ghi heard/URL; `Lưu` vs `Play`; `1D` `RecapManifest` + span `SpanManifest`; musical position; lazy prefetch/debounce/cancel; pin `paramsKey(savedParams)` + `tierHash`; LiveRoom disabled.
+- A/B: state machine (`aParams`/`bParams`/`activeSide`/`playingParams`); B preview không ghi heard/URL; `Lưu` vs `Play`; `1D` `RecapManifest` + span `SpanManifest`; musical position; lazy prefetch/debounce/cancel; pin **cả A và B** (`paramsKey` + `tierHash` mỗi phía); LiveRoom disabled.
 - Telemetry: client buffer local khi offline, flush batch, không gửi PII; event names khớp endpoint.
 - A11y: `ChoiceRow`/`ToggleRow`/A/B toggle có role, label, keyboard, touch target.
 
@@ -284,7 +284,7 @@ Không nghe toàn bộ 100+ tổ hợp. Sampling plan:
 - Default parity: score/MusicXML byte-identical; audio Default không đổi tên file.
 - Schema `--check` xanh; `DEFAULT_HASH` pin đúng theo từng mốc: #137 (`8653a4d3fcad` tại head `0f366a1`) và B0 (hash mới).
 - Link `p` cũ và mới round-trip; profile cũ migrate; `noise` không bị nhân đôi.
-- Không có cache collision; prune/LRU bounded; A/B pin hoạt động.
+- Không có cache collision; prune/LRU bounded; A/B pin hoạt động cho **cả A và B**.
 - Guitar không raise `Unplayable` ở mọi tổ hợp knob.
 - A/B không auto-save; `LiveRoom` không hiện A/B; A/B chạy cả `1D` và span dài.
 - Event batch endpoint hoạt động; gate §7.5 tính được denominator.
@@ -319,11 +319,11 @@ Nếu không đạt, dừng ở Wave 5.
 | Bật/tắt tier làm hash đổi | Chấp nhận; chỉ xảy ra lúc rollout, ghi log và để LRU dọn cache cũ; không đổi tier trong lúc render |
 | `appliesTo` làm hash phụ thuộc variant | Client gửi `savedParams`; server `applyTiers` rồi hash; `appliesTo` chỉ tạo `renderParams`; chấp nhận cache trùng |
 | Parameter flow lệch giữa profile/p/hash/DFI | Bảng §2.1 là hợp đồng; server-authoritative `p`; test `savedParams → applyTiers → renderParams`; server là nguồn hash cuối |
-| A/B prefetch bị LRU xoá | Pin `paramsKey(savedParams)` (session) + `tierHash` server trả; hiện trạng thái “đang chuẩn bị B” |
+| A/B prefetch bị LRU xoá | Pin **cả A và B**: `paramsKey` + `tierHash` mỗi phía; hiện trạng thái “đang chuẩn bị B” |
 | A/B bỏ sót `1D` | Test cả `RecapManifest` (1D) và `SpanManifest.movements[].dfi`; không chỉ test span dài |
 | A/B prefetch làm tăng tải render | Lazy: chỉ prefetch khi mở A/B; debounce/cancel; dùng slot MuseScore hiện có; hiện trạng thái chờ |
 | A/B làm mất vị trí khi `tempo` đổi | Giữ bar/beat/fraction, không giữ giây; test tempo 0.75/1.25 |
-| Telemetry không có hạ tầng | Endpoint batch tối thiểu + buffer local; lưu JSONL/SQLite; gate có denominator và fallback qualitative |
+| Telemetry không có hạ tầng | Endpoint batch tối thiểu + buffer local; lưu JSONL/SQLite; `play` event cho denominator; nhiều instance phải gom store; gate có fallback qualitative |
 | Form/meter làm lệch chart/DFI | Chỉ mở nơi đã có retarget; test `frame_seconds`, duration, DFI trace |
 | UI quá tải | Group collapse, tab “Nâng cao”, chỉ hiện field áp dụng, A/B thay vì bắt nghe lại |
 | Cache phình | LRU hiện có; có thể giảm `VSTOCK_PARAMS_CACHE_MAX` cho B/C |
