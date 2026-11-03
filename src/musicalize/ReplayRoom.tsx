@@ -206,6 +206,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const [playEpoch, setPlayEpoch] = useState(0);
   const [startSec, setStartSec] = useState(0);
   const [abSide, setAbSide] = useState<'A' | 'B'>('A');
+  const [abPreparing, setAbPreparing] = useState(false);
   const sessionId = useRef(`s_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
   const pendingRatio = useRef<number | null>(null);
   const pendingIndex = useRef<number | null>(null);
@@ -1153,6 +1154,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
         if (request.current === controller) {
           request.current = null;
           setComposing(false);
+          setAbPreparing(false);
         }
       }
     })();
@@ -1322,6 +1324,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
           : 0;
       pendingIndex.current = index;
       setAbSide(side);
+      setAbPreparing(side === 'B');
       setPlayingParams(side === 'A' ? normalizeParams(heardParams) : normalizeParams(params));
       void trackEvent('ab_toggle', { sessionId: sessionId.current, side, span });
       listen(side === 'A' ? heardParams : normalizeParams(params));
@@ -1991,6 +1994,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
           onPause={onPause}
           onReplay={onReplay}
           abSide={abSide}
+          abPreparing={abPreparing}
           onAB={switchAB}
           onMute={() => setMuted((value) => !value)}
           onTimeline={span === '1D' ? onFileScrub : onWorkScrub}

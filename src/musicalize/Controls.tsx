@@ -43,6 +43,7 @@ type ReplayProps = {
   onPause: () => void;
   onReplay: () => void;
   abSide?: 'A' | 'B';
+  abPreparing?: boolean;
   onAB?: (side: 'A' | 'B') => void;
   onMute?: () => void;
   onTimeline: (ratio: number) => void;
@@ -105,6 +106,7 @@ function ReplayControls({
   onReplay,
   onMute,
   abSide,
+  abPreparing = false,
   onAB,
   onTimeline,
   status,
@@ -261,10 +263,10 @@ function ReplayControls({
                 style={[styles.abButton, abSide === side && styles.abButtonActive]}
                 accessibilityRole="button"
                 accessibilityLabel={`Nghe bản ${side}`}
-                accessibilityState={{ selected: abSide === side }}
+                accessibilityState={{ selected: abSide === side, busy: abPreparing && side === 'B' }}
               >
                 <Text style={[type.monoSmall, styles.abText, abSide === side && styles.abTextActive]}>
-                  {side}
+                  {side}{abPreparing && side === 'B' ? '…' : ''}
                 </Text>
               </MotionPressable>
             ))}

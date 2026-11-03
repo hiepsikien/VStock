@@ -13,6 +13,7 @@ type TelemetryEvent = {
 const STORAGE_KEY = 'vstock.musicalize.events.v1';
 const MAX_BUFFER = 50;
 let inflight = false;
+let writeChain: Promise<void> = Promise.resolve();
 
 async function readBuffer(): Promise<TelemetryEvent[]> {
   try {
@@ -66,19 +67,22 @@ async function flush(): Promise<void> {
 }
 
 /** Queue one event and try to flush. Offline keeps it for the next call. */
-export async function trackEvent(
+export function trackEvent(
   name: TelemetryName,
   payload: Record<string, unknown> = {},
 ): Promise<void> {
-  const events = await readBuffer();
-  events.push({
-    name,
-    eventId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-    at: Date.now() / 1000,
-    payload,
+  writeChain = writeChain.then(async () => {
+    const events = await readBuffer();
+    events.push({
+      name,
+      eventId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      at: Date.now() / 1000,
+      payload,
+    });
+    await writeBuffer(events);
+    await flush();
   });
-  await writeBuffer(events);
-  await flush();
+  return writeChain;
 }
 
 export async function flushTelemetry(): Promise<void> {

@@ -64,3 +64,22 @@ def test_pin_params_keeps_a_and_b_hashes(monkeypatch: pytest.MonkeyPatch) -> Non
     assert recap_store()._pinned("a123")
     assert recap_store()._pinned("_pa123")
     assert recap_store()._pinned("b456")
+
+
+def test_pinned_hash_survives_prune(tmp_path: Path) -> None:
+    import os
+    import time
+    from app.sonify.audio import RECAP_REVISION, RecapStore
+
+    store = RecapStore(root=tmp_path)
+    hashes = ["aaaa00000001", "aaaa00000002", "aaaa00000003", "aaaa00000004", "aaaa00000005"]
+    for index, value in enumerate(hashes):
+        path = tmp_path / f"VNM_2026-01-01_symphony_{RECAP_REVISION}_30_p{value}.m4a"
+        path.write_bytes(b"x")
+        stamp = time.time() - (len(hashes) - index) * 10
+        os.utime(path, (stamp, stamp))
+    oldest = tmp_path / f"VNM_2026-01-01_symphony_{RECAP_REVISION}_30_p{hashes[0]}.m4a"
+    store.pin_hashes([hashes[0]], ttl_sec=60)
+    store.prune()
+    assert oldest.exists()
+    assert len(list(tmp_path.glob("*_p*.m4a"))) == 5
