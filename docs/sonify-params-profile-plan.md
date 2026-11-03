@@ -202,7 +202,7 @@ Chuỗi FFmpeg được **sinh** từ spec theo thứ tự cố định. Ở `am
 ### 3.7 `density` và `noise`
 
 - `density` nhân `FILL_SPAN`, `FILL_MIN`, `BELL_MAX_EIGHTHS` trong `phrasing.py`; `0` bỏ fill/bell, `1` giữ nguyên, `>1` kéo dài trong giới hạn an toàn. Không chỉnh số nốt giai điệu, không chỉnh guitar pattern.
-- `noise` là biên độ tuyệt đối tính bằng % full-scale (`0–0.5%`), không phải hệ số nhân. Guitar giữ gate `0.01`; mọi variant đều nhận nền nhiễu, kể cả khi `color = 0`. Nhiễu trộn sau chuỗi màu, trước peak limit.
+- `noise` là biên độ tuyệt đối tính bằng % full-scale (`0–0.5%`), không phải hệ số nhân. Guitar giữ gate `0.01`; mọi variant đều nhận nền nhiễu, kể cả khi `color = 0`. Nhiễu trộn sau chuỗi màu, trước peak limit. Vì vậy `_nc`/`_nh_nc` chỉ tắt chuỗi màu, **không còn là im lặng hoàn toàn** kể từ revision 80.
 
 ### 3.8 Thứ tự triển khai trong tầng A
 
@@ -444,6 +444,8 @@ def cache_mark(params) -> str:
 | `humanize 0, breath 0, color 1` | `_nh` | bản cũ bỏ hẳn `humanize()`: không offset, không tempo clock, không `_clamp_guitar` |
 | `humanize 1, breath 1, color 0` | `_nc` | bản cũ vẫn humanize đầy đủ, chỉ bỏ preset |
 | `humanize 0, breath 0, color 0` | `_nh_nc` | cả hai lớp tắt |
+
+`_nc`/`_nh_nc` chỉ tắt chuỗi màu; noise bed vẫn chạy nếu `noise > 0`, nên từ revision 80 chúng không còn là bản "khô hoàn toàn".
 | mọi tổ hợp khác | `_p<hash>` | kể cả `humanize 0` với `breath 1` |
 
 Điểm quan trọng: **`breath` phải đi cùng `humanize` trong điều kiện legacy.** Code cũ bỏ toàn bộ `humanize()` khi `humanize=False` (`audio.py:1372`, `:1555`), nên file `_nh` trên đĩa **không có tempo clock**. Nếu `h=0` chỉ đặt `humanize=0` mà để `breath=1`, `humanize()` vẫn chạy và sinh tempo event → audio khác file `_nh` đang có.

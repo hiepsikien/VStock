@@ -167,6 +167,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
     savedDirty,
     playNonce,
     requestPlay,
+    autoSavedNotice,
     open: tuningOpen,
     setOpen: setTuningOpen,
   } = useTuning();
@@ -1087,11 +1088,12 @@ export function ReplayRoom({ wide, onMode }: Props) {
   );
 
   const onPlay = useCallback(() => {
-    if (composing || finished) return;
+    if (composing) return;
     if (draftDirty || savedDirty) {
       requestPlay();
       return;
     }
+    if (finished) return;
     if (resting && movements) {
       const movement = movements[index];
       if (!movement) return;
@@ -1850,6 +1852,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
           onReplay={onReplay}
           onMute={() => setMuted((value) => !value)}
           onTimeline={span === '1D' ? onFileScrub : onWorkScrub}
+          notice={autoSavedNotice}
           tuningBaseBpm={baseBpmFor(variant, ensemble)}
           dfi={activeDfi}
           dfiSignature={activeDfiSignature}

@@ -506,6 +506,45 @@ export function resetProfile(store: ProfileStore, id: string): ProfileStore {
   return updateProfileParams(store, id, DEFAULT_PARAMS);
 }
 
+export type PlayPlan = {
+  store: ProfileStore;
+  savedParams: SonifyParams;
+  draft: SonifyParams;
+  savedName: string | null;
+};
+
+/** Decide what Play does with a draft that was never explicitly saved. */
+export function planPlayParams(
+  store: ProfileStore,
+  draft: SonifyParams,
+  saved: SonifyParams,
+): PlayPlan {
+  if (paramsEqual(draft, saved)) {
+    return { store, savedParams: saved, draft: saved, savedName: null };
+  }
+  const shaped = normalizeParams(draft);
+  const profile = activeProfile(store);
+  if (profile.id === DEFAULT_PROFILE_ID) {
+    // A default draft is not a new profile; it is the immutable Default.
+    if (isDefaultParams(shaped)) {
+      return { store, savedParams: shaped, draft: shaped, savedName: null };
+    }
+    const created = createProfile(store, 'Bản của tôi', shaped);
+    return {
+      store: created.store,
+      savedParams: created.profile.params,
+      draft: created.profile.params,
+      savedName: created.profile.name,
+    };
+  }
+  return {
+    store: updateProfileParams(store, profile.id, shaped),
+    savedParams: shaped,
+    draft: shaped,
+    savedName: profile.name,
+  };
+}
+
 export function serializeProfileStore(store: ProfileStore): string {
   return JSON.stringify(normalizeProfileStore(store));
 }

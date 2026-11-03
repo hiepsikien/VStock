@@ -45,6 +45,8 @@ type ReplayProps = {
   onMute?: () => void;
   onTimeline: (ratio: number) => void;
   status?: string | null;
+  /** Brief confirmation from the tuning layer. */
+  notice?: string | null;
   /** The unmodified BPM, so the trigger can hide when no panel can render. */
   tuningBaseBpm?: number;
   /** Data fidelity of the piece being heard. */
@@ -102,6 +104,7 @@ function ReplayControls({
   onMute,
   onTimeline,
   status,
+  notice,
   tuningBaseBpm,
   dfi = null,
   dfiSignature = null,
@@ -303,6 +306,12 @@ function ReplayControls({
         {status ? (
           <Text style={[type.sans, styles.transportStatus]} numberOfLines={1}>
             {status}
+          </Text>
+        ) : null}
+
+        {notice ? (
+          <Text style={[type.sans, styles.tuningNotice]} numberOfLines={1}>
+            {notice}
           </Text>
         ) : null}
 
@@ -580,6 +589,12 @@ const styles = StyleSheet.create({
   },
   transportStatus: {
     color: palette.textMuted,
+    flexShrink: 1,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  tuningNotice: {
+    color: palette.sound,
     flexShrink: 1,
     fontSize: 12,
     lineHeight: 16,

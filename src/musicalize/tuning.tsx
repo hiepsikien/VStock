@@ -20,6 +20,7 @@ import {
   normalizeParams,
   paramsEqual,
   parseProfileStore,
+  planPlayParams,
   renameProfile,
   resetProfile,
   selectProfile,
@@ -52,6 +53,8 @@ type TuningValue = {
   savedDirty: boolean;
   /** Bumped only when Play asks for the latest saved params. */
   playNonce: number;
+  /** Brief confirmation when Play auto-saved the draft. */
+  autoSavedNotice: string | null;
   setParam: (key: string, value: number) => void;
   select: (id: string) => void;
   /** Start a new listen with the latest saved params. */
@@ -86,6 +89,7 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
   const [schemaEnabled, setSchemaEnabled] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [playNonce, setPlayNonce] = useState(0);
+  const [autoSavedNotice, setAutoSavedNotice] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -132,6 +136,12 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
     void saveProfileStore(store);
   }, [loaded, store]);
 
+  useEffect(() => {
+    if (!autoSavedNotice) return;
+    const timer = setTimeout(() => setAutoSavedNotice(null), 3000);
+    return () => clearTimeout(timer);
+  }, [autoSavedNotice]);
+
   const enabled = envEnabled && schemaEnabled;
   useEffect(() => {
     if (!enabled && open) setOpen(false);
@@ -160,27 +170,14 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
   );
 
   const requestPlay = useCallback(() => {
-    let next = savedParams;
-    if (!paramsEqual(params, savedParams)) {
-      // Auto-save the draft before Play. Default is immutable, so it becomes
-      // a named copy, exactly like the Save button.
-      const shaped = normalizeParams(params);
-      if (profile.id === DEFAULT_PROFILE_ID) {
-        const created = createProfile(store, 'Bản của tôi', shaped);
-        setStore(created.store);
-        setParams(created.profile.params);
-        setSavedParams(created.profile.params);
-        next = created.profile.params;
-      } else {
-        setStore(updateProfileParams(store, profile.id, shaped));
-        setParams(shaped);
-        setSavedParams(shaped);
-        next = shaped;
-      }
-    }
-    setHeardParams(next);
+    const plan = planPlayParams(store, params, savedParams);
+    if (plan.store !== store) setStore(plan.store);
+    if (!paramsEqual(plan.draft, params)) setParams(plan.draft);
+    if (!paramsEqual(plan.savedParams, savedParams)) setSavedParams(plan.savedParams);
+    if (plan.savedName) setAutoSavedNotice(`Đã lưu vào · ${plan.savedName}`);
+    setHeardParams(plan.savedParams);
     setPlayNonce((nonce) => nonce + 1);
-  }, [params, profile.id, savedParams, store]);
+  }, [params, savedParams, store]);
 
   const revert = useCallback(() => {
     const next = profile.params;
@@ -283,6 +280,7 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
       draftDirty,
       savedDirty,
       playNonce,
+      autoSavedNotice,
       setParam,
       select,
       requestPlay,
@@ -298,6 +296,7 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       addProfile,
+      autoSavedNotice,
       dirty,
       draftDirty,
       duplicate,

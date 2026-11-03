@@ -22,6 +22,7 @@ import {
   paramsKey,
   paramsQuery,
   parseProfileStore,
+  planPlayParams,
   renameProfile,
   resetProfile,
   selectProfile,
@@ -224,5 +225,27 @@ equal(
   0.1,
   'schema 1 noise multiplier becomes a percent',
 );
+
+let playStore = initialProfileStore();
+const playDefault = playStore.profiles[0].params;
+let plan = planPlayParams(playStore, playDefault, playDefault);
+equal(plan.store, playStore, 'unchanged draft does not touch the store');
+equal(plan.savedName, null, 'unchanged draft has no auto-save notice');
+
+plan = planPlayParams(playStore, { ...DEFAULT_PARAMS, tempo: 0.96 }, playDefault);
+equal(plan.store.profiles.length, 2, 'changed Default draft creates one copy');
+equal(plan.savedName, 'Bản của tôi', 'auto-save names the new profile');
+same(plan.savedParams, { ...DEFAULT_PARAMS, tempo: 0.96 }, 'auto-save plays the draft');
+
+const oneCopy = plan.store;
+const firstId = oneCopy.activeId;
+plan = planPlayParams(oneCopy, { ...DEFAULT_PARAMS, density: 0.5 }, plan.savedParams);
+equal(plan.store.profiles.length, 2, 'second Play updates the same copy');
+equal(plan.store.activeId, firstId, 'second Play keeps the same active profile');
+same(plan.savedParams, { ...DEFAULT_PARAMS, density: 0.5 }, 'second Play saves the new draft');
+
+plan = planPlayParams(playStore, playDefault, { ...DEFAULT_PARAMS, tempo: 0.96 });
+equal(plan.store.profiles.length, 1, 'a default draft never creates an empty copy');
+equal(plan.savedName, null, 'a default draft has no notice');
 
 console.log('musicalize params tests passed');
