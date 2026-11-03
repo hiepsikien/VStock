@@ -1,36 +1,3 @@
-/** One movement as the span plan describes it for waveform prefetching. */
-export type PrefetchMovement = {
-  ready?: boolean;
-  peaks?: number[] | null;
-};
-
-/**
- * A movement with a written file already carries its envelope in the plan. Only
- * a missing file needs the background render.
- */
-export function needsPrefetch(movement: PrefetchMovement | null | undefined): boolean {
-  if (!movement) return false;
-  return !(movement.ready && movement.peaks && movement.peaks.length > 0);
-}
-
-/** Cache key for one pre-rendered movement within a span identity. */
-export function prefetchKey(spanKey: string, index: number): string {
-  return `${spanKey}|${index}`;
-}
-
-/**
- * In-flight prefetches that may still be useful. Keep the chapter being heard
- * (the player may be waiting for that render) and the next one; drop everything
- * the user has skipped past.
- */
-export function stalePrefetchTargets(
-  inFlight: Iterable<number>,
-  index: number,
-): number[] {
-  const keep = new Set([index, index + 1]);
-  return [...inFlight].filter((target) => !keep.has(target));
-}
-
 export type PeaksRefreshState = {
   pending: boolean;
   again: boolean;

@@ -204,6 +204,8 @@ class SpanMovementResponse(BaseModel):
     volumes: list[float]
     peaks: list[float] = []
     peakLevel: float = 0.0
+    renderSec: float = 0.0
+    renderRatio: float = 0.0
     character: str | None = None
     characterLabel: str = ""
     sessionCharacters: list[str] = []
@@ -218,6 +220,11 @@ class SpanPeaksMovement(BaseModel):
     index: int
     peaks: list[float] = Field(default_factory=list)
     peakLevel: float = 0.0
+    audioUrl: str = ""
+    ready: bool = False
+    durationSec: float = 0.0
+    renderSec: float = 0.0
+    renderRatio: float = 0.0
 
 
 class SpanPeaksResponse(BaseModel):
@@ -227,6 +234,7 @@ class SpanPeaksResponse(BaseModel):
     ensemble: Ensemble = "classic"
     humanize: bool = True
     color: bool = True
+    asOf: str = ""
     movements: list[SpanPeaksMovement]
 
 
