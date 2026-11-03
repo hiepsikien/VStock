@@ -9,7 +9,16 @@ from pathlib import Path
 
 import pytest
 
-from app.sonify.humanize import chosen_offset, humanize
+from app.sonify.humanize import (
+    _Hit,
+    _attack_key,
+    _overlaps,
+    _pairs,
+    _start,
+    _tick,
+    chosen_offset,
+    humanize,
+)
 from app.sonify.model import NoteEvent, Phrase, Run, Score
 from app.sonify.musicxml import score_to_musicxml
 from app.sonify.preset import _mix_noise, apply_preset, preset_chain
@@ -67,6 +76,75 @@ def _score(**fields) -> Score:
 
 def _velocities(notes: tuple[NoteEvent, ...]) -> list[int | None]:
     return [note.velocity for note in notes]
+
+
+def _full_pairs(hits: list[_Hit], bar_beats: float) -> list[tuple[_Hit, _Hit]]:
+    pairs: list[tuple[_Hit, _Hit]] = []
+    by_field: dict[str, list[_Hit]] = {}
+    for hit in hits:
+        by_field.setdefault(hit.field, []).append(hit)
+    for field_hits in by_field.values():
+        ordered = sorted(field_hits, key=lambda hit: _attack_key(hit.note))
+        for left, right in zip(ordered, ordered[1:]):
+            if left.note.velocity != right.note.velocity:
+                pairs.append((left, right))
+    ordered_hits = sorted(hits, key=lambda hit: (hit.field, _attack_key(hit.note)))
+    for index, left in enumerate(ordered_hits):
+        for right in ordered_hits[index + 1 :]:
+            if left.field == right.field or left.note.velocity == right.note.velocity:
+                continue
+            if _overlaps(left, right, bar_beats):
+                pairs.append((left, right))
+    pairs.sort(
+        key=lambda pair: (
+            min(_start(pair[0], bar_beats), _start(pair[1], bar_beats)),
+            pair[0].field,
+            pair[1].field,
+            pair[0].note.bar,
+            _tick(pair[0].note.beat),
+            pair[1].note.bar,
+            _tick(pair[1].note.beat),
+            pair[0].note.midi or 0,
+            pair[1].note.midi or 0,
+        )
+    )
+    return pairs
+
+
+def test_pairs_bucket_matches_the_full_overlap_scan() -> None:
+    """Bucketing must keep cross-bar long notes, ties, and the original order."""
+    rows = (
+        ("high", 0, 0.0, 0.5, 60, 50),
+        ("lead", 0, 0.0, 0.5, 64, 52),
+        ("support", 1, 0.5, 1.0, 55, 50),
+        ("low", 0, 3.0, 12.0, 40, 58),
+        ("comp", 2, 1.0, 0.5, 67, 56),
+        ("lead", 3, 0.0, 0.5, 72, 52),
+        ("support", 3, 0.0, 2.0, 55, 50),
+        ("low", 4, 1.5, 0.5, 43, 58),
+    )
+    hits = [
+        _Hit(
+            field,
+            NoteEvent(
+                bar=bar,
+                beat=beat,
+                midi=midi,
+                duration_beats=duration,
+                voice=1,
+                velocity=velocity,
+            ),
+            (),
+        )
+        for field, bar, beat, duration, midi, velocity in rows
+    ]
+    pairs = _pairs(hits, 4.0)
+    assert pairs == _full_pairs(hits, 4.0)
+    assert any(
+        left.note.bar != right.note.bar
+        for left, right in pairs
+        if left.note.duration_beats > 4.0 or right.note.duration_beats > 4.0
+    )
 
 
 def test_a_reprinted_hairpin_keeps_its_velocity_through_the_snap_window() -> None:

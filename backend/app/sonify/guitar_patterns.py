@@ -194,7 +194,12 @@ class _Ctx:
     _phrase_by_bar: dict[int, tuple[Phrase, ...]] | None = field(
         default=None, repr=False, compare=False, init=False
     )
-    _pattern_source: object | None = field(default=None, repr=False, compare=False, init=False)
+    _pattern_source: list[str] | None = field(
+        default=None, repr=False, compare=False, init=False
+    )
+    _pattern_signature: tuple[str, ...] | None = field(
+        default=None, repr=False, compare=False, init=False
+    )
     _pattern_cache: dict[int, str] = field(
         default_factory=dict, repr=False, compare=False, init=False
     )
@@ -465,6 +470,12 @@ def _phrase_at(ctx: _Ctx, eighth: float) -> Phrase | None:
         ctx._phrase_by_bar = None
     if eighth in ctx._phrase_cache:
         return ctx._phrase_cache[eighth]
+    if ctx.epb <= 0:
+        found = next(
+            (phrase for phrase in ctx.phrases if phrase.start <= eighth < phrase.end), None
+        )
+        ctx._phrase_cache[eighth] = found
+        return found
     if ctx._phrase_by_bar is None:
         by_bar: dict[int, list[Phrase]] = {}
         for phrase in ctx.phrases:
@@ -475,7 +486,7 @@ def _phrase_at(ctx: _Ctx, eighth: float) -> Phrase | None:
             for bar in range(first, last + 1):
                 by_bar.setdefault(bar, []).append(phrase)
         ctx._phrase_by_bar = {bar: tuple(items) for bar, items in by_bar.items()}
-    bar = int(math.floor(eighth / ctx.epb)) if ctx.epb else 0
+    bar = int(math.floor(eighth / ctx.epb))
     found = None
     for phrase in ctx._phrase_by_bar.get(bar, ()):
         if phrase.start <= eighth < phrase.end:
@@ -1671,8 +1682,11 @@ def _cap_accents(ctx: _Ctx, plans: dict, perpetual: dict, limit: int = 2) -> tup
 
 def _bar_pattern(ctx: _Ctx, bar: int, patterns: list[str]) -> str:
     if patterns is not ctx._pattern_source:
+        signature = tuple(patterns)
+        if signature != ctx._pattern_signature:
+            ctx._pattern_cache.clear()
         ctx._pattern_source = patterns
-        ctx._pattern_cache.clear()
+        ctx._pattern_signature = signature
     if bar not in ctx._pattern_cache:
         kind = ctx.kind_at.get(bar, "phrase")
         if kind in _PEDAL:

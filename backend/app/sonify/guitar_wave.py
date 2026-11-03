@@ -239,23 +239,12 @@ def lipschitz(levels: list[float], delta: float) -> list[float]:
     if delta <= 0:
         peak = max(levels)
         return [min(1.0, max(0.0, peak)) for _ in levels]
-    # Same cone envelope as the direct max, in two passes. The source index is
-    # carried so each lift is still `level - delta * distance`, not a chain of
-    # subtractions; the floats stay identical to the one-pass formula.
-    shaped: list[float] = [0.0] * len(levels)
-    source = 0
+    shaped: list[float] = []
+    last = len(levels) - 1
     for index in range(len(levels)):
-        if index and levels[source] - delta * (index - source) < levels[index]:
-            source = index
-        shaped[index] = levels[source] - delta * (index - source)
-    source = len(levels) - 1
-    for index in range(len(levels) - 1, -1, -1):
-        if index + 1 < len(levels) and levels[index + 1] >= levels[source] - delta * (source - index - 1):
-            source = index + 1
-        lifted = levels[source] - delta * (source - index)
-        if lifted > shaped[index]:
-            shaped[index] = lifted
-    return [min(1.0, max(0.0, value)) for value in shaped]
+        lifted = max(levels[other] - delta * abs(index - other) for other in range(last + 1))
+        shaped.append(min(1.0, max(0.0, lifted)))
+    return shaped
 
 
 def alpha_price(rel_span: float) -> float:
