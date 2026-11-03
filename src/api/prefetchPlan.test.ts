@@ -1,24 +1,33 @@
-import { prefetchResponsePlan } from './prefetchPlan';
+import { prefetchOutcome } from './prefetchPlan';
 
-// A range answer is the one-byte path and must be consumed.
-if (prefetchResponsePlan(206) !== 'range') {
-  throw new Error('206 must be read as a range response');
+if (prefetchOutcome(206) !== 'ready') {
+  throw new Error('a one-byte range answer means the file is written');
 }
-
-// A server without range support still wrote the file; never download it twice.
-if (prefetchResponsePlan(200) !== 'discard') {
-  throw new Error('200 must discard the duplicate body');
+// A server that ignored Range still exported before answering.
+if (prefetchOutcome(200) !== 'ready') {
+  throw new Error('a full 200 response still means the file is written');
 }
-if (prefetchResponsePlan(204) !== 'discard') {
-  throw new Error('another 2xx must still count as rendered');
+if (prefetchOutcome(204) !== 'ready') {
+  throw new Error('an empty 2xx still means the export finished');
 }
-
-// A failed render is not a prefetch.
-if (prefetchResponsePlan(404) !== 'reject') {
-  throw new Error('a 404 must not be treated as a render');
+// These URLs cannot become valid by retrying.
+if (prefetchOutcome(400) !== 'fatal') {
+  throw new Error('a bad request must not be retried');
 }
-if (prefetchResponsePlan(503) !== 'reject') {
-  throw new Error('a 503 must not be treated as a render');
+if (prefetchOutcome(404) !== 'fatal') {
+  throw new Error('a missing movement must not be retried');
+}
+if (prefetchOutcome(422) !== 'fatal') {
+  throw new Error('an invalid range must not be retried');
+}
+if (prefetchOutcome(429) !== 'retry') {
+  throw new Error('a throttled prefetch must back off');
+}
+if (prefetchOutcome(500) !== 'retry') {
+  throw new Error('a server error is retryable');
+}
+if (prefetchOutcome(503) !== 'retry') {
+  throw new Error('a busy exporter is retryable');
 }
 
 console.log('api prefetch plan tests passed');
