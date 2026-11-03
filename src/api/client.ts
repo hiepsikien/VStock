@@ -27,6 +27,8 @@ import {
   normalizeParams,
   paramsFromFlags,
   paramsQuery as paramsSuffix,
+  SCHEMA_VERSION,
+  type ParamWarning,
   type SonifyParams,
 } from '../musicalize/params';
 import { sanitizePriceChange } from '../utils/sanitizePriceChange';
@@ -620,6 +622,42 @@ export async function pinParams(hashes: string[], signal?: AbortSignal): Promise
 /** The kill switch lives here, not in the client bundle. */
 export async function fetchParamsSchema(signal?: AbortSignal): Promise<ParamsSchemaResponse> {
   return apiGet<ParamsSchemaResponse>('/v1/sonify/params/schema', signal);
+}
+
+export type ParamsContext = {
+  variant?: string;
+  ensemble?: string;
+  span?: string;
+};
+
+export type ParamsValidation = {
+  schema: number;
+  params: SonifyParams;
+  hash: string;
+  warnings: ParamWarning[];
+};
+
+/**
+ * Ask the server which knobs do not apply to this room. The response also
+ * carries tier clamping and unknown-choice warnings, so the panel can show the
+ * same decision the renderer will make.
+ */
+export async function validateParams(
+  params: SonifyParams,
+  context: ParamsContext = {},
+  signal?: AbortSignal,
+): Promise<ParamsValidation> {
+  const response = await fetch(`${getApiBaseUrl()}/v1/sonify/params/validate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ schema: SCHEMA_VERSION, params, ...context }),
+    signal,
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`API ${response.status}: ${body || response.statusText}`);
+  }
+  return response.json() as Promise<ParamsValidation>;
 }
 
 export type RecapManifest = {

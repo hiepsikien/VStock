@@ -35,6 +35,8 @@ import {
   stepValue,
   uniqueProfileName,
   updateProfileParams,
+  warningText,
+  warningTexts,
 } from './params';
 
 function equal<T>(actual: T, expected: T, label = '') {
@@ -306,3 +308,16 @@ const effective = renderParams(
 );
 ok(effective.technique === 1, 'renderParams drops inapplicable technique');
 ok(effective.harmony === 0.5, 'renderParams keeps applicable harmony');
+
+ok(
+  warningText({ code: 'inapplicable', key: 'technique' }).includes('Kỹ thuật'),
+  'server warning uses the field label',
+);
+ok(
+  warningTexts([
+    { code: 'inapplicable', key: 'technique' },
+    { code: 'inapplicable', key: 'technique' },
+    { code: 'tier_disabled', key: 'harmony' },
+  ]).length === 2,
+  'warning copy is deduplicated',
+);
