@@ -239,12 +239,23 @@ def lipschitz(levels: list[float], delta: float) -> list[float]:
     if delta <= 0:
         peak = max(levels)
         return [min(1.0, max(0.0, peak)) for _ in levels]
-    shaped: list[float] = []
-    last = len(levels) - 1
+    # Same cone envelope as the direct max, in two passes. The source index is
+    # carried so each lift is still `level - delta * distance`, not a chain of
+    # subtractions; the floats stay identical to the one-pass formula.
+    shaped: list[float] = [0.0] * len(levels)
+    source = 0
     for index in range(len(levels)):
-        lifted = max(levels[other] - delta * abs(index - other) for other in range(last + 1))
-        shaped.append(min(1.0, max(0.0, lifted)))
-    return shaped
+        if index and levels[source] - delta * (index - source) < levels[index]:
+            source = index
+        shaped[index] = levels[source] - delta * (index - source)
+    source = len(levels) - 1
+    for index in range(len(levels) - 1, -1, -1):
+        if index + 1 < len(levels) and levels[index + 1] >= levels[source] - delta * (source - index - 1):
+            source = index + 1
+        lifted = levels[source] - delta * (source - index)
+        if lifted > shaped[index]:
+            shaped[index] = lifted
+    return [min(1.0, max(0.0, value)) for value in shaped]
 
 
 def alpha_price(rel_span: float) -> float:
@@ -528,18 +539,9 @@ class _Placed:
 
 
 def _pedal_regions(ctx) -> tuple[list[int], list[int]]:
-    leading: list[int] = []
-    bar = 0
-    while bar < ctx.bars and ctx.kind_at.get(bar, "phrase") in _PEDAL:
-        leading.append(bar)
-        bar += 1
-    trailing: list[int] = []
-    bar = ctx.bars - 1
-    while bar >= 0 and bar not in leading and ctx.kind_at.get(bar, "phrase") in _PEDAL:
-        trailing.append(bar)
-        bar -= 1
-    trailing.reverse()
-    return leading, trailing
+    from app.sonify.guitar_patterns import _pedal_regions as cached
+
+    return cached(ctx)
 
 
 def _rel_span(ctx, section) -> float:
@@ -556,10 +558,9 @@ def _pattern_at(ctx, bar: int, patterns: list[str]) -> str:
 
 
 def _phrase_at(ctx, t: float):
-    for phrase in ctx.phrases:
-        if phrase.start <= t < phrase.end:
-            return phrase
-    return None
+    from app.sonify.guitar_patterns import _phrase_at as cached
+
+    return cached(ctx, t)
 
 
 def _k_of(event) -> float:
