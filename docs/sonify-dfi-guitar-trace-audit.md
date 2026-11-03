@@ -126,13 +126,13 @@ Chỉ bật `octave_tolerant=True` không đủ: với `max_octaves=3`, movement
 
 `--per-pattern` cho VNINDEX 1M Villa m1:
 
-| Pattern | Bars | Trace points | Bars có trace | Frame points |
-|---|---:|---:|---:|---:|
-| `chord_melody` | 24 | 74 | 24 | 0 |
-| `thumb_cantabile` | 68 | **32** | **14** | 0 |
-| `pedal` (frame) | 16 | 2 | 2 | **2** |
+| Pattern | Bars | Trace points | Bars có trace | Frame points | Lead pts | Support pts | Low pts |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `chord_melody` | 24 | 74 | 24 | 0 | 74 | 0 | 0 |
+| `thumb_cantabile` | 68 | **32** | **14** | 0 | **23** | 0 | **9** |
+| `pedal` (frame) | 16 | 2 | 2 | **2** | 0 | 2 | 0 |
 
-40 bar có trace = 24 bar Chord Melody + **14 bar thumb** (12, 13, 17, 26–27, 39–43, 86–87, 95–96) + **2 bar frame** (102–103). Trong 32 point ở thumb: **23 point từ lead đệm**, **9 point từ low**; đây là các nốt đệm trùng pitch chứ không phải line thumb. (Review đếm 22 point theo một filter hẹp hơn; kết luận không đổi: toàn bộ span thumb cần bị suppress khỏi generic trace.)
+40 bar có trace = 24 bar Chord Melody + **14 bar thumb** (12, 13, 17, 26–27, 39–43, 86–87, 95–96) + **2 bar frame** (102–103). Trong 32 point ở thumb: **23 point từ lead đệm**, **9 point từ low**; đây là các nốt đệm trùng pitch chứ không phải line thumb. Các cột `lead pts/support pts/low pts` tái lập trực tiếp bằng `--per-pattern`; toàn bộ span thumb vẫn cần bị suppress khỏi generic trace.
 
 Vì vậy “merge generic trace + dedupe theo `(bar, beat)`” **không đủ**: dedupe chỉ bỏ point trùng chỗ, không xoá point rác ở beat khác. Cần **suppress generic trace trong writer-owned span**, giống cách `yield_spans` xử lý symphony/jazz.
 
@@ -239,7 +239,7 @@ Bằng chứng thật:
 
 Khi Juglar chỉ 7 bar (VNINDEX m0), lỗi bị pha loãng nên DFI vẫn 55.8. Khi Juglar chiếm 2/3 movement (PVS/REE), DFI rơi còn 17.9/24.3.
 
-`--per-pattern` VNINDEX 1M Torroba m0: `torroba_tremolo` 7 bar / 76 note / **18 trace point** / **36 note off-grid** / 56 note near-line; `castillo` 81 bar / 253 point. Con số 18 point cho 7 bar (2.57/bar) thấp hơn 3 giá/bar, và các point nằm ở beat 0.5/1.5/2.5 chứ không phải beat 0/1/2.
+`--per-pattern` VNINDEX 1M Torroba m0: `torroba_tremolo` 7 bar / 76 note / **18 trace point** / **36 note off-grid** / 56 note near-line; `castillo` 81 bar / 253 point. Con số 18 point cho 7 bar (2.57/bar) thấp hơn 3 giá/bar: **16/18 point nằm ở beat +0.5** (0.5/1.5/2.5), **2 point ở beat 0.0/1.0** từ bar `quarter_notes` cuối region — đúng với việc chỉ full chunk 3/4 mới bị lệch lưới.
 
 Thử ghi trace tại writer cho từng beat Juglar:
 
@@ -272,13 +272,13 @@ Nhưng trace cũng được lấy từ `ctx.melody` **sau khi hạ**, rồi `_TR
 Kiểm tra thực tế trên VNINDEX 1M Torroba (`--per-pattern`):
 
 | Movement | Pattern | Note khớp | Trace points | Kết luận |
-|---|---|---|---:|---:|---|
-| m0 | `castillo` | 254 | 253 | 1 note trùng attack bị dedupe |
+|---|---|---|---:|---:|
+| m0 | `castillo` | 254 | 253 | 1 note `tie_stop` gộp duration vào point trước |
 | m1 | `danza` | 104 | 104 | Khớp |
 | m2 | `alcaniz` | 61 | 61 | Khớp |
 | m3 | `olite` | 316 | 316 | Khớp |
 
-`Note khớp` đếm **note** (có thể trùng attack hoặc nằm trong frame); `Trace points` dedupe theo `(bar, beat)`. Vì vậy `254` note khớp / `253` point không phải mất nốt — chỉ là hai voice cùng đánh một attack. Cột `frame pts` trong `--per-pattern` tách riêng point ở frame.
+`Note khớp` đếm **note** (có thể trùng attack, note trong frame, hoặc note `tie_stop`); `Trace points` dedupe theo `(bar, beat)`, và `trace_from_notes` gộp `tie_stop` vào point trước. Vì vậy `254` note khớp / `253` point không phải mất nốt — cụ thể ở `(bar 95, beat 2.0)` chỉ có một note lead `midi=72, tie_stop=True`, không có point riêng. Cột `frame pts` trong `--per-pattern` tách riêng point ở frame.
 
 **Không sửa** phần này. Đây là register choice, không phải mất trace.
 
@@ -450,7 +450,7 @@ cd backend
 .venv/bin/python scripts/dfi_probe.py VNINDEX 1M guitar torroba --per-pattern
 ```
 
-`--per-pattern` in bảng trace theo pattern, gồm `frame pts` và `exact notes`; đây là cách tái lập các số `253/254`, `104/104`, `61/61`, `316/316`.
+`--per-pattern` in bảng trace theo pattern, gồm `frame pts`, `exact notes`, `near-line`, và `lead/support/low pts`; đây là cách tái lập các số `253/254`, `104/104`, `61/61`, `316/316` và split `23 lead / 9 low` của thumb. `exact notes` bao gồm note trong frame và note `tie_stop`; `near-line` nghĩa là pitch khớp `line` trong ±2 eighth quanh nốt.
 
 Bảng chi tiết theo movement:
 
