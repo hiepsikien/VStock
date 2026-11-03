@@ -353,3 +353,18 @@ Còn mở:
 - Không đổi bản sắc giọng mặc định của từng mã nếu chưa có quyết định sản phẩm.
 - Không làm editor từng nốt, mixer đa stem, hay realtime đổi knob khi đang phát.
 - Không làm auth/server profile trước khi A/B và B1 ổn định.
+
+
+---
+
+## 11. Ghi chú implementation hiện tại
+
+Các điểm dưới đây là giới hạn có chủ ý của bản đang chạy, không phải AC mới:
+
+- `renderParams()` trong client là **helper local cho hiển thị/effective params**, chưa được dùng trong pipeline audio/peaks/DFI. `p` vẫn gửi `savedParams`; server là nguồn hash cuối.
+- Warning `inapplicable` hiện chỉ có ở `/validate`; client chưa gọi endpoint này và chưa hiển thị warning. UI chỉ ẩn field theo `appliesTo`.
+- `POST /v1/sonify/params/pin` và `POST /v1/sonify/events` chưa có auth/rate limit trong code; dựa vào proxy. `_pins`/`_SEEN_EVENT_IDS` là memory từng process; multi-instance cần store chung.
+- `technique` chỉ hiện cho Bach/Torroba; các ensemble còn lại baseline chưa playable dưới profile hiện tại nên knob bị ẩn thay vì no-op.
+- `technique_fallback` hiện là `logger.warning`, chưa thành warning API/UI.
+- `assert_playable` trong wrapper dùng score C-space, nên `C_KEY` là đúng; nếu sau này score giữ key đã transpose thì phải truyền `key` tương ứng.
+- `apply_tiers` backend hiện là helper/test seam; production đi qua `normalize_with_warnings`.
