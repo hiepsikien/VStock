@@ -1,20 +1,28 @@
 import { PARAMS_SCHEMA, type ParamsFieldSchema } from './paramsSchema.generated';
 
-export type { ParamsFieldSchema } from './paramsSchema.generated';
+export type { ParamsFieldSchema, ParamsChoiceSchema } from './paramsSchema.generated';
+
+export type ParamValue = number | string | boolean;
 
 /**
- * The listener's ten knobs. One schema is generated from the backend, so the
- * app never invents a minimum, a step, or a default of its own.
+ * The listener's knobs. One schema is generated from the backend, so the app
+ * never invents a minimum, a step, or a default of its own.
  *
  * The server owns the hash and the cache name. The client only needs a
  * canonical params string for React keys and a compact `p` query.
  */
-export type SonifyParams = Record<string, number>;
+export type SonifyParams = Record<string, ParamValue>;
 
 export type ParamWarning = {
-  code: 'clamped' | 'unknown_key' | 'high_humanize' | 'high_breath';
+  code:
+    | 'clamped'
+    | 'unknown_key'
+    | 'unknown_choice'
+    | 'tier_disabled'
+    | 'high_humanize'
+    | 'high_breath';
   key: string;
-  value?: number;
+  value?: ParamValue;
 };
 
 export const PARAM_GROUPS = PARAMS_SCHEMA.groups;
@@ -35,9 +43,61 @@ export const DEFAULT_PARAMS: SonifyParams = Object.fromEntries(
 
 export const DEFAULT_HASH = PARAMS_SCHEMA.defaultHash;
 export const SCHEMA_VERSION = PARAMS_SCHEMA.schema;
+export const LINK_SCHEMA_VERSION = 2;
 export const P_MAX_LENGTH = 2048;
+export const ALL_TIERS = PARAMS_SCHEMA.allTiers ?? ['A', 'B', 'C'];
+export const BUNDLED_TIERS = PARAMS_SCHEMA.enabledTiers ?? ALL_TIERS;
 const HUMANIZE_SOFT_WARNING = 1.1;
 const BREATH_SOFT_WARNING = 1.2;
+
+export function numberValue(params: SonifyParams, key: string): number {
+  const value = params[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+export function isNumberField(field: ParamsFieldSchema): boolean {
+  return field.type === 'number';
+}
+
+export function isSpanToken(value: string): boolean {
+  return value === '1M' || value === '3M' || value === '1Y' || value === '1W' || value === '1D';
+}
+
+/** A field is visible when its variant/span filter matches and its tier is on. */
+export function fieldVisible(
+  field: ParamsFieldSchema,
+  variant?: string,
+  span?: string,
+  tiers: string[] = BUNDLED_TIERS,
+): boolean {
+  if (!tiers.includes(field.tier)) return false;
+  if (!field.appliesTo.length) return true;
+  const spans = field.appliesTo.filter(isSpanToken);
+  const variants = field.appliesTo.filter((item) => !isSpanToken(item));
+  if (spans.length && span && spans.includes(span)) return true;
+  if (variants.length && variant && variants.includes(variant)) return true;
+  return false;
+}
+
+export function visibleFields(
+  variant?: string,
+  span?: string,
+  tiers: string[] = BUNDLED_TIERS,
+): ParamsFieldSchema[] {
+  return PARAM_FIELDS.filter((field) => fieldVisible(field, variant, span, tiers));
+}
+
+/** Tier is a rollout switch. Fields outside it behave as their default. */
+export function applyTiers(
+  params: SonifyParams,
+  tiers: string[] = BUNDLED_TIERS,
+): SonifyParams {
+  const shaped = normalizeParams(params);
+  for (const field of PARAM_FIELDS) {
+    if (!tiers.includes(field.tier)) shaped[field.key] = field.default;
+  }
+  return shaped;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -54,20 +114,29 @@ export function stepValue(field: ParamsFieldSchema, value: number): number {
   return Math.min(field.max, Math.max(field.min, rounded));
 }
 
+function normalizeValue(field: ParamsFieldSchema, value: unknown): ParamValue {
+  if (field.type === 'choice') {
+    return typeof value === 'string' && field.choices.some((choice) => choice.value === value)
+      ? value
+      : field.default;
+  }
+  if (field.type === 'toggle') {
+    return typeof value === 'boolean' ? value : field.default;
+  }
+  if (typeof value !== 'number' || !Number.isFinite(value)) return field.default;
+  return stepValue(field, value);
+}
+
 /** Keys outside the schema are dropped; missing keys take the schema default. */
 export function normalizeParams(raw: unknown): SonifyParams {
   const source = isRecord(raw) ? raw : {};
   const params: SonifyParams = {};
   for (const field of PARAM_FIELDS) {
-    const value = source[field.key];
-    if (typeof value !== 'number' || !Number.isFinite(value)) {
-      params[field.key] = field.default;
-      continue;
-    }
-    params[field.key] = stepValue(field, value);
+    params[field.key] = normalizeValue(field, source[field.key]);
   }
   return params;
 }
+
 
 export function normalizeWithWarnings(raw: unknown): {
   params: SonifyParams;
@@ -79,8 +148,20 @@ export function normalizeWithWarnings(raw: unknown): {
   for (const field of PARAM_FIELDS) {
     const rawValue = source[field.key];
     if (rawValue == null) continue;
+    if (field.type === 'choice') {
+      if (typeof rawValue !== 'string' || !field.choices.some((choice) => choice.value === rawValue)) {
+        warnings.push({ code: 'unknown_choice', key: field.key, value: rawValue as ParamValue });
+      }
+      continue;
+    }
+    if (field.type === 'toggle') {
+      if (typeof rawValue !== 'boolean') {
+        warnings.push({ code: 'unknown_choice', key: field.key, value: rawValue as ParamValue });
+      }
+      continue;
+    }
     if (typeof rawValue !== 'number' || !Number.isFinite(rawValue)) {
-      warnings.push({ code: 'clamped', key: field.key });
+      warnings.push({ code: 'clamped', key: field.key, value: rawValue as ParamValue });
       continue;
     }
     if (roundStep(rawValue, field.step) !== params[field.key]) {
@@ -90,10 +171,10 @@ export function normalizeWithWarnings(raw: unknown): {
   for (const key of Object.keys(source)) {
     if (!(key in PARAM_FIELD_BY_KEY)) warnings.push({ code: 'unknown_key', key });
   }
-  if (params.humanize > HUMANIZE_SOFT_WARNING) {
+  if (numberValue(params, 'humanize') > HUMANIZE_SOFT_WARNING) {
     warnings.push({ code: 'high_humanize', key: 'humanize', value: params.humanize });
   }
-  if (params.breath > BREATH_SOFT_WARNING) {
+  if (numberValue(params, 'breath') > BREATH_SOFT_WARNING) {
     warnings.push({ code: 'high_breath', key: 'breath', value: params.breath });
   }
   return { params, warnings };
@@ -114,15 +195,24 @@ function pythonNumber(value: number): string {
   return String(value);
 }
 
+function canonicalValue(field: ParamsFieldSchema, value: ParamValue): string {
+  if (field.type === 'number') return pythonNumber(numberValue({ [field.key]: value }, field.key));
+  return JSON.stringify(value);
+}
+
 /** Canonical JSON, byte-identical to the server's `params_key`. */
-export function paramsKey(params: SonifyParams): string {
+export function paramsKey(params: SonifyParams, schema = SCHEMA_VERSION): string {
   const normalized = normalizeParams(params);
   const body = [...PARAM_KEYS]
     .sort()
-    .map((key) => `${JSON.stringify(key)}:${pythonNumber(normalized[key])}`)
+    .map((key) => {
+      const field = PARAM_FIELD_BY_KEY[key];
+      return `${JSON.stringify(key)}:${canonicalValue(field, normalized[key])}`;
+    })
     .join(',');
-  return `{"params":{${body}},"schema":${SCHEMA_VERSION}}`;
+  return `{"params":{${body}},"schema":${schema}}`;
 }
+
 
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 const B64_INDEX: Record<string, number> = Object.fromEntries(
@@ -226,8 +316,8 @@ function base64UrlToBytes(text: string): number[] {
   return bytes;
 }
 
-export function encodeParams(params: SonifyParams): string {
-  return bytesToBase64Url(utf8Encode(paramsKey(params)));
+export function encodeParams(params: SonifyParams, schema = SCHEMA_VERSION): string {
+  return bytesToBase64Url(utf8Encode(paramsKey(params, schema)));
 }
 
 /** Throws on a malformed `p`. Callers that must stay alive catch it. */
@@ -237,7 +327,7 @@ export function decodeParams(text: string): SonifyParams {
   const payload = JSON.parse(utf8Decode(base64UrlToBytes(text))) as unknown;
   if (!isRecord(payload)) throw new Error('p must decode to an object');
   const version = payload.schema ?? SCHEMA_VERSION;
-  if (version !== SCHEMA_VERSION) throw new Error('unsupported params schema');
+  if (version !== 2 && version !== SCHEMA_VERSION) throw new Error('unsupported params schema');
   const body = payload.params ?? payload;
   if (!isRecord(body)) throw new Error('p params must be an object');
   return normalizeParams(body);
@@ -274,15 +364,15 @@ export function paramsFromQuery(
 export function paramsQuery(params: SonifyParams): string {
   const normalized = normalizeParams(params);
   if (paramsEqual(normalized, DEFAULT_PARAMS)) return '';
-  return `&p=${encodeParams(normalized)}`;
+  return `&p=${encodeParams(normalized, LINK_SCHEMA_VERSION)}`;
 }
 
 export function layerHumanize(params: SonifyParams): boolean {
-  return params.humanize !== 0 || params.breath !== 0;
+  return numberValue(params, 'humanize') !== 0 || numberValue(params, 'breath') !== 0;
 }
 
 export function layerColor(params: SonifyParams): boolean {
-  return params.color !== 0;
+  return numberValue(params, 'color') !== 0;
 }
 
 export type ParamLayers = { humanize: boolean; color: boolean };
@@ -308,23 +398,32 @@ export function baseBpmFor(variant: string, ensemble: string): number {
   return 90;
 }
 
-export function paramValueText(field: ParamsFieldSchema, value: number): string {
-  const text = value.toFixed(field.step >= 1 ? 0 : 2);
-  const signed = field.signed && value > 0 ? `+${text}` : text;
+export function paramValueText(field: ParamsFieldSchema, value: ParamValue): string {
+  if (field.type === 'choice') {
+    const choice = field.choices.find((item) => item.value === value);
+    return choice?.label ?? String(value);
+  }
+  if (field.type === 'toggle') return value ? 'Bật' : 'Tắt';
+  const number = typeof value === 'number' ? value : Number(value);
+  const text = number.toFixed(field.step >= 1 ? 0 : 2);
+  const signed = field.signed && number > 0 ? `+${text}` : text;
   return field.unit ? `${signed}${field.unit}` : signed;
 }
 
 /** Soft copy only; never blocks a render. */
 export function warningsFor(params: SonifyParams): ParamWarning[] {
   const warnings: ParamWarning[] = [];
-  if (params.humanize > HUMANIZE_SOFT_WARNING) {
-    warnings.push({ code: 'high_humanize', key: 'humanize', value: params.humanize });
+  const humanize = numberValue(params, 'humanize');
+  const breath = numberValue(params, 'breath');
+  if (humanize > HUMANIZE_SOFT_WARNING) {
+    warnings.push({ code: 'high_humanize', key: 'humanize', value: humanize });
   }
-  if (params.breath > BREATH_SOFT_WARNING) {
-    warnings.push({ code: 'high_breath', key: 'breath', value: params.breath });
+  if (breath > BREATH_SOFT_WARNING) {
+    warnings.push({ code: 'high_breath', key: 'breath', value: breath });
   }
   return warnings;
 }
+
 
 export type SonifyProfile = {
   id: string;
@@ -400,7 +499,9 @@ function legacyParams(raw: unknown): unknown {
 export function normalizeProfileStore(raw: unknown, fallback?: SonifyParams): ProfileStore {
   const base = initialProfileStore(fallback);
   if (!isRecord(raw) || !Array.isArray(raw.profiles)) return base;
-  const legacy = typeof raw.schema === 'number' && raw.schema < SCHEMA_VERSION;
+  // Only schema 1 treated `noise` as a multiplier. Schema 2 already used the
+  // absolute percent, so bumping to 3 must not scale it again.
+  const legacy = raw.schema === 1;
   const profiles: SonifyProfile[] = [];
   const seen = new Set<string>();
   for (const item of raw.profiles) {

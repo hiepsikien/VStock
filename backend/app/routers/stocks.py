@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import time
 from datetime import date
 from pathlib import Path
 from typing import Literal
@@ -727,7 +729,7 @@ async def get_params_schema(response: Response) -> dict:
 async def validate_params(payload: dict) -> dict:
     """Normalize knobs without rendering anything."""
     schema = payload.get("schema", SCHEMA_VERSION)
-    if schema != SCHEMA_VERSION:
+    if schema not in (2, SCHEMA_VERSION):
         raise HTTPException(status_code=400, detail="Unsupported params schema")
     raw = payload.get("params", {})
     if not isinstance(raw, dict):
@@ -748,6 +750,62 @@ async def validate_params(payload: dict) -> dict:
 async def get_params_presets(response: Response) -> list[dict]:
     response.headers["Cache-Control"] = "public, max-age=300"
     return presets_payload()
+
+
+_EVENT_NAMES = {
+    "ab_toggle",
+    "profile_save",
+    "knob_change",
+    "prefetch_fail",
+}
+
+
+def _event_log_path() -> Path:
+    configured = os.environ.get("VSTOCK_SONIFY_EVENT_LOG")
+    if configured:
+        return Path(configured)
+    return Path(__file__).resolve().parents[2] / "data" / "sonify-events.jsonl"
+
+
+@router.post("/sonify/events")
+async def post_sonify_events(payload: dict) -> dict:
+    """Small batch sink for the client's listening telemetry.
+
+    One JSON object per line. No account ids, no free text. The endpoint is
+    intentionally boring: the gate only needs counts by event name and day.
+    """
+    events = payload.get("events")
+    if not isinstance(events, list):
+        raise HTTPException(status_code=400, detail="events must be a list")
+    if len(events) > 100:
+        raise HTTPException(status_code=400, detail="too many events")
+    accepted = 0
+    rows: list[dict] = []
+    for item in events:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if name not in _EVENT_NAMES:
+            continue
+        body = item.get("payload", {})
+        if body is not None and not isinstance(body, dict):
+            body = {}
+        rows.append(
+            {
+                "name": name,
+                "at": item.get("at") or time.time(),
+                "payload": body or {},
+            }
+        )
+        accepted += 1
+    if not rows:
+        raise HTTPException(status_code=400, detail="no known events")
+    path = _event_log_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, separators=(",", ":"), ensure_ascii=False) + "\n")
+    return {"accepted": accepted}
 
 
 @router.get("/sonify/dfi/signatures", response_model=list[DfiSignature])

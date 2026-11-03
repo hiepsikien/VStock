@@ -41,6 +41,7 @@ import { readLink, writeLink } from './link';
 import {
   baseBpmFor,
   isDefaultParams,
+  normalizeParams,
   paramsKey,
   paramsLayers,
   type SonifyParams,
@@ -49,6 +50,7 @@ import { RoomFrame } from './RoomFrame';
 import { ReplayPlayer, type SeekCommand } from './ReplayPlayer';
 import { TopBar } from './TopBar';
 import { useTuning } from './tuning';
+import { trackEvent } from './telemetry';
 import { useKeyboard } from './useKeyboard';
 import { useQuotes } from './useQuotes';
 import {
@@ -162,6 +164,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
       : 'classic',
   );
   const {
+    params,
     heardParams,
     draftDirty,
     savedDirty,
@@ -195,6 +198,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const [mediaDuration, setMediaDuration] = useState(0);
   const [playEpoch, setPlayEpoch] = useState(0);
   const [startSec, setStartSec] = useState(0);
+  const [abSide, setAbSide] = useState<'A' | 'B'>('A');
+  const pendingSeek = useRef<number | null>(null);
   const [seek, setSeek] = useState<SeekCommand | null>(null);
   const [focus, setFocus] = useState<ChartFocus | null>(null);
   const [focusSignal, setFocusSignal] = useState(0);
@@ -321,6 +326,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
   useEffect(() => {
     if (signatureRef.current === signature) return;
     signatureRef.current = signature;
+    setAbSide('A');
     clearPlayback();
   }, [clearPlayback, signature]);
 
@@ -740,6 +746,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
         }
         const attempt = (queue.current.attempts.get(url) ?? 0) + 1;
         queue.current.attempts.set(url, attempt);
+        void trackEvent('prefetch_fail', { span, index: next, attempt });
         const delay = retryDelay(attempt);
         if (!delay) {
           // Three failed attempts: rest for a minute, then try again. Never
@@ -955,6 +962,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
     const chosenEnsemble = ensemble;
     const shaped = paramsOverride ?? heardParams;
     const chosenDate = date;
+    const resumeAt = pendingSeek.current;
+    pendingSeek.current = null;
     void (async () => {
       try {
         if (chosenSpan === '1D') {
@@ -994,8 +1003,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
           }
           setMovements(null);
           setIndex(0);
-          setMovementTime(0);
-          setStartSec(0);
+          setMovementTime(resumeAt ?? 0);
+          setStartSec(resumeAt ?? 0);
           setSeek(null);
           setAudible(false);
           setPlaying(true);
@@ -1027,8 +1036,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
         setAsOf(plan.asOf ?? '');
         setHomeKey(plan.keyLabel ?? '');
         setIndex(0);
-        setMovementTime(0);
-        setStartSec(0);
+        setMovementTime(resumeAt ?? 0);
+        setStartSec(resumeAt ?? 0);
         setSeek(null);
         setResting(false);
         setAudible(false);
@@ -1089,6 +1098,11 @@ export function ReplayRoom({ wide, onMode }: Props) {
 
   const onPlay = useCallback(() => {
     if (composing) return;
+    if (abSide === 'B') {
+      setAbSide('A');
+      requestPlay();
+      return;
+    }
     if (draftDirty || savedDirty) {
       requestPlay();
       return;
@@ -1108,6 +1122,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
     }
     listen();
   }, [
+    abSide,
     beginRest,
     composing,
     draftDirty,
@@ -1190,6 +1205,17 @@ export function ReplayRoom({ wide, onMode }: Props) {
     savedDirty,
     span,
   ]);
+
+  const switchAB = useCallback(
+    (side: 'A' | 'B') => {
+      if (side === abSide) return;
+      pendingSeek.current = movementTime;
+      setAbSide(side);
+      void trackEvent('ab_toggle', { side, span });
+      listen(side === 'A' ? heardParams : normalizeParams(params));
+    },
+    [abSide, heardParams, listen, movementTime, params, span],
+  );
 
   const onStageRatio = useCallback(
     (ratio: number) => {
@@ -1775,6 +1801,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
       wide={wide}
       tuningBaseBpm={baseBpmFor(variant, ensemble)}
       tuningVariant={variant}
+      tuningSpan={span}
       topBar={
         <TopBar
           mode="replay"
@@ -1850,6 +1877,8 @@ export function ReplayRoom({ wide, onMode }: Props) {
           onPlay={onPlay}
           onPause={onPause}
           onReplay={onReplay}
+          abSide={abSide}
+          onAB={switchAB}
           onMute={() => setMuted((value) => !value)}
           onTimeline={span === '1D' ? onFileScrub : onWorkScrub}
           notice={autoSavedNotice}

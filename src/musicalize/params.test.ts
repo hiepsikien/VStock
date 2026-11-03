@@ -1,7 +1,11 @@
 import {
+  ALL_TIERS,
   DEFAULT_HASH,
   DEFAULT_PARAMS,
+  LINK_SCHEMA_VERSION,
   PARAM_FIELDS,
+  applyTiers,
+  visibleFields,
   baseBpmFor,
   createProfile,
   decodeParams,
@@ -42,14 +46,14 @@ function ok(value: boolean, label: string) {
   if (!value) throw new Error(label);
 }
 
-function same(a: Record<string, number>, b: Record<string, number>, label = '') {
+function same(a: Record<string, number | string | boolean>, b: Record<string, number | string | boolean>, label = '') {
   if (!paramsEqual(a, b)) {
     throw new Error(`${label} ${JSON.stringify(a)} != ${JSON.stringify(b)}`);
   }
 }
 
-ok(DEFAULT_HASH === '8653a4d3fcad', 'default hash is pinned');
-ok(Object.keys(DEFAULT_PARAMS).length === 10, 'ten knobs');
+ok(DEFAULT_HASH === 'ce9ab87f3a0d', 'default hash is pinned');
+ok(Object.keys(DEFAULT_PARAMS).length === 16, 'sixteen knobs');
 
 const tempo = PARAM_FIELDS.find((field) => field.key === 'tempo');
 ok(Boolean(tempo), 'tempo field exists');
@@ -131,7 +135,7 @@ equal(
 );
 equal(
   paramsKey({ ...DEFAULT_PARAMS, tempo: 0.96 }),
-  '{"params":{"breath":1.0,"color":1.0,"density":1.0,"dynamics":1.0,"guitar_bass":0.0,"guitar_high":0.0,"guitar_mid":0.0,"humanize":1.0,"noise":0.1,"tempo":0.96},"schema":2}',
+  '{"params":{"breath":1.0,"color":1.0,"density":1.0,"dynamics":1.0,"frame":"auto","guitar_bass":0.0,"guitar_high":0.0,"guitar_mid":0.0,"harmony":1.0,"humanize":1.0,"meter":"auto","motion":1.0,"noise":0.1,"register":1.0,"technique":1.0,"tempo":0.96},"schema":3}',
   'canonical text matches the server',
 );
 
@@ -239,6 +243,19 @@ equal(
   'schema 1 noise multiplier becomes a percent',
 );
 
+const v2Store = parseProfileStore(
+  JSON.stringify({
+    schema: 2,
+    activeId: 'v2',
+    profiles: [{ id: 'v2', name: 'V2', params: { ...DEFAULT_PARAMS, noise: 0.2 } }],
+  }),
+);
+equal(
+  v2Store?.profiles.find((profile) => profile.id === 'v2')?.params.noise,
+  0.2,
+  'schema 2 noise is not scaled again',
+);
+
 let playStore = initialProfileStore();
 const playDefault = playStore.profiles[0].params;
 let plan = planPlayParams(playStore, playDefault, playDefault);
@@ -262,3 +279,14 @@ equal(plan.store.profiles.length, 1, 'a default draft never creates an empty cop
 equal(plan.savedName, null, 'a default draft has no notice');
 
 console.log('musicalize params tests passed');
+
+
+ok(ALL_TIERS.join(',') === 'A,B,C', 'all tiers bundled');
+ok(visibleFields('guitar', '1D').some((field) => field.key === 'technique'), 'guitar sees technique');
+ok(!visibleFields('symphony', '1D').some((field) => field.key === 'technique'), 'symphony hides technique');
+ok(visibleFields('symphony', '1M').some((field) => field.key === 'frame'), 'long span sees frame');
+ok(!visibleFields('symphony', '1D').some((field) => field.key === 'frame'), 'daily hides frame');
+const tiered = applyTiers({ ...DEFAULT_PARAMS, harmony: 0, technique: 2 }, ['A']);
+ok(tiered.harmony === 1 && tiered.technique === 1, 'tier A strips B/C');
+ok(normalizeParams({ frame: 'nope' }).frame === 'auto', 'unknown choice falls back');
+ok(LINK_SCHEMA_VERSION === 2, 'link schema stays 2');

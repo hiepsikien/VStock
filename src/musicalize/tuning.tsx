@@ -10,6 +10,7 @@ import React, {
 import { fetchParamsSchema } from '../api/client';
 import { readLink } from './link';
 import {
+  BUNDLED_TIERS,
   DEFAULT_PARAMS,
   DEFAULT_PROFILE_ID,
   activeProfile,
@@ -18,6 +19,7 @@ import {
   duplicateProfile,
   initialProfileStore,
   normalizeParams,
+  PARAM_FIELD_BY_KEY,
   paramsEqual,
   parseProfileStore,
   planPlayParams,
@@ -27,14 +29,18 @@ import {
   serializeProfileStore,
   updateProfileParams,
   type ProfileStore,
+  type ParamValue,
   type SonifyParams,
   type SonifyProfile,
 } from './params';
 import { loadProfileStore, saveProfileStore } from './profileStorage';
+import { trackEvent } from './telemetry';
 
 type TuningValue = {
   /** Server kill switch plus the build-time flag. */
   enabled: boolean;
+  /** Rollout tiers the server currently allows. */
+  enabledTiers: string[];
   open: boolean;
   setOpen: (open: boolean) => void;
   store: ProfileStore;
@@ -55,7 +61,7 @@ type TuningValue = {
   playNonce: number;
   /** Brief confirmation when Play auto-saved the draft. */
   autoSavedNotice: string | null;
-  setParam: (key: string, value: number) => void;
+  setParam: (key: string, value: ParamValue) => void;
   select: (id: string) => void;
   /** Start a new listen with the latest saved params. */
   requestPlay: () => void;
@@ -72,6 +78,13 @@ type TuningValue = {
 
 const TuningContext = createContext<TuningValue | null>(null);
 
+function changedKnobs(params: SonifyParams): number {
+  return Object.entries(params).filter(([key, value]) => {
+    const field = PARAM_FIELD_BY_KEY[key];
+    return field ? value !== field.default : false;
+  }).length;
+}
+
 const envEnabled =
   typeof process === 'undefined' || process.env.EXPO_PUBLIC_SONIFY_PARAMS !== '0';
 
@@ -87,6 +100,7 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
   );
   const [open, setOpen] = useState(false);
   const [schemaEnabled, setSchemaEnabled] = useState(true);
+  const [enabledTiers, setEnabledTiers] = useState<string[]>(BUNDLED_TIERS);
   const [loaded, setLoaded] = useState(false);
   const [playNonce, setPlayNonce] = useState(0);
   const [autoSavedNotice, setAutoSavedNotice] = useState<string | null>(null);
@@ -123,7 +137,12 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
     void (async () => {
       try {
         const schema = await fetchParamsSchema(controller.signal);
-        if (!controller.signal.aborted) setSchemaEnabled(schema.enabled !== false);
+        if (!controller.signal.aborted) {
+          setSchemaEnabled(schema.enabled !== false);
+          if (Array.isArray(schema.enabledTiers) && schema.enabledTiers.length) {
+            setEnabledTiers(schema.enabledTiers);
+          }
+        }
       } catch {
         // Offline boot keeps the bundled schema; the server flag is the closer.
       }
@@ -152,7 +171,7 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
   const draftDirty = !paramsEqual(params, savedParams);
   const savedDirty = !paramsEqual(savedParams, heardParams);
 
-  const setParam = useCallback((key: string, value: number) => {
+  const setParam = useCallback((key: string, value: ParamValue) => {
     setParams((current) => normalizeParams({ ...current, [key]: value }));
   }, []);
 
@@ -174,7 +193,10 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
     if (plan.store !== store) setStore(plan.store);
     if (!paramsEqual(plan.draft, params)) setParams(plan.draft);
     if (!paramsEqual(plan.savedParams, savedParams)) setSavedParams(plan.savedParams);
-    if (plan.savedName) setAutoSavedNotice(`Đã lưu vào · ${plan.savedName}`);
+    if (plan.savedName) {
+      setAutoSavedNotice(`Đã lưu vào · ${plan.savedName}`);
+      void trackEvent('profile_save', { source: 'play', knobs: changedKnobs(plan.savedParams) });
+    }
     setHeardParams(plan.savedParams);
     setPlayNonce((nonce) => nonce + 1);
   }, [params, savedParams, store]);
@@ -192,12 +214,14 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
       setStore(next.store);
       setParams(next.profile.params);
       setSavedParams(next.profile.params);
+      void trackEvent('profile_save', { source: 'create', knobs: changedKnobs(next.profile.params) });
       return;
     }
     const shaped = normalizeParams(params);
     setStore(updateProfileParams(store, profile.id, shaped));
     setParams(shaped);
     setSavedParams(shaped);
+    void trackEvent('profile_save', { source: 'save', knobs: changedKnobs(shaped) });
   }, [params, profile.id, store]);
 
   const addProfile = useCallback(
@@ -269,6 +293,7 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<TuningValue>(
     () => ({
       enabled,
+      enabledTiers,
       open,
       setOpen,
       store,
@@ -301,6 +326,7 @@ export function TuningProvider({ children }: { children: React.ReactNode }) {
       draftDirty,
       duplicate,
       enabled,
+      enabledTiers,
       exportProfiles,
       heardParams,
       importProfiles,

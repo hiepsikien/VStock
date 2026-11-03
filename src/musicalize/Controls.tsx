@@ -42,6 +42,8 @@ type ReplayProps = {
   onPlay: () => void;
   onPause: () => void;
   onReplay: () => void;
+  abSide?: 'A' | 'B';
+  onAB?: (side: 'A' | 'B') => void;
   onMute?: () => void;
   onTimeline: (ratio: number) => void;
   status?: string | null;
@@ -102,6 +104,8 @@ function ReplayControls({
   onPause,
   onReplay,
   onMute,
+  abSide,
+  onAB,
   onTimeline,
   status,
   notice,
@@ -246,6 +250,26 @@ function ReplayControls({
             />
           </Svg>
         </MotionPressable>
+
+        {onAB ? (
+          <View style={styles.abGroup}>
+            {(['A', 'B'] as const).map((side) => (
+              <MotionPressable
+                key={side}
+                onPress={() => onAB(side)}
+                hitSlop={4}
+                style={[styles.abButton, abSide === side && styles.abButtonActive]}
+                accessibilityRole="button"
+                accessibilityLabel={`Nghe bản ${side}`}
+                accessibilityState={{ selected: abSide === side }}
+              >
+                <Text style={[type.monoSmall, styles.abText, abSide === side && styles.abTextActive]}>
+                  {side}
+                </Text>
+              </MotionPressable>
+            ))}
+          </View>
+        ) : null}
 
         {onMute ? (
           <MotionPressable
@@ -510,6 +534,30 @@ const styles = StyleSheet.create({
     height: 1,
     marginTop: 3,
     backgroundColor: 'transparent',
+  },
+  abGroup: {
+    flexDirection: 'row',
+    gap: 4,
+    marginLeft: 4,
+  },
+  abButton: {
+    minWidth: 26,
+    height: 26,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: palette.hairline,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  abButtonActive: {
+    borderColor: palette.sound,
+    backgroundColor: palette.soundSoft,
+  },
+  abText: {
+    color: palette.textMuted,
+  },
+  abTextActive: {
+    color: palette.sound,
   },
   mute: {
     width: 32,

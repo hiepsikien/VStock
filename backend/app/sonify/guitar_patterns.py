@@ -1115,7 +1115,7 @@ def _melody_activity(ctx: _Ctx, bars: list[int]) -> float:
     return changes / total
 
 
-def _dominant_pattern(ctx: _Ctx, phrases: list[Phrase], bars: list[int]) -> str:
+def _dominant_pattern_auto(ctx: _Ctx, phrases: list[Phrase], bars: list[int]) -> str:
     """One pattern for a whole body, a formal section, or one weekly session."""
     mood = _majority_mood(ctx, bars)
     if ctx.ensemble == "brouwer":
@@ -1185,6 +1185,40 @@ def _dominant_pattern(ctx: _Ctx, phrases: list[Phrase], bars: list[int]) -> str:
     if holds:
         return "tremolo"
     return "preludio"
+
+
+def _dominant_pattern(ctx: _Ctx, phrases: list[Phrase], bars: list[int]) -> str:
+    """Apply the technique knob after the existing mood/meter decision."""
+    primary = _dominant_pattern_auto(ctx, phrases, bars)
+    from app.sonify.params import active
+
+    technique = active("technique")
+    if technique == 1.0:
+        return primary
+    simple = technique < 1.0
+    if ctx.ensemble == "barrios":
+        if simple:
+            return "andante"
+        return "tremolo" if ctx.bpm >= 90 else "choro"
+    if ctx.ensemble == "villa":
+        if simple:
+            return "chord_melody"
+        if ctx.kind == "4/4" and ctx.bpm > 72:
+            return "etude1"
+        return "villa_pattern"
+    if ctx.ensemble == "classic":
+        return "study" if simple else "galop"
+    if ctx.ensemble == "torroba":
+        if simple:
+            return "castillo"
+        return "torroba_tremolo" if ctx.bpm >= 90 else "danza"
+    if ctx.ensemble == "bach":
+        if simple:
+            return "bach_sarabande"
+        return "bach_gigue" if ctx.kind == "6/8" else "bach_bourree"
+    if ctx.ensemble == "brouwer":
+        return "brouwer_etude" if simple else "noviembre"
+    return primary
 
 
 def _slot_contrast(section) -> tuple[int, bool]:

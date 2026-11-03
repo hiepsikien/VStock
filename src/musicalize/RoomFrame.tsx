@@ -15,6 +15,7 @@ type Props = {
   /** The room's unmodified tempo, so the tuning panel can show the derived BPM. */
   tuningBaseBpm?: number;
   tuningVariant?: string;
+  tuningSpan?: string;
 };
 
 /** Two columns from 960px. Below that: stage, dock, then the chooser rail. */
@@ -26,6 +27,7 @@ export function RoomFrame({
   topBar,
   tuningBaseBpm,
   tuningVariant,
+  tuningSpan,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
@@ -55,7 +57,7 @@ export function RoomFrame({
           </View>
           {push ? <View style={{ width: DRAWER_WIDTH }} /> : null}
         </View>
-        <TuningPanel baseBpm={tuningBaseBpm} variant={tuningVariant} />
+        <TuningPanel baseBpm={tuningBaseBpm} variant={tuningVariant} span={tuningSpan} />
       </View>
     );
   }
@@ -70,7 +72,7 @@ export function RoomFrame({
       <View style={{ height: stageHeight }}>{stage}</View>
       <View style={[styles.dock, styles.dockNarrow]}>{controls}</View>
       <View style={styles.narrowChooser}>{chooser}</View>
-      <TuningPanel baseBpm={tuningBaseBpm} variant={tuningVariant} />
+      <TuningPanel baseBpm={tuningBaseBpm} variant={tuningVariant} span={tuningSpan} />
     </View>
   );
 }

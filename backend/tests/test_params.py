@@ -29,7 +29,7 @@ from app.sonify.params import (
 
 
 def test_default_hash_is_pinned() -> None:
-    assert DEFAULT_HASH == "8653a4d3fcad"
+    assert DEFAULT_HASH == "ce9ab87f3a0d"
     assert params_hash(DEFAULT_PARAMS) == DEFAULT_HASH
 
 

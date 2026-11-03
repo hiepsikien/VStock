@@ -1,4 +1,4 @@
-"""Tier A parameter profiles for the sonify pipeline.
+"""Parameter profiles for the sonify pipeline.
 
 One schema lives here. The API serves it, the cache mark is a pure function of
 the normalized values, and the render pipeline reads the active values through
@@ -20,10 +20,22 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+LINK_SCHEMA_VERSION = 2
 P_MAX_LENGTH = 2048
 HUMANIZE_SOFT_WARNING = 1.1
 BREATH_SOFT_WARNING = 1.2
+
+TIERS = ("A", "B", "C")
+# Local development ships every tier. A rollout sets VSTOCK_SONIFY_PARAMS_TIER=A
+# (or A,B) to hide the higher tiers without changing code.
+DEFAULT_TIERS = TIERS
+
+
+@dataclass(frozen=True)
+class ParamChoice:
+    value: str
+    label: str
 
 
 @dataclass(frozen=True)
@@ -34,17 +46,25 @@ class ParamField:
     minimum: float
     maximum: float
     step: float
-    default: float
-    unit: str
-    description: str
+    default: float | str | bool
+    unit: str = ""
+    description: str = ""
     # Display a leading "+" for positive integers. The client uses this
     # explicitly instead of inferring signedness from the step.
     signed: bool = False
+    kind: str = "number"
+    choices: tuple[ParamChoice, ...] = ()
+    auto: bool = False
+    applies_to: tuple[str, ...] = ()
+    tier: str = "A"
 
 
 PERFORMANCE = "performance"
 TEXTURE = "texture"
 GUITAR = "guitar"
+HARMONY = "harmony"
+SPACE = "space"
+FORM = "form"
 
 FIELDS: tuple[ParamField, ...] = (
     ParamField(
@@ -160,14 +180,109 @@ FIELDS: tuple[ParamField, ...] = (
         "Độ lệch velocity của bè bass (ngón cái). 0 là bản hiện tại.",
         signed=True,
     ),
+    ParamField(
+        "harmony",
+        "Màu hòa âm",
+        HARMONY,
+        0.0,
+        2.0,
+        0.05,
+        1.0,
+        "",
+        "0 là tối giản trong vocabulary của variant; 1 là hiện tại; 2 là nhiều màu hơn.",
+        tier="B",
+    ),
+    ParamField(
+        "register",
+        "Vùng âm",
+        SPACE,
+        0.0,
+        2.0,
+        0.05,
+        1.0,
+        "",
+        "0 thấp/ấm, 1 hiện tại, 2 cao/sáng. Dịch biên độ, không đổi giọng.",
+        tier="B",
+    ),
+    ParamField(
+        "technique",
+        "Kỹ thuật",
+        GUITAR,
+        0.0,
+        2.0,
+        0.05,
+        1.0,
+        "",
+        "0 dễ, 1 hiện tại, 2 điêu luyện. Chỉ áp dụng cho guitar.",
+        applies_to=("guitar",),
+        tier="C",
+    ),
+    ParamField(
+        "motion",
+        "Nhịp hòa âm",
+        HARMONY,
+        0.0,
+        2.0,
+        0.05,
+        1.0,
+        "",
+        "0 giữ hợp âm lâu, 1 hiện tại, 2 đổi hợp âm dồn dập.",
+        tier="C",
+    ),
+    ParamField(
+        "frame",
+        "Khung",
+        FORM,
+        0.0,
+        0.0,
+        0.0,
+        "auto",
+        "",
+        "Độ dài warm-up/cool-down cho span dài. Auto giữ hiện tại.",
+        kind="choice",
+        choices=(
+            ParamChoice("auto", "Tự động"),
+            ParamChoice("none", "Không khung"),
+            ParamChoice("short", "Ngắn"),
+            ParamChoice("long", "Dài"),
+        ),
+        auto=True,
+        applies_to=("1M", "3M", "1Y"),
+        tier="B",
+    ),
+    ParamField(
+        "meter",
+        "Tiết nhịp",
+        FORM,
+        0.0,
+        0.0,
+        0.0,
+        "auto",
+        "",
+        "Chỉ mở nơi đã có retarget. Auto giữ hiện tại.",
+        kind="choice",
+        choices=(
+            ParamChoice("auto", "Tự động"),
+            ParamChoice("4/4", "4/4"),
+            ParamChoice("3/4", "3/4"),
+            ParamChoice("6/8", "6/8"),
+            ParamChoice("12/8", "12/8"),
+        ),
+        auto=True,
+        applies_to=("guitar",),
+        tier="B",
+    ),
 )
 
 FIELD_BY_KEY: dict[str, ParamField] = {field.key: field for field in FIELDS}
-DEFAULT_PARAMS: dict[str, float] = {field.key: field.default for field in FIELDS}
+DEFAULT_PARAMS: dict[str, float | str | bool] = {field.key: field.default for field in FIELDS}
 GROUPS: tuple[tuple[str, str], ...] = (
     (PERFORMANCE, "Trình diễn"),
     (TEXTURE, "Sâu hơn"),
     (GUITAR, "Guitar"),
+    (HARMONY, "Hòa âm"),
+    (SPACE, "Không gian"),
+    (FORM, "Dáng"),
 )
 
 # The unmodified tempo of each line. The schema carries this so the drawer can
@@ -195,7 +310,8 @@ def base_bpm(variant: str, ensemble: str = "classic") -> int:
         return value.get(ensemble, value["classic"])
     return value
 
-Params = dict[str, float]
+
+Params = dict[str, float | str | bool]
 
 
 def _round_step(value: float, step: float) -> float:
@@ -214,59 +330,132 @@ def _coerce_number(key: str, value: Any) -> float:
     return number
 
 
-def normalize_with_warnings(raw: Mapping[str, Any] | None) -> tuple[Params, list[dict[str, Any]]]:
+def enabled_tiers() -> tuple[str, ...]:
+    raw = os.environ.get("VSTOCK_SONIFY_PARAMS_TIER")
+    if raw is None:
+        return DEFAULT_TIERS
+    tokens = tuple(token.strip().upper() for token in raw.split(",") if token.strip())
+    found = tuple(token for token in TIERS if token in tokens)
+    return found or ("A",)
+
+
+def apply_tiers(
+    params: Mapping[str, Any],
+    tiers: tuple[str, ...] | None = None,
+) -> Params:
+    active_tiers = enabled_tiers() if tiers is None else tiers
+    shaped = dict(params)
+    for field in FIELDS:
+        if field.tier not in active_tiers:
+            shaped[field.key] = field.default
+    return shaped
+
+
+def _normalize_value(field: ParamField, value: Any) -> tuple[float | str | bool, str | None]:
+    if field.kind == "choice":
+        if isinstance(value, str):
+            allowed = {choice.value for choice in field.choices}
+            if value in allowed:
+                return value, None
+            return field.default, "unknown_choice"
+        return field.default, "unknown_choice"
+    number = _coerce_number(field.key, value)
+    shaped = min(field.maximum, max(field.minimum, _round_step(number, field.step)))
+    shaped = min(field.maximum, max(field.minimum, _round_step(shaped, field.step)))
+    return shaped, None
+
+
+def normalize_with_warnings(
+    raw: Mapping[str, Any] | None,
+    *,
+    tiers: tuple[str, ...] | None = None,
+) -> tuple[Params, list[dict[str, Any]]]:
     """Return canonical params and warnings. Unknown keys are skipped."""
     source: Mapping[str, Any] = raw or {}
     if not isinstance(source, Mapping):
         raise ValueError("params must be an object")
+    active_tiers = enabled_tiers() if tiers is None else tiers
     params: Params = {}
     warnings: list[dict[str, Any]] = []
     for key, field in FIELD_BY_KEY.items():
         if key not in source:
             params[key] = field.default
-            continue
-        number = _coerce_number(key, source[key])
-        value = min(field.maximum, max(field.minimum, _round_step(number, field.step)))
-        value = min(field.maximum, max(field.minimum, _round_step(value, field.step)))
-        if value != _round_step(number, field.step):
-            warnings.append({"code": "clamped", "key": key, "value": number})
-        params[key] = value
+        else:
+            value, warning = _normalize_value(field, source[key])
+            params[key] = value
+            if warning == "unknown_choice":
+                warnings.append(
+                    {"code": "unknown_choice", "key": key, "value": source[key]}
+                )
+            elif field.kind == "number":
+                number = _coerce_number(key, source[key])
+                if value != _round_step(number, field.step):
+                    warnings.append({"code": "clamped", "key": key, "value": number})
+        if field.tier not in active_tiers:
+            params[key] = field.default
+            warnings.append({"code": "tier_disabled", "key": key})
     for key in source:
         if key not in FIELD_BY_KEY:
             warnings.append({"code": "unknown_key", "key": str(key)})
-    if params["humanize"] > HUMANIZE_SOFT_WARNING:
+    humanize = params["humanize"]
+    breath = params["breath"]
+    if isinstance(humanize, float) and humanize > HUMANIZE_SOFT_WARNING:
         warnings.append(
-            {"code": "high_humanize", "key": "humanize", "value": params["humanize"]}
+            {"code": "high_humanize", "key": "humanize", "value": humanize}
         )
-    if params["breath"] > BREATH_SOFT_WARNING:
-        warnings.append({"code": "high_breath", "key": "breath", "value": params["breath"]})
+    if isinstance(breath, float) and breath > BREATH_SOFT_WARNING:
+        warnings.append({"code": "high_breath", "key": "breath", "value": breath})
     return params, warnings
 
 
-def normalize_params(raw: Mapping[str, Any] | None) -> Params:
-    params, _warnings = normalize_with_warnings(raw)
+def normalize_params(
+    raw: Mapping[str, Any] | None,
+    *,
+    tiers: tuple[str, ...] | None = None,
+) -> Params:
+    params, _warnings = normalize_with_warnings(raw, tiers=tiers)
     return params
 
 
-def params_key(params: Mapping[str, Any] | None) -> str:
+def params_key(
+    params: Mapping[str, Any] | None,
+    *,
+    schema: int = SCHEMA_VERSION,
+    tiers: tuple[str, ...] | None = None,
+) -> str:
     """Canonical JSON string, used by the client as a React key."""
-    canonical = {"schema": SCHEMA_VERSION, "params": normalize_params(params)}
+    canonical = {
+        "schema": schema,
+        "params": normalize_params(params, tiers=tiers),
+    }
     return json.dumps(canonical, separators=(",", ":"), sort_keys=True)
 
 
-def params_hash(params: Mapping[str, Any] | None) -> str:
-    return hashlib.sha256(params_key(params).encode("utf-8")).hexdigest()[:12]
+def params_hash(
+    params: Mapping[str, Any] | None,
+    *,
+    schema: int = SCHEMA_VERSION,
+    tiers: tuple[str, ...] | None = None,
+) -> str:
+    return hashlib.sha256(
+        params_key(params, schema=schema, tiers=tiers).encode("utf-8")
+    ).hexdigest()[:12]
 
 
-DEFAULT_HASH = params_hash(DEFAULT_PARAMS)
+DEFAULT_HASH = params_hash(DEFAULT_PARAMS, tiers=TIERS)
 
 
-def encode_params(params: Mapping[str, Any] | None) -> str:
-    payload = params_key(params).encode("utf-8")
+def encode_params(
+    params: Mapping[str, Any] | None,
+    *,
+    schema: int = SCHEMA_VERSION,
+    tiers: tuple[str, ...] | None = None,
+) -> str:
+    payload = params_key(params, schema=schema, tiers=tiers).encode("utf-8")
     return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
 
 
-def decode_params(text: str) -> Params:
+def decode_params(text: str, *, tiers: tuple[str, ...] | None = None) -> Params:
     if not isinstance(text, str) or not text:
         raise ValueError("p is empty")
     if len(text) > P_MAX_LENGTH:
@@ -282,21 +471,17 @@ def decode_params(text: str) -> Params:
         raise ValueError("p is not JSON") from exc
     if not isinstance(payload, dict):
         raise ValueError("p must decode to an object")
-    if payload.get("schema", SCHEMA_VERSION) != SCHEMA_VERSION:
+    version = payload.get("schema", SCHEMA_VERSION)
+    if version not in (2, SCHEMA_VERSION):
         raise ValueError("unsupported params schema")
     body = payload.get("params", payload)
     if not isinstance(body, dict):
         raise ValueError("p params must be an object")
-    return normalize_params(body)
+    return normalize_params(body, tiers=tiers)
 
 
 def params_from_flags(humanize: bool = True, color: bool = True) -> Params:
-    """Map the legacy boolean query onto the new params.
-
-    `humanize=false` turned off the whole post-compose layer, tempo clock
-    included, so it also pins breath to zero. That is what keeps the old `_nh`
-    cache valid.
-    """
+    """Map the legacy boolean query onto the new params."""
     params = dict(DEFAULT_PARAMS)
     if not humanize:
         params["humanize"] = 0.0
@@ -347,7 +532,7 @@ def params_query(params: Mapping[str, Any] | None) -> str:
     normalized = normalize_params(params)
     if normalized == DEFAULT_PARAMS:
         return ""
-    return f"&p={encode_params(normalized)}"
+    return f"&p={encode_params(normalized, schema=LINK_SCHEMA_VERSION)}"
 
 
 def params_layers(params: Mapping[str, Any] | None) -> tuple[bool, bool]:
@@ -377,14 +562,19 @@ def params_from_query(
     return params_from_flags(humanize=humanize, color=color)
 
 
-def schema_payload(*, enabled: bool | None = None) -> dict[str, Any]:
+def schema_payload(
+    *,
+    enabled: bool | None = None,
+    tiers: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
+    active_tiers = enabled_tiers() if tiers is None else tiers
     groups: list[dict[str, Any]] = []
     for group_id, label in GROUPS:
         fields = [
             {
                 "key": field.key,
                 "label": field.label,
-                "type": "number",
+                "type": field.kind,
                 "min": field.minimum,
                 "max": field.maximum,
                 "step": field.step,
@@ -392,6 +582,13 @@ def schema_payload(*, enabled: bool | None = None) -> dict[str, Any]:
                 "unit": field.unit,
                 "description": field.description,
                 "signed": field.signed,
+                "choices": [
+                    {"value": choice.value, "label": choice.label}
+                    for choice in field.choices
+                ],
+                "auto": field.auto,
+                "appliesTo": list(field.applies_to),
+                "tier": field.tier,
             }
             for field in FIELDS
             if field.group == group_id
@@ -403,6 +600,8 @@ def schema_payload(*, enabled: bool | None = None) -> dict[str, Any]:
         "defaultHash": DEFAULT_HASH,
         "baseBpm": BASE_BPM,
         "enabled": params_enabled() if enabled is None else enabled,
+        "enabledTiers": list(active_tiers),
+        "allTiers": list(TIERS),
     }
     return payload
 
@@ -445,7 +644,15 @@ def active_params() -> Params:
 
 
 def active(key: str) -> float:
-    return _ACTIVE.get().get(key, DEFAULT_PARAMS[key])
+    value = _ACTIVE.get().get(key, DEFAULT_PARAMS[key])
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else float(
+        DEFAULT_PARAMS[key]
+    )
+
+
+def active_choice(key: str) -> str:
+    value = _ACTIVE.get().get(key, DEFAULT_PARAMS[key])
+    return value if isinstance(value, str) else str(DEFAULT_PARAMS[key])
 
 
 @contextmanager

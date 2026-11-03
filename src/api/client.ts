@@ -23,6 +23,7 @@ import {
   DEFAULT_PARAMS,
   encodeParams,
   isDefaultParams,
+  LINK_SCHEMA_VERSION,
   normalizeParams,
   paramsFromFlags,
   paramsQuery as paramsSuffix,
@@ -555,7 +556,7 @@ export type SonifyMix = {
   color: boolean;
 };
 
-/** Old callers pass the two booleans; the room passes the ten knobs. */
+/** Old callers pass the two booleans; the room passes the full knob set. */
 export type SonifyParamsInput = SonifyParams | SonifyMix;
 
 function coerceParams(input?: SonifyParamsInput): SonifyParams {
@@ -580,17 +581,24 @@ export type ParamsSchemaResponse = {
     fields: Array<{
       key: string;
       label: string;
-      type: 'number';
+      type: 'number' | 'choice' | 'toggle';
       min: number;
       max: number;
       step: number;
-      default: number;
+      default: number | string | boolean;
       unit: string;
       description: string;
+      signed: boolean;
+      choices: Array<{ value: string; label: string }>;
+      auto: boolean;
+      appliesTo: string[];
+      tier: string;
     }>;
   }>;
   defaultHash: string;
   enabled: boolean;
+  enabledTiers: string[];
+  allTiers: string[];
 };
 
 /** The kill switch lives here, not in the client bundle. */
@@ -830,7 +838,7 @@ export async function fetchDfiPieces(
     movement?: number;
     variant?: RecapVariant | null;
     ensemble?: RecapEnsemble | null;
-    /** The ten knobs. `mix` stays for the older listening surfaces. */
+    /** The knobs. `mix` stays for the older listening surfaces. */
     params?: SonifyParamsInput;
     mix?: SonifyMix;
   },
@@ -848,7 +856,7 @@ export async function fetchDfiPieces(
   if (params.variant) query.set('variant', params.variant);
   if (params.ensemble) query.set('ensemble', params.ensemble);
   const shaped = coerceParams(params.params ?? params.mix);
-  if (!isDefaultParams(shaped)) query.set('p', encodeParams(shaped));
+  if (!isDefaultParams(shaped)) query.set('p', encodeParams(shaped, LINK_SCHEMA_VERSION));
   return apiGet<DfiPiecesResponse>(`/v1/sonify/dfi/pieces?${query.toString()}`, signal, true);
 }
 

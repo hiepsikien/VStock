@@ -3,6 +3,7 @@ import { GENRES, LISTEN_SPANS, type ListenSpan } from './labels';
 import {
   encodeParams,
   isDefaultParams,
+  LINK_SCHEMA_VERSION,
   normalizeParams,
   paramsFromFlags,
   paramsFromQuery,
@@ -16,7 +17,7 @@ export type LinkState = {
   genre: RecapVariant;
   /** Not validated against the genre here; the room falls back to `classic`. */
   ensemble: RecapEnsemble | null;
-  /** The ten knobs. Default keeps the old URL without `p`. */
+  /** The knobs. Default keeps the old URL without `p`. */
   params: SonifyParams;
 };
 
@@ -81,7 +82,7 @@ export function formatLink(state: LinkState): string {
   if (state.ensemble) params.set('e', state.ensemble);
   // A legacy `h`/`c` link is converted to `p` on write; never both.
   const shaped = normalizeParams(state.params);
-  if (!isDefaultParams(shaped)) params.set('p', encodeParams(shaped));
+  if (!isDefaultParams(shaped)) params.set('p', encodeParams(shaped, LINK_SCHEMA_VERSION));
   return params.toString();
 }
 

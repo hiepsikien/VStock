@@ -11,7 +11,7 @@ import zlib
 from collections.abc import Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from app.sonify.chords import Chord, Regime, tonic
@@ -126,6 +126,33 @@ def compose_register(key: KeySpec, register: Register | None = None):
         yield
     finally:
         _REGISTER.reset(token)
+
+
+def shift_register(register: Register, semitones: int) -> Register:
+    """Move every C-space bound by a chromatic shift. Zero returns the same object."""
+    if semitones == 0:
+        return register
+    return replace(
+        register,
+        flute_ceiling=register.flute_ceiling + semitones,
+        violin_ceiling=register.violin_ceiling + semitones,
+        violin_lowest=register.violin_lowest + semitones,
+        cello_handback=register.cello_handback + semitones,
+        sax_ceiling=register.sax_ceiling + semitones,
+        vibraphone_high=register.vibraphone_high + semitones,
+        synth_low=register.synth_low + semitones,
+        synth_high=register.synth_high + semitones,
+        fill_high=register.fill_high + semitones,
+        support_floor=register.support_floor + semitones,
+        lead_floor=register.lead_floor + semitones,
+        guitar_floor=register.guitar_floor + semitones,
+        guitar_bass_top=register.guitar_bass_top + semitones,
+        guitar_mid_low=register.guitar_mid_low + semitones,
+        guitar_mid_high=register.guitar_mid_high + semitones,
+        guitar_treble_floor=register.guitar_treble_floor + semitones,
+        guitar_treble_top=register.guitar_treble_top + semitones,
+        guitar_ceiling=register.guitar_ceiling + semitones,
+    )
 
 
 def register_for(key: KeySpec) -> Register:
