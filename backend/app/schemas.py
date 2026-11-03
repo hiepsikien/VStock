@@ -185,6 +185,7 @@ class RecapResponse(BaseModel):
     movementName: str = ""
     humanize: bool = True
     color: bool = True
+    paramsHash: str = ""
     dfi: DfiBreakdown | None = None
 
 
@@ -213,6 +214,7 @@ class SpanMovementResponse(BaseModel):
     beats: int = 4
     beatType: int = 4
     name: str = ""
+    paramsHash: str = ""
     dfi: DfiBreakdown | None = None
 
 
@@ -263,6 +265,7 @@ class SpanResponse(BaseModel):
     keyLabel: str = ""
     humanize: bool = True
     color: bool = True
+    paramsHash: str = ""
     dfi: DfiBreakdown | None = None
 
 

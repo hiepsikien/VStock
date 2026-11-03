@@ -1124,6 +1124,7 @@ class RecapStore:
         self._clock = clock or (lambda: datetime.now(VN))
         self._locks: dict[str, threading.Lock] = {}
         self._guard = threading.Lock()
+        self._pins: dict[str, float] = {}
 
     def _lock(self, key: str) -> threading.Lock:
         with self._guard:
@@ -1216,6 +1217,24 @@ class RecapStore:
                     return cached
                 return self._render(symbol, day, variant, bars, cancel, ensemble, values)
 
+    def pin_hashes(self, hashes: list[str], ttl_sec: float = 600.0) -> None:
+        """Keep profile cache files alive while A/B is open."""
+        until = time.time() + max(1.0, ttl_sec)
+        with self._guard:
+            for value in hashes:
+                text = str(value or "").strip()
+                if text:
+                    self._pins[text] = until
+
+    def _pinned(self, mark: str) -> bool:
+        until = self._pins.get(mark)
+        if until is None:
+            return False
+        if until <= time.time():
+            self._pins.pop(mark, None)
+            return False
+        return True
+
     def prune(self) -> None:
         """Drop other score revisions, expired files, and leftover export temps."""
         cutoff = time.time() - AUDIO_MAX_AGE_DAYS * 86400
@@ -1244,6 +1263,10 @@ class RecapStore:
                 hashes.setdefault(group, {}).setdefault(mark.group(0), []).append(
                     (modified, path)
                 )
+        for per_hash in hashes.values():
+            for mark in list(per_hash):
+                if self._pinned(mark):
+                    per_hash.pop(mark, None)
         self._prune_hashes(hashes)
 
     @staticmethod
@@ -1285,6 +1308,10 @@ class RecapStore:
                 hashes.setdefault(group, {}).setdefault(mark.group(0), []).append(
                     (modified, path)
                 )
+        for per_hash in hashes.values():
+            for mark in list(per_hash):
+                if self._pinned(mark):
+                    per_hash.pop(mark, None)
         self._prune_hashes(hashes)
 
     def _span_dir(self) -> Path:

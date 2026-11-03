@@ -1,10 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApiBaseUrl } from '../api/client';
 
-export type TelemetryName = 'ab_toggle' | 'profile_save' | 'knob_change' | 'prefetch_fail';
+export type TelemetryName = 'ab_toggle' | 'profile_save' | 'knob_change' | 'prefetch_fail' | 'play';
 
 type TelemetryEvent = {
   name: TelemetryName;
+  eventId: string;
   at: number;
   payload: Record<string, unknown>;
 };
@@ -24,7 +25,8 @@ async function readBuffer(): Promise<TelemetryEvent[]> {
             Boolean(item) &&
             typeof item === 'object' &&
             typeof (item as TelemetryEvent).name === 'string' &&
-            typeof (item as TelemetryEvent).at === 'number',
+            typeof (item as TelemetryEvent).at === 'number' &&
+            typeof (item as TelemetryEvent).eventId === 'string',
         )
       : [];
   } catch {
@@ -65,7 +67,12 @@ export async function trackEvent(
   payload: Record<string, unknown> = {},
 ): Promise<void> {
   const events = await readBuffer();
-  events.push({ name, at: Date.now() / 1000, payload });
+  events.push({
+    name,
+    eventId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    at: Date.now() / 1000,
+    payload,
+  });
   await writeBuffer(events);
   await flush();
 }

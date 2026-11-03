@@ -51,7 +51,7 @@ from app.services.spans import (
     plan_span_cached,
     ready_movement,
 )
-from app.sonify.audio import RecapCancelled, RecapUnavailable
+from app.sonify.audio import RecapCancelled, RecapUnavailable, recap_store
 from app.sonify.ensemble import Ensemble, ensemble_for
 from app.sonify.keys import CHARACTER_LABEL, key_label, work_key_label
 from app.sonify.params import (
@@ -556,6 +556,7 @@ async def get_recap(
         movementName=asset.movement_name,
         humanize=_layers(valid)[0],
         color=_layers(valid)[1],
+        paramsHash=params_hash(valid),
         dfi=asset.dfi,
     )
 
@@ -636,6 +637,7 @@ async def get_span(
                     index=index,
                     stored=cached.movement_name if cached is not None else "",
                 ),
+                paramsHash=params_hash(valid),
                 dfi=getattr(cached, "dfi", None) if cached is not None else None,
             )
         )
@@ -649,6 +651,7 @@ async def get_span(
         keyLabel=work_key_label(sym, [movement.mode for movement in plan.movements]),
         humanize=_layers(valid)[0],
         color=_layers(valid)[1],
+        paramsHash=params_hash(valid),
         dfi=work_dfi,
     )
 
@@ -757,6 +760,7 @@ _EVENT_NAMES = {
     "profile_save",
     "knob_change",
     "prefetch_fail",
+    "play",
 }
 
 
@@ -765,6 +769,23 @@ def _event_log_path() -> Path:
     if configured:
         return Path(configured)
     return Path(__file__).resolve().parents[2] / "data" / "sonify-events.jsonl"
+
+
+@router.post("/sonify/params/pin")
+async def pin_params(payload: dict) -> dict:
+    """Keep the two A/B cache marks alive while the listener toggles."""
+    hashes = payload.get("hashes")
+    if not isinstance(hashes, list):
+        raise HTTPException(status_code=400, detail="hashes must be a list")
+    if len(hashes) > 8:
+        raise HTTPException(status_code=400, detail="too many hashes")
+    ttl = payload.get("ttlSec", 600)
+    try:
+        ttl_sec = max(1.0, min(3600.0, float(ttl)))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="ttlSec must be a number") from None
+    recap_store().pin_hashes([str(item) for item in hashes], ttl_sec)
+    return {"pinned": len(hashes), "ttlSec": ttl_sec}
 
 
 @router.post("/sonify/events")
@@ -779,6 +800,8 @@ async def post_sonify_events(payload: dict) -> dict:
         raise HTTPException(status_code=400, detail="events must be a list")
     if len(events) > 100:
         raise HTTPException(status_code=400, detail="too many events")
+    if len(json.dumps(payload, separators=(",", ":"))) > 64_000:
+        raise HTTPException(status_code=413, detail="payload too large")
     accepted = 0
     rows: list[dict] = []
     for item in events:
@@ -793,6 +816,7 @@ async def post_sonify_events(payload: dict) -> dict:
         rows.append(
             {
                 "name": name,
+                "eventId": str(item.get("eventId") or ""),
                 "at": item.get("at") or time.time(),
                 "payload": body or {},
             }

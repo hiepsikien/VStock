@@ -601,6 +601,22 @@ export type ParamsSchemaResponse = {
   allTiers: string[];
 };
 
+/** Keep both A/B cache marks alive while the listener toggles. */
+export async function pinParams(hashes: string[], signal?: AbortSignal): Promise<void> {
+  const clean = [...new Set(hashes.filter(Boolean))].slice(0, 8);
+  if (!clean.length) return;
+  try {
+    await fetch(`${getApiBaseUrl()}/v1/sonify/params/pin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hashes: clean, ttlSec: 600 }),
+      signal,
+    });
+  } catch {
+    // Pinning is best-effort; a miss only means LRU may evict sooner.
+  }
+}
+
 /** The kill switch lives here, not in the client bundle. */
 export async function fetchParamsSchema(signal?: AbortSignal): Promise<ParamsSchemaResponse> {
   return apiGet<ParamsSchemaResponse>('/v1/sonify/params/schema', signal);
@@ -623,6 +639,8 @@ export type RecapManifest = {
   movementName?: string;
   humanize?: boolean;
   color?: boolean;
+  /** Server hash after tier canonicalisation. */
+  paramsHash?: string;
   dfi?: DfiBreakdown | null;
 };
 
@@ -684,6 +702,8 @@ export type SpanMovement = {
   renderSec?: number;
   /** `renderSec / musicalSec`. Used to size lookahead. */
   renderRatio?: number;
+  /** Server hash after tier canonicalisation. */
+  paramsHash?: string;
   dfi?: DfiBreakdown | null;
 };
 
@@ -699,6 +719,8 @@ export type SpanManifest = {
   keyLabel?: string;
   humanize?: boolean;
   color?: boolean;
+  /** Server hash after tier canonicalisation. */
+  paramsHash?: string;
   dfi?: DfiBreakdown | null;
 };
 

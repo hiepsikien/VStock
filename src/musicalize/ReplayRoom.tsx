@@ -11,6 +11,7 @@ import {
   fetchSessions,
   fetchSpan,
   fetchSpanPeaks,
+  pinParams,
   prefetchSpanAudio,
   type DfiPiece,
   type DfiSignature,
@@ -200,6 +201,14 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const [startSec, setStartSec] = useState(0);
   const [abSide, setAbSide] = useState<'A' | 'B'>('A');
   const pendingSeek = useRef<number | null>(null);
+  const pinnedHashes = useRef<string[]>([]);
+  const rememberHash = useCallback((hash?: string) => {
+    if (!hash) return;
+    if (!pinnedHashes.current.includes(hash)) {
+      pinnedHashes.current = [...pinnedHashes.current, hash].slice(-8);
+    }
+    void pinParams(pinnedHashes.current);
+  }, []);
   const [seek, setSeek] = useState<SeekCommand | null>(null);
   const [focus, setFocus] = useState<ChartFocus | null>(null);
   const [focusSignal, setFocusSignal] = useState(0);
@@ -997,9 +1006,11 @@ export function ReplayRoom({ wide, onMode }: Props) {
             }
             setSeries(fresh);
             setManifest(again);
+            rememberHash(again.paramsHash);
           } else {
             setSeries(detail);
             setManifest(recap);
+            rememberHash(recap.paramsHash);
           }
           setMovements(null);
           setIndex(0);
@@ -1026,6 +1037,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
         }
         setManifest(null);
         setMovements(plan.movements);
+        rememberHash(plan.paramsHash ?? plan.movements[0]?.paramsHash);
         // A new listen may re-plan the work, so pre-rendered URLs and peaks
         // from the previous run no longer describe the same movement.
         resetPeaksState();
@@ -1053,7 +1065,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
         }
       }
     })();
-  }, [date, ensemble, heardParams, resetPeaksState, span, symbol, variant]);
+  }, [date, ensemble, heardParams, rememberHash, resetPeaksState, span, symbol, variant]);
 
   // Play commits the latest saved profile first; this effect starts the listen
   // after the old identity has been cleared. Draft edits never bump playNonce.
@@ -1098,6 +1110,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
 
   const onPlay = useCallback(() => {
     if (composing) return;
+    void trackEvent('play', { span, variant, ensemble });
     if (abSide === 'B') {
       setAbSide('A');
       requestPlay();
@@ -1124,6 +1137,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
   }, [
     abSide,
     beginRest,
+    ensemble,
     composing,
     draftDirty,
     finished,
@@ -1136,6 +1150,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
     resting,
     savedDirty,
     span,
+    variant,
   ]);
 
   const onPause = useCallback(() => {
