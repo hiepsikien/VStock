@@ -29,7 +29,7 @@ from app.sonify.params import (
 
 
 def test_default_hash_is_pinned() -> None:
-    assert DEFAULT_HASH == "5800e09635be"
+    assert DEFAULT_HASH == "8653a4d3fcad"
     assert params_hash(DEFAULT_PARAMS) == DEFAULT_HASH
 
 
@@ -54,6 +54,14 @@ def test_out_of_range_is_clamped_and_warned() -> None:
     assert ("clamped", "tempo") in codes
     assert ("clamped", "humanize") in codes
     assert ("high_humanize", "humanize") in codes
+
+
+def test_guitar_voice_knobs_clamp_and_default() -> None:
+    params, warnings = normalize_with_warnings({"guitar_high": 9, "guitar_mid": -9})
+    assert params["guitar_high"] == 8.0
+    assert params["guitar_mid"] == -8.0
+    assert params["guitar_bass"] == 0.0
+    assert {warning["key"] for warning in warnings} == {"guitar_high", "guitar_mid"}
 
 
 def test_wrong_type_is_rejected() -> None:
@@ -152,6 +160,12 @@ def test_schema_and_default_hash_are_consistent() -> None:
     assert by_key["noise"]["default"] == 0.1
     assert by_key["noise"]["unit"] == "%"
     assert by_key["density"]["max"] == 2.0
+    for key in ("guitar_high", "guitar_mid", "guitar_bass"):
+        assert by_key[key]["min"] == -8.0
+        assert by_key[key]["max"] == 8.0
+        assert by_key[key]["step"] == 1.0
+        assert by_key[key]["default"] == 0.0
+        assert by_key[key]["unit"] == ""
     json.dumps(payload)
 
 

@@ -89,9 +89,48 @@
           "description": "Lượng fill và bell chèn vào giữa các câu."
         }
       ]
+    },
+    {
+      "id": "guitar",
+      "label": "Guitar",
+      "fields": [
+        {
+          "key": "guitar_high",
+          "label": "Bè cao",
+          "type": "number",
+          "min": -8.0,
+          "max": 8.0,
+          "step": 1.0,
+          "default": 0.0,
+          "unit": "",
+          "description": "Độ lệch velocity của bè cao (giai điệu). 0 là bản hiện tại."
+        },
+        {
+          "key": "guitar_mid",
+          "label": "Bè trung",
+          "type": "number",
+          "min": -8.0,
+          "max": 8.0,
+          "step": 1.0,
+          "default": 0.0,
+          "unit": "",
+          "description": "Độ lệch velocity của bè trung (voice 2 và 4). 0 là bản hiện tại."
+        },
+        {
+          "key": "guitar_bass",
+          "label": "Bè bass",
+          "type": "number",
+          "min": -8.0,
+          "max": 8.0,
+          "step": 1.0,
+          "default": 0.0,
+          "unit": "",
+          "description": "Độ lệch velocity của bè bass (ngón cái). 0 là bản hiện tại."
+        }
+      ]
     }
   ],
-  "defaultHash": "5800e09635be",
+  "defaultHash": "8653a4d3fcad",
   "baseBpm": {
     "symphony": 90,
     "jazz": 82,

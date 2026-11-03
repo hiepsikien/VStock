@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Callable, NamedTuple
 from xml.etree import ElementTree as ET
 
+from app.sonify.dynamics import apply_voice_balance
 from app.sonify.ensemble import Ensemble
 from app.sonify.humanize import humanize as humanize_score
 from app.sonify.model import ENSEMBLES, VARIANTS, Bar, Variant
@@ -1479,6 +1480,8 @@ class RecapStore:
         # `sound_for` reads the dynamics knob while the XML is written, so the
         # context must still be active here.
         with compose_params(values):
+            # must stay after compute_dfi: DFI reads note velocity.
+            score = apply_voice_balance(score)
             xml = score_to_musicxml(score)
         xml_path.write_text(xml, encoding="utf-8")
         musical = piece_seconds(score.bars, score.bpm, score.bar_beats)
@@ -1672,6 +1675,8 @@ class RecapStore:
         wav_path = work / f"{key}.wav"
         # `sound_for` reads the dynamics knob while the XML is written.
         with compose_params(values):
+            # must stay after compute_dfi: DFI reads note velocity.
+            score = apply_voice_balance(score)
             xml = score_to_musicxml(score)
         xml_path.write_text(xml, encoding="utf-8")
         previous = getattr(_export_cancel, "event", None)

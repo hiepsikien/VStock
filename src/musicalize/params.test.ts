@@ -48,8 +48,8 @@ function same(a: Record<string, number>, b: Record<string, number>, label = '') 
   }
 }
 
-ok(DEFAULT_HASH === '5800e09635be', 'default hash is pinned');
-ok(Object.keys(DEFAULT_PARAMS).length === 7, 'seven knobs');
+ok(DEFAULT_HASH === '8653a4d3fcad', 'default hash is pinned');
+ok(Object.keys(DEFAULT_PARAMS).length === 10, 'ten knobs');
 
 const tempo = PARAM_FIELDS.find((field) => field.key === 'tempo');
 ok(Boolean(tempo), 'tempo field exists');
@@ -88,6 +88,18 @@ equal(paramValueText(noise, 0.1), '0.10%', 'noise value text');
 equal(paramValueText(color, 2), '2.00', 'color value text');
 equal(paramValueText(tempo, 1), '1.00×', 'tempo value text');
 
+const guitar = PARAM_FIELDS.find((field) => field.key === 'guitar_bass');
+ok(Boolean(guitar), 'guitar field exists');
+if (!guitar) throw new Error('missing guitar');
+equal(guitar.min, -8, 'guitar min');
+equal(guitar.max, 8, 'guitar max');
+equal(guitar.step, 1, 'guitar step');
+equal(guitar.default, 0, 'guitar default');
+equal(guitar.unit, '', 'guitar unit');
+equal(paramValueText(guitar, 0), '0', 'guitar zero text');
+equal(paramValueText(guitar, 4), '+4', 'guitar positive text');
+equal(paramValueText(guitar, -8), '-8', 'guitar negative text');
+
 same(normalizeParams({ tempo: 0.96 }), { ...DEFAULT_PARAMS, tempo: 0.96 }, 'missing keys default');
 same(normalizeParams({ tempo: 1.4, humanize: 9 }), { ...DEFAULT_PARAMS, tempo: 1.25, humanize: 2.0 }, 'clamped');
 same(normalizeParams({ tempo: 'fast' }), DEFAULT_PARAMS, 'wrong type falls back');
@@ -118,7 +130,7 @@ equal(
 );
 equal(
   paramsKey({ ...DEFAULT_PARAMS, tempo: 0.96 }),
-  '{"params":{"breath":1.0,"color":1.0,"density":1.0,"dynamics":1.0,"humanize":1.0,"noise":0.1,"tempo":0.96},"schema":2}',
+  '{"params":{"breath":1.0,"color":1.0,"density":1.0,"dynamics":1.0,"guitar_bass":0.0,"guitar_high":0.0,"guitar_mid":0.0,"humanize":1.0,"noise":0.1,"tempo":0.96},"schema":2}',
   'canonical text matches the server',
 );
 

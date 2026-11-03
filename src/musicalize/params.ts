@@ -3,7 +3,7 @@ import { PARAMS_SCHEMA, type ParamsFieldSchema } from './paramsSchema.generated'
 export type { ParamsFieldSchema } from './paramsSchema.generated';
 
 /**
- * The listener's seven knobs. One schema is generated from the backend, so the
+ * The listener's ten knobs. One schema is generated from the backend, so the
  * app never invents a minimum, a step, or a default of its own.
  *
  * The server owns the hash and the cache name. The client only needs a
@@ -309,6 +309,11 @@ export function baseBpmFor(variant: string, ensemble: string): number {
 }
 
 export function paramValueText(field: ParamsFieldSchema, value: number): string {
+  if (field.step >= 1) {
+    const text = value.toFixed(0);
+    const signed = value > 0 ? `+${text}` : text;
+    return field.unit ? `${signed}${field.unit}` : signed;
+  }
   const text = value.toFixed(2);
   return field.unit ? `${text}${field.unit}` : text;
 }

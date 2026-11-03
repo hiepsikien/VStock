@@ -41,6 +41,7 @@ class ParamField:
 
 PERFORMANCE = "performance"
 TEXTURE = "texture"
+GUITAR = "guitar"
 
 FIELDS: tuple[ParamField, ...] = (
     ParamField(
@@ -120,6 +121,39 @@ FIELDS: tuple[ParamField, ...] = (
         "",
         "Lượng fill và bell chèn vào giữa các câu.",
     ),
+    ParamField(
+        "guitar_high",
+        "Bè cao",
+        GUITAR,
+        -8.0,
+        8.0,
+        1.0,
+        0.0,
+        "",
+        "Độ lệch velocity của bè cao (giai điệu). 0 là bản hiện tại.",
+    ),
+    ParamField(
+        "guitar_mid",
+        "Bè trung",
+        GUITAR,
+        -8.0,
+        8.0,
+        1.0,
+        0.0,
+        "",
+        "Độ lệch velocity của bè trung (voice 2 và 4). 0 là bản hiện tại.",
+    ),
+    ParamField(
+        "guitar_bass",
+        "Bè bass",
+        GUITAR,
+        -8.0,
+        8.0,
+        1.0,
+        0.0,
+        "",
+        "Độ lệch velocity của bè bass (ngón cái). 0 là bản hiện tại.",
+    ),
 )
 
 FIELD_BY_KEY: dict[str, ParamField] = {field.key: field for field in FIELDS}
@@ -127,6 +161,7 @@ DEFAULT_PARAMS: dict[str, float] = {field.key: field.default for field in FIELDS
 GROUPS: tuple[tuple[str, str], ...] = (
     (PERFORMANCE, "Trình diễn"),
     (TEXTURE, "Sâu hơn"),
+    (GUITAR, "Guitar"),
 )
 
 # The unmodified tempo of each line. The schema carries this so the drawer can
