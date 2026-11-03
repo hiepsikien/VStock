@@ -10,7 +10,7 @@
 
 ## 0. Sửa sau các vòng đối chiếu code
 
-Sáu lỗi chặn đã được xử lý trong bản này:
+Sáu lỗi chặn và ba lỗi kỹ thuật đã được xử lý trong bản này:
 
 | # | Vấn đề | Cách sửa trong doc |
 |---|---|---|
@@ -20,6 +20,9 @@ Sáu lỗi chặn đã được xử lý trong bản này:
 | 4 | DFI recompose ngoài audio dùng key không có `params_hash`; `dfi_inputs` được so ở cả `sessions.py` và `spans.py`. | Thread hash vào `_recap_key`, `_movement_key`, `dfi_inputs` (cả recap lẫn span) và `/dfi/pieces`. §6.4 |
 | 5 | Legacy `h=0` bỏ hẳn `humanize()` (không tempo clock, không `_clamp_guitar`), nên tái dùng `_nh` sẽ phát sai tiếng. | `h=0` map thành `{humanize: 0, breath: 0}`; skip `humanize()` khi cả hai bằng 0; guard `_clamp_guitar`; `_nh` chỉ dùng cho đúng tổ hợp legacy. §6.1 |
 | 6 | `Score.bpm`, `_Ctx.bpm`, `render_guitar_score`, `_metronome` đều là `int`, trong khi doc ghi `86.4`. | BPM hiệu lực là **int**; không nới kiểu. Bỏ mọi ví dụ lẻ. §3.2 |
+| 7 | Guard `if offsets:` không chặn `_clamp_guitar`, vì `offsets` có key với giá trị 0. | Dùng `any(offsets.values())` hoặc bỏ `setdefault` khi `humanize = 0`. §6.1 |
+| 8 | `round()` cho BPM dính banker's ở `.5`, làm BPM không đơn điệu. | `int(x + 0.5)` half-up. §3.2 |
+| 9 | “Bit hash thứ hai” chưa ràng buộc nguồn, dễ dùng `hash()` bị randomize. | Lấy từ FNV `value`, ví dụ `(value >> 16) & 1`; test hai `PYTHONHASHSEED`. §3.4 |
 
 Các điểm “nên sửa” còn lại đã vào §3.1–§3.7, §5, §6.3, §6.5, §8, §10, §12.
 
@@ -36,7 +39,7 @@ Các điểm “nên sửa” còn lại đã vào §3.1–§3.7, §5, §6.3, §
 | 5 | **Chưa cần auth**. V1 chưa có profile server theo user. |
 | 6 | Chưa làm AI tạo profile, chưa làm tầng B/C. Chỉ chỉnh tầng A trước. |
 | 7 | `tempo` thấp làm rơi tremolo guitar là **hành vi được chấp nhận**, không clamp BPM. Writer dùng BPM hiệu lực, nên chọn pattern và score luôn nhất quán. BPM hiệu lực là **số nguyên**; không cần phần lẻ. |
-| 8 | `humanize` là knob **liên tục 0–1.5, step 0.05**. Trần offset tách khỏi ngưỡng freeze. Không mở lại vùng ±4. `1.25` là ngưỡng khuyến nghị; `1.5` là trần kỹ thuật có cảnh báo. |
+| 8 | `humanize` là knob **liên tục 0–1.5, step 0.05**. Trần offset tách khỏi ngưỡng freeze. Không mở lại vùng ±4. `1.0` là mức khuyến nghị; cảnh báo từ `> 1.1`; `1.5` là trần kỹ thuật. |
 | 9 | Cache non-default dùng **LRU theo `params_hash`**, không giữ mọi hash 30 ngày. Default được pin; legacy `_nh/_nc` chỉ pin khi params đúng tổ hợp legacy. |
 | 10 | Legacy `h=0` giữ cache cũ bằng cách map thành `{humanize: 0, breath: 0}`, skip `humanize()` khi cả hai bằng 0, và guard `_clamp_guitar`. `p{humanize: 0}` (breath vẫn 1) là bản khác, dùng `_p<hash>`. |
 | 11 | State profile nằm ở **`MusicalizeApp`**, nơi chỉ render một room tại một thời điểm; `RoomFrame` chỉ render panel. Không nhân đôi hook ở `LiveRoom` và `ReplayRoom`. |
@@ -103,9 +106,11 @@ Tất cả là **hệ số**, mặc định `1.0`, để một profile dùng đ�
 `tempo` **không** được áp sau khi score đã viết. Nó phải có hiệu lực trước khi writer guitar đọc `ctx.bpm` và trước `humanize()`:
 
 1. Chọn `spec` của variant như hiện tại.
-2. `effective_bpm = round(spec.bpm * tempo)` — **int**, không phần lẻ.
+2. `effective_bpm = int(spec.bpm * tempo + 0.5)` — **int**, làm tròn **half-up**.
 3. Truyền `effective_bpm` vào `render()` và vào `ctx.bpm`; không mutate `DAILY_SPEC` hay spec global.
 4. `score.bpm = effective_bpm` trước `humanize()` và trước `piece_seconds()`.
+
+Không dùng `round()` trần vì banker's rounding làm BPM không đơn điệu ở đúng mốc `.5`: `90 × 0.85 = 76.5 → 76`, còn `90 × 0.95 = 85.5 → 86`. Half-up cho `77` và `86`, nhất quán với cách xử lý ở `humanize`.
 
 Không nới `Score.bpm`, `_Ctx.bpm`, `render_guitar_score` hay `_metronome` sang `float`; tất cả đang là `int` và giữ nguyên. Hệ quả: hai bước `tempo` liền nhau có thể cho cùng một BPM ở dòng nhạc chậm; UI hiện BPM suy ra nên người dùng thấy ngay. Không ép BPM chẵn vì sẽ làm tempo thô; mọi BPM gốc vốn đã chẵn nên Default không đổi.
 
@@ -148,14 +153,15 @@ Cách làm chốt:
 - `chosen_offset` vẫn dùng FNV trên `(variant, ensemble, field, bar, tick)` để ổn định giữa process:
   - `base = _CHOICES[value % 5]` như hiện tại;
   - `target = base * humanize` (float);
-  - `offset = sign(target) * stochastic_round(|target|)`, phần lẻ quyết định bằng một bit hash thứ hai.
+  - `offset = sign(target) * stochastic_round(|target|)`, phần lẻ lấy từ **chính `value` FNV**, ví dụ `(value >> 16) & 1`.
+- **Không dùng `hash()` của Python** để chọn bit làm tròn: `hash()` được randomize mỗi process (`humanize.py:60` đã ghi chú đúng điều này). Nếu dùng, cùng params sẽ ra offset khác giữa các lần chạy → audio khác, cache và test parity flake. Test phải chạy hai process với `PYTHONHASHSEED` khác nhau và so offset.
 - **Không dùng `int()` cắt xuống.** Nếu cắt, `humanize = 1.05` cho `base ±2 → 2.1 → 2`, nên nửa trên của knob gần như đứng yên. Làm tròn xác suất cho `2.1 → 2` với 90% và `3` với 10%, nên 0.05 bước vẫn đổi biên độ cảm nhận được; `2.5 → 2/3` theo 50/50.
 - Trần thực tế là `ceil(2 × humanize)`; không cần clamp riêng vì `|target| ≤ 2 × humanize`. Nếu vẫn giữ `_clamp_offset`, clamp **sau** khi làm tròn, không clamp float rồi cắt int.
 - Ở `humanize = 1`, `target` là số nguyên → offset **trùng tuyệt đối** hiện tại, đảm bảo Default parity.
 - `humanize = 0` → offset 0 toàn bộ.
-- `humanize = 1.5` → trần ±3. Đây là trần kỹ thuật có cảnh báo, không phải mức khuyến nghị: `sonify-humanize-preset-plan.md` đã loại ±3 vì làm phẳng contour, nên `1.25` là ngưỡng UI khuyến nghị và AC phải kiểm tra contour ở `1.5`. Nếu nghe thử cho thấy phẳng, hạ UI max về `1.25`, giữ schema `1.5` cho V1.1.
+- `humanize = 1.5` → trần ±3. Đây là trần kỹ thuật, không phải mức khuyến nghị: `sonify-humanize-preset-plan.md` đã loại ±3 vì làm phẳng contour. **`1.25` cũng đã có thể ra ±3**: `base ±2 → 2.5`, 50% ra 3. Vì vậy `1.0` là mức khuyến nghị, cảnh báo mềm bắt đầu từ `> 1.1`, và AC phải kiểm tra contour ở cả `1.25` lẫn `1.5`. Nếu nghe thử cho thấy phẳng, hạ UI max về `1.0` hoặc `1.1`, giữ schema `1.5` cho V1.1.
 
-Range dừng ở `1.5`, step `0.05`, cảnh báo mềm khi `> 1.25`.
+Range dừng ở `1.5`, step `0.05`, cảnh báo mềm khi `> 1.1`.
 
 ### 3.5 `dynamics` — suy ra `<sound>` từ velocity
 
@@ -265,12 +271,14 @@ params_hash = sha256(canonical).hexdigest()[:12]
 | Tên | Ý tưởng | Params gợi ý |
 |---|---|---|
 | `Default` | Đúng bản đang nghe | tất cả `1.0` |
-| `Gần` | Khô, rõ, ít không gian | `color 0.45`, `noise 0.0`, `dynamics 1.1` |
+| `Gần` | Khô, rõ, ít không gian | `color 0.45`, `noise 0.0` |
 | `Ấm` | Nhiều thân tiếng, chậm hơn một nhịp | `tempo 0.96`, `color 1.0`, `noise 0.8` |
-| `Sống` | Nhiều humanize và hơi thở | `humanize 1.25`, `breath 1.15` |
+| `Sống` | Nhiều humanize và hơi thở | `humanize 1.1`, `breath 1.15` |
 | `Dày` | Nhiều fill/bell hơn | `density 1.25` |
 
 Preset chỉ là điểm bắt đầu; người dùng vẫn sửa và lưu thành profile riêng.
+
+Preset chỉ chứa knob đã ship. `dynamics` và `density` thuộc A2, nên preset dùng chúng (`Dày`) chỉ mở sau Phase 1B; trước đó chúng sẽ tạo hash khác mà audio y hệt. `Gần` vì vậy chỉ còn `color` và `noise`.
 
 ---
 
@@ -442,7 +450,7 @@ Vì vậy:
 
 - Legacy query `h=0` map thành `{humanize: 0, breath: 0}`.
 - Dispatch: chỉ gọi `humanize()` khi `humanize != 0` **hoặc** `breath != 0`. Khi cả hai bằng 0, bỏ hẳn lời gọi, đúng như bản cũ (không `_copy_ties`, không `_clamp_guitar`).
-- Khi `humanize = 0` nhưng `breath > 0`: vẫn gọi để lấy tempo clock, nhưng offset rỗng; `_clamp_guitar` phải có guard `if offsets:` để không kéo velocity guitar 65–68 lên 69 (`humanize.py:312`). Không có guard, guitar sẽ lệch dù người dùng đặt humanize = 0.
+- Khi `humanize = 0` nhưng `breath > 0`: vẫn gọi để lấy tempo clock. Lưu ý `offsets` **không rỗng**: code hiện `setdefault` cho mọi movable run, kể cả khi giá trị clamp ra 0 (`humanize.py:89-92`). Vì vậy guard phải là `if any(offsets.values()):`, hoặc bỏ `setdefault` khi `humanize == 0`. `if offsets:` là **sai** và vẫn kéo velocity guitar 65–68 lên 69 (`humanize.py:312`).
 - `p{humanize: 0}` (breath vẫn `1.0`) là bản **khác**: có tempo clock, không offset, và dùng `_p<hash>`.
 - `p{humanize: 0, breath: 0}` dùng đúng `_nh`, không sinh thêm file.
 
@@ -469,16 +477,20 @@ Chốt:
 
 Prune theo tuổi vẫn giữ 30 ngày cho mọi file còn lại.
 
+Lưu ý: hash tính trên **hệ số `tempo`**, trong khi audio phụ thuộc `int(bpm × tempo)`. Vì profile áp cho mọi variant, không thể canonical hoá hash theo BPM hiệu lực; hai `tempo` sát nhau có thể cho cùng audio nhưng hai hash. LRU đếm riêng từng hash — chấp nhận trong V1, không có cách gộp đúng nếu chưa biết variant.
+
 ### 6.4 DFI — cả đường audio lẫn đường recompose
 
 DFI hiện được compose lại ngoài audio qua `dfi_service.recap_dfi(...)` (`services/sessions.py:246`). Key cache `_recap_key` / `_movement_key` (`services/dfi.py:145-175`) chỉ có `RC_REV + DFI_VERSION + digest + variant + ensemble + humanize + color`. Thiếu `params_hash` thì DFI của profile khác **ghi đè** DFI Default cùng piece.
 
+Chốt: **giữ `dfi_inputs = digest`**, thêm field riêng `dfiParamsHash`. Không đổi format `dfi_inputs` thành `digest:hash`, vì `sessions.py:236` và `spans.py:281/:331` đang so `dfi_inputs != digest`; đổi format sẽ làm **mọi** asset cũ mismatch và recompose score toàn corpus một lần dù audio không đổi.
+
 Phải sửa cả năm chỗ:
 
-1. `_recap_key` và `_movement_key` thêm `params_hash`.
-2. `dfi_inputs` lưu `f"{digest}:{params_hash}"` (hoặc thêm field `dfiParamsHash`).
-3. `sessions.py:236` so cả `digest` **và** `params_hash`, không chỉ `digest`.
-4. `spans.py:281` và `spans.py:331` cũng so cả hai. Bỏ sót span thì DFI của movement vẫn dùng digest cũ và ghi đè nhau ở bucket `span`, dù recap đã đúng.
+1. `_recap_key` / `_movement_key` nhận thêm `params_hash` **chỉ khi** `cache_mark` là `_p<hash>`. Default và legacy `_nh/_nc/_nh_nc` giữ đúng tuple cũ, nên sidecar DFI cũ vẫn dùng; không recompose oan.
+2. Thêm field `dfiParamsHash` vào asset/metadata; `dfi_inputs` giữ nguyên `digest`.
+3. `sessions.py:236` so `digest` **và** `dfiParamsHash`.
+4. `spans.py:281` và `spans.py:331` cũng so cả hai. Bỏ sót span thì DFI của movement vẫn dùng bản cũ và ghi đè nhau ở bucket `span`, dù recap đã đúng.
 5. `/v1/sonify/dfi/pieces` nhận `p` và compose theo params; metadata DFI ghi `paramsHash` để debug.
 
 ### 6.5 Corpus signature
@@ -610,7 +622,7 @@ Hành vi:
 - Kéo slider cập nhật giá trị ngay, **không render audio mỗi bước**.
 - Thả tay → nếu “Nghe thử tự động” bật thì gọi audio mới; nếu tắt, chờ “Nghe bản này”.
 - Hiển thị BPM suy ra cạnh `Nhịp` (ví dụ `1.00× · 90 BPM`); guitar dưới 90 BPM hiện ghi chú “dưới ngưỡng tremolo”.
-- Cảnh báo mềm `humanize > 1.25`, `breath > 1.2`, không chặn.
+- Cảnh báo mềm `humanize > 1.1`, `breath > 1.2`, không chặn.
 - Haptic nhẹ khi chạm mốc (`expo-haptics` đã có), không rung liên tục khi kéo.
 - Nút “Nghe bản này” cố định ở đáy drawer/sheet.
 
@@ -649,7 +661,7 @@ Hành vi:
 
 - `parseLink()` trả `params` đã chuẩn hoá (hoặc `null` = default).
 - Link cũ `h=0` map thành `{humanize: 0, breath: 0}`; `c=0` thành `{color: 0}`, để vẫn trỏ đúng `_nh/_nc/_nh_nc`.
-- `writeLink()` ghi `p` khi khác default, bỏ `p` khi default.
+- `writeLink()` ghi `p` khi khác default, bỏ `p` khi default. Khi mở link legacy rồi ghi lại, **chuyển** `h/c` sang `p` và bỏ `h/c`; không giữ hai cách biểu diễn cùng một params.
 - `p` hỏng hoặc quá dài: fallback Default, không làm sập phòng nghe.
 - Không đưa `paramsHash` vào URL; server tính lại từ `p`.
 - Cùng một params luôn cho cùng canonical string: round theo step trước khi encode.
@@ -695,6 +707,7 @@ Hành vi:
 - `tempo = 1` khớp BPM gốc từng variant.
 - `tempo = 0.9` đổi BPM và độ dài đúng.
 - BPM hiệu lực là **int**: `torroba` ở `0.9` cho `86`, `<per-minute>` là `"86"`.
+- Half-up, không banker's: BPM 90 ở `tempo 0.85` cho `77`, ở `0.95` cho `86`.
 - `torroba` ở `0.9` → **không tremolo**; writer nhận `ctx.bpm` hiệu lực, không phải BPM danh nghĩa.
 - `classic`/`guitar_sor` ở Default 88 vẫn không tremolo.
 
@@ -703,11 +716,12 @@ Hành vi:
 - `humanize = 1` khớp tuyệt đối offset hiện tại.
 - `humanize = 0` không offset.
 - `humanize = 1.05` khác `1.0` ở cả nhánh `base ±2` (kiểm tra phân bố offset, không chỉ một nốt).
+- `chosen_offset` ổn định giữa process: chạy lại với `PYTHONHASHSEED` khác nhau, offset giống hệt; bit làm tròn lấy từ FNV `value`, không từ `hash()`.
 - `FREEZE_GAP` không đổi khi humanize đổi.
 - `breath = 0` không tempo event; `breath = 1` khớp hiện tại.
 - `breath = 1.5` lệch nhiều hơn `1.0` trên variant còn dư trần; Torroba ghi nhận bão hoà.
 - **Legacy `_nh`**: `h=0` và `p{humanize:0, breath:0}` cho MusicXML **giống từng byte**, và giống snapshot trước khi tách params.
-- `humanize = 0, breath = 1` không đổi velocity guitar (guard `_clamp_guitar`).
+- `humanize = 0, breath = 1` không đổi velocity guitar: `offsets` có key nhưng toàn 0, guard phải là `any(offsets.values())`, không phải `if offsets:`.
 
 `test_color.py` — **file mới**:
 
@@ -733,8 +747,9 @@ Hành vi:
 
 `test_dfi.py` — **file đã có, mở rộng**:
 
-- `params_hash` có trong `_recap_key`, `_movement_key`, `dfi_inputs`, metadata.
-- `dfi_inputs` được so ở cả recap (`sessions.py:236`) lẫn span (`spans.py:281`, `:331`).
+- `params_hash` có trong `_recap_key`/`_movement_key` chỉ với bản `_p<hash>`; Default/legacy giữ tuple cũ.
+- `dfi_inputs` vẫn là `digest`; `dfiParamsHash` là field riêng và được so ở cả recap (`sessions.py:236`) lẫn span (`spans.py:281`, `:331`).
+- Asset cũ không có `dfiParamsHash` không bị recompose chỉ vì đổi format.
 - Hai profile khác params không ghi đè DFI của nhau, kể cả bucket `span`.
 - `/dfi/pieces` với `p` trả DFI của đúng params.
 - Signature không nhận `p`; UI ẩn marker khi params ≠ default.
@@ -754,7 +769,7 @@ Hành vi:
 
 - `p` round-trip.
 - `p` hỏng/quá dài fallback Default.
-- Link cũ vẫn hoạt động.
+- Link cũ vẫn hoạt động; mở `h=0`/`c=0` rồi `writeLink()` chuyển sang `p`, không còn `h/c`.
 - `p` xuất hiện ở audio URL **và** peaks URL.
 
 UI:
@@ -820,7 +835,8 @@ UI:
 | `humanize` đổi cấu trúc freeze | Tách `FREEZE_GAP` khỏi `offset_cap`; stochastic round, không `int()`; test 1.0 parity và 1.05 khác ở nhánh ±2. |
 | Legacy `_nh` phát sai tiếng | `h=0` map `{humanize:0, breath:0}`; skip `humanize()` khi cả hai 0; guard `_clamp_guitar`; test MusicXML byte. |
 | `prune()` xoá audio mới | Sửa regex Phase 0; test prune trước khi render profile đầu tiên. |
-| DFI profile ghi đè Default | Thread hash vào `_recap_key`, `_movement_key`, `dfi_inputs`, `/dfi/pieces`. |
+| DFI profile ghi đè Default | Hash vào key chỉ khi `_p<hash>`; `dfiInputs` giữ digest, thêm `dfiParamsHash`; so ở cả recap lẫn span. |
+| Đổi format `dfi_inputs` làm recompose toàn corpus | Giữ `dfi_inputs = digest`; thêm field riêng. |
 | `dynamics`/`density` chạm nhiều module | A2; thay dict bằng hàm; test cấm import dict; test ghép humanize. |
 | ContextVar rò rỉ giữa request | `compose_params` context manager, reset trong `finally`; `asyncio.to_thread` copy context. |
 | Global `FormSpec` bị sửa | Luôn `replace(spec, bpm=...)`. |
@@ -837,13 +853,13 @@ UI:
 
 1. Tạo `params.py` với `DEFAULT_PARAMS`, `PARAM_SCHEMA`, `normalize_params`, `params_hash`, `cache_mark`, `compose_params`.
 2. Sửa `_STORED_NAME` + test `prune()` giữ `_p…` **trước** khi render bất kỳ profile nào.
-3. Thêm dispatch skip `humanize()` khi `humanize = 0` và `breath = 0`; guard `_clamp_guitar` theo offset rỗng.
+3. Thêm dispatch skip `humanize()` khi `humanize = 0` và `breath = 0`; guard `_clamp_guitar` bằng `any(offsets.values())` (không dùng `if offsets:`).
 4. Viết test legacy `h=0` vs `p{humanize:0, breath:0}`: MusicXML từng byte; test default parity.
 5. Sinh schema generated + CI diff.
 6. Nối `tempo` (int, trước writer, test tremolo) và `humanize` (tách freeze, stochastic round).
 7. Nối `breath` và `ColorSpec`/`noise`.
 8. Làm `p` + cache hash + legacy map cho audio **và** peaks.
-9. Thread hash vào DFI recompose (recap + span).
+9. Thread hash vào DFI key + `dfiParamsHash` (recap + span); giữ `dfi_inputs = digest`.
 10. Làm UI: state ở `MusicalizeApp`, `TuningPanel` trong `RoomFrame`, tab `Profile`, local profile.
 11. Làm A2 (`dynamics`, `density`).
 12. Nghe thủ công 5 variant × 3 preset trước khi chốt.
@@ -852,9 +868,9 @@ UI:
 
 ## 15. Ghi chú triển khai
 
-- `render()` nhận BPM từ `FormSpec` hoặc hằng số variant. Không sửa spec global; tính `effective_bpm = round(spec.bpm * tempo)` (**int**) trong `render()` và truyền vào `ctx.bpm` **trước** khi writer chọn pattern. Không nới kiểu `int` ở `model.py`, `guitar.py`, `musicxml.py`.
+- `render()` nhận BPM từ `FormSpec` hoặc hằng số variant. Không sửa spec global; tính `effective_bpm = int(spec.bpm * tempo + 0.5)` (**int**, half-up) trong `render()` và truyền vào `ctx.bpm` **trước** khi writer chọn pattern. Không nới kiểu `int` ở `model.py`, `guitar.py`, `musicxml.py`.
 - `humanize()` chạy sau `render()` và trước `score_to_musicxml`. `piece_seconds()` đọc `score.bpm`, nên BPM hiệu lực phải nằm trên score.
-- Dispatch humanize: gọi khi `humanize != 0` hoặc `breath != 0`; bỏ hẳn khi cả hai bằng 0 để legacy `_nh` khớp từng byte. Khi `humanize = 0` mà `breath > 0`, offset rỗng và `_clamp_guitar` phải bỏ qua.
+- Dispatch humanize: gọi khi `humanize != 0` hoặc `breath != 0`; bỏ hẳn khi cả hai bằng 0 để legacy `_nh` khớp từng byte. Khi `humanize = 0` mà `breath > 0`, `offsets` vẫn có key với giá trị 0, nên `_clamp_guitar` chỉ được chạy khi `any(offsets.values())`.
 - `_TEMPO_CAP` giữ nguyên; `breath` bão hoà khi peak chạm trần — ghi nhận, không giả định tuyến tính.
 - `ColorSpec` sinh chuỗi; ở `amount = 1` phải giống từng byte chuỗi hiện tại.
 - `sound_for` suy từ `velocity_for`; không scale percent và velocity bằng hai gốc khác nhau.
@@ -863,6 +879,7 @@ UI:
 - Default và legacy đúng tổ hợp được pin trong LRU; non-default LRU theo `mtime`.
 - Profile name không tham gia hash; đổi tên không mất cache.
 - `Default` bất biến ở UI; muốn chỉnh thì “Nhân bản”.
+- `dfi_inputs` giữ `digest`; `dfiParamsHash` là field riêng, so ở cả `sessions.py` và `spans.py`; key DFI chỉ thêm hash cho `_p<hash>`.
 - DFI corpus median chỉ hiện với Default; profile khác ẩn marker.
 - State profile ở `MusicalizeApp`; `TuningPanel` mount một lần trong `RoomFrame`; `Esc` đi qua `useKeyboard` sẵn có.
 - `/params/schema` trả `enabled`; client ẩn/disable panel khi server tắt, không chỉ tin biến môi trường.
