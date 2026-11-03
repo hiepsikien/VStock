@@ -1,8 +1,8 @@
 # Tầng B/C của parameter profile — Lộ trình và hạng mục triển khai
 
-> **Trạng thái**: đề xuất v3, đã xử lý review ngày 2026-11-03, chưa code.
+> **Trạng thái**: kế hoạch v9 — đã implement một phần ở [PR #139](https://github.com/hiepsikien/VStock/pull/139); các giới hạn ghi ở §11.
 >
-> **Đọc cùng**: [`sonify-params-profile-plan.md`](./sonify-params-profile-plan.md), [`musicalize-plan.md`](./musicalize-plan.md), [`sonify-humanize-preset-plan.md`](./sonify-humanize-preset-plan.md), [PR #137 — volume ba bè guitar](https://github.com/hiepsikien/VStock/pull/137), [PR #34 — giọng gốc và chuyển giọng](https://github.com/hiepsikien/VStock/pull/34).
+> **Đọc cùng**: [`sonify-params-profile-plan.md`](./sonify-params-profile-plan.md), [`musicalize-plan.md`](./musicalize-plan.md), [`sonify-humanize-preset-plan.md`](./sonify-humanize-preset-plan.md), [PR #137 — volume ba bè guitar](https://github.com/hiepsikien/VStock/pull/137), [PR #34 — giọng gốc và chuyển giọng](https://github.com/hiepsikien/VStock/pull/34), [PR #139 — implementation](https://github.com/hiepsikien/VStock/pull/139).
 >
 > **Mục tiêu**: mở rộng bàn tinh chỉnh từ tầng A (7 knob, 10 sau PR #137) sang các knob tầng B (hòa âm, vùng âm, khung) và tầng C (kỹ thuật guitar, nhịp đổi hợp âm), mà vẫn giữ `Default` bất biến, cache/DFI nhất quán, và không biến phòng nghe thành DAW.
 
@@ -353,7 +353,6 @@ Còn mở:
 - Không đổi bản sắc giọng mặc định của từng mã nếu chưa có quyết định sản phẩm.
 - Không làm editor từng nốt, mixer đa stem, hay realtime đổi knob khi đang phát.
 - Không làm auth/server profile trước khi A/B và B1 ổn định.
-
 
 ---
 
