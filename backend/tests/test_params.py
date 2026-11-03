@@ -57,9 +57,9 @@ def test_out_of_range_is_clamped_and_warned() -> None:
 
 
 def test_guitar_voice_knobs_clamp_and_default() -> None:
-    params, warnings = normalize_with_warnings({"guitar_high": 9, "guitar_mid": -9})
-    assert params["guitar_high"] == 8.0
-    assert params["guitar_mid"] == -8.0
+    params, warnings = normalize_with_warnings({"guitar_high": 13, "guitar_mid": -13})
+    assert params["guitar_high"] == 12.0
+    assert params["guitar_mid"] == -12.0
     assert params["guitar_bass"] == 0.0
     assert {warning["key"] for warning in warnings} == {"guitar_high", "guitar_mid"}
 
@@ -168,8 +168,8 @@ def test_schema_and_default_hash_are_consistent() -> None:
     assert by_key["noise"]["unit"] == "%"
     assert by_key["density"]["max"] == 2.0
     for key in ("guitar_high", "guitar_mid", "guitar_bass"):
-        assert by_key[key]["min"] == -8.0
-        assert by_key[key]["max"] == 8.0
+        assert by_key[key]["min"] == -12.0
+        assert by_key[key]["max"] == 12.0
         assert by_key[key]["step"] == 1.0
         assert by_key[key]["default"] == 0.0
         assert by_key[key]["unit"] == ""

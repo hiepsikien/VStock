@@ -129,7 +129,7 @@ def test_velocity_clamps_to_the_midi_range() -> None:
         low=(_note(voice=3, velocity=1, midi=48),),
     )
     with compose_params(
-        {**DEFAULT_PARAMS, "guitar_high": 8.0, "guitar_bass": -8.0}
+        {**DEFAULT_PARAMS, "guitar_high": 12.0, "guitar_bass": -12.0}
     ):
         balanced = apply_voice_balance(score)
     assert [note.velocity for note in balanced.lead] == [127]
