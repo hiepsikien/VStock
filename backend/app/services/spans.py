@@ -15,6 +15,7 @@ from datetime import date, datetime
 
 from fastapi import Request
 
+from app.services.market_session import is_market_open
 from app.services.sessions import (
     fetch_minute_payload,
     fetch_ohlc,
@@ -173,10 +174,23 @@ _PLAN_LOCKS: dict[
 ] = {}
 
 
-def plan_ttl(as_of: date, today: date | None = None) -> float:
-    """Closed data can be reused for longer than a live session's plan."""
-    current = today or datetime.now(VN).date()
-    return PLAN_TTL_OPEN if as_of >= current else PLAN_TTL_CLOSED
+def plan_ttl(market_open: bool | None = None) -> float:
+    """A live session's plan goes stale with the next candle; closed data does not."""
+    live = is_market_open() if market_open is None else market_open
+    return PLAN_TTL_OPEN if live else PLAN_TTL_CLOSED
+
+
+def _plan_cache_valid(
+    entry: tuple[float, SpanPlan], now: float
+) -> bool:
+    until, plan = entry
+    if until <= now:
+        return False
+    # A plan cached before the opening bell can carry yesterday's `as_of` with
+    # a ten-minute TTL. Do not serve it into the session.
+    if is_market_open() and plan.as_of < datetime.now(VN).date():
+        return False
+    return True
 
 
 def clear_plan_cache() -> None:
@@ -209,15 +223,15 @@ async def plan_span_cached(
     key = (symbol.upper(), span, variant, ensemble)
     now = time.monotonic()
     cached = _PLAN_CACHE.get(key)
-    if cached is not None and cached[0] > now:
+    if cached is not None and _plan_cache_valid(cached, now):
         return cached[1]
     async with _plan_lock(key):
         now = time.monotonic()
         cached = _PLAN_CACHE.get(key)
-        if cached is not None and cached[0] > now:
+        if cached is not None and _plan_cache_valid(cached, now):
             return cached[1]
         plan = await plan_span(symbol, span, variant, ensemble)
-        _PLAN_CACHE[key] = (time.monotonic() + plan_ttl(plan.as_of), plan)
+        _PLAN_CACHE[key] = (time.monotonic() + plan_ttl(), plan)
         if len(_PLAN_CACHE) > _PLAN_CACHE_MAX:
             cutoff = time.monotonic()
             for stale_key in [k for k, (until, _) in _PLAN_CACHE.items() if until <= cutoff]:

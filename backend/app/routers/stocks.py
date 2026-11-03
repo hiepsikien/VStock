@@ -46,6 +46,7 @@ from app.services.spans import (
     movement_duration,
     movement_frame,
     plan_span,
+    plan_span_cached,
     ready_movement,
 )
 from app.sonify.audio import RecapCancelled, RecapUnavailable
@@ -642,8 +643,10 @@ async def get_span_peaks(
     if range not in SPAN_RANGES:
         raise HTTPException(status_code=404, detail=f"No sonification for {range}")
     try:
-        # TODO: cache plan_span here; peaks refreshes still re-plan the work.
-        plan = await plan_span(sym, range, variant, ensemble=chosen)
+        # Peaks can use the same plan the audio route is rendering from. The
+        # cache is short for a live session and invalidated at the opening bell,
+        # so this still sees a new candle within the documented window.
+        plan = await plan_span_cached(sym, range, variant, chosen)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:

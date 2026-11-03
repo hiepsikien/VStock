@@ -790,8 +790,43 @@ def test_span_routes_forward_ensemble(monkeypatch) -> None:
 def test_plan_ttl_keeps_closed_data_longer_than_a_live_session() -> None:
     from app.services.spans import PLAN_TTL_CLOSED, PLAN_TTL_OPEN, plan_ttl
 
-    assert plan_ttl(date(2026, 1, 1), date(2026, 1, 2)) == PLAN_TTL_CLOSED
-    assert plan_ttl(date(2026, 1, 2), date(2026, 1, 2)) == PLAN_TTL_OPEN
+    assert plan_ttl(False) == PLAN_TTL_CLOSED
+    assert plan_ttl(True) == PLAN_TTL_OPEN
+
+
+def test_plan_cache_is_invalidated_when_the_market_opens(monkeypatch) -> None:
+    from app.services import spans
+
+    movements = prepare_month(
+        [
+            (date(2026, 1, 5), [Bar(10.0, 100.0)]),
+            (date(2026, 1, 6), [Bar(10.4, 40.0)]),
+            (date(2026, 1, 7), [Bar(10.8, 5.0)]),
+            (date(2026, 1, 8), [Bar(11.0, 8.0)]),
+        ],
+        "VNM",
+    )
+    calls = {"count": 0}
+    state = {"open": False}
+
+    async def fake_plan(*_args, **_kwargs):
+        calls["count"] += 1
+        return spans.SpanPlan(movements, date(2026, 1, 8))
+
+    monkeypatch.setattr(spans, "plan_span", fake_plan)
+    monkeypatch.setattr(spans, "is_market_open", lambda: state["open"])
+    spans.clear_plan_cache()
+
+    async def run():
+        await spans.plan_span_cached("VNM", "1M")
+        state["open"] = True
+        # The first plan has yesterday's as_of and a ten-minute TTL. It must
+        # not survive the opening bell.
+        await spans.plan_span_cached("VNM", "1M")
+
+    asyncio.run(run())
+    assert calls["count"] == 2
+    spans.clear_plan_cache()
 
 
 def test_plan_span_cached_reuses_and_single_flights(monkeypatch) -> None:
@@ -814,6 +849,7 @@ def test_plan_span_cached_reuses_and_single_flights(monkeypatch) -> None:
         return spans.SpanPlan(movements, date(2026, 1, 8))
 
     monkeypatch.setattr(spans, "plan_span", fake_plan)
+    monkeypatch.setattr(spans, "is_market_open", lambda: False)
     spans.clear_plan_cache()
 
     async def run():
@@ -861,7 +897,7 @@ def test_span_peaks_carries_readiness_and_identity(monkeypatch) -> None:
         calls["count"] += 1
         return Cached() if calls["count"] == 1 else None
 
-    monkeypatch.setattr("app.routers.stocks.plan_span", fake_plan)
+    monkeypatch.setattr("app.routers.stocks.plan_span_cached", fake_plan)
     monkeypatch.setattr("app.routers.stocks.ready_movement", fake_ready)
     response = asyncio.run(
         get_span_peaks(Response(), "vnm", "1M", "symphony", "classic", True, True)
