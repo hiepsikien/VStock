@@ -1,8 +1,8 @@
 # Kế hoạch mở rộng Shape Dynamics cho Guitar
 
-> **Trạng thái**: P0–P5 đã viết vào engine; P6 (in dynamics) và P7 (dọn hiệu năng) chưa. `pytest -q` trên bản merge `main`: **823 pass**.
+> **Trạng thái**: P0–P5 đã vào `main`; P6 (in dynamics) và P7 (dọn hiệu năng) chưa. `pytest -q` trên `main`: **823 pass**. Các việc còn lại nằm ở [`docs/sonify-guitar-shape-dynamics-backlog.md`](./sonify-guitar-shape-dynamics-backlog.md).
 >
-> **Liên kết**: [`docs/sonify-guitar-dynamics-wave-plan.md`](./sonify-guitar-dynamics-wave-plan.md), [`docs/sonify-guitar-phrase-coverage-plan.md`](./sonify-guitar-phrase-coverage-plan.md), [`docs/sonify-guitar-scale-dynamics-plan.md`](./sonify-guitar-scale-dynamics-plan.md), [`docs/sonify-barrios-tremolo-dynamics.md`](./sonify-barrios-tremolo-dynamics.md), [`docs/sonify-symphony-dynamics.md`](./sonify-symphony-dynamics.md).
+> **Liên kết**: [`docs/sonify-guitar-shape-dynamics-backlog.md`](./sonify-guitar-shape-dynamics-backlog.md), [`docs/sonify-guitar-dynamics-wave-plan.md`](./sonify-guitar-dynamics-wave-plan.md), [`docs/sonify-guitar-phrase-coverage-plan.md`](./sonify-guitar-phrase-coverage-plan.md), [`docs/sonify-guitar-scale-dynamics-plan.md`](./sonify-guitar-scale-dynamics-plan.md), [`docs/sonify-barrios-tremolo-dynamics.md`](./sonify-barrios-tremolo-dynamics.md), [`docs/sonify-symphony-dynamics.md`](./sonify-symphony-dynamics.md).
 >
 > **Mục tiêu**: tăng biên độ volume cảm nhận được trên guitar mà vẫn giữ nguyên cấu trúc âm nhạc — within-bar interval, thứ tự bè, accent, tremolo, etude arch, hairpin, seam giữa section.
 
@@ -16,7 +16,7 @@
 | **P1** | đã xong | `_written_deviations` đo 1%/99% theo wave row; cần ≥ 24 attack mới trim, nếu không giữ `d_lo/d_hi` của profile. `MAX_TIDE = 16` chặn tide sau khi trim. |
 | **P2** | đã xong | `soft_ceiling` exponential knee 3 bậc, áp cho cả body và pedal |
 | **P3** | đã xong | `_section_anchor` (beta 4, cap ±5, median chỉ trên body) + `_limit_body_seams` bước 4 xuyên section/row |
-| **P4** | đã xong | `_phrase_breath` nằm trong `C(b)`, clamp vào tide bounds; bar có eighth `relaxed` bị skip; `_shape_dynamics` thành seam no-op |
+| **P4** | đã xong | `_phrase_breath` nằm trong `C(b)`, clamp **một chiều lên** ở `c_hi` (không kéo center xuống); bar có eighth `relaxed` bị skip; `_shape_dynamics` thành seam no-op |
 | **P5** | đã xong | `_make_wave` thu `W` về độ dài section, giữ lẻ |
 | **P6** | chưa | score vẫn velocity-only, chỉ in `mp` ở ô 0 |
 | **P7** | chưa | cache `phrase_at`/`_bar_pattern`, đổi `lipschitz` sang O(n); không đổi hành vi |
@@ -38,7 +38,7 @@ Các test cũ có assertion số tuyệt đối đã được đổi sang bất 
 
 ### 0.2. Kết quả đo trên `VNM 1W` movement 0 (Bach)
 
-Cùng dữ liệu cache, so `origin/main` (`d0385c0`) với branch này sau khi tách pedal floor, body median, và clamp breath:
+Cùng dữ liệu cache, so `origin/main` (`d0385c0`) với bản đã merge ở PR #125 sau khi tách pedal floor, body median, và clamp breath:
 
 | Metric | Trước | Sau |
 |---|---:|---:|
