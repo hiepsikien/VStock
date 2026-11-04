@@ -9,8 +9,9 @@ movement: `1D`/`1W` hold one, `1M` four, `3M` three.
 The names draft the suite a listener already hears: the topic each ensemble
 prints for that slot where one is stable, and the work behind the texture
 (`Arpeggio`, `Tremolo`, `Chord Melody`) where the current label is a technique.
-Entries marked `# TODO review` are drafts that need an editorial pass; every
-other row is a topic name the ensemble already prints today.
+The texture-derived names were reviewed: `Choros No. 1`, `Cathedral`,
+`Mazurka-Choro`, and `Ultimo Tremolo`. Every other row is a topic name the
+ensemble already prints today.
 
 `1D` and `1W` also read the character: `CHARACTER_TITLES` overrides the
 default row so a calm day does not print the same name as a rally day. `1Y`
@@ -33,26 +34,26 @@ TITLES: dict[tuple[str, str, int], str] = {
     ("classic", "3M", 2): "Galop",
     # Villa-Lobos. The arpeggio and block-chord textures borrow the suite
     # movement they are drawn from; `Etude 1`/`Etude 11` stay as printed.
-    ("villa", "1D", 0): "Choros No. 1",  # TODO review: villa_pattern (Arpeggio)
-    ("villa", "1W", 0): "Choros No. 1",  # TODO review: villa_pattern (Arpeggio)
-    ("villa", "1M", 0): "Choros No. 1",  # TODO review: villa_pattern (Arpeggio)
-    ("villa", "1M", 1): "Cathedral",  # TODO review: thumb_cantabile (Prélude No. 1)
-    ("villa", "1M", 2): "Mazurka-Choro",  # TODO review: chord_melody (Chord Melody)
+    ("villa", "1D", 0): "Choros No. 1",  # villa_pattern (Arpeggio)
+    ("villa", "1W", 0): "Choros No. 1",  # villa_pattern (Arpeggio)
+    ("villa", "1M", 0): "Choros No. 1",  # villa_pattern (Arpeggio)
+    ("villa", "1M", 1): "Cathedral",  # thumb_cantabile (Prélude No. 1)
+    ("villa", "1M", 2): "Mazurka-Choro",  # chord_melody (Chord Melody)
     ("villa", "1M", 3): "Etude 11",
-    ("villa", "3M", 0): "Choros No. 1",  # TODO review: villa_pattern (Arpeggio)
-    ("villa", "3M", 1): "Cathedral",  # TODO review: thumb_cantabile (Prélude No. 1)
+    ("villa", "3M", 0): "Choros No. 1",  # villa_pattern (Arpeggio)
+    ("villa", "3M", 1): "Cathedral",  # thumb_cantabile (Prélude No. 1)
     ("villa", "3M", 2): "Etude 1",
     # Barrios. `Cathedral` is the printed name of `preludio`; the tremolo rows
     # take the work that drives the texture.
-    ("barrios", "1D", 0): "Ultimo Tremolo",  # TODO review: tremolo (Tremolo)
-    ("barrios", "1W", 0): "Ultimo Tremolo",  # TODO review: tremolo (Tremolo)
+    ("barrios", "1D", 0): "Ultimo Tremolo",  # tremolo (Tremolo)
+    ("barrios", "1W", 0): "Ultimo Tremolo",  # tremolo (Tremolo)
     ("barrios", "1M", 0): "Cathedral",
     ("barrios", "1M", 1): "Andante",
     ("barrios", "1M", 2): "Polka",
-    ("barrios", "1M", 3): "Ultimo Tremolo",  # TODO review: tremolo (Tremolo)
+    ("barrios", "1M", 3): "Ultimo Tremolo",  # tremolo (Tremolo)
     ("barrios", "3M", 0): "Cathedral",
     ("barrios", "3M", 1): "Andante",
-    ("barrios", "3M", 2): "Ultimo Tremolo",  # TODO review: tremolo (Tremolo)
+    ("barrios", "3M", 2): "Ultimo Tremolo",  # tremolo (Tremolo)
     # Brouwer: four topics, one per movement.
     ("brouwer", "1D", 0): "Etude",
     ("brouwer", "1W", 0): "Etude",
