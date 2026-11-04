@@ -186,6 +186,7 @@ class RecapAsset:
     character: str | None = None
     key_label: str = ""
     movement_name: str = ""
+    form_description: str = ""
     params: Mapping[str, float] | None = None
     params_hash: str = ""
     dfi: dict | None = None
@@ -1704,7 +1705,7 @@ class RecapStore:
         from app.sonify.keys import movement_character, stock_home_key
 
         with compose_params(values):
-            score, _form_row = _compose(
+            score, form_row = _compose(
                 variant,
                 ensemble,
                 bars,
@@ -1776,6 +1777,7 @@ class RecapStore:
                 "audio": audio_path.name,
                 "closed": self._is_closed(day),
                 "movementName": dance,
+                "formDescription": form_row,
                 "humanize": _humanize_on(values),
                 "color": _color_on(values),
                 "paramsHash": params_hash(values),
@@ -1898,6 +1900,7 @@ class RecapStore:
             media_type=_media_type(audio_path),
             ensemble=payload.get("ensemble") or "classic",
             movement_name=str(payload.get("movementName") or ""),
+            form_description=str(payload.get("formDescription") or ""),
             params=values,
             params_hash=params_hash(values),
             dfi=_stored_dfi(payload.get("dfi")),

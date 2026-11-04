@@ -183,6 +183,7 @@ class RecapResponse(BaseModel):
     characterLabel: str = ""
     keyLabel: str = ""
     movementName: str = ""
+    formDescription: str = ""
     humanize: bool = True
     color: bool = True
     paramsHash: str = ""

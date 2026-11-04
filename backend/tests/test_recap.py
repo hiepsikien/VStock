@@ -176,6 +176,10 @@ def test_a_guitar_day_prints_the_curated_movement_title(tmp_path: Path) -> None:
     assert torroba.movement_name == "Olite"
     # Daily title is read from the curated table, not the old pattern row.
     assert bach.movement_name not in {"Prelude", "Bourree", "Tremolo", "Arpeggio"}
+    # A-B-A lives in the non-printed row, not in the name.
+    assert bach.form_description
+    assert "Tremolo" not in bach.form_description
+    assert "Arpeggio" not in torroba.form_description
 
 
 def test_open_session_keeps_each_bar_count_and_closed_session_drops_the_partial(tmp_path: Path) -> None:

@@ -562,6 +562,7 @@ async def get_recap(
         characterLabel=CHARACTER_LABEL.get(asset.character or "", ""),
         keyLabel=asset.key_label,
         movementName=asset.movement_name,
+        formDescription=getattr(asset, "form_description", ""),
         humanize=_layers(valid)[0],
         color=_layers(valid)[1],
         paramsHash=params_hash(valid),
