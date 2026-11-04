@@ -4038,13 +4038,23 @@ _PEDAL_DOOR_PROFILE = {
 }
 
 
+def door_profile(name: str) -> str:
+    """Playability profile of a door region.
+
+    A door plays the body idiom at the boundary, so it takes the body pattern's
+    profile. `_PEDAL_DOOR_PROFILE` only names the cases where the door needs a
+    different ceiling; everything else follows `_PROFILE`.
+    """
+    return _PEDAL_DOOR_PROFILE.get(name) or _PROFILE.get(name, "study")
+
+
 def profiles_for(ctx: _Ctx, patterns: list[str]) -> dict[int, str]:
     """Playability profile of every bar. Pedal bars take the joined door, not `"pedal"`."""
     leading, trailing = _pedal_regions(ctx)
     intro_name = _joined_body_pattern(ctx, leading[-1] + 1, patterns)[0] if leading else "study"
     outro_name = _joined_body_pattern(ctx, trailing[0] - 1, patterns)[0] if trailing else "study"
-    intro_profile = _PEDAL_DOOR_PROFILE.get(intro_name, "study")
-    outro_profile = _PEDAL_DOOR_PROFILE.get(outro_name, "study")
+    intro_profile = door_profile(intro_name)
+    outro_profile = door_profile(outro_name)
     opening = set(leading)
     closing = set(trailing)
     found: dict[int, str] = {}
