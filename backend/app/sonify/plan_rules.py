@@ -1,4 +1,9 @@
-"""Villa's two plan ladders, as one ordered rule table.
+"""Shared plan-rule types, plus Villa's two ladders.
+
+`Mode`, `Rule`, and the first-match dispatcher shape are shared by every
+ensemble that has moved its plan into a table; Villa's `VILLA_RULES` remains
+here as the reference implementation. Other ensembles keep their own modules
+(`plan_rules_classic`, `plan_rules_brouwer`, ...).
 
 Villa has two documented plan scopes, and they are deliberately not the same
 ladder:

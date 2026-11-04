@@ -9,6 +9,8 @@ import math
 from app.sonify.chords import Chord
 from app.sonify.model import NoteEvent, Phrase, Score
 from app.sonify.phrasing import MIN_RISE, swell
+from app.sonify.plan_rules import Mode
+from app.sonify.plan_rules_brouwer import BrouwerInputs, brouwer_pattern
 
 # Default velocity constants evaluated at function definition time
 _MELODY = 64
@@ -18,15 +20,13 @@ _INNER = 46
 _MORDENT_SPAN = 4
 BARRIOS_TREMOLO_MIN_BPM = 90
 
-def _brouwer_primary(ctx: _Ctx, mood: str | None) -> str:
-    """One Brouwer texture for a phrase, a section, or a daily session."""
-    if mood == "calm":
-        return "noviembre"
-    if mood == "selloff" or ctx.bpm <= 72:
-        return "sarabande"
-    if mood == "volatile":
-        return "elogio_pizz"
-    return "brouwer_etude"
+def _brouwer_primary(ctx: _Ctx, mood: str | None, mode: Mode) -> str:
+    """One Brouwer texture for a phrase, a section, or a daily session.
+
+    `mode` keeps the phrase and macro ladders apart even though they read the
+    same fields today; see `plan_rules_brouwer`.
+    """
+    return brouwer_pattern(mode, BrouwerInputs(mood=mood, bpm=ctx.bpm))
 
 
 
