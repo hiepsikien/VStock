@@ -630,7 +630,7 @@ _PEDAL = frozenset({"intro", "outro", "warmup", "cooldown"})          # form.py:
 - **`pattern` của door là body pattern ở biên**, không phải `headline_id`: `_paint_frames` (`guitar_patterns.py:4081-4092`) gọi `_joined_body_pattern(ctx, leading[-1] + 1, patterns)` cho intro và `... trailing[0] - 1 ...` cho outro. Row `[preludio, tremolo, preludio]` → intro/outro dùng `preludio`; nếu biên là `tremolo` thì door là `tremolo`.
 - **Chữ ký door:** `door(ctx, bar, role, *, steps, closing, index)`. `steps` là **bucket 2 hoặc 4**, không phải độ dài region: `steps = 2 if len(bars) <= 2 else 4` (`_render_region`, `:61`). `length = len(bars)` chỉ được truyền vào `_gesture`; region 1 bar đi `_compressed` (`:111`). `role` lấy từ `frame_roles(length)` (`:29`), tối đa 4 bước `0..3`.
 - **Hợp nhất registry:** `_extra_doors()` (`:623`) merge `guitar_frame_bach_sor.DOORS` → `guitar_frame_rest.DOORS` → `guitar_torroba_doors.DOORS` (update vào `_RETAINED_DOORS`), rồi `_RETAINED_DOORS` **thắng khi trùng**.
-- **Profile:** `door_profile(name)` = `_PROFILE.get(name, "study")`. Door chơi idiom của body ở biên nên dùng profile của body; không còn bảng riêng. (PR #146, chưa merge — merge #146 trước #145.)
+- **Profile:** `door_profile(name)` = `_PROFILE.get(name, "study")`. Door chơi idiom của body ở biên nên dùng profile của body; không còn bảng riêng. (PR #146; merge #146 trước #145.)
 - **Không in tên:** `form_pattern_ids` bỏ qua `pedal` (`:3323-3324`), nên đổi nhãn texture không ảnh hưởng door.
 
 ### 14.3. Schema
@@ -666,7 +666,7 @@ Toàn bộ **38 dòng `PROFILES`** đều có door (không có pattern nào rơi
 | `guitar_torroba_doors.DOORS` | 7 | castillo, sonatina, fandanguillo, danza, torroba_tremolo, alcaniz, olite |
 | `_RETAINED_DOORS` | 8 literal → **15** sau `_extra_doors()` | classic (study, mozart_var); barrios (preludio); villa (villa_pattern); brouwer (noviembre, elogio_pizz); bach (bourree, fuga); `_extra_doors()` update thêm 7 torroba |
 
-**Gap và cách sửa (PR #146, chưa merge — merge #146 trước #145):** bảng cũ `_PEDAL_DOOR_PROFILE` có **10 key**, trùng `_PROFILE` từng entry, phủ 11/38 dòng; **27 dòng còn lại** rơi về `"study"`. Nay bảng đã bị **xoá** và `door_profile(name)` dùng `_PROFILE.get(name, "study")`. Test khoá: **door coverage 38/38 dòng**, **profile resolve 38/38** (đều qua `_PROFILE`), và fallback `"study"` chỉ cho tên lạ. Không còn khái niệm "entry explicit".
+**Gap và cách sửa (PR #146; merge #146 trước #145):** bảng cũ `_PEDAL_DOOR_PROFILE` có **10 key**, trùng `_PROFILE` từng entry, phủ 11/38 dòng; **27 dòng còn lại trước đây** rơi về `"study"`. Nay bảng đã bị **xoá** và `door_profile(name)` dùng `_PROFILE.get(name, "study")`. Test khoá: **door coverage 38/38 dòng**, **profile resolve 38/38** (đều qua `_PROFILE`), và fallback `"study"` chỉ cho tên lạ. Không còn khái niệm "entry explicit".
 
 ### 14.5. Validator và test
 
