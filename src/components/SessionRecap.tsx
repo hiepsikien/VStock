@@ -396,6 +396,7 @@ export function SessionRecap({ symbol, children }: Props) {
                 prices: series.prices,
                 label: '',
                 name: manifest.movementName,
+                formDescription: manifest.formDescription,
               },
             ],
           }),
