@@ -68,11 +68,17 @@ def test_name_source_rules() -> None:
             assert found.name_source in NAME_SOURCES, pattern
 
 
-def test_texture_needs_no_title(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A texture owns no name, so validate() must pass with its title gone."""
-    monkeypatch.delitem(_PATTERN_TITLE, "tremolo")
-    assert pattern_title("tremolo", "barrios") == ""
+@pytest.mark.parametrize("pattern", sorted(_TEXTURE))
+def test_texture_needs_no_title(monkeypatch: pytest.MonkeyPatch, pattern: str) -> None:
+    """A texture owns no name, so validate() must pass with every texture title gone."""
+    monkeypatch.delitem(_PATTERN_TITLE, pattern)
     assert validate() is None
+
+
+def test_validate_rejects_a_topic_without_a_title(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delitem(_PATTERN_TITLE, "study")
+    with pytest.raises(ValueError, match="no printed title"):
+        validate()
 
 
 def test_unknown_pattern_raises() -> None:

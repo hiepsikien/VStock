@@ -15,12 +15,17 @@ and it only reports.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 
 # `topic` = names itself; `texture` = an idiom that fills a cell.
 LEVELS = frozenset({"topic", "texture"})
-# Where a printed topic name comes from. Same six axes as the model doc section 2.
-NAME_SOURCES = frozenset({"dance", "work", "genre", "form", "function", "character"})
+# Where a printed topic name comes from. Same axes as the model doc section 2,
+# plus `tempo` (Andante) and `device` (Hemiola), which the six did not cover.
+NAME_SOURCES = frozenset(
+    {"dance", "work", "genre", "form", "function", "character", "tempo", "device"}
+)
 
 
 @dataclass(frozen=True)
@@ -34,7 +39,7 @@ class PatternMeta:
 
 # Grouped by the ensemble that renders the id, matching the inventory in the
 # model doc section 12. `thumb_cantabile` is one id shared by Barrios and Villa.
-PATTERN_META: dict[str, PatternMeta] = {
+PATTERN_META: Mapping[str, PatternMeta] = MappingProxyType({
     # Bach: suite movements are dances; the fugue and chaconne are forms (model doc section 4.2), the prelude a function.
     "bach_allemande": PatternMeta("bach_allemande", "topic", "dance"),
     "bach_bourree": PatternMeta("bach_bourree", "topic", "dance"),
@@ -46,9 +51,9 @@ PATTERN_META: dict[str, PatternMeta] = {
     "bach_prelude": PatternMeta("bach_prelude", "topic", "function"),
     "bach_sarabande": PatternMeta("bach_sarabande", "topic", "dance"),
     # Barrios: three dances, a tempo marking, a genre, and one rhythmic device.
-    "andante": PatternMeta("andante", "topic", "character"),
+    "andante": PatternMeta("andante", "topic", "tempo"),
     "choro": PatternMeta("choro", "topic", "genre"),
-    "hemiola": PatternMeta("hemiola", "topic", "character"),
+    "hemiola": PatternMeta("hemiola", "topic", "device"),
     "polca": PatternMeta("polca", "topic", "dance"),
     "preludio": PatternMeta("preludio", "topic", "function"),
     "thumb_cantabile": PatternMeta("thumb_cantabile", "texture", None),
@@ -61,7 +66,7 @@ PATTERN_META: dict[str, PatternMeta] = {
     "sarabande": PatternMeta("sarabande", "topic", "dance"),
     # Classic: three character pieces, one dance, one form, one genre.
     "cantabile": PatternMeta("cantabile", "topic", "character"),
-    "elegiaque": PatternMeta("elegiaque", "topic", "character"),
+    "elegiaque": PatternMeta("elegiaque", "topic", "genre"),
     "galop": PatternMeta("galop", "topic", "dance"),
     "mozart_var": PatternMeta("mozart_var", "topic", "form"),
     "study": PatternMeta("study", "topic", "genre"),
@@ -80,7 +85,7 @@ PATTERN_META: dict[str, PatternMeta] = {
     "villa_pattern": PatternMeta("villa_pattern", "texture", None),
     # Pedal is a frame path, not a printed unit: no wave profile, never a headline.
     "pedal": PatternMeta("pedal", "texture", None),
-}
+})
 
 
 def meta(pattern_id: str) -> PatternMeta:
@@ -89,36 +94,38 @@ def meta(pattern_id: str) -> PatternMeta:
 
 
 def validate() -> None:
-    """Check the table against the modules it describes. Returns None or raises.
+    """Check the table against the modules it describes. Raises `ValueError`.
 
-    The imports are lazy so this module stays importable on its own and stays
-    out of the `program` → `span` import path.
+    Explicit raises, not asserts: `python -O` strips asserts, and this is the
+    guard that keeps `level` from becoming a claim. Imports stay lazy so the
+    module is importable on its own and stays off the `program` -> `span` path.
     """
     from app.sonify.guitar_patterns import _FAMILY
     from app.sonify.guitar_wave import PROFILES
     from app.sonify.program import pattern_title
 
-    # PROFILES keys are the real (ensemble, id) rows; pedal has none, and every
-    # topic does, so the fallback only ever applies to a texture.
-    ensembles = {pattern: ensemble for ensemble, pattern in PROFILES}
-
-    assert set(PATTERN_META) == set(_FAMILY), (
-        f"registry drifted from _FAMILY: "
-        f"missing={sorted(set(_FAMILY) - set(PATTERN_META))} "
-        f"extra={sorted(set(PATTERN_META) - set(_FAMILY))}"
-    )
+    missing = sorted(set(_FAMILY) - set(PATTERN_META))
+    extra = sorted(set(PATTERN_META) - set(_FAMILY))
+    if missing or extra:
+        raise ValueError(
+            f"registry drifted from _FAMILY: missing={missing} extra={extra}"
+        )
     for pattern, found in PATTERN_META.items():
-        assert found.id == pattern, f"{pattern}: id is {found.id!r}"
-        assert found.level in LEVELS, f"{pattern}: bad level {found.level!r}"
+        if found.id != pattern:
+            raise ValueError(f"{pattern}: id is {found.id!r}")
+        if found.level not in LEVELS:
+            raise ValueError(f"{pattern}: bad level {found.level!r}")
         if found.level == "texture":
-            assert found.name_source is None, (
-                f"{pattern}: texture must not claim a name_source"
-            )
+            if found.name_source is not None:
+                raise ValueError(f"{pattern}: texture must not claim a name_source")
             continue
-        assert found.name_source in NAME_SOURCES, (
-            f"{pattern}: bad name_source {found.name_source!r}"
-        )
-        ensemble = ensembles.get(pattern, "classic")
-        assert pattern_title(pattern, ensemble), (
-            f"{pattern}: topic has no printed title"
-        )
+        if found.name_source not in NAME_SOURCES:
+            raise ValueError(f"{pattern}: bad name_source {found.name_source!r}")
+
+    # Check the printed title per PROFILES row, not once per id: a topic whose
+    # title depends on the ensemble must resolve for every ensemble it ships in.
+    for ensemble, pattern in PROFILES:
+        if PATTERN_META[pattern].level != "topic":
+            continue
+        if not pattern_title(pattern, ensemble):
+            raise ValueError(f"({ensemble}, {pattern}): topic has no printed title")
