@@ -68,10 +68,10 @@ equal(layout1920.contentWidth, 1040, '1920 content');
 equal(layout1920.estimatedHeight, 720, '1920 estimated height');
 
 const layout1024 = panelLayout(1024, 620, guitar);
-equal(layout1024.columns, 2, '1024 columns');
+equal(layout1024.columns, 1, '1024 columns');
 equal(layout1024.dense, true, '1024 dense');
 equal(layout1024.dangStacked, true, '1024 stacks form');
-equal(layout1024.estimatedHeight, 900, '1024 estimated height');
+equal(layout1024.estimatedHeight, 1104, '1024 estimated height');
 
 const layout1280 = panelLayout(1280, 600, guitar);
 equal(layout1280.columns, 3, '1280 columns');
