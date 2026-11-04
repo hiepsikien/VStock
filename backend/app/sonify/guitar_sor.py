@@ -9,6 +9,15 @@ import math
 from app.sonify.chords import Chord
 from app.sonify.model import NoteEvent, Phrase, Score
 from app.sonify.phrasing import MIN_RISE, swell
+from app.sonify.sentence_specs import (
+    METER_ANY,
+    Select,
+    SentenceSpec,
+    Slot,
+    Span,
+    plan_run,
+    register,
+)
 
 # Default velocity constants evaluated at function definition time
 _MELODY = 64
@@ -24,6 +33,23 @@ _GALOP_FLOOR = 40
 _GALOP_INTRO_INNER = 4
 _GALOP_INTRO_RISE = 8
 BARRIOS_TREMOLO_MIN_BPM = 90
+
+# Galop's cycle is a run, not a phrase: four bars of the statement cell, then
+# four of the answer, repeating. The first bar of a run also carries the
+# Tecla variant (see `_galop_run_cell`).
+GALOP_CELL_1 = "galop1"
+GALOP_CELL_2 = "galop2"
+GALOP_CYCLE = SentenceSpec(
+    id="galop_cycle",
+    pattern="galop",
+    meter=METER_ANY,
+    select=Select(length_min=1),
+    span=Span(tile=8, cycle=True, remainder="truncate_cycle"),
+    slots=(
+        Slot(start=0, bars=4, cell=GALOP_CELL_1),
+        Slot(start=4, bars=4, cell=GALOP_CELL_2),
+    ),
+)
 
 def _classic_macro(ctx: _Ctx, mood: str | None, bars: list[int]) -> str:
     if mood == "selloff" or ctx.bpm <= 72:
@@ -163,22 +189,61 @@ def _galop_sparkle(
 
 
 
+def _galop_continues(ctx: _Ctx, cursor: int, patterns: list[str]) -> bool:
+    """True when `cursor` is a body bar with the galop id, not a pedal break."""
+    if ctx.kind_at.get(cursor, "phrase") in _PEDAL:
+        return False
+    return _bar_pattern(ctx, cursor, patterns) == "galop"
+
+
+def _galop_run_bounds(ctx: _Ctx, bar: int, patterns: list[str]) -> tuple[int, int]:
+    """First and last bar of the maximal galop run that contains `bar`."""
+    start = bar
+    cursor = bar - 1
+    while cursor >= 0 and _galop_continues(ctx, cursor, patterns):
+        start = cursor
+        cursor -= 1
+    end = bar
+    cursor = bar + 1
+    while cursor < ctx.bars and _galop_continues(ctx, cursor, patterns):
+        end = cursor
+        cursor += 1
+    return start, end
+
+
 def _galop_body_index(ctx: _Ctx, bar: int, patterns: list[str]) -> int:
     """Index of `bar` inside its run of consecutive body bars whose id is galop.
 
     Intro and outro doors are not counted. A study bar, or any other id, ends
     the run. The first bar of a run is 0.
     """
-    index = 0
-    cursor = bar - 1
-    while cursor >= 0:
-        if ctx.kind_at.get(cursor, "phrase") in _PEDAL:
-            break
-        if _bar_pattern(ctx, cursor, patterns) != "galop":
-            break
-        index += 1
-        cursor -= 1
-    return index
+    return bar - _galop_run_bounds(ctx, bar, patterns)[0]
+
+
+def _galop_cell_legacy(index: int) -> str:
+    """The pre-registry chooser, kept as the parity oracle for the cycle plan."""
+    if index % 8 >= 4:
+        return GALOP_CELL_2
+    return GALOP_CELL_1
+
+
+def _galop_run_length(ctx: _Ctx, bar: int, patterns: list[str]) -> int:
+    """Bars from `bar` to the end of its run, counted forward."""
+    return _galop_run_bounds(ctx, bar, patterns)[1] - bar + 1
+
+
+def _galop_run_cell(ctx: _Ctx, bar: int, patterns: list[str]) -> tuple[int, str]:
+    """Run index for `bar`, then the cell the registry plans at that index.
+
+    `plan_run` receives the whole run, so a cycle sees its real length. The
+    legacy chooser answers only if the registry has no plan.
+    """
+    start, end = _galop_run_bounds(ctx, bar, patterns)
+    index = bar - start
+    run_length = end - start + 1
+    planned = plan_run("galop", ctx.kind, run_length)
+    cell = planned[index] if planned else _galop_cell_legacy(index)
+    return index, cell
 
 
 def _lead_cap(ctx: _Ctx) -> int:
@@ -418,7 +483,7 @@ def _render_galop_dance(
     patterns: list[str],
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
     """Four bars of the gallop cell, then four of the answer, counted inside the run."""
-    index = _galop_body_index(ctx, bar, patterns)
+    index, cell = _galop_run_cell(ctx, bar, patterns)
     chord = ctx.chord(bar)
     pcs = list(chord.pitch_classes)
 
@@ -426,7 +491,7 @@ def _render_galop_dance(
         return _melody_at(ctx, bar * ctx.epb + offset)
 
     figures: list[tuple] = []
-    if index % 8 >= 4:
+    if cell == GALOP_CELL_2:
         for origin in (0, 4):
             figures.extend(_galop2_cell(ctx, origin, melody_at, chord))
     else:
@@ -448,7 +513,7 @@ def _render_galop_dance(
             )
     part_lead, support, low = _emit_galop(ctx, bar, figures, apex, phrase)
     support, low = _shape_accompaniment(ctx, support, low)
-    if index % 8 >= 4:
+    if cell == GALOP_CELL_2:
         low = _slur_galop2_bass(low)
         part_lead, low = _contour_galop2(part_lead, low)
     else:
@@ -1738,4 +1803,12 @@ from app.sonify.guitar_patterns import (  # noqa: E402
     _under_lead,
     _walk,
     quantize_strong_beats,
+)
+
+# Registered last so the cycle data exists once every renderer it names does.
+register(
+    "galop",
+    METER_ANY,
+    GALOP_CYCLE,
+    valid_cells={GALOP_CELL_1, GALOP_CELL_2},
 )

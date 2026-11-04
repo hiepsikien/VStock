@@ -36,6 +36,7 @@ from app.sonify.guitar import (
 from app.sonify.keys import C_KEY, KeySpec
 from app.sonify.model import NoteEvent, Phrase, Score
 from app.sonify.phrasing import MIN_RISE, bell_budget, quantize_strong_beats, swell, written
+from app.sonify.plan_rules import MACRO, PHRASE, MacroInputs, PhraseInputs, villa_pattern
 from app.sonify.quantize import C_MAJOR_PCS, C_NATURAL_MINOR_PCS
 
 # Sounding open strings, string 6 → 1, and the highest fret each string allows.
@@ -923,7 +924,7 @@ def _select_body(
         if trio or bridge:
             return _torroba_contrast(ctx, primary, mood)
         return primary
-    if ctx.bpm >= BARRIOS_TREMOLO_MIN_BPM and first_body:
+    if ctx.bpm >= BARRIOS_TREMOLO_MIN_BPM and first_body and ctx.ensemble != "villa":
         return {"classic": "study", "villa": "villa_pattern"}.get(ctx.ensemble, "preludio")
     if (
         ctx.ensemble == "barrios"
@@ -946,18 +947,20 @@ def _select_body(
         if mood == "volatile":
             return "mozart_var"
     if ctx.ensemble == "villa":
-        if trio or bridge or mood == "selloff":
-            return "thumb_cantabile"
-        if ctx.bpm <= 72 or band == "p" or mood == "calm":
-            return "chord_melody"
-        # The opening body phrase stays the eighth-note roll. The etudes begin
-        # on the next phrase, and only in 4/4 above the slow-movement floor.
-        if not first_body and ctx.kind == "4/4" and ctx.bpm > 72:
-            if mood == "rally":
-                return "etude1"
-            if mood == "volatile":
-                return "etude11"
-        return "villa_pattern"
+        # The phrase ladder lives in `plan_rules`. Rule one is the opening-body
+        # roll that the shared branch above applied for Villa before dispatch.
+        return villa_pattern(
+            PHRASE,
+            PhraseInputs(
+                trio=trio,
+                bridge=bridge,
+                mood=mood,
+                bpm=ctx.bpm,
+                band=band,
+                first_body=first_body,
+                kind=ctx.kind,
+            ),
+        )
     if (
         ctx.ensemble == "barrios"
         and running
@@ -1127,26 +1130,19 @@ def _dominant_pattern_auto(ctx: _Ctx, phrases: list[Phrase], bars: list[int]) ->
     if ctx.ensemble == "classic":
         return _classic_macro(ctx, mood, bars)
     if ctx.ensemble == "villa":
-        # Selloff sings Prélude No. 1 on the thumb. A bridge or trio still answers
-        # through `_contrast_pattern`, which is unchanged.
-        if mood == "selloff":
-            return "thumb_cantabile"
-        # Slow movements and calm or quiet sessions keep the block-chord pattern.
-        if ctx.bpm <= 72:
-            return "chord_melody"
+        # Macro ladder, one pattern for the body/slot/session. Selloff sings
+        # Prélude No. 1 on the thumb; a bridge or trio still answers through
+        # `_contrast_pattern` outside this chooser.
         quiet = sum(1 for bar in bars if ctx.band(bar) == "p")
-        if mood == "calm" or (bars and quiet * 2 > len(bars)):
-            return "chord_melody"
-        # 6/8 stays the eighth-note roll for every mood. 4/4 rally and volatile
-        # lock the etudes across the whole body, including the opening phrase.
-        if ctx.kind == "6/8":
-            return "villa_pattern"
-        if ctx.kind == "4/4" and ctx.bpm > 72:
-            if mood == "rally":
-                return "etude1"
-            if mood == "volatile":
-                return "etude11"
-        return "villa_pattern"
+        return villa_pattern(
+            MACRO,
+            MacroInputs(
+                mood=mood,
+                bpm=ctx.bpm,
+                kind=ctx.kind,
+                quiet_majority=bool(bars) and quiet * 2 > len(bars),
+            ),
+        )
     if ctx.bpm < BARRIOS_TREMOLO_MIN_BPM:
         return "andante"
     if _framed(ctx) and ctx.kind == "4/4" and 90 <= ctx.bpm <= 100:

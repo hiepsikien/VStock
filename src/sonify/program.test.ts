@@ -292,6 +292,9 @@ deepEqual(playingLines('Suite VIC 1M in E-flat', 'Sarabande (3/4, 72 BPM)'), [
   'Sarabande (3/4, 72 BPM)',
 ]);
 deepEqual(playingLines('Bagatelle VIC 20/1 in E-flat', null), ['Bagatelle VIC 20/1 in E-flat']);
+// Legacy contract: before the naming release the server sent the A-B-A row in
+// `name`. The new frontend must keep printing it until every server is on the
+// curated-title contract.
 equal(
   pieceCopy(
     piece({
@@ -335,5 +338,44 @@ equal(
   ).movement,
   'Allemande — Courante — Allemande (4/4, 96 BPM)',
 );
+
+/** A guitar movement at `index` with a curated free-text title. */
+function namedGuitar(index: number, name: string, extra: Partial<MovementInput> = {}) {
+  return pieceCopy(
+    piece({
+      variant: 'guitar',
+      ensemble: 'bach',
+      span: '1M',
+      movements: month.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, name, ...extra } : item,
+      ),
+    }),
+    index,
+  );
+}
+
+// Free-text curated titles print as written, even though none of these are in
+// PATTERN_NAMES. This is the case the chart used to drop to meter only.
+const choros = namedGuitar(0, 'Choros No. 1');
+equal(choros.title, 'Suite VIC 1M in E-flat');
+equal(choros.movement, 'Choros No. 1 (4/4, 96 BPM)');
+equal(namedGuitar(1, 'Mazurka-Choro').movement, 'Mazurka-Choro (3/4, 72 BPM)');
+equal(namedGuitar(2, 'Ultimo Tremolo').movement, 'Ultimo Tremolo (6/8, 120 BPM)');
+
+// The closing movement keeps its Finale prefix, and the curated title follows it.
+equal(namedGuitar(3, 'Ultimo Tremolo').movement, 'Finale: Ultimo Tremolo (4/4, 96 BPM)');
+
+// A–B–A is carried as data and never becomes the movement line or a playing line.
+const formDescription = 'A–B–A · Choro–Tremolo–Choro';
+const described = namedGuitar(1, 'Choros No. 1', { formDescription: `  ${formDescription}  ` });
+equal(described.formDescription, formDescription);
+equal(described.movement, 'Choros No. 1 (3/4, 72 BPM)');
+if (described.title.includes('A–B–A')) {
+  throw new Error(`formDescription leaked into the title: ${described.title}`);
+}
+for (const line of playingLines(described.title, described.movement)) {
+  if (line.includes('A–B–A')) throw new Error(`formDescription leaked into a playing line: ${line}`);
+}
+equal(pieceCopy(piece({ variant: 'guitar', span: '1M', movements: month }), 1).formDescription, null);
 
 console.log('program tests passed');

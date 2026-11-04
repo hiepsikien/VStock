@@ -673,8 +673,10 @@ export type RecapManifest = {
   character?: string | null;
   characterLabel?: string;
   keyLabel?: string;
-  /** Dance the guitar writer chose. Empty for the other variants. */
+  /** Curated guitar movement title. Empty for the other variants. */
   movementName?: string;
+  /** A–B–A form row with textures filtered. Not printed. */
+  formDescription?: string;
   humanize?: boolean;
   color?: boolean;
   /** Server hash after tier canonicalisation. */
@@ -734,8 +736,10 @@ export type SpanMovement = {
   bpm?: number;
   beats?: number;
   beatType?: number;
-  /** Dance or tempo composed for this movement. */
+  /** Curated guitar movement title, or the other variants' composed name. */
   name?: string;
+  /** A–B–A form row with textures filtered. Not printed. */
+  formDescription?: string;
   /** Wall seconds spent inside the export slot. Zero for files written before the field existed. */
   renderSec?: number;
   /** `renderSec / musicalSec`. Used to size lookahead. */

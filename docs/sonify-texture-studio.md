@@ -429,7 +429,7 @@ Với Schottish-Choro 2/4, engine không có `Meter(2,4,...)`. Cách xử lý l�
 
 Nơi đặt: `backend/app/sonify/span.py` (cùng chỗ `_guitar_meter`/`retarget_torroba_meter`). **Owner là `span.py`/`FormSpec`**, không phải pattern. `resolve_runtime_form()` chạy **trước** khi `FormSpec` được dựng; pattern chỉ nhận meter đã fold.
 
-Pattern không thấy 2/4; nó chỉ thấy 4/4 sau fold. Test bắt buộc: độ dài movement, số bar, DFI window, và tiền lệ `galop` (`guitar_sor.py:303`).
+Pattern không thấy 2/4; nó chỉ thấy 4/4 sau fold. Test bắt buộc: độ dài movement, số bar, DFI window, và tiền lệ `galop` (`guitar_sor.py` `_galop1_cell`/`_galop2_cell`).
 
 ### 4.5. Validate meter
 
@@ -1646,7 +1646,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 | Revision 1 | Thực tế |
 |---|---|
 | “Engine chỉ có 3/4, 4/4, 6/8” | `form.py` có 4/4, 3/4, 6/8, 12/8, 5/4, 6/4, 7/8; guitar dùng 12/8 qua param |
-| “2/4 gộp hai ô, đúng cách `olite`” | Không có meter 2/4 trong `form.py`; tiền lệ là `galop` trong `guitar_sor.py:303` |
+| “2/4 gộp hai ô, đúng cách `olite`” | Không có meter 2/4 trong `form.py`; tiền lệ là `galop` trong `guitar_sor.py` (`_galop1_cell`/`_galop2_cell`) |
 | “`olite` scheduler chỉ 4/4” | `"other"` fallback về 4/4 row, nên Olite vẫn có thể được chọn ở meter lạ |
 | “`ctx.kind` là meter của movement/bar” | Chỉ movement/per-render; `kind_at` là section kind |
 | “Trùng tên in, `PATTERN_NAMES` nhận nhầm pattern của nhà khác” | **Sai**: Set membership collapse, trùng title vô hại; Python `pattern_title` keyed theo id + ensemble. 4 title trùng hiện có là hợp lệ. |
