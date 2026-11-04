@@ -58,7 +58,8 @@ def pattern_title(pattern: str, ensemble: str) -> str:
     This is not the printed movement name: that is
     `movement_titles.movement_title`, and `pattern_form` drops every id whose
     registry `level` is `texture`. Villa's thumb line is Prélude No. 1, not a
-    chorale.
+    chorale; its curated movement title is `Cathedral`, so the two labels can
+    differ without changing this table.
     """
     if pattern == "thumb_cantabile" and ensemble == "villa":
         return "Prelude"

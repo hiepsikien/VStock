@@ -22,6 +22,7 @@ from app.sonify.program import (
     guitar_form_description,
     pattern_form,
     pattern_title,
+    recap_movement_name,
     span_form_description,
     span_movement_name,
 )
@@ -367,10 +368,6 @@ def test_span_manifest_reads_the_planned_title_and_does_not_plan(monkeypatch):
         title="Gigue",
     )
     # The title is planned, so the manifest never needs the stored render name.
-    assert (
-        span_movement_name(movement, variant="guitar", span="1Y", index=1)
-        == "Gigue"
-    )
     assert span_movement_name(movement, variant="guitar", span="1Y", index=1) == "Gigue"
     empty = PreparedMovement(
         label="2",
@@ -387,6 +384,42 @@ def test_span_manifest_reads_the_planned_title_and_does_not_plan(monkeypatch):
     assert span_movement_name(movement, variant="symphony", span="1M", index=1) == (
         movement_title("symphony", "1M", 1, movement.spec) or ""
     )
+
+
+def test_recap_name_is_recomputed_for_guitar_only():
+    # A cached asset can carry an old pattern name; the read path ignores it
+    # for guitar and rebuilds the title from the ensemble and character.
+    assert recap_movement_name(
+        variant="guitar",
+        ensemble="bach",
+        character="calm",
+        stored="Tremolo",
+    ) == "Prelude"
+    assert recap_movement_name(
+        variant="guitar",
+        ensemble="villa",
+        character="selloff",
+        stored="Prelude",
+    ) == "Cathedral"
+    assert recap_movement_name(
+        variant="guitar",
+        ensemble="torroba",
+        character="calm",
+        stored="Olite",
+    ) == "Castillo"
+    assert recap_movement_name(
+        variant="guitar",
+        ensemble="bach",
+        character=None,
+        stored="Old",
+    ) == "Courante"
+    # Non-guitar keeps the stored value; it has no curated daily table.
+    assert recap_movement_name(
+        variant="symphony",
+        ensemble="classic",
+        character="rally",
+        stored="Finale",
+    ) == "Finale"
 
 
 def _write_audio(folder: Path, name: str, payload: dict) -> None:

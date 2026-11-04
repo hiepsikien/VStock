@@ -13,6 +13,14 @@ The texture-derived names were reviewed: `Choros No. 1`, `Cathedral`,
 `Mazurka-Choro`, and `Ultimo Tremolo`. Every other row is a topic name the
 ensemble already prints today.
 
+Villa's thumb slot is written on Prélude No. 1, but the printed title is
+`Cathedral` by product decision; Barrios' prelude slot uses the same curated
+name. This is a title identity, not a claim that the two slots share a work.
+
+`CHARACTER_TITLES` collapses the old writer's name to the character. Where the
+old name also read the bar shape (held vs running), the day/week title follows
+the character only, so a few values intentionally differ from the old readout.
+
 `1D` and `1W` also read the character: `CHARACTER_TITLES` overrides the
 default row so a calm day does not print the same name as a rally day. `1Y`
 has no row; a year is twelve calendar movements, and `span.py` reuses the `1M`
@@ -37,13 +45,14 @@ TITLES: dict[tuple[str, str, int], str] = {
     ("villa", "1D", 0): "Choros No. 1",  # villa_pattern (Arpeggio)
     ("villa", "1W", 0): "Choros No. 1",  # villa_pattern (Arpeggio)
     ("villa", "1M", 0): "Choros No. 1",  # villa_pattern (Arpeggio)
-    ("villa", "1M", 1): "Cathedral",  # thumb_cantabile (Prélude No. 1)
+    ("villa", "1M", 1): "Cathedral",  # Prélude No. 1; curated title
     ("villa", "1M", 2): "Mazurka-Choro",  # chord_melody (Chord Melody)
     ("villa", "1M", 3): "Etude 11",
     ("villa", "3M", 0): "Choros No. 1",  # villa_pattern (Arpeggio)
-    ("villa", "3M", 1): "Cathedral",  # thumb_cantabile (Prélude No. 1)
+    ("villa", "3M", 1): "Cathedral",  # Prélude No. 1; curated title
     ("villa", "3M", 2): "Etude 1",
-    # Barrios. `Cathedral` is the printed name of `preludio`; the tremolo rows
+    # Barrios. `Cathedral` is the curated name for the `preludio` slot; the
+    # pattern title stays `Prelude` in the non-printed row. The tremolo rows
     # take the work that drives the texture.
     ("barrios", "1D", 0): "Ultimo Tremolo",  # tremolo (Tremolo)
     ("barrios", "1W", 0): "Ultimo Tremolo",  # tremolo (Tremolo)
@@ -101,6 +110,7 @@ CHARACTER_TITLES: dict[tuple[str, str, str], str] = {
     ("classic", "1W", "selloff"): "Elegy",
     ("classic", "1W", "volatile"): "Variations",
     # Villa-Lobos: the old texture names map to the work they are drawn from.
+    # The selloff row is Prélude No. 1, curated as Cathedral by decision.
     ("villa", "1D", "calm"): "Mazurka-Choro",
     ("villa", "1D", "rally"): "Etude 1",
     ("villa", "1D", "selloff"): "Cathedral",

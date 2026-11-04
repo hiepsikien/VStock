@@ -60,6 +60,8 @@ def test_plan_fills_the_title_for_guitar_only():
     assert [movement.title for movement in plan_week(5, "guitar", "bach", "calm")] == [
         "Prelude"
     ]
+    # Villa's thumb slot is Prélude No. 1; the printed title is Cathedral by
+    # product decision (the same curated label Barrios uses for its prelude).
     assert [
         movement.title for movement in plan_week(5, "guitar", "villa", "selloff")
     ] == ["Cathedral"]
