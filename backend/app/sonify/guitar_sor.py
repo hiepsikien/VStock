@@ -9,6 +9,8 @@ import math
 from app.sonify.chords import Chord
 from app.sonify.model import NoteEvent, Phrase, Score
 from app.sonify.phrasing import MIN_RISE, swell
+from app.sonify.plan_rules import MACRO
+from app.sonify.plan_rules_classic import ClassicMacroInputs, classic_pattern
 from app.sonify.sentence_specs import (
     METER_ANY,
     Select,
@@ -51,22 +53,20 @@ GALOP_CYCLE = SentenceSpec(
     ),
 )
 
-def _classic_macro(ctx: _Ctx, mood: str | None, bars: list[int]) -> str:
-    if mood == "selloff" or ctx.bpm <= 72:
-        return "elegiaque"
-    if mood == "calm":
-        return "cantabile"
-    if mood == "volatile":
-        return "mozart_var"
-    if mood == "rally":
-        # `character is None` or a narrow rally (< 1.2% span) stays on the
-        # classical study. An energetic major rally dances Galop Op. 32 No. 6.
-        if ctx.character is None and not _region_marked(ctx, bars, "rally"):
-            return "study"
-        if ctx.rel_span >= 0.012 and ctx.mode != "minor":
-            return "galop"
-        return "study"
-    return "study"
+def _classic_macro(
+    ctx: _Ctx, mood: str | None, *, rally_marked: bool
+) -> str:
+    return classic_pattern(
+        MACRO,
+        ClassicMacroInputs(
+            mood=mood,
+            bpm=ctx.bpm,
+            character=ctx.character,
+            rel_span=ctx.rel_span,
+            minor=ctx.mode == "minor",
+            rally_marked=rally_marked,
+        ),
+    )
 
 
 
