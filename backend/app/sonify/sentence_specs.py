@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import importlib
 import json
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -449,10 +449,18 @@ def _tile(
     return spans
 
 
-def _lookup(pattern: str, meter: str) -> tuple[SentenceSpec, ...] | None:
-    exact = SENTENCE_SPECS.get((pattern, meter))
+def _lookup(
+    pattern: str,
+    meter: str,
+    registry: Mapping[tuple[str, str], tuple[SentenceSpec, ...]] | None = None,
+) -> tuple[SentenceSpec, ...] | None:
+    table = SENTENCE_SPECS if registry is None else registry
+    exact = table.get((pattern, meter))
     if exact is not None:
         return exact
+    if registry is not None:
+        # A sandbox registry is already complete; do not import owners into it.
+        return table.get((pattern, METER_ANY))
     # Owner modules register at import. A caller that imports only this module
     # still gets the table once the owners have been loaded. Retry the exact key
     # before the wildcard, so a meter-specific registration always wins.
@@ -472,9 +480,10 @@ def plan_sentence(
     *,
     closes: bool = False,
     rise: int = 0,
+    registry: Mapping[tuple[str, str], tuple[SentenceSpec, ...]] | None = None,
 ) -> list[tuple[int, tuple[int, ...]]] | None:
     """Figure spans for one phrase, or `None` when the pair has no data yet."""
-    specs = _lookup(pattern, meter)
+    specs = _lookup(pattern, meter, registry)
     if specs is None:
         return None
     for spec in specs:
@@ -495,7 +504,13 @@ def _run_cells(spec: SentenceSpec, run_length: int) -> list[str]:
     return [cell for cell in cells if cell is not None]
 
 
-def plan_run(pattern: str, meter: str, run_length: int) -> list[str] | None:
+def plan_run(
+    pattern: str,
+    meter: str,
+    run_length: int,
+    *,
+    registry: Mapping[tuple[str, str], tuple[SentenceSpec, ...]] | None = None,
+) -> list[str] | None:
     """One cell id per bar of a run, or `None` when the pair has no run data.
 
     A run is a maximal stretch of consecutive bars the caller treats as one
@@ -505,7 +520,7 @@ def plan_run(pattern: str, meter: str, run_length: int) -> list[str] | None:
     no entry at all (the caller stays on the code path); `[]` means the registry
     covers the pair but has no cycle that fills every bar at this run length.
     """
-    specs = _lookup(pattern, meter)
+    specs = _lookup(pattern, meter, registry)
     if specs is None:
         return None
     if run_length < 1:
