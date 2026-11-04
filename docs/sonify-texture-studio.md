@@ -86,7 +86,8 @@ Revision 1–6 dùng `pattern` và `figure` với nghĩa quá tải. Từ revisi
 
 | Từ trong doc này (rev 1–6) | Trục chuẩn | Ghi chú |
 |---|---|---|
-| `pattern` | **scheduler slot** | vẫn giữ làm id; nhưng phải khai thêm `level` (`movement` / `topic` / `texture`) và `texture` |
+| `pattern` | **scheduler slot** | vẫn giữ làm id; khai thêm `level` (`topic` / `texture`), `topic_source` và `texture` |
+| Hình thức in ra của movement | **Movement** (level trên pattern) | `PreparedMovement` + `FormSpec` + plan + `title`; 1D = 1 movement/1 pattern, 1W = 1 movement/N pattern, 1M = 4 movement |
 | Hình thức in ra của pattern | **Topic** | tên tác phẩm/chương/thể loại/điệu; **không** phải kỹ thuật |
 | `figure` | **Sentence** | template nhiều ô, có vai hình thức (walk/cadence, arada/float, period 4+4) |
 | “variation bên trong pattern” | **Texture** (+ `cells`) hoặc **Plan** | không phải một lớp riêng |
@@ -97,7 +98,7 @@ Revision 1–6 dùng `pattern` và `figure` với nghĩa quá tải. Từ revisi
 Hai hệ quả bắt buộc khi implement:
 
 1. `FigureSpec` trong doc này đọc là **`SentenceSpec`**; `figure_code` là id của texture trong slot.
-2. Một pattern chỉ được in tên nếu `level` của nó là `movement` hoặc `topic`. `level: texture` thì không in (xem vi phạm `villa_pattern` → "Arpeggio" và `tremolo` → "Tremolo" trong [`sonify-guitar-model.md`](./sonify-guitar-model.md) §8).
+2. Một pattern chỉ được in tên nếu `level` là `topic`; `level: texture` thì không in. Tên chương thuộc `Movement.title`, **không** phải pattern — guitar chưa có field này, nên phải thêm trước khi bỏ in texture (xem [`sonify-guitar-model.md`](./sonify-guitar-model.md) §2.1, §8).
 3. Field đã đổi tên trong doc: `FigureSpec`→`SentenceSpec`, `figure_code`→`sentence_code`, `meter_variants[].figures`→`sentences`, `selected_figure`→`selected_sentence`, `traits.figure_registry`→`traits.sentence_registry`. **Code hiện tại vẫn dùng `figure`/`_FIGURES`** — đổi code là PR riêng, không trộn vào PR này.
 4. Inventory 38 pattern (`level` / `topic` / `texture` / `procedure` / `sentence`) và 4 quyết định tên: [`sonify-guitar-model.md`](./sonify-guitar-model.md) §8, §12.
 
@@ -193,7 +194,7 @@ Composer
 ```
 
 - Scheduler không bao giờ chọn sentence trực tiếp. Nó chọn pattern trước, rồi trong pattern mới chọn sentence.
-- **Mỗi pattern khai `level`**: `movement` / `topic` / `texture`. Chỉ `movement` và `topic` được in tên trên chart; `texture` không in (xem [`sonify-guitar-model.md`](./sonify-guitar-model.md) §8.1).
+- **Mỗi pattern khai `level`**: `topic` (tự đứng tên, in ra) hoặc `texture` (kỹ thuật, không in). **Movement là level trên pattern**, không phải một giá trị `level` (xem [`sonify-guitar-model.md`](./sonify-guitar-model.md) §2.1, §8.1).
 - Sentence không có tên in trên chart, không có `_PATTERN_TITLE`, không vào `PATTERN_NAMES`.
 - Pattern có meter riêng; sentence cũng có meter riêng.
 - **Điều kiện gọi**: meter của pattern phải khớp meter runtime; sentence `meter` phải **thuộc** danh sách `meter_variants` của pattern, so bằng canonical key (không so string, không so `id`).
@@ -1467,7 +1468,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 - `backend/app/sonify/guitar_patterns.py`: `_dominant_pattern`, `_contrast_pattern`, các fallback dict của Villa.
 - `backend/app/sonify/guitar_patterns.py`: dispatch trong `render_patterned_voices`.
 - `backend/app/sonify/guitar_patterns.py`: `_PROFILE[id]` sinh từ `profiles.render`.
-- `backend/app/sonify/program.py`: `_PATTERN_TITLE[id]` — **chỉ thêm khi `level` là `movement` hoặc `topic`**. `level: texture` không có title (vi phạm hiện tại: `villa_pattern` → "Arpeggio", `tremolo` → "Tremolo"; xem [`sonify-guitar-model.md`](./sonify-guitar-model.md) §8.1).
+- `backend/app/sonify/program.py`: `_PATTERN_TITLE[id]` — **chỉ thêm khi `level` là `topic`**. `level: texture` không có title (vi phạm hiện tại: `villa_pattern` → "Arpeggio", `tremolo` → "Tremolo"; xem [`sonify-guitar-model.md`](./sonify-guitar-model.md) §8.1).
 - `backend/app/sonify/guitar_wave.py`: `PROFILES[("villa", id)]` sinh từ `profiles.wave`.
 - `backend/tests/test_guitar_wave.py`: `_EXPECTED`.
 
@@ -1574,7 +1575,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 21. **Registry version gate**: schema ngoài allowlist hoặc JSON hỏng bị bỏ, app vẫn boot; `renderer_version` bắt buộc cho interpreter.
 22. **Media token**: preview/export dùng signed token ngắn hạn; `GET /uploads/{id}` kiểm tra owner.
 23. **Global preview queue**: 1 worker Studio, render ngoài event loop, tách khỏi `EXPORT_SLOTS`; `previewsConcurrent` chỉ là per-session.
-24. **Level/nhãn**: mỗi pattern khai `level` (`movement` / `topic` / `texture`); chỉ `movement`/`topic` được in tên. Inventory 38 pattern và 4 quyết định tên nằm ở [`sonify-guitar-model.md`](./sonify-guitar-model.md) §8, §12.
+24. **Level/nhãn**: mỗi pattern khai `level` (`topic` / `texture`) + `topic_source`; chỉ `topic` được in tên. **Movement** là level trên pattern (`FormSpec` + plan + `title`), không phải `level`. Inventory 38 pattern và các quyết định tên nằm ở [`sonify-guitar-model.md`](./sonify-guitar-model.md) §2.1, §8, §12.
 24. **Parent/upload identity**: `parent_slug` là pattern id; upload dedupe qua `studio_blobs.refcount`, xoá 1 owner không xoá file của owner khác.
 25. **Pitch context**: `melody_eighth`/`chord_degree`/`scale_step` resolve từ render context; `eighth`/`offset` out-of-range là validation error, không clamp; chỉ `literal_midi` standalone.
 26. **Validate queue/partial**: validate dùng cùng global Studio queue với preview; thiếu melody context trả `partial: true` + `skipped_checks`, không silent pass.
