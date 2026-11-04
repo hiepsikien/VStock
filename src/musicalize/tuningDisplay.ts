@@ -215,6 +215,47 @@ const FIELD_ENDS: Record<string, { negative: string; positive: string }> = {
   guitar_bass: { negative: 'Nhỏ', positive: 'Lớn' },
 };
 
+
+const FIELD_HELP: Record<string, string> = {
+  tempo:
+    'Kéo trái để chậm hơn, phải để nhanh hơn. 0% giữ nguyên nhịp gốc; dải −25%…+25%. BPM hiển thị theo nhịp gốc.',
+  humanize:
+    '0% giữ độ lệch hiện tại. Kéo trái để đều/máy hơn, phải để nhiều biến đổi hơn. Trên +10% dễ làm phẳng contour.',
+  breath:
+    '0% giữ độ cong hiện tại. Kéo trái để câu thẳng/đều hơn, phải để cong đầu-cuối nhiều hơn. Trên +20% đã chạm trần câu.',
+  color:
+    '0% giữ màu hiện tại. Kéo trái về −100% để khô, phải về +100% để đậm gấp đôi (EQ, echo, soft-clip).',
+  dynamics:
+    '0% giữ tương phản hiện tại. Kéo trái để phẳng hơn, phải để chênh lực mạnh hơn quanh velocity 64. Dải −50%…+50%.',
+  noise:
+    'Mức nhiễu nền cộng vào bản thu, tính bằng % toàn thang. 0% là sạch; mặc định 0.10%.',
+  density:
+    '0% giữ mật độ hiện tại. Kéo trái để thưa hơn, phải để nhiều fill/bell hơn. Dải −100%…+100%.',
+  harmony:
+    '0% giữ vocabulary hiện tại. Kéo trái để tối giản hơn, phải để nhiều màu hòa âm hơn. Dải −100%…+100%.',
+  motion:
+    '0% giữ nhịp hòa âm hiện tại. Kéo trái để giữ hợp âm lâu hơn, phải để đổi hợp âm dồn dập hơn. Dải −100%…+100%.',
+  register:
+    '0% giữ vùng âm hiện tại. Kéo trái để thấp/ấm hơn, phải để cao/sáng hơn. Chỉ dịch biên độ, không đổi giọng.',
+  technique:
+    '0% giữ độ điêu luyện hiện tại. Kéo trái để dễ hơn, phải để khó/điêu luyện hơn. Chỉ áp dụng Bach và Torroba.',
+  guitar_high:
+    '0 giữ bè cao như bản hiện tại. Kéo trái để nhỏ hơn, phải để lớn hơn; đơn vị velocity, dải −12…+12.',
+  guitar_mid:
+    '0 giữ bè trung như bản hiện tại. Kéo trái để nhỏ hơn, phải để lớn hơn; đơn vị velocity, dải −12…+12.',
+  guitar_bass:
+    '0 giữ bè bass như bản hiện tại. Kéo trái để nhỏ hơn, phải để lớn hơn; đơn vị velocity, dải −12…+12.',
+  frame:
+    'Chọn độ dài warm-up/cool-down cho span dài. Tự động giữ hiện tại.',
+  meter:
+    'Chọn tiết nhịp khi đã có retarget. Tự động giữ hiện tại.',
+};
+
+/** UI copy, not the older 0/1/2 wording in the generated schema. */
+export function helpText(field: ParamsFieldSchema): string {
+  return FIELD_HELP[field.key] ?? field.description;
+}
+
 export function paramDisplay(
   field: ParamsFieldSchema,
   value: ParamValue,

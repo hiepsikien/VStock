@@ -4,6 +4,7 @@ import {
   changedKeysForPanel,
   defaultRatio,
   fieldAnchor,
+  helpText,
   hiddenChangedKeys,
   panelContentWidth,
   panelFields,
@@ -123,6 +124,18 @@ equal(paramDisplay(PARAM_FIELD_BY_KEY.dynamics, 1.5).primary, '+50%', 'dynamics 
 equal(paramDisplay(PARAM_FIELD_BY_KEY.dynamics, 0.5).primary, '−50%', 'dynamics −50%');
 equal(paramDisplay(PARAM_FIELD_BY_KEY.noise, 0.1).primary, '0.10%', 'noise percent');
 equal(paramDisplay(PARAM_FIELD_BY_KEY.guitar_high, -3).primary, '−3', 'guitar offset');
+
+const motionHelp = helpText(PARAM_FIELD_BY_KEY.motion);
+if (motionHelp.includes('0 giữ') || motionHelp.includes('2 đổi')) {
+  throw new Error('motion help still uses the old 0/1/2 wording');
+}
+if (!motionHelp.includes('−100%…+100%')) {
+  throw new Error('motion help must describe the signed range');
+}
+const colorHelp = helpText(PARAM_FIELD_BY_KEY.color);
+if (colorHelp.includes('0 là khô, 2 là')) {
+  throw new Error('color help still uses the old 0/2 wording');
+}
 
 const flat = spectrumLevels(DEFAULT_PARAMS, 'guitar');
 near(flat[0], 0.55, 'spectrum low flat');

@@ -125,7 +125,8 @@ Cấu trúc:
      hitSlop 14. Tổng vùng chạm >=44.
    - Mobile giữ row 2 tầng + `paramFoot`, track 34px, có scroll.
    - `?` mở **HelpCard** cố định phía trên footer: nền đục, có scroll, không bị
-     row/ScrollView cắt; hiện description, giá trị, detail và nhãn hai đầu.
+     row/ScrollView cắt; hiện `helpText(field)` (copy UI mới, không dùng
+     description 0/1/2 cũ trong schema), giá trị, detail và nhãn hai đầu.
 7. **Dense mode theo viewport height**:
    - `height < 740`: row 50px, mixer 184px, group gap 8px, body gap 14px.
    - `height >= 740`: row 60px, mixer 210px, group gap 8px, body gap 14px.
@@ -388,6 +389,8 @@ không làm trong đợt UI này.
 - `fieldAnchor(field)` → giá trị anchor (`center` hoặc `0` cho `noise`).
 - `anchorRatio(field)` → vị trí anchor trên track; `noise` = 0, default tick
   của `noise` = 20%.
+- `helpText(field)` → copy HelpCard theo UI signed %; fallback về
+  `field.description` cho field chưa có override.
 - `paramDisplay(field, value, { baseBpm })` →
   `{ primary, secondary, detail, negativeLabel, positiveLabel }`.
   Row PC chỉ dùng `primary` (tempo kèm BPM). `detail`, giá trị thô và nhãn hai
@@ -577,5 +580,6 @@ Ghi chú triển khai:
   có `paramFoot` và scroll.
 - Ở viewport hẹp (`1024`, `1280×600`) panel vẫn scroll; đúng như tiêu chí đã chốt.
 - `TuningSpectrum` chỉ là preview từ tham số, không dùng `peaks` hay audio thật.
+- HelpCard dùng `helpText()` override để bỏ copy 0/1/2 cũ trong schema generated.
 - Content được bọc trong `contentFrame` max 1088px để nội dung thật dừng ở 1040px.
 - `Màu` nằm cùng hàng `Vùng âm` trong mixer; `Hòa âm / Guitar` dùng chung header.

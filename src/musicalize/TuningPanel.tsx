@@ -39,6 +39,7 @@ import {
   changedKeysForPanel,
   defaultRatio,
   hiddenChangedKeys,
+  helpText,
   panelColumns,
   panelFields,
   panelGroups,
@@ -328,7 +329,7 @@ function SliderTrack({
       accessible
       accessibilityRole="adjustable"
       accessibilityLabel={field.label}
-      accessibilityHint={field.description}
+      accessibilityHint={helpText(field)}
       accessibilityValue={{
         min: field.min,
         max: field.max,
@@ -463,7 +464,7 @@ function ParamFader({
         accessible
         accessibilityRole="adjustable"
         accessibilityLabel={field.label}
-        accessibilityHint={field.description}
+        accessibilityHint={helpText(field)}
         accessibilityValue={{
           min: field.min,
           max: field.max,
@@ -605,7 +606,7 @@ function HelpCard({
         </Pressable>
       </View>
       <ScrollView style={styles.helpCardScroll} contentContainerStyle={styles.helpCardBody}>
-        <Text style={[type.sans, styles.helpText]}>{field.description}</Text>
+        <Text style={[type.sans, styles.helpText]}>{helpText(field)}</Text>
         <Text style={[type.monoSmall, styles.helpValue]}>
           {value.primary}
           {value.detail ? ` · ${value.detail}` : ''}
