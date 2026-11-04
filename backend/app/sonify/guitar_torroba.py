@@ -58,8 +58,6 @@ CASTILLO_34_CADENCE = SentenceSpec(
     span=Span(tile=9, remainder="same_figure", truncate_to_length=True),
     slots=(Slot(start=0, bars=9, figure=CASTILLO_CADENCE),),
 )
-register("castillo", "3/4", CASTILLO_34_WALK, CASTILLO_34_CADENCE)
-
 # One Juglar chunk is three plucked fingers on one quantized price, and the
 # thumb on the beat under them. p-a-m-i: the four plucks sit on one sixteenth
 # grid, so a 3/4 bar is twelve attacks whatever the tempo.
@@ -3446,6 +3444,16 @@ _FIGURES = {
     CASTILLO_WALK: _render_type13,
     CASTILLO_CADENCE: _render_type14,
 }
+
+# Registered after `_FIGURES` so the registry can reject a slot that points at
+# a figure the renderer does not have.
+register(
+    "castillo",
+    "3/4",
+    CASTILLO_34_WALK,
+    CASTILLO_34_CADENCE,
+    valid_figures=frozenset(_FIGURES),
+)
 
 
 def render_torroba_figure(

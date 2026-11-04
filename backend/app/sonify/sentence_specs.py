@@ -15,7 +15,13 @@ the first figure repeats, which is a plan-level post-pass.
 
 from __future__ import annotations
 
+import importlib
 from dataclasses import dataclass
+
+# Owner modules call register() at import. plan_sentence() imports them lazily
+# so a caller that only imports this module still gets a plan. Add the galop
+# owner here when guitar_sor registers its archetype.
+_OWNER_MODULES = ("app.sonify.guitar_torroba",)
 
 _N_PARITY = frozenset({"any", "even", "odd"})
 _CLOSES = frozenset({"open", "close"})
@@ -93,10 +99,17 @@ def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
     span = spec.span
     if span.remainder not in _REMAINDER:
         raise ValueError(f"{spec.id}: unknown remainder {span.remainder!r}")
-    if span.exact and span.cycle:
+    is_exact = span.exact or span.remainder == "exact"
+    if is_exact and span.cycle:
         raise ValueError(f"{spec.id}: an exact span cannot also be a cycle")
-    if not span.exact and (span.tile is None or span.tile < 1):
+    if is_exact and span.tile is not None and span.tile < 1:
         raise ValueError(f"{spec.id}: tile must be >= 1")
+    if not is_exact and (span.tile is None or span.tile < 1):
+        raise ValueError(f"{spec.id}: tile must be >= 1")
+    if span.remainder == "truncate_cycle" and not span.truncate_to_length:
+        raise ValueError(f"{spec.id}: truncate_cycle needs truncate_to_length")
+    if span.cycle and not span.truncate_to_length:
+        raise ValueError(f"{spec.id}: a cycle needs truncate_to_length")
     if not spec.slots:
         raise ValueError(f"{spec.id}: at least one slot is required")
     previous_end = 0
@@ -111,22 +124,42 @@ def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
 
 
 def register(
-    pattern: str, meter: str, *specs: SentenceSpec, replace: bool = False
+    pattern: str,
+    meter: str,
+    *specs: SentenceSpec,
+    replace: bool = False,
+    valid_figures: object | None = None,
 ) -> None:
     """Add archetypes for one pattern/meter pair.
 
-    Called at import by the owner module (`guitar_torroba`). A duplicate key
-    raises unless `replace=True`, so two modules cannot silently fight over the
-    same family.
+    Called at import by the owner module. Re-registering identical specs is a
+    no-op, so `importlib.reload` keeps working; a different value raises unless
+    `replace=True`. When `valid_figures` is given, every slot figure must exist
+    in it (the owner passes its `_FIGURES` keys).
     """
     key = (pattern, meter)
-    if key in SENTENCE_SPECS and not replace:
-        raise ValueError(f"sentence specs already registered for {key}")
-    for spec in specs:
-        _validate(spec, pattern, meter)
-    SENTENCE_SPECS[key] = tuple(
+    ordered = tuple(
         sorted(specs, key=lambda spec: (spec.select.length_min, spec.id))
     )
+    for spec in ordered:
+        _validate(spec, pattern, meter)
+    ids = [spec.id for spec in ordered]
+    if len(ids) != len(set(ids)):
+        raise ValueError(f"sentence specs for {key} contain duplicate ids")
+    if valid_figures is not None:
+        missing = {
+            slot.figure for spec in ordered for slot in spec.slots
+        } - set(valid_figures)  # type: ignore[arg-type]
+        if missing:
+            raise ValueError(f"{key}: figures {sorted(missing)} are not registered")
+
+    existing = SENTENCE_SPECS.get(key)
+    if existing is not None:
+        if existing == ordered:
+            return
+        if not replace:
+            raise ValueError(f"sentence specs already registered for {key}")
+    SENTENCE_SPECS[key] = ordered
 
 
 def _matches(spec: SentenceSpec, length: int, n: int, closes: bool, rise: int) -> bool:
@@ -134,6 +167,17 @@ def _matches(spec: SentenceSpec, length: int, n: int, closes: bool, rise: int) -
     if length < select.length_min:
         return False
     if select.length_max is not None and length > select.length_max:
+        return False
+    span = spec.span
+    is_exact = span.exact or span.remainder == "exact"
+    if is_exact and span.tile is not None and length != span.tile:
+        return False
+    if (
+        not is_exact
+        and not span.truncate_to_length
+        and span.tile is not None
+        and length % span.tile != 0
+    ):
         return False
     if select.n_parity == "even" and n % 2 != 0:
         return False
@@ -168,7 +212,8 @@ def _tile(spec: SentenceSpec, length: int) -> list[tuple[int, tuple[int, ...]]]:
         return _slots(spec, 0, length)
 
     tile = span.tile
-    assert tile is not None  # validated at register
+    if tile is None:  # validated at register; guard for python -O
+        return []
     if not span.truncate_to_length and length % tile != 0:
         return []
     spans: list[tuple[int, tuple[int, ...]]] = []
@@ -185,9 +230,9 @@ def _lookup(pattern: str, meter: str) -> tuple[SentenceSpec, ...] | None:
     specs = SENTENCE_SPECS.get(key)
     if specs is None:
         # Owner modules register at import. A caller that imports only this
-        # module still gets the table once the owner has been loaded.
-        from app.sonify import guitar_torroba  # noqa: F401
-
+        # module still gets the table once the owners have been loaded.
+        for module in _OWNER_MODULES:
+            importlib.import_module(module)
         specs = SENTENCE_SPECS.get(key)
     return specs
 
