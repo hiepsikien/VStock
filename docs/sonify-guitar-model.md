@@ -626,8 +626,8 @@ _PEDAL = frozenset({"intro", "outro", "warmup", "cooldown"})          # form.py:
 ### 14.2. Code hiện tại
 
 - **Vùng:** `_pedal_regions(ctx)` (`guitar_patterns.py:3986`) trả `leading` (từ bar 0 đến hết `_PEDAL`) và `trailing` (từ cuối lên). Door chỉ chạm hai vùng này.
-- **Chọn door:** `_dispatch` (`guitar_frame.py:130-140`) lấy `_extra_doors().get((ctx.ensemble, pattern))`; không có thì rơi về **composer frame** (`_frame_composer`, `:85`).
-- **Chữ ký door:** `door(ctx, bar, role, *, steps, closing, index)`; `steps` = số bar của region, `closing` = outro/cooldown, `role`/`index` = vị trí trong câu cửa. Region 1 bar đi `_compressed` (`:100`): nửa đầu vào, nửa sau kết.
+- **Chọn door:** `_dispatch` (`guitar_frame.py:135-142`) lấy `_extra_doors().get((ctx.ensemble, pattern))`; không có thì rơi về **composer frame** (`_frame_composer`, `:85`).
+- **Chữ ký door:** `door(ctx, bar, role, *, steps, closing, index)`. `steps` là **bucket 2 hoặc 4**, không phải độ dài region: `steps = 2 if len(bars) <= 2 else 4` (`_render_region`, `:61`). `length = len(bars)` chỉ được truyền vào `_gesture`; region 1 bar đi `_compressed` (`:111`). `role` lấy từ `frame_roles(length)` (`:29`), tối đa 4 bước `0..3`.
 - **Hợp nhất registry:** `_extra_doors()` (`:623`) merge `guitar_frame_bach_sor.DOORS` → `guitar_frame_rest.DOORS` → `guitar_torroba_doors.DOORS` (update vào `_RETAINED_DOORS`), rồi `_RETAINED_DOORS` **thắng khi trùng**.
 - **Profile:** `_PEDAL_DOOR_PROFILE` (`guitar_patterns.py:4027`) map **body pattern → profile playability** cho vùng cửa; không có entry thì rơi về `"study"`.
 - **Không in tên:** `form_pattern_ids` bỏ qua `pedal` (`:3323-3324`), nên đổi nhãn texture không ảnh hưởng door.
@@ -636,21 +636,22 @@ _PEDAL = frozenset({"intro", "outro", "warmup", "cooldown"})          # form.py:
 
 ```json
 {
-  "id": "villa_pattern_door",
+  "id": "villa_thumb_door",
   "ensemble": "villa",
-  "pattern": "villa_pattern",
+  "pattern": "thumb_cantabile",
   "sections": ["intro", "outro"],
-  "steps": { "short": 2, "long": "region", "compress_one_bar": true },
-  "roles": ["enter", "leave"],
-  "profile": "villa_pattern",
-  "fallback": "none",
+  "steps": { "short": 2, "long": 4, "threshold": 2, "compress_one_bar": true },
+  "roles": [0, 1, 2, 3],
+  "profile": "thumb_cantabile",
+  "fallback": "policy_none",
   "status": "reviewed"
 }
 ```
 
 - `sections` phải là tập con của `_PEDAL`.
-- `steps.long = "region"`: số bar lấy từ section, không hard-code.
-- `fallback`: `none` (bắt buộc có door) hoặc `composer_frame` (dùng `_frame_composer`).
+- `steps` là bucket: `short = 2` khi region <= `threshold`, `long = 4` khi dài hơn. **Không** phải độ dài region; region length chỉ dùng để chọn `_compressed`/`frame_roles`.
+- `roles` suy từ `frame_roles(length)`: length 2 → `[0,1]`; length 3 → `[0,2,3]`; length >=4 → `[0,1,2,3]`. Không dùng tên `enter/leave` vì frame 4 bước có 4 role.
+- `fallback`: code **luôn** rơi về `_frame_composer` khi không có door; `policy_none` chỉ là policy validation (cảnh báo/fail nếu thiếu), không phải hành vi mặc định.
 - `profile`: key trong `_PEDAL_DOOR_PROFILE`.
 
 ### 14.4. Inventory hiện tại
@@ -662,25 +663,25 @@ Toàn bộ **38 dòng `PROFILES`** đều có door (không có pattern nào rơi
 | `guitar_frame_rest.DOORS` | 13 | barrios 7 (andante, tremolo, choro, polca, hemiola, vals, thumb_cantabile); villa 4 (chord_melody, thumb_cantabile, etude1, etude11); brouwer 2 (brouwer_etude, sarabande) |
 | `guitar_frame_bach_sor.DOORS` | 10 | bach 7 (gavotte, gigue, sarabande, chaconne, prelude, allemande, courante); classic 3 (cantabile, elegiaque, galop) |
 | `guitar_torroba_doors.DOORS` | 7 | castillo, sonatina, fandanguillo, danza, torroba_tremolo, alcaniz, olite |
-| `_RETAINED_DOORS` | 8 | classic (study, mozart_var); barrios (preludio); villa (villa_pattern); brouwer (noviembre, elogio_pizz); bach (bourree, fuga) |
+| `_RETAINED_DOORS` | 8 literal → **15** sau `_extra_doors()` | classic (study, mozart_var); barrios (preludio); villa (villa_pattern); brouwer (noviembre, elogio_pizz); bach (bourree, fuga); `_extra_doors()` update thêm 7 torroba |
 
-**Gap:** `_PEDAL_DOOR_PROFILE` chỉ có **10 entry** (thumb_cantabile, elegiaque, choro, castillo, sonatina, fandanguillo, danza, torroba_tremolo, alcaniz, olite). 28 pattern còn lại rơi về `"study"` — có thể sai register/velocity nhưng hiện chưa ai kiểm.
+**Gap:** `_PEDAL_DOOR_PROFILE` chỉ có **10 key** (thumb_cantabile, elegiaque, choro, castillo, sonatina, fandanguillo, danza, torroba_tremolo, alcaniz, olite). `thumb_cantabile` phủ **2 dòng** (barrios + villa) nên cover **11/38 dòng**; **27 dòng còn lại** rơi về `"study"` — có thể sai register/velocity nhưng hiện chưa ai kiểm.
 
 ### 14.5. Validator và test
 
 1. Door chỉ phủ bar có `kind_at in _PEDAL`; không overlap body.
 2. Mỗi `(ensemble, pattern)` có tối đa một door; trùng key phải khai rõ module nào thắng (hiện `_RETAINED_DOORS` thắng).
 3. `profile` phải tồn tại trong `_PEDAL_DOOR_PROFILE` (hoặc khai fallback `study` có lý do).
-4. Region 1 bar phải đi `_compressed`; region dài dùng `steps = region`.
-5. Golden riêng cho door theo `(ensemble, pattern, section kind, steps)`: note table, không dùng Score hash.
+4. Region 1 bar phải đi `_compressed`; region dài dùng `steps = 4` (bucket), không phải `steps = length`.
+5. Golden riêng cho door theo `(ensemble, pattern, section kind, length, roles)`: note table, không dùng Score hash. `steps` chỉ 2/4 nên không đủ phân biệt length 3 và 4.
 6. Negative: door xuất hiện trong body → fail; door thiếu profile → fail (hoặc warning nếu chấp nhận fallback).
 
 ### 14.6. Checklist khi thêm pattern
 
-- [ ] `traits.has_door` (PR #142) — quyết định có cửa hay không.
+- [ ] `traits.has_door` — **field đề xuất** trong PR #142, **chưa có trong code**; không đi tìm nó trên branch này.
 - [ ] Nếu có: viết hàm door, đăng ký vào module (`guitar_frame_rest.DOORS`, `guitar_frame_bach_sor.DOORS`, hoặc `guitar_torroba_doors.DOORS`) **hoặc** `_RETAINED_DOORS`.
 - [ ] Thêm entry `_PEDAL_DOOR_PROFILE[pattern]` nếu trần register/velocity khác `"study"`.
-- [ ] Door golden cho `(ensemble, pattern)` × `intro/outro` × `steps` ngắn/dài.
+- [ ] Door golden cho `(ensemble, pattern)` × `intro/outro` × `length`/`roles` (không chỉ `steps` 2/4).
 - [ ] Nếu pattern không có cửa (hiếm), khai `fallback: composer_frame` và test rằng frame composer chạy được.
 
 ### 14.7. Non-goals
