@@ -7,6 +7,7 @@ The preview must go through the real renderers and leave the global
 from __future__ import annotations
 
 import importlib.util
+import json
 import pathlib
 from dataclasses import replace
 
@@ -27,6 +28,7 @@ from app.sonify.guitar_torroba import (
 )
 from app.sonify.sentence_specs import plan_sentence
 from app.studio import preview
+from app.studio.export import SPECS_DIR
 from app.studio.preview import preview_spec, validate_spec
 
 
@@ -237,6 +239,30 @@ def _client(monkeypatch) -> TestClient:
     app = FastAPI()
     app.include_router(studio_router.router)
     return TestClient(app)
+
+
+def test_a_committed_json_spec_round_trips_through_the_api() -> None:
+    payload = json.loads(
+        (SPECS_DIR / "castillo-3-4.json").read_text(encoding="utf-8")
+    )["specs"][0]
+    app = FastAPI()
+    app.include_router(studio_router.router)
+    client = TestClient(app)
+
+    validated = client.post("/v1/studio/sentence/validate", json=payload)
+    assert validated.status_code == 200
+    assert validated.json() == {"ok": True, "errors": []}
+
+    result = client.post(
+        "/v1/studio/sentence/preview",
+        json={"spec": payload, "fixture": {"length": 9, "bars": 9}},
+    )
+    assert result.status_code == 200
+    body = result.json()
+    assert body["ok"] is True
+    assert body["plan"]["kind"] == "figure"
+    assert body["renderHash"].startswith("sha256:")
+    assert body["notes"]
 
 
 def test_api_validate_shape(monkeypatch) -> None:
