@@ -15,7 +15,6 @@ from __future__ import annotations
 import json
 import os
 import pathlib
-from dataclasses import dataclass
 from functools import lru_cache
 
 import pytest
@@ -238,6 +237,13 @@ def test_lag_is_read_from_the_spec() -> None:
     # Not enough history: fall back one bar, then to the current bar.
     assert _bach_lag_bar(fake, 1) == 0
     assert _bach_lag_bar(fake, 0) == 0
+
+    class WithPedal:
+        kind_at = {0: "phrase", 1: "warmup", 2: "phrase", 3: "phrase"}
+
+    # The lag bar is a pedal: skip one bar closer, then close on this bar.
+    assert _bach_lag_bar(WithPedal(), 3) == 2
+    assert _bach_lag_bar(WithPedal(), 2) == 0
 
 
 def test_the_realizer_refuses_a_spec_it_cannot_play() -> None:

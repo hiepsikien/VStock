@@ -45,6 +45,12 @@ def _contrast(**overrides) -> ContrastInputs:
     return ContrastInputs(**values)
 
 
+def test_an_unknown_meter_without_material_falls_back_to_bourree() -> None:
+    case = _primary(framed=False, kind="5/4", mood=None, has_material=False)
+    assert bach_pattern(PHRASE, case) == "bach_bourree"
+    assert bach_pattern(MACRO, case) == "bach_bourree"
+
+
 def test_phrase_and_macro_share_every_primary_decision() -> None:
     # The two scopes call the same chooser with different aggregations; unlike
     # Villa there is no scope-specific branch to lock apart.

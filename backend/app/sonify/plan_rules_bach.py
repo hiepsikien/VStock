@@ -10,15 +10,16 @@ Unlike Villa, the two scopes do not disagree on purpose. They call the same
 chooser with different aggregations: the phrase scope passes one phrase and one
 bar, the macro scope passes a region's phrases and bars. The split that really
 matters is `framed`, which is an input, not a scope. Each decision is therefore
-projected into both modes so `Rule.mode` still keeps the paths apart and a
-future scope-specific rule has a place to live without changing the shape of
-the table. The fallback is the Bourrée for both modes.
+projected into both modes, which keeps `Rule.mode` explicit and makes the two
+scopes visible in the table. Every row is shared today; a future mode-specific
+row needs its own table or a mode column in the source list, a deliberate shape
+change. The fallback is the Bourrée for both modes.
 
 Three nested ladders from the old code are flattened into this one ordered
 table, and the first matching rule wins:
 
-* the unframed scheduler (`_bach_unframed_primary`),
-* the framed menu (`_bach_framed_primary`), including the 1D daily
+* the old unframed scheduler (removed by this refactor),
+* the old framed menu (removed by this refactor), including the 1D daily
   fingerprint and the 4/4 suite finale,
 * every branch of those two, in their original order.
 
@@ -344,10 +345,12 @@ _CONTRAST_DECISIONS: tuple[
 def _project(
     decisions: tuple[tuple[Callable, str, str], ...],
 ) -> tuple[Rule, ...]:
-    """One ordered table carrying both scope modes.
+    """Materialise one decision list under both scope modes.
 
-    Bach's phrase and macro scopes share every decision, so each row is
-    projected into both modes instead of pretending they differ.
+    Bach's phrase and macro scopes share every decision today, so each row is
+    projected into both modes instead of pretending they differ. A future
+    mode-specific row would need a mode column in the source list or a separate
+    table; this helper deliberately keeps the shared shape.
     """
     return tuple(
         Rule(mode, when, pattern, why)
@@ -398,6 +401,7 @@ def bach_region_patterns(row: list[str]) -> list[str]:
     The close then repeats the dance already playing in front of it. A
     two-part row has no reprise, so Sarabande -- Prelude stays.
     """
+    row = list(row)
     if (
         len(row) >= 3
         and row[-1] == "bach_prelude"
