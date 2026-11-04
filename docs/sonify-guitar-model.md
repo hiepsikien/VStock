@@ -1,6 +1,6 @@
 # Mô hình âm nhạc của lớp guitar — Topic / Texture / Procedure / Sentence / Plan
 
-> **Trạng thái**: căn bản cho refactor renderer. **Đã migrate:** `castillo` 3/4 (PR #147), `castillo` 4/4 (PR #148), `sonatina` (PR #149), `fandanguillo` + `danza` 3/4 & 6/8 (PR #150). **Còn ở code:** `galop` (cần plan theo run) và `danza` 4/4 (cố ý không có spelling).
+> **Trạng thái**: căn bản cho refactor renderer. **Đã migrate:** `castillo` 3/4 (PR #147), `castillo` 4/4 (PR #148), `sonatina` (PR #149), `fandanguillo` + `danza` 3/4 & 6/8 (PR #150), `galop` cycle theo run (PR riêng). **Còn ở code:** `danza` 4/4 (cố ý không có spelling).
 > **Phạm vi**: lớp `guitar` trong `backend/app/sonify/` (villa, torroba, barrios, brouwer, bach, classic).
 > **Liên quan**: [`sonify-texture-studio.md`](./sonify-texture-studio.md), [`sonify-pattern-names.md`](./sonify-pattern-names.md), [`sonify-classical-guitar.md`](./sonify-classical-guitar.md), [`sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md).
 > **Thứ tự**: doc này là điều kiện trước cho (a) refactor renderer và (b) Texture Studio khi thêm texture cho Villa-Lobos.
@@ -164,7 +164,7 @@ Toàn bộ code chỉ có **một** procedure executable: `imitation` ở `bach_
 
 | Trường hợp | Không phải | Là |
 |---|---|---|
-| **Galop 1 / Galop 2** (Sor) | hai sentence, hai topic, hai pattern | **hai cell** trong một texture. `_galop1_cell` (`guitar_sor.py:291`), `_galop2_cell` (`:349`); `_render_galop_dance` (`:413`) chọn theo `index % 8 >= 4` — 4 ô "câu hỏi", 4 ô "câu trả lời" |
+| **Galop 1 / Galop 2** (Sor) | hai sentence, hai topic, hai pattern | **hai cell** trong một texture. `_galop1_cell` / `_galop2_cell` (`guitar_sor.py`); `_render_galop_dance` lấy cell từ `_galop_run_cell` → `plan_run` — 4 ô "câu hỏi", 4 ô "câu trả lời". `_galop_cell_legacy` giữ luật `index % 8 >= 4` làm parity oracle |
 | **Tremolo** (Barrios) | sentence | **texture**. Trong **phrase path** nó được chọn theo điều kiện giai điệu (`hold` + 90 ≤ bpm ≤ 140, `guitar_patterns.py:940`); ở macro path nó là ứng viên của `_dominant_pattern_auto` |
 | **Arpeggio** | topic | **họ texture** trong `_FAMILY`. `_ARPEGGIO` (`guitar_patterns.py:47`) là **dead code** — chỉ có dòng định nghĩa, không được dùng; đừng trích nó làm bằng chứng. Việc `villa_pattern` in "Arpeggio" là lỗi nhãn (§8) |
 | **Cathedral Preludio** (Barrios) | sentence | **movement-level**: `_catedral_preludio` (`guitar_barrios.py:19`) chọn texture (16th thật nếu movement có frame, 8th nếu fixture) |
@@ -229,7 +229,7 @@ Vì vậy "Villa 1D dùng `_select_body`" là **sai**: 1D framed đi macro → `
 | `guitar_torroba.py:1763` `_phrase_spans` | **Sentence**: sonatina/fandanguillo/danza mới đọc `closes` |
 | `guitar_torroba.py:3687` `_castillos_figure_plan` | **Figure đơn**, không phải sentence |
 | `guitar_torroba.py:1824` `torroba_figure_plan` | **Sentence plan** (bar → slot) |
-| `guitar_sor.py:291/349` galop cells | **Cell** |
+| `guitar_sor.py` `_galop1_cell`/`_galop2_cell` | **Cell** |
 | `guitar_barrios.py:571` `_perpetual_bars` | **Texture variation** |
 | `guitar_bach.py:490` `_fuga_motif`, `:603` `_compose_fuga_bass` | **Procedure** (imitation) |
 | `guitar_bach.py:1444` `_chaconne_bass_slots` | **Bass texture cell**, không phải procedure |
@@ -430,7 +430,7 @@ Quan hệ với các khái niệm khác:
 | `span.cycle` | lặp trên run bất kỳ (galop) |
 | `span.exact` | slots phủ đúng `length`, không lặp (castillo 4/4, sonatina, fandanguillo, danza) |
 | `span.truncate_to_length` | tile dài hơn `length` bị cắt theo length (castillo 3/4). Span `exact` không dùng field này; `_slots` luôn clip slot theo length |
-| `slots[].start`, `bars`, `figure`, `anchor` | vị trí + độ dài + cell id; `anchor="start"` (mặc định) dùng `start` trực tiếp; `anchor="end"` đặt slot tại `length - bars` (sonatina close); `anchor="middle"` đặt slot tại `length // 2 + start` (fandanguillo n lẻ, `start=-1`) |
+| `slots[].start`, `bars`, `figure`/`cell`, `anchor` | vị trí + độ dài + realizer (đúng một trong `figure` hoặc `cell`); `anchor="start"` (mặc định) dùng `start` trực tiếp; `anchor="end"` đặt slot tại `length - bars` (sonatina close); `anchor="middle"` đặt slot tại `length // 2 + start` (fandanguillo n lẻ, `start=-1`) |
 
 **Phase 1–4 (PR #147, #148, #149, #150) — subset đã code** trong `backend/app/sonify/sentence_specs.py`:
 
@@ -440,11 +440,13 @@ Quan hệ với các khái niệm khác:
 | `Select.length = [min, max]` | `Select.length_min`, `length_max` |
 | `Select.n_parity` / `n_mod` / `closes` / `rise_min` | đã có đủ |
 | `Span.tile` / `remainder` / `truncate_to_length` / `cycle` / `exact` | đã có đủ |
-| `Slot.realizer {kind, figure}` | `Slot.figure: int` (cell id); `kind: procedure` chưa có |
+| `Slot.realizer {kind, figure\|cell}` | `Slot.figure: int` (figure id qua `_FIGURES`) hoặc `Slot.cell: str` (owner tự resolve, galop); `kind: procedure` chưa có |
 | `previous_figure` trong contract | **không** truyền vào planner; rotation nằm ở `select_torroba_spans` |
 | `None` vs `[]` | `None` = chưa có data cho cặp pattern/meter; `[]` = có data nhưng length/select không khớp |
 
-`register()` validate `tile >= 1`, slot bounds/overlap, `n_parity`/`n_mod`/`closes`/`remainder`, **`figure` phải có trong `_FIGURES`** (owner truyền `valid_figures`), id trùng; re-register giống hệt là no-op nên reload an toàn. `guitar_torroba` gọi register **sau khi mọi `_FIGURES` entry tồn tại**, kể cả 9–12 thêm muộn. `plan_sentence()` load các module trong `_OWNER_MODULES` khi registry rỗng — thêm module owner khi migrate family mới (galop → `guitar_sor`).
+`register()` validate `tile >= 1`, slot bounds/overlap, `n_parity`/`n_mod`/`closes`/`remainder`, **`figure` phải có trong `_FIGURES`** (owner truyền `valid_figures`; slot `cell` bỏ qua kiểm tra này), id trùng; re-register giống hệt là no-op nên reload an toàn. `guitar_torroba` gọi register **sau khi mọi `_FIGURES` entry tồn tại**, kể cả 9–12 thêm muộn. `plan_sentence()`/`plan_run()` load các module trong `_OWNER_MODULES` khi không thấy key — `guitar_torroba` và `guitar_sor` đều đã ở đó.
+
+`plan_run()` là API song song cho realizer `cell`: archetype `cycle` không có phrase turn để select, nên nó nhận **run length** thay vì `length`/`n` và trả một cell id cho mỗi bar. `_tile` dùng chung phần đặt slot/truncate, chỉ đổi hàm resolve (`_slots` vs `_cells`).
 
 `cycle`/`remainder` là **declarative**: `_tile` lặp mọi span non-exact và truncate chunk cuối; `exact` và `truncate_to_length` mới là công tắc tiling. `truncate_cycle` buộc `cycle=True`, và `cycle=True` buộc `truncate_cycle`.
 
@@ -524,11 +526,16 @@ Turn 0/1/2 là **ba archetype riêng** cho length 2–4; length 5–6 dùng `n_p
 ```
 plan_sentence(pattern, meter, length, n, *, closes=False, rise=0)
     -> [(figure, (bar, ...))] | None
+
+plan_run(pattern, meter, run_length)
+    -> [cell, ...] | None
 ```
 
 - `specs` tra từ registry `(pattern, meter)`, fallback key `(pattern, "*")` cho family không phụ thuộc meter (`sonatina`, `fandanguillo`). `None` = cặp này chưa migrate, caller dùng code cũ; `[]` = đã migrate nhưng length/select không khớp.
 - Input đủ: `length`, `n`, `closes`, `rise`, `meter`. **`previous_figure` không phải input** (xem dưới).
 - **Avoid-repeat là post-pass ở tầng pattern**, không phải field của archetype: sau khi chọn, nếu `first_realizer == previous_figure` thì tính lại **một lần** với `n + 1` (`select_torroba_spans`, `guitar_torroba.py:1795-1800`). Vì rotation đổi cả `n % 2` lẫn `n % 3`, nó phải nằm trong contract, không thể "xử lý sau".
+- `plan_run` chỉ phục vụ archetype `span.cycle`. `None` = cặp chưa có entry (caller dùng code cũ); `[]` = đã register nhưng cycle không phủ hết run. `run_length` là độ dài run cực đại (galop liên tiếp; pedal/study cắt run); cell theo vị trí, 4 bar `galop1`, 4 bar `galop2`, lặp mỗi 8 bar.
+- Variant Tecla không phải field của archetype: renderer dùng `index == 0` (bar đầu run).
 - Không fallback: sai meter/length/parity/closes/rise → `[]`.
 - Deterministic.
 
@@ -542,6 +549,8 @@ plan_sentence(pattern, meter, length, n, *, closes=False, rise=0)
 6. `unsupported`: list tĩnh **hoặc** predicate `unsupported_when` cho trường hợp phụ thuộc input (`fandanguillo`: `rise == 0`, `room < 4` khi `n` chẵn, `room < 2` hoặc `start + 1 >= room` khi `n` lẻ; `danza`: meter 4/4, `length < 4`, `closes && length == 4`).
 7. `n` coverage: với mỗi length, **mọi** residue của `mod` (2 hoặc 3) phải có archetype, hoặc khai unsupported.
 8. `sentence.meter` thuộc `pattern.meter_variants`; realizer tồn tại; plan golden.
+9. Cycle spec không được select trên `n`/`closes`/`rise` (run không có phrase turn), slot của nó phải `start`-anchored và **chỉ dùng `cell`**; span không phải cycle **chỉ dùng `figure`**.
+10. Mỗi slot cần đúng một realizer: `figure` hoặc `cell`. `register(valid_figures=…)`/`register(valid_cells=…)` buộc id phải tồn tại, nên typo không đăng ký được.
 
 Phase 1: `register()` đã enforce tile/slot/parity/remainder; coverage per-cycle và `unsupported_lengths` vẫn là việc của test, chưa phải validator runtime.
 
@@ -557,9 +566,9 @@ Phase 1: `register()` đã enforce tile/slot/parity/remainder; coverage per-cycl
 
 ### 13.6. Inventory archetype Torroba + status
 
-**Đã migrate:** `castillo` 3/4 (PR #147), toàn bộ 4/4 (PR #148), `sonatina` open/close (PR #149), `fandanguillo` (2 archetype: even type 5, odd type 2 giữa phrase) và `danza` 3/4 + 6/8. Torroba đã xong; `plan_sentence` còn trả `None` cho `danza` 4/4 (không có spelling, cố ý không register) và `castillo` 6/8 (chỉ register 3/4 + 4/4). Galop (Sor) vẫn ở code và cần một plan theo **run**, không phải theo `length`/`n` của phrase (xem ghi chú cuối bảng).
+**Đã migrate:** `castillo` 3/4 (PR #147), toàn bộ 4/4 (PR #148), `sonatina` open/close (PR #149), `fandanguillo` (2 archetype: even type 5, odd type 2 giữa phrase), `danza` 3/4 + 6/8, và `galop` (Sor) cycle theo run. Torroba đã xong; `plan_sentence` còn trả `None` cho `danza` 4/4 (không có spelling, cố ý không register) và `castillo` 6/8 (chỉ register 3/4 + 4/4). Galop dùng `plan_run`, không dùng `plan_sentence` (xem ghi chú cuối bảng).
 
-| Family | Select | Span | Slots (start, bars, figure) |
+| Family | Select | Span | Slots (start, bars, realizer) |
 |---|---|---|---|
 | ✓ `castillo` 3/4 walk | L>=2, n even | tile 9, same_figure, truncate | `(0, 9, walk)` |
 | ✓ `castillo` 3/4 cadence | L>=2, n odd | tile 9, same_figure, truncate | `(0, 9, cadence)` |
@@ -593,20 +602,20 @@ Phase 1: `register()` đã enforce tile/slot/parity/remainder; coverage per-cycl
 | ✓ `fandanguillo` n even | `room>=4`, rise>=1 → open L>=4, close L>=5 | exact | `(0,4,5)` |
 | ✓ `fandanguillo` n odd | `room>=2`, rise>=1 → open L>=2, close L>=3 | exact | `(L//2-1, 2, 2)`, anchor `middle` |
 | ✓ `danza` 3/4 & 6/8 | L>=4, not(closes && L==4) | exact | `(0,4,6)` |
-| `galop` | L>=1 | tile 8, cycle | `(0,4,1),(4,4,2)` (cell, không phải figure) |
+| ✓ `galop` | L>=1 (run) | tile 8, cycle | `(0,4,cell1),(4,4,cell2)` (cell, không phải figure) |
 
 `room = length - 1` khi `closes`, ngược lại `length`; `length_min` của mỗi archetype là chỗ guard đầu tiên qua, nên không cần `unsupported_lengths` cho fandanguillo. Figure numbering: castillo 1/7/8/13/14; sonatina 1/2/3/4; fandanguillo 5/2; danza 6.
 
 `unsupported_lengths`: castillo (3/4 và 4/4) `[1]`; sonatina open `[1]`; sonatina close không có (L1 vẫn render); danza `[1,2,3]` + toàn bộ 4/4 (`plan_sentence` trả `None`, code path trả `[]`); fandanguillo không dùng list — `rise == 0` và các `length_min` ở bảng trên đã bao hết predicate.
 
-**Galop (chưa migrate) — cần PR riêng.** `_render_galop_dance` (`guitar_sor.py:413-456`) chọn `_galop1_cell`/`_galop2_cell` bằng `index % 8`, trong đó `index = _galop_body_index(...)` đếm bar trong **run** (reset ở pedal/study bar), và còn dùng `index == 0` cho `variant`. `Slot.figure` trỏ vào `_FIGURES` của `guitar_torroba`, còn galop là **cell** được resolve ngay trong `guitar_sor`, không đi qua `render_torroba_figure`. Vì vậy migrate galop cần: (a) một `Slot`/`Span` realizer kiểu `cell` (và metadata `variant`), (b) API plan theo run (`plan_run`/`plan_cycle`) trả cell cho từng bar trong run, và (c) thêm `app.sonify.guitar_sor` vào `_OWNER_MODULES` cùng một consumption path mới trong `_render_galop_dance`. Đó là thay đổi schema + bar renderer, không phải chuyển if-ladder thành data, nên tách khỏi PR Torroba này.
+**Galop (đã migrate).** `_render_galop_dance` (`guitar_sor.py`) lấy `(index, cell)` từ `_galop_run_cell`: `_galop_body_index` vẫn là run-index oracle, `_galop_run_length` tìm đầu kia của run, rồi `plan_run` trả cell theo vị trí. `_galop_cell_legacy` giữ luật `index % 8 >= 4` làm parity oracle và chỉ được gọi khi registry không có plan. `Slot.cell` là realizer thứ hai bên cạnh `Slot.figure`; `plan_sentence` chỉ trả figure, `plan_run` chỉ trả cell. Registration chạy ở **cuối** `guitar_sor.py`, sau khi `guitar_patterns` import xong, và `app.sonify.guitar_sor` nằm trong `_OWNER_MODULES`. Variant Tecla vẫn là `index == 0`, không phải field của archetype.
 
 Status theo composer:
 
 | Composer | Sentence hiện có | Việc | Ghi chú |
 |---|---|---|---|
 | **Torroba** | 4 family (castillo 3/4 + 4/4, sonatina, fandanguillo, danza 3/4 + 6/8) | **xong** (Phase 0/1) | bảng trên là toàn bộ archetype; `fandanguillo` cần `rise` + anchor `middle`; `sonatina` cần `n % 3`; danza 4/4 cố ý `None` |
-| **Sor/Classic** | cycle 8 ô trong galop | **defer** sang PR riêng | `_galop_body_index` đếm run; cần plan theo run + realizer `cell` |
+| **Sor/Classic** | cycle 8 ô trong galop | **xong** | cycle 8 ô + `plan_run` theo run; `_galop_body_index` vẫn là oracle |
 | **Bach** | không | **authoring** + `procedure` | exposition = sentence của entry |
 | **Barrios** | không | **authoring**; cần figure variants | period *La Catedral* |
 | **Villa** | không | **authoring**; pilot texture trước | ostinato |

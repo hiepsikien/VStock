@@ -13,6 +13,7 @@ from app.sonify.sentence_specs import (
     SentenceSpec,
     Slot,
     Span,
+    plan_run,
     plan_sentence,
     register,
 )
@@ -123,14 +124,109 @@ def test_cycle_repeats_and_truncates() -> None:
         "unit_cycle",
         select=Select(length_min=1),
         span=Span(tile=8, cycle=True, remainder="truncate_cycle"),
-        slots=(Slot(0, 4, 1), Slot(4, 4, 2)),
+        slots=(Slot(0, 4, cell="a"), Slot(4, 4, cell="b")),
     )
     pattern = _register(spec)
-    assert plan_sentence(pattern, "3/4", 10, 0) == [
-        (1, (0, 1, 2, 3)),
-        (2, (4, 5, 6, 7)),
-        (1, (8, 9)),
+    assert plan_run(pattern, "3/4", 18) == [
+        "a", "a", "a", "a", "b", "b", "b", "b",
+        "a", "a", "a", "a", "b", "b", "b", "b",
+        "a", "a",
     ]
+
+
+def test_cycle_cells_plan_a_run() -> None:
+    spec = _spec(
+        "unit_cells",
+        select=Select(length_min=1),
+        span=Span(tile=8, cycle=True, remainder="truncate_cycle"),
+        slots=(Slot(0, 4, cell="a"), Slot(4, 4, cell="b")),
+    )
+    pattern = _register(spec)
+    assert plan_run(pattern, "3/4", 10) == ["a", "a", "a", "a", "b", "b", "b", "b", "a", "a"]
+    assert plan_run(pattern, "3/4", 0) == []
+    # A cell is not a figure, so the phrase planner has nothing to emit.
+    assert plan_sentence(pattern, "3/4", 10, 0) == []
+
+
+def test_a_slot_needs_exactly_one_realizer() -> None:
+    empty = _spec(
+        "unit_slot_empty",
+        select=Select(),
+        span=Span(tile=9),
+        slots=(Slot(0, 9),),
+    )
+    with pytest.raises(ValueError, match="exactly one of figure or cell"):
+        register("unit_slot_empty", "3/4", empty, replace=True)
+
+    both = _spec(
+        "unit_slot_both",
+        select=Select(),
+        span=Span(tile=9),
+        slots=(Slot(0, 9, figure=1, cell="a"),),
+    )
+    with pytest.raises(ValueError, match="exactly one of figure or cell"):
+        register("unit_slot_both", "3/4", both, replace=True)
+
+
+def test_cycle_cannot_select_on_the_phrase_turn() -> None:
+    spec = _spec(
+        "unit_cycle_turn",
+        select=Select(n_parity="even"),
+        span=Span(tile=8, cycle=True, remainder="truncate_cycle"),
+        slots=(Slot(0, 4, cell="a"), Slot(4, 4, cell="b")),
+    )
+    with pytest.raises(ValueError, match="cannot select on"):
+        register("unit_cycle_turn", "3/4", spec, replace=True)
+
+
+def test_cycle_slots_must_be_start_anchored() -> None:
+    spec = _spec(
+        "unit_cycle_anchor",
+        select=Select(),
+        span=Span(tile=8, cycle=True, remainder="truncate_cycle"),
+        slots=(Slot(0, 4, cell="a"), Slot(4, 4, cell="b", anchor="end")),
+    )
+    with pytest.raises(ValueError, match="start-anchored"):
+        register("unit_cycle_anchor", "3/4", spec, replace=True)
+
+
+def test_a_cycle_slot_needs_a_cell_realizer() -> None:
+    spec = _spec(
+        "unit_cycle_figure",
+        select=Select(),
+        span=Span(tile=8, cycle=True, remainder="truncate_cycle"),
+        slots=(Slot(0, 4, figure=1), Slot(4, 4, cell="b")),
+    )
+    with pytest.raises(ValueError, match="needs a cell realizer"):
+        register("unit_cycle_figure", "3/4", spec, replace=True)
+
+
+def test_a_cell_realizer_needs_a_cycle_span() -> None:
+    spec = _spec(
+        "unit_cell_plain",
+        select=Select(),
+        span=Span(tile=8),
+        slots=(Slot(0, 8, cell="a"),),
+    )
+    with pytest.raises(ValueError, match="needs a cycle span"):
+        register("unit_cell_plain", "3/4", spec, replace=True)
+
+
+def test_register_rejects_unknown_cell() -> None:
+    spec = _spec(
+        "unit_badcell",
+        select=Select(),
+        span=Span(tile=8, cycle=True, remainder="truncate_cycle"),
+        slots=(Slot(0, 4, cell="a"), Slot(4, 4, cell="b")),
+    )
+    with pytest.raises(ValueError, match=r"cells \['b'\] are not registered"):
+        register(
+            "unit_badcell",
+            "3/4",
+            spec,
+            replace=True,
+            valid_cells={"a"},
+        )
 
 
 def test_register_rejects_unknown_figure() -> None:
@@ -206,6 +302,8 @@ def test_registered_figures_exist() -> None:
     for specs in SENTENCE_SPECS.values():
         for spec in specs:
             for slot in spec.slots:
+                if slot.cell is not None:
+                    continue
                 assert slot.figure in _FIGURES, (spec.id, slot.figure)
 
 
