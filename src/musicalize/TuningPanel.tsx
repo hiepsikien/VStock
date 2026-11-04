@@ -1256,6 +1256,11 @@ export function TuningPanel({ baseBpm, variant, span, ensemble }: Props) {
           sheetY.setValue(clamp(dragStart.current + gesture.dy, 0, sheetHeight));
         },
         onPanResponderRelease: (_event, gesture) => {
+          // A tap on the handle toggles between the half and full snap.
+          if (Math.abs(gesture.dy) < 6 && Math.abs(gesture.vy) < 0.1) {
+            setSnap((current) => (current === 'full' ? 'half' : 'full'));
+            return;
+          }
           const current = Math.max(0, dragStart.current + gesture.dy);
           const next =
             gesture.dy > 48 || gesture.vy > 0.6
@@ -1269,6 +1274,18 @@ export function TuningPanel({ baseBpm, variant, span, ensemble }: Props) {
         },
       }),
     [halfOffset, sheetHeight, sheetY],
+  );
+
+  // Scrolling to the bottom of a half sheet expands it so the footer shows.
+  const handleBodyScroll = useCallback(
+    (event: { nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } } }) => {
+      if (wide || snap !== 'half') return;
+      const { y } = event.nativeEvent.contentOffset;
+      const { height: contentHeight } = event.nativeEvent.contentSize;
+      const { height: viewportHeight } = event.nativeEvent.layoutMeasurement;
+      if (contentHeight > 0 && y + viewportHeight >= contentHeight - 28) setSnap('full');
+    },
+    [snap, wide],
   );
 
   if (!enabled || baseBpm == null) return null;
@@ -1354,7 +1371,7 @@ export function TuningPanel({ baseBpm, variant, span, ensemble }: Props) {
           style={[
             styles.statusPopover,
             {
-              top: headerHeight + 28,
+              top: headerHeight + 40,
               left: wide ? PANEL_PADDING : 16,
               right: wide ? PANEL_PADDING : 16,
             },
@@ -1395,6 +1412,8 @@ export function TuningPanel({ baseBpm, variant, span, ensemble }: Props) {
           keyboardShouldPersistTaps="handled"
           scrollEnabled={scrollEnabled}
           showsVerticalScrollIndicator={scrollEnabled}
+          onScroll={handleBodyScroll}
+          scrollEventThrottle={16}
           onContentSizeChange={(_width, nextHeight) => setContentHeight(nextHeight)}
         >
           {tab === 'tune' ? (
@@ -1569,14 +1588,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(8, 9, 12, 0.58)',
   },
   handleWrap: {
-    height: 24,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
   },
   handle: {
-    width: 42,
-    height: 4,
-    borderRadius: 2,
+    width: 48,
+    height: 5,
+    borderRadius: 3,
     backgroundColor: palette.hairlineStrong,
   },
   header: {

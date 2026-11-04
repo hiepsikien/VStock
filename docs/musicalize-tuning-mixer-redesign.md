@@ -107,7 +107,8 @@ Cấu trúc:
    hàng dưới gồm `Vùng âm` + `Màu` + `Đưa 3 bè về 0`. Khi không phải Guitar,
    mixer thu còn ~164/188px thay vì giữ chỗ fader rãnh.
 4. **Controls chia cột**:
-   - `windowWidth < 1280`: **1 cột** — gồm mobile và cửa sổ hẹp kiểu mobile.
+   - `windowWidth < 1100`: **1 cột** — gồm mobile và cửa sổ hẹp kiểu mobile.
+   - `1100–1279` (panel 660–763): 2 cột.
    - `>= 1280` (panel >= 768): 3 cột.
    - `Hòa âm` và `Guitar` dùng chung một header `Hòa âm / Guitar` để không
      tốn thêm label row.
@@ -162,7 +163,8 @@ Phân bổ cột:
 
 | Cửa sổ | Controls | Cột 1 | Cột 2 | Cột 3 | Dáng |
 |---|---|---|---|---|---|
-| `< 1280` | 1 cột | Trình diễn (3) → Chất liệu (3) → Hòa âm/Guitar (3) | — | — | full-width |
+| `< 1100` | 1 cột | Trình diễn (3) → Chất liệu (3) → Hòa âm/Guitar (3) | — | — | full-width |
+| `1100–1279` | 2 cột | Trình diễn (3) + Chất liệu (3) | Hòa âm (2) + Guitar (1), chung header | — | full-width |
 | `>= 1280` | 3 cột | Trình diễn (3) | Chất liệu (3) | Hòa âm (2) + Guitar (1), chung header | full-width |
 
 `Dáng` luôn full-width vì `meter` có 5 lựa chọn. Nếu chỉ một trong hai field
@@ -261,6 +263,9 @@ còn 3 hàng. Đây là lý do bố cục một màn hình khả thi ở viewpor
 - Mixer: sóng full-width, 3 fader nằm ngang bên dưới, rồi `Vùng âm`.
 - Controls: Trình diễn → Chất liệu → Hòa âm → Guitar → Dáng.
 - Fader dọc vẫn dùng được, nhưng track thấp hơn (~120px) để không chiếm màn hình.
+- Sheet có 2 snap (`half`/`full`); **chạm tay cầm để mở/thu**, kéo tay cầm
+  vẫn hoạt động, và khi cuộn nội dung tới đáy thì tự mở sang `full` để
+  footer `Reset | Lưu` lộ ra. Tay cầm cao 36px trọng vùng chạm.
 
 ## 5. Field `0–1–2` thành trục âm/dương
 

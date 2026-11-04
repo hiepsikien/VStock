@@ -74,7 +74,7 @@ equal(layout1024.dangStacked, true, '1024 stacks form');
 equal(layout1024.estimatedHeight, 1116, '1024 estimated height');
 
 const layout1200 = panelLayout(1200, 800, guitar);
-equal(layout1200.columns, 1, '1200 columns');
+equal(layout1200.columns, 2, '1200 columns');
 
 const layout1280 = panelLayout(1280, 600, guitar);
 equal(layout1280.columns, 3, '1280 columns');
