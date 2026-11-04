@@ -292,6 +292,9 @@ deepEqual(playingLines('Suite VIC 1M in E-flat', 'Sarabande (3/4, 72 BPM)'), [
   'Sarabande (3/4, 72 BPM)',
 ]);
 deepEqual(playingLines('Bagatelle VIC 20/1 in E-flat', null), ['Bagatelle VIC 20/1 in E-flat']);
+// Legacy contract: before the naming release the server sent the A-B-A row in
+// `name`. The new frontend must keep printing it until every server is on the
+// curated-title contract.
 equal(
   pieceCopy(
     piece({

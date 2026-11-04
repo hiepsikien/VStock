@@ -13,7 +13,7 @@ export type MovementInput = {
   bpm?: number;
   beats?: number;
   beatType?: number;
-  /** Dance or tempo the server composed. Empty means the client has no dance name. */
+  /** Curated guitar movement title, or the other variants' composed name. Empty means no name. */
   name?: string | null;
   /** A–B–A form row with textures filtered. Data for a subtitle, never printed. */
   formDescription?: string | null;
