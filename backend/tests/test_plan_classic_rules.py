@@ -123,6 +123,13 @@ def test_input_type_must_match_the_mode() -> None:
     else:  # pragma: no cover - the guard is the point of this test
         raise AssertionError("a phrase input must not pass as a macro input")
 
+    try:
+        classic_pattern(PHRASE, _macro())
+    except TypeError as error:
+        assert "ClassicPhraseInputs" in str(error)
+    else:  # pragma: no cover - the guard is the point of this test
+        raise AssertionError("a macro input must not pass as a phrase input")
+
 
 def test_every_rule_belongs_to_one_mode_and_has_a_reason() -> None:
     assert {rule.mode for rule in CLASSIC_RULES} == {PHRASE, MACRO}

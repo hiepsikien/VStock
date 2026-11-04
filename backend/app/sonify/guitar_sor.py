@@ -53,9 +53,7 @@ GALOP_CYCLE = SentenceSpec(
     ),
 )
 
-def _classic_macro(
-    ctx: _Ctx, mood: str | None, *, rally_marked: bool
-) -> str:
+def _classic_macro(ctx: _Ctx, mood: str | None, *, rally_marked: bool) -> str:
     return classic_pattern(
         MACRO,
         ClassicMacroInputs(
@@ -67,7 +65,6 @@ def _classic_macro(
             rally_marked=rally_marked,
         ),
     )
-
 
 
 def _galop_bass_points(ctx: _Ctx) -> tuple[int, ...]:
@@ -1788,7 +1785,6 @@ from app.sonify.guitar_patterns import (  # noqa: E402
     _peak,
     _playable,
     _pool,
-    _region_marked,
     _rises,
     _shape_accompaniment,
     _shape_line,

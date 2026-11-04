@@ -182,7 +182,7 @@ Toàn bộ code chỉ có **một** procedure executable: `imitation` ở `bach_
 | **Villa** | 5 (2 / 3) | none | null | framed (1D/1W/1M/3M) → macro; unframed → phrase. Cả hai ladder nằm trong `plan_rules.VILLA_RULES` (một bảng theo `mode`) |
 | **Torroba** | 7 (7 / 0) | none | **4 template** (castillo, sonatina, fandanguillo, danza) + **3 single-figure texture** | macro `_torroba_primary/_contrast` |
 | **Barrios** | 8 (6 / 2) | none | null | 1D 34/120/4/4 → phrase; framed dài → region row; còn lại macro |
-| **Sor / Classic** | 5 (5 / 0) | none | **period 4+4** (galop) | macro + post `_settle_galop` |
+| **Sor / Classic** | 5 (5 / 0) | none | **period 4+4** (galop) | phrase + macro trong `plan_rules_classic.CLASSIC_RULES` (bảng theo `mode`); macro + post `_settle_galop` |
 | **Bach** | 9 (9 / 0) | **imitation** (chỉ `bach_fuga`) | null | framed dài → region row; còn lại macro |
 | **Brouwer** | 4 (4 / 0) | none | null | macro `_brouwer_primary/_contrast` |
 
