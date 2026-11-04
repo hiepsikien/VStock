@@ -546,7 +546,7 @@ Phase 1: `register()` đã enforce tile/slot/parity/remainder; coverage per-cycl
 - `meter × length (1..12) × n (0..5) × closes (open/close/null) × rise (0/1/2) × previous_figure (null + mỗi figure)` → plan.
 - Derived coverage: castillo 4/4 length **3..9** (L2 full), sonatina open length 2..8 (`n % 3`; L2 t0/t1 full, t2 partial), fandanguillo (`rise` 0/1, closes, length 2/3/4/6/7 cho middle anchor), castillo 3/4 (length 2, 9, 10, 18), galop run 1..30.
 - Negative: danza 4/4 (unsupported meter), danza L1–3, `closes && L==4`; fandanguillo `rise == 0`; sonatina open L1; castillo L1.
-- Anchor: `middle` tại `length // 2 - 1` (fandanguillo L2/4/8); `middle` ngoài phrase tại `length_min`; `middle` chồng slot `start`; `end` chồng slot `start`; `end`/`middle` trên span lặp bị từ chối.
+- Anchor: `middle` tại `length // 2 - 1` (fandanguillo L2/3/4/6/7); `middle` ngoài phrase tại `length_min`; `middle` đứng trước slot `start` bị từ chối (sẽ trôi vào ở length lớn hơn); `middle` chồng slot `start`; `middle` chồng `end`; hai `middle` chồng nhau; `end` chồng slot `start`; `end`/`middle` trên span lặp bị từ chối.
 - Avoid-repeat: cùng length, `previous_figure` = figure đầu → plan xoay đúng một lần.
 - Golden: `backend/tests/fixtures/sentence_plan.json` — **path mới**, thư mục chưa tồn tại.
 - Negative: sai meter → `[]`; unsupported predicate đúng → `[]`; realizer thiếu → validation error.
