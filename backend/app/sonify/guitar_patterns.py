@@ -909,7 +909,7 @@ def _select_body(
     bridge = bool(section is not None and section.bridge)
     minor = ctx.mode == "minor"
     if ctx.ensemble == "brouwer":
-        primary = _brouwer_primary(ctx, mood)
+        primary = _brouwer_primary(ctx, mood, PHRASE)
         if trio or bridge:
             return _brouwer_contrast(primary)
         return primary
@@ -1122,7 +1122,7 @@ def _dominant_pattern_auto(ctx: _Ctx, phrases: list[Phrase], bars: list[int]) ->
     """One pattern for a whole body, a formal section, or one weekly session."""
     mood = _majority_mood(ctx, bars)
     if ctx.ensemble == "brouwer":
-        return _brouwer_primary(ctx, mood)
+        return _brouwer_primary(ctx, mood, MACRO)
     if ctx.ensemble == "bach":
         return _bach_primary(ctx, phrases, bars, mood)
     if ctx.ensemble == "torroba":
