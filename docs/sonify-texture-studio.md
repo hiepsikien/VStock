@@ -1,6 +1,6 @@
 # Texture Studio — thư viện texture guitar trong Musicalize
 
-> **Trạng thái**: đề xuất, revision 3 sau review code lần 2. **Chưa code.**
+> **Trạng thái**: đề xuất, revision 4 sau review code lần 3. **Chưa code.**
 > **Phạm vi đợt đầu**: Villa-Lobos (`ensemble = "villa"`), texture lấy từ *Suite Popular Brasileira*.
 > **Nơi chạy**: trong app Musicalize (room mới), backend FastAPI phía sau.
 > **Mở cho tất cả bây giờ**, nhưng có session namespace và seam quyền truy cập để sau này giới hạn.
@@ -8,7 +8,7 @@
 
 ---
 
-## 0. Revision 3 sửa gì
+## 0. Revision 3–4 sửa gì
 
 Revision 2 đóng được 15 điểm của review đầu, nhưng sinh ra 6 mâu thuẫn nội bộ và 4 lỗ hổng cấu trúc. Revision 3 chốt lại:
 
@@ -26,10 +26,30 @@ Revision 2 đóng được 15 điểm của review đầu, nhưng sinh ra 6 mâu
 | Preview cache thiếu revision | Thêm `SPAN_REVISION`, `RECAP_REVISION`, `params` hash, `candle_count` |
 | “Movement = pattern” làm hỏng movement line | Suite là **palette pattern**, không phải piece 5 movement; có test movement line |
 | `active_meter()` default `METER_44` | Compiler chỉ dùng `resolve_runtime_meter()`; cấm `active_meter()` ngoài context |
-| Materializer code-backed chỉ là lời khai | Thêm **ma trận test pattern × meter** làm artifact Phase 0 |
+| Materializer code-backed chỉ là lời khai | Thêm **selection matrix + render matrix** làm artifact Phase 0 |
 | `fold: 2` nằm trong materializer | `fold` thuộc `FormSpec`/`SourceForm`, quyết định trước khi author |
 | Rev2 bỏ API table, DDL, post-Gemini validate | Khôi phục đầy đủ |
 | Spec thiếu profile/wave profile | Thêm `profiles.render` + `profiles.wave` |
+
+### 0.1. Revision 4 sửa gì (sau review 3)
+
+| Vấn đề revision 3 | Cách sửa trong revision 4 |
+|---|---|
+| Ma trận `pattern × meter` không chạy được | Tách **selection matrix** và **render matrix**; fixture chung `guitar_fixture.py`; thêm `unsupported` |
+| Cộng duration tất cả voice | **Per-voice** duration; guitar có 3–4 voice |
+| `pitch.source: "_melody_at"` | Declarative `kind` (`price`, `chord_degree`, `literal_midi`…), cấm tên hàm Python |
+| Checklist tham chiếu mục đã xoá | Chép lại checklist đầy đủ vào §12.4 |
+| Thiếu `selection`/`family` | Thêm `traits.family` + `selection`; test dead code |
+| Thiếu confidence/conflict/review | Thêm metadata vào authored event; publish chặn `pending` |
+| `accent_remap` sai tầng | Bỏ khỏi pattern transform; `_guitar_meter` là form-level |
+| DDL PK toàn cục, thiếu ảnh, media không header | UUID + `UNIQUE(owner_id, slug)`; `GET /uploads/{id}`; signed media token |
+| Registry không version gate | Allowlist schema, `renderer_version`, fail-soft |
+| `METER_34` snippet thiếu `extra_weights` | Sửa snippet |
+| `_MAX_FRET[string]` off-by-one | `_MAX_FRET[6 - string]` |
+| Title test enumerate sai | Enumerate từ `_FAMILY` × palette, filter rỗng |
+| `visibility` mơ hồ | `private` mặc định; `public` sau publish |
+| `/access` thiếu shape/quota/telemetry | Thêm `StudioAccess` + quota + event list |
+| `resolve_runtime_form()` vô chủ | Ghi rõ owner `span.py`/`FormSpec`, chạy trước khi dựng form |
 
 ---
 
@@ -178,7 +198,7 @@ Hệ quả cần test:
 
 ```python
 METER_44  = Meter(4, 4, 8,  (0, 4), (4,))
-METER_34  = Meter(3, 4, 6,  (0,),   (4,))
+METER_34  = Meter(3, 4, 6,  (0,),   (4,), ((4, 0.8),))
 METER_68  = Meter(6, 8, 6,  (0, 3), (3,))
 METER_128 = Meter(12, 8, 12, (0, 3, 6, 9), (3, 6, 9))
 METER_54  = Meter(5, 4, 10, (0, 6), (6,))
@@ -280,6 +300,7 @@ Test bắt buộc:
     },
     "materializer": "grid_3_4",
     "transform": "none",
+    "unsupported": false,
     "figures": ["walk", "cadence"]
   },
   {
@@ -294,6 +315,7 @@ Test bắt buộc:
     },
     "materializer": "grid_4_4",
     "transform": "none",
+    "unsupported": false,
     "figures": ["arada", "float"]
   }
 ]
@@ -303,9 +325,10 @@ Các loại chuyển đổi được phép:
 
 | Nguồn → đích | Điều kiện | Transform | Ghi chú |
 |---|---|---|---|
-| 3/4 ↔ 6/8 | Cùng 6 eighth | `accent_remap` | Phải khai lại `strong_eighths`/`extra_weights`; không dùng chung accent |
 | 4/4 → 12/8 | 8 → 12 eighth | `triplet_subdivision` | Không tự động; cần nghe thử và duyệt |
 | Meter khác | 5/4, 6/4, 7/8… | `none` | Fail closed nếu không có materializer |
+
+`3/4 ↔ 6/8` **không** phải pattern transform. `_guitar_meter()` (`span.py:288`) hoán đổi 3/4 ↔ 6/8 ở tầng form, vô điều kiện cho guitar, trước khi pattern được chọn. Pattern không bao giờ thấy meter “kia”. Vì vậy mỗi meter là một variant riêng; không khai `accent_remap` trong spec. Nếu cần đổi accent, khai `strong_eighths`/`extra_weights` của variant đó.
 
 `fold: 2` **không** nằm trong bảng này. Gộp hai ô 2/4 thành một ô 4/4 đổi `bars`, `bar_beats`, BPM và mapping day ↔ bar, nên nó thuộc `FormSpec`/`SourceForm`, quyết định **trước** khi author spec. Xem §4.4.1.
 
@@ -344,32 +367,104 @@ Với Schottish-Choro 2/4, engine không có `Meter(2,4,...)`. Cách xử lý l�
 - mapping day ↔ bar (`assign_source_bars`) đổi theo;
 - `slice_score` và DFI dùng bars mới.
 
+Nơi đặt: `backend/app/sonify/span.py` (cùng chỗ `_guitar_meter`/`retarget_torroba_meter`), hoặc tách `form_resolve.py` nếu muốn tránh import vòng. **Owner là `span.py`/`FormSpec`**, không phải pattern. `resolve_runtime_form()` chạy **trước** khi `FormSpec` được dựng; pattern chỉ nhận meter đã fold.
+
 Pattern không thấy 2/4; nó chỉ thấy 4/4 sau fold. Test bắt buộc: độ dài movement, số bar, DFI window, và tiền lệ `galop` (`guitar_sor.py:303`).
 
 ### 4.5. Validate meter
 
-1. `pattern.meter_variants` không rỗng; mỗi phần tử có `MeterSpec` hợp lệ.
-2. Tập canonical key của `pattern.meter_variants` ⊆ tập canonical key của `composer.meters`.
+1. `pattern.meter_variants` không rỗng; mỗi phần tử có `MeterSpec` hợp lệ và `unsupported: boolean`.
+2. Tập canonical key của `pattern.meter_variants` (trừ `unsupported: true`) ⊆ tập canonical key của `composer.meters`.
 3. `figure.meter` phải **thuộc** `parent_pattern.meter_variants` (canonical key), không phải “xấp xỉ”, không so `id`.
 4. `figure.parent` tồn tại; figure không phải ứng viên cấp cao nhất.
 5. Figure chỉ được gọi khi pattern active **và** `meter_key(resolved_meter) == meter_key(figure.meter)`.
 6. Nếu pattern không có materializer cho `resolved_meter`, fail; không fallback.
 7. Test âm tính: gọi figure ở meter sai phải trả `[]` hoặc raise, không render.
 
-### 4.5.1. Ma trận test `pattern × meter`
+### 4.5.1. Hai ma trận: selection và render
 
-Với pattern `runtime: "code"`, `meter_variants` chỉ là lời khai. Enforcement thật là một ma trận sinh từ code hiện tại:
+Với pattern `runtime: "code"`, `meter_variants` chỉ là lời khai. Không có hàm `render_pattern_for_test()` tách rời: render cần `_Ctx` đầy đủ (melody/raw/chord_at/phrases/bands/register/sections). Vì vậy phải tách **hai** artifact:
 
+1. **Selection matrix** — `_select_body` / `_dominant_pattern` / `_castillo_spans` chọn pattern/figure gì cho một input cố định.
+2. **Render matrix** — pattern đã được chọn render ra note gì với một fixture `_Ctx` cố định.
+
+#### Fixture dùng chung
+
+Tạo `backend/tests/guitar_fixture.py`:
+
+```python
+def pattern_case(
+    pattern: str,
+    meter: Meter,
+    *,
+    ensemble: str,
+    mood: str,
+    band: str,
+    bpm: int,
+    bars: int = 8,
+) -> tuple[_Ctx, list[Phrase]]:
+    ...
 ```
-for pattern in code_patterns:
-    for meter in composer.meters:
-        notes = render_pattern_for_test(pattern, meter)
-        assert notes is not None and notes != "other" and notes != []
+
+- Chuyển `_many` / `_ctx` copy-paste từ `test_sonify_guitar_torroba.py`, `test_guitar_wave.py`, `test_sonify_guitar_scale_passages.py`, `test_torroba_lowered_melody.py` lên đây.
+- Fixture phải deterministic: price path, chord slots, phrases, bands, regime, seed đều cố định.
+- Không có `conftest.py` hiện tại; thêm `backend/tests/conftest.py` chỉ để export fixture, không chứa logic ẩn.
+
+#### Selection matrix
+
+```json
+{
+  "input": {
+    "ensemble": "villa",
+    "mood": "calm",
+    "band": "mp",
+    "bpm": 100,
+    "meter": "3/4",
+    "phrase_bars": 8
+  },
+  "selected_pattern": "suite_valsa",
+  "selected_figure": null,
+  "ctx_kind": "3/4"
+}
 ```
 
-- Sinh `backend/tests/fixtures/meter_matrix.json` ở Phase 0.
-- `backend/tests/test_texture_meter_matrix.py` so matrix mới với fixture.
-- Cặp nào trả `"other"`/rỗng/không render được phải fail, trừ khi spec khai `unsupported: true` có lý do.
+- Sinh `backend/tests/fixtures/selection_matrix.json`.
+- Test: mỗi spec pattern phải xuất hiện ít nhất một lần trong matrix; nếu không, pattern là dead code.
+- `ctx_kind == "other"` là fail cho variant được khai là supported.
+- Không dùng `notes != "other"`; `"other"` là `ctx.kind`, không phải output note.
+
+#### Render matrix
+
+```json
+{
+  "pattern": "suite_valsa",
+  "meter": "3/4",
+  "note_count": 42,
+  "voice_counts": { "1": 8, "2": 16, "3": 6, "4": 0 },
+  "rendered_hash": "sha256:..."
+}
+```
+
+- Sinh `backend/tests/fixtures/render_matrix.json`.
+- Chỉ render pattern mà selection matrix đã chọn; không render pattern ngoài cửa.
+- Pattern có thể trả `[]` hợp lệ nếu selection không bao giờ chọn nó ở meter đó; khi đó ghi `expected_empty: true` + lý do, không fail oan.
+- `unsupported` là field của **meter variant**, không phải của pattern:
+
+```json
+{
+  "meter": { ... },
+  "materializer": "grid_4_4",
+  "unsupported": false
+}
+```
+
+Nếu `unsupported: true`, phải có `reason`; selection matrix không được chọn variant đó.
+
+#### Test
+
+- `backend/tests/test_texture_selection_matrix.py`
+- `backend/tests/test_texture_render_matrix.py`
+- Cả hai so fixture với output mới; drift phải review, không tự update.
 - Đây là artifact bắt buộc, không chỉ là gate bằng lời.
 
 ### 4.6. Không có meter per-bar
@@ -455,6 +550,16 @@ Revision 1 trộn tất cả vào `events`. Revision 2/3 tách:
 
 `string`/`fret` là **metadata xác thực** trong `authored`, không phải field của `NoteEvent`. Chúng có mặt khi nguồn là tab hoặc khi Gemini đọc được tab; nếu không có, validation bỏ qua phần string/fret.
 
+`confidence`, `conflict`, `review` cũng là **metadata của authored event**, không vào `NoteEvent`:
+
+```json
+{ "confidence": 0.91, "conflict": false, "review": "edited" }
+```
+
+- `review`: `pending | accepted | edited`.
+- Publish từ chối nếu còn `pending` hoặc `confidence < 0.6` chưa được người accept/edit.
+- `conflict=true` phải có quyết định của người, không tự chọn phổ hay tab.
+
 ### 6.2. `NoteEvent` tương ứng
 
 `NoteEvent` trong `model.py:121` có:
@@ -493,7 +598,7 @@ Sửa thành:
 
 ```json
 "routing": {
-  "price":   { "voice": 1, "source": "_melody_at" },
+  "price":   { "voice": 1, "source": "price_series" },
   "volume":  { "voice": 2, "mode": "velocity_band", "source": "liquidity" },
   "bass":    { "voice": 3, "mode": "chord_root" },
   "density": { "voice": 2, "mode": "eighth_grid" },
@@ -528,7 +633,7 @@ Cần thêm:
 
 - `assert_authored_playable(authored, profile)`:
   - luôn kiểm: MIDI range, register guitar, voice order (`bass < mid < lead`), duration sum theo meter, không overlap cùng voice;
-  - nếu có `string`/`fret`: string 1–6, `0 <= fret <= _MAX_FRET[string]`, pitch khớp string+fret, hand span ≤ 5, không trùng dây;
+  - nếu có `string`/`fret`: string 1–6, `0 <= fret <= _MAX_FRET[6 - string]` (index 0 = dây 6), pitch khớp string+fret, hand span ≤ 5, không trùng dây;
   - nếu không có `string`/`fret`: chỉ kiểm pitch/register/voice/duration; playability vật lý để `assert_playable` sau repair.
 - `assert_playable(score, profile)`: kiểm tra output sau repair, như hiện tại.
 - Publish yêu cầu cả hai; spec không có string/fret vẫn publish được nếu `assert_authored_playable` phần pitch/register pass.
@@ -584,6 +689,8 @@ Cần thêm:
       },
       "materializer": "grid_3_4",
       "transform": "none",
+      "unsupported": false,
+      "reason": null,
       "figures": []
     }
   ],
@@ -595,14 +702,17 @@ Cần thêm:
         "beat": 0.0,
         "duration_beats": 1.5,
         "voice": 1,
-        "pitch": { "kind": "price", "source": "_melody_at" },
+        "pitch": { "kind": "price", "offset": 0 },
         "tie": "none",
         "slur": "none",
         "accent": true,
         "staccato": false,
         "staff": 1,
         "string": 1,
-        "fret": 5
+        "fret": 5,
+        "confidence": 0.91,
+        "conflict": false,
+        "review": "edited"
       },
       {
         "bar": 0,
@@ -626,13 +736,14 @@ Cần thêm:
   },
 
   "routing": {
-    "price": { "voice": 1, "source": "_melody_at" },
+    "price": { "voice": 1, "source": "price_series" },
     "volume": { "voice": 2, "mode": "velocity_band", "source": "liquidity" },
     "bass": { "voice": 3, "mode": "chord_root" },
     "density": { "voice": 2, "mode": "eighth_grid" }
   },
 
   "traits": {
+    "family": "arpeggio",
     "kinetic": true,
     "narrow_rows": [6, 24, 80],
     "scale_host": false,
@@ -643,10 +754,21 @@ Cần thêm:
     "figure_registry": "none"
   },
 
+  "selection": {
+    "priority": 10,
+    "mood": ["calm", "selloff"],
+    "band": ["p", "mp", "mf", "f"],
+    "bpm": [0, 132],
+    "after": ["chord_melody"],
+    "avoid_repeat": true,
+    "contrast": "villa_pattern"
+  },
+
   "provenance": {
     "model": "gemini-3.5-flash",
     "prompt_version": "studio-v1",
     "schema_version": "texture-spec-1",
+    "renderer_version": "guitar-render-76",
     "confidence": 0.82,
     "reviewed_by": "human"
   }
@@ -654,6 +776,42 @@ Cần thêm:
 ```
 
 `profiles.wave` mirror đủ 12 field của `guitar_wave._profile()`; compiler dùng nó để sinh `PROFILES[("villa", id)]` và `_EXPECTED`. `profiles.render` map vào `_PROFILE`.
+
+`traits.family` map vào `_FAMILY[id]`. `selection` là dữ liệu để compiler sinh nhánh `_select_body`/`_dominant_pattern`/`_contrast_pattern`. Không có `selection` thì pattern có thể tồn tại trong `PROFILES` nhưng **không bao giờ được chọn**.
+
+- `priority`: số nhỏ được xét trước.
+- `mood`, `band`, `bpm`: cửa lọc; `bpm` là khoảng đóng.
+- `after`: pattern phải đứng sau các id này trong cùng section.
+- `avoid_repeat`: không lặp cùng pattern ở hai câu sát nhau.
+- `contrast`: pattern B khi A là pattern này.
+
+Test bắt buộc:
+
+- Mỗi spec `kind: "pattern"` phải có ít nhất một input trong `selection_matrix.json` mà `_select_body` trả về id của nó.
+- Pattern không xuất hiện trong selection matrix bị coi là dead code và fail.
+- `selection.bpm` là khoảng đóng; `selection.mood` dùng đúng 4 character `calm/rally/selloff/volatile`.
+
+### 6.8. `pitch` phải declarative, không gọi tên hàm Python
+
+Spec **không được** chứa tên hàm private như `_melody_at`. `pitch` chỉ dùng các kind sau:
+
+```json
+{ "kind": "price", "offset": 0 }
+{ "kind": "price_offset", "eighths": 2 }
+{ "kind": "chord_degree", "degree": 1 }
+{ "kind": "chord_root" }
+{ "kind": "scale_step", "steps": -1 }
+{ "kind": "literal_midi", "value": 57 }
+```
+
+Quy tắc:
+
+- `price` lấy cao độ từ price series tại đúng eighth.
+- `price_offset` lấy price tại eighth + `eighths`, dùng cho nốt lấy đà.
+- `chord_degree` lấy bậc trong hợp âm hiện tại; `1` là gốc.
+- `literal_midi` chỉ dùng khi spec thật sự cần một cao độ cố định; phải có lý do trong `provenance.notes`.
+- Compiler resolve các kind này thành MIDI; runtime không import `guitar_patterns` để hiểu spec.
+- Nếu cần escape hatch cho một gesture chưa biểu diễn được, dùng `literal_midi` + `runtime: "code"`, không thêm tên hàm.
 
 ---
 
@@ -683,6 +841,14 @@ backend/app/sonify/texture_registry.py
 - Trả `PatternSpec` / `FigureSpec`.
 - Dùng bởi compiler/test **và** runtime chỉ cho pattern có `runtime: "interpreter"`.
 - Pattern `runtime: "code"` vẫn đi qua `if/elif` hiện tại.
+
+**Version gate**:
+
+- `provenance.schema_version` phải nằm trong allowlist (`texture-spec-1`, ...). Ngoài allowlist: log + bỏ spec, không crash app.
+- `provenance.renderer_version` bắt buộc cho spec `runtime: "interpreter"`; golden `rendered.json` ghi cùng version. Đổi renderer phải bump version.
+- JSON hỏng, thiếu field, hoặc validate fail: **fail-soft**. Registry bỏ spec đó, log lỗi, app vẫn boot.
+- Không load spec từ network; chỉ file trong repo đã merge.
+- Registry đọc lazy (startup hoặc lần dùng đầu), không chặn `/health`.
 
 `backend/app/sonify/textures/` hiện **không tồn tại**; đây là thư mục mới, chỉ chứa spec đã publish. Không có loader nào hôm nay, nên câu “publish xong ai đọc” phải trả lời bằng loader này.
 
@@ -827,14 +993,15 @@ Giới hạn:
 
 Trước khi lưu `draft`:
 
-- Tổng trường độ mỗi ô khớp `MeterSpec`.
+- **Per-voice duration**, không cộng tất cả voice: trong mỗi voice, các note không overlap và tổng `duration_beats` của voice đó bằng `bar_beats` (`eighths_per_bar / 2`), hoặc phần thiếu là rest tường minh. Guitar có 3–4 voice đồng thời; cộng tất cả sẽ ra ~3× độ dài ô và từ chối mọi bar đúng.
 - `tie_start`/`tie_stop` có đầu có cuối; `slur_start`/`slur_stop` có đầu có cuối.
 - `written_pitch` và `sounding_pitch` lệch đúng 12 nửa cung, trừ khi capo/scordatura được khai.
-- Nếu có `string`/`fret`: string 1–6, `0 <= fret <= _MAX_FRET[string]`, pitch khớp string+fret, hand span ≤ 5.
+- Nếu có `string`/`fret`: string 1–6, `0 <= fret <= _MAX_FRET[6 - string]` (mảng index 0 = dây 6), pitch khớp string+fret, hand span ≤ 5.
 - Không có hai nốt cùng voice chồng nhau.
 - Voice order: bass < mid < lead (trừ texture khai đảo vai).
 - Nốt confidence thấp phải được đánh dấu, không tự nhận.
 - `conflict=true` giữa phổ và tab phải có quyết định của người.
+- `review` phải là `accepted` hoặc `edited` trước khi publish; `pending` bị từ chối.
 
 ---
 
@@ -862,13 +1029,52 @@ Hiện tại backend **không có auth**; CORS `allow_origins=["*"]`. Vì vậy:
 
 - Chưa cần login.
 - Nhưng phải có `X-Studio-Session` do app sinh và lưu trong AsyncStorage.
-- Server dùng hash session làm `owner_id`; `visibility` mặc định `private` hoặc `public`.
+- Server dùng hash session làm `owner_id`; `visibility` mặc định **`private`**. Spec chỉ chuyển `public` khi export/publish được duyệt.
 - `GET/PUT/DELETE /specs/{id}` kiểm tra owner.
 - `/uploads`, `/analyze`, `/preview` có quota theo session.
 - Đây **không phải bảo mật** trước người cố tình; nó là namespace + chống xoá nhầm + chống đốt quota.
 - Khi có auth thật, thay `owner_id` bằng user id; `visibility` enforce ở backend.
 
 Không được viết “backend vẫn kiểm tra quyền” nếu chưa có owner check. Revision 2/3 nói rõ: Phase 1 có owner check theo session, chưa có auth.
+
+### 10.2.1. `/access` shape, quota, telemetry
+
+`GET /v1/musicalize/studio/access` trả:
+
+```ts
+type StudioAccess = {
+  enabled: boolean;
+  reason: 'open_beta' | 'entitled' | 'disabled';
+  seats?: number;
+  quota: {
+    uploadsPerDay: number;
+    analysesPerDay: number;
+    specsPerDay: number;
+    maxImageMb: number;
+    previewsConcurrent: number;
+  };
+};
+```
+
+Phase 1 `open_beta`:
+
+```json
+{
+  "enabled": true,
+  "reason": "open_beta",
+  "quota": {
+    "uploadsPerDay": 20,
+    "analysesPerDay": 100,
+    "specsPerDay": 50,
+    "maxImageMb": 20,
+    "previewsConcurrent": 1
+  }
+}
+```
+
+- `enabled=false` ẩn pill Studio; backend vẫn trả 403.
+- Quota đếm theo `owner_id` + ngày; vượt trả 429 kèm `retry_after`.
+- Telemetry dùng `src/musicalize/telemetry.ts`: `studio_open`, `studio_upload`, `studio_analyze`, `studio_validate_fail`, `studio_preview`, `studio_export`, `studio_publish`. Không gửi ảnh/nốt/giá trị nhạy cảm.
 
 ### 10.3. Upload ảnh
 
@@ -973,21 +1179,33 @@ Prefix: `/v1/musicalize/studio`.
 
 | Method | Path | Việc |
 |---|---|---|
-| `GET` | `/access` | Capability cho Studio |
+| `GET` | `/access` | Capability + quota shape |
 | `POST` | `/uploads` | Upload ảnh (multipart) |
+| `GET` | `/uploads/{upload_id}` | Tải lại ảnh phổ, kiểm tra owner |
 | `POST` | `/analyze` | Ảnh + crop + metadata → Gemini draft |
-| `GET` | `/specs` | Danh sách spec |
+| `GET` | `/specs` | Danh sách spec của session |
 | `POST` | `/specs` | Tạo spec |
-| `GET` | `/specs/{id}` | Đọc spec |
-| `PUT` | `/specs/{id}` | Lưu spec |
-| `DELETE` | `/specs/{id}` | Xoá spec nháp |
-| `POST` | `/specs/{id}/validate` | Validate |
-| `POST` | `/specs/{id}/preview` | Render preview |
-| `POST` | `/specs/{id}/export` | Xuất bundle |
-| `GET` | `/exports/{id}` | Tải bundle |
-| `GET` | `/previews/{id}` | Nghe preview |
+| `GET` | `/specs/{slug}` | Đọc spec của session |
+| `PUT` | `/specs/{slug}` | Lưu spec |
+| `DELETE` | `/specs/{slug}` | Xoá spec nháp |
+| `POST` | `/specs/{slug}/validate` | Validate |
+| `POST` | `/specs/{slug}/preview` | Render preview |
+| `POST` | `/specs/{slug}/export` | Xuất bundle |
+| `GET` | `/exports/{export_id}` | Tải bundle |
+| `GET` | `/previews/{preview_id}` | Nghe preview |
+
+`{slug}` được scope theo `owner_id`; không dùng pattern id toàn cục làm PK.
 
 Tất cả endpoint (trừ `/access`) đọc `X-Studio-Session`, resolve `owner_id`, kiểm tra `visibility`, và áp quota.
+
+**Media không gửi được header**: `<audio src>` và link tải không gửi `X-Studio-Session`. Vì vậy `GET /previews/{id}` và `GET /exports/{id}` nhận token ngắn hạn:
+
+```
+/previews/<id>?t=<signed-token>
+/exports/<id>?t=<signed-token>
+```
+
+Token ký theo `owner_id + resource_id + expiry`, TTL 5–15 phút, revoke khi spec bị xoá. Không dùng session header cho media.
 
 ### 11.4. DDL tối thiểu
 
@@ -1003,16 +1221,18 @@ CREATE TABLE IF NOT EXISTS studio_uploads (
 );
 
 CREATE TABLE IF NOT EXISTS studio_specs (
-  id TEXT PRIMARY KEY,
+  id TEXT PRIMARY KEY,              -- UUID, không phải pattern id
+  slug TEXT NOT NULL,               -- suite_mazurka, do người đặt
+  owner_id TEXT NOT NULL,
   composer TEXT NOT NULL,
   kind TEXT NOT NULL,
   parent_id TEXT,
   status TEXT NOT NULL,
-  owner_id TEXT NOT NULL,
   visibility TEXT NOT NULL DEFAULT 'private',
   json TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  UNIQUE(owner_id, slug)
 );
 
 CREATE INDEX IF NOT EXISTS idx_studio_specs_owner
@@ -1020,6 +1240,10 @@ CREATE INDEX IF NOT EXISTS idx_studio_specs_owner
 CREATE INDEX IF NOT EXISTS idx_studio_specs_composer
   ON studio_specs(composer, status);
 ```
+
+Lý do: Studio mở cho tất cả. Nếu `id` là pattern id và là PK toàn cục, hai session không thể cùng nháp `suite_mazurka`; `PUT` của người thứ hai trả 409 và lộ sự tồn tại spec người khác. Dùng UUID + `UNIQUE(owner_id, slug)`.
+
+`studio_uploads` đã có `owner_id` ở trên; `GET /uploads/{id}` phải kiểm tra owner trước khi trả file. Không lưu path trực tiếp trong spec; lưu `upload_id`.
 
 `studio_exports` có thể là bảng hoặc chỉ là thư mục; Phase 1 dùng thư mục `/data/studio/exports/<id>/`.
 
@@ -1068,29 +1292,69 @@ Repo đã có tiền lệ: `scripts/gen_params_schema.py` sinh `paramsSchema.gen
 `PATTERN_NAMES` là set toàn cục theo title. Cần test:
 
 ```python
-titles = [pattern_title(pattern, ensemble) for ...]
+from app.sonify.guitar_wave import PROFILES
+from app.sonify.program import pattern_title
+
+# (ensemble, pattern) là nguồn thật của palette guitar.
+pairs = sorted(PROFILES)
+titles = [
+    title
+    for ensemble, pattern in pairs
+    if (title := pattern_title(pattern, ensemble))
+]
 assert len(titles) == len(set(titles))
 ```
 
-Nếu trùng, đổi title hoặc thêm namespace. Với *Suite Popular Brasileira*, dùng tên đầy đủ `Mazurka-Choro`, `Schottish-Choro`, `Valsa-Choro`, `Gavotta-Choro`, `Choros No. 1`.
+- Enumerate từ `PROFILES` keys `(ensemble, pattern)`, tức palette thật; không tự bịa danh sách.
+- Nếu sau này có `PATTERN_PALETTES` tách riêng, dùng nó làm nguồn; `_FAMILY` chỉ là family, không phải palette.
+- `pattern_title()` trả `""` cho id lạ; `filter(None, ...)` để test không fail vì chuỗi rỗng.
+- Với *Suite Popular Brasileira*, dùng tên đầy đủ `Mazurka-Choro`, `Schottish-Choro`, `Valsa-Choro`, `Gavotta-Choro`, `Choros No. 1`.
 
-### 12.4. Checklist đầy đủ
+### 12.4. Checklist đầy đủ cho pattern mới
 
-Ngoài checklist revision 1, thêm:
+Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler sinh từ `traits` + `selection`:
 
-- `backend/app/sonify/guitar.py`: `_ENSEMBLE_PROFILE` (`"villa": "villa_pattern"`).
-- `backend/app/sonify/guitar_patterns.py`: voice 4 path trong `assert_playable`.
+**Đăng ký và scheduler**
+
+- `backend/app/sonify/guitar_patterns.py`: `_FAMILY[id]` (boundary/`different_family`).
+- `backend/app/sonify/guitar_patterns.py`: nhánh `ctx.ensemble == "villa"` trong `_select_body` để pattern mới **thực sự được chọn**.
+- `backend/app/sonify/guitar_patterns.py`: `_dominant_pattern`, `_contrast_pattern`, các fallback dict của Villa.
+- `backend/app/sonify/guitar_patterns.py`: dispatch trong `render_patterned_voices`.
+- `backend/app/sonify/guitar_patterns.py`: `_PROFILE[id]` sinh từ `profiles.render`.
+- `backend/app/sonify/program.py`: `_PATTERN_TITLE[id]`.
+- `backend/app/sonify/guitar_wave.py`: `PROFILES[("villa", id)]` sinh từ `profiles.wave`.
+- `backend/tests/test_guitar_wave.py`: `_EXPECTED`.
+
+**Frame, scales, velocity**
+
+- `backend/app/sonify/guitar_frame.py`: `_RETAINED_DOORS` nếu có cửa.
+- `backend/app/sonify/guitar_frame_rest.py`: cửa của Villa/Barrios/Brouwer (etude11 nằm ở đây).
 - `backend/app/sonify/guitar_scale_passages.py`: `_KINETIC_PATTERNS`, `_LOUD_DOWN_PATTERNS`, `_NARROW_ROWS`, `_HOST`.
 - `backend/app/sonify/guitar_patterns.py`: `_PEDAL_DOOR_PROFILE`.
-- `backend/app/sonify/guitar_frame.py`: `_RETAINED_DOORS` (không phải `guitar_patterns.py`).
+- `backend/app/sonify/humanize.py`: `_clamp_guitar` nếu trần velocity khác.
 - `backend/app/sonify/guitar_torroba.py`: `_REAL_TORROBA_FIGURES` nếu figure mới.
-- `backend/app/sonify/guitar_wave.py`: `PROFILES[("villa", id)]` sinh từ `profiles.wave`.
-- `backend/app/sonify/guitar_patterns.py`: `_PROFILE[id]` sinh từ `profiles.render`.
-- `backend/tests/test_guitar_wave.py`: `_EXPECTED`.
-- Tests hardcode id: `test_humanize.py`, `test_sonify_guitar.py`, `test_sonify_guitar_scale_passages.py`.
-- `backend/app/sonify/audio.py`: nếu preview/export.
-- `backend/tests/test_texture_meter_matrix.py` + fixture `meter_matrix.json`.
+
+**Đăng ký tên và docs**
+
+- `src/sonify/program.ts`: `PATTERN_NAMES` sinh từ codegen, không thêm tay.
+- `docs/sonify-pattern-names.md`: cập nhật luật tên và bảng tên.
+- `docs/sonify-classical-guitar.md`: cập nhật palette/trạng thái.
+
+**Test**
+
+- `backend/tests/test_sonify_guitar.py`
+- `backend/tests/test_humanize.py`
+- `backend/tests/test_sonify_guitar_scale_passages.py`
+- `backend/tests/test_texture_selection_matrix.py` + `selection_matrix.json`
+- `backend/tests/test_texture_render_matrix.py` + `render_matrix.json`
 - `backend/tests/test_texture_movement_line.py`: 5 pattern Suite không làm vỡ `pattern_form()`.
+- `backend/tests/test_pattern_registry.py`: codegen drift + title uniqueness.
+- Chạy lại cả hai matrix nếu có meter variant mới.
+
+**Không cần cho pattern mới**
+
+- `model.py` `Ensemble`, `ensemble.py` `_ROWS`, `schemas.py` Literal, `src/api/client.ts` `ENSEMBLE_ROWS`: chỉ khi thêm **composer**, không phải pattern.
+- `params.py` + `paramsSchema.generated.ts`: chỉ khi đổi meter choice (Phase 3).
 
 ---
 
@@ -1104,7 +1368,7 @@ Ngoài checklist revision 1, thêm:
 - Spec tay cho `chord_melody` (dễ) và `villa_pattern` (khó).
 - Round-trip `authored` với renderer hiện tại.
 - Preview bằng `slice_score` + `audio.py` (nếu môi trường có MuseScore), hoặc `rendered.json` nếu chưa.
-- Sinh `meter_matrix.json` + `test_texture_meter_matrix.py`.
+- Sinh `selection_matrix.json` + `render_matrix.json` + hai test tương ứng.
 - **Không sửa runtime**: Studio từ chối spec 12/8; runtime giữ hành vi hiện tại. Ghi rõ đây là known bug, fix ở Phase 3.
 
 **Gate**: round-trip đúng; meter gate âm tính; matrix đầy đủ; Studio từ chối 12/8; không có thay đổi runtime.
@@ -1156,8 +1420,13 @@ Ngoài checklist revision 1, thêm:
 13. **Title uniqueness**: không trùng title toàn cục.
 14. **Runtime proof**: ít nhất một pattern `runtime: "interpreter"` ở Phase 2.
 15. **Movement line**: 5 pattern Suite không làm vỡ `pattern_form()`; tối đa 3 title; test in tên.
-16. **API/storage contract**: 13 endpoint + DDL + post-Gemini validate có trong doc và test.
-17. **Meter matrix**: `pattern × meter` fixture đầy đủ; cặp `"other"`/rỗng fail.
+16. **API/storage contract**: 15 endpoint + DDL + post-Gemini validate có trong doc và test.
+17. **Selection + render matrix**: mỗi pattern có ít nhất một input được chọn; render matrix chỉ render pattern đã chọn; `ctx_kind == "other"` fail; `expected_empty` phải có lý do.
+18. **Per-voice duration**: mỗi voice không overlap và tổng duration = `bar_beats` hoặc có rest tường minh; không cộng tất cả voice.
+19. **Pitch declarative**: spec không chứa tên hàm Python; chỉ dùng `price`/`chord_degree`/`literal_midi`/…
+20. **Publish gate**: `review=pending` hoặc `confidence < 0.6` chưa accept/edit bị từ chối.
+21. **Registry version gate**: schema ngoài allowlist hoặc JSON hỏng bị bỏ, app vẫn boot; `renderer_version` bắt buộc cho interpreter.
+22. **Media token**: preview/export dùng signed token ngắn hạn; `GET /uploads/{id}` kiểm tra owner.
 
 ---
 
@@ -1166,7 +1435,7 @@ Ngoài checklist revision 1, thêm:
 | Rủi ro | Cách giảm |
 |---|---|
 | 12/8 fallback 4/4 | Phase 0 Studio từ chối spec 12/8; runtime không đổi; Phase 3 sửa |
-| 3/4 ↔ 6/8 khác accent | `accent_remap` tường minh + `extra_weights`, nghe thử |
+| 3/4 ↔ 6/8 khác accent | Hai variant riêng; `_guitar_meter` form-level; khai `strong_eighths`/`extra_weights` |
 | 4/4 → 12/8 không tương đương | `triplet_subdivision` + duyệt tay; không tự động |
 | 2/4 không có trong engine | `fold: 2` ở `FormSpec`; tiền lệ `galop`; test bars/DFI |
 | Figure Villa không tồn tại | Phase 0 pattern-only; audit trước |
@@ -1240,7 +1509,7 @@ Ngoài checklist revision 1, thêm:
 
 ### B.2. Review 2
 
-| Review 2 | Trạng thái trong revision 3 |
+| Review 2 | Trạng thái trong revision 4 |
 |---|---|
 | 1.1 key meter bằng structure, không string | §4.2, §4.4 |
 | 1.2 membership thay equality | §3.1, §4.5 |
@@ -1260,6 +1529,27 @@ Ngoài checklist revision 1, thêm:
 | 3.4 `fold: 2` thuộc FormSpec | §4.4.1 |
 | 3.5 API/DDL/validate bị bỏ | §9.5, §11.3, §11.4 |
 | 3.6 profile/wave profile | §6.7, §12.4 |
+
+### B.3. Review 3
+
+| Review 3 | Trạng thái trong revision 4 |
+|---|---|
+| 1.1 selection/render matrix | §4.5.1 |
+| 1.2 per-voice duration | §9.5 |
+| 1.3 pitch declarative | §6.8 |
+| 1.4 checklist đầy đủ | §12.4 |
+| 2.1 selection/family | §6.7 |
+| 2.2 confidence/conflict/review | §6.2, §9.5 |
+| 2.3 bỏ `accent_remap` khỏi pattern | §4.4 |
+| 2.4 UUID/slug, upload, signed media | §11.3, §11.4 |
+| 2.5 registry version gate | §7.2 |
+| 3.1 `METER_34` snippet | §4.1 |
+| 3.2 `_MAX_FRET` index | §6.6, §9.5 |
+| 3.3 title test enumerate | §12.3 |
+| 3.4 visibility private | §10.2 |
+| 3.5 `unsupported` | §4.4, §4.5.1, §6.7 |
+| 3.6 `/access` shape/quota/telemetry | §10.2.1 |
+| 3.7 `resolve_runtime_form` owner | §4.4.1 |
 
 ---
 
