@@ -3,8 +3,9 @@ import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { installFocusRing } from './a11y';
 import { COLUMN_WIDTH, DOCK_HEIGHT, palette } from './palette';
-import { DRAWER_WIDTH, TuningPanel } from './TuningPanel';
+import { TuningPanel } from './TuningPanel';
 import { useTuning } from './tuning';
+import { panelPushes, panelWidthFor } from './tuningDisplay';
 
 type Props = {
   wide: boolean;
@@ -34,9 +35,9 @@ export function RoomFrame({
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
   const { open: tuningOpen, enabled: tuningEnabled } = useTuning();
-  // At 1280px the drawer pushes the chart instead of covering it.
+  // Only very wide screens push the chart; otherwise the panel is a focus overlay.
   const push =
-    wide && width >= 1280 && tuningEnabled && tuningOpen && tuningBaseBpm != null;
+    wide && panelPushes(width) && tuningEnabled && tuningOpen && tuningBaseBpm != null;
 
   useEffect(() => {
     installFocusRing();
@@ -57,7 +58,7 @@ export function RoomFrame({
             <View style={styles.stage}>{stage}</View>
             <View style={styles.dock}>{controls}</View>
           </View>
-          {push ? <View style={{ width: DRAWER_WIDTH }} /> : null}
+          {push ? <View style={{ width: panelWidthFor(width) }} /> : null}
         </View>
         <TuningPanel baseBpm={tuningBaseBpm} variant={tuningVariant} span={tuningSpan} ensemble={tuningEnsemble} />
       </View>
