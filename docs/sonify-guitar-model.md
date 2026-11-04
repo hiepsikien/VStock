@@ -189,7 +189,7 @@ Bảng này nói đúng bản chất: **chỉ Bach có procedure, chỉ Torroba 
 | Nhãn là kỹ thuật: `villa_pattern` in **"Arpeggio"** | `_PATTERN_TITLE["villa_pattern"] = "Arpeggio"` (`program.py`) | đổi thành tên tác phẩm/chương, hoặc để trống và để `level: texture` không in |
 | Nhãn là kỹ thuật: `tremolo` in **"Tremolo"** | `_PATTERN_TITLE["tremolo"] = "Tremolo"` | như trên |
 | Tên "figure" cho một sentence archetype | §1 | đổi từ vựng sang `sentence` |
-| `pattern` không khai `level` | 38 pattern, 3 mức trộn lẫn | thêm `level` |
+| `pattern` không khai `level` | 38 pattern, không phân biệt topic với texture | thêm `level` + `topic_source` |
 
 Hai lỗi nhãn này không sửa bằng luật chung được: chúng là quyết định nội dung (in gì trên chart), phải chọn tên cụ thể.
 
