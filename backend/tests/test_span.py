@@ -320,6 +320,44 @@ def test_span_response_volumes_match_each_movement(monkeypatch) -> None:
     assert cached.movements[0].renderRatio == 0.125
 
 
+def test_span_response_prints_the_planned_title_and_keeps_the_form_row(monkeypatch) -> None:
+    import asyncio
+
+    from app.routers.stocks import get_span
+    from app.services.spans import SpanPlan
+
+    sessions = [
+        (date(2026, 1, 5), [Bar(10.0, 100.0), Bar(10.4, 0.0)]),
+        (date(2026, 1, 6), [Bar(11.0, 40.0)]),
+        (date(2026, 1, 7), [Bar(11.5)]),
+        (date(2026, 1, 8), [Bar(12.0, 5.0), Bar(12.2, 8.0)]),
+    ]
+    movements = prepare_month(sessions, "VNM", "guitar", "bach")
+
+    async def fake_plan(*_args, **_kwargs):
+        return SpanPlan(movements, date(2026, 1, 8))
+
+    class Cached:
+        duration_sec = 1.0
+        map_duration_sec = 1.0
+        movement_name = "stale render name"
+        form_description = "Allemande — Courante — Allemande"
+        render_sec = 0.0
+        render_ratio = 0.0
+
+    monkeypatch.setattr("app.routers.stocks.plan_span", fake_plan)
+    monkeypatch.setattr("app.routers.stocks.ready_movement", lambda *_args, **_kwargs: Cached())
+    response = asyncio.run(get_span(Response(), "vnm", "1M", "guitar", "bach", True, True))
+    # The name is planned from the table, not read from the audio file.
+    assert [row.name for row in response.movements] == [
+        "Allemande",
+        "Courante",
+        "Sarabande",
+        "Gigue",
+    ]
+    assert response.movements[0].formDescription == "Allemande — Courante — Allemande"
+
+
 def test_dynamic_plan_routes_disable_the_http_cache(monkeypatch) -> None:
     """Span, recap, and DFI pieces are written after the audio; never replay them."""
     import asyncio
@@ -506,6 +544,12 @@ def test_torroba_month_frames_after_the_meter_change() -> None:
     symphony = prepare_month(sessions, "VNM", "symphony", "torroba")
     bodies = month_specs("guitar")
     assert [movement.character for movement in torroba] == ["calm", "rally", "calm", "rally"]
+    assert [movement.title for movement in torroba] == [
+        "Olite",
+        "Castillo",
+        "Alcaniz",
+        "Danza",
+    ]
     assert _meter(torroba[0].spec) == (3, 4)
     assert torroba[0].spec.bpm == 96
     assert _frame_lengths(torroba[0].spec) == (6, 6)
@@ -521,6 +565,12 @@ def test_torroba_month_frames_after_the_meter_change() -> None:
     assert _fingerprint_meter(torroba[3]) == (4, 4)
     assert [movement.spec for movement in classic] == [
         movement.spec for movement in plan_month([len(part) for part in month_parts(sessions)], "guitar")
+    ]
+    assert [movement.title for movement in classic] == [
+        "Etude",
+        "Cantabile",
+        "Elegy",
+        "Galop",
     ]
     assert _meter(symphony[0].spec) == (4, 4)
 
@@ -538,6 +588,7 @@ def test_torroba_quarter_and_year_use_the_frame_of_the_new_meter() -> None:
     quarter = prepare_quarter(stamped, "VNM", "guitar", "torroba")
     bodies = quarter_specs("guitar")
     assert [movement.character for movement in quarter] == ["selloff", "rally", "volatile"]
+    assert [movement.title for movement in quarter] == ["Olite", "Castillo", "Danza"]
     assert _meter(quarter[0].spec) == (3, 4)
     assert quarter[0].spec.bpm == 96
     assert _frame_lengths(quarter[0].spec) == (6, 6)
@@ -562,6 +613,8 @@ def test_torroba_quarter_and_year_use_the_frame_of_the_new_meter() -> None:
     specs = year_specs("guitar")
     assert [movement.label for movement in year] == ["01/26", "02/26", "12/26"]
     assert [movement.character for movement in year] == ["calm", "rally", "rally"]
+    # 1Y reuses the 1M programme: Jan=I, Feb=II, Dec=IV.
+    assert [movement.title for movement in year] == ["Olite", "Castillo", "Danza"]
     assert _meter(year[0].spec) == (3, 4)
     assert year[0].spec.bpm == 100
     assert _frame_lengths(year[0].spec) == (3, 3)

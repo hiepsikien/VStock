@@ -6,11 +6,13 @@ where the printed name comes from, so a label can be judged later without
 re-reading every renderer. It is metadata about the name, not the mechanism.
 
 `None` is only for texture: a texture owns no name, even when `_PATTERN_TITLE`
-still prints one today (that is the section 8 violation, fixed elsewhere).
+still carries one. `pattern_form` drops texture ids, so the title next to the
+audio file is `Movement.title`, not a technique.
 
-This module changes no behaviour. `_FAMILY`, `_PATTERN_TITLE`, `PROFILES`, and
-the renderers stay as they are; `validate()` is the only code that reads them,
-and it only reports.
+This module is the gate `pattern_form` and `_written_dance` read: a texture is
+dropped before a name is built, so it never prints. `_FAMILY`,
+`_PATTERN_TITLE`, `PROFILES`, and the renderers stay as they are; `validate()`
+checks the table against them and only reports.
 """
 
 from __future__ import annotations

@@ -1,8 +1,11 @@
-"""Golden lock for the movement names the guitar renderer prints.
+"""Golden lock for the printed guitar movement names.
 
-Names come from the production path `render` -> `_written_dance`, captured
-through `program.guitar_movement_name`. The fixture records one name per case
-so a refactor that silently renames or reorders a dance shows up as a diff.
+A printed name is now the curated `Movement.title` keyed by
+`(ensemble, span, index)`, so the fixture records that name per case. The
+matrix still runs the production render path (`render` -> `_written_dance`,
+through `program.guitar_form_description`) so every character/shape case is
+proven renderable, but the value it locks is the name the chart prints. The
+non-printed A-B-A row is covered by the row tests in `test_program.py`.
 
 The matrix runs under default params (`compose_params({})`), so names that
 depend on tempo/frame/meter are pinned to tier A defaults. It is deterministic
@@ -22,7 +25,7 @@ Regenerate the fixture on purpose with:
 
     VSTOCK_WRITE_NAME_PARITY=1 python3 -m pytest tests/test_name_parity.py -q
 
-Review the resulting JSON diff in the same commit that changes a selector.
+Review the resulting JSON diff in the same commit that changes a title.
 """
 
 from __future__ import annotations
@@ -36,8 +39,9 @@ from functools import lru_cache
 import pytest
 
 from app.sonify.model import Bar
+from app.sonify.movement_titles import movement_title
 from app.sonify.params import compose_params
-from app.sonify.program import guitar_movement_name
+from app.sonify.program import guitar_form_description
 from app.sonify.span import FormSpec, attach_frame, month_specs, quarter_specs, week_spec
 
 FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "name_parity.json"
@@ -114,6 +118,14 @@ def _key(ensemble: str, span: str, character: str | None, shape: str, bpm: int |
 CHEAP_3M = ("classic", "barrios", "bach", "torroba")
 
 
+def _case_name(
+    ensemble: str, span: str, index: int, character: str | None = None, **render
+) -> str:
+    """Printed title for the case, after proving the case still renders."""
+    guitar_form_description(ensemble=ensemble, character=character, **render)
+    return movement_title(ensemble, span, index, character)
+
+
 def _build_cases() -> dict[str, str]:
     cases: dict[str, str] = {}
     for ensemble_index, ensemble in enumerate(ENSEMBLES):
@@ -128,9 +140,11 @@ def _build_cases() -> dict[str, str]:
                         else TEMPOS[(ensemble_index + span_index + character_index) % len(TEMPOS)]
                     )
                     key = _key(ensemble, span, character, shape, bpm)
-                    cases[key] = guitar_movement_name(
-                        _bars(shape),
-                        ensemble=ensemble,
+                    cases[key] = _case_name(
+                        ensemble,
+                        span,
+                        0,
+                        bars=_bars(shape),
                         character=character,
                         form=_form(span, bpm),
                         movement_index=0,
@@ -141,9 +155,11 @@ def _build_cases() -> dict[str, str]:
     for ensemble_index, ensemble in enumerate(ENSEMBLES):
         character = CHARACTERS[ensemble_index % len(CHARACTERS)]
         key = _key(ensemble, "1W5", character, "running", 120)
-        cases[key] = guitar_movement_name(
-            _bars("running"),
-            ensemble=ensemble,
+        cases[key] = _case_name(
+            ensemble,
+            "1W",
+            0,
+            bars=_bars("running"),
             character=character,
             form=replace(week_spec(5), bpm=120),
             movement_index=0,
@@ -155,9 +171,11 @@ def _build_cases() -> dict[str, str]:
         for movement in range(4):
             character = "rally" if movement % 2 else "calm"
             key = _key(ensemble, "1M", character, "running", 120) + f"|m{movement}"
-            cases[key] = guitar_movement_name(
-                _bars("running"),
-                ensemble=ensemble,
+            cases[key] = _case_name(
+                ensemble,
+                "1M",
+                movement,
+                bars=_bars("running"),
                 character=character,
                 form=_form("1M", 120, movement),
                 movement_index=movement,
@@ -168,9 +186,11 @@ def _build_cases() -> dict[str, str]:
     for ensemble in CHEAP_3M:
         for movement in (0, 2):
             key = _key(ensemble, "1M", "rally", "running", 120) + f"|m{movement}"
-            cases[key] = guitar_movement_name(
-                _bars("running"),
-                ensemble=ensemble,
+            cases[key] = _case_name(
+                ensemble,
+                "1M",
+                movement,
+                bars=_bars("running"),
                 character="rally",
                 form=_form("1M", 120, movement),
                 movement_index=movement,
@@ -182,9 +202,11 @@ def _build_cases() -> dict[str, str]:
         for movement in (1, 2):
             character = "selloff" if movement == 1 else "volatile"
             key = _key(ensemble, "3M", character, "running", 120) + f"|m{movement}"
-            cases[key] = guitar_movement_name(
-                _bars("running"),
-                ensemble=ensemble,
+            cases[key] = _case_name(
+                ensemble,
+                "3M",
+                movement,
+                bars=_bars("running"),
                 character=character,
                 form=_form("3M", 120, movement),
                 movement_index=movement,

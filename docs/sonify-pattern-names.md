@@ -1,8 +1,8 @@
 # Tên pattern: Cathedral và Torroba
 
-Chuỗi ghi vào file audio ra từ `_PATTERN_TITLE` trong `backend/app/sonify/program.py`, qua `pattern_title`. Ngoại lệ duy nhất: `thumb_cantabile` khi ensemble là `villa` thành Prelude, không lấy mục Cantabile trong bảng. `PATTERN_NAMES` trong `src/sonify/program.ts` là tập để client nhận ra chuỗi đó. Id trong code giữ nguyên. Tên lấy từ tác phẩm, viết hoa chữ đầu, không dấu. Một tên đã thuộc nhà khác thì pattern mới không dùng lại tên đó.
+Từ naming release, **tên chương in ra** lấy từ `movement_titles` (`backend/app/sonify/movement_titles.py`): `TITLES` theo `(ensemble, span, index)`, và `CHARACTER_TITLES` theo `(ensemble, 1D/1W, character)`. Không lấy từ `pattern_form`. `_PATTERN_TITLE` vẫn là tên của pattern; `pattern_title` trả tên đó cho caller trực tiếp, nhưng `pattern_form` bỏ mọi id có `level == texture`, nên `Arpeggio`/`Tremolo`/`Chord Melody` không còn đi vào tên chương. `PATTERN_NAMES` trong `src/sonify/program.ts` là tập cũ để client nhận diện row pattern; frontend cần nhận `name` tự do của guitar.
 
-Không thêm vùng riêng cho tên chương. Chuỗi đó là tên của cả chương, tức `pattern_form` đã ghi cùng file audio. Nó không đổi theo từng `Phrase`. `formatMovement` trong `src/sonify/program.ts` giữ hậu tố nhịp và BPM, ví dụ `Cathedral — Andante — Tremolo (4/4, 96 BPM)`, hoặc `Finale: …` khi có tiền tố Finale.
+Tên chương là **identity**, không phải mô tả hình thức. `pattern_form` không còn ghi tên chương; nó dựng `formDescription` (A–B–A sau khi lọc texture) và không in. `formatMovement` trong `src/sonify/program.ts` giữ hậu tố nhịp và BPM, ví dụ `Cathedral (4/4, 96 BPM)`, hoặc `Finale: …` khi có tiền tố Finale; A–B–A chỉ dùng cho tooltip/subtitle nếu có.
 
 Guitar một chương: `pieceCopy` đặt tên pattern vào title (`Cathedral HVN 23/10 in D`) và để `movement` là `null`. Không có dòng thứ hai.
 
@@ -34,11 +34,11 @@ Chuỗi `preludio` của Barrios đổi theo. Tám assert trong `backend/tests/t
 | Trước | Sau | Chỗ |
 |---|---|---|
 | Prelude — Andante — Tremolo | Cathedral — Andante — Tremolo | `pattern_form` |
-| Prelude — Andante | Cathedral — Andante | `pattern_form` (hai assert) và `guitar_movement_name` với `week_spec(2)`, chương tuần gồm 2 phiên |
+| Prelude — Andante | Cathedral — Andante | `pattern_form` (hai assert) và `guitar_form_description` với `week_spec(2)`, chương tuần gồm 2 phiên |
 | Prelude — Tremolo — Prelude | Cathedral — Tremolo — Cathedral | `pattern_form` |
-| Prelude — Andante — Prelude | Cathedral — Andante — Cathedral | `guitar_movement_name` với `opening`, `week_spec(4)` và `week_spec(5)`: chương mở, chương tuần 4 phiên và 5 phiên |
+| Prelude — Andante — Prelude | Cathedral — Andante — Cathedral | `guitar_form_description` với `opening`, `week_spec(4)` và `week_spec(5)`: chương mở, chương tuần 4 phiên và 5 phiên |
 
-Bốn assert `pattern_form` nằm trong `test_pattern_form_keeps_three_names_and_centers_a_longer_row`. Bốn assert ghi vào file audio rồi in lên chart nằm trong `test_long_barrios_movements_walk_a_pattern_row`, các lời gọi `guitar_movement_name` với `opening`, `week_spec(2)`, `week_spec(4)` và `week_spec(5)`.
+Bốn assert `pattern_form` nằm trong `test_pattern_form_keeps_three_names_and_centers_a_longer_row`. Bốn assert ghi vào file audio rồi in lên chart nằm trong `test_long_barrios_movements_walk_a_pattern_row`, các lời gọi `guitar_form_description` với `opening`, `week_spec(2)`, `week_spec(4)` và `week_spec(5)`.
 
 `PATTERN_NAMES` thêm `Cathedral`. `Prelude` ở lại, vì `isPatternForm` tách bằng ` — `. Thiếu `Cathedral` thì suite Barrios mất tên điệu và chỉ còn nhịp hoặc `Finale`.
 
@@ -47,7 +47,7 @@ Bach (`bach_prelude`) và Villa (`thumb_cantabile` khi ensemble là `villa`) gi�
 Chỗ sửa khi thực hiện:
 
 - `backend/app/sonify/program.py`: `"preludio": "Cathedral"`. Docstring của `pattern_form` có ba chỗ ví dụ Barrios: `Prelude — Andante — Tremolo`, câu “plays Prelude, Andante, Andante, Prelude”, và `Prelude — Andante — Prelude`. Cả ba thành Cathedral.
-- `backend/tests/test_program.py`: bốn assert `pattern_form` và bốn assert `guitar_movement_name` ở trên.
+- `backend/tests/test_program.py`: bốn assert `pattern_form` và bốn assert `guitar_form_description` ở trên.
 - `src/sonify/program.ts`: thêm `Cathedral` vào `PATTERN_NAMES`. Giữ `Prelude`.
 
 ---

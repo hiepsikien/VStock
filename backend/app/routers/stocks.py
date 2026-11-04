@@ -71,7 +71,11 @@ from app.sonify.params import (
     presets_payload,
     schema_payload,
 )
-from app.sonify.program import span_movement_name
+from app.sonify.program import (
+    recap_movement_name,
+    span_form_description,
+    span_movement_name,
+)
 from app.sonify.model import Variant
 
 logger = logging.getLogger(__name__)
@@ -561,7 +565,13 @@ async def get_recap(
         character=asset.character,
         characterLabel=CHARACTER_LABEL.get(asset.character or "", ""),
         keyLabel=asset.key_label,
-        movementName=asset.movement_name,
+        movementName=recap_movement_name(
+            variant=asset.variant,
+            ensemble=asset.ensemble,
+            character=asset.character,
+            stored=asset.movement_name,
+        ),
+        formDescription=getattr(asset, "form_description", ""),
         humanize=_layers(valid)[0],
         color=_layers(valid)[1],
         paramsHash=params_hash(valid),
@@ -643,7 +653,10 @@ async def get_span(
                     variant=variant,
                     span=range,
                     index=index,
-                    stored=cached.movement_name if cached is not None else "",
+                ),
+                formDescription=span_form_description(
+                    variant=variant,
+                    stored=getattr(cached, "form_description", "") if cached is not None else "",
                 ),
                 paramsHash=params_hash(valid),
                 dfi=getattr(cached, "dfi", None) if cached is not None else None,

@@ -17,7 +17,15 @@ from app.sonify.guitar_patterns import (
 )
 from app.sonify.keys import work_key_label
 from app.sonify.model import Bar, Phrase, Run
-from app.sonify.program import guitar_movement_name, pattern_form, pattern_title, span_movement_name
+from app.sonify.movement_titles import movement_title as guitar_movement_title
+from app.sonify.program import (
+    guitar_form_description,
+    pattern_form,
+    pattern_title,
+    recap_movement_name,
+    span_form_description,
+    span_movement_name,
+)
 from app.sonify.render import render
 from app.sonify.span import (
     PreparedMovement,
@@ -71,15 +79,15 @@ def test_minimalist_quarter_closer_is_not_a_finale():
     assert movement_title("jazz", "1M", 2, month_specs("jazz")[2]) == "Waltz"
 
 
-def test_barrios_day_names_the_pattern_the_writer_picks():
+def test_barrios_day_form_row_drops_textures():
     held = _bars([100.0] * 80)
-    # A calm 1D no longer locks Preludio. The opening phrase is still Preludio,
-    # and the holds after it are tremolo, so the headline is Tremolo.
-    # A volatile day with almost no melody motion stays Ultimo Tremolo, not Choro.
-    assert guitar_movement_name(held, ensemble="barrios", character="calm") == "Tremolo"
-    assert guitar_movement_name(held, ensemble="barrios", character="volatile") == "Tremolo"
+    # The body is a tremolo texture, so the form row is empty; the printed
+    # name is the curated movement title.
+    assert guitar_form_description(held, ensemble="barrios", character="calm") == ""
+    assert guitar_form_description(held, ensemble="barrios", character="volatile") == ""
     running = _bars([100 + (index % 7) * 2 for index in range(160)])
-    assert guitar_movement_name(running, ensemble="barrios", character="volatile") == "Choro"
+    assert guitar_form_description(running, ensemble="barrios", character="volatile") == "Choro"
+    assert guitar_movement_title("barrios", "1D", 0) == "Ultimo Tremolo"
 
 
 def test_long_barrios_movements_walk_a_pattern_row():
@@ -91,27 +99,27 @@ def test_long_barrios_movements_walk_a_pattern_row():
     # Three parts reprise. Two parts end on the guest. A rally week at 90 opens
     # on Preludio, so the row is Preludio then Andante and the last part returns
     # to Preludio. Tremolo is not in that row.
-    assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=opening) == (
+    assert guitar_form_description(flat, ensemble="barrios", character="rally", form=opening) == (
         "Prelude — Andante — Prelude"
     )
-    assert guitar_movement_name(flat, ensemble="barrios", character="calm", form=slow) == (
-        "Andante — Cantabile — Andante"
+    assert guitar_form_description(flat, ensemble="barrios", character="calm", form=slow) == (
+        "Andante"
     )
-    assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=scherzo) == (
+    assert guitar_form_description(flat, ensemble="barrios", character="rally", form=scherzo) == (
         "Polka — Waltz — Polka"
     )
-    assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=finale) == (
-        "Tremolo — Andante — Tremolo"
+    assert guitar_form_description(flat, ensemble="barrios", character="rally", form=finale) == (
+        "Andante"
     )
-    assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=week_spec(2)) == (
-        "Prelude — Andante"
-    )
-    assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=week_spec(4)) == (
-        "Prelude — Andante — Prelude"
-    )
-    assert guitar_movement_name(flat, ensemble="barrios", character="rally", form=week_spec(5)) == (
-        "Prelude — Andante — Prelude"
-    )
+    assert guitar_form_description(
+        flat, ensemble="barrios", character="rally", form=week_spec(2)
+    ) == "Prelude — Andante"
+    assert guitar_form_description(
+        flat, ensemble="barrios", character="rally", form=week_spec(4)
+    ) == "Prelude — Andante — Prelude"
+    assert guitar_form_description(
+        flat, ensemble="barrios", character="rally", form=week_spec(5)
+    ) == "Prelude — Andante — Prelude"
 
 
 def test_barrios_region_row_reprises_from_the_third_part():
@@ -196,29 +204,34 @@ def test_a_uniform_barrios_row_names_the_headline_once():
 
 
 def test_pattern_form_keeps_three_names_and_centers_a_longer_row():
-    assert pattern_form(["preludio", "andante", "tremolo"], "barrios") == "Prelude — Andante — Tremolo"
+    # A texture is dropped before the row is built, so Tremolo never prints.
+    assert pattern_form(["preludio", "andante", "tremolo"], "barrios") == "Prelude — Andante"
     assert pattern_form(["preludio", "andante", "andante"], "barrios") == "Prelude — Andante"
     assert pattern_form(["preludio", "andante", "tremolo", "andante", "preludio"], "barrios") == (
-        "Prelude — Tremolo — Prelude"
+        "Prelude — Andante — Prelude"
     )
     # The row ends on Andante, so the short title does not pretend it reprises.
     assert pattern_form(["preludio", "andante", "preludio", "andante"], "barrios") == "Prelude — Andante"
+    # No topic at all: the movement title carries the name.
+    assert pattern_form(["tremolo", "tremolo"], "barrios") == ""
+    assert pattern_form(["villa_pattern", "chord_melody"], "villa") == ""
 
 
-def test_villa_slow_and_six_eight_keep_their_body_and_show_the_contrast():
+def test_villa_slow_and_six_eight_keep_their_bodies_without_a_printed_row():
     slow = month_specs("guitar")[1]
     scherzo = month_specs("guitar")[2]
     assert (slow.meter.beats, slow.meter.beat_type, slow.bpm) == (3, 4, 72)
     assert (scherzo.meter.beats, scherzo.meter.beat_type, scherzo.bpm) == (6, 8, 120)
     flat = _bars([100.0] * 80)
+    # Both Villa rows are texture-only: no A-B-A row survives, and the printed
+    # name comes from the curated movement title instead.
     assert (
-        guitar_movement_name(flat, ensemble="villa", character="calm", form=slow, framed=False)
-        == "Chord Melody — Prelude — Chord Melody"
+        guitar_form_description(flat, ensemble="villa", character="calm", form=slow, framed=False)
+        == ""
     )
-    assert (
-        guitar_movement_name(flat, ensemble="villa", character="rally", form=scherzo, framed=False)
-        == "Arpeggio — Prelude — Arpeggio"
-    )
+    assert guitar_form_description(
+        flat, ensemble="villa", character="rally", form=scherzo, framed=False
+    ) == ""
 
 
 def _written_form(bars: list[Bar], **kwargs) -> list[str]:
@@ -239,10 +252,9 @@ def _written_form(bars: list[Bar], **kwargs) -> list[str]:
 def test_bach_slow_selloff_with_a_contrast_stays_sarabande():
     slow = month_specs("guitar")[1]
     wide = _bars([100 - index * 0.2 for index in range(80)])
-    assert (
-        guitar_movement_name(wide, ensemble="bach", character="selloff", form=slow, mode="minor", framed=False)
-        == "Sarabande — Chaconne — Sarabande"
-    )
+    assert guitar_form_description(
+        wide, ensemble="bach", character="selloff", form=slow, mode="minor", framed=False
+    ) == "Sarabande — Chaconne — Sarabande"
 
 
 def test_bach_suite_rows_name_prelude_allemande_and_courante():
@@ -303,34 +315,36 @@ def test_bach_suite_rows_name_prelude_allemande_and_courante():
         "bach_allemande",
     ]
     assert (
-        guitar_movement_name(wide, ensemble="bach", character="rally", form=finale)
+        guitar_form_description(wide, ensemble="bach", character="rally", form=finale)
         == "Bourree — Fugue — Bourree"
     )
     assert (
-        guitar_movement_name(wide, ensemble="bach", character="rally", form=opening)
+        guitar_form_description(wide, ensemble="bach", character="rally", form=opening)
         == "Bourree — Gavotte — Bourree"
     )
-    assert guitar_movement_name(wide, ensemble="bach", character="rally", form=week_spec(1)) == "Bourree"
+    assert guitar_form_description(
+        wide, ensemble="bach", character="rally", form=week_spec(1)
+    ) == "Bourree"
     assert (
-        guitar_movement_name(wide, ensemble="bach", character="selloff", form=slow, mode="minor")
+        guitar_form_description(wide, ensemble="bach", character="selloff", form=slow, mode="minor")
         == "Sarabande — Chaconne — Sarabande"
     )
     assert pattern_title("bach_prelude", "bach") == "Prelude"
     assert pattern_title("bach_allemande", "bach") == "Allemande"
     assert pattern_title("bach_courante", "bach") == "Courante"
-    assert guitar_movement_name(flat, ensemble="bach", character="calm", form=opening) == (
+    assert guitar_form_description(flat, ensemble="bach", character="calm", form=opening) == (
         "Prelude — Allemande"
     )
-    assert guitar_movement_name(flat, ensemble="bach", character="calm", form=week_spec(5)) == (
+    assert guitar_form_description(flat, ensemble="bach", character="calm", form=week_spec(5)) == (
         "Prelude — Bourree — Allemande"
     )
-    assert guitar_movement_name(flat, ensemble="bach", character="rally", form=opening) == (
+    assert guitar_form_description(flat, ensemble="bach", character="rally", form=opening) == (
         "Allemande — Courante — Allemande"
     )
-    assert guitar_movement_name(flat, ensemble="bach", character="calm", form=scherzo) == (
+    assert guitar_form_description(flat, ensemble="bach", character="calm", form=scherzo) == (
         "Courante — Gigue — Courante"
     )
-    assert guitar_movement_name(wide, ensemble="bach", character="rally", form=scherzo) == (
+    assert guitar_form_description(wide, ensemble="bach", character="rally", form=scherzo) == (
         "Gigue — Courante — Gigue"
     )
 
@@ -340,7 +354,7 @@ def test_an_unknown_pattern_is_not_titled_etude():
     assert pattern_title("study", "classic") == "Etude"
 
 
-def test_span_manifest_reads_a_stored_dance_and_does_not_plan(monkeypatch):
+def test_span_manifest_reads_the_planned_title_and_does_not_plan(monkeypatch):
     def boom(*_args, **_kwargs):
         raise AssertionError("render")
 
@@ -351,15 +365,61 @@ def test_span_manifest_reads_a_stored_dance_and_does_not_plan(monkeypatch):
         bars=_bars([10.0, 11.0]),
         groups=None,
         rest_after=0,
+        title="Gigue",
     )
-    assert (
-        span_movement_name(movement, variant="guitar", span="1Y", index=1, stored="Gigue")
-        == "Gigue"
+    # The title is planned, so the manifest never needs the stored render name.
+    assert span_movement_name(movement, variant="guitar", span="1Y", index=1) == "Gigue"
+    empty = PreparedMovement(
+        label="2",
+        spec=month_specs("symphony")[1],
+        bars=_bars([10.0, 11.0]),
+        groups=None,
+        rest_after=0,
     )
-    assert span_movement_name(movement, variant="guitar", span="1Y", index=1, stored="") == ""
+    assert span_movement_name(empty, variant="guitar", span="1Y", index=1) == ""
+    assert span_form_description(variant="guitar", stored="Andante — Cantabile — Andante") == (
+        "Andante — Cantabile — Andante"
+    )
+    assert span_form_description(variant="symphony", stored="Finale") == ""
     assert span_movement_name(movement, variant="symphony", span="1M", index=1) == (
         movement_title("symphony", "1M", 1, movement.spec) or ""
     )
+
+
+def test_recap_name_is_recomputed_for_guitar_only():
+    # A cached asset can carry an old pattern name; the read path ignores it
+    # for guitar and rebuilds the title from the ensemble and character.
+    assert recap_movement_name(
+        variant="guitar",
+        ensemble="bach",
+        character="calm",
+        stored="Tremolo",
+    ) == "Prelude"
+    assert recap_movement_name(
+        variant="guitar",
+        ensemble="villa",
+        character="selloff",
+        stored="Prelude",
+    ) == "Cathedral"
+    assert recap_movement_name(
+        variant="guitar",
+        ensemble="torroba",
+        character="calm",
+        stored="Olite",
+    ) == "Castillo"
+    assert recap_movement_name(
+        variant="guitar",
+        ensemble="bach",
+        character=None,
+        stored="Old",
+    ) == "Courante"
+    # Non-guitar keeps the stored value; it has no curated daily table.
+    assert recap_movement_name(
+        variant="symphony",
+        ensemble="classic",
+        character="rally",
+        stored="Finale",
+    ) == "Finale"
 
 
 def _write_audio(folder: Path, name: str, payload: dict) -> None:
@@ -435,7 +495,7 @@ def _capture_torroba(monkeypatch, bars, **kwargs):
         return real(ctx, row)
 
     monkeypatch.setattr(patterns, "form_pattern_ids", spy)
-    name = guitar_movement_name(bars, ensemble="torroba", **kwargs)
+    name = guitar_form_description(bars, ensemble="torroba", **kwargs)
     return name, saved
 
 
@@ -564,7 +624,9 @@ def test_contrast_form_matches_a_full_render():
 
     slow = month_specs("guitar")[1]
     wide = _bars([100 - index * 0.2 for index in range(80)])
-    skipped = guitar_movement_name(wide, ensemble="bach", character="selloff", form=slow, mode="minor", framed=False)
+    skipped = guitar_form_description(
+        wide, ensemble="bach", character="selloff", form=slow, mode="minor", framed=False
+    )
     _score, written = _compose(
         "guitar",
         "bach",
