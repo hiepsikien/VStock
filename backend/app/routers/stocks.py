@@ -4,14 +4,13 @@ import asyncio
 import json
 import logging
 import os
-import threading
-import time
 from datetime import date
 from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
+from starlette.concurrency import run_in_threadpool
 
 from app.ingestion.providers.entrade_indices import INDEX_SYMBOLS
 from app.schemas import (
@@ -54,6 +53,13 @@ from app.services.spans import (
 )
 from app.sonify.audio import RecapCancelled, RecapUnavailable, recap_store
 from app.sonify.ensemble import Ensemble, ensemble_for
+from app.sonify.events import (
+    RateLimiter,
+    env_int,
+    event_store,
+    events_rate_limit,
+    sanitize_event,
+)
 from app.sonify.keys import CHARACTER_LABEL, key_label, work_key_label
 from app.sonify.params import (
     SCHEMA_VERSION,
@@ -765,27 +771,45 @@ async def get_params_presets(response: Response) -> list[dict]:
     return presets_payload()
 
 
-_EVENT_LOCK = threading.Lock()
-_SEEN_EVENT_IDS: set[str] = set()
-_EVENT_NAMES = {
-    "ab_toggle",
-    "profile_save",
-    "knob_change",
-    "prefetch_fail",
-    "play",
-}
+_EVENT_LIMITER: RateLimiter | None = None
+_EVENT_LIMITER_LIMIT: int | None = None
+_PIN_LIMITER: RateLimiter | None = None
+_PIN_LIMITER_LIMIT: int | None = None
 
 
-def _event_log_path() -> Path:
-    configured = os.environ.get("VSTOCK_SONIFY_EVENT_LOG")
-    if configured:
-        return Path(configured)
-    return Path(__file__).resolve().parents[2] / "data" / "sonify-events.jsonl"
+def _client_key(request: Request | None) -> str:
+    if request is None or request.client is None:
+        return "local"
+    return request.client.host or "unknown"
+
+
+def _event_limiter() -> RateLimiter:
+    global _EVENT_LIMITER, _EVENT_LIMITER_LIMIT
+    limit = events_rate_limit()
+    if _EVENT_LIMITER is None or _EVENT_LIMITER_LIMIT != limit:
+        _EVENT_LIMITER = RateLimiter(limit)
+        _EVENT_LIMITER_LIMIT = limit
+    return _EVENT_LIMITER
+
+
+def _pin_limiter() -> RateLimiter:
+    global _PIN_LIMITER, _PIN_LIMITER_LIMIT
+    limit = env_int("VSTOCK_SONIFY_PIN_RATE_PER_MIN", 600)
+    if _PIN_LIMITER is None or _PIN_LIMITER_LIMIT != limit:
+        _PIN_LIMITER = RateLimiter(limit)
+        _PIN_LIMITER_LIMIT = limit
+    return _PIN_LIMITER
 
 
 @router.post("/sonify/params/pin")
-async def pin_params(payload: dict) -> dict:
+async def pin_params(payload: dict, request: Request = None) -> dict:  # type: ignore[assignment]
     """Keep the two A/B cache marks alive while the listener toggles."""
+    if not _pin_limiter().allow(_client_key(request)):
+        raise HTTPException(
+            status_code=429,
+            detail="too many pin requests",
+            headers={"Retry-After": "60"},
+        )
     hashes = payload.get("hashes")
     if not isinstance(hashes, list):
         raise HTTPException(status_code=400, detail="hashes must be a list")
@@ -801,12 +825,20 @@ async def pin_params(payload: dict) -> dict:
 
 
 @router.post("/sonify/events")
-async def post_sonify_events(payload: dict) -> dict:
-    """Small batch sink for the client's listening telemetry.
+async def post_sonify_events(payload: dict, request: Request = None) -> dict:  # type: ignore[assignment]
+    """Batch sink for the client's listening telemetry.
 
-    One JSON object per line. No account ids, no free text. The endpoint is
-    intentionally boring: the gate only needs counts by event name and day.
+    SQLite is the default store, so an `eventId` survives retries and process
+    restarts. The payload sanitizer is the PII boundary: only the fields the
+    gate needs are kept. Rate limiting here is a local fallback; the proxy can
+    impose a stricter global limit.
     """
+    if not _event_limiter().allow(_client_key(request)):
+        raise HTTPException(
+            status_code=429,
+            detail="too many event batches",
+            headers={"Retry-After": "60"},
+        )
     events = payload.get("events")
     if not isinstance(events, list):
         raise HTTPException(status_code=400, detail="events must be a list")
@@ -814,44 +846,12 @@ async def post_sonify_events(payload: dict) -> dict:
         raise HTTPException(status_code=400, detail="too many events")
     if len(json.dumps(payload, separators=(",", ":"))) > 64_000:
         raise HTTPException(status_code=413, detail="payload too large")
-    accepted = 0
-    rows: list[dict] = []
-    for item in events:
-        if not isinstance(item, dict):
-            continue
-        name = item.get("name")
-        if name not in _EVENT_NAMES:
-            continue
-        event_id = str(item.get("eventId") or "")
-        if event_id and event_id in _SEEN_EVENT_IDS:
-            continue
-        body = item.get("payload", {})
-        if body is not None and not isinstance(body, dict):
-            body = {}
-        at = item.get("at")
-        if not isinstance(at, (int, float)):
-            at = time.time()
-        rows.append(
-            {
-                "name": name,
-                "eventId": event_id,
-                "at": float(at),
-                "payload": body or {},
-            }
-        )
-        if event_id:
-            _SEEN_EVENT_IDS.add(event_id)
-        accepted += 1
+    rows = [row for row in (sanitize_event(item) for item in events) if row is not None]
     if not rows:
         raise HTTPException(status_code=400, detail="no known events")
-    if len(_SEEN_EVENT_IDS) > 20_000:
-        _SEEN_EVENT_IDS.clear()
-    path = _event_log_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with _EVENT_LOCK:
-        with path.open("a", encoding="utf-8") as handle:
-            for row in rows:
-                handle.write(json.dumps(row, separators=(",", ":"), ensure_ascii=False) + "\n")
+    # A duplicate batch is a successful retry, not an error: the client can
+    # clear its local buffer even when the first response was lost.
+    accepted = await run_in_threadpool(event_store().append, rows)
     return {"accepted": accepted}
 
 

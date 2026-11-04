@@ -1506,6 +1506,15 @@ class RecapStore:
             if _humanize_on(values):
                 score = humanize_score(score, params=values)
             dfi = compute_dfi(score, variant=variant, ensemble=ensemble)
+            logger.debug(
+                "dfi_compute symbol=%s span=%s index=%s variant=%s ensemble=%s paramsHash=%s",
+                symbol,
+                span,
+                index,
+                variant,
+                ensemble,
+                params_hash(values),
+            )
         work = self.root / "work"
         work.mkdir(parents=True, exist_ok=True)
         xml_path = work / f"{stem}.musicxml"
@@ -1702,6 +1711,14 @@ class RecapStore:
             if _humanize_on(values):
                 score = humanize_score(score, params=values)
             dfi = compute_dfi(score, variant=variant, ensemble=ensemble)
+            logger.debug(
+                "dfi_compute symbol=%s date=%s variant=%s ensemble=%s paramsHash=%s",
+                symbol,
+                day.isoformat(),
+                variant,
+                ensemble,
+                params_hash(values),
+            )
         work = self.root / "work"
         work.mkdir(parents=True, exist_ok=True)
         xml_path = work / f"{key}.musicxml"
@@ -1782,6 +1799,7 @@ class RecapStore:
         params: Mapping[str, float] | None = None,
     ) -> RecapAsset | None:
         values = normalize_params(params)
+        started = time.monotonic()
         cached = self._read(
             symbol,
             day,
@@ -1789,6 +1807,17 @@ class RecapStore:
             self._stem(symbol, day, variant, bar_count, ensemble, values),
             values,
         )
+        if cached is not None:
+            logger.debug(
+                "recap_cache hit symbol=%s date=%s variant=%s ensemble=%s "
+                "paramsHash=%s read_ms=%.1f",
+                symbol,
+                day.isoformat(),
+                variant,
+                ensemble,
+                params_hash(values),
+                (time.monotonic() - started) * 1000,
+            )
         if cached is not None and self._is_closed(day):
             self._drop_other_counts(symbol, day, variant, bar_count, ensemble)
         return cached

@@ -21,14 +21,18 @@ import {
   PARAM_GROUPS,
   effectiveBpm,
   numberValue,
+  paramsKey,
   paramValueText,
   stepValue,
   visibleFields,
+  warningTexts,
   warningsFor,
   type ParamValue,
+  type ParamWarning,
   type ParamsFieldSchema,
   type SonifyParams,
 } from './params';
+import { validateParams } from '../api/client';
 import { copyCurrentLink, linkSupported } from './link';
 import { WIDE_BREAKPOINT, palette, TOUCH_TARGET } from './palette';
 import { useTuning } from './tuning';
@@ -416,10 +420,50 @@ function TuningTab({
 }) {
   const { profile, params, dirty, setParam } = useTuning();
   const [helpKey, setHelpKey] = useState<string | null>(null);
+  const [serverWarnings, setServerWarnings] = useState<{
+    key: string;
+    warnings: ParamWarning[];
+  }>({ key: '', warnings: [] });
+  const currentParamsKey = paramsKey(params);
   const bpm = effectiveBpm(baseBpm, numberValue(params, 'tempo'));
   const warnings = warningsFor(params);
   const highHumanize = warnings.some((warning) => warning.code === 'high_humanize');
   const highBreath = warnings.some((warning) => warning.code === 'high_breath');
+
+  // The renderer applies tier and variant rules on the server. Ask it for the
+  // same view when the panel opens or the room context changes, instead of
+  // guessing from the bundled schema. Debounced because every knob press
+  // creates a new draft object.
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void validateParams(params, { variant, ensemble, span }, controller.signal)
+        .then((result) => {
+          if (!controller.signal.aborted) {
+            setServerWarnings({ key: currentParamsKey, warnings: result.warnings });
+          }
+        })
+        .catch(() => {
+          // Offline keeps the last server copy and local hints.
+        });
+    }, 350);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [currentParamsKey, ensemble, params, span, variant]);
+
+  const serverNotes =
+    serverWarnings.key === currentParamsKey
+      ? warningTexts(
+          serverWarnings.warnings.filter(
+            (warning) =>
+              warning.code !== 'high_humanize' && warning.code !== 'high_breath',
+          ),
+        )
+      : [];
+  const shownServerNotes = serverNotes.slice(0, 3);
+  const hiddenServerNotes = Math.max(0, serverNotes.length - shownServerNotes.length);
   const guitarLow = variant === 'guitar' && bpm < 90;
   const visibleKeys = new Set(visibleFields(variant, span, tiers, ensemble).map((field) => field.key));
   const hiddenChanged = PARAM_FIELDS.filter(
@@ -446,6 +490,12 @@ function TuningTab({
       {hiddenChanged > 0 ? (
         <Text style={[type.sans, styles.note]}>
           Còn {hiddenChanged} thay đổi ẩn không áp dụng cho màn này.
+        </Text>
+      ) : null}
+      {serverNotes.length > 0 ? (
+        <Text style={[type.sans, styles.note]} numberOfLines={4}>
+          {shownServerNotes.join(' · ')}
+          {hiddenServerNotes > 0 ? ` · và ${hiddenServerNotes} cảnh báo khác` : ''}
         </Text>
       ) : null}
 

@@ -19,6 +19,7 @@ export type ParamWarning = {
     | 'unknown_key'
     | 'unknown_choice'
     | 'tier_disabled'
+    | 'inapplicable'
     | 'high_humanize'
     | 'high_breath';
   key: string;
@@ -440,6 +441,35 @@ export function warningsFor(params: SonifyParams): ParamWarning[] {
     warnings.push({ code: 'high_breath', key: 'breath', value: breath });
   }
   return warnings;
+}
+
+/** Human copy for a server or local warning. Keeps field names in one place. */
+export function warningText(warning: ParamWarning): string {
+  const field = PARAM_FIELD_BY_KEY[warning.key];
+  const label = field?.label ?? warning.key;
+  switch (warning.code) {
+    case 'tier_disabled':
+      return `${label} đang tắt ở tầng hiện tại.`;
+    case 'inapplicable':
+      return `${label} không áp dụng cho màn này.`;
+    case 'clamped':
+      return `${label} đã được chỉnh về khoảng hợp lệ.`;
+    case 'unknown_choice':
+      return `${label} không có lựa chọn này.`;
+    case 'unknown_key':
+      return `Đã bỏ qua knob lạ: ${warning.key}.`;
+    case 'high_humanize':
+      return 'Trên 1.10 dễ làm phẳng contour.';
+    case 'high_breath':
+      return 'Trên 1.20 đã chạm trần câu.';
+    default:
+      return `${label} cần được kiểm tra lại.`;
+  }
+}
+
+/** Deduplicated copy for the tuning panel. */
+export function warningTexts(warnings: ParamWarning[]): string[] {
+  return [...new Set(warnings.map(warningText))];
 }
 
 

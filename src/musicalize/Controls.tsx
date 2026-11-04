@@ -263,10 +263,10 @@ function ReplayControls({
                 style={[styles.abButton, abSide === side && styles.abButtonActive]}
                 accessibilityRole="button"
                 accessibilityLabel={`Nghe bản ${side}`}
-                accessibilityState={{ selected: abSide === side, busy: abPreparing && side === 'B' }}
+                accessibilityState={{ selected: abSide === side, busy: abPreparing && side === abSide }}
               >
                 <Text style={[type.monoSmall, styles.abText, abSide === side && styles.abTextActive]}>
-                  {side}{abPreparing && side === 'B' ? '…' : ''}
+                  {side}{abPreparing && side === abSide ? '…' : ''}
                 </Text>
               </MotionPressable>
             ))}
