@@ -15,7 +15,7 @@ export const PANEL_MIN_WIDTH = 640;
 export const PANEL_MAX_WIDTH = 1280;
 export const PANEL_CONTENT_MAX = 1040;
 export const PANEL_PUSH_CHART_MIN = 440;
-export const NARROW_COLUMN_BREAKPOINT = 1100;
+export const NARROW_COLUMN_BREAKPOINT = 1280;
 export const DENSE_ROW_MAX_HEIGHT = 740;
 export const DENSE_ROW_HEIGHT = 50;
 export const COMFORTABLE_ROW_HEIGHT = 60;
@@ -353,11 +353,7 @@ export function panelLayout(
   const dense = windowHeight < DENSE_ROW_MAX_HEIGHT;
   const rowHeight = dense ? DENSE_ROW_HEIGHT : COMFORTABLE_ROW_HEIGHT;
   const contentWidth = panelContentWidth(windowWidth);
-  const columns: 1 | 2 | 3 = windowWidth < NARROW_COLUMN_BREAKPOINT
-    ? 1
-    : panelWidthFor(windowWidth) >= 768
-      ? 3
-      : 2;
+  const columns: 1 | 3 = windowWidth < NARROW_COLUMN_BREAKPOINT ? 1 : 3;
   const columnsGroups = panelColumns(context, columns);
   const labelHeight = dense ? 20 : 24;
   const controlsHeight = Math.max(

@@ -107,8 +107,7 @@ Cấu trúc:
    hàng dưới gồm `Vùng âm` + `Màu` + `Đưa 3 bè về 0`. Khi không phải Guitar,
    mixer thu còn ~148/176px thay vì giữ chỗ fader rỗng.
 4. **Controls chia cột**:
-   - `windowWidth < 1100`: **1 cột** — gồm mobile và cửa sổ hẹp kiểu mobile.
-   - `1100–1279`: 2 cột.
+   - `windowWidth < 1280`: **1 cột** — gồm mobile và cửa sổ hẹp kiểu mobile.
    - `>= 1280` (panel >= 768): 3 cột.
    - `Hòa âm` và `Guitar` dùng chung một header `Hòa âm / Guitar` để không
      tốn thêm label row.
@@ -142,7 +141,7 @@ Cấu trúc:
 │  │      sóng thấp/trung/cao       │   │  ▓  │ │  ▓  │ │  ▓  │       │
 │  │   THẤP      TRUNG      CAO     │   │  ▓  │ │  ▓  │ │  ▓  │       │
 │  └────────────────────────────────┘   └─────┘ └─────┘ └─────┘       │
-│                                       Cao     Trung   Bass          │
+│                                       Bass    Trung   Cao           │
 │  Vùng âm [──●──]   Màu [──●──]        [Đưa 3 bè về 0]                │
 ├────────────────────────┬────────────────────────┬────────────────────┤
 │ TRÌNH DIỄN             │ CHẤT LIỆU              │ HÒA ÂM / GUITAR    │
@@ -163,8 +162,7 @@ Phân bổ cột:
 
 | Cửa sổ | Controls | Cột 1 | Cột 2 | Cột 3 | Dáng |
 |---|---|---|---|---|---|
-| `< 1100` | 1 cột | Trình diễn (3) → Chất liệu (3) → Hòa âm/Guitar (3) | — | — | full-width |
-| `1100–1279` | 2 cột | Trình diễn (3) + Chất liệu (3) | Hòa âm (2) + Guitar (1), chung header | — | full-width |
+| `< 1280` | 1 cột | Trình diễn (3) → Chất liệu (3) → Hòa âm/Guitar (3) | — | — | full-width |
 | `>= 1280` | 3 cột | Trình diễn (3) | Chất liệu (3) | Hòa âm (2) + Guitar (1), chung header | full-width |
 
 `Dáng` luôn full-width vì `meter` có 5 lựa chọn. Nếu chỉ một trong hai field
