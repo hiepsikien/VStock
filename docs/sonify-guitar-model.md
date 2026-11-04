@@ -2,7 +2,7 @@
 
 > **Trạng thái**: đề xuất, dùng làm căn bản cho refactor renderer. **Chưa code.**
 > **Phạm vi**: lớp `guitar` trong `backend/app/sonify/` (villa, torroba, barrios, brouwer, bach, classic).
-> **Liên quan**: [`sonify-texture-studio.md`](./sonify-texture-studio.md) (PR #142), [`sonify-pattern-names.md`](./sonify-pattern-names.md), [`sonify-classical-guitar.md`](./sonify-classical-guitar.md), [`sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md).
+> **Liên quan**: [`sonify-texture-studio.md`](./sonify-texture-studio.md) (PR #142 — file nằm ở nhánh `docs/texture-studio`), [`sonify-pattern-names.md`](./sonify-pattern-names.md), [`sonify-classical-guitar.md`](./sonify-classical-guitar.md), [`sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md).
 > **Thứ tự**: doc này là điều kiện trước cho (a) refactor renderer và (b) Texture Studio khi thêm texture cho Villa-Lobos.
 
 ---
@@ -12,9 +12,12 @@
 Hai từ đang bị quá tải, và chính chỗ quá tải đó làm mọi cuộc tranh luận về cấu trúc bị lệch:
 
 - **`pattern`** đang đồng thời là: tên in trên chart (topic), cách điền ô nhịp (texture), và đôi khi là cả hình thức của một câu (sentence). Ví dụ `preludio` của Barrios là **một tác phẩm**; `villa_pattern` là **một âm hình**; `galop` là **một điệu nhảy** — cả ba đều là `pattern id`.
-- **`figure`** của Torroba không phải "figure" theo nghĩa nhạc lý (động cơ 2–5 nốt). Nó là **sentence archetype**: một template nhiều ô, mỗi ô là một texture, mang vai hình thức (walk = tiền đề, cadence = kết). Bằng chứng: việc chọn nó phụ thuộc **độ dài phrase, số thứ tự phrase, phrase có `closes` không** — `_castillo_spans` (`guitar_torroba.py:1660`), `_sonatina_open_spans`/`_sonatina_close_spans` (antecedent/consequent), `_danza_spans` (câu 4 ô cố định).
+- **`figure`** của Torroba không phải "figure" theo nghĩa nhạc lý (động cơ 2–5 nốt). Nó là **texture-span template**: một template nhiều ô, mỗi ô là một texture, chọn theo **độ dài phrase và số thứ tự phrase**. Không phải mọi archetype đọc `closes`:
+  - `castillo`: `_castillo_spans` chọn type theo **length**, và `_castillo_34_spans` chọn `WALK`/`CADENCE` theo **`n % 2`** (`guitar_torroba.py:1650`) — không theo `closes`, nên `CADENCE` **không** phải "kết".
+  - `sonatina`, `fandanguillo`, `danza`: `_phrase_spans` (`:1763-1774`) mới đọc `phrase.closes`.
+  - `torroba_tremolo`, `alcaniz`, `olite`: **không** có template nhiều ô; mỗi phrase một figure đơn qua `_castillos_figure_plan` (`:3687`).
 
-Kết luận đầu tiên: **`figure` nên đổi tên thành `sentence`**. Doc này dùng `sentence` từ đây.
+Kết luận đầu tiên: **`figure` nên đổi tên thành `sentence`**. Doc này dùng `sentence` từ đây, với định nghĩa hẹp: **texture-span template**, khác với `Phrase` (`model.py`) là phrase giai điệu. Xem §13.
 
 ---
 
@@ -25,13 +28,15 @@ Kết luận đầu tiên: **`figure` nên đổi tên thành `sentence`**. Doc 
 | Trục | Trả lời | Ví dụ |
 |---|---|---|
 | **Pattern level** | Pattern tự đứng tên được (`topic`) hay chỉ là idiom kỹ thuật (`texture`) | `castillo` = topic; `tremolo` = texture |
-| **Topic** (định danh) | **Tên in ra** của đơn vị: thể loại, điệu, chức năng, hoặc idiom mượn tên tác phẩm | `Fugue`, `Mazurka-Choro`, `Castillo`, `Cathedral` |
-| **Topic source** (metadata) | Cái tên đến từ đâu: `dance` / `work` / `form` / `character` / `procedure` | `Sarabande` = dance; `Castillo` = work; `Fugue` = procedure |
+| **Topic** (định danh) | **Tên in ra** của đơn vị | có trong code: `Fugue`, `Castillo`, `Etude`; **target-state, chưa có**: `Cathedral` (`preludio` vẫn in "Prelude"), `Mazurka-Choro` |
+| **`name_source`** (metadata hiển thị) | Cái tên đến từ đâu: `dance` / `work` / `genre` / `form` / `function` / `character`. **Không phải cơ chế** | `Sarabande` = dance; `Castillo` = work; `Etude` = genre; `Fugue` = form; `Prelude` = function; `Cantabile` = character |
 | **Texture** (âm hình) | Cách **điền một ô**: voicing, rhythm cell, articulation | arpeggio/campanella, chord-melody, tremolo, bariolage, galop cell |
-| **Procedure** (thủ pháp) | **Phép biến đổi sinh ra chất liệu** từ melody/harmony | imitation, ground bass, sequence, pedal, variation |
-| **Sentence** (câu) | Template **nhiều ô** có vai hình thức và độ dài co giãn | walk→cadence (9 ô), Arada (5 ô), Float (2 ô), galop period 4+4 |
+| **Procedure** (thủ pháp) | **Phép biến đổi sinh ra chất liệu** từ melody/harmony | **imitation** (fuga). Chaconne **không** phải ground bass, xem §4.1 |
+| **Sentence** | **Texture-span template**: N ô + vai + slot, chọn theo length/`n`, có archetype đọc `closes` | castillo walk/cadence (9 ô, theo `n % 2`), arada/float, type6 4 ô, galop period 4+4 |
 | **Cell** | Biến thể của texture, không phải đơn vị độc lập | galop 1 / galop 2, castillo type 7 / type 8 |
-| **Plan** | Quan hệ giữa các đơn vị theo thời gian | A–B–A, contrast/trio, avoid-repeat, khoá một pattern |
+| **Plan** | Quan hệ giữa các đơn vị theo thời gian: scope, candidate, post-pass | A–B–A, contrast/trio, avoid-repeat, khoá một pattern |
+
+`sentence` ở đây là **texture-span template**, không phải "sentence" theo nghĩa nhạc lý 8 ô (presentation–continuation–cadence) và không phải `Phrase` (`model.py`) — `Phrase` là phrase giai điệu do price tạo. Quan hệ: một `Phrase` được chia thành các `sentence` span, mỗi span gồm các slot texture.
 
 ### 2.1. Movement là level **trên** pattern, không phải một giá trị của `level`
 
@@ -40,25 +45,35 @@ Movement không phải một loại pattern. Nó là **đơn vị biểu diễn*
 | | **Movement** | **Pattern** |
 |---|---|---|
 | Là gì | đơn vị biểu diễn: bản 1D, chương I–IV của 1M, một tuần | slot filler trong một movement |
-| Có gì | `FormSpec` (meter, tempo, bars, sections), key, character, plan, title | `level`, topic, texture, procedure, sentence, wave profile, family, door |
+| Có gì **hiện tại** | `Movement`: `label`, `spec`, `session_count`, `rest_after` (`span.py:794`); `PreparedMovement`: thêm `bars`, `groups`, `key`, `character`, `mode`… (`:835`) | `level`, topic, texture, procedure, sentence, wave profile, family, door |
+| Có gì **sẽ thêm** | `title` (chưa có), `plan` (chưa có; plan đang suy từ `_patterns`) | — |
 | Chứa | **1..N pattern** | 0..N sentence |
 | Quyết định | hình thức, độ dài, nhịp, tông, tên in của chương | cách điền ô, nhãn, thủ pháp, câu |
 
 Bằng chứng trong code:
 
-- Movement = `PreparedMovement` (`span.py:835`): `label`, `spec` (`FormSpec`), `bars`, `groups`, `key`, `character`, `mode`…
-- Số movement theo span: `plan_week` trả **1** movement (`span.py:800`), `plan_month` trả **4** (I–IV, `:805`), `plan_quarter` trả **3** (`:816`).
-- **1D = 1 movement = 1 pattern.** `DAILY_ENSEMBLE_SPEC` = 2 + 30 + 2 = **34 bar** (`form.py:261-264`); `_assign_macro` thấy `bars <= 40` và không có contrast section → khoá **một** pattern cho cả body (`guitar_patterns.py:1537,1616`). Đây là lý do 1D "trùng tên": movement chỉ có một pattern nên tên pattern thành tên chương.
-- **1W = 1 movement, nhiều pattern.** `week_spec` ghi rõ *"One continuous movement"* (`span.py:205`); 5 phiên ≈ 160 bar → vượt ngưỡng 40 → `_assign_macro` chia region / A–B–A.
-- **1M/3M = nhiều movement, mỗi movement nhiều pattern.** 4 movement × 96 bar (1M), 3 movement (3M).
+- Movement = `PreparedMovement` (`span.py:835`), dựng từ `Movement` (`span.py:794`). Số movement theo span: `plan_week` trả **1** (`span.py:800`), `plan_month` trả **4** (I–IV, `:805`), `plan_quarter` trả **3** (`:816`).
+- **1D không có `Movement`/`PreparedMovement`.** Nó đi thẳng qua `audio._render` (`audio.py:1696-1712`), với `title=f"{symbol} {day.isoformat()}"`; tên bài (`dance`) do `guitar_movement_name` sinh rồi lưu vào `movementName` của payload audio.
+- **1D không phải "1 movement = 1 pattern".** 1D = 34 bar (`DAILY_ENSEMBLE_SPEC`, `form.py:292`; hằng số `:261-265`). `_assign_macro` có nhánh riêng cho Barrios 1D (`bars == 34`, 120 BPM, 4/4) **đi từng phrase qua `_select_body`** (`guitar_patterns.py:1593-1612`), nên một ngày Barrios có thể chứa nhiều pattern. Test hiện có: `test_program.py::test_barrios_day_names_the_pattern_the_writer_picks` — 1D calm in "Tremolo" dù mở đầu là Preludio.
+- **Tên của 1D là `headline_id`, không phải cả row.** `form_pattern_ids` trả `[primary]` khi không có contrast section (`guitar_patterns.py:3295-3340`); `primary = headline_id(...)` (`:3330`) là pattern chiếm đa số. Vì vậy một movement nhiều pattern vẫn có thể in một tên.
+- **1D không có movement line.** Frontend `pieceCopy`/`workForm` (`src/sonify/program.ts:338-416`): guitar lấy `form = count > 1 ? 'Suite' : dance`; với 1D (`count === 1`) tên pattern đi vào **title**, `movement = null`.
+- **1W:** `week_spec` là *"One continuous movement"* (`span.py:205`). **1 phiên = 32 bar** → vẫn bị nhánh `bars <= 40` khoá một pattern (comment ngay tại `guitar_patterns.py:1593-1596`: *"including a one-session week of 32 bars at 90"*). Từ 2 phiên (64 bar) mới vượt ngưỡng và đi macro/region.
+- **1M/3M:** 1M = 4 movement, 3M = 3 movement; mỗi movement nhiều pattern.
 
 **Gap hiện tại (phải sửa trước khi bỏ in texture):** guitar chưa có tên movement độc lập.
 
-- `movement_title()` trả **`None` cho guitar** (`span.py:943-947`: *"Guitar dances are named by the pattern picker, not by this table"*).
-- `span_movement_name()` trả `stored` với guitar (`program.py:163-164`).
+- `movement_title()` trả **`None` cho guitar, và cho cả 1D/1W** (`span.py:943-947`) — không chỉ guitar.
+- `span_movement_name()` trả `stored` (`program.py:163-164`), tức tên đã ghi lúc render.
 - `stored` do `guitar_movement_name` dựng từ `pattern_form()` — **tối đa 3 tên pattern** (`program.py:60-90`).
 
-Nghĩa là hôm nay "tên chương" của guitar **là bản tóm tắt pattern**, không phải identity của movement. Hệ quả: bỏ in `villa_pattern`/`tremolo` sẽ để movement line rỗng. Vì vậy refactor phải thêm **`Movement.title`** thật (ví dụ `"Suite Popular Brasileira — Mazurka-Choro"`, `"1D Étude"`), và `pattern_form()` chỉ còn là mô tả hình thức, không phải tên.
+Nghĩa là hôm nay "tên chương" của guitar **là `form_pattern_ids`/`headline_id`**, không phải identity của movement. Bốn mắt xích phải sửa cùng lúc:
+
+1. **Backend:** thêm `title` cho `Movement` và `PreparedMovement`, thread qua 3 chỗ dựng (`span.py:1090, 1148, 1281`) **và** đường 1D (`audio._render`). 1D không có `Movement`, nên chỉ thêm field là không đủ.
+2. **Frontend:** `src/sonify/program.ts` — `PATTERN_NAMES`, `isPatternForm` (`:350-355`) chỉ nhận khi **mọi** phần ` — ` nằm trong `PATTERN_NAMES`, nên title tự do kiểu `"Suite Popular Brasileira — Mazurka-Choro"` sẽ bị `formatMovement` bỏ và chỉ còn meter. Phải sửa `workForm`/`pieceCopy` (`:338-416`) + `program.test.ts` (`:185-192`).
+3. **Cache:** `movementName` nằm trong payload; cache key `_stem(... len(bars), ensemble, values)` **không chứa tên** (`audio.py:1142-1206`). Đổi `_PATTERN_TITLE` sẽ phục vụ tên cũ từ cache → phải bump `SPAN_REVISION` (`audio.py:58`).
+4. **Parity tên:** `data_digest` (`dfi.py:52`) chỉ hash bar; `scale_fingerprint` (`span.py:858`) không chứa tên. Vì vậy **parity bằng Score hash không bắt được regression về tên** → cần golden riêng cho `form_pattern_ids`/`_written_dance`.
+
+Ví dụ `"Suite Popular Brasileira — Mazurka-Choro"` trong doc này là **target-state**, không phải tên đang có trong code.
 
 Form (hình thức của cả chương) **không phải** thuộc tính của pattern. Form sống ở hai chỗ: `FormSpec.sections` (`span.py`) và Plan.
 
@@ -74,13 +89,13 @@ Bảng phân biệt gọn:
 
 ## 3. Luật
 
-1. **Pattern có Topic. Movement chứa 1..N pattern và có FormSpec/Plan riêng.** Topic là identity của pattern (một ngôi); Form là relation giữa các pattern (nhiều ngôi, có thứ tự).
-2. **Nhãn (Topic) là tên đơn vị, không bao giờ là kỹ thuật.** `Arpeggio`, `Tremolo`, `Chord Melody` là kỹ thuật → `level: texture`, không in (xem §8). Tên mượn từ tác phẩm (`Castillo`, `Juglar`, `Cathedral`) là hợp lệ với `topic_source: work`.
+1. **Pattern có `level`; nếu `level: topic` thì có Topic.** Movement chứa 1..N pattern và có `FormSpec`/Plan riêng. Topic là identity của pattern; Form là relation giữa các pattern.
+2. **Nhãn (Topic) là tên đơn vị, không bao giờ là kỹ thuật.** `Arpeggio`, `Tremolo`, `Chord Melody` là kỹ thuật → `level: texture`, không in (xem §8). Tên mượn từ tác phẩm (`Castillo`, `Juglar`) là hợp lệ với `name_source: work`.
 3. **Chỉ khai cái code thực thi.** Với mỗi pattern hỏi: *"renderer làm gì mà pattern khác không làm?"* Câu trả lời là texture/procedure. Không có câu trả lời → đó là **label**, không phải cơ chế.
-4. **Form là metadata của pattern, là cơ chế của movement.** Khai `form: "fugue"` trên pattern không làm engine hiểu fugue; muốn hiểu phải khai `form.functions[]` ở tầng movement.
+4. **Form là metadata của pattern; cơ chế hình thức thuộc movement.** Khai `form: "fugue"` trên pattern không làm engine hiểu fugue; muốn hiểu phải khai `form.functions[]` ở tầng movement.
 5. **Cell không phải pattern; variation không phải lớp.** Biến thể trong ô là `texture.cells`; biến hoá giữa các câu là `plan`.
 6. **Meter không phải pattern.** `ctx.kind` là per-render, và `_guitar_meter` (`span.py:288`) còn hoán đổi 3/4 ↔ 6/8. Meter thuộc `meter_variants` của texture.
-7. **1D không phải ngoại lệ.** Nó là movement chỉ chứa một pattern, nên tên pattern trùng tên chương. Đừng suy ra "pattern = movement" từ trường hợp đó.
+7. **1D không "trùng tên vì một pattern".** 1D là movement **không có movement line**; tên của nó là `headline_id`, và với Barrios 1D có thể là hỗn hợp nhiều pattern (§2.1).
 
 ---
 
@@ -112,23 +127,25 @@ subject → answer (real/tonal) → countersubject → episode (sequence) → st
 
 Vậy `bach_fuga` thực thi đúng **một procedure: imitation (lag 2 ô, contour 1:1, không retrograde, không inversion)**. Nó không có exposition, episode, countersubject, stretto, hay key plan. Tên `bach_fuga` là **nhãn thể loại**, không phải mô hình.
 
-Chaconne cũng vậy — `_render_bach_chaconne_bar` (`:1464`): *"Chaconne **ground in the bass**, bariolage sixteenths above, and a breakout scale"* → procedure = **ground bass / ostinato**, texture = bariolage 16th.
+Chaconne **không** phải ground-bass procedure. `_render_bach_chaconne_bar` (`:1464`) mô tả "ground in the bass", nhưng code chỉ có `_chaconne_bass_slots` (`:1444-1449`) trả **vị trí** `[0,8]` / `[0,6]` / `[0,4]`, rồi lấy pitch từ `_bach_bass(ctx, chord, …)` **từng ô theo hợp âm hiện tại**. Không có vòng ostinato lặp, không có biến hình trên một bass cố định. Đây là **bass texture cell**, nên `procedure: none`.
 
 Ghi chú: motif **contour** đã được mô hình hoá cho fuga (`(offset, length, direction)`); motif dạng **pitch cell** thì chưa.
 
 ### 4.2. Bảng Bach
 
-| Pattern | Topic (label) | Nguồn tên | Procedure (executable) | Texture | Sentence |
+| Pattern | Topic (label) | `name_source` | Procedure (executable) | Texture | Sentence |
 |---|---|---|---|---|---|
-| `bach_fuga` | Fugue | thủ pháp | **imitation** lag 2, contour 1:1, no retrograde | polyphony 3 bè | null |
-| `bach_chaconne` | Chaconne | thủ pháp | **ground bass / ostinato** | bariolage 16th | null |
-| `bach_prelude` | Prelude | chức năng | figuration (arpeggiation) | broken chord | null |
-| `bach_allemande` / `courante` / `sarabande` / `bourree` / `gavotte` | tên điệu | thể loại | sequence (không tường minh) | polyphonic / homophonic | null |
-| `bach_gigue` | Gigue | thể loại | — (chưa dùng imitation) | polyphonic | null |
+| `bach_fuga` | Fugue | form | **imitation** lag 2, contour 1:1, no retrograde | polyphony 3 bè | null |
+| `bach_chaconne` | Chaconne | form | **none** — bass cell, không phải ground bass | bariolage 16th trên bass | null |
+| `bach_prelude` | Prelude | function | **none** — label "figuration" không executable | broken chord | null |
+| `bach_allemande` / `courante` / `sarabande` / `bourree` / `gavotte` | tên điệu | dance | **none** — "sequence" chỉ là nhận xét, không có hàm | polyphonic / homophonic | null |
+| `bach_gigue` | Gigue | dance | **none** | polyphonic | null |
+
+Toàn bộ code chỉ có **một** procedure executable: `imitation` ở `bach_fuga`.
 
 ---
 
-## 5. Ba chỗ hay nhầm, đã chốt
+## 5. Sáu chỗ hay nhầm, đã chốt
 
 | Trường hợp | Không phải | Là |
 |---|---|---|
@@ -137,21 +154,34 @@ Ghi chú: motif **contour** đã được mô hình hoá cho fuga (`(offset, len
 | **Arpeggio** | topic | **họ texture** (`_ARPEGGIO`, `_FAMILY`); việc `villa_pattern` in "Arpeggio" là lỗi nhãn (§8) |
 | **Cathedral Preludio** (Barrios) | sentence | **movement-level**: `_catedral_preludio` (`guitar_barrios.py:19`) chọn texture (16th thật nếu movement có frame, 8th nếu fixture) |
 | **Perpetual tremolo** (Barrios, `_perpetual_bars` `:571`) | pattern thứ hai | **variation của texture** trong cùng topic: 2 bar khi `band == "f"` và `mood == "volatile"` |
+| **Alcaniz / Olite / Juglar** (Torroba) | sentence nhiều ô | **figure đơn mỗi phrase** qua `_castillos_figure_plan` (`guitar_torroba.py:3687-3723`), không có template slot. Chỉ `castillo`, `sonatina`, `fandanguillo`, `danza` nằm trong `_TORROBA_PATTERNS` và đi `select_torroba_spans` |
 
 ---
 
 ## 6. Bảng 6 composer theo trục thực thi
 
-| | Topic | Texture | Procedure | Sentence | Plan |
-|---|---|---|---|---|---|
-| **Villa** | 5 pattern | ✓ + meter variants | none | null | `_select_body` |
-| **Torroba** | 7 pattern | ✓ | none | **✓** walk/cadence, arada/float, type6 | `_torroba_primary/_contrast` |
-| **Barrios** | 8 pattern | ✓ + perpetual overlay | none | null | `_select_body` |
-| **Sor / Classic** | 5 pattern | ✓ + cells | none | **period 4+4** (galop) | `_assign_macro` + `_settle_galop` |
-| **Bach** | 9 pattern | ✓ | **✓** imitation, ground bass | null | `_bach_primary/_contrast` |
-| **Brouwer** | 4 pattern | ✓ | none | null | `_brouwer_primary/_contrast` |
+38 dòng `PROFILES` (không tính `pedal`):
 
-Bảng này nói đúng bản chất: **chỉ Bach có procedure, chỉ Torroba có sentence, chỉ galop có period tường minh**; phần còn lại là texture + plan.
+| | Pattern (topic / texture) | Procedure | Sentence | Plan scope |
+|---|---|---|---|---|
+| **Villa** | 5 (2 / 3) | none | null | framed (1D/1W/1M/3M) → macro; unframed → phrase |
+| **Torroba** | 7 (7 / 0) | none | **4 full** (castillo, sonatina, fandanguillo, danza) + **3 figure-only** | macro `_torroba_primary/_contrast` |
+| **Barrios** | 8 (6 / 2) | none | null | 1D 34/120/4/4 → phrase; framed dài → region row; còn lại macro |
+| **Sor / Classic** | 5 (5 / 0) | none | **period 4+4** (galop) | macro + post `_settle_galop` |
+| **Bach** | 9 (9 / 0) | **imitation** (chỉ `bach_fuga`) | null | framed dài → region row; còn lại macro |
+| **Brouwer** | 4 (4 / 0) | none | null | macro `_brouwer_primary/_contrast` |
+
+Plan không phải một tầng duy nhất; nó có ba scope và hai post-pass:
+
+| Scope | Hàm | Khi nào |
+|---|---|---|
+| **Phrase** | `_select_body` (`guitar_patterns.py:894`) | chỉ khi **unframed** (`_patterns`, `:999`), cộng nhánh Barrios 1D đặc biệt (`:1593-1612`) |
+| **Macro** | `_assign_macro` (`:1537`) | framed: khoá một pattern (`bars <= 40`), A–B–A khi có contrast, hoặc region row |
+| **Candidate chooser** | `_dominant_pattern_auto` (`:1118`), `_classic_macro`, `_torroba_primary`, `_bach_primary`, `_brouwer_primary` | chọn ứng viên cho một scope |
+| **Region row** | `_barrios_palette` (`:1248`), `_bach_region_patterns` (`:1323`) | framed dài (>40 bar) |
+| **Post-pass** | `_settle_galop` (`:1691`), `_paint`, `_has_contrast_section` | sửa lại row sau khi chọn |
+
+Vì vậy "Villa 1D dùng `_select_body`" là **sai**: 1D framed đi macro → `_dominant_pattern_auto`. Chỉ Barrios 1D mới đi `_select_body`.
 
 ---
 
@@ -163,21 +193,28 @@ Bảng này nói đúng bản chất: **chỉ Bach có procedure, chỉ Torroba 
 | `guitar_patterns.py:318` `_meter_kind` | bucket meter → **materialization**, không phải identity |
 | `guitar_patterns.py:48` `_FAMILY` | họ texture (không phải palette) |
 | `guitar_patterns.py:88` `_PROFILE` | profile playability theo pattern |
-| `guitar_wave.py:108` `PROFILES` | velocity contour theo `(ensemble, pattern)` |
-| `program.py:53` `pattern_title` | **Topic** (in ra) |
-| `program.py:60` `pattern_form` | **Form** của movement (in `A — B — A`, tối đa 3 title) |
-| `guitar_patterns.py:894` `_select_body` | **Plan** (theo phrase) |
-| `guitar_patterns.py:1118` `_dominant_pattern_auto` | **Plan** (macro: cả body/section/session) |
+| `guitar_wave.py:108` `PROFILES` | velocity contour theo `(ensemble, pattern)` — **registry đúng key**, không theo id đơn |
+| `program.py:53` `pattern_title` | **Topic** (tra nhãn theo `(pattern, ensemble)`) |
+| `program.py:60` `pattern_form` | **label renderer**: nối chuỗi + collapse + tối đa 3. **Không phải** logic hình thức |
+| `guitar_patterns.py:3295` `form_pattern_ids` | **Form/Plan row** (1 tên, A–B–A, hoặc region row) |
+| `guitar_patterns.py:3330` `headline_id` | **Plan**: pattern chiếm đa số |
+| `guitar_patterns.py:3266` `contrast_id` | **Plan**: pattern ở trio/bridge |
+| `guitar_patterns.py:971` `_patterns` | **Plan scope switch**: framed → macro, unframed → phrase |
+| `guitar_patterns.py:894` `_select_body` | **Plan** (scope phrase, chỉ unframed + Barrios 1D) |
+| `guitar_patterns.py:1118` `_dominant_pattern_auto` | **Plan** (macro candidate chooser) |
 | `guitar_patterns.py:1378` `_contrast_pattern` | **Plan** (tương phản) |
-| `guitar_patterns.py:1537` `_assign_macro` | **Plan/Form** (khoá 1 pattern, A–B–A, per-region) |
-| `guitar_patterns.py:1691` `_settle_galop` | **Plan/Form** (đặt galop giữa các region) |
+| `guitar_patterns.py:1537` `_assign_macro` | **Plan** (macro scope: khoá 1, A–B–A, region) |
+| `guitar_patterns.py:1248` `_barrios_palette`, `:1323` `_bach_region_patterns` | **Plan** (region row) |
+| `guitar_patterns.py:1691` `_settle_galop` | **Plan** post-pass |
 | `guitar_torroba.py:3403` `_FIGURES` | **Texture của slot** trong sentence |
-| `guitar_torroba.py:1660` `_castillo_spans` | **Sentence** (chọn archetype theo length/parity/closes) |
+| `guitar_torroba.py:1660` `_castillo_spans` | **Sentence**: length + `n % 2`; **không** đọc `closes` |
+| `guitar_torroba.py:1763` `_phrase_spans` | **Sentence**: sonatina/fandanguillo/danza mới đọc `closes` |
+| `guitar_torroba.py:3687` `_castillos_figure_plan` | **Figure đơn**, không phải sentence |
 | `guitar_torroba.py:1826` `torroba_figure_plan` | **Sentence plan** (bar → slot) |
 | `guitar_sor.py:291/349` galop cells | **Cell** |
 | `guitar_barrios.py:571` `_perpetual_bars` | **Texture variation** |
 | `guitar_bach.py:490` `_fuga_motif`, `:603` `_compose_fuga_bass` | **Procedure** (imitation) |
-| `guitar_bach.py:1464` chaconne | **Procedure** (ground bass) + texture |
+| `guitar_bach.py:1444` `_chaconne_bass_slots` | **Bass texture cell**, không phải procedure |
 | `guitar_frame.py:1233` `_RETAINED_DOORS`, `guitar_torroba_doors.py:946` `DOORS` | **Plan** (intro/outro), không phải texture |
 
 ---
@@ -186,31 +223,36 @@ Bảng này nói đúng bản chất: **chỉ Bach có procedure, chỉ Torroba 
 
 | Vi phạm | Bằng chứng | Sửa |
 |---|---|---|
-| Nhãn là kỹ thuật: `villa_pattern` in **"Arpeggio"** | `_PATTERN_TITLE["villa_pattern"] = "Arpeggio"` (`program.py`) | đổi thành tên tác phẩm/chương, hoặc để trống và để `level: texture` không in |
+| Nhãn là kỹ thuật: `villa_pattern` in **"Arpeggio"** | `_PATTERN_TITLE["villa_pattern"] = "Arpeggio"` (`program.py`) | `level: texture`, không in; tên chương do `Movement.title` |
 | Nhãn là kỹ thuật: `tremolo` in **"Tremolo"** | `_PATTERN_TITLE["tremolo"] = "Tremolo"` | như trên |
-| Tên "figure" cho một sentence archetype | §1 | đổi từ vựng sang `sentence` |
-| `pattern` không khai `level` | 38 pattern, không phân biệt topic với texture | thêm `level` + `topic_source` |
+| Nhãn là kỹ thuật: `chord_melody` in **"Chord Melody"** | `_PATTERN_TITLE["chord_melody"]` | như trên |
+| Cùng một texture, hai title: `thumb_cantabile` | barrios "Cantabile", villa "Prelude" (`program.py:55` special-case) | `level: texture`, title null cho cả hai; registry key `(ensemble, id)` |
+| `pattern` không khai `level` | 38 id, không phân biệt topic với texture | thêm `level` + `name_source` |
 
-Hai lỗi nhãn này không sửa bằng luật chung được: chúng là quyết định nội dung (in gì trên chart), phải chọn tên cụ thể.
+Chỉ **3** pattern texture đang in tên: `villa_pattern`, `tremolo`, `chord_melody`. **`pedal` chưa từng in**: `form_pattern_ids` trả `[]` khi primary là `pedal` (`guitar_patterns.py:3323-3324`), `headline_id`/`contrast_id` skip `pedal`, `_region_pattern_ids` skip (`:1291`).
 
 ### 8.1. Đề xuất tên cho các nhãn đang sai
 
-Tiêu chí: nhãn phải là **tên đơn vị** (điệu, thể loại, character, hoặc idiom mượn tên tác phẩm). Nếu pattern là **texture thuần** thì `level: texture` và **không in** — tên chương do `Movement.title` in.
+Tiêu chí: nhãn phải là **tên đơn vị** (điệu, thể loại, character, hoặc idiom mượn tên tác phẩm). Nếu pattern là **texture thuần** thì `level: texture`, `title = null`, và **không in** — tên chương do `Movement.title` in.
 
-**Điều kiện:** hiện guitar chưa có `Movement.title` (§2.1 gap) — `movement_title()` trả `None` cho guitar và tên đang được dựng từ `pattern_form()`. Vì vậy **phải thêm `Movement.title` trước** khi bỏ in texture, nếu không movement line rỗng.
+`thumb_cantabile` là **cùng một texture** (`_render_thumb`) dùng cho hai tác phẩm, nên `level: texture` và title null cho cả hai. Cách sạch nhất không phải tách id mà là **registry key `(ensemble, id)`** — đúng như `PROFILES` đã làm (`guitar_wave.py:110`). `pattern_title` đã special-case ensemble (`program.py:55`), nên đây chỉ là chính thức hoá hiện trạng, không phải bước lùi.
 
 | Pattern | Hiện tại | Đề xuất | Lý do |
 |---|---|---|---|
-| `villa_pattern` | in **"Arpeggio"** | `level: texture`, **title = null** (không in) | "Arpeggio" là kỹ thuật. Đây là âm hình mặc định của Villa (campanella/arpeggio), dùng cho nhiều đoạn; nó không phải tên một chương. Tên chương lấy từ `Movement.title` (ví dụ `"Suite Popular Brasileira — Mazurka-Choro"`). |
-| `tremolo` (barrios) | in **"Tremolo"** | `level: texture`, **title = null** (không in) | "Tremolo" là kỹ thuật. Nếu movement là một tác phẩm tremolo (*El Último Trémolo*, *Una Limosna*), tên đó thuộc `Movement.title`, không phải pattern. |
-| `chord_melody` | in **"Chord Melody"** | `level: texture`, **title = null** | cùng lỗi: tên kỹ thuật đội lốt chương. |
-| `thumb_cantabile` | barrios: "Cantabile"; villa: "Prelude" | cả hai là `topic`, nhưng **phải tách id** (hoặc cho phép title theo ensemble) | **cùng một id đang có hai title**. Một topic không thể vừa là character vừa là tác phẩm; đây là vi phạm nặng hơn ba lỗi trên. |
+| `villa_pattern` | "Arpeggio" | `level: texture`, title null | kỹ thuật; tên chương lấy từ `Movement.title` |
+| `tremolo` (barrios) | "Tremolo" | `level: texture`, title null | kỹ thuật; tên tác phẩm thuộc `Movement.title` |
+| `chord_melody` | "Chord Melody" | `level: texture`, title null | kỹ thuật |
+| `thumb_cantabile` | "Cantabile" / "Prelude" | `level: texture`, title null; key `(ensemble, id)` | cùng một texture cho hai tác phẩm |
+| `pedal` | — (không in) | `level: texture` | đã đúng; chỉ khai để registry đầy đủ |
 
-Hệ quả migration (phải là một release có chủ ý, không phải refactor im lặng):
+**Checklist migration `Movement.title` — 4 mắt xích, phải làm cùng lúc:**
 
-- Thêm `Movement.title` (từ `pieceCopy`/`FormSpec`/spec) và cho `span_movement_name()` dùng nó thay vì `stored` dựng từ pattern.
-- `pattern_form()` chỉ in pattern `level: topic`; texture không in. Movement line vẫn có tên nhờ `Movement.title`.
-- Metadata audio, DFI signature, và test golden in tên đều đổi theo → cần chạy lại parity/golden và ghi rõ trong changelog.
+- [ ] **Backend:** `title` cho `Movement` và `PreparedMovement`; thread qua `span.py:1090, 1148, 1281` **và** đường 1D `audio._render` (`audio.py:1696-1712`). 1D không có `Movement`, nên chỉ thêm field là không đủ.
+- [ ] **Frontend:** `src/sonify/program.ts` — `PATTERN_NAMES`, `isPatternForm`, `workForm`, `pieceCopy`; title tự do phải qua được `formatMovement`, và 1D phải giữ tên bài trong **title**. Test: `src/sonify/program.test.ts:185-192`.
+- [ ] **Cache:** bump `SPAN_REVISION` (`audio.py:58`). `movementName` nằm trong payload, cache key không chứa tên.
+- [ ] **Name golden:** golden riêng cho `form_pattern_ids`/`_written_dance` (1D headline, 1W row, 1M A–B–A, Torroba row). **Không** dùng Score hash.
+
+Lưu ý: `data_digest` (`dfi.py:52`) chỉ hash bar, `scale_fingerprint` (`span.py:858`) không chứa tên → **DFI không đổi** khi đổi nhãn, và parity audio không bắt được lỗi tên. Đây là lý do phải có name golden riêng.
 
 ### 8.2. Bốn câu hỏi nội dung cần chốt
 
@@ -221,57 +263,57 @@ Hệ quả migration (phải là một release có chủ ý, không phải refac
 | 1 | `study` (classic) in "Etude" ở mọi đoạn mặc định: giữ `topic` hay chuyển `texture`? | "Etude" là thể loại, không phải kỹ thuật → được phép in; nhưng `study` là fallback mặc định nên in "Etude" ở mọi đoạn có thể là nhiễu | giữ `topic` + "Etude" (đúng thể loại); chỉ đổi nếu nghe thấy nhiễu |
 | 2 | `mozart_var` in "Variations" nhưng code chỉ là bass + counter-melody | Tên gợi `procedure: variation` nhưng **không có procedure** trong code | giữ nhãn, khai `procedure: none`, ghi backlog "variations thật" |
 | 3 | `bach_gigue` có nên dùng `procedure: imitation`? | Gigue ngoài đời thường fugal; code hiện không imitation | không, ở giai đoạn này — thêm là **thay đổi hành vi**, cần nghe duyệt |
-| 4 | `Movement.title` lấy từ đâu? | Guitar chưa có tên movement độc lập (§2.1) | `FormSpec`/spec mang `title`; 1D lấy topic của pattern duy nhất, 1W/1M/3M lấy tên chương do Studio/pieceCopy khai |
+| 4 | `Movement.title` lấy từ đâu, và 1D lấy gì? | Guitar chưa có tên movement độc lập (§2.1); 1D không có `Movement` | 1D: giữ `headline_id` làm **title bài** (hiện trạng), không cần title movement; 1W/1M/3M: `FormSpec`/spec mang `title`, là **identity của tác phẩm** (không suy từ pattern). Nếu muốn title mô tả nội dung (A–B–A) thì phải khai rõ đó là mô tả, không phải identity |
 
 ---
 
 ## 9. Cây phân loại cho mọi thứ mới
 
-0. Có `FormSpec` riêng (meter/tempo/bars/sections), key, character, và chứa 1..N pattern? → **Movement** (không phải pattern).
-1. Đơn vị có **tự đứng tên** được (điệu/thể loại/character/idiom mượn tên tác phẩm)? → `level: topic` + `topic_source`.
+0. Có `FormSpec` riêng (meter/tempo/bars/sections) và chứa 1..N pattern? → **Movement** (không phải pattern).
+1. Đơn vị có **tự đứng tên** được (điệu/thể loại/character/idiom mượn tên tác phẩm)? → `level: topic` + `name_source`.
 2. Chỉ nói **cách điền trong ô**, tên là kỹ thuật, giữ nguyên qua nhiều phrase? → `level: texture` (+ `cells`), không in.
-3. Chiếm **N ô với vai tiền đề/kết**, độ dài co giãn? → `sentence`.
+3. Chiếm **N ô với vai**, chọn theo length/`n`/`closes`? → `sentence` (texture-span template).
 4. Chỉ là **2–5 nốt** và được nhắc lại/biến hình? → `motif`.
 5. Là **phép biến đổi** sinh voice khác? → `procedure`.
 
-Lưu ý: câu 0 hỏi *đơn vị*, câu 1–2 hỏi *pattern*. Một movement 1D chỉ có một pattern nên tên trùng nhau — đó là trường hợp thu hẹp, không phải định nghĩa.
+Lưu ý: câu 0 hỏi *đơn vị*, câu 1–2 hỏi *pattern*. 1D là movement không có movement line, tên là `headline_id` — không phải bằng chứng "pattern = movement".
 
 ---
 
 ## 10. Hệ quả cho refactor
 
 1. **Không promote variation thành pattern.** Nhánh per-bar (`band`, `tresillo`, `approach`, `perpetual`) thuộc texture; promote sẽ vi phạm contract "pattern chọn theo phrase".
-2. **Hai lớp còn thiếu tên**: `sentence` (Torroba) và **`Movement.title`** (guitar). Cái thứ hai là điều kiện trước để bỏ in texture, vì hiện tên chương đang dựng từ `pattern_form()`.
-3. **`procedure` là executable**; `form` là metadata của pattern, là cơ chế của movement. Đừng để spec khai `form` rồi tưởng engine hiểu.
-4. **Nên data-hoá Plan.** `_select_body` và `_dominant_pattern_auto` đang là **hai bản luật song song** cho Villa, lệch nhau ở `trio/bridge`, `first_body`, majority band. Tách thành một bảng luật, giữ hai mode (`phrase`/`macro`), lock bằng parity — chưa hội tụ hành vi.
-5. **Điều kiện tiên quyết**: harness parity (`Score` hash trên ma trận `ensemble × meter × mood × band × bpm × span`) để chứng minh mọi bước refactor không đổi output.
-6. **Bảng inventory đã có** (§12). Việc tiếp theo là registry (`level`/`topic`/`topic_source`) + parity, rồi mới tới `sentence` và `Movement.title`.
+2. **Hai lớp còn thiếu**: `sentence` (texture-span template, §13) và **`Movement.title`** (guitar). Cái thứ hai là điều kiện trước để bỏ in texture.
+3. **`procedure` là executable; `form` là metadata của pattern và là cơ chế của movement.** Đừng để spec khai `form` rồi tưởng engine hiểu.
+4. **Plan có ba scope, không phải hai bản luật.** Phrase (`_select_body`), macro (`_assign_macro`), region row (`_barrios_palette`/`_bach_region_patterns`), cộng post-pass (`_settle_galop`). Phrase/macro tách nhau là **by design** (framed vs unframed). Cái trùng lặp thật là **per-ensemble primary chooser** (`_dominant_pattern_auto` vs các `_*_primary`), và chỉ nên thu hẹp chỗ đó.
+5. **Parity phải tách làm hai**: `audio parity` (Score hash trên ma trận ensemble × meter × mood × band × bpm × span) và `name parity` (golden `form_pattern_ids`/`_written_dance`). Score hash **không** bắt được lỗi tên.
+6. **Harness chưa tồn tại.** Không có test parity/golden nào trong `backend/tests`. Đây là deliverable R1, không phải giả định.
+7. **Bảng inventory đã có** (§12). Việc tiếp theo: registry (`level`/`name_source`) + R1 parity, rồi `sentence` (§13) và `Movement.title`.
 
 ---
 
 ## 11. Câu hỏi mở
 
-1. **`Movement.title`** cho guitar: lấy từ đâu (spec, `FormSpec`, hay `pieceCopy`)? 1D có lấy topic của pattern duy nhất không?
-2. **Nhãn thay thế** cho `villa_pattern`/`tremolo`/`chord_melody`: đã đề xuất **không in**; còn câu hỏi chart có nên in texture bao giờ không (mặc định: không).
-3. **`bach_gigue`** có nên dùng `procedure: imitation` (gigue thường fugal) hay giữ "sequence không tường minh"?
-4. **`form.functions[]`** (exposition/episode/stretto, real vs tonal answer) có nằm trong phạm vi Phase 2–3, hay để sau?
-5. **Motif pitch-cell** có cần mô hình hoá, hay chỉ giữ contour như fuga hiện nay?
+1. **`Movement.title` là identity hay mô tả?** Nếu là identity (`"Suite Popular Brasileira — Mazurka-Choro"`), A–B–A của 3 phần sống ở đâu — trong `FormSpec.sections` hay trong title? Nếu là mô tả, nó chỉ là `pattern_form` đổi tên.
+2. **Tên `sentence`**: giữ `sentence` (đã dùng trong PR #142) với định nghĩa hẹp "texture-span template", hay đổi thành `archetype`/`phrase_template` để khỏi lẫn với `Phrase` và với "sentence" nhạc lý 8 ô?
+3. **`form.functions[]`** (exposition/episode/stretto, real vs tonal answer) có nằm trong phạm vi Phase 2–3, hay để sau?
+4. **Motif pitch-cell** có cần mô hình hoá, hay chỉ giữ contour như fuga hiện nay?
 
 ---
 
-## 12. Phụ lục A — Inventory 38 pattern
+## 12. Phụ lục A — Inventory pattern (39 dòng)
 
-Nguồn: `PROFILES` (37 cặp `(ensemble, pattern)`), `_FAMILY` (38, thêm `pedal`), `_PATTERN_TITLE`, dispatch `render_patterned_voices`. Cột `level` là **đề xuất**; `?` = cần chốt (§8.2). Texture lấy từ docstring của renderer tương ứng.
+Nguồn: `PROFILES` = **38 dòng** `(ensemble, id)` nhưng chỉ **37 id unique** (`thumb_cantabile` có ở cả barrios và villa); `_FAMILY` = **38 id** (gồm `pedal`), nên bảng có **39 dòng** = 38 dòng `PROFILES` + `pedal`. Cột `level` là **đề xuất**; `?` = cần chốt (§8.2). Texture lấy từ docstring của renderer tương ứng.
 
 | Ensemble | id | Title hiện tại | Level | Texture (+cells) | Procedure | Sentence |
 |---|---|---|---|---|---|---|
 | bach | `bach_allemande` | Allemande | topic | style brisé bè 8, pickup 4×16 | none | null |
 | bach | `bach_bourree` | Bourree | topic | treble = price; bass quarter đáp 8th | none | null |
-| bach | `bach_chaconne` | Chaconne | topic | bariolage 16 trên bass | **ground bass / ostinato** | null |
+| bach | `bach_chaconne` | Chaconne | topic | bariolage 16 trên bass (bass cell) | none | null |
 | bach | `bach_courante` | Courante | topic | melody 8th + rhythm theo price; bass ngân cả ô | none | null |
 | bach | `bach_fuga` | Fugue | topic | soprano = price; bass trễ 2 ô | **imitation** (lag 2, contour 1:1, no retro) | null |
 | bach | `bach_gavotte` | Gavotte | topic | quarter, staccato quarter, 4×8 song song 3/6 | none | null |
-| bach | `bach_gigue` | Gigue | topic | broken chord + scale khi line lên | none (`?` §8.2.4) | null |
+| bach | `bach_gigue` | Gigue | topic | broken chord + scale khi line lên | none (`?` §8.2.3) | null |
 | bach | `bach_prelude` | Prelude | topic | 2 bè; mỗi price 8 + neighbor; bass attack | none | null |
 | bach | `bach_sarabande` | Sarabande | topic | beat 2 roll chord; beat cuối pass/sing | none | null |
 | barrios | `andante` | Andante | topic | block-chord (chorale) | none | null |
@@ -279,7 +321,7 @@ Nguồn: `PROFILES` (37 cặp `(ensemble, pattern)`), `_FAMILY` (38, thêm `peda
 | barrios | `hemiola` | Hemiola | topic | dance grid, hemiola | none | null |
 | barrios | `polca` | Polka | topic | dance grid | none | null |
 | barrios | `preludio` | Prelude | topic | 3 bè: high / lower-middle / upper-middle | none | null |
-| barrios | `thumb_cantabile` | Cantabile | topic | thumb melody (`_render_thumb`) | none | null |
+| barrios | `thumb_cantabile` | Cantabile | **texture** | thumb melody (`_render_thumb`) | none | null |
 | barrios | `tremolo` | Tremolo | **texture** | tremolo grid (`_tremolo`) | none | null |
 | barrios | `vals` | Waltz | topic | dance grid | none | null |
 | brouwer | `brouwer_etude` | Etude | topic | tumbao 3+3+2, inner voice off-eighths | none | null |
@@ -289,36 +331,159 @@ Nguồn: `PROFILES` (37 cặp `(ensemble, pattern)`), `_FAMILY` (38, thêm `peda
 | classic | `cantabile` | Cantabile | topic | phrase-level cantabile | none | null |
 | classic | `elegiaque` | Elegy | topic | elegy bar | none | null |
 | classic | `galop` | Galop | topic (Op. 32 No. 6) | galop cell **1 / 2** | none | **period 4+4** |
-| classic | `mozart_var` | Variations | topic (Op. 9) | classical bass + counter-melody 8th | none (`?` §8.2.3) | null |
-| classic | `study` | Etude | topic (`?`) | arpeggio; `character is None` → plain arpeggio | none | null |
-| torroba | `alcaniz` | Alcaniz | topic | campanella slots (`_FIGURES` 10/11) | none | spans (opening/soft) |
+| classic | `mozart_var` | Variations | topic (Op. 9) | classical bass + counter-melody 8th | none (`?` §8.2.2) | null |
+| classic | `study` | Etude | topic (`?` §8.2.1) | arpeggio; `character is None` → plain arpeggio | none | null |
+| torroba | `alcaniz` | Alcaniz | topic | campanella slots (`_FIGURES` 10/11) | none | null — figure đơn (10/11), không phải sentence |
 | torroba | `castillo` | Castillo | topic | campanella slots (`_FIGURES` 7/8/13/14) | none | **walk→cadence (3/4, 9 ô); type7 5 ô / type8 2 ô (4/4)** |
 | torroba | `danza` | Danza | topic | type6 slots | none | **4 ô (type6)** |
 | torroba | `fandanguillo` | Fandanguillo | topic | fandanguillo slots | none | spans |
-| torroba | `olite` | Olite | topic | olite onsets (`_olite_onsets`) | none | thin (12) |
+| torroba | `olite` | Olite | topic | olite onsets (`_olite_onsets`) | none | null — figure đơn (12) |
 | torroba | `sonatina` | Sonatina | topic | sonatina slots | none | **open/close spans** |
-| torroba | `torroba_tremolo` | Juglar | topic | tremolo slots | none | thin (9) |
+| torroba | `torroba_tremolo` | Juglar | topic | tremolo slots | none | null — figure đơn (9) |
 | villa | `chord_melody` | Chord Melody | **texture** | block-chord + melody | none | null |
 | villa | `etude1` | Etude 1 | topic | 16-note RH cycle; thumb root 1 lần | none | null |
 | villa | `etude11` | Etude 11 | topic | 4 sextuplet arches; open-E pedal | none | null |
-| villa | `thumb_cantabile` | Prelude | topic (**khác barrios**) | thumb melody | none | null |
+| villa | `thumb_cantabile` | Prelude | **texture** | thumb melody | none | null |
 | villa | `villa_pattern` | Arpeggio | **texture** | arpeggio/campanella roll (`_render_villa_bar`) | none | null |
 | (mọi) | `pedal` | Pedal | texture | pedal/frame bar (không có wave profile) | none | null |
 
 Tổng hợp:
 
-| Level | Số pattern | Ghi chú |
+| Level | Số dòng | Ghi chú |
 |---|---|---|
-| `topic` | 35 | tất cả pattern tự đứng tên: 9 Bach, 8 Barrios, 4 Brouwer, 5 Classic (`study` còn `?` §8.2), 7 Torroba, 5 Villa (trừ `villa_pattern` texture) |
-| `texture` | 4 | `villa_pattern`, `chord_melody`, `tremolo`, `pedal` |
-| `procedure` khác none | **2** | `bach_fuga` (imitation), `bach_chaconne` (ground bass) |
-| `sentence` khác null | **8** | 7 Torroba + `galop` (period 4+4) |
+| `topic` | 33 | 9 Bach, 6 Barrios, 4 Brouwer, 5 Classic (`study` còn `?` §8.2.1), 7 Torroba, 2 Villa (`etude1`, `etude11`) |
+| `texture` | 6 | `villa_pattern`, `chord_melody`, `thumb_cantabile` (×2: barrios + villa), `tremolo`, `pedal` |
+| `procedure` khác none | **1** | `bach_fuga` (imitation) |
+| `sentence` khác null | **5** | 4 Torroba (`castillo`, `sonatina`, `fandanguillo`, `danza`) + `galop` (period 4+4) |
 
-39 dòng = 38 cặp trong `PROFILES` + `pedal` (không có wave profile).
+**Đơn vị:** 39 dòng = 38 dòng `PROFILES` + `pedal`; 38 id unique (`_FAMILY`); 37 id có wave profile.
 
-Ba kết luận từ bảng:
+Bốn kết luận từ bảng:
 
-1. **`procedure` gần như trống.** Chỉ Bach có procedure thực thi. Đây là lý do đừng xây cơ chế procedure chung trước khi có pattern thứ ba cần nó.
-2. **`sentence` chỉ có ở Torroba + galop.** Villa/Barrios/Brouwer/Classic thuần texture + plan — đúng bản chất nhạc của họ, không phải thiếu sót.
-3. **4 pattern `texture` đang in tên như chương** (`villa_pattern`, `chord_melody`, `tremolo`, `pedal`) — nhóm vi phạm cần xử lý trước, nhưng chỉ sau khi có `Movement.title` (§2.1 gap), nếu không movement line sẽ rỗng.
-4. **Movement không nằm trong bảng này.** 1D = 1 movement/1 pattern; 1W = 1 movement/N pattern; 1M = 4 movement; 3M = 3 movement. Bảng trên chỉ là pattern.
+1. **`procedure` gần như trống.** Chỉ `bach_fuga` có procedure thực thi. Đừng xây procedure engine khi chỉ có một user.
+2. **`sentence` chỉ có ở 4 pattern Torroba + galop.** Villa/Barrios/Brouwer/Classic thuần texture + plan — đúng bản chất nhạc của họ, không phải thiếu sót. Ba pattern Torroba còn lại (`alcaniz`, `olite`, `torroba_tremolo`) là figure đơn, không phải sentence.
+3. **3 pattern texture đang in tên như chương**: `villa_pattern`, `tremolo`, `chord_melody`. `pedal` chưa từng in. Nhóm này chỉ sửa được sau khi có `Movement.title` + frontend + cache bump (§8.1).
+4. **Movement không nằm trong bảng này.** 1D là movement không có movement line, tên là `headline_id`; 1W = 1 movement (1 phiên 32 bar vẫn khoá 1 pattern); 1M = 4 movement; 3M = 3 movement.
+
+
+---
+
+## 13. Sentence pipeline
+
+Mục tiêu: **thêm sentence cho bất kỳ composer nào** mà không phải viết lại renderer, và không phải chờ runtime interpreter.
+
+### 13.1. Định nghĩa
+
+> **`SentenceSpec`** = template N ô: span + vai (role) + slot, chọn theo `(length, n, closes, meter)`. Mỗi slot là **một realizer**: texture (cách điền ô) hoặc, về sau, procedure (phép biến đổi).
+
+Quan hệ với các khái niệm khác:
+
+- `Phrase` (`model.py`): phrase giai điệu do price tạo. Một `Phrase` có thể được **chia** thành 1..N sentence span.
+- `Texture`: cách điền một ô. Sentence chỉ **chọn** texture/figure, không điền ô.
+- `Procedure`: phép biến đổi sinh voice khác. Một slot có thể trỏ tới procedure thay vì texture (dùng cho exposition của fugue sau này).
+- `Plan`: chọn pattern cho từng phrase/region. Sentence là chuyện **bên trong** một pattern đã được chọn.
+
+### 13.2. Schema
+
+```json
+{
+  "id": "castillo_34_walk_cadence",
+  "pattern": "castillo",
+  "meter": { "id": "3/4", "beats": 3, "beat_type": 4, "eighths_per_bar": 6,
+             "strong_eighths": [0], "subbar_breaks": [4], "extra_weights": [[4, 0.8]] },
+  "select": { "length": [9, 18], "n_parity": "any", "closes": null },
+  "span": { "unit": "bar", "tile": 9 },
+  "roles": ["statement", "answer"],
+  "slots": [
+    { "role": "statement", "bars": 5, "realizer": { "kind": "texture", "figure": "castillo_walk" } },
+    { "role": "answer",    "bars": 4, "realizer": { "kind": "texture", "figure": "castillo_cadence" } }
+  ]
+}
+```
+
+Galop (period 4+4):
+
+```json
+{
+  "id": "galop_period",
+  "pattern": "galop",
+  "select": { "length": [8, 8], "n_parity": "any", "closes": null },
+  "span": { "unit": "bar", "tile": 8 },
+  "slots": [
+    { "role": "question", "bars": 4, "realizer": { "kind": "texture", "cell": "galop1" } },
+    { "role": "answer",   "bars": 4, "realizer": { "kind": "texture", "cell": "galop2" } }
+  ]
+}
+```
+
+Quy ước:
+
+- `select.length` là khoảng độ dài phrase mà archetype phục vụ. `tile` cho biết mẫu lặp lại (castillo 9 ô; galop 8 ô).
+- `select.n_parity` thay cho "n % 2" hard-code: `any | even | odd`.
+- `select.closes`: `null` = không đọc `closes` (castillo), `true/false` = chỉ khớp khi phrase đóng/mở (sonatina, fandanguillo, danza).
+- `realizer.kind`: `texture` (figure/cell đã có) hoặc `procedure` (dùng cho exposition sau này).
+
+### 13.3. Selector contract
+
+Một hàm duy nhất, thay cho `select_torroba_spans` + `_castillo_spans` + …:
+
+```
+plan_sentence(pattern, sentence_spec, meter_key, length, n, closes) -> [(realizer_id, slots)] | []
+```
+
+Yêu cầu:
+
+- Trả `[]` khi meter không khớp, length ngoài `select.length`, parity/closes không khớp — **không fallback**.
+- Khi khớp: slot phải **tile kín** `[0, length)`, không hở, không chồng.
+- Kết quả deterministic, không phụ thuộc thứ tự duyệt dict.
+
+### 13.4. Validator
+
+1. Slot tile kín span; `sum(bars) == length` (hoặc `tile` chia hết length).
+2. `sentence.meter` phải thuộc `pattern.meter_variants` (canonical key).
+3. Mỗi `realizer` phải tồn tại: `figure`/`cell` có trong registry (code-backed: `_FIGURES`; interpreter: registry), hoặc `procedure` đã khai.
+4. Với mỗi meter supported của pattern: với **mọi** `length` trong `[1, 12]` phải có ít nhất một archetype khớp, hoặc khai `unsupported` có lý do. Thiếu = fail (đây là lỗi "mất sentence").
+5. Không archetype nào được khai cho meter mà pattern không hỗ trợ.
+
+### 13.5. Test matrix
+
+- `sentence × meter × length (1..12) × closes (false/true) × n (0..3)` → plan JSON.
+- Golden: `backend/tests/fixtures/sentence_plan.json`; so khớp, drift phải review.
+- Negative: sai meter → `[]`; length ngoài range → `[]`; realizer không tồn tại → validation error.
+- Migration zero-diff: hash plan **trước và sau** khi chuyển code → data phải bằng nhau. Đây là test riêng, **không** dùng Score hash (Score hash không thấy khác biệt plan nếu texture trùng).
+
+### 13.6. Trạng thái theo composer
+
+| Composer | Sentence hiện có | Việc | Ghi chú |
+|---|---|---|---|
+| **Torroba** | 4 full (`castillo`, `sonatina`, `fandanguillo`, `danza`) | **migrate** sang data | `castillo` chọn theo length + `n % 2`, **không** `closes`; `sonatina/fandanguillo/danza` đọc `closes` |
+| **Sor/Classic** | period 4+4 trong galop | **migrate** (ca thứ hai, chứng minh tổng quát) | `_render_galop_dance` chọn cell theo `index % 8` |
+| **Bach** | không | **authoring** + `realizer.kind: procedure` | exposition = sentence của các entry (subject/answer), chưa làm |
+| **Barrios** | không | **authoring**; cần figure variants trước | period của *La Catedral* là ứng viên |
+| **Villa** | không | **authoring**; pilot texture trước | ostinato/figuration, sentence không bắt buộc |
+| **Brouwer** | không | **authoring**; ưu tiên thấp | ostinato |
+
+Ba pattern Torroba còn lại (`alcaniz`, `olite`, `torroba_tremolo`) **không** có sentence: chúng là figure đơn mỗi phrase qua `_castillos_figure_plan`. Có thể khai `sentence: null` và `figure_policy: per_phrase`, hoặc để nguyên code.
+
+### 13.7. Quy tắc migration
+
+1. Mỗi archetype một commit; parity plan phải xanh trước khi sang archetype tiếp.
+2. Không đổi `n`/`closes` semantics trong lúc migrate — chỉ chuyển if-ladder thành data.
+3. Figure đơn (thin) **không** được nâng thành sentence.
+4. `sentence: null` là hợp lệ; không ép composer phải có sentence.
+5. Chỉ authoring khi renderer đã có realizer cần thiết; nếu chưa, đó là việc viết figure/texture mới, không phải việc của registry.
+
+### 13.8. Điều này KHÔNG cần interpreter
+
+Torroba đã chứng minh: bar renderer vẫn code, chỉ **chọn slot** là data (`torroba_figure_plan` → `_render_torroba_bar`). Vì vậy sentence pipeline chạy được ở Phase 0/1:
+
+- `runtime: "code"` + sentence registry → `plan_sentence()` trả plan, renderer code dùng plan.
+- Không cần `runtime: "interpreter"` cho sentence.
+- Chỉ khi muốn realizer mới **chưa có code** mới cần interpreter (hoặc viết figure).
+
+### 13.9. Hệ quả cho Texture Studio
+
+- `SentenceSpec` trong Studio = schema này; `sentence_code`/figure id trỏ tới registry.
+- Studio authoring một sentence = chọn archetype + slots; preview chạy `plan_sentence` + render code hiện có.
+- Checklist khi thêm sentence: archetype vào registry, slot realizer tồn tại, plan golden cập nhật, test negative meter.
+- Sentence cho composer mới **không** làm thay đổi `PATTERN_NAMES`/`Movement.title` — nó là lớp trong pattern.
