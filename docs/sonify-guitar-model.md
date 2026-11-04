@@ -179,7 +179,7 @@ Toàn bộ code chỉ có **một** procedure executable: `imitation` ở `bach_
 
 | | Pattern (topic / texture) | Procedure | Sentence | Plan scope |
 |---|---|---|---|---|
-| **Villa** | 5 (2 / 3) | none | null | framed (1D/1W/1M/3M) → macro; unframed → phrase |
+| **Villa** | 5 (2 / 3) | `plan_rules.VILLA_RULES` (một bảng theo `mode`) | null | framed (1D/1W/1M/3M) → macro; unframed → phrase |
 | **Torroba** | 7 (7 / 0) | none | **4 template** (castillo, sonatina, fandanguillo, danza) + **3 single-figure texture** | macro `_torroba_primary/_contrast` |
 | **Barrios** | 8 (6 / 2) | none | null | 1D 34/120/4/4 → phrase; framed dài → region row; còn lại macro |
 | **Sor / Classic** | 5 (5 / 0) | none | **period 4+4** (galop) | macro + post `_settle_galop` |
@@ -190,13 +190,19 @@ Plan không phải một tầng duy nhất; nó có ba scope và hai post-pass:
 
 | Scope | Hàm | Khi nào |
 |---|---|---|
-| **Phrase** | `_select_body` (`guitar_patterns.py:894`) | chỉ khi **unframed** (`_patterns`, `:999`), cộng nhánh Barrios 1D đặc biệt (`:1593-1612`) |
-| **Macro** | `_assign_macro` (`:1537`) | framed: khoá một pattern (`bars <= 40`), A–B–A khi có contrast, hoặc region row |
-| **Candidate chooser** | `_dominant_pattern_auto` (`:1118`), `_classic_macro`, `_torroba_primary`, `_bach_primary`, `_brouwer_primary` | chọn ứng viên cho một scope |
+| **Phrase** | `_select_body` | chỉ khi **unframed** (`_patterns`), cộng nhánh Barrios 1D đặc biệt |
+| **Macro** | `_assign_macro` | framed: khoá một pattern (`bars <= 40`), A–B–A khi có contrast, hoặc region row |
+| **Candidate chooser** | `_dominant_pattern_auto`, `_classic_macro`, `_torroba_primary`, `_bach_primary`, `_brouwer_primary` | chọn ứng viên cho một scope; Villa giao cho `villa_pattern(MACRO, …)` |
 | **Region row** | `_barrios_palette` (`:1248`), `_bach_region_patterns` (`:1323`) | framed dài (>40 bar) |
 | **Post-pass** | `_settle_galop` (`:1691`) | sửa row sau khi chọn. `_paint` là helper, `_has_contrast_section` là predicate — không phải tầng |
 
 Vì vậy "Villa 1D dùng `_select_body`" là **sai**: 1D framed đi macro → `_dominant_pattern_auto`. Chỉ Barrios 1D mới đi `_select_body`.
+
+Lưu ý: **1W cũng framed** (intro/outro của nó là kind `_PEDAL`), nên trong production không span nào đi phrase path; đường đó chỉ còn cho fixture synthetic và Barrios 1D. Villa gom hai ladder vào `plan_rules.VILLA_RULES`, giữ nguyên chủ ý khác nhau (không unify):
+
+- `trio`/`bridge`: phrase path hát bằng `thumb_cantabile`; macro path **không đọc** hai cờ này, để `_assign_macro`/`_contrast_pattern` vẽ vùng contrast.
+- Một bar `p`: đủ cho phrase path; macro path đòi **đa số** bar quiet.
+- `first_body`: chỉ phrase path giữ câu mở bằng roll; macro path áp luật etude cho cả body, kể cả câu mở.
 
 `1Y` cũng framed: **12 movement** (`year_specs`, `span.py:588`) → macro path, không phải phrase path.
 
@@ -315,9 +321,9 @@ Lưu ý: câu 0 hỏi *đơn vị*, câu 1–2 hỏi *pattern*. 1D là movement 
 1. **Không promote variation thành pattern.** Nhánh per-bar (`band`, `tresillo`, `approach`, `perpetual`) thuộc texture; promote sẽ vi phạm contract "pattern chọn theo phrase".
 2. **Hai lớp còn thiếu**: `sentence` (texture-span template, §13) và **`Movement.title`** (guitar). Cái thứ hai là điều kiện trước để bỏ in texture.
 3. **`procedure` là executable; `form` trên pattern chỉ là metadata — cơ chế hình thức thuộc movement.** Đừng để spec khai `form` rồi tưởng engine hiểu.
-4. **Plan có ba scope, không phải hai bản luật.** Phrase (`_select_body`), macro (`_assign_macro`), region row (`_barrios_palette`/`_bach_region_patterns`), cộng post-pass (`_settle_galop`). Phrase/macro tách nhau là **by design** (framed vs unframed). Cái trùng lặp thật là **per-ensemble primary chooser** (`_dominant_pattern_auto` vs các `_*_primary`), và chỉ nên thu hẹp chỗ đó.
-5. **Parity phải tách làm hai**: `audio parity` (Score hash trên ma trận ensemble × meter × mood × band × bpm × span) và `name parity` (golden `form_pattern_ids`/`_written_dance`). Score hash **không** bắt được lỗi tên.
-6. **Chưa có parity/golden cho guitar pattern/name.** Trong `backend/tests` chỉ có golden humanize (`test_humanize.py:1219 test_vintage_golden_bytes_do_not_drift`), không liên quan pattern/tên. Parity cho guitar là deliverable R1, không phải giả định.
+4. **Plan có ba scope, không phải hai bản luật.** Phrase (`_select_body`), macro (`_assign_macro`), region row (`_barrios_palette`/`_bach_region_patterns`), cộng post-pass (`_settle_galop`). Phrase/macro tách nhau là **by design** (framed vs unframed). Villa đã data-hoá hai ladder thành `plan_rules.VILLA_RULES` (một bảng, `mode` giữ hai đường tách nhau); các ensemble còn lại vẫn là code. Cái trùng lặp thật là **per-ensemble primary chooser** (`_dominant_pattern_auto` vs các `_*_primary`).
+5. **Parity phải tách làm ba**: `audio parity` (Score hash trên ma trận ensemble × meter × mood × band × bpm × span), `plan parity` (row pattern thô theo phrase/bar) và `name parity` (tên movement in ra). Score hash **không** bắt được lỗi tên hay lỗi chọn pattern khi tên không đổi.
+6. **Parity/golden hiện có:** `test_plan_villa_parity.py` + `fixtures/villa_plan.json` (row Villa, regen `VSTOCK_WRITE_VILLA_PLAN=1`), `test_name_parity.py` + `fixtures/name_parity.json` (tên in, regen `VSTOCK_WRITE_NAME_PARITY=1`). Golden humanize (`test_vintage_golden_bytes_do_not_drift`) không liên quan pattern/tên.
 7. **Bảng inventory đã có** (§12). Việc tiếp theo: registry (`level`/`name_source`) + R1 parity, rồi `sentence` (§13) và `Movement.title`.
 
 ---
