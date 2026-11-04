@@ -274,7 +274,7 @@ def test_middle_anchor_cannot_overlap_start_slots() -> None:
         span=Span(exact=True, remainder="exact"),
         slots=(Slot(0, 2, 1), Slot(-1, 2, 2, anchor="middle")),
     )
-    with pytest.raises(ValueError, match="middle slot overlaps an earlier slot"):
+    with pytest.raises(ValueError, match="must clear the start slots"):
         register("unit_anchor_middle_overlap", "3/4", spec, replace=True)
 
 
@@ -370,3 +370,40 @@ def test_exact_meter_wins_after_owner_import(monkeypatch) -> None:
 
     assert plan_sentence("unit_prec2", "4/4", 1, 0) == [(2, (0,))]
     assert plan_sentence("unit_prec2", "3/4", 1, 0) == [(1, (0,))]
+
+
+def test_middle_anchor_must_not_cross_a_later_start_slot() -> None:
+    """A middle slot left of a start slot would drift into it at a longer length."""
+    spec = _spec(
+        "unit_anchor_middle_cross",
+        select=Select(length_min=4),
+        span=Span(exact=True, remainder="exact"),
+        slots=(Slot(3, 1, 1), Slot(-1, 2, 2, anchor="middle")),
+    )
+    with pytest.raises(ValueError, match="must clear the start slots"):
+        register("unit_anchor_middle_cross", "3/4", spec, replace=True)
+
+
+def test_middle_anchor_cannot_overlap_an_end_slot() -> None:
+    spec = _spec(
+        "unit_anchor_middle_end",
+        select=Select(length_min=5),
+        span=Span(exact=True, remainder="exact"),
+        slots=(Slot(-1, 2, 1, anchor="middle"), Slot(0, 3, 2, anchor="end")),
+    )
+    with pytest.raises(ValueError, match="end slot overlaps an earlier slot"):
+        register("unit_anchor_middle_end", "3/4", spec, replace=True)
+
+
+def test_two_middle_anchors_cannot_overlap() -> None:
+    spec = _spec(
+        "unit_anchor_middle_pair",
+        select=Select(length_min=4),
+        span=Span(exact=True, remainder="exact"),
+        slots=(
+            Slot(-1, 2, 1, anchor="middle"),
+            Slot(0, 1, 2, anchor="middle"),
+        ),
+    )
+    with pytest.raises(ValueError, match="middle slot overlaps an earlier slot"):
+        register("unit_anchor_middle_pair", "3/4", spec, replace=True)

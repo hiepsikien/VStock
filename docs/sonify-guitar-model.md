@@ -522,7 +522,7 @@ plan_sentence(pattern, meter, length, n, *, closes=False, rise=0)
     -> [(figure, (bar, ...))] | None
 ```
 
-- `specs` tra từ registry `(pattern, meter)`, fallback key `(pattern, "*")` cho family không phụ thuộc meter (`sonatina`). `None` = cặp này chưa migrate, caller dùng code cũ; `[]` = đã migrate nhưng length/select không khớp.
+- `specs` tra từ registry `(pattern, meter)`, fallback key `(pattern, "*")` cho family không phụ thuộc meter (`sonatina`, `fandanguillo`). `None` = cặp này chưa migrate, caller dùng code cũ; `[]` = đã migrate nhưng length/select không khớp.
 - Input đủ: `length`, `n`, `closes`, `rise`, `meter`. **`previous_figure` không phải input** (xem dưới).
 - **Avoid-repeat là post-pass ở tầng pattern**, không phải field của archetype: sau khi chọn, nếu `first_realizer == previous_figure` thì tính lại **một lần** với `n + 1` (`select_torroba_spans`, `guitar_torroba.py:1795-1800`). Vì rotation đổi cả `n % 2` lẫn `n % 3`, nó phải nằm trong contract, không thể "xử lý sau".
 - Không fallback: sai meter/length/parity/closes/rise → `[]`.
@@ -530,7 +530,7 @@ plan_sentence(pattern, meter, length, n, *, closes=False, rise=0)
 
 ### 13.4. Validator
 
-1. `slots[].start` bắt buộc. Slot `anchor="start"` chiếm `[start, start+bars)`; slot `anchor="end"` chiếm `[length-bars, length)` (chỉ với span `exact`); slot `anchor="middle"` chiếm `[length//2 + start, length//2 + start + bars)` (chỉ với span `exact`, `start` được phép âm). Không chồng nhau; `start + bars <= effective`, với `effective = min(tile, remaining)` cho cycle/truncate, hoặc `length` khi `exact`. Overlap của slot `end`/`middle` được kiểm ở **`length_min`** — vị trí khó nhất của chúng — nên một lần kiểm là đủ cho mọi length dài hơn.
+1. `slots[].start` bắt buộc. Slot `anchor="start"` chiếm `[start, start+bars)`; slot `anchor="end"` chiếm `[length-bars, length)` (chỉ với span `exact`); slot `anchor="middle"` chiếm `[length//2 + start, length//2 + start + bars)` (chỉ với span `exact`, `start` được phép âm). Không chồng nhau; `start + bars <= effective`, với `effective = min(tile, remaining)` cho cycle/truncate, hoặc `length` khi `exact`. Slot `middle` phải **nằm sau toàn bộ slot `start`** tại `length_min`; nếu không, nó sẽ trôi vào start slot ở length lớn hơn. Với điều kiện đó, `middle`/`end` chỉ trượt ra xa start, và `end` trượt nhanh hơn `middle`, nên overlap của `middle`/`end` kiểm một lần tại **`length_min`** là đủ.
 2. **Coverage suy ra từ slots, không khai trong JSON:** `covered = union([start, start+bars))`; `full = covered == set(range(effective))`; nếu không full thì là `partial`, bar trống rơi về base grid (`uncovered: base_grid`). Vì vậy `coverage` không thể là field tĩnh của archetype — cùng một archetype có thể full ở L2 và partial ở L3.
 3. **Per-cycle, không phải toàn cục:** với `length = 18, tile = 9` có hai cycle; mỗi cycle phủ `min(tile, remaining)`. Không đòi `sum(bars) == tile` khi `length < tile`.
 4. `truncate_to_length`: chỉ áp cho tile lặp (castillo 3/4). Span `exact` luôn clip slot theo length trong `_slots`; plan trả `(start, min(bars, length - start))`.
@@ -544,7 +544,7 @@ Phase 1: `register()` đã enforce tile/slot/parity/remainder; coverage per-cycl
 ### 13.5. Test matrix
 
 - `meter × length (1..12) × n (0..5) × closes (open/close/null) × rise (0/1/2) × previous_figure (null + mỗi figure)` → plan.
-- Derived coverage: castillo 4/4 length **3..9** (L2 full), sonatina open length 2..8 (`n % 3`; L2 t0/t1 full, t2 partial), fandanguillo (`rise` 0/1, closes, length 2/4/8 cho middle anchor), castillo 3/4 (length 2, 9, 10, 18), galop run 1..30.
+- Derived coverage: castillo 4/4 length **3..9** (L2 full), sonatina open length 2..8 (`n % 3`; L2 t0/t1 full, t2 partial), fandanguillo (`rise` 0/1, closes, length 2/3/4/6/7 cho middle anchor), castillo 3/4 (length 2, 9, 10, 18), galop run 1..30.
 - Negative: danza 4/4 (unsupported meter), danza L1–3, `closes && L==4`; fandanguillo `rise == 0`; sonatina open L1; castillo L1.
 - Anchor: `middle` tại `length // 2 - 1` (fandanguillo L2/4/8); `middle` ngoài phrase tại `length_min`; `middle` chồng slot `start`; `end` chồng slot `start`; `end`/`middle` trên span lặp bị từ chối.
 - Avoid-repeat: cùng length, `previous_figure` = figure đầu → plan xoay đúng một lần.
@@ -553,7 +553,7 @@ Phase 1: `register()` đã enforce tile/slot/parity/remainder; coverage per-cycl
 
 ### 13.6. Inventory archetype Torroba + status
 
-**Đã migrate:** `castillo` 3/4 (PR #147), toàn bộ 4/4 (PR #148), `sonatina` open/close (PR #149), `fandanguillo` (2 archetype: even type 5, odd type 2 giữa phrase) và `danza` 3/4 + 6/8. Torroba đã xong; `plan_sentence` chỉ còn trả `None` cho `danza` 4/4 — meter đó không có spelling và cố ý không register. Galop (Sor) vẫn ở code và cần một plan theo **run**, không phải theo `length`/`n` của phrase (xem ghi chú cuối bảng).
+**Đã migrate:** `castillo` 3/4 (PR #147), toàn bộ 4/4 (PR #148), `sonatina` open/close (PR #149), `fandanguillo` (2 archetype: even type 5, odd type 2 giữa phrase) và `danza` 3/4 + 6/8. Torroba đã xong; `plan_sentence` còn trả `None` cho `danza` 4/4 (không có spelling, cố ý không register) và `castillo` 6/8 (chỉ register 3/4 + 4/4). Galop (Sor) vẫn ở code và cần một plan theo **run**, không phải theo `length`/`n` của phrase (xem ghi chú cuối bảng).
 
 | Family | Select | Span | Slots (start, bars, figure) |
 |---|---|---|---|

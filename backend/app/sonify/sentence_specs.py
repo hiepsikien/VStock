@@ -151,6 +151,7 @@ def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
         if span.tile is not None and slot.start + slot.bars > span.tile:
             raise ValueError(f"{spec.id}: slot runs past the tile")
 
+    start_high = max((slot.start + slot.bars for slot in start_slots), default=0)
     for slot in middle_slots:
         if not is_exact:
             raise ValueError(f"{spec.id}: a middle-anchored slot needs an exact span")
@@ -160,6 +161,13 @@ def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
         if base < 0 or base + slot.bars > select.length_min:
             raise ValueError(
                 f"{spec.id}: middle slot falls outside the phrase at length_min"
+            )
+        # A middle slot drifts right by half a bar per extra length. If it
+        # started left of a fixed start slot it would eventually collide, so
+        # require it to clear them at length_min; then the distance only grows.
+        if base < start_high:
+            raise ValueError(
+                f"{spec.id}: middle slot must clear the start slots at length_min"
             )
 
     for slot in end_slots:
@@ -174,8 +182,10 @@ def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
 
     # Every anchor except `start` is length-relative, and each sits at its
     # leftmost position at length_min (middle: `length_min // 2 + start`,
-    # end: `length_min - bars`). If the slots clear each other there they clear
-    # at every longer length, so this one check covers the whole select range.
+    # end: `length_min - bars`). Middle slots are required to start after the
+    # fixed start slots, so their distance only grows; end slots move right
+    # faster than middle slots. One check at length_min therefore covers the
+    # whole select range.
     placed: list[tuple[int, int]] = []
     previous_end = 0
     for slot in sorted(start_slots, key=lambda item: item.start):
