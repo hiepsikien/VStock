@@ -38,6 +38,15 @@ from app.sonify.model import NoteEvent, Phrase, Score
 from app.sonify.phrasing import MIN_RISE, bell_budget, quantize_strong_beats, swell, written
 from app.sonify.plan_rules import MACRO, PHRASE, MacroInputs, PhraseInputs, villa_pattern
 from app.sonify.plan_rules_bach import bach_region_patterns
+from app.sonify.plan_rules_barrios import (
+    DAILY,
+    BarriosMacroInputs,
+    BarriosPaletteInputs,
+    BarriosPhraseInputs,
+    barrios_palette,
+    barrios_pattern,
+)
+from app.sonify.plan_rules_classic import ClassicPhraseInputs, classic_pattern
 from app.sonify.quantize import C_MAJOR_PCS, C_NATURAL_MINOR_PCS
 
 # Sounding open strings, string 6 → 1, and the highest fret each string allows.
@@ -910,7 +919,7 @@ def _select_body(
     bridge = bool(section is not None and section.bridge)
     minor = ctx.mode == "minor"
     if ctx.ensemble == "brouwer":
-        primary = _brouwer_primary(ctx, mood)
+        primary = _brouwer_primary(ctx, mood, PHRASE)
         if trio or bridge:
             return _brouwer_contrast(primary)
         return primary
@@ -925,28 +934,43 @@ def _select_body(
         if trio or bridge:
             return _torroba_contrast(ctx, primary, mood)
         return primary
-    if ctx.bpm >= BARRIOS_TREMOLO_MIN_BPM and first_body and ctx.ensemble != "villa":
-        return {"classic": "study", "villa": "villa_pattern"}.get(ctx.ensemble, "preludio")
     if (
-        ctx.ensemble == "barrios"
-        and hold
-        and BARRIOS_TREMOLO_MIN_BPM <= ctx.bpm <= 140
+        ctx.bpm >= BARRIOS_TREMOLO_MIN_BPM
+        and first_body
+        and ctx.ensemble not in {"villa", "barrios"}
     ):
-        if len(previous) >= 2 and previous[-1] == "tremolo" and previous[-2] == "tremolo":
-            return "thumb_cantabile" if (trio or bridge) else "andante"
-        return "tremolo"
-    if ctx.ensemble == "barrios" and ctx.bpm < BARRIOS_TREMOLO_MIN_BPM:
-        return "thumb_cantabile" if bridge else "andante"
-    if ctx.ensemble == "barrios" and running and mood == "calm" and trio and ctx.bpm >= BARRIOS_TREMOLO_MIN_BPM:
-        return "thumb_cantabile"
+        return {"classic": "study", "villa": "villa_pattern"}.get(ctx.ensemble, "preludio")
+    if ctx.ensemble == "barrios":
+        # The phrase ladder lives in `plan_rules_barrios`. Rule one is the
+        # opening-body preludio the shared branch above applied before Barrios
+        # dispatched here.
+        return barrios_pattern(
+            PHRASE,
+            BarriosPhraseInputs(
+                trio=trio,
+                bridge=bridge,
+                mood=mood,
+                bpm=ctx.bpm,
+                band=band,
+                first_body=first_body,
+                kind=ctx.kind,
+                hold=hold,
+                running=running,
+                previous=tuple(previous),
+            ),
+        )
     if ctx.ensemble == "classic":
-        elegiaque = ctx.bpm <= 72 or mood == "selloff" or (trio and minor)
-        if elegiaque:
-            return "elegiaque"
-        if mood == "calm" and ctx.bpm > 72:
-            return "cantabile"
-        if mood == "volatile":
-            return "mozart_var"
+        # The classic phrase ladder lives in `plan_rules_classic`. The shared
+        # opening-body study above still applies before this dispatch.
+        return classic_pattern(
+            PHRASE,
+            ClassicPhraseInputs(
+                trio=trio,
+                mood=mood,
+                bpm=ctx.bpm,
+                minor=minor,
+            ),
+        )
     if ctx.ensemble == "villa":
         # The phrase ladder lives in `plan_rules`. Rule one is the opening-body
         # roll that the shared branch above applied for Villa before dispatch.
@@ -962,19 +986,6 @@ def _select_body(
                 kind=ctx.kind,
             ),
         )
-    if (
-        ctx.ensemble == "barrios"
-        and running
-        and mood is not None
-        and mood != "calm"
-        and ctx.bpm > 100
-        and ctx.kind in {"4/4", "6/8"}
-    ):
-        if ctx.kind == "4/4":
-            return "choro"
-        if trio:
-            return "vals"
-        return "hemiola" if band == "f" else "polca"
     return {"classic": "study", "villa": "villa_pattern", "brouwer": "brouwer_etude", "bach": "bach_bourree", "torroba": "sonatina"}.get(
         ctx.ensemble, "preludio"
     )
@@ -1123,13 +1134,15 @@ def _dominant_pattern_auto(ctx: _Ctx, phrases: list[Phrase], bars: list[int]) ->
     """One pattern for a whole body, a formal section, or one weekly session."""
     mood = _majority_mood(ctx, bars)
     if ctx.ensemble == "brouwer":
-        return _brouwer_primary(ctx, mood)
+        return _brouwer_primary(ctx, mood, MACRO)
     if ctx.ensemble == "bach":
         return _bach_primary(ctx, phrases, bars, mood, mode=MACRO)
     if ctx.ensemble == "torroba":
         return _torroba_primary(ctx, mood, framed_macro=True)
     if ctx.ensemble == "classic":
-        return _classic_macro(ctx, mood, bars)
+        return _classic_macro(
+            ctx, mood, rally_marked=_region_marked(ctx, bars, "rally")
+        )
     if ctx.ensemble == "villa":
         # Macro ladder, one pattern for the body/slot/session. Selloff sings
         # Prélude No. 1 on the thumb; a bridge or trio still answers through
@@ -1144,44 +1157,28 @@ def _dominant_pattern_auto(ctx: _Ctx, phrases: list[Phrase], bars: list[int]) ->
                 quiet_majority=bool(bars) and quiet * 2 > len(bars),
             ),
         )
-    if ctx.bpm < BARRIOS_TREMOLO_MIN_BPM:
-        return "andante"
-    if _framed(ctx) and ctx.kind == "4/4" and 90 <= ctx.bpm <= 100:
-        # Opening moderato (1M/3M I, 1Y opener) is La Catedral on rally/calm.
-        # The finale pedal, or a selloff/volatile session, is Ultimo Tremolo.
-        if _is_suite_finale(ctx) or mood in {"selloff", "volatile"}:
-            return "tremolo"
-        return "preludio"
-    if mood == "calm":
-        return "preludio"
-    if (
-        _framed(ctx)
-        and ctx.kind == "6/8"
-        and ctx.bpm > 100
-        and ctx.bars > 40
-        and mood != "calm"
-    ):
-        return "hemiola" if _forte_majority(ctx, bars) else "polca"
-    if ctx.bpm == 120 and ctx.bars == 34 and ctx.kind == "4/4":
+    # Barrios is the only ensemble that reaches this ladder: every other
+    # ensemble returned above. The ordered rows live in `plan_rules_barrios`.
+    # The 34-bar 1D body is intercepted by `_assign_macro` before this point;
+    # the table's `DAILY` row is a parity-preserved branch, not the live path.
+    pattern = barrios_pattern(
+        MACRO,
+        BarriosMacroInputs(
+            mood=mood,
+            bpm=ctx.bpm,
+            kind=ctx.kind,
+            bars=ctx.bars,
+            framed=_framed(ctx),
+            suite_finale=_is_suite_finale(ctx),
+            forte_majority=_forte_majority(ctx, bars),
+            phrase_count=len(phrases),
+            hold_count=sum(1 for phrase in phrases if _has_hold(ctx.melody, phrase)),
+            running_count=sum(1 for phrase in phrases if _running(ctx.melody, phrase)),
+        ),
+    )
+    if pattern == DAILY:
         return _daily_barrios_pattern(ctx, mood, phrases, bars)
-    holds = sum(1 for phrase in phrases if _has_hold(ctx.melody, phrase))
-    running = sum(1 for phrase in phrases if _running(ctx.melody, phrase))
-    if phrases and (
-        holds / len(phrases) >= 0.3 or (mood in {"rally", "selloff"} and holds > 0)
-    ):
-        return "tremolo"
-    if (
-        ctx.bpm > 100
-        and mood in {"rally", "volatile"}
-        and phrases
-        and running * 2 >= len(phrases)
-    ):
-        if ctx.kind == "6/8":
-            return "polca"
-        return "choro" if ctx.kind == "4/4" else "preludio"
-    if holds:
-        return "tremolo"
-    return "preludio"
+    return pattern
 
 
 def _dominant_pattern(ctx: _Ctx, phrases: list[Phrase], bars: list[int]) -> str:
@@ -1247,38 +1244,12 @@ def _barrios_palette(ctx: _Ctx, primary: str) -> tuple[str, ...]:
 
     `_dominant_pattern` reads the first region's character and passes it as
     `primary`. Later slots do not read mood again. They walk the guests in
-    this row. A movement of two parts ends on the first guest. From three
-    parts on, the last part reprises `primary`. Tremolo and framed Preludio
-    never share a 4/4 row: reprise would put the other singing pattern back
-    in the last part, so that pattern is left out of the row.
+    the row `plan_rules_barrios` records for this meter and tempo, and the
+    row's last step rotates `primary` to the front.
     """
-    if ctx.bpm < BARRIOS_TREMOLO_MIN_BPM:
-        row = ("andante", "thumb_cantabile")
-    elif ctx.kind == "6/8" and ctx.bpm > 100:
-        if primary == "hemiola":
-            row = ("hemiola", "vals", "polca", "tremolo")
-        elif primary == "preludio":
-            row = ("preludio", "thumb_cantabile", "vals")
-        else:
-            row = ("polca", "vals", "hemiola", "tremolo")
-    elif ctx.kind == "4/4" and ctx.bpm > 100:
-        # Reprise brings the opening pattern back, so the other singing
-        # pattern is absent from the row, not merely seated one place away.
-        if primary == "tremolo":
-            row = ("tremolo", "choro", "thumb_cantabile")
-        elif primary == "preludio":
-            row = ("preludio", "choro", "andante")
-        else:
-            row = ("choro", "thumb_cantabile", "andante")
-    elif primary == "tremolo":
-        # 4/4 at 90–100, and only when the opening region is tremolo.
-        row = ("tremolo", "andante")
-    else:
-        row = ("preludio", "andante")
-    if primary not in row:
-        return (primary, *[name for name in row if name != primary])
-    start = row.index(primary)
-    return row[start:] + row[:start]
+    return barrios_palette(
+        BarriosPaletteInputs(bpm=ctx.bpm, kind=ctx.kind, primary=primary)
+    )
 
 
 def _region_pattern_ids(ctx: _Ctx, patterns: list[str]) -> list[str]:

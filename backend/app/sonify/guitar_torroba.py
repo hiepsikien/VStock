@@ -15,6 +15,12 @@ from typing import Literal
 from app.sonify.chords import Chord
 from app.sonify.model import NoteEvent
 from app.sonify.phrasing import MIN_RISE
+from app.sonify.plan_rules_torroba import (
+    ContrastInputs,
+    PrimaryInputs,
+    torroba_contrast,
+    torroba_primary,
+)
 from app.sonify.sentence_specs import (
     METER_ANY,
     Select,
@@ -337,80 +343,26 @@ TORROBA_TEMPO_FLOOR = {
 def _torroba_primary(ctx, mood: str | None, *, framed_macro: bool = False) -> str:
     """One Torroba pattern for this meter and mood.
 
-    `framed_macro` is ignored. 4/4 names Olite for rally and volatile only.
-    Calm and selloff are retargeted to 3/4 before this picker, so a 4/4 calm
-    or selloff that still arrives is Olite: not Sonatina, and not the old
-    Castillo selloff. 3/4 calm is Castillo at every tempo, so the slow
-    movement stays Castillo — Juglar — Castillo; the old `bpm > 72` gate that
-    swapped Sonatina in is gone because the Juglar density now follows the
-    tempo by itself. 6/8 stays Danza, Alcaniz, and Fandanguillo. A meter
-    outside these three uses the 4/4 row. A mood outside a row uses that
-    row's calm cell, or Olite on 4/4.
+    The meter/mood map and the reasons behind it live in
+    `plan_rules_torroba`. `framed_macro` still selects the phrase or macro
+    scope at this seam; both scopes share the same rows today.
     """
-    del framed_macro
-    if ctx.kind == "3/4" and mood not in {"rally", "selloff", "volatile"}:
-        return "castillo"
-    table = {
-        "4/4": {
-            "rally": "olite",
-            "volatile": "olite",
-        },
-        "3/4": {
-            "rally": "torroba_tremolo",
-            "selloff": "castillo",
-            "volatile": "danza",
-        },
-        "6/8": {
-            "calm": "danza",
-            "rally": "alcaniz",
-            "volatile": "fandanguillo",
-            "selloff": "fandanguillo",
-        },
-    }
-    row = table.get(ctx.kind, table["4/4"])
-    if mood in row:
-        return row[mood]
-    if "calm" in row:
-        return row["calm"]
-    return "olite"
+    return torroba_primary(
+        PrimaryInputs(kind=ctx.kind, mood=mood, framed_macro=framed_macro)
+    )
 
 
 def _torroba_contrast(ctx, primary: str, mood: str | None = None) -> str:
     """The other pattern in the same meter.
 
-    `mood` is the opening section. Olite on 4/4 answers with Castillo, not
-    Sonatina. Castillo in 3/4 answers with Juglar when that mood is calm — at
-    every tempo, now that the `bpm > 72` gate is gone — and with Danza when it
-    is selloff. 6/8 has no Sonatina cell. A cell with no row returns `primary`.
+    The pair map lives in `plan_rules_torroba`. A missing `mood` is the
+    opening section's character. A cell with no row returns `primary`.
     """
     if mood is None:
         mood = ctx.character
-    kind = ctx.kind
-    if primary == "castillo" and kind == "4/4":
-        return "olite"
-    if primary == "castillo" and kind == "3/4":
-        if mood == "calm":
-            return "torroba_tremolo"
-        if mood == "selloff":
-            return "danza"
-        return primary
-    if primary == "olite" and kind == "4/4":
-        return "castillo"
-    if primary == "sonatina" and kind == "4/4":
-        return "castillo"
-    if primary == "sonatina" and kind == "3/4":
-        return "castillo"
-    if primary == "torroba_tremolo" and kind == "3/4":
-        return "danza"
-    if primary == "danza" and kind == "3/4":
-        return "torroba_tremolo"
-    if primary == "danza" and kind == "6/8":
-        return "alcaniz"
-    if primary == "alcaniz" and kind == "6/8":
-        return "danza"
-    if primary == "fandanguillo" and kind == "6/8":
-        return "danza"
-    return primary
+    return torroba_contrast(
+        ContrastInputs(kind=ctx.kind, primary=primary, mood=mood)
+    )
 
 
 _PEDAL_BARS = frozenset({"intro", "outro", "warmup", "cooldown"})
