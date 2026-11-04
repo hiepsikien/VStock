@@ -403,7 +403,7 @@ Mục tiêu: **thêm sentence cho bất kỳ composer nào** mà không phải v
 
 ### 13.1. Định nghĩa
 
-> **`SentenceSpec`** = template N ô: span + vai (role) + slot, chọn theo `(length, n, closes, rise, meter)`. Mỗi slot là **một realizer**: texture (cách điền ô) hoặc, về sau, procedure (phép biến đổi).
+> **`SentenceSpec`** = template N ô: span + vai (role) + slot, chọn theo `(length, n, closes, rise, meter, previous_figure)`. Mỗi slot là **một realizer**: texture (cách điền ô) hoặc, về sau, procedure (phép biến đổi).
 
 Quan hệ với các khái niệm khác:
 
@@ -414,7 +414,23 @@ Quan hệ với các khái niệm khác:
 
 ### 13.2. Schema
 
-**Castillo 3/4 = hai archetype, mỗi cái một figure 9 ô.** `_castillo_34_spans(length, n)` trả **một** span `(WALK hoặc CADENCE, 0..8)`; `n % 2` chọn figure. Không có "5 walk + 4 cadence" trong một phrase — đó là cách đọc 18 ô Castillos, không phải cấu trúc selectable.
+| Field | Nghĩa |
+|---|---|
+| `select.length` | `[min, max]`; `max: null` = không chặn |
+| `select.n_parity` | `any \| even \| odd` — nhánh `n % 2` |
+| `select.n_mod` | `{mod, value}` — nhánh `n % 3` (sonatina open), không dùng `n_parity` cùng lúc |
+| `select.closes` | **selector branch**: `null` = không đọc; `open`/`close` chọn archetype |
+| `select.rise_min` | `fandanguillo` cần `rise >= 1` |
+| `span.tile` | độ dài template lặp; `null` khi `exact: true` |
+| `span.remainder` | `same_figure` (lặp cùng figure) \| `truncate_cycle` (galop) \| `exact` |
+| `span.cycle` | lặp trên run bất kỳ (galop) |
+| `span.exact` | slots phủ đúng `length`, không lặp (sonatina/fandanguillo/danza) |
+| `span.truncate_to_length` | slot dài hơn `length` bị cắt theo length (castillo 3/4) |
+| `coverage` | `full` hoặc `partial` — **thuộc từng archetype** |
+| `uncovered` | `base_grid` khi `coverage: partial` |
+| `slots[].start`, `bars`, `realizer` | vị trí + độ dài + figure/cell/procedure |
+
+**Castillo 3/4** — một figure 9 ô, `n % 2` chọn WALK/CADENCE, length nhỏ bị cắt:
 
 ```json
 {
@@ -424,105 +440,159 @@ Quan hệ với các khái niệm khác:
              "strong_eighths": [0], "subbar_breaks": [4], "extra_weights": [[4, 0.8]] },
   "select": { "length": [2, null], "n_parity": "even", "closes": null, "rise_min": 0,
               "unsupported_lengths": [1] },
-  "span": { "unit": "bar", "tile": 9, "remainder": "same_figure" },
-  "slots": [{ "role": "walk", "bars": 9, "realizer": { "kind": "texture", "figure": "castillo_walk" } }]
+  "span": { "unit": "bar", "tile": 9, "remainder": "same_figure", "truncate_to_length": true },
+  "coverage": "full",
+  "slots": [{ "role": "walk", "start": 0, "bars": 9, "realizer": { "kind": "texture", "figure": "castillo_walk" } }]
 }
 ```
+
+`length = 2` → span thực `(0,1)`; `length = 10` → 9 ô + 1 ô, cả hai cùng figure. `coverage: full` vì union phủ hết `min(tile, length)`.
+
+**Castillo 4/4, length >= 8 lẻ** — slot **không liền nhau**, coverage partial:
 
 ```json
 {
-  "id": "castillo_34_cadence",
+  "id": "castillo_44_long_odd",
   "pattern": "castillo",
-  "meter": { "id": "3/4", "beats": 3, "beat_type": 4, "eighths_per_bar": 6,
-             "strong_eighths": [0], "subbar_breaks": [4], "extra_weights": [[4, 0.8]] },
-  "select": { "length": [2, null], "n_parity": "odd", "closes": null, "rise_min": 0,
-              "unsupported_lengths": [1] },
-  "span": { "unit": "bar", "tile": 9, "remainder": "same_figure" },
-  "slots": [{ "role": "cadence", "bars": 9, "realizer": { "kind": "texture", "figure": "castillo_cadence" } }]
+  "meter": { "id": "4/4", "beats": 4, "beat_type": 4, "eighths_per_bar": 8,
+             "strong_eighths": [0, 4], "subbar_breaks": [4], "extra_weights": [] },
+  "select": { "length": [8, null], "n_parity": "odd", "closes": null, "rise_min": 0 },
+  "span": { "unit": "bar", "tile": null, "exact": true },
+  "coverage": "partial",
+  "uncovered": "base_grid",
+  "slots": [
+    { "role": "arada_a", "start": 0, "bars": 2, "realizer": { "kind": "texture", "figure": "castillo_8" } },
+    { "role": "arada_b", "start": 4, "bars": 2, "realizer": { "kind": "texture", "figure": "castillo_8" } },
+    { "role": "link",    "start": 2, "bars": 1, "realizer": { "kind": "texture", "figure": "castillo_1" } }
+  ]
 }
 ```
 
-`_castillo_34_spans` tile 9 ô và phần dư dùng lại cùng figure: length 2 → `(WALK, (0,1))`, length 10 → 9 ô WALK + 1 ô WALK. Vì vậy `remainder: same_figure`, không cần `sum(bars) == length`.
+Bar 3, 6, 7… rơi về base grid. `castillo 4/4` có **9 archetype** (short 2–3; pair even/odd 4; type 7 cho 5, 6, 7; long even 8+; long odd 8+) — xem bảng §13.6.
 
-**Castillo 4/4 là bộ archetype khác**: type 7 (5 ô), type 8 (2 ô, có thể hai cặp), và với `length >= 8` lẻ còn một type 1 (1 ô) ở giữa (`_castillo_spans`, `guitar_torroba.py:1660-1690`). Migration phải khai riêng cho 4/4, không suy từ 3/4.
+**Sonatina open, length 4, `n % 3 == 0`** — `n_parity` không đủ:
 
-Lưu ý: castillo 4/4 (và type-8 cặp) **không phủ kín** phrase — các bar không có slot rơi về base grid. Phải khai `coverage: "partial", uncovered: "base_grid"`; nếu không, validator "phủ kín" sẽ từ chối một plan đúng.
+```json
+{
+  "id": "sonatina_open_4_turn0",
+  "pattern": "sonatina",
+  "meter": { "id": "4/4", "beats": 4, "beat_type": 4, "eighths_per_bar": 8,
+             "strong_eighths": [0, 4], "subbar_breaks": [4], "extra_weights": [] },
+  "select": { "length": [4, 4], "n_mod": { "mod": 3, "value": 0 }, "closes": "open", "rise_min": 0 },
+  "span": { "unit": "bar", "tile": null, "exact": true },
+  "coverage": "partial",
+  "uncovered": "base_grid",
+  "slots": [
+    { "role": "pair", "start": 0, "bars": 2, "realizer": { "kind": "texture", "figure": "sonatina_4" } },
+    { "role": "link", "start": 3, "bars": 1, "realizer": { "kind": "texture", "figure": "sonatina_1" } }
+  ]
+}
+```
 
-**Galop là cycle 8 ô trên một run, không phải sentence length 8.** `_galop_body_index` (`guitar_sor.py:166`) đếm run liên tiếp các bar `galop`; `_render_galop_dance` chọn cell theo `index % 8 >= 4`. `_settle_galop` có thể paint galop cho cả region 30 bar.
+Turn 0/1/2 là **ba archetype riêng** cho length 2–4; length 5–6 dùng `n_parity`; length >= 7 cố định.
+
+**Galop** — cycle 8 ô trên run:
 
 ```json
 {
   "id": "galop_cycle",
   "pattern": "galop",
-  "select": { "length": [1, null], "n_parity": "any", "closes": null, "rise_min": 0,
-              "unsupported_lengths": [] },
-  "span": { "unit": "bar", "tile": 8, "cycle": true },
+  "select": { "length": [1, null], "n_parity": "any", "closes": null, "rise_min": 0 },
+  "span": { "unit": "bar", "tile": 8, "cycle": true, "remainder": "truncate_cycle" },
+  "coverage": "full",
   "slots": [
-    { "role": "cell1", "bars": 4, "realizer": { "kind": "texture", "cell": "galop1" } },
-    { "role": "cell2", "bars": 4, "realizer": { "kind": "texture", "cell": "galop2" } }
+    { "role": "cell1", "start": 0, "bars": 4, "realizer": { "kind": "texture", "cell": "galop1" } },
+    { "role": "cell2", "start": 4, "bars": 4, "realizer": { "kind": "texture", "cell": "galop2" } }
   ]
 }
 ```
 
-Quy ước:
-
-- `select.length` là khoảng độ dài **run/phrase** mà archetype phục vụ; `null` = không chặn trên.
-- `select.n_parity` là **selector branch** (`any | even | odd`), không phải filter tuỳ chọn: castillo 3/4 dùng nó để chọn WALK/CADENCE.
-- `select.closes` là **selector branch**, không phải filter true/false: `sonatina` chọn archetype open/close; `danza` có special case `closes and length == 4`; `fandanguillo` đổi `room` (`length - 1` khi closes).
-- `select.rise_min`: `fandanguillo` trả `[]` khi `phrase.rise < 1` (`guitar_torroba.py:1739`). Thiếu `rise` thì không tái tạo được.
-- `span.remainder`: `same_figure` (lặp cùng figure, castillo 3/4) | `truncate_cycle` (galop) | `exact` (phải khớp đúng).
-- `span.cycle: true`: plan lặp theo `tile` trên run bất kỳ; không đòi `length == tile`.
-- `realizer.kind`: `texture` (figure/cell đã có) hoặc `procedure` (exposition sau này).
-
 ### 13.3. Selector contract
 
 ```
-plan_sentence(pattern, sentence_spec, meter_key, length, n, closes, rise) -> [(realizer_id, slots)] | []
+plan_sentences(pattern, specs, meter_key, length, n, closes, rise, previous_figure)
+    -> [(realizer, start, bars)] | []
 ```
 
-Yêu cầu:
-
-- Input đủ: `length`, `n`, `closes`, **`rise`**, `meter_key`. Thiếu `rise` là thiếu hợp đồng, không phải "optional".
-- Trả `[]` khi meter không khớp, length ngoài range hoặc trong `unsupported_lengths`, parity/closes/rise không khớp — **không fallback**.
-- Slot phủ `[0, tile)` (không phải `[0, length)` khi có remainder/cycle), không hở, không chồng.
-- Deterministic, không phụ thuộc thứ tự duyệt dict.
+- Input đủ: `length`, `n`, `closes`, **`rise`**, **`previous_figure`**, `meter_key`.
+- **Avoid-repeat là post-pass ở tầng pattern**, không phải field của archetype: sau khi chọn, nếu `first_realizer == previous_figure` thì tính lại **một lần** với `n + 1` (`select_torroba_spans`, `guitar_torroba.py:1795-1800`). Vì rotation đổi cả `n % 2` lẫn `n % 3`, nó phải nằm trong contract, không thể "xử lý sau".
+- Không fallback: sai meter/length/parity/closes/rise → `[]`.
+- Deterministic.
 
 ### 13.4. Validator
 
-1. Slot **không chồng**. Nếu `coverage: "full"` thì phủ kín `tile` (`sum(bars) == tile`). Nếu `coverage: "partial"` thì bar không có slot rơi về base grid, và phải khai `uncovered: "base_grid"`. **Không** đòi `sum(bars) == length`.
-2. `remainder`/`cycle` khai đúng: `same_figure` (castillo 3/4), `truncate_cycle` (galop), `exact` (không dư); `cycle: true` cho archetype lặp trên run.
-3. `unsupported_lengths` phải khai cho các length không phục vụ (castillo 3/4: `[1]`; danza/sonatina/fandanguillo: các length nhỏ mà code trả `[]`).
-4. `sentence.meter` thuộc `pattern.meter_variants` (canonical key).
-5. Mỗi `realizer` tồn tại (figure/cell trong `_FIGURES` hoặc registry; `procedure` đã khai).
-6. Với mỗi meter supported: mọi `length` trong `[1, 12]` phải hoặc có archetype khớp, hoặc nằm trong `unsupported_lengths`. Không được im lặng thiếu.
-7. Không archetype nào cho meter pattern không hỗ trợ.
-8. `rise_min`/`closes`/`n_parity` phải tái tạo đúng nhánh code — test bằng plan golden, không bằng đọc doc.
+1. `slots[].start` bắt buộc. Không chồng nhau; `start + bars <= effective`, với `effective = min(tile, length)` cho cycle/truncate, hoặc `length` khi `exact`.
+2. `coverage: full` → union slot phủ kín `[0, effective)`. `coverage: partial` → union là **tập con**, bar trống rơi về base grid, và phải khai `uncovered: base_grid`.
+3. **Per-cycle, không phải toàn cục:** với `length = 18, tile = 9` có hai cycle; mỗi cycle phủ `min(tile, remaining)`. Không đòi `sum(bars) == tile` khi `length < tile`.
+4. `truncate_to_length`: slot dài hơn length bị cắt; plan trả `(start, min(bars, length - start))`.
+5. `remainder`/`cycle`/`exact` phải khớp kiểu archetype.
+6. `unsupported`: list tĩnh **hoặc** predicate `unsupported_when` cho trường hợp phụ thuộc input (`fandanguillo`: `rise == 0`, `room < 4` khi `n` chẵn, `start + 1 >= room` khi `n` lẻ; `danza`: meter 4/4, `length < 4`, `closes && length == 4`).
+7. `n` coverage: với mỗi length, **mọi** residue của `mod` (2 hoặc 3) phải có archetype, hoặc khai unsupported.
+8. `sentence.meter` thuộc `pattern.meter_variants`; realizer tồn tại; plan golden.
 
 ### 13.5. Test matrix
 
-- `sentence × meter × length (1..12) × n (0..3) × closes (false/true) × rise (0/1/2)` → plan JSON.
-- Riêng: castillo 3/4 và 4/4 là hai bộ; galop run dài **1..30** (30 = 3×8 + 6); fandanguillo `rise < 1` → `[]`.
-- Golden: `backend/tests/fixtures/sentence_plan.json` — **path mới**, thư mục `backend/tests/fixtures/` hiện chưa tồn tại.
-- Negative: sai meter → `[]`; length trong `unsupported_lengths` → `[]`; realizer không tồn tại → validation error.
-- Migration zero-diff: hash plan **trước và sau** khi chuyển code → data phải bằng nhau. Test riêng, **không** dùng Score hash.
+- `meter × length (1..12) × n (0..5) × closes (open/close/null) × rise (0/1/2) × previous_figure (null + mỗi figure)` → plan.
+- Partial coverage: castillo 4/4 (length 2..9), sonatina open (length 2..8, `n % 3`), fandanguillo (`rise` 0/1, closes), danza (3/4, 6/8, 4/4), castillo 3/4 (length 2, 9, 10, 18), galop run 1..30.
+- Avoid-repeat: cùng length, `previous_figure` = figure đầu → plan xoay đúng một lần.
+- Golden: `backend/tests/fixtures/sentence_plan.json` — **path mới**, thư mục chưa tồn tại.
+- Negative: sai meter → `[]`; unsupported predicate đúng → `[]`; realizer thiếu → validation error.
 
-### 13.6. Trạng thái theo composer
+### 13.6. Inventory archetype Torroba + status
+
+| Family | Select | Span | Coverage | Slots (start, bars, figure) |
+|---|---|---|---|---|
+| `castillo` 3/4 walk | L>=2, n even | tile 9, same_figure, truncate | full | `(0, 9, walk)` |
+| `castillo` 3/4 cadence | L>=2, n odd | tile 9, same_figure, truncate | full | `(0, 9, cadence)` |
+| `castillo` 4/4 short | L 2–3 | exact | partial (L2 full) | `(0, 2, 8)` |
+| `castillo` 4/4 pair even | L 4, n even | exact | partial | `(0, 2, 8)` |
+| `castillo` 4/4 pair odd | L 4, n odd | exact | partial | `(1, 2, 8)` |
+| `castillo` 4/4 type7 (L5) | L 5, n even | exact | full | `(0, 5, 7)` |
+| `castillo` 4/4 pairs at 3 | L 5–6, n odd | exact | partial | `(0, 2, 8), (3, 2, 8)` |
+| `castillo` 4/4 type7 (L6) | L 6, n even | exact | partial | `(0, 5, 7)` |
+| `castillo` 4/4 type7 (L7) | L 7 | exact | partial | `(0, 5, 7)` |
+| `castillo` 4/4 long even | L>=8, n even | exact | partial | `(0, 5, 7)` |
+| `castillo` 4/4 long odd | L>=8, n odd | exact | partial | `(0,2,8), (4,2,8), (2,1,1)` |
+| `sonatina` open L2 t0 | L2, `n%3=0` | exact | full | `(0,2,4)` |
+| `sonatina` open L2 t1 | L2, `n%3=1` | exact | full | `(0,2,2)` |
+| `sonatina` open L2 t2 | L2, `n%3=2` | exact | partial | `(0,1,1)` |
+| `sonatina` open L3 t0 | L3, `n%3=0` | exact | partial | `(0,2,4)` |
+| `sonatina` open L3 t1 | L3, `n%3=1` | exact | partial | `(1,2,2)` |
+| `sonatina` open L3 t2 | L3, `n%3=2` | exact | partial | `(0,2,1)` |
+| `sonatina` open L4 t0 | L4, `n%3=0` | exact | partial | `(0,2,4),(3,1,1)` |
+| `sonatina` open L4 t1 | L4, `n%3=1` | exact | partial | `(1,2,2),(3,1,1)` |
+| `sonatina` open L4 t2 | L4, `n%3=2` | exact | partial | `(0,1,1),(2,2,4)` |
+| `sonatina` open L5 even | n even | exact | partial | `(0,2,4), (3,1,1)` |
+| `sonatina` open L5 odd | n odd | exact | partial | `(0,2,4), (3,2,2)` |
+| `sonatina` open L6 even | n even | exact | partial | `(0,2,4), (3,2,2)` |
+| `sonatina` open L6 odd | n odd | exact | partial | `(0,2,2), (3,2,4)` |
+| `sonatina` open L>=7 | any n | exact | partial | `(0,2,4), (3,1,1), (5,2,2)` |
+| `sonatina` close L<=3 | any n | tile 3, truncate | full | `(0, L, 3)` |
+| `sonatina` close L4–L5 | any n | exact | partial | `(L-3, 3, 3)` |
+| `sonatina` close L6 | any n | exact | partial | `(0,1,1), (3,3,3)` |
+| `sonatina` close L>=7 | any n | exact | partial | `(0,2,4), (L-3,3,3)` |
+| `fandanguillo` n even | L, room>=4, rise>=1 | exact | full khi room=4, partial khi room>4 | `(0,4,5)` |
+| `fandanguillo` n odd | L, room>=2, rise>=1 | exact | partial | `(max(0,L//2-1), 2, 2)` |
+| `danza` | 3/4 hoặc 6/8, L>=4, not(closes && L==4) | exact | full khi L=4, partial khi L>4 | `(0,4,6)` |
+| `galop` | L>=1 | tile 8, cycle | full | `(0,4,1),(4,4,2)` |
+
+`room = length - 1` khi `closes`, ngược lại `length`. Figure numbering: castillo 1/7/8/13/14; sonatina 1/2/3/4; fandanguillo 5/2; danza 6.
+
+Status theo composer (giữ nguyên):
 
 | Composer | Sentence hiện có | Việc | Ghi chú |
 |---|---|---|---|
-| **Torroba** | 4 template (`castillo`, `sonatina`, `fandanguillo`, `danza`) | **migrate** sang data | `castillo` 3/4 = 2 archetype (walk `n` chẵn / cadence `n` lẻ, tile 9); castillo 4/4 = type 7/8 (+ type 1 khi lẻ); `sonatina` = open/close; `fandanguillo` cần **`rise`** + `closes`; `danza` = `closes` + `length == 4` |
-| **Sor/Classic** | cycle 8 ô trong galop | **migrate** (ca thứ hai, chứng minh tổng quát) | `_galop_body_index` đếm run; `_render_galop_dance` chọn cell theo `index % 8`; run 30 = 3×8 + 6 |
-| **Bach** | không | **authoring** + `realizer.kind: procedure` | exposition = sentence của các entry (subject/answer), chưa làm |
-| **Barrios** | không | **authoring**; cần figure variants trước | period của *La Catedral* là ứng viên |
-| **Villa** | không | **authoring**; pilot texture trước | ostinato/figuration, sentence không bắt buộc |
+| **Torroba** | 4 template | **migrate** sang data | bảng trên là toàn bộ archetype cần khai; `fandanguillo` cần `rise`; `sonatina` cần `n % 3` |
+| **Sor/Classic** | cycle 8 ô trong galop | **migrate** (ca thứ hai) | `_galop_body_index` đếm run |
+| **Bach** | không | **authoring** + `procedure` | exposition = sentence của entry |
+| **Barrios** | không | **authoring**; cần figure variants | period *La Catedral* |
+| **Villa** | không | **authoring**; pilot texture trước | ostinato |
 | **Brouwer** | không | **authoring**; ưu tiên thấp | ostinato |
-
-Ba pattern Torroba còn lại (`alcaniz`, `olite`, `torroba_tremolo`) **không** có sentence: chúng là figure đơn mỗi phrase qua `_castillos_figure_plan`. Có thể khai `sentence: null` và `figure_policy: per_phrase`, hoặc để nguyên code.
 
 ### 13.7. Quy tắc migration
 
 1. Mỗi archetype một commit; parity plan phải xanh trước khi sang archetype tiếp.
-2. Không đổi `n`/`closes`/`rise` semantics trong lúc migrate — chỉ chuyển if-ladder thành data. Mỗi nhánh là một archetype/branch, không gộp.
+2. Không đổi `n`/`closes`/`rise`/avoid-repeat semantics trong lúc migrate — chỉ chuyển if-ladder thành data. Mỗi nhánh là một archetype/branch, không gộp; `previous_figure` là post-pass và phải giữ nguyên.
 3. Figure đơn (thin) **không** được nâng thành sentence.
 4. `sentence: null` là hợp lệ; không ép composer phải có sentence.
 5. Chỉ authoring khi renderer đã có realizer cần thiết; nếu chưa, đó là việc viết figure/texture mới, không phải việc của registry.
