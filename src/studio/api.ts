@@ -28,7 +28,7 @@ export type {
  * If the deployed prefix differs, change it in one place:
  * `EXPO_PUBLIC_STUDIO_SENTENCE_PREFIX` or `DEFAULT_SENTENCE_PREFIX`.
  */
-export const DEFAULT_SENTENCE_PREFIX = '/studio/sentence';
+export const DEFAULT_SENTENCE_PREFIX = '/v1/studio/sentence';
 
 export const STUDIO_SENTENCE_PREFIX = (
   process.env.EXPO_PUBLIC_STUDIO_SENTENCE_PREFIX ?? DEFAULT_SENTENCE_PREFIX
