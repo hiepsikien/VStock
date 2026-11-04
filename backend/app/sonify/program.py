@@ -109,6 +109,7 @@ def guitar_movement_name(
     gap_leads=None,
     outro_override=None,
     framed: bool = True,
+    movement_index: int | None = None,
 ) -> str:
     """The dance `render` will write. Tests use this; a request must not."""
     found: list[str] = []
@@ -131,6 +132,7 @@ def guitar_movement_name(
             gap_leads=gap_leads,
             outro_override=outro_override,
             framed=framed,
+            movement_index=movement_index,
         )
     finally:
         _HEADLINE.reset(token_headline)
