@@ -86,7 +86,7 @@ Revision 1–6 dùng `pattern` và `figure` với nghĩa quá tải. Từ revisi
 
 | Từ trong doc này (rev 1–6) | Trục chuẩn | Ghi chú |
 |---|---|---|
-| `pattern` | **scheduler slot** | vẫn giữ làm id; khai thêm `level` (`topic` / `texture`), `topic_source` và `texture` |
+| `pattern` | **scheduler slot** | vẫn giữ làm id; khai thêm `level` (`topic` / `texture`), `name_source` và `texture` |
 | Hình thức in ra của movement | **Movement** (level trên pattern) | `PreparedMovement` + `FormSpec` + plan + `title`; 1D = 1 movement/1 pattern, 1W = 1 movement/N pattern, 1M = 4 movement |
 | Hình thức in ra của pattern | **Topic** | tên tác phẩm/chương/thể loại/điệu; **không** phải kỹ thuật |
 | `figure` | **Sentence** | template nhiều ô, có vai hình thức (walk/cadence, arada/float, period 4+4) |
@@ -99,8 +99,8 @@ Hai hệ quả bắt buộc khi implement:
 
 1. `FigureSpec` trong doc này đọc là **`SentenceSpec`**; `figure_code` là id của texture trong slot.
 2. Một pattern chỉ được in tên nếu `level` là `topic`; `level: texture` thì không in. Tên chương thuộc `Movement.title`, **không** phải pattern — guitar chưa có field này, nên phải thêm trước khi bỏ in texture (xem [`sonify-guitar-model.md`](./sonify-guitar-model.md) §2.1, §8).
-3. Field đã đổi tên trong doc: `FigureSpec`→`SentenceSpec`, `figure_code`→`sentence_code`, `meter_variants[].figures`→`sentences`, `selected_figure`→`selected_sentence`, `traits.figure_registry`→`traits.sentence_registry`. **Code hiện tại vẫn dùng `figure`/`_FIGURES`** — đổi code là PR riêng, không trộn vào PR này.
-4. Inventory 38 pattern (`level` / `topic` / `texture` / `procedure` / `sentence`) và 4 quyết định tên: [`sonify-guitar-model.md`](./sonify-guitar-model.md) §8, §12.
+3. Field đã đổi tên trong doc: `FigureSpec`→`SentenceSpec`, `meter_variants[].figures`→`sentences`, `selected_figure`→`selected_sentence`, `traits.figure_registry`→`traits.sentence_registry`. **Slot realizer vẫn map vào `_FIGURES` int** (`figure` trong slot, không phải `sentence_code`). Code hiện tại vẫn dùng `figure`/`_FIGURES` — đổi code là PR riêng, không trộn vào PR này.
+4. Inventory **39 dòng** = 38 dòng `PROFILES` + `pedal` (`level` / `topic` / `texture` / `procedure` / `sentence`) và các quyết định tên: [`sonify-guitar-model.md`](./sonify-guitar-model.md) §8, §12, §13.
 
 ---
 
@@ -555,33 +555,39 @@ Trong Phase 0–2:
 
 ### 5.1. Torroba là mẫu tham chiếu
 
-- Sentence Torroba là **int**: `_FIGURES` trong `guitar_torroba.py:3403`.
-- Có thêm gate `_REAL_TORROBA_FIGURES` (`guitar_torroba.py:32`) dùng ở `guitar_patterns.py:1862`.
-- `SentenceSpec` phải có `sentence_code` (int) để map vào `_FIGURES`; không dùng string `"arada"` làm id runtime.
-- `SentenceSpec.id` chỉ là id authoring; `sentence_code` là id runtime.
+- `_FIGURES` (`guitar_torroba.py:3403`) là **slot realizer**: mỗi phần tử là một cách điền ô (int code).
+- Gate `_REAL_TORROBA_FIGURES` (`guitar_torroba.py:32`) dùng ở `guitar_patterns.py:1862`.
+- `SentenceSpec` là **template**: các slot trỏ tới figure code qua `figure_registry`; **không** có một `sentence_code` duy nhất cho cả câu.
+- `SentenceSpec.id` là id authoring; figure code (int) là id runtime của từng slot.
 
 Ví dụ:
 
 ```json
 {
-  "id": "arada",
+  "id": "castillo_34_walk_cadence",
   "composer": "torroba",
   "kind": "sentence",
   "parent": "castillo",
-  "sentence_code": 7,
   "meter": {
-    "id": "4/4",
-    "beats": 4,
+    "id": "3/4",
+    "beats": 3,
     "beat_type": 4,
-    "eighths_per_bar": 8,
-    "strong_eighths": [0, 4],
+    "eighths_per_bar": 6,
+    "strong_eighths": [0],
     "subbar_breaks": [4],
-    "extra_weights": []
+    "extra_weights": [[4, 0.8]]
   },
-  "span": { "length": [5, 6, 7, 8], "slots": [0, 1, 2, 3, 4] },
+  "select": { "length": [9, 18], "n_parity": "any", "closes": null },
+  "span": { "unit": "bar", "tile": 9 },
+  "slots": [
+    { "role": "statement", "bars": 5, "realizer": { "kind": "texture", "figure": "castillo_walk" } },
+    { "role": "answer",    "bars": 4, "realizer": { "kind": "texture", "figure": "castillo_cadence" } }
+  ],
   "status": "reviewed"
 }
 ```
+
+`castillo_walk` → 13, `castillo_cadence` → 14, `arada` → 7, `float` → 8 trong `_FIGURES`. Chi tiết schema/selector/validator: [`sonify-guitar-model.md`](./sonify-guitar-model.md) §13.
 
 ### 5.2. Villa chưa có sentence registry
 
@@ -590,13 +596,13 @@ Trong code hiện tại:
 - `villa_pattern` là một hàm bar-level: `_render_villa_bar`.
 - `etude1`, `etude11` là bar-level: `_render_etude1_bar`, `_render_etude11_bar`.
 - `chord_melody`, `thumb_cantabile` là bar/phrase-level.
-- Không có `_FIGURES`, không có `span`, không có `sentence_code`.
+- Không có `_FIGURES`, không có span/slot, không có sentence registry.
 
 Vì vậy:
 
 - **Phase 0/1: Villa chỉ có `kind: "pattern"`.** Không bịa `SentenceSpec` cho Villa.
 - Phase 2: audit từng movement của *Suite Popular Brasileira* để quyết định pattern nào thực sự có sentence span. Nếu chỉ là biến thể trong một hàm bar-level, nó là **texture variation / cell**, không phải sentence.
-- Khi Villa có sentence registry, nó phải theo cùng mô hình Torroba: `sentence_code` + bảng map + test. Từ vựng: [`sonify-guitar-model.md`](./sonify-guitar-model.md).
+- Khi Villa có sentence registry, nó phải theo cùng mô hình Torroba: template + slot realizer trỏ tới figure code, có plan golden. Từ vựng và schema: [`sonify-guitar-model.md`](./sonify-guitar-model.md) §13.
 
 Đây là câu trả lời cho câu hỏi “Villa tổ chức thế nào”: **chưa biết; phải audit, không suy từ Torroba.**
 
@@ -1393,7 +1399,7 @@ Compiler chỉ biết `kind` + `parent` thì không thể biết pattern thuộc
 ```
 
 - `narrow_rows` là dữ liệu, không suy đoán.
-- `sentence_registry` quyết định có `sentence_code` hay không.
+- `sentence_registry` quyết định pattern có sentence template hay không; mỗi slot realizer map vào figure code.
 - Compiler sinh checklist từ traits + một danh sách “review sites” cố định.
 - Phần không suy được ghi là **review**, không phải **auto**.
 
@@ -1532,6 +1538,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 
 ### Phase 2 — Suite Popular Brasileira + runtime interpreter
 
+- Sentence pipeline theo [`sonify-guitar-model.md`](./sonify-guitar-model.md) §13: migrate Torroba (4 archetype) + galop (period 4+4) trước, rồi authoring cho composer còn lại.
 - Audit Villa sentence: pattern nào có span thật.
 - Chọn movement đầu tiên; tạo pattern spec + meter variants.
 - Suite là palette pattern; test movement line với 5 pattern (tối đa 3 title).
@@ -1575,7 +1582,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 21. **Registry version gate**: schema ngoài allowlist hoặc JSON hỏng bị bỏ, app vẫn boot; `renderer_version` bắt buộc cho interpreter.
 22. **Media token**: preview/export dùng signed token ngắn hạn; `GET /uploads/{id}` kiểm tra owner.
 23. **Global preview queue**: 1 worker Studio, render ngoài event loop, tách khỏi `EXPORT_SLOTS`; `previewsConcurrent` chỉ là per-session.
-24. **Level/nhãn**: mỗi pattern khai `level` (`topic` / `texture`) + `topic_source`; chỉ `topic` được in tên. **Movement** là level trên pattern (`FormSpec` + plan + `title`), không phải `level`. Inventory 38 pattern và các quyết định tên nằm ở [`sonify-guitar-model.md`](./sonify-guitar-model.md) §2.1, §8, §12.
+24. **Level/nhãn**: mỗi pattern khai `level` (`topic` / `texture`) + `name_source`; chỉ `topic` được in tên. **Movement** là level trên pattern (`FormSpec` + plan + `title`), không phải `level`. Inventory 39 dòng và các quyết định tên nằm ở [`sonify-guitar-model.md`](./sonify-guitar-model.md) §2.1, §8, §12.
 24. **Parent/upload identity**: `parent_slug` là pattern id; upload dedupe qua `studio_blobs.refcount`, xoá 1 owner không xoá file của owner khác.
 25. **Pitch context**: `melody_eighth`/`chord_degree`/`scale_step` resolve từ render context; `eighth`/`offset` out-of-range là validation error, không clamp; chỉ `literal_midi` standalone.
 26. **Validate queue/partial**: validate dùng cùng global Studio queue với preview; thiếu melody context trả `partial: true` + `skipped_checks`, không silent pass.
