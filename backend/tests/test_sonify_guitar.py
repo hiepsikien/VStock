@@ -6102,12 +6102,13 @@ def test_bach_1d_stays_one_pattern_and_longer_spans_walk_suite_rows() -> None:
 def test_bach_contrast_keeps_the_new_dances_off_bourree() -> None:
     """A short framed trio uses the palette guest, not the Bourrée fallback."""
     from app.sonify.guitar_bach import _bach_contrast
+    from app.sonify.plan_rules import PHRASE
 
     four = _dance_ctx(METER_44, [72] * 16, character="calm", rel_span=0.0)
-    assert _bach_contrast(four, "bach_prelude", "calm") == "bach_allemande"
-    assert _bach_contrast(four, "bach_allemande", "calm") == "bach_courante"
+    assert _bach_contrast(four, "bach_prelude", "calm", mode=PHRASE) == "bach_allemande"
+    assert _bach_contrast(four, "bach_allemande", "calm", mode=PHRASE) == "bach_courante"
     six = _dance_ctx(METER_68, [72] * 12, character="calm", rel_span=0.0)
-    assert _bach_contrast(six, "bach_courante", "calm") == "bach_gigue"
+    assert _bach_contrast(six, "bach_courante", "calm", mode=PHRASE) == "bach_gigue"
 
 
 def _patterns_of(ctx) -> list[str]:

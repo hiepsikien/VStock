@@ -9,6 +9,14 @@ import math
 from app.sonify.chords import Chord
 from app.sonify.model import NoteEvent, Phrase, Score
 from app.sonify.phrasing import MIN_RISE, swell
+from app.sonify.plan_rules import Mode
+from app.sonify.plan_rules_bach import (
+    ContrastInputs,
+    PrimaryInputs,
+    bach_contrast,
+    bach_pattern,
+)
+from app.sonify.procedure_specs import BACH_IMITATION, ImitationSpec
 from app.sonify.quantize import C_MAJOR_PCS, C_NATURAL_MINOR_PCS
 
 # Default velocity constants evaluated at function definition time
@@ -49,111 +57,55 @@ def _bach_daily_fingerprint(ctx: _Ctx) -> bool:
     return _framed(ctx) and ctx.bars == 34 and ctx.bpm == 96 and ctx.kind == "4/4"
 
 
-def _bach_unframed_primary(ctx: _Ctx, mood: str | None) -> str:
-    """The six-pattern scheduler. Prelude, Allemande, and Courante stay framed."""
-    if ctx.kind == "3/4" or ctx.bpm <= 72:
-        if mood == "selloff" and ctx.rel_span >= 0.016 and not _has_contrast_section(ctx):
-            return "bach_chaconne"
-        return "bach_sarabande"
-    if mood == "volatile":
-        return "bach_fuga"
-    if mood == "selloff":
-        return "bach_chaconne"
-    if ctx.kind == "6/8":
-        return "bach_gigue"
-    if mood == "calm":
-        return "bach_gavotte"
-    return "bach_bourree"
+def _bach_primary(
+    ctx: _Ctx,
+    phrases: list[Phrase],
+    bars: list[int],
+    mood: str | None,
+    *,
+    mode: Mode,
+) -> str:
+    """One Bach dance for a body, a section, or a single phrase.
+
+    The ordered table is in `plan_rules_bach`. Phrase and macro scopes share
+    every row; they differ only in the phrases and bars they aggregate.
+    """
+    return bach_pattern(
+        mode,
+        PrimaryInputs(
+            framed=_framed(ctx),
+            daily=_bach_daily_fingerprint(ctx),
+            finale=_is_suite_finale(ctx),
+            kind=ctx.kind,
+            bpm=ctx.bpm,
+            mood=mood,
+            rel_span=ctx.rel_span,
+            narrow_or_held=_bach_narrow_or_held(ctx, phrases),
+            wide=_bach_wide(ctx),
+            lively=_bach_lively(ctx, bars),
+            has_contrast=_has_contrast_section(ctx),
+            has_material=bool(bars or phrases),
+        ),
+    )
 
 
-def _bach_daily_pattern(ctx: _Ctx, phrases: list[Phrase], bars: list[int], mood: str | None) -> str:
-    """Section 3.2. Gavotte-on-a-wide-rally lives only on this fingerprint."""
-    if mood == "volatile":
-        return "bach_fuga"
-    if mood == "selloff":
-        return "bach_chaconne"
-    if mood == "calm":
-        return "bach_prelude" if _bach_narrow_or_held(ctx, phrases) else "bach_allemande"
-    if not _bach_wide(ctx):
-        return "bach_bourree"
-    if _bach_lively(ctx, bars):
-        return "bach_courante"
-    return "bach_gavotte"
-
-
-def _bach_finale_primary(mood: str | None) -> str:
-    """4/4 finale. A wide rally stays Bourrée; the only guest is the Fugue."""
-    if mood == "volatile":
-        return "bach_fuga"
-    if mood == "selloff":
-        return "bach_chaconne"
-    if mood == "calm":
-        return "bach_gavotte"
-    return "bach_bourree"
-
-
-def _bach_framed_primary(ctx: _Ctx, phrases: list[Phrase], bars: list[int], mood: str | None) -> str:
-    """Section 3.3. Lively does not promote Courante except on the 1D fingerprint."""
-    if _bach_daily_fingerprint(ctx):
-        return _bach_daily_pattern(ctx, phrases, bars, mood)
-    # A long 6/8 scherzo can share the numeric pedal of a finale. The finale
-    # menu is the 4/4 row; 3/4 and 6/8 keep their own primaries.
-    if _is_suite_finale(ctx) and ctx.kind == "4/4":
-        return _bach_finale_primary(mood)
-    if ctx.kind == "6/8":
-        if mood == "volatile":
-            return "bach_fuga"
-        if mood == "selloff":
-            return "bach_chaconne"
-        if mood == "calm":
-            return "bach_courante"
-        return "bach_gigue"
-    if ctx.kind == "4/4":
-        if mood == "volatile":
-            return "bach_fuga"
-        if mood == "selloff":
-            return "bach_chaconne"
-        if mood == "calm":
-            return "bach_prelude" if _bach_narrow_or_held(ctx, phrases) else "bach_allemande"
-        if _bach_wide(ctx):
-            return "bach_bourree"
-        return "bach_allemande"
-    if ctx.kind == "3/4" or ctx.bpm <= 72:
-        return "bach_sarabande"
-    return "bach_bourree"
-
-
-def _bach_primary(ctx: _Ctx, phrases: list[Phrase], bars: list[int], mood: str | None) -> str:
-    """One Bach dance for a body, a section, or a single phrase."""
-    if not bars and not phrases and mood is None and ctx.kind not in {"4/4", "3/4", "6/8"}:
-        return "bach_bourree"
-    if not _framed(ctx):
-        return _bach_unframed_primary(ctx, mood)
-    return _bach_framed_primary(ctx, phrases, bars, mood)
-
-
-
-def _bach_contrast(ctx: _Ctx, primary: str, mood: str | None) -> str:
+def _bach_contrast(
+    ctx: _Ctx,
+    primary: str,
+    mood: str | None,
+    *,
+    mode: Mode,
+) -> str:
     """Trio and bridge: the palette guest, then the dance returns.
 
-    Prelude, Allemande, and Courante take their own guest. The 6/8 branch
-    below would otherwise send a calm Courante to Bourrée.
+    Prelude, Allemande, and Courante take their own guest, so the 6/8 branch
+    cannot send a calm Courante to Bourrée. The ordered table is in
+    `plan_rules_bach`; both plan scopes share it.
     """
-    if primary == "bach_prelude":
-        return "bach_allemande"
-    if primary == "bach_allemande":
-        return "bach_courante"
-    if primary == "bach_courante":
-        return "bach_gigue"
-    if ctx.kind == "6/8" or primary == "bach_gigue":
-        return "bach_bourree" if mood == "calm" else "bach_fuga"
-    if ctx.kind == "3/4" or primary == "bach_sarabande":
-        return "bach_chaconne"
-    if primary in {"bach_bourree", "bach_gavotte"}:
-        return "bach_fuga"
-    if primary in {"bach_fuga", "bach_chaconne"}:
-        return "bach_bourree" if mood == "rally" else "bach_gavotte"
-    return "bach_bourree"
+    return bach_contrast(
+        mode,
+        ContrastInputs(kind=ctx.kind, primary=primary, mood=mood),
+    )
 
 
 def _bach_palette(ctx: _Ctx, primary: str, mood: str | None) -> tuple[str, ...]:
@@ -478,21 +430,25 @@ def _bach_keep_bass_below(ctx: _Ctx, lead: list[NoteEvent], low: list[NoteEvent]
 
 
 
-def _bach_lag_bar(ctx: _Ctx, bar: int) -> int:
-    if bar >= 2 and ctx.kind_at.get(bar - 2, "phrase") not in _PEDAL:
-        return bar - 2
-    if bar >= 1 and ctx.kind_at.get(bar - 1, "phrase") not in _PEDAL:
-        return bar - 1
+def _bach_lag_bar(ctx: _Ctx, bar: int, spec: ImitationSpec = BACH_IMITATION) -> int:
+    """The bar the bass answers. Prefer the lag, skip pedal bars, then close."""
+    spec.check_realized()
+    for back in range(spec.lag, 0, -1):
+        if bar >= back and ctx.kind_at.get(bar - back, "phrase") not in _PEDAL:
+            return bar - back
     return bar
 
 
-
-def _fuga_motif(ctx: _Ctx, src_bar: int) -> list[tuple[int, int, int]]:
-    """(offset, length, direction) of the lagged subject, 1:1 and never retrograde.
+def _fuga_motif(
+    ctx: _Ctx, src_bar: int, spec: ImitationSpec = BACH_IMITATION
+) -> list[tuple[int, int, int]]:
+    """(offset, length, direction) of the lagged subject, per the imitation spec.
 
     A repeated pitch is direction 0. A flat bar stays one held value; nothing
-    is invented when the subject has a single run.
+    is invented when the subject has a single run. The realizer only knows the
+    1:1 contour, forward and uninverted; `check_realized` refuses anything else.
     """
+    spec.check_realized()
     epb = ctx.epb
     start = src_bar * epb
     runs = _runs(ctx.melody, start, min(len(ctx.melody), start + epb))
@@ -600,15 +556,21 @@ def _approach_eighths(ctx: _Ctx, target: int, count: int) -> list[int]:
 
 
 
-def _compose_fuga_bass(ctx: _Ctx, bar: int, lead: list[NoteEvent]) -> list[NoteEvent]:
-    """Voice 3 answers with the subject from two bars earlier, under `lead`.
+def _compose_fuga_bass(
+    ctx: _Ctx,
+    bar: int,
+    lead: list[NoteEvent],
+    spec: ImitationSpec = BACH_IMITATION,
+) -> list[NoteEvent]:
+    """Voice 3 answers with the subject `spec.lag` bars earlier, under `lead`.
 
     The soprano may already be a scale. The bass still follows `_fuga_motif`
-    of the lagged bar, one step at a time, never retrograde.
+    of the lagged bar, one step at a time, with the contour and direction
+    flags in `spec`.
     """
     epb = ctx.epb
     start = bar * epb
-    src = _bach_lag_bar(ctx, bar)
+    src = _bach_lag_bar(ctx, bar, spec)
     low: list[NoteEvent] = []
 
     def sing(offset: int, length: int, direction: int, previous: int | None) -> int:
@@ -630,7 +592,7 @@ def _compose_fuga_bass(ctx: _Ctx, bar: int, lead: list[NoteEvent]) -> list[NoteE
         uppers = _lead_during(lead, start, half, epb) or [_melody_at(ctx, start)]
         root = _fuga_pitch(ctx, bar, uppers, previous=None, direction=0, strong=True)
         low.extend(_eighth_event(start, half, root, epb, 3, _BASS))
-        motif = [(offset, length, direction) for offset, length, direction in _fuga_motif(ctx, bar) if offset < half]
+        motif = [(offset, length, direction) for offset, length, direction in _fuga_motif(ctx, bar, spec) if offset < half]
         moving = len(motif) > 1 or any(direction != 0 for _offset, _length, direction in motif)
         if not moving:
             rest = epb - half
@@ -646,7 +608,7 @@ def _compose_fuga_bass(ctx: _Ctx, bar: int, lead: list[NoteEvent]) -> list[NoteE
                 nxt = motif[index + 1][0] if index + 1 < len(motif) else half
                 previous = sing(dest, min(length, nxt - offset), direction, previous)
     else:
-        motif = _fuga_motif(ctx, src)
+        motif = _fuga_motif(ctx, src, spec)
         previous = None
         for index, (offset, length, direction) in enumerate(motif):
             if offset >= epb:
@@ -656,23 +618,32 @@ def _compose_fuga_bass(ctx: _Ctx, bar: int, lead: list[NoteEvent]) -> list[NoteE
     return low
 
 
-def _fuga_bass_under_lead(ctx: _Ctx, bar: int, lead: list[NoteEvent]) -> list[NoteEvent]:
+def _fuga_bass_under_lead(
+    ctx: _Ctx,
+    bar: int,
+    lead: list[NoteEvent],
+    spec: ImitationSpec = BACH_IMITATION,
+) -> list[NoteEvent]:
     """Rebuild the lagged subject after a scale replaces the soprano of `bar`."""
-    low = _compose_fuga_bass(ctx, bar, lead)
+    low = _compose_fuga_bass(ctx, bar, lead, spec)
     _support, low = _shape_accompaniment(ctx, [], low)
-    if _bach_lag_bar(ctx, bar) == bar and low:
+    if _bach_lag_bar(ctx, bar, spec) == bar and low:
         low = _soften_attack(low, bar * ctx.epb, ctx.epb, amount=8)
     return low
 
 
 def _render_bach_fuga_bar(
-    ctx: _Ctx, bar: int, apex: set[int], phrase: Phrase | None
+    ctx: _Ctx,
+    bar: int,
+    apex: set[int],
+    phrase: Phrase | None,
+    spec: ImitationSpec = BACH_IMITATION,
 ) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
-    """Soprano sings the price now. The bass answers two bars later, 1:1, on this chord."""
+    """Soprano sings the price now. The bass answers `spec.lag` bars later, 1:1, on this chord."""
     epb = ctx.epb
     start = bar * epb
     lead = _sustain(ctx.melody, start, start + epb, epb, apex, phrase=phrase)
-    low = _compose_fuga_bass(ctx, bar, lead)
+    low = _compose_fuga_bass(ctx, bar, lead, spec)
     support: list[NoteEvent] = []
     strong_offsets = (0, 4) if ctx.kind == "4/4" else tuple(offset for offset in ctx.strong if offset < epb)
     for offset in strong_offsets:
@@ -688,7 +659,7 @@ def _render_bach_fuga_bar(
             continue
         support.extend(_eighth_event(eighth, 1, tone, epb, 2, _INNER))
     support, low = _shape_accompaniment(ctx, support, low)
-    if _bach_lag_bar(ctx, bar) == bar and low:
+    if _bach_lag_bar(ctx, bar, spec) == bar and low:
         low = _soften_attack(low, start, epb, amount=8)
     return lead, support, low
 
