@@ -164,7 +164,7 @@ Toàn bộ code chỉ có **một** procedure executable: `imitation` ở `bach_
 
 | Trường hợp | Không phải | Là |
 |---|---|---|
-| **Galop 1 / Galop 2** (Sor) | hai sentence, hai topic, hai pattern | **hai cell** trong một texture. `_galop1_cell` (`guitar_sor.py:291`), `_galop2_cell` (`:349`); `_render_galop_dance` (`:413`) chọn theo `index % 8 >= 4` — 4 ô "câu hỏi", 4 ô "câu trả lời" |
+| **Galop 1 / Galop 2** (Sor) | hai sentence, hai topic, hai pattern | **hai cell** trong một texture. `_galop1_cell` / `_galop2_cell` (`guitar_sor.py`); `_render_galop_dance` lấy cell từ `_galop_run_cell` → `plan_run` — 4 ô "câu hỏi", 4 ô "câu trả lời". `_galop_cell_legacy` giữ luật `index % 8 >= 4` làm parity oracle |
 | **Tremolo** (Barrios) | sentence | **texture**. Trong **phrase path** nó được chọn theo điều kiện giai điệu (`hold` + 90 ≤ bpm ≤ 140, `guitar_patterns.py:940`); ở macro path nó là ứng viên của `_dominant_pattern_auto` |
 | **Arpeggio** | topic | **họ texture** trong `_FAMILY`. `_ARPEGGIO` (`guitar_patterns.py:47`) là **dead code** — chỉ có dòng định nghĩa, không được dùng; đừng trích nó làm bằng chứng. Việc `villa_pattern` in "Arpeggio" là lỗi nhãn (§8) |
 | **Cathedral Preludio** (Barrios) | sentence | **movement-level**: `_catedral_preludio` (`guitar_barrios.py:19`) chọn texture (16th thật nếu movement có frame, 8th nếu fixture) |
@@ -229,7 +229,7 @@ Vì vậy "Villa 1D dùng `_select_body`" là **sai**: 1D framed đi macro → `
 | `guitar_torroba.py:1763` `_phrase_spans` | **Sentence**: sonatina/fandanguillo/danza mới đọc `closes` |
 | `guitar_torroba.py:3687` `_castillos_figure_plan` | **Figure đơn**, không phải sentence |
 | `guitar_torroba.py:1824` `torroba_figure_plan` | **Sentence plan** (bar → slot) |
-| `guitar_sor.py:291/349` galop cells | **Cell** |
+| `guitar_sor.py` `_galop1_cell`/`_galop2_cell` | **Cell** |
 | `guitar_barrios.py:571` `_perpetual_bars` | **Texture variation** |
 | `guitar_bach.py:490` `_fuga_motif`, `:603` `_compose_fuga_bass` | **Procedure** (imitation) |
 | `guitar_bach.py:1444` `_chaconne_bass_slots` | **Bass texture cell**, không phải procedure |
@@ -549,8 +549,8 @@ plan_run(pattern, meter, run_length)
 6. `unsupported`: list tĩnh **hoặc** predicate `unsupported_when` cho trường hợp phụ thuộc input (`fandanguillo`: `rise == 0`, `room < 4` khi `n` chẵn, `room < 2` hoặc `start + 1 >= room` khi `n` lẻ; `danza`: meter 4/4, `length < 4`, `closes && length == 4`).
 7. `n` coverage: với mỗi length, **mọi** residue của `mod` (2 hoặc 3) phải có archetype, hoặc khai unsupported.
 8. `sentence.meter` thuộc `pattern.meter_variants`; realizer tồn tại; plan golden.
-9. Cycle spec không được select trên `n`/`closes`/`rise` (run không có phrase turn), và slot của nó phải `start`-anchored.
-10. Mỗi slot cần đúng một realizer: `figure` hoặc `cell`.
+9. Cycle spec không được select trên `n`/`closes`/`rise` (run không có phrase turn), slot của nó phải `start`-anchored và **chỉ dùng `cell`**; span không phải cycle **chỉ dùng `figure`**.
+10. Mỗi slot cần đúng một realizer: `figure` hoặc `cell`. `register(valid_figures=…)`/`register(valid_cells=…)` buộc id phải tồn tại, nên typo không đăng ký được.
 
 Phase 1: `register()` đã enforce tile/slot/parity/remainder; coverage per-cycle và `unsupported_lengths` vẫn là việc của test, chưa phải validator runtime.
 

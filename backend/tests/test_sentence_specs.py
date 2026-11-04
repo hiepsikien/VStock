@@ -124,13 +124,13 @@ def test_cycle_repeats_and_truncates() -> None:
         "unit_cycle",
         select=Select(length_min=1),
         span=Span(tile=8, cycle=True, remainder="truncate_cycle"),
-        slots=(Slot(0, 4, 1), Slot(4, 4, 2)),
+        slots=(Slot(0, 4, cell="a"), Slot(4, 4, cell="b")),
     )
     pattern = _register(spec)
-    assert plan_sentence(pattern, "3/4", 10, 0) == [
-        (1, (0, 1, 2, 3)),
-        (2, (4, 5, 6, 7)),
-        (1, (8, 9)),
+    assert plan_run(pattern, "3/4", 18) == [
+        "a", "a", "a", "a", "b", "b", "b", "b",
+        "a", "a", "a", "a", "b", "b", "b", "b",
+        "a", "a",
     ]
 
 
@@ -188,6 +188,45 @@ def test_cycle_slots_must_be_start_anchored() -> None:
     )
     with pytest.raises(ValueError, match="start-anchored"):
         register("unit_cycle_anchor", "3/4", spec, replace=True)
+
+
+def test_a_cycle_slot_needs_a_cell_realizer() -> None:
+    spec = _spec(
+        "unit_cycle_figure",
+        select=Select(),
+        span=Span(tile=8, cycle=True, remainder="truncate_cycle"),
+        slots=(Slot(0, 4, figure=1), Slot(4, 4, cell="b")),
+    )
+    with pytest.raises(ValueError, match="needs a cell realizer"):
+        register("unit_cycle_figure", "3/4", spec, replace=True)
+
+
+def test_a_cell_realizer_needs_a_cycle_span() -> None:
+    spec = _spec(
+        "unit_cell_plain",
+        select=Select(),
+        span=Span(tile=8),
+        slots=(Slot(0, 8, cell="a"),),
+    )
+    with pytest.raises(ValueError, match="needs a cycle span"):
+        register("unit_cell_plain", "3/4", spec, replace=True)
+
+
+def test_register_rejects_unknown_cell() -> None:
+    spec = _spec(
+        "unit_badcell",
+        select=Select(),
+        span=Span(tile=8, cycle=True, remainder="truncate_cycle"),
+        slots=(Slot(0, 4, cell="a"), Slot(4, 4, cell="b")),
+    )
+    with pytest.raises(ValueError, match=r"cells \['b'\] are not registered"):
+        register(
+            "unit_badcell",
+            "3/4",
+            spec,
+            replace=True,
+            valid_cells={"a"},
+        )
 
 
 def test_register_rejects_unknown_figure() -> None:

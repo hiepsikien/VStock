@@ -12,7 +12,8 @@ import json
 import pathlib
 from types import SimpleNamespace
 
-from app.sonify.guitar_sor import _galop_body_index
+from app.sonify.guitar_sor import _galop_body_index, _galop_run_cell
+from app.sonify.sentence_specs import plan_run
 from app.sonify.guitar_torroba import (
     _castillo_34_spans,
     _castillo_spans,
@@ -34,6 +35,7 @@ def _norm(value):
 
 def _galop_ctx(bars: int, patterns: list[str]) -> SimpleNamespace:
     ctx = SimpleNamespace()
+    ctx.bars = bars
     ctx.kind_at = {bar: "phrase" for bar in range(bars)}
     ctx._pattern_source = None
     ctx._pattern_signature = None
@@ -67,6 +69,15 @@ def _cases() -> dict[str, object]:
     for bars in range(1, 31):
         patterns = ["galop"] * bars
         out[f"galop|{bars}"] = _galop_body_index(_galop_ctx(bars, patterns), bars - 1, patterns)
+        for meter in ("3/4", "4/4", "6/8"):
+            ctx = _galop_ctx(bars, patterns)
+            ctx.kind = meter
+            out[f"galop_run|{bars}|{meter}"] = plan_run("galop", meter, bars)
+            out[f"galop_cell|{bars}|{meter}"] = [
+                cell for _index, cell in (
+                    _galop_run_cell(ctx, bar, patterns) for bar in range(bars)
+                )
+            ]
 
     for cut in range(0, 10):
         bars = 10
@@ -104,5 +115,7 @@ def test_fixture_covers_every_family() -> None:
         "fandanguillo",
         "galop",
         "galop_reset",
+        "galop_run",
+        "galop_cell",
     ):
         assert any(name.startswith(f"{family}|") for name in expected), family

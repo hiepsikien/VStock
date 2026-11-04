@@ -1802,4 +1802,9 @@ from app.sonify.guitar_patterns import (  # noqa: E402
 )
 
 # Registered last so the cycle data exists once every renderer it names does.
-register("galop", METER_ANY, GALOP_CYCLE)
+register(
+    "galop",
+    METER_ANY,
+    GALOP_CYCLE,
+    valid_cells={GALOP_CELL_1, GALOP_CELL_2},
+)

@@ -5,9 +5,10 @@ A sentence selects a figure for a span of bars. The migrated families are
 odd one, nine-bar tile), `castillo` in 4/4 (nine Arada archetypes: type 7,
 type 8 pairs, and a one-bar link), `sonatina` open/close, `fandanguillo` (two
 archetypes: a four-bar type 5 on an even phrase number, a two-bar type 2 placed
-relative to the phrase middle on an odd one), and `danza` in 3/4 and 6/8 (one
-four-bar type 6). The bar-level figure renderers stay in `guitar_torroba.py`;
-only the choice of figure for a span lives here.
+relative to the phrase middle on an odd one), `danza` in 3/4 and 6/8 (one
+four-bar type 6), and Sor's `galop` (a run-based cycle of two cells). The
+bar-level figure renderers stay in `guitar_torroba.py`; the galop cells stay in
+`guitar_sor.py`. Only the choice of realizer for a span lives here.
 
 `plan_sentence()` returns `None` when the pattern/meter pair has no data yet, so
 callers fall back to the code path during the migration. An empty list means the
@@ -163,6 +164,10 @@ def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
             not isinstance(slot.cell, str) or not slot.cell
         ):
             raise ValueError(f"{spec.id}: a cell id must be a non-empty string")
+        if span.cycle and slot.cell is None:
+            raise ValueError(f"{spec.id}: a cycle slot needs a cell realizer")
+        if not span.cycle and slot.cell is not None:
+            raise ValueError(f"{spec.id}: a cell realizer needs a cycle span")
         if span.cycle and slot.anchor != "start":
             raise ValueError(f"{spec.id}: a cycle slot must be start-anchored")
 
@@ -242,13 +247,15 @@ def register(
     *specs: SentenceSpec,
     replace: bool = False,
     valid_figures: Collection[int] | None = None,
+    valid_cells: Collection[str] | None = None,
 ) -> None:
     """Add archetypes for one pattern/meter pair.
 
     Called at import by the owner module. Re-registering identical specs is a
     no-op, so `importlib.reload` keeps working; a different value raises unless
     `replace=True`. When `valid_figures` is given, every slot figure must exist
-    in it (the owner passes its `_FIGURES` keys).
+    in it (the owner passes its `_FIGURES` keys); `valid_cells` does the same
+    for a cell realizer, so an owner's typo cannot register.
     """
     key = (pattern, meter)
     ordered = tuple(
@@ -268,6 +275,15 @@ def register(
         } - set(valid_figures)  # type: ignore[arg-type]
         if missing:
             raise ValueError(f"{key}: figures {sorted(missing)} are not registered")
+    if valid_cells is not None:
+        missing_cells = {
+            slot.cell
+            for spec in ordered
+            for slot in spec.slots
+            if slot.cell is not None
+        } - set(valid_cells)
+        if missing_cells:
+            raise ValueError(f"{key}: cells {sorted(missing_cells)} are not registered")
 
     existing = SENTENCE_SPECS.get(key)
     if existing is not None:
@@ -358,8 +374,9 @@ def _cells(
 def _tile(
     spec: SentenceSpec,
     length: int,
-    place: Callable[[SentenceSpec, int, int, int], list[tuple]] = _slots,
+    place: Callable[[SentenceSpec, int, int, int], list[tuple]] | None = None,
 ) -> list[tuple]:
+    place = place or _slots
     span = spec.span
     if span.exact or span.remainder == "exact":
         if span.tile is not None and length != span.tile:
@@ -435,10 +452,10 @@ def plan_run(pattern: str, meter: str, run_length: int) -> list[str] | None:
 
     A run is a maximal stretch of consecutive bars the caller treats as one
     cycle: the galop run index resets at a pedal or study bar, so the caller
-    passes the run length up to and including the current bar. Only a `cycle`
-    span has a run plan. `None` means the pair has no entry at all (the caller
-    stays on the code path); `[]` means the registry covers the pair but has no
-    cycle that fills every bar at this run length.
+    passes the **full** run length, including the bars before and after the
+    current one. Only a `cycle` span has a run plan. `None` means the pair has
+    no entry at all (the caller stays on the code path); `[]` means the registry
+    covers the pair but has no cycle that fills every bar at this run length.
     """
     specs = _lookup(pattern, meter)
     if specs is None:
