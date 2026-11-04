@@ -184,7 +184,7 @@ Toàn bộ code chỉ có **một** procedure executable: `imitation` ở `bach_
 | **Barrios** | 8 (6 / 2) | none | null | 1D 34/120/4/4 → phrase; framed dài → region row; còn lại macro |
 | **Sor / Classic** | 5 (5 / 0) | none | **period 4+4** (galop) | macro + post `_settle_galop` |
 | **Bach** | 9 (9 / 0) | **imitation** (chỉ `bach_fuga`) | null | framed dài → region row; còn lại macro |
-| **Brouwer** | 4 (4 / 0) | none | null | macro `_brouwer_primary/_contrast` |
+| **Brouwer** | 4 (4 / 0) | none | null | phrase + macro trong `plan_rules_brouwer.BROUWER_RULES` (cùng mood+bpm); contrast ở `_brouwer_contrast` |
 
 Plan không phải một tầng duy nhất; nó có ba scope và hai post-pass:
 

@@ -48,20 +48,26 @@ class BrouwerInputs:
     bpm: int
 
 
-# Ordered: the first matching rule wins. The shared row list is materialised
-# for both modes below, so a mode-specific rule must be added explicitly.
-_LADDER: tuple[tuple[Callable[[BrouwerInputs], bool], str, str], ...] = (
+# Ordered: the first matching rule wins. Each row names the modes it belongs
+# to, so a future scope-specific rule is an explicit `(PHRASE,)` or `(MACRO,)`
+# row instead of silently joining both ladders.
+_LADDER: tuple[
+    tuple[tuple[Mode, ...], Callable[[BrouwerInputs], bool], str, str], ...
+] = (
     (
+        (PHRASE, MACRO),
         lambda case: case.mood == "calm",
         "noviembre",
         "a calm phrase or body keeps the November ballad",
     ),
     (
+        (PHRASE, MACRO),
         lambda case: case.mood == "selloff" or case.bpm <= 72,
         "sarabande",
         "a selloff or slow phrase or body takes the Sarabande",
     ),
     (
+        (PHRASE, MACRO),
         lambda case: case.mood == "volatile",
         "elogio_pizz",
         "a volatile phrase or body takes the Elogio pizzicato",
@@ -70,8 +76,8 @@ _LADDER: tuple[tuple[Callable[[BrouwerInputs], bool], str, str], ...] = (
 
 BROUWER_RULES: tuple[Rule, ...] = tuple(
     Rule(mode, when, pattern, why)
-    for mode in (PHRASE, MACRO)
-    for when, pattern, why in _LADDER
+    for modes, when, pattern, why in _LADDER
+    for mode in modes
 )
 
 BROUWER_FALLBACK: dict[Mode, str] = {
