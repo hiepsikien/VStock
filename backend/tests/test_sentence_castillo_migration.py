@@ -1,4 +1,4 @@
-"""Castillo 3/4 migration: equivalence, integration, and registry validation."""
+"""Castillo migration: equivalence, integration, and registry validation."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 import app.sonify.guitar_torroba as torroba
-from app.sonify.guitar_torroba import _castillo_34_spans
+from app.sonify.guitar_torroba import _castillo_34_spans, _castillo_spans
 from app.sonify.sentence_specs import (
     Select,
     SentenceSpec,
@@ -31,16 +31,23 @@ def _phrase(bars: int = 9, closes: bool = False, rise: int = 1) -> SimpleNamespa
 
 
 def test_castillo_34_planner_matches_legacy() -> None:
-    for length in range(0, 13):
+    for length in range(0, 21):
         for n in range(0, 4):
             assert plan_sentence("castillo", "3/4", length, n) == _castillo_34_spans(
                 length, n
             ), (length, n)
 
 
-def test_other_castillo_meters_stay_on_the_code_path() -> None:
-    for meter in ("4/4", "6/8"):
-        assert plan_sentence("castillo", meter, 9, 0) is None
+def test_castillo_44_planner_matches_legacy() -> None:
+    for length in range(0, 21):
+        for n in range(0, 4):
+            assert plan_sentence("castillo", "4/4", length, n) == _castillo_spans(
+                length, n, "4/4"
+            ), (length, n)
+
+
+def test_castillo_68_stays_on_the_code_path() -> None:
+    assert plan_sentence("castillo", "6/8", 9, 0) is None
 
 
 def test_castillo_34_length_one_is_unsupported() -> None:
@@ -58,11 +65,24 @@ def test_phrase_spans_uses_registry_for_castillo_34(monkeypatch) -> None:
     assert spans == _castillo_34_spans(9, 0)
 
 
-def test_phrase_spans_falls_back_for_other_meters(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("length", "n"),
+    [(3, 0), (4, 0), (4, 1), (5, 0), (5, 1), (6, 0), (6, 1), (7, 0), (8, 0), (8, 1)],
+)
+def test_phrase_spans_uses_registry_for_castillo_44(monkeypatch, length, n) -> None:
+    def boom(*_args, **_kwargs):
+        raise AssertionError("castillo 4/4 used the code path")
+
+    monkeypatch.setattr(torroba, "_castillo_spans", boom)
+    spans = torroba._phrase_spans(_ctx("4/4"), _phrase(length), "castillo", n)
+    assert spans == _castillo_spans(length, n, "4/4")
+
+
+def test_phrase_spans_falls_back_for_castillo_68(monkeypatch) -> None:
     monkeypatch.setattr(
         torroba, "_castillo_spans", lambda length, n, kind: [("legacy", (0,))]
     )
-    assert torroba._phrase_spans(_ctx("4/4"), _phrase(9), "castillo", 0) == [
+    assert torroba._phrase_spans(_ctx("6/8"), _phrase(9), "castillo", 0) == [
         ("legacy", (0,))
     ]
 

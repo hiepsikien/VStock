@@ -1,6 +1,6 @@
 # Mô hình âm nhạc của lớp guitar — Topic / Texture / Procedure / Sentence / Plan
 
-> **Trạng thái**: căn bản cho refactor renderer. **Phase 1 đã code (PR #147):** `castillo` 3/4 đã migrate sang sentence data; `castillo` 4/4, `sonatina`, `fandanguillo`, `danza`, `galop` còn ở code.
+> **Trạng thái**: căn bản cho refactor renderer. **Đã migrate:** `castillo` 3/4 (PR #147) và 4/4 (PR #148). **Còn ở code:** `sonatina`, `fandanguillo`, `danza`, `galop`.
 > **Phạm vi**: lớp `guitar` trong `backend/app/sonify/` (villa, torroba, barrios, brouwer, bach, classic).
 > **Liên quan**: [`sonify-texture-studio.md`](./sonify-texture-studio.md), [`sonify-pattern-names.md`](./sonify-pattern-names.md), [`sonify-classical-guitar.md`](./sonify-classical-guitar.md), [`sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md).
 > **Thứ tự**: doc này là điều kiện trước cho (a) refactor renderer và (b) Texture Studio khi thêm texture cho Villa-Lobos.
@@ -428,7 +428,7 @@ Quan hệ với các khái niệm khác:
 | `span.truncate_to_length` | slot dài hơn `length` bị cắt theo length (castillo 3/4, sonatina close L<=3) |
 | `slots[].start`, `bars`, `realizer` | vị trí + độ dài + figure/cell/procedure |
 
-**Phase 1 (PR #147) — subset đã code** trong `backend/app/sonify/sentence_specs.py`:
+**Phase 1–2 (PR #147, #148) — subset đã code** trong `backend/app/sonify/sentence_specs.py`:
 
 | Doc §13 | Code Phase 1 |
 |---|---|
@@ -552,21 +552,21 @@ Phase 1: `register()` đã enforce tile/slot/parity/remainder; coverage per-cycl
 
 ### 13.6. Inventory archetype Torroba + status
 
-**Đã migrate (PR #147):** `castillo` 3/4 walk/cadence. Tất cả dòng còn lại **còn ở code**; `plan_sentence` trả `None` cho chúng.
+**Đã migrate:** `castillo` 3/4 (PR #147) và toàn bộ 4/4 (PR #148). Các dòng còn lại **còn ở code**; `plan_sentence` trả `None` cho chúng.
 
 | Family | Select | Span | Slots (start, bars, figure) |
 |---|---|---|---|
 | ✓ `castillo` 3/4 walk | L>=2, n even | tile 9, same_figure, truncate | `(0, 9, walk)` |
 | ✓ `castillo` 3/4 cadence | L>=2, n odd | tile 9, same_figure, truncate | `(0, 9, cadence)` |
-| `castillo` 4/4 short | L 2–3 | exact | `(0, 2, 8)` |
-| `castillo` 4/4 pair even | L 4, n even | exact | `(0, 2, 8)` |
-| `castillo` 4/4 pair odd | L 4, n odd | exact | `(1, 2, 8)` |
-| `castillo` 4/4 type7 (L5) | L 5, n even | exact | `(0, 5, 7)` |
-| `castillo` 4/4 pairs at 3 | L 5–6, n odd | exact | `(0, 2, 8), (3, 2, 8)` |
-| `castillo` 4/4 type7 (L6) | L 6, n even | exact | `(0, 5, 7)` |
-| `castillo` 4/4 type7 (L7) | L 7 | exact | `(0, 5, 7)` |
-| `castillo` 4/4 long even | L>=8, n even | exact | `(0, 5, 7)` |
-| `castillo` 4/4 long odd | L>=8, n odd | exact | `(0,2,8), (4,2,8), (2,1,1)` |
+| ✓ `castillo` 4/4 short | L 2–3 | exact | `(0, 2, 8)` |
+| ✓ `castillo` 4/4 pair even | L 4, n even | exact | `(0, 2, 8)` |
+| ✓ `castillo` 4/4 pair odd | L 4, n odd | exact | `(1, 2, 8)` |
+| ✓ `castillo` 4/4 type7 (L5) | L 5, n even | exact | `(0, 5, 7)` |
+| ✓ `castillo` 4/4 pairs at 3 | L 5–6, n odd | exact | `(0, 2, 8), (3, 2, 8)` |
+| ✓ `castillo` 4/4 type7 (L6) | L 6, n even | exact | `(0, 5, 7)` |
+| ✓ `castillo` 4/4 type7 (L7) | L 7 | exact | `(0, 5, 7)` |
+| ✓ `castillo` 4/4 long even | L>=8, n even | exact | `(0, 5, 7)` |
+| ✓ `castillo` 4/4 long odd | L>=8, n odd | exact | `(0,2,8), (4,2,8), (2,1,1)` |
 | `sonatina` open L2 t0 | L2, `n%3=0` | exact | `(0,2,4)` |
 | `sonatina` open L2 t1 | L2, `n%3=1` | exact | `(0,2,2)` |
 | `sonatina` open L2 t2 | L2, `n%3=2` | exact | `(0,1,1)` |
