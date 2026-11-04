@@ -630,7 +630,7 @@ _PEDAL = frozenset({"intro", "outro", "warmup", "cooldown"})          # form.py:
 - **`pattern` của door là body pattern ở biên**, không phải `headline_id`: `_paint_frames` (`guitar_patterns.py:4081-4092`) gọi `_joined_body_pattern(ctx, leading[-1] + 1, patterns)` cho intro và `... trailing[0] - 1 ...` cho outro. Row `[preludio, tremolo, preludio]` → intro/outro dùng `preludio`; nếu biên là `tremolo` thì door là `tremolo`.
 - **Chữ ký door:** `door(ctx, bar, role, *, steps, closing, index)`. `steps` là **bucket 2 hoặc 4**, không phải độ dài region: `steps = 2 if len(bars) <= 2 else 4` (`_render_region`, `:61`). `length = len(bars)` chỉ được truyền vào `_gesture`; region 1 bar đi `_compressed` (`:111`). `role` lấy từ `frame_roles(length)` (`:29`), tối đa 4 bước `0..3`.
 - **Hợp nhất registry:** `_extra_doors()` (`:623`) merge `guitar_frame_bach_sor.DOORS` → `guitar_frame_rest.DOORS` → `guitar_torroba_doors.DOORS` (update vào `_RETAINED_DOORS`), rồi `_RETAINED_DOORS` **thắng khi trùng**.
-- **Profile:** `_PEDAL_DOOR_PROFILE` (`guitar_patterns.py:4027`) map **body pattern → profile playability** cho vùng cửa; không có entry thì rơi về `"study"`.
+- **Profile:** `door_profile(name)` = `_PROFILE.get(name, "study")`. Door chơi idiom của body ở biên nên dùng profile của body; không còn bảng riêng. (PR #146, chưa merge — merge #146 trước #145.)
 - **Không in tên:** `form_pattern_ids` bỏ qua `pedal` (`:3323-3324`), nên đổi nhãn texture không ảnh hưởng door.
 
 ### 14.3. Schema
@@ -643,7 +643,7 @@ _PEDAL = frozenset({"intro", "outro", "warmup", "cooldown"})          # form.py:
   "sections": ["intro", "outro", "warmup", "cooldown"],
   "steps": { "short": 2, "long": 4, "threshold": 2, "compress_one_bar": true },
   "roles": [0, 1, 2, 3],
-  "profile": "thumb_cantabile",
+  "profile": "derived_from_pattern",
   "fallback": "policy_none",
   "status": "reviewed"
 }
@@ -653,7 +653,7 @@ _PEDAL = frozenset({"intro", "outro", "warmup", "cooldown"})          # form.py:
 - `steps` là bucket: `short = 2` khi region <= `threshold`, `long = 4` khi dài hơn. **Không** phải độ dài region; region length chỉ dùng để chọn `_compressed`/`frame_roles`.
 - `roles` trong schema là **tập giá trị** `0..3`, không phải list theo bar. Role từng bar do `frame_roles(length)` quyết định: 2 → `[0,1]`; 3 → `[0,2,3]`; 4 → `[0,1,2,3]`; **>4 thì lặp** theo `min(3, index * 4 // length)`, bar cuối luôn 3 (5 → `[0,0,1,2,3]`; 6 → `[0,0,1,2,2,3]`; 8 → `[0,0,1,1,2,2,3,3]`). Length 1 đi `_compressed` và gọi role 0 rồi 1.
 - `fallback`: code **luôn** rơi về `_frame_composer` khi không có door; `policy_none` chỉ là policy validation (cảnh báo/fail nếu thiếu), không phải hành vi mặc định.
-- `profile`: key trong `_PEDAL_DOOR_PROFILE`.
+- `profile`: **derive** từ `_PROFILE[pattern]`; `derived_from_pattern` là placeholder, không phải key tra cứu. Chỉ thêm override nếu sau này cửa cần trần khác body.
 
 ### 14.4. Inventory hiện tại
 
@@ -666,22 +666,22 @@ Toàn bộ **38 dòng `PROFILES`** đều có door (không có pattern nào rơi
 | `guitar_torroba_doors.DOORS` | 7 | castillo, sonatina, fandanguillo, danza, torroba_tremolo, alcaniz, olite |
 | `_RETAINED_DOORS` | 8 literal → **15** sau `_extra_doors()` | classic (study, mozart_var); barrios (preludio); villa (villa_pattern); brouwer (noviembre, elogio_pizz); bach (bourree, fuga); `_extra_doors()` update thêm 7 torroba |
 
-**Gap (đã sửa ở PR #146):** `_PEDAL_DOOR_PROFILE` chỉ có **10 key** (thumb_cantabile, elegiaque, choro, castillo, sonatina, fandanguillo, danza, torroba_tremolo, alcaniz, olite). `thumb_cantabile` phủ **2 dòng** nên cover **11/38 dòng**; **27 dòng còn lại từng rơi về `"study"`**. Nay `door_profile(name)` trả explicit entry, nếu không có thì `_PROFILE[name]` — door chơi idiom của body ở biên, nên dùng profile của body. Test `test_door_profiles.py` khoá 38/38.
+**Gap và cách sửa (PR #146, chưa merge — merge #146 trước #145):** bảng cũ `_PEDAL_DOOR_PROFILE` có **10 key**, trùng `_PROFILE` từng entry, phủ 11/38 dòng; **27 dòng còn lại** rơi về `"study"`. Nay bảng đã bị **xoá** và `door_profile(name)` dùng `_PROFILE.get(name, "study")`. Test khoá: **door coverage 38/38 dòng**, **profile resolve 38/38** (đều qua `_PROFILE`), và fallback `"study"` chỉ cho tên lạ. Không còn khái niệm "entry explicit".
 
 ### 14.5. Validator và test
 
 1. Door chỉ phủ bar có `kind_at in _PEDAL`; không overlap body.
 2. Mỗi `(ensemble, pattern)` có tối đa một door; trùng key phải khai rõ module nào thắng (hiện `_RETAINED_DOORS` thắng).
-3. `door_profile(name)` phải resolve: explicit `_PEDAL_DOOR_PROFILE` hoặc `_PROFILE[name]`; chỉ unknown mới về `"study"`.
+3. `door_profile(name)` phải resolve qua `_PROFILE[name]`; chỉ unknown mới về `"study"`.
 4. Region 1 bar phải đi `_compressed`; region dài dùng `steps = 4` (bucket), không phải `steps = length`.
 5. Golden riêng cho door theo `(ensemble, pattern, section kind, length, roles)`: note table, không dùng Score hash. `steps` chỉ 2/4 nên không đủ phân biệt length 3 và 4.
-6. Negative: door xuất hiện trong body → fail; door thiếu profile → fail (hoặc warning nếu chấp nhận fallback).
+6. Negative: door xuất hiện trong body → fail; pattern **không có trong `_PROFILE`** → fail (thiếu profile không còn là khái niệm, vì profile derive từ body).
 
 ### 14.6. Checklist khi thêm pattern
 
 - [ ] `traits.has_door` — **field đề xuất** trong PR #142, **chưa có trong code**; không đi tìm nó trên branch này.
 - [ ] Nếu có: viết hàm door, đăng ký vào module (`guitar_frame_rest.DOORS`, `guitar_frame_bach_sor.DOORS`, hoặc `guitar_torroba_doors.DOORS`) **hoặc** `_RETAINED_DOORS`.
-- [ ] Thêm entry `_PEDAL_DOOR_PROFILE[pattern]` **chỉ khi** trần register/velocity khác `_PROFILE[pattern]`; mặc định door dùng profile của body.
+- [ ] Không cần thêm entry: door tự dùng `_PROFILE[pattern]`. Chỉ thêm **override table** nếu cửa cần trần register/velocity khác body, kèm test cho phép khác.
 - [ ] Door golden cho `(ensemble, pattern)` × `intro/outro` × `length`/`roles` (không chỉ `steps` 2/4).
 - [ ] Nếu pattern không có cửa (hiếm), khai `fallback: composer_frame` và test rằng frame composer chạy được.
 
