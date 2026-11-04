@@ -4024,28 +4024,15 @@ def _joined_body_pattern(ctx: _Ctx, bar: int, patterns: list[str]) -> tuple[str,
     return headline_id(ctx, patterns), None
 
 
-_PEDAL_DOOR_PROFILE = {
-    "thumb_cantabile": "thumb_cantabile",
-    "elegiaque": "elegiaque",
-    "choro": "barrios_dance",
-    "castillo": "torroba",
-    "sonatina": "torroba",
-    "fandanguillo": "torroba",
-    "danza": "torroba",
-    "torroba_tremolo": "torroba",
-    "alcaniz": "torroba",
-    "olite": "torroba",
-}
-
-
 def door_profile(name: str) -> str:
     """Playability profile of a door region.
 
     A door plays the body idiom at the boundary, so it takes the body pattern's
-    profile. `_PEDAL_DOOR_PROFILE` only names the cases where the door needs a
-    different ceiling; everything else follows `_PROFILE`.
+    profile. The old `_PEDAL_DOOR_PROFILE` table duplicated `_PROFILE` entry for
+    entry, so it is gone; add an override table only if a door ever needs a
+    different ceiling from its body.
     """
-    return _PEDAL_DOOR_PROFILE.get(name) or _PROFILE.get(name, "study")
+    return _PROFILE.get(name, "study")
 
 
 def profiles_for(ctx: _Ctx, patterns: list[str]) -> dict[int, str]:
