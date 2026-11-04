@@ -163,6 +163,19 @@ def _build_cases() -> dict[str, str]:
                 movement_index=movement,
             )
 
+    # The row also turns with the character inside a movement. Even movements
+    # only carried calm above; add the rally turn for the cheap ensembles.
+    for ensemble in CHEAP_3M:
+        for movement in (0, 2):
+            key = _key(ensemble, "1M", "rally", "running", 120) + f"|m{movement}"
+            cases[key] = guitar_movement_name(
+                _bars("running"),
+                ensemble=ensemble,
+                character="rally",
+                form=_form("1M", 120, movement),
+                movement_index=movement,
+            )
+
     # 3M has three movements too. Villa and Brouwer are expensive, so only the
     # cheap ensembles take m1/m2; m0 is covered by the base matrix.
     for ensemble in CHEAP_3M:
@@ -210,7 +223,7 @@ def test_names_match_the_fixture() -> None:
 
 
 def test_matrix_size_is_intentional() -> None:
-    assert len(_cases()) == 140, len(_cases())
+    assert len(_cases()) == 148, len(_cases())
 
 
 def test_matrix_covers_every_ensemble_span_and_character() -> None:
