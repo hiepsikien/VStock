@@ -194,6 +194,8 @@ def test_the_long_six_eight_row_reads_a_forte_majority() -> None:
 
 
 def test_the_daily_body_is_a_sentinel_not_an_id() -> None:
+    # Unreachable in production: _assign_macro intercepts the 34-bar 1D body
+    # before _dominant_pattern_auto. Kept because the old ladder had this row.
     assert barrios_pattern(MACRO, _macro(bpm=120, bars=34, kind="4/4")) == DAILY
     # The fingerprint is the 120/34/4/4 body, not the meter alone.
     assert barrios_pattern(MACRO, _macro(bpm=120, bars=34, kind="6/8")) != DAILY

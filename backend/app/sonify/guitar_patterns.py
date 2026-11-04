@@ -1150,10 +1150,9 @@ def _dominant_pattern_auto(ctx: _Ctx, phrases: list[Phrase], bars: list[int]) ->
             ),
         )
     # Barrios is the only ensemble that reaches this ladder: every other
-    # ensemble returned above. The ordered rows live in
-    # `plan_rules_barrios`; the 34-bar 1D body is the one macro decision that
-    # reads the melody, so the table hands it back as `DAILY` and
-    # `_daily_barrios_pattern` resolves it from the same phrases and bars.
+    # ensemble returned above. The ordered rows live in `plan_rules_barrios`.
+    # The 34-bar 1D body is intercepted by `_assign_macro` before this point;
+    # the table's `DAILY` row is a parity-preserved branch, not the live path.
     pattern = barrios_pattern(
         MACRO,
         BarriosMacroInputs(

@@ -37,11 +37,12 @@ unified:
   stays the preludio above the tremolo floor. The macro ladder applies its
   body rules to the opening phrase too.
 
-The 34-bar 1D body is the one macro decision that is not a static id. Its
-pattern depends on the melody's activity and relative span, so the table
-returns `DAILY` as a sentinel and `_dominant_pattern_auto` hands the choice to
-`_daily_barrios_pattern` with the same phrases and bars. `DAILY` is not a
-pattern id and never reaches the renderer.
+The 34-bar 1D body is intercepted by `_assign_macro` before this ladder, so
+the macro `DAILY` row is unreachable in production: every other 34-bar body
+stops at the `bars <= 40` lock. The row is kept because the old ladder had it
+and the intent test locks its shape; `_dominant_pattern_auto` would expand the
+sentinel through `_daily_barrios_pattern` if it ever appeared. `DAILY` is not
+a pattern id and never reaches the renderer.
 
 The palette is a row of ids, not a single id, so it takes its own rule type
 (`PaletteRule`) instead of the generic `Rule`. Its last step is always the
@@ -61,8 +62,8 @@ from app.sonify.plan_rules import MACRO, PHRASE, Mode, Rule
 # The macro sentinel for the 34-bar 1D body. See the module docstring.
 DAILY = "daily"
 
-_TRIPLE_METER = "6/8"
-_DANCE_METERS = frozenset({"4/4", _TRIPLE_METER})
+_SIX_EIGHT = "6/8"
+_DANCE_METERS = frozenset({"4/4", _SIX_EIGHT})
 
 
 @dataclass(frozen=True)
@@ -203,21 +204,21 @@ BARRIOS_RULES: tuple[Rule, ...] = (
     ),
     Rule(
         PHRASE,
-        lambda case: _running_dance(case) and case.kind == _TRIPLE_METER and case.trio,
+        lambda case: _running_dance(case) and case.kind == _SIX_EIGHT and case.trio,
         "vals",
         "a running 6/8 trio takes the vals",
     ),
     Rule(
         PHRASE,
         lambda case: (
-            _running_dance(case) and case.kind == _TRIPLE_METER and case.band == "f"
+            _running_dance(case) and case.kind == _SIX_EIGHT and case.band == "f"
         ),
         "hemiola",
         "a running 6/8 phrase at f takes the hemiola",
     ),
     Rule(
         PHRASE,
-        lambda case: _running_dance(case) and case.kind == _TRIPLE_METER,
+        lambda case: _running_dance(case) and case.kind == _SIX_EIGHT,
         "polca",
         "a running 6/8 phrase takes the polca",
     ),
@@ -255,7 +256,7 @@ BARRIOS_RULES: tuple[Rule, ...] = (
         MACRO,
         lambda case: (
             case.framed
-            and case.kind == _TRIPLE_METER
+            and case.kind == _SIX_EIGHT
             and case.bpm > 100
             and case.bars > 40
             and case.mood != "calm"
@@ -268,7 +269,7 @@ BARRIOS_RULES: tuple[Rule, ...] = (
         MACRO,
         lambda case: (
             case.framed
-            and case.kind == _TRIPLE_METER
+            and case.kind == _SIX_EIGHT
             and case.bpm > 100
             and case.bars > 40
             and case.mood != "calm"
@@ -292,7 +293,7 @@ BARRIOS_RULES: tuple[Rule, ...] = (
     ),
     Rule(
         MACRO,
-        lambda case: _running_majority(case) and case.kind == _TRIPLE_METER,
+        lambda case: _running_majority(case) and case.kind == _SIX_EIGHT,
         "polca",
         "a running rally/volatile 6/8 body takes the polca",
     ),
@@ -362,7 +363,7 @@ BARRIOS_PALETTE_RULES: tuple[PaletteRule, ...] = (
     ),
     PaletteRule(
         lambda case: (
-            case.kind == _TRIPLE_METER
+            case.kind == _SIX_EIGHT
             and case.bpm > 100
             and case.primary == "hemiola"
         ),
@@ -371,7 +372,7 @@ BARRIOS_PALETTE_RULES: tuple[PaletteRule, ...] = (
     ),
     PaletteRule(
         lambda case: (
-            case.kind == _TRIPLE_METER
+            case.kind == _SIX_EIGHT
             and case.bpm > 100
             and case.primary == "preludio"
         ),
@@ -379,7 +380,7 @@ BARRIOS_PALETTE_RULES: tuple[PaletteRule, ...] = (
         "a 6/8 preludio opening walks the thumb then the vals",
     ),
     PaletteRule(
-        lambda case: case.kind == _TRIPLE_METER and case.bpm > 100,
+        lambda case: case.kind == _SIX_EIGHT and case.bpm > 100,
         ("polca", "vals", "hemiola", "tremolo"),
         "a 6/8 dance opening walks vals, hemiola, then tremolo",
     ),

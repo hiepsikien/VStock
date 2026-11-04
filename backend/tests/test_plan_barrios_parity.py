@@ -17,7 +17,10 @@ The matrix is bounded and deterministic. It walks every span, every character,
 both melody shapes (a held body and a running body), the real dynamic bands,
 every tempo a span can override (the tremolo floor, its 140 ceiling, the 100
 dance gate, and the 1D 120), the 34-bar 1D special, trio/bridge contrast, and
-both the 4/4 and 6/8 region rows.
+both the 4/4 and 6/8 region rows. The framed rows are a diagonal by design:
+shape is assigned from the movement/character index, so the matrix does not
+carry the full shape x tempo cross-product for every framed case; the coverage
+test asserts every shape and tempo appears.
 
 A running phrase needs at least four source bars per musical bar: `resample`
 picks one close per eighth, so a one- or two-bar group plateaus into a hold.
@@ -480,7 +483,7 @@ def test_matrix_covers_every_span_character_shape_and_tempo() -> None:
         running = [
             case.patterns
             for key, case in cases.items()
-            if key.startswith(f"unframed|none|running|120|")
+            if key.startswith("unframed|none|running|120|")
             and key.endswith(f"|{flag}")
         ]
         assert running and not any("thumb_cantabile" in row for row in running), flag
