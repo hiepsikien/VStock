@@ -45,6 +45,7 @@ from app.sonify.plan_rules_barrios import (
     barrios_palette,
     barrios_pattern,
 )
+from app.sonify.plan_rules_classic import ClassicPhraseInputs, classic_pattern
 from app.sonify.quantize import C_MAJOR_PCS, C_NATURAL_MINOR_PCS
 
 # Sounding open strings, string 6 → 1, and the highest fret each string allows.
@@ -917,7 +918,7 @@ def _select_body(
     bridge = bool(section is not None and section.bridge)
     minor = ctx.mode == "minor"
     if ctx.ensemble == "brouwer":
-        primary = _brouwer_primary(ctx, mood)
+        primary = _brouwer_primary(ctx, mood, PHRASE)
         if trio or bridge:
             return _brouwer_contrast(primary)
         return primary
@@ -958,13 +959,17 @@ def _select_body(
             ),
         )
     if ctx.ensemble == "classic":
-        elegiaque = ctx.bpm <= 72 or mood == "selloff" or (trio and minor)
-        if elegiaque:
-            return "elegiaque"
-        if mood == "calm" and ctx.bpm > 72:
-            return "cantabile"
-        if mood == "volatile":
-            return "mozart_var"
+        # The classic phrase ladder lives in `plan_rules_classic`. The shared
+        # opening-body study above still applies before this dispatch.
+        return classic_pattern(
+            PHRASE,
+            ClassicPhraseInputs(
+                trio=trio,
+                mood=mood,
+                bpm=ctx.bpm,
+                minor=minor,
+            ),
+        )
     if ctx.ensemble == "villa":
         # The phrase ladder lives in `plan_rules`. Rule one is the opening-body
         # roll that the shared branch above applied for Villa before dispatch.
@@ -1128,13 +1133,15 @@ def _dominant_pattern_auto(ctx: _Ctx, phrases: list[Phrase], bars: list[int]) ->
     """One pattern for a whole body, a formal section, or one weekly session."""
     mood = _majority_mood(ctx, bars)
     if ctx.ensemble == "brouwer":
-        return _brouwer_primary(ctx, mood)
+        return _brouwer_primary(ctx, mood, MACRO)
     if ctx.ensemble == "bach":
         return _bach_primary(ctx, phrases, bars, mood)
     if ctx.ensemble == "torroba":
         return _torroba_primary(ctx, mood, framed_macro=True)
     if ctx.ensemble == "classic":
-        return _classic_macro(ctx, mood, bars)
+        return _classic_macro(
+            ctx, mood, rally_marked=_region_marked(ctx, bars, "rally")
+        )
     if ctx.ensemble == "villa":
         # Macro ladder, one pattern for the body/slot/session. Selloff sings
         # Prélude No. 1 on the thumb; a bridge or trio still answers through
