@@ -247,6 +247,8 @@ Vì vậy "Villa 1D dùng `_select_body`" là **sai**: 1D framed đi macro → `
 | Cùng một texture, hai title: `thumb_cantabile` | barrios "Cantabile", villa "Prelude" (`program.py:55` special-case) | `level: texture`, title null cho cả hai; registry key `(ensemble, id)` |
 | `pattern` không khai `level` | 38 id, không phân biệt topic với texture | thêm `level` + `name_source` |
 
+**Ghi chú taxonomy:** `hemiola` là tên **thiết bị tiết tấu**, không phải thể loại; `pattern_registry.py` tạm ghi `name_source: character` vì enum chưa có `device`. Nếu muốn sạch, thêm `device` rồi đổi.
+
 Chỉ **3** pattern texture đang in tên: `villa_pattern`, `tremolo`, `chord_melody`. **`pedal` chưa từng in**: `form_pattern_ids` trả `[]` khi primary là `pedal` (`guitar_patterns.py:3323-3324`), `headline_id`/`contrast_id` skip `pedal`, `_region_pattern_ids` skip (`:1291`).
 
 ### 8.1. Đề xuất tên cho các nhãn đang sai
@@ -333,6 +335,8 @@ Lưu ý: câu 0 hỏi *đơn vị*, câu 1–2 hỏi *pattern*. 1D là movement 
 ## 12. Phụ lục A — Inventory pattern (39 dòng)
 
 Nguồn: `PROFILES` = **38 dòng** `(ensemble, id)` nhưng chỉ **37 id unique** (`thumb_cantabile` có ở cả barrios và villa); `_FAMILY` = **38 id** (gồm `pedal`), nên bảng có **39 dòng** = 38 dòng `PROFILES` + `pedal`. Cột `level` là **đề xuất**; `?` = cần chốt (§8.2). Texture lấy từ docstring của renderer tương ứng.
+
+Bảng `level` + `name_source` theo id hiện nằm trong `backend/app/sonify/pattern_registry.py`: **38 id = 33 topic + 5 texture**. Bảng dưới có 39 dòng vì `thumb_cantabile` xuất hiện ở hai ensemble. `validate()` kiểm coverage với `_FAMILY`, enum `name_source`, và title cho mọi topic.
 
 | Ensemble | id | Title hiện tại | Level | Texture (+cells) | Procedure | Sentence |
 |---|---|---|---|---|---|---|
