@@ -165,6 +165,19 @@ def test_recap_store_replays_the_same_piece_and_rerenders_when_the_session_grows
     assert not first.audio_path.exists()
 
 
+def test_a_guitar_day_prints_the_curated_movement_title(tmp_path: Path) -> None:
+    calls: list[Path] = []
+    closed = datetime(2026, 10, 16, 9, 0, tzinfo=VN)
+    store = RecapStore(tmp_path, exporter=_export_recorder(calls), clock=lambda: closed)
+    bars = [Bar(100.0 + index, 10.0, 100.0) for index in range(34)]
+    bach = store.ensure("FPT", DAY, "guitar", bars, ensemble="bach")
+    assert bach.movement_name == "Courante"
+    torroba = store.ensure("VNM", DAY, "guitar", bars, ensemble="torroba")
+    assert torroba.movement_name == "Olite"
+    # Daily title is read from the curated table, not the old pattern row.
+    assert bach.movement_name not in {"Prelude", "Bourree", "Tremolo", "Arpeggio"}
+
+
 def test_open_session_keeps_each_bar_count_and_closed_session_drops_the_partial(tmp_path: Path) -> None:
     calls: list[Path] = []
     noon = datetime(2026, 10, 14, 12, 0, tzinfo=VN)
