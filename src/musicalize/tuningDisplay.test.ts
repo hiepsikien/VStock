@@ -5,6 +5,7 @@ import {
   defaultRatio,
   fieldAnchor,
   helpText,
+  GUITAR_FADER_KEYS,
   hiddenChangedKeys,
   panelContentWidth,
   panelFields,
@@ -29,6 +30,8 @@ function near(actual: number, expected: number, label: string, epsilon = 1e-9) {
     throw new Error(`${label} expected ${expected}, got ${actual}`);
   }
 }
+
+equal(GUITAR_FADER_KEYS.join(','), 'guitar_bass,guitar_mid,guitar_high', 'fader order low to high');
 
 const guitar = { variant: 'guitar', span: '1M', ensemble: 'torroba', tiers: [...ALL_TIERS] };
 const symphony = { variant: 'symphony', span: '1M', ensemble: 'classic', tiers: [...ALL_TIERS] };

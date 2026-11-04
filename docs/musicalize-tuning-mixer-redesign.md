@@ -213,7 +213,7 @@ còn 3 hàng. Đây là lý do bố cục một màn hình khả thi ở viewpor
 - Là dải **ngang toàn panel** trên cùng, không nằm trong một cột dọc và không
   tràn ra ngoài bề rộng panel.
 - Trái: sóng low/mid/high co giãn theo chiều rộng còn lại.
-- Phải: 3 fader dọc cho `Bè cao / Bè trung / Bè bass`.
+- Phải: 3 fader dọc theo thứ tự **Bè bass → Bè trung → Bè cao**, khớp trái→phải với dải tần THẤP → TRUNG → CAO.
 - Fader chỉ hiện khi `variant === 'guitar'`.
 - Khi không phải Guitar: hiện ghi chú “Bè guitar chỉ mở ở thể loại Guitar”,
   không hiện fader chết; mixer thu còn ~148/176px thay vì giữ chỗ fader rỗng.
@@ -352,7 +352,12 @@ Clamp `0.08–0.95`.
 ### 6.2 Cách vẽ
 
 - Đường cong mượt qua 3 điểm, tô gradient magenta `palette.sound`.
-- 3 nhãn `THẤP / TRUNG / CAO`.
+- 3 cột bar mờ tại từng band, cao/thấp so với đường reference 55% để thấy
+  chênh lệch ngay cả khi curve chỉ nhích nhẹ.
+- Đường reference 55% nét đứt; bar nằm trên/dưới cho biết band đang tăng/giảm.
+- Preview phóng đại độ lệch 1.5× cho dễ đọc trong strip 66px; số % dưới mỗi
+  band vẫn là giá trị ước lượng thật.
+- 3 nhãn `THẤP / TRUNG / CAO`, mỗi nhãn kèm % ước lượng.
 - Vạch nền mảnh, không dùng màu nhấn thứ tư.
 - Ghi rõ dưới card: **“Phổ ước lượng từ tham số, không phải phân tích audio.”**
 - Không dùng `peaks` của timeline; không đụng rule “peaks chỉ nằm trên timeline”.
@@ -542,7 +547,8 @@ Test tối thiểu:
   `Esc`. Không viết “overlay giúp chart vẫn dùng được”.
 - Chỉ push từ ~1879px; khi đó chart còn >=440px.
 - `meter` 5 lựa chọn nằm một hàng trong `Dáng` full-width.
-- Kéo `Bè cao/trung/bass` thấy fill từ anchor và sóng đổi tương ứng.
+- Kéo `Bè bass/trung/cao` thấy fill từ anchor, bar và % của đúng band đổi theo;
+  thứ tự fader trái→phải là Bass → Trung → Cao.
 - Các field hiện đúng range: `tempo` ±25%, `dynamics` ±50%, field `0–2`
   ±100%, guitar ±12, `noise` `0.00–0.50%` (default `0.10%`).
 - Guitar field ẩn ngoài thể loại Guitar; `changedCount` / `hiddenChanged` /
@@ -580,6 +586,7 @@ Ghi chú triển khai:
   có `paramFoot` và scroll.
 - Ở viewport hẹp (`1024`, `1280×600`) panel vẫn scroll; đúng như tiêu chí đã chốt.
 - `TuningSpectrum` chỉ là preview từ tham số, không dùng `peaks` hay audio thật.
+- Fader guitar xếp Bass → Trung → Cao; spectrum có bar + reference 55% + % từng band.
 - HelpCard dùng `helpText()` override để bỏ copy 0/1/2 cũ trong schema generated.
 - Content được bọc trong `contentFrame` max 1088px để nội dung thật dừng ở 1040px.
 - `Màu` nằm cùng hàng `Vùng âm` trong mixer; `Hòa âm / Guitar` dùng chung header.

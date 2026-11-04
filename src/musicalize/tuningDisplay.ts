@@ -35,6 +35,9 @@ export const DANG_COMFORTABLE = 76;
 export const DANG_STACKED = 124;
 
 export const GUITAR_VOICE_KEYS = new Set(['guitar_high', 'guitar_mid', 'guitar_bass']);
+/** Low to high, matching the spectrum's left-to-right bands. */
+export const GUITAR_FADER_KEYS = ['guitar_bass', 'guitar_mid', 'guitar_high'] as const;
+export const SPECTRUM_DEFAULT_LEVEL = 0.55;
 /** `register` and `color` live in the mixer strip, not in the columns. */
 const MIXER_KEYS = new Set(['register', 'color']);
 const GROUP_LABELS: Record<string, string> = {

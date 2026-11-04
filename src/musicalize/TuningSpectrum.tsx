@@ -6,6 +6,7 @@ import Svg, {
   Line,
   LinearGradient,
   Path,
+  Rect,
   Stop,
 } from 'react-native-svg';
 import { palette } from './palette';
@@ -23,11 +24,18 @@ export function TuningSpectrum({ levels, height = 76 }: Props) {
   const [width, setWidth] = useState(300);
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   const padding = 9;
+  const reference = 0.55;
+  // The preview exaggerates departure from the default so a +6 / −6 fader
+  // change is visible in a 66px strip. The labels still show the raw estimate.
+  const displayLevels = levels.map((level) =>
+    Math.max(0.08, Math.min(0.95, reference + (level - reference) * 1.5)),
+  );
   const xs = [width * 0.12, width * 0.5, width * 0.88];
-  const points = levels.map((level, index) => ({
+  const points = displayLevels.map((level, index) => ({
     x: xs[index],
-    y: padding + (1 - Math.max(0, Math.min(1, level))) * (height - padding * 2),
+    y: padding + (1 - level) * (height - padding * 2),
   }));
+  const referenceY = padding + (1 - reference) * (height - padding * 2);
   const [first, mid, last] = points;
   const line = [
     `M${first.x.toFixed(2)},${first.y.toFixed(2)}`,
@@ -51,7 +59,7 @@ export function TuningSpectrum({ levels, height = 76 }: Props) {
       <Svg width={width} height={height}>
         <Defs>
           <LinearGradient id={`spectrum-${uid}`} x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0%" stopColor={palette.sound} stopOpacity={0.3} />
+            <Stop offset="0%" stopColor={palette.sound} stopOpacity={0.38} />
             <Stop offset="100%" stopColor={palette.sound} stopOpacity={0.02} />
           </LinearGradient>
         </Defs>
@@ -75,14 +83,39 @@ export function TuningSpectrum({ levels, height = 76 }: Props) {
             strokeDasharray={[2, 4]}
           />
         ))}
+        <Line
+          x1={0}
+          y1={referenceY}
+          x2={width}
+          y2={referenceY}
+          stroke={palette.hairlineStrong}
+          strokeWidth={1}
+          strokeDasharray={[3, 4]}
+        />
+        {points.map((point, index) => {
+          const top = Math.min(point.y, referenceY);
+          const barHeight = Math.max(2, Math.abs(point.y - referenceY));
+          return (
+            <Rect
+              key={`bar-${index}`}
+              x={point.x - 8}
+              y={top}
+              width={16}
+              height={barHeight}
+              rx={2}
+              fill={palette.sound}
+              opacity={0.24}
+            />
+          );
+        })}
         <Path d={area} fill={`url(#spectrum-${uid})`} />
-        <Path d={line} fill="none" stroke={palette.sound} strokeWidth={1.8} />
+        <Path d={line} fill="none" stroke={palette.sound} strokeWidth={2.2} />
         {points.map((point, index) => (
           <Circle
             key={`dot-${index}`}
             cx={point.x}
             cy={point.y}
-            r={2.6}
+            r={3.2}
             fill={palette.sound}
           />
         ))}

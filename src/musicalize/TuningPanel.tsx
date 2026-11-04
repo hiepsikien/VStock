@@ -38,6 +38,7 @@ import {
   anchorRatio,
   changedKeysForPanel,
   defaultRatio,
+  GUITAR_FADER_KEYS,
   hiddenChangedKeys,
   helpText,
   panelColumns,
@@ -63,7 +64,7 @@ type Props = {
 };
 
 const PANEL_PADDING = 24;
-const MIXER_KEYS = ['guitar_high', 'guitar_mid', 'guitar_bass'] as const;
+const MIXER_KEYS = GUITAR_FADER_KEYS;
 const MIXER_PARAM_KEYS = ['register', 'color'] as const;
 
 const HelpContext = React.createContext<(field: ParamsFieldSchema) => void>(() => {});
@@ -748,9 +749,14 @@ function Mixer({
           <Text style={[type.section, styles.groupLabel]}>CÂN BẰNG BÈ</Text>
           <TuningSpectrum levels={levels} height={waveHeight} />
           <View style={styles.waveLabels}>
-            <Text style={[type.monoSmall, styles.waveLabel]}>THẤP</Text>
-            <Text style={[type.monoSmall, styles.waveLabel]}>TRUNG</Text>
-            <Text style={[type.monoSmall, styles.waveLabel]}>CAO</Text>
+            {(['THẤP', 'TRUNG', 'CAO'] as const).map((label, index) => (
+              <View key={label} style={styles.waveLabelCell}>
+                <Text style={[type.monoSmall, styles.waveLabel]}>{label}</Text>
+                <Text style={[type.monoSmall, styles.waveValue]}>
+                  {Math.round(levels[index] * 100)}%
+                </Text>
+              </View>
+            ))}
           </View>
           <Text style={[type.sans, styles.waveNote]}>
             Phổ ước lượng từ tham số, không phải phân tích audio
@@ -1710,6 +1716,15 @@ const styles = StyleSheet.create({
   },
   waveLabel: {
     color: palette.textFaint,
+    fontSize: 9,
+  },
+  waveLabelCell: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 1,
+  },
+  waveValue: {
+    color: palette.textMuted,
     fontSize: 9,
   },
   waveNote: {
