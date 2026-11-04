@@ -51,6 +51,7 @@ from app.sonify.model import (
     Score,
     WedgeEvent,
 )
+from app.sonify.movement_titles import movement_title as curated_movement_title
 from app.sonify.render import assign_source_bars
 
 BARS_PER_SESSION = 32
@@ -350,8 +351,16 @@ def _framed_torroba(
         for body, character in zip(bodies, characters)
     )
     return tuple(
-        Movement(label, spec, count, rest)
-        for label, spec, count, rest in zip(labels, specs, counts, rests)
+        Movement(
+            label,
+            spec,
+            count,
+            rest,
+            title=curated_movement_title("torroba", span, index),
+        )
+        for index, (label, spec, count, rest) in enumerate(
+            zip(labels, specs, counts, rests)
+        )
     )
 
 
@@ -796,34 +805,79 @@ class Movement:
     spec: FormSpec
     session_count: int
     rest_after: float
+    title: str = ""
 
 
-def plan_week(session_count: int) -> tuple[Movement, ...]:
+def _planned_title(variant: str, ensemble: str, span: str, index: int) -> str:
+    """Printed name for a guitar movement; other variants keep their own table.
+
+    A year has no curated row: it reuses the month programme, so December's
+    closer takes the fourth name. Non-guitar variants name their movements in
+    `movement_title` below, not here.
+    """
+    if variant != "guitar":
+        return ""
+    if span == "1Y":
+        span, index = "1M", index % 4
+    return curated_movement_title(ensemble, span, index)
+
+
+def plan_week(
+    session_count: int, variant: str = "symphony", ensemble: str = "classic"
+) -> tuple[Movement, ...]:
     spec = week_spec(session_count)
-    return (Movement("Tuần", spec, session_count, 0.0),)
+    return (
+        Movement(
+            "Tuần",
+            spec,
+            session_count,
+            0.0,
+            title=_planned_title(variant, ensemble, "1W", 0),
+        ),
+    )
 
 
-def plan_month(session_counts: list[int], variant: str = "symphony") -> tuple[Movement, ...]:
+def plan_month(
+    session_counts: list[int], variant: str = "symphony", ensemble: str = "classic"
+) -> tuple[Movement, ...]:
     specs = tuple(attach_frame(spec, "1M") for spec in month_specs(variant))
     if len(session_counts) != 4:
         raise ValueError("a month is four movements")
     labels = ("I", "II", "III", "IV")
     rests = (MONTH_REST_SECONDS, MONTH_REST_SECONDS, MONTH_REST_SECONDS, 0.0)
     return tuple(
-        Movement(label, spec, count, rest)
-        for label, spec, count, rest in zip(labels, specs, session_counts, rests)
+        Movement(
+            label,
+            spec,
+            count,
+            rest,
+            title=_planned_title(variant, ensemble, "1M", index),
+        )
+        for index, (label, spec, count, rest) in enumerate(
+            zip(labels, specs, session_counts, rests)
+        )
     )
 
 
-def plan_quarter(session_counts: list[int], variant: str = "symphony") -> tuple[Movement, ...]:
+def plan_quarter(
+    session_counts: list[int], variant: str = "symphony", ensemble: str = "classic"
+) -> tuple[Movement, ...]:
     specs = tuple(attach_frame(spec, "3M") for spec in quarter_specs(variant))
     if len(session_counts) != 3:
         raise ValueError("a quarter is three movements")
     labels = ("I", "II", "III")
     rests = (QUARTER_REST_SECONDS, QUARTER_REST_SECONDS, 0.0)
     return tuple(
-        Movement(label, spec, count, rest)
-        for label, spec, count, rest in zip(labels, specs, session_counts, rests)
+        Movement(
+            label,
+            spec,
+            count,
+            rest,
+            title=_planned_title(variant, ensemble, "3M", index),
+        )
+        for index, (label, spec, count, rest) in enumerate(
+            zip(labels, specs, session_counts, rests)
+        )
     )
 
 
@@ -849,6 +903,7 @@ class PreparedMovement:
     session_characters: tuple[MovementCharacter, ...] = ()
     bar_characters: tuple[MovementCharacter | None, ...] | None = None
     gap_leads: tuple[str | None, ...] | None = None
+    title: str = ""
 
     @property
     def candle_count(self) -> int:
@@ -1099,6 +1154,7 @@ def _prepared(
                 mode=mode,
                 swing=swing,
                 home_pedal=home_pedal,
+                title=movement.title,
             )
         )
     if len(prepared) != len(movements):
@@ -1117,7 +1173,7 @@ def prepare_week(
     if not usable:
         raise ValueError("a week needs one session")
     flat = [bar for bars in usable for bar in bars]
-    movement = plan_week(len(usable))[0]
+    movement = plan_week(len(usable), variant, ensemble)[0]
     session_characters = tuple(
         movement_character([bar.close for bar in bars], "1W") for bars in usable
     )
@@ -1157,6 +1213,7 @@ def prepare_week(
             session_characters=session_characters,
             bar_characters=bar_characters,
             gap_leads=tuple(leads),
+            title=movement.title,
         ),
     )
 
@@ -1182,7 +1239,7 @@ def prepare_month(
             (MONTH_REST_SECONDS, MONTH_REST_SECONDS, MONTH_REST_SECONDS, 0.0),
         )
     else:
-        movements = plan_month(counts, variant)
+        movements = plan_month(counts, variant, ensemble)
     edges = _edges(parts)
     home = _home(symbol)
     keys = _span_keys(variant, "1M", home, characters, edges)
@@ -1220,7 +1277,7 @@ def prepare_quarter(
             (QUARTER_REST_SECONDS, QUARTER_REST_SECONDS, 0.0),
         )
     else:
-        movements = plan_quarter(counts, variant)
+        movements = plan_quarter(counts, variant, ensemble)
     edges = _edges(parts)
     home = _home(symbol)
     keys = _span_keys(variant, "3M", home, characters, edges)
@@ -1294,6 +1351,7 @@ def prepare_year(
                 mode="major" if variant == "minimalist" else movement_mode(character, closing),
                 swing=swing_for(variant, spec.meter),
                 home_pedal=variant != "minimalist",
+                title=_planned_title(variant, ensemble, "1Y", day.month - 1),
             )
         )
     return tuple(prepared)

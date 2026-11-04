@@ -45,16 +45,16 @@ Movement không phải một loại pattern. Nó là **đơn vị biểu diễn*
 | | **Movement** | **Pattern** |
 |---|---|---|
 | Là gì | đơn vị biểu diễn: bản 1D, chương I–IV của 1M, một tuần | slot filler trong một movement |
-| Có gì **hiện tại** | `Movement`: `label`, `spec`, `session_count`, `rest_after` (`span.py:794`); `PreparedMovement`: thêm `bars`, `groups`, `key`, `character`, `mode`… (`:835`) | `level`, topic, texture, procedure, sentence, wave profile, family, door |
-| Có gì **sẽ thêm** | `title` (chưa có), `plan` (chưa có; plan đang suy từ `_patterns`) | — |
+| Có gì **hiện tại** | `Movement`: `label`, `spec`, `session_count`, `rest_after`, `title` (`span.py`); `PreparedMovement`: thêm `bars`, `groups`, `key`, `character`, `mode`, `title`… | `level`, topic, texture, procedure, sentence, wave profile, family, door |
+| Có gì **sẽ thêm** | `plan` (chưa có; plan đang suy từ `_patterns`) | — |
 | Chứa | **1..N pattern** | 0..N sentence |
 | Quyết định | hình thức, độ dài, nhịp, tông, tên in của chương | cách điền ô, nhãn, thủ pháp, câu |
 
 Bằng chứng trong code:
 
 - Movement = `PreparedMovement` (`span.py:835`), dựng từ `Movement` (`span.py:794`). Số movement theo span: `plan_week` trả **1** (`span.py:801`), `plan_month` trả **4** (I–IV, `:806`), `plan_quarter` trả **3** (`:818`), **1Y = 12** (`year_specs`, `:588`).
-- **1D không có `Movement`/`PreparedMovement`.** Nó đi thẳng qua `audio._render` (`audio.py:1696-1712`), với `title=f"{symbol} {day.isoformat()}"`. Tên bài (`dance`) do `audio._compose` (`audio.py:145-161`) sinh: nó set `_HEADLINE`/`_FORM`, gọi `render(...)`, rồi `_written_dance(found, forms, ensemble)` và lưu vào `movementName`. **Không** phải `guitar_movement_name` — hàm đó là test helper (`program.py:113`: *"Tests use this; a request must not"*).
-- **1D không phải "1 movement = 1 pattern".** 1D = 34 bar (`DAILY_ENSEMBLE_SPEC`, `form.py:292`; hằng số `:261-265`). `_assign_macro` có nhánh riêng cho Barrios 1D (`bars == 34`, 120 BPM, 4/4) **đi từng phrase qua `_select_body`** (`guitar_patterns.py:1593-1612`), nên một ngày Barrios có thể chứa nhiều pattern. Test hiện có: `test_program.py::test_barrios_day_names_the_pattern_the_writer_picks` — 1D calm in "Tremolo" dù mở đầu là Preludio.
+- **1D không có `Movement`/`PreparedMovement`.** Nó đi thẳng qua `audio._render`, với `title=f"{symbol} {day.isoformat()}"`. Từ naming release, tên in của 1D lấy từ `movement_titles.movement_title(ensemble, "1D", 0)`; `_compose` vẫn dựng A–B–A row qua `_written_dance(found, forms, ensemble)` nhưng row đó vào `formDescription`, **không in**. Helper test `program.guitar_form_description` trả row đó; không phải đường in.
+- **1D không phải "1 movement = 1 pattern".** 1D = 34 bar (`DAILY_ENSEMBLE_SPEC`, `form.py:292`; hằng số `:261-265`). `_assign_macro` có nhánh riêng cho Barrios 1D (`bars == 34`, 120 BPM, 4/4) **đi từng phrase qua `_select_body`** (`guitar_patterns.py:1593-1612`), nên một ngày Barrios có thể chứa nhiều pattern. Từ naming release, 1D calm của Barrios vẫn là row texture (không in) và tên chương là `Ultimo Tremolo` từ bảng; test `test_barrios_day_form_row_drops_textures` khoá cả hai.
 - **Tên của 1D là `headline_id`, không phải cả row.** `form_pattern_ids` trả `[primary]` khi không có contrast section (`guitar_patterns.py:3295-3340`); `primary = headline_id(...)` (`:3330`) là pattern chiếm đa số. Vì vậy một movement nhiều pattern vẫn có thể in một tên.
 - **1D không có movement line.** Frontend `pieceCopy`/`workForm` (`src/sonify/program.ts:338-416`): guitar lấy `form = count > 1 ? 'Suite' : dance`; với 1D (`count === 1`) tên pattern đi vào **title**, `movement = null`.
 - **1W:** `week_spec` là *"One continuous movement"* (`span.py:205`). **1 phiên = 32 bar thường** bị nhánh `bars <= 40` khoá một pattern (comment ngay tại `guitar_patterns.py:1593-1596`). Ngoại lệ: **classic + galop** có thể bị `_settle_galop` tách thành study/galop dù 32 bar — nên nói "thường", không tuyệt đối. Từ 2 phiên (64 bar) mới vượt ngưỡng và đi macro/region.
@@ -267,10 +267,10 @@ Tiêu chí: nhãn phải là **tên đơn vị** (điệu, thể loại, charact
 
 **Checklist migration `Movement.title` — 4 mắt xích + 3 quyết định, phải làm cùng lúc:**
 
-- [ ] **Backend:** `title` cho `Movement` (`span.py:353, 803, 813, 825`) và `PreparedMovement` (`:1090, 1148, 1281`), cộng đường 1D (`audio.py:1696-1712`).
+- [x] **Backend:** `title` cho `Movement` và `PreparedMovement`, cộng đường 1D; bảng curated `movement_titles.TITLES` theo `(ensemble, span, index)`.
 - [ ] **Frontend:** `src/sonify/program.ts` — `PATTERN_NAMES`, `isPatternForm`, `workForm`, `pieceCopy`; title tự do phải qua được `formatMovement`, và 1D phải giữ tên bài trong **title**. Test: `src/sonify/program.test.ts:185-192`.
-- [ ] **Cache:** bump `SPAN_REVISION` (`audio.py:58`). `movementName` nằm trong payload, cache key không chứa tên.
-- [ ] **Name golden:** golden riêng cho `form_pattern_ids`/`_written_dance` (1D headline, 1W row, 1M A–B–A, Torroba row). **Không** dùng Score hash.
+- [x] **Cache:** bump `SPAN_REVISION` + `RECAP_REVISION`. `movementName` nằm trong payload, cache key không chứa tên.
+- [x] **Name golden:** `test_name_parity.py` khoá tên in; `test_program.py` khoá row A–B–A (non-printed). **Không** dùng Score hash.
 
 **Ba chỗ sẽ gãy nếu chỉ set `title = null`:**
 
@@ -278,9 +278,9 @@ Tiêu chí: nhãn phải là **tên đơn vị** (điệu, thể loại, charact
 2. **Lọc texture khỏi `pattern_form` sẽ làm mất A–B–A.** Row `[preludio, tremolo, preludio]` lọc còn `[preludio, preludio]` → collapse thành `"Cathedral"`. Khi texture không in, `pattern_form` **không còn mô tả hình thức**; phải quyết A–B–A hiển thị ở đâu (mô tả riêng cạnh `Movement.title`, tooltip, hay chart section) hoặc chấp nhận mất.
 3. **Movement line có thể đã rỗng trước khi render.** `span_movement_name` trả `stored`; `stocks.py:646` truyền `cached.movement_name if cached else ""`. Movement chưa render audio → `""`. Vậy hôm nay line đã có thể rỗng, không cần đợi bỏ in texture — lý do mạnh hơn để `Movement.title` **derive từ spec**, không phụ thuộc render.
 
-- [ ] Chặn cả hai đường in tên (`pattern_form` + fallback `pattern_title`) hoặc bỏ fallback.
-- [ ] Chốt chỗ hiển thị A–B–A khi texture không in.
-- [ ] `Movement.title` derive từ spec (không cần render), vì `stored` có thể rỗng.
+- [x] Chặn cả hai đường in tên: `pattern_form` lọc `level == texture`; fallback `pattern_title` chỉ dùng khi id là topic.
+- [x] Chốt chỗ hiển thị A–B–A: `formDescription`, **không in**; `Movement.title` mới là `name`.
+- [x] `Movement.title` derive từ bảng curated (không cần render), nên manifest có tên cả khi audio chưa có.
 
 Lưu ý: `data_digest` (`dfi.py:52`) chỉ hash bar, `scale_fingerprint` (`span.py:858`) không chứa tên → **DFI không đổi** khi đổi nhãn, và parity audio không bắt được lỗi tên. Đây là lý do phải có name golden riêng.
 
@@ -293,7 +293,7 @@ Lưu ý: `data_digest` (`dfi.py:52`) chỉ hash bar, `scale_fingerprint` (`span.
 | 1 | `study` (classic) in "Etude" ở mọi đoạn mặc định: giữ `topic` hay chuyển `texture`? | "Etude" là thể loại, không phải kỹ thuật → được phép in; nhưng `study` là fallback mặc định nên in "Etude" ở mọi đoạn có thể là nhiễu | giữ `topic` + "Etude" (đúng thể loại); chỉ đổi nếu nghe thấy nhiễu |
 | 2 | `mozart_var` in "Variations" nhưng code chỉ là bass + counter-melody | Tên gợi `procedure: variation` nhưng **không có procedure** trong code | giữ nhãn, khai `procedure: none`, ghi backlog "variations thật" |
 | 3 | `bach_gigue` có nên dùng `procedure: imitation`? | Gigue ngoài đời thường fugal; code hiện không imitation | không, ở giai đoạn này — thêm là **thay đổi hành vi**, cần nghe duyệt |
-| 4 | `Movement.title` lấy từ đâu, và 1D lấy gì? | `FormSpec` **không có** `title` (`form.py:171-181`: bars/bpm/sections/chunks/borrowed/meter); `Movement`/`PreparedMovement` cũng không. `month_specs` dùng chung cho mọi symbol, nên title theo bài không thể nằm trong spec. `pieceCopy` là hàm hiển thị frontend, không phải nguồn dữ liệu | **(A) bảng curated `(variant, span, ensemble, index, character) → title`** ở tầng plan/router, giống `_home(symbol)`; 1D dùng bảng này hoặc giữ `headline_id` làm tên bài. **(B) `headline_id`** chỉ là `pattern_form` đổi tên, không giải quyết identity. **(C) spec mang title** — sai vì spec dùng chung cho mọi symbol |
+| 4 | `Movement.title` lấy từ đâu, và 1D lấy gì? | `FormSpec` **không có** `title`; `month_specs` dùng chung cho mọi symbol, nên title theo bài không thể nằm trong spec. `pieceCopy` là hàm hiển thị frontend, không phải nguồn dữ liệu | **Đã chốt (A):** bảng curated `(ensemble, span, index) → title` trong `movement_titles.py`, total cho 6 ensemble × 4 span; 1D dùng `("1D", 0)`. 1Y tái dùng chương trình `1M` theo tháng. |
 
 ---
 
@@ -313,12 +313,12 @@ Lưu ý: câu 0 hỏi *đơn vị*, câu 1–2 hỏi *pattern*. 1D là movement 
 ## 10. Hệ quả cho refactor
 
 1. **Không promote variation thành pattern.** Nhánh per-bar (`band`, `tresillo`, `approach`, `perpetual`) thuộc texture; promote sẽ vi phạm contract "pattern chọn theo phrase".
-2. **Hai lớp còn thiếu**: `sentence` (texture-span template, §13) và **`Movement.title`** (guitar). Cái thứ hai là điều kiện trước để bỏ in texture.
+2. **Hai lớp đã có**: `sentence` (texture-span template, §13) và **`Movement.title`** (guitar, `movement_titles.py`). `Movement.title` là điều kiện để bỏ in texture; `formDescription` giữ A–B–A không in.
 3. **`procedure` là executable; `form` trên pattern chỉ là metadata — cơ chế hình thức thuộc movement.** Đừng để spec khai `form` rồi tưởng engine hiểu.
 4. **Plan có ba scope, không phải hai bản luật.** Phrase (`_select_body`), macro (`_assign_macro`), region row (`_barrios_palette`/`_bach_region_patterns`), cộng post-pass (`_settle_galop`). Phrase/macro tách nhau là **by design** (framed vs unframed). Cái trùng lặp thật là **per-ensemble primary chooser** (`_dominant_pattern_auto` vs các `_*_primary`), và chỉ nên thu hẹp chỗ đó.
 5. **Parity phải tách làm hai**: `audio parity` (Score hash trên ma trận ensemble × meter × mood × band × bpm × span) và `name parity` (golden `form_pattern_ids`/`_written_dance`). Score hash **không** bắt được lỗi tên.
 6. **Chưa có parity/golden cho guitar pattern/name.** Trong `backend/tests` chỉ có golden humanize (`test_humanize.py:1219 test_vintage_golden_bytes_do_not_drift`), không liên quan pattern/tên. Parity cho guitar là deliverable R1, không phải giả định.
-7. **Bảng inventory đã có** (§12). Việc tiếp theo: registry (`level`/`name_source`) + R1 parity, rồi `sentence` (§13) và `Movement.title`.
+7. **Bảng inventory, registry, parity, `sentence` và `Movement.title` đều đã có.** Việc còn lại: frontend nhận `name` tự do + `formDescription`, và `procedure` cho Bach.
 
 ---
 
@@ -328,7 +328,7 @@ Lưu ý: câu 0 hỏi *đơn vị*, câu 1–2 hỏi *pattern*. 1D là movement 
 2. **Tên `sentence`**: giữ `sentence` (đã dùng trong PR #142) với định nghĩa hẹp "texture-span template", hay đổi thành `archetype`/`phrase_template` để khỏi lẫn với `Phrase` và với "sentence" nhạc lý 8 ô?
 3. **`form.functions[]`** (exposition/episode/stretto, real vs tonal answer) có nằm trong phạm vi Phase 2–3, hay để sau?
 4. **Motif pitch-cell** có cần mô hình hoá, hay chỉ giữ contour như fuga hiện nay?
-5. **A–B–A hiển thị ở đâu khi texture không in?** Nếu lọc texture khỏi `pattern_form`, row `[preludio, tremolo, preludio]` mất dấu B. Khuyến nghị: `Movement.title` là identity, thêm `form_description` (không in) để tooltip/subtitle giữ A–B–A; hoặc in A–B–A ở chart section riêng.
+5. **A–B–A hiển thị ở đâu khi texture không in?** **Đã chốt:** `Movement.title` là identity; row A–B–A (texture đã lọc) thành `formDescription`, **không in**, để tooltip/subtitle dùng nếu muốn. Manifest trả `name` = title và `formDescription` = row.
 
 ---
 

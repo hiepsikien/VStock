@@ -42,6 +42,7 @@ from app.sonify.params import (
     params_query,
 )
 from app.sonify.musicxml import score_to_musicxml
+from app.sonify.movement_titles import movement_title as guitar_movement_title
 from app.sonify.dfi import DFI_VERSION, compute as compute_dfi, data_digest
 from app.sonify.playback import piece_seconds
 from app.sonify.render import render
@@ -49,13 +50,14 @@ from app.sonify.session import VN, is_session_closed
 
 logger = logging.getLogger(__name__)
 
-# Bump when the score or the sound changes, so old files are not replayed.
-RECAP_REVISION = "80"
+# Bump when the score, the sound, or a printed movement name changes, so old
+# files are not replayed with a stale name.
+RECAP_REVISION = "81"
 # Long-form files live beside the daily recap and use their own revision.
-# Bump when the score, sound, or a manifest field that changes playback
-# changes. Additive diagnostic fields (renderSec, renderRatio) are exempt:
-# old JSON defaults them to 0.
-SPAN_REVISION = "76"
+# Bump when the score, sound, a printed movement name, or a manifest field that
+# changes playback changes. Additive diagnostic fields (renderSec, renderRatio)
+# are exempt: old JSON defaults them to 0.
+SPAN_REVISION = "77"
 PEAK_BUCKETS = 96
 # One MuseScore at a time on the 2-vCPU API. Extra Listen presses wait.
 EXPORT_SLOTS = max(1, int(os.environ.get("VSTOCK_MUSESCORE_SLOTS", "1")))
@@ -224,6 +226,7 @@ class SpanAsset:
     fingerprint: str
     peak_level: float = 0.0
     movement_name: str = ""
+    form_description: str = ""
     render_sec: float = 0.0
     render_ratio: float = 0.0
     params: Mapping[str, float] | None = None
@@ -1592,7 +1595,8 @@ class RecapStore:
                 "peakLevel": peak_level,
                 "audio": audio_path.name,
                 "fingerprint": movement.scale_fingerprint,
-                "movementName": dance,
+                "movementName": movement.title,
+                "formDescription": dance,
                 "renderSec": round(render_sec, 3),
                 "renderRatio": round(render_ratio, 4),
                 "humanize": _humanize_on(values),
@@ -1660,6 +1664,7 @@ class RecapStore:
             fingerprint=fingerprint,
             peak_level=float(payload.get("peakLevel") or 0.0),
             movement_name=str(payload.get("movementName") or ""),
+            form_description=str(payload.get("formDescription") or ""),
             render_sec=float(payload.get("renderSec") or 0.0),
             render_ratio=float(payload.get("renderRatio") or 0.0),
             params=values,
@@ -1699,7 +1704,7 @@ class RecapStore:
         from app.sonify.keys import movement_character, stock_home_key
 
         with compose_params(values):
-            score, dance = _compose(
+            score, _form_row = _compose(
                 variant,
                 ensemble,
                 bars,
@@ -1707,6 +1712,12 @@ class RecapStore:
                 key=stock_home_key(symbol),
                 character=movement_character([bar.close for bar in bars], "1D"),
                 movement_index=0,
+            )
+            # A day prints the movement title, not the pattern row.
+            dance = (
+                guitar_movement_title(ensemble, "1D", 0)
+                if variant == "guitar"
+                else ""
             )
             if _humanize_on(values):
                 score = humanize_score(score, params=values)

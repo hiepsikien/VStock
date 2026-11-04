@@ -320,6 +320,44 @@ def test_span_response_volumes_match_each_movement(monkeypatch) -> None:
     assert cached.movements[0].renderRatio == 0.125
 
 
+def test_span_response_prints_the_planned_title_and_keeps_the_form_row(monkeypatch) -> None:
+    import asyncio
+
+    from app.routers.stocks import get_span
+    from app.services.spans import SpanPlan
+
+    sessions = [
+        (date(2026, 1, 5), [Bar(10.0, 100.0), Bar(10.4, 0.0)]),
+        (date(2026, 1, 6), [Bar(11.0, 40.0)]),
+        (date(2026, 1, 7), [Bar(11.5)]),
+        (date(2026, 1, 8), [Bar(12.0, 5.0), Bar(12.2, 8.0)]),
+    ]
+    movements = prepare_month(sessions, "VNM", "guitar", "bach")
+
+    async def fake_plan(*_args, **_kwargs):
+        return SpanPlan(movements, date(2026, 1, 8))
+
+    class Cached:
+        duration_sec = 1.0
+        map_duration_sec = 1.0
+        movement_name = "stale render name"
+        form_description = "Allemande — Courante — Allemande"
+        render_sec = 0.0
+        render_ratio = 0.0
+
+    monkeypatch.setattr("app.routers.stocks.plan_span", fake_plan)
+    monkeypatch.setattr("app.routers.stocks.ready_movement", lambda *_args, **_kwargs: Cached())
+    response = asyncio.run(get_span(Response(), "vnm", "1M", "guitar", "bach", True, True))
+    # The name is planned from the table, not read from the audio file.
+    assert [row.name for row in response.movements] == [
+        "Allemande",
+        "Courante",
+        "Sarabande",
+        "Gigue",
+    ]
+    assert response.movements[0].formDescription == "Allemande — Courante — Allemande"
+
+
 def test_dynamic_plan_routes_disable_the_http_cache(monkeypatch) -> None:
     """Span, recap, and DFI pieces are written after the audio; never replay them."""
     import asyncio

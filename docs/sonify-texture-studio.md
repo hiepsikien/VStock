@@ -98,7 +98,7 @@ Revision 1–6 dùng `pattern` và `figure` với nghĩa quá tải. Từ revisi
 Hai hệ quả bắt buộc khi implement:
 
 1. `FigureSpec` trong doc này đọc là **`SentenceSpec`**; `figure_code` là id của texture trong slot.
-2. Một pattern chỉ được in tên nếu `level` là `topic`; `level: texture` thì không in. Tên chương thuộc `Movement.title`, **không** phải pattern — guitar chưa có field này, nên phải thêm trước khi bỏ in texture (xem [`sonify-guitar-model.md`](./sonify-guitar-model.md) §2.1, §8).
+2. Một pattern chỉ được in tên nếu `level` là `topic`; `level: texture` thì không in. Tên chương thuộc `Movement.title`, **không** phải pattern — guitar đã có field này (`movement_titles.py`), và `formDescription` giữ A–B–A không in (xem [`sonify-guitar-model.md`](./sonify-guitar-model.md) §2.1, §8).
 3. Field đã đổi tên trong doc: `FigureSpec`→`SentenceSpec`, `meter_variants[].figures`→`sentences`, `selected_figure`→`selected_sentence`, `traits.figure_registry`→`traits.sentence_registry`. **Slot realizer vẫn map vào `_FIGURES` int** (`figure` trong slot, không phải `sentence_code`). Code hiện tại vẫn dùng `figure`/`_FIGURES` — đổi code là PR riêng, không trộn vào PR này.
 4. Inventory **39 dòng** = 38 dòng `PROFILES` + `pedal` (`level` / `topic` / `texture` / `procedure` / `sentence`) và các quyết định tên: [`sonify-guitar-model.md`](./sonify-guitar-model.md) §8, §12, §13.
 

@@ -71,7 +71,7 @@ from app.sonify.params import (
     presets_payload,
     schema_payload,
 )
-from app.sonify.program import span_movement_name
+from app.sonify.program import span_form_description, span_movement_name
 from app.sonify.model import Variant
 
 logger = logging.getLogger(__name__)
@@ -644,6 +644,10 @@ async def get_span(
                     span=range,
                     index=index,
                     stored=cached.movement_name if cached is not None else "",
+                ),
+                formDescription=span_form_description(
+                    variant=variant,
+                    stored=getattr(cached, "form_description", "") if cached is not None else "",
                 ),
                 paramsHash=params_hash(valid),
                 dfi=getattr(cached, "dfi", None) if cached is not None else None,

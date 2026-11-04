@@ -1,8 +1,8 @@
 # Tên pattern: Cathedral và Torroba
 
-Chuỗi ghi vào file audio ra từ `_PATTERN_TITLE` trong `backend/app/sonify/program.py`, qua `pattern_title`. Ngoại lệ duy nhất: `thumb_cantabile` khi ensemble là `villa` thành Prelude, không lấy mục Cantabile trong bảng. `PATTERN_NAMES` trong `src/sonify/program.ts` là tập để client nhận ra chuỗi đó. Id trong code giữ nguyên. Tên lấy từ tác phẩm, viết hoa chữ đầu, không dấu. Một tên đã thuộc nhà khác thì pattern mới không dùng lại tên đó.
+Từ naming release, **tên chương in ra** lấy từ `movement_titles.TITLES` (`backend/app/sonify/movement_titles.py`) theo `(ensemble, span, index)`, không lấy từ `pattern_form`. `_PATTERN_TITLE` vẫn là tên của pattern; `pattern_title` trả tên đó cho caller trực tiếp, nhưng `pattern_form` bỏ mọi id có `level == texture`, nên `Arpeggio`/`Tremolo`/`Chord Melody` không còn đi vào tên chương. `PATTERN_NAMES` trong `src/sonify/program.ts` là tập cũ để client nhận diện row pattern; frontend cần nhận `name` tự do của guitar.
 
-Không thêm vùng riêng cho tên chương. Chuỗi đó là tên của cả chương, tức `pattern_form` đã ghi cùng file audio. Nó không đổi theo từng `Phrase`. `formatMovement` trong `src/sonify/program.ts` giữ hậu tố nhịp và BPM, ví dụ `Cathedral — Andante — Tremolo (4/4, 96 BPM)`, hoặc `Finale: …` khi có tiền tố Finale.
+Tên chương là **identity**, không phải mô tả hình thức. `pattern_form` không còn ghi tên chương; nó dựng `formDescription` (A–B–A sau khi lọc texture) và không in. `formatMovement` trong `src/sonify/program.ts` giữ hậu tố nhịp và BPM, ví dụ `Cathedral (4/4, 96 BPM)`, hoặc `Finale: …` khi có tiền tố Finale; A–B–A chỉ dùng cho tooltip/subtitle nếu có.
 
 Guitar một chương: `pieceCopy` đặt tên pattern vào title (`Cathedral HVN 23/10 in D`) và để `movement` là `null`. Không có dòng thứ hai.
 

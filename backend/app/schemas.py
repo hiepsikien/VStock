@@ -214,6 +214,7 @@ class SpanMovementResponse(BaseModel):
     beats: int = 4
     beatType: int = 4
     name: str = ""
+    formDescription: str = ""
     paramsHash: str = ""
     dfi: DfiBreakdown | None = None
 
