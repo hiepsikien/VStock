@@ -1,6 +1,6 @@
 # Texture Studio — thư viện texture guitar trong Musicalize
 
-> **Trạng thái**: đề xuất, revision 5 sau review code lần 4. **Chưa code.**
+> **Trạng thái**: đề xuất, revision 6 sau review code lần 5. **Chưa code.**
 > **Phạm vi đợt đầu**: Villa-Lobos (`ensemble = "villa"`), texture lấy từ *Suite Popular Brasileira*.
 > **Nơi chạy**: trong app Musicalize (room mới), backend FastAPI phía sau.
 > **Mở cho tất cả bây giờ**, nhưng có session namespace và seam quyền truy cập để sau này giới hạn.
@@ -67,6 +67,19 @@ Revision 2 đóng được 15 điểm của review đầu, nhưng sinh ra 6 mâu
 | `parent_id`/upload dedupe mơ hồ | `parent_slug`; `studio_blobs` + refcount |
 | P2 nhỏ | Bỏ “hoặc form_resolve.py”; codegen dùng `PROFILES`; render matrix key; thêm `written/sounding_pitch` example |
 
+### 0.3. Revision 6 sửa gì (sau review 5)
+
+| Vấn đề revision 5 | Cách sửa trong revision 6 |
+|---|---|
+| `melody_eighth` làm round-trip pitch thành vòng tròn | Hạ pitch resolution xuống `derived`; authored round-trip chỉ kiểm **placement + pitch reference**; cao độ tuyệt đối do **golden render hash** kiểm |
+| §1 gọi spec là “nguồn chân lý” quá rộng | Đổi thành nguồn chân lý cho **placement/voice/routing/meter/selection**, không phải cao độ tuyệt đối |
+| Chỉ cảnh báo `melody_eighth` thiếu context | Nói rõ **toàn bộ pitch layer** là render-context-relative; chỉ `literal_midi` standalone |
+| Validate tưởng offline được | Validate dùng **cùng render executor** với preview; thiếu melody context trả `partial: true` + `skipped_checks` |
+| `melody_eighth.offset` clamp | Out-of-range là **validation error**, không clamp |
+| Preview pending không có status | `GET /previews/{id}` trả 404/409/200 theo trạng thái |
+| Upload refcount chưa có luật xoá | `DELETE /uploads/{id}` trả 409 nếu còn spec trỏ tới; refcount chỉ giảm khi spec xoá |
+| Coverage probe `"classic"` | Lặp qua ensemble sở hữu pattern; chỉ fallback `"classic"` cho `_FAMILY`-only |
+
 ---
 
 ## 1. Tóm tắt
@@ -82,7 +95,7 @@ Gemini đọc nháp (confidence từng nốt)
     ↓
 người sửa nốt, gán bè, nhập meter/routing/micro/sustain
     ↓
-TextureSpec (JSON) — nguồn chân lý cho authoring + test
+TextureSpec (JSON) — nguồn chân lý cho placement/voice/routing/meter/selection
     ↓
 compiler: preview, fixture, registry, checklist
     ↓
@@ -90,6 +103,12 @@ renderer hiện tại (Phase 0/1) hoặc interpreter (Phase 2)
 ```
 
 Điểm cốt lõi: **ảnh bản nhạc chỉ là ví dụ, không phải spec**. Engine không phát lại một bản nhạc cố định; nó biến chuỗi giá/volume thành nốt. Artifact trung tâm là **quy tắc ánh xạ**, không phải bản phiên âm.
+
+Spec **không sở hữu cao độ tuyệt đối**. Pitch của voice 1 là kết quả của `_melody_scale → register → _choose_shifts → _place_melody`; spec chỉ tham chiếu (`melody_eighth`) hoặc ghi quan hệ (`chord_degree`, `scale_step`, `literal_midi`). Vì vậy:
+
+- Authored round-trip kiểm **placement + pitch reference**, không kiểm absolute MIDI.
+- Cao độ tuyệt đối do **golden render hash** kiểm với cùng render context.
+- Nếu spec dùng `literal_midi`, pitch mới thực sự standalone và có thể so trực tiếp.
 
 ### 1.1. Quyết định runtime
 
@@ -572,11 +591,15 @@ Revision 1 trộn tất cả vào `events`. Revision 2/3 tách:
 
 | Tầng | Chứa gì | Có phải nguồn chân lý? | Dùng trong round-trip? |
 |---|---|---|---|
-| `authored` | bar, beat, duration, voice, pitch, tie, slur, accent, staccato, staff; optional `string`/`fret` | Có | Có |
-| `derived` | velocity band, hairpin rule, humanize policy, dynamics policy | Không | Chỉ khi cùng input |
+| `authored` | bar, beat, duration, voice, **pitch reference**, tie, slur, accent, staccato, staff; optional `string`/`fret` | Có, cho **placement + reference** | Có, nhưng không so absolute MIDI |
+| `derived` | `resolved_midi`, velocity band, hairpin rule, humanize policy, dynamics policy | Không | Chỉ khi cùng render context |
 | `rendered` | `NoteEvent` sau `_resolve`, `apply_guitar_wave`, humanize | Không | Golden artifact riêng |
 
+`pitch reference` là `melody_eighth`, `chord_degree`, `scale_step` hoặc `literal_midi`. Chỉ `literal_midi` là absolute; các kind còn lại resolve từ render context. Vì vậy `resolved_midi` thuộc `derived`, không thuộc `authored`.
+
 `rendered` không nằm trong `TextureSpec`. Nó là file `rendered.json` hoặc hash, sinh từ một render thật.
+
+**Hệ quả round-trip**: `melody_eighth` lấy `ctx.melody[index]` từ chính lần render đang so, nên nếu dùng nó để so `midi` thì hai vế luôn bằng nhau — đó là vòng tròn. Authored round-trip chỉ kiểm placement + reference; absolute pitch do golden hash kiểm.
 
 `string`/`fret` là **metadata xác thực** trong `authored`, không phải field của `NoteEvent`. Chúng có mặt khi nguồn là tab hoặc khi Gemini đọc được tab; nếu không có, validation bỏ qua phần string/fret.
 
@@ -599,9 +622,9 @@ Revision 1 trộn tất cả vào `events`. Revision 2/3 tách:
 - `staff`, `tie_start`, `tie_stop`, `slur_start`, `slur_stop`
 - `accent`, `velocity`, `tenuto`, `staccato`, `hairpin`, `pinned`
 
-Spec `authored` phải cover: `bar`, `beat`, `midi`/pitch, `duration_beats`, `voice`, `staff`, `tie_start/stop`, `slur_start/stop`, `accent`, `tenuto`, `staccato`.
+Spec `authored` phải cover: `bar`, `beat`, `pitch reference`, `duration_beats`, `voice`, `staff`, `tie_start/stop`, `slur_start/stop`, `accent`, `tenuto`, `staccato`.
 Spec `authored` **có thể** cover thêm `string`, `fret`, `written_pitch`, `sounding_pitch` khi nguồn là tab; đây là metadata, không phải `NoteEvent`.
-Spec `derived` cover: `velocity`, `hairpin`, `pinned`, dynamics.
+Spec `derived` cover: `resolved_midi`, `velocity`, `hairpin`, `pinned`, dynamics.
 Spec không cover: `Score.lead_wedges`, `support_wedges`, `dynamics`, `harmonies` — đây là artifact của render, không phải event.
 
 ### 6.3. Voice
@@ -650,9 +673,10 @@ Sửa thành:
 
 ### 6.5. Round-trip so gì
 
-- So `authored`: cùng `bar`, `beat`, `duration_beats`, `voice`, `staff`, `midi`, tie/slur/accent/staccato; nếu có `string`/`fret` thì so thêm.
+- **Authored round-trip** so placement + reference: `bar`, `beat`, `duration_beats`, `voice`, `staff`, tie/slur/accent/staccato, và `pitch.kind` + index/degree. Không so absolute `midi` nếu pitch là `melody_eighth`/`chord_degree`/`scale_step`; nếu là `literal_midi` thì so được.
+- **Vì sao**: `melody_eighth` lấy `ctx.melody[index]` từ chính lần render đang so → so `midi` sẽ luôn pass, kể cả khi renderer đặt sai quãng. Đây là vòng tròn, không phải test.
+- **Absolute pitch** do `rendered` golden kiểm: cùng price path, volume, chord slots, liquidity, `params` hash, `SPAN_REVISION`/`RECAP_REVISION`, cùng `renderer_version`. So hash/snapshot, không so ±2.
 - Không so `velocity` tuyệt đối. Velocity do `apply_guitar_wave()` + `resolve_bar_volumes()` + liquidity + humanize quyết định; nó không thuộc spec.
-- Nếu muốn so `rendered`, phải dùng **cùng price path, cùng volume path, cùng chord slots, cùng liquidity bands, cùng `params` hash, cùng `SPAN_REVISION`/`RECAP_REVISION`**. Khi đó so hash hoặc snapshot, không so ±2.
 - Không có “humanize seed”. `humanize()` nhận `params`, `offset_at`, `fan_hold`; tính deterministic qua `_stable_unit`, cố ý không dùng `hash()`. Vì vậy cache/so sánh dùng `params` hash + `SPAN_REVISION`.
 - `rendered` là golden artifact, không phải input của spec.
 
@@ -663,11 +687,11 @@ Sửa thành:
 Cần thêm:
 
 - `assert_authored_playable(authored, profile)`:
-  - luôn kiểm: MIDI range, register guitar, voice order (`bass < mid < lead`), duration sum theo meter, không overlap cùng voice;
-  - nếu có `string`/`fret`: string 1–6, `0 <= fret <= _MAX_FRET[6 - string]` (index 0 = dây 6), pitch khớp string+fret, hand span ≤ 5, không trùng dây;
-  - nếu không có `string`/`fret`: chỉ kiểm pitch/register/voice/duration; playability vật lý để `assert_playable` sau repair.
+  - **offline** (không cần render): bar/beat/duration sum theo meter, không overlap cùng voice, tie/slur có đầu cuối, voice order nếu pitch là absolute, string/fret nếu có `literal_midi`;
+  - **with render context**: resolved MIDI range, register guitar, voice order (`bass < mid < lead`), hand span, string/fret khớp pitch;
+  - nếu không có `string`/`fret` hoặc pitch là reference: phần playability vật lý để `assert_playable` sau repair.
 - `assert_playable(score, profile)`: kiểm tra output sau repair, như hiện tại.
-- Publish yêu cầu cả hai; spec không có string/fret vẫn publish được nếu `assert_authored_playable` phần pitch/register pass.
+- Publish yêu cầu cả hai; nếu validate chưa có melody context thì trả `partial: true` + `skipped_checks`, không silent pass.
 
 ### 6.7. Schema tối thiểu của `TextureSpec`
 
@@ -763,6 +787,7 @@ Cần thêm:
   },
 
   "derived": {
+    "resolved_midi": "from_render_context",
     "velocity_band": { "voice": 1, "source": "liquidity" },
     "hairpin": "phrase",
     "humanize": "params"
@@ -837,15 +862,25 @@ Spec **không được** chứa tên hàm private như `_melody_at`. `pitch` ch�
 { "kind": "literal_midi", "value": 57 }
 ```
 
+Không chỉ `melody_eighth`: **toàn bộ tầng pitch là tương đối với render context**, trừ `literal_midi`.
+
+| Kind | Cần gì để resolve |
+|---|---|
+| `melody_eighth` | `ctx.melody` (sau `_place_melody`) |
+| `chord_degree` / `chord_root` | `chord_at` của bar hiện tại |
+| `scale_step` | `mode` + `_melody_scale` + register |
+| `literal_midi` | Không cần gì; standalone |
+
 Quy tắc:
 
 - `melody_eighth` **trích** `ctx.melody[eighth]` — mảng melody đã qua `_melody_scale`, register floors, `_choose_shifts`, `_place_melody`. Spec không tái tạo phép biến đổi price → melody; nó chỉ tham chiếu kết quả.
-- `offset` dịch eighth, dùng cho nốt lấy đà; không thay đổi melody gốc.
-- `chord_degree` lấy bậc trong hợp âm hiện tại; `1` là gốc.
+- `eighth` và `offset` phải nằm trong `[0, len(ctx.melody))`. **Out-of-range là validation error**, không clamp như `_melody_at` (hàm đó trả `melody[-1]`). Nếu không, nốt lấy đà cuối phrase sẽ lặng lẽ thành nốt cuối.
+- `chord_degree` lấy bậc trong hợp âm hiện tại; `1` là gốc. `chord_root` là alias của degree 1.
+- `scale_step` đi theo thang của mode hiện tại; cần register để clamp.
 - `literal_midi` chỉ dùng khi spec thật sự cần một cao độ cố định; phải có lý do trong `provenance.notes`.
 - Compiler resolve các kind này thành MIDI **trong cùng `_Ctx`** đã render; runtime không import `guitar_patterns` để hiểu spec.
-- Không có kind `price`: price → melody là việc của engine, không phải của spec. Nếu Phase 2 interpreter cần resolve `melody_eighth`, nó phải nhận `melody` array từ cùng pipeline; spec một mình không đủ để resolve kind này.
-- Vì vậy `melody_eighth` chỉ dùng cho `runtime: "code"` hoặc interpreter có contract `melody` tường minh; không dùng cho spec publish độc lập chưa có melody context.
+- Không có kind `price`: price → melody là việc của engine, không phải của spec. Nếu Phase 2 interpreter cần resolve `melody_eighth`, nó phải nhận `melody` array từ cùng pipeline; spec một mình không đủ để resolve.
+- Vì vậy `melody_eighth`/`chord_degree`/`scale_step` chỉ dùng cho `runtime: "code"` hoặc interpreter có contract context tường minh; không dùng cho spec publish độc lập chưa có context.
 - Nếu cần escape hatch cho một gesture chưa biểu diễn được, dùng `literal_midi` + `runtime: "code"`, không thêm tên hàm.
 
 ---
@@ -1038,6 +1073,8 @@ Trước khi lưu `draft`:
 - Nốt confidence thấp phải được đánh dấu, không tự nhận.
 - `conflict=true` giữa phổ và tab phải có quyết định của người.
 - `review` phải là `accepted` hoặc `edited` trước khi publish; `pending` bị từ chối. Gemini tạo `pending`; người nhập tay tạo `edited`.
+- Validate dùng **cùng render executor/global Studio queue** với preview: pitch/register/string-fret cần render context. Nếu draft chưa có melody context, trả `partial: true` + `skipped_checks` (`pitch`, `register`, `playable`); không im lặng pass.
+- `POST /specs/{slug}/validate` có thể trả `202 + validation_id` nếu phải render; UI poll trạng thái như preview.
 
 ---
 
@@ -1220,6 +1257,7 @@ Prefix: `/v1/musicalize/studio`.
 | `GET` | `/access` | Capability + quota shape |
 | `POST` | `/uploads` | Upload ảnh (multipart) |
 | `GET` | `/uploads/{upload_id}` | Tải lại ảnh phổ, kiểm tra owner |
+| `DELETE` | `/uploads/{upload_id}` | Xoá upload; `409` nếu còn spec trỏ tới |
 | `POST` | `/analyze` | Ảnh + crop + metadata → Gemini draft |
 | `GET` | `/specs` | Danh sách spec của session |
 | `POST` | `/specs` | Tạo spec |
@@ -1244,6 +1282,15 @@ Tất cả endpoint (trừ `/access`) đọc `X-Studio-Session`, resolve `owner_
 ```
 
 Token ký theo `owner_id + resource_id + expiry`, TTL 5–15 phút, revoke khi spec bị xoá. Không dùng session header cho media.
+
+**Preview lifecycle**:
+
+- `POST /specs/{slug}/preview` → `202` + `preview_id` nếu chưa có cache.
+- `GET /previews/{preview_id}`:
+  - `404` nếu chưa có job/cache;
+  - `409` nếu đang render (kèm `Retry-After`);
+  - `200` nếu ready, trả audio (signed URL hoặc bytes).
+- Validate dùng **cùng global Studio queue**; nếu đang chờ render, trả `202 + validation_id`; nếu thiếu context, trả `200` với `partial: true` + `skipped_checks`.
 
 ### 11.4. DDL tối thiểu
 
@@ -1292,6 +1339,12 @@ Lý do: Studio mở cho tất cả. Nếu `id` là pattern id và là PK toàn c
 
 `studio_blobs` dedupe theo `sha256`; `refcount` tăng khi upload, giảm khi xoá upload/spec. File chỉ bị xoá khi `refcount = 0`. Không xoá file của owner khác khi một owner xoá upload của họ.
 
+`DELETE /uploads/{id}`:
+
+- nếu còn bất kỳ spec nào (của owner đó) trỏ `source.upload_id` tới upload này → `409 upload_in_use`;
+- nếu không, xoá row `studio_uploads`, giảm `studio_blobs.refcount`;
+- file vật lý chỉ xoá khi `refcount = 0`.
+
 `studio_exports` có thể là bảng hoặc chỉ là thư mục; Phase 1 dùng thư mục `/data/studio/exports/<id>/`.
 
 ---
@@ -1334,7 +1387,7 @@ Repo đã có tiền lệ: `scripts/gen_params_schema.py` sinh `paramsSchema.gen
 - `--check` phát hiện drift.
 - Repo **không có CI** (`.github/` không tồn tại), nên thêm `backend/tests/test_pattern_registry.py` gọi logic `--check`; pytest là gate thật.
 
-### 12.3. Title uniqueness
+### 12.3. Title coverage, không phải uniqueness toàn cục
 
 `PATTERN_NAMES` là set toàn cục theo title. **Không test uniqueness toàn cục** — hiện có 4 title trùng hợp lệ (`Cantabile`, `Etude`, `Prelude`, `Sarabande`). Test đúng là **coverage + uniqueness theo ensemble**:
 
@@ -1346,8 +1399,16 @@ from app.sonify.guitar_wave import PROFILES
 from app.sonify.program import pattern_title
 
 # 1. Coverage: mọi pattern phải có title. Đây là lỗi thật cần bắt.
+owners: dict[str, set[str]] = defaultdict(set)
+for ensemble, pattern in PROFILES:
+    owners[pattern].add(ensemble)
+
 missing_profiles = [(e, p) for e, p in sorted(PROFILES) if not pattern_title(p, e)]
-missing_family = [p for p in sorted(_FAMILY) if not pattern_title(p, "classic")]
+missing_family = [
+    p
+    for p in sorted(_FAMILY)
+    if not any(pattern_title(p, e) for e in (owners.get(p) or {"classic"}))
+]
 assert not missing_profiles, missing_profiles
 assert not missing_family, missing_family
 
@@ -1364,6 +1425,7 @@ for ensemble, titles in by_ensemble.items():
 ```
 
 - `PROFILES` là registry wave profile `(ensemble, pattern)`, không phải palette đầy đủ; `_FAMILY` có thể có pattern không có wave profile. Dùng **hợp** `_FAMILY ∪ PROFILES` cho coverage.
+- Với pattern chỉ có trong `_FAMILY`, probe qua ensemble sở hữu trong `PROFILES`; nếu không có, fallback `"classic"`. Giả định: `_PATTERN_TITLE` không phụ thuộc ensemble, trừ `thumb_cantabile`; nếu assumption này đổi, test phải cập nhật.
 - `pattern_title()` trả `""` cho id lạ; coverage test phải **fail** khi rỗng, không `filter(None, ...)`.
 - Với *Suite Popular Brasileira*, dùng tên đầy đủ `Mazurka-Choro`, `Schottish-Choro`, `Valsa-Choro`, `Gavotta-Choro`, `Choros No. 1`.
 
@@ -1432,7 +1494,7 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 - Sinh `selection_matrix.json` + `render_matrix.json` + hai test tương ứng.
 - **Không sửa runtime**: Studio từ chối spec 12/8; runtime giữ hành vi hiện tại. Ghi rõ đây là known bug, fix ở Phase 3.
 
-**Gate**: round-trip đúng; meter gate âm tính; matrix đầy đủ; Studio từ chối 12/8; không có thay đổi runtime.
+**Gate**: authored round-trip **placement + pitch reference** đúng; golden hash kiểm absolute pitch; meter gate âm tính; matrix đầy đủ; Studio từ chối 12/8; không có thay đổi runtime.
 
 ### Phase 1 — Studio room + Gemini + session
 
@@ -1471,8 +1533,8 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 3. **12/8**: Studio từ chối spec 12/8; runtime Phase 0/1 **không đổi**. Phase 3 mới sửa fallback `"other"` → 4/4 hoặc thêm materializer 12/8.
 4. **Không meter per-bar**: không dùng `kind_at` làm meter.
 5. **Figure parent**: figure không có parent/meter hợp lệ bị từ chối; `figure.meter` phải thuộc variant list.
-6. **Authored round-trip**: cùng pitch/beat/duration/voice/staff/tie/slur/accent/staccato; nếu có string/fret thì so thêm.
-7. **Rendered golden**: cùng input + `params` hash + `SPAN_REVISION`/`RECAP_REVISION` → cùng hash/snapshot; velocity không so tuyệt đối; không có “humanize seed”.
+6. **Authored round-trip**: cùng placement (bar/beat/duration/voice/staff/tie/slur/accent/staccato) + **pitch reference** (`kind`/index/degree); không so absolute MIDI cho `melody_eighth`/`chord_degree`/`scale_step`; nếu `literal_midi` thì so được.
+7. **Rendered golden**: cùng render context + `params` hash + `SPAN_REVISION`/`RECAP_REVISION` + `renderer_version` → cùng hash/snapshot; đây là nơi kiểm absolute pitch. Velocity không so tuyệt đối; không có “humanize seed”.
 8. **Preview = slice_score**: preview lấy từ render thật; diff hợp lệ chỉ ở tie biên `start`/`end - 1`.
 9. **Storage bền**: DB/upload/preview nằm trên `/data`, sống qua deploy; backup có.
 10. **Publish artifact**: server không ghi repo; test data-driven.
@@ -1481,15 +1543,17 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 13. **Title coverage**: mọi pattern trong `_FAMILY ∪ PROFILES` có title không rỗng; uniqueness chỉ theo ensemble. 4 title trùng toàn cục hiện có là hợp lệ.
 14. **Runtime proof**: ít nhất một pattern `runtime: "interpreter"` ở Phase 2.
 15. **Movement line**: 5 pattern Suite không làm vỡ `pattern_form()`; tối đa 3 title; test in tên.
-16. **API/storage contract**: 15 endpoint + DDL + post-Gemini validate có trong doc và test.
+16. **API/storage contract**: 16 endpoint + DDL + post-Gemini validate có trong doc và test.
 17. **Selection + render matrix**: mỗi pattern có ít nhất một input được chọn; render matrix chỉ render pattern đã chọn; `ctx_kind == "other"` fail; `expected_empty` phải có lý do.
 18. **Per-voice duration**: mỗi voice không overlap và tổng duration = `bar_beats` hoặc có rest tường minh; không cộng tất cả voice.
-19. **Pitch declarative**: spec không chứa tên hàm Python; chỉ dùng `melody_eighth`/`chord_degree`/`literal_midi`/…; `melody_eighth` chỉ trích melody đã render.
+19. **Pitch declarative**: spec không chứa tên hàm Python; chỉ dùng `melody_eighth`/`chord_degree`/`scale_step`/`literal_midi`; toàn bộ pitch layer là render-context-relative, chỉ `literal_midi` standalone; `melody_eighth` out-of-range là lỗi.
 20. **Publish gate**: `review=pending` hoặc `confidence < 0.6` chưa accept/edit bị từ chối; Gemini tạo `pending`, người nhập tay tạo `edited`.
 21. **Registry version gate**: schema ngoài allowlist hoặc JSON hỏng bị bỏ, app vẫn boot; `renderer_version` bắt buộc cho interpreter.
 22. **Media token**: preview/export dùng signed token ngắn hạn; `GET /uploads/{id}` kiểm tra owner.
 23. **Global preview queue**: 1 worker Studio, render ngoài event loop, tách khỏi `EXPORT_SLOTS`; `previewsConcurrent` chỉ là per-session.
 24. **Parent/upload identity**: `parent_slug` là pattern id; upload dedupe qua `studio_blobs.refcount`, xoá 1 owner không xoá file của owner khác.
+25. **Pitch context**: `melody_eighth`/`chord_degree`/`scale_step` resolve từ render context; `eighth`/`offset` out-of-range là validation error, không clamp; chỉ `literal_midi` standalone.
+26. **Validate queue/partial**: validate dùng cùng global Studio queue với preview; thiếu melody context trả `partial: true` + `skipped_checks`, không silent pass.
 
 ---
 
@@ -1503,6 +1567,9 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 | 2/4 không có trong engine | `fold: 2` ở `FormSpec`; tiền lệ `galop`; test bars/DFI |
 | Figure Villa không tồn tại | Phase 0 pattern-only; audit trước |
 | Velocity bị coi là authored | Tách authored/derived/rendered |
+| Round-trip pitch thành vòng tròn | Authored chỉ so placement/reference; absolute pitch do golden hash |
+| Validate tưởng offline được | Dùng render executor; `partial: true` + `skipped_checks` |
+| `melody_eighth.offset` clamp âm thầm | Out-of-range là validation error |
 | `assert_playable` che spec xấu | `assert_authored_playable` trước repair |
 | Preview lệch bản đầy đủ | `slice_score` của render thật |
 | MuseScore slot tranh nhau | Queue/slot riêng + cache + latency UI |
@@ -1632,7 +1699,22 @@ Không tham chiếu revision cũ. Đây là danh sách đầy đủ, compiler si
 | P2.2 codegen dùng `PROFILES` | §12.2 |
 | P2.3 render matrix key | §4.5.1 |
 | P2.4 written/sounding example | §6.7 |
-| P2.5 15 endpoint | §11.3, §14.16 |
+| P2.5 endpoint count | §11.3, §14.16 (16 sau khi thêm `DELETE /uploads/{id}`) |
+
+---
+
+### B.5. Review 5
+
+| Review 5 | Trạng thái trong revision 6 |
+|---|---|
+| 1 `melody_eighth` round-trip vòng tròn | §6.1, §6.5, §14.6 |
+| 2 pitch layer phụ thuộc render context | §1, §6.8 |
+| 3 validate cần render executor | §9.5, §11.3 |
+| 4.1 out-of-range không clamp | §6.8 |
+| 4.2 preview 404/409/200 | §11.3 |
+| 4.3 `DELETE /uploads` + refcount | §11.4 |
+| 4.4 coverage probe ensemble | §12.3 |
+| 4.5 endpoint count | §11.3, §14.16 (16 sau khi thêm `DELETE /uploads/{id}`) |
 
 ---
 
