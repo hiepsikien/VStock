@@ -1,34 +1,68 @@
 # Texture Studio — thư viện texture guitar trong Musicalize
 
-> **Trạng thái**: đề xuất, chưa code.
+> **Trạng thái**: đề xuất, revision 2 sau khi đối chiếu code hiện tại. **Chưa code.**
 > **Phạm vi đợt đầu**: Villa-Lobos (`ensemble = "villa"`), texture lấy từ *Suite Popular Brasileira*.
 > **Nơi chạy**: trong app Musicalize (room mới), backend FastAPI phía sau.
-> **Mở cho tất cả bây giờ**, nhưng có seam quyền truy cập để sau này giới hạn một số người.
+> **Mở cho tất cả bây giờ**, nhưng có session namespace và seam quyền truy cập để sau này giới hạn.
 > **Liên quan**: [`sonify-classical-guitar.md`](./sonify-classical-guitar.md), [`sonify-pattern-names.md`](./sonify-pattern-names.md), [`sonify-guitar-torroba-plan.md`](./sonify-guitar-torroba-plan.md), [`sonify-guitar-torroba-castillos-frames.md`](./sonify-guitar-torroba-castillos-frames.md).
+
+---
+
+## 0. Revision 2 sửa gì
+
+Revision 1 đúng hướng nhưng có bảy lỗ hổng chặn Phase 0. Revision 2 sửa tận gốc:
+
+| Vấn đề revision 1 | Cách sửa trong revision 2 |
+|---|---|
+| `when.meter` là string 3 giá trị, không phải `Meter` thật | Dùng `MeterSpec` đầy đủ; fail-closed trên meter lạ |
+| Giả định meter per-bar | Meter là per-render; `kind_at` là section kind, không phải meter |
+| Coi meter chỉ là “cổng gọi” | Meter là **materialization**: mỗi meter phải có grid/events riêng |
+| So meter trước retarget | Spec khai meter **sau** `_guitar_meter` + `retarget_torroba_meter` |
+| `EventSpec` không total so với `NoteEvent` | Tách `authored / derived / rendered`; thêm voice 4 |
+| Preview “không cần Score” | Preview = `slice_score()` của một `render_guitar_score()` thật |
+| Figure Villa không tồn tại | Phase 0 chỉ pattern; Torroba là mẫu figure có `figure_code` |
+| Storage trong `backend/var` | Production dùng `/data`, chung `store/db.py`, có backup |
+| Publish ghi thẳng repo từ server | Publish xuất artifact; PR do người/agent mở |
+| Phân quyền no-op | Session namespace + owner check + quota; auth thật để sau |
+| Gemini adapter mới | Reuse `services/gemini_companion.py` |
+| Checklist tự sinh không đủ | Thêm `traits`; codegen registry + test drift |
+| Title uniqueness không có test | Test cross-ensemble + đổi tên movement |
 
 ---
 
 ## 1. Tóm tắt
 
-Quy trình hiện tại của bạn là một chuỗi chat: chụp ảnh bản nhạc, chỉ vùng ô, để agent đọc nốt, rồi bổ sung bằng lời các quy tắc diễn tấu, nối bè, gán bè, và ánh xạ bè vào price/volume. Cách này hiệu quả cho một lần, nhưng không để lại một artifact có thể kiểm tra, tái sử dụng, hay mở rộng cho nhạc sĩ khác.
+Quy trình hiện tại là một chuỗi chat: chụp ảnh bản nhạc, chỉ vùng ô, để agent đọc nốt, rồi bổ sung bằng lời các quy tắc diễn tấu, nối bè, gán bè, và ánh xạ bè vào price/volume. Cách này hiệu quả cho một lần, nhưng không để lại artifact kiểm tra được, tái sử dụng được, hay mở rộng cho nhạc sĩ khác.
 
-Đề xuất: biến quy trình đó thành **Texture Studio**, một pipeline authoring nằm trong Musicalize:
+Texture Studio biến quy trình đó thành pipeline:
 
 ```
 ảnh phổ + tab
     ↓
-Gemini đọc nháp (có confidence từng nốt)
+Gemini đọc nháp (confidence từng nốt)
     ↓
-bạn sửa nốt, gán bè, nhập routing / micro-timing / sustain / meter
+người sửa nốt, gán bè, nhập meter/routing/micro/sustain
     ↓
-TextureSpec (JSON) — nguồn chân lý
+TextureSpec (JSON) — nguồn chân lý cho authoring + test
     ↓
-compiler sinh preview, fixture test, docs, checklist đăng ký
+compiler: preview, fixture, registry, checklist
     ↓
-renderer hiện tại hoặc interpreter chung thực thi
+renderer hiện tại (Phase 0/1) hoặc interpreter (Phase 2)
 ```
 
-Điểm cốt lõi: **ảnh bản nhạc chỉ là ví dụ, không phải spec**. Engine không phát lại một bản nhạc cố định; nó biến chuỗi giá/volume thành nốt. Vì vậy artifact trung tâm phải là **quy tắc ánh xạ**, không phải bản phiên âm.
+Điểm cốt lõi: **ảnh bản nhạc chỉ là ví dụ, không phải spec**. Engine không phát lại một bản nhạc cố định; nó biến chuỗi giá/volume thành nốt. Artifact trung tâm là **quy tắc ánh xạ**, không phải bản phiên âm.
+
+### 1.1. Quyết định runtime
+
+Revision 1 để mở “renderer hiện tại **hoặc** interpreter chung”. Revision 2 chốt:
+
+- **Phase 0/1**: spec là **authoring source + test fixture**. Runtime vẫn là code hiện tại. Spec không được `guitar_patterns.py` đọc.
+- **Phase 2**: chỉ pattern có `runtime: "interpreter"` mới được runtime đọc. Mọi pattern còn lại giữ `runtime: "code"`.
+- **Phase 3**: mới cân nhắc chuyển thêm pattern từ `code` sang `interpreter`.
+
+Lý do: renderer hiện tại chứa nhiều quyết định tay phải không thể biểu diễn bằng grid/events đơn giản. Nếu Phase 0 đã buộc runtime đọc spec, dự án sẽ thành một cuộc viết lại lớn trước khi có bằng chứng.
+
+Hệ quả: **round-trip và diff là tiêu chí bắt buộc**, không phải tự nguyện. Nếu spec không tái tạo được renderer hiện tại, spec sai.
 
 ---
 
@@ -36,19 +70,19 @@ renderer hiện tại hoặc interpreter chung thực thi
 
 | Bước | Việc đang làm | Vấn đề |
 |---|---|---|
-| 1 | Chụp ảnh, chỉ ô | Ảnh nằm ngoài repo, không có metadata vùng crop |
-| 2 | Agent đọc cao độ/trường độ | Kết quả chỉ nằm trong chat, dễ trôi, không có confidence |
-| 3 | Nói chênh lệch vi mô | Kiến thức diễn tấu không được lưu thành số |
-| 4 | Nói nốt ngân dài nối bè | Luật tie/ring nằm rải rác trong code |
-| 5 | Nói bè bass/trung/cao, bè nào ăn price/volume | Routing không có schema, mỗi lần phải nhắc lại |
-| 6 | Nói quãng bè trung so với bè cao | Ràng buộc register/interval không được validate sớm |
+| 1 | Chụp ảnh, chỉ ô | Ảnh ngoài repo, không metadata vùng crop |
+| 2 | Agent đọc cao độ/trường độ | Kết quả chỉ trong chat, không confidence |
+| 3 | Nói chênh lệch vi mô | Kiến thức diễn tấu không thành số |
+| 4 | Nói nốt ngân dài nối bè | Luật tie/ring rải rác trong code |
+| 5 | Nói bè bass/trung/cao, bè nào ăn price/volume | Routing không schema |
+| 6 | Nói quãng bè trung so với bè cao | Ràng buộc không validate sớm |
 
 Hệ quả:
 
-- Thêm một texture mới phải sửa nhiều file (`guitar_patterns.py`, `guitar_wave.py`, `program.py`, `humanize.py`, test, docs…).
-- Không có round-trip test: không biết spec mới có tái tạo đúng texture cũ không.
-- Không có nơi để “nghe thử” trước khi ghép vào bản đầy đủ.
-- Không có phân quyền: sau này muốn giới hạn Studio cho một số người sẽ phải sửa xuyên suốt.
+- Thêm texture phải sửa nhiều file, dễ bỏ sót.
+- Không có round-trip: không biết spec mới có đúng texture cũ không.
+- Không có preview trước khi ghép.
+- Không có nơi lưu quyết định meter/voice/routing.
 
 ---
 
@@ -56,364 +90,201 @@ Hệ quả:
 
 | Điểm | Quyết định |
 |---|---|
-| Nhạc sĩ | **Villa-Lobos** (`villa`), không thêm ensemble mới |
+| Nhạc sĩ | **Villa-Lobos** (`villa`), không thêm ensemble |
 | Nguồn | ***Suite Popular Brasileira*** |
-| Đơn vị | **Figure nằm trong một pattern**. Mỗi pattern/figure có meter riêng và chỉ được gọi khi khớp meter |
+| Đơn vị | **Figure nằm trong pattern**. Pattern/figure đều có meter riêng và chỉ được gọi khi khớp |
 | Nơi chạy | **Trong app Musicalize**, backend FastAPI + UI trong app |
-| Quyền | **Mở cho tất cả bây giờ**, có seam để sau này giới hạn |
+| Quyền | **Mở cho tất cả bây giờ**, chưa cần login; có session namespace để sau này giới hạn |
 | Đầu vào | **Ảnh phổ + tab** |
+| Runtime | Code-backed mặc định; interpreter chỉ ở Phase 2 cho pattern được chọn |
 
 ### 3.1. Hệ quả của “figure nằm trong pattern”
-
-Mô hình đúng là phân cấp:
 
 ```
 Composer
 └── Pattern
-    ├── base grid (luôn có)
-    ├── Figure A
-    ├── Figure B
+    ├── meter variant A
+    │   ├── base grid
+    │   ├── Figure A1
+    │   └── Figure A2
+    ├── meter variant B
+    │   ├── base grid
+    │   └── Figure B1
     └── Door (intro/outro)
 ```
 
-- Scheduler **không bao giờ chọn figure trực tiếp**. Nó chọn pattern trước, rồi trong pattern mới chọn figure.
+- Scheduler không bao giờ chọn figure trực tiếp. Nó chọn pattern trước, rồi trong pattern mới chọn figure.
 - Figure không có tên in trên chart, không có `_PATTERN_TITLE`, không vào `PATTERN_NAMES`.
 - Pattern có meter riêng; figure cũng có meter riêng.
-- **Điều kiện gọi**: meter của pattern phải khớp meter của movement; meter của figure phải khớp meter của bar/phrase và phải là tập con của meter mà pattern cho phép.
-
-Đây là điểm cần làm rõ vì hiện tại meter đang là **thuộc tính ngầm của movement**, không phải trường khai báo trên pattern/figure.
+- **Điều kiện gọi**: meter của pattern phải khớp meter runtime; meter của figure phải khớp meter runtime và phải là tập con của meter mà pattern cho phép.
+- Mỗi cặp `(pattern, meter)` phải có **materializer** tường minh. Không có base grid ngầm.
 
 ### 3.2. *Suite Popular Brasileira* — danh sách movement
 
-Năm movement, cùng tên tạm trong code. Cột nhịp là nhịp **cần đối chiếu lại với bản nhạc** trước khi khoá spec; không lấy ký ức làm nguồn.
+Năm movement. Cột nhịp là nhịp **cần đối chiếu lại với bản nhạc** trước khi khoá spec.
 
 | Movement | Nhịp thường gặp | Id đề xuất | Tên in đề xuất |
 |---|---|---|---|
-| Mazurka-Choro | 3/4 | `suite_mazurka` | Mazurka |
-| Schottish-Choro | 2/4 (cần xác nhận) | `suite_schottish` | Schottish |
-| Valsa-Choro | 3/4 | `suite_valsa` | Valsa |
-| Gavotta-Choro | 4/4 (cần xác nhận chỗ bắt đầu) | `suite_gavotta` | Gavotta |
+| Mazurka-Choro | 3/4 | `suite_mazurka` | Mazurka-Choro |
+| Schottish-Choro | 2/4 (cần xác nhận) | `suite_schottish` | Schottish-Choro |
+| Valsa-Choro | 3/4 | `suite_valsa` | Valsa-Choro |
+| Gavotta-Choro | 4/4 (cần xác nhận chỗ bắt đầu) | `suite_gavotta` | Gavotta-Choro |
 | Choros No. 1 | 2/4 hoặc 4/4 (cần xác nhận) | `suite_choros1` | Choros No. 1 |
 
-Ràng buộc engine:
+Quy tắc tên:
 
-- Engine hiện chỉ có `3/4`, `4/4`, `6/8`.
-- Movement nào ở **2/4** phải gộp hai ô 2/4 thành một ô 4/4, đúng cách `olite` đang làm. Đây là quyết định của spec, không phải lỗi của tool.
-- Không dùng lại id đã có: `choro` (Barrios), `vals` (Barrios), `gavotte` (Bach), `waltz` (Barrios). Nếu tên in trùng, `PATTERN_NAMES` sẽ nhận nhầm pattern của nhà khác.
-- Mỗi movement là một **pattern** riêng, không phải figure nằm trong `villa_pattern`. Figure chỉ là biến thể bên trong movement đó.
+- Dùng **tên đầy đủ của movement**, không dùng `Mazurka`, `Valsa`, `Gavotta` trần.
+- Lý do: `PATTERN_NAMES` trong `src/sonify/program.ts` là một `Set<string>` **toàn cục theo title**. `Gavotte` của Bach, `Waltz` của Barrios, `Choro` của Barrios đã tồn tại. `Gavotta`/`Valsa`/`Choro` trần là bẫy trùng nghĩa, dù không trùng ký tự.
+- Python `pattern_title(pattern, ensemble)` keyed theo id + ensemble, nên trùng title không làm Python nhầm; nhưng TS `isPatternForm` sẽ nhận nhầm nếu title trùng. Vì vậy test uniqueness phải chạy trên **title toàn cục**.
+- Không dùng lại id: `choro`, `vals`, `gavotte`, `waltz`.
 
 ---
 
-## 4. Cách tổ chức hiện tại và chỗ cần sửa
+## 4. Meter: mô hình đúng
 
-### 4.1. Meter đang nằm ở đâu
+### 4.1. Thực tế trong code
 
-Trong code hiện tại:
+`form.py` có nhiều meter thật:
 
-- `span.py` tạo `FormSpec` cho movement, gồm meter (`kind`) và tempo.
-- `guitar_patterns.py` dựng `_Ctx`; `ctx.kind` là meter của movement/bar.
-- Pattern được chọn bởi `_select_body`, `_dominant_pattern`, `_contrast_pattern`, dùng `ctx.kind` để lọc.
-- Figure được chọn bởi `select_torroba_spans` / `select_torroba_figure`, cũng dùng `ctx.kind`.
+```python
+METER_44  = Meter(4, 4, 8,  (0, 4), (4,))
+METER_34  = Meter(3, 4, 6,  (0,),   (4,))
+METER_68  = Meter(6, 8, 6,  (0, 3), (3,))
+METER_128 = Meter(12, 8, 12, (0, 3, 6, 9), (3, 6, 9))
+METER_54  = Meter(5, 4, 10, (0, 6), (6,))
+METER_64  = Meter(6, 4, 12, (0, 4, 8), (6,))
+METER_78  = Meter(7, 8, 7,  (0, 2, 4), (2, 4))
+```
 
-Ví dụ Torroba:
+Nhưng guitar thu gọn meter thành 3 bucket bằng `_meter_kind()` trong `guitar_patterns.py`:
 
-| Đối tượng | Meter được gọi | Chỗ code |
-|---|---|---|
-| `castillo` | 3/4 và 4/4 | `_torroba_primary`, `_torroba_contrast` |
-| Arada (kiểu 7), Float (kiểu 8) | chỉ 4/4 | `_castillo_spans`: `if kind != "4/4": return []` |
-| Walk (13), Cadence (14) | chỉ 3/4 | `_castillo_34_spans` |
-| `danza` | 3/4 và 6/8; không 4/4 | `_danza_spans`: `if ctx.kind not in {"3/4", "6/8"}` |
-| `alcaniz` | chỉ 6/8 | `_torroba_primary` + scheduler |
-| `olite` | scheduler chỉ 4/4 | `_torroba_primary`; renderer có thể bị gọi ép ở meter khác |
-| `torroba_tremolo` (Juglar) | chỉ 3/4 | `_torroba_primary`, `_torroba_contrast` |
+```python
+def _meter_kind(meter) -> str:
+    if meter.eighths_per_bar == 8:
+        return "4/4"
+    if meter.eighths_per_bar == 6 and meter.beat_type == 8:
+        return "6/8"
+    if meter.eighths_per_bar == 6:
+        return "3/4"
+    return "other"
+```
 
-Kết luận: **meter là cổng gọi**, nhưng hiện đang được viết bằng `if ctx.kind == ...` rải rác. Texture Studio cần kéo các cổng này ra thành dữ liệu có schema, rồi sinh test cho chúng.
+Hệ quả thật:
 
-### 4.2. Đề xuất mô hình meter
+- `ctx.kind` là **meter của toàn bộ lần render**, không phải per-bar. Nó được set một lần từ `active_meter()` / `compose_meter()`.
+- `ctx.kind_at` **không phải meter**. Nó là section kind: `"phrase" / "intro" / "outro" / "warmup" / "cooldown"`.
+- 12/8 trả `"other"`. `_torroba_primary` fallback `table.get(ctx.kind, table["4/4"])`, nên 12/8 chạy như 4/4 (Olite). Figure 4/4 không bắn vì `_castillo_spans` gate `kind == "4/4"`. Đây là bug runtime, không phải hành vi để spec bắt chước.
+- Guitar đổi meter sau `FormSpec`: `_guitar_meter()` hoán đổi 3/4 ↔ 6/8; `retarget_torroba_meter()` đổi 4/4 calm/selloff → 3/4. Spec phải khai meter **sau** hai bước này.
+- Meter không chỉ là cổng gọi. Với Villa, `ctx.kind` đổi nội dung render: `_villa_bass`, `_render_villa_bar`, `_chord_grid`, `_thumb_offsets` đều đọc `ctx.kind`.
 
-Mỗi spec có:
+### 4.2. `MeterSpec`
+
+Spec lưu meter đầy đủ, không lưu string:
 
 ```json
-"when": {
-  "meter": ["3/4"],
-  "tempo": [0, 132],
-  "mood": ["calm", "selloff"],
-  "phrase": { "position": "body", "closes": false }
+{
+  "id": "4/4",
+  "beats": 4,
+  "beat_type": 4,
+  "eighths_per_bar": 8,
+  "strong_eighths": [0, 4],
+  "subbar_breaks": [4]
 }
 ```
 
-Quy tắc validate:
+Quy ước:
 
-1. `pattern.when.meter` phải là tập con của `composer.meters`; không được rỗng.
-2. `figure.when.meter` phải là tập con của `parent_pattern.when.meter`; không được rỗng.
-3. Figure không có `parent` hợp lệ thì bị từ chối. Figure không bao giờ là ứng viên cấp cao nhất.
-4. Nếu pattern nhận một meter nhưng không có figure/base grid cho meter đó, compiler cảnh báo.
-5. Nếu một figure bị gọi ép ngoài meter (trong test), phải khai báo `allow_forced: true`; nếu không, validation fail.
-6. Scheduler chỉ gọi figure khi:
-   - pattern đang active,
-   - `ctx.kind` nằm trong `figure.when.meter`,
-   - các điều kiện phrase (`position`, `closes`, `n`, `rise`, `previous`) khớp.
+- `id` chỉ là nhãn hiển thị. Nguồn chân lý là `beats/beat_type/eighths_per_bar/strong_eighths/subbar_breaks`.
+- So sánh meter phải so **toàn bộ cấu trúc**, không so string.
+- `composer.meters` là danh sách `MeterSpec` mà composer hỗ trợ.
+- `pattern.meter_variants` là map `meter_id → materializer`.
+- `figure.meter` phải nằm trong `parent_pattern.meter_variants`.
 
-Như vậy yêu cầu “pattern hay figure sẽ có meter riêng, phải khớp meter thì mới được gọi” trở thành một luật máy kiểm tra được, không còn là lời nhắc trong chat.
+### 4.3. Thứ tự resolve meter
 
-### 4.3. Điểm đăng ký khi thêm pattern mới
+Compiler và runtime phải dùng **cùng một hàm**:
 
-Khi thêm một pattern mới cho Villa-Lobos, checklist hiện tại gồm:
+```
+requested meter (form/param)
+    ↓
+_guitar_meter(spec)              # guitar: 3/4 ↔ 6/8
+    ↓
+retarget_torroba_meter(spec)     # Torroba: 4/4 calm/selloff → 3/4
+    ↓
+resolved MeterSpec
+```
 
-- `backend/app/sonify/guitar_villa.py`: renderer, helper.
-- `backend/app/sonify/guitar_patterns.py`:
-  - `_FAMILY`, `_PROFILE`
-  - dispatch trong `render_patterned_voices`
-  - `_select_body`, `_dominant_pattern`, `_contrast_pattern`
-  - các dict fallback của Villa trong `_select_body`, `_owning_pattern`, `_fallback_body_pattern`, và `headline_id`
-- `backend/app/sonify/program.py`: `_PATTERN_TITLE`.
-- `src/sonify/program.ts`: `PATTERN_NAMES`.
-- `backend/app/sonify/guitar_wave.py`: `PROFILES[("villa", id)]`.
-- `backend/tests/test_guitar_wave.py`: `_EXPECTED`.
-- `backend/app/sonify/humanize.py`: `_clamp_guitar` nếu trần velocity khác.
-- `backend/app/sonify/guitar_scale_passages.py`: `_KINETIC_PATTERNS`, `_NARROW_ROWS`, `_HOST` nếu pattern tham gia scale.
-- `backend/app/sonify/guitar_frame.py` hoặc `guitar_frame_rest.py`: nếu có cửa intro/outro riêng.
-- `backend/tests/`: test pattern, test meter gate, test figure parent.
-- `docs/`: cập nhật trạng thái.
+Nếu spec được viết từ `FormSpec` gốc mà bỏ qua hai bước trên, test meter gate sẽ test sai meter. Đây là lỗi revision 1.
 
-Texture Studio sẽ sinh checklist này tự động từ `kind` và các cờ trong spec, để không bỏ sót.
+`resolve_runtime_meter(variant, ensemble, character, requested)` là hàm dùng chung, đặt cạnh `_guitar_meter`/`retarget_torroba_meter` hoặc trong `texture_registry.py`. Không copy logic.
 
----
+### 4.4. Meter variants và chuyển đổi
 
-## 5. Mô hình khái niệm
+Không có chuyện “pattern 4/4 tự chạy 12/8”. Mỗi biến thể phải khai báo:
 
-| Khái niệm | Vai trò | Có lên chart? | Ví dụ |
+```json
+"meter_variants": {
+  "3/4": {
+    "materializer": "grid_3_4",
+    "transform": "none",
+    "figures": ["walk", "cadence"]
+  },
+  "4/4": {
+    "materializer": "grid_4_4",
+    "transform": "none",
+    "figures": ["arada", "float"]
+  }
+}
+```
+
+Các loại chuyển đổi được phép:
+
+| Nguồn → đích | Điều kiện | Transform | Ghi chú |
 |---|---|---|---|
-| `Composer` | Nhà soạn nhạc + dialect + palette | Có, ở hàng chọn nghệ sĩ | `villa` |
-| `Pattern` | Đơn vị scheduler khoá cho một vùng | Có | `villa_pattern`, `suite_mazurka` |
-| `Figure` | Cách đánh bên trong pattern | Không | Arada, Float, Rasgueado |
-| `Door` | Kịch bản intro/outro | Không | cửa `olite`, cửa `danza` |
-| `ComposerProfile` | Mặc định dùng chung: voice, routing, velocity, register | Không | profile của `villa` |
-| `TextureSpec` | Một pattern/figure/door cụ thể | Tuỳ `kind` | `suite_mazurka` |
+| 3/4 ↔ 6/8 | Cùng 6 eighth | `accent_remap` | Phải khai lại `strong_eighths`; không dùng chung accent |
+| 2/4 × 2 → 4/4 | Gộp hai ô | `fold: 2` | Tiền lệ thật là `galop` trong `guitar_sor.py:303`, không phải `olite` |
+| 4/4 → 12/8 | 8 → 12 eighth | `triplet_subdivision` | Không tự động; cần nghe thử và duyệt |
+| Meter khác | 5/4, 6/4, 7/8… | `none` | Fail closed nếu không có materializer |
 
-### 5.1. Routing tín hiệu
+Quy tắc:
 
-Đây là chỗ trả lời trực tiếp câu “bè nào ăn vào cái gì”:
+1. Không có `transform` tường minh thì không được gọi pattern/figure ở meter đó.
+2. `transform != "none"` phải có test nghe/so sánh, không chỉ test schema.
+3. Nếu `requested meter` là 12/8 mà pattern chỉ có 4/4, compiler báo lỗi; runtime không fallback im lặng.
+4. Nếu muốn giữ hành vi 12/8 hiện tại, phải thêm một materializer 12/8 thật hoặc một `triplet_subdivision` được duyệt. Không được để `"other"` rơi vào 4/4.
 
-```json
-"routing": {
-  "price":   { "voice": "lead", "source": "_melody_at" },
-  "volume":  { "voice": "mid",  "mode": "velocity_band", "source": "liquidity" },
-  "regime":  { "voice": "bass", "mode": "root_or_fifth" },
-  "density": { "voice": "mid",  "mode": "eighth_grid" }
-}
-```
+### 4.5. Validate meter
 
-- `price` quyết định cao độ của bè nào.
-- `volume` quyết định velocity/liquidity của bè nào.
-- `regime` quyết định bass chọn gốc hay quãng năm.
-- `density` quyết định bè nào dày/thưa theo band.
+1. `pattern.meter_variants` không rỗng; mỗi key là `MeterSpec` hợp lệ.
+2. `pattern.meter_variants` ⊆ `composer.meters`.
+3. `figure.meter` nằm trong `parent_pattern.meter_variants`.
+4. `figure.parent` tồn tại; figure không phải ứng viên cấp cao nhất.
+5. Figure chỉ được gọi khi pattern active **và** `resolved_meter.id == figure.meter.id`.
+6. Nếu pattern không có materializer cho `resolved_meter`, fail; không fallback.
+7. Test âm tính: gọi figure ở meter sai phải trả `[]` hoặc raise, không render.
 
-Khi một texture đảo vai (ví dụ `thumb_cantabile` cho price nằm ở bass), chỉ đổi `routing.price.voice = "bass"`, không viết lại toàn bộ renderer.
+### 4.6. Không có meter per-bar
 
----
+Revision 2 bỏ hoàn toàn giả định “meter của bar/phrase”. Nếu sau này cần đổi meter giữa movement, đó là refactor `render.py`/`Score` (thêm meter per-section), không phải việc của `guitar_*`.
 
-## 6. Kiến trúc trong Musicalize
+Trong Phase 0–2:
 
-### 6.1. Phía app
-
-App hiện có:
-
-- `src/musicalize/MusicalizeApp.tsx` với `Mode = 'replay' | 'live'`.
-- `TopBar` nhận `mode: 'replay' | 'live'`.
-- `ReplayRoom`, `LiveRoom`.
-
-Đề xuất:
-
-- Thêm `Mode = 'replay' | 'live' | 'studio'`.
-- Thêm `src/musicalize/StudioRoom.tsx`.
-- `TopBar` thêm pill **Studio** (chỉ hiện khi capability bật).
-- `StudioRoom` dùng layout riêng, không dùng `RoomFrame` của phòng nghe để tránh ràng buộc.
-- Không đưa Studio vào `RootNavigator` của VStock; đây là room của Musicalize.
-
-### 6.2. Capability / phân quyền
-
-Hiện tại app chưa có auth. Để “mở bây giờ, giới hạn sau”, cần seam ngay từ đầu:
-
-```ts
-type StudioAccess = {
-  enabled: boolean;
-  reason: 'open_beta' | 'entitled' | 'disabled';
-  seats?: number;
-};
-```
-
-- Client gọi `GET /v1/musicalize/studio/access`.
-- Bây giờ backend trả `{ enabled: true, reason: 'open_beta' }`.
-- Sau này backend trả `enabled: false` hoặc `reason: 'entitled'` dựa trên user/entitlement.
-- UI chỉ là lớp hiển thị; **backend vẫn phải kiểm tra quyền** ở mọi endpoint, không chỉ ẩn nút.
-
-### 6.3. Backend
-
-```
-backend/app/routers/musicalize_studio.py
-backend/app/studio/
-  __init__.py
-  schema.py          # Pydantic models
-  store.py           # SQLite + file upload
-  vision.py          # Gemini adapter
-  validate.py        # schema + nhạc + meter + playability
-  compiler.py        # spec -> fixture/docs/checklist/preview
-  preview.py         # spec + price path -> note events / audio
-  export.py          # publish spec ra repo
-```
-
-Prefix đề xuất: `/v1/musicalize/studio`.
-
-### 6.4. Lưu trữ
-
-Vì Studio nằm trong app và sẽ có nhiều người dùng, không nên chỉ ghi file JSON.
-
-Đề xuất hybrid:
-
-- **SQLite** `backend/var/musicalize_studio.db`:
-  - `studio_uploads`: `id`, `sha256`, `path`, `width`, `height`, `owner_id`, `created_at`
-  - `studio_specs`: `id`, `composer`, `kind`, `parent_id`, `status`, `owner_id`, `visibility`, `json`, `created_at`, `updated_at`
-- **File**:
-  - ảnh upload: `backend/var/musicalize_studio/uploads/<sha256>.jpg`
-  - preview: `backend/var/musicalize_studio/previews/...`
-- **Publish**:
-  - `POST /specs/{id}/publish` ghi spec đã duyệt ra `backend/app/sonify/textures/<composer>/<id>.json`
-  - Chỉ file publish mới được commit và dùng bởi compiler/test.
-
-`owner_id` và `visibility` có ngay từ đầu dù hiện tại là `anonymous` / `public`, để sau này gắn user mà không phải migrate dữ liệu.
-
-### 6.5. API
-
-| Method | Path | Việc |
-|---|---|---|
-| `GET` | `/access` | Trả capability cho Studio |
-| `POST` | `/uploads` | Upload ảnh (multipart) |
-| `POST` | `/analyze` | Ảnh + crop + metadata → Gemini draft |
-| `GET` | `/specs` | Danh sách spec |
-| `POST` | `/specs` | Tạo spec |
-| `GET` | `/specs/{id}` | Đọc spec |
-| `PUT` | `/specs/{id}` | Lưu spec |
-| `DELETE` | `/specs/{id}` | Xoá spec nháp |
-| `POST` | `/specs/{id}/validate` | Validate |
-| `POST` | `/specs/{id}/compile` | Sinh preview/fixture/docs/checklist |
-| `POST` | `/specs/{id}/publish` | Xuất ra repo |
-| `GET` | `/previews/{id}` | Nghe preview |
-
-Upload cần `python-multipart` (hiện chưa có trong venv). Nếu muốn server-side crop/thumbnail, thêm `Pillow`; nếu crop ở client thì không cần.
+- Meter là per-render/per-movement.
+- Figure `when.meter` là gate tĩnh, resolve lúc load spec.
+- Không dùng `kind_at` làm meter.
 
 ---
 
-## 7. Schema
+## 5. Pattern, figure, door
 
-### 7.1. ComposerProfile
+### 5.1. Torroba là mẫu tham chiếu
 
-```json
-{
-  "composer": "villa",
-  "ensemble": "villa",
-  "dialect": "VillaDialect",
-  "default_bpm": 100,
-  "meters": ["3/4", "4/4", "6/8"],
-  "tuning": ["E2", "A2", "D3", "G3", "B3", "E4"],
-  "capo": 0,
-  "written_octave_shift": 12,
-  "voices": {
-    "lead": { "signal": "price", "register": [64, 72] },
-    "mid":  { "signal": "harmony", "below_lead": [3, 6], "register": [55, 65] },
-    "bass": { "signal": "pedal", "register": [40, 53], "prefer": "open_string" }
-  },
-  "velocity_bands": {
-    "lead": [64, 72],
-    "mid": [42, 52],
-    "bass": [52, 64]
-  },
-  "constraints": {
-    "strict_order": "bass < mid < lead",
-    "max_simultaneous": 3,
-    "max_fret_span": 5
-  }
-}
-```
+- Figure Torroba là **int**: `_FIGURES` trong `guitar_torroba.py:3403`.
+- Có thêm gate `_REAL_TORROBA_FIGURES` (`guitar_torroba.py:32`) dùng ở `guitar_patterns.py:1862`.
+- `FigureSpec` phải có `figure_code` (int) để map vào `_FIGURES`; không dùng string `"arada"` làm id runtime.
+- `FigureSpec.id` chỉ là id authoring; `figure_code` là id runtime.
 
-### 7.2. TextureSpec
-
-```json
-{
-  "id": "suite_mazurka",
-  "composer": "villa",
-  "kind": "pattern",
-  "parent": null,
-  "status": "draft",
-
-  "source": {
-    "piece": "Suite Popular Brasileira — Mazurka-Choro",
-    "bars": [1, 8],
-    "image": "uploads/<sha256>.jpg",
-    "crop": { "x": 120, "y": 340, "w": 900, "h": 420 },
-    "notation": "standard+tab"
-  },
-
-  "when": {
-    "meter": ["3/4"],
-    "tempo": [0, 132],
-    "mood": ["calm", "selloff"],
-    "phrase": { "position": "body", "closes": false }
-  },
-
-  "grid": {
-    "beats": 3,
-    "divisions": 2,
-    "positions": [0, 0.5, 1, 1.5, 2, 2.5]
-  },
-
-  "voices": {
-    "lead": { "source": "price", "at": "strong_beats" },
-    "mid":  { "source": "chord_tone", "below_lead": [3, 6] },
-    "bass": { "source": "chord_bass", "prefer_open": true }
-  },
-
-  "routing": {
-    "price":   { "voice": "lead", "source": "_melody_at" },
-    "volume":  { "voice": "mid", "mode": "velocity_band", "source": "liquidity" },
-    "regime":  { "voice": "bass", "mode": "root_or_fifth" },
-    "density": { "voice": "mid", "mode": "eighth_grid" }
-  },
-
-  "events": [
-    { "at": 0.0, "voice": "bass", "pitch": "root", "dur": 1.0, "tie": "next_bar" },
-    { "at": 0.0, "voice": "lead", "pitch": "price", "dur": 1.5, "accent": true },
-    { "at": 1.5, "voice": "lead", "pitch": "price+2", "dur": 0.5, "slur_to": 2.0 }
-  ],
-
-  "micro": {
-    "offset": { "lead": 0.0, "mid": 0.0, "bass": 0.0 },
-    "velocity_delta": { "lead": 0, "mid": -8, "bass": -4 }
-  },
-
-  "sustain": [
-    { "when": "common_tone", "voice": "mid", "do": "tie_until_next_strong_beat" },
-    { "when": "lead_moves_stepwise", "voice": "mid", "do": "ring_through" }
-  ],
-
-  "selection": {
-    "palette_order": 1,
-    "avoid_repeat": true,
-    "contrast": "chord_melody"
-  },
-
-  "provenance": {
-    "model": "gemini-3.5-flash",
-    "confidence": 0.82,
-    "reviewed_by": "human",
-    "notes": "Tab dùng dây 1-3; có hai nốt tie qua vạch ô."
-  }
-}
-```
-
-### 7.3. FigureSpec
-
-Figure là spec con, bắt buộc có `parent`:
+Ví dụ:
 
 ```json
 {
@@ -421,381 +292,611 @@ Figure là spec con, bắt buộc có `parent`:
   "composer": "torroba",
   "kind": "figure",
   "parent": "castillo",
-  "when": {
-    "meter": ["4/4"],
-    "phrase": { "position": "body", "closes": false, "n": "even" }
-  },
+  "figure_code": 7,
+  "meter": { "id": "4/4", "beats": 4, "beat_type": 4, "eighths_per_bar": 8, "strong_eighths": [0, 4] },
   "span": { "length": [5, 6, 7, 8], "slots": [0, 1, 2, 3, 4] },
-  "grid": { "beats": 4, "divisions": 2 },
-  "events": [],
   "status": "reviewed"
 }
 ```
 
-`span` mô tả figure chiếm bao nhiêu ô và bắt đầu ở đâu, tương tự `_castillo_spans` hiện tại.
+### 5.2. Villa chưa có figure registry
 
-### 7.4. EventSpec
+Trong code hiện tại:
 
-Mỗi event tương ứng một `NoteEvent` hiện có:
+- `villa_pattern` là một hàm bar-level: `_render_villa_bar`.
+- `etude1`, `etude11` là bar-level: `_render_etude1_bar`, `_render_etude11_bar`.
+- `chord_melody`, `thumb_cantabile` là bar/phrase-level.
+- Không có `_FIGURES`, không có `span`, không có `figure_code`.
 
-| Trường | Ý nghĩa | Map vào code |
-|---|---|---|
-| `at` | vị trí trong ô, tính bằng phách | `beat` |
-| `dur` | trường độ | `duration_beats` |
-| `voice` | `lead` / `mid` / `bass` | `voice` 1 / 2 / 3 |
-| `pitch` | `price`, `root`, `chord_tone`, `price+2`, số MIDI | `midi` |
-| `tie` | `start` / `stop` / `next_bar` | `tie_start`, `tie_stop` |
-| `slur_to` | nối sang vị trí sau | `slur_start`, `slur_stop` |
-| `accent` | nhấn | `accent` |
-| `staccato` | ngắt | `staccato` |
-| `velocity` | velocity cố định hoặc band | `velocity` |
+Vì vậy:
 
-### 7.5. Vòng đời spec
+- **Phase 0/1: Villa chỉ có `kind: "pattern"`.** Không bịa `FigureSpec` cho Villa.
+- Phase 2: audit từng movement của *Suite Popular Brasileira* để quyết định pattern nào thực sự có figure span. Nếu chỉ là biến thể trong một hàm bar-level, nó là `variation`, không phải figure.
+- Khi Villa có figure registry, nó phải theo cùng mô hình Torroba: `figure_code` + bảng map + test.
 
-```
-draft → reviewed → validated → previewed → published
-```
+Đây là câu trả lời cho câu hỏi “Villa tổ chức thế nào”: **chưa biết; phải audit, không suy từ Torroba.**
 
-- `draft`: Gemini vừa đọc, chưa sửa.
-- `reviewed`: bạn đã sửa nốt, gán bè, nhập routing/micro.
-- `validated`: qua schema + luật nhạc + meter + playability.
-- `previewed`: đã nghe preview.
-- `published`: đã xuất ra repo và có test.
+### 5.3. Door
 
-Không cho `publish` nếu chưa `validated` hoặc còn lỗi confidence thấp chưa xử lý.
+Door vẫn là `kind: "door"`, có `parent` pattern và `when` riêng. Door không nhận figure. Nếu pattern mới có cửa, `traits.has_door = true`.
 
 ---
 
-## 8. Gemini vision
+## 6. Spec model: authored / derived / rendered
 
-### 8.1. Đầu vào
+### 6.1. Ba tầng
 
-- Ảnh toàn trang: lấy khoá nhạc, số chỉ nhịp, số ô, hệ thống khuông.
-- Ảnh crop: lấy chi tiết vùng cần đọc.
-- Metadata: composer, tên bản, tuning, capo, transposition, clef.
-- Guitar notation viết cao hơn sounding 1 octave → phải trả cả `written_pitch` và `sounding_pitch`.
+Revision 1 trộn tất cả vào `events`. Revision 2 tách:
 
-### 8.2. Đầu ra
+| Tầng | Chứa gì | Có phải nguồn chân lý? | Dùng trong round-trip? |
+|---|---|---|---|
+| `authored` | bar, beat, duration, voice, pitch, tie, slur, accent, staccato, staff | Có | Có |
+| `derived` | velocity band, hairpin rule, humanize, dynamics policy | Không | Chỉ khi cùng input |
+| `rendered` | `NoteEvent` sau `_resolve`, `apply_guitar_wave`, humanize | Không | Golden artifact riêng |
 
-JSON có schema cố định, mỗi nốt có confidence và bounding box:
+`rendered` không nằm trong `TextureSpec`. Nó là file `rendered.json` hoặc hash, sinh từ một render thật.
+
+### 6.2. `NoteEvent` tương ứng
+
+`NoteEvent` trong `model.py:121` có:
+
+- `bar`, `beat`, `midi`, `duration_beats`, `voice`
+- `staff`, `tie_start`, `tie_stop`, `slur_start`, `slur_stop`
+- `accent`, `velocity`, `tenuto`, `staccato`, `hairpin`, `pinned`
+
+Spec `authored` phải cover: `bar`, `beat`, `midi`/pitch, `duration_beats`, `voice`, `staff`, `tie_start/stop`, `slur_start/stop`, `accent`, `tenuto`, `staccato`.
+Spec `derived` cover: `velocity`, `hairpin`, `pinned`, dynamics.
+Spec không cover: `Score.lead_wedges`, `support_wedges`, `dynamics`, `harmonies` — đây là artifact của render, không phải event.
+
+### 6.3. Voice
+
+Voice thật có **1/2/3/4**:
+
+- 1 = lead
+- 2 = support
+- 3 = bass/low
+- 4 = Preludio upper middle (được `assert_playable` giữ riêng, không gộp vào 2)
+
+Spec dùng `voice: 1|2|3|4`, không dùng `"lead"|"mid"|"bass"` làm runtime value. Có thể có `role` để hiển thị, nhưng `voice` là số.
+
+### 6.4. Routing
+
+Revision 1 viết `routing.regime: { voice: "bass", mode: "root_or_fifth" }`. Sai ngữ nghĩa:
+
+- `Regime` trong code là **market regime** `uptrend/downtrend/sideway` (`regime.py`), dùng để chọn chord slot.
+- Guitar bass dùng regime để nghiêng bậc I (uptrend) hoặc V (downtrend), không phải “root or fifth” chung chung.
+
+Sửa thành:
 
 ```json
-{
-  "measures": [
-    { "index": 1, "meter": "3/4", "key": "A minor" }
-  ],
-  "notes": [
-    {
-      "measure": 1,
-      "beat": 0.0,
-      "duration_beats": 1.5,
-      "voice_hint": "upper",
-      "written_pitch": "E4",
-      "sounding_pitch": "E3",
-      "string": 1,
-      "fret": 0,
-      "tie": "start",
-      "slur": false,
-      "articulation": ["accent"],
-      "confidence": 0.91,
-      "bbox": [120, 340, 20, 12]
-    }
-  ],
-  "warnings": [
-    "Tab và phổ lệch ở nốt measure 2 beat 1.5 — cần review."
-  ]
+"routing": {
+  "price":   { "voice": 1, "source": "_melody_at" },
+  "volume":  { "voice": 2, "mode": "velocity_band", "source": "liquidity" },
+  "bass_tilt": { "voice": 3, "mode": "degree_i_or_v", "source": "market_regime" },
+  "density": { "voice": 2, "mode": "eighth_grid" }
 }
 ```
 
-### 8.3. Hai pass
+- `price` → voice 1 (hoặc voice 3 với `thumb_cantabile`).
+- `volume` → velocity band của voice 2/3.
+- `bass_tilt` → market regime nghiêng I/V; không phải “root_or_fifth”.
+- `density` → grid dày/thưa.
 
-1. **Pass layout**: đọc số ô, hệ thống khuông, khoá, nhịp, vị trí phổ và tab.
-2. **Pass transcription**: từng cụm 2–4 ô, gửi cả phổ + tab, yêu cầu đối chiếu từng nốt.
+### 6.5. Round-trip so gì
 
-### 8.4. Đối chiếu phổ + tab
+- So `authored`: cùng `bar`, `beat`, `duration_beats`, `voice`, `staff`, `midi`, tie/slur/accent/staccato.
+- Không so `velocity` tuyệt đối. Velocity do `apply_guitar_wave()` + `resolve_bar_volumes()` + liquidity + humanize quyết định; nó không thuộc spec.
+- Nếu muốn so `rendered`, phải dùng **cùng price path, cùng volume path, cùng chord slots, cùng liquidity bands, cùng humanize seed**. Khi đó so hash hoặc snapshot, không so ±2.
+- `rendered` là golden artifact, không phải input của spec.
 
-- Mỗi nốt có `note_id` chung cho cả phổ và tab.
-- Nếu tab cho string/fret khác với cao độ suy ra từ phổ: trả `conflict: true`.
-- Không tự chọn bên đúng. UI đánh dấu vàng, người dùng quyết định.
-- Tab hữu ích để xác định octave, dây, phím; phổ hữu ích để xác định trường độ, tie, slur, bè.
+### 6.6. `assert_playable` không chứng minh spec playable
 
-### 8.5. Những gì Gemini không được quyết định
+`assert_playable` chạy trên score **đã được repair** (`_resolve`, `_fit`, renderer sửa voicing trước khi ghi). Nó không chứng minh `authored` playable.
 
-- Bè nào là bass/trung/cao khi bè bị ẩn.
-- Bè nào ăn price, bè nào ăn volume.
-- Micro-timing, velocity contour, humanize.
-- “Nốt này phải ngân dài để nối bè”.
-- Quãng bè trung so với bè cao.
-- Meter của pattern/figure.
-- Điều kiện chọn pattern/figure.
+Cần thêm:
 
-Những thứ này là **field của bạn** trong UI, không phải output của model.
-
-### 8.6. Validate sau Gemini
-
-Trước khi cho lưu `draft`:
-
-- Tổng trường độ mỗi ô khớp meter.
-- Pitch nằm trong range guitar.
-- String/fret khả thi.
-- Không có hai nốt cùng voice chồng nhau.
-- Tie/slur có đầu có cuối.
-- `written_pitch` và `sounding_pitch` lệch đúng 12 nửa cung (trừ khi capo/scordatura).
-
-### 8.7. Cache, chi phí, bản quyền
-
-- Cache theo `sha256(image) + crop + prompt_version`.
-- Chỉ gọi Gemini ở backend; không bao giờ đưa key vào app.
-- Rate limit theo client.
-- Ảnh bản nhạc có thể có bản quyền: lưu trong `backend/var/` (đã gitignore), không commit ảnh; chỉ commit spec + trích đoạn ngắn nếu được phép.
+- `assert_authored_playable(authored, profile)`: kiểm tra string/fret/register/voice order **trước** repair.
+- `assert_playable(score, profile)`: kiểm tra output sau repair, như hiện tại.
+- Publish yêu cầu cả hai.
 
 ---
 
-## 9. UI trong Musicalize
+## 7. Runtime target và ai đọc spec
 
-### 9.1. Bố cục
+### 7.1. Phase 0/1: spec không được runtime đọc
+
+- `TextureSpec` là authoring source + test fixture.
+- `render_patterned_voices` vẫn dùng code hiện tại.
+- Compiler sinh:
+  - `fixture.json` (data-driven test input)
+  - `registration.md` (checklist)
+  - `preview.wav` (từ render thật)
+  - `rendered.json` (golden)
+- Không sinh Python source từ spec trong runtime.
+
+### 7.2. Phase 2: `texture_registry.py`
+
+Thêm loader:
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  Musicalize · Studio                         [Nghe lại] [Live]│
-├──────────────────┬───────────────────┬───────────────────────┤
-│ Ảnh phổ + tab    │  Draft Gemini     │  Voice / Routing      │
-│ [crop rectangle] │  ┌─────────────┐  │  lead  ← price        │
-│                  │  │ ô 1: E4 1.0 │  │  mid   ← harmony      │
-│  Zoom / pan      │  │ ô 1: C3 0.5 │  │  bass  ← volume/pedal │
-│                  │  └─────────────┘  │  quãng: 3/6           │
-│                  │  confidence màu   │  micro offset         │
-├──────────────────┴───────────────────┴───────────────────────┤
-│  Validate: 3 lỗi — bar 2 thiếu 0.5 phách; mid > lead; ...     │
-├──────────────────────────────────────────────────────────────┤
-│  Preview  ▶   |  Trạng thái: reviewed → validated            │
-└──────────────────────────────────────────────────────────────┘
+backend/app/sonify/texture_registry.py
 ```
 
-- Wide: 3 cột.
-- Narrow: ảnh trên, draft giữa, routing dưới; preview sticky.
-- Ảnh: pinch zoom, kéo crop, hiển thị số ô.
-- Draft: bảng nốt, ô confidence tô màu; click một nốt thì highlight trên ảnh.
-- Routing: chọn voice cho price/volume/regime/density; nhập quãng, velocity band, micro offset.
-- Validate: danh sách lỗi, click để nhảy tới nốt.
-- Preview: phát MIDI/audio ngắn, có thể đổi price path mẫu (flat/up/down/leap).
+- `load_specs(root)` đọc `backend/app/sonify/textures/**/*.json`.
+- Validate bằng `schema.py` + `validate.py`.
+- Trả `PatternSpec` / `FigureSpec`.
+- Dùng bởi compiler/test **và** runtime chỉ cho pattern có `runtime: "interpreter"`.
+- Pattern `runtime: "code"` vẫn đi qua `if/elif` hiện tại.
 
-### 9.2. Nhập ảnh trên app
+`backend/app/sonify/textures/` hiện **không tồn tại**; đây là thư mục mới, chỉ chứa spec đã publish. Không có loader nào hôm nay, nên câu “publish xong ai đọc” phải trả lời bằng loader này.
 
-App chưa có image picker. Cần thêm dependency Expo SDK 58 (đọc docs versioned trước khi code):
+### 7.3. Ai đọc spec publish?
 
-- `expo-image-picker` để chọn/chụp ảnh.
-- `expo-image-manipulator` để crop/resize, hoặc crop bằng overlay + canvas trên web.
+| Giai đoạn | Người đọc | Mục đích |
+|---|---|---|
+| Phase 0 | `pytest` + compiler | Round-trip, fixture, docs |
+| Phase 1 | Studio UI + compiler | Preview, validate, export |
+| Phase 2 | `texture_registry.py` | Runtime cho `runtime: "interpreter"` |
+| Phase 3 | Runtime + library UI | Chọn pattern/figure theo meter |
+
+Publish không ghi thẳng vào repo từ server. Publish tạo bundle để người/agent mở PR; sau khi merge, `texture_registry.py` mới đọc được.
+
+---
+
+## 8. Preview
+
+### 8.1. Preview là `slice_score` của render thật
+
+Revision 1 nói “preview không cần dựng cả Score”. Sai. `_Ctx` cần:
+
+- `melody`, `raw`, `chord_at`, `phrases`
+- `band_at`, `regime_at`, `bar_volumes`
+- `mode`, `character`, `sections`, `rel_span`
+- register limits, `epb`, `bars`
+
+Đây chính là một `Score` + `FormSpec` đã render. Vì vậy:
+
+```
+render_guitar_score(...)  →  Score đầy đủ
+        ↓
+slice_score(score, start, end)   # span.py:739
+        ↓
+preview.wav / rendered.json
+```
+
+- Preview 2–4 ô nhưng lấy từ render thật, không phải interpreter riêng.
+- Preview dùng cùng price path/volume/chord slots như bản đầy đủ.
+- Nếu preview khác bản đầy đủ, đó là bug.
+
+### 8.2. Audio, không phải MIDI
+
+- App dùng `expo-audio`, không có MIDI player.
+- Guitar audio đi qua `audio.py` → MuseScore.
+- `EXPORT_SLOTS` mặc định 1 (`audio.py:61`), nên preview sẽ tranh slot với nút Nghe.
+- Cần:
+  - cache preview theo `score hash + instrument + tempo + humanize`;
+  - TTL như `AUDIO_MAX_AGE_DAYS`;
+  - hàng đợi riêng hoặc `VSTOCK_MUSESCORE_SLOTS` tăng cho Studio;
+  - UI hiển thị “đang chờ MuseScore” thay vì treo.
+- Không hứa “MIDI nhẹ” khi app không có MIDI player.
+
+---
+
+## 9. Gemini vision
+
+### 9.1. Reuse client hiện có
+
+Không tạo key handling thứ hai. `services/gemini_companion.py` đã có:
+
+- `_client()` (API key hoặc Vertex)
+- `is_gemini_configured()`
+- `_model_name()` / `DEFAULT_MODEL`
+- key resolution 3 biến môi trường
 
 Đề xuất:
 
-- **Web**: `<input type="file">` + crop canvas.
-- **Native**: `expo-image-picker`, crop thô, rồi fine crop trên web nếu cần.
-- Không chặn MVP vì thiếu crop native; cho phép upload ảnh đã crop sẵn.
+- Tách phần client/config chung thành `services/gemini_client.py` nếu cần.
+- `services/studio_vision.py` chỉ chứa prompt, schema, parse, cache.
+- Không gọi Gemini từ app; key chỉ ở backend.
 
-### 9.3. Feature flag
+### 9.2. Input/output
 
-- `GET /access` trả `enabled`.
-- Ẩn pill Studio nếu `enabled == false`.
-- Backend vẫn kiểm tra quyền; UI không phải lớp bảo mật.
+Input:
 
----
+- ảnh toàn trang: khoá, nhịp, số ô, hệ thống khuông
+- ảnh crop: chi tiết vùng cần đọc
+- metadata: composer, tên bản, tuning, capo, transposition, clef
+- guitar notation viết cao hơn sounding 1 octave → trả cả `written_pitch`, `sounding_pitch`
 
-## 10. Compiler
+Output JSON:
 
-### 10.1. Preview
+```json
+{
+  "measures": [{ "index": 1, "meter": "3/4", "key": "A minor" }],
+  "notes": [{
+    "measure": 1,
+    "beat": 0.0,
+    "duration_beats": 1.5,
+    "voice_hint": "upper",
+    "written_pitch": "E4",
+    "sounding_pitch": "E3",
+    "string": 1,
+    "fret": 0,
+    "tie": "start",
+    "slur": false,
+    "articulation": ["accent"],
+    "confidence": 0.91,
+    "bbox": [120, 340, 20, 12],
+    "conflict": false
+  }],
+  "warnings": []
+}
+```
 
-`compile_preview(spec, price_path, volume_path)`:
+### 9.3. Cache và giới hạn
 
-- Sinh note events từ spec.
-- Không cần dựng cả `Score`; chỉ cần một đoạn 2–4 ô.
-- Xuất MIDI hoặc audio ngắn.
-- Dùng để nghe trước khi tích hợp.
+Cache key phải gồm:
 
-### 10.2. Fixture test
+```
+sha256(image) + crop + model + prompt_version + schema_version
+```
 
-`compile_fixture(spec)` sinh pytest:
+Thiếu `model` hoặc `schema_version` sẽ trả cache cũ sau khi đổi model/schema.
 
-- Một `Phrase` cố định.
-- Gọi renderer hiện tại hoặc interpreter.
-- So note table với expected từ spec.
-- Assert meter gate: gọi sai meter phải không trả figure.
+Giới hạn:
 
-### 10.3. Registration checklist
+- max image bytes, max pixels, MIME whitelist;
+- timeout + retry có giới hạn;
+- token budget mỗi request;
+- rate limit theo session;
+- xử lý `SAFETY` / recitation block: trả lỗi có mã, cho nhập tay, không retry mù.
 
-Từ `kind` và các cờ, sinh `registration.md`:
+### 9.4. Gemini không quyết định
 
-- Pattern mới: liệt kê đủ file/hàm như mục 4.3.
-- Figure mới: chỉ cần parent pattern, `_FIGURES`, test, không cần `_PATTERN_TITLE`.
-- Door mới: `DOORS`, frame test.
-
-### 10.4. Docs
-
-Sinh một mục trong `docs/` hoặc cập nhật file trạng thái:
-
-- Nguồn bản nhạc.
-- Meter/tempo.
-- Voice/routing.
-- Micro/sustain.
-- Test đã có.
-
-### 10.5. Round-trip
-
-Đây là tiêu chí sống còn:
-
-- Chọn một texture đang có của Villa-Lobos.
-- Viết spec bằng tay.
-- Compiler sinh note events.
-- So với output hiện tại của `guitar_villa.py` / `guitar_patterns.py` trên cùng một `Phrase`.
-- Sai số: cùng pitch/voice/beat; velocity lệch ±2.
-
-Nếu không round-trip được, sửa schema trước khi làm UI.
-
-Đề xuất thứ tự:
-
-1. `chord_melody` — dễ nhất, kiểm tra schema cơ bản.
-2. `villa_pattern` — khó hơn, kiểm tra campanella, tresillo, bass.
-3. `thumb_cantabile` — kiểm tra routing price → bass.
+- bè bass/trung/cao khi bè ẩn
+- bè nào ăn price/volume
+- micro-timing, velocity, humanize
+- “nốt này ngân dài để nối bè”
+- quãng bè trung
+- meter của pattern/figure
+- điều kiện chọn pattern/figure
 
 ---
 
-## 11. Lộ trình
+## 10. Studio trong app Musicalize
 
-### Phase 0 — Chứng minh schema (chưa cần Gemini)
+### 10.1. App
 
-- `schema.py`, `store.py`, `validate.py`.
-- Spec tay cho `chord_melody`.
-- Round-trip test với renderer hiện tại.
-- Preview MIDI.
-- Chưa có UI; có thể dùng CLI/JSON.
+Hiện tại:
 
-**Điều kiện qua Phase 0**: round-trip đúng, validate bắt được meter/voice/duration sai.
+- `src/musicalize/MusicalizeApp.tsx`: `Mode = 'replay' | 'live'`.
+- `TopBar` nhận `mode: 'replay' | 'live'`.
+- `ReplayRoom`, `LiveRoom`.
 
-### Phase 1 — Studio room + Gemini draft
+Đề xuất:
 
-- `StudioRoom` trong app, capability `open_beta`.
-- Upload ảnh, crop.
-- `vision.py` gọi Gemini, mock trong test.
-- Bảng draft + confidence.
-- Sửa nốt, gán voice/routing/micro.
-- Validate + preview.
+- `Mode = 'replay' | 'live' | 'studio'`.
+- `src/musicalize/StudioRoom.tsx`.
+- `TopBar` thêm pill **Studio**, hiện theo capability.
+- Studio dùng layout riêng, không dùng `RoomFrame` của phòng nghe.
+- Mọi HTTP đi qua `src/api/client.ts` (`getApiBaseUrl`, `absoluteApiUrl`). Không tạo fetch client thứ hai.
 
-**Điều kiện qua Phase 1**: một người dùng thật có thể upload ảnh, sửa draft, lưu spec, nghe preview mà không cần sửa code.
+### 10.2. Session, không phải auth
 
-### Phase 2 — Suite Popular Brasileira
+Hiện tại backend **không có auth**; CORS `allow_origins=["*"]`. Vì vậy:
 
-- Chọn movement(s) đầu tiên.
-- Tạo pattern spec + figure spec.
-- Compiler sinh checklist đăng ký.
-- Tích hợp renderer + test.
-- Đo DFI/nghe thử.
+- Chưa cần login.
+- Nhưng phải có `X-Studio-Session` do app sinh và lưu trong AsyncStorage.
+- Server dùng hash session làm `owner_id`; `visibility` mặc định `private` hoặc `public`.
+- `GET/PUT/DELETE /specs/{id}` kiểm tra owner.
+- `/uploads`, `/analyze`, `/preview` có quota theo session.
+- Đây **không phải bảo mật** trước người cố tình; nó là namespace + chống xoá nhầm + chống đốt quota.
+- Khi có auth thật, thay `owner_id` bằng user id; `visibility` enforce ở backend.
 
-**Điều kiện qua Phase 2**: thêm ít nhất một movement mà không phải sửa tay ngoài checklist compiler sinh.
+Không được viết “backend vẫn kiểm tra quyền” nếu chưa có owner check. Revision 2 nói rõ: Phase 1 có owner check theo session, chưa có auth.
 
-### Phase 3 — Thư viện + phân quyền
+### 10.3. Upload ảnh
 
-- Danh sách spec theo composer, trạng thái, độ phủ meter.
-- Publish flow: draft → reviewed → validated → published.
-- Entitlement thật: user, seat, visibility.
-- Có thể giới hạn Studio cho một số người mà không đổi UI.
+App chưa có image picker. Cần thêm (đọc Expo SDK 58 docs trước khi code):
+
+- `expo-image-picker` để chọn/chụp.
+- `expo-image-manipulator` để crop/resize, hoặc crop canvas trên web.
+- Web: `<input type="file">` + canvas.
+- Native: crop thô; cho phép upload ảnh đã crop sẵn để không chặn MVP.
+
+### 10.4. UI
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Musicalize · Studio                         [Nghe lại] [Live] │
+├──────────────────┬───────────────────┬───────────────────────┤
+│ Ảnh phổ + tab    │ Draft Gemini      │ Voice / Routing       │
+│ [crop rectangle] │ confidence màu    │ price  → voice 1      │
+│ zoom / pan       │ sửa nốt           │ volume → voice 2      │
+│                  │                   │ bass_tilt → voice 3   │
+├──────────────────┴───────────────────┴───────────────────────┤
+│ Validate: meter, voice order, duration, playable authored     │
+├──────────────────────────────────────────────────────────────┤
+│ Preview ▶  (MuseScore queue)  |  draft → reviewed → validated │
+└──────────────────────────────────────────────────────────────┘
+```
+
+Trạng thái:
+
+```
+draft → reviewed → validated → previewed → exported
+```
+
+- `exported`: bundle đã tải/đưa vào PR, chưa chắc đã merge.
+- `published`: đã merge vào `textures/` và `texture_registry.py` đọc được.
 
 ---
 
-## 12. Tiêu chí nghiệm thu toàn tool
+## 11. Storage và publish
 
-1. **Round-trip**: spec của một texture cũ tái tạo đúng output hiện tại.
-2. **Meter gate**: pattern/figure chỉ được gọi khi meter khớp; test âm tính cho sai meter.
-3. **Figure parent**: figure không có parent hợp lệ bị từ chối.
-4. **Generality**: cùng spec chạy đúng trên ít nhất 5 price path (flat, up, down, leap, reversal).
-5. **Determinism**: cùng spec + cùng input → cùng note events.
-6. **Safety**: `assert_playable` bắt lỗi register/voice/string trước khi publish.
-7. **Review**: nốt confidence thấp phải được đánh dấu, không tự động nhận.
-8. **Diff**: thêm spec mới không làm đổi output của spec cũ (golden tests).
-9. **Publish**: chỉ spec đã validate mới xuất ra repo.
-10. **Access**: ẩn UI không đủ; backend kiểm tra quyền.
+### 11.1. Production dùng `/data`
+
+`backend/fly.toml` mount volume `vstock_data` tại `/data`; `VSTOCK_DB_PATH=/data/vstock.db`.
+
+Revision 1 đặt `backend/var/musicalize_studio.db` → mất sau deploy. Sửa:
+
+- `VSTOCK_STUDIO_DIR` mặc định `/data/studio` trên Fly.
+- DB: `/data/musicalize_studio.db` hoặc `/data/vstock.db` dùng chung schema.
+- Uploads: `/data/studio/uploads`.
+- Previews: `/data/studio/previews`.
+
+Khuyến nghị: dùng chung `app/store/db.py`:
+
+- thêm bảng vào `SCHEMA`;
+- thêm migration;
+- `db_path()` đã đọc `VSTOCK_DB_PATH`;
+- `scripts/backup-sqlite.sh` backup thêm DB Studio.
+
+`backend/var/` chỉ dùng local dev; không dùng production.
+
+### 11.2. Publish không ghi repo từ server
+
+Trên Fly không có git working tree. Server không được ghi `backend/app/sonify/textures/`.
+
+Publish = export bundle:
+
+```
+/data/studio/exports/<spec-id>/
+  spec.json
+  rendered.json
+  fixture.json
+  registration.md
+  preview.wav
+```
+
+UI tải bundle; người/agent mở PR. Sau merge, `texture_registry.py` đọc.
+
+Nếu sau này muốn tự động PR, dùng GitHub App/CI, không dùng server runtime ghi trực tiếp.
+
+Test sinh ra phải **data-driven**:
+
+- `backend/tests/test_texture_specs.py` quét `textures/**/*.json`;
+- validate + render + so `rendered.json`;
+- không sinh Python source từ spec.
 
 ---
 
-## 13. Rủi ro và cách giảm
+## 12. Compiler, registry, traits
+
+### 12.1. `traits` để checklist có nghĩa
+
+Compiler chỉ biết `kind` + `parent` thì không thể biết pattern thuộc `_KINETIC_PATTERNS`, `_NARROW_ROWS`, `_HOST`, `_LOUD_DOWN_PATTERNS`, có `plucked`, có door hay không. Thêm:
+
+```json
+"traits": {
+  "kinetic": true,
+  "narrow_rows": [6, 24, 80],
+  "scale_host": false,
+  "plucked": false,
+  "loud_down": true,
+  "has_door": false,
+  "pedal_door": false,
+  "figure_registry": "torroba_int"
+}
+```
+
+- `narrow_rows` là dữ liệu, không suy đoán.
+- `figure_registry` quyết định có `figure_code` hay không.
+- Compiler sinh checklist từ traits + một danh sách “review sites” cố định.
+- Phần không suy được ghi là **review**, không phải **auto**.
+
+### 12.2. Registry codegen
+
+Repo đã có tiền lệ: `scripts/gen_params_schema.py` sinh `paramsSchema.generated.ts` và có `--check`.
+
+Đề xuất:
+
+- `scripts/gen_pattern_registry.py` đọc:
+  - `_PATTERN_TITLE`, `_FAMILY`, `_PROFILE`
+  - `PROFILES` trong `guitar_wave.py`
+  - `_EXPECTED` trong `test_guitar_wave.py`
+- sinh `src/sonify/patternRegistry.generated.ts` (thay hoặc bổ sung `PATTERN_NAMES`).
+- `--check` phát hiện drift.
+- Repo **không có CI** (`.github/` không tồn tại), nên thêm `backend/tests/test_pattern_registry.py` gọi logic `--check`; pytest là gate thật.
+
+### 12.3. Title uniqueness
+
+`PATTERN_NAMES` là set toàn cục theo title. Cần test:
+
+```python
+titles = [pattern_title(pattern, ensemble) for ...]
+assert len(titles) == len(set(titles))
+```
+
+Nếu trùng, đổi title hoặc thêm namespace. Với *Suite Popular Brasileira*, dùng tên đầy đủ `Mazurka-Choro`, `Schottish-Choro`, `Valsa-Choro`, `Gavotta-Choro`, `Choros No. 1`.
+
+### 12.4. Checklist đầy đủ
+
+Ngoài checklist revision 1, thêm:
+
+- `backend/app/sonify/guitar.py`: `_ENSEMBLE_PROFILE` (`"villa": "villa_pattern"`).
+- `backend/app/sonify/guitar_patterns.py`: voice 4 path trong `assert_playable`.
+- `backend/app/sonify/guitar_scale_passages.py`: `_KINETIC_PATTERNS`, `_LOUD_DOWN_PATTERNS`, `_NARROW_ROWS`, `_HOST`.
+- `backend/app/sonify/guitar_patterns.py`: `_PEDAL_DOOR_PROFILE`, `_RETAINED_DOORS`.
+- `backend/app/sonify/guitar_torroba.py`: `_REAL_TORROBA_FIGURES` nếu figure mới.
+- Tests hardcode id: `test_humanize.py`, `test_sonify_guitar.py`, `test_sonify_guitar_scale_passages.py`.
+- `backend/app/sonify/audio.py`: nếu preview/export.
+
+---
+
+## 13. Lộ trình
+
+### Phase 0 — Chứng minh schema, chưa UI, chưa Gemini
+
+- `schema.py` với `MeterSpec`, `authored/derived`.
+- `resolve_runtime_meter()` dùng chung.
+- `validate.py`: meter variants, figure parent, voice order, authored playable.
+- Spec tay cho `chord_melody` (dễ) và `villa_pattern` (khó).
+- Round-trip `authored` với renderer hiện tại.
+- Preview bằng `slice_score` + `audio.py` (nếu môi trường có MuseScore), hoặc `rendered.json` nếu chưa.
+- Test 12/8 fail-closed.
+
+**Gate**: round-trip đúng; meter gate âm tính; 12/8 không fallback im lặng.
+
+### Phase 1 — Studio room + Gemini + session
+
+- `StudioRoom`, mode `studio`, capability.
+- `X-Studio-Session`, owner check, quota.
+- Upload/crop, Gemini draft, review table.
+- Validate + preview + export bundle.
+- Mở `open_beta`.
+
+**Gate**: một người dùng thật upload ảnh, sửa draft, lưu spec, nghe preview, export bundle mà không sửa code.
+
+### Phase 2 — Suite Popular Brasileira + runtime interpreter
+
+- Audit Villa figure: pattern nào có span thật.
+- Chọn movement đầu tiên; tạo pattern spec + meter variants.
+- Ít nhất một pattern `runtime: "interpreter"` để chứng minh runtime đọc spec.
+- Các pattern khác `runtime: "code"`.
+- Compiler sinh registration checklist; test drift.
+
+**Gate**: thêm một movement với meter đúng; ít nhất một pattern chạy từ spec.
+
+### Phase 3 — Thư viện + auth thật
+
+- Library UI theo composer/status/meter coverage.
+- Auth + entitlement thật; thay session namespace.
+- Publish flow qua PR/GitHub App.
+- Backup/migration.
+
+---
+
+## 14. Tiêu chí nghiệm thu
+
+1. **Meter exact**: spec lưu `MeterSpec`; so cấu trúc, không so string.
+2. **Meter sau retarget**: spec khớp `active_meter()` sau `_guitar_meter` + `retarget_torroba_meter`.
+3. **12/8 fail-closed**: không fallback `"other"` → 4/4.
+4. **Không meter per-bar**: không dùng `kind_at` làm meter.
+5. **Figure parent**: figure không có parent/meter hợp lệ bị từ chối.
+6. **Authored round-trip**: cùng pitch/beat/duration/voice/staff/tie/slur/accent/staccato.
+7. **Rendered golden**: cùng input + cùng seed → cùng hash/snapshot; velocity không so tuyệt đối.
+8. **Preview = slice_score**: preview lấy từ render thật, không interpreter riêng.
+9. **Storage bền**: DB/upload/preview nằm trên `/data`, sống qua deploy; backup có.
+10. **Publish artifact**: server không ghi repo; test data-driven.
+11. **Session owner/quota**: không xoá/sửa spec của session khác; Gemini có quota.
+12. **Codegen drift**: `gen_pattern_registry --check` + pytest gate.
+13. **Title uniqueness**: không trùng title toàn cục.
+14. **Runtime proof**: ít nhất một pattern `runtime: "interpreter"` ở Phase 2.
+
+---
+
+## 15. Rủi ro
 
 | Rủi ro | Cách giảm |
 |---|---|
-| Gemini đọc sai tie/slur, đặc biệt phổ + tab lệch | confidence + conflict + review bắt buộc |
-| Tab và phổ khác octave | lưu cả `written_pitch` và `sounding_pitch`, validate 12 nửa cung |
-| Meter 2/4 của Schottish-Choro không có trong engine | gộp hai ô 2/4 thành 4/4 như `olite`; ghi rõ trong spec |
-| Figure bị gọi sai meter | schema `when.meter` + test âm tính |
-| Spec mô tả đúng một bản nhạc nhưng không tổng quát | replay nhiều price path + round-trip |
-| UI mobile khó crop | web-first, cho upload ảnh đã crop; native sau |
-| Bản quyền ảnh bản nhạc | ảnh trong `var/`, không commit; chỉ commit spec |
-| Studio thành DAW/thư viện quá lớn | giữ phạm vi: authoring + preview + publish |
-| Phân quyền sau này phải sửa xuyên suốt | `owner_id`, `visibility`, `/access` ngay từ Phase 1 |
-| Code hiện tại có nhiều luật ngầm | Phase 0 round-trip là bắt buộc, không bỏ qua |
+| 12/8 fallback 4/4 | MeterSpec + fail-closed + test âm tính |
+| 3/4 ↔ 6/8 khác accent | `accent_remap` tường minh, nghe thử |
+| 4/4 → 12/8 không tương đương | `triplet_subdivision` + duyệt tay; không tự động |
+| 2/4 không có trong engine | `fold: 2`; tiền lệ `galop` |
+| Figure Villa không tồn tại | Phase 0 pattern-only; audit trước |
+| Velocity bị coi là authored | Tách authored/derived/rendered |
+| `assert_playable` che spec xấu | `assert_authored_playable` trước repair |
+| Preview lệch bản đầy đủ | `slice_score` của render thật |
+| MuseScore slot tranh nhau | Queue/slot riêng + cache + latency UI |
+| Fly mất dữ liệu | `/data` + chung DB + backup |
+| Publish ghi repo | Export bundle; PR do người/agent |
+| Gemini đốt quota | Session quota + rate limit + cache |
+| Gemini bị safety block | Báo lỗi rõ, cho nhập tay, không retry mù |
+| Trùng title | Test uniqueness |
+| Checklist bỏ sót | `traits` + codegen + pytest drift |
+| Scope creep | Phase gate rõ; không làm DAW |
 
 ---
 
-## 14. Câu hỏi còn mở
+## 16. Câu hỏi còn mở
 
-1. **Movement nào của Suite Popular Brasileira làm trước?**
-   Đề xuất: Mazurka-Choro (3/4, gần với `castillo`/`valsa`, dễ đối chiếu) hoặc Choros No. 1 (4/4, gần `villa_pattern`).
-2. **Schottish-Choro (2/4) xử lý thế nào?**
-   Gộp hai ô thành 4/4, hay thêm 2/4 vào engine? Đề xuất gộp trước, thêm 2/4 sau nếu cần.
-3. **Studio ưu tiên web hay native?**
-   Đề xuất web-first cho authoring; native chỉ xem/sửa nhẹ.
-4. **Preview dùng MIDI hay audio?**
-   MIDI nhẹ và deterministic; audio cần render server. Đề xuất MIDI trước, audio sau.
-5. **Auth sau này dùng gì?**
-   Cần chốt trước Phase 3, nhưng không chặn Phase 1.
+1. **Movement nào làm trước?**
+   Đề xuất Mazurka-Choro (3/4, gần `castillo`/`valsa`) hoặc Choros No. 1 (4/4, gần `villa_pattern`).
+2. **12/8 xử lý thế nào?**
+   (a) thêm materializer 12/8 thật; (b) cấm 12/8 cho Studio pattern và fail-closed; (c) `triplet_subdivision` có duyệt tay. Đề xuất (b) trước, (a) sau.
+3. **Villa figure audit ở Phase 2 hay Phase 1?**
+   Đề xuất Phase 2, sau khi round-trip pattern đã ổn.
+4. **Session token sống bao lâu?**
+   Đề xuất 90 ngày, lưu AsyncStorage; hết hạn tạo mới, spec cũ vẫn thuộc owner cũ nếu có auth sau này.
+5. **Preview audio slot**
+   Tăng `VSTOCK_MUSESCORE_SLOTS` hay queue riêng? Đề xuất queue riêng cho Studio, không chiếm slot Nghe.
 
 ---
 
-## 15. Phụ lục A — Ánh xạ ngôn ngữ của bạn vào code
+## 17. Phụ lục A — Những chỗ revision 1 mô tả sai
 
-| Bạn nói | Trong code |
+| Revision 1 | Thực tế |
 |---|---|
-| “ô” | `bar`, `Phrase`, `Bar` |
-| “vị trí trong ô” | `beat`, `eighth`, `divisions` |
-| bè bass / trung / cao | voice 3 / 2 / 1 (`low`, `support`, `lead`) |
-| price action | `_melody_at`, `placed` melody |
-| volume | `liquidity` band, `NoteEvent.velocity`, dynamics |
-| nốt dài nối bè | `duration_beats`, `tie_start`/`tie_stop`, `_type3_sustain` |
-| chênh lệch vi mô | offset `1/12`, `1/6`, `1/5`, velocity delta, humanize |
-| quãng bè trung | interval policy + `assert_playable` |
-| texture | `_FAMILY`, `_PROFILE`, `guitar_wave` |
-| pattern | `_PATTERN_TITLE`, `PATTERN_NAMES`, scheduler |
-| nhạc sĩ | `Ensemble` + dialect + palette |
-| meter | `ctx.kind`, `FormSpec`, các cổng `if kind == ...` |
+| “Engine chỉ có 3/4, 4/4, 6/8” | `form.py` có 4/4, 3/4, 6/8, 12/8, 5/4, 6/4, 7/8; guitar dùng 12/8 qua param |
+| “2/4 gộp hai ô, đúng cách `olite`” | Không có meter 2/4 trong `form.py`; tiền lệ là `galop` trong `guitar_sor.py:303` |
+| “`olite` scheduler chỉ 4/4” | `"other"` fallback về 4/4 row, nên Olite vẫn có thể được chọn ở meter lạ |
+| “`ctx.kind` là meter của movement/bar” | Chỉ movement/per-render; `kind_at` là section kind |
+| “Trùng tên in, `PATTERN_NAMES` nhận nhầm pattern của nhà khác” | Đúng với TS global set; Python `pattern_title` keyed theo id + ensemble |
+| `when.mood: ["calm", "selloff"]` | Có 4 character: `calm/rally/selloff/volatile` |
+| `when.tempo: [0, 132]` độc lập | Torroba tempo floor là hàm của `(mood, meter)` |
+| `routing.regime: root_or_fifth` | `Regime` là market regime; guitar bass nghiêng I/V |
+| `assert_playable` chứng minh spec playable | Nó chạy sau repair; cần `assert_authored_playable` |
+| App dùng `MusicalizeApp` là đủ | Phải đi qua `src/api/client.ts` `getApiBaseUrl`/`absoluteApiUrl` |
 
-## 16. Phụ lục B — Ví dụ prompt Gemini
+---
 
-```text
-Bạn là một engine phiên âm bản nhạc. Chỉ trả JSON đúng schema.
-Bạn nhận hai ảnh: toàn trang và vùng crop. Dùng ảnh toàn trang để đọc
-khoá nhạc, số chỉ nhịp, số ô; dùng ảnh crop để đọc từng nốt.
+## 18. Phụ lục B — Đối chiếu review
 
-Đây là bản nhạc guitar cổ điển. Ký âm guitar viết cao hơn âm thực 1 octave.
-Hãy trả cả written_pitch và sounding_pitch.
+| Review | Trạng thái trong revision 2 |
+|---|---|
+| B1 meter thật, 12/8 | §4.1–4.4, §14.3 |
+| B2 không meter per-bar | §4.6 |
+| B3 meter là materialization | §3.1, §4.4 |
+| B4 retarget trước khi so | §4.3 |
+| B5 authored/derived/rendered | §6 |
+| B6 preview = slice_score | §8 |
+| B7 Torroba figure int, Villa chưa có | §5 |
+| C1 `/data`, backup | §11.1 |
+| C2 publish artifact | §11.2 |
+| C3 session/owner/quota | §10.2 |
+| C4 reuse Gemini client | §9.1 |
+| C5 audio slot, không MIDI | §8.2 |
+| D1 codegen registry | §12.2 |
+| D2 traits/checklist | §12.1, §12.4 |
+| D3 title uniqueness | §3.2, §12.3 |
 
-Với mỗi nốt, trả:
-measure, beat, duration_beats, voice_hint, written_pitch, sounding_pitch,
-string, fret, tie, slur, articulation, confidence, bbox.
+---
 
-Nếu tab và phổ lệch nhau, đặt conflict=true và ghi warning.
-Nếu không chắc, đặt confidence thấp; không được đoán.
-Không trả lời bằng văn xuôi ngoài JSON.
-```
+## 19. Phụ lục C — Tham chiếu code
 
-## 17. Phụ lục C — Checklist pattern mới của Villa-Lobos
-
-- [ ] `guitar_villa.py`: renderer + helper.
-- [ ] `guitar_patterns.py`: `_FAMILY`, `_PROFILE`, dispatch, selection, fallback.
-- [ ] `program.py`: `_PATTERN_TITLE`.
-- [ ] `src/sonify/program.ts`: `PATTERN_NAMES`.
-- [ ] `guitar_wave.py`: `PROFILES[("villa", id)]`.
-- [ ] `test_guitar_wave.py`: `_EXPECTED`.
-- [ ] `humanize.py`: trần velocity nếu khác.
-- [ ] `guitar_scale_passages.py`: `_KINETIC_PATTERNS`, `_NARROW_ROWS`, `_HOST`.
-- [ ] `guitar_frame.py` / `guitar_frame_rest.py`: cửa nếu có.
-- [ ] test pattern + test meter gate + test figure parent.
-- [ ] docs cập nhật.
-
-Checklist này là thứ compiler sẽ sinh tự động. Mục tiêu của Texture Studio không phải bỏ code, mà là **không bỏ sót chỗ nào cần sửa** và **không phải nhớ lại từ đầu mỗi lần thêm nhạc sĩ**.
+- `backend/app/sonify/form.py`: `Meter`, `METER_44/34/68/128/54/64/78`, `active_meter`, `compose_meter`.
+- `backend/app/sonify/guitar_patterns.py`: `_meter_kind`, `_Ctx`, `render_patterned_voices`, `assert_playable`.
+- `backend/app/sonify/guitar_torroba.py`: `_FIGURES`, `_REAL_TORROBA_FIGURES`, `_castillo_spans`, `_danza_spans`, `_torroba_bass`.
+- `backend/app/sonify/guitar_villa.py`: `_render_villa_bar`, `_render_thumb`, `_render_etude1_bar`, `_render_etude11_bar`.
+- `backend/app/sonify/span.py`: `_guitar_meter`, `retarget_torroba_meter`, `retarget_torroba_tempo`, `slice_score`.
+- `backend/app/sonify/model.py`: `NoteEvent`.
+- `backend/app/sonify/guitar_wave.py`: `PROFILES`, `apply_guitar_wave`.
+- `backend/app/sonify/audio.py`: `EXPORT_SLOTS`, `AUDIO_MAX_AGE_DAYS`.
+- `backend/app/sonify/params.py`: meter choices (`4/4`, `3/4`, `6/8`, `12/8`).
+- `backend/app/store/db.py`: `SCHEMA`, `db_path`, `init_db`.
+- `backend/fly.toml`: volume `/data`, `VSTOCK_DB_PATH`.
+- `scripts/gen_params_schema.py`: codegen + `--check`.
+- `src/sonify/program.ts`: `PATTERN_NAMES` global set.
+- `src/api/client.ts`: `getApiBaseUrl`, `absoluteApiUrl`.
+- `docs/sonify-pattern-names.md`: luật tên pattern.
