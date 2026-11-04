@@ -27,6 +27,9 @@ class ImitationSpec:
     retrograde: bool
     inversion: bool
 
+    def __post_init__(self) -> None:
+        self.check_realized()
+
     def check_realized(self) -> None:
         """Refuse a spec the current fuga renderer cannot realize."""
         if self.lag < 1:

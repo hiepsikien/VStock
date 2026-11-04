@@ -241,28 +241,21 @@ def test_lag_is_read_from_the_spec() -> None:
     class WithPedal:
         kind_at = {0: "phrase", 1: "warmup", 2: "phrase", 3: "phrase"}
 
-    # The lag bar is a pedal: skip one bar closer, then close on this bar.
+    # bar 3: the lag bar (1) is a pedal, so skip one closer and land on 2.
     assert _bach_lag_bar(WithPedal(), 3) == 2
+    # bar 2: the lag bar (0) is a normal phrase, so the usual lag applies.
     assert _bach_lag_bar(WithPedal(), 2) == 0
 
 
 def test_the_realizer_refuses_a_spec_it_cannot_play() -> None:
-    for spec in (
-        ImitationSpec(2, "2:1", False, False),
-        ImitationSpec(2, CONTOUR_ONE_TO_ONE, True, False),
-        ImitationSpec(2, CONTOUR_ONE_TO_ONE, False, True),
-        ImitationSpec(0, CONTOUR_ONE_TO_ONE, False, False),
+    for values in (
+        (2, "2:1", False, False),
+        (2, CONTOUR_ONE_TO_ONE, True, False),
+        (2, CONTOUR_ONE_TO_ONE, False, True),
+        (0, CONTOUR_ONE_TO_ONE, False, False),
     ):
         with pytest.raises(ValueError):
-            spec.check_realized()
-
-    class Fake:
-        kind_at = {0: "phrase", 1: "phrase"}
-        epb = 8
-        melody = [72] * 16
-
-    with pytest.raises(ValueError):
-        _fuga_motif(Fake(), 0, ImitationSpec(2, "2:1", False, False))
+            ImitationSpec(*values)
 
 
 def test_the_spec_names_the_realized_procedure() -> None:

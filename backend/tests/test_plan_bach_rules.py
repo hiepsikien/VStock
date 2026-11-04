@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from app.sonify.plan_rules import MACRO, PHRASE
 from app.sonify.plan_rules_bach import (
     BACH_CONTRAST_RULES,
@@ -167,16 +169,10 @@ def test_a_suite_row_never_closes_on_prelude_after_another_dance() -> None:
 
 
 def test_input_type_must_match_the_table() -> None:
-    for call, wrong in (
-        (lambda case: bach_pattern(MACRO, case), _contrast()),
-        (lambda case: bach_contrast(MACRO, case), _primary()),
-    ):
-        try:
-            call(wrong)
-        except TypeError as error:
-            assert "Inputs" in str(error)
-        else:  # pragma: no cover - the guard is the point of this test
-            raise AssertionError("a case from the other table must not pass")
+    with pytest.raises(TypeError, match="Inputs"):
+        bach_pattern(MACRO, _contrast())
+    with pytest.raises(TypeError, match="Inputs"):
+        bach_contrast(MACRO, _primary())
 
 
 def test_every_rule_belongs_to_one_mode_and_has_a_reason() -> None:
