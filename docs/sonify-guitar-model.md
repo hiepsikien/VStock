@@ -424,10 +424,8 @@ Quan hệ với các khái niệm khác:
 | `span.tile` | độ dài template lặp; `null` khi `exact: true` |
 | `span.remainder` | `same_figure` (lặp cùng figure) \| `truncate_cycle` (galop) \| `exact` |
 | `span.cycle` | lặp trên run bất kỳ (galop) |
-| `span.exact` | slots phủ đúng `length`, không lặp (sonatina/fandanguillo/danza) |
-| `span.truncate_to_length` | slot dài hơn `length` bị cắt theo length (castillo 3/4) |
-| `coverage` | `full` hoặc `partial` — **thuộc từng archetype** |
-| `uncovered` | `base_grid` khi `coverage: partial` |
+| `span.exact` | slots phủ đúng `length`, không lặp (castillo 4/4, sonatina, fandanguillo, danza) |
+| `span.truncate_to_length` | slot dài hơn `length` bị cắt theo length (castillo 3/4, sonatina close L<=3) |
 | `slots[].start`, `bars`, `realizer` | vị trí + độ dài + figure/cell/procedure |
 
 **Castillo 3/4** — một figure 9 ô, `n % 2` chọn WALK/CADENCE, length nhỏ bị cắt:
@@ -441,14 +439,13 @@ Quan hệ với các khái niệm khác:
   "select": { "length": [2, null], "n_parity": "even", "closes": null, "rise_min": 0,
               "unsupported_lengths": [1] },
   "span": { "unit": "bar", "tile": 9, "remainder": "same_figure", "truncate_to_length": true },
-  "coverage": "full",
   "slots": [{ "role": "walk", "start": 0, "bars": 9, "realizer": { "kind": "texture", "figure": "castillo_walk" } }]
 }
 ```
 
-`length = 2` → span thực `(0,1)`; `length = 10` → 9 ô + 1 ô, cả hai cùng figure. `coverage: full` vì union phủ hết `min(tile, length)`.
+`length = 2` → span thực `(0,1)`; `length = 10` → 9 ô + 1 ô, cả hai cùng figure. `coverage` suy ra là **full** vì union phủ hết `min(tile, length)`.
 
-**Castillo 4/4, length >= 8 lẻ** — slot **không liền nhau**, coverage partial:
+**Castillo 4/4, length >= 8 lẻ** — slot **không liền nhau**, coverage suy ra là **partial**:
 
 ```json
 {
@@ -458,8 +455,6 @@ Quan hệ với các khái niệm khác:
              "strong_eighths": [0, 4], "subbar_breaks": [4], "extra_weights": [] },
   "select": { "length": [8, null], "n_parity": "odd", "closes": null, "rise_min": 0 },
   "span": { "unit": "bar", "tile": null, "exact": true },
-  "coverage": "partial",
-  "uncovered": "base_grid",
   "slots": [
     { "role": "arada_a", "start": 0, "bars": 2, "realizer": { "kind": "texture", "figure": "castillo_8" } },
     { "role": "arada_b", "start": 4, "bars": 2, "realizer": { "kind": "texture", "figure": "castillo_8" } },
@@ -468,7 +463,7 @@ Quan hệ với các khái niệm khác:
 }
 ```
 
-Bar 3, 6, 7… rơi về base grid. `castillo 4/4` có **9 archetype** (short 2–3; pair even/odd 4; type 7 cho 5, 6, 7; long even 8+; long odd 8+) — xem bảng §13.6.
+Bar 3, 6, 7… rơi về base grid. `castillo 4/4` có **9 archetype**: short 2–3; pair even/odd L4; type 7 L5; pairs at 3 L5–6 odd; type 7 L6; type 7 L7; long even 8+; long odd 8+ — xem bảng §13.6.
 
 **Sonatina open, length 4, `n % 3 == 0`** — `n_parity` không đủ:
 
@@ -480,8 +475,6 @@ Bar 3, 6, 7… rơi về base grid. `castillo 4/4` có **9 archetype** (short 2�
              "strong_eighths": [0, 4], "subbar_breaks": [4], "extra_weights": [] },
   "select": { "length": [4, 4], "n_mod": { "mod": 3, "value": 0 }, "closes": "open", "rise_min": 0 },
   "span": { "unit": "bar", "tile": null, "exact": true },
-  "coverage": "partial",
-  "uncovered": "base_grid",
   "slots": [
     { "role": "pair", "start": 0, "bars": 2, "realizer": { "kind": "texture", "figure": "sonatina_4" } },
     { "role": "link", "start": 3, "bars": 1, "realizer": { "kind": "texture", "figure": "sonatina_1" } }
@@ -499,7 +492,6 @@ Turn 0/1/2 là **ba archetype riêng** cho length 2–4; length 5–6 dùng `n_p
   "pattern": "galop",
   "select": { "length": [1, null], "n_parity": "any", "closes": null, "rise_min": 0 },
   "span": { "unit": "bar", "tile": 8, "cycle": true, "remainder": "truncate_cycle" },
-  "coverage": "full",
   "slots": [
     { "role": "cell1", "start": 0, "bars": 4, "realizer": { "kind": "texture", "cell": "galop1" } },
     { "role": "cell2", "start": 4, "bars": 4, "realizer": { "kind": "texture", "cell": "galop2" } }
@@ -521,62 +513,65 @@ plan_sentences(pattern, specs, meter_key, length, n, closes, rise, previous_figu
 
 ### 13.4. Validator
 
-1. `slots[].start` bắt buộc. Không chồng nhau; `start + bars <= effective`, với `effective = min(tile, length)` cho cycle/truncate, hoặc `length` khi `exact`.
-2. `coverage: full` → union slot phủ kín `[0, effective)`. `coverage: partial` → union là **tập con**, bar trống rơi về base grid, và phải khai `uncovered: base_grid`.
+1. `slots[].start` bắt buộc. Không chồng nhau; `start + bars <= effective`, với `effective = min(tile, remaining)` cho cycle/truncate, hoặc `length` khi `exact`.
+2. **Coverage suy ra từ slots, không khai trong JSON:** `covered = union([start, start+bars))`; `full = covered == set(range(effective))`; nếu không full thì là `partial`, bar trống rơi về base grid (`uncovered: base_grid`). Vì vậy `coverage` không thể là field tĩnh của archetype — cùng một archetype có thể full ở L2 và partial ở L3.
 3. **Per-cycle, không phải toàn cục:** với `length = 18, tile = 9` có hai cycle; mỗi cycle phủ `min(tile, remaining)`. Không đòi `sum(bars) == tile` khi `length < tile`.
 4. `truncate_to_length`: slot dài hơn length bị cắt; plan trả `(start, min(bars, length - start))`.
 5. `remainder`/`cycle`/`exact` phải khớp kiểu archetype.
-6. `unsupported`: list tĩnh **hoặc** predicate `unsupported_when` cho trường hợp phụ thuộc input (`fandanguillo`: `rise == 0`, `room < 4` khi `n` chẵn, `start + 1 >= room` khi `n` lẻ; `danza`: meter 4/4, `length < 4`, `closes && length == 4`).
+6. `unsupported`: list tĩnh **hoặc** predicate `unsupported_when` cho trường hợp phụ thuộc input (`fandanguillo`: `rise == 0`, `room < 4` khi `n` chẵn, `room < 2` hoặc `start + 1 >= room` khi `n` lẻ; `danza`: meter 4/4, `length < 4`, `closes && length == 4`).
 7. `n` coverage: với mỗi length, **mọi** residue của `mod` (2 hoặc 3) phải có archetype, hoặc khai unsupported.
 8. `sentence.meter` thuộc `pattern.meter_variants`; realizer tồn tại; plan golden.
 
 ### 13.5. Test matrix
 
 - `meter × length (1..12) × n (0..5) × closes (open/close/null) × rise (0/1/2) × previous_figure (null + mỗi figure)` → plan.
-- Partial coverage: castillo 4/4 (length 2..9), sonatina open (length 2..8, `n % 3`), fandanguillo (`rise` 0/1, closes), danza (3/4, 6/8, 4/4), castillo 3/4 (length 2, 9, 10, 18), galop run 1..30.
+- Derived coverage: castillo 4/4 length **3..9** (L2 full), sonatina open length 2..8 (`n % 3`; L2 t0/t1 full, t2 partial), fandanguillo (`rise` 0/1, closes), castillo 3/4 (length 2, 9, 10, 18), galop run 1..30.
+- Negative: danza 4/4 (unsupported meter), danza L1–3, `closes && L==4`; sonatina open L1; castillo L1.
 - Avoid-repeat: cùng length, `previous_figure` = figure đầu → plan xoay đúng một lần.
 - Golden: `backend/tests/fixtures/sentence_plan.json` — **path mới**, thư mục chưa tồn tại.
 - Negative: sai meter → `[]`; unsupported predicate đúng → `[]`; realizer thiếu → validation error.
 
 ### 13.6. Inventory archetype Torroba + status
 
-| Family | Select | Span | Coverage | Slots (start, bars, figure) |
-|---|---|---|---|---|
-| `castillo` 3/4 walk | L>=2, n even | tile 9, same_figure, truncate | full | `(0, 9, walk)` |
-| `castillo` 3/4 cadence | L>=2, n odd | tile 9, same_figure, truncate | full | `(0, 9, cadence)` |
-| `castillo` 4/4 short | L 2–3 | exact | partial (L2 full) | `(0, 2, 8)` |
-| `castillo` 4/4 pair even | L 4, n even | exact | partial | `(0, 2, 8)` |
-| `castillo` 4/4 pair odd | L 4, n odd | exact | partial | `(1, 2, 8)` |
-| `castillo` 4/4 type7 (L5) | L 5, n even | exact | full | `(0, 5, 7)` |
-| `castillo` 4/4 pairs at 3 | L 5–6, n odd | exact | partial | `(0, 2, 8), (3, 2, 8)` |
-| `castillo` 4/4 type7 (L6) | L 6, n even | exact | partial | `(0, 5, 7)` |
-| `castillo` 4/4 type7 (L7) | L 7 | exact | partial | `(0, 5, 7)` |
-| `castillo` 4/4 long even | L>=8, n even | exact | partial | `(0, 5, 7)` |
-| `castillo` 4/4 long odd | L>=8, n odd | exact | partial | `(0,2,8), (4,2,8), (2,1,1)` |
-| `sonatina` open L2 t0 | L2, `n%3=0` | exact | full | `(0,2,4)` |
-| `sonatina` open L2 t1 | L2, `n%3=1` | exact | full | `(0,2,2)` |
-| `sonatina` open L2 t2 | L2, `n%3=2` | exact | partial | `(0,1,1)` |
-| `sonatina` open L3 t0 | L3, `n%3=0` | exact | partial | `(0,2,4)` |
-| `sonatina` open L3 t1 | L3, `n%3=1` | exact | partial | `(1,2,2)` |
-| `sonatina` open L3 t2 | L3, `n%3=2` | exact | partial | `(0,2,1)` |
-| `sonatina` open L4 t0 | L4, `n%3=0` | exact | partial | `(0,2,4),(3,1,1)` |
-| `sonatina` open L4 t1 | L4, `n%3=1` | exact | partial | `(1,2,2),(3,1,1)` |
-| `sonatina` open L4 t2 | L4, `n%3=2` | exact | partial | `(0,1,1),(2,2,4)` |
-| `sonatina` open L5 even | n even | exact | partial | `(0,2,4), (3,1,1)` |
-| `sonatina` open L5 odd | n odd | exact | partial | `(0,2,4), (3,2,2)` |
-| `sonatina` open L6 even | n even | exact | partial | `(0,2,4), (3,2,2)` |
-| `sonatina` open L6 odd | n odd | exact | partial | `(0,2,2), (3,2,4)` |
-| `sonatina` open L>=7 | any n | exact | partial | `(0,2,4), (3,1,1), (5,2,2)` |
-| `sonatina` close L<=3 | any n | tile 3, truncate | full | `(0, L, 3)` |
-| `sonatina` close L4–L5 | any n | exact | partial | `(L-3, 3, 3)` |
-| `sonatina` close L6 | any n | exact | partial | `(0,1,1), (3,3,3)` |
-| `sonatina` close L>=7 | any n | exact | partial | `(0,2,4), (L-3,3,3)` |
-| `fandanguillo` n even | L, room>=4, rise>=1 | exact | full khi room=4, partial khi room>4 | `(0,4,5)` |
-| `fandanguillo` n odd | L, room>=2, rise>=1 | exact | partial | `(max(0,L//2-1), 2, 2)` |
-| `danza` | 3/4 hoặc 6/8, L>=4, not(closes && L==4) | exact | full khi L=4, partial khi L>4 | `(0,4,6)` |
-| `galop` | L>=1 | tile 8, cycle | full | `(0,4,1),(4,4,2)` |
+| Family | Select | Span | Slots (start, bars, figure) |
+|---|---|---|---|
+| `castillo` 3/4 walk | L>=2, n even | tile 9, same_figure, truncate | `(0, 9, walk)` |
+| `castillo` 3/4 cadence | L>=2, n odd | tile 9, same_figure, truncate | `(0, 9, cadence)` |
+| `castillo` 4/4 short | L 2–3 | exact | `(0, 2, 8)` |
+| `castillo` 4/4 pair even | L 4, n even | exact | `(0, 2, 8)` |
+| `castillo` 4/4 pair odd | L 4, n odd | exact | `(1, 2, 8)` |
+| `castillo` 4/4 type7 (L5) | L 5, n even | exact | `(0, 5, 7)` |
+| `castillo` 4/4 pairs at 3 | L 5–6, n odd | exact | `(0, 2, 8), (3, 2, 8)` |
+| `castillo` 4/4 type7 (L6) | L 6, n even | exact | `(0, 5, 7)` |
+| `castillo` 4/4 type7 (L7) | L 7 | exact | `(0, 5, 7)` |
+| `castillo` 4/4 long even | L>=8, n even | exact | `(0, 5, 7)` |
+| `castillo` 4/4 long odd | L>=8, n odd | exact | `(0,2,8), (4,2,8), (2,1,1)` |
+| `sonatina` open L2 t0 | L2, `n%3=0` | exact | `(0,2,4)` |
+| `sonatina` open L2 t1 | L2, `n%3=1` | exact | `(0,2,2)` |
+| `sonatina` open L2 t2 | L2, `n%3=2` | exact | `(0,1,1)` |
+| `sonatina` open L3 t0 | L3, `n%3=0` | exact | `(0,2,4)` |
+| `sonatina` open L3 t1 | L3, `n%3=1` | exact | `(1,2,2)` |
+| `sonatina` open L3 t2 | L3, `n%3=2` | exact | `(0,2,1)` |
+| `sonatina` open L4 t0 | L4, `n%3=0` | exact | `(0,2,4),(3,1,1)` |
+| `sonatina` open L4 t1 | L4, `n%3=1` | exact | `(1,2,2),(3,1,1)` |
+| `sonatina` open L4 t2 | L4, `n%3=2` | exact | `(0,1,1),(2,2,4)` |
+| `sonatina` open L5 even | n even | exact | `(0,2,4), (3,1,1)` |
+| `sonatina` open L5 odd | n odd | exact | `(0,2,4), (3,2,2)` |
+| `sonatina` open L6 even | n even | exact | `(0,2,4), (3,2,2)` |
+| `sonatina` open L6 odd | n odd | exact | `(0,2,2), (3,2,4)` |
+| `sonatina` open L>=7 | any n | exact | `(0,2,4), (3,1,1), (5,2,2)` |
+| `sonatina` close L<=3 | any n | tile 3, truncate | `(0, L, 3)` |
+| `sonatina` close L4–L5 | any n | exact | `(L-3, 3, 3)` |
+| `sonatina` close L6 | any n | exact | `(0,1,1), (3,3,3)` |
+| `sonatina` close L>=7 | any n | exact | `(0,2,4), (L-3,3,3)` |
+| `fandanguillo` n even | L, `room = L - (closes ? 1 : 0)`, room>=4, rise>=1 | exact | `(0,4,5)` |
+| `fandanguillo` n odd | L, `room = L - (closes ? 1 : 0)`, room>=2, rise>=1 | exact | `(max(0,L//2-1), 2, 2)` |
+| `danza` | 3/4 hoặc 6/8, L>=4, not(closes && L==4) | exact | `(0,4,6)` |
+| `galop` | L>=1 | tile 8, cycle | `(0,4,1),(4,4,2)` |
 
 `room = length - 1` khi `closes`, ngược lại `length`. Figure numbering: castillo 1/7/8/13/14; sonatina 1/2/3/4; fandanguillo 5/2; danza 6.
+
+`unsupported_lengths`: castillo (3/4 và 4/4) `[1]`; sonatina open `[1]`; sonatina close không có (L1 vẫn render); danza `[1,2,3]` + unsupported toàn bộ 4/4; fandanguillo dùng predicate, không dùng list.
 
 Status theo composer (giữ nguyên):
 
@@ -601,13 +596,95 @@ Status theo composer (giữ nguyên):
 
 Torroba đã chứng minh: bar renderer vẫn code, chỉ **chọn slot** là data (`torroba_figure_plan` → `_render_torroba_bar`). Vì vậy sentence pipeline chạy được ở Phase 0/1:
 
-- `runtime: "code"` + sentence registry → `plan_sentence()` trả plan, renderer code dùng plan.
+- `runtime: "code"` + sentence registry → `plan_sentences()` trả plan, renderer code dùng plan.
 - Không cần `runtime: "interpreter"` cho sentence.
 - Chỉ khi muốn realizer mới **chưa có code** mới cần interpreter (hoặc viết figure).
 
 ### 13.9. Hệ quả cho Texture Studio
 
 - `SentenceSpec` trong Studio = schema này; `sentence_code`/figure id trỏ tới registry.
-- Studio authoring một sentence = chọn archetype + slots; preview chạy `plan_sentence` + render code hiện có.
+- Studio authoring một sentence = chọn archetype + slots; preview chạy `plan_sentences` + render code hiện có.
 - Checklist khi thêm sentence: archetype vào registry, slot realizer tồn tại, plan golden cập nhật, test negative meter.
 - Sentence cho composer mới **không** làm thay đổi `PATTERN_NAMES`/`Movement.title` — nó là lớp trong pattern.
+
+
+---
+
+## 14. Door pipeline (intro/outro)
+
+### 14.1. Định nghĩa
+
+> **Door** = script điền **vùng pedal** ở đầu/cuối movement, gắn theo `(ensemble, pattern)`. Nó không phải Texture (không điền body), không phải Sentence (không có slot/role trong body), và **không in tên**.
+
+`intro`/`outro` là **section kind** của `FormSpec`, không phải tên của door. `warmup`/`cooldown` cũng là door region:
+
+```python
+Section = Literal["intro", "phrase", "outro", "warmup", "cooldown"]   # form.py:108
+_PEDAL = frozenset({"intro", "outro", "warmup", "cooldown"})          # form.py:109
+```
+
+### 14.2. Code hiện tại
+
+- **Vùng:** `_pedal_regions(ctx)` (`guitar_patterns.py:3986`) trả `leading` (từ bar 0 đến hết `_PEDAL`) và `trailing` (từ cuối lên). Door chỉ chạm hai vùng này.
+- **Chọn door:** `_dispatch` (`guitar_frame.py:130-140`) lấy `_extra_doors().get((ctx.ensemble, pattern))`; không có thì rơi về **composer frame** (`_frame_composer`, `:85`).
+- **Chữ ký door:** `door(ctx, bar, role, *, steps, closing, index)`; `steps` = số bar của region, `closing` = outro/cooldown, `role`/`index` = vị trí trong câu cửa. Region 1 bar đi `_compressed` (`:100`): nửa đầu vào, nửa sau kết.
+- **Hợp nhất registry:** `_extra_doors()` (`:623`) merge `guitar_frame_bach_sor.DOORS` → `guitar_frame_rest.DOORS` → `guitar_torroba_doors.DOORS` (update vào `_RETAINED_DOORS`), rồi `_RETAINED_DOORS` **thắng khi trùng**.
+- **Profile:** `_PEDAL_DOOR_PROFILE` (`guitar_patterns.py:4027`) map **body pattern → profile playability** cho vùng cửa; không có entry thì rơi về `"study"`.
+- **Không in tên:** `form_pattern_ids` bỏ qua `pedal` (`:3323-3324`), nên đổi nhãn texture không ảnh hưởng door.
+
+### 14.3. Schema
+
+```json
+{
+  "id": "villa_pattern_door",
+  "ensemble": "villa",
+  "pattern": "villa_pattern",
+  "sections": ["intro", "outro"],
+  "steps": { "short": 2, "long": "region", "compress_one_bar": true },
+  "roles": ["enter", "leave"],
+  "profile": "villa_pattern",
+  "fallback": "none",
+  "status": "reviewed"
+}
+```
+
+- `sections` phải là tập con của `_PEDAL`.
+- `steps.long = "region"`: số bar lấy từ section, không hard-code.
+- `fallback`: `none` (bắt buộc có door) hoặc `composer_frame` (dùng `_frame_composer`).
+- `profile`: key trong `_PEDAL_DOOR_PROFILE`.
+
+### 14.4. Inventory hiện tại
+
+Toàn bộ **38 dòng `PROFILES`** đều có door (không có pattern nào rơi về composer frame):
+
+| Module | Số door | Key |
+|---|---|---|
+| `guitar_frame_rest.DOORS` | 13 | barrios 7 (andante, tremolo, choro, polca, hemiola, vals, thumb_cantabile); villa 4 (chord_melody, thumb_cantabile, etude1, etude11); brouwer 2 (brouwer_etude, sarabande) |
+| `guitar_frame_bach_sor.DOORS` | 10 | bach 7 (gavotte, gigue, sarabande, chaconne, prelude, allemande, courante); classic 3 (cantabile, elegiaque, galop) |
+| `guitar_torroba_doors.DOORS` | 7 | castillo, sonatina, fandanguillo, danza, torroba_tremolo, alcaniz, olite |
+| `_RETAINED_DOORS` | 8 | classic (study, mozart_var); barrios (preludio); villa (villa_pattern); brouwer (noviembre, elogio_pizz); bach (bourree, fuga) |
+
+**Gap:** `_PEDAL_DOOR_PROFILE` chỉ có **10 entry** (thumb_cantabile, elegiaque, choro, castillo, sonatina, fandanguillo, danza, torroba_tremolo, alcaniz, olite). 28 pattern còn lại rơi về `"study"` — có thể sai register/velocity nhưng hiện chưa ai kiểm.
+
+### 14.5. Validator và test
+
+1. Door chỉ phủ bar có `kind_at in _PEDAL`; không overlap body.
+2. Mỗi `(ensemble, pattern)` có tối đa một door; trùng key phải khai rõ module nào thắng (hiện `_RETAINED_DOORS` thắng).
+3. `profile` phải tồn tại trong `_PEDAL_DOOR_PROFILE` (hoặc khai fallback `study` có lý do).
+4. Region 1 bar phải đi `_compressed`; region dài dùng `steps = region`.
+5. Golden riêng cho door theo `(ensemble, pattern, section kind, steps)`: note table, không dùng Score hash.
+6. Negative: door xuất hiện trong body → fail; door thiếu profile → fail (hoặc warning nếu chấp nhận fallback).
+
+### 14.6. Checklist khi thêm pattern
+
+- [ ] `traits.has_door` (PR #142) — quyết định có cửa hay không.
+- [ ] Nếu có: viết hàm door, đăng ký vào module (`guitar_frame_rest.DOORS`, `guitar_frame_bach_sor.DOORS`, hoặc `guitar_torroba_doors.DOORS`) **hoặc** `_RETAINED_DOORS`.
+- [ ] Thêm entry `_PEDAL_DOOR_PROFILE[pattern]` nếu trần register/velocity khác `"study"`.
+- [ ] Door golden cho `(ensemble, pattern)` × `intro/outro` × `steps` ngắn/dài.
+- [ ] Nếu pattern không có cửa (hiếm), khai `fallback: composer_frame` và test rằng frame composer chạy được.
+
+### 14.7. Non-goals
+
+- Door **không** phải Texture, **không** phải Sentence; không đưa vào `PATTERN_NAMES`, không in tên, không vào `Movement.title`.
+- Door không tham gia `plan_sentences`.
+- Refactor pattern/topic/texture/sentence **không đổi** door; chỉ khi thêm pattern mới cần checklist trên.
