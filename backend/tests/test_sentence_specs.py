@@ -249,7 +249,7 @@ def test_end_anchor_cannot_overlap_start_slots() -> None:
         span=Span(exact=True, remainder="exact"),
         slots=(Slot(0, 2, 1), Slot(0, 3, 2, anchor="end")),
     )
-    with pytest.raises(ValueError, match="overlaps the start slots"):
+    with pytest.raises(ValueError, match="overlaps an earlier slot"):
         register("unit_anchor_overlap", "3/4", spec, replace=True)
 
 
@@ -282,3 +282,33 @@ def test_exact_meter_wins_over_wildcard() -> None:
     register("unit_prec", "4/4", exact, replace=True)
     assert plan_sentence("unit_prec", "4/4", 1, 0) == [(2, (0,))]
     assert plan_sentence("unit_prec", "3/4", 1, 0) == [(1, (0,))]
+
+
+def test_exact_meter_wins_after_owner_import(monkeypatch) -> None:
+    """The exact key must win even when it only appears after the owner imports."""
+    import app.sonify.sentence_specs as specs
+
+    wild = _spec(
+        "unit_prec2_wild",
+        pattern="unit_prec2",
+        select=Select(),
+        span=Span(tile=1),
+        slots=(Slot(0, 1, 1),),
+    )
+    specs.register("unit_prec2", METER_ANY, replace(wild, meter=METER_ANY), replace=True)
+    exact = replace(
+        wild, id="unit_prec2_exact", meter="4/4", slots=(Slot(0, 1, 2),)
+    )
+
+    def fake_import(name: str):
+        if (name == "unit_owner"):
+            specs.register("unit_prec2", "4/4", exact, replace=True)
+        return object()
+
+    monkeypatch.setattr(specs, "_OWNER_MODULES", ("unit_owner",))
+    monkeypatch.setattr(specs.importlib, "import_module", fake_import)
+    # Start with the exact key absent so _lookup has to import the owner.
+    specs.SENTENCE_SPECS.pop(("unit_prec2", "4/4"), None)
+
+    assert plan_sentence("unit_prec2", "4/4", 1, 0) == [(2, (0,))]
+    assert plan_sentence("unit_prec2", "3/4", 1, 0) == [(1, (0,))]

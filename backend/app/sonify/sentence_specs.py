@@ -166,7 +166,7 @@ def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
         low = select.length_min - slot.bars
         if low < position:
             raise ValueError(
-                f"{spec.id}: end slot overlaps the start slots at length_min"
+                f"{spec.id}: end slot overlaps an earlier slot at length_min"
             )
         position = low + slot.bars
 
@@ -266,7 +266,9 @@ def _tile(spec: SentenceSpec, length: int) -> list[tuple[int, tuple[int, ...]]]:
     if tile is None:  # validated at register; guard for python -O
         return []
     if any(slot.anchor != "start" for slot in spec.slots):
-        raise ValueError(f"{spec.id}: end-anchored slots need an exact span")
+        # register() rejects this; stay quiet on the render path if a spec was
+        # built by hand.
+        return []
     if not span.truncate_to_length and length % tile != 0:
         return []
     spans: list[tuple[int, tuple[int, ...]]] = []
