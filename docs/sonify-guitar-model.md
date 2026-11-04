@@ -440,7 +440,9 @@ Quan hệ với các khái niệm khác:
 | `previous_figure` trong contract | **không** truyền vào planner; rotation nằm ở `select_torroba_spans` |
 | `None` vs `[]` | `None` = chưa có data cho cặp pattern/meter; `[]` = có data nhưng length/select không khớp |
 
-`register()` validate `tile >= 1`, slot bounds/overlap, `n_parity`/`n_mod`/`closes`/`remainder`, **`figure` phải có trong `_FIGURES`** (owner truyền `valid_figures`), id trùng; re-register giống hệt là no-op nên reload an toàn. `plan_sentence()` load các module trong `_OWNER_MODULES` khi registry rỗng — thêm module owner khi migrate family mới (galop → `guitar_sor`).
+`register()` validate `tile >= 1`, slot bounds/overlap, `n_parity`/`n_mod`/`closes`/`remainder`, **`figure` phải có trong `_FIGURES`** (owner truyền `valid_figures`), id trùng; re-register giống hệt là no-op nên reload an toàn. `guitar_torroba` gọi register **sau khi mọi `_FIGURES` entry tồn tại**, kể cả 9–12 thêm muộn. `plan_sentence()` load các module trong `_OWNER_MODULES` khi registry rỗng — thêm module owner khi migrate family mới (galop → `guitar_sor`).
+
+`cycle`/`remainder` là **declarative**: `_tile` lặp mọi span non-exact và truncate chunk cuối; `exact` và `truncate_to_length` mới là công tắc tiling. `truncate_cycle` buộc `cycle=True`, và `cycle=True` buộc `truncate_cycle`.
 
 **Castillo 3/4** — một figure 9 ô, `n % 2` chọn WALK/CADENCE, length nhỏ bị cắt:
 
