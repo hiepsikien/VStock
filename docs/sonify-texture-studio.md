@@ -239,12 +239,12 @@ Quyết định:
 - Mỗi movement là một pattern id trong palette Villa; một piece Villa vẫn có tối đa 4 movement slot.
 - Các pattern Suite có metadata `suite: { name, movement }` để nhóm trong UI, nhưng `pattern_form()` không đọc metadata này.
 - Movement line có thể in tối đa 3 title; đây là hành vi hiện có của `pattern_form()`, phải có test in tên.
-- Nếu sau này muốn Suite là một piece 5 movement, đó là việc của `span.py`/`FormSpec`/`guitar_movement_name`, không phải pattern. Mở một PR riêng.
+- Nếu sau này muốn Suite là một piece 5 movement, đó là việc của `span.py`/`FormSpec`/`Movement.title` (`movement_titles.py`), không phải pattern. Mở một PR riêng.
 
 Hệ quả cần test:
 
 1. Một piece Villa dùng 5 pattern Suite không làm `pattern_form()` vỡ; nó in tối đa 3 title.
-2. `guitar_movement_name` vẫn in đúng nhịp/BPM của slot.
+2. `Movement.title` (qua `formatMovement`) vẫn in đúng nhịp/BPM của slot.
 3. `PATTERN_NAMES` nhận cả 5 title.
 4. Không có test nào giả định guitar có 5 movement slot.
 

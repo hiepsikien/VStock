@@ -1007,7 +1007,8 @@ def movement_title(
     """Chart name of one movement. None keeps the meter on the line.
 
     Finale is a 4/4 close. A 7/8 closer is not a finale, so the line can still say 7/8.
-    Guitar dances are named by the pattern picker, not by this table.
+    Guitar movements use the curated `movement_titles` table; this helper only
+    serves the other variants.
     """
     if variant == "guitar" or span in ("1D", "1W"):
         return None

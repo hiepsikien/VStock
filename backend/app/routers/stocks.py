@@ -653,7 +653,6 @@ async def get_span(
                     variant=variant,
                     span=range,
                     index=index,
-                    stored=cached.movement_name if cached is not None else "",
                 ),
                 formDescription=span_form_description(
                     variant=variant,

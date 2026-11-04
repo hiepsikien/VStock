@@ -544,6 +544,12 @@ def test_torroba_month_frames_after_the_meter_change() -> None:
     symphony = prepare_month(sessions, "VNM", "symphony", "torroba")
     bodies = month_specs("guitar")
     assert [movement.character for movement in torroba] == ["calm", "rally", "calm", "rally"]
+    assert [movement.title for movement in torroba] == [
+        "Olite",
+        "Castillo",
+        "Alcaniz",
+        "Danza",
+    ]
     assert _meter(torroba[0].spec) == (3, 4)
     assert torroba[0].spec.bpm == 96
     assert _frame_lengths(torroba[0].spec) == (6, 6)
@@ -559,6 +565,12 @@ def test_torroba_month_frames_after_the_meter_change() -> None:
     assert _fingerprint_meter(torroba[3]) == (4, 4)
     assert [movement.spec for movement in classic] == [
         movement.spec for movement in plan_month([len(part) for part in month_parts(sessions)], "guitar")
+    ]
+    assert [movement.title for movement in classic] == [
+        "Etude",
+        "Cantabile",
+        "Elegy",
+        "Galop",
     ]
     assert _meter(symphony[0].spec) == (4, 4)
 
@@ -576,6 +588,7 @@ def test_torroba_quarter_and_year_use_the_frame_of_the_new_meter() -> None:
     quarter = prepare_quarter(stamped, "VNM", "guitar", "torroba")
     bodies = quarter_specs("guitar")
     assert [movement.character for movement in quarter] == ["selloff", "rally", "volatile"]
+    assert [movement.title for movement in quarter] == ["Olite", "Castillo", "Danza"]
     assert _meter(quarter[0].spec) == (3, 4)
     assert quarter[0].spec.bpm == 96
     assert _frame_lengths(quarter[0].spec) == (6, 6)
@@ -600,6 +613,8 @@ def test_torroba_quarter_and_year_use_the_frame_of_the_new_meter() -> None:
     specs = year_specs("guitar")
     assert [movement.label for movement in year] == ["01/26", "02/26", "12/26"]
     assert [movement.character for movement in year] == ["calm", "rally", "rally"]
+    # 1Y reuses the 1M programme: Jan=I, Feb=II, Dec=IV.
+    assert [movement.title for movement in year] == ["Olite", "Castillo", "Danza"]
     assert _meter(year[0].spec) == (3, 4)
     assert year[0].spec.bpm == 100
     assert _frame_lengths(year[0].spec) == (3, 3)

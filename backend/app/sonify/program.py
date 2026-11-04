@@ -53,7 +53,13 @@ _PATTERN_TITLE = {
 
 
 def pattern_title(pattern: str, ensemble: str) -> str:
-    """English dance name. Villa's thumb line is Prélude No. 1, not a chorale."""
+    """English dance name, for direct/diagnostic callers.
+
+    This is not the printed movement name: that is
+    `movement_titles.movement_title`, and `pattern_form` drops every id whose
+    registry `level` is `texture`. Villa's thumb line is Prélude No. 1, not a
+    chorale.
+    """
     if pattern == "thumb_cantabile" and ensemble == "villa":
         return "Prelude"
     return _PATTERN_TITLE.get(pattern, "")
@@ -196,13 +202,12 @@ def span_movement_name(
     variant: str,
     span: str,
     index: int,
-    stored: str = "",
 ) -> str:
     """Printed name sent on the span manifest.
 
     A guitar movement prints its curated `title`, planned before any audio is
-    written. `stored` stays for the other variants' contract and is ignored for
-    guitar; the old render-time name is now the non-printed form row.
+    written, so the manifest does not read the audio's stored name. The old
+    render-time name is now the non-printed form row.
     """
     if variant == "guitar":
         return movement.title

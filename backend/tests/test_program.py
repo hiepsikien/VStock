@@ -368,10 +368,10 @@ def test_span_manifest_reads_the_planned_title_and_does_not_plan(monkeypatch):
     )
     # The title is planned, so the manifest never needs the stored render name.
     assert (
-        span_movement_name(movement, variant="guitar", span="1Y", index=1, stored="Gigue")
+        span_movement_name(movement, variant="guitar", span="1Y", index=1)
         == "Gigue"
     )
-    assert span_movement_name(movement, variant="guitar", span="1Y", index=1, stored="") == "Gigue"
+    assert span_movement_name(movement, variant="guitar", span="1Y", index=1) == "Gigue"
     empty = PreparedMovement(
         label="2",
         spec=month_specs("symphony")[1],
@@ -379,7 +379,7 @@ def test_span_manifest_reads_the_planned_title_and_does_not_plan(monkeypatch):
         groups=None,
         rest_after=0,
     )
-    assert span_movement_name(empty, variant="guitar", span="1Y", index=1, stored="Old") == ""
+    assert span_movement_name(empty, variant="guitar", span="1Y", index=1) == ""
     assert span_form_description(variant="guitar", stored="Andante — Cantabile — Andante") == (
         "Andante — Cantabile — Andante"
     )

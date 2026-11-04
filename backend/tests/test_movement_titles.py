@@ -10,8 +10,15 @@ from __future__ import annotations
 
 import pytest
 
+from app.sonify.model import Bar
 from app.sonify.movement_titles import CHARACTER_TITLES, TITLES, movement_title
-from app.sonify.span import _planned_title, plan_month, plan_quarter, plan_week
+from app.sonify.span import (
+    _planned_title,
+    plan_month,
+    plan_quarter,
+    plan_week,
+    prepare_week,
+)
 
 ENSEMBLES = ("classic", "villa", "barrios", "brouwer", "bach", "torroba")
 SPANS = {"1D": 1, "1W": 1, "1M": 4, "3M": 3}
@@ -70,8 +77,16 @@ def test_plan_fills_the_title_for_guitar_only():
     assert all(movement.title == "" for movement in plan_month([1, 1, 1, 1], "symphony"))
 
 
+def test_prepare_week_uses_the_week_character_title():
+    # Twenty flat bars read as calm, so the week takes the calm override.
+    movement = prepare_week([[Bar(10.0)] * 20], "VNM", None, "guitar", "bach")[0]
+    assert movement.character == "calm"
+    assert movement.title == "Prelude"
+
+
 def test_a_year_reuses_the_month_programme_by_calendar_month():
-    # January, April, July, October cycle the four month titles; December takes IV.
+    # (month - 1) % 4: Jan/May/Sep take I, Feb/Jun/Oct take II, Mar/Jul/Nov
+    # take III, Apr/Aug/Dec take IV. Kept as a reuse of the 1M programme.
     assert _planned_title("guitar", "bach", "1Y", 0) == "Allemande"
     assert _planned_title("guitar", "bach", "1Y", 11) == "Gigue"
     assert _planned_title("symphony", "classic", "1Y", 0) == ""

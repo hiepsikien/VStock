@@ -73,13 +73,13 @@ Bằng chứng trong code:
 
 Hệ quả: **`chord_melody` không phải "âm hình dùng cho nhiều đoạn"** — với Villa 1M I calm nó là **toàn bộ chương**. Bỏ in nó sẽ làm rỗng movement line, không phải chỉ mất một nhãn phụ.
 
-**Gap hiện tại (phải sửa trước khi bỏ in texture):** guitar chưa có tên movement độc lập.
+**Gap đã đóng (naming release):** guitar có tên movement độc lập.
 
-- `movement_title()` trả **`None` cho guitar, và cho cả 1D/1W** (`span.py:943-947`) — không chỉ guitar.
-- `span_movement_name()` trả `stored` (`program.py:163-164`), tức tên đã ghi lúc render.
-- `stored` do đường production `_written_dance(found, forms, ensemble)` dựng: `pattern_form(forms[0])`, fallback `pattern_title(found[0])` — **tối đa 3 tên pattern** (`program.py:60-95`).
+- `movement_titles.movement_title(ensemble, span, index, character)` trả tên curated; `TITLES` cho 1M/3M, `CHARACTER_TITLES` cho 1D/1W.
+- `span_movement_name()` trả `movement.title`, planned trước khi render; không đọc `stored`.
+- Row A–B–A cũ (`_written_dance`) thành `formDescription`, **không in**, và texture bị lọc.
 
-Nghĩa là hôm nay "tên chương" của guitar **là `form_pattern_ids`/`headline_id`**, không phải identity của movement. Bốn mắt xích phải sửa cùng lúc:
+Trước naming release "tên chương" của guitar là `form_pattern_ids`/`headline_id`, không phải identity của movement. Bốn mắt xích đã sửa cùng lúc:
 
 1. **Backend:** thêm `title` cho `Movement` (dựng ở `span.py:353, 803, 813, 825`) **và** `PreparedMovement` (`:1090, 1148, 1281`), cộng đường 1D (`audio._render`). Thiếu 4 chỗ `Movement` thì title rỗng trước khi tới `PreparedMovement`; 1D không có `Movement` nên cũng phải xử lý riêng.
 2. **Frontend:** `src/sonify/program.ts` — `PATTERN_NAMES`, `isPatternForm` (`:350-355`) chỉ nhận khi **mọi** phần ` — ` nằm trong `PATTERN_NAMES`, nên title tự do kiểu `"Suite Popular Brasileira — Mazurka-Choro"` sẽ bị `formatMovement` bỏ và chỉ còn meter. Phải sửa `workForm`/`pieceCopy` (`:338-416`) + `program.test.ts` (`:185-192`).
@@ -268,7 +268,7 @@ Tiêu chí: nhãn phải là **tên đơn vị** (điệu, thể loại, charact
 **Checklist migration `Movement.title` — 4 mắt xích + 3 quyết định, phải làm cùng lúc:**
 
 - [x] **Backend:** `title` cho `Movement` và `PreparedMovement`, cộng đường 1D; bảng curated `movement_titles.TITLES` theo `(ensemble, span, index)` + `CHARACTER_TITLES` cho `1D`/`1W`.
-- [ ] **Frontend:** `src/sonify/program.ts` — `PATTERN_NAMES`, `isPatternForm`, `workForm`, `pieceCopy`; title tự do phải qua được `formatMovement`, và 1D phải giữ tên bài trong **title**. Test: `src/sonify/program.test.ts:185-192`.
+- [x] **Frontend (PR #156):** `src/sonify/program.ts` nhận `name` tự do cho guitar; `formDescription` được mang theo nhưng không in. Test: `src/sonify/program.test.ts`.
 - [x] **Cache:** bump `SPAN_REVISION` + `RECAP_REVISION`. `movementName` nằm trong payload, cache key không chứa tên.
 - [x] **Name golden:** `test_name_parity.py` khoá tên in; `test_program.py` khoá row A–B–A (non-printed). **Không** dùng Score hash.
 
@@ -276,7 +276,7 @@ Tiêu chí: nhãn phải là **tên đơn vị** (điệu, thể loại, charact
 
 1. **Có hai đường in tên.** `_written_dance` (`program.py:89-95`) ưu tiên `pattern_form(forms[0])`, nhưng **fallback** sang `pattern_title(found[0])`. Chỉ set title null sẽ chặn đường 1, đường 2 vẫn in nếu `found` còn phần tử. Phải chặn ở **cả hai** hoặc bỏ fallback.
 2. **Lọc texture khỏi `pattern_form` sẽ làm mất A–B–A.** Row `[preludio, tremolo, preludio]` lọc còn `[preludio, preludio]` → collapse thành `"Cathedral"`. Khi texture không in, `pattern_form` **không còn mô tả hình thức**; phải quyết A–B–A hiển thị ở đâu (mô tả riêng cạnh `Movement.title`, tooltip, hay chart section) hoặc chấp nhận mất.
-3. **Movement line có thể đã rỗng trước khi render.** `span_movement_name` trả `stored`; `stocks.py:646` truyền `cached.movement_name if cached else ""`. Movement chưa render audio → `""`. Vậy hôm nay line đã có thể rỗng, không cần đợi bỏ in texture — lý do mạnh hơn để `Movement.title` **derive từ spec**, không phụ thuộc render.
+3. **Movement line có thể rỗng trước khi render (đã đóng).** Trước đây `span_movement_name` trả `stored`, nên movement chưa render audio → `""`. Nay `Movement.title` derive từ bảng curated, không phụ thuộc render.
 
 - [x] Chặn cả hai đường in tên: `pattern_form` lọc `level == texture`; fallback `pattern_title` chỉ dùng khi id là topic.
 - [x] Chốt chỗ hiển thị A–B–A: `formDescription`, **không in**; `Movement.title` mới là `name`.
