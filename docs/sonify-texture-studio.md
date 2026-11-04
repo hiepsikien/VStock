@@ -608,7 +608,18 @@ Vì vậy:
 
 ### 5.3. Door
 
-Door vẫn là `kind: "door"`, có `parent` pattern và `when` riêng. Door không nhận sentence. Nếu pattern mới có cửa, `traits.has_door = true`.
+`intro`/`outro` là **section kind** của `FormSpec`, không phải tên của door. `warmup`/`cooldown` cũng là door region (`Section` trong `form.py:108`, `_PEDAL` ở `:109`). Door là **script điền vùng pedal**, gắn theo `(ensemble, pattern)`; nó thuộc **Plan**, không phải Texture/Sentence, và **không in tên**.
+
+Hôm nay **cả 38 dòng `PROFILES` đều có door** (13 trong `guitar_frame_rest`, 10 trong `guitar_frame_bach_sor`, 7 trong `guitar_torroba_doors`, 8 trong `_RETAINED_DOORS`), nên một pattern mới gần như chắc chắn cần một door.
+
+Khi thêm pattern:
+
+- [ ] `traits.has_door` — quyết định có cửa hay không.
+- [ ] Hàm door + đăng ký vào module door hoặc `_RETAINED_DOORS` (key `(ensemble, pattern)`; `_RETAINED_DOORS` thắng khi trùng).
+- [ ] `_PEDAL_DOOR_PROFILE[pattern]` nếu trần register/velocity khác `"study"` — hiện chỉ 10/38 pattern có entry, còn lại rơi về `"study"`.
+- [ ] Door golden cho `(ensemble, pattern)` × intro/outro × steps ngắn/dài.
+
+Chi tiết schema/validator/inventory: [`sonify-guitar-model.md`](./sonify-guitar-model.md) §14.
 
 ---
 
