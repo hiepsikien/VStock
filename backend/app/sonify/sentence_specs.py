@@ -13,6 +13,11 @@ only the choice of figure for a span lives here.
 callers fall back to the code path during the migration. An empty list means the
 registry covers the pair but the length/selection does not match.
 
+A slot holds either a `figure` (an id the owner renders through its figure
+table) or a `cell` (an id the owner resolves itself, like the galop cells). Only
+figures are planned by `plan_sentence`; `plan_run()` plans cells for a run-based
+`cycle` archetype, which has no phrase turn to select on.
+
 `previous_figure` is not an input here: `select_torroba_spans` rotates `n` when
 the first figure repeats, which is a plan-level post-pass.
 """
@@ -20,13 +25,12 @@ the first figure repeats, which is a plan-level post-pass.
 from __future__ import annotations
 
 import importlib
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 
 # Owner modules call register() at import. plan_sentence() imports them lazily
-# so a caller that only imports this module still gets a plan. Add the galop
-# owner here when guitar_sor registers its archetype.
-_OWNER_MODULES = ("app.sonify.guitar_torroba",)
+# so a caller that only imports this module still gets a plan.
+_OWNER_MODULES = ("app.sonify.guitar_torroba", "app.sonify.guitar_sor")
 
 METER_ANY = "*"
 _N_PARITY = frozenset({"any", "even", "odd"})
@@ -47,11 +51,16 @@ class Slot:
     whose figure is centred on the phrase length (fandanguillo's odd turn uses
     `start=-1`). It also requires an exact span, and `start` is an offset from
     the middle, so it may be negative.
+
+    Exactly one of `figure` and `cell` is set. `figure` resolves through the
+    owner's `_FIGURES`; `cell` is an id the owner resolves on its own (galop).
+    `plan_sentence` only emits figure spans; `plan_run` only emits cells.
     """
 
     start: int
     bars: int
-    figure: int
+    figure: int | None = None
+    cell: str | None = None
     anchor: str = "start"
 
 
@@ -135,11 +144,27 @@ def _validate(spec: SentenceSpec, pattern: str, meter: str) -> None:
         raise ValueError(f"{spec.id}: a cycle needs remainder='truncate_cycle'")
     if span.cycle and not span.truncate_to_length:
         raise ValueError(f"{spec.id}: a cycle needs truncate_to_length")
+    if span.cycle and (
+        select.n_parity != "any"
+        or select.n_mod is not None
+        or select.closes is not None
+        or select.rise_min != 0
+    ):
+        # A run has no phrase turn, close, or rise to select on.
+        raise ValueError(f"{spec.id}: a cycle cannot select on n, closes, or rise")
     if not spec.slots:
         raise ValueError(f"{spec.id}: at least one slot is required")
     for slot in spec.slots:
         if slot.anchor not in _ANCHORS:
             raise ValueError(f"{spec.id}: unknown slot anchor {slot.anchor!r}")
+        if (slot.figure is None) == (slot.cell is None):
+            raise ValueError(f"{spec.id}: a slot needs exactly one of figure or cell")
+        if slot.cell is not None and (
+            not isinstance(slot.cell, str) or not slot.cell
+        ):
+            raise ValueError(f"{spec.id}: a cell id must be a non-empty string")
+        if span.cycle and slot.anchor != "start":
+            raise ValueError(f"{spec.id}: a cycle slot must be start-anchored")
 
     start_slots = [slot for slot in spec.slots if slot.anchor == "start"]
     middle_slots = [slot for slot in spec.slots if slot.anchor == "middle"]
@@ -236,7 +261,10 @@ def register(
         raise ValueError(f"sentence specs for {key} contain duplicate ids")
     if valid_figures is not None:
         missing = {
-            slot.figure for spec in ordered for slot in spec.slots
+            slot.figure
+            for spec in ordered
+            for slot in spec.slots
+            if slot.figure is not None
         } - set(valid_figures)  # type: ignore[arg-type]
         if missing:
             raise ValueError(f"{key}: figures {sorted(missing)} are not registered")
@@ -282,30 +310,61 @@ def _matches(spec: SentenceSpec, length: int, n: int, closes: bool, rise: int) -
     return rise >= select.rise_min
 
 
+def _range(slot: Slot, chunk: int, total: int) -> tuple[int, int] | None:
+    """The clipped `(low, high)` bar range a slot covers inside one chunk."""
+    if slot.anchor == "end":
+        base = total - slot.bars
+    elif slot.anchor == "middle":
+        base = total // 2 + slot.start
+    else:
+        base = slot.start
+    low = max(base, 0)
+    high = min(base + slot.bars, chunk)
+    if low >= high:
+        return None
+    return low, high
+
+
 def _slots(
     spec: SentenceSpec, offset: int, chunk: int, total: int
 ) -> list[tuple[int, tuple[int, ...]]]:
+    """Figure spans only. A cell slot is planned by `plan_run` instead."""
     spans: list[tuple[int, tuple[int, ...]]] = []
     for slot in spec.slots:
-        if slot.anchor == "end":
-            base = total - slot.bars
-        elif slot.anchor == "middle":
-            base = total // 2 + slot.start
-        else:
-            base = slot.start
-        low = max(base, 0)
-        high = min(base + slot.bars, chunk)
-        if low < high:
+        if slot.figure is None:
+            continue
+        found = _range(slot, chunk, total)
+        if found is not None:
+            low, high = found
             spans.append((slot.figure, tuple(range(offset + low, offset + high))))
     return spans
 
 
-def _tile(spec: SentenceSpec, length: int) -> list[tuple[int, tuple[int, ...]]]:
+def _cells(
+    spec: SentenceSpec, offset: int, chunk: int, total: int
+) -> list[tuple[str, tuple[int, ...]]]:
+    """Cell spans only. Mirrors `_slots` for the run-based realizer."""
+    spans: list[tuple[str, tuple[int, ...]]] = []
+    for slot in spec.slots:
+        if slot.cell is None:
+            continue
+        found = _range(slot, chunk, total)
+        if found is not None:
+            low, high = found
+            spans.append((slot.cell, tuple(range(offset + low, offset + high))))
+    return spans
+
+
+def _tile(
+    spec: SentenceSpec,
+    length: int,
+    place: Callable[[SentenceSpec, int, int, int], list[tuple]] = _slots,
+) -> list[tuple]:
     span = spec.span
     if span.exact or span.remainder == "exact":
         if span.tile is not None and length != span.tile:
             return []
-        return _slots(spec, 0, length, length)
+        return place(spec, 0, length, length)
 
     tile = span.tile
     if tile is None:  # validated at register; guard for python -O
@@ -316,11 +375,11 @@ def _tile(spec: SentenceSpec, length: int) -> list[tuple[int, tuple[int, ...]]]:
         return []
     if not span.truncate_to_length and length % tile != 0:
         return []
-    spans: list[tuple[int, tuple[int, ...]]] = []
+    spans: list[tuple] = []
     start = 0
     while start < length:
         chunk = min(tile, length - start)
-        spans.extend(_slots(spec, start, chunk, length))
+        spans.extend(place(spec, start, chunk, length))
         start += chunk
     return spans
 
@@ -356,4 +415,43 @@ def plan_sentence(
     for spec in specs:
         if _matches(spec, length, n, closes, rise):
             return _tile(spec, length)
+    return []
+
+
+def _run_cells(spec: SentenceSpec, run_length: int) -> list[str]:
+    spans = _tile(spec, run_length, _cells)
+    cells: list[str | None] = [None] * run_length
+    for cell, bars in spans:
+        for bar in bars:
+            if 0 <= bar < run_length:
+                cells[bar] = cell
+    if any(cell is None for cell in cells):
+        return []
+    return [cell for cell in cells if cell is not None]
+
+
+def plan_run(pattern: str, meter: str, run_length: int) -> list[str] | None:
+    """One cell id per bar of a run, or `None` when the pair has no run data.
+
+    A run is a maximal stretch of consecutive bars the caller treats as one
+    cycle: the galop run index resets at a pedal or study bar, so the caller
+    passes the run length up to and including the current bar. Only a `cycle`
+    span has a run plan. `None` means the pair has no entry at all (the caller
+    stays on the code path); `[]` means the registry covers the pair but has no
+    cycle that fills every bar at this run length.
+    """
+    specs = _lookup(pattern, meter)
+    if specs is None:
+        return None
+    if run_length < 1:
+        return []
+    for spec in specs:
+        if not spec.span.cycle:
+            continue
+        select = spec.select
+        if run_length < select.length_min:
+            continue
+        if select.length_max is not None and run_length > select.length_max:
+            continue
+        return _run_cells(spec, run_length)
     return []
