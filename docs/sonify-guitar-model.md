@@ -666,13 +666,13 @@ Toàn bộ **38 dòng `PROFILES`** đều có door (không có pattern nào rơi
 | `guitar_torroba_doors.DOORS` | 7 | castillo, sonatina, fandanguillo, danza, torroba_tremolo, alcaniz, olite |
 | `_RETAINED_DOORS` | 8 literal → **15** sau `_extra_doors()` | classic (study, mozart_var); barrios (preludio); villa (villa_pattern); brouwer (noviembre, elogio_pizz); bach (bourree, fuga); `_extra_doors()` update thêm 7 torroba |
 
-**Gap:** `_PEDAL_DOOR_PROFILE` chỉ có **10 key** (thumb_cantabile, elegiaque, choro, castillo, sonatina, fandanguillo, danza, torroba_tremolo, alcaniz, olite). `thumb_cantabile` phủ **2 dòng** (barrios + villa) nên cover **11/38 dòng**; **27 dòng còn lại** rơi về `"study"` — có thể sai register/velocity nhưng hiện chưa ai kiểm.
+**Gap (đã sửa ở PR #146):** `_PEDAL_DOOR_PROFILE` chỉ có **10 key** (thumb_cantabile, elegiaque, choro, castillo, sonatina, fandanguillo, danza, torroba_tremolo, alcaniz, olite). `thumb_cantabile` phủ **2 dòng** nên cover **11/38 dòng**; **27 dòng còn lại từng rơi về `"study"`**. Nay `door_profile(name)` trả explicit entry, nếu không có thì `_PROFILE[name]` — door chơi idiom của body ở biên, nên dùng profile của body. Test `test_door_profiles.py` khoá 38/38.
 
 ### 14.5. Validator và test
 
 1. Door chỉ phủ bar có `kind_at in _PEDAL`; không overlap body.
 2. Mỗi `(ensemble, pattern)` có tối đa một door; trùng key phải khai rõ module nào thắng (hiện `_RETAINED_DOORS` thắng).
-3. `profile` phải tồn tại trong `_PEDAL_DOOR_PROFILE` (hoặc khai fallback `study` có lý do).
+3. `door_profile(name)` phải resolve: explicit `_PEDAL_DOOR_PROFILE` hoặc `_PROFILE[name]`; chỉ unknown mới về `"study"`.
 4. Region 1 bar phải đi `_compressed`; region dài dùng `steps = 4` (bucket), không phải `steps = length`.
 5. Golden riêng cho door theo `(ensemble, pattern, section kind, length, roles)`: note table, không dùng Score hash. `steps` chỉ 2/4 nên không đủ phân biệt length 3 và 4.
 6. Negative: door xuất hiện trong body → fail; door thiếu profile → fail (hoặc warning nếu chấp nhận fallback).
@@ -681,7 +681,7 @@ Toàn bộ **38 dòng `PROFILES`** đều có door (không có pattern nào rơi
 
 - [ ] `traits.has_door` — **field đề xuất** trong PR #142, **chưa có trong code**; không đi tìm nó trên branch này.
 - [ ] Nếu có: viết hàm door, đăng ký vào module (`guitar_frame_rest.DOORS`, `guitar_frame_bach_sor.DOORS`, hoặc `guitar_torroba_doors.DOORS`) **hoặc** `_RETAINED_DOORS`.
-- [ ] Thêm entry `_PEDAL_DOOR_PROFILE[pattern]` nếu trần register/velocity khác `"study"`.
+- [ ] Thêm entry `_PEDAL_DOOR_PROFILE[pattern]` **chỉ khi** trần register/velocity khác `_PROFILE[pattern]`; mặc định door dùng profile của body.
 - [ ] Door golden cho `(ensemble, pattern)` × `intro/outro` × `length`/`roles` (không chỉ `steps` 2/4).
 - [ ] Nếu pattern không có cửa (hiếm), khai `fallback: composer_frame` và test rằng frame composer chạy được.
 
