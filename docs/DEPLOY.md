@@ -21,7 +21,7 @@ Backend FastAPI + APScheduler + SQLite. Cần **volume persistent** cho `vstock.
 | `VSTOCK_SONIFY_EVENT_LOG` | (trống = tắt) | Mirror JSONL tùy chọn cho log collector |
 | `VSTOCK_SONIFY_EVENTS_RATE_PER_MIN` | `120` | Rate limit batch event theo IP tại process; proxy vẫn nên giới hạn toàn cục |
 | `VSTOCK_SONIFY_PIN_RATE_PER_MIN` | `600` | Rate limit pin cache A/B theo IP |
-| `FORWARDED_ALLOW_IPS` | `*` (Docker Compose) | Uvicorn chỉ tin `X-Forwarded-For` từ các IP này. Giữ port API private; nếu proxy khác, đặt đúng IP/subnet của proxy |
+| `FORWARDED_ALLOW_IPS` | `127.0.0.1` (image) / `*` (Docker Compose) | Uvicorn chỉ tin `X-Forwarded-For` từ các IP này. Compose bind API loopback và đặt `*` cho Caddy; nếu proxy khác, đặt đúng IP/subnet của proxy |
 
 Healthcheck: `GET /health`  
 Ingestion status: `GET /v1/health/sources`
@@ -84,6 +84,7 @@ server {
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 }
 ```

@@ -104,6 +104,8 @@ def main() -> None:
         # for a report before the first event arrived.
         default = EventStore().path
         paths = [default] if default.is_file() else []
+        if not paths:
+            print(f"no event database found: {default}", file=sys.stderr)
     if args.prune_days is not None:
         cutoff = time.time() - max(0, args.prune_days) * 86_400
         deleted = sum(EventStore(path).prune(cutoff) for path in paths)

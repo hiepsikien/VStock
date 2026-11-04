@@ -298,6 +298,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
   const dfiPoll = useRef({ key: '', count: 0 });
   const focusRef = useRef<ChartFocus | null>(null);
   const zoomFrame = useRef(0);
+  const manifestRef = useRef<RecapManifest | null>(null);
   const movementsRef = useRef<SpanMovement[] | null>(null);
   const indexRef = useRef(0);
   const playingRef = useRef(false);
@@ -306,6 +307,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
   // False until the player has asked for the heard chapter. Prevents the pump
   // from racing its own request for the next one.
   const playerStartedRef = useRef(false);
+  manifestRef.current = manifest;
   movementsRef.current = movements;
   indexRef.current = index;
   playingRef.current = playing;
@@ -1144,7 +1146,7 @@ export function ReplayRoom({ wide, onMode }: Props) {
           setMovementTime(at);
           setStartSec(at);
           setSeek(null);
-          if (options?.crossfade && recap.audioUrl === manifest?.audioUrl) {
+          if (options?.crossfade && recap.audioUrl === manifestRef.current?.audioUrl) {
             // Same file on both sides: there is no URL change to trigger a
             // player acknowledgement, so close the preparing state here.
             ackNoCrossfade();
@@ -1191,7 +1193,11 @@ export function ReplayRoom({ wide, onMode }: Props) {
         setStartSec(at);
         setSeek(null);
         setResting(false);
-        if (options?.crossfade && plan.movements[chapter]?.audioUrl === movements?.[index]?.audioUrl) {
+        if (
+          options?.crossfade &&
+          plan.movements[chapter]?.audioUrl ===
+            movementsRef.current?.[indexRef.current]?.audioUrl
+        ) {
           // Same file on both sides: no player URL change will acknowledge.
           ackNoCrossfade();
         }
